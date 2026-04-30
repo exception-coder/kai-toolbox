@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: kai-toolbox
+  threads:
+    virtual:
+      enabled: true
+  mvc:
+    async:
+      request-timeout: -1            # SSE 长连接，禁用超时
+
+server:
+  port: 8080
+  compression:
+    enabled: true
+
+# 数据存储位置：用户目录下的 .kai-toolbox/
+toolbox:
+  data-dir: ${user.home}/.kai-toolbox
+  sqlite:
+    file: ${toolbox.data-dir}/toolbox.db
+    busy-timeout-ms: 5000
+    journal-mode: WAL
+
+logging:
+  level:
+    root: INFO
+    com.exceptioncoder.toolbox: DEBUG
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"

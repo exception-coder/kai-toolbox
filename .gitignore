@@ -1,0 +1,49 @@
+### Java / Maven ###
+target/
+*.class
+*.jar
+*.war
+hs_err_pid*
+
+### IntelliJ ###
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+### VS Code ###
+.vscode/
+
+### OS ###
+.DS_Store
+Thumbs.db
+desktop.ini
+
+### Logs ###
+logs/
+*.log
+
+### SQLite runtime ###
+data/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite-journal
+
+### Frontend ###
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/.vite/
+frontend/.cache/
+frontend/.env.local
+frontend/.env.*.local
+
+### Spring Boot ###
+*.original
+spring-shell.log
+
+### Misc ###
+*.bak
+*.tmp
