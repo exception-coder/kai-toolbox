@@ -39,36 +39,34 @@ kai-toolbox/
 
 ## 4. 工具注册机制
 
-### 后端
+**前端为单一事实源**——侧边栏、首页、路由全部从前端 manifest 读取，不依赖后端在线。
 
-每个工具模块暴露一个 `ToolDescriptor` Bean：
+### 前端 FeatureManifest
 
-```java
-@Component
-public class TreeSizeToolDescriptor implements ToolDescriptor {
-    @Override public String id()    { return "treesize"; }
-    @Override public String name()  { return "磁盘空间分析"; }
-    @Override public String icon()  { return "hard-drive"; }
-    @Override public String route() { return "/tools/treesize"; }
-    @Override public String group() { return "系统工具"; }
-}
-```
+每个 feature 目录提供 `index.tsx`：
 
-启动时 `ToolRegistry` 自动收集所有 `ToolDescriptor`，通过 `GET /api/tools` 暴露。
+```tsx
+import { HardDrive } from 'lucide-react'
+import type { FeatureManifest } from '@/shell/types'
+import { TreeSizePage } from './pages/TreeSizePage'
 
-### 前端
-
-每个 feature 目录提供 `index.ts` manifest：
-
-```ts
-// features/treesize/index.ts
-export default {
+const manifest: FeatureManifest = {
   id: 'treesize',
+  name: '磁盘空间分析',
+  icon: HardDrive,                  // Lucide 组件直接引用，避免字符串映射
+  group: '系统工具',
+  description: '...',
+  order: 10,
   routes: [{ path: '/tools/treesize', element: <TreeSizePage /> }],
 }
+export default manifest
 ```
 
-`shell/router.tsx` 使用 Vite 的 `import.meta.glob('../features/*/index.ts', { eager: true })` 自动收集所有 feature 路由。
+`shell/featureRegistry.ts` 用 Vite 的 `import.meta.glob('../features/*/index.tsx', { eager: true })` 自动收集，按 `order` 排序。新增工具只需新建目录 + 写 manifest，不需要改任何路由表。
+
+### 后端 ToolDescriptor（可选）
+
+后端依然提供 `ToolDescriptor` 接口 + `GET /api/tools`，留作未来跨工具的服务端发现机制（例如某个工具需要列出其他工具的状态）。**当前前端不依赖此接口**——后端宕机不影响菜单显示。
 
 ## 5. TreeSize 工具设计
 

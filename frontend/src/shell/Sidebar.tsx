@@ -1,21 +1,16 @@
 import { NavLink } from 'react-router-dom'
-import { Boxes, type LucideIcon, HardDrive, Wrench } from 'lucide-react'
+import { Boxes } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { ToolDescriptor } from './types'
-
-const ICONS: Record<string, LucideIcon> = {
-  'hard-drive': HardDrive,
-  'wrench': Wrench,
-}
+import type { FeatureManifest } from './types'
+import { entryOf } from './featureRegistry'
 
 interface SidebarProps {
-  tools: ToolDescriptor[]
-  loading?: boolean
+  features: FeatureManifest[]
   collapsed?: boolean
 }
 
-export function Sidebar({ tools, loading, collapsed }: SidebarProps) {
-  const groups = groupTools(tools)
+export function Sidebar({ features, collapsed }: SidebarProps) {
+  const groups = groupFeatures(features)
 
   return (
     <aside
@@ -24,14 +19,16 @@ export function Sidebar({ tools, loading, collapsed }: SidebarProps) {
         collapsed ? 'w-16' : 'w-60'
       )}
     >
-      <div className="flex h-14 items-center gap-2 border-b px-4">
-        <Boxes className="h-5 w-5 text-[var(--color-primary)]" />
+      <NavLink to="/" className="flex h-14 items-center gap-2 border-b px-4 hover:bg-[var(--color-sidebar-accent)]">
+        <Boxes className="h-5 w-5 shrink-0 text-[var(--color-primary)]" />
         {!collapsed && <span className="text-sm font-semibold tracking-tight">kai-toolbox</span>}
-      </div>
+      </NavLink>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3">
-        {loading && !collapsed && (
-          <div className="px-2 py-1 text-xs text-[var(--color-muted-foreground)]">加载中…</div>
+        {features.length === 0 && !collapsed && (
+          <div className="px-2 py-1 text-xs text-[var(--color-muted-foreground)]">
+            还没有任何工具
+          </div>
         )}
         {groups.map(({ group, items }) => (
           <div key={group ?? '_'} className="mb-3">
@@ -41,13 +38,13 @@ export function Sidebar({ tools, loading, collapsed }: SidebarProps) {
               </div>
             )}
             <ul className="space-y-0.5">
-              {items.map(t => {
-                const Icon = ICONS[t.icon] ?? Wrench
+              {items.map(f => {
+                const Icon = f.icon
                 return (
-                  <li key={t.id}>
+                  <li key={f.id}>
                     <NavLink
-                      to={t.route}
-                      title={t.name}
+                      to={entryOf(f)}
+                      title={f.name}
                       className={({ isActive }) =>
                         cn(
                           'flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors',
@@ -57,7 +54,7 @@ export function Sidebar({ tools, loading, collapsed }: SidebarProps) {
                       }
                     >
                       <Icon className="h-4 w-4 shrink-0" />
-                      {!collapsed && <span className="truncate">{t.name}</span>}
+                      {!collapsed && <span className="truncate">{f.name}</span>}
                     </NavLink>
                   </li>
                 )
@@ -70,12 +67,12 @@ export function Sidebar({ tools, loading, collapsed }: SidebarProps) {
   )
 }
 
-function groupTools(tools: ToolDescriptor[]) {
-  const map = new Map<string | null, ToolDescriptor[]>()
-  for (const t of tools) {
-    const k = t.group ?? null
+function groupFeatures(items: FeatureManifest[]) {
+  const map = new Map<string | null, FeatureManifest[]>()
+  for (const f of items) {
+    const k = f.group ?? null
     if (!map.has(k)) map.set(k, [])
-    map.get(k)!.push(t)
+    map.get(k)!.push(f)
   }
   return Array.from(map.entries()).map(([group, items]) => ({ group, items }))
 }
