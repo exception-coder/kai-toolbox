@@ -1,0 +1,216 @@
+import type { Peer, FileOffer } from '../types'
+import type { SignalingClient } from './signalingClient'
+import { sendFile, createReceiver, triggerBrowserDownload } from './fileTransfer'
+
+const BUILD_TIMEOUT_MS = 10_000
+
+interface PeerConnectionEntry {
+  pc: RTCPeerConnection
+  controlDC?: RTCDataChannel
+  dataDC?: RTCDataChannel
+  receiverClose?: () => void
+  ready: Promise<void>
+  resolveReady: () => void
+  rejectReady: (e: Error) => void
+}
+
+export interface PeerConnectionManager {
+  connectTo(peerDeviceId: string): Promise<void>
+  sendFile(peerDeviceId: string, file: File): Promise<void>
+  broadcastFile(peers: Peer[], file: File): Promise<void>
+  closeAll(): void
+}
+
+export interface PeerConnectionManagerCallbacks {
+  onIncomingFile: (peer: Peer, offer: FileOffer) => Promise<boolean>
+  onTransferProgress: (
+    fileId: string,
+    direction: 'send' | 'receive',
+    peerDeviceId: string,
+    bytes: number,
+    total: number,
+  ) => void
+  onTransferComplete: (
+    fileId: string,
+    direction: 'send' | 'receive',
+    peerDeviceId: string,
+    blob?: Blob,
+    fileName?: string,
+  ) => void
+  onTransferRejected: (fileId: string, peerDeviceId: string, reason?: string) => void
+  onTransferFailed: (fileId: string, peerDeviceId: string, message: string) => void
+  onConnectionFailed: (peerDeviceId: string, message: string) => void
+}
+
+export function createPeerConnectionManager(
+  signaling: SignalingClient,
+  iceServers: RTCIceServer[],
+  selfDeviceId: string,
+  getPeer: (deviceId: string) => Peer | undefined,
+  callbacks: PeerConnectionManagerCallbacks,
+): PeerConnectionManager {
+  const peers = new Map<string, PeerConnectionEntry>()
+
+  function ensureEntry(peerDeviceId: string): PeerConnectionEntry {
+    let entry = peers.get(peerDeviceId)
+    if (entry) return entry
+
+    const pc = new RTCPeerConnection({ iceServers })
+    let resolveReady!: () => void
+    let rejectReady!: (e: Error) => void
+    const ready = new Promise<void>((resolve, reject) => {
+      resolveReady = resolve
+      rejectReady = reject
+    })
+    entry = { pc, ready, resolveReady, rejectReady }
+    peers.set(peerDeviceId, entry)
+
+    pc.onicecandidate = (ev) => {
+      if (ev.candidate) {
+        signaling.send({
+          type: 'signal',
+          to: peerDeviceId,
+          payload: { kind: 'ice', candidate: ev.candidate.toJSON() },
+        })
+      }
+    }
+
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+        callbacks.onConnectionFailed(peerDeviceId, `connectionState=${pc.connectionState}`)
+      }
+    }
+
+    pc.ondatachannel = (ev) => {
+      if (ev.channel.label === 'control') entry!.controlDC = ev.channel
+      if (ev.channel.label === 'data') {
+        ev.channel.binaryType = 'arraybuffer'
+        entry!.dataDC = ev.channel
+      }
+      maybeAttachReceiver(peerDeviceId, entry!)
+    }
+
+    return entry
+  }
+
+  function maybeAttachReceiver(peerDeviceId: string, entry: PeerConnectionEntry) {
+    if (entry.controlDC && entry.dataDC && !entry.receiverClose) {
+      const peer = getPeer(peerDeviceId)
+      const receiver = createReceiver(entry.controlDC, entry.dataDC, {
+        onIncoming: async (offer) => {
+          if (!peer) return false
+          return callbacks.onIncomingFile(peer, offer)
+        },
+        onProgress: (fileId, received, total) => {
+          callbacks.onTransferProgress(fileId, 'receive', peerDeviceId, received, total)
+        },
+        onComplete: (fileId, blob, offer) => {
+          triggerBrowserDownload(blob, offer.name)
+          callbacks.onTransferComplete(fileId, 'receive', peerDeviceId, blob, offer.name)
+        },
+      })
+      entry.receiverClose = receiver.close
+
+      const onOpen = () => {
+        if (entry.controlDC?.readyState === 'open' && entry.dataDC?.readyState === 'open') {
+          entry.resolveReady()
+        }
+      }
+      entry.controlDC.addEventListener('open', onOpen)
+      entry.dataDC.addEventListener('open', onOpen)
+      onOpen()
+    }
+  }
+
+  // 处理来自对端的 SDP / ICE
+  signaling.on('signal', async (msg) => {
+    const fromDeviceId = msg.from
+    const payload = msg.payload as { kind: string; sdp?: string; type?: string; candidate?: RTCIceCandidateInit }
+    const entry = ensureEntry(fromDeviceId)
+    const pc = entry.pc
+
+    if (payload.kind === 'offer') {
+      // 我们是被动方
+      pc.ondatachannel = (ev) => {
+        if (ev.channel.label === 'control') entry.controlDC = ev.channel
+        if (ev.channel.label === 'data') {
+          ev.channel.binaryType = 'arraybuffer'
+          entry.dataDC = ev.channel
+        }
+        maybeAttachReceiver(fromDeviceId, entry)
+      }
+      await pc.setRemoteDescription({ type: 'offer', sdp: payload.sdp! })
+      const answer = await pc.createAnswer()
+      await pc.setLocalDescription(answer)
+      signaling.send({
+        type: 'signal',
+        to: fromDeviceId,
+        payload: { kind: 'answer', sdp: answer.sdp },
+      })
+    } else if (payload.kind === 'answer') {
+      await pc.setRemoteDescription({ type: 'answer', sdp: payload.sdp! })
+    } else if (payload.kind === 'ice' && payload.candidate) {
+      try { await pc.addIceCandidate(payload.candidate) } catch { /* 忽略已结束 PC */ }
+    }
+  })
+
+  async function connectTo(peerDeviceId: string): Promise<void> {
+    let entry = peers.get(peerDeviceId)
+    if (entry && entry.controlDC?.readyState === 'open') return // 复用
+
+    entry = ensureEntry(peerDeviceId)
+    const pc = entry.pc
+
+    const control = pc.createDataChannel('control', { ordered: true })
+    const data = pc.createDataChannel('data', { ordered: true })
+    data.binaryType = 'arraybuffer'
+    entry.controlDC = control
+    entry.dataDC = data
+    maybeAttachReceiver(peerDeviceId, entry)
+
+    const offer = await pc.createOffer()
+    await pc.setLocalDescription(offer)
+    signaling.send({
+      type: 'signal',
+      to: peerDeviceId,
+      payload: { kind: 'offer', sdp: offer.sdp },
+    })
+
+    await Promise.race([
+      entry.ready,
+      new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error('build-timeout')), BUILD_TIMEOUT_MS)
+      ),
+    ])
+  }
+
+  async function sendFileTo(peerDeviceId: string, file: File): Promise<void> {
+    await connectTo(peerDeviceId)
+    const entry = peers.get(peerDeviceId)!
+    await sendFile(entry.controlDC!, entry.dataDC!, file, {
+      onAccepted: (fileId) => callbacks.onTransferProgress(fileId, 'send', peerDeviceId, 0, file.size),
+      onProgress: (fileId, sent) => callbacks.onTransferProgress(fileId, 'send', peerDeviceId, sent, file.size),
+      onComplete: (fileId) => callbacks.onTransferComplete(fileId, 'send', peerDeviceId),
+      onRejected: (fileId, reason) => callbacks.onTransferRejected(fileId, peerDeviceId, reason),
+      onFailed: (fileId, err) => callbacks.onTransferFailed(fileId, peerDeviceId, err.message),
+    })
+  }
+
+  async function broadcastFile(targets: Peer[], file: File): Promise<void> {
+    await Promise.allSettled(
+      targets
+        .filter(p => p.deviceId !== selfDeviceId)
+        .map(p => sendFileTo(p.deviceId, file))
+    )
+  }
+
+  function closeAll(): void {
+    for (const entry of peers.values()) {
+      entry.receiverClose?.()
+      try { entry.pc.close() } catch { /* ignore */ }
+    }
+    peers.clear()
+  }
+
+  return { connectTo, sendFile: sendFileTo, broadcastFile, closeAll }
+}

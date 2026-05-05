@@ -22,6 +22,8 @@
     <modules>
         <module>toolbox-common</module>
         <module>tools/tool-treesize</module>
+        <module>tools/tool-flatten</module>
+        <module>tools/tool-lan-share</module>
         <module>toolbox-starter</module>
     </modules>
 
@@ -45,6 +47,16 @@
             <dependency>
                 <groupId>com.exceptioncoder</groupId>
                 <artifactId>tool-treesize</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-flatten</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-lan-share</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

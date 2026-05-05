@@ -1,16 +1,17 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { FlaskConical, Moon, PanelLeftClose, PanelLeftOpen, Sun } from 'lucide-react'
+import { FlaskConical, Menu, Moon, PanelLeftClose, PanelLeftOpen, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useMockMode } from './useMockMode'
 
 interface TopBarProps {
   onToggleSidebar: () => void
+  onOpenMobileMenu: () => void
   collapsed: boolean
 }
 
-export function TopBar({ onToggleSidebar, collapsed }: TopBarProps) {
+export function TopBar({ onToggleSidebar, onOpenMobileMenu, collapsed }: TopBarProps) {
   const qc = useQueryClient()
   const { enabled: mock, toggle: toggleMock } = useMockMode()
   const [dark, setDark] = useState(() =>
@@ -29,7 +30,12 @@ export function TopBar({ onToggleSidebar, collapsed }: TopBarProps) {
   return (
     <header className="flex h-14 items-center justify-between gap-4 border-b bg-[var(--color-background)] px-4">
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon" onClick={onToggleSidebar} title="切换侧边栏">
+        {/* 移动端：汉堡菜单打开抽屉 */}
+        <Button variant="ghost" size="icon" onClick={onOpenMobileMenu} title="打开导航" className="md:hidden">
+          <Menu className="h-4 w-4" />
+        </Button>
+        {/* 桌面：折叠/展开侧边栏 */}
+        <Button variant="ghost" size="icon" onClick={onToggleSidebar} title="切换侧边栏" className="hidden md:inline-flex">
           {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
         </Button>
         {mock && (
