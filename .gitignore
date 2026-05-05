@@ -39,6 +39,11 @@ frontend/.vite/
 frontend/.cache/
 frontend/.env.local
 frontend/.env.*.local
+*.tsbuildinfo
+
+### Claude Code 本地状态 ###
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 ### Spring Boot ###
 *.original
