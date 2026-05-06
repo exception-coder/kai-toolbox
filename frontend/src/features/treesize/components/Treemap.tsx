@@ -1,7 +1,11 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Treemap as RTreemap, ResponsiveContainer } from 'recharts'
 import { formatBytes } from '@/lib/utils'
 import type { NodeView } from '../types'
+
+/** Recharts squarified layout + per-rect SVG render goes O(n) and blocks the main thread.
+ *  Past ~100 items each rect is sub-pixel anyway, so capping is purely a perf win. */
+const TREEMAP_LIMIT = 80
 
 interface TreemapProps {
   nodes: NodeView[]
@@ -23,9 +27,16 @@ interface HoverInfo {
 export function Treemap({ nodes, onNavigate }: TreemapProps) {
   const [hover, setHover] = useState<HoverInfo | null>(null)
 
-  const data: TreemapDatum[] = nodes
-    .filter(n => n.size > 0)
-    .map(n => ({ name: n.name, size: n.size, full: n }))
+  const data: TreemapDatum[] = useMemo(
+    () =>
+      nodes
+        .filter(n => n.size > 0)
+        .slice()
+        .sort((a, b) => b.size - a.size)
+        .slice(0, TREEMAP_LIMIT)
+        .map(n => ({ name: n.name, size: n.size, full: n })),
+    [nodes],
+  )
 
   if (data.length === 0) {
     return (

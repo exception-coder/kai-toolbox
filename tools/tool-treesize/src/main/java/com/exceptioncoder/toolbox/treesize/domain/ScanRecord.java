@@ -19,4 +19,7 @@ public class ScanRecord {
     private long totalDirs;
     private long totalSize;
     private String errorMsg;
+    private ScanSourceType sourceType;
+    private String sshHostId;
+    private String sourceDisplayName;
 }

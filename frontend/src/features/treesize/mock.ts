@@ -1,5 +1,5 @@
 import { MockHttpError, registerHttp, registerSse } from '@/lib/mock/registry'
-import type { NodeView, ScanView } from './types'
+import type { NodeView, ScanView, SshHostPayload, SshHostView } from './types'
 
 const KB = 1024
 const MB = 1024 * KB
@@ -242,6 +242,7 @@ function materialize(rootPath: string): Materialized {
           fileCount: 0,
           dirCount: 0,
           depth,
+          modifiedAt: Date.now() - 120 * 24 * 60 * 60 * 1000,
         },
       })
       return { size: sample.size ?? 0, fileCount: 1, dirCount: 0 }
@@ -270,6 +271,7 @@ function materialize(rootPath: string): Materialized {
         fileCount,
         dirCount,
         depth,
+        modifiedAt: Date.now() - 30 * 24 * 60 * 60 * 1000,
       },
     })
     // Self counts as a directory once aggregated upward.
@@ -301,7 +303,7 @@ function generateId(): string {
 }
 
 registerHttp('POST', '/treesize/scans', (ctx) => {
-  const body = (ctx.body ?? {}) as { path?: string }
+  const body = (ctx.body ?? {}) as { path?: string; sourceType?: ScanView['sourceType']; sshHostId?: string | null }
   const path = (body.path ?? '').trim()
   if (!path) throw new MockHttpError(400, '路径不能为空')
 
@@ -317,6 +319,9 @@ registerHttp('POST', '/treesize/scans', (ctx) => {
     totalDirs: 0,
     totalSize: 0,
     errorMsg: null,
+    sourceType: body.sourceType ?? 'LOCAL_WINDOWS',
+    sshHostId: body.sshHostId ?? null,
+    sourceDisplayName: body.sourceType === 'SSH' ? 'Mock SSH (dev@example:22)' : '本地 Windows',
   }
 
   scans.set(id, { scan, totals: materialized })
@@ -425,10 +430,92 @@ registerHttp('GET', '/treesize/scans/:id/children', (ctx) => {
     .sort((a, b) => b.size - a.size)
 })
 
+registerHttp('GET', '/treesize/scans/:id/cleanup-candidates', (ctx) => {
+  const state = scans.get(ctx.params.id)
+  if (!state) throw new MockHttpError(404, 'scan 不存在')
+  return state.totals.nodes
+    .map(n => n.node)
+    .filter(n => n.size > 1024 * 1024 * 1024)
+    .slice(0, 8)
+    .map((n, i) => ({
+      category: i % 3 === 0 ? 'CACHE' : i % 3 === 1 ? 'LARGE_OLD' : 'DUPLICATE',
+      safety: i % 3 === 0 ? 'SAFE' : 'REVIEW',
+      path: n.path,
+      name: n.name,
+      dir: n.dir,
+      size: n.size,
+      fileCount: n.fileCount,
+      dirCount: n.dirCount,
+      modifiedAt: n.modifiedAt,
+      reason: i % 3 === 0 ? '缓存或构建产物，通常可重建。' : '体积较大，建议确认是否仍需要。',
+      deleteHint: i % 3 === 0 ? '可优先清理。' : '确认来源后再删除或迁移归档。',
+    }))
+})
+
 registerHttp('DELETE', '/treesize/scans/:id', (ctx) => {
   const state = scans.get(ctx.params.id)
   if (!state) return undefined
   state.cancel?.()
   scans.delete(ctx.params.id)
   return undefined
+})
+
+const sshHosts = new Map<string, SshHostView>()
+
+registerHttp('GET', '/treesize/ssh-hosts', () => {
+  return Array.from(sshHosts.values()).sort((a, b) => b.updatedAt - a.updatedAt)
+})
+
+registerHttp('POST', '/treesize/ssh-hosts', (ctx) => {
+  const body = (ctx.body ?? {}) as SshHostPayload
+  const now = Date.now()
+  const host: SshHostView = {
+    id: generateId(),
+    name: body.name,
+    host: body.host,
+    port: body.port || 22,
+    username: body.username,
+    authType: body.authType,
+    privateKey: body.privateKey ?? null,
+    passwordConfigured: !!body.password,
+    passphraseConfigured: !!body.passphrase,
+    createdAt: now,
+    updatedAt: now,
+  }
+  sshHosts.set(host.id, host)
+  return host
+})
+
+registerHttp('PUT', '/treesize/ssh-hosts/:id', (ctx) => {
+  const existing = sshHosts.get(ctx.params.id)
+  if (!existing) throw new MockHttpError(404, 'ssh host 不存在')
+  const body = (ctx.body ?? {}) as SshHostPayload
+  const next: SshHostView = {
+    ...existing,
+    name: body.name,
+    host: body.host,
+    port: body.port || 22,
+    username: body.username,
+    authType: body.authType,
+    privateKey: body.privateKey ?? null,
+    passwordConfigured: !!body.password || existing.passwordConfigured,
+    passphraseConfigured: !!body.passphrase || existing.passphraseConfigured,
+    updatedAt: Date.now(),
+  }
+  sshHosts.set(next.id, next)
+  return next
+})
+
+registerHttp('DELETE', '/treesize/ssh-hosts/:id', (ctx) => {
+  sshHosts.delete(ctx.params.id)
+  return undefined
+})
+
+registerHttp('POST', '/treesize/ssh-hosts/test', () => {
+  return { ok: true, message: 'connected' }
+})
+
+registerHttp('POST', '/treesize/ssh-hosts/:id/test', (ctx) => {
+  if (!sshHosts.has(ctx.params.id)) throw new MockHttpError(404, 'ssh host 不存在')
+  return { ok: true, message: 'connected' }
 })

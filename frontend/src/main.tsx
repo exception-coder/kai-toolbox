@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import './index.css'
 import './lib/mock/loader'
 import App from './App'
+import { ConfirmProvider } from '@/components/ui/confirm-dialog'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -19,7 +20,9 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <App />
+        <ConfirmProvider>
+          <App />
+        </ConfirmProvider>
       </BrowserRouter>
     </QueryClientProvider>
   </StrictMode>,

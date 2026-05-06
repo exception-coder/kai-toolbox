@@ -9,18 +9,29 @@ spring:
       request-timeout: -1            # SSE 长连接，禁用超时
 
 server:
-  port: 8080
+  port: 18080
   compression:
     enabled: true
 
 # 数据存储位置：用户目录下的 .kai-toolbox/
 toolbox:
   data-dir: ${user.home}/.kai-toolbox
+  log-dir: ${toolbox.data-dir}/logs
   sqlite:
     file: ${toolbox.data-dir}/toolbox.db
     busy-timeout-ms: 5000
     journal-mode: WAL
-
+  ffmpeg:
+    # 默认走 PATH。本机非 PATH 安装时用环境变量覆盖：
+    #   TOOLBOX_FFMPEG_BINARY=D:\devapps\ffmpeg\bin\ffmpeg.exe
+    #   TOOLBOX_FFPROBE_BINARY=D:\devapps\ffmpeg\bin\ffprobe.exe
+    binary: ${TOOLBOX_FFMPEG_BINARY:ffmpeg}
+    ffprobe-binary: ${TOOLBOX_FFPROBE_BINARY:ffprobe}
+    probe-timeout-ms: 5000
+    # 硬件加速（仅 HLS 重编码路径有效；视频编码已是 h264 时直接 copy 不走这里）。
+    # 留空 = 纯 CPU 软编。可选：qsv（Intel Quick Sync）、nvenc（NVIDIA）、amf（AMD)、
+    # videotoolbox（macOS）、auto（让 ffmpeg 自动选）。配错会导致 ffmpeg 启动失败，看启动日志。
+    hwaccel: ""
   deeplx:
     # 翻译提供商: ollama（本地模型，推荐）或 deeplx（本地 DeepL 代理）
     provider: ollama
@@ -32,7 +43,6 @@ toolbox:
     target-lang: ZH            # 目标语言：ZH = 简体中文
     max-concurrent: 2          # Ollama GPU 并发 2 即可，避免显存打满
     timeout-seconds: 30        # 小模型首 token 约 1-2s，30s 足够一条字幕
-
   whisper:
     # whisper.cpp 二进制路径。CUDA 构建版会自动用 NVIDIA GPU；无 GPU 装 CPU 版亦可。
     # 下载：https://github.com/ggml-org/whisper.cpp/releases (Windows 选 cuBLAS 版本)
@@ -47,6 +57,55 @@ toolbox:
     disable-gpu: false          # CUDA 构建默认走 GPU；调试时可强制改 CPU
     max-concurrent-jobs: 1      # GPU 一次跑一条最快
     timeout-seconds: 0          # 0 = 不超时，长片不被砍
+  thumbnail:
+    cache-dir: ${toolbox.data-dir}/cache/thumbs
+    # 同时跑的 ffmpeg 数量，每个吃 1-2 核。默认 2：留 CPU 给 HLS 播放，避免你点视频的瞬间
+    # 缩略图占满核导致播放卡顿。8 核以上机器可以提到 4。
+    max-parallel: 2
+    timeout-ms: 15000
+    # JPEG 质量：1（无损）到 31（最差），4 在 480×270 上视觉无损约 30-50KB。
+    jpeg-quality: 4
+  video:
+    extensions:
+      - mp4
+      - m4v
+      - mov
+      - webm
+      - ogv
+      - mkv
+      - avi
+      - flv
+      - wmv
+      - rmvb
+      - 3gp
+      - ts
+      - mts
+      - m2ts
+      - vob
+      - asf
+      - divx
+      - mpeg
+      - mpg
+      - m2v
+
+  media-parser:
+    # 默认走 PATH。本机非 PATH 安装时用环境变量覆盖：
+    #   TOOLBOX_YT_DLP_BINARY=D:\devapps\yt-dlp.exe
+    #   TOOLBOX_FFMPEG_BINARY=D:\devapps\ffmpeg\bin\ffmpeg.exe
+    yt-dlp-binary: ${TOOLBOX_YT_DLP_BINARY:yt-dlp}
+    ffmpeg-binary: ${TOOLBOX_FFMPEG_BINARY:ffmpeg}
+    read-timeout-seconds: 60       # 元数据解析超时
+    download-timeout-seconds: 300  # 文件下载超时（5 分钟，大视频用）
+    # 统一代理：留空走直连；填了会同时应用到 Jsoup / HttpClient / yt-dlp --proxy。
+    # 启动后看 HttpProxyDiagnosticsReporter 的日志确认实际生效情况。
+    # 用 TOOLBOX_HTTP_PROXY=http://127.0.0.1:7897 覆盖。
+    proxy: ${TOOLBOX_HTTP_PROXY:}
+    # Playwright Chromium 降级：抖音/小红书等 yt-dlp 失败时启用。
+    # 首次启动会下载 ~150MB Chromium 到 ~/.cache/ms-playwright/，最好让 IDE 启动时也走代理。
+    playwright:
+      enabled: true         # 抖音/小红书走 Playwright 降级时打开
+      headless: true        # 调试时改 false 能看到浏览器实际渲染
+      page-timeout-ms: 30000
 
   mail:
     enabled: false          # 设为 true 启动内嵌 SMTP 服务器

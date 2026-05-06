@@ -1,31 +1,37 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { History, Trash2 } from 'lucide-react'
+import { History, Server, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { ApiError } from '@/lib/api'
+import { useConfirm } from '@/components/ui/confirm-dialog'
 import { formatBytes, formatDate, formatDuration, formatNumber } from '@/lib/utils'
 import { ScanForm } from '../components/ScanForm'
 import { ScanProgress } from '../components/ScanProgress'
 import { BreadcrumbNav } from '../components/BreadcrumbNav'
 import { ChildrenList } from '../components/ChildrenList'
 import { Treemap } from '../components/Treemap'
+import { VideoPlayerModal } from '../components/VideoPlayerModal'
+import { CleanupRecommendations } from '../components/CleanupRecommendations'
 import { useScanEvents } from '../hooks/useScanEvents'
-import { deleteScan, getChildren, listScans, startScan } from '../api'
-import type { NodeView, ScanView } from '../types'
+import { useVideoConfig } from '../hooks/useVideoConfig'
+import { deleteFile, deleteScan, getChildren, listScans, startScan } from '../api'
+import type { NodeView, ScanView, StartScanPayload } from '../types'
 
 export function TreeSizePage() {
   const qc = useQueryClient()
   const [activeScan, setActiveScan] = useState<ScanView | null>(null)
   const [currentPath, setCurrentPath] = useState<string | null>(null)
   const [startError, setStartError] = useState<string | null>(null)
+  const [playingVideo, setPlayingVideo] = useState<{ scanId: string; node: NodeView } | null>(null)
 
   const live = useScanEvents(activeScan?.status === 'RUNNING' ? activeScan.id : null)
+  const videoConfig = useVideoConfig()
 
   const startMutation = useMutation({
-    mutationFn: startScan,
+    mutationFn: (payload: StartScanPayload) => startScan(payload),
     onMutate: () => setStartError(null),
     onSuccess: scan => {
       setActiveScan(scan)
@@ -59,7 +65,7 @@ export function TreeSizePage() {
       </header>
 
       <ScanForm
-        onStart={path => startMutation.mutate(path)}
+        onStart={payload => startMutation.mutate(payload)}
         disabled={isRunning || startMutation.isPending}
       />
 
@@ -78,6 +84,20 @@ export function TreeSizePage() {
           scan={activeScan}
           currentPath={currentPath}
           onNavigate={setCurrentPath}
+          videoExtensions={videoConfig.videoExtensions}
+          onPlayVideo={node => setPlayingVideo({ scanId: activeScan.id, node })}
+        />
+      )}
+
+
+
+      {playingVideo && (
+        <VideoPlayerModal
+          scanId={playingVideo.scanId}
+          path={playingVideo.node.path}
+          name={playingVideo.node.name}
+          open={true}
+          onClose={() => setPlayingVideo(null)}
         />
       )}
 
@@ -102,22 +122,64 @@ function ScanResultView({
   scan,
   currentPath,
   onNavigate,
+  videoExtensions,
+  onPlayVideo,
 }: {
   scan: ScanView
   currentPath: string | null
   onNavigate: (path: string | null) => void
+  videoExtensions: readonly string[]
+  onPlayVideo: (node: NodeView) => void
 }) {
+  const qc = useQueryClient()
+  const confirm = useConfirm()
   const queryPath = currentPath ?? scan.rootPath
+  const isRemote = scan.sourceType === 'SSH'
 
   const { data: children = [], isLoading } = useQuery({
     queryKey: ['treesize-children', scan.id, queryPath],
     queryFn: () => getChildren(scan.id, queryPath),
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: (node: NodeView) => deleteFile(scan.id, node.path),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['treesize-children', scan.id] })
+    },
+  })
+
   const totalSize = children.reduce((acc, n) => acc + n.size, 0)
 
   const handleNavigate = (n: NodeView) => {
     if (n.dir) onNavigate(n.path)
+  }
+
+  const handleDelete = async (n: NodeView) => {
+    const ok = await confirm({
+      title: '确认删除文件',
+      description: (
+        <div className="space-y-1">
+          <div className="break-all font-mono text-xs">{n.name}</div>
+          <div className="text-xs tabular-nums">{formatBytes(n.size)}</div>
+          <div className="pt-2">将移到回收站；如系统不支持回收站则永久删除。</div>
+        </div>
+      ),
+      confirmText: '删除',
+      cancelText: '取消',
+      variant: 'destructive',
+    })
+    if (!ok) return
+    try {
+      await deleteMutation.mutateAsync(n)
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : String(e)
+      await confirm({
+        title: '删除失败',
+        description: msg,
+        confirmText: '知道了',
+        cancelText: '关闭',
+      })
+    }
   }
 
   return (
@@ -134,7 +196,15 @@ function ScanResultView({
       ) : (
         <>
           <Treemap nodes={children} onNavigate={handleNavigate} />
-          <ChildrenList nodes={children} totalSize={totalSize} onNavigate={handleNavigate} />
+          <ChildrenList
+            nodes={children}
+            totalSize={totalSize}
+            videoExtensions={videoExtensions}
+            onNavigate={handleNavigate}
+            onPlayVideo={isRemote ? undefined : onPlayVideo}
+            onDeleteFile={isRemote ? undefined : handleDelete}
+          />
+          <CleanupRecommendations scanId={scan.id} />
         </>
       )}
     </div>
@@ -169,20 +239,24 @@ function ScanHistory({
           {scans.map(s => (
             <li
               key={s.id}
-              className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 border-t px-6 py-2.5 text-sm first:border-t-0"
+              className="border-t px-4 py-3 text-sm first:border-t-0 sm:px-6"
             >
               <button
                 onClick={() => onSelect(s)}
-                className="truncate text-left hover:underline"
+                className="block w-full truncate text-left font-medium hover:underline"
                 title={s.rootPath}
               >
+                {s.sourceType === 'SSH' && <Server className="mr-1 inline h-3.5 w-3.5 align-[-2px]" />}
                 {s.rootPath}
               </button>
-              <StatusBadge status={s.status} />
-              <div className="text-xs tabular-nums text-[var(--color-muted-foreground)]">
-                {formatNumber(s.totalFiles)} 文件 · {formatBytes(s.totalSize)}
-              </div>
-              <div className="flex items-center gap-3 text-xs text-[var(--color-muted-foreground)]">
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-[var(--color-muted-foreground)]">
+                <StatusBadge status={s.status} />
+                {s.sourceType === 'SSH' && (
+                  <Badge variant="secondary">{s.sourceDisplayName ?? 'SSH'}</Badge>
+                )}
+                <span className="tabular-nums">
+                  {formatNumber(s.totalFiles)} 文件 · {formatBytes(s.totalSize)}
+                </span>
                 <span>{formatDate(s.startedAt)}</span>
                 {s.finishedAt && <span>· {formatDuration(s.finishedAt - s.startedAt)}</span>}
                 <Button
@@ -190,7 +264,7 @@ function ScanHistory({
                   size="icon"
                   onClick={() => onDelete(s.id)}
                   title="删除此扫描"
-                  className="h-7 w-7"
+                  className="ml-auto h-7 w-7"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>

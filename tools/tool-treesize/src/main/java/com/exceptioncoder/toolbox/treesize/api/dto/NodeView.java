@@ -9,7 +9,8 @@ public record NodeView(
         long size,
         long fileCount,
         long dirCount,
-        int depth
+        int depth,
+        Long modifiedAt
 ) {
     public static NodeView from(FileNode n) {
         return new NodeView(
@@ -19,7 +20,8 @@ public record NodeView(
                 n.getSize(),
                 n.getFileCount(),
                 n.getDirCount(),
-                n.getDepth()
+                n.getDepth(),
+                n.getModifiedAt()
         );
     }
 }

@@ -31,6 +31,23 @@ export type Transfer = {
   errorMessage?: string
 }
 
+// 设备画像：用于在房间内可视化每位 peer 是什么设备
+export type DeviceKind =
+  | 'iphone'
+  | 'ipad'
+  | 'android-phone'
+  | 'android-tablet'
+  | 'windows'
+  | 'mac'
+  | 'linux'
+  | 'unknown'
+
+export interface DeviceProfile {
+  kind: DeviceKind
+  modelHint?: string     // 预留：未来扩展机型
+  colorHint?: string     // 预留：未来扩展配色
+}
+
 // WebSocket 信令消息
 export type SignalingInbound =
   | { type: 'joined'; self: string; peers: Peer[] }
@@ -52,3 +69,4 @@ export type ControlMessage =
   | { type: 'progress'; fileId: string; received: number }
   | { type: 'complete'; fileId: string }
   | { type: 'cancel'; fileId: string }
+  | { type: 'device-profile'; profile: DeviceProfile }

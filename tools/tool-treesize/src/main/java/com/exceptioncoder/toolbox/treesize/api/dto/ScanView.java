@@ -11,7 +11,10 @@ public record ScanView(
         long totalFiles,
         long totalDirs,
         long totalSize,
-        String errorMsg
+        String errorMsg,
+        String sourceType,
+        String sshHostId,
+        String sourceDisplayName
 ) {
     public static ScanView from(ScanRecord r) {
         return new ScanView(
@@ -23,7 +26,10 @@ public record ScanView(
                 r.getTotalFiles(),
                 r.getTotalDirs(),
                 r.getTotalSize(),
-                r.getErrorMsg()
+                r.getErrorMsg(),
+                r.getSourceType() == null ? "LOCAL_WINDOWS" : r.getSourceType().name(),
+                r.getSshHostId(),
+                r.getSourceDisplayName()
         );
     }
 }

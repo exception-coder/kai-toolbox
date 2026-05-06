@@ -5,6 +5,7 @@ import com.exceptioncoder.toolbox.mediaparser.config.PlaywrightManager;
 import com.exceptioncoder.toolbox.mediaparser.domain.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.microsoft.playwright.Page;
 import com.microsoft.playwright.options.WaitUntilState;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -13,12 +14,17 @@ import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
 /**
- * 小红书 fallback：用 Playwright 加载 explore 页，从 __INITIAL_STATE__ 提取视频或图集。
+ * 小红书 fallback：
+ * - XHS web 客户端是纯 SPA，__INITIAL_STATE__ 由框架先 = {} 占位、运行时 XHR 拉数据再 hydrate
+ * - 主路径：监听 /api/sns/ 返回的 JSON，拿到笔记直接解析
+ * - 兜底：周期检查 __INITIAL_STATE__ 是否真的填上数据（hydration 完成）
+ * - 失败转储页面 + 已抓到的 XHR JSON 便于离线对比字段
  */
 @Slf4j
 @Component
@@ -27,6 +33,8 @@ import java.util.Set;
 public class XiaohongshuPlaywrightParser implements PlatformParser {
 
     private static final String XHS_REFERER = "https://www.xiaohongshu.com/";
+    private static final long HYDRATE_DEADLINE_MS = 12_000;
+    private static final long POLL_INTERVAL_MS = 400;
 
     private final PlaywrightManager pw;
     private final ObjectMapper om;
@@ -46,42 +54,100 @@ public class XiaohongshuPlaywrightParser implements PlatformParser {
     @Override
     public ParseResult parse(String url) {
         log.info("[XHS-PW] parse: {}", url);
+        return pw.withPage(page -> doParse(page, url));
+    }
 
-        return pw.withPage(page -> {
-            page.navigate(url, new com.microsoft.playwright.Page.NavigateOptions()
-                    .setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
-            log.info("[XHS-PW] landed at: {} | title: {}", page.url(), page.title());
+    private ParseResult doParse(Page page, String url) {
+        // 提前装上响应监听，捕获 XHS 接口 JSON。注意：onResponse 在 Playwright worker 线程上回调
+        List<JsonNode> capturedJson = Collections.synchronizedList(new ArrayList<>());
+        List<String> capturedUrls = Collections.synchronizedList(new ArrayList<>());
 
-            // __INITIAL_STATE__ 是 SSR 注入的全局变量。等它出现。
+        page.onResponse(resp -> {
+            String u = resp.url();
+            if (resp.status() != 200) return;
+            // /api/sns/ 是 XHS web 接口前缀；只关心 JSON 响应
+            if (!u.contains("/api/sns/")) return;
             try {
-                page.waitForFunction("() => !!window.__INITIAL_STATE__");
+                String body = resp.text();
+                if (body == null || body.isBlank()) return;
+                String trimmed = body.stripLeading();
+                if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return;
+                JsonNode json = om.readTree(body);
+                capturedJson.add(json);
+                capturedUrls.add(u);
+                log.info("[XHS-PW] captured XHR: {} ({} bytes)", u, body.length());
             } catch (Exception e) {
-                Path dump = dumper.dump("xhs-no-state", url, page, null);
-                throw new RuntimeException("小红书未注入 __INITIAL_STATE__，疑似风控/登录墙: " + e.getMessage()
-                        + (dump != null ? "（已转储 " + dump.toAbsolutePath() + "）" : ""), e);
+                log.debug("[XHS-PW] skip XHR {}: {}", u, e.getMessage());
             }
-
-            Object stateObj = page.evaluate("() => window.__INITIAL_STATE__");
-            JsonNode state;
-            try {
-                state = om.valueToTree(stateObj);
-            } catch (Exception e) {
-                throw new RuntimeException("解析 __INITIAL_STATE__ 失败: " + e.getMessage(), e);
-            }
-            log.info("[XHS-PW] __INITIAL_STATE__ top-level keys: {}", fieldNames(state));
-
-            JsonNode note = findNoteNode(state);
-            if (note == null) {
-                Path dump = dumper.dump("xhs-no-note", url, page, state.toPrettyString());
-                throw new RuntimeException("小红书页面未找到笔记数据，可能是登录态/风控限制"
-                        + (dump != null ? "（已转储 " + dump.toAbsolutePath() + "）" : ""));
-            }
-            log.info("[XHS-PW] note keys: {}, type={}", fieldNames(note), note.path("type").asText("?"));
-            log.debug("[XHS-PW] note JSON sample (truncated 4000):\n{}",
-                    truncate(note.toPrettyString(), 4000));
-
-            return extract(url, note);
         });
+
+        page.navigate(url, new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+        log.info("[XHS-PW] landed at: {} | title: {}", page.url(), page.title());
+
+        // 周期检查：__INITIAL_STATE__ 已 hydrate？XHR 已抓到含 note 的响应？
+        long deadline = System.currentTimeMillis() + HYDRATE_DEADLINE_MS;
+        JsonNode note = null;
+        String foundIn = null;
+
+        while (System.currentTimeMillis() < deadline) {
+            // 1) 已抓到的 XHR 里找
+            synchronized (capturedJson) {
+                for (int i = 0; i < capturedJson.size(); i++) {
+                    JsonNode candidate = findNoteNode(capturedJson.get(i));
+                    if (candidate != null) {
+                        note = candidate;
+                        foundIn = "XHR " + capturedUrls.get(i);
+                        break;
+                    }
+                }
+            }
+            if (note != null) break;
+
+            // 2) __INITIAL_STATE__ 是否真的有 keys 了
+            JsonNode state = readInitialState(page);
+            if (state != null && state.size() > 0) {
+                JsonNode candidate = findNoteNode(state);
+                if (candidate != null) {
+                    note = candidate;
+                    foundIn = "__INITIAL_STATE__";
+                    break;
+                }
+            }
+
+            page.waitForTimeout(POLL_INTERVAL_MS);
+        }
+
+        if (note == null) {
+            // 转储所有抓到的 XHR JSON 拼一起，便于事后翻
+            StringBuilder allCaptured = new StringBuilder();
+            synchronized (capturedJson) {
+                for (int i = 0; i < capturedJson.size(); i++) {
+                    allCaptured.append("--- XHR ").append(i).append(": ").append(capturedUrls.get(i)).append(" ---\n");
+                    allCaptured.append(capturedJson.get(i).toPrettyString()).append("\n\n");
+                }
+            }
+            String extracted = allCaptured.length() > 0 ? allCaptured.toString() : null;
+            Path dump = dumper.dump("xhs-no-note", url, page, extracted);
+            throw new RuntimeException("小红书页面未找到笔记数据（已等 " + HYDRATE_DEADLINE_MS + "ms，"
+                    + "捕获 " + capturedJson.size() + " 个 XHR）"
+                    + (dump != null ? "（已转储 " + dump.toAbsolutePath() + "）" : ""));
+        }
+
+        log.info("[XHS-PW] note found via {}, keys={}, type={}",
+                foundIn, fieldNames(note), note.path("type").asText("?"));
+        log.debug("[XHS-PW] note JSON sample (truncated 4000):\n{}",
+                truncate(note.toPrettyString(), 4000));
+
+        return extract(url, note);
+    }
+
+    private JsonNode readInitialState(Page page) {
+        try {
+            Object stateObj = page.evaluate("() => window.__INITIAL_STATE__");
+            return stateObj != null ? om.valueToTree(stateObj) : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private ParseResult extract(String url, JsonNode note) {
@@ -133,13 +199,9 @@ public class XiaohongshuPlaywrightParser implements PlatformParser {
             throw new RuntimeException("小红书笔记中未找到任何可下载内容（type=" + type + "）");
         }
 
-        ResultType resultType = items.stream().anyMatch(i -> i.getType() == MediaItemType.VIDEO)
-                ? ResultType.VIDEO
-                : ResultType.VIDEO; // 暂无 IMAGE 枚举值，先复用 VIDEO；后续可加
-
         return ParseResult.builder()
                 .platform(Platform.XIAOHONGSHU)
-                .type(resultType)
+                .type(ResultType.VIDEO)
                 .title(title)
                 .author(author)
                 .thumbnail(thumbnail)
@@ -148,7 +210,7 @@ public class XiaohongshuPlaywrightParser implements PlatformParser {
                 .build();
     }
 
-    /** 在 __INITIAL_STATE__ 里找 note 详情节点（结构经常变，递归找含 imageList 或 video 的节点）。 */
+    /** 递归找含 imageList 或 video 的节点。 */
     private JsonNode findNoteNode(JsonNode root) {
         // 优先看常见路径 note.noteDetailMap.*.note
         JsonNode detailMap = root.path("note").path("noteDetailMap");
@@ -159,13 +221,23 @@ public class XiaohongshuPlaywrightParser implements PlatformParser {
                 if (looksLikeNote(entry)) return entry;
             }
         }
+        // 再看 data.items[*].note_card / data.note_list[*] 等 XHR feed 常见结构
+        JsonNode dataItems = root.path("data").path("items");
+        if (dataItems.isArray()) {
+            for (JsonNode item : dataItems) {
+                JsonNode card = item.path("note_card");
+                if (looksLikeNote(card)) return card;
+                if (looksLikeNote(item)) return item;
+            }
+        }
         return findFirst(root, this::looksLikeNote);
     }
 
     private boolean looksLikeNote(JsonNode n) {
         if (n == null || !n.isObject()) return false;
         boolean hasMedia = (n.has("video") && !n.path("video").isNull())
-                || (n.has("imageList") && n.path("imageList").isArray() && n.path("imageList").size() > 0);
+                || (n.has("imageList") && n.path("imageList").isArray() && n.path("imageList").size() > 0)
+                || (n.has("image_list") && n.path("image_list").isArray() && n.path("image_list").size() > 0);
         boolean hasMeta = n.has("title") || n.has("desc") || n.has("user");
         return hasMedia && hasMeta;
     }

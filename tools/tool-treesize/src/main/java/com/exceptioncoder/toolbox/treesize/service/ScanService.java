@@ -3,7 +3,9 @@ package com.exceptioncoder.toolbox.treesize.service;
 import com.exceptioncoder.toolbox.common.sse.SseEmitterRegistry;
 import com.exceptioncoder.toolbox.treesize.domain.FileNode;
 import com.exceptioncoder.toolbox.treesize.domain.ScanRecord;
+import com.exceptioncoder.toolbox.treesize.domain.ScanSourceType;
 import com.exceptioncoder.toolbox.treesize.domain.ScanStatus;
+import com.exceptioncoder.toolbox.treesize.domain.SshHost;
 import com.exceptioncoder.toolbox.treesize.repository.NodeRepository;
 import com.exceptioncoder.toolbox.treesize.repository.ScanRepository;
 import org.slf4j.Logger;
@@ -29,23 +31,43 @@ public class ScanService {
     private static final int BATCH_SIZE = 1000;
 
     private final ScanEngine engine;
+    private final RemoteScanEngine remoteEngine;
     private final ScanRepository scans;
     private final NodeRepository nodes;
     private final SseEmitterRegistry sse;
+    private final SshHostService sshHosts;
 
     private final ExecutorService executor = Executors.newThreadPerTaskExecutor(
             Thread.ofVirtual().name("treesize-scan-", 0).factory()
     );
     private final ConcurrentHashMap<String, AtomicBoolean> cancelFlags = new ConcurrentHashMap<>();
 
-    public ScanService(ScanEngine engine, ScanRepository scans, NodeRepository nodes, SseEmitterRegistry sse) {
+    public ScanService(ScanEngine engine,
+                       RemoteScanEngine remoteEngine,
+                       ScanRepository scans,
+                       NodeRepository nodes,
+                       SseEmitterRegistry sse,
+                       SshHostService sshHosts) {
         this.engine = engine;
+        this.remoteEngine = remoteEngine;
         this.scans = scans;
         this.nodes = nodes;
         this.sse = sse;
+        this.sshHosts = sshHosts;
     }
 
     public ScanRecord startScan(String rootPath) {
+        return startLocalScan(rootPath);
+    }
+
+    public ScanRecord startScan(String rootPath, ScanSourceType sourceType, String sshHostId) {
+        if (sourceType == ScanSourceType.SSH) {
+            return startSshScan(rootPath, sshHostId);
+        }
+        return startLocalScan(rootPath);
+    }
+
+    private ScanRecord startLocalScan(String rootPath) {
         Path root = Paths.get(rootPath);
         if (!Files.exists(root)) {
             throw new IllegalArgumentException("path not found: " + rootPath);
@@ -59,6 +81,8 @@ public class ScanService {
                 .id(id)
                 .rootPath(root.toAbsolutePath().toString())
                 .status(ScanStatus.RUNNING)
+                .sourceType(ScanSourceType.LOCAL_WINDOWS)
+                .sourceDisplayName("本地 Windows")
                 .startedAt(System.currentTimeMillis())
                 .build();
         scans.insert(record);
@@ -67,6 +91,30 @@ public class ScanService {
         cancelFlags.put(id, cancelled);
 
         executor.submit(() -> runScan(id, root, cancelled));
+        return record;
+    }
+
+    private ScanRecord startSshScan(String rootPath, String sshHostId) {
+        if (sshHostId == null || sshHostId.isBlank()) {
+            throw new IllegalArgumentException("sshHostId is required for SSH scans");
+        }
+        SshHost host = sshHosts.findRequired(sshHostId);
+        String id = UUID.randomUUID().toString();
+        ScanRecord record = ScanRecord.builder()
+                .id(id)
+                .rootPath(rootPath)
+                .status(ScanStatus.RUNNING)
+                .sourceType(ScanSourceType.SSH)
+                .sshHostId(host.getId())
+                .sourceDisplayName(host.getName() + " (" + host.label() + ")")
+                .startedAt(System.currentTimeMillis())
+                .build();
+        scans.insert(record);
+
+        AtomicBoolean cancelled = new AtomicBoolean(false);
+        cancelFlags.put(id, cancelled);
+
+        executor.submit(() -> runSshScan(id, host, rootPath, cancelled));
         return record;
     }
 
@@ -109,6 +157,50 @@ public class ScanService {
             sse.publish(id, "cancelled", java.util.Map.of("scanId", id));
         } catch (Exception e) {
             log.error("scan {} failed", id, e);
+            flushSilently(buffer);
+            scans.updateStatus(id, ScanStatus.FAILED, System.currentTimeMillis(), e.getMessage());
+            sse.publish(id, "error", java.util.Map.of("message", e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
+        } finally {
+            cancelFlags.remove(id);
+            sse.complete(id);
+        }
+    }
+
+    private void runSshScan(String id, SshHost host, String rootPath, AtomicBoolean cancelled) {
+        List<FileNode> buffer = new ArrayList<>(BATCH_SIZE);
+        try {
+            ScanEngine.Totals totals = remoteEngine.scan(
+                    id,
+                    host,
+                    rootPath,
+                    node -> {
+                        buffer.add(node);
+                        if (buffer.size() >= BATCH_SIZE) {
+                            nodes.batchInsert(buffer);
+                            buffer.clear();
+                        }
+                    },
+                    progress -> sse.publish(id, "progress", progress),
+                    cancelled::get
+            );
+            if (!buffer.isEmpty()) {
+                nodes.batchInsert(buffer);
+                buffer.clear();
+            }
+
+            scans.updateTotals(id, totals.files(), totals.dirs(), totals.size());
+            scans.updateStatus(id, ScanStatus.COMPLETED, System.currentTimeMillis(), null);
+            sse.publish(id, "completed", java.util.Map.of(
+                    "totalFiles", totals.files(),
+                    "totalDirs", totals.dirs(),
+                    "totalSize", totals.size()
+            ));
+        } catch (CancellationException ce) {
+            flushSilently(buffer);
+            scans.updateStatus(id, ScanStatus.CANCELLED, System.currentTimeMillis(), null);
+            sse.publish(id, "cancelled", java.util.Map.of("scanId", id));
+        } catch (Exception e) {
+            log.error("ssh scan {} failed for {}", id, host.label(), e);
             flushSilently(buffer);
             scans.updateStatus(id, ScanStatus.FAILED, System.currentTimeMillis(), e.getMessage());
             sse.publish(id, "error", java.util.Map.of("message", e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));

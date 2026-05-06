@@ -19,4 +19,5 @@ public class FileNode {
     private long fileCount;
     private long dirCount;
     private int depth;
+    private Long modifiedAt;
 }

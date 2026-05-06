@@ -67,11 +67,15 @@ export type SseHandlers = {
   onOpen?: () => void
 }
 
+/** Default named events every long-running endpoint in this app emits. */
+const DEFAULT_SSE_EVENTS = ['progress', 'completed', 'cancelled', 'error']
+
 /**
- * Subscribe to an SSE endpoint. Returns a close function.
- * Uses native EventSource; falls back gracefully to onerror on connection drop.
+ * Subscribe to an SSE endpoint. Returns a close function. {@link extraEvents} merges with
+ * the default set so callers can listen to feature-specific events (e.g. {@code status},
+ * {@code language}) without duplicating the wrapper.
  */
-export function subscribeSse(path: string, handlers: SseHandlers): () => void {
+export function subscribeSse(path: string, handlers: SseHandlers, extraEvents: string[] = []): () => void {
   if (isMockEnabled()) {
     return mockSubscribeSse(path, handlers)
   }
@@ -87,7 +91,8 @@ export function subscribeSse(path: string, handlers: SseHandlers): () => void {
     handlers.onEvent?.(eventName, parsed)
   }
 
-  ;['progress', 'completed', 'cancelled', 'error'].forEach(name =>
+  const eventNames = Array.from(new Set([...DEFAULT_SSE_EVENTS, ...extraEvents]))
+  eventNames.forEach(name =>
     es.addEventListener(name, wrap(name) as EventListener)
   )
 

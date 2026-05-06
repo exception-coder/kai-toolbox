@@ -82,7 +82,7 @@ export async function sendFile(
     const handler = (ev: MessageEvent) => {
       let msg: ControlMessage
       try { msg = JSON.parse(ev.data) } catch { return }
-      if (msg.fileId !== fileId) return
+      if (!('fileId' in msg) || msg.fileId !== fileId) return
       if (msg.type === 'accept') {
         controlDC.removeEventListener('message', handler)
         callbacks.onAccepted?.(fileId)
@@ -102,7 +102,7 @@ export async function sendFile(
   const watcher = (ev: MessageEvent) => {
     let msg: ControlMessage
     try { msg = JSON.parse(ev.data) } catch { return }
-    if (msg.fileId !== fileId) return
+    if (!('fileId' in msg) || msg.fileId !== fileId) return
     if (msg.type === 'progress') callbacks.onProgress?.(fileId, msg.received)
     if (msg.type === 'complete') {
       controlDC.removeEventListener('message', watcher)

@@ -1,4 +1,4 @@
-import type { Peer, FileOffer } from '../types'
+import type { Peer, FileOffer, ControlMessage, DeviceProfile } from '../types'
 import type { SignalingClient } from './signalingClient'
 import { sendFile, createReceiver, triggerBrowserDownload } from './fileTransfer'
 
@@ -12,12 +12,16 @@ interface PeerConnectionEntry {
   ready: Promise<void>
   resolveReady: () => void
   rejectReady: (e: Error) => void
+  notifiedReady: boolean
+  topControlListener?: (ev: MessageEvent) => void
 }
 
 export interface PeerConnectionManager {
   connectTo(peerDeviceId: string): Promise<void>
   sendFile(peerDeviceId: string, file: File): Promise<void>
   broadcastFile(peers: Peer[], file: File): Promise<void>
+  sendControl(peerDeviceId: string, msg: ControlMessage): boolean
+  broadcastControl(peers: Peer[], msg: ControlMessage): void
   closeAll(): void
 }
 
@@ -40,6 +44,8 @@ export interface PeerConnectionManagerCallbacks {
   onTransferRejected: (fileId: string, peerDeviceId: string, reason?: string) => void
   onTransferFailed: (fileId: string, peerDeviceId: string, message: string) => void
   onConnectionFailed: (peerDeviceId: string, message: string) => void
+  onPeerReady?: (peerDeviceId: string) => void
+  onDeviceProfile?: (peerDeviceId: string, profile: DeviceProfile) => void
 }
 
 export function createPeerConnectionManager(
@@ -62,7 +68,7 @@ export function createPeerConnectionManager(
       resolveReady = resolve
       rejectReady = reject
     })
-    entry = { pc, ready, resolveReady, rejectReady }
+    entry = { pc, ready, resolveReady, rejectReady, notifiedReady: false }
     peers.set(peerDeviceId, entry)
 
     pc.onicecandidate = (ev) => {
@@ -111,9 +117,25 @@ export function createPeerConnectionManager(
       })
       entry.receiverClose = receiver.close
 
+      // 顶层 control listener：fileTransfer 内的 listener 仅识别 file 相关消息，
+      // 这里专门处理 device-profile 等扩展控制消息，互不冲突。
+      const topControl = (ev: MessageEvent) => {
+        let msg: ControlMessage
+        try { msg = JSON.parse(ev.data) } catch { return }
+        if (msg.type === 'device-profile') {
+          callbacks.onDeviceProfile?.(peerDeviceId, msg.profile)
+        }
+      }
+      entry.controlDC.addEventListener('message', topControl)
+      entry.topControlListener = topControl
+
       const onOpen = () => {
         if (entry.controlDC?.readyState === 'open' && entry.dataDC?.readyState === 'open') {
           entry.resolveReady()
+          if (!entry.notifiedReady) {
+            entry.notifiedReady = true
+            callbacks.onPeerReady?.(peerDeviceId)
+          }
         }
       }
       entry.controlDC.addEventListener('open', onOpen)
@@ -204,13 +226,35 @@ export function createPeerConnectionManager(
     )
   }
 
+  function sendControl(peerDeviceId: string, msg: ControlMessage): boolean {
+    const entry = peers.get(peerDeviceId)
+    if (!entry || entry.controlDC?.readyState !== 'open') return false
+    try {
+      entry.controlDC.send(JSON.stringify(msg))
+      return true
+    } catch (e) {
+      console.warn('[lan-share] sendControl failed', peerDeviceId, e)
+      return false
+    }
+  }
+
+  function broadcastControl(targets: Peer[], msg: ControlMessage): void {
+    for (const p of targets) {
+      if (p.deviceId === selfDeviceId) continue
+      sendControl(p.deviceId, msg)
+    }
+  }
+
   function closeAll(): void {
     for (const entry of peers.values()) {
       entry.receiverClose?.()
+      if (entry.topControlListener && entry.controlDC) {
+        entry.controlDC.removeEventListener('message', entry.topControlListener)
+      }
       try { entry.pc.close() } catch { /* ignore */ }
     }
     peers.clear()
   }
 
-  return { connectTo, sendFile: sendFileTo, broadcastFile, closeAll }
+  return { connectTo, sendFile: sendFileTo, broadcastFile, sendControl, broadcastControl, closeAll }
 }

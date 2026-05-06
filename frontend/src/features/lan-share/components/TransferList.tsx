@@ -2,10 +2,12 @@ import { ArrowDown, ArrowUp, Check, X, AlertTriangle } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 import { Badge } from '@/components/ui/badge'
-import type { Transfer } from '../types'
+import { DeviceKindIcon } from './scene/DeviceKindIcon'
+import type { Transfer, DeviceProfile } from '../types'
 
 interface TransferListProps {
   transfers: Transfer[]
+  deviceProfiles?: Map<string, DeviceProfile>
 }
 
 function formatSize(bytes: number): string {
@@ -25,7 +27,7 @@ function StateBadge({ state }: { state: Transfer['state'] }) {
   }
 }
 
-export function TransferList({ transfers }: TransferListProps) {
+export function TransferList({ transfers, deviceProfiles }: TransferListProps) {
   if (transfers.length === 0) {
     return null
   }
@@ -36,19 +38,25 @@ export function TransferList({ transfers }: TransferListProps) {
         <ul className="space-y-3">
           {transfers.map(t => {
             const pct = t.size > 0 ? Math.round((t.bytesTransferred / t.size) * 100) : 0
+            const kind = deviceProfiles?.get(t.peerDeviceId)?.kind ?? 'unknown'
             return (
-              <li key={`${t.id}-${t.direction}-${t.peerDeviceId}`} className="space-y-1">
-                <div className="flex items-center gap-2 text-sm">
-                  {t.direction === 'send' ? <ArrowUp className="h-4 w-4 text-blue-500" /> : <ArrowDown className="h-4 w-4 text-green-500" />}
-                  <span className="font-medium truncate flex-1">{t.fileName || '(待协商)'}</span>
-                  <StateBadge state={t.state} />
+              <li key={`${t.id}-${t.direction}-${t.peerDeviceId}`} className="flex gap-3">
+                <div className="flex-shrink-0 pt-0.5">
+                  <DeviceKindIcon kind={kind} size={32} />
                 </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span>{t.direction === 'send' ? '→' : '←'} {t.peerNickname}</span>
-                  <span className="ml-auto">{formatSize(t.bytesTransferred)} / {formatSize(t.size)}</span>
+                <div className="flex-1 min-w-0 space-y-1">
+                  <div className="flex items-center gap-2 text-sm">
+                    {t.direction === 'send' ? <ArrowUp className="h-4 w-4 text-blue-500" /> : <ArrowDown className="h-4 w-4 text-green-500" />}
+                    <span className="font-medium truncate flex-1">{t.fileName || '(待协商)'}</span>
+                    <StateBadge state={t.state} />
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>{t.direction === 'send' ? '→' : '←'} {t.peerNickname}</span>
+                    <span className="ml-auto">{formatSize(t.bytesTransferred)} / {formatSize(t.size)}</span>
+                  </div>
+                  {(t.state === 'transferring' || t.state === 'pending') && <Progress value={pct} />}
+                  {t.errorMessage && <p className="text-xs text-destructive">{t.errorMessage}</p>}
                 </div>
-                {(t.state === 'transferring' || t.state === 'pending') && <Progress value={pct} />}
-                {t.errorMessage && <p className="text-xs text-destructive">{t.errorMessage}</p>}
               </li>
             )
           })}

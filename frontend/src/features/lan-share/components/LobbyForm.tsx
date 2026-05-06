@@ -33,7 +33,7 @@ export function LobbyForm({ defaultNickname, onJoin }: LobbyFormProps) {
   }
 
   return (
-    <div className="mx-auto max-w-md mt-12">
+    <div className="mx-auto max-w-md">
       <Card>
         <CardContent className="p-6">
           <h2 className="text-lg font-semibold mb-4">加入房间</h2>

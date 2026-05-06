@@ -78,8 +78,14 @@ export default manifest
 | `GET` | `/api/treesize/scans/{id}/events` | SSE：实时进度事件 |
 | `GET` | `/api/treesize/scans/{id}` | 获取扫描元信息（状态、统计） |
 | `GET` | `/api/treesize/scans/{id}/children?path=...` | 获取指定目录的直接子项 |
+| `GET` | `/api/treesize/scans/{id}/cleanup-candidates` | 基于扫描结果生成清理建议候选 |
 | `DELETE` | `/api/treesize/scans/{id}` | 取消正在跑的扫描 / 删除已完成结果 |
 | `GET` | `/api/treesize/scans` | 历史扫描列表 |
+| `GET` | `/api/treesize/ssh-hosts` | TreeSize SSH 主机列表 |
+| `POST` | `/api/treesize/ssh-hosts` | 新增 SSH 主机 |
+| `PUT` | `/api/treesize/ssh-hosts/{id}` | 更新 SSH 主机 |
+| `DELETE` | `/api/treesize/ssh-hosts/{id}` | 删除 SSH 主机 |
+| `POST` | `/api/treesize/ssh-hosts/{id}/test` | 测试已保存 SSH 主机连接 |
 
 ### 5.2 SSE 事件类型
 
@@ -102,6 +108,8 @@ data: {"message": "..."}
 - **写库**：批量插入（每 500 节点 commit 一次），不等扫完一次性写
 - **取消**：`ScanTask` 持有 `volatile boolean cancelled`，visitor 检查后抛 `CancellationException`
 - **符号链接**：默认不跟随（`FileVisitOption` 不传），避免 `/proc` 之类环路
+- **远程扫描**：扫描 source 分为 `LOCAL_WINDOWS` 与 `SSH`。SSH 模式通过保存的主机配置连接远端，执行 Linux/GNU `find -P <path> -depth -printf ...` 流式回传节点，再在应用侧聚合目录大小并写入同一套 `treesize_node` 表。远程扫描结果只支持空间分析与目录下钻，不复用本地文件播放/删除接口。
+- **清理建议**：扫描完成后可从节点表派生候选项，不自动删除。分类包括大文件久未修改、重复文件疑似、缓存/构建产物、Docker 占用、数据库/上传/业务数据风险提示；安全等级为 `SAFE`、`REVIEW`、`DANGEROUS`。
 
 ### 5.4 数据模型（SQLite）
 
@@ -133,6 +141,34 @@ CREATE TABLE treesize_node (
 
 CREATE INDEX idx_node_scan_parent ON treesize_node(scan_id, parent_path);
 CREATE INDEX idx_node_scan_path   ON treesize_node(scan_id, path);
+
+CREATE TABLE treesize_node_meta (
+    scan_id      TEXT NOT NULL,
+    path         TEXT NOT NULL,
+    modified_at  INTEGER,
+    PRIMARY KEY (scan_id, path)
+);
+
+CREATE TABLE treesize_scan_source (
+    scan_id       TEXT PRIMARY KEY,
+    source_type   TEXT NOT NULL, -- LOCAL_WINDOWS | SSH
+    ssh_host_id   TEXT,
+    display_name  TEXT
+);
+
+CREATE TABLE treesize_ssh_host (
+    id             TEXT PRIMARY KEY,
+    name           TEXT NOT NULL,
+    host           TEXT NOT NULL,
+    port           INTEGER NOT NULL DEFAULT 22,
+    username       TEXT NOT NULL,
+    auth_type      TEXT NOT NULL, -- PASSWORD | KEY
+    password       TEXT,
+    private_key    TEXT,
+    passphrase     TEXT,
+    created_at     INTEGER NOT NULL,
+    updated_at     INTEGER NOT NULL
+);
 ```
 
 **为什么用扁平表 + parent_path 索引**：相比嵌套集合（nested set）模型，这种结构插入快、按层查询快、实现简单；适合"扫完一次性写、按目录懒加载读"的访问模式。
@@ -180,7 +216,7 @@ java -jar toolbox-starter/target/toolbox-starter-*.jar
 
 - 多个 SSE emitter 复用一个 scan（多 tab 同时观察）→ 现在按 scanId 单 emitter
 - 增量扫描（只扫 mtime 变化的目录）→ 现在每次全量
-- 远程扫描（agent 模式）→ 当前只本地
+- agent 模式远程扫描 → 当前远程能力是 SSH 直连执行 `find`，暂不引入常驻 agent
 - 工具间数据互通 → 各工具独立 schema，互不感知
 
 需要时再加，不预埋抽象。

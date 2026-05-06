@@ -14,16 +14,18 @@ export function LanSharePage() {
     setRoomId(room)
   }
 
-  if (!roomId) {
-    return <LobbyForm defaultNickname={nicknameState || defaultNickname()} onJoin={handleJoin} />
-  }
-
   return (
-    <RoomView
-      roomId={roomId}
-      deviceId={deviceId}
-      nickname={nicknameState}
-      onLeave={() => setRoomId(null)}
-    />
+    <div className="mx-auto max-w-5xl px-4 sm:px-6 py-6 sm:py-10">
+      {!roomId ? (
+        <LobbyForm defaultNickname={nicknameState || defaultNickname()} onJoin={handleJoin} />
+      ) : (
+        <RoomView
+          roomId={roomId}
+          deviceId={deviceId}
+          nickname={nicknameState}
+          onLeave={() => setRoomId(null)}
+        />
+      )}
+    </div>
   )
 }

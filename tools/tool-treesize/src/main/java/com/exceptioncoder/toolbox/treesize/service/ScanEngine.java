@@ -65,6 +65,7 @@ public class ScanEngine {
                         .name(file.getFileName() == null ? file.toString() : file.getFileName().toString())
                         .dir(false)
                         .size(size)
+                        .modifiedAt(attrs.lastModifiedTime().toMillis())
                         .depth(stack.size())
                         .build();
                 onNode.accept(node);
@@ -93,6 +94,7 @@ public class ScanEngine {
                         .size(done.size)
                         .fileCount(done.fileCount)
                         .dirCount(done.dirCount)
+                        .modifiedAt(attrsLastModified(dir))
                         .depth(done.depth)
                         .build();
                 onNode.accept(node);
@@ -116,6 +118,14 @@ public class ScanEngine {
         if (now - lastAt[0] >= PROGRESS_THROTTLE_MS) {
             lastAt[0] = now;
             onProgress.accept(new ScanProgress(c.files + c.dirs, c.size, current.toString()));
+        }
+    }
+
+    private static Long attrsLastModified(Path path) {
+        try {
+            return Files.getLastModifiedTime(path).toMillis();
+        } catch (IOException e) {
+            return null;
         }
     }
 

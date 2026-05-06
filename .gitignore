@@ -44,6 +44,7 @@ frontend/.env.*.local
 ### Claude Code 本地状态 ###
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
+.claude/worktrees/
 
 ### Spring Boot ###
 *.original

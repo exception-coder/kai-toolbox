@@ -1,0 +1,89 @@
+/* lan-share 空间化场景的动效与状态样式
+ * 与 Tailwind 的 utility class 互补：keyframes 由本文件定义，组件用 className 引用。
+ */
+
+@keyframes lanshare-breathe {
+  0%, 100% { transform: scale(1); opacity: 0.55; }
+  50%      { transform: scale(1.18); opacity: 1; }
+}
+
+@keyframes lanshare-pulse {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 0.95; }
+}
+
+@keyframes lanshare-shake {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  25%      { transform: translate3d(-3px, 0, 0); }
+  50%      { transform: translate3d(3px, 0, 0); }
+  75%      { transform: translate3d(-2px, 0, 0); }
+}
+
+@keyframes lanshare-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* 设备底部光晕 */
+.lanshare-glow {
+  position: absolute;
+  inset: auto 0 -6px 0;
+  height: 24px;
+  border-radius: 50%;
+  filter: blur(10px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.lanshare-glow-idle      { background: rgba(140, 140, 160, 0.30); }
+.lanshare-glow-connecting{ background: rgba(255, 196, 0, 0.65); animation: lanshare-pulse 1.4s ease-in-out infinite; }
+.lanshare-glow-connected { background: rgba(64, 196, 99, 0.65); }
+.lanshare-glow-transferring { background: rgba(64, 196, 99, 0.85); animation: lanshare-breathe 1.6s ease-in-out infinite; }
+.lanshare-glow-failed    { background: rgba(220, 76, 76, 0.75); }
+
+/* 失败时设备本体抖动一次（约 0.4s） */
+.lanshare-shake { animation: lanshare-shake 0.4s ease-in-out; }
+
+/* 设备拟物外壳的轻倾斜投影，给二维布局制造空间感 */
+.lanshare-avatar-body {
+  position: relative;
+  z-index: 1;
+  transition: transform 200ms ease, filter 200ms ease;
+  filter: drop-shadow(0 6px 6px rgba(0, 0, 0, 0.18));
+}
+
+.lanshare-avatar-body:hover { transform: translateY(-2px); }
+.lanshare-avatar-body:active { transform: translateY(0); }
+
+/* 进度环 SVG */
+.lanshare-progress-ring {
+  transform: rotate(-90deg);
+  transform-origin: center;
+}
+
+/* 连线 path 状态色 */
+.lanshare-line-pending      { stroke: #f5b800; stroke-width: 2; stroke-dasharray: 6 6; fill: none; }
+.lanshare-line-transferring { stroke: #2eb45f; stroke-width: 2.4; fill: none; }
+.lanshare-line-completed    { stroke: #2eb45f; stroke-width: 2; opacity: 0.6; fill: none; }
+.lanshare-line-failed       { stroke: #d44; stroke-width: 2.2; stroke-dasharray: 4 4; fill: none; }
+
+.lanshare-particle { fill: #2eb45f; }
+
+/* 中央广播按钮的脉冲光圈 */
+.lanshare-broadcast-pulse {
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  border: 2px solid rgba(64, 196, 99, 0.45);
+  animation: lanshare-pulse 1.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lanshare-glow-connecting,
+  .lanshare-glow-transferring,
+  .lanshare-broadcast-pulse {
+    animation: none;
+  }
+  .lanshare-shake { animation: none; }
+}

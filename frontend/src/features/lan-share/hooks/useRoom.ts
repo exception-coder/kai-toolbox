@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Peer, Transfer, FileOffer, SignalingInbound } from '../types'
+import type { Peer, Transfer, FileOffer, SignalingInbound, ControlMessage, DeviceProfile } from '../types'
 import { http } from '@/lib/api'
 import { isMockEnabled } from '@/lib/mock/mode'
 import { createSignalingClient, type SignalingClient } from '../services/signalingClient'
@@ -20,10 +20,14 @@ interface UseRoomResult {
   peers: Peer[]
   transfers: Transfer[]
   incoming: IncomingPrompt | null
+  deviceProfiles: Map<string, DeviceProfile>
+  readyPeerIds: Set<string>
   acceptIncoming: () => void
   rejectIncoming: () => void
   sendFileTo: (peerDeviceId: string, file: File) => void
   broadcastFile: (file: File) => void
+  sendControlTo: (peerDeviceId: string, msg: ControlMessage) => boolean
+  setMockDeviceProfile: (deviceId: string, profile: DeviceProfile) => void
   leave: () => void
 }
 
@@ -33,6 +37,8 @@ export function useRoom(roomId: string, deviceId: string, nickname: string): Use
   const [peers, setPeers] = useState<Peer[]>([])
   const [transfers, setTransfers] = useState<Transfer[]>([])
   const [incoming, setIncoming] = useState<IncomingPrompt | null>(null)
+  const [deviceProfiles, setDeviceProfiles] = useState<Map<string, DeviceProfile>>(() => new Map())
+  const [readyPeerIds, setReadyPeerIds] = useState<Set<string>>(() => new Set())
 
   const signalingRef = useRef<SignalingClient | null>(null)
   const managerRef = useRef<PeerConnectionManager | null>(null)
@@ -67,6 +73,13 @@ export function useRoom(roomId: string, deviceId: string, nickname: string): Use
         setPeers,
         setIncoming,
         upsertTransfer,
+        setMockDeviceProfile: (deviceId, profile) => {
+          setDeviceProfiles(prev => {
+            const next = new Map(prev)
+            next.set(deviceId, profile)
+            return next
+          })
+        },
       })
       mockRef.current = orchestrator
       return () => {
@@ -136,6 +149,27 @@ export function useRoom(roomId: string, deviceId: string, nickname: string): Use
               t.peerDeviceId === peerDeviceId && (t.state === 'pending' || t.state === 'transferring')
                 ? { ...t, state: 'failed', errorMessage: message } : t
             ))
+            setReadyPeerIds(prev => {
+              if (!prev.has(peerDeviceId)) return prev
+              const next = new Set(prev)
+              next.delete(peerDeviceId)
+              return next
+            })
+          },
+          onPeerReady: (peerDeviceId) => {
+            setReadyPeerIds(prev => {
+              if (prev.has(peerDeviceId)) return prev
+              const next = new Set(prev)
+              next.add(peerDeviceId)
+              return next
+            })
+          },
+          onDeviceProfile: (peerDeviceId, profile) => {
+            setDeviceProfiles(prev => {
+              const next = new Map(prev)
+              next.set(peerDeviceId, profile)
+              return next
+            })
           },
         },
       )
@@ -160,6 +194,18 @@ export function useRoom(roomId: string, deviceId: string, nickname: string): Use
       }))
       unsubscribers.push(signaling.on('peer-left', (msg: Extract<SignalingInbound, { type: 'peer-left' }>) => {
         setPeers(prev => prev.filter(p => p.deviceId !== msg.deviceId))
+        setReadyPeerIds(prev => {
+          if (!prev.has(msg.deviceId)) return prev
+          const next = new Set(prev)
+          next.delete(msg.deviceId)
+          return next
+        })
+        setDeviceProfiles(prev => {
+          if (!prev.has(msg.deviceId)) return prev
+          const next = new Map(prev)
+          next.delete(msg.deviceId)
+          return next
+        })
       }))
       unsubscribers.push(signaling.on('error', (msg: Extract<SignalingInbound, { type: 'error' }>) => {
         setErrorMessage(`${msg.code}: ${msg.message}`)
@@ -227,6 +273,22 @@ export function useRoom(roomId: string, deviceId: string, nickname: string): Use
     managerRef.current?.broadcastFile(peersRef.current, file)
   }, [])
 
+  const sendControlTo = useCallback((peerDeviceId: string, msg: ControlMessage): boolean => {
+    if (mockEnabledRef.current) {
+      // mock 模式下不发真实控制消息；profile 同步由 mockOrchestrator 通过 setMockDeviceProfile 注入
+      return true
+    }
+    return managerRef.current?.sendControl(peerDeviceId, msg) ?? false
+  }, [])
+
+  const setMockDeviceProfile = useCallback((deviceId: string, profile: DeviceProfile) => {
+    setDeviceProfiles(prev => {
+      const next = new Map(prev)
+      next.set(deviceId, profile)
+      return next
+    })
+  }, [])
+
   const leave = useCallback(() => {
     if (mockEnabledRef.current) {
       mockRef.current?.cleanup()
@@ -244,10 +306,14 @@ export function useRoom(roomId: string, deviceId: string, nickname: string): Use
     peers,
     transfers,
     incoming,
+    deviceProfiles,
+    readyPeerIds,
     acceptIncoming,
     rejectIncoming,
     sendFileTo,
     broadcastFile,
+    sendControlTo,
+    setMockDeviceProfile,
     leave,
   }
 }

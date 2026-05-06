@@ -1,4 +1,4 @@
-import type { Peer, FileOffer, Transfer } from '../types'
+import type { Peer, FileOffer, Transfer, DeviceProfile, DeviceKind } from '../types'
 import { triggerBrowserDownload } from './fileTransfer'
 
 export interface MockOrchestratorDeps {
@@ -10,6 +10,7 @@ export interface MockOrchestratorDeps {
     resolve: (accept: boolean) => void
   } | null) => void
   upsertTransfer: (t: Transfer) => void
+  setMockDeviceProfile: (deviceId: string, profile: DeviceProfile) => void
 }
 
 interface MockOrchestrator {
@@ -18,8 +19,19 @@ interface MockOrchestrator {
   cleanup(): void
 }
 
-const PHONE: Peer = { deviceId: 'mock-phone', nickname: '📱 Mock Phone', joinedAt: 0 }
-const TABLET: Peer = { deviceId: 'mock-tablet', nickname: '🖥️ Mock Tablet', joinedAt: 0 }
+interface MockPeerDef {
+  peer: Peer
+  kind: DeviceKind
+}
+
+const PHONE: MockPeerDef = {
+  peer: { deviceId: 'mock-phone', nickname: '虚拟手机', joinedAt: 0 },
+  kind: 'iphone',
+}
+const TABLET: MockPeerDef = {
+  peer: { deviceId: 'mock-tablet', nickname: '虚拟笔记本', joinedAt: 0 },
+  kind: 'mac',
+}
 
 const SEND_TICK_MS = 80
 const SEND_TICKS = 25            // 总耗时 ≈ 2 秒
@@ -47,22 +59,24 @@ export function createMockOrchestrator(deps: MockOrchestratorDeps): MockOrchestr
   // 阶段 1：立即进入 joined 状态
   deps.setStatus('joined')
 
-  // 阶段 2：0.4s 后 Mock Phone 上线
+  // 阶段 2：0.4s 后虚拟手机上线，并注入设备画像
   setTimer(() => {
-    const peer: Peer = { ...PHONE, joinedAt: Date.now() }
+    const peer: Peer = { ...PHONE.peer, joinedAt: Date.now() }
     deps.setPeers(prev => prev.find(p => p.deviceId === peer.deviceId) ? prev : [...prev, peer])
+    deps.setMockDeviceProfile(peer.deviceId, { kind: PHONE.kind })
   }, 400)
 
-  // 阶段 3：1.0s 后 Mock Tablet 上线
+  // 阶段 3：1.0s 后虚拟笔记本上线，并注入设备画像
   setTimer(() => {
-    const peer: Peer = { ...TABLET, joinedAt: Date.now() }
+    const peer: Peer = { ...TABLET.peer, joinedAt: Date.now() }
     deps.setPeers(prev => prev.find(p => p.deviceId === peer.deviceId) ? prev : [...prev, peer])
+    deps.setMockDeviceProfile(peer.deviceId, { kind: TABLET.kind })
   }, 1000)
 
-  // 阶段 4：3s 后 Mock Phone 主动给你发一份演示文件
+  // 阶段 4：3s 后虚拟手机主动给你发一份演示文件
   setTimer(() => {
     const content = [
-      '这是来自 Mock Phone 的演示文件。',
+      '这是来自虚拟手机的演示文件。',
       '',
       `生成时间：${new Date().toLocaleString('zh-CN')}`,
       '',
@@ -72,12 +86,12 @@ export function createMockOrchestrator(deps: MockOrchestratorDeps): MockOrchestr
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
     const offer: FileOffer = {
       fileId: 'mock-in-' + Date.now(),
-      name: '来自 Mock Phone.txt',
+      name: '来自虚拟手机.txt',
       size: blob.size,
       mime: 'text/plain',
       totalChunks: 1,
     }
-    const peer: Peer = { ...PHONE, joinedAt: Date.now() }
+    const peer: Peer = { ...PHONE.peer, joinedAt: Date.now() }
     deps.setIncoming({
       peer,
       offer,
