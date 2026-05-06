@@ -21,6 +21,33 @@ toolbox:
     busy-timeout-ms: 5000
     journal-mode: WAL
 
+  deeplx:
+    # 翻译提供商: ollama（本地模型，推荐）或 deeplx（本地 DeepL 代理）
+    provider: ollama
+    # Ollama: 基础 URL（不含路径）
+    url: "http://localhost:11434"
+    ollama-model: qwen2.5:3b   # 2GB，日→中质量很好；有余裕可换 qwen2.5:7b
+    # DeepLX: 切换为 deeplx 时把 url 改为 http://localhost:1188/translate
+    token: ""
+    target-lang: ZH            # 目标语言：ZH = 简体中文
+    max-concurrent: 2          # Ollama GPU 并发 2 即可，避免显存打满
+    timeout-seconds: 30        # 小模型首 token 约 1-2s，30s 足够一条字幕
+
+  whisper:
+    # whisper.cpp 二进制路径。CUDA 构建版会自动用 NVIDIA GPU；无 GPU 装 CPU 版亦可。
+    # 下载：https://github.com/ggml-org/whisper.cpp/releases (Windows 选 cuBLAS 版本)
+    binary: "D:\\devapps\\whisper-cublas-12.4.0-bin-x64\\Release\\whisper-cli.exe"
+    # ggml/gguf 模型文件路径。建议 medium (~1.5GB) 起步，质量明显优于 small。
+    # 下载：https://huggingface.co/ggerganov/whisper.cpp/tree/main
+    model-path: "D:\\devapps\\ggml-medium.bin"
+    model-name: medium
+    # 字幕落盘目录。空字符串时由 SubtitleService 兜底 ${toolbox.data-dir}/subtitles。
+    output-dir: ${toolbox.data-dir}/subtitles
+    threads: 0                  # 0 = 让 whisper.cpp 自己挑
+    disable-gpu: false          # CUDA 构建默认走 GPU；调试时可强制改 CPU
+    max-concurrent-jobs: 1      # GPU 一次跑一条最快
+    timeout-seconds: 0          # 0 = 不超时，长片不被砍
+
   mail:
     enabled: false          # 设为 true 启动内嵌 SMTP 服务器
     port: 1025              # Linux 25 端口需要 root；建议用 1025 + iptables 转发

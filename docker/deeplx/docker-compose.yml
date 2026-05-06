@@ -1,0 +1,11 @@
+services:
+  deeplx:
+    image: ghcr.io/owo-network/deeplx:latest
+    container_name: deeplx
+    restart: unless-stopped
+    ports:
+      - "1188:1188"
+    environment:
+      # 留空走免费公共接口，无需注册账号
+      # 如果你有 DeepL 官方免费账号的 Auth Key，填在这里质量和限速更好
+      DEEPLX_TOKEN: ""
