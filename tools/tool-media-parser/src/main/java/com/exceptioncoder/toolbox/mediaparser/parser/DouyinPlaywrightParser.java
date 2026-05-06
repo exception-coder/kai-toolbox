@@ -1,9 +1,12 @@
 package com.exceptioncoder.toolbox.mediaparser.parser;
 
+import com.exceptioncoder.toolbox.mediaparser.config.PageDumpWriter;
 import com.exceptioncoder.toolbox.mediaparser.config.PlaywrightManager;
 import com.exceptioncoder.toolbox.mediaparser.domain.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.microsoft.playwright.Page;
+import com.microsoft.playwright.Response;
 import com.microsoft.playwright.options.WaitUntilState;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -12,27 +15,37 @@ import org.springframework.stereotype.Component;
 
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
- * 抖音 fallback：用 Playwright Chromium 加载分享页，从 _ROUTER_DATA / RENDER_DATA 提取视频 CDN 直链。
+ * 抖音 fallback 解析器：
+ * 1. 主路径：v.douyin.com/{shortcode} → 跟随重定向取 aweme_id → 直接打开 iesdouyin 分享页（仍然有完整 RENDER_DATA）
+ * 2. 兜底：iesdouyin 也提取不到时，回到 www.douyin.com 等 /aweme/v1/web/aweme/detail/ XHR 拦截响应
+ * 3. 失败时把页面 + JSON 转储到 PageDumpWriter，便于离线对比字段
  */
 @Slf4j
 @Component
-@Order(20)  // 比 SnapCdn fallback (10) 优先级再低，仅在 yt-dlp 真没救时启用
+@Order(20)
 @ConditionalOnBean(PlaywrightManager.class)
 public class DouyinPlaywrightParser implements PlatformParser {
 
     private static final String DOUYIN_REFERER = "https://www.douyin.com/";
+    private static final Pattern AWEME_ID_PATTERN = Pattern.compile("/(?:share/)?video/(\\d+)");
+    private static final Pattern AWEME_DETAIL_API = Pattern.compile("/aweme/v\\d/web/aweme/detail/?");
 
     private final PlaywrightManager pw;
     private final ObjectMapper om;
+    private final PageDumpWriter dumper;
 
-    public DouyinPlaywrightParser(PlaywrightManager pw, ObjectMapper om) {
+    public DouyinPlaywrightParser(PlaywrightManager pw, ObjectMapper om, PageDumpWriter dumper) {
         this.pw = pw;
         this.om = om;
+        this.dumper = dumper;
     }
 
     @Override
@@ -43,91 +56,120 @@ public class DouyinPlaywrightParser implements PlatformParser {
     @Override
     public ParseResult parse(String url) {
         log.info("[Douyin-PW] parse: {}", url);
-
-        return pw.withPage(page -> {
-            page.navigate(url, new com.microsoft.playwright.Page.NavigateOptions()
-                    .setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
-            log.info("[Douyin-PW] landed at: {} | title: {}", page.url(), page.title());
-
-            // 抖音用了好几代结构：先尝试 _ROUTER_DATA，再尝试 RENDER_DATA <script>
-            Object routerData = null;
-            try {
-                routerData = page.evaluate("() => window._ROUTER_DATA ?? null");
-            } catch (Exception ignored) {}
-
-            String renderDataRaw = null;
-            try {
-                renderDataRaw = (String) page.evaluate(
-                        "() => document.getElementById('RENDER_DATA')?.textContent ?? null");
-            } catch (Exception ignored) {}
-
-            log.info("[Douyin-PW] _ROUTER_DATA present={}, RENDER_DATA present={}",
-                    routerData != null, renderDataRaw != null);
-
-            JsonNode root = null;
-            try {
-                if (routerData != null) {
-                    root = om.valueToTree(routerData);
-                } else if (renderDataRaw != null) {
-                    String decoded = URLDecoder.decode(renderDataRaw, StandardCharsets.UTF_8);
-                    root = om.readTree(decoded);
-                }
-            } catch (Exception e) {
-                log.warn("[Douyin-PW] parse JSON failed: {}", e.getMessage());
-            }
-
-            if (root == null) {
-                String html = page.content();
-                log.warn("[Douyin-PW] no data found, page.content length={}\n{}",
-                        html.length(), html.length() > 4000 ? html.substring(0, 4000) : html);
-                throw new RuntimeException("抖音页面没有找到 _ROUTER_DATA 或 RENDER_DATA，结构可能已变");
-            }
-
-            log.info("[Douyin-PW] root JSON top-level keys: {}", fieldNames(root));
-            return extract(url, root);
-        });
+        return pw.withPage(page -> doParse(page, url));
     }
 
-    private ParseResult extract(String url, JsonNode root) {
-        // 在树里递归找第一个 play_addr.url_list；不同结构层次都行得通
-        JsonNode itemNode = findFirstItemNode(root);
-        if (itemNode == null) {
-            log.warn("[Douyin-PW] cannot find item node. Full root JSON dump (truncated 8000):\n{}",
-                    truncate(root.toPrettyString(), 8000));
-            throw new RuntimeException("抖音页面 JSON 中未找到视频条目");
-        }
-        log.info("[Douyin-PW] found item node, keys: {}", fieldNames(itemNode));
-        log.debug("[Douyin-PW] item node JSON sample (truncated 4000):\n{}",
-                truncate(itemNode.toPrettyString(), 4000));
+    private ParseResult doParse(Page page, String url) {
+        // ── 阶段 1：解析短链 → 拿 aweme_id ────────────────────────────────────
+        page.navigate(url, new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+        log.info("[Douyin-PW] redirected to: {} | title: {}", page.url(), page.title());
 
+        String awemeId = extractAwemeId(page.url());
+        if (awemeId == null) {
+            // 短链没把 id 暴露在 URL 里。直接尝试当前页面的方案3 兜底
+            log.warn("[Douyin-PW] aweme_id not in URL, fall back to XHR interception");
+            return tryXhrInterception(page, url, null);
+        }
+        log.info("[Douyin-PW] extracted aweme_id={}", awemeId);
+
+        // ── 阶段 2：方案1 — 直接访问 iesdouyin 分享页 ──────────────────────
+        String shareUrl = "https://www.iesdouyin.com/share/video/" + awemeId + "/";
+        page.navigate(shareUrl, new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+        log.info("[Douyin-PW] iesdouyin landed at: {} | title: {}", page.url(), page.title());
+
+        JsonNode root = readRouterAndRenderData(page);
+        if (root != null) {
+            log.info("[Douyin-PW] iesdouyin root keys: {}", fieldNames(root));
+            JsonNode itemNode = findFirstItemNode(root);
+            if (itemNode != null) {
+                log.info("[Douyin-PW] item via iesdouyin, keys: {}", fieldNames(itemNode));
+                return buildFromItem(url, awemeId, itemNode);
+            }
+            log.warn("[Douyin-PW] iesdouyin no item node, falling through to XHR");
+        } else {
+            log.warn("[Douyin-PW] iesdouyin had neither _ROUTER_DATA nor RENDER_DATA");
+        }
+
+        // ── 阶段 3：方案3 兜底 — 回 www.douyin.com 等 XHR ────────────────────
+        return tryXhrInterception(page, url, awemeId);
+    }
+
+    /** 方案3：监听 /aweme/v1/web/aweme/detail/ 响应，从中提取 aweme_detail。 */
+    private ParseResult tryXhrInterception(Page page, String url, String awemeId) {
+        String navUrl = (awemeId != null)
+                ? "https://www.douyin.com/video/" + awemeId
+                : url;
+        log.info("[Douyin-PW] XHR fallback, navigating: {}", navUrl);
+
+        try {
+            Response resp = page.waitForResponse(
+                    r -> AWEME_DETAIL_API.matcher(r.url()).find() && r.status() == 200,
+                    () -> page.navigate(navUrl, new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED))
+            );
+            String body = resp.text();
+            log.info("[Douyin-PW] captured XHR: {} ({} bytes)", resp.url(), body.length());
+
+            JsonNode root = om.readTree(body);
+            JsonNode item = root.path("aweme_detail");
+            if (item.isMissingNode() || item.isNull()) item = findFirstItemNode(root);
+            if (item == null) {
+                Path dump = dumper.dump("douyin-xhr-no-item", url, page, root.toPrettyString());
+                throw new RuntimeException("抖音 XHR 中未找到视频 detail（已转储 " + (dump != null ? dump.toAbsolutePath() : "失败") + "）");
+            }
+            return buildFromItem(url, awemeId, item);
+        } catch (com.microsoft.playwright.PlaywrightException e) {
+            // waitForResponse 超时 / 解析异常都进这里
+            Path dump = dumper.dump("douyin-xhr-timeout", url, page, null);
+            throw new RuntimeException("抖音 XHR 拦截失败: " + e.getMessage()
+                    + (dump != null ? "（已转储 " + dump.toAbsolutePath() + "）" : ""), e);
+        } catch (Exception e) {
+            Path dump = dumper.dump("douyin-xhr-error", url, page, null);
+            throw new RuntimeException("抖音 XHR 解析失败: " + e.getMessage()
+                    + (dump != null ? "（已转储 " + dump.toAbsolutePath() + "）" : ""), e);
+        }
+    }
+
+    /** 抖音页面同时可能有 _ROUTER_DATA（新版）或 RENDER_DATA（旧版/iesdouyin），都试一次。 */
+    private JsonNode readRouterAndRenderData(Page page) {
+        try {
+            Object routerData = page.evaluate("() => window._ROUTER_DATA ?? null");
+            if (routerData != null) return om.valueToTree(routerData);
+        } catch (Exception ignored) {}
+
+        try {
+            String renderData = (String) page.evaluate(
+                    "() => document.getElementById('RENDER_DATA')?.textContent ?? null");
+            if (renderData != null && !renderData.isBlank()) {
+                return om.readTree(URLDecoder.decode(renderData, StandardCharsets.UTF_8));
+            }
+        } catch (Exception ignored) {}
+
+        return null;
+    }
+
+    private String extractAwemeId(String url) {
+        if (url == null) return null;
+        Matcher m = AWEME_ID_PATTERN.matcher(url);
+        return m.find() ? m.group(1) : null;
+    }
+
+    private ParseResult buildFromItem(String originalUrl, String awemeId, JsonNode itemNode) {
         String videoUrl = firstUrlIn(itemNode.path("video").path("play_addr").path("url_list"));
-        // 优先使用无水印（playwm vs playwm。play 通常是无水印；play_addr 是带水印的）
-        String videoUrlNoWatermark = firstUrlIn(itemNode.path("video").path("play_addr_lowbr").path("url_list"));
-        if (videoUrlNoWatermark == null) videoUrlNoWatermark = videoUrl;
-        // 抖音老套路：把 play_addr 中的 playwm 换成 play 拿无水印
-        if (videoUrlNoWatermark != null && videoUrlNoWatermark.contains("playwm")) {
-            videoUrlNoWatermark = videoUrlNoWatermark.replace("playwm", "play");
+        if (videoUrl == null) videoUrl = firstUrlIn(itemNode.path("video").path("playApi").path("url_list"));
+        // 抖音老套路：playwm 改 play 拿无水印
+        if (videoUrl != null && videoUrl.contains("playwm")) {
+            videoUrl = videoUrl.replace("playwm", "play");
+        }
+
+        if (videoUrl == null) {
+            throw new RuntimeException("抖音条目中未找到视频直链 (aweme_id=" + awemeId + ")");
         }
 
         String title     = firstNonBlank(itemNode.path("desc").asText(null), itemNode.path("title").asText(null));
         String author    = itemNode.path("author").path("nickname").asText(null);
         String thumbnail = firstUrlIn(itemNode.path("video").path("cover").path("url_list"));
 
-        if (videoUrlNoWatermark == null && videoUrl == null) {
-            log.warn("[Douyin-PW] no playable URL in item: {}", itemNode);
-            throw new RuntimeException("抖音条目中未找到视频直链");
-        }
-
-        List<MediaItem> items = new ArrayList<>();
-        items.add(MediaItem.builder()
-                .type(MediaItemType.VIDEO)
-                .quality("无水印")
-                .directUrl(videoUrlNoWatermark != null ? videoUrlNoWatermark : videoUrl)
-                .referer(DOUYIN_REFERER)
-                .mimeType("video/mp4")
-                .build());
-        log.info("[Douyin-PW] extracted: title={} author={} videoUrl={}", title, author,
-                items.get(0).getDirectUrl());
+        log.info("[Douyin-PW] extracted: title={} author={} videoUrl={}", title, author, videoUrl);
 
         return ParseResult.builder()
                 .platform(Platform.DOUYIN)
@@ -135,21 +177,22 @@ public class DouyinPlaywrightParser implements PlatformParser {
                 .title(title)
                 .author(author)
                 .thumbnail(thumbnail)
-                .items(items)
-                .originalUrl(url)
+                .items(List.of(MediaItem.builder()
+                        .type(MediaItemType.VIDEO)
+                        .quality("无水印")
+                        .directUrl(videoUrl)
+                        .referer(DOUYIN_REFERER)
+                        .mimeType("video/mp4")
+                        .build()))
+                .originalUrl(originalUrl)
                 .build();
     }
 
-    /** 递归找第一个像 video item 的节点（同时含 video.play_addr 和 author 字段）。 */
+    /** 在树里递归找第一个含 video.play_addr 的节点。 */
     private JsonNode findFirstItemNode(JsonNode node) {
-        if (node == null || node.isMissingNode()) return null;
+        if (node == null || node.isMissingNode() || node.isNull()) return null;
         if (node.has("video") && node.path("video").has("play_addr")) return node;
-        if (node.isArray()) {
-            for (JsonNode child : node) {
-                JsonNode hit = findFirstItemNode(child);
-                if (hit != null) return hit;
-            }
-        } else if (node.isObject()) {
+        if (node.isArray() || node.isObject()) {
             for (JsonNode child : node) {
                 JsonNode hit = findFirstItemNode(child);
                 if (hit != null) return hit;
@@ -178,8 +221,4 @@ public class DouyinPlaywrightParser implements PlatformParser {
         return names;
     }
 
-    private String truncate(String s, int max) {
-        if (s == null || s.length() <= max) return s;
-        return s.substring(0, max) + "\n...(truncated, total " + s.length() + " chars)";
-    }
 }

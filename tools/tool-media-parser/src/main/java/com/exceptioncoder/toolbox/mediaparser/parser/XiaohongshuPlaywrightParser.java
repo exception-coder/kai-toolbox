@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.mediaparser.parser;
 
+import com.exceptioncoder.toolbox.mediaparser.config.PageDumpWriter;
 import com.exceptioncoder.toolbox.mediaparser.config.PlaywrightManager;
 import com.exceptioncoder.toolbox.mediaparser.domain.*;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -10,6 +11,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -28,10 +30,12 @@ public class XiaohongshuPlaywrightParser implements PlatformParser {
 
     private final PlaywrightManager pw;
     private final ObjectMapper om;
+    private final PageDumpWriter dumper;
 
-    public XiaohongshuPlaywrightParser(PlaywrightManager pw, ObjectMapper om) {
+    public XiaohongshuPlaywrightParser(PlaywrightManager pw, ObjectMapper om, PageDumpWriter dumper) {
         this.pw = pw;
         this.om = om;
+        this.dumper = dumper;
     }
 
     @Override
@@ -52,10 +56,9 @@ public class XiaohongshuPlaywrightParser implements PlatformParser {
             try {
                 page.waitForFunction("() => !!window.__INITIAL_STATE__");
             } catch (Exception e) {
-                String html = page.content();
-                log.warn("[XHS-PW] __INITIAL_STATE__ never appeared (probably blocked by Cloudflare/login). page.content sample:\n{}",
-                        html.length() > 4000 ? html.substring(0, 4000) : html);
-                throw new RuntimeException("小红书未注入 __INITIAL_STATE__，疑似风控/登录墙: " + e.getMessage());
+                Path dump = dumper.dump("xhs-no-state", url, page, null);
+                throw new RuntimeException("小红书未注入 __INITIAL_STATE__，疑似风控/登录墙: " + e.getMessage()
+                        + (dump != null ? "（已转储 " + dump.toAbsolutePath() + "）" : ""), e);
             }
 
             Object stateObj = page.evaluate("() => window.__INITIAL_STATE__");
@@ -69,12 +72,9 @@ public class XiaohongshuPlaywrightParser implements PlatformParser {
 
             JsonNode note = findNoteNode(state);
             if (note == null) {
-                log.warn("[XHS-PW] cannot locate note. Full __INITIAL_STATE__ dump (truncated 8000):\n{}",
-                        truncate(state.toPrettyString(), 8000));
-                String html = page.content();
-                log.warn("[XHS-PW] page.content sample:\n{}",
-                        html.length() > 4000 ? html.substring(0, 4000) : html);
-                throw new RuntimeException("小红书页面未找到笔记数据，可能是登录态/风控限制");
+                Path dump = dumper.dump("xhs-no-note", url, page, state.toPrettyString());
+                throw new RuntimeException("小红书页面未找到笔记数据，可能是登录态/风控限制"
+                        + (dump != null ? "（已转储 " + dump.toAbsolutePath() + "）" : ""));
             }
             log.info("[XHS-PW] note keys: {}, type={}", fieldNames(note), note.path("type").asText("?"));
             log.debug("[XHS-PW] note JSON sample (truncated 4000):\n{}",

@@ -15,6 +15,8 @@ public class MediaParserProperties {
     private String proxy;
     /** Playwright 浏览器降级（抖音/小红书等需要绕 Cloudflare/反爬时用）。 */
     private Playwright playwright = new Playwright();
+    /** 解析失败时，把页面 HTML / 抓到的 JSON 转储到这个目录便于离线分析；空则使用 ${user.home}/.kai-toolbox/media-parser/dumps */
+    private String dumpDir;
 
     @Data
     public static class Playwright {
