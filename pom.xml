@@ -24,6 +24,7 @@
         <module>tools/tool-treesize</module>
         <module>tools/tool-flatten</module>
         <module>tools/tool-lan-share</module>
+        <module>tools/tool-mail</module>
         <module>toolbox-starter</module>
     </modules>
 
@@ -57,6 +58,11 @@
             <dependency>
                 <groupId>com.exceptioncoder</groupId>
                 <artifactId>tool-lan-share</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-mail</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

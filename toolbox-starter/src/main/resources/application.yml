@@ -21,6 +21,14 @@ toolbox:
     busy-timeout-ms: 5000
     journal-mode: WAL
 
+  mail:
+    enabled: false          # 设为 true 启动内嵌 SMTP 服务器
+    port: 1025              # Linux 25 端口需要 root；建议用 1025 + iptables 转发
+    hostname: localhost     # SMTP EHLO 响应 hostname
+    sender-whitelist:       # 发件人白名单，空列表接受所有来源
+      # - "@amazon.com"
+      # - "@ebay.com"
+
 logging:
   level:
     root: INFO
