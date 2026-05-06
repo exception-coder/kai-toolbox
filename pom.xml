@@ -25,6 +25,7 @@
         <module>tools/tool-flatten</module>
         <module>tools/tool-lan-share</module>
         <module>tools/tool-mail</module>
+        <module>tools/tool-media-parser</module>
         <module>toolbox-starter</module>
     </modules>
 
@@ -63,6 +64,11 @@
             <dependency>
                 <groupId>com.exceptioncoder</groupId>
                 <artifactId>tool-mail</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-media-parser</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
