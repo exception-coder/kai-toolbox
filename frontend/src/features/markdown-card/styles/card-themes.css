@@ -1,0 +1,266 @@
+/* Markdown 卡片主题：5 套配色，全部用 [data-md-theme="xxx"] 选择器隔离，不污染全局样式 */
+
+[data-md-theme] {
+  --md-card-bg: #ffffff;
+  --md-card-fg: #1f2328;
+  --md-card-heading: #0d1117;
+  --md-card-subheading: #6a737d;
+  --md-card-link: #0969da;
+  --md-card-quote-bg: #f6f8fa;
+  --md-card-quote-border: #d0d7de;
+  --md-card-code-bg: #f6f8fa;
+  --md-card-code-fg: #1f2328;
+  --md-card-divider: #d0d7de;
+  --md-card-watermark: #6a737d;
+  --md-card-font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+    "Helvetica Neue", Arial, sans-serif;
+  --md-card-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* ==== minimal ==== */
+[data-md-theme="minimal"] {
+  --md-card-bg: #ffffff;
+  --md-card-fg: #1f2328;
+  --md-card-heading: #0d1117;
+  --md-card-subheading: #6a737d;
+}
+
+/* ==== dark ==== */
+[data-md-theme="dark"] {
+  --md-card-bg: #0d1117;
+  --md-card-fg: #c9d1d9;
+  --md-card-heading: #f0f6fc;
+  --md-card-subheading: #8b949e;
+  --md-card-link: #58a6ff;
+  --md-card-quote-bg: #161b22;
+  --md-card-quote-border: #30363d;
+  --md-card-code-bg: #161b22;
+  --md-card-code-fg: #c9d1d9;
+  --md-card-divider: #30363d;
+  --md-card-watermark: #8b949e;
+}
+
+/* ==== xiaohongshu ==== */
+[data-md-theme="xiaohongshu"] {
+  --md-card-bg: #fff3f1;
+  --md-card-fg: #2b2b2b;
+  --md-card-heading: #ff2442;
+  --md-card-subheading: #b35260;
+  --md-card-link: #ff2442;
+  --md-card-quote-bg: #ffe6e0;
+  --md-card-quote-border: #ff8a99;
+  --md-card-code-bg: #ffe6e0;
+  --md-card-code-fg: #2b2b2b;
+  --md-card-divider: #ffc8c2;
+  --md-card-watermark: #b35260;
+}
+
+/* ==== zhihu ==== */
+[data-md-theme="zhihu"] {
+  --md-card-bg: #f6f6f6;
+  --md-card-fg: #1a1a1a;
+  --md-card-heading: #0066ff;
+  --md-card-subheading: #646464;
+  --md-card-link: #0066ff;
+  --md-card-quote-bg: #ebf3ff;
+  --md-card-quote-border: #b3d1ff;
+  --md-card-code-bg: #ebebeb;
+  --md-card-code-fg: #1a1a1a;
+  --md-card-divider: #e0e0e0;
+  --md-card-watermark: #8590a6;
+  --md-card-font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+/* ==== terminal ==== */
+[data-md-theme="terminal"] {
+  --md-card-bg: #0b0f17;
+  --md-card-fg: #b6f0c0;
+  --md-card-heading: #7df9a8;
+  --md-card-subheading: #4ea36a;
+  --md-card-link: #5ad7ff;
+  --md-card-quote-bg: #11161f;
+  --md-card-quote-border: #2a3a4a;
+  --md-card-code-bg: #11161f;
+  --md-card-code-fg: #b6f0c0;
+  --md-card-divider: #2a3a4a;
+  --md-card-watermark: #4ea36a;
+  --md-card-font-family: var(--md-card-font-mono);
+}
+
+/* ==== 卡片公共内容样式（无论主题） ==== */
+.md-card-content {
+  background: var(--md-card-bg);
+  color: var(--md-card-fg);
+  font-family: var(--md-card-font-family);
+  line-height: 1.7;
+  font-size: 16px;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.md-card-content h1,
+.md-card-content h2,
+.md-card-content h3,
+.md-card-content h4,
+.md-card-content h5,
+.md-card-content h6 {
+  color: var(--md-card-heading);
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 1.4em 0 0.6em;
+}
+
+.md-card-content h1 { font-size: 1.7em; }
+.md-card-content h2 { font-size: 1.4em; }
+.md-card-content h3 { font-size: 1.2em; }
+.md-card-content h4 { font-size: 1.05em; }
+
+.md-card-content p { margin: 0.7em 0; }
+.md-card-content a { color: var(--md-card-link); text-decoration: underline; text-underline-offset: 3px; }
+.md-card-content strong { color: var(--md-card-heading); }
+.md-card-content em { font-style: italic; }
+.md-card-content del { color: var(--md-card-subheading); }
+
+.md-card-content ul,
+.md-card-content ol {
+  margin: 0.7em 0;
+  padding-left: 1.5em;
+}
+.md-card-content li { margin: 0.25em 0; }
+
+.md-card-content blockquote {
+  margin: 1em 0;
+  padding: 0.6em 1em;
+  background: var(--md-card-quote-bg);
+  border-left: 4px solid var(--md-card-quote-border);
+  border-radius: 4px;
+  color: var(--md-card-subheading);
+}
+
+.md-card-content code {
+  font-family: var(--md-card-font-mono);
+  background: var(--md-card-code-bg);
+  color: var(--md-card-code-fg);
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  font-size: 0.92em;
+}
+
+.md-card-content pre {
+  background: var(--md-card-code-bg);
+  color: var(--md-card-code-fg);
+  padding: 1em 1.2em;
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 0.9em;
+  line-height: 1.55;
+  margin: 1em 0;
+}
+.md-card-content pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+
+.md-card-content hr {
+  border: none;
+  border-top: 1px solid var(--md-card-divider);
+  margin: 1.5em 0;
+}
+
+.md-card-content table {
+  border-collapse: collapse;
+  margin: 1em 0;
+  width: 100%;
+}
+.md-card-content th,
+.md-card-content td {
+  border: 1px solid var(--md-card-divider);
+  padding: 0.45em 0.7em;
+  text-align: left;
+}
+.md-card-content th {
+  background: var(--md-card-quote-bg);
+  color: var(--md-card-heading);
+  font-weight: 600;
+}
+
+.md-card-content img {
+  max-width: 100%;
+  border-radius: 8px;
+}
+
+.md-card-content .md-card-error {
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+
+/* ==== 小红书卡专属容器 ==== */
+.md-card-xhs {
+  width: 750px;
+  min-height: 1000px;
+  padding: 56px 48px;
+  background: var(--md-card-bg);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+.md-card-xhs .md-card-content { flex: 1; }
+.md-card-xhs-watermark {
+  margin-top: 32px;
+  padding-top: 20px;
+  border-top: 1px solid var(--md-card-divider);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.md-card-xhs-signature-block {
+  flex: 1;
+  min-width: 0;
+}
+.md-card-xhs-signature {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--md-card-heading);
+  line-height: 1.3;
+}
+.md-card-xhs-subsignature {
+  font-size: 14px;
+  color: var(--md-card-watermark);
+  margin-top: 4px;
+  line-height: 1.3;
+}
+.md-card-xhs-qrcode {
+  width: 84px;
+  height: 84px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #fff;
+  flex-shrink: 0;
+}
+
+/* ==== 幻灯卡专属容器 ==== */
+.md-card-slide {
+  background: var(--md-card-bg);
+  padding: 60px 80px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+}
+.md-card-slide .md-card-content { font-size: 22px; line-height: 1.55; }
+.md-card-slide .md-card-content h1 { font-size: 2.4em; }
+.md-card-slide .md-card-content h2 { font-size: 1.8em; }
+.md-card-slide .md-card-content pre { font-size: 0.9em; }
+
+/* ==== 预览卡专属容器 ==== */
+.md-card-preview {
+  background: var(--md-card-bg);
+  padding: 32px 40px;
+  border-radius: 12px;
+  box-sizing: border-box;
+}
