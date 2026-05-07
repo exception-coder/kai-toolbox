@@ -7,6 +7,12 @@ import './lib/mock/loader'
 import App from './App'
 import { ConfirmProvider } from '@/components/ui/confirm-dialog'
 
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => { /* ignore registration failure */ })
+  })
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

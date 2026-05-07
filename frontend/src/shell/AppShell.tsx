@@ -4,6 +4,7 @@ import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import { features } from './featureRegistry'
+import { PwaInstallPrompt } from './PwaInstallPrompt'
 
 export function AppShell() {
   const [collapsed, setCollapsed] = useState(false)
@@ -38,6 +39,7 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
+      <PwaInstallPrompt />
     </div>
   )
 }
