@@ -25,8 +25,8 @@ toolbox:
     # 默认走 PATH。本机非 PATH 安装时用环境变量覆盖：
     #   TOOLBOX_FFMPEG_BINARY=D:\devapps\ffmpeg\bin\ffmpeg.exe
     #   TOOLBOX_FFPROBE_BINARY=D:\devapps\ffmpeg\bin\ffprobe.exe
-    binary: ${TOOLBOX_FFMPEG_BINARY:ffmpeg}
-    ffprobe-binary: ${TOOLBOX_FFPROBE_BINARY:ffprobe}
+    binary: ${TOOLBOX_FFMPEG_BINARY:D:\devapps\ffmpeg-8.1.1-full_build\bin\ffmpeg.exe}
+    ffprobe-binary: ${TOOLBOX_FFPROBE_BINARY:D:\devapps\ffmpeg-8.1.1-full_build\bin\ffprobe.exe}
     probe-timeout-ms: 5000
     # 硬件加速（仅 HLS 重编码路径有效；视频编码已是 h264 时直接 copy 不走这里）。
     # 留空 = 纯 CPU 软编。可选：qsv（Intel Quick Sync）、nvenc（NVIDIA）、amf（AMD)、
@@ -79,7 +79,8 @@ toolbox:
       - rmvb
       - 3gp
       - ts
-      - mts
+      # mts 故意不在默认列表：和 TypeScript ESM (.mts / .d.mts) 撞扩展，开发者磁盘上几乎全是噪音。
+      # 真有 AVCHD 录像 (.mts) 的用户请按需手动加回。
       - m2ts
       - vob
       - asf
@@ -92,8 +93,8 @@ toolbox:
     # 默认走 PATH。本机非 PATH 安装时用环境变量覆盖：
     #   TOOLBOX_YT_DLP_BINARY=D:\devapps\yt-dlp.exe
     #   TOOLBOX_FFMPEG_BINARY=D:\devapps\ffmpeg\bin\ffmpeg.exe
-    yt-dlp-binary: ${TOOLBOX_YT_DLP_BINARY:yt-dlp}
-    ffmpeg-binary: ${TOOLBOX_FFMPEG_BINARY:ffmpeg}
+    yt-dlp-binary: ${TOOLBOX_YT_DLP_BINARY:D:\devapps\yt-dlp.exe}
+    ffmpeg-binary: ${TOOLBOX_FFMPEG_BINARY:D:\devapps\ffmpeg-8.1.1-full_build\bin\ffmpeg.exe}
     read-timeout-seconds: 60       # 元数据解析超时
     download-timeout-seconds: 300  # 文件下载超时（5 分钟，大视频用）
     # 统一代理：留空走直连；填了会同时应用到 Jsoup / HttpClient / yt-dlp --proxy。

@@ -133,15 +133,22 @@ export function VideoPlayer({
   }, [mode, scanId, path, videoEl])
 
   return (
+    // Default aspect-video keeps the player a 16:9 box inside non-fullscreen layouts; the
+    // library panel passes `aspect-auto` + flex sizing in fullscreen so the video can grow
+    // and a bottom control bar can sit beneath it.
     <div className={cn('relative aspect-video w-full bg-black', className)}>
       <video
         ref={setVideoEl}
         controls
+        // The library panel wraps this element with its own fullscreen container that
+        // also overlays prev/next/playlist buttons; the native fullscreen button would
+        // promote only the <video> itself and hide that overlay.
+        controlsList="nofullscreen"
         autoPlay
         playsInline
         preload="metadata"
         crossOrigin="anonymous"
-        className="h-full w-full"
+        className="h-full w-full object-contain"
       >
         {subtitleUrl && subtitleMode !== 'off' && (
           <track

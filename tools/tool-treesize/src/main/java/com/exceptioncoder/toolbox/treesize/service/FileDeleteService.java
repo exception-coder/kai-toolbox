@@ -34,28 +34,103 @@ public class FileDeleteService {
         this.nodes = nodes;
     }
 
+    /** Backoff between attempts (ms). Length determines retry count = backoff.length + 1. */
+    private static final long[] DELETE_BACKOFF_MS = {200L, 400L};
+
     /**
      * Delete {@code file} (already validated by {@link PathAccessGuard}) and remove its row
      * from {@code treesize_node}. Returns whether the OS-level move-to-trash actually fired
      * (false ⇒ permanent delete fallback).
+     *
+     * <p>Trash-first is intentional: if the user reports "I clicked the wrong file" the
+     * recycle bin is the only path to recovery. When trash is unavailable the reason is
+     * logged at WARN so the user can audit which deletes were permanent.
+     *
+     * <p>Both trash and permanent-delete paths retry with backoff because this service is
+     * called against files the user may have just stopped watching: hls.js destroy, GET
+     * teardown, and ffmpeg reap all take tens-to-hundreds of ms, during which Windows still
+     * holds the read handle open and {@code moveToTrash} returns false (or {@code Files.delete}
+     * throws "file in use"). One retry pass covers the realistic teardown window without
+     * making cold deletes meaningfully slower.
      */
     public boolean deleteByPath(String scanId, Path file) throws IOException {
-        boolean toTrash = false;
-        if (Desktop.isDesktopSupported()) {
-            Desktop desktop = Desktop.getDesktop();
-            if (desktop.isSupported(Desktop.Action.MOVE_TO_TRASH)) {
-                try {
-                    toTrash = desktop.moveToTrash(file.toFile());
-                } catch (UnsupportedOperationException | SecurityException e) {
-                    log.debug("moveToTrash unavailable, falling back to permanent delete: {}", e.toString());
+        String absPath = file.toAbsolutePath().toString();
+
+        TrashOutcome trashOutcome = tryMoveToTrashWithRetry(file, absPath);
+        if (trashOutcome.success) {
+            nodes.deleteByScanAndPath(scanId, absPath);
+            return true;
+        }
+
+        log.warn("delete: cannot move to recycle bin, falling back to PERMANENT delete. path={} reason={}",
+                absPath, trashOutcome.reason);
+        permanentDeleteWithRetry(file, absPath);
+        nodes.deleteByScanAndPath(scanId, absPath);
+        return false;
+    }
+
+    private TrashOutcome tryMoveToTrashWithRetry(Path file, String absPath) {
+        if (!Desktop.isDesktopSupported()) {
+            return TrashOutcome.failed("Desktop API unsupported on this JRE/headless environment");
+        }
+        Desktop desktop = Desktop.getDesktop();
+        if (!desktop.isSupported(Desktop.Action.MOVE_TO_TRASH)) {
+            return TrashOutcome.failed("Desktop.Action.MOVE_TO_TRASH unsupported on this OS");
+        }
+
+        String lastReason = null;
+        int attempts = DELETE_BACKOFF_MS.length + 1;
+        for (int i = 0; i < attempts; i++) {
+            try {
+                if (desktop.moveToTrash(file.toFile())) {
+                    log.info("delete: moved to recycle bin path={} attempt={}/{}", absPath, i + 1, attempts);
+                    return TrashOutcome.ok();
+                }
+                lastReason = "moveToTrash returned false (OS denied, file in use, or trash full)";
+            } catch (UnsupportedOperationException | SecurityException e) {
+                // These are platform-level "no" — retrying won't change the answer.
+                return TrashOutcome.failed("moveToTrash threw "
+                        + e.getClass().getSimpleName() + ": " + e.getMessage());
+            }
+            if (i < DELETE_BACKOFF_MS.length) {
+                sleepQuiet(DELETE_BACKOFF_MS[i]);
+            }
+        }
+        return TrashOutcome.failed(lastReason + " (after " + attempts + " attempts)");
+    }
+
+    private void permanentDeleteWithRetry(Path file, String absPath) throws IOException {
+        IOException last = null;
+        int attempts = DELETE_BACKOFF_MS.length + 1;
+        for (int i = 0; i < attempts; i++) {
+            try {
+                Files.delete(file);
+                log.warn("delete: permanent delete done path={} attempt={}/{}", absPath, i + 1, attempts);
+                return;
+            } catch (IOException e) {
+                last = e;
+                log.debug("delete: permanent delete attempt {}/{} failed for {}: {}",
+                        i + 1, attempts, absPath, e.toString());
+                if (i < DELETE_BACKOFF_MS.length) {
+                    sleepQuiet(DELETE_BACKOFF_MS[i]);
                 }
             }
         }
-        if (!toTrash) {
-            Files.delete(file);
+        log.error("delete: PERMANENT delete failed after {} attempts path={}", attempts, absPath, last);
+        throw last;
+    }
+
+    private static void sleepQuiet(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
         }
-        nodes.deleteByScanAndPath(scanId, file.toAbsolutePath().toString());
-        return toTrash;
+    }
+
+    private record TrashOutcome(boolean success, String reason) {
+        static TrashOutcome ok() { return new TrashOutcome(true, null); }
+        static TrashOutcome failed(String reason) { return new TrashOutcome(false, reason); }
     }
 
     /** Aggregate result of a junk-cleanup pass. */

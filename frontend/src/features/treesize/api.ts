@@ -39,8 +39,13 @@ export function deleteScan(id: string) {
   return http<void>(`/treesize/scans/${id}`, { method: 'DELETE' })
 }
 
+/** Server signals whether the OS recycle bin actually accepted the file (false = permanent delete). */
+export interface DeleteFileResult {
+  toTrash: boolean
+}
+
 export function deleteFile(scanId: string, path: string) {
-  return http<void>(`/treesize/scans/${scanId}/file?path=${encodeURIComponent(path)}`, {
+  return http<DeleteFileResult>(`/treesize/scans/${scanId}/file?path=${encodeURIComponent(path)}`, {
     method: 'DELETE',
   })
 }

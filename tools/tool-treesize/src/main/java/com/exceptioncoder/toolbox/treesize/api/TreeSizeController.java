@@ -235,11 +235,14 @@ public class TreeSizeController {
                 .body(body);
     }
 
+    /** Result of a single-file delete. {@code toTrash=false} means the file was permanently removed. */
+    public record DeleteFileResult(boolean toTrash) {}
+
     @DeleteMapping("/scans/{id}/file")
-    public ResponseEntity<Void> deleteFile(@PathVariable String id, @RequestParam String path) throws IOException {
+    public DeleteFileResult deleteFile(@PathVariable String id, @RequestParam String path) throws IOException {
         Path file = guard.resolve(id, path);
-        fileDelete.deleteByPath(id, file);
-        return ResponseEntity.noContent().build();
+        boolean toTrash = fileDelete.deleteByPath(id, file);
+        return new DeleteFileResult(toTrash);
     }
 
     /**
