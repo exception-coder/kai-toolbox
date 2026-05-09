@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { File, FileVideo, Folder, Trash2 } from 'lucide-react'
+import { File, FileVideo, Folder, Link2, Trash2 } from 'lucide-react'
 import { cn, formatBytes, formatNumber } from '@/lib/utils'
 import type { NodeView } from '../types'
 import { isVideoFile } from '../utils'
@@ -11,13 +11,14 @@ interface ChildrenListProps {
   onNavigate: (node: NodeView) => void
   onPlayVideo?: (node: NodeView) => void
   onDeleteFile?: (node: NodeView) => void
+  onSymlinkDir?: (node: NodeView) => void
 }
 
 /** Each row carries an icon SVG, abs-positioned ratio bar and several spans; rendering
  *  thousands at once blocks the main thread. Cap and let the user reveal more on demand. */
 const PAGE_SIZE = 200
 
-export function ChildrenList({ nodes, totalSize, videoExtensions, onNavigate, onPlayVideo, onDeleteFile }: ChildrenListProps) {
+export function ChildrenList({ nodes, totalSize, videoExtensions, onNavigate, onPlayVideo, onDeleteFile, onSymlinkDir }: ChildrenListProps) {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
 
   useEffect(() => {
@@ -59,13 +60,15 @@ export function ChildrenList({ nodes, totalSize, videoExtensions, onNavigate, on
           const isVideo = !n.dir && isVideoFile(n.name, videoExtensions)
           const clickable = n.dir || (isVideo && !!onPlayVideo)
           const showDelete = !!onDeleteFile && !n.dir
+          const showSymlink = !!onSymlinkDir && n.dir
+          const rightPad = showDelete ? 'pl-3 pr-10 sm:pl-4 sm:pr-11' : showSymlink ? 'pl-3 pr-10 sm:pl-4 sm:pr-11' : 'px-3 sm:px-4'
           return (
             <li
               key={n.path}
               className={cn(
                 'group relative grid grid-cols-[1fr_auto] items-center gap-3 border-b py-2.5 text-sm transition-colors last:border-b-0',
                 'sm:grid-cols-[1fr_120px_120px_60px]',
-                showDelete ? 'pl-3 pr-10 sm:pl-4 sm:pr-11' : 'px-3 sm:px-4',
+                rightPad,
                 clickable ? 'cursor-pointer hover:bg-[var(--color-accent)]' : 'cursor-default'
               )}
               onClick={clickable ? () => handleClick(n) : undefined}
@@ -107,6 +110,19 @@ export function ChildrenList({ nodes, totalSize, videoExtensions, onNavigate, on
                   className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1.5 text-[var(--color-muted-foreground)] transition-colors hover:bg-[var(--color-destructive)]/10 hover:text-[var(--color-destructive)]"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {showSymlink && (
+                <button
+                  type="button"
+                  onClick={e => {
+                    e.stopPropagation()
+                    onSymlinkDir!(n)
+                  }}
+                  title="移动并创建软链接（如挪到 D 盘）"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1.5 text-[var(--color-muted-foreground)] transition-colors hover:bg-[var(--color-primary)]/10 hover:text-[var(--color-primary)]"
+                >
+                  <Link2 className="h-3.5 w-3.5" />
                 </button>
               )}
             </li>

@@ -126,6 +126,24 @@ public class NodeRepository {
                 scanId, path);
     }
 
+    /**
+     * Drop the row for {@code path} along with every descendant row beneath it.
+     * Used after a directory is relocated and replaced by a symlink — the new symlink target
+     * is outside the original scan, so the rows would otherwise remain stale until next rescan.
+     * Both Windows ({@code \}) and POSIX ({@code /}) prefix shapes are matched so a Windows
+     * scan still works if any nodes were stored with forward slashes.
+     */
+    public int deleteSubtreeByPath(String scanId, String path) {
+        String winPrefix = path.endsWith("\\") ? path + "%" : path + "\\%";
+        String unixPrefix = path.endsWith("/") ? path + "%" : path + "/%";
+        jdbc.update(
+                "DELETE FROM treesize_node_meta WHERE scan_id = ? AND (path = ? OR path LIKE ? OR path LIKE ?)",
+                scanId, path, winPrefix, unixPrefix);
+        return jdbc.update(
+                "DELETE FROM treesize_node WHERE scan_id = ? AND (path = ? OR path LIKE ? OR path LIKE ?)",
+                scanId, path, winPrefix, unixPrefix);
+    }
+
     /** Paged result with the total count baked in via {@code COUNT(*) OVER ()} so a single query covers both. */
     public record VideoSearchResult(List<VideoFile> items, long total) {}
 

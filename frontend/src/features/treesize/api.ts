@@ -50,6 +50,29 @@ export function deleteFile(scanId: string, path: string) {
   })
 }
 
+export interface SymlinkPayload {
+  sourcePath: string
+  targetPath: string
+  taskId?: string
+}
+
+export interface SymlinkResult {
+  sourcePath: string
+  targetPath: string
+  movedBytes: number
+}
+
+export function createSymlink(scanId: string, payload: SymlinkPayload) {
+  return http<SymlinkResult>(`/treesize/scans/${scanId}/symlink`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function symlinkEventsPath(taskId: string): string {
+  return `/treesize/symlink-events/${taskId}`
+}
+
 export function listSshHosts() {
   return http<SshHostView[]>('/treesize/ssh-hosts')
 }

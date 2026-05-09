@@ -15,9 +15,10 @@ import { ChildrenList } from '../components/ChildrenList'
 import { Treemap } from '../components/Treemap'
 import { VideoPlayerModal } from '../components/VideoPlayerModal'
 import { CleanupRecommendations } from '../components/CleanupRecommendations'
+import { SymlinkDialog } from '../components/SymlinkDialog'
 import { useScanEvents } from '../hooks/useScanEvents'
 import { useVideoConfig } from '../hooks/useVideoConfig'
-import { deleteFile, deleteScan, getChildren, listScans, startScan } from '../api'
+import { createSymlink, deleteFile, deleteScan, getChildren, listScans, startScan } from '../api'
 import type { NodeView, ScanView, StartScanPayload } from '../types'
 
 export function TreeSizePage() {
@@ -135,6 +136,7 @@ function ScanResultView({
   const confirm = useConfirm()
   const queryPath = currentPath ?? scan.rootPath
   const isRemote = scan.sourceType === 'SSH'
+  const [symlinkTarget, setSymlinkTarget] = useState<NodeView | null>(null)
 
   const { data: children = [], isLoading } = useQuery({
     queryKey: ['treesize-children', scan.id, queryPath],
@@ -143,6 +145,14 @@ function ScanResultView({
 
   const deleteMutation = useMutation({
     mutationFn: (node: NodeView) => deleteFile(scan.id, node.path),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['treesize-children', scan.id] })
+    },
+  })
+
+  const symlinkMutation = useMutation({
+    mutationFn: ({ node, target, taskId }: { node: NodeView; target: string; taskId: string }) =>
+      createSymlink(scan.id, { sourcePath: node.path, targetPath: target, taskId }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['treesize-children', scan.id] })
     },
@@ -203,10 +213,21 @@ function ScanResultView({
             onNavigate={handleNavigate}
             onPlayVideo={isRemote ? undefined : onPlayVideo}
             onDeleteFile={isRemote ? undefined : handleDelete}
+            onSymlinkDir={isRemote ? undefined : setSymlinkTarget}
           />
           <CleanupRecommendations scanId={scan.id} />
         </>
       )}
+      <SymlinkDialog
+        open={!!symlinkTarget}
+        node={symlinkTarget}
+        onCancel={() => setSymlinkTarget(null)}
+        onConfirm={async (target, taskId) => {
+          if (!symlinkTarget) return
+          await symlinkMutation.mutateAsync({ node: symlinkTarget, target, taskId })
+          setSymlinkTarget(null)
+        }}
+      />
     </div>
   )
 }

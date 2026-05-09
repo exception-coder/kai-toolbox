@@ -11,6 +11,8 @@ import com.exceptioncoder.toolbox.treesize.api.dto.CleanupCandidateView;
 import com.exceptioncoder.toolbox.treesize.api.dto.SshHostRequest;
 import com.exceptioncoder.toolbox.treesize.api.dto.SshHostView;
 import com.exceptioncoder.toolbox.treesize.api.dto.SubtitleJobView;
+import com.exceptioncoder.toolbox.treesize.api.dto.SymlinkRequest;
+import com.exceptioncoder.toolbox.treesize.api.dto.SymlinkResultView;
 import com.exceptioncoder.toolbox.treesize.api.dto.TestSshHostResultView;
 import com.exceptioncoder.toolbox.treesize.api.dto.VideoConfigView;
 import com.exceptioncoder.toolbox.treesize.api.dto.VideoLibraryItemView;
@@ -30,6 +32,7 @@ import com.exceptioncoder.toolbox.treesize.service.ScanService;
 import com.exceptioncoder.toolbox.treesize.service.CleanupAdvisor;
 import com.exceptioncoder.toolbox.treesize.service.SshHostService;
 import com.exceptioncoder.toolbox.treesize.service.SubtitleService;
+import com.exceptioncoder.toolbox.treesize.service.SymlinkService;
 import com.exceptioncoder.toolbox.treesize.service.ThumbnailWarmer;
 import jakarta.validation.Valid;
 import org.springframework.core.io.FileSystemResource;
@@ -66,6 +69,7 @@ public class TreeSizeController {
     private final SubtitleService subtitles;
     private final SshHostService sshHosts;
     private final CleanupAdvisor cleanupAdvisor;
+    private final SymlinkService symlink;
 
     public TreeSizeController(ScanService scanService,
                               ScanRepository scans,
@@ -82,7 +86,8 @@ public class TreeSizeController {
                               VideoExtensionsProperties videoExt,
                               SubtitleService subtitles,
                               SshHostService sshHosts,
-                              CleanupAdvisor cleanupAdvisor) {
+                              CleanupAdvisor cleanupAdvisor,
+                              SymlinkService symlink) {
         this.scanService = scanService;
         this.scans = scans;
         this.nodes = nodes;
@@ -99,6 +104,7 @@ public class TreeSizeController {
         this.subtitles = subtitles;
         this.sshHosts = sshHosts;
         this.cleanupAdvisor = cleanupAdvisor;
+        this.symlink = symlink;
     }
 
     // ---------- existing endpoints (unchanged) ---------------------------
@@ -243,6 +249,25 @@ public class TreeSizeController {
         Path file = guard.resolve(id, path);
         boolean toTrash = fileDelete.deleteByPath(id, file);
         return new DeleteFileResult(toTrash);
+    }
+
+    /**
+     * Move a directory off the scan-root drive and replace the original path with an NTFS
+     * junction. Source must be a real directory inside the current scan root; target may be
+     * any absolute path on a writable local NTFS volume. Pass {@code taskId} (any unique
+     * client-generated string) and subscribe to {@link #symlinkEvents(String)} first to
+     * receive real-time progress.
+     */
+    @PostMapping("/scans/{id}/symlink")
+    public SymlinkResultView createSymlink(@PathVariable String id, @Valid @RequestBody SymlinkRequest req) throws IOException {
+        var r = symlink.relocateAndLink(id, req.sourcePath(), req.targetPath(), req.taskId());
+        return new SymlinkResultView(r.sourcePath(), r.targetPath(), r.movedBytes());
+    }
+
+    /** SSE channel for symlink-task progress. Subscribe before POSTing to {@link #createSymlink}. */
+    @GetMapping(value = "/symlink-events/{taskId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter symlinkEvents(@PathVariable String taskId) {
+        return sse.create(taskId);
     }
 
     /**
