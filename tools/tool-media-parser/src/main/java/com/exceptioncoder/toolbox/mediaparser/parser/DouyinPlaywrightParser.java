@@ -129,11 +129,30 @@ public class DouyinPlaywrightParser implements PlatformParser {
         }
     }
 
+    /** 在浏览器里 JSON.stringify 断环再 marshal，避免响应式 store 的循环引用引发栈溢出。 */
+    private static final String SAFE_STRINGIFY_ROUTER_DATA = """
+            () => {
+                const s = window._ROUTER_DATA;
+                if (s === null || s === undefined) return null;
+                const seen = new WeakSet();
+                try {
+                    return JSON.stringify(s, (k, v) => {
+                        if (typeof v === 'object' && v !== null) {
+                            if (seen.has(v)) return undefined;
+                            seen.add(v);
+                        }
+                        if (typeof v === 'function') return undefined;
+                        return v;
+                    });
+                } catch (e) { return null; }
+            }
+            """;
+
     /** 抖音页面同时可能有 _ROUTER_DATA（新版）或 RENDER_DATA（旧版/iesdouyin），都试一次。 */
     private JsonNode readRouterAndRenderData(Page page) {
         try {
-            Object routerData = page.evaluate("() => window._ROUTER_DATA ?? null");
-            if (routerData != null) return om.valueToTree(routerData);
+            Object routerJson = page.evaluate(SAFE_STRINGIFY_ROUTER_DATA);
+            if (routerJson != null) return om.readTree(routerJson.toString());
         } catch (Exception ignored) {}
 
         try {

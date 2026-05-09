@@ -18,6 +18,7 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 小红书 fallback：
@@ -58,14 +59,17 @@ public class XiaohongshuPlaywrightParser implements PlatformParser {
     }
 
     private ParseResult doParse(Page page, String url) {
-        // 提前装上响应监听，捕获 XHS 接口 JSON。注意：onResponse 在 Playwright worker 线程上回调
+        // 提前装上响应监听，捕获 XHS 接口 JSON。
+        // done 标志：找到笔记后让后续仍在 fire 的 onResponse 直接 short-circuit，
+        //          避免 context 关闭后还在 resp.text() 触发 TargetClosedError。
+        AtomicBoolean done = new AtomicBoolean(false);
         List<JsonNode> capturedJson = Collections.synchronizedList(new ArrayList<>());
         List<String> capturedUrls = Collections.synchronizedList(new ArrayList<>());
 
         page.onResponse(resp -> {
+            if (done.get()) return;
             String u = resp.url();
             if (resp.status() != 200) return;
-            // /api/sns/ 是 XHS web 接口前缀；只关心 JSON 响应
             if (!u.contains("/api/sns/")) return;
             try {
                 String body = resp.text();
@@ -76,6 +80,8 @@ public class XiaohongshuPlaywrightParser implements PlatformParser {
                 capturedJson.add(json);
                 capturedUrls.add(u);
                 log.info("[XHS-PW] captured XHR: {} ({} bytes)", u, body.length());
+            } catch (com.microsoft.playwright.PlaywrightException ignored) {
+                // context 已关闭或目标 frame 没了，无需处理
             } catch (Exception e) {
                 log.debug("[XHS-PW] skip XHR {}: {}", u, e.getMessage());
             }
@@ -84,37 +90,40 @@ public class XiaohongshuPlaywrightParser implements PlatformParser {
         page.navigate(url, new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
         log.info("[XHS-PW] landed at: {} | title: {}", page.url(), page.title());
 
-        // 周期检查：__INITIAL_STATE__ 已 hydrate？XHR 已抓到含 note 的响应？
         long deadline = System.currentTimeMillis() + HYDRATE_DEADLINE_MS;
         JsonNode note = null;
         String foundIn = null;
 
-        while (System.currentTimeMillis() < deadline) {
-            // 1) 已抓到的 XHR 里找
-            synchronized (capturedJson) {
-                for (int i = 0; i < capturedJson.size(); i++) {
-                    JsonNode candidate = findNoteNode(capturedJson.get(i));
+        try {
+            while (System.currentTimeMillis() < deadline) {
+                // 1) 已抓到的 XHR 里找
+                synchronized (capturedJson) {
+                    for (int i = 0; i < capturedJson.size(); i++) {
+                        JsonNode candidate = findNoteNode(capturedJson.get(i));
+                        if (candidate != null) {
+                            note = candidate;
+                            foundIn = "XHR " + capturedUrls.get(i);
+                            break;
+                        }
+                    }
+                }
+                if (note != null) break;
+
+                // 2) __INITIAL_STATE__ 是否已 hydrate（用 JS 端 stringify 断环避免 Jackson 栈溢出）
+                JsonNode state = readInitialState(page);
+                if (state != null && state.size() > 0) {
+                    JsonNode candidate = findNoteNode(state);
                     if (candidate != null) {
                         note = candidate;
-                        foundIn = "XHR " + capturedUrls.get(i);
+                        foundIn = "__INITIAL_STATE__";
                         break;
                     }
                 }
-            }
-            if (note != null) break;
 
-            // 2) __INITIAL_STATE__ 是否真的有 keys 了
-            JsonNode state = readInitialState(page);
-            if (state != null && state.size() > 0) {
-                JsonNode candidate = findNoteNode(state);
-                if (candidate != null) {
-                    note = candidate;
-                    foundIn = "__INITIAL_STATE__";
-                    break;
-                }
+                page.waitForTimeout(POLL_INTERVAL_MS);
             }
-
-            page.waitForTimeout(POLL_INTERVAL_MS);
+        } finally {
+            done.set(true);
         }
 
         if (note == null) {
@@ -141,11 +150,35 @@ public class XiaohongshuPlaywrightParser implements PlatformParser {
         return extract(url, note);
     }
 
+    /**
+     * 在浏览器里用 JSON.stringify + WeakSet replacer 把 Vue/Pinia 响应式 store 序列化成字符串，
+     * 跨进程到 Java 后再 readTree。直接 evaluate 拿对象会因循环引用让 Jackson 栈溢出。
+     */
+    private static final String SAFE_STRINGIFY_INITIAL_STATE = """
+            () => {
+                const s = window.__INITIAL_STATE__;
+                if (s === null || s === undefined) return null;
+                const seen = new WeakSet();
+                try {
+                    return JSON.stringify(s, (k, v) => {
+                        if (typeof v === 'object' && v !== null) {
+                            if (seen.has(v)) return undefined;
+                            seen.add(v);
+                        }
+                        if (typeof v === 'function') return undefined;
+                        return v;
+                    });
+                } catch (e) { return null; }
+            }
+            """;
+
     private JsonNode readInitialState(Page page) {
         try {
-            Object stateObj = page.evaluate("() => window.__INITIAL_STATE__");
-            return stateObj != null ? om.valueToTree(stateObj) : null;
+            Object jsonStr = page.evaluate(SAFE_STRINGIFY_INITIAL_STATE);
+            if (jsonStr == null) return null;
+            return om.readTree(jsonStr.toString());
         } catch (Exception e) {
+            log.debug("[XHS-PW] readInitialState failed: {}", e.getMessage());
             return null;
         }
     }
