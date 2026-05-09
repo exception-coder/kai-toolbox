@@ -26,6 +26,8 @@
         <module>tools/tool-lan-share</module>
         <module>tools/tool-mail</module>
         <module>tools/tool-media-parser</module>
+        <module>tools/tool-doc-viewer</module>
+        <module>tools/tool-webterm</module>
         <module>toolbox-starter</module>
     </modules>
 
@@ -70,6 +72,16 @@
             <dependency>
                 <groupId>com.exceptioncoder</groupId>
                 <artifactId>tool-media-parser</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-doc-viewer</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-webterm</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
