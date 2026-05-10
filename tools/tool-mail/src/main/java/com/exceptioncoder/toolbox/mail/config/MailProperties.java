@@ -20,9 +20,30 @@ public class MailProperties {
 
     /**
      * 发件人地址白名单。空列表时接受所有来源；
-     * 支持域名后缀匹配（如 {@code @amazon.com}）和精确地址匹配。
+     * <ul>
+     *   <li>{@code @amazon.com} —— 域名后缀匹配（必须 @ 开头）</li>
+     *   <li>{@code abc@example.com} —— 完整地址精确匹配</li>
+     *   <li>{@code support} —— 子串包含匹配（不含 @）</li>
+     * </ul>
      */
     private List<String> senderWhitelist = new ArrayList<>();
+
+    /**
+     * 收件人域白名单。空列表时接受所有 RCPT TO；
+     * 配置后只接受 {@code xxx@<domain>} 形式的收件人，其他直接 550 拒绝。
+     * 用于公网暴露 25 端口时屏蔽垃圾邮件灌库。
+     * 例：{@code ["chivepockets.com", "exception-coder.com"]}。
+     */
+    private List<String> recipientDomainWhitelist = new ArrayList<>();
+
+    /** SMTP 同时容纳的最大并发连接数。单用户场景默认 20 足够，公网暴露时收紧到此上限。 */
+    private int maxConnections = 20;
+
+    /** 单封邮件最多收件人数。正常邮件 1-3 人，50 已是宽松上限。 */
+    private int maxRecipients = 50;
+
+    /** 单封邮件最大字节数（含头+body+附件 base64）。10MB 对验证邮件场景充裕，SubEtha 上限 int(2GB)。 */
+    private int maxMessageSizeBytes = 10 * 1024 * 1024;
 
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -35,4 +56,16 @@ public class MailProperties {
 
     public List<String> getSenderWhitelist() { return senderWhitelist; }
     public void setSenderWhitelist(List<String> senderWhitelist) { this.senderWhitelist = senderWhitelist; }
+
+    public List<String> getRecipientDomainWhitelist() { return recipientDomainWhitelist; }
+    public void setRecipientDomainWhitelist(List<String> recipientDomainWhitelist) { this.recipientDomainWhitelist = recipientDomainWhitelist; }
+
+    public int getMaxConnections() { return maxConnections; }
+    public void setMaxConnections(int maxConnections) { this.maxConnections = maxConnections; }
+
+    public int getMaxRecipients() { return maxRecipients; }
+    public void setMaxRecipients(int maxRecipients) { this.maxRecipients = maxRecipients; }
+
+    public int getMaxMessageSizeBytes() { return maxMessageSizeBytes; }
+    public void setMaxMessageSizeBytes(int maxMessageSizeBytes) { this.maxMessageSizeBytes = maxMessageSizeBytes; }
 }

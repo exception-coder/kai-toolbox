@@ -12,8 +12,10 @@ import org.springframework.stereotype.Repository;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /** SQLite 持久化，操作 {@code mail_inbox} 表。 */
 @Repository
@@ -81,7 +83,7 @@ public class MailInboxRepository {
         return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
     }
 
-    /** 分页查询，按 received_at 倒序。 */
+    /** 分页查询，按 received_at 倒序。列表场景不返回 body 列。 */
     public List<MailInbox> findPage(MailInboxFilter filter, int page, int size) {
         StringBuilder sql = new StringBuilder(
                 "SELECT id, message_id, from_addr, to_addr, subject, NULL AS body_text, " +
@@ -104,7 +106,7 @@ public class MailInboxRepository {
         return result != null ? result : 0L;
     }
 
-    /** 统计符合过滤条件的未读数。 */
+    /** 统计符合过滤条件的未读数（忽略 filter 中的 read 字段，固定 is_read=0）。 */
     public long countUnread(MailInboxFilter filter) {
         StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM mail_inbox WHERE is_read = 0");
         List<Object> args = new ArrayList<>();
@@ -122,14 +124,30 @@ public class MailInboxRepository {
         return result != null ? result : 0L;
     }
 
-    /** 将指定邮件标记为已读。 */
-    public void markRead(String id) {
-        jdbc.update("UPDATE mail_inbox SET is_read = 1 WHERE id = ?", id);
+    /** 标记单封为已读，返回是否真的有行被更新（不存在则 false）。 */
+    public boolean markRead(String id) {
+        return jdbc.update("UPDATE mail_inbox SET is_read = 1 WHERE id = ?", id) > 0;
     }
 
-    /** 物理删除邮件。 */
-    public void deleteById(String id) {
-        jdbc.update("DELETE FROM mail_inbox WHERE id = ?", id);
+    /** 批量标记为已读，返回实际更新的行数。空集合直接返回 0，不发 SQL。 */
+    public int markReadBatch(Collection<String> ids) {
+        if (ids == null || ids.isEmpty()) return 0;
+        String placeholders = ids.stream().map(x -> "?").collect(Collectors.joining(","));
+        return jdbc.update("UPDATE mail_inbox SET is_read = 1 WHERE id IN (" + placeholders + ")",
+                ids.toArray());
+    }
+
+    /** 物理删除单封，返回是否真的有行被删（不存在则 false）。 */
+    public boolean deleteById(String id) {
+        return jdbc.update("DELETE FROM mail_inbox WHERE id = ?", id) > 0;
+    }
+
+    /** 批量物理删除，返回实际删除的行数。空集合直接返回 0，不发 SQL。 */
+    public int deleteByIdsBatch(Collection<String> ids) {
+        if (ids == null || ids.isEmpty()) return 0;
+        String placeholders = ids.stream().map(x -> "?").collect(Collectors.joining(","));
+        return jdbc.update("DELETE FROM mail_inbox WHERE id IN (" + placeholders + ")",
+                ids.toArray());
     }
 
     private void appendFilterClauses(StringBuilder sql, List<Object> args, MailInboxFilter filter) {

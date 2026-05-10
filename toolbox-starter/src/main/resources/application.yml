@@ -115,6 +115,12 @@ toolbox:
     sender-whitelist:       # 发件人白名单，空列表接受所有来源
       # - "@amazon.com"
       # - "@ebay.com"
+    recipient-domain-whitelist:   # 收件人域白名单，空 = 全收；公网暴露 25 端口建议必配
+      - "chivepockets.com"
+      - "exception-coder.com"
+    max-connections: 20           # 最大并发 SMTP 连接
+    max-recipients: 50            # 单封最大收件人数
+    max-message-size-bytes: 10485760   # 单封最大字节（含附件 base64），10MB
 
 logging:
   level:
