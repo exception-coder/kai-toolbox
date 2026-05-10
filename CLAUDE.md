@@ -27,7 +27,7 @@ npm run typecheck    # tsc -b --noEmit
 npm run build        # tsc -b && vite build (output: frontend/dist)
 ```
 
-Production fat-jar form embeds the built frontend under `toolbox-starter/src/main/resources/static/` — copy `frontend/dist/*` there before `mvn package` (see `docs/design/architecture.md` §7).
+Production fat-jar form embeds the built frontend under `BOOT-INF/classes/static/`. `mvn -pl toolbox-starter -am package` automatically runs `npm install` + `npm run build` (via `frontend-maven-plugin`, bound to `prepare-package`) and copies `frontend/dist/*` into the jar. Pass `-Dskip.frontend=true` to skip the frontend build for backend-only iteration. `mvn spring-boot:run` does NOT trigger the frontend build — keep using `npm run dev` on :5173 with the Vite proxy for dev. See `docs/design/architecture.md` §7.
 
 Runtime data (SQLite DB) lives at `${user.home}/.kai-toolbox/toolbox.db`, configured in `toolbox-starter/src/main/resources/application.yml`.
 

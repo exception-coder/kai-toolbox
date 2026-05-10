@@ -15,6 +15,18 @@
     <packaging>jar</packaging>
     <name>toolbox-starter</name>
 
+    <properties>
+        <!-- 前端项目根目录与产物路径（相对于父 pom 所在目录） -->
+        <frontend.dir>${project.parent.basedir}/frontend</frontend.dir>
+        <frontend.dist.dir>${frontend.dir}/dist</frontend.dist.dir>
+        <!-- 项目锁定的 node/npm 版本，由 frontend-maven-plugin 自动下载到本地 -->
+        <node.version>v22.11.0</node.version>
+        <npm.version>10.9.0</npm.version>
+        <frontend-maven-plugin.version>1.15.1</frontend-maven-plugin.version>
+        <!-- 紧急后端调试时：mvn ... -Dskip.frontend=true 可跳过前端构建 -->
+        <skip.frontend>false</skip.frontend>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>com.exceptioncoder</groupId>
@@ -58,6 +70,89 @@
     <build>
         <finalName>kai-toolbox</finalName>
         <plugins>
+            <!--
+              prepare-package 阶段：装 node → npm install → npm run build。
+              绑在 prepare-package（而非 generate-resources）是刻意的：
+              mvn spring-boot:run / mvn compile 不会触发前端构建，
+              保留后端 + Vite dev server (:5173 代理 :18080) 的快速迭代体验。
+              只有 mvn package 时才会真正跑前端构建并把 dist 打进 jar。
+            -->
+            <plugin>
+                <groupId>com.github.eirslett</groupId>
+                <artifactId>frontend-maven-plugin</artifactId>
+                <version>${frontend-maven-plugin.version}</version>
+                <configuration>
+                    <workingDirectory>${frontend.dir}</workingDirectory>
+                    <!-- 装到 frontend/.cache/maven-node：mvn clean 不会清，避免每次重下 node -->
+                    <installDirectory>${frontend.dir}/.cache/maven-node</installDirectory>
+                    <skip>${skip.frontend}</skip>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>install-node-and-npm</id>
+                        <goals><goal>install-node-and-npm</goal></goals>
+                        <phase>prepare-package</phase>
+                        <configuration>
+                            <nodeVersion>${node.version}</nodeVersion>
+                            <npmVersion>${npm.version}</npmVersion>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>npm-install</id>
+                        <goals><goal>npm</goal></goals>
+                        <phase>prepare-package</phase>
+                        <configuration>
+                            <arguments>install --no-audit --no-fund</arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>npm-build</id>
+                        <goals><goal>npm</goal></goals>
+                        <phase>prepare-package</phase>
+                        <configuration>
+                            <arguments>run build</arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!--
+              把 frontend/dist 拷到 target/classes/static/。
+              Spring Boot 的 WelcomePageHandlerMapping 会自动把 classpath:/static/index.html
+              暴露到 GET /，spring-boot-maven-plugin:repackage 会把 target/classes 装进 BOOT-INF/classes。
+            -->
+            <plugin>
+                <artifactId>maven-resources-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>copy-frontend-dist</id>
+                        <phase>prepare-package</phase>
+                        <goals><goal>copy-resources</goal></goals>
+                        <configuration>
+                            <skip>${skip.frontend}</skip>
+                            <outputDirectory>${project.build.outputDirectory}/static</outputDirectory>
+                            <resources>
+                                <resource>
+                                    <directory>${frontend.dist.dir}</directory>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- mvn clean 顺手清掉 frontend/dist，避免脏产物被打进 jar -->
+            <plugin>
+                <artifactId>maven-clean-plugin</artifactId>
+                <configuration>
+                    <filesets>
+                        <fileset>
+                            <directory>${frontend.dist.dir}</directory>
+                        </fileset>
+                    </filesets>
+                </configuration>
+            </plugin>
+
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
