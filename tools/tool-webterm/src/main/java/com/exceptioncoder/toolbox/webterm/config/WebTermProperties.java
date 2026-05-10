@@ -23,8 +23,9 @@ public class WebTermProperties {
     /** 单次推送字节阈值 */
     private int outputBufferBytes = 8192;
 
-    /** 推送时间阈值（毫秒） */
-    private long outputFlushIntervalMs = 50L;
+    /** 推送时间阈值（毫秒）。TUI 程序（Claude Code / vim / nano）的光标定位帧很小，
+     *  阈值过大会让重绘明显卡。10ms 接近本地终端体验。 */
+    private long outputFlushIntervalMs = 10L;
 
     /** 0 = 不超时 */
     private long sessionIdleTimeoutMs = 0L;

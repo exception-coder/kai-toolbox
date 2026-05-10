@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import { useWebTermSocket } from '../hooks/useWebTermSocket'
 import type { ShellKind } from '../types'
@@ -35,10 +36,24 @@ export function Terminal({ shell, cwd, onStateChange, onError }: TerminalProps) 
       // 否则会变 \r\r\n 让光标定位错乱，命令执行完需多按一次回车才出新提示符。
       convertEol: false,
       scrollback: 5000,
+      // 告诉 xterm 后端是 ConPTY，它会按 ConPTY 的输出风格解析 ANSI 序列；
+      // 不加这个选项，Claude Code / vim / nano 等 TUI 程序的局部重绘会丢帧、
+      // 选项菜单要按一次回车才"重画"出来。
+      windowsPty: { backend: 'conpty', buildNumber: 19041 },
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(containerRef.current)
+
+    // 切到 WebGL 渲染器：TUI 程序（Claude Code / vim）局部重绘帧率明显更好，
+    // 文本边缘更锐利。GPU 不支持或 context 丢失时自动 dispose 回退到默认 DOM 渲染。
+    try {
+      const webgl = new WebglAddon()
+      webgl.onContextLoss(() => webgl.dispose())
+      term.loadAddon(webgl)
+    } catch {
+      /* WebGL 不可用时静默走 DOM renderer，功能不受影响 */
+    }
 
     termRef.current = term
     fitRef.current = fit
