@@ -5,15 +5,18 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import { useWebTermSocket } from '../hooks/useWebTermSocket'
 import type { ShellKind } from '../types'
+import { MobileInputBar } from './MobileInputBar'
 
 interface TerminalProps {
   shell: ShellKind
   cwd?: string | null
+  /** 进入 ready 后向终端追发的字面量命令（白名单内），如 'claude'。null 表示不注入。 */
+  autorun?: string | null
   onStateChange?: (state: string) => void
   onError?: (code: string, message: string) => void
 }
 
-export function Terminal({ shell, cwd, onStateChange, onError }: TerminalProps) {
+export function Terminal({ shell, cwd, autorun, onStateChange, onError }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const termRef = useRef<XTerm | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -141,11 +144,20 @@ export function Terminal({ shell, cwd, onStateChange, onError }: TerminalProps) 
     onStateChange?.(socket.state)
   }, [socket.state, onStateChange])
 
+  // ready 后追发 autorun 命令。延后 80ms 让 PowerShell 把 PS1 提示符渲染完，
+  // 否则注入命令会与提示符粘连，视觉略丑。一个 Terminal 实例只 ready 一次，
+  // 因此本 effect 至多触发一次实际 send。
+  useEffect(() => {
+    if (socket.state !== 'ready' || !autorun) return
+    const t = setTimeout(() => socket.send(autorun + '\r\n'), 80)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket.state])
+
   return (
-    <div
-      ref={containerRef}
-      className="h-full w-full rounded-md bg-[#1a1b26] p-2"
-      style={{ minHeight: 320 }}
-    />
+    <div className="flex h-full w-full flex-col bg-[#1a1b26]">
+      <div ref={containerRef} className="flex-1 min-h-0 rounded-md p-2" />
+      <MobileInputBar onSend={data => socket.send(data)} />
+    </div>
   )
 }
