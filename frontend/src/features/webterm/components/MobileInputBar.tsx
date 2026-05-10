@@ -74,6 +74,21 @@ export function MobileInputBar({ onSend }: MobileInputBarProps) {
     inputRef.current?.focus()
   }
 
+  // 桌面 PowerShell 的 Ctrl+V 是 PSReadLine 读「服务端」Windows 剪贴板，不是
+  // 用户手机/浏览器的剪贴板，所以这里改用 Clipboard API 读浏览器剪贴板再把
+  // 文本作为按键流送进 PTY（行为等价于用户用键盘把这段文本敲一遍）。
+  // 图片暂不支持：PTY 本身只接受字节流，要把图片喂给 Claude Code 之类的程序
+  // 需要后端先存成临时文件再把路径打回来，那是另一项工作。
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard?.readText?.()
+      if (text) onSend(text)
+    } catch {
+      /* 用户拒绝剪贴板权限或浏览器不支持时静默 */
+    }
+    inputRef.current?.focus()
+  }
+
   return (
     <div className="flex flex-col gap-1 border-t bg-[var(--color-card)] p-2 md:hidden">
       <div className="flex flex-wrap gap-1 text-xs">
@@ -85,6 +100,7 @@ export function MobileInputBar({ onSend }: MobileInputBarProps) {
         <AuxBtn onClick={() => sendRaw('\x1b[C')}>→</AuxBtn>
         <AuxBtn onClick={() => sendRaw('\x03')}>Ctrl+C</AuxBtn>
         <AuxBtn onClick={() => sendRaw('\f')}>Ctrl+L</AuxBtn>
+        <AuxBtn onClick={handlePaste}>粘贴</AuxBtn>
       </div>
       <input
         ref={inputRef}
