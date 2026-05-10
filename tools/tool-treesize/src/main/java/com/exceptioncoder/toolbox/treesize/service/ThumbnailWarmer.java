@@ -79,7 +79,8 @@ public class ThumbnailWarmer {
 
             while (!Thread.currentThread().isInterrupted()) {
                 NodeRepository.VideoSearchResult page =
-                        nodes.findVideos(exts, "name", "asc", offset, BATCH_SIZE);
+                        nodes.findVideos(exts, "name", "asc", 0L, Long.MAX_VALUE,
+                                null, false, offset, BATCH_SIZE);
                 if (page.items().isEmpty()) break;
                 for (VideoFile v : page.items()) {
                     if (Thread.currentThread().isInterrupted()) break;

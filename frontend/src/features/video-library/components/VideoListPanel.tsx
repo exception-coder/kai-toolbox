@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CheckSquare, Loader2, Sparkles, Square, Trash2, X } from 'lucide-react'
+import { CheckSquare, Loader2, Search, Sparkles, Square, Star, Trash2, X } from 'lucide-react'
 import { cn, formatBytes } from '@/lib/utils'
 import { VideoThumb } from './VideoThumb'
-import type { VideoLibraryItem, VideoSortBy, VideoSortOrder } from '../types'
+import type { VideoLibraryItem, VideoSizeBucket, VideoSortBy, VideoSortOrder } from '../types'
+import { VIDEO_SIZE_BUCKETS } from '../types'
 
 interface Props {
   items: VideoLibraryItem[]
@@ -10,10 +11,18 @@ interface Props {
   selectedPath: string | null
   sortBy: VideoSortBy
   order: VideoSortOrder
+  sizeBucket: VideoSizeBucket
+  /** Raw query box value; controlled by the page (which debounces it before requesting). */
+  searchInput: string
+  favoritesOnly: boolean
   hasNextPage: boolean
   isFetchingNextPage: boolean
   onSelect: (item: VideoLibraryItem) => void
   onSortChange: (sortBy: VideoSortBy, order: VideoSortOrder) => void
+  onSizeBucketChange: (bucket: VideoSizeBucket) => void
+  onSearchInputChange: (value: string) => void
+  onFavoritesOnlyChange: (value: boolean) => void
+  onToggleFavorite: (item: VideoLibraryItem) => void
   onLoadMore: () => void
   onDelete?: (item: VideoLibraryItem) => void
   /** When provided, the list shows a 多选 toggle and lets the user delete in bulk. */
@@ -40,10 +49,17 @@ export function VideoListPanel({
   selectedPath,
   sortBy,
   order,
+  sizeBucket,
+  searchInput,
+  favoritesOnly,
   hasNextPage,
   isFetchingNextPage,
   onSelect,
   onSortChange,
+  onSizeBucketChange,
+  onSearchInputChange,
+  onFavoritesOnlyChange,
+  onToggleFavorite,
   onLoadMore,
   onDelete,
   onBulkDelete,
@@ -176,7 +192,44 @@ export function VideoListPanel({
           </div>
         </div>
       ) : (
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
+        <div className="flex flex-col gap-2 border-b px-3 py-2">
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--color-muted-foreground)]" />
+              <input
+                type="search"
+                value={searchInput}
+                onChange={e => onSearchInputChange(e.target.value)}
+                placeholder="搜索文件名…"
+                className="w-full rounded-md border bg-[var(--color-background)] py-1.5 pl-7 pr-7 text-xs placeholder:text-[var(--color-muted-foreground)]"
+              />
+              {searchInput && (
+                <button
+                  type="button"
+                  onClick={() => onSearchInputChange('')}
+                  title="清除"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => onFavoritesOnlyChange(!favoritesOnly)}
+              title={favoritesOnly ? '显示全部视频' : '只看收藏'}
+              className={cn(
+                'inline-flex items-center gap-1 rounded-md border px-2 py-1.5 text-xs',
+                favoritesOnly
+                  ? 'border-amber-400/60 bg-amber-400/15 text-amber-600 dark:text-amber-300'
+                  : 'hover:bg-[var(--color-accent)]',
+              )}
+            >
+              <Star className={cn('h-3.5 w-3.5', favoritesOnly && 'fill-current')} />
+              仅收藏
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-sm font-semibold">
             视频{' '}
             <span className="text-xs font-normal text-[var(--color-muted-foreground)]">
@@ -208,6 +261,16 @@ export function VideoListPanel({
               </button>
             )}
             <select
+              value={sizeBucket}
+              onChange={e => onSizeBucketChange(e.target.value as VideoSizeBucket)}
+              className="rounded-md border bg-[var(--color-background)] px-2 py-1.5 text-xs"
+              title="按文件大小过滤"
+            >
+              {VIDEO_SIZE_BUCKETS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            <select
               value={sortValue}
               onChange={e => {
                 const [s, o] = e.target.value.split(':') as [VideoSortBy, VideoSortOrder]
@@ -220,12 +283,15 @@ export function VideoListPanel({
               ))}
             </select>
           </div>
+          </div>
         </div>
       )}
 
       {items.length === 0 && !hasNextPage ? (
         <div className="flex flex-1 items-center justify-center px-6 py-12 text-center text-sm text-[var(--color-muted-foreground)]">
-          没有视频。请先在「磁盘空间分析」里扫描一个含视频的目录。
+          {sizeBucket === 'all' && !searchInput.trim() && !favoritesOnly
+            ? '没有视频。请先在「磁盘空间分析」里扫描一个含视频的目录。'
+            : '当前过滤条件下没有匹配的视频。试试清空搜索、关闭「仅收藏」或选「全部大小」。'}
         </div>
       ) : (
         <ul ref={listRef} className="flex-1 overflow-y-auto overscroll-contain">
@@ -243,7 +309,7 @@ export function VideoListPanel({
                   className={cn(
                     'group flex w-full items-center gap-3 border-l-2 py-2 text-left text-sm transition-colors',
                     'min-w-0',
-                    multiSelectMode ? 'pl-2 pr-3' : onDelete ? 'pl-3 pr-10' : 'px-3',
+                    multiSelectMode ? 'pl-2 pr-3' : onDelete ? 'pl-3 pr-16' : 'pl-3 pr-10',
                     multiSelectMode && isChecked
                       ? 'border-l-[var(--color-primary)] bg-[var(--color-primary)]/10'
                       : isActive
@@ -271,18 +337,38 @@ export function VideoListPanel({
                     </div>
                   </div>
                 </button>
-                {!multiSelectMode && onDelete && (
-                  <button
-                    type="button"
-                    onClick={e => {
-                      e.stopPropagation()
-                      onDelete(item)
-                    }}
-                    title="删除（移到回收站）"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1.5 text-[var(--color-muted-foreground)] transition-colors hover:bg-[var(--color-destructive)]/10 hover:text-[var(--color-destructive)]"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                {!multiSelectMode && (
+                  <div className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={e => {
+                        e.stopPropagation()
+                        onToggleFavorite(item)
+                      }}
+                      title={item.favorited ? '取消收藏' : '收藏'}
+                      className={cn(
+                        'rounded p-1.5 transition-colors',
+                        item.favorited
+                          ? 'text-amber-500 hover:bg-amber-400/10 dark:text-amber-300'
+                          : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-amber-500',
+                      )}
+                    >
+                      <Star className={cn('h-3.5 w-3.5', item.favorited && 'fill-current')} />
+                    </button>
+                    {onDelete && (
+                      <button
+                        type="button"
+                        onClick={e => {
+                          e.stopPropagation()
+                          onDelete(item)
+                        }}
+                        title="删除（移到回收站）"
+                        className="rounded p-1.5 text-[var(--color-muted-foreground)] transition-colors hover:bg-[var(--color-destructive)]/10 hover:text-[var(--color-destructive)]"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                 )}
               </li>
             )

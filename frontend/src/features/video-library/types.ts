@@ -4,6 +4,7 @@ export interface VideoLibraryItem {
   path: string
   name: string
   size: number
+  favorited: boolean
 }
 
 export interface VideoLibraryPage {
@@ -21,6 +22,30 @@ export interface CleanJunkResult {
 
 export type VideoSortBy = 'name' | 'size'
 export type VideoSortOrder = 'asc' | 'desc'
+
+/**
+ * Coarse size buckets the library can be filtered by. Values are sent verbatim as the
+ * {@code sizeBucket} query param; the backend {@code VideoSizeBucket.parse} is lenient and
+ * falls back to {@code all} on unknowns.
+ */
+export type VideoSizeBucket =
+  | 'all'
+  | 'tiny'    // < 100 MB
+  | 'small'   // 100 MB – 500 MB
+  | 'medium'  // 500 MB – 1 GB
+  | 'large'   // 1 GB – 4 GB
+  | 'xlarge'  // 4 GB – 10 GB
+  | 'huge'    // > 10 GB
+
+export const VIDEO_SIZE_BUCKETS: { value: VideoSizeBucket; label: string }[] = [
+  { value: 'all',    label: '全部大小' },
+  { value: 'tiny',   label: '< 100 MB' },
+  { value: 'small',  label: '100 MB – 500 MB' },
+  { value: 'medium', label: '500 MB – 1 GB' },
+  { value: 'large',  label: '1 GB – 4 GB' },
+  { value: 'xlarge', label: '4 GB – 10 GB' },
+  { value: 'huge',   label: '> 10 GB' },
+]
 
 /** Mirrors the backend SubtitleStatus enum exactly. */
 export type SubtitleStatus =

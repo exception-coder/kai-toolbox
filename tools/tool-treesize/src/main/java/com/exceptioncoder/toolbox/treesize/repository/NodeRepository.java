@@ -169,18 +169,22 @@ public class NodeRepository {
      * every row, which we read once.
      */
     public VideoSearchResult findVideos(List<String> extensions, String sortBy, String order,
+                                         long sizeMinInclusive, long sizeMaxExclusive,
+                                         String nameQuery, boolean favoritesOnly,
                                          int offset, int limit) {
         if (extensions.isEmpty()) return new VideoSearchResult(List.of(), 0);
 
         StringBuilder sql = new StringBuilder("""
                 SELECT n.scan_id, s.root_path, n.path, n.name, n.size,
+                       (f.path IS NOT NULL) AS favorited,
                        COUNT(*) OVER () AS total_count
                   FROM treesize_node n
                   JOIN treesize_scan s ON n.scan_id = s.id
+                  LEFT JOIN treesize_video_favorite f ON f.path = n.path
                  WHERE n.is_dir = 0
                    AND s.status = 'COMPLETED'
                    AND (""");
-        List<Object> args = new ArrayList<>(extensions.size() + 2);
+        List<Object> args = new ArrayList<>(extensions.size() + 6);
         for (int i = 0; i < extensions.size(); i++) {
             if (i > 0) sql.append(" OR ");
             sql.append("LOWER(n.name) LIKE ?");
@@ -188,6 +192,9 @@ public class NodeRepository {
         }
         sql.append(")");
         appendExcludedPathFilters(sql, args);
+        appendSizeRangeFilter(sql, args, sizeMinInclusive, sizeMaxExclusive);
+        appendNameQueryFilter(sql, args, nameQuery);
+        appendFavoritesOnlyFilter(sql, favoritesOnly);
         sql.append(" ORDER BY ");
         sql.append("size".equals(sortBy) ? "n.size" : "LOWER(n.name)");
         sql.append("desc".equalsIgnoreCase(order) ? " DESC" : " ASC");
@@ -205,26 +212,30 @@ public class NodeRepository {
                             rs.getString("root_path"),
                             rs.getString("path"),
                             rs.getString("name"),
-                            rs.getLong("size"));
+                            rs.getLong("size"),
+                            rs.getInt("favorited") == 1);
                 },
                 args.toArray());
 
         // When the page is empty (offset past the end) the row mapper never runs, so we need
         // a separate count. Skip it on the common path.
         if (items.isEmpty() && offset > 0) {
-            total[0] = countVideos(extensions);
+            total[0] = countVideos(extensions, sizeMinInclusive, sizeMaxExclusive,
+                    nameQuery, favoritesOnly);
         }
         return new VideoSearchResult(items, total[0]);
     }
 
-    private long countVideos(List<String> extensions) {
+    private long countVideos(List<String> extensions, long sizeMinInclusive, long sizeMaxExclusive,
+                             String nameQuery, boolean favoritesOnly) {
         StringBuilder sql = new StringBuilder("""
                 SELECT COUNT(*) FROM treesize_node n
                   JOIN treesize_scan s ON n.scan_id = s.id
+                  LEFT JOIN treesize_video_favorite f ON f.path = n.path
                  WHERE n.is_dir = 0
                    AND s.status = 'COMPLETED'
                    AND (""");
-        List<Object> args = new ArrayList<>(extensions.size());
+        List<Object> args = new ArrayList<>(extensions.size() + 4);
         for (int i = 0; i < extensions.size(); i++) {
             if (i > 0) sql.append(" OR ");
             sql.append("LOWER(n.name) LIKE ?");
@@ -232,8 +243,61 @@ public class NodeRepository {
         }
         sql.append(")");
         appendExcludedPathFilters(sql, args);
+        appendSizeRangeFilter(sql, args, sizeMinInclusive, sizeMaxExclusive);
+        appendNameQueryFilter(sql, args, nameQuery);
+        appendFavoritesOnlyFilter(sql, favoritesOnly);
         Long n = jdbc.queryForObject(sql.toString(), Long.class, args.toArray());
         return n == null ? 0L : n;
+    }
+
+    /**
+     * Appends a {@code n.size >= ? AND n.size < ?} clause when the range is narrower than the
+     * full domain. The "all" bucket maps to {@code [0, Long.MAX_VALUE)} and is skipped here so
+     * the SQL stays cheap when no filter is selected.
+     */
+    private static void appendSizeRangeFilter(StringBuilder sql, List<Object> args,
+                                              long sizeMinInclusive, long sizeMaxExclusive) {
+        if (sizeMinInclusive > 0) {
+            sql.append(" AND n.size >= ?");
+            args.add(sizeMinInclusive);
+        }
+        if (sizeMaxExclusive < Long.MAX_VALUE) {
+            sql.append(" AND n.size < ?");
+            args.add(sizeMaxExclusive);
+        }
+    }
+
+    /**
+     * Case-insensitive substring filter on the file name. Blank query is a no-op so callers
+     * don't need to special-case "no search". Wildcards in the user-provided query are escaped
+     * to literal characters via {@code ESCAPE '\\'} so a path containing {@code %} or {@code _}
+     * doesn't accidentally broaden the match.
+     */
+    private static void appendNameQueryFilter(StringBuilder sql, List<Object> args, String nameQuery) {
+        if (nameQuery == null) return;
+        String trimmed = nameQuery.trim();
+        if (trimmed.isEmpty()) return;
+        String escaped = trimmed
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
+        sql.append(" AND LOWER(n.name) LIKE LOWER(?) ESCAPE '\\'");
+        args.add("%" + escaped + "%");
+    }
+
+    private static void appendFavoritesOnlyFilter(StringBuilder sql, boolean favoritesOnly) {
+        if (favoritesOnly) sql.append(" AND f.path IS NOT NULL");
+    }
+
+    /** Idempotent insert; existing rows keep their original {@code created_at}. */
+    public void addVideoFavorite(String path, long createdAt) {
+        jdbc.update("INSERT OR IGNORE INTO treesize_video_favorite(path, created_at) VALUES (?, ?)",
+                path, createdAt);
+    }
+
+    /** Returns the rows-affected count, so callers can distinguish "wasn't favorited". */
+    public int removeVideoFavorite(String path) {
+        return jdbc.update("DELETE FROM treesize_video_favorite WHERE path = ?", path);
     }
 
     private static void appendExcludedPathFilters(StringBuilder sql, List<Object> args) {
@@ -282,7 +346,8 @@ public class NodeRepository {
                         rs.getString("root_path"),
                         rs.getString("path"),
                         rs.getString("name"),
-                        rs.getLong("size")),
+                        rs.getLong("size"),
+                        false),
                 args.toArray());
     }
 }

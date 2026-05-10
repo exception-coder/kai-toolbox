@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { CheckSquare, ChevronLeft, ChevronRight, ListMusic, Loader2, Maximize, Minimize, Square, Trash2, X } from 'lucide-react'
+import { CheckSquare, ChevronLeft, ChevronRight, ListMusic, Loader2, Maximize, Minimize, Square, Star, Trash2, X } from 'lucide-react'
 import { cn, formatBytes } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { VideoPlayer } from '@/features/video-playback/VideoPlayer'
@@ -22,6 +22,8 @@ interface Props {
   onDelete?: (item: VideoLibraryItem) => void
   /** When provided, the mobile 队列 grid shows a 多选 toggle that opens a checkbox grid. */
   onBulkDelete?: (items: VideoLibraryItem[]) => void | Promise<void>
+  /** Toggle favorite for any item. Wired by the page; same handler the list panel uses. */
+  onToggleFavorite: (item: VideoLibraryItem) => void
 }
 
 /** How many neighbours each side of the current item the horizontal queue strip renders. */
@@ -39,7 +41,7 @@ const PREVIEW_LG_BREAKPOINT = 1024
  * touch-friendly transport bar. The {@code key={item.path}} on {@code VideoPlayer} is what
  * makes prev/next correctly tear down the previous ffmpeg process before starting the next.
  */
-export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext, onSelect, onOpenList, onDelete, onBulkDelete }: Props) {
+export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext, onSelect, onOpenList, onDelete, onBulkDelete, onToggleFavorite }: Props) {
   const activeStripRef = useRef<HTMLButtonElement | null>(null)
   const playerWrapperRef = useRef<HTMLDivElement | null>(null)
   const fsActiveRef = useRef<HTMLButtonElement | null>(null)
@@ -248,6 +250,19 @@ export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext
 
         {!isFullscreen && (
           <div className="absolute right-2 top-2 z-20 flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => onToggleFavorite(item)}
+              title={item.favorited ? '取消收藏' : '收藏'}
+              className={cn(
+                'rounded-full p-2 backdrop-blur-sm transition-colors',
+                item.favorited
+                  ? 'bg-amber-400/85 text-white hover:bg-amber-400'
+                  : 'bg-black/55 text-white/90 hover:bg-black/75 hover:text-amber-300',
+              )}
+            >
+              <Star className={cn('h-5 w-5', item.favorited && 'fill-current')} />
+            </button>
             {onDelete && (
               <button
                 type="button"
@@ -305,6 +320,20 @@ export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext
               <ListMusic className="h-5 w-5" />
               <span className="hidden sm:inline">列表</span>
             </button>
+            <button
+              type="button"
+              onClick={() => onToggleFavorite(item)}
+              title={item.favorited ? '取消收藏' : '收藏'}
+              className={cn(
+                'flex items-center gap-1 rounded-md px-4 py-2 text-sm transition-colors',
+                item.favorited
+                  ? 'bg-amber-400/30 text-amber-200 hover:bg-amber-400/50'
+                  : 'bg-white/10 hover:bg-white/20',
+              )}
+            >
+              <Star className={cn('h-5 w-5', item.favorited && 'fill-current')} />
+              <span className="hidden sm:inline">{item.favorited ? '已收藏' : '收藏'}</span>
+            </button>
             {onDelete && (
               <button
                 type="button"
@@ -355,7 +384,7 @@ export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext
               {items.map(it => {
                 const isActive = it.path === item.path
                 return (
-                  <li key={it.path}>
+                  <li key={it.path} className="relative">
                     <button
                       ref={isActive ? fsActiveRef : null}
                       type="button"
@@ -364,7 +393,7 @@ export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext
                         setFsListOpen(false)
                       }}
                       className={cn(
-                        'flex w-full items-start gap-2 border-b border-white/5 px-3 py-2 text-left transition-colors hover:bg-white/10',
+                        'flex w-full items-start gap-2 border-b border-white/5 px-3 py-2 pr-9 text-left transition-colors hover:bg-white/10',
                         isActive && 'bg-[var(--color-primary)]/25',
                       )}
                     >
@@ -383,6 +412,22 @@ export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext
                         </div>
                       </div>
                     </button>
+                    <button
+                      type="button"
+                      onClick={e => {
+                        e.stopPropagation()
+                        onToggleFavorite(it)
+                      }}
+                      title={it.favorited ? '取消收藏' : '收藏'}
+                      className={cn(
+                        'absolute right-2 top-1/2 -translate-y-1/2 rounded p-1.5 transition-colors',
+                        it.favorited
+                          ? 'text-amber-300 hover:bg-amber-400/20'
+                          : 'text-white/50 hover:bg-white/10 hover:text-amber-300',
+                      )}
+                    >
+                      <Star className={cn('h-3.5 w-3.5', it.favorited && 'fill-current')} />
+                    </button>
                   </li>
                 )
               })}
@@ -391,11 +436,27 @@ export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext
         )}
       </div>
 
-      <div className="flex min-w-0 flex-col gap-1 px-1">
-        <div className="truncate text-sm font-medium" title={item.path}>{item.name}</div>
-        <div className="truncate text-xs text-[var(--color-muted-foreground)]">
-          {formatBytes(item.size)} · <span className="font-mono">{item.path}</span>
+      <div className="flex min-w-0 items-start gap-2 px-1">
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-medium" title={item.path}>{item.name}</div>
+          <div className="truncate text-xs text-[var(--color-muted-foreground)]">
+            {formatBytes(item.size)} · <span className="font-mono">{item.path}</span>
+          </div>
         </div>
+        <button
+          type="button"
+          onClick={() => onToggleFavorite(item)}
+          title={item.favorited ? '取消收藏' : '收藏'}
+          className={cn(
+            'shrink-0 rounded-md border px-2 py-1.5 text-xs transition-colors',
+            item.favorited
+              ? 'border-amber-400/60 bg-amber-400/15 text-amber-600 dark:text-amber-300'
+              : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-amber-500',
+          )}
+        >
+          <Star className={cn('inline h-3.5 w-3.5', item.favorited && 'fill-current')} />
+          <span className="ml-1">{item.favorited ? '已收藏' : '收藏'}</span>
+        </button>
       </div>
 
       <div className="px-1">
@@ -442,6 +503,22 @@ export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext
                         {formatBytes(it.size)}
                       </div>
                     </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={e => {
+                      e.stopPropagation()
+                      onToggleFavorite(it)
+                    }}
+                    title={it.favorited ? '取消收藏' : '收藏'}
+                    className={cn(
+                      'absolute left-1 top-1 rounded-md p-1.5 backdrop-blur-sm transition-colors',
+                      it.favorited
+                        ? 'bg-amber-400/85 text-white'
+                        : 'bg-black/55 text-white/85 hover:bg-amber-400/70 hover:text-white',
+                    )}
+                  >
+                    <Star className={cn('h-3.5 w-3.5', it.favorited && 'fill-current')} />
                   </button>
                   {onDelete && (
                     <button
@@ -508,7 +585,7 @@ export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext
               {previewWindow.map(it => {
                 const isActive = it.path === item.path
                 return (
-                  <li key={it.path}>
+                  <li key={it.path} className="relative">
                     <button
                       type="button"
                       onClick={() => onSelect(it)}
@@ -536,6 +613,22 @@ export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext
                           {formatBytes(it.size)}
                         </div>
                       </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={e => {
+                        e.stopPropagation()
+                        onToggleFavorite(it)
+                      }}
+                      title={it.favorited ? '取消收藏' : '收藏'}
+                      className={cn(
+                        'absolute right-1 top-1 rounded-md p-1.5 backdrop-blur-sm transition-colors',
+                        it.favorited
+                          ? 'bg-amber-400/85 text-white'
+                          : 'bg-black/55 text-white/85 hover:bg-amber-400/70 hover:text-white',
+                      )}
+                    >
+                      <Star className={cn('h-3.5 w-3.5', it.favorited && 'fill-current')} />
                     </button>
                   </li>
                 )
@@ -662,19 +755,37 @@ export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext
                         {isChecked ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4 opacity-70" />}
                       </div>
                     ) : (
-                      onDelete && (
+                      <>
                         <button
                           type="button"
                           onClick={e => {
                             e.stopPropagation()
-                            onDelete(it)
+                            onToggleFavorite(it)
                           }}
-                          title="删除（移到回收站）"
-                          className="absolute right-1 top-1 rounded-md bg-black/55 p-1.5 text-white/90 backdrop-blur-sm transition-colors hover:bg-[var(--color-destructive)] hover:text-white"
+                          title={it.favorited ? '取消收藏' : '收藏'}
+                          className={cn(
+                            'absolute left-1 top-1 rounded-md p-1.5 backdrop-blur-sm transition-colors',
+                            it.favorited
+                              ? 'bg-amber-400/85 text-white'
+                              : 'bg-black/55 text-white/85 hover:bg-amber-400/70 hover:text-white',
+                          )}
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          <Star className={cn('h-3.5 w-3.5', it.favorited && 'fill-current')} />
                         </button>
-                      )
+                        {onDelete && (
+                          <button
+                            type="button"
+                            onClick={e => {
+                              e.stopPropagation()
+                              onDelete(it)
+                            }}
+                            title="删除（移到回收站）"
+                            className="absolute right-1 top-1 rounded-md bg-black/55 p-1.5 text-white/90 backdrop-blur-sm transition-colors hover:bg-[var(--color-destructive)] hover:text-white"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </>
                     )}
                   </li>
                 )

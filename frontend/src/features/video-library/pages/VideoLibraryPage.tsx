@@ -5,11 +5,11 @@ import { useConfirm } from '@/components/ui/confirm-dialog'
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { formatBytes } from '@/lib/utils'
 import { deleteFile } from '@/features/treesize/api'
-import { cleanJunkVideos, getVideoLibrary } from '../api'
+import { addVideoFavorite, cleanJunkVideos, getVideoLibrary, removeVideoFavorite } from '../api'
 import { VideoListPanel } from '../components/VideoListPanel'
 import { VideoPlayerPanel } from '../components/VideoPlayerPanel'
 import { loadState, saveState } from '../storage'
-import type { VideoLibraryItem, VideoLibraryPage, VideoSortBy, VideoSortOrder } from '../types'
+import type { VideoLibraryItem, VideoLibraryPage, VideoSizeBucket, VideoSortBy, VideoSortOrder } from '../types'
 
 const PAGE_SIZE = 200
 
@@ -21,14 +21,36 @@ export function VideoLibraryPage() {
   const persisted = useMemo(() => loadState(), [])
   const [sortBy, setSortBy] = useState<VideoSortBy>(persisted.sortBy ?? 'name')
   const [order, setOrder] = useState<VideoSortOrder>(persisted.order ?? 'asc')
-  const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const [sizeBucket, setSizeBucket] = useState<VideoSizeBucket>(persisted.sizeBucket ?? 'all')
+  const [favoritesOnly, setFavoritesOnly] = useState<boolean>(persisted.favoritesOnly ?? false)
+  // The input is what the user sees as they type; `searchQuery` is the debounced value the
+  // backend actually sees. This prevents a network round-trip per keystroke.
+  const [searchInput, setSearchInput] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  // The currently-playing video lives as its own state instead of being derived from the
+  // filtered `items` list. Otherwise typing in the search box (or any filter that empties the
+  // list) would tear down the player. The path is what we persist; the full item lets the
+  // player keep rendering even when filters exclude it from the visible list.
+  const [currentItem, setCurrentItem] = useState<VideoLibraryItem | null>(null)
   const [listOpen, setListOpen] = useState(false)
+  const selectedPath = currentItem?.path ?? null
 
-  const queryKey = useMemo(() => ['video-library', sortBy, order] as const, [sortBy, order])
+  // 300ms debounce. Trim the input first so a single trailing space doesn't refire.
+  useEffect(() => {
+    const trimmed = searchInput.trim()
+    if (trimmed === searchQuery) return
+    const t = setTimeout(() => setSearchQuery(trimmed), 300)
+    return () => clearTimeout(t)
+  }, [searchInput, searchQuery])
+
+  const queryKey = useMemo(
+    () => ['video-library', sortBy, order, sizeBucket, searchQuery, favoritesOnly] as const,
+    [sortBy, order, sizeBucket, searchQuery, favoritesOnly],
+  )
 
   const query = useInfiniteQuery({
     queryKey,
-    queryFn: ({ pageParam }) => getVideoLibrary(sortBy, order, pageParam, PAGE_SIZE),
+    queryFn: ({ pageParam }) => getVideoLibrary(sortBy, order, sizeBucket, searchQuery, favoritesOnly, pageParam, PAGE_SIZE),
     initialPageParam: 0,
     getNextPageParam: (_lastPage, allPages) => {
       const loaded = allPages.reduce((acc, p) => acc + p.items.length, 0)
@@ -44,44 +66,101 @@ export function VideoLibraryPage() {
   const total = query.data?.pages[0]?.total ?? 0
 
   // First-load auto-select. Prefer the path persisted from the previous session if it's
-  // still in the (currently loaded) item list; otherwise fall back to the first item. The
-  // persisted path is consulted only on the very first render — once `selectedPath` is set,
-  // user clicks take over.
+  // still in the (currently loaded) item list; otherwise fall back to the first item.
+  // Consulted only when no item is currently playing — once the user has picked something,
+  // their selection stays even if the filter clears the list.
   useEffect(() => {
-    if (selectedPath !== null || items.length === 0) return
+    if (currentItem !== null || items.length === 0) return
     const target = persisted.selectedPath
       ? items.find(it => it.path === persisted.selectedPath)
       : null
-    setSelectedPath(target ? target.path : items[0].path)
-  }, [items, selectedPath, persisted.selectedPath])
+    setCurrentItem(target ?? items[0])
+  }, [items, currentItem, persisted.selectedPath])
 
   // Mirror sort + last-played to localStorage. Best-effort; failures are swallowed inside
-  // saveState (private mode, quota exceeded).
+  // saveState (private mode, quota exceeded). Search keyword is intentionally not persisted —
+  // re-opening the page should start with a clean filter.
   useEffect(() => {
-    saveState({ sortBy, order, selectedPath })
-  }, [sortBy, order, selectedPath])
+    saveState({ sortBy, order, sizeBucket, favoritesOnly, selectedPath })
+  }, [sortBy, order, sizeBucket, favoritesOnly, selectedPath])
 
-  const selectedIndex = selectedPath ? items.findIndex(it => it.path === selectedPath) : -1
-  const currentItem = selectedIndex >= 0 ? items[selectedIndex] : null
+  // Keep the local currentItem in sync with the cached row when the user is still seeing it
+  // in the filtered list. Picks up favorited-flag changes and any other field edits without
+  // losing the player when the list goes empty (we only update if a fresh row exists).
+  useEffect(() => {
+    if (!currentItem) return
+    const fresh = items.find(it => it.path === currentItem.path)
+    if (fresh && fresh !== currentItem) setCurrentItem(fresh)
+  }, [items, currentItem])
+
+  const selectedIndex = currentItem ? items.findIndex(it => it.path === currentItem.path) : -1
   const hasPrev = selectedIndex > 0
   const hasNext = selectedIndex >= 0 && selectedIndex < items.length - 1
 
   const handleSelect = (item: VideoLibraryItem) => {
-    setSelectedPath(item.path)
+    setCurrentItem(item)
     setListOpen(false)
   }
 
   const handlePrev = () => {
-    if (hasPrev) setSelectedPath(items[selectedIndex - 1].path)
+    if (hasPrev) setCurrentItem(items[selectedIndex - 1])
   }
 
   const handleNext = () => {
-    if (hasNext) setSelectedPath(items[selectedIndex + 1].path)
+    if (hasNext) setCurrentItem(items[selectedIndex + 1])
   }
 
   const handleSortChange = (s: VideoSortBy, o: VideoSortOrder) => {
     setSortBy(s)
     setOrder(o)
+  }
+
+  /**
+   * Optimistic favorite toggle. We mutate every cached infinite page (regardless of
+   * filter combination) so that switching filters afterwards still reflects the new state
+   * without a refetch. The "favoritesOnly" view also gets the row pruned/inserted so the
+   * count stays honest.
+   */
+  const handleToggleFavorite = async (item: VideoLibraryItem) => {
+    const next = !item.favorited
+    // Mirror the change into the standalone player state. Necessary when the playing item is
+    // filtered out of the list (e.g. search active) — the items→currentItem sync effect above
+    // wouldn't fire because there's no fresh row to copy from.
+    setCurrentItem(prev => (prev && prev.path === item.path ? { ...prev, favorited: next } : prev))
+    qc.getQueriesData<InfiniteData<VideoLibraryPage>>({ queryKey: ['video-library'] })
+      .forEach(([key, data]) => {
+        if (!data) return
+        // Was the cached query for "favoritesOnly"? If so, an unfavorite drops the row;
+        // a favorite would add a row out of the original sort order, so refetch via invalidate.
+        const wasFavoritesOnly = Array.isArray(key) && key[5] === true
+        if (wasFavoritesOnly && next) {
+          qc.invalidateQueries({ queryKey: key })
+          return
+        }
+        const pages = data.pages.map(p => {
+          if (wasFavoritesOnly && !next) {
+            const filtered = p.items.filter(it => it.path !== item.path)
+            const removed = p.items.length - filtered.length
+            return { ...p, items: filtered, total: p.total - removed }
+          }
+          return {
+            ...p,
+            items: p.items.map(it => (it.path === item.path ? { ...it, favorited: next } : it)),
+          }
+        })
+        qc.setQueryData<InfiniteData<VideoLibraryPage>>(key, { ...data, pages })
+      })
+    try {
+      if (next) await addVideoFavorite(item.path)
+      else await removeVideoFavorite(item.path)
+    } catch (e) {
+      // Rollback: revert the player snapshot, then refetch every cached video-library query
+      // so list/queue state matches the server.
+      setCurrentItem(prev => (prev && prev.path === item.path ? { ...prev, favorited: !next } : prev))
+      qc.invalidateQueries({ queryKey: ['video-library'] })
+      const msg = e instanceof ApiError ? e.message : String(e)
+      await confirm({ title: '收藏失败', description: msg, confirmText: '知道了', cancelText: '关闭' })
+    }
   }
 
   /** Optimistically remove a deleted item from every cached page so we don't re-fetch. */
@@ -130,7 +209,7 @@ export function VideoLibraryPage() {
       // as the writer flushes.
       if (item.path === selectedPath) {
         const nextItem = items[selectedIndex + 1] ?? items[selectedIndex - 1] ?? null
-        setSelectedPath(nextItem?.path ?? null)
+        setCurrentItem(nextItem)
         await new Promise(resolve => setTimeout(resolve, 400))
       }
       const result = await deleteFile(item.scanId, item.path)
@@ -197,7 +276,7 @@ export function VideoLibraryPage() {
     if (includesPlaying) {
       const toDeletePaths = new Set(toDelete.map(x => x.path))
       const survivor = items.find(x => !toDeletePaths.has(x.path)) ?? null
-      setSelectedPath(survivor?.path ?? null)
+      setCurrentItem(survivor)
       await new Promise(resolve => setTimeout(resolve, 400))
     }
 
@@ -309,10 +388,17 @@ export function VideoLibraryPage() {
     selectedPath,
     sortBy,
     order,
+    sizeBucket,
+    searchInput,
+    favoritesOnly,
     hasNextPage: !!query.hasNextPage,
     isFetchingNextPage: query.isFetchingNextPage,
     onSelect: handleSelect,
     onSortChange: handleSortChange,
+    onSizeBucketChange: setSizeBucket,
+    onSearchInputChange: setSearchInput,
+    onFavoritesOnlyChange: setFavoritesOnly,
+    onToggleFavorite: handleToggleFavorite,
     onLoadMore: fetchNextPage,
     onDelete: handleDelete,
     onBulkDelete: handleBulkDelete,
@@ -351,6 +437,7 @@ export function VideoLibraryPage() {
               onOpenList={() => setListOpen(true)}
               onDelete={handleDelete}
               onBulkDelete={handleBulkDelete}
+              onToggleFavorite={handleToggleFavorite}
             />
           </main>
         </div>

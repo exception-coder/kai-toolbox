@@ -1,19 +1,37 @@
 import { http, ApiError } from '@/lib/api'
-import type { CleanJunkResult, SubtitleJob, VideoLibraryPage, VideoSortBy, VideoSortOrder } from './types'
+import type { CleanJunkResult, SubtitleJob, VideoLibraryPage, VideoSizeBucket, VideoSortBy, VideoSortOrder } from './types'
 
 export function getVideoLibrary(
   sortBy: VideoSortBy,
   order: VideoSortOrder,
+  sizeBucket: VideoSizeBucket,
+  q: string,
+  favoritesOnly: boolean,
   offset: number,
   limit: number,
 ) {
-  return http<VideoLibraryPage>(
-    `/treesize/videos?sortBy=${sortBy}&order=${order}&offset=${offset}&limit=${limit}`,
-  )
+  const params = new URLSearchParams({
+    sortBy,
+    order,
+    sizeBucket,
+    favoritesOnly: String(favoritesOnly),
+    offset: String(offset),
+    limit: String(limit),
+  })
+  if (q.trim()) params.set('q', q.trim())
+  return http<VideoLibraryPage>(`/treesize/videos?${params.toString()}`)
 }
 
 export function cleanJunkVideos() {
   return http<CleanJunkResult>(`/treesize/videos/junk`, { method: 'DELETE' })
+}
+
+export function addVideoFavorite(path: string) {
+  return http<void>(`/treesize/videos/favorites?path=${encodeURIComponent(path)}`, { method: 'POST' })
+}
+
+export function removeVideoFavorite(path: string) {
+  return http<void>(`/treesize/videos/favorites?path=${encodeURIComponent(path)}`, { method: 'DELETE' })
 }
 
 export function thumbUrl(scanId: string, path: string): string {

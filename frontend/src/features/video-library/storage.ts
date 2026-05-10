@@ -1,4 +1,4 @@
-import type { VideoSortBy, VideoSortOrder } from './types'
+import type { VideoSizeBucket, VideoSortBy, VideoSortOrder } from './types'
 
 /**
  * localStorage namespace for the video-library page. The {@code :v1} suffix lets us bump the
@@ -10,6 +10,8 @@ const STORAGE_KEY = 'video-library:state:v1'
 export interface PersistedState {
   sortBy: VideoSortBy
   order: VideoSortOrder
+  sizeBucket: VideoSizeBucket
+  favoritesOnly: boolean
   /** Absolute path of the last-played video. Used as a hint, not a hard requirement —
    * the page falls back to the first item when the path is no longer in the library. */
   selectedPath: string | null

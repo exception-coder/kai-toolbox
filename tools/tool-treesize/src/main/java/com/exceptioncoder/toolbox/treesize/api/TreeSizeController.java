@@ -21,6 +21,7 @@ import com.exceptioncoder.toolbox.treesize.config.VideoExtensionsProperties;
 import com.exceptioncoder.toolbox.common.media.ProbeResult;
 import com.exceptioncoder.toolbox.treesize.domain.ScanRecord;
 import com.exceptioncoder.toolbox.treesize.domain.ScanSourceType;
+import com.exceptioncoder.toolbox.treesize.domain.VideoSizeBucket;
 import com.exceptioncoder.toolbox.treesize.repository.NodeRepository;
 import com.exceptioncoder.toolbox.treesize.repository.ScanRepository;
 import com.exceptioncoder.toolbox.treesize.service.ActivePlaybackTracker;
@@ -284,22 +285,47 @@ public class TreeSizeController {
     public VideoLibraryPageView libraryVideos(
             @RequestParam(defaultValue = "name") String sortBy,
             @RequestParam(defaultValue = "asc") String order,
+            @RequestParam(defaultValue = "all") String sizeBucket,
+            @RequestParam(required = false) String q,
+            @RequestParam(defaultValue = "false") boolean favoritesOnly,
             @RequestParam(defaultValue = "0") int offset,
             @RequestParam(defaultValue = "200") int limit) {
         int safeLimit = Math.max(1, Math.min(limit, 1000));
         int safeOffset = Math.max(0, offset);
+        VideoSizeBucket bucket = VideoSizeBucket.parse(sizeBucket);
         List<String> libraryExtensions = videoExt.getExtensions().stream()
                 .filter(e -> !"ts".equalsIgnoreCase(e))
                 .toList();
         // Side-effect: kick the background thumbnail warmer the first time the library is
         // viewed in this JVM lifetime. Subsequent paginated calls are no-ops.
         thumbnailWarmer.kickOff();
-        var result = nodes.findVideos(libraryExtensions, sortBy, order, safeOffset, safeLimit);
+        var result = nodes.findVideos(libraryExtensions, sortBy, order,
+                bucket.minBytesInclusive(), bucket.maxBytesExclusive(),
+                q, favoritesOnly,
+                safeOffset, safeLimit);
         return new VideoLibraryPageView(
                 result.items().stream().map(VideoLibraryItemView::from).toList(),
                 result.total(),
                 safeOffset,
                 safeLimit);
+    }
+
+    /**
+     * Toggle a video into the favorites list. Idempotent: re-favoriting an already-favorited
+     * path is a no-op. Returns 204 (no body) so the frontend can fire-and-update its cache
+     * optimistically without round-tripping the row.
+     */
+    @PostMapping("/videos/favorites")
+    public ResponseEntity<Void> addVideoFavorite(@RequestParam String path) {
+        nodes.addVideoFavorite(path, System.currentTimeMillis());
+        return ResponseEntity.noContent().build();
+    }
+
+    /** Remove from favorites. 204 whether or not the row existed (idempotent). */
+    @DeleteMapping("/videos/favorites")
+    public ResponseEntity<Void> removeVideoFavorite(@RequestParam String path) {
+        nodes.removeVideoFavorite(path);
+        return ResponseEntity.noContent().build();
     }
 
     /**

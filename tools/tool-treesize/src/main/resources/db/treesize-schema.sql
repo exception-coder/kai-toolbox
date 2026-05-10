@@ -82,3 +82,8 @@ CREATE TABLE IF NOT EXISTS subtitle_job (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_subtitle_video_hash ON subtitle_job(video_path_hash);
 CREATE INDEX IF NOT EXISTS idx_subtitle_scan_path ON subtitle_job(scan_id, video_path);
 CREATE INDEX IF NOT EXISTS idx_subtitle_status ON subtitle_job(status);
+
+CREATE TABLE IF NOT EXISTS treesize_video_favorite (
+    path        TEXT PRIMARY KEY,
+    created_at  INTEGER NOT NULL
+);
