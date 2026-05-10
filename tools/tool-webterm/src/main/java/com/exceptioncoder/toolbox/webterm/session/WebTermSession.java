@@ -4,6 +4,8 @@ import com.exceptioncoder.toolbox.webterm.api.dto.ServerMessage;
 import com.exceptioncoder.toolbox.webterm.config.WebTermProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pty4j.PtyProcess;
+import com.pty4j.WinSize;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.socket.CloseStatus;
@@ -24,7 +26,7 @@ public class WebTermSession {
     @Getter private final String shell;
     @Getter private final String cwd;
     private final WebSocketSession ws;
-    private final Process process;
+    private final PtyProcess process;
     private final WebTermProperties props;
     private final ObjectMapper mapper;
 
@@ -36,10 +38,9 @@ public class WebTermSession {
     private volatile int rows = 24;
 
     private Thread stdoutThread;
-    private Thread stderrThread;
 
     public WebTermSession(WebSocketSession ws,
-                          Process process,
+                          PtyProcess process,
                           String shell,
                           String cwd,
                           int cols,
@@ -69,12 +70,11 @@ public class WebTermSession {
     }
 
     public void startOutputForwarding() {
+        // PTY 模式下 stderr 已合流到 stdout（ShellLauncher.setRedirectErrorStream(true)），
+        // 只起 1 条转发线程。
         stdoutThread = Thread.ofVirtual()
                 .name("webterm-stdout-" + sessionId)
                 .start(() -> forward(process.getInputStream()));
-        stderrThread = Thread.ofVirtual()
-                .name("webterm-stderr-" + sessionId)
-                .start(() -> forward(process.getErrorStream()));
         Thread.ofVirtual()
                 .name("webterm-wait-" + sessionId)
                 .start(this::waitForExit);
@@ -98,7 +98,12 @@ public class WebTermSession {
     public void setSize(int cols, int rows) {
         this.cols = cols;
         this.rows = rows;
-        // 第一版无 PTY 不下发到底层；仅记录尺寸，后续接入 pty4j 时通过此处转发
+        if (closed.get() || !process.isAlive()) return;
+        try {
+            process.setWinSize(new WinSize(Math.max(20, cols), Math.max(5, rows)));
+        } catch (Exception e) {
+            log.debug("[webterm:{}] setWinSize failed: {}", sessionId, e.getMessage());
+        }
     }
 
     /** 主动关闭（前端 close / 服务停机 / 上限超出）。幂等。 */
@@ -112,7 +117,6 @@ public class WebTermSession {
             }
         } catch (Exception ignore) { }
         if (stdoutThread != null) stdoutThread.interrupt();
-        if (stderrThread != null) stderrThread.interrupt();
 
         if (ws.isOpen()) {
             try {
@@ -190,9 +194,6 @@ public class WebTermSession {
             // 等转发线程把残留 buffer flush 干净
             if (stdoutThread != null) {
                 try { stdoutThread.join(500); } catch (InterruptedException ignore) { }
-            }
-            if (stderrThread != null) {
-                try { stderrThread.join(500); } catch (InterruptedException ignore) { }
             }
             sendMessage(new ServerMessage.Exit(code));
             close();

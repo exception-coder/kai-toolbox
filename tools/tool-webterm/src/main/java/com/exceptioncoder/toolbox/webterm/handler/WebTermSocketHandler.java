@@ -156,9 +156,9 @@ public class WebTermSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        Process process;
+        com.pty4j.PtyProcess process;
         try {
-            process = launcher.launch(shell, cwd);
+            process = launcher.launch(shell, cwd, open.cols(), open.rows());
         } catch (IOException e) {
             log.warn("[webterm] launch shell failed: {}", e.getMessage());
             sendErrorAndClose(ws, "SHELL_LAUNCH_FAILED", e.getMessage(),

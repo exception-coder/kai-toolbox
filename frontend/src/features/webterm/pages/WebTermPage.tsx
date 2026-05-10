@@ -95,7 +95,7 @@ export function WebTermPage() {
       </div>
 
       <p className="text-xs text-[var(--color-muted-foreground)]">
-        提示：本期不接入 PTY，全屏程序（vim / htop / less / git log 分页）渲染异常属预期；按下 Ctrl+C 中断的可靠性弱于本地终端，可点「重新连接」强制重启进程。
+        提示：基于 ConPTY + pty4j，行编辑、Tab 补全、方向键历史、Ctrl+C 中断与本地 PowerShell 一致；进程僵死时点「重新连接」即可强制重启。
       </p>
     </div>
   )

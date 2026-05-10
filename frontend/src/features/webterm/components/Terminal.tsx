@@ -31,36 +31,49 @@ export function Terminal({ shell, cwd, onStateChange, onError }: TerminalProps) 
         foreground: '#c0caf5',
         cursor: '#c0caf5',
       },
-      convertEol: true,
+      // PTY 模式下 PowerShell 自己输出完整 \r\n，xterm 不能再做 \n→\r\n 转换，
+      // 否则会变 \r\r\n 让光标定位错乱，命令执行完需多按一次回车才出新提示符。
+      convertEol: false,
       scrollback: 5000,
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(containerRef.current)
-    try {
-      fit.fit()
-    } catch {
-      /* container may still be 0×0 in tests */
-    }
 
     termRef.current = term
     fitRef.current = fit
 
-    setSize({ cols: term.cols, rows: term.rows })
-    setEnabled(true)
-
-    const ro = new ResizeObserver(() => {
+    const tryFit = () => {
+      const el = containerRef.current
+      if (!el) return false
+      const { clientWidth, clientHeight } = el
+      if (clientWidth < 10 || clientHeight < 10) return false
       try {
         fit.fit()
         const next = { cols: term.cols, rows: term.rows }
-        setSize(prev => (prev.cols !== next.cols || prev.rows !== next.rows ? next : prev))
+        if (Number.isFinite(next.cols) && Number.isFinite(next.rows) && next.cols > 0 && next.rows > 0) {
+          setSize(prev => (prev.cols !== next.cols || prev.rows !== next.rows ? next : prev))
+          return true
+        }
       } catch {
         /* ignore */
       }
+      return false
+    }
+
+    // 等下一帧让浏览器先完成 layout 再 fit，避免 RenderService 拿到 0×0
+    const raf = requestAnimationFrame(() => {
+      tryFit()
+      setEnabled(true)
+    })
+
+    const ro = new ResizeObserver(() => {
+      tryFit()
     })
     ro.observe(containerRef.current)
 
     return () => {
+      cancelAnimationFrame(raf)
       ro.disconnect()
       term.dispose()
       termRef.current = null
@@ -89,12 +102,13 @@ export function Terminal({ shell, cwd, onStateChange, onError }: TerminalProps) 
     },
   })
 
-  // Wire xterm input → socket (with local echo to compensate no-PTY)
+  // Wire xterm input → socket. 不做本地 echo：
+  // PowerShell / cmd 自己会把按键回写到 stdout，前端再 echo 一次会双倍显示，
+  // 还会把 \x7f / \x1b[D 等控制字节直接喂给 xterm，导致解析报错和光标越界。
   useEffect(() => {
     const term = termRef.current
     if (!term) return
     const sub = term.onData(data => {
-      term.write(data)
       socket.send(data)
     })
     return () => sub.dispose()
