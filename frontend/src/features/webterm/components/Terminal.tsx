@@ -5,7 +5,7 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import { useWebTermSocket } from '../hooks/useWebTermSocket'
 import type { ShellKind } from '../types'
-import { MobileInputBar } from './MobileInputBar'
+import { InputBar } from './InputBar'
 
 interface TerminalProps {
   shell: ShellKind
@@ -157,7 +157,7 @@ export function Terminal({ shell, cwd, autorun, onStateChange, onError }: Termin
   return (
     <div className="flex h-full w-full flex-col bg-[#1a1b26]">
       <div ref={containerRef} className="flex-1 min-h-0 rounded-md p-2" />
-      <MobileInputBar onSend={data => socket.send(data)} />
+      <InputBar onSend={data => socket.send(data)} />
     </div>
   )
 }
