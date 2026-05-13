@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { Loader2 } from 'lucide-react'
 import Hls, { type ErrorData, type Events } from 'hls.js'
 import { cn } from '@/lib/utils'
 import { hlsPlaylistUrl, probeVideo, streamUrl } from '@/features/treesize/api'
 import type { ProbeResult } from '@/features/treesize/types'
 import { SubtitleOverlay, type SubtitleMode } from './SubtitleOverlay'
+import { VideoPlayerControls } from './VideoPlayerControls'
 
 interface VideoPlayerProps {
   scanId: string
@@ -23,14 +24,31 @@ interface VideoPlayerProps {
   subtitleMode?: SubtitleMode | 'off'
   /** BCP-47 target for the Translator API. Defaults to {@code zh-Hans} when not specified. */
   subtitleTargetLang?: string
+  /** Optional prev/next handlers for the custom control bar. */
+  onPrev?: () => void
+  onNext?: () => void
+  hasPrev?: boolean
+  hasNext?: boolean
+  /** Video title for the top bar. */
+  title?: string
+  /** 父容器需要保留播放器外层浮动按钮时，由父级接管全屏状态与动作。 */
+  isFullscreen?: boolean
+  onToggleFullscreen?: () => void | Promise<void>
+  /** 字幕快捷开关 — 父级管 mode 状态，这里只透传给控件栏。 */
+  subtitlesAvailable?: boolean
+  subtitlesOn?: boolean
+  onToggleSubtitles?: () => void
 }
 
 type Mode = 'loading' | 'native' | 'hls' | 'unsupported' | 'error'
+type ScreenOrientationMode = 'landscape' | 'portrait'
+type LockableScreenOrientation = ScreenOrientation & {
+  lock?: (orientation: ScreenOrientationMode) => Promise<void>
+}
 
 /**
  * Headless player core: probes the file, decides between direct stream and on-demand HLS,
- * wires up hls.js, and tears everything down on unmount (which is what triggers the backend
- * ffmpeg process to die). Containers (modal, library panel) wrap this with their own chrome.
+ * wires up hls.js, and tears everything down on unmount.
  */
 export function VideoPlayer({
   scanId,
@@ -42,12 +60,26 @@ export function VideoPlayer({
   subtitleLanguage,
   subtitleMode = 'original',
   subtitleTargetLang,
+  onPrev,
+  onNext,
+  hasPrev,
+  hasNext,
+  title,
+  isFullscreen: controlledFullscreen,
+  onToggleFullscreen: controlledToggleFullscreen,
+  subtitlesAvailable,
+  subtitlesOn,
+  onToggleSubtitles,
 }: VideoPlayerProps) {
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
+  const containerRef = useRef<HTMLDivElement | null>(null)
   const hlsRef = useRef<Hls | null>(null)
   const [mode, setMode] = useState<Mode>('loading')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [probe, setProbe] = useState<ProbeResult | null>(null)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [rotation, setRotation] = useState(0)
+  const [screenOrientation, setScreenOrientation] = useState<ScreenOrientationMode>('landscape')
 
   useEffect(() => {
     setMode('loading')
@@ -89,9 +121,6 @@ export function VideoPlayer({
     } else if (mode === 'hls') {
       const playlist = hlsPlaylistUrl(scanId, path)
       if (Hls.isSupported()) {
-        // Larger buffer windows so the player has runway while ffmpeg spins up the next
-        // segment; with 10 s segments this means ~6 segments ahead which absorbs a slow
-        // re-encode on the first byte without stalling playback.
         const hls = new Hls({
           enableWorker: true,
           maxBufferLength: 60,
@@ -111,7 +140,6 @@ export function VideoPlayer({
         })
         hlsRef.current = hls
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // iOS Safari has native HLS support; skip hls.js entirely.
         video.src = playlist
         video.load()
       } else {
@@ -125,30 +153,72 @@ export function VideoPlayer({
         hlsRef.current.destroy()
         hlsRef.current = null
       }
-      // Stop the underlying GET so the backend ffmpeg process can wind down.
       video.pause()
       video.removeAttribute('src')
       video.load()
     }
   }, [mode, scanId, path, videoEl])
 
+  // Native fullscreen handling to sync state
+  useEffect(() => {
+    const onFsChange = () => {
+      setIsFullscreen(!!document.fullscreenElement)
+    }
+    document.addEventListener('fullscreenchange', onFsChange)
+    return () => document.removeEventListener('fullscreenchange', onFsChange)
+  }, [])
+
+  const effectiveFullscreen = controlledFullscreen ?? isFullscreen
+
+  const toggleFullscreen = useCallback(async () => {
+    if (controlledToggleFullscreen) {
+      await controlledToggleFullscreen()
+      return
+    }
+    if (!containerRef.current) return
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen()
+      } else {
+        await containerRef.current.requestFullscreen()
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [controlledToggleFullscreen])
+
+  const toggleScreenOrientation = useCallback(async () => {
+    const next: ScreenOrientationMode = screenOrientation === 'landscape' ? 'portrait' : 'landscape'
+    setScreenOrientation(next)
+    try {
+      if (!document.fullscreenElement && containerRef.current?.requestFullscreen) {
+        await toggleFullscreen()
+      }
+      await (window.screen.orientation as LockableScreenOrientation | undefined)?.lock?.(next)
+    } catch {
+      /* 浏览器不支持锁定方向时，保留播放器比例切换作为兜底反馈 */
+    }
+  }, [screenOrientation, toggleFullscreen])
+
   return (
-    // Default aspect-video keeps the player a 16:9 box inside non-fullscreen layouts; the
-    // library panel passes `aspect-auto` + flex sizing in fullscreen so the video can grow
-    // and a bottom control bar can sit beneath it.
-    <div className={cn('relative aspect-video w-full bg-black', className)}>
+    <div
+      ref={containerRef}
+      className={cn(
+        'relative w-full bg-black group/player overflow-hidden transition-[max-width,aspect-ratio] duration-300',
+        screenOrientation === 'landscape'
+          ? 'aspect-video'
+          : 'mx-auto aspect-[9/16] max-h-[min(82vh,760px)] max-w-[min(100%,430px)]',
+        className,
+      )}
+    >
       <video
         ref={setVideoEl}
-        controls
-        // The library panel wraps this element with its own fullscreen container that
-        // also overlays prev/next/playlist buttons; the native fullscreen button would
-        // promote only the <video> itself and hide that overlay.
-        controlsList="nofullscreen"
         autoPlay
         playsInline
         preload="metadata"
         crossOrigin="anonymous"
-        className="h-full w-full object-contain"
+        className="h-full w-full object-contain transition-transform duration-300 ease-in-out"
+        style={{ transform: `rotate(${rotation}deg)` }}
       >
         {subtitleUrl && subtitleMode !== 'off' && (
           <track
@@ -169,6 +239,28 @@ export function VideoPlayer({
           />
         )}
       </video>
+
+      {/* Custom Controls */}
+      {videoEl && mode !== 'loading' && mode !== 'error' && (
+        <VideoPlayerControls
+          video={videoEl}
+          isFullscreen={effectiveFullscreen}
+          onToggleFullscreen={toggleFullscreen}
+          onPrev={onPrev}
+          onNext={onNext}
+          hasPrev={hasPrev}
+          hasNext={hasNext}
+          title={title}
+          onAutoNext={onNext}
+          onRotate={setRotation}
+          onToggleOrientation={toggleScreenOrientation}
+          screenOrientation={screenOrientation}
+          subtitlesAvailable={subtitlesAvailable}
+          subtitlesOn={subtitlesOn}
+          onToggleSubtitles={onToggleSubtitles}
+        />
+      )}
+
       {subtitleUrl && subtitleMode !== 'off' && (
         <SubtitleOverlay
           video={videoEl}
@@ -178,13 +270,13 @@ export function VideoPlayer({
         />
       )}
       {mode === 'loading' && (
-        <div className="absolute inset-0 flex items-center justify-center text-white/80">
+        <div className="absolute inset-0 flex items-center justify-center text-white/80 bg-black/40">
           <Loader2 className="h-6 w-6 animate-spin" />
           <span className="ml-2 text-sm">探测中…</span>
         </div>
       )}
       {mode === 'unsupported' && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center text-sm text-white/90">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center text-sm text-white/90 bg-black/60">
           <div>浏览器无法直接播放此格式，且后端 FFmpeg 不可用。</div>
           <div className="text-xs text-white/60">
             请在 application.yml 配置 <code className="font-mono">toolbox.ffmpeg.binary</code> 后重启服务。
@@ -192,13 +284,13 @@ export function VideoPlayer({
         </div>
       )}
       {mode === 'error' && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center text-sm text-white/90">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center text-sm text-white/90 bg-black/60">
           <div>播放失败</div>
           {errorMsg && <div className="text-xs text-white/60">{errorMsg}</div>}
         </div>
       )}
-      {probe && mode === 'hls' && (
-        <div className="pointer-events-none absolute right-2 top-2 rounded bg-black/50 px-2 py-0.5 text-[10px] text-white/70">
+      {probe && mode === 'hls' && !effectiveFullscreen && (
+        <div className="pointer-events-none absolute right-2 top-2 rounded bg-black/50 px-2 py-0.5 text-[10px] text-white/70 z-20">
           转码 · {probe.videoCodec}
           {probe.audioCodec !== '(none)' && ` + ${probe.audioCodec}`}
         </div>

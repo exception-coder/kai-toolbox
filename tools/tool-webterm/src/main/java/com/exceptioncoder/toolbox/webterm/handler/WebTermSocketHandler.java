@@ -63,7 +63,7 @@ public class WebTermSocketHandler extends TextWebSocketHandler {
         ScheduledFuture<?> f = scheduler.schedule(() -> {
             if (registry.findByWs(ws) == null && ws.isOpen()) {
                 sendErrorAndClose(ws, "OPEN_REQUIRED",
-                        "未在 " + props.getOpenTimeoutMs() + "ms 内收到 open",
+                        "未在 " + props.getOpenTimeoutMs() + "ms 内收到 open/attach",
                         new CloseStatus(1008, "OPEN_REQUIRED"));
             }
         }, props.getOpenTimeoutMs(), TimeUnit.MILLISECONDS);
@@ -86,10 +86,14 @@ public class WebTermSocketHandler extends TextWebSocketHandler {
             handleOpen(ws, open);
             return;
         }
+        if (msg instanceof ClientMessage.Attach attach) {
+            handleAttach(ws, attach);
+            return;
+        }
 
         WebTermSession session = registry.findByWs(ws);
         if (session == null) {
-            sendErrorAndClose(ws, "OPEN_REQUIRED", "首条消息必须是 open",
+            sendErrorAndClose(ws, "OPEN_REQUIRED", "首条消息必须是 open 或 attach",
                     new CloseStatus(1008, "OPEN_REQUIRED"));
             return;
         }
@@ -99,8 +103,8 @@ public class WebTermSocketHandler extends TextWebSocketHandler {
         } else if (msg instanceof ClientMessage.Resize resize) {
             session.setSize(resize.cols(), resize.rows());
         } else if (msg instanceof ClientMessage.Close) {
+            // 用户明确请求关闭 → 真正 close（不只是 detach）
             session.close();
-            registry.remove(ws);
         }
     }
 
@@ -109,8 +113,10 @@ public class WebTermSocketHandler extends TextWebSocketHandler {
         cancelOpenTimeout(ws);
         WebTermSession session = registry.findByWs(ws);
         if (session != null) {
-            session.close();
-            registry.remove(ws);
+            // WS 断开 ≠ 用户想终结会话 —— 把 ws 解绑、PTY 继续保活，等下次 attach。
+            // 超出 detachIdleTimeoutMs 后由 session 自己调度 close。
+            registry.unbindWs(ws);
+            session.detach();
         }
     }
 
@@ -149,6 +155,28 @@ public class WebTermSocketHandler extends TextWebSocketHandler {
         }
         Path cwd = launcher.resolveCwd(open.cwd());
 
+        // === 服务端去重 ===
+        // 同 cwd + shell 已经有 PTY 活着的话，把 open 重定向成 attach 复用它。
+        // 这样浏览器反复刷新 / 多 tab 打开 / URL 直接访问都不会再每次新 launch 一个
+        // 孤儿 PTY 堆积到 maxSessions 上限。
+        java.util.Optional<WebTermSession> existing = registry.findLiveBy(cwd.toString(), shell);
+        if (existing.isPresent()) {
+            WebTermSession session = existing.get();
+            if (session.isAttached()) {
+                sendErrorAndClose(ws, "SESSION_BUSY",
+                        "同目录的 " + shell + " 终端已被另一个客户端连着，先把那个客户端断开",
+                        new CloseStatus(1008, "SESSION_BUSY"));
+                return;
+            }
+            registry.rebindWs(ws, session);
+            session.sendMessage(new ServerMessage.Ready(
+                    session.getSessionId(), session.getShell(), session.getCwd(), session.pid(), true));
+            session.attach(ws, open.cols(), open.rows());
+            log.info("[webterm] open 复用已有 PTY {} for cwd={}, shell={}",
+                    session.getSessionId(), cwd, shell);
+            return;
+        }
+
         if (!registry.hasFreeSlot()) {
             sendErrorAndClose(ws, "SESSION_LIMIT_EXCEEDED",
                     "并发会话已达上限：" + props.getMaxSessions(),
@@ -166,15 +194,53 @@ public class WebTermSocketHandler extends TextWebSocketHandler {
             return;
         }
 
+        String finalShell = shell;
+        String cwdString = cwd.toString();
+        WebTermSession[] holder = new WebTermSession[1];
         WebTermSession session = new WebTermSession(
-                ws, process, shell, cwd.toString(),
-                open.cols(), open.rows(), props, mapper);
+                ws, process, finalShell, cwdString,
+                open.cols(), open.rows(), props, mapper,
+                registry.scheduler(),
+                () -> { if (holder[0] != null) registry.permanentRemove(holder[0].getSessionId()); });
+        holder[0] = session;
         registry.register(ws, session);
         session.startOutputForwarding();
         session.sendMessage(new ServerMessage.Ready(
-                session.getSessionId(), shell, cwd.toString(), session.pid()));
+                session.getSessionId(), finalShell, cwdString, session.pid(), false));
         log.info("[webterm] session {} started: shell={}, cwd={}, pid={}",
-                session.getSessionId(), shell, cwd, session.pid());
+                session.getSessionId(), finalShell, cwd, session.pid());
+    }
+
+    private void handleAttach(WebSocketSession ws, ClientMessage.Attach attach) {
+        cancelOpenTimeout(ws);
+        if (registry.findByWs(ws) != null) {
+            sendErrorAndClose(ws, "OPEN_DUPLICATED", "重复的 open/attach",
+                    new CloseStatus(1008, "OPEN_DUPLICATED"));
+            return;
+        }
+        WebTermSession session = registry.findById(attach.sessionId());
+        if (session == null) {
+            // 客户端记得的 sessionId 已超时被回收 / 或服务重启过 —— 让前端走 fallback 重新 open
+            sendErrorAndClose(ws, "SESSION_NOT_FOUND", "PTY 会话不存在（可能已超时关闭）",
+                    new CloseStatus(1008, "SESSION_NOT_FOUND"));
+            return;
+        }
+        if (session.isAttached()) {
+            sendErrorAndClose(ws, "SESSION_BUSY", "该 PTY 已有别的客户端连着",
+                    new CloseStatus(1008, "SESSION_BUSY"));
+            return;
+        }
+        if (attach.cols() < 20 || attach.cols() > 500 || attach.rows() < 5 || attach.rows() > 200) {
+            sendErrorAndClose(ws, "INVALID_SIZE", "cols/rows 越界",
+                    new CloseStatus(1008, "INVALID_SIZE"));
+            return;
+        }
+        registry.rebindWs(ws, session);
+        // Ready 必须在 attach 回放 backlog 之前发，前端拿到 Ready 才会标记 socket 可用
+        session.sendMessage(new ServerMessage.Ready(
+                session.getSessionId(), session.getShell(), session.getCwd(), session.pid(), true));
+        session.attach(ws, attach.cols(), attach.rows());
+        log.info("[webterm] session {} reattached", session.getSessionId());
     }
 
     private void cancelOpenTimeout(WebSocketSession ws) {

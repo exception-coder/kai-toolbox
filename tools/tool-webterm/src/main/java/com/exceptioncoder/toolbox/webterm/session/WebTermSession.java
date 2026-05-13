@@ -17,7 +17,11 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
 public class WebTermSession {
@@ -25,18 +29,26 @@ public class WebTermSession {
     @Getter private final String sessionId = UUID.randomUUID().toString();
     @Getter private final String shell;
     @Getter private final String cwd;
-    private final WebSocketSession ws;
+    @Getter private final long startedAt = System.currentTimeMillis();
     private final PtyProcess process;
     private final WebTermProperties props;
     private final ObjectMapper mapper;
+    private final ScheduledExecutorService scheduler;
+    private final Runnable onPermanentClose;
 
+    // ws 现在是可切换的 —— 客户端断开后置 null，新客户端 attach 后切到新 ws
+    private final AtomicReference<WebSocketSession> wsRef = new AtomicReference<>();
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private final Object stdinLock = new Object();
     private final Object wsSendLock = new Object();
 
     private volatile int cols = 80;
     private volatile int rows = 24;
+    private volatile boolean exited = false;
+    private volatile int exitCode = -1;
+    private volatile ScheduledFuture<?> detachIdleTask;
 
+    private final OutputBacklog backlog;
     private Thread stdoutThread;
 
     public WebTermSession(WebSocketSession ws,
@@ -46,8 +58,10 @@ public class WebTermSession {
                           int cols,
                           int rows,
                           WebTermProperties props,
-                          ObjectMapper mapper) {
-        this.ws = ws;
+                          ObjectMapper mapper,
+                          ScheduledExecutorService scheduler,
+                          Runnable onPermanentClose) {
+        this.wsRef.set(ws);
         this.process = process;
         this.shell = shell;
         this.cwd = cwd;
@@ -55,10 +69,22 @@ public class WebTermSession {
         this.rows = rows;
         this.props = props;
         this.mapper = mapper;
+        this.scheduler = scheduler;
+        this.onPermanentClose = onPermanentClose;
+        this.backlog = new OutputBacklog(props.getBacklogBytes());
     }
 
     public WebSocketSession ws() {
-        return ws;
+        return wsRef.get();
+    }
+
+    public boolean isAttached() {
+        WebSocketSession ws = wsRef.get();
+        return ws != null && ws.isOpen();
+    }
+
+    public boolean isExited() {
+        return exited;
     }
 
     public long pid() {
@@ -106,11 +132,66 @@ public class WebTermSession {
         }
     }
 
-    /** 主动关闭（前端 close / 服务停机 / 上限超出）。幂等。 */
+    /**
+     * WebSocket 断开但 PTY 继续存活。启动一个 idle 计时器，超时后强制 close。
+     * idempotent —— 多次 detach 不会启动多个计时器。
+     */
+    public void detach() {
+        WebSocketSession old = wsRef.getAndSet(null);
+        if (old != null && old.isOpen()) {
+            try {
+                old.close(CloseStatus.NORMAL);
+            } catch (IOException ignore) { }
+        }
+        cancelDetachIdle();
+        long timeout = props.getDetachIdleTimeoutMs();
+        if (timeout > 0 && !closed.get()) {
+            detachIdleTask = scheduler.schedule(() -> {
+                if (!isAttached() && !closed.get()) {
+                    log.info("[webterm:{}] detach idle {}ms 超时，关闭 PTY", sessionId, timeout);
+                    close();
+                }
+            }, timeout, TimeUnit.MILLISECONDS);
+        }
+        log.info("[webterm:{}] detached（PTY 保活中，idle 超时={}ms）", sessionId, timeout);
+    }
+
+    /**
+     * 新客户端接回这条 PTY 会话。切换 ws、回放 backlog、按新尺寸 resize PTY。
+     * PTY 已退出但还留着 backlog 没回收的情况：回放 + 立刻发 Exit + 进入 close。
+     */
+    public synchronized void attach(WebSocketSession newWs, int newCols, int newRows) {
+        if (closed.get()) {
+            return;
+        }
+        cancelDetachIdle();
+        wsRef.set(newWs);
+        setSize(newCols, newRows);
+
+        String snapshot = backlog.snapshot();
+        if (!snapshot.isEmpty()) {
+            sendMessage(new ServerMessage.Output(snapshot));
+        }
+        if (exited) {
+            sendMessage(new ServerMessage.Exit(exitCode));
+            close();
+        }
+    }
+
+    private void cancelDetachIdle() {
+        ScheduledFuture<?> t = detachIdleTask;
+        if (t != null) {
+            t.cancel(false);
+            detachIdleTask = null;
+        }
+    }
+
+    /** 永久关闭：PTY 杀掉、ws 关闭、从 registry 摘除。幂等。 */
     public void close() {
         if (!closed.compareAndSet(false, true)) {
             return;
         }
+        cancelDetachIdle();
         try {
             if (process.isAlive()) {
                 process.destroyForcibly();
@@ -118,17 +199,20 @@ public class WebTermSession {
         } catch (Exception ignore) { }
         if (stdoutThread != null) stdoutThread.interrupt();
 
-        if (ws.isOpen()) {
+        WebSocketSession ws = wsRef.getAndSet(null);
+        if (ws != null && ws.isOpen()) {
             try {
                 ws.close(CloseStatus.NORMAL);
             } catch (IOException e) {
                 log.debug("[webterm:{}] ws close failed: {}", sessionId, e.getMessage());
             }
         }
+        if (onPermanentClose != null) onPermanentClose.run();
     }
 
     public void sendMessage(ServerMessage msg) {
-        if (!ws.isOpen()) {
+        WebSocketSession ws = wsRef.get();
+        if (ws == null || !ws.isOpen()) {
             return;
         }
         String json;
@@ -161,7 +245,9 @@ public class WebTermSession {
                     break;
                 }
                 if (n > 0) {
-                    pending.append(new String(buf, 0, n, StandardCharsets.UTF_8));
+                    String chunk = new String(buf, 0, n, StandardCharsets.UTF_8);
+                    backlog.append(chunk); // 不管有没有 ws 都先入回放
+                    pending.append(chunk);
                 }
                 long now = System.currentTimeMillis();
                 int approxBytes = pending.length();
@@ -182,6 +268,7 @@ public class WebTermSession {
     private void flush(StringBuilder pending) {
         String chunk = pending.toString();
         pending.setLength(0);
+        // sendMessage 自己处理「ws 不在」的情况；不在就只走 backlog 不发送
         sendMessage(new ServerMessage.Output(chunk));
     }
 
@@ -195,8 +282,16 @@ public class WebTermSession {
             if (stdoutThread != null) {
                 try { stdoutThread.join(500); } catch (InterruptedException ignore) { }
             }
-            sendMessage(new ServerMessage.Exit(code));
-            close();
+            exitCode = code;
+            exited = true;
+            if (isAttached()) {
+                sendMessage(new ServerMessage.Exit(code));
+                close();
+            } else {
+                // 客户端不在，PTY 已退出。保留会话和 backlog 等下一次 attach 看尾巴；
+                // 由 detach 触发的 idle 计时器或下一次 attach 完成后的 close 收尾。
+                log.info("[webterm:{}] PTY 在 detached 状态下退出（code={}），保留 backlog 等待 attach", sessionId, code);
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }

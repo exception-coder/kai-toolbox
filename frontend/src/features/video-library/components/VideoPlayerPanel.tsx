@@ -58,12 +58,23 @@ export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext
   // Persist the user's preferred display mode across video switches — most viewers will pick
   // "dual" once and want it to stick. Re-applied on every track that completes.
   const [subtitleMode, setSubtitleMode] = useState<SubtitleDisplayMode>('dual')
+  // Remembers the last non-"off" mode so the captions quick-toggle on the player can flip
+  // back to whatever the user last had on, instead of always landing on "dual".
+  const lastActiveSubMode = useRef<Exclude<SubtitleDisplayMode, 'off'>>('dual')
 
   // The current video changed — drop any subtitle state immediately so the player doesn't
   // briefly render the previous file's <track>. {@link SubtitleControls} will refetch.
   useEffect(() => {
     setSubtitleJob(null)
   }, [item?.path])
+
+  useEffect(() => {
+    if (subtitleMode !== 'off') lastActiveSubMode.current = subtitleMode
+  }, [subtitleMode])
+
+  const handleSubtitleToggle = useCallback(() => {
+    setSubtitleMode(prev => (prev === 'off' ? lastActiveSubMode.current : 'off'))
+  }, [])
 
   const handleSubtitleJobChange = useCallback((j: SubtitleJob | null) => {
     setSubtitleJob(j)
@@ -228,11 +239,8 @@ export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext
       <div
         ref={playerWrapperRef}
         className={cn(
-          'relative overflow-hidden rounded-md bg-black',
-          // In fullscreen the wrapper fills the screen; rounded corners would clip the video
-          // and the drawer would slide off-screen. Switch to a flex column so the bottom
-          // control bar (PotPlayer-style) sits beneath the video without overlapping it.
-          isFullscreen && 'flex h-full flex-col rounded-none',
+          'relative overflow-hidden rounded-md bg-black transition-all duration-300',
+          isFullscreen && 'fixed inset-0 z-50 rounded-none',
         )}
       >
         <VideoPlayer
@@ -243,196 +251,124 @@ export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext
           subtitleTranslatedUrl={subtitleTranslatedUrl}
           subtitleLanguage={subtitleLanguage}
           subtitleMode={subtitleMode}
-          // aspect-auto cancels the default aspect-video so the video can stretch to fill the
-          // remaining flex space; min-h-0 lets flex shrink the box below content height.
-          className={cn(isFullscreen && 'aspect-auto min-h-0 flex-1')}
+          onPrev={onPrev}
+          onNext={onNext}
+          hasPrev={hasPrev}
+          hasNext={hasNext}
+          title={item.name}
+          isFullscreen={isFullscreen}
+          onToggleFullscreen={toggleFullscreen}
+          subtitlesAvailable={Boolean(subtitleUrl || subtitleTranslatedUrl)}
+          subtitlesOn={subtitleMode !== 'off'}
+          onToggleSubtitles={handleSubtitleToggle}
+          className={cn(isFullscreen && 'aspect-auto h-full')}
         />
 
-        {!isFullscreen && (
-          <div className="absolute right-2 top-2 z-20 flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => onToggleFavorite(item)}
-              title={item.favorited ? '取消收藏' : '收藏'}
-              className={cn(
-                'rounded-full p-2 backdrop-blur-sm transition-colors',
-                item.favorited
-                  ? 'bg-amber-400/85 text-white hover:bg-amber-400'
-                  : 'bg-black/55 text-white/90 hover:bg-black/75 hover:text-amber-300',
-              )}
-            >
-              <Star className={cn('h-5 w-5', item.favorited && 'fill-current')} />
-            </button>
-            {onDelete && (
+        {/* Fullscreen Overlay Controls (Playlist, Delete, etc.) */}
+        {isFullscreen && (
+          <>
+            <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => onDelete(item)}
-                title="删除当前视频（移到回收站）"
-                className="rounded-full bg-black/55 p-2 text-white/90 backdrop-blur-sm transition-colors hover:bg-[var(--color-destructive)] hover:text-white"
+                onClick={() => setFsListOpen(v => !v)}
+                title="播放列表"
+                className={cn(
+                  'rounded-full p-2.5 backdrop-blur-md transition-colors',
+                  fsListOpen
+                    ? 'bg-[var(--color-primary)] text-white'
+                    : 'bg-black/50 text-white hover:bg-black/70',
+                )}
               >
-                <Trash2 className="h-5 w-5" />
+                <ListMusic className="h-5 w-5" />
               </button>
-            )}
-            <button
-              type="button"
-              onClick={toggleFullscreen}
-              title="全屏"
-              className="rounded-full bg-black/55 p-2 text-white/90 backdrop-blur-sm transition-colors hover:bg-black/75"
-            >
-              <Maximize className="h-5 w-5" />
-            </button>
-          </div>
-        )}
-
-        {isFullscreen && (
-          <div className="z-30 flex shrink-0 items-center justify-center gap-3 border-t border-white/10 bg-black/95 px-4 py-3 text-white">
-            <button
-              type="button"
-              onClick={onPrev}
-              disabled={!hasPrev}
-              title="上一首"
-              className="flex items-center gap-1 rounded-md bg-white/10 px-4 py-2 text-sm transition-colors hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <ChevronLeft className="h-5 w-5" />
-              <span className="hidden sm:inline">上一首</span>
-            </button>
-            <button
-              type="button"
-              onClick={onNext}
-              disabled={!hasNext}
-              title="下一首"
-              className="flex items-center gap-1 rounded-md bg-white/10 px-4 py-2 text-sm transition-colors hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <span className="hidden sm:inline">下一首</span>
-              <ChevronRight className="h-5 w-5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setFsListOpen(v => !v)}
-              title="播放列表"
-              className={cn(
-                'flex items-center gap-1 rounded-md px-4 py-2 text-sm transition-colors',
-                fsListOpen
-                  ? 'bg-[var(--color-primary)]/80 hover:bg-[var(--color-primary)]'
-                  : 'bg-white/10 hover:bg-white/20',
-              )}
-            >
-              <ListMusic className="h-5 w-5" />
-              <span className="hidden sm:inline">列表</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onToggleFavorite(item)}
-              title={item.favorited ? '取消收藏' : '收藏'}
-              className={cn(
-                'flex items-center gap-1 rounded-md px-4 py-2 text-sm transition-colors',
-                item.favorited
-                  ? 'bg-amber-400/30 text-amber-200 hover:bg-amber-400/50'
-                  : 'bg-white/10 hover:bg-white/20',
-              )}
-            >
-              <Star className={cn('h-5 w-5', item.favorited && 'fill-current')} />
-              <span className="hidden sm:inline">{item.favorited ? '已收藏' : '收藏'}</span>
-            </button>
-            {onDelete && (
               <button
                 type="button"
-                onClick={() => onDelete(item)}
-                title="删除当前视频（移到回收站）"
-                className="flex items-center gap-1 rounded-md bg-[var(--color-destructive)]/30 px-4 py-2 text-sm transition-colors hover:bg-[var(--color-destructive)]"
+                onClick={() => onToggleFavorite(item)}
+                title={item.favorited ? '取消收藏' : '收藏'}
+                className={cn(
+                  'rounded-full p-2.5 backdrop-blur-md transition-colors',
+                  item.favorited
+                    ? 'bg-amber-400 text-white'
+                    : 'bg-black/50 text-white hover:bg-black/70 hover:text-amber-300',
+                )}
               >
-                <Trash2 className="h-5 w-5" />
-                <span className="hidden sm:inline">删除</span>
+                <Star className={cn('h-5 w-5', item.favorited && 'fill-current')} />
               </button>
-            )}
-            <button
-              type="button"
-              onClick={toggleFullscreen}
-              title="退出全屏"
-              className="flex items-center gap-1 rounded-md bg-white/10 px-4 py-2 text-sm transition-colors hover:bg-white/20"
-            >
-              <Minimize className="h-5 w-5" />
-              <span className="hidden sm:inline">退出</span>
-            </button>
-          </div>
-        )}
+              {onDelete && (
+                <button
+                  type="button"
+                  onClick={() => onDelete(item)}
+                  title="删除"
+                  className="rounded-full bg-black/50 p-2.5 text-white backdrop-blur-md transition-colors hover:bg-red-500"
+                >
+                  <Trash2 className="h-5 w-5" />
+                </button>
+              )}
+            </div>
 
-        {isFullscreen && (
-          <div
-            className={cn(
-              // bottom-[68px] leaves room for the control bar (py-3 + button h ~= 64-68px).
-              'absolute right-0 top-0 z-20 flex w-80 max-w-[85vw] flex-col bg-black/85 text-white shadow-2xl backdrop-blur-md transition-transform duration-200',
-              'bottom-[68px]',
-              fsListOpen ? 'translate-x-0' : 'translate-x-full',
-            )}
-          >
-            <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
-              <div className="text-sm font-medium">播放列表</div>
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] tabular-nums text-white/60">{items.length} 个</span>
+            <div
+              className={cn(
+                'absolute right-0 top-0 bottom-[68px] z-30 flex w-80 max-w-[85vw] flex-col bg-black/85 text-white shadow-2xl backdrop-blur-md transition-transform duration-300',
+                fsListOpen ? 'translate-x-0' : 'translate-x-full',
+              )}
+            >
+              <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+                <div className="text-sm font-medium">播放列表 ({items.length})</div>
                 <button
                   type="button"
                   onClick={() => setFsListOpen(false)}
-                  title="关闭"
-                  className="rounded p-1 text-white/80 transition-colors hover:bg-white/10"
+                  className="rounded p-1 text-white/60 hover:text-white"
                 >
-                  <X className="h-4 w-4" />
+                  <X className="h-5 w-5" />
                 </button>
               </div>
+              <ul className="flex-1 overflow-y-auto p-1">
+                {items.map(it => {
+                  const isActive = it.path === item.path
+                  return (
+                    <li key={it.path} className="group relative">
+                      <button
+                        ref={isActive ? fsActiveRef : null}
+                        type="button"
+                        onClick={() => {
+                          onSelect(it)
+                          setFsListOpen(false)
+                        }}
+                        className={cn(
+                          'flex w-full items-start gap-3 rounded-md px-3 py-2.5 text-left transition-colors',
+                          isActive ? 'bg-primary/20 border border-primary/30' : 'hover:bg-white/5',
+                        )}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div
+                            className={cn(
+                              'line-clamp-2 text-xs font-medium',
+                              isActive ? 'text-primary' : 'text-white/80',
+                            )}
+                          >
+                            {it.name}
+                          </div>
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={e => {
+                          e.stopPropagation()
+                          onToggleFavorite(it)
+                        }}
+                        className={cn(
+                          'absolute right-2 top-1/2 -translate-y-1/2 p-2 opacity-0 group-hover:opacity-100 transition-opacity',
+                          it.favorited ? 'text-amber-400 opacity-100' : 'text-white/40',
+                        )}
+                      >
+                        <Star className={cn('h-3.5 w-3.5', it.favorited && 'fill-current')} />
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
             </div>
-            <ul className="flex-1 overflow-y-auto overscroll-contain">
-              {items.map(it => {
-                const isActive = it.path === item.path
-                return (
-                  <li key={it.path} className="relative">
-                    <button
-                      ref={isActive ? fsActiveRef : null}
-                      type="button"
-                      onClick={() => {
-                        onSelect(it)
-                        setFsListOpen(false)
-                      }}
-                      className={cn(
-                        'flex w-full items-start gap-2 border-b border-white/5 px-3 py-2 pr-9 text-left transition-colors hover:bg-white/10',
-                        isActive && 'bg-[var(--color-primary)]/25',
-                      )}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div
-                          className={cn(
-                            'line-clamp-2 break-all text-xs leading-tight',
-                            isActive ? 'font-semibold text-white' : 'text-white/90',
-                          )}
-                          title={it.name}
-                        >
-                          {it.name}
-                        </div>
-                        <div className="mt-0.5 text-[10px] tabular-nums text-white/50">
-                          {formatBytes(it.size)}
-                        </div>
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={e => {
-                        e.stopPropagation()
-                        onToggleFavorite(it)
-                      }}
-                      title={it.favorited ? '取消收藏' : '收藏'}
-                      className={cn(
-                        'absolute right-2 top-1/2 -translate-y-1/2 rounded p-1.5 transition-colors',
-                        it.favorited
-                          ? 'text-amber-300 hover:bg-amber-400/20'
-                          : 'text-white/50 hover:bg-white/10 hover:text-amber-300',
-                      )}
-                    >
-                      <Star className={cn('h-3.5 w-3.5', it.favorited && 'fill-current')} />
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          </div>
+          </>
         )}
       </div>
 
