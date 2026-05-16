@@ -115,13 +115,14 @@ public class WhisperRunner {
         Path vtt = Path.of(outputPrefix.toAbsolutePath() + ".vtt");
         if (!Files.isRegularFile(vtt)) {
             // whisper.cpp 在每一段都被判定为非语音时不会写 .vtt 文件，退出码仍是 0。
-            // 直接抛错让 job 进 FAILED 状态，前端展示具体原因；这比悄悄生成一个空 VTT 让用户
-            // 看到「已生成」但播放无字幕要诚实得多。常见诱因：源音频纯音乐 / 整段静默、或
-            // 老旧容器（.rmvb 里的 cook 编码）被 ffmpeg 解出空音轨。
+            // 把 stderr 最后 600 字符塞进异常消息 —— 这是定位「某个参数不被这个 whisper.cpp
+            // 版本支持」的关键线索（例如老 cuBLAS 构建对 -fa / -su 的处理就只能从 stderr 看到）。
+            String snippet = tail.length() > 600 ? tail.substring(tail.length() - 600) : tail.toString();
             throw new IOException(
                     "音频中未识别到可转写的语音内容（whisper 退出 0 但未生成字幕）。"
                             + "常见原因：纯音乐 / 全静默 / 老旧编码（如 .rmvb 的 RealAudio cook）"
-                            + "在当前 ffmpeg 下解码不完整。可尝试用其他播放器确认源视频是否有语音。");
+                            + "在当前 ffmpeg 下解码不完整；或某个 whisper 参数不被当前版本支持。\n"
+                            + "—— whisper 输出末尾 ——\n" + snippet);
         }
         return vtt;
     }

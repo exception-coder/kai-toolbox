@@ -59,7 +59,9 @@ toolbox:
     output-dir: ${toolbox.data-dir}/subtitles
     threads: 0                  # 0 = 让 whisper.cpp 自己挑
     disable-gpu: false          # CUDA 构建默认走 GPU；调试时可强制改 CPU
-    flash-attention: true       # cuBLAS 构建默认开 Flash Attention，速度 +30~50% 无精度损失
+    # Flash Attention 仅 whisper.cpp v1.7+ 稳定支持。部分老版本 cuBLAS 构建虽然不报错
+    # 但会让 transcribe 跑完不生成 VTT —— 出现「无字幕」时第一步是把这里改回 false 验证。
+    flash-attention: false      # 改 true 可享受 +30~50% 速度（前提：whisper.cpp ≥ v1.7）
     max-concurrent-jobs: 1      # GPU 一次跑一条最快
     timeout-seconds: 0          # 0 = 不超时，长片不被砍
     # 默认 initial prompt：每次转写前喂给 whisper 当作上下文（最长 224 token，约 150 字）。
