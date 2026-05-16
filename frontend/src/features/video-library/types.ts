@@ -59,7 +59,8 @@ export type SubtitleStatus =
 export interface SegmentStat {
   idx: number
   file: string
-  mode: 'copy' | 'transcode'
+  /** {@code prewarm} = served from the in-memory segment cache populated when the playlist was fetched. */
+  mode: 'copy' | 'transcode' | 'prewarm'
   spawnMs: number
   firstByteMs: number
   totalMs: number
@@ -71,6 +72,8 @@ export interface SegmentStat {
 export interface PlaybackStats {
   activeFfmpeg: number
   recentSegments: SegmentStat[]
+  /** Runtime A/B toggle: {@code true} = hwaccel + prewarm; {@code false} = pure-software baseline. */
+  optimizationEnabled: boolean
 }
 
 export interface SubtitleJob {

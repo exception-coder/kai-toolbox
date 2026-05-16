@@ -4,5 +4,6 @@ import java.util.List;
 
 public record PlaybackStatsView(
         int activeFfmpeg,
-        List<SegmentStatView> recentSegments
+        List<SegmentStatView> recentSegments,
+        boolean optimizationEnabled
 ) {}

@@ -1,12 +1,12 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { Activity, AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Activity, AlertTriangle, Loader2, RefreshCw, Zap, ZapOff } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ApiError } from '@/lib/api'
 import { formatBytes, cn } from '@/lib/utils'
-import { getPlaybackStats } from '../api'
-import type { SegmentStat } from '../types'
+import { getPlaybackStats, setHlsOptimization } from '../api'
+import type { PlaybackStats, SegmentStat } from '../types'
 
 /** One HLS segment is 10s on the backend; "speed" = realtime-relative throughput. */
 const SEGMENT_SECONDS = 10
@@ -84,11 +84,65 @@ export function PlaybackStatsPanel({ active }: Props) {
           </div>
         ) : stats ? (
           <div className="space-y-4">
+            <OptimizationToggleCard stats={stats} />
             <ActiveProcessCard count={stats.activeFfmpeg} />
             <RecentSegmentsList segments={stats.recentSegments} />
           </div>
         ) : null}
       </div>
+    </div>
+  )
+}
+
+function OptimizationToggleCard({ stats }: { stats: PlaybackStats }) {
+  const enabled = stats.optimizationEnabled
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: (next: boolean) => setHlsOptimization(next),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['playback-stats'] }),
+  })
+
+  const Icon = enabled ? Zap : ZapOff
+  const toneBg = enabled
+    ? 'border-emerald-500/40 bg-emerald-500/5'
+    : 'border-amber-500/40 bg-amber-500/5'
+  const toneIcon = enabled
+    ? 'text-emerald-600 dark:text-emerald-400'
+    : 'text-amber-600 dark:text-amber-400'
+
+  return (
+    <div className={cn('rounded-md border px-4 py-3 transition-colors', toneBg)}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-2">
+          <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', toneIcon)} />
+          <div>
+            <div className="text-sm font-semibold">
+              {enabled ? '优化模式 · CUDA + NVENC + 预热' : '对照模式 · CPU 软编，无预热'}
+            </div>
+            <div className="mt-0.5 text-[11px] text-[var(--color-muted-foreground)]">
+              {enabled
+                ? '播放前两段走内存缓存，余下走 NVENC 硬编。播一个视频后看下方 mode=prewarm / transcode 与速度对比。'
+                : '强制走 libx264 ultrafast 软编、关闭预热。切回优化模式可立刻对比 firstByte / 总耗时差异。'}
+            </div>
+          </div>
+        </div>
+        <Button
+          size="sm"
+          variant={enabled ? 'outline' : 'default'}
+          disabled={mutation.isPending}
+          onClick={() => mutation.mutate(!enabled)}
+          className="h-7 shrink-0 px-2 text-xs"
+        >
+          {mutation.isPending
+            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            : enabled ? '切到对照' : '开启优化'}
+        </Button>
+      </div>
+      {mutation.error && (
+        <div className="mt-2 text-[11px] text-[var(--color-destructive)]">
+          切换失败：{mutation.error instanceof ApiError ? mutation.error.message : String(mutation.error)}
+        </div>
+      )}
     </div>
   )
 }
@@ -125,8 +179,9 @@ function RecentSegmentsList({ segments }: { segments: SegmentStat[] }) {
         <div className="text-sm font-medium">最近转码段</div>
         <div className="text-[11px] text-[var(--color-muted-foreground)]">共 {segments.length} 条</div>
       </div>
-      <div className="mb-2 grid grid-cols-3 gap-2 text-[11px]">
+      <div className="mb-2 grid grid-cols-4 gap-2 text-[11px]">
         <SummaryCell label="平均速度" value={summary.avgSpeedText} tone={summary.speedTone} />
+        <SummaryCell label="prewarm 命中" value={`${summary.prewarmPercent}%`} tone={summary.prewarmPercent > 0 ? 'good' : 'default'} />
         <SummaryCell label="copy 占比" value={`${summary.copyPercent}%`} tone="default" />
         <SummaryCell label="客户端中断" value={`${summary.abortedCount}`} tone={summary.abortedCount > 0 ? 'warn' : 'default'} />
       </div>
@@ -158,7 +213,10 @@ function SegmentRow({ segment }: { segment: SegmentStat }) {
     <li className="rounded-md border bg-[var(--color-card)] px-3 py-2 text-xs">
       <div className="flex items-center gap-2">
         <span className="font-mono text-[10px] text-[var(--color-muted-foreground)]">#{segment.idx}</span>
-        <Badge variant={segment.mode === 'copy' ? 'success' : 'secondary'} className="h-4 px-1.5 text-[10px]">
+        <Badge
+          variant={segment.mode === 'copy' ? 'success' : segment.mode === 'prewarm' ? 'default' : 'secondary'}
+          className="h-4 px-1.5 text-[10px]"
+        >
           {segment.mode}
         </Badge>
         {segment.aborted && <Badge variant="outline" className="h-4 px-1.5 text-[10px]">aborted</Badge>}
@@ -224,6 +282,8 @@ function computeSummary(segments: SegmentStat[]) {
     : null
   const copyCount = segments.filter(s => s.mode === 'copy').length
   const copyPercent = segments.length > 0 ? Math.round((copyCount / segments.length) * 100) : 0
+  const prewarmCount = segments.filter(s => s.mode === 'prewarm').length
+  const prewarmPercent = segments.length > 0 ? Math.round((prewarmCount / segments.length) * 100) : 0
   const abortedCount = segments.filter(s => s.aborted).length
 
   return {
@@ -235,6 +295,7 @@ function computeSummary(segments: SegmentStat[]) {
           : avgSpeed >= 0.5 ? 'warn'
             : 'bad') as 'default' | 'good' | 'warn' | 'bad',
     copyPercent,
+    prewarmPercent,
     abortedCount,
   }
 }

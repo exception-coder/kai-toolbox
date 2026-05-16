@@ -11,16 +11,21 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 
 /**
  * On-demand HLS for non-natively-playable inputs. Playlists are stitched in memory from the
@@ -40,11 +45,35 @@ public class HlsService {
      */
     static final int SEGMENT_SECONDS = 10;
     private static final long PROCESS_GRACE_MS = 2000;
+    /** How long {@link #writeSegment} will block waiting for an in-flight prewarm before giving up
+     *  and falling back to spawning its own ffmpeg. Pad over a typical NVENC 10-s prewarm budget. */
+    private static final long PREWARM_AWAIT_MS = 15_000;
+    /** Hard cap on prewarm buffer to bound worst-case memory if the source explodes in size
+     *  (extremely high bitrate, or a probe lied about duration). 64 MiB easily fits 10 s of
+     *  4K H.264; anything over that suggests something is wrong and we abort. */
+    private static final int PREWARM_MAX_BYTES = 64 * 1024 * 1024;
+    /** Number of leading segments to prewarm. 2 covers "click → first frame" plus the gap before
+     *  hls.js's own forward-buffering kicks in. Going higher is mostly waste — by segment 2 the
+     *  player is already streaming faster than realtime on NVENC. */
+    private static final int PREWARM_SEGMENT_COUNT = 2;
 
     private final FfmpegProbe probe;
     private final FfmpegProperties props;
     private final FfmpegProcessRegistry registry;
     private final PlaybackStatsCollector stats;
+    /**
+     * Per-segment prewarm cache, indexed by segment idx (0..{@link #PREWARM_SEGMENT_COUNT}-1).
+     * Each slot holds the most recent prewarm for that idx — switching files invalidates every
+     * slot whose key doesn't match the new file and force-kills the ffmpeg behind it.
+     */
+    private final AtomicReferenceArray<PrewarmEntry> prewarmSlots = new AtomicReferenceArray<>(PREWARM_SEGMENT_COUNT);
+    /**
+     * Runtime A/B toggle. {@code true} (default): hardware acceleration + segment prewarm — the
+     * production path. {@code false}: forces software-encode (libx264 ultrafast) and disables
+     * prewarm, so the user can compare wall-clock numbers in {@code PlaybackStatsPanel} without
+     * restarting the JVM or editing application.yml.
+     */
+    private volatile boolean optimizationEnabled = true;
 
     public HlsService(FfmpegProbe probe, FfmpegProperties props, FfmpegProcessRegistry registry,
                       PlaybackStatsCollector stats) {
@@ -59,6 +88,20 @@ public class HlsService {
      * The last segment's EXTINF is rounded down to whatever fraction of {@link #SEGMENT_SECONDS}
      * the file actually has — getting this right is what lets hls.js seek to the very end.
      */
+    public boolean isOptimizationEnabled() {
+        return optimizationEnabled;
+    }
+
+    /**
+     * Flip the A/B toggle. Flipping to {@code false} does not cancel an already in-flight prewarm —
+     * the next playlist request just won't start a new one, and any pending entries that miss their
+     * 15 s consume window will simply fall through to the regular spawn path.
+     */
+    public void setOptimizationEnabled(boolean enabled) {
+        this.optimizationEnabled = enabled;
+        log.info("HLS optimization toggled: {}", enabled ? "ON (hwaccel + prewarm)" : "OFF (software encode, no prewarm)");
+    }
+
     public String playlist(String scanId, Path file) throws IOException {
         if (!probe.isFfmpegAvailable()) {
             throw new FfmpegUnavailableException("FFmpeg 不可用，请在 application.yml 配置 toolbox.ffmpeg.binary");
@@ -86,6 +129,12 @@ public class HlsService {
             sb.append("segment-").append(i).append(".ts?path=").append(pathParam).append('\n');
         }
         sb.append("#EXT-X-ENDLIST\n");
+        // Fire-and-forget: by the time hls.js parses this playlist and requests segment-0,
+        // ffmpeg should already be most of the way through producing it. Skipped when the A/B
+        // toggle is off so the comparison baseline isn't accidentally accelerated.
+        if (optimizationEnabled) {
+            schedulePrewarm(file, info);
+        }
         return sb.toString();
     }
 
@@ -109,6 +158,24 @@ public class HlsService {
         boolean videoCopy = probe.canCopyVideo(info);
         boolean audioCopy = probe.canCopyAudio(info);
         String mode = (videoCopy && audioCopy) ? "copy" : "transcode";
+
+        // Fast path: this segment was prewarmed by the playlist request (or by a prior segment
+        // hit triggering rolling prewarm). Drain it straight to the client without forking
+        // another ffmpeg. Any failure here silently falls through to the regular spawn path.
+        if (idx < PREWARM_SEGMENT_COUNT) {
+            byte[] cached = tryConsumePrewarm(file, idx);
+            if (cached != null) {
+                long t0Fast = System.nanoTime();
+                out.write(cached);
+                out.flush();
+                long totalMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0Fast);
+                stats.record(new SegmentStat(idx, file.getFileName().toString(), "prewarm",
+                        0L, 0L, totalMs, cached.length, false, System.currentTimeMillis()));
+                log.info("hls segment idx={} mode=prewarm total={}ms bytes={} file={}",
+                        idx, totalMs, cached.length, file.getFileName());
+                return;
+            }
+        }
 
         long t0 = System.nanoTime();
         long spawnMs = -1L;
@@ -206,15 +273,154 @@ public class HlsService {
         }
     }
 
+    /**
+     * Holds an in-flight or completed prewarm for one segment idx. {@code result} is the only
+     * field that may transition from incomplete → complete; readers wait on it. {@code process}
+     * is kept so a superseding prewarm (different file) can force-kill the old ffmpeg instead
+     * of letting it finish into a buffer no one will read.
+     */
+    private record PrewarmEntry(String key, CompletableFuture<byte[]> result, Process process) {}
+
+    private static String prewarmKey(Path file) {
+        try {
+            return file.toAbsolutePath() + "|" + Files.getLastModifiedTime(file).toMillis();
+        } catch (IOException e) {
+            return file.toAbsolutePath().toString();
+        }
+    }
+
+    /**
+     * Prewarm the first {@link #PREWARM_SEGMENT_COUNT} segments of {@code file}. Idempotent for
+     * a file already being warmed; switching files invalidates every slot whose key doesn't match
+     * and kills the ffmpeg behind it. Never throws — prewarm is an optimization, the regular
+     * segment path stays the source of truth for correctness.
+     */
+    private void schedulePrewarm(Path file, ProbeResult info) {
+        String key = prewarmKey(file);
+        // First pass: evict every slot belonging to a different file so its ffmpeg dies promptly
+        // even if we don't end up rewarming that slot below.
+        for (int i = 0; i < PREWARM_SEGMENT_COUNT; i++) {
+            PrewarmEntry existing = prewarmSlots.get(i);
+            if (existing != null && !existing.key.equals(key)) {
+                if (prewarmSlots.compareAndSet(i, existing, null)) {
+                    existing.process.destroyForcibly();
+                    existing.result.completeExceptionally(new IOException("prewarm superseded"));
+                }
+            }
+        }
+
+        double duration = info.durationSeconds();
+        boolean videoCopy = probe.canCopyVideo(info);
+        boolean audioCopy = probe.canCopyAudio(info);
+        for (int idx = 0; idx < PREWARM_SEGMENT_COUNT; idx++) {
+            double startSec = (double) idx * SEGMENT_SECONDS;
+            if (startSec >= duration) break; // video shorter than the next segment
+            PrewarmEntry existing = prewarmSlots.get(idx);
+            if (existing != null && existing.key.equals(key)) continue; // already warming for this file
+            spawnPrewarm(file, key, idx, startSec,
+                    Math.min((double) SEGMENT_SECONDS, duration - startSec), videoCopy, audioCopy);
+        }
+    }
+
+    private void spawnPrewarm(Path file, String key, int idx, double startSec, double dur,
+                              boolean videoCopy, boolean audioCopy) {
+        List<String> cmd = buildSegmentCommand(file, startSec, dur, videoCopy, audioCopy);
+        Process process;
+        try {
+            process = registry.spawn(new ProcessBuilder(cmd).redirectErrorStream(false));
+        } catch (IOException e) {
+            log.debug("hls prewarm spawn failed idx={} for {}: {}", idx, file, e.toString());
+            return;
+        }
+        CompletableFuture<byte[]> future = new CompletableFuture<>();
+        PrewarmEntry entry = new PrewarmEntry(key, future, process);
+        PrewarmEntry prior = prewarmSlots.get(idx);
+        if (!prewarmSlots.compareAndSet(idx, prior, entry)) {
+            // Lost a race — bail cleanly rather than leaking the spawn.
+            process.destroyForcibly();
+            return;
+        }
+        startStderrDrain(process);
+        long t0 = System.nanoTime();
+        Thread.ofVirtual().name("hls-prewarm-" + idx).start(() -> {
+            try (var in = process.getInputStream();
+                 var buf = new ByteArrayOutputStream(2 * 1024 * 1024)) {
+                byte[] tmp = new byte[64 * 1024];
+                int n;
+                while ((n = in.read(tmp)) > 0) {
+                    if (buf.size() + n > PREWARM_MAX_BYTES) {
+                        log.warn("hls prewarm aborted: segment-{} > {} bytes for {}",
+                                idx, PREWARM_MAX_BYTES, file.getFileName());
+                        process.destroyForcibly();
+                        future.completeExceptionally(new IOException("prewarm too large"));
+                        prewarmSlots.compareAndSet(idx, entry, null);
+                        return;
+                    }
+                    buf.write(tmp, 0, n);
+                }
+                process.waitFor(PROCESS_GRACE_MS, TimeUnit.MILLISECONDS);
+                if (process.isAlive() || process.exitValue() != 0) {
+                    process.destroyForcibly();
+                    future.completeExceptionally(new IOException(
+                            "ffmpeg prewarm exit=" + (process.isAlive() ? "?" : process.exitValue())));
+                    prewarmSlots.compareAndSet(idx, entry, null);
+                    return;
+                }
+                long readyMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0);
+                future.complete(buf.toByteArray());
+                log.info("hls prewarm ready idx={} in {}ms bytes={} file={}",
+                        idx, readyMs, buf.size(), file.getFileName());
+            } catch (Exception e) {
+                future.completeExceptionally(e);
+                prewarmSlots.compareAndSet(idx, entry, null);
+            } finally {
+                reap(process);
+            }
+        });
+    }
+
+    /**
+     * If a prewarm exists for {@code (file, idx)}, wait up to {@link #PREWARM_AWAIT_MS} for it
+     * and return the bytes; otherwise return null. The entry is cleared on consumption so the
+     * buffer can be GC'd — a seek back will fall through to the normal spawn path.
+     */
+    private byte[] tryConsumePrewarm(Path file, int idx) {
+        if (idx < 0 || idx >= PREWARM_SEGMENT_COUNT) return null;
+        PrewarmEntry e = prewarmSlots.get(idx);
+        if (e == null || !e.key.equals(prewarmKey(file))) return null;
+        try {
+            byte[] data = e.result.get(PREWARM_AWAIT_MS, TimeUnit.MILLISECONDS);
+            prewarmSlots.compareAndSet(idx, e, null);
+            return data;
+        } catch (TimeoutException te) {
+            log.debug("hls prewarm not ready in {}ms, falling back to spawn for {} idx={}",
+                    PREWARM_AWAIT_MS, file.getFileName(), idx);
+            return null;
+        } catch (Exception ex) {
+            log.debug("hls prewarm failed for {} idx={}: {}", file.getFileName(), idx, ex.toString());
+            return null;
+        }
+    }
+
     private List<String> buildSegmentCommand(Path file, double startSec, double dur,
                                              boolean videoCopy, boolean audioCopy) {
         List<String> cmd = new ArrayList<>();
         cmd.add(props.getBinary());
         cmd.add("-loglevel"); cmd.add("warning");
         cmd.add("-nostdin");
+        // When the A/B toggle is OFF we ignore application.yml's hwaccel — comparison must run
+        // pure-software so the user actually sees what NVENC bought.
+        String hw = optimizationEnabled ? props.getHwaccel() : "";
+        boolean nvidia = hw.equals("cuda") || hw.equals("nvenc");
         // -hwaccel must come BEFORE -i. Empty value = software decode/encode.
-        if (!videoCopy && !props.getHwaccel().isEmpty()) {
-            cmd.add("-hwaccel"); cmd.add(props.getHwaccel());
+        // For NVIDIA we additionally pin -hwaccel_output_format cuda so decoded frames stay in VRAM
+        // and feed h264_nvenc directly — no GPU↔CPU round-trip per frame.
+        if (!videoCopy && !hw.isEmpty()) {
+            cmd.add("-hwaccel"); cmd.add(nvidia ? "cuda" : hw);
+            if (nvidia) {
+                cmd.add("-hwaccel_output_format"); cmd.add("cuda");
+                cmd.add("-extra_hw_frames"); cmd.add("8");
+            }
         }
         // -ss before -i is the "fast seek" form: ffmpeg seeks via container index instead of decoding
         // up to the offset, which is what makes per-segment transcode latency tolerable.
@@ -222,19 +428,32 @@ public class HlsService {
         cmd.add("-t"); cmd.add(String.format(Locale.ROOT, "%.3f", dur));
         cmd.add("-i"); cmd.add(file.toAbsolutePath().toString());
 
-        // Video: copy if compatible, otherwise re-encode. ultrafast + zerolatency keeps per-segment
-        // wall-clock under realtime even for HEVC → H.264 on a CPU encoder.
+        // Video: copy if compatible, otherwise re-encode. Per-encoder tuning targets sub-100ms
+        // first-byte latency so hls.js can start playing as soon as it requests a segment.
         if (videoCopy) {
             cmd.add("-c:v"); cmd.add("copy");
         } else {
-            cmd.add("-c:v"); cmd.add(videoEncoderFor(props.getHwaccel()));
-            if (props.getHwaccel().isEmpty()) {
+            cmd.add("-c:v"); cmd.add(videoEncoderFor(hw));
+            if (hw.isEmpty()) {
+                // libx264: ultrafast + zerolatency is the only combination that keeps a single-thread
+                // CPU encoder under realtime for 1080p HEVC → H.264.
                 cmd.add("-preset"); cmd.add("ultrafast");
                 cmd.add("-tune"); cmd.add("zerolatency");
+                cmd.add("-crf"); cmd.add("23");
+            } else if (nvidia) {
+                // NVENC: p1 (fastest) + low-latency tune. CRF is ignored by NVENC — use cq with
+                // rc=vbr and b:v=0 to get quality-targeted variable bitrate.
+                cmd.add("-preset"); cmd.add("p1");
+                cmd.add("-tune"); cmd.add("ll");
+                cmd.add("-rc"); cmd.add("vbr");
+                cmd.add("-cq"); cmd.add("22");
+                cmd.add("-b:v"); cmd.add("0");
             } else {
+                // QSV / AMF / VideoToolbox: keep the older p4 preset; their tuning knobs differ
+                // and we have no machine to validate against right now.
                 cmd.add("-preset"); cmd.add("p4");
+                cmd.add("-crf"); cmd.add("23");
             }
-            cmd.add("-crf"); cmd.add("23");
         }
         // Audio: same independent decision. Most non-native containers carry h264 video + ac3 audio,
         // and audio re-encode is cheap enough that the video can still go through copy.

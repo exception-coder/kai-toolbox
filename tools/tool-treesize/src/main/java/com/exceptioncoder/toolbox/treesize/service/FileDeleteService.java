@@ -128,6 +128,7 @@ public class FileDeleteService {
     private void onDeleted(String scanId, String absPath) {
         nodes.deleteByScanAndPath(scanId, absPath);
         failedDeletes.remove(absPath);
+        nodes.invalidateVideoLibraryCache();
     }
 
     private TrashOutcome tryMoveToTrashWithRetry(Path file, String absPath) {

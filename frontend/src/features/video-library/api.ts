@@ -42,6 +42,10 @@ export function getPlaybackStats() {
   return http<PlaybackStats>(`/treesize/playback-stats`)
 }
 
+export function setHlsOptimization(enabled: boolean) {
+  return http<void>(`/treesize/hls/optimization?enabled=${enabled}`, { method: 'POST' })
+}
+
 // ---------- subtitles ----------------------------------------------------
 
 /**

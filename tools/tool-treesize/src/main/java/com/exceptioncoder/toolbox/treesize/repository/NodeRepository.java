@@ -16,9 +16,11 @@ import java.util.List;
 public class NodeRepository {
 
     private final JdbcTemplate jdbc;
+    private final VideoLibraryCountCache countCache;
 
-    public NodeRepository(JdbcTemplate jdbc) {
+    public NodeRepository(JdbcTemplate jdbc, VideoLibraryCountCache countCache) {
         this.jdbc = jdbc;
+        this.countCache = countCache;
     }
 
     private static final RowMapper<FileNode> ROW = (rs, i) -> FileNode.builder()
@@ -38,8 +40,8 @@ public class NodeRepository {
         if (batch.isEmpty()) return;
         jdbc.batchUpdate("""
                 INSERT INTO treesize_node
-                  (scan_id, parent_path, path, name, is_dir, size, file_count, dir_count, depth)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  (scan_id, parent_path, path, name, is_dir, size, file_count, dir_count, depth, ext)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, new BatchPreparedStatementSetter() {
             @Override
             public void setValues(PreparedStatement ps, int i) throws SQLException {
@@ -53,6 +55,10 @@ public class NodeRepository {
                 ps.setLong(7, n.getFileCount());
                 ps.setLong(8, n.getDirCount());
                 ps.setInt(9, n.getDepth());
+                // ext is meaningful only for files — directories get NULL so they're naturally
+                // skipped by the video-library index lookup. extOf() lowercases and trims the
+                // leading dot, matching the value the migration backfill writes.
+                ps.setString(10, n.isDir() ? null : TreeSizeMigration.extOf(n.getName()));
             }
             @Override
             public int getBatchSize() { return batch.size(); }
@@ -161,12 +167,20 @@ public class NodeRepository {
     );
 
     /**
-     * Aggregate video files across all completed scans, paginated. Extension match is a
-     * parameterised disjunction of {@code LOWER(name) LIKE ?} clauses ({@code "%.mp4"},
-     * {@code "%.mkv"}, …), which keeps the SQL injection-free even though the OR list is
-     * dynamic. {@code sortBy} and {@code order} are validated against a fixed whitelist so
-     * they can be inlined safely. {@code COUNT(*) OVER ()} returns the unfiltered total in
-     * every row, which we read once.
+     * Aggregate video files across all completed scans, paginated.
+     *
+     * <p>Extension match is now an {@code n.ext IN (?, ?, …)} list against the {@code ext}
+     * column populated at insert time + {@link TreeSizeMigration#backfillExt}. Combined with the
+     * {@code (is_dir, ext, name COLLATE NOCASE)} / {@code (is_dir, ext, size)} indexes this
+     * turns the previous full-table {@code LOWER(name) LIKE '%.mp4' OR …} scan into a bounded
+     * index range scan — orders of magnitude faster on a million-row database.
+     *
+     * <p>Count is split out into a separate {@code SELECT COUNT(*)} cached for 30 s in
+     * {@link VideoLibraryCountCache}. Removing {@code COUNT(*) OVER ()} stops SQLite from
+     * window-aggregating every matching row before it can return the first one.
+     *
+     * <p>{@code sortBy} and {@code order} are validated against a fixed whitelist so they're
+     * safe to inline.
      */
     public VideoSearchResult findVideos(List<String> extensions, String sortBy, String order,
                                          long sizeMinInclusive, long sizeMaxExclusive,
@@ -174,21 +188,29 @@ public class NodeRepository {
                                          int offset, int limit) {
         if (extensions.isEmpty()) return new VideoSearchResult(List.of(), 0);
 
+        List<String> normalisedExts = extensions.stream().map(e -> e.toLowerCase()).toList();
+        String cacheKey = buildCountKey(normalisedExts, sizeMinInclusive, sizeMaxExclusive, nameQuery, favoritesOnly);
+        long total = countCache.getOrCompute(cacheKey,
+                () -> countVideos(normalisedExts, sizeMinInclusive, sizeMaxExclusive, nameQuery, favoritesOnly));
+
+        if (total == 0 || offset >= total) {
+            return new VideoSearchResult(List.of(), total);
+        }
+
         StringBuilder sql = new StringBuilder("""
                 SELECT n.scan_id, s.root_path, n.path, n.name, n.size,
-                       (f.path IS NOT NULL) AS favorited,
-                       COUNT(*) OVER () AS total_count
+                       (f.path IS NOT NULL) AS favorited
                   FROM treesize_node n
                   JOIN treesize_scan s ON n.scan_id = s.id
                   LEFT JOIN treesize_video_favorite f ON f.path = n.path
                  WHERE n.is_dir = 0
                    AND s.status = 'COMPLETED'
-                   AND (""");
-        List<Object> args = new ArrayList<>(extensions.size() + 6);
-        for (int i = 0; i < extensions.size(); i++) {
-            if (i > 0) sql.append(" OR ");
-            sql.append("LOWER(n.name) LIKE ?");
-            args.add("%." + extensions.get(i).toLowerCase());
+                   AND n.ext IN (""");
+        List<Object> args = new ArrayList<>(normalisedExts.size() + 6);
+        for (int i = 0; i < normalisedExts.size(); i++) {
+            if (i > 0) sql.append(", ");
+            sql.append("?");
+            args.add(normalisedExts.get(i));
         }
         sql.append(")");
         appendExcludedPathFilters(sql, args);
@@ -196,37 +218,29 @@ public class NodeRepository {
         appendNameQueryFilter(sql, args, nameQuery);
         appendFavoritesOnlyFilter(sql, favoritesOnly);
         sql.append(" ORDER BY ");
-        sql.append("size".equals(sortBy) ? "n.size" : "LOWER(n.name)");
+        // COLLATE NOCASE replaces LOWER(name) so the index ordering is usable; "size" sort
+        // pivots to the (is_dir, ext, size) index.
+        sql.append("size".equals(sortBy) ? "n.size" : "n.name COLLATE NOCASE");
         sql.append("desc".equalsIgnoreCase(order) ? " DESC" : " ASC");
         sql.append(", n.path ASC");  // tiebreaker so paging is deterministic
         sql.append(" LIMIT ? OFFSET ?");
         args.add(limit);
         args.add(offset);
 
-        long[] total = {0};
         List<VideoFile> items = jdbc.query(sql.toString(),
-                (rs, i) -> {
-                    if (i == 0) total[0] = rs.getLong("total_count");
-                    return new VideoFile(
-                            rs.getString("scan_id"),
-                            rs.getString("root_path"),
-                            rs.getString("path"),
-                            rs.getString("name"),
-                            rs.getLong("size"),
-                            rs.getInt("favorited") == 1);
-                },
+                (rs, i) -> new VideoFile(
+                        rs.getString("scan_id"),
+                        rs.getString("root_path"),
+                        rs.getString("path"),
+                        rs.getString("name"),
+                        rs.getLong("size"),
+                        rs.getInt("favorited") == 1),
                 args.toArray());
 
-        // When the page is empty (offset past the end) the row mapper never runs, so we need
-        // a separate count. Skip it on the common path.
-        if (items.isEmpty() && offset > 0) {
-            total[0] = countVideos(extensions, sizeMinInclusive, sizeMaxExclusive,
-                    nameQuery, favoritesOnly);
-        }
-        return new VideoSearchResult(items, total[0]);
+        return new VideoSearchResult(items, total);
     }
 
-    private long countVideos(List<String> extensions, long sizeMinInclusive, long sizeMaxExclusive,
+    private long countVideos(List<String> normalisedExts, long sizeMinInclusive, long sizeMaxExclusive,
                              String nameQuery, boolean favoritesOnly) {
         StringBuilder sql = new StringBuilder("""
                 SELECT COUNT(*) FROM treesize_node n
@@ -234,12 +248,12 @@ public class NodeRepository {
                   LEFT JOIN treesize_video_favorite f ON f.path = n.path
                  WHERE n.is_dir = 0
                    AND s.status = 'COMPLETED'
-                   AND (""");
-        List<Object> args = new ArrayList<>(extensions.size() + 4);
-        for (int i = 0; i < extensions.size(); i++) {
-            if (i > 0) sql.append(" OR ");
-            sql.append("LOWER(n.name) LIKE ?");
-            args.add("%." + extensions.get(i).toLowerCase());
+                   AND n.ext IN (""");
+        List<Object> args = new ArrayList<>(normalisedExts.size() + 4);
+        for (int i = 0; i < normalisedExts.size(); i++) {
+            if (i > 0) sql.append(", ");
+            sql.append("?");
+            args.add(normalisedExts.get(i));
         }
         sql.append(")");
         appendExcludedPathFilters(sql, args);
@@ -248,6 +262,21 @@ public class NodeRepository {
         appendFavoritesOnlyFilter(sql, favoritesOnly);
         Long n = jdbc.queryForObject(sql.toString(), Long.class, args.toArray());
         return n == null ? 0L : n;
+    }
+
+    /** sortBy is intentionally excluded — order doesn't affect the count. */
+    private static String buildCountKey(List<String> normalisedExts, long sizeMin, long sizeMax,
+                                         String nameQuery, boolean favoritesOnly) {
+        String q = nameQuery == null ? "" : nameQuery.trim();
+        return String.join(",", normalisedExts) + "|" + sizeMin + "|" + sizeMax + "|" + q + "|" + favoritesOnly;
+    }
+
+    /**
+     * Drop every cached video-library count. Call after any DB write that could change the
+     * count: scan completion, file delete, favorite toggle. Cheap (clears a small map).
+     */
+    public void invalidateVideoLibraryCache() {
+        countCache.invalidateAll();
     }
 
     /**
@@ -293,11 +322,14 @@ public class NodeRepository {
     public void addVideoFavorite(String path, long createdAt) {
         jdbc.update("INSERT OR IGNORE INTO treesize_video_favorite(path, created_at) VALUES (?, ?)",
                 path, createdAt);
+        countCache.invalidateAll();
     }
 
     /** Returns the rows-affected count, so callers can distinguish "wasn't favorited". */
     public int removeVideoFavorite(String path) {
-        return jdbc.update("DELETE FROM treesize_video_favorite WHERE path = ?", path);
+        int n = jdbc.update("DELETE FROM treesize_video_favorite WHERE path = ?", path);
+        if (n > 0) countCache.invalidateAll();
+        return n;
     }
 
     private static void appendExcludedPathFilters(StringBuilder sql, List<Object> args) {
@@ -329,13 +361,13 @@ public class NodeRepository {
                    AND s.status = 'COMPLETED'
                    AND n.name LIKE '._%'
                    AND n.size < ?
-                   AND (""");
+                   AND n.ext IN (""");
         List<Object> args = new ArrayList<>(extensions.size() + 1);
         args.add(maxSize);
         for (int i = 0; i < extensions.size(); i++) {
-            if (i > 0) sql.append(" OR ");
-            sql.append("LOWER(n.name) LIKE ?");
-            args.add("%." + extensions.get(i).toLowerCase());
+            if (i > 0) sql.append(", ");
+            sql.append("?");
+            args.add(extensions.get(i).toLowerCase());
         }
         sql.append(")");
         appendExcludedPathFilters(sql, args);

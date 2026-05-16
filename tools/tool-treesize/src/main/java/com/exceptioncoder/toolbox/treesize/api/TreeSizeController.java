@@ -265,7 +265,18 @@ public class TreeSizeController {
         List<SegmentStatView> recent = playbackStats.recent().stream()
                 .map(SegmentStatView::from)
                 .toList();
-        return new PlaybackStatsView(ffmpegRegistry.activeCount(), recent);
+        return new PlaybackStatsView(ffmpegRegistry.activeCount(), recent, hls.isOptimizationEnabled());
+    }
+
+    /**
+     * Runtime A/B toggle for the HLS optimization stack (hwaccel + segment prewarm). Off forces
+     * pure-software encoding so the user can compare numbers against the optimized path in the
+     * same JVM session. No body — state goes through {@link #playbackStatsSnapshot} on next poll.
+     */
+    @PostMapping("/hls/optimization")
+    public ResponseEntity<Void> setHlsOptimization(@RequestParam boolean enabled) {
+        hls.setOptimizationEnabled(enabled);
+        return ResponseEntity.noContent().build();
     }
 
     /**

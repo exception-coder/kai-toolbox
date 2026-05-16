@@ -111,6 +111,29 @@ export function VideoPlayer({
     }
   }, [scanId, path, onProbeResolved])
 
+  // Native <video> error fallback: hls.js can miss decode failures when the segment "succeeds"
+  // (200 OK, valid mpegts container) but produces corrupt frames — the browser raises an error
+  // on the element instead. Without this listener the user sees a silent black frame and is
+  // tempted to delete what's actually a healthy source file with a transcode-side bug.
+  useEffect(() => {
+    const video = videoEl
+    if (!video) return
+    const onError = () => {
+      const err = video.error
+      if (!err) return
+      const codeName = ({
+        1: 'MEDIA_ERR_ABORTED',
+        2: 'MEDIA_ERR_NETWORK',
+        3: 'MEDIA_ERR_DECODE',
+        4: 'MEDIA_ERR_SRC_NOT_SUPPORTED',
+      } as Record<number, string>)[err.code] ?? `code ${err.code}`
+      setErrorMsg(`视频元素错误：${codeName}${err.message ? ` — ${err.message}` : ''}`)
+      setMode('error')
+    }
+    video.addEventListener('error', onError)
+    return () => video.removeEventListener('error', onError)
+  }, [videoEl])
+
   useEffect(() => {
     const video = videoEl
     if (!video) return
@@ -287,6 +310,9 @@ export function VideoPlayer({
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center text-sm text-white/90 bg-black/60">
           <div>播放失败</div>
           {errorMsg && <div className="text-xs text-white/60">{errorMsg}</div>}
+          <div className="mt-2 max-w-md text-[11px] leading-relaxed text-amber-200/80">
+            ⚠️ 转码失败不一定代表文件损坏。删除前请用其他播放器（VLC / mpv / PotPlayer）打开确认。
+          </div>
         </div>
       )}
       {probe && mode === 'hls' && !effectiveFullscreen && (

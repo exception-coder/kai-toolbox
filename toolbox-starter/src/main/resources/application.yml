@@ -29,9 +29,10 @@ toolbox:
     ffprobe-binary: ${TOOLBOX_FFPROBE_BINARY:D:\devapps\ffmpeg-8.1.1-full_build\bin\ffprobe.exe}
     probe-timeout-ms: 5000
     # 硬件加速（仅 HLS 重编码路径有效；视频编码已是 h264 时直接 copy 不走这里）。
-    # 留空 = 纯 CPU 软编。可选：qsv（Intel Quick Sync）、nvenc（NVIDIA）、amf（AMD)、
+    # 留空 = 纯 CPU 软编。可选：qsv（Intel Quick Sync）、nvenc / cuda（NVIDIA）、amf（AMD)、
     # videotoolbox（macOS）、auto（让 ffmpeg 自动选）。配错会导致 ffmpeg 启动失败，看启动日志。
-    hwaccel: ""
+    # 本机：RTX 4060 Ti → cuda（解码 + NVENC 编码全 GPU 零拷贝）。
+    hwaccel: "cuda"
   deeplx:
     # 翻译提供商: ollama（本地模型，推荐）或 deeplx（本地 DeepL 代理）
     provider: ollama

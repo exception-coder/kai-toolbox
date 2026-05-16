@@ -20,7 +20,10 @@ CREATE TABLE IF NOT EXISTS treesize_node (
     size         INTEGER NOT NULL,
     file_count   INTEGER NOT NULL DEFAULT 0,
     dir_count    INTEGER NOT NULL DEFAULT 0,
-    depth        INTEGER NOT NULL
+    depth        INTEGER NOT NULL,
+    -- ext: lowercase file extension without the leading dot, NULL for directories
+    -- (TreeSizeMigration adds this column on pre-existing databases)
+    ext          TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_node_scan_parent ON treesize_node(scan_id, parent_path);

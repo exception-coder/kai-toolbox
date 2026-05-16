@@ -146,6 +146,8 @@ public class ScanService {
 
             scans.updateTotals(id, totals.files(), totals.dirs(), totals.size());
             scans.updateStatus(id, ScanStatus.COMPLETED, System.currentTimeMillis(), null);
+            // A scan just inserted thousands of rows — the cached video-library count is stale.
+            nodes.invalidateVideoLibraryCache();
             sse.publish(id, "completed", java.util.Map.of(
                     "totalFiles", totals.files(),
                     "totalDirs", totals.dirs(),
@@ -190,6 +192,8 @@ public class ScanService {
 
             scans.updateTotals(id, totals.files(), totals.dirs(), totals.size());
             scans.updateStatus(id, ScanStatus.COMPLETED, System.currentTimeMillis(), null);
+            // A scan just inserted thousands of rows — the cached video-library count is stale.
+            nodes.invalidateVideoLibraryCache();
             sse.publish(id, "completed", java.util.Map.of(
                     "totalFiles", totals.files(),
                     "totalDirs", totals.dirs(),
