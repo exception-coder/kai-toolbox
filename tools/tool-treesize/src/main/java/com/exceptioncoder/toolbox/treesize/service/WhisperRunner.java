@@ -115,9 +115,10 @@ public class WhisperRunner {
         Path vtt = Path.of(outputPrefix.toAbsolutePath() + ".vtt");
         if (!Files.isRegularFile(vtt)) {
             // whisper.cpp 在每一段都被判定为非语音时不会写 .vtt 文件，退出码仍是 0。
-            // 把 stderr 最后 600 字符塞进异常消息 —— 这是定位「某个参数不被这个 whisper.cpp
-            // 版本支持」的关键线索（例如老 cuBLAS 构建对 -fa / -su 的处理就只能从 stderr 看到）。
-            String snippet = tail.length() > 600 ? tail.substring(tail.length() - 600) : tail.toString();
+            // 把 stderr 最后 2000 字符塞进异常消息 —— 这是定位「某个参数不被这个 whisper.cpp
+            // 版本支持」的关键线索（前 600 字符常常只够看到 OPTIONS 帮助末尾的 VAD 段，看不到
+            // 前面的 "error: unknown argument" 行；2000 字符能覆盖完整的 OPTIONS 列表 + 错误）。
+            String snippet = tail.length() > 2000 ? tail.substring(tail.length() - 2000) : tail.toString();
             throw new IOException(
                     "音频中未识别到可转写的语音内容（whisper 退出 0 但未生成字幕）。"
                             + "常见原因：纯音乐 / 全静默 / 老旧编码（如 .rmvb 的 RealAudio cook）"
@@ -141,11 +142,11 @@ public class WhisperRunner {
         // -nt suppresses timestamp printing in the segment dump but still writes them to VTT;
         // less log noise. -np suppresses the per-segment colored print.
         cmd.add("-np");
-        // -su (split-on-word): split 30 s chunks on word boundaries instead of raw token
-        // boundaries. Without this, whisper's chunker happily slices through the middle of a
-        // word — the second chunk then doesn't recognise the partial prefix and drops the word
-        // entirely, which is the most common "吞字" pattern users hit on long videos.
-        cmd.add("-su");
+        // -su (split-on-word) 改为可选项 —— 实测部分 whisper.cpp 构建即使官方文档支持
+        // 此参数，传上去后整段转写不写 VTT 文件。用户在 yml 显式 opt-in 后才传。
+        if (props.isSplitOnWord()) {
+            cmd.add("-su");
+        }
 
         // --prompt seeds the decoder with a 224-token context that the model treats as a
         // continuation prompt. Per-job string wins over the global default; both are bounded

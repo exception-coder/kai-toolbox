@@ -59,9 +59,11 @@ toolbox:
     output-dir: ${toolbox.data-dir}/subtitles
     threads: 0                  # 0 = 让 whisper.cpp 自己挑
     disable-gpu: false          # CUDA 构建默认走 GPU；调试时可强制改 CPU
-    # Flash Attention 仅 whisper.cpp v1.7+ 稳定支持。绝大多数 2024 中以后的 cuBLAS 发行版
-    # 都满足。如果遇到「whisper 退出 0 但无 VTT」且确认不是 CJK 路径问题，可关掉此项排查。
-    flash-attention: true       # +30~50% 速度，无精度损失
+    # 以下两个 opt-in 开关默认关闭。实测部分 whisper.cpp 构建（即使是 v1.8+）传 -fa 或 -su
+    # 后会让 transcribe 跑完不写 VTT，原因未明（也许是参数解析路径上的 bug）。建议两个都
+    # 保持 false 先把字幕跑通，确认字幕正常后再逐个改 true 验证你这版 whisper.cpp 是否兼容。
+    flash-attention: false      # -fa Flash Attention（CUDA 加速 30-50%，opt-in 验证后开）
+    split-on-word: false        # -su 按词切 chunk 防吞字（opt-in 验证后开）
     max-concurrent-jobs: 1      # GPU 一次跑一条最快
     timeout-seconds: 0          # 0 = 不超时，长片不被砍
     # 默认 initial prompt：每次转写前喂给 whisper 当作上下文（最长 224 token，约 150 字）。
@@ -132,19 +134,6 @@ toolbox:
     hidden-prefixes:
       - "."
       - "_"
-
-  browser-request:
-    # 持久 BrowserContext 数据目录（cookies/storage state），留空 = ${toolbox.data-dir}/browser-request
-    data-dir: ${toolbox.data-dir}/browser-request
-    # 必须 false：用户要在弹出的窗口里手动登录目标站点
-    headless: false
-    request-timeout-ms: 60000
-    # 同 media-parser，留空走直连
-    proxy: ${TOOLBOX_HTTP_PROXY:}
-    # 自动把 cookies / localStorage 持久化到磁盘，下次打开不用重新登录。
-    # 关掉则只能手动点「保存登录态」。
-    auto-save-enabled: true
-    auto-save-interval-ms: 30000
 
   mail:
     enabled: false          # 设为 true 启动内嵌 SMTP 服务器

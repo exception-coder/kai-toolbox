@@ -35,10 +35,16 @@ public class WhisperProperties {
     private long timeoutSeconds = 0;
     /**
      * 在 GPU 模式下传 {@code -fa} 给 whisper-cli。Flash Attention 是 CUDA 专用的融合 kernel
-     * 实现，加速 30-50% 且数值等价。需要 whisper.cpp ≥ v1.7（绝大多数 2024 中以后的发行版
-     * 都满足）。CPU 构建会静默忽略此标志，无副作用。
+     * 实现，加速 30-50%。但**实测部分 whisper.cpp 构建（即使是 v1.8+）传 {@code -fa} 后
+     * 会让 transcribe 跑完不写 VTT**，原因不明。默认关闭，由用户在 yml 显式 opt-in 验证。
      */
-    private boolean flashAttention = true;
+    private boolean flashAttention = false;
+    /**
+     * 是否传 {@code -su / --split-on-word}。理论上能防止 whisper 在 30s chunk 边界把一个
+     * 词切两半导致整词丢失。但部分 whisper.cpp 构建对此参数解析有异常，加上后整段不写 VTT。
+     * 默认关闭，避免引入兼容性风险；用户在 yml 显式 opt-in 验证后保留。
+     */
+    private boolean splitOnWord = false;
     /**
      * Optional default prompt prepended to every transcription via {@code --prompt}. Use it
      * to seed whisper with proper-noun spellings ({@code "GPT-4o, ChatGPT, Anthropic"}) or
@@ -84,6 +90,9 @@ public class WhisperProperties {
 
     public boolean isFlashAttention() { return flashAttention; }
     public void setFlashAttention(boolean flashAttention) { this.flashAttention = flashAttention; }
+
+    public boolean isSplitOnWord() { return splitOnWord; }
+    public void setSplitOnWord(boolean splitOnWord) { this.splitOnWord = splitOnWord; }
 
     public String getDefaultInitialPrompt() { return defaultInitialPrompt; }
     public void setDefaultInitialPrompt(String defaultInitialPrompt) {
