@@ -35,9 +35,14 @@ public class TreeSizeMigration {
     private static final int BATCH = 10_000;
 
     private final JdbcTemplate jdbc;
+    private final MigrationStatus status;
+    private final VideoLibraryCountCache countCache;
 
-    public TreeSizeMigration(JdbcTemplate jdbc) {
+    public TreeSizeMigration(JdbcTemplate jdbc, MigrationStatus status,
+                              VideoLibraryCountCache countCache) {
         this.jdbc = jdbc;
+        this.status = status;
+        this.countCache = countCache;
     }
 
     @PostConstruct
@@ -50,8 +55,17 @@ public class TreeSizeMigration {
             ensureExtColumn();
             ensureVideoIndexes();
             backfillExt();
+            // Only after the entire backfill is durable do we tell NodeRepository it's safe to
+            // use the ext-IN query plan. Anything in the count cache from the legacy code path
+            // has to be tossed too — counts produced before the flip are based on a strictly
+            // smaller row set.
+            status.markExtBackfillDone();
+            countCache.invalidateAll();
+            log.info("treesize migration: ext-backfill flag flipped; video library now uses fast IN path");
         } catch (Exception e) {
-            log.error("treesize migration failed", e);
+            // Don't flip the flag on failure — NodeRepository stays on the legacy LIKE path,
+            // which is slow but returns the same rows the user has always seen.
+            log.error("treesize migration failed; staying on legacy query path", e);
         }
     }
 
@@ -80,18 +94,26 @@ public class TreeSizeMigration {
                 "SELECT COUNT(*) FROM treesize_node WHERE is_dir = 0 AND ext IS NULL",
                 Long.class);
         if (remaining == null || remaining == 0) {
-            log.info("treesize migration: ext column already backfilled, skipping");
+            log.info("treesize migration: ext column already backfilled");
             return;
         }
         log.info("treesize migration: backfilling ext for {} rows in batches of {}...",
                 remaining, BATCH);
         long t0 = System.nanoTime();
         long processed = 0;
+        // Rowid cursor: each query starts AFTER the last id we touched. Without this the
+        // previous "WHERE ext IS NULL LIMIT 10000" form had to rescan the whole table from
+        // ROWID 0 every batch, skipping the rows we just filled — O(n²) on a million-row db.
+        long cursor = 0L;
+        long batchNo = 0;
         while (true) {
+            final long c = cursor;
             List<Map.Entry<Long, String>> rows = jdbc.query(
-                    "SELECT id, name FROM treesize_node WHERE is_dir = 0 AND ext IS NULL LIMIT ?",
+                    "SELECT id, name FROM treesize_node "
+                            + "WHERE id > ? AND is_dir = 0 AND ext IS NULL "
+                            + "ORDER BY id LIMIT ?",
                     (rs, i) -> new AbstractMap.SimpleEntry<>(rs.getLong(1), rs.getString(2)),
-                    BATCH);
+                    c, BATCH);
             if (rows.isEmpty()) break;
             jdbc.batchUpdate("UPDATE treesize_node SET ext = ? WHERE id = ?",
                     new BatchPreparedStatementSetter() {
@@ -104,6 +126,11 @@ public class TreeSizeMigration {
                         public int getBatchSize() { return rows.size(); }
                     });
             processed += rows.size();
+            cursor = rows.get(rows.size() - 1).getKey();
+            batchNo++;
+            if (batchNo % 5 == 0) {
+                log.info("treesize migration: ext backfill progress {} / {} rows", processed, remaining);
+            }
             if (rows.size() < BATCH) break;
         }
         long elapsedSec = TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - t0);

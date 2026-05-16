@@ -90,3 +90,12 @@ CREATE TABLE IF NOT EXISTS treesize_video_favorite (
     path        TEXT PRIMARY KEY,
     created_at  INTEGER NOT NULL
 );
+
+-- Last-access timestamp per video path, upserted on every HLS playlist / raw stream request.
+-- Drives the "最近访问" panel via ORDER BY last_access_at DESC LIMIT N.
+CREATE TABLE IF NOT EXISTS treesize_video_recent (
+    path            TEXT PRIMARY KEY,
+    last_access_at  INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_video_recent_at ON treesize_video_recent(last_access_at DESC);

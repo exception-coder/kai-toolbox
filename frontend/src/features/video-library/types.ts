@@ -76,6 +76,13 @@ export interface PlaybackStats {
   optimizationEnabled: boolean
 }
 
+/** One entry of the "最近访问" rail. {@code item} carries the same fields as a library row. */
+export interface RecentVideo {
+  item: VideoLibraryItem
+  /** Epoch ms of the last time this video's HLS playlist or raw stream was requested. */
+  lastAccessAt: number
+}
+
 export interface SubtitleJob {
   id: string
   scanId: string

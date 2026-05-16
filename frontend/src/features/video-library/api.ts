@@ -1,5 +1,5 @@
 import { http, ApiError } from '@/lib/api'
-import type { CleanJunkResult, PlaybackStats, SubtitleJob, VideoLibraryPage, VideoSizeBucket, VideoSortBy, VideoSortOrder } from './types'
+import type { CleanJunkResult, PlaybackStats, RecentVideo, SubtitleJob, VideoLibraryPage, VideoSizeBucket, VideoSortBy, VideoSortOrder } from './types'
 
 export function getVideoLibrary(
   sortBy: VideoSortBy,
@@ -32,6 +32,10 @@ export function addVideoFavorite(path: string) {
 
 export function removeVideoFavorite(path: string) {
   return http<void>(`/treesize/videos/favorites?path=${encodeURIComponent(path)}`, { method: 'DELETE' })
+}
+
+export function getRecentVideos(limit = 10) {
+  return http<RecentVideo[]>(`/treesize/videos/recent?limit=${limit}`)
 }
 
 export function thumbUrl(scanId: string, path: string): string {

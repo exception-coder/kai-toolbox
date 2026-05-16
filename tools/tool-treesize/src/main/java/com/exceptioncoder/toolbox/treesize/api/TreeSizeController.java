@@ -6,6 +6,7 @@ import com.exceptioncoder.toolbox.common.media.ThumbnailService;
 import com.exceptioncoder.toolbox.common.sse.SseEmitterRegistry;
 import com.exceptioncoder.toolbox.treesize.api.dto.NodeView;
 import com.exceptioncoder.toolbox.treesize.api.dto.PlaybackStatsView;
+import com.exceptioncoder.toolbox.treesize.api.dto.RecentVideoFileView;
 import com.exceptioncoder.toolbox.treesize.api.dto.ScanView;
 import com.exceptioncoder.toolbox.treesize.api.dto.SegmentStatView;
 import com.exceptioncoder.toolbox.treesize.api.dto.StartScanRequest;
@@ -228,6 +229,7 @@ public class TreeSizeController {
                                                     @RequestHeader HttpHeaders headers) throws IOException {
         playbackTracker.touch();
         Path file = guard.resolve(id, path);
+        nodes.touchVideoAccess(file.toAbsolutePath().toString(), System.currentTimeMillis());
         return raw.serve(file, headers);
     }
 
@@ -236,6 +238,7 @@ public class TreeSizeController {
     public ResponseEntity<String> hlsPlaylist(@PathVariable String id, @RequestParam String path) throws IOException {
         playbackTracker.touch();
         Path file = guard.resolve(id, path);
+        nodes.touchVideoAccess(file.toAbsolutePath().toString(), System.currentTimeMillis());
         String body = hls.playlist(id, file);
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType("application/vnd.apple.mpegurl"))
@@ -379,6 +382,19 @@ public class TreeSizeController {
                 result.total(),
                 safeOffset,
                 safeLimit);
+    }
+
+    /**
+     * The N most-recently-accessed videos (clamped to {@code [1, 50]}). "Access" is recorded on
+     * every HLS-playlist / raw-stream request, so the list naturally reflects what the user
+     * actually played — not what they merely scrolled past in the library grid.
+     */
+    @GetMapping("/videos/recent")
+    public List<RecentVideoFileView> recentVideos(@RequestParam(defaultValue = "10") int limit) {
+        int safeLimit = Math.max(1, Math.min(limit, 50));
+        return nodes.findRecentVideos(safeLimit).stream()
+                .map(RecentVideoFileView::from)
+                .toList();
     }
 
     /**

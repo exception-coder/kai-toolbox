@@ -9,6 +9,7 @@ import { formatBytes } from '@/lib/utils'
 import { deleteFile } from '@/features/treesize/api'
 import { addVideoFavorite, cleanJunkVideos, getVideoLibrary, removeVideoFavorite } from '../api'
 import { PlaybackStatsPanel } from '../components/PlaybackStatsPanel'
+import { RecentVideosBar } from '../components/RecentVideosBar'
 import { VideoListPanel } from '../components/VideoListPanel'
 import { VideoPlayerPanel } from '../components/VideoPlayerPanel'
 import { loadState, saveState } from '../storage'
@@ -104,6 +105,10 @@ export function VideoLibraryPage() {
   const handleSelect = (item: VideoLibraryItem) => {
     setCurrentItem(item)
     setListOpen(false)
+    // Backend records this access only after VideoPlayer requests playlist/stream, which happens
+    // a few hundred ms later. Refresh the recents rail on a short delay so the just-clicked
+    // video pops to the front without an extra user gesture.
+    setTimeout(() => qc.invalidateQueries({ queryKey: ['video-library-recent'] }), 1500)
   }
 
   const handlePrev = () => {
@@ -430,6 +435,8 @@ export function VideoLibraryPage() {
           转码监控
         </Button>
       </header>
+
+      <RecentVideosBar selectedPath={selectedPath} onSelect={handleSelect} />
 
       {query.isLoading ? (
         <div className="flex h-72 items-center justify-center rounded-md border text-sm text-[var(--color-muted-foreground)]">

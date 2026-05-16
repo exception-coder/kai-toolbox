@@ -1,7 +1,11 @@
 package com.exceptioncoder.toolbox.treesize.repository;
 
 import com.exceptioncoder.toolbox.treesize.domain.FileNode;
+import com.exceptioncoder.toolbox.treesize.domain.RecentVideoFile;
 import com.exceptioncoder.toolbox.treesize.domain.VideoFile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -15,12 +19,17 @@ import java.util.List;
 @Repository
 public class NodeRepository {
 
+    private static final Logger log = LoggerFactory.getLogger(NodeRepository.class);
+
     private final JdbcTemplate jdbc;
     private final VideoLibraryCountCache countCache;
+    private final MigrationStatus migrationStatus;
 
-    public NodeRepository(JdbcTemplate jdbc, VideoLibraryCountCache countCache) {
+    public NodeRepository(JdbcTemplate jdbc, VideoLibraryCountCache countCache,
+                          MigrationStatus migrationStatus) {
         this.jdbc = jdbc;
         this.countCache = countCache;
+        this.migrationStatus = migrationStatus;
     }
 
     private static final RowMapper<FileNode> ROW = (rs, i) -> FileNode.builder()
@@ -204,23 +213,15 @@ public class NodeRepository {
                   JOIN treesize_scan s ON n.scan_id = s.id
                   LEFT JOIN treesize_video_favorite f ON f.path = n.path
                  WHERE n.is_dir = 0
-                   AND s.status = 'COMPLETED'
-                   AND n.ext IN (""");
+                   AND s.status = 'COMPLETED'""");
         List<Object> args = new ArrayList<>(normalisedExts.size() + 6);
-        for (int i = 0; i < normalisedExts.size(); i++) {
-            if (i > 0) sql.append(", ");
-            sql.append("?");
-            args.add(normalisedExts.get(i));
-        }
-        sql.append(")");
+        appendExtensionFilter(sql, args, normalisedExts);
         appendExcludedPathFilters(sql, args);
         appendSizeRangeFilter(sql, args, sizeMinInclusive, sizeMaxExclusive);
         appendNameQueryFilter(sql, args, nameQuery);
         appendFavoritesOnlyFilter(sql, favoritesOnly);
         sql.append(" ORDER BY ");
-        // COLLATE NOCASE replaces LOWER(name) so the index ordering is usable; "size" sort
-        // pivots to the (is_dir, ext, size) index.
-        sql.append("size".equals(sortBy) ? "n.size" : "n.name COLLATE NOCASE");
+        sql.append(nameOrSizeOrderExpr(sortBy));
         sql.append("desc".equalsIgnoreCase(order) ? " DESC" : " ASC");
         sql.append(", n.path ASC");  // tiebreaker so paging is deterministic
         sql.append(" LIMIT ? OFFSET ?");
@@ -247,21 +248,53 @@ public class NodeRepository {
                   JOIN treesize_scan s ON n.scan_id = s.id
                   LEFT JOIN treesize_video_favorite f ON f.path = n.path
                  WHERE n.is_dir = 0
-                   AND s.status = 'COMPLETED'
-                   AND n.ext IN (""");
+                   AND s.status = 'COMPLETED'""");
         List<Object> args = new ArrayList<>(normalisedExts.size() + 4);
-        for (int i = 0; i < normalisedExts.size(); i++) {
-            if (i > 0) sql.append(", ");
-            sql.append("?");
-            args.add(normalisedExts.get(i));
-        }
-        sql.append(")");
+        appendExtensionFilter(sql, args, normalisedExts);
         appendExcludedPathFilters(sql, args);
         appendSizeRangeFilter(sql, args, sizeMinInclusive, sizeMaxExclusive);
         appendNameQueryFilter(sql, args, nameQuery);
         appendFavoritesOnlyFilter(sql, favoritesOnly);
         Long n = jdbc.queryForObject(sql.toString(), Long.class, args.toArray());
         return n == null ? 0L : n;
+    }
+
+    /**
+     * Emit either the fast {@code AND n.ext IN (?, ?, …)} clause (index-backed) or the legacy
+     * {@code AND (LOWER(n.name) LIKE '%.mp4' OR …)} clause that still works when {@code ext} is
+     * NULL — the legacy path is the only correct option while {@link TreeSizeMigration} is still
+     * mid-flight or has failed entirely. Once the flag flips, every cached count is invalidated
+     * so callers don't see a stale legacy-count for a fast-path query.
+     */
+    private void appendExtensionFilter(StringBuilder sql, List<Object> args,
+                                        List<String> normalisedExts) {
+        if (migrationStatus.isExtBackfillDone()) {
+            sql.append(" AND n.ext IN (");
+            for (int i = 0; i < normalisedExts.size(); i++) {
+                if (i > 0) sql.append(", ");
+                sql.append("?");
+                args.add(normalisedExts.get(i));
+            }
+            sql.append(")");
+        } else {
+            sql.append(" AND (");
+            for (int i = 0; i < normalisedExts.size(); i++) {
+                if (i > 0) sql.append(" OR ");
+                sql.append("LOWER(n.name) LIKE ?");
+                args.add("%." + normalisedExts.get(i));
+            }
+            sql.append(")");
+        }
+    }
+
+    /**
+     * {@code name COLLATE NOCASE} lets the {@code (is_dir, ext, name COLLATE NOCASE)} index
+     * sort directly; before backfill completes that index doesn't help (we're not filtering by
+     * ext), so we keep the old {@code LOWER(name)} expression for parity with the legacy plan.
+     */
+    private String nameOrSizeOrderExpr(String sortBy) {
+        if ("size".equals(sortBy)) return "n.size";
+        return migrationStatus.isExtBackfillDone() ? "n.name COLLATE NOCASE" : "LOWER(n.name)";
     }
 
     /** sortBy is intentionally excluded — order doesn't affect the count. */
@@ -277,6 +310,52 @@ public class NodeRepository {
      */
     public void invalidateVideoLibraryCache() {
         countCache.invalidateAll();
+    }
+
+    /**
+     * Upsert the last-access timestamp for a video path. Called from the playback hot path
+     * (HLS playlist, raw stream); a failure here must not break playback, so any
+     * {@link DataAccessException} is logged at DEBUG and swallowed.
+     */
+    public void touchVideoAccess(String path, long accessedAt) {
+        try {
+            jdbc.update("""
+                    INSERT INTO treesize_video_recent(path, last_access_at) VALUES(?, ?)
+                    ON CONFLICT(path) DO UPDATE SET last_access_at = excluded.last_access_at
+                    """, path, accessedAt);
+        } catch (DataAccessException e) {
+            log.debug("touchVideoAccess failed for {}: {}", path, e.toString());
+        }
+    }
+
+    /**
+     * Return the {@code limit} most-recently-accessed videos, newest first. Files that have
+     * since been deleted from {@code treesize_node} (e.g. trashed via the cleaner) drop out
+     * automatically because the INNER JOIN won't match — no orphan rows surface.
+     */
+    public List<RecentVideoFile> findRecentVideos(int limit) {
+        return jdbc.query("""
+                SELECT n.scan_id, s.root_path, n.path, n.name, n.size,
+                       (fav.path IS NOT NULL) AS favorited,
+                       r.last_access_at AS access_at
+                  FROM treesize_video_recent r
+                  JOIN treesize_node n ON n.path = r.path
+                  JOIN treesize_scan s ON n.scan_id = s.id
+                  LEFT JOIN treesize_video_favorite fav ON fav.path = r.path
+                 WHERE n.is_dir = 0 AND s.status = 'COMPLETED'
+                 ORDER BY r.last_access_at DESC
+                 LIMIT ?
+                """,
+                (rs, i) -> new RecentVideoFile(
+                        new VideoFile(
+                                rs.getString("scan_id"),
+                                rs.getString("root_path"),
+                                rs.getString("path"),
+                                rs.getString("name"),
+                                rs.getLong("size"),
+                                rs.getInt("favorited") == 1),
+                        rs.getLong("access_at")),
+                limit);
     }
 
     /**
@@ -360,16 +439,11 @@ public class NodeRepository {
                  WHERE n.is_dir = 0
                    AND s.status = 'COMPLETED'
                    AND n.name LIKE '._%'
-                   AND n.size < ?
-                   AND n.ext IN (""");
+                   AND n.size < ?""");
         List<Object> args = new ArrayList<>(extensions.size() + 1);
         args.add(maxSize);
-        for (int i = 0; i < extensions.size(); i++) {
-            if (i > 0) sql.append(", ");
-            sql.append("?");
-            args.add(extensions.get(i).toLowerCase());
-        }
-        sql.append(")");
+        List<String> normalisedExts = extensions.stream().map(e -> e.toLowerCase()).toList();
+        appendExtensionFilter(sql, args, normalisedExts);
         appendExcludedPathFilters(sql, args);
 
         return jdbc.query(sql.toString(),
