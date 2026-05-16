@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { History, Server, Trash2 } from 'lucide-react'
+import { AlertTriangle, History, Server, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { ApiError } from '@/lib/api'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { formatBytes, formatDate, formatDuration, formatNumber } from '@/lib/utils'
@@ -16,9 +17,18 @@ import { Treemap } from '../components/Treemap'
 import { VideoPlayerModal } from '../components/VideoPlayerModal'
 import { CleanupRecommendations } from '../components/CleanupRecommendations'
 import { SymlinkDialog } from '../components/SymlinkDialog'
+import { FailedDeletesPanel } from '../components/FailedDeletesPanel'
 import { useScanEvents } from '../hooks/useScanEvents'
 import { useVideoConfig } from '../hooks/useVideoConfig'
-import { createSymlink, deleteFile, deleteScan, getChildren, listScans, startScan } from '../api'
+import {
+  createSymlink,
+  deleteFile,
+  deleteScan,
+  getChildren,
+  listFailedDeletes,
+  listScans,
+  startScan,
+} from '../api'
 import type { NodeView, ScanView, StartScanPayload } from '../types'
 
 export function TreeSizePage() {
@@ -27,6 +37,16 @@ export function TreeSizePage() {
   const [currentPath, setCurrentPath] = useState<string | null>(null)
   const [startError, setStartError] = useState<string | null>(null)
   const [playingVideo, setPlayingVideo] = useState<{ scanId: string; node: NodeView } | null>(null)
+  const [failedSheetOpen, setFailedSheetOpen] = useState(false)
+
+  // Shared with FailedDeletesPanel via cache. We just read for the badge count and let
+  // deleteMutation's onSuccess invalidate this key when a QUEUED outcome comes back.
+  const failedListQuery = useQuery({
+    queryKey: ['treesize-failed-deletes'],
+    queryFn: listFailedDeletes,
+    staleTime: 5_000,
+  })
+  const failedCount = failedListQuery.data?.length ?? 0
 
   const live = useScanEvents(activeScan?.status === 'RUNNING' ? activeScan.id : null)
   const videoConfig = useVideoConfig()
@@ -56,13 +76,31 @@ export function TreeSizePage() {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-6">
-      <header className="flex items-center justify-between">
+      <header className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">磁盘空间分析</h1>
           <p className="text-sm text-[var(--color-muted-foreground)]">
             扫描目录、按大小可视化、定位占用空间最多的文件夹
           </p>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setFailedSheetOpen(true)}
+          className="relative shrink-0 gap-1.5"
+          aria-label="打开删除失败清单"
+        >
+          <AlertTriangle className="h-3.5 w-3.5" />
+          失败清单
+          {failedCount > 0 && (
+            <Badge
+              variant="destructive"
+              className="ml-1 h-4 min-w-4 justify-center rounded-full px-1 text-[10px] leading-none"
+            >
+              {failedCount > 99 ? '99+' : failedCount}
+            </Badge>
+          )}
+        </Button>
       </header>
 
       <ScanForm
@@ -101,6 +139,16 @@ export function TreeSizePage() {
           onClose={() => setPlayingVideo(null)}
         />
       )}
+
+      <Sheet open={failedSheetOpen} onOpenChange={setFailedSheetOpen}>
+        <SheetContent side="right" className="flex w-full flex-col p-0 sm:max-w-md">
+          <SheetTitle className="sr-only">删除失败清单</SheetTitle>
+          <SheetDescription className="sr-only">
+            占用 / IO 失败的删除任务清单，可批量重试或清空
+          </SheetDescription>
+          <FailedDeletesPanel active={failedSheetOpen} />
+        </SheetContent>
+      </Sheet>
 
       <Separator className="my-2" />
 
@@ -145,8 +193,12 @@ function ScanResultView({
 
   const deleteMutation = useMutation({
     mutationFn: (node: NodeView) => deleteFile(scan.id, node.path),
-    onSuccess: () => {
+    onSuccess: res => {
       qc.invalidateQueries({ queryKey: ['treesize-children', scan.id] })
+      // A QUEUED outcome added the path to the registry; the badge / panel reads from this key.
+      if (res.outcome === 'QUEUED') {
+        qc.invalidateQueries({ queryKey: ['treesize-failed-deletes'] })
+      }
     },
   })
 
@@ -180,7 +232,22 @@ function ScanResultView({
     })
     if (!ok) return
     try {
-      await deleteMutation.mutateAsync(n)
+      const res = await deleteMutation.mutateAsync(n)
+      if (res.outcome === 'QUEUED') {
+        await confirm({
+          title: '文件被占用',
+          description: (
+            <div className="space-y-2 text-sm">
+              <div className="break-all font-mono text-xs">{n.name}</div>
+              <div>
+                文件正在被另一个程序使用，已加入页头的「失败清单」。请关闭占用程序后，去清单里批量重试。
+              </div>
+            </div>
+          ),
+          confirmText: '知道了',
+          cancelText: '关闭',
+        })
+      }
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : String(e)
       await confirm({

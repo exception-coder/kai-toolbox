@@ -1,13 +1,18 @@
 package com.exceptioncoder.toolbox.treesize.api;
 
 import com.exceptioncoder.toolbox.common.media.FfmpegProbe;
+import com.exceptioncoder.toolbox.common.media.FfmpegProcessRegistry;
 import com.exceptioncoder.toolbox.common.media.ThumbnailService;
 import com.exceptioncoder.toolbox.common.sse.SseEmitterRegistry;
 import com.exceptioncoder.toolbox.treesize.api.dto.NodeView;
+import com.exceptioncoder.toolbox.treesize.api.dto.PlaybackStatsView;
 import com.exceptioncoder.toolbox.treesize.api.dto.ScanView;
+import com.exceptioncoder.toolbox.treesize.api.dto.SegmentStatView;
 import com.exceptioncoder.toolbox.treesize.api.dto.StartScanRequest;
 import com.exceptioncoder.toolbox.treesize.api.dto.CleanJunkResultView;
 import com.exceptioncoder.toolbox.treesize.api.dto.CleanupCandidateView;
+import com.exceptioncoder.toolbox.treesize.api.dto.FailedDeleteView;
+import com.exceptioncoder.toolbox.treesize.api.dto.RetryFailedDeletesResultView;
 import com.exceptioncoder.toolbox.treesize.api.dto.SshHostRequest;
 import com.exceptioncoder.toolbox.treesize.api.dto.SshHostView;
 import com.exceptioncoder.toolbox.treesize.api.dto.SubtitleJobView;
@@ -19,6 +24,7 @@ import com.exceptioncoder.toolbox.treesize.api.dto.VideoLibraryItemView;
 import com.exceptioncoder.toolbox.treesize.api.dto.VideoLibraryPageView;
 import com.exceptioncoder.toolbox.treesize.config.VideoExtensionsProperties;
 import com.exceptioncoder.toolbox.common.media.ProbeResult;
+import com.exceptioncoder.toolbox.treesize.domain.DeleteOutcome;
 import com.exceptioncoder.toolbox.treesize.domain.ScanRecord;
 import com.exceptioncoder.toolbox.treesize.domain.ScanSourceType;
 import com.exceptioncoder.toolbox.treesize.domain.VideoSizeBucket;
@@ -28,6 +34,7 @@ import com.exceptioncoder.toolbox.treesize.service.ActivePlaybackTracker;
 import com.exceptioncoder.toolbox.treesize.service.FileDeleteService;
 import com.exceptioncoder.toolbox.treesize.service.HlsService;
 import com.exceptioncoder.toolbox.treesize.service.PathAccessGuard;
+import com.exceptioncoder.toolbox.treesize.service.PlaybackStatsCollector;
 import com.exceptioncoder.toolbox.treesize.service.RawStreamService;
 import com.exceptioncoder.toolbox.treesize.service.ScanService;
 import com.exceptioncoder.toolbox.treesize.service.CleanupAdvisor;
@@ -71,6 +78,8 @@ public class TreeSizeController {
     private final SshHostService sshHosts;
     private final CleanupAdvisor cleanupAdvisor;
     private final SymlinkService symlink;
+    private final PlaybackStatsCollector playbackStats;
+    private final FfmpegProcessRegistry ffmpegRegistry;
 
     public TreeSizeController(ScanService scanService,
                               ScanRepository scans,
@@ -88,7 +97,9 @@ public class TreeSizeController {
                               SubtitleService subtitles,
                               SshHostService sshHosts,
                               CleanupAdvisor cleanupAdvisor,
-                              SymlinkService symlink) {
+                              SymlinkService symlink,
+                              PlaybackStatsCollector playbackStats,
+                              FfmpegProcessRegistry ffmpegRegistry) {
         this.scanService = scanService;
         this.scans = scans;
         this.nodes = nodes;
@@ -106,6 +117,8 @@ public class TreeSizeController {
         this.sshHosts = sshHosts;
         this.cleanupAdvisor = cleanupAdvisor;
         this.symlink = symlink;
+        this.playbackStats = playbackStats;
+        this.ffmpegRegistry = ffmpegRegistry;
     }
 
     // ---------- existing endpoints (unchanged) ---------------------------
@@ -242,14 +255,61 @@ public class TreeSizeController {
                 .body(body);
     }
 
-    /** Result of a single-file delete. {@code toTrash=false} means the file was permanently removed. */
-    public record DeleteFileResult(boolean toTrash) {}
+    /**
+     * Diagnostic snapshot of the last ~50 HLS segments + the current live ffmpeg/ffprobe count.
+     * Read-only, intended for the in-page overlay and for {@code curl} during troubleshooting —
+     * never feed business logic with it.
+     */
+    @GetMapping("/playback-stats")
+    public PlaybackStatsView playbackStatsSnapshot() {
+        List<SegmentStatView> recent = playbackStats.recent().stream()
+                .map(SegmentStatView::from)
+                .toList();
+        return new PlaybackStatsView(ffmpegRegistry.activeCount(), recent);
+    }
+
+    /**
+     * Result of a single-file delete.
+     *
+     * <p>{@code outcome} is one of {@code TRASHED} (recycle bin), {@code PERMANENT} (recycle
+     * bin unavailable; {@link java.nio.file.Files#delete} succeeded), or {@code QUEUED}
+     * (locked / IO failure — parked in the failed-delete registry for later retry). The
+     * legacy {@code toTrash} flag is kept for the existing frontend: {@code true} only when
+     * {@code outcome=TRASHED}.
+     */
+    public record DeleteFileResult(boolean toTrash, String outcome) {}
 
     @DeleteMapping("/scans/{id}/file")
     public DeleteFileResult deleteFile(@PathVariable String id, @RequestParam String path) throws IOException {
         Path file = guard.resolve(id, path);
-        boolean toTrash = fileDelete.deleteByPath(id, file);
-        return new DeleteFileResult(toTrash);
+        DeleteOutcome outcome = fileDelete.deleteByPath(id, file);
+        return new DeleteFileResult(outcome == DeleteOutcome.TRASHED, outcome.name());
+    }
+
+    /** Failed-delete registry: paths whose delete attempts were locked / IO-failed and parked for retry. */
+    @GetMapping("/file-delete/failed")
+    public List<FailedDeleteView> listFailedDeletes() {
+        return fileDelete.listFailed().stream().map(FailedDeleteView::from).toList();
+    }
+
+    /** Re-attempt every parked entry. Successful ones leave the registry; still-locked stay. */
+    @PostMapping("/file-delete/failed/retry")
+    public RetryFailedDeletesResultView retryFailedDeletes() {
+        return RetryFailedDeletesResultView.from(fileDelete.retryAllFailed());
+    }
+
+    /** Clear the entire registry (UI "discard" button — files stay on disk). */
+    @DeleteMapping("/file-delete/failed")
+    public ResponseEntity<Void> clearFailedDeletes() {
+        fileDelete.clearFailed();
+        return ResponseEntity.noContent().build();
+    }
+
+    /** Drop a single entry from the registry without retrying (e.g. user dealt with it externally). */
+    @DeleteMapping("/file-delete/failed/entry")
+    public ResponseEntity<Void> removeFailedDelete(@RequestParam String path) {
+        fileDelete.removeFailed(path);
+        return ResponseEntity.noContent().build();
     }
 
     /**
@@ -337,7 +397,7 @@ public class TreeSizeController {
     @DeleteMapping("/videos/junk")
     public CleanJunkResultView cleanJunkVideos() {
         var r = fileDelete.cleanJunkVideos(videoExt.getExtensions(), 10L * 1024);
-        return new CleanJunkResultView(r.deleted(), r.skipped(), r.errors());
+        return new CleanJunkResultView(r.deleted(), r.skipped(), r.queued(), r.errors());
     }
 
     /**

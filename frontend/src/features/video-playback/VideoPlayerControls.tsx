@@ -17,6 +17,7 @@ import {
   CaptionsOff,
   MoreHorizontal,
   ChevronsRight,
+  X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -884,7 +885,24 @@ function BottomSheet({
         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}
         onClick={e => e.stopPropagation()}
       >
-        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/25" />
+        {/* Drag-handle ribbon doubles as a tap target — in a narrow window the panel often fills
+            the player area, leaving the outer-backdrop click region invisible. */}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="收起"
+          className="group/handle mx-auto mb-3 flex h-5 w-full max-w-[140px] items-center justify-center"
+        >
+          <div className="h-1 w-10 rounded-full bg-white/25 transition-colors group-hover/handle:bg-white/55" />
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="关闭"
+          className="absolute right-3 top-3 inline-flex size-7 items-center justify-center rounded-full bg-white/10 text-white/85 transition-colors hover:bg-white/20 hover:text-white"
+        >
+          <X className="size-4" />
+        </button>
         {children}
       </div>
     </div>

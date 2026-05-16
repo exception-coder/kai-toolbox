@@ -36,6 +36,8 @@ public class FfmpegProbe {
 
     private static final Logger log = LoggerFactory.getLogger(FfmpegProbe.class);
     private static final int CACHE_LIMIT = 1000;
+    /** ffprobe taking longer than this on a real execution earns a WARN — usually a network drive or sick file. */
+    private static final long SLOW_PROBE_WARN_MS = 1000;
 
     private static final Set<String> NATIVE_CONTAINERS = Set.of("mp4", "m4v", "webm", "ogg", "mov");
     private static final Set<String> NATIVE_VIDEO_CODECS = Set.of("h264", "vp8", "vp9", "av1");
@@ -115,7 +117,12 @@ public class FfmpegProbe {
         ProbeResult cached = cache.get(key);
         if (cached != null) return cached;
 
+        long t0 = System.nanoTime();
         ProbeResult result = runFfprobe(file);
+        long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0);
+        if (elapsedMs > SLOW_PROBE_WARN_MS) {
+            log.warn("ffprobe slow: {}ms file={}", elapsedMs, file.toAbsolutePath());
+        }
         cache.put(key, result);
         return result;
     }

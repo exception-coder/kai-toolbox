@@ -110,6 +110,11 @@ public class FfmpegProcessRegistry {
         return p;
     }
 
+    /** Current count of live ffmpeg/ffprobe processes the toolkit has spawned. */
+    public int activeCount() {
+        return active.size();
+    }
+
     @PreDestroy
     void onContextClose() {
         reapAll();

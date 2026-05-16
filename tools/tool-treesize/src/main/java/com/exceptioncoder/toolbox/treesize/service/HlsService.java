@@ -5,6 +5,7 @@ import com.exceptioncoder.toolbox.common.media.FfmpegProcessRegistry;
 import com.exceptioncoder.toolbox.common.media.FfmpegProperties;
 import com.exceptioncoder.toolbox.common.media.FfmpegUnavailableException;
 import com.exceptioncoder.toolbox.common.media.ProbeResult;
+import com.exceptioncoder.toolbox.treesize.domain.SegmentStat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -43,11 +44,14 @@ public class HlsService {
     private final FfmpegProbe probe;
     private final FfmpegProperties props;
     private final FfmpegProcessRegistry registry;
+    private final PlaybackStatsCollector stats;
 
-    public HlsService(FfmpegProbe probe, FfmpegProperties props, FfmpegProcessRegistry registry) {
+    public HlsService(FfmpegProbe probe, FfmpegProperties props, FfmpegProcessRegistry registry,
+                      PlaybackStatsCollector stats) {
         this.probe = probe;
         this.props = props;
         this.registry = registry;
+        this.stats = stats;
     }
 
     /**
@@ -104,31 +108,101 @@ public class HlsService {
         double dur = Math.min((double) SEGMENT_SECONDS, duration - startSec);
         boolean videoCopy = probe.canCopyVideo(info);
         boolean audioCopy = probe.canCopyAudio(info);
+        String mode = (videoCopy && audioCopy) ? "copy" : "transcode";
 
-        List<String> cmd = buildSegmentCommand(file, startSec, dur, videoCopy, audioCopy);
-        Process process = registry.spawn(new ProcessBuilder(cmd).redirectErrorStream(false));
-        Thread stderrDrain = startStderrDrain(process);
+        long t0 = System.nanoTime();
+        long spawnMs = -1L;
         boolean clientDisconnected = false;
+        Process process = null;
+        Thread stderrDrain = null;
+        TimedCountingOutputStream counting = null;
 
-        try (var stdin = process.getInputStream()) {
-            stdin.transferTo(out);
-            out.flush();
-        } catch (IOException e) {
-            // Almost always: client closed the connection (EventSource abort, modal close).
-            // Treat as expected, log at debug, and rely on the finally block to reap ffmpeg.
-            clientDisconnected = true;
-            log.debug("hls segment write aborted (client disconnect?) for {} idx={}: {}", file, idx, e.toString());
-            throw e;
-        } finally {
-            reap(process);
-            try {
-                stderrDrain.join(500);
-            } catch (InterruptedException ignored) {
-                Thread.currentThread().interrupt();
+        try {
+            List<String> cmd = buildSegmentCommand(file, startSec, dur, videoCopy, audioCopy);
+            process = registry.spawn(new ProcessBuilder(cmd).redirectErrorStream(false));
+            spawnMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0);
+            stderrDrain = startStderrDrain(process);
+            counting = new TimedCountingOutputStream(out, t0);
+
+            try (var stdin = process.getInputStream()) {
+                stdin.transferTo(counting);
+                counting.flush();
+            } catch (IOException e) {
+                // Almost always: client closed the connection (EventSource abort, modal close).
+                // Treat as expected, log at debug, and rely on the finally block to reap ffmpeg.
+                clientDisconnected = true;
+                log.debug("hls segment write aborted (client disconnect?) for {} idx={}: {}", file, idx, e.toString());
+                throw e;
             }
-            if (!clientDisconnected && process.exitValue() != 0) {
+        } finally {
+            if (process != null) reap(process);
+            if (stderrDrain != null) {
+                try {
+                    stderrDrain.join(500);
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            long totalMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0);
+            long firstByteMs = counting == null ? -1L : counting.firstByteMs();
+            long bytesOut = counting == null ? 0L : counting.bytesWritten();
+            SegmentStat stat = new SegmentStat(
+                    idx, file.getFileName().toString(), mode,
+                    spawnMs, firstByteMs, totalMs, bytesOut, clientDisconnected,
+                    System.currentTimeMillis());
+            stats.record(stat);
+            log.info("hls segment idx={} mode={} spawn={}ms firstByte={}ms total={}ms bytes={} aborted={} file={}",
+                    idx, mode, spawnMs, firstByteMs, totalMs, bytesOut, clientDisconnected, file.getFileName());
+            if (process != null && !clientDisconnected && process.exitValue() != 0) {
                 log.warn("ffmpeg segment exited with code {} for {} idx={}", process.exitValue(), file, idx);
             }
+        }
+    }
+
+    /**
+     * Wraps the response stream to capture the first-byte timestamp and total bytes written,
+     * without changing the zero-copy {@code transferTo} path. {@code transferTo} invokes
+     * {@link #write(byte[], int, int)} in a tight loop, so the two overrides below are the only
+     * ones that need to count.
+     *
+     * <p>Intentionally does not override {@code close()} — Spring owns the response stream lifecycle.
+     */
+    private static final class TimedCountingOutputStream extends OutputStream {
+        private final OutputStream delegate;
+        private final long startNanos;
+        private long firstByteNanos = -1L;
+        private long bytesWritten = 0L;
+
+        TimedCountingOutputStream(OutputStream delegate, long startNanos) {
+            this.delegate = delegate;
+            this.startNanos = startNanos;
+        }
+
+        @Override
+        public void write(int b) throws IOException {
+            if (firstByteNanos < 0) firstByteNanos = System.nanoTime();
+            delegate.write(b);
+            bytesWritten++;
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len) throws IOException {
+            if (firstByteNanos < 0) firstByteNanos = System.nanoTime();
+            delegate.write(b, off, len);
+            bytesWritten += len;
+        }
+
+        @Override
+        public void flush() throws IOException {
+            delegate.flush();
+        }
+
+        long firstByteMs() {
+            return firstByteNanos < 0 ? -1L : TimeUnit.NANOSECONDS.toMillis(firstByteNanos - startNanos);
+        }
+
+        long bytesWritten() {
+            return bytesWritten;
         }
     }
 

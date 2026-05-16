@@ -1,5 +1,7 @@
 package com.exceptioncoder.toolbox.treesize.service;
 
+import com.exceptioncoder.toolbox.treesize.domain.DeleteOutcome;
+import com.exceptioncoder.toolbox.treesize.domain.FailedDelete;
 import com.exceptioncoder.toolbox.treesize.domain.VideoFile;
 import com.exceptioncoder.toolbox.treesize.repository.NodeRepository;
 import org.slf4j.Logger;
@@ -9,6 +11,7 @@ import org.springframework.stereotype.Component;
 import java.awt.Desktop;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,8 +23,12 @@ import java.util.List;
  *
  * <p>The recycle-bin path is chosen by default because this is a personal local toolkit and
  * "I clicked the wrong file" is a far more common mistake than "the recycle bin is full".
- * If the underlying delete throws, we propagate without retrying — better to fail loudly
- * than to half-succeed.
+ *
+ * <p>When all retries are exhausted with a {@link java.nio.file.FileSystemException} or other
+ * {@link IOException} (Windows "another program is using this file" being the canonical case),
+ * the path is recorded in {@link FailedDeleteRegistry} and the caller gets
+ * {@link DeleteOutcome#QUEUED} instead of an exception — closing the holding process and
+ * triggering a batch retry is the recovery path.
  */
 @Component
 public class FileDeleteService {
@@ -29,9 +36,11 @@ public class FileDeleteService {
     private static final Logger log = LoggerFactory.getLogger(FileDeleteService.class);
 
     private final NodeRepository nodes;
+    private final FailedDeleteRegistry failedDeletes;
 
-    public FileDeleteService(NodeRepository nodes) {
+    public FileDeleteService(NodeRepository nodes, FailedDeleteRegistry failedDeletes) {
         this.nodes = nodes;
+        this.failedDeletes = failedDeletes;
     }
 
     /** Backoff between attempts (ms). Length determines retry count = backoff.length + 1. */
@@ -39,8 +48,7 @@ public class FileDeleteService {
 
     /**
      * Delete {@code file} (already validated by {@link PathAccessGuard}) and remove its row
-     * from {@code treesize_node}. Returns whether the OS-level move-to-trash actually fired
-     * (false ⇒ permanent delete fallback).
+     * from {@code treesize_node}.
      *
      * <p>Trash-first is intentional: if the user reports "I clicked the wrong file" the
      * recycle bin is the only path to recovery. When trash is unavailable the reason is
@@ -53,20 +61,73 @@ public class FileDeleteService {
      * throws "file in use"). One retry pass covers the realistic teardown window without
      * making cold deletes meaningfully slower.
      */
-    public boolean deleteByPath(String scanId, Path file) throws IOException {
+    public DeleteOutcome deleteByPath(String scanId, Path file) throws IOException {
         String absPath = file.toAbsolutePath().toString();
 
         TrashOutcome trashOutcome = tryMoveToTrashWithRetry(file, absPath);
         if (trashOutcome.success) {
-            nodes.deleteByScanAndPath(scanId, absPath);
-            return true;
+            onDeleted(scanId, absPath);
+            return DeleteOutcome.TRASHED;
         }
 
         log.warn("delete: cannot move to recycle bin, falling back to PERMANENT delete. path={} reason={}",
                 absPath, trashOutcome.reason);
-        permanentDeleteWithRetry(file, absPath);
+        DeleteOutcome permanent = permanentDeleteWithRetry(scanId, file, absPath, trashOutcome.reason);
+        if (permanent == DeleteOutcome.PERMANENT) {
+            onDeleted(scanId, absPath);
+        }
+        return permanent;
+    }
+
+    /**
+     * Retry every previously-failed entry. {@link NoSuchFileException} during retry counts as
+     * "already gone" — the row is removed from the registry and credited as deleted.
+     */
+    public RetryResult retryAllFailed() {
+        List<FailedDelete> snapshot = failedDeletes.list();
+        int deleted = 0;
+        int queued = 0;
+        for (FailedDelete entry : snapshot) {
+            Path file = Path.of(entry.path());
+            try {
+                DeleteOutcome outcome = deleteByPath(entry.scanId(), file);
+                switch (outcome) {
+                    case TRASHED, PERMANENT -> deleted++;
+                    case QUEUED -> queued++;
+                }
+            } catch (NoSuchFileException nsf) {
+                // File vanished between attempts — treat as deleted from our point of view.
+                failedDeletes.remove(entry.path());
+                nodes.deleteByScanAndPath(entry.scanId(), entry.path());
+                deleted++;
+            } catch (IOException ioe) {
+                // Should not happen — deleteByPath swallows IO into QUEUED — but be defensive.
+                log.warn("retry: unexpected IOException for {}", entry.path(), ioe);
+                failedDeletes.record(entry.scanId(), entry.path(), ioe.toString());
+                queued++;
+            }
+        }
+        return new RetryResult(snapshot.size(), deleted, queued, failedDeletes.list());
+    }
+
+    public List<FailedDelete> listFailed() {
+        return failedDeletes.list();
+    }
+
+    public void clearFailed() {
+        failedDeletes.clear();
+    }
+
+    public void removeFailed(String absPath) {
+        failedDeletes.remove(absPath);
+    }
+
+    /** Aggregate of {@link #retryAllFailed()} — counts plus the still-failing tail. */
+    public record RetryResult(int attempted, int deleted, int queued, List<FailedDelete> remaining) {}
+
+    private void onDeleted(String scanId, String absPath) {
         nodes.deleteByScanAndPath(scanId, absPath);
-        return false;
+        failedDeletes.remove(absPath);
     }
 
     private TrashOutcome tryMoveToTrashWithRetry(Path file, String absPath) {
@@ -99,14 +160,19 @@ public class FileDeleteService {
         return TrashOutcome.failed(lastReason + " (after " + attempts + " attempts)");
     }
 
-    private void permanentDeleteWithRetry(Path file, String absPath) throws IOException {
+    private DeleteOutcome permanentDeleteWithRetry(String scanId, Path file, String absPath, String trashReason)
+            throws IOException {
         IOException last = null;
         int attempts = DELETE_BACKOFF_MS.length + 1;
         for (int i = 0; i < attempts; i++) {
             try {
                 Files.delete(file);
                 log.warn("delete: permanent delete done path={} attempt={}/{}", absPath, i + 1, attempts);
-                return;
+                return DeleteOutcome.PERMANENT;
+            } catch (NoSuchFileException nsf) {
+                // The caller's initial isRegularFile check already passed, so this is a TOCTOU
+                // window — propagate so the controller maps it to 404 like before.
+                throw nsf;
             } catch (IOException e) {
                 last = e;
                 log.debug("delete: permanent delete attempt {}/{} failed for {}: {}",
@@ -116,8 +182,18 @@ public class FileDeleteService {
                 }
             }
         }
-        log.error("delete: PERMANENT delete failed after {} attempts path={}", attempts, absPath, last);
-        throw last;
+        // All retries exhausted: the file is locked (or otherwise unavailable). Park it in the
+        // registry instead of throwing — the caller is the user, and the recovery path is
+        // "close the holding program, click retry".
+        String reason = last != null ? messageOf(last) : trashReason;
+        failedDeletes.record(scanId, absPath, reason);
+        log.warn("delete: queued for later retry path={} attempts={} reason={}", absPath, attempts, reason);
+        return DeleteOutcome.QUEUED;
+    }
+
+    private static String messageOf(IOException e) {
+        String msg = e.getMessage();
+        return msg != null ? msg : e.getClass().getSimpleName();
     }
 
     private static void sleepQuiet(long ms) {
@@ -134,7 +210,7 @@ public class FileDeleteService {
     }
 
     /** Aggregate result of a junk-cleanup pass. */
-    public record CleanJunkResult(int deleted, int skipped, List<String> errors) {}
+    public record CleanJunkResult(int deleted, int skipped, int queued, List<String> errors) {}
 
     /**
      * Delete files whose names look like AppleDouble cache (start with {@code ._}) and that
@@ -142,13 +218,15 @@ public class FileDeleteService {
      * so a file that grew past the threshold since the scan is left alone — that is the
      * "safety net against accidentally nuking a real video that happens to start with a dot".
      *
-     * <p>Per-file failures are caught and reported in {@link CleanJunkResult#errors}; a single
-     * locked / permission-denied file does not abort the batch.
+     * <p>Per-file IO failures land in {@link FailedDeleteRegistry} via
+     * {@link #deleteByPath} (counted as {@code queued}); unexpected exceptions go to
+     * {@link CleanJunkResult#errors}.
      */
     public CleanJunkResult cleanJunkVideos(List<String> videoExtensions, long maxSizeBytes) {
         List<VideoFile> candidates = nodes.findJunkVideos(videoExtensions, maxSizeBytes);
         int deleted = 0;
         int skipped = 0;
+        int queued = 0;
         List<String> errors = new ArrayList<>();
         for (VideoFile v : candidates) {
             Path file = Path.of(v.path());
@@ -165,15 +243,19 @@ public class FileDeleteService {
                             file, currentSize, maxSizeBytes);
                     continue;
                 }
-                deleteByPath(v.scanId(), file);
-                deleted++;
+                DeleteOutcome outcome = deleteByPath(v.scanId(), file);
+                switch (outcome) {
+                    case TRASHED, PERMANENT -> deleted++;
+                    case QUEUED -> queued++;
+                }
             } catch (IOException e) {
                 String msg = v.path() + ": " + e.getMessage();
                 errors.add(msg);
                 log.warn("junk-clean failed for {}", v.path(), e);
             }
         }
-        log.info("junk-clean complete: deleted={} skipped={} errors={}", deleted, skipped, errors.size());
-        return new CleanJunkResult(deleted, skipped, errors);
+        log.info("junk-clean complete: deleted={} skipped={} queued={} errors={}",
+                deleted, skipped, queued, errors.size());
+        return new CleanJunkResult(deleted, skipped, queued, errors);
     }
 }

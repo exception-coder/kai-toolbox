@@ -56,6 +56,23 @@ export type SubtitleStatus =
   | 'FAILED'
   | 'CANCELLED'
 
+export interface SegmentStat {
+  idx: number
+  file: string
+  mode: 'copy' | 'transcode'
+  spawnMs: number
+  firstByteMs: number
+  totalMs: number
+  bytesOut: number
+  aborted: boolean
+  at: number
+}
+
+export interface PlaybackStats {
+  activeFfmpeg: number
+  recentSegments: SegmentStat[]
+}
+
 export interface SubtitleJob {
   id: string
   scanId: string

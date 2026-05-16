@@ -1,5 +1,5 @@
 import { http, ApiError } from '@/lib/api'
-import type { CleanJunkResult, SubtitleJob, VideoLibraryPage, VideoSizeBucket, VideoSortBy, VideoSortOrder } from './types'
+import type { CleanJunkResult, PlaybackStats, SubtitleJob, VideoLibraryPage, VideoSizeBucket, VideoSortBy, VideoSortOrder } from './types'
 
 export function getVideoLibrary(
   sortBy: VideoSortBy,
@@ -36,6 +36,10 @@ export function removeVideoFavorite(path: string) {
 
 export function thumbUrl(scanId: string, path: string): string {
   return `/api/treesize/scans/${scanId}/thumb?path=${encodeURIComponent(path)}`
+}
+
+export function getPlaybackStats() {
+  return http<PlaybackStats>(`/treesize/playback-stats`)
 }
 
 // ---------- subtitles ----------------------------------------------------

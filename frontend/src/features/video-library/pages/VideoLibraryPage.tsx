@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useInfiniteQuery, useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query'
+import { Activity } from 'lucide-react'
 import { ApiError } from '@/lib/api'
 import { useConfirm } from '@/components/ui/confirm-dialog'
+import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { formatBytes } from '@/lib/utils'
 import { deleteFile } from '@/features/treesize/api'
 import { addVideoFavorite, cleanJunkVideos, getVideoLibrary, removeVideoFavorite } from '../api'
+import { PlaybackStatsPanel } from '../components/PlaybackStatsPanel'
 import { VideoListPanel } from '../components/VideoListPanel'
 import { VideoPlayerPanel } from '../components/VideoPlayerPanel'
 import { loadState, saveState } from '../storage'
@@ -33,6 +36,7 @@ export function VideoLibraryPage() {
   // player keep rendering even when filters exclude it from the visible list.
   const [currentItem, setCurrentItem] = useState<VideoLibraryItem | null>(null)
   const [listOpen, setListOpen] = useState(false)
+  const [statsOpen, setStatsOpen] = useState(false)
   const selectedPath = currentItem?.path ?? null
 
   // 300ms debounce. Trim the input first so a single trailing space doesn't refire.
@@ -408,11 +412,23 @@ export function VideoLibraryPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-3 py-3 md:gap-4 md:px-6 md:py-6">
-      <header>
-        <h1 className="text-xl font-semibold tracking-tight">视频库</h1>
-        <p className="text-sm text-[var(--color-muted-foreground)]">
-          已扫描磁盘里的所有视频。点击选中即可在线播放，支持上下首切换；列表可按名称或大小排序、分页加载。
-        </p>
+      <header className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">视频库</h1>
+          <p className="text-sm text-[var(--color-muted-foreground)]">
+            已扫描磁盘里的所有视频。点击选中即可在线播放，支持上下首切换；列表可按名称或大小排序、分页加载。
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setStatsOpen(true)}
+          className="shrink-0 gap-1.5"
+          aria-label="打开转码监控"
+        >
+          <Activity className="h-3.5 w-3.5" />
+          转码监控
+        </Button>
       </header>
 
       {query.isLoading ? (
@@ -448,6 +464,14 @@ export function VideoLibraryPage() {
           <SheetTitle className="sr-only">视频列表</SheetTitle>
           <SheetDescription className="sr-only">选择要播放的视频</SheetDescription>
           <VideoListPanel {...sharedListProps} />
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={statsOpen} onOpenChange={setStatsOpen}>
+        <SheetContent side="right" className="flex w-full flex-col p-0 sm:max-w-md">
+          <SheetTitle className="sr-only">转码监控</SheetTitle>
+          <SheetDescription className="sr-only">实时查看 HLS 转码段统计与活跃 FFmpeg 进程</SheetDescription>
+          <PlaybackStatsPanel active={statsOpen} />
         </SheetContent>
       </Sheet>
     </div>

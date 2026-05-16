@@ -39,13 +39,58 @@ export function deleteScan(id: string) {
   return http<void>(`/treesize/scans/${id}`, { method: 'DELETE' })
 }
 
-/** Server signals whether the OS recycle bin actually accepted the file (false = permanent delete). */
+/**
+ * Server signals what happened to the file:
+ * - {@code TRASHED} — moved to the OS recycle bin (recoverable)
+ * - {@code PERMANENT} — recycle bin unavailable; permanently removed
+ * - {@code QUEUED} — file was locked / IO failed; parked in the failed-delete registry
+ *   for later batch retry (see {@code listFailedDeletes} / {@code retryFailedDeletes})
+ *
+ * Legacy {@code toTrash} stays true only when {@code outcome === 'TRASHED'}.
+ */
+export type DeleteOutcome = 'TRASHED' | 'PERMANENT' | 'QUEUED'
 export interface DeleteFileResult {
   toTrash: boolean
+  outcome: DeleteOutcome
 }
 
 export function deleteFile(scanId: string, path: string) {
   return http<DeleteFileResult>(`/treesize/scans/${scanId}/file?path=${encodeURIComponent(path)}`, {
+    method: 'DELETE',
+  })
+}
+
+export interface FailedDeleteView {
+  scanId: string
+  path: string
+  reason: string
+  attempts: number
+  lastAttemptAt: number
+}
+
+export interface RetryFailedDeletesResultView {
+  attempted: number
+  deleted: number
+  queued: number
+  remaining: FailedDeleteView[]
+}
+
+export function listFailedDeletes() {
+  return http<FailedDeleteView[]>('/treesize/file-delete/failed')
+}
+
+export function retryFailedDeletes() {
+  return http<RetryFailedDeletesResultView>('/treesize/file-delete/failed/retry', {
+    method: 'POST',
+  })
+}
+
+export function clearFailedDeletes() {
+  return http<void>('/treesize/file-delete/failed', { method: 'DELETE' })
+}
+
+export function removeFailedDelete(path: string) {
+  return http<void>(`/treesize/file-delete/failed/entry?path=${encodeURIComponent(path)}`, {
     method: 'DELETE',
   })
 }
