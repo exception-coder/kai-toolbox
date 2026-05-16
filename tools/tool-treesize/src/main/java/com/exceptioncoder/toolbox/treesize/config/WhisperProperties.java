@@ -33,6 +33,31 @@ public class WhisperProperties {
     private int maxConcurrentJobs = 1;
     /** Maximum wall-clock seconds for a single transcription before we kill the process. 0 = no limit. */
     private long timeoutSeconds = 0;
+    /**
+     * Pass {@code -fa} to whisper-cli when GPU is enabled. Flash Attention is a CUDA-only
+     * fused-kernel implementation of attention that produces numerically identical output
+     * 30-50% faster. Safe to leave on for any cuBLAS / CUDA build of whisper.cpp; CPU builds
+     * silently ignore the flag.
+     */
+    private boolean flashAttention = true;
+    /**
+     * Optional default prompt prepended to every transcription via {@code --prompt}. Use it
+     * to seed whisper with proper-noun spellings ({@code "GPT-4o, ChatGPT, Anthropic"}) or
+     * domain vocabulary; the model becomes more willing to emit those tokens and less prone
+     * to dropping a word it would otherwise consider out-of-distribution. Per-job prompts
+     * passed at enqueue time override this default.
+     */
+    private String defaultInitialPrompt = "";
+    /**
+     * Absolute path to a Silero VAD ggml model (e.g. {@code ggml-silero-v5.1.2.bin}). When
+     * present and the file exists, whisper.cpp pre-segments audio into speech regions via
+     * {@code --vad --vad-model <path>}, skipping silence entirely. Long videos with sparse
+     * speech see both a speed win and an accuracy win (hallucination on silence drops).
+     *
+     * <p>Download from <a href="https://huggingface.co/ggml-org/whisper-vad/tree/main">
+     * huggingface.co/ggml-org/whisper-vad</a>. Empty = VAD disabled.
+     */
+    private String vadModelPath = "";
 
     public String getBinary() { return binary; }
     public void setBinary(String binary) { this.binary = binary == null ? "" : binary.trim(); }
@@ -57,6 +82,19 @@ public class WhisperProperties {
 
     public long getTimeoutSeconds() { return timeoutSeconds; }
     public void setTimeoutSeconds(long timeoutSeconds) { this.timeoutSeconds = Math.max(0, timeoutSeconds); }
+
+    public boolean isFlashAttention() { return flashAttention; }
+    public void setFlashAttention(boolean flashAttention) { this.flashAttention = flashAttention; }
+
+    public String getDefaultInitialPrompt() { return defaultInitialPrompt; }
+    public void setDefaultInitialPrompt(String defaultInitialPrompt) {
+        this.defaultInitialPrompt = defaultInitialPrompt == null ? "" : defaultInitialPrompt;
+    }
+
+    public String getVadModelPath() { return vadModelPath; }
+    public void setVadModelPath(String vadModelPath) {
+        this.vadModelPath = vadModelPath == null ? "" : vadModelPath.trim();
+    }
 
     public boolean isAvailable() {
         return !binary.isEmpty() && !modelPath.isEmpty();

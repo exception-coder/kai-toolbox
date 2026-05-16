@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.treesize.service;
 
 import com.exceptioncoder.toolbox.common.sse.SseEmitterRegistry;
 import com.exceptioncoder.toolbox.treesize.config.WhisperProperties;
+import com.exceptioncoder.toolbox.treesize.domain.AudioAnalysis;
 import com.exceptioncoder.toolbox.treesize.domain.SubtitleJob;
 import com.exceptioncoder.toolbox.treesize.domain.SubtitleStatus;
 import com.exceptioncoder.toolbox.treesize.repository.SubtitleJobRepository;
@@ -54,6 +55,7 @@ public class SubtitleService {
 
     private final SubtitleJobRepository jobs;
     private final AudioExtractor audio;
+    private final AudioContentProbe audioProbe;
     private final WhisperRunner whisper;
     private final DeepLXTranslator translator;
     private final SseEmitterRegistry sse;
@@ -65,6 +67,7 @@ public class SubtitleService {
 
     public SubtitleService(SubtitleJobRepository jobs,
                            AudioExtractor audio,
+                           AudioContentProbe audioProbe,
                            WhisperRunner whisper,
                            DeepLXTranslator translator,
                            SseEmitterRegistry sse,
@@ -72,6 +75,7 @@ public class SubtitleService {
                            @Value("${toolbox.data-dir}") String dataDir) {
         this.jobs = jobs;
         this.audio = audio;
+        this.audioProbe = audioProbe;
         this.whisper = whisper;
         this.translator = translator;
         this.sse = sse;
@@ -138,8 +142,12 @@ public class SubtitleService {
      * (e.g. {@code "ja"}, {@code "en"}); pass {@code "auto"} or {@code null} to let whisper
      * detect. Explicit language is strongly recommended for non-English content — without it
      * whisper often hallucinates English transcriptions for Japanese/Korean audio.
+     *
+     * <p>{@code initialPrompt} is the user-supplied {@code --prompt} seed (proper nouns /
+     * domain vocabulary); pass {@code null} or blank to use only the global default from
+     * {@link WhisperProperties#getDefaultInitialPrompt()}.
      */
-    public SubtitleJob enqueue(String scanId, Path video, String language) {
+    public SubtitleJob enqueue(String scanId, Path video, String language, String initialPrompt) {
         if (!isWhisperAvailable()) {
             throw new IllegalStateException(
                     "Whisper 未配置：请在 application.yml 设置 toolbox.whisper.binary 与 model-path");
@@ -154,6 +162,7 @@ public class SubtitleService {
 
         String normLang = (language == null || language.isBlank() || "auto".equalsIgnoreCase(language))
                 ? null : language.trim().toLowerCase();
+        String normPrompt = (initialPrompt == null || initialPrompt.isBlank()) ? null : initialPrompt.trim();
 
         SubtitleJob job = SubtitleJob.builder()
                 .id(UUID.randomUUID().toString())
@@ -164,6 +173,7 @@ public class SubtitleService {
                 .model(props.getModelName())
                 // Pre-populate language when explicitly specified so the UI shows it immediately.
                 .sourceLanguage(normLang)
+                .initialPrompt(normPrompt)
                 .progress(0.0)
                 .createdAt(System.currentTimeMillis())
                 .build();
@@ -172,7 +182,7 @@ public class SubtitleService {
         AtomicBoolean cancelled = new AtomicBoolean(false);
         cancelFlags.put(job.getId(), cancelled);
         String whisperLang = normLang != null ? normLang : "auto";
-        executor.submit(() -> runJob(job, video, whisperLang, cancelled));
+        executor.submit(() -> runJob(job, video, whisperLang, normPrompt, cancelled));
         return job;
     }
 
@@ -236,14 +246,60 @@ public class SubtitleService {
         return true;
     }
 
-    private void runJob(SubtitleJob job, Path video, String language, AtomicBoolean cancelled) {
+    private void runJob(SubtitleJob job, Path video, String language, String initialPrompt, AtomicBoolean cancelled) {
         Path tmpWav = outputDir().resolve(".tmp-" + job.getVideoPathHash() + "-" + job.getId() + ".wav");
         Path outputPrefix = outputDir().resolve(job.getVideoPathHash());
 
         long startedAt = System.currentTimeMillis();
-        job.setStatus(SubtitleStatus.EXTRACTING_AUDIO);
+        // 第一步：音频内容预检。先把 job 标成 ANALYZING_AUDIO，前端立即看到状态进展；
+        // 跑完拿到 verdict，再决定走 EXTRACTING_AUDIO（继续）还是直接 FAILED（提前止损）。
+        job.setStatus(SubtitleStatus.ANALYZING_AUDIO);
         job.setStartedAt(startedAt);
         jobs.updateStatus(job.getId(), job.getStatus(), startedAt, null, null);
+        publish(job.getId(), "status", statusEvent(job));
+
+        // 长视频全文件分析可能要几十秒到几分钟。把 ffmpeg 解析出来的百分比转成 0.0~1.0 写
+        // 到 job.progress，让前端进度条在这阶段也能"动起来"（之前是不确定 spinner）。
+        AudioAnalysis analysis = audioProbe.analyze(video, percent -> {
+            double p = Math.max(0, Math.min(99, percent)) / 100.0;
+            job.setProgress(p);
+            jobs.updateProgress(job.getId(), p);
+            publish(job.getId(), "progress", Map.of("progress", p, "percent", percent));
+        });
+        publish(job.getId(), "analysis", Map.of(
+                "verdict", analysis.verdict().name(),
+                "reason", analysis.reason(),
+                "summary", analysis.summary(),
+                "meanVolumeDb", analysis.meanVolumeDb(),
+                "maxVolumeDb", analysis.maxVolumeDb(),
+                "silenceRatio", analysis.silenceRatio(),
+                "hasAudioStream", analysis.hasAudioStream()
+        ));
+        // 预检完毕，把 progress 归零让接下来的 TRANSCRIBING 阶段从 0% 重新计。
+        job.setProgress(0.0);
+        jobs.updateProgress(job.getId(), 0.0);
+        if (analysis.verdict() == AudioAnalysis.Verdict.NO_AUDIO_STREAM
+                || analysis.verdict() == AudioAnalysis.Verdict.UNLIKELY) {
+            // 提前失败：把摘要写进 errorMsg，前端 SubtitleControls 会原样展示。
+            // 这条路径不浪费 GPU，也不会留孤儿 .wav / .vtt。
+            long finishedAt = System.currentTimeMillis();
+            job.setStatus(SubtitleStatus.FAILED);
+            job.setFinishedAt(finishedAt);
+            job.setErrorMsg(analysis.summary());
+            jobs.updateStatus(job.getId(), job.getStatus(), null, finishedAt, analysis.summary());
+            publish(job.getId(), "error", Map.of("message", analysis.summary()));
+            cancelFlags.remove(job.getId());
+            sse.complete(job.getId());
+            log.info("subtitle job {} 提前失败：{}", job.getId(), analysis.summary());
+            return;
+        }
+        if (analysis.verdict() == AudioAnalysis.Verdict.SPARSE) {
+            log.warn("subtitle job {} 音频稀疏，仍尝试转写：{}", job.getId(), analysis.summary());
+        }
+
+        // 第二步：实际抽取音频 + 跑 whisper。
+        job.setStatus(SubtitleStatus.EXTRACTING_AUDIO);
+        jobs.updateStatus(job.getId(), job.getStatus(), null, null, null);
         publish(job.getId(), "status", statusEvent(job));
 
         try {
@@ -256,7 +312,7 @@ public class SubtitleService {
             jobs.updateStatus(job.getId(), job.getStatus(), null, null, null);
             publish(job.getId(), "status", statusEvent(job));
 
-            Path vtt = whisper.run(tmpWav, outputPrefix, language, new WhisperRunner.ProgressListener() {
+            Path vtt = whisper.run(tmpWav, outputPrefix, language, initialPrompt, new WhisperRunner.ProgressListener() {
                 @Override
                 public void onProgress(int percent) {
                     double p = percent / 100.0;

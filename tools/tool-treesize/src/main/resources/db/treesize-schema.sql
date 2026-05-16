@@ -76,6 +76,9 @@ CREATE TABLE IF NOT EXISTS subtitle_job (
     progress         REAL NOT NULL DEFAULT 0,
     vtt_path             TEXT,
     translated_vtt_path  TEXT,
+    -- User-supplied whisper --prompt seed (proper nouns / domain vocabulary). Stored so a
+    -- regenerate request can prefill the input with what produced the prior VTT.
+    initial_prompt       TEXT,
     error_msg            TEXT,
     created_at           INTEGER NOT NULL,
     started_at           INTEGER,

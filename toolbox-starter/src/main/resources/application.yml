@@ -48,16 +48,28 @@ toolbox:
     # whisper.cpp 二进制路径。CUDA 构建版会自动用 NVIDIA GPU；无 GPU 装 CPU 版亦可。
     # 下载：https://github.com/ggml-org/whisper.cpp/releases (Windows 选 cuBLAS 版本)
     binary: "D:\\devapps\\whisper-cublas-12.4.0-bin-x64\\Release\\whisper-cli.exe"
-    # ggml/gguf 模型文件路径。建议 medium (~1.5GB) 起步，质量明显优于 small。
-    # 下载：https://huggingface.co/ggerganov/whisper.cpp/tree/main
-    model-path: "D:\\devapps\\ggml-medium.bin"
-    model-name: medium
+    # ggml/gguf 模型文件路径。强烈推荐 large-v3-turbo（1.5GB，medium 大小但准确度近 large-v3）：
+    #   https://huggingface.co/ggerganov/whisper.cpp/blob/main/ggml-large-v3-turbo.bin
+    # 下完后用环境变量切换，无需改本文件：
+    #   TOOLBOX_WHISPER_MODEL=D:\devapps\ggml-large-v3-turbo.bin
+    model-path: ${TOOLBOX_WHISPER_MODEL:D:\devapps\ggml-medium.bin}
+    # model-name 仅用作字幕任务的元数据标签，便于事后追溯用了哪个模型。
+    model-name: ${TOOLBOX_WHISPER_MODEL_NAME:medium}
     # 字幕落盘目录。空字符串时由 SubtitleService 兜底 ${toolbox.data-dir}/subtitles。
     output-dir: ${toolbox.data-dir}/subtitles
     threads: 0                  # 0 = 让 whisper.cpp 自己挑
     disable-gpu: false          # CUDA 构建默认走 GPU；调试时可强制改 CPU
+    flash-attention: true       # cuBLAS 构建默认开 Flash Attention，速度 +30~50% 无精度损失
     max-concurrent-jobs: 1      # GPU 一次跑一条最快
     timeout-seconds: 0          # 0 = 不超时，长片不被砍
+    # 默认 initial prompt：每次转写前喂给 whisper 当作上下文（最长 224 token，约 150 字）。
+    # 适合放专有名词、人名、品牌名 — 模型会更愿意输出这些 token，减少吞字。
+    # 留空即不传。前端的「专有名词」输入框会覆盖此默认值。
+    default-initial-prompt: ""
+    # Silero VAD ggml 模型路径，启用后 whisper 自动跳过静音段，长视频提速 + 减少幻觉。
+    # 下载：https://huggingface.co/ggml-org/whisper-vad/tree/main （选 ggml-silero-v5.1.2.bin）
+    # 留空 = 不启用 VAD。
+    vad-model-path: ${TOOLBOX_WHISPER_VAD_MODEL:}
   thumbnail:
     cache-dir: ${toolbox.data-dir}/cache/thumbs
     # 同时跑的 ffmpeg 数量，每个吃 1-2 核。默认 2：留 CPU 给 HLS 播放，避免你点视频的瞬间

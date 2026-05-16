@@ -47,9 +47,10 @@ export const VIDEO_SIZE_BUCKETS: { value: VideoSizeBucket; label: string }[] = [
   { value: 'huge',   label: '> 10 GB' },
 ]
 
-/** Mirrors the backend SubtitleStatus enum exactly. */
+/** 与后端 SubtitleStatus 枚举严格对齐。 */
 export type SubtitleStatus =
   | 'PENDING'
+  | 'ANALYZING_AUDIO'
   | 'EXTRACTING_AUDIO'
   | 'TRANSCRIBING'
   | 'COMPLETED'

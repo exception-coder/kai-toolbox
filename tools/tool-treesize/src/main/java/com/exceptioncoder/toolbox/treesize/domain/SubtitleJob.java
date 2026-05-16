@@ -20,6 +20,13 @@ public class SubtitleJob {
     private String model;
     /** ISO 639-1 code detected by whisper, populated once transcription starts. {@code null} until then. */
     private String sourceLanguage;
+    /**
+     * Optional {@code --prompt} string passed to whisper.cpp. Seeded by the user with
+     * proper-noun spellings or domain vocabulary so the model is less prone to dropping
+     * out-of-distribution words. Stored on the job for audit and so the UI can prefill
+     * "regenerate" with the same prompt that produced the existing VTT.
+     */
+    private String initialPrompt;
     /** 0.0 → 1.0. Updated from whisper.cpp progress lines. */
     private double progress;
     /** Absolute path to the .vtt file once status is COMPLETED. */

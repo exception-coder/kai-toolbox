@@ -54,6 +54,7 @@ public class TreeSizeMigration {
         try {
             ensureExtColumn();
             ensureVideoIndexes();
+            ensureSubtitleColumns();
             backfillExt();
             // Only after the entire backfill is durable do we tell NodeRepository it's safe to
             // use the ext-IN query plan. Anything in the count cache from the legacy code path
@@ -66,6 +67,16 @@ public class TreeSizeMigration {
             // Don't flip the flag on failure — NodeRepository stays on the legacy LIKE path,
             // which is slow but returns the same rows the user has always seen.
             log.error("treesize migration failed; staying on legacy query path", e);
+        }
+    }
+
+    private void ensureSubtitleColumns() {
+        Integer present = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pragma_table_info('subtitle_job') WHERE name = 'initial_prompt'",
+                Integer.class);
+        if (present == null || present == 0) {
+            jdbc.execute("ALTER TABLE subtitle_job ADD COLUMN initial_prompt TEXT");
+            log.info("treesize migration: added column subtitle_job.initial_prompt");
         }
     }
 

@@ -59,13 +59,21 @@ public class WhisperRunner {
         void onLanguageDetected(String iso);
     }
 
+    /** Whisper.cpp truncates {@code --prompt} at ~224 tokens. We bound the byte length so a
+     *  pasted-in essay doesn't waste tokens; characters past this point are dropped silently. */
+    private static final int PROMPT_MAX_CHARS = 800;
+
     /**
      * Run whisper.cpp synchronously. {@code outputPrefix} is the path without an extension —
      * whisper writes {@code <outputPrefix>.vtt} which we return on success. {@code cancelled}
      * is polled while waiting; {@code null} disables cancellation.
+     *
+     * <p>{@code initialPrompt} is the optional {@code --prompt} string; pass {@code null} or
+     * blank to fall back to {@link WhisperProperties#getDefaultInitialPrompt()}.
      */
-    public Path run(Path wav, Path outputPrefix, String language, ProgressListener listener,
-                    AtomicBoolean cancelled) throws IOException, InterruptedException {
+    public Path run(Path wav, Path outputPrefix, String language, String initialPrompt,
+                    ProgressListener listener, AtomicBoolean cancelled)
+            throws IOException, InterruptedException {
         if (!props.isAvailable()) {
             throw new IllegalStateException(
                     "Whisper 不可用：请在 application.yml 配置 toolbox.whisper.binary 与 model-path");
@@ -78,7 +86,7 @@ public class WhisperRunner {
         }
         Files.createDirectories(outputPrefix.getParent());
 
-        List<String> cmd = buildCommand(wav, outputPrefix, language);
+        List<String> cmd = buildCommand(wav, outputPrefix, language, initialPrompt);
         log.info("whisper-cli starting: {}", String.join(" ", cmd));
 
         Process process = registry.spawn(new ProcessBuilder(cmd).redirectErrorStream(true));
@@ -106,12 +114,19 @@ public class WhisperRunner {
 
         Path vtt = Path.of(outputPrefix.toAbsolutePath() + ".vtt");
         if (!Files.isRegularFile(vtt)) {
-            throw new IOException("whisper-cli reported success but produced no VTT at " + vtt);
+            // whisper.cpp 在每一段都被判定为非语音时不会写 .vtt 文件，退出码仍是 0。
+            // 直接抛错让 job 进 FAILED 状态，前端展示具体原因；这比悄悄生成一个空 VTT 让用户
+            // 看到「已生成」但播放无字幕要诚实得多。常见诱因：源音频纯音乐 / 整段静默、或
+            // 老旧容器（.rmvb 里的 cook 编码）被 ffmpeg 解出空音轨。
+            throw new IOException(
+                    "音频中未识别到可转写的语音内容（whisper 退出 0 但未生成字幕）。"
+                            + "常见原因：纯音乐 / 全静默 / 老旧编码（如 .rmvb 的 RealAudio cook）"
+                            + "在当前 ffmpeg 下解码不完整。可尝试用其他播放器确认源视频是否有语音。");
         }
         return vtt;
     }
 
-    private List<String> buildCommand(Path wav, Path outputPrefix, String language) {
+    private List<String> buildCommand(Path wav, Path outputPrefix, String language, String initialPrompt) {
         List<String> cmd = new ArrayList<>();
         cmd.add(props.getBinary());
         cmd.add("-m"); cmd.add(props.getModelPath());
@@ -125,13 +140,52 @@ public class WhisperRunner {
         // -nt suppresses timestamp printing in the segment dump but still writes them to VTT;
         // less log noise. -np suppresses the per-segment colored print.
         cmd.add("-np");
+        // -su (split-on-word): split 30 s chunks on word boundaries instead of raw token
+        // boundaries. Without this, whisper's chunker happily slices through the middle of a
+        // word — the second chunk then doesn't recognise the partial prefix and drops the word
+        // entirely, which is the most common "吞字" pattern users hit on long videos.
+        cmd.add("-su");
+
+        // --prompt seeds the decoder with a 224-token context that the model treats as a
+        // continuation prompt. Per-job string wins over the global default; both are bounded
+        // by PROMPT_MAX_CHARS to keep the command line + token budget sane.
+        String prompt = firstNonBlank(initialPrompt, props.getDefaultInitialPrompt());
+        if (prompt != null) {
+            String trimmed = prompt.length() > PROMPT_MAX_CHARS ? prompt.substring(0, PROMPT_MAX_CHARS) : prompt;
+            cmd.add("--prompt"); cmd.add(trimmed);
+        }
+
+        // VAD pre-segments audio into speech regions, skipping silence entirely. Long videos
+        // with sparse speech see both a speed win (no compute on silence) and an accuracy win
+        // (whisper hallucinates less on quiet segments). Disabled unless the VAD model is
+        // configured and actually present on disk — otherwise whisper-cli would fail to start.
+        String vadModel = props.getVadModelPath();
+        if (!vadModel.isEmpty() && Files.isRegularFile(Path.of(vadModel))) {
+            cmd.add("--vad");
+            cmd.add("--vad-model"); cmd.add(vadModel);
+        }
+
         if (props.getThreads() > 0) {
             cmd.add("-t"); cmd.add(Integer.toString(props.getThreads()));
         }
         if (props.isDisableGpu()) {
             cmd.add("--no-gpu");
+        } else if (props.isFlashAttention()) {
+            // Flash Attention reorders attention matmuls to fit GPU SRAM, giving 30-50%
+            // throughput at identical numerical output. Only valid on CUDA / cuBLAS builds;
+            // CPU builds silently ignore the flag but we still gate on isDisableGpu to keep
+            // the command surface obvious in the launch log.
+            cmd.add("-fa");
         }
         return cmd;
+    }
+
+    /** Returns the first argument that isn't null and isn't blank after trimming; null otherwise. */
+    private static String firstNonBlank(String... candidates) {
+        for (String s : candidates) {
+            if (s != null && !s.isBlank()) return s.trim();
+        }
+        return null;
     }
 
     private Thread startStderrReader(Process process, ProgressListener listener, StringBuilder tail) {

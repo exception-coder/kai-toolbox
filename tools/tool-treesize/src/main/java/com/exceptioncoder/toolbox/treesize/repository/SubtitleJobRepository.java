@@ -28,6 +28,7 @@ public class SubtitleJobRepository {
             .progress(rs.getDouble("progress"))
             .vttPath(rs.getString("vtt_path"))
             .translatedVttPath(rs.getString("translated_vtt_path"))
+            .initialPrompt(rs.getString("initial_prompt"))
             .errorMsg(rs.getString("error_msg"))
             .createdAt(rs.getLong("created_at"))
             .startedAt(rs.getObject("started_at") == null ? null : rs.getLong("started_at"))
@@ -38,12 +39,12 @@ public class SubtitleJobRepository {
         jdbc.update("""
                 INSERT INTO subtitle_job
                   (id, scan_id, video_path, video_path_hash, status, model, source_language,
-                   progress, vtt_path, error_msg, created_at, started_at, finished_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   progress, vtt_path, initial_prompt, error_msg, created_at, started_at, finished_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 j.getId(), j.getScanId(), j.getVideoPath(), j.getVideoPathHash(),
                 j.getStatus().name(), j.getModel(), j.getSourceLanguage(),
-                j.getProgress(), j.getVttPath(), j.getErrorMsg(),
+                j.getProgress(), j.getVttPath(), j.getInitialPrompt(), j.getErrorMsg(),
                 j.getCreatedAt(), j.getStartedAt(), j.getFinishedAt());
     }
 

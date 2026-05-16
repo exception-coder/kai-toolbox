@@ -476,9 +476,10 @@ public class TreeSizeController {
     @PostMapping("/subtitles/jobs")
     public SubtitleJobView createSubtitle(@RequestParam String scanId,
                                           @RequestParam String path,
-                                          @RequestParam(required = false, defaultValue = "auto") String language) throws IOException {
+                                          @RequestParam(required = false, defaultValue = "auto") String language,
+                                          @RequestParam(required = false) String prompt) throws IOException {
         Path video = guard.resolve(scanId, path);
-        return SubtitleJobView.from(subtitles.enqueue(scanId, video, language));
+        return SubtitleJobView.from(subtitles.enqueue(scanId, video, language, prompt));
     }
 
     @GetMapping("/subtitles/jobs/{jobId}")

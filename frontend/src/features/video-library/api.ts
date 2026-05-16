@@ -68,11 +68,17 @@ export async function getSubtitleByVideo(scanId: string, path: string): Promise<
   }
 }
 
-export function createSubtitleJob(scanId: string, path: string, language = 'auto') {
-  return http<SubtitleJob>(
-    `/treesize/subtitles/jobs?scanId=${encodeURIComponent(scanId)}&path=${encodeURIComponent(path)}&language=${encodeURIComponent(language)}`,
-    { method: 'POST' },
-  )
+export function createSubtitleJob(scanId: string, path: string, language = 'auto', prompt?: string) {
+  const params = new URLSearchParams({
+    scanId,
+    path,
+    language,
+  })
+  // Only send the prompt parameter when there's a non-empty value — the backend treats null
+  // and the empty string the same way (fall back to default-initial-prompt), so omitting it
+  // entirely keeps URLs tidier.
+  if (prompt && prompt.trim().length > 0) params.set('prompt', prompt.trim())
+  return http<SubtitleJob>(`/treesize/subtitles/jobs?${params.toString()}`, { method: 'POST' })
 }
 
 export function getSubtitleJob(jobId: string) {
