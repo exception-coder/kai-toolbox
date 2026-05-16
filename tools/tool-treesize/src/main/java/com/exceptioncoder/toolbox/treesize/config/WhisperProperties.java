@@ -35,10 +35,10 @@ public class WhisperProperties {
     private long timeoutSeconds = 0;
     /**
      * 在 GPU 模式下传 {@code -fa} 给 whisper-cli。Flash Attention 是 CUDA 专用的融合 kernel
-     * 实现，理论上加速 30-50% 且数值上等价。但部分 whisper.cpp v1.7 以前的 cuBLAS 构建会
-     * 静默忽略 / 不正确写入 VTT，所以默认关闭，由用户在 yml 主动 opt-in 后验证再保留。
+     * 实现，加速 30-50% 且数值等价。需要 whisper.cpp ≥ v1.7（绝大多数 2024 中以后的发行版
+     * 都满足）。CPU 构建会静默忽略此标志，无副作用。
      */
-    private boolean flashAttention = false;
+    private boolean flashAttention = true;
     /**
      * Optional default prompt prepended to every transcription via {@code --prompt}. Use it
      * to seed whisper with proper-noun spellings ({@code "GPT-4o, ChatGPT, Anthropic"}) or

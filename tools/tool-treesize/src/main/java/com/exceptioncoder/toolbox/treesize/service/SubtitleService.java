@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
@@ -115,11 +116,48 @@ public class SubtitleService {
         return props.isAvailable();
     }
 
-    /** Where {@code .vtt} files live. Falls back to {@code ${toolbox.data-dir}/subtitles}. */
+    /** VTT 文件最终落盘位置。默认 {@code ${toolbox.data-dir}/subtitles}。 */
     public Path outputDir() {
         return props.getOutputDir().isEmpty()
                 ? Path.of(dataDir, "subtitles")
                 : Path.of(props.getOutputDir());
+    }
+
+    /**
+     * whisper.cpp 实际运行时的工作目录。whisper.cpp 在 Windows 上用 C++ 的 fopen / ofstream
+     * 写文件，默认走 ANSI 编码 —— 当 outputDir 路径含非 ASCII 字符（如中文用户名 {@code 张凯}
+     * 出现在 {@code C:\Users\张凯\.kai-toolbox\subtitles}）时，转写跑完会「悄无声息地」写不出
+     * VTT 文件，对外表现是退出码 0 但 VTT 文件不存在。
+     *
+     * <p>规避方式：Windows + CJK 路径时让 whisper 写到 {@code %PROGRAMDATA%\kai-toolbox\whisper-out}
+     * （纯 ASCII，所有用户都可写），转写完 Java 端再 {@link Files#move} 到 {@link #outputDir()}。
+     * Java 文件 API 用 UTF-16 不受 ANSI codepage 限制。
+     *
+     * <p>非 Windows 或 outputDir 本身就 ASCII 时，直接返回 outputDir 不走 hack。
+     */
+    public Path whisperWorkDir() {
+        if (!System.getProperty("os.name", "").toLowerCase().contains("windows")) {
+            return outputDir();
+        }
+        String outStr = outputDir().toAbsolutePath().toString();
+        if (isAscii(outStr)) {
+            return outputDir();
+        }
+        // outputDir 含 CJK，走 PROGRAMDATA 兜底；这是 Windows 系统级共享目录，永远 ASCII。
+        String programData = System.getenv("PROGRAMDATA");
+        if (programData != null && !programData.isBlank() && isAscii(programData)) {
+            return Path.of(programData, "kai-toolbox", "whisper-out");
+        }
+        // 罕见环境（PROGRAMDATA 未设置 / 被改成 CJK 路径），直接落盘到 C:\kai-toolbox-whisper。
+        return Path.of("C:", "kai-toolbox-whisper");
+    }
+
+    /** 路径是否全部由 7-bit ASCII 字符组成。 */
+    private static boolean isAscii(String s) {
+        for (int i = 0; i < s.length(); i++) {
+            if (s.charAt(i) > 127) return false;
+        }
+        return true;
     }
 
     public Optional<SubtitleJob> findById(String id) {
@@ -247,8 +285,18 @@ public class SubtitleService {
     }
 
     private void runJob(SubtitleJob job, Path video, String language, String initialPrompt, AtomicBoolean cancelled) {
-        Path tmpWav = outputDir().resolve(".tmp-" + job.getVideoPathHash() + "-" + job.getId() + ".wav");
-        Path outputPrefix = outputDir().resolve(job.getVideoPathHash());
+        // whisper 必须跑在 ASCII 安全的工作目录（Windows + CJK 路径时是 %PROGRAMDATA% 兜底，
+        // 见 whisperWorkDir() Javadoc）。跑完 Java 端再 move 到最终 outputDir。
+        Path workDir = whisperWorkDir();
+        Path tmpWav = workDir.resolve(".tmp-" + job.getVideoPathHash() + "-" + job.getId() + ".wav");
+        Path outputPrefix = workDir.resolve(job.getVideoPathHash());
+        Path finalVtt = outputDir().resolve(job.getVideoPathHash() + ".vtt");
+        try {
+            Files.createDirectories(workDir);
+            Files.createDirectories(outputDir());
+        } catch (IOException e) {
+            log.error("创建字幕工作目录失败 work={} final={}: {}", workDir, outputDir(), e.toString());
+        }
 
         long startedAt = System.currentTimeMillis();
         // 第一步：音频内容预检。先把 job 标成 ANALYZING_AUDIO，前端立即看到状态进展；
@@ -312,7 +360,7 @@ public class SubtitleService {
             jobs.updateStatus(job.getId(), job.getStatus(), null, null, null);
             publish(job.getId(), "status", statusEvent(job));
 
-            Path vtt = whisper.run(tmpWav, outputPrefix, language, initialPrompt, new WhisperRunner.ProgressListener() {
+            Path vttInWorkDir = whisper.run(tmpWav, outputPrefix, language, initialPrompt, new WhisperRunner.ProgressListener() {
                 @Override
                 public void onProgress(int percent) {
                     double p = percent / 100.0;
@@ -328,6 +376,18 @@ public class SubtitleService {
                     publish(job.getId(), "language", Map.of("language", iso));
                 }
             }, cancelled);
+
+            // 把 whisper 写出的 VTT 从 ASCII 工作目录 move 到最终目录（两者相同时是 no-op）。
+            // 用 Java 的 Files.move（UTF-16 文件 API），不受 ANSI codepage 限制；REPLACE_EXISTING
+            // 让重新生成的字幕能正确覆盖旧文件。不传 ATOMIC_MOVE —— 跨盘 move 时 Java 会自动
+            // 退化到 copy + delete，传 ATOMIC_MOVE 反而会抛 AtomicMoveNotSupportedException。
+            Path vtt;
+            if (!vttInWorkDir.toAbsolutePath().equals(finalVtt.toAbsolutePath())) {
+                Files.move(vttInWorkDir, finalVtt, StandardCopyOption.REPLACE_EXISTING);
+                vtt = finalVtt;
+            } else {
+                vtt = vttInWorkDir;
+            }
 
             long finishedAt = System.currentTimeMillis();
             job.setStatus(SubtitleStatus.COMPLETED);
