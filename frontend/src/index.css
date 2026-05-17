@@ -7,6 +7,12 @@
   --color-card: oklch(1 0 0);
   --color-card-foreground: oklch(0.15 0.01 260);
 
+  /* Popover / 弹层背景。跟 card 同色,但 shadcn 标准命名要求单独变量,这样 bg-[var(--color-popover)]
+     才不会解析成空字符串(空 = 透明)。SubtitleControls 的模型 picker 和 GlobalVideoSearch 桌面端
+     下拉都依赖这俩变量;之前没定义所以背景透明能看到视频缩略图穿透。 */
+  --color-popover: oklch(1 0 0);
+  --color-popover-foreground: oklch(0.15 0.01 260);
+
   --color-muted: oklch(0.97 0.005 260);
   --color-muted-foreground: oklch(0.5 0.02 260);
 
@@ -48,6 +54,8 @@
     --color-foreground: oklch(0.97 0 0);
     --color-card: oklch(0.18 0.01 260);
     --color-card-foreground: oklch(0.97 0 0);
+    --color-popover: oklch(0.18 0.01 260);
+    --color-popover-foreground: oklch(0.97 0 0);
     --color-muted: oklch(0.22 0.01 260);
     --color-muted-foreground: oklch(0.65 0.02 260);
     --color-border: oklch(0.25 0.01 260);
