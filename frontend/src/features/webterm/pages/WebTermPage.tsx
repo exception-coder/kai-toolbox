@@ -128,6 +128,34 @@ export function WebTermPage() {
     terminalRef.current?.send(data)
   }
 
+  // 进入 claude TUI 时屏蔽底部 MobileCommandInput —— 它的"本地累积 + 批量发送"语义
+  // 与 Claude 实时 │ > 提示框冲突,用户会以为输入到了 textarea 但 Claude 看不到。
+  // claude 模式下统一走 xterm + OS 键盘的实时直通路径,辅以 AuxKeyBar 控制键。
+  const inClaudeMode = !!(autorun && autorun.startsWith('claude'))
+
+  // 移动端 OS 键盘弹起后会把 Claude 的 │ > 提示框遮在屏幕下沿,用户看不到光标。
+  // 用 visualViewport API 把根容器实际高度收到可见区,xterm 的 ResizeObserver 会
+  // 自动 fit/resize PTY,Claude 重绘后提示框落在键盘上方可见区域。
+  // h-[100dvh] 在大多数浏览器够用,但 iOS Safari / 部分 WebView 的 dvh 不跟随键盘,
+  // visualViewport 是兜底。
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.visualViewport) return
+    const vv = window.visualViewport
+    const apply = () => {
+      const el = rootRef.current
+      if (!el) return
+      el.style.height = `${vv.height}px`
+    }
+    vv.addEventListener('resize', apply)
+    vv.addEventListener('scroll', apply)
+    apply()
+    return () => {
+      vv.removeEventListener('resize', apply)
+      vv.removeEventListener('scroll', apply)
+      if (rootRef.current) rootRef.current.style.height = ''
+    }
+  }, [])
+
   return (
     <div
       ref={rootRef}
@@ -204,11 +232,15 @@ export function WebTermPage() {
         />
       </div>
 
-      {/* 移动端辅助键 —— OS 软键盘上没有的 Esc/Tab/方向键/Ctrl+C/Ctrl+L */}
+      {/* 移动端辅助键 —— OS 软键盘上没有的 Esc/Tab/方向键/Ctrl+C/Ctrl+L
+          claude TUI 里也有用(Esc Esc 提交、方向键翻消息历史、Ctrl+C 中断),保留。*/}
       <AuxKeyBar onSend={sendData} />
 
-      {/* 移动端指令输入框 */}
-      <MobileCommandInput onSend={sendData} quickCommands={QUICK_COMMANDS} />
+      {/* 移动端指令输入框 —— 仅在非 claude 模式启用。claude 模式下走 xterm + OS 键盘
+          的实时直通路径,避免本地 textarea 截留字符造成"打字看不到 Claude 框动"的错觉。*/}
+      {!inClaudeMode && (
+        <MobileCommandInput onSend={sendData} quickCommands={QUICK_COMMANDS} />
+      )}
 
       {/* 左抽屉：Claude 会话列表 */}
       <Sheet open={sessionsOpen} onOpenChange={setSessionsOpen}>

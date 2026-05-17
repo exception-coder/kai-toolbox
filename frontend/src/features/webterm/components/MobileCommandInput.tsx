@@ -89,7 +89,7 @@ export function MobileCommandInput({ onSend, quickCommands = [] }: MobileCommand
         </div>
       )}
       {quickCommands.length > 0 && (
-        <div className="flex gap-1.5 overflow-x-auto border-b border-white/5 px-2 py-2 no-scrollbar">
+        <div className="flex gap-1.5 overflow-x-auto px-2 py-2 no-scrollbar">
           {quickCommands.map((qc, i) => (
             <button
               key={`${qc.label}-${i}`}
@@ -103,7 +103,7 @@ export function MobileCommandInput({ onSend, quickCommands = [] }: MobileCommand
           ))}
         </div>
       )}
-      <div className="flex items-end gap-1.5 p-2">
+      <div className="flex items-center gap-1.5 px-2 py-2">
         <button
           type="button"
           onClick={() => setShowHistory(!showHistory)}
@@ -122,7 +122,7 @@ export function MobileCommandInput({ onSend, quickCommands = [] }: MobileCommand
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="输入指令..."
-            className="max-h-24 min-h-11 w-full resize-none rounded-md border border-white/10 bg-white/5 py-2.5 pl-3 pr-10 font-mono text-[15px] leading-5 text-white placeholder:text-white/25 focus:border-sky-400/60 focus:outline-none"
+            className="h-11 w-full resize-none rounded-md border border-white/10 bg-white/5 py-2.5 pl-3 pr-10 font-mono text-[15px] leading-5 text-white placeholder:text-white/25 focus:border-sky-400/60 focus:outline-none"
           />
           {input && (
             <button

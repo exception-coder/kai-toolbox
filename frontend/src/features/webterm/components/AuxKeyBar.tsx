@@ -24,6 +24,7 @@ interface AuxKey {
 const KEYS: AuxKey[] = [
   { label: 'Esc', data: '\x1b', title: 'Esc' },
   { label: 'Tab', data: '\t', title: 'Tab' },
+  { label: '⇧Tab', data: '\x1b[Z', title: 'Shift+Tab 反向补全 / 焦点上一项' },
   {
     label: <CornerDownLeft className="size-4" />,
     data: '\r',
@@ -48,6 +49,7 @@ const KEYS: AuxKey[] = [
   { label: '^L', data: '\f', title: 'Ctrl+L 清屏' },
   { label: 'Home', data: '\x1b[H', title: 'Home' },
   { label: 'End', data: '\x1b[F', title: 'End' },
+  { label: 'sh', data: 'sh', title: '输入 sh（按 Enter 启动子 shell）' },
 ]
 
 export function AuxKeyBar({ onSend }: AuxKeyBarProps) {
