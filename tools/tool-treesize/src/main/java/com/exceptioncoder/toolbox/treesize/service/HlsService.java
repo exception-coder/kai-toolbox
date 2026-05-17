@@ -22,6 +22,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -185,7 +186,7 @@ public class HlsService {
         TimedCountingOutputStream counting = null;
 
         try {
-            List<String> cmd = buildSegmentCommand(file, startSec, dur, videoCopy, audioCopy);
+            List<String> cmd = buildSegmentCommand(file, startSec, dur, videoCopy, audioCopy, info.videoCodec());
             process = registry.spawn(new ProcessBuilder(cmd).redirectErrorStream(false));
             spawnMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - t0);
             stderrDrain = startStderrDrain(process);
@@ -318,13 +319,14 @@ public class HlsService {
             PrewarmEntry existing = prewarmSlots.get(idx);
             if (existing != null && existing.key.equals(key)) continue; // already warming for this file
             spawnPrewarm(file, key, idx, startSec,
-                    Math.min((double) SEGMENT_SECONDS, duration - startSec), videoCopy, audioCopy);
+                    Math.min((double) SEGMENT_SECONDS, duration - startSec), videoCopy, audioCopy,
+                    info.videoCodec());
         }
     }
 
     private void spawnPrewarm(Path file, String key, int idx, double startSec, double dur,
-                              boolean videoCopy, boolean audioCopy) {
-        List<String> cmd = buildSegmentCommand(file, startSec, dur, videoCopy, audioCopy);
+                              boolean videoCopy, boolean audioCopy, String videoCodec) {
+        List<String> cmd = buildSegmentCommand(file, startSec, dur, videoCopy, audioCopy, videoCodec);
         Process process;
         try {
             process = registry.spawn(new ProcessBuilder(cmd).redirectErrorStream(false));
@@ -402,8 +404,37 @@ public class HlsService {
         }
     }
 
+    /**
+     * NVIDIA NVDEC 在 ffmpeg-cuda 上稳定支持的视频 codec 白名单。
+     * <p>其它 codec(特别是 .avi 容器里常见的 mpeg4/XviD/DivX、mjpeg、wmv* 等)传 {@code -hwaccel cuda}
+     * 会让 ffmpeg 在打开 decoder 时直接失败 exit 非 0,前端表现为视频「卡在缓冲」/无法播放。
+     * 这种文件改走纯软件解码(libavcodec),编码端仍走 h264_nvenc,只在「解码 → 编码」之间
+     * 多一次 GPU↔CPU memory 拷贝,性能损失远小于完全播不出。
+     */
+    private static final Set<String> NVDEC_SUPPORTED_CODECS = Set.of(
+            "h264", "hevc", "h265", "vp8", "vp9", "av1",
+            "mpeg2video", "mpeg2", "vc1"
+    );
+
+    /**
+     * QSV / AMF / VideoToolbox 这几个非 NVIDIA 硬解后端在不同 OS / 显卡 / 驱动组合下 codec 支持
+     * 差异极大,缺乏验证;只放过最稳的 h264/hevc。其它一律 fallback 到软件解码。
+     */
+    private static final Set<String> CONSERVATIVE_HW_CODECS = Set.of("h264", "hevc", "h265");
+
+    /** 当前 hwaccel 后端是否能解出这个 codec。videoCodec 为 null / 未识别时一律返回 false。 */
+    private static boolean canHwDecode(String hwaccel, String videoCodec) {
+        if (videoCodec == null || videoCodec.isBlank()) return false;
+        String c = videoCodec.toLowerCase(Locale.ROOT);
+        return switch (hwaccel) {
+            case "cuda", "nvenc" -> NVDEC_SUPPORTED_CODECS.contains(c);
+            case "qsv", "amf", "d3d11va", "videotoolbox" -> CONSERVATIVE_HW_CODECS.contains(c);
+            default -> false;
+        };
+    }
+
     private List<String> buildSegmentCommand(Path file, double startSec, double dur,
-                                             boolean videoCopy, boolean audioCopy) {
+                                             boolean videoCopy, boolean audioCopy, String videoCodec) {
         List<String> cmd = new ArrayList<>();
         cmd.add(props.getBinary());
         cmd.add("-loglevel"); cmd.add("warning");
@@ -415,12 +446,21 @@ public class HlsService {
         // -hwaccel must come BEFORE -i. Empty value = software decode/encode.
         // For NVIDIA we additionally pin -hwaccel_output_format cuda so decoded frames stay in VRAM
         // and feed h264_nvenc directly — no GPU↔CPU round-trip per frame.
-        if (!videoCopy && !hw.isEmpty()) {
+        //
+        // 解码端 hwaccel 仅在 codec 在 NVDEC/QSV/AMF 白名单内才开。.avi 里的 mpeg4(XviD/DivX)
+        // 类老 codec 不在白名单 → 这里不传 -hwaccel,fallback 走 libavcodec 软解;编码端
+        // videoEncoderFor(hw) 照常返回 h264_nvenc,所以编码仍走 GPU,只在解码 → 编码之间多
+        // 一次 host memory 拷贝。
+        boolean hwDecode = !videoCopy && !hw.isEmpty() && canHwDecode(hw, videoCodec);
+        if (hwDecode) {
             cmd.add("-hwaccel"); cmd.add(nvidia ? "cuda" : hw);
             if (nvidia) {
                 cmd.add("-hwaccel_output_format"); cmd.add("cuda");
                 cmd.add("-extra_hw_frames"); cmd.add("8");
             }
+        } else if (!videoCopy && !hw.isEmpty()) {
+            log.debug("hls hwaccel decode disabled for codec={} (not in {} whitelist), encoding via {}",
+                    videoCodec, hw, videoEncoderFor(hw));
         }
         // -ss before -i is the "fast seek" form: ffmpeg seeks via container index instead of decoding
         // up to the offset, which is what makes per-segment transcode latency tolerable.
