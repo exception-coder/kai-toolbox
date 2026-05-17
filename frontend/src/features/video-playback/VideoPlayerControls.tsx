@@ -549,6 +549,7 @@ export function VideoPlayerControls({
           <div className="flex items-center gap-0.5 md:gap-1.5">
             {hasPrev && (
               <CtrlBtn
+                className={cn(!isFullscreen && 'hidden md:inline-flex')}
                 onClick={() => {
                   onPrev?.()
                   resetIdle()
@@ -560,6 +561,7 @@ export function VideoPlayerControls({
             )}
             {hasNext && (
               <CtrlBtn
+                className={cn(!isFullscreen && 'hidden md:inline-flex')}
                 onClick={() => {
                   onNext?.()
                   resetIdle()

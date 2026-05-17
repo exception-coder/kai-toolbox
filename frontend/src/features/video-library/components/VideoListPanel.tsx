@@ -229,41 +229,44 @@ export function VideoListPanel({
               仅收藏
             </button>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-sm font-semibold">
-            视频{' '}
-            <span className="text-xs font-normal text-[var(--color-muted-foreground)]">
-              ({items.length}/{total})
-            </span>
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0 truncate text-sm font-semibold">
+              视频{' '}
+              <span className="text-xs font-normal text-[var(--color-muted-foreground)]">
+                ({items.length}/{total})
+              </span>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {onBulkDelete && (
+                <button
+                  type="button"
+                  onClick={() => setMultiSelectMode(true)}
+                  className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-2 py-1.5 text-xs hover:bg-[var(--color-accent)]"
+                  title="进入多选模式，批量删除"
+                >
+                  <CheckSquare className="h-3.5 w-3.5" />
+                  多选
+                </button>
+              )}
+              {onCleanJunk && (
+                <button
+                  type="button"
+                  onClick={onCleanJunk}
+                  disabled={cleaningJunk}
+                  className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-2 py-1.5 text-xs hover:bg-[var(--color-accent)] disabled:opacity-50"
+                  title="批量删除 ._xxx 缓存文件（< 10 KB）"
+                >
+                  {cleaningJunk ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  清理 ._ 文件
+                </button>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            {onBulkDelete && (
-              <button
-                type="button"
-                onClick={() => setMultiSelectMode(true)}
-                className="inline-flex items-center gap-1 rounded-md border px-2 py-1.5 text-xs hover:bg-[var(--color-accent)]"
-                title="进入多选模式，批量删除"
-              >
-                <CheckSquare className="h-3.5 w-3.5" />
-                多选
-              </button>
-            )}
-            {onCleanJunk && (
-              <button
-                type="button"
-                onClick={onCleanJunk}
-                disabled={cleaningJunk}
-                className="inline-flex items-center gap-1 rounded-md border px-2 py-1.5 text-xs hover:bg-[var(--color-accent)] disabled:opacity-50"
-                title="批量删除 ._xxx 缓存文件（< 10 KB）"
-              >
-                {cleaningJunk ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                清理 ._ 文件
-              </button>
-            )}
+          <div className="grid grid-cols-2 gap-2">
             <select
               value={sizeBucket}
               onChange={e => onSizeBucketChange(e.target.value as VideoSizeBucket)}
-              className="rounded-md border bg-[var(--color-background)] px-2 py-1.5 text-xs"
+              className="w-full min-w-0 rounded-md border bg-[var(--color-background)] px-2 py-1.5 text-xs"
               title="按文件大小过滤"
             >
               {VIDEO_SIZE_BUCKETS.map(opt => (
@@ -276,13 +279,12 @@ export function VideoListPanel({
                 const [s, o] = e.target.value.split(':') as [VideoSortBy, VideoSortOrder]
                 onSortChange(s, o)
               }}
-              className="rounded-md border bg-[var(--color-background)] px-2 py-1.5 text-xs"
+              className="w-full min-w-0 rounded-md border bg-[var(--color-background)] px-2 py-1.5 text-xs"
             >
               {SORT_OPTIONS.map(opt => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
-          </div>
           </div>
         </div>
       )}
