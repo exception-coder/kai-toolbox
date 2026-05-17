@@ -19,6 +19,7 @@ import com.exceptioncoder.toolbox.treesize.api.dto.SshHostView;
 import com.exceptioncoder.toolbox.treesize.api.dto.SubtitleJobView;
 import com.exceptioncoder.toolbox.treesize.api.dto.SymlinkRequest;
 import com.exceptioncoder.toolbox.treesize.api.dto.SymlinkResultView;
+import com.exceptioncoder.toolbox.treesize.api.dto.TaskView;
 import com.exceptioncoder.toolbox.treesize.api.dto.TestSshHostResultView;
 import com.exceptioncoder.toolbox.treesize.api.dto.VideoConfigView;
 import com.exceptioncoder.toolbox.treesize.api.dto.VideoLibraryItemView;
@@ -31,6 +32,7 @@ import com.exceptioncoder.toolbox.treesize.domain.ScanSourceType;
 import com.exceptioncoder.toolbox.treesize.domain.VideoSizeBucket;
 import com.exceptioncoder.toolbox.treesize.repository.NodeRepository;
 import com.exceptioncoder.toolbox.treesize.repository.ScanRepository;
+import com.exceptioncoder.toolbox.treesize.repository.SubtitleJobRepository;
 import com.exceptioncoder.toolbox.treesize.service.ActivePlaybackTracker;
 import com.exceptioncoder.toolbox.treesize.service.FileDeleteService;
 import com.exceptioncoder.toolbox.treesize.service.HlsService;
@@ -42,6 +44,8 @@ import com.exceptioncoder.toolbox.treesize.service.CleanupAdvisor;
 import com.exceptioncoder.toolbox.treesize.service.SshHostService;
 import com.exceptioncoder.toolbox.treesize.service.SubtitleService;
 import com.exceptioncoder.toolbox.treesize.service.SymlinkService;
+import com.exceptioncoder.toolbox.treesize.service.TaskAssembler;
+import com.exceptioncoder.toolbox.treesize.service.TaskBroadcaster;
 import com.exceptioncoder.toolbox.treesize.service.ThumbnailWarmer;
 import jakarta.validation.Valid;
 import org.springframework.core.io.FileSystemResource;
@@ -56,6 +60,8 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 @RestController
@@ -81,6 +87,9 @@ public class TreeSizeController {
     private final SymlinkService symlink;
     private final PlaybackStatsCollector playbackStats;
     private final FfmpegProcessRegistry ffmpegRegistry;
+    private final SubtitleJobRepository subtitleJobs;
+    private final TaskBroadcaster taskBroadcaster;
+    private final TaskAssembler taskAssembler;
 
     public TreeSizeController(ScanService scanService,
                               ScanRepository scans,
@@ -100,7 +109,10 @@ public class TreeSizeController {
                               CleanupAdvisor cleanupAdvisor,
                               SymlinkService symlink,
                               PlaybackStatsCollector playbackStats,
-                              FfmpegProcessRegistry ffmpegRegistry) {
+                              FfmpegProcessRegistry ffmpegRegistry,
+                              SubtitleJobRepository subtitleJobs,
+                              TaskBroadcaster taskBroadcaster,
+                              TaskAssembler taskAssembler) {
         this.scanService = scanService;
         this.scans = scans;
         this.nodes = nodes;
@@ -120,6 +132,9 @@ public class TreeSizeController {
         this.symlink = symlink;
         this.playbackStats = playbackStats;
         this.ffmpegRegistry = ffmpegRegistry;
+        this.subtitleJobs = subtitleJobs;
+        this.taskBroadcaster = taskBroadcaster;
+        this.taskAssembler = taskAssembler;
     }
 
     // ---------- existing endpoints (unchanged) ---------------------------
@@ -160,8 +175,7 @@ public class TreeSizeController {
 
     @DeleteMapping("/scans/{id}")
     public ResponseEntity<Void> delete(@PathVariable String id) {
-        scanService.cancel(id);
-        scans.deleteById(id);
+        scanService.deleteAndStop(id);
         return ResponseEntity.noContent().build();
     }
 
@@ -552,5 +566,44 @@ public class TreeSizeController {
             return ScanSourceType.LOCAL_WINDOWS;
         }
         return ScanSourceType.valueOf(sourceType);
+    }
+
+    // ---------- task center endpoints ------------------------------------
+
+    /**
+     * 任务中心首屏列表：合并字幕作业 + 目录扫描两类异步任务,按 createdAt 倒序返回。
+     * activeOnly=true 时只返回非终态;false 时返回最近 limit 条(含历史终态)。
+     * 默认 limit 50,clamp 到 [1, 200]。
+     */
+    @GetMapping("/tasks")
+    public List<TaskView> listTasks(@RequestParam(defaultValue = "false") boolean activeOnly,
+                                    @RequestParam(defaultValue = "50") int limit) {
+        int safeLimit = Math.max(1, Math.min(limit, 200));
+        List<TaskView> result = new ArrayList<>();
+        if (activeOnly) {
+            subtitleJobs.findActive().forEach(j -> result.add(taskAssembler.from(j)));
+            scans.findAll().stream()
+                    .filter(r -> r.getStatus() == com.exceptioncoder.toolbox.treesize.domain.ScanStatus.RUNNING)
+                    .forEach(r -> result.add(taskAssembler.from(r)));
+        } else {
+            subtitleJobs.findRecent(safeLimit).forEach(j -> result.add(taskAssembler.from(j)));
+            // ScanRepository.findAll 已经按 started_at DESC 限 100 条;
+            // 这里再用合并后的 safeLimit 截断一次。
+            scans.findAll().forEach(r -> result.add(taskAssembler.from(r)));
+        }
+        result.sort(Comparator.comparingLong(TaskView::createdAt).reversed());
+        if (result.size() > safeLimit) {
+            return result.subList(0, safeLimit);
+        }
+        return result;
+    }
+
+    /**
+     * 任务中心实时 SSE 频道。所有订阅者收到同一份「task」事件;
+     * SubtitleService / ScanService 在状态变化时向 {@link TaskBroadcaster} fan-out。
+     */
+    @GetMapping(value = "/tasks/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter taskEvents() {
+        return taskBroadcaster.register();
     }
 }

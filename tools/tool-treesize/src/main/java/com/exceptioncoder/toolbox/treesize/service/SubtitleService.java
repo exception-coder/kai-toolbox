@@ -58,8 +58,11 @@ public class SubtitleService {
     private final AudioExtractor audio;
     private final AudioContentProbe audioProbe;
     private final WhisperRunner whisper;
+    private final WhisperAsrClient whisperAsr;
     private final DeepLXTranslator translator;
     private final SseEmitterRegistry sse;
+    private final TaskBroadcaster taskBroadcaster;
+    private final TaskAssembler taskAssembler;
     private final WhisperProperties props;
     private final String dataDir;
 
@@ -70,16 +73,22 @@ public class SubtitleService {
                            AudioExtractor audio,
                            AudioContentProbe audioProbe,
                            WhisperRunner whisper,
+                           WhisperAsrClient whisperAsr,
                            DeepLXTranslator translator,
                            SseEmitterRegistry sse,
+                           TaskBroadcaster taskBroadcaster,
+                           TaskAssembler taskAssembler,
                            WhisperProperties props,
                            @Value("${toolbox.data-dir}") String dataDir) {
         this.jobs = jobs;
         this.audio = audio;
         this.audioProbe = audioProbe;
         this.whisper = whisper;
+        this.whisperAsr = whisperAsr;
         this.translator = translator;
         this.sse = sse;
+        this.taskBroadcaster = taskBroadcaster;
+        this.taskAssembler = taskAssembler;
         this.props = props;
         this.dataDir = dataDir;
         this.executor = Executors.newFixedThreadPool(
@@ -216,6 +225,8 @@ public class SubtitleService {
                 .createdAt(System.currentTimeMillis())
                 .build();
         jobs.insert(job);
+        // 任务中心：作业刚入队就广播一次,前端列表能立即看到 PENDING 行,无需等第一个 worker 事件。
+        broadcastTask(job);
 
         AtomicBoolean cancelled = new AtomicBoolean(false);
         cancelFlags.put(job.getId(), cancelled);
@@ -251,14 +262,66 @@ public class SubtitleService {
         if (!translator.isEnabled() || !translator.shouldTranslate(lang)) return false;
         try {
             Path vtt = Path.of(job.getVttPath());
-            Path translated = translator.translateVtt(vtt, lang);
-            if (translated != null) {
-                jobs.updateTranslatedVttPath(jobId, translated.toAbsolutePath().toString());
-                sse.publish(jobId, "translated", Map.of("hasTranslatedVtt", true));
-            }
-            return translated != null;
+            boolean ok = runTranslationPhase(job, vtt, lang);
+            // 回到 COMPLETED(translateExisting 入口本来就是 COMPLETED → TRANSLATING → COMPLETED 一圈)
+            job.setStatus(SubtitleStatus.COMPLETED);
+            job.setProgress(1.0);
+            jobs.updateStatus(jobId, SubtitleStatus.COMPLETED, null, null, null);
+            jobs.updateProgress(jobId, 1.0);
+            publish(jobId, "completed", statusEvent(job));
+            broadcastTask(job);
+            return ok;
         } catch (Exception e) {
             log.warn("translateExisting failed for job {}: {}", jobId, e.getMessage());
+            // 失败也要回 COMPLETED,前端不能卡在 TRANSLATING
+            job.setStatus(SubtitleStatus.COMPLETED);
+            job.setProgress(1.0);
+            try {
+                jobs.updateStatus(jobId, SubtitleStatus.COMPLETED, null, null, null);
+                jobs.updateProgress(jobId, 1.0);
+                publish(jobId, "completed", statusEvent(job));
+                broadcastTask(job);
+            } catch (Exception ignored) { /* publish 失败无害,SSE 客户端会通过下次轮询拿到状态 */ }
+            return false;
+        }
+    }
+
+    /**
+     * 跑 DeepLX/Ollama 翻译,把 job 状态切到 TRANSLATING 并通过 SSE 持续发 progress。
+     * 调用方负责在前后切 COMPLETED 状态;本方法只管 TRANSLATING 这段生命周期。
+     *
+     * @return true 表示翻译产出了 .zh.vtt 文件;false 表示翻译被跳过或失败(原字幕仍可用)
+     */
+    private boolean runTranslationPhase(SubtitleJob job, Path vtt, String sourceLang) {
+        String jobId = job.getId();
+        job.setStatus(SubtitleStatus.TRANSLATING);
+        job.setProgress(0.0);
+        jobs.updateStatus(jobId, SubtitleStatus.TRANSLATING, null, null, null);
+        jobs.updateProgress(jobId, 0.0);
+        publish(jobId, "status", statusEvent(job));
+        broadcastTask(job);
+
+        try {
+            Path translatedVtt = translator.translateVtt(vtt, sourceLang, p -> {
+                // p 是 0..1,这里 round 后再除回去,避免 progress 字段在 SSE 帧间随机抖动
+                int pct = (int) Math.round(p * 100);
+                pct = Math.max(0, Math.min(100, pct));
+                double progress = pct / 100.0;
+                job.setProgress(progress);
+                jobs.updateProgress(jobId, progress);
+                publish(jobId, "progress", Map.of("progress", progress, "percent", pct));
+                broadcastTask(job);
+            });
+            if (translatedVtt != null) {
+                job.setTranslatedVttPath(translatedVtt.toAbsolutePath().toString());
+                jobs.updateTranslatedVttPath(jobId, job.getTranslatedVttPath());
+                publish(jobId, "translated", Map.of("hasTranslatedVtt", true));
+                return true;
+            }
+            return false;
+        } catch (Exception e) {
+            // 翻译失败是非致命的:原字幕已经在 vttPath,前端继续可用。这里 warn 不 throw。
+            log.warn("DeepLX translation failed for job {}: {}", jobId, e.getMessage());
             return false;
         }
     }
@@ -284,6 +347,14 @@ public class SubtitleService {
         return true;
     }
 
+    /** WhisperRunner.run 和 WhisperAsrClient.run 的共同函数签名，供 method reference 用。 */
+    @FunctionalInterface
+    private interface WhisperJobRunner {
+        Path run(Path wav, Path outputPrefix, String language, String initialPrompt,
+                 WhisperRunner.ProgressListener listener, AtomicBoolean cancelled)
+                throws IOException, InterruptedException;
+    }
+
     private void runJob(SubtitleJob job, Path video, String language, String initialPrompt, AtomicBoolean cancelled) {
         // whisper 必须跑在 ASCII 安全的工作目录（Windows + CJK 路径时是 %PROGRAMDATA% 兜底，
         // 见 whisperWorkDir() Javadoc）。跑完 Java 端再 move 到最终 outputDir。
@@ -305,6 +376,7 @@ public class SubtitleService {
         job.setStartedAt(startedAt);
         jobs.updateStatus(job.getId(), job.getStatus(), startedAt, null, null);
         publish(job.getId(), "status", statusEvent(job));
+        broadcastTask(job);
 
         // 长视频全文件分析可能要几十秒到几分钟。把 ffmpeg 解析出来的百分比转成 0.0~1.0 写
         // 到 job.progress，让前端进度条在这阶段也能"动起来"（之前是不确定 spinner）。
@@ -313,6 +385,7 @@ public class SubtitleService {
             job.setProgress(p);
             jobs.updateProgress(job.getId(), p);
             publish(job.getId(), "progress", Map.of("progress", p, "percent", percent));
+            broadcastTask(job);
         });
         publish(job.getId(), "analysis", Map.of(
                 "verdict", analysis.verdict().name(),
@@ -336,6 +409,7 @@ public class SubtitleService {
             job.setErrorMsg(analysis.summary());
             jobs.updateStatus(job.getId(), job.getStatus(), null, finishedAt, analysis.summary());
             publish(job.getId(), "error", Map.of("message", analysis.summary()));
+            broadcastTask(job);
             cancelFlags.remove(job.getId());
             sse.complete(job.getId());
             log.info("subtitle job {} 提前失败：{}", job.getId(), analysis.summary());
@@ -349,6 +423,7 @@ public class SubtitleService {
         job.setStatus(SubtitleStatus.EXTRACTING_AUDIO);
         jobs.updateStatus(job.getId(), job.getStatus(), null, null, null);
         publish(job.getId(), "status", statusEvent(job));
+        broadcastTask(job);
 
         try {
             audio.extract(video, tmpWav);
@@ -359,14 +434,21 @@ public class SubtitleService {
             job.setStatus(SubtitleStatus.TRANSCRIBING);
             jobs.updateStatus(job.getId(), job.getStatus(), null, null, null);
             publish(job.getId(), "status", statusEvent(job));
+            broadcastTask(job);
 
-            Path vttInWorkDir = whisper.run(tmpWav, outputPrefix, language, initialPrompt, new WhisperRunner.ProgressListener() {
+            // 根据 mode 选转写后端：CLI 走 whisper.cpp 子进程；asr-service 走本地 HTTP 服务。
+            // 两个实现的方法签名完全对齐（同样的 ProgressListener / cancelled 语义），切换无感知。
+            WhisperJobRunner runner = props.isAsrServiceMode()
+                    ? whisperAsr::run
+                    : whisper::run;
+            Path vttInWorkDir = runner.run(tmpWav, outputPrefix, language, initialPrompt, new WhisperRunner.ProgressListener() {
                 @Override
                 public void onProgress(int percent) {
                     double p = percent / 100.0;
                     job.setProgress(p);
                     jobs.updateProgress(job.getId(), p);
                     publish(job.getId(), "progress", Map.of("progress", p, "percent", percent));
+                    broadcastTask(job);
                 }
 
                 @Override
@@ -374,6 +456,7 @@ public class SubtitleService {
                     job.setSourceLanguage(iso);
                     jobs.updateLanguage(job.getId(), iso);
                     publish(job.getId(), "language", Map.of("language", iso));
+                    broadcastTask(job);
                 }
             }, cancelled);
 
@@ -389,31 +472,31 @@ public class SubtitleService {
                 vtt = vttInWorkDir;
             }
 
+            // 转写完成:hasVtt 信息先落 DB(vttPath 在 statusEvent payload 里下发,前端拿到就能挂
+            // <track>),但 status 暂不切到 COMPLETED,先看是否需要翻译。
+            //  - 需要翻译 → 进 TRANSLATING 阶段,翻译完成才切 COMPLETED
+            //  - 不需要翻译 → 直接 COMPLETED
+            // 这样 SSE 不会在翻译期被前端断开(COMPLETED 不在 ACTIVE_STATUSES 里)。
+            job.setProgress(1.0);
+            job.setVttPath(vtt.toAbsolutePath().toString());
+            jobs.updateProgress(job.getId(), 1.0);
+            jobs.updateVttPath(job.getId(), job.getVttPath());
+
+            String detectedLang = job.getSourceLanguage();
+            boolean needTranslate = translator.isEnabled() && translator.shouldTranslate(detectedLang);
+
+            if (needTranslate) {
+                runTranslationPhase(job, vtt, detectedLang);
+            }
+
             long finishedAt = System.currentTimeMillis();
             job.setStatus(SubtitleStatus.COMPLETED);
             job.setProgress(1.0);
-            job.setVttPath(vtt.toAbsolutePath().toString());
             job.setFinishedAt(finishedAt);
             jobs.updateProgress(job.getId(), 1.0);
-            jobs.updateVttPath(job.getId(), job.getVttPath());
             jobs.updateStatus(job.getId(), job.getStatus(), null, finishedAt, null);
             publish(job.getId(), "completed", statusEvent(job));
-
-            // Server-side translation via DeepLX — runs after COMPLETED so SSE is already sent.
-            // Failures are non-fatal: original VTT still works; clients fall back to browser API.
-            String detectedLang = job.getSourceLanguage();
-            if (translator.isEnabled() && translator.shouldTranslate(detectedLang)) {
-                try {
-                    Path translatedVtt = translator.translateVtt(vtt, detectedLang);
-                    if (translatedVtt != null) {
-                        job.setTranslatedVttPath(translatedVtt.toAbsolutePath().toString());
-                        jobs.updateTranslatedVttPath(job.getId(), job.getTranslatedVttPath());
-                        publish(job.getId(), "translated", Map.of("hasTranslatedVtt", true));
-                    }
-                } catch (Exception e) {
-                    log.warn("DeepLX translation failed for job {}: {}", job.getId(), e.getMessage());
-                }
-            }
+            broadcastTask(job);
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
             long finishedAt = System.currentTimeMillis();
@@ -421,6 +504,7 @@ public class SubtitleService {
             job.setFinishedAt(finishedAt);
             jobs.updateStatus(job.getId(), job.getStatus(), null, finishedAt, null);
             publish(job.getId(), "cancelled", statusEvent(job));
+            broadcastTask(job);
         } catch (Exception e) {
             log.error("subtitle job {} failed for {}", job.getId(), video, e);
             String msg = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
@@ -430,6 +514,7 @@ public class SubtitleService {
             job.setErrorMsg(msg);
             jobs.updateStatus(job.getId(), job.getStatus(), null, finishedAt, msg);
             publish(job.getId(), "error", Map.of("message", msg));
+            broadcastTask(job);
         } finally {
             try {
                 Files.deleteIfExists(tmpWav);
@@ -443,6 +528,15 @@ public class SubtitleService {
 
     private void publish(String jobId, String eventName, Object payload) {
         sse.publish(jobId, eventName, payload);
+    }
+
+    /**
+     * 任务中心专用广播：把当前 job 当前状态以 TaskView 形式发到全局多订阅频道。
+     * 字幕作业的状态变更点都顺手调一次,前端任务中心列表就能实时刷新。
+     * 与每作业 SSE 频道并行存在,不互相替代。
+     */
+    private void broadcastTask(SubtitleJob job) {
+        taskBroadcaster.broadcast(taskAssembler.from(job));
     }
 
     private static Map<String, Object> statusEvent(SubtitleJob j) {

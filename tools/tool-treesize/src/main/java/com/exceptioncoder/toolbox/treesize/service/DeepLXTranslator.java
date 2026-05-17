@@ -22,6 +22,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.DoubleConsumer;
 import java.util.stream.Collectors;
 
 /**
@@ -72,11 +74,21 @@ public class DeepLXTranslator {
         return true;
     }
 
+    /** 无进度回调版本,兼容旧调用方;新调用方应传 progressListener 让 SSE 能下发翻译进度。 */
+    public Path translateVtt(Path sourceVtt, String whisperLang) throws IOException, InterruptedException {
+        return translateVtt(sourceVtt, whisperLang, null);
+    }
+
     /**
      * Translate {@code sourceVtt} and write {@code {hash}.zh.vtt} in the same directory.
      * Returns the path of the translated file, or {@code null} if there is nothing to translate.
+     *
+     * @param progressListener 每条 cue 翻完后回调一次,参数为 {@code completed/total} (0..1);
+     *                         {@code null} 表示不关心进度。回调在 CompletableFuture 工作线程
+     *                         上触发,实现里短逻辑即可,长操作请自己 dispatch。
      */
-    public Path translateVtt(Path sourceVtt, String whisperLang) throws IOException, InterruptedException {
+    public Path translateVtt(Path sourceVtt, String whisperLang, DoubleConsumer progressListener)
+            throws IOException, InterruptedException {
         String sourceLangUpper = whisperLang.toUpperCase().split("[-_]")[0]; // "ja" → "JA"
 
         List<VttCue> cues = parseCues(sourceVtt);
@@ -89,7 +101,7 @@ public class DeepLXTranslator {
                 cues.size(), sourceLangUpper, props.getTargetLang(), sourceVtt.getFileName());
 
         List<String> texts = cues.stream().map(VttCue::cleanText).collect(Collectors.toList());
-        List<String> translated = translateAll(texts, sourceLangUpper);
+        List<String> translated = translateAll(texts, sourceLangUpper, progressListener);
 
         String baseName = sourceVtt.getFileName().toString();
         // "{hash}.vtt" → "{hash}.zh.vtt"
@@ -167,9 +179,15 @@ public class DeepLXTranslator {
     // Translation
     // -------------------------------------------------------------------------
 
-    private List<String> translateAll(List<String> texts, String sourceLang) throws InterruptedException {
+    private List<String> translateAll(List<String> texts, String sourceLang, DoubleConsumer progressListener)
+            throws InterruptedException {
         Semaphore sem = new Semaphore(props.getMaxConcurrent());
         List<CompletableFuture<String>> futures = new ArrayList<>(texts.size());
+        int total = texts.size();
+        // 每条 cue 翻完(成功 / 失败均算)就 incrementAndGet → progressListener.accept(done/total)。
+        // CompletableFuture 的工作线程并发触发,AtomicInteger 保证计数原子;listener 自己负责
+        // 重入安全(下游 SubtitleService 用 SSE publish + DB update,二者都是线程安全的)。
+        AtomicInteger done = new AtomicInteger(0);
 
         for (String text : texts) {
             sem.acquire();
@@ -182,6 +200,14 @@ public class DeepLXTranslator {
                     return captured.replaceAll("<[^>]*>", "").trim();
                 } finally {
                     sem.release();
+                    int d = done.incrementAndGet();
+                    if (progressListener != null) {
+                        try {
+                            progressListener.accept((double) d / total);
+                        } catch (Exception cb) {
+                            log.warn("progressListener threw, ignoring: {}", cb.toString());
+                        }
+                    }
                 }
             });
             futures.add(f);

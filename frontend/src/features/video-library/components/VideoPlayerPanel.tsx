@@ -80,10 +80,13 @@ export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext
     setSubtitleJob(j)
   }, [])
 
-  const subtitleUrl = subtitleJob?.status === 'COMPLETED' && subtitleJob.hasVtt
+  // hasVtt 在转写完成后立刻为 true,即便 status 还在 TRANSLATING 阶段 —— 让玩家不必等翻译跑完
+  // 就能挂上原字幕 <track>。translatedUrl 严格等到 hasTranslatedVtt = true 才出现。
+  const subtitleReady = subtitleJob?.status === 'COMPLETED' || subtitleJob?.status === 'TRANSLATING'
+  const subtitleUrl = subtitleReady && subtitleJob.hasVtt
     ? subtitleVttUrl(subtitleJob.id)
     : undefined
-  const subtitleTranslatedUrl = subtitleJob?.status === 'COMPLETED' && subtitleJob.hasTranslatedVtt
+  const subtitleTranslatedUrl = subtitleReady && subtitleJob.hasTranslatedVtt
     ? subtitleTranslatedVttUrl(subtitleJob.id)
     : undefined
   const subtitleLanguage = subtitleJob?.sourceLanguage ?? undefined

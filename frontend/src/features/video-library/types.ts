@@ -53,6 +53,8 @@ export type SubtitleStatus =
   | 'ANALYZING_AUDIO'
   | 'EXTRACTING_AUDIO'
   | 'TRANSCRIBING'
+  /** 转写已完毕(hasVtt=true,原字幕可用),正在跑 DeepLX/Ollama 翻译。UI 只显示翻译进度。 */
+  | 'TRANSLATING'
   | 'COMPLETED'
   | 'FAILED'
   | 'CANCELLED'

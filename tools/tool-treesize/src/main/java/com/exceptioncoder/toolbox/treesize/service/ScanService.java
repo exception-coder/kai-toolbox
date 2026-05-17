@@ -23,6 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Service
 public class ScanService {
@@ -36,24 +37,47 @@ public class ScanService {
     private final NodeRepository nodes;
     private final SseEmitterRegistry sse;
     private final SshHostService sshHosts;
+    private final TaskBroadcaster taskBroadcaster;
+    private final TaskAssembler taskAssembler;
 
     private final ExecutorService executor = Executors.newThreadPerTaskExecutor(
             Thread.ofVirtual().name("treesize-scan-", 0).factory()
     );
     private final ConcurrentHashMap<String, AtomicBoolean> cancelFlags = new ConcurrentHashMap<>();
 
+    /**
+     * 删除扫描记录的串行化锁：多次连击删除时在 Java 层排队，避免在 SQLite 层
+     * 用 busy_timeout 轮询抢锁。配合 ScanRepository.deleteById 的 @Transactional
+     * 一并把写锁竞争压缩到最小。
+     */
+    private final ReentrantLock deletionLock = new ReentrantLock();
+
     public ScanService(ScanEngine engine,
                        RemoteScanEngine remoteEngine,
                        ScanRepository scans,
                        NodeRepository nodes,
                        SseEmitterRegistry sse,
-                       SshHostService sshHosts) {
+                       SshHostService sshHosts,
+                       TaskBroadcaster taskBroadcaster,
+                       TaskAssembler taskAssembler) {
         this.engine = engine;
         this.remoteEngine = remoteEngine;
         this.scans = scans;
         this.nodes = nodes;
         this.sse = sse;
         this.sshHosts = sshHosts;
+        this.taskBroadcaster = taskBroadcaster;
+        this.taskAssembler = taskAssembler;
+    }
+
+    /** 任务中心专用广播：以 ScanRecord 当前状态向全局多订阅频道推一份 TaskView。 */
+    private void broadcastTask(ScanRecord record) {
+        taskBroadcaster.broadcast(taskAssembler.from(record));
+    }
+
+    /** 取最新的 ScanRecord 再广播（多线程改完字段后 DB 才是最权威的）。 */
+    private void broadcastTaskById(String scanId) {
+        scans.findById(scanId).ifPresent(this::broadcastTask);
     }
 
     public ScanRecord startScan(String rootPath) {
@@ -86,6 +110,8 @@ public class ScanService {
                 .startedAt(System.currentTimeMillis())
                 .build();
         scans.insert(record);
+        // 任务中心：扫描刚入库就广播一行 RUNNING,前端列表立刻可见。
+        broadcastTask(record);
 
         AtomicBoolean cancelled = new AtomicBoolean(false);
         cancelFlags.put(id, cancelled);
@@ -110,6 +136,7 @@ public class ScanService {
                 .startedAt(System.currentTimeMillis())
                 .build();
         scans.insert(record);
+        broadcastTask(record);
 
         AtomicBoolean cancelled = new AtomicBoolean(false);
         cancelFlags.put(id, cancelled);
@@ -121,6 +148,22 @@ public class ScanService {
     public void cancel(String id) {
         AtomicBoolean flag = cancelFlags.get(id);
         if (flag != null) flag.set(true);
+    }
+
+    /**
+     * 删除扫描历史的统一入口：先取消（如果在跑），再在 JVM 单一互斥下顺序提交
+     * SQLite 删除事务。两次并发请求会在 deletionLock 上排队而不是在 SQLite
+     * busy_timeout 上轮询，配合 ScanRepository.deleteById 的事务合并把写锁
+     * 抢占次数压到每次 1 次。
+     */
+    public void deleteAndStop(String id) {
+        cancel(id);
+        deletionLock.lock();
+        try {
+            scans.deleteById(id);
+        } finally {
+            deletionLock.unlock();
+        }
     }
 
     private void runScan(String id, Path root, AtomicBoolean cancelled) {
@@ -153,15 +196,18 @@ public class ScanService {
                     "totalDirs", totals.dirs(),
                     "totalSize", totals.size()
             ));
+            broadcastTaskById(id);
         } catch (CancellationException ce) {
             flushSilently(buffer);
             scans.updateStatus(id, ScanStatus.CANCELLED, System.currentTimeMillis(), null);
             sse.publish(id, "cancelled", java.util.Map.of("scanId", id));
+            broadcastTaskById(id);
         } catch (Exception e) {
             log.error("scan {} failed", id, e);
             flushSilently(buffer);
             scans.updateStatus(id, ScanStatus.FAILED, System.currentTimeMillis(), e.getMessage());
             sse.publish(id, "error", java.util.Map.of("message", e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
+            broadcastTaskById(id);
         } finally {
             cancelFlags.remove(id);
             sse.complete(id);
@@ -199,15 +245,18 @@ public class ScanService {
                     "totalDirs", totals.dirs(),
                     "totalSize", totals.size()
             ));
+            broadcastTaskById(id);
         } catch (CancellationException ce) {
             flushSilently(buffer);
             scans.updateStatus(id, ScanStatus.CANCELLED, System.currentTimeMillis(), null);
             sse.publish(id, "cancelled", java.util.Map.of("scanId", id));
+            broadcastTaskById(id);
         } catch (Exception e) {
             log.error("ssh scan {} failed for {}", id, host.label(), e);
             flushSilently(buffer);
             scans.updateStatus(id, ScanStatus.FAILED, System.currentTimeMillis(), e.getMessage());
             sse.publish(id, "error", java.util.Map.of("message", e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
+            broadcastTaskById(id);
         } finally {
             cancelFlags.remove(id);
             sse.complete(id);

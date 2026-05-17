@@ -6,6 +6,7 @@ import com.exceptioncoder.toolbox.treesize.domain.ScanStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -84,6 +85,12 @@ public class ScanRepository {
                 """, ROW);
     }
 
+    /**
+     * 把 4 张表的清理包成单一事务：复用同一连接、共享一次 SQLite 写锁，
+     * 把写锁的「抢→放」次数从 4 次降到 1 次，显著降低与扫描 batchInsert
+     * 并发时的 SQLITE_BUSY 概率。
+     */
+    @Transactional
     public void deleteById(String id) {
         jdbc.update("DELETE FROM treesize_node_meta WHERE scan_id = ?", id);
         jdbc.update("DELETE FROM treesize_node WHERE scan_id = ?", id);

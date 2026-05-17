@@ -6,6 +6,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -87,5 +88,21 @@ public class SubtitleJobRepository {
     /** Hard delete — used when the user explicitly removes a subtitle so they can regenerate. */
     public void deleteById(String id) {
         jdbc.update("DELETE FROM subtitle_job WHERE id = ?", id);
+    }
+
+    /** 任务中心首屏回填：按创建时间倒序的最近 N 条（含终态）。 */
+    public List<SubtitleJob> findRecent(int limit) {
+        return jdbc.query(
+                "SELECT * FROM subtitle_job ORDER BY created_at DESC LIMIT ?",
+                ROW, limit);
+    }
+
+    /** 任务中心筛选「进行中」：状态在非终态白名单内。 */
+    public List<SubtitleJob> findActive() {
+        return jdbc.query(
+                "SELECT * FROM subtitle_job " +
+                "WHERE status IN ('PENDING','ANALYZING_AUDIO','EXTRACTING_AUDIO','TRANSCRIBING','TRANSLATING') " +
+                "ORDER BY created_at DESC",
+                ROW);
     }
 }
