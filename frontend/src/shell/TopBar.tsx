@@ -4,6 +4,7 @@ import { FlaskConical, Menu, Moon, PanelLeftClose, PanelLeftOpen, Sun } from 'lu
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useMockMode } from './useMockMode'
+import { GlobalVideoSearch } from './GlobalVideoSearch'
 
 interface TopBarProps {
   onToggleSidebar: () => void
@@ -44,6 +45,7 @@ export function TopBar({ onToggleSidebar, onOpenMobileMenu, collapsed }: TopBarP
           </span>
         )}
       </div>
+      <GlobalVideoSearch />
       <div className="flex items-center gap-2">
         <Button
           variant={mock ? 'secondary' : 'ghost'}

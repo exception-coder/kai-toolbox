@@ -14,6 +14,8 @@ import org.springframework.stereotype.Repository;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 
 @Repository
@@ -218,7 +220,7 @@ public class NodeRepository {
         appendExtensionFilter(sql, args, normalisedExts);
         appendExcludedPathFilters(sql, args);
         appendSizeRangeFilter(sql, args, sizeMinInclusive, sizeMaxExclusive);
-        appendNameQueryFilter(sql, args, nameQuery);
+        appendKeywordFilter(sql, args, nameQuery);
         appendFavoritesOnlyFilter(sql, favoritesOnly);
         sql.append(" ORDER BY ");
         sql.append(nameOrSizeOrderExpr(sortBy));
@@ -253,7 +255,7 @@ public class NodeRepository {
         appendExtensionFilter(sql, args, normalisedExts);
         appendExcludedPathFilters(sql, args);
         appendSizeRangeFilter(sql, args, sizeMinInclusive, sizeMaxExclusive);
-        appendNameQueryFilter(sql, args, nameQuery);
+        appendKeywordFilter(sql, args, nameQuery);
         appendFavoritesOnlyFilter(sql, favoritesOnly);
         Long n = jdbc.queryForObject(sql.toString(), Long.class, args.toArray());
         return n == null ? 0L : n;
@@ -375,22 +377,49 @@ public class NodeRepository {
         }
     }
 
+    /** Cap on tokens per query — extra ones are dropped. AND-LIKE per token degrades quickly
+     *  past ~10 with no real relevance gain; 8 leaves headroom for "前缀短词 + 年份 + 分辨率"
+     *  style multi-word queries without letting a pathological 50-word paste hog the SQL. */
+    private static final int MAX_KEYWORD_TOKENS = 8;
+
     /**
-     * Case-insensitive substring filter on the file name. Blank query is a no-op so callers
-     * don't need to special-case "no search". Wildcards in the user-provided query are escaped
-     * to literal characters via {@code ESCAPE '\\'} so a path containing {@code %} or {@code _}
-     * doesn't accidentally broaden the match.
+     * Tokenised case-insensitive substring filter. The user-provided query is split on any
+     * whitespace; each non-empty token must appear (as a literal substring) in EITHER
+     * {@code n.name} OR {@code n.parent_path} — i.e. tokens are AND-ed across rows, and within
+     * a row a token matches if any of the two columns contains it. This lets users find a
+     * video by typing fragments of the folder name and fragments of the file name in any
+     * order, e.g. {@code "avengers 2 1080p"} matches {@code Movies/Avengers 2/avengers-1080p.mkv}.
+     *
+     * <p>Blank / null query is a no-op so callers don't need to special-case "no search".
+     * Wildcards in user tokens ({@code %}, {@code _}, {@code \}) are escaped to literal
+     * characters via {@code ESCAPE '\\'} so a filename containing them doesn't broaden the
+     * match. Tokens are deduped and sorted longest-first so the more selective LIKE runs
+     * earlier, helping SQLite short-circuit the AND chain.
      */
-    private static void appendNameQueryFilter(StringBuilder sql, List<Object> args, String nameQuery) {
+    private static void appendKeywordFilter(StringBuilder sql, List<Object> args, String nameQuery) {
         if (nameQuery == null) return;
         String trimmed = nameQuery.trim();
         if (trimmed.isEmpty()) return;
-        String escaped = trimmed
-                .replace("\\", "\\\\")
-                .replace("%", "\\%")
-                .replace("_", "\\_");
-        sql.append(" AND LOWER(n.name) LIKE LOWER(?) ESCAPE '\\'");
-        args.add("%" + escaped + "%");
+
+        String[] tokens = Arrays.stream(trimmed.split("\\s+"))
+                .filter(s -> !s.isEmpty())
+                .distinct()
+                .sorted(Comparator.comparingInt(String::length).reversed())
+                .limit(MAX_KEYWORD_TOKENS)
+                .toArray(String[]::new);
+        if (tokens.length == 0) return;
+
+        for (String token : tokens) {
+            String escaped = token
+                    .replace("\\", "\\\\")
+                    .replace("%", "\\%")
+                    .replace("_", "\\_");
+            String like = "%" + escaped + "%";
+            sql.append(" AND (LOWER(n.name) LIKE LOWER(?) ESCAPE '\\'")
+               .append(" OR LOWER(n.parent_path) LIKE LOWER(?) ESCAPE '\\')");
+            args.add(like);
+            args.add(like);
+        }
     }
 
     private static void appendFavoritesOnlyFilter(StringBuilder sql, boolean favoritesOnly) {

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useInfiniteQuery, useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query'
 import { Activity } from 'lucide-react'
 import { ApiError } from '@/lib/api'
@@ -20,6 +21,8 @@ const PAGE_SIZE = 200
 export function VideoLibraryPage() {
   const qc = useQueryClient()
   const confirm = useConfirm()
+  const location = useLocation()
+  const navigate = useNavigate()
   // Read once on mount. Lazy initializers fire only on the first render, so the localStorage
   // round-trip happens exactly once even though three separate state slots reference it.
   const persisted = useMemo(() => loadState(), [])
@@ -69,6 +72,17 @@ export function VideoLibraryPage() {
     [query.data],
   )
   const total = query.data?.pages[0]?.total ?? 0
+
+  // 来自 TopBar 全局搜索的跳转：location.state.playItem 直接顶替当前选中。
+  // 跟 first-load auto-select 不一样，这个不在乎 currentItem 当前是否为空 ——
+  // 用户搜并点了哪个就播哪个；而且把 state 消费完立刻 navigate(replace, state:null)
+  // 清掉，避免之后切别的工具页回来又被同一个 playItem 复活。
+  useEffect(() => {
+    const incoming = (location.state as { playItem?: VideoLibraryItem } | null)?.playItem
+    if (!incoming) return
+    setCurrentItem(incoming)
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location.state, location.pathname, navigate])
 
   // First-load auto-select. Prefer the path persisted from the previous session if it's
   // still in the (currently loaded) item list; otherwise fall back to the first item.
