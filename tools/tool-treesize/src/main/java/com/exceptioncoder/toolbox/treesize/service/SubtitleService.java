@@ -252,17 +252,47 @@ public class SubtitleService {
      * the job is not yet COMPLETED. Runs synchronously on the caller's thread (call from a
      * virtual thread or async context to avoid blocking).
      */
+    /** 无 model override 版本。已有 .zh.vtt 时直接返回 true 不重跑。 */
     public boolean translateExisting(String jobId) {
+        return translateExisting(jobId, null);
+    }
+
+    /**
+     * 已完成转写的 job 触发一次翻译。允许传 modelOverride 指定 Ollama 模型
+     * (从前端 model picker 来的);为 null/空时用 yml 默认 ollama-model。
+     *
+     * <p>幂等规则:
+     * <ul>
+     *   <li>已有 .zh.vtt 且 modelOverride 为空 → 跳过,直接返回 true(避免无脑重跑)</li>
+     *   <li>已有 .zh.vtt 且 modelOverride 非空 → 视作"切模型重译",删旧 .zh.vtt 后重跑</li>
+     *   <li>没有 .zh.vtt → 跑一次翻译</li>
+     * </ul>
+     */
+    public boolean translateExisting(String jobId, String modelOverride) {
         SubtitleJob job = jobs.findById(jobId).orElse(null);
         if (job == null || job.getStatus() != SubtitleStatus.COMPLETED || job.getVttPath() == null) {
             return false;
         }
-        if (job.getTranslatedVttPath() != null) return true; // already done
         String lang = job.getSourceLanguage();
         if (!translator.isEnabled() || !translator.shouldTranslate(lang)) return false;
+
+        boolean hasOverride = modelOverride != null && !modelOverride.isBlank();
+        if (job.getTranslatedVttPath() != null && !hasOverride) {
+            // 没指定模型 = 没换模型意图,沿用现有译文。
+            return true;
+        }
+        if (job.getTranslatedVttPath() != null) {
+            // 切了模型,先把旧 .zh.vtt 文件物理删除;DB 上的 translated_vtt_path 字段在
+            // runTranslationPhase 成功写出新文件后会被覆盖,失败时保留旧值不变。
+            try {
+                Files.deleteIfExists(Path.of(job.getTranslatedVttPath()));
+            } catch (IOException ioe) {
+                log.warn("re-translate: 删除旧 .zh.vtt 失败,继续重跑 {}: {}", job.getTranslatedVttPath(), ioe.toString());
+            }
+        }
         try {
             Path vtt = Path.of(job.getVttPath());
-            boolean ok = runTranslationPhase(job, vtt, lang);
+            boolean ok = runTranslationPhase(job, vtt, lang, modelOverride);
             // 回到 COMPLETED(translateExisting 入口本来就是 COMPLETED → TRANSLATING → COMPLETED 一圈)
             job.setStatus(SubtitleStatus.COMPLETED);
             job.setProgress(1.0);
@@ -286,13 +316,19 @@ public class SubtitleService {
         }
     }
 
+    /** 无 modelOverride 版本。runJob 主流程不切模型,沿用 yml 默认。 */
+    private boolean runTranslationPhase(SubtitleJob job, Path vtt, String sourceLang) {
+        return runTranslationPhase(job, vtt, sourceLang, null);
+    }
+
     /**
      * 跑 DeepLX/Ollama 翻译,把 job 状态切到 TRANSLATING 并通过 SSE 持续发 progress。
      * 调用方负责在前后切 COMPLETED 状态;本方法只管 TRANSLATING 这段生命周期。
      *
+     * @param modelOverride 用户从前端 model picker 指定的 Ollama 模型名;null/空 = yml 默认
      * @return true 表示翻译产出了 .zh.vtt 文件;false 表示翻译被跳过或失败(原字幕仍可用)
      */
-    private boolean runTranslationPhase(SubtitleJob job, Path vtt, String sourceLang) {
+    private boolean runTranslationPhase(SubtitleJob job, Path vtt, String sourceLang, String modelOverride) {
         String jobId = job.getId();
         job.setStatus(SubtitleStatus.TRANSLATING);
         job.setProgress(0.0);
@@ -311,7 +347,7 @@ public class SubtitleService {
                 jobs.updateProgress(jobId, progress);
                 publish(jobId, "progress", Map.of("progress", progress, "percent", pct));
                 broadcastTask(job);
-            });
+            }, modelOverride);
             if (translatedVtt != null) {
                 job.setTranslatedVttPath(translatedVtt.toAbsolutePath().toString());
                 jobs.updateTranslatedVttPath(jobId, job.getTranslatedVttPath());

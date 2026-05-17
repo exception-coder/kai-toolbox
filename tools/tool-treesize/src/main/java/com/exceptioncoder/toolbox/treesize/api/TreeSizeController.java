@@ -41,6 +41,7 @@ import com.exceptioncoder.toolbox.treesize.service.PlaybackStatsCollector;
 import com.exceptioncoder.toolbox.treesize.service.RawStreamService;
 import com.exceptioncoder.toolbox.treesize.service.ScanService;
 import com.exceptioncoder.toolbox.treesize.service.CleanupAdvisor;
+import com.exceptioncoder.toolbox.treesize.service.DeepLXTranslator;
 import com.exceptioncoder.toolbox.treesize.service.SshHostService;
 import com.exceptioncoder.toolbox.treesize.service.SubtitleService;
 import com.exceptioncoder.toolbox.treesize.service.SymlinkService;
@@ -90,6 +91,7 @@ public class TreeSizeController {
     private final SubtitleJobRepository subtitleJobs;
     private final TaskBroadcaster taskBroadcaster;
     private final TaskAssembler taskAssembler;
+    private final DeepLXTranslator translator;
 
     public TreeSizeController(ScanService scanService,
                               ScanRepository scans,
@@ -112,7 +114,8 @@ public class TreeSizeController {
                               FfmpegProcessRegistry ffmpegRegistry,
                               SubtitleJobRepository subtitleJobs,
                               TaskBroadcaster taskBroadcaster,
-                              TaskAssembler taskAssembler) {
+                              TaskAssembler taskAssembler,
+                              DeepLXTranslator translator) {
         this.scanService = scanService;
         this.scans = scans;
         this.nodes = nodes;
@@ -135,6 +138,7 @@ public class TreeSizeController {
         this.subtitleJobs = subtitleJobs;
         this.taskBroadcaster = taskBroadcaster;
         this.taskAssembler = taskAssembler;
+        this.translator = translator;
     }
 
     // ---------- existing endpoints (unchanged) ---------------------------
@@ -509,10 +513,33 @@ public class TreeSizeController {
     }
 
     @PostMapping("/subtitles/jobs/{jobId}/translate")
-    public ResponseEntity<Void> translateSubtitle(@PathVariable String jobId) {
-        boolean ok = subtitles.translateExisting(jobId);
+    public ResponseEntity<Void> translateSubtitle(@PathVariable String jobId,
+                                                  @RequestParam(required = false) String model) {
+        // model 非空 = 用户从 model picker 选了新模型;空 = 用 yml 默认 ollama-model。
+        // 切了模型时 SubtitleService.translateExisting 会先删旧 .zh.vtt 再重跑。
+        boolean ok = subtitles.translateExisting(jobId, model);
         return ok ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
     }
+
+    /**
+     * 查询 Ollama 当前本地安装的模型清单(透传 GET /api/tags),给前端 model picker 用。
+     * 没装 Ollama / provider 不是 ollama / Ollama 不在线时返回空列表 + default 字段空,
+     * 前端识别后展示「未启用 Ollama」状态。
+     */
+    @GetMapping("/ollama/models")
+    public OllamaModelsView listOllamaModels() {
+        try {
+            List<DeepLXTranslator.OllamaModel> models = translator.listOllamaModels();
+            return new OllamaModelsView(models, translator.getDefaultOllamaModel());
+        } catch (Exception e) {
+            // Ollama 服务没起 / 网络错 → 当成「没装」处理,UI 走 disabled 兜底,不抛 500
+            return new OllamaModelsView(List.of(), translator.getDefaultOllamaModel());
+        }
+    }
+
+    /** 给前端的 Ollama 模型清单 view。default 字段反映 yml 的 toolbox.deeplx.ollama-model,
+     *  前端在 localStorage 未存过用户选择时默认选这个。 */
+    public record OllamaModelsView(List<DeepLXTranslator.OllamaModel> models, String defaultModel) {}
 
     @PostMapping("/subtitles/jobs/{jobId}/cancel")
     public ResponseEntity<Void> cancelSubtitle(@PathVariable String jobId) {

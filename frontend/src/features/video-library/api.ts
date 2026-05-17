@@ -89,8 +89,31 @@ export function cancelSubtitleJob(jobId: string) {
   return http<void>(`/treesize/subtitles/jobs/${jobId}/cancel`, { method: 'POST' })
 }
 
-export function translateSubtitleJob(jobId: string) {
-  return http<void>(`/treesize/subtitles/jobs/${jobId}/translate`, { method: 'POST' })
+/**
+ * Trigger (or re-run) Ollama 翻译生成中文 .zh.vtt。
+ * 传 model 时后端会先删旧 .zh.vtt 再用新模型重跑;不传 = 用 yml 默认 ollama-model,
+ * 已有译文时直接返回 204 不重跑。
+ */
+export function translateSubtitleJob(jobId: string, model?: string) {
+  const qs = model && model.trim() ? `?model=${encodeURIComponent(model.trim())}` : ''
+  return http<void>(`/treesize/subtitles/jobs/${jobId}/translate${qs}`, { method: 'POST' })
+}
+
+export interface OllamaModel {
+  name: string
+  sizeBytes: number
+  modifiedAt: string
+}
+
+export interface OllamaModelsView {
+  models: OllamaModel[]
+  /** 后端 yml 配的默认模型;前端 localStorage 没存用户偏好时回退到这个。 */
+  defaultModel: string
+}
+
+/** 拉一次 Ollama 本地安装的模型清单。Ollama 没起 / 网不通时后端返回空数组 + defaultModel。 */
+export function getOllamaModels() {
+  return http<OllamaModelsView>(`/treesize/ollama/models`)
 }
 
 export function deleteSubtitleJob(jobId: string) {

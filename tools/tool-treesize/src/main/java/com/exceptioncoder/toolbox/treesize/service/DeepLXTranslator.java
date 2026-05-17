@@ -76,7 +76,13 @@ public class DeepLXTranslator {
 
     /** 无进度回调版本,兼容旧调用方;新调用方应传 progressListener 让 SSE 能下发翻译进度。 */
     public Path translateVtt(Path sourceVtt, String whisperLang) throws IOException, InterruptedException {
-        return translateVtt(sourceVtt, whisperLang, null);
+        return translateVtt(sourceVtt, whisperLang, null, null);
+    }
+
+    /** 无 model override 版本。等价于使用 yml 默认 ollama-model。 */
+    public Path translateVtt(Path sourceVtt, String whisperLang, DoubleConsumer progressListener)
+            throws IOException, InterruptedException {
+        return translateVtt(sourceVtt, whisperLang, progressListener, null);
     }
 
     /**
@@ -86,8 +92,11 @@ public class DeepLXTranslator {
      * @param progressListener 每条 cue 翻完后回调一次,参数为 {@code completed/total} (0..1);
      *                         {@code null} 表示不关心进度。回调在 CompletableFuture 工作线程
      *                         上触发,实现里短逻辑即可,长操作请自己 dispatch。
+     * @param modelOverride    Ollama 模型名 override,null/空表示用 yml 默认 ollama-model;
+     *                         DeepLX 路径忽略此参数。允许调用方按视频切模型(短片用 3b,长片用 7b 等)。
      */
-    public Path translateVtt(Path sourceVtt, String whisperLang, DoubleConsumer progressListener)
+    public Path translateVtt(Path sourceVtt, String whisperLang, DoubleConsumer progressListener,
+                             String modelOverride)
             throws IOException, InterruptedException {
         String sourceLangUpper = whisperLang.toUpperCase().split("[-_]")[0]; // "ja" → "JA"
 
@@ -101,7 +110,7 @@ public class DeepLXTranslator {
                 cues.size(), sourceLangUpper, props.getTargetLang(), sourceVtt.getFileName());
 
         List<String> texts = cues.stream().map(VttCue::cleanText).collect(Collectors.toList());
-        List<String> translated = translateAll(texts, sourceLangUpper, progressListener);
+        List<String> translated = translateAll(texts, sourceLangUpper, progressListener, modelOverride);
 
         String baseName = sourceVtt.getFileName().toString();
         // "{hash}.vtt" → "{hash}.zh.vtt"
@@ -179,7 +188,8 @@ public class DeepLXTranslator {
     // Translation
     // -------------------------------------------------------------------------
 
-    private List<String> translateAll(List<String> texts, String sourceLang, DoubleConsumer progressListener)
+    private List<String> translateAll(List<String> texts, String sourceLang, DoubleConsumer progressListener,
+                                      String modelOverride)
             throws InterruptedException {
         Semaphore sem = new Semaphore(props.getMaxConcurrent());
         List<CompletableFuture<String>> futures = new ArrayList<>(texts.size());
@@ -194,7 +204,7 @@ public class DeepLXTranslator {
             String captured = text;
             CompletableFuture<String> f = CompletableFuture.supplyAsync(() -> {
                 try {
-                    return translateText(captured, sourceLang);
+                    return translateText(captured, sourceLang, modelOverride);
                 } catch (Exception e) {
                     log.debug("translation failed for cue, keeping original: {}", e.getMessage());
                     return captured.replaceAll("<[^>]*>", "").trim();
@@ -222,15 +232,21 @@ public class DeepLXTranslator {
         }).collect(Collectors.toList());
     }
 
-    private String translateText(String rawText, String sourceLang) throws IOException, InterruptedException {
+    private String translateText(String rawText, String sourceLang, String modelOverride)
+            throws IOException, InterruptedException {
         String text = rawText.replaceAll("<[^>]*>", "").trim();
         if (text.isEmpty()) return rawText;
         return "ollama".equals(props.getProvider())
-                ? translateViaOllama(text, sourceLang)
+                ? translateViaOllama(text, sourceLang, modelOverride)
                 : translateViaDeepLX(text, sourceLang);
     }
 
-    private String translateViaOllama(String text, String sourceLang) throws IOException, InterruptedException {
+    private String translateViaOllama(String text, String sourceLang, String modelOverride)
+            throws IOException, InterruptedException {
+        // modelOverride 非空时优先用,否则 fallback 到 yml 默认 ollama-model。
+        String model = (modelOverride != null && !modelOverride.isBlank())
+                ? modelOverride.trim()
+                : props.getOllamaModel();
         // Map ISO codes to natural language names for the prompt.
         String srcName = switch (sourceLang.toLowerCase()) {
             case "ja" -> "日语";
@@ -252,7 +268,7 @@ public class DeepLXTranslator {
         String prompt = "将下面的" + srcName + "翻译成" + tgtName + "，只输出翻译结果，不要解释：\n" + text;
 
         String body = mapper.writeValueAsString(Map.of(
-                "model", props.getOllamaModel(),
+                "model", model,
                 "prompt", prompt,
                 "stream", false
         ));
@@ -299,5 +315,52 @@ public class DeepLXTranslator {
         }
         String result = node.path("data").asText("");
         return result.isBlank() ? text : result;
+    }
+
+    // -------------------------------------------------------------------------
+    // Ollama model discovery
+    // -------------------------------------------------------------------------
+
+    /** 单个 Ollama 模型条目;name 是 {@code GET /api/generate} 用的 model 字段,sizeBytes 给 UI 排序用。 */
+    public record OllamaModel(String name, long sizeBytes, String modifiedAt) {}
+
+    /**
+     * 查询 Ollama 当前本地安装的模型清单(透传 {@code GET /api/tags})。
+     * 只在 provider=ollama 且 url 配置非空时有意义;否则返回空列表(让前端 model picker 显示
+     * "未安装 Ollama"而不是抛错)。8 秒短超时:用户改完 yml 等不及 30s 默认超时。
+     */
+    public List<OllamaModel> listOllamaModels() throws IOException, InterruptedException {
+        if (!"ollama".equals(props.getProvider()) || props.getUrl().isBlank()) {
+            return List.of();
+        }
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(props.getUrl().replaceAll("/+$", "") + "/api/tags"))
+                .timeout(Duration.ofSeconds(8))
+                .GET()
+                .build();
+        HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+        if (resp.statusCode() != 200) {
+            throw new IOException("Ollama /api/tags HTTP " + resp.statusCode() + ": " + resp.body());
+        }
+        JsonNode root = mapper.readTree(resp.body());
+        JsonNode models = root.path("models");
+        List<OllamaModel> result = new ArrayList<>();
+        if (models.isArray()) {
+            for (JsonNode m : models) {
+                String name = m.path("name").asText("");
+                if (name.isEmpty()) continue;
+                result.add(new OllamaModel(
+                        name,
+                        m.path("size").asLong(0),
+                        m.path("modified_at").asText("")
+                ));
+            }
+        }
+        return result;
+    }
+
+    /** 当前 yml 配置的默认 Ollama 模型;前端 model picker 在用户没选时回退到这个。 */
+    public String getDefaultOllamaModel() {
+        return props.getOllamaModel();
     }
 }
