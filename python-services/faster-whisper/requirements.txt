@@ -1,0 +1,6 @@
+# faster-whisper 1.x 是 CTranslate2 后端，比原 whisper / whisper.cpp 快约 4 倍且更稳。
+# fastapi + uvicorn 提供 HTTP/SSE 服务壳。python-multipart 是 FastAPI 解析 UploadFile 的必备依赖。
+faster-whisper>=1.0.0
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9

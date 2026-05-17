@@ -1,0 +1,19 @@
+# Python 虚拟环境(每台机器自建,不入仓)
+.venv/
+venv/
+env/
+
+# Python 字节码 / 编译产物
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 模型权重缓存等大文件(faster-whisper 从 HuggingFace 自动下载到 ~/.cache,本目录不该有)
+*.bin
+*.gguf
+*.onnx
+
+# 临时上传文件(server.py 用 NamedTemporaryFile,默认在系统 TMP,不在本目录;留个兜底)
+kai-asr-body-*
+tmp*.wav

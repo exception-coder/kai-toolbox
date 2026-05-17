@@ -19,7 +19,10 @@ toolbox:
   log-dir: ${toolbox.data-dir}/logs
   sqlite:
     file: ${toolbox.data-dir}/toolbox.db
-    busy-timeout-ms: 5000
+    # 单写者锁等待时长。大表 DELETE（数十万行级）+ 后台扫描 batchInsert 并发时，
+    # 5s 容易触发 SQLITE_BUSY；30s 给 SQLite 足够退让时间，配合应用层串行化与
+    # ScanRepository.deleteById 的事务合并使用。
+    busy-timeout-ms: 30000
     journal-mode: WAL
   ffmpeg:
     # 默认走 PATH。本机非 PATH 安装时用环境变量覆盖：
@@ -45,6 +48,14 @@ toolbox:
     max-concurrent: 2          # Ollama GPU 并发 2 即可，避免显存打满
     timeout-seconds: 30        # 小模型首 token 约 1-2s，30s 足够一条字幕
   whisper:
+    # 字幕生成后端选择：
+    # - cli (默认)        调本地 whisper-cli.exe 子进程。反幻觉四件套（-nc + 三阈值）已通过 yml 注入。
+    # - asr-service       调本地 faster-whisper Python HTTP 服务（fallback）
+    #                     需先启动 python-services/faster-whisper/start.bat
+    mode: cli
+    # ASR 服务地址，仅当 mode=asr-service 时使用
+    service-url: ${TOOLBOX_WHISPER_ASR_URL:http://127.0.0.1:9500}
+
     # whisper.cpp 二进制路径。CUDA 构建版会自动用 NVIDIA GPU；无 GPU 装 CPU 版亦可。
     # 下载：https://github.com/ggml-org/whisper.cpp/releases (Windows 选 cuBLAS 版本)
     binary: "D:\\devapps\\whisper-cublas-12.4.0-bin-x64\\Release\\whisper-cli.exe"
@@ -74,6 +85,58 @@ toolbox:
     # 下载：https://huggingface.co/ggml-org/whisper-vad/tree/main （选 ggml-silero-v5.1.2.bin）
     # 留空 = 不启用 VAD。
     vad-model-path: ${TOOLBOX_WHISPER_VAD_MODEL:}
+    # 反幻觉三件套：视频中后段非语音（哭声 / 喘息 / 配乐）容易让 whisper 复读 "(泣き声)"
+    # 这类 non-speech 标签直到结尾。把这三个收紧后,模型在低置信段更倾向判静音或重新
+    # decode,显著减少幻觉。三个值映射到 whisper-cli 的同名 flag:
+    #   --no-speech-thold / --logprob-thold / --entropy-thold (最后一个实为压缩比阈值)。
+    # 若发现真实台词被砍掉,把 no-speech 改回 0.6 / logprob 改回 -0.7 折中。
+    no-speech-threshold: 0.75
+    logprob-threshold: -0.5
+    entropy-threshold: 2.0
+    # 关闭跨段 prompt 拼接 (whisper-cli -nc / faster-whisper condition_on_previous_text=False)。
+    # 默认 true:长视频中段一次幻觉不会沿 prompt 链传染到结尾,代价是跨段一致性略降,
+    # 人名/术语建议靠 default-initial-prompt 喂。Python 端 server.py 已硬编码此行为。
+    no-context: true
+    # whisper-cli 各 build 间漂移的 flag 字面值集中维护。所有字段默认对齐 v1.7+ cuBLAS build,
+    # 跑你这个 build 跑不通时按需 override。改这里不需要重新编译 Java,改完重启 Spring Boot 即可。
+    #
+    # 历史踩坑(已经在默认值里处理掉的):
+    # - v1.5- 是 -nc(--no-context),v1.7+ 删了只剩 --max-context N(N=0 等价)
+    # - --no-speech-thold 在很老的 build 是 --no-speech-threshold
+    # - -fa 默认值在 cuBLAS build 间反复改,本工程显式 opt-in 走 flash-attention: true 才传
+    cli:
+      # 结构化 flag(几乎不会变,但留着便于异类 build 适配)
+      model-flag: "-m"
+      file-flag: "-f"
+      language-flag: "-l"
+      output-vtt-flag: "-ovtt"
+      output-prefix-flag: "-of"
+      # 打印 progress = X% 的 flag;删了 Java 端 stderr 正则就解析不到进度,前端 0% 卡住
+      print-progress-flag: "-pp"
+      suppress-prints-flag: "-np"
+      prompt-flag: "--prompt"
+      threads-flag: "-t"
+      no-gpu-flag: "--no-gpu"
+      flash-attn-flag: "-fa"
+      split-on-word-flag: "-su"
+      vad-flag: "--vad"
+      vad-model-flag: "--vad-model"
+      # 反幻觉三件套的 flag 名(值在上面 no-speech-threshold / logprob-threshold / entropy-threshold)
+      no-speech-thold-flag: "--no-speech-thold"
+      logprob-thold-flag: "--logprob-thold"
+      entropy-thold-flag: "--entropy-thold"
+      # no-context 实现:老版用 -nc(开关,value 留空);新版用 -mc 0(必须带 value="0")
+      # 升 v1.5- 时:把 max-context-flag 改 "-nc",max-context-value-for-no-context 改 ""
+      max-context-flag: "-mc"
+      max-context-value-for-no-context: "0"
+      # 兜底逃生口:任意额外 args,WhisperRunner 在所有上面 flag 后原样追加,适合临时验证
+      # 实验性 flag(例如 -bs 5 / --temperature 0.0 / --suppress-nst)而不用改 Java。
+      # 每个 token 单独一行,不能在一行内塞多个用空格分隔。
+      extra-args: []
+        # - "-bs"
+        # - "5"
+        # - "--temperature"
+        # - "0.0"
   thumbnail:
     cache-dir: ${toolbox.data-dir}/cache/thumbs
     # 同时跑的 ffmpeg 数量，每个吃 1-2 核。默认 2：留 CPU 给 HLS 播放，避免你点视频的瞬间
@@ -134,6 +197,19 @@ toolbox:
     hidden-prefixes:
       - "."
       - "_"
+
+  browser-request:
+    # 持久 BrowserContext 数据目录（cookies/storage state），留空 = ${toolbox.data-dir}/browser-request
+    data-dir: ${toolbox.data-dir}/browser-request
+    # 必须 false：用户要在弹出的窗口里手动登录目标站点
+    headless: false
+    request-timeout-ms: 60000
+    # 同 media-parser，留空走直连
+    proxy: ${TOOLBOX_HTTP_PROXY:}
+    # 自动把 cookies / localStorage 持久化到磁盘，下次打开不用重新登录。
+    # 关掉则只能手动点「保存登录态」。
+    auto-save-enabled: true
+    auto-save-interval-ms: 30000
 
   mail:
     enabled: false          # 设为 true 启动内嵌 SMTP 服务器

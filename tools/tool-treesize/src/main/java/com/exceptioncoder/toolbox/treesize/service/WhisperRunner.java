@@ -129,23 +129,23 @@ public class WhisperRunner {
     }
 
     private List<String> buildCommand(Path wav, Path outputPrefix, String language, String initialPrompt) {
+        // 所有 flag 字面值都从 yml(toolbox.whisper.cli.*)注入,whisper.cpp 升级后不需要重编译。
+        WhisperProperties.CliFlags f = props.getCli();
         List<String> cmd = new ArrayList<>();
         cmd.add(props.getBinary());
-        cmd.add("-m"); cmd.add(props.getModelPath());
-        cmd.add("-f"); cmd.add(wav.toAbsolutePath().toString());
+        cmd.add(f.getModelFlag()); cmd.add(props.getModelPath());
+        cmd.add(f.getFileFlag()); cmd.add(wav.toAbsolutePath().toString());
         // "auto" triggers whisper's language detection; an explicit code (e.g. "ja") forces the
         // transcription language and is far more reliable for non-English content.
-        cmd.add("-l"); cmd.add(language == null || language.isBlank() ? "auto" : language);
-        cmd.add("-ovtt");
-        cmd.add("-of"); cmd.add(outputPrefix.toAbsolutePath().toString());
-        cmd.add("-pp");
-        // -nt suppresses timestamp printing in the segment dump but still writes them to VTT;
-        // less log noise. -np suppresses the per-segment colored print.
-        cmd.add("-np");
-        // -su (split-on-word) 改为可选项 —— 实测部分 whisper.cpp 构建即使官方文档支持
+        cmd.add(f.getLanguageFlag()); cmd.add(language == null || language.isBlank() ? "auto" : language);
+        cmd.add(f.getOutputVttFlag());
+        cmd.add(f.getOutputPrefixFlag()); cmd.add(outputPrefix.toAbsolutePath().toString());
+        cmd.add(f.getPrintProgressFlag());
+        cmd.add(f.getSuppressPrintsFlag());
+        // split-on-word 改为可选项 —— 实测部分 whisper.cpp 构建即使官方文档支持
         // 此参数，传上去后整段转写不写 VTT 文件。用户在 yml 显式 opt-in 后才传。
         if (props.isSplitOnWord()) {
-            cmd.add("-su");
+            cmd.add(f.getSplitOnWordFlag());
         }
 
         // --prompt seeds the decoder with a 224-token context that the model treats as a
@@ -154,7 +154,7 @@ public class WhisperRunner {
         String prompt = firstNonBlank(initialPrompt, props.getDefaultInitialPrompt());
         if (prompt != null) {
             String trimmed = prompt.length() > PROMPT_MAX_CHARS ? prompt.substring(0, PROMPT_MAX_CHARS) : prompt;
-            cmd.add("--prompt"); cmd.add(trimmed);
+            cmd.add(f.getPromptFlag()); cmd.add(trimmed);
         }
 
         // VAD pre-segments audio into speech regions, skipping silence entirely. Long videos
@@ -163,21 +163,44 @@ public class WhisperRunner {
         // configured and actually present on disk — otherwise whisper-cli would fail to start.
         String vadModel = props.getVadModelPath();
         if (!vadModel.isEmpty() && Files.isRegularFile(Path.of(vadModel))) {
-            cmd.add("--vad");
-            cmd.add("--vad-model"); cmd.add(vadModel);
+            cmd.add(f.getVadFlag());
+            cmd.add(f.getVadModelFlag()); cmd.add(vadModel);
+        }
+
+        // 反幻觉三件套。视频中后段是哭声/喘息/配乐等非语音时,whisper 容易陷入复读 non-speech
+        // 标签的幻觉。三个阈值收紧后,模型会更倾向把这种段直接判 no-speech 或触发 temperature
+        // fallback 而不是硬输出。
+        cmd.add(f.getNoSpeechTholdFlag()); cmd.add(Double.toString(props.getNoSpeechThreshold()));
+        cmd.add(f.getLogprobTholdFlag()); cmd.add(Double.toString(props.getLogprobThreshold()));
+        cmd.add(f.getEntropyTholdFlag()); cmd.add(Double.toString(props.getEntropyThreshold()));
+        // no-context 等价。老版 whisper.cpp 是 -nc(无参数),新版是 --max-context N。
+        // CliFlags 默认配 "-mc" + "0",老版本只需 yml 改 max-context-flag: "-nc" 并把
+        // max-context-value-for-no-context 设为空字符串即可。
+        if (props.isNoContext()) {
+            cmd.add(f.getMaxContextFlag());
+            String v = f.getMaxContextValueForNoContext();
+            if (v != null && !v.isEmpty()) {
+                cmd.add(v);
+            }
         }
 
         if (props.getThreads() > 0) {
-            cmd.add("-t"); cmd.add(Integer.toString(props.getThreads()));
+            cmd.add(f.getThreadsFlag()); cmd.add(Integer.toString(props.getThreads()));
         }
         if (props.isDisableGpu()) {
-            cmd.add("--no-gpu");
+            cmd.add(f.getNoGpuFlag());
         } else if (props.isFlashAttention()) {
             // Flash Attention reorders attention matmuls to fit GPU SRAM, giving 30-50%
             // throughput at identical numerical output. Only valid on CUDA / cuBLAS builds;
             // CPU builds silently ignore the flag but we still gate on isDisableGpu to keep
             // the command surface obvious in the launch log.
-            cmd.add("-fa");
+            cmd.add(f.getFlashAttnFlag());
+        }
+
+        // extra-args:yml 配置的兜底逃生口。原样追加,适合临时验证 -bs 5 / --temperature 0.0
+        // 之类实验性 flag,而不用回 Java 加字段。
+        if (!f.getExtraArgs().isEmpty()) {
+            cmd.addAll(f.getExtraArgs());
         }
         return cmd;
     }
