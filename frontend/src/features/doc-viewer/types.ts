@@ -61,3 +61,46 @@ export interface RefreshOutcomeDTO {
 export interface NestedTreeNode extends TreeNodeDTO {
   children: NestedTreeNode[]
 }
+
+// === 本地目录源 ===
+
+export interface LocalSourceDTO {
+  id: string
+  alias: string
+  rootPath: string
+  lastVisitedAt: number
+  createdAt: number
+}
+
+export interface CreateLocalSourceRequest {
+  rootPath: string
+  alias?: string | null
+}
+
+export interface LocalTreeResponseDTO {
+  sourceId: string
+  rootPath: string
+  nodes: TreeNodeDTO[]
+}
+
+export interface LocalFileDTO {
+  sourceId: string
+  path: string
+  kind: 'BLOB' | 'BINARY'
+  size: number
+  content: string | null
+  lastModified: number
+}
+
+export interface SaveLocalFileRequest {
+  path: string
+  content: string
+  expectedLastModified: number
+}
+
+export interface SaveLocalFileResponse {
+  sourceId: string
+  path: string
+  size: number
+  lastModified: number
+}

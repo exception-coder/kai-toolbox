@@ -12,6 +12,16 @@ export interface RewriteContext {
   sourceId: string
   /** 当前文件相对于 source 根的目录（不含末尾 /），如 'design/sub' 或 '' */
   currentDir: string
+  /**
+   * 应用内 .md 跳转的 URL 前缀，不含 sourceId；默认 `/tools/doc-viewer`。
+   * 本地目录页传 `/tools/doc-viewer/local` 以保持在编辑器栈内。
+   */
+  appRouteBase?: string
+  /**
+   * 当 rawBaseUrl 以 `?xxx=` 结尾时，本地相对路径需作为单个查询参数值整体 URL-encode；
+   * 默认 'path' 走 GitHub 风格（保留 `/`），'query' 走整体 encode。
+   */
+  rawJoinMode?: 'path' | 'query'
 }
 
 export function rewriteRelativeLinks(html: string, ctx: RewriteContext): string {
@@ -69,7 +79,10 @@ function resolveRel(currentDir: string, rel: string): string {
 
 function joinRaw(ctx: RewriteContext, rel: string): string {
   const resolved = resolveRel(ctx.currentDir, rel)
-  // rawBaseUrl 已带末尾 /
+  // GitHub raw 风格直接拼接（rawBaseUrl 已带末尾 /）；本地 query 风格整体 encode
+  if (ctx.rawJoinMode === 'query') {
+    return ctx.rawBaseUrl + encodeURIComponent(resolved)
+  }
   return ctx.rawBaseUrl + resolved
 }
 
@@ -77,7 +90,8 @@ function joinAppRoute(ctx: RewriteContext, rel: string): string {
   const [pathPart, ...rest] = rel.split('#')
   const resolved = resolveRel(ctx.currentDir, pathPart)
   const hash = rest.length ? '#' + rest.join('#') : ''
-  return `/tools/doc-viewer/${encodeURIComponent(ctx.sourceId)}/${resolved
+  const base = ctx.appRouteBase ?? '/tools/doc-viewer'
+  return `${base}/${encodeURIComponent(ctx.sourceId)}/${resolved
     .split('/')
     .map(encodeURIComponent)
     .join('/')}${hash}`
