@@ -22,6 +22,10 @@ public class SavedRequestRepository {
             .url(rs.getString("url"))
             .headersJson(rs.getString("headers"))
             .body(rs.getString("body"))
+            .outputsJson(rs.getString("outputs_json"))
+            .lastResponseBody(rs.getString("last_response_body"))
+            .lastResponseAt(rs.getObject("last_response_at") != null ? rs.getLong("last_response_at") : null)
+            .lastExtractedValuesJson(rs.getString("last_extracted_values_json"))
             .createdAt(rs.getLong("created_at"))
             .updatedAt(rs.getLong("updated_at"))
             .build();
@@ -33,23 +37,30 @@ public class SavedRequestRepository {
     public void insert(SavedRequest r) {
         jdbc.update("""
                 INSERT INTO browser_request_saved
-                  (id, session_id, name, curl, method, url, headers, body, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  (id, session_id, name, curl, method, url, headers, body, outputs_json,
+                   last_response_body, last_response_at, last_extracted_values_json,
+                   created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 r.getId(), r.getSessionId(), r.getName(),
                 r.getCurl(), r.getMethod(), r.getUrl(),
-                r.getHeadersJson(), r.getBody(),
+                r.getHeadersJson(), r.getBody(), r.getOutputsJson(),
+                r.getLastResponseBody(), r.getLastResponseAt(), r.getLastExtractedValuesJson(),
                 r.getCreatedAt(), r.getUpdatedAt());
     }
 
     public void update(SavedRequest r) {
         jdbc.update("""
                 UPDATE browser_request_saved
-                SET name = ?, curl = ?, method = ?, url = ?, headers = ?, body = ?, updated_at = ?
+                SET name = ?, curl = ?, method = ?, url = ?, headers = ?, body = ?,
+                    outputs_json = ?, last_response_body = ?, last_response_at = ?,
+                    last_extracted_values_json = ?, updated_at = ?
                 WHERE id = ?
                 """,
                 r.getName(), r.getCurl(), r.getMethod(), r.getUrl(),
-                r.getHeadersJson(), r.getBody(), r.getUpdatedAt(),
+                r.getHeadersJson(), r.getBody(), r.getOutputsJson(),
+                r.getLastResponseBody(), r.getLastResponseAt(), r.getLastExtractedValuesJson(),
+                r.getUpdatedAt(),
                 r.getId());
     }
 

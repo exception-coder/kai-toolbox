@@ -1,7 +1,10 @@
 package com.exceptioncoder.toolbox.browserrequest.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.gson.JsonObject;
 import com.microsoft.playwright.BrowserContext;
+import com.microsoft.playwright.CDPSession;
+import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Response;
 import lombok.extern.slf4j.Slf4j;
 
@@ -49,9 +52,11 @@ public class JsCapture {
     private final Path manifestFile;
     private final ObjectMapper objectMapper;
     private final Consumer<Response> handler;
+    private final Consumer<Page> pageHandler;
     private final ExecutorService writer;
     private final AtomicInteger count = new AtomicInteger();
     private final List<Entry> entries = Collections.synchronizedList(new ArrayList<>());
+    private final List<CDPSession> cdpSessions = Collections.synchronizedList(new ArrayList<>());
     private volatile boolean stopped = false;
 
     private JsCapture(BrowserContext ctx, Path dir, ObjectMapper objectMapper) {
@@ -66,6 +71,8 @@ public class JsCapture {
             return t;
         });
         this.handler = this::onResponse;
+        // 新开的 page 也要禁 cache，否则那个 page 上的 JS 又会走 disk cache 静默掉
+        this.pageHandler = this::disableCacheOnPage;
     }
 
     /** 在指定 ctx 上启动捕获并落盘到 {@code dir}。若 dir 已存在 manifest 会被覆盖。 */
@@ -73,14 +80,43 @@ public class JsCapture {
         Files.createDirectories(dir.resolve("scripts"));
         JsCapture c = new JsCapture(ctx, dir, objectMapper);
         ctx.onResponse(c.handler);
-        log.info("[JsCapture] 启动捕获 -> {}", dir);
+        // 关键：禁掉所有现有/未来 page 的 HTTP cache，否则 BOSS 这种 long-cache 站会让大部分 JS
+        // 走磁盘 cache 静默命中，onResponse 根本不触发
+        for (Page p : ctx.pages()) c.disableCacheOnPage(p);
+        ctx.onPage(c.pageHandler);
+        log.info("[JsCapture] 启动捕获 -> {}（已禁 HTTP cache）", dir);
         return c;
+    }
+
+    /** 通过 CDP 给一个 page 禁用 HTTP cache。失败不抛——降级到允许 cache 也比挂掉好。 */
+    private void disableCacheOnPage(Page page) {
+        try {
+            CDPSession s = ctx.newCDPSession(page);
+            s.send("Network.enable");
+            JsonObject params = new JsonObject();
+            params.addProperty("cacheDisabled", true);
+            s.send("Network.setCacheDisabled", params);
+            cdpSessions.add(s);
+        } catch (Exception e) {
+            log.debug("[JsCapture] 禁用 cache 失败（非致命）: {}", e.getMessage());
+        }
     }
 
     public void stop() {
         if (stopped) return;
         stopped = true;
         try { ctx.offResponse(handler); } catch (Exception ignored) {}
+        try { ctx.offPage(pageHandler); } catch (Exception ignored) {}
+        // 释放 CDP session（同时恢复 cache 行为给后续非捕获场景用）
+        for (CDPSession s : cdpSessions) {
+            try {
+                JsonObject params = new JsonObject();
+                params.addProperty("cacheDisabled", false);
+                s.send("Network.setCacheDisabled", params);
+            } catch (Exception ignored) {}
+            try { s.detach(); } catch (Exception ignored) {}
+        }
+        cdpSessions.clear();
         // 等剩余落盘结束 + 刷一次 manifest
         writer.shutdown();
         try {

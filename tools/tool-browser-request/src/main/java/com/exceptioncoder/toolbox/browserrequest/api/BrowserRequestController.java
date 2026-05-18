@@ -2,11 +2,16 @@ package com.exceptioncoder.toolbox.browserrequest.api;
 
 import com.exceptioncoder.toolbox.browserrequest.api.dto.CreateSessionRequest;
 import com.exceptioncoder.toolbox.browserrequest.api.dto.ExecuteRequestBody;
+import com.exceptioncoder.toolbox.browserrequest.api.dto.ExtractToSavedRequest;
+import com.exceptioncoder.toolbox.browserrequest.api.dto.ForeachRequest;
+import com.exceptioncoder.toolbox.browserrequest.api.dto.PipelineDtos;
 import com.exceptioncoder.toolbox.browserrequest.api.dto.SaveRequestBody;
+import com.exceptioncoder.toolbox.browserrequest.api.dto.UpsertVarRequest;
 import com.exceptioncoder.toolbox.browserrequest.config.BrowserSessionManager;
 import com.exceptioncoder.toolbox.browserrequest.service.BrowserRequestService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 
@@ -107,8 +112,93 @@ public class BrowserRequestController {
         service.deleteSaved(savedId);
     }
 
+    /** 从响应中提取一个值，写入目标 saved 的 outputs 配置 + lastExtractedValues（追加或更新同名）。 */
+    @PostMapping("/saved/{savedId}/extract")
+    public BrowserRequestService.SavedRequestView extractToSaved(
+            @PathVariable String savedId, @RequestBody ExtractToSavedRequest body) {
+        return service.extractToSaved(savedId, body.name(), body.jsonPath(), body.responseBody());
+    }
+
     private BrowserRequestService.SaveCommand toCommand(SaveRequestBody b) {
         return new BrowserRequestService.SaveCommand(
-                b.name(), b.curl(), b.method(), b.url(), b.headers(), b.body());
+                b.name(), b.curl(), b.method(), b.url(), b.headers(), b.body(),
+                b.outputs(), b.lastResponseBody());
+    }
+
+    // ── 变量池 ──────────────────────────────────────────────────────────────
+
+    @GetMapping("/sessions/{id}/vars")
+    public List<BrowserRequestService.VarView> listVars(@PathVariable String id) {
+        return service.listVars(id);
+    }
+
+    @PutMapping("/sessions/{id}/vars/{name}")
+    public BrowserRequestService.VarView upsertVar(@PathVariable String id,
+                                                    @PathVariable String name,
+                                                    @RequestBody UpsertVarRequest body) {
+        return service.upsertVar(id, name, body.value());
+    }
+
+    @DeleteMapping("/sessions/{id}/vars/{name}")
+    public void deleteVar(@PathVariable String id, @PathVariable String name) {
+        service.deleteVar(id, name);
+    }
+
+    // ── Foreach 批量执行（SSE） ───────────────────────────────────────────
+
+    @PostMapping("/sessions/{id}/foreach")
+    public SseEmitter foreach(@PathVariable String id, @RequestBody ForeachRequest body) {
+        BrowserRequestService.ExecuteCommand cmd = new BrowserRequestService.ExecuteCommand(
+                body.request().curl(), body.request().method(), body.request().url(),
+                body.request().headers(), body.request().body());
+        return service.startForeach(id, body.items(), cmd, body.aggregate());
+    }
+
+    // ── Pipeline CRUD ──────────────────────────────────────────────────────
+
+    @GetMapping("/sessions/{id}/pipelines")
+    public List<BrowserRequestService.PipelineSummary> listPipelines(@PathVariable String id) {
+        return service.listPipelines(id);
+    }
+
+    @GetMapping("/pipelines/{pid}")
+    public BrowserRequestService.PipelineDetail getPipeline(@PathVariable String pid) {
+        return service.getPipeline(pid);
+    }
+
+    @PostMapping("/sessions/{id}/pipelines")
+    public BrowserRequestService.PipelineDetail createPipeline(
+            @PathVariable String id, @RequestBody PipelineDtos.CreatePipelineRequest body) {
+        return service.createPipeline(id, body.name(), body.steps());
+    }
+
+    @PutMapping("/pipelines/{pid}")
+    public BrowserRequestService.PipelineDetail updatePipeline(
+            @PathVariable String pid, @RequestBody PipelineDtos.UpdatePipelineRequest body) {
+        return service.updatePipeline(pid, body.name(), body.steps());
+    }
+
+    @DeleteMapping("/pipelines/{pid}")
+    public void deletePipeline(@PathVariable String pid) {
+        service.deletePipeline(pid);
+    }
+
+    @PostMapping("/pipelines/{pid}/run")
+    public SseEmitter runPipeline(
+            @PathVariable String pid,
+            @RequestParam(name = "dryRun", defaultValue = "false") boolean dryRun) {
+        return service.runPipeline(pid, dryRun);
+    }
+
+    @GetMapping("/pipelines/{pid}/runs")
+    public List<BrowserRequestService.PipelineRunSummary> listRuns(
+            @PathVariable String pid,
+            @RequestParam(defaultValue = "20") int limit) {
+        return service.listRuns(pid, limit);
+    }
+
+    @GetMapping("/runs/{rid}")
+    public BrowserRequestService.PipelineRunDetail getRun(@PathVariable String rid) {
+        return service.getRun(rid);
     }
 }

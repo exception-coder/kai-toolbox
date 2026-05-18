@@ -122,6 +122,8 @@ public class BrowserSessionManager {
             ctx.setDefaultTimeout(props.getRequestTimeoutMs());
             // 在任何文档执行前注入反检测脚本（覆盖 webdriver / chrome / plugins / WebGL 等）
             ctx.addInitScript(StealthConfig.initScript());
+            // BOSS 直聘风控码拦截器（仅 zhipin 系域名生效，其他站点零开销透传）
+            BossRiskBypass.install(ctx, objectMapper);
             Page page = ctx.newPage();
             page.navigate(url);
             contexts.put(sessionId, ctx);
@@ -258,7 +260,11 @@ public class BrowserSessionManager {
             BrowserContext ctx = requireCtx(sessionId);
             RequestOptions opts = RequestOptions.create()
                     .setMethod(req.method)
-                    .setTimeout(props.getRequestTimeoutMs());
+                    .setTimeout(props.getRequestTimeoutMs())
+                    // 显式设 maxRedirects——APIRequestContext 默认会跟随 30x，这里只是把行为固定下来
+                    .setMaxRedirects(20)
+                    // 30x/4xx/5xx 也不抛异常，让上层完整看到响应内容（包括 Location 头）
+                    .setFailOnStatusCode(false);
             if (req.headers != null) {
                 req.headers.forEach(opts::setHeader);
             }
@@ -271,14 +277,22 @@ public class BrowserSessionManager {
                 Map<String, String> respHeaders = new HashMap<>();
                 resp.headersArray().forEach(h -> respHeaders.merge(h.name, h.value, (a, b) -> a + ", " + b));
                 String text;
-                byte[] bytes = resp.body();
-                int rawLen = bytes == null ? 0 : bytes.length;
-                if (bytes == null) {
-                    text = "";
-                } else {
-                    text = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+                byte[] bytes;
+                try {
+                    bytes = resp.body();
+                } catch (Exception e) {
+                    // 30x 重定向链的中间响应没 body 时 .body() 可能抛——降级返回空
+                    bytes = null;
                 }
-                return new ExecutedResponse(resp.status(), resp.statusText(), respHeaders, text, rawLen);
+                int rawLen = bytes == null ? 0 : bytes.length;
+                text = bytes == null ? "" : new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+                String finalUrl;
+                try { finalUrl = resp.url(); } catch (Exception e) { finalUrl = req.url; }
+                if (!req.url.equals(finalUrl)) {
+                    log.info("[BrowserRequest] 请求被重定向: {} → {}", req.url, finalUrl);
+                }
+                return new ExecutedResponse(resp.status(), resp.statusText(), respHeaders,
+                        text, rawLen, finalUrl);
             } finally {
                 try { resp.dispose(); } catch (Exception ignored) {}
             }
@@ -371,5 +385,5 @@ public class BrowserSessionManager {
     public record ExecuteRequest(String method, String url, Map<String, String> headers, String body) {}
 
     public record ExecutedResponse(int status, String statusText, Map<String, String> headers,
-                                   String body, int rawBodyLength) {}
+                                   String body, int rawBodyLength, String finalUrl) {}
 }
