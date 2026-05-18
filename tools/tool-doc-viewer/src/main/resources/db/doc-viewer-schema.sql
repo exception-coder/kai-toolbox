@@ -38,3 +38,15 @@ CREATE TABLE IF NOT EXISTS doc_file_cache (
     content      TEXT,
     cached_at    INTEGER NOT NULL
 );
+
+-- 本地 markdown 目录源：记录用户允许的根目录绝对路径，文件不入库，直读磁盘
+CREATE TABLE IF NOT EXISTS local_doc_source (
+    id                 TEXT PRIMARY KEY,
+    alias              TEXT NOT NULL,
+    root_path          TEXT NOT NULL,
+    last_visited_at    INTEGER NOT NULL,
+    created_at         INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_local_doc_source_root
+    ON local_doc_source(root_path);
