@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Play, Power, Search, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { useConfirm } from '@/components/ui/confirm-dialog'
 import { useClaudeSessions, useDeleteClaudeSession } from '../hooks/useClaudeSessions'
 import type { ClaudeSessionView } from '../api'
 
@@ -33,6 +34,7 @@ function formatRelative(ts: number): string {
 export function ClaudeSessionList({ onLaunch }: ClaudeSessionListProps) {
   const { data, isLoading } = useClaudeSessions()
   const del = useDeleteClaudeSession()
+  const confirm = useConfirm()
   const [query, setQuery] = useState('')
 
   const sessions = data ?? []
@@ -62,13 +64,18 @@ export function ClaudeSessionList({ onLaunch }: ClaudeSessionListProps) {
     )
   }
 
-  const handleDelete = (s: ClaudeSessionView) => {
+  const handleDelete = async (s: ClaudeSessionView) => {
     const live = !!s.liveSessionId
     const label = s.title || shortPath(s.cwd)
-    const msg = live
-      ? `「${label}」当前 PTY 还在运行，断开后 claude 进程会被结束，确认？`
-      : `删除「${label}」的记录？`
-    if (!window.confirm(msg)) return
+    const ok = await confirm({
+      title: live ? '断开并删除' : '删除记录',
+      description: live
+        ? `「${label}」当前 PTY 还在运行，断开后 claude 进程会被结束，确认？`
+        : `删除「${label}」的记录？`,
+      variant: 'destructive',
+      confirmText: live ? '断开删除' : '删除',
+    })
+    if (!ok) return
     del.mutate(s.id)
   }
 

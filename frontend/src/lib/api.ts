@@ -99,6 +99,66 @@ export function subscribeSse(path: string, handlers: SseHandlers, extraEvents: s
   return () => es.close()
 }
 
+/**
+ * POST 流式 SSE：EventSource 不支持 POST 也不支持自定义 body，
+ * 所以用 fetch + ReadableStream 自己解 `event: xxx\ndata: ...\n\n` 帧。
+ *
+ * 返回 abort 函数；调用 abort 会中断 fetch、后端那侧的 SseEmitter 也会因连接断开而退出。
+ */
+export function subscribeSsePost(
+  path: string,
+  body: unknown,
+  handlers: SseHandlers,
+): () => void {
+  const ctl = new AbortController()
+  ;(async () => {
+    try {
+      const res = await fetch(API_BASE + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+        body: JSON.stringify(body),
+        signal: ctl.signal,
+      })
+      if (!res.ok || !res.body) {
+        handlers.onError?.(new Error(`SSE 启动失败: HTTP ${res.status}`))
+        return
+      }
+      handlers.onOpen?.()
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder('utf-8')
+      let buffer = ''
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        // SSE 帧以双换行分隔
+        let idx: number
+        while ((idx = buffer.indexOf('\n\n')) >= 0) {
+          const frame = buffer.slice(0, idx)
+          buffer = buffer.slice(idx + 2)
+          let eventName = 'message'
+          const dataLines: string[] = []
+          for (const line of frame.split('\n')) {
+            if (line.startsWith('event:')) eventName = line.slice(6).trim()
+            else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart())
+            // 忽略 id: retry: 行
+          }
+          if (dataLines.length === 0) continue
+          const raw = dataLines.join('\n')
+          let parsed: unknown = raw
+          try { parsed = JSON.parse(raw) } catch { /* 保留字符串 */ }
+          handlers.onEvent?.(eventName, parsed)
+        }
+      }
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError') {
+        handlers.onError?.(e instanceof Error ? e : new Error(String(e)))
+      }
+    }
+  })()
+  return () => ctl.abort()
+}
+
 function mockSubscribeSse(path: string, handlers: SseHandlers): () => void {
   const matched = matchSse(path)
   if (!matched) {

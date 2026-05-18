@@ -15,7 +15,8 @@ export function Sidebar({ features, collapsed }: SidebarProps) {
   return (
     <aside
       className={cn(
-        'flex flex-col border-r bg-[var(--color-sidebar)] text-[var(--color-sidebar-foreground)] transition-[width] duration-200',
+        // h-full 保证移动端 Sheet 里 aside 撑满抽屉高度，否则下方 nav 的 overflow-y-auto 失去参照系，菜单超出视口就既看不到也滑不动
+        'flex h-full flex-col border-r bg-[var(--color-sidebar)] text-[var(--color-sidebar-foreground)] transition-[width] duration-200',
         collapsed ? 'w-16' : 'w-60'
       )}
     >

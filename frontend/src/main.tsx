@@ -6,6 +6,7 @@ import './index.css'
 import './lib/mock/loader'
 import App from './App'
 import { ConfirmProvider } from '@/components/ui/confirm-dialog'
+import { PromptProvider } from '@/components/ui/prompt-dialog'
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -27,7 +28,9 @@ createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <ConfirmProvider>
-          <App />
+          <PromptProvider>
+            <App />
+          </PromptProvider>
         </ConfirmProvider>
       </BrowserRouter>
     </QueryClientProvider>
