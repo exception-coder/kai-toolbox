@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useIsDarkTheme } from '@/lib/useIsDarkTheme'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Bookmark, CheckCircle2, Circle, Copy, Disc3, Download, FolderOpen, Globe, KeyRound, Loader2,
-  Play, Plus, Power, RefreshCcw, Square, Trash2, Upload, XCircle,
+  Pencil, Play, Plus, Power, RefreshCcw, Save, Square, Trash2, Upload, Variable, XCircle,
 } from 'lucide-react'
 import CodeMirror from '@uiw/react-codemirror'
 import { EditorView } from '@codemirror/view'
@@ -13,13 +14,23 @@ import { html } from '@codemirror/lang-html'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { Segmented } from '@/components/ui/segmented'
 import { ApiError } from '@/lib/api'
+import { useConfirm } from '@/components/ui/confirm-dialog'
+import { usePrompt } from '@/components/ui/prompt-dialog'
 import {
   captureStatus, clearStorage, closeSession, createSession, deleteSession, deleteSavedRequest,
-  executeRequest, listSavedRequests, listSessions, openSession, saveRequest, saveStorage,
-  startCapture, stopCapture,
+  deleteVar, executeRequest, extractToSaved, listSavedRequests, listSessions, listVars, openSession,
+  saveRequest, saveStorage, startCapture, stopCapture, updateSavedRequest, upsertVar,
 } from '../api'
-import type { CaptureStatusView, ExecutedResponse, SavedRequestView, SessionView } from '../types'
+import type {
+  CaptureStatusView, ExecuteRequestBody, ExecutedResponse, OutputSpec, SavedRequestView, SessionView,
+  VarView,
+} from '../types'
+import { evalJsonPath, stringifyForVar } from '../utils/jsonpath'
+import { ForeachPanel } from '../components/ForeachPanel'
+import { PipelinePanel } from '../components/PipelinePanel'
+import { OutputsEditor } from '../components/OutputsEditor'
 
 const SESSIONS_KEY = ['browser-request', 'sessions'] as const
 
@@ -157,6 +168,7 @@ function SessionList({
 
 function SessionDetail({ session }: { session: SessionView }) {
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const refresh = () => qc.invalidateQueries({ queryKey: SESSIONS_KEY })
 
   const openMut = useMutation({ mutationFn: () => openSession(session.id), onSuccess: refresh })
@@ -168,6 +180,9 @@ function SessionDetail({ session }: { session: SessionView }) {
   // 父组件持有「待载入到编辑器」的快照，点击历史条目时更新；
   // RequestExecutor 用 useEffect 监听这个 prop 来同步内部 state。
   const [initial, setInitial] = useState<SavedRequestView | null>(null)
+  // RequestExecutor 把当前编辑器内容/最近响应实时同步上来，供「批量执行」面板复用。
+  const [currentRequest, setCurrentRequest] = useState<ExecuteRequestBody | null>(null)
+  const [lastResponseBody, setLastResponseBody] = useState<string | null>(null)
 
   return (
     <div className="space-y-4">
@@ -192,8 +207,14 @@ function SessionDetail({ session }: { session: SessionView }) {
           </div>
           <Button
             size="sm" variant="destructive"
-            onClick={() => {
-              if (confirm(`删除会话「${session.name}」？登录态文件会一并清掉。`)) delMut.mutate()
+            onClick={async () => {
+              const ok = await confirm({
+                title: '删除会话',
+                description: `确认删除会话「${session.name}」？登录态文件会一并清掉，不可恢复。`,
+                variant: 'destructive',
+                confirmText: '删除',
+              })
+              if (ok) delMut.mutate()
             }}
             disabled={delMut.isPending}
           >
@@ -225,9 +246,81 @@ function SessionDetail({ session }: { session: SessionView }) {
         {clearMut.error && <ErrorLine err={clearMut.error} />}
       </div>
 
-      <JsCapturePanel sessionId={session.id} sessionActive={session.active} />
-      <SavedRequestPanel sessionId={session.id} onLoad={setInitial} />
-      <RequestExecutor session={session} initial={initial} />
+      <SessionTabs
+        session={session}
+        initial={initial}
+        setInitial={setInitial}
+        setCurrentRequest={setCurrentRequest}
+        setLastResponseBody={setLastResponseBody}
+        currentRequest={currentRequest}
+        lastResponseBody={lastResponseBody}
+      />
+    </div>
+  )
+}
+
+// ── 会话内 Tab 切换器 ───────────────────────────────────────────────────────
+
+type SessionTabKey = 'request' | 'pipeline' | 'capture'
+
+const SESSION_TAB_OPTIONS = [
+  { value: 'request' as const,  label: '请求 / 变量' },
+  { value: 'pipeline' as const, label: '批量 / 编排' },
+  { value: 'capture' as const,  label: 'JS 捕获' },
+]
+
+/**
+ * 各 Tab 用 `hidden` 切换显示而非条件渲染——保留所有子组件 mount，避免切走再回来
+ * 丢失 RequestExecutor 的草稿、运行中的 PipelineRunView 进度等内部 state。
+ */
+function SessionTabs({
+  session, initial, setInitial, setCurrentRequest, setLastResponseBody,
+  currentRequest, lastResponseBody,
+}: {
+  session: SessionView
+  initial: SavedRequestView | null
+  setInitial: (v: SavedRequestView | null) => void
+  setCurrentRequest: (v: ExecuteRequestBody | null) => void
+  setLastResponseBody: (v: string | null) => void
+  currentRequest: ExecuteRequestBody | null
+  lastResponseBody: string | null
+}) {
+  const [tab, setTab] = useState<SessionTabKey>('request')
+  return (
+    <div className="space-y-4">
+      <div className="sticky top-0 z-10 -mx-1 flex items-center gap-2 bg-[var(--color-background)]/95 px-1 py-1 backdrop-blur">
+        <Segmented<SessionTabKey>
+          value={tab}
+          onChange={setTab}
+          options={SESSION_TAB_OPTIONS}
+          size="md"
+        />
+      </div>
+
+      <div hidden={tab !== 'request'} className="space-y-4">
+        <SavedRequestPanel sessionId={session.id} onLoad={setInitial} />
+        <RequestExecutor
+          session={session}
+          initial={initial}
+          onRequestChange={setCurrentRequest}
+          onResponseChange={setLastResponseBody}
+        />
+        {/* 旧变量池：仅当还有数据时显示，引导用户迁移到 saved 上 */}
+        <LegacyVarsPanel sessionId={session.id} />
+      </div>
+
+      <div hidden={tab !== 'pipeline'} className="space-y-4">
+        <ForeachPanel
+          sessionId={session.id}
+          currentRequest={currentRequest}
+          lastResponseBody={lastResponseBody}
+        />
+        <PipelinePanel sessionId={session.id} />
+      </div>
+
+      <div hidden={tab !== 'capture'}>
+        <JsCapturePanel sessionId={session.id} sessionActive={session.active} />
+      </div>
     </div>
   )
 }
@@ -312,6 +405,209 @@ function JsCapturePanel({
   )
 }
 
+// ── 变量池 ────────────────────────────────────────────────────────────────────
+
+const VARS_KEY = (sid: string) => ['browser-request', 'vars', sid] as const
+
+const VAR_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+function VarsPanel({ sessionId }: { sessionId: string }) {
+  const qc = useQueryClient()
+  const confirm = useConfirm()
+  const promptInput = usePrompt()
+  const { data: vars = [] } = useQuery({
+    queryKey: VARS_KEY(sessionId),
+    queryFn: () => listVars(sessionId),
+  })
+
+  const [adding, setAdding] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newValue, setNewValue] = useState('')
+  const refresh = () => qc.invalidateQueries({ queryKey: VARS_KEY(sessionId) })
+
+  const upsertMut = useMutation({
+    mutationFn: ({ name, value }: { name: string; value: string }) =>
+      upsertVar(sessionId, name, value),
+    onSuccess: refresh,
+  })
+  const delMut = useMutation({
+    mutationFn: (name: string) => deleteVar(sessionId, name),
+    onSuccess: refresh,
+  })
+
+  const submitAdd = () => {
+    if (!VAR_NAME_RE.test(newName)) return
+    upsertMut.mutate({ name: newName, value: newValue }, {
+      onSuccess: () => {
+        setAdding(false); setNewName(''); setNewValue('')
+      },
+    })
+  }
+
+  return (
+    <div className="rounded-xl border bg-[var(--color-card)] p-4">
+      <div className="mb-2 flex items-center gap-2">
+        <Variable className="h-4 w-4" />
+        <div className="text-sm font-medium">变量池</div>
+        <span className="text-xs text-[var(--color-muted-foreground)]">{vars.length} 个</span>
+        <span className="text-xs text-[var(--color-muted-foreground)]">
+          · 在请求里用 <code>{'{{name}}'}</code> 引用
+        </span>
+        <div className="ml-auto">
+          {!adding && (
+            <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
+              <Plus />
+              添加
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {adding && (
+        <div className="mb-2 space-y-2 rounded-md border border-dashed p-2">
+          <div className="flex gap-2">
+            <Input
+              className="w-40"
+              placeholder="变量名 (myToken)"
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              autoFocus
+            />
+            <Input
+              placeholder="值"
+              value={newValue}
+              onChange={e => setNewValue(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') submitAdd() }}
+            />
+          </div>
+          {newName && !VAR_NAME_RE.test(newName) && (
+            <div className="text-xs text-[var(--color-destructive)]">
+              名字只能含字母 / 数字 / 下划线，且不能以数字开头
+            </div>
+          )}
+          <div className="flex gap-2">
+            <Button size="sm" onClick={submitAdd}
+                    disabled={!VAR_NAME_RE.test(newName) || upsertMut.isPending}>
+              <Save />
+              保存
+            </Button>
+            <Button size="sm" variant="ghost"
+                    onClick={() => { setAdding(false); setNewName(''); setNewValue('') }}>
+              取消
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {vars.length === 0 && !adding && (
+        <div className="rounded-md border border-dashed p-3 text-center text-xs text-[var(--color-muted-foreground)]">
+          还没有变量。可以「+ 添加」手动新建，或在响应面板点「提取为变量」从 JSON 字段挑值。
+        </div>
+      )}
+
+      {vars.length > 0 && (
+        <ul className="space-y-1">
+          {vars.map(v => (
+            <li key={v.name}
+                className="flex items-center gap-2 rounded-md border p-2 hover:bg-[var(--color-accent)]">
+              <span className="w-32 shrink-0 truncate font-mono text-xs font-semibold">{v.name}</span>
+              <span className="min-w-0 flex-1 truncate font-mono text-xs text-[var(--color-muted-foreground)]"
+                    title={v.value}>
+                {v.value || '(空)'}
+              </span>
+              <Button
+                size="sm" variant="ghost"
+                title="编辑值"
+                onClick={async () => {
+                  const v2 = await promptInput({
+                    title: `编辑变量 ${v.name}`,
+                    description: '这条变量在请求里以 {{' + v.name + '}} 引用。',
+                    defaultValue: v.value,
+                    confirmText: '保存',
+                    validate: () => null,
+                  })
+                  if (v2 != null) upsertMut.mutate({ name: v.name, value: v2 })
+                }}
+              >
+                <Pencil />
+              </Button>
+              <Button
+                size="sm" variant="ghost"
+                title="删除"
+                onClick={async () => {
+                  const ok = await confirm({
+                    title: '删除变量',
+                    description: `确认删除 {{${v.name}}}？引用它的请求执行时会报错。`,
+                    variant: 'destructive',
+                    confirmText: '删除',
+                  })
+                  if (ok) delMut.mutate(v.name)
+                }}
+              >
+                <Trash2 />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/**
+ * 旧版变量池——历史遗留数据兼容显示。新方案下变量都绑到 SavedRequest 上。
+ * 仅当确实有 legacy 数据时才渲染；用户能删但不能新增（"+ 添加"按钮去掉）。
+ */
+function LegacyVarsPanel({ sessionId }: { sessionId: string }) {
+  const qc = useQueryClient()
+  const confirm = useConfirm()
+  const { data: vars = [] } = useQuery({
+    queryKey: VARS_KEY(sessionId),
+    queryFn: () => listVars(sessionId),
+  })
+  const delMut = useMutation({
+    mutationFn: (name: string) => deleteVar(sessionId, name),
+    onSuccess: () => qc.invalidateQueries({ queryKey: VARS_KEY(sessionId) }),
+  })
+  if (vars.length === 0) return null
+  return (
+    <div className="rounded-xl border border-dashed bg-[var(--color-card)] p-4">
+      <div className="mb-2 flex items-center gap-2">
+        <Variable className="h-4 w-4" />
+        <div className="text-sm font-medium">会话变量（旧）</div>
+        <span className="text-xs text-[var(--color-muted-foreground)]">
+          {vars.length} 条 · 历史遗留——请改用「已保存请求」的输出配置
+        </span>
+      </div>
+      <ul className="space-y-1">
+        {vars.map(v => (
+          <li key={v.name}
+              className="flex items-center gap-2 rounded-md border p-2">
+            <span className="w-32 shrink-0 truncate font-mono text-xs font-semibold">{v.name}</span>
+            <span className="min-w-0 flex-1 truncate font-mono text-xs text-[var(--color-muted-foreground)]"
+                  title={v.value}>
+              {v.value || '(空)'}
+            </span>
+            <Button
+              size="sm" variant="ghost" title="删除"
+              onClick={async () => {
+                const ok = await confirm({
+                  title: '删除遗留变量',
+                  description: `确认删除 {{${v.name}}}？引用它的请求执行时会报错。`,
+                  variant: 'destructive', confirmText: '删除',
+                })
+                if (ok) delMut.mutate(v.name)
+              }}
+            >
+              <Trash2 />
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 // ── 已保存的请求 ─────────────────────────────────────────────────────────────
 
 const SAVED_KEY = (sid: string) => ['browser-request', 'saved', sid] as const
@@ -323,6 +619,7 @@ function SavedRequestPanel({
   onLoad: (req: SavedRequestView) => void
 }) {
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const { data: saved = [], isFetching } = useQuery({
     queryKey: SAVED_KEY(sessionId),
     queryFn: () => listSavedRequests(sessionId),
@@ -330,7 +627,16 @@ function SavedRequestPanel({
   const delMut = useMutation({
     mutationFn: (id: string) => deleteSavedRequest(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: SAVED_KEY(sessionId) }),
+    onError: async e => {
+      await confirm({
+        title: '删除失败',
+        description: (e as Error).message,
+        confirmText: '知道了',
+        cancelText: '关闭',
+      })
+    },
   })
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   return (
     <div className="rounded-xl border bg-[var(--color-card)] p-4">
@@ -349,32 +655,130 @@ function SavedRequestPanel({
       ) : (
         <ul className="space-y-1">
           {saved.map(r => (
-            <li key={r.id} className="flex items-center gap-2 rounded-md border p-2 hover:bg-[var(--color-accent)]">
-              <button
-                onClick={() => onLoad(r)}
-                className="min-w-0 flex-1 text-left"
-                title="点击载入到下方编辑器"
-              >
-                <div className="truncate text-sm font-medium">{r.name}</div>
-                <div className="truncate text-xs text-[var(--color-muted-foreground)]">
-                  {summarize(r)}
-                </div>
-              </button>
-              <Button size="sm" variant="ghost" onClick={() => onLoad(r)} title="载入到编辑器">
-                <Upload />
-              </Button>
-              <Button
-                size="sm" variant="ghost"
-                onClick={() => { if (confirm(`删除「${r.name}」？`)) delMut.mutate(r.id) }}
-                disabled={delMut.isPending}
-                title="删除"
-              >
-                <Trash2 />
-              </Button>
+            <li key={r.id} className="rounded-md border hover:bg-[var(--color-accent)]">
+              <div className="flex items-center gap-2 p-2">
+                <button
+                  onClick={() => onLoad(r)}
+                  className="min-w-0 flex-1 text-left"
+                  title="点击载入到下方编辑器"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-sm font-medium">{r.name}</span>
+                    {r.outputs && r.outputs.length > 0 && (
+                      <Badge variant="outline" className="text-[10px]">
+                        {r.outputs.length} 个输出
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="truncate text-xs text-[var(--color-muted-foreground)]">
+                    {summarize(r)}
+                  </div>
+                </button>
+                <Button size="sm" variant="ghost"
+                        onClick={() => setExpandedId(expandedId === r.id ? null : r.id)}
+                        title="编辑输出配置">
+                  <Pencil />
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => onLoad(r)} title="载入到编辑器">
+                  <Upload />
+                </Button>
+                <Button
+                  size="sm" variant="ghost"
+                  onClick={async () => {
+                    const ok = await confirm({
+                      title: '删除收藏',
+                      description: `确认删除「${r.name}」？`,
+                      variant: 'destructive',
+                      confirmText: '删除',
+                    })
+                    if (ok) delMut.mutate(r.id)
+                  }}
+                  disabled={delMut.isPending}
+                  title="删除"
+                >
+                  <Trash2 />
+                </Button>
+              </div>
+              {/* 已配的输出 + 最近一次提取值 —— 即使未展开也直接显示，让"这条请求的出参"一目了然 */}
+              {r.outputs && r.outputs.length > 0 && (
+                <ul className="space-y-0.5 border-t bg-[var(--color-muted)]/30 px-2 py-1.5">
+                  {r.outputs.map(o => {
+                    const v = r.lastExtractedValues?.[o.name]
+                    return (
+                      <li key={o.name} className="flex items-baseline gap-2 text-xs">
+                        <code className="w-24 shrink-0 truncate font-mono font-semibold">{o.name}</code>
+                        <code className="w-32 shrink-0 truncate text-[var(--color-muted-foreground)]" title={o.jsonPath}>
+                          {o.jsonPath}
+                        </code>
+                        <span className="min-w-0 flex-1 truncate font-mono" title={v}>
+                          {v != null ? (v.length > 60 ? v.slice(0, 60) + '…' : v) : (
+                            <span className="text-[var(--color-muted-foreground)]">（尚未提取过）</span>
+                          )}
+                        </span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+              {expandedId === r.id && (
+                <SavedRequestOutputsEditor
+                  sessionId={sessionId}
+                  saved={r}
+                  onDone={() => setExpandedId(null)}
+                />
+              )}
             </li>
           ))}
         </ul>
       )}
+    </div>
+  )
+}
+
+/**
+ * 已保存请求的 outputs 内联编辑器——展开后显示，编辑完成调 updateSavedRequest 落库。
+ * 用「本地草稿 + 显式保存按钮」而非每键即写，避免每次输入都发请求。
+ */
+function SavedRequestOutputsEditor({
+  sessionId, saved, onDone,
+}: {
+  sessionId: string
+  saved: SavedRequestView
+  onDone: () => void
+}) {
+  const qc = useQueryClient()
+  const [draft, setDraft] = useState<OutputSpec[]>(saved.outputs ?? [])
+  const saveMut = useMutation({
+    mutationFn: () => updateSavedRequest(saved.id, {
+      name: saved.name,
+      curl: saved.curl ?? undefined,
+      method: saved.method ?? undefined,
+      url: saved.url ?? undefined,
+      headers: saved.headers,
+      body: saved.body ?? undefined,
+      outputs: draft,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: SAVED_KEY(sessionId) })
+      onDone()
+    },
+  })
+
+  return (
+    <div className="space-y-2 border-t bg-[var(--color-background)] p-3">
+      <OutputsEditor
+        outputs={draft}
+        onChange={setDraft}
+        hint={<>把响应里的字段存为变量；后续编排链 import 这条请求时会一起拷过去</>}
+        responseBody={saved.lastResponseBody}
+      />
+      <div className="flex justify-end gap-2">
+        <Button size="sm" variant="ghost" onClick={onDone}>取消</Button>
+        <Button size="sm" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+          {saveMut.isPending ? <Loader2 className="animate-spin" /> : <Save />}
+          保存输出
+        </Button>
+      </div>
     </div>
   )
 }
@@ -413,12 +817,17 @@ const SAMPLE = `# 粘贴一个 curl 命令（Chrome DevTools → Network → Cop
 curl 'https://your-site.com/api/me' -H 'Accept: application/json'`
 
 function RequestExecutor({
-  session, initial,
+  session, initial, onRequestChange, onResponseChange,
 }: {
   session: SessionView
   initial: SavedRequestView | null
+  /** 编辑器内容变化时回调，父组件用于「批量执行」面板拿当前模板。 */
+  onRequestChange?: (req: ExecuteRequestBody) => void
+  /** 响应到达 / 清空时回调，给「批量执行」面板拿 "最近响应" 作循环源。 */
+  onResponseChange?: (body: string | null) => void
 }) {
   const qc = useQueryClient()
+  const promptInput = usePrompt()
   const [mode, setMode] = useState<'curl' | 'raw'>('curl')
   const [curl, setCurl] = useState('')
   const [method, setMethod] = useState('GET')
@@ -428,6 +837,20 @@ function RequestExecutor({
   const [resp, setResp] = useState<ExecutedResponse | null>(null)
   // 当前编辑器内容对应的已保存条目，用于「另存为新条目」时给出默认名字。
   const [loadedFrom, setLoadedFrom] = useState<SavedRequestView | null>(null)
+
+  // 把当前编辑器内容/响应实时同步给父组件，便于批量执行面板复用
+  useEffect(() => {
+    if (!onRequestChange) return
+    onRequestChange(
+      mode === 'curl'
+        ? { curl }
+        : { method, url, headers: parseHeaders(headersText), body: body || undefined },
+    )
+  }, [mode, curl, method, url, headersText, body, onRequestChange])
+
+  useEffect(() => {
+    onResponseChange?.(resp?.body ?? null)
+  }, [resp, onResponseChange])
 
   // 把外部传入的「待载入」快照同步到内部 state。
   // 比较 id 防止用户编辑后又被同一份快照覆盖。
@@ -463,15 +886,24 @@ function RequestExecutor({
   })
 
   const saveMut = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const defaultName = mode === 'curl'
         ? (curl.split(/\s+/).find(s => s.startsWith('http')) ?? 'cURL 请求')
         : `${method} ${url}`
-      const name = prompt('保存为：', loadedFrom?.name ?? defaultName)
-      if (name == null) return Promise.reject(new Error('__cancelled__'))
+      const name = await promptInput({
+        title: '保存请求',
+        description: '给这条请求起个好认的名字，下次点收藏列表就能一键载入。',
+        placeholder: defaultName,
+        defaultValue: loadedFrom?.name ?? defaultName,
+        confirmText: '保存',
+        validate: v => v.length === 0 ? '名字不能为空' : v.length > 80 ? '名字过长（≤ 80 字符）' : null,
+      })
+      if (name == null) throw new Error('__cancelled__')
+      // 把当前响应一并送给后端作为「上次响应」样本，便于编排时配 outputs 参考
+      const lastResponseBody = resp?.body || undefined
       const payload = mode === 'curl'
-        ? { name, curl }
-        : { name, method, url, headers: parseHeaders(headersText), body: body || undefined }
+        ? { name, curl, lastResponseBody }
+        : { name, method, url, headers: parseHeaders(headersText), body: body || undefined, lastResponseBody }
       return saveRequest(session.id, payload)
     },
     onSuccess: (created) => {
@@ -564,9 +996,58 @@ function RequestExecutor({
           && <ErrorLine err={saveMut.error} />}
       </div>
 
-      {resp && <ResponseView resp={resp} />}
+      {resp && (
+        <ResponseView
+          resp={resp}
+          sessionId={session.id}
+          loadedFromSavedId={loadedFrom?.id ?? null}
+          onStripConditionalHeaders={() => {
+            if (mode === 'curl') {
+              const next = stripConditionalHeadersFromCurl(curl)
+              if (next === curl) return
+              setCurl(next)
+              setTimeout(() => execMut.mutate(), 0)
+            } else {
+              const next = stripConditionalHeadersFromText(headersText)
+              if (next === headersText) return
+              setHeadersText(next)
+              setTimeout(() => execMut.mutate(), 0)
+            }
+          }}
+        />
+      )}
     </div>
   )
+}
+
+/**
+ * 从 cURL 文本里删除条件请求头行。识别格式：
+ *   -H 'If-None-Match: ...' \      (bash 风格，单/双引号)
+ *   --header "If-Modified-Since: ..."
+ *   -H If-None-Match:...           (不带引号也兼容)
+ */
+function stripConditionalHeadersFromCurl(curl: string): string {
+  const targets = new Set(['if-none-match', 'if-modified-since', 'if-match', 'if-unmodified-since', 'if-range'])
+  // 兼容 windows ^ 续行 / posix \ 续行 —— 简化策略：按物理行切，不动续行符
+  const lines = curl.split('\n')
+  const kept = lines.filter(line => {
+    const m = line.match(/^\s*(?:-H|--header)\s+['"]?\s*([^:\s'"]+)\s*:/i)
+    if (!m) return true
+    return !targets.has(m[1].toLowerCase())
+  })
+  return kept.join('\n')
+}
+
+/** 从「结构化」模式的 headers 文本框删除条件请求头。 */
+function stripConditionalHeadersFromText(text: string): string {
+  const targets = new Set(['if-none-match', 'if-modified-since', 'if-match', 'if-unmodified-since', 'if-range'])
+  return text.split('\n').filter(line => {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#')) return true
+    const idx = trimmed.indexOf(':')
+    if (idx <= 0) return true
+    return !targets.has(trimmed.slice(0, idx).trim().toLowerCase())
+  }).join('\n')
 }
 
 function parseHeaders(text: string): Record<string, string> {
@@ -588,28 +1069,23 @@ const PRETTY_MAX_BYTES = 8 * 1024 * 1024
 /** 完全放弃渲染的体积上限，超过则只给下载/复制按钮。 */
 const RENDER_GIVEUP_BYTES = 30 * 1024 * 1024
 
-/** 订阅 <html> 上的 dark 类切换，让 CodeMirror 主题跟随项目主题。 */
-function useIsDarkTheme(): boolean {
-  const [dark, setDark] = useState(
-    () => typeof document !== 'undefined' && document.documentElement.classList.contains('dark')
-  )
-  useEffect(() => {
-    const obs = new MutationObserver(() => {
-      setDark(document.documentElement.classList.contains('dark'))
-    })
-    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
-    return () => obs.disconnect()
-  }, [])
-  return dark
-}
-
 /** 字号对齐项目其他 pre 块的 12px。 */
 const cmFontTheme = EditorView.theme({
   '&': { fontSize: '12px' },
   '.cm-content': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' },
 })
 
-function ResponseView({ resp }: { resp: ExecutedResponse }) {
+function ResponseView({
+  resp, sessionId, loadedFromSavedId, onStripConditionalHeaders,
+}: {
+  resp: ExecutedResponse
+  sessionId: string
+  /** 当前编辑器关联的已保存请求 id，用于「提取为变量」弹窗默认目标 */
+  loadedFromSavedId: string | null
+  /** 点击「移除条件头并重发」时的回调（由 RequestExecutor 注入）。 */
+  onStripConditionalHeaders?: () => void
+}) {
+  const [extractOpen, setExtractOpen] = useState(false)
   const dark = useIsDarkTheme()
   const headerLookup = useMemo(() => {
     const m: Record<string, string> = {}
@@ -675,6 +1151,11 @@ function ResponseView({ resp }: { resp: ExecutedResponse }) {
     navigator.clipboard?.writeText(resp.body ?? '').catch(() => { /* ignore */ })
   }
 
+  const locationHeader = headerLookup['location']
+  const is304 = resp.status === 304
+  const isRedirect = resp.status >= 300 && resp.status < 400 && !is304
+  const wasFollowed = resp.finalUrl && resp.finalUrl !== headerLookup['__request_url__']
+
   return (
     <div className="mt-4 space-y-2 rounded-md border bg-[var(--color-background)] p-3">
       <div className="flex items-center gap-2 text-sm">
@@ -685,6 +1166,10 @@ function ResponseView({ resp }: { resp: ExecutedResponse }) {
           {!highlightOn && !tooLargeToRender && ' · 关闭高亮（大文本保护）'}
         </span>
         <div className="ml-auto flex gap-1">
+          <Button size="sm" variant="ghost" onClick={() => setExtractOpen(true)}
+                  title="从响应里提取字段存到变量池">
+            <Variable />
+          </Button>
           <Button size="sm" variant="ghost" onClick={copy} title="复制完整响应体">
             <Copy />
           </Button>
@@ -693,6 +1178,43 @@ function ResponseView({ resp }: { resp: ExecutedResponse }) {
           </Button>
         </div>
       </div>
+
+      {extractOpen && (
+        <ExtractVarDialog
+          sessionId={sessionId}
+          body={resp.body}
+          loadedFromSavedId={loadedFromSavedId}
+          onClose={() => setExtractOpen(false)}
+        />
+      )}
+
+      {is304 && (
+        <div className="space-y-2 rounded border border-blue-500/40 bg-blue-500/10 p-2 text-xs">
+          <div>
+            <strong>304 Not Modified</strong>：服务端判定资源未变化，按 HTTP 协议响应体为空。
+            常见原因——请求头里带了 <code>If-None-Match</code> / <code>If-Modified-Since</code> 等条件头。
+          </div>
+          {onStripConditionalHeaders && (
+            <Button size="sm" variant="outline" onClick={onStripConditionalHeaders}>
+              <Play />
+              移除条件头并重发
+            </Button>
+          )}
+        </div>
+      )}
+      {isRedirect && (
+        <div className="rounded border border-yellow-500/40 bg-yellow-500/10 p-2 text-xs">
+          <strong>{resp.status} 重定向</strong>：服务端要把你导向{locationHeader
+            ? <> <code className="break-all">{locationHeader}</code></>
+            : ' 其他地址'}。
+          {wasFollowed ? '本工具已自动跟随到最终地址（见下方）。' : '未自动跟随——可能 Location 缺失或为不安全协议。'}
+        </div>
+      )}
+      {resp.finalUrl && (
+        <div className="break-all text-xs text-[var(--color-muted-foreground)]">
+          → 最终响应来自：<span className="font-mono">{resp.finalUrl}</span>
+        </div>
+      )}
       <details>
         <summary className="cursor-pointer text-xs text-[var(--color-muted-foreground)]">
           响应头（{Object.keys(resp.headers).length}）
@@ -728,6 +1250,229 @@ function ResponseView({ resp }: { resp: ExecutedResponse }) {
           (空响应体)
         </div>
       )}
+    </div>
+  )
+}
+
+// ── 提取为变量的 Dialog（绑到 SavedRequest）──────────────────────────────────
+
+function ExtractVarDialog({
+  sessionId, body, loadedFromSavedId, onClose,
+}: {
+  sessionId: string
+  body: string
+  /** 当前 RequestExecutor 关联的已保存请求 id（用户最近 load 那条），作为默认目标 saved */
+  loadedFromSavedId: string | null
+  onClose: () => void
+}) {
+  const qc = useQueryClient()
+  const { data: savedList = [] } = useQuery({
+    queryKey: SAVED_KEY(sessionId),
+    queryFn: () => listSavedRequests(sessionId),
+  })
+
+  const [targetSavedId, setTargetSavedId] = useState<string>(loadedFromSavedId ?? '')
+  const [path, setPath] = useState('$')
+  const [name, setName] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  // savedList 加载完成后如果还没选目标 + 有默认值，就用默认
+  useEffect(() => {
+    if (!targetSavedId && loadedFromSavedId) setTargetSavedId(loadedFromSavedId)
+  }, [loadedFromSavedId, targetSavedId])
+
+  const parsed = useMemo<{ ok: true; data: unknown } | { ok: false; err: string }>(() => {
+    try { return { ok: true, data: JSON.parse(body) } }
+    catch (e) { return { ok: false, err: (e as Error).message } }
+  }, [body])
+
+  const previewValue = useMemo(() => {
+    if (!parsed.ok) return undefined
+    return evalJsonPath(parsed.data, path)
+  }, [parsed, path])
+
+  const previewStr = stringifyForVar(previewValue)
+
+  /**
+   * 下一级可达路径建议：当前 path 求值结果是对象时列出子键，是数组时列出前若干索引。
+   * 不递归——递归会让列表炸开，用户点一下进一层即可。
+   */
+  const suggestions = useMemo<Array<{ path: string; preview: string; isLeaf: boolean }>>(() => {
+    if (previewValue == null || typeof previewValue !== 'object') return []
+    const trimmed = path.trim()
+    const base = trimmed === '' ? '$' : trimmed
+    if (Array.isArray(previewValue)) {
+      const cap = Math.min(previewValue.length, 20)
+      const out: Array<{ path: string; preview: string; isLeaf: boolean }> = []
+      for (let i = 0; i < cap; i++) {
+        const v = previewValue[i]
+        out.push({
+          path: `${base}[${i}]`,
+          preview: stringifyForVar(v).slice(0, 80),
+          isLeaf: v == null || typeof v !== 'object',
+        })
+      }
+      return out
+    }
+    return Object.entries(previewValue).slice(0, 50).map(([k, v]) => ({
+      path: VAR_NAME_RE.test(k) ? `${base}.${k}` : `${base}["${k.replace(/"/g, '\\"')}"]`,
+      preview: stringifyForVar(v).slice(0, 80),
+      isLeaf: v == null || typeof v !== 'object',
+    }))
+  }, [previewValue, path])
+
+  /**
+   * 自动从最后一个 path 段截一个 fallback 变量名（用户没填时方便）。
+   * 例如 path=$.data.token → 'token'；$.data[0].id → 'id'
+   */
+  const suggestedName = useMemo(() => {
+    const m = path.match(/[.[]([A-Za-z_][A-Za-z0-9_]*)\]?$/)
+    return m ? m[1] : ''
+  }, [path])
+
+  const saveMut = useMutation({
+    mutationFn: () => extractToSaved(targetSavedId, {
+      name, jsonPath: path, responseBody: body,
+    }),
+    onSuccess: () => {
+      // saved 数据变了——刷新已保存请求列表
+      qc.invalidateQueries({ queryKey: SAVED_KEY(sessionId) })
+      onClose()
+    },
+    onError: e => setError((e as Error).message),
+  })
+
+  const submit = () => {
+    if (!targetSavedId) {
+      setError('请先选择「目标已保存请求」——变量必须归属某条 saved'); return
+    }
+    if (!VAR_NAME_RE.test(name)) {
+      setError('变量名只能含字母 / 数字 / 下划线，且不能以数字开头'); return
+    }
+    if (previewValue === undefined) {
+      setError('JSONPath 求值结果为空（路径不存在）'); return
+    }
+    setError(null)
+    saveMut.mutate()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+         onClick={onClose}>
+      <div className="w-[min(92vw,560px)] space-y-3 rounded-lg border bg-[var(--color-card)] p-5 shadow-lg"
+           onClick={e => e.stopPropagation()}>
+        <div className="space-y-1">
+          <div className="text-base font-semibold">从响应中提取为输出</div>
+          <div className="text-xs text-[var(--color-muted-foreground)]">
+            变量必须归属某条已保存请求；保存后该 saved 的 outputs 配置 + 提取的值都会更新，
+            编排里写 <code>{'{{name}}'}</code> 即可引用。
+          </div>
+        </div>
+
+        {!parsed.ok && (
+          <div className="rounded border border-yellow-500/40 bg-yellow-500/10 p-2 text-xs">
+            响应不是合法 JSON：{parsed.err}。只能从 JSON 响应提取。
+          </div>
+        )}
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium">目标已保存请求 *</label>
+          {savedList.length === 0 ? (
+            <div className="rounded border border-yellow-500/40 bg-yellow-500/10 p-2 text-xs">
+              当前会话没有已保存请求。请先在响应区点「保存」收藏当前请求，再来提取。
+            </div>
+          ) : (
+            <select
+              className="w-full rounded-md border bg-[var(--color-background)] px-2 py-1 text-sm"
+              value={targetSavedId}
+              onChange={e => setTargetSavedId(e.target.value)}
+            >
+              <option value="">— 选择目标请求 —</option>
+              {savedList.map(s => {
+                const oc = s.outputs?.length ?? 0
+                return (
+                  <option key={s.id} value={s.id}>
+                    {s.name}{oc > 0 ? ` (已配 ${oc} 个输出)` : ''}
+                  </option>
+                )
+              })}
+            </select>
+          )}
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium">JSONPath</label>
+          <Input
+            value={path}
+            onChange={e => setPath(e.target.value)}
+            placeholder="$.data.token"
+            disabled={!parsed.ok}
+            autoFocus
+          />
+          {suggestions.length > 0 && (
+            <div className="rounded border bg-[var(--color-muted)]/40 p-1.5">
+              <div className="mb-1 px-1 text-[10px] uppercase tracking-wide text-[var(--color-muted-foreground)]">
+                下一级（点击补全）
+              </div>
+              <div className="max-h-48 overflow-auto">
+                {suggestions.map(s => (
+                  <button
+                    key={s.path}
+                    type="button"
+                    onClick={() => setPath(s.path)}
+                    className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left hover:bg-[var(--color-accent)]"
+                  >
+                    <code className="shrink-0 font-mono text-xs">{s.path.slice(path.trim().length || 1)}</code>
+                    <span className="min-w-0 flex-1 truncate text-xs text-[var(--color-muted-foreground)]">
+                      {s.preview}
+                    </span>
+                    {s.isLeaf && (
+                      <Badge variant="outline" className="shrink-0">叶子</Badge>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium">当前求值结果</label>
+          <pre className="max-h-32 overflow-auto rounded bg-[var(--color-muted)] p-2 text-xs">
+{previewValue === undefined
+  ? '(undefined — 路径不存在或响应非 JSON)'
+  : previewStr || '(空字符串)'}
+          </pre>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium">变量名</label>
+          <div className="flex gap-2">
+            <Input
+              value={name}
+              onChange={e => { setName(e.target.value); if (error) setError(null) }}
+              onKeyDown={e => { if (e.key === 'Enter') submit() }}
+              placeholder={suggestedName ? `例如 ${suggestedName}` : '例如 token'}
+            />
+            {suggestedName && !name && (
+              <Button size="sm" variant="outline" onClick={() => setName(suggestedName)}
+                      title="用 JSONPath 末尾字段作变量名">
+                用「{suggestedName}」
+              </Button>
+            )}
+          </div>
+          {error && <div className="text-xs text-[var(--color-destructive)]">{error}</div>}
+        </div>
+
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="outline" size="sm" onClick={onClose}>取消</Button>
+          <Button size="sm" onClick={submit}
+                  disabled={!parsed.ok || saveMut.isPending || previewValue === undefined || !name || !targetSavedId}>
+            {saveMut.isPending ? <Loader2 className="animate-spin" /> : <Save />}
+            保存到目标请求
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }
