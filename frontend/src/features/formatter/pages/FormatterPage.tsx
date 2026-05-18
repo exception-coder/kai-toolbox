@@ -20,7 +20,7 @@ export function FormatterPage() {
   const [tab, setTab] = useState<Tab>('json')
 
   return (
-    <div className="mx-auto max-w-5xl space-y-4 p-6">
+    <div className="mx-auto max-w-[1600px] space-y-4 p-6">
       <Card>
         <CardHeader className="space-y-3">
           <div>
