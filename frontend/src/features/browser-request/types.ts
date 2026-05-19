@@ -31,6 +31,8 @@ export interface ExecuteRequestBody {
   url?: string
   headers?: Record<string, string>
   body?: string
+  /** 可选：执行成功后把响应体回写到该 saved 的 lastResponseBody（用作下次编排参考） */
+  linkedSavedId?: string
 }
 
 export interface SavedRequestView {
@@ -100,8 +102,14 @@ export interface PipelineStep {
   source?: ForeachSource
   outputs?: OutputSpec[]
   continueOnError?: boolean
-  /** 每次请求后等待的毫秒数（限流）。null/0 表示不等待。foreach 是 item 间间隔；single 是 step 间间隔。 */
+  /**
+   * 节流间隔（ms）。null/0 表示不等待。
+   *   - single：兼容字段，保留旧语义"本 step 后到下一 step"——新建议用 afterStepMs
+   *   - foreach：item 之间等待
+   */
   requestIntervalMs?: number
+  /** 本 step 完成后、进入下一 step 之前等待的毫秒数。所有 step 类型都生效。 */
+  afterStepMs?: number
 }
 
 export interface PipelineSummary {

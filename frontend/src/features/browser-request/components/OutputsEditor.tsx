@@ -38,13 +38,14 @@ export function OutputsEditor({
         )}
       </div>
 
-      {/* 示例说明：用户经常困惑「变量名」和「JSONPath」分别填什么——给一条具体例子 */}
+      {/* 示例说明：用户经常困惑「变量名」和「JSONPath」分别填什么——给两类典型响应（对象 / 数组根）的例子 */}
       <details className="rounded border border-dashed bg-[var(--color-muted)]/40 p-2 text-xs">
-        <summary className="cursor-pointer font-medium">怎么填？看示例</summary>
-        <div className="mt-2 space-y-2">
+        <summary className="cursor-pointer font-medium">怎么填？看示例（含「响应本身就是数组」的情况）</summary>
+        <div className="mt-2 space-y-3">
+          {/* 场景 A：响应是对象 */}
           <div>
-            假设接口返回：
-            <pre className="mt-1 rounded bg-[var(--color-background)] p-1.5 font-mono text-[11px]">
+            <div className="mb-1 font-medium">A. 响应是对象（最常见）</div>
+            <pre className="rounded bg-[var(--color-background)] p-1.5 font-mono text-[11px]">
 {`{
   "data": {
     "token": "abc123",
@@ -52,33 +53,56 @@ export function OutputsEditor({
   }
 }`}
             </pre>
+            <table className="mt-1 w-full text-[11px]">
+              <thead className="text-[var(--color-muted-foreground)]">
+                <tr>
+                  <th className="text-left">想取的字段</th>
+                  <th className="text-left">变量名</th>
+                  <th className="text-left">JSONPath</th>
+                  <th className="text-left">提取到的值</th>
+                </tr>
+              </thead>
+              <tbody className="font-mono">
+                <tr><td>token</td><td>token</td><td>$.data.token</td><td>"abc123"</td></tr>
+                <tr><td>整个 list 数组</td><td>list</td><td>$.data.list</td><td>[{`{...}, {...}`}]</td></tr>
+                <tr><td>所有 id（扁平）</td><td>ids</td><td>$.data.list[*].id</td><td>[1, 2]</td></tr>
+                <tr><td>第一项的 name</td><td>firstName</td><td>$.data.list[0].name</td><td>"a"</td></tr>
+              </tbody>
+            </table>
           </div>
-          <table className="w-full text-[11px]">
-            <thead className="text-[var(--color-muted-foreground)]">
-              <tr>
-                <th className="text-left">想取的字段</th>
-                <th className="text-left">变量名（自取）</th>
-                <th className="text-left">JSONPath</th>
-                <th className="text-left">提取到的值</th>
-              </tr>
-            </thead>
-            <tbody className="font-mono">
-              <tr>
-                <td>token</td><td>token</td><td>$.data.token</td><td>"abc123"</td>
-              </tr>
-              <tr>
-                <td>整个 list 数组</td><td>list</td><td>$.data.list</td><td>[{`{...}, {...}`}]</td>
-              </tr>
-              <tr>
-                <td>所有 id（扁平）</td><td>ids</td><td>$.data.list[*].id</td><td>[1, 2]</td>
-              </tr>
-              <tr>
-                <td>第一项的 name</td><td>firstName</td><td>$.data.list[0].name</td><td>"a"</td>
-              </tr>
-            </tbody>
-          </table>
+
+          {/* 场景 B：响应顶层就是数组 */}
+          <div>
+            <div className="mb-1 font-medium">B. 响应顶层就是数组（要喂给 foreach 时常见）</div>
+            <pre className="rounded bg-[var(--color-background)] p-1.5 font-mono text-[11px]">
+{`[
+  {"slug":"a","id":1},
+  {"slug":"b","id":2}
+]`}
+            </pre>
+            <table className="mt-1 w-full text-[11px]">
+              <thead className="text-[var(--color-muted-foreground)]">
+                <tr>
+                  <th className="text-left">想取的字段</th>
+                  <th className="text-left">变量名</th>
+                  <th className="text-left">JSONPath</th>
+                  <th className="text-left">提取到的值</th>
+                </tr>
+              </thead>
+              <tbody className="font-mono">
+                <tr><td>整个数组（喂 foreach）</td><td>items</td><td>$</td><td>[{`{...}, {...}`}]</td></tr>
+                <tr><td>所有 slug（扁平）</td><td>slugs</td><td>$[*].slug</td><td>["a","b"]</td></tr>
+                <tr><td>第一项</td><td>first</td><td>$[0]</td><td>{`{"slug":"a","id":1}`}</td></tr>
+                <tr><td>第一项的 slug</td><td>firstSlug</td><td>$[0].slug</td><td>"a"</td></tr>
+              </tbody>
+            </table>
+            <div className="mt-1 text-[var(--color-muted-foreground)]">
+              下一步 foreach：「循环源」填 <code>items</code>，循环体内用 <code>{'{{item.slug}}'}</code> 取每一项的字段。
+            </div>
+          </div>
+
           <div className="text-[var(--color-muted-foreground)]">
-            后续步骤里写 <code>{'{{token}}'}</code> / <code>{'{{ids}}'}</code> 即可引用。
+            后续步骤里写 <code>{'{{token}}'}</code> / <code>{'{{ids}}'}</code> / <code>{'{{items}}'}</code> 即可引用。
             勾「持久化」会同时落 DB（变量池），跨运行可见；不勾只在本次运行内有效。
           </div>
         </div>
@@ -132,7 +156,7 @@ export function OutputsEditor({
           </Button>
         </div>
       ))}
-      <Button size="sm" variant="outline"
+      <Button size="sm" variant="secondary"
               onClick={() => onChange([...outputs, { name: '', jsonPath: '$', persist: false }])}>
         <Plus />
         + 输出

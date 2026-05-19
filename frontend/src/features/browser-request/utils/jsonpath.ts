@@ -95,3 +95,80 @@ export function stringifyForVar(value: unknown): string {
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
   try { return JSON.stringify(value) } catch { return String(value) }
 }
+
+/**
+ * 宽容 JSON 解析：先剥掉后端附加的「[已截断 · 原始 N 字符]」尾标再 parse；
+ * 若仍失败（说明截断点掉在了字符串/对象内部），用括号栈做一次"切到最后一个完整 element 处补尾闭合"的修复。
+ * 这样即使响应被截断，PathPicker 也能基于前面完整的部分让用户选 path。
+ */
+export function tryParseLenient(
+  raw: string,
+): { ok: true; data: unknown; truncated: boolean } | { ok: false; err: string } {
+  if (raw == null || raw === '') return { ok: false, err: '响应体为空' }
+  // 1) 剥后端的 "[已截断 · ...]" 尾巴（不一定有）
+  const noMarker = raw.replace(/\n?\[已截断[^\]]*?\]\s*$/, '')
+  const stripped = noMarker !== raw
+  try { return { ok: true, data: JSON.parse(noMarker), truncated: stripped } } catch { /* fallthrough */ }
+  // 2) 真截断了——修复后再 parse
+  const repaired = repairTruncatedJson(noMarker)
+  if (repaired !== null) {
+    try { return { ok: true, data: JSON.parse(repaired), truncated: true } } catch { /* still bad */ }
+  }
+  return { ok: false, err: '响应被截断，自动修复未成功' }
+}
+
+/**
+ * 修复一段不完整的 JSON。
+ * 策略：只在「刚闭合完一个子树」的位置（} 或 ] 的下一格）切——这是 100% 安全的截断点。
+ * 然后用剩余 stack 给外层补 `}` / `]`。
+ *
+ * 例：`{"a":1,"list":[{"x":1},{"x":2},{"x":3,"y":` →
+ *     找到最后一个安全切点 `{"x":2}` 后那个位置 → 截取 `{"a":1,"list":[{"x":1},{"x":2}` → 补 `]}` → 合法
+ */
+function repairTruncatedJson(s: string): string | null {
+  let inString = false
+  let escape = false
+  const stack: ('{' | '[')[] = []
+  /** 最后一个"刚 pop 完"的 i+1 —— 截到这里前面都是平衡完整的（除最外层栈中未闭合） */
+  let safeEnd = -1
+
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]
+    if (escape) { escape = false; continue }
+    if (inString) {
+      if (c === '\\') { escape = true; continue }
+      if (c === '"') inString = false
+      continue
+    }
+    if (c === '"') { inString = true; continue }
+    if (c === '{' || c === '[') stack.push(c as '{' | '[')
+    else if (c === '}' || c === ']') {
+      stack.pop()
+      safeEnd = i + 1
+    }
+  }
+
+  if (safeEnd < 0) return null
+
+  // 取到最后一个完整子树的右括号后，重新扫一遍算出此时还剩多少未闭合的外层 stack
+  const prefix = s.slice(0, safeEnd)
+  const finalStack: string[] = []
+  let inStr = false, esc = false
+  for (let i = 0; i < prefix.length; i++) {
+    const c = prefix[i]
+    if (esc) { esc = false; continue }
+    if (inStr) {
+      if (c === '\\') { esc = true; continue }
+      if (c === '"') inStr = false
+      continue
+    }
+    if (c === '"') { inStr = true; continue }
+    if (c === '{' || c === '[') finalStack.push(c)
+    else if (c === '}' || c === ']') finalStack.pop()
+  }
+  let result = prefix
+  for (let i = finalStack.length - 1; i >= 0; i--) {
+    result += finalStack[i] === '{' ? '}' : ']'
+  }
+  return result
+}

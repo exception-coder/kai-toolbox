@@ -27,10 +27,10 @@ import type {
   CaptureStatusView, ExecuteRequestBody, ExecutedResponse, OutputSpec, SavedRequestView, SessionView,
   VarView,
 } from '../types'
-import { evalJsonPath, stringifyForVar } from '../utils/jsonpath'
-import { ForeachPanel } from '../components/ForeachPanel'
+import { evalJsonPath, stringifyForVar, tryParseLenient } from '../utils/jsonpath'
 import { PipelinePanel } from '../components/PipelinePanel'
 import { OutputsEditor } from '../components/OutputsEditor'
+import { JsonViewer } from '../components/JsonViewer'
 
 const SESSIONS_KEY = ['browser-request', 'sessions'] as const
 
@@ -180,9 +180,6 @@ function SessionDetail({ session }: { session: SessionView }) {
   // 父组件持有「待载入到编辑器」的快照，点击历史条目时更新；
   // RequestExecutor 用 useEffect 监听这个 prop 来同步内部 state。
   const [initial, setInitial] = useState<SavedRequestView | null>(null)
-  // RequestExecutor 把当前编辑器内容/最近响应实时同步上来，供「批量执行」面板复用。
-  const [currentRequest, setCurrentRequest] = useState<ExecuteRequestBody | null>(null)
-  const [lastResponseBody, setLastResponseBody] = useState<string | null>(null)
 
   return (
     <div className="space-y-4">
@@ -250,10 +247,6 @@ function SessionDetail({ session }: { session: SessionView }) {
         session={session}
         initial={initial}
         setInitial={setInitial}
-        setCurrentRequest={setCurrentRequest}
-        setLastResponseBody={setLastResponseBody}
-        currentRequest={currentRequest}
-        lastResponseBody={lastResponseBody}
       />
     </div>
   )
@@ -265,7 +258,7 @@ type SessionTabKey = 'request' | 'pipeline' | 'capture'
 
 const SESSION_TAB_OPTIONS = [
   { value: 'request' as const,  label: '请求 / 变量' },
-  { value: 'pipeline' as const, label: '批量 / 编排' },
+  { value: 'pipeline' as const, label: '编排' },
   { value: 'capture' as const,  label: 'JS 捕获' },
 ]
 
@@ -274,16 +267,11 @@ const SESSION_TAB_OPTIONS = [
  * 丢失 RequestExecutor 的草稿、运行中的 PipelineRunView 进度等内部 state。
  */
 function SessionTabs({
-  session, initial, setInitial, setCurrentRequest, setLastResponseBody,
-  currentRequest, lastResponseBody,
+  session, initial, setInitial,
 }: {
   session: SessionView
   initial: SavedRequestView | null
   setInitial: (v: SavedRequestView | null) => void
-  setCurrentRequest: (v: ExecuteRequestBody | null) => void
-  setLastResponseBody: (v: string | null) => void
-  currentRequest: ExecuteRequestBody | null
-  lastResponseBody: string | null
 }) {
   const [tab, setTab] = useState<SessionTabKey>('request')
   return (
@@ -299,22 +287,12 @@ function SessionTabs({
 
       <div hidden={tab !== 'request'} className="space-y-4">
         <SavedRequestPanel sessionId={session.id} onLoad={setInitial} />
-        <RequestExecutor
-          session={session}
-          initial={initial}
-          onRequestChange={setCurrentRequest}
-          onResponseChange={setLastResponseBody}
-        />
+        <RequestExecutor session={session} initial={initial} />
         {/* 旧变量池：仅当还有数据时显示，引导用户迁移到 saved 上 */}
         <LegacyVarsPanel sessionId={session.id} />
       </div>
 
       <div hidden={tab !== 'pipeline'} className="space-y-4">
-        <ForeachPanel
-          sessionId={session.id}
-          currentRequest={currentRequest}
-          lastResponseBody={lastResponseBody}
-        />
         <PipelinePanel sessionId={session.id} />
       </div>
 
@@ -817,14 +795,10 @@ const SAMPLE = `# 粘贴一个 curl 命令（Chrome DevTools → Network → Cop
 curl 'https://your-site.com/api/me' -H 'Accept: application/json'`
 
 function RequestExecutor({
-  session, initial, onRequestChange, onResponseChange,
+  session, initial,
 }: {
   session: SessionView
   initial: SavedRequestView | null
-  /** 编辑器内容变化时回调，父组件用于「批量执行」面板拿当前模板。 */
-  onRequestChange?: (req: ExecuteRequestBody) => void
-  /** 响应到达 / 清空时回调，给「批量执行」面板拿 "最近响应" 作循环源。 */
-  onResponseChange?: (body: string | null) => void
 }) {
   const qc = useQueryClient()
   const promptInput = usePrompt()
@@ -837,20 +811,6 @@ function RequestExecutor({
   const [resp, setResp] = useState<ExecutedResponse | null>(null)
   // 当前编辑器内容对应的已保存条目，用于「另存为新条目」时给出默认名字。
   const [loadedFrom, setLoadedFrom] = useState<SavedRequestView | null>(null)
-
-  // 把当前编辑器内容/响应实时同步给父组件，便于批量执行面板复用
-  useEffect(() => {
-    if (!onRequestChange) return
-    onRequestChange(
-      mode === 'curl'
-        ? { curl }
-        : { method, url, headers: parseHeaders(headersText), body: body || undefined },
-    )
-  }, [mode, curl, method, url, headersText, body, onRequestChange])
-
-  useEffect(() => {
-    onResponseChange?.(resp?.body ?? null)
-  }, [resp, onResponseChange])
 
   // 把外部传入的「待载入」快照同步到内部 state。
   // 比较 id 防止用户编辑后又被同一份快照覆盖。
@@ -875,14 +835,22 @@ function RequestExecutor({
 
   const execMut = useMutation({
     mutationFn: () => {
+      // 若当前编辑器是从某条 saved 载入的，把 linkedSavedId 一起送给后端——
+      // 后端执行成功后会把响应体回写到 saved.lastResponseBody，下次编排能直接用做参考样本
+      const linkedSavedId = loadedFrom?.id
       if (mode === 'curl') {
-        return executeRequest(session.id, { curl })
+        return executeRequest(session.id, { curl, linkedSavedId })
       }
       return executeRequest(session.id, {
         method, url, headers: parseHeaders(headersText), body: body || undefined,
+        linkedSavedId,
       })
     },
-    onSuccess: r => setResp(r),
+    onSuccess: r => {
+      setResp(r)
+      // 响应回写到 saved 后,刷新已保存列表让样本/字节数实时更新
+      if (loadedFrom?.id) qc.invalidateQueries({ queryKey: SAVED_KEY(session.id) })
+    },
   })
 
   const saveMut = useMutation({
@@ -1281,10 +1249,8 @@ function ExtractVarDialog({
     if (!targetSavedId && loadedFromSavedId) setTargetSavedId(loadedFromSavedId)
   }, [loadedFromSavedId, targetSavedId])
 
-  const parsed = useMemo<{ ok: true; data: unknown } | { ok: false; err: string }>(() => {
-    try { return { ok: true, data: JSON.parse(body) } }
-    catch (e) { return { ok: false, err: (e as Error).message } }
-  }, [body])
+  // 宽容解析：响应可能被截断，剥后端尾标 + 必要时做括号栈修复，让用户仍能选 path
+  const parsed = useMemo(() => tryParseLenient(body), [body])
 
   const previewValue = useMemo(() => {
     if (!parsed.ok) return undefined
@@ -1374,6 +1340,11 @@ function ExtractVarDialog({
             响应不是合法 JSON：{parsed.err}。只能从 JSON 响应提取。
           </div>
         )}
+        {parsed.ok && parsed.truncated && (
+          <div className="rounded border border-blue-500/40 bg-blue-500/10 p-2 text-xs">
+            响应被截断；已自动修复成最长可解析的前缀。如要看完整内容，请重新执行一次。
+          </div>
+        )}
 
         <div className="space-y-1.5">
           <label className="text-xs font-medium">目标已保存请求 *</label>
@@ -1438,11 +1409,17 @@ function ExtractVarDialog({
 
         <div className="space-y-1.5">
           <label className="text-xs font-medium">当前求值结果</label>
-          <pre className="max-h-32 overflow-auto rounded bg-[var(--color-muted)] p-2 text-xs">
-{previewValue === undefined
-  ? '(undefined — 路径不存在或响应非 JSON)'
-  : previewStr || '(空字符串)'}
-          </pre>
+          {previewValue === undefined ? (
+            <div className="rounded bg-[var(--color-muted)] p-2 text-xs text-[var(--color-muted-foreground)]">
+              (undefined — 路径不存在或响应非 JSON)
+            </div>
+          ) : !previewStr ? (
+            <div className="rounded bg-[var(--color-muted)] p-2 text-xs text-[var(--color-muted-foreground)]">
+              (空字符串)
+            </div>
+          ) : (
+            <JsonViewer value={previewStr} maxHeight="160px" />
+          )}
         </div>
 
         <div className="space-y-1.5">

@@ -25,6 +25,12 @@ import type {
   PipelineStep, SavedRequestView,
 } from '../types'
 import { OutputsEditor } from './OutputsEditor'
+import { KeyValueFieldsEditor, type KvPair } from './KeyValueFieldsEditor'
+import { VarBindableField, type VarOption } from './VarPickerPopover'
+import { JsonTreeEditor, parseJsonBody, serializeJsonBody } from './JsonTreeEditor'
+import { JsonViewer } from './JsonViewer'
+import { parseCurl } from '../utils/curlParser'
+import { parseUrl, serializeUrl, type QueryParam } from '../utils/url'
 
 const PIPELINES_KEY = (sid: string) => ['browser-request', 'pipelines', sid] as const
 const PIPELINE_KEY = (pid: string) => ['browser-request', 'pipeline', pid] as const
@@ -45,8 +51,10 @@ const newStep = (type: 'single' | 'foreach' = 'single'): PipelineStep => ({
   source: type === 'foreach' ? { varName: '', jsonPath: '' } : undefined,
   outputs: [],
   continueOnError: false,
-  // foreach 默认 200ms 间隔避免限流；single 默认 0（单次没必要节流）
+  // foreach 默认 item 间 200ms 防限流；single 不需要 item 间隔
   requestIntervalMs: type === 'foreach' ? 200 : 0,
+  // step 间默认 0（不等待）；用户按需调
+  afterStepMs: 0,
 })
 
 // ── 主组件 ──────────────────────────────────────────────────────────────────
@@ -86,12 +94,27 @@ export function PipelinePanel({ sessionId }: { sessionId: string }) {
   const saveMut = useMutation({
     mutationFn: () => {
       if (!draft) throw new Error('no draft')
+      // 阶段 4 · 硬拒绝：所有 step 如果用 cURL 模式且非空，必须能解析成功
+      const errs: string[] = []
+      draft.steps.forEach((s, i) => {
+        const curl = s.request?.curl
+        // 兼容后端把空字段序列化成 null：用 != null 同时挡掉 null 和 undefined
+        if (curl != null && curl.trim() !== '') {
+          try { parseCurl(curl) } catch (e) {
+            errs.push(`Step #${i + 1}「${s.name}」cURL 解析失败：${(e as Error).message}`)
+          }
+        }
+      })
+      if (errs.length > 0) {
+        throw new Error('保存被阻止：\n' + errs.join('\n'))
+      }
       return updatePipeline(draft.id, draft.name, draft.steps)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: PIPELINES_KEY(sessionId) })
       if (selectedId) qc.invalidateQueries({ queryKey: PIPELINE_KEY(selectedId) })
     },
+    onError: e => alert((e as Error).message),
   })
 
   const createMut = useMutation({
@@ -192,7 +215,7 @@ export function PipelinePanel({ sessionId }: { sessionId: string }) {
             <option key={p.id} value={p.id}>{p.name} ({p.stepCount} 步)</option>
           ))}
         </select>
-        <Button size="sm" variant="outline" onClick={handleCreate}>
+        <Button size="sm" onClick={handleCreate}>
           <Plus />
           新建
         </Button>
@@ -209,13 +232,14 @@ export function PipelinePanel({ sessionId }: { sessionId: string }) {
                 <History />
                 历史
               </Button>
-              <Button size="sm" variant="outline"
+              {/* 有未保存改动时变高亮蓝，提醒用户「记得保存」 */}
+              <Button size="sm" variant={dirty ? 'default' : 'outline'}
                       disabled={!dirty || saveMut.isPending}
                       onClick={() => saveMut.mutate()}>
                 {saveMut.isPending ? <Loader2 className="animate-spin" /> : <Save />}
                 保存草稿
               </Button>
-              <Button size="sm" variant="outline" onClick={() => start(true)}
+              <Button size="sm" variant="secondary" onClick={() => start(true)}
                       disabled={!!running && !running.finished}>
                 <Eye />
                 干跑
@@ -328,27 +352,37 @@ function StepsEditor({
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={steps.map(s => s.id)} strategy={verticalListSortingStrategy}>
           <div className="space-y-2">
-            {steps.map((step, idx) => (
-              <SortableStepItem
-                key={step.id}
-                sessionId={sessionId}
-                step={step}
-                index={idx}
-                expanded={expandedId === step.id}
-                onToggleExpand={() => setExpandedId(expandedId === step.id ? null : step.id)}
-                onChange={s => updateAt(idx, () => s)}
-                onRemove={() => removeAt(idx)}
-              />
-            ))}
+            {steps.map((step, idx) => {
+              // 计算"前置 step.outputs.name"——本 step 可以用 {{name}} 引用它们
+              const precedingOutputNames: string[] = []
+              for (let i = 0; i < idx; i++) {
+                for (const o of (steps[i].outputs ?? [])) {
+                  if (o.name) precedingOutputNames.push(o.name)
+                }
+              }
+              return (
+                <SortableStepItem
+                  key={step.id}
+                  sessionId={sessionId}
+                  step={step}
+                  index={idx}
+                  expanded={expandedId === step.id}
+                  onToggleExpand={() => setExpandedId(expandedId === step.id ? null : step.id)}
+                  onChange={s => updateAt(idx, () => s)}
+                  onRemove={() => removeAt(idx)}
+                  precedingOutputNames={precedingOutputNames}
+                />
+              )
+            })}
           </div>
         </SortableContext>
       </DndContext>
       <div className="flex gap-2">
-        <Button size="sm" variant="outline" onClick={() => addStep('single')}>
+        <Button size="sm" variant="secondary" onClick={() => addStep('single')}>
           <Plus />
           + single
         </Button>
-        <Button size="sm" variant="outline" onClick={() => addStep('foreach')}>
+        <Button size="sm" variant="secondary" onClick={() => addStep('foreach')}>
           <Plus />
           + foreach
         </Button>
@@ -359,7 +393,7 @@ function StepsEditor({
 
 /** 单个可拖拽的 step 卡片。dnd-kit 把 listeners 装到「拖拽把手」上，其他控件正常响应点击。 */
 function SortableStepItem({
-  sessionId, step, index, expanded, onToggleExpand, onChange, onRemove,
+  sessionId, step, index, expanded, onToggleExpand, onChange, onRemove, precedingOutputNames,
 }: {
   sessionId: string
   step: PipelineStep
@@ -368,6 +402,7 @@ function SortableStepItem({
   onToggleExpand: () => void
   onChange: (s: PipelineStep) => void
   onRemove: () => void
+  precedingOutputNames: string[]
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: step.id })
   const style: React.CSSProperties = {
@@ -398,7 +433,14 @@ function SortableStepItem({
           <Trash2 />
         </Button>
       </div>
-      {expanded && <StepEditor sessionId={sessionId} step={step} onChange={onChange} />}
+      {expanded && (
+        <StepEditor
+          sessionId={sessionId}
+          step={step}
+          onChange={onChange}
+          precedingOutputNames={precedingOutputNames}
+        />
+      )}
     </div>
   )
 }
@@ -406,11 +448,13 @@ function SortableStepItem({
 // ── 单个 Step 内部编辑（inline） ─────────────────────────────────────────────
 
 function StepEditor({
-  sessionId, step, onChange,
+  sessionId, step, onChange, precedingOutputNames = [],
 }: {
   sessionId: string
   step: PipelineStep
   onChange: (s: PipelineStep) => void
+  /** 当前 step 之前所有 step 配置的 output 名字（运行时这些会出现在 chain vars 里） */
+  precedingOutputNames?: string[]
 }) {
   const updateRequest = (mut: (r: ExecuteRequestBody) => ExecuteRequestBody) =>
     onChange({ ...step, request: mut(step.request) })
@@ -460,33 +504,141 @@ function StepEditor({
     name: string; outputsCount: number; hasResponse: boolean; at: number
   } | null>(null)
 
-  // curl 字段存在（即使是空字符串）就视为 cURL 模式——切换到 cURL 后用户还没粘内容时也应保持 cURL 视图
-  const isCurl = step.request.curl !== undefined
-  const headersText = useMemo(
-    () => Object.entries(step.request.headers ?? {}).map(([k, v]) => `${k}: ${v}`).join('\n'),
+  // curl 字段存在（即使是空字符串）就视为 cURL 模式——切换到 cURL 后用户还没粘内容时也应保持 cURL 视图。
+  // 用 != null 同时挡掉 undefined 和后端序列化出的 null，避免结构化模式被误判成 cURL 模式
+  const isCurl = step.request.curl != null
+
+  /** 构造该 step 可用的变量选项：会话所有 saved 的 lastExtractedValues + 前置 step.outputs + (foreach 时) item */
+  const varOptions: VarOption[] = useMemo(() => {
+    const opts: VarOption[] = []
+    // 1. 来自 saved 的提取值
+    for (const s of savedList) {
+      const values = s.lastExtractedValues ?? {}
+      for (const [name, value] of Object.entries(values)) {
+        opts.push({
+          ref: `{{${name}}}`,
+          name,
+          preview: value.length > 60 ? value.slice(0, 60) + '…' : value,
+          group: `来自「${s.name}」`,
+        })
+      }
+    }
+    // 2. 前置 step 的 outputs（运行时进 chain vars）
+    for (const name of precedingOutputNames) {
+      opts.push({
+        ref: `{{${name}}}`,
+        name,
+        preview: '（运行时由前置 step 写入）',
+        group: '上游 step outputs',
+      })
+    }
+    // 3. foreach 当前项
+    if (step.type === 'foreach') {
+      opts.push({ ref: '{{item}}', name: 'item', preview: '当前循环项', group: '循环项 item' })
+      opts.push({ ref: '{{item.id}}', name: 'item.id', preview: '常用：item.id', group: '循环项 item' })
+      opts.push({ ref: '{{item.slug}}', name: 'item.slug', preview: '常用：item.slug', group: '循环项 item' })
+      opts.push({ ref: '{{item.name}}', name: 'item.name', preview: '常用：item.name', group: '循环项 item' })
+    }
+    // 4. 旧 session vars
+    for (const v of varsList) {
+      opts.push({
+        ref: `{{${v.name}}}`,
+        name: v.name,
+        preview: v.value.length > 60 ? v.value.slice(0, 60) + '…' : v.value,
+        group: '会话变量（旧）',
+      })
+    }
+    return opts
+  }, [savedList, varsList, precedingOutputNames, step.type])
+
+  /** URL 拆 base+query。serializeUrl 拼回时跳过 {{...}} 不做 URL 编码。 */
+  const parsedUrl = useMemo(() => parseUrl(step.request.url ?? ''), [step.request.url])
+  const setBaseUrl = (base: string) =>
+    updateRequest(r => ({ ...r, url: serializeUrl({ ...parsedUrl, base }) }))
+  const setQuery = (query: QueryParam[]) =>
+    updateRequest(r => ({ ...r, url: serializeUrl({ ...parsedUrl, query }) }))
+
+  /** headers Map ↔ KvPair[] 双向。 */
+  const headerPairs: KvPair[] = useMemo(
+    () => Object.entries(step.request.headers ?? {}).map(([k, v]) => ({ key: k, value: v })),
     [step.request.headers],
   )
+  const setHeaderPairs = (pairs: KvPair[]) => {
+    const headers: Record<string, string> = {}
+    for (const p of pairs) {
+      if (p.key.trim()) headers[p.key] = p.value
+    }
+    updateRequest(r => ({ ...r, headers }))
+  }
+
+  /** 「粘 cURL → 解析填充」一次性操作。失败显示错误，不破坏现有字段。 */
+  const [pasteCurl, setPasteCurl] = useState('')
+  const [parseError, setParseError] = useState<string | null>(null)
+  const handleParseAndFill = () => {
+    if (!pasteCurl.trim()) return
+    try {
+      const parsed = parseCurl(pasteCurl)
+      // 切到结构化模式 + 填充
+      onChange({
+        ...step,
+        request: {
+          method: parsed.method,
+          url: parsed.url,
+          headers: parsed.headers,
+          body: parsed.body,
+        },
+      })
+      setPasteCurl('')
+      setParseError(null)
+    } catch (e) {
+      setParseError((e as Error).message)
+    }
+  }
 
   return (
     <div className="space-y-3 border-t p-3">
-      <div className="grid grid-cols-3 gap-2">
+      <div className={`grid gap-2 ${step.type === 'foreach' ? 'grid-cols-4' : 'grid-cols-3'}`}>
         <label className="text-xs">
           <span className="mb-1 block text-[var(--color-muted-foreground)]">步骤名称</span>
           <Input value={step.name} onChange={e => onChange({ ...step, name: e.target.value })} />
         </label>
+        {step.type === 'foreach' && (
+          <label className="text-xs">
+            <span className="mb-1 block text-[var(--color-muted-foreground)]"
+                  title="foreach 每次 item 之间等待的毫秒数——节流防止服务端限流">
+              循环间隔 (ms) · item 之间
+            </span>
+            <Input
+              type="number"
+              min={0}
+              placeholder="0 = 不等待"
+              value={step.requestIntervalMs ?? 0}
+              onChange={e => {
+                const n = Math.max(0, Number(e.target.value) || 0)
+                onChange({ ...step, requestIntervalMs: n })
+              }}
+            />
+          </label>
+        )}
         <label className="text-xs">
           <span className="mb-1 block text-[var(--color-muted-foreground)]"
-                title={step.type === 'foreach' ? '每次 item 之间等待的毫秒数' : '本 step 结束后到下一 step 之间等待的毫秒数'}>
-            请求间隔 (ms) · {step.type === 'foreach' ? 'item 之间' : 'step 之后'}
+                title="本 step 完成后、进入下一 step 之前的等待毫秒数">
+            步骤间隔 (ms) · 进入下一 step 前
           </span>
           <Input
             type="number"
             min={0}
             placeholder="0 = 不等待"
-            value={step.requestIntervalMs ?? 0}
+            // 兼容旧数据：single step 的 requestIntervalMs 也算 step 间隔，afterStepMs 没设时回退它
+            value={step.afterStepMs ?? (step.type === 'single' ? (step.requestIntervalMs ?? 0) : 0)}
             onChange={e => {
               const n = Math.max(0, Number(e.target.value) || 0)
-              onChange({ ...step, requestIntervalMs: n })
+              // 同时清掉 single 的旧 requestIntervalMs 以免后端先看旧字段（虽然后端已优先 afterStepMs）
+              if (step.type === 'single') {
+                onChange({ ...step, afterStepMs: n, requestIntervalMs: 0 })
+              } else {
+                onChange({ ...step, afterStepMs: n })
+              }
             }}
           />
         </label>
@@ -501,40 +653,53 @@ function StepEditor({
       </div>
 
       {step.type === 'foreach' && (
-        <div className="space-y-1.5">
-          <div className="text-xs font-medium">循环源</div>
+        <div className="space-y-1.5 rounded-md border border-dashed bg-[var(--color-muted)]/30 p-2">
+          <div className="text-xs font-medium">循环源（要遍历哪个数组）</div>
           <div className="flex gap-2">
-            {/* datalist 让 input 既能下拉选已有变量、也能手敲前置 step 的 output 名 */}
-            <input
-              list={`varlist-${step.id}`}
-              className="w-40 rounded-md border bg-[var(--color-background)] px-3 py-1 font-mono text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
-              placeholder="变量名 (docs)"
-              value={step.source?.varName ?? ''}
-              onChange={e => onChange({
-                ...step,
-                source: { varName: e.target.value, jsonPath: step.source?.jsonPath ?? '' },
-              })}
-            />
-            <datalist id={`varlist-${step.id}`}>
-              {varsList.map(v => (
-                <option key={v.name} value={v.name}>
-                  {v.value.length > 40 ? v.value.slice(0, 40) + '…' : v.value}
-                </option>
-              ))}
-            </datalist>
-            <Input
-              className="flex-1 font-mono"
-              placeholder="可选: 二次 JSONPath，如 $.[*].id"
-              value={step.source?.jsonPath ?? ''}
-              onChange={e => onChange({
-                ...step,
-                source: { varName: step.source?.varName ?? '', jsonPath: e.target.value },
-              })}
-            />
+            {/* datalist 把上游 step outputs + 会话变量 都列出来 */}
+            <div className="flex w-44 flex-col gap-0.5">
+              <label className="text-[10px] text-[var(--color-muted-foreground)]">变量名（字面，不带 {`{{}}`}）</label>
+              <input
+                list={`varlist-${step.id}`}
+                className="rounded-md border bg-[var(--color-background)] px-3 py-1 font-mono text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
+                placeholder="如：slugs"
+                value={step.source?.varName ?? ''}
+                onChange={e => onChange({
+                  ...step,
+                  source: { varName: e.target.value, jsonPath: step.source?.jsonPath ?? '' },
+                })}
+              />
+              <datalist id={`varlist-${step.id}`}>
+                {/* 1. 前置 step 的 outputs ——最常用，放最前 */}
+                {precedingOutputNames.map(n => (
+                  <option key={`up-${n}`} value={n}>（上游 step 输出）</option>
+                ))}
+                {/* 2. 会话变量（旧） */}
+                {varsList.map(v => (
+                  <option key={`s-${v.name}`} value={v.name}>
+                    {v.value.length > 40 ? v.value.slice(0, 40) + '…' : v.value}
+                  </option>
+                ))}
+              </datalist>
+            </div>
+            <div className="flex flex-1 flex-col gap-0.5">
+              <label className="text-[10px] text-[var(--color-muted-foreground)]">二次 JSONPath（可选，值已经是数组就留空）</label>
+              <Input
+                className="font-mono"
+                placeholder="留空 / $ / $[*] / $.data[*].id"
+                value={step.source?.jsonPath ?? ''}
+                onChange={e => onChange({
+                  ...step,
+                  source: { varName: step.source?.varName ?? '', jsonPath: e.target.value },
+                })}
+              />
+            </div>
           </div>
-          <div className="text-xs text-[var(--color-muted-foreground)]">
-            可选变量：会话池（{varsList.length} 个）+ 前置 step 的 outputs。
-            用 <code>{'{{item.xxx}}'}</code> 访问当前元素；嵌套数组用 <code>$.[*].field</code> 扁平
+          <div className="text-[11px] text-[var(--color-muted-foreground)]">
+            两个框 <strong>不是模板</strong>，不要写 <code>{'{{slugs}}'}</code>。
+            上一步 output 叫 <code>slugs</code> 就直接填 <code>slugs</code>；它已经是扁平数组就 JSONPath 留空。
+            可选变量：上游 step outputs（{precedingOutputNames.length} 个）+ 会话池（{varsList.length} 个）。
+            循环体内用 <code>{'{{item}}'}</code> / <code>{'{{item.xxx}}'}</code> 取当前元素。
           </div>
         </div>
       )}
@@ -623,39 +788,138 @@ function StepEditor({
           </div>
         )}
         {isCurl ? (
-          <textarea
-            className="min-h-[80px] w-full rounded-md border bg-[var(--color-background)] p-2 font-mono text-xs"
-            value={step.request.curl ?? ''}
-            placeholder="粘贴 cURL"
-            onChange={e => updateRequest(r => ({ ...r, curl: e.target.value }))}
-          />
-        ) : (
+          // cURL 模式：保留 textarea 编辑（兼容已有 step），并提供「解析为结构化」一键转换
           <div className="space-y-1.5">
-            <div className="flex gap-2">
-              <select
-                className="rounded-md border bg-[var(--color-background)] px-2 text-sm"
-                value={step.request.method ?? 'GET'}
-                onChange={e => updateRequest(r => ({ ...r, method: e.target.value }))}
+            <textarea
+              className="min-h-[80px] w-full rounded-md border bg-[var(--color-background)] p-2 font-mono text-xs"
+              value={step.request.curl ?? ''}
+              placeholder="粘贴 cURL"
+              onChange={e => {
+                updateRequest(r => ({ ...r, curl: e.target.value }))
+                if (parseError) setParseError(null)
+              }}
+            />
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                disabled={!(step.request.curl ?? '').trim()}
+                onClick={() => {
+                  const text = step.request.curl ?? ''
+                  if (!text.trim()) return
+                  try {
+                    const parsed = parseCurl(text)
+                    // 解析成功 → 切到结构化模式，把 method/url/headers/body 填好；丢掉 curl 字段
+                    onChange({
+                      ...step,
+                      request: {
+                        method: parsed.method,
+                        url: parsed.url,
+                        headers: parsed.headers,
+                        body: parsed.body,
+                      },
+                    })
+                    setParseError(null)
+                  } catch (e) {
+                    setParseError((e as Error).message)
+                  }
+                }}
+                title="把当前 cURL 拆成 method/url/headers/body 字段，便于绑变量"
               >
-                {['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'].map(m => <option key={m}>{m}</option>)}
-              </select>
-              <Input
-                placeholder="URL（支持 {{var}} 和 {{item.xxx}}）"
-                value={step.request.url ?? ''}
-                onChange={e => updateRequest(r => ({ ...r, url: e.target.value }))}
+                解析为结构化
+              </Button>
+              <span className="text-xs text-[var(--color-muted-foreground)]">
+                cURL 模式整段保留，运行时再解析；点左侧把它拆成结构化字段后即可对 URL/header/body 绑变量。
+              </span>
+            </div>
+            {parseError && (
+              <div className="text-xs text-[var(--color-destructive)]">
+                解析失败：{parseError}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {/* 顶部「粘 cURL 一键解析填充」入口 */}
+            <div className="rounded-md border border-dashed bg-[var(--color-muted)]/30 p-2">
+              <div className="mb-1 text-xs text-[var(--color-muted-foreground)]">
+                有 cURL？粘到这里点「解析填充」自动拆成下方字段（不会覆盖已配的变量绑定，会替换 method/url/headers/body）
+              </div>
+              <div className="flex gap-2">
+                <textarea
+                  className="min-h-[40px] flex-1 rounded-md border bg-[var(--color-background)] p-2 font-mono text-xs"
+                  placeholder="curl 'https://...' -H '...' --data '...'"
+                  value={pasteCurl}
+                  onChange={e => { setPasteCurl(e.target.value); if (parseError) setParseError(null) }}
+                />
+                <Button size="sm" onClick={handleParseAndFill} disabled={!pasteCurl.trim()}>
+                  解析填充
+                </Button>
+              </div>
+              {parseError && (
+                <div className="mt-1 text-xs text-[var(--color-destructive)]">
+                  解析失败：{parseError}
+                </div>
+              )}
+            </div>
+
+            {/* 方法 + URL */}
+            <div className="space-y-1.5">
+              <div className="text-xs font-medium">方法 + URL</div>
+              <div className="flex gap-2">
+                <select
+                  className="rounded-md border bg-[var(--color-background)] px-2 text-sm"
+                  value={step.request.method ?? 'GET'}
+                  onChange={e => updateRequest(r => ({ ...r, method: e.target.value }))}
+                >
+                  {['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'].map(m => <option key={m}>{m}</option>)}
+                </select>
+                <VarBindableField
+                  className="flex-1"
+                  value={parsedUrl.base}
+                  onChange={setBaseUrl}
+                  options={varOptions}
+                  placeholder="https://api.example.com/v1/path"
+                />
+              </div>
+            </div>
+
+            {/* Query 参数 */}
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2 text-xs">
+                <span className="font-medium">Query 参数</span>
+                <span className="text-[var(--color-muted-foreground)]">
+                  ({parsedUrl.query.length} 个) · 每行 value 双击 / 点 🎯 绑变量
+                </span>
+              </div>
+              <KeyValueFieldsEditor
+                pairs={parsedUrl.query}
+                onChange={setQuery}
+                varOptions={varOptions}
+                addLabel="+ 添加 query"
               />
             </div>
-            <textarea
-              className="min-h-[60px] w-full rounded-md border bg-[var(--color-background)] p-2 font-mono text-xs"
-              placeholder="Header-Name: value（一行一个）"
-              value={headersText}
-              onChange={e => updateRequest(r => ({ ...r, headers: parseHeaderText(e.target.value) }))}
-            />
-            <textarea
-              className="min-h-[60px] w-full rounded-md border bg-[var(--color-background)] p-2 font-mono text-xs"
-              placeholder="请求体（GET/HEAD 留空）"
-              value={step.request.body ?? ''}
-              onChange={e => updateRequest(r => ({ ...r, body: e.target.value }))}
+
+            {/* Headers */}
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2 text-xs">
+                <span className="font-medium">Headers</span>
+                <span className="text-[var(--color-muted-foreground)]">
+                  ({headerPairs.length} 个)
+                </span>
+              </div>
+              <KeyValueFieldsEditor
+                pairs={headerPairs}
+                onChange={setHeaderPairs}
+                varOptions={varOptions}
+                addLabel="+ 添加 header"
+              />
+            </div>
+
+            {/* Body — 支持 JSON 树状 / 原文本切换 */}
+            <BodyEditor
+              body={step.request.body ?? ''}
+              onChange={b => updateRequest(r => ({ ...r, body: b }))}
+              varOptions={varOptions}
             />
           </div>
         )}
@@ -680,11 +944,9 @@ function StepEditor({
             {referenceSaved.lastResponseAt && ` · ${formatRelativeTime(referenceSaved.lastResponseAt)}保存`}
             {referenceSaved.lastResponseBody.length >= 200 * 1024 && ' · 已截断'}）
           </summary>
-          <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded bg-[var(--color-background)] p-2 font-mono text-[11px]">
-{referenceSaved.lastResponseBody.length > 50_000
-  ? referenceSaved.lastResponseBody.slice(0, 50_000) + '\n[预览截断到 50KB —— 完整响应仍在 DB 中]'
-  : referenceSaved.lastResponseBody}
-          </pre>
+          <div className="mt-2">
+            <JsonViewer value={referenceSaved.lastResponseBody} maxHeight="288px" />
+          </div>
         </details>
       )}
 
@@ -945,24 +1207,37 @@ function StepRow({ index, state, dryRun }: { index: number; state: StepRunState;
             </pre>
           )}
           {state.progress.length > 0 && (
-            <ul className="max-h-60 space-y-1 overflow-auto">
+            <ul className="max-h-[480px] space-y-1 overflow-auto">
               {state.progress.map((p, i) => (
-                <li key={i} className="flex items-center gap-2 rounded border p-1 text-xs">
-                  <span className="w-10 shrink-0 text-right text-[var(--color-muted-foreground)]">
-                    #{p.index + 1}
-                  </span>
-                  {p.dryRun
-                    ? <Badge variant="outline">dry</Badge>
-                    : p.error
-                      ? <Badge variant="destructive">ERR</Badge>
-                      : <Badge variant="secondary">{p.status} {p.statusText}</Badge>}
-                  <span className="w-12 shrink-0 text-[var(--color-muted-foreground)]">
-                    {p.elapsedMs}ms
-                  </span>
-                  <span className="min-w-0 flex-1 truncate font-mono"
-                        title={p.error ?? p.sample ?? p.url ?? ''}>
-                    {p.error ?? p.url ?? p.sample ?? ''}
-                  </span>
+                <li key={i} className="rounded border p-1 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="w-10 shrink-0 text-right text-[var(--color-muted-foreground)]">
+                      #{p.index + 1}
+                    </span>
+                    {p.dryRun
+                      ? <Badge variant="outline">dry</Badge>
+                      : p.error
+                        ? <Badge variant="destructive">ERR</Badge>
+                        : <Badge variant="secondary">{p.status} {p.statusText}</Badge>}
+                    <span className="w-12 shrink-0 text-[var(--color-muted-foreground)]">
+                      {p.elapsedMs}ms
+                    </span>
+                    <span className="min-w-0 flex-1 truncate font-mono"
+                          title={p.error ?? p.sample ?? p.url ?? ''}>
+                      {p.error ?? p.url ?? p.sample ?? ''}
+                    </span>
+                  </div>
+                  {/* 后端只给前 3 个 item 附 bodySample——保留扁平 UI 的同时让用户能展开看完整响应 */}
+                  {p.bodySample && (
+                    <details className="mt-1 ml-12">
+                      <summary className="cursor-pointer text-[var(--color-muted-foreground)]">
+                        响应（前 3 条实时预览，{(p.bodySample.length / 1024).toFixed(1)} KB）
+                      </summary>
+                      <div className="mt-1">
+                        <JsonViewer value={p.bodySample} maxHeight="280px" />
+                      </div>
+                    </details>
+                  )}
                 </li>
               ))}
             </ul>
@@ -1246,14 +1521,100 @@ function StepDetailEntry({
                   </Badge>
                   <span className="text-[var(--color-muted-foreground)]">{r.elapsedMs} ms</span>
                 </div>
-                <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded bg-[var(--color-muted)] p-2 font-mono text-[11px]">
-{r.sample || '(空响应)'}
-                </pre>
+                {r.sample ? (
+                  <JsonViewer value={r.sample} maxHeight="288px" />
+                ) : (
+                  <div className="rounded bg-[var(--color-muted)] p-2 text-xs text-[var(--color-muted-foreground)]">
+                    (空响应)
+                  </div>
+                )}
               </div>
             ))}
           </div>
         )}
       </div>
     </details>
+  )
+}
+
+// ── Body 编辑器：JSON 树状 / 原文本 切换 ─────────────────────────────────────
+
+function BodyEditor({
+  body, onChange, varOptions,
+}: {
+  body: string
+  onChange: (next: string) => void
+  varOptions: VarOption[]
+}) {
+  const parsed = useMemo(() => parseJsonBody(body), [body])
+  const isJsonLikely = body.trim() === '' || (parsed.ok && parsed.value !== null && typeof parsed.value === 'object')
+  const [mode, setMode] = useState<'tree' | 'text'>(isJsonLikely ? 'tree' : 'text')
+
+  // 当 body 变化（如 cURL 解析填充）且能解析为 JSON 时，自动切到 tree
+  useEffect(() => {
+    if (body && parsed.ok && parsed.value !== null && typeof parsed.value === 'object') {
+      // 不强切——尊重用户当前选择，但首次加载 tree 默认即可
+    }
+  }, [body, parsed])
+
+  const treeValue = parsed.ok ? parsed.value : null
+  const canTree = parsed.ok && (treeValue === null || typeof treeValue === 'object')
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2 text-xs">
+        <span className="font-medium">Body</span>
+        <div className="flex rounded-md border p-0.5">
+          <button
+            type="button"
+            onClick={() => setMode('tree')}
+            disabled={!canTree}
+            className={`rounded px-2 py-0.5 ${
+              mode === 'tree'
+                ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]'
+            } ${!canTree ? 'opacity-50' : ''}`}
+            title={canTree ? '' : '当前 body 不是合法 JSON 对象/数组，无法用树状编辑'}
+          >
+            JSON 树状
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('text')}
+            className={`rounded px-2 py-0.5 ${
+              mode === 'text'
+                ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]'
+            }`}
+          >
+            原文本
+          </button>
+        </div>
+        <span className="text-[var(--color-muted-foreground)]">
+          GET/HEAD 留空；变量引用 <code>{'{{var}}'}</code> 序列化时输出 raw
+        </span>
+      </div>
+
+      {!parsed.ok && mode === 'tree' && (
+        <div className="rounded border border-yellow-500/40 bg-yellow-500/10 p-2 text-xs">
+          当前 body 不是合法 JSON：{parsed.err}。已自动切到原文本模式编辑。
+        </div>
+      )}
+
+      {mode === 'tree' && canTree ? (
+        <JsonTreeEditor
+          value={treeValue ?? {}}
+          onChange={v => onChange(serializeJsonBody(v))}
+          varOptions={varOptions}
+        />
+      ) : (
+        <textarea
+          className="min-h-[80px] w-full rounded-md border bg-[var(--color-background)] p-2 font-mono text-xs"
+          placeholder='{"key":"{{var}}"}'
+          value={body}
+          onChange={e => onChange(e.target.value)}
+        />
+      )}
+    </div>
   )
 }

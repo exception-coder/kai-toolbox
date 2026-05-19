@@ -116,27 +116,6 @@ export function deleteVar(sessionId: string, name: string) {
   )
 }
 
-// ── Foreach 批量执行（SSE） ──────────────────────────────────────────────────
-
-export interface ForeachBody {
-  items: unknown[]
-  request: ExecuteRequestBody
-  aggregate?: { name: string; jsonPath: string } | null
-}
-
-/** 启动 foreach 批量执行，返回 abort 函数。 */
-export function startForeach(
-  sessionId: string,
-  body: ForeachBody,
-  handlers: SseHandlers,
-): () => void {
-  return subscribeSsePost(
-    `/browser-request/sessions/${sessionId}/foreach`,
-    body,
-    handlers,
-  )
-}
-
 // ── Pipeline 编排链 ──────────────────────────────────────────────────────────
 
 export function listPipelines(sessionId: string) {

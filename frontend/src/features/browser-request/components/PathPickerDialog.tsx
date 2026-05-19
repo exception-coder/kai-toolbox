@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { evalJsonPath, stringifyForVar } from '../utils/jsonpath'
+import { evalJsonPath, stringifyForVar, tryParseLenient } from '../utils/jsonpath'
+import { JsonViewer } from './JsonViewer'
 
 const VAR_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
 
@@ -21,10 +22,8 @@ export function PathPickerDialog({
 }) {
   const [path, setPath] = useState(initialPath)
 
-  const parsed = useMemo<{ ok: true; data: unknown } | { ok: false; err: string }>(() => {
-    try { return { ok: true, data: JSON.parse(body) } }
-    catch (e) { return { ok: false, err: (e as Error).message } }
-  }, [body])
+  // 宽容解析：剥后端截断标记 + 必要时用括号栈修复尾部，让 PathPicker 即使响应被截断也能用
+  const parsed = useMemo(() => tryParseLenient(body), [body])
 
   const value = useMemo(() => {
     if (!parsed.ok) return undefined
@@ -75,6 +74,12 @@ export function PathPickerDialog({
             响应样本不是合法 JSON：{parsed.err}。仍可手敲 JSONPath，确定后回到 outputs。
           </div>
         )}
+        {parsed.ok && parsed.truncated && (
+          <div className="rounded border border-blue-500/40 bg-blue-500/10 p-2 text-xs">
+            该响应保存时被截断；已自动剥掉截断标记 + 修复成最长可解析的前缀，结构上仍能逐层选 path。
+            如果需要看完整内容，回「请求/变量」Tab 重新执行一次。
+          </div>
+        )}
 
         <div className="space-y-1.5">
           <label className="text-xs font-medium">路径</label>
@@ -106,11 +111,17 @@ export function PathPickerDialog({
 
         <div className="space-y-1.5">
           <label className="text-xs font-medium">当前求值结果</label>
-          <pre className="max-h-32 overflow-auto rounded bg-[var(--color-muted)] p-2 text-xs">
-{value === undefined
-  ? '(undefined — 路径不存在或响应非 JSON)'
-  : valueStr || '(空字符串)'}
-          </pre>
+          {value === undefined ? (
+            <div className="rounded bg-[var(--color-muted)] p-2 text-xs text-[var(--color-muted-foreground)]">
+              (undefined — 路径不存在或响应非 JSON)
+            </div>
+          ) : !valueStr ? (
+            <div className="rounded bg-[var(--color-muted)] p-2 text-xs text-[var(--color-muted-foreground)]">
+              (空字符串)
+            </div>
+          ) : (
+            <JsonViewer value={valueStr} maxHeight="160px" />
+          )}
         </div>
 
         <div className="flex items-center justify-end gap-2">
