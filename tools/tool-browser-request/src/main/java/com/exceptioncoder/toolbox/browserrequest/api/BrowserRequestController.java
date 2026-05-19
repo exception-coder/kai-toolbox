@@ -3,7 +3,6 @@ package com.exceptioncoder.toolbox.browserrequest.api;
 import com.exceptioncoder.toolbox.browserrequest.api.dto.CreateSessionRequest;
 import com.exceptioncoder.toolbox.browserrequest.api.dto.ExecuteRequestBody;
 import com.exceptioncoder.toolbox.browserrequest.api.dto.ExtractToSavedRequest;
-import com.exceptioncoder.toolbox.browserrequest.api.dto.ForeachRequest;
 import com.exceptioncoder.toolbox.browserrequest.api.dto.PipelineDtos;
 import com.exceptioncoder.toolbox.browserrequest.api.dto.SaveRequestBody;
 import com.exceptioncoder.toolbox.browserrequest.api.dto.UpsertVarRequest;
@@ -68,7 +67,8 @@ public class BrowserRequestController {
     public BrowserSessionManager.ExecutedResponse execute(@PathVariable String id,
                                                           @RequestBody ExecuteRequestBody body) {
         return service.execute(id, new BrowserRequestService.ExecuteCommand(
-                body.curl(), body.method(), body.url(), body.headers(), body.body()));
+                body.curl(), body.method(), body.url(), body.headers(), body.body(),
+                body.linkedSavedId()));
     }
 
     // ── JS 捕获 ──────────────────────────────────────────────────────────────
@@ -142,16 +142,6 @@ public class BrowserRequestController {
     @DeleteMapping("/sessions/{id}/vars/{name}")
     public void deleteVar(@PathVariable String id, @PathVariable String name) {
         service.deleteVar(id, name);
-    }
-
-    // ── Foreach 批量执行（SSE） ───────────────────────────────────────────
-
-    @PostMapping("/sessions/{id}/foreach")
-    public SseEmitter foreach(@PathVariable String id, @RequestBody ForeachRequest body) {
-        BrowserRequestService.ExecuteCommand cmd = new BrowserRequestService.ExecuteCommand(
-                body.request().curl(), body.request().method(), body.request().url(),
-                body.request().headers(), body.request().body());
-        return service.startForeach(id, body.items(), cmd, body.aggregate());
     }
 
     // ── Pipeline CRUD ──────────────────────────────────────────────────────

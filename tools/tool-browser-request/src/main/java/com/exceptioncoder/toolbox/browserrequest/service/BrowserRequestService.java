@@ -227,8 +227,8 @@ public class BrowserRequestService {
         return toView(r);
     }
 
-    /** 响应体太大时截断，DB 里不存超过 256KB，超出附 "[已截断]" 标记。 */
-    private static final int LAST_RESPONSE_MAX = 256 * 1024;
+    /** 响应体太大时截断；编排时 PathPicker 需要 parse 这段 JSON，所以上限拍宽 5MB，多数 API 完整保留。 */
+    private static final int LAST_RESPONSE_MAX = 5 * 1024 * 1024;
     private static String truncateForStorage(String body) {
         if (body == null) return null;
         if (body.length() <= LAST_RESPONSE_MAX) return body;
@@ -472,6 +472,24 @@ public class BrowserRequestService {
         BrowserSessionManager.ExecuteRequest req = resolveRequest(cmd, vars);
         BrowserSessionManager.ExecutedResponse resp = manager.execute(id, req);
         repo.touchActive(id, System.currentTimeMillis());
+        // 链接到某条 saved：把响应体写到那条 saved 的 lastResponseBody（截断后），便于编排时拿来作参考
+        if (cmd.linkedSavedId() != null && !cmd.linkedSavedId().isBlank()) {
+            try {
+                savedRepo.findById(cmd.linkedSavedId()).ifPresent(saved -> {
+                    String truncated = truncateForStorage(resp.body());
+                    long now = System.currentTimeMillis();
+                    saved.setLastResponseBody(truncated);
+                    saved.setLastResponseAt(now);
+                    saved.setUpdatedAt(now);
+                    savedRepo.update(saved);
+                    log.info("[execute] 把响应体写入 saved={}（{} 字节）",
+                            saved.getId(), truncated == null ? 0 : truncated.length());
+                });
+            } catch (Exception e) {
+                // 不影响主流程——执行已经完成，落 lastResponseBody 失败只是丢失参考样本
+                log.warn("[execute] 写入 saved.lastResponseBody 失败: {}", e.getMessage());
+            }
+        }
         return resp;
     }
 
@@ -505,7 +523,8 @@ public class BrowserRequestService {
     }
 
     public record ExecuteCommand(String curl, String method, String url,
-                                 Map<String, String> headers, String body) {}
+                                 Map<String, String> headers, String body,
+                                 String linkedSavedId) {}
 
     // ── 变量池 ────────────────────────────────────────────────────────────────
 
@@ -534,129 +553,6 @@ public class BrowserRequestService {
             return new VarView(v.getName(), v.getValue(), v.getUpdatedAt());
         }
     }
-
-    // ── Foreach 批量执行 ─────────────────────────────────────────────────────
-
-    /**
-     * 启动一次 foreach 批量执行，返回 SseEmitter 流式回前端。
-     * 实际循环在虚拟线程上跑，不阻塞 SSE 响应线程。
-     */
-    public SseEmitter startForeach(String sessionId, JsonNode items,
-                                   ExecuteCommand request, AggregateSpec aggregate) {
-        repo.findById(sessionId).orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-        if (items == null || !items.isArray()) {
-            throw new IllegalArgumentException("items 必须是 JSON 数组");
-        }
-        if (request == null) throw new IllegalArgumentException("缺少 request");
-        boolean hasCurl = request.curl() != null && !request.curl().isBlank();
-        boolean hasUrl = request.url() != null && !request.url().isBlank();
-        if (!hasCurl && !hasUrl) throw new IllegalArgumentException("request.curl 或 request.url 至少需要一个");
-
-        String taskId = UUID.randomUUID().toString();
-        SseEmitter emitter = sseRegistry.create(taskId);
-        Thread.ofVirtual().name("foreach-" + taskId).start(() ->
-                runForeach(taskId, sessionId, items, request, aggregate));
-        return emitter;
-    }
-
-    private void runForeach(String taskId, String sessionId, JsonNode items,
-                            ExecuteCommand request, AggregateSpec aggregate) {
-        try {
-            Map<String, String> sessionVars = varRepo.asMap(sessionId);
-            int total = items.size();
-            sseRegistry.publish(taskId, "started", Map.of("total", total));
-
-            List<String> aggregated = aggregate != null ? new ArrayList<>() : null;
-            int ok = 0, failed = 0;
-
-            for (int i = 0; i < total; i++) {
-                if (!sseRegistry.hasEmitter(taskId)) {
-                    log.info("[Foreach] taskId={} 用户取消，跳出循环", taskId);
-                    return;
-                }
-                JsonNode item = items.get(i);
-                long t0 = System.currentTimeMillis();
-                try {
-                    BrowserSessionManager.ExecuteRequest req = renderRequestForItem(request, sessionVars, item);
-                    BrowserSessionManager.ExecutedResponse resp = manager.execute(sessionId, req);
-                    long elapsed = System.currentTimeMillis() - t0;
-
-                    if (aggregated != null) {
-                        JsonNode v = SimpleJsonPath.eval(resp.body(), aggregate.jsonPath(), objectMapper);
-                        aggregated.add(SimpleJsonPath.stringify(v));
-                    }
-
-                    Map<String, Object> payload = new LinkedHashMap<>();
-                    payload.put("index", i);
-                    payload.put("status", resp.status());
-                    payload.put("statusText", resp.statusText());
-                    payload.put("finalUrl", resp.finalUrl());
-                    payload.put("elapsedMs", elapsed);
-                    payload.put("sample", truncate(resp.body(), 200));
-                    sseRegistry.publish(taskId, "progress", payload);
-                    ok++;
-                } catch (Exception e) {
-                    long elapsed = System.currentTimeMillis() - t0;
-                    Map<String, Object> payload = new LinkedHashMap<>();
-                    payload.put("index", i);
-                    payload.put("elapsedMs", elapsed);
-                    payload.put("error", e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
-                    sseRegistry.publish(taskId, "progress", payload);
-                    failed++;
-                }
-            }
-
-            Map<String, Object> done = new LinkedHashMap<>();
-            done.put("ok", ok);
-            done.put("failed", failed);
-            if (aggregated != null) {
-                try {
-                    String json = objectMapper.writeValueAsString(aggregated);
-                    varRepo.upsert(sessionId, aggregate.name(), json, System.currentTimeMillis());
-                    done.put("aggregatedVar", aggregate.name());
-                    done.put("aggregatedSize", aggregated.size());
-                } catch (Exception e) {
-                    done.put("aggregateError", e.getMessage());
-                }
-            }
-            sseRegistry.publish(taskId, "completed", done);
-        } catch (Exception e) {
-            log.error("[Foreach] taskId={} 致命错误", taskId, e);
-            sseRegistry.publish(taskId, "error",
-                    Map.of("message", e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
-        } finally {
-            sseRegistry.complete(taskId);
-        }
-    }
-
-    /** 把循环体的请求按 item 渲染成可执行的 ExecuteRequest，跟 resolveRequest 类似但走 renderWithItem。 */
-    private BrowserSessionManager.ExecuteRequest renderRequestForItem(
-            ExecuteCommand request, Map<String, String> vars, JsonNode item) {
-        if (request.curl() != null && !request.curl().isBlank()) {
-            String rendered = TemplateRenderer.renderWithItem(request.curl(), vars, item);
-            CurlParser.ParsedCurl p = CurlParser.parse(rendered);
-            return new BrowserSessionManager.ExecuteRequest(p.method(), p.url(), p.headers(), p.body());
-        }
-        String url = TemplateRenderer.renderWithItem(request.url(), vars, item);
-        Map<String, String> headers = null;
-        if (request.headers() != null) {
-            headers = new LinkedHashMap<>();
-            for (Map.Entry<String, String> e : request.headers().entrySet()) {
-                headers.put(e.getKey(), TemplateRenderer.renderWithItem(e.getValue(), vars, item));
-            }
-        }
-        String body = TemplateRenderer.renderWithItem(request.body(), vars, item);
-        String method = (request.method() == null || request.method().isBlank())
-                ? "GET" : request.method().toUpperCase();
-        return new BrowserSessionManager.ExecuteRequest(method, url, headers, body);
-    }
-
-    private static String truncate(String s, int n) {
-        if (s == null) return "";
-        return s.length() <= n ? s : s.substring(0, n) + "…";
-    }
-
-    public record AggregateSpec(String name, String jsonPath) {}
 
     // ── Pipeline CRUD ────────────────────────────────────────────────────────
 

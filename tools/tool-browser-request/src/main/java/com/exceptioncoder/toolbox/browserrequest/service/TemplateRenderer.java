@@ -95,47 +95,6 @@ public final class TemplateRenderer {
         return sb.toString();
     }
 
-    /**
-     * 带循环变量 item 的渲染：
-     *   {{item}} / {{item.xxx}} / {{item[0]}} / {{item.nested.field}}  → 从 itemNode 取
-     *   {{otherName}}                                                  → 从 vars 取
-     * 缺失同样抛 {@link MissingVarException}。
-     */
-    public static String renderWithItem(String input, Map<String, String> vars, JsonNode itemNode) {
-        if (input == null) return null;
-        Matcher m = PLACEHOLDER_EXT.matcher(input);
-        StringBuilder sb = new StringBuilder();
-        Set<String> missing = null;
-        while (m.find()) {
-            String expr = m.group(1);
-            String value;
-            if (expr.equals("item") || expr.startsWith("item.") || expr.startsWith("item[")) {
-                String pathForEval;
-                if (expr.equals("item")) pathForEval = "$";
-                else if (expr.startsWith("item.")) pathForEval = "$." + expr.substring(5);
-                else pathForEval = "$" + expr.substring(4);
-                JsonNode v = SimpleJsonPath.eval(itemNode, pathForEval);
-                if (v == null) {
-                    if (missing == null) missing = new LinkedHashSet<>();
-                    missing.add(expr);
-                    continue;
-                }
-                value = SimpleJsonPath.stringify(v);
-            } else {
-                value = vars.get(expr);
-                if (value == null) {
-                    if (missing == null) missing = new LinkedHashSet<>();
-                    missing.add(expr);
-                    continue;
-                }
-            }
-            m.appendReplacement(sb, Matcher.quoteReplacement(value));
-        }
-        m.appendTail(sb);
-        if (missing != null) throw new MissingVarException(missing);
-        return sb.toString();
-    }
-
     /** 找出文本里引用的所有变量名（用于诊断、UI 提示）。 */
     public static Set<String> referenced(String input) {
         Set<String> out = new HashSet<>();

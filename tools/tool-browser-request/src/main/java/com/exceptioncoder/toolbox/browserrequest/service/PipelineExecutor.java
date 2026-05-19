@@ -265,7 +265,9 @@ public class PipelineExecutor {
         sseRegistry.publish(taskId, "step-completed", payload);
 
         // 节流：本 step 完成后等待，再进入下一个 step（避免连发触发服务端限流）
-        throttleSleep(taskId, step.requestIntervalMs());
+        // 优先用新字段 afterStepMs；为 null 时回落旧 requestIntervalMs（兼容老 pipeline）
+        Integer afterStep = step.afterStepMs() != null ? step.afterStepMs() : step.requestIntervalMs();
+        throttleSleep(taskId, afterStep);
     }
 
     // ── foreach step ───────────────────────────────────────────────────────
@@ -345,6 +347,10 @@ public class PipelineExecutor {
                 payload.put("statusText", resp.statusText());
                 payload.put("elapsedMs", elapsed);
                 payload.put("sample", truncate(resp.body(), 200));
+                // 前 N 个 item 推完整 16KB 样本给 UI 实时预览；之后只发 200 字符摘要够省带宽
+                if (i < FOREACH_RESPONSE_SAMPLE_MAX) {
+                    payload.put("bodySample", truncate(resp.body(), STEP_RESPONSE_SAMPLE_BYTES));
+                }
                 sseRegistry.publish(taskId, "step-progress", payload);
                 ok++;
             } catch (TemplateRenderer.MissingVarException e) {
@@ -393,6 +399,9 @@ public class PipelineExecutor {
         if (!capturedOutputs.isEmpty()) {
             ctx.stepOutputs.add(buildStepOutputEntry(stepIndex, step.name(), capturedOutputs));
         }
+
+        // foreach step 完成后也支持 step-之间等待——比 single 的 afterStepMs 语义一致
+        throttleSleep(taskId, step.afterStepMs());
 
         Map<String, Object> done = new LinkedHashMap<>();
         done.put("stepIndex", stepIndex);

@@ -34,11 +34,18 @@ public final class PipelineDtos {
             boolean continueOnError,
             /**
              * 每次请求后等待的毫秒数（节流 / 限流）。
-             *   - single: 本 step 完成后等 N ms 再进入下一个 step
+             *   - single: 本 step 完成后等 N ms 再进入下一个 step（向后兼容；新 pipeline 推荐用 afterStepMs）
              *   - foreach: 每次 item 完成后等 N ms 再下一条
              * null 或 ≤0 表示不等待。
              */
-            Integer requestIntervalMs
+            Integer requestIntervalMs,
+            /**
+             * 本 step 完成后、进入下一 step 之前的等待毫秒数。所有 step 类型都生效。
+             *   - 对 single：等价于 requestIntervalMs（旧字段），优先用本字段；本字段为 null 时回落 requestIntervalMs
+             *   - 对 foreach：requestIntervalMs 控制 item 之间，本字段控制 step 之间（首次引入）
+             * null 或 ≤0 表示不等待。
+             */
+            Integer afterStepMs
     ) {}
 
     public record CreatePipelineRequest(String name, List<StepDto> steps) {}
