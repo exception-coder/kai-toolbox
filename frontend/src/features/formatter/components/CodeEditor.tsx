@@ -3,9 +3,14 @@ import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror'
 import { EditorView } from '@codemirror/view'
 import type { Extension } from '@codemirror/state'
 import { json } from '@codemirror/lang-json'
+import { xml } from '@codemirror/lang-xml'
+import { yaml } from '@codemirror/lang-yaml'
+import { sql } from '@codemirror/lang-sql'
 import { useIsDarkTheme } from '@/lib/useIsDarkTheme'
 
-export interface JsonEditorRef {
+export type EditorLanguage = 'json' | 'xml' | 'yaml' | 'sql'
+
+export interface CodeEditorRef {
   getValue: () => string
   setValue: (v: string) => void
   /** 将光标 / 选区跳到 doc.toString() 的字符位置，便于错误定位。 */
@@ -14,7 +19,7 @@ export interface JsonEditorRef {
   focusAt: (from: number, to: number) => void
 }
 
-interface JsonEditorProps {
+interface CodeEditorProps {
   /** 仅在挂载时一次性写入，后续靠 ref.setValue 改值；避免巨型字符串绑到 React state。 */
   defaultValue?: string
   readOnly?: boolean
@@ -22,7 +27,9 @@ interface JsonEditorProps {
   minHeight?: string
   /** 显式给 maxHeight 才能让 CodeMirror 在父容器内出现内部滚动条；想撑满父高就传 '100%'。 */
   maxHeight?: string
-  /** 是否启用 JSON 语法高亮；超大文本由上层切到 false 保证流畅。 */
+  /** 语言扩展；切到 false 时按纯文本显示。 */
+  language?: EditorLanguage
+  /** 是否启用语法高亮 + 折叠 + 括号匹配；超大文本由上层切到 false 保证流畅。 */
   highlight?: boolean
   /** 200ms debounce 上报当前字节长度，供 UI 显示和阈值判断。 */
   onBytesChange?: (bytes: number) => void
@@ -34,17 +41,31 @@ const cmFontTheme = EditorView.theme({
   '.cm-content': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' },
 })
 
-function JsonEditorImpl(
+function pickLangExt(lang: EditorLanguage): Extension {
+  switch (lang) {
+    case 'json':
+      return json()
+    case 'xml':
+      return xml()
+    case 'yaml':
+      return yaml()
+    case 'sql':
+      return sql()
+  }
+}
+
+function CodeEditorImpl(
   {
     defaultValue = '',
     readOnly = false,
     placeholder,
     minHeight = '240px',
     maxHeight,
+    language = 'json',
     highlight = true,
     onBytesChange,
-  }: JsonEditorProps,
-  ref: Ref<JsonEditorRef>,
+  }: CodeEditorProps,
+  ref: Ref<CodeEditorRef>,
 ) {
   const dark = useIsDarkTheme()
   const cmRef = useRef<ReactCodeMirrorRef>(null)
@@ -54,9 +75,9 @@ function JsonEditorImpl(
 
   const extensions = useMemo<Extension[]>(() => {
     const exts: Extension[] = [cmFontTheme, EditorView.lineWrapping]
-    if (highlight) exts.push(json())
+    if (highlight) exts.push(pickLangExt(language))
     return exts
-  }, [highlight])
+  }, [highlight, language])
 
   useImperativeHandle(
     ref,
@@ -85,8 +106,6 @@ function JsonEditorImpl(
         const safeTo = Math.min(Math.max(safeFrom, to), docLen)
         view.dispatch({
           selection: { anchor: safeFrom, head: safeTo },
-          // EditorView.scrollIntoView 是 effect，需要 import；这里走 simpler effects API：
-          // 用 scrollIntoView 等同效果——dispatch 同时带 effects: scrollIntoView(...).
           effects: EditorView.scrollIntoView(safeFrom, { y: 'center' }),
         })
         view.focus()
@@ -137,4 +156,4 @@ function JsonEditorImpl(
   )
 }
 
-export const JsonEditor = forwardRef<JsonEditorRef, JsonEditorProps>(JsonEditorImpl)
+export const CodeEditor = forwardRef<CodeEditorRef, CodeEditorProps>(CodeEditorImpl)

@@ -18,9 +18,10 @@ import {
 import { Button } from '@/components/ui/button'
 import { Segmented } from '@/components/ui/segmented'
 import { cn } from '@/lib/utils'
-import { JsonEditor, type JsonEditorRef } from './JsonEditor'
+import { CodeEditor, type CodeEditorRef } from './CodeEditor'
 import { JsonTreeView } from './JsonTreeView'
 import { useJsonWorker } from '../lib/useJsonWorker'
+import { useSplitRatio } from '../lib/useSplitRatio'
 import type { WorkerReq } from '../lib/json-worker'
 import { buildFlow, collectAllPaths, COLLECT_ALL_MAX } from '../lib/jsonToFlow'
 import type { IndexEntry } from '../lib/json-worker'
@@ -54,6 +55,8 @@ const SOFT_WARN_BYTES = 32 * 1024 * 1024
 const TREE_SAFE_MAX_BYTES = 50 * 1024 * 1024
 const EDITOR_HEIGHT = 'calc(100vh - 320px)'
 const EDITOR_MIN_HEIGHT = '320px'
+/** 左右分栏比例的 localStorage key */
+const SPLIT_STORAGE_KEY = 'formatter.json.splitRatio'
 
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
@@ -90,11 +93,18 @@ export function JsonPanel() {
   const [currentMatchIdx, setCurrentMatchIdx] = useState(-1)
   /** 居中目标：用 version 计数避免「相同 nodeId 第二次触发」时 useEffect 不跑。 */
   const [centerOn, setCenterOn] = useState<{ nodeId: string; version: number } | null>(null)
-  const inputRef = useRef<JsonEditorRef>(null)
-  const outputRef = useRef<JsonEditorRef>(null)
+  const inputRef = useRef<CodeEditorRef>(null)
+  const outputRef = useRef<CodeEditorRef>(null)
   const { run, busy } = useJsonWorker()
   /** 自增票号：每次 refreshFromOutput 自增，async parse 回来时只有最新票号才生效，老结果丢弃。 */
   const refreshTicketRef = useRef(0)
+  /** 左右分栏：用共享 Hook，比例 0.2 ~ 0.8 + localStorage 持久化 */
+  const {
+    ratio: leftRatio,
+    containerRef: splitContainerRef,
+    onSplitterPointerDown,
+    reset: resetSplit,
+  } = useSplitRatio(SPLIT_STORAGE_KEY)
 
   const indentVal: number | '\t' = indent === 'tab' ? '\t' : Number.parseInt(indent, 10)
 
@@ -312,9 +322,15 @@ export function JsonPanel() {
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div
+        ref={splitContainerRef}
+        className="flex flex-col gap-4 lg:flex-row lg:gap-0"
+      >
         {/* 输入 */}
-        <div className="space-y-1.5">
+        <div
+          className="min-w-0 space-y-1.5 lg:shrink-0 lg:pr-2"
+          style={{ flexBasis: `${leftRatio * 100}%` }}
+        >
           <div className="flex items-center justify-between">
             <label className="text-xs font-medium text-[var(--color-muted-foreground)]">输入</label>
             <span
@@ -328,7 +344,7 @@ export function JsonPanel() {
             </span>
           </div>
           <div style={{ height: EDITOR_HEIGHT, minHeight: EDITOR_MIN_HEIGHT }}>
-            <JsonEditor
+            <CodeEditor
               ref={inputRef}
               placeholder='{"name":"toolbox","items":[1,2,3]}'
               minHeight="100%"
@@ -339,8 +355,22 @@ export function JsonPanel() {
           </div>
         </div>
 
+        {/* 拖拽手柄：仅 lg 横向布局时显示；双击复位 50% */}
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="拖动调整左右宽度"
+          title="拖动调整左右宽度（双击复位）"
+          onPointerDown={onSplitterPointerDown}
+          onDoubleClick={resetSplit}
+          className="group hidden shrink-0 cursor-col-resize select-none items-center justify-center px-1 lg:flex"
+          style={{ touchAction: 'none' }}
+        >
+          <div className="h-16 w-0.5 rounded bg-[var(--color-border)] transition-colors group-hover:bg-[var(--color-primary)]" />
+        </div>
+
         {/* 输出 */}
-        <div className="space-y-1.5">
+        <div className="min-w-0 space-y-1.5 lg:flex-1 lg:pl-2">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <label className="text-xs font-medium text-[var(--color-muted-foreground)]">输出</label>
@@ -484,7 +514,7 @@ export function JsonPanel() {
           )}
           <div style={{ height: EDITOR_HEIGHT, minHeight: EDITOR_MIN_HEIGHT }}>
             <div className={viewMode === 'text' ? 'h-full' : 'hidden'}>
-              <JsonEditor
+              <CodeEditor
                 ref={outputRef}
                 readOnly
                 minHeight="100%"

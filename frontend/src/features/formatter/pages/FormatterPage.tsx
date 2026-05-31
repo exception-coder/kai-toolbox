@@ -3,16 +3,25 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Segmented } from '@/components/ui/segmented'
 import { JsonPanel } from '../components/JsonPanel'
 import { NginxPanel } from '../components/NginxPanel'
+import { XmlPanel } from '../components/XmlPanel'
+import { YamlPanel } from '../components/YamlPanel'
+import { SqlPanel } from '../components/SqlPanel'
 
-type Tab = 'json' | 'nginx'
+type Tab = 'json' | 'xml' | 'yaml' | 'sql' | 'nginx'
 
 const TAB_OPTIONS = [
   { value: 'json', label: 'JSON' },
+  { value: 'xml', label: 'XML' },
+  { value: 'yaml', label: 'YAML' },
+  { value: 'sql', label: 'SQL' },
   { value: 'nginx', label: 'Nginx' },
 ] as const
 
 const TAB_HINTS: Record<Tab, string> = {
   json: '美化 / 压缩 / 转义反转义；解析失败会标出错误位置',
+  xml: '美化 / 压缩 / 转义反转义；基于 xml-formatter，宽松模式可兼容轻量错误',
+  yaml: '美化 / 压缩（flow 样式） / YAML ↔ JSON 互转；互转会丢注释与锚点',
+  sql: '多方言（MySQL / PostgreSQL / SQLite / SQL Server 等）+ 关键字大小写控制',
   nginx: '基于 token 的简易格式化器，支持缩进 + 压缩，注释 / 引号字符串保留',
 }
 
@@ -32,6 +41,9 @@ export function FormatterPage() {
         </CardHeader>
         <CardContent>
           {tab === 'json' && <JsonPanel />}
+          {tab === 'xml' && <XmlPanel />}
+          {tab === 'yaml' && <YamlPanel />}
+          {tab === 'sql' && <SqlPanel />}
           {tab === 'nginx' && <NginxPanel />}
         </CardContent>
       </Card>
