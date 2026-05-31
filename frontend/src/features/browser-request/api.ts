@@ -1,168 +1,136 @@
-import { http, subscribeSsePost, type SseHandlers } from '@/lib/api'
 import type {
-  CaptureStatusView, ExecuteRequestBody, ExecutedResponse, PipelineDetail, PipelineRunDetail,
-  PipelineRunSummary, PipelineStep, PipelineSummary, SaveRequestBody, SavedRequestView, SessionView,
-  VarView,
+  CreateTaskBody, HttpCallStreamView, RecordingDetail, RecordingView,
+  ReplayBody, SessionView, StartRecordingBody, TaskRunView, TaskView, UpdateTaskBody,
 } from './types'
 
-export function listSessions() {
-  return http<SessionView[]>('/browser-request/sessions')
-}
+const BASE = '/api/browser-request'
 
-export function createSession(name: string, url: string) {
-  return http<SessionView>('/browser-request/sessions', {
-    method: 'POST',
-    body: JSON.stringify({ name, url }),
+async function jsonReq<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
+  const r = await fetch(input, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
   })
+  if (!r.ok) {
+    const text = await r.text().catch(() => '')
+    throw new Error(text || `${r.status} ${r.statusText}`)
+  }
+  return r.status === 204 ? (undefined as unknown as T) : (await r.json()) as T
 }
 
-export function openSession(id: string) {
-  return http<SessionView>(`/browser-request/sessions/${id}/open`, { method: 'POST' })
+// ── 会话 ─────────────────────────────────────────────────────────────────
+
+export const sessions = {
+  list: () => jsonReq<SessionView[]>(`${BASE}/sessions`),
+  create: (body: { name: string; url: string }) =>
+    jsonReq<SessionView>(`${BASE}/sessions`, { method: 'POST', body: JSON.stringify(body) }),
+  open: (id: string) => jsonReq<SessionView>(`${BASE}/sessions/${id}/open`, { method: 'POST' }),
+  save: (id: string) => jsonReq<SessionView>(`${BASE}/sessions/${id}/save`, { method: 'POST' }),
+  clear: (id: string) => jsonReq<SessionView>(`${BASE}/sessions/${id}/clear`, { method: 'POST' }),
+  close: (id: string) => jsonReq<SessionView>(`${BASE}/sessions/${id}/close`, { method: 'POST' }),
+  delete: (id: string) => jsonReq<void>(`${BASE}/sessions/${id}`, { method: 'DELETE' }),
 }
 
-export function saveStorage(id: string) {
-  return http<SessionView>(`/browser-request/sessions/${id}/save`, { method: 'POST' })
+// ── 录制 ─────────────────────────────────────────────────────────────────
+
+export const recordings = {
+  start: (sessionId: string, body: StartRecordingBody = {}) =>
+    jsonReq<RecordingView>(`${BASE}/sessions/${sessionId}/recordings`, {
+      method: 'POST', body: JSON.stringify(body),
+    }),
+  stop: (id: string) =>
+    jsonReq<RecordingView>(`${BASE}/recordings/${id}/stop`, { method: 'POST' }),
+  list: (sessionId: string) =>
+    jsonReq<RecordingView[]>(`${BASE}/sessions/${sessionId}/recordings`),
+  detail: (id: string, opts: { withCalls?: boolean; offset?: number; limit?: number } = {}) => {
+    const params = new URLSearchParams()
+    if (opts.withCalls != null) params.set('withCalls', String(opts.withCalls))
+    if (opts.offset != null) params.set('offset', String(opts.offset))
+    if (opts.limit != null) params.set('limit', String(opts.limit))
+    const qs = params.toString()
+    return jsonReq<RecordingDetail>(`${BASE}/recordings/${id}${qs ? '?' + qs : ''}`)
+  },
+  delete: (id: string) => jsonReq<void>(`${BASE}/recordings/${id}`, { method: 'DELETE' }),
 }
 
-export function clearStorage(id: string) {
-  return http<SessionView>(`/browser-request/sessions/${id}/clear`, { method: 'POST' })
+// ── 任务 ─────────────────────────────────────────────────────────────────
+
+export const tasks = {
+  create: (body: CreateTaskBody) =>
+    jsonReq<TaskView>(`${BASE}/tasks`, { method: 'POST', body: JSON.stringify(body) }),
+  update: (id: string, body: UpdateTaskBody) =>
+    jsonReq<TaskView>(`${BASE}/tasks/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  list: (sessionId: string) => jsonReq<TaskView[]>(`${BASE}/sessions/${sessionId}/tasks`),
+  detail: (id: string) => jsonReq<TaskView>(`${BASE}/tasks/${id}`),
+  delete: (id: string) => jsonReq<void>(`${BASE}/tasks/${id}`, { method: 'DELETE' }),
 }
 
-export function closeSession(id: string) {
-  return http<SessionView>(`/browser-request/sessions/${id}/close`, { method: 'POST' })
+// ── 回放 ─────────────────────────────────────────────────────────────────
+
+export const replays = {
+  trigger: (taskId: string, body: ReplayBody) =>
+    jsonReq<TaskRunView>(`${BASE}/tasks/${taskId}/replay`, {
+      method: 'POST', body: JSON.stringify(body),
+    }),
+  listRuns: (taskId: string, limit = 50) =>
+    jsonReq<TaskRunView[]>(`${BASE}/tasks/${taskId}/runs?limit=${limit}`),
+  runDetail: (runId: string) => jsonReq<TaskRunView>(`${BASE}/task-runs/${runId}`),
 }
 
-export function deleteSession(id: string) {
-  return http<void>(`/browser-request/sessions/${id}`, { method: 'DELETE' })
+// ── SSE 工厂 ─────────────────────────────────────────────────────────────
+
+export interface RecordingStreamHandlers {
+  /** 订阅时后端先推一次已落库的 calls，弥补订阅前的空窗 */
+  onBackfill?: (views: HttpCallStreamView[]) => void
+  onCall?: (view: HttpCallStreamView) => void
+  onStopped?: (payload: { status: string; reason: string; callCount: number; endedAt: number }) => void
+  onError?: (err: Event) => void
 }
 
-export function executeRequest(id: string, body: ExecuteRequestBody) {
-  return http<ExecutedResponse>(`/browser-request/sessions/${id}/execute`, {
-    method: 'POST',
-    body: JSON.stringify(body),
+export function openRecordingStream(recordingId: string, h: RecordingStreamHandlers): () => void {
+  const es = new EventSource(`${BASE}/recordings/${recordingId}/events`)
+  es.addEventListener('backfill', e => {
+    try { h.onBackfill?.(JSON.parse((e as MessageEvent).data) as HttpCallStreamView[]) }
+    catch { /* ignore parse error */ }
   })
-}
-
-// ── 收藏的请求 ───────────────────────────────────────────────────────────────
-
-export function listSavedRequests(sessionId: string) {
-  return http<SavedRequestView[]>(`/browser-request/sessions/${sessionId}/saved`)
-}
-
-export function saveRequest(sessionId: string, body: SaveRequestBody) {
-  return http<SavedRequestView>(`/browser-request/sessions/${sessionId}/saved`, {
-    method: 'POST',
-    body: JSON.stringify(body),
+  es.addEventListener('call', e => {
+    try { h.onCall?.(JSON.parse((e as MessageEvent).data) as HttpCallStreamView) }
+    catch { /* ignore parse error */ }
   })
-}
-
-export function updateSavedRequest(savedId: string, body: SaveRequestBody) {
-  return http<SavedRequestView>(`/browser-request/saved/${savedId}`, {
-    method: 'PUT',
-    body: JSON.stringify(body),
+  es.addEventListener('recording-stopped', e => {
+    try { h.onStopped?.(JSON.parse((e as MessageEvent).data)) }
+    catch { /* ignore */ }
   })
+  es.onerror = e => h.onError?.(e)
+  return () => es.close()
 }
 
-export function deleteSavedRequest(savedId: string) {
-  return http<void>(`/browser-request/saved/${savedId}`, { method: 'DELETE' })
+export interface ReplayStreamHandlers {
+  onRunStarted?: (payload: { id: string; taskId: string; status: string; startedAt: number; stepCount: number }) => void
+  /** run 一开跑就发——可以立即看到归档目录路径，不用等所有迭代完成 */
+  onOutputDir?: (payload: { outputDir: string }) => void
+  onStep?: (result: import('./types').StepResultView) => void
+  onRunDone?: (payload: { status: string; okSteps: number; failedSteps: number; finishedAt: number; outputDir?: string }) => void
+  onRunFailed?: (payload: { status: string; abortedAtStep: number; errorMessage: string; finishedAt: number; outputDir?: string }) => void
+  onError?: (err: Event) => void
 }
 
-/** 从响应中提取一个值，写入目标 saved 的 outputs 配置 + lastExtractedValues。 */
-export function extractToSaved(
-  savedId: string,
-  body: { name: string; jsonPath: string; responseBody: string },
-) {
-  return http<SavedRequestView>(`/browser-request/saved/${savedId}/extract`, {
-    method: 'POST',
-    body: JSON.stringify(body),
+export function openReplayStream(runId: string, h: ReplayStreamHandlers): () => void {
+  const es = new EventSource(`${BASE}/task-runs/${runId}/events`)
+  es.addEventListener('run-started', e => {
+    try { h.onRunStarted?.(JSON.parse((e as MessageEvent).data)) } catch { /* */ }
   })
-}
-
-// ── JS 捕获 ──────────────────────────────────────────────────────────────────
-
-export function captureStatus(sessionId: string) {
-  return http<CaptureStatusView>(`/browser-request/sessions/${sessionId}/capture`)
-}
-
-export function startCapture(sessionId: string) {
-  return http<CaptureStatusView>(`/browser-request/sessions/${sessionId}/capture/start`, {
-    method: 'POST',
+  es.addEventListener('output-dir', e => {
+    try { h.onOutputDir?.(JSON.parse((e as MessageEvent).data)) } catch { /* */ }
   })
-}
-
-export function stopCapture(sessionId: string) {
-  return http<CaptureStatusView>(`/browser-request/sessions/${sessionId}/capture/stop`, {
-    method: 'POST',
+  es.addEventListener('step', e => {
+    try { h.onStep?.(JSON.parse((e as MessageEvent).data)) } catch { /* */ }
   })
-}
-
-// ── 变量池 ────────────────────────────────────────────────────────────────────
-
-export function listVars(sessionId: string) {
-  return http<VarView[]>(`/browser-request/sessions/${sessionId}/vars`)
-}
-
-export function upsertVar(sessionId: string, name: string, value: string) {
-  return http<VarView>(
-    `/browser-request/sessions/${sessionId}/vars/${encodeURIComponent(name)}`,
-    { method: 'PUT', body: JSON.stringify({ value }) },
-  )
-}
-
-export function deleteVar(sessionId: string, name: string) {
-  return http<void>(
-    `/browser-request/sessions/${sessionId}/vars/${encodeURIComponent(name)}`,
-    { method: 'DELETE' },
-  )
-}
-
-// ── Pipeline 编排链 ──────────────────────────────────────────────────────────
-
-export function listPipelines(sessionId: string) {
-  return http<PipelineSummary[]>(`/browser-request/sessions/${sessionId}/pipelines`)
-}
-
-export function getPipeline(id: string) {
-  return http<PipelineDetail>(`/browser-request/pipelines/${id}`)
-}
-
-export function createPipeline(sessionId: string, name: string, steps: PipelineStep[]) {
-  return http<PipelineDetail>(`/browser-request/sessions/${sessionId}/pipelines`, {
-    method: 'POST',
-    body: JSON.stringify({ name, steps }),
+  es.addEventListener('run-done', e => {
+    try { h.onRunDone?.(JSON.parse((e as MessageEvent).data)) } catch { /* */ }
   })
-}
-
-export function updatePipeline(id: string, name: string, steps: PipelineStep[]) {
-  return http<PipelineDetail>(`/browser-request/pipelines/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify({ name, steps }),
+  es.addEventListener('run-failed', e => {
+    try { h.onRunFailed?.(JSON.parse((e as MessageEvent).data)) } catch { /* */ }
   })
-}
-
-export function deletePipeline(id: string) {
-  return http<void>(`/browser-request/pipelines/${id}`, { method: 'DELETE' })
-}
-
-/** 启动 pipeline 运行，返回 abort 函数。 */
-export function runPipeline(
-  id: string,
-  dryRun: boolean,
-  handlers: SseHandlers,
-): () => void {
-  return subscribeSsePost(
-    `/browser-request/pipelines/${id}/run?dryRun=${dryRun ? 'true' : 'false'}`,
-    {},
-    handlers,
-  )
-}
-
-export function listPipelineRuns(pipelineId: string, limit = 20) {
-  return http<PipelineRunSummary[]>(
-    `/browser-request/pipelines/${pipelineId}/runs?limit=${limit}`,
-  )
-}
-
-export function getPipelineRun(runId: string) {
-  return http<PipelineRunDetail>(`/browser-request/runs/${runId}`)
+  es.onerror = e => h.onError?.(e)
+  return () => es.close()
 }

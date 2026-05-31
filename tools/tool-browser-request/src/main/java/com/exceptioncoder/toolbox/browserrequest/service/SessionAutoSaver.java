@@ -30,15 +30,18 @@ public class SessionAutoSaver {
     private final BrowserRequestProperties props;
     private final BrowserSessionManager manager;
     private final BrowserRequestService service;
+    private final HttpRecorder recorder;
 
     private ScheduledExecutorService scheduler;
 
     public SessionAutoSaver(BrowserRequestProperties props,
                             BrowserSessionManager manager,
-                            BrowserRequestService service) {
+                            BrowserRequestService service,
+                            HttpRecorder recorder) {
         this.props = props;
         this.manager = manager;
         this.service = service;
+        this.recorder = recorder;
     }
 
     @PostConstruct
@@ -61,9 +64,12 @@ public class SessionAutoSaver {
     private void saveAllQuietly() {
         Set<String> ids = manager.getOpenSessionIds();
         if (ids.isEmpty()) return;
-        int ok = 0, skipped = 0, failed = 0;
+        int ok = 0, skipped = 0, skippedRecording = 0, failed = 0;
         for (String id : ids) {
             if (!manager.isActive(id)) { skipped++; continue; }
+            // 录制中跳过：ctx.storageState() 会霸占 Playwright worker + 可能抢前台，
+            // 影响录制响应延迟；录制结束后下次 tick 会自动覆盖到
+            if (recorder.isActive(id)) { skippedRecording++; continue; }
             try {
                 service.saveStorage(id);
                 ok++;
@@ -72,9 +78,9 @@ public class SessionAutoSaver {
                 log.debug("[BrowserRequest] 自动保存 {} 失败: {}", id, e.getMessage());
             }
         }
-        if (ok > 0 || failed > 0) {
-            log.info("[BrowserRequest] 自动保存 storage state: ok={}, skipped={}, failed={}",
-                    ok, skipped, failed);
+        if (ok > 0 || failed > 0 || skippedRecording > 0) {
+            log.info("[BrowserRequest] 自动保存 storage state: ok={}, skipped={}, skipped-recording={}, failed={}",
+                    ok, skipped, skippedRecording, failed);
         }
     }
 

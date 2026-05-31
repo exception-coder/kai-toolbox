@@ -1,3 +1,4 @@
+-- 保留：会话表（沿用旧字段，本次不动）
 CREATE TABLE IF NOT EXISTS browser_request_session (
     id              TEXT    PRIMARY KEY,
     name            TEXT    NOT NULL,
@@ -10,63 +11,77 @@ CREATE TABLE IF NOT EXISTS browser_request_session (
 
 CREATE INDEX IF NOT EXISTS idx_browser_request_session_updated ON browser_request_session(updated_at DESC);
 
-CREATE TABLE IF NOT EXISTS browser_request_saved (
-    id          TEXT    PRIMARY KEY,
-    session_id  TEXT    NOT NULL,
-    name        TEXT    NOT NULL,
-    curl        TEXT,
-    method      TEXT,
-    url         TEXT,
-    headers     TEXT,
-    body        TEXT,
-    created_at  INTEGER NOT NULL,
-    updated_at  INTEGER NOT NULL
+-- 一次性清理：旧编排链相关表（saved / var / pipeline / pipeline_run）整体废弃，
+-- 由「站点录制编排」recording / http_call / task / task_run 替代
+DROP TABLE IF EXISTS browser_request_saved;
+DROP TABLE IF EXISTS browser_request_var;
+DROP TABLE IF EXISTS browser_request_pipeline;
+DROP TABLE IF EXISTS browser_request_pipeline_run;
+
+-- 录制元数据
+CREATE TABLE IF NOT EXISTS browser_request_recording (
+    id              TEXT    PRIMARY KEY,
+    session_id      TEXT    NOT NULL,
+    name            TEXT    NOT NULL,
+    status          TEXT    NOT NULL,                    -- RECORDING / STOPPED / ABANDONED / AUTO_STOPPED
+    capture_script  INTEGER NOT NULL DEFAULT 0,
+    started_at      INTEGER NOT NULL,
+    ended_at        INTEGER,
+    call_count      INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE INDEX IF NOT EXISTS idx_browser_request_saved_session ON browser_request_saved(session_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_recording_session ON browser_request_recording(session_id, started_at DESC);
+-- 单 session 单 active recording 守门：仅对 RECORDING 行做唯一约束
+CREATE UNIQUE INDEX IF NOT EXISTS idx_recording_active
+    ON browser_request_recording(session_id) WHERE status = 'RECORDING';
 
--- 已保存请求附带的 outputs 配置（OutputSpec[] 序列化为 JSON）。SQLite 无 IF NOT EXISTS for column，
--- SchemaInitializer 已容忍重复 ADD COLUMN 错误。
-ALTER TABLE browser_request_saved ADD COLUMN outputs_json TEXT;
--- 最近一次执行的响应体（用作编排时的参考样本，配 outputs 用），最大 256KB 截断
-ALTER TABLE browser_request_saved ADD COLUMN last_response_body TEXT;
-ALTER TABLE browser_request_saved ADD COLUMN last_response_at INTEGER;
--- 每条 output 最近一次提取的值（Map<output_name, value_string>），编排时合并所有 saved 的值供模板渲染
-ALTER TABLE browser_request_saved ADD COLUMN last_extracted_values_json TEXT;
-
-CREATE TABLE IF NOT EXISTS browser_request_var (
-    session_id  TEXT    NOT NULL,
-    name        TEXT    NOT NULL,
-    value       TEXT    NOT NULL,
-    updated_at  INTEGER NOT NULL,
-    PRIMARY KEY (session_id, name)
+-- 每条 HTTP 调用
+CREATE TABLE IF NOT EXISTS browser_request_http_call (
+    id                  TEXT    PRIMARY KEY,
+    recording_id        TEXT    NOT NULL,
+    seq                 INTEGER NOT NULL,
+    method              TEXT    NOT NULL,
+    url                 TEXT    NOT NULL,
+    resource_type       TEXT    NOT NULL,                -- XHR / FETCH / DOCUMENT / SCRIPT
+    request_headers     TEXT,                            -- JSON
+    request_body        TEXT,
+    status              INTEGER,
+    response_headers    TEXT,                            -- JSON
+    response_body       TEXT,
+    response_truncated  INTEGER NOT NULL DEFAULT 0,
+    sensitive           INTEGER NOT NULL DEFAULT 0,
+    started_at          INTEGER NOT NULL,
+    elapsed_ms          INTEGER,
+    initiator           TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_browser_request_var_session ON browser_request_var(session_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_call_recording ON browser_request_http_call(recording_id, seq ASC);
 
-CREATE TABLE IF NOT EXISTS browser_request_pipeline (
-    id          TEXT    PRIMARY KEY,
-    session_id  TEXT    NOT NULL,
-    name        TEXT    NOT NULL,
-    steps_json  TEXT    NOT NULL,
-    created_at  INTEGER NOT NULL,
-    updated_at  INTEGER NOT NULL
+-- 编排好的任务
+CREATE TABLE IF NOT EXISTS browser_request_task (
+    id            TEXT    PRIMARY KEY,
+    session_id    TEXT    NOT NULL,
+    recording_id  TEXT,                                  -- 可空：adhoc / 录制被删后置 NULL
+    name          TEXT    NOT NULL,
+    steps_json    TEXT    NOT NULL,
+    params_json   TEXT    NOT NULL,
+    options_json  TEXT,
+    created_at    INTEGER NOT NULL,
+    updated_at    INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_browser_request_pipeline_session
-  ON browser_request_pipeline(session_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_task_session ON browser_request_task(session_id, updated_at DESC);
 
-CREATE TABLE IF NOT EXISTS browser_request_pipeline_run (
-    id           TEXT    PRIMARY KEY,
-    pipeline_id  TEXT    NOT NULL,
-    session_id   TEXT    NOT NULL,
-    started_at   INTEGER NOT NULL,
-    finished_at  INTEGER,
-    status       TEXT    NOT NULL,         -- running / done / cancelled / failed
-    dry_run      INTEGER NOT NULL DEFAULT 0,
-    summary_json TEXT,                      -- { totalSteps, okSteps, failedSteps, abortedAtStep, ... }
-    failures_json TEXT                      -- [{ stepIndex, stepName, itemIndex, error, urlSample, itemSample }, ...]
+-- 回放历史
+CREATE TABLE IF NOT EXISTS browser_request_task_run (
+    id                 TEXT    PRIMARY KEY,
+    task_id            TEXT    NOT NULL,
+    status             TEXT    NOT NULL,                 -- RUNNING / DONE / FAILED / CANCELLED
+    started_at         INTEGER NOT NULL,
+    finished_at        INTEGER,
+    inputs_json        TEXT,
+    step_results_json  TEXT,
+    error_message      TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_browser_request_pipeline_run_pipeline
-  ON browser_request_pipeline_run(pipeline_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_run_task ON browser_request_task_run(task_id, started_at DESC);

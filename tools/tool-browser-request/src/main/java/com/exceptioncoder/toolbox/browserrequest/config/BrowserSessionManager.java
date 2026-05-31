@@ -8,7 +8,6 @@ import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.options.Proxy;
 import com.microsoft.playwright.options.RequestOptions;
-import com.exceptioncoder.toolbox.browserrequest.service.JsCapture;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
@@ -48,8 +47,6 @@ public class BrowserSessionManager {
     private final ExecutorService worker;
     private final Map<String, BrowserContext> contexts = new ConcurrentHashMap<>();
     private final Map<String, Page> firstPages = new ConcurrentHashMap<>();
-    private final Map<String, JsCapture> captures = new ConcurrentHashMap<>();
-
     private volatile Playwright playwright;
     private volatile Browser browser;
     private volatile boolean shuttingDown = false;
@@ -122,8 +119,12 @@ public class BrowserSessionManager {
             ctx.setDefaultTimeout(props.getRequestTimeoutMs());
             // 在任何文档执行前注入反检测脚本（覆盖 webdriver / chrome / plugins / WebGL 等）
             ctx.addInitScript(StealthConfig.initScript());
-            // BOSS 直聘风控码拦截器（仅 zhipin 系域名生效，其他站点零开销透传）
-            BossRiskBypass.install(ctx, objectMapper);
+            // BOSS 直聘风控码拦截器：仅在 session 初始 URL 为 zhipin 系时安装
+            // ctx.route("**\/*", ...) 即使内部立即 resume，CDP Fetch 拦截链路本身就有 IPC 开销，
+            // 装到不需要的 session 上会让所有请求慢 5-20ms / 次。
+            if (BossRiskBypass.isZhipinUrl(url)) {
+                BossRiskBypass.install(ctx, objectMapper);
+            }
             Page page = ctx.newPage();
             page.navigate(url);
             contexts.put(sessionId, ctx);
@@ -164,55 +165,12 @@ public class BrowserSessionManager {
         try { return Files.getLastModifiedTime(p).toMillis(); } catch (IOException e) { return null; }
     }
 
-    // ── JS 捕获 ────────────────────────────────────────────────────────────
-
-    /** 该会话的捕获目录（始终返回，无论是否启用）。 */
-    public Path captureDir(String sessionId) {
-        return dataDir.resolve(sessionId).resolve("captures");
-    }
-
-    /** 启动捕获：必须在 ctx 已打开时调用。重复调用会先 stop 再 start 以重置目录。 */
-    public void startJsCapture(String sessionId) {
-        runOnWorker(() -> {
-            BrowserContext ctx = requireCtx(sessionId);
-            JsCapture old = captures.remove(sessionId);
-            if (old != null) old.stop();
-            Path dir = captureDir(sessionId);
-            try {
-                JsCapture c = JsCapture.start(ctx, dir, objectMapper);
-                captures.put(sessionId, c);
-            } catch (IOException e) {
-                throw new RuntimeException("启动 JS 捕获失败: " + e.getMessage(), e);
-            }
-            return null;
-        });
-    }
-
-    public void stopJsCapture(String sessionId) {
-        runOnWorker(() -> {
-            JsCapture c = captures.remove(sessionId);
-            if (c != null) c.stop();
-            return null;
-        });
-    }
-
-    public boolean isJsCaptureActive(String sessionId) {
-        return captures.containsKey(sessionId);
-    }
-
-    public int jsCaptureCount(String sessionId) {
-        JsCapture c = captures.get(sessionId);
-        return c == null ? 0 : c.count();
-    }
-
     /**
      * 关闭某会话的 ctx，关之前会尽力保存一次 storage state，避免用户登录完直接点关闭丢登录态。
      * 返回值：close 之前是否成功落盘了 storage state（用于上层同步 DB 的 has_storage）。
      */
     public boolean closeSession(String sessionId) {
         return Boolean.TRUE.equals(runOnWorker(() -> {
-            JsCapture cap = captures.remove(sessionId);
-            if (cap != null) cap.stop();
             BrowserContext ctx = contexts.remove(sessionId);
             firstPages.remove(sessionId);
             boolean saved = false;
@@ -252,6 +210,14 @@ public class BrowserSessionManager {
 
     private boolean isEmpty(Path dir) throws IOException {
         try (var s = Files.list(dir)) { return s.findAny().isEmpty(); }
+    }
+
+    /**
+     * 在 worker 线程内拿到指定 session 的 ctx 给 task 用。
+     * 录制/回放等需要操作 Playwright API 的模块通过本入口保证线程安全。
+     */
+    public <T> T runWithCtx(String sessionId, java.util.function.Function<BrowserContext, T> task) {
+        return runOnWorker(() -> task.apply(requireCtx(sessionId)));
     }
 
     /** 在 session 的 ctx 内重放 HTTP 请求，返回完整响应。 */
@@ -353,11 +319,6 @@ public class BrowserSessionManager {
     @PreDestroy
     public void shutdown() {
         shuttingDown = true;
-        // 先把还在抓的 JS capture 全部 stop，确保 manifest 落盘完整
-        captures.values().forEach(c -> {
-            try { c.stop(); } catch (Exception ignored) {}
-        });
-        captures.clear();
         try {
             worker.submit(() -> {
                 contexts.values().forEach(ctx -> {

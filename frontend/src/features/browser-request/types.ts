@@ -1,3 +1,9 @@
+// 与后端 record 字段对齐：tools/tool-browser-request/.../domain/*.java + api/dto/*.java
+
+export type RecordingStatus = 'RECORDING' | 'STOPPED' | 'ABANDONED' | 'AUTO_STOPPED'
+export type TaskRunStatus = 'RUNNING' | 'DONE' | 'FAILED' | 'CANCELLED'
+export type ResourceType = 'XHR' | 'FETCH' | 'DOCUMENT' | 'SCRIPT'
+
 export interface SessionView {
   id: string
   name: string
@@ -7,184 +13,179 @@ export interface SessionView {
   lastActiveAt: number | null
   createdAt: number
   updatedAt: number
-  /** storage state 文件字节数，null 表示尚未生成 */
   storageBytes: number | null
-  /** storage state 文件最后修改时间（epoch ms），null 表示尚未生成 */
   storageSavedAt: number | null
 }
 
-export interface ExecutedResponse {
-  status: number
-  statusText: string
-  headers: Record<string, string>
-  body: string
-  rawBodyLength: number
-  /** 跟随重定向后的最终 URL；若没有发生重定向，等于请求的 URL */
-  finalUrl: string
-}
-
-export interface ExecuteRequestBody {
-  /** 二选一：直接给 curl 文本 */
-  curl?: string
-  /** 或者结构化字段 */
-  method?: string
-  url?: string
-  headers?: Record<string, string>
-  body?: string
-  /** 可选：执行成功后把响应体回写到该 saved 的 lastResponseBody（用作下次编排参考） */
-  linkedSavedId?: string
-}
-
-export interface SavedRequestView {
+export interface RecordingView {
   id: string
   sessionId: string
   name: string
-  curl: string | null
-  method: string | null
-  url: string | null
-  headers: Record<string, string>
-  body: string | null
-  outputs: OutputSpec[]
-  /** 上次执行响应体（≤256KB，截断后），用作编排时配 outputs 的参考 */
-  lastResponseBody: string | null
-  lastResponseAt: number | null
-  /** 每个 output 名 → 最近一次提取出来的 stringified 值；编排运行时所有 saved 的值合并喂给模板 */
-  lastExtractedValues: Record<string, string>
-  createdAt: number
-  updatedAt: number
+  status: RecordingStatus
+  captureScript: boolean
+  startedAt: number
+  endedAt: number | null
+  callCount: number
 }
 
-export interface SaveRequestBody {
-  name?: string
-  curl?: string
-  method?: string
-  url?: string
-  headers?: Record<string, string>
-  body?: string
-  outputs?: OutputSpec[]
-  lastResponseBody?: string
+export interface HttpCallView {
+  id: string
+  recordingId: string
+  seq: number
+  method: string
+  url: string
+  resourceType: ResourceType
+  requestHeaders?: Record<string, string>
+  requestBody?: string | null
+  status?: number | null
+  responseHeaders?: Record<string, string>
+  responseBody?: string | null
+  responseTruncated: boolean
+  sensitive: boolean
+  startedAt: number
+  elapsedMs?: number | null
+  initiator?: string | null
 }
 
-export interface CaptureStatusView {
-  active: boolean
-  capturedCount: number
-  directory: string
+/** SSE 'call' 事件载荷（轻量，不含 body）。 */
+export interface HttpCallStreamView {
+  id: string
+  recordingId: string
+  seq: number
+  method: string
+  url: string
+  resourceType: ResourceType
+  status?: number | null
+  elapsedMs?: number | null
+  startedAt: number
+  responseTruncated: boolean
+  sensitive: boolean
 }
 
-export interface VarView {
-  name: string
-  value: string
-  updatedAt: number
+export interface RecordingDetail {
+  recording: RecordingView
+  calls: HttpCallView[]
+  callsTotal: number
+  callsHasMore: boolean
 }
 
-// ── Pipeline 编排链 ─────────────────────────────────────────────────────────
+/** 参数化点：把 step 中某 field 的一段子串替换为变量。 */
+export interface ParameterizationSpec {
+  field: string                 // url / path / query.{key} / header.{key} / body
+  token: string                 // 原文中的字符串片段（保存时校验恰好出现一次）
+  varName: string
+}
 
-export interface OutputSpec {
+export interface ExtractSpec {
   name: string
   jsonPath: string
-  /** true 时除写 chain vars 还落到 session vars（持久化到 DB） */
-  persist: boolean
 }
 
-export interface ForeachSource {
-  varName: string
-  /** 在变量上再做一次 JSONPath（如 '$.[*].comments[*]'），留空则直接用整个变量 */
-  jsonPath?: string
-}
-
-export interface PipelineStep {
-  /** 客户端 uuid，仅用作 UI key + 排序 */
-  id: string
+export interface ParamSpec {
   name: string
-  type: 'single' | 'foreach'
-  request: ExecuteRequestBody
-  /** 仅 foreach 时存在 */
-  source?: ForeachSource
-  outputs?: OutputSpec[]
-  continueOnError?: boolean
-  /**
-   * 节流间隔（ms）。null/0 表示不等待。
-   *   - single：兼容字段，保留旧语义"本 step 后到下一 step"——新建议用 afterStepMs
-   *   - foreach：item 之间等待
-   */
-  requestIntervalMs?: number
-  /** 本 step 完成后、进入下一 step 之前等待的毫秒数。所有 step 类型都生效。 */
-  afterStepMs?: number
+  kind: 'string' | 'number' | 'boolean'
+  defaultValue?: string | null
 }
 
-export interface PipelineSummary {
+export interface AdhocRequest {
+  method: string
+  url: string
+  headers?: Record<string, string>
+  body?: string | null
+  /** 响应体快照——编辑 task 时供响应树挑变量；不参与回放执行 */
+  responseSample?: string | null
+}
+
+export interface StepSpec {
+  name: string
+  fromCallId?: string | null
+  adhoc?: AdhocRequest | null
+  parameterizations?: ParameterizationSpec[]
+  extracts?: ExtractSpec[]
+  continueOnError?: boolean | null
+}
+
+export interface TaskOptions {
+  /** step 之间的延迟下限（ms） */
+  stepIntervalMs?: number | null
+  /** step 之间的延迟上限（ms）；> stepIntervalMs 时在区间内均匀随机，否则固定为下限 */
+  stepIntervalMaxMs?: number | null
+  /** 同一 step 内 fan-out 迭代之间的延迟下限（ms）；未填时回退用 stepIntervalMs */
+  iterationIntervalMs?: number | null
+  /** 同上的上限 */
+  iterationIntervalMaxMs?: number | null
+  continueOnError?: boolean | null
+}
+
+export interface TaskView {
   id: string
   sessionId: string
+  recordingId?: string | null
   name: string
-  stepCount: number
+  steps: StepSpec[]
+  params: ParamSpec[]
+  options?: TaskOptions | null
   createdAt: number
   updatedAt: number
 }
 
-export interface PipelineDetail {
-  id: string
-  sessionId: string
-  name: string
-  steps: PipelineStep[]
-  createdAt: number
-  updatedAt: number
-}
-
-export interface PipelineStepOutputSample {
-  type: string
-  /** 数组时为 sample（前 N 项）；标量/对象时为 value */
-  value?: unknown
-  sample?: unknown
-  totalSize?: number
-  truncated?: boolean
-}
-
-export interface PipelineStepOutputsEntry {
+export interface StepResultView {
   stepIndex: number
+  /** 隐式 fan-out 时的迭代序号（从 0 起）；非迭代 step 为 null */
+  iterationIndex?: number | null
+  /** 隐式 fan-out 时的迭代总数；非迭代 step 为 null */
+  iterationTotal?: number | null
   stepName: string
-  outputs: Record<string, PipelineStepOutputSample>
+  status?: number | null
+  elapsedMs?: number | null
+  finalUrl?: string | null
+  responseSample?: string | null
+  extracted: Record<string, string>
+  error?: string | null
 }
 
-export interface PipelineStepResponseEntry {
-  stepIndex: number
-  stepName: string
-  type: 'single' | 'foreach'
-  /** foreach 才有 */
-  itemIndex?: number
-  status?: number
-  statusText?: string
-  finalUrl?: string
-  elapsedMs?: number
-  sample?: string
-}
-
-export interface PipelineRunSummary {
+export interface TaskRunView {
   id: string
-  pipelineId: string
+  taskId: string
+  status: TaskRunStatus
   startedAt: number
-  finishedAt: number | null
-  status: 'running' | 'done' | 'cancelled' | 'failed'
-  dryRun: boolean
-  summary: {
-    totalSteps?: number
-    okSteps?: number
-    failedSteps?: number
-    failureCount?: number
-    abortedAtStep?: number
-    stepOutputs?: PipelineStepOutputsEntry[]
-    stepResponses?: PipelineStepResponseEntry[]
-  } | null
+  finishedAt?: number | null
+  inputs: Record<string, unknown>
+  stepResults: StepResultView[]
+  errorMessage?: string | null
 }
 
-export interface PipelineRunFailure {
-  stepIndex: number
-  stepName: string
-  itemIndex: number | null
-  error: string
-  urlSample?: string | null
-  itemSample?: string | null
+// ── 请求体（与后端 DTO 对齐）────────────────────────────────────────────
+
+/**
+ * 录哪些资源在前端选择，每次开录都显式传。
+ * 不传 = 后端套默认值（xhr/fetch 开、document/script 关、响应体截断 2 MB）。
+ */
+export interface StartRecordingBody {
+  name?: string
+  captureXhr?: boolean
+  captureFetch?: boolean
+  captureDocument?: boolean
+  captureScript?: boolean
+  /** 响应体存到多少字节为止；后端会夹到 responseBodyMaxBytes（默认 32 MB）之内 */
+  responseBodyTruncateAtBytes?: number
 }
 
-export interface PipelineRunDetail extends PipelineRunSummary {
-  failures: PipelineRunFailure[] | null
+export interface CreateTaskBody {
+  sessionId: string
+  recordingId?: string | null
+  name: string
+  steps: StepSpec[]
+  params: ParamSpec[]
+  stepIntervalMs?: number | null
+  stepIntervalMaxMs?: number | null
+  iterationIntervalMs?: number | null
+  iterationIntervalMaxMs?: number | null
+  continueOnError?: boolean | null
+}
+
+export type UpdateTaskBody = Omit<CreateTaskBody, 'sessionId' | 'recordingId'>
+
+export interface ReplayBody {
+  params: Record<string, unknown>
 }

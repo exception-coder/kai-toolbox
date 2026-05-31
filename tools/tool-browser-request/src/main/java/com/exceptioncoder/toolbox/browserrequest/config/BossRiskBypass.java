@@ -38,7 +38,9 @@ import java.util.Set;
  *
  * <h3>边界</h3>
  * <ul>
- *   <li>仅对 zhipin 系域名生效，不影响 yuque 等其他 session</li>
+ *   <li>必须只在 session URL 是 zhipin 系时才安装——`ctx.route("**\/*", ...)` 本身就有
+ *       全局 IPC 开销（每个请求要 Chrome ↔ Playwright ↔ Java 来回 4 次），即使 handler
+ *       立即 resume 也省不掉，会让所有站点变慢。判断由调用方做（见 {@link #isZhipinUrl}）</li>
  *   <li>仅改 JSON 响应；HTML / 二进制 / 非 JSON 直接透传</li>
  *   <li>失败时降级为透传——绝不阻断请求</li>
  *   <li>后端依然认为你异常——cookie 拿到后用 APIRequestContext 重放业务接口才是终极方案</li>
@@ -56,10 +58,18 @@ public final class BossRiskBypass {
     /** ajaxGetaway 里会触发跳转的风控错误码。 */
     private static final Set<Integer> RISK_CODES = Set.of(31, 32, 35, 36, 37, 5012);
 
-    /** 安装拦截器到指定 ctx。每个 ctx 调一次即可，无需重复。 */
+    /**
+     * 判断给定 URL 是否属于 zhipin 系域名。调用方据此决定要不要 {@link #install}——
+     * 不属于则**不要安装**，避免 ctx.route 的全局 IPC 拖慢整个浏览器。
+     */
+    public static boolean isZhipinUrl(String url) {
+        return isTargetHost(url);
+    }
+
+    /** 安装拦截器到指定 ctx。每个 ctx 调一次即可，无需重复。仅在 zhipin 系 session 调用。 */
     public static void install(BrowserContext ctx, ObjectMapper mapper) {
         ctx.route("**/*", route -> handle(route, mapper));
-        log.info("[BossRiskBypass] 已注册响应拦截器（仅 zhipin 系域名生效）");
+        log.info("[BossRiskBypass] 已注册响应拦截器（zhipin 系 session）");
     }
 
     private static void handle(Route route, ObjectMapper mapper) {

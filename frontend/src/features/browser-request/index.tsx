@@ -4,10 +4,10 @@ import { BrowserRequestPage } from './pages/BrowserRequestPage'
 
 const manifest: FeatureManifest = {
   id: 'browser-request',
-  name: '浏览器请求',
+  name: '站点录制编排',
   icon: Globe,
   group: '网络工具',
-  description: '打开站点登录后，用同一会话重放任意 HTTP 请求（含 curl 粘贴）',
+  description: '浏览器里点一遍 → 自动录 HTTP 调用 → 标参数 → 一键回放',
   order: 55,
   routes: [{ path: '/tools/browser-request', element: <BrowserRequestPage /> }],
 }
