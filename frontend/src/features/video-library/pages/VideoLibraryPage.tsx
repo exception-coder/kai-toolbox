@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useInfiniteQuery, useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query'
 import { Activity, FolderX } from 'lucide-react'
@@ -6,7 +6,7 @@ import { ApiError } from '@/lib/api'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet'
-import { formatBytes } from '@/lib/utils'
+import { cn, formatBytes } from '@/lib/utils'
 import { deleteFile } from '@/features/treesize/api'
 import { addVideoFavorite, cleanJunkVideos, getVideoLibrary, mergeVideos, removeVideoFavorite } from '../api'
 import { ExcludedDirsSheet, useVideoLibraryConfig } from '../components/ExcludedDirsSheet'
@@ -16,6 +16,54 @@ import { VideoListPanel } from '../components/VideoListPanel'
 import { VideoPlayerPanel } from '../components/VideoPlayerPanel'
 import { loadState, saveState } from '../storage'
 import type { VideoLibraryItem, VideoLibraryPage, VideoSizeBucket, VideoSortBy, VideoSortOrder } from '../types'
+
+type MergeStrategy = 'auto' | 'copy' | 'force'
+
+const MERGE_STRATEGIES: { v: MergeStrategy; label: string; desc: string }[] = [
+  { v: 'auto', label: '自动（推荐）', desc: '格式一致则无损拼接，不一致自动重编码统一' },
+  { v: 'copy', label: '无损优先', desc: '直接拼接不重编码，最快无损；格式不一致可能失败或花屏' },
+  { v: 'force', label: '强制重编码', desc: '全部转 720p H.264，兼容性最好，速度较慢' },
+]
+
+/**
+ * 合并前的策略选择器。自带本地 state（confirm 弹窗的 description 只在调用时取一次快照，
+ * 用内部 state + onChange 回填外层 ref 才能拿到用户最终选择）。
+ */
+function MergeStrategyPicker({ count, onChange }: { count: number; onChange: (v: MergeStrategy) => void }) {
+  const [value, setValue] = useState<MergeStrategy>('auto')
+  return (
+    <div className="space-y-2">
+      <div className="text-sm">
+        将合并选中的 <strong className="tabular-nums">{count}</strong> 个视频（按列表顺序）。选择合并方式：
+      </div>
+      <div className="space-y-1.5">
+        {MERGE_STRATEGIES.map(o => (
+          <label
+            key={o.v}
+            className={cn(
+              'flex cursor-pointer gap-2 rounded-md border p-2 transition-colors',
+              value === o.v
+                ? 'border-[var(--color-primary)] bg-[var(--color-accent)]'
+                : 'hover:bg-[var(--color-accent)]/50',
+            )}
+          >
+            <input
+              type="radio"
+              name="merge-strategy"
+              className="mt-0.5 shrink-0"
+              checked={value === o.v}
+              onChange={() => { setValue(o.v); onChange(o.v) }}
+            />
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-[var(--color-foreground)]">{o.label}</span>
+              <span className="block text-xs text-[var(--color-muted-foreground)]">{o.desc}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 const PAGE_SIZE = 200
 
@@ -360,11 +408,23 @@ export function VideoLibraryPage() {
     })
   }
 
-  // 合并多选的视频：按列表显示顺序传 path 数组，同步阻塞，完成后弹结果。
-  const handleBulkMerge = async (toMerge: VideoLibraryItem[]) => {
-    if (toMerge.length < 2) return
+  // 合并多选的视频：先弹策略选择，按列表显示顺序传 path 数组，同步阻塞，完成后弹结果。
+  // 返回 false 表示用户取消（VideoListPanel 据此不退出多选，保留勾选）。
+  const mergeStrategyRef = useRef<MergeStrategy>('auto')
+  const handleBulkMerge = async (toMerge: VideoLibraryItem[]): Promise<boolean> => {
+    if (toMerge.length < 2) return false
+    mergeStrategyRef.current = 'auto'   // 每次打开重置默认
+    const ok = await confirm({
+      title: '合并视频',
+      description: (
+        <MergeStrategyPicker count={toMerge.length} onChange={v => { mergeStrategyRef.current = v }} />
+      ),
+      confirmText: '开始合并',
+      cancelText: '取消',
+    })
+    if (!ok) return false
     try {
-      const r = await mergeVideos(toMerge.map(it => it.path))
+      const r = await mergeVideos(toMerge.map(it => it.path), mergeStrategyRef.current)
       await confirm({
         title: '合并完成',
         description: (
@@ -391,6 +451,7 @@ export function VideoLibraryPage() {
       const msg = e instanceof ApiError ? e.message : String(e)
       await confirm({ title: '合并失败', description: msg, confirmText: '知道了', cancelText: '关闭' })
     }
+    return true
   }
 
   const cleanJunkMutation = useMutation({

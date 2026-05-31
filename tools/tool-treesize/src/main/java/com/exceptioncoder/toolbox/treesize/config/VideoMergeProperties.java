@@ -16,7 +16,7 @@ public class VideoMergeProperties {
     /** 重编码目标帧率。 */
     private int targetFps = 30;
     /** 单次最多合并的输入数。 */
-    private int maxInputs = 100;
+    private int maxInputs = 200;
     /** ffmpeg 进程硬超时（秒）。 */
     private int timeoutS = 1800;
 

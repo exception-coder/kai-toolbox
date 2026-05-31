@@ -28,8 +28,11 @@ interface Props {
   onDelete?: (item: VideoLibraryItem) => void
   /** When provided, the list shows a 多选 toggle and lets the user delete in bulk. */
   onBulkDelete?: (items: VideoLibraryItem[]) => void | Promise<void>
-  /** When provided, the 多选 toolbar shows a 合并 button (needs >= 2 selected). */
-  onBulkMerge?: (items: VideoLibraryItem[]) => void | Promise<void>
+  /**
+   * When provided, the 多选 toolbar shows a 合并 button (needs >= 2 selected).
+   * 返回 false 表示用户在合并对话框取消 —— 此时保留多选不退出。
+   */
+  onBulkMerge?: (items: VideoLibraryItem[]) => boolean | void | Promise<boolean | void>
   onCleanJunk?: () => void
   cleaningJunk?: boolean
 }
@@ -94,11 +97,28 @@ export function VideoListPanel({
     })
   }, [items])
 
+  // Shift 连选的锚点：上一次普通点击的行下标
+  const anchorIndexRef = useRef<number | null>(null)
+
   const toggleSelected = (path: string) => {
     setSelectedPaths(prev => {
       const next = new Set(prev)
       if (next.has(path)) next.delete(path)
       else next.add(path)
+      return next
+    })
+  }
+
+  // Shift+点击：把锚点到当前下标之间整段补勾（不清除已有勾选，方便跨段累加）
+  const selectRange = (fromIdx: number, toIdx: number) => {
+    const lo = Math.min(fromIdx, toIdx)
+    const hi = Math.max(fromIdx, toIdx)
+    setSelectedPaths(prev => {
+      const next = new Set(prev)
+      for (let i = lo; i <= hi; i++) {
+        const it = items[i]
+        if (it) next.add(it.path)
+      }
       return next
     })
   }
@@ -116,6 +136,7 @@ export function VideoListPanel({
   const exitMultiSelect = () => {
     setMultiSelectMode(false)
     setSelectedPaths(new Set())
+    anchorIndexRef.current = null
   }
 
   const selectedItems = useMemo(
@@ -141,8 +162,9 @@ export function VideoListPanel({
     if (!onBulkMerge || selectedItems.length < 2 || bulkPending) return
     setBulkPending(true)
     try {
-      await onBulkMerge(selectedItems)
-      exitMultiSelect()
+      const done = await onBulkMerge(selectedItems)
+      // 仅在真正执行了合并时退出多选；取消（返回 false）时保留勾选
+      if (done !== false) exitMultiSelect()
     } finally {
       setBulkPending(false)
     }
@@ -176,7 +198,7 @@ export function VideoListPanel({
             {' / '}
             <span className="tabular-nums">{items.length}</span>
             <span className="ml-1 text-xs font-normal text-[var(--color-muted-foreground)]">
-              （仅当前已加载）
+              （仅当前已加载 · 按住 Shift 连选一段）
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -327,16 +349,25 @@ export function VideoListPanel({
         </div>
       ) : (
         <ul ref={listRef} className="flex-1 overflow-y-auto overscroll-contain">
-          {items.map(item => {
+          {items.map((item, idx) => {
             const isActive = item.path === selectedPath
             const isChecked = selectedPaths.has(item.path)
             return (
               <li key={item.path} className="relative">
                 <button
                   type="button"
-                  onClick={() => {
-                    if (multiSelectMode) toggleSelected(item.path)
-                    else onSelect(item)
+                  onClick={(e) => {
+                    if (multiSelectMode) {
+                      // 按住 Shift 且已有锚点 → 整段补勾；否则单选并把当前行设为新锚点
+                      if (e.shiftKey && anchorIndexRef.current !== null) {
+                        selectRange(anchorIndexRef.current, idx)
+                      } else {
+                        toggleSelected(item.path)
+                        anchorIndexRef.current = idx
+                      }
+                    } else {
+                      onSelect(item)
+                    }
                   }}
                   className={cn(
                     'group flex w-full items-center gap-3 border-l-2 py-2 text-left text-sm transition-colors',

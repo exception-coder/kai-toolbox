@@ -154,7 +154,7 @@ toolbox:
       target-resolution: "1280x720"
       target-fps: 30
       # 单次最多合并的输入数
-      max-inputs: 100
+      max-inputs: 200
       # ffmpeg 合并进程硬超时（秒）
       timeout-s: 1800
     extensions:
