@@ -1,0 +1,350 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
+import { ArrowLeft, ArrowRight, BookOpen, Clock, Code2, FileText, Hash } from 'lucide-react'
+import { Segmented } from '@/components/ui/segmented'
+import { findCategory, findQuestion, loadIndex, loadMarkdown, viewCategory } from '../data'
+import type { Java8guCategory, Java8guIndex, Java8guQuestion } from '../types'
+import { extractToc, parseMarkdownAST, type TocItem } from '../lib/markdown'
+import { parseStructure, type ParsedStructure } from '../lib/structure'
+import { iconFor } from '../lib/mindmap'
+import { QuestionTocPanel } from '../components/QuestionTocPanel'
+import { QuestionVisualSummary } from '../components/QuestionVisualSummary'
+import { MarkdownViewer } from '../components/markdown/MarkdownViewer'
+import { SendToGptButton } from '../components/SendToGptButton'
+import '../styles/java8gu.css'
+
+type ViewMode = 'visual' | 'text'
+const VIEW_MODE_KEY = 'java8gu:view-mode'
+
+interface Navigators {
+  prev?: Java8guQuestion
+  next?: Java8guQuestion
+}
+
+export function Java8guQuestionPage() {
+  const { qid = '' } = useParams<{ qid: string }>()
+  const [index, setIndex] = useState<Java8guIndex | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [markdown, setMarkdown] = useState<string>('')
+  const [loadingMd, setLoadingMd] = useState(true)
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    if (typeof window === 'undefined') return 'visual'
+    const saved = window.localStorage.getItem(VIEW_MODE_KEY)
+    return saved === 'text' ? 'text' : 'visual'
+  })
+  const articleRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(VIEW_MODE_KEY, viewMode)
+    } catch {
+      /* localStorage 不可用时静默 */
+    }
+  }, [viewMode])
+
+  useEffect(() => {
+    let cancelled = false
+    loadIndex()
+      .then(idx => {
+        if (!cancelled) setIndex(idx)
+      })
+      .catch(e => {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    setLoadingMd(true)
+    loadMarkdown(qid)
+      .then(text => {
+        if (!cancelled) {
+          setMarkdown(text)
+          setLoadingMd(false)
+        }
+      })
+      .catch(e => {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : String(e))
+          setLoadingMd(false)
+        }
+      })
+    // 切题时滚回顶部
+    window.scrollTo({ top: 0 })
+    return () => {
+      cancelled = true
+    }
+  }, [qid])
+
+  const question = useMemo<Java8guQuestion | undefined>(
+    () => (index ? findQuestion(index, qid) : undefined),
+    [index, qid],
+  )
+  const category = useMemo<Java8guCategory | undefined>(
+    () => (index && question ? findCategory(index, question.categoryId) : undefined),
+    [index, question],
+  )
+  const navigators = useMemo<Navigators>(() => {
+    if (!index || !question) return {}
+    const v = viewCategory(index, question.categoryId)
+    if (!v) return {}
+    const i = v.questions.findIndex(q => q.id === question.id)
+    if (i < 0) return {}
+    return { prev: v.questions[i - 1], next: v.questions[i + 1] }
+  }, [index, question])
+
+  const tokens = useMemo(() => parseMarkdownAST(markdown), [markdown])
+  const toc: TocItem[] = useMemo(() => extractToc(markdown), [markdown])
+  const structure = useMemo(() => parseStructure(markdown), [markdown])
+
+  if (error) {
+    return (
+      <div className="mx-auto max-w-3xl px-6 py-10">
+        <Link
+          to="/tools/java8gu"
+          className="inline-flex items-center gap-1 text-sm text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+        >
+          <ArrowLeft className="h-4 w-4" /> 返回分类
+        </Link>
+        <div className="mt-6 rounded-lg border border-rose-300/60 bg-rose-50/60 p-4 text-sm text-rose-700 dark:border-rose-700/40 dark:bg-rose-950/30 dark:text-rose-300">
+          {error}
+        </div>
+      </div>
+    )
+  }
+
+  if (!question || !category) {
+    return (
+      <div className="mx-auto max-w-5xl px-6 py-10">
+        <div className="space-y-3">
+          <div className="h-6 w-1/3 animate-pulse rounded bg-[var(--color-muted)]/60" />
+          <div className="h-3 w-2/3 animate-pulse rounded bg-[var(--color-muted)]/40" />
+          <div className="h-3 w-full animate-pulse rounded bg-[var(--color-muted)]/40" />
+          <div className="h-3 w-5/6 animate-pulse rounded bg-[var(--color-muted)]/40" />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-6">
+      {/* 面包屑 */}
+      <div className="mb-3 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap text-[11px] text-[var(--color-muted-foreground)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mb-4 sm:overflow-visible sm:text-xs">
+        <Link to="/tools/java8gu" className="hover:text-[var(--color-foreground)]">
+          Java 八股
+        </Link>
+        <span>/</span>
+        <Link
+          to={`/tools/java8gu/c/${category.id}`}
+          className="hover:text-[var(--color-foreground)]"
+        >
+          {category.label}
+        </Link>
+        <span>/</span>
+        <span className="font-mono">#{question.id}</span>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_240px] lg:gap-8">
+        <article ref={articleRef} className="min-w-0">
+          {/* 题目大标题与元信息 */}
+          <header className="mb-5 border-b border-[var(--color-border)] pb-4 sm:mb-6 sm:pb-5">
+            <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+              <span className="inline-flex items-center gap-1 rounded-full bg-[var(--color-muted)] px-2 py-0.5 font-medium text-[var(--color-foreground)]/80">
+                <Hash className="h-3 w-3" />#{question.id}
+              </span>
+              <span className="inline-flex items-center gap-1 text-[var(--color-muted-foreground)]">
+                <Clock className="h-3 w-3" /> {question.readMin} min
+              </span>
+              <span className="inline-flex items-center gap-1 text-[var(--color-muted-foreground)]">
+                <FileText className="h-3 w-3" /> {question.chars.toLocaleString()} 字
+              </span>
+              {question.codeCount > 0 && (
+                <span className="inline-flex items-center gap-1 text-[var(--color-muted-foreground)]">
+                  <Code2 className="h-3 w-3" /> {question.codeCount} 段
+                </span>
+              )}
+              {question.codeLangs.length > 0 && (
+                <span className="ml-1 hidden flex-wrap gap-1 sm:flex">
+                  {question.codeLangs.slice(0, 4).map(l => (
+                    <span
+                      key={l}
+                      className="rounded bg-[var(--color-muted)] px-1.5 py-0.5 font-mono text-[10px]"
+                    >
+                      {l}
+                    </span>
+                  ))}
+                </span>
+              )}
+            </div>
+            <h1 className="text-xl font-semibold leading-snug tracking-tight sm:text-2xl">
+              {question.title}
+            </h1>
+            {question.tldr && (
+              <p className="mt-2 text-[13px] leading-relaxed text-[var(--color-muted-foreground)] sm:text-sm">
+                {question.tldr}
+              </p>
+            )}
+
+            <div className="mt-3.5 flex flex-wrap items-center justify-between gap-2 sm:mt-4">
+              <Segmented<ViewMode>
+                value={viewMode}
+                onChange={setViewMode}
+                options={[
+                  { value: 'visual', label: '图表视图' },
+                  { value: 'text', label: '原文' },
+                ]}
+                size="md"
+              />
+              <div className="flex items-center gap-3">
+                <span className="hidden text-[11px] text-[var(--color-muted-foreground)] sm:inline">
+                  {viewMode === 'visual'
+                    ? '章节卡片 · 速记知识点'
+                    : '展开完整 markdown'}
+                </span>
+                <SendToGptButton
+                  question={question}
+                  markdown={markdown}
+                  disabled={loadingMd}
+                />
+              </div>
+            </div>
+          </header>
+
+          {/* 正文 */}
+          {loadingMd ? (
+            <div className="space-y-3">
+              <div className="h-3 w-2/3 animate-pulse rounded bg-[var(--color-muted)]/40" />
+              <div className="h-3 w-5/6 animate-pulse rounded bg-[var(--color-muted)]/40" />
+              <div className="h-3 w-1/2 animate-pulse rounded bg-[var(--color-muted)]/40" />
+            </div>
+          ) : viewMode === 'visual' ? (
+            <QuestionVisualSummary structure={structure} />
+          ) : (
+            <MarkdownViewer tokens={tokens} />
+          )}
+
+          {/* Prev / Next */}
+          <nav className="mt-8 grid grid-cols-2 gap-2 border-t border-[var(--color-border)] pt-5 sm:mt-10 sm:gap-3 sm:pt-6">
+            <NavCard direction="prev" question={navigators.prev} />
+            <NavCard direction="next" question={navigators.next} />
+          </nav>
+        </article>
+
+        {/* TOC 边栏（lg+） */}
+        <aside className="hidden lg:block">
+          <div className="sticky top-6">
+            <div className="mb-4 rounded-lg border bg-[var(--color-card)] p-3">
+              <Link
+                to={`/tools/java8gu/c/${category.id}`}
+                className="flex items-center gap-1.5 text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+              >
+                <BookOpen className="h-3 w-3" />
+                {category.label}
+              </Link>
+              <div className="mt-2 grid grid-cols-3 gap-1.5 text-[10.5px]">
+                <Cell label="字数" value={question.chars.toLocaleString()} />
+                <Cell label="章节" value={`${question.headings.length} 节`} />
+                <Cell label="阅读" value={`${question.readMin} min`} />
+              </div>
+            </div>
+            {viewMode === 'text' && (
+              <QuestionTocPanel items={toc} containerRef={articleRef} />
+            )}
+            {viewMode === 'visual' && structure.sections.length > 0 && (
+              <SectionMiniNav structure={structure} />
+            )}
+          </div>
+        </aside>
+      </div>
+    </div>
+  )
+}
+
+function Cell({
+  label,
+  value,
+}: {
+  label: string
+  value: string
+}) {
+  return (
+    <div className="rounded bg-[var(--color-muted)]/40 px-2 py-1.5">
+      <div className="text-[9.5px] uppercase tracking-wider text-[var(--color-muted-foreground)]">
+        {label}
+      </div>
+      <div className="mt-0.5 truncate text-[12px] font-medium">
+        {value}
+      </div>
+    </div>
+  )
+}
+
+function SectionMiniNav({ structure }: { structure: ParsedStructure }) {
+  const tops = structure.sections.filter(s => s.level === 2)
+  if (tops.length === 0) return null
+  return (
+    <nav className="text-xs">
+      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">
+        章节速览
+      </div>
+      <ul className="space-y-1">
+        {tops.map((s, i) => (
+          <li
+            key={i}
+            className="flex items-center gap-1.5 rounded-md px-2 py-1 hover:bg-[var(--color-muted)]/40"
+          >
+            <span className="text-sm">{iconFor(s.title)}</span>
+            <span className="line-clamp-1 flex-1 text-[12px] text-[var(--color-foreground)]/85">
+              {s.title}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  )
+}
+
+function NavCard({
+  direction,
+  question,
+}: {
+  direction: 'prev' | 'next'
+  question?: Java8guQuestion
+}) {
+  if (!question) {
+    return (
+      <div className="rounded-lg border border-dashed p-4 text-center text-xs text-[var(--color-muted-foreground)]">
+        {direction === 'prev' ? '已是本类第一题' : '已是本类最后一题'}
+      </div>
+    )
+  }
+  const Icon = direction === 'prev' ? ArrowLeft : ArrowRight
+  const align = direction === 'prev' ? 'items-start text-left' : 'items-end text-right'
+  return (
+    <Link
+      to={`/tools/java8gu/q/${question.id}`}
+      className={`group flex flex-col gap-1 rounded-lg border bg-[var(--color-card)] p-4 transition-all hover:-translate-y-0.5 hover:border-[var(--color-primary)]/40 hover:shadow-md ${align}`}
+    >
+      <span className="inline-flex items-center gap-1 text-[10.5px] uppercase tracking-wider text-[var(--color-muted-foreground)]">
+        {direction === 'prev' ? (
+          <>
+            <Icon className="h-3 w-3" /> 上一题
+          </>
+        ) : (
+          <>
+            下一题 <Icon className="h-3 w-3" />
+          </>
+        )}
+      </span>
+      <span className="line-clamp-2 text-sm font-medium leading-snug text-[var(--color-foreground)] group-hover:text-[var(--color-primary)]">
+        {question.title}
+      </span>
+      <span className="text-[10.5px] text-[var(--color-muted-foreground)]">
+        #{question.id}
+      </span>
+    </Link>
+  )
+}
