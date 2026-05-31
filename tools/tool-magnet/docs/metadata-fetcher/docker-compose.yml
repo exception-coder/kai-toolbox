@@ -1,0 +1,12 @@
+services:
+  metadata-fetcher:
+    build: .
+    container_name: metadata-fetcher
+    restart: unless-stopped
+    # network_mode: host 让容器直接用宿主机网络,DHT 走 UDP 不需要 NAT 转换,
+    # peer 发现速度差几倍。host 模式下不需要写 ports。
+    network_mode: host
+    environment:
+      FETCH_TIMEOUT: "60"          # 单次 metadata 拉取超时秒
+      LISTEN_PORT: "9000"          # HTTP 服务端口
+      LISTEN_HOST: "0.0.0.0"

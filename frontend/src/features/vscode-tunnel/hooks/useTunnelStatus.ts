@@ -1,0 +1,48 @@
+import { useEffect, useState } from 'react'
+import type { TunnelStatus } from '../types'
+
+type ConnState = 'connecting' | 'open' | 'closed' | 'error'
+
+const STATUS_URL = '/api/vscode-tunnel/status'
+const EVENTS_URL = '/api/vscode-tunnel/events'
+
+/**
+ * 订阅后端 SSE 状态流。挂载时先 GET /status 拿快照（兜底 EventSource 还没建立就显示 STOPPED）。
+ * SSE 连接成功后服务端也会立刻推一帧 status，会覆盖快照 —— 不会丢事件。
+ * EventSource 默认 3s 自动重连，不需要手动处理。
+ */
+export function useTunnelStatus(): { status: TunnelStatus | null; conn: ConnState } {
+  const [status, setStatus] = useState<TunnelStatus | null>(null)
+  const [conn, setConn] = useState<ConnState>('connecting')
+
+  useEffect(() => {
+    let cancelled = false
+
+    fetch(STATUS_URL)
+      .then(r => r.ok ? r.json() : null)
+      .then((s: TunnelStatus | null) => {
+        if (!cancelled && s) setStatus(s)
+      })
+      .catch(() => { /* 服务端临时不可用就让 SSE 接力 */ })
+
+    const es = new EventSource(EVENTS_URL)
+    es.addEventListener('status', e => {
+      try {
+        const parsed = JSON.parse((e as MessageEvent).data) as TunnelStatus
+        setStatus(parsed)
+      } catch {
+        // ignore malformed
+      }
+    })
+    es.onopen = () => setConn('open')
+    es.onerror = () => setConn('error')
+
+    return () => {
+      cancelled = true
+      es.close()
+      setConn('closed')
+    }
+  }, [])
+
+  return { status, conn }
+}

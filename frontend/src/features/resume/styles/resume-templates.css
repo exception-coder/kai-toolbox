@@ -1,0 +1,883 @@
+/* 简历模板样式：每套模板用 [data-resume-template="xxx"] 隔离，不污染全局 */
+
+/* ============ 页面工作台：只服务 resume 页面，不参与导出画布 ============ */
+.resume-workbench {
+  width: min(100%, 1480px);
+  margin: 0 auto;
+  padding: 18px 14px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-x: hidden;
+}
+
+.resume-command-center {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-areas:
+    "main panel"
+    "guidance panel";
+  gap: 14px;
+  align-items: start;
+}
+
+.resume-command-main,
+.resume-command-panel,
+.resume-guidance-strip,
+.resume-editor-pane,
+.resume-preview-pane {
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-card) 92%, #e0f2fe), var(--color-card));
+  border-radius: 8px;
+  box-shadow: 0 14px 38px rgba(15, 23, 42, 0.06);
+}
+
+.resume-command-main {
+  grid-area: main;
+  padding: 18px;
+}
+
+.resume-command-panel {
+  grid-area: panel;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.resume-guidance-strip {
+  grid-area: guidance;
+  padding: 10px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.resume-studio-grid {
+  display: grid;
+  grid-template-columns: minmax(430px, 0.9fr) minmax(0, 1.1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.resume-editor-pane,
+.resume-preview-pane {
+  min-width: 0;
+}
+
+.resume-editor-pane {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.resume-preview-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: sticky;
+  top: 12px;
+}
+
+.resume-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-muted) 50%, transparent);
+}
+
+.resume-paper-shadow {
+  box-shadow:
+    0 18px 50px rgba(15, 23, 42, 0.15),
+    0 1px 0 rgba(15, 23, 42, 0.05);
+}
+
+@media (max-width: 1024px) {
+  .resume-command-center,
+  .resume-studio-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .resume-command-center {
+    grid-template-areas:
+      "main"
+      "panel"
+      "guidance";
+  }
+
+  .resume-preview-pane {
+    position: static;
+  }
+
+  .resume-guidance-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .resume-workbench {
+    padding: 12px 10px 22px;
+  }
+
+  .resume-command-main {
+    padding: 14px;
+  }
+
+  .resume-command-panel {
+    padding: 10px;
+  }
+
+  .resume-guidance-strip {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 公共：模板根容器固定为 A4 宽度，高度按内容撑开（不用 overflow:hidden，否则 html-to-image 漏算下方内容） */
+.resume-canvas {
+  width: 794px; /* 约 210mm @ 96dpi */
+  min-height: 1123px; /* 约 297mm @ 96dpi — 内容少时仍保持单页 A4 高 */
+  background: #fff;
+  color: #1f2937;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+    "Helvetica Neue", Arial, sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
+  box-sizing: border-box;
+  overflow: visible;
+  /* sidebar 模板用 grid 自带等高栏，其余模板不需要 overflow:hidden 也不会破坏布局 */
+}
+
+.resume-canvas * {
+  box-sizing: border-box;
+}
+
+.resume-canvas ul {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.resume-canvas li {
+  margin-bottom: 4px;
+}
+
+/* ============ 1. classic：左灰右白经典分栏 ============ */
+[data-resume-template="classic"] {
+  padding: 48px 56px;
+}
+
+[data-resume-template="classic"] .r-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding-bottom: 20px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+[data-resume-template="classic"] .r-avatar {
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  background: var(--accent, #4f46e5);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 600;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+[data-resume-template="classic"] .r-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+[data-resume-template="classic"] .r-name {
+  font-size: 26px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0 0 6px;
+}
+
+[data-resume-template="classic"] .r-meta {
+  color: #6b7280;
+  font-size: 13px;
+}
+
+[data-resume-template="classic"] .r-meta span + span::before {
+  content: " | ";
+  color: #d1d5db;
+}
+
+[data-resume-template="classic"] .r-section-title {
+  display: inline-block;
+  font-size: 16px;
+  font-weight: 700;
+  color: #111827;
+  padding-bottom: 4px;
+  border-bottom: 2px solid var(--accent, #4f46e5);
+  margin: 20px 0 12px;
+}
+
+[data-resume-template="classic"] .r-item-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+[data-resume-template="classic"] .r-item-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #111827;
+}
+
+[data-resume-template="classic"] .r-item-role {
+  font-weight: 500;
+  color: #374151;
+  margin-left: 8px;
+}
+
+[data-resume-template="classic"] .r-item-period {
+  color: #6b7280;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+[data-resume-template="classic"] .r-sub {
+  font-weight: 600;
+  color: #374151;
+  margin: 6px 0 4px;
+  font-size: 12.5px;
+}
+
+[data-resume-template="classic"] li {
+  padding-left: 16px;
+  position: relative;
+}
+
+[data-resume-template="classic"] li::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent, #4f46e5);
+  position: absolute;
+  left: 2px;
+  top: 9px;
+}
+
+[data-resume-template="classic"] .r-item {
+  margin-bottom: 14px;
+}
+
+[data-resume-template="classic"] .r-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+[data-resume-template="classic"] .r-skill {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, #4f46e5) 10%, transparent);
+  color: var(--accent, #4f46e5);
+  border: 1px solid color-mix(in srgb, var(--accent, #4f46e5) 25%, transparent);
+}
+
+/* ============ 2. sidebar：深色左栏 + 右内容 ============ */
+[data-resume-template="sidebar"] {
+  display: grid;
+  grid-template-columns: 270px 1fr;
+  gap: 0;
+}
+
+[data-resume-template="sidebar"] .r-side {
+  background: #1f2937;
+  color: #e5e7eb;
+  padding: 40px 28px;
+}
+
+[data-resume-template="sidebar"] .r-main {
+  padding: 40px 36px;
+}
+
+[data-resume-template="sidebar"] .r-avatar {
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  background: var(--accent, #4f46e5);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 38px;
+  font-weight: 700;
+  margin: 0 auto 18px;
+  overflow: hidden;
+  border: 3px solid rgba(255,255,255,0.15);
+}
+
+[data-resume-template="sidebar"] .r-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+[data-resume-template="sidebar"] .r-name {
+  font-size: 24px;
+  font-weight: 700;
+  text-align: center;
+  color: #fff;
+  margin: 0 0 4px;
+}
+
+[data-resume-template="sidebar"] .r-intent {
+  text-align: center;
+  color: var(--accent, #4f46e5);
+  font-size: 13px;
+  margin-bottom: 22px;
+  filter: brightness(1.5);
+}
+
+[data-resume-template="sidebar"] .r-side-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 1px;
+  margin: 22px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.18);
+}
+
+[data-resume-template="sidebar"] .r-contact-row {
+  font-size: 12.5px;
+  color: #cbd5e1;
+  margin-bottom: 6px;
+  word-break: break-all;
+}
+
+[data-resume-template="sidebar"] .r-contact-row strong {
+  color: #fff;
+  font-weight: 500;
+  margin-right: 6px;
+}
+
+[data-resume-template="sidebar"] .r-side-skills .r-skill {
+  display: block;
+  font-size: 12px;
+  color: #e5e7eb;
+  margin-bottom: 6px;
+  padding-left: 12px;
+  position: relative;
+}
+
+[data-resume-template="sidebar"] .r-side-skills .r-skill::before {
+  content: "▸";
+  position: absolute;
+  left: 0;
+  color: var(--accent, #4f46e5);
+  filter: brightness(1.4);
+}
+
+[data-resume-template="sidebar"] .r-section-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0 0 14px;
+  position: relative;
+  padding-left: 14px;
+}
+
+[data-resume-template="sidebar"] .r-section-title::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 4px;
+  width: 5px;
+  height: 18px;
+  background: var(--accent, #4f46e5);
+  border-radius: 2px;
+}
+
+[data-resume-template="sidebar"] .r-section + .r-section {
+  margin-top: 20px;
+}
+
+[data-resume-template="sidebar"] .r-item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+
+[data-resume-template="sidebar"] .r-item-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #111827;
+}
+
+[data-resume-template="sidebar"] .r-item-role {
+  font-size: 12.5px;
+  color: var(--accent, #4f46e5);
+  margin-left: 8px;
+}
+
+[data-resume-template="sidebar"] .r-item-period {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+[data-resume-template="sidebar"] .r-sub {
+  font-weight: 600;
+  color: #374151;
+  font-size: 12.5px;
+  margin: 6px 0 4px;
+}
+
+[data-resume-template="sidebar"] .r-main li {
+  padding-left: 14px;
+  position: relative;
+  color: #374151;
+}
+
+[data-resume-template="sidebar"] .r-main li::before {
+  content: "•";
+  position: absolute;
+  left: 2px;
+  color: var(--accent, #4f46e5);
+  font-weight: 700;
+}
+
+[data-resume-template="sidebar"] .r-item {
+  margin-bottom: 14px;
+}
+
+/* ============ 3. minimal：极简黑白 ============ */
+[data-resume-template="minimal"] {
+  padding: 56px 64px;
+  color: #111;
+  font-family: 'Georgia', 'Songti SC', 'STSong', ui-serif, serif;
+}
+
+[data-resume-template="minimal"] .r-header {
+  text-align: left;
+  margin-bottom: 26px;
+}
+
+[data-resume-template="minimal"] .r-name {
+  font-size: 36px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  margin: 0 0 6px;
+}
+
+[data-resume-template="minimal"] .r-intent {
+  font-size: 14px;
+  color: #444;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+[data-resume-template="minimal"] .r-meta {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #555;
+}
+
+[data-resume-template="minimal"] .r-meta span + span::before {
+  content: " · ";
+}
+
+[data-resume-template="minimal"] .r-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  color: #111;
+  margin: 26px 0 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #111;
+}
+
+[data-resume-template="minimal"] .r-item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 2px;
+}
+
+[data-resume-template="minimal"] .r-item-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #111;
+}
+
+[data-resume-template="minimal"] .r-item-role {
+  color: #444;
+  font-weight: 400;
+  font-style: italic;
+  margin-left: 6px;
+}
+
+[data-resume-template="minimal"] .r-item-period {
+  font-size: 12px;
+  color: #666;
+}
+
+[data-resume-template="minimal"] .r-sub {
+  font-weight: 700;
+  color: #111;
+  margin: 6px 0 4px;
+  font-size: 12px;
+  font-style: italic;
+}
+
+[data-resume-template="minimal"] li {
+  padding-left: 14px;
+  position: relative;
+  color: #222;
+}
+
+[data-resume-template="minimal"] li::before {
+  content: "—";
+  position: absolute;
+  left: 0;
+  color: #111;
+}
+
+[data-resume-template="minimal"] .r-item {
+  margin-bottom: 14px;
+}
+
+[data-resume-template="minimal"] .r-skills {
+  font-size: 12.5px;
+  color: #222;
+  line-height: 1.8;
+}
+
+/* ============ 4. gradient：彩色渐变 Hero + 卡片化 ============ */
+[data-resume-template="gradient"] {
+  padding: 0;
+  background: #f8fafc;
+}
+
+[data-resume-template="gradient"] .r-hero {
+  background: linear-gradient(135deg, var(--accent, #4f46e5) 0%, color-mix(in srgb, var(--accent, #4f46e5) 60%, #ec4899) 100%);
+  color: #fff;
+  padding: 40px 48px 36px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+[data-resume-template="gradient"] .r-avatar {
+  width: 96px;
+  height: 96px;
+  border-radius: 24px;
+  background: rgba(255,255,255,0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  font-weight: 700;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 2px solid rgba(255,255,255,0.3);
+}
+
+[data-resume-template="gradient"] .r-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+[data-resume-template="gradient"] .r-name {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 6px;
+}
+
+[data-resume-template="gradient"] .r-intent {
+  font-size: 14px;
+  opacity: 0.95;
+  margin-bottom: 8px;
+}
+
+[data-resume-template="gradient"] .r-meta {
+  font-size: 12.5px;
+  opacity: 0.9;
+}
+
+[data-resume-template="gradient"] .r-meta span + span::before {
+  content: " · ";
+}
+
+[data-resume-template="gradient"] .r-body {
+  padding: 24px 32px 48px;
+}
+
+[data-resume-template="gradient"] .r-card {
+  background: #fff;
+  border-radius: 14px;
+  padding: 18px 22px;
+  margin-bottom: 14px;
+  box-shadow: 0 1px 2px rgba(15,23,42,0.04), 0 4px 12px rgba(15,23,42,0.04);
+}
+
+[data-resume-template="gradient"] .r-section-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent, #4f46e5);
+  margin: 0 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+[data-resume-template="gradient"] .r-section-title::before {
+  content: "";
+  width: 18px;
+  height: 3px;
+  background: var(--accent, #4f46e5);
+  border-radius: 2px;
+}
+
+[data-resume-template="gradient"] .r-item {
+  margin-bottom: 14px;
+}
+
+[data-resume-template="gradient"] .r-item:last-child {
+  margin-bottom: 0;
+}
+
+[data-resume-template="gradient"] .r-item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+
+[data-resume-template="gradient"] .r-item-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+[data-resume-template="gradient"] .r-item-role {
+  font-size: 12.5px;
+  color: #475569;
+  margin-left: 8px;
+}
+
+[data-resume-template="gradient"] .r-item-period {
+  font-size: 12px;
+  color: #94a3b8;
+  background: #f1f5f9;
+  padding: 2px 10px;
+  border-radius: 999px;
+}
+
+[data-resume-template="gradient"] .r-sub {
+  font-weight: 600;
+  color: #334155;
+  font-size: 12.5px;
+  margin: 6px 0 4px;
+}
+
+[data-resume-template="gradient"] li {
+  padding-left: 16px;
+  position: relative;
+  color: #334155;
+}
+
+[data-resume-template="gradient"] li::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  background: var(--accent, #4f46e5);
+  border-radius: 50%;
+  position: absolute;
+  left: 2px;
+  top: 9px;
+}
+
+[data-resume-template="gradient"] .r-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+[data-resume-template="gradient"] .r-skill {
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent, #4f46e5) 12%, #fff), color-mix(in srgb, var(--accent, #4f46e5) 6%, #fff));
+  color: var(--accent, #4f46e5);
+  font-weight: 500;
+}
+
+/* ============ 5. timeline：时间轴贯穿 ============ */
+[data-resume-template="timeline"] {
+  padding: 44px 48px;
+}
+
+[data-resume-template="timeline"] .r-header {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 22px;
+}
+
+[data-resume-template="timeline"] .r-avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--accent, #4f46e5);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 700;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+[data-resume-template="timeline"] .r-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+[data-resume-template="timeline"] .r-name {
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0 0 4px;
+  color: #0f172a;
+}
+
+[data-resume-template="timeline"] .r-intent {
+  color: var(--accent, #4f46e5);
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+[data-resume-template="timeline"] .r-meta {
+  font-size: 12.5px;
+  color: #64748b;
+}
+
+[data-resume-template="timeline"] .r-meta span + span::before {
+  content: " · ";
+}
+
+[data-resume-template="timeline"] .r-section-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 20px 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+[data-resume-template="timeline"] .r-section-title::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #e2e8f0;
+}
+
+[data-resume-template="timeline"] .r-timeline {
+  position: relative;
+  padding-left: 22px;
+  border-left: 2px solid #e2e8f0;
+  margin-left: 6px;
+}
+
+[data-resume-template="timeline"] .r-item {
+  position: relative;
+  padding-bottom: 14px;
+}
+
+[data-resume-template="timeline"] .r-item::before {
+  content: "";
+  position: absolute;
+  left: -29px;
+  top: 6px;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border: 3px solid var(--accent, #4f46e5);
+  border-radius: 50%;
+}
+
+[data-resume-template="timeline"] .r-item-period {
+  font-size: 11.5px;
+  color: var(--accent, #4f46e5);
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+[data-resume-template="timeline"] .r-item-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+[data-resume-template="timeline"] .r-item-role {
+  font-size: 12.5px;
+  color: #475569;
+  margin-left: 6px;
+}
+
+[data-resume-template="timeline"] .r-sub {
+  font-weight: 600;
+  color: #334155;
+  font-size: 12.5px;
+  margin: 6px 0 3px;
+}
+
+[data-resume-template="timeline"] li {
+  padding-left: 14px;
+  position: relative;
+  color: #334155;
+}
+
+[data-resume-template="timeline"] li::before {
+  content: "›";
+  position: absolute;
+  left: 0;
+  color: var(--accent, #4f46e5);
+  font-weight: 700;
+}
+
+[data-resume-template="timeline"] .r-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+[data-resume-template="timeline"] .r-skill {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--accent, #4f46e5) 35%, transparent);
+  color: var(--accent, #4f46e5);
+  background: color-mix(in srgb, var(--accent, #4f46e5) 6%, transparent);
+}
