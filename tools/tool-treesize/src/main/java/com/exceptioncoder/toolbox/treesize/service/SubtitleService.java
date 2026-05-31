@@ -273,7 +273,22 @@ public class SubtitleService {
         if (job == null || job.getStatus() != SubtitleStatus.COMPLETED || job.getVttPath() == null) {
             return false;
         }
+        // sourceLanguage 可能因为 whisper 转写阶段没解析到 stderr 的 "auto-detected language"
+        // 行(旧 build / detect 失败 / ASR service 不发 language 事件)而留 null。这里 backfill 一次:
+        // 直接读 VTT 文本用 LanguageDetector 反推一个 ISO 码,识别成功就写回 DB,供本次翻译以及
+        // 后续重译复用。识别不出来再走老路返回 false → controller 转 404。
         String lang = job.getSourceLanguage();
+        if (lang == null || lang.isBlank()) {
+            String detected = LanguageDetector.detectFromVtt(Path.of(job.getVttPath()));
+            if (detected != null) {
+                log.info("translateExisting: job {} sourceLanguage 为空,从 VTT 反推为 {}", jobId, detected);
+                job.setSourceLanguage(detected);
+                jobs.updateLanguage(jobId, detected);
+                publish(jobId, "language", Map.of("language", detected));
+                broadcastTask(job);
+                lang = detected;
+            }
+        }
         if (!translator.isEnabled() || !translator.shouldTranslate(lang)) return false;
 
         boolean hasOverride = modelOverride != null && !modelOverride.isBlank();
@@ -518,7 +533,22 @@ public class SubtitleService {
             jobs.updateProgress(job.getId(), 1.0);
             jobs.updateVttPath(job.getId(), job.getVttPath());
 
+            // 兜底:whisper-cli 不同 build 输出格式漂移会让 stderr 正则吃不到语种行,
+            // ASR service 也存在不发 language 事件的版本。此时 sourceLanguage 字段会留 null,
+            // 后续 translateExisting 会因为 shouldTranslate(null) 返回 false 而 404。
+            // 这里从产出的 VTT 反推一次,把字段补上,后续重译不依赖运行期内存中的回调结果。
             String detectedLang = job.getSourceLanguage();
+            if (detectedLang == null || detectedLang.isBlank()) {
+                String inferred = LanguageDetector.detectFromVtt(vtt);
+                if (inferred != null) {
+                    log.info("runJob: job {} stderr 未解析出语种,从 VTT 反推为 {}", job.getId(), inferred);
+                    job.setSourceLanguage(inferred);
+                    jobs.updateLanguage(job.getId(), inferred);
+                    publish(job.getId(), "language", Map.of("language", inferred));
+                    broadcastTask(job);
+                    detectedLang = inferred;
+                }
+            }
             boolean needTranslate = translator.isEnabled() && translator.shouldTranslate(detectedLang);
 
             if (needTranslate) {

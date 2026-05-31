@@ -55,6 +55,8 @@ public class TreeSizeMigration {
             ensureExtColumn();
             ensureVideoIndexes();
             ensureSubtitleColumns();
+            ensureVideoTable();
+            ensureProcessingJobTable();
             backfillExt();
             // Only after the entire backfill is durable do we tell NodeRepository it's safe to
             // use the ext-IN query plan. Anything in the count cache from the legacy code path
@@ -78,6 +80,95 @@ public class TreeSizeMigration {
             jdbc.execute("ALTER TABLE subtitle_job ADD COLUMN initial_prompt TEXT");
             log.info("treesize migration: added column subtitle_job.initial_prompt");
         }
+    }
+
+    /**
+     * 升级路径：在已存在的库上建 treesize_video 表 + 全部索引。
+     * schema.sql 在新部署时一次性建好；这里负责老库追加。所有语句均 IF NOT EXISTS，幂等。
+     */
+    private void ensureVideoTable() {
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS treesize_video (
+                    path                          TEXT PRIMARY KEY,
+                    name                          TEXT NOT NULL,
+                    parent_path                   TEXT,
+                    ext                           TEXT,
+                    size                          INTEGER NOT NULL,
+                    source_scan_id                TEXT,
+                    first_synced_at               INTEGER NOT NULL,
+                    last_synced_at                INTEGER NOT NULL,
+                    duration_s                    REAL,
+                    duration_bucket               TEXT,
+                    width                         INTEGER,
+                    height                        INTEGER,
+                    video_codec                   TEXT,
+                    audio_codec                   TEXT,
+                    audio_lang_tag                TEXT,
+                    language                      TEXT,
+                    language_confidence           REAL,
+                    language_detected_at          INTEGER,
+                    thumbnail_grid_path           TEXT,
+                    thumbnail_grid_generated_at   INTEGER,
+                    person_main_age_group         TEXT,
+                    person_main_age               INTEGER,
+                    person_main_gender            TEXT,
+                    person_age_confidence         REAL,
+                    person_age_detected_at        INTEGER,
+                    person_age_reason             TEXT,
+                    series_signature              TEXT,
+                    series_episode                INTEGER,
+                    visual_cluster_id             INTEGER,
+                    visual_cluster_label          TEXT,
+                    visual_clustered_at           INTEGER
+                )
+                """);
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_video_size              ON treesize_video(size)");
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_video_name              ON treesize_video(name COLLATE NOCASE)");
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_video_ext               ON treesize_video(ext)");
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_video_language          ON treesize_video(language)");
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_video_duration_bucket   ON treesize_video(duration_bucket)");
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_video_series_sig        ON treesize_video(series_signature)");
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_video_cluster           ON treesize_video(visual_cluster_id)");
+        // partial index：让各子任务"还没识别/还没生成"的扫描永远不需要全表扫
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_video_language_null     ON treesize_video(size DESC) WHERE language IS NULL");
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_video_grid_null         ON treesize_video(size DESC) WHERE thumbnail_grid_path IS NULL");
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_video_duration_null     ON treesize_video(size DESC) WHERE duration_s IS NULL");
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_video_series_null       ON treesize_video(size DESC) WHERE series_signature IS NULL");
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_video_person_age_null   ON treesize_video(size DESC) WHERE thumbnail_grid_path IS NOT NULL AND person_main_age_group IS NULL");
+    }
+
+    /**
+     * 升级路径：建 video_processing_job 任务跟踪表 + video_embedding 视觉嵌入表。
+     */
+    private void ensureProcessingJobTable() {
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS video_processing_job (
+                    id              TEXT PRIMARY KEY,
+                    type            TEXT NOT NULL,
+                    status          TEXT NOT NULL,
+                    total           INTEGER NOT NULL DEFAULT 0,
+                    processed       INTEGER NOT NULL DEFAULT 0,
+                    succeeded       INTEGER NOT NULL DEFAULT 0,
+                    failed          INTEGER NOT NULL DEFAULT 0,
+                    current_path    TEXT,
+                    error_msg       TEXT,
+                    started_at      INTEGER NOT NULL,
+                    finished_at     INTEGER
+                )
+                """);
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_job_type_status ON video_processing_job(type, status)");
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_job_started     ON video_processing_job(started_at DESC)");
+
+        jdbc.execute("""
+                CREATE TABLE IF NOT EXISTS video_embedding (
+                    path           TEXT PRIMARY KEY,
+                    model          TEXT NOT NULL,
+                    dim            INTEGER NOT NULL,
+                    vector         BLOB NOT NULL,
+                    generated_at   INTEGER NOT NULL
+                )
+                """);
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_video_embedding_model ON video_embedding(model)");
     }
 
     private void ensureExtColumn() {

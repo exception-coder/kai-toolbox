@@ -1,11 +1,12 @@
 package com.exceptioncoder.toolbox.treesize.service;
 
 import com.exceptioncoder.toolbox.common.sse.SseEmitterRegistry;
+import com.exceptioncoder.toolbox.hosts.domain.Host;
+import com.exceptioncoder.toolbox.hosts.service.HostsService;
 import com.exceptioncoder.toolbox.treesize.domain.FileNode;
 import com.exceptioncoder.toolbox.treesize.domain.ScanRecord;
 import com.exceptioncoder.toolbox.treesize.domain.ScanSourceType;
 import com.exceptioncoder.toolbox.treesize.domain.ScanStatus;
-import com.exceptioncoder.toolbox.treesize.domain.SshHost;
 import com.exceptioncoder.toolbox.treesize.repository.NodeRepository;
 import com.exceptioncoder.toolbox.treesize.repository.ScanRepository;
 import org.slf4j.Logger;
@@ -36,7 +37,7 @@ public class ScanService {
     private final ScanRepository scans;
     private final NodeRepository nodes;
     private final SseEmitterRegistry sse;
-    private final SshHostService sshHosts;
+    private final HostsService sshHosts;
     private final TaskBroadcaster taskBroadcaster;
     private final TaskAssembler taskAssembler;
 
@@ -57,7 +58,7 @@ public class ScanService {
                        ScanRepository scans,
                        NodeRepository nodes,
                        SseEmitterRegistry sse,
-                       SshHostService sshHosts,
+                       HostsService sshHosts,
                        TaskBroadcaster taskBroadcaster,
                        TaskAssembler taskAssembler) {
         this.engine = engine;
@@ -124,7 +125,7 @@ public class ScanService {
         if (sshHostId == null || sshHostId.isBlank()) {
             throw new IllegalArgumentException("sshHostId is required for SSH scans");
         }
-        SshHost host = sshHosts.findRequired(sshHostId);
+        Host host = sshHosts.findRequired(sshHostId);
         String id = UUID.randomUUID().toString();
         ScanRecord record = ScanRecord.builder()
                 .id(id)
@@ -214,7 +215,7 @@ public class ScanService {
         }
     }
 
-    private void runSshScan(String id, SshHost host, String rootPath, AtomicBoolean cancelled) {
+    private void runSshScan(String id, Host host, String rootPath, AtomicBoolean cancelled) {
         List<FileNode> buffer = new ArrayList<>(BATCH_SIZE);
         try {
             ScanEngine.Totals totals = remoteEngine.scan(

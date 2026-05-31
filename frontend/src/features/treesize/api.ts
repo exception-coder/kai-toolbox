@@ -4,10 +4,7 @@ import type {
   ProbeResult,
   CleanupCandidate,
   ScanView,
-  SshHostPayload,
-  SshHostView,
   StartScanPayload,
-  TestSshHostResult,
   VideoConfig,
 } from './types'
 
@@ -116,39 +113,6 @@ export function createSymlink(scanId: string, payload: SymlinkPayload) {
 
 export function symlinkEventsPath(taskId: string): string {
   return `/treesize/symlink-events/${taskId}`
-}
-
-export function listSshHosts() {
-  return http<SshHostView[]>('/treesize/ssh-hosts')
-}
-
-export function createSshHost(payload: SshHostPayload) {
-  return http<SshHostView>('/treesize/ssh-hosts', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  })
-}
-
-export function updateSshHost(id: string, payload: SshHostPayload) {
-  return http<SshHostView>(`/treesize/ssh-hosts/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(payload),
-  })
-}
-
-export function deleteSshHost(id: string) {
-  return http<void>(`/treesize/ssh-hosts/${id}`, { method: 'DELETE' })
-}
-
-export function testSshHost(payload: SshHostPayload) {
-  return http<TestSshHostResult>('/treesize/ssh-hosts/test', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  })
-}
-
-export function testSavedSshHost(id: string) {
-  return http<TestSshHostResult>(`/treesize/ssh-hosts/${id}/test`, { method: 'POST' })
 }
 
 export function getVideoConfig() {

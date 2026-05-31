@@ -14,13 +14,10 @@ import com.exceptioncoder.toolbox.treesize.api.dto.CleanJunkResultView;
 import com.exceptioncoder.toolbox.treesize.api.dto.CleanupCandidateView;
 import com.exceptioncoder.toolbox.treesize.api.dto.FailedDeleteView;
 import com.exceptioncoder.toolbox.treesize.api.dto.RetryFailedDeletesResultView;
-import com.exceptioncoder.toolbox.treesize.api.dto.SshHostRequest;
-import com.exceptioncoder.toolbox.treesize.api.dto.SshHostView;
 import com.exceptioncoder.toolbox.treesize.api.dto.SubtitleJobView;
 import com.exceptioncoder.toolbox.treesize.api.dto.SymlinkRequest;
 import com.exceptioncoder.toolbox.treesize.api.dto.SymlinkResultView;
 import com.exceptioncoder.toolbox.treesize.api.dto.TaskView;
-import com.exceptioncoder.toolbox.treesize.api.dto.TestSshHostResultView;
 import com.exceptioncoder.toolbox.treesize.api.dto.VideoConfigView;
 import com.exceptioncoder.toolbox.treesize.api.dto.VideoLibraryItemView;
 import com.exceptioncoder.toolbox.treesize.api.dto.VideoLibraryPageView;
@@ -42,7 +39,6 @@ import com.exceptioncoder.toolbox.treesize.service.RawStreamService;
 import com.exceptioncoder.toolbox.treesize.service.ScanService;
 import com.exceptioncoder.toolbox.treesize.service.CleanupAdvisor;
 import com.exceptioncoder.toolbox.treesize.service.DeepLXTranslator;
-import com.exceptioncoder.toolbox.treesize.service.SshHostService;
 import com.exceptioncoder.toolbox.treesize.service.SubtitleService;
 import com.exceptioncoder.toolbox.treesize.service.SymlinkService;
 import com.exceptioncoder.toolbox.treesize.service.TaskAssembler;
@@ -83,7 +79,6 @@ public class TreeSizeController {
     private final FfmpegProbe ffmpeg;
     private final VideoExtensionsProperties videoExt;
     private final SubtitleService subtitles;
-    private final SshHostService sshHosts;
     private final CleanupAdvisor cleanupAdvisor;
     private final SymlinkService symlink;
     private final PlaybackStatsCollector playbackStats;
@@ -107,7 +102,6 @@ public class TreeSizeController {
                               FfmpegProbe ffmpeg,
                               VideoExtensionsProperties videoExt,
                               SubtitleService subtitles,
-                              SshHostService sshHosts,
                               CleanupAdvisor cleanupAdvisor,
                               SymlinkService symlink,
                               PlaybackStatsCollector playbackStats,
@@ -130,7 +124,6 @@ public class TreeSizeController {
         this.ffmpeg = ffmpeg;
         this.videoExt = videoExt;
         this.subtitles = subtitles;
-        this.sshHosts = sshHosts;
         this.cleanupAdvisor = cleanupAdvisor;
         this.symlink = symlink;
         this.playbackStats = playbackStats;
@@ -181,41 +174,6 @@ public class TreeSizeController {
     public ResponseEntity<Void> delete(@PathVariable String id) {
         scanService.deleteAndStop(id);
         return ResponseEntity.noContent().build();
-    }
-
-    // ---------- SSH host management --------------------------------------
-
-    @GetMapping("/ssh-hosts")
-    public List<SshHostView> listSshHosts() {
-        return sshHosts.findAll().stream().map(SshHostView::from).toList();
-    }
-
-    @PostMapping("/ssh-hosts")
-    public SshHostView createSshHost(@Valid @RequestBody SshHostRequest req) {
-        return SshHostView.from(sshHosts.create(req));
-    }
-
-    @PutMapping("/ssh-hosts/{id}")
-    public SshHostView updateSshHost(@PathVariable String id, @Valid @RequestBody SshHostRequest req) {
-        return SshHostView.from(sshHosts.update(id, req));
-    }
-
-    @DeleteMapping("/ssh-hosts/{id}")
-    public ResponseEntity<Void> deleteSshHost(@PathVariable String id) {
-        sshHosts.delete(id);
-        return ResponseEntity.noContent().build();
-    }
-
-    @PostMapping("/ssh-hosts/test")
-    public TestSshHostResultView testSshHost(@Valid @RequestBody SshHostRequest req) {
-        String message = sshHosts.test(req);
-        return new TestSshHostResultView(true, message);
-    }
-
-    @PostMapping("/ssh-hosts/{id}/test")
-    public TestSshHostResultView testSavedSshHost(@PathVariable String id) {
-        String message = sshHosts.test(sshHosts.findRequired(id));
-        return new TestSshHostResultView(true, message);
     }
 
     // ---------- video playback endpoints ---------------------------------

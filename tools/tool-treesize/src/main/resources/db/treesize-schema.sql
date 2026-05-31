@@ -102,3 +102,97 @@ CREATE TABLE IF NOT EXISTS treesize_video_recent (
 );
 
 CREATE INDEX IF NOT EXISTS idx_video_recent_at ON treesize_video_recent(last_access_at DESC);
+
+-- 视频独立表：把"视频"从 treesize_node 的 ext 过滤子集提升为一等公民。
+-- 列分 7 大类：basic（同步填）/ media（duration_* 由"视频时长区间分类"填，其它下期）/
+-- language（视频语言识别模块）/ thumbnail_grid（九宫格预览图模块）/ person_age（人物年龄识别模块）/
+-- series（名称归类模块）/ visual_cluster（嵌入与相似聚类模块）。
+-- path 跨 scan 持久化，重扫不丢衍生数据。
+CREATE TABLE IF NOT EXISTS treesize_video (
+    -- 标识
+    path                          TEXT PRIMARY KEY,
+    -- basic
+    name                          TEXT NOT NULL,
+    parent_path                   TEXT,
+    ext                           TEXT,
+    size                          INTEGER NOT NULL,
+    source_scan_id                TEXT,
+    first_synced_at               INTEGER NOT NULL,
+    last_synced_at                INTEGER NOT NULL,
+    -- media
+    duration_s                    REAL,
+    duration_bucket               TEXT,
+    width                         INTEGER,
+    height                        INTEGER,
+    video_codec                   TEXT,
+    audio_codec                   TEXT,
+    audio_lang_tag                TEXT,
+    -- language
+    language                      TEXT,
+    language_confidence           REAL,
+    language_detected_at          INTEGER,
+    -- thumbnail_grid
+    thumbnail_grid_path           TEXT,
+    thumbnail_grid_generated_at   INTEGER,
+    -- person_age
+    person_main_age_group         TEXT,
+    person_main_age               INTEGER,
+    person_main_gender            TEXT,
+    person_age_confidence         REAL,
+    person_age_detected_at        INTEGER,
+    person_age_reason             TEXT,
+    -- series
+    series_signature              TEXT,
+    series_episode                INTEGER,
+    -- visual_cluster
+    visual_cluster_id             INTEGER,
+    visual_cluster_label          TEXT,
+    visual_clustered_at           INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_video_size            ON treesize_video(size);
+CREATE INDEX IF NOT EXISTS idx_video_name            ON treesize_video(name COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_video_ext             ON treesize_video(ext);
+CREATE INDEX IF NOT EXISTS idx_video_language        ON treesize_video(language);
+CREATE INDEX IF NOT EXISTS idx_video_duration_bucket ON treesize_video(duration_bucket);
+CREATE INDEX IF NOT EXISTS idx_video_series_sig      ON treesize_video(series_signature);
+CREATE INDEX IF NOT EXISTS idx_video_cluster         ON treesize_video(visual_cluster_id);
+-- partial index：让各子任务"还没识别/还没生成"的扫描永远不需要全表
+CREATE INDEX IF NOT EXISTS idx_video_language_null    ON treesize_video(size DESC) WHERE language IS NULL;
+CREATE INDEX IF NOT EXISTS idx_video_grid_null        ON treesize_video(size DESC) WHERE thumbnail_grid_path IS NULL;
+CREATE INDEX IF NOT EXISTS idx_video_duration_null    ON treesize_video(size DESC) WHERE duration_s IS NULL;
+CREATE INDEX IF NOT EXISTS idx_video_series_null      ON treesize_video(size DESC) WHERE series_signature IS NULL;
+CREATE INDEX IF NOT EXISTS idx_video_person_age_null  ON treesize_video(size DESC) WHERE thumbnail_grid_path IS NOT NULL AND person_main_age_group IS NULL;
+
+-- 视频处理任务跟踪表：语言识别 / 九宫格 / 时长分类 / 名称归类 / 人物年龄 / 视觉嵌入 / 聚类
+-- 所有任务统一通过 VideoProcessingJobService + ProcessingJobRepository 调度。
+-- 同一种 type 同一时间只允许一个 RUNNING（应用层保证）。
+CREATE TABLE IF NOT EXISTS video_processing_job (
+    id              TEXT PRIMARY KEY,
+    type            TEXT NOT NULL,
+    status          TEXT NOT NULL,
+    total           INTEGER NOT NULL DEFAULT 0,
+    processed       INTEGER NOT NULL DEFAULT 0,
+    succeeded       INTEGER NOT NULL DEFAULT 0,
+    failed          INTEGER NOT NULL DEFAULT 0,
+    current_path    TEXT,
+    error_msg       TEXT,
+    started_at      INTEGER NOT NULL,
+    finished_at     INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_job_type_status ON video_processing_job(type, status);
+CREATE INDEX IF NOT EXISTS idx_job_started     ON video_processing_job(started_at DESC);
+
+-- 视频视觉嵌入表：由"视频嵌入与相似聚类"模块写入。
+-- vector 列以 little-endian float32 字节序列化（dim * 4 bytes）。
+-- 与 treesize_video 通过 path 关联（不外键），方便单独清空重新嵌入而不动主表。
+CREATE TABLE IF NOT EXISTS video_embedding (
+    path           TEXT PRIMARY KEY,
+    model          TEXT NOT NULL,
+    dim            INTEGER NOT NULL,
+    vector         BLOB NOT NULL,
+    generated_at   INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_video_embedding_model ON video_embedding(model);

@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.treesize.service;
 
 import com.exceptioncoder.toolbox.common.media.FfmpegProcessRegistry;
 import com.exceptioncoder.toolbox.treesize.config.WhisperProperties;
+import com.exceptioncoder.toolbox.treesize.domain.DetectedLanguage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -43,6 +44,9 @@ public class WhisperRunner {
     private static final Pattern PROGRESS_RE = Pattern.compile("progress\\s*=\\s*(\\d+)%");
     /** Matches {@code auto-detected language: ja (p = 0.987765)} — captures the ISO code. */
     private static final Pattern LANGUAGE_RE = Pattern.compile("auto-detected language:\\s*([a-zA-Z\\-]+)");
+    /** {@link #LANGUAGE_RE} 的同条目变体——同时捕获 ISO 与 p 值，{@code detectLanguage()} 用。 */
+    private static final Pattern LANGUAGE_RE_WITH_P = Pattern.compile(
+            "auto-detected language:\\s*([a-zA-Z\\-]+)\\s*\\(p\\s*=\\s*(\\d+(?:\\.\\d+)?)\\)");
     /** Generic poll interval for the cancel flag. */
     private static final long CANCEL_POLL_MS = 250;
 
@@ -258,6 +262,79 @@ public class WhisperRunner {
             buf.delete(0, buf.length() - 8192);
         }
         buf.append(line).append('\n');
+    }
+
+    /**
+     * detect-language-only 模式（whisper-cli {@code --detect-language}）：解码音频前段
+     * 提取 mel-spectrogram 仅判语言，不写 VTT，单文件 1-3 秒。给"视频语言识别"批量任务用。
+     *
+     * <p>命令构造刻意脱离 {@link #buildCommand}——后者一堆 transcription 专用 flag
+     * （-ovtt / -of / -pp / VAD / no-context / 反幻觉阈值）在 {@code --detect-language}
+     * 下纯粹是噪音，部分构建甚至会因为冲突直接退出非零。这里只保留 model/file/GPU 三件套。
+     *
+     * @param wav       已抽好的 16kHz 单声道 WAV（{@code FfmpegProcessRegistry#extractAudioSlice}）
+     * @param cancelled 取消标志；为 {@code null} 不可取消
+     * @return 解析出的 ISO 码 + p 值
+     */
+    public DetectedLanguage detectLanguage(Path wav, AtomicBoolean cancelled)
+            throws IOException, InterruptedException {
+        if (!props.isAvailable()) {
+            throw new IllegalStateException(
+                    "Whisper 不可用：请在 application.yml 配置 toolbox.whisper.binary 与 model-path");
+        }
+        if (!Files.isRegularFile(Path.of(props.getBinary()))) {
+            throw new IllegalStateException("whisper binary not found: " + props.getBinary());
+        }
+        if (!Files.isRegularFile(Path.of(props.getModelPath()))) {
+            throw new IllegalStateException("whisper model not found: " + props.getModelPath());
+        }
+
+        WhisperProperties.CliFlags f = props.getCli();
+        List<String> cmd = new ArrayList<>();
+        cmd.add(props.getBinary());
+        cmd.add(f.getModelFlag()); cmd.add(props.getModelPath());
+        cmd.add(f.getFileFlag());  cmd.add(wav.toAbsolutePath().toString());
+        cmd.add("--detect-language");   // whisper.cpp 标准 flag,各 build 名称稳定,不进 CliFlags
+        if (props.isDisableGpu()) {
+            cmd.add(f.getNoGpuFlag());
+        } else if (props.isFlashAttention()) {
+            cmd.add(f.getFlashAttnFlag());
+        }
+
+        log.debug("whisper-cli -dl: {}", String.join(" ", cmd));
+        Process process = registry.spawn(new ProcessBuilder(cmd).redirectErrorStream(true));
+        StringBuilder out = new StringBuilder();
+        Thread reader = Thread.ofVirtual().name("whisper-dl").start(() -> {
+            try (var br = new BufferedReader(
+                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+                    appendBounded(out, line);
+                }
+            } catch (IOException ignored) {
+            }
+        });
+
+        try {
+            waitForExit(process, cancelled);
+        } finally {
+            try { reader.join(1000); } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        if (cancelled != null && cancelled.get()) {
+            throw new InterruptedException("whisper detect-language cancelled");
+        }
+        if (process.exitValue() != 0) {
+            String snippet = out.length() > 1000 ? out.substring(out.length() - 1000) : out.toString();
+            throw new IOException("whisper-cli -dl exited " + process.exitValue() + ":\n" + snippet);
+        }
+        Matcher m = LANGUAGE_RE_WITH_P.matcher(out);
+        if (!m.find()) {
+            String snippet = out.length() > 1000 ? out.substring(out.length() - 1000) : out.toString();
+            throw new IOException("whisper-cli -dl: language line not found in output:\n" + snippet);
+        }
+        return new DetectedLanguage(m.group(1), Double.parseDouble(m.group(2)));
     }
 
     private void waitForExit(Process process, AtomicBoolean cancelled) throws InterruptedException {

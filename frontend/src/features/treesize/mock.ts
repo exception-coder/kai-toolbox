@@ -1,5 +1,5 @@
 import { MockHttpError, registerHttp, registerSse } from '@/lib/mock/registry'
-import type { NodeView, ScanView, SshHostPayload, SshHostView } from './types'
+import type { NodeView, ScanView } from './types'
 
 const KB = 1024
 const MB = 1024 * KB
@@ -460,62 +460,4 @@ registerHttp('DELETE', '/treesize/scans/:id', (ctx) => {
   return undefined
 })
 
-const sshHosts = new Map<string, SshHostView>()
-
-registerHttp('GET', '/treesize/ssh-hosts', () => {
-  return Array.from(sshHosts.values()).sort((a, b) => b.updatedAt - a.updatedAt)
-})
-
-registerHttp('POST', '/treesize/ssh-hosts', (ctx) => {
-  const body = (ctx.body ?? {}) as SshHostPayload
-  const now = Date.now()
-  const host: SshHostView = {
-    id: generateId(),
-    name: body.name,
-    host: body.host,
-    port: body.port || 22,
-    username: body.username,
-    authType: body.authType,
-    privateKey: body.privateKey ?? null,
-    passwordConfigured: !!body.password,
-    passphraseConfigured: !!body.passphrase,
-    createdAt: now,
-    updatedAt: now,
-  }
-  sshHosts.set(host.id, host)
-  return host
-})
-
-registerHttp('PUT', '/treesize/ssh-hosts/:id', (ctx) => {
-  const existing = sshHosts.get(ctx.params.id)
-  if (!existing) throw new MockHttpError(404, 'ssh host 不存在')
-  const body = (ctx.body ?? {}) as SshHostPayload
-  const next: SshHostView = {
-    ...existing,
-    name: body.name,
-    host: body.host,
-    port: body.port || 22,
-    username: body.username,
-    authType: body.authType,
-    privateKey: body.privateKey ?? null,
-    passwordConfigured: !!body.password || existing.passwordConfigured,
-    passphraseConfigured: !!body.passphrase || existing.passphraseConfigured,
-    updatedAt: Date.now(),
-  }
-  sshHosts.set(next.id, next)
-  return next
-})
-
-registerHttp('DELETE', '/treesize/ssh-hosts/:id', (ctx) => {
-  sshHosts.delete(ctx.params.id)
-  return undefined
-})
-
-registerHttp('POST', '/treesize/ssh-hosts/test', () => {
-  return { ok: true, message: 'connected' }
-})
-
-registerHttp('POST', '/treesize/ssh-hosts/:id/test', (ctx) => {
-  if (!sshHosts.has(ctx.params.id)) throw new MockHttpError(404, 'ssh host 不存在')
-  return { ok: true, message: 'connected' }
-})
+// 主机 mock 已迁移到 features/hosts/mock.ts，由 /api/hosts/* 统一处理

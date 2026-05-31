@@ -21,36 +21,6 @@ export interface StartScanPayload {
   sshHostId?: string | null
 }
 
-export interface SshHostView {
-  id: string
-  name: string
-  host: string
-  port: number
-  username: string
-  authType: 'PASSWORD' | 'KEY'
-  privateKey: string | null
-  passwordConfigured: boolean
-  passphraseConfigured: boolean
-  createdAt: number
-  updatedAt: number
-}
-
-export interface SshHostPayload {
-  name: string
-  host: string
-  port: number
-  username: string
-  authType: 'PASSWORD' | 'KEY'
-  password?: string
-  privateKey?: string
-  passphrase?: string
-}
-
-export interface TestSshHostResult {
-  ok: boolean
-  message: string
-}
-
 export interface NodeView {
   path: string
   name: string

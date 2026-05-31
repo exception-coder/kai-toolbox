@@ -1,7 +1,8 @@
 package com.exceptioncoder.toolbox.treesize.service;
 
+import com.exceptioncoder.toolbox.hosts.domain.Host;
+import com.exceptioncoder.toolbox.hosts.service.HostSshSessions;
 import com.exceptioncoder.toolbox.treesize.domain.FileNode;
-import com.exceptioncoder.toolbox.treesize.domain.SshHost;
 import com.jcraft.jsch.ChannelExec;
 import com.jcraft.jsch.Session;
 import org.springframework.stereotype.Component;
@@ -22,14 +23,14 @@ public class RemoteScanEngine {
     private static final int PROGRESS_THROTTLE_MS = 200;
     private static final char SEP = 0x1F;
 
-    private final SshClientFactory ssh;
+    private final HostSshSessions ssh;
 
-    public RemoteScanEngine(SshClientFactory ssh) {
+    public RemoteScanEngine(HostSshSessions ssh) {
         this.ssh = ssh;
     }
 
     public ScanEngine.Totals scan(String scanId,
-                                  SshHost host,
+                                  Host host,
                                   String rootPath,
                                   Consumer<FileNode> onNode,
                                   Consumer<ScanProgress> onProgress,
@@ -37,7 +38,7 @@ public class RemoteScanEngine {
         Session session = null;
         ChannelExec channel = null;
         try {
-            session = ssh.openSession(host);
+            session = ssh.open(host);
             channel = (ChannelExec) session.openChannel("exec");
             ByteArrayOutputStream err = new ByteArrayOutputStream();
             channel.setCommand(scanCommand(rootPath));
