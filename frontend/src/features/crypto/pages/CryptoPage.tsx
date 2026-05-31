@@ -6,10 +6,12 @@ import { RsaPanel } from '../components/RsaPanel'
 import { HashPanel } from '../components/HashPanel'
 import { EncodePanel } from '../components/EncodePanel'
 import { JasyptPanel } from '../components/JasyptPanel'
+import { TokenPanel } from '../components/TokenPanel'
 
-type Tab = 'aes' | 'rsa' | 'jasypt' | 'hash' | 'encode'
+type Tab = 'aes' | 'rsa' | 'jasypt' | 'hash' | 'encode' | 'token'
 
 const TAB_OPTIONS = [
+  { value: 'token', label: 'Token' },
   { value: 'aes', label: 'AES' },
   { value: 'rsa', label: 'RSA' },
   { value: 'jasypt', label: 'Jasypt' },
@@ -18,6 +20,7 @@ const TAB_OPTIONS = [
 ] as const
 
 const TAB_HINTS: Record<Tab, string> = {
+  token: '生成各类安全 token：Hex / Base64 / Alphanum / Password / UUID / NanoID，纯浏览器 CSPRNG，不出本机',
   aes: '对称加解密，CBC / ECB，PKCS7 padding',
   rsa: '非对称加解密 / 签名验签，可在线生成密钥对',
   jasypt: 'Spring Boot Jasypt 兼容：PBEWithMD5AndDES（2.x 默认） / PBEWithHMACSHA512AndAES_256（3.x 默认）',
@@ -26,7 +29,7 @@ const TAB_HINTS: Record<Tab, string> = {
 }
 
 export function CryptoPage() {
-  const [tab, setTab] = useState<Tab>('aes')
+  const [tab, setTab] = useState<Tab>('token')
 
   return (
     <div className="mx-auto max-w-5xl space-y-4 p-6">
@@ -40,6 +43,7 @@ export function CryptoPage() {
           <p className="text-xs text-[var(--color-muted-foreground)]">{TAB_HINTS[tab]}</p>
         </CardHeader>
         <CardContent>
+          {tab === 'token' && <TokenPanel />}
           {tab === 'aes' && <AesPanel />}
           {tab === 'rsa' && <RsaPanel />}
           {tab === 'jasypt' && <JasyptPanel />}
