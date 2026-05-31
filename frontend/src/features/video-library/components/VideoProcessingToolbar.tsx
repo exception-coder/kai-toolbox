@@ -38,7 +38,7 @@ export function VideoProcessingToolbar() {
             </div>
             {r.skippedTooSmall > 0 && (
               <div className="text-xs text-[var(--color-muted-foreground)]">
-                （另过滤掉 {r.skippedTooSmall} 个 &lt; 100KB 的噪音文件）
+                （另过滤掉 {r.skippedTooSmall} 个 &lt; 30KB 的噪音文件）
               </div>
             )}
             <div className="text-xs text-[var(--color-muted-foreground)]">

@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * 视频库同步：从 treesize_node 拉所有 size>=100KB 的视频文件，INSERT OR IGNORE 到 treesize_video。
+ * 视频库同步：从 treesize_node 拉所有 size>=30KB 的视频文件，INSERT OR IGNORE 到 treesize_video。
  *
  * <p>同步语义为<b>只增不改</b>：path 已存在的行任何列都不动，保护各子模块（语言识别 / 九宫格 /
  * 人物年龄 / 嵌入聚类）已写入的衍生数据。
@@ -23,7 +23,7 @@ import java.util.Locale;
  * <ul>
  *   <li>{@code is_dir = 0}（仅文件）</li>
  *   <li>{@code lower(ext) IN (VideoExtensionsProperties)}（视频扩展名白名单）</li>
- *   <li>{@code size >= 100 * 1024}（过滤损坏/缩略图/空壳噪音；与前端 video-library 显示过滤阈值对齐）</li>
+ *   <li>{@code size >= 30 * 1024}（过滤损坏/缩略图/空壳噪音；与前端 video-library 显示过滤阈值对齐）</li>
  *   <li>关联 scan 的 {@code status = 'COMPLETED'}（排除半成品扫盘）</li>
  * </ul>
  *
@@ -33,7 +33,7 @@ import java.util.Locale;
 public class VideoSyncService {
 
     private static final Logger log = LoggerFactory.getLogger(VideoSyncService.class);
-    private static final long MIN_SIZE_BYTES = 100L * 1024;
+    private static final long MIN_SIZE_BYTES = 30L * 1024;
 
     private final JdbcTemplate jdbc;
     private final VideoTableRepository videoRepo;
@@ -57,7 +57,7 @@ public class VideoSyncService {
             return new VideoSyncResult(0, 0, 0, 0, System.currentTimeMillis() - t0);
         }
 
-        // 信息性查询：小于 100KB 被过滤掉的数量，让用户感知噪音规模
+        // 信息性查询：小于 30KB 被过滤掉的数量，让用户感知噪音规模
         long skippedTooSmall = countVideosBelowSize(exts);
 
         // 主查询：所有候选视频 → 转换为 VideoRow 同步插入
@@ -82,7 +82,7 @@ public class VideoSyncService {
     }
 
     /**
-     * 单独 COUNT 拿到"小于 100KB 被过滤的视频数"，与主查询条件除 size 阈值外完全一致。
+     * 单独 COUNT 拿到"小于 30KB 被过滤的视频数"，与主查询条件除 size 阈值外完全一致。
      * 即使 N 很大也 < 1s（COUNT 走 idx_node_video_ext_size 索引）。
      */
     private long countVideosBelowSize(List<String> exts) {
