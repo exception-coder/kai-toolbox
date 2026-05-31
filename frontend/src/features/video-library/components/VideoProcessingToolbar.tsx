@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { Clock, Grid3X3, Languages, Loader2, RefreshCw, Tags } from 'lucide-react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { ApiError } from '@/lib/api'
 import { useConfirm } from '@/components/ui/confirm-dialog'
-import { durationProbeApi, languageDetectApi, nameGroupingApi, syncVideoLibrary, thumbnailGridApi } from '../api'
+import { durationProbeApi, getProcessingOverview, languageDetectApi, nameGroupingApi, syncVideoLibrary, thumbnailGridApi } from '../api'
 import { ProcessingJobButton } from './ProcessingJobButton'
 
 /**
@@ -20,6 +20,14 @@ import { ProcessingJobButton } from './ProcessingJobButton'
 export function VideoProcessingToolbar() {
   const confirm = useConfirm()
   const [, setBumpKey] = useState(0)
+
+  // 各任务"已完成/总数"累计进度。挂载拉一次；任务结束 / 同步后重拉。
+  const overviewQuery = useQuery({
+    queryKey: ['video-processing-overview'],
+    queryFn: getProcessingOverview,
+  })
+  const ov = overviewQuery.data
+  const refreshOverview = () => { void overviewQuery.refetch() }
 
   const syncMutation = useMutation({
     mutationFn: syncVideoLibrary,
@@ -51,6 +59,7 @@ export function VideoProcessingToolbar() {
       })
       // 同步后视频表多了新行，触发 ProcessingJobButton 重拉 status 把 total 刷新
       setBumpKey(k => k + 1)
+      refreshOverview()
     },
     onError: async (e) => {
       const msg = e instanceof ApiError ? e.message : String(e)
@@ -95,6 +104,9 @@ export function VideoProcessingToolbar() {
         icon={<Clock className="h-3.5 w-3.5" />}
         api={durationProbeApi}
         onStartError={handleStartError}
+        cumulativeDone={ov?.durationDone}
+        cumulativeTotal={ov?.total}
+        onSettled={refreshOverview}
       />
       <ProcessingJobButton
         label="按名称归类"
@@ -102,6 +114,9 @@ export function VideoProcessingToolbar() {
         icon={<Tags className="h-3.5 w-3.5" />}
         api={nameGroupingApi}
         onStartError={handleStartError}
+        cumulativeDone={ov?.nameGroupingDone}
+        cumulativeTotal={ov?.total}
+        onSettled={refreshOverview}
       />
       <ProcessingJobButton
         label="识别语言"
@@ -109,6 +124,9 @@ export function VideoProcessingToolbar() {
         icon={<Languages className="h-3.5 w-3.5" />}
         api={languageDetectApi}
         onStartError={handleStartError}
+        cumulativeDone={ov?.languageDone}
+        cumulativeTotal={ov?.total}
+        onSettled={refreshOverview}
       />
       <ProcessingJobButton
         label="生成九宫格"
@@ -116,6 +134,9 @@ export function VideoProcessingToolbar() {
         icon={<Grid3X3 className="h-3.5 w-3.5" />}
         api={thumbnailGridApi}
         onStartError={handleStartError}
+        cumulativeDone={ov?.gridDone}
+        cumulativeTotal={ov?.total}
+        onSettled={refreshOverview}
       />
     </div>
   )

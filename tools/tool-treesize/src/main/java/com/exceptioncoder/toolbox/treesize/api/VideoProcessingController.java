@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.treesize.api;
 
+import com.exceptioncoder.toolbox.treesize.api.dto.ProcessingOverview;
 import com.exceptioncoder.toolbox.treesize.api.dto.VideoMergeRequest;
 import com.exceptioncoder.toolbox.treesize.api.dto.VideoSyncResult;
 import com.exceptioncoder.toolbox.treesize.domain.ProcessingJob;
@@ -87,6 +88,22 @@ public class VideoProcessingController {
     @PostMapping("/sync")
     public VideoSyncResult syncVideos() {
         return syncService.sync();
+    }
+
+    // ==============================================================================
+    // 各处理任务在整个视频表上的累计进度（已完成 = 总数 - 待处理）。
+    // 前端按钮用它显示"已完成/总数"，避免每次只看到单次 job 从 0 开始的本轮计数。
+    // ==============================================================================
+
+    @GetMapping("/processing-overview")
+    public ProcessingOverview processingOverview() {
+        long total = videoRepo.countAllVideos();
+        return new ProcessingOverview(
+                total,
+                total - videoRepo.countNeedingDuration(),
+                total - videoRepo.countNeedingNameGrouping(),
+                total - videoRepo.countNeedingLanguageDetect(),
+                total - videoRepo.countNeedingThumbnailGrid());
     }
 
     // ==============================================================================

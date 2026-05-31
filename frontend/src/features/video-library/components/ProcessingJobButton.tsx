@@ -33,9 +33,17 @@ interface Props {
   title?: string
   /** 启动失败时弹窗回调（503 服务未启动、其它 5xx）。父组件可接通用 confirm。 */
   onStartError?: (message: string) => void
+  /** 整个视频表里该任务"已完成"数（含成功 + 已尝试失败），由父组件查 overview 注入。 */
+  cumulativeDone?: number
+  /** 视频表总数（已完成的分母）。 */
+  cumulativeTotal?: number
+  /** 一轮任务结束时回调，父组件据此重拉 overview 刷新累计进度。 */
+  onSettled?: () => void
 }
 
-export function ProcessingJobButton({ label, icon, api, title, onStartError }: Props) {
+export function ProcessingJobButton({
+  label, icon, api, title, onStartError, cumulativeDone, cumulativeTotal, onSettled,
+}: Props) {
   const [job, setJob] = useState<ProcessingJob | null>(null)
   const [starting, setStarting] = useState(false)
   const [stopping, setStopping] = useState(false)
@@ -80,6 +88,8 @@ export function ProcessingJobButton({ label, icon, api, title, onStartError }: P
             }
             closeRef.current?.()
             closeRef.current = null
+            // 任务结束 → 通知父组件重拉 overview，刷新"已完成/总数"
+            onSettled?.()
           }
         },
         onError: () => {
@@ -133,9 +143,22 @@ export function ProcessingJobButton({ label, icon, api, title, onStartError }: P
   }
 
   const isRunning = job?.status === 'RUNNING'
-  const progressLabel = job && job.total > 0
-    ? `${job.processed}/${job.total}`
-    : null
+  // 统一显示"已完成/总数"（累计、持久化）：
+  // - 运行中：已完成 = 总数 - 本轮起始待处理(job.total) + 本轮已处理(job.processed)，随进度实时上涨
+  // - 空闲：直接用父组件查库给的 cumulativeDone
+  // overview 还没拉到（cumulativeTotal 缺）时回退到旧的"本轮 processed/total"
+  const grandTotal = cumulativeTotal ?? 0
+  let progressLabel: string | null = null
+  if (isRunning && job) {
+    if (grandTotal > 0) {
+      const done = Math.min(grandTotal, Math.max(0, grandTotal - job.total + job.processed))
+      progressLabel = `${done}/${grandTotal}`
+    } else if (job.total > 0) {
+      progressLabel = `${job.processed}/${job.total}`
+    }
+  } else if (grandTotal > 0) {
+    progressLabel = `${cumulativeDone ?? 0}/${grandTotal}`
+  }
 
   if (isRunning) {
     return (
@@ -178,6 +201,11 @@ export function ProcessingJobButton({ label, icon, api, title, onStartError }: P
     >
       {starting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : icon ?? <Play className="h-3.5 w-3.5" />}
       {label}
+      {progressLabel && (
+        <span className="ml-0.5 font-mono tabular-nums text-[var(--color-muted-foreground)]">
+          {progressLabel}
+        </span>
+      )}
     </button>
   )
 }

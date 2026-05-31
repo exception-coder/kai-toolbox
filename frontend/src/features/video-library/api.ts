@@ -231,6 +231,22 @@ export const durationProbeApi = buildTaskApi('duration-probe')
 export const nameGroupingApi = buildTaskApi('name-grouping')
 export const languageDetectApi = buildTaskApi('language-detect')
 export const thumbnailGridApi = buildTaskApi('thumbnail-grid')
+
+/**
+ * 各处理任务在整个视频表上的累计进度（已完成 = 总数 - 待处理，含成功+已尝试失败）。
+ * 进度按钮用它显示「已完成/总数」，避免每次只看到单次 job 从 0 开始。
+ */
+export interface ProcessingOverview {
+  total: number
+  durationDone: number
+  nameGroupingDone: number
+  languageDone: number
+  gridDone: number
+}
+
+export function getProcessingOverview() {
+  return http<ProcessingOverview>('/treesize/videos/processing-overview')
+}
 // 下期上：personAgeApi / visualEmbedApi / visualClusterApi
 
 /**
