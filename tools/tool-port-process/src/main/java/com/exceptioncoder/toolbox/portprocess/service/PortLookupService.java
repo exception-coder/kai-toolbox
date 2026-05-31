@@ -1,10 +1,12 @@
 package com.exceptioncoder.toolbox.portprocess.service;
 
+import com.exceptioncoder.toolbox.portprocess.api.dto.KillResult;
 import com.exceptioncoder.toolbox.portprocess.api.dto.PortLookupResult;
 import com.exceptioncoder.toolbox.portprocess.api.dto.PortProcessEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.nio.charset.Charset;
@@ -14,14 +16,68 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.springframework.http.HttpStatus;
 
 @Service
 public class PortLookupService {
 
     private static final Logger log = LoggerFactory.getLogger(PortLookupService.class);
     private static final long TIMEOUT_MS = 5_000;
+    private static final int STREAM_TAIL_BYTES = 1024;
+    // PID 保护名单：init / Windows System / kai-toolbox 自身
+    private static final Set<Long> PROTECTED_PIDS = Set.of(1L, 4L, ProcessHandle.current().pid());
+
+    /**
+     * 终止指定 PID 的进程。
+     * force=true：硬终止（Windows /F、Unix kill -9）；
+     * force=false：优雅终止（Windows 不带 /F、Unix kill -15）。
+     */
+    public KillResult kill(long pid, boolean force) {
+        if (pid <= 0 || pid > Integer.MAX_VALUE) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "pid 必须在 (0, " + Integer.MAX_VALUE + "), got " + pid);
+        }
+        if (PROTECTED_PIDS.contains(pid)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "拒绝终止系统进程或 kai-toolbox 自身 (pid=" + pid + ")");
+        }
+        String os = System.getProperty("os.name", "unknown");
+        boolean windows = os.toLowerCase(Locale.ROOT).contains("win");
+        List<String> cmd;
+        if (windows) {
+            cmd = force ? List.of("taskkill", "/F", "/PID", String.valueOf(pid))
+                        : List.of("taskkill", "/PID", String.valueOf(pid));
+        } else if (os.toLowerCase(Locale.ROOT).contains("linux")
+                || os.toLowerCase(Locale.ROOT).contains("mac")) {
+            cmd = force ? List.of("kill", "-9", String.valueOf(pid))
+                        : List.of("kill", "-15", String.valueOf(pid));
+        } else {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "不支持的操作系统：" + os);
+        }
+        Charset cs = windows ? Charset.defaultCharset() : StandardCharsets.UTF_8;
+        long t0 = System.currentTimeMillis();
+        try {
+            ProcessRunner.Result r = ProcessRunner.run(cmd, cs, TIMEOUT_MS);
+            String stdout = truncate(String.join("\n", r.stdout()));
+            String stderr = truncate(r.stderr());
+            return new KillResult(pid, r.exitCode() == 0, os,
+                    String.join(" ", cmd), r.exitCode(), stdout, stderr,
+                    System.currentTimeMillis() - t0);
+        } catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "执行终止命令失败：" + e.getMessage(), e);
+        }
+    }
+
+    private static String truncate(String s) {
+        if (s == null) return null;
+        if (s.length() <= STREAM_TAIL_BYTES) return s;
+        return s.substring(s.length() - STREAM_TAIL_BYTES);
+    }
 
     public PortLookupResult lookup(int port) {
         if (port < 1 || port > 65535) {
