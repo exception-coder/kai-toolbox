@@ -149,7 +149,10 @@ public class FfmpegLabService {
         int exitCode = -1;
         boolean timedOut = false;
 
-        Process process = registry.spawn(new ProcessBuilder(cmd).redirectErrorStream(true));
+        // 工作目录设成 runDir：HLS fMP4 的 init 段（hls_fmp4_init_filename 默认裸名 init.mp4）
+        // 是相对进程 CWD 写出的，不设的话会落到 app 启动目录导致 init 段 404 / hls.js fragLoadError。
+        Process process = registry.spawn(
+                new ProcessBuilder(cmd).directory(runDir.toFile()).redirectErrorStream(true));
         // redirectErrorStream(true)：stderr 已并入 stdout，读 getInputStream 即可。
         Thread drain = startTailDrain(process.getInputStream(), tail, "ffmpeg-lab-" + runId);
         try {

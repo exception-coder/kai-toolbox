@@ -9,16 +9,25 @@ import org.springframework.stereotype.Component;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * 各模式 ffmpeg 命令的**唯一构建源**。探测预览（{@link #preview}）与实跑（{@link #build}）走同一套
  * 拼装逻辑，保证「页面上看到的命令」就是「实际跑的命令」。
  *
- * <p>编码器按 {@code toolbox.ffmpeg.hwaccel} 映射（与 treesize 的 HlsService 同款），留空即软编 libx264。
+ * <p>实验台一律软编 {@code libx264}，**不**继承生产侧 {@code toolbox.ffmpeg.hwaccel}：调试求稳，
+ * 避开硬件编码器在边缘输入上的限制（如 h264_nvenc 对 96x80 这类超小帧直接 InitializeEncoder failed）。
+ * 生产的 GPU 加速路径仍由 treesize 的 HlsService 负责。
  */
 @Component
 public class ModeCommandBuilder {
+
+    /**
+     * 重编码统一的视频滤镜：把过小的帧放大到至少 256x144（短边补足），保持宽高比、强制偶数尺寸。
+     * 既绕过编码器最小帧限制，又让 96x80 这类邮票画面在 web 上看得清；正常尺寸视频
+     * （force_original_aspect_ratio=increase 下目标框=自身）不会被缩小。逗号在 filtergraph 里需转义。
+     */
+    private static final String VIDEO_SCALE_FILTER =
+            "scale=w=max(iw\\,256):h=max(ih\\,144):force_original_aspect_ratio=increase:force_divisible_by=2";
 
     private final FfmpegProbe probe;
     private final FfmpegProperties props;
@@ -57,8 +66,7 @@ public class ModeCommandBuilder {
             }
             case PROGRESSIVE_MP4 -> {
                 addVideoEncode(cmd);
-                cmd.add("-c:a"); cmd.add("aac");
-                cmd.add("-b:a"); cmd.add("128k");
+                addAudioEncode(cmd);
                 cmd.add("-movflags"); cmd.add("+faststart");
                 cmd.add("-f"); cmd.add("mp4");
                 cmd.add(workDir.resolve("out.mp4").toString());
@@ -76,8 +84,7 @@ public class ModeCommandBuilder {
             case HLS_FMP4 -> {
                 // fMP4 分段不支持 video copy 的稳妥做法是统一重编码，避免 init 段与源参数不一致。
                 addVideoEncode(cmd);
-                cmd.add("-c:a"); cmd.add("aac");
-                cmd.add("-b:a"); cmd.add("128k");
+                addAudioEncode(cmd);
                 cmd.add("-f"); cmd.add("hls");
                 cmd.add("-hls_time"); cmd.add("10");
                 cmd.add("-hls_segment_type"); cmd.add("fmp4");
@@ -99,14 +106,20 @@ public class ModeCommandBuilder {
         return String.join(" ", build(mode, input, info, clipSeconds, workDir));
     }
 
-    /** progressive / fmp4 的视频重编码参数（软编时补 preset/crf）。 */
+    /** progressive / fmp4 的视频重编码参数：scale 放大小帧 + 软编 libx264。 */
     private void addVideoEncode(List<String> cmd) {
-        String enc = videoEncoder();
-        cmd.add("-c:v"); cmd.add(enc);
-        if (enc.equals("libx264")) {
-            cmd.add("-preset"); cmd.add("veryfast");
-            cmd.add("-crf"); cmd.add("23");
-        }
+        cmd.add("-vf"); cmd.add(VIDEO_SCALE_FILTER);
+        cmd.add("-pix_fmt"); cmd.add("yuv420p");
+        cmd.add("-c:v"); cmd.add("libx264");
+        cmd.add("-preset"); cmd.add("veryfast");
+        cmd.add("-crf"); cmd.add("23");
+    }
+
+    /** 音频重编码：转 aac 并重采样到 44.1kHz，避开 qcelp/8kHz 这类低采样率下 aac 的 "Too many bits" 限制。 */
+    private void addAudioEncode(List<String> cmd) {
+        cmd.add("-c:a"); cmd.add("aac");
+        cmd.add("-ar"); cmd.add("44100");
+        cmd.add("-b:a"); cmd.add("128k");
     }
 
     /** HLS-TS 视频流：源是 h264 可直接 copy，否则重编码。 */
@@ -123,20 +136,7 @@ public class ModeCommandBuilder {
         if (probe.canCopyAudio(info)) {
             cmd.add("-c:a"); cmd.add("copy");
         } else {
-            cmd.add("-c:a"); cmd.add("aac");
-            cmd.add("-b:a"); cmd.add("128k");
+            addAudioEncode(cmd);
         }
-    }
-
-    /** hwaccel → x264 兼容编码器映射；留空 / auto → libx264 软编。 */
-    private String videoEncoder() {
-        String hw = props.getHwaccel() == null ? "" : props.getHwaccel().toLowerCase(Locale.ROOT);
-        return switch (hw) {
-            case "qsv" -> "h264_qsv";
-            case "nvenc", "cuda" -> "h264_nvenc";
-            case "amf", "d3d11va" -> "h264_amf";
-            case "videotoolbox" -> "h264_videotoolbox";
-            default -> "libx264";
-        };
     }
 }
