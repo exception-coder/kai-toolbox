@@ -125,6 +125,18 @@ public class FileDeleteService {
     /** Aggregate of {@link #retryAllFailed()} — counts plus the still-failing tail. */
     public record RetryResult(int attempted, int deleted, int queued, List<FailedDelete> remaining) {}
 
+    /**
+     * 文件在磁盘上已不存在（被 OS / 其它程序删掉）：不碰磁盘，直接清掉对应的 treesize_node 记录，
+     * 让它从视频库列表消失，避免页面一直搜出不存在的内容。按 (scanId, 原始路径) 精确匹配删除，
+     * 只会删掉本就在库里的行，无越权风险。
+     */
+    public void purgeMissingRecord(String scanId, String requestedPath) {
+        nodes.deleteByScanAndPath(scanId, requestedPath);
+        failedDeletes.remove(requestedPath);
+        nodes.invalidateVideoLibraryCache();
+        log.info("delete: file already gone on disk, purged db record scanId={} path={}", scanId, requestedPath);
+    }
+
     private void onDeleted(String scanId, String absPath) {
         nodes.deleteByScanAndPath(scanId, absPath);
         failedDeletes.remove(absPath);

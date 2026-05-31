@@ -271,9 +271,16 @@ public class TreeSizeController {
 
     @DeleteMapping("/scans/{id}/file")
     public DeleteFileResult deleteFile(@PathVariable String id, @RequestParam String path) throws IOException {
-        Path file = guard.resolve(id, path);
-        DeleteOutcome outcome = fileDelete.deleteByPath(id, file);
-        return new DeleteFileResult(outcome == DeleteOutcome.TRASHED, outcome.name());
+        try {
+            Path file = guard.resolve(id, path);
+            DeleteOutcome outcome = fileDelete.deleteByPath(id, file);
+            return new DeleteFileResult(outcome == DeleteOutcome.TRASHED, outcome.name());
+        } catch (java.nio.file.NoSuchFileException nsf) {
+            // 文件在磁盘上已被删除（校验时或删除瞬间）：清掉数据库记录即可，不当失败处理，
+            // 避免列表一直残留实际不存在的项。
+            fileDelete.purgeMissingRecord(id, path);
+            return new DeleteFileResult(true, "ALREADY_GONE");
+        }
     }
 
     /** Failed-delete registry: paths whose delete attempts were locked / IO-failed and parked for retry. */
