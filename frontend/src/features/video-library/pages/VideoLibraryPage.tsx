@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { formatBytes } from '@/lib/utils'
 import { deleteFile } from '@/features/treesize/api'
-import { addVideoFavorite, cleanJunkVideos, getVideoLibrary, removeVideoFavorite } from '../api'
+import { addVideoFavorite, cleanJunkVideos, getVideoLibrary, mergeVideos, removeVideoFavorite } from '../api'
 import { PlaybackStatsPanel } from '../components/PlaybackStatsPanel'
 import { RecentVideosBar } from '../components/RecentVideosBar'
 import { VideoListPanel } from '../components/VideoListPanel'
@@ -67,8 +67,9 @@ export function VideoLibraryPage() {
     },
   })
 
+  // 过滤掉小于 100KB 的文件：通常是损坏样本、空壳、缩略图残留等噪音，没必要占列表位置
   const items = useMemo(
-    () => (query.data?.pages ?? []).flatMap(p => p.items),
+    () => (query.data?.pages ?? []).flatMap(p => p.items).filter(it => it.size >= 100 * 1024),
     [query.data],
   )
   const total = query.data?.pages[0]?.total ?? 0
@@ -351,6 +352,39 @@ export function VideoLibraryPage() {
     })
   }
 
+  // 合并多选的视频：按列表显示顺序传 path 数组，同步阻塞，完成后弹结果。
+  const handleBulkMerge = async (toMerge: VideoLibraryItem[]) => {
+    if (toMerge.length < 2) return
+    try {
+      const r = await mergeVideos(toMerge.map(it => it.path))
+      await confirm({
+        title: '合并完成',
+        description: (
+          <div className="space-y-1 text-sm">
+            <div>
+              已合并 <strong className="tabular-nums">{r.mergedCount}</strong> 个
+              {r.skippedCount > 0 && (
+                <span className="text-[var(--color-muted-foreground)]">（跳过 {r.skippedCount} 个无效输入）</span>
+              )}
+            </div>
+            <div className="break-all text-xs text-[var(--color-muted-foreground)]">输出：{r.outputPath}</div>
+            <div className="text-xs text-[var(--color-muted-foreground)]">
+              {r.reencoded ? '已重编码统一格式' : '无损拼接'} · {formatBytes(r.outputBytes)} · 耗时 {r.elapsedMs} ms
+            </div>
+            <div className="text-xs text-[var(--color-muted-foreground)]">
+              产物在 merged 目录，如需纳入视频库请再点「同步视频库」。
+            </div>
+          </div>
+        ),
+        confirmText: '知道了',
+        cancelText: '关闭',
+      })
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : String(e)
+      await confirm({ title: '合并失败', description: msg, confirmText: '知道了', cancelText: '关闭' })
+    }
+  }
+
   const cleanJunkMutation = useMutation({
     mutationFn: cleanJunkVideos,
     onSuccess: () => {
@@ -425,6 +459,7 @@ export function VideoLibraryPage() {
     onLoadMore: fetchNextPage,
     onDelete: handleDelete,
     onBulkDelete: handleBulkDelete,
+    onBulkMerge: handleBulkMerge,
     onCleanJunk: handleCleanJunk,
     cleaningJunk: cleanJunkMutation.isPending,
   }

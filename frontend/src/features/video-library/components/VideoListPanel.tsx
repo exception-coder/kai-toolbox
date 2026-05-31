@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CheckSquare, Loader2, Search, Sparkles, Square, Star, Trash2, X } from 'lucide-react'
+import { CheckSquare, Combine, Loader2, Search, Sparkles, Square, Star, Trash2, X } from 'lucide-react'
 import { cn, formatBytes } from '@/lib/utils'
 import { VideoThumb } from './VideoThumb'
+import { VideoProcessingToolbar } from './VideoProcessingToolbar'
 import type { VideoLibraryItem, VideoSizeBucket, VideoSortBy, VideoSortOrder } from '../types'
 import { VIDEO_SIZE_BUCKETS } from '../types'
 
@@ -27,6 +28,8 @@ interface Props {
   onDelete?: (item: VideoLibraryItem) => void
   /** When provided, the list shows a 多选 toggle and lets the user delete in bulk. */
   onBulkDelete?: (items: VideoLibraryItem[]) => void | Promise<void>
+  /** When provided, the 多选 toolbar shows a 合并 button (needs >= 2 selected). */
+  onBulkMerge?: (items: VideoLibraryItem[]) => void | Promise<void>
   onCleanJunk?: () => void
   cleaningJunk?: boolean
 }
@@ -63,6 +66,7 @@ export function VideoListPanel({
   onLoadMore,
   onDelete,
   onBulkDelete,
+  onBulkMerge,
   onCleanJunk,
   cleaningJunk,
 }: Props) {
@@ -132,6 +136,18 @@ export function VideoListPanel({
     }
   }
 
+  const handleBulkMerge = async () => {
+    // 合并至少要 2 个视频；按当前选中（= 列表显示顺序）传给后端
+    if (!onBulkMerge || selectedItems.length < 2 || bulkPending) return
+    setBulkPending(true)
+    try {
+      await onBulkMerge(selectedItems)
+      exitMultiSelect()
+    } finally {
+      setBulkPending(false)
+    }
+  }
+
   useEffect(() => {
     const list = listRef.current
     const sentinel = sentinelRef.current
@@ -150,6 +166,8 @@ export function VideoListPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {/* 视频处理工具栏：同步视频库 / 探测时长 / 按名称归类。详见 VideoProcessingToolbar.tsx */}
+      {!multiSelectMode && <VideoProcessingToolbar />}
       {multiSelectMode ? (
         <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-[var(--color-accent)]/40 px-3 py-2">
           <div className="text-sm font-semibold">
@@ -171,6 +189,18 @@ export function VideoListPanel({
               {allSelected ? <Square className="h-3.5 w-3.5" /> : <CheckSquare className="h-3.5 w-3.5" />}
               {allSelected ? '取消全选' : '全选'}
             </button>
+            {onBulkMerge && (
+              <button
+                type="button"
+                onClick={handleBulkMerge}
+                disabled={selectedPaths.size < 2 || bulkPending}
+                title="把选中的视频按列表顺序合并成一个（至少选 2 个）"
+                className="inline-flex items-center gap-1 rounded-md border px-2 py-1.5 text-xs hover:bg-[var(--color-accent)] disabled:opacity-50"
+              >
+                {bulkPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Combine className="h-3.5 w-3.5" />}
+                合并 {selectedPaths.size >= 2 && `(${selectedPaths.size})`}
+              </button>
+            )}
             <button
               type="button"
               onClick={handleBulkDelete}
