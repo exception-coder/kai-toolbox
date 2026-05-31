@@ -468,6 +468,16 @@ public class HlsService {
         cmd.add("-t"); cmd.add(String.format(Locale.ROOT, "%.3f", dur));
         cmd.add("-i"); cmd.add(file.toAbsolutePath().toString());
 
+        // 小帧兜底：软解重编码路径下，把过小的帧放大到至少 256x144（保宽高比、强制偶数尺寸）。
+        // h264_nvenc 对 QCIF 级老视频（KDDI .amc/.3gp 的 mpeg4/h263，96x80 之类）会
+        // InitializeEncoder failed: Frame Dimension less than minimum → 吐空段 → hls.js fragParsingError。
+        // 仅在软解（CPU 帧）时加 CPU scale；hwDecode 路径帧在 VRAM 且都是现代大尺寸编码，不触碰。
+        // 正常尺寸视频该滤镜是 no-op（max(iw,256)=iw）。
+        if (!videoCopy && !hwDecode) {
+            cmd.add("-vf");
+            cmd.add("scale=w=max(iw\\,256):h=max(ih\\,144):force_original_aspect_ratio=increase:force_divisible_by=2");
+        }
+
         // Video: copy if compatible, otherwise re-encode. Per-encoder tuning targets sub-100ms
         // first-byte latency so hls.js can start playing as soon as it requests a segment.
         if (videoCopy) {
