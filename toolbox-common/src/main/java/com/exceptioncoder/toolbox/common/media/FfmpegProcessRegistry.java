@@ -309,29 +309,37 @@ public class FfmpegProcessRegistry {
         fc.append(segs).append("concat=n=").append(n)
                 .append(withAudio ? ":v=1:a=1[outv][outa]" : ":v=1:a=0[outv]");
 
-        cmd.add("-filter_complex");
-        cmd.add(fc.toString());
-        cmd.add("-map");
-        cmd.add("[outv]");
-        if (withAudio) {
+        // 滤镜图写到脚本文件，用 -filter_complex_script 代替超长 -filter_complex：上百个输入拼出的
+        // filtergraph 长达数万字符，直接放命令行会撑爆 Windows CreateProcess 的 ~32KB 上限（error=206）。
+        Path filterScript = Files.createTempFile("kai-merge-fc-", ".txt");
+        try {
+            Files.writeString(filterScript, fc.toString(), StandardCharsets.UTF_8);
+            cmd.add("-filter_complex_script");
+            cmd.add(filterScript.toAbsolutePath().toString());
             cmd.add("-map");
-            cmd.add("[outa]");
-        }
-        cmd.add("-c:v");
-        cmd.add("libx264");
-        cmd.add("-preset");
-        cmd.add("veryfast");
-        cmd.add("-crf");
-        cmd.add("23");
-        if (withAudio) {
-            cmd.add("-c:a");
-            cmd.add("aac");
-            cmd.add("-b:a");
-            cmd.add("128k");
-        }
-        cmd.add(out.toAbsolutePath().toString());
+            cmd.add("[outv]");
+            if (withAudio) {
+                cmd.add("-map");
+                cmd.add("[outa]");
+            }
+            cmd.add("-c:v");
+            cmd.add("libx264");
+            cmd.add("-preset");
+            cmd.add("veryfast");
+            cmd.add("-crf");
+            cmd.add("23");
+            if (withAudio) {
+                cmd.add("-c:a");
+                cmd.add("aac");
+                cmd.add("-b:a");
+                cmd.add("128k");
+            }
+            cmd.add(out.toAbsolutePath().toString());
 
-        runConcat(cmd, out, timeoutS, "ffmpeg-concat-reencode");
+            runConcat(cmd, out, timeoutS, "ffmpeg-concat-reencode");
+        } finally {
+            Files.deleteIfExists(filterScript);
+        }
     }
 
     /** copy/reencode 共用执行壳：沿用 spawn + tail 排空 + 超时强杀 + 退出码/空文件校验。 */
