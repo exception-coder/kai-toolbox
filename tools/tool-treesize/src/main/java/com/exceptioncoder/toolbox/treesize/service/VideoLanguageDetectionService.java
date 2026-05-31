@@ -139,7 +139,7 @@ public class VideoLanguageDetectionService {
         Path src = Path.of(v.path());
         if (!Files.isRegularFile(src)) {
             log.info("skip language detect: file_not_found {}", v.path());
-            jobService.recordFailure(ctx, v.path(), "file_not_found");
+            recordLanguageFailure(ctx, v.path(), "file_not_found");
             return;
         }
         Path wav = null;
@@ -150,13 +150,13 @@ public class VideoLanguageDetectionService {
             if ("(none)".equals(probe.audioCodec())) {
                 log.info("skip language detect: no_audio_stream container={} videoCodec={} {}",
                         probe.container(), probe.videoCodec(), v.path());
-                jobService.recordFailure(ctx, v.path(), "no_audio_stream");
+                recordLanguageFailure(ctx, v.path(), "no_audio_stream");
                 return;
             }
             double durationS = resolveDuration(v, src, probe);
             if (durationS < MIN_VIDEO_DURATION_S) {
                 log.info("skip language detect: too_short duration={}s {}", durationS, v.path());
-                jobService.recordFailure(ctx, v.path(), "too_short");
+                recordLanguageFailure(ctx, v.path(), "too_short");
                 return;
             }
             double startSec = Math.max(0, durationS * SAMPLE_START_PERCENT);
@@ -171,13 +171,22 @@ public class VideoLanguageDetectionService {
             // 取消信号：吞掉但不计 failure（cancelled 路径）
             Thread.currentThread().interrupt();
         } catch (Exception e) {
-            jobService.recordFailure(ctx, v.path(), summarize(e));
+            recordLanguageFailure(ctx, v.path(), summarize(e));
             log.debug("language detect failed for {}", v.path(), e);
         } finally {
             if (wav != null) {
                 try { Files.deleteIfExists(wav); } catch (IOException ignored) {}
             }
         }
+    }
+
+    /**
+     * 识别失败统一出口：先给视频行盖 language_detected_at 让它离开待识别队列（language 仍 NULL），
+     * 再上报 job 失败计数。否则失败行永远满足 detected_at IS NULL，会被反复重识别（进度超量堆叠）。
+     */
+    private void recordLanguageFailure(VideoProcessingJobService.JobContext ctx, String path, String reason) {
+        videoRepo.markLanguageAttempted(path, System.currentTimeMillis());
+        jobService.recordFailure(ctx, path, reason);
     }
 
     private double resolveDuration(VideoRow v, Path src, ProbeResult probe) {

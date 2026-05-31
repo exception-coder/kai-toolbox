@@ -157,10 +157,15 @@ CREATE INDEX IF NOT EXISTS idx_video_language        ON treesize_video(language)
 CREATE INDEX IF NOT EXISTS idx_video_duration_bucket ON treesize_video(duration_bucket);
 CREATE INDEX IF NOT EXISTS idx_video_series_sig      ON treesize_video(series_signature);
 CREATE INDEX IF NOT EXISTS idx_video_cluster         ON treesize_video(visual_cluster_id);
--- partial index：让各子任务"还没识别/还没生成"的扫描永远不需要全表
-CREATE INDEX IF NOT EXISTS idx_video_language_null    ON treesize_video(size DESC) WHERE language IS NULL;
-CREATE INDEX IF NOT EXISTS idx_video_grid_null        ON treesize_video(size DESC) WHERE thumbnail_grid_path IS NULL;
-CREATE INDEX IF NOT EXISTS idx_video_duration_null    ON treesize_video(size DESC) WHERE duration_s IS NULL;
+-- partial index：让各子任务"还没处理"的扫描永远不需要全表。
+-- 出队判定统一 key 在"已尝试"标记列（成功/失败都会写），避免失败行永远命中 IS NULL 被反复处理。
+-- 旧的按"结果列 IS NULL"的索引已废弃，启动时一并 DROP。
+DROP INDEX IF EXISTS idx_video_language_null;
+DROP INDEX IF EXISTS idx_video_grid_null;
+DROP INDEX IF EXISTS idx_video_duration_null;
+CREATE INDEX IF NOT EXISTS idx_video_language_pending ON treesize_video(size DESC) WHERE language_detected_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_video_grid_pending     ON treesize_video(size DESC) WHERE thumbnail_grid_generated_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_video_duration_pending ON treesize_video(size DESC) WHERE duration_bucket IS NULL;
 CREATE INDEX IF NOT EXISTS idx_video_series_null      ON treesize_video(size DESC) WHERE series_signature IS NULL;
 CREATE INDEX IF NOT EXISTS idx_video_person_age_null  ON treesize_video(size DESC) WHERE thumbnail_grid_path IS NOT NULL AND person_main_age_group IS NULL;
 

@@ -132,7 +132,7 @@ public class VideoThumbnailGridService {
     private void generateOne(VideoProcessingJobService.JobContext ctx, VideoRow v) {
         Path src = Path.of(v.path());
         if (!Files.isRegularFile(src)) {
-            jobService.recordFailure(ctx, v.path(), "file_not_found");
+            recordGridFailure(ctx, v.path(), "file_not_found");
             return;
         }
         try {
@@ -145,7 +145,7 @@ public class VideoThumbnailGridService {
             }
             double durationS = resolveDuration(v, src);
             if (durationS < MIN_DURATION_S) {
-                jobService.recordFailure(ctx, v.path(), "too_short");
+                recordGridFailure(ctx, v.path(), "too_short");
                 return;
             }
             ffmpeg.makeContactSheet(src, durationS, GRID_COLS, GRID_ROWS, CELL_W, CELL_H,
@@ -155,9 +155,19 @@ public class VideoThumbnailGridService {
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
-            jobService.recordFailure(ctx, v.path(), summarize(e));
+            recordGridFailure(ctx, v.path(), summarize(e));
             log.debug("thumbnail grid failed for {}", v.path(), e);
         }
+    }
+
+    /**
+     * 生成失败统一出口：先给视频行盖 thumbnail_grid_generated_at 让它离开待生成队列
+     * （grid_path 仍 NULL），再上报 job 失败计数。否则失败行永远满足 generated_at IS NULL，
+     * 会被反复重生成（进度超量堆叠）。
+     */
+    private void recordGridFailure(VideoProcessingJobService.JobContext ctx, String path, String reason) {
+        videoRepo.markThumbnailGridAttempted(path, System.currentTimeMillis());
+        jobService.recordFailure(ctx, path, reason);
     }
 
     /**

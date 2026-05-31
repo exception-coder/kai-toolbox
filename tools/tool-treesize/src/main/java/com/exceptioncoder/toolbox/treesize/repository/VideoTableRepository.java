@@ -91,17 +91,25 @@ public class VideoTableRepository {
     // 各子模块自身实现时调用这里；在本次提交里全部暴露，避免后续每个模块都改 Repository。
     // ==================================================================================
 
+    /** 视频表总行数。各处理任务「已完成 = 总数 - 待处理」用它当分母。 */
+    public long countAllVideos() {
+        Long n = jdbc.queryForObject("SELECT COUNT(*) FROM treesize_video", Long.class);
+        return n == null ? 0L : n;
+    }
+
     // ----- 视频语言识别 -----
 
+    // 出队判定 key 在 language_detected_at（成功写 iso+时间，失败只写时间）：
+    // 失败行也带时间戳 → 不再满足 detected_at IS NULL → 离开队列，杜绝反复重识别。
     public long countNeedingLanguageDetect() {
         Long n = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM treesize_video WHERE language IS NULL", Long.class);
+                "SELECT COUNT(*) FROM treesize_video WHERE language_detected_at IS NULL", Long.class);
         return n == null ? 0L : n;
     }
 
     public List<VideoRow> findNeedingLanguageDetect(int limit, int offset) {
         return jdbc.query(
-                "SELECT " + COLUMNS + " FROM treesize_video WHERE language IS NULL " +
+                "SELECT " + COLUMNS + " FROM treesize_video WHERE language_detected_at IS NULL " +
                         "ORDER BY size DESC LIMIT ? OFFSET ?",
                 MAPPER, limit, offset);
     }
@@ -112,17 +120,26 @@ public class VideoTableRepository {
                 iso, confidence, detectedAt, path);
     }
 
+    /** 识别失败：只盖时间戳让行出队，language 保持 NULL（区分"识别失败"与"识别出某语言"）。 */
+    public void markLanguageAttempted(String path, long attemptedAt) {
+        jdbc.update(
+                "UPDATE treesize_video SET language_detected_at=? WHERE path=?",
+                attemptedAt, path);
+    }
+
     // ----- 视频九宫格预览图 -----
 
+    // 出队判定 key 在 thumbnail_grid_generated_at（成功写 path+时间，失败只写时间）：
+    // 失败行带时间戳即出队；grid_path 仍 NULL 不影响取图端点（找不到图照样 404）。
     public long countNeedingThumbnailGrid() {
         Long n = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM treesize_video WHERE thumbnail_grid_path IS NULL", Long.class);
+                "SELECT COUNT(*) FROM treesize_video WHERE thumbnail_grid_generated_at IS NULL", Long.class);
         return n == null ? 0L : n;
     }
 
     public List<VideoRow> findNeedingThumbnailGrid(int limit, int offset) {
         return jdbc.query(
-                "SELECT " + COLUMNS + " FROM treesize_video WHERE thumbnail_grid_path IS NULL " +
+                "SELECT " + COLUMNS + " FROM treesize_video WHERE thumbnail_grid_generated_at IS NULL " +
                         "ORDER BY size DESC LIMIT ? OFFSET ?",
                 MAPPER, limit, offset);
     }
@@ -131,6 +148,13 @@ public class VideoTableRepository {
         jdbc.update(
                 "UPDATE treesize_video SET thumbnail_grid_path=?, thumbnail_grid_generated_at=? WHERE path=?",
                 gridPath, generatedAt, path);
+    }
+
+    /** 生成失败：只盖时间戳让行出队，grid_path 保持 NULL。 */
+    public void markThumbnailGridAttempted(String path, long attemptedAt) {
+        jdbc.update(
+                "UPDATE treesize_video SET thumbnail_grid_generated_at=? WHERE path=?",
+                attemptedAt, path);
     }
 
     /**
@@ -146,15 +170,17 @@ public class VideoTableRepository {
 
     // ----- 视频时长区间分类 -----
 
+    // 出队判定 key 在 duration_bucket（成功写真实区间，失败写 'unknown'）：
+    // 原先 key 在 duration_s，失败时 duration_s 仍为 NULL → 反复重探测；改 key 后失败行也出队。
     public long countNeedingDuration() {
         Long n = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM treesize_video WHERE duration_s IS NULL", Long.class);
+                "SELECT COUNT(*) FROM treesize_video WHERE duration_bucket IS NULL", Long.class);
         return n == null ? 0L : n;
     }
 
     public List<VideoRow> findNeedingDuration(int limit, int offset) {
         return jdbc.query(
-                "SELECT " + COLUMNS + " FROM treesize_video WHERE duration_s IS NULL " +
+                "SELECT " + COLUMNS + " FROM treesize_video WHERE duration_bucket IS NULL " +
                         "ORDER BY size DESC LIMIT ? OFFSET ?",
                 MAPPER, limit, offset);
     }

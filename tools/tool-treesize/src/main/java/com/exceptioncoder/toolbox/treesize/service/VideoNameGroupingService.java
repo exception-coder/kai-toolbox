@@ -61,6 +61,9 @@ public class VideoNameGroupingService {
                     videoRepo.updateSeries(v.path(), n.signature(), n.episode());
                     jobService.recordSuccess(ctx, v.path());
                 } catch (Exception e) {
+                    // 失败也写哨兵签名让行出队（series_signature 非 NULL），否则失败行反复重归类。
+                    // NameNormalizer 理论上不抛异常，这里是极端兜底。
+                    videoRepo.updateSeries(v.path(), "__ungrouped__", null);
                     jobService.recordFailure(ctx, v.path(), summarize(e));
                     log.debug("name grouping failed for {}", v.path(), e);
                 }
