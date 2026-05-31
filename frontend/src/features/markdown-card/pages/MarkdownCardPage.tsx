@@ -69,7 +69,7 @@ export function MarkdownCardPage() {
         <div>
           <h1 className="text-lg font-semibold tracking-tight md:text-xl">Markdown 转卡片</h1>
           <p className="hidden text-sm text-[var(--color-muted-foreground)] sm:block">
-            三种模式 + 五套主题，纯前端导出 PNG。移动端在分享面板里选「保存图片」。
+            三种模式 + 五套主题，纯前端导出 PNG。PC 直接下载，移动端走系统分享面板。
           </p>
         </div>
         <ExportButton onExport={handleExport} disabled={isEmpty} />

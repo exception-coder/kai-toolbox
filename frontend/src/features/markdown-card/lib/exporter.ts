@@ -16,7 +16,8 @@ export async function saveImage(dataUrl: string, filename: string): Promise<Save
   const blob = await dataUrlToBlob(dataUrl)
   const file = new File([blob], filename, { type: 'image/png' })
 
-  if (canShareFile(file)) {
+  // PC 端直接走下载分支，移动端才弹系统分享面板
+  if (isMobileLike() && canShareFile(file)) {
     try {
       await navigator.share({ files: [file], title: filename })
       return 'shared'
@@ -89,6 +90,20 @@ async function waitFonts(): Promise<void> {
 async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
   const res = await fetch(dataUrl)
   return res.blob()
+}
+
+function isMobileLike(): boolean {
+  if (typeof navigator === 'undefined') return false
+  const uaData = (navigator as Navigator & {
+    userAgentData?: { mobile?: boolean }
+  }).userAgentData
+  if (uaData && typeof uaData.mobile === 'boolean') return uaData.mobile
+  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+    const coarse = window.matchMedia('(pointer: coarse)').matches
+    const noHover = window.matchMedia('(hover: none)').matches
+    if (coarse && noHover) return true
+  }
+  return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
 }
 
 function canShareFile(file: File): boolean {
