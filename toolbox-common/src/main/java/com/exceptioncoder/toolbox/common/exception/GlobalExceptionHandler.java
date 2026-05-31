@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.common.exception;
 
+import com.exceptioncoder.toolbox.common.featureconfig.FeatureConfigNotFoundException;
 import com.exceptioncoder.toolbox.common.media.FfmpegUnavailableException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,6 +53,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NoSuchFileException.class)
     public ResponseEntity<Map<String, Object>> handleNoSuchFile(NoSuchFileException e) {
         return body(HttpStatus.NOT_FOUND, "file not found: " + e.getFile());
+    }
+
+    @ExceptionHandler(FeatureConfigNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleFeatureConfigNotFound(FeatureConfigNotFoundException e) {
+        return body(HttpStatus.NOT_FOUND, e.getMessage());
     }
 
     @ExceptionHandler(Exception.class)

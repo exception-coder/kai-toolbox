@@ -41,7 +41,7 @@ toolbox:
     provider: ollama
     # Ollama: 基础 URL（不含路径）
     url: "http://localhost:11434"
-    ollama-model: qwen2.5:3b   # 2GB，日→中质量很好；有余裕可换 qwen2.5:7b
+    ollama-model: translategemma:4b   # 翻译专用模型；如需通用模型可换 qwen2.5:3b / qwen2.5:7b
     # DeepLX: 切换为 deeplx 时把 url 改为 http://localhost:1188/translate
     token: ""
     target-lang: ZH            # 目标语言：ZH = 简体中文
@@ -146,6 +146,17 @@ toolbox:
     # JPEG 质量：1（无损）到 31（最差），4 在 480×270 上视觉无损约 30-50KB。
     jpeg-quality: 4
   video:
+    # 视频合并（多选 → 拼成一个 mp4）配置
+    merge:
+      # 合并输出目录，留空 = ${user.home}/.kai-toolbox/merged
+      output-dir: ""
+      # 重编码统一目标分辨率（仅 reencode 路径生效，copy 路径不缩放）
+      target-resolution: "1280x720"
+      target-fps: 30
+      # 单次最多合并的输入数
+      max-inputs: 100
+      # ffmpeg 合并进程硬超时（秒）
+      timeout-s: 1800
     extensions:
       - mp4
       - m4v
@@ -168,6 +179,7 @@ toolbox:
       - mpeg
       - mpg
       - m2v
+      - amc
 
   media-parser:
     # 默认走 PATH。本机非 PATH 安装时用环境变量覆盖：
@@ -207,9 +219,110 @@ toolbox:
     # 同 media-parser，留空走直连
     proxy: ${TOOLBOX_HTTP_PROXY:}
     # 自动把 cookies / localStorage 持久化到磁盘，下次打开不用重新登录。
-    # 关掉则只能手动点「保存登录态」。
+    # 关掉则只能手动点「保存登录态」。每次保存会调 Chromium 的 storageState API，
+    # Windows 下可能短暂把窗口抢到前台 + 占用 Playwright worker 几十毫秒，
+    # 所以默频拉长到 15 分钟；录制过程中会自动 skip（见 SessionAutoSaver）。
     auto-save-enabled: true
-    auto-save-interval-ms: 30000
+    auto-save-interval-ms: 900000
+
+  vscode-tunnel:
+    # 设为 false 后 /api/vscode-tunnel/start 与 /events 返回 503
+    enabled: true
+    # code CLI 可执行文件路径。默认走 PATH；本机非 PATH 安装时写绝对路径
+    code-path: code
+    # 隧道名（决定 https://vscode.dev/tunnel/<name>），留空 = 当前主机名
+    tunnel-name: ""
+    # 透传 code tunnel 的 --accept-server-license-terms（同意微软许可），关掉后 CLI 会卡在交互提示
+    accept-license: true
+    # 调用 stop() 时 SIGTERM 之后给 code 进程的优雅退出时间，超时 SIGKILL
+    stop-grace-ms: 5000
+    # ERROR 状态下保留多少字节 stdout 尾段作为 lastError 上报前端
+    error-tail-bytes: 1024
+
+  downloader:
+    # 默认保存目录。留空走 ${user.home}/Downloads/kai-toolbox
+    default-save-path: ${user.home}/Downloads/kai-toolbox
+    # 分片字节数。32 MiB 是 8 路并发下 256 MB 文件的甜点；过小切片多调度开销，过大并发收益降低
+    segment-size: 33554432
+    # 单任务最大并发分片数。8 对国内 CDN 偏激进（容易触发服务端关 TLS / 限并发），改 4 更稳。
+    # 真的需要拉满带宽时按需调到 8 ~ 16；服务端不喜欢的话会回退到单 segment（segment retry exhaust）。
+    max-parallel-per-task: 4
+    max-parallel-global: 16
+    # 链路探测整体超时；过短会让弱代理被误判
+    probe-timeout-ms: 8000
+    # race 拉取字节数，256 KiB 通常足够区分代理 vs 直连的吞吐差距
+    probe-bytes: 262144
+    # 分片重试次数（不含首次）。6 次足以扛过 CDN 偶发 20-60 秒小风暴；
+    # 退避序列 1s/2s/4s/8s/16s/30s 加 ±50% jitter，总最长约 1 分钟
+    segment-retry-max: 6
+    segment-retry-backoff-base-ms: 1000
+    segment-retry-backoff-max-ms: 30000
+    sse-flush-interval-ms: 500
+    connect-timeout-ms: 10000
+    request-timeout-ms: 0       # 0 = 不限制单次请求总耗时（依赖 worker 协作中断 + 重试机制）
+    # 读空闲超时：worker 在此时间内读不到一个字节就认为 stalled，主动关流让 read 抛异常 → 触发重试
+    # 治「速率 = 0 但状态还是下载中」的卡死 bug
+    read-idle-timeout-ms: 30000
+    # 显式代理 URL。留空时按 HTTPS_PROXY / HTTP_PROXY / TOOLBOX_HTTP_PROXY 环境变量探测；
+    # 与 media-parser / browser-request 的代理约定保持一致。
+    proxy: ${TOOLBOX_HTTP_PROXY:}
+
+    # CDN 节点 DNS 散打（仅 OkHttp 引擎生效；走代理时自动退化为普通模式）
+    # 原理：DNS 解析域名通常返回多个 CDN 边缘节点 IP，让每个分片 socket 绑不同 IP，
+    #      绕过服务端「同 IP 单 socket 限速」。
+    # 代价：强制走 HTTP/1.1（H2 单连接设计与散打互斥）、禁用 ConnectionPool（每片新建 TCP+TLS 握手）。
+    # 跨境 CDN 场景效果显著；同地区 CDN 提升有限。
+    dns-spread:
+      enabled: true
+      cache-ttl-ms: 300000         # DNS 缓存 5 分钟
+      ipv4-only: true              # IPv6 在国内 CDN 不稳定，默认只用 v4
+
+  magnet:
+    # 磁力 / BT 下载工具：本地 aria2c 子进程 + 公共种子缓存解析。
+    enabled: true
+    # aria2c 二进制路径。默认走 PATH；本机非 PATH 安装时用环境变量覆盖：
+    #   TOOLBOX_ARIA2_BINARY=D:\devapps\aria2-1.37.0-win-64bit-build1\aria2c.exe
+    binary: ${TOOLBOX_ARIA2_BINARY:aria2c}
+    # 默认保存目录。留空走 ${user.home}/Downloads/kai-toolbox-magnet
+    default-save-path: ${user.home}/Downloads/kai-toolbox-magnet
+
+    # RPC：本机 loopback only
+    rpc-port: 6800
+    rpc-secret: ""           # 留空 → 启动时自动生成随机 32 字符
+    startup-timeout-ms: 10000
+    stop-grace-ms: 3000
+
+    # BT / DHT 行为
+    enable-dht: true
+    enable-lpd: true
+    bt-metadata-only: false
+    bt-save-metadata: true
+    seed-time-seconds: 0     # 完成即停，不做种
+    bt-listen-port: 51413    # 路由器端口转发用同一端口提速
+
+    # 并发 / 限速
+    max-concurrent-downloads: 5
+    max-connections-per-server: 16
+    max-upload-limit-bps: 0  # 0 = 不限速
+
+    # 代理：影响 HTTP/HTTPS 下载 + HTTP tracker
+    # UDP tracker / DHT / peer wire 不受影响（aria2 协议设计上 UDP 不走代理）
+    proxy: ${TOOLBOX_HTTP_PROXY:}
+
+    # session 文件，重启 toolbox 时 aria2 自动恢复未完成任务
+    session-file: ${toolbox.data-dir}/aria2/session.txt
+
+    # ---------- 关键：提交磁力前从自托管 metadata-fetcher 拉 .torrent,跳过 DHT metadata 阶段 ----------
+    # 部署见 tools/tool-magnet/docs/metadata-fetcher/README.md
+    # 2024+ 公共缓存站(itorrents/torrage/btcache)全部凉了,只能自己挂一个机房上的小服务
+    resolver:
+      enabled: true
+      mirrors:
+        - "${TOOLBOX_MAGNET_METADATA_URL:http://170.106.186.65:9000/metadata/{HASH_UPPER}}"
+      per-mirror-timeout-ms: 65000   # 给 metadata-fetcher 60s 拉 DHT + 5s 余量
+      total-timeout-ms: 70000
+      max-bytes: 8388608             # 8 MiB,正常 .torrent 几十 KB 到 1 MB
+      use-global-proxy: false        # 自托管在你自己 VPS 上,国内直连,不走代理
 
   mail:
     enabled: false          # 设为 true 启动内嵌 SMTP 服务器

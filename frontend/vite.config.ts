@@ -1,10 +1,17 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import mkcert from 'vite-plugin-mkcert'
 import path from 'node:path'
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  // 启用 HTTPS：浏览器把 getUserMedia / SpeechRecognition 等列为 secure-context only，
+  // 手机走 LAN IP 明文 HTTP 时调用会被直接拒掉，必须是 HTTPS 或 localhost。
+  // vite-plugin-mkcert 首次启动会下载 mkcert 二进制 + 弹一次 UAC 把本机根 CA 装进系统信任链，
+  // 并自动把本机网卡上的 LAN IP 都签进证书 SAN，无需手动维护 IP 列表。
+  // source: 'coding' 走腾讯 Coding 镜像绕开 GitHub API 限流（境内必备）。
+  // 手机端要单独安装一次 rootCA.pem 才能零警告，路径 %LOCALAPPDATA%\mkcert\rootCA.pem。
+  plugins: [react(), tailwindcss(), mkcert({ source: 'coding' })],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
