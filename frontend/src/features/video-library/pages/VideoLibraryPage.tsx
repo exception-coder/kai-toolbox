@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useInfiniteQuery, useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query'
-import { Activity } from 'lucide-react'
+import { Activity, FolderX } from 'lucide-react'
 import { ApiError } from '@/lib/api'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { Button } from '@/components/ui/button'
@@ -9,6 +9,7 @@ import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/
 import { formatBytes } from '@/lib/utils'
 import { deleteFile } from '@/features/treesize/api'
 import { addVideoFavorite, cleanJunkVideos, getVideoLibrary, mergeVideos, removeVideoFavorite } from '../api'
+import { ExcludedDirsSheet, useVideoLibraryConfig } from '../components/ExcludedDirsSheet'
 import { PlaybackStatsPanel } from '../components/PlaybackStatsPanel'
 import { RecentVideosBar } from '../components/RecentVideosBar'
 import { VideoListPanel } from '../components/VideoListPanel'
@@ -41,7 +42,12 @@ export function VideoLibraryPage() {
   const [currentItem, setCurrentItem] = useState<VideoLibraryItem | null>(null)
   const [listOpen, setListOpen] = useState(false)
   const [statsOpen, setStatsOpen] = useState(false)
+  const [excludedDirsOpen, setExcludedDirsOpen] = useState(false)
   const selectedPath = currentItem?.path ?? null
+
+  // 排除目录配置:路径包含任一关键词的视频由后端过滤掉,不进结果集
+  const { config: libraryConfig } = useVideoLibraryConfig()
+  const excludedDirs = libraryConfig.excludedDirs
 
   // 300ms debounce. Trim the input first so a single trailing space doesn't refire.
   useEffect(() => {
@@ -51,14 +57,16 @@ export function VideoLibraryPage() {
     return () => clearTimeout(t)
   }, [searchInput, searchQuery])
 
+  // 排除目录拼成稳定字符串进 key:配置变化时自动重查
+  const excludedDirsKey = excludedDirs.join('\n')
   const queryKey = useMemo(
-    () => ['video-library', sortBy, order, sizeBucket, searchQuery, favoritesOnly] as const,
-    [sortBy, order, sizeBucket, searchQuery, favoritesOnly],
+    () => ['video-library', sortBy, order, sizeBucket, searchQuery, favoritesOnly, excludedDirsKey] as const,
+    [sortBy, order, sizeBucket, searchQuery, favoritesOnly, excludedDirsKey],
   )
 
   const query = useInfiniteQuery({
     queryKey,
-    queryFn: ({ pageParam }) => getVideoLibrary(sortBy, order, sizeBucket, searchQuery, favoritesOnly, pageParam, PAGE_SIZE),
+    queryFn: ({ pageParam }) => getVideoLibrary(sortBy, order, sizeBucket, searchQuery, favoritesOnly, excludedDirs, pageParam, PAGE_SIZE),
     initialPageParam: 0,
     getNextPageParam: (_lastPage, allPages) => {
       const loaded = allPages.reduce((acc, p) => acc + p.items.length, 0)
@@ -67,9 +75,9 @@ export function VideoLibraryPage() {
     },
   })
 
-  // 过滤掉小于 100KB 的文件：通常是损坏样本、空壳、缩略图残留等噪音，没必要占列表位置
+  // 过滤掉小于 30KB 的文件：通常是损坏样本、空壳、缩略图残留等噪音，没必要占列表位置
   const items = useMemo(
-    () => (query.data?.pages ?? []).flatMap(p => p.items).filter(it => it.size >= 100 * 1024),
+    () => (query.data?.pages ?? []).flatMap(p => p.items).filter(it => it.size >= 30 * 1024),
     [query.data],
   )
   const total = query.data?.pages[0]?.total ?? 0
@@ -473,16 +481,33 @@ export function VideoLibraryPage() {
             已扫描磁盘里的所有视频。点击选中即可在线播放，支持上下首切换；列表可按名称或大小排序、分页加载。
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setStatsOpen(true)}
-          className="shrink-0 gap-1.5"
-          aria-label="打开转码监控"
-        >
-          <Activity className="h-3.5 w-3.5" />
-          转码监控
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setExcludedDirsOpen(true)}
+            className="gap-1.5"
+            aria-label="管理排除目录"
+          >
+            <FolderX className="h-3.5 w-3.5" />
+            排除目录
+            {excludedDirs.length > 0 && (
+              <span className="rounded-full bg-[var(--color-primary)] px-1.5 text-xs text-[var(--color-primary-foreground)] tabular-nums">
+                {excludedDirs.length}
+              </span>
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setStatsOpen(true)}
+            className="gap-1.5"
+            aria-label="打开转码监控"
+          >
+            <Activity className="h-3.5 w-3.5" />
+            转码监控
+          </Button>
+        </div>
       </header>
 
       <RecentVideosBar selectedPath={selectedPath} onSelect={handleSelect} />
@@ -530,6 +555,8 @@ export function VideoLibraryPage() {
           <PlaybackStatsPanel active={statsOpen} />
         </SheetContent>
       </Sheet>
+
+      <ExcludedDirsSheet open={excludedDirsOpen} onOpenChange={setExcludedDirsOpen} />
     </div>
   )
 }

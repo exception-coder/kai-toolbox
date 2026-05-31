@@ -338,6 +338,7 @@ public class TreeSizeController {
             @RequestParam(defaultValue = "all") String sizeBucket,
             @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "false") boolean favoritesOnly,
+            @RequestParam(required = false) List<String> excludeDir,
             @RequestParam(defaultValue = "0") int offset,
             @RequestParam(defaultValue = "200") int limit) {
         int safeLimit = Math.max(1, Math.min(limit, 1000));
@@ -346,12 +347,13 @@ public class TreeSizeController {
         List<String> libraryExtensions = videoExt.getExtensions().stream()
                 .filter(e -> !"ts".equalsIgnoreCase(e))
                 .toList();
+        List<String> excludeDirs = excludeDir == null ? List.of() : excludeDir;
         // Side-effect: kick the background thumbnail warmer the first time the library is
         // viewed in this JVM lifetime. Subsequent paginated calls are no-ops.
         thumbnailWarmer.kickOff();
         var result = nodes.findVideos(libraryExtensions, sortBy, order,
                 bucket.minBytesInclusive(), bucket.maxBytesExclusive(),
-                q, favoritesOnly,
+                q, favoritesOnly, excludeDirs,
                 safeOffset, safeLimit);
         return new VideoLibraryPageView(
                 result.items().stream().map(VideoLibraryItemView::from).toList(),

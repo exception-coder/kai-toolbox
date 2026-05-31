@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 
 @Repository
 public class NodeRepository {
@@ -196,13 +197,16 @@ public class NodeRepository {
     public VideoSearchResult findVideos(List<String> extensions, String sortBy, String order,
                                          long sizeMinInclusive, long sizeMaxExclusive,
                                          String nameQuery, boolean favoritesOnly,
+                                         List<String> excludeDirs,
                                          int offset, int limit) {
         if (extensions.isEmpty()) return new VideoSearchResult(List.of(), 0);
 
         List<String> normalisedExts = extensions.stream().map(e -> e.toLowerCase()).toList();
-        String cacheKey = buildCountKey(normalisedExts, sizeMinInclusive, sizeMaxExclusive, nameQuery, favoritesOnly);
+        // 用户自定义的排除目录关键词:trim、去空、去重、截断到上限,再参与查询与缓存 key
+        List<String> excludes = normaliseExcludeDirs(excludeDirs);
+        String cacheKey = buildCountKey(normalisedExts, sizeMinInclusive, sizeMaxExclusive, nameQuery, favoritesOnly, excludes);
         long total = countCache.getOrCompute(cacheKey,
-                () -> countVideos(normalisedExts, sizeMinInclusive, sizeMaxExclusive, nameQuery, favoritesOnly));
+                () -> countVideos(normalisedExts, sizeMinInclusive, sizeMaxExclusive, nameQuery, favoritesOnly, excludes));
 
         if (total == 0 || offset >= total) {
             return new VideoSearchResult(List.of(), total);
@@ -219,6 +223,7 @@ public class NodeRepository {
         List<Object> args = new ArrayList<>(normalisedExts.size() + 6);
         appendExtensionFilter(sql, args, normalisedExts);
         appendExcludedPathFilters(sql, args);
+        appendUserExcludedDirFilters(sql, args, excludes);
         appendSizeRangeFilter(sql, args, sizeMinInclusive, sizeMaxExclusive);
         appendKeywordFilter(sql, args, nameQuery);
         appendFavoritesOnlyFilter(sql, favoritesOnly);
@@ -244,7 +249,7 @@ public class NodeRepository {
     }
 
     private long countVideos(List<String> normalisedExts, long sizeMinInclusive, long sizeMaxExclusive,
-                             String nameQuery, boolean favoritesOnly) {
+                             String nameQuery, boolean favoritesOnly, List<String> excludes) {
         StringBuilder sql = new StringBuilder("""
                 SELECT COUNT(*) FROM treesize_node n
                   JOIN treesize_scan s ON n.scan_id = s.id
@@ -254,6 +259,7 @@ public class NodeRepository {
         List<Object> args = new ArrayList<>(normalisedExts.size() + 4);
         appendExtensionFilter(sql, args, normalisedExts);
         appendExcludedPathFilters(sql, args);
+        appendUserExcludedDirFilters(sql, args, excludes);
         appendSizeRangeFilter(sql, args, sizeMinInclusive, sizeMaxExclusive);
         appendKeywordFilter(sql, args, nameQuery);
         appendFavoritesOnlyFilter(sql, favoritesOnly);
@@ -301,9 +307,11 @@ public class NodeRepository {
 
     /** sortBy is intentionally excluded — order doesn't affect the count. */
     private static String buildCountKey(List<String> normalisedExts, long sizeMin, long sizeMax,
-                                         String nameQuery, boolean favoritesOnly) {
+                                         String nameQuery, boolean favoritesOnly, List<String> excludes) {
         String q = nameQuery == null ? "" : nameQuery.trim();
-        return String.join(",", normalisedExts) + "|" + sizeMin + "|" + sizeMax + "|" + q + "|" + favoritesOnly;
+        // 排除目录关键词必须进 key,否则切换配置后 total 仍命中旧缓存不刷新
+        return String.join(",", normalisedExts) + "|" + sizeMin + "|" + sizeMax + "|" + q + "|" + favoritesOnly
+                + "|" + String.join(",", excludes);
     }
 
     /**
@@ -438,6 +446,37 @@ public class NodeRepository {
         int n = jdbc.update("DELETE FROM treesize_video_favorite WHERE path = ?", path);
         if (n > 0) countCache.invalidateAll();
         return n;
+    }
+
+    /** 用户配置的排除目录关键词上限,防止超长列表把 SQL 撑爆(参考 {@link #MAX_KEYWORD_TOKENS} 思路)。 */
+    private static final int MAX_EXCLUDE_DIRS = 32;
+
+    /** trim、去空、去重、截断到上限;关键词大小写不敏感地去重(后续按 LOWER 匹配)。 */
+    private static List<String> normaliseExcludeDirs(List<String> raw) {
+        if (raw == null || raw.isEmpty()) return List.of();
+        return raw.stream()
+                .filter(s -> s != null && !s.isBlank())
+                .map(String::trim)
+                .map(s -> s.toLowerCase(Locale.ROOT))
+                .distinct()
+                .limit(MAX_EXCLUDE_DIRS)
+                .toList();
+    }
+
+    /**
+     * 把用户排除目录关键词拼成 {@code AND LOWER(n.path) NOT LIKE '%关键词%'}。
+     * 转义策略与 {@link #appendKeywordFilter} 一致:对 {@code \ % _} 转义并用 {@code ESCAPE '\'},
+     * 让关键词按字面子串匹配而非 LIKE 通配。
+     */
+    private static void appendUserExcludedDirFilters(StringBuilder sql, List<Object> args, List<String> excludes) {
+        for (String kw : excludes) {
+            String escaped = kw
+                    .replace("\\", "\\\\")
+                    .replace("%", "\\%")
+                    .replace("_", "\\_");
+            sql.append(" AND LOWER(n.path) NOT LIKE ? ESCAPE '\\'");
+            args.add("%" + escaped + "%");
+        }
     }
 
     private static void appendExcludedPathFilters(StringBuilder sql, List<Object> args) {

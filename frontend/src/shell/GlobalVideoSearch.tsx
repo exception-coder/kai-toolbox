@@ -5,6 +5,7 @@ import { Search, X, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { getVideoLibrary } from '@/features/video-library/api'
+import { useVideoLibraryConfig } from '@/features/video-library/components/ExcludedDirsSheet'
 import { VideoThumb } from '@/features/video-library/components/VideoThumb'
 import type { VideoLibraryItem } from '@/features/video-library/types'
 
@@ -37,9 +38,13 @@ export function GlobalVideoSearch() {
     return () => clearTimeout(t)
   }, [input, query])
 
+  // 全局搜索与视频库列表共用排除目录配置,口径保持一致
+  const { config: libraryConfig } = useVideoLibraryConfig()
+  const excludedDirs = libraryConfig.excludedDirs
+
   const result = useQuery({
-    queryKey: ['global-video-search', query],
-    queryFn: () => getVideoLibrary('name', 'asc', 'all', query, false, 0, POPOVER_LIMIT),
+    queryKey: ['global-video-search', query, excludedDirs.join('\n')],
+    queryFn: () => getVideoLibrary('name', 'asc', 'all', query, false, excludedDirs, 0, POPOVER_LIMIT),
     enabled: query.length > 0,
     staleTime: 30_000,
   })

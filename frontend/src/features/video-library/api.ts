@@ -7,6 +7,7 @@ export function getVideoLibrary(
   sizeBucket: VideoSizeBucket,
   q: string,
   favoritesOnly: boolean,
+  excludeDirs: string[],
   offset: number,
   limit: number,
 ) {
@@ -19,6 +20,11 @@ export function getVideoLibrary(
     limit: String(limit),
   })
   if (q.trim()) params.set('q', q.trim())
+  // 排除目录关键词展开成可重复的 excludeDir 参数,后端按 List<String> 绑定
+  for (const dir of excludeDirs) {
+    const trimmed = dir.trim()
+    if (trimmed) params.append('excludeDir', trimmed)
+  }
   return http<VideoLibraryPage>(`/treesize/videos?${params.toString()}`)
 }
 
