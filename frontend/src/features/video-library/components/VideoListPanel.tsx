@@ -3,8 +3,18 @@ import { CheckSquare, Combine, Loader2, Search, Sparkles, Square, Star, Trash2, 
 import { cn, formatBytes } from '@/lib/utils'
 import { VideoThumb } from './VideoThumb'
 import { VideoProcessingToolbar } from './VideoProcessingToolbar'
-import type { VideoLibraryItem, VideoSizeBucket, VideoSortBy, VideoSortOrder } from '../types'
+import type { VideoLanguageFacet, VideoLibraryItem, VideoSizeBucket, VideoSortBy, VideoSortOrder } from '../types'
 import { VIDEO_SIZE_BUCKETS } from '../types'
+
+/** 常见 ISO 639 语言码 → 中文名；whisper 输出的码不在表里时回退显示原码。 */
+const LANG_LABELS: Record<string, string> = {
+  zh: '中文', en: '英语', ja: '日语', ko: '韩语', fr: '法语', de: '德语',
+  es: '西班牙语', ru: '俄语', it: '意大利语', pt: '葡萄牙语', th: '泰语',
+  vi: '越南语', ar: '阿拉伯语', hi: '印地语', id: '印尼语',
+}
+function langLabel(code: string): string {
+  return LANG_LABELS[code] ? `${LANG_LABELS[code]} (${code})` : code
+}
 
 interface Props {
   items: VideoLibraryItem[]
@@ -24,6 +34,11 @@ interface Props {
   onSearchInputChange: (value: string) => void
   onFavoritesOnlyChange: (value: boolean) => void
   onToggleFavorite: (item: VideoLibraryItem) => void
+  /** 「按语言筛选」选中的 ISO 码；空串 = 全部语言。 */
+  language: string
+  /** 可选语言清单（含计数），驱动语言下拉。 */
+  languageFacets: VideoLanguageFacet[]
+  onLanguageChange: (language: string) => void
   onLoadMore: () => void
   onDelete?: (item: VideoLibraryItem) => void
   /** When provided, the list shows a 多选 toggle and lets the user delete in bulk. */
@@ -42,6 +57,8 @@ const SORT_OPTIONS: { value: `${VideoSortBy}:${VideoSortOrder}`; label: string }
   { value: 'name:desc', label: '名称 Z→A' },
   { value: 'size:desc', label: '大小 大→小' },
   { value: 'size:asc', label: '大小 小→大' },
+  { value: 'duration:asc', label: '时长 短→长' },
+  { value: 'duration:desc', label: '时长 长→短' },
 ]
 
 /**
@@ -66,6 +83,9 @@ export function VideoListPanel({
   onSearchInputChange,
   onFavoritesOnlyChange,
   onToggleFavorite,
+  language,
+  languageFacets,
+  onLanguageChange,
   onLoadMore,
   onDelete,
   onBulkDelete,
@@ -338,6 +358,19 @@ export function VideoListPanel({
               ))}
             </select>
           </div>
+          {languageFacets.length > 0 && (
+            <select
+              value={language}
+              onChange={e => onLanguageChange(e.target.value)}
+              className="w-full min-w-0 rounded-md border bg-[var(--color-background)] px-2 py-1.5 text-xs"
+              title="按已识别语言筛选（识别语言任务跑过才有内容）"
+            >
+              <option value="">全部语言</option>
+              {languageFacets.map(f => (
+                <option key={f.language} value={f.language}>{langLabel(f.language)}（{f.count}）</option>
+              ))}
+            </select>
+          )}
         </div>
       )}
 

@@ -196,7 +196,7 @@ public class NodeRepository {
      */
     public VideoSearchResult findVideos(List<String> extensions, String sortBy, String order,
                                          long sizeMinInclusive, long sizeMaxExclusive,
-                                         String nameQuery, boolean favoritesOnly,
+                                         String nameQuery, boolean favoritesOnly, String language,
                                          List<String> excludeDirs,
                                          int offset, int limit) {
         if (extensions.isEmpty()) return new VideoSearchResult(List.of(), 0);
@@ -204,33 +204,36 @@ public class NodeRepository {
         List<String> normalisedExts = extensions.stream().map(e -> e.toLowerCase()).toList();
         // 用户自定义的排除目录关键词:trim、去空、去重、截断到上限,再参与查询与缓存 key
         List<String> excludes = normaliseExcludeDirs(excludeDirs);
-        String cacheKey = buildCountKey(normalisedExts, sizeMinInclusive, sizeMaxExclusive, nameQuery, favoritesOnly, excludes);
+        String lang = (language == null || language.isBlank()) ? null : language.trim();
+        String cacheKey = buildCountKey(normalisedExts, sizeMinInclusive, sizeMaxExclusive, nameQuery, favoritesOnly, lang, excludes);
         long total = countCache.getOrCompute(cacheKey,
-                () -> countVideos(normalisedExts, sizeMinInclusive, sizeMaxExclusive, nameQuery, favoritesOnly, excludes));
+                () -> countVideos(normalisedExts, sizeMinInclusive, sizeMaxExclusive, nameQuery, favoritesOnly, lang, excludes));
 
         if (total == 0 || offset >= total) {
             return new VideoSearchResult(List.of(), total);
         }
 
+        // LEFT JOIN treesize_video：拿 duration_s / language 供排序与筛选；未同步/未探测的行 tv.* 为 NULL，
+        // 用 LEFT 保证不丢行。treesize_video.path 是主键，1:1 不会放大行数。
         StringBuilder sql = new StringBuilder("""
                 SELECT n.scan_id, s.root_path, n.path, n.name, n.size,
                        (f.path IS NOT NULL) AS favorited
                   FROM treesize_node n
                   JOIN treesize_scan s ON n.scan_id = s.id
                   LEFT JOIN treesize_video_favorite f ON f.path = n.path
+                  LEFT JOIN treesize_video tv ON tv.path = n.path
                  WHERE n.is_dir = 0
                    AND s.status = 'COMPLETED'""");
-        List<Object> args = new ArrayList<>(normalisedExts.size() + 6);
+        List<Object> args = new ArrayList<>(normalisedExts.size() + 7);
         appendExtensionFilter(sql, args, normalisedExts);
         appendExcludedPathFilters(sql, args);
         appendUserExcludedDirFilters(sql, args, excludes);
         appendSizeRangeFilter(sql, args, sizeMinInclusive, sizeMaxExclusive);
         appendKeywordFilter(sql, args, nameQuery);
         appendFavoritesOnlyFilter(sql, favoritesOnly);
+        appendLanguageFilter(sql, args, lang);
         sql.append(" ORDER BY ");
-        sql.append(nameOrSizeOrderExpr(sortBy));
-        sql.append("desc".equalsIgnoreCase(order) ? " DESC" : " ASC");
-        sql.append(", n.path ASC");  // tiebreaker so paging is deterministic
+        appendOrderBy(sql, sortBy, order);
         sql.append(" LIMIT ? OFFSET ?");
         args.add(limit);
         args.add(offset);
@@ -249,23 +252,57 @@ public class NodeRepository {
     }
 
     private long countVideos(List<String> normalisedExts, long sizeMinInclusive, long sizeMaxExclusive,
-                             String nameQuery, boolean favoritesOnly, List<String> excludes) {
+                             String nameQuery, boolean favoritesOnly, String language, List<String> excludes) {
         StringBuilder sql = new StringBuilder("""
                 SELECT COUNT(*) FROM treesize_node n
                   JOIN treesize_scan s ON n.scan_id = s.id
                   LEFT JOIN treesize_video_favorite f ON f.path = n.path
+                  LEFT JOIN treesize_video tv ON tv.path = n.path
                  WHERE n.is_dir = 0
                    AND s.status = 'COMPLETED'""");
-        List<Object> args = new ArrayList<>(normalisedExts.size() + 4);
+        List<Object> args = new ArrayList<>(normalisedExts.size() + 5);
         appendExtensionFilter(sql, args, normalisedExts);
         appendExcludedPathFilters(sql, args);
         appendUserExcludedDirFilters(sql, args, excludes);
         appendSizeRangeFilter(sql, args, sizeMinInclusive, sizeMaxExclusive);
         appendKeywordFilter(sql, args, nameQuery);
         appendFavoritesOnlyFilter(sql, favoritesOnly);
+        appendLanguageFilter(sql, args, language);
         Long n = jdbc.queryForObject(sql.toString(), Long.class, args.toArray());
         return n == null ? 0L : n;
     }
+
+    /** 语言精确过滤：非空才加 {@code AND tv.language = ?}。哨兵不在 language 列，无需特判。 */
+    private void appendLanguageFilter(StringBuilder sql, List<Object> args, String language) {
+        if (language != null && !language.isBlank()) {
+            sql.append(" AND tv.language = ?");
+            args.add(language.trim());
+        }
+    }
+
+    /**
+     * 排序表达式：duration 走 treesize_video.duration_s（未探测 NULL 排末尾）；name/size 沿用旧白名单。
+     * 末尾恒加 {@code n.path ASC} 作 tiebreaker，保证分页稳定。
+     */
+    private void appendOrderBy(StringBuilder sql, String sortBy, String order) {
+        boolean desc = "desc".equalsIgnoreCase(order);
+        if ("duration".equals(sortBy)) {
+            sql.append("tv.duration_s IS NULL, tv.duration_s ").append(desc ? "DESC" : "ASC");
+        } else {
+            sql.append(nameOrSizeOrderExpr(sortBy)).append(desc ? " DESC" : " ASC");
+        }
+        sql.append(", n.path ASC");
+    }
+
+    /** 已识别语言的去重清单 + 计数（仅 language 非 NULL，即识别成功的），供前端筛选下拉。 */
+    public List<LanguageFacet> listLanguages() {
+        return jdbc.query(
+                "SELECT language, COUNT(*) AS cnt FROM treesize_video " +
+                        "WHERE language IS NOT NULL GROUP BY language ORDER BY cnt DESC",
+                (rs, i) -> new LanguageFacet(rs.getString("language"), rs.getLong("cnt")));
+    }
+
+    public record LanguageFacet(String language, long count) {}
 
     /**
      * Emit either the fast {@code AND n.ext IN (?, ?, …)} clause (index-backed) or the legacy
@@ -305,13 +342,13 @@ public class NodeRepository {
         return migrationStatus.isExtBackfillDone() ? "n.name COLLATE NOCASE" : "LOWER(n.name)";
     }
 
-    /** sortBy is intentionally excluded — order doesn't affect the count. */
+    /** sortBy is intentionally excluded — order doesn't affect the count. language 必须进 key。 */
     private static String buildCountKey(List<String> normalisedExts, long sizeMin, long sizeMax,
-                                         String nameQuery, boolean favoritesOnly, List<String> excludes) {
+                                         String nameQuery, boolean favoritesOnly, String language, List<String> excludes) {
         String q = nameQuery == null ? "" : nameQuery.trim();
-        // 排除目录关键词必须进 key,否则切换配置后 total 仍命中旧缓存不刷新
+        // 排除目录关键词与语言筛选都必须进 key,否则切换后 total 仍命中旧缓存不刷新
         return String.join(",", normalisedExts) + "|" + sizeMin + "|" + sizeMax + "|" + q + "|" + favoritesOnly
-                + "|" + String.join(",", excludes);
+                + "|" + (language == null ? "" : language) + "|" + String.join(",", excludes);
     }
 
     /**

@@ -12,6 +12,8 @@ export interface PersistedState {
   order: VideoSortOrder
   sizeBucket: VideoSizeBucket
   favoritesOnly: boolean
+  /** 「按语言筛选」选中的 ISO 码；空串 = 全部语言。 */
+  language: string
   /** Absolute path of the last-played video. Used as a hint, not a hard requirement —
    * the page falls back to the first item when the path is no longer in the library. */
   selectedPath: string | null

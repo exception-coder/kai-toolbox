@@ -345,6 +345,7 @@ public class TreeSizeController {
             @RequestParam(defaultValue = "all") String sizeBucket,
             @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "false") boolean favoritesOnly,
+            @RequestParam(required = false) String language,
             @RequestParam(required = false) List<String> excludeDir,
             @RequestParam(defaultValue = "0") int offset,
             @RequestParam(defaultValue = "200") int limit) {
@@ -360,13 +361,19 @@ public class TreeSizeController {
         thumbnailWarmer.kickOff();
         var result = nodes.findVideos(libraryExtensions, sortBy, order,
                 bucket.minBytesInclusive(), bucket.maxBytesExclusive(),
-                q, favoritesOnly, excludeDirs,
+                q, favoritesOnly, language, excludeDirs,
                 safeOffset, safeLimit);
         return new VideoLibraryPageView(
                 result.items().stream().map(VideoLibraryItemView::from).toList(),
                 result.total(),
                 safeOffset,
                 safeLimit);
+    }
+
+    /** 已识别语言清单 + 计数，供视频库「按语言筛选」下拉。仅 treesize_video.language 非空（识别成功）的项。 */
+    @GetMapping("/videos/languages")
+    public List<NodeRepository.LanguageFacet> libraryLanguages() {
+        return nodes.listLanguages();
     }
 
     /**

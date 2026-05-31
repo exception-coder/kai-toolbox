@@ -20,8 +20,14 @@ export interface CleanJunkResult {
   errors: string[]
 }
 
-export type VideoSortBy = 'name' | 'size'
+export type VideoSortBy = 'name' | 'size' | 'duration'
 export type VideoSortOrder = 'asc' | 'desc'
+
+/** 「按语言筛选」下拉的一项：语言 ISO 码 + 该语言已识别视频数。 */
+export interface VideoLanguageFacet {
+  language: string
+  count: number
+}
 
 /**
  * Coarse size buckets the library can be filtered by. Values are sent verbatim as the

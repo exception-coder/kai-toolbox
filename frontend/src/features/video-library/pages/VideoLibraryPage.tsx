@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { useInfiniteQuery, useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type InfiniteData } from '@tanstack/react-query'
 import { Activity, FolderX } from 'lucide-react'
 import { ApiError } from '@/lib/api'
 import { useConfirm } from '@/components/ui/confirm-dialog'
@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { cn, formatBytes } from '@/lib/utils'
 import { deleteFile } from '@/features/treesize/api'
-import { addVideoFavorite, cleanJunkVideos, getVideoLibrary, mergeVideos, removeVideoFavorite } from '../api'
+import { addVideoFavorite, cleanJunkVideos, getVideoLanguages, getVideoLibrary, mergeVideos, removeVideoFavorite } from '../api'
 import { ExcludedDirsSheet, useVideoLibraryConfig } from '../components/ExcludedDirsSheet'
 import { PlaybackStatsPanel } from '../components/PlaybackStatsPanel'
 import { RecentVideosBar } from '../components/RecentVideosBar'
@@ -79,6 +79,8 @@ export function VideoLibraryPage() {
   const [order, setOrder] = useState<VideoSortOrder>(persisted.order ?? 'asc')
   const [sizeBucket, setSizeBucket] = useState<VideoSizeBucket>(persisted.sizeBucket ?? 'all')
   const [favoritesOnly, setFavoritesOnly] = useState<boolean>(persisted.favoritesOnly ?? false)
+  // 「按语言筛选」选中的 ISO 码；空串 = 全部语言
+  const [language, setLanguage] = useState<string>(persisted.language ?? '')
   // The input is what the user sees as they type; `searchQuery` is the debounced value the
   // backend actually sees. This prevents a network round-trip per keystroke.
   const [searchInput, setSearchInput] = useState('')
@@ -108,13 +110,13 @@ export function VideoLibraryPage() {
   // 排除目录拼成稳定字符串进 key:配置变化时自动重查
   const excludedDirsKey = excludedDirs.join('\n')
   const queryKey = useMemo(
-    () => ['video-library', sortBy, order, sizeBucket, searchQuery, favoritesOnly, excludedDirsKey] as const,
-    [sortBy, order, sizeBucket, searchQuery, favoritesOnly, excludedDirsKey],
+    () => ['video-library', sortBy, order, sizeBucket, searchQuery, favoritesOnly, language, excludedDirsKey] as const,
+    [sortBy, order, sizeBucket, searchQuery, favoritesOnly, language, excludedDirsKey],
   )
 
   const query = useInfiniteQuery({
     queryKey,
-    queryFn: ({ pageParam }) => getVideoLibrary(sortBy, order, sizeBucket, searchQuery, favoritesOnly, excludedDirs, pageParam, PAGE_SIZE),
+    queryFn: ({ pageParam }) => getVideoLibrary(sortBy, order, sizeBucket, searchQuery, favoritesOnly, language, excludedDirs, pageParam, PAGE_SIZE),
     initialPageParam: 0,
     getNextPageParam: (_lastPage, allPages) => {
       const loaded = allPages.reduce((acc, p) => acc + p.items.length, 0)
@@ -157,8 +159,14 @@ export function VideoLibraryPage() {
   // saveState (private mode, quota exceeded). Search keyword is intentionally not persisted —
   // re-opening the page should start with a clean filter.
   useEffect(() => {
-    saveState({ sortBy, order, sizeBucket, favoritesOnly, selectedPath })
-  }, [sortBy, order, sizeBucket, favoritesOnly, selectedPath])
+    saveState({ sortBy, order, sizeBucket, favoritesOnly, language, selectedPath })
+  }, [sortBy, order, sizeBucket, favoritesOnly, language, selectedPath])
+
+  // 「按语言筛选」下拉数据：已识别语言清单 + 计数。识别语言任务跑过才有内容。
+  const languagesQuery = useQuery({
+    queryKey: ['video-library-languages'],
+    queryFn: getVideoLanguages,
+  })
 
   // Keep the local currentItem in sync with the cached row when the user is still seeing it
   // in the filtered list. Picks up favorited-flag changes and any other field edits without
@@ -525,6 +533,9 @@ export function VideoLibraryPage() {
     onSearchInputChange: setSearchInput,
     onFavoritesOnlyChange: setFavoritesOnly,
     onToggleFavorite: handleToggleFavorite,
+    language,
+    languageFacets: languagesQuery.data ?? [],
+    onLanguageChange: setLanguage,
     onLoadMore: fetchNextPage,
     onDelete: handleDelete,
     onBulkDelete: handleBulkDelete,

@@ -1,5 +1,5 @@
 import { http, ApiError } from '@/lib/api'
-import type { CleanJunkResult, PlaybackStats, RecentVideo, SubtitleJob, VideoLibraryPage, VideoSizeBucket, VideoSortBy, VideoSortOrder } from './types'
+import type { CleanJunkResult, PlaybackStats, RecentVideo, SubtitleJob, VideoLanguageFacet, VideoLibraryPage, VideoSizeBucket, VideoSortBy, VideoSortOrder } from './types'
 
 export function getVideoLibrary(
   sortBy: VideoSortBy,
@@ -7,6 +7,7 @@ export function getVideoLibrary(
   sizeBucket: VideoSizeBucket,
   q: string,
   favoritesOnly: boolean,
+  language: string,
   excludeDirs: string[],
   offset: number,
   limit: number,
@@ -20,12 +21,19 @@ export function getVideoLibrary(
     limit: String(limit),
   })
   if (q.trim()) params.set('q', q.trim())
+  // 语言筛选：空 = 全部语言，不传参
+  if (language.trim()) params.set('language', language.trim())
   // 排除目录关键词展开成可重复的 excludeDir 参数,后端按 List<String> 绑定
   for (const dir of excludeDirs) {
     const trimmed = dir.trim()
     if (trimmed) params.append('excludeDir', trimmed)
   }
   return http<VideoLibraryPage>(`/treesize/videos?${params.toString()}`)
+}
+
+/** 已识别语言清单（语言 ISO + 计数），供「按语言筛选」下拉。 */
+export function getVideoLanguages() {
+  return http<VideoLanguageFacet[]>(`/treesize/videos/languages`)
 }
 
 export function cleanJunkVideos() {
