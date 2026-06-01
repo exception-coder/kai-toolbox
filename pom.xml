@@ -39,6 +39,7 @@
         <module>tools/tool-magnet</module>
         <module>tools/tool-docker</module>
         <module>tools/tool-ffmpeg-lab</module>
+        <module>tools/tool-claude-chat</module>
         <module>toolbox-starter</module>
     </modules>
 
@@ -156,6 +157,11 @@
             <dependency>
                 <groupId>com.exceptioncoder</groupId>
                 <artifactId>tool-ffmpeg-lab</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-claude-chat</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

@@ -7,6 +7,11 @@ spring:
   mvc:
     async:
       request-timeout: -1            # SSE 长连接，禁用超时
+  servlet:
+    multipart:
+      # claude-chat 附件上传上限；留余量让 AttachmentStorageService 的 50MB 应用层校验先返回友好错误
+      max-file-size: 60MB
+      max-request-size: 70MB
 
 server:
   port: 18080

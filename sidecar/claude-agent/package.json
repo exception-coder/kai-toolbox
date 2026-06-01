@@ -1,0 +1,21 @@
+{
+  "name": "claude-chat-sidecar",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "kai-toolbox 移动端 Claude 客户端的 sidecar：跑 Claude Agent SDK，经 WebSocket 与 Java 后端交互",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "node --experimental-strip-types src/server.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.159",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.7.2"
+  }
+}
