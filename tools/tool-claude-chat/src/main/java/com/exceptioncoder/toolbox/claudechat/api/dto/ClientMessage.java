@@ -16,14 +16,15 @@ import java.util.Map;
         @JsonSubTypes.Type(value = ClientMessage.Send.class,          name = "send"),
         @JsonSubTypes.Type(value = ClientMessage.Decision.class,      name = "decision"),
         @JsonSubTypes.Type(value = ClientMessage.Interrupt.class,     name = "interrupt"),
+        @JsonSubTypes.Type(value = ClientMessage.SetMode.class,       name = "setMode"),
 })
 public sealed interface ClientMessage
         permits ClientMessage.Open, ClientMessage.Attach, ClientMessage.SwitchSession,
                 ClientMessage.ResumeHistory, ClientMessage.Send, ClientMessage.Decision,
-                ClientMessage.Interrupt {
+                ClientMessage.Interrupt, ClientMessage.SetMode {
 
-    /** 新建会话 */
-    record Open(String cwd, String model) implements ClientMessage {}
+    /** 新建会话。mode 为初始权限模式，可空（缺省按 default）。 */
+    record Open(String cwd, String model, String mode) implements ClientMessage {}
 
     /** 重连进行中的会话，请求回放 seq > lastEventSeq 的事件 */
     record Attach(String sessionId, long lastEventSeq) implements ClientMessage {}
@@ -52,6 +53,9 @@ public sealed interface ClientMessage
 
     /** 中断当前轮 */
     record Interrupt() implements ClientMessage {}
+
+    /** 切换会话权限模式：default / acceptEdits / plan / bypassPermissions。下一轮生效。 */
+    record SetMode(String mode) implements ClientMessage {}
 
     /** AskUserQuestion 的单个问题结构（供前端渲染，回灌走 Decision.answers） */
     record Question(String question, String header, List<Option> options, boolean multiSelect) {

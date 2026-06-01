@@ -69,9 +69,9 @@ public class SidecarClient {
         return session != null && session.isOpen();
     }
 
-    public void startSession(String sessionId, String cwd, String model) {
+    public void startSession(String sessionId, String cwd, String model, String mode) {
         send(Map.of("type", "start", "sessionId", sessionId,
-                "cwd", nz(cwd), "model", nz(model)));
+                "cwd", nz(cwd), "model", nz(model), "mode", nz(mode)));
     }
 
     public void resumeSession(String sessionId, String sdkSessionId, String cwd) {
@@ -97,6 +97,10 @@ public class SidecarClient {
 
     public void interrupt(String sessionId) {
         send(Map.of("type", "interrupt", "sessionId", sessionId));
+    }
+
+    public void setMode(String sessionId, String mode) {
+        send(Map.of("type", "setMode", "sessionId", sessionId, "mode", nz(mode)));
     }
 
     private synchronized void send(Map<String, ?> payload) {

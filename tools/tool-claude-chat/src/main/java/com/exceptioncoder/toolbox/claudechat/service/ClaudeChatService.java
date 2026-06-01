@@ -87,8 +87,9 @@ public class ClaudeChatService {
         sessions.put(sessionId, ctx);
         wsToSession.put(ws.getId(), sessionId);
 
-        sidecar.startSession(sessionId, cwd, open.model());
-        log.info("[claude-chat] open 会话 {} cwd={}", sessionId, cwd);
+        ctx.mode = normalizeMode(open.mode());
+        sidecar.startSession(sessionId, cwd, open.model(), ctx.mode);
+        log.info("[claude-chat] open 会话 {} cwd={} mode={}", sessionId, cwd, ctx.mode);
     }
 
     public void attach(WebSocketSession ws, ClientMessage.Attach attach) {
@@ -176,6 +177,31 @@ public class ClaudeChatService {
         if (ctx == null) return;
         sidecar.decision(ctx.sessionId, msg.reqId(), msg.behavior(),
                 msg.updatedInput(), msg.answers());
+    }
+
+    /** 切换会话权限模式，下一轮 query 生效；非法值拒绝。 */
+    public void setMode(WebSocketSession ws, ClientMessage.SetMode msg) {
+        SessionCtx ctx = ctxOf(ws);
+        if (ctx == null) {
+            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            return;
+        }
+        if (!isValidMode(msg.mode())) {
+            sendError(ws, 0, "BAD_MODE", "非法权限模式：" + msg.mode());
+            return;
+        }
+        ctx.mode = msg.mode();
+        sidecar.setMode(ctx.sessionId, ctx.mode);
+        log.info("[claude-chat] 会话 {} 切换权限模式 -> {}", ctx.sessionId, ctx.mode);
+    }
+
+    private static boolean isValidMode(String m) {
+        return "default".equals(m) || "acceptEdits".equals(m)
+                || "plan".equals(m) || "bypassPermissions".equals(m);
+    }
+
+    private static String normalizeMode(String m) {
+        return isValidMode(m) ? m : "default";
     }
 
     public void interrupt(WebSocketSession ws) {
@@ -369,6 +395,8 @@ public class ClaudeChatService {
         volatile String sdkSessionId;
         volatile SessionStatus status = SessionStatus.IDLE;
         volatile WebSocketSession browserWs;
+        /** 会话权限模式，默认 default；切换后随下一轮 send 透传给 sidecar。 */
+        volatile String mode = "default";
 
         SessionCtx(String sessionId, String cwd) {
             this.sessionId = sessionId;

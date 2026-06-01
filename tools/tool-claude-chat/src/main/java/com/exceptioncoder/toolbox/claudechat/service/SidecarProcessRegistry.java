@@ -63,13 +63,28 @@ public class SidecarProcessRegistry {
         return process != null && process.isAlive();
     }
 
+    /**
+     * 定位 sidecar 目录。相对路径要兼容不同启动方式的工作目录：
+     * - mvn spring-boot:run（cwd = toolbox-starter 模块目录）→ 需向上跳到仓库根；
+     * - 仓库根直接跑 jar（cwd = 仓库根）→ 直接命中；
+     * 因此从 user.dir 起逐级向上找第一个存在的 {sidecarDir}/{entryScript|package.json}。
+     */
     private Path resolveSidecarDir() {
-        Path p = Path.of(props.getSidecarDir());
-        if (p.isAbsolute()) {
-            return p;
+        Path configured = Path.of(props.getSidecarDir());
+        if (configured.isAbsolute()) {
+            return configured;
         }
-        // 相对路径基于 jar / 工作目录
-        return Path.of(System.getProperty("user.dir")).resolve(p);
+        Path cur = Path.of(System.getProperty("user.dir")).toAbsolutePath();
+        for (int i = 0; i < 5 && cur != null; i++) {
+            Path cand = cur.resolve(configured);
+            if (Files.isRegularFile(cand.resolve(props.getEntryScript()))
+                    || Files.isRegularFile(cand.resolve("package.json"))) {
+                return cand;
+            }
+            cur = cur.getParent();
+        }
+        // 兜底：按 user.dir 相对（错误信息里给出绝对路径便于排查）
+        return Path.of(System.getProperty("user.dir")).resolve(configured);
     }
 
     /** 把 sidecar 的 stdout/stderr 透到日志，便于排查（虚拟线程，不阻塞）。 */

@@ -29,9 +29,12 @@ export interface Attachment {
   path: string
 }
 
+/** 权限模式：与 sidecar Agent SDK 的 permissionMode 对齐。 */
+export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
+
 // ── 客户端 → 服务端 ───────────────────────────────────────────────
 export type ClientMessage =
-  | { type: 'open'; cwd: string; model?: string }
+  | { type: 'open'; cwd: string; model?: string; mode?: PermissionMode }
   | { type: 'attach'; sessionId: string; lastEventSeq: number }
   | { type: 'switchSession'; sessionId: string }
   | { type: 'resumeHistory'; sdkSessionId: string; cwd: string }
@@ -44,6 +47,7 @@ export type ClientMessage =
       answers?: Record<string, string | string[]>
     }
   | { type: 'interrupt' }
+  | { type: 'setMode'; mode: PermissionMode }
 
 // ── AskUserQuestion 结构 ─────────────────────────────────────────
 export interface Question {

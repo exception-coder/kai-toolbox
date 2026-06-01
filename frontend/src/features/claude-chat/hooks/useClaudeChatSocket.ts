@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Attachment, ChatItem, ClientMessage, ConnState, PendingRequest, ServerMessage } from '../types'
+import type { Attachment, ChatItem, ClientMessage, ConnState, PendingRequest, PermissionMode, ServerMessage } from '../types'
 
 let _seq = 0
 const nextId = () => `i${++_seq}`
 
 /** 连接后要发出的首个意图（区分新建 / 续跑 / 重连回放）。 */
 type Intent =
-  | { kind: 'open'; cwd: string; model?: string }
+  | { kind: 'open'; cwd: string; model?: string; mode?: PermissionMode }
   | { kind: 'switch'; sessionId: string }
   | { kind: 'resumeHistory'; sdkSessionId: string; cwd: string }
   | { kind: 'attach'; sessionId: string; lastEventSeq: number }
@@ -18,8 +18,12 @@ export interface UseClaudeChatSocket {
   pending: PendingRequest | null
   running: boolean
   errorMessage: string | null
-  /** 新建会话 */
-  open: (cwd: string, model?: string) => void
+  /** 当前权限模式 */
+  mode: PermissionMode
+  /** 新建会话（可带初始权限模式） */
+  open: (cwd: string, model?: string, mode?: PermissionMode) => void
+  /** 切换权限模式（下一轮生效） */
+  setMode: (mode: PermissionMode) => void
   /** 切到工具内会话（resume 续跑） */
   switchTo: (sessionId: string) => void
   /** 续跑磁盘上的历史会话 */
@@ -38,6 +42,7 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   const [pending, setPending] = useState<PendingRequest | null>(null)
   const [running, setRunning] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [mode, setModeState] = useState<PermissionMode>('default')
 
   const wsRef = useRef<WebSocket | null>(null)
   const intentRef = useRef<Intent | null>(null)
@@ -114,7 +119,7 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   const flushIntent = useCallback(() => {
     const intent = intentRef.current
     if (!intent) return
-    if (intent.kind === 'open') sendRaw({ type: 'open', cwd: intent.cwd, model: intent.model })
+    if (intent.kind === 'open') sendRaw({ type: 'open', cwd: intent.cwd, model: intent.model, mode: intent.mode })
     else if (intent.kind === 'switch') sendRaw({ type: 'switchSession', sessionId: intent.sessionId })
     else if (intent.kind === 'resumeHistory') sendRaw({ type: 'resumeHistory', sdkSessionId: intent.sdkSessionId, cwd: intent.cwd })
     else sendRaw({ type: 'attach', sessionId: intent.sessionId, lastEventSeq: intent.lastEventSeq })
@@ -173,12 +178,13 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     lastSeqRef.current = 0
   }
 
-  const open = useCallback((cwd: string, model?: string) => {
+  const open = useCallback((cwd: string, model?: string, m?: PermissionMode) => {
     resetForNewSession()
     sessionIdRef.current = null
     setSessionId(null)
-    intentRef.current = { kind: 'open', cwd, model }
-    if (!sendRaw({ type: 'open', cwd, model })) connect()
+    if (m) setModeState(m)
+    intentRef.current = { kind: 'open', cwd, model, mode: m }
+    if (!sendRaw({ type: 'open', cwd, model, mode: m })) connect()
   }, [sendRaw, connect])
 
   const switchTo = useCallback((sid: string) => {
@@ -217,5 +223,10 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     setRunning(false)
   }, [sendRaw])
 
-  return { state, sessionId, items, pending, running, errorMessage, open, switchTo, resumeHistory, send, decide, interrupt }
+  const setMode = useCallback((m: PermissionMode) => {
+    setModeState(m) // 乐观更新；下一轮 query 生效
+    sendRaw({ type: 'setMode', mode: m })
+  }, [sendRaw])
+
+  return { state, sessionId, items, pending, running, errorMessage, mode, open, switchTo, resumeHistory, send, decide, interrupt, setMode }
 }

@@ -10,6 +10,7 @@ import { HistoryList } from '../components/HistoryList'
 import { NotifySettings } from '../components/NotifySettings'
 import { VoiceInputButton } from '../components/VoiceInputButton'
 import { AttachmentChips } from '../components/AttachmentChips'
+import { ModeSwitch } from '../components/ModeSwitch'
 import { uploadAttachment, type UploadedAttachment } from '../api'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new'
@@ -138,6 +139,9 @@ export function ChatPage() {
             uploading={uploading}
             onRemove={id => setAttachments(prev => prev.filter(a => a.id !== id))}
           />
+          <div className="flex items-center px-3 pt-2">
+            <ModeSwitch mode={chat.mode} onChange={chat.setMode} />
+          </div>
           <div className="flex items-end gap-2 px-3 py-2">
             <input
               ref={fileRef}
