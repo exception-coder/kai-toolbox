@@ -53,6 +53,15 @@ export function ChatPage() {
     if (fileRef.current) fileRef.current.value = ''
   }
 
+  // 粘贴：剪贴板含文件（如截图）则当附件上传，纯文本照常粘贴
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = e.clipboardData?.files
+    if (files && files.length > 0) {
+      e.preventDefault()
+      void handleFiles(files)
+    }
+  }
+
   const submit = () => {
     if (!chat.sessionId) return
     if (!draft.trim() && attachments.length === 0) return
@@ -121,7 +130,13 @@ export function ChatPage() {
 
       {/* 消息流 */}
       {chat.sessionId ? (
-        <MessageList items={chat.items} running={chat.running} />
+        <MessageList
+          items={chat.items}
+          running={chat.running}
+          onLoadEarlier={() => chat.loadHistory(false)}
+          loadingEarlier={chat.historyLoading}
+          exhausted={chat.historyExhausted}
+        />
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-[var(--color-muted-foreground)]">
           <p>选一个历史会话，或新建一个开始对话</p>
@@ -170,12 +185,7 @@ export function ChatPage() {
               rows={1}
               value={draft}
               onChange={e => setDraft(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  submit()
-                }
-              }}
+              onPaste={handlePaste}
             />
             {chat.running ? (
               <Button variant="outline" size="lg" onClick={chat.interrupt} aria-label="中断">

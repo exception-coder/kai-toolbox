@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import { Permissions, type Decision } from './permissions.js'
 
@@ -28,6 +29,12 @@ class Session {
    */
   async runTurn(text: string): Promise<void> {
     const maxAttempts = 3
+    // spawn claude.exe 时若 working dir 不存在会直接「exists but failed to launch」；
+    // cwd 失效（历史会话来自已删除/改名/异机路径）则回退到用户主目录，避免起不来。
+    const safeCwd = existsSync(this.cwd) ? this.cwd : (process.env.USERPROFILE || process.env.HOME || process.cwd())
+    if (safeCwd !== this.cwd) {
+      console.warn(`[sidecar] 会话 cwd 不存在，回退到 ${safeCwd}（原 cwd: ${this.cwd}）`)
+    }
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const ac = new AbortController()
       this.abort = ac
@@ -39,7 +46,7 @@ class Session {
         const q = query({
           prompt: text,
           options: {
-            cwd: this.cwd,
+            cwd: safeCwd,
             model: this.model || undefined,
             resume: this.sdkSessionId || undefined,
             permissionMode: this.permissionMode,
@@ -150,7 +157,7 @@ export class SessionManager {
   start(id: string, cwd: string, model?: string, mode?: string): void {
     const s = new Session(id, cwd || process.env.HOME || process.cwd(), (e) => this.emit(id, e))
     if (model) s.model = model
-    if (mode) s.permissionMode = mode
+    if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
     this.sessions.set(id, s)
     // 立即回一个 init（sdkSessionId 暂为 null），让前端拿到 Ready 启用输入；
     // 真正的 sdkSessionId 在首轮 system/init 时再次回传。
@@ -187,7 +194,7 @@ export class SessionManager {
   /** 切换会话权限模式，下一轮 runTurn 生效。 */
   setMode(id: string, mode: string): void {
     const s = this.sessions.get(id)
-    if (s) s.permissionMode = mode
+    if (s) { s.permissionMode = mode; s.perms.setMode(mode) }
   }
 
   drop(id: string): void {

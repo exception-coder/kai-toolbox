@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Attachment, ChatItem, ClientMessage, ConnState, PendingRequest, PermissionMode, ServerMessage } from '../types'
+import { loadMessages } from '../api'
 
 let _seq = 0
 const nextId = () => `i${++_seq}`
@@ -33,6 +34,12 @@ export interface UseClaudeChatSocket {
   /** 回灌权限/提问决策 */
   decide: (msg: Extract<ClientMessage, { type: 'decision' }>) => void
   interrupt: () => void
+  /** 当前是否在加载历史 */
+  historyLoading: boolean
+  /** 是否已无更早历史 */
+  historyExhausted: boolean
+  /** 加载历史消息：reset=true 进会话取最近一页；否则上拉取更早一页 prepend */
+  loadHistory: (reset: boolean) => void
 }
 
 export function useClaudeChatSocket(): UseClaudeChatSocket {
@@ -49,6 +56,15 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   const sessionIdRef = useRef<string | null>(null)
   const lastSeqRef = useRef<number>(0)
   const manualCloseRef = useRef(false)
+  const sdkSessionIdRef = useRef<string | null>(null)
+  const cwdRef = useRef<string>('')
+  const shouldLoadHistoryRef = useRef(false)
+  const historyBeforeRef = useRef<number | null>(null)
+  const historyExhaustedRef = useRef(false)
+  const historyLoadingRef = useRef(false)
+  const loadHistoryRef = useRef<(reset: boolean) => void>(() => {})
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyExhausted, setHistoryExhausted] = useState(false)
 
   const sendRaw = useCallback((msg: ClientMessage) => {
     const ws = wsRef.current
@@ -68,6 +84,12 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
         sessionIdRef.current = msg.sessionId
         setSessionId(msg.sessionId)
         setState('ready')
+        if (msg.sdkSessionId) sdkSessionIdRef.current = msg.sdkSessionId
+        // 仅 switch / resume 进会话时拉一次历史；新建会话(open，sdkSessionId 为空)不拉
+        if (shouldLoadHistoryRef.current && msg.sdkSessionId) {
+          shouldLoadHistoryRef.current = false
+          loadHistoryRef.current(true)
+        }
         break
       case 'assistantDelta':
         setItems(prev => {
@@ -176,10 +198,16 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     setRunning(false)
     setErrorMessage(null)
     lastSeqRef.current = 0
+    sdkSessionIdRef.current = null
+    historyBeforeRef.current = null
+    historyExhaustedRef.current = false
+    setHistoryExhausted(false)
   }
 
   const open = useCallback((cwd: string, model?: string, m?: PermissionMode) => {
     resetForNewSession()
+    shouldLoadHistoryRef.current = false
+    cwdRef.current = cwd
     sessionIdRef.current = null
     setSessionId(null)
     if (m) setModeState(m)
@@ -189,6 +217,8 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
 
   const switchTo = useCallback((sid: string) => {
     resetForNewSession()
+    shouldLoadHistoryRef.current = true
+    cwdRef.current = '' // 无 cwd，后端按 sdkSessionId 跨目录定位 transcript
     sessionIdRef.current = sid
     setSessionId(sid)
     intentRef.current = { kind: 'switch', sessionId: sid }
@@ -197,6 +227,9 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
 
   const resumeHistory = useCallback((sdkSessionId: string, cwd: string) => {
     resetForNewSession()
+    shouldLoadHistoryRef.current = true
+    cwdRef.current = cwd
+    sdkSessionIdRef.current = sdkSessionId
     // 服务端会为该历史会话建一条新元数据行，sessionId 由 ready 事件回填
     sessionIdRef.current = null
     setSessionId(null)
@@ -228,5 +261,32 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     sendRaw({ type: 'setMode', mode: m })
   }, [sendRaw])
 
-  return { state, sessionId, items, pending, running, errorMessage, mode, open, switchTo, resumeHistory, send, decide, interrupt, setMode }
+  const loadHistory = useCallback(async (reset: boolean) => {
+    const sid = sdkSessionIdRef.current
+    if (!sid || historyLoadingRef.current) return
+    if (!reset && historyExhaustedRef.current) return
+    historyLoadingRef.current = true
+    setHistoryLoading(true)
+    try {
+      const before = reset ? null : historyBeforeRef.current
+      const { items: hist, nextBefore } = await loadMessages(sid, cwdRef.current, before)
+      setItems(prev => (reset ? hist : [...hist, ...prev]))
+      historyBeforeRef.current = nextBefore
+      const done = nextBefore == null || nextBefore <= 0
+      historyExhaustedRef.current = done
+      setHistoryExhausted(done)
+    } catch {
+      // 历史加载失败静默，不阻塞会话
+    } finally {
+      historyLoadingRef.current = false
+      setHistoryLoading(false)
+    }
+  }, [])
+
+  // 让 applyEvent(ready 回调)能在不进依赖环的情况下触发首屏历史加载
+  useEffect(() => {
+    loadHistoryRef.current = loadHistory
+  }, [loadHistory])
+
+  return { state, sessionId, items, pending, running, errorMessage, mode, open, switchTo, resumeHistory, send, decide, interrupt, setMode, historyLoading, historyExhausted, loadHistory }
 }

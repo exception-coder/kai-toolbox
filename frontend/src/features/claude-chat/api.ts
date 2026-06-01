@@ -1,5 +1,5 @@
 import { http } from '@/lib/api'
-import type { ClaudeChatSessionView, HistorySessionView } from './types'
+import type { ChatItem, ClaudeChatSessionView, HistorySessionView } from './types'
 
 export function listSessions() {
   return http<ClaudeChatSessionView[]>('/claude-chat/sessions')
@@ -7,6 +7,30 @@ export function listSessions() {
 
 export function deleteSession(id: string) {
   return http<void>(`/claude-chat/sessions/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
+}
+
+/** 重命名工具会话（改 SQLite title）。 */
+export function renameSession(id: string, title: string) {
+  return http<void>(`/claude-chat/sessions/${encodeURIComponent(id)}/title`, {
+    method: 'PUT',
+    body: JSON.stringify({ title }),
+  })
+}
+
+/** 重命名本机历史会话（自定义别名；空串=清除，回落解析标题）。 */
+export function renameHistory(sdkSessionId: string, alias: string) {
+  return http<void>(`/claude-chat/history/${encodeURIComponent(sdkSessionId)}/alias`, {
+    method: 'PUT',
+    body: JSON.stringify({ alias }),
+  })
+}
+
+/** 删除本机历史会话（移到回收目录，可恢复）。 */
+export function deleteHistory(sdkSessionId: string, cwd: string) {
+  const qs = cwd ? `?cwd=${encodeURIComponent(cwd)}` : ''
+  return http<void>(`/claude-chat/history/${encodeURIComponent(sdkSessionId)}${qs}`, {
     method: 'DELETE',
   })
 }
@@ -71,4 +95,46 @@ export async function uploadAttachment(sessionId: string, file: File): Promise<U
   })
   if (!res.ok) throw new Error(await errMessage(res))
   return res.json()
+}
+
+// ── 历史会话消息分页加载 ──────────────────────────────────────────
+interface RawHistoryMessage {
+  id: string
+  kind: string
+  text?: string
+  toolName?: string
+  input?: unknown
+  output?: string
+  isError?: boolean
+  stopReason?: string
+}
+
+/** 分页读取某会话历史消息，转成渲染用 ChatItem。before 空=最近一页；否则取更早一页。 */
+export async function loadMessages(
+  sdkSessionId: string,
+  cwd: string,
+  before?: number | null,
+  limit = 30,
+): Promise<{ items: ChatItem[]; nextBefore: number | null }> {
+  const qs = new URLSearchParams()
+  if (cwd) qs.set('cwd', cwd)
+  if (before != null) qs.set('before', String(before))
+  qs.set('limit', String(limit))
+  const page = await http<{ items: RawHistoryMessage[]; nextBefore: number | null }>(
+    `/claude-chat/history/${encodeURIComponent(sdkSessionId)}/messages?${qs.toString()}`,
+  )
+  return { items: page.items.map(toChatItem), nextBefore: page.nextBefore }
+}
+
+function toChatItem(m: RawHistoryMessage): ChatItem {
+  switch (m.kind) {
+    case 'assistant':
+      return { kind: 'assistant', id: m.id, text: m.text ?? '' }
+    case 'tool':
+      return { kind: 'tool', id: m.id, toolName: m.toolName ?? '', input: m.input ?? null, output: m.output ?? undefined, isError: m.isError ?? undefined }
+    case 'result':
+      return { kind: 'result', id: m.id, stopReason: m.stopReason ?? 'end_turn' }
+    default:
+      return { kind: 'user', id: m.id, text: m.text ?? '' }
+  }
 }

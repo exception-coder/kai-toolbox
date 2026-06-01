@@ -10,6 +10,9 @@ export interface Decision {
 
 type Emit = (event: Record<string, unknown>) => void
 
+/** 编辑类工具：acceptEdits 模式下自动放行。 */
+const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
+
 /**
  * 单会话的权限/提问交互。绑定到 query() 的 canUseTool 回调：
  * Claude 要用工具或调用 AskUserQuestion 时暂停，发结构化请求给 Java，阻塞等决策回灌。
@@ -18,9 +21,16 @@ type Emit = (event: Record<string, unknown>) => void
 export class Permissions {
   private pending = new Map<string, (d: Decision | null) => void>()
   private readonly timeoutMs: number
+  /** 当前会话权限模式，由 SessionManager 同步；canUseTool 据此决定是否自动放行。 */
+  private mode = 'default'
 
   constructor(private emit: Emit) {
     this.timeoutMs = Number(process.env.CLAUDE_CHAT_DECISION_TIMEOUT_MS) || 5 * 60 * 1000
+  }
+
+  /** 同步会话权限模式（运行中切换下一次工具调用即生效）。 */
+  setMode(mode: string): void {
+    this.mode = mode || 'default'
   }
 
   // 传给 query({ options: { canUseTool } })
@@ -29,6 +39,18 @@ export class Permissions {
     input: Record<string, unknown>,
     opts: { signal?: AbortSignal },
   ): Promise<Record<string, unknown>> => {
+    // 权限模式自动放行：AskUserQuestion 永远要弹（用户必须作答），其余按当前模式。
+    // SDK 一旦提供 canUseTool 就对每个工具调用触发它，permissionMode 不会绕过本回调，
+    // 所以放行决策必须在这里做。
+    if (toolName !== 'AskUserQuestion') {
+      if (this.mode === 'bypassPermissions') {
+        return { behavior: 'allow', updatedInput: input }
+      }
+      if (this.mode === 'acceptEdits' && EDIT_TOOLS.has(toolName)) {
+        return { behavior: 'allow', updatedInput: input }
+      }
+    }
+
     const reqId = randomUUID()
     if (toolName === 'AskUserQuestion') {
       this.emit({ type: 'questionRequest', reqId, questions: (input?.questions as unknown) ?? [] })

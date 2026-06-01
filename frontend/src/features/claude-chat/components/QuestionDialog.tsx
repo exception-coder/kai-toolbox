@@ -11,10 +11,15 @@ interface Props {
   onCancel: () => void
 }
 
-/** AskUserQuestion 可视化弹窗：单选/多选。 */
+/** Other 选项的内部哨兵 label；提交时替换成用户自定义文本，不会回传 "__other__"。 */
+const OTHER = '__other__'
+
+/** AskUserQuestion 可视化弹窗：单选/多选，末尾带 Other 自定义输入（都不合适时自己写）。 */
 export function QuestionDialog({ questions, onSubmit, onCancel }: Props) {
   // 每个问题的当前选择：单选存 string，多选存 string[]
   const [picks, setPicks] = useState<Record<string, string | string[]>>({})
+  // 每个问题的 Other 自定义文本
+  const [otherText, setOtherText] = useState<Record<string, string>>({})
 
   const toggle = (q: Question, label: string) => {
     setPicks(prev => {
@@ -36,8 +41,26 @@ export function QuestionDialog({ questions, onSubmit, onCancel }: Props) {
 
   const allAnswered = questions.every(q => {
     const v = picks[q.question]
-    return Array.isArray(v) ? v.length > 0 : !!v
+    const has = Array.isArray(v) ? v.length > 0 : !!v
+    if (!has) return false
+    // 选了 Other 必须填了文本才算已答
+    if (isPicked(q, OTHER) && !(otherText[q.question] ?? '').trim()) return false
+    return true
   })
+
+  const submit = () => {
+    const answers: Record<string, string | string[]> = {}
+    for (const q of questions) {
+      const v = picks[q.question]
+      const custom = (otherText[q.question] ?? '').trim()
+      if (Array.isArray(v)) {
+        answers[q.question] = v.map(l => (l === OTHER ? custom : l)).filter(Boolean)
+      } else {
+        answers[q.question] = v === OTHER ? custom : v
+      }
+    }
+    onSubmit(answers)
+  }
 
   return (
     <Overlay>
@@ -68,6 +91,30 @@ export function QuestionDialog({ questions, onSubmit, onCancel }: Props) {
                   )}
                 </button>
               ))}
+
+              {/* Other：都不合适时自己写 */}
+              <button
+                type="button"
+                onClick={() => toggle(q, OTHER)}
+                className={cn(
+                  'w-full rounded-lg border px-3 py-2 text-left transition-colors',
+                  isPicked(q, OTHER)
+                    ? 'border-[var(--color-primary)] bg-[var(--color-accent)]'
+                    : 'border-[var(--color-border)]',
+                )}
+              >
+                <div className="text-sm font-medium">其它（自定义）</div>
+                <div className="text-xs text-[var(--color-muted-foreground)]">都不合适？选这里写下你的想法</div>
+              </button>
+              {isPicked(q, OTHER) && (
+                <textarea
+                  className="w-full resize-none rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm"
+                  rows={2}
+                  placeholder="写下你的想法…"
+                  value={otherText[q.question] ?? ''}
+                  onChange={e => setOtherText(prev => ({ ...prev, [q.question]: e.target.value }))}
+                />
+              )}
             </div>
           </div>
         ))}
@@ -76,7 +123,7 @@ export function QuestionDialog({ questions, onSubmit, onCancel }: Props) {
         <Button variant="outline" size="lg" className="flex-1" onClick={onCancel}>
           取消
         </Button>
-        <Button size="lg" className="flex-1 shadow-md" disabled={!allAnswered} onClick={() => onSubmit(picks)}>
+        <Button size="lg" className="flex-1 shadow-md" disabled={!allAnswered} onClick={submit}>
           提交
         </Button>
       </div>

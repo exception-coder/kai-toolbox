@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 会话列表 / 删除。
@@ -38,6 +39,17 @@ public class ClaudeChatSessionController {
     public ResponseEntity<Void> delete(@PathVariable String id) {
         service.dropSession(id);
         repo.deleteById(id);
+        return ResponseEntity.noContent().build();
+    }
+
+    /** 重命名工具会话（改 SQLite title）。 */
+    @PutMapping("/{id}/title")
+    public ResponseEntity<Void> rename(@PathVariable String id, @RequestBody Map<String, String> body) {
+        String title = body.get("title");
+        if (title == null || title.isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
+        repo.updateTitle(id, title.trim());
         return ResponseEntity.noContent().build();
     }
 }

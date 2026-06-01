@@ -15,3 +15,10 @@ CREATE TABLE IF NOT EXISTS claude_chat_session (
 
 CREATE INDEX IF NOT EXISTS idx_claude_chat_session_seen
     ON claude_chat_session(last_seen_at DESC);
+
+-- 本机历史会话（transcript jsonl）的自定义别名，叠加显示，不改文件。
+CREATE TABLE IF NOT EXISTS claude_chat_session_alias (
+    sdk_session_id  TEXT PRIMARY KEY,
+    alias           TEXT NOT NULL,
+    updated_at      INTEGER NOT NULL
+);

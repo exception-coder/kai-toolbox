@@ -72,7 +72,14 @@ public class AttachmentStorageService {
     /** 删除某会话的附件目录（会话删除时调用）。cwd 由调用方提供，避免会话记录已删时查不到。 */
     public void clear(String cwd, String sessionId) {
         if (cwd == null || cwd.isBlank()) return;
-        Path dir = Path.of(cwd, ATTACH_DIR, sessionId);
+        Path dir;
+        try {
+            dir = Path.of(cwd, ATTACH_DIR, sessionId);
+        } catch (RuntimeException e) {
+            // cwd 畸形（如两段路径拼接、含非法字符）→ 没有合法附件目录可清，直接跳过，不阻断会话删除
+            log.debug("[claude-chat] 附件目录路径非法，跳过清理：{}", cwd);
+            return;
+        }
         if (!Files.exists(dir)) return;
         try (var paths = Files.walk(dir)) {
             paths.sorted(Comparator.reverseOrder()).forEach(p -> {

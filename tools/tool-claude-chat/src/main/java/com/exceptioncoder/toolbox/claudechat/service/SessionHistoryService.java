@@ -1,6 +1,9 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
+import com.exceptioncoder.toolbox.claudechat.api.dto.ChatMessageView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.HistorySessionView;
+import com.exceptioncoder.toolbox.claudechat.repository.SessionAliasRepository;
+import com.exceptioncoder.toolbox.claudechat.api.dto.MessagePage;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -36,9 +39,11 @@ public class SessionHistoryService {
     private static final int TITLE_MAX_CHARS = 60;
 
     private final ObjectMapper mapper;
+    private final SessionAliasRepository aliasRepo;
 
-    public SessionHistoryService(ObjectMapper mapper) {
+    public SessionHistoryService(ObjectMapper mapper, SessionAliasRepository aliasRepo) {
         this.mapper = mapper;
+        this.aliasRepo = aliasRepo;
     }
 
     /** 留空 cwd 时跨所有项目目录列出的最近会话上限（控制解析量） */
@@ -64,6 +69,7 @@ public class SessionHistoryService {
         List<Path> dirs = new ArrayList<>();
         try (Stream<Path> s = Files.list(root)) {
             s.filter(Files::isDirectory)
+             .filter(d -> !"_trash".equals(d.getFileName().toString()))
              .filter(d -> all || matchesProject(d.getFileName().toString(), target))
              .forEach(dirs::add);
         } catch (IOException e) {
@@ -89,7 +95,8 @@ public class SessionHistoryService {
         // 3) 按 mtime 倒序，只解析前 limit 个，控制开销
         files.sort(Comparator.comparingLong(FileMeta::mtime).reversed());
 
-        // 4) 解析标题/cwd，按 sdkSessionId 去重（首次=最新，保留）
+        // 4) 解析标题/cwd，按 sdkSessionId 去重（首次=最新，保留）；有别名优先作标题
+        Map<String, String> aliases = aliasRepo.findAll();
         Map<String, HistorySessionView> bySid = new LinkedHashMap<>();
         for (FileMeta fm : files) {
             if (bySid.size() >= limit) break;
@@ -97,7 +104,8 @@ public class SessionHistoryService {
             if (bySid.containsKey(sid)) continue;
             try {
                 Parsed p = parse(fm.path());
-                bySid.put(sid, new HistorySessionView(sid, p.cwd(), p.title(), fm.mtime(), p.messageCount()));
+                String title = aliases.getOrDefault(sid, p.title());
+                bySid.put(sid, new HistorySessionView(sid, p.cwd(), title, fm.mtime(), p.messageCount()));
             } catch (IOException e) {
                 log.debug("[claude-chat] 读取 {} 失败：{}", fm.path(), e.getMessage());
             }
@@ -173,5 +181,163 @@ public class SessionHistoryService {
     private static String stripExt(String name) {
         int i = name.lastIndexOf('.');
         return i > 0 ? name.substring(0, i) : name;
+    }
+
+    // ===== 历史消息分页读取 =====
+
+    /**
+     * 读取某会话 transcript 的消息，按行游标向前分页。
+     * before 为空取最近 limit 条；before=k 取 [max(0,k-limit), k)。
+     * nextBefore = 本批最早条目的全局索引（>0 还有更早，0 到顶）。
+     */
+    public MessagePage readMessages(String cwd, String sdkSessionId, Integer before, int limit) {
+        Path jsonl = findTranscript(cwd, sdkSessionId);
+        if (jsonl == null) {
+            return new MessagePage(List.of(), null);
+        }
+        List<ChatMessageView> all;
+        try {
+            all = parseAll(jsonl);
+        } catch (IOException e) {
+            log.debug("[claude-chat] 解析历史消息失败 {}：{}", jsonl, e.getMessage());
+            return new MessagePage(List.of(), null);
+        }
+        int n = all.size();
+        int end = (before == null) ? n : Math.max(0, Math.min(before, n));
+        int start = Math.max(0, end - Math.max(1, limit));
+        return new MessagePage(new ArrayList<>(all.subList(start, end)), start);
+    }
+
+    /** 定位 &lt;sid&gt;.jsonl：cwd 指定→匹配项目目录；cwd 空→跨所有目录按文件名找。 */
+    private Path findTranscript(String cwd, String sid) {
+        Path root = Path.of(System.getProperty("user.home"), ".claude", "projects");
+        if (!Files.isDirectory(root) || sid == null || sid.isBlank()) {
+            return null;
+        }
+        String target = (cwd == null || cwd.isBlank()) ? null : encode(cwd.trim());
+        try (Stream<Path> dirs = Files.list(root)) {
+            return dirs.filter(Files::isDirectory)
+                    .filter(d -> !"_trash".equals(d.getFileName().toString()))
+                    .filter(d -> target == null || matchesProject(d.getFileName().toString(), target))
+                    .map(d -> d.resolve(sid + ".jsonl"))
+                    .filter(Files::isRegularFile)
+                    .findFirst()
+                    .orElse(null);
+        } catch (IOException e) {
+            log.debug("[claude-chat] 定位 transcript 失败：{}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** 删除历史会话：把 transcript 移到 ~/.claude/projects/_trash/&lt;来源目录&gt;/，可手动恢复；同时清别名。 */
+    public void moveToTrash(String cwd, String sdkSessionId) {
+        Path src = findTranscript(cwd, sdkSessionId);
+        if (src != null) {
+            try {
+                String dirName = src.getParent().getFileName().toString();
+                Path trashDir = Path.of(System.getProperty("user.home"), ".claude", "projects", "_trash", dirName);
+                Files.createDirectories(trashDir);
+                Path dst = trashDir.resolve(sdkSessionId + ".jsonl");
+                if (Files.exists(dst)) {
+                    dst = trashDir.resolve(sdkSessionId + "-" + System.currentTimeMillis() + ".jsonl");
+                }
+                Files.move(src, dst);
+                log.info("[claude-chat] 历史会话移入回收：{} -> {}", src, dst);
+            } catch (IOException e) {
+                log.warn("[claude-chat] 移入回收失败 {}：{}", sdkSessionId, e.getMessage());
+            }
+        }
+        aliasRepo.delete(sdkSessionId);
+    }
+
+    /** 顺序解析整份 transcript 为有序消息项；tool_result 按 tool_use_id 回填到 tool 项。 */
+    private List<ChatMessageView> parseAll(Path jsonl) throws IOException {
+        List<ChatMessageView> out = new ArrayList<>();
+        Map<String, Integer> toolIdx = new LinkedHashMap<>(); // tool_use_id -> out 下标
+        try (BufferedReader r = Files.newBufferedReader(jsonl, StandardCharsets.UTF_8)) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                if (line.isBlank()) continue;
+                JsonNode node;
+                try {
+                    node = mapper.readTree(line);
+                } catch (Exception ignore) {
+                    continue; // 非法行跳过
+                }
+                String type = node.path("type").asText("");
+                JsonNode content = node.path("message").path("content");
+                switch (type) {
+                    case "user" -> appendUser(out, toolIdx, content);
+                    case "assistant" -> appendAssistant(out, toolIdx, content);
+                    case "result" -> out.add(ChatMessageView.result(
+                            "h" + out.size(), node.path("subtype").asText("end_turn")));
+                    default -> { /* system/meta 等跳过 */ }
+                }
+            }
+        }
+        return out;
+    }
+
+    private void appendUser(List<ChatMessageView> out, Map<String, Integer> toolIdx, JsonNode content) {
+        if (content.isTextual()) {
+            String t = content.asText();
+            if (!t.isBlank()) out.add(ChatMessageView.user("h" + out.size(), t));
+            return;
+        }
+        if (!content.isArray()) return;
+        for (JsonNode b : content) {
+            String bt = b.path("type").asText("");
+            if ("text".equals(bt)) {
+                String t = b.path("text").asText("");
+                if (!t.isBlank()) out.add(ChatMessageView.user("h" + out.size(), t));
+            } else if ("tool_result".equals(bt)) {
+                String useId = b.path("tool_use_id").asText("");
+                String outText = stringifyToolContent(b.path("content"));
+                boolean err = b.path("is_error").asBoolean(false);
+                Integer idx = toolIdx.get(useId);
+                if (idx != null) {
+                    ChatMessageView prev = out.get(idx);
+                    out.set(idx, ChatMessageView.tool(prev.id(), prev.toolName(), prev.input(), outText, err));
+                } else {
+                    out.add(ChatMessageView.tool("h" + out.size(), "", null, outText, err));
+                }
+            }
+        }
+    }
+
+    private void appendAssistant(List<ChatMessageView> out, Map<String, Integer> toolIdx, JsonNode content) {
+        if (content.isTextual()) {
+            String t = content.asText();
+            if (!t.isBlank()) out.add(ChatMessageView.assistant("h" + out.size(), t));
+            return;
+        }
+        if (!content.isArray()) return;
+        for (JsonNode b : content) {
+            String bt = b.path("type").asText("");
+            if ("text".equals(bt)) {
+                String t = b.path("text").asText("");
+                if (!t.isBlank()) out.add(ChatMessageView.assistant("h" + out.size(), t));
+            } else if ("tool_use".equals(bt)) {
+                String useId = b.path("id").asText("");
+                Object input = b.has("input") ? mapper.convertValue(b.get("input"), Object.class) : null;
+                toolIdx.put(useId, out.size());
+                out.add(ChatMessageView.tool("h" + out.size(), b.path("name").asText(""), input, null, null));
+            }
+        }
+    }
+
+    /** tool_result 的 content（string 或 block 数组）压成纯文本。 */
+    private String stringifyToolContent(JsonNode content) {
+        if (content == null || content.isNull()) return "";
+        if (content.isTextual()) return content.asText();
+        if (content.isArray()) {
+            StringBuilder sb = new StringBuilder();
+            for (JsonNode b : content) {
+                if (sb.length() > 0) sb.append('\n');
+                sb.append(b.isTextual() ? b.asText() : b.path("text").asText(""));
+            }
+            return sb.toString();
+        }
+        return content.toString();
     }
 }
