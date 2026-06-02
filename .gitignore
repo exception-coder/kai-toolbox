@@ -50,6 +50,14 @@ frontend/.env.*.local
 *.original
 spring-shell.log
 
+### claude-chat 运行时附件存储 ###
+.kai-chat-attachments/
+
+### 后台进程日志 / 误生成产物 ###
+*.out
+*.out.err
+/package-lock.json
+
 ### Misc ###
 *.bak
 *.tmp
