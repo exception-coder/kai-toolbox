@@ -52,3 +52,56 @@ function fallbackConstruct(title: string, options: NotificationOptions): void {
     // 移动端构造器被禁会抛错，忽略（此路径只在无 SW 的桌面环境命中）
   }
 }
+
+/** 调试用：忽略前台判断、当场请求权限并弹一条测试通知，返回人类可读的诊断结果。 */
+export async function testNotify(): Promise<string> {
+  if (typeof Notification === 'undefined') return '❌ 此浏览器不支持 Notification API'
+  if (typeof window !== 'undefined' && window.isSecureContext === false) {
+    return '❌ 非安全上下文（需 https 或 localhost），通知 API 不可用'
+  }
+  let perm = Notification.permission
+  if (perm === 'default') perm = await Notification.requestPermission()
+  if (perm !== 'granted') {
+    return `❌ 通知权限：${perm}。请在浏览器“站点设置 → 通知”里手动允许后重试`
+  }
+  const options: NotificationOptions = {
+    body: '看到这条说明通知链路正常 ✅',
+    // 每次唯一 tag：macOS/部分系统对相同 tag 会静默替换、不再重新弹横幅，唯一 tag 保证每次都弹
+    tag: 'claude-chat-test-' + Date.now(),
+    data: { url: '/tools/claude-chat' },
+  }
+  const reg = await getSwReg()
+  if (reg) {
+    try {
+      await reg.showNotification('Claude 测试通知', options)
+      return '✅ 已通过 Service Worker 发出（PC / 移动端通用路径）。没看到就查系统“勿扰/专注模式”与浏览器站点通知开关'
+    } catch (e) {
+      return '⚠️ Service Worker showNotification 失败：' + errText(e)
+    }
+  }
+  try {
+    const n = new Notification('Claude 测试通知', options)
+    n.onclick = () => { window.focus(); n.close() }
+    return '✅ 已通过 Notification 构造器发出（桌面回退路径，SW 不可用时）'
+  } catch (e) {
+    return '❌ showNotification 与构造器都失败：' + errText(e)
+  }
+}
+
+/** 注册并取活跃 SW；ready 极端情况下可能不 resolve，加 3s 超时兜底。 */
+async function getSwReg(): Promise<ServiceWorkerRegistration | null> {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return null
+  try {
+    await navigator.serviceWorker.register('/sw.js')
+  } catch {
+    return null
+  }
+  return Promise.race([
+    navigator.serviceWorker.ready,
+    new Promise<null>(resolve => setTimeout(() => resolve(null), 3000)),
+  ])
+}
+
+function errText(e: unknown): string {
+  return e instanceof Error ? `${e.name}: ${e.message}` : String(e)
+}
