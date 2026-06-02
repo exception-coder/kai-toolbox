@@ -16,6 +16,7 @@ import org.springframework.web.socket.WebSocketSession;
 
 import java.io.IOException;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
@@ -136,7 +137,7 @@ public class ClaudeChatService {
         repo.touch(db.getId(), SessionStatus.IDLE, System.currentTimeMillis());
         sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd());
         // 历史消息由前端按需读 SDK transcript；这里只发一个 Ready 表示已就绪
-        sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId));
+        sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands));
     }
 
     /** 续跑磁盘上的历史会话：建一条本工具的元数据行后 resume，之后它也出现在工具会话列表里。 */
@@ -162,7 +163,7 @@ public class ClaudeChatService {
         wsToSession.put(ws.getId(), id);
 
         sidecar.resumeSession(id, msg.sdkSessionId(), cwd);
-        sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, id, ctx.sdkSessionId));
+        sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, id, ctx.sdkSessionId, ctx.slashCommands));
         log.info("[claude-chat] resumeHistory 会话 {} sdk={} cwd={}", id, msg.sdkSessionId(), cwd);
     }
 
@@ -253,8 +254,9 @@ public class ClaudeChatService {
         switch (type) {
             case "init" -> {
                 ctx.sdkSessionId = node.path("sdkSessionId").asText(null);
+                ctx.slashCommands = parseStringList(node.get("slashCommands"));
                 repo.updateSdkSessionId(sessionId, ctx.sdkSessionId);
-                sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, sessionId, ctx.sdkSessionId));
+                sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, sessionId, ctx.sdkSessionId, ctx.slashCommands));
             }
             case "assistantDelta" -> sendToBrowser(ctx,
                     seq -> new ServerMessage.AssistantDelta(seq, node.path("text").asText("")));
@@ -344,7 +346,7 @@ public class ClaudeChatService {
             sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd);
             ctx.status = SessionStatus.IDLE;
             repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
-            sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId));
+            sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands));
             n++;
         }
         log.info("[claude-chat] sidecar 重连成功，已 resume {} 个会话", n);
@@ -490,6 +492,13 @@ public class ClaudeChatService {
         return n == null || !n.isObject() ? Map.of() : mapper.convertValue(n, Map.class);
     }
 
+    private List<String> parseStringList(JsonNode n) {
+        if (n == null || !n.isArray()) return List.of();
+        List<String> out = new ArrayList<>();
+        n.forEach(e -> { if (e != null && e.isTextual()) out.add(e.asText()); });
+        return out;
+    }
+
     private List<ClientMessage.Question> parseQuestions(JsonNode n) {
         if (n == null || !n.isArray()) return List.of();
         try {
@@ -527,6 +536,8 @@ public class ClaudeChatService {
          * 断线重连时据此重投，避免弹窗因事件缓冲淘汰或 seq 已读而丢失；决策到达或本轮结束时清空。
          */
         volatile ServerMessage pendingRequest;
+        /** 该会话可用的 slash 命令清单（来自 SDK init），随每条 Ready 透传给前端做补全。 */
+        volatile java.util.List<String> slashCommands = java.util.List.of();
 
         SessionCtx(String sessionId, String cwd) {
             this.sessionId = sessionId;

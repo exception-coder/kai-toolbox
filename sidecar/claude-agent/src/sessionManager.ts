@@ -94,7 +94,9 @@ class Session {
       case 'system': {
         if (m.subtype === 'init' && m.session_id) {
           this.sdkSessionId = m.session_id as string
-          this.emitSelf({ type: 'init', sdkSessionId: this.sdkSessionId })
+          // SDK init 自带可用 slash 命令清单（含内置 + ~/.claude/commands 自定义），透传给前端做补全
+          const slashCommands = Array.isArray(m.slash_commands) ? m.slash_commands : []
+          this.emitSelf({ type: 'init', sdkSessionId: this.sdkSessionId, slashCommands })
         }
         break
       }

@@ -26,6 +26,8 @@ export interface UseClaudeChatSocket {
   errorMessage: string | null
   /** 当前权限模式 */
   mode: PermissionMode
+  /** 当前会话可用的 slash 命令清单（来自 SDK init），用于输入框补全 */
+  slashCommands: string[]
   /** 新建会话（可带初始权限模式） */
   open: (cwd: string, model?: string, mode?: PermissionMode) => void
   /** 切换权限模式（下一轮生效） */
@@ -55,6 +57,7 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   const [running, setRunning] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [mode, setModeState] = useState<PermissionMode>('default')
+  const [slashCommands, setSlashCommands] = useState<string[]>([])
 
   const wsRef = useRef<WebSocket | null>(null)
   const intentRef = useRef<Intent | null>(null)
@@ -90,6 +93,7 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
         setSessionId(msg.sessionId)
         setState('ready')
         setErrorMessage(null) // sidecar 重连恢复后会重发 ready，借此清掉 SIDECAR_DOWN 横幅
+        if (msg.slashCommands) setSlashCommands(msg.slashCommands)
         if (msg.sdkSessionId) sdkSessionIdRef.current = msg.sdkSessionId
         // 仅 switch / resume 进会话时拉一次历史；新建会话(open，sdkSessionId 为空)不拉
         if (shouldLoadHistoryRef.current && msg.sdkSessionId) {
@@ -318,5 +322,5 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     loadHistoryRef.current = loadHistory
   }, [loadHistory])
 
-  return { state, sessionId, items, pending, running, errorMessage, mode, open, switchTo, resumeHistory, send, decide, interrupt, setMode, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, running, errorMessage, mode, slashCommands, open, switchTo, resumeHistory, send, decide, interrupt, setMode, historyLoading, historyExhausted, loadHistory }
 }

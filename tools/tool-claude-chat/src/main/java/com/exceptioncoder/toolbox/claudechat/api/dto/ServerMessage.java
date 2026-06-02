@@ -19,7 +19,7 @@ public sealed interface ServerMessage
     long seq();
 
     @JsonTypeName("ready")
-    record Ready(long seq, String sessionId, String sdkSessionId) implements ServerMessage {}
+    record Ready(long seq, String sessionId, String sdkSessionId, List<String> slashCommands) implements ServerMessage {}
 
     @JsonTypeName("assistantDelta")
     record AssistantDelta(long seq, String text) implements ServerMessage {}

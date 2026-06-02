@@ -11,6 +11,7 @@ import { NotifySettings } from '../components/NotifySettings'
 import { VoiceInputButton } from '../components/VoiceInputButton'
 import { AttachmentChips } from '../components/AttachmentChips'
 import { ModeSwitch } from '../components/ModeSwitch'
+import { SlashCommandMenu } from '../components/SlashCommandMenu'
 import { listSessions, uploadAttachment, type UploadedAttachment } from '../api'
 import { ensureNotifyPermission } from '../browserNotify'
 
@@ -31,6 +32,8 @@ export function ChatPage() {
   const [newCwd, setNewCwd] = useState('')
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [uploading, setUploading] = useState(0)
+  const [slashIdx, setSlashIdx] = useState(0)
+  const [slashDismissed, setSlashDismissed] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const autoOpenedRef = useRef(false)
 
@@ -95,6 +98,19 @@ export function ChatPage() {
     attachments.forEach(a => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl) })
     setDraft('')
     setAttachments([])
+  }
+
+  // slash 命令补全：输入框行首为 "/<前缀>"（无空格）时按前缀过滤可用命令
+  const slashMatch = /^\/(\S*)$/.exec(draft)
+  const slashFiltered = slashMatch
+    ? chat.slashCommands.filter(c => c.toLowerCase().startsWith(slashMatch[1].toLowerCase()))
+    : []
+  const showSlash = !slashDismissed && slashMatch != null && slashFiltered.length > 0
+  const slashActive = showSlash ? Math.min(slashIdx, slashFiltered.length - 1) : 0
+  const pickSlash = (cmd: string) => {
+    setDraft('/' + cmd + ' ') // 带空格便于接参数；含空格后正则不再匹配，浮层自动收起
+    setSlashDismissed(true)
+    setSlashIdx(0)
   }
 
   return (
@@ -188,6 +204,9 @@ export function ChatPage() {
           <div className="flex items-center px-3 pt-2">
             <ModeSwitch mode={chat.mode} onChange={chat.setMode} />
           </div>
+          {showSlash && (
+            <SlashCommandMenu commands={slashFiltered} activeIndex={slashActive} onPick={pickSlash} />
+          )}
           <div className="flex items-end gap-2 px-3 py-2">
             <input
               ref={fileRef}
@@ -215,8 +234,15 @@ export function ChatPage() {
               placeholder="给 Claude 下发任务…"
               rows={1}
               value={draft}
-              onChange={e => setDraft(e.target.value)}
+              onChange={e => { setDraft(e.target.value); setSlashDismissed(false); setSlashIdx(0) }}
               onPaste={handlePaste}
+              onKeyDown={e => {
+                if (!showSlash) return
+                if (e.key === 'ArrowDown') { e.preventDefault(); setSlashIdx(i => (i + 1) % slashFiltered.length) }
+                else if (e.key === 'ArrowUp') { e.preventDefault(); setSlashIdx(i => (i - 1 + slashFiltered.length) % slashFiltered.length) }
+                else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickSlash(slashFiltered[slashActive]) }
+                else if (e.key === 'Escape') { e.preventDefault(); setSlashDismissed(true) }
+              }}
             />
             {chat.running ? (
               <Button variant="outline" size="lg" onClick={chat.interrupt} aria-label="中断">
