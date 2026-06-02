@@ -20,14 +20,18 @@ export function ensureNotifyPermission(): void {
   }
 }
 
-/** 已授权且页面不在前台时弹系统通知；前台可见时不打扰（屏幕已有弹窗）。 */
+/**
+ * 权限/提问弹框出现时弹系统通知。权限/提问是阻塞进度、必须用户处理的高信号事件，
+ * 故不再因「页面在前台」而抑制（移动端切走时 JS 多被挂起、消息根本到不了，靠前台判断等于永不弹）。
+ * renotify 让连续多个弹框都能重新提醒，而非同 tag 静默替换。
+ */
 export function notifyPrompt(title: string, body: string): void {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
-  if (typeof document !== 'undefined' && document.visibilityState === 'visible' && document.hasFocus()) return
 
   const options: NotificationOptions = {
     body,
-    tag: 'claude-chat-prompt',
+    // 唯一 tag：保证连续多个弹框都重新提醒，而非同 tag 被系统静默替换（与可用的测试通知一致）
+    tag: 'claude-chat-prompt-' + Date.now(),
     data: { url: '/tools/claude-chat' },
   }
 
