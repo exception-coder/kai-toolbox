@@ -40,6 +40,7 @@
         <module>tools/tool-docker</module>
         <module>tools/tool-ffmpeg-lab</module>
         <module>tools/tool-claude-chat</module>
+        <module>tools/tool-video-condense</module>
         <module>toolbox-starter</module>
     </modules>
 
@@ -162,6 +163,11 @@
             <dependency>
                 <groupId>com.exceptioncoder</groupId>
                 <artifactId>tool-claude-chat</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-video-condense</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
