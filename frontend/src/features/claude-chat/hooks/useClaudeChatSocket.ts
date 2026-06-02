@@ -155,6 +155,18 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     else sendRaw({ type: 'attach', sessionId: intent.sessionId, lastEventSeq: intent.lastEventSeq })
   }, [sendRaw])
 
+  // 断线期间发出的用户消息排这里，重连 attach 后自动补发，避免静默丢失 + “思考中”卡死
+  const pendingSendsRef = useRef<{ text: string; attachments?: Attachment[] }[]>([])
+
+  const flushPendingSends = useCallback(() => {
+    if (pendingSendsRef.current.length === 0) return
+    const queue = pendingSendsRef.current
+    pendingSendsRef.current = [] // 先清空再发，防多连接竞态下重复补发
+    for (const m of queue) {
+      sendRaw({ type: 'send', text: m.text, attachments: m.attachments })
+    }
+  }, [sendRaw])
+
   const connect = useCallback(() => {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const url = `${proto}//${window.location.host}/api/claude-chat/ws`
@@ -162,7 +174,7 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     const ws = new WebSocket(url)
     wsRef.current = ws
 
-    ws.onopen = () => flushIntent()
+    ws.onopen = () => { flushIntent(); flushPendingSends() }
     ws.onmessage = ev => {
       let msg: ServerMessage
       try {
@@ -188,7 +200,7 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
         setState('closed')
       }
     }
-  }, [applyEvent, flushIntent])
+  }, [applyEvent, flushIntent, flushPendingSends])
 
   useEffect(() => {
     manualCloseRef.current = false
@@ -249,10 +261,20 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     const t = text.trim()
     const hasAtt = !!attachments && attachments.length > 0
     if (!t && !hasAtt) return
+    const atts = hasAtt ? attachments : undefined
     setItems(prev => [...prev, { kind: 'user', id: nextId(), text: t }])
     setRunning(true)
-    sendRaw({ type: 'send', text: t, attachments: hasAtt ? attachments : undefined })
-  }, [sendRaw])
+    if (sendRaw({ type: 'send', text: t, attachments: atts })) return
+    // WS 未连上：排队并触发重连（带 attach 意图），onopen 时先 attach 再补发，避免消息丢失/卡“思考中”
+    pendingSendsRef.current.push({ text: t, attachments: atts })
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.CONNECTING) {
+      if (sessionIdRef.current) {
+        intentRef.current = { kind: 'attach', sessionId: sessionIdRef.current, lastEventSeq: lastSeqRef.current }
+      }
+      connect()
+    }
+  }, [sendRaw, connect])
 
   const decide = useCallback((msg: Extract<ClientMessage, { type: 'decision' }>) => {
     setPending(null)
