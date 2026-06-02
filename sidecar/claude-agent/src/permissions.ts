@@ -59,8 +59,12 @@ export class Permissions {
     }
 
     const decision = await this.waitFor(reqId, opts?.signal)
-    if (!decision || decision.behavior !== 'allow') {
-      return { behavior: 'deny', message: decision?.message ?? '用户拒绝或超时' }
+    if (!decision) {
+      // 决策为空 = 超时或会话中断：多半是前台页面不在线没收到弹窗，给出可操作提示而非含糊的「拒绝」。
+      return { behavior: 'deny', message: '等待确认超时（页面可能不在线），请回到对话重新下发指令' }
+    }
+    if (decision.behavior !== 'allow') {
+      return { behavior: 'deny', message: decision.message ?? '用户已拒绝' }
     }
     if (toolName === 'AskUserQuestion') {
       return { behavior: 'allow', updatedInput: { ...input, answers: decision.answers ?? {} } }

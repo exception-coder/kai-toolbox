@@ -101,6 +101,7 @@ public class ClaudeChatService {
         ctx.browserWs = ws;
         wsToSession.put(ws.getId(), ctx.sessionId);
         replayBuffer(ctx, attach.lastEventSeq());
+        redeliverPending(ctx, attach.lastEventSeq());
         log.info("[claude-chat] attach 会话 {} from seq>{}", ctx.sessionId, attach.lastEventSeq());
     }
 
@@ -175,6 +176,7 @@ public class ClaudeChatService {
     public void decision(WebSocketSession ws, ClientMessage.Decision msg) {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) return;
+        ctx.pendingRequest = null;
         sidecar.decision(ctx.sessionId, msg.reqId(), msg.behavior(),
                 msg.updatedInput(), msg.answers());
     }
@@ -243,11 +245,18 @@ public class ClaudeChatService {
             case "toolResult" -> sendToBrowser(ctx, seq -> new ServerMessage.ToolResult(
                     seq, node.path("toolName").asText(""),
                     node.path("output").asText(""), node.path("isError").asBoolean(false)));
-            case "permissionRequest" -> sendToBrowser(ctx, seq -> new ServerMessage.PermissionRequest(
-                    seq, node.path("reqId").asText(""),
-                    node.path("toolName").asText(""), asObject(node.get("input"))));
-            case "questionRequest" -> sendToBrowser(ctx, seq -> new ServerMessage.QuestionRequest(
-                    seq, node.path("reqId").asText(""), parseQuestions(node.get("questions"))));
+            case "permissionRequest" -> {
+                String toolName = node.path("toolName").asText("");
+                ServerMessage msg = sendToBrowser(ctx, seq -> new ServerMessage.PermissionRequest(
+                        seq, node.path("reqId").asText(""), toolName, asObject(node.get("input"))));
+                onDecisionPrompt(ctx, msg, "Claude 需要确认权限",
+                        "工具 " + toolName + " 正在等待你授权");
+            }
+            case "questionRequest" -> {
+                ServerMessage msg = sendToBrowser(ctx, seq -> new ServerMessage.QuestionRequest(
+                        seq, node.path("reqId").asText(""), parseQuestions(node.get("questions"))));
+                onDecisionPrompt(ctx, msg, "Claude 有问题等你回答", "请回到对话作答");
+            }
             case "result" -> onResult(ctx, node);
             case "error" -> sendToBrowser(ctx, seq -> new ServerMessage.Error(
                     seq, node.path("code").asText("SIDECAR_ERROR"), node.path("message").asText("")));
@@ -257,6 +266,7 @@ public class ClaudeChatService {
 
     private void onResult(SessionCtx ctx, JsonNode node) {
         ctx.status = SessionStatus.IDLE;
+        ctx.pendingRequest = null; // 本轮结束，未决请求（含超时被拒）一并失效
         repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
         Map<String, Object> usage = asMap(node.get("usage"));
         String stopReason = node.path("stopReason").asText("end_turn");
@@ -325,7 +335,30 @@ public class ClaudeChatService {
         }
     }
 
-    private void sendToBrowser(SessionCtx ctx, SeqMessageFactory factory) {
+    /**
+     * 记录未决的权限/提问请求；若此刻没有活跃前台连接，推送通知提醒用户回来确认，
+     * 否则该请求会一直阻塞 sidecar 直到超时被拒，而用户毫不知情（弹窗根本没下发）。
+     */
+    private void onDecisionPrompt(SessionCtx ctx, ServerMessage msg, String title, String body) {
+        ctx.pendingRequest = msg;
+        boolean watching = ctx.browserWs != null && ctx.browserWs.isOpen();
+        if (!watching) {
+            notifications.notify(title, body + "（" + shortCwd(ctx.cwd) + "）");
+        }
+    }
+
+    /**
+     * 重连后重投仍未决的权限/提问请求，确保弹窗重新出现。
+     * 仅当其 seq 未被本次 replayBuffer 覆盖（已读过）时补发，避免重复下发。
+     */
+    private void redeliverPending(SessionCtx ctx, long lastSeq) {
+        ServerMessage p = ctx.pendingRequest;
+        if (p != null && p.seq() <= lastSeq) {
+            writeToBrowser(ctx, p);
+        }
+    }
+
+    private ServerMessage sendToBrowser(SessionCtx ctx, SeqMessageFactory factory) {
         ServerMessage msg = factory.build(ctx.seq.incrementAndGet());
         synchronized (ctx.buffer) {
             ctx.buffer.addLast(msg);
@@ -334,6 +367,7 @@ public class ClaudeChatService {
             }
         }
         writeToBrowser(ctx, msg);
+        return msg;
     }
 
     private void writeToBrowser(SessionCtx ctx, ServerMessage msg) {
@@ -397,6 +431,11 @@ public class ClaudeChatService {
         volatile WebSocketSession browserWs;
         /** 会话权限模式，默认 default；切换后随下一轮 send 透传给 sidecar。 */
         volatile String mode = "default";
+        /**
+         * 当前未决的权限/提问请求。sidecar 的 canUseTool 会阻塞整轮等决策，故同一时刻至多一个。
+         * 断线重连时据此重投，避免弹窗因事件缓冲淘汰或 seq 已读而丢失；决策到达或本轮结束时清空。
+         */
+        volatile ServerMessage pendingRequest;
 
         SessionCtx(String sessionId, String cwd) {
             this.sessionId = sessionId;

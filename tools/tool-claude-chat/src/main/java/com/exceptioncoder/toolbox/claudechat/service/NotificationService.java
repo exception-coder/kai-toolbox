@@ -42,8 +42,13 @@ public class NotificationService {
                 .collect(java.util.stream.Collectors.toMap(NotificationSender::channel, s -> s));
     }
 
-    /** 遍历已启用渠道发送完成通知。任一渠道失败不影响其他渠道。 */
+    /** 任务完成通知，语义化别名，转发到通用 {@link #notify}。 */
     public void notifyDone(String title, String body) {
+        notify(title, body);
+    }
+
+    /** 遍历已启用渠道发送一条通知（完成 / 待确认等通用场景）。任一渠道失败不影响其他渠道。 */
+    public void notify(String title, String body) {
         JsonNode notify = readNotifyConfig();
         if (notify == null || !notify.isObject()) {
             return;
