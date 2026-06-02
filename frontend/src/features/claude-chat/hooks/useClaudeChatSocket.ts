@@ -2,8 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Attachment, ChatItem, ClientMessage, ConnState, PendingRequest, PermissionMode, ServerMessage } from '../types'
 import { loadMessages } from '../api'
 
-let _seq = 0
-const nextId = () => `i${++_seq}`
+// 用全局唯一 id（非可重置计数器）：避免 Vite HMR 热更重置模块级计数器后，
+// 新消息 id 与 state 中残留的旧消息 id 撞 key（开发期刷屏 React duplicate-key 警告）。
+const nextId = (): string =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? `i${crypto.randomUUID()}`
+    : `i${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 
 /** 连接后要发出的首个意图（区分新建 / 续跑 / 重连回放）。 */
 type Intent =
