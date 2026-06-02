@@ -14,7 +14,8 @@ import java.util.Map;
 public sealed interface ServerMessage
         permits ServerMessage.Ready, ServerMessage.AssistantDelta, ServerMessage.ToolUse,
                 ServerMessage.ToolResult, ServerMessage.PermissionRequest,
-                ServerMessage.QuestionRequest, ServerMessage.Result, ServerMessage.Error {
+                ServerMessage.QuestionRequest, ServerMessage.DecisionResolved,
+                ServerMessage.Result, ServerMessage.Error {
 
     long seq();
 
@@ -35,6 +36,10 @@ public sealed interface ServerMessage
 
     @JsonTypeName("questionRequest")
     record QuestionRequest(long seq, String reqId, List<ClientMessage.Question> questions) implements ServerMessage {}
+
+    /** 某权限/提问请求已被某端处理，通知其它端关闭同一弹窗（多端同看）。 */
+    @JsonTypeName("decisionResolved")
+    record DecisionResolved(long seq, String reqId) implements ServerMessage {}
 
     @JsonTypeName("result")
     record Result(long seq, Map<String, Object> usage, String stopReason) implements ServerMessage {}

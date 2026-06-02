@@ -65,6 +65,7 @@ export type ServerMessage =
   | { type: 'toolResult'; seq: number; toolName: string; output: string; isError: boolean }
   | { type: 'permissionRequest'; seq: number; reqId: string; toolName: string; input: unknown }
   | { type: 'questionRequest'; seq: number; reqId: string; questions: Question[] }
+  | { type: 'decisionResolved'; seq: number; reqId: string }
   | { type: 'result'; seq: number; usage?: Record<string, unknown>; stopReason: string }
   | { type: 'error'; seq: number; code: string; message: string }
 

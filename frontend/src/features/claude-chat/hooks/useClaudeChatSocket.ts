@@ -136,6 +136,10 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
         setPending({ kind: 'question', reqId: msg.reqId, questions: msg.questions })
         notifyPrompt('Claude 有问题等你回答', '请回到对话作答')
         break
+      case 'decisionResolved':
+        // 另一端已处理同一请求（多端同看）→ 关掉本端弹窗
+        setPending(prev => (prev && prev.reqId === msg.reqId ? null : prev))
+        break
       case 'result':
         setRunning(false)
         setItems(prev => [...prev, { kind: 'result', id: nextId(), stopReason: msg.stopReason }])

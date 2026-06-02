@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { useFeatureConfig } from '@/lib/featureConfig'
 import { NOTIFY_DEFAULTS, type NotifyConfig } from '../types'
 import { testNotify } from '../browserNotify'
+import { testServerPush } from '../api'
 
 /** 完成通知双渠道设置：Bark(iPhone) + ntfy(Android)，存 feature-config。 */
 export function NotifySettings({ onClose }: { onClose: () => void }) {
@@ -20,6 +21,24 @@ export function NotifySettings({ onClose }: { onClose: () => void }) {
       setTestMsg(await testNotify())
     } finally {
       setTesting(false)
+    }
+  }
+
+  const [pushMsg, setPushMsg] = useState<string | null>(null)
+  const [pushing, setPushing] = useState(false)
+
+  const runServerPushTest = async () => {
+    setPushing(true)
+    setPushMsg(null)
+    try {
+      const { channels } = await testServerPush(draft)
+      setPushMsg(channels.length
+        ? `已向 [${channels.join(', ')}] 发送，请查看手机推送（用的是当前填写值，未保存也可测）`
+        : '没有已启用的渠道：请先勾选 Bark/ntfy 并填好 baseUrl/topic 再测')
+    } catch (e) {
+      setPushMsg('发送失败：' + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      setPushing(false)
     }
   }
 
@@ -71,7 +90,22 @@ export function NotifySettings({ onClose }: { onClose: () => void }) {
           <p className="mt-2 break-words text-xs text-[var(--color-foreground)]">{testMsg}</p>
         )}
         <p className="mt-1 text-[11px] text-[var(--color-muted-foreground)]">
-          点击会请求权限并立即弹一条测试通知（忽略前台判断）；移动端走 Service Worker。这是浏览器本机通知，与上面 Bark/ntfy 服务端推送相互独立。
+          点击会请求权限并立即弹一条测试通知（忽略前台判断）；移动端走 Service Worker。这是浏览器本机通知，与下面 Bark/ntfy 服务端推送相互独立。
+        </p>
+      </div>
+
+      <div className="rounded-lg border p-3">
+        <div className="flex items-center justify-between">
+          <span className="font-medium">服务端推送自检（Bark / ntfy）</span>
+          <Button variant="outline" size="sm" disabled={pushing} onClick={runServerPushTest}>
+            发送测试推送
+          </Button>
+        </div>
+        {pushMsg && (
+          <p className="mt-2 break-words text-xs text-[var(--color-foreground)]">{pushMsg}</p>
+        )}
+        <p className="mt-1 text-[11px] text-[var(--color-muted-foreground)]">
+          后端按当前填写的渠道发一条测试推送（无需先保存）。真后台推送，锁屏/关页也能收——前提是手机已装并订阅对应 App/topic。
         </p>
       </div>
 

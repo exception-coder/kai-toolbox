@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -47,11 +48,19 @@ public class NotificationService {
         notify(title, body);
     }
 
-    /** 遍历已启用渠道发送一条通知（完成 / 待确认等通用场景）。任一渠道失败不影响其他渠道。 */
+    /** 遍历已保存配置中已启用的渠道发送一条通知。任一渠道失败不影响其他渠道。 */
     public void notify(String title, String body) {
-        JsonNode notify = readNotifyConfig();
+        notifyWith(readNotifyConfig(), title, body);
+    }
+
+    /**
+     * 用指定 notify 配置发送一条通知（测试用：可直接用前端草稿配置，免得必须先保存）。
+     * @return 实际尝试发送的渠道名清单
+     */
+    public List<String> notifyWith(JsonNode notify, String title, String body) {
+        List<String> attempted = new ArrayList<>();
         if (notify == null || !notify.isObject()) {
-            return;
+            return attempted;
         }
         notify.fields().forEachRemaining(entry -> {
             String channel = entry.getKey();
@@ -67,10 +76,12 @@ public class NotificationService {
             try {
                 Map<String, Object> cfgMap = mapper.convertValue(cfg, Map.class);
                 sender.send(cfgMap, title, body);
+                attempted.add(channel);
             } catch (Exception e) {
                 log.warn("[claude-chat] 渠道 {} 推送失败：{}", channel, e.getMessage());
             }
         });
+        return attempted;
     }
 
     private JsonNode readNotifyConfig() {

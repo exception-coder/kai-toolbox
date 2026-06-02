@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -87,9 +88,8 @@ public class ClaudeChatService {
                 .status(SessionStatus.IDLE).startedAt(now).lastSeenAt(now).build());
 
         SessionCtx ctx = new SessionCtx(sessionId, cwd);
-        ctx.browserWs = ws;
         sessions.put(sessionId, ctx);
-        wsToSession.put(ws.getId(), sessionId);
+        bindViewer(ws, ctx);
 
         ctx.mode = normalizeMode(open.mode());
         sidecar.startSession(sessionId, cwd, open.model(), ctx.mode);
@@ -102,23 +102,32 @@ public class ClaudeChatService {
             // 后端重启过 → 内存会话已清空；若 DB 仍有该会话，自动从持久化记录 resume 恢复，免去用户手动重开
             ClaudeChatSession db = repo.findById(attach.sessionId()).orElse(null);
             if (db != null && ensureSidecar(ws)) {
-                SessionCtx restored = sessions.computeIfAbsent(db.getId(), id -> new SessionCtx(id, db.getCwd()));
-                restored.sdkSessionId = db.getSdkSessionId();
-                restored.browserWs = ws;
-                wsToSession.put(ws.getId(), restored.sessionId);
-                repo.touch(db.getId(), SessionStatus.IDLE, System.currentTimeMillis());
-                sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd());
-                sendToBrowser(restored, seq -> new ServerMessage.Ready(seq, restored.sessionId, restored.sdkSessionId));
-                log.info("[claude-chat] attach 内存未命中，从 DB 恢复并 resume 会话 {}", db.getId());
+                // computeIfAbsent 原子去重：并发 attach 同一会话时 lambda 只跑一次，
+                // 只有真正新建 ctx 的那条线程才 resume（否则两条都 resume → sidecar 重复续跑）
+                boolean[] created = {false};
+                SessionCtx restored = sessions.computeIfAbsent(db.getId(), id -> {
+                    created[0] = true;
+                    SessionCtx c = new SessionCtx(id, db.getCwd());
+                    c.sdkSessionId = db.getSdkSessionId();
+                    return c;
+                });
+                bindViewer(ws, restored);
+                if (created[0]) {
+                    repo.touch(db.getId(), SessionStatus.IDLE, System.currentTimeMillis());
+                    sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd());
+                    log.info("[claude-chat] attach 内存未命中，从 DB 恢复并 resume 会话 {}", db.getId());
+                }
+                // Ready 只发给当前这条连接（其它已在看的连接不需要重复）
+                writeTo(ws, new ServerMessage.Ready(restored.seq.incrementAndGet(),
+                        restored.sessionId, restored.sdkSessionId, restored.slashCommands));
                 return;
             }
             sendError(ws, 0, "SESSION_NOT_FOUND", "会话不存在或已结束，请切换或新建");
             return;
         }
-        ctx.browserWs = ws;
-        wsToSession.put(ws.getId(), ctx.sessionId);
-        replayBuffer(ctx, attach.lastEventSeq());
-        redeliverPending(ctx, attach.lastEventSeq());
+        bindViewer(ws, ctx);
+        replayBuffer(ctx, ws, attach.lastEventSeq());
+        redeliverPending(ctx, ws, attach.lastEventSeq());
         ensureSessionResumable(ctx); // sidecar 也断了的话借浏览器重连顺带恢复
         log.info("[claude-chat] attach 会话 {} from seq>{}", ctx.sessionId, attach.lastEventSeq());
     }
@@ -132,8 +141,7 @@ public class ClaudeChatService {
         }
         SessionCtx ctx = sessions.computeIfAbsent(db.getId(), id -> new SessionCtx(id, db.getCwd()));
         ctx.sdkSessionId = db.getSdkSessionId();
-        ctx.browserWs = ws;
-        wsToSession.put(ws.getId(), ctx.sessionId);
+        bindViewer(ws, ctx);
         repo.touch(db.getId(), SessionStatus.IDLE, System.currentTimeMillis());
         sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd());
         // 历史消息由前端按需读 SDK transcript；这里只发一个 Ready 表示已就绪
@@ -158,9 +166,8 @@ public class ClaudeChatService {
 
         SessionCtx ctx = new SessionCtx(id, cwd);
         ctx.sdkSessionId = msg.sdkSessionId();
-        ctx.browserWs = ws;
         sessions.put(id, ctx);
-        wsToSession.put(ws.getId(), id);
+        bindViewer(ws, ctx);
 
         sidecar.resumeSession(id, msg.sdkSessionId(), cwd);
         sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, id, ctx.sdkSessionId, ctx.slashCommands));
@@ -198,6 +205,8 @@ public class ClaudeChatService {
         ctx.pendingRequest = null;
         sidecar.decision(ctx.sessionId, msg.reqId(), msg.behavior(),
                 msg.updatedInput(), msg.answers());
+        // 多端同看：广播「该请求已被处理」，让其它客户端关掉同一个弹窗
+        sendToBrowser(ctx, seq -> new ServerMessage.DecisionResolved(seq, msg.reqId()));
     }
 
     /** 切换会话权限模式，下一轮 query 生效；非法值拒绝。 */
@@ -230,14 +239,12 @@ public class ClaudeChatService {
         if (ctx != null) sidecar.interrupt(ctx.sessionId);
     }
 
-    /** 浏览器连接断开：解绑但不杀会话（任务继续在 sidecar 跑，等下次 attach）。 */
+    /** 浏览器连接断开：仅把该连接从会话观察者集合移除（不杀会话，其它端可继续看，任务在 sidecar 跑）。 */
     public void onBrowserDisconnected(WebSocketSession ws) {
         String sessionId = wsToSession.remove(ws.getId());
         if (sessionId == null) return;
         SessionCtx ctx = sessions.get(sessionId);
-        if (ctx != null && ctx.browserWs == ws) {
-            ctx.browserWs = null;
-        }
+        if (ctx != null) ctx.viewers.remove(ws);
     }
 
     // ===== sidecar 侧事件（由 SidecarClient 回调） =====
@@ -291,9 +298,8 @@ public class ClaudeChatService {
         Map<String, Object> usage = asMap(node.get("usage"));
         String stopReason = node.path("stopReason").asText("end_turn");
         sendToBrowser(ctx, seq -> new ServerMessage.Result(seq, usage, stopReason));
-        // 无活跃前台连接才推送，避免打扰
-        boolean watching = ctx.browserWs != null && ctx.browserWs.isOpen();
-        if (!watching) {
+        // 所有观察者都不在线才推送，避免打扰
+        if (!hasActiveViewer(ctx)) {
             notifications.notifyDone("Claude 任务完成", shortCwd(ctx.cwd));
         }
     }
@@ -394,7 +400,8 @@ public class ClaudeChatService {
                 : repo.findById(id).map(ClaudeChatSession::getCwd).orElse(null);
         if (ctx != null) {
             sidecar.interrupt(id);
-            if (ctx.browserWs != null) wsToSession.remove(ctx.browserWs.getId());
+            ctx.viewers.forEach(w -> wsToSession.remove(w.getId()));
+            ctx.viewers.clear();
         }
         attachments.clear(cwd, id);
     }
@@ -418,13 +425,29 @@ public class ClaudeChatService {
         return sessionId == null ? null : sessions.get(sessionId);
     }
 
-    private void replayBuffer(SessionCtx ctx, long lastSeq) {
+    /** 把 ws 绑定为某会话的观察者：先从它原会话的观察者集合摘除，再加入新会话。 */
+    private void bindViewer(WebSocketSession ws, SessionCtx ctx) {
+        String prev = wsToSession.get(ws.getId());
+        if (prev != null && !prev.equals(ctx.sessionId)) {
+            SessionCtx old = sessions.get(prev);
+            if (old != null) old.viewers.remove(ws);
+        }
+        ctx.viewers.add(ws);
+        wsToSession.put(ws.getId(), ctx.sessionId);
+    }
+
+    private boolean hasActiveViewer(SessionCtx ctx) {
+        return ctx.viewers.stream().anyMatch(WebSocketSession::isOpen);
+    }
+
+    /** 回放缓冲中 seq>lastSeq 的事件——只发给刚 attach 的这条连接（已在看的连接不重复收）。 */
+    private void replayBuffer(SessionCtx ctx, WebSocketSession ws, long lastSeq) {
         List<ServerMessage> pending;
         synchronized (ctx.buffer) {
             pending = ctx.buffer.stream().filter(m -> m.seq() > lastSeq).toList();
         }
         for (ServerMessage m : pending) {
-            writeToBrowser(ctx, m);
+            writeTo(ws, m);
         }
     }
 
@@ -434,8 +457,7 @@ public class ClaudeChatService {
      */
     private void onDecisionPrompt(SessionCtx ctx, ServerMessage msg, String title, String body) {
         ctx.pendingRequest = msg;
-        boolean watching = ctx.browserWs != null && ctx.browserWs.isOpen();
-        if (!watching) {
+        if (!hasActiveViewer(ctx)) {
             notifications.notify(title, body + "（" + shortCwd(ctx.cwd) + "）");
         }
     }
@@ -444,13 +466,14 @@ public class ClaudeChatService {
      * 重连后重投仍未决的权限/提问请求，确保弹窗重新出现。
      * 仅当其 seq 未被本次 replayBuffer 覆盖（已读过）时补发，避免重复下发。
      */
-    private void redeliverPending(SessionCtx ctx, long lastSeq) {
+    private void redeliverPending(SessionCtx ctx, WebSocketSession ws, long lastSeq) {
         ServerMessage p = ctx.pendingRequest;
         if (p != null && p.seq() <= lastSeq) {
-            writeToBrowser(ctx, p);
+            writeTo(ws, p);
         }
     }
 
+    /** 打 seq + 入缓冲 + 广播给本会话所有观察者。用于所有来自 sidecar 的实时事件。 */
     private ServerMessage sendToBrowser(SessionCtx ctx, SeqMessageFactory factory) {
         ServerMessage msg = factory.build(ctx.seq.incrementAndGet());
         synchronized (ctx.buffer) {
@@ -459,12 +482,23 @@ public class ClaudeChatService {
                 ctx.buffer.pollFirst();
             }
         }
-        writeToBrowser(ctx, msg);
+        broadcast(ctx, msg);
         return msg;
     }
 
-    private void writeToBrowser(SessionCtx ctx, ServerMessage msg) {
-        WebSocketSession ws = ctx.browserWs;
+    /** 广播给会话所有在看的连接，顺手清掉已关闭的。 */
+    private void broadcast(SessionCtx ctx, ServerMessage msg) {
+        for (WebSocketSession w : ctx.viewers) {
+            if (w.isOpen()) {
+                writeTo(w, msg);
+            } else {
+                ctx.viewers.remove(w);
+            }
+        }
+    }
+
+    /** 把一条消息发给指定连接（广播逐个调用 / 回放定向发给新连接）。 */
+    private void writeTo(WebSocketSession ws, ServerMessage msg) {
         if (ws == null || !ws.isOpen()) return;
         try {
             synchronized (ws) {
@@ -528,7 +562,8 @@ public class ClaudeChatService {
         final Deque<ServerMessage> buffer = new ArrayDeque<>();
         volatile String sdkSessionId;
         volatile SessionStatus status = SessionStatus.IDLE;
-        volatile WebSocketSession browserWs;
+        /** 当前在看本会话的所有浏览器连接（多端同看）。广播事件遍历此集合，断开按连接移除。 */
+        final Set<WebSocketSession> viewers = ConcurrentHashMap.newKeySet();
         /** 会话权限模式，默认 default；切换后随下一轮 send 透传给 sidecar。 */
         volatile String mode = "default";
         /**
