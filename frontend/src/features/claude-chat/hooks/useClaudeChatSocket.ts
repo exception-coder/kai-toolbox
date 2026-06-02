@@ -84,6 +84,7 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
         sessionIdRef.current = msg.sessionId
         setSessionId(msg.sessionId)
         setState('ready')
+        setErrorMessage(null) // sidecar 重连恢复后会重发 ready，借此清掉 SIDECAR_DOWN 横幅
         if (msg.sdkSessionId) sdkSessionIdRef.current = msg.sdkSessionId
         // 仅 switch / resume 进会话时拉一次历史；新建会话(open，sdkSessionId 为空)不拉
         if (shouldLoadHistoryRef.current && msg.sdkSessionId) {
@@ -129,9 +130,9 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
         setItems(prev => [...prev, { kind: 'result', id: nextId(), stopReason: msg.stopReason }])
         break
       case 'error':
+        setRunning(false)
         setItems(prev => [...prev, { kind: 'error', id: nextId(), code: msg.code, message: msg.message }])
         if (msg.code === 'SIDECAR_DOWN') {
-          setRunning(false)
           setErrorMessage(msg.message)
         }
         break

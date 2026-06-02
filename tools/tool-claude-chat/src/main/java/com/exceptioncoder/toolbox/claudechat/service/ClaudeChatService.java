@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -47,6 +48,8 @@ public class ClaudeChatService {
     private final Map<String, SessionCtx> sessions = new ConcurrentHashMap<>();
     /** 浏览器 wsId -> sessionId，便于按浏览器连接定位会话 */
     private final Map<String, String> wsToSession = new ConcurrentHashMap<>();
+    /** 后台 sidecar 重连任务的去重锁，避免多次断开叠起多个重连循环 */
+    private final AtomicBoolean recovering = new AtomicBoolean(false);
 
     public ClaudeChatService(ClaudeChatProperties props,
                              ClaudeChatSessionRepository repo,
@@ -95,6 +98,19 @@ public class ClaudeChatService {
     public void attach(WebSocketSession ws, ClientMessage.Attach attach) {
         SessionCtx ctx = sessions.get(attach.sessionId());
         if (ctx == null) {
+            // 后端重启过 → 内存会话已清空；若 DB 仍有该会话，自动从持久化记录 resume 恢复，免去用户手动重开
+            ClaudeChatSession db = repo.findById(attach.sessionId()).orElse(null);
+            if (db != null && ensureSidecar(ws)) {
+                SessionCtx restored = sessions.computeIfAbsent(db.getId(), id -> new SessionCtx(id, db.getCwd()));
+                restored.sdkSessionId = db.getSdkSessionId();
+                restored.browserWs = ws;
+                wsToSession.put(ws.getId(), restored.sessionId);
+                repo.touch(db.getId(), SessionStatus.IDLE, System.currentTimeMillis());
+                sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd());
+                sendToBrowser(restored, seq -> new ServerMessage.Ready(seq, restored.sessionId, restored.sdkSessionId));
+                log.info("[claude-chat] attach 内存未命中，从 DB 恢复并 resume 会话 {}", db.getId());
+                return;
+            }
             sendError(ws, 0, "SESSION_NOT_FOUND", "会话不存在或已结束，请切换或新建");
             return;
         }
@@ -102,6 +118,7 @@ public class ClaudeChatService {
         wsToSession.put(ws.getId(), ctx.sessionId);
         replayBuffer(ctx, attach.lastEventSeq());
         redeliverPending(ctx, attach.lastEventSeq());
+        ensureSessionResumable(ctx); // sidecar 也断了的话借浏览器重连顺带恢复
         log.info("[claude-chat] attach 会话 {} from seq>{}", ctx.sessionId, attach.lastEventSeq());
     }
 
@@ -155,6 +172,7 @@ public class ClaudeChatService {
             sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
+        if (!ensureSessionResumable(ctx)) return; // sidecar 断了先就地重连+resume，避免静默丢消息
         ctx.status = SessionStatus.RUNNING;
         repo.touch(ctx.sessionId, SessionStatus.RUNNING, System.currentTimeMillis());
         sidecar.userMessage(ctx.sessionId, appendAttachmentHints(msg.text(), msg.attachments()));
@@ -284,9 +302,82 @@ public class ClaudeChatService {
                 ctx.status = SessionStatus.INTERRUPTED;
                 repo.touch(ctx.sessionId, SessionStatus.INTERRUPTED, System.currentTimeMillis());
                 sendToBrowser(ctx, seq -> new ServerMessage.Error(
-                        seq, "SIDECAR_DOWN", "sidecar 已断开，可切换会话 resume 续跑"));
+                        seq, "SIDECAR_DOWN", "sidecar 已断开，正在自动重连…"));
             }
         });
+        scheduleSidecarRecovery();
+    }
+
+    /**
+     * sidecar 断开后后台自动重连并 resume 所有会话，无需用户手动重进会话。
+     * 重连只针对 Java↔sidecar 链路（与浏览器网络无关），故前端的浏览器重连帮不上忙，必须由后端兜。
+     */
+    private void scheduleSidecarRecovery() {
+        if (!recovering.compareAndSet(false, true)) return;
+        Thread.ofVirtual().name("claude-chat-sidecar-recover").start(() -> {
+            try {
+                for (int attempt = 1; attempt <= 20; attempt++) {
+                    try {
+                        processRegistry.ensureStarted();
+                        sidecar.ensureConnected();
+                        resumeAllSessions();
+                        return;
+                    } catch (IOException e) {
+                        if (attempt == 20) {
+                            log.warn("[claude-chat] sidecar 自动重连失败，放弃（等下次用户动作再试）：{}", e.getMessage());
+                            return;
+                        }
+                        sleep(1500);
+                    }
+                }
+            } finally {
+                recovering.set(false);
+            }
+        });
+    }
+
+    /** 重连成功后把所有已知 sdkSessionId 的会话在新 sidecar 上 resume，并 emit Ready 让前端清错恢复可用。 */
+    private void resumeAllSessions() {
+        int n = 0;
+        for (SessionCtx ctx : sessions.values()) {
+            if (ctx.sdkSessionId == null || ctx.sdkSessionId.isBlank()) continue;
+            sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd);
+            ctx.status = SessionStatus.IDLE;
+            repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
+            sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId));
+            n++;
+        }
+        log.info("[claude-chat] sidecar 重连成功，已 resume {} 个会话", n);
+    }
+
+    /**
+     * 确保 sidecar 在线且该会话已在其上 resume；断开则就地重连+resume。
+     * 供 attach（浏览器重连）/ sendUserMessage（用户继续发）触发即时恢复，无需重进会话。
+     */
+    private boolean ensureSessionResumable(SessionCtx ctx) {
+        if (sidecar.isConnected()) return true;
+        try {
+            processRegistry.ensureStarted();
+            sidecar.ensureConnected();
+        } catch (IOException e) {
+            sendToBrowser(ctx, seq -> new ServerMessage.Error(
+                    seq, "SIDECAR_DOWN", "sidecar 重连失败：" + e.getMessage()));
+            return false;
+        }
+        if (ctx.sdkSessionId != null && !ctx.sdkSessionId.isBlank()) {
+            sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd);
+            ctx.status = SessionStatus.IDLE;
+            repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
+        }
+        return true;
+    }
+
+    private static void sleep(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     // ===== 对外查询 / 维护 =====
