@@ -29,6 +29,10 @@ toolbox:
     # ScanRepository.deleteById 的事务合并使用。
     busy-timeout-ms: 30000
     journal-mode: WAL
+  system:
+    # 远程重启端点 token。经公网 tunnel 暴露，留空 = 端点关闭（返回 503）。必须显式配才开放。
+    # 用环境变量覆盖：TOOLBOX_SYSTEM_RESTART_TOKEN=随机串
+    restart-token: ${TOOLBOX_SYSTEM_RESTART_TOKEN:}
   ffmpeg:
     # 默认走 PATH。本机非 PATH 安装时用环境变量覆盖：
     #   TOOLBOX_FFMPEG_BINARY=D:\devapps\ffmpeg\bin\ffmpeg.exe
