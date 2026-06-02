@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Attachment, ChatItem, ClientMessage, ConnState, PendingRequest, PermissionMode, ServerMessage } from '../types'
 import { loadMessages } from '../api'
+import { notifyPrompt } from '../browserNotify'
 
-let _seq = 0
-const nextId = () => `i${++_seq}`
+// 用全局唯一 id（非可重置计数器）：避免 Vite HMR 热更重置模块级计数器后，
+// 新消息 id 与 state 中残留的旧消息 id 撞 key（开发期刷屏 React duplicate-key 警告）。
+const nextId = (): string =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? `i${crypto.randomUUID()}`
+    : `i${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 
 /** 连接后要发出的首个意图（区分新建 / 续跑 / 重连回放）。 */
 type Intent =
@@ -21,6 +26,8 @@ export interface UseClaudeChatSocket {
   errorMessage: string | null
   /** 当前权限模式 */
   mode: PermissionMode
+  /** 当前会话可用的 slash 命令清单（来自 SDK init），用于输入框补全 */
+  slashCommands: string[]
   /** 新建会话（可带初始权限模式） */
   open: (cwd: string, model?: string, mode?: PermissionMode) => void
   /** 切换权限模式（下一轮生效） */
@@ -50,6 +57,7 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   const [running, setRunning] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [mode, setModeState] = useState<PermissionMode>('default')
+  const [slashCommands, setSlashCommands] = useState<string[]>([])
 
   const wsRef = useRef<WebSocket | null>(null)
   const intentRef = useRef<Intent | null>(null)
@@ -84,6 +92,8 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
         sessionIdRef.current = msg.sessionId
         setSessionId(msg.sessionId)
         setState('ready')
+        setErrorMessage(null) // sidecar 重连恢复后会重发 ready，借此清掉 SIDECAR_DOWN 横幅
+        if (msg.slashCommands) setSlashCommands(msg.slashCommands)
         if (msg.sdkSessionId) sdkSessionIdRef.current = msg.sdkSessionId
         // 仅 switch / resume 进会话时拉一次历史；新建会话(open，sdkSessionId 为空)不拉
         if (shouldLoadHistoryRef.current && msg.sdkSessionId) {
@@ -120,18 +130,20 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
         break
       case 'permissionRequest':
         setPending({ kind: 'permission', reqId: msg.reqId, toolName: msg.toolName, input: msg.input })
+        notifyPrompt('Claude 需要确认权限', `工具 ${msg.toolName} 正在等待你授权`)
         break
       case 'questionRequest':
         setPending({ kind: 'question', reqId: msg.reqId, questions: msg.questions })
+        notifyPrompt('Claude 有问题等你回答', '请回到对话作答')
         break
       case 'result':
         setRunning(false)
         setItems(prev => [...prev, { kind: 'result', id: nextId(), stopReason: msg.stopReason }])
         break
       case 'error':
+        setRunning(false)
         setItems(prev => [...prev, { kind: 'error', id: nextId(), code: msg.code, message: msg.message }])
         if (msg.code === 'SIDECAR_DOWN') {
-          setRunning(false)
           setErrorMessage(msg.message)
         }
         break
@@ -147,6 +159,18 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     else sendRaw({ type: 'attach', sessionId: intent.sessionId, lastEventSeq: intent.lastEventSeq })
   }, [sendRaw])
 
+  // 断线期间发出的用户消息排这里，重连 attach 后自动补发，避免静默丢失 + “思考中”卡死
+  const pendingSendsRef = useRef<{ text: string; attachments?: Attachment[] }[]>([])
+
+  const flushPendingSends = useCallback(() => {
+    if (pendingSendsRef.current.length === 0) return
+    const queue = pendingSendsRef.current
+    pendingSendsRef.current = [] // 先清空再发，防多连接竞态下重复补发
+    for (const m of queue) {
+      sendRaw({ type: 'send', text: m.text, attachments: m.attachments })
+    }
+  }, [sendRaw])
+
   const connect = useCallback(() => {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const url = `${proto}//${window.location.host}/api/claude-chat/ws`
@@ -154,7 +178,7 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     const ws = new WebSocket(url)
     wsRef.current = ws
 
-    ws.onopen = () => flushIntent()
+    ws.onopen = () => { flushIntent(); flushPendingSends() }
     ws.onmessage = ev => {
       let msg: ServerMessage
       try {
@@ -180,7 +204,7 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
         setState('closed')
       }
     }
-  }, [applyEvent, flushIntent])
+  }, [applyEvent, flushIntent, flushPendingSends])
 
   useEffect(() => {
     manualCloseRef.current = false
@@ -241,10 +265,20 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     const t = text.trim()
     const hasAtt = !!attachments && attachments.length > 0
     if (!t && !hasAtt) return
+    const atts = hasAtt ? attachments : undefined
     setItems(prev => [...prev, { kind: 'user', id: nextId(), text: t }])
     setRunning(true)
-    sendRaw({ type: 'send', text: t, attachments: hasAtt ? attachments : undefined })
-  }, [sendRaw])
+    if (sendRaw({ type: 'send', text: t, attachments: atts })) return
+    // WS 未连上：排队并触发重连（带 attach 意图），onopen 时先 attach 再补发，避免消息丢失/卡“思考中”
+    pendingSendsRef.current.push({ text: t, attachments: atts })
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.CONNECTING) {
+      if (sessionIdRef.current) {
+        intentRef.current = { kind: 'attach', sessionId: sessionIdRef.current, lastEventSeq: lastSeqRef.current }
+      }
+      connect()
+    }
+  }, [sendRaw, connect])
 
   const decide = useCallback((msg: Extract<ClientMessage, { type: 'decision' }>) => {
     setPending(null)
@@ -288,5 +322,5 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     loadHistoryRef.current = loadHistory
   }, [loadHistory])
 
-  return { state, sessionId, items, pending, running, errorMessage, mode, open, switchTo, resumeHistory, send, decide, interrupt, setMode, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, running, errorMessage, mode, slashCommands, open, switchTo, resumeHistory, send, decide, interrupt, setMode, historyLoading, historyExhausted, loadHistory }
 }

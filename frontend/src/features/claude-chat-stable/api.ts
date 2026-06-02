@@ -11,6 +11,30 @@ export function deleteSession(id: string) {
   })
 }
 
+/** 重命名工具会话（改 SQLite title）。 */
+export function renameSession(id: string, title: string) {
+  return http<void>(`/claude-chat/sessions/${encodeURIComponent(id)}/title`, {
+    method: 'PUT',
+    body: JSON.stringify({ title }),
+  })
+}
+
+/** 重命名本机历史会话（自定义别名；空串=清除，回落解析标题）。 */
+export function renameHistory(sdkSessionId: string, alias: string) {
+  return http<void>(`/claude-chat/history/${encodeURIComponent(sdkSessionId)}/alias`, {
+    method: 'PUT',
+    body: JSON.stringify({ alias }),
+  })
+}
+
+/** 删除本机历史会话（移到回收目录，可恢复）。 */
+export function deleteHistory(sdkSessionId: string, cwd: string) {
+  const qs = cwd ? `?cwd=${encodeURIComponent(cwd)}` : ''
+  return http<void>(`/claude-chat/history/${encodeURIComponent(sdkSessionId)}${qs}`, {
+    method: 'DELETE',
+  })
+}
+
 /** 列出某 cwd 在磁盘上的 Claude Code 历史会话 */
 export function listHistory(cwd: string) {
   const qs = cwd ? `?cwd=${encodeURIComponent(cwd)}` : ''

@@ -1,8 +1,8 @@
+import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Trash2, Circle } from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { formatDate } from '@/lib/utils'
-import { deleteSession, listSessions } from '../api'
+import { Check, Circle, Pencil, Trash2 } from 'lucide-react'
+import { cn, formatDate } from '@/lib/utils'
+import { deleteSession, listSessions, renameSession } from '../api'
 
 interface Props {
   currentSessionId: string | null
@@ -11,17 +11,33 @@ interface Props {
 
 const KEY = ['claude-chat-sessions']
 
-/** 历史会话列表：点击切换/续跑，可删除。 */
+/** 工具会话列表：点击切换/续跑，可重命名 / 删除。 */
 export function SessionList({ currentSessionId, onSwitch }: Props) {
   const qc = useQueryClient()
   const { data: sessions = [], isPending } = useQuery({
     queryKey: KEY,
     queryFn: listSessions,
   })
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
 
   const remove = async (id: string) => {
     await deleteSession(id)
     qc.invalidateQueries({ queryKey: KEY })
+  }
+
+  const startEdit = (id: string, cur: string) => {
+    setEditingId(id)
+    setDraft(cur)
+  }
+
+  const commitEdit = async (id: string) => {
+    const t = draft.trim()
+    setEditingId(null)
+    if (t) {
+      await renameSession(id, t)
+      qc.invalidateQueries({ queryKey: KEY })
+    }
   }
 
   if (isPending) {
@@ -41,23 +57,59 @@ export function SessionList({ currentSessionId, onSwitch }: Props) {
             s.id === currentSessionId && 'bg-[var(--color-accent)]',
           )}
         >
-          <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onSwitch(s.id)}>
-            <div className="flex items-center gap-2">
-              {s.live && <Circle className="size-2 fill-green-500 text-green-500" />}
-              <span className="truncate text-sm font-medium">{s.title || shortCwd(s.cwd)}</span>
-            </div>
-            <div className="truncate text-xs text-[var(--color-muted-foreground)]">
-              {s.cwd} · {formatDate(s.lastSeenAt)}
-            </div>
-          </button>
-          <button
-            type="button"
-            className="rounded-md p-2 text-[var(--color-muted-foreground)] hover:text-[var(--color-destructive)]"
-            onClick={() => remove(s.id)}
-            aria-label="删除会话"
-          >
-            <Trash2 className="size-4" />
-          </button>
+          {editingId === s.id ? (
+            <input
+              autoFocus
+              className="min-w-0 flex-1 rounded-md border bg-[var(--color-background)] px-2 py-1 text-sm"
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); void commitEdit(s.id) }
+                else if (e.key === 'Escape') setEditingId(null)
+              }}
+              onBlur={() => void commitEdit(s.id)}
+            />
+          ) : (
+            <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onSwitch(s.id)}>
+              <div className="flex items-center gap-2">
+                {s.live && <Circle className="size-2 fill-green-500 text-green-500" />}
+                <span className="truncate text-sm font-medium">{s.title || shortCwd(s.cwd)}</span>
+              </div>
+              <div className="truncate text-xs text-[var(--color-muted-foreground)]">
+                {s.cwd} · {formatDate(s.lastSeenAt)}
+              </div>
+            </button>
+          )}
+          {editingId === s.id ? (
+            <button
+              type="button"
+              className="rounded-md p-2 text-[var(--color-primary)]"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => void commitEdit(s.id)}
+              aria-label="确认重命名"
+            >
+              <Check className="size-4" />
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="rounded-md p-2 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+                onClick={e => { e.stopPropagation(); startEdit(s.id, s.title || shortCwd(s.cwd)) }}
+                aria-label="重命名会话"
+              >
+                <Pencil className="size-4" />
+              </button>
+              <button
+                type="button"
+                className="rounded-md p-2 text-[var(--color-muted-foreground)] hover:text-[var(--color-destructive)]"
+                onClick={e => { e.stopPropagation(); void remove(s.id) }}
+                aria-label="删除会话"
+              >
+                <Trash2 className="size-4" />
+              </button>
+            </>
+          )}
         </li>
       ))}
     </ul>

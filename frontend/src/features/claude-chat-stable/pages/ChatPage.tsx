@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Bell, List, Paperclip, Plus, Send, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useClaudeChatSocket } from '../hooks/useClaudeChatSocket'
@@ -11,12 +11,17 @@ import { NotifySettings } from '../components/NotifySettings'
 import { VoiceInputButton } from '../components/VoiceInputButton'
 import { AttachmentChips } from '../components/AttachmentChips'
 import { ModeSwitch } from '../components/ModeSwitch'
-import { uploadAttachment, type UploadedAttachment } from '../api'
+import { SlashCommandMenu } from '../components/SlashCommandMenu'
+import { listSessions, uploadAttachment, type UploadedAttachment } from '../api'
+import { ensureNotifyPermission } from '../browserNotify'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new'
 
 /** 单条消息最多附件数，与后端约定一致。 */
 const MAX_ATTACHMENTS = 10
+
+/** 附件 + 本地 blob 预览地址（图片粘贴后点击放大核对，无需后端回读端点）。 */
+type ChatAttachment = UploadedAttachment & { previewUrl?: string }
 
 export function ChatPage() {
   const chat = useClaudeChatSocket()
@@ -25,9 +30,30 @@ export function ChatPage() {
   const [sessTab, setSessTab] = useState<'tool' | 'history'>('tool')
   const [draft, setDraft] = useState('')
   const [newCwd, setNewCwd] = useState('')
-  const [attachments, setAttachments] = useState<UploadedAttachment[]>([])
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [uploading, setUploading] = useState(0)
+  const [slashIdx, setSlashIdx] = useState(0)
+  const [slashDismissed, setSlashDismissed] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const autoOpenedRef = useRef(false)
+
+  // 进入模块默认续上「最近一次会话」，而不是停在空首页；无历史会话则保持空态可新建。
+  useEffect(() => {
+    if (autoOpenedRef.current) return
+    autoOpenedRef.current = true
+    void (async () => {
+      try {
+        const sessions = await listSessions()
+        if (sessions.length === 0) return
+        const latest = [...sessions].sort((a, b) => b.lastSeenAt - a.lastSeenAt)[0]
+        chat.switchTo(latest.id)
+      } catch {
+        // 列表拉取失败：保持空态，用户可手动新建/选择
+      }
+    })()
+    // 仅首次挂载执行一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const startNew = () => {
     chat.open(newCwd.trim())
@@ -43,7 +69,8 @@ export function ChatPage() {
       setUploading(n => n + 1)
       try {
         const att = await uploadAttachment(sid, f)
-        setAttachments(prev => [...prev, att])
+        const previewUrl = f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined
+        setAttachments(prev => [...prev, { ...att, previewUrl }])
       } catch (e) {
         console.error('[claude-chat] 附件上传失败', e)
       } finally {
@@ -65,9 +92,25 @@ export function ChatPage() {
   const submit = () => {
     if (!chat.sessionId) return
     if (!draft.trim() && attachments.length === 0) return
+    ensureNotifyPermission() // 借发送这个手势兜底申请一次通知权限
+
     chat.send(draft, attachments.map(a => ({ name: a.name, path: a.path })))
+    attachments.forEach(a => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl) })
     setDraft('')
     setAttachments([])
+  }
+
+  // slash 命令补全：输入框行首为 "/<前缀>"（无空格）时按前缀过滤可用命令
+  const slashMatch = /^\/(\S*)$/.exec(draft)
+  const slashFiltered = slashMatch
+    ? chat.slashCommands.filter(c => c.toLowerCase().startsWith(slashMatch[1].toLowerCase()))
+    : []
+  const showSlash = !slashDismissed && slashMatch != null && slashFiltered.length > 0
+  const slashActive = showSlash ? Math.min(slashIdx, slashFiltered.length - 1) : 0
+  const pickSlash = (cmd: string) => {
+    setDraft('/' + cmd + ' ') // 带空格便于接参数；含空格后正则不再匹配，浮层自动收起
+    setSlashDismissed(true)
+    setSlashIdx(0)
   }
 
   return (
@@ -152,11 +195,18 @@ export function ChatPage() {
           <AttachmentChips
             items={attachments}
             uploading={uploading}
-            onRemove={id => setAttachments(prev => prev.filter(a => a.id !== id))}
+            onRemove={id => setAttachments(prev => {
+              const t = prev.find(a => a.id === id)
+              if (t?.previewUrl) URL.revokeObjectURL(t.previewUrl)
+              return prev.filter(a => a.id !== id)
+            })}
           />
           <div className="flex items-center px-3 pt-2">
             <ModeSwitch mode={chat.mode} onChange={chat.setMode} />
           </div>
+          {showSlash && (
+            <SlashCommandMenu commands={slashFiltered} activeIndex={slashActive} onPick={pickSlash} />
+          )}
           <div className="flex items-end gap-2 px-3 py-2">
             <input
               ref={fileRef}
@@ -184,13 +234,14 @@ export function ChatPage() {
               placeholder="给 Claude 下发任务…"
               rows={1}
               value={draft}
-              onChange={e => setDraft(e.target.value)}
+              onChange={e => { setDraft(e.target.value); setSlashDismissed(false); setSlashIdx(0) }}
               onPaste={handlePaste}
               onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  submit()
-                }
+                if (!showSlash) return
+                if (e.key === 'ArrowDown') { e.preventDefault(); setSlashIdx(i => (i + 1) % slashFiltered.length) }
+                else if (e.key === 'ArrowUp') { e.preventDefault(); setSlashIdx(i => (i - 1 + slashFiltered.length) % slashFiltered.length) }
+                else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickSlash(slashFiltered[slashActive]) }
+                else if (e.key === 'Escape') { e.preventDefault(); setSlashDismissed(true) }
               }}
             />
             {chat.running ? (
