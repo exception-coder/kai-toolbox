@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Bell, List, Paperclip, Plus, Send, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useClaudeChatSocket } from '../hooks/useClaudeChatSocket'
@@ -12,6 +12,7 @@ import { VoiceInputButton } from '../components/VoiceInputButton'
 import { AttachmentChips } from '../components/AttachmentChips'
 import { ModeSwitch } from '../components/ModeSwitch'
 import { uploadAttachment, type UploadedAttachment } from '../api'
+import { ensureNotifyPermission } from '../browserNotify'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new'
 
@@ -31,6 +32,9 @@ export function ChatPage() {
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [uploading, setUploading] = useState(0)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // 首次进入即尝试申请通知权限（多数浏览器允许此处申请；发消息时再兜底一次）
+  useEffect(() => { ensureNotifyPermission() }, [])
 
   const startNew = () => {
     chat.open(newCwd.trim())
@@ -69,6 +73,8 @@ export function ChatPage() {
   const submit = () => {
     if (!chat.sessionId) return
     if (!draft.trim() && attachments.length === 0) return
+    ensureNotifyPermission() // 借发送这个手势兜底申请一次通知权限
+
     chat.send(draft, attachments.map(a => ({ name: a.name, path: a.path })))
     attachments.forEach(a => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl) })
     setDraft('')
