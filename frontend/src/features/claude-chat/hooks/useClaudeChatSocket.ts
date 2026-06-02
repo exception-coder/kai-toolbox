@@ -94,6 +94,8 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
         setState('ready')
         setErrorMessage(null) // sidecar 重连恢复后会重发 ready，借此清掉 SIDECAR_DOWN 横幅
         if (msg.slashCommands) setSlashCommands(msg.slashCommands)
+        // 按会话状态同步 running：重连/attach 时若该会话已非 RUNNING，纠正卡死的「正在思考」
+        if (msg.status) setRunning(msg.status === 'RUNNING')
         if (msg.sdkSessionId) sdkSessionIdRef.current = msg.sdkSessionId
         // 仅 switch / resume 进会话时拉一次历史；新建会话(open，sdkSessionId 为空)不拉
         if (shouldLoadHistoryRef.current && msg.sdkSessionId) {
