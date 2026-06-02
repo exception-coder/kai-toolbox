@@ -18,6 +18,9 @@ type Panel = 'none' | 'sessions' | 'settings' | 'new'
 /** 单条消息最多附件数，与后端约定一致。 */
 const MAX_ATTACHMENTS = 10
 
+/** 附件 + 本地 blob 预览地址（图片粘贴后点击放大核对，无需后端回读端点）。 */
+type ChatAttachment = UploadedAttachment & { previewUrl?: string }
+
 export function ChatPage() {
   const chat = useClaudeChatSocket()
   const pending = chat.pending
@@ -25,7 +28,7 @@ export function ChatPage() {
   const [sessTab, setSessTab] = useState<'tool' | 'history'>('tool')
   const [draft, setDraft] = useState('')
   const [newCwd, setNewCwd] = useState('')
-  const [attachments, setAttachments] = useState<UploadedAttachment[]>([])
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [uploading, setUploading] = useState(0)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -43,7 +46,8 @@ export function ChatPage() {
       setUploading(n => n + 1)
       try {
         const att = await uploadAttachment(sid, f)
-        setAttachments(prev => [...prev, att])
+        const previewUrl = f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined
+        setAttachments(prev => [...prev, { ...att, previewUrl }])
       } catch (e) {
         console.error('[claude-chat] 附件上传失败', e)
       } finally {
@@ -66,6 +70,7 @@ export function ChatPage() {
     if (!chat.sessionId) return
     if (!draft.trim() && attachments.length === 0) return
     chat.send(draft, attachments.map(a => ({ name: a.name, path: a.path })))
+    attachments.forEach(a => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl) })
     setDraft('')
     setAttachments([])
   }
@@ -152,7 +157,11 @@ export function ChatPage() {
           <AttachmentChips
             items={attachments}
             uploading={uploading}
-            onRemove={id => setAttachments(prev => prev.filter(a => a.id !== id))}
+            onRemove={id => setAttachments(prev => {
+              const t = prev.find(a => a.id === id)
+              if (t?.previewUrl) URL.revokeObjectURL(t.previewUrl)
+              return prev.filter(a => a.id !== id)
+            })}
           />
           <div className="flex items-center px-3 pt-2">
             <ModeSwitch mode={chat.mode} onChange={chat.setMode} />
