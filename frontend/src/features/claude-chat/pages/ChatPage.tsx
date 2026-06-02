@@ -11,7 +11,7 @@ import { NotifySettings } from '../components/NotifySettings'
 import { VoiceInputButton } from '../components/VoiceInputButton'
 import { AttachmentChips } from '../components/AttachmentChips'
 import { ModeSwitch } from '../components/ModeSwitch'
-import { uploadAttachment, type UploadedAttachment } from '../api'
+import { listSessions, uploadAttachment, type UploadedAttachment } from '../api'
 import { ensureNotifyPermission } from '../browserNotify'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new'
@@ -32,9 +32,25 @@ export function ChatPage() {
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [uploading, setUploading] = useState(0)
   const fileRef = useRef<HTMLInputElement>(null)
+  const autoOpenedRef = useRef(false)
 
-  // 首次进入即尝试申请通知权限（多数浏览器允许此处申请；发消息时再兜底一次）
-  useEffect(() => { ensureNotifyPermission() }, [])
+  // 进入模块默认续上「最近一次会话」，而不是停在空首页；无历史会话则保持空态可新建。
+  useEffect(() => {
+    if (autoOpenedRef.current) return
+    autoOpenedRef.current = true
+    void (async () => {
+      try {
+        const sessions = await listSessions()
+        if (sessions.length === 0) return
+        const latest = [...sessions].sort((a, b) => b.lastSeenAt - a.lastSeenAt)[0]
+        chat.switchTo(latest.id)
+      } catch {
+        // 列表拉取失败：保持空态，用户可手动新建/选择
+      }
+    })()
+    // 仅首次挂载执行一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const startNew = () => {
     chat.open(newCwd.trim())
