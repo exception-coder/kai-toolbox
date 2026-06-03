@@ -173,6 +173,21 @@ export function ChatPage() {
         </div>
       )}
 
+      {/* 同步空洞提示：断线较久时部分消息已被服务端缓冲淘汰，回放补不回 */}
+      {chat.syncWarning && (
+        <div className="flex items-start gap-2 border-b border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+          <span className="flex-1">{chat.syncWarning}</span>
+          <button
+            type="button"
+            onClick={chat.dismissSyncWarning}
+            aria-label="关闭提示"
+            className="shrink-0 rounded px-1.5 py-0.5 hover:bg-amber-200 dark:hover:bg-amber-800"
+          >
+            知道了
+          </button>
+        </div>
+      )}
+
       {/* 消息流 */}
       {chat.sessionId ? (
         <MessageList

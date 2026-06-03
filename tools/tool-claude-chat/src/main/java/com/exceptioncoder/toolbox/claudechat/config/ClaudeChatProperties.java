@@ -28,8 +28,10 @@ public class ClaudeChatProperties {
     /** 浏览器无操作时，权限/提问请求多久未决策即按 deny（毫秒） */
     private long decisionTimeoutMs = 5 * 60 * 1000L;
 
-    /** 每会话事件环形缓冲容量（用于断连重连回放当前一轮） */
-    private int eventBufferSize = 500;
+    /** 每会话事件环形缓冲容量（用于断连重连回放当前一轮）。
+     *  注意 assistantDelta 按流式分片逐条入缓冲，一轮长回复 + 工具调用很容易上千条，
+     *  容量过小会在断连较久时把旧事件淘汰出窗导致回放空洞，故给足。 */
+    private int eventBufferSize = 2000;
 
     /** 等待 sidecar 就绪的最长时间（毫秒） */
     private long sidecarStartupTimeoutMs = 15_000L;

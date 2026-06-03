@@ -24,6 +24,10 @@ export interface UseClaudeChatSocket {
   pending: PendingRequest | null
   running: boolean
   errorMessage: string | null
+  /** 重连回放出现空洞（部分消息已被服务端缓冲淘汰）时的提示文案；null 表示无 */
+  syncWarning: string | null
+  /** 关闭同步空洞提示 */
+  dismissSyncWarning: () => void
   /** 当前权限模式 */
   mode: PermissionMode
   /** 当前会话可用的 slash 命令清单（来自 SDK init），用于输入框补全 */
@@ -64,6 +68,7 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   const [pending, setPending] = useState<PendingRequest | null>(null)
   const [running, setRunning] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [syncWarning, setSyncWarning] = useState<string | null>(null)
   const [mode, setModeState] = useState<PermissionMode>('default')
   const [slashCommands, setSlashCommands] = useState<string[]>([])
   const [models, setModels] = useState<ModelInfo[]>([])
@@ -176,6 +181,10 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
         // 分叉完成：切到新会话续跑（旧会话保留）
         switchToRef.current(msg.sessionId)
         break
+      case 'replayGap':
+        // 重连回放有空洞：中间事件已被服务端缓冲淘汰，本端显示可能不全
+        setSyncWarning('部分消息可能未同步（断线较久）。下拉到顶可加载历史，或重进该会话查看完整记录。')
+        break
       case 'result':
         setRunning(false)
         setItems(prev => [...prev, { kind: 'result', id: nextId(), stopReason: msg.stopReason }])
@@ -212,6 +221,14 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   }, [sendRaw])
 
   const connect = useCallback(() => {
+    // 幂等：已有在连/已连的 socket 时不再叠一条。
+    // 否则 mount 的 connect() 与 auto-open 的 switchTo()→connect() 会并发各建一条 WS，
+    // 两条都被加为服务端 viewer 且共用同一 hook，每条事件被 applyEvent 投递两次 → 消息/结束标记翻倍。
+    // 仍在 CONNECTING 的那条 socket 会在 onopen 时用最新 intentRef 下发意图，无需第二条。
+    const existing = wsRef.current
+    if (existing && (existing.readyState === WebSocket.CONNECTING || existing.readyState === WebSocket.OPEN)) {
+      return
+    }
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const url = `${proto}//${window.location.host}/api/claude-chat/ws`
     setState('connecting')
@@ -261,6 +278,7 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     setPending(null)
     setRunning(false)
     setErrorMessage(null)
+    setSyncWarning(null)
     lastSeqRef.current = 0
     sdkSessionIdRef.current = null
     historyBeforeRef.current = null
@@ -345,6 +363,8 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     sendRaw({ type: 'forkSession', upToMessageId })
   }, [sendRaw])
 
+  const dismissSyncWarning = useCallback(() => setSyncWarning(null), [])
+
   // 保持 switchToRef 指向最新 switchTo，供 applyEvent('forked') 调用而不进依赖环
   useEffect(() => {
     switchToRef.current = switchTo
@@ -377,5 +397,5 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     loadHistoryRef.current = loadHistory
   }, [loadHistory])
 
-  return { state, sessionId, items, pending, running, errorMessage, mode, slashCommands, models, currentModel, open, switchTo, resumeHistory, send, decide, interrupt, setMode, setModel, forkSession, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, models, currentModel, open, switchTo, resumeHistory, send, decide, interrupt, setMode, setModel, forkSession, historyLoading, historyExhausted, loadHistory }
 }

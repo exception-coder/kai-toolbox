@@ -127,6 +127,7 @@ public class ClaudeChatService {
             return;
         }
         bindViewer(ws, ctx);
+        warnIfReplayGap(ctx, ws, attach.lastEventSeq());
         replayBuffer(ctx, ws, attach.lastEventSeq());
         redeliverPending(ctx, ws, attach.lastEventSeq());
         ensureSessionResumable(ctx); // sidecar 也断了的话借浏览器重连顺带恢复
@@ -502,6 +503,24 @@ public class ClaudeChatService {
 
     private boolean hasActiveViewer(SessionCtx ctx) {
         return ctx.viewers.stream().anyMatch(WebSocketSession::isOpen);
+    }
+
+    /**
+     * 回放前检测空洞：客户端 lastSeq 之后、缓冲窗口最旧 seq 之前的事件已被淘汰，回放补不回来。
+     * 仅在 lastSeq>0（曾收到过、属重连续看）时提示；lastSeq=0 是首次 attach（历史走 transcript），不算空洞。
+     */
+    private void warnIfReplayGap(SessionCtx ctx, WebSocketSession ws, long lastSeq) {
+        if (lastSeq <= 0) return;
+        long minBuf;
+        synchronized (ctx.buffer) {
+            ServerMessage first = ctx.buffer.peekFirst();
+            minBuf = first == null ? 0 : first.seq();
+        }
+        if (minBuf > lastSeq + 1) {
+            writeTo(ws, new ServerMessage.ReplayGap(0, lastSeq + 1, minBuf - 1));
+            log.info("[claude-chat] 会话 {} 回放空洞：客户端 lastSeq={}，缓冲最旧={}，缺 {}~{}",
+                    ctx.sessionId, lastSeq, minBuf, lastSeq + 1, minBuf - 1);
+        }
     }
 
     /** 回放缓冲中 seq>lastSeq 的事件——只发给刚 attach 的这条连接（已在看的连接不重复收）。 */

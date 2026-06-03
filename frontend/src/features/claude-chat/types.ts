@@ -78,6 +78,7 @@ export type ServerMessage =
   | { type: 'models'; seq: number; models: ModelInfo[]; current: string | null }
   | { type: 'userMessage'; seq: number; uuid: string }
   | { type: 'forked'; seq: number; sessionId: string }
+  | { type: 'replayGap'; seq: number; missingFrom: number; missingTo: number }
   | { type: 'result'; seq: number; usage?: Record<string, unknown>; stopReason: string }
   | { type: 'error'; seq: number; code: string; message: string }
 

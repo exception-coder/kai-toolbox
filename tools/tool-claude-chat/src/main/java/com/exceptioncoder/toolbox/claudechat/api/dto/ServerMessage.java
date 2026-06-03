@@ -16,7 +16,7 @@ public sealed interface ServerMessage
                 ServerMessage.ToolResult, ServerMessage.PermissionRequest,
                 ServerMessage.QuestionRequest, ServerMessage.DecisionResolved,
                 ServerMessage.Models, ServerMessage.UserMessage, ServerMessage.Forked,
-                ServerMessage.Result, ServerMessage.Error {
+                ServerMessage.ReplayGap, ServerMessage.Result, ServerMessage.Error {
 
     long seq();
 
@@ -53,6 +53,13 @@ public sealed interface ServerMessage
     /** 分叉完成：sessionId 为新建的工具内会话 id，前端 switchTo 续跑。 */
     @JsonTypeName("forked")
     record Forked(long seq, String sessionId) implements ServerMessage {}
+
+    /**
+     * 重连回放出现空洞：客户端上次收到的 seq 早于缓冲窗口最旧 seq，中间事件已被环形缓冲淘汰。
+     * 非致命，仅提示前端「本端显示可能不全，建议下拉刷新/重进会话读 transcript」。seq 固定 0（连接级提示，不入缓冲）。
+     */
+    @JsonTypeName("replayGap")
+    record ReplayGap(long seq, long missingFrom, long missingTo) implements ServerMessage {}
 
     @JsonTypeName("result")
     record Result(long seq, Map<String, Object> usage, String stopReason) implements ServerMessage {}
