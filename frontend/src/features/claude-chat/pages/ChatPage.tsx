@@ -270,12 +270,18 @@ export function ChatPage() {
             />
             <textarea
               className="max-h-32 min-h-[2.75rem] flex-1 resize-none rounded-xl border bg-[var(--color-background)] px-3 py-2 text-sm"
-              placeholder="给 Claude 下发任务…"
+              placeholder="给 Claude 下发任务…（Enter 换行，Shift+Enter 发送）"
               rows={1}
               value={draft}
               onChange={e => { setDraft(e.target.value); setSlashDismissed(false); setSlashIdx(0) }}
               onPaste={handlePaste}
               onKeyDown={e => {
+                // Shift+Enter 发送（Enter 仍为换行）；优先于 slash 菜单的 Enter 选中
+                if (e.key === 'Enter' && e.shiftKey) {
+                  e.preventDefault()
+                  if (!chat.running) submit()
+                  return
+                }
                 if (!showSlash) return
                 if (e.key === 'ArrowDown') { e.preventDefault(); setSlashIdx(i => (i + 1) % slashFiltered.length) }
                 else if (e.key === 'ArrowUp') { e.preventDefault(); setSlashIdx(i => (i - 1 + slashFiltered.length) % slashFiltered.length) }
