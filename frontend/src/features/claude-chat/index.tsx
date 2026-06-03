@@ -4,7 +4,7 @@ import { ChatPage } from './pages/ChatPage'
 
 const manifest: FeatureManifest = {
   id: 'claude-chat',
-  name: 'Claude 助手',
+  name: 'Vibe Coding',
   icon: BotMessageSquare,
   group: 'AI 工具',
   description: '移动端聊天式驱动 Claude：流式回复、可视化批准、随时切会话、完成通知',

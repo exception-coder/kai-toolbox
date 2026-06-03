@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Bell, List, Paperclip, Plus, Send, Slash, Square } from 'lucide-react'
+import { Bell, List, Maximize2, Minimize2, Paperclip, Plus, Send, Slash, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useClaudeChatSocket } from '../hooks/useClaudeChatSocket'
 import { MessageList } from '../components/MessageList'
@@ -36,8 +36,17 @@ export function ChatPage() {
   const [slashIdx, setSlashIdx] = useState(0)
   const [slashDismissed, setSlashDismissed] = useState(false)
   const [cmdMenuOpen, setCmdMenuOpen] = useState(false)
+  const [fullscreen, setFullscreen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const autoOpenedRef = useRef(false)
+
+  // 全屏时按 Esc 退出
+  useEffect(() => {
+    if (!fullscreen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFullscreen(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [fullscreen])
 
   // 进入模块默认续上「最近一次会话」，而不是停在空首页；无历史会话则保持空态可新建。
   useEffect(() => {
@@ -116,12 +125,17 @@ export function ChatPage() {
   }
 
   return (
-    <div className="flex h-[calc(100dvh-3.5rem)] flex-col">
+    <div className={fullscreen
+      ? 'fixed inset-0 z-50 flex h-[100dvh] flex-col bg-[var(--color-background)]'
+      : 'flex h-[calc(100dvh-3.5rem)] flex-col'}>
       {/* 顶栏 */}
       <header className="flex items-center gap-2 border-b px-3 py-2">
-        <span className="font-semibold">Claude 助手</span>
+        <span className="font-semibold">Vibe Coding</span>
         <span className="text-xs text-[var(--color-muted-foreground)]">{stateLabel(chat.state)}</span>
         <div className="ml-auto flex gap-1">
+          <Button variant="ghost" size="icon" onClick={() => setFullscreen(f => !f)} aria-label={fullscreen ? '退出全屏' : '全屏显示'} title={fullscreen ? '退出全屏（Esc）' : '全屏显示对话框'}>
+            {fullscreen ? <Minimize2 className="size-5" /> : <Maximize2 className="size-5" />}
+          </Button>
           <Button variant="ghost" size="icon" onClick={() => setPanel(p => p === 'new' ? 'none' : 'new')} aria-label="新建会话">
             <Plus className="size-5" />
           </Button>

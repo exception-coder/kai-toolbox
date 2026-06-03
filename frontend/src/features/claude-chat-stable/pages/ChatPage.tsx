@@ -119,7 +119,7 @@ export function ChatPage() {
     <div className="flex h-[calc(100dvh-3.5rem)] flex-col">
       {/* 顶栏 */}
       <header className="flex items-center gap-2 border-b px-3 py-2">
-        <span className="font-semibold">Claude 助手</span>
+        <span className="font-semibold">Vibe Coding（稳定版）</span>
         <span className="text-xs text-[var(--color-muted-foreground)]">{stateLabel(chat.state)}</span>
         <div className="ml-auto flex gap-1">
           <Button variant="ghost" size="icon" onClick={() => setPanel(p => p === 'new' ? 'none' : 'new')} aria-label="新建会话">
