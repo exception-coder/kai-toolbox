@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Bell, List, Paperclip, Plus, Send, Square } from 'lucide-react'
+import { Bell, List, Paperclip, Plus, Send, Slash, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useClaudeChatSocket } from '../hooks/useClaudeChatSocket'
 import { MessageList } from '../components/MessageList'
@@ -12,6 +12,7 @@ import { VoiceInputButton } from '../components/VoiceInputButton'
 import { AttachmentChips } from '../components/AttachmentChips'
 import { ModeSwitch } from '../components/ModeSwitch'
 import { SlashCommandMenu } from '../components/SlashCommandMenu'
+import { CommandMenu } from '../components/CommandMenu'
 import { listSessions, uploadAttachment, type UploadedAttachment } from '../api'
 import { ensureNotifyPermission } from '../browserNotify'
 
@@ -34,6 +35,7 @@ export function ChatPage() {
   const [uploading, setUploading] = useState(0)
   const [slashIdx, setSlashIdx] = useState(0)
   const [slashDismissed, setSlashDismissed] = useState(false)
+  const [cmdMenuOpen, setCmdMenuOpen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const autoOpenedRef = useRef(false)
 
@@ -225,6 +227,27 @@ export function ChatPage() {
             >
               <Paperclip className="size-5" />
             </Button>
+            <div className="relative">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setCmdMenuOpen(o => !o)}
+                aria-label="斜杠命令"
+                title="斜杠命令"
+              >
+                <Slash className="size-5" />
+              </Button>
+              {cmdMenuOpen && (
+                <CommandMenu
+                  commands={chat.slashCommands}
+                  models={chat.models}
+                  currentModel={chat.currentModel}
+                  onClose={() => setCmdMenuOpen(false)}
+                  onPickCommand={cmd => { setDraft('/' + cmd + ' '); setCmdMenuOpen(false) }}
+                  onPickModel={value => { chat.setModel(value); setCmdMenuOpen(false) }}
+                />
+              )}
+            </div>
             <VoiceInputButton
               disabled={chat.running}
               onText={t => setDraft(d => d.trim() ? `${d} ${t}` : t)}

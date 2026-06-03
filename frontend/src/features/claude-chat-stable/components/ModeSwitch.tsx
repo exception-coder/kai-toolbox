@@ -1,21 +1,26 @@
 import { useState, type ComponentType } from 'react'
-import { ClipboardList, Shield, ShieldAlert, Zap } from 'lucide-react'
+import { Check, ClipboardList, Shield, ShieldAlert, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Overlay } from './PermissionDialog'
 import type { PermissionMode } from '../types'
 
-/** 点击循环顺序，复刻 VSCode 插件 Shift+Tab 体验。 */
+/** 展示顺序，复刻 VSCode 插件 Shift+Tab 体验（弹层里也按此序）。 */
 const ORDER: PermissionMode[] = ['default', 'acceptEdits', 'plan', 'bypassPermissions']
 
-const META: Record<PermissionMode, { label: string; icon: ComponentType<{ className?: string }>; cls: string }> = {
-  default: { label: '默认', icon: Shield, cls: '' },
-  acceptEdits: { label: '自动接受', icon: Zap, cls: 'text-[var(--color-primary)]' },
-  plan: { label: '计划', icon: ClipboardList, cls: 'text-blue-600' },
-  bypassPermissions: { label: '全自动', icon: ShieldAlert, cls: 'border-red-500 text-red-600 font-medium' },
+const META: Record<PermissionMode, {
+  label: string
+  desc: string
+  icon: ComponentType<{ className?: string }>
+  cls: string
+}> = {
+  default: { label: '默认', desc: '每次工具调用前都征求你同意', icon: Shield, cls: '' },
+  acceptEdits: { label: '自动接受', desc: '自动放行文件编辑，其余仍逐个询问', icon: Zap, cls: 'text-[var(--color-primary)]' },
+  plan: { label: '计划', desc: '只探索代码并给出计划，不直接改动', icon: ClipboardList, cls: 'text-blue-600' },
+  bypassPermissions: { label: '全自动', desc: '所有工具调用都不再询问，直接执行', icon: ShieldAlert, cls: 'text-red-600' },
 }
 
 /**
- * 权限模式切换：点击在 默认 → 自动接受 → 计划 → 全自动 间循环。
+ * 权限模式切换：点击弹出卡片列表（图标 + 标题 + 描述 + 当前项打勾），复刻官方 VSCode 插件的 Modes 弹层。
  * 切到「全自动」(bypassPermissions) 前弹自定义确认框（不用浏览器原生 confirm），防误开。
  */
 export function ModeSwitch({
@@ -27,33 +32,63 @@ export function ModeSwitch({
   onChange: (m: PermissionMode) => void
   disabled?: boolean
 }) {
+  const [open, setOpen] = useState(false)
   const [confirming, setConfirming] = useState(false)
-
-  const cycle = () => {
-    const next = ORDER[(ORDER.indexOf(mode) + 1) % ORDER.length]
-    if (next === 'bypassPermissions') {
-      setConfirming(true) // 弹自定义确认框，确认后才切换
-      return
-    }
-    onChange(next)
-  }
 
   const m = META[mode]
   const Icon = m.icon
+
+  const pick = (target: PermissionMode) => {
+    setOpen(false)
+    if (target === 'bypassPermissions' && mode !== 'bypassPermissions') {
+      setConfirming(true) // 切「全自动」前确认
+      return
+    }
+    onChange(target)
+  }
+
   return (
-    <>
-      <Button
+    <div className="relative">
+      <button
         type="button"
-        variant="outline"
-        size="sm"
         disabled={disabled}
-        onClick={cycle}
-        className={m.cls}
-        title={`权限模式：${m.label}（点击切换）`}
+        onClick={() => setOpen(o => !o)}
+        className={'flex items-center gap-1 rounded-md border px-2 py-1 text-sm ' + m.cls}
+        title="权限模式（点击切换）"
         aria-label={`权限模式 ${m.label}，点击切换`}
       >
         <Icon className="size-4" /> {m.label}
-      </Button>
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute bottom-full left-0 z-50 mb-2 w-72 overflow-hidden rounded-xl border bg-[var(--color-background)] shadow-xl">
+            <div className="px-3 py-2 text-xs font-medium text-[var(--color-muted-foreground)]">权限模式</div>
+            {ORDER.map(opt => {
+              const o = META[opt]
+              const OIcon = o.icon
+              const active = opt === mode
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => pick(opt)}
+                  className={'flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-[var(--color-muted)] '
+                    + (active ? 'bg-[var(--color-muted)]' : '')}
+                >
+                  <OIcon className={'mt-0.5 size-4 shrink-0 ' + o.cls} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium">{o.label}</span>
+                    <span className="block text-xs text-[var(--color-muted-foreground)]">{o.desc}</span>
+                  </span>
+                  {active && <Check className="mt-0.5 size-4 shrink-0 text-[var(--color-primary)]" />}
+                </button>
+              )
+            })}
+          </div>
+        </>
+      )}
 
       {confirming && (
         <Overlay>
@@ -82,6 +117,6 @@ export function ModeSwitch({
           </div>
         </Overlay>
       )}
-    </>
+    </div>
   )
 }
