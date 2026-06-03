@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Check, Copy } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ChatItem } from '../types'
 import { ToolCallBubble } from './ToolCallBubble'
@@ -67,6 +68,39 @@ export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exh
   )
 }
 
+/** 回复下方的一键复制：复制该条 assistant 的原始文本，移动端常显。 */
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      // 降级：clipboard API 不可用（非安全上下文等）时用隐藏 textarea + execCommand
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      try { document.execCommand('copy') } catch { /* 忽略 */ }
+      document.body.removeChild(ta)
+    }
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      aria-label="复制回复"
+      className="mt-1 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] active:bg-[var(--color-muted)]"
+    >
+      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+      {copied ? '已复制' : '复制'}
+    </button>
+  )
+}
+
 function Row({ item }: { item: ChatItem }) {
   switch (item.kind) {
     case 'user':
@@ -79,10 +113,11 @@ function Row({ item }: { item: ChatItem }) {
       )
     case 'assistant':
       return (
-        <div className="flex justify-start">
+        <div className="flex flex-col items-start">
           <div className="max-w-[90%] break-words rounded-2xl bg-[var(--color-muted)] px-4 py-2">
             <Markdown text={item.text} />
           </div>
+          {item.text.trim() && <CopyButton text={item.text} />}
         </div>
       )
     case 'tool':
