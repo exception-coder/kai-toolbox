@@ -120,7 +120,7 @@ public class ClaudeChatService {
                 }
                 // Ready 只发给当前这条连接（其它已在看的连接不需要重复）
                 writeTo(ws, new ServerMessage.Ready(restored.seq.incrementAndGet(),
-                        restored.sessionId, restored.sdkSessionId, restored.slashCommands, restored.status.name()));
+                        restored.sessionId, restored.sdkSessionId, restored.slashCommands, restored.status.name(), restored.epoch));
                 return;
             }
             sendError(ws, 0, "SESSION_NOT_FOUND", "会话不存在或已结束，请切换或新建");
@@ -133,7 +133,7 @@ public class ClaudeChatService {
         ensureSessionResumable(ctx); // sidecar 也断了的话借浏览器重连顺带恢复
         // 回推一次会话状态：让重连端按 status 同步 running，纠正「result 已被缓冲淘汰 → 永久卡在正在思考」
         writeTo(ws, new ServerMessage.Ready(ctx.seq.incrementAndGet(),
-                ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name()));
+                ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch));
         log.info("[claude-chat] attach 会话 {} from seq>{}", ctx.sessionId, attach.lastEventSeq());
     }
 
@@ -150,7 +150,7 @@ public class ClaudeChatService {
         repo.touch(db.getId(), SessionStatus.IDLE, System.currentTimeMillis());
         sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd());
         // 历史消息由前端按需读 SDK transcript；这里只发一个 Ready 表示已就绪
-        sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name()));
+        sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch));
     }
 
     /** 续跑磁盘上的历史会话：建一条本工具的元数据行后 resume，之后它也出现在工具会话列表里。 */
@@ -175,7 +175,7 @@ public class ClaudeChatService {
         bindViewer(ws, ctx);
 
         sidecar.resumeSession(id, msg.sdkSessionId(), cwd);
-        sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, id, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name()));
+        sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, id, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch));
         log.info("[claude-chat] resumeHistory 会话 {} sdk={} cwd={}", id, msg.sdkSessionId(), cwd);
     }
 
@@ -300,7 +300,7 @@ public class ClaudeChatService {
                 ctx.sdkSessionId = node.path("sdkSessionId").asText(null);
                 ctx.slashCommands = parseStringList(node.get("slashCommands"));
                 repo.updateSdkSessionId(sessionId, ctx.sdkSessionId);
-                sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name()));
+                sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch));
             }
             case "assistantDelta" -> sendToBrowser(ctx,
                     seq -> new ServerMessage.AssistantDelta(seq, node.path("text").asText("")));
@@ -417,7 +417,7 @@ public class ClaudeChatService {
             sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd);
             ctx.status = SessionStatus.IDLE;
             repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
-            sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name()));
+            sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch));
             n++;
         }
         log.info("[claude-chat] sidecar 重连成功，已 resume {} 个会话", n);
@@ -654,6 +654,9 @@ public class ClaudeChatService {
         final String sessionId;
         final String cwd;
         final AtomicLong seq = new AtomicLong(0);
+        /** 本内存会话实例的纪元标识。每次新建 ctx（含后端重启、内存淘汰后重建）都不同，
+         *  随 Ready 透传给前端，使其在服务端 seq 复位时同步重置去重高水位。 */
+        final String epoch = UUID.randomUUID().toString();
         final Deque<ServerMessage> buffer = new ArrayDeque<>();
         volatile String sdkSessionId;
         volatile SessionStatus status = SessionStatus.IDLE;

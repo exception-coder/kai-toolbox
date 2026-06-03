@@ -71,6 +71,8 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   const intentRef = useRef<Intent | null>(null)
   const sessionIdRef = useRef<string | null>(null)
   const lastSeqRef = useRef<number>(0)
+  // 服务端会话纪元（Ready.epoch）；变化即后端重启/会话重建 → seq 已复位，需重置去重高水位
+  const lastEpochRef = useRef<string | null>(null)
   const manualCloseRef = useRef(false)
   const sdkSessionIdRef = useRef<string | null>(null)
   const cwdRef = useRef<string>('')
@@ -92,6 +94,16 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   }, [])
 
   const applyEvent = useCallback((msg: ServerMessage) => {
+    // 新纪元检测：后端重启/会话重建会让服务端 seq 从头计数。Ready.epoch 变化即复位去重高水位，
+    // 否则会把重启后低 seq 消息（含 ready）全吞掉 → 永远「连接中」、收不到消息；无 epoch 时按 seq 回退兜底。
+    if (msg.type === 'ready') {
+      const ep = msg.epoch
+      if (ep != null) {
+        if (ep !== lastEpochRef.current) { lastSeqRef.current = 0; lastEpochRef.current = ep }
+      } else if (typeof msg.seq === 'number' && msg.seq <= lastSeqRef.current) {
+        lastSeqRef.current = 0
+      }
+    }
     // seq 幂等：已处理过的 seq 直接丢弃，杜绝重复投递导致的消息翻倍（assistantDelta 累加，重复必翻倍）。
     // seq=0 为连接级提示，不参与去重。
     if (typeof msg.seq === 'number' && msg.seq > 0) {

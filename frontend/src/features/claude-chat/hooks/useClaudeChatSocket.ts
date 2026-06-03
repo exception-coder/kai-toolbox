@@ -78,6 +78,8 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   const intentRef = useRef<Intent | null>(null)
   const sessionIdRef = useRef<string | null>(null)
   const lastSeqRef = useRef<number>(0)
+  // 服务端会话纪元（来自 Ready.epoch）；变化即后端重启/会话重建 → seq 已复位，需重置去重高水位
+  const lastEpochRef = useRef<string | null>(null)
   const manualCloseRef = useRef(false)
   const sdkSessionIdRef = useRef<string | null>(null)
   const cwdRef = useRef<string>('')
@@ -101,6 +103,17 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   }, [])
 
   const applyEvent = useCallback((msg: ServerMessage) => {
+    // 新纪元检测：后端重启/会话重建会让服务端 seq 从头计数。若仍按幂等丢弃，会把重启后的所有消息
+    // （含 ready 本身）全部吞掉 → 永远「连接中」、收不到消息。Ready.epoch 标识会话实例，变化即复位去重高水位；
+    // 无 epoch 字段（旧后端）时兜底按 ready 的 seq 回退判定。
+    if (msg.type === 'ready') {
+      const ep = msg.epoch
+      if (ep != null) {
+        if (ep !== lastEpochRef.current) { lastSeqRef.current = 0; lastEpochRef.current = ep }
+      } else if (typeof msg.seq === 'number' && msg.seq <= lastSeqRef.current) {
+        lastSeqRef.current = 0
+      }
+    }
     // seq 幂等：已处理过的 seq 直接丢弃，杜绝任何重复投递（HMR 残留 socket、半开连接、
     // 回放与实时重叠、一页多连接）导致的消息重复——尤其 assistantDelta 是累加的，重复必翻倍。
     // seq=0 为连接级提示（error/replayGap 等），不参与去重，始终处理。
