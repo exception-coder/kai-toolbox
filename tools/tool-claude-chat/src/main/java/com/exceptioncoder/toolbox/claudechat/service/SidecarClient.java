@@ -107,6 +107,10 @@ public class SidecarClient {
         send(Map.of("type", "setModel", "sessionId", sessionId, "model", nz(model)));
     }
 
+    public void forkSession(String sessionId, String upToMessageId) {
+        send(Map.of("type", "forkSession", "sessionId", sessionId, "upToMessageId", nz(upToMessageId)));
+    }
+
     private synchronized void send(Map<String, ?> payload) {
         if (session == null || !session.isOpen()) {
             log.warn("[claude-chat] sidecar 未连接，丢弃消息 type={}", payload.get("type"));

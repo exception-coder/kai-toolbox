@@ -18,11 +18,13 @@ import java.util.Map;
         @JsonSubTypes.Type(value = ClientMessage.Interrupt.class,     name = "interrupt"),
         @JsonSubTypes.Type(value = ClientMessage.SetMode.class,       name = "setMode"),
         @JsonSubTypes.Type(value = ClientMessage.SetModel.class,      name = "setModel"),
+        @JsonSubTypes.Type(value = ClientMessage.ForkSession.class,   name = "forkSession"),
 })
 public sealed interface ClientMessage
         permits ClientMessage.Open, ClientMessage.Attach, ClientMessage.SwitchSession,
                 ClientMessage.ResumeHistory, ClientMessage.Send, ClientMessage.Decision,
-                ClientMessage.Interrupt, ClientMessage.SetMode, ClientMessage.SetModel {
+                ClientMessage.Interrupt, ClientMessage.SetMode, ClientMessage.SetModel,
+                ClientMessage.ForkSession {
 
     /** 新建会话。mode 为初始权限模式，可空（缺省按 default）。 */
     record Open(String cwd, String model, String mode) implements ClientMessage {}
@@ -60,6 +62,9 @@ public sealed interface ClientMessage
 
     /** 切换会话模型（ModelInfo.value）。下一轮生效。 */
     record SetModel(String model) implements ClientMessage {}
+
+    /** 从当前会话的某条用户消息分叉出新会话。upToMessageId 为该消息的 SDK transcript uuid。 */
+    record ForkSession(String upToMessageId) implements ClientMessage {}
 
     /** AskUserQuestion 的单个问题结构（供前端渲染，回灌走 Decision.answers） */
     record Question(String question, String header, List<Option> options, boolean multiSelect) {

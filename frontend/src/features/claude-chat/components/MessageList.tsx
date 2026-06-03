@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Check, Copy } from 'lucide-react'
+import { Check, Copy, GitBranch } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ChatItem } from '../types'
 import { ToolCallBubble } from './ToolCallBubble'
@@ -14,10 +14,12 @@ interface Props {
   loadingEarlier?: boolean
   /** 已无更早历史 */
   exhausted?: boolean
+  /** 从某条用户消息分叉新会话（仅当该消息带 sdkUuid 时可用） */
+  onFork?: (sdkUuid: string) => void
 }
 
 /** 消息流：用户气泡靠右、assistant 文本靠左、工具调用与系统标记居中。顶部上拉加载更早历史。 */
-export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exhausted }: Props) {
+export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exhausted, onFork }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevHeightRef = useRef(0)
   const prependingRef = useRef(false)
@@ -59,7 +61,7 @@ export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exh
         <div className="text-center text-xs text-[var(--color-muted-foreground)]">— 没有更早了 —</div>
       )}
       {items.map(item => (
-        <Row key={item.id} item={item} />
+        <Row key={item.id} item={item} onFork={onFork} />
       ))}
       {running && (
         <div className="text-sm text-[var(--color-muted-foreground)]">Claude 正在思考…</div>
@@ -101,14 +103,26 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
-function Row({ item }: { item: ChatItem }) {
+function Row({ item, onFork }: { item: ChatItem; onFork?: (sdkUuid: string) => void }) {
   switch (item.kind) {
     case 'user':
       return (
-        <div className="flex justify-end">
+        <div className="flex flex-col items-end">
           <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-[var(--color-primary)] px-4 py-2 text-[var(--color-primary-foreground)]">
             {item.text}
           </div>
+          {onFork && item.sdkUuid && (
+            <button
+              type="button"
+              onClick={() => onFork(item.sdkUuid!)}
+              aria-label="从此处分叉对话"
+              title="从此处分叉出新会话（保留当前会话）"
+              className="mt-1 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] active:bg-[var(--color-muted)]"
+            >
+              <GitBranch className="size-3.5" />
+              从此处分叉
+            </button>
+          )}
         </div>
       )
     case 'assistant':

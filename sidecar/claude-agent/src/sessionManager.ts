@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { query } from '@anthropic-ai/claude-agent-sdk'
+import { query, forkSession } from '@anthropic-ai/claude-agent-sdk'
 import { Permissions, type Decision } from './permissions.js'
 
 type Emit = (sessionId: string, event: Record<string, unknown>) => void
@@ -138,6 +138,12 @@ class Session {
       }
       case 'user': {
         const content = (m.message as Record<string, unknown>)?.content as Array<Record<string, unknown>> | undefined
+        // 真用户文本回合（带 uuid、非 tool_result、非合成）→ 上报 uuid，供「从此处分叉」定位
+        const uuid = m.uuid as string | undefined
+        const isToolResult = Array.isArray(content) && content.some(b => b?.type === 'tool_result')
+        if (uuid && !isToolResult && !m.isSynthetic) {
+          this.emitSelf({ type: 'userMessage', uuid })
+        }
         for (const b of content ?? []) {
           if (b.type === 'tool_result') {
             this.emitSelf({
@@ -221,6 +227,21 @@ export class SessionManager {
   setModel(id: string, model: string): void {
     const s = this.sessions.get(id)
     if (s) s.model = model
+  }
+
+  /** 从某条用户消息分叉出新会话（截到该消息），emit forked 带新 sdkSessionId 给 Java 建会话续跑。 */
+  async forkSession(id: string, upToMessageId: string): Promise<void> {
+    const s = this.sessions.get(id)
+    if (!s || !s.sdkSessionId) {
+      this.emit(id, { type: 'error', code: 'FORK_FAILED', message: '会话未就绪，无法分叉' })
+      return
+    }
+    try {
+      const res = await forkSession(s.sdkSessionId, { upToMessageId, dir: s.cwd })
+      this.emit(id, { type: 'forked', sdkSessionId: res.sessionId, cwd: s.cwd })
+    } catch (e) {
+      this.emit(id, { type: 'error', code: 'FORK_FAILED', message: e instanceof Error ? e.message : String(e) })
+    }
   }
 
   drop(id: string): void {

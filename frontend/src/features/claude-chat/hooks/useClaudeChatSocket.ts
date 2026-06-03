@@ -38,6 +38,8 @@ export interface UseClaudeChatSocket {
   setMode: (mode: PermissionMode) => void
   /** 切换模型（下一轮生效） */
   setModel: (model: string) => void
+  /** 从某条用户消息分叉出新会话（旧会话保留），完成后自动切到新会话 */
+  forkSession: (upToMessageId: string) => void
   /** 切到工具内会话（resume 续跑） */
   switchTo: (sessionId: string) => void
   /** 续跑磁盘上的历史会话 */
@@ -79,6 +81,8 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   const historyExhaustedRef = useRef(false)
   const historyLoadingRef = useRef(false)
   const loadHistoryRef = useRef<(reset: boolean) => void>(() => {})
+  // applyEvent('forked') 需要切会话，但 switchTo 在其后定义 → 用 ref 解依赖环
+  const switchToRef = useRef<(sid: string) => void>(() => {})
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyExhausted, setHistoryExhausted] = useState(false)
 
@@ -153,6 +157,24 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
       case 'models':
         setModels(msg.models)
         setCurrentModel(msg.current)
+        break
+      case 'userMessage':
+        // 把本轮用户消息的 SDK transcript uuid 挂到最近一条尚未标记的 user 项上，供「从此处分叉」
+        setItems(prev => {
+          for (let i = prev.length - 1; i >= 0; i--) {
+            const it = prev[i]
+            if (it.kind === 'user' && !it.sdkUuid) {
+              const copy = prev.slice()
+              copy[i] = { ...it, sdkUuid: msg.uuid }
+              return copy
+            }
+          }
+          return prev
+        })
+        break
+      case 'forked':
+        // 分叉完成：切到新会话续跑（旧会话保留）
+        switchToRef.current(msg.sessionId)
         break
       case 'result':
         setRunning(false)
@@ -318,6 +340,16 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     sendRaw({ type: 'setModel', model })
   }, [sendRaw])
 
+  // 从某条用户消息分叉出新会话（旧会话保留）。完成后服务端回 forked → 自动 switchTo 新会话。
+  const forkSession = useCallback((upToMessageId: string) => {
+    sendRaw({ type: 'forkSession', upToMessageId })
+  }, [sendRaw])
+
+  // 保持 switchToRef 指向最新 switchTo，供 applyEvent('forked') 调用而不进依赖环
+  useEffect(() => {
+    switchToRef.current = switchTo
+  }, [switchTo])
+
   const loadHistory = useCallback(async (reset: boolean) => {
     const sid = sdkSessionIdRef.current
     if (!sid || historyLoadingRef.current) return
@@ -345,5 +377,5 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     loadHistoryRef.current = loadHistory
   }, [loadHistory])
 
-  return { state, sessionId, items, pending, running, errorMessage, mode, slashCommands, models, currentModel, open, switchTo, resumeHistory, send, decide, interrupt, setMode, setModel, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, running, errorMessage, mode, slashCommands, models, currentModel, open, switchTo, resumeHistory, send, decide, interrupt, setMode, setModel, forkSession, historyLoading, historyExhausted, loadHistory }
 }

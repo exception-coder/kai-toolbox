@@ -256,6 +256,25 @@ public class ClaudeChatService {
         if (ctx != null) sidecar.interrupt(ctx.sessionId);
     }
 
+    /**
+     * 从当前会话的某条用户消息分叉出新会话（旧会话保留不动）。
+     * sidecar 完成 forkSession 后回 {@code forked}，届时建一条会话元数据行并通知前端切换续跑。
+     */
+    public void forkSession(WebSocketSession ws, ClientMessage.ForkSession msg) {
+        SessionCtx ctx = ctxOf(ws);
+        if (ctx == null) {
+            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            return;
+        }
+        if (msg.upToMessageId() == null || msg.upToMessageId().isBlank()) {
+            sendError(ws, 0, "BAD_MESSAGE", "缺少分叉锚点消息");
+            return;
+        }
+        if (!ensureSessionResumable(ctx)) return;
+        sidecar.forkSession(ctx.sessionId, msg.upToMessageId());
+        log.info("[claude-chat] 会话 {} 请求分叉 upTo={}", ctx.sessionId, msg.upToMessageId());
+    }
+
     /** 浏览器连接断开：仅把该连接从会话观察者集合移除（不杀会话，其它端可继续看，任务在 sidecar 跑）。 */
     public void onBrowserDisconnected(WebSocketSession ws) {
         String sessionId = wsToSession.remove(ws.getId());
@@ -306,6 +325,9 @@ public class ClaudeChatService {
                 ctx.currentModel = node.path("current").asText(null);
                 sendToBrowser(ctx, seq -> new ServerMessage.Models(seq, ctx.models, ctx.currentModel));
             }
+            case "userMessage" -> sendToBrowser(ctx,
+                    seq -> new ServerMessage.UserMessage(seq, node.path("uuid").asText("")));
+            case "forked" -> onForked(ctx, node);
             case "result" -> onResult(ctx, node);
             case "error" -> sendToBrowser(ctx, seq -> new ServerMessage.Error(
                     seq, node.path("code").asText("SIDECAR_ERROR"), node.path("message").asText("")));
@@ -324,6 +346,26 @@ public class ClaudeChatService {
         if (!hasActiveViewer(ctx)) {
             notifications.notifyDone("Claude 任务完成", shortCwd(ctx.cwd));
         }
+    }
+
+    /**
+     * sidecar 分叉完成：用新 sdkSessionId 建一条会话元数据行（语义同 resumeHistory），
+     * 再通知发起端切到新会话——前端 switchTo 会 resume 并按新 transcript 读历史。
+     */
+    private void onForked(SessionCtx ctx, JsonNode node) {
+        String newSdk = node.path("sdkSessionId").asText(null);
+        if (newSdk == null || newSdk.isBlank()) {
+            sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "FORK_FAILED", "分叉未返回会话标识"));
+            return;
+        }
+        String cwd = node.path("cwd").asText(ctx.cwd);
+        String newId = UUID.randomUUID().toString();
+        long now = System.currentTimeMillis();
+        repo.insert(ClaudeChatSession.builder()
+                .id(newId).cwd(cwd).title(null).sdkSessionId(newSdk)
+                .status(SessionStatus.IDLE).startedAt(now).lastSeenAt(now).build());
+        log.info("[claude-chat] 会话 {} 分叉出新会话 {} sdk={}", ctx.sessionId, newId, newSdk);
+        sendToBrowser(ctx, seq -> new ServerMessage.Forked(seq, newId));
     }
 
     private void onSidecarDown() {

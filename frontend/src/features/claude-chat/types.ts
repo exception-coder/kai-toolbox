@@ -56,6 +56,7 @@ export type ClientMessage =
   | { type: 'interrupt' }
   | { type: 'setMode'; mode: PermissionMode }
   | { type: 'setModel'; model: string }
+  | { type: 'forkSession'; upToMessageId: string }
 
 // ── AskUserQuestion 结构 ─────────────────────────────────────────
 export interface Question {
@@ -75,12 +76,14 @@ export type ServerMessage =
   | { type: 'questionRequest'; seq: number; reqId: string; questions: Question[] }
   | { type: 'decisionResolved'; seq: number; reqId: string }
   | { type: 'models'; seq: number; models: ModelInfo[]; current: string | null }
+  | { type: 'userMessage'; seq: number; uuid: string }
+  | { type: 'forked'; seq: number; sessionId: string }
   | { type: 'result'; seq: number; usage?: Record<string, unknown>; stopReason: string }
   | { type: 'error'; seq: number; code: string; message: string }
 
 // ── 渲染用的消息项 ───────────────────────────────────────────────
 export type ChatItem =
-  | { kind: 'user'; id: string; text: string }
+  | { kind: 'user'; id: string; text: string; sdkUuid?: string }
   | { kind: 'assistant'; id: string; text: string }
   | { kind: 'tool'; id: string; toolName: string; input: unknown; output?: string; isError?: boolean }
   | { kind: 'result'; id: string; stopReason: string }

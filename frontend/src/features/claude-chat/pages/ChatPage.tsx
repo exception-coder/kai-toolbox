@@ -181,6 +181,7 @@ export function ChatPage() {
           onLoadEarlier={() => chat.loadHistory(false)}
           loadingEarlier={chat.historyLoading}
           exhausted={chat.historyExhausted}
+          onFork={chat.forkSession}
         />
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-[var(--color-muted-foreground)]">

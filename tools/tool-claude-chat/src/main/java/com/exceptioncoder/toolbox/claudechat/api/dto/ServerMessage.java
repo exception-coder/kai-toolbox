@@ -15,7 +15,8 @@ public sealed interface ServerMessage
         permits ServerMessage.Ready, ServerMessage.AssistantDelta, ServerMessage.ToolUse,
                 ServerMessage.ToolResult, ServerMessage.PermissionRequest,
                 ServerMessage.QuestionRequest, ServerMessage.DecisionResolved,
-                ServerMessage.Models, ServerMessage.Result, ServerMessage.Error {
+                ServerMessage.Models, ServerMessage.UserMessage, ServerMessage.Forked,
+                ServerMessage.Result, ServerMessage.Error {
 
     long seq();
 
@@ -44,6 +45,14 @@ public sealed interface ServerMessage
     /** 会话可用模型清单（来自 SDK supportedModels）+ 当前模型。 */
     @JsonTypeName("models")
     record Models(long seq, List<ModelInfo> models, String current) implements ServerMessage {}
+
+    /** 关联刚发出的用户消息与其 SDK transcript uuid，供前端「从此处分叉」定位。 */
+    @JsonTypeName("userMessage")
+    record UserMessage(long seq, String uuid) implements ServerMessage {}
+
+    /** 分叉完成：sessionId 为新建的工具内会话 id，前端 switchTo 续跑。 */
+    @JsonTypeName("forked")
+    record Forked(long seq, String sessionId) implements ServerMessage {}
 
     @JsonTypeName("result")
     record Result(long seq, Map<String, Object> usage, String stopReason) implements ServerMessage {}
