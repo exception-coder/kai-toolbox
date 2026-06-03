@@ -66,6 +66,7 @@ public class ClaudeChatWebSocketHandler extends TextWebSocketHandler {
             case ClientMessage.Decision d -> service.decision(ws, d);
             case ClientMessage.Interrupt ignored -> service.interrupt(ws);
             case ClientMessage.SetMode sm -> service.setMode(ws, sm);
+            case ClientMessage.SetModel sm -> service.setModel(ws, sm);
         }
     }
 

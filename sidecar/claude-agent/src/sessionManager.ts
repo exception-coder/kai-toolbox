@@ -11,6 +11,7 @@ class Session {
   /** 会话级权限模式，每轮 query 传入；运行中切换下一轮生效。 */
   permissionMode = 'default'
   private abort?: AbortController
+  private modelsFetched = false
   readonly perms: Permissions
 
   constructor(
@@ -61,6 +62,8 @@ class Session {
           },
         } as never)
 
+        this.fetchModels(q)
+
         for await (const m of q as AsyncIterable<Record<string, unknown>>) {
           emitted = true
           this.handle(m, toolNames)
@@ -85,6 +88,21 @@ class Session {
         this.abort = undefined
       }
     }
+  }
+
+  /** 首轮取一次可用模型清单（SDK 控制请求 supportedModels），缓存避免重复；失败静默。 */
+  private fetchModels(q: unknown): void {
+    if (this.modelsFetched) return
+    this.modelsFetched = true
+    const fn = (q as { supportedModels?: () => Promise<unknown> }).supportedModels
+    if (typeof fn !== 'function') return
+    Promise.resolve(fn.call(q))
+      .then((models) => {
+        if (Array.isArray(models)) {
+          this.emitSelf({ type: 'models', models, current: this.model ?? null })
+        }
+      })
+      .catch((e) => console.warn('[sidecar] supportedModels 失败:', e instanceof Error ? e.message : String(e)))
   }
 
   // 把 SDK 消息翻译成与 Java 约定的事件
@@ -197,6 +215,12 @@ export class SessionManager {
   setMode(id: string, mode: string): void {
     const s = this.sessions.get(id)
     if (s) { s.permissionMode = mode; s.perms.setMode(mode) }
+  }
+
+  /** 切换会话模型，下一轮 runTurn 生效。 */
+  setModel(id: string, model: string): void {
+    const s = this.sessions.get(id)
+    if (s) s.model = model
   }
 
   drop(id: string): void {

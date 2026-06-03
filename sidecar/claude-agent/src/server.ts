@@ -37,6 +37,9 @@ wss.on('connection', (ws) => {
       case 'setMode':
         manager.setMode(sessionId, msg.mode as string)
         break
+      case 'setModel':
+        manager.setModel(sessionId, msg.model as string)
+        break
       case 'resume':
         manager.resume(sessionId, msg.sdkSessionId as string, msg.cwd as string)
         break

@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.ClientMessage;
+import com.exceptioncoder.toolbox.claudechat.api.dto.ModelInfo;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ServerMessage;
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
@@ -228,6 +229,19 @@ public class ClaudeChatService {
         log.info("[claude-chat] 会话 {} 切换权限模式 -> {}", ctx.sessionId, ctx.mode);
     }
 
+    /** 切换会话模型，下一轮 query 生效；广播当前模型让多端同步勾选。 */
+    public void setModel(WebSocketSession ws, ClientMessage.SetModel msg) {
+        SessionCtx ctx = ctxOf(ws);
+        if (ctx == null) {
+            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            return;
+        }
+        ctx.currentModel = msg.model();
+        sidecar.setModel(ctx.sessionId, msg.model());
+        sendToBrowser(ctx, seq -> new ServerMessage.Models(seq, ctx.models, ctx.currentModel));
+        log.info("[claude-chat] 会话 {} 切换模型 -> {}", ctx.sessionId, msg.model());
+    }
+
     private static boolean isValidMode(String m) {
         return "default".equals(m) || "acceptEdits".equals(m)
                 || "plan".equals(m) || "bypassPermissions".equals(m);
@@ -286,6 +300,11 @@ public class ClaudeChatService {
                 ServerMessage msg = sendToBrowser(ctx, seq -> new ServerMessage.QuestionRequest(
                         seq, node.path("reqId").asText(""), parseQuestions(node.get("questions"))));
                 onDecisionPrompt(ctx, msg, "Claude 有问题等你回答", "请回到对话作答");
+            }
+            case "models" -> {
+                ctx.models = parseModels(node.get("models"));
+                ctx.currentModel = node.path("current").asText(null);
+                sendToBrowser(ctx, seq -> new ServerMessage.Models(seq, ctx.models, ctx.currentModel));
             }
             case "result" -> onResult(ctx, node);
             case "error" -> sendToBrowser(ctx, seq -> new ServerMessage.Error(
@@ -536,6 +555,18 @@ public class ClaudeChatService {
         return out;
     }
 
+    /** 解析 SDK supportedModels 数组（{value, displayName, description, …}）为前端 ModelInfo。 */
+    private List<ModelInfo> parseModels(JsonNode n) {
+        if (n == null || !n.isArray()) return List.of();
+        List<ModelInfo> out = new ArrayList<>();
+        for (JsonNode e : n) {
+            String value = e.path("value").asText(null);
+            if (value == null || value.isBlank()) continue;
+            out.add(new ModelInfo(value, e.path("displayName").asText(value), e.path("description").asText("")));
+        }
+        return out;
+    }
+
     private List<ClientMessage.Question> parseQuestions(JsonNode n) {
         if (n == null || !n.isArray()) return List.of();
         try {
@@ -576,6 +607,9 @@ public class ClaudeChatService {
         volatile ServerMessage pendingRequest;
         /** 该会话可用的 slash 命令清单（来自 SDK init），随每条 Ready 透传给前端做补全。 */
         volatile java.util.List<String> slashCommands = java.util.List.of();
+        /** 该会话可用模型清单（来自 SDK supportedModels）与当前模型，供命令菜单的模型组展示/切换。 */
+        volatile java.util.List<ModelInfo> models = java.util.List.of();
+        volatile String currentModel;
 
         SessionCtx(String sessionId, String cwd) {
             this.sessionId = sessionId;

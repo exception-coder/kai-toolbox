@@ -15,7 +15,7 @@ public sealed interface ServerMessage
         permits ServerMessage.Ready, ServerMessage.AssistantDelta, ServerMessage.ToolUse,
                 ServerMessage.ToolResult, ServerMessage.PermissionRequest,
                 ServerMessage.QuestionRequest, ServerMessage.DecisionResolved,
-                ServerMessage.Result, ServerMessage.Error {
+                ServerMessage.Models, ServerMessage.Result, ServerMessage.Error {
 
     long seq();
 
@@ -40,6 +40,10 @@ public sealed interface ServerMessage
     /** 某权限/提问请求已被某端处理，通知其它端关闭同一弹窗（多端同看）。 */
     @JsonTypeName("decisionResolved")
     record DecisionResolved(long seq, String reqId) implements ServerMessage {}
+
+    /** 会话可用模型清单（来自 SDK supportedModels）+ 当前模型。 */
+    @JsonTypeName("models")
+    record Models(long seq, List<ModelInfo> models, String current) implements ServerMessage {}
 
     @JsonTypeName("result")
     record Result(long seq, Map<String, Object> usage, String stopReason) implements ServerMessage {}

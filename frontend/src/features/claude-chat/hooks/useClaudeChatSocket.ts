@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Attachment, ChatItem, ClientMessage, ConnState, PendingRequest, PermissionMode, ServerMessage } from '../types'
+import type { Attachment, ChatItem, ClientMessage, ConnState, ModelInfo, PendingRequest, PermissionMode, ServerMessage } from '../types'
 import { loadMessages } from '../api'
 import { notifyPrompt } from '../browserNotify'
 
@@ -28,10 +28,16 @@ export interface UseClaudeChatSocket {
   mode: PermissionMode
   /** 当前会话可用的 slash 命令清单（来自 SDK init），用于输入框补全 */
   slashCommands: string[]
+  /** 当前会话可用模型清单（来自 SDK supportedModels） */
+  models: ModelInfo[]
+  /** 当前模型 value */
+  currentModel: string | null
   /** 新建会话（可带初始权限模式） */
   open: (cwd: string, model?: string, mode?: PermissionMode) => void
   /** 切换权限模式（下一轮生效） */
   setMode: (mode: PermissionMode) => void
+  /** 切换模型（下一轮生效） */
+  setModel: (model: string) => void
   /** 切到工具内会话（resume 续跑） */
   switchTo: (sessionId: string) => void
   /** 续跑磁盘上的历史会话 */
@@ -58,6 +64,8 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [mode, setModeState] = useState<PermissionMode>('default')
   const [slashCommands, setSlashCommands] = useState<string[]>([])
+  const [models, setModels] = useState<ModelInfo[]>([])
+  const [currentModel, setCurrentModel] = useState<string | null>(null)
 
   const wsRef = useRef<WebSocket | null>(null)
   const intentRef = useRef<Intent | null>(null)
@@ -141,6 +149,10 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
       case 'decisionResolved':
         // 另一端已处理同一请求（多端同看）→ 关掉本端弹窗
         setPending(prev => (prev && prev.reqId === msg.reqId ? null : prev))
+        break
+      case 'models':
+        setModels(msg.models)
+        setCurrentModel(msg.current)
         break
       case 'result':
         setRunning(false)
@@ -301,6 +313,11 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     sendRaw({ type: 'setMode', mode: m })
   }, [sendRaw])
 
+  const setModel = useCallback((model: string) => {
+    setCurrentModel(model) // 乐观更新；下一轮 query 生效
+    sendRaw({ type: 'setModel', model })
+  }, [sendRaw])
+
   const loadHistory = useCallback(async (reset: boolean) => {
     const sid = sdkSessionIdRef.current
     if (!sid || historyLoadingRef.current) return
@@ -328,5 +345,5 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     loadHistoryRef.current = loadHistory
   }, [loadHistory])
 
-  return { state, sessionId, items, pending, running, errorMessage, mode, slashCommands, open, switchTo, resumeHistory, send, decide, interrupt, setMode, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, running, errorMessage, mode, slashCommands, models, currentModel, open, switchTo, resumeHistory, send, decide, interrupt, setMode, setModel, historyLoading, historyExhausted, loadHistory }
 }

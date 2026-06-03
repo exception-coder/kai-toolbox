@@ -240,8 +240,11 @@ export function ChatPage() {
               {cmdMenuOpen && (
                 <CommandMenu
                   commands={chat.slashCommands}
+                  models={chat.models}
+                  currentModel={chat.currentModel}
                   onClose={() => setCmdMenuOpen(false)}
-                  onPick={cmd => { setDraft('/' + cmd + ' '); setCmdMenuOpen(false) }}
+                  onPickCommand={cmd => { setDraft('/' + cmd + ' '); setCmdMenuOpen(false) }}
+                  onPickModel={value => { chat.setModel(value); setCmdMenuOpen(false) }}
                 />
               )}
             </div>
