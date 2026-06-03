@@ -92,7 +92,10 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   }, [])
 
   const applyEvent = useCallback((msg: ServerMessage) => {
-    if (typeof msg.seq === 'number' && msg.seq > lastSeqRef.current) {
+    // seq 幂等：已处理过的 seq 直接丢弃，杜绝重复投递导致的消息翻倍（assistantDelta 累加，重复必翻倍）。
+    // seq=0 为连接级提示，不参与去重。
+    if (typeof msg.seq === 'number' && msg.seq > 0) {
+      if (msg.seq <= lastSeqRef.current) return
       lastSeqRef.current = msg.seq
     }
     switch (msg.type) {

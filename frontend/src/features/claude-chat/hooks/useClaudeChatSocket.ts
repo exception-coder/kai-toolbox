@@ -101,7 +101,11 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   }, [])
 
   const applyEvent = useCallback((msg: ServerMessage) => {
-    if (typeof msg.seq === 'number' && msg.seq > lastSeqRef.current) {
+    // seq 幂等：已处理过的 seq 直接丢弃，杜绝任何重复投递（HMR 残留 socket、半开连接、
+    // 回放与实时重叠、一页多连接）导致的消息重复——尤其 assistantDelta 是累加的，重复必翻倍。
+    // seq=0 为连接级提示（error/replayGap 等），不参与去重，始终处理。
+    if (typeof msg.seq === 'number' && msg.seq > 0) {
+      if (msg.seq <= lastSeqRef.current) return
       lastSeqRef.current = msg.seq
     }
     switch (msg.type) {
