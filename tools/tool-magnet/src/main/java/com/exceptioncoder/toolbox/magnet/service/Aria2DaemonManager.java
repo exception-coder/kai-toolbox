@@ -69,6 +69,7 @@ public class Aria2DaemonManager {
 
     private void startInternal() throws IOException {
         String binary = resolveBinary();
+        reapStaleOrphans(binary);
 
         String secret = props.getRpcSecret();
         if (secret == null || secret.isBlank()) {
@@ -154,6 +155,51 @@ public class Aria2DaemonManager {
         }
         ready.set(true);
         log.info("aria2 daemon 就绪");
+    }
+
+    /**
+     * 启动前清理上次非优雅退出（IntelliJ 硬停 / 崩溃 / taskkill）遗留的 aria2 孤儿进程。
+     *
+     * <p>否则旧孤儿仍 LISTENING 在同一 RPC 端口——Windows 的 SO_REUSEADDR 允许新进程也绑上，
+     * 但连接会被路由到旧进程（用的是旧 secret），导致新进程虽存活却 RPC 鉴权失败 → 启动轮询超时。
+     *
+     * <p>仅当 binary 为绝对路径时执行（相对名如 {@code aria2c} 可能误杀用户自己的 aria2，跳过）。
+     * 与 {@code FfmpegProcessRegistry} 的孤儿清理同一思路：按可执行文件路径匹配。
+     */
+    private void reapStaleOrphans(String binary) {
+        java.nio.file.Path abs;
+        try {
+            java.nio.file.Path p = java.nio.file.Path.of(binary).normalize();
+            if (!p.isAbsolute()) {
+                log.debug("aria2 binary 为相对路径，跳过孤儿清理");
+                return;
+            }
+            abs = p;
+        } catch (java.nio.file.InvalidPathException e) {
+            return;
+        }
+        String canonical = abs.toAbsolutePath().normalize().toString().toLowerCase(java.util.Locale.ROOT);
+        long self = ProcessHandle.current().pid();
+        int killed = 0;
+        for (ProcessHandle ph : ProcessHandle.allProcesses().toList()) {
+            if (ph.pid() == self) continue;
+            String cmd = ph.info().command().orElse("");
+            if (cmd.isEmpty()) continue;
+            try {
+                String c = java.nio.file.Path.of(cmd).toAbsolutePath().normalize().toString().toLowerCase(java.util.Locale.ROOT);
+                if (c.equals(canonical)) {
+                    log.info("清理残留 aria2 孤儿进程 pid={} cmd={}", ph.pid(), cmd);
+                    ph.destroyForcibly();
+                    killed++;
+                }
+            } catch (java.nio.file.InvalidPathException ignored) {
+            }
+        }
+        if (killed > 0) {
+            log.warn("清理了 {} 个残留 aria2 进程（上次非优雅退出遗留，会占 RPC 端口导致新进程超时）", killed);
+            try { Thread.sleep(300); } // 给 OS 释放端口一点时间
+            catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+        }
     }
 
     private String resolveBinary() throws IOException {
