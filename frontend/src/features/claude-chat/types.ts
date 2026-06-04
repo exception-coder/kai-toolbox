@@ -23,6 +23,18 @@ export interface HistorySessionView {
   messageCount: number
 }
 
+/** 一个一级子目录：name 展示，path 作为新建会话 cwd。 */
+export interface WorkspaceDir {
+  name: string
+  path: string
+}
+
+/** 工作目录扫描结果：每个配置根一条，含其一级子目录。 */
+export interface WorkspaceList {
+  roots: { root: string; exists: boolean; dirs: WorkspaceDir[] }[]
+  scannedAt: string
+}
+
 /** 随消息发送的附件引用：name 展示用，path 为上传响应里的服务端绝对路径。 */
 export interface Attachment {
   name: string

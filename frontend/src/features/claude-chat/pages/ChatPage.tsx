@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Bell, List, Maximize2, Minimize2, Paperclip, Plus, Send, Slash, Square } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { Bell, List, Maximize2, Minimize2, Paperclip, PictureInPicture2, Plus, Send, Slash, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useClaudeChatSocket } from '../hooks/useClaudeChatSocket'
+import { useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { MessageList } from '../components/MessageList'
 import { PermissionDialog } from '../components/PermissionDialog'
 import { QuestionDialog } from '../components/QuestionDialog'
@@ -13,7 +14,7 @@ import { AttachmentChips } from '../components/AttachmentChips'
 import { ModeSwitch } from '../components/ModeSwitch'
 import { SlashCommandMenu } from '../components/SlashCommandMenu'
 import { CommandMenu } from '../components/CommandMenu'
-import { listSessions, uploadAttachment, type UploadedAttachment } from '../api'
+import { listWorkspaces, uploadAttachment, type UploadedAttachment } from '../api'
 import { ensureNotifyPermission } from '../browserNotify'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new'
@@ -25,8 +26,8 @@ const MAX_ATTACHMENTS = 10
 type ChatAttachment = UploadedAttachment & { previewUrl?: string }
 
 export function ChatPage() {
-  const chat = useClaudeChatSocket()
-  const pending = chat.pending
+  const { chat, setFloating } = useChatRuntime()
+  const pending = chat?.pending ?? null
   const [panel, setPanel] = useState<Panel>('none')
   const [sessTab, setSessTab] = useState<'tool' | 'history'>('tool')
   const [draft, setDraft] = useState('')
@@ -38,7 +39,6 @@ export function ChatPage() {
   const [cmdMenuOpen, setCmdMenuOpen] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
-  const autoOpenedRef = useRef(false)
 
   // 全屏时按 Esc 退出
   useEffect(() => {
@@ -48,23 +48,25 @@ export function ChatPage() {
     return () => window.removeEventListener('keydown', onKey)
   }, [fullscreen])
 
-  // 进入模块默认续上「最近一次会话」，而不是停在空首页；无历史会话则保持空态可新建。
-  useEffect(() => {
-    if (autoOpenedRef.current) return
-    autoOpenedRef.current = true
-    void (async () => {
-      try {
-        const sessions = await listSessions()
-        if (sessions.length === 0) return
-        const latest = [...sessions].sort((a, b) => b.lastSeenAt - a.lastSeenAt)[0]
-        chat.switchTo(latest.id)
-      } catch {
-        // 列表拉取失败：保持空态，用户可手动新建/选择
-      }
-    })()
-    // 仅首次挂载执行一次
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  // 自动续接最近会话已上提到 ChatRuntime 引擎（跨路由常驻），此处不再处理。
+
+  // 新建面板展开时才扫描工作目录；接口失败/为空则下拉为空，输入框仍可手填（降级不阻断）
+  const { data: workspaces } = useQuery({
+    queryKey: ['claude-chat-workspaces'],
+    queryFn: listWorkspaces,
+    enabled: panel === 'new',
+    staleTime: 5000,
+  })
+  const wsDirs = workspaces?.roots.flatMap(r => r.dirs) ?? []
+
+  // 引擎激活前一帧 chat 可能为空（懒启动）：占位，下一帧即就绪
+  if (!chat) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-[var(--color-muted-foreground)]">
+        正在启动 Vibe Coding…
+      </div>
+    )
+  }
 
   const startNew = () => {
     chat.open(newCwd.trim())
@@ -133,6 +135,9 @@ export function ChatPage() {
         <span className="font-semibold">Vibe Coding</span>
         <span className="text-xs text-[var(--color-muted-foreground)]">{stateLabel(chat.state)}</span>
         <div className="ml-auto flex gap-1">
+          <Button variant="ghost" size="icon" onClick={() => setFloating(true)} aria-label="弹出为悬浮窗" title="弹出为悬浮窗（切到其他模块时常驻显示，对话不断）">
+            <PictureInPicture2 className="size-5" />
+          </Button>
           <Button variant="ghost" size="icon" onClick={() => setFullscreen(f => !f)} aria-label={fullscreen ? '退出全屏' : '全屏显示'} title={fullscreen ? '退出全屏（Esc）' : '全屏显示对话框'}>
             {fullscreen ? <Minimize2 className="size-5" /> : <Maximize2 className="size-5" />}
           </Button>
@@ -154,11 +159,17 @@ export function ChatPage() {
           <label className="text-xs text-[var(--color-muted-foreground)]">工作目录（cwd，留空用 home）</label>
           <div className="mt-1 flex gap-2">
             <input
+              list="claude-chat-cwd-dirs"
               className="flex-1 rounded-md border bg-[var(--color-background)] px-3 py-2 text-sm"
-              placeholder="例如 D:/Users/zhang/IdeaProjects/kai-toolbox"
+              placeholder={wsDirs.length ? '选择或输入工作目录…' : '例如 D:/Users/zhang/IdeaProjects/kai-toolbox'}
               value={newCwd}
               onChange={e => setNewCwd(e.target.value)}
             />
+            <datalist id="claude-chat-cwd-dirs">
+              {wsDirs.map(d => (
+                <option key={d.path} value={d.path}>{d.name}</option>
+              ))}
+            </datalist>
             <Button size="lg" className="shadow-md" onClick={startNew}>开始</Button>
           </div>
         </div>

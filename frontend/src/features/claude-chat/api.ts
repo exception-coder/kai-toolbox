@@ -1,5 +1,5 @@
 import { http } from '@/lib/api'
-import type { ChatItem, ClaudeChatSessionView, HistorySessionView, NotifyConfig } from './types'
+import type { ChatItem, ClaudeChatSessionView, HistorySessionView, NotifyConfig, WorkspaceList } from './types'
 
 /** 用当前（草稿）配置触发后端发一条测试推送，返回实际尝试的渠道（bark / ntfy）。 */
 export function testServerPush(config: NotifyConfig) {
@@ -11,6 +11,11 @@ export function testServerPush(config: NotifyConfig) {
 
 export function listSessions() {
   return http<ClaudeChatSessionView[]>('/claude-chat/sessions')
+}
+
+/** 列出配置根目录下的一级子目录，供新建会话选 cwd。 */
+export function listWorkspaces() {
+  return http<WorkspaceList>('/claude-chat/workspaces')
 }
 
 export function deleteSession(id: string) {
