@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { FlaskConical, Menu, Moon, PanelLeftClose, PanelLeftOpen, Sun } from 'lucide-react'
+import { FlaskConical, LogIn, LogOut, Menu, Moon, PanelLeftClose, PanelLeftOpen, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { LoginDialog } from '@/components/auth/LoginDialog'
+import { logout, useAuth } from '@/lib/auth'
 import { useMockMode } from './useMockMode'
 import { GlobalVideoSearch } from './GlobalVideoSearch'
 
@@ -14,6 +16,8 @@ interface TopBarProps {
 
 export function TopBar({ onToggleSidebar, onOpenMobileMenu, collapsed }: TopBarProps) {
   const qc = useQueryClient()
+  const { user } = useAuth()
+  const [showLogin, setShowLogin] = useState(false)
   const { enabled: mock, toggle: toggleMock } = useMockMode()
   const [dark, setDark] = useState(() =>
     typeof window !== 'undefined'
@@ -68,7 +72,25 @@ export function TopBar({ onToggleSidebar, onOpenMobileMenu, collapsed }: TopBarP
         >
           {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>
+        {user ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-1.5"
+            title={`已登录：${user.username}（${user.roles.join(', ')}）— 点击登出`}
+            onClick={() => { logout(); qc.clear() }}
+          >
+            <LogOut className="h-4 w-4" />
+            <span className="max-w-24 truncate">{user.username}</span>
+          </Button>
+        ) : (
+          <Button variant="ghost" size="sm" className="gap-1.5" title="登录" onClick={() => setShowLogin(true)}>
+            <LogIn className="h-4 w-4" />
+            登录
+          </Button>
+        )}
       </div>
+      <LoginDialog open={showLogin} onClose={() => setShowLogin(false)} onSuccess={() => qc.clear()} />
     </header>
   )
 }

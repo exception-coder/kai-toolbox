@@ -12,6 +12,8 @@ public class ClaudeChatSession {
     private String title;
     /** SDK 侧 session_id，resume 续跑用 */
     private String sdkSessionId;
+    /** 会话引擎：claude / codex，决定 sidecar 走哪条 agentic loop；旧行为空按 claude */
+    private String engine;
     private SessionStatus status;
     private long startedAt;
     private long lastSeenAt;

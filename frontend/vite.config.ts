@@ -47,6 +47,13 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
       },
+      // 守护进程 HTTP 控制口（run-supervised.ps1 的 HttpListener）：一键重启走这里，
+      // 与后端(18080)独立——后端宕机时本代理仍可达,故能拉起。/supervisor/restart → :18081/restart
+      '/supervisor': {
+        target: 'http://127.0.0.1:18081',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/supervisor/, ''),
+      },
     },
   },
 })

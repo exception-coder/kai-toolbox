@@ -196,7 +196,9 @@ TreeSizePage
 | `SqliteConfig` | SQLite 数据源配置（WAL 模式、外键约束开） |
 | `GlobalExceptionHandler` | 统一异常响应 |
 
-**明确不预埋**：任务调度、消息队列、Redis、Auth、通知系统。任何工具需要时再叠加对应中间件。
+**明确不预埋**：任务调度、消息队列、Redis、通知系统。任何工具需要时再叠加对应中间件。
+
+> **可选鉴权能力（默认关闭）**：`toolbox-common` 内提供一套通用 JWT 鉴权能力库（`common.auth` 包，对标 `featureconfig`），由 `toolbox.auth.enabled` 守门，**缺省为 false——所有 bean / 过滤器 / 接口都不加载，默认仍是无鉴权单用户**。仅当某个工具需要保护接口时显式开启并配置 `protected-patterns`。设计见 `ai-docs/kai-toolbox/design/JWT鉴权/`。这是「待命能力」而非已生效中间件，不改变默认无鉴权的事实。
 
 ## 7. 部署
 

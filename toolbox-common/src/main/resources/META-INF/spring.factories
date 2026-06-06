@@ -1,0 +1,2 @@
+org.springframework.boot.env.EnvironmentPostProcessor=\
+  com.exceptioncoder.toolbox.common.dynamicconfig.config.DynamicConfigEnvironmentPostProcessor

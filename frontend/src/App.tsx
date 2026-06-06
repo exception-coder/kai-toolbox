@@ -2,6 +2,7 @@ import { Route, Routes } from 'react-router-dom'
 import { AppShell } from '@/shell/AppShell'
 import { HomePage } from '@/shell/HomePage'
 import { features } from '@/shell/featureRegistry'
+import { RouteGuard } from '@/components/auth/RouteGuard'
 
 export default function App() {
   return (
@@ -9,7 +10,13 @@ export default function App() {
       <Route element={<AppShell />}>
         <Route path="/" element={<HomePage />} />
         {features.flatMap(f =>
-          f.routes.map(r => <Route key={f.id + r.path} path={r.path} element={r.element} />)
+          f.routes.map(r => (
+            <Route
+              key={f.id + r.path}
+              path={r.path}
+              element={<RouteGuard feature={f}>{r.element}</RouteGuard>}
+            />
+          ))
         )}
         <Route path="*" element={<NotFound />} />
       </Route>

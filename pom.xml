@@ -41,6 +41,7 @@
         <module>tools/tool-ffmpeg-lab</module>
         <module>tools/tool-claude-chat</module>
         <module>tools/tool-video-condense</module>
+        <module>tools/tool-workline</module>
         <module>toolbox-starter</module>
     </modules>
 
@@ -54,6 +55,9 @@
         <lombok.version>1.18.34</lombok.version>
         <jsch.version>2.28.2</jsch.version>
         <pty4j.version>0.12.25</pty4j.version>
+        <jjwt.version>0.12.6</jjwt.version>
+        <jbcrypt.version>0.4</jbcrypt.version>
+        <spring-cloud.version>2024.0.0</spring-cloud.version>
     </properties>
 
     <repositories>
@@ -65,6 +69,13 @@
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <dependency>
                 <groupId>com.exceptioncoder</groupId>
                 <artifactId>toolbox-common</artifactId>
@@ -170,6 +181,11 @@
                 <artifactId>tool-video-condense</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-workline</artifactId>
+                <version>${project.version}</version>
+            </dependency>
 
             <dependency>
                 <groupId>org.xerial</groupId>
@@ -185,6 +201,26 @@
                 <groupId>org.jetbrains.pty4j</groupId>
                 <artifactId>pty4j</artifactId>
                 <version>${pty4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-api</artifactId>
+                <version>${jjwt.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-impl</artifactId>
+                <version>${jjwt.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-jackson</artifactId>
+                <version>${jjwt.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.mindrot</groupId>
+                <artifactId>jbcrypt</artifactId>
+                <version>${jbcrypt.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

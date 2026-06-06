@@ -36,7 +36,9 @@ public class SchemaInitializer {
             String sql = StreamUtils.copyToString(res.getInputStream(), StandardCharsets.UTF_8);
             log.info("Applying schema: {}", res.getFilename());
             for (String stmt : splitStatements(sql)) {
-                if (stmt.isBlank()) continue;
+                // 剥掉注释后无实际语句的段直接跳过：文件末尾的纯注释会被 split 切成空语句，
+                // SQLite 执行空语句会在 finalize 时抛 "prepared statement has been finalized"
+                if (isEffectivelyEmpty(stmt)) continue;
                 try {
                     jdbc.execute(stmt);
                 } catch (Exception e) {
@@ -60,6 +62,14 @@ public class SchemaInitializer {
     private static String trim(String s) {
         if (s == null) return "";
         return s.length() > 200 ? s.substring(0, 200) + "…" : s;
+    }
+
+    private static boolean isEffectivelyEmpty(String stmt) {
+        String stripped = stmt
+                .replaceAll("(?s)/\\*.*?\\*/", "")
+                .replaceAll("(?m)--.*$", "")
+                .trim();
+        return stripped.isEmpty();
     }
 
     private String[] splitStatements(String sql) {

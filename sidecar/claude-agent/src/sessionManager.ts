@@ -1,13 +1,52 @@
 import { existsSync } from 'node:fs'
 import { query, forkSession } from '@anthropic-ai/claude-agent-sdk'
 import { Permissions, type Decision } from './permissions.js'
+import { runCodexTurn } from './codexEngine.js'
+
+export type Engine = 'claude' | 'codex'
 
 type Emit = (sessionId: string, event: Record<string, unknown>) => void
+
+// Claude 的 supportedModels 对所有会话是同一份、且很稳定。全局缓存，供任意会话 start/resume 即时重发。
+// supportedModels 是控制请求（非对话轮次），故启动时预热一次即可填充——见 prewarmClaudeModels。
+let cachedClaudeModels: unknown[] | null = null
+let claudeWarmStarted = false
+
+/**
+ * 启动预热：建一次性 query 仅发控制请求 supportedModels 取模型清单，拿到即 abort，绝不跑对话轮次。
+ * 解决「sidecar 重启后首次进会话、未发消息 → 模型组空」的冷启动窗口。失败静默（首轮对话仍会再取）。
+ */
+async function prewarmClaudeModels(): Promise<void> {
+  if (cachedClaudeModels || claudeWarmStarted) return
+  claudeWarmStarted = true
+  const ac = new AbortController()
+  const safeCwd = process.env.USERPROFILE || process.env.HOME || process.cwd()
+  try {
+    const q = query({
+      prompt: 'warmup',
+      options: { cwd: safeCwd, permissionMode: 'default', abortController: ac },
+    } as never)
+    const fn = (q as { supportedModels?: () => Promise<unknown> }).supportedModels
+    if (typeof fn === 'function') {
+      const models = await fn.call(q)
+      if (Array.isArray(models)) {
+        cachedClaudeModels = models
+        console.log(`[sidecar] 预热 Claude 模型清单：${models.length} 个`)
+      }
+    }
+  } catch (e) {
+    console.warn('[sidecar] 预热 Claude 模型失败（首轮对话会再取）：', e instanceof Error ? e.message : String(e))
+  } finally {
+    ac.abort() // 取消一次性 query，绝不真正处理 warmup 这轮
+  }
+}
 
 /** 单会话：持有 SDK session_id、当前轮的 AbortController、权限交互。 */
 class Session {
   sdkSessionId?: string
   model?: string
+  /** 会话引擎，新建时定、resume 沿用；决定 runTurn 走 Claude 还是 Codex。 */
+  engine: Engine = 'claude'
   /** 会话级权限模式，每轮 query 传入；运行中切换下一轮生效。 */
   permissionMode = 'default'
   private abort?: AbortController
@@ -29,6 +68,7 @@ class Session {
    * 杀软实时扫描短暂锁住而 spawn 失败。只在本轮尚未产出任何消息时重试，避免重复输出。
    */
   async runTurn(text: string): Promise<void> {
+    if (this.engine === 'codex') return this.runCodexTurn(text)
     const maxAttempts = 3
     // spawn claude.exe 时若 working dir 不存在会直接「exists but failed to launch」；
     // cwd 失效（历史会话来自已删除/改名/异机路径）则回退到用户主目录，避免起不来。
@@ -90,6 +130,26 @@ class Session {
     }
   }
 
+  /** 跑一轮 Codex：委托 codexEngine 翻译事件流，AbortController 支持中断。 */
+  private async runCodexTurn(text: string): Promise<void> {
+    const ac = new AbortController()
+    this.abort = ac
+    try {
+      await runCodexTurn({
+        text,
+        cwd: this.cwd,
+        model: this.model,
+        permissionMode: this.permissionMode,
+        sdkSessionId: this.sdkSessionId,
+        signal: ac.signal,
+        emit: (e) => this.emitSelf(e),
+        setSdkSessionId: (id) => { this.sdkSessionId = id },
+      })
+    } finally {
+      this.abort = undefined
+    }
+  }
+
   /** 首轮取一次可用模型清单（SDK 控制请求 supportedModels），缓存避免重复；失败静默。 */
   private fetchModels(q: unknown): void {
     if (this.modelsFetched) return
@@ -99,6 +159,7 @@ class Session {
     Promise.resolve(fn.call(q))
       .then((models) => {
         if (Array.isArray(models)) {
+          cachedClaudeModels = models // 全局缓存，供后续会话 start/resume 即时重发
           this.emitSelf({ type: 'models', models, current: this.model ?? null })
         }
       })
@@ -178,19 +239,24 @@ class Session {
 export class SessionManager {
   private sessions = new Map<string, Session>()
 
-  constructor(private emit: Emit) {}
+  constructor(private emit: Emit) {
+    // 启动即预热 Claude 模型清单（控制请求，不跑对话），消除重启后首次进会话的空窗
+    void prewarmClaudeModels()
+  }
 
-  start(id: string, cwd: string, model?: string, mode?: string): void {
+  start(id: string, cwd: string, model?: string, mode?: string, engine?: string): void {
     const s = new Session(id, cwd || process.env.HOME || process.cwd(), (e) => this.emit(id, e))
     if (model) s.model = model
+    if (engine === 'codex') s.engine = 'codex'
     if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
     this.sessions.set(id, s)
     // 立即回一个 init（sdkSessionId 暂为 null），让前端拿到 Ready 启用输入；
     // 真正的 sdkSessionId 在首轮 system/init 时再次回传。
     this.emit(id, { type: 'init', sdkSessionId: null })
+    this.emitCachedModels(id, s)
   }
 
-  resume(id: string, sdkSessionId: string, cwd: string): void {
+  resume(id: string, sdkSessionId: string, cwd: string, engine?: string): void {
     let s = this.sessions.get(id)
     if (!s) {
       s = new Session(id, cwd, (e) => this.emit(id, e))
@@ -198,6 +264,15 @@ export class SessionManager {
     }
     if (sdkSessionId) s.sdkSessionId = sdkSessionId
     if (cwd) s.cwd = cwd
+    if (engine === 'codex' || engine === 'claude') s.engine = engine
+    this.emitCachedModels(id, s)
+  }
+
+  /** Claude 会话且已有全局缓存时，即时重发 models，让 resume/切会话也能立刻看到模型组。 */
+  private emitCachedModels(id: string, s: Session): void {
+    if (s.engine === 'claude' && cachedClaudeModels) {
+      this.emit(id, { type: 'models', models: cachedClaudeModels, current: s.model ?? null })
+    }
   }
 
   user(id: string, text: string): void {

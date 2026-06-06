@@ -56,7 +56,9 @@ public class WhisperAsrClient {
 
     private final WhisperProperties props;
     private final ObjectMapper mapper = new ObjectMapper();
+    // 固定 HTTP/1.1:ASR 服务为 uvicorn(仅 HTTP/1.1),默认 HTTP_2 会触发 h2c 协商被判非法请求/连接错位。
     private final HttpClient http = HttpClient.newBuilder()
+            .version(HttpClient.Version.HTTP_1_1)
             .connectTimeout(Duration.ofSeconds(10))
             .build();
 

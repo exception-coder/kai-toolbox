@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, List, Maximize2, Minimize2, Paperclip, PictureInPicture2, Plus, Send, Slash, Square } from 'lucide-react'
+import { Bell, List, Maximize2, Minimize2, Package, Paperclip, PictureInPicture2, Plus, RotateCw, Send, Slash, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { MessageList } from '../components/MessageList'
@@ -14,10 +15,12 @@ import { AttachmentChips } from '../components/AttachmentChips'
 import { ModeSwitch } from '../components/ModeSwitch'
 import { SlashCommandMenu } from '../components/SlashCommandMenu'
 import { CommandMenu } from '../components/CommandMenu'
+import { PluginPanel } from '../components/PluginPanel'
 import { listWorkspaces, uploadAttachment, type UploadedAttachment } from '../api'
+import type { Engine } from '../types'
 import { ensureNotifyPermission } from '../browserNotify'
 
-type Panel = 'none' | 'sessions' | 'settings' | 'new'
+type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins'
 
 /** 单条消息最多附件数，与后端约定一致。 */
 const MAX_ATTACHMENTS = 10
@@ -26,12 +29,42 @@ const MAX_ATTACHMENTS = 10
 type ChatAttachment = UploadedAttachment & { previewUrl?: string }
 
 export function ChatPage() {
-  const { chat, setFloating } = useChatRuntime()
+  const { chat, setFloating, setMinimized } = useChatRuntime()
+  const navigate = useNavigate()
   const pending = chat?.pending ?? null
+
+  // 一键重启后端：调守护进程(run-supervised.ps1)的独立控制口 /supervisor/restart(经 Vite 代理到 :18081)。
+  // 与后端独立——后端宕机时本控制口仍在,故能拉起。当前 WS 会断,重启后前端自动重连续上。
+  const restartBackend = async () => {
+    if (!window.confirm('重启后端服务？当前连接会短暂断开，重启后页面会自动重连续上会话。')) return
+    let token = localStorage.getItem('kai-toolbox:supervisor-token') ?? ''
+    if (!token) {
+      token = window.prompt('输入守护进程 RestartToken（与 run-supervised.ps1 里的 $RestartToken 一致）') ?? ''
+      if (!token) return
+      localStorage.setItem('kai-toolbox:supervisor-token', token)
+    }
+    try {
+      const r = await fetch('/supervisor/restart', { method: 'POST', headers: { 'X-Restart-Token': token } })
+      if (r.ok) window.alert('重启已触发，后端数秒后回来，页面会自动重连。')
+      else if (r.status === 403) { localStorage.removeItem('kai-toolbox:supervisor-token'); window.alert('token 不匹配（已清除，请重试重新输入）。') }
+      else if (r.status === 503) window.alert('守护进程未配置 RestartToken（改 run-supervised.ps1 的 $RestartToken）。')
+      else window.alert(`重启请求失败：HTTP ${r.status}`)
+    } catch {
+      window.alert('连不上守护进程控制口(:18081)。请确认后端是用 run-supervised.ps1 启动的。')
+    }
+  }
+
+  // 弹出悬浮窗：开启浮窗并离开会话页（浮窗与全屏页互斥渲染，留在会话页看不到），落到首页即见浮窗
+  const popOutFloating = () => {
+    setFloating(true)
+    setMinimized(false)
+    navigate('/')
+  }
   const [panel, setPanel] = useState<Panel>('none')
   const [sessTab, setSessTab] = useState<'tool' | 'history'>('tool')
   const [draft, setDraft] = useState('')
   const [newCwd, setNewCwd] = useState('')
+  const [newEngine, setNewEngine] = useState<Engine>('claude')
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [uploading, setUploading] = useState(0)
   const [slashIdx, setSlashIdx] = useState(0)
@@ -69,7 +102,7 @@ export function ChatPage() {
   }
 
   const startNew = () => {
-    chat.open(newCwd.trim())
+    chat.open(newCwd.trim(), undefined, undefined, newEngine)
     setPanel('none')
   }
 
@@ -133,9 +166,14 @@ export function ChatPage() {
       {/* 顶栏 */}
       <header className="flex items-center gap-2 border-b px-3 py-2">
         <span className="font-semibold">Vibe Coding</span>
+        <span className={`rounded px-1.5 py-0.5 text-[10px] ${chat.currentEngine === 'codex'
+          ? 'bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-200'
+          : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'}`}>
+          {chat.currentEngine === 'codex' ? 'Codex' : 'Claude'}
+        </span>
         <span className="text-xs text-[var(--color-muted-foreground)]">{stateLabel(chat.state)}</span>
-        <div className="ml-auto flex gap-1">
-          <Button variant="ghost" size="icon" onClick={() => setFloating(true)} aria-label="弹出为悬浮窗" title="弹出为悬浮窗（切到其他模块时常驻显示，对话不断）">
+        <div className="ml-auto flex flex-wrap justify-end gap-1">
+          <Button variant="ghost" size="icon" onClick={popOutFloating} aria-label="弹出为悬浮窗" title="弹出为悬浮窗（离开会话页，切到其他模块时常驻显示，对话不断）">
             <PictureInPicture2 className="size-5" />
           </Button>
           <Button variant="ghost" size="icon" onClick={() => setFullscreen(f => !f)} aria-label={fullscreen ? '退出全屏' : '全屏显示'} title={fullscreen ? '退出全屏（Esc）' : '全屏显示对话框'}>
@@ -147,8 +185,14 @@ export function ChatPage() {
           <Button variant="ghost" size="icon" onClick={() => setPanel(p => p === 'sessions' ? 'none' : 'sessions')} aria-label="会话列表">
             <List className="size-5" />
           </Button>
+          <Button variant="ghost" size="icon" onClick={() => setPanel(p => p === 'plugins' ? 'none' : 'plugins')} aria-label="插件版本与更新">
+            <Package className="size-5" />
+          </Button>
           <Button variant="ghost" size="icon" onClick={() => setPanel(p => p === 'settings' ? 'none' : 'settings')} aria-label="通知设置">
             <Bell className="size-5" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={restartBackend} aria-label="一键重启后端" title="一键重启后端服务（经守护进程，应用宕机也能拉起）">
+            <RotateCw className="size-5" />
           </Button>
         </div>
       </header>
@@ -171,6 +215,24 @@ export function ChatPage() {
               ))}
             </datalist>
             <Button size="lg" className="shadow-md" onClick={startNew}>开始</Button>
+          </div>
+          <div className="mt-3 flex items-center gap-2">
+            <span className="text-xs text-[var(--color-muted-foreground)]">引擎</span>
+            {(['claude', 'codex'] as Engine[]).map(eng => (
+              <button
+                key={eng}
+                type="button"
+                onClick={() => setNewEngine(eng)}
+                className={`rounded-full border px-3 py-1 text-xs ${newEngine === eng
+                  ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                  : 'bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}
+              >
+                {eng === 'claude' ? 'Claude' : 'Codex'}
+              </button>
+            ))}
+            {newEngine === 'codex' && (
+              <span className="text-xs text-[var(--color-muted-foreground)]">（Codex 靠沙箱，不弹权限框）</span>
+            )}
           </div>
         </div>
       )}
@@ -195,6 +257,11 @@ export function ChatPage() {
       {panel === 'settings' && (
         <div className="max-h-[60vh] overflow-y-auto border-b">
           <NotifySettings onClose={() => setPanel('none')} />
+        </div>
+      )}
+      {panel === 'plugins' && (
+        <div className="max-h-[60vh] overflow-y-auto">
+          <PluginPanel onClose={() => setPanel('none')} />
         </div>
       )}
 
@@ -222,6 +289,7 @@ export function ChatPage() {
           loadingEarlier={chat.historyLoading}
           exhausted={chat.historyExhausted}
           onFork={chat.forkSession}
+          engineLabel={chat.currentEngine === 'codex' ? 'Codex' : 'Claude'}
         />
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-[var(--color-muted-foreground)]">
@@ -283,6 +351,7 @@ export function ChatPage() {
                   commands={chat.slashCommands}
                   models={chat.models}
                   currentModel={chat.currentModel}
+                  engine={chat.currentEngine}
                   onClose={() => setCmdMenuOpen(false)}
                   onPickCommand={cmd => { setDraft('/' + cmd + ' '); setCmdMenuOpen(false) }}
                   onPickModel={value => { chat.setModel(value); setCmdMenuOpen(false) }}
@@ -295,7 +364,7 @@ export function ChatPage() {
             />
             <textarea
               className="max-h-32 min-h-[2.75rem] flex-1 resize-none rounded-xl border bg-[var(--color-background)] px-3 py-2 text-sm"
-              placeholder="给 Claude 下发任务…（Enter 换行，Shift+Enter 发送）"
+              placeholder={`给 ${chat.currentEngine === 'codex' ? 'Codex' : 'Claude'} 下发任务…（Enter 换行，Shift+Enter 发送）`}
               rows={1}
               value={draft}
               onChange={e => { setDraft(e.target.value); setSlashDismissed(false); setSlashIdx(0) }}

@@ -4,6 +4,7 @@ import { useFeatureConfig } from '@/lib/featureConfig'
 import { NOTIFY_DEFAULTS, type NotifyConfig } from '../types'
 import { testNotify } from '../browserNotify'
 import { testServerPush } from '../api'
+import { playNotifySound } from '../sound'
 
 /** 完成通知双渠道设置：Bark(iPhone) + ntfy(Android)，存 feature-config。 */
 export function NotifySettings({ onClose }: { onClose: () => void }) {
@@ -106,6 +107,16 @@ export function NotifySettings({ onClose }: { onClose: () => void }) {
         )}
         <p className="mt-1 text-[11px] text-[var(--color-muted-foreground)]">
           后端按当前填写的渠道发一条测试推送（无需先保存）。真后台推送，锁屏/关页也能收——前提是手机已装并订阅对应 App/topic。
+        </p>
+      </div>
+
+      <div className="rounded-lg border p-3">
+        <div className="flex items-center justify-between">
+          <span className="font-medium">提示音自检</span>
+          <Button variant="outline" size="sm" onClick={() => playNotifySound()}>试听「叮咚」</Button>
+        </div>
+        <p className="mt-1 text-[11px] text-[var(--color-muted-foreground)]">
+          页内「叮咚」提示音：权限/提问弹窗时会响，Claude 回复完成且页面在后台时也会响。没声音多半是浏览器要求先有手势（本页发过消息即可）或页面被切后台挂起了。
         </p>
       </div>
 

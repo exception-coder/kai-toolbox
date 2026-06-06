@@ -16,10 +16,12 @@ interface Props {
   exhausted?: boolean
   /** 从某条用户消息分叉新会话（仅当该消息带 sdkUuid 时可用） */
   onFork?: (sdkUuid: string) => void
+  /** 引擎展示名（Claude / Codex），用于「正在思考」文案 */
+  engineLabel?: string
 }
 
 /** 消息流：用户气泡靠右、assistant 文本靠左、工具调用与系统标记居中。顶部上拉加载更早历史。 */
-export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exhausted, onFork }: Props) {
+export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exhausted, onFork, engineLabel = 'Claude' }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevHeightRef = useRef(0)
   const prependingRef = useRef(false)
@@ -64,7 +66,7 @@ export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exh
         <Row key={item.id} item={item} onFork={onFork} />
       ))}
       {running && (
-        <div className="text-sm text-[var(--color-muted-foreground)]">Claude 正在思考…</div>
+        <div className="text-sm text-[var(--color-muted-foreground)]">{engineLabel} 正在思考…</div>
       )}
     </div>
   )

@@ -1,5 +1,13 @@
 import { http } from '@/lib/api'
-import type { ChatItem, ClaudeChatSessionView, HistorySessionView, NotifyConfig, WorkspaceList } from './types'
+import type { ChatItem, ClaudeChatSessionView, HistorySessionView, NotifyConfig, PluginStatus, WorkspaceList } from './types'
+
+/** 查 team-standards 在 Claude/Codex 两端的版本。 */
+export function getPluginStatus() {
+  return http<PluginStatus>('/claude-chat/plugins/status')
+}
+
+/** 一键更新双端插件的 SSE 端点（EventSource 直连;连上即触发）。 */
+export const PLUGIN_UPDATE_STREAM_URL = '/api/claude-chat/plugins/update/stream'
 
 /** 用当前（草稿）配置触发后端发一条测试推送，返回实际尝试的渠道（bark / ntfy）。 */
 export function testServerPush(config: NotifyConfig) {

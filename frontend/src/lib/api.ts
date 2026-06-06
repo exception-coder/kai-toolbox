@@ -1,5 +1,6 @@
 import { isMockEnabled } from './mock/mode'
 import { matchHttp, matchSse, MockHttpError, type Method } from './mock/registry'
+import { ensureFreshToken } from './auth'
 
 const API_BASE = '/api'
 
@@ -13,10 +14,15 @@ export async function http<T>(path: string, init?: RequestInit): Promise<T> {
   if (isMockEnabled()) {
     return mockHttp<T>(path, init)
   }
+  // 请求前确保 token 新鲜（软鉴权端点过期返回空而非 401，必须主动续期）。
+  await ensureFreshToken()
+  // 自动附带 JWT（若已登录）。key 与 lib/auth.ts 一致；此处直接读 localStorage 避免循环依赖。
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('toolbox.auth.token') : null
   const res = await fetch(API_BASE + path, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init?.headers ?? {}),
     },
   })

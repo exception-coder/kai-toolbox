@@ -26,8 +26,8 @@ public sealed interface ClientMessage
                 ClientMessage.Interrupt, ClientMessage.SetMode, ClientMessage.SetModel,
                 ClientMessage.ForkSession {
 
-    /** 新建会话。mode 为初始权限模式，可空（缺省按 default）。 */
-    record Open(String cwd, String model, String mode) implements ClientMessage {}
+    /** 新建会话。mode 为初始权限模式，可空（缺省按 default）；engine 为引擎 claude/codex，可空（缺省 claude）。 */
+    record Open(String cwd, String model, String mode, String engine) implements ClientMessage {}
 
     /** 重连进行中的会话，请求回放 seq > lastEventSeq 的事件 */
     record Attach(String sessionId, long lastEventSeq) implements ClientMessage {}

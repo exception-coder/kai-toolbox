@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.resume.api;
 
+import com.exceptioncoder.toolbox.common.auth.annotation.SoftGuard;
 import com.exceptioncoder.toolbox.resume.api.dto.ResumeKvUpsertRequest;
 import com.exceptioncoder.toolbox.resume.api.dto.ResumeKvView;
 import com.exceptioncoder.toolbox.resume.service.ResumeStateService;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/resume")
+@SoftGuard(allowReadonly = false)
 public class ResumeController {
 
     private final ResumeStateService service;

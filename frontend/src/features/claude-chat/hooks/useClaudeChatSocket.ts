@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Attachment, ChatItem, ClientMessage, ConnState, ModelInfo, PendingRequest, PermissionMode, ServerMessage } from '../types'
+import { getToken } from '@/lib/auth'
+import type { Attachment, ChatItem, ClientMessage, ConnState, Engine, ModelInfo, PendingRequest, PermissionMode, ServerMessage } from '../types'
 import { loadMessages } from '../api'
 import { notifyPrompt } from '../browserNotify'
+import { playNotifySound } from '../sound'
 
 // 用全局唯一 id（非可重置计数器）：避免 Vite HMR 热更重置模块级计数器后，
 // 新消息 id 与 state 中残留的旧消息 id 撞 key（开发期刷屏 React duplicate-key 警告）。
@@ -12,7 +14,7 @@ const nextId = (): string =>
 
 /** 连接后要发出的首个意图（区分新建 / 续跑 / 重连回放）。 */
 type Intent =
-  | { kind: 'open'; cwd: string; model?: string; mode?: PermissionMode }
+  | { kind: 'open'; cwd: string; model?: string; mode?: PermissionMode; engine?: Engine }
   | { kind: 'switch'; sessionId: string }
   | { kind: 'resumeHistory'; sdkSessionId: string; cwd: string }
   | { kind: 'attach'; sessionId: string; lastEventSeq: number }
@@ -36,8 +38,10 @@ export interface UseClaudeChatSocket {
   models: ModelInfo[]
   /** 当前模型 value */
   currentModel: string | null
-  /** 新建会话（可带初始权限模式） */
-  open: (cwd: string, model?: string, mode?: PermissionMode) => void
+  /** 当前会话引擎（来自 Ready），用于「思考中」文案 / 命令菜单按引擎区分 */
+  currentEngine: Engine
+  /** 新建会话（可带初始权限模式与引擎） */
+  open: (cwd: string, model?: string, mode?: PermissionMode, engine?: Engine) => void
   /** 切换权限模式（下一轮生效） */
   setMode: (mode: PermissionMode) => void
   /** 切换模型（下一轮生效） */
@@ -73,6 +77,7 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   const [slashCommands, setSlashCommands] = useState<string[]>([])
   const [models, setModels] = useState<ModelInfo[]>([])
   const [currentModel, setCurrentModel] = useState<string | null>(null)
+  const [currentEngine, setCurrentEngine] = useState<Engine>('claude')
 
   const wsRef = useRef<WebSocket | null>(null)
   const intentRef = useRef<Intent | null>(null)
@@ -128,6 +133,14 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
         setState('ready')
         setErrorMessage(null) // sidecar 重连恢复后会重发 ready，借此清掉 SIDECAR_DOWN 横幅
         if (msg.slashCommands) setSlashCommands(msg.slashCommands)
+        if (msg.engine) setCurrentEngine(msg.engine)
+        // Codex 会话无模型/slash 清单：进入时清掉上一个 Claude 会话残留的选项，避免误显示。
+        // Claude 会话不清（其 supportedModels 在 sidecar 端缓存，清了 resume 不会再下发）。
+        if (msg.engine === 'codex') {
+          setModels([])
+          setSlashCommands([])
+          setCurrentModel(null)
+        }
         // 按会话状态同步 running：重连/attach 时若该会话已非 RUNNING，纠正卡死的「正在思考」
         if (msg.status) setRunning(msg.status === 'RUNNING')
         if (msg.sdkSessionId) sdkSessionIdRef.current = msg.sdkSessionId
@@ -167,10 +180,12 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
       case 'permissionRequest':
         setPending({ kind: 'permission', reqId: msg.reqId, toolName: msg.toolName, input: msg.input })
         notifyPrompt('Claude 需要确认权限', `工具 ${msg.toolName} 正在等待你授权`)
+        playNotifySound() // 需要操作,无论前后台都响一声
         break
       case 'questionRequest':
         setPending({ kind: 'question', reqId: msg.reqId, questions: msg.questions })
         notifyPrompt('Claude 有问题等你回答', '请回到对话作答')
+        playNotifySound()
         break
       case 'decisionResolved':
         // 另一端已处理同一请求（多端同看）→ 关掉本端弹窗
@@ -205,6 +220,8 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
       case 'result':
         setRunning(false)
         setItems(prev => [...prev, { kind: 'result', id: nextId(), stopReason: msg.stopReason }])
+        // Claude 回复完成:仅当页面不在前台时响一声,避免你正盯着看时反复叮咚
+        if (typeof document !== 'undefined' && document.hidden) playNotifySound()
         break
       case 'error':
         setRunning(false)
@@ -219,7 +236,7 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   const flushIntent = useCallback(() => {
     const intent = intentRef.current
     if (!intent) return
-    if (intent.kind === 'open') sendRaw({ type: 'open', cwd: intent.cwd, model: intent.model, mode: intent.mode })
+    if (intent.kind === 'open') sendRaw({ type: 'open', cwd: intent.cwd, model: intent.model, mode: intent.mode, engine: intent.engine })
     else if (intent.kind === 'switch') sendRaw({ type: 'switchSession', sessionId: intent.sessionId })
     else if (intent.kind === 'resumeHistory') sendRaw({ type: 'resumeHistory', sdkSessionId: intent.sdkSessionId, cwd: intent.cwd })
     else sendRaw({ type: 'attach', sessionId: intent.sessionId, lastEventSeq: intent.lastEventSeq })
@@ -247,7 +264,10 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
       return
     }
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const url = `${proto}//${window.location.host}/api/claude-chat/ws`
+    // WS 握手无法带 Authorization 头，开启鉴权后用 access_token 让 AdminHandshakeInterceptor 校验 ADMIN。
+    const token = getToken()
+    const qs = token ? `?access_token=${encodeURIComponent(token)}` : ''
+    const url = `${proto}//${window.location.host}/api/claude-chat/ws${qs}`
     setState('connecting')
     const ws = new WebSocket(url)
     wsRef.current = ws
@@ -296,6 +316,9 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     setRunning(false)
     setErrorMessage(null)
     setSyncWarning(null)
+    // 注意：不要在此无条件清 models/slashCommands。Claude 的 supportedModels 在 sidecar 端
+    // 是 modelsFetched 缓存的（仅首轮取一次），清了 resume 不会再发 → Claude 模型组永久消失。
+    // 改为在 Ready 处理里「仅当引擎为 Codex 时」清空（Codex 无模型/命令清单），见 applyEvent。
     lastSeqRef.current = 0
     sdkSessionIdRef.current = null
     historyBeforeRef.current = null
@@ -303,15 +326,18 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     setHistoryExhausted(false)
   }
 
-  const open = useCallback((cwd: string, model?: string, m?: PermissionMode) => {
+  const open = useCallback((cwd: string, model?: string, m?: PermissionMode, engine?: Engine) => {
     resetForNewSession()
     shouldLoadHistoryRef.current = false
     cwdRef.current = cwd
     sessionIdRef.current = null
     setSessionId(null)
     if (m) setModeState(m)
-    intentRef.current = { kind: 'open', cwd, model, mode: m }
-    if (!sendRaw({ type: 'open', cwd, model, mode: m })) connect()
+    setCurrentEngine(engine ?? 'claude') // 乐观：新建即按所选引擎，Ready 回来再确认
+    // Codex 无可查询模型清单：新建即清掉残留的 Claude 模型/命令，避免空窗期误显示
+    if (engine === 'codex') { setModels([]); setSlashCommands([]); setCurrentModel(null) }
+    intentRef.current = { kind: 'open', cwd, model, mode: m, engine }
+    if (!sendRaw({ type: 'open', cwd, model, mode: m, engine })) connect()
   }, [sendRaw, connect])
 
   const switchTo = useCallback((sid: string) => {
@@ -414,5 +440,5 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     loadHistoryRef.current = loadHistory
   }, [loadHistory])
 
-  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, models, currentModel, open, switchTo, resumeHistory, send, decide, interrupt, setMode, setModel, forkSession, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, models, currentModel, currentEngine, open, switchTo, resumeHistory, send, decide, interrupt, setMode, setModel, forkSession, historyLoading, historyExhausted, loadHistory }
 }

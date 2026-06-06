@@ -23,6 +23,7 @@ public class ClaudeChatSessionRepository {
             .cwd(rs.getString("cwd"))
             .title(rs.getString("title"))
             .sdkSessionId(rs.getString("sdk_session_id"))
+            .engine(rs.getString("engine") == null ? "claude" : rs.getString("engine"))
             .status(SessionStatus.valueOf(rs.getString("status")))
             .startedAt(rs.getLong("started_at"))
             .lastSeenAt(rs.getLong("last_seen_at"))
@@ -42,10 +43,11 @@ public class ClaudeChatSessionRepository {
     public void insert(ClaudeChatSession s) {
         jdbc.update("""
                 INSERT INTO claude_chat_session
-                  (id, cwd, title, sdk_session_id, status, started_at, last_seen_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                  (id, cwd, title, sdk_session_id, engine, status, started_at, last_seen_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 s.getId(), s.getCwd(), s.getTitle(), s.getSdkSessionId(),
+                s.getEngine() == null ? "claude" : s.getEngine(),
                 s.getStatus().name(), s.getStartedAt(), s.getLastSeenAt());
     }
 

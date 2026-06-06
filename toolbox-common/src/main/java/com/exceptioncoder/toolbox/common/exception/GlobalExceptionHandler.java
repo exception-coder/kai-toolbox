@@ -1,5 +1,7 @@
 package com.exceptioncoder.toolbox.common.exception;
 
+import com.exceptioncoder.toolbox.common.auth.AuthException;
+import com.exceptioncoder.toolbox.common.dynamicconfig.DynamicConfigException;
 import com.exceptioncoder.toolbox.common.featureconfig.FeatureConfigNotFoundException;
 import com.exceptioncoder.toolbox.common.media.FfmpegUnavailableException;
 import org.slf4j.Logger;
@@ -58,6 +60,28 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(FeatureConfigNotFoundException.class)
     public ResponseEntity<Map<String, Object>> handleFeatureConfigNotFound(FeatureConfigNotFoundException e) {
         return body(HttpStatus.NOT_FOUND, e.getMessage());
+    }
+
+    @ExceptionHandler(AuthException.class)
+    public ResponseEntity<Map<String, Object>> handleAuth(AuthException e) {
+        return ResponseEntity.status(e.getStatus()).body(Map.of(
+                "timestamp", Instant.now().toString(),
+                "status", e.getStatus().value(),
+                "error", e.getStatus().getReasonPhrase(),
+                "code", e.getCode(),
+                "message", e.getMessage() == null ? "" : e.getMessage()
+        ));
+    }
+
+    @ExceptionHandler(DynamicConfigException.class)
+    public ResponseEntity<Map<String, Object>> handleDynamicConfig(DynamicConfigException e) {
+        return ResponseEntity.status(e.getStatus()).body(Map.of(
+                "timestamp", Instant.now().toString(),
+                "status", e.getStatus().value(),
+                "error", e.getStatus().getReasonPhrase(),
+                "code", e.getCode(),
+                "message", e.getMessage() == null ? "" : e.getMessage()
+        ));
     }
 
     @ExceptionHandler(Exception.class)

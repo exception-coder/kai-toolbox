@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { getToken } from '@/lib/auth'
 import type { ClientMessage, ServerMessage, ShellKind, SocketState } from '../types'
 
 export interface UseWebTermSocketOptions {
@@ -71,7 +72,10 @@ export function useWebTermSocket(opts: UseWebTermSocketOptions): WebTermSocket {
       return
     }
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const url = `${proto}//${window.location.host}/api/webterm/ws`
+    // WS 握手无法带 Authorization 头，开启鉴权后用 access_token 查询参数让 AdminHandshakeInterceptor 校验。
+    const token = getToken()
+    const qs = token ? `?access_token=${encodeURIComponent(token)}` : ''
+    const url = `${proto}//${window.location.host}/api/webterm/ws${qs}`
     setState('connecting')
     setErrorMessage(null)
     const ws = new WebSocket(url)

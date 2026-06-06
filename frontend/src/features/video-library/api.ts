@@ -1,4 +1,5 @@
 import { http, ApiError } from '@/lib/api'
+import { withAuthToken } from '@/lib/auth'
 import type { CleanJunkResult, PlaybackStats, RecentVideo, SubtitleJob, VideoLanguageFacet, VideoLibraryPage, VideoSizeBucket, VideoSortBy, VideoSortOrder } from './types'
 
 export function getVideoLibrary(
@@ -53,7 +54,7 @@ export function getRecentVideos(limit = 10) {
 }
 
 export function thumbUrl(scanId: string, path: string): string {
-  return `/api/treesize/scans/${scanId}/thumb?path=${encodeURIComponent(path)}`
+  return withAuthToken(`/api/treesize/scans/${scanId}/thumb?path=${encodeURIComponent(path)}`)
 }
 
 export function getPlaybackStats() {
@@ -141,12 +142,12 @@ export function subtitleEventsPath(jobId: string): string {
 
 /** Absolute URL the {@code <track src>} attribute consumes (original language). */
 export function subtitleVttUrl(jobId: string): string {
-  return `/api/treesize/subtitles/jobs/${jobId}/vtt`
+  return withAuthToken(`/api/treesize/subtitles/jobs/${jobId}/vtt`)
 }
 
 /** Absolute URL for the server-translated (Chinese) VTT. Works on all browsers incl. mobile. */
 export function subtitleTranslatedVttUrl(jobId: string): string {
-  return `/api/treesize/subtitles/jobs/${jobId}/vtt/translated`
+  return withAuthToken(`/api/treesize/subtitles/jobs/${jobId}/vtt/translated`)
 }
 
 // =============================================================================
@@ -262,7 +263,7 @@ export function getProcessingOverview() {
  * 后端 GET 端点会 304 缓存 1 天；未生成 / 缓存被删 → 404。
  */
 export function thumbnailGridUrl(path: string): string {
-  return `/api/treesize/videos/thumbnail-grid?path=${encodeURIComponent(path)}`
+  return withAuthToken(`/api/treesize/videos/thumbnail-grid?path=${encodeURIComponent(path)}`)
 }
 
 /** 按系列签名查同系列视频（前端展示"同系列(N)"链接时用）。 */

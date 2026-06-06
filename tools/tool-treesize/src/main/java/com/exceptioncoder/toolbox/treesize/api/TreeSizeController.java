@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.treesize.api;
 
+import com.exceptioncoder.toolbox.common.auth.annotation.SoftGuard;
 import com.exceptioncoder.toolbox.common.media.FfmpegProbe;
 import com.exceptioncoder.toolbox.common.media.FfmpegProcessRegistry;
 import com.exceptioncoder.toolbox.common.media.ThumbnailService;
@@ -63,6 +64,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/treesize")
+@SoftGuard({"VIDEO_LIBRARY", "DISK_ADMIN"})
 public class TreeSizeController {
 
     private final ScanService scanService;

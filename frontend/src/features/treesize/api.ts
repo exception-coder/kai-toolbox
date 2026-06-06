@@ -1,4 +1,5 @@
 import { http } from '@/lib/api'
+import { ensureFreshToken, getToken, withAuthToken } from '@/lib/auth'
 import type {
   NodeView,
   ProbeResult,
@@ -124,27 +125,36 @@ export function getVideoConfig() {
  * Using HEAD avoids transferring an empty body and matches the api-doc contract.
  */
 export async function probeVideo(scanId: string, path: string): Promise<ProbeResult> {
+  // probe 是裸 fetch（要读响应头），不走 http()，需自己续期 + 带 token，否则软鉴权拦截后拿不到头。
+  await ensureFreshToken()
+  const token = getToken()
   const url = `/api${probePath(scanId, path)}`
-  const res = await fetch(url, { method: 'HEAD' })
+  const res = await fetch(url, {
+    method: 'HEAD',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
   if (!res.ok) {
     throw new Error(`probe failed: ${res.status}`)
   }
+  // Controller 执行过才会带 X-Ffmpeg-Available 头；缺头 = 被软鉴权拦（未授权），而非 ffmpeg 不可用。
+  const ffmpegHeader = res.headers.get('X-Ffmpeg-Available')
   return {
     nativelyPlayable: res.headers.get('X-Native-Playable') === 'true',
     container: res.headers.get('X-Container') ?? 'unknown',
     videoCodec: res.headers.get('X-Video-Codec') ?? 'unknown',
     audioCodec: res.headers.get('X-Audio-Codec') ?? '(none)',
     durationSeconds: Number(res.headers.get('X-Duration-Seconds') ?? 0),
-    ffmpegAvailable: res.headers.get('X-Ffmpeg-Available') === 'true',
+    ffmpegAvailable: ffmpegHeader === 'true',
+    authorized: ffmpegHeader !== null,
   }
 }
 
 export function streamUrl(scanId: string, path: string): string {
-  return `/api/treesize/scans/${scanId}/stream?path=${encodeURIComponent(path)}`
+  return withAuthToken(`/api/treesize/scans/${scanId}/stream?path=${encodeURIComponent(path)}`)
 }
 
 export function hlsPlaylistUrl(scanId: string, path: string): string {
-  return `/api/treesize/scans/${scanId}/hls/playlist.m3u8?path=${encodeURIComponent(path)}`
+  return withAuthToken(`/api/treesize/scans/${scanId}/hls/playlist.m3u8?path=${encodeURIComponent(path)}`)
 }
 
 function probePath(scanId: string, path: string): string {

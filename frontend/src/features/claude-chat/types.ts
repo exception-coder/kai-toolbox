@@ -7,6 +7,8 @@ export interface ClaudeChatSessionView {
   cwd: string
   title: string | null
   sdkSessionId: string | null
+  /** 会话引擎 claude/codex（旧会话可能无此字段，按 claude 处理） */
+  engine?: Engine
   status: SessionStatus
   startedAt: number
   lastSeenAt: number
@@ -44,6 +46,23 @@ export interface Attachment {
 /** 权限模式：与 sidecar Agent SDK 的 permissionMode 对齐。 */
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
 
+/** 会话引擎：claude（Claude Agent SDK）/ codex（OpenAI Codex SDK）。会话级固定。 */
+export type Engine = 'claude' | 'codex'
+
+/** team-standards 插件单端版本（installed/available 取不到为 null，error 为检测失败原因）。 */
+export interface EnginePluginStatus {
+  installed: string | null
+  available: string | null
+  error: string | null
+}
+
+/** 插件双端版本视图。 */
+export interface PluginStatus {
+  marketplace: string
+  claude: EnginePluginStatus
+  codex: EnginePluginStatus
+}
+
 /** 可选模型信息（来自 SDK supportedModels）。value 用于 setModel，displayName/description 供展示。 */
 export interface ModelInfo {
   value: string
@@ -53,7 +72,7 @@ export interface ModelInfo {
 
 // ── 客户端 → 服务端 ───────────────────────────────────────────────
 export type ClientMessage =
-  | { type: 'open'; cwd: string; model?: string; mode?: PermissionMode }
+  | { type: 'open'; cwd: string; model?: string; mode?: PermissionMode; engine?: Engine }
   | { type: 'attach'; sessionId: string; lastEventSeq: number }
   | { type: 'switchSession'; sessionId: string }
   | { type: 'resumeHistory'; sdkSessionId: string; cwd: string }
@@ -80,7 +99,7 @@ export interface Question {
 
 // ── 服务端 → 客户端（均带 seq）────────────────────────────────────
 export type ServerMessage =
-  | { type: 'ready'; seq: number; sessionId: string; sdkSessionId: string | null; slashCommands?: string[]; status?: SessionStatus; epoch?: string }
+  | { type: 'ready'; seq: number; sessionId: string; sdkSessionId: string | null; slashCommands?: string[]; status?: SessionStatus; epoch?: string; engine?: Engine }
   | { type: 'assistantDelta'; seq: number; text: string }
   | { type: 'toolUse'; seq: number; toolName: string; input: unknown }
   | { type: 'toolResult'; seq: number; toolName: string; output: string; isError: boolean }

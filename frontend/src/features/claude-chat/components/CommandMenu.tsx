@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Check } from 'lucide-react'
-import type { ModelInfo } from '../types'
+import type { Engine, ModelInfo } from '../types'
 
 /**
  * `/` 按钮弹出的分组菜单（复刻官方 VSCode 插件 actions 菜单）：顶部 Filter 同时过滤两组——
@@ -10,6 +10,7 @@ export function CommandMenu({
   commands,
   models,
   currentModel,
+  engine = 'claude',
   onPickCommand,
   onPickModel,
   onClose,
@@ -17,6 +18,7 @@ export function CommandMenu({
   commands: string[]
   models: ModelInfo[]
   currentModel: string | null
+  engine?: Engine
   onPickCommand: (cmd: string) => void
   onPickModel: (value: string) => void
   onClose: () => void
@@ -79,7 +81,9 @@ export function CommandMenu({
           {fModels.length === 0 && fCmds.length === 0 && (
             <div className="px-3 py-2 text-xs text-[var(--color-muted-foreground)]">
               {models.length === 0 && commands.length === 0
-                ? '暂无可用项（首轮对话后由后端下发命令/模型）'
+                ? (engine === 'codex'
+                    ? 'Codex 会话：模型由 ~/.codex 配置决定，此处不提供模型/命令切换'
+                    : '暂无可用项（首轮对话后由后端下发命令/模型）')
                 : '无匹配项'}
             </div>
           )}

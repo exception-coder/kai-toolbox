@@ -1,8 +1,10 @@
 import { NavLink } from 'react-router-dom'
 import { Boxes } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useAuth } from '@/lib/auth'
 import type { FeatureManifest } from './types'
 import { entryOf } from './featureRegistry'
+import { hasFeatureAccess } from './access'
 
 interface SidebarProps {
   features: FeatureManifest[]
@@ -10,7 +12,10 @@ interface SidebarProps {
 }
 
 export function Sidebar({ features, collapsed }: SidebarProps) {
-  const groups = groupFeatures(features)
+  const { user } = useAuth()
+  // 按当前账号角色过滤：无权模块不出现在菜单（与路由 RouteGuard 配套）。
+  const visible = features.filter(f => hasFeatureAccess(f, user?.roles ?? []))
+  const groups = groupFeatures(visible)
 
   return (
     <aside
@@ -26,7 +31,7 @@ export function Sidebar({ features, collapsed }: SidebarProps) {
       </NavLink>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3">
-        {features.length === 0 && !collapsed && (
+        {visible.length === 0 && !collapsed && (
           <div className="px-2 py-1 text-xs text-[var(--color-muted-foreground)]">
             还没有任何工具
           </div>

@@ -84,17 +84,19 @@ public class ClaudeChatService {
         String cwd = open.cwd() == null || open.cwd().isBlank()
                 ? System.getProperty("user.home") : open.cwd().trim();
 
+        String engine = normalizeEngine(open.engine());
         repo.insert(ClaudeChatSession.builder()
-                .id(sessionId).cwd(cwd).title(null).sdkSessionId(null)
+                .id(sessionId).cwd(cwd).title(null).sdkSessionId(null).engine(engine)
                 .status(SessionStatus.IDLE).startedAt(now).lastSeenAt(now).build());
 
         SessionCtx ctx = new SessionCtx(sessionId, cwd);
+        ctx.engine = engine;
         sessions.put(sessionId, ctx);
         bindViewer(ws, ctx);
 
         ctx.mode = normalizeMode(open.mode());
-        sidecar.startSession(sessionId, cwd, open.model(), ctx.mode);
-        log.info("[claude-chat] open 会话 {} cwd={} mode={}", sessionId, cwd, ctx.mode);
+        sidecar.startSession(sessionId, cwd, open.model(), ctx.mode, engine);
+        log.info("[claude-chat] open 会话 {} cwd={} mode={} engine={}", sessionId, cwd, ctx.mode, engine);
     }
 
     public void attach(WebSocketSession ws, ClientMessage.Attach attach) {
@@ -110,17 +112,18 @@ public class ClaudeChatService {
                     created[0] = true;
                     SessionCtx c = new SessionCtx(id, db.getCwd());
                     c.sdkSessionId = db.getSdkSessionId();
+                    c.engine = normalizeEngine(db.getEngine());
                     return c;
                 });
                 bindViewer(ws, restored);
                 if (created[0]) {
                     repo.touch(db.getId(), SessionStatus.IDLE, System.currentTimeMillis());
-                    sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd());
+                    sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), restored.engine);
                     log.info("[claude-chat] attach 内存未命中，从 DB 恢复并 resume 会话 {}", db.getId());
                 }
                 // Ready 只发给当前这条连接（其它已在看的连接不需要重复）
                 writeTo(ws, new ServerMessage.Ready(restored.seq.incrementAndGet(),
-                        restored.sessionId, restored.sdkSessionId, restored.slashCommands, restored.status.name(), restored.epoch));
+                        restored.sessionId, restored.sdkSessionId, restored.slashCommands, restored.status.name(), restored.epoch, restored.engine));
                 return;
             }
             sendError(ws, 0, "SESSION_NOT_FOUND", "会话不存在或已结束，请切换或新建");
@@ -133,7 +136,7 @@ public class ClaudeChatService {
         ensureSessionResumable(ctx); // sidecar 也断了的话借浏览器重连顺带恢复
         // 回推一次会话状态：让重连端按 status 同步 running，纠正「result 已被缓冲淘汰 → 永久卡在正在思考」
         writeTo(ws, new ServerMessage.Ready(ctx.seq.incrementAndGet(),
-                ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch));
+                ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch, ctx.engine));
         log.info("[claude-chat] attach 会话 {} from seq>{}", ctx.sessionId, attach.lastEventSeq());
     }
 
@@ -146,11 +149,12 @@ public class ClaudeChatService {
         }
         SessionCtx ctx = sessions.computeIfAbsent(db.getId(), id -> new SessionCtx(id, db.getCwd()));
         ctx.sdkSessionId = db.getSdkSessionId();
+        ctx.engine = normalizeEngine(db.getEngine());
         bindViewer(ws, ctx);
         repo.touch(db.getId(), SessionStatus.IDLE, System.currentTimeMillis());
-        sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd());
+        sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), ctx.engine);
         // 历史消息由前端按需读 SDK transcript；这里只发一个 Ready 表示已就绪
-        sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch));
+        sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch, ctx.engine));
     }
 
     /** 续跑磁盘上的历史会话：建一条本工具的元数据行后 resume，之后它也出现在工具会话列表里。 */
@@ -166,7 +170,7 @@ public class ClaudeChatService {
                 ? System.getProperty("user.home") : msg.cwd().trim();
 
         repo.insert(ClaudeChatSession.builder()
-                .id(id).cwd(cwd).title(null).sdkSessionId(msg.sdkSessionId())
+                .id(id).cwd(cwd).title(null).sdkSessionId(msg.sdkSessionId()).engine("claude")
                 .status(SessionStatus.IDLE).startedAt(now).lastSeenAt(now).build());
 
         SessionCtx ctx = new SessionCtx(id, cwd);
@@ -174,8 +178,8 @@ public class ClaudeChatService {
         sessions.put(id, ctx);
         bindViewer(ws, ctx);
 
-        sidecar.resumeSession(id, msg.sdkSessionId(), cwd);
-        sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, id, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch));
+        sidecar.resumeSession(id, msg.sdkSessionId(), cwd, ctx.engine);
+        sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, id, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch, ctx.engine));
         log.info("[claude-chat] resumeHistory 会话 {} sdk={} cwd={}", id, msg.sdkSessionId(), cwd);
     }
 
@@ -252,6 +256,10 @@ public class ClaudeChatService {
         return isValidMode(m) ? m : "default";
     }
 
+    private static String normalizeEngine(String e) {
+        return "codex".equals(e) ? "codex" : "claude";
+    }
+
     public void interrupt(WebSocketSession ws) {
         SessionCtx ctx = ctxOf(ws);
         if (ctx != null) sidecar.interrupt(ctx.sessionId);
@@ -300,7 +308,7 @@ public class ClaudeChatService {
                 ctx.sdkSessionId = node.path("sdkSessionId").asText(null);
                 ctx.slashCommands = parseStringList(node.get("slashCommands"));
                 repo.updateSdkSessionId(sessionId, ctx.sdkSessionId);
-                sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch));
+                sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch, ctx.engine));
             }
             case "assistantDelta" -> sendToBrowser(ctx,
                     seq -> new ServerMessage.AssistantDelta(seq, node.path("text").asText("")));
@@ -345,7 +353,8 @@ public class ClaudeChatService {
         sendToBrowser(ctx, seq -> new ServerMessage.Result(seq, usage, stopReason));
         // 所有观察者都不在线才推送，避免打扰
         if (!hasActiveViewer(ctx)) {
-            notifications.notifyDone("Claude 任务完成", shortCwd(ctx.cwd));
+            String engineLabel = "codex".equals(ctx.engine) ? "Codex" : "Claude";
+            notifications.notifyDone(engineLabel + " 任务完成", shortCwd(ctx.cwd));
         }
     }
 
@@ -363,7 +372,7 @@ public class ClaudeChatService {
         String newId = UUID.randomUUID().toString();
         long now = System.currentTimeMillis();
         repo.insert(ClaudeChatSession.builder()
-                .id(newId).cwd(cwd).title(null).sdkSessionId(newSdk)
+                .id(newId).cwd(cwd).title(null).sdkSessionId(newSdk).engine(ctx.engine)
                 .status(SessionStatus.IDLE).startedAt(now).lastSeenAt(now).build());
         log.info("[claude-chat] 会话 {} 分叉出新会话 {} sdk={}", ctx.sessionId, newId, newSdk);
         sendToBrowser(ctx, seq -> new ServerMessage.Forked(seq, newId));
@@ -414,10 +423,10 @@ public class ClaudeChatService {
         int n = 0;
         for (SessionCtx ctx : sessions.values()) {
             if (ctx.sdkSessionId == null || ctx.sdkSessionId.isBlank()) continue;
-            sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd);
+            sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine);
             ctx.status = SessionStatus.IDLE;
             repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
-            sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch));
+            sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch, ctx.engine));
             n++;
         }
         log.info("[claude-chat] sidecar 重连成功，已 resume {} 个会话", n);
@@ -438,7 +447,7 @@ public class ClaudeChatService {
             return false;
         }
         if (ctx.sdkSessionId != null && !ctx.sdkSessionId.isBlank()) {
-            sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd);
+            sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine);
             ctx.status = SessionStatus.IDLE;
             repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
         }
@@ -659,6 +668,8 @@ public class ClaudeChatService {
         final String epoch = UUID.randomUUID().toString();
         final Deque<ServerMessage> buffer = new ArrayDeque<>();
         volatile String sdkSessionId;
+        /** 会话引擎 claude/codex；start/resume 透传给 sidecar，决定走哪条 agentic loop。 */
+        volatile String engine = "claude";
         volatile SessionStatus status = SessionStatus.IDLE;
         /** 当前在看本会话的所有浏览器连接（多端同看）。广播事件遍历此集合，断开按连接移除。 */
         final Set<WebSocketSession> viewers = ConcurrentHashMap.newKeySet();

@@ -36,7 +36,11 @@ public class SpeechToTextClient {
 
     private final SpeechProperties props;
     private final ObjectMapper mapper = new ObjectMapper();
+    // 固定 HTTP/1.1:ASR 是 uvicorn(仅 HTTP/1.1,不支持 h2c)。若用默认 HTTP_2,
+    // 对 http:// 会触发 HTTP/2 明文升级协商,被 uvicorn 判为「Invalid HTTP request」(400)
+    // 或导致连接错位(响应解析报 "Illegal character in chunk size")。SSE + 原始 POST 本就 HTTP/1.1 原生。
     private final HttpClient http = HttpClient.newBuilder()
+            .version(HttpClient.Version.HTTP_1_1)
             .connectTimeout(Duration.ofSeconds(10))
             .build();
 

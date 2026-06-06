@@ -74,6 +74,14 @@ export function SessionList({ currentSessionId, onSwitch }: Props) {
               <div className="flex items-center gap-2">
                 {s.live && <Circle className="size-2 fill-green-500 text-green-500" />}
                 <span className="truncate text-sm font-medium">{s.title || shortCwd(s.cwd)}</span>
+                <span className={cn(
+                  'shrink-0 rounded px-1 text-[10px]',
+                  s.engine === 'codex'
+                    ? 'bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-200'
+                    : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]',
+                )}>
+                  {s.engine === 'codex' ? 'Codex' : 'Claude'}
+                </span>
               </div>
               <div className="truncate text-xs text-[var(--color-muted-foreground)]">
                 {s.cwd} · {formatDate(s.lastSeenAt)}

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { getToken } from '@/lib/auth'
 import type { Attachment, ChatItem, ClientMessage, ConnState, ModelInfo, PendingRequest, PermissionMode, ServerMessage } from '../types'
 import { loadMessages } from '../api'
 import { notifyPrompt } from '../browserNotify'
@@ -206,7 +207,10 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
 
   const connect = useCallback(() => {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const url = `${proto}//${window.location.host}/api/claude-chat/ws`
+    // 与开发版共用 /api/claude-chat/ws，握手受 AdminHandshakeInterceptor 校验，需带 access_token。
+    const token = getToken()
+    const qs = token ? `?access_token=${encodeURIComponent(token)}` : ''
+    const url = `${proto}//${window.location.host}/api/claude-chat/ws${qs}`
     setState('connecting')
     const ws = new WebSocket(url)
     wsRef.current = ws

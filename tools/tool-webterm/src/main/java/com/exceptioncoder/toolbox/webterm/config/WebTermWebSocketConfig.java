@@ -1,6 +1,8 @@
 package com.exceptioncoder.toolbox.webterm.config;
 
+import com.exceptioncoder.toolbox.common.auth.web.AdminHandshakeInterceptor;
 import com.exceptioncoder.toolbox.webterm.handler.WebTermSocketHandler;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
@@ -13,15 +15,23 @@ import org.springframework.web.socket.server.standard.ServletServerContainerFact
 public class WebTermWebSocketConfig implements WebSocketConfigurer {
 
     private final WebTermSocketHandler handler;
+    private final ObjectProvider<AdminHandshakeInterceptor> adminHandshake;
 
-    public WebTermWebSocketConfig(WebTermSocketHandler handler) {
+    public WebTermWebSocketConfig(WebTermSocketHandler handler,
+                                  ObjectProvider<AdminHandshakeInterceptor> adminHandshake) {
         this.handler = handler;
+        this.adminHandshake = adminHandshake;
     }
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        registry.addHandler(handler, "/api/webterm/ws")
+        var registration = registry.addHandler(handler, "/api/webterm/ws")
                 .setAllowedOriginPatterns("*");
+        // 鉴权开启时（AdminHandshakeInterceptor 存在）才在握手阶段校验 ADMIN；关闭时不拦。
+        AdminHandshakeInterceptor interceptor = adminHandshake.getIfAvailable();
+        if (interceptor != null) {
+            registration.addInterceptors(interceptor);
+        }
     }
 
     @Bean

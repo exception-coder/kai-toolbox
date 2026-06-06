@@ -14,6 +14,7 @@ public record ClaudeChatSessionView(
         String cwd,
         String title,
         String sdkSessionId,
+        String engine,
         SessionStatus status,
         long startedAt,
         long lastSeenAt,
@@ -22,6 +23,7 @@ public record ClaudeChatSessionView(
     public static ClaudeChatSessionView from(ClaudeChatSession s, boolean live) {
         return new ClaudeChatSessionView(
                 s.getId(), s.getCwd(), s.getTitle(), s.getSdkSessionId(),
+                s.getEngine() == null ? "claude" : s.getEngine(),
                 s.getStatus(), s.getStartedAt(), s.getLastSeenAt(), live);
     }
 }

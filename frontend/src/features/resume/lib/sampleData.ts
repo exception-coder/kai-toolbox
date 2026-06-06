@@ -74,6 +74,34 @@ export const SAMPLE_RESUME: ResumeData = {
   ],
   projects: [
     {
+      id: 'p-kpos-refund',
+      name: 'KPos POS 退款退货与支付反结账本地 Backend 重构',
+      role: '核心开发 / 本地 Backend 负责人',
+      period: '2026.04 - 2026.06',
+      description:
+        '基于 Flutter/Dart 的多平台 POS 收银系统，负责退款退货、支付退款、反结账等核心链路的本地 Backend 重构。原有退款模块业务逻辑分散在页面、Repository 与旧 Service 中，难以支撑复杂退款、KPay 异步退款、联台分摊、失败重试与主副设备同步等生产场景。本次重构将核心逻辑收敛为 endpoint、DTO、Service、DAO、Registry、BackendInfra 的本地服务架构，提升链路稳定性、可维护性与生产排查能力。',
+      responsibilities: [
+        '跨栈切入：以 Java 后端背景进入 Flutter/Dart 项目，在缺少完整文档与语言基础的情况下，边掌握 Riverpod、Drift、Dart 异步与代码生成机制，边完成核心接口开发',
+        '退款重构：重构 refund backendv2，覆盖退款确认、退款分配、可退商品、最大可退金额、退款按钮隐藏、退款时效校验、整单取消、拒单退款、再次退款等接口',
+        '结构治理：将原本分散在页面与 Repository 中的退款逻辑，收敛为 endpoint、DTO、Service、DAO、Registry 的本地 Backend 分层结构',
+        '事务落库：抽取退款入库编排能力，处理订单、账单、流水、退款单、商品、税费、小费、服务费等多表一致性',
+        '异步补偿：建设 KPay Online 退款链路，支持退款发起、pending 落库、主动轮询、终态回调、超时降级、失败重试与 UI 通知',
+        '反结账能力：补齐反结账本地 Backend 接口，处理整单取消、卡机反结回调、重新支付、订单状态与支付流水联动',
+        '边界修复：修复部分退、再次退、联台、拆分支付、AA 付、含小费、服务费、不可退渠道、拒单/取消、反结后再支付等复杂场景问题',
+        '可观测性：建设 BackendInfra、共享 DAO、BackendModuleLogger、ZoneLogger、trace 串联、cloud logs 与 DAO 异常日志，提升生产排障效率',
+        '数据库治理：补齐 pending_online_refund 表、索引与 Drift 迁移逻辑，处理版本升级兼容与查询性能问题',
+      ],
+      achievements: [
+        '将原本偏页面流程的退款模块重构为本地 Backend 服务体系，提升复杂退款链路的可维护性与扩展性',
+        '约 7 周内完成 200+ 次提交，覆盖 refund、payment、order、reopen_order、backend_infra、database 等核心模块',
+        '完成 KPay 在线退款「发起-落库-轮询-终态-同步-通知」闭环，降低异步退款卡 pending 与状态错乱风险',
+        '统一退款金额与状态口径，解决小费重复计算、部分退误判、再次退款失败重试、联台分摊错误等多类生产边界问题',
+        '抽取共享 DAO、状态计算、退款锁、日志与基础设施能力，减少页面侧散落判断与重复 SQL',
+        '在无完整文档、无 Flutter/Dart 深厚基础的前提下，借助 AI 协同与后端工程经验快速完成跨栈核心链路交付',
+        '将原预计需数月熟悉与重构的复杂链路，压缩到约 7 周完成可运行、可联调、可排查的生产闭环',
+      ],
+    },
+    {
       id: 'p-1',
       name: 'AI 求职小助理',
       role: '项目负责人',

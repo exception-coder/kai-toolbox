@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { Loader2 } from 'lucide-react'
 import Hls, { type ErrorData, type Events } from 'hls.js'
 import { cn } from '@/lib/utils'
+import { getToken } from '@/lib/auth'
 import { hlsPlaylistUrl, probeVideo, streamUrl } from '@/features/treesize/api'
 import type { ProbeResult } from '@/features/treesize/types'
 import { SubtitleOverlay, type SubtitleMode } from './SubtitleOverlay'
@@ -40,7 +41,7 @@ interface VideoPlayerProps {
   onToggleSubtitles?: () => void
 }
 
-type Mode = 'loading' | 'native' | 'hls' | 'unsupported' | 'error'
+type Mode = 'loading' | 'native' | 'hls' | 'unsupported' | 'error' | 'unauthorized'
 type ScreenOrientationMode = 'landscape' | 'portrait'
 type LockableScreenOrientation = ScreenOrientation & {
   lock?: (orientation: ScreenOrientationMode) => Promise<void>
@@ -92,7 +93,10 @@ export function VideoPlayer({
         if (cancelled) return
         setProbe(result)
         onProbeResolved?.(result)
-        if (result.nativelyPlayable) {
+        if (!result.authorized) {
+          // 探测被软鉴权拦截（未登录/无权限/登录态失效）——不是 ffmpeg 问题。
+          setMode('unauthorized')
+        } else if (result.nativelyPlayable) {
           setMode('native')
         } else if (result.ffmpegAvailable) {
           setMode('hls')
@@ -152,6 +156,12 @@ export function VideoPlayer({
           manifestLoadingTimeOut: 20000,
           fragLoadingTimeOut: 60000,
           startFragPrefetch: true,
+          // 给 playlist + 每个分片请求带上 JWT（开启软鉴权后流式端点也需鉴权；
+          // playlist URL 已带 access_token 查询参数，这里再补头覆盖相对分片请求）。
+          xhrSetup: (xhr: XMLHttpRequest) => {
+            const t = getToken()
+            if (t) xhr.setRequestHeader('Authorization', `Bearer ${t}`)
+          },
         })
         hls.loadSource(playlist)
         hls.attachMedia(video)
@@ -296,6 +306,14 @@ export function VideoPlayer({
         <div className="absolute inset-0 flex items-center justify-center text-white/80 bg-black/40">
           <Loader2 className="h-6 w-6 animate-spin" />
           <span className="ml-2 text-sm">探测中…</span>
+        </div>
+      )}
+      {mode === 'unauthorized' && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center text-sm text-white/90 bg-black/60">
+          <div>请登录后播放</div>
+          <div className="text-xs text-white/60">
+            视频库已开启访问控制，需用具备「管理员 / 视频库」权限的账号登录（右上角登录）。
+          </div>
         </div>
       )}
       {mode === 'unsupported' && (

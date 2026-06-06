@@ -73,4 +73,7 @@ export interface ProbeResult {
   audioCodec: string
   durationSeconds: number
   ffmpegAvailable: boolean
+  /** 探测请求是否被授权（响应带 X-Ffmpeg-Available 头才算 Controller 真正执行了）。
+   *  false 表示被软鉴权拦截（未登录/无权限），而非真的 ffmpeg 不可用。 */
+  authorized: boolean
 }
