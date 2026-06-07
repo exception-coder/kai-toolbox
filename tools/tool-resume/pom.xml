@@ -30,6 +30,12 @@
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
         </dependency>
+        <!-- 简历 AI 优化:OpenAI 兼容协议 ChatClient。base-url 可指向 DeepSeek / OpenAI / Ollama 的 /v1 端点。
+             不引入 OpenAI 自动配置(避免与全局 spring.ai.openai.* 冲突);ChatClient 由 ResumeChatClientConfig 手动装配。 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-openai</artifactId>
+        </dependency>
     </dependencies>
 
 </project>

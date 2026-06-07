@@ -11,6 +11,19 @@ spring:
         version: 0.1.0
         type: SYNC
         instructions: "kai-toolbox 简历能力:按 id 幂等增改/删除项目、工作、教育,字段级改基本信息,整组替换技能。改动前可先 resume_get 或 resume_list_projects 查看现状。"
+    # 简历 AI 优化用的 LLM(OpenAI 兼容协议)。当前仅简历优化用到 chat 能力,故全局 spring.ai.openai 即此用途。
+    # 默认 DeepSeek 远端;base-url 不带 /v1,OpenAiApi 会自动拼 /v1/chat/completions。
+    #   DeepSeek : base-url=https://api.deepseek.com  model=deepseek-chat  需 TOOLBOX_RESUME_LLM_API_KEY
+    #   本地 Ollama: base-url=http://localhost:11434  model=qwen2.5:7b     api-key 任意占位即可
+    #   OpenAI   : base-url=https://api.openai.com    model=gpt-4o-mini
+    # api-key 留占位符是为了让自动配置在本地 Ollama(无需 key)场景也能正常启动,真实 key 走环境变量。
+    openai:
+      base-url: ${TOOLBOX_RESUME_LLM_BASE_URL:https://api.deepseek.com}
+      api-key: ${TOOLBOX_RESUME_LLM_API_KEY:local-no-key-needed}
+      chat:
+        options:
+          model: ${TOOLBOX_RESUME_LLM_MODEL:deepseek-chat}
+          temperature: 0.4
   threads:
     virtual:
       enabled: true

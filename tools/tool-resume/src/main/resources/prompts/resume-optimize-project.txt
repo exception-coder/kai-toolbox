@@ -1,0 +1,17 @@
+请优化以下「项目经历」条目，使其更贴合目标岗位。
+
+目标岗位：{{targetRole}}
+工作年限：{{experienceYears}}
+岗位级别：{{seniorityLevel}}
+
+其他段摘要（仅供跨段一致性参考，不要改写其中内容）：
+{{otherSectionsBrief}}
+
+待优化的项目经历（JSON）：
+{{originalContent}}
+
+【本段输出要求】
+- "optimizedContent" 必须是一个 JSON 字符串（被转义后的字符串，不是嵌套对象），其反序列化后的结构需与输入一致，包含字段：name、role、period、description、responsibilities（字符串数组）、achievements（字符串数组）。
+- name / role / period 保持事实不变，仅做轻微规整。
+- description 提炼项目背景与个人定位；responsibilities 突出技术难点与你的贡献；achievements 量化结果（量化须基于原文线索）。
+- 强化与目标岗位匹配的技术关键词，但不得编造未参与的工作。
