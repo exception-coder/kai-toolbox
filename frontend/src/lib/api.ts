@@ -121,9 +121,16 @@ export function subscribeSsePost(
   const ctl = new AbortController()
   ;(async () => {
     try {
+      // 与 http() 一致：先确保 token 新鲜，再带上 JWT。否则 @SoftGuard 写接口会按未授权返回空 JSON。
+      await ensureFreshToken()
+      const token = typeof localStorage !== 'undefined' ? localStorage.getItem('toolbox.auth.token') : null
       const res = await fetch(API_BASE + path, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify(body),
         signal: ctl.signal,
       })
