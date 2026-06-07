@@ -1,6 +1,16 @@
 spring:
   application:
     name: kai-toolbox
+  ai:
+    mcp:
+      server:
+        # 简历能力 MCP server(SSE 传输,挂在主端口 :18080)。SSE 端点默认 /sse,消息端点 /mcp/message。
+        # 工具由 ResumeMcpConfig 的 ToolCallbackProvider 注册。MCP 客户端(Claude Code / 自有智能体)填
+        # http://localhost:18080/sse 即可调。端点为 RouterFunction,不走 @SoftGuard(本机单用户,不暴露公网)。
+        name: kai-toolbox-resume
+        version: 0.1.0
+        type: SYNC
+        instructions: "kai-toolbox 简历能力:按 id 幂等增改/删除项目、工作、教育,字段级改基本信息,整组替换技能。改动前可先 resume_get 或 resume_list_projects 查看现状。"
   threads:
     virtual:
       enabled: true

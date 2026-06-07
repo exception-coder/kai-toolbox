@@ -74,6 +74,46 @@ export const SAMPLE_RESUME: ResumeData = {
   ],
   projects: [
     {
+      id: 'p-kpay-daily-plugin',
+      name: 'KPay 日常开发 AI 插件（Claude Code Plugin）',
+      role: '独立开发 / 负责人',
+      period: '2026.05 - 2026.06',
+      description:
+        '面向团队的 Claude Code 插件，把 KPay 日常开发高频操作沉淀为「装一次、全局可用、说人话即触发」的 Skill 体系，免去每个项目重复配置。',
+      responsibilities: [
+        '设计插件架构：12 个 Skill（自然语言触发，无需记命令）+ 2 个自建 Python MCP Server + 接入 Meegle 官方远程 MCP + slash command + PreToolUse hook',
+        'loghub / OpenSearch 日志检索 MCP（订单号 / requestId / 通用 query 全链路）',
+        'korepos 本地 SQLite 查询（桌面 / iOS 模拟器 / Android adb 真机三态）',
+        'Meegle 工作项查询 / 创建 / 流转 + 每日工作日志推送',
+        'macOS korepos 全链路：环境搭建（FVM/Flutter/Xcode）→ 最省时运行 iPad 模拟器 → 按环境自动登录',
+        '沉淀 backend 接口规范 / 日志规范 / schema 迁移差异排查等团队工程约束；跨 macOS/Windows；Python 依赖用 uv 管理',
+      ],
+      achievements: [
+        '把分散在各项目、各人重复的开发操作收敛为一个全局插件，新同事 60 秒上手、零命令记忆',
+        '自然语言触发 + MCP 后台编排，显著降低日志排障、工作项流转、环境搭建的人工成本',
+        '约 1 个月迭代成型（29 次提交）',
+      ],
+    },
+    {
+      id: 'p-team-standards',
+      name: '团队开发规范 AI 插件（Claude Code + Codex）',
+      role: '独立开发 / 负责人',
+      period: '2026.03 - 2026.06',
+      description:
+        '把团队工程规范（编码标准、设计文档、提交、bug 分析、知识图谱等）固化为可被 AI 按场景自动触发执行的 Claude Code / Codex 双端插件，装一次全局生效——让规范「自动落地」而非靠人记。',
+      responsibilities: [
+        '设计 25 个 Skill 体系：Java/Dart 编码规范（阿里黄山版）、设计文档强制（三档模版分级）、bug 文档强制、git 提交规范、文档索引、术语表、知识图谱（正向 + 反向索引）、跨项目调用定位等',
+        '实现 PreToolUse hooks：源码编辑前强制设计文档（识别 monorepo/Maven 项目根）、大改拦截走 skill、注释红线扫描、后端知识图谱就绪检查（跨平台 Node + 单测）',
+        '建 CI 守护：三处 manifest 版本同步、CLAUDE.md→AGENTS.md 同步、跨 skill 引用校验、SKILL.md 体检；hooks 在 ubuntu/macOS/Windows × Node 18/20/22 矩阵测试',
+        '双端市场架构：同一 GitHub 仓库重构为「marketplace 根 + 子目录单插件」，供 Claude Code（.claude-plugin）与 Codex（.agents/plugins）双端 install/update',
+      ],
+      achievements: [
+        '把团队规范从「文档靠人记」变为「AI 按场景自动触发执行」，约 3 个月迭代到 25 Skill / 166 commits / v1.33',
+        '一套插件双端（Claude Code + Codex）复用，GitHub 一处更新两端拉取',
+        'hook + CI 形成质量闭环：编码前强制设计文档、提交规范化、跨引用与版本一致性自动校验',
+      ],
+    },
+    {
       id: 'p-kpos-refund',
       name: 'KPos POS 退款退货与支付反结账本地 Backend 重构',
       role: '核心开发 / 本地 Backend 负责人',

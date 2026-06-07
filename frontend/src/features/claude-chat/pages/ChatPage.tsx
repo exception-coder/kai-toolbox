@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, List, Maximize2, Minimize2, Package, Paperclip, PictureInPicture2, Plus, RotateCw, Send, Slash, Square } from 'lucide-react'
+import { Bell, List, Maximize2, Minimize2, Package, Paperclip, PictureInPicture2, Plus, RotateCw, Send, ShieldCheck, Slash, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { MessageList } from '../components/MessageList'
 import { PermissionDialog } from '../components/PermissionDialog'
@@ -35,24 +36,57 @@ export function ChatPage() {
 
   // 一键重启后端：调守护进程(run-supervised.ps1)的独立控制口 /supervisor/restart(经 Vite 代理到 :18081)。
   // 与后端独立——后端宕机时本控制口仍在,故能拉起。当前 WS 会断,重启后前端自动重连续上。
-  const restartBackend = async () => {
-    if (!window.confirm('重启后端服务？当前连接会短暂断开，重启后页面会自动重连续上会话。')) return
-    let token = localStorage.getItem('kai-toolbox:supervisor-token') ?? ''
-    if (!token) {
-      token = window.prompt('输入守护进程 RestartToken（与 run-supervised.ps1 里的 $RestartToken 一致）') ?? ''
-      if (!token) return
-      localStorage.setItem('kai-toolbox:supervisor-token', token)
-    }
+  // token 用应用内输入框收，不用 window.prompt：移动端浏览器/WebView 普遍禁用 prompt（静默返回 null），
+  // 会导致“点了没反应、不弹输入框”。confirm/alert 同理改为应用内弹层 + 行内状态。
+  const [restartOpen, setRestartOpen] = useState(false)
+  const [restartToken, setRestartToken] = useState('')
+  const [restartStatus, setRestartStatus] = useState('')
+  const [restartBusy, setRestartBusy] = useState(false)
+
+  const openRestart = () => {
+    setRestartToken(localStorage.getItem('kai-toolbox:supervisor-token') ?? '')
+    setRestartStatus('')
+    setRestartOpen(true)
+  }
+
+  const doRestart = async () => {
+    const token = restartToken.trim()
+    if (!token) { setRestartStatus('请先输入 RestartToken'); return }
+    localStorage.setItem('kai-toolbox:supervisor-token', token)
+    setRestartBusy(true)
+    setRestartStatus('正在请求重启…')
     try {
       const r = await fetch('/supervisor/restart', { method: 'POST', headers: { 'X-Restart-Token': token } })
-      if (r.ok) window.alert('重启已触发，后端数秒后回来，页面会自动重连。')
-      else if (r.status === 403) { localStorage.removeItem('kai-toolbox:supervisor-token'); window.alert('token 不匹配（已清除，请重试重新输入）。') }
-      else if (r.status === 503) window.alert('守护进程未配置 RestartToken（改 run-supervised.ps1 的 $RestartToken）。')
-      else window.alert(`重启请求失败：HTTP ${r.status}`)
+      if (r.ok) setRestartStatus('✅ 重启已触发，后端数秒后回来，页面会自动重连。')
+      else if (r.status === 403) { localStorage.removeItem('kai-toolbox:supervisor-token'); setRestartStatus('❌ token 不匹配（已清除，请重新输入）') }
+      else if (r.status === 503) setRestartStatus('❌ 守护进程未配置 RestartToken（改 run-supervised.ps1 的 $RestartToken）')
+      else if (r.status === 404) setRestartStatus('❌ /supervisor 未代理到 :18081 —— 重启一次 npm run dev 让 vite 代理生效')
+      else setRestartStatus(`❌ 重启请求失败：HTTP ${r.status}`)
     } catch {
-      window.alert('连不上守护进程控制口(:18081)。请确认后端是用 run-supervised.ps1 启动的。')
+      setRestartStatus('❌ 连不上守护口(:18081)，确认后端是用 run-supervised.ps1 启动的')
+    } finally {
+      setRestartBusy(false)
     }
   }
+
+  // 全自动·弹窗自动允许（前端兜底）：bypassPermissions 下仍偶有工具弹 allow/deny 框，
+  // 开此开关后收到权限框就自动 decide(allow)。仅对 permission 生效，question（AskUserQuestion）不自动应答。
+  const [autoApprove, setAutoApprove] = useState(() => localStorage.getItem('kai-toolbox:auto-approve-permission') === '1')
+  const autoApprovedRef = useRef<string | null>(null)
+  const toggleAutoApprove = () => {
+    setAutoApprove(v => {
+      const nv = !v
+      localStorage.setItem('kai-toolbox:auto-approve-permission', nv ? '1' : '0')
+      return nv
+    })
+  }
+  useEffect(() => {
+    if (!chat || chat.mode !== 'bypassPermissions' || !autoApprove) return
+    if (pending?.kind !== 'permission') return
+    if (autoApprovedRef.current === pending.reqId) return // 同一请求只自动放行一次
+    autoApprovedRef.current = pending.reqId
+    chat.decide({ type: 'decision', reqId: pending.reqId, behavior: 'allow' })
+  }, [pending, autoApprove, chat])
 
   // 弹出悬浮窗：开启浮窗并离开会话页（浮窗与全屏页互斥渲染，留在会话页看不到），落到首页即见浮窗
   const popOutFloating = () => {
@@ -191,7 +225,7 @@ export function ChatPage() {
           <Button variant="ghost" size="icon" onClick={() => setPanel(p => p === 'settings' ? 'none' : 'settings')} aria-label="通知设置">
             <Bell className="size-5" />
           </Button>
-          <Button variant="ghost" size="icon" onClick={restartBackend} aria-label="一键重启后端" title="一键重启后端服务（经守护进程，应用宕机也能拉起）">
+          <Button variant="ghost" size="icon" onClick={openRestart} aria-label="一键重启后端" title="一键重启后端服务（经守护进程，应用宕机也能拉起）">
             <RotateCw className="size-5" />
           </Button>
         </div>
@@ -265,6 +299,38 @@ export function ChatPage() {
         </div>
       )}
 
+      {/* 一键重启：应用内弹层（移动端 window.prompt 不可用，必须用页面内输入框收 token） */}
+      {restartOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => { if (!restartBusy) setRestartOpen(false) }}
+        >
+          <div
+            className="w-full max-w-sm rounded-lg border bg-[var(--color-background)] p-4 shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-medium">重启后端服务</h3>
+            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
+              当前连接会短暂断开，重启后页面自动重连续上会话。输入守护进程 RestartToken（run-supervised.ps1 里的 $RestartToken）。
+            </p>
+            <Input
+              type="password"
+              autoFocus
+              className="mt-3"
+              placeholder="RestartToken"
+              value={restartToken}
+              onChange={e => setRestartToken(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !restartBusy) doRestart() }}
+            />
+            {restartStatus && <p className="mt-2 text-xs">{restartStatus}</p>}
+            <div className="mt-3 flex justify-end gap-2">
+              <Button variant="outline" size="sm" disabled={restartBusy} onClick={() => setRestartOpen(false)}>取消</Button>
+              <Button size="sm" disabled={restartBusy} onClick={doRestart}>{restartBusy ? '请求中…' : '重启'}</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 同步空洞提示：断线较久时部分消息已被服务端缓冲淘汰，回放补不回 */}
       {chat.syncWarning && (
         <div className="flex items-start gap-2 border-b border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
@@ -312,8 +378,22 @@ export function ChatPage() {
               return prev.filter(a => a.id !== id)
             })}
           />
-          <div className="flex items-center px-3 pt-2">
+          <div className="flex items-center gap-2 px-3 pt-2">
             <ModeSwitch mode={chat.mode} onChange={chat.setMode} />
+            {chat.mode === 'bypassPermissions' && (
+              <button
+                type="button"
+                onClick={toggleAutoApprove}
+                title="全自动下：弹出的权限框自动点「允许」（仅权限框；AskUserQuestion 提问不自动应答）"
+                aria-label="弹窗自动允许开关"
+                className={'flex items-center gap-1 rounded-md border px-2 py-1 text-xs '
+                  + (autoApprove
+                    ? 'border-red-500 bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300'
+                    : 'text-[var(--color-muted-foreground)]')}
+              >
+                <ShieldCheck className="size-3.5" /> 弹窗自动允许·{autoApprove ? '开' : '关'}
+              </button>
+            )}
           </div>
           {showSlash && (
             <SlashCommandMenu commands={slashFiltered} activeIndex={slashActive} onPick={pickSlash} />

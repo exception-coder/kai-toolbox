@@ -25,6 +25,11 @@
             <artifactId>lombok</artifactId>
             <scope>provided</scope>
         </dependency>
+        <!-- Spring AI MCP server(WebMVC/SSE):提供 @Tool 注解 + MethodToolCallbackProvider + 自动装配 SSE 端点 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
+        </dependency>
     </dependencies>
 
 </project>
