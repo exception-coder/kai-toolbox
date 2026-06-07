@@ -24,7 +24,7 @@ import { DEFAULT_STATE, loadState, saveState } from '../lib/persistence'
 import { emptyResume, SAMPLE_RESUME } from '../lib/sampleData'
 import { buildFilename, captureNode, exportAsPdf, saveImage } from '../lib/exporter'
 import type { ExportFormat, ResumeData, ResumeState } from '../types'
-import { OptimizeProvider } from '../optimize'
+import { OptimizeProvider, WholeOptimizeButton } from '../optimize'
 
 type MobileTab = 'edit' | 'preview'
 
@@ -79,7 +79,7 @@ export function ResumePage() {
   const quality = useMemo(() => getResumeQuality(state.data), [state.data])
 
   return (
-    <OptimizeProvider data={state.data}>
+    <OptimizeProvider data={state.data} onChange={data => setState(s => ({ ...s, data }))}>
       <div className="resume-workbench">
         <section className="resume-command-center">
           <div className="resume-command-main">
@@ -176,6 +176,15 @@ export function ResumePage() {
                 先在「基本信息」填好求职意向 + 工作年限，AI 优化会按岗位级别精准改写。
               </div>
             )}
+            <div className="flex items-center justify-between gap-2 rounded-lg border bg-[var(--color-card)] px-3 py-2">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold">AI 优化</div>
+                <div className="mt-0.5 text-[11px] text-[var(--color-muted-foreground)]">
+                  单段：每段右下角「AI 优化本段」。整篇：一次通读全简历、跨段统筹、逐段采纳。
+                </div>
+              </div>
+              <WholeOptimizeButton className="shrink-0" />
+            </div>
             <ResumeEditor
               data={state.data}
               quality={quality}

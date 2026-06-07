@@ -71,6 +71,8 @@ export type SseHandlers = {
   onEvent?: (eventName: string, data: unknown) => void
   onError?: (err: Event | Error) => void
   onOpen?: () => void
+  /** 流自然结束（连接关闭）时触发。用于检测「结束但从未收到终止事件」的静默中断。 */
+  onClose?: () => void
 }
 
 /** Default named events every long-running endpoint in this app emits. */
@@ -129,13 +131,25 @@ export function subscribeSsePost(
         handlers.onError?.(new Error(`SSE 启动失败: HTTP ${res.status}`))
         return
       }
+      // 软鉴权未授权 / 接口异常时后端会回 application/json 空体而非事件流，
+      // 这里据 Content-Type 提前识别，避免前端把非流响应当成「正在生成」无限等待。
+      const contentType = res.headers.get('content-type') ?? ''
+      if (!contentType.includes('text/event-stream')) {
+        handlers.onError?.(
+          new Error(`未建立流式连接：服务端返回 ${contentType || '未知类型'} 而非事件流（可能未登录或接口异常）`),
+        )
+        return
+      }
       handlers.onOpen?.()
       const reader = res.body.getReader()
       const decoder = new TextDecoder('utf-8')
       let buffer = ''
       while (true) {
         const { value, done } = await reader.read()
-        if (done) break
+        if (done) {
+          handlers.onClose?.()
+          break
+        }
         buffer += decoder.decode(value, { stream: true })
         // SSE 帧以双换行分隔
         let idx: number

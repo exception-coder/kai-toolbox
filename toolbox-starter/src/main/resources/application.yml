@@ -43,6 +43,15 @@ server:
 
 # 数据存储位置：用户目录下的 .kai-toolbox/
 toolbox:
+  resume:
+    # 简历优化「高质量」引擎(单段/整篇 engine=quality 时用)。「快速」引擎走上面的 spring.ai.openai。
+    # 默认同一把 DeepSeek key，模型换成推理更强的 deepseek-reasoner；也可改 base-url/api-key 接别的 Provider。
+    llm:
+      quality:
+        base-url: ${TOOLBOX_RESUME_LLM_QUALITY_BASE_URL:https://api.deepseek.com}
+        api-key: ${TOOLBOX_RESUME_LLM_QUALITY_API_KEY:${TOOLBOX_RESUME_LLM_API_KEY:local-no-key-needed}}
+        model: ${TOOLBOX_RESUME_LLM_QUALITY_MODEL:deepseek-reasoner}
+        temperature: 0.4
   data-dir: ${user.home}/.kai-toolbox
   log-dir: ${toolbox.data-dir}/logs
   sqlite:

@@ -11,7 +11,14 @@ import {
 import { cn } from '@/lib/utils'
 import { optimizeStream, type OptimizeRequest } from './api'
 import { parseStreamedResult } from './resultParser'
-import { SENIORITY_LEVELS, type OptimizationResult, type SectionType, type SeniorityLevel } from './types'
+import {
+  OPTIMIZE_ENGINES,
+  SENIORITY_LEVELS,
+  type OptimizationResult,
+  type OptimizeEngine,
+  type SectionType,
+  type SeniorityLevel,
+} from './types'
 
 export interface OptimizeDiffSheetProps {
   open: boolean
@@ -50,6 +57,7 @@ export function OptimizeDiffSheet({
   const [rawStream, setRawStream] = useState('')
   const [result, setResult] = useState<OptimizationResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [engine, setEngine] = useState<OptimizeEngine>('fast')
   const abortRef = useRef<(() => void) | null>(null)
 
   // 打开时自动触发一次优化
@@ -68,7 +76,7 @@ export function OptimizeDiffSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  function runOptimize() {
+  function runOptimize(nextEngine: OptimizeEngine = engine) {
     abortRef.current?.()
     setPhase('streaming')
     setRawStream('')
@@ -82,6 +90,7 @@ export function OptimizeDiffSheet({
       experienceYears,
       seniorityLevel,
       otherSectionsBrief,
+      engine: nextEngine,
     }
 
     abortRef.current = optimizeStream(req, {
@@ -154,6 +163,34 @@ export function OptimizeDiffSheet({
           </button>
         </header>
 
+        {/* 引擎切换：fast / quality */}
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-[var(--color-muted-foreground)]">引擎</span>
+          <div className="inline-flex rounded-md border p-0.5">
+            {(['fast', 'quality'] as OptimizeEngine[]).map(e => (
+              <button
+                key={e}
+                type="button"
+                onClick={() => {
+                  if (e === engine) return
+                  setEngine(e)
+                  runOptimize(e)
+                }}
+                title={OPTIMIZE_ENGINES[e].hint}
+                className={cn(
+                  'rounded px-2 py-0.5 transition-colors',
+                  engine === e
+                    ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                    : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]',
+                )}
+              >
+                {OPTIMIZE_ENGINES[e].label}
+              </button>
+            ))}
+          </div>
+          <span className="text-[var(--color-muted-foreground)]">{OPTIMIZE_ENGINES[engine].hint}</span>
+        </div>
+
         {/* 与目标岗位 + 级别匹配的核心能力词 */}
         {result && result.highlightedSkills.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-[var(--color-primary)]/30 bg-[var(--color-primary)]/5 px-3 py-2">
@@ -211,7 +248,7 @@ export function OptimizeDiffSheet({
             </Button>
           )}
           {phase !== 'streaming' && (
-            <Button variant="outline" size="sm" onClick={runOptimize}>
+            <Button variant="outline" size="sm" onClick={() => runOptimize()}>
               <RefreshCw className="h-3.5 w-3.5" />
               重新生成
             </Button>

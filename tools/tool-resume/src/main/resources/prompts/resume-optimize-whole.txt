@@ -1,0 +1,27 @@
+请对下面这份完整简历做「整篇统筹优化」，使其整体更专业、风格统一、并贴合目标岗位。
+
+目标岗位：{{targetRole}}
+工作年限：{{experienceYears}}
+岗位级别：{{seniorityLevel}}
+
+完整简历（JSON，含 basics / work / projects / education 等；work、projects 内每条都有 id 字段）：
+{{resumeJson}}
+
+【整篇优化要求】
+- 跨段统筹：消除重复表达、统一时态与措辞风格、让各段互相呼应而非冲突。
+- 可优化的段：自我介绍（basics.advantage）、每一条工作经历（work[]）、每一条项目经历（projects[]）。
+- 基础事实（公司名、岗位、时间、学校等）保持不变，只做润色 / 重组 / 强化 / 合理量化。
+- 严禁臆造未提供的经历、公司、项目、数字、时间或头衔。
+
+【硬性输出契约】
+- 只输出一个 JSON 对象，不要任何额外解释、不要 Markdown 代码围栏。
+- 顶层结构：{"sections": [ ... ]}，sections 为数组，每个元素是一段的优化结果，字段如下：
+  - "sectionType": "WORK" | "PROJECT" | "SELF_INTRO"
+  - "itemId": 对 WORK / PROJECT，必须原样回填输入中该条目的 id；对 SELF_INTRO 填 null
+  - "optimizedContent":
+      - SELF_INTRO：纯文本字符串
+      - WORK：被转义的 JSON 字符串，反序列化后含 company、role、period、responsibilities(数组)、achievements(数组)
+      - PROJECT：被转义的 JSON 字符串，反序列化后含 name、role、period、description、responsibilities(数组)、achievements(数组)
+  - "changeNotes": 字符串数组，列出该段关键改动（每条简短一句，中文）
+  - "highlightedSkills": 字符串数组，该段与目标岗位匹配的核心能力 / 关键词
+- 只为「确实做了优化」的段输出元素；没必要改动的段可以省略。

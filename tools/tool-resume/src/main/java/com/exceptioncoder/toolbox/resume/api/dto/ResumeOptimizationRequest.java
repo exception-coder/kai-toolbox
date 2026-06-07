@@ -12,7 +12,8 @@ import jakarta.validation.constraints.NotNull;
  * @param experienceYears    工作年限（整数年），可空
  * @param seniorityLevel     岗位级别，可空；prompt 据此分档写作
  * @param otherSectionsBrief 其他段摘要，供跨段一致性参考，可空
- * @param model              指定模型，可空；为空则用 application.yml 默认
+ * @param model              指定模型，可空；为空则用 engine 对应配置默认
+ * @param engine             引擎选择：fast（快速，默认）/ quality（高质量），可空
  */
 public record ResumeOptimizationRequest(
         @NotNull SectionType sectionType,
@@ -21,5 +22,6 @@ public record ResumeOptimizationRequest(
         Integer experienceYears,
         SeniorityLevel seniorityLevel,
         String otherSectionsBrief,
-        String model
+        String model,
+        String engine
 ) {}

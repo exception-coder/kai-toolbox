@@ -5,6 +5,7 @@
 // 从 data.basics 通过 deriveJobContext 派生 { targetRole, experienceYears, seniorityLevel }。
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react'
 import { OptimizeDiffSheet } from './OptimizeDiffSheet'
+import { WholeOptimizeSheet } from './WholeOptimizeSheet'
 import {
   buildOtherSectionsBrief,
   deriveJobContext,
@@ -30,8 +31,10 @@ export interface OptimizeTarget {
 }
 
 interface ContextValue {
-  /** 由 OptimizeButton 调用，触发优化抽屉打开 */
+  /** 由 OptimizeButton 调用，触发单段优化抽屉打开 */
   open: (target: OptimizeTarget) => void
+  /** 由 WholeOptimizeButton 调用，触发整篇优化抽屉打开 */
+  openWhole: () => void
   /** 求职意向是否已填（OptimizeButton 用来调按钮可用态） */
   hasJobIntent: boolean
 }
@@ -40,13 +43,17 @@ const OptimizeCtx = createContext<ContextValue | null>(null)
 
 interface ProviderProps {
   data: ResumeData
+  /** 整篇优化采纳后写回整张简历；不传则整篇优化按钮不可用 */
+  onChange?: (next: ResumeData) => void
   children: React.ReactNode
 }
 
-export function OptimizeProvider({ data, children }: ProviderProps) {
+export function OptimizeProvider({ data, onChange, children }: ProviderProps) {
   const [diffOpen, setDiffOpen] = useState(false)
   const [activeTarget, setActiveTarget] = useState<OptimizeTarget | null>(null)
   const [activeJob, setActiveJob] = useState<JobContext | null>(null)
+  const [wholeOpen, setWholeOpen] = useState(false)
+  const [wholeJob, setWholeJob] = useState<JobContext | null>(null)
   // 用 ref 持有最新 data，避免 buildOtherSectionsBrief 闭包失效
   const dataRef = useRef(data)
   dataRef.current = data
@@ -67,9 +74,19 @@ export function OptimizeProvider({ data, children }: ProviderProps) {
     [],
   )
 
+  const openWhole = useCallback(() => {
+    const job = deriveJobContext(dataRef.current.basics)
+    if (!job) {
+      alert('请先在「基本信息 · 求职意向」里填写目标岗位，再使用 AI 优化。')
+      return
+    }
+    setWholeJob(job)
+    setWholeOpen(true)
+  }, [])
+
   const value = useMemo<ContextValue>(
-    () => ({ open, hasJobIntent }),
-    [open, hasJobIntent],
+    () => ({ open, openWhole, hasJobIntent }),
+    [open, openWhole, hasJobIntent],
   )
 
   const original = activeTarget ? activeTarget.buildOriginal() : ''
@@ -98,6 +115,18 @@ export function OptimizeProvider({ data, children }: ProviderProps) {
           seniorityLevel={activeJob.seniorityLevel}
           otherSectionsBrief={brief}
           onAccept={result => activeTarget.applyAccepted(result)}
+        />
+      )}
+      {wholeJob && onChange && (
+        <WholeOptimizeSheet
+          open={wholeOpen}
+          onOpenChange={o => {
+            setWholeOpen(o)
+            if (!o) setWholeJob(null)
+          }}
+          data={dataRef.current}
+          job={wholeJob}
+          onApply={onChange}
         />
       )}
     </OptimizeCtx.Provider>

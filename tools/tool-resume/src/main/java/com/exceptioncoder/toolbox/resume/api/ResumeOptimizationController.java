@@ -3,6 +3,8 @@ package com.exceptioncoder.toolbox.resume.api;
 import com.exceptioncoder.toolbox.common.auth.annotation.SoftGuard;
 import com.exceptioncoder.toolbox.resume.api.dto.ResumeOptimizationRequest;
 import com.exceptioncoder.toolbox.resume.api.dto.ResumeOptimizationResponse;
+import com.exceptioncoder.toolbox.resume.api.dto.WholeOptimizationRequest;
+import com.exceptioncoder.toolbox.resume.api.dto.WholeOptimizationResponse;
 import com.exceptioncoder.toolbox.resume.service.ResumeOptimizationService;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
@@ -40,5 +42,11 @@ public class ResumeOptimizationController {
         SseEmitter emitter = new SseEmitter(0L);
         service.optimizeStream(req, emitter);
         return emitter;
+    }
+
+    /** 整篇优化：一次读全简历，返回多段建议（同步）。前端逐段 diff 采纳。 */
+    @PostMapping("/optimize/whole")
+    public WholeOptimizationResponse optimizeWhole(@Valid @RequestBody WholeOptimizationRequest req) {
+        return service.optimizeWhole(req);
     }
 }

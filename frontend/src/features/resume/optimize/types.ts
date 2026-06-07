@@ -4,6 +4,14 @@ import type { EducationItem, ProjectExperience, ResumeBasics, ResumeData, WorkEx
 
 export type SectionType = 'WORK' | 'PROJECT' | 'SELF_INTRO'
 
+/** 优化引擎：fast=快速(DeepSeek deepseek-chat)，quality=高质量(默认 deepseek-reasoner) */
+export type OptimizeEngine = 'fast' | 'quality'
+
+export const OPTIMIZE_ENGINES: Readonly<Record<OptimizeEngine, { label: string; hint: string }>> = {
+  fast: { label: '快速', hint: '响应快、成本低，适合反复试改' },
+  quality: { label: '高质量', hint: '推理更强、更细致，耗时略长' },
+}
+
 export type SeniorityLevel = 'JUNIOR' | 'INTERMEDIATE' | 'SENIOR' | 'EXPERT'
 
 export const SENIORITY_LEVELS: Readonly<Record<SeniorityLevel, { label: string; range: string }>> = {
@@ -22,6 +30,22 @@ export interface JobContext {
   targetRole: string
   experienceYears?: number
   seniorityLevel?: SeniorityLevel
+}
+
+/** 整篇优化：单段结果（schema 与后端 WholeOptimizationResponse.SectionResult 一致） */
+export interface WholeSectionResult {
+  sectionType: SectionType
+  /** WORK/PROJECT 对应前端条目 id；SELF_INTRO 为 null */
+  itemId: string | null
+  /** 结构化段为 JSON 字符串，自我介绍为纯文本 */
+  optimizedContent: string
+  changeNotes: string[]
+  highlightedSkills: string[]
+}
+
+/** 整篇优化结果：多段建议 */
+export interface WholeOptimizationResult {
+  sections: WholeSectionResult[]
 }
 
 /** 服务端返回的优化结果（schema 与 ResumeOptimizationResponseDTO 一致） */

@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.resume.service;
 
 import com.exceptioncoder.toolbox.resume.api.dto.ResumeOptimizationRequest;
 import com.exceptioncoder.toolbox.resume.api.dto.SectionType;
+import com.exceptioncoder.toolbox.resume.api.dto.WholeOptimizationRequest;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StreamUtils;
@@ -23,10 +24,12 @@ import java.util.Map;
 public class ResumePromptTemplateLoader {
 
     private final String systemTemplate;
+    private final String wholeTemplate;
     private final Map<SectionType, String> userTemplates = new EnumMap<>(SectionType.class);
 
     public ResumePromptTemplateLoader() {
         this.systemTemplate = load("prompts/resume-optimize-system.txt");
+        this.wholeTemplate = load("prompts/resume-optimize-whole.txt");
         userTemplates.put(SectionType.WORK, load("prompts/resume-optimize-work.txt"));
         userTemplates.put(SectionType.PROJECT, load("prompts/resume-optimize-project.txt"));
         userTemplates.put(SectionType.SELF_INTRO, load("prompts/resume-optimize-self-intro.txt"));
@@ -49,6 +52,15 @@ public class ResumePromptTemplateLoader {
                 .replace("{{seniorityLevel}}", req.seniorityLevel() == null ? "未指定" : seniorityLabel(req.seniorityLevel().name()))
                 .replace("{{otherSectionsBrief}}", nullToEmpty(req.otherSectionsBrief()))
                 .replace("{{originalContent}}", nullToEmpty(req.originalContent()));
+    }
+
+    /** 渲染整篇优化 user 提示词，填入整张简历 JSON 与岗位上下文。 */
+    public String renderWhole(WholeOptimizationRequest req) {
+        return wholeTemplate
+                .replace("{{targetRole}}", nullToEmpty(req.targetRole()))
+                .replace("{{experienceYears}}", req.experienceYears() == null ? "未提供" : req.experienceYears() + " 年")
+                .replace("{{seniorityLevel}}", req.seniorityLevel() == null ? "未指定" : seniorityLabel(req.seniorityLevel().name()))
+                .replace("{{resumeJson}}", nullToEmpty(req.resumeJson()));
     }
 
     private static String seniorityLabel(String level) {
