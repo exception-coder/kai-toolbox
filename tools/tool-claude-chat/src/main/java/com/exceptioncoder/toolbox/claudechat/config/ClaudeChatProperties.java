@@ -41,4 +41,7 @@ public class ClaudeChatProperties {
 
     /** 单条消息最多附件数。 */
     private int maxAttachmentsPerMessage = 10;
+
+    /** 一次性 Agent 任务（高质量简历优化）最长等待时间（毫秒）。 */
+    private long agentOneShotTimeoutMs = 120_000L;
 }

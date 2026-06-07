@@ -45,6 +45,7 @@ public class ClaudeChatService {
     private final SidecarClient sidecar;
     private final NotificationService notifications;
     private final AttachmentStorageService attachments;
+    private final AgentOneShotService agentOneShot;
     private final ObjectMapper mapper;
 
     /** sessionId -> 运行时上下文 */
@@ -60,6 +61,7 @@ public class ClaudeChatService {
                              SidecarClient sidecar,
                              NotificationService notifications,
                              AttachmentStorageService attachments,
+                             AgentOneShotService agentOneShot,
                              ObjectMapper mapper) {
         this.props = props;
         this.repo = repo;
@@ -67,6 +69,7 @@ public class ClaudeChatService {
         this.sidecar = sidecar;
         this.notifications = notifications;
         this.attachments = attachments;
+        this.agentOneShot = agentOneShot;
         this.mapper = mapper;
     }
 
@@ -298,6 +301,11 @@ public class ClaudeChatService {
         // 连接级事件：sidecar 崩溃/断开
         if (sessionId == null || node == null) {
             onSidecarDown();
+            return;
+        }
+        // 一次性 Agent 任务（高质量简历优化等）：不走会话逻辑，转交 AgentOneShotService。
+        if (sessionId.startsWith("oneshot:")) {
+            agentOneShot.handle(sessionId, node);
             return;
         }
         SessionCtx ctx = sessions.get(sessionId);

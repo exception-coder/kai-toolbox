@@ -111,6 +111,12 @@ public class SidecarClient {
         send(Map.of("type", "forkSession", "sessionId", sessionId, "upToMessageId", nz(upToMessageId)));
     }
 
+    /** 一次性无状态生成（高质量简历优化用）。sessionId 约定以 {@code oneshot:} 前缀，事件由 AgentOneShotService 收。 */
+    public void oneShot(String sessionId, String systemPrompt, String userPrompt, String model) {
+        send(Map.of("type", "oneShot", "sessionId", sessionId,
+                "systemPrompt", nz(systemPrompt), "userPrompt", nz(userPrompt), "model", nz(model)));
+    }
+
     private synchronized void send(Map<String, ?> payload) {
         if (session == null || !session.isOpen()) {
             log.warn("[claude-chat] sidecar 未连接，丢弃消息 type={}", payload.get("type"));

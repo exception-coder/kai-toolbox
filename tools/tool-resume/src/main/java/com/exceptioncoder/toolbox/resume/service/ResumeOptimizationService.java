@@ -5,6 +5,7 @@ import com.exceptioncoder.toolbox.resume.api.dto.ResumeOptimizationResponse;
 import com.exceptioncoder.toolbox.resume.api.dto.SectionType;
 import com.exceptioncoder.toolbox.resume.api.dto.WholeOptimizationRequest;
 import com.exceptioncoder.toolbox.resume.api.dto.WholeOptimizationResponse;
+import com.exceptioncoder.toolbox.claudechat.service.AgentOneShotService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -14,7 +15,6 @@ import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.openai.OpenAiChatOptions;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -26,14 +26,14 @@ import java.util.Map;
 /**
  * 简历 AI 优化核心服务：组装 prompt → 调 Spring AI ChatClient → 整理输出。
  *
- * <p>装配方式刻意从简：注入 spring-ai-starter-model-openai 自动配置出的 {@link ChatModel}
- * （连接信息走 application.yml 的 {@code spring.ai.openai.*}，默认 DeepSeek，可切 Ollama/OpenAI），
- * 用 {@link ChatClient#create(ChatModel)} 建客户端，不自建 OpenAiApi / 配置类。
- *
+ * <p>两种引擎：
  * <ul>
- *     <li>流式：把 LLM 文本切片原样透传，前端 resultParser 负责解析（后端不解析）。</li>
- *     <li>同步：后端解析 LLM 的 JSON 输出填充 DTO（前端同步路径不再解析）。</li>
+ *     <li><b>fast</b>（默认）：spring-ai-starter-model-openai 自动配置的 {@link ChatModel}
+ *     （{@code spring.ai.openai.*}，默认 DeepSeek deepseek-chat）。</li>
+ *     <li><b>quality</b>：走 Claude 编码 Agent（复用 claude-chat 的 {@link AgentOneShotService} 跑一次性任务），
+ *     用 Claude 登录态、不花 DeepSeek key；Agent 当作更强的 LLM，纯文本进出。</li>
  * </ul>
+ * 整篇优化（optimizeWhole）暂只走 fast。
  */
 @Service
 public class ResumeOptimizationService {
@@ -42,28 +42,32 @@ public class ResumeOptimizationService {
 
     /** 快速引擎：自动配置的 ChatModel（spring.ai.openai.*，默认 DeepSeek deepseek-chat）。 */
     private final ChatClient fastClient;
-    /** 高质量引擎：ResumeChatClientConfig 手动装配（默认 DeepSeek deepseek-reasoner）。 */
-    private final ChatClient qualityClient;
+    /** 高质量引擎：Claude 编码 Agent（claude-chat sidecar）。 */
+    private final AgentOneShotService agentOneShot;
     private final ResumePromptTemplateLoader templates;
     private final ObjectMapper objectMapper;
 
     public ResumeOptimizationService(ChatModel chatModel,
-                                     @Qualifier("resumeQualityChatClient") ChatClient qualityClient,
+                                     AgentOneShotService agentOneShot,
                                      ResumePromptTemplateLoader templates,
                                      ObjectMapper objectMapper) {
         this.fastClient = ChatClient.create(chatModel);
-        this.qualityClient = qualityClient;
+        this.agentOneShot = agentOneShot;
         this.templates = templates;
         this.objectMapper = objectMapper;
     }
 
-    /** 按请求里的 engine 选择 ChatClient；quality 命中高质量引擎，其余（含 null）走快速引擎。 */
-    private ChatClient clientFor(String engine) {
-        return "quality".equalsIgnoreCase(engine) ? qualityClient : fastClient;
+    /** quality 引擎走 Claude 编码 Agent；其余（含 null）走 fast。 */
+    private boolean isAgent(String engine) {
+        return "quality".equalsIgnoreCase(engine);
     }
 
     /** 同步优化：阻塞等待完整结果并解析为结构化 DTO。 */
     public ResumeOptimizationResponse optimize(ResumeOptimizationRequest req) {
+        if (isAgent(req.engine())) {
+            String text = agentOneShot.runOnce(templates.systemPrompt(), templates.render(req), req.model());
+            return parse(text);
+        }
         ChatResponse resp = promptSpec(req).call().chatResponse();
         String content = resp == null ? "" : resp.getResult().getOutput().getText();
         ResumeOptimizationResponse parsed = parse(content);
@@ -75,10 +79,24 @@ public class ResumeOptimizationService {
     }
 
     /**
-     * 流式优化：在虚拟线程订阅 LLM token 流，逐片经 SSE 推 {@code chunk}，结束推 {@code done}。
+     * 流式优化：逐片经 SSE 推 {@code chunk}，结束推 {@code done}。
      * 出错时推一个 {@code error} 事件（带 message）再 complete，让前端能明确提示而不是静默卡住。
+     * quality 引擎在虚拟线程里阻塞跑 Agent，把 delta 当 chunk 推。
      */
     public void optimizeStream(ResumeOptimizationRequest req, SseEmitter emitter) {
+        if (isAgent(req.engine())) {
+            Thread.ofVirtual().start(() -> {
+                try {
+                    agentOneShot.stream(templates.systemPrompt(), templates.render(req), req.model(),
+                            delta -> sendChunk(emitter, delta));
+                    sendDone(emitter);
+                } catch (Exception e) {
+                    log.warn("[resume.optimize] Agent 流式失败", e);
+                    sendError(emitter, e);
+                }
+            });
+            return;
+        }
         promptSpec(req).stream().content().subscribe(
                 chunk -> sendChunk(emitter, chunk),
                 err -> {
@@ -88,9 +106,9 @@ public class ResumeOptimizationService {
                 () -> sendDone(emitter));
     }
 
-    /** 整篇优化：一次把整张简历喂给 LLM，解析出多段建议。 */
+    /** 整篇优化：一次把整张简历喂给 LLM（仅 fast 引擎），解析出多段建议。 */
     public WholeOptimizationResponse optimizeWhole(WholeOptimizationRequest req) {
-        ChatClient.ChatClientRequestSpec spec = clientFor(req.engine()).prompt()
+        ChatClient.ChatClientRequestSpec spec = fastClient.prompt()
                 .system(templates.systemPrompt())
                 .user(templates.renderWhole(req));
         if (StringUtils.hasText(req.model())) {
@@ -142,7 +160,7 @@ public class ResumeOptimizationService {
     }
 
     private ChatClient.ChatClientRequestSpec promptSpec(ResumeOptimizationRequest req) {
-        ChatClient.ChatClientRequestSpec spec = clientFor(req.engine()).prompt()
+        ChatClient.ChatClientRequestSpec spec = fastClient.prompt()
                 .system(templates.systemPrompt())
                 .user(templates.render(req));
         if (StringUtils.hasText(req.model())) {

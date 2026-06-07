@@ -20,6 +20,13 @@
             <groupId>com.exceptioncoder</groupId>
             <artifactId>toolbox-common</artifactId>
         </dependency>
+        <!-- 简历「高质量」优化引擎复用 claude-chat 的 Agent sidecar（AgentOneShotService）。
+             方案A：tool-resume 依赖 tool-claude-chat（非循环；claude-chat 不依赖 resume）。 -->
+        <dependency>
+            <groupId>com.exceptioncoder</groupId>
+            <artifactId>tool-claude-chat</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>

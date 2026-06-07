@@ -323,6 +323,21 @@ export class SessionManager {
     this.sessions.get(id)?.interrupt()
     this.sessions.delete(id)
   }
+
+  /**
+   * 一次性无状态生成：建临时 Session（不入 sessions Map），bypassPermissions，
+   * 把 system+user 拼成一个 prompt 跑一轮，复用 Session.handle 逐片 emit assistantDelta + result/error。
+   * 用于「高质量」简历优化引擎——Agent 当作更强的 LLM，纯文本进出，不调工具、不接 MCP、不持久化。
+   */
+  async oneShot(id: string, systemPrompt: string, userPrompt: string, model?: string): Promise<void> {
+    const cwd = process.env.USERPROFILE || process.env.HOME || process.cwd()
+    const s = new Session(id, cwd, (e) => this.emit(id, e))
+    if (model) s.model = model
+    s.permissionMode = 'bypassPermissions'
+    s.perms.setMode('bypassPermissions')
+    const combined = systemPrompt ? `${systemPrompt}\n\n${userPrompt}` : userPrompt
+    await s.runTurn(combined)
+  }
 }
 
 function stringifyContent(content: unknown): string {
