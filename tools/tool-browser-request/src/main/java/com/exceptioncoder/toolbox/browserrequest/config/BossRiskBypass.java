@@ -79,6 +79,14 @@ public final class BossRiskBypass {
             route.resume();
             return;
         }
+        // 主文档 / 导航请求绝不拦截：对导航请求做 route.fetch()+fulfill 会与 page.navigate() 内部
+        // 解析「导航响应对象」竞争，抛 PlaywrightException: Object doesn't exist: response@...，
+        // 导致 navigate 失败、页面停在 about:blank（点「打开」无法访问 BOSS 的根因）。
+        // 风控码只出现在 JSON AJAX 响应里，HTML 文档本体无需改写，直接放行。
+        if (route.request().isNavigationRequest()) {
+            route.resume();
+            return;
+        }
         try {
             APIResponse resp = route.fetch();
             String ct = resp.headers().get("content-type");
