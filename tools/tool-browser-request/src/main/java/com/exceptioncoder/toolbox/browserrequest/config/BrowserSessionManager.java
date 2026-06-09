@@ -1,7 +1,6 @@
 package com.exceptioncoder.toolbox.browserrequest.config;
 
 import com.microsoft.playwright.APIResponse;
-import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Page;
@@ -49,7 +48,6 @@ public class BrowserSessionManager {
     private final Map<String, BrowserContext> contexts = new ConcurrentHashMap<>();
     private final Map<String, Page> firstPages = new ConcurrentHashMap<>();
     private volatile Playwright playwright;
-    private volatile Browser browser;
     private volatile boolean shuttingDown = false;
 
     public BrowserSessionManager(BrowserRequestProperties props, ObjectMapper objectMapper) {
@@ -76,8 +74,16 @@ public class BrowserSessionManager {
     }
 
     public boolean isActive(String sessionId) {
-        BrowserContext ctx = contexts.get(sessionId);
-        return ctx != null && ctx.browser() != null && ctx.browser().isConnected();
+        return isCtxAlive(contexts.get(sessionId));
+    }
+
+    /**
+     * 判断 context 是否仍存活。launchPersistentContext 出来的 ctx 的 {@code browser()} 为 null，
+     * 不能用 browser().isConnected() 判断；用一次廉价调用探活——已关闭的 ctx 调 pages() 会抛异常。
+     */
+    private static boolean isCtxAlive(BrowserContext ctx) {
+        if (ctx == null) return false;
+        try { ctx.pages(); return true; } catch (Exception e) { return false; }
     }
 
     /** 当前在内存中持有 ctx 的会话 id 集合（含已断连但未清理的，调用方应用 isActive 复检）。 */
@@ -88,10 +94,10 @@ public class BrowserSessionManager {
     /** 在 worker 线程上打开/恢复一个 session 的浏览器窗口，并导航到 url。 */
     public void openSession(String sessionId, String url) {
         runOnWorker(() -> {
-            ensureBrowser();
-            if (contexts.containsKey(sessionId)) {
-                BrowserContext exist = contexts.get(sessionId);
-                if (exist.browser() != null && exist.browser().isConnected()) {
+            ensurePlaywright();
+            BrowserContext existing = contexts.get(sessionId);
+            if (existing != null) {
+                if (isCtxAlive(existing)) {
                     Page p = firstPages.get(sessionId);
                     if (p != null && !p.isClosed()) navigateAndLog(sessionId, p, url);
                     return null;
@@ -99,29 +105,41 @@ public class BrowserSessionManager {
                 contexts.remove(sessionId);
                 firstPages.remove(sessionId);
             }
-            Path storage = storageStatePath(sessionId);
-            Browser.NewContextOptions opts = new Browser.NewContextOptions()
-                    .setUserAgent(StealthConfig.UA)
+            // 每会话一个持久化的真实 Chrome profile —— cookies / 登录态随 profile 目录天然持久，
+            // 无需再 import/export storage-state.json。用本机真 Chrome(channel) + 启动参数级反自动化
+            // (--disable-blink-features=AutomationControlled / 屏蔽 --enable-automation)；默认不注入
+            // stealth.js（JS 钩子改写原生函数反被商用反爬识破）。这是对抗 zpAegis 这类反爬最隐蔽的姿态。
+            Path profile = profileDir(sessionId);
+            try { Files.createDirectories(profile); } catch (IOException ignored) {}
+            BrowserType.LaunchPersistentContextOptions opts = new BrowserType.LaunchPersistentContextOptions()
+                    .setHeadless(props.isHeadless())
+                    .setArgs(StealthConfig.chromiumArgs())
+                    .setIgnoreDefaultArgs(StealthConfig.ignoreDefaultArgs())
                     .setLocale(StealthConfig.LOCALE)
                     .setTimezoneId(StealthConfig.TIMEZONE)
-                    .setBypassCSP(true)
-                    .setViewportSize(1440, 900)
-                    .setExtraHTTPHeaders(StealthConfig.extraHttpHeaders());
-            if (Files.exists(storage)) {
-                opts.setStorageStatePath(storage);
-                try {
-                    log.info("[BrowserRequest] 复用 storage state: {} ({} bytes)",
-                            storage, Files.size(storage));
-                } catch (IOException ignored) {}
-            } else {
-                log.info("[BrowserRequest] 无 storage state 文件，将以全新 ctx 打开: {}", sessionId);
+                    .setViewportSize(1440, 900);
+            if (props.getChannel() != null && !props.getChannel().isBlank()) {
+                opts.setChannel(props.getChannel());
             }
-            BrowserContext ctx = browser.newContext(opts);
+            if (props.getProxy() != null && !props.getProxy().isBlank()) {
+                opts.setProxy(new Proxy(props.getProxy()));
+            }
+            if (props.isStealthScript()) {
+                // 仅显式开启时才套旧反检测（固定 UA / Sec-CH-UA / 绕 CSP）；默认让真 Chrome 用自身指纹，
+                // 避免固定 Chrome 135 UA 与真实版本不符反成破绽。
+                opts.setUserAgent(StealthConfig.UA)
+                        .setBypassCSP(true)
+                        .setExtraHTTPHeaders(StealthConfig.extraHttpHeaders());
+            }
+            BrowserContext ctx = playwright.chromium().launchPersistentContext(profile, opts);
             ctx.setDefaultTimeout(props.getRequestTimeoutMs());
             ctx.setDefaultNavigationTimeout(props.getRequestTimeoutMs());
-            // 在任何文档执行前注入反检测脚本（覆盖 webdriver / chrome / plugins / WebGL 等）
-            ctx.addInitScript(StealthConfig.initScript());
-            Page page = ctx.newPage();
+            if (props.isStealthScript()) {
+                ctx.addInitScript(StealthConfig.initScript());
+            }
+            log.info("[BrowserRequest] 持久 ctx 启动 session={} channel={} stealthScript={} profile={}",
+                    sessionId, props.getChannel(), props.isStealthScript(), profile);
+            Page page = ctx.pages().isEmpty() ? ctx.newPage() : ctx.pages().get(0);
             // 诊断：记录主框架每次导航落点。用于区分"加载后被站点重定向回 about:blank"（反爬）
             // 与"导航本身没成功"——前者会看到先 bosszhipin 后 about:blank 两条 frame navigated。
             page.onFrameNavigated(frame -> {
@@ -238,7 +256,7 @@ public class BrowserSessionManager {
             firstPages.remove(sessionId);
             boolean saved = false;
             if (ctx != null) {
-                if (ctx.browser() != null && ctx.browser().isConnected()) {
+                if (isCtxAlive(ctx)) {
                     try {
                         Path storage = storageStatePath(sessionId);
                         Files.createDirectories(storage.getParent());
@@ -257,17 +275,29 @@ public class BrowserSessionManager {
         }));
     }
 
-    /** 清除 session 的 storage state 文件。 */
+    /** 清除 session 的登录态：storage-state.json + 持久 profile 目录（cookies/登录态实际所在）。 */
     public void clearStorageState(String sessionId) {
         Path storage = storageStatePath(sessionId);
         try {
             Files.deleteIfExists(storage);
+            // 持久化模式下 cookies/登录态都在 profile 目录里，必须递归删掉才算真正登出（会话需先关闭，
+            // 否则 Chrome 占用文件可能删不干净——best-effort）。
+            deleteRecursively(profileDir(sessionId));
             Path dir = storage.getParent();
             if (dir != null && Files.exists(dir) && isEmpty(dir)) {
                 Files.deleteIfExists(dir);
             }
         } catch (IOException e) {
             log.warn("[BrowserRequest] 清理 storage 失败 {}: {}", sessionId, e.getMessage());
+        }
+    }
+
+    private static void deleteRecursively(Path root) throws IOException {
+        if (!Files.exists(root)) return;
+        try (var walk = Files.walk(root)) {
+            walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+                try { Files.deleteIfExists(p); } catch (IOException ignored) {}
+            });
         }
     }
 
@@ -336,26 +366,19 @@ public class BrowserSessionManager {
         return ctx;
     }
 
-    private void ensureBrowser() {
-        if (browser != null && browser.isConnected()) return;
-        closeBrowserQuietly();
-        this.playwright = Playwright.create();
-        BrowserType.LaunchOptions opts = new BrowserType.LaunchOptions()
-                .setHeadless(props.isHeadless())
-                .setArgs(StealthConfig.chromiumArgs())
-                .setIgnoreDefaultArgs(StealthConfig.ignoreDefaultArgs());
-        if (props.getProxy() != null && !props.getProxy().isBlank()) {
-            opts.setProxy(new Proxy(props.getProxy()));
-        }
-        this.browser = playwright.chromium().launch(opts);
-        log.info("[BrowserRequest] Chromium launched (headless={}, stealth=on)", props.isHeadless());
+    /** 持久 profile 目录：每会话一个真实 Chrome user-data-dir，cookies/登录态天然持久。 */
+    private Path profileDir(String sessionId) {
+        return dataDir.resolve(sessionId).resolve("profile");
     }
 
-    private void closeBrowserQuietly() {
-        if (browser != null) {
-            try { browser.close(); } catch (Exception ignored) {}
-            browser = null;
+    /** Playwright 进程单例：每会话用 launchPersistentContext 各起一个真 Chrome，共享同一 Playwright。 */
+    private void ensurePlaywright() {
+        if (playwright == null) {
+            this.playwright = Playwright.create();
         }
+    }
+
+    private void closePlaywrightQuietly() {
         if (playwright != null) {
             try { playwright.close(); } catch (Exception ignored) {}
             playwright = null;
@@ -389,7 +412,7 @@ public class BrowserSessionManager {
                 });
                 contexts.clear();
                 firstPages.clear();
-                closeBrowserQuietly();
+                closePlaywrightQuietly();
             }).get(10, TimeUnit.SECONDS);
         } catch (Exception e) {
             log.warn("[BrowserRequest] worker 优雅关闭失败: {}", e.getMessage());

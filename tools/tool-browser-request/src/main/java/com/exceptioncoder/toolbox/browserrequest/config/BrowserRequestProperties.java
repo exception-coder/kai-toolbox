@@ -49,4 +49,18 @@ public class BrowserRequestProperties {
      * 的连环问题；而未触发风控时它毫无收益。仅在确认被风控弹回（code 31/32/35/36/37/5012）时再手动开启。
      */
     private boolean bossRiskBypass = false;
+
+    /**
+     * 浏览器渠道：{@code chrome}=本机真实 Chrome（反爬识别度最低，推荐，需本机已装 Chrome）；
+     * {@code msedge}=Edge；留空=Playwright 自带 Chromium。对抗 zpAegis 这类商用反爬时用真 Chrome 最稳。
+     */
+    private String channel = "chrome";
+
+    /**
+     * 是否注入 stealth.js 反检测脚本。默认 false：它改写 navigator/原生函数，反而被 zpAegis 等商用反爬
+     * 用 Function.prototype.toString 校验识破为"被篡改=自动化"。配合 channel=chrome +
+     * --disable-blink-features=AutomationControlled（启动参数级，不可检测），关掉 JS 钩子更隐蔽。
+     * 仅在需要兼容老式弱检测站点时再开。
+     */
+    private boolean stealthScript = false;
 }

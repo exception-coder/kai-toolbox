@@ -258,6 +258,12 @@ toolbox:
   browser-request:
     # 持久 BrowserContext 数据目录（cookies/storage state），留空 = ${toolbox.data-dir}/browser-request
     data-dir: ${toolbox.data-dir}/browser-request
+    # 浏览器渠道：chrome=本机真实 Chrome（反爬识别度最低，推荐，需已装 Chrome）；msedge；留空=Playwright 自带 Chromium。
+    # 每会话用 launchPersistentContext 起一个独立真实 profile（cookies 随 profile 目录天然持久）。
+    channel: chrome
+    # 是否注入 stealth.js 反检测脚本。默认 false：它改写 navigator/原生函数，反被 zpAegis 等商用反爬用
+    # Function.prototype.toString 校验识破为自动化。配合 channel=chrome + 启动参数级反自动化，关掉更隐蔽。
+    stealth-script: false
     # BOSS 直聘风控码拦截器（ctx.route + route.fetch 改写 JSON code）。默认 false：它对每个 XHR 做
     # 服务端重放，经代理对 zhipin 域易超时/失败，曾引发 navigate 崩溃 / 卡加载 / 渲染进程 OOM 白屏；
     # 未触发风控时无收益。仅在确认被风控弹回（code 31/32/35/36/37/5012）时再设 true。
