@@ -21,6 +21,8 @@ import {
   Boxes,
   Network,
   ListTree,
+  XCircle,
+  LifeBuoy,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -119,6 +121,68 @@ function HFlow({ steps }: { steps: { icon?: Icon; title: string; desc?: string; 
   )
 }
 
+type Opt = { name: string; reason: string }
+type Decision = { topic: string; chosen: Opt; fallback?: Opt; rejected: Opt[] }
+
+/** 一个选型决策：选用高亮、降级备选次之、被筛除项置灰 + 原因 */
+function DecisionCard({ d }: { d: Decision }) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">{d.topic}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {/* 选用 */}
+        <div className="flex items-start gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold">{d.chosen.name}</span>
+              <Badge variant="success">选用</Badge>
+            </div>
+            <div className="text-xs text-[var(--color-muted-foreground)]">{d.chosen.reason}</div>
+          </div>
+        </div>
+
+        {/* 降级备选 */}
+        {d.fallback && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2">
+            <LifeBuoy className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium">{d.fallback.name}</span>
+                <Badge variant="outline">降级备选</Badge>
+              </div>
+              <div className="text-xs text-[var(--color-muted-foreground)]">{d.fallback.reason}</div>
+            </div>
+          </div>
+        )}
+
+        {/* 被筛除（置灰） */}
+        {d.rejected.map(r => (
+          <div
+            key={r.name}
+            className="flex items-start gap-2 rounded-lg border border-dashed px-3 py-2 opacity-55"
+          >
+            <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-muted-foreground)]" />
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium text-[var(--color-muted-foreground)] line-through">
+                  {r.name}
+                </span>
+                <Badge variant="outline" className="text-[var(--color-muted-foreground)]">
+                  筛除
+                </Badge>
+              </div>
+              <div className="text-xs text-[var(--color-muted-foreground)]">✗ {r.reason}</div>
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
 /* ------------------------------------------------------------------ */
 /* 数据                                                                */
 /* ------------------------------------------------------------------ */
@@ -132,62 +196,94 @@ const knowledgeMap: { icon: Icon; block: string; here: string; note?: string }[]
   { icon: MessageSquareText, block: '角色 Prompt', here: 'System Prompt', note: '注入身份 + 当前时间 + 类目枚举' },
 ]
 
-const techStack: { layer: string; choice: string; alt: string; why: string }[] = [
+const decisions: Decision[] = [
   {
-    layer: '后端框架',
-    choice: 'Spring Boot 3.4',
-    alt: '—',
-    why: '顺 kai-toolbox 现有栈：自动装配、虚拟线程、SSE 现成',
+    topic: 'Agent 框架',
+    chosen: {
+      name: 'LangChain4j',
+      reason: '生态广、AiServices/tool/memory 抽象贴 agent、学习资料多；手动接 Spring 对学习反而是加分',
+    },
+    rejected: [
+      {
+        name: 'Spring AI',
+        reason: '集成最顺，但 1.0 起步晚、生态与集成广度仍在追赶，agent 抽象不如 LangChain4j 原生、学习资料偏少',
+      },
+      {
+        name: 'Spring AI + LangChain4j 混用',
+        reason: '职责高度重叠：双客户端 / 双配置 / 双心智模型，学习被搅浑且零收益',
+      },
+    ],
   },
   {
-    layer: 'Agent 框架',
-    choice: 'LangChain4j',
-    alt: 'Spring AI',
-    why: '生态广、AiServices/tool/memory 抽象贴 agent、学习资料多；代价是手动接 Spring（学习项目反而是好事）',
+    topic: 'LLM 模型',
+    chosen: {
+      name: 'Qwen2.5-7B-Instruct',
+      reason: '中文母语级 + 原生 function calling；4.7GB，已实测 tool calling 与结构化输出通过',
+    },
+    fallback: { name: 'Qwen2.5-3B', reason: '7B 跑不动时的降级退路，记录态够用' },
+    rejected: [
+      {
+        name: 'Gemma3n-E4B（gemma4:e4b）',
+        reason: '中文偏弱、原生工具调用弱，且体积最大（9.6GB）',
+      },
+      { name: 'translategemma:4b', reason: '翻译专用模型，非通用指令 / 工具调用' },
+      { name: 'llama3.2:3b', reason: '中文能力弱，不适合中文为主的个人秘书' },
+    ],
   },
   {
-    layer: 'LLM 运行时',
-    choice: 'Ollama（本地）',
-    alt: '云端 OpenAI 兼容网关',
-    why: '本地零成本 + 隐私安全：私人笔记不出本机',
+    topic: 'LLM 运行时',
+    chosen: { name: 'Ollama（本地）', reason: '零成本 + 隐私：私人笔记不出本机' },
+    fallback: {
+      name: '云端 OpenAI 兼容网关',
+      reason: '回忆态多步编排小模型不稳时的升档路径（接口同构，仅改配置）',
+    },
+    rejected: [],
   },
   {
-    layer: '模型',
-    choice: 'Qwen2.5-7B-Instruct',
-    alt: 'Qwen2.5-3B / Gemma3n-E4B',
-    why: '中文母语级 + 原生 function calling；4.7GB 比 Gemma 9.6GB 还小，已实测通过',
+    topic: 'LLM 接口协议',
+    chosen: {
+      name: 'OpenAI 兼容 /v1',
+      reason: '一套抽象本地 / 云端通用，换模型只改 application.yml',
+    },
+    rejected: [
+      { name: '原生 Ollama API（OllamaChatModel）', reason: '绑死 Ollama，后续切云端需改代码' },
+    ],
   },
   {
-    layer: 'LLM 接口协议',
-    choice: 'OpenAI 兼容 /v1',
-    alt: '原生 Ollama API',
-    why: '一套抽象本地/云端通用，换模型只改 application.yml',
+    topic: '结构化输出',
+    chosen: {
+      name: 'JSON Schema 约束解码',
+      reason: '服务层锁死合法 JSON，小模型也稳，兜住“乱答”',
+    },
+    rejected: [{ name: '纯 prompt 约束', reason: '不强制，小模型仍会跑偏，可靠性不足' }],
   },
   {
-    layer: '结构化输出',
-    choice: 'JSON Schema 约束解码',
-    alt: '纯 prompt 约束',
-    why: '服务层锁死合法 JSON，小模型也稳，兜住“乱答”',
+    topic: '实时进度推送',
+    chosen: {
+      name: 'SSE（SseEmitterRegistry）',
+      reason: '单向推送够用、仓库现成；把 agent 每步推前端可视化',
+    },
+    rejected: [
+      { name: 'WebSocket', reason: '双向通道，这里只需服务端 → 前端单向推送，过重' },
+      { name: '轮询 Polling', reason: '延迟高 + 空轮询浪费，体验差' },
+    ],
   },
   {
-    layer: '持久化',
-    choice: 'SQLite（Spring JDBC）',
-    alt: '—',
-    why: '单用户本地；顺 kai-toolbox 约定，每 tool 独立 schema',
-  },
-  {
-    layer: '实时进度',
-    choice: 'SSE（SseEmitterRegistry）',
-    alt: 'WebSocket',
-    why: '单向推送够用、仓库现成；把 agent 每步推到前端可视化',
-  },
-  {
-    layer: '前端',
-    choice: 'React 19 + Vite + Tailwind v4',
-    alt: '—',
-    why: '顺 kai-toolbox 外壳，feature 自动注册进菜单',
+    topic: '持久化',
+    chosen: {
+      name: 'SQLite（Spring JDBC）',
+      reason: '单用户本地；顺 kai-toolbox 约定，每 tool 独立 schema',
+    },
+    rejected: [
+      { name: 'PostgreSQL / MySQL', reason: '单用户本地场景，外置 DB 属过度基础设施（架构文档明确排除）' },
+      { name: '向量库 / RAG', reason: '当前按结构化字段查询即可，暂不需要语义检索；留扩展位' },
+    ],
   },
 ]
+
+/** 纯顺栈、无横向对比的选择 */
+const stackOnly =
+  'Spring Boot 3.4 · React 19 + Vite + Tailwind v4 —— 沿用 kai-toolbox 既有外壳，无横向对比'
 
 const robustness: { tag: string; risk: string; guard: string }[] = [
   { tag: '①', risk: '一句话夹好几件事', guard: '强制输出 items[] 数组（schema 约束）' },
@@ -336,33 +432,17 @@ export function ArchitecturePage() {
       </Section>
 
       {/* 中间件选型 */}
-      <Section icon={Boxes} title="中间件 / 技术选型" subtitle="每个选择 + 备选 + 为什么选它">
-        <Card>
-          <CardContent className="overflow-x-auto p-0">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="border-b text-left text-[var(--color-muted-foreground)]">
-                  <th className="px-4 py-3 font-medium">层 / 关注点</th>
-                  <th className="px-4 py-3 font-medium">选型</th>
-                  <th className="px-4 py-3 font-medium">备选</th>
-                  <th className="px-4 py-3 font-medium">为什么选它</th>
-                </tr>
-              </thead>
-              <tbody>
-                {techStack.map(t => (
-                  <tr key={t.layer} className="border-b last:border-0 align-top">
-                    <td className="px-4 py-3 font-medium whitespace-nowrap">{t.layer}</td>
-                    <td className="px-4 py-3">
-                      <Badge>{t.choice}</Badge>
-                    </td>
-                    <td className="px-4 py-3 text-[var(--color-muted-foreground)]">{t.alt}</td>
-                    <td className="px-4 py-3 text-[var(--color-muted-foreground)]">{t.why}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
+      <Section
+        icon={Boxes}
+        title="中间件 / 技术选型"
+        subtitle="每个决策列出：✓ 选用 · 降级备选 · ✗ 被筛除项（置灰 + 原因）"
+      >
+        <div className="grid items-start gap-4 lg:grid-cols-2">
+          {decisions.map(d => (
+            <DecisionCard key={d.topic} d={d} />
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-[var(--color-muted-foreground)]">{stackOnly}</p>
       </Section>
 
       {/* 抗造清单 */}
