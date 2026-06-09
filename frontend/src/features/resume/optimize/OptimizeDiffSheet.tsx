@@ -1,5 +1,6 @@
-// 优化结果 Diff 抽屉：负责调流式 API、展示原文/新文对比、提供接受/重试/关闭
-import { useEffect, useRef, useState } from 'react'
+// 优化结果对比抽屉：流式生成 → 按字段分组对比（原文/优化后相邻）→ 优化后可直接编辑、逐字段采纳 → 写回。
+// 移动端友好：不再左右两栏（窄屏要来回滚），改为每个字段一组、组内上下对照，且优化后可改。
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, Loader2, RefreshCw, Sparkles, Square, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -40,6 +41,70 @@ export interface OptimizeDiffSheetProps {
 }
 
 type Phase = 'idle' | 'streaming' | 'done' | 'error'
+type FieldKind = 'scalar' | 'multiline' | 'list'
+interface FieldDesc {
+  key: string
+  label: string
+  kind: FieldKind
+}
+
+/** 各 section 的字段表：决定分组对比的字段与编辑控件类型。 */
+const FIELD_SCHEMA: Record<SectionType, FieldDesc[]> = {
+  WORK: [
+    { key: 'company', label: '公司', kind: 'scalar' },
+    { key: 'role', label: '职位', kind: 'scalar' },
+    { key: 'period', label: '时间', kind: 'scalar' },
+    { key: 'responsibilities', label: '内容', kind: 'list' },
+    { key: 'achievements', label: '业绩', kind: 'list' },
+  ],
+  PROJECT: [
+    { key: 'name', label: '项目', kind: 'scalar' },
+    { key: 'role', label: '角色', kind: 'scalar' },
+    { key: 'period', label: '时间', kind: 'scalar' },
+    { key: 'description', label: '描述', kind: 'multiline' },
+    { key: 'responsibilities', label: '内容', kind: 'list' },
+    { key: 'achievements', label: '业绩', kind: 'list' },
+  ],
+  SELF_INTRO: [{ key: 'text', label: '个人优势', kind: 'multiline' }],
+}
+
+/** 把 section 内容（JSON 字符串或纯文本）拆成"字段 key → 字符串"映射；list 字段用换行连接便于 textarea 编辑。 */
+function toFieldMap(content: string, schema: FieldDesc[]): Record<string, string> {
+  if (schema.length === 1 && schema[0].key === 'text') {
+    return { text: content ?? '' }
+  }
+  let obj: Record<string, unknown> = {}
+  try {
+    obj = JSON.parse(content) as Record<string, unknown>
+  } catch {
+    obj = {}
+  }
+  const m: Record<string, string> = {}
+  for (const f of schema) {
+    const v = obj[f.key]
+    if (f.kind === 'list') m[f.key] = Array.isArray(v) ? v.map(String).join('\n') : ''
+    else m[f.key] = v == null ? '' : String(v)
+  }
+  return m
+}
+
+/** 按"采纳=用编辑后的优化值 / 不采纳=保留原文"拼回 optimizedContent（结构化回 JSON 字符串，自我介绍回纯文本）。 */
+function buildContent(
+  schema: FieldDesc[],
+  edited: Record<string, string>,
+  orig: Record<string, string>,
+  accepted: Record<string, boolean>,
+): string {
+  if (schema.length === 1 && schema[0].key === 'text') {
+    return (accepted.text ?? true) ? edited.text ?? '' : orig.text ?? ''
+  }
+  const obj: Record<string, unknown> = {}
+  for (const f of schema) {
+    const src = (accepted[f.key] ?? true) ? edited[f.key] ?? '' : orig[f.key] ?? ''
+    obj[f.key] = f.kind === 'list' ? src.split('\n').map(s => s.trim()).filter(Boolean) : src
+  }
+  return JSON.stringify(obj)
+}
 
 export function OptimizeDiffSheet({
   open,
@@ -58,23 +123,38 @@ export function OptimizeDiffSheet({
   const [result, setResult] = useState<OptimizationResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [engine, setEngine] = useState<OptimizeEngine>('fast')
+  const [edited, setEdited] = useState<Record<string, string>>({})
+  const [accepted, setAccepted] = useState<Record<string, boolean>>({})
   const abortRef = useRef<(() => void) | null>(null)
+
+  const schema = FIELD_SCHEMA[sectionType]
+  const origFields = useMemo(() => toFieldMap(originalContent, schema), [originalContent, schema])
 
   // 打开时自动触发一次优化
   useEffect(() => {
     if (open) {
       runOptimize()
     } else {
-      // 关闭时清空旧结果，防止下次打开闪烁
       abortRef.current?.()
       abortRef.current = null
       setPhase('idle')
       setRawStream('')
       setResult(null)
       setError(null)
+      setEdited({})
+      setAccepted({})
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
+
+  // 结果就绪：初始化可编辑字段 + 默认全部采纳
+  useEffect(() => {
+    if (result) {
+      setEdited(toFieldMap(result.optimizedContent, schema))
+      setAccepted(Object.fromEntries(schema.map(f => [f.key, true])))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result, sectionType])
 
   function runOptimize(nextEngine: OptimizeEngine = engine) {
     abortRef.current?.()
@@ -96,8 +176,7 @@ export function OptimizeDiffSheet({
     abortRef.current = optimizeStream(req, {
       onProgress: acc => setRawStream(acc),
       onDone: acc => {
-        const parsed = parseStreamedResult(acc)
-        setResult(parsed)
+        setResult(parseStreamedResult(acc))
         setPhase('done')
         abortRef.current = null
       },
@@ -113,8 +192,7 @@ export function OptimizeDiffSheet({
     abortRef.current?.()
     abortRef.current = null
     if (rawStream) {
-      const parsed = parseStreamedResult(rawStream)
-      setResult(parsed)
+      setResult(parseStreamedResult(rawStream))
       setPhase('done')
     } else {
       setPhase('idle')
@@ -122,11 +200,13 @@ export function OptimizeDiffSheet({
   }
 
   function accept() {
-    if (result) {
-      onAccept(result)
-      onOpenChange(false)
-    }
+    if (!result) return
+    const optimizedContent = buildContent(schema, edited, origFields, accepted)
+    onAccept({ ...result, optimizedContent })
+    onOpenChange(false)
   }
+
+  const acceptedCount = schema.filter(f => accepted[f.key] ?? true).length
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -155,10 +235,7 @@ export function OptimizeDiffSheet({
               </span>
             </SheetDescription>
           </div>
-          <button
-            onClick={() => onOpenChange(false)}
-            className="rounded p-1 hover:bg-[var(--color-accent)]"
-          >
+          <button onClick={() => onOpenChange(false)} className="rounded p-1 hover:bg-[var(--color-accent)]">
             <X className="h-4 w-4" />
           </button>
         </header>
@@ -191,7 +268,7 @@ export function OptimizeDiffSheet({
           <span className="text-[var(--color-muted-foreground)]">{OPTIMIZE_ENGINES[engine].hint}</span>
         </div>
 
-        {/* 与目标岗位 + 级别匹配的核心能力词 */}
+        {/* 匹配能力 */}
         {result && result.highlightedSkills.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-[var(--color-primary)]/30 bg-[var(--color-primary)]/5 px-3 py-2">
             <span className="text-xs font-medium text-[var(--color-primary)]">匹配能力</span>
@@ -207,16 +284,41 @@ export function OptimizeDiffSheet({
         )}
 
         {/* 对比区 */}
-        <div className="grid flex-1 gap-3 overflow-hidden md:grid-cols-2">
-          <DiffPanel label="原文" content={originalContent} sectionType={sectionType} muted />
-          <DiffPanel
-            label={phase === 'streaming' ? '生成中…' : '优化后'}
-            content={result?.optimizedContent ?? rawStream}
-            sectionType={sectionType}
-            streaming={phase === 'streaming'}
-            isStructuredFallback={phase === 'streaming'}
-          />
-        </div>
+        {phase === 'done' && result ? (
+          <div className="flex-1 space-y-2 overflow-auto">
+            <div className="flex items-center justify-between px-0.5 text-[11px] text-[var(--color-muted-foreground)]">
+              <span>逐字段对比，优化后可直接改；取消「采纳」则该字段保留原文</span>
+              <span>采纳 {acceptedCount}/{schema.length}</span>
+            </div>
+            {schema.map(f => (
+              <FieldGroup
+                key={f.key}
+                desc={f}
+                original={origFields[f.key] ?? ''}
+                value={edited[f.key] ?? ''}
+                accepted={accepted[f.key] ?? true}
+                onValue={v => setEdited(s => ({ ...s, [f.key]: v }))}
+                onToggle={() => setAccepted(s => ({ ...s, [f.key]: !(s[f.key] ?? true) }))}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-1 flex-col gap-2 overflow-auto">
+            <div className="flex items-center gap-2 text-xs font-medium text-[var(--color-muted-foreground)]">
+              {phase === 'streaming' ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--color-primary)]" />
+                  生成中…
+                </>
+              ) : (
+                '原文'
+              )}
+            </div>
+            <pre className="flex-1 overflow-auto whitespace-pre-wrap rounded-md border bg-[var(--color-muted)]/20 px-3 py-2 text-xs">
+              {phase === 'streaming' ? rawStream : displayOriginal(originalContent, sectionType)}
+            </pre>
+          </div>
+        )}
 
         {/* 改动说明 */}
         {result && result.changeNotes.length > 0 && (
@@ -256,18 +358,9 @@ export function OptimizeDiffSheet({
           <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
             关闭
           </Button>
-          <Button
-            size="lg"
-            disabled={!result || phase !== 'done'}
-            onClick={accept}
-            className="shadow-md"
-          >
-            {phase === 'streaming' ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <CheckCircle2 className="h-4 w-4" />
-            )}
-            接受并写回
+          <Button size="lg" disabled={!result || phase !== 'done'} onClick={accept} className="shadow-md">
+            <CheckCircle2 className="h-4 w-4" />
+            采纳 {acceptedCount} 项并写回
           </Button>
         </footer>
       </SheetContent>
@@ -286,109 +379,98 @@ function sectionLabel(t: SectionType): string {
   }
 }
 
-/**
- * Diff 子面板：根据 sectionType 渲染不同样式。
- * - SELF_INTRO 是纯文本，直接展示
- * - WORK / PROJECT 是 JSON 字符串，反序列化后逐字段展示；解析失败时退回原始字符串
- * 流式期间右侧仍是不完整 JSON，用 streaming 标志直接展示原始文本，避免反复解析报错
- */
-function DiffPanel({
-  label,
-  content,
-  sectionType,
-  muted,
-  streaming,
-  isStructuredFallback,
-}: {
-  label: string
-  content: string
-  sectionType: SectionType
-  muted?: boolean
-  streaming?: boolean
-  isStructuredFallback?: boolean
-}) {
-  return (
-    <div
-      className={cn(
-        'flex min-h-0 flex-col overflow-hidden rounded-md border',
-        muted ? 'bg-[var(--color-muted)]/30' : 'bg-[var(--color-background)]',
-      )}
-    >
-      <div className="flex items-center justify-between border-b bg-[var(--color-card)] px-3 py-1.5">
-        <span className="text-xs font-medium">{label}</span>
-        {streaming && <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--color-primary)]" />}
-      </div>
-      <div className="flex-1 overflow-auto px-3 py-2 text-sm">
-        {sectionType === 'SELF_INTRO' ? (
-          <p className="whitespace-pre-wrap">{content || '（空）'}</p>
-        ) : streaming || isStructuredFallback ? (
-          <pre className="whitespace-pre-wrap text-xs text-[var(--color-muted-foreground)]">
-            {content}
-          </pre>
-        ) : (
-          <StructuredView content={content} sectionType={sectionType} />
-        )}
-      </div>
-    </div>
-  )
-}
-
-function StructuredView({ content, sectionType }: { content: string; sectionType: SectionType }) {
-  if (!content) return <span className="text-[var(--color-muted-foreground)]">（空）</span>
-  let parsed: Record<string, unknown> | null = null
+/** 非 done 阶段展示原文：结构化段尽量解析成可读文本，失败退回原串。 */
+function displayOriginal(content: string, sectionType: SectionType): string {
+  if (sectionType === 'SELF_INTRO') return content || '（空）'
   try {
-    parsed = JSON.parse(content)
+    const o = JSON.parse(content) as Record<string, unknown>
+    return Object.entries(o)
+      .map(([k, v]) => `${k}: ${Array.isArray(v) ? '\n  - ' + v.map(String).join('\n  - ') : String(v ?? '')}`)
+      .join('\n')
   } catch {
-    return <pre className="whitespace-pre-wrap text-xs">{content}</pre>
+    return content || '（空）'
   }
-  if (!parsed) return null
+}
 
-  if (sectionType === 'WORK') {
-    return (
-      <div className="space-y-2">
-        <Row label="公司" value={parsed.company} />
-        <Row label="职位" value={parsed.role} />
-        <Row label="时间" value={parsed.period} />
-        <BulletRow label="内容" value={parsed.responsibilities} />
-        <BulletRow label="业绩" value={parsed.achievements} />
+/** 单字段对比组：上「原文（灰，只读）」下「优化后（绿，可编辑）」+「采纳」开关。 */
+function FieldGroup({
+  desc,
+  original,
+  value,
+  accepted,
+  onValue,
+  onToggle,
+}: {
+  desc: FieldDesc
+  original: string
+  value: string
+  accepted: boolean
+  onValue: (v: string) => void
+  onToggle: () => void
+}) {
+  const changed = value.trim() !== original.trim()
+  return (
+    <div className={cn('rounded-md border', accepted ? 'border-[var(--color-primary)]/40' : 'opacity-60')}>
+      <div className="flex items-center justify-between border-b bg-[var(--color-card)] px-3 py-1.5">
+        <span className="flex items-center gap-1.5 text-xs font-medium">
+          {desc.label}
+          {changed && (
+            <span className="rounded bg-emerald-500/15 px-1 text-[10px] font-normal text-emerald-600 dark:text-emerald-400">
+              已改
+            </span>
+          )}
+        </span>
+        <label className="flex cursor-pointer items-center gap-1 text-[11px]">
+          <input type="checkbox" checked={accepted} onChange={onToggle} className="accent-[var(--color-primary)]" />
+          采纳
+        </label>
       </div>
-    )
-  }
-  // PROJECT
-  return (
-    <div className="space-y-2">
-      <Row label="项目" value={parsed.name} />
-      <Row label="角色" value={parsed.role} />
-      <Row label="时间" value={parsed.period} />
-      <Row label="描述" value={parsed.description} multiline />
-      <BulletRow label="内容" value={parsed.responsibilities} />
-      <BulletRow label="业绩" value={parsed.achievements} />
+      <div className="space-y-2 px-3 py-2">
+        <div>
+          <div className="mb-0.5 text-[10px] text-[var(--color-muted-foreground)]">原文</div>
+          {desc.kind === 'list' ? (
+            <OriginalLines text={original} />
+          ) : (
+            <p className="whitespace-pre-wrap text-xs text-[var(--color-muted-foreground)]">{original || '（空）'}</p>
+          )}
+        </div>
+        <div>
+          <div className="mb-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+            优化后（可改{desc.kind === 'list' ? '，每行一条' : ''}）
+          </div>
+          {desc.kind === 'scalar' ? (
+            <input
+              value={value}
+              disabled={!accepted}
+              onChange={e => onValue(e.target.value)}
+              className="w-full rounded-md border bg-[var(--color-background)] px-2 py-1 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-ring)] disabled:opacity-50"
+            />
+          ) : (
+            <textarea
+              value={value}
+              disabled={!accepted}
+              onChange={e => onValue(e.target.value)}
+              rows={desc.kind === 'list' ? Math.max(3, value.split('\n').length) : 3}
+              className="w-full rounded-md border bg-[var(--color-background)] px-2 py-1 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-ring)] disabled:opacity-50"
+            />
+          )}
+        </div>
+      </div>
     </div>
   )
 }
 
-function Row({ label, value, multiline }: { label: string; value: unknown; multiline?: boolean }) {
+function OriginalLines({ text }: { text: string }) {
+  const lines = text.split('\n').filter(Boolean)
+  if (lines.length === 0) return <span className="text-xs text-[var(--color-muted-foreground)]">（空）</span>
   return (
-    <div>
-      <div className="text-[11px] font-medium text-[var(--color-muted-foreground)]">{label}</div>
-      <div className={multiline ? 'whitespace-pre-wrap' : 'truncate'}>{String(value ?? '')}</div>
-    </div>
-  )
-}
-
-function BulletRow({ label, value }: { label: string; value: unknown }) {
-  if (!Array.isArray(value) || value.length === 0) return null
-  return (
-    <div>
-      <div className="text-[11px] font-medium text-[var(--color-muted-foreground)]">{label}</div>
-      <ul className="space-y-0.5">
-        {value.map((item, i) => (
-          <li key={i} className="pl-3 relative text-[13px]">
-            <span className="absolute left-0 text-[var(--color-primary)]">·</span>
-            {String(item)}
-          </li>
-        ))}
-      </ul>
-    </div>
+    <ul className="space-y-0.5">
+      {lines.map((l, i) => (
+        <li key={i} className="relative pl-3 text-xs text-[var(--color-muted-foreground)]">
+          <span className="absolute left-0">·</span>
+          {l}
+        </li>
+      ))}
+    </ul>
   )
 }
