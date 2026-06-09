@@ -122,6 +122,13 @@ public class BrowserSessionManager {
             // 在任何文档执行前注入反检测脚本（覆盖 webdriver / chrome / plugins / WebGL 等）
             ctx.addInitScript(StealthConfig.initScript());
             Page page = ctx.newPage();
+            // 诊断：记录主框架每次导航落点。用于区分"加载后被站点重定向回 about:blank"（反爬）
+            // 与"导航本身没成功"——前者会看到先 bosszhipin 后 about:blank 两条 frame navigated。
+            page.onFrameNavigated(frame -> {
+                if (frame == page.mainFrame()) {
+                    log.info("[BrowserRequest] frame navigated session={} url={}", sessionId, frame.url());
+                }
+            });
             // 先导航、再装风控拦截器：ctx.route("**\/*", ...) 会接管初始文档加载链路，
             // 即使放行导航请求，海量子资源经 route.fetch 重放也可能拖垮/破坏首屏，导致页面停在 about:blank。
             // 初始 HTML 不含风控码（只在加载后的 XHR 出现），故导航完成后再装拦截器，既不漏风控又不干扰首屏。
