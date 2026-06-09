@@ -171,8 +171,11 @@ public class BrowserSessionManager {
             ctx.setDefaultNavigationTimeout(props.getRequestTimeoutMs());
             // 在任何文档执行前注入反检测脚本（覆盖 webdriver / chrome / plugins / WebGL 等）
             ctx.addInitScript(StealthConfig.initScript());
-            // 反 zpAegis 潰页：全覆盖守卫 + 日志，挡掉/记录所有把当前帧导成 about:blank 的 JS 路径。
-            ctx.addInitScript(BLANK_GUARD_JS);
+            // 反 zpAegis 潰页守卫【仅对 zhipin 系站点注入】：它改写 window.open / location.assign/replace
+            // 等原生方法，本身是「篡改痕迹」，绝不扩散到其它站点（否则反而可能拖累别站的反爬判定）。
+            if (BossRiskBypass.isZhipinUrl(url)) {
+                ctx.addInitScript(BLANK_GUARD_JS);
+            }
             Page page = ctx.newPage();
             // 诊断：记录主框架每次导航落点。用于区分"加载后被站点重定向回 about:blank"（反爬）
             // 与"导航本身没成功"——前者会看到先 bosszhipin 后 about:blank 两条 frame navigated。
