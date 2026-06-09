@@ -126,7 +126,10 @@ public class BrowserSessionManager {
             // 即使放行导航请求，海量子资源经 route.fetch 重放也可能拖垮/破坏首屏，导致页面停在 about:blank。
             // 初始 HTML 不含风控码（只在加载后的 XHR 出现），故导航完成后再装拦截器，既不漏风控又不干扰首屏。
             navigateAndLog(sessionId, page, url);
-            if (BossRiskBypass.isZhipinUrl(url)) {
+            // 默认关闭：拦截器对每个 XHR 做 route.fetch 服务端重放，经代理对 zhipin 域易超时/失败，
+            // 且增大内存与延迟（实测引发渲染进程 OOM 白屏）。仅 toolbox.browser-request.boss-risk-bypass=true
+            // 且为 zhipin 系 URL 时才装。未触发风控时不需要它。
+            if (props.isBossRiskBypass() && BossRiskBypass.isZhipinUrl(url)) {
                 BossRiskBypass.install(ctx, objectMapper);
             }
             contexts.put(sessionId, ctx);

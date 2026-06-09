@@ -41,4 +41,12 @@ public class BrowserRequestProperties {
     private String[] sensitiveKeywords = { "password", "pwd", "token", "secret", "credential" };
     /** 回放 step 之间的间隔（毫秒）。默认 200。 */
     private int replayStepIntervalMs = 200;
+
+    /**
+     * 是否启用 BOSS 直聘风控码拦截器（ctx.route + route.fetch 改写 JSON 响应 code）。
+     * 默认 false：该拦截器对每个 XHR 做服务端重放，经代理对 zhipin/weizhipin 域易 TLS 超时/失败，
+     * 且显著增加内存与延迟，实测引发过「navigate 崩溃 / about:blank / 首屏卡加载 / 渲染进程 OOM 白屏」
+     * 的连环问题；而未触发风控时它毫无收益。仅在确认被风控弹回（code 31/32/35/36/37/5012）时再手动开启。
+     */
+    private boolean bossRiskBypass = false;
 }
