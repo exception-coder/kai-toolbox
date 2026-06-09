@@ -141,13 +141,28 @@ public class BrowserSessionManager {
      * 便于排查"点开停在 about:blank"到底是导航没成功、超时、还是被站点重定向。
      */
     private void navigateAndLog(String sessionId, Page page, String url) {
-        try {
-            page.navigate(url, new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
-            log.info("[BrowserRequest] navigate ok session={} target={} landed={}", sessionId, url, safeUrl(page));
-        } catch (Exception e) {
-            log.error("[BrowserRequest] navigate 失败 session={} target={} landed={} err={}",
-                    sessionId, url, safeUrl(page), e.toString());
+        // 间歇性「停在 about:blank」根因：page.navigate 紧跟 ctx.newPage()，偶发与 Chromium 初始
+        // about:blank 文档提交竞争，导致这次导航没真正发起（DOMCONTENTLOADED 落在了初始空文档上，
+        // 不抛异常但 page.url() 仍是 about:blank，且不产生任何网络请求）。重试至落点离开 about:blank。
+        Exception last = null;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                page.navigate(url, new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+                String landed = safeUrl(page);
+                if (!landed.startsWith("about:")) {
+                    log.info("[BrowserRequest] navigate ok session={} target={} landed={} attempt={}",
+                            sessionId, url, landed, attempt);
+                    return;
+                }
+                log.warn("[BrowserRequest] navigate 落在 {}（第 {}/3 次），重试 session={}", landed, attempt, sessionId);
+            } catch (Exception e) {
+                last = e;
+                log.warn("[BrowserRequest] navigate 第 {}/3 次异常 session={} err={}", attempt, sessionId, e.toString());
+            }
+            try { page.waitForTimeout(300); } catch (Exception ignored) {}
         }
+        log.error("[BrowserRequest] navigate 最终失败 session={} target={} landed={} lastErr={}",
+                sessionId, url, safeUrl(page), last == null ? "(landed 仍为 about:blank)" : last.toString());
     }
 
     private static String safeUrl(Page page) {
