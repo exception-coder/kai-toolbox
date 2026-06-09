@@ -8,6 +8,7 @@ import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.options.Proxy;
 import com.microsoft.playwright.options.RequestOptions;
+import com.microsoft.playwright.options.WaitUntilState;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
@@ -92,7 +93,7 @@ public class BrowserSessionManager {
                 BrowserContext exist = contexts.get(sessionId);
                 if (exist.browser() != null && exist.browser().isConnected()) {
                     Page p = firstPages.get(sessionId);
-                    if (p != null && !p.isClosed()) p.navigate(url);
+                    if (p != null && !p.isClosed()) navigateAndLog(sessionId, p, url);
                     return null;
                 }
                 contexts.remove(sessionId);
@@ -117,20 +118,40 @@ public class BrowserSessionManager {
             }
             BrowserContext ctx = browser.newContext(opts);
             ctx.setDefaultTimeout(props.getRequestTimeoutMs());
+            ctx.setDefaultNavigationTimeout(props.getRequestTimeoutMs());
             // 在任何文档执行前注入反检测脚本（覆盖 webdriver / chrome / plugins / WebGL 等）
             ctx.addInitScript(StealthConfig.initScript());
-            // BOSS 直聘风控码拦截器：仅在 session 初始 URL 为 zhipin 系时安装
-            // ctx.route("**\/*", ...) 即使内部立即 resume，CDP Fetch 拦截链路本身就有 IPC 开销，
-            // 装到不需要的 session 上会让所有请求慢 5-20ms / 次。
+            Page page = ctx.newPage();
+            // 先导航、再装风控拦截器：ctx.route("**\/*", ...) 会接管初始文档加载链路，
+            // 即使放行导航请求，海量子资源经 route.fetch 重放也可能拖垮/破坏首屏，导致页面停在 about:blank。
+            // 初始 HTML 不含风控码（只在加载后的 XHR 出现），故导航完成后再装拦截器，既不漏风控又不干扰首屏。
+            navigateAndLog(sessionId, page, url);
             if (BossRiskBypass.isZhipinUrl(url)) {
                 BossRiskBypass.install(ctx, objectMapper);
             }
-            Page page = ctx.newPage();
-            page.navigate(url);
             contexts.put(sessionId, ctx);
             firstPages.put(sessionId, page);
             return null;
         });
+    }
+
+    /**
+     * 导航并记录落点 URL。用 DOMCONTENTLOADED 而非默认 load，避免被慢子资源拖到超时；
+     * 失败不抛（否则 openSession 半途中断、ctx 不入表泄漏），改为记录 landed=page.url() + 异常，
+     * 便于排查"点开停在 about:blank"到底是导航没成功、超时、还是被站点重定向。
+     */
+    private void navigateAndLog(String sessionId, Page page, String url) {
+        try {
+            page.navigate(url, new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+            log.info("[BrowserRequest] navigate ok session={} target={} landed={}", sessionId, url, safeUrl(page));
+        } catch (Exception e) {
+            log.error("[BrowserRequest] navigate 失败 session={} target={} landed={} err={}",
+                    sessionId, url, safeUrl(page), e.toString());
+        }
+    }
+
+    private static String safeUrl(Page page) {
+        try { return page.url(); } catch (Exception e) { return "?"; }
     }
 
     /** 把当前 ctx 的 cookies / localStorage 持久化到 storage-state.json。 */
