@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.exceptioncoder</groupId>
+        <artifactId>kai-toolbox</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>tool-ai-secretary</artifactId>
+    <packaging>jar</packaging>
+    <name>tool-ai-secretary</name>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.exceptioncoder</groupId>
+            <artifactId>toolbox-common</artifactId>
+        </dependency>
+        <!-- LangChain4j：AiServices（声明式 agent）+ 结构化输出。版本由父 pom 的 langchain4j-bom 管理。 -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j</artifactId>
+        </dependency>
+        <!-- OpenAI 兼容协议客户端：base-url 指向本地 Ollama 的 /v1 端点 -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-open-ai</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+</project>
