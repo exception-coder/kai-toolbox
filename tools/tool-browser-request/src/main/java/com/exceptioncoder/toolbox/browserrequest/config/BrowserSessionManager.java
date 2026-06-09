@@ -117,13 +117,20 @@ public class BrowserSessionManager {
     public List<String> listPageUrls(String sessionId) {
         return runOnWorker(() -> {
             BrowserContext ctx = contexts.get(sessionId);
-            if (ctx == null) return List.<String>of();
+            if (ctx == null) {
+                return List.of("(未被当前后端进程持有：很可能是重启后残留的孤儿窗口——请关掉所有旧浏览器窗口，"
+                        + "在当前后端重新「打开」再查)");
+            }
             try {
-                return ctx.pages().stream()
-                        .map(p -> { try { return p.url(); } catch (Exception e) { return "?"; } })
+                var pages = ctx.pages();
+                if (pages.isEmpty()) {
+                    return List.of("(浏览器上下文还在，但没有任何打开的页签：页面很可能已被反爬潰成空白/崩溃后关闭)");
+                }
+                return pages.stream()
+                        .map(p -> { try { return p.url(); } catch (Exception e) { return "(读取失败:" + e.getClass().getSimpleName() + ")"; } })
                         .toList();
             } catch (Exception e) {
-                return List.<String>of();
+                return List.of("(读取页签失败: " + e.getMessage() + ")");
             }
         });
     }
@@ -182,6 +189,9 @@ public class BrowserSessionManager {
                 }
             });
             page.onPageError(err -> log.warn("[BrowserRequest] pageerror session={} err={}", sessionId, err));
+            // 渲染进程崩溃（OOM / zpAegis 内存循环爆炸）—— 崩溃后地址栏可能仍显示 bosszhipin 但内容空白，
+            // 这正是「URL 看着是 bosszhipin、页面却是白屏」的来源。
+            page.onCrash(p -> log.warn("[BrowserRequest] page CRASHED 渲染进程崩溃 session={} url={}", sessionId, safeUrl(p)));
             // 先导航、再装风控拦截器：ctx.route("**\/*", ...) 会接管初始文档加载链路，
             // 即使放行导航请求，海量子资源经 route.fetch 重放也可能拖垮/破坏首屏，导致页面停在 about:blank。
             // 初始 HTML 不含风控码（只在加载后的 XHR 出现），故导航完成后再装拦截器，既不漏风控又不干扰首屏。
