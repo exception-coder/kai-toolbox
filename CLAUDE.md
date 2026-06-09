@@ -76,6 +76,16 @@ The Vite alias `@` → `frontend/src` is the canonical import root.
 - **Frontend menu must keep working with the backend down.** Don't move feature metadata to the server; keep `FeatureManifest` as the source of truth.
 - **Lucide icons by component reference**, not string name, in `FeatureManifest.icon`. The backend `ToolDescriptor.icon()` returns kebab-case strings, but that path is currently unused by the UI.
 
+## 提交节奏（用户约定，2026-06-09）
+
+仓库 owner 要求：**每完成一个逻辑变更，立即 commit + push，不要攒批一次性提交。**
+
+- **逐变更提交**：一个功能/修复/重构作为一次提交，做完即 `git commit` + `git push`，避免改动堆积。
+- **只 stage 本次改动涉及的文件**：用 `git add <具体路径>`。**禁止 `git add -A` / `git add .`** —— 本仓工作区常并存其它进行中的改动（不同会话/IDE 在做的功能），一把梭会把无关半成品卷进提交。
+- 提交前 `git status` 核对：出现自己没碰过的文件（如 `scripts/run-supervised*`、`.gitattributes` 等）一律不纳入本次提交。
+- commit message 按 `type(scope): 标题` + 中文 body；Author 取 `git config`。
+- 此约定是 owner 对本个人仓库的明确指示，覆盖「业务项目不自动 commit/push」的默认谨慎。
+
 ## Reference docs
 
 - `README.md` — short user-facing overview
