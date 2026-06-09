@@ -74,12 +74,12 @@
   // ----- 4. Navigator 属性伪装 -------------------------------------------
   // platform 必须跟 UA 一致 —— Windows UA + 'Win32'
   // 全部用 Navigator.prototype 重定义，规避 instance vs prototype 对比检测
+  // 注意：绝不伪造 hardwareConcurrency / deviceMemory —— 之前硬编码成 8，但真机是 28 核，
+  // 与真实环境矛盾，反而被反爬交叉比对识破。这类「机器相关」字段一律放真实值，保持自洽。
   const navProps = {
     languages: ['zh-CN', 'zh', 'en-US', 'en'],
     vendor: 'Google Inc.',
     platform: 'Win32',
-    hardwareConcurrency: 8,
-    deviceMemory: 8,
     maxTouchPoints: 0,
   };
   const navProto = Object.getPrototypeOf(navigator);
@@ -155,17 +155,9 @@
   }
 
   // ----- 7. WebGL 指纹 ---------------------------------------------------
-  // UNMASKED_VENDOR_WEBGL / UNMASKED_RENDERER_WEBGL —— 必须像真实显卡
-  const wglPatch = (proto) => {
-    const orig = proto.getParameter;
-    proto.getParameter = function (p) {
-      if (p === 37445) return 'Intel Inc.';
-      if (p === 37446) return 'Intel(R) Iris(R) Xe Graphics (0x000056A5) Direct3D11 vs_5_0 ps_5_0, D3D11';
-      return orig.call(this, p);
-    };
-  };
-  try { wglPatch(WebGLRenderingContext.prototype); } catch (_) {}
-  try { if (window.WebGL2RenderingContext) wglPatch(WebGL2RenderingContext.prototype); } catch (_) {}
+  // 【已移除 GPU 伪装】曾把 UNMASKED_VENDOR/RENDERER 硬编码成 Intel Iris Xe，但真机是 NVIDIA RTX 4060Ti，
+  // 这种不一致的假显卡反而是强 bot 信号（反爬会交叉比对）。现放真实 GPU——真实且自洽，最不易被识破。
+  // 不再改写 WebGLRenderingContext.prototype.getParameter。
 
   // ----- 8. screen 一致性 ------------------------------------------------
   // availWidth/availHeight 不能为 0
@@ -179,11 +171,10 @@
   // ----- 9. Function.prototype.toString 守护 -----------------------------
   // 反爬常把 navigator.permissions.query.toString() 拿来匹配 [native code]
   // 我们把被覆盖过的几个方法标记成 [native code]
+  // 只有仍被改写的方法才需要伪装 toString。WebGL getParameter 已不再改写（放真实 GPU），故移除。
   const patched = new WeakSet();
   for (const fn of [
     navigator.permissions && navigator.permissions.query,
-    WebGLRenderingContext.prototype.getParameter,
-    window.WebGL2RenderingContext && WebGL2RenderingContext.prototype.getParameter,
   ]) {
     if (typeof fn === 'function') patched.add(fn);
   }
