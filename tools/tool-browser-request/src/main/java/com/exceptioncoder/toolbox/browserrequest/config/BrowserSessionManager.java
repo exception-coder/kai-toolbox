@@ -137,6 +137,16 @@ public class BrowserSessionManager {
                 }
             });
             page.onPageError(err -> log.warn("[BrowserRequest] pageerror session={} err={}", sessionId, err));
+            // BOSS 反爬缓解：zhipin 系站点用 zpAegis 安全 SDK（zhipin-security/.../polyfill/index.js）
+            // 检测到自动化(CDP/webdriver/指纹)后，会在页面已完整渲染（实测 761KB 真实 DOM）之后把它
+            // 跳成 about:blank。直接 abort 掉该脚本：SDK 不加载就无法检测/跳转，先让页面渲染住、可扫码登录。
+            // 仅 abort 不做 fetch/fulfill，开销极小；若日后发现登录接口依赖其签名 token，再按需放开。
+            if (BossRiskBypass.isZhipinUrl(url)) {
+                ctx.route("**/zhipin-security/**", r -> {
+                    try { r.abort(); } catch (Exception ignored) {}
+                });
+                log.info("[BrowserRequest] 已拦截 zhipin-security 反爬 SDK（防 about:blank）session={}", sessionId);
+            }
             // 先导航、再装风控拦截器：ctx.route("**\/*", ...) 会接管初始文档加载链路，
             // 即使放行导航请求，海量子资源经 route.fetch 重放也可能拖垮/破坏首屏，导致页面停在 about:blank。
             // 初始 HTML 不含风控码（只在加载后的 XHR 出现），故导航完成后再装拦截器，既不漏风控又不干扰首屏。
