@@ -1,43 +1,28 @@
 package com.exceptioncoder.toolbox.aisecretary.config;
 
 import com.exceptioncoder.toolbox.aisecretary.ai.Capturer;
-import dev.langchain4j.model.openai.OpenAiChatModel;
+import com.exceptioncoder.toolbox.llm.routing.ChatModelRouter;
 import dev.langchain4j.service.AiServices;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import java.time.Duration;
-
 /**
- * 手动装配 LangChain4j：OpenAiChatModel（指向本地 Ollama）+ Capturer 声明式 AiService。
+ * 装配记录态的 Capturer 声明式 AiService。
  *
- * <p>刻意手动装配而非用 langchain4j-spring-boot-starter——学习项目要看清框架怎么被接进 Spring。
- * 这里的 ChatModel 是 LangChain4j 的 dev.langchain4j.model.chat.ChatModel，与 tool-resume 用的
- * Spring AI ChatModel 是不同包的不同类型，互不冲突。
+ * <p>模型不再由本模块直接构建，而是向共享网关 {@link ChatModelRouter} 要「capture」档位的
+ * 路由 ChatModel——池化 / 限流 / 故障转移都在 toolbox-llm 内部完成，对本模块透明。
+ * 未配置该档位时网关自动回退到默认（本地 Ollama）。
  */
 @Configuration
-@EnableConfigurationProperties(AiSecretaryProperties.class)
 public class AiSecretaryLlmConfig {
 
-    @Bean
-    public OpenAiChatModel aiSecretaryChatModel(AiSecretaryProperties props) {
-        AiSecretaryProperties.Llm llm = props.getLlm();
-        return OpenAiChatModel.builder()
-                .baseUrl(llm.getBaseUrl())
-                .apiKey(llm.getApiKey())
-                .modelName(llm.getModel())
-                .temperature(llm.getTemperature())
-                .timeout(Duration.ofSeconds(llm.getTimeoutSeconds()))
-                .logRequests(true)
-                .logResponses(true)
-                .build();
-    }
+    /** 记录态用的档位：高频、可用便宜/本地模型。 */
+    private static final String CAPTURE_TIER = "capture";
 
     @Bean
-    public Capturer capturer(OpenAiChatModel aiSecretaryChatModel) {
+    public Capturer capturer(ChatModelRouter router) {
         return AiServices.builder(Capturer.class)
-                .chatModel(aiSecretaryChatModel)
+                .chatModel(router.forTier(CAPTURE_TIER))
                 .build();
     }
 }

@@ -21,6 +21,7 @@
 
     <modules>
         <module>toolbox-common</module>
+        <module>toolbox-llm</module>
         <module>tools/tool-treesize</module>
         <module>tools/tool-flatten</module>
         <module>tools/tool-lan-share</module>
@@ -96,6 +97,11 @@
             <dependency>
                 <groupId>com.exceptioncoder</groupId>
                 <artifactId>toolbox-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>toolbox-llm</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

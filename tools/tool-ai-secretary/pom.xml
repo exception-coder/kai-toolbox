@@ -20,15 +20,15 @@
             <groupId>com.exceptioncoder</groupId>
             <artifactId>toolbox-common</artifactId>
         </dependency>
-        <!-- LangChain4j：AiServices（声明式 agent）+ 结构化输出。版本由父 pom 的 langchain4j-bom 管理。 -->
+        <!-- 共享 LLM 网关：模型池 + 分级路由 + 限流故障转移（提供 ChatModelRouter） -->
+        <dependency>
+            <groupId>com.exceptioncoder</groupId>
+            <artifactId>toolbox-llm</artifactId>
+        </dependency>
+        <!-- LangChain4j：AiServices（声明式 agent）+ 结构化输出。OpenAI 客户端经 toolbox-llm 传递。 -->
         <dependency>
             <groupId>dev.langchain4j</groupId>
             <artifactId>langchain4j</artifactId>
-        </dependency>
-        <!-- OpenAI 兼容协议客户端：base-url 指向本地 Ollama 的 /v1 端点 -->
-        <dependency>
-            <groupId>dev.langchain4j</groupId>
-            <artifactId>langchain4j-open-ai</artifactId>
         </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
