@@ -49,4 +49,39 @@ public class BrowserRequestProperties {
      * 的连环问题；而未触发风控时它毫无收益。仅在确认被风控弹回（code 31/32/35/36/37/5012）时再手动开启。
      */
     private boolean bossRiskBypass = false;
+
+    /**
+     * 会话引擎：
+     * <ul>
+     *   <li>{@code playwright-java}（默认）：自带 Playwright，录制/回放全功能；但 CDP(Runtime.enable) 会被
+     *       BOSS zpAegis 这类商用反爬检测，打不开硬反爬站点。</li>
+     *   <li>{@code undetected-node}：通过 patchright sidecar 控制浏览器，规避 CDP 检测，可开 BOSS 等硬反爬站点；
+     *       Phase 1 仅支持 开/保活/页签/存登录态/清除/关闭，录制/回放暂不支持。需先在
+     *       {@code node-services/undetected-browser} 执行 npm install + npm run install-browser。</li>
+     * </ul>
+     */
+    private String engine = "playwright-java";
+
+    /** undetected-node 引擎的 patchright sidecar 配置。 */
+    private Sidecar sidecar = new Sidecar();
+
+    @lombok.Data
+    public static class Sidecar {
+        /** sidecar 监听端口（仅 127.0.0.1）。 */
+        private int port = 18092;
+        /** 浏览器渠道：chrome=本机真实 Chrome（最隐蔽）；空=patchright 内置 chromium。 */
+        private String channel = "chrome";
+        /** 是否无头。默认 false——扫码登录需可见窗口。 */
+        private boolean headless = false;
+        /** 请求校验 token，留空=不校验（本机 loopback）。 */
+        private String token = "";
+        /** node 可执行文件路径。 */
+        private String nodePath = "node";
+        /** sidecar 目录（含 server.js），相对运行工作目录或绝对路径。 */
+        private String dir = "node-services/undetected-browser";
+        /** 是否由 Java 自动拉起 sidecar 进程。 */
+        private boolean autoStart = true;
+        /** 启动健康检查超时（毫秒）。 */
+        private long startupTimeoutMs = 30000;
+    }
 }

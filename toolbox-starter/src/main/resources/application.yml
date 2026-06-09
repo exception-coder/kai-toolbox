@@ -258,6 +258,20 @@ toolbox:
   browser-request:
     # 持久 BrowserContext 数据目录（cookies/storage state），留空 = ${toolbox.data-dir}/browser-request
     data-dir: ${toolbox.data-dir}/browser-request
+    # 会话引擎：playwright-java（默认，自带 Playwright，录制/回放全功能，但会被 BOSS zpAegis 等商用反爬经
+    # CDP(Runtime.enable) 检测→打不开硬反爬站点）；undetected-node（patchright sidecar，规避 CDP 检测，
+    # 实测可开 BOSS，Phase 1 仅支持 开/保活/页签/存登录态/清除/关闭，录制回放暂无）。
+    # 切 undetected-node 前需先在 node-services/undetected-browser 跑 npm install + npm run install-browser。
+    engine: playwright-java
+    sidecar:
+      port: 18092
+      channel: chrome        # chrome=本机真实 Chrome（最隐蔽）；留空=patchright 内置 chromium
+      headless: false        # 扫码登录需可见窗口
+      token: ""              # 留空=不校验（本机 loopback）
+      node-path: node
+      dir: node-services/undetected-browser
+      auto-start: true       # 由 Java 自动拉起 sidecar 进程
+      startup-timeout-ms: 30000
     # BOSS 直聘风控码拦截器（ctx.route + route.fetch 改写 JSON code）。默认 false：它对每个 XHR 做
     # 服务端重放，经代理对 zhipin 域易超时/失败，曾引发 navigate 崩溃 / 卡加载 / 渲染进程 OOM 白屏；
     # 未触发风控时无收益。仅在确认被风控弹回（code 31/32/35/36/37/5012）时再设 true。
