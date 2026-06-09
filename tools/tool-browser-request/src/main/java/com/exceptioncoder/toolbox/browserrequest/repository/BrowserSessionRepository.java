@@ -21,6 +21,7 @@ public class BrowserSessionRepository {
             .lastActiveAt(rs.getObject("last_active_at") != null ? rs.getLong("last_active_at") : null)
             .createdAt(rs.getLong("created_at"))
             .updatedAt(rs.getLong("updated_at"))
+            .engine(rs.getString("engine"))
             .build();
 
     public BrowserSessionRepository(JdbcTemplate jdbc) {
@@ -30,13 +31,13 @@ public class BrowserSessionRepository {
     public void insert(BrowserSession s) {
         jdbc.update("""
                 INSERT INTO browser_request_session
-                  (id, name, url, has_storage, last_active_at, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                  (id, name, url, has_storage, last_active_at, created_at, updated_at, engine)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 s.getId(), s.getName(), s.getUrl(),
                 s.isHasStorage() ? 1 : 0,
                 s.getLastActiveAt(),
-                s.getCreatedAt(), s.getUpdatedAt());
+                s.getCreatedAt(), s.getUpdatedAt(), s.getEngine());
     }
 
     public Optional<BrowserSession> findById(String id) {

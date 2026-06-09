@@ -59,7 +59,7 @@ public class BrowserRequestController {
 
     @PostMapping("/sessions")
     public BrowserRequestService.SessionView createSession(@Valid @RequestBody CreateSessionRequest req) {
-        return sessionSvc.create(req.name(), req.url());
+        return sessionSvc.create(req.name(), req.url(), req.engine());
     }
 
     @PostMapping("/sessions/{id}/open")

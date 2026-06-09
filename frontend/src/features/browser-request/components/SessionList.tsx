@@ -26,13 +26,14 @@ export function SessionList({ currentId, onSelect }: Props) {
   const [creating, setCreating] = useState(false)
   const [draftName, setDraftName] = useState('')
   const [draftUrl, setDraftUrl] = useState('')
+  const [draftEngine, setDraftEngine] = useState('') // ''=跟随全局默认
 
   const createMut = useMutation({
-    mutationFn: () => api.create({ name: draftName.trim(), url: draftUrl.trim() }),
+    mutationFn: () => api.create({ name: draftName.trim(), url: draftUrl.trim(), engine: draftEngine || undefined }),
     onSuccess: s => {
       qc.invalidateQueries({ queryKey: SESSIONS_KEY })
       onSelect(s.id)
-      setCreating(false); setDraftName(''); setDraftUrl('')
+      setCreating(false); setDraftName(''); setDraftUrl(''); setDraftEngine('')
     },
   })
 
@@ -79,6 +80,16 @@ export function SessionList({ currentId, onSelect }: Props) {
               value={draftUrl}
               onChange={e => setDraftUrl(e.target.value)}
             />
+            <select
+              className="w-full rounded-md border bg-transparent px-2 py-1.5 text-sm"
+              value={draftEngine}
+              onChange={e => setDraftEngine(e.target.value)}
+              title="引擎：硬反爬站点（如 BOSS 直聘）选「免检测」"
+            >
+              <option value="">引擎：默认（跟随全局）</option>
+              <option value="undetected-node">免检测 patchright（BOSS 等硬反爬站点）</option>
+              <option value="playwright-java">标准 Playwright（可录制/回放）</option>
+            </select>
             <div className="flex gap-2">
               <Button
                 size="sm"
@@ -133,6 +144,14 @@ export function SessionList({ currentId, onSelect }: Props) {
                   title="已保存登录态"
                 >
                   已登录
+                </span>
+              )}
+              {s.engine === 'undetected-node' && (
+                <span
+                  className="shrink-0 rounded bg-purple-500/20 px-1.5 py-0.5 text-[10px] text-purple-700 dark:text-purple-300"
+                  title="免检测引擎 patchright（用于硬反爬站点）"
+                >
+                  免检测
                 </span>
               )}
               <div className="flex shrink-0 gap-1">

@@ -39,22 +39,27 @@ public class BrowserRequestService {
         this.sidecar = sidecar;
     }
 
-    /** undetected-node 引擎：会话生命周期走 patchright sidecar，而非自带 Java Playwright。 */
-    private boolean nodeEngine() { return sidecar.enabled(); }
+    /** 该会话是否走 undetected-node 引擎（patchright sidecar）。会话未指定 engine 时回退全局默认。 */
+    private boolean isNode(BrowserSession s) {
+        String e = (s == null) ? null : s.getEngine();
+        if (e == null || e.isBlank()) return sidecar.enabledByDefault();
+        return "undetected-node".equalsIgnoreCase(e);
+    }
 
-    /** 按当前引擎判断会话是否在线。 */
-    private boolean active(String id) {
-        return nodeEngine() ? sidecar.isOpen(id) : manager.isActive(id);
+    /** 按该会话所属引擎判断是否在线。 */
+    private boolean active(BrowserSession s) {
+        return isNode(s) ? sidecar.isOpen(s.getId()) : manager.isActive(s.getId());
     }
 
     public List<SessionView> list() {
         return repo.findAll().stream()
-                .map(s -> SessionView.from(s, active(s.getId()), manager))
+                .map(s -> SessionView.from(s, active(s), manager))
                 .toList();
     }
 
-    public SessionView create(String name, String url) {
+    public SessionView create(String name, String url, String engine) {
         long now = System.currentTimeMillis();
+        String eng = (engine == null || engine.isBlank()) ? null : engine.trim();
         BrowserSession s = BrowserSession.builder()
                 .id(UUID.randomUUID().toString())
                 .name(name == null || name.isBlank() ? "未命名会话" : name.trim())
@@ -63,6 +68,7 @@ public class BrowserRequestService {
                 .lastActiveAt(null)
                 .createdAt(now)
                 .updatedAt(now)
+                .engine(eng)
                 .build();
         repo.insert(s);
         return SessionView.from(s, false, manager);
@@ -71,7 +77,7 @@ public class BrowserRequestService {
     public SessionView open(String id) {
         BrowserSession s = repo.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + id));
-        if (nodeEngine()) sidecar.openSession(s.getId(), s.getUrl());
+        if (isNode(s)) sidecar.openSession(s.getId(), s.getUrl());
         else manager.openSession(s.getId(), s.getUrl());
         long now = System.currentTimeMillis();
         repo.touchActive(id, now);
@@ -82,31 +88,32 @@ public class BrowserRequestService {
 
     /** 列出该会话浏览器当前所有页签 URL（移动端看不到桌面窗口时确认最终停在哪）。 */
     public List<String> listPageUrls(String id) {
-        return nodeEngine() ? sidecar.listPageUrls(id) : manager.listPageUrls(id);
+        BrowserSession s = repo.findById(id).orElse(null);
+        return (s != null && isNode(s)) ? sidecar.listPageUrls(id) : manager.listPageUrls(id);
     }
 
     public SessionView saveStorage(String id) {
         BrowserSession s = repo.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + id));
-        if (nodeEngine()) sidecar.save(id, manager.storageStatePath(id));
+        if (isNode(s)) sidecar.save(id, manager.storageStatePath(id));
         else manager.saveStorageState(id);
         long now = System.currentTimeMillis();
         repo.markStorageSaved(id, true, now);
         s.setHasStorage(true);
         s.setUpdatedAt(now);
-        return SessionView.from(s, active(id), manager);
+        return SessionView.from(s, active(s), manager);
     }
 
     public SessionView clearStorage(String id) {
         BrowserSession s = repo.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + id));
-        if (nodeEngine()) sidecar.clear(id);
+        if (isNode(s)) sidecar.clear(id);
         else manager.clearStorageState(id);
         long now = System.currentTimeMillis();
         repo.markStorageSaved(id, false, now);
         s.setHasStorage(false);
         s.setUpdatedAt(now);
-        return SessionView.from(s, active(id), manager);
+        return SessionView.from(s, active(s), manager);
     }
 
     public SessionView close(String id) {
@@ -114,7 +121,7 @@ public class BrowserRequestService {
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + id));
         // 关 ctx 前若有 active recording，先停止
         recordingService.onSessionClosed(id);
-        if (nodeEngine()) {
+        if (isNode(s)) {
             // node 引擎：登录态随持久 profile 保留，无需 closeSession 的存盘返回值
             sidecar.close(id);
             return SessionView.from(s, false, manager);
@@ -131,7 +138,8 @@ public class BrowserRequestService {
 
     public void delete(String id) {
         recordingService.onSessionClosed(id);
-        if (nodeEngine()) {
+        BrowserSession sess = repo.findById(id).orElse(null);
+        if (sess != null && isNode(sess)) {
             sidecar.close(id);
             sidecar.clear(id);
         } else {
@@ -162,12 +170,13 @@ public class BrowserRequestService {
 
     public record SessionView(String id, String name, String url, boolean active,
                               boolean hasStorage, Long lastActiveAt, long createdAt, long updatedAt,
-                              Long storageBytes, Long storageSavedAt) {
+                              Long storageBytes, Long storageSavedAt, String engine) {
         public static SessionView from(BrowserSession s, boolean active, BrowserSessionManager manager) {
             return new SessionView(s.getId(), s.getName(), s.getUrl(), active,
                     s.isHasStorage(), s.getLastActiveAt(), s.getCreatedAt(), s.getUpdatedAt(),
                     manager.storageStateSize(s.getId()),
-                    manager.storageStateModified(s.getId()));
+                    manager.storageStateModified(s.getId()),
+                    s.getEngine());
         }
     }
 }

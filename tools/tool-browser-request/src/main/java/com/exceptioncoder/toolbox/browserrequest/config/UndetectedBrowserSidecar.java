@@ -44,8 +44,8 @@ public class UndetectedBrowserSidecar {
         this.mapper = mapper;
     }
 
-    /** 当前是否启用 undetected-node 引擎。 */
-    public boolean enabled() {
+    /** 全局默认是否用 undetected-node 引擎（新建会话未显式指定时的回退）。 */
+    public boolean enabledByDefault() {
         return "undetected-node".equalsIgnoreCase(props.getEngine());
     }
 
@@ -61,23 +61,31 @@ public class UndetectedBrowserSidecar {
     }
 
     @PostConstruct
-    void startIfEnabled() {
-        if (!enabled()) {
-            log.info("[undetected-browser] 引擎=playwright-java，sidecar 不启动");
-            return;
+    void startIfDefault() {
+        // 全局默认就是 node 引擎时，提前拉起；否则懒启动（首个 node 会话打开时再起）。
+        if (enabledByDefault() && props.getSidecar().isAutoStart()) {
+            ensureRunning();
         }
+    }
+
+    /**
+     * 确保 sidecar 进程已启动并就绪。幂等、线程安全：已就绪则直接返回；否则拉起进程并健康轮询。
+     * 供「按会话选引擎」下，首个 node 会话打开时懒启动。auto-start=false 时假定外部已起，仅探活。
+     */
+    public synchronized void ensureRunning() {
+        if (ready && process != null && process.isAlive()) return;
+        if (pingHealth()) { ready = true; return; }          // 外部已起 / 上次起的还活着
         BrowserRequestProperties.Sidecar cfg = props.getSidecar();
         if (!cfg.isAutoStart()) {
-            log.info("[undetected-browser] auto-start=false，假定 sidecar 已外部启动于 {}", base());
             ready = pingHealth();
+            if (!ready) throw new IllegalStateException("sidecar 未启动且 auto-start=false，无法连接 " + base());
             return;
         }
         try {
             File dir = new File(cfg.getDir()).getAbsoluteFile();
             if (!new File(dir, "server.js").exists()) {
-                log.error("[undetected-browser] 找不到 sidecar：{}/server.js（请确认 toolbox.browser-request.sidecar.dir，"
-                        + "并已执行 npm install + npm run install-browser）", dir);
-                return;
+                throw new IllegalStateException("找不到 sidecar：" + dir
+                        + "/server.js（确认 toolbox.browser-request.sidecar.dir，并已 npm install + npm run install-browser）");
             }
             ProcessBuilder pb = new ProcessBuilder(cfg.getNodePath(), "server.js");
             pb.directory(dir);
@@ -95,8 +103,12 @@ public class UndetectedBrowserSidecar {
             log.info("[undetected-browser] sidecar 已启动 pid={} dir={} port={} channel={} headless={}",
                     process.pid(), dir, cfg.getPort(), cfg.getChannel(), cfg.isHeadless());
             waitReady(cfg.getStartupTimeoutMs());
+            if (!ready) throw new IllegalStateException("sidecar 启动后 " + cfg.getStartupTimeoutMs()
+                    + "ms 内未就绪，见 undetected-browser-sidecar.log");
+        } catch (IllegalStateException ise) {
+            throw ise;
         } catch (Exception e) {
-            log.error("[undetected-browser] sidecar 启动失败：{}", e.getMessage(), e);
+            throw new IllegalStateException("sidecar 启动失败：" + e.getMessage(), e);
         }
     }
 
@@ -130,6 +142,7 @@ public class UndetectedBrowserSidecar {
     // ===== 会话生命周期（供 BrowserRequestService 在 node 引擎下调用） =====
 
     public void openSession(String id, String url) {
+        ensureRunning();   // 懒启动：首个 node 会话打开时拉起 sidecar
         post("/sessions/" + id + "/open", "{\"url\":" + jsonStr(url) + "}", Duration.ofSeconds(60));
     }
 
@@ -157,11 +170,17 @@ public class UndetectedBrowserSidecar {
     }
 
     public void clear(String id) {
-        post("/sessions/" + id + "/clear", "{}", Duration.ofSeconds(20));
+        bestEffort("/sessions/" + id + "/clear");
     }
 
     public void close(String id) {
-        post("/sessions/" + id + "/close", "{}", Duration.ofSeconds(20));
+        bestEffort("/sessions/" + id + "/close");
+    }
+
+    /** close/clear 容错：sidecar 没起/连不上时无需报错（本就没东西可关）。 */
+    private void bestEffort(String path) {
+        try { post(path, "{}", Duration.ofSeconds(20)); }
+        catch (Exception e) { log.debug("[undetected-browser] {} 忽略: {}", path, e.getMessage()); }
     }
 
     public boolean isOpen(String id) {

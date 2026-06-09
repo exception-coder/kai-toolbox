@@ -6,7 +6,8 @@ CREATE TABLE IF NOT EXISTS browser_request_session (
     has_storage     INTEGER NOT NULL DEFAULT 0,
     last_active_at  INTEGER,
     created_at      INTEGER NOT NULL,
-    updated_at      INTEGER NOT NULL
+    updated_at      INTEGER NOT NULL,
+    engine          TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_browser_request_session_updated ON browser_request_session(updated_at DESC);

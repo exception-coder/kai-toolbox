@@ -21,4 +21,6 @@ public class BrowserSession {
     private Long lastActiveAt;
     private long createdAt;
     private long updatedAt;
+    /** 会话引擎：{@code playwright-java} / {@code undetected-node}；null/空 = 用全局默认 engine。 */
+    private String engine;
 }

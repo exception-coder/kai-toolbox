@@ -18,7 +18,7 @@ function jsonReq<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const sessions = {
   list: () => jsonReq<SessionView[]>(`${BASE}/sessions`),
-  create: (body: { name: string; url: string }) =>
+  create: (body: { name: string; url: string; engine?: string }) =>
     jsonReq<SessionView>(`${BASE}/sessions`, { method: 'POST', body: JSON.stringify(body) }),
   open: (id: string) => jsonReq<SessionView>(`${BASE}/sessions/${id}/open`, { method: 'POST' }),
   save: (id: string) => jsonReq<SessionView>(`${BASE}/sessions/${id}/save`, { method: 'POST' }),

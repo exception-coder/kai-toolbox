@@ -15,6 +15,8 @@ export interface SessionView {
   updatedAt: number
   storageBytes: number | null
   storageSavedAt: number | null
+  /** 会话引擎：playwright-java / undetected-node；null = 用全局默认。 */
+  engine: string | null
 }
 
 export interface RecordingView {
