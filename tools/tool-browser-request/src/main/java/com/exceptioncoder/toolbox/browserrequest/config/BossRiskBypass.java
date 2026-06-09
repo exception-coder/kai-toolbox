@@ -79,11 +79,15 @@ public final class BossRiskBypass {
             route.resume();
             return;
         }
-        // 主文档 / 导航请求绝不拦截：对导航请求做 route.fetch()+fulfill 会与 page.navigate() 内部
-        // 解析「导航响应对象」竞争，抛 PlaywrightException: Object doesn't exist: response@...，
-        // 导致 navigate 失败、页面停在 about:blank（点「打开」无法访问 BOSS 的根因）。
-        // 风控码只出现在 JSON AJAX 响应里，HTML 文档本体无需改写，直接放行。
-        if (route.request().isNavigationRequest()) {
+        // 只拦截 XHR / fetch —— 风控码只出现在这类 JSON API 响应里。
+        // document / script / stylesheet / image / font / media 等一律放行，让浏览器直接加载：
+        //   1) 对它们做 route.fetch() 服务端重放（尤其 790KB 的 main.js、各类 CSS/图片）既慢、
+        //      经代理(127.0.0.1:7897)对 zhipin/weizhipin 又频繁 TLS 失败，会让首屏资源凑不齐 → 页面
+        //      卡在「加载中」白屏；
+        //   2) 对导航(document)请求做 route.fetch()+fulfill 还会与 page.navigate() 解析导航响应对象
+        //      竞争，抛 "Object doesn't exist: response@..." → 停在 about:blank。
+        String rtype = route.request().resourceType();
+        if (!"xhr".equals(rtype) && !"fetch".equals(rtype)) {
             route.resume();
             return;
         }
