@@ -2,8 +2,9 @@ import { existsSync } from 'node:fs'
 import { query, forkSession } from '@anthropic-ai/claude-agent-sdk'
 import { Permissions, type Decision } from './permissions.js'
 import { runCodexTurn } from './codexEngine.js'
+import { runGeminiTurn } from './geminiEngine.js'
 
-export type Engine = 'claude' | 'codex'
+export type Engine = 'claude' | 'codex' | 'gemini'
 
 type Emit = (sessionId: string, event: Record<string, unknown>) => void
 
@@ -69,6 +70,7 @@ class Session {
    */
   async runTurn(text: string, systemPrompt?: string): Promise<void> {
     if (this.engine === 'codex') return this.runCodexTurn(text)
+    if (this.engine === 'gemini') return this.runGeminiTurn(text)
     const maxAttempts = 3
     // spawn claude.exe 时若 working dir 不存在会直接「exists but failed to launch」；
     // cwd 失效（历史会话来自已删除/改名/异机路径）则回退到用户主目录，避免起不来。
@@ -139,6 +141,26 @@ class Session {
     this.abort = ac
     try {
       await runCodexTurn({
+        text,
+        cwd: this.cwd,
+        model: this.model,
+        permissionMode: this.permissionMode,
+        sdkSessionId: this.sdkSessionId,
+        signal: ac.signal,
+        emit: (e) => this.emitSelf(e),
+        setSdkSessionId: (id) => { this.sdkSessionId = id },
+      })
+    } finally {
+      this.abort = undefined
+    }
+  }
+
+  /** 跑一轮 Gemini：委托 geminiEngine（headless stream-json），AbortController 支持中断。 */
+  private async runGeminiTurn(text: string): Promise<void> {
+    const ac = new AbortController()
+    this.abort = ac
+    try {
+      await runGeminiTurn({
         text,
         cwd: this.cwd,
         model: this.model,
@@ -250,7 +272,7 @@ export class SessionManager {
   start(id: string, cwd: string, model?: string, mode?: string, engine?: string): void {
     const s = new Session(id, cwd || process.env.HOME || process.cwd(), (e) => this.emit(id, e))
     if (model) s.model = model
-    if (engine === 'codex') s.engine = 'codex'
+    if (engine === 'codex' || engine === 'gemini') s.engine = engine
     if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
     this.sessions.set(id, s)
     // 立即回一个 init（sdkSessionId 暂为 null），让前端拿到 Ready 启用输入；
@@ -267,7 +289,7 @@ export class SessionManager {
     }
     if (sdkSessionId) s.sdkSessionId = sdkSessionId
     if (cwd) s.cwd = cwd
-    if (engine === 'codex' || engine === 'claude') s.engine = engine
+    if (engine === 'codex' || engine === 'claude' || engine === 'gemini') s.engine = engine
     this.emitCachedModels(id, s)
   }
 

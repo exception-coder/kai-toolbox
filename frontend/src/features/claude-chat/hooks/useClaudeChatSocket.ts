@@ -137,9 +137,9 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
         setErrorMessage(null) // sidecar 重连恢复后会重发 ready，借此清掉 SIDECAR_DOWN 横幅
         if (msg.slashCommands) setSlashCommands(msg.slashCommands)
         if (msg.engine) setCurrentEngine(msg.engine)
-        // Codex 会话无模型/slash 清单：进入时清掉上一个 Claude 会话残留的选项，避免误显示。
+        // Codex/Gemini 会话无 Claude 模型/slash 清单：进入时清掉上一个 Claude 会话残留的选项，避免误显示。
         // Claude 会话不清（其 supportedModels 在 sidecar 端缓存，清了 resume 不会再下发）。
-        if (msg.engine === 'codex') {
+        if (msg.engine === 'codex' || msg.engine === 'gemini') {
           setModels([])
           setSlashCommands([])
           setCurrentModel(null)
@@ -364,8 +364,8 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     setSessionId(null)
     if (m) setModeState(m)
     setCurrentEngine(engine ?? 'claude') // 乐观：新建即按所选引擎，Ready 回来再确认
-    // Codex 无可查询模型清单：新建即清掉残留的 Claude 模型/命令，避免空窗期误显示
-    if (engine === 'codex') { setModels([]); setSlashCommands([]); setCurrentModel(null) }
+    // Codex/Gemini 无可查询模型清单：新建即清掉残留的 Claude 模型/命令，避免空窗期误显示
+    if (engine === 'codex' || engine === 'gemini') { setModels([]); setSlashCommands([]); setCurrentModel(null) }
     intentRef.current = { kind: 'open', cwd, model, mode: m, engine }
     if (!sendRaw({ type: 'open', cwd, model, mode: m, engine })) connect()
   }, [sendRaw, connect])

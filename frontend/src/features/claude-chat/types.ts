@@ -46,8 +46,8 @@ export interface Attachment {
 /** 权限模式：与 sidecar Agent SDK 的 permissionMode 对齐。 */
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
 
-/** 会话引擎：claude（Claude Agent SDK）/ codex（OpenAI Codex SDK）。会话级固定。 */
-export type Engine = 'claude' | 'codex'
+/** 会话引擎：claude（Claude Agent SDK）/ codex（OpenAI Codex SDK）/ gemini（Gemini CLI headless）。会话级固定。 */
+export type Engine = 'claude' | 'codex' | 'gemini'
 
 /** team-standards 插件单端版本（installed/available 取不到为 null，error 为检测失败原因）。 */
 export interface EnginePluginStatus {

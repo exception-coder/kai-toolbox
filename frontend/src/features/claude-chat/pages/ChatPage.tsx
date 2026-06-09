@@ -29,6 +29,11 @@ const MAX_ATTACHMENTS = 10
 /** 附件 + 本地 blob 预览地址（图片粘贴后点击放大核对，无需后端回读端点）。 */
 type ChatAttachment = UploadedAttachment & { previewUrl?: string }
 
+/** 引擎显示名。 */
+function engineName(e: Engine): string {
+  return e === 'codex' ? 'Codex' : e === 'gemini' ? 'Gemini' : 'Claude'
+}
+
 export function ChatPage() {
   const { chat, setFloating, setMinimized } = useChatRuntime()
   const navigate = useNavigate()
@@ -203,7 +208,7 @@ export function ChatPage() {
         <span className={`rounded px-1.5 py-0.5 text-[10px] ${chat.currentEngine === 'codex'
           ? 'bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-200'
           : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'}`}>
-          {chat.currentEngine === 'codex' ? 'Codex' : 'Claude'}
+          {engineName(chat.currentEngine)}
         </span>
         <span className="text-xs text-[var(--color-muted-foreground)]">{stateLabel(chat.state)}</span>
         <div className="ml-auto flex flex-wrap justify-end gap-1">
@@ -252,7 +257,7 @@ export function ChatPage() {
           </div>
           <div className="mt-3 flex items-center gap-2">
             <span className="text-xs text-[var(--color-muted-foreground)]">引擎</span>
-            {(['claude', 'codex'] as Engine[]).map(eng => (
+            {(['claude', 'codex', 'gemini'] as Engine[]).map(eng => (
               <button
                 key={eng}
                 type="button"
@@ -261,11 +266,14 @@ export function ChatPage() {
                   ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
                   : 'bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}
               >
-                {eng === 'claude' ? 'Claude' : 'Codex'}
+                {engineName(eng)}
               </button>
             ))}
             {newEngine === 'codex' && (
               <span className="text-xs text-[var(--color-muted-foreground)]">（Codex 靠沙箱，不弹权限框）</span>
+            )}
+            {newEngine === 'gemini' && (
+              <span className="text-xs text-[var(--color-muted-foreground)]">（Gemini CLI headless，需本机已登录 gemini 或配置 GEMINI_API_KEY）</span>
             )}
           </div>
         </div>
@@ -355,7 +363,7 @@ export function ChatPage() {
           loadingEarlier={chat.historyLoading}
           exhausted={chat.historyExhausted}
           onFork={chat.forkSession}
-          engineLabel={chat.currentEngine === 'codex' ? 'Codex' : 'Claude'}
+          engineLabel={engineName(chat.currentEngine)}
         />
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-[var(--color-muted-foreground)]">
@@ -444,7 +452,7 @@ export function ChatPage() {
             />
             <textarea
               className="max-h-32 min-h-[2.75rem] flex-1 resize-none rounded-xl border bg-[var(--color-background)] px-3 py-2 text-sm"
-              placeholder={`给 ${chat.currentEngine === 'codex' ? 'Codex' : 'Claude'} 下发任务…（Enter 换行，Shift+Enter 发送）`}
+              placeholder={`给 ${engineName(chat.currentEngine)} 下发任务…（Enter 换行，Shift+Enter 发送）`}
               rows={1}
               value={draft}
               onChange={e => { setDraft(e.target.value); setSlashDismissed(false); setSlashIdx(0) }}
