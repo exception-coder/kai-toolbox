@@ -52,6 +52,26 @@ public class BrowserSessionManager {
     private volatile Browser browser;
     private volatile boolean shuttingDown = false;
 
+    /**
+     * 反 BOSS zpAegis 潰页脚本：实测它在判定异常时用 {@code window.open("", "_self")} 把当前帧
+     * 导航成 about:blank（NAVTRAP 抓到 window.open 空 url + 主帧 frameNavigated about:blank 同时发生）。
+     * 这里拦掉「空字符串 / about: 协议」的 window.open，返回一个无害的 window-like 桩、不发生任何导航；
+     * 真实 URL 的 open 照常放行。toString 伪装成原生，降低被反爬 Function.prototype.toString 校验识破的概率。
+     */
+    private static final String BLANK_OPEN_GUARD_JS =
+            "(function(){try{"
+            + "var _open=window.open;"
+            + "var guard=function(u){var s=(u==null)?'':String(u);"
+            + "if(s===''||/^about:/i.test(s)){return {closed:false,close:function(){},focus:function(){},blur:function(){},"
+            + "opener:null,location:{href:'',assign:function(){},replace:function(){},reload:function(){}},"
+            + "document:{open:function(){},write:function(){},close:function(){}},postMessage:function(){}};}"
+            + "return _open.apply(this,arguments);};"
+            + "try{guard.toString=function(){return 'function open() { [native code] }';};}catch(e){}"
+            + "try{Object.defineProperty(guard,'name',{value:'open',configurable:true});}catch(e){}"
+            + "try{Object.defineProperty(guard,'length',{value:1,configurable:true});}catch(e){}"
+            + "window.open=guard;"
+            + "}catch(e){}})();";
+
     public BrowserSessionManager(BrowserRequestProperties props, ObjectMapper objectMapper) {
         this.props = props;
         this.objectMapper = objectMapper;
@@ -121,6 +141,8 @@ public class BrowserSessionManager {
             ctx.setDefaultNavigationTimeout(props.getRequestTimeoutMs());
             // 在任何文档执行前注入反检测脚本（覆盖 webdriver / chrome / plugins / WebGL 等）
             ctx.addInitScript(StealthConfig.initScript());
+            // 反 zpAegis 潰页：拦截 window.open("","_self") 这类把当前帧导成 about:blank 的调用。
+            ctx.addInitScript(BLANK_OPEN_GUARD_JS);
             Page page = ctx.newPage();
             // 诊断：记录主框架每次导航落点。用于区分"加载后被站点重定向回 about:blank"（反爬）
             // 与"导航本身没成功"——前者会看到先 bosszhipin 后 about:blank 两条 frame navigated。
