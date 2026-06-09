@@ -407,24 +407,30 @@ export function ChatPage() {
             <SlashCommandMenu commands={slashFiltered} activeIndex={slashActive} onPick={pickSlash} />
           )}
           <div className="flex items-end gap-2 px-3 py-2">
-            {/* sr-only 而非 hidden(display:none)：移动端浏览器/WebView 对 display:none 的 file input
-                调 .click() 会被忽略、选择器弹不出（桌面 Chrome 可以）。sr-only 视觉隐藏但仍可触发。 */}
-            <input
-              ref={fileRef}
-              type="file"
-              multiple
-              className="sr-only"
-              onChange={e => handleFiles(e.target.files)}
-            />
+            {/* 用 <label> 包住 input：点 label 由浏览器原生触发文件选择，绕开「移动端 WebView 里
+                JS input.click() 丢用户手势、选择器弹不出」的坑（sr-only/.click() 方案在部分机型仍失败）。
+                Button asChild 把按钮样式套到 label 上，外观不变。 */}
             <Button
+              asChild
               variant="ghost"
               size="icon"
-              onClick={() => fileRef.current?.click()}
-              disabled={attachments.length + uploading >= MAX_ATTACHMENTS}
-              aria-label="添加附件"
-              title="添加图片 / 文档"
+              aria-disabled={attachments.length + uploading >= MAX_ATTACHMENTS}
             >
-              <Paperclip className="size-5" />
+              <label
+                aria-label="添加附件"
+                title="添加图片 / 文档"
+                className={`cursor-pointer${attachments.length + uploading >= MAX_ATTACHMENTS ? ' pointer-events-none opacity-50' : ''}`}
+              >
+                <input
+                  ref={fileRef}
+                  type="file"
+                  multiple
+                  className="sr-only"
+                  disabled={attachments.length + uploading >= MAX_ATTACHMENTS}
+                  onChange={e => handleFiles(e.target.files)}
+                />
+                <Paperclip className="size-5" />
+              </label>
             </Button>
             <div className="relative">
               <Button
