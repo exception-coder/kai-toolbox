@@ -134,8 +134,8 @@ public class SubtitleService {
 
     /**
      * whisper.cpp 实际运行时的工作目录。whisper.cpp 在 Windows 上用 C++ 的 fopen / ofstream
-     * 写文件，默认走 ANSI 编码 —— 当 outputDir 路径含非 ASCII 字符（如中文用户名 {@code 张凯}
-     * 出现在 {@code C:\Users\张凯\.kai-toolbox\subtitles}）时，转写跑完会「悄无声息地」写不出
+     * 写文件，默认走 ANSI 编码 —— 当 outputDir 路径含非 ASCII 字符（如中文用户名 {@code 用户名}
+     * 出现在 {@code C:\Users\用户名\.kai-toolbox\subtitles}）时，转写跑完会「悄无声息地」写不出
      * VTT 文件，对外表现是退出码 0 但 VTT 文件不存在。
      *
      * <p>规避方式：Windows + CJK 路径时让 whisper 写到 {@code %PROGRAMDATA%\kai-toolbox\whisper-out}

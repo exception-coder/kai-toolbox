@@ -22,7 +22,7 @@ import type {
 /** 描述「这次要优化哪一段内容、接受后怎么写回」的请求载体 */
 export interface OptimizeTarget {
   sectionType: SectionType
-  /** 用于在抽屉标题里显示，例如「广州应奥科技」 */
+  /** 用于在抽屉标题里显示，例如「示例科技公司」 */
   itemTitle?: string
   /** 提供原始内容（结构化 JSON 或纯文本） */
   buildOriginal: () => string

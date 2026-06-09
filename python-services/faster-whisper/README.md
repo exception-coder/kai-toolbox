@@ -5,7 +5,7 @@
 ## 为什么不再用 whisper.cpp CLI
 
 - **参数解析脆弱**：whisper.cpp 不同版本 / 构建对 `-fa` / `-su` 等参数的处理不一致，错误时会静默打印 OPTIONS 帮助然后 exit 0，前端表现为「跑完了但没字幕」。
-- **Windows + CJK 路径**：whisper.cpp 用 C++ `fopen` 走 ANSI codepage 写文件，中文用户目录（`C:\Users\张凯\`）下偶发写不出 VTT。
+- **Windows + CJK 路径**：whisper.cpp 用 C++ `fopen` 走 ANSI codepage 写文件，中文用户目录（`C:\Users\<中文用户名>\`）下偶发写不出 VTT。
 - **stderr 文本解析**：进度 / 语言检测的输出格式版本间漂移，每次升级 whisper.cpp 都要重新校准正则。
 
 faster-whisper（CTranslate2 后端）比 whisper.cpp **快 4 倍**且更稳定，HTTP/JSON contract 也比 stderr 解析坚固得多。
