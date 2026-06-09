@@ -251,6 +251,18 @@ const decisions: Decision[] = [
     ],
   },
   {
+    topic: '模型管理 / 路由',
+    chosen: {
+      name: 'toolbox-llm 进程内路由器',
+      reason: '共享模块：模型池 + 分级(tier)路由 + 权重分发 + 429 熔断故障转移；RoutingChatModel 对 AiServices 透明',
+    },
+    rejected: [
+      { name: '无路由 · 直连单模型', reason: '联网 API 限流/宕机无降级、单点；同平台多 key 也无法分摊' },
+      { name: 'LiteLLM 等外置网关', reason: '单用户本地多一个常驻进程/部署，过重；进程内路由已够用' },
+      { name: '塞进 Spring AI 共享', reason: 'ai-secretary 已选 LangChain4j，跨框架无法共享同一模型对象' },
+    ],
+  },
+  {
     topic: '结构化输出',
     chosen: {
       name: 'JSON Schema 约束解码',
@@ -357,14 +369,21 @@ export function ArchitecturePage() {
             <FlowBox
               icon={Boxes}
               title="LangChain4j（AiServices + @Tool + ChatMemory）"
-              desc="OpenAiChatModel → http://localhost:11434/v1"
+              desc="向网关取 ChatModel，自身不持有具体模型"
               tone="muted"
+            />
+            <ArrowDown className="mx-auto h-4 w-4 text-[var(--color-muted-foreground)]" />
+            <FlowBox
+              icon={Network}
+              title="toolbox-llm 模型网关（ChatModelRouter）"
+              desc="按 tier 分级 · 权重分发 · 429 熔断 · 故障转移（RoutingChatModel 对上透明）"
+              tone="primary"
             />
             <ArrowDown className="mx-auto h-4 w-4 text-[var(--color-muted-foreground)]" />
             <HFlow
               steps={[
-                { icon: Cpu, title: 'Ollama · Qwen2.5-7B', desc: '本地推理（OpenAI 兼容）', tone: 'accent' },
-                { icon: Database, title: 'SQLite（assistant-schema）', desc: '记录持久化' },
+                { icon: Cpu, title: '模型池 · 本地 Ollama / 远端 API', desc: 'OpenAI 兼容，互为故障转移与限流分摊', tone: 'accent' },
+                { icon: Database, title: 'SQLite（ai-secretary-schema）', desc: '记录持久化' },
               ]}
             />
           </CardContent>
@@ -440,6 +459,31 @@ export function ArchitecturePage() {
         </div>
       </Section>
 
+      {/* 模型网关 / 路由 */}
+      <Section
+        icon={Network}
+        title="模型网关 / 路由（toolbox-llm）"
+        subtitle="联网 API 限流/宕机时，同档位池内按权重分摊 + 故障转移；对 AiServices 透明"
+      >
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <HFlow
+              steps={[
+                { icon: Boxes, title: 'AiServices', desc: '只认一个 ChatModel' },
+                { icon: Network, title: 'RoutingChatModel', desc: '按 tier 取池 + 路由', tone: 'primary' },
+              ]}
+            />
+            <div className="grid gap-2 sm:grid-cols-2">
+              <FlowBox icon={Cpu} title="本地 qwen2.5-7b（weight 1）" desc="tier=capture · 零成本 / 隐私" tone="accent" />
+              <FlowBox icon={Cpu} title="远端 deepseek（weight 2）" desc="tier=recall · 强模型 / 互为故障转移" tone="muted" />
+            </div>
+            <p className="text-xs text-[var(--color-muted-foreground)]">
+              每次调用按权重选主成员；429 / 报错 → 熔断该成员 cooldown 秒并转移到下一个；同平台多 key / 多模型当带权池分摊限流。配置在 <code>toolbox.llm.models</code>。
+            </p>
+          </CardContent>
+        </Card>
+      </Section>
+
       {/* 中间件选型 */}
       <Section
         icon={Boxes}
@@ -482,20 +526,20 @@ export function ArchitecturePage() {
                 <CheckCircle2 className="h-4 w-4" /> 已验证通过
               </div>
               <ul className="space-y-1 text-xs text-[var(--color-muted-foreground)]">
-                <li>• 回忆态 tool calling：正确触发函数并从中文问句抽出 <code>keyword=吃饭 / time_range=上周</code></li>
-                <li>• 记录态结构化输出：一句话拆成 3 条记录，带 confidence</li>
-                <li>• 相对时间解析：“明天下午3点” → <code>2026-06-11T15:00:00</code></li>
+                <li>• 端到端：:18099 → AiServices 经 <code>RoutingChatModel</code> → 本地 Qwen，记录态全链路跑通</li>
+                <li>• 一句话拆 3 条；类目走受控枚举（SCHEDULE / EXPENSE），不再自创类目</li>
+                <li>• 「打车花了38块」正确抽出 <code>amount=38</code>；标签 / 置信度 / 落库均正常</li>
               </ul>
             </CardContent>
           </Card>
           <Card className="border-amber-500/40">
             <CardContent className="space-y-2 p-4">
               <div className="flex items-center gap-2 text-sm font-medium text-amber-600 dark:text-amber-400">
-                <AlertTriangle className="h-4 w-4" /> 待修正（已纳入实现）
+                <AlertTriangle className="h-4 w-4" /> 待打磨（下一轮）
               </div>
               <ul className="space-y-1 text-xs text-[var(--color-muted-foreground)]">
-                <li>• 分类失控：模型自创类目 → schema 里 <code>category</code> 设 enum 锁死</li>
-                <li>• 金额漏抽：“打车花了38块”未填 amount → prompt 强调开销必抽 amount</li>
+                <li>• 相对时间不准：注入的是 UTC <code>Instant</code>，「明天」易解成今天且丢时区 → 改注入带时区的本地时间</li>
+                <li>• 「买牛奶鸡蛋」被归「开销」（实为购物待办）→ prompt 澄清「开销 = 已花的钱」</li>
               </ul>
             </CardContent>
           </Card>
