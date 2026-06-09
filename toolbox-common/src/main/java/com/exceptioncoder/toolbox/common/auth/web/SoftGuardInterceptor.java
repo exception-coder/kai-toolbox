@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.common.auth.web;
 
 import com.exceptioncoder.toolbox.common.auth.annotation.SoftGuard;
 import com.exceptioncoder.toolbox.common.auth.config.AuthProperties;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.util.AntPathMatcher;
@@ -38,6 +39,15 @@ public class SoftGuardInterceptor implements HandlerInterceptor {
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
             throws IOException {
+        // 只在初始请求派发上鉴权。异步再派发(StreamingResponseBody/SSE 写完后的 ASYNC dispatch)、
+        // ERROR/FORWARD 等二次派发同样会触发 preHandle，但此时：(1) 初始 REQUEST 派发已鉴过权；
+        // (2) AuthContext 的 ThreadLocal 已被原始请求线程的 filter 清空，这里会误判未授权；
+        // (3) 响应的 OutputStream 已被流式写占用，再走 EmptyResponses.getWriter() 写空响应会抛
+        //     IllegalStateException("getOutputStream() has already been called")，破坏分片响应收尾，
+        //     使 hls.js 拿不到完整分片而卡在第 0 段(移动端浏览器尤为严格)。故非初始派发一律放行。
+        if (request.getDispatcherType() != DispatcherType.REQUEST) {
+            return true;
+        }
         if (!(handler instanceof HandlerMethod method)) {
             return true;
         }
