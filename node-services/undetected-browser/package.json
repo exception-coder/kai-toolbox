@@ -1,0 +1,15 @@
+{
+  "name": "kai-undetected-browser",
+  "version": "0.1.0",
+  "private": true,
+  "description": "kai-toolbox 免检测浏览器 sidecar：用 patchright(打补丁的 Playwright) 规避 CDP/Runtime.enable 检测，供 browser-request 通过 HTTP 桥接控制。仅本机 loopback。",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "install-browser": "patchright install chromium"
+  },
+  "dependencies": {
+    "patchright": "^1.60.2"
+  }
+}
