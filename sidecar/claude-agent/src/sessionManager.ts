@@ -67,7 +67,7 @@ class Session {
    * 对「启动 native 二进制失败」做有限重试：该二进制有 200MB+，首次启动可能被
    * 杀软实时扫描短暂锁住而 spawn 失败。只在本轮尚未产出任何消息时重试，避免重复输出。
    */
-  async runTurn(text: string): Promise<void> {
+  async runTurn(text: string, systemPrompt?: string): Promise<void> {
     if (this.engine === 'codex') return this.runCodexTurn(text)
     const maxAttempts = 3
     // spawn claude.exe 时若 working dir 不存在会直接「exists but failed to launch」；
@@ -87,6 +87,9 @@ class Session {
         const q = query({
           prompt: text,
           options: {
+            // 仅 oneShot 传：作为真正的 system 提示（字符串=替换 SDK 默认 system）。
+            // 交互式聊天 runTurn 不传 → 走 SDK 默认（编码 agent 语境），互不影响。
+            ...(systemPrompt ? { systemPrompt } : {}),
             cwd: safeCwd,
             model: this.model || undefined,
             resume: this.sdkSessionId || undefined,
@@ -335,8 +338,8 @@ export class SessionManager {
     if (model) s.model = model
     s.permissionMode = 'bypassPermissions'
     s.perms.setMode('bypassPermissions')
-    const combined = systemPrompt ? `${systemPrompt}\n\n${userPrompt}` : userPrompt
-    await s.runTurn(combined)
+    // 角色说明走 SDK 独立 systemPrompt 通道，user 只放任务+原文；仅影响这次一次性 query。
+    await s.runTurn(userPrompt, systemPrompt)
   }
 }
 
