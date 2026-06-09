@@ -67,6 +67,12 @@ public class BrowserRequestController {
         return sessionSvc.open(id);
     }
 
+    /** 列出该会话浏览器当前所有页签的 URL（移动端确认窗口最终停在哪：空白页 / 实际站点）。 */
+    @GetMapping("/sessions/{id}/pages")
+    public List<String> sessionPages(@PathVariable String id) {
+        return sessionSvc.listPageUrls(id);
+    }
+
     @PostMapping("/sessions/{id}/save")
     public BrowserRequestService.SessionView saveSession(@PathVariable String id) {
         return sessionSvc.saveStorage(id);

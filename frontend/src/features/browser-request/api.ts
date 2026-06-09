@@ -25,6 +25,8 @@ export const sessions = {
   clear: (id: string) => jsonReq<SessionView>(`${BASE}/sessions/${id}/clear`, { method: 'POST' }),
   close: (id: string) => jsonReq<SessionView>(`${BASE}/sessions/${id}/close`, { method: 'POST' }),
   delete: (id: string) => jsonReq<void>(`${BASE}/sessions/${id}`, { method: 'DELETE' }),
+  /** 该会话浏览器当前所有页签 URL（移动端确认窗口最终停在哪：空白页 / 实际站点）。 */
+  pages: (id: string) => jsonReq<string[]>(`${BASE}/sessions/${id}/pages`),
 }
 
 // ── 录制 ─────────────────────────────────────────────────────────────────

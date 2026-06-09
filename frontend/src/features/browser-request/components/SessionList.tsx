@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, Power, PowerOff, Save, Trash2 } from 'lucide-react'
+import { Globe, Plus, Power, PowerOff, Save, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
@@ -143,6 +143,35 @@ export function SessionList({ currentId, onSelect }: Props) {
                 )}
                 {s.active && (
                   <>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      title="查看当前页签 URL（确认窗口停在哪）"
+                      onClick={async () => {
+                        try {
+                          const urls = await api.pages(s.id)
+                          await confirm({
+                            title: '当前页签 URL',
+                            description: (
+                              <div className="max-h-60 space-y-1 overflow-auto break-all font-mono text-xs">
+                                {urls.length
+                                  ? urls.map((u, i) => <div key={i}>{i + 1}. {u}</div>)
+                                  : '（浏览器当前没有打开的页签）'}
+                              </div>
+                            ),
+                            confirmText: '知道了',
+                          })
+                        } catch (e) {
+                          await confirm({
+                            title: '获取失败',
+                            description: e instanceof Error ? e.message : String(e),
+                            confirmText: '关闭',
+                          })
+                        }
+                      }}
+                    >
+                      <Globe className="size-4" />
+                    </Button>
                     <Button size="sm" variant="ghost" onClick={() => saveMut.mutate(s.id)} title="保存登录态">
                       <Save className="size-4" />
                     </Button>

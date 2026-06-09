@@ -110,6 +110,24 @@ public class BrowserSessionManager {
         return java.util.Set.copyOf(contexts.keySet());
     }
 
+    /**
+     * 列出该会话浏览器当前所有页签的 URL（移动端看不到桌面窗口时用于确认最终停在哪）。
+     * 会话未打开 / 无 ctx 时返回空列表。
+     */
+    public List<String> listPageUrls(String sessionId) {
+        return runOnWorker(() -> {
+            BrowserContext ctx = contexts.get(sessionId);
+            if (ctx == null) return List.<String>of();
+            try {
+                return ctx.pages().stream()
+                        .map(p -> { try { return p.url(); } catch (Exception e) { return "?"; } })
+                        .toList();
+            } catch (Exception e) {
+                return List.<String>of();
+            }
+        });
+    }
+
     /** 在 worker 线程上打开/恢复一个 session 的浏览器窗口，并导航到 url。 */
     public void openSession(String sessionId, String url) {
         runOnWorker(() -> {

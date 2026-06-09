@@ -67,6 +67,11 @@ public class BrowserRequestService {
         return SessionView.from(s, true, manager);
     }
 
+    /** 列出该会话浏览器当前所有页签 URL（移动端看不到桌面窗口时确认最终停在哪）。 */
+    public List<String> listPageUrls(String id) {
+        return manager.listPageUrls(id);
+    }
+
     public SessionView saveStorage(String id) {
         BrowserSession s = repo.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + id));
