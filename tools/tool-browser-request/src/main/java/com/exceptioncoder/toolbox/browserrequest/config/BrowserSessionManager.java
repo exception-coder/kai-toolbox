@@ -110,6 +110,42 @@ public class BrowserSessionManager {
         return java.util.Set.copyOf(contexts.keySet());
     }
 
+    /** 当前页面截图（JPEG 字节），供「实时画面」。会话未打开/无页签返回 null。 */
+    public byte[] screenshot(String sessionId) {
+        return runOnWorker(() -> {
+            BrowserContext ctx = contexts.get(sessionId);
+            if (ctx == null || ctx.pages().isEmpty()) return null;
+            try {
+                return ctx.pages().get(0).screenshot(new Page.ScreenshotOptions()
+                        .setType(com.microsoft.playwright.options.ScreenshotType.JPEG).setQuality(55));
+            } catch (Exception e) {
+                log.debug("[BrowserRequest] screenshot 失败 {}: {}", sessionId, e.getMessage());
+                return null;
+            }
+        });
+    }
+
+    /** 归一化坐标点击（fx,fy ∈ [0,1]，相对 CSS 视口），供「实时画面」远程点触。 */
+    public void click(String sessionId, double fx, double fy) {
+        runOnWorker(() -> {
+            BrowserContext ctx = contexts.get(sessionId);
+            if (ctx == null || ctx.pages().isEmpty()) return null;
+            Page p = ctx.pages().get(0);
+            try {
+                Object dim = p.evaluate("({w:window.innerWidth,h:window.innerHeight})");
+                double w = 1280, h = 800;
+                if (dim instanceof java.util.Map<?, ?> m) {
+                    if (m.get("w") instanceof Number nw) w = nw.doubleValue();
+                    if (m.get("h") instanceof Number nh) h = nh.doubleValue();
+                }
+                p.mouse().click(Math.max(0, Math.min(w - 1, fx * w)), Math.max(0, Math.min(h - 1, fy * h)));
+            } catch (Exception e) {
+                log.debug("[BrowserRequest] click 失败 {}: {}", sessionId, e.getMessage());
+            }
+            return null;
+        });
+    }
+
     /**
      * 列出该会话浏览器当前所有页签的 URL（移动端看不到桌面窗口时用于确认最终停在哪）。
      * 会话未打开 / 无 ctx 时返回空列表。

@@ -21,6 +21,13 @@ const opening = new Set(); // 防同一 session 并发 open
 
 function profileDir(id) { return path.join(DATA_DIR, id, 'patchright-profile'); }
 function log(...a) { console.log('[undetected-browser]', ...a); }
+function activePage(id) {
+  const s = sessions.get(id);
+  if (!s) throw httpErr(409, 'session not open');
+  const page = s.context.pages()[0];
+  if (!page) throw httpErr(409, 'no page');
+  return page;
+}
 
 async function launchPersistent(id, url) {
   const dir = profileDir(id);
@@ -85,6 +92,27 @@ async function handle(method, parts, body) {
     } catch (e) { return { tracked: true, pages: [], note: '读取失败: ' + e.message }; }
   }
 
+  // 远程交互：前端传归一化坐标 fx,fy(0..1)，乘以 CSS 视口尺寸点击（兼容 viewport:null）
+  if (method === 'POST' && action === 'click') {
+    const page = activePage(id);
+    const dim = await page.evaluate('({w:window.innerWidth,h:window.innerHeight})');
+    const x = Math.max(0, Math.min(dim.w - 1, (body && body.fx || 0) * dim.w));
+    const y = Math.max(0, Math.min(dim.h - 1, (body && body.fy || 0) * dim.h));
+    await page.mouse.click(x, y);
+    return { ok: true, x, y };
+  }
+  if (method === 'POST' && action === 'scroll') {
+    const page = activePage(id);
+    await page.mouse.wheel(0, (body && body.dy) || 0);
+    return { ok: true };
+  }
+  if (method === 'POST' && action === 'type') {
+    const page = activePage(id);
+    if (body && body.text) await page.keyboard.type(String(body.text), { delay: 30 });
+    if (body && body.key) await page.keyboard.press(String(body.key));
+    return { ok: true };
+  }
+
   if (method === 'POST' && action === 'save') {
     const s = sessions.get(id);
     if (!s) throw httpErr(409, 'session not open');
@@ -123,6 +151,18 @@ const server = http.createServer((req, res) => {
     let body = null;
     if (chunks.length) { try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch {} }
     const parts = req.url.split('?')[0].split('/').filter(Boolean);
+    // 截图走二进制响应（实时画面），不进 JSON handle
+    if (req.method === 'GET' && parts[0] === 'sessions' && parts[2] === 'screenshot') {
+      try {
+        const page = activePage(parts[1]);
+        const buf = await page.screenshot({ type: 'jpeg', quality: 55 });
+        res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'no-store' });
+        return res.end(buf);
+      } catch (e) {
+        res.writeHead(e.status || 500, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ error: e.message }));
+      }
+    }
     try {
       const result = await handle(req.method, parts, body);
       res.writeHead(200, { 'content-type': 'application/json' });

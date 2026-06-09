@@ -1,6 +1,10 @@
 package com.exceptioncoder.toolbox.browserrequest.api;
 
+import com.exceptioncoder.toolbox.browserrequest.api.dto.ClickRequest;
 import com.exceptioncoder.toolbox.browserrequest.api.dto.CreateSessionRequest;
+import org.springframework.http.CacheControl;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import com.exceptioncoder.toolbox.browserrequest.api.dto.CreateTaskRequest;
 import com.exceptioncoder.toolbox.browserrequest.api.dto.ReplayRequest;
 import com.exceptioncoder.toolbox.browserrequest.api.dto.StartRecordingRequest;
@@ -71,6 +75,21 @@ public class BrowserRequestController {
     @GetMapping("/sessions/{id}/pages")
     public List<String> sessionPages(@PathVariable String id) {
         return sessionSvc.listPageUrls(id);
+    }
+
+    /** 当前页面实时截图（JPEG）。移动端轮询显示，看不到桌面窗口也能看渲染图（如扫码二维码）。 */
+    @GetMapping(value = "/sessions/{id}/screenshot", produces = MediaType.IMAGE_JPEG_VALUE)
+    public ResponseEntity<byte[]> screenshot(@PathVariable String id) {
+        byte[] img = sessionSvc.screenshot(id);
+        if (img == null || img.length == 0) return ResponseEntity.noContent().build();
+        return ResponseEntity.ok().contentType(MediaType.IMAGE_JPEG)
+                .cacheControl(CacheControl.noStore()).body(img);
+    }
+
+    /** 「实时画面」远程点击：归一化坐标（fx,fy ∈ [0,1]）。 */
+    @PostMapping("/sessions/{id}/click")
+    public void clickSession(@PathVariable String id, @RequestBody ClickRequest req) {
+        sessionSvc.click(id, req.fx(), req.fy());
     }
 
     @PostMapping("/sessions/{id}/save")

@@ -183,6 +183,40 @@ public class UndetectedBrowserSidecar {
         catch (Exception e) { log.debug("[undetected-browser] {} 忽略: {}", path, e.getMessage()); }
     }
 
+    /** 当前页面截图（JPEG 字节）。供「实时画面」。 */
+    public byte[] screenshot(String id) {
+        try {
+            HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(base() + "/sessions/" + id + "/screenshot"))
+                    .timeout(Duration.ofSeconds(15)).GET();
+            String token = props.getSidecar().getToken();
+            if (token != null && !token.isBlank()) b.header("X-Sidecar-Token", token);
+            HttpResponse<byte[]> r = http.send(b.build(), HttpResponse.BodyHandlers.ofByteArray());
+            if (r.statusCode() != 200) throw new RuntimeException("screenshot HTTP " + r.statusCode());
+            return r.body();
+        } catch (RuntimeException re) {
+            throw re;
+        } catch (Exception e) {
+            throw new RuntimeException("sidecar 截图失败: " + e.getMessage(), e);
+        }
+    }
+
+    /** 归一化坐标点击（fx,fy ∈ [0,1]）。供「实时画面」远程点触。 */
+    public void click(String id, double fx, double fy) {
+        post("/sessions/" + id + "/click", "{\"fx\":" + fx + ",\"fy\":" + fy + "}", Duration.ofSeconds(10));
+    }
+
+    public void scroll(String id, double dy) {
+        post("/sessions/" + id + "/scroll", "{\"dy\":" + dy + "}", Duration.ofSeconds(10));
+    }
+
+    public void type(String id, String text, String key) {
+        StringBuilder sb = new StringBuilder("{");
+        if (text != null) sb.append("\"text\":").append(jsonStr(text));
+        if (key != null) { if (text != null) sb.append(','); sb.append("\"key\":").append(jsonStr(key)); }
+        sb.append('}');
+        post("/sessions/" + id + "/type", sb.toString(), Duration.ofSeconds(10));
+    }
+
     public boolean isOpen(String id) {
         try {
             HttpResponse<String> r = send("GET", "/sessions/" + id + "/pages", null, Duration.ofSeconds(5));

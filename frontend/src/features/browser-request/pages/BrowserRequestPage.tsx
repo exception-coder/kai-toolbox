@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Globe } from 'lucide-react'
 import { Segmented } from '@/components/ui/segmented'
 import { SessionList } from '../components/SessionList'
+import { LiveScreen } from '../components/LiveScreen'
 import { RecordingPanel } from '../components/RecordingPanel'
 import { TaskListPanel } from '../components/TaskListPanel'
 import { TaskCanvasPage } from './TaskCanvasPage'
@@ -65,6 +66,7 @@ export function BrowserRequestPage() {
 
           {sessionId && !canvas && (
             <>
+              <LiveScreen sessionId={sessionId} />
               <Segmented
                 value={tab}
                 onChange={setTab}

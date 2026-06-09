@@ -92,6 +92,19 @@ public class BrowserRequestService {
         return (s != null && isNode(s)) ? sidecar.listPageUrls(id) : manager.listPageUrls(id);
     }
 
+    /** 当前页面截图（JPEG 字节），供移动端「实时画面」。 */
+    public byte[] screenshot(String id) {
+        BrowserSession s = repo.findById(id).orElse(null);
+        return (s != null && isNode(s)) ? sidecar.screenshot(id) : manager.screenshot(id);
+    }
+
+    /** 归一化坐标远程点击（fx,fy ∈ [0,1]）。 */
+    public void click(String id, double fx, double fy) {
+        BrowserSession s = repo.findById(id).orElse(null);
+        if (s != null && isNode(s)) sidecar.click(id, fx, fy);
+        else manager.click(id, fx, fy);
+    }
+
     public SessionView saveStorage(String id) {
         BrowserSession s = repo.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + id));

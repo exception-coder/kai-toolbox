@@ -4,6 +4,7 @@ import type {
 } from './types'
 
 import { authEventSource, http } from '@/lib/api'
+import { withAuthToken } from '@/lib/auth'
 
 const BASE = '/browser-request'
 
@@ -27,6 +28,11 @@ export const sessions = {
   delete: (id: string) => jsonReq<void>(`${BASE}/sessions/${id}`, { method: 'DELETE' }),
   /** 该会话浏览器当前所有页签 URL（移动端确认窗口最终停在哪：空白页 / 实际站点）。 */
   pages: (id: string) => jsonReq<string[]>(`${BASE}/sessions/${id}/pages`),
+  /** 实时画面截图 URL（带 access_token，供 <img>）。加 &t=时间戳 防缓存。 */
+  screenshotUrl: (id: string) => withAuthToken(`/api${BASE}/sessions/${id}/screenshot`),
+  /** 远程点击：归一化坐标 fx,fy ∈ [0,1]（相对显示图比例）。 */
+  click: (id: string, fx: number, fy: number) =>
+    jsonReq<void>(`${BASE}/sessions/${id}/click`, { method: 'POST', body: JSON.stringify({ fx, fy }) }),
 }
 
 // ── 录制 ─────────────────────────────────────────────────────────────────
