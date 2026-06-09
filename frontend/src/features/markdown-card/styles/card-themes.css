@@ -88,6 +88,31 @@
   --md-card-font-family: var(--md-card-font-mono);
 }
 
+/* ==== 卡片段落可视删除：按块 wrapper + hover ✕ ==== */
+/* position:relative 仅作 ✕ 的定位上下文，不建 BFC，故块间 margin 折叠照旧、间距不变 */
+.md-card-block { position: relative; }
+.md-card-block-del {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0;                 /* 默认隐藏；导出时未 hover 即不可见，不会进图 */
+  transition: opacity 0.12s ease;
+  z-index: 5;
+}
+.md-card-block:hover > .md-card-block-del { opacity: 1; }
+.md-card-block-del:hover { background: rgba(220, 38, 38, 0.92); }
+
 /* ==== 卡片公共内容样式（无论主题） ==== */
 .md-card-content {
   background: var(--md-card-bg);

@@ -8,8 +8,9 @@ import {
 } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { parseMarkdown, splitByHeading, splitSlides } from '../lib/markdownPipeline'
+import { splitByHeading, splitSlides } from '../lib/markdownPipeline'
 import { getThemeAttr } from '../lib/themes'
+import { RemovableContent } from './RemovableContent'
 import { SLIDE_RATIOS, type SlideRatio, type SplitMode, type Theme } from '../types'
 
 export interface SlideCardsHandle {
@@ -22,10 +23,12 @@ interface SlideCardsProps {
   theme: Theme
   ratio: SlideRatio
   splitMode: SplitMode
+  removed: Set<string>
+  onToggleBlock: (key: string) => void
 }
 
 export const SlideCards = forwardRef<SlideCardsHandle, SlideCardsProps>(
-  ({ text, theme, ratio, splitMode }, ref) => {
+  ({ text, theme, ratio, splitMode, removed, onToggleBlock }, ref) => {
     const slides = useMemo(() => {
       if (splitMode === 'h1') return splitByHeading(text, 1)
       if (splitMode === 'h1h2') return splitByHeading(text, 2)
@@ -59,6 +62,9 @@ export const SlideCards = forwardRef<SlideCardsHandle, SlideCardsProps>(
             theme={theme}
             w={ratioConf.w}
             h={ratioConf.h}
+            scope={`slide${safeActive}`}
+            removed={removed}
+            onToggleBlock={onToggleBlock}
           />
         </ScaledStage>
 
@@ -93,7 +99,15 @@ export const SlideCards = forwardRef<SlideCardsHandle, SlideCardsProps>(
         >
           {slides.map((s, i) => (
             <div key={`offscreen-${i}-${ratio}-${theme}`} ref={setSlideRef(i)}>
-              <SlideStage text={s} theme={theme} w={ratioConf.w} h={ratioConf.h} />
+              <SlideStage
+                text={s}
+                theme={theme}
+                w={ratioConf.w}
+                h={ratioConf.h}
+                scope={`slide${i}`}
+                removed={removed}
+                onToggleBlock={onToggleBlock}
+              />
             </div>
           ))}
         </div>
@@ -152,23 +166,32 @@ function SlideStage({
   theme,
   w,
   h,
+  scope,
+  removed,
+  onToggleBlock,
 }: {
   text: string
   theme: Theme
   w: number
   h: number
+  scope: string
+  removed: Set<string>
+  onToggleBlock: (key: string) => void
 }) {
-  const html = useMemo(() => parseMarkdown(text), [text])
   return (
     <div
       {...getThemeAttr(theme)}
       className="md-card-slide"
       style={{ width: w, height: h }}
     >
-      <div
-        className="md-card-content"
-        dangerouslySetInnerHTML={{ __html: html || '<p><em>这一页是空的</em></p>' }}
-      />
+      {text.trim() ? (
+        <RemovableContent text={text} scope={scope} removed={removed} onToggle={onToggleBlock} />
+      ) : (
+        <div
+          className="md-card-content"
+          dangerouslySetInnerHTML={{ __html: '<p><em>这一页是空的</em></p>' }}
+        />
+      )}
     </div>
   )
 }

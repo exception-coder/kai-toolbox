@@ -17,6 +17,22 @@ export function parseMarkdown(text: string): string {
   }
 }
 
+/**
+ * 切顶层块：用 marked.lexer 取顶层 token（段落/标题/列表/代码块/引用/表格…），
+ * 过滤 space 与纯空白。供「卡片段落可视删除」按块渲染。lexer 异常时兜底为单块。
+ */
+export function lexBlocks(text: string): { raw: string }[] {
+  if (!text || !text.trim()) return []
+  try {
+    return marked
+      .lexer(text)
+      .filter(t => t.type !== 'space' && typeof t.raw === 'string' && t.raw.trim().length > 0)
+      .map(t => ({ raw: t.raw }))
+  } catch {
+    return [{ raw: text }]
+  }
+}
+
 export function splitSlides(text: string): string[] {
   if (!text) return ['']
   const parts = text.split(/^\s*---\s*$/m)

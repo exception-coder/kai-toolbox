@@ -21,6 +21,8 @@ export function MarkdownCardPage() {
   const [state, setState] = useState<PersistedState>(DEFAULT_STATE)
   const [hydrated, setHydrated] = useState(false)
   const [mobileTab, setMobileTab] = useState<MobileTab>('edit')
+  // 卡片内「可视删除」的已删块集合（视图级，不入持久化，不改源文本）
+  const [removedBlocks, setRemovedBlocks] = useState<Set<string>>(new Set())
   const singleNodeRef = useRef<HTMLDivElement>(null)
   const slideHandleRef = useRef<SlideCardsHandle>(null)
 
@@ -28,6 +30,19 @@ export function MarkdownCardPage() {
     setState(loadState())
     setHydrated(true)
   }, [])
+
+  // 源文本/分页/模式变化会让块索引或分页边界漂移，已删块 key 失效 → 清空，避免删错块
+  useEffect(() => {
+    setRemovedBlocks(new Set())
+  }, [state.sourceText, state.splitMode, state.mode])
+
+  const toggleBlock = (key: string) =>
+    setRemovedBlocks(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
 
   useEffect(() => {
     if (hydrated) saveState(state)
@@ -146,6 +161,19 @@ export function MarkdownCardPage() {
             </div>
           </div>
 
+          {removedBlocks.size > 0 && (
+            <div className="flex items-center gap-2 border-b px-3 py-1.5 text-xs text-[var(--color-muted-foreground)]">
+              <span>已隐藏 {removedBlocks.size} 段（仅卡片，不改源文本）</span>
+              <button
+                type="button"
+                className="ml-auto rounded-md px-2 py-1 text-[var(--color-foreground)] hover:bg-[var(--color-muted)]"
+                onClick={() => setRemovedBlocks(new Set())}
+              >
+                恢复全部
+              </button>
+            </div>
+          )}
+
           <div className="p-2">
             <CardRenderer
               mode={state.mode}
@@ -156,6 +184,8 @@ export function MarkdownCardPage() {
               watermark={state.watermark}
               singleNodeRef={singleNodeRef}
               slideHandleRef={slideHandleRef}
+              removed={removedBlocks}
+              onToggleBlock={toggleBlock}
             />
           </div>
         </div>
