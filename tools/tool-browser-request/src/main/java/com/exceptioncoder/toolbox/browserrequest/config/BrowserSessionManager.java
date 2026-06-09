@@ -52,23 +52,6 @@ public class BrowserSessionManager {
     private volatile Browser browser;
     private volatile boolean shuttingDown = false;
 
-    /**
-     * 导航跳转诊断脚本：hook window.open / location.assign / location.replace / history，并监听
-     * beforeunload，把"谁要把页面跳走"连同调用栈用 console.error 打出（后端 onConsoleMessage 落日志）。
-     * location.href= 的 setter 无法可靠覆盖，但 beforeunload 能兜住它的时机 + 当前 url。
-     * 仅用于定位 BOSS zpAegis 触发 about:blank 的确切位置，不改变页面行为。
-     */
-    private static final String NAV_TRAP_JS =
-            "(function(){try{"
-            + "var L=function(t,u){try{console.error('[NAVTRAP] '+t+' url='+u+' @ '+(((new Error()).stack)||'').replace(/\\n/g,' || '));}catch(e){}};"
-            + "var oo=window.open;window.open=function(u){L('window.open',u);return oo.apply(this,arguments);};"
-            + "try{var la=Location.prototype.assign;Location.prototype.assign=function(u){L('location.assign',u);return la.apply(this,arguments);};}catch(e){}"
-            + "try{var lr=Location.prototype.replace;Location.prototype.replace=function(u){L('location.replace',u);return lr.apply(this,arguments);};}catch(e){}"
-            + "try{var hp=history.pushState;history.pushState=function(){L('history.pushState',arguments[2]);return hp.apply(this,arguments);};}catch(e){}"
-            + "try{var hr=history.replaceState;history.replaceState=function(){L('history.replaceState',arguments[2]);return hr.apply(this,arguments);};}catch(e){}"
-            + "window.addEventListener('beforeunload',function(){L('beforeunload','from='+location.href);},true);"
-            + "}catch(e){}})();";
-
     public BrowserSessionManager(BrowserRequestProperties props, ObjectMapper objectMapper) {
         this.props = props;
         this.objectMapper = objectMapper;
@@ -138,9 +121,6 @@ public class BrowserSessionManager {
             ctx.setDefaultNavigationTimeout(props.getRequestTimeoutMs());
             // 在任何文档执行前注入反检测脚本（覆盖 webdriver / chrome / plugins / WebGL 等）
             ctx.addInitScript(StealthConfig.initScript());
-            // 诊断：导航跳转 trap——谁把页面跳走（含 about:blank）就用 console.error 打出方法 + 调用栈，
-            // 后端 onConsoleMessage 会落日志。用于定位 zpAegis/main.js 里触发 about:blank 的确切代码位置。
-            ctx.addInitScript(NAV_TRAP_JS);
             Page page = ctx.newPage();
             // 诊断：记录主框架每次导航落点。用于区分"加载后被站点重定向回 about:blank"（反爬）
             // 与"导航本身没成功"——前者会看到先 bosszhipin 后 about:blank 两条 frame navigated。
