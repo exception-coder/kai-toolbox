@@ -1,6 +1,6 @@
 import { isMockEnabled } from './mock/mode'
 import { matchHttp, matchSse, MockHttpError, type Method } from './mock/registry'
-import { ensureFreshToken } from './auth'
+import { ensureFreshToken, withAuthToken } from './auth'
 
 const API_BASE = '/api'
 
@@ -87,8 +87,9 @@ export function subscribeSse(path: string, handlers: SseHandlers, extraEvents: s
   if (isMockEnabled()) {
     return mockSubscribeSse(path, handlers)
   }
-  const url = API_BASE + path
-  const es = new EventSource(url)
+  // EventSource 不能设请求头，故把 JWT 拼到 access_token 查询参数（后端 JwtAuthFilter 兜底读取）。
+  // 与 subscribeSsePost 一致，避免 @SoftGuard / admin-only 的 GET SSE 因匿名被静默空响应。
+  const es = new EventSource(withAuthToken(API_BASE + path))
 
   es.onopen = () => handlers.onOpen?.()
   es.onerror = (e) => handlers.onError?.(e)

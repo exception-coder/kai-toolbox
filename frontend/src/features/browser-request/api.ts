@@ -3,18 +3,16 @@ import type {
   ReplayBody, SessionView, StartRecordingBody, TaskRunView, TaskView, UpdateTaskBody,
 } from './types'
 
+import { http } from '@/lib/api'
+import { withAuthToken } from '@/lib/auth'
+
 const BASE = '/api/browser-request'
 
-async function jsonReq<T>(input: RequestInfo, init?: RequestInit): Promise<T> {
-  const r = await fetch(input, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
-  })
-  if (!r.ok) {
-    const text = await r.text().catch(() => '')
-    throw new Error(text || `${r.status} ${r.statusText}`)
-  }
-  return r.status === 204 ? (undefined as unknown as T) : (await r.json()) as T
+// 统一收口：所有 JSON 请求一律复用全站共享客户端 http()——它统一做了 token 续期(ensureFreshToken)、
+// 带 JWT(Authorization)、mock 拦截、204 处理与 ApiError 包装。本模块不再自建裸 fetch，避免再次漏带
+// token 导致 admin-only 软鉴权静默返回空 []。http() 期望不含 /api 前缀的 path，故转发前去掉 BASE 的 /api。
+function jsonReq<T>(path: string, init?: RequestInit): Promise<T> {
+  return http<T>(path.replace(/^\/api/, ''), init)
 }
 
 // ── 会话 ─────────────────────────────────────────────────────────────────
@@ -87,7 +85,7 @@ export interface RecordingStreamHandlers {
 }
 
 export function openRecordingStream(recordingId: string, h: RecordingStreamHandlers): () => void {
-  const es = new EventSource(`${BASE}/recordings/${recordingId}/events`)
+  const es = new EventSource(withAuthToken(`${BASE}/recordings/${recordingId}/events`))
   es.addEventListener('backfill', e => {
     try { h.onBackfill?.(JSON.parse((e as MessageEvent).data) as HttpCallStreamView[]) }
     catch { /* ignore parse error */ }
@@ -115,7 +113,7 @@ export interface ReplayStreamHandlers {
 }
 
 export function openReplayStream(runId: string, h: ReplayStreamHandlers): () => void {
-  const es = new EventSource(`${BASE}/task-runs/${runId}/events`)
+  const es = new EventSource(withAuthToken(`${BASE}/task-runs/${runId}/events`))
   es.addEventListener('run-started', e => {
     try { h.onRunStarted?.(JSON.parse((e as MessageEvent).data)) } catch { /* */ }
   })
