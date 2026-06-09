@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
+import { authEventSource, authFetch } from '@/lib/api'
 import type { TunnelStatus } from '../types'
 
 type ConnState = 'connecting' | 'open' | 'closed' | 'error'
 
-const STATUS_URL = '/api/vscode-tunnel/status'
-const EVENTS_URL = '/api/vscode-tunnel/events'
+const STATUS_PATH = '/vscode-tunnel/status'
+const EVENTS_PATH = '/vscode-tunnel/events'
 
 /**
  * 订阅后端 SSE 状态流。挂载时先 GET /status 拿快照（兜底 EventSource 还没建立就显示 STOPPED）。
@@ -18,14 +19,14 @@ export function useTunnelStatus(): { status: TunnelStatus | null; conn: ConnStat
   useEffect(() => {
     let cancelled = false
 
-    fetch(STATUS_URL)
+    authFetch(STATUS_PATH)
       .then(r => r.ok ? r.json() : null)
       .then((s: TunnelStatus | null) => {
         if (!cancelled && s) setStatus(s)
       })
       .catch(() => { /* 服务端临时不可用就让 SSE 接力 */ })
 
-    const es = new EventSource(EVENTS_URL)
+    const es = authEventSource(EVENTS_PATH)
     es.addEventListener('status', e => {
       try {
         const parsed = JSON.parse((e as MessageEvent).data) as TunnelStatus

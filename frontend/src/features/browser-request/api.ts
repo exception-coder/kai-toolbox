@@ -3,16 +3,15 @@ import type {
   ReplayBody, SessionView, StartRecordingBody, TaskRunView, TaskView, UpdateTaskBody,
 } from './types'
 
-import { http } from '@/lib/api'
-import { withAuthToken } from '@/lib/auth'
+import { authEventSource, http } from '@/lib/api'
 
-const BASE = '/api/browser-request'
+const BASE = '/browser-request'
 
-// 统一收口：所有 JSON 请求一律复用全站共享客户端 http()——它统一做了 token 续期(ensureFreshToken)、
-// 带 JWT(Authorization)、mock 拦截、204 处理与 ApiError 包装。本模块不再自建裸 fetch，避免再次漏带
-// token 导致 admin-only 软鉴权静默返回空 []。http() 期望不含 /api 前缀的 path，故转发前去掉 BASE 的 /api。
+// 统一收口：所有 JSON 请求复用共享 http()（续期 + JWT + mock + 204 + ApiError），SSE 用
+// authEventSource（带 access_token）。本模块不再自建裸 fetch / 裸 EventSource，避免漏带 token
+// 导致 admin-only 软鉴权静默返回空。path 不含 /api 前缀，由 http()/authEventSource 统一补。
 function jsonReq<T>(path: string, init?: RequestInit): Promise<T> {
-  return http<T>(path.replace(/^\/api/, ''), init)
+  return http<T>(path, init)
 }
 
 // ── 会话 ─────────────────────────────────────────────────────────────────
@@ -85,7 +84,7 @@ export interface RecordingStreamHandlers {
 }
 
 export function openRecordingStream(recordingId: string, h: RecordingStreamHandlers): () => void {
-  const es = new EventSource(withAuthToken(`${BASE}/recordings/${recordingId}/events`))
+  const es = authEventSource(`${BASE}/recordings/${recordingId}/events`)
   es.addEventListener('backfill', e => {
     try { h.onBackfill?.(JSON.parse((e as MessageEvent).data) as HttpCallStreamView[]) }
     catch { /* ignore parse error */ }
@@ -113,7 +112,7 @@ export interface ReplayStreamHandlers {
 }
 
 export function openReplayStream(runId: string, h: ReplayStreamHandlers): () => void {
-  const es = new EventSource(withAuthToken(`${BASE}/task-runs/${runId}/events`))
+  const es = authEventSource(`${BASE}/task-runs/${runId}/events`)
   es.addEventListener('run-started', e => {
     try { h.onRunStarted?.(JSON.parse((e as MessageEvent).data)) } catch { /* */ }
   })

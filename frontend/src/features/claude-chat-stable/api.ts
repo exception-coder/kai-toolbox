@@ -1,4 +1,4 @@
-import { http } from '@/lib/api'
+import { authFetch, http } from '@/lib/api'
 import type { ChatItem, ClaudeChatSessionView, HistorySessionView, NotifyConfig } from './types'
 
 /** 用当前（草稿）配置触发后端发一条测试推送，返回实际尝试的渠道（bark / ntfy）。 */
@@ -49,8 +49,7 @@ export function listHistory(cwd: string) {
   return http<HistorySessionView[]>(`/claude-chat/history${qs}`)
 }
 
-// ── 语音 / 附件：二进制传输，不走 http() 的 JSON 封装 ──────────────
-const API = '/api'
+// ── 语音 / 附件：二进制 / multipart 传输，http() 的 JSON 封装不适用，改走 authFetch（仍带 JWT）──
 
 async function errMessage(res: Response): Promise<string> {
   let msg = `HTTP ${res.status}`
@@ -64,7 +63,7 @@ async function errMessage(res: Response): Promise<string> {
 /** 探测 faster-whisper ASR 是否就绪，用于启用/禁用麦克风按钮。 */
 export async function sttAvailable(): Promise<boolean> {
   try {
-    const res = await fetch(`${API}/claude-chat/stt/available`)
+    const res = await authFetch('/claude-chat/stt/available')
     if (!res.ok) return false
     const j = await res.json()
     return !!j.available
@@ -75,7 +74,7 @@ export async function sttAvailable(): Promise<boolean> {
 
 /** 上传录音音频，返回转写文本。 */
 export async function transcribe(audio: Blob, language = 'auto'): Promise<string> {
-  const res = await fetch(`${API}/claude-chat/stt?language=${encodeURIComponent(language)}`, {
+  const res = await authFetch(`/claude-chat/stt?language=${encodeURIComponent(language)}`, {
     method: 'POST',
     headers: { 'Content-Type': audio.type || 'application/octet-stream' },
     body: audio,
@@ -97,7 +96,7 @@ export interface UploadedAttachment {
 export async function uploadAttachment(sessionId: string, file: File): Promise<UploadedAttachment> {
   const fd = new FormData()
   fd.append('file', file)
-  const res = await fetch(`${API}/claude-chat/sessions/${encodeURIComponent(sessionId)}/attachments`, {
+  const res = await authFetch(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/attachments`, {
     method: 'POST',
     body: fd,
   })

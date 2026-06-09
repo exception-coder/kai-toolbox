@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Activity, Cpu, Loader2, Search, Skull } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { authFetch } from '@/lib/api'
 import type { CommandResult, TunnelState, TunnelStatus } from '../types'
 
 interface Props {
@@ -159,7 +160,7 @@ function ResidueScanSection({ currentState }: { currentState: TunnelState }) {
     setScanning(true)
     setError(null)
     try {
-      const r = await fetch('/api/vscode-tunnel/residue')
+      const r = await authFetch('/vscode-tunnel/residue')
       if (!r.ok) {
         setError(`${r.status} ${r.statusText}`)
         return
@@ -176,7 +177,7 @@ function ResidueScanSection({ currentState }: { currentState: TunnelState }) {
     setKilling(true)
     setError(null)
     try {
-      const r = await fetch('/api/vscode-tunnel/residue/kill', { method: 'POST' })
+      const r = await authFetch('/vscode-tunnel/residue/kill', { method: 'POST' })
       if (!r.ok) {
         setError(`${r.status} ${r.statusText}`)
         return

@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { authFetch } from '@/lib/api'
 import type { StartRequest, TunnelStatus } from '../types'
 
 /**
@@ -13,7 +14,7 @@ export function useTunnelControl() {
     setPending('start')
     setError(null)
     try {
-      const r = await fetch('/api/vscode-tunnel/start', {
+      const r = await authFetch('/vscode-tunnel/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req),
@@ -33,7 +34,7 @@ export function useTunnelControl() {
     setPending('stop')
     setError(null)
     try {
-      const r = await fetch('/api/vscode-tunnel/stop', { method: 'POST' })
+      const r = await authFetch('/vscode-tunnel/stop', { method: 'POST' })
       if (!r.ok) {
         const msg = await safeReadError(r)
         setError(msg)

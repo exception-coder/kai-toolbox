@@ -39,6 +39,33 @@ export async function http<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
+/**
+ * 带鉴权的原始 fetch：用于 {@link http} 不适用的场景——二进制 body（音频）、multipart（FormData）、
+ * 或需要读响应头（HEAD）。统一做 `ensureFreshToken()` + `Authorization: Bearer`，但**不**强制
+ * Content-Type（交给调用方，FormData 尤其必须由浏览器自动带 boundary）。返回原始 Response。
+ * path 不含 `/api` 前缀。feature 层一律用本函数代替裸 `fetch('/api/...')`，避免漏带 JWT。
+ */
+export async function authFetch(path: string, init?: RequestInit): Promise<Response> {
+  await ensureFreshToken()
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('toolbox.auth.token') : null
+  return fetch(API_BASE + path, {
+    ...init,
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers ?? {}),
+    },
+  })
+}
+
+/**
+ * 带鉴权的 EventSource：EventSource 不能设请求头，故用 `withAuthToken` 把 JWT 拼到 `access_token`
+ * 查询参数（后端 JwtAuthFilter 兜底读取）。feature 层一律用本函数代替裸 `new EventSource('/api/...')`。
+ * path 不含 `/api` 前缀。需要 GET SSE 的标准事件流可直接用 {@link subscribeSse}。
+ */
+export function authEventSource(path: string): EventSource {
+  return new EventSource(withAuthToken(API_BASE + path))
+}
+
 async function mockHttp<T>(path: string, init?: RequestInit): Promise<T> {
   const method = ((init?.method ?? 'GET').toUpperCase()) as Method
   const matched = matchHttp(method, path)

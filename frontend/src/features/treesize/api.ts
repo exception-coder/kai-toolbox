@@ -1,5 +1,5 @@
-import { http } from '@/lib/api'
-import { ensureFreshToken, getToken, withAuthToken } from '@/lib/auth'
+import { authFetch, http } from '@/lib/api'
+import { withAuthToken } from '@/lib/auth'
 import type {
   NodeView,
   ProbeResult,
@@ -125,14 +125,8 @@ export function getVideoConfig() {
  * Using HEAD avoids transferring an empty body and matches the api-doc contract.
  */
 export async function probeVideo(scanId: string, path: string): Promise<ProbeResult> {
-  // probe 是裸 fetch（要读响应头），不走 http()，需自己续期 + 带 token，否则软鉴权拦截后拿不到头。
-  await ensureFreshToken()
-  const token = getToken()
-  const url = `/api${probePath(scanId, path)}`
-  const res = await fetch(url, {
-    method: 'HEAD',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  })
+  // probe 用 HEAD 读响应头，http() 的 JSON 封装不适用，改走 authFetch（统一续期 + 带 token）。
+  const res = await authFetch(probePath(scanId, path), { method: 'HEAD' })
   if (!res.ok) {
     throw new Error(`probe failed: ${res.status}`)
   }

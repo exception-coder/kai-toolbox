@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { RefreshCw, Download, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { getPluginStatus, PLUGIN_UPDATE_STREAM_URL } from '../api'
+import { authEventSource } from '@/lib/api'
+import { getPluginStatus, PLUGIN_UPDATE_STREAM_PATH } from '../api'
 import type { EnginePluginStatus, PluginStatus } from '../types'
 
 /**
@@ -33,7 +34,7 @@ export function PluginPanel({ onClose }: { onClose: () => void }) {
   const startUpdate = () => {
     if (updating) return
     setLines([]); setUpdating(true)
-    const es = new EventSource(PLUGIN_UPDATE_STREAM_URL)
+    const es = authEventSource(PLUGIN_UPDATE_STREAM_PATH)
     esRef.current = es
     es.onmessage = ev => {
       let m: { type: string; engine?: string; step?: string; text?: string; exitCode?: number; message?: string }
