@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { Check, Copy, GitBranch } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Check, Copy, FileImage, GitBranch } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { loadState as loadCardState, saveState as saveCardState } from '@/features/markdown-card/lib/persistence'
 import type { ChatItem } from '../types'
 import { ToolCallBubble } from './ToolCallBubble'
 import { Markdown } from './Markdown'
@@ -105,6 +107,27 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
+/** 转卡片：把该条回复 markdown 带入「Markdown 转卡片」模块（仅换正文，保留用户主题等偏好），跳转后选主题导出图片。 */
+function ToCardButton({ text }: { text: string }) {
+  const navigate = useNavigate()
+  const toCard = () => {
+    saveCardState({ ...loadCardState(), sourceText: text })
+    navigate('/tools/markdown-card')
+  }
+  return (
+    <button
+      type="button"
+      onClick={toCard}
+      aria-label="转为卡片"
+      title="把这条回复带入「Markdown 转卡片」，选主题后导出图片"
+      className="mt-1 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] active:bg-[var(--color-muted)]"
+    >
+      <FileImage className="size-3.5" />
+      转卡片
+    </button>
+  )
+}
+
 function Row({ item, onFork }: { item: ChatItem; onFork?: (sdkUuid: string) => void }) {
   switch (item.kind) {
     case 'user':
@@ -133,7 +156,12 @@ function Row({ item, onFork }: { item: ChatItem; onFork?: (sdkUuid: string) => v
           <div className="max-w-[90%] break-words rounded-2xl bg-[var(--color-muted)] px-4 py-2">
             <Markdown text={item.text} />
           </div>
-          {item.text.trim() && <CopyButton text={item.text} />}
+          {item.text.trim() && (
+            <div className="flex items-center gap-1">
+              <CopyButton text={item.text} />
+              <ToCardButton text={item.text} />
+            </div>
+          )}
         </div>
       )
     case 'tool':
