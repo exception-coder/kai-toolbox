@@ -407,11 +407,13 @@ export function ChatPage() {
             <SlashCommandMenu commands={slashFiltered} activeIndex={slashActive} onPick={pickSlash} />
           )}
           <div className="flex items-end gap-2 px-3 py-2">
+            {/* sr-only 而非 hidden(display:none)：移动端浏览器/WebView 对 display:none 的 file input
+                调 .click() 会被忽略、选择器弹不出（桌面 Chrome 可以）。sr-only 视觉隐藏但仍可触发。 */}
             <input
               ref={fileRef}
               type="file"
               multiple
-              className="hidden"
+              className="sr-only"
               onChange={e => handleFiles(e.target.files)}
             />
             <Button
