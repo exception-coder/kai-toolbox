@@ -1,4 +1,5 @@
 import type { ComponentType, ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import type { LucideProps } from 'lucide-react'
 import {
   ArrowRight,
@@ -304,10 +305,18 @@ export function ArchitecturePage() {
     <div className="mx-auto max-w-6xl space-y-10 px-4 py-6">
       {/* 标题 */}
       <header className="space-y-2">
-        <div className="flex items-center gap-2">
-          <Bot className="h-6 w-6 text-[var(--color-primary)]" />
-          <h1 className="text-2xl font-bold tracking-tight">AI 秘书 · 架构总览</h1>
-          <Badge variant="secondary">设计稿 v1</Badge>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Bot className="h-6 w-6 text-[var(--color-primary)]" />
+            <h1 className="text-2xl font-bold tracking-tight">AI 秘书 · 架构总览</h1>
+            <Badge variant="secondary">设计稿 v1</Badge>
+          </div>
+          <Link
+            to="/tools/ai-secretary"
+            className="inline-flex shrink-0 items-center gap-1.5 text-xs text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+          >
+            <Network className="h-3.5 w-3.5" /> 去记录
+          </Link>
         </div>
         <p className="max-w-3xl text-sm text-[var(--color-muted-foreground)]">
           一个跑在本地的个人助理 Agent：随手把杂事/笔记丢进去，自动
