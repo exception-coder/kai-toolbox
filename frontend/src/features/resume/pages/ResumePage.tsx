@@ -33,6 +33,8 @@ export function ResumePage() {
   const [hydrated, setHydrated] = useState(false)
   const [mobileTab, setMobileTab] = useState<MobileTab>('edit')
   const [privacyBlur, setPrivacyBlur] = useState(false)
+  // 隐私遮罩下临时"点按查看"开关；切换隐私时复位
+  const [peek, setPeek] = useState(false)
   const previewRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -141,7 +143,7 @@ export function ResumePage() {
               <Button
                 variant={privacyBlur ? 'default' : 'outline'}
                 size="sm"
-                onClick={() => setPrivacyBlur(v => !v)}
+                onClick={() => { setPrivacyBlur(v => !v); setPeek(false) }}
                 title="仅遮挡屏幕预览，导出 PNG/PDF 不受影响"
               >
                 {privacyBlur ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
@@ -230,7 +232,7 @@ export function ResumePage() {
               <div
                 className={cn(
                   'resume-paper-shadow transition-[filter] duration-200',
-                  privacyBlur && 'blur-md select-none hover:blur-none',
+                  privacyBlur && !peek && 'blur-md select-none',
                 )}
               >
                 <ResumePreview
@@ -241,13 +243,30 @@ export function ResumePage() {
                 />
               </div>
 
-              {privacyBlur && (
-                <div className="pointer-events-none absolute left-1/2 top-6 z-10 -translate-x-1/2">
-                  <span className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-[var(--color-primary)]/40 bg-[var(--color-background)]/95 px-3 py-1.5 text-xs font-medium text-[var(--color-primary)] shadow-md backdrop-blur">
+              {/* 隐私遮罩：用不透明叠层而非 filter:blur——后者作用在 794px 的 A4 大画布上，
+                  移动端浏览器常丢弃不渲染（这正是"模糊没效果"的根因）。叠层是纯合成，所有设备可靠。
+                  叠层是 previewRef 的兄弟节点，不在导出节点内 → 导出 PNG/PDF 不受影响。点按可临时查看。 */}
+              {privacyBlur && !peek && (
+                <button
+                  type="button"
+                  onClick={() => setPeek(true)}
+                  className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--color-background)]/90 backdrop-blur-md"
+                >
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--color-primary)]/40 bg-[var(--color-background)]/95 px-3 py-1.5 text-xs font-medium text-[var(--color-primary)] shadow-md">
                     <Shield className="h-3.5 w-3.5" />
-                    预览已模糊，悬停可查看，导出不受影响
+                    隐私保护中 · 点按查看（导出不受影响）
                   </span>
-                </div>
+                </button>
+              )}
+              {privacyBlur && peek && (
+                <button
+                  type="button"
+                  onClick={() => setPeek(false)}
+                  className="absolute right-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-full border border-[var(--color-primary)]/40 bg-[var(--color-background)]/95 px-3 py-1.5 text-xs font-medium text-[var(--color-primary)] shadow-md backdrop-blur"
+                >
+                  <Shield className="h-3.5 w-3.5" />
+                  重新遮挡
+                </button>
               )}
             </div>
           </div>
