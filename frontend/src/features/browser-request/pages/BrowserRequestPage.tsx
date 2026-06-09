@@ -33,19 +33,31 @@ export function BrowserRequestPage() {
   }
 
   return (
-    <div className="flex h-full flex-col gap-3 p-4">
-      <header className="flex items-center gap-2">
+    <div className="flex h-full flex-col gap-3 p-2 sm:p-4">
+      <header className="flex flex-wrap items-center gap-2">
         <Globe className="size-5" />
         <h1 className="text-lg font-semibold">站点录制编排</h1>
-        <span className="text-xs text-[var(--color-muted-foreground)]">
+        <span className="hidden text-xs text-[var(--color-muted-foreground)] sm:inline">
           浏览器里点一遍 → 自动录 HTTP → 标参数 → 一键回放
         </span>
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[320px_1fr] gap-3">
-        <SessionList currentId={sessionId} onSelect={handleSelectSession} />
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 md:grid-cols-[320px_1fr]">
+        {/* 会话列表：移动端选中会话后隐藏（让出全屏给内容），桌面端常驻 */}
+        <div className={`min-h-0 overflow-y-auto ${sessionId ? 'hidden md:block' : 'block'}`}>
+          <SessionList currentId={sessionId} onSelect={handleSelectSession} />
+        </div>
 
-        <div className="flex min-h-0 flex-col gap-3">
+        {/* 内容区：移动端未选会话时隐藏，桌面端显示占位 */}
+        <div className={`min-h-0 flex-col gap-3 overflow-y-auto ${sessionId ? 'flex' : 'hidden md:flex'}`}>
+          {sessionId && (
+            <button
+              onClick={() => handleSelectSession(null)}
+              className="self-start text-sm text-blue-600 md:hidden dark:text-blue-400"
+            >
+              ← 返回会话列表
+            </button>
+          )}
           {!sessionId && (
             <div className="rounded-md border border-dashed p-8 text-center text-sm text-[var(--color-muted-foreground)]">
               先在左侧选一个会话，或新建一个。
