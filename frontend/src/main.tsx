@@ -7,6 +7,10 @@ import './lib/mock/loader'
 import App from './App'
 import { ConfirmProvider } from '@/components/ui/confirm-dialog'
 import { PromptProvider } from '@/components/ui/prompt-dialog'
+import { initTheme } from './shell/theme'
+
+// 渲染前套用已存主题（明暗 + 主色），避免首屏闪烁
+initTheme()
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

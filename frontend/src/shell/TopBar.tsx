@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { FlaskConical, LogIn, LogOut, Menu, Moon, PanelLeftClose, PanelLeftOpen, Sun } from 'lucide-react'
+import { FlaskConical, LogIn, LogOut, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { LoginDialog } from '@/components/auth/LoginDialog'
 import { logout, useAuth } from '@/lib/auth'
 import { useMockMode } from './useMockMode'
 import { GlobalVideoSearch } from './GlobalVideoSearch'
+import { ThemeMenu } from './ThemeMenu'
 
 interface TopBarProps {
   onToggleSidebar: () => void
@@ -19,18 +20,6 @@ export function TopBar({ onToggleSidebar, onOpenMobileMenu, collapsed }: TopBarP
   const { user } = useAuth()
   const [showLogin, setShowLogin] = useState(false)
   const { enabled: mock, toggle: toggleMock } = useMockMode()
-  const [dark, setDark] = useState(() =>
-    typeof window !== 'undefined'
-      ? document.documentElement.classList.contains('dark') ||
-        window.matchMedia('(prefers-color-scheme: dark)').matches
-      : false
-  )
-
-  useEffect(() => {
-    const root = document.documentElement
-    if (dark) root.classList.add('dark')
-    else root.classList.remove('dark')
-  }, [dark])
 
   return (
     <header className="flex h-14 items-center justify-between gap-4 border-b bg-[var(--color-background)] px-4">
@@ -64,14 +53,7 @@ export function TopBar({ onToggleSidebar, onOpenMobileMenu, collapsed }: TopBarP
           <FlaskConical className="h-4 w-4" />
           {mock ? 'Mock 已开启' : 'Mock'}
         </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setDark(d => !d)}
-          title={dark ? '切到浅色' : '切到深色'}
-        >
-          {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-        </Button>
+        <ThemeMenu />
         {user ? (
           <Button
             variant="ghost"

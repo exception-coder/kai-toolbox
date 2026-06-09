@@ -47,6 +47,8 @@
 @layer base {
   :root {
     color-scheme: light;
+    /* 主色明度：浅色 0.55 / 深色 0.7。.accent-* 用它，使一套主色类在明暗下亮度自动合适 */
+    --app-primary-l: 0.55;
   }
 
   .dark {
@@ -70,8 +72,49 @@
     --color-sidebar-foreground: oklch(0.92 0.005 260);
     --color-sidebar-border: oklch(0.25 0.01 260);
     --color-sidebar-accent: oklch(0.22 0.01 260);
+    --app-primary-l: 0.7;
     color-scheme: dark;
   }
+
+  /* ==== 纯黑（OLED）：叠加在 .dark 之上，仅把背景压到纯黑 ==== */
+  .theme-black {
+    --color-background: oklch(0 0 0);
+    --color-card: oklch(0.14 0.005 260);
+    --color-popover: oklch(0.14 0.005 260);
+    --color-muted: oklch(0.17 0.005 260);
+    --color-sidebar: oklch(0 0 0);
+  }
+
+  /* ==== 护眼（暖白底，降低蓝光），基于浅色 ==== */
+  .theme-sepia {
+    color-scheme: light;
+    --color-background: oklch(0.95 0.025 85);
+    --color-foreground: oklch(0.28 0.03 70);
+    --color-card: oklch(0.97 0.02 85);
+    --color-card-foreground: oklch(0.28 0.03 70);
+    --color-popover: oklch(0.97 0.02 85);
+    --color-popover-foreground: oklch(0.28 0.03 70);
+    --color-muted: oklch(0.91 0.03 85);
+    --color-muted-foreground: oklch(0.46 0.03 70);
+    --color-border: oklch(0.86 0.03 80);
+    --color-input: oklch(0.86 0.03 80);
+    --color-secondary: oklch(0.9 0.03 85);
+    --color-secondary-foreground: oklch(0.3 0.03 70);
+    --color-accent: oklch(0.9 0.03 85);
+    --color-accent-foreground: oklch(0.3 0.03 70);
+    --color-sidebar: oklch(0.93 0.03 85);
+    --color-sidebar-foreground: oklch(0.3 0.03 70);
+    --color-sidebar-border: oklch(0.86 0.03 80);
+    --color-sidebar-accent: oklch(0.89 0.035 85);
+  }
+
+  /* ==== 主色（与明暗正交）：只改 hue/chroma，明度走 --app-primary-l。放在 .dark 之后以覆盖其 primary ==== */
+  .accent-indigo  { --color-primary: oklch(var(--app-primary-l) 0.18 264); --color-ring: oklch(var(--app-primary-l) 0.18 264); }
+  .accent-sky     { --color-primary: oklch(var(--app-primary-l) 0.16 230); --color-ring: oklch(var(--app-primary-l) 0.16 230); }
+  .accent-emerald { --color-primary: oklch(var(--app-primary-l) 0.15 150); --color-ring: oklch(var(--app-primary-l) 0.15 150); }
+  .accent-amber   { --color-primary: oklch(var(--app-primary-l) 0.15 70);  --color-ring: oklch(var(--app-primary-l) 0.15 70); }
+  .accent-rose    { --color-primary: oklch(var(--app-primary-l) 0.2 10);   --color-ring: oklch(var(--app-primary-l) 0.2 10); }
+  .accent-slate   { --color-primary: oklch(var(--app-primary-l) 0.03 264); --color-ring: oklch(var(--app-primary-l) 0.03 264); }
 
   * {
     border-color: var(--color-border);
