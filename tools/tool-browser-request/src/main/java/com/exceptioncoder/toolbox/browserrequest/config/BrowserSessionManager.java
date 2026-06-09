@@ -53,23 +53,28 @@ public class BrowserSessionManager {
     private volatile boolean shuttingDown = false;
 
     /**
-     * 反 BOSS zpAegis 潰页脚本：实测它在判定异常时用 {@code window.open("", "_self")} 把当前帧
-     * 导航成 about:blank（NAVTRAP 抓到 window.open 空 url + 主帧 frameNavigated about:blank 同时发生）。
-     * 这里拦掉「空字符串 / about: 协议」的 window.open，返回一个无害的 window-like 桩、不发生任何导航；
-     * 真实 URL 的 open 照常放行。toString 伪装成原生，降低被反爬 Function.prototype.toString 校验识破的概率。
+     * 反 BOSS zpAegis 潰页「全覆盖守卫 + 日志」：潰成 about:blank 全是 JS 操作，这里把所有可能的路径
+     * 一网打尽——能挡的（window.open / location.assign / location.replace / document.write 空写）直接
+     * 挡掉并 log，挡不住的（location.href= 的 setter 无法覆盖）用 beforeunload 兜住时机 + 调用栈。
+     * 所有动作经 console.error 走后端 onConsoleMessage 落日志，[BLANKGUARD] 行即可定位它到底走哪条路。
+     * toString 伪装原生，降低被 Function.prototype.toString 校验识破概率。
      */
-    private static final String BLANK_OPEN_GUARD_JS =
+    private static final String BLANK_GUARD_JS =
             "(function(){try{"
+            + "var T='[BLANKGUARD]';"
+            + "var log=function(m){try{console.error(T+' '+m+' @ '+(((new Error()).stack)||'').replace(/\\n/g,' || '));}catch(e){}};"
+            + "var isBlank=function(u){var s=(u==null)?'':String(u);return s===''||/^about:/i.test(s);};"
+            + "var nat=function(f,n){try{f.toString=function(){return 'function '+n+'() { [native code] }';};}catch(e){}};"
             + "var _open=window.open;"
-            + "var guard=function(u){var s=(u==null)?'':String(u);"
-            + "if(s===''||/^about:/i.test(s)){return {closed:false,close:function(){},focus:function(){},blur:function(){},"
-            + "opener:null,location:{href:'',assign:function(){},replace:function(){},reload:function(){}},"
-            + "document:{open:function(){},write:function(){},close:function(){}},postMessage:function(){}};}"
-            + "return _open.apply(this,arguments);};"
-            + "try{guard.toString=function(){return 'function open() { [native code] }';};}catch(e){}"
-            + "try{Object.defineProperty(guard,'name',{value:'open',configurable:true});}catch(e){}"
-            + "try{Object.defineProperty(guard,'length',{value:1,configurable:true});}catch(e){}"
-            + "window.open=guard;"
+            + "var openG=function(u){if(isBlank(u)){log('BLOCK window.open('+u+')');return {closed:false,close:function(){},focus:function(){},blur:function(){},opener:null,location:{href:'',assign:function(){},replace:function(){},reload:function(){}},document:{open:function(){},write:function(){},close:function(){}},postMessage:function(){}};}return _open.apply(this,arguments);};"
+            + "nat(openG,'open');window.open=openG;"
+            + "try{var _as=Location.prototype.assign;var asG=function(u){if(isBlank(u)){log('BLOCK location.assign('+u+')');return;}return _as.apply(this,arguments);};nat(asG,'assign');Location.prototype.assign=asG;}catch(e){}"
+            + "try{var _rp=Location.prototype.replace;var rpG=function(u){if(isBlank(u)){log('BLOCK location.replace('+u+')');return;}return _rp.apply(this,arguments);};nat(rpG,'replace');Location.prototype.replace=rpG;}catch(e){}"
+            + "try{var _dw=document.write;document.write=function(s){if(!s||String(s).trim()===''){log('BLOCK document.write(empty)');return;}return _dw.apply(this,arguments);};}catch(e){}"
+            + "try{var _ps=history.pushState;history.pushState=function(){log('history.pushState '+arguments[2]);return _ps.apply(this,arguments);};}catch(e){}"
+            + "try{var _rs=history.replaceState;history.replaceState=function(){log('history.replaceState '+arguments[2]);return _rs.apply(this,arguments);};}catch(e){}"
+            + "try{var _rm=Element.prototype.remove;Element.prototype.remove=function(){if(this===document.documentElement||this===document.body){log('documentElement/body.remove()');}return _rm.apply(this,arguments);};}catch(e){}"
+            + "window.addEventListener('beforeunload',function(){log('beforeunload from='+location.href);},true);"
             + "}catch(e){}})();";
 
     public BrowserSessionManager(BrowserRequestProperties props, ObjectMapper objectMapper) {
@@ -141,8 +146,8 @@ public class BrowserSessionManager {
             ctx.setDefaultNavigationTimeout(props.getRequestTimeoutMs());
             // 在任何文档执行前注入反检测脚本（覆盖 webdriver / chrome / plugins / WebGL 等）
             ctx.addInitScript(StealthConfig.initScript());
-            // 反 zpAegis 潰页：拦截 window.open("","_self") 这类把当前帧导成 about:blank 的调用。
-            ctx.addInitScript(BLANK_OPEN_GUARD_JS);
+            // 反 zpAegis 潰页：全覆盖守卫 + 日志，挡掉/记录所有把当前帧导成 about:blank 的 JS 路径。
+            ctx.addInitScript(BLANK_GUARD_JS);
             Page page = ctx.newPage();
             // 诊断：记录主框架每次导航落点。用于区分"加载后被站点重定向回 about:blank"（反爬）
             // 与"导航本身没成功"——前者会看到先 bosszhipin 后 about:blank 两条 frame navigated。
