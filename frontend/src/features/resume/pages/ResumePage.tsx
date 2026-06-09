@@ -75,6 +75,10 @@ export function ResumePage() {
   }
 
   function loadSample() {
+    // B：仅当简历已有内容时才弹确认，避免一键示例覆盖（含落库扩散）已填写的真实简历。
+    if (!isResumeEmpty(state.data) && !window.confirm('载入示例会覆盖当前已填写的全部内容（基本信息/工作/项目/教育/技能），且会同步到本地与后端、不可撤销。确定继续吗？')) {
+      return
+    }
     setState(s => ({ ...s, data: SAMPLE_RESUME }))
   }
 
@@ -286,6 +290,17 @@ export interface ResumeQuality {
   projectsReady: boolean
   educationReady: boolean
   skillsReady: boolean
+}
+
+/** 简历是否为空：basics 全空且 work/projects/education/skills 均为空。用于「示例」非空时才弹确认。 */
+function isResumeEmpty(d: ResumeData): boolean {
+  const b = d.basics
+  const basicsFilled = Boolean(
+    b.name || b.gender || b.age || b.experienceYears || b.jobIntent ||
+    b.city || b.email || b.phone || b.avatar || b.advantage,
+  )
+  return !basicsFilled && d.work.length === 0 && d.projects.length === 0 &&
+    d.education.length === 0 && d.skills.length === 0
 }
 
 function getResumeQuality(data: ResumeData): ResumeQuality {
