@@ -129,6 +129,14 @@ public class BrowserSessionManager {
                     log.info("[BrowserRequest] frame navigated session={} url={}", sessionId, frame.url());
                 }
             });
+            // 诊断：页面 JS 报错 / 控制台 error。白屏但已落 bosszhipin 时，用于判断是 JS 异常中断渲染
+            // 还是反爬把 DOM 清空（反爬通常无明显 JS error，而是 location/innerHTML 操作）。
+            page.onConsoleMessage(m -> {
+                if ("error".equals(m.type())) {
+                    log.info("[BrowserRequest] console.error session={} text={}", sessionId, m.text());
+                }
+            });
+            page.onPageError(err -> log.warn("[BrowserRequest] pageerror session={} err={}", sessionId, err));
             // 先导航、再装风控拦截器：ctx.route("**\/*", ...) 会接管初始文档加载链路，
             // 即使放行导航请求，海量子资源经 route.fetch 重放也可能拖垮/破坏首屏，导致页面停在 about:blank。
             // 初始 HTML 不含风控码（只在加载后的 XHR 出现），故导航完成后再装拦截器，既不漏风控又不干扰首屏。
@@ -160,8 +168,8 @@ public class BrowserSessionManager {
                 page.navigate(url, new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
                 String landed = safeUrl(page);
                 if (!landed.startsWith("about:")) {
-                    log.info("[BrowserRequest] navigate ok session={} target={} landed={} attempt={}",
-                            sessionId, url, landed, attempt);
+                    log.info("[BrowserRequest] navigate ok session={} target={} landed={} attempt={} title=[{}] htmlLen={}",
+                            sessionId, url, landed, attempt, safeTitle(page), safeContentLen(page));
                     return;
                 }
                 log.warn("[BrowserRequest] navigate 落在 {}（第 {}/3 次），重试 session={}", landed, attempt, sessionId);
@@ -177,6 +185,15 @@ public class BrowserSessionManager {
 
     private static String safeUrl(Page page) {
         try { return page.url(); } catch (Exception e) { return "?"; }
+    }
+
+    private static String safeTitle(Page page) {
+        try { return page.title(); } catch (Exception e) { return "?"; }
+    }
+
+    /** 渲染后 HTML 长度——白屏时若 htmlLen 很小说明 DOM 基本是空的（反爬清空/未渲染）。 */
+    private static int safeContentLen(Page page) {
+        try { return page.content().length(); } catch (Exception e) { return -1; }
     }
 
     /** 把当前 ctx 的 cookies / localStorage 持久化到 storage-state.json。 */
