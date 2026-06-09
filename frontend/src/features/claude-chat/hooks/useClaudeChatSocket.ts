@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getToken } from '@/lib/auth'
+import { ensureFreshToken, getToken } from '@/lib/auth'
 import type { Attachment, ChatItem, ClientMessage, ConnState, Engine, ModelInfo, PendingRequest, PermissionMode, ServerMessage } from '../types'
 import { loadMessages } from '../api'
 import { notifyPrompt } from '../browserNotify'
@@ -86,6 +86,9 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   // 服务端会话纪元（来自 Ready.epoch）；变化即后端重启/会话重建 → seq 已复位，需重置去重高水位
   const lastEpochRef = useRef<string | null>(null)
   const manualCloseRef = useRef(false)
+  // WS 重连退避计数（onopen 清零）+ 建连中守卫（覆盖「await 续期」异步窗口，防并发叠多条 WS）
+  const reconnectAttemptsRef = useRef(0)
+  const connectingRef = useRef(false)
   const sdkSessionIdRef = useRef<string | null>(null)
   const cwdRef = useRef<string>('')
   const shouldLoadHistoryRef = useRef(false)
@@ -254,15 +257,8 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     }
   }, [sendRaw])
 
-  const connect = useCallback(() => {
-    // 幂等：已有在连/已连的 socket 时不再叠一条。
-    // 否则 mount 的 connect() 与 auto-open 的 switchTo()→connect() 会并发各建一条 WS，
-    // 两条都被加为服务端 viewer 且共用同一 hook，每条事件被 applyEvent 投递两次 → 消息/结束标记翻倍。
-    // 仍在 CONNECTING 的那条 socket 会在 onopen 时用最新 intentRef 下发意图，无需第二条。
-    const existing = wsRef.current
-    if (existing && (existing.readyState === WebSocket.CONNECTING || existing.readyState === WebSocket.OPEN)) {
-      return
-    }
+  // 用新鲜 token 真正建 WS（已确保 token 续期、并发守卫已置位）。
+  const openSocket = useCallback(() => {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     // WS 握手无法带 Authorization 头，开启鉴权后用 access_token 让 AdminHandshakeInterceptor 校验 ADMIN。
     const token = getToken()
@@ -272,7 +268,11 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     const ws = new WebSocket(url)
     wsRef.current = ws
 
-    ws.onopen = () => { flushIntent(); flushPendingSends() }
+    ws.onopen = () => {
+      reconnectAttemptsRef.current = 0 // 连上即清零退避，下次断线从最短间隔重来
+      flushIntent()
+      flushPendingSends()
+    }
     ws.onmessage = ev => {
       let msg: ServerMessage
       try {
@@ -289,16 +289,46 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     ws.onclose = () => {
       wsRef.current = null
       if (manualCloseRef.current) return
-      // 非主动关闭且已有会话：自动重连并 attach 回放（断连不丢消息）
+      // 非主动关闭且已有会话：自动重连并 attach 回放（断连不丢消息），按指数退避避免死循环刷屏
       if (sessionIdRef.current) {
         intentRef.current = { kind: 'attach', sessionId: sessionIdRef.current, lastEventSeq: lastSeqRef.current }
         setState('closed')
-        setTimeout(() => connect(), 1000)
+        const n = (reconnectAttemptsRef.current += 1)
+        const delay = Math.min(30_000, 1000 * 2 ** Math.min(n, 5)) + Math.floor(Math.random() * 500)
+        setTimeout(() => connect(), delay)
       } else {
         setState('closed')
       }
     }
   }, [applyEvent, flushIntent, flushPendingSends])
+
+  const connect = useCallback(() => {
+    // 幂等：已有在连/已连的 socket，或正处于「续期+建连」异步窗口时，不再叠一条。
+    // 否则 mount 的 connect() 与 auto-open 的 switchTo()→connect() 会并发各建一条 WS，
+    // 两条都被加为服务端 viewer 且共用同一 hook，每条事件被 applyEvent 投递两次 → 消息/结束标记翻倍。
+    const existing = wsRef.current
+    if (existing && (existing.readyState === WebSocket.CONNECTING || existing.readyState === WebSocket.OPEN)) {
+      return
+    }
+    if (connectingRef.current) return
+    connectingRef.current = true
+    setState('connecting')
+    // 重连前先确保 access token 新鲜（过期则用 refresh token 续期）。
+    // 治本：避免「拿过期 token 每秒重连被握手拒」的死循环（实测曾刷 4 万条）。
+    ensureFreshToken().finally(() => {
+      connectingRef.current = false
+      if (manualCloseRef.current) return
+      const cur = wsRef.current
+      if (cur && (cur.readyState === WebSocket.CONNECTING || cur.readyState === WebSocket.OPEN)) return
+      // 续期后仍无 token（refresh 也失效→ensureFreshToken 已 logout）：停止重连，提示重登，根除僵尸循环。
+      if (!getToken()) {
+        setState('error')
+        setErrorMessage('登录已过期，请重新登录后重试。')
+        return
+      }
+      openSocket()
+    })
+  }, [openSocket])
 
   useEffect(() => {
     manualCloseRef.current = false
