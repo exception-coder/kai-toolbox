@@ -15,7 +15,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -52,18 +53,19 @@ public class CaptureService {
             throw new IllegalArgumentException("输入不能为空");
         }
         String text = rawText.trim();
+        ZonedDateTime now = ZonedDateTime.now();
         List<Note> stored = new ArrayList<>();
         boolean degraded = false;
 
         try {
-            CaptureResult result = capturer.capture(Instant.now().toString(), CATEGORY_LABELS, text);
+            CaptureResult result = capturer.capture(CaptureNormalizer.nowContext(now), CATEGORY_LABELS, text);
             List<CapturedItem> items = result == null ? null : result.items();
             if (items == null || items.isEmpty()) {
                 degraded = true;
                 stored.add(storeFallback(text));
             } else {
                 for (CapturedItem item : items) {
-                    stored.add(storeItem(text, item));
+                    stored.add(storeItem(text, item, now.getZone()));
                 }
             }
         } catch (Exception e) {
@@ -81,19 +83,31 @@ public class CaptureService {
         return repo.findRecent(limit).stream().map(this::toView).toList();
     }
 
-    private Note storeItem(String rawText, CapturedItem item) {
+    private Note storeItem(String rawText, CapturedItem item, ZoneId zone) {
         NoteCategory category = NoteCategory.fromLabel(item.category());
         double confidence = item.confidence() == null ? 0.0 : item.confidence();
-        boolean needsReview = confidence < REVIEW_THRESHOLD || category == NoteCategory.UNCATEGORIZED;
         String title = StringUtils.hasText(item.title()) ? item.title().trim() : oneLine(rawText);
+
+        // 确定性护栏①：校验/归一化 LLM 给的时间；解析不了就丢弃并标待复核
+        String dueTime = CaptureNormalizer.normalizeDueTime(item.dueTime(), zone);
+        boolean dueDropped = StringUtils.hasText(item.dueTime()) && dueTime == null;
+
+        // 确定性护栏②：开销类若 LLM 漏抽金额，用正则从原文兜底
+        Double amount = item.amount() != null
+                ? item.amount()
+                : (category == NoteCategory.EXPENSE ? CaptureNormalizer.extractAmount(rawText) : null);
+
+        boolean needsReview = confidence < REVIEW_THRESHOLD
+                || category == NoteCategory.UNCATEGORIZED
+                || dueDropped;
 
         Note note = new Note(
                 UUID.randomUUID().toString(),
                 rawText,
                 category,
                 title,
-                trimToNull(item.dueTime()),
-                item.amount(),
+                dueTime,
+                amount,
                 toTagsJson(item.tags()),
                 confidence,
                 needsReview,
@@ -156,10 +170,6 @@ public class CaptureService {
         } catch (Exception e) {
             return List.of();
         }
-    }
-
-    private static String trimToNull(String s) {
-        return StringUtils.hasText(s) ? s.trim() : null;
     }
 
     private static String oneLine(String raw) {
