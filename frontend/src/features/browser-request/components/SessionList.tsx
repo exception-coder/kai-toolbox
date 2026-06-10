@@ -115,19 +115,20 @@ export function SessionList({ currentId, onSelect }: Props) {
           {list.map(s => (
             <li
               key={s.id}
-              className={`flex items-center gap-2 rounded-md border p-2 text-sm ${
+              className={`rounded-md border p-2 text-sm ${
                 s.id === currentId ? 'border-blue-500 ring-1 ring-blue-500/40' : ''
               }`}
             >
               <button
                 onClick={() => onSelect(s.id)}
-                className="min-w-0 flex-1 text-left"
+                className="block w-full min-w-0 text-left"
               >
                 <div className="truncate font-medium">{s.name}</div>
                 <div className="truncate font-mono text-[10px] text-[var(--color-muted-foreground)]">
                   {s.url}
                 </div>
               </button>
+              <div className="mt-1.5 flex flex-wrap items-center gap-1">
               <span
                 className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${
                   s.active
@@ -154,7 +155,7 @@ export function SessionList({ currentId, onSelect }: Props) {
                   免检测
                 </span>
               )}
-              <div className="flex shrink-0 gap-1">
+              <div className="flex shrink-0 flex-wrap gap-1">
                 {!s.active && (
                   <Button size="sm" variant="ghost" onClick={() => openMut.mutate(s.id)} title="打开浏览器">
                     <Power className="size-4" />
@@ -215,6 +216,7 @@ export function SessionList({ currentId, onSelect }: Props) {
                 >
                   <Trash2 className="size-4" />
                 </Button>
+              </div>
               </div>
             </li>
           ))}
