@@ -1,5 +1,6 @@
 import type {
-  CreateTaskBody, HttpCallStreamView, RecordingDetail, RecordingView,
+  AiFlowView, CreateTaskBody, FlowAction, FlowRunResult, GenerateFlowBody, GenerateFlowResult,
+  HttpCallStreamView, RecordingDetail, RecordingView,
   ReplayBody, SessionView, StartRecordingBody, TaskRunView, TaskView, UpdateTaskBody,
 } from './types'
 
@@ -79,6 +80,30 @@ export const replays = {
   listRuns: (taskId: string, limit = 50) =>
     jsonReq<TaskRunView[]>(`${BASE}/tasks/${taskId}/runs?limit=${limit}`),
   runDetail: (runId: string) => jsonReq<TaskRunView>(`${BASE}/task-runs/${runId}`),
+}
+
+// ── AI 用例 ──────────────────────────────────────────────────────────────
+
+export const aiFlows = {
+  /** 自然语言 → LLM 生成（或带失败上下文重写）脚本，后端已校验。 */
+  generate: (sessionId: string, body: GenerateFlowBody) =>
+    jsonReq<GenerateFlowResult>(`${BASE}/sessions/${sessionId}/ai-flows/generate`, {
+      method: 'POST', body: JSON.stringify(body),
+    }),
+  /** 执行一段未落库的脚本，返回逐步结果 + 断言裁决 + 失败现场。 */
+  run: (sessionId: string, steps: FlowAction[]) =>
+    jsonReq<FlowRunResult>(`${BASE}/sessions/${sessionId}/ai-flows/run`, {
+      method: 'POST', body: JSON.stringify({ steps }),
+    }),
+  /** 人工确认后保存为用例。 */
+  save: (sessionId: string, body: { name: string; instruction: string; steps: FlowAction[] }) =>
+    jsonReq<AiFlowView>(`${BASE}/sessions/${sessionId}/ai-flows`, {
+      method: 'POST', body: JSON.stringify(body),
+    }),
+  list: (sessionId: string) => jsonReq<AiFlowView[]>(`${BASE}/sessions/${sessionId}/ai-flows`),
+  runSaved: (flowId: string) =>
+    jsonReq<FlowRunResult>(`${BASE}/ai-flows/${flowId}/run`, { method: 'POST' }),
+  delete: (flowId: string) => jsonReq<void>(`${BASE}/ai-flows/${flowId}`, { method: 'DELETE' }),
 }
 
 // ── SSE 工厂 ─────────────────────────────────────────────────────────────

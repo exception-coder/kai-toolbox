@@ -191,3 +191,68 @@ export type UpdateTaskBody = Omit<CreateTaskBody, 'sessionId' | 'recordingId'>
 export interface ReplayBody {
   params: Record<string, unknown>
 }
+
+// ── AI 用例（自然语言 → LLM 生成动作脚本 → 执行验证 → 确认落库）─────────────
+
+export type FlowActionType =
+  | 'navigate' | 'fill' | 'click' | 'press' | 'scroll' | 'waitFor' | 'assert'
+
+/** 单个确定性动作（与后端 FlowAction record 对齐）。 */
+export interface FlowAction {
+  type: FlowActionType
+  selector?: string | null
+  text?: string | null
+  key?: string | null
+  dy?: number | null
+  url?: string | null
+  /** assert 的子类型：urlContains / selectorVisible / textPresent */
+  assertType?: string | null
+  value?: string | null
+  timeoutMs?: number | null
+}
+
+export interface FlowStepOutcome {
+  index: number
+  type: string
+  ok: boolean
+  error?: string | null
+  detail?: string | null
+}
+
+export interface FlowSnapshot {
+  url: string
+  title: string
+  html: string
+}
+
+export interface FlowRunResult {
+  ok: boolean
+  /** 首个失败步骤下标；全通过为 -1 */
+  failedAt: number
+  results: FlowStepOutcome[]
+  /** 失败时的页面现场；全通过为 null */
+  snapshot?: FlowSnapshot | null
+}
+
+/** 生成结果：校验通过的脚本 + LLM 原始输出。 */
+export interface GenerateFlowResult {
+  steps: FlowAction[]
+  rawOutput: string
+}
+
+export interface AiFlowView {
+  id: string
+  sessionId: string
+  name: string
+  instruction?: string | null
+  steps: FlowAction[]
+  createdAt: number
+  updatedAt: number
+}
+
+export interface GenerateFlowBody {
+  instruction: string
+  previousSteps?: FlowAction[] | null
+  failureError?: string | null
+  failedAt?: number | null
+}

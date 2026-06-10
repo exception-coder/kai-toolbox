@@ -5,9 +5,10 @@ import { SessionList } from '../components/SessionList'
 import { LiveScreen } from '../components/LiveScreen'
 import { RecordingPanel } from '../components/RecordingPanel'
 import { TaskListPanel } from '../components/TaskListPanel'
+import { AiFlowPanel } from '../components/AiFlowPanel'
 import { TaskCanvasPage } from './TaskCanvasPage'
 
-type Tab = 'record' | 'tasks'
+type Tab = 'record' | 'tasks' | 'ai'
 
 /**
  * 站点录制编排主页 —— 单页路由，用内部 state 切换 4 个视图：
@@ -85,6 +86,7 @@ export function BrowserRequestPage() {
                 options={[
                   { value: 'record', label: '录制' },
                   { value: 'tasks', label: '任务 / 回放' },
+                  { value: 'ai', label: 'AI 用例' },
                 ]}
               />
               {tab === 'record' && (
@@ -101,6 +103,7 @@ export function BrowserRequestPage() {
                   onEdit={(taskId) => setCanvas({ mode: 'edit', taskId })}
                 />
               )}
+              {tab === 'ai' && <AiFlowPanel sessionId={sessionId} />}
             </>
           )}
         </div>
