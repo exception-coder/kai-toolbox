@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { ComponentType } from 'react'
 import type { LucideProps } from 'lucide-react'
-import { Workflow, BotMessageSquare, ArrowRight } from 'lucide-react'
+import { Workflow, BotMessageSquare, Gauge, ArrowRight } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 
@@ -22,6 +22,14 @@ const entries: Entry[] = [
     title: 'Vibe Coding（移动端 AI 编码 Agent）',
     desc: '把 Claude Code / Codex 封装成移动端实时编码助手：三层 + 双 WS、流式 + 权限交互、双链路断线韧性、跨进程不丢上下文、异步折叠同步、MVC+虚拟线程选型。',
     tags: ['Java 21 虚拟线程', 'Node sidecar', 'WebSocket/SSE', 'MCP'],
+    ready: true,
+  },
+  {
+    to: '/tools/architecture/frontend-perf',
+    icon: Gauge,
+    title: '前端性能优化（首页秒开）',
+    desc: '首屏慢的根因是没分割而非没缓存：路由级 React.lazy 把首屏 JS 从约 17MB 降到 542KB；两级 HTTP 缓存（hash 资源 immutable + index.html no-cache）让重复打开免下载；PWA 可安装但故意不接管缓存。',
+    tags: ['React.lazy 代码分割', 'Suspense', 'HTTP 缓存', 'PWA'],
     ready: true,
   },
 ]

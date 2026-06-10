@@ -3,6 +3,7 @@ import { Workflow } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 const ArchitectureHome = lazy(() => import('./pages/ArchitectureHome').then((m) => ({ default: m.ArchitectureHome })))
 const VibeCodingArch = lazy(() => import('./pages/VibeCodingArch').then((m) => ({ default: m.VibeCodingArch })))
+const FrontendPerfArch = lazy(() => import('./pages/FrontendPerfArch').then((m) => ({ default: m.FrontendPerfArch })))
 const manifest: FeatureManifest = {
   id: 'architecture',
   name: '实现原理',
@@ -14,6 +15,7 @@ const manifest: FeatureManifest = {
   routes: [
     { path: '/tools/architecture', element: <ArchitectureHome /> },
     { path: '/tools/architecture/vibe-coding', element: <VibeCodingArch /> },
+    { path: '/tools/architecture/frontend-perf', element: <FrontendPerfArch /> },
   ],
 }
 
