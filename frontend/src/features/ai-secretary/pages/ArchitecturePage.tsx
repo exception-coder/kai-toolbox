@@ -308,6 +308,39 @@ const robustness: { tag: string; risk: string; guard: string }[] = [
   { tag: '⑦', risk: '全程不可观测', guard: 'ChatModelListener 记录每轮 + SSE 流式推前端' },
 ]
 
+const toolCallingNotes: { icon: Icon; title: string; detail: string }[] = [
+  {
+    icon: MessageSquareText,
+    title: 'description 是运行时路由依据',
+    detail: '模型靠它决定调哪个工具——写烂=选错。它是 load-bearing，不是给人看的注释',
+  },
+  {
+    icon: Boxes,
+    title: '全部工具每轮重发给模型',
+    detail: 'tools schema 随每次请求带上，token 随工具数涨；工具集要小而精，几十个以上才上 tool-RAG 预筛',
+  },
+  {
+    icon: Network,
+    title: '模型本身就是路由器',
+    detail: '没有独立分类器，识别=模型一次推理，故路由是概率性的、可能选错',
+  },
+  {
+    icon: ShieldCheck,
+    title: 'LLM 填的参数当不可信输入',
+    detail: '收到即校验 / 归一化（同 CaptureNormalizer 思路），不直接信',
+  },
+  {
+    icon: Repeat,
+    title: 'max steps 兜底',
+    detail: '调用方是 LLM，可能死循环 / 抽风；普通接口不需要这层防护',
+  },
+  {
+    icon: Wrench,
+    title: '已标准化为 MCP',
+    detail: 'tool = 接口契约的跨进程标准；本仓 tool-resume 即一个 MCP server',
+  },
+]
+
 /* ------------------------------------------------------------------ */
 /* 页面                                                                */
 /* ------------------------------------------------------------------ */
@@ -434,6 +467,45 @@ export function ArchitecturePage() {
               </p>
             </CardContent>
           </Card>
+        </div>
+      </Section>
+
+      {/* Tool Calling 机制 · 开发要点 */}
+      <Section
+        icon={Wrench}
+        title="Tool Calling 机制 · 开发要点"
+        subtitle="工具 = 接口契约（schema=接口定义 · tool_calls=请求 · 工具结果=响应），但调用方是 LLM（概率性），故多三层防护"
+      >
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <HFlow
+              steps={[
+                { icon: MessageSquareText, title: '对话 + 全部工具 schema' },
+                { icon: Cpu, title: '模型识别 + 决策', tone: 'primary' },
+                { icon: Wrench, title: '出 tool_calls → 代码执行' },
+                { icon: Repeat, title: '结果回喂 → 再推理', tone: 'accent' },
+              ]}
+            />
+            <p className="text-xs text-[var(--color-muted-foreground)]">
+              模型不再要求调工具时 → 直接出最终答案，循环结束。「调哪个工具」没有独立分类器，就是模型读
+              <b className="text-[var(--color-foreground)]"> [对话 + 全部工具 schema] </b>的一次推理。
+            </p>
+          </CardContent>
+        </Card>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {toolCallingNotes.map(n => (
+            <Card key={n.title}>
+              <CardContent className="flex items-start gap-3 p-4">
+                <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--color-muted)] text-[var(--color-primary)]">
+                  <n.icon className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">{n.title}</div>
+                  <div className="text-xs text-[var(--color-muted-foreground)]">{n.detail}</div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       </Section>
 
