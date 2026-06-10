@@ -3,11 +3,13 @@ package com.exceptioncoder.toolbox.web;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
+import org.springframework.http.CacheControl;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import org.springframework.web.servlet.resource.PathResourceResolver;
 
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 
 /**
  * SPA 路由兜底：让 React Router v7 的 /tools/treesize 等深链直接访问也能加载到 index.html。
@@ -37,8 +39,21 @@ public class SpaFallbackConfig implements WebMvcConfigurer {
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        // 1) 带内容 hash 的构建产物（Vite 输出到 /assets/，文件名含 hash）→ 永久 immutable 缓存。
+        //    内容一变文件名就变，故可安全长缓存：第二次打开直接命中浏览器本地缓存、不再发请求 → 秒开。
+        //    缺失的 hash 资源走默认 404（不套 SPA 兜底，避免把 index.html 当 js 返回）。
+        registry.addResourceHandler("/assets/**")
+                .addResourceLocations(STATIC_LOCATIONS)
+                .setCacheControl(CacheControl.maxAge(365, TimeUnit.DAYS).cachePublic().immutable())
+                .resourceChain(true);
+
+        // 2) 其余无 hash 文件（index.html / favicon 等）+ SPA 路由兜底 → no-cache：
+        //    浏览器仍会缓存，但每次用前向服务端校验；内容没变回 304（极快、几乎无传输），
+        //    有新构建则立刻拿到新的 index.html（再引用新 hash 的 /assets 资源）。
+        //    这样「内容没更新就走缓存、更新了自动失效」两头兼顾。
         registry.addResourceHandler("/**")
                 .addResourceLocations(STATIC_LOCATIONS)
+                .setCacheControl(CacheControl.noCache())
                 .resourceChain(true)
                 .addResolver(new SpaPathResourceResolver());
     }
