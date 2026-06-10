@@ -46,14 +46,16 @@ export function LiveScreen({ sessionId }: { sessionId: string }) {
             <Button size="sm" variant="outline" onClick={() => setTick(Date.now())}>刷新</Button>
           </div>
         </div>
-        <div className="relative overflow-hidden rounded border bg-black/5">
+        <div className="flex justify-center overflow-hidden rounded border bg-black/5">
           <img
             src={src}
             alt="live"
             onClick={onClick}
             onError={() => setStatus('无画面：请确认会话已「打开」（免检测会话的浏览器窗口在桌面，这里看实时图）')}
             onLoad={() => setStatus('')}
-            className="block w-full cursor-crosshair select-none"
+            // 同时受列宽(max-w-full)与视口高(max-h-[70vh])约束、按比例缩放：窗口多大图多大、整帧完整、不出滚动条。
+            // 不用 object-contain（会留黑边letterbox→点触坐标按 img rect 归一化会偏），让 img 盒子刚好等于渲染图。
+            className="block h-auto max-h-[70vh] w-auto max-w-full cursor-crosshair select-none"
             draggable={false}
           />
         </div>
