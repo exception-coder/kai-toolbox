@@ -1,6 +1,8 @@
 package com.exceptioncoder.toolbox.aisecretary.config;
 
 import com.exceptioncoder.toolbox.aisecretary.ai.Capturer;
+import com.exceptioncoder.toolbox.aisecretary.ai.RecallAssistant;
+import com.exceptioncoder.toolbox.aisecretary.service.NoteTools;
 import com.exceptioncoder.toolbox.llm.routing.ChatModelRouter;
 import dev.langchain4j.service.AiServices;
 import org.springframework.context.annotation.Bean;
@@ -18,11 +20,23 @@ public class AiSecretaryLlmConfig {
 
     /** 记录态用的档位：高频、可用便宜/本地模型。 */
     private static final String CAPTURE_TIER = "capture";
+    /** 回忆态用的档位：多步工具编排，可接更强模型；未配置时网关回退到默认。 */
+    private static final String RECALL_TIER = "recall";
 
     @Bean
     public Capturer capturer(ChatModelRouter router) {
         return AiServices.builder(Capturer.class)
                 .chatModel(router.forTier(CAPTURE_TIER))
+                .build();
+    }
+
+    @Bean
+    public RecallAssistant recallAssistant(ChatModelRouter router, NoteTools noteTools) {
+        return AiServices.builder(RecallAssistant.class)
+                .chatModel(router.forTier(RECALL_TIER))
+                .tools(noteTools)
+                // 抗造⑤：限制工具循环轮数，防模型抽风死循环
+                .maxToolCallingRoundTrips(6)
                 .build();
     }
 }
