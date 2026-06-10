@@ -1,11 +1,194 @@
 import { Link } from 'react-router-dom'
 import {
   ArrowLeft, BotMessageSquare, Layers, Radio, ShieldCheck, LifeBuoy, Boxes, Network,
-  Cpu, Database, Server, Repeat, Workflow, Plug, SplitSquareHorizontal, KeyRound, Gauge,
+  Cpu, Database, Server, Repeat, Workflow, Plug, SplitSquareHorizontal, KeyRound, Gauge, Code2,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Section, HFlow, VFlow, InfoCard, DecisionCard, GuardCard, type Decision } from '../components/arch-ui'
+import { Section, HFlow, VFlow, InfoCard, DecisionCard, GuardCard, CodeBlock, type Decision } from '../components/arch-ui'
+
+type Snippet = { title: string; lang: string; code: string }
+
+const implBlocks: Snippet[] = [
+  {
+    title: 'WS②：单连接多路复用 + 按 sessionId 路由（Java · SidecarClient）',
+    lang: 'Java',
+    code: [
+      'class SidecarClient {',
+      '  WebSocketSession session;                 // 一条 WS 连所有会话',
+      '  BiConsumer<String,JsonNode> listener;     // (sessionId,event) 回调 Service',
+      '',
+      '  void ensureConnected() {                  // 幂等连接 + 退避重试',
+      '    if (isOpen(session)) return;',
+      '    session = client.execute(handler, "ws://127.0.0.1:18890").get();',
+      '  }',
+      '  void userMessage(String sid,String text){ send(Map.of("type","user","sessionId",sid,"text",text)); }',
+      '  void oneShot(String sid,String sys,String usr){',
+      '    send(Map.of("type","oneShot","sessionId",sid,"systemPrompt",sys,"userPrompt",usr));',
+      '  }',
+      '  void onMessage(String json){              // 收：按 sessionId 投给对应会话',
+      '    JsonNode n = mapper.readTree(json);',
+      '    listener.accept(n.path("sessionId").asText(null), n);',
+      '  }',
+      '}',
+    ].join('\n'),
+  },
+  {
+    title: 'sidecar：query() 异步事件流 + 翻译为约定事件（Node · SessionManager）',
+    lang: 'TypeScript',
+    code: [
+      "// 跑 Claude Agent SDK，逐事件 emit 回 Java",
+      'async runTurn(text, systemPrompt) {',
+      '  const q = query({ prompt: text, options: {',
+      '    cwd, model,',
+      '    resume: this.sdkSessionId,             // 用 sdkSessionId 续接上下文',
+      '    permissionMode,',
+      '    canUseTool: this.perms.canUseTool,',
+      '    includePartialMessages: true,',
+      '    systemPrompt,                           // 仅 oneShot 传，替换默认 system',
+      '  }})',
+      '  for await (const m of q) this.handle(m)  // 异步迭代事件流',
+      '}',
+      'handle(m) {',
+      "  if (m.type === 'system' && m.subtype === 'init') this.sdkSessionId = m.session_id",
+      "  if (m.type === 'stream_event') emit({ type:'assistantDelta', text: deltaText(m) })",
+      "  if (m.type === 'result')       emit({ type:'result', stopReason: m.subtype })",
+      '}',
+    ].join('\n'),
+  },
+  {
+    title: '工具权限：挂起 Promise，等前端决策回灌才放行（Node · Permissions）',
+    lang: 'TypeScript',
+    code: [
+      '// 权限确认 = 一个挂起的 Promise',
+      'canUseTool = (tool, input) => new Promise(resolve => {',
+      '  const reqId = uuid()',
+      '  this.pending.set(reqId, resolve)                 // 挂起，等决策',
+      "  emit({ type:'permissionRequest', reqId, toolName: tool, input })",
+      '})',
+      'decide(reqId, decision) {                          // Java 把用户决策回灌',
+      '  this.pending.get(reqId)?.({ behavior: decision.behavior })',
+      '  this.pending.delete(reqId)                       // resolve 后 Claude 才继续',
+      '}',
+    ].join('\n'),
+  },
+  {
+    title: 'Java：事件分发 + 单调 seq 广播多端（ClaudeChatService）',
+    lang: 'Java',
+    code: [
+      'void onSidecarEvent(String sid, JsonNode node){',
+      '  if (sid == null)               { onSidecarDown(); return; }            // 连接级：sidecar 断',
+      '  if (sid.startsWith("oneshot:")){ agentOneShot.handle(sid,node); return; } // 一次性任务分流',
+      '  SessionCtx ctx = sessions.get(sid);',
+      '  switch (node.path("type").asText()){',
+      '    case "assistantDelta" -> broadcast(ctx, nextSeq(ctx), node);  // 带 seq，广播全部 viewer + 入环形缓冲',
+      '    case "result"         -> broadcast(ctx, nextSeq(ctx), node);',
+      '    case "permissionRequest" -> { broadcast(ctx, nextSeq(ctx), node); awaitDecision(ctx, node); }',
+      '  }',
+      '}',
+    ].join('\n'),
+  },
+  {
+    title: 'WS② 断线自愈：CAS 去重后台重连 + sdkSessionId resume（ClaudeChatService）',
+    lang: 'Java',
+    code: [
+      'void onSidecarDown(){',
+      '  sessions.values().forEach(c -> { c.status = INTERRUPTED; notify(c,"SIDECAR_DOWN"); });',
+      '  if (!recovering.compareAndSet(false,true)) return;   // CAS 去重，只起一个重连循环',
+      '  Thread.ofVirtual().start(() -> {',
+      '    try {',
+      '      for (int i=0;i<20;i++) try {',
+      '        processRegistry.ensureStarted();               // 进程死了重拉',
+      '        sidecar.ensureConnected();                     // 重连 WS②',
+      '        resumeAllSessions(); return;                   // 用 sdkSessionId 逐个 resume',
+      '      } catch (IOException e){ sleep(1500); }',
+      '    } finally { recovering.set(false); }',
+      '  });',
+      '}',
+      'void resumeAllSessions(){',
+      '  for (SessionCtx c : sessions.values())',
+      '    if (c.sdkSessionId != null)',
+      '      sidecar.resumeSession(c.id, c.sdkSessionId, c.cwd);  // 续接上下文，前端清错恢复',
+      '}',
+    ].join('\n'),
+  },
+  {
+    title: '浏览器重连：按 seq 回放缓冲，越界给 replayGap（ClaudeChatService.attach）',
+    lang: 'Java',
+    code: [
+      'void attach(WebSocketSession ws, String sid, long lastEventSeq){',
+      '  SessionCtx c = sessions.get(sid);',
+      '  if (c == null) c = restoreFromDbAndResume(sid);          // 内存没了 → DB 恢复 + resume',
+      '  c.viewers.add(ws);',
+      '  if (lastEventSeq < c.buffer.oldestSeq()) send(ws, replayGap()); // 越界：提示刷新',
+      '  else for (Event e : c.buffer.since(lastEventSeq)) send(ws, e); // 回放（客户端再按 seq 去重）',
+      '}',
+    ].join('\n'),
+  },
+  {
+    title: '异步折叠同步：CompletableFuture + 虚拟线程（Java · AgentOneShotService）',
+    lang: 'Java',
+    code: [
+      '// 把"多次异步 push + 一次完成"折叠成一个同步阻塞调用',
+      'String runOnce(String system, String user){',
+      '  String id = "oneshot:" + UUID.randomUUID();',
+      '  Call call = new Call();             // { StringBuilder text; CompletableFuture<String> future }',
+      '  calls.put(id, call);',
+      '  try {',
+      '    sidecar.oneShot(id, system, user);',
+      '    return call.future.get(120, SECONDS);   // 虚拟线程 park 挂起，不占 OS 线程',
+      '  } finally { calls.remove(id); }',
+      '}',
+      'void handle(String id, JsonNode node){       // WS 回调线程',
+      '  Call c = calls.get(id);',
+      '  switch (node.path("type").asText()){',
+      '    case "assistantDelta" -> c.text.append(node.path("text").asText());',
+      '    case "result"         -> c.future.complete(c.text.toString());  // 唤醒 runOnce',
+      '    case "error"          -> c.future.completeExceptionally(new RuntimeException(msg(node)));',
+      '  }',
+      '}',
+    ].join('\n'),
+  },
+  {
+    title: '简历优化引擎路由：fast(DeepSeek) / quality(Agent)（ResumeOptimizationService）',
+    lang: 'Java',
+    code: [
+      'void optimizeStream(req, SseEmitter emitter){',
+      '  if ("quality".equalsIgnoreCase(req.engine()))        // 高质量 → Claude 编码 Agent',
+      '    Thread.ofVirtual().start(() -> {',
+      '      agentOneShot.stream(systemPrompt(), render(req), req.model(),',
+      '          delta -> send(emitter, "chunk", delta));      // Claude delta 当 SSE chunk',
+      '      send(emitter, "done", null); emitter.complete();',
+      '    });',
+      '  else                                                  // 快速 → DeepSeek（Spring AI Flux）',
+      '    fastClient.prompt().system(systemPrompt()).user(render(req))',
+      '      .stream().content()',
+      '      .subscribe(c -> send(emitter,"chunk",c),',
+      '                 e -> send(emitter,"error",e),',
+      '                 () -> { send(emitter,"done",null); emitter.complete(); });',
+      '}',
+    ].join('\n'),
+  },
+]
+
+const apiList = [
+  'WS① 浏览器↔Java   /api/claude-chat/ws',
+  '  C→S: open · send · decision · setMode · attach{lastEventSeq} · interrupt',
+  '  S→C: Ready · AssistantDelta · ToolUse · PermissionRequest · Result · Error   (均带 seq)',
+  '',
+  'WS② Java↔sidecar   ws://127.0.0.1:18890',
+  '  J→N: start · resume · user · decision · oneShot · setMode · interrupt',
+  '  N→J: init · assistantDelta · toolUse · permissionRequest · result · error',
+  '',
+  '简历优化 REST',
+  '  POST /api/v1/resume/optimize          同步单段',
+  '  POST /api/v1/resume/optimize/stream   SSE 流式（event: chunk / done / error）',
+  '  POST /api/v1/resume/optimize/whole    整篇',
+  '',
+  'MCP（对外暴露给外部 Agent）   http://localhost:18080/sse',
+  '  resume_get · resume_list_projects · resume_upsert_project/work/education',
+  '  resume_remove_* · resume_update_basics · resume_set_skills',
+].join('\n')
 
 const decisions: Decision[] = [
   {
@@ -197,6 +380,14 @@ export function VibeCodingArch() {
       <Section icon={ShieldCheck} title="健壮性（抗造）清单 → 落点" subtitle="弱网 / 崩溃 / 人机交互下的边界，光跑 demo 看不出来">
         <div className="grid gap-3 sm:grid-cols-2">
           {guards.map(g => <GuardCard key={g.tag} {...g} />)}
+        </div>
+      </Section>
+
+      {/* 代码实现简化版 + API */}
+      <Section icon={Code2} title="代码实现简化版（每块逻辑 + API）" subtitle="精简示意，抓主干逻辑与签名；面试可对着讲清每块怎么实现">
+        <div className="space-y-3">
+          {implBlocks.map(b => <CodeBlock key={b.title} {...b} />)}
+          <CodeBlock title="API 清单（WS 消息 / REST / MCP）" lang="API" code={apiList} />
         </div>
       </Section>
     </div>

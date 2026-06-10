@@ -160,6 +160,23 @@ export function DecisionCard({ d }: { d: Decision }) {
   )
 }
 
+/** 代码块：标题 + 语言标签 + 等宽可横滚的简化代码。 */
+export function CodeBlock({ title, lang, code }: { title?: string; lang?: string; code: string }) {
+  return (
+    <div className="overflow-hidden rounded-lg border bg-[var(--color-card)]">
+      {(title || lang) && (
+        <div className="flex items-center justify-between gap-2 border-b bg-[var(--color-muted)]/40 px-3 py-1.5 text-xs">
+          {title && <span className="font-medium">{title}</span>}
+          {lang && <span className="shrink-0 text-[var(--color-muted-foreground)]">{lang}</span>}
+        </div>
+      )}
+      <pre className="overflow-x-auto px-3 py-2.5 font-mono text-[11.5px] leading-relaxed">
+        <code>{code}</code>
+      </pre>
+    </div>
+  )
+}
+
 /** 编号风险 → 防护 的小卡。 */
 export function GuardCard({ tag, risk, guard }: { tag: string; risk: string; guard: string }) {
   return (
