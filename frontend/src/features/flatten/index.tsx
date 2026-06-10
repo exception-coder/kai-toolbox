@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { FolderInput } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { FlattenPage } from './pages/FlattenPage'
-
+const FlattenPage = lazy(() => import('./pages/FlattenPage').then((m) => ({ default: m.FlattenPage })))
 const manifest: FeatureManifest = {
   id: 'flatten',
   name: '目录扁平化',

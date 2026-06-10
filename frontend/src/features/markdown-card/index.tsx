@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { FileImage } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { MarkdownCardPage } from './pages/MarkdownCardPage'
-
+const MarkdownCardPage = lazy(() => import('./pages/MarkdownCardPage').then((m) => ({ default: m.MarkdownCardPage })))
 const manifest: FeatureManifest = {
   id: 'markdown-card',
   name: 'Markdown 转卡片',

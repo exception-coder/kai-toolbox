@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { NotebookPen } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { SecretaryPage } from './pages/SecretaryPage'
-
+const SecretaryPage = lazy(() => import('./pages/SecretaryPage').then((m) => ({ default: m.SecretaryPage })))
 const manifest: FeatureManifest = {
   id: 'secretary',
   name: '个人秘书',

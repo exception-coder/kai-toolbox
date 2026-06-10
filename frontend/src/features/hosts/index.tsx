@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { Server } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { HostsPage } from './pages/HostsPage'
-
+const HostsPage = lazy(() => import('./pages/HostsPage').then((m) => ({ default: m.HostsPage })))
 const manifest: FeatureManifest = {
   id: 'hosts',
   name: '主机管理',

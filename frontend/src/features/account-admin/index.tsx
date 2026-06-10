@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { Users } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { AccountAdminPage } from './pages/AccountAdminPage'
-
+const AccountAdminPage = lazy(() => import('./pages/AccountAdminPage').then((m) => ({ default: m.AccountAdminPage })))
 const manifest: FeatureManifest = {
   id: 'account-admin',
   name: '账号管理',

@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { Boxes } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { DockerPage } from './pages/DockerPage'
-
+const DockerPage = lazy(() => import('./pages/DockerPage').then((m) => ({ default: m.DockerPage })))
 const manifest: FeatureManifest = {
   id: 'docker',
   name: 'Docker 治理',

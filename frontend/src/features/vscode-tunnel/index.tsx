@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { Globe } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { VsCodeTunnelPage } from './pages/VsCodeTunnelPage'
-
+const VsCodeTunnelPage = lazy(() => import('./pages/VsCodeTunnelPage').then((m) => ({ default: m.VsCodeTunnelPage })))
 const manifest: FeatureManifest = {
   id: 'vscode-tunnel',
   name: 'VS Code Tunnel',

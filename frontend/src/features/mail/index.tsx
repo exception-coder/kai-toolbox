@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { Mail } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { MailInboxPage } from './pages/MailInboxPage'
-
+const MailInboxPage = lazy(() => import('./pages/MailInboxPage').then((m) => ({ default: m.MailInboxPage })))
 const manifest: FeatureManifest = {
   id: 'mail',
   name: '收件箱',

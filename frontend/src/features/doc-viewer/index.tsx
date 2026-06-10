@@ -1,9 +1,9 @@
+import { lazy } from 'react'
 import { BookOpen } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { DocViewerHome } from './pages/DocViewerHome'
-import { DocViewerPage } from './pages/DocViewerPage'
-import { LocalEditorPage } from './pages/LocalEditorPage'
-
+const DocViewerHome = lazy(() => import('./pages/DocViewerHome').then((m) => ({ default: m.DocViewerHome })))
+const DocViewerPage = lazy(() => import('./pages/DocViewerPage').then((m) => ({ default: m.DocViewerPage })))
+const LocalEditorPage = lazy(() => import('./pages/LocalEditorPage').then((m) => ({ default: m.LocalEditorPage })))
 const manifest: FeatureManifest = {
   id: 'doc-viewer',
   name: 'Markdown 文档浏览器',

@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { TerminalSquare } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { WebTermPage } from './pages/WebTermPage'
-
+const WebTermPage = lazy(() => import('./pages/WebTermPage').then((m) => ({ default: m.WebTermPage })))
 const manifest: FeatureManifest = {
   id: 'webterm',
   name: 'Web 终端',

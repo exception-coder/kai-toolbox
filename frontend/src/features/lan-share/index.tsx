@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { Share2 } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { LanSharePage } from './pages/LanSharePage'
-
+const LanSharePage = lazy(() => import('./pages/LanSharePage').then((m) => ({ default: m.LanSharePage })))
 const manifest: FeatureManifest = {
   id: 'lan-share',
   name: '局域网文件传输',

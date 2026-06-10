@@ -1,8 +1,8 @@
 // 简历模块 feature manifest，遵循 featureRegistry 的自动注册约定
+import { lazy } from 'react'
 import { UserSquare2 } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { ResumePage } from './pages/ResumePage'
-
+const ResumePage = lazy(() => import('./pages/ResumePage').then((m) => ({ default: m.ResumePage })))
 const manifest: FeatureManifest = {
   id: 'resume',
   name: '个人简历',

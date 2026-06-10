@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { Film } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { MediaParserPage } from './pages/MediaParserPage'
-
+const MediaParserPage = lazy(() => import('./pages/MediaParserPage').then((m) => ({ default: m.MediaParserPage })))
 const manifest: FeatureManifest = {
   id: 'media-parser',
   name: '媒体解析',

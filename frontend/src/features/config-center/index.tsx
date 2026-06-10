@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { ConfigCenterPage } from './pages/ConfigCenterPage'
-
+const ConfigCenterPage = lazy(() => import('./pages/ConfigCenterPage').then((m) => ({ default: m.ConfigCenterPage })))
 const manifest: FeatureManifest = {
   id: 'config-center',
   name: '配置中心',

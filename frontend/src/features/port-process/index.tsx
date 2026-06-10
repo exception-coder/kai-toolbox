@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { Network } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { PortProcessPage } from './pages/PortProcessPage'
-
+const PortProcessPage = lazy(() => import('./pages/PortProcessPage').then((m) => ({ default: m.PortProcessPage })))
 const manifest: FeatureManifest = {
   id: 'port-process',
   name: '端口进程查询',

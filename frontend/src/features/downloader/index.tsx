@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { Download } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { DownloaderPage } from './pages/DownloaderPage'
-
+const DownloaderPage = lazy(() => import('./pages/DownloaderPage').then((m) => ({ default: m.DownloaderPage })))
 const manifest: FeatureManifest = {
   id: 'downloader',
   name: '智能加速下载器',

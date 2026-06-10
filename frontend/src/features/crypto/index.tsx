@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { ShieldCheck } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { CryptoPage } from './pages/CryptoPage'
-
+const CryptoPage = lazy(() => import('./pages/CryptoPage').then((m) => ({ default: m.CryptoPage })))
 const manifest: FeatureManifest = {
   id: 'crypto',
   name: '加解密工具',

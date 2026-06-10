@@ -1,8 +1,8 @@
 // 工作线模块 feature manifest，遵循 featureRegistry 的自动注册约定
+import { lazy } from 'react'
 import { GitBranch } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { WorklinePage } from './pages/WorklinePage'
-
+const WorklinePage = lazy(() => import('./pages/WorklinePage').then((m) => ({ default: m.WorklinePage })))
 const manifest: FeatureManifest = {
   id: 'workline',
   name: '工作线',

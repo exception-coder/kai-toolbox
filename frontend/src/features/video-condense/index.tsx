@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { Gauge } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { VideoCondensePage } from './pages/VideoCondensePage'
-
+const VideoCondensePage = lazy(() => import('./pages/VideoCondensePage').then((m) => ({ default: m.VideoCondensePage })))
 const manifest: FeatureManifest = {
   id: 'video-condense',
   name: '视频智能变速',

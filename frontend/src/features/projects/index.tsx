@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { FolderGit2 } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { ProjectsPage } from './pages/ProjectsPage'
-
+const ProjectsPage = lazy(() => import('./pages/ProjectsPage').then((m) => ({ default: m.ProjectsPage })))
 const manifest: FeatureManifest = {
   id: 'projects',
   name: '项目管理',

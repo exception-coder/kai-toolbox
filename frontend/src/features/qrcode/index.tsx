@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { QrCode } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { QrcodePage } from './pages/QrcodePage'
-
+const QrcodePage = lazy(() => import('./pages/QrcodePage').then((m) => ({ default: m.QrcodePage })))
 const manifest: FeatureManifest = {
   id: 'qrcode',
   name: '二维码工具',

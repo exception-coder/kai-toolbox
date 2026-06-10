@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { Magnet } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { MagnetPage } from './pages/MagnetPage'
-
+const MagnetPage = lazy(() => import('./pages/MagnetPage').then((m) => ({ default: m.MagnetPage })))
 const manifest: FeatureManifest = {
   id: 'magnet',
   name: '磁力 / BT 下载',

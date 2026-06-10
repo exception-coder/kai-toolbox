@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { Film } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { VideoLibraryPage } from './pages/VideoLibraryPage'
-
+const VideoLibraryPage = lazy(() => import('./pages/VideoLibraryPage').then((m) => ({ default: m.VideoLibraryPage })))
 const manifest: FeatureManifest = {
   id: 'video-library',
   name: '视频库',

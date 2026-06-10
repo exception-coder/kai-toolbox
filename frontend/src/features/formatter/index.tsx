@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { Braces } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { FormatterPage } from './pages/FormatterPage'
-
+const FormatterPage = lazy(() => import('./pages/FormatterPage').then((m) => ({ default: m.FormatterPage })))
 const manifest: FeatureManifest = {
   id: 'formatter',
   name: '格式化工具',

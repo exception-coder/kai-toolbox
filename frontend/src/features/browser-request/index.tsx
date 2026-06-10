@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { Globe } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { BrowserRequestPage } from './pages/BrowserRequestPage'
-
+const BrowserRequestPage = lazy(() => import('./pages/BrowserRequestPage').then((m) => ({ default: m.BrowserRequestPage })))
 const manifest: FeatureManifest = {
   id: 'browser-request',
   name: '站点录制编排',

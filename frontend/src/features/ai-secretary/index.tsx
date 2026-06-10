@@ -1,8 +1,8 @@
+import { lazy } from 'react'
 import { Bot } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { CapturePage } from './pages/CapturePage'
-import { ArchitecturePage } from './pages/ArchitecturePage'
-
+const CapturePage = lazy(() => import('./pages/CapturePage').then((m) => ({ default: m.CapturePage })))
+const ArchitecturePage = lazy(() => import('./pages/ArchitecturePage').then((m) => ({ default: m.ArchitecturePage })))
 const manifest: FeatureManifest = {
   id: 'ai-secretary',
   name: 'AI 秘书',

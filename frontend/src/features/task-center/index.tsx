@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { ListChecks } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { TaskCenterPage } from './pages/TaskCenterPage'
-
+const TaskCenterPage = lazy(() => import('./pages/TaskCenterPage').then((m) => ({ default: m.TaskCenterPage })))
 const manifest: FeatureManifest = {
   id: 'task-center',
   name: '任务中心',

@@ -1,8 +1,8 @@
+import { lazy } from 'react'
 import { Workflow } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { ArchitectureHome } from './pages/ArchitectureHome'
-import { VibeCodingArch } from './pages/VibeCodingArch'
-
+const ArchitectureHome = lazy(() => import('./pages/ArchitectureHome').then((m) => ({ default: m.ArchitectureHome })))
+const VibeCodingArch = lazy(() => import('./pages/VibeCodingArch').then((m) => ({ default: m.VibeCodingArch })))
 const manifest: FeatureManifest = {
   id: 'architecture',
   name: '实现原理',

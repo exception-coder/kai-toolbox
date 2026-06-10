@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { HardDrive } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { TreeSizePage } from './pages/TreeSizePage'
-
+const TreeSizePage = lazy(() => import('./pages/TreeSizePage').then((m) => ({ default: m.TreeSizePage })))
 const manifest: FeatureManifest = {
   id: 'treesize',
   name: '磁盘空间分析',

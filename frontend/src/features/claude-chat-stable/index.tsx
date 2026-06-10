@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { ShieldCheck } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { ChatPage } from './pages/ChatPage'
-
+const ChatPage = lazy(() => import('./pages/ChatPage').then((m) => ({ default: m.ChatPage })))
 const manifest: FeatureManifest = {
   id: 'claude-chat-stable',
   name: 'Vibe Coding（稳定版）',

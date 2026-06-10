@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { FlaskConical } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { FfmpegLabPage } from './pages/FfmpegLabPage'
-
+const FfmpegLabPage = lazy(() => import('./pages/FfmpegLabPage').then((m) => ({ default: m.FfmpegLabPage })))
 const manifest: FeatureManifest = {
   id: 'ffmpeg-lab',
   name: 'FFmpeg 转码实验台',

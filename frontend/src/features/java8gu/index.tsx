@@ -1,9 +1,9 @@
+import { lazy } from 'react'
 import { GraduationCap } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { Java8guHubPage } from './pages/Java8guHubPage'
-import { Java8guCategoryPage } from './pages/Java8guCategoryPage'
-import { Java8guQuestionPage } from './pages/Java8guQuestionPage'
-
+const Java8guHubPage = lazy(() => import('./pages/Java8guHubPage').then((m) => ({ default: m.Java8guHubPage })))
+const Java8guCategoryPage = lazy(() => import('./pages/Java8guCategoryPage').then((m) => ({ default: m.Java8guCategoryPage })))
+const Java8guQuestionPage = lazy(() => import('./pages/Java8guQuestionPage').then((m) => ({ default: m.Java8guQuestionPage })))
 const manifest: FeatureManifest = {
   id: 'java8gu',
   name: 'Java 八股·卡片回顾',

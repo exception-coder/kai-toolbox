@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { Share2 } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { FrpConfigPage } from './pages/FrpConfigPage'
-
+const FrpConfigPage = lazy(() => import('./pages/FrpConfigPage').then((m) => ({ default: m.FrpConfigPage })))
 const manifest: FeatureManifest = {
   id: 'frp-config',
   name: 'frp 可视化配置',

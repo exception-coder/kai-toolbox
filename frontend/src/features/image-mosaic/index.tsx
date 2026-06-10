@@ -1,7 +1,7 @@
+import { lazy } from 'react'
 import { ImageOff } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
-import { ImageMosaicPage } from './pages/ImageMosaicPage'
-
+const ImageMosaicPage = lazy(() => import('./pages/ImageMosaicPage').then((m) => ({ default: m.ImageMosaicPage })))
 const manifest: FeatureManifest = {
   id: 'image-mosaic',
   name: '图片打码',
