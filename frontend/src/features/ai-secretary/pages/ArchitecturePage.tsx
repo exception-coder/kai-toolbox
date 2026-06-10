@@ -527,19 +527,19 @@ export function ArchitecturePage() {
               </div>
               <ul className="space-y-1 text-xs text-[var(--color-muted-foreground)]">
                 <li>• 端到端：:18099 → AiServices 经 <code>RoutingChatModel</code> → 本地 Qwen，记录态全链路跑通</li>
-                <li>• 一句话拆 3 条；类目走受控枚举（SCHEDULE / EXPENSE），不再自创类目</li>
-                <li>• 「打车花了38块」正确抽出 <code>amount=38</code>；标签 / 置信度 / 落库均正常</li>
+                <li>• 类目受控枚举 + 「开销=已花的钱」语义：「要买牛奶」正确归「待办」</li>
+                <li>• 确定性护栏：「明天下午3点」→ <code>2026-06-11T15:00+08:00</code>（带时区）；金额正则兜底抽 <code>38</code></li>
               </ul>
             </CardContent>
           </Card>
           <Card className="border-amber-500/40">
             <CardContent className="space-y-2 p-4">
               <div className="flex items-center gap-2 text-sm font-medium text-amber-600 dark:text-amber-400">
-                <AlertTriangle className="h-4 w-4" /> 待打磨（下一轮）
+                <AlertTriangle className="h-4 w-4" /> 待做（下一轮）
               </div>
               <ul className="space-y-1 text-xs text-[var(--color-muted-foreground)]">
-                <li>• 相对时间不准：注入的是 UTC <code>Instant</code>，「明天」易解成今天且丢时区 → 改注入带时区的本地时间</li>
-                <li>• 「买牛奶鸡蛋」被归「开销」（实为购物待办）→ prompt 澄清「开销 = 已花的钱」</li>
+                <li>• 回忆态（tool-loop）未实现：searchNotes / aggregateExpense / listTodos + LLM 路由 + SSE 可视化</li>
+                <li>• 敏感数据（账号密码类）落库明文，待定加密 / UI 打码策略</li>
               </ul>
             </CardContent>
           </Card>
