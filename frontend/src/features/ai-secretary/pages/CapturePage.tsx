@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   Network,
   RefreshCw,
+  MessageSquareText,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -148,12 +149,17 @@ export function CapturePage() {
           <h1 className="text-xl font-bold tracking-tight">AI 秘书</h1>
           <Badge variant="secondary">记录态</Badge>
         </div>
-        <Link
-          to="/tools/ai-secretary/architecture"
-          className="inline-flex items-center gap-1.5 text-xs text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
-        >
-          <Network className="h-3.5 w-3.5" /> 架构总览
-        </Link>
+        <div className="flex items-center gap-3 text-xs text-[var(--color-muted-foreground)]">
+          <Link to="/tools/ai-secretary/ask" className="inline-flex items-center gap-1.5 hover:text-[var(--color-foreground)]">
+            <MessageSquareText className="h-3.5 w-3.5" /> 回忆问答
+          </Link>
+          <Link
+            to="/tools/ai-secretary/architecture"
+            className="inline-flex items-center gap-1.5 hover:text-[var(--color-foreground)]"
+          >
+            <Network className="h-3.5 w-3.5" /> 架构总览
+          </Link>
+        </div>
       </header>
 
       {/* 输入区 */}
