@@ -1,5 +1,7 @@
 package com.exceptioncoder.toolbox.browserrequest.config;
 
+import com.exceptioncoder.toolbox.browserrequest.domain.FlowAction;
+import com.exceptioncoder.toolbox.browserrequest.domain.FlowRunResult;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -17,7 +19,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * undetected-node 引擎桥接：管理 patchright sidecar 进程（node server.js）并通过本机 HTTP 调用它。
@@ -215,6 +219,42 @@ public class UndetectedBrowserSidecar {
         if (key != null) { if (text != null) sb.append(','); sb.append("\"key\":").append(jsonStr(key)); }
         sb.append('}');
         post("/sessions/" + id + "/type", sb.toString(), Duration.ofSeconds(10));
+    }
+
+    /** AI 用例：让 sidecar 按选择器确定性执行动作脚本，返回逐步结果 + 失败现场。 */
+    public FlowRunResult execActions(String id, List<FlowAction> steps, int defaultTimeoutMs) {
+        ensureRunning();
+        try {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("steps", steps);
+            body.put("defaultTimeoutMs", defaultTimeoutMs);
+            String json = mapper.writeValueAsString(body);
+            HttpResponse<String> r = send("POST", "/sessions/" + id + "/exec", json, Duration.ofSeconds(180));
+            if (r.statusCode() >= 300) {
+                throw new RuntimeException("sidecar exec -> HTTP " + r.statusCode() + " " + r.body());
+            }
+            return mapper.readValue(r.body(), FlowRunResult.class);
+        } catch (RuntimeException re) {
+            throw re;
+        } catch (Exception e) {
+            throw new RuntimeException("sidecar exec 失败: " + e.getMessage(), e);
+        }
+    }
+
+    /** AI 用例：抓当前页面现场（URL/标题/截断 body），供生成时给 LLM 真实 DOM。 */
+    public FlowRunResult.Snapshot snapshot(String id, int cap) {
+        ensureRunning();
+        try {
+            HttpResponse<String> r = send("GET", "/sessions/" + id + "/snapshot", null, Duration.ofSeconds(30));
+            if (r.statusCode() >= 300) {
+                throw new RuntimeException("sidecar snapshot -> HTTP " + r.statusCode());
+            }
+            return mapper.readValue(r.body(), FlowRunResult.Snapshot.class);
+        } catch (RuntimeException re) {
+            throw re;
+        } catch (Exception e) {
+            throw new RuntimeException("sidecar snapshot 失败: " + e.getMessage(), e);
+        }
     }
 
     public boolean isOpen(String id) {

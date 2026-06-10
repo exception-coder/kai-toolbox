@@ -26,17 +26,20 @@ public class BrowserRequestService {
     private final RecordingService recordingService;
     private final BrowserRequestTaskService BrowserRequestTaskService;
     private final UndetectedBrowserSidecar sidecar;
+    private final AiFlowService aiFlowService;
 
     public BrowserRequestService(BrowserSessionRepository repo,
                                  BrowserSessionManager manager,
                                  RecordingService recordingService,
                                  BrowserRequestTaskService BrowserRequestTaskService,
-                                 UndetectedBrowserSidecar sidecar) {
+                                 UndetectedBrowserSidecar sidecar,
+                                 AiFlowService aiFlowService) {
         this.repo = repo;
         this.manager = manager;
         this.recordingService = recordingService;
         this.BrowserRequestTaskService = BrowserRequestTaskService;
         this.sidecar = sidecar;
+        this.aiFlowService = aiFlowService;
     }
 
     /** 该会话是否走 undetected-node 引擎（patchright sidecar）。会话未指定 engine 时回退全局默认。 */
@@ -171,7 +174,8 @@ public class BrowserRequestService {
         } catch (Exception e) {
             log.warn("清理 session 目录失败 {}: {}", id, e.getMessage());
         }
-        // 级联清理：先 task（含 task_run），再 recording（含 http_call）
+        // 级联清理：AI 用例 → task（含 task_run）→ recording（含 http_call）
+        aiFlowService.onSessionDeleted(id);
         for (Task t : BrowserRequestTaskService.listBySession(id)) {
             BrowserRequestTaskService.delete(t.id());
         }

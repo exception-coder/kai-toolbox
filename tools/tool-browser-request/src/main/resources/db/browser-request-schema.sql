@@ -86,3 +86,16 @@ CREATE TABLE IF NOT EXISTS browser_request_task_run (
 );
 
 CREATE INDEX IF NOT EXISTS idx_run_task ON browser_request_task_run(task_id, started_at DESC);
+
+-- AI 用例：自然语言 → LLM 生成并经人工确认的动作脚本（steps_json 为 FlowAction 列表）
+CREATE TABLE IF NOT EXISTS browser_request_ai_flow (
+    id           TEXT    PRIMARY KEY,
+    session_id   TEXT    NOT NULL,
+    name         TEXT    NOT NULL,
+    instruction  TEXT,
+    steps_json   TEXT    NOT NULL,
+    created_at   INTEGER NOT NULL,
+    updated_at   INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_flow_session ON browser_request_ai_flow(session_id, updated_at DESC);

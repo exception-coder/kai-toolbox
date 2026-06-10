@@ -6,12 +6,18 @@ import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import com.exceptioncoder.toolbox.browserrequest.api.dto.CreateTaskRequest;
+import com.exceptioncoder.toolbox.browserrequest.api.dto.GenerateFlowRequest;
 import com.exceptioncoder.toolbox.browserrequest.api.dto.ReplayRequest;
+import com.exceptioncoder.toolbox.browserrequest.api.dto.RunFlowRequest;
+import com.exceptioncoder.toolbox.browserrequest.api.dto.SaveFlowRequest;
 import com.exceptioncoder.toolbox.browserrequest.api.dto.StartRecordingRequest;
 import com.exceptioncoder.toolbox.browserrequest.api.dto.UpdateTaskRequest;
+import com.exceptioncoder.toolbox.browserrequest.domain.AiFlow;
+import com.exceptioncoder.toolbox.browserrequest.domain.FlowRunResult;
 import com.exceptioncoder.toolbox.browserrequest.domain.Recording;
 import com.exceptioncoder.toolbox.browserrequest.domain.Task;
 import com.exceptioncoder.toolbox.browserrequest.domain.TaskRun;
+import com.exceptioncoder.toolbox.browserrequest.service.AiFlowService;
 import com.exceptioncoder.toolbox.browserrequest.service.BrowserRequestService;
 import com.exceptioncoder.toolbox.browserrequest.service.RecordingService;
 import com.exceptioncoder.toolbox.browserrequest.service.ReplayExecutor;
@@ -41,17 +47,20 @@ public class BrowserRequestController {
     private final BrowserRequestTaskService taskSvc;
     private final ReplayExecutor replay;
     private final SseEmitterRegistry sseRegistry;
+    private final AiFlowService aiFlowSvc;
 
     public BrowserRequestController(BrowserRequestService sessionSvc,
                                     RecordingService recordingSvc,
                                     BrowserRequestTaskService taskSvc,
                                     ReplayExecutor replay,
-                                    SseEmitterRegistry sseRegistry) {
+                                    SseEmitterRegistry sseRegistry,
+                                    AiFlowService aiFlowSvc) {
         this.sessionSvc = sessionSvc;
         this.recordingSvc = recordingSvc;
         this.taskSvc = taskSvc;
         this.replay = replay;
         this.sseRegistry = sseRegistry;
+        this.aiFlowSvc = aiFlowSvc;
     }
 
     // ── 会话 ────────────────────────────────────────────────────────────────
@@ -232,5 +241,41 @@ public class BrowserRequestController {
     @GetMapping("/task-runs/{id}")
     public TaskRun getRun(@PathVariable String id) {
         return taskSvc.runDetail(id);
+    }
+
+    // ── AI 用例（自然语言 → LLM 生成脚本 → 执行验证 → 确认落库） ───────────────────
+
+    /** 自然语言 → LLM 生成（或基于失败上下文重写）动作脚本，代码校验后返回。 */
+    @PostMapping("/sessions/{id}/ai-flows/generate")
+    public AiFlowService.GenerateResult generateFlow(@PathVariable String id,
+                                                      @RequestBody GenerateFlowRequest req) {
+        return aiFlowSvc.generate(id, req);
+    }
+
+    /** 确定性执行一段（未落库的）脚本，返回逐步结果 + 断言裁决 + 失败现场。 */
+    @PostMapping("/sessions/{id}/ai-flows/run")
+    public FlowRunResult runFlow(@PathVariable String id, @RequestBody RunFlowRequest req) {
+        return aiFlowSvc.run(id, req.steps());
+    }
+
+    /** 人工确认后保存为用例。 */
+    @PostMapping("/sessions/{id}/ai-flows")
+    public AiFlow saveFlow(@PathVariable String id, @RequestBody SaveFlowRequest req) {
+        return aiFlowSvc.save(id, req.name(), req.instruction(), req.steps());
+    }
+
+    @GetMapping("/sessions/{id}/ai-flows")
+    public List<AiFlow> listFlows(@PathVariable String id) {
+        return aiFlowSvc.listBySession(id);
+    }
+
+    @PostMapping("/ai-flows/{flowId}/run")
+    public FlowRunResult runSavedFlow(@PathVariable String flowId) {
+        return aiFlowSvc.runSaved(flowId);
+    }
+
+    @DeleteMapping("/ai-flows/{flowId}")
+    public void deleteFlow(@PathVariable String flowId) {
+        aiFlowSvc.delete(flowId);
     }
 }

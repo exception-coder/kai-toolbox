@@ -60,6 +60,86 @@ function activePage(id) {
   return page;
 }
 
+const SNAPSHOT_HTML_CAP = 12000;
+
+/** 按选择器确定性执行一段动作脚本；首个失败即停并附页面现场。结构与 Java FlowRunResult 对齐。 */
+async function runActions(page, steps, defTo) {
+  const results = [];
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i] || {};
+    const to = s.timeoutMs || defTo;
+    try {
+      const detail = await execOne(page, s, to);
+      results.push({ index: i, type: s.type, ok: true, error: null, detail: detail || null });
+    } catch (e) {
+      results.push({ index: i, type: s.type, ok: false, error: e.message, detail: null });
+      return { ok: false, failedAt: i, results, snapshot: await snapshot(page) };
+    }
+  }
+  return { ok: true, failedAt: -1, results, snapshot: null };
+}
+
+async function execOne(page, s, to) {
+  switch (s.type) {
+    case 'navigate': await page.goto(s.url, { waitUntil: 'domcontentloaded', timeout: to }); return null;
+    case 'fill': await page.locator(s.selector).first().fill(String(s.text), { timeout: to }); return null;
+    case 'click': await page.locator(s.selector).first().click({ timeout: to }); return null;
+    case 'press':
+      if (s.selector) await page.locator(s.selector).first().press(String(s.key), { timeout: to });
+      else await page.keyboard.press(String(s.key));
+      return null;
+    case 'scroll':
+      if (s.selector) await page.locator(s.selector).first().scrollIntoViewIfNeeded({ timeout: to });
+      else await page.mouse.wheel(0, s.dy || 0);
+      return null;
+    case 'waitFor':
+      await page.locator(s.selector).first().waitFor({ state: 'visible', timeout: to });
+      return null;
+    case 'assert': return await assertOne(page, s, to);
+    default: throw new Error('未知动作 ' + s.type);
+  }
+}
+
+async function assertOne(page, s, to) {
+  if (s.assertType === 'urlContains') {
+    const u = page.url();
+    if (!u.includes(s.value)) throw new Error(`断言失败 urlContains("${s.value}")，当前 ${u}`);
+    return 'url=' + u;
+  }
+  if (s.assertType === 'selectorVisible') {
+    await page.locator(s.selector).first().waitFor({ state: 'visible', timeout: to });
+    return 'visible: ' + s.selector;
+  }
+  if (s.assertType === 'textPresent') {
+    const n = await page.locator(`text=${s.value}`).first().count().catch(() => 0);
+    if (!n) {
+      const body = await page.evaluate(() => (document.body ? document.body.innerText : '')).catch(() => '');
+      if (!String(body).includes(s.value)) throw new Error(`断言失败 textPresent("${s.value}")`);
+    }
+    return 'text present';
+  }
+  throw new Error('未知断言 ' + s.assertType);
+}
+
+/** 页面现场：URL/标题/去脚本样式后截断的 body HTML，供失败后让 LLM 看真实 DOM 重写选择器。 */
+async function snapshot(page) {
+  try {
+    const url = page.url();
+    const title = await page.title().catch(() => '');
+    let html = await page.evaluate(() => {
+      const b = document.body;
+      if (!b) return '';
+      const c = b.cloneNode(true);
+      c.querySelectorAll('script,style,svg,noscript').forEach(n => n.remove());
+      return c.innerHTML;
+    }).catch(() => '');
+    html = String(html || '').replace(/\s+/g, ' ').slice(0, SNAPSHOT_HTML_CAP);
+    return { url, title, html };
+  } catch (e) {
+    return { url: '?', title: '', html: '' };
+  }
+}
+
 async function launchPersistent(id, url) {
   const dir = profileDir(id);
   const freshProfile = !fs.existsSync(dir); // 此前无 profile → 首次，需从 storage-state.json 迁移登录态
@@ -145,6 +225,17 @@ async function handle(method, parts, body) {
     if (body && body.text) await page.keyboard.type(String(body.text), { delay: 30 });
     if (body && body.key) await page.keyboard.press(String(body.key));
     return { ok: true };
+  }
+
+  // AI 用例：按选择器确定性执行一段动作脚本，逐步返回结果；首个失败即停并带页面现场快照。
+  if (method === 'POST' && action === 'exec') {
+    const page = activePage(id);
+    const steps = (body && Array.isArray(body.steps)) ? body.steps : [];
+    const defTo = (body && body.defaultTimeoutMs) || 30000;
+    return await runActions(page, steps, defTo);
+  }
+  if (method === 'GET' && action === 'snapshot') {
+    return await snapshot(activePage(id));
   }
 
   if (method === 'POST' && action === 'save') {

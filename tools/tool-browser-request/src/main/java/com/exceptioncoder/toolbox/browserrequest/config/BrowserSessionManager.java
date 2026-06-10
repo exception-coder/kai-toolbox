@@ -1,13 +1,17 @@
 package com.exceptioncoder.toolbox.browserrequest.config;
 
+import com.exceptioncoder.toolbox.browserrequest.domain.FlowAction;
+import com.exceptioncoder.toolbox.browserrequest.domain.FlowRunResult;
 import com.microsoft.playwright.APIResponse;
 import com.microsoft.playwright.Browser;
 import com.microsoft.playwright.BrowserContext;
 import com.microsoft.playwright.BrowserType;
+import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.options.Proxy;
 import com.microsoft.playwright.options.RequestOptions;
+import com.microsoft.playwright.options.WaitForSelectorState;
 import com.microsoft.playwright.options.WaitUntilState;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PreDestroy;
@@ -18,6 +22,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -420,6 +425,118 @@ public class BrowserSessionManager {
                 try { resp.dispose(); } catch (Exception ignored) {}
             }
         });
+    }
+
+    // ── AI 用例：按选择器确定性执行动作脚本（playwright-java 引擎） ──────────────────
+
+    /** 在 worker 线程上执行动作脚本，逐步返回结果；首个失败即停并带页面现场快照。 */
+    public FlowRunResult execActions(String sessionId, List<FlowAction> steps, int defaultTimeoutMs) {
+        return runOnWorker(() -> {
+            BrowserContext ctx = requireCtx(sessionId);
+            Page page = firstPages.get(sessionId);
+            if ((page == null || page.isClosed()) && !ctx.pages().isEmpty()) {
+                page = ctx.pages().get(0);
+            }
+            if (page == null) throw new IllegalStateException("会话无可用页签: " + sessionId);
+            List<FlowRunResult.StepOutcome> outcomes = new ArrayList<>();
+            for (int i = 0; i < steps.size(); i++) {
+                FlowAction a = steps.get(i);
+                int to = a.timeoutMs() != null ? a.timeoutMs() : defaultTimeoutMs;
+                try {
+                    String detail = execOne(page, a, to);
+                    outcomes.add(new FlowRunResult.StepOutcome(i, a.type(), true, null, detail));
+                } catch (Exception e) {
+                    outcomes.add(new FlowRunResult.StepOutcome(i, a.type(), false, e.getMessage(), null));
+                    return new FlowRunResult(false, i, outcomes, snapshotOf(page, 12_000));
+                }
+            }
+            return new FlowRunResult(true, -1, outcomes, null);
+        });
+    }
+
+    /** 抓当前页面现场（URL/标题/截断 body）。 */
+    public FlowRunResult.Snapshot snapshot(String sessionId, int cap) {
+        return runOnWorker(() -> {
+            BrowserContext ctx = contexts.get(sessionId);
+            if (ctx == null || ctx.pages().isEmpty()) {
+                return new FlowRunResult.Snapshot("?", "", "");
+            }
+            return snapshotOf(ctx.pages().get(0), cap);
+        });
+    }
+
+    private String execOne(Page page, FlowAction a, int to) {
+        switch (a.type()) {
+            case "navigate" -> page.navigate(a.url(), new Page.NavigateOptions()
+                    .setWaitUntil(WaitUntilState.DOMCONTENTLOADED).setTimeout(to));
+            case "fill" -> page.locator(a.selector()).first()
+                    .fill(a.text(), new Locator.FillOptions().setTimeout(to));
+            case "click" -> page.locator(a.selector()).first()
+                    .click(new Locator.ClickOptions().setTimeout(to));
+            case "press" -> {
+                if (a.selector() != null && !a.selector().isBlank()) {
+                    page.locator(a.selector()).first().press(a.key(), new Locator.PressOptions().setTimeout(to));
+                } else {
+                    page.keyboard().press(a.key());
+                }
+            }
+            case "scroll" -> {
+                if (a.selector() != null && !a.selector().isBlank()) {
+                    page.locator(a.selector()).first()
+                            .scrollIntoViewIfNeeded(new Locator.ScrollIntoViewIfNeededOptions().setTimeout(to));
+                } else {
+                    page.mouse().wheel(0, a.dy() == null ? 0 : a.dy());
+                }
+            }
+            case "waitFor" -> page.locator(a.selector()).first()
+                    .waitFor(new Locator.WaitForOptions().setState(WaitForSelectorState.VISIBLE).setTimeout(to));
+            case "assert" -> { return doAssert(page, a, to); }
+            default -> throw new IllegalStateException("未知动作 " + a.type());
+        }
+        return null;
+    }
+
+    private String doAssert(Page page, FlowAction a, int to) {
+        switch (a.assertType()) {
+            case "urlContains" -> {
+                String u = safeUrl(page);
+                if (!u.contains(a.value())) {
+                    throw new RuntimeException("断言失败 urlContains(\"" + a.value() + "\")，当前 " + u);
+                }
+                return "url=" + u;
+            }
+            case "selectorVisible" -> {
+                page.locator(a.selector()).first()
+                        .waitFor(new Locator.WaitForOptions().setState(WaitForSelectorState.VISIBLE).setTimeout(to));
+                return "visible: " + a.selector();
+            }
+            case "textPresent" -> {
+                int c = page.locator("text=" + a.value()).count();
+                if (c <= 0) {
+                    String content = page.content();
+                    if (content == null || !content.contains(a.value())) {
+                        throw new RuntimeException("断言失败 textPresent(\"" + a.value() + "\")");
+                    }
+                }
+                return "text present";
+            }
+            default -> throw new IllegalStateException("未知断言 " + a.assertType());
+        }
+    }
+
+    private FlowRunResult.Snapshot snapshotOf(Page page, int cap) {
+        String html = "";
+        try {
+            Object h = page.evaluate("() => { const b=document.body; if(!b) return '';"
+                    + " const c=b.cloneNode(true);"
+                    + " c.querySelectorAll('script,style,svg,noscript').forEach(n=>n.remove());"
+                    + " return c.innerHTML; }");
+            if (h != null) {
+                html = h.toString().replaceAll("\\s+", " ");
+                if (html.length() > cap) html = html.substring(0, cap);
+            }
+        } catch (Exception ignored) {}
+        return new FlowRunResult.Snapshot(safeUrl(page), safeTitle(page), html);
     }
 
     private BrowserContext requireCtx(String sessionId) {
