@@ -20,7 +20,38 @@ const sessions = new Map();
 const opening = new Set(); // 防同一 session 并发 open
 
 function profileDir(id) { return path.join(DATA_DIR, id, 'patchright-profile'); }
+function statePath(id) { return path.join(DATA_DIR, id, 'storage-state.json'); }
 function log(...a) { console.log('[undetected-browser]', ...a); }
+
+/**
+ * 首次建 profile 时把 storage-state.json 一次性导入，省掉用户重新登录。
+ * persistentContext 的登录态本来靠 profile 目录持久，但全新 profile 是空的；老 Java 引擎
+ * 或上次 /save 导出的 storage-state.json 里有 cookies/localStorage，这里灌进去做迁移。
+ * 仅在 freshProfile（profile 目录此前不存在）时调用，之后 profile 自持久，绝不重复覆盖。
+ */
+async function importStorageState(id, context) {
+  const file = statePath(id);
+  if (!fs.existsSync(file)) { log(`首次建 profile，无 storage-state.json 可导入 session=${id}`); return; }
+  let state;
+  try { state = JSON.parse(fs.readFileSync(file, 'utf8')); }
+  catch (e) { log(`storage-state.json 解析失败 session=${id}: ${e.message}`); return; }
+  const cookies = Array.isArray(state.cookies) ? state.cookies : [];
+  if (cookies.length) {
+    try { await context.addCookies(cookies); log(`导入 cookies session=${id} count=${cookies.length}`); }
+    catch (e) { log(`addCookies 失败 session=${id}: ${e.message}`); }
+  }
+  // localStorage 无法对 persistentContext 直接 setStorageState，按 origin 用 initScript 注入。
+  const origins = Array.isArray(state.origins) ? state.origins : [];
+  let injected = 0;
+  for (const o of origins) {
+    if (!o || !o.origin || !Array.isArray(o.localStorage) || !o.localStorage.length) continue;
+    const js = '(function(){try{if(location.origin===' + JSON.stringify(o.origin) + '){'
+      + 'var d=' + JSON.stringify(o.localStorage) + ';'
+      + 'for(var i=0;i<d.length;i++){try{localStorage.setItem(d[i].name,d[i].value);}catch(e){}}}}catch(e){}})();';
+    try { await context.addInitScript(js); injected++; } catch (e) {}
+  }
+  if (injected) log(`注入 localStorage session=${id} origins=${injected}`);
+}
 function activePage(id) {
   const s = sessions.get(id);
   if (!s) throw httpErr(409, 'session not open');
@@ -31,6 +62,7 @@ function activePage(id) {
 
 async function launchPersistent(id, url) {
   const dir = profileDir(id);
+  const freshProfile = !fs.existsSync(dir); // 此前无 profile → 首次，需从 storage-state.json 迁移登录态
   fs.mkdirSync(dir, { recursive: true });
   const base = { headless: HEADLESS, viewport: null }; // patchright 建议：不手动加 stealth 参数
   let context;
@@ -46,6 +78,8 @@ async function launchPersistent(id, url) {
     context = await chromium.launchPersistentContext(dir, base);
     log(`launched session=${id} channel=bundled headless=${HEADLESS}`);
   }
+  // 必须在 goto() 之前导入：addInitScript 在「每次导航」前执行，需赶在首个 goto 前注册才能写入 localStorage。
+  if (freshProfile) await importStorageState(id, context);
   const page = context.pages()[0] || await context.newPage();
   page.on('crash', () => log(`page CRASHED session=${id}`));
   context.on('close', () => { sessions.delete(id); log(`context closed session=${id}`); });
