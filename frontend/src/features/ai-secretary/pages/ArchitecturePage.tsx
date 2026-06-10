@@ -601,6 +601,7 @@ export function ArchitecturePage() {
                 <li>• 端到端：:18099 → AiServices 经 <code>RoutingChatModel</code> → 本地 Qwen，记录态全链路跑通</li>
                 <li>• 类目受控枚举 + 「开销=已花的钱」语义：「要买牛奶」正确归「待办」</li>
                 <li>• 确定性护栏：「明天下午3点」→ <code>2026-06-11T15:00+08:00</code>（带时区）；金额正则兜底抽 <code>38</code></li>
+                <li>• 回忆态 tool-loop（L1~L2）：一问触发 aggregateExpense + listTodos 两步，SSE 逐步推送 + 综合作答</li>
               </ul>
             </CardContent>
           </Card>
@@ -610,8 +611,9 @@ export function ArchitecturePage() {
                 <AlertTriangle className="h-4 w-4" /> 待做（下一轮）
               </div>
               <ul className="space-y-1 text-xs text-[var(--color-muted-foreground)]">
-                <li>• 回忆态（tool-loop）未实现：searchNotes / aggregateExpense / listTodos + LLM 路由 + SSE 可视化</li>
                 <li>• 敏感数据（账号密码类）落库明文，待定加密 / UI 打码策略</li>
+                <li>• 语义模糊回忆（向量检索）：笔记攒多、关键字捞不全时再加 semanticSearch 工具</li>
+                <li>• 回忆态步数/工具调用未做单测；阈值与 maxToolCallingRoundTrips 待压测</li>
               </ul>
             </CardContent>
           </Card>
