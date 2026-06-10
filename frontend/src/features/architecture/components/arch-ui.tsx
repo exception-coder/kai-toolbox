@@ -1,7 +1,7 @@
 // 架构页可复用 UI 组件（提炼自 ai-secretary 架构页的风格）：各模块「实现原理」页共用。
-import type { ComponentType, ReactNode } from 'react'
+import { useState, type ComponentType, type ReactNode } from 'react'
 import type { LucideProps } from 'lucide-react'
-import { ArrowRight, ArrowDown, CheckCircle2, LifeBuoy, XCircle } from 'lucide-react'
+import { ArrowRight, ArrowDown, CheckCircle2, LifeBuoy, XCircle, Copy, Check } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
@@ -160,16 +160,43 @@ export function DecisionCard({ d }: { d: Decision }) {
   )
 }
 
-/** 代码块：标题 + 语言标签 + 等宽可横滚的简化代码。 */
+/** 代码块：标题 + 语言标签 + 一键复制 + 等宽可横滚的简化代码。 */
 export function CodeBlock({ title, lang, code }: { title?: string; lang?: string; code: string }) {
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(code)
+    } catch {
+      // 非安全上下文 / 不支持 clipboard 时的兜底：用临时 textarea + execCommand
+      const ta = document.createElement('textarea')
+      ta.value = code
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      try { document.execCommand('copy') } catch { /* 实在不行就算了 */ }
+      document.body.removeChild(ta)
+    }
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1500)
+  }
   return (
     <div className="overflow-hidden rounded-lg border bg-[var(--color-card)]">
-      {(title || lang) && (
-        <div className="flex items-center justify-between gap-2 border-b bg-[var(--color-muted)]/40 px-3 py-1.5 text-xs">
-          {title && <span className="font-medium">{title}</span>}
-          {lang && <span className="shrink-0 text-[var(--color-muted-foreground)]">{lang}</span>}
+      <div className="flex items-center justify-between gap-2 border-b bg-[var(--color-muted)]/40 px-3 py-1.5 text-xs">
+        <span className="min-w-0 truncate font-medium">{title}</span>
+        <div className="flex shrink-0 items-center gap-2">
+          {lang && <span className="text-[var(--color-muted-foreground)]">{lang}</span>}
+          <button
+            type="button"
+            onClick={copy}
+            title="复制代码"
+            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)]"
+          >
+            {copied ? <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+            {copied ? '已复制' : '复制'}
+          </button>
         </div>
-      )}
+      </div>
       <pre className="overflow-x-auto px-3 py-2.5 font-mono text-[11.5px] leading-relaxed">
         <code>{code}</code>
       </pre>
