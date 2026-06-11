@@ -77,6 +77,7 @@ The Vite alias `@` → `frontend/src` is the canonical import root.
 - **Tools are sandboxed by schema, not by package boundary.** Each tool owns its own SQLite tables; tools don't query each other's tables. Cross-tool needs go through `/api/tools` (future) or shared common services.
 - **Frontend menu must keep working with the backend down.** Don't move feature metadata to the server; keep `FeatureManifest` as the source of truth.
 - **Lucide icons by component reference**, not string name, in `FeatureManifest.icon`. The backend `ToolDescriptor.icon()` returns kebab-case strings, but that path is currently unused by the UI.
+- **弹框/确认/提示一律用公共组件，禁用浏览器原生 `alert` / `confirm` / `prompt`。** 确认类走 `@/components/ui/confirm-dialog` 的 `useConfirm`（`ConfirmProvider` 已在 `main.tsx` 全局挂载），输入类走 `prompt-dialog`。原生对话框样式不统一、阻塞主线程、无法主题化/移动端适配，禁止使用。
 
 ## 提交节奏（用户约定，2026-06-09）
 

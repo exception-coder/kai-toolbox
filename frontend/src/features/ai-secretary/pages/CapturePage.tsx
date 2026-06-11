@@ -31,6 +31,7 @@ import {
 } from '../lib/api'
 import { VoiceRecorder } from '../components/VoiceRecorder'
 import { AttachmentPicker } from '../components/AttachmentPicker'
+import { useConfirm } from '@/components/ui/confirm-dialog'
 
 type ComposerMode = 'text' | 'voice' | 'file'
 
@@ -133,6 +134,7 @@ export function CapturePage() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [banner, setBanner] = useState<{ kind: 'ok' | 'warn' | 'err'; text: string } | null>(null)
+  const confirm = useConfirm()
 
   async function refresh() {
     setLoading(true)
@@ -201,7 +203,13 @@ export function CapturePage() {
   }
 
   async function handleDelete(id: string) {
-    if (!window.confirm('确定删除这条记录？（连带附件，不可恢复）')) return
+    const ok = await confirm({
+      title: '删除记录',
+      description: '确定删除这条记录？连带附件一并删除，不可恢复。',
+      confirmText: '删除',
+      variant: 'destructive',
+    })
+    if (!ok) return
     try {
       await deleteNote(id)
       setNotes(prev => prev.filter(n => n.id !== id))
