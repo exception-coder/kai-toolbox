@@ -381,14 +381,14 @@ export function ArchitecturePage() {
           </Link>
         </div>
         <p className="max-w-3xl text-sm text-[var(--color-muted-foreground)]">
-          一个跑在本地的个人助理 Agent：随手把杂事/笔记丢进去，自动
-          <b className="text-[var(--color-foreground)]">分类 + 抽结构 + 存库</b>（记录态），之后用
+          一个跑在本地的个人助理 Agent：用<b className="text-[var(--color-foreground)]">文字 / 语音 / 附件</b>随手把杂事丢进去，自动
+          <b className="text-[var(--color-foreground)]">分类 + 抽结构 + 存库</b>（记录态，语音先转写成文本再分类），之后用
           <b className="text-[var(--color-foreground)]">自然语言问回来</b>（回忆态）。
           技术栈 LangChain4j + 本地 Ollama/Qwen，作为 kai-toolbox 的一个 tool 模块。
         </p>
         <p className="max-w-3xl text-xs text-[var(--color-muted-foreground)]">
-          注：本仓已有的纯前端 <code className="rounded bg-[var(--color-muted)] px-1">secretary（个人秘书）</code>
-          是 IndexedDB 随手记，无 AI；本 feature 是它的服务端 AI 增强版，架构不同，独立成模块。
+          注：已统一替代原纯前端 <code className="rounded bg-[var(--color-muted)] px-1">secretary（个人秘书）</code>
+          —— 文字 / 语音 / 附件三种录入全部并入本模块，语音自动转写分类、数据落服务端 SQLite（非浏览器 IndexedDB）。个人秘书模块已删除。
         </p>
       </header>
 
@@ -406,7 +406,7 @@ export function ArchitecturePage() {
             <FlowBox
               icon={Server}
               title="API · AssistantController"
-              desc="POST /capture · POST /ask · GET /notes · SSE /stream"
+              desc="POST /capture · /capture/voice(语音) · /capture/upload(附件) · /ask(SSE) · GET /notes"
             />
             <ArrowDown className="mx-auto h-4 w-4 text-[var(--color-muted-foreground)]" />
             <HFlow
