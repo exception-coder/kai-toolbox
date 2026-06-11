@@ -369,6 +369,18 @@ const agentLadder: { level: string; name: string; note: string; here: boolean }[
   { level: 'L4', name: '多 agent 协作', note: '不需要', here: false },
 ]
 
+const ragMaturity: { dim: string; status: '已做' | '够用' | '最简' | '缺'; here: string }[] = [
+  { dim: 'Chunk 切片', status: '最简', here: '一条 note 一个向量；长文档/附件正文未切' },
+  { dim: 'Metadata', status: '缺', here: '仅存 noteId；未用于过滤 / 精排 / 隔离' },
+  { dim: 'Retrieval 找得全', status: '已做', here: 'Hybrid 双路：向量(语义) + 关键字(专有名词)' },
+  { dim: 'Rerank 排得准', status: '已做', here: 'RRF 融合重排（DefaultContentAggregator，无需 rerank 模型）' },
+  { dim: 'Context 上下文', status: '缺', here: '片段直给，不补全局关联（note 短，暂不痛）' },
+  { dim: 'Permission 权限', status: '够用', here: '模块级 admin 鉴权；检索内无行级隔离（单用户）' },
+  { dim: 'Update 增量', status: '已做', here: 'capture upsert + delete 移除 + 启动回填（幂等）' },
+  { dim: 'Security 注入', status: '缺', here: '无专门防护（admin-only + 单用户降风险）' },
+  { dim: 'Evaluation 评测', status: '缺', here: '无评测集，靠人工试（下一个最该补）' },
+]
+
 /* ------------------------------------------------------------------ */
 /* 页面                                                                */
 /* ------------------------------------------------------------------ */
@@ -654,6 +666,53 @@ export function ArchitecturePage() {
           关键：检索是<b className="text-[var(--color-foreground)]">代码无条件执行</b>的（不是模型可选的工具），所以不会“没查就答没有”；
           语义匹配让“我的登录信息”命中“账号密码”。默认 <code>enabled=false</code>、失败软降级；开启需本地 bge-m3 + Qdrant（见{' '}
           <code>tools/tool-ai-secretary/docker-compose.qdrant.yml</code>）。聚合类（上周花多少）仍走 @Tool 工具。
+        </p>
+      </Section>
+
+      {/* 企业级 RAG 九问 */}
+      <Section
+        icon={ShieldCheck}
+        title="企业级 RAG 九问 · 我们的位置"
+        subtitle="“核心不是向量库，而是 切片/召回/重排/上下文/权限/安全/评测 七大工程问题”"
+      >
+        <Card>
+          <CardContent className="overflow-x-auto p-0">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b text-left text-[var(--color-muted-foreground)]">
+                  <th className="px-4 py-3 font-medium">维度</th>
+                  <th className="px-4 py-3 font-medium">状态</th>
+                  <th className="px-4 py-3 font-medium">我们现在</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ragMaturity.map(r => (
+                  <tr key={r.dim} className="border-b align-top last:border-0">
+                    <td className="px-4 py-3 font-medium whitespace-nowrap">{r.dim}</td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={cn(
+                          'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium',
+                          r.status === '已做' && 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+                          (r.status === '够用' || r.status === '最简') &&
+                            'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+                          r.status === '缺' && 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'
+                        )}
+                      >
+                        {r.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-[var(--color-muted-foreground)]">{r.here}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+        <p className="mt-3 text-xs text-[var(--color-muted-foreground)]">
+          一句话：现在是<b className="text-[var(--color-foreground)]">能跑 + 增量同步 + Hybrid/RRF</b> 的 RAG，但
+          <b className="text-[var(--color-foreground)]"> Metadata / Context / Security / Evaluation </b>仍空白——离生产级还差这几格。
+          下一个最该补 <b className="text-[var(--color-foreground)]">Evaluation</b>（建 Q→期望记录 评测集，告别“靠截图试”）。
         </p>
       </Section>
 
