@@ -14,6 +14,7 @@ import {
   Mic,
   Paperclip,
   Type,
+  Trash2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -23,6 +24,7 @@ import {
   captureNote,
   captureUpload,
   captureVoice,
+  deleteNote,
   listNotes,
   type CaptureResponse,
   type NoteView,
@@ -48,7 +50,7 @@ function fmtTime(ms: number): string {
   return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
-function NoteCard({ note }: { note: NoteView }) {
+function NoteCard({ note, onDelete }: { note: NoteView; onDelete: (id: string) => void }) {
   return (
     <Card>
       <CardContent className="space-y-2 p-4">
@@ -64,7 +66,17 @@ function NoteCard({ note }: { note: NoteView }) {
             </span>
             <span className="truncate text-sm font-medium">{note.title}</span>
           </div>
-          <span className="shrink-0 text-xs text-[var(--color-muted-foreground)]">{fmtTime(note.createdAt)}</span>
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="text-xs text-[var(--color-muted-foreground)]">{fmtTime(note.createdAt)}</span>
+            <button
+              type="button"
+              onClick={() => onDelete(note.id)}
+              title="删除"
+              className="text-[var(--color-muted-foreground)] transition-colors hover:text-[var(--color-destructive)]"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
 
         {note.rawText !== note.title && (
@@ -188,6 +200,17 @@ export function CapturePage() {
     }
   }
 
+  async function handleDelete(id: string) {
+    if (!window.confirm('确定删除这条记录？（连带附件，不可恢复）')) return
+    try {
+      await deleteNote(id)
+      setNotes(prev => prev.filter(n => n.id !== id))
+      setBanner({ kind: 'ok', text: '已删除' })
+    } catch (e) {
+      setBanner({ kind: 'err', text: `删除失败：${(e as Error).message}` })
+    }
+  }
+
   function onKeyDown(e: React.KeyboardEvent) {
     // Ctrl/Cmd + Enter 提交
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -306,7 +329,7 @@ export function CapturePage() {
         ) : (
           <div className="space-y-2">
             {notes.map(n => (
-              <NoteCard key={n.id} note={n} />
+              <NoteCard key={n.id} note={n} onDelete={handleDelete} />
             ))}
           </div>
         )}

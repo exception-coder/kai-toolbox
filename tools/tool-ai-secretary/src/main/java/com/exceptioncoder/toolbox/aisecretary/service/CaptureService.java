@@ -87,6 +87,19 @@ public class CaptureService {
         return repo.findRecent(limit).stream().map(this::toView).toList();
     }
 
+    /** 删除一条记录：连带附件文件 + 附件行 + note 行。 */
+    public void deleteNote(String id) {
+        for (com.exceptioncoder.toolbox.aisecretary.domain.Attachment a : attachmentRepo.findByNoteId(id)) {
+            try {
+                java.nio.file.Files.deleteIfExists(java.nio.file.Path.of(a.storedPath()));
+            } catch (Exception ignored) {
+                // 文件删除失败不阻断元数据删除
+            }
+        }
+        attachmentRepo.deleteByNoteId(id);
+        repo.deleteById(id);
+    }
+
     private record StoreResult(List<Note> notes, boolean degraded) {
     }
 

@@ -41,6 +41,11 @@ export function listNotes(limit = 100): Promise<NoteView[]> {
   return http<NoteView[]>(`/ai-secretary/notes?limit=${limit}`)
 }
 
+/** 删除一条记录（连带附件） */
+export function deleteNote(id: string): Promise<void> {
+  return http<void>(`/ai-secretary/notes/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
 /** 语音：上传录音 → 后端转写成文本 → 分类落库（multipart） */
 export async function captureVoice(blob: Blob): Promise<CaptureResponse> {
   const fd = new FormData()

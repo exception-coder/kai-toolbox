@@ -39,4 +39,8 @@ public class AttachmentRepository {
                 "SELECT * FROM ai_secretary_attachment WHERE note_id = ? ORDER BY created_at ASC",
                 ROW, noteId);
     }
+
+    public void deleteByNoteId(String noteId) {
+        jdbc.update("DELETE FROM ai_secretary_attachment WHERE note_id = ?", noteId);
+    }
 }

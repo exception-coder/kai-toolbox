@@ -104,6 +104,10 @@ public class NoteRepository {
                 args.toArray());
     }
 
+    public void deleteById(String id) {
+        jdbc.update("DELETE FROM ai_secretary_note WHERE id = ?", id);
+    }
+
     /** 待办列表：category=TODO，按状态过滤。 */
     public List<Note> findTodos(String status, int limit) {
         String st = StringUtils.hasText(status) ? status.trim() : "open";
