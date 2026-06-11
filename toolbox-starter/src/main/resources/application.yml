@@ -73,6 +73,22 @@ toolbox:
       #   api-key: ${TOOLBOX_LLM_DEEPSEEK_KEY:}
       #   model: deepseek-chat
       #   weight: 2
+  # AI 秘书向量 RAG（语义检索）。默认关闭——开启前置：
+  #   1) ollama pull bge-m3   2) 启动 Qdrant: docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant
+  #   3) 把 enabled 改 true 重启。关闭时整套 RAG 不装配，回忆态退回工具路由。
+  ai-secretary:
+    rag:
+      enabled: false
+      embedding-base-url: http://localhost:11434/v1
+      embedding-api-key: ollama
+      embedding-model: bge-m3
+      vector-size: 1024            # bge-m3 原生维度，换模型须同步改并重建集合
+      qdrant-host: localhost
+      qdrant-port: 6334            # gRPC 端口（REST 是 6333）
+      qdrant-use-tls: false
+      collection: ai_secretary_notes
+      max-results: 5
+      min-score: 0.5
   system:
     # 远程重启端点 token。经公网 tunnel 暴露，留空 = 端点关闭（返回 503）。必须显式配才开放。
     # 用环境变量覆盖：TOOLBOX_SYSTEM_RESTART_TOKEN=随机串

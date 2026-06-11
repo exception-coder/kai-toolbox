@@ -44,13 +44,15 @@ public class CaptureService {
     private final Capturer capturer;
     private final NoteRepository repo;
     private final AttachmentRepository attachmentRepo;
+    private final NoteIndexService noteIndexService;
     private final ObjectMapper objectMapper;
 
-    public CaptureService(Capturer capturer, NoteRepository repo,
-                          AttachmentRepository attachmentRepo, ObjectMapper objectMapper) {
+    public CaptureService(Capturer capturer, NoteRepository repo, AttachmentRepository attachmentRepo,
+                          NoteIndexService noteIndexService, ObjectMapper objectMapper) {
         this.capturer = capturer;
         this.repo = repo;
         this.attachmentRepo = attachmentRepo;
+        this.noteIndexService = noteIndexService;
         this.objectMapper = objectMapper;
     }
 
@@ -98,6 +100,7 @@ public class CaptureService {
         }
         attachmentRepo.deleteByNoteId(id);
         repo.deleteById(id);
+        noteIndexService.remove(id);
     }
 
     private record StoreResult(List<Note> notes, boolean degraded) {
@@ -129,6 +132,8 @@ public class CaptureService {
             degraded = true;
             stored.add(storeFallback(text));
         }
+        // 落库后写入向量索引（RAG 关闭时 no-op、失败软降级）
+        stored.forEach(n -> noteIndexService.index(n.id(), n.rawText()));
         return new StoreResult(stored, degraded);
     }
 
@@ -145,6 +150,7 @@ public class CaptureService {
                 null, null, "[]", 1.0, false, "open",
                 System.currentTimeMillis());
         repo.insert(note);
+        noteIndexService.index(note.id(), note.rawText());
         return note;
     }
 
