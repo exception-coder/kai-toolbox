@@ -1,6 +1,8 @@
-// 简历导出：PNG 走 html-to-image，PDF 走「打印窗口 + 系统另存为 PDF」
-// 这条路径不引入额外依赖，且 PDF 与预览 100% 一致，质量取决于浏览器渲染
+// 简历导出：PNG / PDF 都走「html-to-image 截图 → 设备感知保存（移动端系统分享 / 桌面 a[download]）」
+// PDF 用 jsPDF 在前端直接把截图按 A4 切页打包成真正的 PDF 文件——不开新窗口、不依赖系统打印对话框，
+// 规避移动端弹窗被拦截；位图保真度与原「打印窗口」方案等价（两者都基于同一张截图）。
 import { toPng } from 'html-to-image'
+import { jsPDF } from 'jspdf'
 
 export type SaveResult = 'shared' | 'downloaded' | 'fallback'
 
@@ -31,7 +33,16 @@ export async function captureNode(node: HTMLElement, scale = 2): Promise<string>
  */
 export async function saveImage(dataUrl: string, filename: string): Promise<SaveResult> {
   const blob = await dataUrlToBlob(dataUrl)
+  return saveBlob(blob, filename, 'image/png')
+}
 
+/**
+ * 设备感知地保存任意文件 blob（PNG / PDF 共用）。
+ * - PC：直接 a[download] 触发下载（桌面用户期望「下载到本地」，share 面板无意义）。
+ * - Mobile：优先系统 share sheet（保存到文件 / 相册 / 分享到聊天），不支持退回 a[download]，
+ *   极端兜底 window.open 让用户长按保存。
+ */
+export async function saveBlob(blob: Blob, filename: string, mime: string): Promise<SaveResult> {
   if (!isMobileDevice()) {
     if (supportsAnchorDownload()) {
       triggerAnchorDownload(blob, filename)
@@ -42,7 +53,7 @@ export async function saveImage(dataUrl: string, filename: string): Promise<Save
   }
 
   // 移动端：先尝试系统分享
-  const file = new File([blob], filename, { type: 'image/png' })
+  const file = new File([blob], filename, { type: mime })
   if (canShareFile(file)) {
     try {
       await navigator.share({ files: [file], title: filename })
@@ -93,83 +104,32 @@ export function isMobileDevice(): boolean {
 }
 
 /**
- * 导出为 PDF：截取完整 PNG，按 A4 高度切成 N 页放进打印窗口
+ * 导出为 PDF：截取完整 PNG，用 jsPDF 按 A4 高度切成 N 页打包为真正的 PDF 文件，
+ * 再走与 PNG 相同的设备感知保存（移动端系统分享 / 桌面下载）。
  *
- * 关键点：浏览器无法在单张 <img> 内部分页，所以做法是预先算好页数，
- * 每页用一个固定 A4 高度的 .page 容器，里面同一张 img 用负 top 偏移
- * 展示对应段落，配合 page-break-after 强制分页。
+ * 分页技巧：jsPDF 无法在单张图内部分页，故每页都贴同一张完整截图，但用负 y 偏移
+ * （-i*297mm）把对应段落顶进可视区，页面外部分被 jsPDF 自动裁掉，等价于按页切片。
  */
-export async function exportAsPdf(node: HTMLElement, filename: string): Promise<void> {
+export async function exportAsPdf(node: HTMLElement, filename: string): Promise<SaveResult> {
   const dataUrl = await captureNode(node, 2)
 
   // 加载截图拿到自然尺寸，用于计算需要多少页 A4
   const img = await loadImage(dataUrl)
   const PAGE_W_MM = 210
   const PAGE_H_MM = 297
-  // img 在 .page 内宽度撑满 210mm，按比例算总显示高度
+  // 截图按 210mm 宽撑满，按比例算总显示高度
   const totalHeightMm = (img.naturalHeight / img.naturalWidth) * PAGE_W_MM
   const pageCount = Math.max(1, Math.ceil(totalHeightMm / PAGE_H_MM))
 
-  const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=900,height=1200')
-  if (!printWindow) {
-    throw new Error('浏览器拦截了新窗口，请允许弹窗后重试')
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true })
+  for (let i = 0; i < pageCount; i++) {
+    if (i > 0) doc.addPage()
+    // 同一张图，整体高度 totalHeightMm，按页用负 y 偏移上移，超出页面部分被裁掉
+    doc.addImage(dataUrl, 'PNG', 0, -(i * PAGE_H_MM), PAGE_W_MM, totalHeightMm, undefined, 'FAST')
   }
 
-  const pages = Array.from({ length: pageCount }, (_, i) => `
-    <div class="page">
-      <img class="page-img" src="${dataUrl}" style="top: -${i * PAGE_H_MM}mm;" alt="resume page ${i + 1}" />
-    </div>
-  `).join('')
-
-  const html = `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8" />
-<title>${escapeHtml(filename)}</title>
-<style>
-  @page { size: A4; margin: 0; }
-  html, body { margin: 0; padding: 0; background: #fff; }
-  .page {
-    width: 210mm;
-    height: 297mm;
-    overflow: hidden;
-    position: relative;
-    page-break-after: always;
-    break-after: page;
-  }
-  .page:last-child { page-break-after: auto; break-after: auto; }
-  .page-img {
-    width: 210mm;
-    display: block;
-    position: absolute;
-    left: 0;
-  }
-  @media print {
-    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  }
-</style>
-</head>
-<body>
-${pages}
-<script>
-  const imgs = document.querySelectorAll('img');
-  let loaded = 0;
-  function check() {
-    if (loaded >= imgs.length) {
-      setTimeout(() => { window.focus(); window.print(); }, 120);
-    }
-  }
-  imgs.forEach(im => {
-    if (im.complete) { loaded++; check(); }
-    else { im.addEventListener('load', () => { loaded++; check(); }); }
-  });
-  window.addEventListener('afterprint', () => window.close());
-</script>
-</body>
-</html>`
-  printWindow.document.open()
-  printWindow.document.write(html)
-  printWindow.document.close()
+  const blob = doc.output('blob')
+  return saveBlob(blob, filename, 'application/pdf')
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -234,6 +194,8 @@ function supportsAnchorDownload(): boolean {
   return 'download' in a
 }
 
+// escapeHtml 随打印窗口方案一并移除（PDF 改由 jsPDF 生成，不再拼 HTML 字符串）
+
 function triggerAnchorDownload(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -247,10 +209,3 @@ function triggerAnchorDownload(blob: Blob, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
