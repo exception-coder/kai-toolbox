@@ -39,6 +39,7 @@ const CATEGORY_STYLE: Record<string, string> = {
   EXPENSE: 'bg-rose-500/15 text-rose-700 dark:text-rose-300',
   IDEA: 'bg-violet-500/15 text-violet-700 dark:text-violet-300',
   NOTE: 'bg-slate-500/15 text-slate-700 dark:text-slate-300',
+  CREDENTIAL: 'bg-teal-500/15 text-teal-700 dark:text-teal-300',
   UNCATEGORIZED: 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]',
 }
 

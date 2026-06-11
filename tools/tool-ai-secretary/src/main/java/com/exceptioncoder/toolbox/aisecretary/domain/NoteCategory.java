@@ -13,6 +13,7 @@ public enum NoteCategory {
     EXPENSE("开销"),
     IDEA("想法"),
     NOTE("笔记"),
+    CREDENTIAL("账号密码"),
     UNCATEGORIZED("未分类");
 
     private final String label;
