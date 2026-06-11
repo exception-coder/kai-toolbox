@@ -431,6 +431,7 @@ toolbox:
       - "/api/hosts/**"           # 主机管理
       - "/api/docker/**"          # Docker 治理
       - "/api/webterm/**"         # Web 终端 REST（WS 终端由 AdminHandshakeInterceptor 握手鉴权）
+      - "/api/ai-secretary/**"    # AI 秘书（私人笔记/账号等数据，仅管理员可见）
     # 始终放行的路径（即使命中 protected-patterns）。登录/刷新接口必须放行。
     whitelist:
       - "/api/auth/login"
