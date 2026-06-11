@@ -773,7 +773,7 @@ export function ArchitecturePage() {
                 <AlertTriangle className="h-4 w-4" /> 待做（下一轮）
               </div>
               <ul className="space-y-1 text-xs text-[var(--color-muted-foreground)]">
-                <li>• 敏感数据（账号密码类）落库明文，待定加密 / UI 打码策略</li>
+                <li>• 账号密码明文存储/显示 = 有意取舍（已有登录认证 + admin 软鉴权覆盖，单用户本地），暂不打码/加密</li>
                 <li>• 向量 RAG 已接入（bge-m3 + Qdrant，默认关）：首次启用待运行时验证（beta 库 + 远端 Qdrant + bge-m3）</li>
                 <li>• 回忆态步数/工具调用未做单测；阈值与 maxToolCallingRoundTrips 待压测</li>
               </ul>
