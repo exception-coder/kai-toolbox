@@ -15,3 +15,16 @@ CREATE TABLE IF NOT EXISTS ai_secretary_note (
 
 CREATE INDEX IF NOT EXISTS idx_ai_secretary_note_created  ON ai_secretary_note(created_at);
 CREATE INDEX IF NOT EXISTS idx_ai_secretary_note_category ON ai_secretary_note(category, created_at);
+
+-- 附件：上传的文件落服务端盘，元数据入库并关联 note。
+CREATE TABLE IF NOT EXISTS ai_secretary_attachment (
+    id           TEXT PRIMARY KEY,
+    note_id      TEXT    NOT NULL,
+    file_name    TEXT    NOT NULL,
+    mime_type    TEXT,
+    size_bytes   INTEGER NOT NULL DEFAULT 0,
+    stored_path  TEXT    NOT NULL,           -- 服务端绝对路径
+    created_at   INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_secretary_attachment_note ON ai_secretary_attachment(note_id);

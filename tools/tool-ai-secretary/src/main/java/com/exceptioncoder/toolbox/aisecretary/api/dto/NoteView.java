@@ -17,5 +17,6 @@ public record NoteView(
         double confidence,
         boolean needsReview,
         String status,
-        long createdAt) {
+        long createdAt,
+        List<AttachmentView> attachments) {
 }
