@@ -1,9 +1,10 @@
 package com.exceptioncoder.toolbox.projects.api;
 
-import com.exceptioncoder.toolbox.projects.api.dto.CommitDiff;
-import com.exceptioncoder.toolbox.projects.api.dto.CommitsResponse;
+import com.exceptioncoder.toolbox.common.git.CommitDiff;
+import com.exceptioncoder.toolbox.common.git.CommitsResponse;
+import com.exceptioncoder.toolbox.common.git.GitLogService;
+import com.exceptioncoder.toolbox.common.git.GitProperties;
 import com.exceptioncoder.toolbox.projects.config.ProjectsProperties;
-import com.exceptioncoder.toolbox.projects.service.GitLogService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -28,17 +29,19 @@ import java.nio.file.Path;
 public class ProjectsGitController {
 
     private final ProjectsProperties props;
+    private final GitProperties gitProps;
     private final GitLogService git;
 
-    public ProjectsGitController(ProjectsProperties props, GitLogService git) {
+    public ProjectsGitController(ProjectsProperties props, GitProperties gitProps, GitLogService git) {
         this.props = props;
+        this.gitProps = gitProps;
         this.git = git;
     }
 
     @GetMapping("/commits")
     public CommitsResponse commits(@RequestParam String path, @RequestParam(required = false) Integer limit) {
         Path dir = resolveGitDir(path);
-        int lim = limit != null ? limit : props.getCommitLimitDefault();
+        int lim = limit != null ? limit : gitProps.getCommitLimitDefault();
         return new CommitsResponse(git.listCommits(dir, lim));
     }
 

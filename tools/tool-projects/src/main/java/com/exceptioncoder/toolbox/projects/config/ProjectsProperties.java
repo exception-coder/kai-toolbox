@@ -26,19 +26,4 @@ public class ProjectsProperties {
 
     /** 一级目录名以这些前缀开头时跳过；默认 "."、"_" */
     private List<String> hiddenPrefixes = List.of(".", "_");
-
-    /** git 可执行（默认走 PATH 的 git；本机非 PATH 安装时填绝对路径） */
-    private String gitBinary = "git";
-
-    /** 「提交记录」默认拉取条数 */
-    private int commitLimitDefault = 30;
-
-    /** 「提交记录」单次拉取条数上限 */
-    private int commitLimitMax = 100;
-
-    /** 单条 diff 输出字节上限，超出截断（防大提交撑爆响应） */
-    private int diffMaxBytes = 1024 * 1024;
-
-    /** git 子进程超时（毫秒） */
-    private int gitTimeoutMs = 5000;
 }

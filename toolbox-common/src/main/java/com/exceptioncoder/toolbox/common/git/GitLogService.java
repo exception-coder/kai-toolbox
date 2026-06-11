@@ -1,8 +1,5 @@
-package com.exceptioncoder.toolbox.projects.service;
+package com.exceptioncoder.toolbox.common.git;
 
-import com.exceptioncoder.toolbox.projects.api.dto.CommitDiff;
-import com.exceptioncoder.toolbox.projects.api.dto.CommitInfo;
-import com.exceptioncoder.toolbox.projects.config.ProjectsProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -17,7 +14,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 /**
- * 只读 git 查询：列最近提交（git log）、取单提交 diff（git show）。
+ * 共享只读 git 查询：列最近提交（git log）、取单提交 diff（git show）。供任意工具复用。
  *
  * <p>安全：ProcessBuilder 显式 argv（不走 shell）杜绝命令注入；用 {@code git -C <dir>} 指定工作目录（路径不进
  * 可被解释的参数位）；hash 仍正则兜底。资源：子进程超时 + 输出字节上限（超则截断）。</p>
@@ -33,9 +30,9 @@ public class GitLogService {
     private static final Pattern HASH_RE = Pattern.compile("^[0-9a-fA-F]{7,40}$");
     private static final String PRETTY = "%H%x1f%h%x1f%an%x1f%aI%x1f%s";
 
-    private final ProjectsProperties props;
+    private final GitProperties props;
 
-    public GitLogService(ProjectsProperties props) {
+    public GitLogService(GitProperties props) {
         this.props = props;
     }
 
@@ -43,7 +40,7 @@ public class GitLogService {
     public List<CommitInfo> listCommits(Path dir, int limit) {
         int n = Math.max(1, Math.min(limit, props.getCommitLimitMax()));
         Result r = exec(List.of(
-                props.getGitBinary(), "-c", "core.quotepath=false", "-C", dir.toString(),
+                props.getBinary(), "-c", "core.quotepath=false", "-C", dir.toString(),
                 "log", "-n", String.valueOf(n), "--no-color", "--pretty=format:" + PRETTY));
         List<CommitInfo> out = new ArrayList<>();
         for (String line : r.stdout().split("\n")) {
@@ -61,7 +58,7 @@ public class GitLogService {
             throw new IllegalArgumentException("hash 非法");
         }
         Result r = exec(List.of(
-                props.getGitBinary(), "-c", "core.quotepath=false", "-C", dir.toString(),
+                props.getBinary(), "-c", "core.quotepath=false", "-C", dir.toString(),
                 "show", hash, "--no-color", "--stat", "--patch", "--format=" + PRETTY + "%x1e"));
         String raw = r.stdout();
         int sep = raw.indexOf(RS);
@@ -83,7 +80,7 @@ public class GitLogService {
         try {
             p = new ProcessBuilder(argv).redirectErrorStream(false).start();
         } catch (IOException e) {
-            throw new IllegalStateException("启动 git 失败（确认 git 在 PATH 或配置 toolbox.projects.git-binary）：" + e.getMessage(), e);
+            throw new IllegalStateException("启动 git 失败（确认 git 在 PATH 或配置 toolbox.git.binary）：" + e.getMessage(), e);
         }
         StringBuilder errBuf = new StringBuilder();
         Thread errReader = Thread.startVirtualThread(() -> drain(p.getErrorStream(), errBuf, 64 * 1024));
@@ -91,7 +88,7 @@ public class GitLogService {
         boolean[] truncated = {false};
         Thread outReader = Thread.startVirtualThread(() -> truncated[0] = drainBytes(p.getInputStream(), outBuf, props.getDiffMaxBytes()));
         try {
-            if (!p.waitFor(props.getGitTimeoutMs(), TimeUnit.MILLISECONDS)) {
+            if (!p.waitFor(props.getTimeoutMs(), TimeUnit.MILLISECONDS)) {
                 p.destroyForcibly();
                 throw new IllegalStateException("git 执行超时");
             }

@@ -1,4 +1,4 @@
-package com.exceptioncoder.toolbox.projects.api.dto;
+package com.exceptioncoder.toolbox.common.git;
 
 import java.util.List;
 

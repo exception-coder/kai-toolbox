@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, List, Maximize2, Minimize2, Package, Paperclip, PictureInPicture2, Plus, RotateCw, Send, ShieldCheck, Slash, Square } from 'lucide-react'
+import { Bell, GitCommit, List, Maximize2, Minimize2, Package, Paperclip, PictureInPicture2, Plus, RotateCw, Send, ShieldCheck, Slash, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useChatRuntime } from '../runtime/ChatRuntimeContext'
@@ -17,7 +17,8 @@ import { ModeSwitch } from '../components/ModeSwitch'
 import { SlashCommandMenu } from '../components/SlashCommandMenu'
 import { CommandMenu } from '../components/CommandMenu'
 import { PluginPanel } from '../components/PluginPanel'
-import { listWorkspaces, uploadAttachment, type UploadedAttachment } from '../api'
+import { getSessionCommitDiff, listSessionCommits, listWorkspaces, uploadAttachment, type UploadedAttachment } from '../api'
+import { CommitsPanel } from '@/components/git/CommitsPanel'
 import type { Engine } from '../types'
 import { ensureNotifyPermission } from '../browserNotify'
 
@@ -43,6 +44,7 @@ export function ChatPage() {
   // 与后端独立——后端宕机时本控制口仍在,故能拉起。当前 WS 会断,重启后前端自动重连续上。
   // token 用应用内输入框收，不用 window.prompt：移动端浏览器/WebView 普遍禁用 prompt（静默返回 null），
   // 会导致“点了没反应、不弹输入框”。confirm/alert 同理改为应用内弹层 + 行内状态。
+  const [showCommits, setShowCommits] = useState(false)
   const [restartOpen, setRestartOpen] = useState(false)
   const [restartToken, setRestartToken] = useState('')
   const [restartStatus, setRestartStatus] = useState('')
@@ -224,6 +226,11 @@ export function ChatPage() {
           <Button variant="ghost" size="icon" onClick={() => setPanel(p => p === 'sessions' ? 'none' : 'sessions')} aria-label="会话列表">
             <List className="size-5" />
           </Button>
+          {chat.sessionId && (
+            <Button variant="ghost" size="icon" onClick={() => setShowCommits(true)} aria-label="会话目录提交记录" title="查看当前会话目录(git 仓库)的最近提交与变更差异">
+              <GitCommit className="size-5" />
+            </Button>
+          )}
           <Button variant="ghost" size="icon" onClick={() => setPanel(p => p === 'plugins' ? 'none' : 'plugins')} aria-label="插件版本与更新">
             <Package className="size-5" />
           </Button>
@@ -305,6 +312,16 @@ export function ChatPage() {
         <div className="max-h-[60vh] overflow-y-auto">
           <PluginPanel onClose={() => setPanel('none')} />
         </div>
+      )}
+
+      {/* 会话目录 git 提交记录（复用通用 CommitsPanel，按 sessionId 服务端解析 cwd） */}
+      {showCommits && chat.sessionId && (
+        <CommitsPanel
+          title="会话目录"
+          fetchCommits={() => listSessionCommits(chat.sessionId!, 50).then(r => r.commits)}
+          fetchDiff={hash => getSessionCommitDiff(chat.sessionId!, hash)}
+          onClose={() => setShowCommits(false)}
+        />
       )}
 
       {/* 一键重启：应用内弹层（移动端 window.prompt 不可用，必须用页面内输入框收 token） */}

@@ -1,5 +1,6 @@
 import { http } from '@/lib/api'
-import type { CommitDiff, CommitsResponse, ProjectsListResponse } from './types'
+import type { CommitDiff, CommitsResponse } from '@/components/git/types'
+import type { ProjectsListResponse } from './types'
 
 export function listProjects() {
   return http<ProjectsListResponse>('/projects')

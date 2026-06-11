@@ -1,15 +1,22 @@
 import { useEffect, useState } from 'react'
 import { ArrowLeft, GitCommit, X } from 'lucide-react'
-import { getCommitDiff, listCommits } from '../api'
-import type { CommitDiff, CommitInfo, ProjectInfo } from '../types'
+import type { CommitDiff, CommitInfo } from './types'
 
 interface Props {
-  project: ProjectInfo
+  /** 弹层标题（如项目名 / 会话目录名） */
+  title: string
+  /** 拉取提交列表 */
+  fetchCommits: () => Promise<CommitInfo[]>
+  /** 拉取某提交 diff */
+  fetchDiff: (hash: string) => Promise<CommitDiff>
   onClose: () => void
 }
 
-/** 项目提交记录弹层：列最近提交，点某条看其 diff。覆盖在卡片上，stopPropagation 防触发卡片导航。 */
-export function CommitsPanel({ project, onClose }: Props) {
+/**
+ * 通用 git 提交记录弹层：列最近提交，点某条看其 diff。数据源由 fetchCommits/fetchDiff 注入，
+ * 与具体后端接口解耦，供 projects（按 path）/ claude-chat（按 sessionId）等复用。
+ */
+export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose }: Props) {
   const [commits, setCommits] = useState<CommitInfo[] | null>(null)
   const [listErr, setListErr] = useState<string | null>(null)
   const [diff, setDiff] = useState<CommitDiff | null>(null)
@@ -18,17 +25,19 @@ export function CommitsPanel({ project, onClose }: Props) {
 
   useEffect(() => {
     let alive = true
-    listCommits(project.path, 50)
-      .then(r => { if (alive) setCommits(r.commits) })
+    fetchCommits()
+      .then(c => { if (alive) setCommits(c) })
       .catch(e => { if (alive) setListErr(e instanceof Error ? e.message : String(e)) })
     return () => { alive = false }
-  }, [project.path])
+    // fetchCommits 由调用方按需 memo；此处仅首次加载
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const openDiff = (hash: string) => {
     setDiff(null)
     setDiffErr(null)
     setDiffLoading(true)
-    getCommitDiff(project.path, hash)
+    fetchDiff(hash)
       .then(setDiff)
       .catch(e => setDiffErr(e instanceof Error ? e.message : String(e)))
       .finally(() => setDiffLoading(false))
@@ -53,7 +62,7 @@ export function CommitsPanel({ project, onClose }: Props) {
             </button>
           )}
           <GitCommit className="size-4 text-[var(--color-primary)]" />
-          <span className="truncate text-sm font-semibold">{project.name}</span>
+          <span className="truncate text-sm font-semibold">{title}</span>
           <span className="truncate text-xs text-[var(--color-muted-foreground)]">
             {showingDiff ? '提交差异' : '最近提交'}
           </span>

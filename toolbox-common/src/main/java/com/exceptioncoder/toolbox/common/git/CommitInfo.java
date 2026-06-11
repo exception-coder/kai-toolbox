@@ -1,4 +1,4 @@
-package com.exceptioncoder.toolbox.projects.api.dto;
+package com.exceptioncoder.toolbox.common.git;
 
 /**
  * 单条提交元数据（git log 解析）。

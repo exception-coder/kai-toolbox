@@ -1,5 +1,17 @@
 import { authFetch, http } from '@/lib/api'
+import type { CommitDiff, CommitsResponse } from '@/components/git/types'
 import type { ChatItem, ClaudeChatSessionView, HistorySessionView, NotifyConfig, PluginStatus, WorkspaceList } from './types'
+
+/** 列当前会话工作目录(git 仓库)的最近提交。后端按 sessionId 解析 cwd。 */
+export function listSessionCommits(sessionId: string, limit?: number) {
+  const qs = limit ? `?limit=${limit}` : ''
+  return http<CommitsResponse>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/commits${qs}`)
+}
+
+/** 取会话目录某提交的 diff。 */
+export function getSessionCommitDiff(sessionId: string, hash: string) {
+  return http<CommitDiff>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/commit?hash=${encodeURIComponent(hash)}`)
+}
 
 /** 查 team-standards 在 Claude/Codex 两端的版本。 */
 export function getPluginStatus() {

@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Copy, ExternalLink, FolderOpen, GitBranch, GitCommit } from 'lucide-react'
-import { openInExplorer } from '../api'
+import { getCommitDiff, listCommits, openInExplorer } from '../api'
 import type { ProjectInfo } from '../types'
 import { ProjectTypeBadge } from './ProjectTypeBadge'
-import { CommitsPanel } from './CommitsPanel'
+import { CommitsPanel } from '@/components/git/CommitsPanel'
 
 interface Props {
   project: ProjectInfo
@@ -121,7 +121,12 @@ export function ProjectCard({ project }: Props) {
       </div>
 
       {showCommits && (
-        <CommitsPanel project={project} onClose={() => setShowCommits(false)} />
+        <CommitsPanel
+          title={project.name}
+          fetchCommits={() => listCommits(project.path, 50).then(r => r.commits)}
+          fetchDiff={hash => getCommitDiff(project.path, hash)}
+          onClose={() => setShowCommits(false)}
+        />
       )}
 
       {openMsg && (
