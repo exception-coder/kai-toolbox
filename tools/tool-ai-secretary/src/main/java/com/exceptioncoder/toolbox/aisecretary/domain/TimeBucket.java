@@ -1,5 +1,7 @@
 package com.exceptioncoder.toolbox.aisecretary.domain;
 
+import dev.langchain4j.model.output.structured.Description;
+
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -14,17 +16,18 @@ import java.time.temporal.TemporalAdjusters;
  *
  * <p>作为 {@code @Tool} 方法参数时，LangChain4j 会把可选值写进工具 schema，模型只能从这些值里挑一个。
  */
+@Description("用户时间范围的归类桶：把『最近/前阵子/这几天/上周/这个月』等说法归到最贴近的一项；不限时间用 ALL")
 public enum TimeBucket {
-    TODAY,
-    YESTERDAY,
-    THIS_WEEK,
-    LAST_WEEK,
-    THIS_MONTH,
-    LAST_MONTH,
-    LAST_7_DAYS,
-    LAST_30_DAYS,
-    THIS_YEAR,
-    ALL;
+    @Description("今天") TODAY,
+    @Description("昨天") YESTERDAY,
+    @Description("本周（周一至今）") THIS_WEEK,
+    @Description("上周") LAST_WEEK,
+    @Description("本月/这个月") THIS_MONTH,
+    @Description("上月/上个月") LAST_MONTH,
+    @Description("最近/近来/前阵子/这几天/近7天") LAST_7_DAYS,
+    @Description("最近一个月/近30天") LAST_30_DAYS,
+    @Description("今年") THIS_YEAR,
+    @Description("不限时间/全部") ALL;
 
     public record Range(long fromMs, long toMs) {
     }

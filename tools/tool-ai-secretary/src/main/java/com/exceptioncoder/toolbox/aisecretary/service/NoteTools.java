@@ -31,8 +31,7 @@ public class NoteTools {
 
     @Tool("按关键字、类目、时间范围检索用户记过的笔记/事项。"
             + "keyword 关键字可空；category 取值：待办/日程/开销/想法/笔记/未分类，可空；"
-            + "timeRange 从枚举里选最贴近用户说法的一项（如『最近』→LAST_7_DAYS、『这个月』→THIS_MONTH、"
-            + "『上周』→LAST_WEEK），不限时间用 ALL。返回匹配的记录列表。")
+            + "timeRange 选最贴近用户说法的时间桶，不限时间用 ALL。返回匹配的记录列表。")
     public String searchNotes(String keyword, String category, TimeBucket timeRange) {
         ZoneId zone = ZoneId.systemDefault();
         TimeBucket.Range range = (timeRange == null) ? null : timeRange.toRange(zone);
@@ -52,8 +51,7 @@ public class NoteTools {
     }
 
     @Tool("统计某时间范围内（及可选关键字）的开销总额与笔数。"
-            + "timeRange 从枚举里选最贴近用户说法的一项（如『最近』→LAST_7_DAYS、『这个月』→THIS_MONTH），"
-            + "不限时间用 ALL；keyword 类目关键字如 吃饭，可空。")
+            + "timeRange 选最贴近用户说法的时间桶，不限时间用 ALL；keyword 类目关键字如 吃饭，可空。")
     public String aggregateExpense(TimeBucket timeRange, String keyword) {
         ZoneId zone = ZoneId.systemDefault();
         TimeBucket.Range range = (timeRange == null) ? null : timeRange.toRange(zone);
