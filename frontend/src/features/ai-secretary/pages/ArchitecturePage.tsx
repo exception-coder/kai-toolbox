@@ -24,6 +24,7 @@ import {
   ListTree,
   XCircle,
   LifeBuoy,
+  Scale,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -341,6 +342,22 @@ const toolCallingNotes: { icon: Icon; title: string; detail: string }[] = [
   },
 ]
 
+const deterministicSplit: { task: string; who: string; how: string }[] = [
+  { task: '相对时间 / 时区', who: '代码', how: 'TimeRangeResolver + nowContext 注入；dueTime 落库前 parse 校验' },
+  { task: '金额抽取', who: '代码兜底', how: '正则 extractAmount，LLM 漏抽时补、可交叉校验' },
+  { task: '检索 / 聚合', who: '代码', how: 'searchNotes / aggregateExpense 背后全是确定性 SQL' },
+  { task: '分类 / 意图理解', who: 'LLM', how: '模糊判断；配 confidence + 低置信待复核' },
+  { task: '工具路由（选哪个）', who: 'LLM', how: '读 @Tool description 决策（概率性）' },
+]
+
+const agentLadder: { level: string; name: string; note: string; here: boolean }[] = [
+  { level: 'L0', name: '单次 LLM 调用，无工具', note: '记录态', here: true },
+  { level: 'L1', name: '单步工具路由（意图 → 选 1 个工具 → 答）', note: '回忆态·多数', here: true },
+  { level: 'L2', name: '多步工具循环 ReAct（看结果再决定）', note: '回忆态·复杂', here: true },
+  { level: 'L3', name: '规划 / 反思 / 自主分解', note: 'YAGNI', here: false },
+  { level: 'L4', name: '多 agent 协作', note: '不需要', here: false },
+]
+
 /* ------------------------------------------------------------------ */
 /* 页面                                                                */
 /* ------------------------------------------------------------------ */
@@ -531,6 +548,35 @@ export function ArchitecturePage() {
         </div>
       </Section>
 
+      {/* Agent 能力谱系 */}
+      <Section
+        icon={ListTree}
+        title="Agent 能力谱系 · 本项目定位"
+        subtitle="“更 agent”不等于“更好”——本项目刻意停在 L2，把确定性留给代码"
+      >
+        <Card>
+          <CardContent className="overflow-x-auto p-0">
+            <table className="w-full border-collapse text-sm">
+              <tbody>
+                {agentLadder.map(a => (
+                  <tr key={a.level} className={cn('border-b last:border-0', a.here && 'bg-[var(--color-primary)]/5')}>
+                    <td className="px-4 py-3 font-mono font-medium">{a.level}</td>
+                    <td className="px-4 py-3">{a.name}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-right">
+                      {a.here ? (
+                        <Badge variant="success">{a.note}</Badge>
+                      ) : (
+                        <span className="text-xs text-[var(--color-muted-foreground)]">{a.note}</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      </Section>
+
       {/* 模型网关 / 路由 */}
       <Section
         icon={Network}
@@ -568,6 +614,51 @@ export function ArchitecturePage() {
           ))}
         </div>
         <p className="mt-3 text-xs text-[var(--color-muted-foreground)]">{stackOnly}</p>
+      </Section>
+
+      {/* 确定性优先 */}
+      <Section
+        icon={Scale}
+        title="确定性优先（Deterministic-first，LLM-last）"
+        subtitle="能用代码稳定算/查/校验的就别给 LLM；LLM 只做模糊理解，输出当不可信入参由代码裁决"
+      >
+        <Card>
+          <CardContent className="overflow-x-auto p-0">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b text-left text-[var(--color-muted-foreground)]">
+                  <th className="px-4 py-3 font-medium">任务</th>
+                  <th className="px-4 py-3 font-medium">谁来做</th>
+                  <th className="px-4 py-3 font-medium">怎么做</th>
+                </tr>
+              </thead>
+              <tbody>
+                {deterministicSplit.map(d => (
+                  <tr key={d.task} className="border-b align-top last:border-0">
+                    <td className="px-4 py-3 font-medium whitespace-nowrap">{d.task}</td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={cn(
+                          'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium',
+                          d.who === '代码' && 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+                          d.who === '代码兜底' && 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+                          d.who === 'LLM' && 'bg-[var(--color-primary)]/15 text-[var(--color-primary)]'
+                        )}
+                      >
+                        {d.who}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-[var(--color-muted-foreground)]">{d.how}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+        <p className="mt-3 text-xs text-[var(--color-muted-foreground)]">
+          何时值得加代码护栏：<b className="text-[var(--color-foreground)]">后果大 × LLM 爱错 × 校验便宜</b>{' '}
+          三者相乘——三高才上（时间、金额）；语义判断这类难穷举规则的，留给 LLM。一句话：<b className="text-[var(--color-foreground)]">LLM 提议，代码裁决</b>。
+        </p>
       </Section>
 
       {/* 抗造清单 */}
