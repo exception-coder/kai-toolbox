@@ -11,6 +11,11 @@ interface FloatPos {
   y: number
 }
 
+interface FloatSize {
+  w: number
+  h: number
+}
+
 interface ChatRuntime {
   /** 共享聊天实例；引擎未激活时为 null（仅出现在首次激活前一帧）。 */
   chat: UseClaudeChatSocket | null
@@ -27,6 +32,9 @@ interface ChatRuntime {
   /** 悬浮窗左上角位置（fixed，px）。 */
   pos: FloatPos
   setPos: (p: FloatPos) => void
+  /** 悬浮窗尺寸（px），可拖拽调整，跨路由持久。 */
+  size: FloatSize
+  setSize: (s: FloatSize) => void
 }
 
 const Ctx = createContext<ChatRuntime | null>(null)
@@ -48,6 +56,7 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
   const [floating, setFloating] = useState(false)
   const [minimized, setMinimized] = useState(false)
   const [pos, setPos] = useState<FloatPos>({ x: 12, y: 84 })
+  const [size, setSize] = useState<FloatSize>({ w: 360, h: 520 })
   const activate = useCallback(() => setActive(true), [])
   const location = useLocation()
 
@@ -56,7 +65,7 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
     if (location.pathname === CHAT_ROUTE) setActive(true)
   }, [location.pathname])
 
-  const control = { active, activate, floating, setFloating, minimized, setMinimized, pos, setPos }
+  const control = { active, activate, floating, setFloating, minimized, setMinimized, pos, setPos, size, setSize }
 
   if (!active) {
     return <Ctx.Provider value={{ ...control, chat: null }}>{children}</Ctx.Provider>
