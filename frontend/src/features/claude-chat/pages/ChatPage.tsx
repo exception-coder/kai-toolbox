@@ -17,7 +17,7 @@ import { ModeSwitch } from '../components/ModeSwitch'
 import { SlashCommandMenu } from '../components/SlashCommandMenu'
 import { CommandMenu } from '../components/CommandMenu'
 import { PluginPanel } from '../components/PluginPanel'
-import { getSessionCommitDiff, listSessionCommits, listWorkspaces, uploadAttachment, type UploadedAttachment } from '../api'
+import { getSessionCommitDiff, listSessionCommits, listSessions, listWorkspaces, uploadAttachment, type UploadedAttachment } from '../api'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
 import type { Engine } from '../types'
 import { ensureNotifyPermission } from '../browserNotify'
@@ -133,6 +133,14 @@ export function ChatPage() {
   })
   const wsDirs = workspaces?.roots.flatMap(r => r.dirs) ?? []
 
+  // 顶栏标题显示当前会话别名（与会话列表共用同一 query 缓存）；无别名/无会话时回退 Vibe Coding
+  const { data: sessions = [] } = useQuery({
+    queryKey: ['claude-chat-sessions'],
+    queryFn: listSessions,
+    staleTime: 5000,
+  })
+  const currentTitle = sessions.find(s => s.id === chat?.sessionId)?.title?.trim()
+
   // 引擎激活前一帧 chat 可能为空（懒启动）：占位，下一帧即就绪
   if (!chat) {
     return (
@@ -206,7 +214,7 @@ export function ChatPage() {
       : 'flex h-[calc(100dvh-3.5rem)] flex-col'}>
       {/* 顶栏 */}
       <header className="flex items-center gap-2 border-b px-3 py-2">
-        <span className="font-semibold">Vibe Coding</span>
+        <span className="max-w-[40vw] truncate font-semibold" title={currentTitle || 'Vibe Coding'}>{currentTitle || 'Vibe Coding'}</span>
         <span className={`rounded px-1.5 py-0.5 text-[10px] ${chat.currentEngine === 'codex'
           ? 'bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-200'
           : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'}`}>
