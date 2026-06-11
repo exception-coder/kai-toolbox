@@ -11,12 +11,26 @@ import {
   Network,
   RefreshCw,
   MessageSquareText,
+  Mic,
+  Paperclip,
+  Type,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { cn } from '@/lib/utils'
-import { captureNote, listNotes, type NoteView } from '../lib/api'
+import { cn, formatBytes } from '@/lib/utils'
+import {
+  captureNote,
+  captureUpload,
+  captureVoice,
+  listNotes,
+  type CaptureResponse,
+  type NoteView,
+} from '../lib/api'
+import { VoiceRecorder } from '../components/VoiceRecorder'
+import { AttachmentPicker } from '../components/AttachmentPicker'
+
+type ComposerMode = 'text' | 'voice' | 'file'
 
 /** 类目 → 徽章配色（与架构页的类目体系一致） */
 const CATEGORY_STYLE: Record<string, string> = {
@@ -80,6 +94,20 @@ function NoteCard({ note }: { note: NoteView }) {
             </span>
           )}
         </div>
+
+        {note.attachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 pt-0.5">
+            {note.attachments.map(a => (
+              <span
+                key={a.id}
+                className="inline-flex items-center gap-1 rounded border bg-[var(--color-muted)]/40 px-1.5 py-0.5 text-xs text-[var(--color-muted-foreground)]"
+              >
+                <Paperclip className="h-3 w-3" /> {a.fileName}
+                <span className="opacity-70">{formatBytes(a.sizeBytes)}</span>
+              </span>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   )
@@ -87,6 +115,7 @@ function NoteCard({ note }: { note: NoteView }) {
 
 export function CapturePage() {
   const [text, setText] = useState('')
+  const [composer, setComposer] = useState<ComposerMode>('text')
   const [notes, setNotes] = useState<NoteView[]>([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
@@ -113,21 +142,46 @@ export function CapturePage() {
     return () => clearTimeout(t)
   }, [banner])
 
+  function applyResult(res: CaptureResponse, okMsg: string) {
+    setNotes(prev => [...res.items, ...prev])
+    setBanner(
+      res.degraded
+        ? { kind: 'warn', text: '结构化抽取失败，已降级存为「未分类」（未丢失）' }
+        : { kind: 'ok', text: okMsg.replace('{n}', String(res.items.length)) }
+    )
+  }
+
   async function handleSubmit() {
     const t = text.trim()
     if (!t || submitting) return
     setSubmitting(true)
     try {
-      const res = await captureNote(t)
-      setNotes(prev => [...res.items, ...prev])
+      applyResult(await captureNote(t), '已记下 {n} 条')
       setText('')
-      setBanner(
-        res.degraded
-          ? { kind: 'warn', text: '结构化抽取失败，已降级存为「未分类」笔记（未丢失）' }
-          : { kind: 'ok', text: `已记下 ${res.items.length} 条` }
-      )
     } catch (e) {
       setBanner({ kind: 'err', text: `记录失败：${(e as Error).message}` })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function handleVoice(blob: Blob) {
+    setSubmitting(true)
+    try {
+      applyResult(await captureVoice(blob), '语音已转写并记下 {n} 条')
+    } catch (e) {
+      setBanner({ kind: 'err', text: `语音失败：${(e as Error).message}` })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function handleFiles(files: File[]) {
+    setSubmitting(true)
+    try {
+      applyResult(await captureUpload('', files), '附件已上传，记下 {n} 条')
+    } catch (e) {
+      setBanner({ kind: 'err', text: `上传失败：${(e as Error).message}` })
     } finally {
       setSubmitting(false)
     }
@@ -162,24 +216,58 @@ export function CapturePage() {
         </div>
       </header>
 
-      {/* 输入区 */}
+      {/* 录入区：文字 / 语音 / 附件 */}
       <Card>
-        <CardContent className="space-y-2 p-4">
-          <textarea
-            value={text}
-            onChange={e => setText(e.target.value)}
-            onKeyDown={onKeyDown}
-            rows={3}
-            placeholder="随手记点什么…（如：明天下午3点和王总开会；买牛奶鸡蛋；打车花了38块）"
-            className="w-full resize-none rounded-md border bg-[var(--color-background)] px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--color-ring)]"
-          />
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-[var(--color-muted-foreground)]">Ctrl/⌘ + Enter 快速记录</span>
-            <Button onClick={handleSubmit} disabled={submitting || !text.trim()}>
-              {submitting ? <Loader2 className="animate-spin" /> : <Send />}
-              {submitting ? '整理中…' : '记一笔'}
-            </Button>
+        <CardContent className="space-y-3 p-4">
+          <div className="flex gap-1 rounded-md bg-[var(--color-muted)]/40 p-1 text-xs">
+            {([
+              ['text', '文字', Type],
+              ['voice', '语音', Mic],
+              ['file', '附件', Paperclip],
+            ] as const).map(([k, label, Icon]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setComposer(k)}
+                className={cn(
+                  'inline-flex flex-1 items-center justify-center gap-1 rounded px-2 py-1 transition-colors',
+                  composer === k
+                    ? 'bg-[var(--color-background)] font-medium shadow-sm'
+                    : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]'
+                )}
+              >
+                <Icon className="h-3.5 w-3.5" /> {label}
+              </button>
+            ))}
           </div>
+
+          {composer === 'text' && (
+            <>
+              <textarea
+                value={text}
+                onChange={e => setText(e.target.value)}
+                onKeyDown={onKeyDown}
+                rows={3}
+                placeholder="随手记点什么…（如：明天下午3点和王总开会；买牛奶鸡蛋；打车花了38块）"
+                className="w-full resize-none rounded-md border bg-[var(--color-background)] px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[var(--color-ring)]"
+              />
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-[var(--color-muted-foreground)]">Ctrl/⌘ + Enter 快速记录</span>
+                <Button onClick={handleSubmit} disabled={submitting || !text.trim()}>
+                  {submitting ? <Loader2 className="animate-spin" /> : <Send />}
+                  {submitting ? '整理中…' : '记一笔'}
+                </Button>
+              </div>
+            </>
+          )}
+
+          {composer === 'voice' && (
+            <VoiceRecorder disabled={submitting} onSubmit={blob => handleVoice(blob)} />
+          )}
+
+          {composer === 'file' && (
+            <AttachmentPicker disabled={submitting} onSubmitFiles={handleFiles} />
+          )}
         </CardContent>
       </Card>
 
