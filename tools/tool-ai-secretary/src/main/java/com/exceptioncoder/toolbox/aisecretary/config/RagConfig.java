@@ -3,8 +3,11 @@ package com.exceptioncoder.toolbox.aisecretary.config;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
+import dev.langchain4j.rag.DefaultRetrievalAugmentor;
+import dev.langchain4j.rag.RetrievalAugmentor;
 import dev.langchain4j.rag.content.retriever.ContentRetriever;
 import dev.langchain4j.rag.content.retriever.EmbeddingStoreContentRetriever;
+import dev.langchain4j.rag.query.router.DefaultQueryRouter;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.qdrant.QdrantEmbeddingStore;
 import io.qdrant.client.QdrantClient;
@@ -20,6 +23,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.util.StringUtils;
 
 import com.exceptioncoder.toolbox.aisecretary.repository.NoteRepository;
+import com.exceptioncoder.toolbox.aisecretary.service.KeywordContentRetriever;
 import com.exceptioncoder.toolbox.aisecretary.service.NoteIndexService;
 
 /**
@@ -76,14 +80,22 @@ public class RagConfig {
     }
 
     @Bean
-    public ContentRetriever aiSecretaryContentRetriever(EmbeddingStore<TextSegment> aiSecretaryEmbeddingStore,
-                                                        EmbeddingModel aiSecretaryEmbeddingModel,
-                                                        RagProperties props) {
-        return EmbeddingStoreContentRetriever.builder()
+    public RetrievalAugmentor aiSecretaryRetrievalAugmentor(EmbeddingStore<TextSegment> aiSecretaryEmbeddingStore,
+                                                            EmbeddingModel aiSecretaryEmbeddingModel,
+                                                            NoteRepository noteRepository,
+                                                            RagProperties props) {
+        // 语义路：向量 top-k（擅长"换个说法"的模糊召回）
+        ContentRetriever vector = EmbeddingStoreContentRetriever.builder()
                 .embeddingStore(aiSecretaryEmbeddingStore)
                 .embeddingModel(aiSecretaryEmbeddingModel)
                 .maxResults(props.getMaxResults())
                 .minScore(props.getMinScore())
+                .build();
+        // 精确路：关键字（擅长 Qdrant/admin 等专有名词，向量的弱项）
+        ContentRetriever keyword = new KeywordContentRetriever(noteRepository, props.getMaxResults());
+        // 双路并联 → DefaultContentAggregator 默认做 RRF 融合重排
+        return DefaultRetrievalAugmentor.builder()
+                .queryRouter(new DefaultQueryRouter(vector, keyword))
                 .build();
     }
 

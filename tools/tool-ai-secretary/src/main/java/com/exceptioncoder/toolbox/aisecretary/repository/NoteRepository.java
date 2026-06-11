@@ -108,6 +108,26 @@ public class NoteRepository {
         jdbc.update("DELETE FROM ai_secretary_note WHERE id = ?", id);
     }
 
+    /** Hybrid 检索关键字路：任一 term 命中 title/raw_text 即返回（OR LIKE）。 */
+    public List<Note> searchByTerms(List<String> terms, int limit) {
+        if (terms == null || terms.isEmpty()) {
+            return List.of();
+        }
+        StringBuilder sql = new StringBuilder("SELECT * FROM ai_secretary_note WHERE ");
+        List<Object> args = new ArrayList<>();
+        List<String> clauses = new ArrayList<>();
+        for (String t : terms) {
+            clauses.add("(title LIKE ? OR raw_text LIKE ?)");
+            String like = "%" + t.trim() + "%";
+            args.add(like);
+            args.add(like);
+        }
+        sql.append(String.join(" OR ", clauses));
+        sql.append(" ORDER BY created_at DESC LIMIT ?");
+        args.add(limit);
+        return jdbc.query(sql.toString(), ROW, args.toArray());
+    }
+
     /** 待办列表：category=TODO，按状态过滤。 */
     public List<Note> findTodos(String status, int limit) {
         String st = StringUtils.hasText(status) ? status.trim() : "open";
