@@ -81,7 +81,7 @@ function NoteCard({ note }: { note: NoteView }) {
               <Wallet className="h-3.5 w-3.5" /> ¥{note.amount}
             </span>
           )}
-          {note.tags.length > 0 && (
+          {note.tags && note.tags.length > 0 && (
             <span className="inline-flex items-center gap-1">
               <Tag className="h-3.5 w-3.5" />
               {note.tags.join(' · ')}
@@ -95,7 +95,7 @@ function NoteCard({ note }: { note: NoteView }) {
           )}
         </div>
 
-        {note.attachments.length > 0 && (
+        {note.attachments && note.attachments.length > 0 && (
           <div className="flex flex-wrap gap-1.5 pt-0.5">
             {note.attachments.map(a => (
               <span
