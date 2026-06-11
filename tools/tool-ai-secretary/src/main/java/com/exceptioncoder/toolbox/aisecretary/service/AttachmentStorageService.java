@@ -16,7 +16,8 @@ import java.util.Set;
  * 元数据由 {@link com.exceptioncoder.toolbox.aisecretary.repository.AttachmentRepository} 入库。
  * 参考 claude-chat 的 AttachmentStorageService：sanitize 文件名 + 危险扩展名黑名单。
  */
-@Service
+// 显式 bean 名：与 claude-chat 的同名类默认 bean 名冲突（ConflictingBeanDefinitionException）
+@Service("aiSecretaryAttachmentStorageService")
 public class AttachmentStorageService {
 
     private static final Logger log = LoggerFactory.getLogger(AttachmentStorageService.class);
