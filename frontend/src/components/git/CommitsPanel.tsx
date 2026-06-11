@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
-import { ArrowLeft, GitCommit, X } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { ArrowLeft, ChevronRight, GitCommit, X } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import type { CommitDiff, CommitInfo } from './types'
 
 interface Props {
@@ -107,7 +108,7 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose }: Props)
                   <code className="font-mono">{diff.shortHash}</code> · {diff.author} · {formatDate(diff.date)}
                   {diff.truncated && <span className="ml-2 text-[var(--color-destructive)]">（diff 过大，已截断）</span>}
                 </div>
-                <DiffView text={diff.diff} />
+                <DiffView key={diff.hash} text={diff.diff} />
               </>
             )}
           </div>
@@ -117,15 +118,86 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose }: Props)
   )
 }
 
-/** unified diff 按行首字符着色。 */
+interface FileDiff {
+  path: string
+  body: string
+  additions: number
+  deletions: number
+}
+
+/** 把 git show 的整段 patch 按 `diff --git` 边界拆成单文件块，并统计每文件 +/- 行数。 */
+function parseFiles(text: string): FileDiff[] {
+  const start = text.startsWith('diff --git ')
+    ? 0
+    : (text.indexOf('\ndiff --git ') >= 0 ? text.indexOf('\ndiff --git ') + 1 : -1)
+  if (start < 0) return []
+  const patch = text.slice(start)
+  const blocks = patch.split(/\n(?=diff --git )/)
+  return blocks.map(block => {
+    const first = block.slice(0, block.indexOf('\n') >= 0 ? block.indexOf('\n') : block.length)
+    const m = first.match(/^diff --git a\/(.+) b\/(.+)$/)
+    const path = m ? m[2] : first.replace(/^diff --git\s*/, '')
+    let additions = 0
+    let deletions = 0
+    for (const l of block.split('\n')) {
+      if (l.startsWith('+') && !l.startsWith('+++')) additions++
+      else if (l.startsWith('-') && !l.startsWith('---')) deletions++
+    }
+    return { path, body: block, additions, deletions }
+  })
+}
+
+/** 按文件折叠展示 diff：列出改动文件（带 +/- 计数），点击展开该文件的着色 diff。 */
 function DiffView({ text }: { text: string }) {
-  const lines = text.split('\n')
+  const files = useMemo(() => parseFiles(text), [text])
+  // 默认展开第一个文件；其余折叠，避免一屏堆成一长条
+  const [open, setOpen] = useState<Set<number>>(() => new Set(files.length > 0 ? [0] : []))
+
+  if (files.length === 0) {
+    // 解析不出文件（空 diff / 合并提交等）→ 退化为整体着色
+    return (
+      <pre className="flex-1 overflow-auto bg-[var(--color-muted)]/30 p-3 text-[11px] leading-relaxed">
+        {text.split('\n').map((line, i) => (
+          <div key={i} className={lineClass(line)}>{line || ' '}</div>
+        ))}
+      </pre>
+    )
+  }
+
+  const toggle = (i: number) => setOpen(prev => {
+    const next = new Set(prev)
+    if (next.has(i)) next.delete(i)
+    else next.add(i)
+    return next
+  })
+
   return (
-    <pre className="flex-1 overflow-auto bg-[var(--color-muted)]/30 p-3 text-[11px] leading-relaxed">
-      {lines.map((line, i) => (
-        <div key={i} className={lineClass(line)}>{line || ' '}</div>
+    <div className="flex-1 overflow-auto">
+      <div className="px-3 py-1.5 text-[11px] text-[var(--color-muted-foreground)]">{files.length} 个文件改动</div>
+      {files.map((f, i) => (
+        <div key={i} className="border-t">
+          <button
+            type="button"
+            onClick={() => toggle(i)}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--color-muted)]"
+          >
+            <ChevronRight className={cn('size-3.5 shrink-0 transition-transform', open.has(i) && 'rotate-90')} />
+            <span className="truncate font-mono text-xs">{f.path}</span>
+            <span className="ml-auto shrink-0 space-x-1 text-[11px] font-mono">
+              {f.additions > 0 && <span className="text-emerald-700 dark:text-emerald-400">+{f.additions}</span>}
+              {f.deletions > 0 && <span className="text-red-700 dark:text-red-400">-{f.deletions}</span>}
+            </span>
+          </button>
+          {open.has(i) && (
+            <pre className="overflow-auto bg-[var(--color-muted)]/30 px-3 py-2 text-[11px] leading-relaxed">
+              {f.body.split('\n').map((line, j) => (
+                <div key={j} className={lineClass(line)}>{line || ' '}</div>
+              ))}
+            </pre>
+          )}
+        </div>
       ))}
-    </pre>
+    </div>
   )
 }
 
