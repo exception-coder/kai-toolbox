@@ -290,7 +290,18 @@ const decisions: Decision[] = [
     },
     rejected: [
       { name: 'PostgreSQL / MySQL', reason: '单用户本地场景，外置 DB 属过度基础设施（架构文档明确排除）' },
-      { name: '向量库 / RAG', reason: '当前按结构化字段查询即可，暂不需要语义检索；留扩展位' },
+    ],
+  },
+  {
+    topic: '语义检索 / RAG',
+    chosen: {
+      name: 'bge-m3 嵌入 + Qdrant（langchain4j-qdrant）',
+      reason: '生产级语义召回（"我的登录信息"能命中"账号密码"）；回忆态由代码无条件检索注入，根治小模型"没查就说没有"',
+    },
+    fallback: { name: 'tool-loop（searchNotes 等工具）', reason: 'RAG 关闭时回忆态退回工具路由' },
+    rejected: [
+      { name: 'pgvector / Milvus', reason: '要额外立 Postgres / 重型服务；Qdrant 单容器更轻' },
+      { name: '关键字 LIKE 搜', reason: '换个说法就召不回（≈老模糊搜），非语义' },
     ],
   },
 ]
@@ -602,6 +613,50 @@ export function ArchitecturePage() {
         </Card>
       </Section>
 
+      {/* 向量 RAG */}
+      <Section
+        icon={Database}
+        title="向量 RAG · 语义检索（默认关，可开）"
+        subtitle="回忆态由代码无条件语义检索注入——根治“没查就说没有”，且换说法也能召回"
+      >
+        <div className="grid items-start gap-4 lg:grid-cols-2">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">记录 → 索引</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <HFlow
+                steps={[
+                  { title: 'note 落库' },
+                  { icon: Cpu, title: 'bge-m3 嵌入', tone: 'muted' },
+                  { icon: Database, title: 'Qdrant upsert(noteId)', tone: 'accent' },
+                ]}
+              />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">提问 → 检索作答</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <HFlow
+                steps={[
+                  { title: '提问' },
+                  { icon: Cpu, title: 'bge-m3 嵌入问句', tone: 'muted' },
+                  { icon: Database, title: 'Qdrant top-k', tone: 'primary' },
+                  { title: '注入 prompt → 作答', tone: 'accent' },
+                ]}
+              />
+            </CardContent>
+          </Card>
+        </div>
+        <p className="mt-3 text-xs text-[var(--color-muted-foreground)]">
+          关键：检索是<b className="text-[var(--color-foreground)]">代码无条件执行</b>的（不是模型可选的工具），所以不会“没查就答没有”；
+          语义匹配让“我的登录信息”命中“账号密码”。默认 <code>enabled=false</code>、失败软降级；开启需本地 bge-m3 + Qdrant（见{' '}
+          <code>tools/tool-ai-secretary/docker-compose.qdrant.yml</code>）。聚合类（上周花多少）仍走 @Tool 工具。
+        </p>
+      </Section>
+
       {/* 中间件选型 */}
       <Section
         icon={Boxes}
@@ -719,7 +774,7 @@ export function ArchitecturePage() {
               </div>
               <ul className="space-y-1 text-xs text-[var(--color-muted-foreground)]">
                 <li>• 敏感数据（账号密码类）落库明文，待定加密 / UI 打码策略</li>
-                <li>• 语义模糊回忆（向量检索）：笔记攒多、关键字捞不全时再加 semanticSearch 工具</li>
+                <li>• 向量 RAG 已接入（bge-m3 + Qdrant，默认关）：首次启用待运行时验证（beta 库 + 远端 Qdrant + bge-m3）</li>
                 <li>• 回忆态步数/工具调用未做单测；阈值与 maxToolCallingRoundTrips 待压测</li>
               </ul>
             </CardContent>
