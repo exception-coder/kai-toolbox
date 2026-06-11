@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.aisecretary.service;
 import com.exceptioncoder.toolbox.aisecretary.domain.ExpenseSummary;
 import com.exceptioncoder.toolbox.aisecretary.domain.Note;
 import com.exceptioncoder.toolbox.aisecretary.domain.NoteCategory;
+import com.exceptioncoder.toolbox.aisecretary.domain.TimeBucket;
 import com.exceptioncoder.toolbox.aisecretary.repository.NoteRepository;
 import dev.langchain4j.agent.tool.Tool;
 import org.springframework.stereotype.Service;
@@ -30,10 +31,11 @@ public class NoteTools {
 
     @Tool("按关键字、类目、时间范围检索用户记过的笔记/事项。"
             + "keyword 关键字可空；category 取值：待办/日程/开销/想法/笔记/未分类，可空；"
-            + "timeRange 时间范围如 今天/本周/上周/本月/今年，可空。返回匹配的记录列表。")
-    public String searchNotes(String keyword, String category, String timeRange) {
+            + "timeRange 从枚举里选最贴近用户说法的一项（如『最近』→LAST_7_DAYS、『这个月』→THIS_MONTH、"
+            + "『上周』→LAST_WEEK），不限时间用 ALL。返回匹配的记录列表。")
+    public String searchNotes(String keyword, String category, TimeBucket timeRange) {
         ZoneId zone = ZoneId.systemDefault();
-        TimeRangeResolver.Range range = TimeRangeResolver.resolve(timeRange, zone);
+        TimeBucket.Range range = (timeRange == null) ? null : timeRange.toRange(zone);
         String categoryName = StringUtils.hasText(category)
                 ? NoteCategory.fromLabel(category).name()
                 : null;
@@ -50,10 +52,11 @@ public class NoteTools {
     }
 
     @Tool("统计某时间范围内（及可选关键字）的开销总额与笔数。"
-            + "timeRange 如 上周/本月/今年，可空；keyword 类目关键字如 吃饭，可空。")
-    public String aggregateExpense(String timeRange, String keyword) {
+            + "timeRange 从枚举里选最贴近用户说法的一项（如『最近』→LAST_7_DAYS、『这个月』→THIS_MONTH），"
+            + "不限时间用 ALL；keyword 类目关键字如 吃饭，可空。")
+    public String aggregateExpense(TimeBucket timeRange, String keyword) {
         ZoneId zone = ZoneId.systemDefault();
-        TimeRangeResolver.Range range = TimeRangeResolver.resolve(timeRange, zone);
+        TimeBucket.Range range = (timeRange == null) ? null : timeRange.toRange(zone);
         ExpenseSummary summary = repo.sumExpense(
                 emptyToNull(keyword),
                 range == null ? null : range.fromMs(),
@@ -89,7 +92,7 @@ public class NoteTools {
         return StringUtils.hasText(s) ? s.trim() : null;
     }
 
-    private static String argDesc(String keyword, String category, String timeRange) {
+    private static String argDesc(String keyword, String category, TimeBucket timeRange) {
         List<String> parts = new ArrayList<>();
         if (StringUtils.hasText(keyword)) {
             parts.add("keyword=" + keyword);
@@ -97,7 +100,7 @@ public class NoteTools {
         if (StringUtils.hasText(category)) {
             parts.add("category=" + category);
         }
-        if (StringUtils.hasText(timeRange)) {
+        if (timeRange != null) {
             parts.add("timeRange=" + timeRange);
         }
         return String.join(", ", parts);

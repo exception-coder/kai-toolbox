@@ -19,8 +19,8 @@ public interface RecallAssistant {
             - 统计花了多少钱 / 开销总额 → aggregateExpense
             - 待办 / 还没做的事 → listTodos
 
-            时间范围（今天 / 本周 / 上周 / 本月 / 今年 等）原样作为字符串参数传给工具，工具会自行解析；
-            类目用中文（待办 / 日程 / 开销 / 想法 / 笔记）。
+            时间范围参数从给定枚举里选最贴近用户说法的一项（如『最近』→LAST_7_DAYS、『这个月』→THIS_MONTH、
+            『上周』→LAST_WEEK），不限时间用 ALL；类目用中文（待办 / 日程 / 开销 / 想法 / 笔记）。
             只依据工具返回的数据回答，不要编造；查不到就如实说没有相关记录。回答简洁。
             """)
     String ask(@V("now") String now, @UserMessage String question);
