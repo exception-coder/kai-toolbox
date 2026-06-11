@@ -86,6 +86,8 @@ toolbox:
       qdrant-host: localhost
       qdrant-port: 6334            # gRPC 端口（REST 是 6333）
       qdrant-use-tls: false
+      # Qdrant 开了 API Key 认证就填（须与 docker 的 QDRANT__SERVICE__API_KEY 一致）；留空=不认证
+      qdrant-api-key: ${TOOLBOX_AI_SECRETARY_QDRANT_API_KEY:}
       collection: ai_secretary_notes
       max-results: 5
       min-score: 0.5

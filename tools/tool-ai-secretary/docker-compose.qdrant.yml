@@ -1,0 +1,39 @@
+# AI 秘书向量 RAG 所需的 Qdrant。启用 RAG 前：docker compose -f docker-compose.qdrant.yml up -d
+#
+# API Key 必须与应用一致：
+#   - 这里：QDRANT__SERVICE__API_KEY（默认值见下，建议用 QDRANT_API_KEY 环境变量覆盖）
+#   - 应用：toolbox.ai-secretary.rag.qdrant-api-key（或环境变量 TOOLBOX_AI_SECRETARY_QDRANT_API_KEY）
+#   两者填同一个 key。应用走 gRPC（6334）。
+version: '3.8'
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: llm-qdrant
+    ports:
+      - "6333:6333"  # HTTP API + Web UI
+      - "6334:6334"  # gRPC API（应用使用）
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    environment:
+      - QDRANT__LOG_LEVEL=INFO
+      # 启用 API Key 认证（预生产环境）
+      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY:-K7mN9pQ2rT5vX8zA3bC6dE9fH2jK5mN8pQ3rT6vX9zA2}
+      - QDRANT__SERVICE__ENABLE_TLS=false
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - llm-network
+
+volumes:
+  qdrant_storage:
+    driver: local
+
+networks:
+  llm-network:
+    driver: bridge

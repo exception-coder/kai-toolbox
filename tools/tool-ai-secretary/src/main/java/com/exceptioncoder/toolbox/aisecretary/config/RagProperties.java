@@ -24,6 +24,8 @@ public class RagProperties {
     private String qdrantHost = "localhost";
     private int qdrantPort = 6334;
     private boolean qdrantUseTls = false;
+    /** Qdrant 开启 API Key 认证时填；须与 Qdrant 的 SERVICE__API_KEY 一致。留空=不认证。 */
+    private String qdrantApiKey = "";
     private String collection = "ai_secretary_notes";
 
     /** 检索 top-k 与最低相似度阈值。 */

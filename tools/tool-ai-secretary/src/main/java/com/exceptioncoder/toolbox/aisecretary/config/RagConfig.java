@@ -17,6 +17,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.util.StringUtils;
 
 import com.exceptioncoder.toolbox.aisecretary.repository.NoteRepository;
 import com.exceptioncoder.toolbox.aisecretary.service.NoteIndexService;
@@ -43,9 +44,12 @@ public class RagConfig {
 
     @Bean
     public QdrantClient aiSecretaryQdrantClient(RagProperties props) {
-        QdrantClient client = new QdrantClient(
-                QdrantGrpcClient.newBuilder(props.getQdrantHost(), props.getQdrantPort(), props.isQdrantUseTls())
-                        .build());
+        QdrantGrpcClient.Builder grpc = QdrantGrpcClient.newBuilder(
+                props.getQdrantHost(), props.getQdrantPort(), props.isQdrantUseTls());
+        if (StringUtils.hasText(props.getQdrantApiKey())) {
+            grpc = grpc.withApiKey(props.getQdrantApiKey());
+        }
+        QdrantClient client = new QdrantClient(grpc.build());
         // 集合不存在则按向量维度 + 余弦距离创建；已存在会抛异常，吞掉即可
         try {
             client.createCollectionAsync(
