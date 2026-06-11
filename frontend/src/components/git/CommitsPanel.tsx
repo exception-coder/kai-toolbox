@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, ChevronRight, GitCommit, X } from 'lucide-react'
+import { ArrowLeft, ChevronRight, FileText, Folder, GitCommit, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { CommitDiff, CommitInfo } from './types'
 
@@ -147,11 +147,64 @@ function parseFiles(text: string): FileDiff[] {
   })
 }
 
-/** 按文件折叠展示 diff：列出改动文件（带 +/- 计数），点击展开该文件的着色 diff。 */
+// ---- 目录树 ----
+type TreeNode =
+  | { kind: 'dir'; name: string; path: string; children: TreeNode[]; fileCount: number }
+  | { kind: 'file'; name: string; path: string; file: FileDiff }
+
+interface RawDir { dirs: Map<string, RawDir>; files: { name: string; file: FileDiff }[] }
+
+/** 由文件列表构建目录树，并压缩「单子目录链」为一段路径（IDE compact 风格）。 */
+function buildTree(files: FileDiff[]): TreeNode[] {
+  const root: RawDir = { dirs: new Map(), files: [] }
+  for (const f of files) {
+    const parts = f.path.split('/')
+    const fileName = parts.pop() ?? f.path
+    let node = root
+    for (const p of parts) {
+      let next = node.dirs.get(p)
+      if (!next) { next = { dirs: new Map(), files: [] }; node.dirs.set(p, next) }
+      node = next
+    }
+    node.files.push({ name: fileName, file: f })
+  }
+  const countFiles = (nodes: TreeNode[]): number =>
+    nodes.reduce((s, n) => s + (n.kind === 'file' ? 1 : n.fileCount), 0)
+  const convert = (dirs: Map<string, RawDir>, fileList: RawDir['files'], prefix: string): TreeNode[] => {
+    const out: TreeNode[] = []
+    for (const [name, child] of [...dirs.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+      let dirName = name
+      let cur = child
+      let path = prefix ? `${prefix}/${name}` : name
+      // 压缩单子目录链：只有一个子目录且无文件时合并显示
+      while (cur.dirs.size === 1 && cur.files.length === 0) {
+        const [onlyName, onlyChild] = [...cur.dirs.entries()][0]
+        dirName = `${dirName}/${onlyName}`
+        path = `${path}/${onlyName}`
+        cur = onlyChild
+      }
+      const children = convert(cur.dirs, cur.files, path)
+      out.push({ kind: 'dir', name: dirName, path, children, fileCount: countFiles(children) })
+    }
+    for (const ff of [...fileList].sort((a, b) => a.name.localeCompare(b.name))) {
+      out.push({ kind: 'file', name: ff.name, path: prefix ? `${prefix}/${ff.name}` : ff.name, file: ff.file })
+    }
+    return out
+  }
+  return convert(root.dirs, root.files, '')
+}
+
+function allDirPaths(nodes: TreeNode[], acc: string[] = []): string[] {
+  for (const n of nodes) if (n.kind === 'dir') { acc.push(n.path); allDirPaths(n.children, acc) }
+  return acc
+}
+
+/** 按目录树展示 diff：文件夹可折叠（带文件数），点文件叶子展开其着色 diff。 */
 function DiffView({ text }: { text: string }) {
   const files = useMemo(() => parseFiles(text), [text])
-  // 默认展开第一个文件；其余折叠，避免一屏堆成一长条
-  const [open, setOpen] = useState<Set<number>>(() => new Set(files.length > 0 ? [0] : []))
+  const tree = useMemo(() => buildTree(files), [files])
+  const [openDirs, setOpenDirs] = useState<Set<string>>(() => new Set(allDirPaths(tree)))
+  const [openFile, setOpenFile] = useState<string | null>(null)
 
   if (files.length === 0) {
     // 解析不出文件（空 diff / 合并提交等）→ 退化为整体着色
@@ -164,40 +217,73 @@ function DiffView({ text }: { text: string }) {
     )
   }
 
-  const toggle = (i: number) => setOpen(prev => {
-    const next = new Set(prev)
-    if (next.has(i)) next.delete(i)
-    else next.add(i)
-    return next
+  const toggleDir = (p: string) => setOpenDirs(prev => {
+    const n = new Set(prev)
+    if (n.has(p)) n.delete(p)
+    else n.add(p)
+    return n
   })
+  const toggleFile = (p: string) => setOpenFile(cur => (cur === p ? null : p))
 
   return (
-    <div className="flex-1 overflow-auto">
-      <div className="px-3 py-1.5 text-[11px] text-[var(--color-muted-foreground)]">{files.length} 个文件改动</div>
-      {files.map((f, i) => (
-        <div key={i} className="border-t">
+    <div className="flex-1 overflow-auto py-1">
+      <TreeNodes nodes={tree} depth={0} openDirs={openDirs} openFile={openFile} onToggleDir={toggleDir} onToggleFile={toggleFile} />
+    </div>
+  )
+}
+
+function TreeNodes({ nodes, depth, openDirs, openFile, onToggleDir, onToggleFile }: {
+  nodes: TreeNode[]
+  depth: number
+  openDirs: Set<string>
+  openFile: string | null
+  onToggleDir: (p: string) => void
+  onToggleFile: (p: string) => void
+}) {
+  return (
+    <>
+      {nodes.map(n => n.kind === 'dir' ? (
+        <div key={n.path}>
           <button
             type="button"
-            onClick={() => toggle(i)}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--color-muted)]"
+            onClick={() => onToggleDir(n.path)}
+            style={{ paddingLeft: depth * 14 + 8 }}
+            className="flex w-full items-center gap-1.5 py-1 pr-3 text-left hover:bg-[var(--color-muted)]"
           >
-            <ChevronRight className={cn('size-3.5 shrink-0 transition-transform', open.has(i) && 'rotate-90')} />
-            <span className="truncate font-mono text-xs">{f.path}</span>
-            <span className="ml-auto shrink-0 space-x-1 text-[11px] font-mono">
-              {f.additions > 0 && <span className="text-emerald-700 dark:text-emerald-400">+{f.additions}</span>}
-              {f.deletions > 0 && <span className="text-red-700 dark:text-red-400">-{f.deletions}</span>}
+            <ChevronRight className={cn('size-3.5 shrink-0 text-[var(--color-muted-foreground)] transition-transform', openDirs.has(n.path) && 'rotate-90')} />
+            <Folder className="size-3.5 shrink-0 text-[var(--color-muted-foreground)]" />
+            <span className="truncate text-xs">{n.name}</span>
+            <span className="ml-2 shrink-0 text-[11px] text-[var(--color-muted-foreground)]">{n.fileCount} 个文件</span>
+          </button>
+          {openDirs.has(n.path) && (
+            <TreeNodes nodes={n.children} depth={depth + 1} openDirs={openDirs} openFile={openFile} onToggleDir={onToggleDir} onToggleFile={onToggleFile} />
+          )}
+        </div>
+      ) : (
+        <div key={n.path}>
+          <button
+            type="button"
+            onClick={() => onToggleFile(n.path)}
+            style={{ paddingLeft: depth * 14 + 8 }}
+            className={cn('flex w-full items-center gap-1.5 py-1 pr-3 text-left hover:bg-[var(--color-muted)]', openFile === n.path && 'bg-[var(--color-muted)]')}
+          >
+            <FileText className="size-3.5 shrink-0 text-[var(--color-muted-foreground)]" />
+            <span className="truncate font-mono text-xs">{n.name}</span>
+            <span className="ml-auto shrink-0 space-x-1 font-mono text-[11px]">
+              {n.file.additions > 0 && <span className="text-emerald-700 dark:text-emerald-400">+{n.file.additions}</span>}
+              {n.file.deletions > 0 && <span className="text-red-700 dark:text-red-400">-{n.file.deletions}</span>}
             </span>
           </button>
-          {open.has(i) && (
+          {openFile === n.path && (
             <pre className="overflow-auto bg-[var(--color-muted)]/30 px-3 py-2 text-[11px] leading-relaxed">
-              {f.body.split('\n').map((line, j) => (
+              {n.file.body.split('\n').map((line, j) => (
                 <div key={j} className={lineClass(line)}>{line || ' '}</div>
               ))}
             </pre>
           )}
         </div>
       ))}
-    </div>
+    </>
   )
 }
 
