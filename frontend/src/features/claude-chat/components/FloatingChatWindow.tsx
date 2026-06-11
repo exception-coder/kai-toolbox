@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { List, Maximize2, MessageSquare, Minus, Plus, Send, ShieldCheck, X } from 'lucide-react'
+import { List, Maximize2, MessageSquare, Minus, Plus, Send, Shield, ShieldCheck, X } from 'lucide-react'
 import { CHAT_ROUTE, useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { MessageList } from './MessageList'
 import { SessionList } from './SessionList'
@@ -9,7 +9,7 @@ import { PermissionDialog } from './PermissionDialog'
 import { QuestionDialog } from './QuestionDialog'
 import { AttachmentChips } from './AttachmentChips'
 import { listSessions, uploadAttachment, type UploadedAttachment } from '../api'
-import type { Engine } from '../types'
+import type { Engine, PermissionMode } from '../types'
 
 const MAX_ATTACHMENTS = 10
 const MIN_MARGIN = 8
@@ -18,6 +18,15 @@ const MIN_H = 320
 const BUBBLE = 48
 const AUTO_APPROVE_KEY = 'kai-toolbox:auto-approve-permission'
 type FloatAttachment = UploadedAttachment & { previewUrl?: string }
+
+/** 权限模式循环顺序与中文标签（紧凑切换用，复刻 Shift+Tab 体验）。 */
+const MODE_ORDER: PermissionMode[] = ['default', 'acceptEdits', 'plan', 'bypassPermissions']
+const MODE_LABELS: Record<PermissionMode, string> = {
+  default: '默认',
+  acceptEdits: '自动接受',
+  plan: '计划',
+  bypassPermissions: '全自动',
+}
 
 function engineName(e: Engine): string {
   return e === 'codex' ? 'Codex' : e === 'gemini' ? 'Gemini' : 'Claude'
@@ -71,6 +80,12 @@ export function FloatingChatWindow() {
     localStorage.setItem(AUTO_APPROVE_KEY, nv ? '1' : '0')
     return nv
   })
+
+  // 点击循环切换权限模式（下一轮生效，与全屏 ModeSwitch 同语义）
+  const cycleMode = () => {
+    const i = MODE_ORDER.indexOf(chat.mode)
+    chat.setMode(MODE_ORDER[(i + 1) % MODE_ORDER.length])
+  }
 
   // 权限/提问弹框：悬浮态下也由本组件渲染（ChatPage 已卸载），否则用户无从作答。
   const pending = chat.pending
@@ -251,20 +266,19 @@ export function FloatingChatWindow() {
         </div>
       </header>
 
-      {/* 模型选择 + 弹窗自动允许（会话列表展开时隐藏） */}
-      {!showSessions && (chat.models.length > 0 || chat.mode === 'bypassPermissions') && (
+      {/* 权限模式切换 + 弹窗自动允许（会话列表展开时隐藏） */}
+      {!showSessions && (
         <div className="flex items-center gap-2 border-b px-2 py-1.5">
-          {chat.models.length > 0 && (
-            <select
-              value={chat.currentModel ?? ''}
-              onChange={e => chat.setModel(e.target.value)}
-              className="min-w-0 flex-1 truncate rounded border bg-[var(--color-background)] px-1.5 py-1 text-xs"
-              aria-label="选择模型"
-            >
-              {chat.currentModel == null && <option value="">默认模型</option>}
-              {chat.models.map(m => <option key={m.value} value={m.value}>{m.displayName}</option>)}
-            </select>
-          )}
+          <button
+            type="button"
+            onClick={cycleMode}
+            title="点击切换权限模式：默认 → 自动接受 → 计划 → 全自动（下一轮生效）"
+            className={`flex shrink-0 items-center gap-1 rounded border px-1.5 py-1 text-[11px] ${chat.mode === 'bypassPermissions'
+              ? 'border-red-500 text-red-600 dark:text-red-400'
+              : 'text-[var(--color-muted-foreground)]'}`}
+          >
+            <Shield className="size-3.5" /> 权限：{MODE_LABELS[chat.mode]}
+          </button>
           {chat.mode === 'bypassPermissions' && (
             <button
               type="button"
