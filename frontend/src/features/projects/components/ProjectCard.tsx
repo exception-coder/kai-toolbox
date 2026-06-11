@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Copy, ExternalLink, FolderOpen, GitBranch } from 'lucide-react'
+import { Copy, ExternalLink, FolderOpen, GitBranch, GitCommit } from 'lucide-react'
 import { openInExplorer } from '../api'
 import type { ProjectInfo } from '../types'
 import { ProjectTypeBadge } from './ProjectTypeBadge'
+import { CommitsPanel } from './CommitsPanel'
 
 interface Props {
   project: ProjectInfo
@@ -13,6 +14,7 @@ export function ProjectCard({ project }: Props) {
   const navigate = useNavigate()
   const [copied, setCopied] = useState(false)
   const [openMsg, setOpenMsg] = useState<string | null>(null)
+  const [showCommits, setShowCommits] = useState(false)
 
   const goTerminal = () => {
     const qs = new URLSearchParams({ cwd: project.path, autorun: 'claude' })
@@ -105,7 +107,22 @@ export function ProjectCard({ project }: Props) {
           <FolderOpen className="size-3" />
           文件管理器
         </button>
+        {project.branch && (
+          <button
+            type="button"
+            onClick={e => { stop(e); setShowCommits(true) }}
+            className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] hover:bg-[var(--color-accent)]"
+            title="查看最近提交与变更差异"
+          >
+            <GitCommit className="size-3" />
+            提交记录
+          </button>
+        )}
       </div>
+
+      {showCommits && (
+        <CommitsPanel project={project} onClose={() => setShowCommits(false)} />
+      )}
 
       {openMsg && (
         <div className="absolute inset-x-2 bottom-2 rounded-md bg-[var(--color-destructive)] px-2 py-1 text-[11px] text-[var(--color-destructive-foreground)]">
