@@ -659,6 +659,22 @@ export function ArchitecturePage() {
           何时值得加代码护栏：<b className="text-[var(--color-foreground)]">后果大 × LLM 爱错 × 校验便宜</b>{' '}
           三者相乘——三高才上（时间、金额）；语义判断这类难穷举规则的，留给 LLM。一句话：<b className="text-[var(--color-foreground)]">LLM 提议，代码裁决</b>。
         </p>
+        <Card className="border-[var(--color-primary)]/40 bg-[var(--color-primary)]/5">
+          <CardContent className="space-y-1.5 p-4">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Scale className="h-4 w-4 text-[var(--color-primary)]" /> 推论：枚举「输出」，不穷举「输入」
+            </div>
+            <p className="text-xs text-[var(--color-muted-foreground)]">
+              模糊词 → 结构化值时，定义一个<b className="text-[var(--color-foreground)]">封闭的输出词表（枚举）</b>，
+              让 LLM 把无限说法归到桶里（它的强项、零代码维护），代码只在有限桶上做确定性计算——新说法不必改代码。
+              反例：用 <code>contains</code> 匹配中文说法 = 穷举无限输入 → 打地鼠。
+            </p>
+            <p className="text-xs text-[var(--color-muted-foreground)]">
+              本仓已落地：<code>NoteCategory</code>（类目）、<code>TimeBucket</code>（时间范围，10 个桶）——
+              LangChain4j 把枚举值写进工具 schema，模型只能从中选一个，「最近 / 前阵子」自动归到 <code>LAST_7_DAYS</code>。
+            </p>
+          </CardContent>
+        </Card>
       </Section>
 
       {/* 抗造清单 */}
