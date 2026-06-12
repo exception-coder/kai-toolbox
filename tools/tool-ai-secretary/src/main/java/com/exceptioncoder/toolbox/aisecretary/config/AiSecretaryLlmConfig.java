@@ -37,14 +37,16 @@ public class AiSecretaryLlmConfig {
                                            ObjectProvider<RetrievalAugmentor> retrievalAugmentors) {
         AiServices<RecallAssistant> builder = AiServices.builder(RecallAssistant.class)
                 .chatModel(router.forTier(RECALL_TIER))
-                .tools(noteTools)
                 // 抗造⑤：限制工具循环轮数，防模型抽风死循环
                 .maxToolCallingRoundTrips(6);
-        // RAG 开启时挂上检索增强器（向量 + 关键字双路 → RRF 融合）：每次提问先无条件检索注入上下文，
-        // 不再依赖模型“主动决定”调 searchNotes（根治“没查就说没有 / 换说法召不回”）。
         RetrievalAugmentor augmentor = retrievalAugmentors.getIfAvailable();
         if (augmentor != null) {
+            // RAG 开启：纯检索增强（向量 + 关键字双路 → RRF），**不挂工具**——检索由代码无条件完成，
+            // 模型只据注入的上下文作答。既去掉冗余工具调用，也规避小模型把 <tool_call> 当文本吐出来的泄漏。
             builder = builder.retrievalAugmentor(augmentor);
+        } else {
+            // RAG 关闭：退回 tool-loop，模型主动调 @Tool 查库。
+            builder = builder.tools(noteTools);
         }
         return builder.build();
     }
