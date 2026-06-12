@@ -54,6 +54,21 @@ Write-Host '[run-backend] mvn install（-DskipTests -Dskip.frontend=true）...'
 & $mvn install -DskipTests '-Dskip.frontend=true' -q
 if ($LASTEXITCODE -ne 0) { throw "mvn install 失败 (exit=$LASTEXITCODE)" }
 
-# --- 4. 启动后端 ---
-Write-Host '[run-backend] 启动 toolbox-starter ...'
-& $mvn -pl toolbox-starter spring-boot:run
+# --- 4. 启动后端（带 AI 秘书向量 RAG 参数）---
+# 注意：spring-boot:run 默认 fork 子 JVM，命令行上的 -D 只会落到 Maven 自身 JVM、传不到应用。
+# 必须经 -Dspring-boot.run.jvmArguments 把系统属性转交给被 fork 的应用 JVM。
+# enabled / host / port 非机密，直接写明；API Key 是机密，仅从环境变量读取，绝不入库。
+$ragApiKey = $env:TOOLBOX_AI_SECRETARY_QDRANT_API_KEY
+if ([string]::IsNullOrWhiteSpace($ragApiKey)) {
+  Write-Host '[run-backend] 警告：未设置 $env:TOOLBOX_AI_SECRETARY_QDRANT_API_KEY，RAG 连 Qdrant 会因缺 API Key 认证失败。'
+  Write-Host '[run-backend]   先执行：$env:TOOLBOX_AI_SECRETARY_QDRANT_API_KEY = "你的Qdrant密钥"  再启动本脚本。'
+}
+$ragJvmArgs = @(
+  '-Dtoolbox.ai-secretary.rag.enabled=true',
+  '-Dtoolbox.ai-secretary.rag.qdrant-host=170.106.186.65',
+  '-Dtoolbox.ai-secretary.rag.qdrant-port=6334',
+  "-Dtoolbox.ai-secretary.rag.qdrant-api-key=$ragApiKey"
+) -join ' '
+
+Write-Host '[run-backend] 启动 toolbox-starter（RAG 已启用 → 远端 Qdrant 170.106.186.65:6334）...'
+& $mvn -pl toolbox-starter spring-boot:run "-Dspring-boot.run.jvmArguments=$ragJvmArgs"
