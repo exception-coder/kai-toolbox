@@ -351,6 +351,11 @@ const toolCallingNotes: { icon: Icon; title: string; detail: string }[] = [
     title: '已标准化为 MCP',
     detail: 'tool = 接口契约的跨进程标准；本仓 tool-resume 即一个 MCP server',
   },
+  {
+    icon: ShieldCheck,
+    title: '小模型工具调用不稳 → 怎么提稳',
+    detail: 'auto 下 7B 会把 <tool_call> 漏成正文 / 干脆不调；实测 tool_choice=required 可逼出结构化调用；最稳是少让它调——RAG-first：代码无条件检索、模型只读上下文（本项目采用）',
+  },
 ]
 
 const deterministicSplit: { task: string; who: string; how: string }[] = [
@@ -435,7 +440,7 @@ export function ArchitecturePage() {
             <HFlow
               steps={[
                 { icon: Tag, title: 'CaptureService', desc: '记录态：分类 + 抽字段' },
-                { icon: BrainCircuit, title: 'RecallService', desc: '回忆态：工具编排' },
+                { icon: BrainCircuit, title: 'RecallService', desc: '回忆态：RAG 检索增强（关闭时退工具编排）' },
               ]}
             />
             <ArrowDown className="mx-auto h-4 w-4 text-[var(--color-muted-foreground)]" />
@@ -489,21 +494,23 @@ export function ArchitecturePage() {
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-base">
                 <BrainCircuit className="h-4 w-4 text-[var(--color-primary)]" />
-                回忆态 Recall（Agent Loop）
+                回忆态 Recall
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               <HFlow
                 steps={[
                   { title: '自然语言提问' },
-                  { title: 'Qwen 思考：调哪个工具', tone: 'primary' },
-                  { title: '执行 @Tool（查 SQL）' },
-                  { title: '结果回喂模型' },
-                  { title: '多步循环 → 作答', tone: 'accent' },
+                  { icon: Database, title: '代码检索（向量+关键字）', tone: 'primary' },
+                  { title: '命中记录注入 prompt' },
+                  { title: '模型据上下文作答', tone: 'accent' },
                 ]}
               />
               <p className="text-xs text-[var(--color-muted-foreground)]">
-                ↑ 中间“思考→调工具→回喂”由 LangChain4j 自动循环；每一步经 SSE 实时推到前端，可视化 agent 推理。
+                <b className="text-[var(--color-foreground)]">RAG-first（默认，RAG 开启时）</b>：检索由代码无条件做、
+                <b className="text-[var(--color-foreground)]">不挂工具</b>——把“小模型决定调不调工具”这个最不稳的环节
+                （会漏 {'<tool_call>'} 文本 / 干脆不调）从链路里拿掉。<b className="text-[var(--color-foreground)]">RAG 关闭</b>时才退回
+                tool-loop（模型自动调 @Tool、每步经 SSE 可视化）。
               </p>
             </CardContent>
           </Card>
