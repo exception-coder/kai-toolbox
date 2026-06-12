@@ -22,6 +22,7 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -45,14 +46,17 @@ public class CaptureService {
     private final NoteRepository repo;
     private final AttachmentRepository attachmentRepo;
     private final NoteIndexService noteIndexService;
+    private final RagStatusService ragStatusService;
     private final ObjectMapper objectMapper;
 
     public CaptureService(Capturer capturer, NoteRepository repo, AttachmentRepository attachmentRepo,
-                          NoteIndexService noteIndexService, ObjectMapper objectMapper) {
+                          NoteIndexService noteIndexService, RagStatusService ragStatusService,
+                          ObjectMapper objectMapper) {
         this.capturer = capturer;
         this.repo = repo;
         this.attachmentRepo = attachmentRepo;
         this.noteIndexService = noteIndexService;
+        this.ragStatusService = ragStatusService;
         this.objectMapper = objectMapper;
     }
 
@@ -86,7 +90,16 @@ public class CaptureService {
     }
 
     public List<NoteView> recent(int limit) {
-        return repo.findRecent(limit).stream().map(this::toView).toList();
+        List<Note> notes = repo.findRecent(limit);
+        if (!ragStatusService.isEnabled()) {
+            // RAG 未开 → 同步状态未知，标记给 null
+            return notes.stream().map(n -> toView(n, null)).toList();
+        }
+        // 一次性批量查 Qdrant 真实存在性，避免逐条调用
+        Set<String> indexed = ragStatusService.existingIds(notes.stream().map(Note::id).toList());
+        return notes.stream()
+                .map(n -> toView(n, indexed.contains(n.id().toLowerCase())))
+                .toList();
     }
 
     /** 删除一条记录：连带附件文件 + 附件行 + note 行。 */
@@ -205,7 +218,12 @@ public class CaptureService {
         return note;
     }
 
+    /** 新建场景用：同步标记交给时间轴刷新时再实查，这里给 null。 */
     private NoteView toView(Note n) {
+        return toView(n, null);
+    }
+
+    private NoteView toView(Note n, Boolean vectorIndexed) {
         List<AttachmentView> atts = attachmentRepo.findByNoteId(n.id()).stream()
                 .map(a -> new AttachmentView(a.id(), a.fileName(), a.mimeType(), a.sizeBytes()))
                 .toList();
@@ -222,7 +240,8 @@ public class CaptureService {
                 n.needsReview(),
                 n.status(),
                 n.createdAt(),
-                atts);
+                atts,
+                vectorIndexed);
     }
 
     private String toTagsJson(List<String> tags) {

@@ -1,12 +1,18 @@
 package com.exceptioncoder.toolbox.aisecretary.service;
 
 import com.exceptioncoder.toolbox.aisecretary.config.RagProperties;
+import io.qdrant.client.PointIdFactory;
 import io.qdrant.client.QdrantClient;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * RAG 自检：一眼看清「向量检索到底有没有真正在工作」，终结「RAG 开没开 / 集合有没有数据」的反复猜测。
@@ -24,6 +30,50 @@ public class RagStatusService {
     public RagStatusService(Optional<QdrantClient> client, Optional<RagProperties> props) {
         this.client = client;
         this.props = props;
+    }
+
+    /** RAG 是否装配（启动带了 enabled=true 且 Qdrant client bean 存在）。 */
+    public boolean isEnabled() {
+        return client.isPresent() && props.isPresent();
+    }
+
+    /**
+     * 在给定 noteId 中，<b>实际存在于 Qdrant</b> 的那批（实时查真实存在性，用于时间轴"是否已入向量库"标记）。
+     * RAG 关、入参空或查询出错一律返回空集——绝不阻断时间轴渲染。调用方据 {@link #isEnabled()} 区分"未知"。
+     */
+    public Set<String> existingIds(Collection<String> noteIds) {
+        if (!isEnabled() || noteIds == null || noteIds.isEmpty()) {
+            return Set.of();
+        }
+        try {
+            // 用 var 让编译器从 PointIdFactory.id(...) 的返回类型自行推断 List<Points.PointId>，
+            // 避免在源码里直接书写 Points.PointId（该 protobuf 生成类名在本环境 javac 下解析异常）。
+            var ids = noteIds.stream()
+                    .filter(RagStatusService::isUuid)
+                    .map(id -> PointIdFactory.id(UUID.fromString(id)))
+                    .collect(Collectors.toList());
+            if (ids.isEmpty()) {
+                return Set.of();
+            }
+            var points = client.get()
+                    .retrieveAsync(props.get().getCollection(), ids, false, false, null).get();
+            return points.stream()
+                    .map(p -> p.getId().getUuid())
+                    .filter(StringUtils::hasText)
+                    .map(s -> s.toLowerCase())
+                    .collect(Collectors.toSet());
+        } catch (Exception e) {
+            return Set.of();
+        }
+    }
+
+    private static boolean isUuid(String s) {
+        try {
+            UUID.fromString(s);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public Map<String, Object> status() {

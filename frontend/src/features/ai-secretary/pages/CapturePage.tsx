@@ -15,6 +15,8 @@ import {
   Paperclip,
   Type,
   Trash2,
+  Database,
+  DatabaseZap,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -26,8 +28,11 @@ import {
   captureVoice,
   deleteNote,
   listNotes,
+  ragStatus,
+  reindexRag,
   type CaptureResponse,
   type NoteView,
+  type RagStatus,
 } from '../lib/api'
 import { VoiceRecorder } from '../components/VoiceRecorder'
 import { AttachmentPicker } from '../components/AttachmentPicker'
@@ -107,6 +112,22 @@ function NoteCard({ note, onDelete }: { note: NoteView; onDelete: (id: string) =
               <AlertTriangle className="h-3.5 w-3.5" /> 待复核
             </span>
           )}
+          {note.vectorIndexed === true && (
+            <span
+              title="已写入向量库，可被语义召回"
+              className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"
+            >
+              <Database className="h-3.5 w-3.5" /> 已入向量库
+            </span>
+          )}
+          {note.vectorIndexed === false && (
+            <span
+              title="尚未写入向量库（双写漂移）——点上方「重建索引」可修复"
+              className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400"
+            >
+              <Database className="h-3.5 w-3.5" /> 未入向量库
+            </span>
+          )}
         </div>
 
         {note.attachments && note.attachments.length > 0 && (
@@ -134,12 +155,16 @@ export function CapturePage() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [banner, setBanner] = useState<{ kind: 'ok' | 'warn' | 'err'; text: string } | null>(null)
+  const [rag, setRag] = useState<RagStatus | null>(null)
+  const [reindexing, setReindexing] = useState(false)
   const confirm = useConfirm()
 
   async function refresh() {
     setLoading(true)
     try {
       setNotes(await listNotes())
+      // 向量库状态非阻塞拉取，失败不影响时间轴
+      ragStatus().then(setRag).catch(() => setRag(null))
     } catch (e) {
       setBanner({ kind: 'err', text: `加载失败：${(e as Error).message}` })
     } finally {
@@ -216,6 +241,27 @@ export function CapturePage() {
       setBanner({ kind: 'ok', text: '已删除' })
     } catch (e) {
       setBanner({ kind: 'err', text: `删除失败：${(e as Error).message}` })
+    }
+  }
+
+  async function handleReindex() {
+    if (reindexing) return
+    setReindexing(true)
+    try {
+      const r = await reindexRag()
+      setRag(r)
+      if (!r.enabled) {
+        setBanner({ kind: 'warn', text: 'RAG 未启用：后端需带 rag.enabled=true 启动（run-supervised.ps1）' })
+      } else if (r.error) {
+        setBanner({ kind: 'err', text: `重建出错：${r.error}` })
+      } else {
+        setBanner({ kind: 'ok', text: `已重建 ${r.reindexed ?? 0} 条，向量库现有 ${r.points ?? 0} 点` })
+      }
+      setNotes(await listNotes()) // 刷新每条的入库标记
+    } catch (e) {
+      setBanner({ kind: 'err', text: `重建失败：${(e as Error).message}` })
+    } finally {
+      setReindexing(false)
     }
   }
 
@@ -319,11 +365,33 @@ export function CapturePage() {
 
       {/* 时间轴 */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-[var(--color-muted-foreground)]">时间轴</h2>
-          <Button variant="ghost" size="sm" onClick={refresh} disabled={loading}>
-            <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} /> 刷新
-          </Button>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="text-sm font-semibold text-[var(--color-muted-foreground)]">时间轴</h2>
+            {rag && (
+              <span
+                title={rag.hint ?? rag.error ?? '向量库状态'}
+                className={cn(
+                  'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs',
+                  !rag.enabled && 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]',
+                  rag.enabled && rag.usable && 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+                  rag.enabled && !rag.usable && 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                )}
+              >
+                <Database className="h-3 w-3" />
+                {!rag.enabled ? 'RAG 未启用' : `向量库 ${rag.points ?? 0} 点`}
+              </span>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button variant="ghost" size="sm" onClick={handleReindex} disabled={reindexing || loading}>
+              <DatabaseZap className={cn('h-3.5 w-3.5', reindexing && 'animate-pulse')} />
+              {reindexing ? '重建中…' : '重建索引'}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={refresh} disabled={loading}>
+              <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} /> 刷新
+            </Button>
+          </div>
         </div>
 
         {loading && notes.length === 0 ? (

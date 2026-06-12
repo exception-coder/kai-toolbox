@@ -6,6 +6,7 @@ import com.exceptioncoder.toolbox.aisecretary.api.dto.CaptureResponse;
 import com.exceptioncoder.toolbox.aisecretary.api.dto.NoteView;
 import com.exceptioncoder.toolbox.aisecretary.service.AttachmentStorageService;
 import com.exceptioncoder.toolbox.aisecretary.service.CaptureService;
+import com.exceptioncoder.toolbox.aisecretary.service.RagReindexService;
 import com.exceptioncoder.toolbox.aisecretary.service.RagStatusService;
 import com.exceptioncoder.toolbox.aisecretary.service.RecallService;
 import com.exceptioncoder.toolbox.aisecretary.service.StoredFile;
@@ -37,17 +38,20 @@ public class AiSecretaryController {
     private final VoiceTranscribeService voiceTranscribeService;
     private final AttachmentStorageService attachmentStorageService;
     private final RagStatusService ragStatusService;
+    private final RagReindexService ragReindexService;
 
     public AiSecretaryController(CaptureService captureService,
                                  RecallService recallService,
                                  VoiceTranscribeService voiceTranscribeService,
                                  AttachmentStorageService attachmentStorageService,
-                                 RagStatusService ragStatusService) {
+                                 RagStatusService ragStatusService,
+                                 RagReindexService ragReindexService) {
         this.captureService = captureService;
         this.recallService = recallService;
         this.voiceTranscribeService = voiceTranscribeService;
         this.attachmentStorageService = attachmentStorageService;
         this.ragStatusService = ragStatusService;
+        this.ragReindexService = ragReindexService;
     }
 
     /** 记录态：自由文本 → 分类抽取 → 落库，返回本次产出的记录。 */
@@ -106,5 +110,11 @@ public class AiSecretaryController {
     @GetMapping("/rag/status")
     public Map<String, Object> ragStatus() {
         return ragStatusService.status();
+    }
+
+    /** RAG 对账：以 SQLite 为准全量重建向量索引，修双写漂移；返回重建条数 + 重建后状态。 */
+    @PostMapping("/rag/reindex")
+    public Map<String, Object> ragReindex() {
+        return ragReindexService.reindex();
     }
 }
