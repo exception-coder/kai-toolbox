@@ -8,11 +8,20 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
- * 回忆态编排：在虚拟线程里跑 AiServices 的 tool-loop，把每步工具调用经 SSE 实时推前端，
- * 最后推最终答案。step 事件靠 {@link RecallContext}（ThreadLocal sink）从工具里冒泡上来。
+ * 回忆态编排（确定性优先 / 召回可见）：
+ * <ol>
+ *   <li>{@link RecallRetriever} 在代码层做 Hybrid 检索，拿到<b>真实库内命中</b>；</li>
+ *   <li>把命中明细（真分类 / 真原文 / 分数 / 来源）经 SSE <code>recall</code> 事件<b>原样</b>推前端——
+ *       让用户看得见“我据什么回答”，不靠模型转述；</li>
+ *   <li>零命中 → 代码<b>直接</b>回“没有找到相关记录”，<b>不进模型</b>（杜绝凭空编造）；</li>
+ *   <li>有命中 → 把真实记录注入 {@link RecallAssistant}，模型只负责<b>组织语言</b>（不挂工具、不再检索）。</li>
+ * </ol>
  */
 @Service
 public class RecallService {
@@ -20,9 +29,11 @@ public class RecallService {
     private static final Logger log = LoggerFactory.getLogger(RecallService.class);
 
     private final RecallAssistant assistant;
+    private final RecallRetriever retriever;
 
-    public RecallService(RecallAssistant assistant) {
+    public RecallService(RecallAssistant assistant, RecallRetriever retriever) {
         this.assistant = assistant;
+        this.retriever = retriever;
     }
 
     public void ask(String question, SseEmitter emitter) {
@@ -30,26 +41,61 @@ public class RecallService {
             sendError(emitter, "问题不能为空");
             return;
         }
+        String q = question.trim();
         Thread.ofVirtual().start(() -> {
             try {
-                // tool-loop 同步跑在本线程：把 step sink 挂上，工具调用即经 SSE 冒泡
-                RecallContext.set(step -> send(emitter, "step", Map.of(
-                        "tool", step.tool(),
-                        "args", step.args() == null ? "" : step.args(),
-                        "result", step.result() == null ? "" : step.result())));
+                // ① 代码确定性检索
+                List<RecallHit> hits = retriever.retrieve(q);
 
-                ZonedDateTime now = ZonedDateTime.now();
-                String answer = assistant.ask(CaptureNormalizer.nowContext(now), question.trim());
+                // ② 召回明细原样推前端（真实库内记录，非模型转述）
+                send(emitter, "recall", Map.of("hits", toHitViews(hits)));
+
+                // ③ 零命中：代码直接作答，不进模型
+                if (hits.isEmpty()) {
+                    send(emitter, "answer", Map.of("text", "没有找到与你的问题相关的记录。"));
+                    sendDone(emitter);
+                    return;
+                }
+
+                // ④ 有命中：模型只据真实记录组织语言
+                String records = buildRecordsBlock(hits);
+                String now = CaptureNormalizer.nowContext(ZonedDateTime.now());
+                String answer = assistant.answer(now, records, q);
 
                 send(emitter, "answer", Map.of("text", answer == null ? "" : answer));
                 sendDone(emitter);
             } catch (Exception e) {
                 log.warn("[ai-secretary] 回忆态执行失败", e);
                 sendError(emitter, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
-            } finally {
-                RecallContext.clear();
             }
         });
+    }
+
+    /** 命中 → 前端可视化视图（真分类 + 原文 + 分数 + 来源 + 时间）。 */
+    private List<Map<String, Object>> toHitViews(List<RecallHit> hits) {
+        List<Map<String, Object>> views = new ArrayList<>(hits.size());
+        for (RecallHit h : hits) {
+            Map<String, Object> v = new HashMap<>();
+            v.put("category", h.note().category().name());
+            v.put("categoryLabel", h.note().category().label());
+            v.put("text", h.note().rawText());
+            v.put("score", h.score()); // 可能为 null（关键字精确命中无分数）
+            v.put("source", h.source());
+            v.put("createdAt", h.note().createdAt());
+            views.add(v);
+        }
+        return views;
+    }
+
+    /** 注入模型的真实记录块：编号 + [分类] + 原文。 */
+    private String buildRecordsBlock(List<RecallHit> hits) {
+        StringBuilder sb = new StringBuilder();
+        int i = 1;
+        for (RecallHit h : hits) {
+            sb.append(i++).append(". [").append(h.note().category().label()).append("] ")
+                    .append(h.note().rawText()).append('\n');
+        }
+        return sb.toString();
     }
 
     private void send(SseEmitter emitter, String event, Object data) {

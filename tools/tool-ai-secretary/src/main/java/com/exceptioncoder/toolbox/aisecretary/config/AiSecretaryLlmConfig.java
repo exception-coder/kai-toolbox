@@ -2,11 +2,8 @@ package com.exceptioncoder.toolbox.aisecretary.config;
 
 import com.exceptioncoder.toolbox.aisecretary.ai.Capturer;
 import com.exceptioncoder.toolbox.aisecretary.ai.RecallAssistant;
-import com.exceptioncoder.toolbox.aisecretary.service.NoteTools;
 import com.exceptioncoder.toolbox.llm.routing.ChatModelRouter;
-import dev.langchain4j.rag.RetrievalAugmentor;
 import dev.langchain4j.service.AiServices;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -22,7 +19,7 @@ public class AiSecretaryLlmConfig {
 
     /** 记录态用的档位：高频、可用便宜/本地模型。 */
     private static final String CAPTURE_TIER = "capture";
-    /** 回忆态用的档位：多步工具编排，可接更强模型；未配置时网关回退到默认。 */
+    /** 回忆态用的档位：仅做“据真实记录组织语言”，可接更强模型；未配置时网关回退到默认。 */
     private static final String RECALL_TIER = "recall";
 
     @Bean
@@ -32,22 +29,17 @@ public class AiSecretaryLlmConfig {
                 .build();
     }
 
+    /**
+     * 回忆态助手：<b>纯组织语言</b>，不挂工具、不做检索。
+     *
+     * <p>检索改由 {@code RecallRetriever} 在代码层确定性完成（向量 + 关键字 Hybrid），命中的真实记录
+     * 由 {@code RecallService} 注入到 {@code @V("records")}，模型只负责措辞。如此从根上消除：
+     * ① 小模型把 {@code <tool_call>} 当文本泄漏；② 上下文缺失时凭空编造召回结果。
+     */
     @Bean
-    public RecallAssistant recallAssistant(ChatModelRouter router, NoteTools noteTools,
-                                           ObjectProvider<RetrievalAugmentor> retrievalAugmentors) {
-        AiServices<RecallAssistant> builder = AiServices.builder(RecallAssistant.class)
+    public RecallAssistant recallAssistant(ChatModelRouter router) {
+        return AiServices.builder(RecallAssistant.class)
                 .chatModel(router.forTier(RECALL_TIER))
-                // 抗造⑤：限制工具循环轮数，防模型抽风死循环
-                .maxToolCallingRoundTrips(6);
-        RetrievalAugmentor augmentor = retrievalAugmentors.getIfAvailable();
-        if (augmentor != null) {
-            // RAG 开启：纯检索增强（向量 + 关键字双路 → RRF），**不挂工具**——检索由代码无条件完成，
-            // 模型只据注入的上下文作答。既去掉冗余工具调用，也规避小模型把 <tool_call> 当文本吐出来的泄漏。
-            builder = builder.retrievalAugmentor(augmentor);
-        } else {
-            // RAG 关闭：退回 tool-loop，模型主动调 @Tool 查库。
-            builder = builder.tools(noteTools);
-        }
-        return builder.build();
+                .build();
     }
 }

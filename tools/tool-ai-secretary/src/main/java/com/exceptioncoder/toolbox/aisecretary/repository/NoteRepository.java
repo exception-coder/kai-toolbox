@@ -44,6 +44,15 @@ public class NoteRepository {
                 n.needsReview() ? 1 : 0, n.status(), n.createdAt());
     }
 
+    /** 按 id 取单条；不存在返回 null（用于向量命中后回库取真实分类/原文）。 */
+    public Note findById(String id) {
+        if (!StringUtils.hasText(id)) {
+            return null;
+        }
+        List<Note> rows = jdbc.query("SELECT * FROM ai_secretary_note WHERE id = ?", ROW, id);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
     public List<Note> findRecent(int limit) {
         return jdbc.query("""
                 SELECT * FROM ai_secretary_note
