@@ -30,5 +30,5 @@ public class RagProperties {
 
     /** 检索 top-k 与最低相似度阈值。 */
     private int maxResults = 5;
-    private double minScore = 0.5;
+    private double minScore = 0.45;
 }

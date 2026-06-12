@@ -6,6 +6,7 @@ import com.exceptioncoder.toolbox.aisecretary.api.dto.CaptureResponse;
 import com.exceptioncoder.toolbox.aisecretary.api.dto.NoteView;
 import com.exceptioncoder.toolbox.aisecretary.service.AttachmentStorageService;
 import com.exceptioncoder.toolbox.aisecretary.service.CaptureService;
+import com.exceptioncoder.toolbox.aisecretary.service.RagStatusService;
 import com.exceptioncoder.toolbox.aisecretary.service.RecallService;
 import com.exceptioncoder.toolbox.aisecretary.service.StoredFile;
 import com.exceptioncoder.toolbox.aisecretary.service.VoiceTranscribeService;
@@ -25,6 +26,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/ai-secretary")
@@ -34,15 +36,18 @@ public class AiSecretaryController {
     private final RecallService recallService;
     private final VoiceTranscribeService voiceTranscribeService;
     private final AttachmentStorageService attachmentStorageService;
+    private final RagStatusService ragStatusService;
 
     public AiSecretaryController(CaptureService captureService,
                                  RecallService recallService,
                                  VoiceTranscribeService voiceTranscribeService,
-                                 AttachmentStorageService attachmentStorageService) {
+                                 AttachmentStorageService attachmentStorageService,
+                                 RagStatusService ragStatusService) {
         this.captureService = captureService;
         this.recallService = recallService;
         this.voiceTranscribeService = voiceTranscribeService;
         this.attachmentStorageService = attachmentStorageService;
+        this.ragStatusService = ragStatusService;
     }
 
     /** 记录态：自由文本 → 分类抽取 → 落库，返回本次产出的记录。 */
@@ -89,11 +94,17 @@ public class AiSecretaryController {
         captureService.deleteNote(id);
     }
 
-    /** 回忆态：自然语言提问 → tool-loop 查库作答；SSE 流式推每步 step + 最终 answer。 */
+    /** 回忆态：自然语言提问 → 代码确定性检索 → SSE 推真实召回明细(recall) + 最终 answer。 */
     @PostMapping(value = "/ask", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter ask(@RequestBody AskRequest request) {
         SseEmitter emitter = new SseEmitter(180_000L);
         recallService.ask(request.question(), emitter);
         return emitter;
+    }
+
+    /** RAG 自检：一眼看清向量检索是否真在工作（enabled / 集合是否存在 / 已索引点数 / usable）。 */
+    @GetMapping("/rag/status")
+    public Map<String, Object> ragStatus() {
+        return ragStatusService.status();
     }
 }

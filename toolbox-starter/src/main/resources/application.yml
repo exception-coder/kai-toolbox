@@ -90,7 +90,9 @@ toolbox:
       qdrant-api-key: ${TOOLBOX_AI_SECRETARY_QDRANT_API_KEY:}
       collection: ai_secretary_notes
       max-results: 5
-      min-score: 0.5
+      # bge-m3 中文余弦分偏"压缩"：账号密码类 0.49~0.59、开销类 ≤0.43，0.45 卡在二者安全带中间
+      # （实测「ERP 账号」对 kai-toolbox 那条 0.486，0.5 会误杀，故下调）
+      min-score: 0.45
   system:
     # 远程重启端点 token。经公网 tunnel 暴露，留空 = 端点关闭（返回 503）。必须显式配才开放。
     # 用环境变量覆盖：TOOLBOX_SYSTEM_RESTART_TOKEN=随机串
