@@ -5,6 +5,21 @@ import { loadMessages } from '../api'
 import { notifyPrompt } from '../browserNotify'
 import { playNotifySound } from '../sound'
 
+// 按 sessionId 持久化权限模式，使刷新/放大缩小/重连后该会话仍保持上次选择，而非回退 default。
+const VALID_MODES: PermissionMode[] = ['default', 'acceptEdits', 'plan', 'bypassPermissions']
+const modeStorageKey = (sid: string) => `kai-toolbox:chat-mode:${sid}`
+function loadSavedMode(sid: string): PermissionMode | null {
+  try {
+    const v = localStorage.getItem(modeStorageKey(sid))
+    return v && (VALID_MODES as string[]).includes(v) ? (v as PermissionMode) : null
+  } catch {
+    return null
+  }
+}
+function saveMode(sid: string, m: PermissionMode): void {
+  try { localStorage.setItem(modeStorageKey(sid), m) } catch { /* ignore */ }
+}
+
 // 用全局唯一 id（非可重置计数器）：避免 Vite HMR 热更重置模块级计数器后，
 // 新消息 id 与 state 中残留的旧消息 id 撞 key（开发期刷屏 React duplicate-key 警告）。
 const nextId = (): string =>
@@ -135,6 +150,15 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
         setSessionId(msg.sessionId)
         setState('ready')
         setErrorMessage(null) // sidecar 重连恢复后会重发 ready，借此清掉 SIDECAR_DOWN 横幅
+        // 恢复该会话上次的权限模式（按 sessionId 持久化），并同步给 sidecar，
+        // 使刷新/放大缩小/重连后不回退 default。
+        {
+          const savedMode = loadSavedMode(msg.sessionId)
+          if (savedMode) {
+            setModeState(savedMode)
+            sendRaw({ type: 'setMode', mode: savedMode })
+          }
+        }
         if (msg.slashCommands) setSlashCommands(msg.slashCommands)
         if (msg.engine) setCurrentEngine(msg.engine)
         // Codex/Gemini 会话无 Claude 模型/slash 清单：进入时清掉上一个 Claude 会话残留的选项，避免误显示。
@@ -423,6 +447,8 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
 
   const setMode = useCallback((m: PermissionMode) => {
     setModeState(m) // 乐观更新；下一轮 query 生效
+    const sid = sessionIdRef.current
+    if (sid) saveMode(sid, m) // 按会话持久化，刷新/重连后由 ready 恢复
     sendRaw({ type: 'setMode', mode: m })
   }, [sendRaw])
 
