@@ -36,7 +36,7 @@ function engineName(e: Engine): string {
 }
 
 export function ChatPage() {
-  const { chat, setFloating, setMinimized } = useChatRuntime()
+  const { chat, setFloating, setMinimized, getReturnRoute } = useChatRuntime()
   const navigate = useNavigate()
   const pending = chat?.pending ?? null
 
@@ -95,11 +95,11 @@ export function ChatPage() {
     chat.decide({ type: 'decision', reqId: pending.reqId, behavior: 'allow' })
   }, [pending, autoApprove, chat])
 
-  // 弹出悬浮窗：开启浮窗并离开会话页（浮窗与全屏页互斥渲染，留在会话页看不到），落到首页即见浮窗
+  // 弹出悬浮窗：开启浮窗并离开会话页（浮窗与全屏页互斥渲染）。回到进入会话页前最后访问的页面，而非每次回首页。
   const popOutFloating = () => {
     setFloating(true)
     setMinimized(false)
-    navigate('/')
+    navigate(getReturnRoute())
   }
   const [panel, setPanel] = useState<Panel>('none')
   const [sessTab, setSessTab] = useState<'tool' | 'history'>('tool')

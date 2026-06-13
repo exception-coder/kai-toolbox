@@ -35,6 +35,8 @@ interface ChatRuntime {
   /** 悬浮窗尺寸（px），可拖拽调整，跨路由持久。 */
   size: FloatSize
   setSize: (s: FloatSize) => void
+  /** 弹出悬浮窗时应返回的路由 = 进入会话页前最后访问的非会话路由（默认 /）。 */
+  getReturnRoute: () => string
 }
 
 const Ctx = createContext<ChatRuntime | null>(null)
@@ -59,13 +61,17 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
   const [size, setSize] = useState<FloatSize>({ w: 360, h: 520 })
   const activate = useCallback(() => setActive(true), [])
   const location = useLocation()
+  // 记住进入会话页前最后访问的非会话路由，弹出悬浮窗时回到这里（而非每次回首页）
+  const lastRouteRef = useRef('/')
+  const getReturnRoute = useCallback(() => lastRouteRef.current, [])
 
-  // 落在会话页即激活引擎（懒启动）
+  // 落在会话页即激活引擎（懒启动）；否则记录为「返回路由」
   useEffect(() => {
     if (location.pathname === CHAT_ROUTE) setActive(true)
-  }, [location.pathname])
+    else lastRouteRef.current = location.pathname + location.search
+  }, [location.pathname, location.search])
 
-  const control = { active, activate, floating, setFloating, minimized, setMinimized, pos, setPos, size, setSize }
+  const control = { active, activate, floating, setFloating, minimized, setMinimized, pos, setPos, size, setSize, getReturnRoute }
 
   if (!active) {
     return <Ctx.Provider value={{ ...control, chat: null }}>{children}</Ctx.Provider>
