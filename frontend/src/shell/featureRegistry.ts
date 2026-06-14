@@ -1,3 +1,5 @@
+import { matchPath } from 'react-router-dom'
+import { featuresWithMock } from '@/lib/mock/loader'
 import type { FeatureManifest } from './types'
 
 const modules = import.meta.glob<{ default: FeatureManifest }>(
@@ -12,4 +14,15 @@ export const features: FeatureManifest[] = Object.values(modules)
 
 export function entryOf(f: FeatureManifest): string {
   return f.entry ?? f.routes[0]?.path ?? '/'
+}
+
+/** 按当前路径匹配出所属 feature（含动态路由 /:id、/* 等）。 */
+export function featureAtPath(pathname: string): FeatureManifest | undefined {
+  return features.find(f => f.routes.some(r => matchPath({ path: r.path, end: true }, pathname)))
+}
+
+/** 当前路径所属模块是否实现了 mock。首页等无归属路径返回 false。 */
+export function pathHasMock(pathname: string): boolean {
+  const f = featureAtPath(pathname)
+  return f ? featuresWithMock.has(f.id) : false
 }
