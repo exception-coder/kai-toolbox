@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import {
   ArrowLeft, Users, Sparkles, ListChecks, FileText, Layers, Bot, Boxes, Route, ShieldCheck,
   Wrench, ScrollText, BookOpen, GitMerge, Workflow, ClipboardCheck, Database, Cpu, Library, GitFork,
-  Plug, Terminal, MousePointer2, PackageCheck,
+  Plug, Terminal, MousePointer2, PackageCheck, FileCode2,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -242,6 +242,25 @@ export function TeamVibeCoding() {
           一句话：<b className="text-[var(--color-foreground)]">① 放「怎么做」、② 放「是什么」、③ 放「项目间怎么连」、④ 放「可复用的提问与编排」</b>。
           新项目落地 = 装上①（规范不重搭）→ 在②知识库项目集里加一个「项目名」子目录 → 有跨项目调用才登记③。知识集中托管、专人维护，业务同事改不乱；AI 按需检索，各取所需。
         </p>
+
+        {/* 边界示例：项目特定约束怎么分 */}
+        <Card className="border-dashed">
+          <CardContent className="space-y-2 p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <FileCode2 className="h-4 w-4 text-[var(--color-primary)]" /> 边界示例：项目特定约束（如文件编码 GBK / UTF-8）放哪？
+            </div>
+            <div className="space-y-1 text-xs">
+              <LayerRow k="规则①" v="「AI 生成/改代码必须遵循该项目声明的编码，禁止擅自换 UTF-8」是通用铁律 —— 进 team-standards" />
+              <LayerRow k="取值·强制" v=".editorconfig charset / 构建 sourceEncoding / .gitattributes / 项目根 CLAUDE.md·AGENTS.md·.cursor/rules + pre-commit·CI 拦截 —— 随项目仓库、机器可读可强制" tone="real" />
+              <LayerRow k="知识库②" v="只登记「A=GBK、B=UTF-8」事实供查询，不作为强制来源" />
+              <LayerRow k="为什么" v="编码是确定性事实 → 确定性优先：机器强制 > 文档自觉，别只靠 LLM 记着自觉遵守" />
+            </div>
+            <p className="text-[11px] leading-snug text-[var(--color-muted-foreground)]">
+              区分两类项目特定内容：<b className="text-[var(--color-foreground)]">认知类</b>（知识图谱/ER/术语/复盘）进②集中托管；
+              <b className="text-[var(--color-foreground)]">工程约束类</b>（编码/构建/格式/lint）随业务仓库由工具强制——改它=改项目本身、有 code review 把关，不属「知识被误触」。
+            </p>
+          </CardContent>
+        </Card>
       </Section>
 
       {/* 分发与导入 */}
