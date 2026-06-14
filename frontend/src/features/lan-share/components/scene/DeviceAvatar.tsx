@@ -1,9 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
-import type { DeviceKind } from '../../types'
+import { Globe, Network, Server } from 'lucide-react'
+import type { ConnectionLinkType, DeviceKind } from '../../types'
 import { DeviceKindIcon } from './DeviceKindIcon'
 import { cn } from '@/lib/utils'
 
 export type AvatarState = 'idle' | 'connecting' | 'connected' | 'transferring' | 'failed'
+
+// WebRTC 链路类型 → 展示元信息（图标 + 文案 + 配色）。集中在此，避免散落。
+const LINK_META: Record<Exclude<ConnectionLinkType, 'unknown'>, {
+  label: string
+  Icon: typeof Network
+  className: string
+}> = {
+  lan: { label: '局域网直连', Icon: Network, className: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400' },
+  stun: { label: 'STUN 打洞', Icon: Globe, className: 'bg-sky-500/15 text-sky-600 dark:text-sky-400' },
+  relay: { label: 'TURN 中继', Icon: Server, className: 'bg-amber-500/15 text-amber-600 dark:text-amber-400' },
+}
 
 interface Props {
   kind: DeviceKind
@@ -13,6 +25,7 @@ interface Props {
   progress?: number          // 0..1，仅 state=transferring 时使用
   size?: number              // 拟物 SVG 像素尺寸
   selfTag?: string           // 本机右上角小标识，默认「本机」
+  connectionType?: ConnectionLinkType   // WebRTC 链路类型，用于展示「当前是怎么连上的」
   onClick?: () => void
   onLongPress?: () => void
   shaking?: boolean          // 失败抖动一次
@@ -23,6 +36,7 @@ const LONG_PRESS_MS = 500
 export function DeviceAvatar({
   kind, nickname, isSelf, state, progress,
   size = 64, selfTag = '本机',
+  connectionType,
   onClick, onLongPress, shaking,
 }: Props) {
   const [pressing, setPressing] = useState(false)
@@ -91,6 +105,22 @@ export function DeviceAvatar({
         )}
       </div>
       <span className="max-w-[6rem] truncate text-xs text-[var(--color-foreground)] opacity-90">{nickname}</span>
+      {connectionType && connectionType !== 'unknown' && (() => {
+        const meta = LINK_META[connectionType]
+        const { Icon } = meta
+        return (
+          <span
+            className={cn(
+              'inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] leading-none font-medium',
+              meta.className,
+            )}
+            title={`WebRTC 链路：${meta.label}`}
+          >
+            <Icon className="h-2.5 w-2.5" />
+            {meta.label}
+          </span>
+        )
+      })()}
     </button>
   )
 }

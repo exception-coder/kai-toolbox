@@ -1,4 +1,4 @@
-import type { Peer, FileOffer, Transfer, DeviceProfile, DeviceKind } from '../types'
+import type { Peer, FileOffer, Transfer, DeviceProfile, DeviceKind, ConnectionLinkType } from '../types'
 import { triggerBrowserDownload } from './fileTransfer'
 
 export interface MockOrchestratorDeps {
@@ -11,6 +11,7 @@ export interface MockOrchestratorDeps {
   } | null) => void
   upsertTransfer: (t: Transfer) => void
   setMockDeviceProfile: (deviceId: string, profile: DeviceProfile) => void
+  setMockConnectionType: (deviceId: string, type: ConnectionLinkType) => void
 }
 
 interface MockOrchestrator {
@@ -64,6 +65,7 @@ export function createMockOrchestrator(deps: MockOrchestratorDeps): MockOrchestr
     const peer: Peer = { ...PHONE.peer, joinedAt: Date.now() }
     deps.setPeers(prev => prev.find(p => p.deviceId === peer.deviceId) ? prev : [...prev, peer])
     deps.setMockDeviceProfile(peer.deviceId, { kind: PHONE.kind })
+    deps.setMockConnectionType(peer.deviceId, 'lan')        // 演示：局域网直连
   }, 400)
 
   // 阶段 3：1.0s 后虚拟笔记本上线，并注入设备画像
@@ -71,6 +73,7 @@ export function createMockOrchestrator(deps: MockOrchestratorDeps): MockOrchestr
     const peer: Peer = { ...TABLET.peer, joinedAt: Date.now() }
     deps.setPeers(prev => prev.find(p => p.deviceId === peer.deviceId) ? prev : [...prev, peer])
     deps.setMockDeviceProfile(peer.deviceId, { kind: TABLET.kind })
+    deps.setMockConnectionType(peer.deviceId, 'stun')       // 演示：STUN 打洞
   }, 1000)
 
   // 阶段 4：3s 后虚拟手机主动给你发一份演示文件

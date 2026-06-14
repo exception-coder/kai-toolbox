@@ -1,4 +1,4 @@
-import type { Peer, FileOffer, ControlMessage, DeviceProfile } from '../types'
+import type { Peer, FileOffer, ControlMessage, DeviceProfile, ConnectionLinkType } from '../types'
 import type { SignalingClient } from './signalingClient'
 import { sendFile, createReceiver, triggerBrowserDownload } from './fileTransfer'
 
@@ -46,6 +46,44 @@ export interface PeerConnectionManagerCallbacks {
   onConnectionFailed: (peerDeviceId: string, message: string) => void
   onPeerReady?: (peerDeviceId: string) => void
   onDeviceProfile?: (peerDeviceId: string, profile: DeviceProfile) => void
+  onConnectionType?: (peerDeviceId: string, type: ConnectionLinkType) => void
+}
+
+// 从 RTCPeerConnection 统计里读出选中 candidate pair 的本地 candidate 类型，
+// 映射成业务关心的链路类型。确定性优先：完全由浏览器统计推导，不做猜测。
+async function probeLinkType(pc: RTCPeerConnection): Promise<ConnectionLinkType> {
+  try {
+    const stats = await pc.getStats()
+    let pair: RTCStats & Record<string, unknown> | undefined
+    stats.forEach((report) => {
+      const r = report as RTCStats & Record<string, unknown>
+      if (r.type === 'candidate-pair' && (r.state === 'succeeded') &&
+          (r.nominated === true || r.selected === true)) {
+        pair = r
+      }
+    })
+    // 部分浏览器不标 nominated，退而求其次取 state=succeeded 的第一条
+    if (!pair) {
+      stats.forEach((report) => {
+        const r = report as RTCStats & Record<string, unknown>
+        if (!pair && r.type === 'candidate-pair' && r.state === 'succeeded') pair = r
+      })
+    }
+    if (!pair) return 'unknown'
+    const localId = pair.localCandidateId as string | undefined
+    if (!localId) return 'unknown'
+    const local = stats.get(localId) as (RTCStats & Record<string, unknown>) | undefined
+    const candidateType = local?.candidateType as string | undefined
+    switch (candidateType) {
+      case 'host': return 'lan'
+      case 'srflx':
+      case 'prflx': return 'stun'
+      case 'relay': return 'relay'
+      default: return 'unknown'
+    }
+  } catch {
+    return 'unknown'
+  }
 }
 
 export function createPeerConnectionManager(
@@ -82,6 +120,9 @@ export function createPeerConnectionManager(
     }
 
     pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'connected') {
+        void probeLinkType(pc).then(type => callbacks.onConnectionType?.(peerDeviceId, type))
+      }
       if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
         callbacks.onConnectionFailed(peerDeviceId, `connectionState=${pc.connectionState}`)
       }

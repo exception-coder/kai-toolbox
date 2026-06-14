@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Peer, Transfer, FileOffer, SignalingInbound, ControlMessage, DeviceProfile } from '../types'
+import type { Peer, Transfer, FileOffer, SignalingInbound, ControlMessage, DeviceProfile, ConnectionLinkType } from '../types'
 import { http } from '@/lib/api'
 import { isMockEnabled } from '@/lib/mock/mode'
 import { createSignalingClient, type SignalingClient } from '../services/signalingClient'
@@ -22,6 +22,7 @@ interface UseRoomResult {
   incoming: IncomingPrompt | null
   deviceProfiles: Map<string, DeviceProfile>
   readyPeerIds: Set<string>
+  connectionTypes: Map<string, ConnectionLinkType>
   acceptIncoming: () => void
   rejectIncoming: () => void
   sendFileTo: (peerDeviceId: string, file: File) => void
@@ -39,6 +40,7 @@ export function useRoom(roomId: string, deviceId: string, nickname: string): Use
   const [incoming, setIncoming] = useState<IncomingPrompt | null>(null)
   const [deviceProfiles, setDeviceProfiles] = useState<Map<string, DeviceProfile>>(() => new Map())
   const [readyPeerIds, setReadyPeerIds] = useState<Set<string>>(() => new Set())
+  const [connectionTypes, setConnectionTypes] = useState<Map<string, ConnectionLinkType>>(() => new Map())
 
   const signalingRef = useRef<SignalingClient | null>(null)
   const managerRef = useRef<PeerConnectionManager | null>(null)
@@ -77,6 +79,13 @@ export function useRoom(roomId: string, deviceId: string, nickname: string): Use
           setDeviceProfiles(prev => {
             const next = new Map(prev)
             next.set(deviceId, profile)
+            return next
+          })
+        },
+        setMockConnectionType: (deviceId, type) => {
+          setConnectionTypes(prev => {
+            const next = new Map(prev)
+            next.set(deviceId, type)
             return next
           })
         },
@@ -155,6 +164,12 @@ export function useRoom(roomId: string, deviceId: string, nickname: string): Use
               next.delete(peerDeviceId)
               return next
             })
+            setConnectionTypes(prev => {
+              if (!prev.has(peerDeviceId)) return prev
+              const next = new Map(prev)
+              next.delete(peerDeviceId)
+              return next
+            })
           },
           onPeerReady: (peerDeviceId) => {
             setReadyPeerIds(prev => {
@@ -168,6 +183,14 @@ export function useRoom(roomId: string, deviceId: string, nickname: string): Use
             setDeviceProfiles(prev => {
               const next = new Map(prev)
               next.set(peerDeviceId, profile)
+              return next
+            })
+          },
+          onConnectionType: (peerDeviceId, type) => {
+            setConnectionTypes(prev => {
+              if (prev.get(peerDeviceId) === type) return prev
+              const next = new Map(prev)
+              next.set(peerDeviceId, type)
               return next
             })
           },
@@ -201,6 +224,12 @@ export function useRoom(roomId: string, deviceId: string, nickname: string): Use
           return next
         })
         setDeviceProfiles(prev => {
+          if (!prev.has(msg.deviceId)) return prev
+          const next = new Map(prev)
+          next.delete(msg.deviceId)
+          return next
+        })
+        setConnectionTypes(prev => {
           if (!prev.has(msg.deviceId)) return prev
           const next = new Map(prev)
           next.delete(msg.deviceId)
@@ -308,6 +337,7 @@ export function useRoom(roomId: string, deviceId: string, nickname: string): Use
     incoming,
     deviceProfiles,
     readyPeerIds,
+    connectionTypes,
     acceptIncoming,
     rejectIncoming,
     sendFileTo,

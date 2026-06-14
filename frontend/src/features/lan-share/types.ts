@@ -48,6 +48,13 @@ export interface DeviceProfile {
   colorHint?: string     // 预留：未来扩展配色
 }
 
+// WebRTC 链路类型：由选中的 ICE candidate pair 推导，用于展示「当前是怎么连上的」
+//   lan     —— host candidate，局域网内直连
+//   stun    —— srflx/prflx candidate，经 STUN 公网打洞后的 P2P 直连
+//   relay   —— relay candidate，经 TURN 服务器中继
+//   unknown —— 尚未建立 / 读取统计失败
+export type ConnectionLinkType = 'lan' | 'stun' | 'relay' | 'unknown'
+
 // WebSocket 信令消息
 export type SignalingInbound =
   | { type: 'joined'; self: string; peers: Peer[] }

@@ -60,6 +60,7 @@ export function RoomView({ roomId, deviceId, nickname, onLeave }: RoomViewProps)
         peers={room.peers}
         deviceProfiles={room.deviceProfiles}
         readyPeerIds={room.readyPeerIds}
+        connectionTypes={room.connectionTypes}
         transfers={room.transfers}
         onSendFileTo={room.sendFileTo}
         onBroadcastFile={room.broadcastFile}

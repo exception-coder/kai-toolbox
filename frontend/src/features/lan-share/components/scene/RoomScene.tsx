@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
-import type { DeviceKind, DeviceProfile, Peer, Transfer } from '../../types'
+import type { ConnectionLinkType, DeviceKind, DeviceProfile, Peer, Transfer } from '../../types'
 import { useDeviceLayout, useViewportSize } from '../../hooks/useDeviceLayout'
 import { useSceneInteractions } from '../../hooks/useSceneInteractions'
 import { DeviceAvatar, type AvatarState } from './DeviceAvatar'
@@ -17,6 +17,7 @@ interface Props {
   peers: Peer[]
   deviceProfiles: Map<string, DeviceProfile>
   readyPeerIds: Set<string>
+  connectionTypes: Map<string, ConnectionLinkType>
   transfers: Transfer[]
   onSendFileTo: (peerDeviceId: string, file: File) => void
   onBroadcastFile: (file: File) => void
@@ -27,7 +28,7 @@ const SOFT_LIMIT_BYTES = 1024 * 1024 * 1024 // 1GB
 
 export function RoomScene({
   selfDeviceId, selfNickname, selfProfile,
-  peers, deviceProfiles, readyPeerIds, transfers,
+  peers, deviceProfiles, readyPeerIds, connectionTypes, transfers,
   onSendFileTo, onBroadcastFile, onChangeSelfKind,
 }: Props) {
   const stageRef = useRef<HTMLDivElement>(null)
@@ -127,6 +128,7 @@ export function RoomScene({
         const profile = deviceProfiles.get(peer.deviceId)
         const state = peerStateMap.get(peer.deviceId) ?? 'idle'
         const progress = peerProgressMap.get(peer.deviceId)
+        const linkType = connectionTypes.get(peer.deviceId)
         return (
           <PositionedAvatar key={peer.deviceId} pos={pos} containerW={w} containerH={h}>
             <DeviceAvatar
@@ -136,6 +138,7 @@ export function RoomScene({
               state={state}
               progress={progress}
               size={mode === 'grid' ? 52 : 64}
+              connectionType={state === 'connecting' ? undefined : linkType}
               onClick={() => interactions.selectTarget(peer)}
               shaking={state === 'failed'}
             />
