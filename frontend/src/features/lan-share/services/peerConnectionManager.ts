@@ -1,6 +1,6 @@
 import type { Peer, FileOffer, ControlMessage, DeviceProfile, ConnectionLinkType } from '../types'
 import type { SignalingClient } from './signalingClient'
-import { sendFile, createReceiver, triggerBrowserDownload } from './fileTransfer'
+import { sendFile, createReceiver, triggerBrowserDownload, uuidv4 } from './fileTransfer'
 
 const BUILD_TIMEOUT_MS = 10_000
 
@@ -18,7 +18,7 @@ interface PeerConnectionEntry {
 
 export interface PeerConnectionManager {
   connectTo(peerDeviceId: string): Promise<void>
-  sendFile(peerDeviceId: string, file: File): Promise<void>
+  sendFile(peerDeviceId: string, file: File, fileId: string): Promise<void>
   broadcastFile(peers: Peer[], file: File): Promise<void>
   sendControl(peerDeviceId: string, msg: ControlMessage): boolean
   broadcastControl(peers: Peer[], msg: ControlMessage): void
@@ -247,10 +247,10 @@ export function createPeerConnectionManager(
     ])
   }
 
-  async function sendFileTo(peerDeviceId: string, file: File): Promise<void> {
+  async function sendFileTo(peerDeviceId: string, file: File, fileId: string): Promise<void> {
     await connectTo(peerDeviceId)
     const entry = peers.get(peerDeviceId)!
-    await sendFile(entry.controlDC!, entry.dataDC!, file, {
+    await sendFile(entry.controlDC!, entry.dataDC!, file, fileId, {
       onAccepted: (fileId) => callbacks.onTransferProgress(fileId, 'send', peerDeviceId, 0, file.size),
       onProgress: (fileId, sent) => callbacks.onTransferProgress(fileId, 'send', peerDeviceId, sent, file.size),
       onComplete: (fileId) => callbacks.onTransferComplete(fileId, 'send', peerDeviceId),
@@ -263,7 +263,7 @@ export function createPeerConnectionManager(
     await Promise.allSettled(
       targets
         .filter(p => p.deviceId !== selfDeviceId)
-        .map(p => sendFileTo(p.deviceId, file))
+        .map(p => sendFileTo(p.deviceId, file, uuidv4()))
     )
   }
 

@@ -16,7 +16,7 @@ function bytesToFileId(buf: Uint8Array): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
 }
 
-function uuidv4(): string {
+export function uuidv4(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
   const bytes = new Uint8Array(16)
   crypto.getRandomValues(bytes)
@@ -54,6 +54,7 @@ export async function sendFile(
   controlDC: RTCDataChannel,
   dataDC: RTCDataChannel,
   file: File,
+  fileId: string,
   callbacks: {
     onAccepted?: (fileId: string) => void
     onProgress?: (fileId: string, sent: number) => void
@@ -62,7 +63,6 @@ export async function sendFile(
     onFailed?: (fileId: string, error: Error) => void
   } = {},
 ): Promise<void> {
-  const fileId = uuidv4()
   const fileIdBytes = fileIdToBytes(fileId)
   const totalChunks = Math.ceil(file.size / CHUNK_SIZE) || 1
 

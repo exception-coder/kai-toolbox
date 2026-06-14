@@ -4,6 +4,7 @@ import { http } from '@/lib/api'
 import { isMockEnabled } from '@/lib/mock/mode'
 import { createSignalingClient, type SignalingClient } from '../services/signalingClient'
 import { createPeerConnectionManager, type PeerConnectionManager } from '../services/peerConnectionManager'
+import { uuidv4 } from '../services/fileTransfer'
 import { createMockOrchestrator } from '../services/mockOrchestrator'
 
 type Status = 'idle' | 'connecting' | 'joined' | 'error'
@@ -56,7 +57,10 @@ export function useRoom(roomId: string, deviceId: string, nickname: string): Use
       const idx = prev.findIndex(x => x.id === t.id && x.peerDeviceId === t.peerDeviceId && x.direction === t.direction)
       if (idx >= 0) {
         const clone = prev.slice()
-        clone[idx] = { ...prev[idx], ...t }
+        const merged = { ...prev[idx], ...t }
+        // progress 回调传空 fileName，不能覆盖已确定的文件名
+        if (!t.fileName && prev[idx].fileName) merged.fileName = prev[idx].fileName
+        clone[idx] = merged
         return clone
       }
       return [...prev, t]
@@ -278,12 +282,15 @@ export function useRoom(roomId: string, deviceId: string, nickname: string): Use
       mockRef.current?.sendFile(peerDeviceId, file, peersRef.current)
       return
     }
-    managerRef.current?.sendFile(peerDeviceId, file).catch(err => {
+    // 提前生成真实 fileId，透传给底层 → 占位条目与后续 progress/complete 归一到同一行，
+    // 避免出现一条永远「等待」的孤儿占位记录。
+    const fileId = uuidv4()
+    managerRef.current?.sendFile(peerDeviceId, file, fileId).catch(err => {
       setErrorMessage((err as Error).message)
     })
     const peer = peersRef.current.find(p => p.deviceId === peerDeviceId)
     upsertTransfer({
-      id: 'pending-' + Date.now(),
+      id: fileId,
       direction: 'send',
       peerDeviceId,
       peerNickname: peer?.nickname ?? peerDeviceId,
