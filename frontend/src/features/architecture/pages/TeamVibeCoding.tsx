@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import {
   ArrowLeft, Users, Sparkles, ListChecks, FileText, Layers, Bot, Boxes, Route, ShieldCheck,
   Wrench, ScrollText, BookOpen, GitMerge, Workflow, ClipboardCheck, Database, Cpu, Library, GitFork,
-  Plug, Terminal, MousePointer2, PackageCheck, FileCode2,
+  Plug, Terminal, MousePointer2, PackageCheck, FileCode2, Blocks,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -128,6 +128,14 @@ const decisions: Decision[] = [
     rejected: [{ name: '整份覆盖（一个大 save）', reason: 'AI 须每次完美重述全量，一处幻觉即整体静默损坏' }],
   },
 ]
+
+// 项目个性化规范怎么承载——plugin 少而稳，个性化走项目内配置 + 就近覆盖。
+const pluginShape: Decision = {
+  topic: '项目个性化规范怎么承载',
+  chosen: { name: '项目内配置 + 通用 plugin 消费（就近覆盖）', reason: '个性化是「配置数据」不是「新插件」；加项目零成本、通用层不动、扩展隔离' },
+  fallback: { name: '领域 / 语言 plugin 叠加', reason: '仅当个性化是真正的「规则逻辑 / 检查」而非配置值时，才单独做一层可选 plugin' },
+  rejected: [{ name: '每个项目一个 plugin', reason: 'N 项目 N 插件 → 分发 / 版本 / 安装爆炸；配置值不该用插件承载' }],
+}
 
 // 落地路线图：覆盖率是结果不是目标，每阶段用「能否复现」作可度量的退出门槛。
 const roadmap: { tag: string; risk: string; guard: string }[] = [
@@ -294,6 +302,25 @@ export function TeamVibeCoding() {
             </div>
           </CardContent>
         </Card>
+      </Section>
+
+      {/* 规范分层与扩展 */}
+      <Section icon={Blocks} title="规范分层与扩展：通用稳、个性化就近覆盖" subtitle="像 ESLint extends+overrides / .editorconfig cascade——通用层给默认，项目层给覆盖，越靠近项目越优先">
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <VFlow steps={[
+              { icon: ScrollText, title: '① 通用 plugin（基线）', desc: 'team-standards：跨项目铁律 + 机制 + 默认值；改这里全局生效', tone: 'primary' },
+              { icon: Wrench, title: '② 领域 plugin（可选）', desc: 'java / 后端等专属；仅当是「规则逻辑」才建（已有 java-coding-standards…）', tone: 'muted' },
+              { icon: FileCode2, title: '③ 项目内配置（覆盖）', desc: '.editorconfig / 项目根 CLAUDE.md·.cursor/rules：个性化「值 / 禁用 / 覆盖」随仓库走', tone: 'accent' },
+            ]} />
+            <p className="text-xs text-[var(--color-muted-foreground)]">
+              合并裁决：<b className="text-[var(--color-foreground)]">项目 &gt; 领域 &gt; 通用</b>，同一规则键就近覆盖；
+              <b className="text-[var(--color-foreground)]">约定位置就近发现</b>（项目根 .ai/standards / .editorconfig / CLAUDE.md），加新项目只在它仓库放配置、零中心注册、不动 plugin。
+              机制在通用层、值在项目层——通用好改、个性化隔离。
+            </p>
+          </CardContent>
+        </Card>
+        <DecisionCard d={pluginShape} />
       </Section>
 
       {/* 多 Agent 流水线 */}
