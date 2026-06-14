@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useClaudeChatSocket, type UseClaudeChatSocket } from '../hooks/useClaudeChatSocket'
 import { listSessions } from '../api'
@@ -14,6 +14,41 @@ interface FloatPos {
 interface FloatSize {
   w: number
   h: number
+}
+
+/** 悬浮窗形态持久化：刷新后恢复「上次是否弹出 / 最小化 / 位置 / 尺寸」。 */
+const FLOAT_STATE_KEY = 'kai-toolbox:claude-chat:float-state'
+const DEFAULT_POS: FloatPos = { x: 12, y: 84 }
+const DEFAULT_SIZE: FloatSize = { w: 360, h: 520 }
+
+interface PersistedFloat {
+  floating: boolean
+  minimized: boolean
+  pos: FloatPos
+  size: FloatSize
+}
+
+function loadFloatState(): PersistedFloat | null {
+  try {
+    const raw = localStorage.getItem(FLOAT_STATE_KEY)
+    if (!raw) return null
+    const o = JSON.parse(raw) as Partial<PersistedFloat>
+    if (typeof o?.floating !== 'boolean') return null
+    const posOk = o.pos && typeof o.pos.x === 'number' && typeof o.pos.y === 'number'
+    const sizeOk = o.size && typeof o.size.w === 'number' && typeof o.size.h === 'number'
+    // 视口可能变小，轻量夹取保证至少标题栏/气泡可点到
+    const pos = posOk
+      ? { x: Math.max(0, Math.min(o.pos!.x, window.innerWidth - 48)), y: Math.max(0, Math.min(o.pos!.y, window.innerHeight - 48)) }
+      : DEFAULT_POS
+    return {
+      floating: o.floating,
+      minimized: !!o.minimized,
+      pos,
+      size: sizeOk ? { w: o.size!.w, h: o.size!.h } : DEFAULT_SIZE,
+    }
+  } catch {
+    return null
+  }
 }
 
 interface ChatRuntime {
@@ -54,12 +89,24 @@ export function useChatRuntime(): ChatRuntime {
  * 一旦激活即常驻，跨路由不卸载，保证 WS 与会话状态延续。
  */
 export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
-  const [active, setActive] = useState(false)
-  const [floating, setFloating] = useState(false)
-  const [minimized, setMinimized] = useState(false)
-  const [pos, setPos] = useState<FloatPos>({ x: 12, y: 84 })
-  const [size, setSize] = useState<FloatSize>({ w: 360, h: 520 })
+  // 读一次本地持久化的悬浮窗形态（刷新后恢复）
+  const persisted = useMemo(loadFloatState, [])
+  // 上次处于弹出态 → 初始即激活引擎，否则 chat 为 null 悬浮窗仍不渲染
+  const [active, setActive] = useState(() => persisted?.floating === true)
+  const [floating, setFloating] = useState(() => persisted?.floating ?? false)
+  const [minimized, setMinimized] = useState(() => persisted?.minimized ?? false)
+  const [pos, setPos] = useState<FloatPos>(() => persisted?.pos ?? DEFAULT_POS)
+  const [size, setSize] = useState<FloatSize>(() => persisted?.size ?? DEFAULT_SIZE)
   const activate = useCallback(() => setActive(true), [])
+
+  // 形态变化即写回本地（节流意义不大，状态变更频率低）
+  useEffect(() => {
+    try {
+      localStorage.setItem(FLOAT_STATE_KEY, JSON.stringify({ floating, minimized, pos, size }))
+    } catch {
+      // 忽略隐私模式/配额异常
+    }
+  }, [floating, minimized, pos, size])
   const location = useLocation()
   // 记住进入会话页前最后访问的非会话路由，弹出悬浮窗时回到这里（而非每次回首页）
   const lastRouteRef = useRef('/')
