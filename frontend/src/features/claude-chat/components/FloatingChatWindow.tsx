@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { List, Loader2, Maximize2, MessageSquare, Minus, Plus, Send, Shield, ShieldCheck, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, List, Loader2, Maximize2, MessageSquare, Minus, Plus, Send, Shield, ShieldCheck, X } from 'lucide-react'
 import { CHAT_ROUTE, useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { MessageList } from './MessageList'
 import { SessionList } from './SessionList'
 import { PermissionDialog } from './PermissionDialog'
 import { QuestionDialog } from './QuestionDialog'
 import { AttachmentChips } from './AttachmentChips'
+import { VoiceInputButton } from './VoiceInputButton'
 import { listSessions, uploadAttachment, type UploadedAttachment } from '../api'
-import type { Engine, PermissionMode } from '../types'
+import type { ChatItem, Engine, PermissionMode } from '../types'
 
 const MAX_ATTACHMENTS = 10
 const MIN_MARGIN = 8
@@ -32,6 +33,16 @@ function engineName(e: Engine): string {
   return e === 'codex' ? 'Codex' : e === 'gemini' ? 'Gemini' : 'Claude'
 }
 
+/** 由会话状态推导「进度文案 + 是否活跃」：待确认 / 思考中 / 执行中 / 出错 / 空闲。 */
+function deriveStatus(items: ChatItem[], running: boolean, hasPermission: boolean, hasQuestion: boolean): { status: string; active: boolean } {
+  const last = items[items.length - 1]
+  if (hasPermission) return { status: '待确认权限', active: true }
+  if (hasQuestion) return { status: '待回答提问', active: true }
+  if (running) return { status: last?.kind === 'tool' ? '执行中…' : '思考中…', active: true }
+  if (last?.kind === 'error') return { status: '出错', active: false }
+  return { status: '空闲', active: false }
+}
+
 /**
  * 跨路由常驻的可拖拽 / 可调大小悬浮对话窗。仅在「已弹出 + 引擎已激活 + 当前不在会话页」时渲染，
  * 避免与全屏会话页双份 UI。操作的是 Context 里的同一聊天实例（同一 WS、同一会话）。
@@ -42,6 +53,8 @@ export function FloatingChatWindow() {
   const navigate = useNavigate()
   const [draft, setDraft] = useState('')
   const [showSessions, setShowSessions] = useState(false)
+  // 迷你版（默认）：只显示进度状态 + 语音/输入/发送，不铺消息流；点切换看完整对话
+  const [compact, setCompact] = useState(true)
   const [attachments, setAttachments] = useState<FloatAttachment[]>([])
   const [uploading, setUploading] = useState(0)
   const [autoApprove, setAutoApprove] = useState(() => localStorage.getItem(AUTO_APPROVE_KEY) === '1')
@@ -89,6 +102,7 @@ export function FloatingChatWindow() {
 
   // 权限/提问弹框：悬浮态下也由本组件渲染（ChatPage 已卸载），否则用户无从作答。
   const pending = chat.pending
+  const { status, active } = deriveStatus(chat.items, chat.running, pending?.kind === 'permission', pending?.kind === 'question')
   const dialogs = (
     <>
       {pending?.kind === 'permission' && (
@@ -208,13 +222,6 @@ export function FloatingChatWindow() {
   // 最小化：缩成「状态板」——不显示聊天内容，只显示进度（思考中/执行中/待确认/空闲）+ 会话别名。
   // 仍可拖动 / 点击展开；有未决决策仍渲染弹框。
   if (minimized) {
-    const last = chat.items[chat.items.length - 1]
-    let status = '空闲'
-    let active = false
-    if (pending?.kind === 'permission') { status = '待确认权限'; active = true }
-    else if (pending?.kind === 'question') { status = '待回答提问'; active = true }
-    else if (chat.running) { status = last?.kind === 'tool' ? '执行中…' : '思考中…'; active = true }
-    else if (last?.kind === 'error') { status = '出错' }
     return (
       <>
         <button
@@ -246,10 +253,11 @@ export function FloatingChatWindow() {
     )
   }
 
+  const autoHeight = compact && !showSessions // 迷你态：高度随内容自适应（不铺消息流）
   return (
     <div
       className="fixed z-50 flex flex-col overflow-hidden rounded-xl border bg-[var(--color-background)] shadow-2xl"
-      style={{ left: pos.x, top: pos.y, width: size.w, height: size.h }}
+      style={{ left: pos.x, top: pos.y, width: size.w, height: autoHeight ? undefined : size.h, maxHeight: autoHeight ? '70vh' : undefined }}
     >
       {/* 标题栏 = 拖拽手柄 */}
       <header
@@ -270,6 +278,13 @@ export function FloatingChatWindow() {
             className={`rounded p-1 hover:bg-[var(--color-background)] ${showSessions ? 'bg-[var(--color-background)]' : ''}`}>
             <List className="size-4" />
           </button>
+          {!showSessions && (
+            <button type="button" onClick={() => setCompact(c => !c)}
+              aria-label={compact ? '展开完整对话' : '收起为迷你'} title={compact ? '展开看完整对话' : '收起为迷你（只看进度）'}
+              className="rounded p-1 hover:bg-[var(--color-background)]">
+              {compact ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
+            </button>
+          )}
           <button type="button" onClick={() => navigate(CHAT_ROUTE)} aria-label="展开为全屏" title="展开为全屏"
             className="rounded p-1 hover:bg-[var(--color-background)]">
             <Maximize2 className="size-4" />
@@ -313,13 +328,24 @@ export function FloatingChatWindow() {
         </div>
       )}
 
-      {/* 会话列表 ↔ 消息流，二选一 */}
+      {/* 会话列表 / 迷你状态板 / 完整消息流，三选一 */}
       {showSessions ? (
         <div className="flex-1 overflow-y-auto">
           <SessionList
             currentSessionId={chat.sessionId}
             onSwitch={id => { chat.switchTo(id); setShowSessions(false) }}
           />
+        </div>
+      ) : compact ? (
+        // 迷你版：不铺消息，只显示当前进度
+        <div className="flex flex-col items-center justify-center gap-2 px-4 py-6 text-center">
+          <span className={`flex size-12 items-center justify-center rounded-full ${active
+            ? 'bg-[var(--color-primary)]/15 text-[var(--color-primary)]'
+            : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'}`}>
+            {active ? <Loader2 className="size-6 animate-spin" /> : <MessageSquare className="size-6" />}
+          </span>
+          <span className={`text-sm ${pending ? 'font-medium text-amber-600 dark:text-amber-400' : ''}`}>{status}</span>
+          <span className="text-[11px] text-[var(--color-muted-foreground)]">点 ⌄ 看完整对话，或 ⤢ 全屏</span>
         </div>
       ) : (
         <MessageList items={chat.items} running={chat.running} onFork={chat.forkSession} engineLabel={engineLabel} />
@@ -340,6 +366,10 @@ export function FloatingChatWindow() {
           />
         )}
         <div className="flex items-end gap-2 p-2">
+          <VoiceInputButton
+            disabled={chat.running}
+            onText={t => setDraft(d => (d.trim() ? `${d} ${t}` : t))}
+          />
           <textarea
             className="max-h-24 min-h-[2.25rem] flex-1 resize-none rounded-lg border bg-[var(--color-background)] px-2 py-1.5 text-sm"
             placeholder="发消息 / 粘贴图片…（Shift+Enter 发送）"
@@ -362,7 +392,8 @@ export function FloatingChatWindow() {
       </div>
       )}
 
-      {/* 右下角缩放手柄 */}
+      {/* 右下角缩放手柄（仅完整态，迷你态高度自适应无需缩放） */}
+      {!autoHeight && (
       <div
         onPointerDown={onResizeDown}
         onPointerMove={onResizeMove}
@@ -374,6 +405,7 @@ export function FloatingChatWindow() {
           <path d="M9 1 L1 9 M9 5 L5 9" stroke="currentColor" strokeWidth="1.2" fill="none" />
         </svg>
       </div>
+      )}
 
       {dialogs}
     </div>
