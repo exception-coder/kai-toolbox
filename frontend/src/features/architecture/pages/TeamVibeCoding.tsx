@@ -320,6 +320,21 @@ export function TeamVibeCoding() {
           </CardContent>
         </Card>
         <DecisionCard d={pluginShape} />
+
+        {/* 个性化规则放 MCP 知识库：登记 vs 执行 */}
+        <Card className="border-dashed">
+          <CardContent className="space-y-2 p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Database className="h-4 w-4 text-[var(--color-primary)]" /> 项目个性化规则放 ② MCP 知识库？统一登记可以，软硬分流执行
+            </div>
+            <div className="space-y-1 text-xs">
+              <LayerRow k="登记源" v="集中在 ② MCP 知识库、按项目登记 —— 一处可改可查，满足统一管理" />
+              <LayerRow k="软规则" v="命名 / 架构约定 / 业务倾向：AI 运行时查 MCP 即用，建议性、查到即遵守" />
+              <LayerRow k="硬约束" v="编码 / 格式 / lint：MCP 登记值供统一管理，执行仍靠项目侧 hook·CI 强制 + 探测兜底 —— MCP 是查询通道、给不了拦截力，不能当唯一防线" tone="real" />
+              <LayerRow k="原则" v="MCP = 规则中央登记与分发；强制留在确定性点（hook/CI）。LLM 提议、代码裁决" />
+            </div>
+          </CardContent>
+        </Card>
       </Section>
 
       {/* 多 Agent 流水线 */}
