@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import {
   ArrowLeft, Users, Sparkles, ListChecks, FileText, Layers, Bot, Boxes, Route, ShieldCheck,
   Wrench, ScrollText, BookOpen, GitMerge, Workflow, ClipboardCheck, Database, Cpu, Library, GitFork,
-  Plug, Terminal, MousePointer2, PackageCheck, FileCode2, Blocks, Repeat,
+  Plug, Terminal, MousePointer2, PackageCheck, FileCode2, Blocks, Repeat, Link2,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -353,6 +353,40 @@ export function TeamVibeCoding() {
             <p className="text-xs text-[var(--color-muted-foreground)]">
               跑通即成<b className="text-[var(--color-foreground)]">飞轮</b>：查回（②）越准 → 生成越合规 → 拦截 / 返工越少；每次新知识回流 ②③ → 下次查回更准。
               规则<b className="text-[var(--color-foreground)]">集中一处改、全员全项目即时生效</b>；确定性护栏（① hook + CI）<b className="text-[var(--color-foreground)]">贯穿全程</b>，把 LLM 的不确定性关进笼子——这就是「人定义需求、AI 生产、人验收」的实际跑法。
+            </p>
+          </CardContent>
+        </Card>
+      </Section>
+
+      {/* 三库调用关系与使用教程 */}
+      <Section icon={Link2} title="三库怎么连、怎么用（调用关系 + 使用教程）" subtitle="已落地三个 repo：team-standards(规则+hook) · ai-knowledge-base(知识+MCP) · cross-project-topology(拓扑)">
+        <Card>
+          <CardContent className="space-y-2 p-4">
+            <div className="text-sm font-medium">调用关系（运行时谁调谁）</div>
+            <HFlow steps={[
+              { icon: MousePointer2, title: '编程工具', desc: 'Claude Code / Codex / Cursor', tone: 'primary' },
+              { icon: ScrollText, title: '① 通用 hook', desc: 'team-standards，写码 / 提交时触发' },
+              { icon: Plug, title: '② MCP 查回', desc: 'kb_get_project_rules(项目名)' },
+              { icon: Database, title: '知识库 rules.md', desc: '硬约束 + 软规则单一源', tone: 'accent' },
+            ]} />
+            <p className="text-xs text-[var(--color-muted-foreground)]">
+              跨项目需求时，AI / hook 另查 <b className="text-[var(--color-foreground)]">③ cross-project-topology</b>（调用链 / 接口对照）；
+              <b className="text-[var(--color-foreground)]">MCP 缺或挂 → hook 探测兜底</b>，不阻断。项目名由 git remote / 目录名自动推导，业务项目零文件。
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <div className="text-sm font-medium">使用教程（一次性搭好 → 日常零负担）</div>
+            <VFlow steps={[
+              { icon: PackageCheck, title: 'Step 1 · 装规范', desc: '各工具安装 ① team-standards plugin（规则 + 通用 hook）', tone: 'primary' },
+              { icon: Plug, title: 'Step 2 · 起查回服务', desc: 'ai-knowledge-base/mcp 跑 npm install && npm run build；在工具 .mcp.json 注册 node dist/server.js（带 KB_ROOT）' },
+              { icon: FileCode2, title: 'Step 3 · 登记项目', desc: '拷 projects/_template 为 projects/<项目名>，填 rules.md（编码 / 约定），INDEX 登记一行' },
+              { icon: Bot, title: 'Step 4 · 日常编码', desc: '业务项目里发起需求 → hook 自动 kb_get_project_rules(项目名) → 按规则生成 + 写时 / 提交校验' },
+              { icon: GitFork, title: 'Step 5 · 跨项目', desc: '涉及多项目时，查 / 登记 ③ cross-project-topology', tone: 'accent' },
+            ]} />
+            <p className="text-xs text-[var(--color-muted-foreground)]">
+              Step 1~3 一次性搭建；之后每个新项目只做 Step 3（加一个 rules.md）。日常 Step 4 全自动，开发者无感。
             </p>
           </CardContent>
         </Card>
