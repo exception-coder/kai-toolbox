@@ -426,7 +426,7 @@ export function ChatPage() {
 
       {/* 底部输入：白色悬浮输入条 + 主色上边框 + 顶部阴影，在灰画布上明显托起 */}
       {chat.sessionId && (
-        <div className="border-t-2 border-[var(--color-primary)]/35 bg-[var(--color-background)] shadow-[0_-3px_12px_-4px_rgba(0,0,0,0.14)]">
+        <div className="border-t-2 border-[var(--color-primary)]/35 bg-gradient-to-r from-[var(--color-primary)]/20 to-[var(--color-primary)]/6 shadow-[0_-3px_12px_-4px_rgba(0,0,0,0.14)]">
           <AttachmentChips
             items={attachments}
             uploading={uploading}
