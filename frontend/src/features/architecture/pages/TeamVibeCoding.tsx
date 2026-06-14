@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import {
   ArrowLeft, Users, Sparkles, ListChecks, FileText, Layers, Bot, Boxes, Route, ShieldCheck,
   Wrench, ScrollText, BookOpen, GitMerge, Workflow, ClipboardCheck, Database, Cpu, Library, GitFork,
+  Plug, Terminal, MousePointer2, PackageCheck,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -58,6 +59,13 @@ const repoLayers: {
     who: '团队沉淀，可并入①或独立成库',
     real: '方法论「五件套」里的 Prompt 库 + Agent 库 + 需求库',
   },
+]
+
+// 一份规范源 → 导出各编程工具吃的格式，同事用哪个工具都吃同一套。
+const toolTargets: { icon: typeof Users; name: string; how: string }[] = [
+  { icon: Bot, name: 'Claude Code', how: '装成 plugin：skill 自动触发 + hook 在提交期拦截（team-standards 现成形态）' },
+  { icon: Terminal, name: 'Codex', how: '导出为 AGENTS.md / 项目根规则文件，作为统一上下文注入' },
+  { icon: MousePointer2, name: 'Cursor', how: '同一份源导出为 .cursor/rules/*.mdc，规则随项目自动生效' },
 ]
 
 function LayerRow({ k, v, tone }: { k: string; v: string; tone?: 'real' }) {
@@ -227,6 +235,37 @@ export function TeamVibeCoding() {
           一句话：<b className="text-[var(--color-foreground)]">① 放「怎么做」、② 放「是什么」、③ 放「项目间怎么连」、④ 放「可复用的提问与编排」</b>。
           新项目落地 = 装上①（规范不重搭）→ 新建一个②（该项目知识库）→ 有跨项目调用才登记③。规则不掺业务、业务不掺跨项目，AI 检索时各取所需、互不串味。
         </p>
+      </Section>
+
+      {/* 分发与导入 */}
+      <Section icon={Plug} title="分发与导入：一份规范源，多工具适配" subtitle="同事用 Claude Code / Codex / Cursor 都行——规范只维护一份，导出各工具吃的格式">
+        <Card>
+          <CardContent className="p-4">
+            <HFlow steps={[
+              { icon: ScrollText, title: '规范单一来源', desc: 'team-standards', tone: 'primary' },
+              { icon: GitMerge, title: '导出适配', desc: '一份源 → 多格式' },
+              { icon: Plug, title: '各工具就位', desc: '吃同一套规范', tone: 'accent' },
+            ]} />
+          </CardContent>
+        </Card>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {toolTargets.map(t => <InfoCard key={t.name} icon={t.icon} title={t.name} detail={t.how} />)}
+        </div>
+
+        {/* 明确：要单独新建几个 repo */}
+        <Card className="border-[var(--color-primary)]/40 bg-[var(--color-primary)]/5">
+          <CardContent className="space-y-2 p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <PackageCheck className="h-4 w-4 text-[var(--color-primary)]" /> 要单独新建几个 repo？真正只有 2 个
+            </div>
+            <div className="space-y-1 text-xs">
+              <LayerRow k="① 规范" v="插件/规则形态，一份源多工具导出 —— 需单独建 1 个 repo（即 team-standards）" />
+              <LayerRow k="② 知识库" v="随项目 docs/ 走，任何工具打开该项目即可读 —— 不单独建 repo" />
+              <LayerRow k="③ 拓扑" v="独立共享 repo，被各项目引用 —— 需单独建 1 个 repo（即 kpay-pos-topology）" />
+              <LayerRow k="第一步" v="把①装好，向团队讲清「这插件管什么、何时自动触发」，再逐步铺②③" tone="real" />
+            </div>
+          </CardContent>
+        </Card>
       </Section>
 
       {/* 多 Agent 流水线 */}
