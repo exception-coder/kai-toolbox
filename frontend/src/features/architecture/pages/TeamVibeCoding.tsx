@@ -311,12 +311,11 @@ export function TeamVibeCoding() {
             <VFlow steps={[
               { icon: ScrollText, title: '① 通用 plugin（基线）', desc: 'team-standards：跨项目铁律 + 机制 + 默认值；改这里全局生效', tone: 'primary' },
               { icon: Wrench, title: '② 领域 plugin（可选）', desc: 'java / 后端等专属；仅当是「规则逻辑」才建（已有 java-coding-standards…）', tone: 'muted' },
-              { icon: FileCode2, title: '③ 项目内配置（覆盖）', desc: '.editorconfig / 项目根 CLAUDE.md·.cursor/rules：个性化「值 / 禁用 / 覆盖」随仓库走', tone: 'accent' },
+              { icon: FileCode2, title: '③ 项目内配置（可选覆盖）', desc: '.editorconfig / 构建配置 / CLAUDE.md 显式固定个性化值；不放则探测+默认兜底，文件非必备', tone: 'accent' },
             ]} />
             <p className="text-xs text-[var(--color-muted-foreground)]">
-              合并裁决：<b className="text-[var(--color-foreground)]">项目 &gt; 领域 &gt; 通用</b>，同一规则键就近覆盖；
-              <b className="text-[var(--color-foreground)]">约定位置就近发现</b>（项目根 .ai/standards / .editorconfig / CLAUDE.md），加新项目只在它仓库放配置、零中心注册、不动 plugin。
-              机制在通用层、值在项目层——通用好改、个性化隔离。
+              合并裁决：<b className="text-[var(--color-foreground)]">项目 &gt; 领域 &gt; 通用</b>，就近覆盖，<b className="text-[var(--color-foreground)]">缺哪层下一层兜底</b>——多数项目零配置（靠探测 + 通用默认），仅个别需个性化时才按需放配置，<b className="text-[var(--color-foreground)]">配置文件非必备</b>。
+              约束的是「按真实值生成 + 校验」这个<b className="text-[var(--color-foreground)]">行为</b>，不绑定某个文件存在；约定位置就近发现、零中心注册、不动 plugin。机制在通用层、值在项目层——通用好改、个性化隔离。
             </p>
           </CardContent>
         </Card>
