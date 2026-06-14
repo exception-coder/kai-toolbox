@@ -337,15 +337,12 @@ export function FloatingChatWindow() {
           />
         </div>
       ) : compact ? (
-        // 迷你版：不铺消息，只显示当前进度
-        <div className="flex flex-col items-center justify-center gap-2 px-4 py-6 text-center">
-          <span className={`flex size-12 items-center justify-center rounded-full ${active
-            ? 'bg-[var(--color-primary)]/15 text-[var(--color-primary)]'
-            : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'}`}>
-            {active ? <Loader2 className="size-6 animate-spin" /> : <MessageSquare className="size-6" />}
-          </span>
-          <span className={`text-sm ${pending ? 'font-medium text-amber-600 dark:text-amber-400' : ''}`}>{status}</span>
-          <span className="text-[11px] text-[var(--color-muted-foreground)]">点 ⌄ 看完整对话，或 ⤢ 全屏</span>
+        // 迷你版：一行小状态（不铺消息），空闲时就一个小图标，尽量不占地
+        <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--color-muted-foreground)]">
+          {active
+            ? <Loader2 className="size-4 shrink-0 animate-spin text-[var(--color-primary)]" />
+            : <MessageSquare className="size-4 shrink-0" />}
+          <span className={pending ? 'font-medium text-amber-600 dark:text-amber-400' : ''}>{status}</span>
         </div>
       ) : (
         <MessageList items={chat.items} running={chat.running} onFork={chat.forkSession} engineLabel={engineLabel} />
