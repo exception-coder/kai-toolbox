@@ -355,8 +355,24 @@ export function FloatingChatWindow() {
         <MessageList items={chat.items} running={chat.running} onFork={chat.forkSession} engineLabel={engineLabel} />
       ))}
 
-      {/* 精简输入区（会话列表展开时隐藏） */}
-      {!showSessions && (
+      {/* 迷你态输入：只一个语音按钮，识别后直接发送（不显示输入框/发送按钮，最简） */}
+      {!showSessions && compact && (
+        <div className="flex items-center justify-center gap-3 border-t p-2.5">
+          <VoiceInputButton
+            disabled={chat.running}
+            onText={t => { const x = t.trim(); if (x && !chat.running) chat.send(x) }}
+          />
+          {chat.running ? (
+            <button type="button" onClick={chat.interrupt} aria-label="中断"
+              className="rounded-lg border px-3 py-1.5 text-xs">中断</button>
+          ) : (
+            <span className="text-xs text-[var(--color-muted-foreground)]">点麦克风说话，识别后自动发送</span>
+          )}
+        </div>
+      )}
+
+      {/* 完整态输入区（会话列表展开时隐藏） */}
+      {!showSessions && !compact && (
       <div className="border-t">
         {(attachments.length > 0 || uploading > 0) && (
           <AttachmentChips
