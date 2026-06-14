@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import {
   ArrowLeft, Users, Sparkles, ListChecks, FileText, Layers, Bot, Boxes, Route, ShieldCheck,
   Wrench, ScrollText, BookOpen, GitMerge, Workflow, ClipboardCheck, Database, Cpu, Library, GitFork,
-  Plug, Terminal, MousePointer2, PackageCheck, FileCode2, Blocks,
+  Plug, Terminal, MousePointer2, PackageCheck, FileCode2, Blocks, Repeat,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -333,6 +333,27 @@ export function TeamVibeCoding() {
               <LayerRow k="硬约束" v="编码 / 格式 / lint：MCP 登记值查回即用；强制由 ① plugin 通用 hook（全局装一次、不碰每个项目）校验·拦截 + MCP 缺时探测兜底" tone="real" />
               <LayerRow k="原则" v="强制点在通用 hook（全局一次）、规则集中在 MCP 查回 —— 不在每个项目放文件，仍有确定性拦截力。LLM 提议、代码裁决" />
             </div>
+          </CardContent>
+        </Card>
+      </Section>
+
+      {/* 端到端编码流程：三库如何协作 */}
+      <Section icon={Workflow} title="端到端落地：一次编码怎么跑通（三库如何协作）" subtitle="把 ① 规范 plugin · ② MCP 知识库 · ③ 跨项目拓扑 串成一条带确定性护栏的编码流水线">
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <VFlow steps={[
+              { icon: FileText, title: 'Spec 先行', desc: '开发者按 ① 模板写清需求：输入 / 输出 / 异常 / 验收', tone: 'primary' },
+              { icon: Database, title: '上下文查回', desc: '① 通用 hook 自动识别项目 → 查 ② MCP 拿回规则 + 知识；跨项目需求再查 ③ 拓扑' },
+              { icon: Bot, title: 'AI 生成', desc: '按 Spec + 查回的规则生成代码（编码等硬约束按查回值）', tone: 'accent' },
+              { icon: ShieldCheck, title: '写时拦截', desc: '① hook 即时校验编码 / 分层 / 命名，违反即拦或自动修' },
+              { icon: ClipboardCheck, title: '提交前校验', desc: 'CI / hook 跑确定性检查 + 测试 + 最强模型自审，通过才能 commit' },
+              { icon: GitMerge, title: '人验收 → Merge', desc: '人做最终裁决，合并上线', tone: 'primary' },
+              { icon: Repeat, title: '知识回流（闭环）', desc: '新约定 / 术语 / bug 复盘回写 ②、跨项目调用登记 ③ → 下次查回更准', tone: 'accent' },
+            ]} />
+            <p className="text-xs text-[var(--color-muted-foreground)]">
+              跑通即成<b className="text-[var(--color-foreground)]">飞轮</b>：查回（②）越准 → 生成越合规 → 拦截 / 返工越少；每次新知识回流 ②③ → 下次查回更准。
+              规则<b className="text-[var(--color-foreground)]">集中一处改、全员全项目即时生效</b>；确定性护栏（① hook + CI）<b className="text-[var(--color-foreground)]">贯穿全程</b>，把 LLM 的不确定性关进笼子——这就是「人定义需求、AI 生产、人验收」的实际跑法。
+            </p>
           </CardContent>
         </Card>
       </Section>
