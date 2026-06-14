@@ -212,9 +212,9 @@ export function ChatPage() {
     <div className={fullscreen
       ? 'fixed inset-0 z-50 flex h-[100dvh] flex-col bg-[var(--color-background)]'
       : 'flex h-[calc(100dvh-3.5rem)] flex-col bg-[var(--color-background)]'}>
-      {/* 顶栏：浅灰底 + 下边框 + 阴影，与中部白色对话区分层 */}
-      <header className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-muted)]/70 px-3 py-2 shadow-sm">
-        <span className="max-w-[40vw] truncate font-semibold" title={currentTitle || 'Vibe Coding'}>{currentTitle || 'Vibe Coding'}</span>
+      {/* 顶栏：主色渐变底 + 主色下边框 + 阴影，随主题主色变化，与中部白色对话区分层 */}
+      <header className="flex items-center gap-2 border-b border-[var(--color-primary)]/25 bg-gradient-to-r from-[var(--color-primary)]/15 via-[var(--color-muted)]/60 to-[var(--color-muted)]/40 px-3 py-2 shadow-sm">
+        <span className="max-w-[40vw] truncate font-semibold text-[var(--color-primary)]" title={currentTitle || 'Vibe Coding'}>{currentTitle || 'Vibe Coding'}</span>
         <span className={`rounded px-1.5 py-0.5 text-[10px] ${chat.currentEngine === 'codex'
           ? 'bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-200'
           : 'border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}>
@@ -399,9 +399,9 @@ export function ChatPage() {
         </div>
       )}
 
-      {/* 底部输入：浅灰底 + 上边框 + 顶部阴影，与中部白色对话区分层 */}
+      {/* 底部输入：主色微染底 + 主色上边框 + 顶部阴影，随主题主色变化，与中部白色对话区分层 */}
       {chat.sessionId && (
-        <div className="border-t border-[var(--color-border)] bg-[var(--color-muted)]/70 shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.12)]">
+        <div className="border-t border-[var(--color-primary)]/25 bg-gradient-to-t from-[var(--color-muted)]/70 to-[var(--color-primary)]/[0.07] shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.12)]">
           <AttachmentChips
             items={attachments}
             uploading={uploading}
