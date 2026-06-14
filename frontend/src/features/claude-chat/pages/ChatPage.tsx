@@ -211,13 +211,13 @@ export function ChatPage() {
   return (
     <div className={fullscreen
       ? 'fixed inset-0 z-50 flex h-[100dvh] flex-col bg-[var(--color-background)]'
-      : 'flex h-[calc(100dvh-3.5rem)] flex-col'}>
-      {/* 顶栏 */}
-      <header className="flex items-center gap-2 border-b px-3 py-2">
+      : 'flex h-[calc(100dvh-3.5rem)] flex-col bg-[var(--color-background)]'}>
+      {/* 顶栏：浅灰底 + 下边框 + 阴影，与中部白色对话区分层 */}
+      <header className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-muted)]/70 px-3 py-2 shadow-sm">
         <span className="max-w-[40vw] truncate font-semibold" title={currentTitle || 'Vibe Coding'}>{currentTitle || 'Vibe Coding'}</span>
         <span className={`rounded px-1.5 py-0.5 text-[10px] ${chat.currentEngine === 'codex'
           ? 'bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-200'
-          : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'}`}>
+          : 'border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}>
           {engineName(chat.currentEngine)}
         </span>
         <span className="text-xs text-[var(--color-muted-foreground)]">{stateLabel(chat.state)}</span>
@@ -399,9 +399,9 @@ export function ChatPage() {
         </div>
       )}
 
-      {/* 底部输入 */}
+      {/* 底部输入：浅灰底 + 上边框 + 顶部阴影，与中部白色对话区分层 */}
       {chat.sessionId && (
-        <div className="border-t">
+        <div className="border-t border-[var(--color-border)] bg-[var(--color-muted)]/70 shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.12)]">
           <AttachmentChips
             items={attachments}
             uploading={uploading}
