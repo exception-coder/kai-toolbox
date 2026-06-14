@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { ComponentType } from 'react'
 import type { LucideProps } from 'lucide-react'
-import { Workflow, BotMessageSquare, Gauge, ArrowRight } from 'lucide-react'
+import { Workflow, BotMessageSquare, Gauge, Users, ArrowRight } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 
@@ -30,6 +30,14 @@ const entries: Entry[] = [
     title: '前端性能优化（首页秒开）',
     desc: '首屏慢的根因是没分割而非没缓存：路由级 React.lazy 把首屏 JS 从约 17MB 降到 542KB；两级 HTTP 缓存（hash 资源 immutable + index.html no-cache）让重复打开免下载；PWA 可安装但故意不接管缓存。',
     tags: ['React.lazy 代码分割', 'Suspense', 'HTTP 缓存', 'PWA'],
+    ready: true,
+  },
+  {
+    to: '/tools/architecture/team-vibe-coding',
+    icon: Users,
+    title: '团队 Vibe Coding 落地规范（方法论）',
+    desc: '把研发从「人写代码」升级为「人定义需求 / AI 生产 / 人验收」：五大核心原则、SDD 规格驱动流水线、五大支柱、多 Agent 流水线、关键选型取舍、带可度量门槛的路线图、反模式护栏。核心是用确定性护栏关住 LLM 的不确定性。',
+    tags: ['SDD 规格驱动', '确定性优先', '多 Agent 流水线', '知识库 RAG'],
     ready: true,
   },
 ]

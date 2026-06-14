@@ -1,0 +1,203 @@
+import { Link } from 'react-router-dom'
+import {
+  ArrowLeft, Users, Sparkles, ListChecks, FileText, Layers, Bot, Boxes, Route, ShieldCheck,
+  Wrench, ScrollText, BookOpen, GitMerge, Workflow, ClipboardCheck, Database, Cpu, Gauge,
+} from 'lucide-react'
+import { Card, CardContent } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Section, HFlow, VFlow, InfoCard, DecisionCard, GuardCard, CodeBlock, type Decision } from '../components/arch-ui'
+
+// 五大核心原则：把「买工具」纠正为「建工作流 + 用确定性关住 LLM 的不确定性」。
+const principles: { icon: typeof Users; title: string; detail: string }[] = [
+  { icon: Workflow, title: '工作流 > 工具', detail: '可复制的 SDD / Prompt 库 / 知识库 / 流水线，胜过人手一个 Cursor。买模型最容易，建工作流最难。' },
+  { icon: FileText, title: '文档先行（SDD）', detail: 'Spec → Task → 生成 → Review → Merge。禁止「帮我写个登录」式裸提——先把输入/输出/异常写清，再让 AI 编码。' },
+  { icon: ShieldCheck, title: '确定性优先（LLM-last）', detail: '能用程序固定/计算/校验的就别交给 LLM。LLM 输出一律当不可信入参，由代码校验+归一化——「LLM 提议，代码裁决」。' },
+  { icon: Database, title: '知识下沉（RAG）', detail: 'AI 不懂公司代码就只是初级开发。把设计/接口/库表/规范/历史项目/故障复盘向量化供给，AI 才像老员工。' },
+  { icon: ScrollText, title: '护栏即代码', detail: '规范不是躺在 wiki 里靠自觉，而是写成可执行的 hook / skill，在写码、提交时自动触发拦截。' },
+]
+
+// GPT 的 5 阶段重构为 5 个并行建设的能力支柱（capability，非纯线性）。
+const pillars: { icon: typeof Users; title: string; detail: string }[] = [
+  { icon: Wrench, title: '① 统一工具栈', detail: '主力 Cursor / Claude Code + 补全 Copilot + 本地 Ollama。统一模型版本、Prompt 规范、目录结构、编码规范——否则各自野蛮生长。' },
+  { icon: FileText, title: '② SDD 规范', detail: 'Spec / Task 模板库 + 验收口径。需求先成文，再拆任务，最后才生成代码。' },
+  { icon: BookOpen, title: '③ Prompt / 规范库', detail: '按语言/场景（java / vue / sql / test / review / arch）版本化共享；进一步固化为自动触发的 skill / 规则。' },
+  { icon: Bot, title: '④ 多 Agent 流水线', detail: '架构 / 开发 / Review / QA 四类 Agent，各有明确的输入与输出契约，串成可复现流水线。' },
+  { icon: Database, title: '⑤ 知识库 RAG', detail: '团队知识源向量化后供给 AI——最重要、也最被低估。决定 AI 是「通用初级」还是「懂业务的老员工」。' },
+]
+
+const specTemplate = [
+  '# 用户登录                # ← Spec：先成文，无 Spec 不生成代码',
+  '',
+  '## 输入',
+  '- username: string       # 账号',
+  '- password: string       # 明文，前端不落库',
+  '',
+  '## 输出',
+  '- token: JWT             # 成功返回，有效期 2h',
+  '',
+  '## 异常（确定性分支，代码裁决，不靠 LLM 自由发挥）',
+  '- 密码错误 → 401  AUTH_BAD_CREDENTIAL',
+  '- 账号冻结 → 403  AUTH_FROZEN',
+  '- 连续失败 5 次 → 锁定 15min',
+  '',
+  '## 验收',
+  '- 单测覆盖三条异常分支 + 正常路径',
+  '',
+  '# 反例：「帮我写个登录功能」——无契约、无异常口径，效果差很多。',
+].join('\n')
+
+const decisions: Decision[] = [
+  {
+    topic: '规范的载体',
+    chosen: { name: '可执行 hook / skill（写码时自动触发）', reason: '规范在编辑/提交瞬间拦截，不可绕过；规范即代码、可版本化、可演进' },
+    rejected: [{ name: '静态 Markdown 文档', reason: '躺在 wiki 靠自觉，半年后没人看；新人不知道、老人不遵守' }],
+  },
+  {
+    topic: '知识供给方式',
+    chosen: { name: 'RAG 检索注入 + 项目画像', reason: '按需把相关设计/库表/历史代码喂给 AI；上下文精准、可随项目更新' },
+    fallback: { name: '长 Prompt 全量塞', reason: '小项目临时可用，但易超窗、贵、检索不到细节' },
+    rejected: [{ name: '微调专用模型', reason: '成本高、知识更新慢、跟不上代码演进；多数团队不划算' }],
+  },
+  {
+    topic: 'Agent 编排',
+    chosen: { name: '确定性脚本编排（流水线固定）', reason: '步骤、交接、校验点写死在程序里，可复现、可测试、可回归' },
+    rejected: [{ name: '全靠模型自由编排', reason: '每次路径不同、不可复现，出问题难定位，无法纳入 CI' }],
+  },
+  {
+    topic: 'AI 写操作粒度',
+    chosen: { name: '实体级 + 按 id 幂等', reason: '爆炸半径锁死单条，AI 幻觉只影响它显式要改的那一条' },
+    rejected: [{ name: '整份覆盖（一个大 save）', reason: 'AI 须每次完美重述全量，一处幻觉即整体静默损坏' }],
+  },
+]
+
+// 落地路线图：覆盖率是结果不是目标，每阶段用「能否复现」作可度量的退出门槛。
+const roadmap: { tag: string; risk: string; guard: string }[] = [
+  { tag: 'P1', risk: '1 月 · AI 辅助编码 · 覆盖 ~20%', guard: '收益：补全 / 生成单测 / 生成文档。退出门槛：全员工具就位 + Spec 模板跑通 1 个真实需求' },
+  { tag: 'P2', risk: '2~3 月 · AI 参与开发 · ~50%', guard: '收益：CRUD / 接口 / 测试自动生成。退出门槛：Prompt 库 + 规范 skill 上线，新接口默认走 SDD' },
+  { tag: 'P3', risk: '3~6 月 · Agent 开发模式 · ~70%', guard: '收益：需求 → 代码半自动。退出门槛：四 Agent 流水线打通 1 条完整业务线' },
+  { tag: 'P4', risk: '6~12 月 · 企业级稳态', guard: '需求库 + Prompt 库 + 知识库 + Agent 库 + 规范 五件套；RAG 接入历史项目，Review 由 AI 首过、人复核' },
+]
+
+// 常见失败模式 → 确定性护栏。光看 demo 看不出来，落地半年才暴露。
+const antiPatterns: { tag: string; risk: string; guard: string }[] = [
+  { tag: '①', risk: '裸提「帮我写个登录」，效果差、返工多', guard: '强制 Spec 模板（输入/输出/异常/验收），无 Spec 不生成' },
+  { tag: '②', risk: 'AI 不懂公司代码，凭空编出不存在的接口', guard: '知识库 RAG + 项目画像，检索注入真实上下文而非臆造' },
+  { tag: '③', risk: '规范靠自觉，新人不知道、老人不遵守', guard: '写成 hook / skill，在写码/提交时自动触发拦截' },
+  { tag: '④', risk: 'LLM 幻觉静默损坏数据 / 逻辑', guard: '代码校验+归一化（LLM 提议、代码裁决）+ 实体级幂等写' },
+  { tag: '⑤', risk: '每人重复造 prompt 和轮子，风格不一', guard: '版本化共享 Prompt / 规范库，统一输出风格' },
+  { tag: '⑥', risk: '覆盖率自评虚高，demo 好看上线翻车', guard: '用「能否复现 / 能否回归」度量，而非拍脑袋百分比' },
+]
+
+export function TeamVibeCoding() {
+  return (
+    <div className="mx-auto max-w-6xl space-y-10 px-4 py-6">
+      {/* 标题 */}
+      <header className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Users className="h-6 w-6 text-[var(--color-primary)]" />
+            <h1 className="text-2xl font-bold tracking-tight">团队 Vibe Coding 落地规范</h1>
+            <Badge variant="secondary">方法论</Badge>
+          </div>
+          <Link to="/tools/architecture" className="inline-flex shrink-0 items-center gap-1.5 text-xs text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
+            <ArrowLeft className="h-3.5 w-3.5" /> 返回合集
+          </Link>
+        </div>
+        <p className="max-w-3xl text-sm text-[var(--color-muted-foreground)]">
+          团队落地 Vibe Coding 的核心<b className="text-[var(--color-foreground)]">不是给每人装 Cursor</b>，而是建立一套可复制的工作流：
+          <b className="text-[var(--color-foreground)]">SDD 规范 + Prompt 库 + 知识库 RAG + 多 Agent 流水线 + AI Review</b>，
+          把研发从「人写代码」升级为「人定义需求 → AI 生产代码 → 人验收」。难点不在买模型，而在用<b className="text-[var(--color-foreground)]">确定性护栏</b>把 LLM 的不确定性关进笼子。
+        </p>
+      </header>
+
+      {/* 心智转变 */}
+      <Section icon={Sparkles} title="心智转变：人写代码 → 人定义需求 / AI 生产 / 人验收" subtitle="但「AI 写、人审」不等于放任——规范、Spec、知识库、自动护栏是 AI 的轨道">
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <HFlow steps={[
+              { icon: Cpu, title: '传统：人写代码', desc: 'AI 仅补全', tone: 'muted' },
+              { icon: Sparkles, title: 'Vibe Coding', desc: '人定义需求 / AI 生产 / 人验收', tone: 'primary' },
+            ]} />
+            <p className="text-xs text-[var(--color-muted-foreground)]">
+              关键纠偏：LLM 只在<b className="text-[var(--color-foreground)]">真正模糊</b>的理解判断处发挥，其余（流程、校验、契约、状态分支）一律交给确定性程序。
+              LLM 的每一次输出都是<b className="text-[var(--color-foreground)]">不可信入参</b>，由代码校验后才采纳——这是整套规范的底色。
+            </p>
+          </CardContent>
+        </Card>
+      </Section>
+
+      {/* 五大核心原则 */}
+      <Section icon={ListChecks} title="五大核心原则" subtitle="区别于「堆工具」的系统性视角：先立原则，再落支柱">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {principles.map(p => <InfoCard key={p.title} icon={p.icon} title={p.title} detail={p.detail} />)}
+        </div>
+      </Section>
+
+      {/* SDD 流水线 */}
+      <Section icon={FileText} title="SDD：规格驱动开发流水线" subtitle="文档先行。每一步标注主导方——人 / 代码 / LLM，交接处都有裁决点">
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <HFlow steps={[
+              { icon: FileText, title: '需求', desc: '人', tone: 'primary' },
+              { icon: ClipboardCheck, title: 'Spec 规格', desc: '人定义 + 模板约束' },
+              { icon: ListChecks, title: 'Task 拆解', desc: '人 / 代码' },
+              { icon: Bot, title: 'AI 生成', desc: 'LLM', tone: 'accent' },
+              { icon: ShieldCheck, title: 'Review', desc: '静态检查 + AI + 人' },
+              { icon: GitMerge, title: 'Merge', desc: '人裁决', tone: 'primary' },
+            ]} />
+            <CodeBlock title="Spec 模板示例（无 Spec 不生成代码）" lang="Markdown" code={specTemplate} />
+          </CardContent>
+        </Card>
+      </Section>
+
+      {/* 五大支柱 */}
+      <Section icon={Layers} title="五大落地支柱" subtitle="GPT 的 5 阶段重构为 5 个可并行建设的能力，而非纯线性排队">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {pillars.map(p => <InfoCard key={p.title} icon={p.icon} title={p.title} detail={p.detail} />)}
+        </div>
+      </Section>
+
+      {/* 多 Agent 流水线 */}
+      <Section icon={Bot} title="多 Agent 流水线" subtitle="拆成各司其职的 Agent；每个的输出是下一个的「不可信入参」，交接处校验而非链式盲信">
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <VFlow steps={[
+              { icon: Boxes, title: '架构 Agent', desc: '需求分析 / 技术选型 / 设计方案 → design.md', tone: 'primary' },
+              { icon: Cpu, title: '开发 Agent', desc: '编码 / 重构 / 单测 → xxx.java + 测试' },
+              { icon: ShieldCheck, title: 'Review Agent', desc: '代码审查 / 安全 / 性能 → review.md' },
+              { icon: ClipboardCheck, title: 'QA Agent', desc: '测试用例 / 接口 / 边界 → test_case.md' },
+              { icon: GitMerge, title: '人验收 → 上线', desc: '最终裁决在人', tone: 'accent' },
+            ]} />
+            <p className="text-xs text-[var(--color-muted-foreground)]">
+              流水线用<b className="text-[var(--color-foreground)]">确定性脚本编排</b>（步骤、交接、校验点固定），而非让模型自由决定下一步——这样才可复现、可测试、可纳入 CI。
+            </p>
+          </CardContent>
+        </Card>
+      </Section>
+
+      {/* 选型决策 */}
+      <Section icon={Boxes} title="关键选型与取舍" subtitle="每个决策列出 ✓ 选用 · 降级备选 · ✗ 被筛除（置灰 + 原因）">
+        <div className="grid items-start gap-4 lg:grid-cols-2">
+          {decisions.map(d => <DecisionCard key={d.topic} d={d} />)}
+        </div>
+      </Section>
+
+      {/* 落地路线图 */}
+      <Section icon={Route} title="落地路线图（带可度量退出门槛）" subtitle="覆盖率是结果不是目标；每阶段用「能否复现」作门槛，避免虚高自评">
+        <div className="grid gap-3 sm:grid-cols-2">
+          {roadmap.map(r => <GuardCard key={r.tag} {...r} />)}
+        </div>
+        <p className="text-xs text-[var(--color-muted-foreground)]">
+          终态：传统开发 = 人写代码 / AI 辅助；Vibe Coding = AI 写代码 / 人审核——但人始终握着<b className="text-[var(--color-foreground)]">需求定义权与验收裁决权</b>。
+        </p>
+      </Section>
+
+      {/* 反模式 → 护栏 */}
+      <Section icon={ShieldCheck} title="反模式 → 确定性护栏" subtitle="这些坑光看 demo 发现不了，落地半年才暴露">
+        <div className="grid gap-3 sm:grid-cols-2">
+          {antiPatterns.map(a => <GuardCard key={a.tag} {...a} />)}
+        </div>
+      </Section>
+    </div>
+  )
+}

@@ -4,6 +4,7 @@ import type { FeatureManifest } from '@/shell/types'
 const ArchitectureHome = lazy(() => import('./pages/ArchitectureHome').then((m) => ({ default: m.ArchitectureHome })))
 const VibeCodingArch = lazy(() => import('./pages/VibeCodingArch').then((m) => ({ default: m.VibeCodingArch })))
 const FrontendPerfArch = lazy(() => import('./pages/FrontendPerfArch').then((m) => ({ default: m.FrontendPerfArch })))
+const TeamVibeCoding = lazy(() => import('./pages/TeamVibeCoding').then((m) => ({ default: m.TeamVibeCoding })))
 const manifest: FeatureManifest = {
   id: 'architecture',
   name: '实现原理',
@@ -16,6 +17,7 @@ const manifest: FeatureManifest = {
     { path: '/tools/architecture', element: <ArchitectureHome /> },
     { path: '/tools/architecture/vibe-coding', element: <VibeCodingArch /> },
     { path: '/tools/architecture/frontend-perf', element: <FrontendPerfArch /> },
+    { path: '/tools/architecture/team-vibe-coding', element: <TeamVibeCoding /> },
   ],
 }
 
