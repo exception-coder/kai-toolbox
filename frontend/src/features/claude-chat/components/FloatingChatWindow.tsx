@@ -231,7 +231,7 @@ export function FloatingChatWindow() {
           onPointerUp={onBubbleUp}
           aria-label={`${headerTitle} ${status}，点击展开`}
           title={`${headerTitle} · ${status}（拖动移动，点击展开）`}
-          className="fixed z-50 flex max-w-[72vw] cursor-move touch-none items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-background)] py-1.5 pl-2 pr-3.5 text-left shadow-lg"
+          className="fixed z-50 flex max-w-[72vw] cursor-move touch-none items-center gap-2 rounded-full border-2 border-[var(--color-primary)]/45 bg-[var(--color-background)] py-1.5 pl-2 pr-3.5 text-left shadow-xl ring-2 ring-[var(--color-primary)]/10"
           style={{ left: pos.x, top: pos.y }}
         >
           <span className={`flex size-7 shrink-0 items-center justify-center rounded-full ${active
@@ -256,7 +256,7 @@ export function FloatingChatWindow() {
   const autoHeight = compact && !showSessions // 迷你态：高度随内容自适应（不铺消息流）
   return (
     <div
-      className="fixed z-50 flex flex-col overflow-hidden rounded-xl border bg-[var(--color-background)] shadow-2xl"
+      className="fixed z-50 flex flex-col overflow-hidden rounded-xl border-2 border-[var(--color-primary)]/45 bg-[var(--color-background)] shadow-2xl ring-2 ring-[var(--color-primary)]/10"
       style={{ left: pos.x, top: pos.y, width: size.w, height: autoHeight ? undefined : size.h, maxHeight: autoHeight ? '70vh' : undefined }}
     >
       {/* 标题栏 = 拖拽手柄。迷你态：状态 + 关键控制（仿音乐小卡片，只一行）；完整态：别名/引擎/全部按钮。 */}
