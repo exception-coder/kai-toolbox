@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, GitCommit, List, Maximize2, Minimize2, Package, Paperclip, PictureInPicture2, Plus, RotateCw, Send, ShieldCheck, Slash, Square } from 'lucide-react'
+import { Bell, GitCommit, List, Maximize2, Minimize2, MoreHorizontal, Package, Paperclip, PictureInPicture2, Plus, RotateCw, Send, ShieldCheck, Slash, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useChatRuntime } from '../runtime/ChatRuntimeContext'
@@ -35,6 +35,28 @@ function engineName(e: Engine): string {
   return e === 'codex' ? 'Codex' : e === 'gemini' ? 'Gemini' : 'Claude'
 }
 
+/** 顶栏「更多」菜单的一项：图标 + 中文标签（+ 可选副提示），让功能一目了然。 */
+function HeaderMenuItem({ icon, label, hint, onClick }: {
+  icon: ReactNode
+  label: string
+  hint?: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--color-muted)]"
+    >
+      <span className="shrink-0 text-[var(--color-muted-foreground)]">{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm">{label}</span>
+        {hint && <span className="block truncate text-[11px] text-[var(--color-muted-foreground)]">{hint}</span>}
+      </span>
+    </button>
+  )
+}
+
 export function ChatPage() {
   const { chat, setFloating, setMinimized, getReturnRoute } = useChatRuntime()
   const navigate = useNavigate()
@@ -45,6 +67,7 @@ export function ChatPage() {
   // token 用应用内输入框收，不用 window.prompt：移动端浏览器/WebView 普遍禁用 prompt（静默返回 null），
   // 会导致“点了没反应、不弹输入框”。confirm/alert 同理改为应用内弹层 + 行内状态。
   const [showCommits, setShowCommits] = useState(false)
+  const [headerMenu, setHeaderMenu] = useState(false)
   const [restartOpen, setRestartOpen] = useState(false)
   const [restartToken, setRestartToken] = useState('')
   const [restartStatus, setRestartStatus] = useState('')
@@ -210,10 +233,10 @@ export function ChatPage() {
 
   return (
     <div className={fullscreen
-      ? 'fixed inset-0 z-50 flex h-[100dvh] flex-col bg-[var(--color-background)]'
-      : 'flex h-[calc(100dvh-3.5rem)] flex-col bg-[var(--color-background)]'}>
-      {/* 顶栏：主色渐变底 + 主色下边框 + 阴影，随主题主色变化，与中部白色对话区分层 */}
-      <header className="flex items-center gap-2 border-b border-[var(--color-primary)]/25 bg-gradient-to-r from-[var(--color-primary)]/15 via-[var(--color-muted)]/60 to-[var(--color-muted)]/40 px-3 py-2 shadow-sm">
+      ? 'fixed inset-0 z-50 flex h-[100dvh] flex-col bg-[var(--color-muted)]/40'
+      : 'flex h-[calc(100dvh-3.5rem)] flex-col bg-[var(--color-muted)]/40'}>
+      {/* 顶栏：主色渐变（彩色），与中部灰画布、底部白输入条三段分明，随主题主色变化 */}
+      <header className="flex items-center gap-2 border-b-2 border-[var(--color-primary)]/40 bg-gradient-to-r from-[var(--color-primary)]/20 to-[var(--color-primary)]/6 px-3 py-2 shadow-sm">
         <span className="max-w-[40vw] truncate font-semibold text-[var(--color-primary)]" title={currentTitle || 'Vibe Coding'}>{currentTitle || 'Vibe Coding'}</span>
         <span className={`rounded px-1.5 py-0.5 text-[10px] ${chat.currentEngine === 'codex'
           ? 'bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-200'
@@ -221,33 +244,35 @@ export function ChatPage() {
           {engineName(chat.currentEngine)}
         </span>
         <span className="text-xs text-[var(--color-muted-foreground)]">{stateLabel(chat.state)}</span>
-        <div className="ml-auto flex flex-wrap justify-end gap-1">
-          <Button variant="ghost" size="icon" onClick={popOutFloating} aria-label="弹出为悬浮窗" title="弹出为悬浮窗（离开会话页，切到其他模块时常驻显示，对话不断）">
-            <PictureInPicture2 className="size-5" />
+        <div className="ml-auto flex items-center gap-1">
+          {/* 常用：带文字标签，一眼可辨 */}
+          <Button variant="ghost" size="sm" className="gap-1" onClick={() => setPanel(p => p === 'new' ? 'none' : 'new')} aria-label="新建会话">
+            <Plus className="size-4" /> 新建
           </Button>
-          <Button variant="ghost" size="icon" onClick={() => setFullscreen(f => !f)} aria-label={fullscreen ? '退出全屏' : '全屏显示'} title={fullscreen ? '退出全屏（Esc）' : '全屏显示对话框'}>
-            {fullscreen ? <Minimize2 className="size-5" /> : <Maximize2 className="size-5" />}
+          <Button variant="ghost" size="sm" className="gap-1" onClick={() => setPanel(p => p === 'sessions' ? 'none' : 'sessions')} aria-label="会话列表">
+            <List className="size-4" /> 会话
           </Button>
-          <Button variant="ghost" size="icon" onClick={() => setPanel(p => p === 'new' ? 'none' : 'new')} aria-label="新建会话">
-            <Plus className="size-5" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => setPanel(p => p === 'sessions' ? 'none' : 'sessions')} aria-label="会话列表">
-            <List className="size-5" />
-          </Button>
-          {chat.sessionId && (
-            <Button variant="ghost" size="icon" onClick={() => setShowCommits(true)} aria-label="会话目录提交记录" title="查看当前会话目录(git 仓库)的最近提交与变更差异">
-              <GitCommit className="size-5" />
+          {/* 其余功能收进「更多」菜单，每项带中文标签，避免一排没标识的图标 */}
+          <div className="relative">
+            <Button variant="ghost" size="icon" onClick={() => setHeaderMenu(o => !o)} aria-label="更多功能" title="更多功能">
+              <MoreHorizontal className="size-5" />
             </Button>
-          )}
-          <Button variant="ghost" size="icon" onClick={() => setPanel(p => p === 'plugins' ? 'none' : 'plugins')} aria-label="插件版本与更新">
-            <Package className="size-5" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => setPanel(p => p === 'settings' ? 'none' : 'settings')} aria-label="通知设置">
-            <Bell className="size-5" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={openRestart} aria-label="一键重启后端" title="一键重启后端服务（经守护进程，应用宕机也能拉起）">
-            <RotateCw className="size-5" />
-          </Button>
+            {headerMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setHeaderMenu(false)} />
+                <div className="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-xl border bg-[var(--color-popover)] py-1 text-[var(--color-popover-foreground)] shadow-xl">
+                  <HeaderMenuItem icon={<PictureInPicture2 className="size-4" />} label="弹出悬浮窗" hint="切到其他模块常驻显示" onClick={() => { setHeaderMenu(false); popOutFloating() }} />
+                  <HeaderMenuItem icon={fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />} label={fullscreen ? '退出全屏' : '全屏显示'} onClick={() => { setHeaderMenu(false); setFullscreen(f => !f) }} />
+                  {chat.sessionId && (
+                    <HeaderMenuItem icon={<GitCommit className="size-4" />} label="提交记录" hint="当前目录 git 提交/diff" onClick={() => { setHeaderMenu(false); setShowCommits(true) }} />
+                  )}
+                  <HeaderMenuItem icon={<Package className="size-4" />} label="插件更新" hint="查看/更新双端插件" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'plugins' ? 'none' : 'plugins') }} />
+                  <HeaderMenuItem icon={<Bell className="size-4" />} label="通知设置" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'settings' ? 'none' : 'settings') }} />
+                  <HeaderMenuItem icon={<RotateCw className="size-4" />} label="重启服务" hint="经守护进程重启后端" onClick={() => { setHeaderMenu(false); openRestart() }} />
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
@@ -399,9 +424,9 @@ export function ChatPage() {
         </div>
       )}
 
-      {/* 底部输入：主色微染底 + 主色上边框 + 顶部阴影，随主题主色变化，与中部白色对话区分层 */}
+      {/* 底部输入：白色悬浮输入条 + 主色上边框 + 顶部阴影，在灰画布上明显托起 */}
       {chat.sessionId && (
-        <div className="border-t border-[var(--color-primary)]/25 bg-gradient-to-t from-[var(--color-muted)]/70 to-[var(--color-primary)]/[0.07] shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.12)]">
+        <div className="border-t-2 border-[var(--color-primary)]/35 bg-[var(--color-background)] shadow-[0_-3px_12px_-4px_rgba(0,0,0,0.14)]">
           <AttachmentChips
             items={attachments}
             uploading={uploading}

@@ -153,7 +153,7 @@ function Row({ item, onFork }: { item: ChatItem; onFork?: (sdkUuid: string) => v
     case 'assistant':
       return (
         <div className="flex flex-col items-start">
-          <div className="max-w-[90%] break-words rounded-2xl bg-[var(--color-muted)] px-4 py-2">
+          <div className="max-w-[90%] break-words rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-2 shadow-sm">
             <Markdown text={item.text} />
           </div>
           {item.text.trim() && (
