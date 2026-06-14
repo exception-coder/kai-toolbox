@@ -258,15 +258,15 @@ export function TeamVibeCoding() {
               <FileCode2 className="h-4 w-4 text-[var(--color-primary)]" /> 边界示例：项目特定约束（如文件编码 GBK / UTF-8）放哪？
             </div>
             <div className="space-y-1 text-xs">
-              <LayerRow k="规则①" v="通用铁律：AI 改代码前先【探测】项目实际编码（取样源文件 / 读构建 sourceEncoding）并据此生成，禁止擅自换；探测不到才退默认 UTF-8 —— 进 team-standards" />
-              <LayerRow k="取值·强制" v="首选自动探测（脚本/hook，遗留项目没声明也不漏）；.editorconfig / 构建配置作可选显式覆盖；生成·提交后 CI·hook 校验新文件编码，违反即拦或自动转码" tone="real" />
-              <LayerRow k="知识库②" v="不做运行时来源（探测+校验已是权威），最多人查阅备忘" />
-              <LayerRow k="为什么" v="编码是能被程序测出的确定性事实 → 别靠人声明（遗留项目没人填就翻车）；探测+校验兜底，LLM 提议、代码裁决" />
+              <LayerRow k="规则①" v="通用铁律：AI 改代码前，① plugin 的通用 hook 向 ② MCP 查回该项目编码并据此生成，禁止擅自换；MCP 未登记则探测兜底、再不行退默认 UTF-8 —— 进 team-standards" />
+              <LayerRow k="来源·强制" v="来源＝② MCP 知识库（按项目登记、查回即用，不碰业务项目）；强制＝① plugin 通用 hook（全局装一次）：生成前查回 + 生成/提交后校验编码、违反即拦或转码；MCP 缺/挂则探测兜底" tone="real" />
+              <LayerRow k="知识库②" v="正是规则单一源：按项目登记编码等约束，运行时查回 —— 不必在每个项目放文件" />
+              <LayerRow k="为什么" v="强制点在通用 hook（全局一次）不在每个项目 → 既集中管理、查回即用，又有确定性拦截力，不靠自觉" />
             </div>
             <p className="text-[11px] leading-snug text-[var(--color-muted-foreground)]">
-              两类内容、两条取值路径：<b className="text-[var(--color-foreground)]">软知识</b>（业务/术语/ER/复盘）进②，运行时经 <b className="text-[var(--color-foreground)]">MCP 按需检索</b>；
-              <b className="text-[var(--color-foreground)]">硬约束</b>（编码/构建/格式/lint）随业务仓库——AI 改代码前<b className="text-[var(--color-foreground)]">探测项目实际编码再生成（不经 MCP）</b>，生成后 CI·hook 校验兜底。
-              编码<b className="text-[var(--color-foreground)]">不靠人声明（遗留项目没人填就翻车）</b>，靠程序探测+校验，这才是确定性优先。
+              软知识与硬约束都登记在 <b className="text-[var(--color-foreground)]">② MCP 知识库</b>（单一源、查回即用，不碰每个项目）；区别在执行：
+              <b className="text-[var(--color-foreground)]">软知识</b>（业务/术语/ER）AI 查询即遵守，<b className="text-[var(--color-foreground)]">硬约束</b>（编码/格式）由 <b className="text-[var(--color-foreground)]">① 通用 hook 查回后校验·拦截</b> + MCP 缺时探测兜底。
+              规则集中、强制力在通用 hook 不靠自觉——确定性优先。
             </p>
           </CardContent>
         </Card>
@@ -311,7 +311,7 @@ export function TeamVibeCoding() {
             <VFlow steps={[
               { icon: ScrollText, title: '① 通用 plugin（基线）', desc: 'team-standards：跨项目铁律 + 机制 + 默认值；改这里全局生效', tone: 'primary' },
               { icon: Wrench, title: '② 领域 plugin（可选）', desc: 'java / 后端等专属；仅当是「规则逻辑」才建（已有 java-coding-standards…）', tone: 'muted' },
-              { icon: FileCode2, title: '③ 项目内配置（可选覆盖）', desc: '.editorconfig / 构建配置 / CLAUDE.md 显式固定个性化值；不放则探测+默认兜底，文件非必备', tone: 'accent' },
+              { icon: FileCode2, title: '③ 项目内覆盖（一般不用）', desc: '默认全查 ② MCP；仅个别项目想本地覆盖时才放 .editorconfig 等，非必备', tone: 'accent' },
             ]} />
             <p className="text-xs text-[var(--color-muted-foreground)]">
               合并裁决：<b className="text-[var(--color-foreground)]">项目 &gt; 领域 &gt; 通用</b>，就近覆盖，<b className="text-[var(--color-foreground)]">缺哪层下一层兜底</b>——多数项目零配置（靠探测 + 通用默认），仅个别需个性化时才按需放配置，<b className="text-[var(--color-foreground)]">配置文件非必备</b>。
@@ -330,8 +330,8 @@ export function TeamVibeCoding() {
             <div className="space-y-1 text-xs">
               <LayerRow k="登记源" v="集中在 ② MCP 知识库、按项目登记 —— 一处可改可查，满足统一管理" />
               <LayerRow k="软规则" v="命名 / 架构约定 / 业务倾向：AI 运行时查 MCP 即用，建议性、查到即遵守" />
-              <LayerRow k="硬约束" v="编码 / 格式 / lint：MCP 登记值供统一管理，执行仍靠项目侧 hook·CI 强制 + 探测兜底 —— MCP 是查询通道、给不了拦截力，不能当唯一防线" tone="real" />
-              <LayerRow k="原则" v="MCP = 规则中央登记与分发；强制留在确定性点（hook/CI）。LLM 提议、代码裁决" />
+              <LayerRow k="硬约束" v="编码 / 格式 / lint：MCP 登记值查回即用；强制由 ① plugin 通用 hook（全局装一次、不碰每个项目）校验·拦截 + MCP 缺时探测兜底" tone="real" />
+              <LayerRow k="原则" v="强制点在通用 hook（全局一次）、规则集中在 MCP 查回 —— 不在每个项目放文件，仍有确定性拦截力。LLM 提议、代码裁决" />
             </div>
           </CardContent>
         </Card>
