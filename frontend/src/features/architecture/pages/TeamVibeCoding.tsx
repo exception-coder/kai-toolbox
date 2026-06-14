@@ -294,6 +294,25 @@ export function TeamVibeCoding() {
         </Card>
       </Section>
 
+      {/* 代码审核分层：跨模型审核放哪 */}
+      <Section icon={ShieldCheck} title="代码审核的正确分层（跨模型审核该放哪阶段）" subtitle="先纠正概念：「用 Codex 审 Claude」是多模型交叉审，不是多 Agent（角色分工同一最强模型即可）">
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <VFlow steps={[
+              { icon: ShieldCheck, title: '确定性工具（主力）', desc: 'CI / 测试 / 静态分析 / 规范 hook —— P1 就该有，能固定的全固定', tone: 'primary' },
+              { icon: Bot, title: '最强模型自审（基线）', desc: '同一最强模型冷审语义 / 意图 —— P1~P2，性价比最高' },
+              { icon: Users, title: '人裁决（始终）', desc: '最终把关，握验收权', tone: 'accent' },
+              { icon: GitFork, title: '跨模型交叉审（可选增强）', desc: '换 Codex 等审 Claude —— P3+，仅高风险 + 确定性覆盖不到的语义', tone: 'muted' },
+            ]} />
+            <p className="text-xs text-[var(--color-muted-foreground)]">
+              跨模型交叉审有价值但<b className="text-[var(--color-foreground)]">不前置</b>：第一阶段先落地「有产出」，审核靠<b className="text-[var(--color-foreground)]">确定性工具 + 最强模型自审 + 人裁决</b>三层基线已足够。
+              现代最强模型能力<b className="text-[var(--color-foreground)]">高度重叠</b>，交叉审的增量 &lt; 引入第二套模型（账号 / 配额 / 集成 / Prompt 维护）的成本，故定位为 <b className="text-[var(--color-foreground)]">P3+、仅高风险变更</b>才启用的可选项。
+              能用程序固定的审核（空指针 / 并发 / 注入 / 分层违规 / 回归）一律交确定性工具，别再加一个模型——这就是「确定性优先」。
+            </p>
+          </CardContent>
+        </Card>
+      </Section>
+
       {/* 选型决策 */}
       <Section icon={Boxes} title="关键选型与取舍" subtitle="每个决策列出 ✓ 选用 · 降级备选 · ✗ 被筛除（置灰 + 原因）">
         <div className="grid items-start gap-4 lg:grid-cols-2">
