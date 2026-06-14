@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import {
   ArrowLeft, Users, Sparkles, ListChecks, FileText, Layers, Bot, Boxes, Route, ShieldCheck,
-  Wrench, ScrollText, BookOpen, GitMerge, Workflow, ClipboardCheck, Database, Cpu, Gauge,
+  Wrench, ScrollText, BookOpen, GitMerge, Workflow, ClipboardCheck, Database, Cpu, Library, GitFork,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -24,6 +24,50 @@ const pillars: { icon: typeof Users; title: string; detail: string }[] = [
   { icon: Bot, title: '④ 多 Agent 流水线', detail: '架构 / 开发 / Review / QA 四类 Agent，各有明确的输入与输出契约，串成可复现流水线。' },
   { icon: Database, title: '⑤ 知识库 RAG', detail: '团队知识源向量化后供给 AI——最重要、也最被低估。决定 AI 是「通用初级」还是「懂业务的老员工」。' },
 ]
+
+// 落地形态：把方法论沉淀成几个 repo / 插件，职责分离、互不污染。
+const repoLayers: {
+  tag: string; icon: typeof Users; name: string; count: string;
+  has: string; not: string; who: string; real: string;
+}[] = [
+  {
+    tag: '①', icon: ScrollText, name: '通用规范插件', count: '1 个 · 全员共享',
+    has: '编码铁律、各语言规范、SDD 流程、文档/知识图谱/术语/反向索引的「方法论与模板」、commit/注释/bug 规范、配套 hook',
+    not: '任何具体项目的业务知识——只放「怎么做」，不放「是什么」',
+    who: '团队统一维护，一份装到每个项目',
+    real: '即你已有的 team-standards 插件',
+  },
+  {
+    tag: '②', icon: Database, name: '项目级知识库', count: 'N 个 · 每项目独立',
+    has: '该项目的知识图谱 / ER 库表 / 术语表 / 反向索引 / 项目画像 / bug 复盘 / 设计文档 / work-log',
+    not: '通用规则（归①）、其它项目的知识（各管各的）',
+    who: '由①的方法论 skill 自动生产与维护',
+    real: '落 ai-docs/{project}/ 与各项目 docs/，korepos、kai-toolbox 各一份',
+  },
+  {
+    tag: '③', icon: GitFork, name: '跨项目拓扑库', count: '1 个 · 生态级',
+    has: '≥2 个项目间的调用链、服务拓扑、跨项目数据流',
+    not: '单项目内部知识（归②），别混进任何单项目库',
+    who: '由 cross-project-locator 类 skill 维护',
+    real: '即你已有的 kpay-pos-topology',
+  },
+  {
+    tag: '④', icon: Sparkles, name: 'Prompt / Agent 资产库', count: '1 个 · 可选',
+    has: '版本化 Prompt 模板、四类 Agent 工作流（架构/开发/Review/QA）、需求库',
+    not: '项目业务知识（归②）',
+    who: '团队沉淀，可并入①或独立成库',
+    real: '方法论「五件套」里的 Prompt 库 + Agent 库 + 需求库',
+  },
+]
+
+function LayerRow({ k, v, tone }: { k: string; v: string; tone?: 'real' }) {
+  return (
+    <div className="flex gap-2">
+      <span className={`w-16 shrink-0 font-medium ${tone === 'real' ? 'text-emerald-600 dark:text-emerald-400' : 'text-[var(--color-foreground)]'}`}>{k}</span>
+      <span className="min-w-0 text-[var(--color-muted-foreground)]">{v}</span>
+    </div>
+  )
+}
 
 const specTemplate = [
   '# 用户登录                # ← Spec：先成文，无 Spec 不生成代码',
@@ -155,6 +199,34 @@ export function TeamVibeCoding() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {pillars.map(p => <InfoCard key={p.title} icon={p.icon} title={p.title} detail={p.detail} />)}
         </div>
+      </Section>
+
+      {/* 落地形态：要建几个 repo / 插件 */}
+      <Section icon={Library} title="落地形态：要建几个 repo / 插件" subtitle="把上面的能力沉淀成分层资产——规则、项目知识、跨项目拓扑各自独立，互不污染">
+        <div className="grid items-start gap-4 lg:grid-cols-2">
+          {repoLayers.map(l => (
+            <Card key={l.tag}>
+              <CardContent className="space-y-2 p-4">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)]/15 text-xs font-semibold text-[var(--color-primary)]">{l.tag}</span>
+                  <l.icon className="h-4 w-4 shrink-0 text-[var(--color-primary)]" />
+                  <span className="text-sm font-semibold">{l.name}</span>
+                  <Badge variant="outline" className="ml-auto shrink-0 text-[11px]">{l.count}</Badge>
+                </div>
+                <div className="space-y-1 text-xs">
+                  <LayerRow k="放什么" v={l.has} />
+                  <LayerRow k="不放" v={l.not} />
+                  <LayerRow k="谁维护" v={l.who} />
+                  <LayerRow k="落地" v={l.real} tone="real" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <p className="text-xs text-[var(--color-muted-foreground)]">
+          一句话：<b className="text-[var(--color-foreground)]">① 放「怎么做」、② 放「是什么」、③ 放「项目间怎么连」、④ 放「可复用的提问与编排」</b>。
+          新项目落地 = 装上①（规范不重搭）→ 新建一个②（该项目知识库）→ 有跨项目调用才登记③。规则不掺业务、业务不掺跨项目，AI 检索时各取所需、互不串味。
+        </p>
       </Section>
 
       {/* 多 Agent 流水线 */}
