@@ -39,11 +39,11 @@ const repoLayers: {
     real: '即你已有的 team-standards 插件',
   },
   {
-    tag: '②', icon: Database, name: '项目级知识库', count: 'N 个 · 每项目独立',
-    has: '该项目的知识图谱 / ER 库表 / 术语表 / 反向索引 / 项目画像 / bug 复盘 / 设计文档 / work-log',
-    not: '通用规则（归①）、其它项目的知识（各管各的）',
-    who: '由①的方法论 skill 自动生产与维护',
-    real: '落 ai-docs/{project}/ 与各项目 docs/，korepos、kai-toolbox 各一份',
+    tag: '②', icon: Database, name: '知识库项目集（集中式）', count: '1 个 · 统一管理',
+    has: '各项目知识图谱 / ER / 术语 / 反向索引 / 画像 / bug 复盘，按「项目名」分目录集中存放',
+    not: '通用规则（归①）、跨项目拓扑（归③）',
+    who: '独立 repo、专人 + 方法论 skill 维护；业务项目同事不直接改，杜绝误触改乱',
+    real: '一个独立 repo，内分 korepos/、kai-toolbox/… 子目录，经 MCP / 多根工作区载入工具',
   },
   {
     tag: '③', icon: GitFork, name: '跨项目拓扑库', count: '1 个 · 生态级',
@@ -66,6 +66,13 @@ const toolTargets: { icon: typeof Users; name: string; how: string }[] = [
   { icon: Bot, name: 'Claude Code', how: '装成 plugin：skill 自动触发 + hook 在提交期拦截（team-standards 现成形态）' },
   { icon: Terminal, name: 'Codex', how: '导出为 AGENTS.md / 项目根规则文件，作为统一上下文注入' },
   { icon: MousePointer2, name: 'Cursor', how: '同一份源导出为 .cursor/rules/*.mdc，规则随项目自动生效' },
+]
+
+// ②③ 这类纯知识 repo（非 plugin/skill）怎么载入工具——按需，不塞进业务项目仓库。
+const kbLoad: { icon: typeof Users; name: string; how: string }[] = [
+  { icon: Database, name: 'MCP 知识服务（最优）', how: '知识库做成 MCP server，Claude Code / Codex / Cursor 通吃；按「项目+问题」检索，按需取、不会一次读太多' },
+  { icon: Boxes, name: '多根工作区', how: 'Cursor / VS Code 同时打开「业务项目 + 知识库」两个根，跨根索引与 @ 引用' },
+  { icon: GitFork, name: 'git submodule 只读', how: '知识库作只读子模块挂进项目；源唯一在独立 repo，要改回源改，杜绝误触' },
 ]
 
 function LayerRow({ k, v, tone }: { k: string; v: string; tone?: 'real' }) {
@@ -233,36 +240,37 @@ export function TeamVibeCoding() {
         </div>
         <p className="text-xs text-[var(--color-muted-foreground)]">
           一句话：<b className="text-[var(--color-foreground)]">① 放「怎么做」、② 放「是什么」、③ 放「项目间怎么连」、④ 放「可复用的提问与编排」</b>。
-          新项目落地 = 装上①（规范不重搭）→ 新建一个②（该项目知识库）→ 有跨项目调用才登记③。规则不掺业务、业务不掺跨项目，AI 检索时各取所需、互不串味。
+          新项目落地 = 装上①（规范不重搭）→ 在②知识库项目集里加一个「项目名」子目录 → 有跨项目调用才登记③。知识集中托管、专人维护，业务同事改不乱；AI 按需检索，各取所需。
         </p>
       </Section>
 
       {/* 分发与导入 */}
-      <Section icon={Plug} title="分发与导入：一份规范源，多工具适配" subtitle="同事用 Claude Code / Codex / Cursor 都行——规范只维护一份，导出各工具吃的格式">
-        <Card>
-          <CardContent className="p-4">
-            <HFlow steps={[
-              { icon: ScrollText, title: '规范单一来源', desc: 'team-standards', tone: 'primary' },
-              { icon: GitMerge, title: '导出适配', desc: '一份源 → 多格式' },
-              { icon: Plug, title: '各工具就位', desc: '吃同一套规范', tone: 'accent' },
-            ]} />
-          </CardContent>
-        </Card>
-        <div className="grid gap-3 sm:grid-cols-3">
-          {toolTargets.map(t => <InfoCard key={t.name} icon={t.icon} title={t.name} detail={t.how} />)}
+      <Section icon={Plug} title="分发与导入：规则导出 + 知识载入" subtitle="规范一份源导出各工具；知识库（②③）经 MCP / 多根工作区按需载入，不塞进业务项目仓库">
+        <div>
+          <div className="mb-2 text-sm font-medium">① 规范 → 规则形态（自动触发，一份源多导出）</div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {toolTargets.map(t => <InfoCard key={t.name} icon={t.icon} title={t.name} detail={t.how} />)}
+          </div>
+        </div>
+        <div>
+          <div className="mb-2 text-sm font-medium">②③ 知识 → 数据形态（按需检索，不进业务仓库、改不乱）</div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {kbLoad.map(t => <InfoCard key={t.name} icon={t.icon} title={t.name} detail={t.how} />)}
+          </div>
         </div>
 
         {/* 明确：要单独新建几个 repo */}
         <Card className="border-[var(--color-primary)]/40 bg-[var(--color-primary)]/5">
           <CardContent className="space-y-2 p-4">
             <div className="flex items-center gap-2 text-sm font-semibold">
-              <PackageCheck className="h-4 w-4 text-[var(--color-primary)]" /> 要单独新建几个 repo？真正只有 2 个
+              <PackageCheck className="h-4 w-4 text-[var(--color-primary)]" /> 要单独新建几个 repo？3 个独立库
             </div>
             <div className="space-y-1 text-xs">
-              <LayerRow k="① 规范" v="插件/规则形态，一份源多工具导出 —— 需单独建 1 个 repo（即 team-standards）" />
-              <LayerRow k="② 知识库" v="随项目 docs/ 走，任何工具打开该项目即可读 —— 不单独建 repo" />
-              <LayerRow k="③ 拓扑" v="独立共享 repo，被各项目引用 —— 需单独建 1 个 repo（即 kpay-pos-topology）" />
-              <LayerRow k="第一步" v="把①装好，向团队讲清「这插件管什么、何时自动触发」，再逐步铺②③" tone="real" />
+              <LayerRow k="① 规范" v="规则插件，一份源多工具导出 —— 单独建 1 个 repo（team-standards）" />
+              <LayerRow k="② 知识库" v="集中式项目集，按项目名分目录、专人维护防误改 —— 单独建 1 个 repo" />
+              <LayerRow k="③ 拓扑" v="跨项目公共支撑，独立 —— 单独建 1 个 repo（kpay-pos-topology）" />
+              <LayerRow k="载入" v="① 装成 plugin / rules；②③ 经 MCP 服务或多根工作区按需读，都不塞进业务项目仓库" tone="real" />
+              <LayerRow k="第一步" v="先把①装好，向团队讲清「这插件管什么、何时自动触发」，再建②③" tone="real" />
             </div>
           </CardContent>
         </Card>
