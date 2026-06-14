@@ -256,8 +256,9 @@ export function TeamVibeCoding() {
               <LayerRow k="为什么" v="编码是确定性事实 → 确定性优先：机器强制 > 文档自觉，别只靠 LLM 记着自觉遵守" />
             </div>
             <p className="text-[11px] leading-snug text-[var(--color-muted-foreground)]">
-              区分两类项目特定内容：<b className="text-[var(--color-foreground)]">认知类</b>（知识图谱/ER/术语/复盘）进②集中托管；
-              <b className="text-[var(--color-foreground)]">工程约束类</b>（编码/构建/格式/lint）随业务仓库由工具强制——改它=改项目本身、有 code review 把关，不属「知识被误触」。
+              两类内容、两条取值路径：<b className="text-[var(--color-foreground)]">软知识</b>（业务/术语/ER/复盘）进②，运行时经 <b className="text-[var(--color-foreground)]">MCP 按需检索</b>；
+              <b className="text-[var(--color-foreground)]">硬约束</b>（编码/构建/格式/lint）随业务仓库——AI 在该项目里<b className="text-[var(--color-foreground)]">直接读 .editorconfig 等配置（就在工作目录、不经 MCP）</b> + pre-commit/CI 强制。
+              编码取值<b className="text-[var(--color-foreground)]">唯一权威是项目内配置</b>，②不做运行时来源，杜绝双源漂移。
             </p>
           </CardContent>
         </Card>
