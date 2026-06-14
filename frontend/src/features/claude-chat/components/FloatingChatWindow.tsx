@@ -259,28 +259,43 @@ export function FloatingChatWindow() {
       className="fixed z-50 flex flex-col overflow-hidden rounded-xl border bg-[var(--color-background)] shadow-2xl"
       style={{ left: pos.x, top: pos.y, width: size.w, height: autoHeight ? undefined : size.h, maxHeight: autoHeight ? '70vh' : undefined }}
     >
-      {/* 标题栏 = 拖拽手柄 */}
+      {/* 标题栏 = 拖拽手柄。迷你态：状态 + 关键控制（仿音乐小卡片，只一行）；完整态：别名/引擎/全部按钮。 */}
       <header
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         className="flex cursor-move touch-none items-center gap-2 border-b bg-[var(--color-muted)] px-3 py-2 select-none"
       >
-        <MessageSquare className="size-4 shrink-0" />
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold" title={headerTitle}>{headerTitle}</span>
-        <span className="shrink-0 rounded bg-[var(--color-background)] px-1.5 py-0.5 text-[10px] text-[var(--color-muted-foreground)]">{engineLabel}</span>
+        {compact ? (
+          <>
+            {active
+              ? <Loader2 className="size-4 shrink-0 animate-spin text-[var(--color-primary)]" />
+              : <MessageSquare className="size-4 shrink-0 text-[var(--color-muted-foreground)]" />}
+            <span className={`min-w-0 flex-1 truncate text-sm ${pending ? 'font-medium text-amber-600 dark:text-amber-400' : ''}`} title={`${headerTitle} · ${status}`}>{status}</span>
+          </>
+        ) : (
+          <>
+            <MessageSquare className="size-4 shrink-0" />
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold" title={headerTitle}>{headerTitle}</span>
+            <span className="shrink-0 rounded bg-[var(--color-background)] px-1.5 py-0.5 text-[10px] text-[var(--color-muted-foreground)]">{engineLabel}</span>
+          </>
+        )}
         <div className="flex shrink-0 gap-0.5">
-          <button type="button" onClick={() => { chat.open(''); setShowSessions(false) }} aria-label="新建会话" title="新建会话（home 目录）"
-            className="rounded p-1 hover:bg-[var(--color-background)]">
-            <Plus className="size-4" />
-          </button>
-          <button type="button" onClick={() => setShowSessions(s => !s)} aria-label="会话列表" title="切换会话"
-            className={`rounded p-1 hover:bg-[var(--color-background)] ${showSessions ? 'bg-[var(--color-background)]' : ''}`}>
-            <List className="size-4" />
-          </button>
+          {!compact && (
+            <>
+              <button type="button" onClick={() => { chat.open(''); setShowSessions(false) }} aria-label="新建会话" title="新建会话（home 目录）"
+                className="rounded p-1 hover:bg-[var(--color-background)]">
+                <Plus className="size-4" />
+              </button>
+              <button type="button" onClick={() => setShowSessions(s => !s)} aria-label="会话列表" title="切换会话"
+                className={`rounded p-1 hover:bg-[var(--color-background)] ${showSessions ? 'bg-[var(--color-background)]' : ''}`}>
+                <List className="size-4" />
+              </button>
+            </>
+          )}
           {!showSessions && (
             <button type="button" onClick={() => setCompact(c => !c)}
-              aria-label={compact ? '展开完整对话' : '收起为迷你'} title={compact ? '展开看完整对话' : '收起为迷你（只看进度）'}
+              aria-label={compact ? '展开完整对话' : '收起为迷你'} title={compact ? '展开看完整对话' : '收起为迷你（只看状态）'}
               className="rounded p-1 hover:bg-[var(--color-background)]">
               {compact ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
             </button>
@@ -300,8 +315,8 @@ export function FloatingChatWindow() {
         </div>
       </header>
 
-      {/* 权限模式切换 + 弹窗自动允许（会话列表展开时隐藏） */}
-      {!showSessions && (
+      {/* 权限模式 + 自动允许：仅完整态、非会话列表（迷你态隐藏，保持简洁） */}
+      {!compact && !showSessions && (
         <div className="flex items-center gap-2 border-b px-2 py-1.5">
           <button
             type="button"
@@ -328,25 +343,17 @@ export function FloatingChatWindow() {
         </div>
       )}
 
-      {/* 会话列表 / 迷你状态板 / 完整消息流，三选一 */}
-      {showSessions ? (
+      {/* body：仅完整态显示会话列表 / 消息流；迷你态无 body，状态在头部、直接到输入区 */}
+      {!compact && (showSessions ? (
         <div className="flex-1 overflow-y-auto">
           <SessionList
             currentSessionId={chat.sessionId}
             onSwitch={id => { chat.switchTo(id); setShowSessions(false) }}
           />
         </div>
-      ) : compact ? (
-        // 迷你版：一行小状态（不铺消息），空闲时就一个小图标，尽量不占地
-        <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--color-muted-foreground)]">
-          {active
-            ? <Loader2 className="size-4 shrink-0 animate-spin text-[var(--color-primary)]" />
-            : <MessageSquare className="size-4 shrink-0" />}
-          <span className={pending ? 'font-medium text-amber-600 dark:text-amber-400' : ''}>{status}</span>
-        </div>
       ) : (
         <MessageList items={chat.items} running={chat.running} onFork={chat.forkSession} engineLabel={engineLabel} />
-      )}
+      ))}
 
       {/* 精简输入区（会话列表展开时隐藏） */}
       {!showSessions && (
