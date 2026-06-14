@@ -357,7 +357,7 @@ export function FloatingChatWindow() {
 
       {/* 迷你态输入：只一个语音按钮，识别后直接发送（不显示输入框/发送按钮，最简） */}
       {!showSessions && compact && (
-        <div className="flex items-center justify-center gap-3 border-t border-[var(--color-primary)]/30 bg-[var(--color-muted)] bg-gradient-to-r from-[var(--color-primary)]/30 to-[var(--color-primary)]/14 p-2.5">
+        <div className="flex items-center justify-center gap-3 border-t border-[var(--color-primary)]/30 bg-[var(--color-muted)] bg-gradient-to-r from-[var(--color-primary)]/45 to-[var(--color-primary)]/20 p-2.5">
           <VoiceInputButton
             disabled={chat.running}
             onText={t => { const x = t.trim(); if (x && !chat.running) chat.send(x) }}
@@ -373,7 +373,7 @@ export function FloatingChatWindow() {
 
       {/* 完整态输入区（会话列表展开时隐藏） */}
       {!showSessions && !compact && (
-      <div className="border-t border-[var(--color-primary)]/30 bg-[var(--color-muted)] bg-gradient-to-r from-[var(--color-primary)]/30 to-[var(--color-primary)]/14">
+      <div className="border-t border-[var(--color-primary)]/30 bg-[var(--color-muted)] bg-gradient-to-r from-[var(--color-primary)]/45 to-[var(--color-primary)]/20">
         {(attachments.length > 0 || uploading > 0) && (
           <AttachmentChips
             items={attachments}
