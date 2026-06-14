@@ -250,7 +250,7 @@ export function TeamVibeCoding() {
               <FileCode2 className="h-4 w-4 text-[var(--color-primary)]" /> 边界示例：项目特定约束（如文件编码 GBK / UTF-8）放哪？
             </div>
             <div className="space-y-1 text-xs">
-              <LayerRow k="规则①" v="「AI 生成/改代码必须遵循该项目声明的编码，禁止擅自换 UTF-8」是通用铁律 —— 进 team-standards" />
+              <LayerRow k="规则①" v="通用铁律：默认 UTF-8（不用每个项目都建文件）；仅偏离默认的项目（如 GBK）必须在仓库显式声明，AI 不得擅自换 —— 进 team-standards" />
               <LayerRow k="取值·强制" v=".editorconfig charset / 构建 sourceEncoding / .gitattributes / 项目根 CLAUDE.md·AGENTS.md·.cursor/rules + pre-commit·CI 拦截 —— 随项目仓库、机器可读可强制" tone="real" />
               <LayerRow k="知识库②" v="只登记「A=GBK、B=UTF-8」事实供查询，不作为强制来源" />
               <LayerRow k="为什么" v="编码是确定性事实 → 确定性优先：机器强制 > 文档自觉，别只靠 LLM 记着自觉遵守" />
