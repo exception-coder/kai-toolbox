@@ -256,7 +256,7 @@ export function FloatingChatWindow() {
   const autoHeight = compact && !showSessions // 迷你态：高度随内容自适应（不铺消息流）
   return (
     <div
-      className="fixed z-50 flex flex-col overflow-hidden rounded-xl border-2 border-[var(--color-primary)]/45 bg-[var(--color-background)] shadow-2xl ring-2 ring-[var(--color-primary)]/10"
+      className="fixed z-50 flex flex-col overflow-hidden rounded-xl border-2 border-[var(--color-primary)]/45 bg-[var(--color-muted)] shadow-2xl ring-2 ring-[var(--color-primary)]/10"
       style={{ left: pos.x, top: pos.y, width: size.w, height: autoHeight ? undefined : size.h, maxHeight: autoHeight ? '70vh' : undefined }}
     >
       {/* 标题栏 = 拖拽手柄。迷你态：状态 + 关键控制（仿音乐小卡片，只一行）；完整态：别名/引擎/全部按钮。 */}
@@ -264,7 +264,7 @@ export function FloatingChatWindow() {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        className="flex cursor-move touch-none items-center gap-2 border-b bg-[var(--color-muted)] px-3 py-2 select-none"
+        className="flex cursor-move touch-none items-center gap-2 border-b border-[var(--color-primary)]/30 bg-gradient-to-r from-[var(--color-primary)]/25 to-[var(--color-primary)]/8 px-3 py-2 select-none"
       >
         {compact ? (
           <>
