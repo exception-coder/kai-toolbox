@@ -250,15 +250,15 @@ export function TeamVibeCoding() {
               <FileCode2 className="h-4 w-4 text-[var(--color-primary)]" /> 边界示例：项目特定约束（如文件编码 GBK / UTF-8）放哪？
             </div>
             <div className="space-y-1 text-xs">
-              <LayerRow k="规则①" v="通用铁律：默认 UTF-8（不用每个项目都建文件）；仅偏离默认的项目（如 GBK）必须在仓库显式声明，AI 不得擅自换 —— 进 team-standards" />
-              <LayerRow k="取值·强制" v=".editorconfig charset / 构建 sourceEncoding / .gitattributes / 项目根 CLAUDE.md·AGENTS.md·.cursor/rules + pre-commit·CI 拦截 —— 随项目仓库、机器可读可强制" tone="real" />
-              <LayerRow k="知识库②" v="只登记「A=GBK、B=UTF-8」事实供查询，不作为强制来源" />
-              <LayerRow k="为什么" v="编码是确定性事实 → 确定性优先：机器强制 > 文档自觉，别只靠 LLM 记着自觉遵守" />
+              <LayerRow k="规则①" v="通用铁律：AI 改代码前先【探测】项目实际编码（取样源文件 / 读构建 sourceEncoding）并据此生成，禁止擅自换；探测不到才退默认 UTF-8 —— 进 team-standards" />
+              <LayerRow k="取值·强制" v="首选自动探测（脚本/hook，遗留项目没声明也不漏）；.editorconfig / 构建配置作可选显式覆盖；生成·提交后 CI·hook 校验新文件编码，违反即拦或自动转码" tone="real" />
+              <LayerRow k="知识库②" v="不做运行时来源（探测+校验已是权威），最多人查阅备忘" />
+              <LayerRow k="为什么" v="编码是能被程序测出的确定性事实 → 别靠人声明（遗留项目没人填就翻车）；探测+校验兜底，LLM 提议、代码裁决" />
             </div>
             <p className="text-[11px] leading-snug text-[var(--color-muted-foreground)]">
               两类内容、两条取值路径：<b className="text-[var(--color-foreground)]">软知识</b>（业务/术语/ER/复盘）进②，运行时经 <b className="text-[var(--color-foreground)]">MCP 按需检索</b>；
-              <b className="text-[var(--color-foreground)]">硬约束</b>（编码/构建/格式/lint）随业务仓库——AI 在该项目里<b className="text-[var(--color-foreground)]">直接读 .editorconfig 等配置（就在工作目录、不经 MCP）</b> + pre-commit/CI 强制。
-              编码取值<b className="text-[var(--color-foreground)]">唯一权威是项目内配置</b>，②不做运行时来源，杜绝双源漂移。
+              <b className="text-[var(--color-foreground)]">硬约束</b>（编码/构建/格式/lint）随业务仓库——AI 改代码前<b className="text-[var(--color-foreground)]">探测项目实际编码再生成（不经 MCP）</b>，生成后 CI·hook 校验兜底。
+              编码<b className="text-[var(--color-foreground)]">不靠人声明（遗留项目没人填就翻车）</b>，靠程序探测+校验，这才是确定性优先。
             </p>
           </CardContent>
         </Card>
