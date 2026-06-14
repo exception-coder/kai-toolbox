@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { List, Maximize2, MessageSquare, Minus, Plus, Send, Shield, ShieldCheck, X } from 'lucide-react'
+import { List, Loader2, Maximize2, MessageSquare, Minus, Plus, Send, Shield, ShieldCheck, X } from 'lucide-react'
 import { CHAT_ROUTE, useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { MessageList } from './MessageList'
 import { SessionList } from './SessionList'
@@ -205,8 +205,16 @@ export function FloatingChatWindow() {
     setAttachments([])
   }
 
-  // 最小化：缩成可拖动 / 可点击的小气泡（仍渲染弹框，未决决策不被吞）
+  // 最小化：缩成「状态板」——不显示聊天内容，只显示进度（思考中/执行中/待确认/空闲）+ 会话别名。
+  // 仍可拖动 / 点击展开；有未决决策仍渲染弹框。
   if (minimized) {
+    const last = chat.items[chat.items.length - 1]
+    let status = '空闲'
+    let active = false
+    if (pending?.kind === 'permission') { status = '待确认权限'; active = true }
+    else if (pending?.kind === 'question') { status = '待回答提问'; active = true }
+    else if (chat.running) { status = last?.kind === 'tool' ? '执行中…' : '思考中…'; active = true }
+    else if (last?.kind === 'error') { status = '出错' }
     return (
       <>
         <button
@@ -214,13 +222,24 @@ export function FloatingChatWindow() {
           onPointerDown={onBubbleDown}
           onPointerMove={onBubbleMove}
           onPointerUp={onBubbleUp}
-          aria-label={`展开 ${headerTitle} 悬浮窗`}
-          title={`${headerTitle}（拖动可移动，点击展开）`}
-          className="fixed z-50 flex size-12 cursor-move touch-none items-center justify-center rounded-full bg-[var(--color-primary)] text-[var(--color-primary-foreground)] shadow-lg"
+          aria-label={`${headerTitle} ${status}，点击展开`}
+          title={`${headerTitle} · ${status}（拖动移动，点击展开）`}
+          className="fixed z-50 flex max-w-[72vw] cursor-move touch-none items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-background)] py-1.5 pl-2 pr-3.5 text-left shadow-lg"
           style={{ left: pos.x, top: pos.y }}
         >
-          <MessageSquare className="size-5" />
-          {(chat.running || pending) && <span className="absolute right-0 top-0 size-3 animate-pulse rounded-full bg-amber-400" />}
+          <span className={`flex size-7 shrink-0 items-center justify-center rounded-full ${active
+            ? 'bg-[var(--color-primary)]/15 text-[var(--color-primary)]'
+            : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'}`}>
+            {active ? <Loader2 className="size-4 animate-spin" /> : <MessageSquare className="size-4" />}
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate text-xs font-medium leading-tight">{headerTitle}</span>
+            <span className={`block truncate text-[11px] leading-tight ${pending
+              ? 'font-medium text-amber-600 dark:text-amber-400'
+              : 'text-[var(--color-muted-foreground)]'}`}>
+              {engineLabel} · {status}
+            </span>
+          </span>
         </button>
         {dialogs}
       </>
