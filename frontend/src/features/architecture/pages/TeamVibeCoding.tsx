@@ -10,7 +10,7 @@ import {
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Section, HFlow, VFlow, InfoCard, DecisionCard, GuardCard, CodeBlock, type Decision } from '../components/arch-ui'
-import { IntroNewOld, IntroDeterministic, IntroFlywheel } from '../components/slide-figures'
+import { FigNewOld, FigDeterministic, FigFlywheel } from '../components/slide-figures'
 
 // 五大核心原则：把「买工具」纠正为「建工作流 + 用确定性关住 LLM 的不确定性」。
 const principles: { icon: typeof Users; title: string; detail: string }[] = [
@@ -176,10 +176,12 @@ const COVER_CHIPS = [
   { t: '通用 hook 强制', c: 'border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400' },
 ]
 
+// 全局动画样式：图示动画(kaiFlow…)普通+演示都生效；.kai-stage 规则仅演示层（普通模式无该祖先，不触发）。
+const KF = `@keyframes kaiSlideIn{from{opacity:0;transform:translateY(12px) scale(.99)}to{opacity:1;transform:none}}@keyframes kaiFlow{0%{transform:translateX(-8px);opacity:0}30%{opacity:1}100%{transform:translateX(38px);opacity:0}}@keyframes kaiBar{from{width:10%}to{width:100%}}@keyframes kaiFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}@keyframes kaiPulse{0%,100%{opacity:.45;transform:scale(.92)}50%{opacity:1;transform:scale(1.08)}}@keyframes kaiGate{0%,100%{box-shadow:0 0 0 0 rgba(99,102,241,0)}50%{box-shadow:0 0 0 6px rgba(99,102,241,.15)}}@keyframes kaiSpin{to{transform:rotate(360deg)}}@keyframes kaiRise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}@keyframes kaiPop{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:none}}.kai-stage section>*{animation:kaiRise .5s ease both}.kai-stage section>*:nth-child(1){animation-delay:.04s}.kai-stage section>*:nth-child(2){animation-delay:.13s}.kai-stage section>*:nth-child(3){animation-delay:.22s}.kai-stage section>*:nth-child(4){animation-delay:.31s}.kai-stage section>*:nth-child(n+5){animation-delay:.38s}.kai-stage .kai-arrow{animation:kaiPulse 1.6s ease-in-out infinite;color:var(--color-primary)}.kai-stage .kai-flowbox{animation:kaiPop .55s ease both}`
+
 // PPT 演示模式：普通模式全渲染 + 一个入口按钮；演示模式 createPortal 到 body 的全屏层（盖住边栏），逐页 next/prev。
-function SlideDeck({ children, intro = [] }: { children: ReactNode; intro?: ReactNode[] }) {
-  const docSlides = Children.toArray(children)
-  const slides = [...intro, ...docSlides] // 演示用：图解导览页 + 文档页
+function SlideDeck({ children }: { children: ReactNode }) {
+  const slides = Children.toArray(children)
   const total = slides.length + 1 // 含封面页
   const [present, setPresent] = useState(false)
   const [page, setPage] = useState(0)
@@ -221,7 +223,6 @@ function SlideDeck({ children, intro = [] }: { children: ReactNode; intro?: Reac
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex flex-col bg-gradient-to-br from-[var(--color-background)] via-[var(--color-background)] to-[var(--color-primary)]/10">
-      <style>{`@keyframes kaiSlideIn{from{opacity:0;transform:translateY(12px) scale(.99)}to{opacity:1;transform:none}}@keyframes kaiFlow{0%{transform:translateX(-8px);opacity:0}30%{opacity:1}100%{transform:translateX(38px);opacity:0}}@keyframes kaiBar{from{width:10%}to{width:100%}}@keyframes kaiFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}@keyframes kaiPulse{0%,100%{opacity:.45;transform:scale(.92)}50%{opacity:1;transform:scale(1.08)}}@keyframes kaiGate{0%,100%{box-shadow:0 0 0 0 rgba(99,102,241,0)}50%{box-shadow:0 0 0 6px rgba(99,102,241,.15)}}@keyframes kaiSpin{to{transform:rotate(360deg)}}@keyframes kaiRise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}.kai-stage section>*{animation:kaiRise .5s ease both}.kai-stage section>*:nth-child(1){animation-delay:.04s}.kai-stage section>*:nth-child(2){animation-delay:.13s}.kai-stage section>*:nth-child(3){animation-delay:.22s}.kai-stage section>*:nth-child(4){animation-delay:.31s}.kai-stage section>*:nth-child(n+5){animation-delay:.38s}@keyframes kaiPop{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:none}}.kai-stage .kai-arrow{animation:kaiPulse 1.6s ease-in-out infinite;color:var(--color-primary)}.kai-stage .kai-flowbox{animation:kaiPop .55s ease both}`}</style>
 
       {/* 顶部条 */}
       <div className="flex items-center justify-between border-b bg-[var(--color-card)]/60 px-5 py-2.5 backdrop-blur">
@@ -310,6 +311,7 @@ function SlideDeck({ children, intro = [] }: { children: ReactNode; intro?: Reac
 export function TeamVibeCoding() {
   return (
     <div className="mx-auto max-w-6xl space-y-10 px-4 py-6">
+      <style>{KF}</style>
       {/* 标题 */}
       <header className="space-y-2">
         <div className="flex items-center justify-between gap-2">
@@ -329,15 +331,12 @@ export function TeamVibeCoding() {
         </p>
       </header>
 
-      <SlideDeck intro={[<IntroNewOld key="i1" />, <IntroDeterministic key="i2" />, <IntroFlywheel key="i3" />]}>
+      <SlideDeck>
       {/* 心智转变 */}
       <Section icon={Sparkles} title="心智转变：人写代码 → 人定义需求 / AI 生产 / 人验收" subtitle="但「AI 写、人审」不等于放任——规范、Spec、知识库、自动护栏是 AI 的轨道">
         <Card>
           <CardContent className="space-y-3 p-4">
-            <HFlow steps={[
-              { icon: Cpu, title: '传统：人写代码', desc: 'AI 仅补全', tone: 'muted' },
-              { icon: Sparkles, title: 'Vibe Coding', desc: '人定义需求 / AI 生产 / 人验收', tone: 'primary' },
-            ]} />
+            <FigNewOld />
             <p className="text-xs text-[var(--color-muted-foreground)]">
               关键纠偏：LLM 只在<b className="text-[var(--color-foreground)]">真正模糊</b>的理解判断处发挥，其余（流程、校验、契约、状态分支）一律交给确定性程序。
               LLM 的每一次输出都是<b className="text-[var(--color-foreground)]">不可信入参</b>，由代码校验后才采纳——这是整套规范的底色。
@@ -351,6 +350,7 @@ export function TeamVibeCoding() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {principles.map(p => <InfoCard key={p.title} icon={p.icon} title={p.title} detail={p.detail} />)}
         </div>
+        <FigDeterministic />
       </Section>
 
       {/* SDD 流水线 */}
@@ -507,6 +507,7 @@ export function TeamVibeCoding() {
               跑通即成<b className="text-[var(--color-foreground)]">飞轮</b>：查回（②）越准 → 生成越合规 → 拦截 / 返工越少；每次新知识回流 ②③ → 下次查回更准。
               规则<b className="text-[var(--color-foreground)]">集中一处改、全员全项目即时生效</b>；确定性护栏（① hook + CI）<b className="text-[var(--color-foreground)]">贯穿全程</b>，把 LLM 的不确定性关进笼子——这就是「人定义需求、AI 生产、人验收」的实际跑法。
             </p>
+            <FigFlywheel />
           </CardContent>
         </Card>
       </Section>

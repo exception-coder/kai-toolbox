@@ -1,13 +1,12 @@
-// 演示模式专属的「图文并茂」图解页：面向领导/新人，用 CSS 动画通俗讲清核心概念。
-// 动画 keyframes 由 TeamVibeCoding 的演示层 <style> 统一注入（kaiFlow/kaiBar/kaiFloat/kaiPulse/kaiGate/kaiSpin）。
+// 可嵌入正文 Section 的「图文并茂」动画图示：与文字讲述放在同一页（图文同步）。
+// 动画 keyframes 由 TeamVibeCoding 顶层 <style> 全局注入（kaiFlow/kaiBar/kaiFloat/kaiPulse/kaiGate/kaiSpin）。
 import { Fragment } from 'react'
 import { User, Keyboard, Bot, ArrowRight, ShieldCheck, CheckCircle2, XCircle, Repeat, Database, Sparkles } from 'lucide-react'
-import { Section } from './arch-ui'
 
-/** 新旧对比：传统逐行写 vs Vibe Coding 指挥 AI。 */
-export function IntroNewOld() {
+/** 新旧对比：传统逐行写 vs Vibe Coding 指挥 AI。嵌入「心智转变」页。 */
+export function FigNewOld() {
   return (
-    <Section icon={Repeat} title="新旧对比：从「码农」到「指挥官」" subtitle="一眼看懂传统开发和 Vibe Coding 的差别">
+    <div className="space-y-3">
       <div className="grid items-stretch gap-3 md:grid-cols-[1fr_auto_1fr]">
         <div className="rounded-2xl border bg-[var(--color-muted)]/40 p-5 text-center">
           <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">传统开发</div>
@@ -49,14 +48,15 @@ export function IntroNewOld() {
       <p className="text-center text-xs text-[var(--color-muted-foreground)]">
         一句话：<b className="text-[var(--color-foreground)]">你的角色从「写代码」升级为「定义需求 + 验收」</b>。
       </p>
-    </Section>
+    </div>
   )
 }
 
-/** AI 提议、程序裁决：确定性闸门把关。 */
-export function IntroDeterministic() {
+/** AI 提议、程序裁决：确定性闸门把关。嵌入「五大核心原则」页。 */
+export function FigDeterministic() {
   return (
-    <Section icon={ShieldCheck} title="为什么靠谱：AI 提议，程序裁决" subtitle="AI 会犯错，所以让确定性的「程序闸门」把关">
+    <div className="space-y-3 rounded-2xl border bg-[var(--color-muted)]/30 p-5">
+      <div className="text-center text-sm font-semibold">确定性优先怎么落地：AI 提议，程序裁决</div>
       <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
         <div className="flex w-32 flex-col items-center gap-1 rounded-xl border bg-[var(--color-card)] px-4 py-3 text-center">
           <Bot className="h-8 w-8 text-amber-500" style={{ animation: 'kaiFloat 3s ease-in-out infinite' }} />
@@ -90,12 +90,12 @@ export function IntroDeterministic() {
       <p className="text-center text-xs text-[var(--color-muted-foreground)]">
         通俗：<b className="text-[var(--color-foreground)]">AI 说的不算数，编译 / 测试 / 规则验过才算</b>——能用程序定的，绝不靠 AI 自觉。
       </p>
-    </Section>
+    </div>
   )
 }
 
-/** 知识飞轮：经验回流，越用越聪明。 */
-export function IntroFlywheel() {
+/** 知识飞轮：经验回流，越用越聪明。嵌入「端到端落地」页。 */
+export function FigFlywheel() {
   const nodes = [
     { icon: Database, label: '查回规则' },
     { icon: Bot, label: '合规生成' },
@@ -103,7 +103,7 @@ export function IntroFlywheel() {
     { icon: Sparkles, label: '沉淀新知识' },
   ]
   return (
-    <Section icon={Repeat} title="越用越聪明：知识飞轮" subtitle="每次编码沉淀的经验回流，让下次更准">
+    <div className="space-y-3 rounded-2xl border bg-[var(--color-muted)]/30 p-5">
       <div className="flex flex-wrap items-center justify-center gap-2">
         {nodes.map((n, i) => (
           <Fragment key={n.label}>
@@ -121,6 +121,6 @@ export function IntroFlywheel() {
       <p className="text-center text-xs text-[var(--color-muted-foreground)]">
         通俗：<b className="text-[var(--color-foreground)]">团队经验沉淀进知识库，AI 就像「越带越熟的老员工」</b>。
       </p>
-    </Section>
+    </div>
   )
 }
