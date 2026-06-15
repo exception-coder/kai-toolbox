@@ -23,7 +23,7 @@ export function Section({
   return (
     <section className="space-y-4">
       <div className="flex items-start gap-3">
-        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--color-primary)]/10 text-[var(--color-primary)]">
+        <div className="kai-icon mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--color-primary)]/10 text-[var(--color-primary)]">
           <Icon className="h-5 w-5" />
         </div>
         <div>
@@ -98,7 +98,7 @@ export function InfoCard({ icon: Icon, title, detail }: { icon: Icon; title: str
   return (
     <Card>
       <CardContent className="flex items-start gap-3 p-4">
-        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--color-muted)] text-[var(--color-primary)]">
+        <div className="kai-icon mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--color-muted)] text-[var(--color-primary)]">
           <Icon className="h-4 w-4" />
         </div>
         <div className="min-w-0">
@@ -209,7 +209,7 @@ export function GuardCard({ tag, risk, guard }: { tag: string; risk: string; gua
   return (
     <Card>
       <CardContent className="flex items-start gap-3 p-4">
-        <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)]/15 text-xs font-semibold text-[var(--color-primary)]">
+        <span className="kai-icon mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)]/15 text-xs font-semibold text-[var(--color-primary)]">
           {tag}
         </span>
         <div className="min-w-0">
