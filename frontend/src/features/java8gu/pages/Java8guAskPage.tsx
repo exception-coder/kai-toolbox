@@ -9,6 +9,7 @@ import { subscribeSsePost } from '@/lib/api'
 import { java8guRagStatus, java8guReindex, type Java8guHit, type Java8guRagStatus } from '../lib/ragApi'
 import { loadIndex } from '../data'
 import type { Java8guCategory } from '../types'
+import { Java8guMarkdown } from '../components/Java8guMarkdown'
 
 export function Java8guAskPage() {
   const [question, setQuestion] = useState('')
@@ -215,7 +216,7 @@ export function Java8guAskPage() {
         <Card className="border-[var(--color-primary)]/40 bg-[var(--color-primary)]/5">
           <CardContent className="flex items-start gap-2 p-4">
             <MessageSquareText className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-primary)]" />
-            <div className="whitespace-pre-wrap text-sm">{answer}</div>
+            <Java8guMarkdown text={answer} className="min-w-0 flex-1" />
           </CardContent>
         </Card>
       )}
