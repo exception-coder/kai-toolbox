@@ -10,7 +10,7 @@ import {
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Section, HFlow, VFlow, InfoCard, DecisionCard, GuardCard, CodeBlock, type Decision } from '../components/arch-ui'
-import { FigNewOld, FigDeterministic, FigFlywheel } from '../components/slide-figures'
+import { FigNewOld, FigDeterministic, FigFlywheel, StepFlow, Contrast } from '../components/slide-figures'
 
 // 五大核心原则：把「买工具」纠正为「建工作流 + 用确定性关住 LLM 的不确定性」。
 const principles: { icon: typeof Users; title: string; detail: string }[] = [
@@ -177,7 +177,7 @@ const COVER_CHIPS = [
 ]
 
 // 全局动画样式：图示动画(kaiFlow…)普通+演示都生效；.kai-stage 规则仅演示层（普通模式无该祖先，不触发）。
-const KF = `@keyframes kaiSlideIn{from{opacity:0;transform:translateY(12px) scale(.99)}to{opacity:1;transform:none}}@keyframes kaiFlow{0%{transform:translateX(-8px);opacity:0}30%{opacity:1}100%{transform:translateX(38px);opacity:0}}@keyframes kaiBar{from{width:10%}to{width:100%}}@keyframes kaiFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}@keyframes kaiPulse{0%,100%{opacity:.45;transform:scale(.92)}50%{opacity:1;transform:scale(1.08)}}@keyframes kaiGate{0%,100%{box-shadow:0 0 0 0 rgba(99,102,241,0)}50%{box-shadow:0 0 0 6px rgba(99,102,241,.15)}}@keyframes kaiSpin{to{transform:rotate(360deg)}}@keyframes kaiRise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}@keyframes kaiPop{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:none}}.kai-stage section>*{animation:kaiRise .5s ease both}.kai-stage section>*:nth-child(1){animation-delay:.04s}.kai-stage section>*:nth-child(2){animation-delay:.13s}.kai-stage section>*:nth-child(3){animation-delay:.22s}.kai-stage section>*:nth-child(4){animation-delay:.31s}.kai-stage section>*:nth-child(n+5){animation-delay:.38s}.kai-stage .kai-arrow{animation:kaiPulse 1.6s ease-in-out infinite;color:var(--color-primary)}.kai-stage .kai-flowbox{animation:kaiPop .55s ease both}.kai-stage .kai-icon{animation:kaiFloat 3.2s ease-in-out infinite}.kai-stage section>*:nth-child(2) .kai-icon{animation-delay:.3s}.kai-stage section>*:nth-child(3) .kai-icon{animation-delay:.6s}.kai-stage section>*:nth-child(4) .kai-icon{animation-delay:.9s}`
+const KF = `@keyframes kaiSlideIn{from{opacity:0;transform:translateY(12px) scale(.99)}to{opacity:1;transform:none}}@keyframes kaiFlow{0%{transform:translateX(-8px);opacity:0}30%{opacity:1}100%{transform:translateX(38px);opacity:0}}@keyframes kaiBar{from{width:10%}to{width:100%}}@keyframes kaiFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}@keyframes kaiPulse{0%,100%{opacity:.45;transform:scale(.92)}50%{opacity:1;transform:scale(1.08)}}@keyframes kaiGate{0%,100%{box-shadow:0 0 0 0 rgba(99,102,241,0)}50%{box-shadow:0 0 0 6px rgba(99,102,241,.15)}}@keyframes kaiSpin{to{transform:rotate(360deg)}}@keyframes kaiRise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}@keyframes kaiPop{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:none}}.kai-stage section>*{animation:kaiRise .5s ease both}.kai-stage section>*:nth-child(1){animation-delay:.04s}.kai-stage section>*:nth-child(2){animation-delay:.13s}.kai-stage section>*:nth-child(3){animation-delay:.22s}.kai-stage section>*:nth-child(4){animation-delay:.31s}.kai-stage section>*:nth-child(n+5){animation-delay:.38s}.kai-stage .kai-arrow{animation:kaiPulse 1.6s ease-in-out infinite;color:var(--color-primary)}.kai-stage .kai-flowbox{animation:kaiPop .55s ease both}`
 
 // PPT 演示模式：普通模式全渲染 + 一个入口按钮；演示模式 createPortal 到 body 的全屏层（盖住边栏），逐页 next/prev。
 function SlideDeck({ children }: { children: ReactNode }) {
@@ -375,10 +375,28 @@ export function TeamVibeCoding() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {pillars.map(p => <InfoCard key={p.title} icon={p.icon} title={p.title} detail={p.detail} />)}
         </div>
+        <StepFlow
+          nodes={[
+            { icon: Wrench, label: '统一工具栈', tone: 'muted' },
+            { icon: FileText, label: 'SDD 规范' },
+            { icon: BookOpen, label: 'Prompt 库' },
+            { icon: Bot, label: '多 Agent' },
+            { icon: Database, label: '知识库 RAG', tone: 'accent' },
+          ]}
+          note="五根支柱并行建设，缺一不可——知识库 RAG 最易被低估却最关键。"
+        />
       </Section>
 
       {/* 落地形态：要建几个 repo / 插件 */}
       <Section icon={Library} title="落地形态：要建几个 repo / 插件" subtitle="把上面的能力沉淀成分层资产——规则、项目知识、跨项目拓扑各自独立，互不污染">
+        <StepFlow
+          nodes={[
+            { icon: ScrollText, label: '① 通用规范 plugin', sub: '怎么做', tone: 'primary' },
+            { icon: Database, label: '② 知识库项目集', sub: '是什么' },
+            { icon: GitFork, label: '③ 跨项目拓扑', sub: '怎么连', tone: 'accent' },
+          ]}
+          note="三类资产各自独立、互不污染：规则不掺业务、业务不掺跨项目。"
+        />
         <div className="grid items-start gap-4 lg:grid-cols-2">
           {repoLayers.map(l => (
             <Card key={l.tag}>
@@ -427,6 +445,14 @@ export function TeamVibeCoding() {
 
       {/* 分发与导入 */}
       <Section icon={Plug} title="分发与导入：规则导出 + 知识载入" subtitle="规范一份源导出各工具；知识库（②③）经 MCP / 多根工作区按需载入，不塞进业务项目仓库">
+        <StepFlow
+          nodes={[
+            { icon: ScrollText, label: '规范单一源', sub: 'team-standards', tone: 'primary' },
+            { icon: GitMerge, label: '导出适配', sub: '一份 → 多格式' },
+            { icon: Plug, label: '各工具就位', sub: 'Claude Code / Codex / Cursor', tone: 'accent' },
+          ]}
+          note="同事用哪个工具都吃同一套规范；改一处，处处生效。"
+        />
         <div>
           <div className="mb-2 text-sm font-medium">① 规范 → 规则形态（自动触发，一份源多导出）</div>
           <div className="grid gap-3 sm:grid-cols-3">
@@ -592,6 +618,15 @@ export function TeamVibeCoding() {
 
       {/* 落地路线图 */}
       <Section icon={Route} title="落地路线图（带可度量退出门槛）" subtitle="覆盖率是结果不是目标；每阶段用「能否复现」作门槛，避免虚高自评">
+        <StepFlow
+          nodes={[
+            { icon: Wrench, label: 'P1 辅助编码', sub: '~20% · 1 月', tone: 'muted' },
+            { icon: Bot, label: 'P2 参与开发', sub: '~50% · 2~3 月' },
+            { icon: Workflow, label: 'P3 Agent 流水线', sub: '~70% · 3~6 月', tone: 'primary' },
+            { icon: PackageCheck, label: 'P4 企业级', sub: '稳态 · 6~12 月', tone: 'accent' },
+          ]}
+          note="逐级推进；每阶段以「能否复现」为门槛，达标才进下一阶段。"
+        />
         <div className="grid gap-3 sm:grid-cols-2">
           {roadmap.map(r => <GuardCard key={r.tag} {...r} />)}
         </div>
@@ -602,6 +637,11 @@ export function TeamVibeCoding() {
 
       {/* 反模式 → 护栏 */}
       <Section icon={ShieldCheck} title="反模式 → 确定性护栏" subtitle="这些坑光看 demo 发现不了，落地半年才暴露">
+        <Contrast
+          left={{ title: '常见坑', points: ['裸提「写个登录」', 'AI 不懂公司代码、凭空编', '规范靠自觉没人遵守', 'LLM 幻觉静默损坏'] }}
+          right={{ title: '确定性护栏', points: ['强制 Spec 模板', '知识库 RAG 注入真实上下文', 'hook / CI 自动拦截', '代码校验 + 实体级幂等'] }}
+          note="每个坑都配一道确定性护栏——让问题落不了地。"
+        />
         <div className="grid gap-3 sm:grid-cols-2">
           {antiPatterns.map(a => <GuardCard key={a.tag} {...a} />)}
         </div>

@@ -1,7 +1,78 @@
-// 可嵌入正文 Section 的「图文并茂」动画图示：与文字讲述放在同一页（图文同步）。
+// 可嵌入正文 Section 的「图文并茂」图示：把每页核心知识点可视化（图文同页）。
 // 动画 keyframes 由 TeamVibeCoding 顶层 <style> 全局注入（kaiFlow/kaiBar/kaiFloat/kaiPulse/kaiGate/kaiSpin）。
-import { Fragment } from 'react'
-import { User, Keyboard, Bot, ArrowRight, ShieldCheck, CheckCircle2, XCircle, Repeat, Database, Sparkles } from 'lucide-react'
+import { Fragment, type ComponentType } from 'react'
+import type { LucideProps } from 'lucide-react'
+import { User, Keyboard, Bot, ArrowRight, ArrowDown, ShieldCheck, CheckCircle2, XCircle, Repeat, Database, Sparkles } from 'lucide-react'
+
+type Icon = ComponentType<LucideProps>
+type Tone = 'default' | 'primary' | 'accent' | 'muted' | 'danger'
+
+const TONE: Record<Tone, string> = {
+  default: 'bg-[var(--color-muted)] text-[var(--color-foreground)]',
+  primary: 'bg-[var(--color-primary)]/15 text-[var(--color-primary)]',
+  accent: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
+  muted: 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]',
+  danger: 'bg-rose-500/15 text-rose-600 dark:text-rose-400',
+}
+
+/** 通用生动流程图：节点(图标圆+标签) + 脉动箭头连接；横向或竖向。用于把流程类核心知识点可视化。 */
+export function StepFlow({ nodes, vertical = false, note }: { nodes: { icon: Icon; label: string; sub?: string; tone?: Tone }[]; vertical?: boolean; note?: React.ReactNode }) {
+  return (
+    <div className="space-y-3 rounded-2xl border bg-[var(--color-muted)]/30 p-4 sm:p-5">
+      <div className={vertical ? 'flex flex-col gap-2' : 'flex flex-col gap-2 sm:flex-row sm:items-stretch'}>
+        {nodes.map((n, i) => (
+          <Fragment key={i}>
+            <div className="flex flex-1 flex-col items-center gap-1.5 rounded-xl border bg-[var(--color-card)] px-3 py-3 text-center">
+              <div className={`flex h-10 w-10 items-center justify-center rounded-full ${TONE[n.tone ?? 'default']}`}>
+                <n.icon className="h-5 w-5" style={{ animation: `kaiFloat 3s ease-in-out ${i * 0.25}s infinite` }} />
+              </div>
+              <div className="text-xs font-semibold">{n.label}</div>
+              {n.sub && <div className="text-[11px] leading-snug text-[var(--color-muted-foreground)]">{n.sub}</div>}
+            </div>
+            {i < nodes.length - 1 &&
+              (vertical ? (
+                <ArrowDown className="mx-auto h-5 w-5 text-[var(--color-primary)]" style={{ animation: 'kaiPulse 1.6s ease-in-out infinite' }} />
+              ) : (
+                <>
+                  <ArrowRight className="hidden h-5 w-5 shrink-0 self-center text-[var(--color-primary)] sm:block" style={{ animation: 'kaiPulse 1.6s ease-in-out infinite' }} />
+                  <ArrowDown className="mx-auto block h-5 w-5 text-[var(--color-primary)] sm:hidden" style={{ animation: 'kaiPulse 1.6s ease-in-out infinite' }} />
+                </>
+              ))}
+          </Fragment>
+        ))}
+      </div>
+      {note && <p className="text-center text-xs text-[var(--color-muted-foreground)]">{note}</p>}
+    </div>
+  )
+}
+
+/** 对比图：坑（✗）→ 护栏（✓）。用于反模式 / 取舍类核心知识点。 */
+export function Contrast({ left, right, note }: { left: { title: string; points: string[] }; right: { title: string; points: string[] }; note?: React.ReactNode }) {
+  return (
+    <div className="space-y-3 rounded-2xl border bg-[var(--color-muted)]/30 p-4 sm:p-5">
+      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
+        <div className="flex-1 rounded-xl border border-rose-500/40 bg-rose-500/10 p-4">
+          <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-rose-600 dark:text-rose-400">
+            <XCircle className="h-5 w-5" style={{ animation: 'kaiFloat 3s ease-in-out infinite' }} /> {left.title}
+          </div>
+          <ul className="space-y-1 text-xs text-[var(--color-muted-foreground)]">
+            {left.points.map((p) => <li key={p}>· {p}</li>)}
+          </ul>
+        </div>
+        <ArrowRight className="mx-auto h-6 w-6 rotate-90 text-[var(--color-primary)] sm:rotate-0" style={{ animation: 'kaiPulse 1.6s ease-in-out infinite' }} />
+        <div className="flex-1 rounded-xl border-2 border-emerald-500/40 bg-emerald-500/10 p-4">
+          <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+            <ShieldCheck className="h-5 w-5" style={{ animation: 'kaiFloat 3s ease-in-out .5s infinite' }} /> {right.title}
+          </div>
+          <ul className="space-y-1 text-xs text-[var(--color-muted-foreground)]">
+            {right.points.map((p) => <li key={p}>· {p}</li>)}
+          </ul>
+        </div>
+      </div>
+      {note && <p className="text-center text-xs text-[var(--color-muted-foreground)]">{note}</p>}
+    </div>
+  )
+}
 
 /** 新旧对比：传统逐行写 vs Vibe Coding 指挥 AI。嵌入「心智转变」页。 */
 export function FigNewOld() {
