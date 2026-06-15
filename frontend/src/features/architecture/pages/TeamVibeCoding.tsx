@@ -158,10 +158,27 @@ const antiPatterns: { tag: string; risk: string; guard: string }[] = [
   { tag: '⑥', risk: '覆盖率自评虚高，demo 好看上线翻车', guard: '用「能否复现 / 能否回归」度量，而非拍脑袋百分比' },
 ]
 
+// 每页一个主题色，循环使用，让演示更多彩。
+const SLIDE_ACCENTS = [
+  { text: 'text-[var(--color-primary)]', bar: 'bg-[var(--color-primary)]' },
+  { text: 'text-emerald-500', bar: 'bg-emerald-500' },
+  { text: 'text-amber-500', bar: 'bg-amber-500' },
+  { text: 'text-sky-500', bar: 'bg-sky-500' },
+  { text: 'text-fuchsia-500', bar: 'bg-fuchsia-500' },
+  { text: 'text-rose-500', bar: 'bg-rose-500' },
+]
+const COVER_CHIPS = [
+  { t: 'SDD 规格驱动', c: 'border-[var(--color-primary)]/30 bg-[var(--color-primary)]/10 text-[var(--color-primary)]' },
+  { t: '确定性优先', c: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' },
+  { t: '三库协作', c: 'border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400' },
+  { t: 'MCP 查回', c: 'border-sky-500/30 bg-sky-500/10 text-sky-600 dark:text-sky-400' },
+  { t: '通用 hook 强制', c: 'border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-600 dark:text-fuchsia-400' },
+]
+
 // PPT 演示模式：普通模式全渲染 + 一个入口按钮；演示模式 createPortal 到 body 的全屏层（盖住边栏），逐页 next/prev。
 function SlideDeck({ children }: { children: ReactNode }) {
   const slides = Children.toArray(children)
-  const total = slides.length
+  const total = slides.length + 1 // 含封面页
   const [present, setPresent] = useState(false)
   const [page, setPage] = useState(0)
   const go = (d: number) => setPage((p) => Math.min(total - 1, Math.max(0, p + d)))
@@ -196,13 +213,19 @@ function SlideDeck({ children }: { children: ReactNode }) {
     )
   }
 
+  const realIndex = page - 1
+  const isCover = page === 0
+  const accent = SLIDE_ACCENTS[((realIndex % SLIDE_ACCENTS.length) + SLIDE_ACCENTS.length) % SLIDE_ACCENTS.length]
+
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex flex-col bg-[var(--color-background)]">
-      <style>{`@keyframes kaiSlideIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}`}</style>
-      <div className="flex items-center justify-between border-b px-4 py-2.5">
+    <div className="fixed inset-0 z-[100] flex flex-col bg-gradient-to-br from-[var(--color-background)] via-[var(--color-background)] to-[var(--color-primary)]/10">
+      <style>{`@keyframes kaiSlideIn{from{opacity:0;transform:translateY(12px) scale(.99)}to{opacity:1;transform:none}}`}</style>
+
+      {/* 顶部条 */}
+      <div className="flex items-center justify-between border-b bg-[var(--color-card)]/60 px-5 py-2.5 backdrop-blur">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <Presentation className="h-4 w-4 text-[var(--color-primary)]" /> Vibe Coding 落地规范
-          <span className="text-xs font-normal text-[var(--color-muted-foreground)]">{page + 1} / {total}</span>
+          <span className="rounded-full bg-[var(--color-muted)] px-2 py-0.5 text-xs font-normal tabular-nums text-[var(--color-muted-foreground)]">{page + 1} / {total}</span>
         </div>
         <button
           type="button"
@@ -212,12 +235,43 @@ function SlideDeck({ children }: { children: ReactNode }) {
           <X className="h-4 w-4" /> 退出（Esc）
         </button>
       </div>
-      <div className="flex-1 overflow-auto px-4 py-8">
-        <div key={page} className="mx-auto max-w-4xl" style={{ animation: 'kaiSlideIn .28s ease' }}>
-          {slides[page]}
+
+      {/* 内容区：卡片化浮在渐变背景上 */}
+      <div className="flex-1 overflow-auto">
+        <div key={page} className="mx-auto max-w-4xl px-4 py-10 sm:py-14" style={{ animation: 'kaiSlideIn .3s ease' }}>
+          {isCover ? (
+            <div className="rounded-3xl border border-[var(--color-primary)]/30 bg-gradient-to-br from-[var(--color-primary)]/12 via-[var(--color-card)] to-[var(--color-card)] p-10 text-center shadow-2xl sm:p-14">
+              <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--color-primary)]/15 text-[var(--color-primary)]">
+                <Users className="h-8 w-8" />
+              </div>
+              <h1 className="text-3xl font-black tracking-tight sm:text-4xl">团队 Vibe Coding 落地规范</h1>
+              <p className="mx-auto mt-4 max-w-2xl text-sm leading-relaxed text-[var(--color-muted-foreground)] sm:text-base">
+                从「人写代码」到「人定义需求 · AI 生产 · 人验收」——用<b className="text-[var(--color-foreground)]">确定性护栏</b>把 LLM 的不确定性关进笼子。
+              </p>
+              <div className="mt-7 flex flex-wrap items-center justify-center gap-2">
+                {COVER_CHIPS.map((c) => (
+                  <span key={c.t} className={`rounded-full border px-3.5 py-1.5 text-xs font-medium ${c.c}`}>{c.t}</span>
+                ))}
+              </div>
+              <p className="mt-9 text-xs text-[var(--color-muted-foreground)]">← → 翻页 · Esc 退出 · 共 {total - 1} 节</p>
+            </div>
+          ) : (
+            <div className="rounded-3xl border bg-[var(--color-card)] p-6 shadow-2xl sm:p-9">
+              <div className="mb-5 flex items-center gap-4">
+                <span className={`text-4xl font-black tabular-nums opacity-80 sm:text-5xl ${accent.text}`}>{String(realIndex + 1).padStart(2, '0')}</span>
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[11px] uppercase tracking-[0.25em] text-[var(--color-muted-foreground)]">Vibe Coding 落地规范</span>
+                  <div className={`h-1 w-16 rounded-full ${accent.bar}`} />
+                </div>
+              </div>
+              {slides[realIndex]}
+            </div>
+          )}
         </div>
       </div>
-      <div className="flex items-center justify-between border-t px-4 py-2.5">
+
+      {/* 底部导航 */}
+      <div className="flex items-center justify-between border-t bg-[var(--color-card)]/60 px-5 py-2.5 backdrop-blur">
         <button
           type="button"
           disabled={page === 0}
@@ -227,7 +281,7 @@ function SlideDeck({ children }: { children: ReactNode }) {
           <ChevronLeft className="h-4 w-4" /> 上一页
         </button>
         <div className="flex items-center gap-1.5">
-          {slides.map((_, i) => (
+          {Array.from({ length: total }).map((_, i) => (
             <button
               key={i}
               type="button"
