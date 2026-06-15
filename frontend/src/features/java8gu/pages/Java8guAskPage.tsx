@@ -7,9 +7,13 @@ import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { subscribeSsePost } from '@/lib/api'
 import { java8guRagStatus, java8guReindex, type Java8guHit, type Java8guRagStatus } from '../lib/ragApi'
+import { loadIndex } from '../data'
+import type { Java8guCategory } from '../types'
 
 export function Java8guAskPage() {
   const [question, setQuestion] = useState('')
+  const [categoryId, setCategoryId] = useState('') // '' = 全部分类
+  const [categories, setCategories] = useState<Java8guCategory[]>([])
   const [hits, setHits] = useState<Java8guHit[]>([])
   const [recalled, setRecalled] = useState(false)
   const [answer, setAnswer] = useState('')
@@ -22,6 +26,7 @@ export function Java8guAskPage() {
 
   useEffect(() => {
     java8guRagStatus().then(setRag).catch(() => setRag(null))
+    loadIndex().then(idx => setCategories(idx.categories)).catch(() => setCategories([]))
   }, [])
 
   function ask() {
@@ -34,7 +39,7 @@ export function Java8guAskPage() {
     setRunning(true)
     stopRef.current = subscribeSsePost(
       '/java8gu/ask',
-      { question: q },
+      { question: q, categoryId: categoryId || undefined },
       {
         onEvent: (name, data) => {
           if (name === 'recall') {
@@ -126,6 +131,21 @@ export function Java8guAskPage() {
 
       <Card>
         <CardContent className="space-y-2 p-4">
+          <div className="flex items-center gap-2">
+            <label className="shrink-0 text-xs text-[var(--color-muted-foreground)]">范围</label>
+            <select
+              value={categoryId}
+              onChange={e => setCategoryId(e.target.value)}
+              className="min-w-0 flex-1 rounded-md border bg-[var(--color-background)] px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[var(--color-ring)]"
+            >
+              <option value="">全部分类（{categories.reduce((n, c) => n + c.count, 0) || '—'} 题）</option>
+              {categories.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.label}（{c.count}）
+                </option>
+              ))}
+            </select>
+          </div>
           <textarea
             value={question}
             onChange={e => setQuestion(e.target.value)}

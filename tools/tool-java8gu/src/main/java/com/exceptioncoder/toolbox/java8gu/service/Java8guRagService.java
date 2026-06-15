@@ -9,6 +9,7 @@ import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingStore;
+import dev.langchain4j.store.embedding.filter.MetadataFilterBuilder;
 import io.qdrant.client.QdrantClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -126,18 +127,26 @@ public class Java8guRagService {
 
     // ---------------- 检索 ----------------
 
-    /** 向量检索；命中从 payload metadata 还原为 CardHit。RAG 关或出错返回空。 */
-    public List<CardHit> retrieve(String question) {
+    /**
+     * 向量检索；命中从 payload metadata 还原为 CardHit。RAG 关或出错返回空。
+     *
+     * @param categoryId 非空则用 Qdrant metadata 过滤，把检索限定在该分类内（"只考并发类"等）
+     */
+    public List<CardHit> retrieve(String question, String categoryId) {
         if (!isEnabled() || !StringUtils.hasText(question)) {
             return List.of();
         }
         try {
             Embedding q = embeddingModel.get().embed(question).content();
-            EmbeddingSearchRequest req = EmbeddingSearchRequest.builder()
+            EmbeddingSearchRequest.EmbeddingSearchRequestBuilder builder = EmbeddingSearchRequest.builder()
                     .queryEmbedding(q)
                     .maxResults(props.get().getMaxResults())
-                    .minScore(props.get().getMinScore())
-                    .build();
+                    .minScore(props.get().getMinScore());
+            if (StringUtils.hasText(categoryId)) {
+                // payload metadata 精确过滤：仅检索 categoryId 命中的卡片（向量召回在分类内做）
+                builder = builder.filter(MetadataFilterBuilder.metadataKey("categoryId").isEqualTo(categoryId));
+            }
+            EmbeddingSearchRequest req = builder.build();
             List<CardHit> hits = new ArrayList<>();
             embeddingStore.get().search(req).matches().forEach(match -> {
                 TextSegment seg = match.embedded();

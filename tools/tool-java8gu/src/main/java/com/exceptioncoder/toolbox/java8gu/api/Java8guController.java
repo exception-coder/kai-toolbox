@@ -44,7 +44,7 @@ public class Java8guController {
     @PostMapping(value = "/ask", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter ask(@RequestBody AskRequest request) {
         SseEmitter emitter = new SseEmitter(180_000L);
-        askService.ask(request.question(), emitter);
+        askService.ask(request.question(), request.categoryId(), emitter);
         return emitter;
     }
 }

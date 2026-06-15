@@ -33,7 +33,7 @@ public class Java8guAskService {
         this.assistant = assistant;
     }
 
-    public void ask(String question, SseEmitter emitter) {
+    public void ask(String question, String categoryId, SseEmitter emitter) {
         if (!StringUtils.hasText(question)) {
             sendError(emitter, "问题不能为空");
             return;
@@ -41,7 +41,7 @@ public class Java8guAskService {
         String q = question.trim();
         Thread.ofVirtual().start(() -> {
             try {
-                List<CardHit> hits = rag.retrieve(q);
+                List<CardHit> hits = rag.retrieve(q, categoryId);
                 send(emitter, "recall", Map.of("hits", toHitViews(hits)));
 
                 if (hits.isEmpty()) {
