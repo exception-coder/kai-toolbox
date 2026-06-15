@@ -48,7 +48,7 @@ export type Step = { icon?: Icon; title: string; desc?: string; tone?: Tone }
 
 export function FlowBox({ icon: Icon, title, desc, tone = 'default', className }: Step & { className?: string }) {
   return (
-    <div className={cn('flex min-w-0 flex-1 flex-col gap-1 rounded-lg px-3 py-2.5 text-center', TONES[tone], className)}>
+    <div className={cn('kai-flowbox flex min-w-0 flex-1 flex-col gap-1 rounded-lg px-3 py-2.5 text-center', TONES[tone], className)}>
       <div className="flex items-center justify-center gap-1.5 text-sm font-medium">
         {Icon && <Icon className="h-4 w-4 shrink-0" />}
         <span className="truncate">{title}</span>
@@ -67,8 +67,8 @@ export function HFlow({ steps }: { steps: Step[] }) {
           <FlowBox {...s} />
           {i < steps.length - 1 && (
             <>
-              <ArrowRight className="mx-auto hidden h-4 w-4 shrink-0 text-[var(--color-muted-foreground)] sm:block" />
-              <ArrowDown className="mx-auto block h-4 w-4 shrink-0 text-[var(--color-muted-foreground)] sm:hidden" />
+              <ArrowRight className="kai-arrow mx-auto hidden h-4 w-4 shrink-0 text-[var(--color-muted-foreground)] sm:block" />
+              <ArrowDown className="kai-arrow mx-auto block h-4 w-4 shrink-0 text-[var(--color-muted-foreground)] sm:hidden" />
             </>
           )}
         </div>
@@ -85,7 +85,7 @@ export function VFlow({ steps }: { steps: Step[] }) {
         <div key={i}>
           <FlowBox {...s} />
           {i < steps.length - 1 && (
-            <ArrowDown className="mx-auto h-4 w-4 text-[var(--color-muted-foreground)]" />
+            <ArrowDown className="kai-arrow mx-auto h-4 w-4 text-[var(--color-muted-foreground)]" />
           )}
         </div>
       ))}
