@@ -1,8 +1,11 @@
+import { Children, useEffect, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import {
   ArrowLeft, Users, Sparkles, ListChecks, FileText, Layers, Bot, Boxes, Route, ShieldCheck,
   Wrench, ScrollText, BookOpen, GitMerge, Workflow, ClipboardCheck, Database, Cpu, Library, GitFork,
   Plug, Terminal, MousePointer2, PackageCheck, FileCode2, Blocks, Repeat, Link2,
+  Presentation, X, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -155,6 +158,99 @@ const antiPatterns: { tag: string; risk: string; guard: string }[] = [
   { tag: '⑥', risk: '覆盖率自评虚高，demo 好看上线翻车', guard: '用「能否复现 / 能否回归」度量，而非拍脑袋百分比' },
 ]
 
+// PPT 演示模式：普通模式全渲染 + 一个入口按钮；演示模式 createPortal 到 body 的全屏层（盖住边栏），逐页 next/prev。
+function SlideDeck({ children }: { children: ReactNode }) {
+  const slides = Children.toArray(children)
+  const total = slides.length
+  const [present, setPresent] = useState(false)
+  const [page, setPage] = useState(0)
+  const go = (d: number) => setPage((p) => Math.min(total - 1, Math.max(0, p + d)))
+
+  useEffect(() => {
+    if (!present) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); go(1) }
+      else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); go(-1) }
+      else if (e.key === 'Escape') setPresent(false)
+    }
+    window.addEventListener('keydown', onKey)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prevOverflow }
+  }, [present, total])
+
+  if (!present) {
+    return (
+      <>
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => { setPage(0); setPresent(true) }}
+            className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium text-[var(--color-muted-foreground)] hover:border-[var(--color-primary)]/50 hover:text-[var(--color-foreground)]"
+          >
+            <Presentation className="h-3.5 w-3.5" /> 演示模式（全屏逐页）
+          </button>
+        </div>
+        <div className="space-y-10">{children}</div>
+      </>
+    )
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex flex-col bg-[var(--color-background)]">
+      <style>{`@keyframes kaiSlideIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}`}</style>
+      <div className="flex items-center justify-between border-b px-4 py-2.5">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          <Presentation className="h-4 w-4 text-[var(--color-primary)]" /> Vibe Coding 落地规范
+          <span className="text-xs font-normal text-[var(--color-muted-foreground)]">{page + 1} / {total}</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setPresent(false)}
+          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)]"
+        >
+          <X className="h-4 w-4" /> 退出（Esc）
+        </button>
+      </div>
+      <div className="flex-1 overflow-auto px-4 py-8">
+        <div key={page} className="mx-auto max-w-4xl" style={{ animation: 'kaiSlideIn .28s ease' }}>
+          {slides[page]}
+        </div>
+      </div>
+      <div className="flex items-center justify-between border-t px-4 py-2.5">
+        <button
+          type="button"
+          disabled={page === 0}
+          onClick={() => go(-1)}
+          className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs hover:border-[var(--color-primary)]/50 disabled:opacity-40"
+        >
+          <ChevronLeft className="h-4 w-4" /> 上一页
+        </button>
+        <div className="flex items-center gap-1.5">
+          {slides.map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setPage(i)}
+              aria-label={`第 ${i + 1} 页`}
+              className={`h-1.5 rounded-full transition-all ${i === page ? 'w-5 bg-[var(--color-primary)]' : 'w-1.5 bg-[var(--color-muted-foreground)]/40 hover:bg-[var(--color-muted-foreground)]'}`}
+            />
+          ))}
+        </div>
+        <button
+          type="button"
+          disabled={page === total - 1}
+          onClick={() => go(1)}
+          className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs hover:border-[var(--color-primary)]/50 disabled:opacity-40"
+        >
+          下一页 <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+    </div>,
+    document.body,
+  )
+}
+
 export function TeamVibeCoding() {
   return (
     <div className="mx-auto max-w-6xl space-y-10 px-4 py-6">
@@ -177,6 +273,7 @@ export function TeamVibeCoding() {
         </p>
       </header>
 
+      <SlideDeck>
       {/* 心智转变 */}
       <Section icon={Sparkles} title="心智转变：人写代码 → 人定义需求 / AI 生产 / 人验收" subtitle="但「AI 写、人审」不等于放任——规范、Spec、知识库、自动护栏是 AI 的轨道">
         <Card>
@@ -452,6 +549,7 @@ export function TeamVibeCoding() {
           {antiPatterns.map(a => <GuardCard key={a.tag} {...a} />)}
         </div>
       </Section>
+      </SlideDeck>
     </div>
   )
 }
