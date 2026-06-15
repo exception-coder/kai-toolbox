@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Library, ListChecks, RefreshCw, Search, Settings2, Sparkles } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Library, ListChecks, MessageSquareText, RefreshCw, Search, Settings2, Sparkles } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { useFeatureConfig } from '@/lib/featureConfig'
@@ -111,6 +112,12 @@ export function Java8guHubPage() {
             label="分类"
             value={index ? index.categories.length.toString() : '—'}
           />
+          <Link
+            to="/tools/java8gu/ask"
+            className="inline-flex items-center gap-1.5 rounded-md bg-[var(--color-primary)] px-3 py-2 text-sm font-medium text-[var(--color-primary-foreground)] transition-opacity hover:opacity-90"
+          >
+            <MessageSquareText className="h-4 w-4" /> 复习问答
+          </Link>
         </div>
       </div>
 

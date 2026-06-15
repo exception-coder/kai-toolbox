@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.aisecretary.service;
 import com.exceptioncoder.toolbox.aisecretary.config.RagProperties;
 import io.qdrant.client.PointIdFactory;
 import io.qdrant.client.QdrantClient;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -27,7 +28,8 @@ public class RagStatusService {
     private final Optional<QdrantClient> client;
     private final Optional<RagProperties> props;
 
-    public RagStatusService(Optional<QdrantClient> client, Optional<RagProperties> props) {
+    public RagStatusService(@Qualifier("aiSecretaryQdrantClient") Optional<QdrantClient> client,
+                            Optional<RagProperties> props) {
         this.client = client;
         this.props = props;
     }

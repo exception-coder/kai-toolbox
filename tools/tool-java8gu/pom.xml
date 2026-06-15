@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.exceptioncoder</groupId>
+        <artifactId>kai-toolbox</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>tool-java8gu</artifactId>
+    <packaging>jar</packaging>
+    <name>tool-java8gu</name>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.exceptioncoder</groupId>
+            <artifactId>toolbox-common</artifactId>
+        </dependency>
+        <!-- 共享 LLM 网关：分级路由的 ChatModel（复习作答用） -->
+        <dependency>
+            <groupId>com.exceptioncoder</groupId>
+            <artifactId>toolbox-llm</artifactId>
+        </dependency>
+        <!-- LangChain4j：AiServices（声明式作答）+ 嵌入模型 -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j</artifactId>
+        </dependency>
+        <!-- 向量库：Qdrant。集成模块带 -beta 后缀，显式版本对齐核心 1.16.1。 -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-qdrant</artifactId>
+            <version>1.16.1-beta26</version>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+</project>

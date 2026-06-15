@@ -44,6 +44,7 @@
         <module>tools/tool-video-condense</module>
         <module>tools/tool-workline</module>
         <module>tools/tool-ai-secretary</module>
+        <module>tools/tool-java8gu</module>
         <module>toolbox-starter</module>
     </modules>
 
@@ -212,6 +213,11 @@
             <dependency>
                 <groupId>com.exceptioncoder</groupId>
                 <artifactId>tool-ai-secretary</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-java8gu</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

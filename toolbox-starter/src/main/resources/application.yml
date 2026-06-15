@@ -93,6 +93,24 @@ toolbox:
       # bge-m3 中文余弦分偏"压缩"：账号密码类 0.49~0.59、开销类 ≤0.43，0.45 卡在二者安全带中间
       # （实测「ERP 账号」对 kai-toolbox 那条 0.486，0.5 会误杀，故下调）
       min-score: 0.45
+  # Java 八股复习秘书向量 RAG。独立集合 java8gu_cards，与个人秘书物理隔离。默认关闭，开启前置同上。
+  # 复用同一 Qdrant：api-key 共享 ai-secretary 的环境变量，host/port 由启动脚本 -D 指向远端。
+  java8gu:
+    rag:
+      enabled: false
+      embedding-base-url: http://localhost:11434/v1
+      embedding-api-key: ollama
+      embedding-model: bge-m3
+      vector-size: 1024
+      qdrant-host: localhost
+      qdrant-port: 6334
+      qdrant-use-tls: false
+      qdrant-api-key: ${TOOLBOX_AI_SECRETARY_QDRANT_API_KEY:}
+      collection: java8gu_cards
+      max-results: 6
+      min-score: 0.45
+      # 卡片内容目录（含 index.json 与 q/{id}.md）；相对路径按工作目录(仓库根)解析
+      content-dir: frontend/public/java8gu
   system:
     # 远程重启端点 token。经公网 tunnel 暴露，留空 = 端点关闭（返回 503）。必须显式配才开放。
     # 用环境变量覆盖：TOOLBOX_SYSTEM_RESTART_TOKEN=随机串

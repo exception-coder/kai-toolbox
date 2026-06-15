@@ -11,6 +11,7 @@ import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -47,8 +48,8 @@ public class RecallRetriever {
     private final Optional<RagProperties> ragProperties;
     private final NoteRepository noteRepository;
 
-    public RecallRetriever(Optional<EmbeddingModel> embeddingModel,
-                           Optional<EmbeddingStore<TextSegment>> embeddingStore,
+    public RecallRetriever(@Qualifier("aiSecretaryEmbeddingModel") Optional<EmbeddingModel> embeddingModel,
+                           @Qualifier("aiSecretaryEmbeddingStore") Optional<EmbeddingStore<TextSegment>> embeddingStore,
                            Optional<RagProperties> ragProperties,
                            NoteRepository noteRepository) {
         this.embeddingModel = embeddingModel;

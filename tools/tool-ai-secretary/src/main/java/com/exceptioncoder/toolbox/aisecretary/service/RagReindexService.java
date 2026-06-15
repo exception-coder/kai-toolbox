@@ -7,6 +7,7 @@ import io.qdrant.client.QdrantClient;
 import io.qdrant.client.grpc.Collections;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
@@ -31,7 +32,8 @@ public class RagReindexService {
     private final NoteIndexService noteIndexService;
     private final RagStatusService ragStatusService;
 
-    public RagReindexService(Optional<QdrantClient> client, Optional<RagProperties> props,
+    public RagReindexService(@Qualifier("aiSecretaryQdrantClient") Optional<QdrantClient> client,
+                             Optional<RagProperties> props,
                              NoteRepository noteRepository, NoteIndexService noteIndexService,
                              RagStatusService ragStatusService) {
         this.client = client;

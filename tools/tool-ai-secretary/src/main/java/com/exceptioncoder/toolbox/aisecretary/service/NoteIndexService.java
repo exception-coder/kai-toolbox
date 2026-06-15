@@ -7,6 +7,7 @@ import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -27,8 +28,8 @@ public class NoteIndexService {
     private final Optional<EmbeddingModel> embeddingModel;
     private final Optional<EmbeddingStore<TextSegment>> embeddingStore;
 
-    public NoteIndexService(Optional<EmbeddingModel> embeddingModel,
-                            Optional<EmbeddingStore<TextSegment>> embeddingStore) {
+    public NoteIndexService(@Qualifier("aiSecretaryEmbeddingModel") Optional<EmbeddingModel> embeddingModel,
+                            @Qualifier("aiSecretaryEmbeddingStore") Optional<EmbeddingStore<TextSegment>> embeddingStore) {
         this.embeddingModel = embeddingModel;
         this.embeddingStore = embeddingStore;
     }
