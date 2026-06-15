@@ -64,11 +64,17 @@ if ([string]::IsNullOrWhiteSpace($ragApiKey)) {
   Write-Host '[run-backend]   先执行：$env:TOOLBOX_AI_SECRETARY_QDRANT_API_KEY = "你的Qdrant密钥"  再启动本脚本。'
 }
 $ragJvmArgs = @(
+  # 个人秘书 RAG
   '-Dtoolbox.ai-secretary.rag.enabled=true',
   '-Dtoolbox.ai-secretary.rag.qdrant-host=170.106.186.65',
   '-Dtoolbox.ai-secretary.rag.qdrant-port=6334',
-  "-Dtoolbox.ai-secretary.rag.qdrant-api-key=$ragApiKey"
+  "-Dtoolbox.ai-secretary.rag.qdrant-api-key=$ragApiKey",
+  # Java 八股秘书 RAG（独立集合 java8gu_cards，复用同一 Qdrant/密钥）
+  '-Dtoolbox.java8gu.rag.enabled=true',
+  '-Dtoolbox.java8gu.rag.qdrant-host=170.106.186.65',
+  '-Dtoolbox.java8gu.rag.qdrant-port=6334',
+  "-Dtoolbox.java8gu.rag.qdrant-api-key=$ragApiKey"
 ) -join ' '
 
-Write-Host '[run-backend] 启动 toolbox-starter（RAG 已启用 → 远端 Qdrant 170.106.186.65:6334）...'
+Write-Host '[run-backend] 启动 toolbox-starter（个人秘书 + Java八股 RAG 已启用 → 远端 Qdrant 170.106.186.65:6334）...'
 & $mvn -pl toolbox-starter spring-boot:run "-Dspring-boot.run.jvmArguments=$ragJvmArgs"
