@@ -10,6 +10,7 @@ import {
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Section, HFlow, VFlow, InfoCard, DecisionCard, GuardCard, CodeBlock, type Decision } from '../components/arch-ui'
+import { IntroNewOld, IntroDeterministic, IntroFlywheel } from '../components/slide-figures'
 
 // 五大核心原则：把「买工具」纠正为「建工作流 + 用确定性关住 LLM 的不确定性」。
 const principles: { icon: typeof Users; title: string; detail: string }[] = [
@@ -176,8 +177,9 @@ const COVER_CHIPS = [
 ]
 
 // PPT 演示模式：普通模式全渲染 + 一个入口按钮；演示模式 createPortal 到 body 的全屏层（盖住边栏），逐页 next/prev。
-function SlideDeck({ children }: { children: ReactNode }) {
-  const slides = Children.toArray(children)
+function SlideDeck({ children, intro = [] }: { children: ReactNode; intro?: ReactNode[] }) {
+  const docSlides = Children.toArray(children)
+  const slides = [...intro, ...docSlides] // 演示用：图解导览页 + 文档页
   const total = slides.length + 1 // 含封面页
   const [present, setPresent] = useState(false)
   const [page, setPage] = useState(0)
@@ -219,7 +221,7 @@ function SlideDeck({ children }: { children: ReactNode }) {
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex flex-col bg-gradient-to-br from-[var(--color-background)] via-[var(--color-background)] to-[var(--color-primary)]/10">
-      <style>{`@keyframes kaiSlideIn{from{opacity:0;transform:translateY(12px) scale(.99)}to{opacity:1;transform:none}}`}</style>
+      <style>{`@keyframes kaiSlideIn{from{opacity:0;transform:translateY(12px) scale(.99)}to{opacity:1;transform:none}}@keyframes kaiFlow{0%{transform:translateX(-8px);opacity:0}30%{opacity:1}100%{transform:translateX(38px);opacity:0}}@keyframes kaiBar{from{width:10%}to{width:100%}}@keyframes kaiFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}@keyframes kaiPulse{0%,100%{opacity:.45;transform:scale(.92)}50%{opacity:1;transform:scale(1.08)}}@keyframes kaiGate{0%,100%{box-shadow:0 0 0 0 rgba(99,102,241,0)}50%{box-shadow:0 0 0 6px rgba(99,102,241,.15)}}@keyframes kaiSpin{to{transform:rotate(360deg)}}`}</style>
 
       {/* 顶部条 */}
       <div className="flex items-center justify-between border-b bg-[var(--color-card)]/60 px-5 py-2.5 backdrop-blur">
@@ -327,7 +329,7 @@ export function TeamVibeCoding() {
         </p>
       </header>
 
-      <SlideDeck>
+      <SlideDeck intro={[<IntroNewOld key="i1" />, <IntroDeterministic key="i2" />, <IntroFlywheel key="i3" />]}>
       {/* 心智转变 */}
       <Section icon={Sparkles} title="心智转变：人写代码 → 人定义需求 / AI 生产 / 人验收" subtitle="但「AI 写、人审」不等于放任——规范、Spec、知识库、自动护栏是 AI 的轨道">
         <Card>

@@ -1,0 +1,126 @@
+// 演示模式专属的「图文并茂」图解页：面向领导/新人，用 CSS 动画通俗讲清核心概念。
+// 动画 keyframes 由 TeamVibeCoding 的演示层 <style> 统一注入（kaiFlow/kaiBar/kaiFloat/kaiPulse/kaiGate/kaiSpin）。
+import { Fragment } from 'react'
+import { User, Keyboard, Bot, ArrowRight, ShieldCheck, CheckCircle2, XCircle, Repeat, Database, Sparkles } from 'lucide-react'
+import { Section } from './arch-ui'
+
+/** 新旧对比：传统逐行写 vs Vibe Coding 指挥 AI。 */
+export function IntroNewOld() {
+  return (
+    <Section icon={Repeat} title="新旧对比：从「码农」到「指挥官」" subtitle="一眼看懂传统开发和 Vibe Coding 的差别">
+      <div className="grid items-stretch gap-3 md:grid-cols-[1fr_auto_1fr]">
+        <div className="rounded-2xl border bg-[var(--color-muted)]/40 p-5 text-center">
+          <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">传统开发</div>
+          <div className="flex items-center justify-center gap-2 text-[var(--color-muted-foreground)]">
+            <User className="h-9 w-9" />
+            <Keyboard className="h-7 w-7" />
+          </div>
+          <div className="mt-3 text-sm font-semibold">人逐行写代码</div>
+          <div className="text-xs text-[var(--color-muted-foreground)]">AI 只帮补全</div>
+          <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-muted)]">
+            <div className="h-full rounded-full bg-[var(--color-muted-foreground)]/50" style={{ animation: 'kaiBar 4s ease-in-out infinite alternate' }} />
+          </div>
+          <div className="mt-2 text-[11px] text-[var(--color-muted-foreground)]">改一行 → 调一次 → 反复，慢</div>
+        </div>
+
+        <div className="flex items-center justify-center">
+          <ArrowRight className="h-7 w-7 text-[var(--color-primary)]" style={{ animation: 'kaiPulse 1.6s ease-in-out infinite' }} />
+        </div>
+
+        <div className="rounded-2xl border-2 border-[var(--color-primary)]/40 bg-[var(--color-primary)]/5 p-5 text-center">
+          <div className="mb-3 text-xs font-semibold uppercase tracking-wider text-[var(--color-primary)]">Vibe Coding</div>
+          <div className="flex items-center justify-center gap-1.5">
+            <User className="h-9 w-9" style={{ animation: 'kaiFloat 3s ease-in-out infinite' }} />
+            <div className="relative flex h-6 w-10 items-center justify-center">
+              {[0, 1, 2].map((i) => (
+                <span key={i} className="absolute h-1.5 w-1.5 rounded-full bg-[var(--color-primary)]" style={{ animation: `kaiFlow 1.4s ease-in-out ${i * 0.4}s infinite` }} />
+              ))}
+            </div>
+            <Bot className="h-9 w-9 text-[var(--color-primary)]" style={{ animation: 'kaiFloat 3s ease-in-out .5s infinite' }} />
+          </div>
+          <div className="mt-3 text-sm font-semibold">人定义需求，AI 生产</div>
+          <div className="text-xs text-[var(--color-muted-foreground)]">人只做验收</div>
+          <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-primary)]/15">
+            <div className="h-full rounded-full bg-[var(--color-primary)]" style={{ animation: 'kaiBar 1.2s ease-in-out infinite alternate' }} />
+          </div>
+          <div className="mt-2 text-[11px] text-[var(--color-muted-foreground)]">说清要什么 → AI 成稿 → 人拍板，快</div>
+        </div>
+      </div>
+      <p className="text-center text-xs text-[var(--color-muted-foreground)]">
+        一句话：<b className="text-[var(--color-foreground)]">你的角色从「写代码」升级为「定义需求 + 验收」</b>。
+      </p>
+    </Section>
+  )
+}
+
+/** AI 提议、程序裁决：确定性闸门把关。 */
+export function IntroDeterministic() {
+  return (
+    <Section icon={ShieldCheck} title="为什么靠谱：AI 提议，程序裁决" subtitle="AI 会犯错，所以让确定性的「程序闸门」把关">
+      <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+        <div className="flex w-32 flex-col items-center gap-1 rounded-xl border bg-[var(--color-card)] px-4 py-3 text-center">
+          <Bot className="h-8 w-8 text-amber-500" style={{ animation: 'kaiFloat 3s ease-in-out infinite' }} />
+          <div className="text-xs font-semibold">AI 提议</div>
+          <div className="text-[11px] text-[var(--color-muted-foreground)]">可能幻觉</div>
+        </div>
+
+        <div className="relative flex h-6 w-12 items-center justify-center sm:w-16">
+          {[0, 1, 2].map((i) => (
+            <span key={i} className="absolute h-1.5 w-1.5 rounded-full bg-[var(--color-primary)]" style={{ animation: `kaiFlow 1.4s ease-in-out ${i * 0.4}s infinite` }} />
+          ))}
+        </div>
+
+        <div className="flex w-40 flex-col items-center gap-1 rounded-xl border-2 border-[var(--color-primary)]/50 bg-[var(--color-primary)]/5 px-4 py-3 text-center" style={{ animation: 'kaiGate 2s ease-in-out infinite' }}>
+          <ShieldCheck className="h-8 w-8 text-[var(--color-primary)]" />
+          <div className="text-xs font-semibold">程序闸门</div>
+          <div className="text-[11px] text-[var(--color-muted-foreground)]">编译 / 测试 / 规则校验</div>
+        </div>
+
+        <ArrowRight className="h-6 w-6 rotate-90 text-[var(--color-muted-foreground)] sm:rotate-0" />
+
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+            <CheckCircle2 className="h-4 w-4" /> 通过 → 合并
+          </div>
+          <div className="flex items-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-600 dark:text-rose-400">
+            <XCircle className="h-4 w-4" /> 拦截 → 退回
+          </div>
+        </div>
+      </div>
+      <p className="text-center text-xs text-[var(--color-muted-foreground)]">
+        通俗：<b className="text-[var(--color-foreground)]">AI 说的不算数，编译 / 测试 / 规则验过才算</b>——能用程序定的，绝不靠 AI 自觉。
+      </p>
+    </Section>
+  )
+}
+
+/** 知识飞轮：经验回流，越用越聪明。 */
+export function IntroFlywheel() {
+  const nodes = [
+    { icon: Database, label: '查回规则' },
+    { icon: Bot, label: '合规生成' },
+    { icon: CheckCircle2, label: '少返工' },
+    { icon: Sparkles, label: '沉淀新知识' },
+  ]
+  return (
+    <Section icon={Repeat} title="越用越聪明：知识飞轮" subtitle="每次编码沉淀的经验回流，让下次更准">
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        {nodes.map((n, i) => (
+          <Fragment key={n.label}>
+            <div className="flex w-24 flex-col items-center gap-1 rounded-xl border bg-[var(--color-card)] px-3 py-3">
+              <n.icon className="h-7 w-7 text-[var(--color-primary)]" style={{ animation: `kaiFloat 3s ease-in-out ${i * 0.3}s infinite` }} />
+              <div className="text-center text-xs font-medium">{n.label}</div>
+            </div>
+            <ArrowRight className="h-5 w-5 shrink-0 text-[var(--color-muted-foreground)]" style={{ animation: 'kaiPulse 1.6s ease-in-out infinite' }} />
+          </Fragment>
+        ))}
+        <div className="flex items-center gap-1.5 rounded-full border border-[var(--color-primary)]/40 bg-[var(--color-primary)]/10 px-3 py-2 text-xs font-medium text-[var(--color-primary)]">
+          <Repeat className="h-4 w-4" style={{ animation: 'kaiSpin 4s linear infinite' }} /> 回到起点 · 更准
+        </div>
+      </div>
+      <p className="text-center text-xs text-[var(--color-muted-foreground)]">
+        通俗：<b className="text-[var(--color-foreground)]">团队经验沉淀进知识库，AI 就像「越带越熟的老员工」</b>。
+      </p>
+    </Section>
+  )
+}
