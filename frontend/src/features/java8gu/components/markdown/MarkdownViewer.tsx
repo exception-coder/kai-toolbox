@@ -1,5 +1,5 @@
 import React from 'react'
-import type { Token } from 'marked'
+import type { Token, Tokens } from 'marked'
 import { ExternalLink, Hash } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { hashSlug } from '../../lib/markdown'
@@ -22,14 +22,18 @@ export function MarkdownViewer({ tokens, className }: Props) {
 }
 
 function TokenRenderer({ token }: { token: Token }) {
+  // marked 的 Token 联合里含 Tokens.Generic（type: string + 索引签名），会污染
+  // 判别式收窄——switch 后属性仍可能退化成 any/undefined。每个 case 显式 as 到
+  // 具体 Tokens.* 才能拿到精确字段类型。
   switch (token.type) {
     case 'heading': {
-      const depth = token.depth
-      const id = `j8-h-${depth}-${hashSlug(token.text)}`
+      const t = token as Tokens.Heading
+      const depth = t.depth
+      const id = `j8-h-${depth}-${hashSlug(t.text)}`
       const baseClass = 'group relative font-semibold tracking-tight text-[var(--color-foreground)] scroll-mt-20'
-      
+
       // H1 is usually rendered by the page header, so we can hide it or render it differently
-      if (depth === 1) return null 
+      if (depth === 1) return null
 
       const depthClasses: Record<number, string> = {
         2: 'mt-10 mb-5 text-xl border-b pb-2',
@@ -37,13 +41,13 @@ function TokenRenderer({ token }: { token: Token }) {
         4: 'mt-6 mb-3 text-base',
       }
 
-      const Tag = `h${depth}` as keyof JSX.IntrinsicElements
+      const Tag = `h${depth}` as React.ElementType
       return (
         <Tag id={id} className={cn(baseClass, depthClasses[depth] || 'mt-6 mb-3')}>
           <a href={`#${id}`} className="absolute -left-6 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100">
             <Hash className="h-4 w-4 text-[var(--color-primary)]" />
           </a>
-          <InlineRenderer tokens={token.tokens} />
+          <InlineRenderer tokens={t.tokens} />
         </Tag>
       )
     }
@@ -51,15 +55,16 @@ function TokenRenderer({ token }: { token: Token }) {
     case 'paragraph':
       return (
         <p className="my-4 last:mb-0">
-          <InlineRenderer tokens={token.tokens} />
+          <InlineRenderer tokens={(token as Tokens.Paragraph).tokens} />
         </p>
       )
 
     case 'blockquote': {
+      const t = token as Tokens.Blockquote
       // Parse Admonition
-      const firstToken = token.tokens[0]
+      const firstToken = t.tokens[0]
       if (firstToken?.type === 'paragraph') {
-        const text = firstToken.text
+        const text = (firstToken as Tokens.Paragraph).text
         const match = text.match(/^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION|DANGER|INFO)\]/i)
         if (match) {
           const typeMap: Record<string, AdmonitionType> = {
@@ -73,7 +78,7 @@ function TokenRenderer({ token }: { token: Token }) {
           }
           const type = typeMap[match[1].toLowerCase()] || 'note'
           // Remove the marker from the first paragraph
-          const remainingTokens = [...token.tokens]
+          const remainingTokens = [...t.tokens]
           const firstPara = { ...remainingTokens[0] } as any
           firstPara.text = firstPara.text.replace(/^\[!.*?\]\s*/, '')
           // Also need to update the nested tokens of the first paragraph if they exist
@@ -91,35 +96,39 @@ function TokenRenderer({ token }: { token: Token }) {
       }
       return (
         <blockquote className="my-6 border-l-4 border-[var(--color-primary)]/40 bg-[var(--color-muted)]/20 py-2 pl-4 italic text-[var(--color-muted-foreground)]">
-          {token.tokens.map((t, i) => <TokenRenderer key={i} token={t} />)}
+          {t.tokens.map((child, i) => <TokenRenderer key={i} token={child} />)}
         </blockquote>
       )
     }
 
     case 'list': {
-      const Tag = token.ordered ? 'ol' : 'ul'
+      const t = token as Tokens.List
+      const Tag = t.ordered ? 'ol' : 'ul'
       return (
-        <Tag className={cn('my-5 space-y-2 pl-6', token.ordered ? 'list-decimal' : 'list-disc')}>
-          {token.items.map((item, i) => (
+        <Tag className={cn('my-5 space-y-2 pl-6', t.ordered ? 'list-decimal' : 'list-disc')}>
+          {t.items.map((item, i) => (
             <li key={i} className="pl-1">
-              {item.tokens.map((t, j) => <TokenRenderer key={j} token={t} />)}
+              {item.tokens.map((child, j) => <TokenRenderer key={j} token={child} />)}
             </li>
           ))}
         </Tag>
       )
     }
 
-    case 'code':
-      if (token.lang === 'mermaid') return null
-      return <MdCodeBlock code={token.text} lang={token.lang} />
+    case 'code': {
+      const t = token as Tokens.Code
+      if (t.lang === 'mermaid') return null
+      return <MdCodeBlock code={t.text} lang={t.lang} />
+    }
 
-    case 'table':
+    case 'table': {
+      const t = token as Tokens.Table
       return (
         <div className="my-6 overflow-x-auto rounded-xl border shadow-sm">
           <table className="w-full border-collapse text-left text-sm">
             <thead className="bg-[var(--color-muted)]/50">
               <tr>
-                {token.header.map((cell, i) => (
+                {t.header.map((cell, i) => (
                   <th key={i} className="border-b px-4 py-3 font-semibold text-[var(--color-foreground)]">
                     <InlineRenderer tokens={cell.tokens} />
                   </th>
@@ -127,7 +136,7 @@ function TokenRenderer({ token }: { token: Token }) {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {token.rows.map((row, i) => (
+              {t.rows.map((row, i) => (
                 <tr key={i} className="transition-colors hover:bg-[var(--color-muted)]/20">
                   {row.map((cell, j) => (
                     <td key={j} className="px-4 py-3 text-[var(--color-foreground)]/90">
@@ -140,6 +149,7 @@ function TokenRenderer({ token }: { token: Token }) {
           </table>
         </div>
       )
+    }
 
     case 'hr':
       return <hr className="my-10 border-dashed border-[var(--color-border)]" />
@@ -163,41 +173,45 @@ function InlineRenderer({ tokens }: { tokens?: Token[] }) {
       {tokens.map((token, i) => {
         switch (token.type) {
           case 'strong':
-            return <strong key={i} className="font-semibold text-[var(--color-foreground)]"><InlineRenderer tokens={token.tokens} /></strong>
+            return <strong key={i} className="font-semibold text-[var(--color-foreground)]"><InlineRenderer tokens={(token as Tokens.Strong).tokens} /></strong>
           case 'em':
-            return <em key={i} className="italic"><InlineRenderer tokens={token.tokens} /></em>
+            return <em key={i} className="italic"><InlineRenderer tokens={(token as Tokens.Em).tokens} /></em>
           case 'codespan':
-            return <code key={i} className="rounded bg-[var(--color-muted)]/60 px-1.5 py-0.5 font-mono text-[0.9em] text-[var(--color-foreground)]">{token.text}</code>
-          case 'link':
+            return <code key={i} className="rounded bg-[var(--color-muted)]/60 px-1.5 py-0.5 font-mono text-[0.9em] text-[var(--color-foreground)]">{(token as Tokens.Codespan).text}</code>
+          case 'link': {
+            const t = token as Tokens.Link
             return (
               <a
                 key={i}
-                href={token.href}
+                href={t.href}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-0.5 text-[var(--color-primary)] underline decoration-primary/30 underline-offset-4 transition-colors hover:decoration-primary"
               >
-                <InlineRenderer tokens={token.tokens} />
+                <InlineRenderer tokens={t.tokens} />
                 <ExternalLink className="h-3 w-3" />
               </a>
             )
-          case 'image':
+          }
+          case 'image': {
+            const t = token as Tokens.Image
             return (
               <img
                 key={i}
-                src={token.href}
-                alt={token.text}
+                src={t.href}
+                alt={t.text}
                 className="my-4 max-w-full rounded-lg border shadow-sm"
               />
             )
+          }
           case 'br':
             return <br key={i} />
           case 'del':
-            return <del key={i} className="line-through opacity-60"><InlineRenderer tokens={token.tokens} /></del>
+            return <del key={i} className="line-through opacity-60"><InlineRenderer tokens={(token as Tokens.Del).tokens} /></del>
           case 'text':
-            return <span key={i}>{(token as any).text}</span>
+            return <span key={i}>{(token as Tokens.Text).text}</span>
           default:
-            return <span key={i}>{(token as any).text || ''}</span>
+            return <span key={i}>{(token as { text?: string }).text || ''}</span>
         }
       })}
     </>

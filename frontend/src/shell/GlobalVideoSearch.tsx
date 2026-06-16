@@ -44,7 +44,8 @@ export function GlobalVideoSearch() {
 
   const result = useQuery({
     queryKey: ['global-video-search', query, excludedDirs.join('\n')],
-    queryFn: () => getVideoLibrary('name', 'asc', 'all', query, false, excludedDirs, 0, POPOVER_LIMIT),
+    // language 传空串 = 不限语言（全局搜索不做语言筛选）
+    queryFn: () => getVideoLibrary('name', 'asc', 'all', query, false, '', excludedDirs, 0, POPOVER_LIMIT),
     enabled: query.length > 0,
     staleTime: 30_000,
   })
