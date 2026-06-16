@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronDown, ChevronUp, LayoutGrid, List, Loader2, Maximize2, MessageSquare, Minus, Plus, Send, Shield, ShieldCheck, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, LayoutGrid, List, Loader2, Maximize2, MessageSquare, Minus, Paperclip, Plus, Send, Shield, ShieldCheck, X } from 'lucide-react'
 import { CHAT_ROUTE, useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { isShowcasePath } from '@/shell/featureRegistry'
 import { ThemeMenu } from '@/shell/ThemeMenu'
@@ -65,6 +65,7 @@ export function FloatingChatWindow() {
   const resizeRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null)
   const bubbleRef = useRef<{ dx: number; dy: number; sx: number; sy: number; moved: boolean } | null>(null)
   const autoApprovedRef = useRef<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // 顶栏会话别名（与会话列表共用同一 query 缓存）
   const { data: sessions = [] } = useQuery({
@@ -403,6 +404,23 @@ export function FloatingChatWindow() {
           />
         )}
         <div className="flex items-end gap-2 p-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            hidden
+            onChange={e => { void uploadFiles(e.target.files); e.target.value = '' }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={chat.running || attachments.length + uploading >= MAX_ATTACHMENTS}
+            aria-label="上传附件"
+            title={attachments.length + uploading >= MAX_ATTACHMENTS ? `最多 ${MAX_ATTACHMENTS} 个附件` : '上传附件（也可直接粘贴图片）'}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border text-[var(--color-muted-foreground)] hover:bg-[var(--color-background)] disabled:opacity-50"
+          >
+            <Paperclip className="size-4" />
+          </button>
           <VoiceInputButton
             disabled={chat.running}
             onText={t => setDraft(d => (d.trim() ? `${d} ${t}` : t))}
