@@ -16,7 +16,7 @@ const META: Record<PermissionMode, {
   default: { label: '默认', desc: '每次工具调用前都征求你同意', icon: Shield, cls: '' },
   acceptEdits: { label: '自动接受', desc: '自动放行文件编辑，其余仍逐个询问', icon: Zap, cls: 'text-[var(--color-primary)]' },
   plan: { label: '计划', desc: '只探索代码并给出计划，不直接改动', icon: ClipboardList, cls: 'text-blue-600' },
-  bypassPermissions: { label: '全自动', desc: '所有工具调用都不再询问，直接执行', icon: ShieldAlert, cls: 'text-red-600' },
+  bypassPermissions: { label: '全自动', desc: '所有工具调用都不再询问，直接执行', icon: ShieldAlert, cls: 'text-emerald-600 dark:text-emerald-400' },
 }
 
 /**

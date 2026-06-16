@@ -235,9 +235,9 @@ export function ChatPage() {
     <div className={fullscreen
       ? 'fixed inset-0 z-50 flex h-[100dvh] flex-col bg-[var(--color-muted)]/40'
       : 'flex h-[calc(100dvh-3.5rem)] flex-col bg-[var(--color-muted)]/40'}>
-      {/* 顶栏：主色渐变（彩色），与中部灰画布、底部白输入条三段分明，随主题主色变化 */}
-      <header className="flex items-center gap-2 border-b-2 border-[var(--color-primary)]/40 bg-gradient-to-r from-[var(--color-primary)]/20 to-[var(--color-primary)]/6 px-3 py-2 shadow-sm">
-        <span className="max-w-[40vw] truncate font-semibold text-[var(--color-primary)]" title={currentTitle || 'Vibe Coding'}>{currentTitle || 'Vibe Coding'}</span>
+      {/* 顶栏：中性浅灰 + 1px 边框（Notion 风），不抢视觉 */}
+      <header className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-muted)] px-3 py-2 shadow-sm">
+        <span className="max-w-[40vw] truncate font-semibold" title={currentTitle || 'Vibe Coding'}>{currentTitle || 'Vibe Coding'}</span>
         <span className={`rounded px-1.5 py-0.5 text-[10px] ${chat.currentEngine === 'codex'
           ? 'bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-200'
           : 'border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}>
@@ -426,7 +426,7 @@ export function ChatPage() {
 
       {/* 底部输入：白色悬浮输入条 + 主色上边框 + 顶部阴影，在灰画布上明显托起 */}
       {chat.sessionId && (
-        <div className="border-t-2 border-[var(--color-primary)]/35 bg-gradient-to-r from-[var(--color-primary)]/20 to-[var(--color-primary)]/6 shadow-[0_-3px_12px_-4px_rgba(0,0,0,0.14)]">
+        <div className="border-t border-[var(--color-border)] bg-[var(--color-muted)] shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.08)]">
           <AttachmentChips
             items={attachments}
             uploading={uploading}
@@ -446,7 +446,7 @@ export function ChatPage() {
                 aria-label="弹窗自动允许开关"
                 className={'flex items-center gap-1 rounded-md border px-2 py-1 text-xs '
                   + (autoApprove
-                    ? 'border-red-500 bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300'
+                    ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
                     : 'text-[var(--color-muted-foreground)]')}
               >
                 <ShieldCheck className="size-3.5" /> 弹窗自动允许·{autoApprove ? '开' : '关'}
