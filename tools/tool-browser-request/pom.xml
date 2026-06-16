@@ -24,6 +24,12 @@
             <groupId>com.exceptioncoder</groupId>
             <artifactId>toolbox-llm</artifactId>
         </dependency>
+        <!-- LangChain4j AiServices（声明式 @SystemMessage/@UserMessage/@V，FlowScriptAssistant 用）。
+             toolbox-llm 只带 langchain4j-core + open-ai，不含 service 层，故在此显式引入（版本由 langchain4j-bom 管）。 -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
