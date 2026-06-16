@@ -1,7 +1,9 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background: oklch(1 0 0);
+  /* 页面是「画布」，不是纯白——比卡片暗一档，卡片(纯白)才能浮起来形成视觉海拔。
+     三级 surface 阶梯：sidebar(0.965) < background 画布(0.98) < card 纯白(1.0)。 */
+  --color-background: oklch(0.98 0.005 255);
   --color-foreground: oklch(0.15 0.01 260);
 
   --color-card: oklch(1 0 0);
@@ -32,10 +34,10 @@
   --color-destructive: oklch(0.6 0.22 27);
   --color-destructive-foreground: oklch(0.99 0 0);
 
-  --color-sidebar: oklch(0.98 0.003 260);
+  --color-sidebar: oklch(0.965 0.006 255);
   --color-sidebar-foreground: oklch(0.2 0.01 260);
   --color-sidebar-border: oklch(0.92 0.005 260);
-  --color-sidebar-accent: oklch(0.94 0.008 260);
+  --color-sidebar-accent: oklch(0.93 0.009 255);
 
   --radius: 0.625rem;
 
@@ -52,13 +54,14 @@
   }
 
   .dark {
-    --color-background: oklch(0.15 0.01 260);
+    /* 深色下「越高越亮」：card/popover 比 background 亮一档形成海拔（0.145 → 0.205）。 */
+    --color-background: oklch(0.145 0.01 260);
     --color-foreground: oklch(0.97 0 0);
-    --color-card: oklch(0.18 0.01 260);
+    --color-card: oklch(0.205 0.012 260);
     --color-card-foreground: oklch(0.97 0 0);
-    --color-popover: oklch(0.18 0.01 260);
+    --color-popover: oklch(0.205 0.012 260);
     --color-popover-foreground: oklch(0.97 0 0);
-    --color-muted: oklch(0.22 0.01 260);
+    --color-muted: oklch(0.24 0.012 260);
     --color-muted-foreground: oklch(0.65 0.02 260);
     --color-border: oklch(0.25 0.01 260);
     --color-input: oklch(0.25 0.01 260);
@@ -88,9 +91,9 @@
   /* ==== 护眼（暖白底，降低蓝光），基于浅色 ==== */
   .theme-sepia {
     color-scheme: light;
-    --color-background: oklch(0.95 0.025 85);
+    --color-background: oklch(0.94 0.028 85);
     --color-foreground: oklch(0.28 0.03 70);
-    --color-card: oklch(0.97 0.02 85);
+    --color-card: oklch(0.985 0.018 85);
     --color-card-foreground: oklch(0.28 0.03 70);
     --color-popover: oklch(0.97 0.02 85);
     --color-popover-foreground: oklch(0.28 0.03 70);
