@@ -601,7 +601,7 @@ export function ChatPage() {
             <textarea
               ref={taRef}
               className="max-h-32 min-h-[2.75rem] flex-1 resize-none overflow-y-auto rounded-xl border bg-[var(--color-background)] px-3 py-2 text-sm"
-              placeholder={`给 ${engineName(chat.currentEngine)} 下发任务…（Enter 换行，Shift+Enter 发送）`}
+              placeholder=""
               rows={1}
               value={draft}
               onChange={e => { setDraft(e.target.value); setSlashDismissed(false); setSlashIdx(0) }}
