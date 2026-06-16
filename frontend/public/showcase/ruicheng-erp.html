@@ -63,12 +63,34 @@ a{color:inherit;text-decoration:none}
   font-family:"Noto Serif SC";font-weight:900;
 }
 .topnav .dot{width:11px;height:11px;border-radius:50%;background:var(--madder);box-shadow:0 0 0 4px rgba(181,64,42,.18)}
-.topnav nav{display:flex;gap:4px;flex-wrap:wrap}
-.topnav nav a{
+.topnav nav{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+.topnav nav>a,.navgroup>button{
   font-size:.82rem;font-weight:500;padding:6px 13px;border-radius:30px;
   color:var(--ink);opacity:.7;transition:.25s;white-space:nowrap;
+  display:inline-flex;align-items:center;gap:5px;
+  background:none;border:0;cursor:pointer;font-family:inherit;line-height:1.4;
 }
-.topnav nav a:hover{opacity:1;background:rgba(39,53,95,.09)}
+.topnav nav>a:hover,.navgroup>button:hover{opacity:1;background:rgba(39,53,95,.09)}
+/* ---- 分类下拉（纯 CSS，hover + focus-within，移动端点触也可触发）---- */
+.navgroup{position:relative}
+.navgroup>button .caret{font-size:.6rem;opacity:.55;transition:transform .25s}
+.navgroup:hover>button .caret,.navgroup:focus-within>button .caret{transform:rotate(180deg)}
+.navmenu{
+  position:absolute;top:calc(100% + 8px);left:0;min-width:172px;
+  display:flex;flex-direction:column;gap:2px;padding:6px;
+  background:var(--paper);border:1px solid var(--line);border-radius:14px;
+  box-shadow:0 18px 40px -16px rgba(39,53,95,.45);
+  opacity:0;visibility:hidden;transform:translateY(6px);transition:.2s;z-index:60;
+}
+.navmenu::before{content:"";position:absolute;top:-8px;left:0;right:0;height:8px}
+.navgroup:hover .navmenu,.navgroup:focus-within .navmenu{opacity:1;visibility:visible;transform:none}
+.topnav .navmenu a{
+  display:block;padding:8px 12px;border-radius:9px;font-size:.82rem;
+  color:var(--ink);opacity:.82;white-space:nowrap;transition:.18s;
+}
+.topnav .navmenu a:hover{opacity:1;background:rgba(39,53,95,.09)}
+/* 移动端无 hover：点触 trigger 即 focus-within 展开；右侧组的菜单贴右防溢出 */
+.navgroup:nth-last-child(-n+2) .navmenu{left:auto;right:0}
 
 /* ---------- layout ---------- */
 section{padding:90px 34px;max-width:1240px;margin:0 auto;position:relative}
@@ -410,17 +432,37 @@ footer .f-note b{color:var(--madder)}
   <div class="brand"><span class="dot"></span><span>睿程ERP</span>&nbsp;系统全景图</div>
   <nav>
     <a href="#overview">概览</a>
-    <a href="#chain">价值链</a>
-    <a href="#modules">业务域</a>
-    <a href="#glossary">术语扫盲</a>
-    <a href="#spotprod">现货·产品</a>
-    <a href="#supply">供应链洞察</a>
-    <a href="#coreflows">核心流程</a>
-    <a href="#systems">配套系统</a>
-    <a href="#live">菜单对照</a>
-    <a href="#flows07">现状梳理</a>
-    <a href="#dafan">打版模块</a>
-    <a href="#dirs">目录导航</a>
+    <div class="navgroup">
+      <button type="button">业务全景<span class="caret">▾</span></button>
+      <div class="navmenu">
+        <a href="#chain">价值链</a>
+        <a href="#modules">业务域</a>
+        <a href="#coreflows">核心流程</a>
+      </div>
+    </div>
+    <div class="navgroup">
+      <button type="button">产品·供应链<span class="caret">▾</span></button>
+      <div class="navmenu">
+        <a href="#spotprod">现货·产品</a>
+        <a href="#supply">供应链洞察</a>
+        <a href="#dafan">打版模块</a>
+      </div>
+    </div>
+    <div class="navgroup">
+      <button type="button">系统·目录<span class="caret">▾</span></button>
+      <div class="navmenu">
+        <a href="#systems">配套系统</a>
+        <a href="#live">菜单对照</a>
+        <a href="#dirs">目录导航</a>
+      </div>
+    </div>
+    <div class="navgroup">
+      <button type="button">参考<span class="caret">▾</span></button>
+      <div class="navmenu">
+        <a href="#glossary">术语扫盲</a>
+        <a href="#flows07">现状梳理</a>
+      </div>
+    </div>
   </nav>
 </header>
 
