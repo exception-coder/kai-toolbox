@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Bell, GitCommit, List, Maximize2, Minimize2, MoreHorizontal, Package, Paperclip, PictureInPicture2, Plus, RotateCw, Send, ShieldCheck, Slash, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { StatusBadge, type StatusTone } from '@/components/ui/status-badge'
 import { Input } from '@/components/ui/input'
 import { useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { MessageList } from '../components/MessageList'
@@ -243,7 +244,7 @@ export function ChatPage() {
           : 'border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}>
           {engineName(chat.currentEngine)}
         </span>
-        <span className="text-xs text-[var(--color-muted-foreground)]">{stateLabel(chat.state)}</span>
+        <StatusBadge tone={stateTone(chat.state)} pulse={chat.state === 'connecting'}>{stateLabel(chat.state)}</StatusBadge>
         <div className="ml-auto flex items-center gap-1">
           {/* 常用：带文字标签，一眼可辨 */}
           <Button variant="ghost" size="sm" className="gap-1" onClick={() => setPanel(p => p === 'new' ? 'none' : 'new')} aria-label="新建会话">
@@ -590,5 +591,15 @@ function stateLabel(s: string): string {
     case 'closed': return '已断开（重连中）'
     case 'error': return '连接出错'
     default: return ''
+  }
+}
+
+function stateTone(s: string): StatusTone {
+  switch (s) {
+    case 'connecting': return 'info'
+    case 'ready': return 'success'
+    case 'closed': return 'warning'
+    case 'error': return 'danger'
+    default: return 'neutral'
   }
 }

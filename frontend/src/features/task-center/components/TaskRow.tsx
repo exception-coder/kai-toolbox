@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { Captions, FolderSearch, X, Trash2, ExternalLink, AlertTriangle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { StatusBadge, type StatusTone } from '@/components/ui/status-badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
@@ -12,12 +13,13 @@ interface Props {
   onDelete: (task: TaskView) => void
 }
 
-function statusBadgeVariant(t: TaskView): 'default' | 'secondary' | 'destructive' | 'success' | 'outline' {
-  if (t.status === 'FAILED') return 'destructive'
-  if (t.status === 'CANCELLED') return 'outline'
-  if (t.status === 'COMPLETED') return 'success'
-  if (t.active) return 'default'
-  return 'secondary'
+/** 任务状态 → 语义色：失败红 / 取消灰 / 完成绿 / 运行中蓝(脉冲) / 其余等待灰。 */
+function statusTone(t: TaskView): { tone: StatusTone; pulse: boolean } {
+  if (t.status === 'FAILED') return { tone: 'danger', pulse: false }
+  if (t.status === 'CANCELLED') return { tone: 'neutral', pulse: false }
+  if (t.status === 'COMPLETED') return { tone: 'success', pulse: false }
+  if (t.active) return { tone: 'info', pulse: true }
+  return { tone: 'neutral', pulse: false }
 }
 
 function formatDuration(ms: number): string {
@@ -47,6 +49,7 @@ export function TaskRow({ task, onCancel, onDelete }: Props) {
   const percent = task.progress >= 0 ? Math.round(task.progress * 100) : 0
   const showIndeterminate = task.active && task.progress < 0
 
+  const { tone, pulse } = statusTone(task)
   const canCancel = task.active && task.type === 'SUBTITLE'
   // scan 的 "取消" 即 "删除":DELETE 接口是合并语义。
   const canDelete = !task.active || task.type === 'SCAN'
@@ -77,9 +80,9 @@ export function TaskRow({ task, onCancel, onDelete }: Props) {
           <div className="truncate text-sm font-medium" title={task.title}>
             {task.title}
           </div>
-          <Badge variant={statusBadgeVariant(task)} className="shrink-0">
+          <StatusBadge tone={tone} pulse={pulse} className="shrink-0">
             {task.phase}
-          </Badge>
+          </StatusBadge>
           {task.type === 'SUBTITLE' && (
             <Badge variant="outline" className="shrink-0 text-[10px]">
               字幕

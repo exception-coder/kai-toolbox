@@ -34,6 +34,26 @@
   --color-destructive: oklch(0.6 0.22 27);
   --color-destructive-foreground: oklch(0.99 0 0);
 
+  /* ==== 语义状态色（全站唯一来源）====
+     solid: 状态点 / 强调文字；soft: 徽章底；soft-foreground: 徽章文字。
+     约定 info=进行中 · success=完成 · warning=等待/注意 · danger=失败。
+     业务侧只认 tone，不再各自写 text-green-500 之类硬编码。 */
+  --color-info: oklch(0.58 0.15 250);
+  --color-info-soft: oklch(0.95 0.04 250);
+  --color-info-soft-foreground: oklch(0.48 0.13 255);
+
+  --color-success: oklch(0.58 0.14 150);
+  --color-success-soft: oklch(0.95 0.045 150);
+  --color-success-soft-foreground: oklch(0.45 0.11 150);
+
+  --color-warning: oklch(0.7 0.14 70);
+  --color-warning-soft: oklch(0.95 0.055 80);
+  --color-warning-soft-foreground: oklch(0.48 0.1 60);
+
+  --color-danger: oklch(0.6 0.22 27);
+  --color-danger-soft: oklch(0.95 0.045 25);
+  --color-danger-soft-foreground: oklch(0.5 0.18 27);
+
   --color-sidebar: oklch(0.965 0.006 255);
   --color-sidebar-foreground: oklch(0.2 0.01 260);
   --color-sidebar-border: oklch(0.92 0.005 260);
@@ -71,6 +91,19 @@
     --color-secondary-foreground: oklch(0.97 0 0);
     --color-accent: oklch(0.25 0.01 260);
     --color-accent-foreground: oklch(0.97 0 0);
+    /* 状态色深色版：solid 提亮以保证对比，soft 底压暗、soft-foreground 提亮 */
+    --color-info: oklch(0.75 0.14 250);
+    --color-info-soft: oklch(0.32 0.06 255);
+    --color-info-soft-foreground: oklch(0.86 0.11 255);
+    --color-success: oklch(0.75 0.15 155);
+    --color-success-soft: oklch(0.32 0.05 155);
+    --color-success-soft-foreground: oklch(0.85 0.13 155);
+    --color-warning: oklch(0.82 0.14 80);
+    --color-warning-soft: oklch(0.34 0.05 75);
+    --color-warning-soft-foreground: oklch(0.87 0.11 80);
+    --color-danger: oklch(0.7 0.2 27);
+    --color-danger-soft: oklch(0.33 0.08 27);
+    --color-danger-soft-foreground: oklch(0.86 0.13 25);
     --color-sidebar: oklch(0.16 0.01 260);
     --color-sidebar-foreground: oklch(0.92 0.005 260);
     --color-sidebar-border: oklch(0.25 0.01 260);
