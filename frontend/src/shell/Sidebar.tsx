@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/auth'
 import type { FeatureManifest } from './types'
 import { entryOf } from './featureRegistry'
 import { hasFeatureAccess } from './access'
+import { useBrand } from './brand'
 
 interface SidebarProps {
   features: FeatureManifest[]
@@ -13,6 +14,7 @@ interface SidebarProps {
 
 export function Sidebar({ features, collapsed }: SidebarProps) {
   const { user } = useAuth()
+  const { brand } = useBrand()
   // 按当前账号角色过滤：无权模块不出现在菜单（与路由 RouteGuard 配套）。
   const visible = features.filter(f => hasFeatureAccess(f, user?.roles ?? []))
   const groups = groupFeatures(visible)
@@ -27,7 +29,7 @@ export function Sidebar({ features, collapsed }: SidebarProps) {
     >
       <NavLink to="/" className="flex h-14 items-center gap-2 border-b px-4 hover:bg-[var(--color-sidebar-accent)]">
         <Boxes className="h-5 w-5 shrink-0 text-[var(--color-primary)]" />
-        {!collapsed && <span className="text-sm font-semibold tracking-tight">kai-toolbox</span>}
+        {!collapsed && <span className="truncate text-sm font-semibold tracking-tight">{brand.appName}</span>}
       </NavLink>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3">

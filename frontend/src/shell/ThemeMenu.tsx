@@ -9,8 +9,9 @@ import {
   type ThemeAccent,
   type ThemeMode,
 } from './theme'
+import { BrandEditor } from './BrandEditor'
 
-/** 顶栏主题菜单：明暗模式（单选）+ 主色（色块单选），正交组合。替换原 Sun/Moon 单按钮。 */
+/** 顶栏主题菜单：明暗模式（单选）+ 主色（色块单选）+ 应用品牌（名称/副标题），正交组合。 */
 export function ThemeMenu() {
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState<ThemeMode>('system')
@@ -71,7 +72,7 @@ export function ThemeMenu() {
           </div>
 
           <div className="mb-1.5 text-xs font-medium text-[var(--color-muted-foreground)]">主色</div>
-          <div className="flex flex-wrap gap-2">
+          <div className="mb-3 flex flex-wrap gap-2">
             {THEME_ACCENTS.map(a => (
               <button
                 key={a.id}
@@ -86,6 +87,10 @@ export function ThemeMenu() {
                 style={{ background: a.swatch }}
               />
             ))}
+          </div>
+
+          <div className="border-t pt-3">
+            <BrandEditor />
           </div>
         </div>
       )}

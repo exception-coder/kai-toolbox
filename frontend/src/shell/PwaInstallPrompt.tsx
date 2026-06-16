@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Download, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useBrand } from './brand'
 
 interface BeforeInstallPromptEvent extends Event {
   readonly platforms: string[]
@@ -32,6 +33,7 @@ function recentlyDismissed() {
 }
 
 export function PwaInstallPrompt() {
+  const { brand } = useBrand()
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null)
   const [visible, setVisible] = useState(false)
 
@@ -96,7 +98,7 @@ export function PwaInstallPrompt() {
           <Download className="size-5" />
         </div>
         <div className="flex-1">
-          <div className="text-sm font-medium">安装 kai-toolbox</div>
+          <div className="text-sm font-medium">安装 {brand.appName}</div>
           <div className="mt-1 text-xs text-[var(--color-muted-foreground)]">
             将本站添加到桌面，下次直接以独立窗口启动。
           </div>

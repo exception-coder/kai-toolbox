@@ -4,9 +4,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useAuth } from '@/lib/auth'
 import { entryOf, features } from './featureRegistry'
 import { hasFeatureAccess } from './access'
+import { useBrand } from './brand'
 
 export function HomePage() {
   const { user } = useAuth()
+  const { brand } = useBrand()
   // 按角色过滤首页入口卡片，与侧边栏一致。
   const visible = features.filter(f => hasFeatureAccess(f, user?.roles ?? []))
   return (
@@ -14,8 +16,8 @@ export function HomePage() {
       <div className="mb-8 flex items-center gap-3">
         <Boxes className="h-7 w-7 text-[var(--color-primary)]" />
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">kai-toolbox</h1>
-          <p className="text-sm text-[var(--color-muted-foreground)]">个人工具集</p>
+          <h1 className="text-2xl font-semibold tracking-tight">{brand.appName}</h1>
+          <p className="text-sm text-[var(--color-muted-foreground)]">{brand.tagline}</p>
         </div>
       </div>
 

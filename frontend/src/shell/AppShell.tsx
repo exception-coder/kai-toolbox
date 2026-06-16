@@ -7,14 +7,21 @@ import { features } from './featureRegistry'
 import { PwaInstallPrompt } from './PwaInstallPrompt'
 import { ChatRuntimeProvider } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import { FloatingChatWindow } from '@/features/claude-chat/components/FloatingChatWindow'
+import { useBrand } from './brand'
 
 export function AppShell() {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const location = useLocation()
+  const { brand } = useBrand()
 
   // 路由切换时关闭移动端抽屉
   useEffect(() => { setMobileOpen(false) }, [location.pathname])
+
+  // 应用名同步到浏览器标签标题
+  useEffect(() => {
+    if (brand.appName) document.title = brand.appName
+  }, [brand.appName])
 
   // 把 visualViewport.height 同步到 CSS 变量 --app-vh。
   // 移动端弹出软键盘时 window.innerHeight 在多数 Android Chrome 默认设置下不会变，
