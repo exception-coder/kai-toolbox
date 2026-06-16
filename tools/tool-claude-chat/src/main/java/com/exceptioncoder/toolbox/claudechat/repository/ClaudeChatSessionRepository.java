@@ -24,6 +24,7 @@ public class ClaudeChatSessionRepository {
             .title(rs.getString("title"))
             .sdkSessionId(rs.getString("sdk_session_id"))
             .engine(rs.getString("engine") == null ? "claude" : rs.getString("engine"))
+            .engines(rs.getString("engines"))
             .status(SessionStatus.valueOf(rs.getString("status")))
             .startedAt(rs.getLong("started_at"))
             .lastSeenAt(rs.getLong("last_seen_at"))
@@ -41,14 +42,22 @@ public class ClaudeChatSessionRepository {
     }
 
     public void insert(ClaudeChatSession s) {
+        String engine = s.getEngine() == null ? "claude" : s.getEngine();
         jdbc.update("""
                 INSERT INTO claude_chat_session
-                  (id, cwd, title, sdk_session_id, engine, status, started_at, last_seen_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                  (id, cwd, title, sdk_session_id, engine, engines, status, started_at, last_seen_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 s.getId(), s.getCwd(), s.getTitle(), s.getSdkSessionId(),
-                s.getEngine() == null ? "claude" : s.getEngine(),
+                engine, s.getEngines() == null ? engine : s.getEngines(),
                 s.getStatus().name(), s.getStartedAt(), s.getLastSeenAt());
+    }
+
+    /** 切 agent：更新当前引擎 + 追加到有序引擎列；同时清空 sdk_session_id（新引擎起新 SDK 会话）。 */
+    public void switchEngine(String id, String engine, String engines) {
+        jdbc.update(
+                "UPDATE claude_chat_session SET engine = ?, engines = ?, sdk_session_id = NULL WHERE id = ?",
+                engine, engines, id);
     }
 
     /** 刷新 last_seen_at 与状态 */

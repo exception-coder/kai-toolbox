@@ -18,13 +18,14 @@ import java.util.Map;
         @JsonSubTypes.Type(value = ClientMessage.Interrupt.class,     name = "interrupt"),
         @JsonSubTypes.Type(value = ClientMessage.SetMode.class,       name = "setMode"),
         @JsonSubTypes.Type(value = ClientMessage.SetModel.class,      name = "setModel"),
+        @JsonSubTypes.Type(value = ClientMessage.SwitchEngine.class,  name = "switchEngine"),
         @JsonSubTypes.Type(value = ClientMessage.ForkSession.class,   name = "forkSession"),
 })
 public sealed interface ClientMessage
         permits ClientMessage.Open, ClientMessage.Attach, ClientMessage.SwitchSession,
                 ClientMessage.ResumeHistory, ClientMessage.Send, ClientMessage.Decision,
                 ClientMessage.Interrupt, ClientMessage.SetMode, ClientMessage.SetModel,
-                ClientMessage.ForkSession {
+                ClientMessage.SwitchEngine, ClientMessage.ForkSession {
 
     /** 新建会话。mode 为初始权限模式，可空（缺省按 default）；engine 为引擎 claude/codex，可空（缺省 claude）。 */
     record Open(String cwd, String model, String mode, String engine) implements ClientMessage {}
@@ -62,6 +63,13 @@ public sealed interface ClientMessage
 
     /** 切换会话模型（ModelInfo.value）。下一轮生效。 */
     record SetModel(String model) implements ClientMessage {}
+
+    /**
+     * 会话内切 agent（引擎）：claude / codex / gemini。同一会话 id 不变；
+     * sidecar 置新引擎并清 sdkSessionId（新引擎起新 SDK 会话）。
+     * 历史开场由前端切换后另发一条 send 带过去（复用发送链路、UI 自然显示）。
+     */
+    record SwitchEngine(String engine) implements ClientMessage {}
 
     /** 从当前会话的某条用户消息分叉出新会话。upToMessageId 为该消息的 SDK transcript uuid。 */
     record ForkSession(String upToMessageId) implements ClientMessage {}

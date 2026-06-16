@@ -250,6 +250,34 @@ public class ClaudeChatService {
         log.info("[claude-chat] 会话 {} 切换模型 -> {}", ctx.sessionId, msg.model());
     }
 
+    /** 会话内切 agent（引擎）：同一会话 id 不变，置新引擎 + 清 sdkSessionId；追加引擎顺序用于列表标记。 */
+    public void switchEngine(WebSocketSession ws, ClientMessage.SwitchEngine msg) {
+        SessionCtx ctx = ctxOf(ws);
+        if (ctx == null) {
+            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            return;
+        }
+        String engine = normalizeEngine(msg.engine());
+        if (engine.equals(ctx.engine)) return; // 同引擎无需切
+        String prev = repo.findById(ctx.sessionId).map(ClaudeChatSession::getEngines).orElse(null);
+        String engines = appendEngine(prev, ctx.engine, engine);
+        ctx.engine = engine;
+        ctx.sdkSessionId = null;             // 新引擎起新 SDK 会话
+        repo.switchEngine(ctx.sessionId, engine, engines);
+        sidecar.switchEngine(ctx.sessionId, engine);
+        log.info("[claude-chat] 会话 {} 切 agent -> {}（engines={}）", ctx.sessionId, engine, engines);
+    }
+
+    /** 拼接引擎有序列：在已有列（缺省用 base）末尾追加 next，连续重复不追加。 */
+    private static String appendEngine(String existing, String base, String next) {
+        String csv = (existing == null || existing.isBlank())
+                ? (base == null ? "claude" : base) : existing;
+        String[] parts = csv.split(",");
+        String last = parts.length == 0 ? "" : parts[parts.length - 1].trim();
+        if (next.equals(last)) return csv;
+        return csv + "," + next;
+    }
+
     private static boolean isValidMode(String m) {
         return "default".equals(m) || "acceptEdits".equals(m)
                 || "plan".equals(m) || "bypassPermissions".equals(m);
@@ -260,7 +288,7 @@ public class ClaudeChatService {
     }
 
     private static String normalizeEngine(String e) {
-        return "codex".equals(e) ? "codex" : "claude";
+        return "codex".equals(e) || "gemini".equals(e) ? e : "claude";
     }
 
     public void interrupt(WebSocketSession ws) {

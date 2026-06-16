@@ -9,6 +9,8 @@ export interface ClaudeChatSessionView {
   sdkSessionId: string | null
   /** 会话引擎 claude/codex（旧会话可能无此字段，按 claude 处理） */
   engine?: Engine
+  /** 本会话先后用过的引擎有序列（如 'claude,codex'），用于列表标记多 agent */
+  engines?: string
   status: SessionStatus
   startedAt: number
   lastSeenAt: number
@@ -87,6 +89,7 @@ export type ClientMessage =
   | { type: 'interrupt' }
   | { type: 'setMode'; mode: PermissionMode }
   | { type: 'setModel'; model: string }
+  | { type: 'switchEngine'; engine: Engine }
   | { type: 'forkSession'; upToMessageId: string }
 
 // ── AskUserQuestion 结构 ─────────────────────────────────────────

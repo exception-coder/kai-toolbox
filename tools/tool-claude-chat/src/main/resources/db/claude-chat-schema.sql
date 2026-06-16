@@ -7,8 +7,10 @@ CREATE TABLE IF NOT EXISTS claude_chat_session (
     title           TEXT,
     -- SDK 侧 session_id，用于 query({ resume }) 续跑历史会话
     sdk_session_id  TEXT,
-    -- 会话引擎：claude / codex（既有库由迁移 bean 补列，旧行默认 claude）
+    -- 会话引擎：claude / codex / gemini（既有库由迁移 bean 补列，旧行默认 claude）
     engine          TEXT DEFAULT 'claude',
+    -- 本会话先后用过的引擎有序列（逗号分隔，如 'claude,codex'）；切 agent 时追加，用于列表标记
+    engines         TEXT,
     -- RUNNING / IDLE / INTERRUPTED / DONE
     status          TEXT NOT NULL,
     started_at      INTEGER NOT NULL,

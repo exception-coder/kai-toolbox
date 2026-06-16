@@ -136,6 +136,7 @@ export function ChatPage() {
   const [slashDismissed, setSlashDismissed] = useState(false)
   const [cmdMenuOpen, setCmdMenuOpen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
+  const [engineMenuOpen, setEngineMenuOpen] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
@@ -236,6 +237,23 @@ export function ChatPage() {
     })
   }
 
+  // 会话内切 agent：把当前对话拼成 seed 带给新 agent（方案B），同一会话不分裂。
+  const pickEngine = (eng: Engine) => {
+    setEngineMenuOpen(false)
+    if (eng === chat.currentEngine || chat.running || !chat.sessionId) return
+    const hist = chat.items
+      .filter(i => i.kind === 'user' || i.kind === 'assistant')
+      .map(i => (i.kind === 'user' ? '我：' : '助手：') + ('text' in i ? i.text : ''))
+      .join('\n')
+    let body = hist
+    const MAX = 6000
+    if (body.length > MAX) body = '…（较早内容略）\n' + body.slice(-MAX)
+    chat.switchEngine(eng)
+    if (body.trim()) {
+      chat.send(`【切换 agent · 上下文交接】以下是我和上一个 agent 的对话，请阅读后无缝接续协助，勿重复已完成的工作：\n\n${body}`)
+    }
+  }
+
   // slash 命令补全：输入框行首为 "/<前缀>"（无空格）时按前缀过滤可用命令
   const slashMatch = /^\/(\S*)$/.exec(draft)
   const slashFiltered = slashMatch
@@ -256,11 +274,37 @@ export function ChatPage() {
       {/* 顶栏：中性浅灰 + 1px 边框（Notion 风），不抢视觉 */}
       <header className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-muted)] px-3 py-2 shadow-sm">
         <span className="max-w-[40vw] truncate font-semibold" title={currentTitle || 'Vibe Coding'}>{currentTitle || 'Vibe Coding'}</span>
-        <span className={`rounded px-1.5 py-0.5 text-[10px] ${chat.currentEngine === 'codex'
-          ? 'bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-200'
-          : 'border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}>
-          {engineName(chat.currentEngine)}
-        </span>
+        <div className="relative shrink-0">
+          <button
+            type="button"
+            onClick={() => setEngineMenuOpen(o => !o)}
+            title="切换 agent（会话内切换，自动带上下文）"
+            className={`rounded px-1.5 py-0.5 text-[10px] ${chat.currentEngine === 'codex'
+              ? 'bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-200'
+              : 'border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}
+          >
+            {engineName(chat.currentEngine)} ▾
+          </button>
+          {engineMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setEngineMenuOpen(false)} />
+              <div className="absolute left-0 top-full z-20 mt-1 w-36 rounded-lg border bg-[var(--color-card)] p-1 shadow-lg">
+                <div className="px-2 py-1 text-[10px] text-[var(--color-muted-foreground)]">切 agent（带上下文）</div>
+                {(['claude', 'codex', 'gemini'] as Engine[]).map(eng => (
+                  <button
+                    key={eng}
+                    type="button"
+                    onClick={() => pickEngine(eng)}
+                    disabled={chat.running}
+                    className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-xs hover:bg-[var(--color-accent)] disabled:opacity-40 ${eng === chat.currentEngine ? 'font-semibold text-[var(--color-primary)]' : ''}`}
+                  >
+                    {engineName(eng)}{eng === chat.currentEngine && ' ·当前'}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
         <StatusBadge
           tone={stateTone(chat.state)}
           pulse={chat.state === 'connecting'}

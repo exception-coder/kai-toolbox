@@ -15,15 +15,18 @@ public record ClaudeChatSessionView(
         String title,
         String sdkSessionId,
         String engine,
+        String engines,
         SessionStatus status,
         long startedAt,
         long lastSeenAt,
         boolean live
 ) {
     public static ClaudeChatSessionView from(ClaudeChatSession s, boolean live) {
+        String engine = s.getEngine() == null ? "claude" : s.getEngine();
+        String engines = s.getEngines() == null || s.getEngines().isBlank() ? engine : s.getEngines();
         return new ClaudeChatSessionView(
                 s.getId(), s.getCwd(), s.getTitle(), s.getSdkSessionId(),
-                s.getEngine() == null ? "claude" : s.getEngine(),
+                engine, engines,
                 s.getStatus(), s.getStartedAt(), s.getLastSeenAt(), live);
     }
 }

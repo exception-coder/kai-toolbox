@@ -107,6 +107,11 @@ public class SidecarClient {
         send(Map.of("type", "setModel", "sessionId", sessionId, "model", nz(model)));
     }
 
+    /** 会话内切引擎：sidecar 置新 engine 并清 sdkSessionId，下一轮 runTurn 走新引擎、起新 SDK 会话。 */
+    public void switchEngine(String sessionId, String engine) {
+        send(Map.of("type", "switchEngine", "sessionId", sessionId, "engine", nz(engine)));
+    }
+
     public void forkSession(String sessionId, String upToMessageId) {
         send(Map.of("type", "forkSession", "sessionId", sessionId, "upToMessageId", nz(upToMessageId)));
     }

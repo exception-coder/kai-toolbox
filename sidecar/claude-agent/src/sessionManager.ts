@@ -329,6 +329,16 @@ export class SessionManager {
     if (s) s.model = model
   }
 
+  /** 会话内切引擎：置新 engine + 清 sdkSessionId（新引擎起新 SDK 会话），下一轮 runTurn 走新引擎。 */
+  switchEngine(id: string, engine: string): void {
+    const s = this.sessions.get(id)
+    if (!s) return
+    if (engine === 'claude' || engine === 'codex' || engine === 'gemini') {
+      s.engine = engine
+      s.sdkSessionId = undefined
+    }
+  }
+
   /** 从某条用户消息分叉出新会话（截到该消息），emit forked 带新 sdkSessionId 给 Java 建会话续跑。 */
   async forkSession(id: string, upToMessageId: string): Promise<void> {
     const s = this.sessions.get(id)

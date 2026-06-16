@@ -61,6 +61,8 @@ export interface UseClaudeChatSocket {
   setMode: (mode: PermissionMode) => void
   /** 切换模型（下一轮生效） */
   setModel: (model: string) => void
+  /** 会话内切 agent（引擎），同一会话内换 claude/codex/gemini；上下文靠切后另发 seed 带过去 */
+  switchEngine: (engine: Engine) => void
   /** 从某条用户消息分叉出新会话（旧会话保留），完成后自动切到新会话 */
   forkSession: (upToMessageId: string) => void
   /** 切到工具内会话（resume 续跑） */
@@ -457,6 +459,13 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     sendRaw({ type: 'setModel', model })
   }, [sendRaw])
 
+  // 会话内切 agent：同一会话 id 不变，乐观更新引擎；非 claude 清模型列表。上下文由调用方切后另发 seed。
+  const switchEngine = useCallback((engine: Engine) => {
+    setCurrentEngine(engine)
+    if (engine !== 'claude') { setModels([]); setCurrentModel(null) }
+    sendRaw({ type: 'switchEngine', engine })
+  }, [sendRaw])
+
   // 从某条用户消息分叉出新会话（旧会话保留）。完成后服务端回 forked → 自动 switchTo 新会话。
   const forkSession = useCallback((upToMessageId: string) => {
     sendRaw({ type: 'forkSession', upToMessageId })
@@ -496,5 +505,5 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     loadHistoryRef.current = loadHistory
   }, [loadHistory])
 
-  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, models, currentModel, currentEngine, open, switchTo, resumeHistory, send, decide, interrupt, setMode, setModel, forkSession, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, models, currentModel, currentEngine, open, switchTo, resumeHistory, send, decide, interrupt, setMode, setModel, switchEngine, forkSession, historyLoading, historyExhausted, loadHistory }
 }
