@@ -9,6 +9,7 @@ import { PermissionDialog } from './PermissionDialog'
 import { QuestionDialog } from './QuestionDialog'
 import { AttachmentChips } from './AttachmentChips'
 import { VoiceInputButton } from './VoiceInputButton'
+import { MiniVoiceBar } from './MiniVoiceBar'
 import { listSessions, uploadAttachment, type UploadedAttachment } from '../api'
 import type { ChatItem, Engine, PermissionMode } from '../types'
 
@@ -357,16 +358,15 @@ export function FloatingChatWindow() {
 
       {/* 迷你态输入：只一个语音按钮，识别后直接发送（不显示输入框/发送按钮，最简） */}
       {!showSessions && compact && (
-        <div className="flex items-center justify-center gap-3 border-t border-[var(--color-border)] bg-[var(--color-muted)] p-2.5">
-          <VoiceInputButton
-            disabled={chat.running}
-            onText={t => { const x = t.trim(); if (x && !chat.running) chat.send(x) }}
-          />
+        <div className="border-t border-[var(--color-border)] bg-[var(--color-muted)] p-2.5">
           {chat.running ? (
-            <button type="button" onClick={chat.interrupt} aria-label="中断"
-              className="rounded-lg border px-3 py-1.5 text-xs">中断</button>
+            <div className="flex items-center justify-center gap-3 text-xs text-[var(--color-muted-foreground)]">
+              <Loader2 className="size-4 animate-spin" /> 处理中…
+              <button type="button" onClick={chat.interrupt} aria-label="中断"
+                className="rounded-lg border px-3 py-1 text-xs">中断</button>
+            </div>
           ) : (
-            <span className="text-xs text-[var(--color-muted-foreground)]">点麦克风说话，识别后自动发送</span>
+            <MiniVoiceBar onSend={t => chat.send(t)} />
           )}
         </div>
       )}
