@@ -140,6 +140,7 @@ export function ChatPage() {
   const [fullscreen, setFullscreen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
+  const engineWatermark = useRef<Record<string, number>>({}) // 每引擎"上次看到的消息位置"，切 agent 时算增量 seed
 
   // 输入框随内容自动升高（参考微信）：到 max-h 后内部滚动
   useEffect(() => {
@@ -237,20 +238,30 @@ export function ChatPage() {
     })
   }
 
-  // 会话内切 agent：把当前对话拼成 seed 带给新 agent（方案B），同一会话不分裂。
+  // 会话内切 agent（方案B + 增量交接）：同一会话不分裂。
+  // sidecar 会 resume 目标引擎的原生会话（早期上下文不丢）；前端只把"它离开期间的增量"喂过去，
+  // 首次切到某引擎才发全量——避免切回时全量重复同步。
   const pickEngine = (eng: Engine) => {
     setEngineMenuOpen(false)
     if (eng === chat.currentEngine || chat.running || !chat.sessionId) return
-    const hist = chat.items
-      .filter(i => i.kind === 'user' || i.kind === 'assistant')
+    const from = chat.currentEngine
+    engineWatermark.current[from] = chat.items.length // 记录离开引擎看到的位置
+    const start = engineWatermark.current[eng] ?? 0   // 目标引擎上次看到的位置（首次为 0=全量）
+    const body = chat.items
+      .slice(start)
+      .filter(i => (i.kind === 'user' || i.kind === 'assistant')
+        && !('text' in i && i.text.startsWith('【切换 agent'))) // 过滤交接 recap，避免再次转喂
       .map(i => (i.kind === 'user' ? '我：' : '助手：') + ('text' in i ? i.text : ''))
       .join('\n')
-    let body = hist
+    let seed = body
     const MAX = 6000
-    if (body.length > MAX) body = '…（较早内容略）\n' + body.slice(-MAX)
+    if (seed.length > MAX) seed = '…（较早内容略）\n' + seed.slice(-MAX)
     chat.switchEngine(eng)
-    if (body.trim()) {
-      chat.send(`【切换 agent · 上下文交接】以下是我和上一个 agent 的对话，请阅读后无缝接续协助，勿重复已完成的工作：\n\n${body}`)
+    if (seed.trim()) {
+      const intro = start === 0
+        ? '以下是我和上一个 agent 的完整对话，请阅读后接续协助：'
+        : '你之前参与过本会话（原生上下文已恢复）。以下仅为你离开期间的新对话，据此接续、勿重复：'
+      chat.send(`【切换 agent · 上下文交接】${intro}\n\n${seed}`)
     }
   }
 
