@@ -64,7 +64,7 @@ export function MiniVoiceBar({ onSend, disabled }: { onSend: (t: string) => void
         </button>
         <div className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-[var(--color-background)] px-4 py-2">
           {[0, 1, 2, 3, 4, 5, 6].map(i => (
-            <span key={i} className="size-1.5 rounded-full bg-emerald-500 animate-pulse" style={{ animationDelay: `${i * 110}ms` }} />
+            <span key={i} className="size-1.5 rounded-full bg-[var(--color-primary)] animate-pulse" style={{ animationDelay: `${i * 110}ms` }} />
           ))}
           <span className="ml-2 text-xs tabular-nums text-[var(--color-muted-foreground)]">{rec.seconds}s</span>
         </div>
@@ -73,7 +73,7 @@ export function MiniVoiceBar({ onSend, disabled }: { onSend: (t: string) => void
           onClick={send}
           aria-label="发送"
           title="停止并发送"
-          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white hover:bg-emerald-600"
+          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)] text-[var(--color-primary-foreground)] hover:opacity-90"
         >
           <ArrowUp className="size-5" />
         </button>
