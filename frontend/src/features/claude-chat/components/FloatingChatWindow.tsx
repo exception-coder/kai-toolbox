@@ -257,9 +257,11 @@ export function FloatingChatWindow() {
   const autoHeight = compact && !showSessions // 迷你态：高度随内容自适应（不铺消息流）
   return (
     <div
-      className="fixed z-50 flex flex-col overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-xl"
+      className="fixed z-50 flex flex-col overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-[0_8px_30px_-6px_rgba(0,0,0,0.18)]"
       style={{ left: pos.x, top: pos.y, width: size.w, height: autoHeight ? undefined : size.h, maxHeight: autoHeight ? '70vh' : undefined }}
     >
+      {/* 顶部品牌色细线：标识「这是 AI 助手」，而非整窗染色（方案3：同色系分层 + 品牌色点缀） */}
+      <div className="h-[3px] w-full shrink-0 bg-[var(--color-primary)]" />
       {/* 标题栏 = 拖拽手柄。迷你态：状态 + 关键控制（仿音乐小卡片，只一行）；完整态：别名/引擎/全部按钮。 */}
       <header
         onPointerDown={onPointerDown}
@@ -324,7 +326,7 @@ export function FloatingChatWindow() {
             onClick={cycleMode}
             title="点击切换权限模式：默认 → 自动接受 → 计划 → 全自动（下一轮生效）"
             className={`flex shrink-0 items-center gap-1 rounded border px-1.5 py-1 text-[11px] ${chat.mode === 'bypassPermissions'
-              ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300'
               : 'text-[var(--color-muted-foreground)]'}`}
           >
             <Shield className="size-3.5" /> 权限：{MODE_LABELS[chat.mode]}
@@ -335,7 +337,7 @@ export function FloatingChatWindow() {
               onClick={toggleAutoApprove}
               title="全自动下：弹出的权限框自动点「允许」（仅权限框，提问不自动应答）"
               className={`flex shrink-0 items-center gap-1 rounded border px-1.5 py-1 text-[11px] ${autoApprove
-                ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300'
                 : 'text-[var(--color-muted-foreground)]'}`}
             >
               <ShieldCheck className="size-3.5" /> 自动允许·{autoApprove ? '开' : '关'}
