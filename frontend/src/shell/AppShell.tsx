@@ -5,8 +5,6 @@ import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import { features } from './featureRegistry'
 import { PwaInstallPrompt } from './PwaInstallPrompt'
-import { ChatRuntimeProvider } from '@/features/claude-chat/runtime/ChatRuntimeContext'
-import { FloatingChatWindow } from '@/features/claude-chat/components/FloatingChatWindow'
 import { useBrand } from './brand'
 
 export function AppShell() {
@@ -64,13 +62,10 @@ export function AppShell() {
           onOpenMobileMenu={() => setMobileOpen(true)}
           collapsed={collapsed}
         />
-        {/* 聊天运行时挂在内容区之上：会话页与跨路由悬浮窗共享同一聊天实例，懒启动后常驻 */}
-        <ChatRuntimeProvider>
-          <main className="flex-1 overflow-y-auto">
-            <Outlet />
-          </main>
-          <FloatingChatWindow />
-        </ChatRuntimeProvider>
+        {/* 聊天运行时与悬浮窗已提到 App 顶层（跨工具页/展示页/首页常驻），此处仅渲染内容 */}
+        <main className="flex-1 overflow-y-auto">
+          <Outlet />
+        </main>
       </div>
       <PwaInstallPrompt />
     </div>

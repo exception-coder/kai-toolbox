@@ -5,6 +5,8 @@ import { ShowcaseLayout } from '@/shell/ShowcaseLayout'
 import { HomePage } from '@/shell/HomePage'
 import { features } from '@/shell/featureRegistry'
 import { RouteGuard } from '@/components/auth/RouteGuard'
+import { ChatRuntimeProvider } from '@/features/claude-chat/runtime/ChatRuntimeContext'
+import { FloatingChatWindow } from '@/features/claude-chat/components/FloatingChatWindow'
 
 // 按布局把 feature 分两支：'showcase' 走全屏展示外壳（脱离 AppShell、公开免鉴权），
 // 其余默认 'tool' 走 AppShell（Sidebar + TopBar）。Suspense 各自在对应外壳里。
@@ -13,6 +15,8 @@ const showcaseFeatures = features.filter(f => f.layout === 'showcase')
 
 export default function App() {
   return (
+    // 聊天运行时提到两套布局之上：悬浮窗跨「工具页 / 展示页 / 首页」全程常驻，会话不断
+    <ChatRuntimeProvider>
     <Routes>
       {/* 展示页：全屏外壳，无侧边栏，不套 RouteGuard（公开）。Suspense 在 ShowcaseLayout 内 */}
       <Route element={<ShowcaseLayout />}>
@@ -42,6 +46,8 @@ export default function App() {
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
+    <FloatingChatWindow />
+    </ChatRuntimeProvider>
   )
 }
 
