@@ -163,6 +163,33 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  /* ==== 全局滚动条：替换原生样式，跟随主题 ====
+     细、圆角、半透明，颜色基于 --color-foreground 自动适配明暗/护眼/纯黑。
+     thumb 用 2px 透明边 + padding-box 让滑块视觉更细、两端更圆。
+     specificity 上 .no-scrollbar 仍能覆盖这里继续隐藏滚动条。 */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--color-foreground) 22%, transparent) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--color-foreground) 20%, transparent);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in oklab, var(--color-foreground) 38%, transparent);
+    background-clip: padding-box;
+  }
+
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
