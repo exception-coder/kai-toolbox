@@ -1,0 +1,1324 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>睿程ERP · 系统全景图</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,900;1,9..144,500&family=Noto+Serif+SC:wght@400;600;900&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#efe7d6;
+  --paper-2:#e6dcc6;
+  --ink:#1a2138;
+  --ink-soft:#3c465f;
+  --indigo:#27355f;
+  --indigo-2:#324a8a;
+  --madder:#b5402a;
+  --madder-soft:#c8654f;
+  --sage:#5a7565;
+  --gold:#bd8b3c;
+  --line:rgba(26,33,56,.16);
+  --line-2:rgba(26,33,56,.08);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  font-family:"Noto Sans SC",sans-serif;
+  background-color:var(--paper);
+  color:var(--ink);
+  line-height:1.7;
+  font-weight:300;
+  -webkit-font-smoothing:antialiased;
+  position:relative;
+  overflow-x:hidden;
+}
+/* warp-thread vertical texture + grain */
+body::before{
+  content:"";position:fixed;inset:0;z-index:-2;pointer-events:none;
+  background-image:repeating-linear-gradient(90deg,transparent 0 38px,rgba(26,33,56,.035) 38px 39px);
+}
+body::after{
+  content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.5;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.045'/%3E%3C/svg%3E");
+}
+a{color:inherit;text-decoration:none}
+
+/* ---------- top nav ---------- */
+.topnav{
+  position:sticky;top:0;z-index:50;
+  display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+  padding:14px 34px;
+  background:rgba(239,231,214,.86);
+  backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--line);
+}
+.topnav .brand{
+  font-family:"Fraunces",serif;font-weight:900;font-size:1.05rem;
+  letter-spacing:.02em;margin-right:auto;color:var(--indigo);
+  display:flex;align-items:center;gap:10px;
+}
+.topnav .brand span{
+  font-family:"Noto Serif SC";font-weight:900;
+}
+.topnav .dot{width:11px;height:11px;border-radius:50%;background:var(--madder);box-shadow:0 0 0 4px rgba(181,64,42,.18)}
+.topnav nav{display:flex;gap:4px;flex-wrap:wrap}
+.topnav nav a{
+  font-size:.82rem;font-weight:500;padding:6px 13px;border-radius:30px;
+  color:var(--ink);opacity:.7;transition:.25s;white-space:nowrap;
+}
+.topnav nav a:hover{opacity:1;background:rgba(39,53,95,.09)}
+
+/* ---------- layout ---------- */
+section{padding:90px 34px;max-width:1240px;margin:0 auto;position:relative}
+.eyebrow{
+  font-family:"Fraunces",serif;font-style:italic;font-weight:500;
+  color:var(--madder);font-size:1.05rem;letter-spacing:.02em;margin-bottom:8px;
+  display:flex;align-items:center;gap:12px;
+}
+.eyebrow::before{content:"";width:34px;height:1.5px;background:var(--madder);display:inline-block}
+h2.sec{
+  font-family:"Noto Serif SC",serif;font-weight:900;
+  font-size:clamp(1.9rem,4vw,3rem);line-height:1.15;color:var(--ink);margin-bottom:14px;
+  letter-spacing:-.01em;
+}
+.lead{max-width:760px;color:var(--ink-soft);font-size:1.02rem;margin-bottom:46px}
+
+/* ---------- hero ---------- */
+.hero{
+  min-height:92vh;display:flex;flex-direction:column;justify-content:center;
+  padding:60px 34px 70px;max-width:1240px;margin:0 auto;position:relative;
+}
+.hero .kicker{
+  font-family:"Fraunces",serif;font-style:italic;font-weight:500;font-size:1.15rem;
+  color:var(--madder);margin-bottom:22px;letter-spacing:.03em;
+  animation:rise .9s cubic-bezier(.2,.7,.2,1) both;
+}
+.hero h1{
+  font-family:"Noto Serif SC",serif;font-weight:900;
+  font-size:clamp(2.6rem,8vw,6.4rem);line-height:.98;letter-spacing:-.02em;
+  color:var(--ink);margin-bottom:26px;
+}
+.hero h1 .en{
+  display:block;font-family:"Fraunces",serif;font-weight:900;font-style:normal;
+  font-size:clamp(1.1rem,2.4vw,1.7rem);color:var(--indigo-2);letter-spacing:.06em;
+  margin-top:18px;text-transform:uppercase;opacity:.85;
+}
+.hero h1 .ln{display:block;animation:rise 1s cubic-bezier(.2,.7,.2,1) both}
+.hero h1 .ln:nth-child(1){animation-delay:.05s}
+.hero h1 .ln:nth-child(2){animation-delay:.16s}
+.hero h1 .ln:nth-child(3){animation-delay:.27s}
+.hero .sub{
+  max-width:680px;font-size:1.12rem;color:var(--ink-soft);font-weight:300;
+  animation:rise 1s cubic-bezier(.2,.7,.2,1) .4s both;
+}
+.hero .sub b{font-weight:700;color:var(--madder);border-bottom:2px solid rgba(181,64,42,.3)}
+.hero .chiprow{display:flex;gap:10px;flex-wrap:wrap;margin-top:38px;animation:rise 1s ease .55s both}
+.hero .chiprow .chip{
+  font-size:.8rem;font-weight:500;padding:8px 16px;border:1px solid var(--line);
+  border-radius:30px;background:rgba(255,255,255,.35);color:var(--indigo);
+}
+.hero .scroll-hint{
+  margin-top:54px;font-family:"Fraunces",serif;font-style:italic;color:var(--ink-soft);
+  font-size:.95rem;display:flex;align-items:center;gap:12px;animation:rise 1s ease .7s both;
+}
+.hero .scroll-hint .arr{animation:bob 1.8s ease-in-out infinite}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(6px)}}
+@keyframes rise{from{opacity:0;transform:translateY(26px)}to{opacity:1;transform:none}}
+
+/* big woven mark in hero */
+.weave-mark{
+  position:absolute;right:-40px;top:50%;transform:translateY(-50%);
+  width:min(46vw,520px);height:min(46vw,520px);opacity:.5;z-index:-1;
+  pointer-events:none;
+}
+
+/* ---------- value chain ---------- */
+.vc-wrap{position:relative}
+.vc-track{
+  display:grid;grid-template-columns:repeat(7,1fr);gap:0;position:relative;
+  border-top:2px solid var(--ink);border-bottom:2px solid var(--ink);
+}
+.vc-step{
+  position:relative;padding:26px 16px 30px;cursor:pointer;
+  border-right:1px solid var(--line);transition:.3s;text-align:left;
+  background:transparent;
+}
+.vc-step:last-child{border-right:none}
+.vc-step:hover{background:rgba(39,53,95,.06)}
+.vc-step.active{background:var(--indigo);color:var(--paper)}
+.vc-step.active .vc-num,.vc-step.active .vc-en{color:var(--gold)}
+.vc-step.active .vc-name{color:#fff}
+.vc-num{font-family:"Fraunces",serif;font-weight:900;font-size:1.5rem;color:var(--madder);display:block;line-height:1}
+.vc-name{font-family:"Noto Serif SC";font-weight:900;font-size:1.12rem;margin-top:10px;color:var(--ink)}
+.vc-en{display:block;font-family:"Fraunces",serif;font-style:italic;font-size:.78rem;color:var(--ink-soft);margin-top:4px}
+.vc-step .vc-ico{font-size:1.4rem;margin-bottom:6px;display:block}
+.vc-feeders{
+  display:flex;gap:16px;flex-wrap:wrap;margin-top:22px;
+}
+.vc-feeder{
+  font-size:.82rem;padding:7px 15px;border:1px dashed var(--line);border-radius:8px;
+  color:var(--indigo);background:rgba(255,255,255,.3);
+}
+.vc-feeder b{color:var(--madder)}
+.vc-detail{
+  margin-top:30px;border:1px solid var(--line);border-radius:14px;overflow:hidden;
+  background:rgba(255,255,255,.45);
+  display:grid;grid-template-columns:130px 1fr;min-height:150px;
+}
+.vc-detail .vc-d-side{
+  background:var(--indigo);color:var(--paper);padding:22px;
+  display:flex;flex-direction:column;justify-content:center;
+}
+.vc-detail .vc-d-side .n{font-family:"Fraunces";font-weight:900;font-size:2.6rem;color:var(--gold);line-height:1}
+.vc-detail .vc-d-side .t{font-family:"Noto Serif SC";font-weight:900;font-size:1.2rem;margin-top:8px}
+.vc-detail .vc-d-body{padding:24px 28px}
+.vc-detail .vc-d-body h4{font-size:.78rem;letter-spacing:.12em;color:var(--madder);font-weight:700;margin-bottom:6px;text-transform:uppercase}
+.vc-detail .vc-d-body p{color:var(--ink-soft);margin-bottom:14px}
+.vc-detail .vc-d-tags{display:flex;gap:8px;flex-wrap:wrap}
+.vc-detail .vc-d-tags span{font-size:.76rem;padding:5px 11px;background:var(--paper-2);border-radius:20px;color:var(--indigo);font-weight:500}
+
+/* ---------- module cards ---------- */
+.mod-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:20px}
+.mod-card{
+  border:1px solid var(--line);border-radius:16px;padding:26px 24px;
+  background:rgba(255,255,255,.4);position:relative;overflow:hidden;transition:.32s;
+}
+.mod-card::before{
+  content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--accent,var(--indigo));
+  transform:scaleY(0);transform-origin:top;transition:.32s;
+}
+.mod-card:hover{transform:translateY(-5px);box-shadow:0 16px 40px -22px rgba(26,33,56,.5);background:rgba(255,255,255,.7)}
+.mod-card:hover::before{transform:scaleY(1)}
+.mod-card .m-top{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.mod-card .m-no{font-family:"Fraunces";font-weight:900;font-size:1.05rem;color:var(--accent,var(--indigo))}
+.mod-card .m-name{font-family:"Noto Serif SC";font-weight:900;font-size:1.32rem}
+.mod-card .m-en{font-family:"Fraunces";font-style:italic;font-size:.8rem;color:var(--ink-soft);margin-left:auto}
+.mod-card .m-role{color:var(--ink-soft);font-size:.95rem;margin-bottom:16px}
+.mod-card .m-kw{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.mod-card .m-kw span{font-size:.74rem;padding:4px 10px;background:var(--paper-2);border-radius:14px;color:var(--ink)}
+.mod-card .m-dirs{font-size:.76rem;color:var(--indigo);border-top:1px dashed var(--line);padding-top:11px;font-family:"Noto Sans SC"}
+.mod-card .m-dirs b{font-weight:700;color:var(--madder)}
+
+/* ---------- glossary ---------- */
+.gl-search{
+  display:flex;align-items:center;gap:12px;margin-bottom:30px;max-width:440px;
+  border:1px solid var(--line);border-radius:40px;padding:11px 20px;background:rgba(255,255,255,.5);
+}
+.gl-search input{border:none;background:transparent;outline:none;font-family:inherit;font-size:1rem;width:100%;color:var(--ink)}
+.gl-search .ic{color:var(--madder);font-weight:700}
+.gl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.gl-card{
+  border:1px solid var(--line);border-radius:13px;padding:20px 22px;background:rgba(255,255,255,.4);
+  transition:.25s;
+}
+.gl-card:hover{background:#fff;border-color:var(--indigo)}
+.gl-term{font-family:"Noto Serif SC";font-weight:900;font-size:1.18rem;color:var(--indigo);display:flex;align-items:center;gap:9px;margin-bottom:4px}
+.gl-term .en{font-family:"Fraunces";font-style:italic;font-weight:500;font-size:.82rem;color:var(--madder)}
+.gl-def{color:var(--ink-soft);font-size:.93rem}
+.gl-def b{color:var(--madder);font-weight:700}
+.gl-empty{color:var(--ink-soft);font-style:italic;padding:20px 0}
+
+/* ---------- systems ---------- */
+.sys-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:18px}
+.sys-card{
+  border:1px solid var(--line);border-radius:14px;padding:24px;background:var(--indigo);color:var(--paper);
+  position:relative;overflow:hidden;transition:.3s;
+}
+.sys-card:nth-child(even){background:#222a45}
+.sys-card:hover{transform:translateY(-4px)}
+.sys-card .s-tag{font-family:"Fraunces";font-weight:900;font-size:1.6rem;color:var(--gold);letter-spacing:.04em}
+.sys-card .s-name{font-family:"Noto Serif SC";font-weight:600;font-size:1.05rem;margin:8px 0 10px;color:#fff}
+.sys-card .s-desc{font-size:.86rem;color:rgba(239,231,214,.78);font-weight:300}
+.sys-extra{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:18px}
+.sys-mini{border:1px solid var(--line);border-radius:11px;padding:15px 17px;background:rgba(255,255,255,.4)}
+.sys-mini b{font-family:"Noto Serif SC";font-weight:600;color:var(--indigo);font-size:.98rem}
+.sys-mini p{font-size:.8rem;color:var(--ink-soft);margin-top:3px}
+
+/* ---------- directory tree ---------- */
+.dir-filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:28px}
+.dir-filters button{
+  font-family:inherit;font-size:.82rem;font-weight:500;padding:8px 16px;border-radius:30px;
+  border:1px solid var(--line);background:rgba(255,255,255,.4);color:var(--ink);cursor:pointer;transition:.22s;
+}
+.dir-filters button:hover{border-color:var(--indigo)}
+.dir-filters button.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.dir-groups{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:20px;align-items:start}
+.dir-group{border:1px solid var(--line);border-radius:15px;overflow:hidden;background:rgba(255,255,255,.4);transition:.3s}
+.dir-group h3{
+  font-family:"Noto Serif SC";font-weight:900;font-size:1.05rem;padding:16px 20px;
+  background:var(--cgrp,var(--indigo));color:var(--paper);display:flex;align-items:center;gap:10px;
+}
+.dir-group h3 .gc{font-family:"Fraunces";font-style:italic;font-weight:500;font-size:.8rem;margin-left:auto;opacity:.85}
+.dir-list{padding:8px 0}
+.dir-item{
+  display:flex;gap:12px;padding:9px 20px;font-size:.86rem;align-items:baseline;border-bottom:1px solid var(--line-2);
+}
+.dir-item:last-child{border-bottom:none}
+.dir-item .code{font-family:"Fraunces";font-weight:600;color:var(--madder);min-width:54px;font-size:.84rem}
+.dir-item .nm{color:var(--ink);font-weight:500}
+.dir-item .ds{color:var(--ink-soft);font-size:.8rem;display:block;font-weight:300}
+
+/* ---------- live reconciliation ---------- */
+.sub-h{font-family:"Noto Serif SC";font-weight:900;font-size:1.3rem;margin:46px 0 20px;color:var(--ink);display:flex;align-items:center;gap:10px}
+.verdict{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+.v-stat{border:1px solid var(--line);border-radius:13px;padding:22px 18px;background:var(--indigo);color:var(--paper);text-align:center}
+.v-stat:nth-child(3){background:var(--sage)}
+.v-stat:nth-child(4){background:var(--madder)}
+.v-stat .n{display:block;font-family:"Fraunces";font-weight:900;font-size:2.3rem;color:var(--gold);line-height:1}
+.v-stat:nth-child(3) .n,.v-stat:nth-child(4) .n{color:#fff}
+.v-stat .l{display:block;font-size:.82rem;margin-top:8px;opacity:.9}
+.map-table{border:1px solid var(--line);border-radius:13px;overflow:hidden;background:rgba(255,255,255,.4)}
+.map-row{display:grid;grid-template-columns:130px 1fr 92px;gap:14px;padding:13px 20px;border-bottom:1px solid var(--line-2);align-items:center;font-size:.9rem}
+.map-row:last-child{border-bottom:none}
+.map-row.head{background:var(--ink);color:var(--paper);font-weight:500;font-size:.8rem;letter-spacing:.05em}
+.map-row .d{font-family:"Noto Serif SC";font-weight:600;color:var(--indigo)}
+.map-row .g{color:var(--ink-soft)}
+.map-row .g b{color:var(--madder);font-weight:500}
+.map-row .s{text-align:center;font-size:.78rem;font-weight:700;padding:3px 0;border-radius:20px}
+.map-row .s.ok{background:rgba(90,117,101,.18);color:var(--sage)}
+.map-row .s.add{background:rgba(189,139,60,.2);color:var(--gold)}
+.finds{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:16px}
+.find{border:1px solid var(--line);border-left:4px solid var(--madder);border-radius:0 12px 12px 0;padding:18px 20px;background:rgba(255,255,255,.42)}
+.find .ft{font-family:"Noto Serif SC";font-weight:900;color:var(--ink);margin-bottom:6px;font-size:1.02rem}
+.find .fd{font-size:.88rem;color:var(--ink-soft)}
+.find .fd b{color:var(--madder)}
+.acc-layer{margin-bottom:14px}
+.acc-layer .ly-h{font-family:"Fraunces";font-style:italic;color:var(--madder);font-size:.95rem;margin:22px 0 10px;letter-spacing:.02em}
+.acc-item{border:1px solid var(--line);border-radius:11px;margin-bottom:8px;background:rgba(255,255,255,.4);overflow:hidden}
+.acc-head{display:flex;align-items:center;gap:12px;padding:14px 18px;cursor:pointer;transition:.2s;user-select:none}
+.acc-head:hover{background:rgba(39,53,95,.06)}
+.acc-head .cnt{font-family:"Fraunces";font-weight:700;color:var(--madder);font-size:.85rem;min-width:34px}
+.acc-head .gn{font-family:"Noto Serif SC";font-weight:600;font-size:1.02rem;color:var(--ink)}
+.acc-head .ar{margin-left:auto;color:var(--indigo);transition:.25s;font-size:.9rem}
+.acc-item.open .ar{transform:rotate(90deg)}
+.acc-body{display:none;padding:4px 18px 18px;flex-wrap:wrap;gap:7px}
+.acc-item.open .acc-body{display:flex}
+.acc-body span{font-size:.78rem;padding:4px 10px;background:var(--paper-2);border-radius:14px;color:var(--ink);font-weight:300}
+
+/* ---------- 07 flows ---------- */
+.taglist{display:flex;flex-wrap:wrap;gap:10px}
+.taglist span{font-size:.86rem;padding:9px 16px;border-radius:30px;background:var(--indigo);color:var(--paper);font-weight:400}
+.taglist span b{color:var(--gold);font-weight:700;font-family:"Fraunces";font-style:italic;margin-right:5px}
+.newmech{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}
+.nm-card{border:1px solid var(--line);border-top:3px solid var(--sage);border-radius:11px;padding:16px 18px;background:rgba(255,255,255,.42)}
+.nm-card .t{font-family:"Noto Serif SC";font-weight:700;color:var(--ink);font-size:.98rem;margin-bottom:5px}
+.nm-card .d{font-size:.84rem;color:var(--ink-soft)}
+.find.warn{border-left-color:var(--gold)}
+
+/* ---------- 打版模块 ---------- */
+.df-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px}
+.df-tabs button{font-family:inherit;font-size:.86rem;font-weight:500;padding:9px 18px;border-radius:30px;border:1px solid var(--line);background:rgba(255,255,255,.4);color:var(--ink);cursor:pointer;transition:.22s}
+.df-tabs button:hover{border-color:var(--indigo)}
+.df-tabs button.on{background:var(--madder);color:#fff;border-color:var(--madder)}
+.df-flow{display:none;flex-wrap:wrap;align-items:stretch;gap:0;margin-bottom:8px}
+.df-flow.on{display:flex}
+.df-step{position:relative;flex:1 1 150px;min-width:140px;border:1px solid var(--line);border-radius:11px;padding:14px 15px;background:rgba(255,255,255,.45);margin:0 16px 26px 0}
+.df-step::after{content:"→";position:absolute;right:-15px;top:50%;transform:translateY(-50%);color:var(--madder);font-weight:700;font-size:1rem}
+.df-step:last-child::after{content:""}
+.df-step .sn{font-family:"Fraunces";font-weight:900;color:var(--madder);font-size:.85rem}
+.df-step .st{font-family:"Noto Serif SC";font-weight:600;font-size:.96rem;color:var(--ink);margin:4px 0 5px}
+.df-step .sd{font-size:.76rem;color:var(--ink-soft);line-height:1.5}
+.df-step .actor{display:inline-block;font-size:.68rem;padding:2px 8px;border-radius:12px;background:var(--paper-2);color:var(--indigo);margin-top:7px}
+.df-ideas{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px;margin:14px 0 0}
+.df-idea{border:1px solid var(--line);border-left:4px solid var(--sage);border-radius:0 11px 11px 0;padding:15px 18px;background:rgba(255,255,255,.42)}
+.df-idea .it{font-family:"Noto Serif SC";font-weight:700;color:var(--ink);font-size:.96rem;margin-bottom:4px}
+.df-idea .id{font-size:.83rem;color:var(--ink-soft)}
+.df-idea .id b{color:var(--madder)}
+.df-tables{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px}
+.df-tcol{border:1px solid var(--line);border-radius:13px;overflow:hidden;background:rgba(255,255,255,.4)}
+.df-tcol h4{font-family:"Noto Serif SC";font-weight:900;font-size:1rem;padding:13px 18px;color:var(--paper)}
+.df-tcol.exist h4{background:var(--sage)}
+.df-tcol.gap h4{background:var(--madder)}
+.df-tcol ul{list-style:none;padding:8px 0}
+.df-tcol li{padding:8px 18px;font-size:.84rem;border-bottom:1px solid var(--line-2);color:var(--ink)}
+.df-tcol li:last-child{border-bottom:none}
+.df-tcol li code{font-family:"Fraunces";font-weight:600;color:var(--indigo);font-size:.82rem}
+.df-tcol li b{color:var(--madder);font-weight:700}
+@media(max-width:720px){.df-tables{grid-template-columns:1fr}}
+
+/* ---------- 现货·产品 ---------- */
+.sp-stages{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.sp-stage{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:rgba(255,255,255,.42)}
+.sp-stage h4{display:flex;align-items:center;gap:10px;padding:14px 18px;background:var(--indigo);color:var(--paper);font-family:"Noto Serif SC";font-weight:600;font-size:1.05rem}
+.sp-stage:nth-child(2) h4{background:var(--sage)}
+.sp-stage:nth-child(3) h4{background:var(--madder)}
+.sp-stage h4 .num{font-family:"Fraunces";font-weight:900;color:var(--gold);font-size:1.2rem}
+.sp-stage .body{padding:14px 18px}
+.sp-stage .body p{font-size:.85rem;color:var(--ink-soft);margin-bottom:9px}
+.sp-stage .body p b{color:var(--madder);font-weight:700}
+.sp-stage .body .lbl{font-family:"Noto Serif SC";font-weight:700;color:var(--indigo);font-size:.8rem}
+.attr-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.attr-card{border:1px solid var(--line);border-top:3px solid var(--indigo);border-radius:12px;padding:18px 20px;background:rgba(255,255,255,.42)}
+.attr-card:nth-child(2){border-top-color:var(--sage)}
+.attr-card:nth-child(3){border-top-color:var(--madder)}
+.attr-card .at{font-family:"Noto Serif SC";font-weight:900;font-size:1.05rem;color:var(--ink);margin-bottom:4px}
+.attr-card .ae{font-family:"Fraunces";font-style:italic;font-size:.76rem;color:var(--ink-soft);margin-bottom:10px}
+.attr-card ul{list-style:none}
+.attr-card li{font-size:.83rem;color:var(--ink-soft);padding:5px 0 5px 14px;position:relative;line-height:1.55}
+.attr-card li::before{content:"·";position:absolute;left:0;color:var(--madder);font-weight:700}
+.attr-card li b{color:var(--ink);font-weight:600}
+@media(max-width:760px){.sp-stages,.attr-cards{grid-template-columns:1fr}}
+
+/* ---------- 核心流程 泳道图 ---------- */
+.cf-flow{display:none}
+.cf-flow.on{display:block}
+.mmwrap{overflow-x:auto;padding:18px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.5);margin-bottom:8px;text-align:center}
+.mmwrap svg{max-width:100%;height:auto}
+
+/* ---------- 公式 ---------- */
+.fml-wrap{border:1px solid var(--line);border-radius:13px;background:rgba(255,255,255,.5);overflow:hidden;margin-bottom:14px}
+.fml-wrap h5{font-family:"Noto Serif SC";font-weight:900;font-size:.96rem;padding:11px 18px;background:var(--indigo);color:var(--paper);display:flex;gap:8px;align-items:center;margin:0}
+.fml-wrap h5 .src{margin-left:auto;font-size:.7rem;font-weight:400;opacity:.82;font-family:"Noto Sans SC"}
+.fml-row{display:grid;grid-template-columns:210px 1fr;gap:14px;padding:9px 18px;border-bottom:1px solid var(--line-2);font-size:.86rem;align-items:baseline}
+.fml-row:last-child{border-bottom:none}
+.fml-row .nm{color:var(--indigo);font-weight:600}
+.fml-row .eq{font-family:"Fraunces",ui-monospace,monospace;color:var(--ink);font-size:.9rem;line-height:1.5}
+.fml-row .eq b{color:var(--madder);font-weight:700}
+@media(max-width:680px){.fml-row{grid-template-columns:1fr;gap:2px}}
+
+/* ---------- footer ---------- */
+footer{
+  border-top:2px solid var(--ink);padding:46px 34px 60px;max-width:1240px;margin:40px auto 0;
+}
+footer .f-top{display:flex;justify-content:space-between;flex-wrap:wrap;gap:24px;align-items:flex-end}
+footer .f-mark{font-family:"Noto Serif SC";font-weight:900;font-size:1.6rem;color:var(--indigo)}
+footer .f-note{font-size:.82rem;color:var(--ink-soft);max-width:520px}
+footer .f-note b{color:var(--madder)}
+.callout{
+  border-left:4px solid var(--madder);background:rgba(181,64,42,.06);
+  padding:16px 22px;border-radius:0 10px 10px 0;margin:30px 0 0;font-size:.92rem;color:var(--ink-soft);
+}
+.callout b{color:var(--madder)}
+
+@media(max-width:860px){
+  .vc-track{grid-template-columns:repeat(2,1fr)}
+  .vc-step{border-bottom:1px solid var(--line)}
+  .vc-detail{grid-template-columns:1fr}
+  section{padding:64px 22px}
+  .hero{padding:40px 22px}
+  .topnav{padding:12px 20px}
+}
+@media(max-width:520px){.vc-track{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<!-- ============ TOP NAV ============ -->
+<header class="topnav">
+  <div class="brand"><span class="dot"></span><span>睿程ERP</span>&nbsp;系统全景图</div>
+  <nav>
+    <a href="#overview">概览</a>
+    <a href="#chain">价值链</a>
+    <a href="#modules">业务域</a>
+    <a href="#glossary">术语扫盲</a>
+    <a href="#spotprod">现货·产品</a>
+    <a href="#supply">供应链洞察</a>
+    <a href="#coreflows">核心流程</a>
+    <a href="#systems">配套系统</a>
+    <a href="#live">菜单对照</a>
+    <a href="#flows07">现状梳理</a>
+    <a href="#dafan">打版模块</a>
+    <a href="#dirs">目录导航</a>
+  </nav>
+</header>
+
+<!-- ============ HERO ============ -->
+<div class="hero" id="overview">
+  <svg class="weave-mark" viewBox="0 0 100 100" fill="none">
+    <g stroke="#27355f" stroke-width="1.1" opacity="0.9">
+      <path d="M10 20 H90 M10 35 H90 M10 50 H90 M10 65 H90 M10 80 H90"/>
+      <path d="M20 10 V90 M35 10 V90 M50 10 V90 M65 10 V90 M80 10 V90"/>
+    </g>
+    <g stroke="#b5402a" stroke-width="2">
+      <path d="M20 50 H80" opacity=".8"/>
+      <circle cx="50" cy="50" r="3.2" fill="#b5402a" stroke="none"/>
+    </g>
+  </svg>
+  <div class="kicker">广东睿程智造 · 纺织面料数字化</div>
+  <h1>
+    <span class="ln">一束纱线，</span>
+    <span class="ln">如何变成</span>
+    <span class="ln">一匹好布</span>
+    <span class="en">From Yarn to Fabric — an ERP field guide</span>
+  </h1>
+  <p class="sub">这是一家做<b>纺织面料</b>的制造企业。它把<b>纱线</b>买进来，织成白坯布，染上颜色，检验合格后入仓，再卖给服装客户。睿程 ERP 就是支撑这整条链路的信息系统。本页面写给<b>没有制造业背景的新人</b>——先看懂业务，再看懂系统。</p>
+  <div class="chiprow">
+    <span class="chip">纱线 · 织造 · 染整</span>
+    <span class="chip">九大业务域</span>
+    <span class="chip">ERP / CRM / SCM / SRM</span>
+    <span class="chip">1300+ 份资料</span>
+  </div>
+  <div class="scroll-hint"><span class="arr">↓</span> 往下，从「一匹布的旅程」开始</div>
+</div>
+
+<!-- ============ VALUE CHAIN ============ -->
+<section id="chain">
+  <div class="eyebrow">The Journey</div>
+  <h2 class="sec">一匹布的旅程：核心价值链</h2>
+  <p class="lead">制造业的本质是「把原料一步步加工成成品」。面料行业的主线是下面 7 步。每一步都对应系统里的一组功能。<b>点击任意环节</b>，看它到底在做什么。</p>
+
+  <div class="vc-wrap">
+    <div class="vc-track" id="vcTrack"></div>
+
+    <div class="vc-feeders">
+      <div class="vc-feeder">🎨 <b>研发/打版</b>：在主线之前——先打小样确认款式颜色，才会投产</div>
+      <div class="vc-feeder">📅 <b>计划</b>：贯穿全程——决定何时生产、备多少货（智能补货）</div>
+    </div>
+
+    <div class="vc-detail" id="vcDetail"></div>
+  </div>
+
+  <div class="callout">
+    <b>给新人的一句话：</b>面料和服装不同——它按「<b>款号</b>」管款式、按「<b>颜色</b>」分色、按「<b>缸号</b>」记录每一次染色批次。同一个款、同一个色，不同缸染出来可能有细微色差，所以「缸号」在这行非常关键。
+  </div>
+</section>
+
+<!-- ============ MODULES ============ -->
+<section id="modules">
+  <div class="eyebrow">Functional Domains</div>
+  <h2 class="sec">九大业务域</h2>
+  <p class="lead">把价值链按职责切开，就是系统的九大功能模块。前 8 个沿着主线走，CRM 是横向支撑客户关系的。每张卡片标注了在资料库里去哪个目录找对应文档。</p>
+  <div class="mod-grid" id="modGrid"></div>
+</section>
+
+<!-- ============ GLOSSARY ============ -->
+<section id="glossary">
+  <div class="eyebrow">Decode the Jargon</div>
+  <h2 class="sec">行业术语扫盲</h2>
+  <p class="lead">读资料时最容易卡壳的不是系统，而是纺织行业的「黑话」。这里用大白话解释最高频的词。<b>输入关键词可快速筛选。</b></p>
+  <div class="gl-search">
+    <span class="ic">⌕</span>
+    <input type="text" id="glInput" placeholder="搜索术语，如「缸号」「胚布」「大货」…">
+  </div>
+  <div class="gl-grid" id="glGrid"></div>
+  <p class="gl-empty" id="glEmpty" style="display:none">没有匹配的术语，换个词试试。</p>
+</section>
+
+<!-- ============ 现货·产品 ============ -->
+<section id="spotprod">
+  <div class="eyebrow">Core Business · 现货 &amp; 产品（2026-06-12 会议）</div>
+  <h2 class="sec">现货业务与产品解构</h2>
+  <p class="lead">现货是公司<b>核心业务，占销售额 80%–90%</b>。本节据 2026-06-12 会议纪要，细化「业务模式 / 现货销售三阶段 / 产品属性模型 / 计量规则」——理解日常业务的关键局部。</p>
+
+  <h3 class="sub-h">① 业务模式：现货为主，订单为辅</h3>
+  <div class="newmech" style="grid-template-columns:1fr 1fr;margin-bottom:18px">
+    <div class="nm-card"><div class="t">现货模式（占 80%–90%）</div><div class="d">公司<b>自产开发</b>新款，库存推广销售。核心模式。</div></div>
+    <div class="nm-card"><div class="t">订单模式</div><div class="d">按客户需求定制，下单→定制→发货，可能交定金。2022–2023 起开展，分国内/国外，<b>上海办负责国外订单</b>。</div></div>
+  </div>
+  <p style="color:var(--ink-soft);font-size:.86rem;margin:0 0 10px">现货自产开发链（审版通过才转大货）：</p>
+  <div class="df-flow on" style="margin-bottom:8px">
+    <div class="df-step"><div class="st">纱线</div></div>
+    <div class="df-step"><div class="st">织造</div></div>
+    <div class="df-step"><div class="st">染整</div></div>
+    <div class="df-step"><div class="st">审版</div><div class="sd">通过才转现货大货</div></div>
+    <div class="df-step"><div class="st">生产头缸</div></div>
+    <div class="df-step"><div class="st">染色生产</div></div>
+    <div class="df-step"><div class="st">入仓推广</div></div>
+    <div class="df-step"><div class="st">巩固生产</div><div class="sd">按销售情况补单</div></div>
+  </div>
+
+  <h3 class="sub-h">② 现货销售三阶段</h3>
+  <div class="sp-stages">
+    <div class="sp-stage">
+      <h4><span class="num">01</span> 推版</h4>
+      <div class="body">
+        <p>递色卡 / 剪板 / 寄样衣，让客户了解产品。<b>无销售流程，但有 CRM 管理</b>。</p>
+        <p><span class="lbl">CRM 规则：</span>公库客户任何人可跟进；私库需申请、有数量上限、至少拜访一次，<b>180 天无成交回收到公库</b>。</p>
+        <p><span class="lbl">拜访：</span>通过行政服务记录，服务范围按客户地址设定。</p>
+      </div>
+    </div>
+    <div class="sp-stage">
+      <h4><span class="num">02</span> 打样</h4>
+      <div class="body">
+        <p>客户感兴趣→需剪/拿样，建<b>剪板仓</b>。业务员先报库存，有货开剪板销售单，付款后仓库按销售单生成剪板任务单剪板。</p>
+        <p><span class="lbl">付款方式：</span><b>券</b>（按业务员上月业绩提成比例发放、可自行支配）/ <b>额度赊销</b>（长期合作客户）/ <b>现金</b>（扫码或转账）。</p>
+      </div>
+    </div>
+    <div class="sp-stage">
+      <h4><span class="num">03</span> 大货</h4>
+      <div class="body">
+        <p>样品满意→大货生产。需求→报库存→无库存下<b>大货任务单</b>→仓库配货→开销售单→付款→出货。</p>
+        <p><span class="lbl">付款方式：</span>额度赊销 / 现金；<b>券不能用于大货</b>。</p>
+        <p><span class="lbl">配货：</span><b>一缸先出、尽量避免拼缸</b>；拼缸需客户接受，裁付时分开裁剪。</p>
+      </div>
+    </div>
+  </div>
+
+  <h3 class="sub-h">②.5 现货销售系统流程（泳道图）</h3>
+  <p style="color:var(--ink-soft);font-size:.9rem;margin:-10px 0 14px">对应 07：剪版(01/03)、大货(02)、现货销售详细(04 · XS-020-001)。<b>点击标签切换</b>。</p>
+  <div class="df-tabs" id="spTabs"></div>
+  <div id="spFlows"></div>
+
+  <h3 class="sub-h">③ 产品属性模型（三层）</h3>
+  <div class="attr-cards">
+    <div class="attr-card">
+      <div class="at">基本属性</div><div class="ae">identity & spec</div>
+      <ul>
+        <li><b>款号</b>：产品唯一标识</li>
+        <li><b>幅宽</b>：布的宽度（常与克重一起出现）</li>
+        <li><b>克重</b>：布的薄厚度</li>
+        <li><b>颜色 / 成份</b></li>
+        <li><b>纸管空差</b>：行业潜规则，影响价格</li>
+      </ul>
+    </div>
+    <div class="attr-card">
+      <div class="at">颜色属性</div><div class="ae">color & craft</div>
+      <ul>
+        <li><b>色号</b>：精确区分颜色、避免混淆</li>
+        <li><b>颜色名称</b></li>
+        <li><b>价格随工艺变</b>：深色工艺复杂→成本高→价高</li>
+        <li><b>工艺</b>：分必要 / 非必要</li>
+      </ul>
+    </div>
+    <div class="attr-card">
+      <div class="at">缸号属性</div><div class="ae">dye-lot</div>
+      <ul>
+        <li><b>生产批次</b>属性，决定颜色与材料</li>
+        <li>不同缸号可能<b>色差 / 材料差异</b></li>
+        <li>因此属于<b>细码产品</b></li>
+        <li>生产销售中需管理、确认缸号保质量</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 class="sub-h">④ 计量与计价规则</h3>
+  <div class="fml-wrap">
+    <h5>计量 / 计价 / 换算<span class="src">会议纪要 2026-06-12 + 行业通用换算</span></h5>
+    <div class="fml-row"><span class="nm">针织（弹性大）按重量</span><span class="eq">销售金额 = 净重(kg) × 单价(元/kg)</span></div>
+    <div class="fml-row"><span class="nm">梭织（弹性小）按长度</span><span class="eq">销售金额 = 长度(米/码) × 单价(元/米)</span></div>
+    <div class="fml-row"><span class="nm">重量 ↔ 长度 换算</span><span class="eq">重量(kg) = 长度(m) × 幅宽(m) × 克重(g/m²) ÷ 1000</span></div>
+    <div class="fml-row"><span class="nm">颜色标准</span><span class="eq">按工艺复杂度定价（深色 / 必要工艺成本更高）；颜色色差的精确公式纪要与现有文档<b>未给出，待补</b></span></div>
+  </div>
+
+  <h3 class="sub-h">⑤ 成本核算链公式（纱线 → 胚布 → 面料）</h3>
+  <div class="fml-wrap">
+    <h5>第一步：空差率 / 各级损耗率<span class="src">50-生产成本核算/成本公式.xlsx</span></h5>
+    <div class="fml-row"><span class="nm">纱线空差率</span><span class="eq">= (纱线毛重 − 纱线净重) ÷ 纱线毛重 × 100%</span></div>
+    <div class="fml-row"><span class="nm">纱线工艺损耗率</span><span class="eq">= (纱线净重 − 工艺后净重) ÷ 纱线净重 × 100%</span></div>
+    <div class="fml-row"><span class="nm">织胚损耗率</span><span class="eq">= (工艺后纱线净重 − 胚重) ÷ 工艺后纱线净重 × 100%</span></div>
+    <div class="fml-row"><span class="nm">染色损耗率</span><span class="eq">= (胚布重量 − 色布净重) ÷ 胚布重量 × 100%</span></div>
+    <div class="fml-row"><span class="nm">后整损耗率</span><span class="eq">= (色布重量 − 后整后色布重量) ÷ 色布重量 × 100%</span></div>
+  </div>
+  <div class="fml-wrap">
+    <h5>第二步：逐级成本（每级 = 上级成本 ÷ (1−本级损耗率)，再叠加本级加工费）<span class="src">同上</span></h5>
+    <div class="fml-row"><span class="nm">纱线减空差后成本</span><span class="eq">= 原纱线单价 ÷ (1 − 纱线空差率)</span></div>
+    <div class="fml-row"><span class="nm">纱线做工艺后成本</span><span class="eq">= 减空差后成本 ÷ (1 − 纱线工艺损耗率)</span></div>
+    <div class="fml-row"><span class="nm">纱线处理合格后成本</span><span class="eq">= 做工艺后成本 + 做工艺单价</span></div>
+    <div class="fml-row"><span class="nm">织胚后合格纱线成本</span><span class="eq">= 纱线处理合格后成本 ÷ (1 − 织胚损耗率)</span></div>
+    <div class="fml-row"><span class="nm">胚布成本</span><span class="eq">= 织胚后合格纱线成本 + 织胚加工费单价</span></div>
+    <div class="fml-row"><span class="nm">染色后胚布成本</span><span class="eq">= 胚布成本 ÷ (1 − 染色损耗率)</span></div>
+    <div class="fml-row"><span class="nm">染成品成本</span><span class="eq">= 染色后胚布成本 + 染色加工单价 ÷ (1 − 染色损耗率)</span></div>
+    <div class="fml-row"><span class="nm">后整后色布成本</span><span class="eq">= 染成品成本 ÷ (1 − 后整损耗率)</span></div>
+    <div class="fml-row"><span class="nm"><b>成品成本</b></span><span class="eq"><b>= 后整后色布成本 + 后整加工费</b></span></div>
+  </div>
+  <div class="fml-wrap">
+    <h5>第三步：存货计价（加权平均）<span class="src">同上</span></h5>
+    <div class="fml-row"><span class="nm">月末一次加权平均单价</span><span class="eq">= (期初结存金额 + 本月收入金额) ÷ (期初结存数量 + 本月收入数量)</span></div>
+    <div class="fml-row"><span class="nm">本月发出金额</span><span class="eq">= 本月发出数量 × 加权平均单价</span></div>
+    <div class="fml-row"><span class="nm">本月结存金额</span><span class="eq">= 月初结存金额 + 本月收入金额 − 本月发出金额</span></div>
+    <div class="fml-row"><span class="nm">移动加权平均</span><span class="eq">每次入库后立即重算平均单位成本，作为下次发货计价基础</span></div>
+  </div>
+
+  <h3 class="sub-h">⑥ 供应商核价评分公式</h3>
+  <div class="fml-wrap">
+    <h5>询价评分<span class="src">23-采购询价基础设置（蓝图设计）</span></h5>
+    <div class="fml-row"><span class="nm">低价法·单项价格得分</span><span class="eq">= 100 − (P − P<sub>min</sub>) ÷ P<sub>min</sub> × 100　（P=报价，P<sub>min</sub>=最低价，四舍五入）</span></div>
+    <div class="fml-row"><span class="nm">技术/绩效得分</span><span class="eq">= 各评委打分平均值</span></div>
+    <div class="fml-row"><span class="nm">综合评分法·综合得分</span><span class="eq">= 价格得分 × 价格权重 + 技术(或绩效)得分 × 技术(或绩效)权重</span></div>
+  </div>
+</section>
+
+<!-- ============ 供应链与库存洞察 ============ -->
+<section id="supply">
+  <div class="eyebrow">Insights · 业务流程培训 2026-06-13</div>
+  <h2 class="sec">供应链与库存洞察</h2>
+  <p class="lead">6.13 业务培训（陈少初主讲）补充了 07 流程<b>背后的「为什么」</b>：纺织供应链为何难、订单为何分三类、系统为何用「倒推」、以及成本核算与库存的核心痛点与优化方向。</p>
+
+  <h3 class="sub-h">① 供应链管理痛点</h3>
+  <div class="newmech">
+    <div class="nm-card"><div class="t">产品非标准化</div><div class="d">同一工厂不同时期产品可能不同 → 品质不稳、<b>转厂困难</b>、不易换供应商。</div></div>
+    <div class="nm-card"><div class="t">淡旺季明显</div><div class="d">淡季工厂没单、旺季产能不足，<b>旺季抢产能</b>。</div></div>
+    <div class="nm-card"><div class="t">产能有限</div><div class="d">工厂为平衡需求不大幅扩产 → 旺季<b>生产周期拉长、缺货增多</b>。</div></div>
+    <div class="nm-card"><div class="t">质量与转厂</div><div class="d">开发好的款通常<b>在原工厂做大货</b>，除非原厂无法生产才转。</div></div>
+    <div class="nm-card"><div class="t">染厂数量有限</div><div class="d">受环保限制、投入大利润低、淡旺季明显 → 准入染厂少、<b>难控制</b>。</div></div>
+    <div class="nm-card"><div class="t">纱线供应困难</div><div class="d">纱多产自新疆、广东本地少、运输久、批次品质不稳 → <b>需试纱</b>，拉长周期与成本。</div></div>
+  </div>
+
+  <h3 class="sub-h">② 三种订单类型</h3>
+  <div class="attr-cards">
+    <div class="attr-card"><div class="at">现货订单</div><div class="ae">spot</div><ul><li>用<b>现货胚布</b>生产</li><li>链条短、<b>速度快</b></li></ul></div>
+    <div class="attr-card"><div class="at">开发订单</div><div class="ae">develop</div><ul><li>每年产品开发</li><li>部分转现货</li><li>部分<b>按客户需求定制</b></li></ul></div>
+    <div class="attr-card"><div class="at">客样订单</div><div class="ae">customer-sample</div><ul><li>客户提供样品要求开发</li><li><b>难度大</b></li><li>非战略大客户<b>尽量不接</b></li></ul></div>
+  </div>
+
+  <h3 class="sub-h">③ 系统「倒推」设计原则</h3>
+  <p style="color:var(--ink-soft);font-size:.9rem;margin:-10px 0 12px">需求倒推驱动计划，实物正推交付——这正是「订单生产运营」流程的内核。</p>
+  <div style="margin-bottom:6px;font-size:.84rem;color:var(--madder);font-weight:700">▼ 计划倒推（需求 → 供应，缺什么补什么）</div>
+  <div class="df-flow on" style="margin-bottom:14px">
+    <div class="df-step"><div class="st">客户/销售需求</div></div>
+    <div class="df-step"><div class="st">染整计划</div></div>
+    <div class="df-step"><div class="st">织造计划</div><div class="sd">胚布库存不足时</div></div>
+    <div class="df-step"><div class="st">采购需求</div><div class="sd">纱线库存不足时</div></div>
+  </div>
+  <div style="margin-bottom:6px;font-size:.84rem;color:var(--sage);font-weight:700">▲ 实物正推（供应 → 交付）</div>
+  <div class="df-flow on">
+    <div class="df-step"><div class="st">纱线采购</div></div>
+    <div class="df-step"><div class="st">织胚（织造）</div></div>
+    <div class="df-step"><div class="st">染整（染成品）</div></div>
+    <div class="df-step"><div class="st">成品入库</div></div>
+  </div>
+
+  <h3 class="sub-h">③.5 对应系统流程（泳道图）</h3>
+  <p style="color:var(--ink-soft);font-size:.9rem;margin:-10px 0 14px">「倒推/正推」落到系统即 07：订单生产运营(07)、纱线采购派料(08)。<b>点击标签切换</b>。</p>
+  <div class="df-tabs" id="suTabs"></div>
+  <div id="suFlows"></div>
+
+  <h3 class="sub-h">④ 成本核算与库存：痛点与优化</h3>
+  <div class="finds">
+    <div class="find warn"><div class="ft">⚠ 理论 BOM 扣料 → 账实不一致</div><div class="fd">按胚布入库重量 × BOM 比例<b>反推纱线用量</b>，实际值≠理论值，账面库存与实物逐渐偏离。</div></div>
+    <div class="find warn"><div class="ft">⚠ 委外无法精细领料</div><div class="fd">委外加工厂不能精确领料，只能按理论 BOM 扣，<b>误差逐渐累积</b>。</div></div>
+    <div class="find warn"><div class="ft">⚠ 损耗容差</div><div class="fd">现货生产<b>总损耗 ≤ 8% 可接受</b>；<b>订单生产不允许误差</b>。</div></div>
+  </div>
+  <div class="newmech" style="margin-top:14px">
+    <div class="nm-card"><div class="t">优化 · 胚布批次管理</div><div class="d">按批次入库，标签/二维码增加<b>纱批批号</b> → 库存一致 + 质量追溯。</div></div>
+    <div class="nm-card"><div class="t">优化 · 染厂回传批次</div><div class="d">染厂系统与公司不一致、难指定批次 → 要求染厂生产后<b>回传所用胚布批次</b>，准确扣库存。</div></div>
+  </div>
+</section>
+
+<!-- ============ 核心流程 ============ -->
+<section id="coreflows">
+  <div class="eyebrow">System Flows · 07 系统流程文档</div>
+  <h2 class="sec">核心业务流程图</h2>
+  <p class="lead">来自 <code style="background:var(--paper-2);padding:2px 6px;border-radius:4px;font-family:Fraunces">07-系统流程文档</code> 的<b>精简现行流程</b>，按原 PDF 重绘为<b>带角色泳道的流程图</b>——每个角色（客户/业务员/计划/采购/生产/仓库/财务…）一条泳道，节点落在负责角色列，跨列箭头即<b>跨岗位交接</b>，含「是/否」判断分支。<b>点击标签切换</b>，图可横向滚动。</p>
+  <div class="df-tabs" id="cfTabs"></div>
+  <div id="cfFlows"></div>
+  <div class="callout" style="margin-top:6px">开发链「开发到织造 / 开发到染」(05/06) 属自研发打版，已在 <a href="#dafan" style="color:var(--madder);font-weight:700">打版模块</a> 详述。</div>
+
+  <h3 class="sub-h">纱线派料 8 个关键术语（08 流程定义）</h3>
+  <div class="newmech" id="cfTerms"></div>
+</section>
+
+<!-- ============ SYSTEMS ============ -->
+<section id="systems">
+  <div class="eyebrow">The Software Stack</div>
+  <h2 class="sec">配套系统：四套核心 + 周边</h2>
+  <p class="lead">睿程 ERP 是核心大脑，但它不孤立运作——对客户有 CRM、对供应商有 SRM、对外部织厂染厂有 SCM 协同，还有商城、移动端和硬件。</p>
+  <div class="sys-grid" id="sysGrid"></div>
+  <div class="sys-extra" id="sysExtra"></div>
+</section>
+
+<!-- ============ LIVE MENU RECONCILIATION ============ -->
+<section id="live">
+  <div class="eyebrow">Reality Check · 实测对照</div>
+  <h2 class="sec">实际系统菜单对照</h2>
+  <p class="lead">已登录测试系统 <code style="background:var(--paper-2);padding:2px 7px;border-radius:5px;font-family:Fraunces">test.wyoooni.net</code>，抓取了真实菜单：<b style="color:var(--madder)">32 个一级菜单组、近 900 个功能页</b>。结论——之前整理的九大价值链业务域<b style="color:var(--sage)">方向完全一致</b>，全部能对上，只需补充几点。</p>
+
+  <div class="verdict">
+    <div class="v-stat"><span class="n">32</span><span class="l">一级菜单组</span></div>
+    <div class="v-stat"><span class="n">~900</span><span class="l">功能页</span></div>
+    <div class="v-stat"><span class="n">9/9</span><span class="l">业务域命中</span></div>
+    <div class="v-stat"><span class="n">5</span><span class="l">需补充点</span></div>
+  </div>
+
+  <h3 class="sub-h">① 九大业务域 → 实测菜单 映射</h3>
+  <div class="map-table" id="mapTable"></div>
+
+  <h3 class="sub-h">② 关键发现与建议补充</h3>
+  <div class="finds" id="finds"></div>
+
+  <h3 class="sub-h">③ 实测菜单浏览器（按层）</h3>
+  <p style="color:var(--ink-soft);font-size:.92rem;margin:-10px 0 22px">系统其实是按「操作类型 × 业务域」组织的：核心单据操作、分析看板、客户激励、主数据配置、平台外部五层。<b>点击展开</b>查看真实菜单项。</p>
+  <div class="acc" id="liveAcc"></div>
+</section>
+
+<!-- ============ 07 FLOW CURRENT-STATE ============ -->
+<section id="flows07">
+  <div class="eyebrow">Current State · 流程现状梳理</div>
+  <h2 class="sec">07 现状梳理：在改什么、要新增什么</h2>
+  <p class="lead">07 目录是「**当前现状**」入口。除 01–08 基线流程图（剪版/大货/开发到织染/订单生产/纱线采购）外，重点是两份新梳理：<b>2025 订单流程梳理</b>（21 页，把订单 OTC 按 1→2→3→4 级全拆解）与 <b>2026 OTC 流程梳理</b>（7 泳道总图 + 建设计划）。它们在流程图上标注 <span style="color:var(--gold);font-weight:600">优化</span> 与 <span style="color:var(--ink-soft);font-weight:600">新增</span>，并列出了现存问题。下面是从中汇总的「变更/更新」要点。</p>
+
+  <div class="verdict" style="grid-template-columns:repeat(3,1fr)">
+    <div class="v-stat"><span class="n">时效</span><span class="l">提高时效</span></div>
+    <div class="v-stat"><span class="n">品质</span><span class="l">提高品质</span></div>
+    <div class="v-stat"><span class="n">准确</span><span class="l">提高数据准确</span></div>
+  </div>
+  <p style="text-align:center;color:var(--ink-soft);font-size:.9rem;margin:-8px 0 8px">—— 全流程优化的三大统一目标 ——</p>
+
+  <h3 class="sub-h">① 现状已知问题（梳理出来要改的）</h3>
+  <p style="color:var(--ink-soft);font-size:.9rem;margin:-10px 0 18px">2025 梳理按环节列出的痛点，<b>点击展开</b>。</p>
+  <div class="acc" id="probAcc"></div>
+
+  <h3 class="sub-h">② 待修的流程错误（2026 标注的现状 Bug）</h3>
+  <div class="finds" id="bugs07"></div>
+
+  <h3 class="sub-h">③ 新增流程与机制</h3>
+  <div class="newmech" id="newMech"></div>
+
+  <h3 class="sub-h">④ 2026 AI 智能助手路线图</h3>
+  <p style="color:var(--ink-soft);font-size:.9rem;margin:-10px 0 16px">2026 计划在各环节嵌入 AI 助手，减少人工录入与判断。</p>
+  <div class="taglist" id="aiAssist"></div>
+
+  <h3 class="sub-h">⑤ 分阶段建设计划</h3>
+  <div class="finds" id="phases07"></div>
+</section>
+
+<!-- ============ 打版模块 ============ -->
+<section id="dafan">
+  <div class="eyebrow">Module Deep-Dive · 打版/开发</div>
+  <h2 class="sec">打版模块设计（开发跟进）</h2>
+  <p class="lead">打版是价值链<b>最前端</b>：先打小样确认款式/颜色/工艺/成本，确认后才下大货。计划深度参与（派纱、派织厂染厂、跟进度）。下面是两条主流程、设计思路与数据库表设计要点——这是后续开发的重点模块。</p>
+
+  <h3 class="sub-h">① 主流程（点击切换）</h3>
+  <div class="df-tabs" id="dfTabs"></div>
+  <div id="dfFlows"></div>
+
+  <h3 class="sub-h">② 设计思路（6 条核心理念）</h3>
+  <div class="df-ideas" id="dfIdeas"></div>
+
+  <h3 class="sub-h">③ 数据库表设计要点</h3>
+  <p style="color:var(--ink-soft);font-size:.9rem;margin:-10px 0 16px"><code style="background:var(--paper-2);padding:2px 6px;border-radius:4px;font-family:Fraunces">erp_newmdevelop</code> 家族已是重构主体；<b style="color:var(--madder)">最大缺口是「技术工艺档案」</b>（织造/染整工艺参数仍靠手写）。</p>
+  <div class="df-tables">
+    <div class="df-tcol exist"><h4>✓ 现有可复用表（勿重建）</h4><ul id="dfExist"></ul></div>
+    <div class="df-tcol gap"><h4>＋ 建议新增/扩展表</h4><ul id="dfGap"></ul></div>
+  </div>
+</section>
+
+<!-- ============ DIRECTORIES ============ -->
+<section id="dirs">
+  <div class="eyebrow">Navigate the Archive</div>
+  <h2 class="sec">资料库目录全景导航</h2>
+  <p class="lead">源资料在 <code style="background:var(--paper-2);padding:2px 7px;border-radius:5px;font-family:Fraunces">d:\myWork\新人文档\</code>，按 <code style="background:var(--paper-2);padding:2px 7px;border-radius:5px;font-family:Fraunces">01–86</code> 编号 + 主题目录组织。下面按业务分区归类。<b>点击标签可按域过滤。</b></p>
+  <div class="dir-filters" id="dirFilters"></div>
+  <div class="dir-groups" id="dirGroups"></div>
+</section>
+
+<footer>
+  <div class="f-top">
+    <div>
+      <div class="f-mark">睿程ERP 系统全景图</div>
+      <div class="f-note" style="margin-top:8px">基于 <b>新人文档</b> 目录结构与文件名整理（未深入文件内容，部分为推断，请结合原始文档校验）。配套知识图谱见 <code>ai-docs/睿程ERP/</code> 下的 Markdown。</div>
+    </div>
+    <div class="f-note" style="text-align:right">生成日期 2026-06-12<br>纱线 → 织造 → 染整 → 成品 → 销售</div>
+  </div>
+</footer>
+
+<script>
+
+/* ===================== DATA ===================== */
+const CHAIN=[
+ {no:"01",ico:"🧵",name:"采购",en:"Procurement",h:"买原料：纱线为主",
+  p:"面料的原材料是纱线。采购部根据计划申购、下单、调配纱线，也会采购织好的胚布。涉及供应商评级、招标询价、纱批追溯。",
+  tags:["纱线申购","采购通知单 → 采购单","纱线分类管理","供应商评级"]},
+ {no:"02",ico:"🪡",name:"织造",en:"Weaving",h:"把纱线织成白坯布",
+  p:"纱线在织机上织成布——此时还没染色，叫「胚布/坯布」（白色半成品）。织造通常外协给织厂，系统负责派料、织造跟单、自动接单。经编/纬编/梭织是不同织法。",
+  tags:["胚布产出","织造单/跟单","外协织厂","自动派料"]},
+ {no:"03",ico:"🎨",name:"染整",en:"Dyeing",h:"染色 + 定型，做成成品面料",
+  p:"把白胚布染上颜色并做后整理（定型、柔软处理），变成有颜色的成品面料。外协给染厂。每一次染色批次叫一个「缸」，用缸号区分——这是色差管控的关键。",
+  tags:["染整单","缸号","外协染厂","生产进度对接"]},
+ {no:"04",ico:"🔍",name:"品控",en:"Quality",h:"验布 + 物化检测",
+  p:"成品要检验：验布（查布面疵点、用 4 分制评级）、物化检测（成分、克重、缩水率、色牢度等）。出验布报告/物化报告，有质量问题则扣款或退返。",
+  tags:["验布报告","物化报告","品控扣款单","退返处理"]},
+ {no:"05",ico:"📦",name:"仓储",en:"Warehouse",h:"入仓、库位、盘点、配货",
+  p:"合格成品入仓，按库位存放、定期盘点。出货时「配货」——按订单挑货备齐。仓库还管纱线/胚布/散料多种库存，用 PDA 手持设备扫码作业。",
+  tags:["入仓/出仓","库位管理","盘点","PDA 配货"]},
+ {no:"06",ico:"💰",name:"销售",en:"Sales",h:"报价、下单、发货、退换",
+  p:"对客户报价（内贸/外贸）、接单、发货（物流/自提/同城配送）、处理退换货。面料分「大货」（整批大单）和「散料/剪板」（零剪小量）两条线。含客户分级、返点、业务员提成。",
+  tags:["报价单","销售订单","大货 vs 散料","返点/提成"]},
+ {no:"07",ico:"🧾",name:"财务",en:"Finance",h:"应收应付、结算、资金",
+  p:"向客户收钱（应收对账），付给织厂染厂纱商加工费（应付结算扣数），处理客户月返点、资金管理、合同与送货单批处理、银企直联。",
+  tags:["应收/应付对账","结算扣数","客户返点","银企直联"]}
+];
+
+const MODULES=[
+ {no:"01",name:"研发 / 打版",en:"R&D",c:"#bd8b3c",role:"客户来样或自研开发新面料，打样、打色、打板确认后才投产。",kw:["开发板","款号生成","打色/打板","工艺管理"],dirs:"12-打版 · 52-开发板 · 60-试纱 · 产品工艺资料"},
+ {no:"02",name:"计划",en:"Planning",c:"#5a7565",role:"按订单与预测安排生产和备货，做产供销协同与智能补货。",kw:["物料计划","智能补货","备货天数","预警模型"],dirs:"51-生产计划智能补货 · 23-计划管理流程"},
+ {no:"03",name:"采购",en:"Procurement",c:"#27355f",role:"纱线申购/采购/调配、织胚采购、供应商评级、进度跟踪。",kw:["纱线采购","采购通知单","纱批追溯","供应商评级"],dirs:"62-采购模块 · 63-采购通知单 · 12-采购"},
+ {no:"04",name:"生产（织造+染整）",en:"Production",c:"#b5402a",role:"织造与染整两段外协生产，进度跟踪、成本核算。",kw:["织造单","染整单","缸号","生产成本"],dirs:"53-生产需求 · 50-成本核算 · 56-染厂备货"},
+ {no:"05",name:"品控 QC/QA",en:"Quality",c:"#324a8a",role:"验布、物化检测、质检报告、品控扣款、退返与 QC 绩效。",kw:["验布报告","物化报告","4分制","扣款单"],dirs:"64-品控需求 · QC质检文档 · 品控绩效"},
+ {no:"06",name:"仓储",en:"Warehouse",c:"#5a7565",role:"入出仓、库位、盘点、配货、剪板、物流发货、仓储费报销。",kw:["库位管理","盘点","PDA配货","剪板时效"],dirs:"70~73-仓储 · 82-新仓项目 · 配合爱讯仓位"},
+ {no:"07",name:"销售",en:"Sales",c:"#bd8b3c",role:"报价、下单、订单跟进、发货/自提、退换货、提成核算。",kw:["散剪开单","大货/散料","OTC全流程","返点/提成"],dirs:"20-销售 · 27/28-订单 · 21/22-提成 · 12-销售"},
+ {no:"08",name:"财务",en:"Finance",c:"#27355f",role:"应收应付对账、结算扣数、客户返点、资金、合同批处理。",kw:["应收对账","结算扣数","月返点","合同批处理"],dirs:"12-财务 · 40-返点 · 财务合同批处理项目"},
+ {no:"09",name:"CRM 客户关系",en:"CRM",c:"#b5402a",role:"横向支撑：客户资料/分级、注册挂号规则、销售漏斗、信用额度。",kw:["客户分级","注册挂号","Pipeline","信用额度"],dirs:"43~45-CRM · 41-客户资料 · 42-信用额度"}
+];
+
+const GLOSSARY=[
+ {t:"纱线",en:"Yarn",d:"纺成的线，是面料的<b>原材料</b>。采购买的主要就是它。"},
+ {t:"胚布 / 坯布",en:"Greige",d:"织好但<b>还没染色</b>的白布，是半成品。织造的产出、染整的投入。"},
+ {t:"织造",en:"Weaving/Knitting",d:"用纱线织成布的工序。<b>经编 / 纬编 / 梭织</b>是三种不同织法。"},
+ {t:"染整",en:"Dyeing & Finishing",d:"给胚布<b>染色</b>并做后整理（定型、柔软等），变成成品面料。"},
+ {t:"缸号",en:"Dye Lot",d:"一次<b>染色批次</b>的编号。同款同色不同缸可能有色差，所以必须记录缸号。这行最关键的概念之一。"},
+ {t:"款号",en:"Style No.",d:"面料<b>款式/规格</b>的编号。一个款号下通常有多个颜色。"},
+ {t:"SKU",en:"SKU",d:"最小库存单位 = <b>款号 + 颜色（+规格）</b>。卖货、记库存的最小颗粒。"},
+ {t:"细码",en:"Roll-level",d:"比颜色更细的批次/匹号颗粒度，可精确到<b>每一匹布</b>。"},
+ {t:"大货",en:"Bulk",d:"整批<b>大批量</b>的订单或货物，对应正式生产销售。"},
+ {t:"散料",en:"Sundry stock",d:"零散<b>小批量</b>的料，与大货相对。"},
+ {t:"剪板 / 剪样",en:"Cutting/Swatch",d:"剪一<b>小块布做样品</b>给客户看；也指小量零剪销售。"},
+ {t:"现货 / 半订单 / 全订单",en:"Order types",d:"有库存直接卖=<b>现货</b>；部分需生产=<b>半订单</b>；全部按单生产=<b>全订单</b>。"},
+ {t:"验布",en:"Inspection",d:"检验布面质量、统计疵点，常用 <b>4 分制</b>评级。"},
+ {t:"物化报告",en:"Phys-Chem Test",d:"检测<b>成分、克重、缩水率、色牢度</b>等理化指标的报告。"},
+ {t:"落色",en:"Color bleeding",d:"颜色<b>脱落/掉色</b>，属于色牢度质量问题。"},
+ {t:"色胚 / 色布周转",en:"Dyed stock",d:"染过色的布；「色胚周转」指<b>色布库存的周转速度</b>。"},
+ {t:"OTC",en:"Order to Cash",d:"从<b>下订单到收款</b>的完整业务流程（订单全生命周期）。"},
+ {t:"结算扣数",en:"Settlement deduction",d:"结算时按<b>质量问题等扣减</b>金额或数量。"},
+ {t:"返点 / 返利",en:"Rebate",d:"按客户<b>销量返还</b>的折扣，常按月计算。"},
+ {t:"期初数",en:"Opening balance",d:"系统上线时录入的<b>起始库存/账目</b>数据。"},
+ {t:"配货",en:"Picking",d:"仓库按订单<b>挑选、备齐</b>货物，准备发货。"},
+ {t:"吊牌 / 吊卡",en:"Hangtag",d:"挂在布匹上、标识款色规格等信息的<b>卡片</b>，可带 RFID。"},
+ {t:"爱迅 / 爱讯",en:"Legacy ERP",d:"睿程 ERP 之前用的<b>旧系统</b>，2018-2019 年迁移过来。资料里大量「爱迅数据」即迁移数据。"},
+ {t:"谷云",en:"GuYun",d:"对接的<b>外部 BI/财务</b>工具，ERP 向它授予一组只读视图。"},
+ {t:"推版",en:"Pitching",d:"现货销售第一步：<b>递色卡/剪板/寄样衣</b>给客户了解产品。无销售流程，但有 CRM 管理。"},
+ {t:"纸管空差",en:"Tube tare",d:"纸管重量的<b>行业潜规则</b>差额，会影响产品计价。"},
+ {t:"一缸先出 / 拼缸",en:"Lot-first",d:"配货遵循<b>一缸先出、尽量避免拼缸</b>；必须拼缸需客户接受，裁付时分开裁剪（防色差）。"},
+ {t:"公库 / 私库",en:"Public/Private",d:"客户池：<b>公库</b>任何人可跟进；<b>私库</b>需申请、有数量上限、180 天无成交回收到公库。"},
+ {t:"必要/非必要工艺",en:"Craft type",d:"颜色工艺分两类；<b>深色工艺复杂→成本高→价格高</b>，是颜色价差的来源。"}
+];
+
+const SYSTEMS=[
+ {tag:"ERP",name:"睿程 ERP",d:"自研核心系统，覆盖全部九大业务域。从旧系统「爱迅」迁移而来。"},
+ {tag:"CRM",name:"客户关系管理",d:"客户分级、注册挂号规则、销售漏斗 Pipeline、信用额度。与 ERP 通过 API 对接。"},
+ {tag:"SCM",name:"外部供应链",d:"面向外部织厂/染厂的协同系统：出胚、布票、磅秤、退料。分织厂/纱商用户。"},
+ {tag:"SRM",name:"供应商关系",d:"供应商管理、评级标准、招标询价，与采购域强相关。"}
+];
+const SYS_EXTRA=[
+ {b:"小程序商城",p:"A6shop 多商户商城，面向客户下单。"},
+ {b:"移动端 APP",p:"销售/财务/仓库/任务单的手机端。"},
+ {b:"PDA 手持",p:"仓库入仓/盘点/配货/扫描作业。"},
+ {b:"RFID / 标签打印",p:"验布、吊牌、布票的识别与打印。"},
+ {b:"数仓 / 帆软报表",p:"经营看板、指标、OKR、各类报表。"},
+ {b:"外部对接",p:"染厂(环思/智益)、织厂(景策)、谷云、卓天/Shein、银企直联。"}
+];
+
+const DIR_GROUPS=[
+ {g:"全链业务流程 / 需求",dom:"flow",c:"#27355f",items:[
+   {code:"07",nm:"系统流程文档",ds:"剪版/大货/开发/采购 总流程 PDF"},
+   {code:"12",nm:"流程手册",ds:"按部门(产品/生产/品控/仓储/计划/销售/采购/财务/打版)，含25/26梳理"},
+   {code:"23",nm:"业务流程文档",ds:"8大模块高阶蓝图设计 Visio+PDF"},
+   {code:"24",nm:"业务需求文档",ds:"8大模块需求 PDF"},
+   {code:"18",nm:"重要流程优化",ds:"重大流程优化方案"},
+   {code:"新",nm:"新/旧流程表格文档",ds:"2017-2018 全套流程表单与 Visio"},
+ ]},
+ {g:"研发 / 计划 / 采购",dom:"prod",c:"#bd8b3c",items:[
+   {code:"52",nm:"生产开发板需求",ds:"开发板查询系统"},
+   {code:"60",nm:"试纱流程 / 指标管理",ds:"试纱、指标导入"},
+   {code:"51",nm:"生产计划智能补货",ds:"产供销计划、智能补货模型"},
+   {code:"62",nm:"采购模块",ds:"采购流程结构图"},
+   {code:"63",nm:"采购通知单参考",ds:"通知单与采购单关系"},
+   {code:"产",nm:"产品工艺资料 / 面料产品",ds:"各染厂染单、工艺、面料分类"},
+ ]},
+ {g:"生产 / 品控",dom:"prod",c:"#b5402a",items:[
+   {code:"53",nm:"生产需求",ds:"生产单逻辑、纱批追溯、移动端"},
+   {code:"50",nm:"生产成本核算资料",ds:"成本公式、期初成本"},
+   {code:"54",nm:"生产供应链",ds:"QC质检录入、物流合作"},
+   {code:"58/59",nm:"生产结算 / 品控分析",ds:"结算截图、品控生产分析"},
+   {code:"64",nm:"品控需求",ds:"验布/物化/扣款/退货/绩效"},
+   {code:"QC",nm:"QC质检文档 / 绩效方案",ds:"质检流程与绩效"},
+ ]},
+ {g:"仓储 / 物流",dom:"wh",c:"#5a7565",items:[
+   {code:"70",nm:"仓储物流优化",ds:"物流费报销、剪板优化"},
+   {code:"71",nm:"仓库流程梳理",ds:"库位、配货、出车记录"},
+   {code:"72",nm:"仓库需求",ds:"包装改进、剪版打印要求"},
+   {code:"73",nm:"仓库手持设备文档",ds:"盘点/配货流程、PDA功能"},
+   {code:"82",nm:"9-06新仓项目",ds:"大沥新仓规划布局"},
+   {code:"05",nm:"库存结存数备份",ds:"库存核对/调整数据"},
+ ]},
+ {g:"销售 / 客户 / 财务",dom:"sale",c:"#324a8a",items:[
+   {code:"20",nm:"销售需求",ds:"流程/权限/优惠/退货/统计"},
+   {code:"27/28",nm:"订单业务 / 客户订单流程",ds:"订单全流程、与生产采购关系、报价"},
+   {code:"21/22",nm:"业务(员)提成方案",ds:"提成规则、薪酬政策"},
+   {code:"25/26",nm:"立减方案 / 销售分析",ds:"优惠、销售分析报表"},
+   {code:"40~42",nm:"返点 / 客户资料 / 信用额度",ds:"客户主数据、返点、信用"},
+   {code:"50",nm:"生产成本核算",ds:"成本与财务核算交叉"},
+ ]},
+ {g:"系统 / 数据底座",dom:"sys",c:"#222a45",items:[
+   {code:"01",nm:"数据库设计",ds:"ERP脚本(按模块)、建模、谷云视图"},
+   {code:"06",nm:"数仓建设",ds:"业务数据库现状→数仓"},
+   {code:"17",nm:"权限管理",ds:"权限/敏感信息/数据权限"},
+   {code:"19",nm:"开发规范/系统功能/梳理",ds:"规范、菜单、单号、架构"},
+   {code:"14/15",nm:"产品原型",ds:"Axure 原型(APP/ERP/手持)"},
+   {code:"13/16",nm:"操作手册 / 教程",ds:"操作说明、单据关系"},
+ ]},
+ {g:"配套系统 / 商城",dom:"sys",c:"#27355f",items:[
+   {code:"43~45",nm:"CRM",ds:"需求、对接API、系统规则"},
+   {code:"61",nm:"外部供应链系统(SCM)",ds:"织厂端、布票、磅秤"},
+   {code:"SCM",nm:"SCM相关文档 / 供应链管理",ds:"操作手册、控制塔参考"},
+   {code:"SRM",nm:"SRM系统需求",ds:"供应商管理、评级"},
+   {code:"小",nm:"小程序商城",ds:"功能规划与开发计划"},
+ ]},
+ {g:"外部对接",dom:"ext",c:"#b5402a",items:[
+   {code:"55",nm:"染厂数据对接",ds:"进度/标签/检测，JSON与字符串方案"},
+   {code:"56",nm:"染厂备货流程",ds:"染厂备货说明"},
+   {code:"57",nm:"织厂对接",ds:"景策软件 布行对接-JAVA"},
+   {code:"卓",nm:"卓天商务系统对接",ds:"Shein/卓天 SKU 库存对接"},
+   {code:"接",nm:"RFID/接口文档",ds:"ERP手持/CRM/供应商对接接口"},
+ ]},
+ {g:"硬件 / 工具 / 专项",dom:"sys",c:"#5a7565",items:[
+   {code:"74",nm:"艾伟迅PDA开发文档",ds:"PDA SDK"},
+   {code:"RFID",nm:"RFID / 蓝牙打印机",ds:"扫描SDK、标签打印"},
+   {code:"财",nm:"财务合同批处理项目",ds:"Java：批量生成染厂合同/送货单"},
+   {code:"组",nm:"Redis/Memcached/帆软等",ds:"技术组件与工具"},
+ ]},
+ {g:"历史 / 迁移 / 管理",dom:"hist",c:"#3c465f",items:[
+   {code:"80/81",nm:"期初数 / 上线跟踪",ds:"ERP上线期初数据与推进"},
+   {code:"83~86",nm:"爱迅数据",ds:"旧系统迁移：产品/客户/供应商/库存/银行"},
+   {code:"10/11",nm:"数字化需求与转型升级",ds:"2024/2025 年度需求、重构"},
+   {code:"OKR",nm:"OKR / 工作计划 / 岗位总结",ds:"管理类资料"},
+   {code:"测",nm:"测试报告 / 测试用例",ds:"ERP/CRM 测试"},
+   {code:"统",nm:"统计报表 / 报表汇总",ds:"报表清单、纺织编码框架"},
+ ]}
+];
+const DOM_LABELS={all:"全部",flow:"全链流程",prod:"研发·生产·采购",wh:"仓储物流",sale:"销售·客户·财务",sys:"系统·数据·工具",ext:"外部对接",hist:"历史·迁移·管理"};
+
+/* ===================== RENDER ===================== */
+// value chain
+const vcTrack=document.getElementById('vcTrack'),vcDetail=document.getElementById('vcDetail');
+CHAIN.forEach((s,i)=>{
+  const el=document.createElement('div');el.className='vc-step'+(i===0?' active':'');
+  el.innerHTML=`<span class="vc-ico">${s.ico}</span><span class="vc-num">${s.no}</span><span class="vc-name">${s.name}</span><span class="vc-en">${s.en}</span>`;
+  el.onclick=()=>{document.querySelectorAll('.vc-step').forEach(x=>x.classList.remove('active'));el.classList.add('active');renderDetail(s);};
+  vcTrack.appendChild(el);
+});
+function renderDetail(s){
+  vcDetail.innerHTML=`<div class="vc-d-side"><span class="n">${s.no}</span><span class="t">${s.name}</span></div>
+  <div class="vc-d-body"><h4>${s.h}</h4><p>${s.p}</p><div class="vc-d-tags">${s.tags.map(t=>`<span>${t}</span>`).join('')}</div></div>`;
+}
+renderDetail(CHAIN[0]);
+
+// modules
+const modGrid=document.getElementById('modGrid');
+MODULES.forEach(m=>{
+  const el=document.createElement('div');el.className='mod-card';el.style.setProperty('--accent',m.c);
+  el.innerHTML=`<div class="m-top"><span class="m-no">${m.no}</span><span class="m-name">${m.name}</span><span class="m-en">${m.en}</span></div>
+  <div class="m-role">${m.role}</div>
+  <div class="m-kw">${m.kw.map(k=>`<span>${k}</span>`).join('')}</div>
+  <div class="m-dirs"><b>资料：</b>${m.dirs}</div>`;
+  modGrid.appendChild(el);
+});
+
+// glossary
+const glGrid=document.getElementById('glGrid'),glInput=document.getElementById('glInput'),glEmpty=document.getElementById('glEmpty');
+function renderGl(filter=""){
+  glGrid.innerHTML="";const f=filter.trim().toLowerCase();let n=0;
+  GLOSSARY.forEach(g=>{
+    if(f && !(g.t.toLowerCase().includes(f)||g.en.toLowerCase().includes(f)||g.d.toLowerCase().includes(f)))return;
+    n++;const el=document.createElement('div');el.className='gl-card';
+    el.innerHTML=`<div class="gl-term">${g.t}<span class="en">${g.en}</span></div><div class="gl-def">${g.d}</div>`;
+    glGrid.appendChild(el);
+  });
+  glEmpty.style.display=n?"none":"block";
+}
+renderGl();
+glInput.addEventListener('input',e=>renderGl(e.target.value));
+
+// systems
+const sysGrid=document.getElementById('sysGrid'),sysExtra=document.getElementById('sysExtra');
+SYSTEMS.forEach(s=>{
+  const el=document.createElement('div');el.className='sys-card';
+  el.innerHTML=`<div class="s-tag">${s.tag}</div><div class="s-name">${s.name}</div><div class="s-desc">${s.d}</div>`;
+  sysGrid.appendChild(el);
+});
+SYS_EXTRA.forEach(s=>{
+  const el=document.createElement('div');el.className='sys-mini';
+  el.innerHTML=`<b>${s.b}</b><p>${s.p}</p>`;sysExtra.appendChild(el);
+});
+
+// directories
+const dirGroups=document.getElementById('dirGroups'),dirFilters=document.getElementById('dirFilters');
+function renderDirs(dom="all"){
+  dirGroups.innerHTML="";
+  DIR_GROUPS.filter(g=>dom==="all"||g.dom===dom).forEach(g=>{
+    const el=document.createElement('div');el.className='dir-group';el.style.setProperty('--cgrp',g.c);
+    el.innerHTML=`<h3>${g.g}<span class="gc">${DOM_LABELS[g.dom]}</span></h3>
+    <div class="dir-list">${g.items.map(it=>`<div class="dir-item"><span class="code">${it.code}</span><span><span class="nm">${it.nm}</span><span class="ds">${it.ds}</span></span></div>`).join('')}</div>`;
+    dirGroups.appendChild(el);
+  });
+}
+Object.keys(DOM_LABELS).forEach((k,i)=>{
+  const b=document.createElement('button');b.textContent=DOM_LABELS[k];if(i===0)b.classList.add('on');
+  b.onclick=()=>{document.querySelectorAll('.dir-filters button').forEach(x=>x.classList.remove('on'));b.classList.add('on');renderDirs(k);};
+  dirFilters.appendChild(b);
+});
+renderDirs();
+
+/* ===== LIVE MENU RECONCILIATION ===== */
+const MAP=[
+ {d:"研发 / 打版",g:"<b>产品研发</b>(14) + 订单管理中的开发需求/打版工作台",s:"ok"},
+ {d:"计划",g:"<b>计划分析</b>(20) + 库存分析(周转/补货)",s:"ok"},
+ {d:"采购",g:"<b>采购管理</b>(26) + 采购分析(6)",s:"ok"},
+ {d:"生产(织造+染整)",g:"<b>生产管理</b>(42) + 生产分析(29)",s:"ok"},
+ {d:"品控 QC/QA",g:"<b>品控管理</b>(30) + TQC管理(厂商考核)",s:"ok"},
+ {d:"仓储",g:"<b>仓库管理</b>(61，颗粒最细) + 库存分析(14)",s:"ok"},
+ {d:"销售",g:"<b>现货销售</b>(36)+订单管理(31)+报价(11)+销售分析(22)+剪板分析(7)+返点+提成+板布券",s:"ok"},
+ {d:"财务",g:"<b>财务管理</b>(133，最重) + 财务分析(10)",s:"ok"},
+ {d:"CRM",g:"<b>客户关系管理</b>(26)",s:"ok"},
+ {d:"主数据(原归为实体)",g:"<b>产品管理</b>(40) + <b>基础信息</b>(147) — 系统中是独立一级大模块",s:"add"}
+];
+const FINDS=[
+ {t:"① 方向完全一致",d:"九大价值链业务域<b>全部命中</b>实测菜单，没有遗漏或方向错误。价值链模型可放心作为认知框架。"},
+ {t:"② 产品管理应提升为独立模块",d:"产品/款号/颜色/BOM/样衣 在系统里是<b>独立一级菜单(40项)</b>，不只是「主数据」。建议知识图谱中单列。"},
+ {t:"③ 基础信息是巨型配置中心",d:"<b>147 项</b>：供应商/仓库/银行/染法/纤维/各类业务规则全在这里，是系统的参数底座。"},
+ {t:"④ BI 深度内建于 ERP",d:"共 <b>12 个分析/看板</b>菜单组(销售/剪板/计划/库存/采购/生产/财务/经营/周运营/TQC/BI)，分析不只是外部数仓。"},
+ {t:"⑤ 销售域高度细分",d:"现货销售/订单/报价/返点/提成/板布券 <b>6 个独立菜单组</b>，是业务最重的部分。"},
+ {t:"⑥ 新概念待补术语表",d:"<b>板布券</b>(打版额度券)、<b>TQC</b>(全面质量+厂商评级)、<b>试纱流程</b>、<b>染厂功能</b>(SCM在ERP内的染厂门户)。"}
+];
+const LIVE=[
+ {layer:"核心业务单据 · Operations",groups:[
+  {n:"产品研发",items:["开发版测算(针织)","开发版测算(梭织)","自研发需求","客户开发需求","开发需求详情看板","开发版进度看板","开发成品资料查询","打色单","审板信息看板","开发时效看板","开发时效统计","开发成效统计","打版工作台","打版-织造工作台"]},
+  {n:"订单管理",items:["面料产品","客户开发需求","FOB&CIF&VAT报价表","内销订单报价表","订单报价","订单报价单查询","基准价特殊权限设置","订单合同","客户订单","销售单","客户订单(内部单)","物化报告","验布报告","客户订单跟进","订单业务看板","订单生产看板","上海外贸台账看板","新打版进度看板","打色进度看板","打板诚意金统计","订单生产跟单统计","订单通用基础配置","订单织造工作台","订单染整工作台","订单客户对账表","下单染厂汇总","订单染厂直发","质量异常率","订单生产周期","订单准时交付率"]},
+  {n:"现货销售",items:["下单查货","大货任务单","配货未出货追踪","缺货排单","销售单","销售单(电商)","小程序商城销售单","客诉单","销售退货结算","销售扣损(数)单","销售退款单","散料任务单","销售价格修改审核","已提货未付款查询","销售日结","销售单据统计","产品销售汇总","经营日结","销售订单统计","大货进度查询","剪板进度查询","销售明细查询","散剪明细查询","客户订单跟进","客户指定款库存查询","销售执行监控","销售仪表盘计划","卓天商务订单","SKU欠数汇总","客户欠数汇总"]},
+  {n:"报价管理",items:["报价单列表","通用定价检查表","新通用定价表","FOB&CIF&VAT报价表","内销订单报价表","大货价历史查询","订单价历史查询","查看我的订单报价单审核","临时报价单查询","订单报价单查询","CIF港口列表"]},
+  {n:"采购管理",items:["采购计划单","采购分配单","采购单","采购单查询","采购送货单","采购SCM派料单","采购退货计划单","SCM采购退货单","采购批次价格(面料/胚布/纱线/其它)","耗材规格","耗材价格","采购汇总","采购寄存统计","采购预付款统计","纱线可用看板","库存清点差异表","纱线待清点列表","织厂清点分析对比"]},
+  {n:"生产管理",items:["生产计划单","织造单","染整单","织造收货单","染整收货单","生产价格(明细/套价)","包缸费配置","染损率批量更新","织造生产计划明细","大货纱线工作台","染整生产计划明细","织造明细查询","织造原料查询","染整明细查询","染厂进度查询","染整原料查询","生产原料库存跟进","染整周期统计","织厂出仓查询","生产进度信息","织厂库存查询","织厂收货单查询","织厂派单记录","试纱流程列表","试纱任务查看","我的大货试纱任务","SCM红冲织厂调拨","织厂设备清单"]},
+  {n:"品控管理",items:["QC结论汇总表","QC工作统计表","QA结论汇总表","品控结论综合表","成品疵点综合结论表","织厂质量抽查记录","织厂质量抽查汇总分析","验布报告","验布报告总览","客诉扣损单","物化报告","物化检测项","质量问题排行","质量问题款排行","验布数据统计","品控类型","品控质量单","品控责任方","原材料异常管理","织造异常管理","染整异常管理","外采异常管理","收货漏检统计","生产质检报告","外送样模块","物化检测扫描记录"]},
+  {n:"仓库管理",items:["仓库大货配货","仓库散料配货","内部散料配货","赠送吊牌配货","大货手感样配货","入仓细码标签","仓库开散剪配货","开散剪任务单列表","入仓单","出仓单","调拨单","盘点单","盘盈盘亏单","细码加减单","分匹合匹单","产品变更单","抽磅单","订单转现货申请单","库存月结单","库存查询","仓库结存表","仓库出入存汇总","仓库出入库明细","散缸查询","库存期初数","成品货龄查询","散缸来源统计","织厂纱线/胚布出入存汇总","织厂盘点差异报告","仓库工作量统计","机台录入","希音对接库存查询","细码布笼查询","库位数据核对","物料结存表","物料领用统计","配货换缸申请","差错更正单列表","退料抽磅单","抽磅扣款单"]},
+  {n:"财务管理",items:["收款单","付款单","费用支出","银行互转","其他收入","对账单","科目管理","所有/采购/织造/染整 应付对账","应收调整","应收款查询","采购对账表","生产对账表","厂商账款汇总","客户账款明细/汇总","业务员账款汇总","欠款账龄分段","标准成本/计划成本(更新/历史/对比)","实际成本2.0(总览/调整/检查)","库存/产品/部门 成本利润分析2.0","品控扣款单","客情费管理","付款结算单","请款单(列表/出纳)","账面库龄(明细/减值)","客户返点对账表","订单成本(总览/明细/计算表/排行)","订单毛利率计算表","物流报销(内/外贸/工作台)","银企指令管理","银行流水(管理/认领/核销)","开票(列表/汇总)","费用台账","理财收益"]},
+ ]},
+ {layer:"分析与决策看板 · Analytics / BI",groups:[
+  {n:"销售分析",items:["产品客户排行","产品颜色排行","客户销售排行","员工/部门销售排行","销售日/月统计","产品/销售/客户 同比分析","缺货散缸统计","销售退货率统计","销售仪表盘","销售/客户/产品 综合分析","产品颜色销售分析","销售进度分析"]},
+  {n:"剪板分析",items:["剪板产品排行","剪板员工排行","剪板部门排行","剪板客户排行","板布日统计","板布月统计","剪板颜色排行"]},
+  {n:"计划分析",items:["SKU综合统计","SKU增长日统计","SKU销售分析","染厂周期设置","SKU计划实际对比","缺货明细","按周转数分级","SKU智能补货一致性对比","产能预览","SKU智能补货V3","胚布开机计划表","纱线备货看板","智能补货-2022","SKU智能补货2025"]},
+  {n:"库存分析",items:["色胚库存周转表","收胚出货销售统计","成品库龄统计","库龄散缸分析-新","仓库出入存汇总","纱线库存周转表","业务员滞留库存表","库存库龄报表总表","存货跌价计提总表","存货跌价同比分析"]},
+  {n:"采购分析",items:["采购汇总","纱线价格波动分析","纱线分析设置","采购预计金额统计","供应商交期分析","采购交期分析"]},
+  {n:"生产分析",items:["染整周期统计","染整损耗对比","生产报价对比","染价统计分析","染整进度跟踪","急单查询","交期延误单跟进","番禺退返查询","品控退返(明细/汇总)","下单缸型分析","缸型延误率分析","染厂排名","QC绩效查询","织厂/纱商疵品率","织厂机台明细","织机跟踪看板","织造详细看板","织厂加工分析对比","织造退返查询"]},
+  {n:"财务分析",items:["现金银行日报表","客户账款汇总","厂商账款汇总","生产财务/实际成本单价","产品利润分析","指标管理","资金收支汇总(汇兑版)","劣质成本供应链/销售端统计"]},
+  {n:"经营分析",items:["业务指标","品控指标","生产指标","计划指标","仓储指标","基础信息表"]},
+  {n:"周运营会议看板",items:["库存分析","染厂未回需完成天数","染厂产能达成率统计","库存周转率","染整周期统计","各染厂延误率","下单未完成统计","备货回货周期统计","染厂下单出货与产能","开机产能销售分析"]},
+  {n:"TQC管理",items:["绩效指标分析","染厂考核评级","织厂月报看板","染厂月报看板","质量异常任务类型","现货产品工艺记录","打版工艺记录","质量反馈及明细","时效反馈及明细"]},
+  {n:"BI应用",items:["BI分析"]},
+  {n:"基础数据检查",items:["设计/生产/技术/计划部维护信息","面料异常分析看板","纱线产品异常分析","BOM表异常分析","面料产品定价异常分析","产品生产报价异常分析"]},
+ ]},
+ {layer:"客户 · 激励 · CRM & Incentive",groups:[
+  {n:"客户关系管理",items:["客户快速查询","公库/私库/我的 线索","展会线索","客户修改审核","客户经营类型","客户所在市场/地区","注册客户审核","业务员注册名单","销售类型限制","挂号注册客户销售金额记录","客户拜访统计分析","客户拜访记录","客户锁定与目标额","免诚意金客户名单","客户与线索回收记录","客户资料/操作记录","客户银行信息"]},
+  {n:"客户返点",items:["客户返点结果查询","客户返点明细查询"]},
+  {n:"业务员提成",items:["提点升级规则(客户/部门/业务员设置)","特殊业务员提成设置","提成方案1/2/3/6/CF区设置","业务员提成查询","回款折扣客户设置","奖励款设置","下个半年提成比例升降统计","业务助手提点设置","优惠扣除提点设置"]},
+  {n:"板布券管理",items:["部门比率设置","发放管理","余额与明细","发放统计","业务员收支汇总","额外发放配置","客户板布余额","客户板布发放","客户黑/白名单"]},
+ ]},
+ {layer:"主数据 · 配置 · Master Data & Config",groups:[
+  {n:"产品管理",items:["针织/梭织 面料产品","合格一等品产品","针织/梭织 胚布产品","纱线产品","开发产品","其它产品","产品厂商色号","产品BOM表","商城产品展示","产品颜色打印","英文版产品","外贸订单标签","样衣管理(研发)","颜色大类/色彩库/色组管理","产品颜色分析","产品物料类型/映射","衍生款列表","产品色卡资料","产品洗水标签库","胚布标准档案","成品&纱线·状态与库存","纱线工作台"]},
+  {n:"基础信息",items:["供应商信息(+银行)","仓库信息","银行账号信息","生产工艺信息","交货/付款/运输方式","司机信息","数量/币种单位","客户标签","公司/部门信息","结算分点","员工信息","库位信息(+打印)","布笼信息","出车记录","内/外贸物流记录","染法管理","染色指导价","染法色组/成分","织费框架","纤维分类染损","织布机类型","厂商派单配置","试纱流程配置","纱线指标/评级标准/认证","采购批次价格配置(SRM)","散缸配置","产品多级分类/纤维/工艺","客户产品价格表","客户挂号注册申请条件","返点/优惠/立减 系列设置","品控退返问题","检测标准/项目/指标","IP白名单/定时任务/接口配置","飞书/钉钉 通知配置","请款单支付类型 等147项"]},
+ ]},
+ {layer:"平台 · 外部协同 · Platform & External",groups:[
+  {n:"系统设置",items:["用户分组管理","角色管理","用户账号管理","系统菜单管理","系统参数设置","在线用户查询","OKR权限管理","App版本管理","登录授权","代码自动生成","IT查看菜单权限"]},
+  {n:"流程审批",items:["审批列表","流程配置"]},
+  {n:"绩效考核",items:["指标项配置","角色配置","个人配置表"]},
+  {n:"厂商品质交期",items:["染整扣罚明细查看","交期异常查询","织造扣罚明细查看"]},
+  {n:"染厂功能 (SCM门户)",items:["大货配货","生产进度导入","收胚出货统计","备货仓库存查询","物化报告","染整生产单明细列表","开发板进度查询及工艺录入"]},
+ ]},
+];
+
+const mapTable=document.getElementById('mapTable');
+mapTable.innerHTML=`<div class="map-row head"><span>整理的业务域</span><span>实测对应菜单组</span><span>结论</span></div>`+
+ MAP.map(m=>`<div class="map-row"><span class="d">${m.d}</span><span class="g">${m.g}</span><span class="s ${m.s}">${m.s==='ok'?'✓ 一致':'＋ 补充'}</span></div>`).join('');
+
+document.getElementById('finds').innerHTML=FINDS.map(f=>`<div class="find"><div class="ft">${f.t}</div><div class="fd">${f.d}</div></div>`).join('');
+
+/* ===== 07 FLOW CURRENT-STATE ===== */
+const PROBLEMS=[
+ {g:"销售合同 (01-01)",items:["订金与免订金流程","合同未签之前提前备胚的问题","合同与报价及成本的关联","合同线上电子签","评审合同上注明检测标准/指标要求，是否与前期打版有变化"]},
+ {g:"生产运营 (01-02) · 15 项",items:["使用现货成品/现货胚/现货纱的分配与占用","多张订单纱线集采","织胚完成后剩余纱线盘点统计","染厂按指定纱胚染色","染厂备货入库数据准确性","换客户标签重复工作","补布流程·生产做多·做不合格转现货","生产做坏扣款转报废","业务做多货承担滞留库存","复合款走订单流程问题","订单直接采购成品，业务看板不体现","生产入库标准（为时效做出即入库）","生产无价格影响成本核算"]},
+ {g:"品质检验 (01-03)",items:["订单全检、质检报告","订单检测版物化报告时效监督","客户自定义检测标准建立与引用","检测版标签优化（以海旭达为标准）","订单建立统一高品质标准（如都按一等品）"]},
+ {g:"成品入库 / 出库 / 结算",items:["订单细码标签与现货标签区分 (01-04)","染厂直接发货应付结算问题 (01-09)","出货换客户标签问题","对账结算·对公银企直联 (01-10)"]},
+];
+const BUGS07=[
+ {t:"订单未审核就买纱","d":"订单未审核，销售就通知生管买纱、当现货买纱生产。"},
+ {t:"售完仍有货","d":"订单货物已全部销售完，但仓库还有货物。"},
+ {t:"染整无报价仍下单","d":"订单已完成，染整却没有报价（后改为有权限审核通过才能下）。"},
+ {t:"入库不扣胚布原料","d":"成品入库没扣胚布原料，且不明确扣原胚还是白色专用胚。"},
+ {t:"订单价≠出货价","d":"客户订单价格与销售出货价格不一致（需规范订单改价流程）。"},
+ {t:"看板取数有误","d":"订单业务看板取数逻辑有误，销售出库数据对不上销售单。"},
+ {t:"三量不一致","d":"下单/生产/销售三个数量不一致，原因是多个订单串单。"},
+];
+const NEWMECH=[
+ {t:"计划备胚",d:"合同未签前提前备胚，预测单驱动，提高备纱准确性。"},
+ {t:"订单转现货 / 转报废",d:"新增 01-02-05-12/13 流程：业务/生产原因可转现货或报废，自动重算订单成本。"},
+ {t:"试纱前置 + 锁批",d:"试纱移到采购前，锁定纱批、提前 2-3 个月，纱批物理指标按标准检测。"},
+ {t:"订单专料隔离",d:"订单织胚只能领订单纱线、订单纱线单独放置，与现货分配占用隔离。"},
+ {t:"客户检测标准入 ERP",d:"客户品质要求导入 ERP 按客户/款号建标准，染整合同与物化报告引用。"},
+ {t:"织厂纱线专岗",d:"新增岗位管织厂纱线库存准确、调拨与抽磅监督；订单结束/停机 3 天内清点余纱。"},
+ {t:"大货剪产前办 / 内部物测",d:"剪 1.2 米检测板带二维码，扫码签收→物化测试→结果录 ERP→业务查看报告。"},
+ {t:"对公银企直联",d:"银行流水对接、自动认领/核销、自动开票推送。"},
+ {t:"细码标签区分",d:"订单细码标签与现货标签区分；染厂检测版以海旭达标签为标准。"},
+];
+const AIASSIST=["合同助手","报价助手","进度跟进助手","采购助手","胚布报告助手","染整报价助手","验布助手","物化检测助手","收货助手"];
+const PHASES07=[
+ {t:"第一阶段（3 个月）",d:"功能补充：快速报价、客户合同(AI)、计划备胚、库存结构扣减、染整报价；优先修复全流程出错点并按周统计；睿程-织厂-染厂胚布一致性；AI 助手。<b>目标：开发报价时效 +50%、单据准确率 90%</b>。"},
+ {t:"第二阶段",d:"<b>核算准确性</b>：实际成本/成本核算打通，确保数据可对账。"},
+];
+(function(){
+  const acc=document.getElementById('probAcc');
+  PROBLEMS.forEach(p=>{
+    const it=document.createElement('div');it.className='acc-item';
+    it.innerHTML=`<div class="acc-head"><span class="cnt">${p.items.length}</span><span class="gn">${p.g}</span><span class="ar">▸</span></div>
+    <div class="acc-body">${p.items.map(x=>`<span>${x}</span>`).join('')}</div>`;
+    it.querySelector('.acc-head').onclick=()=>it.classList.toggle('open');
+    acc.appendChild(it);
+  });
+  document.getElementById('bugs07').innerHTML=BUGS07.map(b=>`<div class="find warn"><div class="ft">⚠ ${b.t}</div><div class="fd">${b.d}</div></div>`).join('');
+  document.getElementById('newMech').innerHTML=NEWMECH.map(n=>`<div class="nm-card"><div class="t">${n.t}</div><div class="d">${n.d}</div></div>`).join('');
+  document.getElementById('aiAssist').innerHTML=AIASSIST.map((a,i)=>`<span><b>${i+1}</b>${a}</span>`).join('');
+  document.getElementById('phases07').innerHTML=PHASES07.map(p=>`<div class="find"><div class="ft">${p.t}</div><div class="fd">${p.d}</div></div>`).join('');
+})();
+
+const liveAcc=document.getElementById('liveAcc');
+LIVE.forEach(L=>{
+  const lw=document.createElement('div');lw.className='acc-layer';
+  lw.innerHTML=`<div class="ly-h">${L.layer}</div>`;
+  L.groups.forEach(g=>{
+    const it=document.createElement('div');it.className='acc-item';
+    it.innerHTML=`<div class="acc-head"><span class="cnt">${g.items.length}</span><span class="gn">${g.n}</span><span class="ar">▸</span></div>
+    <div class="acc-body">${g.items.map(x=>`<span>${x}</span>`).join('')}</div>`;
+    it.querySelector('.acc-head').onclick=()=>it.classList.toggle('open');
+    lw.appendChild(it);
+  });
+  liveAcc.appendChild(lw);
+});
+
+/* ===== 打版模块 ===== */
+const DF_FLOWS=[
+{key:"自研发打版 · 需求到织造",spec:{cols:7,lanes:[{n:"设计部",a:0,b:0},{n:"技术部",a:1,b:2},{n:"生管",a:3,b:3},{n:"采购SRM",a:4,b:4},{n:"织造跟单",a:5,b:5},{n:"织厂",a:6,b:6}],
+ nodes:[{id:"A",c:0,r:0,t:"s",x:"填自研发\n需求单"},{id:"RV",c:1,r:1,x:"收样品"},{id:"SA",c:1,r:2,x:"样板分析"},{id:"EX",c:2,r:2,t:"d",x:"外检?"},{id:"UP",c:2,r:3,x:"上传化验单"},{id:"EV",c:1,r:4,x:"起板初步评估"},{id:"CO",c:1,r:5,x:"成本测算\nKG成本+米价"},{id:"PA",c:1,r:6,t:"d",x:"审批通过?\n48h"},{id:"CF",c:1,r:7,x:"确认染厂/工艺"},{id:"OP",c:3,r:8,x:"开打版单\n自动生成织造+染整单"},{id:"QU",c:4,r:9,x:"纱线报价\nSRM"},{id:"BY",c:4,r:10,t:"d",x:"纱够?"},{id:"DI",c:4,r:11,x:"采购派料"},{id:"AL",c:5,r:11,x:"调拨纱线"},{id:"TW",c:6,r:12,x:"倒纱→织胚\n打布飞→磅秤入库"},{id:"OUT",c:5,r:13,x:"出仓直送染厂"},{id:"CR",c:5,r:14,x:"记录织造工艺"}],
+ edges:[{f:"A",t:"RV"},{f:"RV",t:"SA"},{f:"SA",t:"EX"},{f:"EX",t:"UP",l:"是"},{f:"EX",t:"EV",l:"否"},{f:"UP",t:"EV"},{f:"EV",t:"CO"},{f:"CO",t:"PA"},{f:"PA",t:"CF",l:"是"},{f:"CF",t:"OP"},{f:"OP",t:"QU"},{f:"QU",t:"BY"},{f:"BY",t:"AL",l:"够"},{f:"BY",t:"DI",l:"不够"},{f:"AL",t:"TW"},{f:"DI",t:"TW"},{f:"TW",t:"OUT"},{f:"OUT",t:"CR"}]}},
+{key:"自研发打版 · 染整到成品",spec:{cols:5,lanes:[{n:"织造跟单",a:0,b:0},{n:"染整跟单",a:1,b:1},{n:"染厂",a:2,b:2},{n:"佛山仓库",a:3,b:3},{n:"打样专员",a:4,b:4}],
+ nodes:[{id:"A",c:1,r:0,t:"s",x:"收送胚通知\n飞书"},{id:"SUB",c:1,r:1,x:"补充信息\n审核染整"},{id:"ALC",c:1,r:2,x:"调拨胚布"},{id:"RCV",c:2,r:3,x:"染厂收胚"},{id:"DYE",c:2,r:4,x:"染整"},{id:"CHK",c:2,r:5,t:"d",x:"检测合格?\n幅宽/克重/物化"},{id:"FIN",c:2,r:6,x:"成品"},{id:"LBL",c:2,r:7,x:"打成品标签\nSCM"},{id:"CUT",c:2,r:8,x:"剪米布\n2米检测板"},{id:"IN",c:3,r:9,x:"PDA扫码入仓"},{id:"AU",c:0,r:10,x:"审核收入仓单"},{id:"MEA",c:0,r:11,x:"测幅宽/克重"},{id:"CARD",c:0,r:12,x:"做吊卡/审版/布样"},{id:"EV",c:4,r:13,x:"成品评估\n打样工作台"},{id:"CR",c:4,r:14,x:"记录技术工艺"}],
+ edges:[{f:"A",t:"SUB"},{f:"SUB",t:"ALC"},{f:"ALC",t:"RCV"},{f:"RCV",t:"DYE"},{f:"DYE",t:"CHK"},{f:"CHK",t:"FIN",l:"是"},{f:"CHK",t:"DYE",l:"否"},{f:"FIN",t:"LBL"},{f:"LBL",t:"CUT"},{f:"CUT",t:"IN"},{f:"IN",t:"AU"},{f:"AU",t:"MEA"},{f:"MEA",t:"CARD"},{f:"CARD",t:"EV"},{f:"EV",t:"CR"}]}},
+{key:"客户开发打版",spec:{cols:5,lanes:[{n:"客户",a:0,b:0},{n:"业务员",a:1,b:2},{n:"生产/技术部",a:3,b:3},{n:"染厂",a:4,b:4}],
+ nodes:[{id:"A",c:1,r:0,t:"s",x:"客户跟进"},{id:"LEAD",c:1,r:1,x:"录入商机\nCRM"},{id:"D1",c:1,r:2,t:"d",x:"现款?"},{id:"SAMPLE",c:0,r:3,x:"客户提供样品"},{id:"EV",c:3,r:4,x:"商机评估\n成分/可交付/成本"},{id:"QU",c:1,r:5,x:"报价管理"},{id:"INT",c:1,r:6,x:"了解下单意向"},{id:"APP",c:1,r:7,x:"发起打版申请"},{id:"PROD",c:3,r:8,x:"打版生产"},{id:"D2",c:1,r:9,t:"d",x:"色卡有客户色?"},{id:"CARD",c:2,r:10,x:"现卡打版\n开打色散剪单"},{id:"DC",c:3,r:11,x:"打色"},{id:"D3",c:1,r:12,t:"d",x:"客户接受打色?"},{id:"FISH",c:4,r:12,x:"捞色申请\n关联商机"},{id:"CONF",c:1,r:13,x:"客户最终确认"},{id:"ORDER",c:1,r:14,x:"下大货订单"}],
+ edges:[{f:"A",t:"LEAD"},{f:"LEAD",t:"D1"},{f:"D1",t:"EV",l:"现款"},{f:"D1",t:"SAMPLE",l:"非现款"},{f:"SAMPLE",t:"EV"},{f:"EV",t:"QU"},{f:"QU",t:"INT"},{f:"INT",t:"APP"},{f:"APP",t:"PROD"},{f:"PROD",t:"D2"},{f:"D2",t:"CARD",l:"有色"},{f:"D2",t:"D3",l:"无色"},{f:"D3",t:"DC",l:"接受"},{f:"D3",t:"FISH",l:"不接受"},{f:"CARD",t:"CONF"},{f:"DC",t:"CONF"},{f:"FISH",t:"CONF"},{f:"CONF",t:"ORDER"}]}},
+{key:"头缸试制/批版",spec:{cols:7,lanes:[{n:"织造跟单",a:0,b:0},{n:"织造QC",a:1,b:1},{n:"织造主管",a:2,b:2},{n:"染厂/驻场QC",a:3,b:3},{n:"染整跟单",a:4,b:4},{n:"染整经理",a:5,b:5},{n:"业务部",a:6,b:6}],
+ nodes:[{id:"A",c:0,r:0,t:"s",x:"创建头缸试制"},{id:"QC1",c:1,r:1,x:"织造QC检测\n更新状态"},{id:"SUP",c:2,r:2,x:"织造主管审批"},{id:"DYE",c:3,r:3,x:"染厂生产头缸\n驻场QC检测"},{id:"APP",c:4,r:4,x:"发起头缸批版"},{id:"MGR",c:5,r:5,x:"染整经理批版"},{id:"D1",c:5,r:6,t:"d",x:"需客户批版?"},{id:"CUS",c:6,r:7,x:"剪版给客户批版"},{id:"KEEP",c:5,r:8,x:"留版\n品质1+生产1"},{id:"D2",c:6,r:8,t:"d",x:"客户批版通过?"},{id:"BIZ",c:6,r:9,x:"业务部更新批版"},{id:"GO",c:4,r:10,x:"染整继续生产"}],
+ edges:[{f:"A",t:"QC1"},{f:"QC1",t:"SUP"},{f:"SUP",t:"DYE"},{f:"DYE",t:"APP"},{f:"APP",t:"MGR"},{f:"MGR",t:"D1"},{f:"D1",t:"CUS",l:"需"},{f:"D1",t:"KEEP",l:"否"},{f:"CUS",t:"D2"},{f:"D2",t:"BIZ",l:"通过"},{f:"KEEP",t:"GO"},{f:"BIZ",t:"GO"}]}},
+];
+const DF_IDEAS=[
+ {t:"单据一线贯通",d:"开发需求→样板分析→评估→成本测算→打版单 一处录入全程带出；<b>打版单审核后自动生成织造单+染整单</b>。"},
+ {t:"工作台 + 移动化",d:"设计/技术/织造跟单/染整跟单/打样各有 PC+小程序工作台，现场扫码、收货、评语在线。"},
+ {t:"工艺数据沉淀为档案",d:"织造/染整工艺(纱支/针吋/总针数/机型/转速/CPI/WPI/缸号)系统化，<b>大货可直接复用</b>，解决工艺单手写。"},
+ {t:"自动派厂规则化",d:"按「产品分类→主力/辅助厂」自动匹配染厂织厂(erp_devprotype_sup)，替代人工分配。"},
+ {t:"纱线智能计算 + 跨系统",d:"勾一种纱自动算其余用量；不足同步 SRM；织厂调拨在 SCM(<b>对织厂名称脱敏</b>，本厂无需调拨单)。"},
+ {t:"时效质量可视 + 异常在线",d:"开发时效、质量一次OK率、工艺录入率做看板；异常在系统/群流转，建责任人。"},
+];
+const DF_EXIST=[
+ {c:"erp_newmdevelop",d:"打版主单(51列)：modelid 0客户打版/1研发需求、版次、检测标准、诚意金"},
+ {c:"erp_newmdevelopitem",d:"颜色明细 + 三段状态(待纱/待织/待染/完成) + 计划vs实际时间"},
+ {c:"erp_newmdeveloppro",d:"审版/成品记录：审办结果、客户批板、转大货/量产/一等品"},
+ {c:"erp_newmdevelopapply",d:"诚意金申请/收款"},
+ {c:"erp_devprotype(_sup)",d:"开发产品类型 → 染厂(主力/辅助) 匹配规则"},
+ {c:"erp_ytrial",d:"试纱"},
+ {c:"erp_coloring",d:"打色单(07销售库)"},
+];
+const DF_GAP=[
+ {c:"erp_devboard_craft(+_yarn)",d:"<b>技术工艺档案(最大缺口)</b>：针吋/总针数/机型/转速/CPI/WPI/缸号/生产用纱纱比"},
+ {c:"erp_devprogress",d:"开发数据反馈/进度看板：染厂/质量一次OK/工艺录入率/时效"},
+ {c:"样板分析表 + 附件表",d:"来样分析(布类/机种/WPI/纱品种/纺纱工艺)；附件改样板分析含化验单、多份多张"},
+ {c:"头缸试制/批版表",d:"或复用 erp_workflow 流程引擎承载头缸各节点"},
+ {c:"erp_newmdevelop 补字段",d:"手感/功能性/织物使用面/对色面/费用类型/衫款多选/样板来源/客户自定义检测"},
+];
+(function(){
+  const tabs=document.getElementById('dfTabs'),flows=document.getElementById('dfFlows');
+  DF_FLOWS.forEach((f,i)=>{f.spec.uid='df'+i;
+    const b=document.createElement('button');b.textContent=f.key;if(i===0)b.classList.add('on');
+    const fl=document.createElement('div');fl.className='cf-flow'+(i===0?' on':'');
+    const h=document.createElement('div');h.className='mmwrap';h.innerHTML=drawSwimlane(f.spec);fl.appendChild(h);
+    b.onclick=(function(b,fl){return function(){tabs.querySelectorAll('button').forEach(x=>x.classList.remove('on'));flows.querySelectorAll('.cf-flow').forEach(x=>x.classList.remove('on'));b.classList.add('on');fl.classList.add('on');};})(b,fl);
+    tabs.appendChild(b);flows.appendChild(fl);
+  });
+  document.getElementById('dfIdeas').innerHTML=DF_IDEAS.map((x,i)=>`<div class="df-idea"><div class="it">${i+1}. ${x.t}</div><div class="id">${x.d}</div></div>`).join('');
+  document.getElementById('dfExist').innerHTML=DF_EXIST.map(x=>`<li><code>${x.c}</code> — ${x.d}</li>`).join('');
+  document.getElementById('dfGap').innerHTML=DF_GAP.map(x=>`<li><code>${x.c}</code> — ${x.d}</li>`).join('');
+})();
+
+/* ===== 核心流程(07) — 泳道图(SVG) ===== */
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function drawSwimlane(spec){
+  var COLW=spec.colw||180,ROWH=80,NW=128,NH=42,HEAD=30,PX=6,PY=12,TOP=HEAD+16;
+  var maxr=0;spec.nodes.forEach(function(n){if(n.r>maxr)maxr=n.r;});
+  var W=spec.cols*COLW+PX*2,H=TOP+(maxr+1)*ROWH+PY;
+  function nx(c){return PX+c*COLW+COLW/2;}
+  function ny(r){return TOP+r*ROWH+NH/2;}
+  var map={};spec.nodes.forEach(function(n){map[n.id]=n;});
+  var s='<svg viewBox="0 0 '+W+' '+H+'" width="'+W+'" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans SC, sans-serif">';
+  s+='<defs><marker id="ar'+spec.uid+'" markerWidth="10" markerHeight="10" refX="7.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#b5402a"/></marker></defs>';
+  spec.lanes.forEach(function(l,i){
+    var x0=PX+l.a*COLW,w=(l.b-l.a+1)*COLW,fill=(i%2)?'rgba(39,53,95,.05)':'rgba(90,117,101,.06)';
+    s+='<rect x="'+x0+'" y="'+HEAD+'" width="'+w+'" height="'+(H-HEAD-PY)+'" fill="'+fill+'" stroke="rgba(26,33,56,.16)"/>';
+    s+='<rect x="'+x0+'" y="0" width="'+w+'" height="'+HEAD+'" fill="#27355f"/>';
+    s+='<text x="'+(x0+w/2)+'" y="'+(HEAD/2+5)+'" fill="#efe7d6" font-size="13.5" font-weight="700" text-anchor="middle">'+esc(l.n)+'</text>';
+  });
+  spec.edges.forEach(function(e){
+    var a=map[e.f],b=map[e.t];if(!a||!b)return;
+    var x1=nx(a.c),y1=ny(a.r),x2=nx(b.c),y2=ny(b.r),pts;
+    if(a.c===b.c){pts=[[x1,y1+(y2>y1?NH/2:-NH/2)],[x2,y2+(y2>y1?-NH/2:NH/2)]];}
+    else if(a.r===b.r){var d=x2>x1?1:-1;pts=[[x1+d*NW/2,y1],[x2-d*NW/2,y2]];}
+    else if(b.r>a.r){var my=(y1+NH/2+y2-NH/2)/2;pts=[[x1,y1+NH/2],[x1,my],[x2,my],[x2,y2-NH/2]];}
+    else{var mu=(y1-NH/2+y2+NH/2)/2;pts=[[x1,y1-NH/2],[x1,mu],[x2,mu],[x2,y2+NH/2]];}
+    var d2='';pts.forEach(function(p,i){d2+=(i?' L':'M')+p[0]+','+p[1];});
+    s+='<path d="'+d2+'" fill="none" stroke="#b5402a" stroke-width="1.4" marker-end="url(#ar'+spec.uid+')"/>';
+    if(e.l){var i1=Math.max(0,Math.floor(pts.length/2)-1),p1=pts[i1],p2=pts[i1+1]||p1,lx=(p1[0]+p2[0])/2,ly=(p1[1]+p2[1])/2;s+='<rect x="'+(lx-11)+'" y="'+(ly-9)+'" width="22" height="16" rx="3" fill="#efe7d6"/><text x="'+lx+'" y="'+(ly+3)+'" font-size="11" font-weight="700" fill="#b5402a" text-anchor="middle">'+esc(e.l)+'</text>';}
+  });
+  spec.nodes.forEach(function(n){
+    var x=nx(n.c),y=ny(n.r),lines=String(n.x).split('\n');
+    if(n.t==='d'){var hw=NW/2+8,hh=NH/2+9;s+='<polygon points="'+x+','+(y-hh)+' '+(x+hw)+','+y+' '+x+','+(y+hh)+' '+(x-hw)+','+y+'" fill="#e6dcc6" stroke="#27355f" stroke-width="1.3"/>';}
+    else if(n.t==='s'){s+='<rect x="'+(x-NW/2)+'" y="'+(y-NH/2)+'" width="'+NW+'" height="'+NH+'" rx="'+(NH/2)+'" fill="#27355f"/>';}
+    else{s+='<rect x="'+(x-NW/2)+'" y="'+(y-NH/2)+'" width="'+NW+'" height="'+NH+'" rx="6" fill="#ffffff" stroke="#27355f" stroke-width="1.2"/>';}
+    var col=(n.t==='s')?'#efe7d6':'#1a2138',sy=y-(lines.length-1)*7;
+    lines.forEach(function(ln,i){s+='<text x="'+x+'" y="'+(sy+i*14+4)+'" font-size="11.5" fill="'+col+'" text-anchor="middle">'+esc(ln)+'</text>';});
+  });
+  return s+'</svg>';
+}
+const SL_FLOWS=[
+{key:"剪版销售（现货剪板）",spec:{cols:6,lanes:[{n:"客户",a:0,b:0},{n:"业务员",a:1,b:2},{n:"财务文员",a:3,b:3},{n:"生产部",a:4,b:4},{n:"仓库",a:5,b:5}],
+ nodes:[{id:"A",c:0,r:0,t:"s",x:"客户剪版需求"},{id:"B",c:1,r:1,x:"查剪版仓库存\n小程序"},{id:"C",c:1,r:2,t:"d",x:"有货?"},{id:"E",c:2,r:2,t:"d",x:"只缺颜色?"},{id:"F",c:4,r:3,x:"打色\nERP"},{id:"DEV",c:2,r:3,x:"开发需求\n小程序"},{id:"P",c:4,r:4,x:"打版\nERP"},{id:"D",c:1,r:4,x:"开散剪销售单\n小程序"},{id:"H",c:1,r:5,t:"d",x:"板布券抵扣?"},{id:"J",c:1,r:6,x:"发收款码\n附订单参数"},{id:"PAY",c:0,r:7,x:"付款"},{id:"FW",c:3,r:8,x:"核对银行流水"},{id:"I",c:3,r:9,x:"自动审核\n剪版销售单"},{id:"K",c:3,r:10,x:"生成剪版任务单\nERP销售"},{id:"L",c:5,r:11,x:"仓库剪版出仓\nERP仓储"}],
+ edges:[{f:"A",t:"B"},{f:"B",t:"C"},{f:"C",t:"E",l:"否"},{f:"C",t:"D",l:"是"},{f:"E",t:"F",l:"是"},{f:"E",t:"DEV",l:"否"},{f:"DEV",t:"P"},{f:"D",t:"H"},{f:"H",t:"I",l:"券"},{f:"H",t:"J",l:"否"},{f:"J",t:"PAY"},{f:"PAY",t:"FW"},{f:"FW",t:"I"},{f:"I",t:"K"},{f:"K",t:"L"},{f:"F",t:"L"},{f:"P",t:"L"}]}},
+{key:"大货销售（现货大货）",spec:{cols:5,lanes:[{n:"客户",a:0,b:0},{n:"业务员",a:1,b:2},{n:"仓库",a:3,b:3},{n:"生产部",a:4,b:4}],
+ nodes:[{id:"A",c:0,r:0,t:"s",x:"客户大货需求"},{id:"B",c:1,r:1,x:"查库存\n小程序"},{id:"C",c:1,r:2,t:"d",x:"有货?"},{id:"OC",c:2,r:3,x:"下客户订单\n小程序"},{id:"PR",c:4,r:4,x:"订单生产\nERP"},{id:"RC",c:4,r:5,x:"生产收货\nERP"},{id:"G",c:1,r:6,x:"下大货任务单\n小程序"},{id:"PH",c:3,r:7,x:"仓库配货\nERP仓储"},{id:"SI",c:1,r:8,x:"开销售单\nERP"},{id:"PAY",c:0,r:9,x:"付款"},{id:"OUT",c:3,r:10,x:"出货\nERP仓储"}],
+ edges:[{f:"A",t:"B"},{f:"B",t:"C"},{f:"C",t:"OC",l:"否"},{f:"OC",t:"PR"},{f:"PR",t:"RC"},{f:"RC",t:"G"},{f:"C",t:"G",l:"是"},{f:"G",t:"PH"},{f:"PH",t:"SI"},{f:"SI",t:"PAY"},{f:"PAY",t:"OUT"}]}},
+{key:"现货销售（详细）",spec:{cols:8,lanes:[{n:"客户",a:0,b:0},{n:"业务员",a:1,b:2},{n:"计划部",a:3,b:3},{n:"采购/生产",a:4,b:4},{n:"仓库部",a:5,b:5},{n:"财务文员",a:6,b:7}],
+ nodes:[{id:"A",c:0,r:0,t:"s",x:"客户需求"},{id:"B",c:1,r:1,x:"查库存\n小程序"},{id:"C",c:1,r:2,t:"d",x:"有库存?"},{id:"QD",c:2,r:3,x:"开缺货排单"},{id:"PL",c:3,r:4,x:"统筹生产计划\nERP计划"},{id:"PU",c:4,r:5,x:"采购\nSRM"},{id:"MK",c:4,r:6,x:"安排生产\nERP生产"},{id:"HB",c:5,r:7,x:"仓库回货\nERP仓储"},{id:"FP",c:3,r:8,x:"缺货排单分货\n核销"},{id:"TK",c:1,r:9,x:"下大货任务单"},{id:"PH",c:5,r:10,x:"仓库配货"},{id:"SI",c:6,r:11,x:"开销售单\nERP销售"},{id:"AC",c:6,r:12,t:"d",x:"赊销额度满足?"},{id:"PC",c:7,r:13,x:"带收款码销售单\n核对流水"},{id:"PAY",c:0,r:14,x:"客户付款"},{id:"AU",c:6,r:15,x:"审核销售单"},{id:"OUT",c:5,r:16,x:"销售出货"},{id:"AR",c:6,r:17,x:"生成应收款\nERP财务"},{id:"CK",c:1,r:18,x:"催收款"}],
+ edges:[{f:"A",t:"B"},{f:"B",t:"C"},{f:"C",t:"QD",l:"否"},{f:"QD",t:"PL"},{f:"PL",t:"PU"},{f:"PU",t:"MK"},{f:"MK",t:"HB"},{f:"HB",t:"FP"},{f:"FP",t:"TK"},{f:"C",t:"TK",l:"是"},{f:"TK",t:"PH"},{f:"PH",t:"SI"},{f:"SI",t:"AC"},{f:"AC",t:"AU",l:"是"},{f:"AC",t:"PC",l:"否"},{f:"PC",t:"PAY"},{f:"PAY",t:"AU"},{f:"AU",t:"OUT"},{f:"OUT",t:"AR"},{f:"AR",t:"CK"}]}},
+{key:"订单生产运营",spec:{cols:7,lanes:[{n:"生管",a:0,b:0},{n:"现货计划",a:1,b:1},{n:"采购员",a:2,b:2},{n:"织造/染整",a:3,b:3},{n:"品控QC",a:4,b:4},{n:"仓库",a:5,b:5},{n:"财务",a:6,b:6}],
+ nodes:[{id:"A",c:0,r:0,t:"s",x:"订单审核"},{id:"B",c:0,r:1,x:"订单物料分析\nERP计划"},{id:"C",c:0,r:2,t:"d",x:"出现货?"},{id:"E",c:0,r:4,t:"d",x:"采购成品?"},{id:"G",c:0,r:6,x:"下染整计划"},{id:"H",c:0,r:7,t:"d",x:"有现胚?"},{id:"J",c:0,r:9,t:"d",x:"采购胚布?"},{id:"LN",c:0,r:11,x:"下织胚计划"},{id:"M",c:0,r:12,t:"d",x:"有现纱?"},{id:"D",c:1,r:3,x:"抽现货发货"},{id:"PH",c:5,r:4,x:"配货"},{id:"F",c:2,r:5,x:"成品采购"},{id:"QC",c:4,r:6,x:"成品检验"},{id:"I",c:1,r:8,x:"调拨现胚"},{id:"K",c:2,r:10,x:"申购→胚布采购"},{id:"N",c:1,r:13,x:"调拨现纱派料"},{id:"O",c:2,r:13,x:"申购→纱线采购\n采购派料"},{id:"P",c:3,r:14,x:"织厂织胚→染厂收胚\n→染成品"},{id:"Q",c:5,r:15,x:"成品入库\n/备货入库"},{id:"R",c:6,r:16,x:"成本核算·应付\n对账·结算"}],
+ edges:[{f:"A",t:"B"},{f:"B",t:"C"},{f:"C",t:"D",l:"是"},{f:"D",t:"PH"},{f:"C",t:"E",l:"否"},{f:"E",t:"F",l:"是"},{f:"F",t:"QC"},{f:"QC",t:"Q"},{f:"E",t:"G",l:"否"},{f:"G",t:"H"},{f:"H",t:"I",l:"是"},{f:"I",t:"P"},{f:"H",t:"J",l:"否"},{f:"J",t:"K",l:"是"},{f:"K",t:"P"},{f:"J",t:"LN",l:"否"},{f:"LN",t:"M"},{f:"M",t:"N",l:"是"},{f:"N",t:"P"},{f:"M",t:"O",l:"否"},{f:"O",t:"P"},{f:"P",t:"Q"},{f:"Q",t:"R"}]}},
+{key:"纱线采购派料",spec:{cols:6,lanes:[{n:"计划",a:0,b:0},{n:"采购部",a:1,b:1},{n:"纱线供应商",a:2,b:2},{n:"织厂",a:3,b:4},{n:"财务",a:5,b:5}],
+ nodes:[{id:"A",c:0,r:0,t:"s",x:"织造任务\n纱线需求"},{id:"B",c:0,r:1,x:"查可用\n纱线物料"},{id:"C",c:0,r:2,t:"d",x:"有可用物料?"},{id:"D",c:1,r:3,x:"采购需求\n→采购计划"},{id:"E",c:1,r:4,x:"采购派料\n减可用数量"},{id:"SUP",c:2,r:5,x:"供应商送货"},{id:"IMP",c:1,r:6,x:"采购入库"},{id:"G",c:5,r:7,t:"d",x:"质检合格?"},{id:"H",c:5,r:8,x:"应付账款\n→对账→结算"},{id:"I",c:3,r:9,t:"d",x:"本织厂?"},{id:"JN",c:3,r:10,x:"织厂直接收料"},{id:"KN",c:4,r:10,x:"调拨出库→通知\n织厂→调拨入库"},{id:"LF",c:3,r:11,x:"织胚→胚布入库"},{id:"M",c:3,r:12,t:"d",x:"需转厂?"},{id:"N",c:4,r:12,x:"调拨派料\n不减可用"},{id:"O",c:3,r:13,t:"d",x:"够数?"},{id:"PB",c:4,r:13,x:"补料派料\n绑定织造单"}],
+ edges:[{f:"A",t:"B"},{f:"B",t:"C"},{f:"C",t:"D",l:"否"},{f:"C",t:"E",l:"是"},{f:"D",t:"SUP"},{f:"E",t:"SUP"},{f:"SUP",t:"IMP"},{f:"IMP",t:"G"},{f:"G",t:"H",l:"是"},{f:"E",t:"I"},{f:"I",t:"JN",l:"是"},{f:"I",t:"KN",l:"否"},{f:"JN",t:"LF"},{f:"KN",t:"LF"},{f:"LF",t:"M"},{f:"M",t:"N",l:"是"},{f:"M",t:"O",l:"否"},{f:"O",t:"PB",l:"否"}]}}
+];
+const CF_TERMS=[
+ {t:"采购派料",d:"必须由织造任务单发起；<b>会减纱线可用数量</b>"},
+ {t:"调拨派料",d:"派料后变更(如转厂)，材料调拨转移；<b>不减可用数量</b>"},
+ {t:"补料派料",d:"已派齐料但织厂反馈不够，需绑定被派料的织造单"},
+ {t:"采购入库",d:"货物到公司指定地点、产生送货单签收，即视为采购入库"},
+ {t:"材料调拨",d:"已入库前提下，存放地二次/多次转移、未派料"},
+ {t:"织单返料",d:"织造单临时取消/变更，已派料数量退回释放"},
+ {t:"采购退货",d:"原料因质量等问题退返原供应商"},
+ {t:"采购出仓",d:"原料因某些原因销售给市场出仓"},
+];
+(function(){
+  var tabs=document.getElementById('cfTabs'),flows=document.getElementById('cfFlows');
+  SL_FLOWS.forEach(function(f,i){f.spec.uid=i;
+    var b=document.createElement('button');b.textContent=f.key;if(i===0)b.classList.add('on');
+    var fl=document.createElement('div');fl.className='cf-flow'+(i===0?' on':'');
+    var h=document.createElement('div');h.className='mmwrap';h.innerHTML=drawSwimlane(f.spec);fl.appendChild(h);
+    b.onclick=(function(b,fl){return function(){tabs.querySelectorAll('button').forEach(function(x){x.classList.remove('on');});flows.querySelectorAll('.cf-flow').forEach(function(x){x.classList.remove('on');});b.classList.add('on');fl.classList.add('on');};})(b,fl);
+    tabs.appendChild(b);flows.appendChild(fl);
+  });
+  document.getElementById('cfTerms').innerHTML=CF_TERMS.map(function(x){return '<div class="nm-card"><div class="t">'+x.t+'</div><div class="d">'+x.d+'</div></div>';}).join('');
+})();
+
+/* ===== 在「现货·产品」「供应链洞察」就地复用 07 泳道图 ===== */
+function renderSwimTabs(tabsId,flowsId,specs,prefix){
+  var tabs=document.getElementById(tabsId),flows=document.getElementById(flowsId);
+  if(!tabs||!flows)return;
+  specs.forEach(function(f,i){var spec=f.spec;spec.uid=prefix+i;
+    var b=document.createElement('button');b.textContent=f.key;if(i===0)b.classList.add('on');
+    var fl=document.createElement('div');fl.className='cf-flow'+(i===0?' on':'');
+    var h=document.createElement('div');h.className='mmwrap';h.innerHTML=drawSwimlane(spec);fl.appendChild(h);
+    b.onclick=(function(b,fl){return function(){tabs.querySelectorAll('button').forEach(function(x){x.classList.remove('on');});flows.querySelectorAll('.cf-flow').forEach(function(x){x.classList.remove('on');});b.classList.add('on');fl.classList.add('on');};})(b,fl);
+    tabs.appendChild(b);flows.appendChild(fl);
+  });
+}
+renderSwimTabs('spTabs','spFlows',[SL_FLOWS[0],SL_FLOWS[1],SL_FLOWS[2]],'sp');
+renderSwimTabs('suTabs','suFlows',[SL_FLOWS[3],SL_FLOWS[4]],'su');
+
+</script>
+</body>
+</html>
