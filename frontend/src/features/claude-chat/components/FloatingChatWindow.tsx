@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronDown, ChevronUp, List, Loader2, Maximize2, MessageSquare, Minus, Plus, Send, Shield, ShieldCheck, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, LayoutGrid, List, Loader2, Maximize2, MessageSquare, Minus, Plus, Send, Shield, ShieldCheck, X } from 'lucide-react'
 import { CHAT_ROUTE, useChatRuntime } from '../runtime/ChatRuntimeContext'
+import { isShowcasePath } from '@/shell/featureRegistry'
+import { ThemeMenu } from '@/shell/ThemeMenu'
 import { MessageList } from './MessageList'
 import { SessionList } from './SessionList'
 import { PermissionDialog } from './PermissionDialog'
@@ -88,6 +90,9 @@ export function FloatingChatWindow() {
   if (!floating || !chat || location.pathname === CHAT_ROUTE) return null
 
   const engineLabel = engineName(chat.currentEngine)
+  // 展示页脱离 AppShell（无 Sidebar/TopBar），把「返回工作台 + 主题」收进本窗口 header，
+  // 这样展示页不必再悬浮一组独立控件（ShowcaseLayout 的 dock 在本窗可见时隐藏）。
+  const onShowcase = isShowcasePath(location.pathname)
 
   const toggleAutoApprove = () => setAutoApprove(v => {
     const nv = !v
@@ -284,6 +289,16 @@ export function FloatingChatWindow() {
           </>
         )}
         <div className="flex shrink-0 gap-0.5">
+          {onShowcase && (
+            <>
+              <button type="button" onClick={() => navigate('/')} aria-label="返回工作台" title="返回工作台"
+                className="rounded p-1 hover:bg-[var(--color-background)]">
+                <LayoutGrid className="size-4" />
+              </button>
+              <ThemeMenu dense />
+              <span className="mx-0.5 w-px self-stretch bg-[var(--color-border)]" aria-hidden />
+            </>
+          )}
           {!compact && (
             <>
               <button type="button" onClick={() => { chat.open(''); setShowSessions(false) }} aria-label="新建会话" title="新建会话（home 目录）"

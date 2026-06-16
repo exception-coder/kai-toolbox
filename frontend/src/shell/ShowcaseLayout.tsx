@@ -2,6 +2,7 @@ import { Suspense, useLayoutEffect, useRef, useState } from 'react'
 import { Link, Outlet } from 'react-router-dom'
 import { GripVertical, LayoutGrid } from 'lucide-react'
 import { ThemeMenu } from './ThemeMenu'
+import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 
 const DOCK_POS_KEY = 'showcase.dockPos'
 const MARGIN = 12
@@ -27,6 +28,10 @@ export function ShowcaseLayout() {
   const dragOffset = useRef<{ dx: number; dy: number } | null>(null)
   const [pos, setPos] = useState<Pos | null>(loadPos)
   const [dragging, setDragging] = useState(false)
+  // 聊天悬浮窗可见（已激活 + 展开）时，返回/主题已收进它的 header，本 dock 隐藏以免两组悬浮控件割裂；
+  // 窗口关闭或最小化为气泡时，dock 回归兜底——保证展示页永远有路返回工作台 / 切主题。
+  const { chat, floating, minimized } = useChatRuntime()
+  const chatHostsControls = floating && !!chat && !minimized
 
   // 首次（无记忆位置）按 dock 实际宽度落到右上角
   useLayoutEffect(() => {
@@ -69,7 +74,8 @@ export function ShowcaseLayout() {
 
   return (
     <div className="relative min-h-screen w-full bg-[var(--color-background)] text-[var(--color-foreground)]">
-      {/* 可拖拽悬浮 dock */}
+      {/* 可拖拽悬浮 dock（聊天悬浮窗接管控件时隐藏） */}
+      {!chatHostsControls && (
       <div
         ref={dockRef}
         style={{ left: pos?.x ?? 0, top: pos?.y ?? 0, visibility: pos ? 'visible' : 'hidden' }}
@@ -97,6 +103,7 @@ export function ShowcaseLayout() {
         </Link>
         <ThemeMenu />
       </div>
+      )}
 
       <Suspense
         fallback={

@@ -26,3 +26,8 @@ export function pathHasMock(pathname: string): boolean {
   const f = featureAtPath(pathname)
   return f ? featuresWithMock.has(f.id) : false
 }
+
+/** 当前路径是否属于展示型外壳（layout: 'showcase'）。基于注册表判定，不硬编码 /showcase 前缀。 */
+export function isShowcasePath(pathname: string): boolean {
+  return featureAtPath(pathname)?.layout === 'showcase'
+}
