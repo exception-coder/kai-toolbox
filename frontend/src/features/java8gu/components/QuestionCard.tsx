@@ -2,12 +2,15 @@ import { Link } from 'react-router-dom'
 import { Code2, FileText, Image as ImageIcon, ListTree, Table2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Java8guQuestion } from '../types'
+import { toPreviewText } from '../lib/analyze'
 
 interface Props {
   q: Java8guQuestion
 }
 
 export function QuestionCard({ q }: Props) {
+  // tldr 可能来自旧缓存（含原始 markdown 表格/语法），渲染前再归一化一次，幂等
+  const preview = q.tldr ? toPreviewText(q.tldr) : ''
   return (
     <Link
       to={`/tools/java8gu/q/${q.id}`}
@@ -29,9 +32,9 @@ export function QuestionCard({ q }: Props) {
           {q.title}
         </h3>
 
-        {q.tldr && (
+        {preview && (
           <p className="mt-2 line-clamp-3 text-[12.5px] leading-relaxed text-[var(--color-muted-foreground)]">
-            {q.tldr}
+            {preview}
           </p>
         )}
 
