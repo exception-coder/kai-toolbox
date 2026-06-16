@@ -233,6 +233,13 @@ export function FloatingChatWindow() {
     attachments.forEach(a => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl) })
     setDraft('')
     setAttachments([])
+    // 发送后收回输入框高度：等 DOM 清空（下一帧）再按内容重算
+    requestAnimationFrame(() => {
+      const el = taRef.current
+      if (!el) return
+      el.style.height = 'auto'
+      el.style.height = `${el.scrollHeight}px`
+    })
   }
 
   // 最小化：缩成「状态板」——不显示聊天内容，只显示进度（思考中/执行中/待确认/空闲）+ 会话别名。

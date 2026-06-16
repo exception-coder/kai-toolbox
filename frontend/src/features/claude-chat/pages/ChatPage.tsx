@@ -227,6 +227,13 @@ export function ChatPage() {
     attachments.forEach(a => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl) })
     setDraft('')
     setAttachments([])
+    // 发送后收回输入框高度：等 DOM 清空（下一帧）再按内容重算，避免停留在变高后的高度
+    requestAnimationFrame(() => {
+      const el = taRef.current
+      if (!el) return
+      el.style.height = 'auto'
+      el.style.height = `${el.scrollHeight}px`
+    })
   }
 
   // slash 命令补全：输入框行首为 "/<前缀>"（无空格）时按前缀过滤可用命令
