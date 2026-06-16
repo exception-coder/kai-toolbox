@@ -11,6 +11,9 @@ CREATE TABLE IF NOT EXISTS claude_chat_session (
     engine          TEXT DEFAULT 'claude',
     -- 本会话先后用过的引擎有序列（逗号分隔，如 'claude,codex'）；切 agent 时追加，用于列表标记
     engines         TEXT,
+    -- 各引擎各自的 SDK 会话句柄映射 JSON（如 {"claude":"sid-A","codex":"sid-B"}）；
+    -- 切 agent 持久化，跨 sidecar 重启也能精准 resume 回原引擎、只补增量
+    engine_sessions TEXT,
     -- RUNNING / IDLE / INTERRUPTED / DONE
     status          TEXT NOT NULL,
     started_at      INTEGER NOT NULL,

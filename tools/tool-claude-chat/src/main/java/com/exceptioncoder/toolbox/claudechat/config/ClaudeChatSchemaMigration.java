@@ -39,6 +39,12 @@ public class ClaudeChatSchemaMigration {
         } catch (Exception e) {
             log.debug("[claude-chat] engines 列迁移跳过：{}", e.getMessage());
         }
+        try {
+            jdbc.execute("ALTER TABLE claude_chat_session ADD COLUMN engine_sessions TEXT");
+            log.info("[claude-chat] 迁移：claude_chat_session 已补 engine_sessions 列");
+        } catch (Exception e) {
+            log.debug("[claude-chat] engine_sessions 列迁移跳过：{}", e.getMessage());
+        }
         // 回填：engines 为空的行用当前 engine 初始化，保证列表能显示
         try {
             jdbc.update("UPDATE claude_chat_session SET engines = engine WHERE engines IS NULL OR engines = ''");

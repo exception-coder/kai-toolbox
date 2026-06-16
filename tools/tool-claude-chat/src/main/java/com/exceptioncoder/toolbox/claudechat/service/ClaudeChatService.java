@@ -116,6 +116,7 @@ public class ClaudeChatService {
                     SessionCtx c = new SessionCtx(id, db.getCwd());
                     c.sdkSessionId = db.getSdkSessionId();
                     c.engine = normalizeEngine(db.getEngine());
+                    loadEngineSessions(c, db.getEngineSessions());
                     return c;
                 });
                 bindViewer(ws, restored);
@@ -153,6 +154,7 @@ public class ClaudeChatService {
         SessionCtx ctx = sessions.computeIfAbsent(db.getId(), id -> new SessionCtx(id, db.getCwd()));
         ctx.sdkSessionId = db.getSdkSessionId();
         ctx.engine = normalizeEngine(db.getEngine());
+        loadEngineSessions(ctx, db.getEngineSessions());
         bindViewer(ws, ctx);
         repo.touch(db.getId(), SessionStatus.IDLE, System.currentTimeMillis());
         sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), ctx.engine);
@@ -250,7 +252,10 @@ public class ClaudeChatService {
         log.info("[claude-chat] 会话 {} 切换模型 -> {}", ctx.sessionId, msg.model());
     }
 
-    /** 会话内切 agent（引擎）：同一会话 id 不变，置新引擎 + 清 sdkSessionId；追加引擎顺序用于列表标记。 */
+    /**
+     * 会话内切 agent（引擎）：同一会话 id 不变。保存离开引擎的句柄，切回曾用引擎则 resume 其原生会话
+     * （sdkSessionId 从持久化映射取出，跨 sidecar 重启也精准），首次切到则新建；追加引擎顺序用于列表标记。
+     */
     public void switchEngine(WebSocketSession ws, ClientMessage.SwitchEngine msg) {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {
@@ -261,11 +266,16 @@ public class ClaudeChatService {
         if (engine.equals(ctx.engine)) return; // 同引擎无需切
         String prev = repo.findById(ctx.sessionId).map(ClaudeChatSession::getEngines).orElse(null);
         String engines = appendEngine(prev, ctx.engine, engine);
+        if (ctx.sdkSessionId != null && !ctx.sdkSessionId.isBlank()) {
+            ctx.engineSessions.put(ctx.engine, ctx.sdkSessionId); // 存离开引擎的句柄
+        }
+        String target = ctx.engineSessions.get(engine);          // 切回则有原生句柄，首次为 null
         ctx.engine = engine;
-        ctx.sdkSessionId = null;             // 新引擎起新 SDK 会话
-        repo.switchEngine(ctx.sessionId, engine, engines);
-        sidecar.switchEngine(ctx.sessionId, engine);
-        log.info("[claude-chat] 会话 {} 切 agent -> {}（engines={}）", ctx.sessionId, engine, engines);
+        ctx.sdkSessionId = target;
+        repo.switchEngine(ctx.sessionId, engine, engines, target, writeEngineSessions(ctx.engineSessions));
+        sidecar.switchEngine(ctx.sessionId, engine, target);
+        log.info("[claude-chat] 会话 {} 切 agent -> {}（engines={}，resume={}）",
+                ctx.sessionId, engine, engines, target != null);
     }
 
     /** 拼接引擎有序列：在已有列（缺省用 base）末尾追加 next，连续重复不追加。 */
@@ -276,6 +286,27 @@ public class ClaudeChatService {
         String last = parts.length == 0 ? "" : parts[parts.length - 1].trim();
         if (next.equals(last)) return csv;
         return csv + "," + next;
+    }
+
+    /** 序列化各引擎句柄映射为 JSON 持久化；失败回 null（降级丢映射，不影响主流程）。 */
+    private String writeEngineSessions(Map<String, String> m) {
+        try {
+            return m.isEmpty() ? null : mapper.writeValueAsString(m);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 从 DB 的 JSON 反序列化各引擎句柄映射到 ctx（恢复会话时调用）。 */
+    @SuppressWarnings("unchecked")
+    private void loadEngineSessions(SessionCtx ctx, String json) {
+        if (json == null || json.isBlank()) return;
+        try {
+            Map<String, String> m = mapper.readValue(json, Map.class);
+            ctx.engineSessions.putAll(m);
+        } catch (Exception e) {
+            log.debug("[claude-chat] engine_sessions 解析失败，忽略：{}", e.getMessage());
+        }
     }
 
     private static boolean isValidMode(String m) {
@@ -344,6 +375,11 @@ public class ClaudeChatService {
                 ctx.sdkSessionId = node.path("sdkSessionId").asText(null);
                 ctx.slashCommands = parseStringList(node.get("slashCommands"));
                 repo.updateSdkSessionId(sessionId, ctx.sdkSessionId);
+                // 记录当前引擎拿到的句柄，持久化各引擎句柄映射（跨重启精准切回 + 增量）
+                if (ctx.sdkSessionId != null && !ctx.sdkSessionId.isBlank()) {
+                    ctx.engineSessions.put(ctx.engine, ctx.sdkSessionId);
+                    repo.updateEngineSessions(sessionId, writeEngineSessions(ctx.engineSessions));
+                }
                 sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch, ctx.engine));
             }
             case "assistantDelta" -> sendToBrowser(ctx,
@@ -706,6 +742,8 @@ public class ClaudeChatService {
         volatile String sdkSessionId;
         /** 会话引擎 claude/codex；start/resume 透传给 sidecar，决定走哪条 agentic loop。 */
         volatile String engine = "claude";
+        /** 各引擎各自的 SDK 会话句柄（engine -> sdkSessionId）；切回某引擎时 resume 其原生会话，持久化到 DB engine_sessions(JSON)。 */
+        final Map<String, String> engineSessions = new ConcurrentHashMap<>();
         volatile SessionStatus status = SessionStatus.IDLE;
         /** 当前在看本会话的所有浏览器连接（多端同看）。广播事件遍历此集合，断开按连接移除。 */
         final Set<WebSocketSession> viewers = ConcurrentHashMap.newKeySet();

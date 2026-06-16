@@ -16,6 +16,8 @@ public class ClaudeChatSession {
     private String engine;
     /** 本会话先后用过的引擎有序列（逗号分隔，如 "claude,codex"），切 agent 时追加；空则按 engine */
     private String engines;
+    /** 各引擎各自的 SDK 会话句柄映射 JSON（如 {"claude":"sid-A","codex":"sid-B"}），切 agent 持久化用 */
+    private String engineSessions;
     private SessionStatus status;
     private long startedAt;
     private long lastSeenAt;

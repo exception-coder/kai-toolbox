@@ -48,8 +48,6 @@ class Session {
   model?: string
   /** 会话引擎，新建时定、resume 沿用；决定 runTurn 走 Claude 还是 Codex。 */
   engine: Engine = 'claude'
-  /** 各引擎在本逻辑会话里各自的 SDK 会话句柄；切回某引擎时 resume 其原生上下文（内存级，sidecar 重启丢失则降级新建）。 */
-  engineSessions: Partial<Record<Engine, string>> = {}
   /** 会话级权限模式，每轮 query 传入；运行中切换下一轮生效。 */
   permissionMode = 'default'
   private abort?: AbortController
@@ -332,17 +330,16 @@ export class SessionManager {
   }
 
   /**
-   * 会话内切引擎：保存离开引擎的 SDK 会话句柄，再切到目标引擎。
-   * 切回曾用过的引擎 → resume 其原生 sdkSessionId（早期上下文不丢、无需重喂）；
-   * 首次切到某引擎 → sdkSessionId 为空，下一轮起新 SDK 会话。
+   * 会话内切引擎：置新 engine，并把 sdkSessionId 设为 Java 提供的目标句柄
+   * （切回曾用引擎＝其原生句柄→resume 续接；首次切到＝空→下一轮起新 SDK 会话）。
+   * 各引擎句柄的持久化与查找由 Java 负责（DB engine_sessions），sidecar 只按指令应用。
    */
-  switchEngine(id: string, engine: string): void {
+  switchEngine(id: string, engine: string, sdkSessionId?: string): void {
     const s = this.sessions.get(id)
     if (!s) return
     if (engine !== 'claude' && engine !== 'codex' && engine !== 'gemini') return
-    if (s.sdkSessionId) s.engineSessions[s.engine] = s.sdkSessionId // 存离开引擎的会话
     s.engine = engine
-    s.sdkSessionId = s.engineSessions[engine]                       // 恢复目标引擎的会话（首次为 undefined）
+    s.sdkSessionId = sdkSessionId && sdkSessionId.length > 0 ? sdkSessionId : undefined
   }
 
   /** 从某条用户消息分叉出新会话（截到该消息），emit forked 带新 sdkSessionId 给 Java 建会话续跑。 */

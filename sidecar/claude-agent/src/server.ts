@@ -41,7 +41,7 @@ wss.on('connection', (ws) => {
         manager.setModel(sessionId, msg.model as string)
         break
       case 'switchEngine':
-        manager.switchEngine(sessionId, msg.engine as string)
+        manager.switchEngine(sessionId, msg.engine as string, msg.sdkSessionId as string | undefined)
         break
       case 'forkSession':
         void manager.forkSession(sessionId, msg.upToMessageId as string)

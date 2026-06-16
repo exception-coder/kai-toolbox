@@ -25,6 +25,7 @@ public class ClaudeChatSessionRepository {
             .sdkSessionId(rs.getString("sdk_session_id"))
             .engine(rs.getString("engine") == null ? "claude" : rs.getString("engine"))
             .engines(rs.getString("engines"))
+            .engineSessions(rs.getString("engine_sessions"))
             .status(SessionStatus.valueOf(rs.getString("status")))
             .startedAt(rs.getLong("started_at"))
             .lastSeenAt(rs.getLong("last_seen_at"))
@@ -53,11 +54,19 @@ public class ClaudeChatSessionRepository {
                 s.getStatus().name(), s.getStartedAt(), s.getLastSeenAt());
     }
 
-    /** 切 agent：更新当前引擎 + 追加到有序引擎列；同时清空 sdk_session_id（新引擎起新 SDK 会话）。 */
-    public void switchEngine(String id, String engine, String engines) {
+    /**
+     * 切 agent：更新当前引擎 + 追加引擎有序列 + 设当前 sdk_session_id（切回为目标引擎旧句柄、首次为 null）
+     * + 持久化各引擎句柄映射 JSON。
+     */
+    public void switchEngine(String id, String engine, String engines, String sdkSessionId, String engineSessions) {
         jdbc.update(
-                "UPDATE claude_chat_session SET engine = ?, engines = ?, sdk_session_id = NULL WHERE id = ?",
-                engine, engines, id);
+                "UPDATE claude_chat_session SET engine = ?, engines = ?, sdk_session_id = ?, engine_sessions = ? WHERE id = ?",
+                engine, engines, sdkSessionId, engineSessions, id);
+    }
+
+    /** 更新各引擎句柄映射 JSON（init 拿到新句柄时刷新）。 */
+    public void updateEngineSessions(String id, String engineSessions) {
+        jdbc.update("UPDATE claude_chat_session SET engine_sessions = ? WHERE id = ?", engineSessions, id);
     }
 
     /** 刷新 last_seen_at 与状态 */
