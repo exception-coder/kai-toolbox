@@ -261,7 +261,13 @@ export function ChatPage() {
           : 'border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}>
           {engineName(chat.currentEngine)}
         </span>
-        <StatusBadge tone={stateTone(chat.state)} pulse={chat.state === 'connecting'}>{stateLabel(chat.state)}</StatusBadge>
+        <StatusBadge
+          tone={stateTone(chat.state)}
+          pulse={chat.state === 'connecting'}
+          title={stateLabel(chat.state)}
+          aria-label={stateLabel(chat.state)}
+          className="size-5 shrink-0 justify-center rounded-full px-0"
+        />
         <div className="ml-auto flex items-center gap-1">
           {/* 常用：带文字标签，一眼可辨 */}
           <Button variant="ghost" size="sm" className="gap-1" onClick={() => setPanel(p => p === 'new' ? 'none' : 'new')} aria-label="新建会话">
