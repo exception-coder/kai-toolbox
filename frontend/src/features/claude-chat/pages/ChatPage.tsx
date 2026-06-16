@@ -137,6 +137,15 @@ export function ChatPage() {
   const [cmdMenuOpen, setCmdMenuOpen] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const taRef = useRef<HTMLTextAreaElement>(null)
+
+  // 输入框随内容自动升高（参考微信）：到 max-h 后内部滚动
+  useEffect(() => {
+    const el = taRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [draft])
 
   // 全屏时按 Esc 退出
   useEffect(() => {
@@ -510,7 +519,8 @@ export function ChatPage() {
               onText={t => setDraft(d => d.trim() ? `${d} ${t}` : t)}
             />
             <textarea
-              className="max-h-32 min-h-[2.75rem] flex-1 resize-none rounded-xl border bg-[var(--color-background)] px-3 py-2 text-sm"
+              ref={taRef}
+              className="max-h-32 min-h-[2.75rem] flex-1 resize-none overflow-y-auto rounded-xl border bg-[var(--color-background)] px-3 py-2 text-sm"
               placeholder={`给 ${engineName(chat.currentEngine)} 下发任务…（Enter 换行，Shift+Enter 发送）`}
               rows={1}
               value={draft}

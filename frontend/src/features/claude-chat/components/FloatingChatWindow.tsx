@@ -66,6 +66,15 @@ export function FloatingChatWindow() {
   const bubbleRef = useRef<{ dx: number; dy: number; sx: number; sy: number; moved: boolean } | null>(null)
   const autoApprovedRef = useRef<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const taRef = useRef<HTMLTextAreaElement>(null)
+
+  // 输入框随内容自动升高（参考微信）：到 max-h 后内部滚动
+  useEffect(() => {
+    const el = taRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [draft])
 
   // 顶栏会话别名（与会话列表共用同一 query 缓存）
   const { data: sessions = [] } = useQuery({
@@ -426,7 +435,8 @@ export function FloatingChatWindow() {
             onText={t => setDraft(d => (d.trim() ? `${d} ${t}` : t))}
           />
           <textarea
-            className="max-h-24 min-h-[2.25rem] flex-1 resize-none rounded-lg border bg-[var(--color-background)] px-2 py-1.5 text-sm"
+            ref={taRef}
+            className="max-h-24 min-h-[2.25rem] flex-1 resize-none overflow-y-auto rounded-lg border bg-[var(--color-background)] px-2 py-1.5 text-sm"
             placeholder="发消息 / 粘贴图片…（Shift+Enter 发送）"
             rows={1}
             value={draft}
