@@ -135,6 +135,7 @@ export function ChatPage() {
   const [slashIdx, setSlashIdx] = useState(0)
   const [slashDismissed, setSlashDismissed] = useState(false)
   const [cmdMenuOpen, setCmdMenuOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
@@ -467,41 +468,52 @@ export function ChatPage() {
             <SlashCommandMenu commands={slashFiltered} activeIndex={slashActive} onPick={pickSlash} />
           )}
           <div className="flex items-end gap-2 px-3 py-2">
-            {/* 用 <label> 包住 input：点 label 由浏览器原生触发文件选择，绕开「移动端 WebView 里
-                JS input.click() 丢用户手势、选择器弹不出」的坑（sr-only/.click() 方案在部分机型仍失败）。
-                Button asChild 把按钮样式套到 label 上，外观不变。 */}
-            <Button
-              asChild
-              variant="ghost"
-              size="icon"
-              aria-disabled={attachments.length + uploading >= MAX_ATTACHMENTS}
-            >
-              <label
-                aria-label="添加附件"
-                title="添加图片 / 文档"
-                className={`cursor-pointer${attachments.length + uploading >= MAX_ATTACHMENTS ? ' pointer-events-none opacity-50' : ''}`}
-              >
-                <input
-                  ref={fileRef}
-                  type="file"
-                  multiple
-                  className="sr-only"
-                  disabled={attachments.length + uploading >= MAX_ATTACHMENTS}
-                  onChange={e => handleFiles(e.target.files)}
-                />
-                <Paperclip className="size-5" />
-              </label>
-            </Button>
+            {/* 微信式「+ 更多功能」：附件 / 指令收纳其中 */}
             <div className="relative">
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => setCmdMenuOpen(o => !o)}
-                aria-label="斜杠命令"
-                title="斜杠命令"
+                onClick={() => { setMoreOpen(o => !o); setCmdMenuOpen(false) }}
+                aria-label="更多功能"
+                title="更多功能（附件 / 指令）"
               >
-                <Slash className="size-5" />
+                <Plus className={`size-5 transition-transform${moreOpen ? ' rotate-45' : ''}`} />
               </Button>
+              {moreOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setMoreOpen(false)} />
+                  <div className="absolute bottom-full left-0 z-20 mb-2 w-44 rounded-xl border bg-[var(--color-card)] p-2 shadow-lg">
+                    <div className="grid grid-cols-2 gap-1">
+                      {/* 附件：label 包 input，保留原生触发（移动端 WebView 不丢手势） */}
+                      <label
+                        aria-label="添加附件"
+                        title="添加图片 / 文档"
+                        className={`flex cursor-pointer flex-col items-center gap-1.5 rounded-lg p-2.5 text-xs hover:bg-[var(--color-accent)]${attachments.length + uploading >= MAX_ATTACHMENTS ? ' pointer-events-none opacity-50' : ''}`}
+                      >
+                        <input
+                          ref={fileRef}
+                          type="file"
+                          multiple
+                          className="sr-only"
+                          disabled={attachments.length + uploading >= MAX_ATTACHMENTS}
+                          onChange={e => { handleFiles(e.target.files); setMoreOpen(false) }}
+                        />
+                        <Paperclip className="size-5 text-[var(--color-primary)]" />
+                        附件
+                      </label>
+                      {/* 指令：打开斜杠命令菜单 */}
+                      <button
+                        type="button"
+                        onClick={() => { setMoreOpen(false); setCmdMenuOpen(true) }}
+                        className="flex flex-col items-center gap-1.5 rounded-lg p-2.5 text-xs hover:bg-[var(--color-accent)]"
+                      >
+                        <Slash className="size-5 text-[var(--color-primary)]" />
+                        指令
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
               {cmdMenuOpen && (
                 <CommandMenu
                   commands={chat.slashCommands}
