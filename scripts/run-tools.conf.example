@@ -1,0 +1,25 @@
+# kai-toolbox 本机工具路径配置（示例）
+#
+# 用法：可直接复制为同目录 run-tools.conf 并按本机实际路径填写；
+#       也可以什么都不做——首次运行 run-supervised.ps1 / run-supervised-macos.sh /
+#       run-backend.ps1 时，脚本会自动探测（PATH/常见安装位置），探测不到则交互式询问，
+#       你填入后自动写回 run-tools.conf，下次免问。
+#
+# 格式：KEY=路径（# 注释、空行忽略；值里可含空格与反斜杠，无需引号）。
+# 三个脚本共用同一份 run-tools.conf，配一次都生效。run-tools.conf 本身已被 .gitignore 忽略。
+
+# Maven：Windows 填 mvn.cmd，macOS 填 mvn。例：
+#   MVN_CMD=D:\devapps\apache-maven-3.9.9\bin\mvn.cmd
+MVN_CMD=
+
+# Java：项目需 Java 21（Spring Boot 3.4）。Windows 填 java.exe，macOS 填 java。例：
+#   JAVA_CMD=D:\Java\jdk-21\bin\java.exe
+JAVA_CMD=
+
+# npm：前端 dev 与 node sidecar 初始化用。Windows 填 npm.cmd，macOS 填 npm。例：
+#   NPM_CMD=D:\Program Files\nodejs\npm.cmd
+NPM_CMD=
+
+# aria2c（可选）：下载器工具用，找不到不影响后端/前端启动。例：
+#   ARIA2_BIN=D:\devapps\aria2-1.37.0-win-64bit-build1\aria2c.exe
+ARIA2_BIN=

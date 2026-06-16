@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -u
 
-# kai-toolbox backend supervisor for macOS.
+# kai-toolbox one-click supervisor for macOS (backend + frontend).
+# Frees the target ports first (kills holders of 18080 / 5173 / 18081), then starts
+# OUR backend (packaged jar on :18080) and frontend (Vite dev on :5173) together,
+# supervising both and restarting whichever exits.
 # Usage: bash scripts/run-supervised-macos.sh
 
 export LANG="${LANG:-en_US.UTF-8}"
@@ -12,31 +15,148 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
-MVN_CMD="${MVN_CMD:-mvn}"
+# ── 工具路径解析：配置文件(run-tools.conf, 同目录) → 自动探测 → 交互式 → 写回 ──
+TOOLS_CONF="$SCRIPT_DIR/run-tools.conf"
+
+# 从 conf 读取某 KEY 的值（KEY=路径；# 注释、空行忽略）。无则输出空。
+conf_get() {
+  [[ -f "$TOOLS_CONF" ]] || return 0
+  local line key
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line#"${line%%[![:space:]]*}"}"            # 去前导空白
+    [[ -z "$line" || "${line:0:1}" == "#" ]] && continue
+    key="${line%%=*}"
+    key="${key%"${key##*[![:space:]]}"}"               # 去尾空白
+    key="${key#"${key%%[![:space:]]*}"}"               # 去前空白
+    if [[ "$key" == "$1" ]]; then printf '%s' "${line#*=}"; return 0; fi
+  done < "$TOOLS_CONF"
+}
+
+# upsert 一个 KEY=值 到 conf（不存在则创建文件带表头）。
+conf_set() {
+  local key="$1" val="$2" tmp
+  if [[ ! -f "$TOOLS_CONF" ]]; then
+    {
+      echo '# kai-toolbox 本机工具路径配置（脚本自动维护，可手改）'
+      echo '# 形如 KEY=路径；缺失或失效时脚本会交互式询问并写回这里。'
+      echo '# 机器相关，建议不要提交到仓库。'
+      echo ''
+    } > "$TOOLS_CONF"
+  fi
+  if grep -qE "^[[:space:]]*${key}[[:space:]]*=" "$TOOLS_CONF" 2>/dev/null; then
+    tmp="$(mktemp)"
+    awk -v k="$key" -v v="$val" '
+      { t=$0; sub(/^[[:space:]]+/,"",t)
+        if (t ~ /^#/ || t=="") { print; next }
+        ep=index(t,"="); if(ep==0){ print; next }
+        kk=substr(t,1,ep-1); sub(/[[:space:]]+$/,"",kk)
+        if (kk==k) print k"="v; else print
+      }' "$TOOLS_CONF" > "$tmp" && mv "$tmp" "$TOOLS_CONF"
+  else
+    printf '%s=%s\n' "$key" "$val" >> "$TOOLS_CONF"
+  fi
+  echo "[supervisor] 已写回 $(basename "$TOOLS_CONF")：$key=$val" >&2
+}
+
+# 把路径规整成真正的可执行文件：已是可执行文件→原样；是目录→在 <dir> 和 <dir>/bin 下
+# 找 <name>（这样用户填 Maven 主目录也能自动定位到 bin/mvn）。找不到打印空。
+resolve_exe() {
+  local p="$1" name="$2" d c
+  [[ -z "$p" ]] && return 0
+  [[ -f "$p" && -x "$p" ]] && { printf '%s' "$p"; return 0; }
+  if [[ -d "$p" ]]; then
+    for d in "$p" "$p/bin"; do
+      c="$d/$name"
+      [[ -f "$c" && -x "$c" ]] && { printf '%s' "$c"; return 0; }
+    done
+  fi
+  return 0
+}
+
+# resolve_tool <显示名> <KEY> <PATH命令名> [optional]
+# 顺序：conf（文件或主目录都规整成 exe，命中写回）→ 环境变量/PATH → 可选则空 → 交互式（填入写回）。
+# 路径打印到 stdout；用户放弃 return 1（调用方 `|| exit 1`）。
+resolve_tool() {
+  local display="$1" key="$2" onpath="$3" optional="${4:-}" v auto envval ans r
+  v="$(conf_get "$key")"
+  if [[ -n "$v" ]]; then
+    r="$(resolve_exe "$v" "$onpath")"
+    [[ -z "$r" ]] && command -v "$v" >/dev/null 2>&1 && r="$(command -v "$v")"
+    if [[ -n "$r" ]]; then [[ "$r" != "$v" ]] && conf_set "$key" "$r"; printf '%s' "$r"; return 0; fi
+    echo "[supervisor] 配置中的 $key 不是可用可执行文件，重新探测：$v" >&2
+  fi
+  eval "envval=\${$key:-}"
+  auto=""
+  if [[ -n "$envval" ]]; then
+    r="$(resolve_exe "$envval" "$onpath")"
+    [[ -z "$r" ]] && command -v "$envval" >/dev/null 2>&1 && r="$(command -v "$envval")"
+    [[ -n "$r" ]] && auto="$r"
+  fi
+  [[ -z "$auto" ]] && command -v "$onpath" >/dev/null 2>&1 && auto="$(command -v "$onpath")"
+  if [[ -n "$auto" ]]; then conf_set "$key" "$auto"; echo "$auto"; return 0; fi
+  [[ "$optional" == optional ]] && return 0
+  while true; do
+    printf '\n[supervisor] 未找到必需的 %s。\n' "$display" >&2
+    printf '[supervisor]   输入可执行文件或其所在主目录的完整路径；或加入 PATH 后直接回车重新探测；输入 q 退出（填入后写回 %s）: ' "$key" >&2
+    read -r ans || return 1
+    [[ "$ans" == q ]] && return 1
+    if [[ -z "$ans" ]]; then
+      if command -v "$onpath" >/dev/null 2>&1; then auto="$(command -v "$onpath")"; conf_set "$key" "$auto"; echo "$auto"; return 0; fi
+      echo "[supervisor] 仍未探测到 $display。" >&2; continue
+    fi
+    r="$(resolve_exe "$ans" "$onpath")"
+    [[ -z "$r" ]] && command -v "$ans" >/dev/null 2>&1 && r="$(command -v "$ans")"
+    if [[ -n "$r" ]]; then conf_set "$key" "$r"; echo "$r"; return 0; fi
+    echo "[supervisor] 没找到可执行文件（已试 $ans 及其 bin 下的 $onpath）: $ans" >&2
+  done
+}
+
+MVN_CMD="$(resolve_tool 'Maven (mvn)' MVN_CMD mvn)" || { echo "[supervisor] 已取消启动。" >&2; exit 1; }
+JAVA_CMD="$(resolve_tool 'Java (java)' JAVA_CMD java)" || { echo "[supervisor] 已取消启动。" >&2; exit 1; }
+# Java 版本软提示：低于 17 仅警告（Spring Boot 3.4 需 17+，项目用 21）。
+java_ver_line="$("$JAVA_CMD" -version 2>&1 | head -n1)"
+if [[ "$java_ver_line" =~ \"1\.([0-9]+) ]]; then jmaj="${BASH_REMATCH[1]}"
+elif [[ "$java_ver_line" =~ \"([0-9]+) ]]; then jmaj="${BASH_REMATCH[1]}"
+else jmaj=0; fi
+if [[ "$jmaj" -gt 0 && "$jmaj" -lt 17 ]]; then
+  echo "[supervisor] 注意：当前 java 版本为 $jmaj，过低（需 17+，项目用 21）。可在 run-tools.conf 把 JAVA_CMD 指向 Java 21 再启动。" >&2
+fi
+# mvn 构建用 JAVA_HOME（不是上面解析的 java）。据 JAVA_CMD 反推并覆盖，避免用旧 JDK 编译 Java 21 项目。
+case "$JAVA_CMD" in
+  */bin/java) export JAVA_HOME="$(dirname "$(dirname "$JAVA_CMD")")"; echo "[supervisor] JAVA_HOME=$JAVA_HOME （供 mvn 构建使用 JDK 21）" >&2 ;;
+esac
+# npm：前端 dev 与 sidecar 初始化都要它；解析后把其目录前置进 PATH，让子进程也找得到。
+NPM_BIN="$(resolve_tool 'npm' NPM_CMD npm)" || { echo "[supervisor] 已取消启动。" >&2; exit 1; }
+case ":$PATH:" in *":$(dirname "$NPM_BIN"):"*) ;; *) PATH="$(dirname "$NPM_BIN"):$PATH"; export PATH ;; esac
+
 PYTHON_CMD="${PYTHON_CMD:-}"
 HTTP_HOST="${HTTP_HOST:-127.0.0.1}"
 HTTP_PORT="${HTTP_PORT:-18081}"
 BACKEND_PORT="${BACKEND_PORT:-18080}"
+FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 RESTART_TOKEN="${TOOLBOX_SYSTEM_RESTART_TOKEN:-zhangk2026}"
 CONTROL_DIR="${TMPDIR:-/tmp}/kai-toolbox-supervisor"
 RESTART_FILE="$CONTROL_DIR/restart.request"
 STATUS_FILE="$CONTROL_DIR/status.json"
 STARTER_JAR="$REPO_ROOT/toolbox-starter/target/kai-toolbox.jar"
 
-if [[ -z "${TOOLBOX_ARIA2_BINARY:-}" ]]; then
-  if [[ -x /opt/homebrew/bin/aria2c ]]; then
-    TOOLBOX_ARIA2_BINARY=/opt/homebrew/bin/aria2c
-  elif [[ -x /usr/local/bin/aria2c ]]; then
-    TOOLBOX_ARIA2_BINARY=/usr/local/bin/aria2c
-  else
-    TOOLBOX_ARIA2_BINARY=aria2c
-  fi
+# aria2 可选：conf → PATH → homebrew 常见位置；找到就写回 conf。找不到不挡启动。
+ARIA2_BIN="$(conf_get ARIA2_BIN)"
+if [[ -z "$ARIA2_BIN" || ! -x "$ARIA2_BIN" ]]; then
+  if command -v aria2c >/dev/null 2>&1; then ARIA2_BIN="$(command -v aria2c)"
+  elif [[ -x /opt/homebrew/bin/aria2c ]]; then ARIA2_BIN=/opt/homebrew/bin/aria2c
+  elif [[ -x /usr/local/bin/aria2c ]]; then ARIA2_BIN=/usr/local/bin/aria2c
+  else ARIA2_BIN=""; fi
+  [[ -n "$ARIA2_BIN" ]] && conf_set ARIA2_BIN "$ARIA2_BIN"
 fi
+TOOLBOX_ARIA2_BINARY="${TOOLBOX_ARIA2_BINARY:-${ARIA2_BIN:-aria2c}}"
 
 TOOLBOX_QBT_PASSWORD="${TOOLBOX_QBT_PASSWORD:-KE5RWmYs4}"
 TOOLBOX_HTTP_PROXY="${TOOLBOX_HTTP_PROXY:-http://127.0.0.1:7897}"
 TOOLBOX_SYSTEM_RESTART_TOKEN="${TOOLBOX_SYSTEM_RESTART_TOKEN:-$RESTART_TOKEN}"
 TOOLBOX_WHISPER_MODE="${TOOLBOX_WHISPER_MODE:-asr-service}"
+# Playwright/patchright 浏览器内核下载走国内镜像（官方 CDN 在境内常被掐，导致自动装 Chromium 失败）。
+export PLAYWRIGHT_DOWNLOAD_HOST="${PLAYWRIGHT_DOWNLOAD_HOST:-https://cdn.npmmirror.com/binaries/playwright}"
 
 mkdir -p "$CONTROL_DIR"
 rm -f "$RESTART_FILE"
@@ -53,6 +173,7 @@ if [[ -z "$PYTHON_CMD" ]]; then
 fi
 
 backend_pid=""
+frontend_pid=""
 http_pid=""
 last_start=""
 
@@ -103,7 +224,7 @@ start_backend() {
     if [[ $? -ne 0 ]]; then
       exit 1
     fi
-    exec java \
+    exec "$JAVA_CMD" \
       "-DTOOLBOX_ARIA2_BINARY=$TOOLBOX_ARIA2_BINARY" \
       "-DTOOLBOX_QBT_PASSWORD=$TOOLBOX_QBT_PASSWORD" \
       "-DTOOLBOX_HTTP_PROXY=$TOOLBOX_HTTP_PROXY" \
@@ -125,6 +246,65 @@ stop_backend() {
   fi
   backend_pid=""
   write_status
+}
+
+start_frontend() {
+  stop_port_holders "$FRONTEND_PORT"
+  echo "[supervisor] $(date '+%H:%M:%S') start frontend dev server (vite :$FRONTEND_PORT)..."
+  (
+    cd "$REPO_ROOT/frontend" || exit 1
+    # First run installs deps; subsequent runs skip it. npm run dev = Vite on :5173 (proxies /api -> backend).
+    if [[ ! -d node_modules ]]; then
+      npm install --no-audit --no-fund
+    fi
+    exec npm run dev
+  ) &
+  frontend_pid=$!
+}
+
+stop_frontend() {
+  if [[ -n "$frontend_pid" ]] && kill -0 "$frontend_pid" 2>/dev/null; then
+    kill_tree "$frontend_pid"
+    wait "$frontend_pid" 2>/dev/null || true
+  fi
+  frontend_pid=""
+}
+
+# One-time, idempotent init of the two node sidecars the backend lazily spawns.
+# The backend OWNS the processes (claude-chat: node dist/server.js; browser-request
+# undetected-node engine: node server.js) — we only ensure their deps exist so those
+# lazy spawns actually work. Already-built / already-installed => skip (no daily slowdown).
+init_node_deps() {
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "[supervisor] npm not on PATH, skip node sidecar init (claude-chat / undetected-node engine will be unavailable)"
+    return
+  fi
+
+  # 1) claude-agent sidecar (claude-chat) — needs dist/server.js (tsc build). Cheap, core feature.
+  local sidecar="$REPO_ROOT/sidecar/claude-agent"
+  if [[ ! -f "$sidecar/dist/server.js" ]]; then
+    echo "[supervisor] init claude-agent sidecar (npm install + build)..."
+    (
+      cd "$sidecar" || exit 1
+      [[ -d node_modules ]] || npm install --no-audit --no-fund
+      npm run build
+    ) || echo "[supervisor] WARN: claude-agent init failed; claude-chat may not start"
+  else
+    echo "[supervisor] claude-agent sidecar already built, skip"
+  fi
+
+  # 2) undetected-browser (browser-request undetected-node engine) — needs node_modules
+  #    (patchright) + a patched chromium kernel. First run downloads ~150MB; then skipped.
+  local undetected="$REPO_ROOT/node-services/undetected-browser"
+  if [[ ! -d "$undetected/node_modules" ]]; then
+    echo "[supervisor] init undetected-browser (npm install + install-browser, ~150MB chromium, first run only)..."
+    (
+      cd "$undetected" || exit 1
+      npm install --no-audit --no-fund && npm run install-browser
+    ) || echo "[supervisor] WARN: undetected-browser init failed; undetected-node engine unavailable"
+  else
+    echo "[supervisor] undetected-browser deps present, skip"
+  fi
 }
 
 start_http_control() {
@@ -195,6 +375,8 @@ PY
 }
 
 cleanup() {
+  # Ctrl+C / exit: bring both children down so ports are released.
+  stop_frontend
   stop_backend
   if [[ -n "$http_pid" ]]; then
     kill "$http_pid" 2>/dev/null || true
@@ -204,11 +386,18 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 write_status
+# Take over a stale supervisor still holding the control port before binding our own.
+stop_port_holders "$HTTP_PORT"
 start_http_control
 echo "[supervisor] HTTP control http://$HTTP_HOST:$HTTP_PORT/  (POST /restart, GET /status)"
 echo "[supervisor] repo=$REPO_ROOT  mvn=$MVN_CMD"
 
+# Ensure the node sidecars are initialized before the backend may lazily spawn them.
+init_node_deps
+
+# One-click start: backend + frontend together.
 start_backend
+start_frontend
 
 while true; do
   if [[ -f "$RESTART_FILE" ]]; then
@@ -226,6 +415,14 @@ while true; do
     write_status
     sleep 2
     start_backend
+  elif [[ -z "$frontend_pid" ]] || ! kill -0 "$frontend_pid" 2>/dev/null; then
+    echo "[supervisor] $(date '+%H:%M:%S') frontend exited, restart after 2s"
+    if [[ -n "$frontend_pid" ]]; then
+      wait "$frontend_pid" 2>/dev/null || true
+    fi
+    frontend_pid=""
+    sleep 2
+    start_frontend
   else
     write_status
   fi

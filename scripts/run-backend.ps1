@@ -12,16 +12,108 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $repo
 
-# --- 解析 mvn：优先 PATH，回退到本机已知安装 ---
-function Resolve-Mvn {
-  $c = Get-Command mvn -ErrorAction SilentlyContinue
-  if ($c) { return $c.Source }
-  foreach ($p in @('D:\devapps\apache-maven-3.9.9\bin\mvn.cmd')) {
-    if (Test-Path $p) { return $p }
+# --- 解析 mvn：同目录 run-tools.conf(MVN_CMD) → 环境变量/PATH/回退 → 交互式，命中即写回 conf ---
+# 与 run-supervised.ps1 共用同一份 run-tools.conf，配一次两个脚本都受益。
+$ToolsConfFile = Join-Path $PSScriptRoot 'run-tools.conf'
+
+function Read-ConfValue([string]$key) {
+  if (-not (Test-Path $ToolsConfFile)) { return $null }
+  foreach ($line in [System.IO.File]::ReadAllLines($ToolsConfFile)) {
+    $t = $line.Trim()
+    if ($t -eq '' -or $t.StartsWith('#')) { continue }
+    $i = $t.IndexOf('=')
+    if ($i -lt 1) { continue }
+    if ($t.Substring(0, $i).Trim() -eq $key) { return $t.Substring($i + 1).Trim() }
   }
-  throw 'mvn 未找到：请把 Maven 的 bin 目录加入 PATH，或修改本脚本的回退路径'
+  return $null
+}
+
+function Write-ConfValue([string]$key, [string]$value) {
+  $out = New-Object System.Collections.Generic.List[string]
+  $found = $false
+  if (Test-Path $ToolsConfFile) {
+    foreach ($line in [System.IO.File]::ReadAllLines($ToolsConfFile)) {
+      $t = $line.Trim()
+      if ($t -and -not $t.StartsWith('#')) {
+        $i = $t.IndexOf('=')
+        if ($i -ge 1 -and $t.Substring(0, $i).Trim() -eq $key) { $out.Add("$key=$value"); $found = $true; continue }
+      }
+      $out.Add($line)
+    }
+  } else {
+    $out.Add('# kai-toolbox 本机工具路径配置（脚本自动维护，可手改）')
+    $out.Add('# 形如 KEY=路径；缺失或失效时脚本会交互式询问并写回这里。')
+    $out.Add('# 机器相关，建议不要提交到仓库。')
+    $out.Add('')
+  }
+  if (-not $found) { $out.Add("$key=$value") }
+  [System.IO.File]::WriteAllText($ToolsConfFile, ($out -join "`r`n") + "`r`n", [System.Text.UTF8Encoding]::new($false))
+  Write-Host "[run-backend] 已写回 run-tools.conf：$key=$value"
+}
+
+# 把路径规整成真正的可执行文件：已是文件→原样；是目录→在 <dir> 和 <dir>\bin 下找
+# mvn.cmd/.bat/mvn（用户填 Maven 主目录也能自动定位到 bin\mvn.cmd）。找不到返回 $null。
+function Resolve-ExePath([string]$path, [string]$name) {
+  if (-not $path) { return $null }
+  if (Test-Path -LiteralPath $path -PathType Leaf) { return $path }
+  if (Test-Path -LiteralPath $path -PathType Container) {
+    foreach ($d in @($path, (Join-Path $path 'bin'))) {
+      foreach ($ext in @('.cmd', '.bat', '.exe', '')) {
+        $cand = Join-Path $d ($name + $ext)
+        if (Test-Path -LiteralPath $cand -PathType Leaf) { return $cand }
+      }
+    }
+  }
+  return $null
+}
+
+function Resolve-Mvn {
+  $v = Read-ConfValue 'MVN_CMD'
+  if ($v) {
+    $r = Resolve-ExePath $v 'mvn'
+    if ($r) { if ($r -ne $v) { Write-ConfValue 'MVN_CMD' $r }; return $r }
+    Write-Host "[run-backend] 配置中的 MVN_CMD 不是可用的可执行文件，重新探测：$v"
+  }
+  $r = Resolve-ExePath $env:MVN_CMD 'mvn'
+  if ($r) { Write-ConfValue 'MVN_CMD' $r; return $r }
+  $c = Get-Command mvn -ErrorAction SilentlyContinue
+  if ($c) { Write-ConfValue 'MVN_CMD' $c.Source; return $c.Source }
+  foreach ($p in @(
+      'D:\devapps\apache-maven-3.9.9\bin\mvn.cmd',
+      'C:\Program Files\apache-maven\bin\mvn.cmd'
+    )) {
+    $r = Resolve-ExePath $p 'mvn'
+    if ($r) { Write-ConfValue 'MVN_CMD' $r; return $r }
+  }
+  while ($true) {
+    Write-Host ''
+    Write-Host '[run-backend] 未找到 Maven (mvn)。'
+    Write-Host '[run-backend]   请输入 mvn.cmd 或 Maven 主目录的完整路径；或加入 PATH 后直接回车重新探测；输入 q 退出。'
+    Write-Host '[run-backend]   （填入后写回 run-tools.conf 的 MVN_CMD，下次免问）'
+    $answer = Read-Host '  mvn 路径'
+    if ($answer -eq 'q') { throw 'mvn 未找到，已取消。' }
+    if ([string]::IsNullOrWhiteSpace($answer)) {
+      $c = Get-Command mvn -ErrorAction SilentlyContinue
+      if ($c) { Write-ConfValue 'MVN_CMD' $c.Source; return $c.Source }
+      Write-Host '[run-backend] 仍未探测到 mvn。'
+      continue
+    }
+    $r = Resolve-ExePath $answer 'mvn'
+    if ($r) { Write-ConfValue 'MVN_CMD' $r; return $r }
+    Write-Host "[run-backend] 没找到可执行文件（已试 $answer 及其 bin 下的 mvn.cmd）：$answer"
+  }
 }
 $mvn = Resolve-Mvn
+
+# 让 mvn 用 JDK 21 构建：从 run-tools.conf 的 JAVA_CMD 反推 JAVA_HOME 并覆盖（本机默认可能仍是旧 JDK）。
+$javaCfg = Resolve-ExePath (Read-ConfValue 'JAVA_CMD') 'java'
+if ($javaCfg -and ($javaCfg -match '[\\/]bin[\\/]java(\.exe)?$')) {
+  $env:JAVA_HOME = Split-Path -Parent (Split-Path -Parent $javaCfg)
+  Write-Host "[run-backend] JAVA_HOME=$env:JAVA_HOME （供 mvn 构建使用 JDK 21）"
+}
+
+# Playwright-Java 首次运行会自动下 ~150MB Chromium；官方 CDN 在境内常被掐，改走国内镜像。已自定义则不覆盖。
+if (-not $env:PLAYWRIGHT_DOWNLOAD_HOST) { $env:PLAYWRIGHT_DOWNLOAD_HOST = 'https://cdn.npmmirror.com/binaries/playwright' }
 
 # --- 1. 确保 sidecar 已构建 ---
 $sidecar = Join-Path $repo 'sidecar\claude-agent'
