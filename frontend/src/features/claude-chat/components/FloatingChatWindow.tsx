@@ -231,7 +231,7 @@ export function FloatingChatWindow() {
           onPointerUp={onBubbleUp}
           aria-label={`${headerTitle} ${status}，点击展开`}
           title={`${headerTitle} · ${status}（拖动移动，点击展开）`}
-          className="fixed z-50 flex max-w-[72vw] cursor-move touch-none items-center gap-2 rounded-full border-2 border-[var(--color-primary)]/45 bg-[var(--color-background)] py-1.5 pl-2 pr-3.5 text-left shadow-xl ring-2 ring-[var(--color-primary)]/10"
+          className="fixed z-50 flex max-w-[72vw] cursor-move touch-none items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-card)] py-1.5 pl-2 pr-3.5 text-left shadow-lg"
           style={{ left: pos.x, top: pos.y }}
         >
           <span className={`flex size-7 shrink-0 items-center justify-center rounded-full ${active
@@ -256,7 +256,7 @@ export function FloatingChatWindow() {
   const autoHeight = compact && !showSessions // 迷你态：高度随内容自适应（不铺消息流）
   return (
     <div
-      className="fixed z-50 flex flex-col overflow-hidden rounded-xl border-2 border-[var(--color-primary)]/45 bg-[var(--color-muted)] bg-gradient-to-br from-[var(--color-primary)]/22 to-[var(--color-primary)]/8 shadow-2xl ring-2 ring-[var(--color-primary)]/15"
+      className="fixed z-50 flex flex-col overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-xl"
       style={{ left: pos.x, top: pos.y, width: size.w, height: autoHeight ? undefined : size.h, maxHeight: autoHeight ? '70vh' : undefined }}
     >
       {/* 标题栏 = 拖拽手柄。迷你态：状态 + 关键控制（仿音乐小卡片，只一行）；完整态：别名/引擎/全部按钮。 */}
@@ -264,7 +264,7 @@ export function FloatingChatWindow() {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        className="flex cursor-move touch-none items-center gap-2 border-b border-[var(--color-primary)]/30 bg-[var(--color-muted)] bg-gradient-to-r from-[var(--color-primary)]/45 to-[var(--color-primary)]/20 px-3 py-2 select-none"
+        className="flex cursor-move touch-none items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-muted)] px-3 py-2 select-none"
       >
         {compact ? (
           <>
@@ -323,7 +323,7 @@ export function FloatingChatWindow() {
             onClick={cycleMode}
             title="点击切换权限模式：默认 → 自动接受 → 计划 → 全自动（下一轮生效）"
             className={`flex shrink-0 items-center gap-1 rounded border px-1.5 py-1 text-[11px] ${chat.mode === 'bypassPermissions'
-              ? 'border-red-500 text-red-600 dark:text-red-400'
+              ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400'
               : 'text-[var(--color-muted-foreground)]'}`}
           >
             <Shield className="size-3.5" /> 权限：{MODE_LABELS[chat.mode]}
@@ -334,7 +334,7 @@ export function FloatingChatWindow() {
               onClick={toggleAutoApprove}
               title="全自动下：弹出的权限框自动点「允许」（仅权限框，提问不自动应答）"
               className={`flex shrink-0 items-center gap-1 rounded border px-1.5 py-1 text-[11px] ${autoApprove
-                ? 'border-red-500 text-red-600 dark:text-red-400'
+                ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400'
                 : 'text-[var(--color-muted-foreground)]'}`}
             >
               <ShieldCheck className="size-3.5" /> 自动允许·{autoApprove ? '开' : '关'}
@@ -357,7 +357,7 @@ export function FloatingChatWindow() {
 
       {/* 迷你态输入：只一个语音按钮，识别后直接发送（不显示输入框/发送按钮，最简） */}
       {!showSessions && compact && (
-        <div className="flex items-center justify-center gap-3 border-t border-[var(--color-primary)]/30 bg-[var(--color-muted)] bg-gradient-to-r from-[var(--color-primary)]/45 to-[var(--color-primary)]/20 p-2.5">
+        <div className="flex items-center justify-center gap-3 border-t border-[var(--color-border)] bg-[var(--color-muted)] p-2.5">
           <VoiceInputButton
             disabled={chat.running}
             onText={t => { const x = t.trim(); if (x && !chat.running) chat.send(x) }}
@@ -373,7 +373,7 @@ export function FloatingChatWindow() {
 
       {/* 完整态输入区（会话列表展开时隐藏） */}
       {!showSessions && !compact && (
-      <div className="border-t border-[var(--color-primary)]/30 bg-[var(--color-muted)] bg-gradient-to-r from-[var(--color-primary)]/45 to-[var(--color-primary)]/20">
+      <div className="border-t border-[var(--color-border)] bg-[var(--color-muted)]">
         {(attachments.length > 0 || uploading > 0) && (
           <AttachmentChips
             items={attachments}
