@@ -35,7 +35,7 @@ export function TransientBubbleLayer({ userText, aiText }: { userText: string | 
       <div className="flex max-w-[88%] justify-center">
         {ai && (
           <div
-            className={`max-h-[28vh] overflow-hidden rounded-2xl bg-white/12 px-4 py-2.5 text-center text-sm leading-relaxed text-white/95 backdrop-blur-md transition-all duration-500 [overflow-wrap:anywhere] ${ai.shown ? 'translate-y-0 opacity-100' : '-translate-y-3 opacity-0'}`}
+            className={`max-h-[28vh] overflow-hidden rounded-2xl bg-white/80 px-4 py-2.5 text-center text-sm leading-relaxed text-slate-800 shadow-sm backdrop-blur-md transition-all duration-500 [overflow-wrap:anywhere] ${ai.shown ? 'translate-y-0 opacity-100' : '-translate-y-3 opacity-0'}`}
           >
             {ai.text}
           </div>

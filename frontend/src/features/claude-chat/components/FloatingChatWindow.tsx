@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronDown, ChevronUp, Fish, LayoutGrid, List, Loader2, Maximize2, MessageSquare, Minus, Paperclip, Plus, Send, Shield, ShieldCheck, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Cloud, LayoutGrid, List, Loader2, Maximize2, MessageSquare, Minus, Paperclip, Plus, Send, Shield, ShieldCheck, X } from 'lucide-react'
 import { CHAT_ROUTE, useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { isShowcasePath } from '@/shell/featureRegistry'
 import { ThemeMenu } from '@/shell/ThemeMenu'
@@ -341,9 +341,9 @@ export function FloatingChatWindow() {
               {compact ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
             </button>
           )}
-          <button type="button" onClick={() => setVoiceMode(true)} aria-label="语音模式" title="电子鱼·纯语音对话"
+          <button type="button" onClick={() => setVoiceMode(true)} aria-label="语音模式" title="白云·纯语音对话"
             className="rounded p-1 hover:bg-[var(--color-background)]">
-            <Fish className="size-4" />
+            <Cloud className="size-4" />
           </button>
           <button type="button" onClick={() => navigate(CHAT_ROUTE)} aria-label="展开为全屏" title="展开为全屏"
             className="rounded p-1 hover:bg-[var(--color-background)]">

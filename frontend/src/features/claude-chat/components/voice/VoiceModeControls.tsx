@@ -19,18 +19,18 @@ export function VoiceModeControls({ machine, onExit }: { machine: VoiceModeMachi
         onClick={onExit}
         aria-label="退出语音模式"
         title="退出语音模式"
-        className="absolute right-4 top-4 flex size-10 items-center justify-center rounded-full bg-white/10 text-white/90 backdrop-blur-md hover:bg-white/20"
+        className="absolute right-4 top-4 flex size-10 items-center justify-center rounded-full bg-white/70 text-slate-700 shadow-sm backdrop-blur-md hover:bg-white"
       >
         <X className="size-5" />
       </button>
 
       <div className="absolute inset-x-0 bottom-0 flex flex-col items-center gap-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-6">
-        <div className="h-5 text-sm text-white/70">
+        <div className="h-5 text-sm font-medium text-slate-700">
           {error ?? (recording ? `${STATE_LABEL.listening} ${seconds}s` : STATE_LABEL[state])}
         </div>
 
         {busy ? (
-          <div className="flex size-16 items-center justify-center rounded-full bg-white/10 text-white/90 backdrop-blur-md">
+          <div className="flex size-16 items-center justify-center rounded-full bg-white/70 text-slate-700 shadow-sm backdrop-blur-md">
             <Loader2 className="size-7 animate-spin" />
           </div>
         ) : recording ? (
@@ -39,7 +39,7 @@ export function VoiceModeControls({ machine, onExit }: { machine: VoiceModeMachi
               type="button"
               onClick={cancelTalk}
               aria-label="取消"
-              className="flex size-12 items-center justify-center rounded-full bg-white/10 text-white/80 backdrop-blur-md hover:bg-white/20"
+              className="flex size-12 items-center justify-center rounded-full bg-white/70 text-slate-600 shadow-sm backdrop-blur-md hover:bg-white"
             >
               <X className="size-6" />
             </button>
@@ -58,7 +58,7 @@ export function VoiceModeControls({ machine, onExit }: { machine: VoiceModeMachi
             onClick={() => void startTalk()}
             disabled={!supported}
             aria-label="开始说话"
-            className="flex size-16 items-center justify-center rounded-full bg-white/10 text-white shadow-lg backdrop-blur-md hover:bg-white/20 disabled:opacity-40"
+            className="flex size-16 items-center justify-center rounded-full bg-white/80 text-slate-700 shadow-lg backdrop-blur-md hover:bg-white disabled:opacity-40"
           >
             <Mic className="size-7" />
           </button>
