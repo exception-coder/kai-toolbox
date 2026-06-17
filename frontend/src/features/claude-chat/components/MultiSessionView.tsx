@@ -60,15 +60,19 @@ export function MultiSessionView({ sessionIds, onExit, onRemove }: Props) {
           没有选中的会话
         </div>
       ) : (
-        <div className={`grid flex-1 gap-2 overflow-auto p-2 auto-rows-[minmax(320px,1fr)] ${colsClass(sessionIds.length)}`}>
+        <div
+          className={`grid min-h-0 flex-1 gap-2 overflow-auto p-2 ${colsClass(sessionIds.length)}`}
+          style={{ gridAutoRows: 'minmax(320px, 1fr)' }}
+        >
           {sessionIds.map((id, i) => (
-            <SessionPane
-              key={id}
-              sessionId={id}
-              accent={agentAccent(i)}
-              onStatus={s => setStatus(id, s)}
-              onClose={() => onRemove(id)}
-            />
+            <div key={id} className="min-h-0">
+              <SessionPane
+                sessionId={id}
+                accent={agentAccent(i)}
+                onStatus={s => setStatus(id, s)}
+                onClose={() => onRemove(id)}
+              />
+            </div>
           ))}
         </div>
       )}
