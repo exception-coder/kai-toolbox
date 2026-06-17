@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Send, Square, X } from 'lucide-react'
+import { Paperclip, Send, ShieldCheck, Square, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useClaudeChatSocket } from '../hooks/useClaudeChatSocket'
-import { listSessions } from '../api'
+import { listSessions, uploadAttachment, type UploadedAttachment } from '../api'
+import { ensureNotifyPermission } from '../browserNotify'
 import { MessageList } from './MessageList'
 import { PermissionDialog } from './PermissionDialog'
 import { QuestionDialog } from './QuestionDialog'
 import { ModeSwitch } from './ModeSwitch'
+import { AttachmentChips } from './AttachmentChips'
+import { VoiceInputButton } from './VoiceInputButton'
 import { engineName, stateLabel, stateTone } from './chatStatus'
 
 interface Props {
@@ -18,6 +21,13 @@ interface Props {
   onClose: () => void
 }
 
+/** 单条消息最多附件数，与单会话视图、后端约定一致。 */
+const MAX_ATTACHMENTS = 10
+/** 「弹窗自动允许」全局开关键，与单会话视图共用，多处同步。 */
+const AUTO_APPROVE_KEY = 'kai-toolbox:auto-approve-permission'
+
+type ChatAttachment = UploadedAttachment & { previewUrl?: string }
+
 function shortCwd(cwd: string): string {
   const i = Math.max(cwd.lastIndexOf('/'), cwd.lastIndexOf('\\'))
   return i >= 0 && i < cwd.length - 1 ? cwd.slice(i + 1) : cwd
@@ -25,12 +35,16 @@ function shortCwd(cwd: string): string {
 
 /**
  * 并行分屏中的一个可交互会话块：自带独立 WS（useClaudeChatSocket 自包含），挂载后续接指定会话，
- * 各自发消息 / 看流式回复 / 各自权限·提问弹窗，互不干扰。
+ * 各自发消息 / 看流式回复 / 各自权限·提问弹窗，互不干扰。与单会话视图同样支持图片上传（含粘贴）、
+ * 语音输入、以及「弹窗自动允许」（全自动模式下自动放行权限框）。
  */
 export function SessionPane({ sessionId, onClose }: Props) {
   const chat = useClaudeChatSocket()
   const [draft, setDraft] = useState('')
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([])
+  const [uploading, setUploading] = useState(0)
   const taRef = useRef<HTMLTextAreaElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
 
   // 挂载（或 sessionId 变化）后续接一次该会话
   const switchedRef = useRef<string | null>(null)
@@ -45,15 +59,71 @@ export function SessionPane({ sessionId, onClose }: Props) {
   const meta = sessions.find(s => s.id === sessionId)
   const title = meta?.title?.trim() || (meta ? shortCwd(meta.cwd) : sessionId.slice(0, 8))
 
+  // 弹窗自动允许：与单会话共用全局开关；监听 storage 让多块/单视图间同步
+  const [autoApprove, setAutoApprove] = useState(() => localStorage.getItem(AUTO_APPROVE_KEY) === '1')
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => { if (e.key === AUTO_APPROVE_KEY) setAutoApprove(e.newValue === '1') }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
+  const toggleAutoApprove = () => setAutoApprove(v => {
+    const nv = !v
+    try { localStorage.setItem(AUTO_APPROVE_KEY, nv ? '1' : '0') } catch { /* ignore */ }
+    return nv
+  })
+
   const pending = chat.pending
+  // 全自动 + 开关开启时，自动放行本块的权限框（仅 permission；AskUserQuestion 提问不自动应答）
+  const autoApprovedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (chat.mode !== 'bypassPermissions' || !autoApprove) return
+    if (pending?.kind !== 'permission') return
+    if (autoApprovedRef.current === pending.reqId) return
+    autoApprovedRef.current = pending.reqId
+    chat.decide({ type: 'decision', reqId: pending.reqId, behavior: 'allow' })
+  }, [pending, autoApprove, chat])
+
+  const handleFiles = async (files: FileList | null) => {
+    if (!files || !chat.sessionId) return
+    const room = MAX_ATTACHMENTS - attachments.length - uploading
+    const take = Array.from(files).slice(0, Math.max(0, room))
+    const sid = chat.sessionId
+    for (const f of take) {
+      setUploading(n => n + 1)
+      try {
+        const att = await uploadAttachment(sid, f)
+        const previewUrl = f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined
+        setAttachments(prev => [...prev, { ...att, previewUrl }])
+      } catch (e) {
+        console.error('[claude-chat] 附件上传失败', e)
+      } finally {
+        setUploading(n => n - 1)
+      }
+    }
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = e.clipboardData?.files
+    if (files && files.length > 0) {
+      e.preventDefault()
+      void handleFiles(files)
+    }
+  }
+
   const submit = () => {
-    const t = draft.trim()
-    if (!t) return
-    chat.send(t)
+    if (!chat.sessionId) return
+    if (!draft.trim() && attachments.length === 0) return
+    ensureNotifyPermission()
+    chat.send(draft, attachments.map(a => ({ name: a.name, path: a.path })))
+    attachments.forEach(a => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl) })
     setDraft('')
+    setAttachments([])
     const el = taRef.current
     if (el) el.style.height = 'auto'
   }
+
+  const atMax = attachments.length + uploading >= MAX_ATTACHMENTS
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border bg-[var(--color-background)]">
@@ -93,12 +163,55 @@ export function SessionPane({ sessionId, onClose }: Props) {
         />
       </div>
 
-      {/* 紧凑输入条 */}
+      {/* 输入条：附件预览 + 模式/自动允许 + 附件/语音/输入/发送 */}
       <div className="border-t bg-[var(--color-muted)] px-2 py-1.5">
+        <AttachmentChips
+          items={attachments}
+          uploading={uploading}
+          onRemove={id => setAttachments(prev => {
+            const t = prev.find(a => a.id === id)
+            if (t?.previewUrl) URL.revokeObjectURL(t.previewUrl)
+            return prev.filter(a => a.id !== id)
+          })}
+        />
         <div className="mb-1 flex items-center gap-1">
           <ModeSwitch mode={chat.mode} onChange={chat.setMode} />
+          {chat.mode === 'bypassPermissions' && (
+            <button
+              type="button"
+              onClick={toggleAutoApprove}
+              title="全自动下：弹出的权限框自动点「允许」（仅权限框；AskUserQuestion 提问不自动应答）"
+              aria-label="弹窗自动允许开关"
+              className={'flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] '
+                + (autoApprove
+                  ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                  : 'text-[var(--color-muted-foreground)]')}
+            >
+              <ShieldCheck className="size-3" /> 自动允许·{autoApprove ? '开' : '关'}
+            </button>
+          )}
         </div>
         <div className="flex items-end gap-1">
+          {/* 附件：label 包 input，保留原生触发（移动端 WebView 不丢手势） */}
+          <label
+            aria-label="添加附件"
+            title="添加图片 / 文档"
+            className={`flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-md hover:bg-[var(--color-accent)]${atMax ? ' pointer-events-none opacity-50' : ''}`}
+          >
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              className="sr-only"
+              disabled={atMax}
+              onChange={e => handleFiles(e.target.files)}
+            />
+            <Paperclip className="size-4 text-[var(--color-primary)]" />
+          </label>
+          <VoiceInputButton
+            disabled={chat.running}
+            onText={t => setDraft(d => d.trim() ? `${d} ${t}` : t)}
+          />
           <textarea
             ref={taRef}
             value={draft}
@@ -108,11 +221,12 @@ export function SessionPane({ sessionId, onClose }: Props) {
               el.style.height = 'auto'
               el.style.height = `${Math.min(el.scrollHeight, 120)}px`
             }}
+            onPaste={handlePaste}
             onKeyDown={e => {
-              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
+              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!chat.running) submit() }
             }}
             rows={1}
-            placeholder="发消息…"
+            placeholder="发消息…（可粘贴图片）"
             className="max-h-[120px] min-h-[36px] flex-1 resize-none rounded-md border bg-[var(--color-background)] px-2 py-1.5 text-sm"
           />
           {chat.running ? (
@@ -120,7 +234,7 @@ export function SessionPane({ sessionId, onClose }: Props) {
               <Square className="size-4" />
             </Button>
           ) : (
-            <Button size="icon" onClick={submit} disabled={!draft.trim()} aria-label="发送" className="shrink-0">
+            <Button size="icon" onClick={submit} disabled={!draft.trim() && attachments.length === 0} aria-label="发送" className="shrink-0">
               <Send className="size-4" />
             </Button>
           )}
