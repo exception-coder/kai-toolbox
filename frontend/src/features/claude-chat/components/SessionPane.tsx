@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Paperclip, Send, ShieldCheck, Square, X } from 'lucide-react'
+import { AlertTriangle, Paperclip, Send, ShieldCheck, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { StatusBadge } from '@/components/ui/status-badge'
 import { useClaudeChatSocket } from '../hooks/useClaudeChatSocket'
 import { listSessions, uploadAttachment, type UploadedAttachment } from '../api'
 import { ensureNotifyPermission } from '../browserNotify'
@@ -12,13 +11,17 @@ import { QuestionDialog } from './QuestionDialog'
 import { ModeSwitch } from './ModeSwitch'
 import { AttachmentChips } from './AttachmentChips'
 import { VoiceInputButton } from './VoiceInputButton'
-import { engineName, stateLabel, stateTone } from './chatStatus'
+import { agentStatusMeta, deriveAgentStatus, engineName, type AgentStatus } from './chatStatus'
 
 interface Props {
   /** 本块续接的会话 id。 */
   sessionId: string
-  /** 从分屏移除本块。 */
-  onClose: () => void
+  /** 是否为当前选中的详情（仅 active 时渲染重型 UI；非 active 仍保活 WS 并上报状态）。 */
+  active: boolean
+  /** 该 Agent 的区分色（hex），用于详情头部染色。 */
+  accent: string
+  /** 上报本块业务状态，供左侧列表/概览展示。 */
+  onStatus: (status: AgentStatus) => void
 }
 
 /** 单条消息最多附件数，与单会话视图、后端约定一致。 */
@@ -34,11 +37,11 @@ function shortCwd(cwd: string): string {
 }
 
 /**
- * 并行分屏中的一个可交互会话块：自带独立 WS（useClaudeChatSocket 自包含），挂载后续接指定会话，
- * 各自发消息 / 看流式回复 / 各自权限·提问弹窗，互不干扰。与单会话视图同样支持图片上传（含粘贴）、
- * 语音输入、以及「弹窗自动允许」（全自动模式下自动放行权限框）。
+ * 分屏「Agent 列表 + 详情」中的单个 Agent 运行时块：自带独立 WS（useClaudeChatSocket 自包含），
+ * 挂载后续接指定会话并**始终保活**——非 active 时不渲染重型 UI 但持续上报状态（运行/报错/空闲）；
+ * active 时渲染完整可交互详情（发消息/流式回复/图片上传/语音/权限·提问/弹窗自动允许）。
  */
-export function SessionPane({ sessionId, onClose }: Props) {
+export function SessionPane({ sessionId, active, accent, onStatus }: Props) {
   const chat = useClaudeChatSocket()
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
@@ -53,6 +56,14 @@ export function SessionPane({ sessionId, onClose }: Props) {
     switchedRef.current = sessionId
     chat.switchTo(sessionId)
   }, [sessionId, chat])
+
+  // 派生并上报业务状态（用 ref 持有 onStatus，避免父回调 identity 变化导致的重复触发）
+  const status = deriveAgentStatus(chat.state, chat.running, chat.items, chat.errorMessage)
+  const onStatusRef = useRef(onStatus)
+  onStatusRef.current = onStatus
+  useEffect(() => {
+    onStatusRef.current({ kind: status.kind, errorText: status.errorText, count: status.count })
+  }, [status.kind, status.errorText, status.count])
 
   // 标题取自会话列表缓存（与单会话视图共用同一 query 缓存）
   const { data: sessions = [] } = useQuery({ queryKey: ['claude-chat-sessions'], queryFn: listSessions, staleTime: 5000 })
@@ -123,35 +134,36 @@ export function SessionPane({ sessionId, onClose }: Props) {
     if (el) el.style.height = 'auto'
   }
 
+  // 非 active：hook 已挂载并持续上报状态，但不渲染重型详情 UI（节省渲染、便于横向扩展到很多 Agent）
+  if (!active) return null
+
+  const sm = agentStatusMeta(status.kind)
   const atMax = attachments.length + uploading >= MAX_ATTACHMENTS
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border bg-[var(--color-background)]">
-      {/* 块头 */}
-      <div className="flex items-center gap-2 border-b bg-[var(--color-muted)] px-2 py-1.5">
-        <StatusBadge
-          tone={stateTone(chat.state)}
-          pulse={chat.state === 'connecting'}
-          title={stateLabel(chat.state)}
-          aria-label={stateLabel(chat.state)}
-          className="size-3 shrink-0 justify-center rounded-full px-0"
-        />
-        <span className="min-w-0 flex-1 truncate text-xs font-medium" title={meta?.cwd}>{title}</span>
-        <span className="shrink-0 rounded bg-[var(--color-background)] px-1 text-[10px] text-[var(--color-muted-foreground)]">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      {/* 详情头部：左侧 Agent 区分色竖条 + 轻量染色背景 + 状态 */}
+      <div
+        className="flex items-center gap-2 border-b px-3 py-2"
+        style={{ backgroundColor: `${accent}14`, borderLeft: `3px solid ${accent}` }}
+      >
+        <span className={`size-2.5 shrink-0 rounded-full ${sm.dot}${sm.pulse ? ' animate-pulse' : ''}`} />
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold" title={meta?.cwd}>{title}</span>
+        <span className="shrink-0 rounded bg-[var(--color-background)] px-1.5 py-0.5 text-[10px] text-[var(--color-muted-foreground)]">
           {engineName(chat.currentEngine)}
         </span>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="关闭此块"
-          className="shrink-0 rounded p-1 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]"
-        >
-          <X className="size-3.5" />
-        </button>
+        <span className={`shrink-0 text-xs font-medium ${sm.text}`}>{sm.label}</span>
       </div>
 
-      {/* 消息流：必须是 flex 列容器，MessageList 才能靠 flex-1 拿到有界高度并内部滚动
-          （block 容器下 flex-1 失效 → 列表随内容撑高、overflow 不生效 → 分屏块滚不动） */}
+      {/* 报错状态条：不让用户自己翻聊天记录 */}
+      {status.kind === 'error' && status.errorText && (
+        <div className="flex items-start gap-2 border-b border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <span className="min-w-0 flex-1 break-words">{status.errorText}</span>
+        </div>
+      )}
+
+      {/* 消息流：flex 列容器，MessageList 靠 flex-1 拿到有界高度并内部滚动 */}
       <div className="flex min-h-0 flex-1 flex-col">
         <MessageList
           items={chat.items}

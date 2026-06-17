@@ -19,7 +19,7 @@ import { SlashCommandMenu } from '../components/SlashCommandMenu'
 import { CommandMenu } from '../components/CommandMenu'
 import { PluginPanel } from '../components/PluginPanel'
 import { TaskspacePanel } from '../components/TaskspacePanel'
-import { MultiSessionGrid } from '../components/MultiSessionGrid'
+import { MultiSessionView } from '../components/MultiSessionView'
 import { engineName, stateLabel, stateTone } from '../components/chatStatus'
 import { getSessionCommitDiff, listSessionCommits, listSessions, listWorkspaces, uploadAttachment, type UploadedAttachment } from '../api'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
@@ -539,7 +539,7 @@ export function ChatPage() {
 
       {/* 消息流：多会话分屏优先；否则单会话视图（有会话渲染消息流，无会话渲染空态） */}
       {viewMode === 'multi' ? (
-        <MultiSessionGrid
+        <MultiSessionView
           sessionIds={multiIds}
           onExit={() => setViewMode('single')}
           onRemove={id => setMultiIds(prev => {
