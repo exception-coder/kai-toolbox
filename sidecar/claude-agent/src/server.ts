@@ -32,7 +32,7 @@ wss.on('connection', (ws) => {
     const sessionId = msg.sessionId as string
     switch (type) {
       case 'start':
-        manager.start(sessionId, msg.cwd as string, msg.model as string, msg.mode as string, msg.engine as string)
+        manager.start(sessionId, msg.cwd as string, msg.model as string, msg.mode as string, msg.engine as string, msg.apiBaseUrl as string | undefined, msg.authToken as string | undefined)
         break
       case 'setMode':
         manager.setMode(sessionId, msg.mode as string)
@@ -47,7 +47,7 @@ wss.on('connection', (ws) => {
         void manager.forkSession(sessionId, msg.upToMessageId as string)
         break
       case 'resume':
-        manager.resume(sessionId, msg.sdkSessionId as string, msg.cwd as string, msg.engine as string)
+        manager.resume(sessionId, msg.sdkSessionId as string, msg.cwd as string, msg.engine as string, msg.apiBaseUrl as string | undefined, msg.authToken as string | undefined)
         break
       case 'user':
         manager.user(sessionId, msg.text as string)

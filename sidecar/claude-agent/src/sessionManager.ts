@@ -46,6 +46,10 @@ async function prewarmClaudeModels(): Promise<void> {
 class Session {
   sdkSessionId?: string
   model?: string
+  /** 第三方网关 baseURL（Anthropic 兼容）。仅本会话生效——置则每轮 query 注入 env，不影响其它会话/官方登录。 */
+  apiBaseUrl?: string
+  /** 第三方网关鉴权 token（走 ANTHROPIC_AUTH_TOKEN）。 */
+  authToken?: string
   /** 会话引擎，新建时定、resume 沿用；决定 runTurn 走 Claude 还是 Codex。 */
   engine: Engine = 'claude'
   /** 会话级权限模式，每轮 query 传入；运行中切换下一轮生效。 */
@@ -99,6 +103,11 @@ class Session {
             includePartialMessages: true,
             canUseTool: this.perms.canUseTool,
             abortController: ac,
+            // 仅当本会话配置了第三方网关时注入 env（SDK 的 env 会整体替换子进程环境，故必须 spread process.env）。
+            // 不配置则不传 → 子进程继承官方登录，官方会话零影响。
+            ...(this.apiBaseUrl
+              ? { env: { ...process.env, ANTHROPIC_BASE_URL: this.apiBaseUrl, ANTHROPIC_AUTH_TOKEN: this.authToken ?? '' } }
+              : {}),
             // 把 native 二进制的 stderr 透到 sidecar 日志，失败时也并入错误信息
             stderr: (s: string) => {
               nativeStderr += s
@@ -269,10 +278,11 @@ export class SessionManager {
     void prewarmClaudeModels()
   }
 
-  start(id: string, cwd: string, model?: string, mode?: string, engine?: string): void {
+  start(id: string, cwd: string, model?: string, mode?: string, engine?: string, apiBaseUrl?: string, authToken?: string): void {
     const s = new Session(id, cwd || process.env.HOME || process.cwd(), (e) => this.emit(id, e))
     if (model) s.model = model
     if (engine === 'codex' || engine === 'gemini') s.engine = engine
+    if (apiBaseUrl) { s.apiBaseUrl = apiBaseUrl; s.authToken = authToken }
     if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
     this.sessions.set(id, s)
     // 立即回一个 init（sdkSessionId 暂为 null），让前端拿到 Ready 启用输入；
@@ -281,7 +291,7 @@ export class SessionManager {
     this.emitCachedModels(id, s)
   }
 
-  resume(id: string, sdkSessionId: string, cwd: string, engine?: string): void {
+  resume(id: string, sdkSessionId: string, cwd: string, engine?: string, apiBaseUrl?: string, authToken?: string): void {
     let s = this.sessions.get(id)
     if (!s) {
       s = new Session(id, cwd, (e) => this.emit(id, e))
@@ -290,6 +300,7 @@ export class SessionManager {
     if (sdkSessionId) s.sdkSessionId = sdkSessionId
     if (cwd) s.cwd = cwd
     if (engine === 'codex' || engine === 'claude' || engine === 'gemini') s.engine = engine
+    if (apiBaseUrl) { s.apiBaseUrl = apiBaseUrl; s.authToken = authToken }
     this.emitCachedModels(id, s)
   }
 
