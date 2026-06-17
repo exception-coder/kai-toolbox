@@ -11,8 +11,8 @@ export interface UseVoiceRecorder {
   recording: boolean
   seconds: number
   supported: boolean
-  /** 开始录音；失败（无权限等）抛错 */
-  start: () => Promise<void>
+  /** 开始录音；失败（无权限等）抛错。onStream 在拿到麦克风流后回调一次，供可视化分析复用同一路流（不另开 getUserMedia）。 */
+  start: (onStream?: (stream: MediaStream) => void) => Promise<void>
   /** 停止并返回录音 blob */
   stop: () => Promise<Blob>
   /** 取消录音，丢弃数据 */
@@ -47,10 +47,11 @@ export function useVoiceRecorder(): UseVoiceRecorder {
 
   useEffect(() => cleanup, [cleanup])
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (onStream?: (stream: MediaStream) => void) => {
     if (recRef.current) return
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     streamRef.current = stream
+    onStream?.(stream)
     const rec = new MediaRecorder(stream)
     chunksRef.current = []
     rec.ondataavailable = e => {

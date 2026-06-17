@@ -7,6 +7,7 @@ import { features } from '@/shell/featureRegistry'
 import { RouteGuard } from '@/components/auth/RouteGuard'
 import { ChatRuntimeProvider } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import { FloatingChatWindow } from '@/features/claude-chat/components/FloatingChatWindow'
+import { VoiceModeView } from '@/features/claude-chat/components/voice/VoiceModeView'
 
 // 按布局把 feature 分两支：'showcase' 走全屏展示外壳（脱离 AppShell、公开免鉴权），
 // 其余默认 'tool' 走 AppShell（Sidebar + TopBar）。Suspense 各自在对应外壳里。
@@ -47,6 +48,7 @@ export default function App() {
       </Route>
     </Routes>
     <FloatingChatWindow />
+    <VoiceModeView />
     </ChatRuntimeProvider>
   )
 }

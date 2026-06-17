@@ -23,6 +23,14 @@ function getCtx(): AudioContext | null {
   }
 }
 
+/**
+ * 取共享 AudioContext（与提示音复用同一实例，避免多开）。
+ * 须在用户手势链路内首次调用以满足移动端自动播放策略；返回 null 表示不支持。
+ */
+export function getSharedAudioContext(): AudioContext | null {
+  return getCtx()
+}
+
 /** 在用户手势内调用一次:创建 + resume AudioContext，并放一声极轻 blip 彻底解锁。 */
 function unlock(): void {
   const c = getCtx()

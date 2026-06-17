@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, FolderTree, GitCommit, List, Maximize2, Minimize2, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RotateCw, Send, Server, ShieldCheck, Slash, Square } from 'lucide-react'
+import { Bell, Fish, FolderTree, GitCommit, List, Maximize2, Minimize2, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RotateCw, Send, Server, ShieldCheck, Slash, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Input } from '@/components/ui/input'
@@ -62,7 +62,7 @@ function HeaderMenuItem({ icon, label, hint, onClick }: {
 }
 
 export function ChatPage() {
-  const { chat, setFloating, setMinimized, getReturnRoute } = useChatRuntime()
+  const { chat, setFloating, setMinimized, setVoiceMode, getReturnRoute } = useChatRuntime()
   const navigate = useNavigate()
   const qc = useQueryClient()
   const pending = chat?.pending ?? null
@@ -454,6 +454,7 @@ export function ChatPage() {
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setHeaderMenu(false)} />
                 <div className="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-xl border bg-[var(--color-popover)] py-1 text-[var(--color-popover-foreground)] shadow-xl">
+                  <HeaderMenuItem icon={<Fish className="size-4" />} label="语音模式" hint="全屏电子鱼·纯语音对话" onClick={() => { setHeaderMenu(false); setVoiceMode(true) }} />
                   <HeaderMenuItem icon={<PictureInPicture2 className="size-4" />} label="弹出悬浮窗" hint="切到其他模块常驻显示" onClick={() => { setHeaderMenu(false); popOutFloating() }} />
                   <HeaderMenuItem icon={fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />} label={fullscreen ? '退出全屏' : '全屏显示'} onClick={() => { setHeaderMenu(false); setFullscreen(f => !f) }} />
                   {chat.sessionId && (

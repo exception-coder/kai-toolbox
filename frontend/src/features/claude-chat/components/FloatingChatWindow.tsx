@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronDown, ChevronUp, LayoutGrid, List, Loader2, Maximize2, MessageSquare, Minus, Paperclip, Plus, Send, Shield, ShieldCheck, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Fish, LayoutGrid, List, Loader2, Maximize2, MessageSquare, Minus, Paperclip, Plus, Send, Shield, ShieldCheck, X } from 'lucide-react'
 import { CHAT_ROUTE, useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { isShowcasePath } from '@/shell/featureRegistry'
 import { ThemeMenu } from '@/shell/ThemeMenu'
@@ -48,7 +48,7 @@ function deriveStatus(items: ChatItem[], running: boolean, hasPermission: boolea
  * 避免与全屏会话页双份 UI。操作的是 Context 里的同一聊天实例（同一 WS、同一会话）。
  */
 export function FloatingChatWindow() {
-  const { chat, floating, setFloating, minimized, setMinimized, pos, setPos, size, setSize } = useChatRuntime()
+  const { chat, floating, setFloating, minimized, setMinimized, pos, setPos, size, setSize, setVoiceMode } = useChatRuntime()
   const location = useLocation()
   const navigate = useNavigate()
   const [draft, setDraft] = useState('')
@@ -341,6 +341,10 @@ export function FloatingChatWindow() {
               {compact ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
             </button>
           )}
+          <button type="button" onClick={() => setVoiceMode(true)} aria-label="语音模式" title="电子鱼·纯语音对话"
+            className="rounded p-1 hover:bg-[var(--color-background)]">
+            <Fish className="size-4" />
+          </button>
           <button type="button" onClick={() => navigate(CHAT_ROUTE)} aria-label="展开为全屏" title="展开为全屏"
             className="rounded p-1 hover:bg-[var(--color-background)]">
             <Maximize2 className="size-4" />

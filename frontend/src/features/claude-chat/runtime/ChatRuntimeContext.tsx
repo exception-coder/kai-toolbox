@@ -70,6 +70,9 @@ interface ChatRuntime {
   /** 悬浮窗尺寸（px），可拖拽调整，跨路由持久。 */
   size: FloatSize
   setSize: (s: FloatSize) => void
+  /** 是否进入「电子鱼语音模式」全屏视图。与悬浮窗/会话页共用同一聊天实例，跨路由保持。 */
+  voiceMode: boolean
+  setVoiceMode: (v: boolean) => void
   /** 弹出悬浮窗时应返回的路由 = 进入会话页前最后访问的非会话路由（默认 /）。 */
   getReturnRoute: () => string
 }
@@ -97,7 +100,13 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
   const [minimized, setMinimized] = useState(() => persisted?.minimized ?? false)
   const [pos, setPos] = useState<FloatPos>(() => persisted?.pos ?? DEFAULT_POS)
   const [size, setSize] = useState<FloatSize>(() => persisted?.size ?? DEFAULT_SIZE)
+  // 语音模式不持久化（刷新回到普通态，避免重连即弹全屏）；进入即懒激活引擎。
+  const [voiceMode, setVoiceModeState] = useState(false)
   const activate = useCallback(() => setActive(true), [])
+  const setVoiceMode = useCallback((v: boolean) => {
+    if (v) setActive(true)
+    setVoiceModeState(v)
+  }, [])
 
   // 形态变化即写回本地（节流意义不大，状态变更频率低）
   useEffect(() => {
@@ -118,7 +127,7 @@ export function ChatRuntimeProvider({ children }: { children: ReactNode }) {
     else lastRouteRef.current = location.pathname + location.search
   }, [location.pathname, location.search])
 
-  const control = { active, activate, floating, setFloating, minimized, setMinimized, pos, setPos, size, setSize, getReturnRoute }
+  const control = { active, activate, floating, setFloating, minimized, setMinimized, pos, setPos, size, setSize, voiceMode, setVoiceMode, getReturnRoute }
 
   if (!active) {
     return <Ctx.Provider value={{ ...control, chat: null }}>{children}</Ctx.Provider>
