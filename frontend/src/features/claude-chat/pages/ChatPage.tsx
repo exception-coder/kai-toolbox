@@ -195,6 +195,7 @@ export function ChatPage() {
   // 选中网关后从其 /v1/models 拉的可选模型目录（供下拉选择，仍可手填）
   const [providerModels, setProviderModels] = useState<ModelInfo[]>([])
   const [providerModelsLoading, setProviderModelsLoading] = useState(false)
+  const [providerModelsError, setProviderModelsError] = useState<string | null>(null)
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [uploading, setUploading] = useState(0)
   const [slashIdx, setSlashIdx] = useState(0)
@@ -233,9 +234,14 @@ export function ChatPage() {
     if (!p) { setProviderModels([]); return }
     let cancelled = false
     setProviderModelsLoading(true)
+    setProviderModelsError(null)
     fetchProviderModels(p.baseUrl, p.key)
-      .then(r => { if (!cancelled) setProviderModels(r.models ?? []) })
-      .catch(() => { if (!cancelled) setProviderModels([]) })
+      .then(r => {
+        if (cancelled) return
+        setProviderModels(r.models ?? [])
+        setProviderModelsError((r.models?.length ?? 0) === 0 ? (r.error ?? '网关未返回模型') : null)
+      })
+      .catch(e => { if (!cancelled) { setProviderModels([]); setProviderModelsError(`请求失败：${(e as Error)?.message ?? '未知错误'}`) } })
       .finally(() => { if (!cancelled) setProviderModelsLoading(false) })
     return () => { cancelled = true }
   }, [panel, newEngine, newProviderId, providers])
@@ -546,8 +552,13 @@ export function ChatPage() {
                 </div>
               )}
               {newProviderId !== '' && !providerModelsLoading && providerModels.length === 0 && (
+                <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+                  没拉到模型目录{providerModelsError ? `：${providerModelsError}` : ''}。可直接手填模型名。
+                </p>
+              )}
+              {newProviderId !== '' && providerModels.length > 0 && (
                 <p className="mt-1 text-[11px] text-[var(--color-muted-foreground)]">
-                  没拉到模型目录（网关未暴露 /v1/models 或鉴权失败），可直接手填模型名。
+                  已从网关拉到 {providerModels.length} 个模型，可下拉选择。
                 </p>
               )}
               {newProviderId !== '' && (

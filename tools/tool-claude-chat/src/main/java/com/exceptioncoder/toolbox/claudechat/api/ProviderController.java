@@ -25,10 +25,12 @@ public class ProviderController {
 
     public record ModelsRequest(String baseUrl, String key) {}
 
-    public record ModelsResponse(List<ModelInfo> models) {}
+    /** error 非空表示拉取失败（models 为空），前端据此提示具体原因而非笼统“没拉到”。 */
+    public record ModelsResponse(List<ModelInfo> models, String error) {}
 
     @PostMapping("/models")
     public ModelsResponse models(@RequestBody ModelsRequest req) {
-        return new ModelsResponse(service.fetchModels(req.baseUrl(), req.key()));
+        ProviderModelService.FetchResult r = service.fetch(req.baseUrl(), req.key());
+        return new ModelsResponse(r.models(), r.error());
     }
 }
