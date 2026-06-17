@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, Paperclip, Send, ShieldCheck, Square } from 'lucide-react'
+import { AlertTriangle, Paperclip, Send, ShieldCheck, Square, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useClaudeChatSocket } from '../hooks/useClaudeChatSocket'
 import { listSessions, uploadAttachment, type UploadedAttachment } from '../api'
@@ -16,12 +16,12 @@ import { agentStatusMeta, deriveAgentStatus, engineName, type AgentStatus } from
 interface Props {
   /** 本块续接的会话 id。 */
   sessionId: string
-  /** 是否为当前选中的详情（仅 active 时渲染重型 UI；非 active 仍保活 WS 并上报状态）。 */
-  active: boolean
-  /** 该 Agent 的区分色（hex），用于详情头部染色。 */
+  /** 该 Agent 的区分色（hex），用于块头染色。 */
   accent: string
-  /** 上报本块业务状态，供左侧列表/概览展示。 */
+  /** 上报本块业务状态，供分屏概览展示。 */
   onStatus: (status: AgentStatus) => void
+  /** 从分屏移除本块。 */
+  onClose: () => void
 }
 
 /** 单条消息最多附件数，与单会话视图、后端约定一致。 */
@@ -37,11 +37,11 @@ function shortCwd(cwd: string): string {
 }
 
 /**
- * 分屏「Agent 列表 + 详情」中的单个 Agent 运行时块：自带独立 WS（useClaudeChatSocket 自包含），
- * 挂载后续接指定会话并**始终保活**——非 active 时不渲染重型 UI 但持续上报状态（运行/报错/空闲）；
- * active 时渲染完整可交互详情（发消息/流式回复/图片上传/语音/权限·提问/弹窗自动允许）。
+ * 分屏中的单个 Agent 会话块：自带独立 WS（useClaudeChatSocket 自包含），挂载后续接指定会话，
+ * 与其它块**同时并存可交互**（各自发消息/流式回复/图片上传/语音/权限·提问/弹窗自动允许）。
+ * 块头按 Agent 区分色染色 + 状态点，报错时顶部红色状态条突出。
  */
-export function SessionPane({ sessionId, active, accent, onStatus }: Props) {
+export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
   const chat = useClaudeChatSocket()
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
@@ -134,17 +134,14 @@ export function SessionPane({ sessionId, active, accent, onStatus }: Props) {
     if (el) el.style.height = 'auto'
   }
 
-  // 非 active：hook 已挂载并持续上报状态，但不渲染重型详情 UI（节省渲染、便于横向扩展到很多 Agent）
-  if (!active) return null
-
   const sm = agentStatusMeta(status.kind)
   const atMax = attachments.length + uploading >= MAX_ATTACHMENTS
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      {/* 详情头部：左侧 Agent 区分色竖条 + 轻量染色背景 + 状态 */}
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border bg-[var(--color-background)]">
+      {/* 块头：左侧 Agent 区分色竖条 + 轻量染色背景 + 状态 + 关闭 */}
       <div
-        className="flex items-center gap-2 border-b px-3 py-2"
+        className="flex items-center gap-2 border-b px-2.5 py-1.5"
         style={{ backgroundColor: `${accent}14`, borderLeft: `3px solid ${accent}` }}
       >
         <span className={`size-2.5 shrink-0 rounded-full ${sm.dot}${sm.pulse ? ' animate-pulse' : ''}`} />
@@ -153,6 +150,14 @@ export function SessionPane({ sessionId, active, accent, onStatus }: Props) {
           {engineName(chat.currentEngine)}
         </span>
         <span className={`shrink-0 text-xs font-medium ${sm.text}`}>{sm.label}</span>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="关闭此块"
+          className="shrink-0 rounded p-1 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]"
+        >
+          <X className="size-3.5" />
+        </button>
       </div>
 
       {/* 报错状态条：不让用户自己翻聊天记录 */}

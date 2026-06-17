@@ -1,11 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useCallback, useState } from 'react'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SessionPane } from './SessionPane'
-import { agentAccent, agentStatusMeta, engineName, type AgentStatus } from './chatStatus'
-import { listSessions } from '../api'
-import type { ClaudeChatSessionView } from '../types'
+import { agentAccent, type AgentStatus } from './chatStatus'
 
 interface Props {
   /** 并行展示的会话 id 列表。 */
@@ -16,30 +13,20 @@ interface Props {
   onRemove: (sessionId: string) => void
 }
 
-function shortCwd(cwd: string): string {
-  const i = Math.max(cwd.lastIndexOf('/'), cwd.lastIndexOf('\\'))
-  return i >= 0 && i < cwd.length - 1 ? cwd.slice(i + 1) : cwd
-}
-
-function titleOf(meta: ClaudeChatSessionView | undefined, id: string): string {
-  return meta?.title?.trim() || (meta ? shortCwd(meta.cwd) : id.slice(0, 8))
+/** 按块数选列数：1 列 / 2 列 / 3 列，移动端始终单列。 */
+function colsClass(n: number): string {
+  if (n <= 1) return 'grid-cols-1'
+  if (n <= 4) return 'grid-cols-1 md:grid-cols-2'
+  return 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
 }
 
 /**
- * 多会话并行视图：「Agent 列表 + 详情」master-detail。
- * - 顶部 Dashboard 概览：共几个 Agent / 几个运行中 / 几个报错。
- * - 左侧列表：每个 Agent 带状态点 + 标题 + 引擎 + 区分色，点击切换详情；可单独移除。
- * - 右侧详情：仅渲染选中 Agent 的完整可交互界面；其余 Agent 后台保活（各自 WS）并持续上报状态。
- * 该结构从 2 个到 10+ 个会话都能线性扩展，而非并排聊天框塞爆横向空间。
+ * 多会话并行分屏：**同时**平铺所有选中会话，每块都是完整可交互的 Agent（各自 WS / 状态 / 弹窗），
+ * 这才是「分屏并看」。顶部 Dashboard 概览（共几个 / 几个运行中 / 几个报错）提供全局态势；
+ * 每块块头有区分色 + 状态点，报错块顶部红条突出。响应式栅格，每块≥320px 高、内部各自滚动。
  */
 export function MultiSessionView({ sessionIds, onExit, onRemove }: Props) {
-  const [activeId, setActiveId] = useState<string | null>(sessionIds[0] ?? null)
   const [statuses, setStatuses] = useState<Record<string, AgentStatus>>({})
-
-  // 列表变化（移除/进入）后保证 activeId 仍有效
-  useEffect(() => {
-    if (!activeId || !sessionIds.includes(activeId)) setActiveId(sessionIds[0] ?? null)
-  }, [sessionIds, activeId])
 
   // 子块上报状态：仅在实际变化时写入，避免无谓重渲染
   const setStatus = useCallback((id: string, s: AgentStatus) => {
@@ -49,9 +36,6 @@ export function MultiSessionView({ sessionIds, onExit, onRemove }: Props) {
       return { ...prev, [id]: s }
     })
   }, [])
-
-  const { data: sessions = [] } = useQuery({ queryKey: ['claude-chat-sessions'], queryFn: listSessions, staleTime: 5000 })
-  const metaById = (id: string) => sessions.find(s => s.id === id)
 
   const runningCount = sessionIds.filter(id => statuses[id]?.kind === 'running').length
   const errorCount = sessionIds.filter(id => statuses[id]?.kind === 'error').length
@@ -76,62 +60,16 @@ export function MultiSessionView({ sessionIds, onExit, onRemove }: Props) {
           没有选中的会话
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1">
-          {/* 左侧 Agent 列表 */}
-          <aside className="w-56 shrink-0 overflow-y-auto border-r bg-[var(--color-background)]">
-            <ul className="p-1.5">
-              {sessionIds.map((id, i) => {
-                const accent = agentAccent(i)
-                const st = statuses[id] ?? { kind: 'connecting' as const, count: 0 }
-                const sm = agentStatusMeta(st.kind)
-                const meta = metaById(id)
-                const on = id === activeId
-                return (
-                  <li key={id}>
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => setActiveId(id)}
-                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveId(id) } }}
-                      style={{ borderLeftColor: accent, backgroundColor: on ? `${accent}1f` : undefined }}
-                      className={`group mb-1 flex cursor-pointer items-center gap-2 rounded-md border-l-[3px] px-2 py-2 ${on ? '' : 'hover:bg-[var(--color-accent)]'}`}
-                    >
-                      <span className={`size-2.5 shrink-0 rounded-full ${sm.dot}${sm.pulse ? ' animate-pulse' : ''}`} />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium" title={meta?.cwd}>{titleOf(meta, id)}</div>
-                        <div className="flex items-center gap-1 text-[10px] text-[var(--color-muted-foreground)]">
-                          <span>{engineName(meta?.engine ?? 'claude')}</span>
-                          <span>·</span>
-                          <span className={sm.text}>{sm.label}</span>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={e => { e.stopPropagation(); onRemove(id) }}
-                        aria-label="移除此 Agent"
-                        className="shrink-0 rounded p-0.5 text-[var(--color-muted-foreground)] opacity-0 hover:bg-[var(--color-background)] hover:text-[var(--color-destructive)] group-hover:opacity-100"
-                      >
-                        <X className="size-3.5" />
-                      </button>
-                    </div>
-                  </li>
-                )
-              })}
-            </ul>
-          </aside>
-
-          {/* 右侧详情：所有块都挂载（保活 + 上报状态），仅 active 渲染重型 UI */}
-          <section className="min-h-0 flex-1">
-            {sessionIds.map((id, i) => (
-              <SessionPane
-                key={id}
-                sessionId={id}
-                active={id === activeId}
-                accent={agentAccent(i)}
-                onStatus={s => setStatus(id, s)}
-              />
-            ))}
-          </section>
+        <div className={`grid flex-1 gap-2 overflow-auto p-2 auto-rows-[minmax(320px,1fr)] ${colsClass(sessionIds.length)}`}>
+          {sessionIds.map((id, i) => (
+            <SessionPane
+              key={id}
+              sessionId={id}
+              accent={agentAccent(i)}
+              onStatus={s => setStatus(id, s)}
+              onClose={() => onRemove(id)}
+            />
+          ))}
         </div>
       )}
     </div>
