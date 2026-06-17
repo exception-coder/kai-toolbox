@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, FolderTree, GitCommit, List, Maximize2, Minimize2, MoreHorizontal, Package, Paperclip, PictureInPicture2, Plus, RotateCw, Send, ShieldCheck, Slash, Square } from 'lucide-react'
+import { Bell, FolderTree, GitCommit, List, Maximize2, Minimize2, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RotateCw, Send, ShieldCheck, Slash, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Input } from '@/components/ui/input'
@@ -127,6 +127,8 @@ export function ChatPage() {
   // 多会话并行分屏：viewMode 切换单/多视图；selecting 控制会话面板的多选态；selected 为勾选集合；multiIds 为已进入分屏的会话
   const [viewMode, setViewMode] = useState<'single' | 'multi'>('single')
   const [multiIds, setMultiIds] = useState<string[]>([])
+  // 单会话模式的常驻左侧会话导航（md+ 显示）是否展开
+  const [railOpen, setRailOpen] = useState(true)
   const [selecting, setSelecting] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const toggleSelect = (id: string) => setSelected(prev => {
@@ -537,7 +539,7 @@ export function ChatPage() {
         </div>
       )}
 
-      {/* 消息流：多会话分屏优先；否则单会话视图（有会话渲染消息流，无会话渲染空态） */}
+      {/* 主体：多会话分屏 / 单会话（左侧常驻会话导航 + 右侧消息流与输入） */}
       {viewMode === 'multi' ? (
         <MultiSessionView
           sessionIds={multiIds}
@@ -548,28 +550,60 @@ export function ChatPage() {
             return next
           })}
         />
-      ) : chat.sessionId ? (
-        <MessageList
-          items={chat.items}
-          running={chat.running}
-          onLoadEarlier={() => chat.loadHistory(false)}
-          loadingEarlier={chat.historyLoading}
-          exhausted={chat.historyExhausted}
-          onFork={chat.forkSession}
-          engineLabel={engineName(chat.currentEngine)}
-        />
       ) : (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-[var(--color-muted-foreground)]">
-          <p>选一个历史会话，或新建一个开始对话</p>
-          <Button size="lg" className="shadow-md" onClick={() => setPanel('new')}>
-            <Plus className="size-4" /> 新建会话
-          </Button>
-        </div>
-      )}
+        <div className="flex min-h-0 flex-1">
+          {/* 常驻会话导航（md+ 显示，可折叠）：免去每次开右上角「会话」面板才能切历史会话 */}
+          {railOpen ? (
+            <aside className="hidden w-60 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-background)] md:flex">
+              <div className="flex items-center gap-1 border-b px-2 py-1.5">
+                <span className="text-xs font-medium text-[var(--color-muted-foreground)]">会话</span>
+                <button type="button" onClick={() => setPanel('new')} className="ml-auto rounded p-1 hover:bg-[var(--color-accent)]" aria-label="新建会话" title="新建会话">
+                  <Plus className="size-4" />
+                </button>
+                <button type="button" onClick={() => setRailOpen(false)} className="rounded p-1 hover:bg-[var(--color-accent)]" aria-label="收起会话列表" title="收起">
+                  <PanelLeftClose className="size-4" />
+                </button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <SessionList currentSessionId={chat.sessionId} onSwitch={id => chat.switchTo(id)} />
+              </div>
+            </aside>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setRailOpen(true)}
+              className="hidden w-8 shrink-0 items-start justify-center border-r border-[var(--color-border)] bg-[var(--color-background)] pt-2 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] md:flex"
+              aria-label="展开会话列表"
+              title="展开会话列表"
+            >
+              <PanelLeftOpen className="size-4" />
+            </button>
+          )}
 
-      {/* 底部输入：白色悬浮输入条 + 主色上边框 + 顶部阴影，在灰画布上明显托起 */}
-      {viewMode === 'single' && chat.sessionId && (
-        <div className="border-t border-[var(--color-border)] bg-[var(--color-muted)] shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.08)]">
+          {/* 右侧：消息流 + 输入 */}
+          <div className="flex min-h-0 flex-1 flex-col">
+            {chat.sessionId ? (
+              <MessageList
+                items={chat.items}
+                running={chat.running}
+                onLoadEarlier={() => chat.loadHistory(false)}
+                loadingEarlier={chat.historyLoading}
+                exhausted={chat.historyExhausted}
+                onFork={chat.forkSession}
+                engineLabel={engineName(chat.currentEngine)}
+              />
+            ) : (
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-[var(--color-muted-foreground)]">
+                <p>选一个历史会话，或新建一个开始对话</p>
+                <Button size="lg" className="shadow-md" onClick={() => setPanel('new')}>
+                  <Plus className="size-4" /> 新建会话
+                </Button>
+              </div>
+            )}
+
+            {/* 底部输入：白色悬浮输入条 + 主色上边框 + 顶部阴影 */}
+            {chat.sessionId && (
+              <div className="border-t border-[var(--color-border)] bg-[var(--color-muted)] shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.08)]">
           <AttachmentChips
             items={attachments}
             uploading={uploading}
@@ -698,6 +732,9 @@ export function ChatPage() {
               >
                 <Send className="size-4" />
               </Button>
+            )}
+          </div>
+        </div>
             )}
           </div>
         </div>
