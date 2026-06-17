@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bell, FolderTree, GitCommit, List, Maximize2, Minimize2, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RotateCw, Send, ShieldCheck, Slash, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -59,7 +59,15 @@ function HeaderMenuItem({ icon, label, hint, onClick }: {
 export function ChatPage() {
   const { chat, setFloating, setMinimized, getReturnRoute } = useChatRuntime()
   const navigate = useNavigate()
+  const qc = useQueryClient()
   const pending = chat?.pending ?? null
+
+  // 新建/续接会话后，sessionId 变化即刷新会话列表缓存，让左侧常驻导航与「会话」面板立刻出现该会话。
+  // 否则新会话只在缓存过期(staleTime)、窗口重新聚焦或手动开一次「会话」面板(重挂 SessionList 触发拉取)后才显示
+  // ——表现为「新建后列表不更新，要刷新或点一次会话」。
+  useEffect(() => {
+    if (chat?.sessionId) qc.invalidateQueries({ queryKey: ['claude-chat-sessions'] })
+  }, [chat?.sessionId, qc])
 
   // 一键重启后端：调守护进程(run-supervised.ps1)的独立控制口 /supervisor/restart(经 Vite 代理到 :18081)。
   // 与后端独立——后端宕机时本控制口仍在,故能拉起。当前 WS 会断,重启后前端自动重连续上。
