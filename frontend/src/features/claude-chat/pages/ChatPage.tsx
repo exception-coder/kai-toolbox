@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, GitCommit, List, Maximize2, Minimize2, MoreHorizontal, Package, Paperclip, PictureInPicture2, Plus, RotateCw, Send, ShieldCheck, Slash, Square } from 'lucide-react'
+import { Bell, FolderTree, GitCommit, List, Maximize2, Minimize2, MoreHorizontal, Package, Paperclip, PictureInPicture2, Plus, RotateCw, Send, ShieldCheck, Slash, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge, type StatusTone } from '@/components/ui/status-badge'
 import { Input } from '@/components/ui/input'
@@ -18,12 +18,13 @@ import { ModeSwitch } from '../components/ModeSwitch'
 import { SlashCommandMenu } from '../components/SlashCommandMenu'
 import { CommandMenu } from '../components/CommandMenu'
 import { PluginPanel } from '../components/PluginPanel'
+import { TaskspacePanel } from '../components/TaskspacePanel'
 import { getSessionCommitDiff, listSessionCommits, listSessions, listWorkspaces, uploadAttachment, type UploadedAttachment } from '../api'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
 import type { Engine } from '../types'
 import { ensureNotifyPermission } from '../browserNotify'
 
-type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins'
+type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace'
 
 /** 单条消息最多附件数，与后端约定一致。 */
 const MAX_ATTACHMENTS = 10
@@ -345,6 +346,7 @@ export function ChatPage() {
                   {chat.sessionId && (
                     <HeaderMenuItem icon={<GitCommit className="size-4" />} label="提交记录" hint="当前目录 git 提交/diff" onClick={() => { setHeaderMenu(false); setShowCommits(true) }} />
                   )}
+                  <HeaderMenuItem icon={<FolderTree className="size-4" />} label="合并工作区" hint="软链接聚合多个目录" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'taskspace' ? 'none' : 'taskspace') }} />
                   <HeaderMenuItem icon={<Package className="size-4" />} label="插件更新" hint="查看/更新双端插件" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'plugins' ? 'none' : 'plugins') }} />
                   <HeaderMenuItem icon={<Bell className="size-4" />} label="通知设置" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'settings' ? 'none' : 'settings') }} />
                   <HeaderMenuItem icon={<RotateCw className="size-4" />} label="重启服务" hint="经守护进程重启后端" onClick={() => { setHeaderMenu(false); openRestart() }} />
@@ -395,7 +397,20 @@ export function ChatPage() {
               <span className="text-xs text-[var(--color-muted-foreground)]">（Gemini CLI headless，需本机已登录 gemini 或配置 GEMINI_API_KEY）</span>
             )}
           </div>
+          <button
+            type="button"
+            onClick={() => setPanel('taskspace')}
+            className="mt-3 flex items-center gap-1 text-xs text-[var(--color-primary)] hover:underline"
+          >
+            <FolderTree className="size-3.5" /> 合并多个目录为工作区（软链接聚合）
+          </button>
         </div>
+      )}
+      {panel === 'taskspace' && (
+        <TaskspacePanel
+          onCreated={dir => { setNewCwd(dir); setPanel('new') }}
+          onClose={() => setPanel('none')}
+        />
       )}
       {panel === 'sessions' && (
         <div className="flex max-h-[55vh] flex-col border-b">
