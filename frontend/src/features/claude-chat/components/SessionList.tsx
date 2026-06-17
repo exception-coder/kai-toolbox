@@ -7,12 +7,18 @@ import { deleteSession, listSessions, renameSession } from '../api'
 interface Props {
   currentSessionId: string | null
   onSwitch: (sessionId: string) => void
+  /** 多选模式：每行前置勾选框，点击只切选中、不触发 onSwitch。 */
+  selectable?: boolean
+  /** 已选中的会话 id 集合（仅 selectable 时使用）。 */
+  selectedIds?: Set<string>
+  /** 切换某会话选中态（仅 selectable 时使用）。 */
+  onToggleSelect?: (sessionId: string) => void
 }
 
 const KEY = ['claude-chat-sessions']
 
-/** 工具会话列表：点击切换/续跑，可重命名 / 删除。 */
-export function SessionList({ currentSessionId, onSwitch }: Props) {
+/** 工具会话列表：点击切换/续跑，可重命名 / 删除；selectable 时支持多选并行分屏。 */
+export function SessionList({ currentSessionId, onSwitch, selectable, selectedIds, onToggleSelect }: Props) {
   const qc = useQueryClient()
   const { data: sessions = [], isPending } = useQuery({
     queryKey: KEY,
@@ -57,6 +63,15 @@ export function SessionList({ currentSessionId, onSwitch }: Props) {
             s.id === currentSessionId && 'bg-[var(--color-accent)]',
           )}
         >
+          {selectable && (
+            <input
+              type="checkbox"
+              className="size-4 shrink-0"
+              checked={selectedIds?.has(s.id) ?? false}
+              onChange={() => onToggleSelect?.(s.id)}
+              aria-label={`选择会话 ${s.title || shortCwd(s.cwd)}`}
+            />
+          )}
           {editingId === s.id ? (
             <input
               autoFocus

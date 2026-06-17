@@ -19,6 +19,7 @@ import { SlashCommandMenu } from '../components/SlashCommandMenu'
 import { CommandMenu } from '../components/CommandMenu'
 import { PluginPanel } from '../components/PluginPanel'
 import { TaskspacePanel } from '../components/TaskspacePanel'
+import { MultiSessionGrid } from '../components/MultiSessionGrid'
 import { engineName, stateLabel, stateTone } from '../components/chatStatus'
 import { getSessionCommitDiff, listSessionCommits, listSessions, listWorkspaces, uploadAttachment, type UploadedAttachment } from '../api'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
@@ -123,6 +124,23 @@ export function ChatPage() {
     navigate(getReturnRoute())
   }
   const [panel, setPanel] = useState<Panel>('none')
+  // 多会话并行分屏：viewMode 切换单/多视图；selecting 控制会话面板的多选态；selected 为勾选集合；multiIds 为已进入分屏的会话
+  const [viewMode, setViewMode] = useState<'single' | 'multi'>('single')
+  const [multiIds, setMultiIds] = useState<string[]>([])
+  const [selecting, setSelecting] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const toggleSelect = (id: string) => setSelected(prev => {
+    const next = new Set(prev)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    return next
+  })
+  const enterMulti = () => {
+    if (selected.size === 0) return
+    setMultiIds([...selected])
+    setViewMode('multi')
+    setPanel('none')
+    setSelecting(false)
+  }
   const [sessTab, setSessTab] = useState<'tool' | 'history'>('tool')
   const [draft, setDraft] = useState('')
   const [newCwd, setNewCwd] = useState('')
@@ -410,13 +428,30 @@ export function ChatPage() {
       )}
       {panel === 'sessions' && (
         <div className="flex max-h-[55vh] flex-col border-b">
-          <div className="flex gap-1 px-3 pt-2">
+          <div className="flex items-center gap-1 px-3 pt-2">
             <TabBtn active={sessTab === 'tool'} onClick={() => setSessTab('tool')}>工具会话</TabBtn>
             <TabBtn active={sessTab === 'history'} onClick={() => setSessTab('history')}>本机历史</TabBtn>
+            {sessTab === 'tool' && (
+              <button
+                type="button"
+                onClick={() => { setSelecting(v => !v); setSelected(new Set()) }}
+                className={`ml-auto rounded-full px-3 py-0.5 text-xs ${selecting
+                  ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                  : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]'}`}
+              >
+                {selecting ? '取消多选' : '多选并看'}
+              </button>
+            )}
           </div>
           <div className="overflow-y-auto">
             {sessTab === 'tool' ? (
-              <SessionList currentSessionId={chat.sessionId} onSwitch={id => { chat.switchTo(id); setPanel('none') }} />
+              <SessionList
+                currentSessionId={chat.sessionId}
+                onSwitch={id => { chat.switchTo(id); setPanel('none') }}
+                selectable={selecting}
+                selectedIds={selected}
+                onToggleSelect={toggleSelect}
+              />
             ) : (
               <HistoryList
                 defaultCwd={newCwd}
@@ -424,6 +459,14 @@ export function ChatPage() {
               />
             )}
           </div>
+          {selecting && sessTab === 'tool' && (
+            <div className="flex items-center gap-2 border-t px-3 py-2">
+              <span className="text-xs text-[var(--color-muted-foreground)]">已选 {selected.size} 个</span>
+              <Button size="sm" className="ml-auto" disabled={selected.size === 0} onClick={enterMulti}>
+                并行查看选中（{selected.size}）
+              </Button>
+            </div>
+          )}
         </div>
       )}
       {panel === 'settings' && (
@@ -480,7 +523,7 @@ export function ChatPage() {
       )}
 
       {/* 同步空洞提示：断线较久时部分消息已被服务端缓冲淘汰，回放补不回 */}
-      {chat.syncWarning && (
+      {viewMode === 'single' && chat.syncWarning && (
         <div className="flex items-start gap-2 border-b border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
           <span className="flex-1">{chat.syncWarning}</span>
           <button
@@ -494,8 +537,18 @@ export function ChatPage() {
         </div>
       )}
 
-      {/* 消息流 */}
-      {chat.sessionId ? (
+      {/* 消息流：多会话分屏优先；否则单会话视图（有会话渲染消息流，无会话渲染空态） */}
+      {viewMode === 'multi' ? (
+        <MultiSessionGrid
+          sessionIds={multiIds}
+          onExit={() => setViewMode('single')}
+          onRemove={id => setMultiIds(prev => {
+            const next = prev.filter(x => x !== id)
+            if (next.length === 0) setViewMode('single')
+            return next
+          })}
+        />
+      ) : chat.sessionId ? (
         <MessageList
           items={chat.items}
           running={chat.running}
@@ -515,7 +568,7 @@ export function ChatPage() {
       )}
 
       {/* 底部输入：白色悬浮输入条 + 主色上边框 + 顶部阴影，在灰画布上明显托起 */}
-      {chat.sessionId && (
+      {viewMode === 'single' && chat.sessionId && (
         <div className="border-t border-[var(--color-border)] bg-[var(--color-muted)] shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.08)]">
           <AttachmentChips
             items={attachments}
@@ -650,8 +703,8 @@ export function ChatPage() {
         </div>
       )}
 
-      {/* 可视化决策弹窗：先取出 const 让收窄在闭包里保留 */}
-      {pending?.kind === 'permission' && (
+      {/* 可视化决策弹窗（仅单会话视图；分屏下各块自管弹窗） */}
+      {viewMode === 'single' && pending?.kind === 'permission' && (
         <PermissionDialog
           toolName={pending.toolName}
           input={pending.input}
@@ -659,7 +712,7 @@ export function ChatPage() {
           onDeny={() => chat.decide({ type: 'decision', reqId: pending.reqId, behavior: 'deny' })}
         />
       )}
-      {pending?.kind === 'question' && (
+      {viewMode === 'single' && pending?.kind === 'question' && (
         <QuestionDialog
           questions={pending.questions}
           onCancel={() => chat.decide({ type: 'decision', reqId: pending.reqId, behavior: 'deny' })}
