@@ -278,14 +278,24 @@ public class ClaudeChatService {
                 ctx.sessionId, engine, engines, target != null);
     }
 
-    /** 拼接引擎有序列：在已有列（缺省用 base）末尾追加 next，连续重复不追加。 */
+    /**
+     * 维护「本会话用过哪些 agent」的去重有序集合（首次出现序）。
+     *
+     * <p>切回曾用引擎会 resume 它的原生会话（句柄存于 engine_sessions），并非新建——故标记应是
+     * 「用过的 agent 集合」而非每次切换的完整往返流水。早期实现按流水追加，来回切几次就变成
+     * {@code claude,codex,claude,codex,…}，列表标记看起来像「一直新增会话」。这里改为并集去重：
+     * 来回切只保留 {@code claude,codex}，与实际可 resume 的 agent 一一对应。
+     */
     private static String appendEngine(String existing, String base, String next) {
         String csv = (existing == null || existing.isBlank())
                 ? (base == null ? "claude" : base) : existing;
-        String[] parts = csv.split(",");
-        String last = parts.length == 0 ? "" : parts[parts.length - 1].trim();
-        if (next.equals(last)) return csv;
-        return csv + "," + next;
+        java.util.LinkedHashSet<String> set = new java.util.LinkedHashSet<>();
+        for (String p : csv.split(",")) {
+            String t = p.trim();
+            if (!t.isEmpty()) set.add(t);
+        }
+        set.add(next); // 已用过则不重复（resume 续接，不算新增）
+        return String.join(",", set);
     }
 
     /** 序列化各引擎句柄映射为 JSON 持久化；失败回 null（降级丢映射，不影响主流程）。 */

@@ -75,15 +75,18 @@ export function SessionList({ currentSessionId, onSwitch }: Props) {
                 {s.live && <Circle className="size-2 fill-green-500 text-green-500" />}
                 <span className="truncate text-sm font-medium">{s.title || shortCwd(s.cwd)}</span>
                 {(() => {
-                  const order = (s.engines && s.engines.trim() ? s.engines.split(',') : [s.engine || 'claude'])
+                  // 去重：本会话用过的 agent 集合（切回曾用引擎是 resume 续接，不是新增）。
+                  // 兼容旧数据——历史行的 engines 可能是 claude,codex,claude,… 流水，这里按首次出现序压成集合。
+                  const raw = (s.engines && s.engines.trim() ? s.engines.split(',') : [s.engine || 'claude'])
                     .map(e => e.trim()).filter(Boolean)
+                  const order = [...new Set(raw)]
                   const label = order
                     .map(e => (e === 'codex' ? 'Codex' : e === 'gemini' ? 'Gemini' : 'Claude'))
                     .join(' · ')
                   const multi = order.length > 1
                   return (
                     <span
-                      title={multi ? `本会话先后用过：${label}` : undefined}
+                      title={multi ? `本会话用过这些 agent（切回为续接，非新建）：${label}` : undefined}
                       className={cn(
                         'shrink-0 rounded px-1 text-[10px]',
                         multi
