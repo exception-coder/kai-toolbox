@@ -91,8 +91,10 @@ public class ClaudeChatService {
                 ? System.getProperty("user.home") : open.cwd().trim();
 
         String engine = normalizeEngine(open.engine());
-        // 第三方网关仅对 Claude 引擎生效；非 Claude 忽略（官方）
-        String apiBaseUrl = "claude".equals(engine) ? blankToNull(open.apiBaseUrl()) : null;
+        // 第三方网关对 Claude / Codex 引擎生效（Claude 走 Anthropic 兼容、Codex 走 OpenAI 兼容）；
+        // opencode 自管 provider、gemini 用官方，二者忽略网关参数。
+        boolean gatewayCapable = "claude".equals(engine) || "codex".equals(engine);
+        String apiBaseUrl = gatewayCapable ? blankToNull(open.apiBaseUrl()) : null;
         String authToken = apiBaseUrl == null ? null : blankToNull(open.authToken());
         repo.insert(ClaudeChatSession.builder()
                 .id(sessionId).cwd(cwd).title(null).sdkSessionId(null).engine(engine)

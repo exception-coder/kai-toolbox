@@ -28,10 +28,10 @@ export function engineName(e: Engine): string {
   return e === 'codex' ? 'Codex' : e === 'gemini' ? 'Gemini' : e === 'opencode' ? 'OpenCode' : 'Claude'
 }
 
-/** 引擎 + 服务商显示名：Claude 第三方网关必须显式标识，避免与 Claude Code 官方混淆。 */
+/** 引擎 + 服务商显示名：走第三方网关的引擎（Claude/Codex）显式标「· 第三方」，避免与官方登录混淆。 */
 export function engineDisplayName(e: Engine, providerKind?: ProviderKind): string {
-  if (e !== 'claude') return engineName(e)
-  return providerKind === 'thirdParty' ? 'Claude · 第三方' : 'Claude'
+  const base = engineName(e)
+  return providerKind === 'thirdParty' ? `${base} · 第三方` : base
 }
 
 /** 从第三方网关 baseURL 提取短 host；URL 非法时回退原字符串。 */
