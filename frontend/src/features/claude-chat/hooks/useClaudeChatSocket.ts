@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ensureFreshToken, getToken } from '@/lib/auth'
-import type { Attachment, ChatItem, ClientMessage, ConnState, Engine, ModelInfo, PendingRequest, PermissionMode, ProviderKind, ServerMessage } from '../types'
+import type { Attachment, ChatItem, ClientMessage, ConnState, Engine, ModelInfo, PendingRequest, PermissionMode, ProviderKind, ServerMessage, TurnDiag } from '../types'
 import { loadMessages } from '../api'
 import { notifyPrompt } from '../browserNotify'
 import { playNotifySound } from '../sound'
@@ -59,6 +59,8 @@ export interface UseClaudeChatSocket {
   currentProviderKind: ProviderKind
   /** 当前第三方网关 baseURL（仅展示；官方为空） */
   currentProviderBaseUrl: string | null
+  /** 调用诊断：每轮「请求模型 vs API 实际返回模型 + 是否经网关」，供第三方会话排查（最新在前）。 */
+  providerDiag: TurnDiag[]
   /** 新建会话（可带初始权限模式、引擎、第三方网关 provider；provider 仅 Claude 引擎生效） */
   open: (cwd: string, model?: string, mode?: PermissionMode, engine?: Engine, provider?: { apiBaseUrl?: string; authToken?: string }) => void
   /** 切换权限模式（下一轮生效） */
@@ -101,6 +103,7 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   const [currentEngine, setCurrentEngine] = useState<Engine>('claude')
   const [currentProviderKind, setCurrentProviderKind] = useState<ProviderKind>('official')
   const [currentProviderBaseUrl, setCurrentProviderBaseUrl] = useState<string | null>(null)
+  const [providerDiag, setProviderDiag] = useState<TurnDiag[]>([])
 
   const wsRef = useRef<WebSocket | null>(null)
   const intentRef = useRef<Intent | null>(null)
@@ -254,6 +257,16 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
         // 重连回放有空洞：中间事件已被服务端缓冲淘汰，本端显示可能不全
         setSyncWarning('部分消息可能未同步（断线较久）。下拉到顶可加载历史，或重进该会话查看完整记录。')
         break
+      case 'turnInfo':
+        // 调用诊断：记到列表（最新在前，capped），供第三方会话「调用诊断」区块展示
+        setProviderDiag(prev => [{
+          id: nextId(),
+          requestedModel: msg.requestedModel,
+          responseModel: msg.responseModel,
+          viaGateway: msg.viaGateway,
+          baseUrl: msg.baseUrl,
+        }, ...prev].slice(0, 30))
+        break
       case 'result':
         setRunning(false)
         setItems(prev => [...prev, { kind: 'result', id: nextId(), stopReason: msg.stopReason }])
@@ -380,6 +393,7 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     setRunning(false)
     setErrorMessage(null)
     setSyncWarning(null)
+    setProviderDiag([])
     // 注意：不要在此无条件清 models/slashCommands。Claude 的 supportedModels 在 sidecar 端
     // 是 modelsFetched 缓存的（仅首轮取一次），清了 resume 不会再发 → Claude 模型组永久消失。
     // 改为在 Ready 处理里「仅当引擎为 Codex 时」清空（Codex 无模型/命令清单），见 applyEvent。
@@ -524,5 +538,5 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     loadHistoryRef.current = loadHistory
   }, [loadHistory])
 
-  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, models, currentModel, currentEngine, currentProviderKind, currentProviderBaseUrl, open, switchTo, resumeHistory, send, decide, interrupt, setMode, setModel, switchEngine, forkSession, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, models, currentModel, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, open, switchTo, resumeHistory, send, decide, interrupt, setMode, setModel, switchEngine, forkSession, historyLoading, historyExhausted, loadHistory }
 }

@@ -56,6 +56,8 @@ class Session {
   permissionMode = 'default'
   private abort?: AbortController
   private modelsFetched = false
+  /** 本轮 API 响应里实际返回的模型（来自 assistant message.model，权威）；用于调用诊断。 */
+  private lastResponseModel?: string
   readonly perms: Permissions
 
   constructor(
@@ -82,6 +84,9 @@ class Session {
     if (safeCwd !== this.cwd) {
       console.warn(`[sidecar] 会话 cwd 不存在，回退到 ${safeCwd}（原 cwd: ${this.cwd}）`)
     }
+    this.lastResponseModel = undefined
+    // 调用诊断日志：本轮发出去的模型 + 是否经第三方网关（排查“真走三方 / 回退官方”的关键）
+    console.log(`[sidecar] turn start session=${this.id} model=${this.model ?? '默认'} via=${this.apiBaseUrl ?? '官方登录'}`)
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       const ac = new AbortController()
       this.abort = ac
@@ -222,7 +227,11 @@ class Session {
         break
       }
       case 'assistant': {
-        const content = (m.message as Record<string, unknown>)?.content as Array<Record<string, unknown>> | undefined
+        const msg = m.message as Record<string, unknown> | undefined
+        // API 响应里的真实模型（权威，非模型自述）——网关把请求路由到哪个上游，这里就是哪个
+        const mdl = msg?.model
+        if (typeof mdl === 'string' && mdl) this.lastResponseModel = mdl
+        const content = msg?.content as Array<Record<string, unknown>> | undefined
         for (const b of content ?? []) {
           if (b.type === 'tool_use') {
             toolNames.set(b.id as string, b.name as string)
@@ -253,6 +262,15 @@ class Session {
       }
       case 'result': {
         if (m.session_id) this.sdkSessionId = m.session_id as string
+        // 调用诊断：请求模型 vs API 实际返回模型 + 是否经网关，先于 result 发，供前端区块展示
+        console.log(`[sidecar] turn done session=${this.id} requested=${this.model ?? '默认'} responded=${this.lastResponseModel ?? '?'} via=${this.apiBaseUrl ?? '官方登录'}`)
+        this.emitSelf({
+          type: 'turnInfo',
+          requestedModel: this.model ?? null,
+          responseModel: this.lastResponseModel ?? null,
+          viaGateway: !!this.apiBaseUrl,
+          baseUrl: this.apiBaseUrl ?? null,
+        })
         this.emitSelf({ type: 'result', usage: m.usage ?? {}, stopReason: m.subtype ?? 'end_turn' })
         break
       }

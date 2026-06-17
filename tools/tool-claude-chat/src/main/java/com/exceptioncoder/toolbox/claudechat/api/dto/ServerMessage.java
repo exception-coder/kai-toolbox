@@ -16,7 +16,8 @@ public sealed interface ServerMessage
                 ServerMessage.ToolResult, ServerMessage.PermissionRequest,
                 ServerMessage.QuestionRequest, ServerMessage.DecisionResolved,
                 ServerMessage.Models, ServerMessage.UserMessage, ServerMessage.Forked,
-                ServerMessage.ReplayGap, ServerMessage.Result, ServerMessage.Error {
+                ServerMessage.ReplayGap, ServerMessage.Result, ServerMessage.TurnInfo,
+                ServerMessage.Error {
 
     long seq();
 
@@ -65,6 +66,14 @@ public sealed interface ServerMessage
 
     @JsonTypeName("result")
     record Result(long seq, Map<String, Object> usage, String stopReason) implements ServerMessage {}
+
+    /**
+     * 本轮调用诊断：{@code requestedModel}=前端选的/发出去的模型；{@code responseModel}=API 响应里
+     * 实际返回的模型（来自 assistant message 的 model 字段，权威，非模型自述）；{@code viaGateway}/{@code baseUrl}
+     * =是否经第三方网关及其地址。供前端「调用诊断」区块展示，便于排查是否真走了三方 / 被网关回退。
+     */
+    @JsonTypeName("turnInfo")
+    record TurnInfo(long seq, String requestedModel, String responseModel, boolean viaGateway, String baseUrl) implements ServerMessage {}
 
     @JsonTypeName("error")
     record Error(long seq, String code, String message) implements ServerMessage {}

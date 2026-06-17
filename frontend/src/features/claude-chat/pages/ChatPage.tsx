@@ -18,6 +18,7 @@ import { ModeSwitch } from '../components/ModeSwitch'
 import { SlashCommandMenu } from '../components/SlashCommandMenu'
 import { CommandMenu } from '../components/CommandMenu'
 import { PluginPanel } from '../components/PluginPanel'
+import { ProviderDiagPanel } from '../components/ProviderDiagPanel'
 import { TaskspacePanel } from '../components/TaskspacePanel'
 import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
@@ -757,6 +758,16 @@ export function ChatPage() {
                   <Plus className="size-4" /> 新建会话
                 </Button>
               </div>
+            )}
+
+            {/* 第三方网关调用诊断（可展开）：核对实际命中的模型，仅第三方会话显示 */}
+            {chat.sessionId && (
+              <ProviderDiagPanel
+                providerKind={chat.currentProviderKind}
+                providerBaseUrl={chat.currentProviderBaseUrl}
+                currentModel={chat.currentModel}
+                diag={chat.providerDiag}
+              />
             )}
 
             {/* 底部输入：白色悬浮输入条 + 主色上边框 + 顶部阴影 */}

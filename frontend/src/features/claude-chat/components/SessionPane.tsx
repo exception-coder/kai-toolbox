@@ -12,6 +12,7 @@ import { ModeSwitch } from './ModeSwitch'
 import { AttachmentChips } from './AttachmentChips'
 import { VoiceInputButton } from './VoiceInputButton'
 import { agentStatusMeta, deriveAgentStatus, engineDisplayName, providerHost, type AgentStatus } from './chatStatus'
+import { ProviderDiagPanel } from './ProviderDiagPanel'
 
 interface Props {
   /** 本块续接的会话 id。 */
@@ -190,6 +191,15 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
           engineLabel={engineLabel}
         />
       </div>
+
+      {/* 第三方网关调用诊断（可展开，紧凑）：仅第三方会话显示 */}
+      <ProviderDiagPanel
+        providerKind={chat.currentProviderKind}
+        providerBaseUrl={chat.currentProviderBaseUrl}
+        currentModel={chat.currentModel}
+        diag={chat.providerDiag}
+        compact
+      />
 
       {/* 输入条：附件预览 + 模式/自动允许 + 附件/语音/输入/发送 */}
       <div className="border-t bg-[var(--color-muted)] px-2 py-1.5">

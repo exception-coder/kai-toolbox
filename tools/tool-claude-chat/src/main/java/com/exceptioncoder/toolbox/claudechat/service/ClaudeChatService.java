@@ -462,6 +462,12 @@ public class ClaudeChatService {
             case "userMessage" -> sendToBrowser(ctx,
                     seq -> new ServerMessage.UserMessage(seq, node.path("uuid").asText("")));
             case "forked" -> onForked(ctx, node);
+            case "turnInfo" -> sendToBrowser(ctx, seq -> new ServerMessage.TurnInfo(
+                    seq,
+                    node.path("requestedModel").asText(null),
+                    node.path("responseModel").asText(null),
+                    node.path("viaGateway").asBoolean(false),
+                    node.path("baseUrl").asText(null)));
             case "result" -> onResult(ctx, node);
             case "error" -> sendToBrowser(ctx, seq -> new ServerMessage.Error(
                     seq, node.path("code").asText("SIDECAR_ERROR"), node.path("message").asText("")));
