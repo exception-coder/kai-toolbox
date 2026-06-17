@@ -57,7 +57,7 @@ export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exh
   }, [running])
 
   return (
-    <div ref={scrollRef} onScroll={handleScroll} className="flex flex-1 flex-col gap-3 overflow-y-auto px-3 py-4">
+    <div ref={scrollRef} onScroll={handleScroll} className="flex min-w-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto px-3 py-4">
       {loadingEarlier && (
         <div className="text-center text-xs text-[var(--color-muted-foreground)]">加载更早…</div>
       )}
@@ -132,8 +132,8 @@ function Row({ item, onFork }: { item: ChatItem; onFork?: (sdkUuid: string) => v
   switch (item.kind) {
     case 'user':
       return (
-        <div className="flex flex-col items-end">
-          <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-[var(--color-primary)] px-4 py-2 text-[var(--color-primary-foreground)]">
+        <div className="flex min-w-0 max-w-full flex-col items-end">
+          <div className="max-w-[85%] min-w-0 whitespace-pre-wrap break-words rounded-2xl bg-[var(--color-primary)] px-4 py-2 text-[var(--color-primary-foreground)]">
             {item.text}
           </div>
           {onFork && item.sdkUuid && (
@@ -152,9 +152,9 @@ function Row({ item, onFork }: { item: ChatItem; onFork?: (sdkUuid: string) => v
       )
     case 'assistant':
       return (
-        <div className="flex flex-col items-start">
-          <div className="max-w-[90%] break-words rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-2 shadow-sm">
-            <Markdown text={item.text} />
+        <div className="flex min-w-0 max-w-full flex-col items-start">
+          <div className="max-w-[90%] min-w-0 break-words rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-2 shadow-sm">
+            <Markdown text={item.text} className="min-w-0" />
           </div>
           {item.text.trim() && (
             <div className="flex items-center gap-1">
