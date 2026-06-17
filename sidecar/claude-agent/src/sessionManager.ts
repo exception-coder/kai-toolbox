@@ -8,6 +8,18 @@ export type Engine = 'claude' | 'codex' | 'gemini'
 
 type Emit = (sessionId: string, event: Record<string, unknown>) => void
 
+/**
+ * 第三方网关会话的 system 提示 append 词。官方客户端会在底层静默优化 agent 工作流；经第三方 API 直跑时，
+ * 非 Claude 模型常把“规划/计划模式”以工具调用形式暴露出来（EnterPlanMode/ExitPlanMode 反复往返、报错），
+ * 既慢又易失败。这里追加引导：直接动手、少绕计划模式。append 到 claude_code 预设之后，不替换默认提示。
+ */
+const GATEWAY_STEER = [
+  '你正通过第三方 API 网关运行（非官方 Claude Code 客户端）。请尽量直接完成任务：',
+  '- 不要进入/退出“计划模式”，不要调用 ExitPlanMode；需要多步时直接执行并简要说明。',
+  '- 避免冗长前言和反复规划，优先动手（读文件、改代码、跑命令），减少无谓的工具往返。',
+  '- 遵循当前操作系统的命令习惯（Windows 用 PowerShell）。',
+].join('\n')
+
 // Claude 的 supportedModels 对所有会话是同一份、且很稳定。全局缓存，供任意会话 start/resume 即时重发。
 // supportedModels 是控制请求（非对话轮次），故启动时预热一次即可填充——见 prewarmClaudeModels。
 let cachedClaudeModels: unknown[] | null = null
@@ -99,8 +111,18 @@ class Session {
           prompt: text,
           options: {
             // 仅 oneShot 传：作为真正的 system 提示（字符串=替换 SDK 默认 system）。
-            // 交互式聊天 runTurn 不传 → 走 SDK 默认（编码 agent 语境），互不影响。
-            ...(systemPrompt ? { systemPrompt } : {}),
+            // 交互式聊天 runTurn：官方会话走 SDK 默认；第三方网关会话在默认提示后 append 引导词
+            // （非 Claude 模型经 API 跑 Claude Code 时会乱用计划模式/ExitPlanMode，慢且易报错）。
+            ...(systemPrompt
+              ? { systemPrompt }
+              : this.apiBaseUrl
+                ? { systemPrompt: { type: 'preset', preset: 'claude_code', append: GATEWAY_STEER } }
+                : {}),
+            // 第三方网关 + 非 plan 模式：禁用 ExitPlanMode，杜绝“进/退计划模式”的无谓往返与校验报错。
+            // plan 模式是用户主动选的，保留。官方会话不动。
+            ...(this.apiBaseUrl && this.permissionMode !== 'plan'
+              ? { disallowedTools: ['ExitPlanMode'] }
+              : {}),
             cwd: safeCwd,
             model: this.model || undefined,
             resume: this.sdkSessionId || undefined,
