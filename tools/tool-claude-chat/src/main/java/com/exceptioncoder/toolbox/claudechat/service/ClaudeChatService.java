@@ -372,7 +372,7 @@ public class ClaudeChatService {
     }
 
     private static String normalizeEngine(String e) {
-        return "codex".equals(e) || "gemini".equals(e) ? e : "claude";
+        return "codex".equals(e) || "gemini".equals(e) || "opencode".equals(e) ? e : "claude";
     }
 
     public void interrupt(WebSocketSession ws) {

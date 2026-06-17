@@ -86,7 +86,7 @@ export interface Attachment {
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
 
 /** 会话引擎：claude（Claude Agent SDK）/ codex（OpenAI Codex SDK）/ gemini（Gemini CLI headless）。会话级固定。 */
-export type Engine = 'claude' | 'codex' | 'gemini'
+export type Engine = 'claude' | 'codex' | 'gemini' | 'opencode'
 
 /** team-standards 插件单端版本（installed/available 取不到为 null，error 为检测失败原因）。 */
 export interface EnginePluginStatus {

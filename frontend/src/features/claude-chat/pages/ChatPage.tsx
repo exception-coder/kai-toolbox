@@ -293,7 +293,10 @@ export function ChatPage() {
     // 服务商仅 Claude 引擎生效：选了档案则走第三方网关 + 手填模型，否则官方默认
     const profile = newEngine === 'claude' ? providers.find(p => p.id === newProviderId) : undefined
     const provider = profile ? { apiBaseUrl: profile.baseUrl, authToken: profile.key } : undefined
-    const model = profile ? (newModel.trim() || profile.model || undefined) : undefined
+    // 模型：claude 网关用档案/手填；opencode 用手填的 provider/model（留空走默认）；其它引擎不传
+    const model = newEngine === 'opencode'
+      ? (newModel.trim() || undefined)
+      : profile ? (newModel.trim() || profile.model || undefined) : undefined
     chat.open(newCwd.trim(), model, undefined, newEngine, provider)
     setPanel('none')
   }
@@ -410,7 +413,7 @@ export function ChatPage() {
               <div className="fixed inset-0 z-10" onClick={() => setEngineMenuOpen(false)} />
               <div className="absolute left-0 top-full z-20 mt-1 w-36 rounded-lg border bg-[var(--color-card)] p-1 shadow-lg">
                 <div className="px-2 py-1 text-[10px] text-[var(--color-muted-foreground)]">切 agent（带上下文）</div>
-                {(['claude', 'codex', 'gemini'] as Engine[]).map(eng => (
+                {(['claude', 'codex', 'gemini', 'opencode'] as Engine[]).map(eng => (
                   <button
                     key={eng}
                     type="button"
@@ -485,9 +488,9 @@ export function ChatPage() {
             </datalist>
             <Button size="lg" className="shadow-md" onClick={startNew}>开始</Button>
           </div>
-          <div className="mt-3 flex items-center gap-2">
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <span className="text-xs text-[var(--color-muted-foreground)]">引擎</span>
-            {(['claude', 'codex', 'gemini'] as Engine[]).map(eng => (
+            {(['claude', 'codex', 'gemini', 'opencode'] as Engine[]).map(eng => (
               <button
                 key={eng}
                 type="button"
@@ -505,7 +508,22 @@ export function ChatPage() {
             {newEngine === 'gemini' && (
               <span className="text-xs text-[var(--color-muted-foreground)]">（Gemini CLI headless，需本机已登录 gemini 或配置 GEMINI_API_KEY）</span>
             )}
+            {newEngine === 'opencode' && (
+              <span className="text-xs text-[var(--color-muted-foreground)]">（多 provider agent，跑第三方模型推荐；需本机装 opencode 并配置 provider：opencode auth login）</span>
+            )}
           </div>
+          {/* OpenCode 引擎：provider/鉴权由 opencode 自己管理，这里只填模型 providerID/modelID */}
+          {newEngine === 'opencode' && (
+            <div className="mt-3 flex items-center gap-2">
+              <span className="shrink-0 text-xs text-[var(--color-muted-foreground)]">模型</span>
+              <input
+                value={newModel}
+                onChange={e => setNewModel(e.target.value)}
+                placeholder="provider/model，如 anthropic/claude-sonnet-4-5 或 openai/gpt-4o（留空用 opencode 默认）"
+                className="h-8 flex-1 rounded-md border bg-[var(--color-background)] px-2 text-sm"
+              />
+            </div>
+          )}
           {/* 服务商：仅 Claude 引擎。官方默认 / 第三方网关档案（按会话生效，不动官方） */}
           {newEngine === 'claude' && (
             <div className="mt-3">

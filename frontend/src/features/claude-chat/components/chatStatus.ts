@@ -25,7 +25,7 @@ export function stateTone(s: string): StatusTone {
 
 /** 引擎显示名。 */
 export function engineName(e: Engine): string {
-  return e === 'codex' ? 'Codex' : e === 'gemini' ? 'Gemini' : 'Claude'
+  return e === 'codex' ? 'Codex' : e === 'gemini' ? 'Gemini' : e === 'opencode' ? 'OpenCode' : 'Claude'
 }
 
 /** 引擎 + 服务商显示名：Claude 第三方网关必须显式标识，避免与 Claude Code 官方混淆。 */

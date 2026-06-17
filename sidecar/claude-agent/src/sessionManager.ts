@@ -3,8 +3,9 @@ import { query, forkSession } from '@anthropic-ai/claude-agent-sdk'
 import { Permissions, type Decision } from './permissions.js'
 import { runCodexTurn } from './codexEngine.js'
 import { runGeminiTurn } from './geminiEngine.js'
+import { runOpencodeTurn } from './opencodeEngine.js'
 
-export type Engine = 'claude' | 'codex' | 'gemini'
+export type Engine = 'claude' | 'codex' | 'gemini' | 'opencode'
 
 type Emit = (sessionId: string, event: Record<string, unknown>) => void
 
@@ -89,6 +90,7 @@ class Session {
   async runTurn(text: string, systemPrompt?: string): Promise<void> {
     if (this.engine === 'codex') return this.runCodexTurn(text)
     if (this.engine === 'gemini') return this.runGeminiTurn(text)
+    if (this.engine === 'opencode') return this.runOpencodeTurn(text)
     const maxAttempts = 3
     // spawn claude.exe 时若 working dir 不存在会直接「exists but failed to launch」；
     // cwd 失效（历史会话来自已删除/改名/异机路径）则回退到用户主目录，避免起不来。
@@ -211,6 +213,25 @@ class Session {
     }
   }
 
+  /** 跑一轮 OpenCode：委托 opencodeEngine（多 provider agent），AbortController 支持中断。 */
+  private async runOpencodeTurn(text: string): Promise<void> {
+    const ac = new AbortController()
+    this.abort = ac
+    try {
+      await runOpencodeTurn({
+        text,
+        cwd: this.cwd,
+        model: this.model,
+        sdkSessionId: this.sdkSessionId,
+        signal: ac.signal,
+        emit: (e) => this.emitSelf(e),
+        setSdkSessionId: (id) => { this.sdkSessionId = id },
+      })
+    } finally {
+      this.abort = undefined
+    }
+  }
+
   /** 首轮取一次可用模型清单（SDK 控制请求 supportedModels），缓存避免重复；失败静默。 */
   private fetchModels(q: unknown): void {
     if (this.modelsFetched) return
@@ -321,7 +342,7 @@ export class SessionManager {
   start(id: string, cwd: string, model?: string, mode?: string, engine?: string, apiBaseUrl?: string, authToken?: string): void {
     const s = new Session(id, cwd || process.env.HOME || process.cwd(), (e) => this.emit(id, e))
     if (model) s.model = model
-    if (engine === 'codex' || engine === 'gemini') s.engine = engine
+    if (engine === 'codex' || engine === 'gemini' || engine === 'opencode') s.engine = engine
     if (apiBaseUrl) { s.apiBaseUrl = apiBaseUrl; s.authToken = authToken }
     if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
     this.sessions.set(id, s)
@@ -339,7 +360,7 @@ export class SessionManager {
     }
     if (sdkSessionId) s.sdkSessionId = sdkSessionId
     if (cwd) s.cwd = cwd
-    if (engine === 'codex' || engine === 'claude' || engine === 'gemini') s.engine = engine
+    if (engine === 'codex' || engine === 'claude' || engine === 'gemini' || engine === 'opencode') s.engine = engine
     if (apiBaseUrl) { s.apiBaseUrl = apiBaseUrl; s.authToken = authToken }
     this.emitCachedModels(id, s)
   }
@@ -388,7 +409,7 @@ export class SessionManager {
   switchEngine(id: string, engine: string, sdkSessionId?: string): void {
     const s = this.sessions.get(id)
     if (!s) return
-    if (engine !== 'claude' && engine !== 'codex' && engine !== 'gemini') return
+    if (engine !== 'claude' && engine !== 'codex' && engine !== 'gemini' && engine !== 'opencode') return
     s.engine = engine
     s.sdkSessionId = sdkSessionId && sdkSessionId.length > 0 ? sdkSessionId : undefined
   }
