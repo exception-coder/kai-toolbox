@@ -392,8 +392,8 @@ export function ChatPage() {
 
   return (
     <div className={fullscreen
-      ? 'fixed inset-0 z-50 flex h-[100dvh] flex-col bg-[var(--color-muted)]/40'
-      : 'flex h-[calc(100dvh-3.5rem)] flex-col bg-[var(--color-muted)]/40'}>
+      ? 'fixed inset-0 z-50 flex h-[100dvh] min-w-0 flex-col overflow-x-hidden bg-[var(--color-muted)]/40'
+      : 'flex h-[calc(100dvh-3.5rem)] min-w-0 flex-col overflow-x-hidden bg-[var(--color-muted)]/40'}>
       {/* 顶栏：中性浅灰 + 1px 边框（Notion 风），不抢视觉 */}
       <header className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-muted)] px-3 py-2 shadow-sm">
         <span className="max-w-[40vw] truncate font-semibold" title={currentTitle || 'Vibe Coding'}>{currentTitle || 'Vibe Coding'}</span>

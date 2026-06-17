@@ -15,18 +15,18 @@ export function ToolCallBubble({ toolName, input, output, isError }: Props) {
   const running = output === undefined
   return (
     <div className={cn(
-      'rounded-lg border text-sm',
+      'min-w-0 max-w-full rounded-lg border text-sm',
       isError ? 'border-[var(--color-destructive)]' : 'border-[var(--color-border)]',
     )}>
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left"
+        className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left"
       >
-        {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-        <Wrench className="size-4 text-[var(--color-muted-foreground)]" />
-        <span className="font-medium">{toolName}</span>
-        <span className="ml-auto text-xs text-[var(--color-muted-foreground)]">
+        {open ? <ChevronDown className="size-4 shrink-0" /> : <ChevronRight className="size-4 shrink-0" />}
+        <Wrench className="size-4 shrink-0 text-[var(--color-muted-foreground)]" />
+        <span className="min-w-0 truncate font-medium">{toolName}</span>
+        <span className="ml-auto shrink-0 text-xs text-[var(--color-muted-foreground)]">
           {running ? '运行中…' : isError ? '出错' : '完成'}
         </span>
       </button>
