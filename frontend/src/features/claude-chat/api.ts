@@ -33,9 +33,9 @@ export function listSessions() {
   return http<ClaudeChatSessionView[]>('/claude-chat/sessions')
 }
 
-/** 拉第三方网关的可用模型目录（后端代理 GET {baseUrl}/v1/models，避免浏览器 CORS）。失败/空时回退手填。 */
+/** 拉第三方网关的可用模型目录（后端代理 GET {baseUrl}/v1/models，避免浏览器 CORS）。error 非空=拉取失败原因。 */
 export function fetchProviderModels(baseUrl: string, key: string) {
-  return http<{ models: ModelInfo[] }>('/claude-chat/provider/models', {
+  return http<{ models: ModelInfo[]; error?: string | null }>('/claude-chat/provider/models', {
     method: 'POST',
     body: JSON.stringify({ baseUrl, key }),
   })
