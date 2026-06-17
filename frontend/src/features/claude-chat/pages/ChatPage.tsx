@@ -72,10 +72,14 @@ export function ChatPage() {
     if (chat?.sessionId) qc.invalidateQueries({ queryKey: ['claude-chat-sessions'] })
   }, [chat?.sessionId, qc])
 
-  // 一键重启后端：调守护进程(run-supervised.ps1)的独立控制口 /supervisor/restart(经 Vite 代理到 :18081)。
-  // 与后端独立——后端宕机时本控制口仍在,故能拉起。当前 WS 会断,重启后前端自动重连续上。
-  // token 用应用内输入框收，不用 window.prompt：移动端浏览器/WebView 普遍禁用 prompt（静默返回 null），
-  // 会导致“点了没反应、不弹输入框”。confirm/alert 同理改为应用内弹层 + 行内状态。
+  // 一键重启后端：依次试两条通道，任一成功即可（带超时，绝不无限等待——之前 fetch 无超时，
+  // 通道不可达时一直卡在“正在请求重启…”）。
+  //   1) POST /api/system/restart —— 后端自重启端点。走 /api 通道(dev 经 Vite 代理、生产直连后端都可达)，
+  //      进程优雅退出后由守护脚本(run-supervised.ps1)检测到 HasExited 重新拉起。token=toolbox.system.restart-token。
+  //   2) POST /supervisor/restart —— 守护进程独立控制口(:18081)，仅 dev 经 Vite /supervisor 代理可达；
+  //      生产无此代理、或 :18081 HttpListener 因 urlacl 未起时不可达。token=TOOLBOX_SUPERVISOR_RESTART_TOKEN。
+  // 两端 token 可能不同；用同一输入框值分别试，任一匹配并触发即算成功。重启后 WS 断、前端自动重连续上。
+  // token 用应用内输入框收，不用 window.prompt：移动端浏览器/WebView 普遍禁用 prompt（静默返回 null）。
   const [showCommits, setShowCommits] = useState(false)
   const [headerMenu, setHeaderMenu] = useState(false)
   const [restartOpen, setRestartOpen] = useState(false)
@@ -95,18 +99,44 @@ export function ChatPage() {
     localStorage.setItem('kai-toolbox:supervisor-token', token)
     setRestartBusy(true)
     setRestartStatus('正在请求重启…')
-    try {
-      const r = await fetch('/supervisor/restart', { method: 'POST', headers: { 'X-Restart-Token': token } })
-      if (r.ok) setRestartStatus('✅ 重启已触发，后端数秒后回来，页面会自动重连。')
-      else if (r.status === 403) { localStorage.removeItem('kai-toolbox:supervisor-token'); setRestartStatus('❌ token 不匹配（已清除，请重新输入）') }
-      else if (r.status === 503) setRestartStatus('❌ 守护进程未配置 RestartToken（改 run-supervised.ps1 的 $RestartToken）')
-      else if (r.status === 404) setRestartStatus('❌ /supervisor 未代理到 :18081 —— 重启一次 npm run dev 让 vite 代理生效')
-      else setRestartStatus(`❌ 重启请求失败：HTTP ${r.status}`)
-    } catch {
-      setRestartStatus('❌ 连不上守护口(:18081)，确认后端是用 run-supervised.ps1 启动的')
-    } finally {
-      setRestartBusy(false)
+    // 带超时的 POST：通道不可达/无响应时 8s 中断，避免无限卡住。
+    const tryRestart = async (path: string): Promise<Response> => {
+      const ac = new AbortController()
+      const timer = setTimeout(() => ac.abort(), 8000)
+      try {
+        return await fetch(path, { method: 'POST', headers: { 'X-Restart-Token': token }, signal: ac.signal })
+      } finally {
+        clearTimeout(timer)
+      }
     }
+    const attempts: { label: string; path: string }[] = [
+      { label: '后端自重启(/api/system/restart)', path: '/api/system/restart' },
+      { label: '守护进程(/supervisor/restart)', path: '/supervisor/restart' },
+    ]
+    const notes: string[] = []
+    for (const a of attempts) {
+      try {
+        const r = await tryRestart(a.path)
+        if (r.ok) {
+          setRestartStatus('✅ 重启已触发，后端数秒后回来，页面会自动重连。')
+          setRestartBusy(false)
+          return
+        }
+        if (r.status === 403) notes.push(`${a.label}：token 不匹配`)
+        else if (r.status === 503) notes.push(`${a.label}：未启用/未配置 token`)
+        else if (r.status === 404 || r.status === 405) notes.push(`${a.label}：端点不可达`)
+        else notes.push(`${a.label}：HTTP ${r.status}`)
+      } catch (e) {
+        notes.push(`${a.label}：${(e as Error)?.name === 'AbortError' ? '超时无响应' : '连不上'}`)
+      }
+    }
+    // 两条都因 token 不匹配失败：清掉本地 token 让用户重填
+    if (notes.length > 0 && notes.every(n => n.includes('token 不匹配'))) {
+      localStorage.removeItem('kai-toolbox:supervisor-token')
+    }
+    setRestartStatus('❌ 重启失败：\n' + notes.join('\n')
+      + '\n（请确认后端用 run-supervised.ps1 启动，且 run-tools.conf 配了 RestartToken）')
+    setRestartBusy(false)
   }
 
   // 全自动·弹窗自动允许（前端兜底）：bypassPermissions 下仍偶有工具弹 allow/deny 框，
@@ -609,7 +639,7 @@ export function ChatPage() {
           >
             <h3 className="text-sm font-medium">重启后端服务</h3>
             <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-              当前连接会短暂断开，重启后页面自动重连续上会话。输入守护进程 RestartToken（run-supervised.ps1 里的 $RestartToken）。
+              当前连接会短暂断开，重启后页面自动重连续上会话。输入 RestartToken（run-tools.conf 里的 TOOLBOX_SYSTEM_RESTART_TOKEN 或 TOOLBOX_SUPERVISOR_RESTART_TOKEN）。
             </p>
             <Input
               type="password"
@@ -620,7 +650,7 @@ export function ChatPage() {
               onChange={e => setRestartToken(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !restartBusy) doRestart() }}
             />
-            {restartStatus && <p className="mt-2 text-xs">{restartStatus}</p>}
+            {restartStatus && <p className="mt-2 whitespace-pre-line text-xs">{restartStatus}</p>}
             <div className="mt-3 flex justify-end gap-2">
               <Button variant="outline" size="sm" disabled={restartBusy} onClick={() => setRestartOpen(false)}>取消</Button>
               <Button size="sm" disabled={restartBusy} onClick={doRestart}>{restartBusy ? '请求中…' : '重启'}</Button>
