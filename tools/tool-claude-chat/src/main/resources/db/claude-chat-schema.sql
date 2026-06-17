@@ -14,6 +14,10 @@ CREATE TABLE IF NOT EXISTS claude_chat_session (
     -- 各引擎各自的 SDK 会话句柄映射 JSON（如 {"claude":"sid-A","codex":"sid-B"}）；
     -- 切 agent 持久化，跨 sidecar 重启也能精准 resume 回原引擎、只补增量
     engine_sessions TEXT,
+    -- 第三方 Anthropic 兼容网关（如 4sapi）：仅本会话生效，空=走官方登录。
+    -- 持久化以便断连重连 / sidecar 重启后 resume 仍指向同一网关。auth_token 本地明文存（单机单用户）。
+    api_base_url    TEXT,
+    auth_token      TEXT,
     -- RUNNING / IDLE / INTERRUPTED / DONE
     status          TEXT NOT NULL,
     started_at      INTEGER NOT NULL,

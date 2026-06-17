@@ -18,6 +18,10 @@ public class ClaudeChatSession {
     private String engines;
     /** 各引擎各自的 SDK 会话句柄映射 JSON（如 {"claude":"sid-A","codex":"sid-B"}），切 agent 持久化用 */
     private String engineSessions;
+    /** 第三方 Anthropic 兼容网关 baseURL；空=走官方。仅 Claude 引擎用。 */
+    private String apiBaseUrl;
+    /** 第三方网关鉴权 token（ANTHROPIC_AUTH_TOKEN）；本地明文存。 */
+    private String authToken;
     private SessionStatus status;
     private long startedAt;
     private long lastSeenAt;

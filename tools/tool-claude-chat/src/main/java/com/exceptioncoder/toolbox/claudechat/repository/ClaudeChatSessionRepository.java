@@ -26,6 +26,8 @@ public class ClaudeChatSessionRepository {
             .engine(rs.getString("engine") == null ? "claude" : rs.getString("engine"))
             .engines(rs.getString("engines"))
             .engineSessions(rs.getString("engine_sessions"))
+            .apiBaseUrl(rs.getString("api_base_url"))
+            .authToken(rs.getString("auth_token"))
             .status(SessionStatus.valueOf(rs.getString("status")))
             .startedAt(rs.getLong("started_at"))
             .lastSeenAt(rs.getLong("last_seen_at"))
@@ -46,11 +48,12 @@ public class ClaudeChatSessionRepository {
         String engine = s.getEngine() == null ? "claude" : s.getEngine();
         jdbc.update("""
                 INSERT INTO claude_chat_session
-                  (id, cwd, title, sdk_session_id, engine, engines, status, started_at, last_seen_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  (id, cwd, title, sdk_session_id, engine, engines, api_base_url, auth_token, status, started_at, last_seen_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 s.getId(), s.getCwd(), s.getTitle(), s.getSdkSessionId(),
                 engine, s.getEngines() == null ? engine : s.getEngines(),
+                s.getApiBaseUrl(), s.getAuthToken(),
                 s.getStatus().name(), s.getStartedAt(), s.getLastSeenAt());
     }
 

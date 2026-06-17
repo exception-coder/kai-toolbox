@@ -88,17 +88,23 @@ public class ClaudeChatService {
                 ? System.getProperty("user.home") : open.cwd().trim();
 
         String engine = normalizeEngine(open.engine());
+        // 第三方网关仅对 Claude 引擎生效；非 Claude 忽略（官方）
+        String apiBaseUrl = "claude".equals(engine) ? blankToNull(open.apiBaseUrl()) : null;
+        String authToken = apiBaseUrl == null ? null : blankToNull(open.authToken());
         repo.insert(ClaudeChatSession.builder()
                 .id(sessionId).cwd(cwd).title(null).sdkSessionId(null).engine(engine)
+                .apiBaseUrl(apiBaseUrl).authToken(authToken)
                 .status(SessionStatus.IDLE).startedAt(now).lastSeenAt(now).build());
 
         SessionCtx ctx = new SessionCtx(sessionId, cwd);
         ctx.engine = engine;
+        ctx.apiBaseUrl = apiBaseUrl;
+        ctx.authToken = authToken;
         sessions.put(sessionId, ctx);
         bindViewer(ws, ctx);
 
         ctx.mode = normalizeMode(open.mode());
-        sidecar.startSession(sessionId, cwd, open.model(), ctx.mode, engine);
+        sidecar.startSession(sessionId, cwd, open.model(), ctx.mode, engine, apiBaseUrl, authToken);
         log.info("[claude-chat] open 会话 {} cwd={} mode={} engine={}", sessionId, cwd, ctx.mode, engine);
     }
 
@@ -116,13 +122,15 @@ public class ClaudeChatService {
                     SessionCtx c = new SessionCtx(id, db.getCwd());
                     c.sdkSessionId = db.getSdkSessionId();
                     c.engine = normalizeEngine(db.getEngine());
+                    c.apiBaseUrl = db.getApiBaseUrl();
+                    c.authToken = db.getAuthToken();
                     loadEngineSessions(c, db.getEngineSessions());
                     return c;
                 });
                 bindViewer(ws, restored);
                 if (created[0]) {
                     repo.touch(db.getId(), SessionStatus.IDLE, System.currentTimeMillis());
-                    sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), restored.engine);
+                    sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), restored.engine, restored.apiBaseUrl, restored.authToken);
                     log.info("[claude-chat] attach 内存未命中，从 DB 恢复并 resume 会话 {}", db.getId());
                 }
                 // Ready 只发给当前这条连接（其它已在看的连接不需要重复）
@@ -154,10 +162,12 @@ public class ClaudeChatService {
         SessionCtx ctx = sessions.computeIfAbsent(db.getId(), id -> new SessionCtx(id, db.getCwd()));
         ctx.sdkSessionId = db.getSdkSessionId();
         ctx.engine = normalizeEngine(db.getEngine());
+        ctx.apiBaseUrl = db.getApiBaseUrl();
+        ctx.authToken = db.getAuthToken();
         loadEngineSessions(ctx, db.getEngineSessions());
         bindViewer(ws, ctx);
         repo.touch(db.getId(), SessionStatus.IDLE, System.currentTimeMillis());
-        sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), ctx.engine);
+        sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), ctx.engine, ctx.apiBaseUrl, ctx.authToken);
         // 历史消息由前端按需读 SDK transcript；这里只发一个 Ready 表示已就绪
         sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch, ctx.engine));
     }
@@ -183,7 +193,7 @@ public class ClaudeChatService {
         sessions.put(id, ctx);
         bindViewer(ws, ctx);
 
-        sidecar.resumeSession(id, msg.sdkSessionId(), cwd, ctx.engine);
+        sidecar.resumeSession(id, msg.sdkSessionId(), cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken);
         sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, id, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch, ctx.engine));
         log.info("[claude-chat] resumeHistory 会话 {} sdk={} cwd={}", id, msg.sdkSessionId(), cwd);
     }
@@ -505,7 +515,7 @@ public class ClaudeChatService {
         int n = 0;
         for (SessionCtx ctx : sessions.values()) {
             if (ctx.sdkSessionId == null || ctx.sdkSessionId.isBlank()) continue;
-            sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine);
+            sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken);
             ctx.status = SessionStatus.IDLE;
             repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
             sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch, ctx.engine));
@@ -529,11 +539,16 @@ public class ClaudeChatService {
             return false;
         }
         if (ctx.sdkSessionId != null && !ctx.sdkSessionId.isBlank()) {
-            sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine);
+            sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken);
             ctx.status = SessionStatus.IDLE;
             repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
         }
         return true;
+    }
+
+    /** 空白串归一为 null，避免把空网关地址当成有效配置。 */
+    private static String blankToNull(String s) {
+        return s == null || s.isBlank() ? null : s.trim();
     }
 
     private static void sleep(long ms) {
@@ -755,6 +770,9 @@ public class ClaudeChatService {
         /** 各引擎各自的 SDK 会话句柄（engine -> sdkSessionId）；切回某引擎时 resume 其原生会话，持久化到 DB engine_sessions(JSON)。 */
         final Map<String, String> engineSessions = new ConcurrentHashMap<>();
         volatile SessionStatus status = SessionStatus.IDLE;
+        /** 第三方网关 baseURL/token（仅 Claude 会话）；start/resume 透传给 sidecar，使重连/重启后仍指向同一网关。空=官方。 */
+        volatile String apiBaseUrl;
+        volatile String authToken;
         /** 当前在看本会话的所有浏览器连接（多端同看）。广播事件遍历此集合，断开按连接移除。 */
         final Set<WebSocketSession> viewers = ConcurrentHashMap.newKeySet();
         /** 会话权限模式，默认 default；切换后随下一轮 send 透传给 sidecar。 */

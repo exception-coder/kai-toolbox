@@ -51,5 +51,18 @@ public class ClaudeChatSchemaMigration {
         } catch (Exception e) {
             log.debug("[claude-chat] engines 回填跳过：{}", e.getMessage());
         }
+        // 第三方网关凭证列（旧库补列；新库 schema.sql 已含）
+        try {
+            jdbc.execute("ALTER TABLE claude_chat_session ADD COLUMN api_base_url TEXT");
+            log.info("[claude-chat] 迁移：claude_chat_session 已补 api_base_url 列");
+        } catch (Exception e) {
+            log.debug("[claude-chat] api_base_url 列迁移跳过：{}", e.getMessage());
+        }
+        try {
+            jdbc.execute("ALTER TABLE claude_chat_session ADD COLUMN auth_token TEXT");
+            log.info("[claude-chat] 迁移：claude_chat_session 已补 auth_token 列");
+        } catch (Exception e) {
+            log.debug("[claude-chat] auth_token 列迁移跳过：{}", e.getMessage());
+        }
     }
 }

@@ -69,14 +69,18 @@ public class SidecarClient {
         return session != null && session.isOpen();
     }
 
-    public void startSession(String sessionId, String cwd, String model, String mode, String engine) {
+    public void startSession(String sessionId, String cwd, String model, String mode, String engine,
+                             String apiBaseUrl, String authToken) {
         send(Map.of("type", "start", "sessionId", sessionId,
-                "cwd", nz(cwd), "model", nz(model), "mode", nz(mode), "engine", nz(engine)));
+                "cwd", nz(cwd), "model", nz(model), "mode", nz(mode), "engine", nz(engine),
+                "apiBaseUrl", nz(apiBaseUrl), "authToken", nz(authToken)));
     }
 
-    public void resumeSession(String sessionId, String sdkSessionId, String cwd, String engine) {
+    public void resumeSession(String sessionId, String sdkSessionId, String cwd, String engine,
+                              String apiBaseUrl, String authToken) {
         send(Map.of("type", "resume", "sessionId", sessionId,
-                "sdkSessionId", nz(sdkSessionId), "cwd", nz(cwd), "engine", nz(engine)));
+                "sdkSessionId", nz(sdkSessionId), "cwd", nz(cwd), "engine", nz(engine),
+                "apiBaseUrl", nz(apiBaseUrl), "authToken", nz(authToken)));
     }
 
     public void userMessage(String sessionId, String text) {

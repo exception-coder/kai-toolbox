@@ -27,8 +27,11 @@ public sealed interface ClientMessage
                 ClientMessage.Interrupt, ClientMessage.SetMode, ClientMessage.SetModel,
                 ClientMessage.SwitchEngine, ClientMessage.ForkSession {
 
-    /** 新建会话。mode 为初始权限模式，可空（缺省按 default）；engine 为引擎 claude/codex，可空（缺省 claude）。 */
-    record Open(String cwd, String model, String mode, String engine) implements ClientMessage {}
+    /**
+     * 新建会话。mode 为初始权限模式，可空（缺省 default）；engine 引擎 claude/codex，可空（缺省 claude）。
+     * apiBaseUrl/authToken 为可选第三方 Anthropic 兼容网关（如 4sapi）：仅本会话生效，空=走官方登录。
+     */
+    record Open(String cwd, String model, String mode, String engine, String apiBaseUrl, String authToken) implements ClientMessage {}
 
     /** 重连进行中的会话，请求回放 seq > lastEventSeq 的事件 */
     record Attach(String sessionId, long lastEventSeq) implements ClientMessage {}
