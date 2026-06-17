@@ -150,8 +150,9 @@ export function SessionPane({ sessionId, onClose }: Props) {
         </button>
       </div>
 
-      {/* 消息流 */}
-      <div className="min-h-0 flex-1">
+      {/* 消息流：必须是 flex 列容器，MessageList 才能靠 flex-1 拿到有界高度并内部滚动
+          （block 容器下 flex-1 失效 → 列表随内容撑高、overflow 不生效 → 分屏块滚不动） */}
+      <div className="flex min-h-0 flex-1 flex-col">
         <MessageList
           items={chat.items}
           running={chat.running}
