@@ -1,4 +1,4 @@
-﻿package com.exceptioncoder.toolbox.claudechat.service;
+package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.SubdirListResponse;
 import com.exceptioncoder.toolbox.claudechat.api.dto.TaskspaceDirView;
@@ -200,3 +200,144 @@ public class TaskspaceService {
             log.warn("清理工作区目录失败: {}", wsDir, e);
         }
     }
+
+    private Path requireWorkspace(String dir) {
+        if (dir == null || dir.isBlank()) {
+            throw new IllegalArgumentException("工作区目录不能为空");
+        }
+        Path wsDir = Path.of(dir).toAbsolutePath().normalize();
+        if (!Files.isDirectory(wsDir)) {
+            throw new IllegalArgumentException("工作区目录不存在: " + wsDir);
+        }
+        return wsDir;
+    }
+
+    private List<Member> linkMembers(Path wsDir, List<String> members) {
+        List<Member> added = new ArrayList<>();
+        for (String m : members) {
+            if (m == null || m.isBlank()) {
+                continue;
+            }
+            Path target = Path.of(m).toAbsolutePath().normalize();
+            if (!Files.isDirectory(target)) {
+                throw new IllegalArgumentException("源项目目录不存在: " + target);
+            }
+            String linkName = uniqueLinkName(wsDir, target.getFileName().toString());
+            createLink(target, wsDir.resolve(linkName));
+            added.add(new Member(linkName, target.toString()));
+            log.info("链接 + {} -> {}", linkName, target);
+        }
+        return added;
+    }
+
+    private String uniqueLinkName(Path wsDir, String base) {
+        String name = base;
+        int i = 2;
+        while (Files.exists(wsDir.resolve(name), LinkOption.NOFOLLOW_LINKS)) {
+            name = base + "_" + (i++);
+        }
+        return name;
+    }
+
+    /** Windows 建 junction（免管理员），其它平台建目录 symlink。 */
+    private void createLink(Path target, Path link) {
+        if (IS_WINDOWS) {
+            ProcessBuilder pb = new ProcessBuilder(
+                    "cmd", "/c", "mklink", "/J", link.toString(), target.toString());
+            pb.redirectErrorStream(true);
+            try {
+                Process proc = pb.start();
+                String out = new String(proc.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+                boolean done = proc.waitFor(15, TimeUnit.SECONDS);
+                if (!done) {
+                    proc.destroyForcibly();
+                    throw new IllegalArgumentException("建 junction 超时: " + link);
+                }
+                if (proc.exitValue() != 0) {
+                    throw new IllegalArgumentException("建 junction 失败: " + out.trim());
+                }
+            } catch (IOException e) {
+                throw new IllegalArgumentException("建 junction 失败: " + e.getMessage());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalArgumentException("建 junction 被中断");
+            }
+        } else {
+            try {
+                Files.createSymbolicLink(link, target);
+            } catch (IOException e) {
+                throw new IllegalArgumentException("建 symlink 失败: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * 是否为链接：symlink 或 Windows junction。junction 在 NIO 下 isSymbolicLink() 返回 false，
+     * 但 NOFOLLOW 读属性时 isOther() 为 true（reparse point），故二者取或。
+     */
+    private boolean isLink(Path p) {
+        if (Files.isSymbolicLink(p)) {
+            return true;
+        }
+        try {
+            BasicFileAttributes attrs =
+                    Files.readAttributes(p, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+            return attrs.isOther();
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /**
+     * 安全删除一个链接：只有判定为链接才删；Files.delete 仅移除链接本身，不递归删除目标内容；
+     * 碰到真实非空目录抛 DirectoryNotEmptyException 被吞为跳过。
+     */
+    private boolean removeLink(Path link) {
+        if (!isLink(link)) {
+            return false;
+        }
+        try {
+            Files.delete(link);
+            return true;
+        } catch (DirectoryNotEmptyException e) {
+            log.warn("目标疑似真实非空目录，已跳过保护: {}", link);
+            return false;
+        } catch (IOException e) {
+            log.warn("删除链接失败: {}", link, e);
+            return false;
+        }
+    }
+
+    private TaskspaceView toView(Path wsDir, TaskspaceManifest manifest) {
+        List<MemberView> views = new ArrayList<>();
+        List<Member> members = manifest.members() == null ? List.of() : manifest.members();
+        for (Member m : members) {
+            boolean alive = isLink(wsDir.resolve(m.link()));
+            views.add(new MemberView(m.link(), m.target(), alive));
+        }
+        return new TaskspaceView(wsDir.toString(), manifest.name(), manifest.base(), List.copyOf(views));
+    }
+
+    private TaskspaceManifest readManifest(Path wsDir) {
+        Path f = wsDir.resolve(MANIFEST);
+        if (!Files.isRegularFile(f)) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(Files.readAllBytes(f), TaskspaceManifest.class);
+        } catch (IOException e) {
+            log.warn("读取清单失败: {}", f, e);
+            return null;
+        }
+    }
+
+    private void writeManifest(Path wsDir, TaskspaceManifest manifest) {
+        Path f = wsDir.resolve(MANIFEST);
+        try {
+            byte[] json = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(manifest);
+            Files.write(f, json);
+        } catch (IOException e) {
+            throw new IllegalArgumentException("写入清单失败: " + e.getMessage());
+        }
+    }
+}

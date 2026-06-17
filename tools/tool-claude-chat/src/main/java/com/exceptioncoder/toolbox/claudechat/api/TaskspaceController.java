@@ -15,9 +15,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 「合并工作区」(taskspace) 接口：列任意父目录的子目录、多选建链接成新工作区，并支持
- * 查看 / 追加 / 移除 / 拆除全生命周期。建好的目录可直接作为新会话 cwd。
- * 非法入参抛 {@link IllegalArgumentException}，由 common 的 GlobalExceptionHandler 统一转 4xx。
+ * 「合并工作区」(taskspace)：在任意父目录下用软链接聚合多个项目为一个新目录，直接当 Vibe Coding 会话 cwd。
+ * 全生命周期：列子目录 / 创建 / 查看 / 追加 / 移除 / 拆除。非法入参由 GlobalExceptionHandler 统一转 4xx。
  */
 @RestController
 @RequestMapping("/api/claude-chat/taskspace")
@@ -29,19 +28,19 @@ public class TaskspaceController {
         this.service = service;
     }
 
-    /** 列父目录的一级子目录，供多选。 */
+    /** 列父目录下的一级子目录，供多选。 */
     @GetMapping("/subdirs")
     public SubdirListResponse subdirs(@RequestParam String parent) {
         return service.listSubdirs(parent);
     }
 
-    /** 创建工作区：base 下建 name 目录并为每个 member 建链接。 */
+    /** 创建工作区并为选中目录建链接。 */
     @PostMapping("/create")
     public TaskspaceView create(@RequestBody CreateTaskspaceRequest req) {
         return service.create(req.base(), req.name(), req.members());
     }
 
-    /** 读工作区清单 + 链接存活状态。 */
+    /** 查看某工作区的成员与链接存活状态。 */
     @GetMapping("/info")
     public TaskspaceView info(@RequestParam String dir) {
         return service.read(dir);
@@ -53,13 +52,13 @@ public class TaskspaceController {
         return service.add(req.dir(), req.members());
     }
 
-    /** 从工作区移除若干链接（只删链接）。 */
+    /** 从工作区移除若干链接（只删链接，不动源目录）。 */
     @PostMapping("/remove")
     public TaskspaceView remove(@RequestBody RemoveLinksRequest req) {
         return service.removeLinks(req.dir(), req.links());
     }
 
-    /** 整体拆除工作区（只删链接 + 清单，源目录不触碰）。 */
+    /** 整体拆除工作区（只删链接 + 清单，源目录绝不触碰）。 */
     @PostMapping("/teardown")
     public void teardown(@RequestBody TeardownRequest req) {
         service.teardown(req.dir());
