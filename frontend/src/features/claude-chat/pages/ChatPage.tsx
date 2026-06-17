@@ -235,7 +235,7 @@ export function ChatPage() {
 
   // 选中第三方网关时，从其 /v1/models 拉可选模型目录（后端代理）。失败/空回退手填，不阻断新建。
   useEffect(() => {
-    if (panel !== 'new' || (newEngine !== 'claude' && newEngine !== 'codex') || newProviderId === '') {
+    if (panel !== 'new' || (newEngine !== 'claude' && newEngine !== 'codex' && newEngine !== 'gemini') || newProviderId === '') {
       setProviderModels([])
       return
     }
@@ -291,8 +291,8 @@ export function ChatPage() {
 
   const startNew = () => {
     // 服务商仅 Claude 引擎生效：选了档案则走第三方网关 + 手填模型，否则官方默认
-    // 第三方网关对 Claude / Codex 生效（Codex 走 OpenAI 兼容，接网关更顺）
-    const usesGateway = newEngine === 'claude' || newEngine === 'codex'
+    // 第三方网关对 Claude / Codex / Gemini 生效（各走各的协议端点）
+    const usesGateway = newEngine === 'claude' || newEngine === 'codex' || newEngine === 'gemini'
     const profile = usesGateway ? providers.find(p => p.id === newProviderId) : undefined
     const provider = profile ? { apiBaseUrl: profile.baseUrl, authToken: profile.key } : undefined
     // 模型：claude/codex 网关用档案/手填；opencode 用手填的 provider/model（留空走默认）；其它引擎不传
@@ -526,8 +526,8 @@ export function ChatPage() {
               />
             </div>
           )}
-          {/* 服务商：Claude / Codex 引擎。官方默认 / 第三方网关档案（按会话生效，不动官方） */}
-          {(newEngine === 'claude' || newEngine === 'codex') && (
+          {/* 服务商：Claude / Codex / Gemini 引擎。官方默认 / 第三方网关档案（按会话生效，不动官方） */}
+          {(newEngine === 'claude' || newEngine === 'codex' || newEngine === 'gemini') && (
             <div className="mt-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs text-[var(--color-muted-foreground)]">服务商</span>
@@ -611,7 +611,9 @@ export function ChatPage() {
                 <p className="mt-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
                   {newEngine === 'codex'
                     ? '将使用第三方网关（OpenAI 兼容），不是本机 ~/.codex 官方登录。网关 baseURL 只填 host 即可，Codex 会自动补 /v1。'
-                    : '将使用第三方网关，不是 Claude Code 官方登录。'}
+                    : newEngine === 'gemini'
+                      ? '将使用第三方网关（须 Google/Gemini 协议兼容），注入 GOOGLE_GEMINI_BASE_URL + GEMINI_API_KEY，不走本机官方登录。'
+                      : '将使用第三方网关，不是 Claude Code 官方登录。'}
                 </p>
               )}
             </div>

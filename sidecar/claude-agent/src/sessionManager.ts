@@ -206,6 +206,8 @@ class Session {
         model: this.model,
         permissionMode: this.permissionMode,
         sdkSessionId: this.sdkSessionId,
+        apiBaseUrl: this.apiBaseUrl,
+        authToken: this.authToken,
         signal: ac.signal,
         emit: (e) => this.emitSelf(e),
         setSdkSessionId: (id) => { this.sdkSessionId = id },

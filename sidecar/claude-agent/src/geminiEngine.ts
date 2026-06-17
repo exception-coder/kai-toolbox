@@ -21,6 +21,10 @@ export interface GeminiTurnCtx {
   permissionMode: string
   /** 已有会话 id（resume 续跑）；无则新建。 */
   sdkSessionId?: string
+  /** 第三方网关 baseURL（须 Gemini/Google 协议兼容）；置则注入 GOOGLE_GEMINI_BASE_URL。空=本机官方登录/GEMINI_API_KEY。 */
+  apiBaseUrl?: string
+  /** 第三方网关 API Key（注入 GEMINI_API_KEY）。 */
+  authToken?: string
   signal: AbortSignal
   emit: (e: Record<string, unknown>) => void
   setSdkSessionId: (id: string) => void
@@ -76,10 +80,20 @@ export async function runGeminiTurn(ctx: GeminiTurnCtx): Promise<void> {
   // 已有会话 → 续最近一次（同 cwd）。resume 语义待真实验证（见设计文档 §8）。
   if (ctx.sdkSessionId) args.push('--resume', 'latest')
 
+  // 第三方网关：注入 Gemini CLI 认的自定义端点 + key（须 Google/Gemini 协议兼容）。
+  const env: NodeJS.ProcessEnv = { ...process.env }
+  if (ctx.apiBaseUrl && ctx.apiBaseUrl.trim()) {
+    const base = ctx.apiBaseUrl.trim().replace(/\/+$/, '')
+    env.GOOGLE_GEMINI_BASE_URL = base
+    env.GEMINI_API_BASE_URL = base // 不同版本的别名，一并设
+    if (ctx.authToken) env.GEMINI_API_KEY = ctx.authToken
+    console.log(`[gemini] turn start model=${ctx.model ?? '默认'} via=${base}`)
+  }
+
   return new Promise<void>((resolve) => {
     let child: ChildProcess
     try {
-      child = spawn(process.execPath, [bin, ...args], { cwd: safeCwd, env: process.env })
+      child = spawn(process.execPath, [bin, ...args], { cwd: safeCwd, env })
     } catch (e) {
       ctx.emit({ type: 'error', code: 'GEMINI_SPAWN_FAILED', message: e instanceof Error ? e.message : String(e) })
       resolve()
@@ -151,6 +165,13 @@ export async function runGeminiTurn(ctx: GeminiTurnCtx): Promise<void> {
           // 若整轮没流式发过文本，用 result 里的最终回答兜底（headless 的 response 字段）
           const resp = pickStr(obj.response, (obj as Record<string, unknown>).text)
           if (resp && !sawText) ctx.emit({ type: 'assistantDelta', text: resp })
+          ctx.emit({
+            type: 'turnInfo',
+            requestedModel: ctx.model ?? null,
+            responseModel: ctx.model ?? null,
+            viaGateway: !!ctx.apiBaseUrl,
+            baseUrl: ctx.apiBaseUrl ?? null,
+          })
           ctx.emit({ type: 'result', usage, stopReason: 'end_turn' })
           break
         }
