@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, FolderTree, GitCommit, List, Maximize2, Minimize2, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RotateCw, Send, ShieldCheck, Slash, Square } from 'lucide-react'
+import { Bell, FolderTree, GitCommit, List, Maximize2, Minimize2, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RotateCw, Send, Server, ShieldCheck, Slash, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Input } from '@/components/ui/input'
@@ -20,13 +20,15 @@ import { CommandMenu } from '../components/CommandMenu'
 import { PluginPanel } from '../components/PluginPanel'
 import { TaskspacePanel } from '../components/TaskspacePanel'
 import { MultiSessionView } from '../components/MultiSessionView'
+import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
+import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineName, stateLabel, stateTone } from '../components/chatStatus'
 import { getSessionCommitDiff, listSessionCommits, listSessions, listWorkspaces, uploadAttachment, type UploadedAttachment } from '../api'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
 import type { Engine } from '../types'
 import { ensureNotifyPermission } from '../browserNotify'
 
-type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace'
+type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers'
 
 /** 单条消息最多附件数，与后端约定一致。 */
 const MAX_ATTACHMENTS = 10
@@ -155,6 +157,10 @@ export function ChatPage() {
   const [draft, setDraft] = useState('')
   const [newCwd, setNewCwd] = useState('')
   const [newEngine, setNewEngine] = useState<Engine>('claude')
+  // 第三方网关「服务商」：newProviderId 空=官方默认；newModel 为走网关时手填的模型名
+  const [providers, setProviders] = useState<ProviderProfile[]>(() => loadProfiles())
+  const [newProviderId, setNewProviderId] = useState('')
+  const [newModel, setNewModel] = useState('')
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [uploading, setUploading] = useState(0)
   const [slashIdx, setSlashIdx] = useState(0)
@@ -212,7 +218,11 @@ export function ChatPage() {
   }
 
   const startNew = () => {
-    chat.open(newCwd.trim(), undefined, undefined, newEngine)
+    // 服务商仅 Claude 引擎生效：选了档案则走第三方网关 + 手填模型，否则官方默认
+    const profile = newEngine === 'claude' ? providers.find(p => p.id === newProviderId) : undefined
+    const provider = profile ? { apiBaseUrl: profile.baseUrl, authToken: profile.key } : undefined
+    const model = profile ? (newModel.trim() || profile.model || undefined) : undefined
+    chat.open(newCwd.trim(), model, undefined, newEngine, provider)
     setPanel('none')
   }
 
@@ -371,6 +381,7 @@ export function ChatPage() {
                     <HeaderMenuItem icon={<GitCommit className="size-4" />} label="提交记录" hint="当前目录 git 提交/diff" onClick={() => { setHeaderMenu(false); setShowCommits(true) }} />
                   )}
                   <HeaderMenuItem icon={<FolderTree className="size-4" />} label="合并工作区" hint="软链接聚合多个目录" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'taskspace' ? 'none' : 'taskspace') }} />
+                  <HeaderMenuItem icon={<Server className="size-4" />} label="服务商" hint="第三方网关(按会话,不动官方)" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'providers' ? 'none' : 'providers') }} />
                   <HeaderMenuItem icon={<Package className="size-4" />} label="插件更新" hint="查看/更新双端插件" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'plugins' ? 'none' : 'plugins') }} />
                   <HeaderMenuItem icon={<Bell className="size-4" />} label="通知设置" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'settings' ? 'none' : 'settings') }} />
                   <HeaderMenuItem icon={<RotateCw className="size-4" />} label="重启服务" hint="经守护进程重启后端" onClick={() => { setHeaderMenu(false); openRestart() }} />
@@ -421,6 +432,53 @@ export function ChatPage() {
               <span className="text-xs text-[var(--color-muted-foreground)]">（Gemini CLI headless，需本机已登录 gemini 或配置 GEMINI_API_KEY）</span>
             )}
           </div>
+          {/* 服务商：仅 Claude 引擎。官方默认 / 第三方网关档案（按会话生效，不动官方） */}
+          {newEngine === 'claude' && (
+            <div className="mt-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-[var(--color-muted-foreground)]">服务商</span>
+                <button
+                  type="button"
+                  onClick={() => { setNewProviderId(''); setNewModel('') }}
+                  className={`rounded-full border px-3 py-1 text-xs ${newProviderId === ''
+                    ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                    : 'bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}
+                >
+                  官方默认
+                </button>
+                {providers.map(p => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => { setNewProviderId(p.id); setNewModel(p.model || '') }}
+                    className={`rounded-full border px-3 py-1 text-xs ${newProviderId === p.id
+                      ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                      : 'bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}
+                  >
+                    {p.name}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setPanel('providers')}
+                  className="rounded-full border border-dashed px-3 py-1 text-xs text-[var(--color-primary)] hover:bg-[var(--color-accent)]"
+                >
+                  管理…
+                </button>
+              </div>
+              {newProviderId !== '' && (
+                <div className="mt-2 flex items-center gap-2">
+                  <span className="shrink-0 text-xs text-[var(--color-muted-foreground)]">模型</span>
+                  <Input
+                    value={newModel}
+                    onChange={e => setNewModel(e.target.value)}
+                    placeholder="网关挂的模型名，如 claude-sonnet-4-5"
+                    className="h-8 flex-1 text-sm"
+                  />
+                </div>
+              )}
+            </div>
+          )}
           <button
             type="button"
             onClick={() => setPanel('taskspace')}
@@ -435,6 +493,9 @@ export function ChatPage() {
           onCreated={dir => { setNewCwd(dir); setPanel('new') }}
           onClose={() => setPanel('none')}
         />
+      )}
+      {panel === 'providers' && (
+        <ProviderProfilesPanel onClose={() => { setProviders(loadProfiles()); setPanel('new') }} />
       )}
       {panel === 'sessions' && (
         <div className="flex max-h-[55vh] flex-col border-b">

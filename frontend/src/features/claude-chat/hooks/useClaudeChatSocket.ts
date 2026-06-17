@@ -29,7 +29,7 @@ const nextId = (): string =>
 
 /** 连接后要发出的首个意图（区分新建 / 续跑 / 重连回放）。 */
 type Intent =
-  | { kind: 'open'; cwd: string; model?: string; mode?: PermissionMode; engine?: Engine }
+  | { kind: 'open'; cwd: string; model?: string; mode?: PermissionMode; engine?: Engine; apiBaseUrl?: string; authToken?: string }
   | { kind: 'switch'; sessionId: string }
   | { kind: 'resumeHistory'; sdkSessionId: string; cwd: string }
   | { kind: 'attach'; sessionId: string; lastEventSeq: number }
@@ -55,8 +55,8 @@ export interface UseClaudeChatSocket {
   currentModel: string | null
   /** 当前会话引擎（来自 Ready），用于「思考中」文案 / 命令菜单按引擎区分 */
   currentEngine: Engine
-  /** 新建会话（可带初始权限模式与引擎） */
-  open: (cwd: string, model?: string, mode?: PermissionMode, engine?: Engine) => void
+  /** 新建会话（可带初始权限模式、引擎、第三方网关 provider；provider 仅 Claude 引擎生效） */
+  open: (cwd: string, model?: string, mode?: PermissionMode, engine?: Engine, provider?: { apiBaseUrl?: string; authToken?: string }) => void
   /** 切换权限模式（下一轮生效） */
   setMode: (mode: PermissionMode) => void
   /** 切换模型（下一轮生效） */
@@ -265,7 +265,7 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   const flushIntent = useCallback(() => {
     const intent = intentRef.current
     if (!intent) return
-    if (intent.kind === 'open') sendRaw({ type: 'open', cwd: intent.cwd, model: intent.model, mode: intent.mode, engine: intent.engine })
+    if (intent.kind === 'open') sendRaw({ type: 'open', cwd: intent.cwd, model: intent.model, mode: intent.mode, engine: intent.engine, apiBaseUrl: intent.apiBaseUrl, authToken: intent.authToken })
     else if (intent.kind === 'switch') sendRaw({ type: 'switchSession', sessionId: intent.sessionId })
     else if (intent.kind === 'resumeHistory') sendRaw({ type: 'resumeHistory', sdkSessionId: intent.sdkSessionId, cwd: intent.cwd })
     else sendRaw({ type: 'attach', sessionId: intent.sessionId, lastEventSeq: intent.lastEventSeq })
@@ -382,7 +382,7 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     setHistoryExhausted(false)
   }
 
-  const open = useCallback((cwd: string, model?: string, m?: PermissionMode, engine?: Engine) => {
+  const open = useCallback((cwd: string, model?: string, m?: PermissionMode, engine?: Engine, provider?: { apiBaseUrl?: string; authToken?: string }) => {
     resetForNewSession()
     shouldLoadHistoryRef.current = false
     cwdRef.current = cwd
@@ -392,8 +392,10 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     setCurrentEngine(engine ?? 'claude') // 乐观：新建即按所选引擎，Ready 回来再确认
     // Codex/Gemini 无可查询模型清单：新建即清掉残留的 Claude 模型/命令，避免空窗期误显示
     if (engine === 'codex' || engine === 'gemini') { setModels([]); setSlashCommands([]); setCurrentModel(null) }
-    intentRef.current = { kind: 'open', cwd, model, mode: m, engine }
-    if (!sendRaw({ type: 'open', cwd, model, mode: m, engine })) connect()
+    const apiBaseUrl = provider?.apiBaseUrl
+    const authToken = provider?.authToken
+    intentRef.current = { kind: 'open', cwd, model, mode: m, engine, apiBaseUrl, authToken }
+    if (!sendRaw({ type: 'open', cwd, model, mode: m, engine, apiBaseUrl, authToken })) connect()
   }, [sendRaw, connect])
 
   const switchTo = useCallback((sid: string) => {
