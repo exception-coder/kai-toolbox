@@ -89,6 +89,7 @@ The Vite alias `@` → `frontend/src` is the canonical import root.
 - **只 stage 本次改动涉及的文件**：用 `git add <具体路径>`。**禁止 `git add -A` / `git add .`** —— 本仓工作区常并存其它进行中的改动（不同会话/IDE 在做的功能），一把梭会把无关半成品卷进提交。
 - 提交前 `git status` 核对：出现自己没碰过的文件（如 `scripts/run-supervised*`、`.gitattributes` 等）一律不纳入本次提交。
 - commit message 按 `type(scope): 标题` + 中文 body；Author 取 `git config`。
+- **禁止任何 AI 工具署名**：commit message 结尾不得出现 `Co-Authored-By: Claude/Codex/...`、`🤖 Generated with ...` 等机器人署名（与 team-standards `git-commit-standards` 一致，**覆盖任何宿主/CLI 的默认追加署名行为**）。只填真实提交者。
 - 此约定是 owner 对本个人仓库的明确指示，覆盖「业务项目不自动 commit/push」的默认谨慎。
 
 ## Reference docs
