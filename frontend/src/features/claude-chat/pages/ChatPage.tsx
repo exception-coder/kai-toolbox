@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Bell, FolderTree, GitCommit, List, Maximize2, Minimize2, MoreHorizontal, Package, Paperclip, PictureInPicture2, Plus, RotateCw, Send, ShieldCheck, Slash, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { StatusBadge, type StatusTone } from '@/components/ui/status-badge'
+import { StatusBadge } from '@/components/ui/status-badge'
 import { Input } from '@/components/ui/input'
 import { useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { MessageList } from '../components/MessageList'
@@ -19,6 +19,7 @@ import { SlashCommandMenu } from '../components/SlashCommandMenu'
 import { CommandMenu } from '../components/CommandMenu'
 import { PluginPanel } from '../components/PluginPanel'
 import { TaskspacePanel } from '../components/TaskspacePanel'
+import { engineName, stateLabel, stateTone } from '../components/chatStatus'
 import { getSessionCommitDiff, listSessionCommits, listSessions, listWorkspaces, uploadAttachment, type UploadedAttachment } from '../api'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
 import type { Engine } from '../types'
@@ -31,11 +32,6 @@ const MAX_ATTACHMENTS = 10
 
 /** 附件 + 本地 blob 预览地址（图片粘贴后点击放大核对，无需后端回读端点）。 */
 type ChatAttachment = UploadedAttachment & { previewUrl?: string }
-
-/** 引擎显示名。 */
-function engineName(e: Engine): string {
-  return e === 'codex' ? 'Codex' : e === 'gemini' ? 'Gemini' : 'Claude'
-}
 
 /** 顶栏「更多」菜单的一项：图标 + 中文标签（+ 可选副提示），让功能一目了然。 */
 function HeaderMenuItem({ icon, label, hint, onClick }: {
@@ -689,22 +685,3 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
   )
 }
 
-function stateLabel(s: string): string {
-  switch (s) {
-    case 'connecting': return '连接中…'
-    case 'ready': return '已连接'
-    case 'closed': return '已断开（重连中）'
-    case 'error': return '连接出错'
-    default: return ''
-  }
-}
-
-function stateTone(s: string): StatusTone {
-  switch (s) {
-    case 'connecting': return 'info'
-    case 'ready': return 'success'
-    case 'closed': return 'warning'
-    case 'error': return 'danger'
-    default: return 'neutral'
-  }
-}
