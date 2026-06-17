@@ -20,13 +20,13 @@ export function Markdown({ text, className }: { text: string; className?: string
 
   // 解析失败兜底：降级为纯文本，不崩溃
   if (html == null) {
-    return <div className={cn('whitespace-pre-wrap break-words', className)}>{text}</div>
+    return <div className={cn('min-w-0 max-w-full whitespace-pre-wrap [overflow-wrap:anywhere]', className)}>{text}</div>
   }
 
   return (
     <div
       className={cn(
-        'markdown-body min-w-0 max-w-full break-words [overflow-wrap:anywhere] text-sm leading-relaxed',
+        'markdown-body min-w-0 max-w-full [overflow-wrap:anywhere] text-sm leading-relaxed',
         '[&_h1]:my-3 [&_h1]:text-xl [&_h1]:font-semibold',
         '[&_h2]:my-3 [&_h2]:text-lg [&_h2]:font-semibold',
         '[&_h3]:my-2 [&_h3]:text-base [&_h3]:font-semibold',
