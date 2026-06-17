@@ -44,9 +44,66 @@ if (Test-Path -LiteralPath $ToolsConfFile) {
     }
 }
 
-# Configure the full mvn.cmd path. Leave blank to use mvn from PATH.
-$MvnCmd = 'D:\devapps\apache-maven-3.9.9\bin\mvn.cmd'   # Example: 'D:\apps\apache-maven-3.9.9\bin\mvn.cmd'
-if ([string]::IsNullOrWhiteSpace($MvnCmd)) { $MvnCmd = 'mvn' }
+# 工具路径解析：优先 run-tools.conf 注入的 MVN_CMD/JAVA_CMD（上面已读入环境变量），其次 PATH，最后已知回退。
+# 接受目录值——自动定位到 bin\mvn.cmd / bin\java.exe（用户填了 Maven/JDK 主目录也能用）。
+function Resolve-ExePath([string]$path, [string]$name) {
+    if (-not $path) { return $null }
+    if (Test-Path -LiteralPath $path -PathType Leaf) { return $path }
+    if (Test-Path -LiteralPath $path -PathType Container) {
+        foreach ($d in @($path, (Join-Path $path 'bin'))) {
+            foreach ($ext in @('.cmd', '.bat', '.exe', '')) {
+                $cand = Join-Path $d ($name + $ext)
+                if (Test-Path -LiteralPath $cand -PathType Leaf) { return $cand }
+            }
+        }
+    }
+    return $null
+}
+function Resolve-Tool([string]$envVal, [string]$onPath, [string[]]$fallbacks) {
+    $r = Resolve-ExePath $envVal $onPath
+    if ($r) { return $r }
+    $c = Get-Command $onPath -ErrorAction SilentlyContinue
+    if ($c) { return $c.Source }
+    foreach ($p in $fallbacks) { $r = Resolve-ExePath $p $onPath; if ($r) { return $r } }
+    return $null
+}
+
+$MvnCmd = Resolve-Tool $env:MVN_CMD 'mvn' @(
+    'D:\devApps\apache-maven-3.9.16-bin\apache-maven-3.9.16\bin\mvn.cmd',
+    'C:\Program Files\apache-maven\bin\mvn.cmd'
+)
+if (-not $MvnCmd) { Write-Host '[supervisor] 未找到 Maven：请在 run-tools.conf 配置 MVN_CMD 或把 mvn 加入 PATH。'; $MvnCmd = 'mvn' }
+
+# Java：构建(mvn)和运行(java -jar)都必须用 JDK 21，否则 jar 是 17+ 字节码、PATH 上的旧 JDK 跑不了。
+$JavaCmd = Resolve-Tool $env:JAVA_CMD 'java' @(
+    $(if ($env:JAVA_HOME) { Join-Path $env:JAVA_HOME 'bin\java.exe' } else { $null })
+)
+if (-not $JavaCmd) { Write-Host '[supervisor] 未找到 Java：请在 run-tools.conf 配置 JAVA_CMD（需 JDK 21）。'; $JavaCmd = 'java' }
+# 据 JavaCmd 反推并覆盖 JAVA_HOME，供 mvn 构建用对 JDK（本机默认 JAVA_HOME 可能是旧 JDK）。
+if ($JavaCmd -match '[\\/]bin[\\/]java(\.exe)?$') {
+    $env:JAVA_HOME = Split-Path -Parent (Split-Path -Parent $JavaCmd)
+    Write-Host "[supervisor] JAVA_HOME=$env:JAVA_HOME"
+}
+# Playwright/patchright 浏览器内核下载走国内镜像（官方 CDN 境内常被掐 TLS）。
+if (-not $env:PLAYWRIGHT_DOWNLOAD_HOST) { $env:PLAYWRIGHT_DOWNLOAD_HOST = 'https://cdn.npmmirror.com/binaries/playwright' }
+# npm install 走国内镜像（sidecar 依赖直连 registry.npmjs.org 境内常超时/失败）。已自定义则不覆盖。
+if (-not $env:NPM_CONFIG_REGISTRY) { $env:NPM_CONFIG_REGISTRY = 'https://registry.npmmirror.com' }
+
+# 前端 Vite dev 端口（须与 frontend/vite.config.ts 一致）。
+$FrontendPort = 5173
+
+# npm：前端 dev 与两个 node sidecar 初始化都要它。优先 conf 注入的 NPM_CMD，其次 PATH；
+# 把其所在目录前置进 PATH，确保 spawn 出去的子 powershell 也能直接调 npm。
+$NpmCmd = Resolve-Tool $env:NPM_CMD 'npm' @(
+    'D:\Program Files\nodejs\npm.cmd',
+    'C:\Program Files\nodejs\npm.cmd'
+)
+if ($NpmCmd) {
+    $npmDir = Split-Path -Parent $NpmCmd
+    if ($npmDir -and (";$env:PATH;" -notlike "*;$npmDir;*")) { $env:PATH = "$npmDir;$env:PATH" }
+} else {
+    Write-Host '[supervisor] 未找到 npm：前端与 sidecar 初始化将不可用（在 run-tools.conf 配置 NPM_CMD 或把 npm 加入 PATH）。'
+}
 
 # /restart 控制端点的令牌，取自 run-tools.conf 的 TOOLBOX_SUPERVISOR_RESTART_TOKEN。
 # 公开仓库禁止硬编码；未配置时令牌为空，/restart 一律拒绝。
@@ -64,6 +121,7 @@ Set-Location $RepoRoot
 $env:KAI_SUPERVISED = '1'
 
 $script:backend = $null
+$script:frontend = $null
 $script:lastStart = $null
 
 # Stops all process trees that listen on the target port.
@@ -141,10 +199,11 @@ function Start-Backend {
         $javaOptions += "-Dtoolbox.ai-secretary.rag.qdrant-api-key=$env:TOOLBOX_QDRANT_API_KEY"
     }
     $mvnLiteral = Quote-PowerShellLiteral $MvnCmd
+    $javaLiteral = Quote-PowerShellLiteral $JavaCmd
     $javaOptionsLiteral = ($javaOptions | ForEach-Object { Quote-PowerShellLiteral $_ }) -join ' '
     $jarLiteral = Quote-PowerShellLiteral $starterJar
     $utf8Command = "chcp.com 65001 > `$null; `$utf8Encoding = [System.Text.UTF8Encoding]::new(`$false); [Console]::InputEncoding = `$utf8Encoding; [Console]::OutputEncoding = `$utf8Encoding; `$global:OutputEncoding = `$utf8Encoding"
-    $runCommand = "$utf8Command; & $mvnLiteral -pl toolbox-starter -am '-Dskip.frontend=true' package; if (`$LASTEXITCODE -ne 0) { exit `$LASTEXITCODE }; & java $javaOptionsLiteral -jar $jarLiteral"
+    $runCommand = "$utf8Command; & $mvnLiteral -pl toolbox-starter -am '-Dskip.frontend=true' package; if (`$LASTEXITCODE -ne 0) { exit `$LASTEXITCODE }; & $javaLiteral $javaOptionsLiteral -jar $jarLiteral"
     $powerShellExe = Resolve-PowerShellExe
     $script:backend = Start-Process -FilePath $powerShellExe `
         -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $runCommand) `
@@ -156,6 +215,55 @@ function Stop-Backend {
     if ($script:backend -and -not $script:backend.HasExited) {
         # mvn spawns java children, so the whole process tree must be stopped.
         & taskkill /PID $script:backend.Id /T /F 2>&1 | Out-Null
+    }
+}
+
+# 一次性、幂等初始化两个 node sidecar（后端按需 spawn，这里只保证依赖/构建就位，已装好就跳过）。
+function Initialize-NodeDeps {
+    if (-not $NpmCmd) { Write-Host '[supervisor] 跳过 sidecar 初始化（npm 未找到）'; return }
+    # 1) claude-agent（claude-chat 懒启动 node dist/server.js）：需先构建出 dist/server.js
+    $sidecar = Join-Path $RepoRoot 'sidecar\claude-agent'
+    if (-not (Test-Path (Join-Path $sidecar 'dist\server.js'))) {
+        Write-Host '[supervisor] init claude-agent sidecar (npm install + build)...'
+        Push-Location $sidecar
+        try {
+            if (-not (Test-Path 'node_modules')) { & npm install --no-audit --no-fund }
+            & npm run build
+            if ($LASTEXITCODE -ne 0) { Write-Host '[supervisor] WARN: claude-agent build 失败；claude-chat 可能起不来' }
+        } catch { Write-Host "[supervisor] WARN: claude-agent init 出错: $($_.Exception.Message)" } finally { Pop-Location }
+    } else { Write-Host '[supervisor] claude-agent sidecar 已构建，跳过' }
+    # 2) undetected-browser（browser-request 的 undetected-node 引擎）：需 node_modules(patchright) + chromium
+    $undetected = Join-Path $RepoRoot 'node-services\undetected-browser'
+    if (-not (Test-Path (Join-Path $undetected 'node_modules'))) {
+        Write-Host '[supervisor] init undetected-browser (npm install + install-browser, 首次下 ~150MB chromium)...'
+        Push-Location $undetected
+        try {
+            & npm install --no-audit --no-fund
+            if ($LASTEXITCODE -eq 0) {
+                & npm run install-browser
+                if ($LASTEXITCODE -ne 0) { Write-Host '[supervisor] WARN: chromium 安装失败；undetected-node 引擎不可用' }
+            } else { Write-Host '[supervisor] WARN: undetected-browser npm install 失败' }
+        } catch { Write-Host "[supervisor] WARN: undetected-browser init 出错: $($_.Exception.Message)" } finally { Pop-Location }
+    } else { Write-Host '[supervisor] undetected-browser 依赖已就绪，跳过' }
+}
+
+function Start-Frontend {
+    if (-not $NpmCmd) { Write-Host '[supervisor] 跳过前端启动（npm 未找到）'; return }
+    Stop-PortHolders $FrontendPort
+    Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') start frontend (vite dev :$FrontendPort)..."
+    $frontendDir = Join-Path $RepoRoot 'frontend'
+    $utf8Command = "chcp.com 65001 > `$null; `$utf8Encoding = [System.Text.UTF8Encoding]::new(`$false); [Console]::InputEncoding = `$utf8Encoding; [Console]::OutputEncoding = `$utf8Encoding; `$global:OutputEncoding = `$utf8Encoding"
+    $dirLiteral = Quote-PowerShellLiteral $frontendDir
+    $runCommand = "$utf8Command; Set-Location -LiteralPath $dirLiteral; npm run dev"
+    $script:frontend = Start-Process -FilePath (Resolve-PowerShellExe) `
+        -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $runCommand) `
+        -PassThru -NoNewWindow
+}
+
+function Stop-Frontend {
+    if ($script:frontend -and -not $script:frontend.HasExited) {
+        # npm spawns node/esbuild children, so stop the whole process tree.
+        & taskkill /PID $script:frontend.Id /T /F 2>&1 | Out-Null
     }
 }
 
@@ -212,31 +320,52 @@ try {
     $listener = $null
 }
 if ($listener) { Write-Host "[supervisor] HTTP control $HttpPrefix  (POST /restart, GET /status)" }
-Write-Host "[supervisor] repo=$RepoRoot  mvn=$MvnCmd"
+Write-Host "[supervisor] repo=$RepoRoot  mvn=$MvnCmd  java=$JavaCmd"
 
+# 起服务前先把两个 node sidecar 的依赖/构建补齐（幂等，已就绪则秒过）。
+Initialize-NodeDeps
+
+# 一键：后端 + 前端一起拉起，各自守护；退出（Ctrl+C）时一并收尾。
 Start-Backend
+Start-Frontend
 
-if ($listener) {
-    $ctxTask = $listener.GetContextAsync()
-    while ($true) {
-        if ($ctxTask.Wait(1000)) {
-            try { Handle-Request $ctxTask.Result } catch { Write-Host "[supervisor] request handling error: $($_.Exception.Message)" }
-            $ctxTask = $listener.GetContextAsync()
+try {
+    if ($listener) {
+        $ctxTask = $listener.GetContextAsync()
+        while ($true) {
+            if ($ctxTask.Wait(1000)) {
+                try { Handle-Request $ctxTask.Result } catch { Write-Host "[supervisor] request handling error: $($_.Exception.Message)" }
+                $ctxTask = $listener.GetContextAsync()
+            }
+            if (-not $script:backend -or $script:backend.HasExited) {
+                Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') backend exited, restart after 2s"
+                Start-Sleep -Seconds 2
+                Start-Backend
+            }
+            if (-not $script:frontend -or $script:frontend.HasExited) {
+                Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') frontend exited, restart after 2s"
+                Start-Sleep -Seconds 2
+                Start-Frontend
+            }
         }
-        if (-not $script:backend -or $script:backend.HasExited) {
-            Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') backend exited, restart after 2s"
-            Start-Sleep -Seconds 2
-            Start-Backend
+    } else {
+        # No control endpoint: supervise only.
+        while ($true) {
+            if (-not $script:backend -or $script:backend.HasExited) {
+                Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') backend exited, restart after 2s"
+                Start-Sleep -Seconds 2
+                Start-Backend
+            }
+            if (-not $script:frontend -or $script:frontend.HasExited) {
+                Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') frontend exited, restart after 2s"
+                Start-Sleep -Seconds 2
+                Start-Frontend
+            }
+            Start-Sleep -Seconds 1
         }
     }
-} else {
-    # No control endpoint: supervise only.
-    while ($true) {
-        if (-not $script:backend -or $script:backend.HasExited) {
-            Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') backend exited, restart after 2s"
-            Start-Sleep -Seconds 2
-            Start-Backend
-        }
-        Start-Sleep -Seconds 1
-    }
+} finally {
+    Write-Host '[supervisor] shutting down: stopping frontend + backend...'
+    Stop-Frontend
+    Stop-Backend
 }

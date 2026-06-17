@@ -157,6 +157,8 @@ TOOLBOX_SYSTEM_RESTART_TOKEN="${TOOLBOX_SYSTEM_RESTART_TOKEN:-$RESTART_TOKEN}"
 TOOLBOX_WHISPER_MODE="${TOOLBOX_WHISPER_MODE:-asr-service}"
 # Playwright/patchright 浏览器内核下载走国内镜像（官方 CDN 在境内常被掐，导致自动装 Chromium 失败）。
 export PLAYWRIGHT_DOWNLOAD_HOST="${PLAYWRIGHT_DOWNLOAD_HOST:-https://cdn.npmmirror.com/binaries/playwright}"
+# npm install 走国内镜像（sidecar 依赖直连 registry.npmjs.org 境内常超时/失败）。已自定义则不覆盖。
+export NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}"
 
 mkdir -p "$CONTROL_DIR"
 rm -f "$RESTART_FILE"
