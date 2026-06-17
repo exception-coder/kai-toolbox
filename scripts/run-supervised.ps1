@@ -29,12 +29,27 @@ function Initialize-Utf8Console {
 
 Initialize-Utf8Console
 
+# 从同目录 run-tools.conf（KEY=value，不提交到仓库）读取本机机密/配置，注入为进程环境变量。
+# 已存在的同名环境变量优先，不被覆盖；可对照 run-tools.conf.example 创建本机文件。
+$ToolsConfFile = Join-Path $PSScriptRoot 'run-tools.conf'
+if (Test-Path -LiteralPath $ToolsConfFile) {
+    foreach ($line in [System.IO.File]::ReadAllLines($ToolsConfFile)) {
+        $t = $line.Trim()
+        if ($t -eq '' -or $t.StartsWith('#')) { continue }
+        $i = $t.IndexOf('=')
+        if ($i -lt 1) { continue }
+        $k = $t.Substring(0, $i).Trim()
+        $v = $t.Substring($i + 1).Trim()
+        if (-not [Environment]::GetEnvironmentVariable($k, 'Process')) { Set-Item -Path "env:$k" -Value $v }
+    }
+}
+
 # Configure the full mvn.cmd path. Leave blank to use mvn from PATH.
 $MvnCmd = 'D:\devapps\apache-maven-3.9.9\bin\mvn.cmd'   # Example: 'D:\apps\apache-maven-3.9.9\bin\mvn.cmd'
 if ([string]::IsNullOrWhiteSpace($MvnCmd)) { $MvnCmd = 'mvn' }
 
-# /restart 控制端点的令牌，从环境变量读取（TOOLBOX_SUPERVISOR_RESTART_TOKEN）。
-# 公开仓库禁止硬编码；未设置时令牌为空，/restart 一律拒绝。
+# /restart 控制端点的令牌，取自 run-tools.conf 的 TOOLBOX_SUPERVISOR_RESTART_TOKEN。
+# 公开仓库禁止硬编码；未配置时令牌为空，/restart 一律拒绝。
 $RestartToken = $env:TOOLBOX_SUPERVISOR_RESTART_TOKEN
 
 $HttpPrefix = 'http://127.0.0.1:18081/'
@@ -103,10 +118,10 @@ function Start-Backend {
     Stop-PortHolders $BackendPort
     Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') package and start backend..."
     $starterJar = Join-Path $RepoRoot 'toolbox-starter\target\kai-toolbox.jar'
-    # 机密项一律从环境变量读取，禁止硬编码进脚本（本仓为公开仓库）。运行前在本机设置：
-    #   $env:TOOLBOX_QBT_PASSWORD            qBittorrent 密码
-    #   $env:TOOLBOX_SYSTEM_RESTART_TOKEN    后端系统级重启令牌
-    #   $env:TOOLBOX_QDRANT_HOST / _API_KEY  AI 秘书 RAG 的 Qdrant 地址与 Key（未设 Key 则不启用 RAG）
+    # 机密项一律取自 run-tools.conf（已注入环境变量），禁止硬编码进脚本（本仓为公开仓库）。
+    #   TOOLBOX_QBT_PASSWORD            qBittorrent 密码
+    #   TOOLBOX_SYSTEM_RESTART_TOKEN    后端系统级重启令牌
+    #   TOOLBOX_QDRANT_HOST / _API_KEY  AI 秘书 RAG 的 Qdrant 地址与 Key（未设 Key 则不启用 RAG）
     $javaOptions = @(
         '-DTOOLBOX_ARIA2_BINARY=D:\devapps\aria2-1.37.0-win-64bit-build1\aria2c.exe',
         '-DTOOLBOX_HTTP_PROXY=http://127.0.0.1:7897',

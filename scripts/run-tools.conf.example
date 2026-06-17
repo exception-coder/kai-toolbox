@@ -23,3 +23,17 @@ NPM_CMD=
 # aria2c（可选）：下载器工具用，找不到不影响后端/前端启动。例：
 #   ARIA2_BIN=D:\devapps\aria2-1.37.0-win-64bit-build1\aria2c.exe
 ARIA2_BIN=
+
+# ── 机密项（run-supervised.ps1 启动时读入为进程环境变量；禁止硬编码进脚本）──
+# qBittorrent 密码
+TOOLBOX_QBT_PASSWORD=
+
+# 后端系统级重启令牌
+TOOLBOX_SYSTEM_RESTART_TOKEN=
+
+# supervisor /restart 控制端点令牌（留空则 /restart 一律拒绝）
+TOOLBOX_SUPERVISOR_RESTART_TOKEN=
+
+# AI 秘书向量 RAG：Qdrant 地址与 API Key（未设 API Key 则不启用 RAG）
+TOOLBOX_QDRANT_HOST=
+TOOLBOX_QDRANT_API_KEY=
