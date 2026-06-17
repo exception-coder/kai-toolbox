@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Check } from 'lucide-react'
 import type { Engine, ModelInfo } from '../types'
+import { groupModels } from './modelGroups'
 
 /**
  * `/` 按钮弹出的分组菜单（复刻官方 VSCode 插件 actions 菜单）：顶部 Filter 同时过滤两组——
@@ -24,9 +25,18 @@ export function CommandMenu({
   onClose: () => void
 }) {
   const [q, setQ] = useState('')
+  const [platform, setPlatform] = useState<string>('all') // 平台筛选：'all' 或某平台 key
   const ql = q.toLowerCase()
-  const fModels = models.filter(m => m.displayName.toLowerCase().includes(ql) || m.value.toLowerCase().includes(ql))
   const fCmds = commands.filter(c => c.toLowerCase().includes(ql))
+
+  // 先文本过滤，再按平台分组；模型多时用平台二级筛选收窄（网关动辄上百个，平铺难选）
+  const textModels = models.filter(m => m.displayName.toLowerCase().includes(ql) || m.value.toLowerCase().includes(ql))
+  const groups = useMemo(() => groupModels(textModels), [textModels])
+  const platforms = groups.map(g => ({ key: g.key, label: g.label, count: g.models.length }))
+  const shownGroups = platform === 'all' ? groups : groups.filter(g => g.key === platform)
+  const fModelCount = shownGroups.reduce((n, g) => n + g.models.length, 0)
+  // 平台筛选条仅在「有多个平台」时才显示，避免单平台时多此一举
+  const showPlatformBar = platforms.length > 1
 
   return (
     <>
@@ -40,12 +50,25 @@ export function CommandMenu({
             placeholder="过滤命令 / 模型…"
             className="w-full rounded-md border bg-[var(--color-background)] px-2 py-1 text-sm"
           />
+          {/* 平台筛选（二级）：模型按平台分组，点平台只看该平台下的型号，收窄长清单 */}
+          {showPlatformBar && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              <PlatformChip active={platform === 'all'} onClick={() => setPlatform('all')}>
+                全部 {fModelCount}
+              </PlatformChip>
+              {platforms.map(p => (
+                <PlatformChip key={p.key} active={platform === p.key} onClick={() => setPlatform(p.key)}>
+                  {p.label} {p.count}
+                </PlatformChip>
+              ))}
+            </div>
+          )}
         </div>
         <div className="max-h-72 overflow-y-auto py-1">
-          {fModels.length > 0 && (
-            <>
-              <div className="px-3 py-1 text-xs font-medium text-[var(--color-muted-foreground)]">模型</div>
-              {fModels.map(m => (
+          {shownGroups.map(g => (
+            <div key={g.key}>
+              <div className="px-3 py-1 text-xs font-medium text-[var(--color-muted-foreground)]">{g.label}（{g.models.length}）</div>
+              {g.models.map(m => (
                 <button
                   key={m.value}
                   type="button"
@@ -61,8 +84,8 @@ export function CommandMenu({
                   {m.value === currentModel && <Check className="mt-0.5 size-4 shrink-0 text-[var(--color-primary)]" />}
                 </button>
               ))}
-            </>
-          )}
+            </div>
+          ))}
           {fCmds.length > 0 && (
             <>
               <div className="px-3 py-1 text-xs font-medium text-[var(--color-muted-foreground)]">命令</div>
@@ -78,7 +101,7 @@ export function CommandMenu({
               ))}
             </>
           )}
-          {fModels.length === 0 && fCmds.length === 0 && (
+          {fModelCount === 0 && fCmds.length === 0 && (
             <div className="px-3 py-2 text-xs text-[var(--color-muted-foreground)]">
               {models.length === 0 && commands.length === 0
                 ? (engine === 'codex'
@@ -90,5 +113,20 @@ export function CommandMenu({
         </div>
       </div>
     </>
+  )
+}
+
+/** 平台筛选小胶囊。 */
+function PlatformChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onMouseDown={e => { e.preventDefault(); onClick() }}
+      className={'rounded-full border px-2 py-0.5 text-[11px] ' + (active
+        ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+        : 'bg-[var(--color-background)] text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]')}
+    >
+      {children}
+    </button>
   )
 }

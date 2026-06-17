@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bell, FolderTree, GitCommit, List, Maximize2, Minimize2, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RotateCw, Send, Server, ShieldCheck, Slash, Square } from 'lucide-react'
@@ -19,6 +19,7 @@ import { SlashCommandMenu } from '../components/SlashCommandMenu'
 import { CommandMenu } from '../components/CommandMenu'
 import { PluginPanel } from '../components/PluginPanel'
 import { ProviderDiagPanel } from '../components/ProviderDiagPanel'
+import { groupModels } from '../components/modelGroups'
 import { TaskspacePanel } from '../components/TaskspacePanel'
 import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
@@ -197,6 +198,7 @@ export function ChatPage() {
   const [providerModels, setProviderModels] = useState<ModelInfo[]>([])
   const [providerModelsLoading, setProviderModelsLoading] = useState(false)
   const [providerModelsError, setProviderModelsError] = useState<string | null>(null)
+  const [newModelPlatform, setNewModelPlatform] = useState('all') // 新建会话模型的平台二级筛选
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [uploading, setUploading] = useState(0)
   const [slashIdx, setSlashIdx] = useState(0)
@@ -208,6 +210,12 @@ export function ChatPage() {
   const fileRef = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const engineWatermark = useRef<Record<string, number>>({}) // 每引擎"上次看到的消息位置"，切 agent 时算增量 seed
+
+  // 新建会话：网关模型按平台分组 + 平台二级筛选（网关动辄上百个，平铺难选）
+  const providerModelGroups = useMemo(() => groupModels(providerModels), [providerModels])
+  const shownNewModels = newModelPlatform === 'all'
+    ? providerModels
+    : (providerModelGroups.find(g => g.key === newModelPlatform)?.models ?? providerModels)
 
   // 输入框随内容自动升高（参考微信）：到 max-h 后内部滚动
   useEffect(() => {
@@ -236,6 +244,7 @@ export function ChatPage() {
     let cancelled = false
     setProviderModelsLoading(true)
     setProviderModelsError(null)
+    setNewModelPlatform('all') // 换网关重置平台筛选
     fetchProviderModels(p.baseUrl, p.key)
       .then(r => {
         if (cancelled) return
@@ -532,24 +541,40 @@ export function ChatPage() {
                 </button>
               </div>
               {newProviderId !== '' && (
-                <div className="mt-2 flex items-center gap-2">
-                  <span className="shrink-0 text-xs text-[var(--color-muted-foreground)]">模型</span>
-                  <input
-                    list="claude-chat-provider-models"
-                    value={newModel}
-                    onChange={e => setNewModel(e.target.value)}
-                    placeholder={providerModelsLoading
-                      ? '正在拉取网关模型…'
-                      : providerModels.length
-                        ? '选择或输入模型…'
-                        : '网关挂的模型名，如 claude-sonnet-4-5'}
-                    className="h-8 flex-1 rounded-md border bg-[var(--color-background)] px-2 text-sm"
-                  />
-                  <datalist id="claude-chat-provider-models">
-                    {providerModels.map(m => (
-                      <option key={m.value} value={m.value}>{m.displayName || m.value}</option>
-                    ))}
-                  </datalist>
+                <div className="mt-2 space-y-1.5">
+                  {/* 平台筛选（二级）：先选平台，下面下拉只列该平台型号 */}
+                  {providerModelGroups.length > 1 && (
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span className="shrink-0 text-xs text-[var(--color-muted-foreground)]">平台</span>
+                      <PlatformChip active={newModelPlatform === 'all'} onClick={() => setNewModelPlatform('all')}>
+                        全部 {providerModels.length}
+                      </PlatformChip>
+                      {providerModelGroups.map(g => (
+                        <PlatformChip key={g.key} active={newModelPlatform === g.key} onClick={() => setNewModelPlatform(g.key)}>
+                          {g.label} {g.models.length}
+                        </PlatformChip>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <span className="shrink-0 text-xs text-[var(--color-muted-foreground)]">模型</span>
+                    <input
+                      list="claude-chat-provider-models"
+                      value={newModel}
+                      onChange={e => setNewModel(e.target.value)}
+                      placeholder={providerModelsLoading
+                        ? '正在拉取网关模型…'
+                        : providerModels.length
+                          ? '选择或输入模型…'
+                          : '网关挂的模型名，如 claude-sonnet-4-5'}
+                      className="h-8 flex-1 rounded-md border bg-[var(--color-background)] px-2 text-sm"
+                    />
+                    <datalist id="claude-chat-provider-models">
+                      {shownNewModels.map(m => (
+                        <option key={m.value} value={m.value}>{m.displayName || m.value}</option>
+                      ))}
+                    </datalist>
+                  </div>
                 </div>
               )}
               {newProviderId !== '' && !providerModelsLoading && providerModels.length === 0 && (
@@ -927,6 +952,21 @@ export function ChatPage() {
         />
       )}
     </div>
+  )
+}
+
+/** 平台筛选小胶囊（新建会话模型按平台二级筛选）。 */
+function PlatformChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={'rounded-full border px-2 py-0.5 text-[11px] ' + (active
+        ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+        : 'bg-[var(--color-background)] text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]')}
+    >
+      {children}
+    </button>
   )
 }
 
