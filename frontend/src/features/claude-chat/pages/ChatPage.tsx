@@ -23,7 +23,8 @@ import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineName, stateLabel, stateTone } from '../components/chatStatus'
-import { getSessionCommitDiff, listSessionCommits, listSessions, listWorkspaces, uploadAttachment, type UploadedAttachment } from '../api'
+import { fetchProviderModels, getSessionCommitDiff, listSessionCommits, listSessions, listWorkspaces, uploadAttachment, type UploadedAttachment } from '../api'
+import type { ModelInfo } from '../types'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
 import type { Engine } from '../types'
 import { ensureNotifyPermission } from '../browserNotify'
@@ -161,6 +162,9 @@ export function ChatPage() {
   const [providers, setProviders] = useState<ProviderProfile[]>(() => loadProfiles())
   const [newProviderId, setNewProviderId] = useState('')
   const [newModel, setNewModel] = useState('')
+  // 选中网关后从其 /v1/models 拉的可选模型目录（供下拉选择，仍可手填）
+  const [providerModels, setProviderModels] = useState<ModelInfo[]>([])
+  const [providerModelsLoading, setProviderModelsLoading] = useState(false)
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [uploading, setUploading] = useState(0)
   const [slashIdx, setSlashIdx] = useState(0)
@@ -188,6 +192,23 @@ export function ChatPage() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [fullscreen])
+
+  // 选中第三方网关时，从其 /v1/models 拉可选模型目录（后端代理）。失败/空回退手填，不阻断新建。
+  useEffect(() => {
+    if (panel !== 'new' || newEngine !== 'claude' || newProviderId === '') {
+      setProviderModels([])
+      return
+    }
+    const p = providers.find(x => x.id === newProviderId)
+    if (!p) { setProviderModels([]); return }
+    let cancelled = false
+    setProviderModelsLoading(true)
+    fetchProviderModels(p.baseUrl, p.key)
+      .then(r => { if (!cancelled) setProviderModels(r.models ?? []) })
+      .catch(() => { if (!cancelled) setProviderModels([]) })
+      .finally(() => { if (!cancelled) setProviderModelsLoading(false) })
+    return () => { cancelled = true }
+  }, [panel, newEngine, newProviderId, providers])
 
   // 自动续接最近会话已上提到 ChatRuntime 引擎（跨路由常驻），此处不再处理。
 
@@ -469,13 +490,28 @@ export function ChatPage() {
               {newProviderId !== '' && (
                 <div className="mt-2 flex items-center gap-2">
                   <span className="shrink-0 text-xs text-[var(--color-muted-foreground)]">模型</span>
-                  <Input
+                  <input
+                    list="claude-chat-provider-models"
                     value={newModel}
                     onChange={e => setNewModel(e.target.value)}
-                    placeholder="网关挂的模型名，如 claude-sonnet-4-5"
-                    className="h-8 flex-1 text-sm"
+                    placeholder={providerModelsLoading
+                      ? '正在拉取网关模型…'
+                      : providerModels.length
+                        ? '选择或输入模型…'
+                        : '网关挂的模型名，如 claude-sonnet-4-5'}
+                    className="h-8 flex-1 rounded-md border bg-[var(--color-background)] px-2 text-sm"
                   />
+                  <datalist id="claude-chat-provider-models">
+                    {providerModels.map(m => (
+                      <option key={m.value} value={m.value}>{m.displayName || m.value}</option>
+                    ))}
+                  </datalist>
                 </div>
+              )}
+              {newProviderId !== '' && !providerModelsLoading && providerModels.length === 0 && (
+                <p className="mt-1 text-[11px] text-[var(--color-muted-foreground)]">
+                  没拉到模型目录（网关未暴露 /v1/models 或鉴权失败），可直接手填模型名。
+                </p>
               )}
             </div>
           )}

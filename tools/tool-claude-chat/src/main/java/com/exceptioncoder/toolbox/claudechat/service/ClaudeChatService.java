@@ -46,6 +46,7 @@ public class ClaudeChatService {
     private final NotificationService notifications;
     private final AttachmentStorageService attachments;
     private final AgentOneShotService agentOneShot;
+    private final ProviderModelService providerModels;
     private final ObjectMapper mapper;
 
     /** sessionId -> 运行时上下文 */
@@ -62,6 +63,7 @@ public class ClaudeChatService {
                              NotificationService notifications,
                              AttachmentStorageService attachments,
                              AgentOneShotService agentOneShot,
+                             ProviderModelService providerModels,
                              ObjectMapper mapper) {
         this.props = props;
         this.repo = repo;
@@ -70,6 +72,7 @@ public class ClaudeChatService {
         this.notifications = notifications;
         this.attachments = attachments;
         this.agentOneShot = agentOneShot;
+        this.providerModels = providerModels;
         this.mapper = mapper;
     }
 
@@ -100,11 +103,13 @@ public class ClaudeChatService {
         ctx.engine = engine;
         ctx.apiBaseUrl = apiBaseUrl;
         ctx.authToken = authToken;
+        ctx.currentModel = blankToNull(open.model()); // 网关默认模型，供菜单高亮当前项
         sessions.put(sessionId, ctx);
         bindViewer(ws, ctx);
 
         ctx.mode = normalizeMode(open.mode());
         sidecar.startSession(sessionId, cwd, open.model(), ctx.mode, engine, apiBaseUrl, authToken);
+        pushGatewayModels(ctx); // 网关会话：拉网关 /v1/models 目录推给前端，命令菜单据此选/切模型
         log.info("[claude-chat] open 会话 {} cwd={} mode={} engine={}", sessionId, cwd, ctx.mode, engine);
     }
 
@@ -136,6 +141,7 @@ public class ClaudeChatService {
                 // Ready 只发给当前这条连接（其它已在看的连接不需要重复）
                 writeTo(ws, new ServerMessage.Ready(restored.seq.incrementAndGet(),
                         restored.sessionId, restored.sdkSessionId, restored.slashCommands, restored.status.name(), restored.epoch, restored.engine));
+                pushGatewayModels(restored); // 重连恢复网关会话：重发网关模型目录
                 return;
             }
             sendError(ws, 0, "SESSION_NOT_FOUND", "会话不存在或已结束，请切换或新建");
@@ -149,6 +155,7 @@ public class ClaudeChatService {
         // 回推一次会话状态：让重连端按 status 同步 running，纠正「result 已被缓冲淘汰 → 永久卡在正在思考」
         writeTo(ws, new ServerMessage.Ready(ctx.seq.incrementAndGet(),
                 ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch, ctx.engine));
+        pushGatewayModels(ctx); // 网关会话重连：重发网关模型目录
         log.info("[claude-chat] attach 会话 {} from seq>{}", ctx.sessionId, attach.lastEventSeq());
     }
 
@@ -170,6 +177,7 @@ public class ClaudeChatService {
         sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), ctx.engine, ctx.apiBaseUrl, ctx.authToken);
         // 历史消息由前端按需读 SDK transcript；这里只发一个 Ready 表示已就绪
         sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch, ctx.engine));
+        pushGatewayModels(ctx); // 切到网关会话：重发网关模型目录，命令菜单可选/切
     }
 
     /** 续跑磁盘上的历史会话：建一条本工具的元数据行后 resume，之后它也出现在工具会话列表里。 */
@@ -327,6 +335,21 @@ public class ClaudeChatService {
         } catch (Exception e) {
             log.debug("[claude-chat] engine_sessions 解析失败，忽略：{}", e.getMessage());
         }
+    }
+
+    /**
+     * 网关会话：异步拉取网关 {@code /v1/models} 目录并以 {@code Models} 事件推给前端，
+     * 让会话内命令菜单据此选/切模型（复用既有 setModel 链路）。非网关会话直接跳过——
+     * 官方模型清单仍由 sidecar 的 supportedModels 提供。HTTP 调用放虚拟线程，不阻塞 WS 处理。
+     */
+    private void pushGatewayModels(SessionCtx ctx) {
+        if (ctx.apiBaseUrl == null || ctx.apiBaseUrl.isBlank()) return;
+        Thread.ofVirtual().name("claude-chat-gw-models").start(() -> {
+            List<ModelInfo> models = providerModels.fetchModels(ctx.apiBaseUrl, ctx.authToken);
+            if (models.isEmpty()) return;
+            ctx.models = models;
+            sendToBrowser(ctx, seq -> new ServerMessage.Models(seq, ctx.models, ctx.currentModel));
+        });
     }
 
     private static boolean isValidMode(String m) {

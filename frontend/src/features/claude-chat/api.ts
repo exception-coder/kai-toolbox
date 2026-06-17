@@ -1,6 +1,6 @@
 import { authFetch, http } from '@/lib/api'
 import type { CommitDiff, CommitsResponse } from '@/components/git/types'
-import type { ChatItem, ClaudeChatSessionView, HistorySessionView, NotifyConfig, PluginStatus, SubdirList, TaskspaceView, WorkspaceList } from './types'
+import type { ChatItem, ClaudeChatSessionView, HistorySessionView, ModelInfo, NotifyConfig, PluginStatus, SubdirList, TaskspaceView, WorkspaceList } from './types'
 
 /** 列当前会话工作目录(git 仓库)的最近提交。后端按 sessionId 解析 cwd。 */
 export function listSessionCommits(sessionId: string, limit?: number) {
@@ -31,6 +31,14 @@ export function testServerPush(config: NotifyConfig) {
 
 export function listSessions() {
   return http<ClaudeChatSessionView[]>('/claude-chat/sessions')
+}
+
+/** 拉第三方网关的可用模型目录（后端代理 GET {baseUrl}/v1/models，避免浏览器 CORS）。失败/空时回退手填。 */
+export function fetchProviderModels(baseUrl: string, key: string) {
+  return http<{ models: ModelInfo[] }>('/claude-chat/provider/models', {
+    method: 'POST',
+    body: JSON.stringify({ baseUrl, key }),
+  })
 }
 
 /** 列出配置根目录下的一级子目录，供新建会话选 cwd。 */
