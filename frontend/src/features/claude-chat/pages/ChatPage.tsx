@@ -760,7 +760,7 @@ export function ChatPage() {
           })}
         />
       ) : (
-        <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 min-w-0 flex-1">
           {/* 常驻会话导航（md+ 显示，可折叠）：免去每次开右上角「会话」面板才能切历史会话 */}
           {railOpen ? (
             <aside className="hidden w-60 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-background)] md:flex">
@@ -790,7 +790,7 @@ export function ChatPage() {
           )}
 
           {/* 右侧：消息流 + 输入 */}
-          <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             {chat.sessionId ? (
               <MessageList
                 items={chat.items}
