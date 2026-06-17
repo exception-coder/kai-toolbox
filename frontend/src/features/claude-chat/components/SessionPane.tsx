@@ -11,7 +11,7 @@ import { QuestionDialog } from './QuestionDialog'
 import { ModeSwitch } from './ModeSwitch'
 import { AttachmentChips } from './AttachmentChips'
 import { VoiceInputButton } from './VoiceInputButton'
-import { agentStatusMeta, deriveAgentStatus, engineName, type AgentStatus } from './chatStatus'
+import { agentStatusMeta, deriveAgentStatus, engineDisplayName, providerHost, type AgentStatus } from './chatStatus'
 
 interface Props {
   /** 本块续接的会话 id。 */
@@ -136,6 +136,11 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
 
   const sm = agentStatusMeta(status.kind)
   const atMax = attachments.length + uploading >= MAX_ATTACHMENTS
+  const engineLabel = engineDisplayName(chat.currentEngine, chat.currentProviderKind)
+  const host = providerHost(chat.currentProviderBaseUrl)
+  const engineTitle = chat.currentProviderKind === 'thirdParty'
+    ? `第三方网关：${host ?? chat.currentProviderBaseUrl ?? '未知'}`
+    : undefined
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border bg-[var(--color-background)]">
@@ -146,8 +151,13 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
       >
         <span className={`size-2.5 shrink-0 rounded-full ${sm.dot}${sm.pulse ? ' animate-pulse' : ''}`} />
         <span className="min-w-0 flex-1 truncate text-sm font-semibold" title={meta?.cwd}>{title}</span>
-        <span className="shrink-0 rounded bg-[var(--color-background)] px-1.5 py-0.5 text-[10px] text-[var(--color-muted-foreground)]">
-          {engineName(chat.currentEngine)}
+        <span
+          title={engineTitle}
+          className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${chat.currentProviderKind === 'thirdParty'
+            ? 'border border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300'
+            : 'bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}
+        >
+          {engineLabel}
         </span>
         <span className={`shrink-0 text-xs font-medium ${sm.text}`}>{sm.label}</span>
         <button
@@ -177,7 +187,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
           loadingEarlier={chat.historyLoading}
           exhausted={chat.historyExhausted}
           onFork={chat.forkSession}
-          engineLabel={engineName(chat.currentEngine)}
+          engineLabel={engineLabel}
         />
       </div>
 

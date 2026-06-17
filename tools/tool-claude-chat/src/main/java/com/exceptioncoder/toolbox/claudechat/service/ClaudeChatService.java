@@ -139,8 +139,7 @@ public class ClaudeChatService {
                     log.info("[claude-chat] attach 内存未命中，从 DB 恢复并 resume 会话 {}", db.getId());
                 }
                 // Ready 只发给当前这条连接（其它已在看的连接不需要重复）
-                writeTo(ws, new ServerMessage.Ready(restored.seq.incrementAndGet(),
-                        restored.sessionId, restored.sdkSessionId, restored.slashCommands, restored.status.name(), restored.epoch, restored.engine));
+                writeTo(ws, ready(restored));
                 pushGatewayModels(restored); // 重连恢复网关会话：重发网关模型目录
                 return;
             }
@@ -153,8 +152,7 @@ public class ClaudeChatService {
         redeliverPending(ctx, ws, attach.lastEventSeq());
         ensureSessionResumable(ctx); // sidecar 也断了的话借浏览器重连顺带恢复
         // 回推一次会话状态：让重连端按 status 同步 running，纠正「result 已被缓冲淘汰 → 永久卡在正在思考」
-        writeTo(ws, new ServerMessage.Ready(ctx.seq.incrementAndGet(),
-                ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch, ctx.engine));
+        writeTo(ws, ready(ctx));
         pushGatewayModels(ctx); // 网关会话重连：重发网关模型目录
         log.info("[claude-chat] attach 会话 {} from seq>{}", ctx.sessionId, attach.lastEventSeq());
     }
@@ -176,7 +174,7 @@ public class ClaudeChatService {
         repo.touch(db.getId(), SessionStatus.IDLE, System.currentTimeMillis());
         sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), ctx.engine, ctx.apiBaseUrl, ctx.authToken);
         // 历史消息由前端按需读 SDK transcript；这里只发一个 Ready 表示已就绪
-        sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch, ctx.engine));
+        sendToBrowser(ctx, seq -> ready(ctx, seq));
         pushGatewayModels(ctx); // 切到网关会话：重发网关模型目录，命令菜单可选/切
     }
 
@@ -202,7 +200,7 @@ public class ClaudeChatService {
         bindViewer(ws, ctx);
 
         sidecar.resumeSession(id, msg.sdkSessionId(), cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken);
-        sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, id, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch, ctx.engine));
+        sendToBrowser(ctx, seq -> ready(ctx, seq));
         log.info("[claude-chat] resumeHistory 会话 {} sdk={} cwd={}", id, msg.sdkSessionId(), cwd);
     }
 
@@ -337,6 +335,18 @@ public class ClaudeChatService {
         }
     }
 
+    /** 构造 Ready：附带安全的 provider 展示信息，绝不回传 authToken。 */
+    private ServerMessage.Ready ready(SessionCtx ctx) {
+        return ready(ctx, ctx.seq.incrementAndGet());
+    }
+
+    private ServerMessage.Ready ready(SessionCtx ctx, long seq) {
+        String providerBaseUrl = blankToNull(ctx.apiBaseUrl);
+        String providerKind = providerBaseUrl == null ? "official" : "thirdParty";
+        return new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands,
+                ctx.status.name(), ctx.epoch, ctx.engine, providerKind, providerBaseUrl);
+    }
+
     /**
      * 网关会话：异步拉取网关 {@code /v1/models} 目录并以 {@code Models} 事件推给前端，
      * 让会话内命令菜单据此选/切模型（复用既有 setModel 链路）。非网关会话直接跳过——
@@ -423,7 +433,7 @@ public class ClaudeChatService {
                     ctx.engineSessions.put(ctx.engine, ctx.sdkSessionId);
                     repo.updateEngineSessions(sessionId, writeEngineSessions(ctx.engineSessions));
                 }
-                sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch, ctx.engine));
+                sendToBrowser(ctx, seq -> ready(ctx, seq));
             }
             case "assistantDelta" -> sendToBrowser(ctx,
                     seq -> new ServerMessage.AssistantDelta(seq, node.path("text").asText("")));
@@ -541,7 +551,7 @@ public class ClaudeChatService {
             sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken);
             ctx.status = SessionStatus.IDLE;
             repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
-            sendToBrowser(ctx, seq -> new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands, ctx.status.name(), ctx.epoch, ctx.engine));
+            sendToBrowser(ctx, seq -> ready(ctx, seq));
             n++;
         }
         log.info("[claude-chat] sidecar 重连成功，已 resume {} 个会话", n);

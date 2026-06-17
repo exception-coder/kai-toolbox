@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ensureFreshToken, getToken } from '@/lib/auth'
-import type { Attachment, ChatItem, ClientMessage, ConnState, Engine, ModelInfo, PendingRequest, PermissionMode, ServerMessage } from '../types'
+import type { Attachment, ChatItem, ClientMessage, ConnState, Engine, ModelInfo, PendingRequest, PermissionMode, ProviderKind, ServerMessage } from '../types'
 import { loadMessages } from '../api'
 import { notifyPrompt } from '../browserNotify'
 import { playNotifySound } from '../sound'
@@ -55,6 +55,10 @@ export interface UseClaudeChatSocket {
   currentModel: string | null
   /** 当前会话引擎（来自 Ready），用于「思考中」文案 / 命令菜单按引擎区分 */
   currentEngine: Engine
+  /** 当前 Claude 服务商来源：official=Claude Code 官方；thirdParty=第三方 Anthropic 兼容网关 */
+  currentProviderKind: ProviderKind
+  /** 当前第三方网关 baseURL（仅展示；官方为空） */
+  currentProviderBaseUrl: string | null
   /** 新建会话（可带初始权限模式、引擎、第三方网关 provider；provider 仅 Claude 引擎生效） */
   open: (cwd: string, model?: string, mode?: PermissionMode, engine?: Engine, provider?: { apiBaseUrl?: string; authToken?: string }) => void
   /** 切换权限模式（下一轮生效） */
@@ -95,6 +99,8 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   const [models, setModels] = useState<ModelInfo[]>([])
   const [currentModel, setCurrentModel] = useState<string | null>(null)
   const [currentEngine, setCurrentEngine] = useState<Engine>('claude')
+  const [currentProviderKind, setCurrentProviderKind] = useState<ProviderKind>('official')
+  const [currentProviderBaseUrl, setCurrentProviderBaseUrl] = useState<string | null>(null)
 
   const wsRef = useRef<WebSocket | null>(null)
   const intentRef = useRef<Intent | null>(null)
@@ -163,6 +169,8 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
         }
         if (msg.slashCommands) setSlashCommands(msg.slashCommands)
         if (msg.engine) setCurrentEngine(msg.engine)
+        setCurrentProviderKind(msg.providerKind ?? 'official')
+        setCurrentProviderBaseUrl(msg.providerBaseUrl ?? null)
         // Codex/Gemini 会话无 Claude 模型/slash 清单：进入时清掉上一个 Claude 会话残留的选项，避免误显示。
         // Claude 会话不清（其 supportedModels 在 sidecar 端缓存，清了 resume 不会再下发）。
         if (msg.engine === 'codex' || msg.engine === 'gemini') {
@@ -380,6 +388,8 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     historyBeforeRef.current = null
     historyExhaustedRef.current = false
     setHistoryExhausted(false)
+    setCurrentProviderKind('official')
+    setCurrentProviderBaseUrl(null)
   }
 
   const open = useCallback((cwd: string, model?: string, m?: PermissionMode, engine?: Engine, provider?: { apiBaseUrl?: string; authToken?: string }) => {
@@ -394,6 +404,8 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     if (engine === 'codex' || engine === 'gemini') { setModels([]); setSlashCommands([]); setCurrentModel(null) }
     const apiBaseUrl = provider?.apiBaseUrl
     const authToken = provider?.authToken
+    setCurrentProviderKind(apiBaseUrl ? 'thirdParty' : 'official')
+    setCurrentProviderBaseUrl(apiBaseUrl ?? null)
     intentRef.current = { kind: 'open', cwd, model, mode: m, engine, apiBaseUrl, authToken }
     if (!sendRaw({ type: 'open', cwd, model, mode: m, engine, apiBaseUrl, authToken })) connect()
   }, [sendRaw, connect])
@@ -464,7 +476,12 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   // 会话内切 agent：同一会话 id 不变，乐观更新引擎；非 claude 清模型列表。上下文由调用方切后另发 seed。
   const switchEngine = useCallback((engine: Engine) => {
     setCurrentEngine(engine)
-    if (engine !== 'claude') { setModels([]); setCurrentModel(null) }
+    if (engine !== 'claude') {
+      setModels([])
+      setCurrentModel(null)
+      setCurrentProviderKind('official')
+      setCurrentProviderBaseUrl(null)
+    }
     sendRaw({ type: 'switchEngine', engine })
   }, [sendRaw])
 
@@ -507,5 +524,5 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     loadHistoryRef.current = loadHistory
   }, [loadHistory])
 
-  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, models, currentModel, currentEngine, open, switchTo, resumeHistory, send, decide, interrupt, setMode, setModel, switchEngine, forkSession, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, models, currentModel, currentEngine, currentProviderKind, currentProviderBaseUrl, open, switchTo, resumeHistory, send, decide, interrupt, setMode, setModel, switchEngine, forkSession, historyLoading, historyExhausted, loadHistory }
 }

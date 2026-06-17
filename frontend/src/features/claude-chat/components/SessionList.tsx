@@ -3,6 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Circle, Pencil, Trash2 } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
 import { deleteSession, listSessions, renameSession } from '../api'
+import { engineDisplayName, providerHost } from './chatStatus'
+import type { Engine } from '../types'
 
 interface Props {
   currentSessionId: string | null
@@ -94,23 +96,29 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
                   // 兼容旧数据——历史行的 engines 可能是 claude,codex,claude,… 流水，这里按首次出现序压成集合。
                   const raw = (s.engines && s.engines.trim() ? s.engines.split(',') : [s.engine || 'claude'])
                     .map(e => e.trim()).filter(Boolean)
-                  const order = [...new Set(raw)]
+                  const order = [...new Set(raw)] as Engine[]
+                  const thirdPartyClaude = s.providerKind === 'thirdParty'
+                  const host = providerHost(s.providerBaseUrl)
                   const label = order
-                    .map(e => (e === 'codex' ? 'Codex' : e === 'gemini' ? 'Gemini' : 'Claude'))
+                    .map(e => engineDisplayName(e, e === 'claude' && thirdPartyClaude ? 'thirdParty' : 'official'))
                     .join(' · ')
                   const multi = order.length > 1
                   return (
                     <span
-                      title={multi ? `本会话用过这些 agent（切回为续接，非新建）：${label}` : undefined}
+                      title={thirdPartyClaude
+                        ? `Claude 使用第三方网关：${host ?? s.providerBaseUrl ?? '未知'}${multi ? `；本会话用过这些 agent：${label}` : ''}`
+                        : multi ? `本会话用过这些 agent（切回为续接，非新建）：${label}` : undefined}
                       className={cn(
                         'shrink-0 rounded px-1 text-[10px]',
-                        multi
-                          ? 'bg-[var(--color-primary)]/10 text-[var(--color-primary)]'
-                          : s.engine === 'codex'
-                            ? 'bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-200'
-                            : s.engine === 'gemini'
-                              ? 'bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-200'
-                              : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]',
+                        thirdPartyClaude
+                          ? 'border border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                          : multi
+                            ? 'bg-[var(--color-primary)]/10 text-[var(--color-primary)]'
+                            : s.engine === 'codex'
+                              ? 'bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-200'
+                              : s.engine === 'gemini'
+                                ? 'bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-200'
+                                : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]',
                       )}
                     >
                       {label}

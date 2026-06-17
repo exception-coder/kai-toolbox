@@ -22,7 +22,7 @@ import { TaskspacePanel } from '../components/TaskspacePanel'
 import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
-import { engineName, stateLabel, stateTone } from '../components/chatStatus'
+import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
 import { fetchProviderModels, getSessionCommitDiff, listSessionCommits, listSessions, listWorkspaces, uploadAttachment, type UploadedAttachment } from '../api'
 import type { ModelInfo } from '../types'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
@@ -258,6 +258,11 @@ export function ChatPage() {
     staleTime: 5000,
   })
   const currentTitle = sessions.find(s => s.id === chat?.sessionId)?.title?.trim()
+  const currentProviderHost = providerHost(chat?.currentProviderBaseUrl ?? null)
+  const currentEngineLabel = engineDisplayName(chat?.currentEngine ?? 'claude', chat?.currentProviderKind)
+  const currentEngineTitle = chat?.currentProviderKind === 'thirdParty'
+    ? `切换 agent（当前 Claude 使用第三方网关：${currentProviderHost ?? chat.currentProviderBaseUrl ?? '未知'}）`
+    : '切换 agent（会话内切换，自动带上下文）'
 
   // 引擎激活前一帧 chat 可能为空（懒启动）：占位，下一帧即就绪
   if (!chat) {
@@ -375,12 +380,14 @@ export function ChatPage() {
           <button
             type="button"
             onClick={() => setEngineMenuOpen(o => !o)}
-            title="切换 agent（会话内切换，自动带上下文）"
+            title={currentEngineTitle}
             className={`rounded px-1.5 py-0.5 text-[10px] ${chat.currentEngine === 'codex'
               ? 'bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-200'
-              : 'border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}
+              : chat.currentProviderKind === 'thirdParty'
+                ? 'border border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                : 'border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}
           >
-            {engineName(chat.currentEngine)} ▾
+            {currentEngineLabel} ▾
           </button>
           {engineMenuOpen && (
             <>
@@ -541,6 +548,11 @@ export function ChatPage() {
               {newProviderId !== '' && !providerModelsLoading && providerModels.length === 0 && (
                 <p className="mt-1 text-[11px] text-[var(--color-muted-foreground)]">
                   没拉到模型目录（网关未暴露 /v1/models 或鉴权失败），可直接手填模型名。
+                </p>
+              )}
+              {newProviderId !== '' && (
+                <p className="mt-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                  将使用第三方网关，不是 Claude Code 官方登录。
                 </p>
               )}
             </div>
@@ -725,7 +737,7 @@ export function ChatPage() {
                 loadingEarlier={chat.historyLoading}
                 exhausted={chat.historyExhausted}
                 onFork={chat.forkSession}
-                engineLabel={engineName(chat.currentEngine)}
+                engineLabel={engineDisplayName(chat.currentEngine, chat.currentProviderKind)}
               />
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-[var(--color-muted-foreground)]">
@@ -840,17 +852,18 @@ export function ChatPage() {
               onChange={e => { setDraft(e.target.value); setSlashDismissed(false); setSlashIdx(0) }}
               onPaste={handlePaste}
               onKeyDown={e => {
-                // Shift+Enter 发送（Enter 仍为换行）；优先于 slash 菜单的 Enter 选中
-                if (e.key === 'Enter' && e.shiftKey) {
+                // slash 菜单打开时：方向键导航、Enter/Tab 选中、Esc 关闭
+                if (showSlash) {
+                  if (e.key === 'ArrowDown') { e.preventDefault(); setSlashIdx(i => (i + 1) % slashFiltered.length); return }
+                  if (e.key === 'ArrowUp') { e.preventDefault(); setSlashIdx(i => (i - 1 + slashFiltered.length) % slashFiltered.length); return }
+                  if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickSlash(slashFiltered[slashActive]); return }
+                  if (e.key === 'Escape') { e.preventDefault(); setSlashDismissed(true); return }
+                }
+                // Enter 发送，Shift+Enter 换行（与分屏 SessionPane 一致）
+                if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
                   if (!chat.running) submit()
-                  return
                 }
-                if (!showSlash) return
-                if (e.key === 'ArrowDown') { e.preventDefault(); setSlashIdx(i => (i + 1) % slashFiltered.length) }
-                else if (e.key === 'ArrowUp') { e.preventDefault(); setSlashIdx(i => (i - 1 + slashFiltered.length) % slashFiltered.length) }
-                else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickSlash(slashFiltered[slashActive]) }
-                else if (e.key === 'Escape') { e.preventDefault(); setSlashDismissed(true) }
               }}
             />
             {chat.running ? (

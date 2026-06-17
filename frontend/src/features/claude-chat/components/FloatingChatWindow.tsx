@@ -13,7 +13,8 @@ import { AttachmentChips } from './AttachmentChips'
 import { VoiceInputButton } from './VoiceInputButton'
 import { MiniVoiceBar } from './MiniVoiceBar'
 import { listSessions, uploadAttachment, type UploadedAttachment } from '../api'
-import type { ChatItem, Engine, PermissionMode } from '../types'
+import type { ChatItem, PermissionMode } from '../types'
+import { engineDisplayName, providerHost } from './chatStatus'
 
 const MAX_ATTACHMENTS = 10
 const MIN_MARGIN = 8
@@ -30,10 +31,6 @@ const MODE_LABELS: Record<PermissionMode, string> = {
   acceptEdits: '自动接受',
   plan: '计划',
   bypassPermissions: '全自动',
-}
-
-function engineName(e: Engine): string {
-  return e === 'codex' ? 'Codex' : e === 'gemini' ? 'Gemini' : 'Claude'
 }
 
 /** 由会话状态推导「进度文案 + 是否活跃」：待确认 / 思考中 / 执行中 / 出错 / 空闲。 */
@@ -99,7 +96,11 @@ export function FloatingChatWindow() {
   // 在会话页时不渲染（全屏页已在），未弹出或引擎未就绪也不渲染
   if (!floating || !chat || location.pathname === CHAT_ROUTE) return null
 
-  const engineLabel = engineName(chat.currentEngine)
+  const engineLabel = engineDisplayName(chat.currentEngine, chat.currentProviderKind)
+  const host = providerHost(chat.currentProviderBaseUrl)
+  const engineTitle = chat.currentProviderKind === 'thirdParty'
+    ? `第三方网关：${host ?? chat.currentProviderBaseUrl ?? '未知'}`
+    : undefined
   // 展示页脱离 AppShell（无 Sidebar/TopBar），把「返回工作台 + 主题」收进本窗口 header，
   // 这样展示页不必再悬浮一组独立控件（ShowcaseLayout 的 dock 在本窗可见时隐藏）。
   const onShowcase = isShowcasePath(location.pathname)
@@ -302,7 +303,12 @@ export function FloatingChatWindow() {
           <>
             <MessageSquare className="size-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate text-sm font-semibold" title={headerTitle}>{headerTitle}</span>
-            <span className="shrink-0 rounded bg-[var(--color-background)] px-1.5 py-0.5 text-[10px] text-[var(--color-muted-foreground)]">{engineLabel}</span>
+            <span
+              title={engineTitle}
+              className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${chat.currentProviderKind === 'thirdParty'
+                ? 'border border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                : 'bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}
+            >{engineLabel}</span>
           </>
         )}
         <div className="flex shrink-0 gap-0.5">
@@ -444,12 +450,12 @@ export function FloatingChatWindow() {
           <textarea
             ref={taRef}
             className="max-h-24 min-h-[2.25rem] flex-1 resize-none overflow-y-auto rounded-lg border bg-[var(--color-background)] px-2 py-1.5 text-sm"
-            placeholder="发消息 / 粘贴图片…（Shift+Enter 发送）"
+            placeholder="发消息 / 粘贴图片…（Shift+Enter 换行）"
             rows={1}
             value={draft}
             onChange={e => setDraft(e.target.value)}
             onPaste={onPaste}
-            onKeyDown={e => { if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); submit() } }}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
           />
           {chat.running ? (
             <button type="button" onClick={chat.interrupt} aria-label="中断"

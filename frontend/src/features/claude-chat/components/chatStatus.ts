@@ -1,5 +1,5 @@
 import type { StatusTone } from '@/components/ui/status-badge'
-import type { ChatItem, Engine } from '../types'
+import type { ChatItem, Engine, ProviderKind } from '../types'
 
 /** 连接态中文文案，供单会话页与分屏块共用。 */
 export function stateLabel(s: string): string {
@@ -26,6 +26,22 @@ export function stateTone(s: string): StatusTone {
 /** 引擎显示名。 */
 export function engineName(e: Engine): string {
   return e === 'codex' ? 'Codex' : e === 'gemini' ? 'Gemini' : 'Claude'
+}
+
+/** 引擎 + 服务商显示名：Claude 第三方网关必须显式标识，避免与 Claude Code 官方混淆。 */
+export function engineDisplayName(e: Engine, providerKind?: ProviderKind): string {
+  if (e !== 'claude') return engineName(e)
+  return providerKind === 'thirdParty' ? 'Claude · 第三方' : 'Claude'
+}
+
+/** 从第三方网关 baseURL 提取短 host；URL 非法时回退原字符串。 */
+export function providerHost(providerBaseUrl?: string | null): string | null {
+  if (!providerBaseUrl) return null
+  try {
+    return new URL(providerBaseUrl).host
+  } catch {
+    return providerBaseUrl
+  }
 }
 
 // ── Agent（会话）业务状态：用于分屏「Agent 列表 + 详情」的一眼概览 ──────────

@@ -2,6 +2,8 @@
 
 export type SessionStatus = 'RUNNING' | 'IDLE' | 'INTERRUPTED' | 'DONE'
 
+export type ProviderKind = 'official' | 'thirdParty'
+
 export interface ClaudeChatSessionView {
   id: string
   cwd: string
@@ -11,6 +13,10 @@ export interface ClaudeChatSessionView {
   engine?: Engine
   /** 本会话先后用过的引擎有序列（如 'claude,codex'），用于列表标记多 agent */
   engines?: string
+  /** Claude 服务商：official=Claude Code 官方登录；thirdParty=Anthropic 兼容第三方网关 */
+  providerKind?: ProviderKind
+  /** 第三方网关 baseURL（仅展示用；后端不会回传 authToken） */
+  providerBaseUrl?: string | null
   status: SessionStatus
   startedAt: number
   lastSeenAt: number
@@ -133,7 +139,7 @@ export interface Question {
 
 // ── 服务端 → 客户端（均带 seq）────────────────────────────────────
 export type ServerMessage =
-  | { type: 'ready'; seq: number; sessionId: string; sdkSessionId: string | null; slashCommands?: string[]; status?: SessionStatus; epoch?: string; engine?: Engine }
+  | { type: 'ready'; seq: number; sessionId: string; sdkSessionId: string | null; slashCommands?: string[]; status?: SessionStatus; epoch?: string; engine?: Engine; providerKind?: ProviderKind; providerBaseUrl?: string | null }
   | { type: 'assistantDelta'; seq: number; text: string }
   | { type: 'toolUse'; seq: number; toolName: string; input: unknown }
   | { type: 'toolResult'; seq: number; toolName: string; output: string; isError: boolean }

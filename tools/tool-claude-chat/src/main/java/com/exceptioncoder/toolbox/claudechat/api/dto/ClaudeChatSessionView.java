@@ -16,6 +16,8 @@ public record ClaudeChatSessionView(
         String sdkSessionId,
         String engine,
         String engines,
+        String providerKind,
+        String providerBaseUrl,
         SessionStatus status,
         long startedAt,
         long lastSeenAt,
@@ -24,9 +26,11 @@ public record ClaudeChatSessionView(
     public static ClaudeChatSessionView from(ClaudeChatSession s, boolean live) {
         String engine = s.getEngine() == null ? "claude" : s.getEngine();
         String engines = s.getEngines() == null || s.getEngines().isBlank() ? engine : s.getEngines();
+        String providerBaseUrl = s.getApiBaseUrl() == null || s.getApiBaseUrl().isBlank() ? null : s.getApiBaseUrl();
+        String providerKind = providerBaseUrl == null ? "official" : "thirdParty";
         return new ClaudeChatSessionView(
                 s.getId(), s.getCwd(), s.getTitle(), s.getSdkSessionId(),
-                engine, engines,
+                engine, engines, providerKind, providerBaseUrl,
                 s.getStatus(), s.getStartedAt(), s.getLastSeenAt(), live);
     }
 }
