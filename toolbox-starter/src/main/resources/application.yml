@@ -294,7 +294,7 @@ toolbox:
   projects:
     # 「项目管理」面板扫描的根目录，仅扫描一级子目录。
     # 修改后无需重启即可在 application.yml 中调整；缓存 TTL 内的请求仍读旧值。
-    root: D:\Users\zhang\IdeaProjects
+    root: D:\Users\zhang\myWork
     cache-ttl-seconds: 5
     # 一级目录名以这些前缀开头时跳过（默认隐藏目录 + 归档目录）
     hidden-prefixes:
