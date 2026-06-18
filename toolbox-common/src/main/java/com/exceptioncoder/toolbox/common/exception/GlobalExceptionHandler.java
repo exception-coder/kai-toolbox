@@ -12,6 +12,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.NoSuchFileException;
 import java.time.Instant;
@@ -82,6 +83,20 @@ public class GlobalExceptionHandler {
                 "code", e.getCode(),
                 "message", e.getMessage() == null ? "" : e.getMessage()
         ));
+    }
+
+    /**
+     * 标准 Spring {@link ResponseStatusException}：尊重其携带的状态码与 reason，
+     * 否则会被下方 catch-all 误判为 500。供各工具模块用 {@code throw new ResponseStatusException(BAD_REQUEST, "...")}
+     * 表达受控的 4xx，无需各自定义异常类型。
+     */
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<Map<String, Object>> handleResponseStatus(ResponseStatusException e) {
+        HttpStatus status = HttpStatus.resolve(e.getStatusCode().value());
+        if (status == null) {
+            status = HttpStatus.INTERNAL_SERVER_ERROR;
+        }
+        return body(status, e.getReason());
     }
 
     @ExceptionHandler(Exception.class)
