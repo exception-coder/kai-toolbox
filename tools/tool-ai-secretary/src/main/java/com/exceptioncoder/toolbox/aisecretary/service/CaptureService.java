@@ -48,16 +48,21 @@ public class CaptureService {
     private final NoteIndexService noteIndexService;
     private final RagStatusService ragStatusService;
     private final ObjectMapper objectMapper;
+    private final MemoryService memoryService;
+    private final MemoryContextBuilder memoryContext;
 
     public CaptureService(Capturer capturer, NoteRepository repo, AttachmentRepository attachmentRepo,
                           NoteIndexService noteIndexService, RagStatusService ragStatusService,
-                          ObjectMapper objectMapper) {
+                          ObjectMapper objectMapper, MemoryService memoryService,
+                          MemoryContextBuilder memoryContext) {
         this.capturer = capturer;
         this.repo = repo;
         this.attachmentRepo = attachmentRepo;
         this.noteIndexService = noteIndexService;
         this.ragStatusService = ragStatusService;
         this.objectMapper = objectMapper;
+        this.memoryService = memoryService;
+        this.memoryContext = memoryContext;
     }
 
     public CaptureResponse capture(String rawText) {
@@ -129,7 +134,7 @@ public class CaptureService {
         List<Note> stored = new ArrayList<>();
         boolean degraded = false;
         try {
-            CaptureResult result = capturer.capture(CaptureNormalizer.nowContext(now), CATEGORY_LABELS, text);
+            CaptureResult result = capturer.capture(CaptureNormalizer.nowContext(now), memoryContext.build(), CATEGORY_LABELS, text);
             List<CapturedItem> items = result == null ? null : result.items();
             if (items == null || items.isEmpty()) {
                 degraded = true;
@@ -147,6 +152,8 @@ public class CaptureService {
         }
         // 落库后写入向量索引（RAG 关闭时 no-op、失败软降级）
         stored.forEach(n -> noteIndexService.index(n.id(), n.rawText()));
+        // 异步从原文提炼长期记忆（LLM 提议→proposed），不阻塞记录响应
+        Thread.ofVirtual().start(() -> memoryService.proposeFrom(text));
         return new StoreResult(stored, degraded);
     }
 

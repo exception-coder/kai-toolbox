@@ -91,3 +91,56 @@ export async function captureUpload(text: string, files: File[]): Promise<Captur
   if (!res.ok) throw new Error(`附件上传失败：HTTP ${res.status}`)
   return res.json() as Promise<CaptureResponse>
 }
+
+// ── 长期记忆 / 用户画像 ──────────────────────────────────────────────
+
+export interface MemoryView {
+  id: string
+  category: string          // PREFERENCE / BOUNDARY / PERSON
+  categoryLabel: string     // 偏好 / 禁区 / 核心人物
+  key: string
+  value: string
+  detail: string | null
+  confidence: number
+  status: string            // PROPOSED / ACTIVE / ARCHIVED
+  pinned: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+export interface MemoryRequest {
+  category?: string
+  key?: string
+  value?: string
+  detail?: string | null
+  pinned?: boolean
+  status?: string
+}
+
+/** 列记忆：status=active（默认）/ proposed / archived */
+export function listMemory(status: 'active' | 'proposed' | 'archived' = 'active'): Promise<MemoryView[]> {
+  return http<MemoryView[]>(`/ai-secretary/memory?status=${status}`)
+}
+
+/** 手动新增（直接 active） */
+export function addMemory(req: MemoryRequest): Promise<MemoryView> {
+  return http<MemoryView>('/ai-secretary/memory', { method: 'POST', body: JSON.stringify(req) })
+}
+
+/** 局部更新；传 status:'ACTIVE' 即确认一条 proposed */
+export function updateMemory(id: string, req: MemoryRequest): Promise<MemoryView> {
+  return http<MemoryView>(`/ai-secretary/memory/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(req),
+  })
+}
+
+/** 确认一条 proposed → active */
+export function confirmMemory(id: string): Promise<MemoryView> {
+  return updateMemory(id, { status: 'ACTIVE' })
+}
+
+/** 删除一条记忆 */
+export function deleteMemory(id: string): Promise<void> {
+  return http<void>(`/ai-secretary/memory/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}

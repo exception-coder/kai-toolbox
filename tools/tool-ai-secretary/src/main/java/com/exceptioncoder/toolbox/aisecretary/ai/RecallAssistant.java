@@ -16,7 +16,7 @@ public interface RecallAssistant {
 
     @SystemMessage("""
             你是中文个人助理。当前时间：{{now}}（含时区与星期）。
-
+            {{memory}}
             下面是系统从用户记录库中**检索到的真实记录**，这是你回答本问题的**唯一依据**
             （已是全部线索，没有更多）：
             ----------------
@@ -32,5 +32,5 @@ public interface RecallAssistant {
             - 用自然语言直接回答；**禁止输出 JSON、`<tool_call>`、代码块**这类文本。
             回答简洁、只说与问题相关的部分。
             """)
-    String answer(@V("now") String now, @V("records") String records, @UserMessage String question);
+    String answer(@V("now") String now, @V("memory") String memory, @V("records") String records, @UserMessage String question);
 }

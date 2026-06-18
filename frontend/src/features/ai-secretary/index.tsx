@@ -3,6 +3,7 @@ import { Bot } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 const CapturePage = lazy(() => import('./pages/CapturePage').then((m) => ({ default: m.CapturePage })))
 const RecallPage = lazy(() => import('./pages/RecallPage').then((m) => ({ default: m.RecallPage })))
+const ProfilePage = lazy(() => import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage })))
 const ArchitecturePage = lazy(() => import('./pages/ArchitecturePage').then((m) => ({ default: m.ArchitecturePage })))
 const manifest: FeatureManifest = {
   id: 'ai-secretary',
@@ -15,6 +16,7 @@ const manifest: FeatureManifest = {
   routes: [
     { path: '/tools/ai-secretary', element: <CapturePage /> },
     { path: '/tools/ai-secretary/ask', element: <RecallPage /> },
+    { path: '/tools/ai-secretary/profile', element: <ProfilePage /> },
     { path: '/tools/ai-secretary/architecture', element: <ArchitecturePage /> },
   ],
 }

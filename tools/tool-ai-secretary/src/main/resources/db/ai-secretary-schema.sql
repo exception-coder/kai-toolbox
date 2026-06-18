@@ -28,3 +28,22 @@ CREATE TABLE IF NOT EXISTS ai_secretary_attachment (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ai_secretary_attachment_note ON ai_secretary_attachment(note_id);
+
+-- 长期记忆 / 用户画像：偏好 / 禁区 / 核心人物。LLM 提议入 proposed，用户确认转 active；只有 active 注入 prompt。
+-- 「近期重要事项」从 ai_secretary_note 派生，不在此表。所有 DDL 必须 IF NOT EXISTS。
+CREATE TABLE IF NOT EXISTS ai_secretary_memory (
+    id             TEXT PRIMARY KEY,
+    category       TEXT    NOT NULL,            -- MemoryCategory: PREFERENCE/BOUNDARY/PERSON
+    mem_key        TEXT    NOT NULL,            -- 归一化键，用于同类去重/归并
+    value          TEXT    NOT NULL,            -- 记忆内容
+    detail         TEXT,                        -- 补充（人物关系/备注等），可空
+    source_note_id TEXT,                        -- 来源笔记，可空
+    confidence     REAL    NOT NULL DEFAULT 0,
+    status         TEXT    NOT NULL DEFAULT 'PROPOSED', -- PROPOSED/ACTIVE/ARCHIVED
+    pinned         INTEGER NOT NULL DEFAULT 0,  -- 是否常驻注入
+    created_at     INTEGER NOT NULL,
+    updated_at     INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_secretary_memory_status ON ai_secretary_memory(status, category);
+CREATE INDEX IF NOT EXISTS idx_ai_secretary_memory_key    ON ai_secretary_memory(category, mem_key);

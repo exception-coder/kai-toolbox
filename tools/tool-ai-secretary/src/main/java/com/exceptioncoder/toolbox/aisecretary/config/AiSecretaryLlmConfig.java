@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.aisecretary.config;
 
 import com.exceptioncoder.toolbox.aisecretary.ai.Capturer;
+import com.exceptioncoder.toolbox.aisecretary.ai.ProfileExtractor;
 import com.exceptioncoder.toolbox.aisecretary.ai.RecallAssistant;
 import com.exceptioncoder.toolbox.llm.routing.ChatModelRouter;
 import dev.langchain4j.service.AiServices;
@@ -25,6 +26,14 @@ public class AiSecretaryLlmConfig {
     @Bean
     public Capturer capturer(ChatModelRouter router) {
         return AiServices.builder(Capturer.class)
+                .chatModel(router.forTier(CAPTURE_TIER))
+                .build();
+    }
+
+    /** 长期记忆「提议」角色：复用 capture 档位（高频、便宜/本地）。只产候选，落库与裁决在代码层。 */
+    @Bean
+    public ProfileExtractor profileExtractor(ChatModelRouter router) {
+        return AiServices.builder(ProfileExtractor.class)
                 .chatModel(router.forTier(CAPTURE_TIER))
                 .build();
     }

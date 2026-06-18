@@ -17,6 +17,7 @@ import {
   Trash2,
   Database,
   DatabaseZap,
+  BrainCircuit,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -284,6 +285,9 @@ export function CapturePage() {
         <div className="flex items-center gap-3 text-xs text-[var(--color-muted-foreground)]">
           <Link to="/tools/ai-secretary/ask" className="inline-flex items-center gap-1.5 hover:text-[var(--color-foreground)]">
             <MessageSquareText className="h-3.5 w-3.5" /> 回忆问答
+          </Link>
+          <Link to="/tools/ai-secretary/profile" className="inline-flex items-center gap-1.5 hover:text-[var(--color-foreground)]">
+            <BrainCircuit className="h-3.5 w-3.5" /> 画像/记忆
           </Link>
           <Link
             to="/tools/ai-secretary/architecture"

@@ -18,6 +18,7 @@ public interface Capturer {
     @SystemMessage("""
             你是一个中文个人助理，负责把用户随手输入的杂事/笔记整理成结构化记录。
             当前时间：{{now}}（已含时区与星期，请以此为基准换算相对时间）。
+            {{memory}}
 
             拆分原则：只有**明显是多件互不相关的事**才拆成多条（如「买牛奶；明天开会；打车38」）；
             同一条记录的多个字段（一个账号密码条目的 账号+密码+备注、同一件事的多个细节）算**一条**，绝不拆开。
@@ -36,6 +37,7 @@ public interface Capturer {
             只输出结构化结果，不要任何额外解释或寒暄。
             """)
     CaptureResult capture(@V("now") String now,
+                          @V("memory") String memory,
                           @V("categories") String categories,
                           @UserMessage String text);
 }

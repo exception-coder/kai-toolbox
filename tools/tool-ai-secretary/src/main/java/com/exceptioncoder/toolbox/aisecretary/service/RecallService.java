@@ -30,10 +30,15 @@ public class RecallService {
 
     private final RecallAssistant assistant;
     private final RecallRetriever retriever;
+    private final MemoryService memoryService;
+    private final MemoryContextBuilder memoryContext;
 
-    public RecallService(RecallAssistant assistant, RecallRetriever retriever) {
+    public RecallService(RecallAssistant assistant, RecallRetriever retriever,
+                         MemoryService memoryService, MemoryContextBuilder memoryContext) {
         this.assistant = assistant;
         this.retriever = retriever;
+        this.memoryService = memoryService;
+        this.memoryContext = memoryContext;
     }
 
     public void ask(String question, SseEmitter emitter) {
@@ -57,13 +62,17 @@ public class RecallService {
                     return;
                 }
 
-                // ④ 有命中：模型只据真实记录组织语言
+                // ④ 有命中：模型只据真实记录组织语言（注入用户背景）
                 String records = buildRecordsBlock(hits);
                 String now = CaptureNormalizer.nowContext(ZonedDateTime.now());
-                String answer = assistant.answer(now, records, q);
+                String answer = assistant.answer(now, memoryContext.build(), records, q);
 
                 send(emitter, "answer", Map.of("text", answer == null ? "" : answer));
                 sendDone(emitter);
+
+                // 答完异步从「问题 + 回答」提炼长期记忆（LLM 提议→proposed），不阻塞本次回忆
+                final String spoken = answer == null ? "" : answer;
+                Thread.ofVirtual().start(() -> memoryService.proposeFrom(q + "\n" + spoken));
             } catch (Exception e) {
                 log.warn("[ai-secretary] 回忆态执行失败", e);
                 sendError(emitter, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
