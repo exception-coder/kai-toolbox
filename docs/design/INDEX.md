@@ -7,3 +7,4 @@
 | 需求 | 状态 | 模版 | 文档 |
 |------|------|------|------|
 | 视频智能变速（录屏浓缩器） | 设计中 | 完整-技术 | [视频智能变速/视频智能变速-current.md](视频智能变速/视频智能变速-current.md) · [API](视频智能变速/视频智能变速-api-current.md) |
+| AI 对话（API 直连聊天） | 设计中 | 完整-技术 | [AI对话/AI对话-current.md](AI对话/AI对话-current.md) · [API](AI对话/AI对话-api-current.md) |
