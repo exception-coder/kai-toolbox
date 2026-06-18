@@ -32,13 +32,16 @@ public class RecallService {
     private final RecallRetriever retriever;
     private final MemoryService memoryService;
     private final MemoryContextBuilder memoryContext;
+    private final BoundaryGuard boundaryGuard;
 
     public RecallService(RecallAssistant assistant, RecallRetriever retriever,
-                         MemoryService memoryService, MemoryContextBuilder memoryContext) {
+                         MemoryService memoryService, MemoryContextBuilder memoryContext,
+                         BoundaryGuard boundaryGuard) {
         this.assistant = assistant;
         this.retriever = retriever;
         this.memoryService = memoryService;
         this.memoryContext = memoryContext;
+        this.boundaryGuard = boundaryGuard;
     }
 
     public void ask(String question, SseEmitter emitter) {
@@ -66,8 +69,10 @@ public class RecallService {
                 String records = buildRecordsBlock(hits);
                 String now = CaptureNormalizer.nowContext(ZonedDateTime.now());
                 String answer = assistant.answer(now, memoryContext.build(), records, q);
+                // 禁区出参拦截（红线兜底；当前直通，Phase 2 实现）
+                answer = boundaryGuard.review(answer == null ? "" : answer);
 
-                send(emitter, "answer", Map.of("text", answer == null ? "" : answer));
+                send(emitter, "answer", Map.of("text", answer));
                 sendDone(emitter);
 
                 // 答完异步从「问题 + 回答」提炼长期记忆（LLM 提议→proposed），不阻塞本次回忆
