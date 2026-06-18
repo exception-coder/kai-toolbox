@@ -73,6 +73,27 @@ toolbox:
       #   api-key: ${TOOLBOX_LLM_DEEPSEEK_KEY:}
       #   model: deepseek-chat
       #   weight: 2
+  # 「AI 对话」模块：经 4sapi（OpenAI 兼容中转）直连多模型的 API 流式聊天。
+  # 与 Vibe coding（claude-chat，agent 模式）不同——本模块直接调 /v1/chat/completions，无 agent。
+  # 标 @Refreshable，base-url / api-key / 参数可在配置中心在线改、不重启。模型清单实时取自 4sapi /v1/models。
+  ai-chat:
+    base-url: ${TOOLBOX_AI_CHAT_BASE_URL:https://4sapi.com/v1}
+    api-key: ${TOOLBOX_AI_CHAT_API_KEY:}
+    temperature: 0.7
+    timeout-seconds: 60
+    max-history-messages: 40
+    models-cache-ttl-seconds: 300
+    # 模型 id 命中其一即判为多模态（小写子串匹配）
+    multimodal-patterns:
+      - gpt-4o
+      - gpt-4.1
+      - o1
+      - o3
+      - claude
+      - gemini
+      - vision
+      - qwen-vl
+      - glm-4v
   # AI 秘书向量 RAG（语义检索）。默认关闭——开启前置：
   #   1) ollama pull bge-m3   2) 启动 Qdrant: docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant
   #   3) 把 enabled 改 true 重启。关闭时整套 RAG 不装配，回忆态退回工具路由。
