@@ -27,6 +27,8 @@ function colsClass(n: number): string {
  */
 export function MultiSessionView({ sessionIds, onExit, onRemove }: Props) {
   const [statuses, setStatuses] = useState<Record<string, AgentStatus>>({})
+  // 列数：0=自动（按块数响应式），1/2/3=手动固定列数
+  const [cols, setCols] = useState<0 | 1 | 2 | 3>(0)
 
   // 子块上报状态：仅在实际变化时写入，避免无谓重渲染
   const setStatus = useCallback((id: string, s: AgentStatus) => {
@@ -50,7 +52,23 @@ export function MultiSessionView({ sessionIds, onExit, onRemove }: Props) {
           {runningCount > 0 && <span className="text-emerald-600 dark:text-emerald-400"> · {runningCount} 运行中</span>}
           {errorCount > 0 && <span className="text-red-600 dark:text-red-400"> · {errorCount} 报错</span>}
         </span>
-        <Button variant="ghost" size="sm" className="ml-auto gap-1" onClick={onExit}>
+        {/* 列数控制：自动/1/2/3，解决窗口过窄或想更密/更宽 */}
+        <div className="ml-auto flex items-center gap-1">
+          <span className="text-[var(--color-muted-foreground)]">列</span>
+          {([0, 1, 2, 3] as const).map(c => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setCols(c)}
+              className={`rounded px-1.5 py-0.5 ${cols === c
+                ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]'}`}
+            >
+              {c === 0 ? '自动' : c}
+            </button>
+          ))}
+        </div>
+        <Button variant="ghost" size="sm" className="gap-1" onClick={onExit}>
           <X className="size-4" /> 退出分屏
         </Button>
       </div>
@@ -61,8 +79,11 @@ export function MultiSessionView({ sessionIds, onExit, onRemove }: Props) {
         </div>
       ) : (
         <div
-          className={`grid min-h-0 flex-1 gap-2 overflow-auto p-2 ${colsClass(sessionIds.length)}`}
-          style={{ gridAutoRows: 'minmax(320px, 1fr)' }}
+          className={`grid min-h-0 flex-1 gap-2 overflow-auto p-2 ${cols === 0 ? colsClass(sessionIds.length) : ''}`}
+          style={{
+            gridAutoRows: 'minmax(320px, 1fr)',
+            ...(cols === 0 ? {} : { gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }),
+          }}
         >
           {sessionIds.map((id, i) => (
             <div key={id} className="min-h-0">
