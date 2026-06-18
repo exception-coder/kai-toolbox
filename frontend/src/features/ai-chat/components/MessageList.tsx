@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Bot, User } from 'lucide-react'
+import { Bot, Code, FileSearch, FolderKanban, User, Wrench } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { MessageView } from '../types'
 
@@ -7,22 +7,52 @@ interface Props {
   messages: MessageView[]
   streaming: boolean
   streamText: string
+  /** 空状态点能力建议时回传建议文案，父灌入输入框。 */
+  onPickSuggestion?: (text: string) => void
 }
 
-export function MessageList({ messages, streaming, streamText }: Props) {
+const SUGGESTIONS = [
+  { icon: Code, label: '编写代码', text: '帮我写一段代码：' },
+  { icon: FileSearch, label: '分析日志', text: '帮我分析这段日志，定位问题：' },
+  { icon: FolderKanban, label: '管理项目', text: '帮我梳理这个项目的任务与进度：' },
+  { icon: Wrench, label: '调用工具', text: '帮我用合适的工具完成：' },
+]
+
+export function MessageList({ messages, streaming, streamText, onPickSuggestion }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamText, streaming])
 
+  if (messages.length === 0 && !streaming) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
+        <div className="flex size-14 items-center justify-center rounded-2xl bg-[var(--color-primary)]/10 text-[var(--color-primary)]">
+          <Bot className="size-7" />
+        </div>
+        <h2 className="mt-4 text-lg font-semibold">今天想做什么？</h2>
+        <p className="mt-1 text-sm text-[var(--color-muted-foreground)]">选一个开始，或直接在下方输入</p>
+        <div className="mt-5 grid w-full max-w-md grid-cols-2 gap-2">
+          {SUGGESTIONS.map((s) => (
+            <button
+              key={s.label}
+              type="button"
+              onClick={() => onPickSuggestion?.(s.text)}
+              className="flex items-center gap-2 rounded-xl border bg-[var(--color-background)] px-3 py-2.5 text-left text-sm transition-colors hover:border-[var(--color-primary)] hover:bg-[var(--color-accent)]"
+            >
+              <s.icon className="size-4 shrink-0 text-[var(--color-primary)]" />
+              <span className="truncate">{s.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex-1 space-y-4 overflow-y-auto p-4">
-      {messages.length === 0 && !streaming && (
-        <p className="py-16 text-center text-sm text-[var(--color-muted-foreground)]">
-          发一条消息开始对话
-        </p>
-      )}
+
       {messages.map((m) => (
         <Bubble key={m.id} role={m.role}>
           {m.attachments.length > 0 && (

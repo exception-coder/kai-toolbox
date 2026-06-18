@@ -1,31 +1,35 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Loader2, Paperclip, Send, Square, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { uploadAttachment } from '../api'
-import type { AttachmentView, ModelInfo, RolePreset } from '../types'
-import { ModelPicker } from './ModelPicker'
+import type { AttachmentView, ModelInfo } from '../types'
 
 interface Props {
   models: ModelInfo[]
   selectedModel: string
-  onModelChange: (id: string) => void
-  presets: RolePreset[]
-  onPickPreset: (preset: RolePreset) => void
-  temperature: number
-  onTemperatureChange: (t: number) => void
   streaming: boolean
   disabled: boolean
+  /** 外部灌入的草稿（如空状态点能力建议）；变化即填入输入框，随后回调父清空以便重复触发。 */
+  seed?: string
+  onSeedApplied?: () => void
   onSend: (content: string, attachments: AttachmentView[]) => void
   onStop: () => void
 }
 
 export function Composer(props: Props) {
-  const { models, selectedModel, streaming, disabled } = props
+  const { models, selectedModel, streaming, disabled, seed } = props
   const [content, setContent] = useState('')
   const [attachments, setAttachments] = useState<AttachmentView[]>([])
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // 外部 seed 灌入输入框（追加到已输入内容后），随即回调父清空，使再次点选同一建议仍能触发
+  useEffect(() => {
+    if (!seed) return
+    setContent((prev) => (prev.trim() ? `${prev} ${seed}` : seed))
+    props.onSeedApplied?.()
+  }, [seed])
 
   const multimodal = models.find((m) => m.id === selectedModel)?.multimodal ?? false
 
@@ -57,41 +61,7 @@ export function Composer(props: Props) {
   }
 
   return (
-    <div className="border-t p-3">
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <ModelPicker models={models} value={selectedModel} onChange={props.onModelChange} disabled={streaming} />
-        <select
-          className="h-8 rounded-md border bg-[var(--color-background)] px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
-          value=""
-          disabled={streaming || disabled}
-          onChange={(e) => {
-            const p = props.presets.find((x) => x.id === e.target.value)
-            if (p) props.onPickPreset(p)
-            e.target.value = ''
-          }}
-        >
-          <option value="">角色预设…</option>
-          {props.presets.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.label}
-            </option>
-          ))}
-        </select>
-        <label className="flex items-center gap-1 text-xs text-[var(--color-muted-foreground)]">
-          温度 {props.temperature.toFixed(1)}
-          <input
-            type="range"
-            min={0}
-            max={2}
-            step={0.1}
-            value={props.temperature}
-            disabled={streaming}
-            onChange={(e) => props.onTemperatureChange(Number(e.target.value))}
-            className="w-24"
-          />
-        </label>
-      </div>
-
+    <div className="border-t bg-[var(--color-background)] p-3">
       {attachments.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">
           {attachments.map((a) => (
