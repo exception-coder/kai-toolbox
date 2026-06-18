@@ -160,6 +160,30 @@ export async function transcribe(audio: Blob, language = 'auto'): Promise<string
   return j.text ?? ''
 }
 
+/** 探测本地 Kokoro TTS 是否就绪；未就绪时语音模式回落到合成动画（AI 不出声）。 */
+export async function ttsAvailable(): Promise<boolean> {
+  try {
+    const res = await authFetch('/claude-chat/tts/available')
+    if (!res.ok) return false
+    const j = await res.json()
+    return !!j.available
+  } catch {
+    return false
+  }
+}
+
+/** 合成语音：文本 → wav 字节（ArrayBuffer），供语音模式播放并驱动云团振幅。 */
+export async function synthesize(text: string, voice?: string): Promise<ArrayBuffer> {
+  const qs = voice ? `?voice=${encodeURIComponent(voice)}` : ''
+  const res = await authFetch(`/claude-chat/tts${qs}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    body: text,
+  })
+  if (!res.ok) throw new Error(await errMessage(res))
+  return res.arrayBuffer()
+}
+
 export interface UploadedAttachment {
   id: string
   name: string

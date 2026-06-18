@@ -3,7 +3,7 @@ import type { UseClaudeChatSocket } from './useClaudeChatSocket'
 import type { ChatItem } from '../types'
 import { useVoiceRecorder } from './useVoiceRecorder'
 import { useAudioAnalyser, type Bands } from './useAudioAnalyser'
-import { transcribe } from '../api'
+import { transcribe, synthesize, ttsAvailable as fetchTtsAvailable } from '../api'
 
 export type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking'
 
@@ -15,6 +15,8 @@ export interface VoiceModeMachine {
   busy: boolean
   error: string | null
   supported: boolean
+  /** TTS 是否就绪：true=AI 用真实语音回复；false=只有合成动画（不出声） */
+  ttsReady: boolean
   /** 最近一条用户转写（气泡用） */
   userText: string | null
   /** 最近一条 AI 回复文本（气泡用，随流式增长） */
@@ -35,10 +37,12 @@ function lastAssistantText(items: ChatItem[]): string | null {
 }
 
 /**
- * 电子鱼语音模式的纯前端状态机：idle / listening / thinking / speaking。
+ * 云团语音模式的纯前端状态机：idle / listening / thinking / speaking。
  *
- * - listening：麦克风真实振幅（AnalyserNode）驱动鱼形变；松手转写后 chat.send。
- * - thinking/speaking：无 TTS，按流式 assistantDelta 到达节奏推导「说话包络」（确定性）。
+ * - listening：麦克风真实振幅（AnalyserNode）驱动云团；松手转写后 chat.send。
+ * - thinking：等待/流式期间，按 delta 到达节奏推合成包络（确定性）。
+ * - speaking：回合结束后，若本地 TTS 就绪则合成 AI 回复并播放，用真实音频振幅驱动云团；
+ *   TTS 不可用则保持合成包络动画（不出声）。
  * - 复用同一 chat/socket，不重连、不清空上下文。
  */
 export function useVoiceModeMachine(chat: UseClaudeChatSocket | null): VoiceModeMachine {
@@ -48,6 +52,7 @@ export function useVoiceModeMachine(chat: UseClaudeChatSocket | null): VoiceMode
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [userText, setUserText] = useState<string | null>(null)
+  const [ttsReady, setTtsReady] = useState(false)
 
   const running = chat?.running ?? false
   const aiText = chat ? lastAssistantText(chat.items) : null
@@ -55,6 +60,21 @@ export function useVoiceModeMachine(chat: UseClaudeChatSocket | null): VoiceMode
   const envRef = useRef(0)
   const lastDeltaAtRef = useRef(0)
   const lastLenRef = useRef(0)
+  // TTS 播放编排
+  const aiTextRef = useRef<string | null>(null)
+  aiTextRef.current = aiText
+  const prevRunningRef = useRef(running)
+  const ttsReadyRef = useRef(false)
+  const ttsActiveRef = useRef(false)   // 正在「合成+播放」AI 回复（拦截 running 派生态）
+  const ttsPlayingRef = useRef(false)  // 真实音频正在出声（drive 改读 analyser）
+  const lastSpokenRef = useRef<string | null>(null)
+
+  // 进入即探测本地 TTS 是否就绪
+  useEffect(() => {
+    let alive = true
+    fetchTtsAvailable().then(v => { if (alive) { setTtsReady(v); ttsReadyRef.current = v } })
+    return () => { alive = false }
+  }, [])
 
   // AI 文本增长 → 记录最近一次 delta 时间，作为合成包络的脉冲源
   useEffect(() => {
@@ -63,9 +83,41 @@ export function useVoiceModeMachine(chat: UseClaudeChatSocket | null): VoiceMode
     lastLenRef.current = len
   }, [aiText])
 
-  // running / 文本 → 推导非录音态的状态（录音/转写期间不抢）
+  // 回合边界：true→false 结束则朗读回复；false→true 开始则允许下条回复再次朗读。
+  // 本 effect 先于下方「running 派生态」声明，确保 ttsActiveRef 先被置上。
   useEffect(() => {
-    if (state === 'listening' || busy) return
+    const prev = prevRunningRef.current
+    prevRunningRef.current = running
+    if (!prev && running) {
+      lastSpokenRef.current = null // 新回合：允许朗读
+      return
+    }
+    if (prev && !running) {
+      const reply = (aiTextRef.current ?? '').trim()
+      if (!ttsReadyRef.current || !reply || reply === lastSpokenRef.current) return
+      lastSpokenRef.current = reply
+      ttsActiveRef.current = true
+      setState('speaking')
+      void (async () => {
+        try {
+          const audio = await synthesize(reply)
+          if (!ttsActiveRef.current) return // 期间被打断（用户说话）
+          ttsPlayingRef.current = true
+          await analyser.playBuffer(audio)
+        } catch {
+          /* 合成/播放失败：静默回落到合成动画 */
+        } finally {
+          ttsPlayingRef.current = false
+          ttsActiveRef.current = false
+          setState(s => (s === 'listening' ? s : 'idle'))
+        }
+      })()
+    }
+  }, [running, analyser])
+
+  // running / 文本 → 推导非录音态的状态（录音/转写/朗读期间不抢）
+  useEffect(() => {
+    if (state === 'listening' || busy || ttsActiveRef.current) return
     if (running) setState(aiText ? 'speaking' : 'thinking')
     else setState('idle')
   }, [running, aiText, state, busy])
@@ -73,6 +125,10 @@ export function useVoiceModeMachine(chat: UseClaudeChatSocket | null): VoiceMode
   const startTalk = useCallback(async () => {
     if (!chat) return
     setError(null)
+    // 打断正在播放的 AI 语音
+    ttsActiveRef.current = false
+    ttsPlayingRef.current = false
+    analyser.stopPlayback()
     try {
       setState('listening')
       await rec.start(stream => analyser.attachStream(stream))
@@ -112,7 +168,10 @@ export function useVoiceModeMachine(chat: UseClaudeChatSocket | null): VoiceMode
   }, [rec, analyser])
 
   const drive = useCallback((): { level: number; bands: Bands } => {
-    if (state === 'listening') return { level: analyser.level(), bands: analyser.bands() }
+    // 录音中 或 TTS 真实出声中 → 读真实音频振幅
+    if (state === 'listening' || ttsPlayingRef.current) {
+      return { level: analyser.level(), bands: analyser.bands() }
+    }
     if (state === 'speaking' || state === 'thinking') {
       const since = performance.now() - lastDeltaAtRef.current
       const target = state === 'speaking' ? Math.max(0.18, 1 - since / 350) : 0.22
@@ -131,6 +190,7 @@ export function useVoiceModeMachine(chat: UseClaudeChatSocket | null): VoiceMode
     busy,
     error,
     supported: rec.supported,
+    ttsReady,
     userText,
     aiText,
     startTalk,

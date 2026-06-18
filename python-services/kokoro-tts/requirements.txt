@@ -1,0 +1,7 @@
+kokoro-onnx>=0.4.0
+# 中文 G2P（kokoro lang="zh" 需要）；会带入 jieba 等依赖
+misaki[zh]>=0.8.0
+soundfile>=0.12.1
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+numpy>=1.26.0

@@ -18,4 +18,13 @@ public class SpeechProperties {
 
     /** 单次转写最长等待秒数，0 = 不限。 */
     private long timeoutSeconds = 120;
+
+    /** 本地 Kokoro TTS（文字转语音）服务基地址，仅本机。 */
+    private String ttsBaseUrl = "http://127.0.0.1:9600";
+
+    /** 默认音色（Kokoro voice id），中文女声。 */
+    private String ttsVoice = "zf_xiaobei";
+
+    /** 单次合成最长等待秒数，0 = 不限。 */
+    private long ttsTimeoutSeconds = 60;
 }

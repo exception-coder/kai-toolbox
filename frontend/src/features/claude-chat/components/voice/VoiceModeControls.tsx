@@ -10,7 +10,7 @@ const STATE_LABEL: Record<VoiceState, string> = {
 
 /** 语音模式底部控制：状态文案 + 主操作（说话 / 取消·发送 / 转写中）。退出按钮在右上。 */
 export function VoiceModeControls({ machine, onExit }: { machine: VoiceModeMachine; onExit: () => void }) {
-  const { state, recording, seconds, busy, error, supported, startTalk, stopAndSend, cancelTalk } = machine
+  const { state, recording, seconds, busy, error, supported, ttsReady, startTalk, stopAndSend, cancelTalk } = machine
 
   return (
     <>
@@ -28,6 +28,9 @@ export function VoiceModeControls({ machine, onExit }: { machine: VoiceModeMachi
         <div className="h-5 text-sm font-medium text-slate-700">
           {error ?? (recording ? `${STATE_LABEL.listening} ${seconds}s` : STATE_LABEL[state])}
         </div>
+        {!ttsReady && !error && (
+          <div className="-mt-2 text-xs text-slate-600/80">本地语音未启用 · AI 只动画不出声（启动 kokoro-tts 服务后即可朗读）</div>
+        )}
 
         {busy ? (
           <div className="flex size-16 items-center justify-center rounded-full bg-white/70 text-slate-700 shadow-sm backdrop-blur-md">
