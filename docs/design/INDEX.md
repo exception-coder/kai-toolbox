@@ -8,3 +8,4 @@
 |------|------|------|------|
 | 视频智能变速（录屏浓缩器） | 设计中 | 完整-技术 | [视频智能变速/视频智能变速-current.md](视频智能变速/视频智能变速-current.md) · [API](视频智能变速/视频智能变速-api-current.md) |
 | AI 对话（API 直连聊天） | 设计中 | 完整-技术 | [AI对话/AI对话-current.md](AI对话/AI对话-current.md) · [API](AI对话/AI对话-api-current.md) |
+| 访客分析智能体 | 设计中 | 完整-技术 | [visitor-analysis.md](visitor-analysis.md) |

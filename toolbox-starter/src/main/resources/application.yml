@@ -132,6 +132,14 @@ toolbox:
       min-score: 0.45
       # 卡片内容目录（含 index.json 与 q/{id}.md）；相对路径按工作目录(仓库根)解析
       content-dir: frontend/public/java8gu
+  # 访客分析智能体。确定性匹配（客户库/竞品名单）在 Java 完成；灰区交 Python AgentScope sidecar。
+  # sidecar 见 python-services/visitor-analysis（默认 :9600）；不启动则灰区降级为待人工确认，不影响确定性判别。
+  # 模型 key 由 sidecar 持有（走第三方 OpenAI 兼容平台），Java 这侧不接模型。
+  visitor-analysis:
+    sidecar-url: ${TOOLBOX_VA_SIDECAR_URL:http://127.0.0.1:9600}
+    sidecar-timeout-seconds: 60
+    # LLM 置信度低于此值的灰区判别进人工复核；确定性命中不受约束
+    review-threshold: 0.7
   system:
     # 远程重启端点 token。经公网 tunnel 暴露，留空 = 端点关闭（返回 503）。必须显式配才开放。
     # 用环境变量覆盖：TOOLBOX_SYSTEM_RESTART_TOKEN=随机串

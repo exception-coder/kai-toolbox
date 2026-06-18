@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.exceptioncoder</groupId>
+        <artifactId>kai-toolbox</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>tool-visitor-analysis</artifactId>
+    <packaging>jar</packaging>
+    <name>tool-visitor-analysis</name>
+    <description>访客分析智能体：确定性匹配优先，灰区交 Python AgentScope sidecar</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.exceptioncoder</groupId>
+            <artifactId>toolbox-common</artifactId>
+        </dependency>
+        <!-- 灰区分类由 Python AgentScope sidecar 完成（python-services/visitor-analysis），
+             Java 侧只用 JDK 自带 HttpClient 调它，不引入额外 LLM SDK。模型走第三方 OpenAI 兼容平台，
+             由 sidecar 持有 key。Java 这侧不直接接模型。 -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+</project>
