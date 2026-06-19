@@ -27,6 +27,16 @@ const nextId = (): string =>
     ? `i${crypto.randomUUID()}`
     : `i${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 
+/** 把后端透传的 usage（Map，键值各引擎不一）归一成纯数值表；无有效字段返回 undefined。 */
+function normalizeUsage(raw: Record<string, unknown> | undefined): Record<string, number> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const out: Record<string, number> = {}
+  for (const [k, v] of Object.entries(raw)) {
+    if (typeof v === 'number' && Number.isFinite(v)) out[k] = v
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
 /** 连接后要发出的首个意图（区分新建 / 续跑 / 重连回放）。 */
 type Intent =
   | { kind: 'open'; cwd: string; model?: string; mode?: PermissionMode; engine?: Engine; apiBaseUrl?: string; authToken?: string }
@@ -106,6 +116,9 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   const [providerDiag, setProviderDiag] = useState<TurnDiag[]>([])
 
   const wsRef = useRef<WebSocket | null>(null)
+  // 本轮响应延迟测量：发送时刻 + 首 token 时刻（客户端墙钟，TTFT/总耗时）
+  const turnStartRef = useRef<number | null>(null)
+  const ttftRef = useRef<number | null>(null)
   const intentRef = useRef<Intent | null>(null)
   const sessionIdRef = useRef<string | null>(null)
   const lastSeqRef = useRef<number>(0)
@@ -191,6 +204,9 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
         }
         break
       case 'assistantDelta':
+        if (turnStartRef.current != null && ttftRef.current == null) {
+          ttftRef.current = Date.now() - turnStartRef.current
+        }
         setItems(prev => {
           const last = prev[prev.length - 1]
           if (last && last.kind === 'assistant') {
@@ -267,12 +283,18 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
           baseUrl: msg.baseUrl,
         }, ...prev].slice(0, 30))
         break
-      case 'result':
+      case 'result': {
         setRunning(false)
-        setItems(prev => [...prev, { kind: 'result', id: nextId(), stopReason: msg.stopReason, ts: Date.now() }])
+        const latencyMs = turnStartRef.current != null ? Date.now() - turnStartRef.current : undefined
+        const ttftMs = ttftRef.current ?? undefined
+        const usage = normalizeUsage(msg.usage)
+        turnStartRef.current = null
+        ttftRef.current = null
+        setItems(prev => [...prev, { kind: 'result', id: nextId(), stopReason: msg.stopReason, ts: Date.now(), usage, latencyMs, ttftMs }])
         // Claude 回复完成:仅当页面不在前台时响一声,避免你正盯着看时反复叮咚
         if (typeof document !== 'undefined' && document.hidden) playNotifySound()
         break
+      }
       case 'error':
         setRunning(false)
         setItems(prev => [...prev, { kind: 'error', id: nextId(), code: msg.code, message: msg.message, ts: Date.now() }])
@@ -452,6 +474,8 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     if (!t && !hasAtt) return
     const atts = hasAtt ? attachments : undefined
     setItems(prev => [...prev, { kind: 'user', id: nextId(), text: t, ts: Date.now() }])
+    turnStartRef.current = Date.now()
+    ttftRef.current = null
     setRunning(true)
     if (sendRaw({ type: 'send', text: t, attachments: atts })) return
     // WS 未连上：排队并触发重连（带 attach 意图），onopen 时先 attach 再补发，避免消息丢失/卡“思考中”

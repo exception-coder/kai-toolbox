@@ -139,6 +139,43 @@ function formatTime(ts?: number): string {
   return sameDay ? hm : `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hm}`
 }
 
+/** 数字缩写：1234 → 1.2k。 */
+function abbr(n: number): string {
+  if (n < 1000) return String(n)
+  return (n / 1000).toFixed(n < 10000 ? 1 : 0) + 'k'
+}
+
+/** 毫秒 → 友好耗时：<1s 显 ms，否则秒。 */
+function fmtMs(ms?: number): string {
+  if (ms == null || ms < 0) return ''
+  return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`
+}
+
+/** usage（各引擎键名不一）→ 「↑输入 ↓输出」；无可用 token 返回空串。 */
+function fmtTokens(usage?: Record<string, number>): string {
+  if (!usage) return ''
+  let input = 0, output = 0, other = 0
+  for (const [k, v] of Object.entries(usage)) {
+    if (k.includes('input')) input += v
+    else if (k.includes('output')) output += v
+    else other += v
+  }
+  if (input || output) return `↑${abbr(input)} ↓${abbr(output)}`
+  return other ? `Σ${abbr(other)}` : ''
+}
+
+/** 本轮 token + 延迟指标行；都为空返回空串。 */
+function turnMetrics(item: Extract<ChatItem, { kind: 'result' }>): string {
+  const parts: string[] = []
+  const tok = fmtTokens(item.usage)
+  if (tok) parts.push(tok)
+  const total = fmtMs(item.latencyMs)
+  if (total) parts.push(`耗时 ${total}`)
+  const ttft = fmtMs(item.ttftMs)
+  if (ttft) parts.push(`首字 ${ttft}`)
+  return parts.join('  ·  ')
+}
+
 /** 消息块时间戳小字；无 ts 不渲染。 */
 function TimeText({ ts, className }: { ts?: number; className?: string }) {
   const t = formatTime(ts)
@@ -186,12 +223,17 @@ function Row({ item, onFork }: { item: ChatItem; onFork?: (sdkUuid: string) => v
       )
     case 'tool':
       return <ToolCallBubble toolName={item.toolName} input={item.input} output={item.output} isError={item.isError} />
-    case 'result':
+    case 'result': {
+      const metrics = turnMetrics(item)
       return (
-        <div className="text-center text-xs text-[var(--color-muted-foreground)]">
-          — 本轮结束（{item.stopReason}）{formatTime(item.ts) && ` · ${formatTime(item.ts)}`} —
+        <div className="flex flex-col items-center gap-0.5 text-[var(--color-muted-foreground)]">
+          <div className="text-center text-xs">
+            — 本轮结束（{item.stopReason}）{formatTime(item.ts) && ` · ${formatTime(item.ts)}`} —
+          </div>
+          {metrics && <div className="text-center text-[10px] tabular-nums opacity-80">{metrics}</div>}
         </div>
       )
+    }
     case 'error':
       return (
         <div className={cn('rounded-lg border border-[var(--color-destructive)] px-3 py-2 text-sm text-[var(--color-destructive)]')}>

@@ -169,7 +169,7 @@ export type ChatItem =
   | { kind: 'user'; id: string; text: string; sdkUuid?: string; ts?: number }
   | { kind: 'assistant'; id: string; text: string; ts?: number }
   | { kind: 'tool'; id: string; toolName: string; input: unknown; output?: string; isError?: boolean; ts?: number }
-  | { kind: 'result'; id: string; stopReason: string; ts?: number }
+  | { kind: 'result'; id: string; stopReason: string; ts?: number; usage?: Record<string, number>; latencyMs?: number; ttftMs?: number }
   | { kind: 'error'; id: string; code: string; message: string; ts?: number }
 
 // ── 待决策（权限 / 提问），驱动弹窗 ───────────────────────────────
