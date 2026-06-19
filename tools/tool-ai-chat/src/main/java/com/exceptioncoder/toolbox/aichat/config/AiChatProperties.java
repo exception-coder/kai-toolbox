@@ -59,9 +59,9 @@ public class AiChatProperties {
 
     /** /v1/models 不可用时回退的静态模型清单，保证下拉不空。 */
     private List<ModelInfo> fallbackModels = List.of(
-            new ModelInfo("gpt-4o", "GPT-4o", true, true),
-            new ModelInfo("gpt-4o-mini", "GPT-4o mini", true, true),
-            new ModelInfo("deepseek-chat", "DeepSeek V3", false, true));
+            new ModelInfo("gpt-4o", "GPT-4o", true, true, List.of(), null, 0),
+            new ModelInfo("gpt-4o-mini", "GPT-4o mini", true, true, List.of(), null, 0),
+            new ModelInfo("deepseek-chat", "DeepSeek V3", false, true, List.of(), null, 0));
 
     /** 内置角色预设。 */
     private List<RolePreset> presets = List.of(
