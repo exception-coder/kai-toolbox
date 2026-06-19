@@ -418,48 +418,55 @@ export function ChatPage() {
       : 'flex h-[calc(100dvh-3.5rem)] min-w-0 flex-col overflow-x-hidden bg-[var(--color-muted)]/40'}>
       {/* 顶栏：中性浅灰 + 1px 边框（Notion 风），不抢视觉 */}
       <header className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-muted)] px-3 py-2 shadow-sm">
-        <span className="max-w-[40vw] truncate font-semibold" title={currentTitle || 'Vibe Coding'}>{currentTitle || 'Vibe Coding'}</span>
-        <div className="relative shrink-0">
-          <button
-            type="button"
-            onClick={() => setEngineMenuOpen(o => !o)}
-            title={currentEngineTitle}
-            className={`rounded px-1.5 py-0.5 text-[10px] ${chat.currentEngine === 'codex'
-              ? 'bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-200'
-              : chat.currentProviderKind === 'thirdParty'
-                ? 'border border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300'
-                : 'border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}
-          >
-            {currentEngineLabel} ▾
-          </button>
-          {engineMenuOpen && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => setEngineMenuOpen(false)} />
-              <div className="absolute left-0 top-full z-20 mt-1 w-36 rounded-lg border bg-[var(--color-card)] p-1 shadow-lg">
-                <div className="px-2 py-1 text-[10px] text-[var(--color-muted-foreground)]">切 agent（带上下文）</div>
-                {(['claude', 'codex', 'gemini', 'opencode'] as Engine[]).map(eng => (
-                  <button
-                    key={eng}
-                    type="button"
-                    onClick={() => pickEngine(eng)}
-                    disabled={chat.running}
-                    className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-xs hover:bg-[var(--color-accent)] disabled:opacity-40 ${eng === chat.currentEngine ? 'font-semibold text-[var(--color-primary)]' : ''}`}
-                  >
-                    {engineName(eng)}{eng === chat.currentEngine && ' ·当前'}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-        <StatusBadge
-          tone={stateTone(chat.state)}
-          pulse={chat.state === 'connecting'}
-          title={stateLabel(chat.state)}
-          aria-label={stateLabel(chat.state)}
-          className="size-5 shrink-0 justify-center rounded-full px-0"
-        />
-        <SessionTotalBadge items={chat.items} />
+        {viewMode === 'multi' ? (
+          /* 分屏下顶部不挂某一个会话的标题/引擎/状态/用量（各 pane 自带），只给中性标识 */
+          <span className="font-semibold">分屏 · {multiIds.length} 个会话</span>
+        ) : (
+          <>
+            <span className="max-w-[40vw] truncate font-semibold" title={currentTitle || 'Vibe Coding'}>{currentTitle || 'Vibe Coding'}</span>
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setEngineMenuOpen(o => !o)}
+                title={currentEngineTitle}
+                className={`rounded px-1.5 py-0.5 text-[10px] ${chat.currentEngine === 'codex'
+                  ? 'bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-200'
+                  : chat.currentProviderKind === 'thirdParty'
+                    ? 'border border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                    : 'border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}
+              >
+                {currentEngineLabel} ▾
+              </button>
+              {engineMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setEngineMenuOpen(false)} />
+                  <div className="absolute left-0 top-full z-20 mt-1 w-36 rounded-lg border bg-[var(--color-card)] p-1 shadow-lg">
+                    <div className="px-2 py-1 text-[10px] text-[var(--color-muted-foreground)]">切 agent（带上下文）</div>
+                    {(['claude', 'codex', 'gemini', 'opencode'] as Engine[]).map(eng => (
+                      <button
+                        key={eng}
+                        type="button"
+                        onClick={() => pickEngine(eng)}
+                        disabled={chat.running}
+                        className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-xs hover:bg-[var(--color-accent)] disabled:opacity-40 ${eng === chat.currentEngine ? 'font-semibold text-[var(--color-primary)]' : ''}`}
+                      >
+                        {engineName(eng)}{eng === chat.currentEngine && ' ·当前'}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            <StatusBadge
+              tone={stateTone(chat.state)}
+              pulse={chat.state === 'connecting'}
+              title={stateLabel(chat.state)}
+              aria-label={stateLabel(chat.state)}
+              className="size-5 shrink-0 justify-center rounded-full px-0"
+            />
+            <SessionTotalBadge items={chat.items} />
+          </>
+        )}
         <div className="ml-auto flex items-center gap-1">
           {/* 本地用量：点开看三引擎 token 消耗 / 缓存命中 / Codex 官方额度 */}
           <Button variant="ghost" size="icon" onClick={() => setShowUsage(true)} aria-label="本地用量" title="本地用量（token / 缓存 / 额度）">
