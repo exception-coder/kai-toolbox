@@ -2,6 +2,8 @@ export interface ModelInfo {
   id: string
   label: string
   multimodal: boolean
+  /** 是否支持自定义温度；推理模型为 false（不下发 temperature）。 */
+  supportsTemperature: boolean
 }
 
 export interface RolePreset {

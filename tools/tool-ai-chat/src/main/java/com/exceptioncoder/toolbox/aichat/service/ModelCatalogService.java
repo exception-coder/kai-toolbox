@@ -59,6 +59,16 @@ public class ModelCatalogService {
                 .anyMatch(p -> lower.contains(p.toLowerCase(Locale.ROOT)));
     }
 
+    /** 是否支持自定义温度：命中 noTemperaturePatterns（推理模型）则不支持。modelId 为空按支持处理。 */
+    public boolean supportsTemperature(String modelId) {
+        if (modelId == null || modelId.isBlank()) {
+            return true;
+        }
+        String lower = modelId.toLowerCase(Locale.ROOT);
+        return props.getNoTemperaturePatterns().stream()
+                .noneMatch(p -> lower.contains(p.toLowerCase(Locale.ROOT)));
+    }
+
     /** 校验模型在当前可用清单内；不在则交由调用方转 400。 */
     public boolean isAllowed(String modelId) {
         if (modelId == null || modelId.isBlank()) {
@@ -88,7 +98,7 @@ public class ModelCatalogService {
                 if (d.id() == null || d.id().isBlank()) {
                     continue;
                 }
-                models.add(new ModelInfo(d.id(), label(d.id()), isMultimodal(d.id())));
+                models.add(new ModelInfo(d.id(), label(d.id()), isMultimodal(d.id()), supportsTemperature(d.id())));
             }
             cachedModels = List.copyOf(models);
             cacheExpireAt = now + Duration.ofSeconds(props.getModelsCacheTtlSeconds()).toMillis();

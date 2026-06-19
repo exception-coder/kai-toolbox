@@ -47,14 +47,21 @@ public class AiChatProperties {
     private List<String> multimodalPatterns = List.of(
             "gpt-4o", "gpt-4.1", "o1", "o3", "claude", "gemini", "vision", "qwen-vl", "glm-4v");
 
+    /**
+     * 模型 id 命中其一即「不支持自定义温度」（小写子串匹配）：推理模型（o 系列、gpt-5 系列等）
+     * 只接受默认温度，传 temperature 会被网关拒绝，故对其不下发该参数。
+     */
+    private List<String> noTemperaturePatterns = List.of(
+            "o1", "o3", "o4-mini", "gpt-5", "reasoner", "thinking", "qwq");
+
     /** 可选 id→展示名美化映射；命中则覆盖默认（默认展示名=id）。 */
     private Map<String, String> modelLabels = Map.of();
 
     /** /v1/models 不可用时回退的静态模型清单，保证下拉不空。 */
     private List<ModelInfo> fallbackModels = List.of(
-            new ModelInfo("gpt-4o", "GPT-4o", true),
-            new ModelInfo("gpt-4o-mini", "GPT-4o mini", true),
-            new ModelInfo("deepseek-chat", "DeepSeek V3", false));
+            new ModelInfo("gpt-4o", "GPT-4o", true, true),
+            new ModelInfo("gpt-4o-mini", "GPT-4o mini", true, true),
+            new ModelInfo("deepseek-chat", "DeepSeek V3", false, true));
 
     /** 内置角色预设。 */
     private List<RolePreset> presets = List.of(

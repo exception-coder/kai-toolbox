@@ -26,6 +26,8 @@ interface Props {
  */
 export function SettingsDrawer(props: Props) {
   const { open, onClose, disabled } = props
+  // 选中模型是否支持自定义温度；清单里查不到（兜底/未知）时默认支持，不误藏。
+  const supportsTemp = props.models.find((m) => m.id === props.selectedModel)?.supportsTemperature ?? true
 
   useEffect(() => {
     if (!open) return
@@ -87,27 +89,36 @@ export function SettingsDrawer(props: Props) {
             )}
           </section>
 
-          {/* 温度 */}
-          <section className="space-y-1.5">
-            <div className="flex items-center justify-between">
+          {/* 温度：推理模型不支持自定义温度，隐藏滑块并说明 */}
+          {supportsTemp ? (
+            <section className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-[var(--color-muted-foreground)]">温度</label>
+                <span className="text-xs tabular-nums text-[var(--color-foreground)]">{props.temperature.toFixed(1)}</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={2}
+                step={0.1}
+                value={props.temperature}
+                disabled={disabled}
+                onChange={(e) => props.onTemperatureChange(Number(e.target.value))}
+                className="w-full accent-[var(--color-primary)]"
+              />
+              <div className="flex justify-between text-[10px] text-[var(--color-muted-foreground)]">
+                <span>严谨 0</span>
+                <span>发散 2</span>
+              </div>
+            </section>
+          ) : (
+            <section className="space-y-1.5">
               <label className="text-xs font-medium text-[var(--color-muted-foreground)]">温度</label>
-              <span className="text-xs tabular-nums text-[var(--color-foreground)]">{props.temperature.toFixed(1)}</span>
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={2}
-              step={0.1}
-              value={props.temperature}
-              disabled={disabled}
-              onChange={(e) => props.onTemperatureChange(Number(e.target.value))}
-              className="w-full accent-[var(--color-primary)]"
-            />
-            <div className="flex justify-between text-[10px] text-[var(--color-muted-foreground)]">
-              <span>严谨 0</span>
-              <span>发散 2</span>
-            </div>
-          </section>
+              <p className="rounded-md bg-[var(--color-muted)] px-2 py-1.5 text-[11px] text-[var(--color-muted-foreground)]">
+                该模型为推理模型，不支持调节温度（使用模型默认值）。
+              </p>
+            </section>
+          )}
         </div>
       </aside>
     </div>

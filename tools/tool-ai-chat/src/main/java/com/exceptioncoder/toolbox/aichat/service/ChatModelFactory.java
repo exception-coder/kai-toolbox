@@ -21,24 +21,30 @@ public class ChatModelFactory {
     private static final Logger log = LoggerFactory.getLogger(ChatModelFactory.class);
 
     private final AiChatProperties props;
+    private final ModelCatalogService models;
     private final ConcurrentHashMap<String, OpenAiStreamingChatModel> cache = new ConcurrentHashMap<>();
 
-    public ChatModelFactory(AiChatProperties props) {
+    public ChatModelFactory(AiChatProperties props, ModelCatalogService models) {
         this.props = props;
+        this.models = models;
     }
 
     public OpenAiStreamingChatModel streamingModel(String model, double temperature, Integer maxTokens) {
-        String key = model + "|" + temperature + "|" + maxTokens;
-        return cache.computeIfAbsent(key, k -> build(model, temperature, maxTokens));
+        // 推理模型不下发 temperature（网关会拒绝），缓存键也据此归一，避免按温度堆冗余实例。
+        boolean applyTemp = models.supportsTemperature(model);
+        String key = model + "|" + (applyTemp ? temperature : "default") + "|" + maxTokens;
+        return cache.computeIfAbsent(key, k -> build(model, applyTemp ? temperature : null, maxTokens));
     }
 
-    private OpenAiStreamingChatModel build(String model, double temperature, Integer maxTokens) {
+    private OpenAiStreamingChatModel build(String model, Double temperature, Integer maxTokens) {
         var b = OpenAiStreamingChatModel.builder()
                 .baseUrl(props.getBaseUrl())
                 .apiKey(props.getApiKey())
                 .modelName(model)
-                .temperature(temperature)
                 .timeout(Duration.ofSeconds(props.getTimeoutSeconds()));
+        if (temperature != null) {
+            b.temperature(temperature);
+        }
         if (maxTokens != null) {
             b.maxTokens(maxTokens);
         }
