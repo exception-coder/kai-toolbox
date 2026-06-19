@@ -291,7 +291,7 @@ public class ClaudeChatService {
         ctx.engine = engine;
         ctx.sdkSessionId = target;
         repo.switchEngine(ctx.sessionId, engine, engines, target, writeEngineSessions(ctx.engineSessions));
-        sidecar.switchEngine(ctx.sessionId, engine, target);
+        sidecar.switchEngine(ctx.sessionId, engine, target, ctx.apiBaseUrl, ctx.authToken);
         log.info("[claude-chat] 会话 {} 切 agent -> {}（engines={}，resume={}）",
                 ctx.sessionId, engine, engines, target != null);
     }

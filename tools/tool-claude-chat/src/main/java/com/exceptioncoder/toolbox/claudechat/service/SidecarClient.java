@@ -115,9 +115,11 @@ public class SidecarClient {
      * 会话内切引擎：sidecar 置新 engine 并把 sdkSessionId 设为 Java 提供的目标句柄
      * （切回曾用引擎为其原生句柄、首次为空＝起新会话）。Java 持久化映射、是权威源。
      */
-    public void switchEngine(String sessionId, String engine, String sdkSessionId) {
+    public void switchEngine(String sessionId, String engine, String sdkSessionId,
+                             String apiBaseUrl, String authToken) {
         send(Map.of("type", "switchEngine", "sessionId", sessionId,
-                "engine", nz(engine), "sdkSessionId", nz(sdkSessionId)));
+                "engine", nz(engine), "sdkSessionId", nz(sdkSessionId),
+                "apiBaseUrl", nz(apiBaseUrl), "authToken", nz(authToken)));
     }
 
     public void forkSession(String sessionId, String upToMessageId) {

@@ -61,7 +61,7 @@ class Session {
   model?: string
   /** 第三方网关 baseURL（Anthropic 兼容）。仅本会话生效——置则每轮 query 注入 env，不影响其它会话/官方登录。 */
   apiBaseUrl?: string
-  /** 第三方网关鉴权 token（走 ANTHROPIC_AUTH_TOKEN）。 */
+  /** 第三方网关鉴权 token（走 ANTHROPIC_API_KEY）。 */
   authToken?: string
   /** 会话引擎，新建时定、resume 沿用；决定 runTurn 走 Claude 还是 Codex。 */
   engine: Engine = 'claude'
@@ -135,7 +135,7 @@ class Session {
             // 仅当本会话配置了第三方网关时注入 env（SDK 的 env 会整体替换子进程环境，故必须 spread process.env）。
             // 不配置则不传 → 子进程继承官方登录，官方会话零影响。
             ...(this.apiBaseUrl
-              ? { env: { ...process.env, ANTHROPIC_BASE_URL: this.apiBaseUrl, ANTHROPIC_AUTH_TOKEN: this.authToken ?? '' } }
+              ? { env: this.gatewayEnv() }
               : {}),
             // 把 native 二进制的 stderr 透到 sidecar 日志，失败时也并入错误信息
             stderr: (s: string) => {
@@ -332,6 +332,16 @@ class Session {
     this.abort?.abort()
     this.perms.rejectAll()
   }
+
+  private gatewayEnv(): NodeJS.ProcessEnv {
+    const key = this.authToken ?? ''
+    return {
+      ...process.env,
+      ANTHROPIC_BASE_URL: this.apiBaseUrl,
+      ANTHROPIC_API_KEY: key,
+      ANTHROPIC_AUTH_TOKEN: key,
+    }
+  }
 }
 
 /** 多会话路由：一个 sidecar 进程内按 sessionId 管理多个 Session。 */
@@ -410,12 +420,15 @@ export class SessionManager {
    * （切回曾用引擎＝其原生句柄→resume 续接；首次切到＝空→下一轮起新 SDK 会话）。
    * 各引擎句柄的持久化与查找由 Java 负责（DB engine_sessions），sidecar 只按指令应用。
    */
-  switchEngine(id: string, engine: string, sdkSessionId?: string): void {
+  switchEngine(id: string, engine: string, sdkSessionId?: string, apiBaseUrl?: string, authToken?: string): void {
     const s = this.sessions.get(id)
     if (!s) return
     if (engine !== 'claude' && engine !== 'codex' && engine !== 'gemini' && engine !== 'opencode') return
     s.engine = engine
     s.sdkSessionId = sdkSessionId && sdkSessionId.length > 0 ? sdkSessionId : undefined
+    const nextBaseUrl = apiBaseUrl?.trim()
+    s.apiBaseUrl = nextBaseUrl || undefined
+    s.authToken = nextBaseUrl ? authToken : undefined
   }
 
   /** 从某条用户消息分叉出新会话（截到该消息），emit forked 带新 sdkSessionId 给 Java 建会话续跑。 */
