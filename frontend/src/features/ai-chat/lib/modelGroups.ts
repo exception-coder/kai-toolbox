@@ -84,37 +84,67 @@ export function modelReasoningScore(id: string): number {
   return score
 }
 
-// 用于筛选/展示的能力标签（排除上下文长度这类非能力标签，如 200K）。顺序即展示顺序。
-export const CAPABILITY_TAGS = ['推理', '工具', '文件', '多模态'] as const
+// 上下文长度标签（200K / 1M / 32.8K…）：窗口大小，非能力标签。
+const CONTEXT_RE = /^[\d.]+\s*[km]$/i
+// 能力/场景标签展示顺序（数据来自 pricing tags：推理/工具/文件/多模态/音频/开源权重）；
+// 未列出的真实能力标签自动追加在后——清单数据驱动，不写死白名单。
+const CAPABILITY_TAG_ORDER = ['推理', '工具', '文件', '多模态', '音频', '开源权重']
 
-/** 该模型的能力标签（仅 CAPABILITY_TAGS 子集，供筛选与徽章）。 */
-export function capabilityTags(m: ModelInfo): string[] {
-  const tags = m.tags ?? []
-  return CAPABILITY_TAGS.filter((t) => tags.includes(t))
-}
-
-/** 解析上下文长度标签（如 "200K" / "32.8K"）为千 token 数；非此类返回 0。 */
-function contextK(tags: string[]): number {
-  for (const t of tags) {
-    const m = /^([\d.]+)k$/i.exec(t.trim())
-    if (m) return Number(m[1])
+function orderTags(tags: string[]): string[] {
+  const rank = (t: string) => {
+    const i = CAPABILITY_TAG_ORDER.indexOf(t)
+    return i < 0 ? 99 : i
   }
-  return 0
+  return tags.slice().sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
 }
 
 /**
- * 能力评分（越高越强）：有 pricing 真实标签时用「推理标签 + 价格倍率 + 上下文长度」确定性打分；
- * 无标签（pricing 不可达）回退到按名称的 modelReasoningScore。价格越高通常能力越强（成本代理）。
+ * 是否为能力/场景标签：排除上下文长度（200K/1M）与冗长的媒体规格描述
+ * （如「时长4秒8秒12秒…」「支持720p、1080p」）。短的能力词（推理/工具/文件/多模态/音频/开源权重）保留。
+ */
+function isCapabilityTag(t: string): boolean {
+  const s = t.trim()
+  if (!s || CONTEXT_RE.test(s)) return false
+  return s.length <= 6
+}
+
+/** 模型的能力标签（数据驱动：取自 pricing tags 的能力子集，按既定顺序）。 */
+export function capabilityTags(m: ModelInfo): string[] {
+  return orderTags((m.tags ?? []).filter(isCapabilityTag))
+}
+
+/** 一组模型出现过的全部场景标签（去重+排序），供筛选项数据驱动生成。 */
+export function sceneTagsOf(models: ModelInfo[]): string[] {
+  const set = new Set<string>()
+  for (const m of models) for (const t of capabilityTags(m)) set.add(t)
+  return orderTags([...set])
+}
+
+/** 解析上下文长度标签（如 "200K" / "32.8K" / "1M"）为千 token 数；非此类返回 0。 */
+function contextK(tags: string[]): number {
+  let max = 0
+  for (const t of tags) {
+    const m = /^([\d.]+)\s*([km])$/i.exec(t.trim())
+    if (m) {
+      const n = Number(m[1]) * (m[2].toLowerCase() === 'm' ? 1000 : 1)
+      if (n > max) max = n
+    }
+  }
+  return max
+}
+
+/**
+ * 能力评分（越高越强），用于「按能力」排序。平台 /api/pricing 没有能力排名字段，
+ * 故以真实字段作代理：价格倍率（model_ratio）为主，上下文长度与「推理」标签为辅。
+ * 无 pricing 数据（标签与价格皆缺）时回退按名称的 modelReasoningScore。
  */
 export function modelCapabilityScore(m: ModelInfo): number {
   const tags = m.tags ?? []
-  if (tags.length === 0) return modelReasoningScore(m.id)
-  let s = 0
-  if (tags.includes('推理')) s += 10
-  if (tags.includes('多模态')) s += 0.5
-  if (tags.includes('工具')) s += 0.5
-  s += (m.priceRatio ?? 0) * 4
-  s += contextK(tags) / 200
+  const price = m.priceRatio ?? 0
+  if (tags.length === 0 && price === 0) return modelReasoningScore(m.id)
+  let s = price
+  s += contextK(tags) / 500
+  if (tags.includes('推理')) s += 0.5
   return s
 }
 

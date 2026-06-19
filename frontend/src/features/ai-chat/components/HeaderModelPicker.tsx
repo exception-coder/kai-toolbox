@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, RefreshCw, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ModelInfo } from '../types'
-import { CAPABILITY_TAGS, capabilityTags, groupByPlatform, modelDot, modelPlatform } from '../lib/modelGroups'
+import { capabilityTags, groupByPlatform, modelDot, modelPlatform, sceneTagsOf } from '../lib/modelGroups'
 import { buildFamilies, effortLabel, effortOf, familyKey, familyScore, type ModelFamily } from '../lib/modelFamilies'
 
 type SortMode = 'platform' | 'reasoning'
@@ -54,10 +54,8 @@ export function HeaderModelPicker({ models, value, onChange, fallback, onRefresh
     }
   }, [open])
 
-  const sceneTags = useMemo(() => {
-    const present = new Set(models.flatMap((m) => capabilityTags(m)))
-    return CAPABILITY_TAGS.filter((t) => present.has(t))
-  }, [models])
+  // 场景筛选项：从模型真实标签数据驱动生成（推理/工具/文件/多模态/音频/开源权重…）。
+  const sceneTags = useMemo(() => sceneTagsOf(models), [models])
 
   const filtered = useMemo(() => {
     const kw = q.trim().toLowerCase()
@@ -199,6 +197,8 @@ const TAG_TONE: Record<string, string> = {
   多模态: 'bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300',
   工具: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
   文件: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
+  音频: 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300',
+  开源权重: 'bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-300',
 }
 
 /**
