@@ -37,6 +37,19 @@ type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' 
 /** 单条消息最多附件数，与后端约定一致。 */
 const MAX_ATTACHMENTS = 10
 
+/** 分屏视图形态持久化：刷新后恢复「上次是单/多视图 + 分屏中的会话」。 */
+const SPLIT_STATE_KEY = 'kai-toolbox:claude-chat:split-state'
+function loadSplitState(): { viewMode: 'single' | 'multi'; multiIds: string[] } {
+  try {
+    const o = JSON.parse(localStorage.getItem(SPLIT_STATE_KEY) || 'null')
+    const ids: string[] = Array.isArray(o?.multiIds) ? o.multiIds.filter((x: unknown) => typeof x === 'string') : []
+    // 仅当确有分屏会话时才恢复多视图，避免空分屏
+    return { viewMode: o?.viewMode === 'multi' && ids.length > 0 ? 'multi' : 'single', multiIds: ids }
+  } catch {
+    return { viewMode: 'single', multiIds: [] }
+  }
+}
+
 /** 附件 + 本地 blob 预览地址（图片粘贴后点击放大核对，无需后端回读端点）。 */
 type ChatAttachment = UploadedAttachment & { previewUrl?: string }
 
@@ -169,8 +182,14 @@ export function ChatPage() {
   }
   const [panel, setPanel] = useState<Panel>('none')
   // 多会话并行分屏：viewMode 切换单/多视图；selecting 控制会话面板的多选态；selected 为勾选集合；multiIds 为已进入分屏的会话
-  const [viewMode, setViewMode] = useState<'single' | 'multi'>('single')
-  const [multiIds, setMultiIds] = useState<string[]>([])
+  // 刷新后恢复上次的分屏形态（视图 + 会话集合）
+  const splitInit = useMemo(loadSplitState, [])
+  const [viewMode, setViewMode] = useState<'single' | 'multi'>(splitInit.viewMode)
+  const [multiIds, setMultiIds] = useState<string[]>(splitInit.multiIds)
+  // 形态变化即写回本地
+  useEffect(() => {
+    try { localStorage.setItem(SPLIT_STATE_KEY, JSON.stringify({ viewMode, multiIds })) } catch { /* 忽略隐私模式/配额 */ }
+  }, [viewMode, multiIds])
   // 单会话模式的常驻左侧会话导航（md+ 显示）是否展开
   const [railOpen, setRailOpen] = useState(true)
   const [selecting, setSelecting] = useState(false)
