@@ -34,13 +34,13 @@ export function Composer(props: Props) {
 
   const multimodal = models.find((m) => m.id === selectedModel)?.multimodal ?? false
 
-  async function pickFiles(files: FileList | null) {
-    if (!files || files.length === 0) return
+  async function uploadFiles(files: File[]) {
+    if (files.length === 0) return
     setUploading(true)
     setError(null)
     try {
       const uploaded: AttachmentView[] = []
-      for (const f of Array.from(files)) {
+      for (const f of files) {
         uploaded.push(await uploadAttachment(f))
       }
       setAttachments((prev) => [...prev, ...uploaded])
@@ -50,6 +50,19 @@ export function Composer(props: Props) {
       setUploading(false)
       if (fileRef.current) fileRef.current.value = ''
     }
+  }
+
+  function pickFiles(files: FileList | null) {
+    if (files) void uploadFiles(Array.from(files))
+  }
+
+  /** 截图直接 Ctrl+V：从剪贴板取图片走同一上传链路；有图才拦默认，纯文本粘贴不受影响。 */
+  function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    if (streaming || disabled) return
+    const images = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith('image/'))
+    if (images.length === 0) return
+    e.preventDefault()
+    void uploadFiles(images)
   }
 
   function submit() {
@@ -108,10 +121,11 @@ export function Composer(props: Props) {
         <textarea
           className="max-h-40 min-h-[40px] flex-1 resize-none rounded-md border bg-[var(--color-background)] px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)] disabled:opacity-50"
           rows={1}
-          placeholder={disabled ? '先新建或选择一个对话' : '输入消息，Enter 发送，Shift+Enter 换行'}
+          placeholder={disabled ? '先新建或选择一个对话' : '输入消息，Enter 发送，Shift+Enter 换行，可直接粘贴截图'}
           value={content}
           disabled={disabled}
           onChange={(e) => setContent(e.target.value)}
+          onPaste={handlePaste}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey && !streaming) {
               e.preventDefault()
