@@ -7,12 +7,18 @@ import type {
   ModelsView,
   SendMessageBody,
   UpdateConversationBody,
+  UsageInfo,
 } from './types'
 
 const BASE = '/ai-chat'
 
 export function fetchModels(refresh = false): Promise<ModelsView> {
   return http<ModelsView>(`${BASE}/models${refresh ? '?refresh=true' : ''}`)
+}
+
+/** 当前 key 用量（已用额度 + 令牌信息）。 */
+export function fetchUsage(): Promise<UsageInfo> {
+  return http<UsageInfo>(`${BASE}/usage`)
 }
 
 export function listConversations(): Promise<ConversationView[]> {

@@ -43,6 +43,9 @@ public class AiChatProperties {
     /** /v1/models 结果缓存 TTL（秒）。 */
     private int modelsCacheTtlSeconds = 300;
 
+    /** New API 内部额度单位换算：1 USD = 多少 quota（默认 500000）。用于把令牌用量换算成美元展示。 */
+    private double quotaPerUnit = 500000;
+
     /** 模型 id 命中其一即判为多模态（小写子串匹配）。 */
     private List<String> multimodalPatterns = List.of(
             "gpt-4o", "gpt-4.1", "gpt-5", "o1", "o3", "o4", "claude", "gemini", "vision", "qwen-vl", "glm-4v");

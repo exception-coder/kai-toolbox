@@ -21,6 +21,7 @@ import { SettingsDrawer } from '../components/SettingsDrawer'
 import { SessionTotalBadge } from '../components/SessionTotalBadge'
 import { HeaderModelPicker } from '../components/HeaderModelPicker'
 import { TemperatureControl } from '../components/TemperatureControl'
+import { UsageChip } from '../components/UsageChip'
 import { DebugPanel } from '../components/DebugPanel'
 
 export function ChatPage() {
@@ -247,6 +248,7 @@ export function ChatPage() {
             <SessionTotalBadge messages={messages} />
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
+            <UsageChip />
             <button
               type="button"
               onClick={() => setDebugOpen(true)}

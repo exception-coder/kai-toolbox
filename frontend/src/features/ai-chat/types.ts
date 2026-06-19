@@ -24,6 +24,18 @@ export interface ModelsView {
   source: 'remote' | 'fallback'
 }
 
+/** 当前 key 用量（取自网关 /api/usage/token）。 */
+export interface UsageInfo {
+  available: boolean
+  tokenName: string | null
+  unlimited: boolean | null
+  expiresAt: number | null
+  usedUsd: number | null
+  grantedUsd: number | null
+  remainingUsd: number | null
+  error: string | null
+}
+
 export interface ConversationView {
   id: string
   title: string
