@@ -57,6 +57,40 @@ export function modelDot(id: string): string {
   return DOTS[modelPlatform(id).key] ?? DOTS.other
 }
 
+// 推理/档位关键词权重（命中最高档一次）。模型命名里本就编码了能力档位。
+const TIER: { re: RegExp; w: number }[] = [
+  { re: /o3|o4|reasoner|thinking|xhigh|x-high/, w: 6 },
+  { re: /opus|ultra|\bmax\b|\bpro\b|\bo1\b/, w: 5 },
+  { re: /\bhigh\b/, w: 4 },
+  { re: /\bplus\b|sonnet/, w: 3 },
+  { re: /\bmedium\b/, w: 2 },
+  { re: /\blow\b/, w: 1 },
+]
+
+/**
+ * 模型推理能力的确定性启发式评分（越高越强），纯按 id 关键词与代际推断，不依赖远端数据。
+ * 主权重取 id 中最大的版本号（代际，如 gpt-5.5 的 5.5），叠加最高命中的档位权重，
+ * 轻量/快档（nano/mini/flash/haiku…）降权。仅用于「按推理力」的相对次序，非绝对能力分。
+ */
+export function modelReasoningScore(id: string): number {
+  const s = (id || '').toLowerCase()
+  let score = 0
+  const versions = (s.match(/\d+(?:\.\d+)?/g) || []).map(Number)
+  if (versions.length) score += Math.max(...versions)
+  for (const t of TIER) if (t.re.test(s)) { score += t.w; break }
+  if (/nano/.test(s)) score -= 4
+  else if (/mini/.test(s)) score -= 2
+  else if (/lite|flash|haiku|small|air|turbo/.test(s)) score -= 1.5
+  return score
+}
+
+/** 按推理力降序排序（同分按 id 字典序），返回新数组。 */
+export function sortByReasoning(models: ModelInfo[]): ModelInfo[] {
+  return models
+    .slice()
+    .sort((a, b) => modelReasoningScore(b.id) - modelReasoningScore(a.id) || a.id.localeCompare(b.id))
+}
+
 /** 把模型清单按平台分组并排序（组按 ORDER，组内按 id 字典序）。空清单返回空数组。 */
 export function groupModels(models: ModelInfo[]): ModelGroup[] {
   const map = new Map<string, ModelInfo[]>()

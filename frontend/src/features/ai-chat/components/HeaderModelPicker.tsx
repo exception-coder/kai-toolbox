@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, RefreshCw, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ModelInfo } from '../types'
-import { groupModels, modelDot } from '../lib/modelGroups'
+import { groupModels, modelDot, modelPlatform, sortByReasoning } from '../lib/modelGroups'
+
+type SortMode = 'platform' | 'reasoning'
 
 interface Props {
   models: ModelInfo[]
@@ -21,6 +23,7 @@ interface Props {
 export function HeaderModelPicker({ models, value, onChange, fallback, onRefresh, disabled }: Props) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
+  const [sort, setSort] = useState<SortMode>('platform')
   const rootRef = useRef<HTMLDivElement>(null)
 
   const current = models.find((m) => m.id === value)
@@ -43,13 +46,15 @@ export function HeaderModelPicker({ models, value, onChange, fallback, onRefresh
     }
   }, [open])
 
-  const groups = useMemo(() => {
+  const filtered = useMemo(() => {
     const kw = q.trim().toLowerCase()
-    const filtered = kw
+    return kw
       ? models.filter((m) => m.id.toLowerCase().includes(kw) || m.label.toLowerCase().includes(kw))
       : models
-    return groupModels(filtered)
   }, [models, q])
+
+  const groups = useMemo(() => groupModels(filtered), [filtered])
+  const ranked = useMemo(() => sortByReasoning(filtered), [filtered])
 
   const pick = (id: string) => {
     onChange(id)
@@ -97,34 +102,74 @@ export function HeaderModelPicker({ models, value, onChange, fallback, onRefresh
               </button>
             )}
           </div>
-          <div className="max-h-[60vh] overflow-y-auto py-1">
-            {groups.length === 0 && (
+          {/* 排序：平台分组 vs 按推理力扁平排序 */}
+          <div className="flex items-center gap-1 border-b px-2 py-1.5">
+            <span className="mr-1 text-[11px] text-[var(--color-muted-foreground)]">排序</span>
+            {([['platform', '平台'], ['reasoning', '推理力']] as const).map(([mode, text]) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setSort(mode)}
+                className={cn(
+                  'rounded-full px-2 py-0.5 text-[11px] font-medium',
+                  sort === mode
+                    ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                    : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]',
+                )}
+              >
+                {text}
+              </button>
+            ))}
+          </div>
+          <div className="max-h-[55vh] overflow-y-auto py-1">
+            {filtered.length === 0 && (
               <p className="px-3 py-4 text-center text-xs text-[var(--color-muted-foreground)]">无匹配模型</p>
             )}
-            {groups.map((g) => (
-              <div key={g.key} className="mb-1">
-                <div className="px-3 pb-0.5 pt-2 text-[11px] font-medium text-[var(--color-muted-foreground)]">{g.label}</div>
-                {g.models.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => pick(m.id)}
-                    className={cn(
-                      'flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-[var(--color-accent)]',
-                      m.id === value && 'bg-[var(--color-accent)]/60',
-                    )}
-                  >
-                    <span className={cn('size-2 shrink-0 rounded-full', modelDot(m.id))} />
-                    <span className="min-w-0 flex-1 truncate">{m.label}</span>
-                    {m.multimodal && <span className="shrink-0 text-xs" title="支持图片输入">🖼</span>}
-                    {m.id === value && <Check className="size-3.5 shrink-0 text-[var(--color-primary)]" />}
-                  </button>
-                ))}
-              </div>
-            ))}
+            {sort === 'platform'
+              ? groups.map((g) => (
+                  <div key={g.key} className="mb-1">
+                    <div className="px-3 pb-0.5 pt-2 text-[11px] font-medium text-[var(--color-muted-foreground)]">{g.label}</div>
+                    {g.models.map((m) => (
+                      <ModelRow key={m.id} m={m} selected={m.id === value} onPick={pick} />
+                    ))}
+                  </div>
+                ))
+              : ranked.map((m) => <ModelRow key={m.id} m={m} selected={m.id === value} onPick={pick} showPlatform />)}
           </div>
         </div>
       )}
     </div>
+  )
+}
+
+/** 模型下拉的一行：配色圆点 + 名称（+ 推理排序下的平台后缀）+ 多模态标记 + 选中勾。 */
+function ModelRow({
+  m,
+  selected,
+  onPick,
+  showPlatform,
+}: {
+  m: ModelInfo
+  selected: boolean
+  onPick: (id: string) => void
+  showPlatform?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onPick(m.id)}
+      className={cn(
+        'flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-[var(--color-accent)]',
+        selected && 'bg-[var(--color-accent)]/60',
+      )}
+    >
+      <span className={cn('size-2 shrink-0 rounded-full', modelDot(m.id))} />
+      <span className="min-w-0 flex-1 truncate">{m.label}</span>
+      {showPlatform && (
+        <span className="shrink-0 text-[10px] text-[var(--color-muted-foreground)]">{modelPlatform(m.id).label.split(' · ')[0]}</span>
+      )}
+      {m.multimodal && <span className="shrink-0 text-xs" title="支持图片输入">🖼</span>}
+      {selected && <Check className="size-3.5 shrink-0 text-[var(--color-primary)]" />}
+    </button>
   )
 }
