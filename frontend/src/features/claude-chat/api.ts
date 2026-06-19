@@ -13,6 +13,20 @@ export function getSessionCommitDiff(sessionId: string, hash: string) {
   return http<CommitDiff>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/commit?hash=${encodeURIComponent(hash)}`)
 }
 
+export interface SessionUsage {
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheCreateTokens: number
+  totalTokens: number
+  turns: number
+}
+
+/** 整会话累计用量：后端读 transcript 求和，按 sessionId 返回准确总和（不受前端分页影响）。 */
+export function fetchSessionUsage(sessionId: string) {
+  return http<SessionUsage>(`/claude-chat/history/${encodeURIComponent(sessionId)}/usage`)
+}
+
 /** 查 team-standards 在 Claude/Codex 两端的版本。 */
 export function getPluginStatus() {
   return http<PluginStatus>('/claude-chat/plugins/status')

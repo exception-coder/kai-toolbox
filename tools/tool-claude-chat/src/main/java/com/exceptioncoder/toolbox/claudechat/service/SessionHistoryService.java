@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.ChatMessageView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.HistorySessionView;
+import com.exceptioncoder.toolbox.claudechat.api.dto.SessionUsageView;
 import com.exceptioncoder.toolbox.claudechat.repository.SessionAliasRepository;
 import com.exceptioncoder.toolbox.claudechat.api.dto.MessagePage;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -293,6 +294,53 @@ public class SessionHistoryService {
         }
         flushTurn(out, acc); // 末轮
         return out;
+    }
+
+    /**
+     * 按会话 id 统计整会话累计用量：读 transcript，把所有 assistant 的 message.usage 求和，
+     * 按真实用户消息边界数有输出的轮次。不依赖前端分页/加载量，给整会话准确总和。
+     */
+    public SessionUsageView usageTotal(String cwd, String sdkSessionId) {
+        Path jsonl = findTranscript(cwd, sdkSessionId);
+        if (jsonl == null || !Files.isReadable(jsonl)) {
+            return SessionUsageView.empty();
+        }
+        long input = 0, output = 0, cacheRead = 0, cacheCreate = 0;
+        int turns = 0;
+        boolean started = false, turnHasOutput = false;
+        try (BufferedReader r = Files.newBufferedReader(jsonl, StandardCharsets.UTF_8)) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                if (line.isBlank()) continue;
+                JsonNode node;
+                try {
+                    node = mapper.readTree(line);
+                } catch (Exception ignore) {
+                    continue;
+                }
+                String type = node.path("type").asText("");
+                if ("user".equals(type) && isUserText(node.path("message").path("content"))) {
+                    if (started && turnHasOutput) turns++;
+                    started = true;
+                    turnHasOutput = false;
+                } else if ("assistant".equals(type)) {
+                    JsonNode u = node.path("message").path("usage");
+                    if (u.isObject()) {
+                        input += u.path("input_tokens").asLong(0);
+                        output += u.path("output_tokens").asLong(0);
+                        cacheRead += u.path("cache_read_input_tokens").asLong(0);
+                        cacheCreate += u.path("cache_creation_input_tokens").asLong(0);
+                        turnHasOutput = true;
+                    }
+                }
+            }
+        } catch (IOException e) {
+            log.debug("[claude-chat] 统计会话用量失败 {}: {}", sdkSessionId, e.getMessage());
+            return SessionUsageView.empty();
+        }
+        if (started && turnHasOutput) turns++; // 末轮
+        long total = input + output + cacheRead + cacheCreate;
+        return new SessionUsageView(input, output, cacheRead, cacheCreate, total, turns);
     }
 
     /** content 是否含真实用户文本（区别于 tool_result——后者是 user 类型但属同轮，不另起一轮）。 */

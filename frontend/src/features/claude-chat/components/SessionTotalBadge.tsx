@@ -1,14 +1,26 @@
 import { Coins, Database, Gauge } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ChatItem } from '../types'
+import type { SessionUsage } from '../api'
 import { abbr, fmtMs, sessionTotals } from '../lib/metrics'
 
 /**
  * 头部用量徽章（可点开用量面板）：累计 token（紫）+ 整会话缓存命中率（青），合并成一枚胶囊。
- * 本会话还没有实时轮次时退化为「用量」入口。点击 → 打开本地用量面板（三引擎 + 额度）。
+ * serverTotal（后端按会话 id 统计 transcript 的整会话总和）优先，缺失时退回前端对已加载 items 的累计。
+ * 本会话还没有任何轮次时退化为「用量」入口。点击 → 打开本地用量面板（三引擎 + 额度）。
  */
-export function SessionTotalBadge({ items, onClick, className }: { items: ChatItem[]; onClick?: () => void; className?: string }) {
-  const { tokens, durationMs, turns, hitRate } = sessionTotals(items)
+export function SessionTotalBadge({ items, serverTotal, onClick, className }: { items: ChatItem[]; serverTotal?: SessionUsage | null; onClick?: () => void; className?: string }) {
+  const local = sessionTotals(items)
+  const useServer = !!serverTotal && serverTotal.turns > 0
+  const tokens = useServer ? serverTotal!.totalTokens : local.tokens
+  const turns = useServer ? serverTotal!.turns : local.turns
+  const durationMs = local.durationMs // 后端未汇总耗时，沿用前端已加载轮次的累计
+  const hitRate = useServer
+    ? (() => {
+        const side = serverTotal!.inputTokens + serverTotal!.cacheReadTokens + serverTotal!.cacheCreateTokens
+        return side > 0 ? serverTotal!.cacheReadTokens / side : null
+      })()
+    : local.hitRate
   const has = turns > 0 && tokens > 0
   const title = has
     ? `本会话累计：${turns} 轮 · ${tokens.toLocaleString()} tokens${hitRate != null ? ` · 命中 ${Math.floor(hitRate * 100)}%` : ''}${durationMs ? ` · ${fmtMs(durationMs)}` : ''}｜点击看本地用量`

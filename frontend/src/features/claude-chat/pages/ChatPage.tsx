@@ -27,7 +27,7 @@ import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
-import { fetchProviderModels, getSessionCommitDiff, listSessionCommits, listSessions, listWorkspaces, uploadAttachment, type UploadedAttachment } from '../api'
+import { fetchProviderModels, fetchSessionUsage, getSessionCommitDiff, listSessionCommits, listSessions, listWorkspaces, uploadAttachment, type SessionUsage, type UploadedAttachment } from '../api'
 import type { ModelInfo } from '../types'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
 import type { Engine } from '../types'
@@ -183,6 +183,17 @@ export function ChatPage() {
   }
   const [panel, setPanel] = useState<Panel>('none')
   const [showUsage, setShowUsage] = useState(false)
+  // 整会话累计用量：后端按 sessionId 统计 transcript（不受前端分页影响）。换会话或一轮跑完后刷新。
+  const [sessionUsage, setSessionUsage] = useState<SessionUsage | null>(null)
+  const usageSid = chat?.sessionId ?? null
+  const usageRunning = chat?.running ?? false
+  useEffect(() => {
+    if (!usageSid) { setSessionUsage(null); return }
+    if (usageRunning) return
+    let alive = true
+    fetchSessionUsage(usageSid).then((u) => { if (alive) setSessionUsage(u) }).catch(() => {})
+    return () => { alive = false }
+  }, [usageSid, usageRunning])
   // 多会话并行分屏：viewMode 切换单/多视图；selecting 控制会话面板的多选态；selected 为勾选集合；multiIds 为已进入分屏的会话
   // 刷新后恢复上次的分屏形态（视图 + 会话集合）
   const splitInit = useMemo(loadSplitState, [])
@@ -464,7 +475,7 @@ export function ChatPage() {
               aria-label={stateLabel(chat.state)}
               className="size-5 shrink-0 justify-center rounded-full px-0"
             />
-            <SessionTotalBadge items={chat.items} onClick={() => setShowUsage(true)} />
+            <SessionTotalBadge items={chat.items} serverTotal={sessionUsage} onClick={() => setShowUsage(true)} />
           </>
         )}
         <div className="ml-auto flex items-center gap-1">

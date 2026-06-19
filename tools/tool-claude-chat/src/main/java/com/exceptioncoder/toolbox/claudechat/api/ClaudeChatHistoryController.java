@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.claudechat.api;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.HistorySessionView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.MessagePage;
+import com.exceptioncoder.toolbox.claudechat.api.dto.SessionUsageView;
 import com.exceptioncoder.toolbox.claudechat.repository.SessionAliasRepository;
 import com.exceptioncoder.toolbox.claudechat.service.SessionHistoryService;
 import org.springframework.http.ResponseEntity;
@@ -38,6 +39,13 @@ public class ClaudeChatHistoryController {
                                 @RequestParam(required = false) Integer before,
                                 @RequestParam(defaultValue = "30") int limit) {
         return history.readMessages(cwd, sdkSessionId, before, limit);
+    }
+
+    /** 整会话累计用量：后端读 transcript 求和，按会话 id 返回准确总和（不受前端分页影响）。 */
+    @GetMapping("/{sdkSessionId}/usage")
+    public SessionUsageView usage(@PathVariable String sdkSessionId,
+                                  @RequestParam(required = false) String cwd) {
+        return history.usageTotal(cwd, sdkSessionId);
     }
 
     /** 删除历史会话：移到回收目录，可手动恢复（不破坏原生 /resume 的其它会话）。 */
