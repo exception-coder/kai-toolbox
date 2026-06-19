@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, Cloud, FolderTree, Gauge, GitCommit, List, Maximize2, Minimize2, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RotateCw, Send, Server, ShieldCheck, Slash, Square } from 'lucide-react'
+import { Bell, Cloud, FolderTree, GitCommit, List, Maximize2, Minimize2, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RotateCw, Send, Server, ShieldCheck, Slash, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Input } from '@/components/ui/input'
@@ -464,14 +464,11 @@ export function ChatPage() {
               aria-label={stateLabel(chat.state)}
               className="size-5 shrink-0 justify-center rounded-full px-0"
             />
-            <SessionTotalBadge items={chat.items} />
+            <SessionTotalBadge items={chat.items} onClick={() => setShowUsage(true)} />
           </>
         )}
         <div className="ml-auto flex items-center gap-1">
-          {/* 本地用量：点开看三引擎 token 消耗 / 缓存命中 / Codex 官方额度 */}
-          <Button variant="ghost" size="icon" onClick={() => setShowUsage(true)} aria-label="本地用量" title="本地用量（token / 缓存 / 额度）">
-            <Gauge className="size-4" />
-          </Button>
+          {/* 用量入口已并入头部 SessionTotalBadge（点徽章打开） */}
           {/* 常用：带文字标签，一眼可辨 */}
           <Button variant="ghost" size="sm" className="gap-1 px-2 sm:px-3" onClick={() => setPanel(p => p === 'new' ? 'none' : 'new')} aria-label="新建会话">
             <Plus className="size-4" /> <span className="hidden sm:inline">新建</span>
