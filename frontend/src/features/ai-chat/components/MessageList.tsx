@@ -3,6 +3,7 @@ import { AlertTriangle, Bot, Check, Code, Coins, Database, FileSearch, FolderKan
 import { cn } from '@/lib/utils'
 import type { MessageView } from '../types'
 import { abbr, cacheHitRate, fmtMs, formatTime } from '../lib/metrics'
+import { Markdown } from './Markdown'
 
 interface Props {
   messages: MessageView[]
@@ -63,14 +64,19 @@ export function MessageList({ messages, streaming, streamText, onPickSuggestion 
               ))}
             </div>
           )}
-          <div className="whitespace-pre-wrap break-words">{m.content}</div>
+          {/* 助手消息走 markdown 渲染；用户原始输入按纯文本（不经 HTML 注入）。 */}
+          {m.role === 'ASSISTANT' ? (
+            <Markdown text={m.content} />
+          ) : (
+            <div className="whitespace-pre-wrap break-words">{m.content}</div>
+          )}
           {m.role === 'ASSISTANT' && <MetricsFooter message={m} />}
         </Bubble>
       ))}
       {streaming && (
         <Bubble role="ASSISTANT">
-          <div className="whitespace-pre-wrap break-words">
-            {streamText}
+          <div className="min-w-0">
+            <Markdown text={streamText} className="inline" />
             <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-current align-middle" />
           </div>
         </Bubble>
