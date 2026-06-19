@@ -4,6 +4,7 @@ import type {
   ConversationView,
   CreateConversationBody,
   MessagePage,
+  ImageGenResult,
   ModelsView,
   SendMessageBody,
   UpdateConversationBody,
@@ -19,6 +20,11 @@ export function fetchModels(refresh = false): Promise<ModelsView> {
 /** 当前 key 用量（已用额度 + 令牌信息）。 */
 export function fetchUsage(): Promise<UsageInfo> {
   return http<UsageInfo>(`${BASE}/usage`)
+}
+
+/** 绘图：同步返回图片地址。 */
+export function generateImages(body: { model: string; prompt: string; size?: string; n?: number }): Promise<ImageGenResult> {
+  return http<ImageGenResult>(`${BASE}/images`, { method: 'POST', body: JSON.stringify(body) })
 }
 
 export function listConversations(): Promise<ConversationView[]> {

@@ -22,6 +22,7 @@ import { SessionTotalBadge } from '../components/SessionTotalBadge'
 import { HeaderModelPicker } from '../components/HeaderModelPicker'
 import { TemperatureControl } from '../components/TemperatureControl'
 import { UsageChip } from '../components/UsageChip'
+import { ImagePanel } from '../components/ImagePanel'
 import { DebugPanel } from '../components/DebugPanel'
 
 export function ChatPage() {
@@ -39,6 +40,8 @@ export function ChatPage() {
   const [debugOpen, setDebugOpen] = useState(false)
   const [debug, setDebug] = useState<CompletionDebug | null>(null)
   const [seed, setSeed] = useState<string | undefined>(undefined)
+  const [mode, setMode] = useState<'chat' | 'image'>('chat')
+  const [imageModel, setImageModel] = useState('')
 
   const activeConv = useMemo(
     () => conversations.find((c) => c.id === activeId) ?? null,
@@ -84,6 +87,8 @@ export function ChatPage() {
       try {
         const mv = await fetchModels()
         setModelsView(mv)
+        const imgs = mv.models.filter((m) => m.category === 'image')
+        if (imgs.length > 0) setImageModel(imgs[0].id)
         const list = await refreshConversations()
         if (list.length > 0) setActiveId(list[0].id)
       } catch (e) {
@@ -207,12 +212,20 @@ export function ChatPage() {
     setSeed(text)
   }
 
-  // 仅展示对话类模型（绘图/视频留待后续模式切换接入）；旧后端无 category 时按 chat 处理。
-  const models = (modelsView?.models ?? []).filter((m) => !m.category || m.category === 'chat')
+  const allModels = modelsView?.models ?? []
+  // 旧后端无 category 时按 chat 处理，保证兼容。
+  const models = allModels.filter((m) => !m.category || m.category === 'chat') // 对话模型
+  const imageModels = allModels.filter((m) => m.category === 'image')
   const presets = modelsView?.presets ?? []
 
-  // 选中模型是否支持自定义温度；支持才在标题栏显示温度滑块（未知/不支持不显示）。
-  const supportsTemperature = models.find((m) => m.id === selectedModel)?.supportsTemperature ?? false
+  // 按当前模式决定模型选择器的清单/选中/回调
+  const pickerModels = mode === 'image' ? imageModels : models
+  const pickerValue = mode === 'image' ? imageModel : selectedModel
+  const onPickerChange = mode === 'image' ? setImageModel : handleModelChange
+
+  // 选中模型是否支持自定义温度；仅对话模式、支持才在标题栏显示温度滑块。
+  const supportsTemperature =
+    mode === 'chat' && (models.find((m) => m.id === selectedModel)?.supportsTemperature ?? false)
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] bg-[var(--color-muted)]/40">
@@ -229,25 +242,43 @@ export function ChatPage() {
 
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between gap-2 border-b bg-[var(--color-background)] px-4 py-2">
-          {/* 模型选择提升为标题栏主路径：常驻可见、一眼知道「谁在回答」、点开即切 */}
+          {/* 模式切换（对话/绘图）+ 模型选择（按模式过滤）作为标题栏主路径 */}
           <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex shrink-0 items-center rounded-full border p-0.5 text-xs">
+              {([['chat', '对话'], ['image', '绘图']] as const).map(([m, text]) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMode(m)}
+                  className={cn(
+                    'rounded-full px-2.5 py-1 font-medium',
+                    mode === m
+                      ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                      : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]',
+                  )}
+                >
+                  {text}
+                </button>
+              ))}
+              <span className="px-2 py-1 text-[var(--color-muted-foreground)]/50" title="视频生成（异步任务）待开发">视频</span>
+            </div>
             <HeaderModelPicker
-              models={models}
-              value={selectedModel}
-              onChange={handleModelChange}
+              models={pickerModels}
+              value={pickerValue}
+              onChange={onPickerChange}
               fallback={modelsView?.source === 'fallback'}
               onRefresh={refreshModels}
-              disabled={!activeConv}
+              disabled={mode === 'chat' && !activeConv}
             />
-            {activeConv && supportsTemperature && (
+            {mode === 'chat' && activeConv && supportsTemperature && (
               <TemperatureControl value={temperature} onChange={setTemperature} />
             )}
-            {activeConv?.title && (
+            {mode === 'chat' && activeConv?.title && (
               <span className="hidden truncate text-sm text-[var(--color-muted-foreground)] sm:inline" title={activeConv.systemPrompt ? `系统提示：${activeConv.systemPrompt}` : undefined}>
                 {activeConv.title}
               </span>
             )}
-            <SessionTotalBadge messages={messages} />
+            {mode === 'chat' && <SessionTotalBadge messages={messages} />}
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <UsageChip />
@@ -284,23 +315,29 @@ export function ChatPage() {
           </div>
         )}
 
-        <MessageList
-          messages={messages}
-          streaming={stream.streaming}
-          streamText={stream.streamText}
-          onPickSuggestion={handlePickSuggestion}
-        />
+        {mode === 'image' ? (
+          <ImagePanel model={imageModel} />
+        ) : (
+          <>
+            <MessageList
+              messages={messages}
+              streaming={stream.streaming}
+              streamText={stream.streamText}
+              onPickSuggestion={handlePickSuggestion}
+            />
 
-        <Composer
-          models={models}
-          selectedModel={selectedModel}
-          streaming={stream.streaming}
-          disabled={!activeConv}
-          seed={seed}
-          onSeedApplied={() => setSeed(undefined)}
-          onSend={handleSend}
-          onStop={stream.stop}
-        />
+            <Composer
+              models={models}
+              selectedModel={selectedModel}
+              streaming={stream.streaming}
+              disabled={!activeConv}
+              seed={seed}
+              onSeedApplied={() => setSeed(undefined)}
+              onSend={handleSend}
+              onStop={stream.stop}
+            />
+          </>
+        )}
       </main>
 
       <SettingsDrawer

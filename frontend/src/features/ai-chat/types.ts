@@ -57,6 +57,12 @@ export interface AttachmentView {
   url: string
 }
 
+/** 绘图结果。 */
+export interface ImageGenResult {
+  images: string[]
+  model: string
+}
+
 export type MessageRole = 'USER' | 'ASSISTANT' | 'SYSTEM'
 export type MessageStatus = 'DONE' | 'INTERRUPTED' | 'ERROR'
 
