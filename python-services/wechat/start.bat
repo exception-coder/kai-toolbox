@@ -23,11 +23,13 @@ if not exist .venv (
 
 call .venv\Scripts\activate.bat
 
-echo [setup] installing/upgrading dependencies...
-pip install -q --upgrade pip
-pip install -q -r requirements.txt
+REM Direct PyPI is unreachable on this network; use the Tsinghua mirror (domestic, no proxy,
+REM confirmed to host wxautox4). Override with PIP_INDEX env var if you have your own mirror.
+if not defined PIP_INDEX set PIP_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
+echo [setup] installing dependencies from %PIP_INDEX% ...
+pip install -q -i %PIP_INDEX% -r requirements.txt
 if errorlevel 1 (
-    echo [setup] pip install failed. If it is wxauto/wxautox, check your WeChat version vs requirements.txt.
+    echo [setup] pip install failed. Check WeChat version vs requirements.txt (wxautox4 for Weixin 4.x).
     exit /b 1
 )
 

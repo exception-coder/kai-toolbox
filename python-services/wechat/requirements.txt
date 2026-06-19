@@ -6,15 +6,15 @@
 fastapi>=0.110.0
 uvicorn[standard]>=0.27.0
 
-# WeChat automation library: pick ONE matching your WeChat desktop version.
-# WeChat 3.9.x (legacy, most mature): keep the line below.
-wxauto>=3.9.11.17
+# WeChat automation.
+# NOTE: the open-source 'wxauto' is no longer published on PyPI. The maintained packages are
+# wxautox (legacy WeChat 3.9.x) and wxautox4 (WeChat/Weixin 4.x). These are the commercial
+# successor and MAY REQUIRE AN ACTIVATION LICENSE for some/all features.
+# See https://pypi.org/project/wxautox4/ .
 #
-# WeChat 4.0+ (new): comment out wxauto above and use one of these instead
-# (use whatever version each repo currently publishes):
-# wxauto-4.0
-# wxautox4
+# This machine runs Weixin 4.x, so use wxautox4. wxautox4 transitively pulls comtypes /
+# pywin32 / pillow / sounddevice etc. (all have cp313 wheels).
+wxautox4
 #
-# server.py imports defensively (wxauto first, then wxautox); switching libs usually
-# needs no code change. If a call fails, check /health (lib / lib_version) and adjust
-# the method names in server.py against that library's docs.
+# For a legacy WeChat 3.9.x client instead, comment wxautox4 above and use:
+# wxautox
