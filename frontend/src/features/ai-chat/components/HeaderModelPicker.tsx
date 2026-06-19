@@ -220,16 +220,23 @@ function FamilyRow({
   const tags = capabilityTags(rep)
   const title = rep.description || (rep.tags?.length ? rep.tags.join(' · ') : undefined)
   const selectedHere = family.members.some((x) => x.model.id === selectedId)
+  // 不支持自定义温度（推理模型）——标出来，选模型时一眼可见。
+  const fixedTemp = !rep.supportsTemperature
 
-  // 能力徽章 + 平台后缀，放模型名下方第二行（让模型名第一行完整显示，不被挤截断）。
+  // 能力徽章 + 固定温度标记 + 平台后缀，放模型名下方第二行（让模型名第一行完整显示，不被挤截断）。
   const metaLine =
-    tags.length > 0 || showPlatform ? (
+    tags.length > 0 || fixedTemp || showPlatform ? (
       <div className="mt-0.5 flex flex-wrap items-center gap-1 pl-4">
         {tags.map((t) => (
           <span key={t} className={cn('rounded px-1 py-0.5 text-[9px] font-medium leading-none', TAG_TONE[t] ?? 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]')}>
             {t}
           </span>
         ))}
+        {fixedTemp && (
+          <span className="rounded bg-[var(--color-muted)] px-1 py-0.5 text-[9px] font-medium leading-none text-[var(--color-muted-foreground)]" title="该模型不支持自定义温度（使用模型默认值）">
+            固定温度
+          </span>
+        )}
         {showPlatform && (
           <span className="text-[10px] text-[var(--color-muted-foreground)]">{modelPlatform(rep.id).label.split(' · ')[0]}</span>
         )}
