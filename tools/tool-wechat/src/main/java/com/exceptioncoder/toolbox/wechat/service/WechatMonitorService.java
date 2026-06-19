@@ -78,15 +78,34 @@ public class WechatMonitorService {
         return emitter;
     }
 
+    /** sidecar 离线时轮询退避上限：连不上就别每 2s 试，最多拉到这个间隔。 */
+    private static final long OFFLINE_MAX_INTERVAL_MS = 30_000;
+
     private void loop() {
+        long base = props.getPollIntervalMs();
+        long interval = base;
+        boolean online = true; // 初始假定在线，首次连不上即打一条 INFO
         while (running) {
             try {
                 drainOnce();
+                interval = base;
+                if (!online) {
+                    log.info("[wechat] sidecar 已上线，恢复 {}ms 轮询", base);
+                    online = true;
+                }
+            } catch (WechatSidecarClient.SidecarOfflineException offline) {
+                // 连不上：指数退避，只在「在线→离线」翻转时打一条日志，不每轮刷
+                if (online) {
+                    log.info("[wechat] sidecar 未连接，轮询退避至最多 {}ms（启动 python-services/wechat/start.bat 后自动恢复）",
+                            OFFLINE_MAX_INTERVAL_MS);
+                    online = false;
+                }
+                interval = Math.min(interval * 2, OFFLINE_MAX_INTERVAL_MS);
             } catch (Exception e) {
                 log.debug("[wechat] 轮询一轮失败（忽略，继续）: {}", e.toString());
             }
             try {
-                Thread.sleep(props.getPollIntervalMs());
+                Thread.sleep(interval);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return;

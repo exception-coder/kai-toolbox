@@ -9,9 +9,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.net.ConnectException;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
+import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
@@ -45,6 +47,10 @@ public class WechatSidecarClient {
 
     public static class SidecarException extends RuntimeException {
         public SidecarException(String message) { super(message); }
+    }
+
+    /** sidecar 进程没起来（连不上 127.0.0.1:port）。监听轮询据此退避，不当成普通错误刷日志。 */
+    public static class SidecarOfflineException extends RuntimeException {
     }
 
     private boolean configured() {
@@ -112,14 +118,20 @@ public class WechatSidecarClient {
         }
     }
 
-    /** {@code GET /listen/poll}，drain sidecar 缓存的新消息。失败返回空列表。 */
+    /**
+     * {@code GET /listen/poll}，drain sidecar 缓存的新消息。
+     * 连不上 sidecar（进程没起）抛 {@link SidecarOfflineException}，由监听轮询退避；
+     * 其它错误（HTTP 非 200 / 解析失败）返回空列表降级。
+     */
     public List<WxMessage> poll() {
-        if (!configured()) return List.of();
+        if (!configured()) throw new SidecarOfflineException();
         try {
             HttpResponse<String> resp = http.send(req("/listen/poll").GET().build(),
                     HttpResponse.BodyHandlers.ofString());
             if (resp.statusCode() != 200) return List.of();
             return parseMessages(resp.body());
+        } catch (ConnectException | HttpConnectTimeoutException e) {
+            throw new SidecarOfflineException();
         } catch (Exception e) {
             log.debug("poll 失败: {}", e.toString());
             return List.of();
