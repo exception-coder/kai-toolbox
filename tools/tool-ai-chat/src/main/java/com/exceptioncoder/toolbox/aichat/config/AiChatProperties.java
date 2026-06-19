@@ -89,4 +89,38 @@ public class AiChatProperties {
                     "你是专业翻译。把用户输入在中英之间互译，只输出译文，不要解释。"),
             new RolePreset("coder", "编程助手",
                     "你是资深工程师。给出简洁、可运行的代码与关键说明，避免废话。"));
+
+    /** 命令执行工具配置(默认关闭,高风险能力须显式开启)。 */
+    private Shell shell = new Shell();
+
+    /**
+     * 命令执行工具(runCommand)的安全护栏配置。
+     *
+     * <p>默认 {@code enabled=false}——工具压根不注册。开启后仍受多层护栏约束:
+     * 不经 shell(ProcessBuilder 直接分词,杜绝 ; | &gt; 等注入)、前缀白名单、
+     * 元字符/路径逃逸拦截、工作目录沙箱、超时与输出截断。白名单本身即「预先确认」:
+     * 你把某命令加入白名单 = 提前批准它,故第一版不做运行时弹框确认。</p>
+     */
+    @Getter
+    @Setter
+    public static class Shell {
+
+        /** 总开关。默认关闭——不显式置 true 则 runCommand 工具不存在。 */
+        private boolean enabled = false;
+
+        /** 允许执行的命令前缀白名单(按空格分词后,与命令开头逐段匹配)。默认仅只读安全命令。 */
+        private List<String> allow = List.of(
+                "git status", "git log", "git diff", "git branch", "git show",
+                "ls", "dir", "cat", "type", "echo",
+                "node --version", "npm --version", "java -version", "mvn --version");
+
+        /** 工作目录沙箱;命令在此目录下执行,不可逃逸。默认 ~/.kai-toolbox/ai-chat-workspace。 */
+        private String workdir = System.getProperty("user.home") + "/.kai-toolbox/ai-chat-workspace";
+
+        /** 单条命令超时(秒);超时强杀进程并返回超时错误。 */
+        private int timeoutSeconds = 30;
+
+        /** 输出(stdout+stderr)最大返回字符数,超出截断,防刷屏与 token 失控。 */
+        private int maxOutputChars = 4000;
+    }
 }

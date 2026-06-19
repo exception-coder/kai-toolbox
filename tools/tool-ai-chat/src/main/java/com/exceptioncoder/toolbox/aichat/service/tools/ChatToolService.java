@@ -31,18 +31,20 @@ public class ChatToolService {
 
     private static final Logger log = LoggerFactory.getLogger(ChatToolService.class);
 
-    private final Object toolsBean;
     private final ObjectMapper json;
-    private final List<ToolSpecification> specifications;
+    private final List<ToolSpecification> specifications = new ArrayList<>();
     private final Map<String, Method> methodsByName = new HashMap<>();
+    private final Map<String, Object> beanByMethod = new HashMap<>();
 
-    public ChatToolService(ChatTools tools, ObjectMapper json) {
-        this.toolsBean = tools;
+    public ChatToolService(List<ChatToolProvider> providers, ObjectMapper json) {
         this.json = json;
-        this.specifications = ToolSpecifications.toolSpecificationsFrom(tools);
-        for (Method m : tools.getClass().getDeclaredMethods()) {
-            if (m.isAnnotationPresent(Tool.class)) {
-                methodsByName.put(m.getName(), m);
+        for (ChatToolProvider provider : providers) {
+            specifications.addAll(ToolSpecifications.toolSpecificationsFrom(provider));
+            for (Method m : provider.getClass().getDeclaredMethods()) {
+                if (m.isAnnotationPresent(Tool.class)) {
+                    methodsByName.put(m.getName(), m);
+                    beanByMethod.put(m.getName(), provider);
+                }
             }
         }
         log.info("[ai-chat] 已登记 {} 个对话工具: {}", specifications.size(), methodsByName.keySet());
@@ -65,7 +67,7 @@ public class ChatToolService {
         }
         try {
             Object[] args = bindArgs(m, req.arguments());
-            Object result = m.invoke(toolsBean, args);
+            Object result = m.invoke(beanByMethod.get(req.name()), args);
             return result == null ? "" : result.toString();
         } catch (Exception e) {
             Throwable cause = e.getCause() != null ? e.getCause() : e;

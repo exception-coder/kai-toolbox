@@ -22,7 +22,7 @@ import java.time.format.DateTimeFormatter;
  * 让模型能据此自我纠正、重试。</p>
  */
 @Component
-public class ChatTools {
+public class ChatTools implements ChatToolProvider {
 
     private static final Logger log = LoggerFactory.getLogger(ChatTools.class);
     private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss EEEE");

@@ -83,6 +83,17 @@ toolbox:
     timeout-seconds: 60
     max-history-messages: 40
     models-cache-ttl-seconds: 300
+    # 命令执行工具(runCommand):默认关闭,高风险能力须显式开启。
+    # 开启后仍受多层护栏约束:不经 shell 分词执行、前缀白名单、元字符/路径逃逸拦截、
+    # 工作目录沙箱、超时与输出截断。白名单即「预先批准」,只放行其中的命令前缀。
+    shell:
+      enabled: ${TOOLBOX_AI_CHAT_SHELL_ENABLED:false}
+      # workdir: ${user.home}/.kai-toolbox/ai-chat-workspace
+      # timeout-seconds: 30
+      # max-output-chars: 4000
+      # allow:   # 不配则用代码内置的只读安全白名单(git status/log/diff、ls、cat 等)
+      #   - git status
+      #   - ls
     # 模型 id 命中其一即判为多模态（小写子串匹配）
     multimodal-patterns:
       - gpt-4o
