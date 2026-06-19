@@ -60,6 +60,16 @@ public class AiChatProperties {
     private List<String> noTemperaturePatterns = List.of(
             "o1", "o3", "o4-mini", "gpt-5", "reasoner", "thinking", "qwq");
 
+    /**
+     * 模型 id 命中其一即「非聊天模型」（小写子串匹配），从下拉过滤掉：绘图/视频/音频/向量等
+     * 不支持 /v1/chat/completions 的模型（如 veo / sora / gpt-image / whisper / embedding）。
+     * 媒体端点类型与媒体规格标签已在代码中识别，此列表兜底名称家族（尤其 veo 这类端点同聊天的）。
+     */
+    private List<String> nonChatModelPatterns = List.of(
+            "veo", "sora", "dall-e", "dalle", "midjourney", "flux", "kling", "cogview",
+            "stable-diffusion", "sdxl", "gpt-image", "suno", "whisper", "-tts", "tts-",
+            "embedding", "embed-", "rerank");
+
     /** 可选 id→展示名美化映射；命中则覆盖默认（默认展示名=id）。 */
     private Map<String, String> modelLabels = Map.of();
 

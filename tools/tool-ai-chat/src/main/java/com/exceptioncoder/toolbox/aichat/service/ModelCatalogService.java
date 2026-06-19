@@ -53,13 +53,21 @@ public class ModelCatalogService {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record PricingEntry(String model_name, String tags, String description, double model_ratio) {
+    private record PricingEntry(String model_name, String tags, String description, double model_ratio,
+                                List<String> supported_endpoint_types) {
     }
 
     /** 单个模型的能力元数据（由 pricing 富化）。 */
-    private record ModelMeta(List<String> tags, String description, double priceRatio) {
-        static final ModelMeta EMPTY = new ModelMeta(List.of(), null, 0);
+    private record ModelMeta(List<String> tags, String description, double priceRatio, List<String> endpointTypes) {
+        static final ModelMeta EMPTY = new ModelMeta(List.of(), null, 0, List.of());
     }
+
+    /** 媒体（非聊天）端点类型：命中即判定为绘图/视频/音频等非聊天模型。 */
+    private static final List<String> MEDIA_ENDPOINTS = List.of(
+            "image-generation", "image-edits", "openai-video", "video", "audio", "embeddings", "rerank");
+
+    /** 媒体规格标签子串：命中即视为绘图/视频生成模型（如「支持720p、1080p」「时长4秒8秒12秒」）。 */
+    private static final List<String> MEDIA_TAG_MARKERS = List.of("720p", "1080p", "分辨率", "时长");
 
     public ModelsView list(boolean refresh) {
         List<ModelInfo> models = remoteOrCached(refresh);
@@ -74,6 +82,22 @@ public class ModelCatalogService {
         String lower = modelId.toLowerCase(Locale.ROOT);
         return props.getMultimodalPatterns().stream()
                 .anyMatch(p -> lower.contains(p.toLowerCase(Locale.ROOT)));
+    }
+
+    /**
+     * 是否为聊天模型（可走 /v1/chat/completions）。排除绘图/视频/音频等：
+     * 命中媒体端点类型、或媒体规格标签、或配置的非聊天模型名家族（nonChatModelPatterns）即判否。
+     * pricing 不可用时仅靠名称家族判断。
+     */
+    private boolean isChatModel(String modelId, ModelMeta meta) {
+        String lower = modelId == null ? "" : modelId.toLowerCase(Locale.ROOT);
+        if (props.getNonChatModelPatterns().stream().anyMatch(p -> lower.contains(p.toLowerCase(Locale.ROOT)))) {
+            return false;
+        }
+        if (meta.endpointTypes().stream().anyMatch(MEDIA_ENDPOINTS::contains)) {
+            return false;
+        }
+        return meta.tags().stream().noneMatch(t -> MEDIA_TAG_MARKERS.stream().anyMatch(t::contains));
     }
 
     /** 是否支持自定义温度：命中 noTemperaturePatterns（推理模型）则不支持。modelId 为空按支持处理。 */
@@ -120,6 +144,10 @@ public class ModelCatalogService {
                     continue;
                 }
                 ModelMeta mm = meta.getOrDefault(d.id(), ModelMeta.EMPTY);
+                // 过滤掉绘图/视频/音频等非聊天模型（如 veo / sora / gpt-image），避免选中后调聊天接口 404。
+                if (!isChatModel(d.id(), mm)) {
+                    continue;
+                }
                 boolean multimodal = pricingOk ? mm.tags().contains("多模态") : isMultimodal(d.id());
                 models.add(enrich(d.id(), mm, multimodal));
             }
@@ -154,7 +182,8 @@ public class ModelCatalogService {
                 if (e.model_name() == null || e.model_name().isBlank()) {
                     continue;
                 }
-                map.put(e.model_name(), new ModelMeta(splitTags(e.tags()), blankToNull(e.description()), e.model_ratio()));
+                map.put(e.model_name(), new ModelMeta(splitTags(e.tags()), blankToNull(e.description()),
+                        e.model_ratio(), e.supported_endpoint_types() == null ? List.of() : e.supported_endpoint_types()));
             }
             return map;
         } catch (RuntimeException e) {
