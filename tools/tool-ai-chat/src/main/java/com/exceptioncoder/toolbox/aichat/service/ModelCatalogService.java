@@ -110,14 +110,18 @@ public class ModelCatalogService {
                 log.warn("[ai-chat] 4sapi /models 返回空，回退静态清单");
                 return null;
             }
-            // 先刷新能力元数据（pricing），失败不阻断——退化为按名称推断。
+            // 先刷新能力元数据（pricing）。pricing 可用时一律以其为准、绝不按名称猜；
+            // 仅当 pricing 整体不可达（空表）时，才降级到按模型名推断多模态。
             Map<String, ModelMeta> meta = fetchPricing();
+            boolean pricingOk = !meta.isEmpty();
             List<ModelInfo> models = new ArrayList<>(resp.data().size());
             for (ModelsApiResponse.Datum d : resp.data()) {
                 if (d.id() == null || d.id().isBlank()) {
                     continue;
                 }
-                models.add(enrich(d.id(), meta.getOrDefault(d.id(), ModelMeta.EMPTY)));
+                ModelMeta mm = meta.getOrDefault(d.id(), ModelMeta.EMPTY);
+                boolean multimodal = pricingOk ? mm.tags().contains("多模态") : isMultimodal(d.id());
+                models.add(enrich(d.id(), mm, multimodal));
             }
             cachedModels = List.copyOf(models);
             cacheExpireAt = now + Duration.ofSeconds(props.getModelsCacheTtlSeconds()).toMillis();
@@ -128,9 +132,8 @@ public class ModelCatalogService {
         }
     }
 
-    /** 用 pricing 元数据构建 ModelInfo：标签「多模态」优先判定多模态，缺失则回退名称推断。 */
-    private ModelInfo enrich(String id, ModelMeta meta) {
-        boolean multimodal = meta.tags().contains("多模态") || isMultimodal(id);
+    /** 用 pricing 元数据构建 ModelInfo；multimodal 由调用方按「pricing 优先、缺失降级」算好传入。 */
+    private ModelInfo enrich(String id, ModelMeta meta, boolean multimodal) {
         return new ModelInfo(id, label(id), multimodal, supportsTemperature(id),
                 meta.tags(), meta.description(), meta.priceRatio());
     }

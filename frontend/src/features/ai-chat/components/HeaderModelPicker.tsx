@@ -228,7 +228,6 @@ function FamilyRow({
           {t}
         </span>
       ))}
-      {rep.multimodal && !tags.includes('多模态') && <span className="shrink-0 text-xs" title="支持图片输入">🖼</span>}
       {showPlatform && (
         <span className="shrink-0 text-[10px] text-[var(--color-muted-foreground)]">{modelPlatform(rep.id).label.split(' · ')[0]}</span>
       )}
