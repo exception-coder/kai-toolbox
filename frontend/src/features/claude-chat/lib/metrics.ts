@@ -36,17 +36,34 @@ export function formatTime(ts?: number): string {
   return sameDay ? hm : `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hm}`
 }
 
-/** usage（各引擎键名不一）→ 输入/输出/缓存/总计；无返回 null。 */
-export function parseUsage(u?: Record<string, number>): { input: number; output: number; cache: number; total: number } | null {
+/**
+ * usage（各引擎键名不一）→ 输入/输出/缓存/缓存命中(读)/总计；无返回 null。
+ * cache = 缓存读(命中) + 缓存写(创建)；cacheRead = 仅命中部分（≈免费，成本约 1/10）。
+ */
+export function parseUsage(u?: Record<string, number>): { input: number; output: number; cache: number; cacheRead: number; total: number } | null {
   if (!u) return null
-  let input = 0, output = 0, cache = 0, total = 0
+  let input = 0, output = 0, cache = 0, cacheRead = 0, total = 0
   for (const [k, v] of Object.entries(u)) {
     total += v
-    if (k.includes('cache')) cache += v
-    else if (k.includes('input')) input += v
+    if (k.includes('cache')) {
+      cache += v
+      if (k.includes('read')) cacheRead += v
+    } else if (k.includes('input')) input += v
     else if (k.includes('output')) output += v
   }
-  return { input, output, cache, total }
+  return { input, output, cache, cacheRead, total }
+}
+
+/**
+ * 缓存命中率 = 缓存读 / 输入侧总量(普通输入 + 缓存读 + 缓存写)，0~1；无输入侧 token 返回 null。
+ * 反映本轮有多大比例的输入直接命中缓存（≈不消耗）。
+ */
+export function cacheHitRate(u?: Record<string, number>): number | null {
+  const p = parseUsage(u)
+  if (!p) return null
+  const inputSide = p.input + p.cache
+  if (inputSide <= 0) return null
+  return p.cacheRead / inputSide
 }
 
 /**

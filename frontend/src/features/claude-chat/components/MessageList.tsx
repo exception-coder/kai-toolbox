@@ -1,10 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, Check, Coins, Copy, FileImage, GitBranch, Timer } from 'lucide-react'
+import { AlertTriangle, Check, Coins, Copy, Database, FileImage, GitBranch, Timer } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { loadState as loadCardState, saveState as saveCardState } from '@/features/markdown-card/lib/persistence'
 import type { ChatItem } from '../types'
-import { abbr, fmtMs, formatTime, parseUsage } from '../lib/metrics'
+import { abbr, cacheHitRate, fmtMs, formatTime, parseUsage } from '../lib/metrics'
 import { ToolCallBubble } from './ToolCallBubble'
 import { Markdown } from './Markdown'
 
@@ -129,12 +129,13 @@ function ToCardButton({ text }: { text: string }) {
   )
 }
 
-type Tone = 'violet' | 'sky' | 'emerald' | 'rose' | 'muted'
+type Tone = 'violet' | 'sky' | 'emerald' | 'rose' | 'teal' | 'muted'
 const TONE: Record<Tone, string> = {
   violet: 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950 dark:text-violet-300',
   sky: 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-300',
   emerald: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300',
   rose: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-300',
+  teal: 'border-teal-200 bg-teal-50 text-teal-700 dark:border-teal-900 dark:bg-teal-950 dark:text-teal-300',
   muted: 'border-[var(--color-border)] bg-[var(--color-muted)] text-[var(--color-muted-foreground)]',
 }
 
@@ -163,6 +164,7 @@ function TurnStatus({ item }: { item: Extract<ChatItem, { kind: 'result' }> }) {
   const [open, setOpen] = useState(false)
   const ok = item.stopReason === 'success' || item.stopReason === 'end_turn'
   const u = parseUsage(item.usage)
+  const hit = cacheHitRate(item.usage)
   const time = formatTime(item.ts)
   return (
     <div className="my-1 flex flex-col items-center gap-1">
@@ -173,6 +175,11 @@ function TurnStatus({ item }: { item: Extract<ChatItem, { kind: 'result' }> }) {
         {u && u.total > 0 && (
           <Chip tone="violet" icon={<Coins className="size-3" />} onClick={() => setOpen(o => !o)} title="点击查看 token 明细">
             {abbr(u.total)}
+          </Chip>
+        )}
+        {hit != null && hit > 0 && (
+          <Chip tone="teal" icon={<Database className="size-3" />} onClick={() => setOpen(o => !o)} title="缓存命中率（命中部分≈不计费）">
+            {Math.round(hit * 100)}%
           </Chip>
         )}
         {item.latencyMs != null && (
@@ -186,7 +193,8 @@ function TurnStatus({ item }: { item: Extract<ChatItem, { kind: 'result' }> }) {
         <div className="flex flex-wrap justify-center gap-x-3 gap-y-0.5 text-[10px] tabular-nums text-[var(--color-muted-foreground)]">
           <span>输入 {abbr(u.input)}</span>
           <span>输出 {abbr(u.output)}</span>
-          {u.cache > 0 && <span>缓存 {abbr(u.cache)}</span>}
+          {u.cache > 0 && <span>缓存读 {abbr(u.cacheRead)} / 写 {abbr(u.cache - u.cacheRead)}</span>}
+          {hit != null && <span>命中 {Math.round(hit * 100)}%</span>}
           {item.ttftMs != null && <span>首字 {fmtMs(item.ttftMs)}</span>}
           {item.latencyMs != null && <span>总耗时 {fmtMs(item.latencyMs)}</span>}
         </div>

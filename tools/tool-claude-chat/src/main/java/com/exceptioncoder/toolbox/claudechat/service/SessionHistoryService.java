@@ -312,7 +312,8 @@ public class SessionHistoryService {
         Map<String, Object> usage = new LinkedHashMap<>();
         usage.put("input_tokens", acc.input);
         usage.put("output_tokens", acc.output);
-        usage.put("cache_tokens", acc.cache);
+        usage.put("cache_read_input_tokens", acc.cacheRead);
+        usage.put("cache_creation_input_tokens", acc.cacheCreate);
         Long latency = (acc.startTs != null && acc.lastTs != null && acc.lastTs >= acc.startTs)
                 ? acc.lastTs - acc.startTs : null;
         out.add(ChatMessageView.result("h" + out.size(), "end_turn", acc.lastTs, usage, latency));
@@ -325,13 +326,14 @@ public class SessionHistoryService {
         Long lastTs;
         long input;
         long output;
-        long cache;
+        long cacheRead;
+        long cacheCreate;
         boolean hasOutput;
 
         void reset(Long start) {
             startTs = start;
             lastTs = null;
-            input = output = cache = 0;
+            input = output = cacheRead = cacheCreate = 0;
             hasOutput = false;
         }
 
@@ -339,8 +341,8 @@ public class SessionHistoryService {
             if (usage != null && usage.isObject()) {
                 input += usage.path("input_tokens").asLong(0);
                 output += usage.path("output_tokens").asLong(0);
-                cache += usage.path("cache_read_input_tokens").asLong(0)
-                        + usage.path("cache_creation_input_tokens").asLong(0);
+                cacheRead += usage.path("cache_read_input_tokens").asLong(0);
+                cacheCreate += usage.path("cache_creation_input_tokens").asLong(0);
             }
             if (ts != null) lastTs = ts;
             hasOutput = true;
