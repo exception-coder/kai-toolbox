@@ -4,10 +4,13 @@ import com.exceptioncoder.toolbox.aichat.api.dto.VideoGenRequest;
 import com.exceptioncoder.toolbox.aichat.api.dto.VideoTask;
 import com.exceptioncoder.toolbox.aichat.config.AiChatProperties;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.LinkedHashMap;
@@ -28,6 +31,7 @@ public class VideoService {
     private final AiChatProperties props;
     private final ModelCatalogService models;
     private final RestClient rest = RestClient.create();
+    private final ObjectMapper json = new ObjectMapper();
 
     public VideoService(AiChatProperties props, ModelCatalogService models) {
         this.props = props;
@@ -72,6 +76,11 @@ public class VideoService {
             return new VideoTask(resp.path("id").asText(), resp.path("status").asText("queued"), null, null, model);
         } catch (ResponseStatusException e) {
             throw e;
+        } catch (RestClientResponseException e) {
+            // 网关返回的 4xx/5xx：提炼其响应体里的真实错误(如 model_not_found / 无可用渠道)透传。
+            String detail = extractGatewayError(e);
+            log.warn("[ai-chat] 视频提交失败 model={}: status={} detail={}", model, e.getStatusCode(), detail);
+            throw new ResponseStatusException(mapStatus(e.getStatusCode(), detail), "视频提交失败：" + detail, e);
         } catch (RuntimeException e) {
             log.warn("[ai-chat] 视频提交失败 model={}: {}", model, e.toString());
             throw new ResponseStatusException(BAD_GATEWAY, "视频提交失败：" + e.getMessage(), e);
@@ -95,6 +104,10 @@ public class VideoService {
             return new VideoTask(id, status, findVideoUrl(n), findError(n), n.path("model").asText(null));
         } catch (ResponseStatusException e) {
             throw e;
+        } catch (RestClientResponseException e) {
+            String detail = extractGatewayError(e);
+            log.warn("[ai-chat] 视频轮询失败 id={}: status={} detail={}", id, e.getStatusCode(), detail);
+            throw new ResponseStatusException(mapStatus(e.getStatusCode(), detail), "视频轮询失败：" + detail, e);
         } catch (RuntimeException e) {
             log.warn("[ai-chat] 视频轮询失败 id={}: {}", id, e.toString());
             throw new ResponseStatusException(BAD_GATEWAY, "视频轮询失败：" + e.getMessage(), e);
@@ -139,5 +152,58 @@ public class VideoService {
             }
         }
         return null;
+    }
+
+    /**
+     * 从网关错误响应体里提炼对用户有意义的报错。New API 网关常把错误层层嵌套且内层是
+     * 被转义的 JSON 字符串(如 {@code {"code":"fail_to_fetch_task","message":"{\"error\":{\"message\":\"No available channel...\"}}"}}),
+     * 这里递归下钻到最内层的 message,拿不到结构则回退原始响应体。
+     */
+    private String extractGatewayError(RestClientResponseException e) {
+        String raw = e.getResponseBodyAsString();
+        if (raw == null || raw.isBlank()) {
+            return e.getStatusText();
+        }
+        try {
+            String msg = deepestMessage(json.readTree(raw), 0);
+            return msg != null ? msg : raw;
+        } catch (Exception parseErr) {
+            return raw;
+        }
+    }
+
+    /** 递归找最内层的 error.message / message;内层 message 若本身是 JSON 串则继续下钻(限深防御)。 */
+    private String deepestMessage(JsonNode node, int depth) {
+        if (node == null || depth > 6) {
+            return null;
+        }
+        JsonNode msg = node.path("error").path("message");
+        if (!msg.isTextual()) {
+            msg = node.path("message");
+        }
+        if (msg.isTextual() && !msg.asText().isBlank()) {
+            String text = msg.asText().trim();
+            // 内层 message 仍是 JSON 串(以 { 开头),继续解析下钻;否则即最终人类可读文案。
+            if (text.startsWith("{")) {
+                try {
+                    String inner = deepestMessage(json.readTree(text), depth + 1);
+                    return inner != null ? inner : text;
+                } catch (Exception ignore) {
+                    return text;
+                }
+            }
+            return text;
+        }
+        return null;
+    }
+
+    /** 网关 5xx「模型不存在/无可用渠道」实为配置问题,对前端按 400 呈现更准确;其余 5xx 仍按 502。 */
+    private static HttpStatusCode mapStatus(HttpStatusCode gatewayStatus, String detail) {
+        String d = detail == null ? "" : detail.toLowerCase();
+        if (d.contains("model_not_found") || d.contains("no available channel")
+                || d.contains("无可用") || d.contains("not found")) {
+            return BAD_REQUEST;
+        }
+        return BAD_GATEWAY;
     }
 }
