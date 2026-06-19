@@ -45,7 +45,7 @@ public class AiChatProperties {
 
     /** 模型 id 命中其一即判为多模态（小写子串匹配）。 */
     private List<String> multimodalPatterns = List.of(
-            "gpt-4o", "gpt-4.1", "o1", "o3", "claude", "gemini", "vision", "qwen-vl", "glm-4v");
+            "gpt-4o", "gpt-4.1", "gpt-5", "o1", "o3", "o4", "claude", "gemini", "vision", "qwen-vl", "glm-4v");
 
     /**
      * 模型 id 命中其一即「不支持自定义温度」（小写子串匹配）：推理模型（o 系列、gpt-5 系列等）
