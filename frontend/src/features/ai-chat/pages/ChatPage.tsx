@@ -207,9 +207,6 @@ export function ChatPage() {
   const models = modelsView?.models ?? []
   const presets = modelsView?.presets ?? []
 
-  // 选中模型是否支持自定义温度；清单查不到（兜底/未知）默认支持，不误藏滑块。
-  const supportsTemperature = models.find((m) => m.id === selectedModel)?.supportsTemperature ?? true
-
   return (
     <div className="flex h-[calc(100vh-3.5rem)] bg-[var(--color-muted)]/40">
       <aside className="w-64 shrink-0 border-r bg-[var(--color-background)]">
@@ -231,6 +228,8 @@ export function ChatPage() {
               models={models}
               value={selectedModel}
               onChange={handleModelChange}
+              temperature={temperature}
+              onTemperatureChange={setTemperature}
               fallback={modelsView?.source === 'fallback'}
               onRefresh={refreshModels}
               disabled={!activeConv}
@@ -301,9 +300,6 @@ export function ChatPage() {
         presets={presets}
         activeSystemPrompt={activeConv?.systemPrompt ?? null}
         onPickPreset={handlePickPreset}
-        temperature={temperature}
-        onTemperatureChange={setTemperature}
-        supportsTemperature={supportsTemperature}
         disabled={!activeConv}
       />
 
