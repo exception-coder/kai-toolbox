@@ -16,7 +16,7 @@ import java.util.Map;
 /**
  * AI 对话的语音转写：录音音频以 raw body 上传，同步返回纯文本，复用 common 的转写编排。
  */
-@RestController
+@RestController("aiChatSttController")
 @RequestMapping("/api/ai-chat/stt")
 public class SttController {
 
