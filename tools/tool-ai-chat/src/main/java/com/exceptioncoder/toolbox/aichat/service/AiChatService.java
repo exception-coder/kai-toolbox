@@ -127,7 +127,7 @@ public class AiChatService {
         persistOverrides(conv, req, model, temperature, maxTokens);
 
         List<dev.langchain4j.data.message.ChatMessage> messages =
-                buildMessages(conv, priorHistory, content, refs);
+                buildMessages(conv, priorHistory, content, refs, models.isMultimodal(model));
 
         String taskId = "t_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         pending.put(taskId, new StreamContext(taskId, conv.getId(), model, temperature, maxTokens, messages));
@@ -251,7 +251,7 @@ public class AiChatService {
 
     private List<dev.langchain4j.data.message.ChatMessage> buildMessages(
             Conversation conv, List<com.exceptioncoder.toolbox.aichat.domain.ChatMessage> history,
-            String content, List<AttachmentRef> refs) {
+            String content, List<AttachmentRef> refs, boolean multimodal) {
         List<dev.langchain4j.data.message.ChatMessage> out = new ArrayList<>();
         if (conv.getSystemPrompt() != null && !conv.getSystemPrompt().isBlank()) {
             out.add(SystemMessage.from(conv.getSystemPrompt()));
@@ -261,27 +261,35 @@ public class AiChatService {
             if (m.getRole() == MessageRole.ASSISTANT) {
                 out.add(AiMessage.from(c));
             } else if (m.getRole() == MessageRole.USER) {
-                out.add(UserMessage.from(c));
+                // 历史用户消息也要带回它的图片附件，否则回头追问历史图片时模型看不到原图。
+                // 仅多模态模型带图（非多模态带图会被网关拒）；读不到的旧文件跳过不阻断。
+                List<AttachmentRef> histRefs = multimodal ? conversations.parseRefs(m.getAttachmentsJson()) : List.of();
+                out.add(userMessage(c, histRefs));
             }
             // 历史 SYSTEM 不重复注入（系统提示以会话当前 systemPrompt 为准）。
         }
-        out.add(currentUserMessage(content, refs));
+        out.add(userMessage(content, refs));
         return out;
     }
 
-    private UserMessage currentUserMessage(String content, List<AttachmentRef> refs) {
-        if (refs.isEmpty()) {
-            return UserMessage.from(content);
+    /** 构造用户消息：无附件时纯文本；有图片附件时拼多模态内容，单张读取失败则跳过该图。 */
+    private UserMessage userMessage(String content, List<AttachmentRef> refs) {
+        if (refs == null || refs.isEmpty()) {
+            return UserMessage.from(content == null ? "" : content);
         }
         List<Content> contents = new ArrayList<>();
-        if (!content.isBlank()) {
+        if (content != null && !content.isBlank()) {
             contents.add(TextContent.from(content));
         }
         for (AttachmentRef ref : refs) {
-            String base64 = Base64.getEncoder().encodeToString(attachments.readBytes(ref));
-            contents.add(ImageContent.from(base64, ref.mime()));
+            try {
+                String base64 = Base64.getEncoder().encodeToString(attachments.readBytes(ref));
+                contents.add(ImageContent.from(base64, ref.mime()));
+            } catch (RuntimeException e) {
+                log.warn("[ai-chat] 历史附件读取失败，跳过 id={}: {}", ref.id(), e.toString());
+            }
         }
-        return UserMessage.from(contents);
+        return contents.isEmpty() ? UserMessage.from(content == null ? "" : content) : UserMessage.from(contents);
     }
 
     private void persistOverrides(Conversation conv, SendMessageRequest req,
