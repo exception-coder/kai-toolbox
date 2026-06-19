@@ -1,0 +1,14 @@
+# FastAPI + uvicorn 提供 HTTP 服务壳（与 visitor-analysis / faster-whisper sidecar 同构）。
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+
+# —— 微信自动化库：按你 PC 上微信客户端版本二选一 ——
+# 微信 3.9.x（旧版，最成熟稳定）：保留下面这行
+wxauto>=3.9.11.17
+#
+# 微信 4.0+（新版）：注释掉上面的 wxauto，改用下面其一（按各自仓库当前可用版本为准）：
+# wxauto-4.0
+# wxautox4
+#
+# server.py 做了兼容导入（先 wxauto 后 wxautox），换库后一般无需改代码；
+# 若个别接口报错，看 /health 的 lib/lib_version 再对照库文档微调 server.py 的方法名。

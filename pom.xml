@@ -47,6 +47,7 @@
         <module>tools/tool-java8gu</module>
         <module>tools/tool-ai-chat</module>
         <module>tools/tool-visitor-analysis</module>
+        <module>tools/tool-wechat</module>
         <module>toolbox-starter</module>
     </modules>
 
@@ -230,6 +231,11 @@
             <dependency>
                 <groupId>com.exceptioncoder</groupId>
                 <artifactId>tool-visitor-analysis</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-wechat</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

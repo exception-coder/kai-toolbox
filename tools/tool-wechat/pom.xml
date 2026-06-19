@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.exceptioncoder</groupId>
+        <artifactId>kai-toolbox</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>tool-wechat</artifactId>
+    <packaging>jar</packaging>
+    <name>tool-wechat</name>
+    <description>微信监控/操作：读消息、监听新消息、发文字。GUI 自动化由 Python wxauto sidecar 完成（python-services/wechat），Java 侧只做持久化 + SSE 实时推送 + REST。</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.exceptioncoder</groupId>
+            <artifactId>toolbox-common</artifactId>
+        </dependency>
+        <!-- 微信 GUI 操作全在 Python wxauto sidecar，Java 侧只用 JDK 自带 HttpClient 调它，不引入额外依赖。 -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+</project>

@@ -132,6 +132,10 @@
             <groupId>com.exceptioncoder</groupId>
             <artifactId>tool-visitor-analysis</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.exceptioncoder</groupId>
+            <artifactId>tool-wechat</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
