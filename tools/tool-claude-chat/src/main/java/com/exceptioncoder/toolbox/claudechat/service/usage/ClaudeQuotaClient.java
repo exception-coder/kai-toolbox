@@ -30,8 +30,9 @@ import java.time.OffsetDateTime;
 class ClaudeQuotaClient {
 
     private static final Logger log = LoggerFactory.getLogger(ClaudeQuotaClient.class);
-    private static final long OK_TTL = 300_000L;
-    private static final long ERR_TTL = 60_000L;
+    // 该端点 429 极凶 → 极保守缓存：成功 10 分钟、失败退避 5 分钟。仅在用户点开用量面板时才可能触发一次。
+    private static final long OK_TTL = 600_000L;
+    private static final long ERR_TTL = 300_000L;
     private static final String FALLBACK_VER = "2.1.183";
 
     private final ObjectMapper mapper;
