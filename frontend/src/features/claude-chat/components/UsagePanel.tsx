@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Coins, Database, Loader2, X } from 'lucide-react'
-import { fetchUsage, type EngineUsage, type UsageWindow } from '../api'
+import { fetchUsage, type EngineUsage, type SessionUsage, type UsageWindow } from '../api'
 import { abbr } from '../lib/metrics'
 
 const ENGINE_LABEL: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', gemini: 'Gemini' }
@@ -11,8 +11,8 @@ const WINDOWS: { key: 'today' | 'd7' | 'd30'; label: string }[] = [
   { key: 'd30', label: '近 30 天' },
 ]
 
-/** 引擎本地用量弹层：三引擎卡片 + 窗口切换；Codex 额外显示官方额度。 */
-export function UsagePanel({ onClose }: { onClose: () => void }) {
+/** 引擎本地用量弹层：本会话用量拆分 + 三引擎卡片 + 窗口切换；Codex 额外显示官方额度。 */
+export function UsagePanel({ onClose, session }: { onClose: () => void; session?: SessionUsage | null }) {
   const { data, isLoading, error } = useQuery({ queryKey: ['claude-chat-usage'], queryFn: fetchUsage, staleTime: 30_000 })
   const [win, setWin] = useState<'today' | 'd7' | 'd30'>('today')
 
@@ -51,6 +51,7 @@ export function UsagePanel({ onClose }: { onClose: () => void }) {
         </header>
 
         <div className="flex-1 overflow-y-auto p-3">
+          {session && session.turns > 0 && <SessionUsageCard s={session} />}
           {isLoading && (
             <div className="flex items-center justify-center gap-2 py-10 text-sm text-[var(--color-muted-foreground)]">
               <Loader2 className="size-4 animate-spin" /> 扫描本地会话日志…
@@ -67,6 +68,39 @@ export function UsagePanel({ onClose }: { onClose: () => void }) {
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+/** 本会话用量拆分：总吞吐(含缓存读) vs 实际消耗(不含缓存读) + 输入/输出/缓存读/缓存写。 */
+function SessionUsageCard({ s }: { s: SessionUsage }) {
+  const real = s.inputTokens + s.outputTokens + s.cacheCreateTokens // 不含缓存读（命中≈免费）
+  const inputSide = s.inputTokens + s.cacheReadTokens + s.cacheCreateTokens
+  const hit = inputSide > 0 ? Math.floor((s.cacheReadTokens / inputSide) * 100) : null
+  const Row = ({ label, value, tone }: { label: string; value: string; tone?: string }) => (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-[var(--color-muted-foreground)]">{label}</span>
+      <span className={`tabular-nums font-medium ${tone ?? ''}`}>{value}</span>
+    </div>
+  )
+  return (
+    <div className="mb-3 rounded-xl border border-violet-200 bg-violet-50/50 p-3 dark:border-violet-900 dark:bg-violet-950/30">
+      <div className="flex items-center gap-2">
+        <Coins className="size-4 text-violet-600 dark:text-violet-400" />
+        <span className="text-sm font-semibold">本会话用量</span>
+        <span className="ml-auto text-xs text-[var(--color-muted-foreground)]">{s.turns} 轮{hit != null ? ` · 命中 ${hit}%` : ''}</span>
+      </div>
+      <div className="mt-2 grid grid-cols-1 gap-y-1 text-xs sm:grid-cols-2 sm:gap-x-6">
+        <Row label="总吞吐(含缓存读)" value={abbr(s.totalTokens)} tone="text-violet-600 dark:text-violet-400" />
+        <Row label="实际消耗(不含缓存读)" value={abbr(real)} tone="text-emerald-600 dark:text-emerald-400" />
+        <Row label="输入" value={abbr(s.inputTokens)} />
+        <Row label="输出" value={abbr(s.outputTokens)} />
+        <Row label="缓存读(命中≈免费)" value={abbr(s.cacheReadTokens)} />
+        <Row label="缓存写" value={abbr(s.cacheCreateTokens)} />
+      </div>
+      <p className="mt-2 text-[10px] leading-relaxed text-[var(--color-muted-foreground)]">
+        缓存读每次模型调用都把整段上下文重算计入，故「总吞吐」远大于「实际消耗」；计费主要看实际消耗（缓存读约 1/10 计费）。已含本会话全部 agent 段。
+      </p>
     </div>
   )
 }

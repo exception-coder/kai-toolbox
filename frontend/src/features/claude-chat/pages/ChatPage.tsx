@@ -1003,7 +1003,7 @@ export function ChatPage() {
       )}
 
       {/* 本地用量弹层 */}
-      {showUsage && <UsagePanel onClose={() => setShowUsage(false)} />}
+      {showUsage && <UsagePanel onClose={() => setShowUsage(false)} session={sessionUsage} />}
 
       {/* 可视化决策弹窗（仅单会话视图；分屏下各块自管弹窗） */}
       {viewMode === 'single' && pending?.kind === 'permission' && (
