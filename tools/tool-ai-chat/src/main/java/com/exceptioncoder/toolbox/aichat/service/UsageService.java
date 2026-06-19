@@ -59,7 +59,11 @@ public class UsageService {
         }
     }
 
-    /** 由 base-url 推导 /api/usage/token：去掉末尾 /v1，拼 /api/usage/token。 */
+    /**
+     * 由 base-url 推导 usage 端点：去掉末尾 /v1，拼 /api/usage/token/。
+     * 末尾斜杠不能省——网关对无斜杠路径会 301 到带斜杠版本，而 JDK HttpClient（RestClient 底层）
+     * 默认不跟随重定向，会拿到 301 的 HTML 页面导致解析失败。
+     */
     private String usageUrl() {
         String base = props.getBaseUrl();
         String origin = base.endsWith("/v1") ? base.substring(0, base.length() - 3)
@@ -67,6 +71,6 @@ public class UsageService {
         if (origin.endsWith("/")) {
             origin = origin.substring(0, origin.length() - 1);
         }
-        return origin + "/api/usage/token";
+        return origin + "/api/usage/token/";
     }
 }
