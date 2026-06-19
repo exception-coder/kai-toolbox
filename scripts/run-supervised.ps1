@@ -247,6 +247,27 @@ function Initialize-NodeDeps {
     } else { Write-Host '[supervisor] undetected-browser 依赖已就绪，跳过' }
 }
 
+# 微信监控 sidecar（python-services\wechat，wxauto）。完全隔离、尽力而为：
+#   - Start-Process 异步起独立进程/窗口：首次建 venv/pip install 可能数分钟，绝不阻塞 supervisor；
+#   - 整段 try/catch：起不来只打 WARN，绝不影响 backend / frontend / 其它 sidecar；
+#   - 不纳入下面的守护重启循环：它挂了就挂了，后端 WechatMonitorService 有退避兜底；
+#   - 前置条件是「微信已登录」，这里无法判断，交给 sidecar 自己（/health 会报 wechat_online=false）。
+function Start-WechatSidecar {
+    try {
+        $wechatDir = Join-Path $RepoRoot 'python-services\wechat'
+        $bat = Join-Path $wechatDir 'start.bat'
+        if (-not (Test-Path -LiteralPath $bat)) { Write-Host '[supervisor] wechat sidecar start.bat 不存在，跳过'; return }
+        # 已在 :9700 监听则不重复拉起（避免重启 supervisor 时起第二个）。
+        $listening = $false
+        try { $listening = [bool](Get-NetTCPConnection -LocalPort 9700 -State Listen -ErrorAction Stop) } catch { }
+        if ($listening) { Write-Host '[supervisor] wechat sidecar 已在 :9700，跳过'; return }
+        Write-Host '[supervisor] start wechat sidecar (python-services\wechat\start.bat，独立窗口，首次装依赖较慢)...'
+        Start-Process -FilePath $bat -WorkingDirectory $wechatDir -ErrorAction Stop | Out-Null
+    } catch {
+        Write-Host "[supervisor] WARN: wechat sidecar 启动失败（不影响其它作业）: $($_.Exception.Message)"
+    }
+}
+
 function Start-Frontend {
     if (-not $NpmCmd) { Write-Host '[supervisor] 跳过前端启动（npm 未找到）'; return }
     Stop-PortHolders $FrontendPort
@@ -328,6 +349,8 @@ Initialize-NodeDeps
 # 一键：后端 + 前端一起拉起，各自守护；退出（Ctrl+C）时一并收尾。
 Start-Backend
 Start-Frontend
+# 微信监控 sidecar：尽力起一次，失败/缺依赖只 WARN，不进守护循环，不连累上面两个。
+Start-WechatSidecar
 
 try {
     if ($listener) {
