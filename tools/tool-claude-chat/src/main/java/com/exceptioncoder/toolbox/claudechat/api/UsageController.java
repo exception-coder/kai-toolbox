@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 /** 引擎本地用量：扫本机 Claude/Codex/Gemini 会话日志，按 今日/近7天/近30天 聚合（60s 缓存）。 */
-@RestController
+@RestController("claudeChatUsageController")
 @RequestMapping("/api/claude-chat/usage")
 public class UsageController {
 

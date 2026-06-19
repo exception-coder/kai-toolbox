@@ -20,7 +20,7 @@ import java.util.Set;
  * 引擎本地用量聚合：并行扫各引擎日志，按 今日/近7天/近30天 聚合 token 与轮次，60s 内存缓存。
  */
 @Slf4j
-@Service
+@Service("claudeChatUsageService")
 public class UsageService {
 
     private static final long DAY = 86_400_000L;

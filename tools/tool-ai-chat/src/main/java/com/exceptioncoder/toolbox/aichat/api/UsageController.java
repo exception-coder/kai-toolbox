@@ -7,7 +7,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /** 当前 key 用量查询：{@code GET /api/ai-chat/usage}。 */
-@RestController
+@RestController("aiChatUsageController")
 @RequestMapping("/api/ai-chat/usage")
 public class UsageController {
 

@@ -12,7 +12,7 @@ import org.springframework.web.client.RestClient;
  * 当前 key 的用量查询：调网关 {@code GET /api/usage/token}（凭 key 即可，无需管理员账号）。
  * 把 New API 内部额度换算成美元。请求级/按模型/按天明细需账号登录态，不在此范围。
  */
-@Service
+@Service("aiChatUsageService")
 public class UsageService {
 
     private static final Logger log = LoggerFactory.getLogger(UsageService.class);
