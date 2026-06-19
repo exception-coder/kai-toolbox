@@ -83,27 +83,24 @@ export function Composer(props: Props) {
       {error && <p className="mb-2 text-xs text-[var(--color-destructive)]">{error}</p>}
 
       <div className="flex items-end gap-2">
-        {multimodal && (
-          <>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              multiple
-              hidden
-              onChange={(e) => pickFiles(e.target.files)}
-            />
-            <Button
-              variant="ghost"
-              size="icon"
-              disabled={streaming || disabled || uploading}
-              onClick={() => fileRef.current?.click()}
-              title="添加图片"
-            >
-              {uploading ? <Loader2 className="animate-spin" /> : <Paperclip />}
-            </Button>
-          </>
-        )}
+        {/* 附件（图片）入口常驻，不依赖易失准的多模态猜测；非多模态模型在发送时由后端校验拦截。 */}
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={(e) => pickFiles(e.target.files)}
+        />
+        <Button
+          variant="ghost"
+          size="icon"
+          disabled={streaming || disabled || uploading}
+          onClick={() => fileRef.current?.click()}
+          title={multimodal ? '添加图片' : '添加图片（当前模型可能不支持图片输入）'}
+        >
+          {uploading ? <Loader2 className="animate-spin" /> : <Paperclip />}
+        </Button>
         <VoiceInputButton
           disabled={streaming || disabled}
           onText={(t) => setContent((prev) => (prev.trim() ? `${prev} ${t}` : t))}
