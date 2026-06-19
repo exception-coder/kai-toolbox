@@ -178,8 +178,8 @@ function TurnStatus({ item }: { item: Extract<ChatItem, { kind: 'result' }> }) {
           </Chip>
         )}
         {hit != null && hit > 0 && (
-          <Chip tone="teal" icon={<Database className="size-3" />} onClick={() => setOpen(o => !o)} title="缓存命中率（命中部分≈不计费）">
-            {Math.round(hit * 100)}%
+          <Chip tone="teal" icon={<Database className="size-3" />} onClick={() => setOpen(o => !o)} title="缓存命中率（命中部分≈不计费）；向下取整，仅真正全命中才显示 100%">
+            {Math.floor(hit * 100)}%
           </Chip>
         )}
         {item.latencyMs != null && (
@@ -194,7 +194,7 @@ function TurnStatus({ item }: { item: Extract<ChatItem, { kind: 'result' }> }) {
           <span>输入 {abbr(u.input)}</span>
           <span>输出 {abbr(u.output)}</span>
           {u.cache > 0 && <span>缓存读 {abbr(u.cacheRead)} / 写 {abbr(u.cache - u.cacheRead)}</span>}
-          {hit != null && <span>命中 {Math.round(hit * 100)}%</span>}
+          {hit != null && <span>命中 {Math.floor(hit * 100)}%</span>}
           {item.ttftMs != null && <span>首字 {fmtMs(item.ttftMs)}</span>}
           {item.latencyMs != null && <span>总耗时 {fmtMs(item.latencyMs)}</span>}
         </div>
