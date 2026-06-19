@@ -12,8 +12,11 @@ import java.util.List;
 @Component
 class ClaudeUsageScanner extends AbstractUsageScanner {
 
-    ClaudeUsageScanner(ObjectMapper mapper) {
+    private final ClaudeQuotaClient quotaClient;
+
+    ClaudeUsageScanner(ObjectMapper mapper, ClaudeQuotaClient quotaClient) {
         super(mapper);
+        this.quotaClient = quotaClient;
     }
 
     @Override
@@ -41,6 +44,7 @@ class ClaudeUsageScanner extends AbstractUsageScanner {
                 out.add(new TurnRecord(ts, in, outp, cr, cc, sid, true));
             });
         }
-        return new ScanResult(out, null);
+        // 官方 5h/周额度（调 /api/oauth/usage，长缓存防 429；失败为 null 不展示）
+        return new ScanResult(out, quotaClient.get());
     }
 }

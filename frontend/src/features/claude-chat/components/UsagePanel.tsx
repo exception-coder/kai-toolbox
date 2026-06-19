@@ -61,7 +61,7 @@ export function UsagePanel({ onClose }: { onClose: () => void }) {
             <div className="flex flex-col gap-3">
               {data.map(e => <EngineCard key={e.engine} u={e} win={win} />)}
               <p className="px-1 text-[10px] leading-relaxed text-[var(--color-muted-foreground)]">
-                数据来自本机各 CLI 会话日志（只读）。Token 为实际消耗；缓存命中部分计费约 1/10。官方账号剩余额度仅 Codex 本地可得。
+                Token 来自本机各 CLI 会话日志（只读），为实际消耗，缓存命中部分计费约 1/10。官方额度：Claude 调 /usage 端点、Codex 取本地 rollout；Gemini 本地无 token。
               </p>
             </div>
           )}
@@ -112,7 +112,7 @@ function EngineCard({ u, win }: { u: EngineUsage; win: 'today' | 'd7' | 'd30' })
           {u.quota.secondaryUsedPercent != null && (
             <QuotaBar label="周窗口" pct={u.quota.secondaryUsedPercent} resetsAt={u.quota.secondaryResetsAt} />
           )}
-          <span className="text-[10px] text-[var(--color-muted-foreground)]">官方额度快照（来自最近一次 Codex 调用）</span>
+          <span className="text-[10px] text-[var(--color-muted-foreground)]">官方账号额度</span>
         </div>
       )}
     </div>
