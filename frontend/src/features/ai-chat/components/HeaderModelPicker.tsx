@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, RefreshCw, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ModelInfo } from '../types'
-import { CAPABILITY_TAGS, capabilityTags, groupModels, modelDot, modelPlatform, sortByReasoning } from '../lib/modelGroups'
+import { CAPABILITY_TAGS, capabilityTags, groupByPlatform, modelDot, modelPlatform } from '../lib/modelGroups'
+import { buildFamilies, effortLabel, effortOf, familyKey, familyScore, type ModelFamily } from '../lib/modelFamilies'
 
 type SortMode = 'platform' | 'reasoning'
 
@@ -18,7 +19,8 @@ interface Props {
 
 /**
  * 标题栏常驻的模型选择器（Cursor 风格 Badge + 下拉）：把「切模型」从右抽屉提升为高频主路径。
- * 触发器显示供应商配色圆点 + 当前模型名；下拉内按平台分组、带搜索过滤，点击即切换。
+ * 同家族的 effort 变体（gpt-5.5-high/medium/low）折叠为一行 + 档位切换；按平台分组或按能力排序，
+ * 支持搜索与场景标签筛选。
  */
 export function HeaderModelPicker({ models, value, onChange, fallback, onRefresh, disabled }: Props) {
   const [open, setOpen] = useState(false)
@@ -27,10 +29,15 @@ export function HeaderModelPicker({ models, value, onChange, fallback, onRefresh
   const [tag, setTag] = useState<string | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
 
-  const current = models.find((m) => m.id === value)
-  const label = current?.label ?? value ?? '选择模型'
+  // 触发器：家族名 + 当前档位（gpt-5.5 · 高）
+  const triggerLabel = useMemo(() => {
+    const m = models.find((x) => x.id === value)
+    const base = m?.label ?? value ?? '选择模型'
+    const e = effortOf(value ?? '')
+    const baseName = familyKey(m?.label ?? value ?? '') || base
+    return e === 'default' ? base : `${baseName} · ${effortLabel(e)}`
+  }, [models, value])
 
-  // 点击外部 / Esc 关闭
   useEffect(() => {
     if (!open) return
     const onDown = (e: MouseEvent) => {
@@ -47,7 +54,6 @@ export function HeaderModelPicker({ models, value, onChange, fallback, onRefresh
     }
   }, [open])
 
-  // 可用于筛选的场景标签（出现在任一模型上的能力标签，按固定顺序）。
   const sceneTags = useMemo(() => {
     const present = new Set(models.flatMap((m) => capabilityTags(m)))
     return CAPABILITY_TAGS.filter((t) => present.has(t))
@@ -62,8 +68,23 @@ export function HeaderModelPicker({ models, value, onChange, fallback, onRefresh
     })
   }, [models, q, tag])
 
-  const groups = useMemo(() => groupModels(filtered), [filtered])
-  const ranked = useMemo(() => sortByReasoning(filtered), [filtered])
+  const families = useMemo(() => buildFamilies(filtered), [filtered])
+
+  // 平台分组：每组内家族按能力分降序
+  const grouped = useMemo(
+    () =>
+      groupByPlatform(families, (f) => f.rep.id).map((g) => ({
+        key: g.key,
+        label: g.label,
+        families: g.items.slice().sort((a, b) => familyScore(b) - familyScore(a) || a.key.localeCompare(b.key)),
+      })),
+    [families],
+  )
+  // 能力排序：全部家族扁平按能力分降序
+  const ranked = useMemo(
+    () => families.slice().sort((a, b) => familyScore(b) - familyScore(a) || a.key.localeCompare(b.key)),
+    [families],
+  )
 
   const pick = (id: string) => {
     onChange(id)
@@ -79,18 +100,18 @@ export function HeaderModelPicker({ models, value, onChange, fallback, onRefresh
         onClick={() => setOpen((o) => !o)}
         title="切换模型"
         className={cn(
-          'inline-flex max-w-[15rem] items-center gap-1.5 rounded-full border bg-[var(--color-background)] px-3 py-1.5 text-sm font-medium',
+          'inline-flex max-w-[16rem] items-center gap-1.5 rounded-full border bg-[var(--color-background)] px-3 py-1.5 text-sm font-medium',
           'hover:bg-[var(--color-accent)] disabled:opacity-50',
         )}
       >
         <span className={cn('size-2 shrink-0 rounded-full', modelDot(value))} />
-        <span className="truncate">{label}</span>
+        <span className="truncate">{triggerLabel}</span>
         {fallback && <span className="shrink-0 text-[11px] text-amber-600 dark:text-amber-400">·兜底</span>}
         <ChevronDown className="size-3.5 shrink-0 opacity-60" />
       </button>
 
       {open && (
-        <div className="absolute left-0 z-50 mt-1 w-72 overflow-hidden rounded-lg border bg-[var(--color-background)] shadow-lg">
+        <div className="absolute left-0 z-50 mt-1 w-80 overflow-hidden rounded-lg border bg-[var(--color-background)] shadow-lg">
           <div className="flex items-center gap-1.5 border-b px-2 py-1.5">
             <Search className="size-3.5 shrink-0 text-[var(--color-muted-foreground)]" />
             <input
@@ -111,7 +132,7 @@ export function HeaderModelPicker({ models, value, onChange, fallback, onRefresh
               </button>
             )}
           </div>
-          {/* 排序：平台分组 vs 按推理力扁平排序 */}
+          {/* 排序：平台分组 vs 按能力 */}
           <div className="flex items-center gap-1 border-b px-2 py-1.5">
             <span className="mr-1 text-[11px] text-[var(--color-muted-foreground)]">排序</span>
             {([['platform', '平台'], ['reasoning', '能力']] as const).map(([mode, text]) => (
@@ -152,19 +173,19 @@ export function HeaderModelPicker({ models, value, onChange, fallback, onRefresh
             </div>
           )}
           <div className="max-h-[55vh] overflow-y-auto py-1">
-            {filtered.length === 0 && (
+            {families.length === 0 && (
               <p className="px-3 py-4 text-center text-xs text-[var(--color-muted-foreground)]">无匹配模型</p>
             )}
             {sort === 'platform'
-              ? groups.map((g) => (
+              ? grouped.map((g) => (
                   <div key={g.key} className="mb-1">
                     <div className="px-3 pb-0.5 pt-2 text-[11px] font-medium text-[var(--color-muted-foreground)]">{g.label}</div>
-                    {g.models.map((m) => (
-                      <ModelRow key={m.id} m={m} selected={m.id === value} onPick={pick} />
+                    {g.families.map((f) => (
+                      <FamilyRow key={f.key} family={f} selectedId={value} onPick={pick} />
                     ))}
                   </div>
                 ))
-              : ranked.map((m) => <ModelRow key={m.id} m={m} selected={m.id === value} onPick={pick} showPlatform />)}
+              : ranked.map((f) => <FamilyRow key={f.key} family={f} selectedId={value} onPick={pick} showPlatform />)}
           </div>
         </div>
       )}
@@ -180,43 +201,88 @@ const TAG_TONE: Record<string, string> = {
   文件: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
 }
 
-/** 模型下拉的一行：配色圆点 + 名称 + 能力徽章（介绍 tooltip）+ 平台后缀 + 选中勾。 */
-function ModelRow({
-  m,
-  selected,
+/**
+ * 一个家族一行：配色圆点 + 家族名 + 能力徽章（介绍 tooltip）+ 平台后缀 + effort 档位切换。
+ * 无 effort 变体的家族退化为单选行。
+ */
+function FamilyRow({
+  family,
+  selectedId,
   onPick,
   showPlatform,
 }: {
-  m: ModelInfo
-  selected: boolean
+  family: ModelFamily
+  selectedId: string
   onPick: (id: string) => void
   showPlatform?: boolean
 }) {
-  const tags = capabilityTags(m)
-  const title = m.description || (m.tags?.length ? m.tags.join(' · ') : undefined)
-  return (
-    <button
-      type="button"
-      onClick={() => onPick(m.id)}
-      title={title}
-      className={cn(
-        'flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-[var(--color-accent)]',
-        selected && 'bg-[var(--color-accent)]/60',
-      )}
-    >
-      <span className={cn('size-2 shrink-0 rounded-full', modelDot(m.id))} />
-      <span className="min-w-0 flex-1 truncate">{m.label}</span>
+  const rep = family.rep
+  const tags = capabilityTags(rep)
+  const title = rep.description || (rep.tags?.length ? rep.tags.join(' · ') : undefined)
+  const selectedHere = family.members.some((x) => x.model.id === selectedId)
+
+  const meta = (
+    <>
       {tags.map((t) => (
         <span key={t} className={cn('shrink-0 rounded px-1 py-0.5 text-[9px] font-medium leading-none', TAG_TONE[t] ?? 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]')}>
           {t}
         </span>
       ))}
-      {/* pricing 不可达（无标签）时的多模态兜底标记 */}
-      {m.multimodal && !tags.includes('多模态') && <span className="shrink-0 text-xs" title="支持图片输入">🖼</span>}
+      {rep.multimodal && !tags.includes('多模态') && <span className="shrink-0 text-xs" title="支持图片输入">🖼</span>}
       {showPlatform && (
-        <span className="shrink-0 text-[10px] text-[var(--color-muted-foreground)]">{modelPlatform(m.id).label.split(' · ')[0]}</span>
+        <span className="shrink-0 text-[10px] text-[var(--color-muted-foreground)]">{modelPlatform(rep.id).label.split(' · ')[0]}</span>
       )}
-      {selected && <Check className="size-3.5 shrink-0 text-[var(--color-primary)]" />}
-    </button>
+    </>
+  )
+
+  // 单一模型：整行可点
+  if (!family.hasEffort) {
+    const only = family.members[0].model
+    return (
+      <button
+        type="button"
+        onClick={() => onPick(only.id)}
+        title={title}
+        className={cn(
+          'flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-[var(--color-accent)]',
+          only.id === selectedId && 'bg-[var(--color-accent)]/60',
+        )}
+      >
+        <span className={cn('size-2 shrink-0 rounded-full', modelDot(only.id))} />
+        <span className="min-w-0 flex-1 truncate">{only.label}</span>
+        {meta}
+        {only.id === selectedId && <Check className="size-3.5 shrink-0 text-[var(--color-primary)]" />}
+      </button>
+    )
+  }
+
+  // 家族 + effort 档位切换
+  return (
+    <div className={cn('px-3 py-1.5', selectedHere && 'bg-[var(--color-accent)]/60')} title={title}>
+      <div className="flex items-center gap-2 text-sm">
+        <span className={cn('size-2 shrink-0 rounded-full', modelDot(rep.id))} />
+        <span className="min-w-0 flex-1 truncate">{family.label}</span>
+        {meta}
+        {selectedHere && <Check className="size-3.5 shrink-0 text-[var(--color-primary)]" />}
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-1 pl-4">
+        {family.members.map(({ effort, model }) => (
+          <button
+            key={model.id}
+            type="button"
+            onClick={() => onPick(model.id)}
+            title={`${model.id}`}
+            className={cn(
+              'rounded px-1.5 py-0.5 text-[10px] font-medium leading-none',
+              model.id === selectedId
+                ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]',
+            )}
+          >
+            {effortLabel(effort)}
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }

@@ -127,16 +127,21 @@ export function sortByReasoning(models: ModelInfo[]): ModelInfo[] {
 
 /** 把模型清单按平台分组并排序（组按 ORDER，组内按 id 字典序）。空清单返回空数组。 */
 export function groupModels(models: ModelInfo[]): ModelGroup[] {
-  const map = new Map<string, ModelInfo[]>()
-  for (const m of models) {
-    const k = modelPlatform(m.id).key
-    const arr = map.get(k)
-    if (arr) arr.push(m)
-    else map.set(k, [m])
-  }
-  return ORDER.filter((k) => map.has(k)).map((k) => ({
-    key: k,
-    label: LABELS[k] ?? k,
-    models: map.get(k)!.slice().sort((a, b) => a.id.localeCompare(b.id)),
+  return groupByPlatform(models, (m) => m.id).map((g) => ({
+    key: g.key,
+    label: g.label,
+    models: g.items.slice().sort((a, b) => a.id.localeCompare(b.id)),
   }))
+}
+
+/** 通用：把任意条目按其 id 推断的平台分组并按 ORDER 排序（组内保持入参顺序）。 */
+export function groupByPlatform<T>(items: T[], idOf: (t: T) => string): { key: string; label: string; items: T[] }[] {
+  const map = new Map<string, T[]>()
+  for (const it of items) {
+    const k = modelPlatform(idOf(it)).key
+    const arr = map.get(k)
+    if (arr) arr.push(it)
+    else map.set(k, [it])
+  }
+  return ORDER.filter((k) => map.has(k)).map((k) => ({ key: k, label: LABELS[k] ?? k, items: map.get(k)! }))
 }
