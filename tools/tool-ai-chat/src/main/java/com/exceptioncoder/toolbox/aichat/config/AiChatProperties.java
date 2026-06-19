@@ -43,8 +43,11 @@ public class AiChatProperties {
     /** /v1/models 结果缓存 TTL（秒）。 */
     private int modelsCacheTtlSeconds = 300;
 
-    /** New API 内部额度单位换算：1 USD = 多少 quota（默认 500000）。用于把令牌用量换算成美元展示。 */
+    /** New API 内部额度单位换算：1 货币单位 = 多少 quota（默认 500000）。用于把令牌用量换算成金额。 */
     private double quotaPerUnit = 500000;
+
+    /** 用量展示的货币符号。4sapi 等中国服务商为人民币 ¥；字段名带 usd 只是 OpenAI 兼容 schema，与实际币种无关。 */
+    private String currencySymbol = "¥";
 
     /** 模型 id 命中其一即判为多模态（小写子串匹配）。 */
     private List<String> multimodalPatterns = List.of(

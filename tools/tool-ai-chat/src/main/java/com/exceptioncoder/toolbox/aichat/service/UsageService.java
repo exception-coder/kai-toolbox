@@ -52,7 +52,7 @@ public class UsageService {
             Double granted = d.total_granted() != null && d.total_granted() > 0 ? d.total_granted() / unit : null;
             Double remaining = unlimited || d.total_available() == null ? null : d.total_available() / unit;
             Long expires = d.expires_at() != null && d.expires_at() > 0 ? d.expires_at() : null;
-            return new UsageInfo(true, d.name(), unlimited, expires, used, granted, remaining, null);
+            return new UsageInfo(true, d.name(), unlimited, expires, props.getCurrencySymbol(), used, granted, remaining, null);
         } catch (RuntimeException e) {
             log.warn("[ai-chat] 查询用量失败: {}", e.toString());
             return UsageInfo.unavailable(e.getMessage());

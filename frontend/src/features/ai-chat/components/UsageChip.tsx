@@ -3,11 +3,9 @@ import { Loader2, Wallet } from 'lucide-react'
 import { fetchUsage } from '../api'
 import type { UsageInfo } from '../types'
 
-const usd = (v?: number | null) => (v == null ? '—' : `$${v.toFixed(2)}`)
-
 /**
  * 标题栏用量 chip：展示当前 key 的已用额度（取自网关 /api/usage/token，凭 key 即可）。
- * tooltip 给令牌名 / 无限或剩余 / 过期；点击刷新。请求级/按模型明细需账号登录态，不在此。
+ * 币种来自后端 currency（中国服务商为 ¥）。tooltip 给令牌名 / 无限或剩余 / 过期；点击刷新。
  */
 export function UsageChip() {
   const [data, setData] = useState<UsageInfo | null>(null)
@@ -28,21 +26,24 @@ export function UsageChip() {
     void load()
   }, [])
 
+  const cur = data?.currency || '¥'
+  const money = (v?: number | null) => (v == null ? '—' : `${cur}${v.toFixed(2)}`)
+
   const title = !data
     ? '点击查询用量'
     : !data.available
       ? `用量查询失败：${data.error ?? '未知'}（点击重试）`
       : [
           `令牌：${data.tokenName || '—'}`,
-          data.unlimited ? '额度：无限' : `剩余：${usd(data.remainingUsd)}`,
-          data.grantedUsd != null ? `授予：${usd(data.grantedUsd)}` : null,
+          data.unlimited ? '额度：无限' : `剩余：${money(data.remainingAmount)}`,
+          data.grantedAmount != null ? `授予：${money(data.grantedAmount)}` : null,
           data.expiresAt ? `过期：${new Date(data.expiresAt * 1000).toLocaleDateString()}` : '永不过期',
           '点击刷新',
         ]
           .filter(Boolean)
           .join(' · ')
 
-  const label = data?.available && data.usedUsd != null ? `已用 ${usd(data.usedUsd)}` : '用量'
+  const label = data?.available && data.usedAmount != null ? `已用 ${money(data.usedAmount)}` : '用量'
 
   return (
     <button

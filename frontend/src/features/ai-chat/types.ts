@@ -24,15 +24,16 @@ export interface ModelsView {
   source: 'remote' | 'fallback'
 }
 
-/** 当前 key 用量（取自网关 /api/usage/token）。 */
+/** 当前 key 用量（取自网关 /api/usage/token）。currency 为货币符号（中国服务商为 ¥）。 */
 export interface UsageInfo {
   available: boolean
   tokenName: string | null
   unlimited: boolean | null
   expiresAt: number | null
-  usedUsd: number | null
-  grantedUsd: number | null
-  remainingUsd: number | null
+  currency: string | null
+  usedAmount: number | null
+  grantedAmount: number | null
+  remainingAmount: number | null
   error: string | null
 }
 
