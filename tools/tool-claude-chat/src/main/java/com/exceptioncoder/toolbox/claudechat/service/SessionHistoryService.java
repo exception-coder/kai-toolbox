@@ -250,10 +250,15 @@ public class SessionHistoryService {
         aliasRepo.delete(sdkSessionId);
     }
 
-    /** 顺序解析整份 transcript 为有序消息项；tool_result 按 tool_use_id 回填到 tool 项。 */
+    /**
+     * 顺序解析整份 transcript 为有序消息项；tool_result 按 tool_use_id 回填到 tool 项。
+     * 同时按「真实用户消息=一轮」聚合该轮 assistant 的 message.usage（token），并用首/末时间戳推导耗时，
+     * 在轮边界落成合成 result 项——让历史也能显示每轮 token 消耗 + 耗时（刷新后仍在，数据源自 transcript）。
+     */
     private List<ChatMessageView> parseAll(Path jsonl) throws IOException {
         List<ChatMessageView> out = new ArrayList<>();
         Map<String, Integer> toolIdx = new LinkedHashMap<>(); // tool_use_id -> out 下标
+        TurnAcc acc = new TurnAcc();
         try (BufferedReader r = Files.newBufferedReader(jsonl, StandardCharsets.UTF_8)) {
             String line;
             while ((line = r.readLine()) != null) {
@@ -268,15 +273,78 @@ public class SessionHistoryService {
                 JsonNode content = node.path("message").path("content");
                 Long ts = parseTs(node);
                 switch (type) {
-                    case "user" -> appendUser(out, toolIdx, content, ts);
-                    case "assistant" -> appendAssistant(out, toolIdx, content, ts);
+                    case "user" -> {
+                        // 真实用户消息（含 text）= 新一轮开始：先把上一轮用量落成 result 项
+                        if (isUserText(content)) {
+                            flushTurn(out, acc);
+                            acc.reset(ts);
+                        }
+                        appendUser(out, toolIdx, content, ts);
+                    }
+                    case "assistant" -> {
+                        acc.accumulate(node.path("message").path("usage"), ts);
+                        appendAssistant(out, toolIdx, content, ts);
+                    }
                     case "result" -> out.add(ChatMessageView.result(
-                            "h" + out.size(), node.path("subtype").asText("end_turn"), ts));
+                            "h" + out.size(), node.path("subtype").asText("end_turn"), ts, null, null));
                     default -> { /* system/meta 等跳过 */ }
                 }
             }
         }
+        flushTurn(out, acc); // 末轮
         return out;
+    }
+
+    /** content 是否含真实用户文本（区别于 tool_result——后者是 user 类型但属同轮，不另起一轮）。 */
+    private boolean isUserText(JsonNode content) {
+        if (content.isTextual()) return !content.asText().isBlank();
+        if (content.isArray()) {
+            for (JsonNode b : content) {
+                if ("text".equals(b.path("type").asText(""))) return true;
+            }
+        }
+        return false;
+    }
+
+    /** 把累计的一轮用量落成合成 result 项（token 聚合 + 时间戳推导耗时）；无 assistant 输出则跳过。 */
+    private void flushTurn(List<ChatMessageView> out, TurnAcc acc) {
+        if (!acc.hasOutput) return;
+        Map<String, Object> usage = new LinkedHashMap<>();
+        usage.put("input_tokens", acc.input);
+        usage.put("output_tokens", acc.output);
+        usage.put("cache_tokens", acc.cache);
+        Long latency = (acc.startTs != null && acc.lastTs != null && acc.lastTs >= acc.startTs)
+                ? acc.lastTs - acc.startTs : null;
+        out.add(ChatMessageView.result("h" + out.size(), "end_turn", acc.lastTs, usage, latency));
+        acc.hasOutput = false; // 防重复落
+    }
+
+    /** 单轮 token/时间累加器。 */
+    private static final class TurnAcc {
+        Long startTs;
+        Long lastTs;
+        long input;
+        long output;
+        long cache;
+        boolean hasOutput;
+
+        void reset(Long start) {
+            startTs = start;
+            lastTs = null;
+            input = output = cache = 0;
+            hasOutput = false;
+        }
+
+        void accumulate(JsonNode usage, Long ts) {
+            if (usage != null && usage.isObject()) {
+                input += usage.path("input_tokens").asLong(0);
+                output += usage.path("output_tokens").asLong(0);
+                cache += usage.path("cache_read_input_tokens").asLong(0)
+                        + usage.path("cache_creation_input_tokens").asLong(0);
+            }
+            if (ts != null) lastTs = ts;
+            hasOutput = true;
+        }
     }
 
     private void appendUser(List<ChatMessageView> out, Map<String, Integer> toolIdx, JsonNode content, Long ts) {
