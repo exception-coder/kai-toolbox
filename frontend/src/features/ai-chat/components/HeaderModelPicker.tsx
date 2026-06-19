@@ -221,20 +221,22 @@ function FamilyRow({
   const title = rep.description || (rep.tags?.length ? rep.tags.join(' · ') : undefined)
   const selectedHere = family.members.some((x) => x.model.id === selectedId)
 
-  const meta = (
-    <>
-      {tags.map((t) => (
-        <span key={t} className={cn('shrink-0 rounded px-1 py-0.5 text-[9px] font-medium leading-none', TAG_TONE[t] ?? 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]')}>
-          {t}
-        </span>
-      ))}
-      {showPlatform && (
-        <span className="shrink-0 text-[10px] text-[var(--color-muted-foreground)]">{modelPlatform(rep.id).label.split(' · ')[0]}</span>
-      )}
-    </>
-  )
+  // 能力徽章 + 平台后缀，放模型名下方第二行（让模型名第一行完整显示，不被挤截断）。
+  const metaLine =
+    tags.length > 0 || showPlatform ? (
+      <div className="mt-0.5 flex flex-wrap items-center gap-1 pl-4">
+        {tags.map((t) => (
+          <span key={t} className={cn('rounded px-1 py-0.5 text-[9px] font-medium leading-none', TAG_TONE[t] ?? 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]')}>
+            {t}
+          </span>
+        ))}
+        {showPlatform && (
+          <span className="text-[10px] text-[var(--color-muted-foreground)]">{modelPlatform(rep.id).label.split(' · ')[0]}</span>
+        )}
+      </div>
+    ) : null
 
-  // 单一模型：整行可点
+  // 单一模型：整行可点，模型名完整换行显示
   if (!family.hasEffort) {
     const only = family.members[0].model
     return (
@@ -243,14 +245,16 @@ function FamilyRow({
         onClick={() => onPick(only.id)}
         title={title}
         className={cn(
-          'flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-[var(--color-accent)]',
+          'block w-full px-3 py-1.5 text-left text-sm hover:bg-[var(--color-accent)]',
           only.id === selectedId && 'bg-[var(--color-accent)]/60',
         )}
       >
-        <span className={cn('size-2 shrink-0 rounded-full', modelDot(only.id))} />
-        <span className="min-w-0 flex-1 truncate">{only.label}</span>
-        {meta}
-        {only.id === selectedId && <Check className="size-3.5 shrink-0 text-[var(--color-primary)]" />}
+        <div className="flex items-start gap-2">
+          <span className={cn('mt-1 size-2 shrink-0 rounded-full', modelDot(only.id))} />
+          <span className="min-w-0 flex-1 wrap-anywhere">{only.label}</span>
+          {only.id === selectedId && <Check className="mt-0.5 size-3.5 shrink-0 text-[var(--color-primary)]" />}
+        </div>
+        {metaLine}
       </button>
     )
   }
@@ -258,12 +262,12 @@ function FamilyRow({
   // 家族 + effort 档位切换
   return (
     <div className={cn('px-3 py-1.5', selectedHere && 'bg-[var(--color-accent)]/60')} title={title}>
-      <div className="flex items-center gap-2 text-sm">
-        <span className={cn('size-2 shrink-0 rounded-full', modelDot(rep.id))} />
-        <span className="min-w-0 flex-1 truncate">{family.label}</span>
-        {meta}
-        {selectedHere && <Check className="size-3.5 shrink-0 text-[var(--color-primary)]" />}
+      <div className="flex items-start gap-2 text-sm">
+        <span className={cn('mt-1 size-2 shrink-0 rounded-full', modelDot(rep.id))} />
+        <span className="min-w-0 flex-1 wrap-anywhere">{family.label}</span>
+        {selectedHere && <Check className="mt-0.5 size-3.5 shrink-0 text-[var(--color-primary)]" />}
       </div>
+      {metaLine}
       <div className="mt-1 flex flex-wrap items-center gap-1 pl-4">
         {family.members.map(({ effort, model }) => (
           <button
