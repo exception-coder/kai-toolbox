@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react'
-import { Bot, Code, FileSearch, FolderKanban, User, Wrench } from 'lucide-react'
+import { Bot, Clock, Code, Coins, Database, FileSearch, FolderKanban, User, Wrench } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { MessageView } from '../types'
+import { abbr, cacheHitRate, fmtMs, formatTime, hasMetrics } from '../lib/metrics'
 
 interface Props {
   messages: MessageView[]
@@ -65,6 +66,7 @@ export function MessageList({ messages, streaming, streamText, onPickSuggestion 
           <div className="whitespace-pre-wrap break-words">{m.content}</div>
           {m.status === 'INTERRUPTED' && <StatusNote text="已停止" />}
           {m.status === 'ERROR' && <StatusNote text="出错" error />}
+          {m.role === 'ASSISTANT' && <MetricsFooter message={m} />}
         </Bubble>
       ))}
       {streaming && (
@@ -104,6 +106,49 @@ function Bubble({ role, children }: { role: MessageView['role']; children: React
       >
         {children}
       </div>
+    </div>
+  )
+}
+
+/**
+ * 助手消息指标行：时间 · 耗时 · token（总量，悬浮看输入/输出）· 缓存命中率。
+ * 全空（历史旧消息或网关未返回）则只显示时间，仍保留时间不致空行突兀。
+ */
+function MetricsFooter({ message }: { message: MessageView }) {
+  const time = formatTime(message.createdAt)
+  const latency = fmtMs(message.latencyMs)
+  const total = message.totalTokens ?? null
+  const hit = cacheHitRate(message)
+  const tokenTitle = [
+    message.promptTokens != null ? `输入 ${message.promptTokens.toLocaleString()}` : null,
+    message.completionTokens != null ? `输出 ${message.completionTokens.toLocaleString()}` : null,
+    message.cachedTokens != null ? `缓存读 ${message.cachedTokens.toLocaleString()}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] leading-none text-[var(--color-muted-foreground)] tabular-nums">
+      {time && (
+        <span className="inline-flex items-center gap-1">
+          <Clock className="size-3" />
+          {time}
+        </span>
+      )}
+      {latency && <span className="inline-flex items-center gap-1">{latency}</span>}
+      {total != null && (
+        <span className="inline-flex items-center gap-1" title={tokenTitle || undefined}>
+          <Coins className="size-3" />
+          {abbr(total)}
+        </span>
+      )}
+      {hit != null && hit > 0 && (
+        <span className="inline-flex items-center gap-1 text-teal-600 dark:text-teal-400" title="缓存命中率（命中部分≈不计费）">
+          <Database className="size-3" />
+          {Math.floor(hit * 100)}%
+        </span>
+      )}
+      {!hasMetrics(message) && <span className="text-[var(--color-muted-foreground)]/70">—</span>}
     </div>
   )
 }

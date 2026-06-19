@@ -7,6 +7,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -29,16 +31,30 @@ public class MessageRepository {
             .attachmentsJson(rs.getString("attachments_json"))
             .status(MessageStatus.valueOf(rs.getString("status")))
             .createdAt(rs.getLong("created_at"))
+            .latencyMs(nullableLong(rs, "latency_ms"))
+            .promptTokens(nullableLong(rs, "prompt_tokens"))
+            .completionTokens(nullableLong(rs, "completion_tokens"))
+            .totalTokens(nullableLong(rs, "total_tokens"))
+            .cachedTokens(nullableLong(rs, "cached_tokens"))
             .build();
+
+    /** SQLite 里 NULL 列用 getLong 会变 0，须经 getObject 判空保留语义。 */
+    private static Long nullableLong(ResultSet rs, String col) throws SQLException {
+        long v = rs.getLong(col);
+        return rs.wasNull() ? null : v;
+    }
 
     public void insert(ChatMessage m) {
         jdbc.update("""
                 INSERT INTO ai_chat_message
-                  (id, conversation_id, role, content, model, attachments_json, status, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                  (id, conversation_id, role, content, model, attachments_json, status, created_at,
+                   latency_ms, prompt_tokens, completion_tokens, total_tokens, cached_tokens)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 m.getId(), m.getConversationId(), m.getRole().name(), m.getContent(),
-                m.getModel(), m.getAttachmentsJson(), m.getStatus().name(), m.getCreatedAt());
+                m.getModel(), m.getAttachmentsJson(), m.getStatus().name(), m.getCreatedAt(),
+                m.getLatencyMs(), m.getPromptTokens(), m.getCompletionTokens(),
+                m.getTotalTokens(), m.getCachedTokens());
     }
 
     /** 取该会话最近 limit 条，按时间升序返回（供拼上下文）。用 rowid 兜同毫秒时间戳的稳定排序。 */

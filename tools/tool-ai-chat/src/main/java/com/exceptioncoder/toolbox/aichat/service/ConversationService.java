@@ -145,9 +145,11 @@ public class ConversationService {
         return m;
     }
 
-    /** 持久化一条助手消息（流式完成 / 中断 / 出错时调用）。 */
-    public ChatMessage appendAssistantMessage(String convId, String model, String content, MessageStatus status) {
+    /** 持久化一条助手消息（流式完成 / 中断 / 出错时调用），附带本轮指标。 */
+    public ChatMessage appendAssistantMessage(String convId, String model, String content,
+                                              MessageStatus status, ChatMetrics metrics) {
         long now = System.currentTimeMillis();
+        ChatMetrics mt = metrics == null ? ChatMetrics.EMPTY : metrics;
         ChatMessage m = ChatMessage.builder()
                 .id("m_" + shortId())
                 .conversationId(convId)
@@ -156,6 +158,11 @@ public class ConversationService {
                 .model(model)
                 .status(status)
                 .createdAt(now)
+                .latencyMs(mt.latencyMs())
+                .promptTokens(mt.promptTokens())
+                .completionTokens(mt.completionTokens())
+                .totalTokens(mt.totalTokens())
+                .cachedTokens(mt.cachedTokens())
                 .build();
         msgRepo.insert(m);
         convRepo.touchUpdatedAt(convId, now);
@@ -219,6 +226,8 @@ public class ConversationService {
                 .map(r -> new AttachmentView(r.id(), r.name(), r.mime(), "/api/ai-chat/attachments/" + r.id()))
                 .toList();
         return new MessageView(m.getId(), m.getConversationId(), m.getRole().name(), m.getContent(),
-                m.getModel(), atts, m.getStatus().name(), m.getCreatedAt());
+                m.getModel(), atts, m.getStatus().name(), m.getCreatedAt(),
+                m.getLatencyMs(), m.getPromptTokens(), m.getCompletionTokens(),
+                m.getTotalTokens(), m.getCachedTokens());
     }
 }

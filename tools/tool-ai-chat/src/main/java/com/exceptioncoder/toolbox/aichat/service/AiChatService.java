@@ -17,6 +17,8 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import dev.langchain4j.model.openai.OpenAiTokenUsage;
+import dev.langchain4j.model.output.TokenUsage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -78,6 +80,10 @@ public class AiChatService {
         final StringBuilder acc = new StringBuilder();
         final AtomicBoolean canceled = new AtomicBoolean(false);
         final AtomicBoolean finished = new AtomicBoolean(false);
+        /** 流式真正开始的时刻（runStream 中赋值），用于算耗时；0 表示尚未开始。 */
+        volatile long startedAt = 0L;
+        /** 完成响应里抽出的 token 用量（中断/出错时为空，不臆造）。 */
+        volatile ChatMetrics usage = ChatMetrics.EMPTY;
 
         StreamContext(String taskId, String conversationId, String model, double temperature,
                       Integer maxTokens, List<dev.langchain4j.data.message.ChatMessage> messages) {
@@ -139,6 +145,7 @@ public class AiChatService {
 
     private void runStream(StreamContext ctx) {
         OpenAiStreamingChatModel model = modelFactory.streamingModel(ctx.model, ctx.temperature, ctx.maxTokens);
+        ctx.startedAt = System.currentTimeMillis();
         StreamingChatResponseHandler handler = new StreamingChatResponseHandler() {
             @Override
             public void onPartialResponse(String partialResponse) {
@@ -151,6 +158,7 @@ public class AiChatService {
 
             @Override
             public void onCompleteResponse(ChatResponse response) {
+                ctx.usage = extractUsage(response);
                 String text = response != null && response.aiMessage() != null
                         ? response.aiMessage().text() : ctx.acc.toString();
                 finish(ctx, ctx.canceled.get() ? MessageStatus.INTERRUPTED : MessageStatus.DONE, text, null);
@@ -167,6 +175,27 @@ public class AiChatService {
         } catch (RuntimeException e) {
             finish(ctx, MessageStatus.ERROR, ctx.acc.toString(), e.getMessage());
         }
+    }
+
+    /** 从完成响应抽 token 用量；缓存命中走 OpenAI 扩展字段，网关没给则留空（不臆造）。 */
+    private static ChatMetrics extractUsage(ChatResponse response) {
+        if (response == null) {
+            return ChatMetrics.EMPTY;
+        }
+        TokenUsage tu = response.tokenUsage();
+        if (tu == null) {
+            return ChatMetrics.EMPTY;
+        }
+        Long cached = null;
+        if (tu instanceof OpenAiTokenUsage oa && oa.inputTokensDetails() != null) {
+            cached = boxLong(oa.inputTokensDetails().cachedTokens());
+        }
+        return new ChatMetrics(null, boxLong(tu.inputTokenCount()), boxLong(tu.outputTokenCount()),
+                boxLong(tu.totalTokenCount()), cached);
+    }
+
+    private static Long boxLong(Integer v) {
+        return v == null ? null : v.longValue();
     }
 
     /** 用户停止：置标志并以已生成部分收尾。 */
@@ -186,17 +215,37 @@ public class AiChatService {
             return;
         }
         try {
-            var saved = conversations.appendAssistantMessage(ctx.conversationId, ctx.model, content, status);
+            ChatMetrics metrics = withLatency(ctx);
+            var saved = conversations.appendAssistantMessage(ctx.conversationId, ctx.model, content, status, metrics);
             if (errorMessage != null) {
                 sse.publish(ctx.taskId, "error", Map.of("message", errorMessage));
             }
-            sse.publish(ctx.taskId, "done", Map.of(
-                    "messageId", saved.getId(),
-                    "status", status.name(),
-                    "content", content == null ? "" : content));
+            Map<String, Object> done = new java.util.HashMap<>();
+            done.put("messageId", saved.getId());
+            done.put("status", status.name());
+            done.put("content", content == null ? "" : content);
+            putIfPresent(done, "latencyMs", metrics.latencyMs());
+            putIfPresent(done, "promptTokens", metrics.promptTokens());
+            putIfPresent(done, "completionTokens", metrics.completionTokens());
+            putIfPresent(done, "totalTokens", metrics.totalTokens());
+            putIfPresent(done, "cachedTokens", metrics.cachedTokens());
+            sse.publish(ctx.taskId, "done", done);
         } finally {
             sse.complete(ctx.taskId);
             pending.remove(ctx.taskId);
+        }
+    }
+
+    /** 把流式耗时补进 token 用量；startedAt 为 0（从未开始）时耗时留空。 */
+    private static ChatMetrics withLatency(StreamContext ctx) {
+        Long latency = ctx.startedAt > 0 ? System.currentTimeMillis() - ctx.startedAt : null;
+        ChatMetrics u = ctx.usage == null ? ChatMetrics.EMPTY : ctx.usage;
+        return new ChatMetrics(latency, u.promptTokens(), u.completionTokens(), u.totalTokens(), u.cachedTokens());
+    }
+
+    private static void putIfPresent(Map<String, Object> map, String key, Long value) {
+        if (value != null) {
+            map.put(key, value);
         }
     }
 

@@ -20,4 +20,15 @@ public class ChatMessage {
     private String attachmentsJson;
     private MessageStatus status;
     private long createdAt;
+
+    /** 本轮流式耗时（毫秒），仅助手消息有值。 */
+    private Long latencyMs;
+    /** 输入（prompt）token 数，含缓存读，仅助手消息有值。 */
+    private Long promptTokens;
+    /** 输出（completion）token 数，仅助手消息有值。 */
+    private Long completionTokens;
+    /** 总 token 数，仅助手消息有值。 */
+    private Long totalTokens;
+    /** 命中缓存的输入 token 数（≈不计费），网关未返回则为空。 */
+    private Long cachedTokens;
 }

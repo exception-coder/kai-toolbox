@@ -50,6 +50,11 @@ export function ChatPage() {
           attachments: [],
           status: payload.status,
           createdAt: Date.now(),
+          latencyMs: payload.latencyMs,
+          promptTokens: payload.promptTokens,
+          completionTokens: payload.completionTokens,
+          totalTokens: payload.totalTokens,
+          cachedTokens: payload.cachedTokens,
         },
       ])
       void refreshConversations()

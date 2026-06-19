@@ -37,7 +37,16 @@ export interface AttachmentView {
 export type MessageRole = 'USER' | 'ASSISTANT' | 'SYSTEM'
 export type MessageStatus = 'DONE' | 'INTERRUPTED' | 'ERROR'
 
-export interface MessageView {
+/** 助手消息的本轮指标；用户消息或网关未返回时为 null/缺省。 */
+export interface MessageMetrics {
+  latencyMs?: number | null
+  promptTokens?: number | null
+  completionTokens?: number | null
+  totalTokens?: number | null
+  cachedTokens?: number | null
+}
+
+export interface MessageView extends MessageMetrics {
   id: string
   conversationId: string
   role: MessageRole
@@ -78,8 +87,8 @@ export interface SendMessageBody {
   maxTokens?: number | null
 }
 
-/** done 事件 payload。 */
-export interface DonePayload {
+/** done 事件 payload；指标字段网关未提供时缺省。 */
+export interface DonePayload extends MessageMetrics {
   messageId: string
   status: MessageStatus
   content: string

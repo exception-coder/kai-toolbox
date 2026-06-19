@@ -17,14 +17,20 @@ CREATE INDEX IF NOT EXISTS idx_ai_chat_conv_updated
     ON ai_chat_conversation(updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS ai_chat_message (
-    id               TEXT PRIMARY KEY,
-    conversation_id  TEXT    NOT NULL,
-    role             TEXT    NOT NULL,
-    content          TEXT,
-    model            TEXT,
-    attachments_json TEXT,
-    status           TEXT    NOT NULL,
-    created_at       INTEGER NOT NULL
+    id                TEXT PRIMARY KEY,
+    conversation_id   TEXT    NOT NULL,
+    role              TEXT    NOT NULL,
+    content           TEXT,
+    model             TEXT,
+    attachments_json  TEXT,
+    status            TEXT    NOT NULL,
+    created_at        INTEGER NOT NULL,
+    -- 助手消息指标（用户消息为空）：耗时与 token 用量，缓存命中体现在 cached_tokens
+    latency_ms        INTEGER,
+    prompt_tokens     INTEGER,
+    completion_tokens INTEGER,
+    total_tokens      INTEGER,
+    cached_tokens     INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_ai_chat_msg_conv
