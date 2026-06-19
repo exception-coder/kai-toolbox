@@ -5,8 +5,11 @@ import com.exceptioncoder.toolbox.aichat.config.AiChatProperties;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
+
+import java.time.Duration;
 
 /**
  * 当前 key 的用量查询：调网关 {@code GET /api/usage/token}（凭 key 即可，无需管理员账号）。
@@ -18,10 +21,18 @@ public class UsageService {
     private static final Logger log = LoggerFactory.getLogger(UsageService.class);
 
     private final AiChatProperties props;
-    private final RestClient rest = RestClient.create();
+    // 带超时，避免网关 /api/usage/token 慢/挂时前端用量 chip 一直转圈。
+    private final RestClient rest = RestClient.builder().requestFactory(timeoutFactory()).build();
 
     public UsageService(AiChatProperties props) {
         this.props = props;
+    }
+
+    private static SimpleClientHttpRequestFactory timeoutFactory() {
+        SimpleClientHttpRequestFactory f = new SimpleClientHttpRequestFactory();
+        f.setConnectTimeout(Duration.ofSeconds(5));
+        f.setReadTimeout(Duration.ofSeconds(8));
+        return f;
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

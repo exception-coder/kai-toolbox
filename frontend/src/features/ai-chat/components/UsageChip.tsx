@@ -18,8 +18,19 @@ export function UsageChip() {
     setLoading(true)
     try {
       setData(await fetchUsage())
-    } catch {
-      setData(null)
+    } catch (e) {
+      // 失败也置成「不可用」而非 null——否则弹层会一直卡在"加载中…"
+      setData({
+        available: false,
+        tokenName: null,
+        unlimited: null,
+        expiresAt: null,
+        currency: null,
+        usedAmount: null,
+        grantedAmount: null,
+        remainingAmount: null,
+        error: e instanceof Error ? e.message : '用量接口不可用（后端可能未更新）',
+      })
     } finally {
       setLoading(false)
     }
@@ -71,7 +82,7 @@ export function UsageChip() {
       </button>
 
       {open && (
-        <div className="absolute right-0 z-50 mt-1 w-60 overflow-hidden rounded-lg border bg-[var(--color-background)] shadow-lg">
+        <div className="absolute left-0 z-50 mt-1 w-64 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border bg-[var(--color-background)] shadow-lg sm:left-auto sm:right-0">
           <div className="flex items-center justify-between border-b px-3 py-2">
             <span className="text-xs font-medium">用量明细</span>
             <button
@@ -84,10 +95,10 @@ export function UsageChip() {
             </button>
           </div>
           <div className="p-3 text-xs">
-            {!data ? (
+            {!data && loading ? (
               <p className="text-[var(--color-muted-foreground)]">加载中…</p>
-            ) : !data.available ? (
-              <p className="text-[var(--color-destructive)]">查询失败：{data.error ?? '未知'}</p>
+            ) : !data || !data.available ? (
+              <p className="break-words text-[var(--color-destructive)]">查询失败：{data?.error ?? '未知'}（点右上角刷新重试）</p>
             ) : (
               <div className="space-y-1.5">
                 {rows.map(([k, v]) => (
