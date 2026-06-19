@@ -164,12 +164,13 @@ export interface TurnDiag {
 }
 
 // ── 渲染用的消息项 ───────────────────────────────────────────────
+// ts：该消息块的时间（Unix ms）。实时消息=客户端发送/接收时刻；历史消息暂无（可空，UI 不显示）。
 export type ChatItem =
-  | { kind: 'user'; id: string; text: string; sdkUuid?: string }
-  | { kind: 'assistant'; id: string; text: string }
-  | { kind: 'tool'; id: string; toolName: string; input: unknown; output?: string; isError?: boolean }
-  | { kind: 'result'; id: string; stopReason: string }
-  | { kind: 'error'; id: string; code: string; message: string }
+  | { kind: 'user'; id: string; text: string; sdkUuid?: string; ts?: number }
+  | { kind: 'assistant'; id: string; text: string; ts?: number }
+  | { kind: 'tool'; id: string; toolName: string; input: unknown; output?: string; isError?: boolean; ts?: number }
+  | { kind: 'result'; id: string; stopReason: string; ts?: number }
+  | { kind: 'error'; id: string; code: string; message: string; ts?: number }
 
 // ── 待决策（权限 / 提问），驱动弹窗 ───────────────────────────────
 export type PendingRequest =

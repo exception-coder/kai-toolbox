@@ -197,11 +197,11 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
             const copy = prev.slice(0, -1)
             return [...copy, { ...last, text: last.text + msg.text }]
           }
-          return [...prev, { kind: 'assistant', id: nextId(), text: msg.text }]
+          return [...prev, { kind: 'assistant', id: nextId(), text: msg.text, ts: Date.now() }]
         })
         break
       case 'toolUse':
-        setItems(prev => [...prev, { kind: 'tool', id: nextId(), toolName: msg.toolName, input: msg.input }])
+        setItems(prev => [...prev, { kind: 'tool', id: nextId(), toolName: msg.toolName, input: msg.input, ts: Date.now() }])
         break
       case 'toolResult':
         setItems(prev => {
@@ -214,7 +214,7 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
               return copy
             }
           }
-          return [...prev, { kind: 'tool', id: nextId(), toolName: msg.toolName, input: null, output: msg.output, isError: msg.isError }]
+          return [...prev, { kind: 'tool', id: nextId(), toolName: msg.toolName, input: null, output: msg.output, isError: msg.isError, ts: Date.now() }]
         })
         break
       case 'permissionRequest':
@@ -269,13 +269,13 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
         break
       case 'result':
         setRunning(false)
-        setItems(prev => [...prev, { kind: 'result', id: nextId(), stopReason: msg.stopReason }])
+        setItems(prev => [...prev, { kind: 'result', id: nextId(), stopReason: msg.stopReason, ts: Date.now() }])
         // Claude 回复完成:仅当页面不在前台时响一声,避免你正盯着看时反复叮咚
         if (typeof document !== 'undefined' && document.hidden) playNotifySound()
         break
       case 'error':
         setRunning(false)
-        setItems(prev => [...prev, { kind: 'error', id: nextId(), code: msg.code, message: msg.message }])
+        setItems(prev => [...prev, { kind: 'error', id: nextId(), code: msg.code, message: msg.message, ts: Date.now() }])
         if (msg.code === 'SIDECAR_DOWN') {
           setErrorMessage(msg.message)
         }
@@ -451,7 +451,7 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     const hasAtt = !!attachments && attachments.length > 0
     if (!t && !hasAtt) return
     const atts = hasAtt ? attachments : undefined
-    setItems(prev => [...prev, { kind: 'user', id: nextId(), text: t }])
+    setItems(prev => [...prev, { kind: 'user', id: nextId(), text: t, ts: Date.now() }])
     setRunning(true)
     if (sendRaw({ type: 'send', text: t, attachments: atts })) return
     // WS 未连上：排队并触发重连（带 attach 意图），onopen 时先 attach 再补发，避免消息丢失/卡“思考中”

@@ -128,6 +128,24 @@ function ToCardButton({ text }: { text: string }) {
   )
 }
 
+/** 消息块时间：当天显示 HH:mm，跨天显示 MM-DD HH:mm；无 ts（历史消息）返回空串。 */
+function formatTime(ts?: number): string {
+  if (!ts) return ''
+  const d = new Date(ts)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  const now = new Date()
+  const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()
+  return sameDay ? hm : `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hm}`
+}
+
+/** 消息块时间戳小字；无 ts 不渲染。 */
+function TimeText({ ts, className }: { ts?: number; className?: string }) {
+  const t = formatTime(ts)
+  if (!t) return null
+  return <span className={cn('px-1 text-[10px] tabular-nums text-[var(--color-muted-foreground)]', className)}>{t}</span>
+}
+
 function Row({ item, onFork }: { item: ChatItem; onFork?: (sdkUuid: string) => void }) {
   switch (item.kind) {
     case 'user':
@@ -136,6 +154,7 @@ function Row({ item, onFork }: { item: ChatItem; onFork?: (sdkUuid: string) => v
           <div className="max-w-[85%] min-w-0 whitespace-pre-wrap wrap-anywhere rounded-2xl bg-[var(--color-primary)] px-4 py-2 text-[var(--color-primary-foreground)]">
             {item.text}
           </div>
+          <TimeText ts={item.ts} className="mt-0.5" />
           {onFork && item.sdkUuid && (
             <button
               type="button"
@@ -160,6 +179,7 @@ function Row({ item, onFork }: { item: ChatItem; onFork?: (sdkUuid: string) => v
             <div className="flex items-center gap-1">
               <CopyButton text={item.text} />
               <ToCardButton text={item.text} />
+              <TimeText ts={item.ts} />
             </div>
           )}
         </div>
@@ -169,7 +189,7 @@ function Row({ item, onFork }: { item: ChatItem; onFork?: (sdkUuid: string) => v
     case 'result':
       return (
         <div className="text-center text-xs text-[var(--color-muted-foreground)]">
-          — 本轮结束（{item.stopReason}）—
+          — 本轮结束（{item.stopReason}）{formatTime(item.ts) && ` · ${formatTime(item.ts)}`} —
         </div>
       )
     case 'error':
