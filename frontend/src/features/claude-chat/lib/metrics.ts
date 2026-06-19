@@ -70,14 +70,23 @@ export function cacheHitRate(u?: Record<string, number>): number | null {
  * 会话累计指标：把当前消息流里所有 result 项的 token / 耗时累加。
  * 仅统计本视图实时跑完的轮次（历史 transcript 无 result 行，故不计入）。
  */
-export function sessionTotals(items: ChatItem[]): { tokens: number; durationMs: number; turns: number } {
-  let tokens = 0, durationMs = 0, turns = 0
+export function sessionTotals(items: ChatItem[]): {
+  tokens: number; durationMs: number; turns: number
+  cacheRead: number; inputSide: number
+  /** 整会话缓存命中率 = 缓存读 / 输入侧总量；无输入侧 token 时为 null */
+  hitRate: number | null
+} {
+  let tokens = 0, durationMs = 0, turns = 0, cacheRead = 0, inputSide = 0
   for (const it of items) {
     if (it.kind !== 'result') continue
     turns++
     const u = parseUsage(it.usage)
-    if (u) tokens += u.total
+    if (u) {
+      tokens += u.total
+      cacheRead += u.cacheRead
+      inputSide += u.input + u.cache
+    }
     if (it.latencyMs != null) durationMs += it.latencyMs
   }
-  return { tokens, durationMs, turns }
+  return { tokens, durationMs, turns, cacheRead, inputSide, hitRate: inputSide > 0 ? cacheRead / inputSide : null }
 }
