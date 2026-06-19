@@ -23,6 +23,7 @@ import { HeaderModelPicker } from '../components/HeaderModelPicker'
 import { TemperatureControl } from '../components/TemperatureControl'
 import { UsageChip } from '../components/UsageChip'
 import { ImagePanel } from '../components/ImagePanel'
+import { VideoPanel } from '../components/VideoPanel'
 import { DebugPanel } from '../components/DebugPanel'
 
 export function ChatPage() {
@@ -40,8 +41,9 @@ export function ChatPage() {
   const [debugOpen, setDebugOpen] = useState(false)
   const [debug, setDebug] = useState<CompletionDebug | null>(null)
   const [seed, setSeed] = useState<string | undefined>(undefined)
-  const [mode, setMode] = useState<'chat' | 'image'>('chat')
+  const [mode, setMode] = useState<'chat' | 'image' | 'video'>('chat')
   const [imageModel, setImageModel] = useState('')
+  const [videoModel, setVideoModel] = useState('')
 
   const activeConv = useMemo(
     () => conversations.find((c) => c.id === activeId) ?? null,
@@ -89,6 +91,8 @@ export function ChatPage() {
         setModelsView(mv)
         const imgs = mv.models.filter((m) => m.category === 'image')
         if (imgs.length > 0) setImageModel(imgs[0].id)
+        const vids = mv.models.filter((m) => m.category === 'video')
+        if (vids.length > 0) setVideoModel(vids[0].id)
         const list = await refreshConversations()
         if (list.length > 0) setActiveId(list[0].id)
       } catch (e) {
@@ -216,12 +220,13 @@ export function ChatPage() {
   // 旧后端无 category 时按 chat 处理，保证兼容。
   const models = allModels.filter((m) => !m.category || m.category === 'chat') // 对话模型
   const imageModels = allModels.filter((m) => m.category === 'image')
+  const videoModels = allModels.filter((m) => m.category === 'video')
   const presets = modelsView?.presets ?? []
 
   // 按当前模式决定模型选择器的清单/选中/回调
-  const pickerModels = mode === 'image' ? imageModels : models
-  const pickerValue = mode === 'image' ? imageModel : selectedModel
-  const onPickerChange = mode === 'image' ? setImageModel : handleModelChange
+  const pickerModels = mode === 'image' ? imageModels : mode === 'video' ? videoModels : models
+  const pickerValue = mode === 'image' ? imageModel : mode === 'video' ? videoModel : selectedModel
+  const onPickerChange = mode === 'image' ? setImageModel : mode === 'video' ? setVideoModel : handleModelChange
 
   // 选中模型是否支持自定义温度；仅对话模式、支持才在标题栏显示温度滑块。
   const supportsTemperature =
@@ -245,7 +250,7 @@ export function ChatPage() {
           {/* 模式切换（对话/绘图）+ 模型选择（按模式过滤）作为标题栏主路径 */}
           <div className="flex min-w-0 items-center gap-2.5">
             <div className="flex shrink-0 items-center rounded-full border p-0.5 text-xs">
-              {([['chat', '对话'], ['image', '绘图']] as const).map(([m, text]) => (
+              {([['chat', '对话'], ['image', '绘图'], ['video', '视频']] as const).map(([m, text]) => (
                 <button
                   key={m}
                   type="button"
@@ -260,7 +265,6 @@ export function ChatPage() {
                   {text}
                 </button>
               ))}
-              <span className="px-2 py-1 text-[var(--color-muted-foreground)]/50" title="视频生成（异步任务）待开发">视频</span>
             </div>
             <HeaderModelPicker
               models={pickerModels}
@@ -317,6 +321,8 @@ export function ChatPage() {
 
         {mode === 'image' ? (
           <ImagePanel model={imageModel} />
+        ) : mode === 'video' ? (
+          <VideoPanel model={videoModel} />
         ) : (
           <>
             <MessageList

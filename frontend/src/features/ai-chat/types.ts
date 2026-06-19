@@ -63,6 +63,15 @@ export interface ImageGenResult {
   model: string
 }
 
+/** 视频生成任务（提交/轮询共用）。 */
+export interface VideoTask {
+  id: string
+  status: string
+  videoUrl: string | null
+  error: string | null
+  model: string | null
+}
+
 export type MessageRole = 'USER' | 'ASSISTANT' | 'SYSTEM'
 export type MessageStatus = 'DONE' | 'INTERRUPTED' | 'ERROR'
 

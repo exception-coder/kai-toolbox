@@ -9,6 +9,7 @@ import type {
   SendMessageBody,
   UpdateConversationBody,
   UsageInfo,
+  VideoTask,
 } from './types'
 
 const BASE = '/ai-chat'
@@ -25,6 +26,16 @@ export function fetchUsage(): Promise<UsageInfo> {
 /** 绘图：同步返回图片地址。 */
 export function generateImages(body: { model: string; prompt: string; size?: string; n?: number }): Promise<ImageGenResult> {
   return http<ImageGenResult>(`${BASE}/images`, { method: 'POST', body: JSON.stringify(body) })
+}
+
+/** 视频：提交任务（异步），返回 task。 */
+export function submitVideo(body: { model: string; prompt: string; seconds?: string; size?: string }): Promise<VideoTask> {
+  return http<VideoTask>(`${BASE}/videos`, { method: 'POST', body: JSON.stringify(body) })
+}
+
+/** 视频：轮询任务状态。 */
+export function getVideoTask(id: string): Promise<VideoTask> {
+  return http<VideoTask>(`${BASE}/videos/${encodeURIComponent(id)}`)
 }
 
 export function listConversations(): Promise<ConversationView[]> {
