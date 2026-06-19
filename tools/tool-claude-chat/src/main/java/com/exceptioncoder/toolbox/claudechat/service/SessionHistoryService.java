@@ -266,11 +266,12 @@ public class SessionHistoryService {
                 }
                 String type = node.path("type").asText("");
                 JsonNode content = node.path("message").path("content");
+                Long ts = parseTs(node);
                 switch (type) {
-                    case "user" -> appendUser(out, toolIdx, content);
-                    case "assistant" -> appendAssistant(out, toolIdx, content);
+                    case "user" -> appendUser(out, toolIdx, content, ts);
+                    case "assistant" -> appendAssistant(out, toolIdx, content, ts);
                     case "result" -> out.add(ChatMessageView.result(
-                            "h" + out.size(), node.path("subtype").asText("end_turn")));
+                            "h" + out.size(), node.path("subtype").asText("end_turn"), ts));
                     default -> { /* system/meta 等跳过 */ }
                 }
             }
@@ -278,10 +279,10 @@ public class SessionHistoryService {
         return out;
     }
 
-    private void appendUser(List<ChatMessageView> out, Map<String, Integer> toolIdx, JsonNode content) {
+    private void appendUser(List<ChatMessageView> out, Map<String, Integer> toolIdx, JsonNode content, Long ts) {
         if (content.isTextual()) {
             String t = content.asText();
-            if (!t.isBlank()) out.add(ChatMessageView.user("h" + out.size(), t));
+            if (!t.isBlank()) out.add(ChatMessageView.user("h" + out.size(), t, ts));
             return;
         }
         if (!content.isArray()) return;
@@ -289,7 +290,7 @@ public class SessionHistoryService {
             String bt = b.path("type").asText("");
             if ("text".equals(bt)) {
                 String t = b.path("text").asText("");
-                if (!t.isBlank()) out.add(ChatMessageView.user("h" + out.size(), t));
+                if (!t.isBlank()) out.add(ChatMessageView.user("h" + out.size(), t, ts));
             } else if ("tool_result".equals(bt)) {
                 String useId = b.path("tool_use_id").asText("");
                 String outText = stringifyToolContent(b.path("content"));
@@ -297,18 +298,18 @@ public class SessionHistoryService {
                 Integer idx = toolIdx.get(useId);
                 if (idx != null) {
                     ChatMessageView prev = out.get(idx);
-                    out.set(idx, ChatMessageView.tool(prev.id(), prev.toolName(), prev.input(), outText, err));
+                    out.set(idx, ChatMessageView.tool(prev.id(), prev.toolName(), prev.input(), outText, err, prev.ts()));
                 } else {
-                    out.add(ChatMessageView.tool("h" + out.size(), "", null, outText, err));
+                    out.add(ChatMessageView.tool("h" + out.size(), "", null, outText, err, ts));
                 }
             }
         }
     }
 
-    private void appendAssistant(List<ChatMessageView> out, Map<String, Integer> toolIdx, JsonNode content) {
+    private void appendAssistant(List<ChatMessageView> out, Map<String, Integer> toolIdx, JsonNode content, Long ts) {
         if (content.isTextual()) {
             String t = content.asText();
-            if (!t.isBlank()) out.add(ChatMessageView.assistant("h" + out.size(), t));
+            if (!t.isBlank()) out.add(ChatMessageView.assistant("h" + out.size(), t, ts));
             return;
         }
         if (!content.isArray()) return;
@@ -316,13 +317,24 @@ public class SessionHistoryService {
             String bt = b.path("type").asText("");
             if ("text".equals(bt)) {
                 String t = b.path("text").asText("");
-                if (!t.isBlank()) out.add(ChatMessageView.assistant("h" + out.size(), t));
+                if (!t.isBlank()) out.add(ChatMessageView.assistant("h" + out.size(), t, ts));
             } else if ("tool_use".equals(bt)) {
                 String useId = b.path("id").asText("");
                 Object input = b.has("input") ? mapper.convertValue(b.get("input"), Object.class) : null;
                 toolIdx.put(useId, out.size());
-                out.add(ChatMessageView.tool("h" + out.size(), b.path("name").asText(""), input, null, null));
+                out.add(ChatMessageView.tool("h" + out.size(), b.path("name").asText(""), input, null, null, ts));
             }
+        }
+    }
+
+    /** 解析行级 timestamp（ISO-8601）为 epoch ms；缺失/非法返回 null。 */
+    private Long parseTs(JsonNode node) {
+        JsonNode t = node.path("timestamp");
+        if (!t.isTextual()) return null;
+        try {
+            return java.time.Instant.parse(t.asText()).toEpochMilli();
+        } catch (Exception e) {
+            return null;
         }
     }
 

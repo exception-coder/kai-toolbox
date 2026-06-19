@@ -214,6 +214,7 @@ interface RawHistoryMessage {
   output?: string
   isError?: boolean
   stopReason?: string
+  ts?: number | null
 }
 
 /** 分页读取某会话历史消息，转成渲染用 ChatItem。before 空=最近一页；否则取更早一页。 */
@@ -234,14 +235,15 @@ export async function loadMessages(
 }
 
 function toChatItem(m: RawHistoryMessage): ChatItem {
+  const ts = m.ts ?? undefined
   switch (m.kind) {
     case 'assistant':
-      return { kind: 'assistant', id: m.id, text: m.text ?? '' }
+      return { kind: 'assistant', id: m.id, text: m.text ?? '', ts }
     case 'tool':
-      return { kind: 'tool', id: m.id, toolName: m.toolName ?? '', input: m.input ?? null, output: m.output ?? undefined, isError: m.isError ?? undefined }
+      return { kind: 'tool', id: m.id, toolName: m.toolName ?? '', input: m.input ?? null, output: m.output ?? undefined, isError: m.isError ?? undefined, ts }
     case 'result':
-      return { kind: 'result', id: m.id, stopReason: m.stopReason ?? 'end_turn' }
+      return { kind: 'result', id: m.id, stopReason: m.stopReason ?? 'end_turn', ts }
     default:
-      return { kind: 'user', id: m.id, text: m.text ?? '' }
+      return { kind: 'user', id: m.id, text: m.text ?? '', ts }
   }
 }
