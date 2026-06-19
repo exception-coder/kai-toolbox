@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Check, Copy, FileImage, GitBranch } from 'lucide-react'
+import { AlertTriangle, Check, Coins, Copy, FileImage, GitBranch, Timer } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { loadState as loadCardState, saveState as saveCardState } from '@/features/markdown-card/lib/persistence'
 import type { ChatItem } from '../types'
@@ -65,7 +65,7 @@ export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exh
         <div className="text-center text-xs text-[var(--color-muted-foreground)]">— 没有更早了 —</div>
       )}
       {items.map(item => (
-        <Row key={item.id} item={item} onFork={onFork} />
+        <Row key={item.id} item={item} onFork={onFork} engineLabel={engineLabel} />
       ))}
       {running && (
         <div className="text-sm text-[var(--color-muted-foreground)]">{engineLabel} 正在思考…</div>
@@ -151,47 +151,94 @@ function fmtMs(ms?: number): string {
   return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`
 }
 
-/** usage（各引擎键名不一）→ 「↑输入 ↓输出」；无可用 token 返回空串。 */
-function fmtTokens(usage?: Record<string, number>): string {
-  if (!usage) return ''
-  let input = 0, output = 0, other = 0
-  for (const [k, v] of Object.entries(usage)) {
-    if (k.includes('input')) input += v
+/** usage（各引擎键名不一）→ 输入/输出/缓存/总计；无返回 null。 */
+function parseUsage(u?: Record<string, number>): { input: number; output: number; cache: number; total: number } | null {
+  if (!u) return null
+  let input = 0, output = 0, cache = 0, total = 0
+  for (const [k, v] of Object.entries(u)) {
+    total += v
+    if (k.includes('cache')) cache += v
+    else if (k.includes('input')) input += v
     else if (k.includes('output')) output += v
-    else other += v
   }
-  if (input || output) return `↑${abbr(input)} ↓${abbr(output)}`
-  return other ? `Σ${abbr(other)}` : ''
+  return { input, output, cache, total }
 }
 
-/** 本轮 token + 延迟指标行；都为空返回空串。 */
-function turnMetrics(item: Extract<ChatItem, { kind: 'result' }>): string {
-  const parts: string[] = []
-  const tok = fmtTokens(item.usage)
-  if (tok) parts.push(tok)
-  const total = fmtMs(item.latencyMs)
-  if (total) parts.push(`耗时 ${total}`)
-  const ttft = fmtMs(item.ttftMs)
-  if (ttft) parts.push(`首字 ${ttft}`)
-  return parts.join('  ·  ')
+type Tone = 'violet' | 'sky' | 'emerald' | 'rose' | 'muted'
+const TONE: Record<Tone, string> = {
+  violet: 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950 dark:text-violet-300',
+  sky: 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-300',
+  emerald: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300',
+  rose: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-300',
+  muted: 'border-[var(--color-border)] bg-[var(--color-muted)] text-[var(--color-muted-foreground)]',
 }
 
-/** 消息块时间戳小字；无 ts 不渲染。 */
-function TimeText({ ts, className }: { ts?: number; className?: string }) {
+/** 指标标签（圆角 badge，带图标/颜色）。有 onClick 则为可点（展开明细）。 */
+function Chip({ tone, icon, children, onClick, title }: { tone: Tone; icon?: ReactNode; children?: ReactNode; onClick?: () => void; title?: string }) {
+  const cls = cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium leading-none tabular-nums', TONE[tone], onClick && 'cursor-pointer select-none active:opacity-80')
+  return onClick
+    ? <button type="button" onClick={onClick} title={title} className={cls}>{icon}{children}</button>
+    : <span title={title} className={cls}>{icon}{children}</span>
+}
+
+/** 消息头：角色名 + 时间（轻量、低饱和），按对齐方向排列。 */
+function MsgHeader({ label, ts, align }: { label?: string; ts?: number; align: 'start' | 'end' }) {
   const t = formatTime(ts)
-  if (!t) return null
-  return <span className={cn('px-1 text-[10px] tabular-nums text-[var(--color-muted-foreground)]', className)}>{t}</span>
+  if (!label && !t) return null
+  return (
+    <div className={cn('mb-0.5 flex items-center gap-1.5 px-1 text-[11px]', align === 'end' && 'flex-row-reverse')}>
+      {label && <span className="font-medium text-[var(--color-muted-foreground)]">{label}</span>}
+      {t && <time className="tabular-nums text-[var(--color-muted-foreground)] opacity-70">{t}</time>}
+    </div>
+  )
 }
 
-function Row({ item, onFork }: { item: ChatItem; onFork?: (sdkUuid: string) => void }) {
+/** 本轮状态条：成功弱化为 ✓，token（紫，可点开明细）+ 耗时（蓝）+ 时间。 */
+function TurnStatus({ item }: { item: Extract<ChatItem, { kind: 'result' }> }) {
+  const [open, setOpen] = useState(false)
+  const ok = item.stopReason === 'success' || item.stopReason === 'end_turn'
+  const u = parseUsage(item.usage)
+  const time = formatTime(item.ts)
+  return (
+    <div className="my-1 flex flex-col items-center gap-1">
+      <div className="flex flex-wrap items-center justify-center gap-1.5">
+        <Chip tone={ok ? 'emerald' : 'rose'} icon={ok ? <Check className="size-3" /> : <AlertTriangle className="size-3" />} title={`本轮结束：${item.stopReason}`}>
+          {ok ? null : '失败'}
+        </Chip>
+        {u && u.total > 0 && (
+          <Chip tone="violet" icon={<Coins className="size-3" />} onClick={() => setOpen(o => !o)} title="点击查看 token 明细">
+            {abbr(u.total)}
+          </Chip>
+        )}
+        {item.latencyMs != null && (
+          <Chip tone="sky" icon={<Timer className="size-3" />} title={item.ttftMs != null ? `首字 ${fmtMs(item.ttftMs)}` : undefined}>
+            {fmtMs(item.latencyMs)}
+          </Chip>
+        )}
+        {time && <span className="px-1 text-[10px] tabular-nums text-[var(--color-muted-foreground)] opacity-70">{time}</span>}
+      </div>
+      {open && u && (
+        <div className="flex flex-wrap justify-center gap-x-3 gap-y-0.5 text-[10px] tabular-nums text-[var(--color-muted-foreground)]">
+          <span>输入 {abbr(u.input)}</span>
+          <span>输出 {abbr(u.output)}</span>
+          {u.cache > 0 && <span>缓存 {abbr(u.cache)}</span>}
+          {item.ttftMs != null && <span>首字 {fmtMs(item.ttftMs)}</span>}
+          {item.latencyMs != null && <span>总耗时 {fmtMs(item.latencyMs)}</span>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Row({ item, onFork, engineLabel }: { item: ChatItem; onFork?: (sdkUuid: string) => void; engineLabel?: string }) {
   switch (item.kind) {
     case 'user':
       return (
         <div className="flex min-w-0 max-w-full flex-col items-end">
+          <MsgHeader ts={item.ts} align="end" />
           <div className="max-w-[85%] min-w-0 whitespace-pre-wrap wrap-anywhere rounded-2xl bg-[var(--color-primary)] px-4 py-2 text-[var(--color-primary-foreground)]">
             {item.text}
           </div>
-          <TimeText ts={item.ts} className="mt-0.5" />
           {onFork && item.sdkUuid && (
             <button
               type="button"
@@ -209,6 +256,7 @@ function Row({ item, onFork }: { item: ChatItem; onFork?: (sdkUuid: string) => v
     case 'assistant':
       return (
         <div className="flex min-w-0 max-w-full flex-col items-start">
+          <MsgHeader label={engineLabel} ts={item.ts} align="start" />
           <div className="max-w-[90%] min-w-0 wrap-anywhere rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-2 shadow-sm">
             <Markdown text={item.text} className="min-w-0" />
           </div>
@@ -216,24 +264,14 @@ function Row({ item, onFork }: { item: ChatItem; onFork?: (sdkUuid: string) => v
             <div className="flex items-center gap-1">
               <CopyButton text={item.text} />
               <ToCardButton text={item.text} />
-              <TimeText ts={item.ts} />
             </div>
           )}
         </div>
       )
     case 'tool':
       return <ToolCallBubble toolName={item.toolName} input={item.input} output={item.output} isError={item.isError} />
-    case 'result': {
-      const metrics = turnMetrics(item)
-      return (
-        <div className="flex flex-col items-center gap-0.5 text-[var(--color-muted-foreground)]">
-          <div className="text-center text-xs">
-            — 本轮结束（{item.stopReason}）{formatTime(item.ts) && ` · ${formatTime(item.ts)}`} —
-          </div>
-          {metrics && <div className="text-center text-[10px] tabular-nums opacity-80">{metrics}</div>}
-        </div>
-      )
-    }
+    case 'result':
+      return <TurnStatus item={item} />
     case 'error':
       return (
         <div className={cn('rounded-lg border border-[var(--color-destructive)] px-3 py-2 text-sm text-[var(--color-destructive)]')}>
