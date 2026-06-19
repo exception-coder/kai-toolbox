@@ -1,33 +1,27 @@
 import { useEffect } from 'react'
-import { RefreshCw, X } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { ModelPicker } from './ModelPicker'
-import type { ModelInfo, RolePreset } from '../types'
+import { X } from 'lucide-react'
+import type { RolePreset } from '../types'
 
 interface Props {
   open: boolean
   onClose: () => void
-  models: ModelInfo[]
-  selectedModel: string
-  onModelChange: (id: string) => void
   presets: RolePreset[]
   activeSystemPrompt: string | null
   onPickPreset: (preset: RolePreset) => void
   temperature: number
   onTemperatureChange: (t: number) => void
-  fallback: boolean
-  onRefreshModels: () => void
+  /** 当前模型是否支持自定义温度；false 时隐藏温度滑块。 */
+  supportsTemperature: boolean
   disabled: boolean
 }
 
 /**
- * 会话参数设置抽屉：把模型 / 温度 / 角色预设从聊天主界面移到这里，
- * 让输入区回归纯对话（参数是「偶尔调」，不该常驻抢戏）。右侧滑出，Esc / 点遮罩关闭。
+ * 高级参数抽屉：模型已提升到标题栏常驻选择，这里只放低频配置（角色预设 / 温度）。
+ * 右侧滑出，Esc / 点遮罩关闭。
  */
 export function SettingsDrawer(props: Props) {
   const { open, onClose, disabled } = props
-  // 选中模型是否支持自定义温度；清单里查不到（兜底/未知）时默认支持，不误藏。
-  const supportsTemp = props.models.find((m) => m.id === props.selectedModel)?.supportsTemperature ?? true
+  const supportsTemp = props.supportsTemperature
 
   useEffect(() => {
     if (!open) return
@@ -43,27 +37,13 @@ export function SettingsDrawer(props: Props) {
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
       <aside className="absolute inset-y-0 right-0 flex w-80 max-w-[85vw] flex-col border-l border-[var(--color-border)] bg-[var(--color-background)] shadow-xl">
         <div className="flex items-center gap-2 border-b px-4 py-3">
-          <span className="text-sm font-medium">会话设置</span>
+          <span className="text-sm font-medium">高级参数</span>
           <button type="button" onClick={onClose} aria-label="关闭" className="ml-auto rounded p-1 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]">
             <X className="size-4" />
           </button>
         </div>
 
         <div className="flex-1 space-y-5 overflow-y-auto p-4">
-          {/* 模型 */}
-          <section className="space-y-1.5">
-            <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-[var(--color-muted-foreground)]">模型</label>
-              <Button variant="ghost" size="icon" className="ml-auto size-7" title="刷新模型清单" onClick={props.onRefreshModels}>
-                <RefreshCw className="size-3.5" />
-              </Button>
-            </div>
-            <ModelPicker models={props.models} value={props.selectedModel} onChange={props.onModelChange} disabled={disabled} className="h-9 w-full text-sm" />
-            {props.fallback && (
-              <p className="text-[11px] text-[var(--color-muted-foreground)]">当前为兜底清单（4sapi 不可达），可点刷新重试。</p>
-            )}
-          </section>
-
           {/* 角色预设 */}
           <section className="space-y-1.5">
             <label className="text-xs font-medium text-[var(--color-muted-foreground)]">角色预设</label>

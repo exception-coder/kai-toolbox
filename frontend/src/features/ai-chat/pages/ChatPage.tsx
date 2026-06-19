@@ -18,6 +18,7 @@ import { MessageList } from '../components/MessageList'
 import { Composer } from '../components/Composer'
 import { SettingsDrawer } from '../components/SettingsDrawer'
 import { SessionTotalBadge } from '../components/SessionTotalBadge'
+import { HeaderModelPicker } from '../components/HeaderModelPicker'
 
 export function ChatPage() {
   const confirm = useConfirm()
@@ -201,7 +202,8 @@ export function ChatPage() {
   const models = modelsView?.models ?? []
   const presets = modelsView?.presets ?? []
 
-  const currentModelLabel = models.find((m) => m.id === selectedModel)?.label ?? selectedModel ?? '默认模型'
+  // 选中模型是否支持自定义温度；清单查不到（兜底/未知）默认支持，不误藏滑块。
+  const supportsTemperature = models.find((m) => m.id === selectedModel)?.supportsTemperature ?? true
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] bg-[var(--color-muted)]/40">
@@ -218,27 +220,31 @@ export function ChatPage() {
 
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between gap-2 border-b bg-[var(--color-background)] px-4 py-2">
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="min-w-0">
-              <h2 className="truncate text-sm font-medium">{activeConv?.title ?? 'AI 对话'}</h2>
-              {activeConv?.systemPrompt && (
-                <p className="truncate text-xs text-[var(--color-muted-foreground)]">
-                  系统提示：{activeConv.systemPrompt}
-                </p>
-              )}
-            </div>
+          {/* 模型选择提升为标题栏主路径：常驻可见、一眼知道「谁在回答」、点开即切 */}
+          <div className="flex min-w-0 items-center gap-2.5">
+            <HeaderModelPicker
+              models={models}
+              value={selectedModel}
+              onChange={handleModelChange}
+              fallback={modelsView?.source === 'fallback'}
+              onRefresh={refreshModels}
+              disabled={!activeConv}
+            />
+            {activeConv?.title && (
+              <span className="hidden truncate text-sm text-[var(--color-muted-foreground)] sm:inline" title={activeConv.systemPrompt ? `系统提示：${activeConv.systemPrompt}` : undefined}>
+                {activeConv.title}
+              </span>
+            )}
             <SessionTotalBadge messages={messages} />
           </div>
-          {/* 当前模型 chip + 设置：参数收进抽屉，不在聊天里抢戏 */}
           <button
             type="button"
             onClick={() => setDrawerOpen(true)}
-            title="会话设置（模型 / 温度 / 角色）"
-            className="flex shrink-0 items-center gap-1.5 rounded-full border bg-[var(--color-background)] px-3 py-1 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]"
+            title="高级参数（角色 / 温度）"
+            className="flex size-8 shrink-0 items-center justify-center rounded-full border bg-[var(--color-background)] text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]"
+            aria-label="高级参数"
           >
-            <span className="max-w-[10rem] truncate text-[var(--color-foreground)]">{currentModelLabel}</span>
-            {modelsView?.source === 'fallback' && <span className="text-amber-600 dark:text-amber-400">·兜底</span>}
-            <Settings2 className="size-3.5" />
+            <Settings2 className="size-4" />
           </button>
         </header>
 
@@ -273,16 +279,12 @@ export function ChatPage() {
       <SettingsDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        models={models}
-        selectedModel={selectedModel}
-        onModelChange={handleModelChange}
         presets={presets}
         activeSystemPrompt={activeConv?.systemPrompt ?? null}
         onPickPreset={handlePickPreset}
         temperature={temperature}
         onTemperatureChange={setTemperature}
-        fallback={modelsView?.source === 'fallback'}
-        onRefreshModels={refreshModels}
+        supportsTemperature={supportsTemperature}
         disabled={!activeConv}
       />
     </div>
