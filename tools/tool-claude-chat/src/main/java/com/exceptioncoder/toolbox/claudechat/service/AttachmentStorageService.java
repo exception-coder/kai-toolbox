@@ -21,7 +21,7 @@ import java.util.UUID;
  * 使 sidecar 里的 Claude 能用 Read 直接读取。会话删除时清空对应目录。
  */
 @Slf4j
-@Service
+@Service("claudeChatAttachmentStorageService")
 public class AttachmentStorageService {
 
     /** 附件目录名（相对会话 cwd），隐藏目录避免干扰工作区。 */

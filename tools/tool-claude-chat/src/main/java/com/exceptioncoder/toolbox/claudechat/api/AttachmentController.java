@@ -10,7 +10,7 @@ import java.io.IOException;
 /**
  * 附件上传：multipart 上传单个文件，落盘到会话 cwd 专用目录后返回句柄。契约见 api 文档 §2。
  */
-@RestController
+@RestController("claudeChatAttachmentController")
 @RequestMapping("/api/claude-chat/sessions/{sessionId}/attachments")
 public class AttachmentController {
 

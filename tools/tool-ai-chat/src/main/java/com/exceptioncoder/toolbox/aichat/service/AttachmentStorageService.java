@@ -24,7 +24,7 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
  * 下载只凭 id 定位（无需会话 id）；删会话时由消息行的 {@link AttachmentRef} 反查删除。
  * 所有路径解析后做 {@code startsWith(root)} 越权防护。
  */
-@Service
+@Service("aiChatAttachmentStorageService")
 public class AttachmentStorageService {
 
     private static final Logger log = LoggerFactory.getLogger(AttachmentStorageService.class);
