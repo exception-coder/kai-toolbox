@@ -17,6 +17,7 @@ import { ConversationList } from '../components/ConversationList'
 import { MessageList } from '../components/MessageList'
 import { Composer } from '../components/Composer'
 import { SettingsDrawer } from '../components/SettingsDrawer'
+import { SessionTotalBadge } from '../components/SessionTotalBadge'
 
 export function ChatPage() {
   const confirm = useConfirm()
@@ -217,13 +218,16 @@ export function ChatPage() {
 
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center justify-between gap-2 border-b bg-[var(--color-background)] px-4 py-2">
-          <div className="min-w-0">
-            <h2 className="truncate text-sm font-medium">{activeConv?.title ?? 'AI 对话'}</h2>
-            {activeConv?.systemPrompt && (
-              <p className="truncate text-xs text-[var(--color-muted-foreground)]">
-                系统提示：{activeConv.systemPrompt}
-              </p>
-            )}
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="min-w-0">
+              <h2 className="truncate text-sm font-medium">{activeConv?.title ?? 'AI 对话'}</h2>
+              {activeConv?.systemPrompt && (
+                <p className="truncate text-xs text-[var(--color-muted-foreground)]">
+                  系统提示：{activeConv.systemPrompt}
+                </p>
+              )}
+            </div>
+            <SessionTotalBadge messages={messages} />
           </div>
           {/* 当前模型 chip + 设置：参数收进抽屉，不在聊天里抢戏 */}
           <button

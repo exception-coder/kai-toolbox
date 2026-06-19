@@ -51,3 +51,30 @@ export function cacheHitRate(m: MessageMetrics): number | null {
 export function hasMetrics(m: MessageMetrics): boolean {
   return m.latencyMs != null || m.totalTokens != null || m.promptTokens != null || m.completionTokens != null
 }
+
+/**
+ * 会话累计指标：把所有助手消息的 token / 耗时 / 缓存读累加。
+ * tokens 优先取 totalTokens；无则回退 prompt+completion。hitRate=缓存读/输入侧。
+ */
+export function sessionTotals(messages: MessageMetrics[]): {
+  tokens: number
+  durationMs: number
+  turns: number
+  hitRate: number | null
+} {
+  let tokens = 0
+  let durationMs = 0
+  let turns = 0
+  let cacheRead = 0
+  let promptSide = 0
+  for (const m of messages) {
+    if (!hasMetrics(m)) continue
+    turns++
+    const total = m.totalTokens ?? (m.promptTokens ?? 0) + (m.completionTokens ?? 0)
+    tokens += total
+    if (m.latencyMs != null) durationMs += m.latencyMs
+    if (m.cachedTokens != null) cacheRead += m.cachedTokens
+    if (m.promptTokens != null) promptSide += m.promptTokens
+  }
+  return { tokens, durationMs, turns, hitRate: promptSide > 0 && cacheRead > 0 ? cacheRead / promptSide : null }
+}
