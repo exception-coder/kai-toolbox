@@ -24,7 +24,7 @@ import java.util.Map;
  * 调 Python AgentScope sidecar 做灰区分类。仅在确定性匹配无法定论时调用（LLM-last）。
  * 任何失败（未配置 / 连不上 / 解析失败）都返回 null,由 VerdictService 降级处理,绝不让灰区把整条流程拖垮。
  */
-@Component
+@Component("visitorAnalysisSidecarClient")
 public class SidecarClient {
 
     private static final Logger log = LoggerFactory.getLogger(SidecarClient.class);

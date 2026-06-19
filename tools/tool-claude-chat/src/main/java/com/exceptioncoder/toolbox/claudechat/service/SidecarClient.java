@@ -24,7 +24,7 @@ import java.util.function.BiConsumer;
  * 回调给 {@link ClaudeChatService}。连接断开（sidecar 崩溃）也通过 listener 上报。
  */
 @Slf4j
-@Component
+@Component("claudeChatSidecarClient")
 public class SidecarClient {
 
     private final ClaudeChatProperties props;
