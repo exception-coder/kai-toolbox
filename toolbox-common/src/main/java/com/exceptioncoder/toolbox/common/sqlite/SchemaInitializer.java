@@ -73,7 +73,11 @@ public class SchemaInitializer {
     }
 
     private String[] splitStatements(String sql) {
-        // SQLite 的简单 split 即可：按 ; 分号切分；本工程不写存储过程
-        return sql.split(";");
+        // 先剥注释再按 ; 切分：注释里出现的 ;（如 split(";") 这类描述）不会被误当成语句分隔符。
+        // 本工程 schema 不写存储过程，且无字符串字面量含 ; 或 --，按 ; 切分是安全的。
+        String noComments = sql
+                .replaceAll("(?s)/\\*.*?\\*/", "")
+                .replaceAll("(?m)--.*$", "");
+        return noComments.split(";");
     }
 }
