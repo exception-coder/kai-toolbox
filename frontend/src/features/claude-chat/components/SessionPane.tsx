@@ -6,6 +6,7 @@ import { useClaudeChatSocket } from '../hooks/useClaudeChatSocket'
 import { listSessions, uploadAttachment, type UploadedAttachment } from '../api'
 import { ensureNotifyPermission } from '../browserNotify'
 import { MessageList } from './MessageList'
+import { SessionTotalBadge } from './SessionTotalBadge'
 import { PermissionDialog } from './PermissionDialog'
 import { QuestionDialog } from './QuestionDialog'
 import { ModeSwitch } from './ModeSwitch'
@@ -152,6 +153,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
       >
         <span className={`size-2.5 shrink-0 rounded-full ${sm.dot}${sm.pulse ? ' animate-pulse' : ''}`} />
         <span className="min-w-0 flex-1 truncate text-sm font-semibold" title={meta?.cwd}>{title}</span>
+        <SessionTotalBadge items={chat.items} />
         <span
           title={engineTitle}
           className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${chat.currentProviderKind === 'thirdParty'

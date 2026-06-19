@@ -4,6 +4,7 @@ import { AlertTriangle, Check, Coins, Copy, FileImage, GitBranch, Timer } from '
 import { cn } from '@/lib/utils'
 import { loadState as loadCardState, saveState as saveCardState } from '@/features/markdown-card/lib/persistence'
 import type { ChatItem } from '../types'
+import { abbr, fmtMs, formatTime, parseUsage } from '../lib/metrics'
 import { ToolCallBubble } from './ToolCallBubble'
 import { Markdown } from './Markdown'
 
@@ -126,42 +127,6 @@ function ToCardButton({ text }: { text: string }) {
       转卡片
     </button>
   )
-}
-
-/** 消息块时间：当天显示 HH:mm，跨天显示 MM-DD HH:mm；无 ts（历史消息）返回空串。 */
-function formatTime(ts?: number): string {
-  if (!ts) return ''
-  const d = new Date(ts)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`
-  const now = new Date()
-  const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()
-  return sameDay ? hm : `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hm}`
-}
-
-/** 数字缩写：1234 → 1.2k。 */
-function abbr(n: number): string {
-  if (n < 1000) return String(n)
-  return (n / 1000).toFixed(n < 10000 ? 1 : 0) + 'k'
-}
-
-/** 毫秒 → 友好耗时：<1s 显 ms，否则秒。 */
-function fmtMs(ms?: number): string {
-  if (ms == null || ms < 0) return ''
-  return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(1)}s`
-}
-
-/** usage（各引擎键名不一）→ 输入/输出/缓存/总计；无返回 null。 */
-function parseUsage(u?: Record<string, number>): { input: number; output: number; cache: number; total: number } | null {
-  if (!u) return null
-  let input = 0, output = 0, cache = 0, total = 0
-  for (const [k, v] of Object.entries(u)) {
-    total += v
-    if (k.includes('cache')) cache += v
-    else if (k.includes('input')) input += v
-    else if (k.includes('output')) output += v
-  }
-  return { input, output, cache, total }
 }
 
 type Tone = 'violet' | 'sky' | 'emerald' | 'rose' | 'muted'

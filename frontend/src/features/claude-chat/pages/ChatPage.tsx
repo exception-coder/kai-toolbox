@@ -7,6 +7,7 @@ import { StatusBadge } from '@/components/ui/status-badge'
 import { Input } from '@/components/ui/input'
 import { useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { MessageList } from '../components/MessageList'
+import { SessionTotalBadge } from '../components/SessionTotalBadge'
 import { PermissionDialog } from '../components/PermissionDialog'
 import { QuestionDialog } from '../components/QuestionDialog'
 import { SessionList } from '../components/SessionList'
@@ -437,6 +438,7 @@ export function ChatPage() {
           aria-label={stateLabel(chat.state)}
           className="size-5 shrink-0 justify-center rounded-full px-0"
         />
+        <SessionTotalBadge items={chat.items} />
         <div className="ml-auto flex items-center gap-1">
           {/* 常用：带文字标签，一眼可辨 */}
           <Button variant="ghost" size="sm" className="gap-1" onClick={() => setPanel(p => p === 'new' ? 'none' : 'new')} aria-label="新建会话">
