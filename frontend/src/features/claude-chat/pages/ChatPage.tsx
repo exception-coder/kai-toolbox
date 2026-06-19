@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, Cloud, FolderTree, GitCommit, List, Maximize2, Minimize2, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RotateCw, Send, Server, ShieldCheck, Slash, Square } from 'lucide-react'
+import { Bell, Cloud, FolderTree, Gauge, GitCommit, List, Maximize2, Minimize2, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RotateCw, Send, Server, ShieldCheck, Slash, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Input } from '@/components/ui/input'
 import { useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { MessageList } from '../components/MessageList'
 import { SessionTotalBadge } from '../components/SessionTotalBadge'
+import { UsagePanel } from '../components/UsagePanel'
 import { PermissionDialog } from '../components/PermissionDialog'
 import { QuestionDialog } from '../components/QuestionDialog'
 import { SessionList } from '../components/SessionList'
@@ -181,6 +182,7 @@ export function ChatPage() {
     navigate(getReturnRoute())
   }
   const [panel, setPanel] = useState<Panel>('none')
+  const [showUsage, setShowUsage] = useState(false)
   // 多会话并行分屏：viewMode 切换单/多视图；selecting 控制会话面板的多选态；selected 为勾选集合；multiIds 为已进入分屏的会话
   // 刷新后恢复上次的分屏形态（视图 + 会话集合）
   const splitInit = useMemo(loadSplitState, [])
@@ -459,6 +461,10 @@ export function ChatPage() {
         />
         <SessionTotalBadge items={chat.items} />
         <div className="ml-auto flex items-center gap-1">
+          {/* 本地用量：点开看三引擎 token 消耗 / 缓存命中 / Codex 官方额度 */}
+          <Button variant="ghost" size="icon" onClick={() => setShowUsage(true)} aria-label="本地用量" title="本地用量（token / 缓存 / 额度）">
+            <Gauge className="size-4" />
+          </Button>
           {/* 常用：带文字标签，一眼可辨 */}
           <Button variant="ghost" size="sm" className="gap-1" onClick={() => setPanel(p => p === 'new' ? 'none' : 'new')} aria-label="新建会话">
             <Plus className="size-4" /> 新建
@@ -980,6 +986,9 @@ export function ChatPage() {
           </div>
         </div>
       )}
+
+      {/* 本地用量弹层 */}
+      {showUsage && <UsagePanel onClose={() => setShowUsage(false)} />}
 
       {/* 可视化决策弹窗（仅单会话视图；分屏下各块自管弹窗） */}
       {viewMode === 'single' && pending?.kind === 'permission' && (

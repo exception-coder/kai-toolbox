@@ -136,6 +136,26 @@ async function errMessage(res: Response): Promise<string> {
   return msg
 }
 
+// ── 引擎本地用量 ───────────────────────────────────────────────
+export interface UsageWindow {
+  input: number; output: number; cacheRead: number; cacheCreate: number
+  total: number; turns: number; sessions: number; cacheHitRate: number | null
+}
+export interface UsageQuota {
+  primaryUsedPercent: number | null; primaryWindowMinutes: number | null; primaryResetsAt: number | null
+  secondaryUsedPercent: number | null; secondaryWindowMinutes: number | null; secondaryResetsAt: number | null
+  planType: string | null
+}
+export interface EngineUsage {
+  engine: string; available: boolean; hasTokens: boolean; note: string | null
+  today: UsageWindow; d7: UsageWindow; d30: UsageWindow; quota: UsageQuota | null
+}
+
+/** 拉三引擎本地用量（今日/近7天/近30天 + Codex 官方额度）。 */
+export function fetchUsage(): Promise<EngineUsage[]> {
+  return http<EngineUsage[]>('/claude-chat/usage')
+}
+
 /** 探测 faster-whisper ASR 是否就绪，用于启用/禁用麦克风按钮。 */
 export async function sttAvailable(): Promise<boolean> {
   try {
