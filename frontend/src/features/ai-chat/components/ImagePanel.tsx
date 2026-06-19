@@ -2,32 +2,34 @@ import { useState } from 'react'
 import { AlertTriangle, ImagePlus, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { generateImages } from '../api'
+import type { MessageView } from '../types'
 
 interface Props {
   /** 当前绘图模型（category=image）；为空表示无可用绘图模型。 */
   model: string
-  disabled?: boolean
+  /** 当前绘图会话 id；为空表示尚无会话（提交时自动创建）。 */
+  conversationId: string | null
+  /** 该会话已持久化的消息（含历史绘图结果）。 */
+  messages: MessageView[]
+  /** 确保有归属会话，返回会话 id。 */
+  onEnsureConversation: (model: string) => Promise<string>
+  /** 生成完成后通知父级重新拉取消息。 */
+  onGenerated: () => void
 }
 
 const SIZES = ['1024x1024', '1792x1024', '1024x1792']
 
-interface Generation {
-  id: string
-  prompt: string
-  model: string
-  images: string[]
-}
-
-/** 绘图模式视图：提示词 + 尺寸/张数 → 调 /images 同步出图，结果按次成组展示。会话级临时，不入聊天历史。 */
-export function ImagePanel({ model, disabled }: Props) {
+/** 绘图模式：提示词 + 尺寸/张数 → 调 /images 出图，结果持久化为会话消息、可回看。 */
+export function ImagePanel({ model, conversationId, messages, onEnsureConversation, onGenerated }: Props) {
   const [prompt, setPrompt] = useState('')
   const [size, setSize] = useState(SIZES[0])
   const [n, setN] = useState(1)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [history, setHistory] = useState<Generation[]>([])
 
-  const canSubmit = !!model && !disabled && !loading && prompt.trim().length > 0
+  const canSubmit = !!model && !loading && prompt.trim().length > 0
+  // 只展示有图片附件的助手消息（绘图结果）。
+  const shots = messages.filter((m) => m.role === 'ASSISTANT' && m.attachments.length > 0)
 
   async function submit() {
     if (!canSubmit) return
@@ -35,9 +37,10 @@ export function ImagePanel({ model, disabled }: Props) {
     setError(null)
     const p = prompt.trim()
     try {
-      const res = await generateImages({ model, prompt: p, size, n })
-      setHistory((prev) => [{ id: `g_${Date.now()}`, prompt: p, model: res.model, images: res.images }, ...prev])
+      const convId = conversationId ?? (await onEnsureConversation(model))
+      await generateImages({ conversationId: convId, model, prompt: p, size, n })
       setPrompt('')
+      onGenerated()
     } catch (e) {
       setError(e instanceof Error ? e.message : '绘图失败')
     } finally {
@@ -48,7 +51,7 @@ export function ImagePanel({ model, disabled }: Props) {
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="flex-1 space-y-6 overflow-y-auto p-4">
-        {history.length === 0 && !loading && (
+        {shots.length === 0 && !loading && (
           <div className="flex h-full flex-col items-center justify-center text-center text-[var(--color-muted-foreground)]">
             <div className="flex size-14 items-center justify-center rounded-2xl bg-[var(--color-primary)]/10 text-[var(--color-primary)]">
               <ImagePlus className="size-7" />
@@ -62,16 +65,16 @@ export function ImagePanel({ model, disabled }: Props) {
             <Loader2 className="size-4 animate-spin" /> 生成中…
           </div>
         )}
-        {history.map((g) => (
-          <div key={g.id} className="space-y-2">
+        {shots.map((m) => (
+          <div key={m.id} className="space-y-2">
             <p className="text-xs text-[var(--color-muted-foreground)]">
-              <span className="font-medium text-[var(--color-foreground)]">{g.prompt}</span>
-              <span className="ml-2">· {g.model}</span>
+              <span className="font-medium text-[var(--color-foreground)]">{m.content}</span>
+              {m.model && <span className="ml-2">· {m.model}</span>}
             </p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {g.images.map((src, i) => (
-                <a key={i} href={src} target="_blank" rel="noreferrer" title="点击查看原图">
-                  <img src={src} alt={g.prompt} className="aspect-square w-full rounded-lg border object-cover" />
+              {m.attachments.map((a) => (
+                <a key={a.id} href={a.url} target="_blank" rel="noreferrer" title="点击查看原图">
+                  <img src={a.url} alt={m.content} className="aspect-square w-full rounded-lg border object-cover" />
                 </a>
               ))}
             </div>
@@ -111,7 +114,7 @@ export function ImagePanel({ model, disabled }: Props) {
             rows={1}
             placeholder={model ? '描述你想要的画面，Enter 生成，Shift+Enter 换行' : '无可用绘图模型'}
             value={prompt}
-            disabled={!model || disabled}
+            disabled={!model}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {

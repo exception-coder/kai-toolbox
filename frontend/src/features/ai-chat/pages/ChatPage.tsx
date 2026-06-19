@@ -32,7 +32,9 @@ export function ChatPage() {
 
   const [modelsView, setModelsView] = useState<ModelsView | null>(null)
   const [conversations, setConversations] = useState<ConversationView[]>([])
-  const [activeId, setActiveId] = useState<string | null>(null)
+  const [activeByKind, setActiveByKind] = useState<Record<'chat' | 'image' | 'video', string | null>>({
+    chat: null, image: null, video: null,
+  })
   const [messages, setMessages] = useState<MessageView[]>([])
   const [selectedModel, setSelectedModel] = useState('')
   const [temperature, setTemperature] = useState(0.7)
@@ -44,6 +46,19 @@ export function ChatPage() {
   const [mode, setMode] = useState<'chat' | 'image' | 'video'>('chat')
   const [imageModel, setImageModel] = useState('')
   const [videoModel, setVideoModel] = useState('')
+
+  // 当前 tab 对应的激活会话 id;切 tab 时各自记忆,互不干扰。
+  const activeId = activeByKind[mode]
+  const setActiveId = useCallback(
+    (id: string | null) => setActiveByKind((prev) => ({ ...prev, [mode]: id })),
+    [mode],
+  )
+
+  // 左侧列表只显示当前 tab 类型的会话(旧数据无 kind 时归入 chat)。
+  const visibleConversations = useMemo(
+    () => conversations.filter((c) => (c.kind ?? 'chat') === mode),
+    [conversations, mode],
+  )
 
   const activeConv = useMemo(
     () => conversations.find((c) => c.id === activeId) ?? null,
@@ -94,7 +109,9 @@ export function ChatPage() {
         const vids = mv.models.filter((m) => m.category === 'video')
         if (vids.length > 0) setVideoModel(vids[0].id)
         const list = await refreshConversations()
-        if (list.length > 0) setActiveId(list[0].id)
+        // 各类型分别选中其最近一条会话(列表已按 updated_at 倒序)。
+        const firstOf = (k: string) => list.find((c) => (c.kind ?? 'chat') === k)?.id ?? null
+        setActiveByKind({ chat: firstOf('chat'), image: firstOf('image'), video: firstOf('video') })
       } catch (e) {
         setBanner(e instanceof Error ? e.message : '加载失败')
       }
@@ -107,8 +124,11 @@ export function ChatPage() {
       setMessages([])
       return
     }
-    setSelectedModel(activeConv.model)
-    setTemperature(activeConv.temperature ?? 0.7)
+    // 仅对话会话同步到顶部对话模型选择器/温度;绘图/视频模型各自独立。
+    if ((activeConv.kind ?? 'chat') === 'chat') {
+      setSelectedModel(activeConv.model)
+      setTemperature(activeConv.temperature ?? 0.7)
+    }
     void (async () => {
       try {
         const page = await fetchMessages(activeConv.id)
@@ -119,13 +139,44 @@ export function ChatPage() {
     })()
   }, [activeConv])
 
+  // 绘图/视频面板:确保有归属会话(无则按当前 kind 新建),返回会话 id 供提交用。
+  const ensureConversation = useCallback(
+    async (model: string): Promise<string> => {
+      const current = conversations.find((c) => c.id === activeByKind[mode]) ?? null
+      if (current && (current.kind ?? 'chat') === mode) {
+        return current.id
+      }
+      const conv = await createConversation({ model, kind: mode })
+      setConversations((prev) => [conv, ...prev])
+      setActiveByKind((prev) => ({ ...prev, [mode]: conv.id }))
+      return conv.id
+    },
+    [conversations, activeByKind, mode],
+  )
+
+  // 媒体生成后重新拉取当前会话消息,使结果以持久化消息形式出现。
+  const reloadMessages = useCallback(async () => {
+    const id = activeByKind[mode]
+    if (!id) return
+    try {
+      const page = await fetchMessages(id)
+      setMessages(page.messages)
+      void refreshConversations()
+    } catch {
+      /* 忽略,下次切会话会重新拉 */
+    }
+  }, [activeByKind, mode, refreshConversations])
+
   async function handleNew() {
-    const model = selectedModel || modelsView?.models[0]?.id
+    const model =
+      mode === 'image' ? imageModel || imageModels[0]?.id
+      : mode === 'video' ? videoModel || videoModels[0]?.id
+      : selectedModel || models[0]?.id
     if (!model) {
-      setBanner('暂无可用模型，请先在配置中心填好 4sapi 的 api-key')
+      setBanner(mode === 'chat' ? '暂无可用模型，请先在配置中心填好 4sapi 的 api-key' : `当前无可用${mode === 'image' ? '绘图' : '视频'}模型`)
       return
     }
-    const conv = await createConversation({ model })
+    const conv = await createConversation({ model, kind: mode })
     setConversations((prev) => [conv, ...prev])
     setActiveId(conv.id)
     setMessages([])
@@ -145,10 +196,8 @@ export function ChatPage() {
     await deleteConversation(id)
     setConversations((prev) => prev.filter((c) => c.id !== id))
     if (activeId === id) {
-      setActiveId((prev) => {
-        const rest = conversations.filter((c) => c.id !== id)
-        return rest.length > 0 ? rest[0].id : null
-      })
+      const rest = visibleConversations.filter((c) => c.id !== id)
+      setActiveId(rest.length > 0 ? rest[0].id : null)
     }
   }
 
@@ -236,7 +285,7 @@ export function ChatPage() {
     <div className="flex h-[calc(100vh-3.5rem)] bg-[var(--color-muted)]/40">
       <aside className="w-64 shrink-0 border-r bg-[var(--color-background)]">
         <ConversationList
-          conversations={conversations}
+          conversations={visibleConversations}
           activeId={activeId}
           onSelect={setActiveId}
           onNew={handleNew}
@@ -320,9 +369,21 @@ export function ChatPage() {
         )}
 
         {mode === 'image' ? (
-          <ImagePanel model={imageModel} />
+          <ImagePanel
+            model={imageModel}
+            conversationId={activeConv?.id ?? null}
+            messages={messages}
+            onEnsureConversation={ensureConversation}
+            onGenerated={reloadMessages}
+          />
         ) : mode === 'video' ? (
-          <VideoPanel model={videoModel} />
+          <VideoPanel
+            model={videoModel}
+            conversationId={activeConv?.id ?? null}
+            messages={messages}
+            onEnsureConversation={ensureConversation}
+            onGenerated={reloadMessages}
+          />
         ) : (
           <>
             <MessageList

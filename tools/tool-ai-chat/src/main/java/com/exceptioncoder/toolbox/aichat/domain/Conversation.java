@@ -14,6 +14,8 @@ public class Conversation {
     private String title;
     /** 当前默认模型名（4sapi 模型 id）；发送时可临时覆盖并回写。 */
     private String model;
+    /** 会话类型：chat（对话）/ image（绘图）/ video（视频）。决定左侧列表按 tab 归类。 */
+    private String kind;
     /** 会话级系统提示，可空。 */
     private String systemPrompt;
     /** 采样温度，可空（空则取配置默认）。 */

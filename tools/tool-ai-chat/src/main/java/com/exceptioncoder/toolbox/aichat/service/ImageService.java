@@ -1,5 +1,7 @@
 package com.exceptioncoder.toolbox.aichat.service;
 
+import com.exceptioncoder.toolbox.aichat.api.dto.AttachmentRef;
+import com.exceptioncoder.toolbox.aichat.api.dto.AttachmentView;
 import com.exceptioncoder.toolbox.aichat.api.dto.ImageGenRequest;
 import com.exceptioncoder.toolbox.aichat.api.dto.ImageGenResult;
 import com.exceptioncoder.toolbox.aichat.config.AiChatProperties;
@@ -30,11 +32,16 @@ public class ImageService {
 
     private final AiChatProperties props;
     private final ModelCatalogService models;
+    private final ConversationService conversations;
+    private final AttachmentStorageService attachments;
     private final RestClient rest = RestClient.create();
 
-    public ImageService(AiChatProperties props, ModelCatalogService models) {
+    public ImageService(AiChatProperties props, ModelCatalogService models,
+                        ConversationService conversations, AttachmentStorageService attachments) {
         this.props = props;
         this.models = models;
+        this.conversations = conversations;
+        this.attachments = attachments;
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -49,6 +56,12 @@ public class ImageService {
         if (model == null || model.isBlank()) {
             throw new ResponseStatusException(BAD_REQUEST, "缺少绘图模型");
         }
+        // 绘图结果须落入一个 image 会话以便持久化与回看。
+        String conversationId = req.conversationId();
+        if (conversationId == null || conversationId.isBlank()) {
+            throw new ResponseStatusException(BAD_REQUEST, "缺少会话 id");
+        }
+        conversations.require(conversationId);
         if (!models.isAllowed(model)) {
             throw new ResponseStatusException(BAD_REQUEST, "model 不在可用清单内");
         }
@@ -92,7 +105,26 @@ public class ImageService {
             if (images.isEmpty()) {
                 throw new ResponseStatusException(BAD_GATEWAY, "网关返回的图片为空");
             }
-            return new ImageGenResult(images, model);
+            // 下载落盘为附件并存为会话的助手消息(持久化、可回看)。网关图床 URL 会过期,故必须落地。
+            List<AttachmentRef> refs = new ArrayList<>();
+            List<String> localUrls = new ArrayList<>();
+            for (ImagesApiResponse.Datum d : resp.data()) {
+                AttachmentView att = null;
+                if (d.url() != null && !d.url().isBlank()) {
+                    att = attachments.storeFromUrl(d.url());
+                } else if (d.b64_json() != null && !d.b64_json().isBlank()) {
+                    att = attachments.storeBase64(d.b64_json());
+                }
+                if (att != null) {
+                    refs.add(attachments.resolve(att.id()));
+                    localUrls.add(att.url());
+                }
+            }
+            if (!refs.isEmpty()) {
+                conversations.appendAssistantMediaMessage(conversationId, model, prompt, refs);
+            }
+            // 返回本地附件地址(已持久化),而非会过期的网关 URL。
+            return new ImageGenResult(localUrls.isEmpty() ? images : localUrls, model);
         } catch (ResponseStatusException e) {
             throw e;
         } catch (RuntimeException e) {

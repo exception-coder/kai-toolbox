@@ -21,6 +21,7 @@ public class ConversationRepository {
             .id(rs.getString("id"))
             .title(rs.getString("title"))
             .model(rs.getString("model"))
+            .kind(rs.getString("kind"))
             .systemPrompt(rs.getString("system_prompt"))
             .temperature((Double) rs.getObject("temperature"))
             .maxTokens((Integer) rs.getObject("max_tokens"))
@@ -32,6 +33,11 @@ public class ConversationRepository {
         return jdbc.query("SELECT * FROM ai_chat_conversation ORDER BY updated_at DESC", ROW);
     }
 
+    /** 按会话类型(chat/image/video)过滤,按更新时间倒序。 */
+    public List<Conversation> findByKindOrderByUpdatedDesc(String kind) {
+        return jdbc.query("SELECT * FROM ai_chat_conversation WHERE kind = ? ORDER BY updated_at DESC", ROW, kind);
+    }
+
     public Optional<Conversation> findById(String id) {
         return jdbc.query("SELECT * FROM ai_chat_conversation WHERE id = ?", ROW, id)
                 .stream().findFirst();
@@ -40,10 +46,10 @@ public class ConversationRepository {
     public void insert(Conversation c) {
         jdbc.update("""
                 INSERT INTO ai_chat_conversation
-                  (id, title, model, system_prompt, temperature, max_tokens, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                  (id, title, model, kind, system_prompt, temperature, max_tokens, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                c.getId(), c.getTitle(), c.getModel(), c.getSystemPrompt(),
+                c.getId(), c.getTitle(), c.getModel(), c.getKind(), c.getSystemPrompt(),
                 c.getTemperature(), c.getMaxTokens(), c.getCreatedAt(), c.getUpdatedAt());
     }
 

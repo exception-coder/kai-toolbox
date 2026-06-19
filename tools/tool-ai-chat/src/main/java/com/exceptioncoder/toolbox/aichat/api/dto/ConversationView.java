@@ -7,6 +7,7 @@ public record ConversationView(
         String id,
         String title,
         String model,
+        String kind,
         String systemPrompt,
         Double temperature,
         Integer maxTokens,

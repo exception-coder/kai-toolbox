@@ -30,12 +30,27 @@ public class VideoService {
 
     private final AiChatProperties props;
     private final ModelCatalogService models;
+    private final ConversationService conversations;
+    private final AttachmentStorageService attachments;
     private final RestClient rest = RestClient.create();
     private final ObjectMapper json = new ObjectMapper();
 
-    public VideoService(AiChatProperties props, ModelCatalogService models) {
+    /** 提交时记下任务归属(taskId -> 会话/提示词/模型),完成轮询时据此落库。 */
+    private final java.util.concurrent.ConcurrentHashMap<String, PendingVideo> pending =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    /** 已落库的任务 id,防止轮询重复插入。 */
+    private final java.util.Set<String> persisted =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    private record PendingVideo(String conversationId, String prompt, String model) {
+    }
+
+    public VideoService(AiChatProperties props, ModelCatalogService models,
+                        ConversationService conversations, AttachmentStorageService attachments) {
         this.props = props;
         this.models = models;
+        this.conversations = conversations;
+        this.attachments = attachments;
     }
 
     public VideoTask submit(VideoGenRequest req) {
@@ -43,6 +58,11 @@ public class VideoService {
         if (model == null || model.isBlank()) {
             throw new ResponseStatusException(BAD_REQUEST, "缺少视频模型");
         }
+        String conversationId = req.conversationId();
+        if (conversationId == null || conversationId.isBlank()) {
+            throw new ResponseStatusException(BAD_REQUEST, "缺少会话 id");
+        }
+        conversations.require(conversationId);
         if (!models.isAllowed(model)) {
             throw new ResponseStatusException(BAD_REQUEST, "model 不在可用清单内");
         }
@@ -73,7 +93,9 @@ public class VideoService {
             if (resp == null || resp.path("id").asText("").isBlank()) {
                 throw new ResponseStatusException(BAD_GATEWAY, "网关未返回任务 id");
             }
-            return new VideoTask(resp.path("id").asText(), resp.path("status").asText("queued"), null, null, model);
+            String taskId = resp.path("id").asText();
+            pending.put(taskId, new PendingVideo(conversationId, prompt, model));
+            return new VideoTask(taskId, resp.path("status").asText("queued"), null, null, model);
         } catch (ResponseStatusException e) {
             throw e;
         } catch (RestClientResponseException e) {
@@ -101,7 +123,12 @@ public class VideoService {
                 throw new ResponseStatusException(BAD_GATEWAY, "网关未返回任务状态");
             }
             String status = n.path("status").asText("");
-            return new VideoTask(id, status, findVideoUrl(n), findError(n), n.path("model").asText(null));
+            String videoUrl = findVideoUrl(n);
+            // 完成且有结果 → 下载落地并存为会话消息(一次性,防轮询重复)。
+            if ("completed".equals(status) && videoUrl != null) {
+                videoUrl = persistIfNeeded(id, videoUrl);
+            }
+            return new VideoTask(id, status, videoUrl, findError(n), n.path("model").asText(null));
         } catch (ResponseStatusException e) {
             throw e;
         } catch (RestClientResponseException e) {
@@ -111,6 +138,28 @@ public class VideoService {
         } catch (RuntimeException e) {
             log.warn("[ai-chat] 视频轮询失败 id={}: {}", id, e.toString());
             throw new ResponseStatusException(BAD_GATEWAY, "视频轮询失败：" + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 视频完成时下载落地并存为会话消息,返回本地附件 URL(已持久化)。
+     * 用 persisted 集合保证多次轮询只落库一次;下载失败则退回原网关 URL,不阻断播放。
+     */
+    private String persistIfNeeded(String taskId, String gatewayUrl) {
+        PendingVideo pv = pending.get(taskId);
+        if (pv == null || !persisted.add(taskId)) {
+            return gatewayUrl; // 无归属信息或已落库 → 不重复处理
+        }
+        try {
+            var att = attachments.storeVideoFromUrl(gatewayUrl);
+            conversations.appendAssistantMediaMessage(pv.conversationId(), pv.model(), pv.prompt(),
+                    java.util.List.of(attachments.resolve(att.id())));
+            pending.remove(taskId);
+            return att.url();
+        } catch (RuntimeException e) {
+            persisted.remove(taskId); // 落库失败,允许下次轮询重试
+            log.warn("[ai-chat] 视频结果落库失败 task={}: {}", taskId, e.toString());
+            return gatewayUrl;
         }
     }
 

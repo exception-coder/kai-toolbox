@@ -56,6 +56,12 @@ public class ConversationService {
         return convRepo.findAllOrderByUpdatedDesc().stream().map(ConversationService::toView).toList();
     }
 
+    /** 按会话类型(chat/image/video)列出;kind 为空或 chat 时归入对话。 */
+    public List<ConversationView> listByKind(String kind) {
+        String k = normalizeKind(kind);
+        return convRepo.findByKindOrderByUpdatedDesc(k).stream().map(ConversationService::toView).toList();
+    }
+
     public ConversationView create(CreateConversationRequest req) {
         String model = req.model();
         requireModel(model);
@@ -65,6 +71,7 @@ public class ConversationService {
                 .id("c_" + shortId())
                 .title(req.title() == null || req.title().isBlank() ? "新对话" : req.title().trim())
                 .model(model)
+                .kind(normalizeKind(req.kind()))
                 .systemPrompt(req.systemPrompt())
                 .temperature(req.temperature())
                 .maxTokens(req.maxTokens())
@@ -73,6 +80,14 @@ public class ConversationService {
                 .build();
         convRepo.insert(c);
         return toView(c);
+    }
+
+    /** 归一化会话类型:仅接受 chat/image/video,其余(含空)按 chat。 */
+    private static String normalizeKind(String kind) {
+        if ("image".equals(kind) || "video".equals(kind)) {
+            return kind;
+        }
+        return "chat";
     }
 
     public ConversationView getView(String id) {
@@ -173,6 +188,28 @@ public class ConversationService {
         return msgRepo.findRecent(convId, limit);
     }
 
+    /**
+     * 持久化一条带附件的助手消息(绘图/视频结果用):content 存提示词,refs 存落地的图/视频引用。
+     * 同时刷新会话 updated_at,使其在左侧列表回到顶部。
+     */
+    public ChatMessage appendAssistantMediaMessage(String convId, String model, String content,
+                                                   List<AttachmentRef> refs) {
+        long now = System.currentTimeMillis();
+        ChatMessage m = ChatMessage.builder()
+                .id("m_" + shortId())
+                .conversationId(convId)
+                .role(MessageRole.ASSISTANT)
+                .content(content)
+                .model(model)
+                .attachmentsJson(writeRefs(refs))
+                .status(MessageStatus.DONE)
+                .createdAt(now)
+                .build();
+        msgRepo.insert(m);
+        convRepo.touchUpdatedAt(convId, now);
+        return m;
+    }
+
     public List<AttachmentRef> parseRefs(String attachmentsJson) {
         if (attachmentsJson == null || attachmentsJson.isBlank()) {
             return List.of();
@@ -217,7 +254,7 @@ public class ConversationService {
     }
 
     private static ConversationView toView(Conversation c) {
-        return new ConversationView(c.getId(), c.getTitle(), c.getModel(), c.getSystemPrompt(),
+        return new ConversationView(c.getId(), c.getTitle(), c.getModel(), c.getKind(), c.getSystemPrompt(),
                 c.getTemperature(), c.getMaxTokens(), c.getCreatedAt(), c.getUpdatedAt());
     }
 

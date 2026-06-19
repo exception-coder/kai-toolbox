@@ -43,6 +43,8 @@ export interface ConversationView {
   id: string
   title: string
   model: string
+  /** 会话类型：chat（对话）/ image（绘图）/ video（视频）。 */
+  kind: 'chat' | 'image' | 'video'
   systemPrompt: string | null
   temperature: number | null
   maxTokens: number | null
@@ -103,6 +105,7 @@ export interface MessagePage {
 export interface CreateConversationBody {
   title?: string
   model: string
+  kind?: 'chat' | 'image' | 'video'
   systemPrompt?: string
   temperature?: number | null
   maxTokens?: number | null

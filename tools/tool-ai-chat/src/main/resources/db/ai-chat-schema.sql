@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS ai_chat_conversation (
     id            TEXT PRIMARY KEY,
     title         TEXT,
     model         TEXT    NOT NULL,
+    kind          TEXT    NOT NULL DEFAULT 'chat',
     system_prompt TEXT,
     temperature   REAL,
     max_tokens    INTEGER,

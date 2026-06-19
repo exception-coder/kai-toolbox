@@ -2,10 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Clapperboard, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { getVideoTask, submitVideo } from '../api'
+import type { MessageView } from '../types'
 
 interface Props {
   /** 当前视频模型（category=video）；为空表示无可用视频模型。 */
   model: string
+  /** 当前视频会话 id；为空表示尚无会话（提交时自动创建）。 */
+  conversationId: string | null
+  /** 该会话已持久化的消息（含历史视频结果）。 */
+  messages: MessageView[]
+  onEnsureConversation: (model: string) => Promise<string>
+  onGenerated: () => void
 }
 
 const SECONDS = ['4', '8', '12']
@@ -15,21 +22,13 @@ const STATUS_LABEL: Record<string, string> = {
   queued: '排队中', initializing: '初始化', in_progress: '生成中', downloading: '下载中', uploading: '上传中',
 }
 
-interface Done {
-  id: string
-  prompt: string
-  model: string
-  url: string
-}
-
-/** 视频模式：提示词 + 时长/分辨率 → 提交异步任务 → 轮询进度 → 播放器。会话级临时，不入聊天历史。 */
-export function VideoPanel({ model }: Props) {
+/** 视频模式：提示词 + 时长/分辨率 → 提交异步任务 → 轮询进度 → 结果持久化为会话消息、可回看。 */
+export function VideoPanel({ model, conversationId, messages, onEnsureConversation, onGenerated }: Props) {
   const [prompt, setPrompt] = useState('')
   const [seconds, setSeconds] = useState('4')
   const [size, setSize] = useState(SIZES[0])
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null) // 非空表示有任务在跑
-  const [history, setHistory] = useState<Done[]>([])
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const aliveRef = useRef(true)
 
@@ -43,22 +42,24 @@ export function VideoPanel({ model }: Props) {
 
   const running = status != null
   const canSubmit = !!model && !running && prompt.trim().length > 0
+  // 只展示有视频附件的助手消息（视频结果）。
+  const clips = messages.filter((m) => m.role === 'ASSISTANT' && m.attachments.length > 0)
 
-  const poll = (id: string, prompt: string, mdl: string) => {
+  const poll = (id: string) => {
     timerRef.current = setTimeout(async () => {
       if (!aliveRef.current) return
       try {
         const t = await getVideoTask(id)
         if (!aliveRef.current) return
         if (t.status === 'completed' && t.videoUrl) {
-          setHistory((prev) => [{ id, prompt, model: mdl, url: t.videoUrl! }, ...prev])
           setStatus(null)
+          onGenerated() // 结果已落库为会话消息，拉取刷新
         } else if (t.status === 'failed') {
           setError(t.error || '视频生成失败')
           setStatus(null)
         } else {
           setStatus(t.status || 'in_progress')
-          poll(id, prompt, mdl)
+          poll(id)
         }
       } catch (e) {
         if (!aliveRef.current) return
@@ -73,10 +74,11 @@ export function VideoPanel({ model }: Props) {
     setError(null)
     const p = prompt.trim()
     try {
-      const t = await submitVideo({ model, prompt: p, seconds, size })
+      const convId = conversationId ?? (await onEnsureConversation(model))
+      const t = await submitVideo({ conversationId: convId, model, prompt: p, seconds, size })
       setStatus(t.status || 'queued')
       setPrompt('')
-      poll(t.id, p, t.model || model)
+      poll(t.id)
     } catch (e) {
       setError(e instanceof Error ? e.message : '提交失败')
       setStatus(null)
@@ -86,7 +88,7 @@ export function VideoPanel({ model }: Props) {
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="flex-1 space-y-6 overflow-y-auto p-4">
-        {history.length === 0 && !running && (
+        {clips.length === 0 && !running && (
           <div className="flex h-full flex-col items-center justify-center text-center text-[var(--color-muted-foreground)]">
             <div className="flex size-14 items-center justify-center rounded-2xl bg-[var(--color-primary)]/10 text-[var(--color-primary)]">
               <Clapperboard className="size-7" />
@@ -101,16 +103,20 @@ export function VideoPanel({ model }: Props) {
             {STATUS_LABEL[status!] ?? status}…（视频生成较慢，请稍候，期间可不要离开本页）
           </div>
         )}
-        {history.map((v) => (
-          <div key={v.id} className="space-y-2">
+        {clips.map((m) => (
+          <div key={m.id} className="space-y-2">
             <p className="text-xs text-[var(--color-muted-foreground)]">
-              <span className="font-medium text-[var(--color-foreground)]">{v.prompt}</span>
-              <span className="ml-2">· {v.model}</span>
+              <span className="font-medium text-[var(--color-foreground)]">{m.content}</span>
+              {m.model && <span className="ml-2">· {m.model}</span>}
             </p>
-            <video src={v.url} controls className="max-h-[60vh] w-full rounded-lg border bg-black" />
-            <a href={v.url} target="_blank" rel="noreferrer" className="text-xs text-[var(--color-primary)] underline">
-              在新标签打开 / 下载
-            </a>
+            {m.attachments.map((a) => (
+              <div key={a.id} className="space-y-1">
+                <video src={a.url} controls className="max-h-[60vh] w-full rounded-lg border bg-black" />
+                <a href={a.url} target="_blank" rel="noreferrer" className="text-xs text-[var(--color-primary)] underline">
+                  在新标签打开 / 下载
+                </a>
+              </div>
+            ))}
           </div>
         ))}
       </div>

@@ -29,8 +29,8 @@ public class ConversationController {
     }
 
     @GetMapping
-    public List<ConversationView> list() {
-        return service.list();
+    public List<ConversationView> list(@RequestParam(required = false) String kind) {
+        return kind == null || kind.isBlank() ? service.list() : service.listByKind(kind);
     }
 
     @PostMapping

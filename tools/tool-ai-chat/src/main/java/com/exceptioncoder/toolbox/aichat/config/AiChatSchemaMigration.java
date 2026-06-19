@@ -43,5 +43,12 @@ public class AiChatSchemaMigration {
                 log.debug("[ai-chat] {} 列迁移跳过：{}", col, e.getMessage());
             }
         }
+        // 会话表补 kind 列（chat/image/video）：旧库补列默认 chat，新装库已含此列命中 duplicate 被忽略。
+        try {
+            jdbc.execute("ALTER TABLE ai_chat_conversation ADD COLUMN kind TEXT NOT NULL DEFAULT 'chat'");
+            log.info("[ai-chat] 迁移：ai_chat_conversation 已补 kind 列");
+        } catch (Exception e) {
+            log.debug("[ai-chat] kind 列迁移跳过：{}", e.getMessage());
+        }
     }
 }
