@@ -300,6 +300,23 @@ public class SessionHistoryService {
      * 按会话 id 统计整会话累计用量：读 transcript，把所有 assistant 的 message.usage 求和，
      * 按真实用户消息边界数有输出的轮次。不依赖前端分页/加载量，给整会话准确总和。
      */
+    /** 跨多段 transcript 求和：多 agent 会话每个引擎一段，逐段累加得整会话总和。 */
+    public SessionUsageView usageTotal(String cwd, List<String> sdkSessionIds) {
+        long input = 0, output = 0, cacheRead = 0, cacheCreate = 0;
+        int turns = 0;
+        for (String sid : sdkSessionIds) {
+            if (sid == null || sid.isBlank()) continue;
+            SessionUsageView one = usageTotal(cwd, sid);
+            input += one.inputTokens();
+            output += one.outputTokens();
+            cacheRead += one.cacheReadTokens();
+            cacheCreate += one.cacheCreateTokens();
+            turns += one.turns();
+        }
+        return new SessionUsageView(input, output, cacheRead, cacheCreate,
+                input + output + cacheRead + cacheCreate, turns);
+    }
+
     public SessionUsageView usageTotal(String cwd, String sdkSessionId) {
         Path jsonl = findTranscript(cwd, sdkSessionId);
         if (jsonl == null || !Files.isReadable(jsonl)) {
