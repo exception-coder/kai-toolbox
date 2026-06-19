@@ -52,6 +52,37 @@ export function subscribeCompletion(taskId: string, handlers: SseHandlers): () =
   return subscribeSse(`${BASE}/completions/${taskId}/events`, handlers, ['token', 'done'])
 }
 
+/** 探测 ASR（faster-whisper）是否就绪，用于启用/禁用麦克风按钮。 */
+export async function sttAvailable(): Promise<boolean> {
+  try {
+    const res = await authFetch(`${BASE}/stt/available`)
+    if (!res.ok) return false
+    const j = await res.json()
+    return !!j.available
+  } catch {
+    return false
+  }
+}
+
+/** 录音 blob 上传转写为文本（raw body）。 */
+export async function transcribe(audio: Blob, language = 'auto'): Promise<string> {
+  const res = await authFetch(`${BASE}/stt?language=${encodeURIComponent(language)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': audio.type || 'application/octet-stream' },
+    body: audio,
+  })
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`
+    try {
+      const p = await res.json()
+      if (p && typeof p.message === 'string') msg = p.message
+    } catch { /* ignore */ }
+    throw new Error(msg)
+  }
+  const j = await res.json()
+  return (j.text as string) ?? ''
+}
+
 export async function uploadAttachment(file: File): Promise<AttachmentView> {
   const fd = new FormData()
   fd.append('file', file)

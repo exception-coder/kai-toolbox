@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Loader2, Paperclip, Send, Square, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { uploadAttachment } from '../api'
+import { VoiceInputButton } from './VoiceInputButton'
 import type { AttachmentView, ModelInfo } from '../types'
 
 interface Props {
@@ -103,6 +104,10 @@ export function Composer(props: Props) {
             </Button>
           </>
         )}
+        <VoiceInputButton
+          disabled={streaming || disabled}
+          onText={(t) => setContent((prev) => (prev.trim() ? `${prev} ${t}` : t))}
+        />
         <textarea
           className="max-h-40 min-h-[40px] flex-1 resize-none rounded-md border bg-[var(--color-background)] px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)] disabled:opacity-50"
           rows={1}
