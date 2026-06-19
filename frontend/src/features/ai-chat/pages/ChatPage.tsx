@@ -311,7 +311,7 @@ export function ChatPage() {
       )}
 
       <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between gap-2 border-b bg-[var(--color-background)] px-2 py-2 sm:px-4">
+        <header className="flex flex-col gap-1.5 border-b bg-[var(--color-background)] px-2 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:px-4">
           {/* 模式切换（对话/绘图）+ 模型选择（按模式过滤）作为标题栏主路径 */}
           <div className="flex min-w-0 items-center gap-1.5 sm:gap-2.5">
             <button
@@ -348,20 +348,19 @@ export function ChatPage() {
               onRefresh={refreshModels}
               disabled={mode === 'chat' && !activeConv}
             />
-            {mode === 'chat' && activeConv && supportsTemperature && (
-              <TemperatureControl value={temperature} onChange={setTemperature} />
-            )}
             {mode === 'chat' && activeConv?.title && (
-              <span className="hidden truncate text-sm text-[var(--color-muted-foreground)] sm:inline" title={activeConv.systemPrompt ? `系统提示：${activeConv.systemPrompt}` : undefined}>
+              <span className="hidden truncate text-sm text-[var(--color-muted-foreground)] lg:inline" title={activeConv.systemPrompt ? `系统提示：${activeConv.systemPrompt}` : undefined}>
                 {activeConv.title}
               </span>
             )}
-            {mode === 'chat' && <SessionTotalBadge messages={messages} />}
           </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            <div className="hidden sm:block">
-              <UsageChip />
-            </div>
+          {/* 次级控件：移动端独占第二行，避免和模型选择挤在一行 */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {mode === 'chat' && activeConv && supportsTemperature && (
+              <TemperatureControl value={temperature} onChange={setTemperature} />
+            )}
+            {mode === 'chat' && <SessionTotalBadge messages={messages} />}
+            <UsageChip />
             <button
               type="button"
               onClick={() => setDebugOpen(true)}
