@@ -72,11 +72,19 @@ export function UsagePanel({ onClose, session }: { onClose: () => void; session?
   )
 }
 
-/** 本会话用量拆分：总吞吐(含缓存读) vs 实际消耗(不含缓存读) + 输入/输出/缓存读/缓存写。 */
+// Opus 官方价（USD / 1M tokens），作成本「参照上限」；第三方 / Sonnet / Haiku 实际更低。
+const OPUS_PRICE = { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5 }
+const USD_TO_CNY = 7.2
+
+/** 本会话用量拆分：总吞吐(含缓存读) vs 实际消耗(不含缓存读) + 输入/输出/缓存读/缓存写 + 估算成本。 */
 function SessionUsageCard({ s }: { s: SessionUsage }) {
   const real = s.inputTokens + s.outputTokens + s.cacheCreateTokens // 不含缓存读（命中≈免费）
   const inputSide = s.inputTokens + s.cacheReadTokens + s.cacheCreateTokens
   const hit = inputSide > 0 ? Math.floor((s.cacheReadTokens / inputSide) * 100) : null
+  const costUsd = (s.inputTokens * OPUS_PRICE.input + s.outputTokens * OPUS_PRICE.output
+    + s.cacheCreateTokens * OPUS_PRICE.cacheWrite + s.cacheReadTokens * OPUS_PRICE.cacheRead) / 1e6
+  const costCny = costUsd * USD_TO_CNY
+  const costTitle = `按 Opus 官方价：输入 $15 / 输出 $75 / 缓存写 $18.75 / 缓存读 $1.5（每 1M）≈ $${costUsd.toFixed(2)}`
   const Row = ({ label, value, tone }: { label: string; value: string; tone?: string }) => (
     <div className="flex items-center justify-between gap-2">
       <span className="text-[var(--color-muted-foreground)]">{label}</span>
@@ -98,8 +106,13 @@ function SessionUsageCard({ s }: { s: SessionUsage }) {
         <Row label="缓存读(命中≈免费)" value={abbr(s.cacheReadTokens)} />
         <Row label="缓存写" value={abbr(s.cacheCreateTokens)} />
       </div>
+      <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs dark:border-amber-900 dark:bg-amber-950/40" title={costTitle}>
+        <span className="text-amber-700 dark:text-amber-300">估算成本（Opus 官方价·参照上限）</span>
+        <span className="tabular-nums font-semibold text-amber-700 dark:text-amber-300">≈ ¥{costCny < 1 ? costCny.toFixed(2) : Math.round(costCny).toLocaleString()}</span>
+      </div>
       <p className="mt-2 text-[10px] leading-relaxed text-[var(--color-muted-foreground)]">
-        缓存读每次模型调用都把整段上下文重算计入，故「总吞吐」远大于「实际消耗」；计费主要看实际消耗（缓存读约 1/10 计费）。已含本会话全部 agent 段。
+        缓存读每次模型调用都把整段上下文重算计入，故「总吞吐」远大于「实际消耗」；计费主要看实际消耗（缓存读约 1/10 计费）。
+        成本按 Opus 官方价折算（汇率 7.2）作上限，第三方 / Sonnet / Haiku 实际更低；缓存写常是大头，频繁切模型 / 低命中会推高。已含本会话全部 agent 段。
       </p>
     </div>
   )
