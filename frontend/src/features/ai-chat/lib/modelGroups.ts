@@ -120,32 +120,17 @@ export function sceneTagsOf(models: ModelInfo[]): string[] {
   return orderTags([...set])
 }
 
-/** 解析上下文长度标签（如 "200K" / "32.8K" / "1M"）为千 token 数；非此类返回 0。 */
-function contextK(tags: string[]): number {
-  let max = 0
-  for (const t of tags) {
-    const m = /^([\d.]+)\s*([km])$/i.exec(t.trim())
-    if (m) {
-      const n = Number(m[1]) * (m[2].toLowerCase() === 'm' ? 1000 : 1)
-      if (n > max) max = n
-    }
-  }
-  return max
-}
-
 /**
  * 能力评分（越高越强），用于「按能力」排序。平台 /api/pricing 没有能力排名字段，
- * 故以真实字段作代理：价格倍率（model_ratio）为主，上下文长度与「推理」标签为辅。
- * 无 pricing 数据（标签与价格皆缺）时回退按名称的 modelReasoningScore。
+ * 价格倍率（model_ratio）是唯一真实的能力/成本代理，故令其绝对主导（×1000）。
+ *
+ * <p>刻意「不」把上下文长度计入：大窗口 ≠ 更强，否则 1M 上下文的轻量模型（如 Gemini flash）
+ * 会被整体抬到顶部。名称启发式仅作极低位次级序，用于价格相同或缺失时的相对排序，
+ * 不会跨尺度压过价格。</p>
  */
 export function modelCapabilityScore(m: ModelInfo): number {
-  const tags = m.tags ?? []
   const price = m.priceRatio ?? 0
-  if (tags.length === 0 && price === 0) return modelReasoningScore(m.id)
-  let s = price
-  s += contextK(tags) / 500
-  if (tags.includes('推理')) s += 0.5
-  return s
+  return price * 1000 + modelReasoningScore(m.id)
 }
 
 /** 按能力降序排序（同分按 id 字典序），返回新数组。 */
