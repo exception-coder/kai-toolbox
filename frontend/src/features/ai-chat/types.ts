@@ -10,6 +10,8 @@ export interface ModelInfo {
   description?: string | null
   /** 价格倍率（pricing model_ratio），作能力/成本代理；无则 0。 */
   priceRatio?: number
+  /** 能力分类：chat（对话）/ image（绘图）/ video（视频）。旧后端无此字段时按 chat 处理。 */
+  category?: 'chat' | 'image' | 'video'
 }
 
 export interface RolePreset {

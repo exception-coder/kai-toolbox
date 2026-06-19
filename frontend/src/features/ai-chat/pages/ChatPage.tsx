@@ -207,7 +207,8 @@ export function ChatPage() {
     setSeed(text)
   }
 
-  const models = modelsView?.models ?? []
+  // 仅展示对话类模型（绘图/视频留待后续模式切换接入）；旧后端无 category 时按 chat 处理。
+  const models = (modelsView?.models ?? []).filter((m) => !m.category || m.category === 'chat')
   const presets = modelsView?.presets ?? []
 
   // 选中模型是否支持自定义温度；支持才在标题栏显示温度滑块（未知/不支持不显示）。

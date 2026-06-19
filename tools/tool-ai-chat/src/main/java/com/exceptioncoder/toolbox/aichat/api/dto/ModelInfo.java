@@ -12,7 +12,8 @@ import java.util.List;
  * @param tags               能力标签（取自 pricing tags，如 推理/工具/文件/多模态/200K）；无则空列表
  * @param description        模型介绍（取自 pricing description）；无则 null
  * @param priceRatio         价格倍率（pricing model_ratio，作能力/成本代理用于排序）；无则 0
+ * @param category           能力分类：chat（对话）/ image（绘图）/ video（视频），供前端按模式筛选
  */
 public record ModelInfo(String id, String label, boolean multimodal, boolean supportsTemperature,
-                        List<String> tags, String description, double priceRatio) {
+                        List<String> tags, String description, double priceRatio, String category) {
 }

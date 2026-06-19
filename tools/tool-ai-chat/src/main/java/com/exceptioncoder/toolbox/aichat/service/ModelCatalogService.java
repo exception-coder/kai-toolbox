@@ -62,12 +62,11 @@ public class ModelCatalogService {
         static final ModelMeta EMPTY = new ModelMeta(List.of(), null, 0, List.of());
     }
 
-    /** 媒体（非聊天）端点类型：命中即判定为绘图/视频/音频等非聊天模型。 */
-    private static final List<String> MEDIA_ENDPOINTS = List.of(
-            "image-generation", "image-edits", "openai-video", "video", "audio", "embeddings", "rerank");
-
-    /** 媒体规格标签子串：命中即视为绘图/视频生成模型（如「支持720p、1080p」「时长4秒8秒12秒」）。 */
-    private static final List<String> MEDIA_TAG_MARKERS = List.of("720p", "1080p", "分辨率", "时长");
+    private static final List<String> IMAGE_ENDPOINTS = List.of("image-generation", "image-edits");
+    private static final List<String> VIDEO_ENDPOINTS = List.of("openai-video", "video");
+    private static final List<String> OTHER_ENDPOINTS = List.of("audio", "embeddings", "rerank");
+    /** 视频规格标签子串（如「支持720p、1080p」「时长4秒8秒12秒」）。 */
+    private static final List<String> VIDEO_TAG_MARKERS = List.of("720p", "1080p", "分辨率", "时长");
 
     public ModelsView list(boolean refresh) {
         List<ModelInfo> models = remoteOrCached(refresh);
@@ -85,19 +84,29 @@ public class ModelCatalogService {
     }
 
     /**
-     * 是否为聊天模型（可走 /v1/chat/completions）。排除绘图/视频/音频等：
-     * 命中媒体端点类型、或媒体规格标签、或配置的非聊天模型名家族（nonChatModelPatterns）即判否。
-     * pricing 不可用时仅靠名称家族判断。
+     * 按能力把模型分类：chat（可走 /v1/chat/completions）/ image（绘图）/ video（视频）/ other（音频/向量等）。
+     * 判据：配置的名称家族 + pricing 端点类型 + 视频规格标签。pricing 不可用时仅靠名称家族。
+     * 顺序：先视频、再绘图、再 other，剩下为 chat。供前端「对话/绘图/视频」模式按类筛选。
      */
-    private boolean isChatModel(String modelId, ModelMeta meta) {
+    public String classify(String modelId, ModelMeta meta) {
         String lower = modelId == null ? "" : modelId.toLowerCase(Locale.ROOT);
-        if (props.getNonChatModelPatterns().stream().anyMatch(p -> lower.contains(p.toLowerCase(Locale.ROOT)))) {
-            return false;
+        var et = meta.endpointTypes();
+        if (matchesAny(lower, props.getVideoModelPatterns())
+                || et.stream().anyMatch(VIDEO_ENDPOINTS::contains)
+                || meta.tags().stream().anyMatch(t -> VIDEO_TAG_MARKERS.stream().anyMatch(t::contains))) {
+            return "video";
         }
-        if (meta.endpointTypes().stream().anyMatch(MEDIA_ENDPOINTS::contains)) {
-            return false;
+        if (matchesAny(lower, props.getImageModelPatterns()) || et.stream().anyMatch(IMAGE_ENDPOINTS::contains)) {
+            return "image";
         }
-        return meta.tags().stream().noneMatch(t -> MEDIA_TAG_MARKERS.stream().anyMatch(t::contains));
+        if (matchesAny(lower, props.getOtherModelPatterns()) || et.stream().anyMatch(OTHER_ENDPOINTS::contains)) {
+            return "other";
+        }
+        return "chat";
+    }
+
+    private static boolean matchesAny(String lower, List<String> patterns) {
+        return patterns.stream().anyMatch(p -> lower.contains(p.toLowerCase(Locale.ROOT)));
     }
 
     /** 是否支持自定义温度：命中 noTemperaturePatterns（推理模型）则不支持。modelId 为空按支持处理。 */
@@ -144,12 +153,13 @@ public class ModelCatalogService {
                     continue;
                 }
                 ModelMeta mm = meta.getOrDefault(d.id(), ModelMeta.EMPTY);
-                // 过滤掉绘图/视频/音频等非聊天模型（如 veo / sora / gpt-image），避免选中后调聊天接口 404。
-                if (!isChatModel(d.id(), mm)) {
+                String category = classify(d.id(), mm);
+                // 音频/向量等无对应窗口形态，直接剔除；chat/image/video 保留并带上分类供前端按模式筛选。
+                if ("other".equals(category)) {
                     continue;
                 }
                 boolean multimodal = pricingOk ? mm.tags().contains("多模态") : isMultimodal(d.id());
-                models.add(enrich(d.id(), mm, multimodal));
+                models.add(enrich(d.id(), mm, multimodal, category));
             }
             cachedModels = List.copyOf(models);
             cacheExpireAt = now + Duration.ofSeconds(props.getModelsCacheTtlSeconds()).toMillis();
@@ -160,10 +170,10 @@ public class ModelCatalogService {
         }
     }
 
-    /** 用 pricing 元数据构建 ModelInfo；multimodal 由调用方按「pricing 优先、缺失降级」算好传入。 */
-    private ModelInfo enrich(String id, ModelMeta meta, boolean multimodal) {
+    /** 用 pricing 元数据构建 ModelInfo；multimodal 与 category 由调用方算好传入。 */
+    private ModelInfo enrich(String id, ModelMeta meta, boolean multimodal, String category) {
         return new ModelInfo(id, label(id), multimodal, supportsTemperature(id),
-                meta.tags(), meta.description(), meta.priceRatio());
+                meta.tags(), meta.description(), meta.priceRatio(), category);
     }
 
     /** 拉网关 /api/pricing 富化能力信息（公开端点）。失败返回空表，调用方自动回退名称推断。 */

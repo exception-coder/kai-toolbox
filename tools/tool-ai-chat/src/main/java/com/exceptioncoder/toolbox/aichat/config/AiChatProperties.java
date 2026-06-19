@@ -60,24 +60,27 @@ public class AiChatProperties {
     private List<String> noTemperaturePatterns = List.of(
             "o1", "o3", "o4-mini", "gpt-5", "reasoner", "thinking", "qwq");
 
-    /**
-     * 模型 id 命中其一即「非聊天模型」（小写子串匹配），从下拉过滤掉：绘图/视频/音频/向量等
-     * 不支持 /v1/chat/completions 的模型（如 veo / sora / gpt-image / whisper / embedding）。
-     * 媒体端点类型与媒体规格标签已在代码中识别，此列表兜底名称家族（尤其 veo 这类端点同聊天的）。
-     */
-    private List<String> nonChatModelPatterns = List.of(
-            "veo", "sora", "dall-e", "dalle", "midjourney", "flux", "kling", "cogview",
-            "stable-diffusion", "sdxl", "gpt-image", "suno", "whisper", "-tts", "tts-",
-            "embedding", "embed-", "rerank");
+    /** 视频生成模型名家族（小写子串匹配）；与 pricing 端点/标签共同把模型归类为 video。 */
+    private List<String> videoModelPatterns = List.of(
+            "veo", "sora", "kling", "runway", "pika", "seedance", "hailuo", "wan-video", "minimax-video");
+
+    /** 绘图模型名家族；与 image-generation/edits 端点共同把模型归类为 image。 */
+    private List<String> imageModelPatterns = List.of(
+            "dall-e", "dalle", "gpt-image", "midjourney", "flux", "stable-diffusion", "sdxl",
+            "cogview", "wanx", "seedream", "kolors", "irag");
+
+    /** 其它非对话/绘图/视频模型名家族（音频/向量/重排等），无对应窗口形态，直接从清单剔除。 */
+    private List<String> otherModelPatterns = List.of(
+            "whisper", "-tts", "tts-", "embedding", "embed-", "rerank", "moderation");
 
     /** 可选 id→展示名美化映射；命中则覆盖默认（默认展示名=id）。 */
     private Map<String, String> modelLabels = Map.of();
 
     /** /v1/models 不可用时回退的静态模型清单，保证下拉不空。 */
     private List<ModelInfo> fallbackModels = List.of(
-            new ModelInfo("gpt-4o", "GPT-4o", true, true, List.of(), null, 0),
-            new ModelInfo("gpt-4o-mini", "GPT-4o mini", true, true, List.of(), null, 0),
-            new ModelInfo("deepseek-chat", "DeepSeek V3", false, true, List.of(), null, 0));
+            new ModelInfo("gpt-4o", "GPT-4o", true, true, List.of(), null, 0, "chat"),
+            new ModelInfo("gpt-4o-mini", "GPT-4o mini", true, true, List.of(), null, 0, "chat"),
+            new ModelInfo("deepseek-chat", "DeepSeek V3", false, true, List.of(), null, 0, "chat"));
 
     /** 内置角色预设。 */
     private List<RolePreset> presets = List.of(
