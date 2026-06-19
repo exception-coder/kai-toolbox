@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { sendMessage, stopCompletion, subscribeCompletion } from '../api'
-import type { CompletionDebug, DonePayload, SendMessageBody } from '../types'
+import type { CompletionDebug, DonePayload, SendMessageBody, ToolStep } from '../types'
 
 interface StreamCallbacks {
   /** 收到终止事件（含完整内容）。用于把流式气泡定稿为一条助手消息。 */
@@ -40,6 +40,7 @@ function errorDebug(body: SendMessageBody, message: string): CompletionDebug {
 export function useChatStream({ onFinal, onError, onDebug }: StreamCallbacks) {
   const [streaming, setStreaming] = useState(false)
   const [streamText, setStreamText] = useState('')
+  const [toolSteps, setToolSteps] = useState<ToolStep[]>([])
   const taskRef = useRef<string | null>(null)
   const closeRef = useRef<(() => void) | null>(null)
 
@@ -56,12 +57,32 @@ export function useChatStream({ onFinal, onError, onDebug }: StreamCallbacks) {
         const { taskId } = await sendMessage(body)
         taskRef.current = taskId
         setStreamText('')
+        setToolSteps([])
         setStreaming(true)
         closeRef.current = subscribeCompletion(taskId, {
           onEvent: (name, data) => {
             if (name === 'token') {
               const delta = (data as { delta?: string })?.delta ?? ''
               setStreamText((t) => t + delta)
+            } else if (name === 'tool_call') {
+              const d = data as { round?: number; name?: string; arguments?: string }
+              setToolSteps((steps) => [
+                ...steps,
+                { round: d.round ?? 0, name: d.name ?? '', arguments: d.arguments ?? '', status: 'running' },
+              ])
+            } else if (name === 'tool_result') {
+              const d = data as { round?: number; name?: string; result?: string }
+              // 把最近一个同名且仍 running 的步骤标记为 done 并填结果。
+              setToolSteps((steps) => {
+                const next = [...steps]
+                for (let i = next.length - 1; i >= 0; i--) {
+                  if (next[i].name === d.name && next[i].status === 'running') {
+                    next[i] = { ...next[i], result: d.result ?? '', status: 'done' }
+                    break
+                  }
+                }
+                return next
+              })
             } else if (name === 'done') {
               onFinal(data as DonePayload)
               cleanup()
@@ -99,5 +120,5 @@ export function useChatStream({ onFinal, onError, onDebug }: StreamCallbacks) {
     }
   }, [])
 
-  return { streaming, streamText, send, stop }
+  return { streaming, streamText, toolSteps, send, stop }
 }

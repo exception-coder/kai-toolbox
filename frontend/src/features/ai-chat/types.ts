@@ -158,3 +158,12 @@ export interface DonePayload extends MessageMetrics {
   content: string
   debug?: CompletionDebug
 }
+
+/** 工具循环中的一步：模型发起调用(running)→拿到结果(done)。用于流式期间可视化 agent 作业。 */
+export interface ToolStep {
+  round: number
+  name: string
+  arguments: string
+  result?: string
+  status: 'running' | 'done'
+}

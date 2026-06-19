@@ -70,9 +70,9 @@ export function stopCompletion(taskId: string): Promise<{ stopped: boolean }> {
   return http<{ stopped: boolean }>(`${BASE}/completions/${taskId}/stop`, { method: 'POST' })
 }
 
-/** 订阅一次补全的 token 流。事件：token / done / error。返回关闭函数。 */
+/** 订阅一次补全的 token 流。事件：token / done / error / tool_call / tool_result。返回关闭函数。 */
 export function subscribeCompletion(taskId: string, handlers: SseHandlers): () => void {
-  return subscribeSse(`${BASE}/completions/${taskId}/events`, handlers, ['token', 'done'])
+  return subscribeSse(`${BASE}/completions/${taskId}/events`, handlers, ['token', 'done', 'tool_call', 'tool_result'])
 }
 
 /** 探测 ASR（faster-whisper）是否就绪，用于启用/禁用麦克风按钮。 */

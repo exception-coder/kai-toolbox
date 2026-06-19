@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AlertTriangle, Bot, Check, Code, Coins, Database, FileSearch, FolderKanban, Timer, User, Wrench } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { MessageView } from '../types'
+import type { MessageView, ToolStep } from '../types'
 import { abbr, cacheHitRate, fmtMs, formatTime } from '../lib/metrics'
 import { Markdown } from './Markdown'
 
@@ -9,6 +9,8 @@ interface Props {
   messages: MessageView[]
   streaming: boolean
   streamText: string
+  /** 流式期间的工具调用步骤(agent 作业可视化)。 */
+  toolSteps?: ToolStep[]
   /** 空状态点能力建议时回传建议文案，父灌入输入框。 */
   onPickSuggestion?: (text: string) => void
 }
@@ -20,12 +22,12 @@ const SUGGESTIONS = [
   { icon: Wrench, label: '调用工具', text: '帮我用合适的工具完成：' },
 ]
 
-export function MessageList({ messages, streaming, streamText, onPickSuggestion }: Props) {
+export function MessageList({ messages, streaming, streamText, toolSteps, onPickSuggestion }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, streamText, streaming])
+  }, [messages, streamText, streaming, toolSteps])
 
   if (messages.length === 0 && !streaming) {
     return (
@@ -76,12 +78,51 @@ export function MessageList({ messages, streaming, streamText, onPickSuggestion 
       {streaming && (
         <Bubble role="ASSISTANT">
           <div className="min-w-0">
+            {toolSteps && toolSteps.length > 0 && <ToolSteps steps={toolSteps} />}
             <Markdown text={streamText} className="inline" />
             <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-current align-middle" />
           </div>
         </Bubble>
       )}
       <div ref={bottomRef} />
+    </div>
+  )
+}
+
+/** 流式期间渲染工具调用步骤：调用中转圈、完成打勾，可展开看入参/结果。 */
+function ToolSteps({ steps }: { steps: ToolStep[] }) {
+  return (
+    <div className="mb-2 space-y-1.5">
+      {steps.map((s, i) => (
+        <details
+          key={`${s.round}-${s.name}-${i}`}
+          className="rounded-lg border bg-[var(--color-muted)]/40 px-2.5 py-1.5 text-xs"
+        >
+          <summary className="flex cursor-pointer list-none items-center gap-2">
+            {s.status === 'running' ? (
+              <Wrench className="size-3.5 shrink-0 animate-pulse text-[var(--color-primary)]" />
+            ) : (
+              <Check className="size-3.5 shrink-0 text-emerald-500" />
+            )}
+            <span className="font-medium">
+              {s.status === 'running' ? '正在调用工具' : '已调用工具'}
+              <code className="ml-1 rounded bg-[var(--color-background)] px-1 py-0.5">{s.name}</code>
+            </span>
+          </summary>
+          <div className="mt-1.5 space-y-1 pl-5">
+            {s.arguments && s.arguments !== '{}' && (
+              <div className="break-words text-[var(--color-muted-foreground)]">
+                入参：<code className="break-all">{s.arguments}</code>
+              </div>
+            )}
+            {s.result != null && (
+              <div className="whitespace-pre-wrap break-words text-[var(--color-muted-foreground)]">
+                结果：{s.result}
+              </div>
+            )}
+          </div>
+        </details>
+      ))}
     </div>
   )
 }

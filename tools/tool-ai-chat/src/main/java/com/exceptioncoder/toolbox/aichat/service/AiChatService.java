@@ -8,13 +8,17 @@ import com.exceptioncoder.toolbox.aichat.config.AiChatProperties;
 import com.exceptioncoder.toolbox.aichat.domain.Conversation;
 import com.exceptioncoder.toolbox.aichat.domain.MessageRole;
 import com.exceptioncoder.toolbox.aichat.domain.MessageStatus;
+import com.exceptioncoder.toolbox.aichat.service.tools.ChatToolService;
 import com.exceptioncoder.toolbox.common.sse.SseEmitterRegistry;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.Content;
 import dev.langchain4j.data.message.ImageContent;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.TextContent;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
@@ -53,21 +57,27 @@ public class AiChatService {
     private final ModelCatalogService models;
     private final AttachmentStorageService attachments;
     private final SseEmitterRegistry sse;
+    private final ChatToolService tools;
 
     private final ConcurrentHashMap<String, StreamContext> pending = new ConcurrentHashMap<>();
+
+    /** 单条用户消息内最多允许的工具循环轮数,防止模型反复调工具死循环。 */
+    private static final int MAX_TOOL_ROUNDS = 8;
 
     public AiChatService(AiChatProperties props,
                          ConversationService conversations,
                          ChatModelFactory modelFactory,
                          ModelCatalogService models,
                          AttachmentStorageService attachments,
-                         SseEmitterRegistry sse) {
+                         SseEmitterRegistry sse,
+                         ChatToolService tools) {
         this.props = props;
         this.conversations = conversations;
         this.modelFactory = modelFactory;
         this.models = models;
         this.attachments = attachments;
         this.sse = sse;
+        this.tools = tools;
     }
 
     /** 待流式的任务上下文。acc 与 finished 跨「流式 worker」与「stop 调用」两线程，访问加 ctx 锁。 */
@@ -77,10 +87,16 @@ public class AiChatService {
         final String model;
         final double temperature;
         final Integer maxTokens;
+        /** 工具循环中会不断追加 AiMessage / ToolExecutionResultMessage,故可变。 */
         final List<dev.langchain4j.data.message.ChatMessage> messages;
         final StringBuilder acc = new StringBuilder();
         final AtomicBoolean canceled = new AtomicBoolean(false);
         final AtomicBoolean finished = new AtomicBoolean(false);
+        /** 已执行的工具循环轮数(达到 MAX_TOOL_ROUNDS 即强制收尾)。 */
+        int round = 0;
+        /** 累计 token 用量(跨多轮工具循环累加),终值落库。 */
+        long sumPrompt = 0, sumCompletion = 0, sumTotal = 0, sumCached = 0;
+        boolean anyUsage = false;
         /** 流式真正开始的时刻（runStream 中赋值），用于算耗时；0 表示尚未开始。 */
         volatile long startedAt = 0L;
         /** 请求发起时刻（登记任务时赋值），用于调试快照。 */
@@ -157,8 +173,26 @@ public class AiChatService {
     }
 
     private void runStream(StreamContext ctx) {
-        OpenAiStreamingChatModel model = modelFactory.streamingModel(ctx.model, ctx.temperature, ctx.maxTokens);
-        ctx.startedAt = System.currentTimeMillis();
+        if (ctx.startedAt == 0L) {
+            ctx.startedAt = System.currentTimeMillis();
+        }
+        OpenAiStreamingChatModel model = modelFactory.sharedModel();
+        boolean applyTemp = models.supportsTemperature(ctx.model);
+        ChatRequest.Builder rb = ChatRequest.builder()
+                .messages(ctx.messages)
+                .modelName(ctx.model);
+        if (applyTemp) {
+            rb.temperature(ctx.temperature);
+        }
+        if (ctx.maxTokens != null) {
+            rb.maxOutputTokens(ctx.maxTokens);
+        }
+        // 带上工具规格,模型据此决定是否发起 tool_use。无工具则退化为纯对话。
+        if (tools.hasTools()) {
+            rb.toolSpecifications(tools.specifications());
+        }
+        ChatRequest request = rb.build();
+
         StreamingChatResponseHandler handler = new StreamingChatResponseHandler() {
             @Override
             public void onPartialResponse(String partialResponse) {
@@ -171,11 +205,20 @@ public class AiChatService {
 
             @Override
             public void onCompleteResponse(ChatResponse response) {
-                ctx.usage = extractUsage(response);
+                accumulateUsage(ctx, response);
                 captureMeta(ctx, response);
-                String text = response != null && response.aiMessage() != null
-                        ? response.aiMessage().text() : ctx.acc.toString();
-                finish(ctx, ctx.canceled.get() ? MessageStatus.INTERRUPTED : MessageStatus.DONE, text, null);
+                if (ctx.canceled.get()) {
+                    finish(ctx, MessageStatus.INTERRUPTED, ctx.acc.toString(), null);
+                    return;
+                }
+                AiMessage ai = response != null ? response.aiMessage() : null;
+                // 模型要求调用工具 → 执行、把结果喂回、起下一轮;否则本轮即终态。
+                if (ai != null && ai.hasToolExecutionRequests() && ctx.round < MAX_TOOL_ROUNDS) {
+                    runToolRound(ctx, ai);
+                    return;
+                }
+                String text = ai != null ? ai.text() : ctx.acc.toString();
+                finish(ctx, MessageStatus.DONE, text, null);
             }
 
             @Override
@@ -185,10 +228,60 @@ public class AiChatService {
             }
         };
         try {
-            model.chat(ctx.messages, handler);
+            model.chat(request, handler);
         } catch (RuntimeException e) {
             finish(ctx, MessageStatus.ERROR, ctx.acc.toString(), e.getMessage());
         }
+    }
+
+    /** 执行模型本轮请求的所有工具调用,把 AiMessage 与各 ToolExecutionResultMessage 追加进上下文,再起下一轮流式。 */
+    private void runToolRound(StreamContext ctx, AiMessage ai) {
+        ctx.round++;
+        ctx.messages.add(ai); // 含 toolExecutionRequests 的助手消息须先入上下文
+        for (ToolExecutionRequest req : ai.toolExecutionRequests()) {
+            sse.publish(ctx.taskId, "tool_call",
+                    Map.of("round", ctx.round, "name", req.name(), "arguments", nz(req.arguments())));
+            String result = tools.execute(req);
+            ctx.messages.add(ToolExecutionResultMessage.from(req, result));
+            sse.publish(ctx.taskId, "tool_result",
+                    Map.of("round", ctx.round, "name", req.name(), "result", capResult(result)));
+        }
+        // 工具结果已入上下文,继续下一轮(可能再调工具,也可能直接给出最终答复)。
+        runStream(ctx);
+    }
+
+    private static String nz(String s) {
+        return s == null ? "" : s;
+    }
+
+    private static final int RESULT_CAP = 500;
+
+    private static String capResult(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.length() <= RESULT_CAP ? s : s.substring(0, RESULT_CAP) + "…(截断)";
+    }
+
+    /** 累加一轮的 token 用量到 ctx(跨工具循环求和);缓存/网关未给则跳过不臆造。 */
+    private static void accumulateUsage(StreamContext ctx, ChatResponse response) {
+        ChatMetrics m = extractUsage(response);
+        if (m.promptTokens() != null) {
+            ctx.sumPrompt += m.promptTokens();
+            ctx.anyUsage = true;
+        }
+        if (m.completionTokens() != null) {
+            ctx.sumCompletion += m.completionTokens();
+            ctx.anyUsage = true;
+        }
+        if (m.totalTokens() != null) {
+            ctx.sumTotal += m.totalTokens();
+            ctx.anyUsage = true;
+        }
+        if (m.cachedTokens() != null) {
+            ctx.sumCached += m.cachedTokens();
+        }
+        ctx.usage = m;
     }
 
     /** 从完成响应抽 token 用量；缓存命中走 OpenAI 扩展字段，网关没给则留空（不臆造）。 */
@@ -268,11 +361,17 @@ public class AiChatService {
         }
     }
 
-    /** 把流式耗时补进 token 用量；startedAt 为 0（从未开始）时耗时留空。 */
+    /** 把流式耗时补进 token 用量；startedAt 为 0（从未开始）时耗时留空。多轮工具循环则取累计求和值。 */
     private static ChatMetrics withLatency(StreamContext ctx) {
         Long latency = ctx.startedAt > 0 ? System.currentTimeMillis() - ctx.startedAt : null;
-        ChatMetrics u = ctx.usage == null ? ChatMetrics.EMPTY : ctx.usage;
-        return new ChatMetrics(latency, u.promptTokens(), u.completionTokens(), u.totalTokens(), u.cachedTokens());
+        if (!ctx.anyUsage) {
+            return new ChatMetrics(latency, null, null, null, null);
+        }
+        return new ChatMetrics(latency,
+                ctx.sumPrompt > 0 ? ctx.sumPrompt : null,
+                ctx.sumCompletion > 0 ? ctx.sumCompletion : null,
+                ctx.sumTotal > 0 ? ctx.sumTotal : null,
+                ctx.sumCached > 0 ? ctx.sumCached : null);
     }
 
     private static void putIfPresent(Map<String, Object> map, String key, Long value) {

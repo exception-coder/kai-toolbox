@@ -329,6 +329,7 @@ export function ChatPage() {
               messages={messages}
               streaming={stream.streaming}
               streamText={stream.streamText}
+              toolSteps={stream.toolSteps}
               onPickSuggestion={handlePickSuggestion}
             />
 

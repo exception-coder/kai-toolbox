@@ -36,6 +36,19 @@ public class ChatModelFactory {
         return cache.computeIfAbsent(key, k -> build(model, applyTemp ? temperature : null, maxTokens));
     }
 
+    /**
+     * 工具循环用的「裸」流式模型：仅按 baseUrl/key 建一个,模型名/温度/maxTokens 改由
+     * 每轮 ChatRequest 下发(因工具循环需在同一连接参数下反复请求、并按需带 toolSpecifications)。
+     */
+    public OpenAiStreamingChatModel sharedModel() {
+        return cache.computeIfAbsent("__shared__", k -> OpenAiStreamingChatModel.builder()
+                .baseUrl(props.getBaseUrl())
+                .apiKey(props.getApiKey())
+                .modelName("gpt-4o-mini") // 占位,实际以 ChatRequest.modelName 为准
+                .timeout(Duration.ofSeconds(props.getTimeoutSeconds()))
+                .build());
+    }
+
     private OpenAiStreamingChatModel build(String model, Double temperature, Integer maxTokens) {
         var b = OpenAiStreamingChatModel.builder()
                 .baseUrl(props.getBaseUrl())
