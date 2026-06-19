@@ -109,14 +109,37 @@ public class ModelCatalogService {
         return patterns.stream().anyMatch(p -> lower.contains(p.toLowerCase(Locale.ROOT)));
     }
 
-    /** 是否支持自定义温度：命中 noTemperaturePatterns（推理模型）则不支持。modelId 为空按支持处理。 */
+    /**
+     * 是否支持自定义温度。以模型清单中已算好的权威结果为准(优先 pricing 能力标签);
+     * 模型不在清单或为空时,回退到名称推断。空 id 按支持处理。
+     */
     public boolean supportsTemperature(String modelId) {
         if (modelId == null || modelId.isBlank()) {
             return true;
         }
+        return list(false).models().stream()
+                .filter(m -> m.id().equals(modelId))
+                .findFirst()
+                .map(ModelInfo::supportsTemperature)
+                .orElseGet(() -> supportsTemperatureByName(modelId));
+    }
+
+    /** 名称推断:命中 noTemperaturePatterns(推理模型)则不支持。仅作 pricing 不可用时的兜底。 */
+    private boolean supportsTemperatureByName(String modelId) {
         String lower = modelId.toLowerCase(Locale.ROOT);
         return props.getNoTemperaturePatterns().stream()
                 .noneMatch(p -> lower.contains(p.toLowerCase(Locale.ROOT)));
+    }
+
+    /**
+     * 判定某模型是否支持自定义温度,供 enrich 时算入 ModelInfo。
+     * pricing 可用时以能力标签为准(被标「推理」→ 不支持);pricing 不可用则回退名称推断。
+     */
+    private boolean resolveSupportsTemperature(String modelId, ModelMeta meta, boolean pricingOk) {
+        if (pricingOk && meta.tags().contains("推理")) {
+            return false;
+        }
+        return supportsTemperatureByName(modelId);
     }
 
     /** 校验模型在当前可用清单内；不在则交由调用方转 400。 */
@@ -171,7 +194,7 @@ public class ModelCatalogService {
                     continue;
                 }
                 boolean multimodal = pricingOk ? mm.tags().contains("多模态") : isMultimodal(d.id());
-                models.add(enrich(d.id(), mm, multimodal, category));
+                models.add(enrich(d.id(), mm, multimodal, category, pricingOk));
             }
             cachedModels = List.copyOf(models);
             cacheExpireAt = now + Duration.ofSeconds(props.getModelsCacheTtlSeconds()).toMillis();
@@ -182,9 +205,9 @@ public class ModelCatalogService {
         }
     }
 
-    /** 用 pricing 元数据构建 ModelInfo；multimodal 与 category 由调用方算好传入。 */
-    private ModelInfo enrich(String id, ModelMeta meta, boolean multimodal, String category) {
-        return new ModelInfo(id, label(id), multimodal, supportsTemperature(id),
+    /** 用 pricing 元数据构建 ModelInfo；multimodal 与 category 由调用方算好传入,温度支持据 pricing 标签判定。 */
+    private ModelInfo enrich(String id, ModelMeta meta, boolean multimodal, String category, boolean pricingOk) {
+        return new ModelInfo(id, label(id), multimodal, resolveSupportsTemperature(id, meta, pricingOk),
                 meta.tags(), meta.description(), meta.priceRatio(), category);
     }
 
