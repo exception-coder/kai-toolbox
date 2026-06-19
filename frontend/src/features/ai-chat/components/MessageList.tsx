@@ -1,8 +1,8 @@
-import { useEffect, useRef } from 'react'
-import { Bot, Clock, Code, Coins, Database, FileSearch, FolderKanban, User, Wrench } from 'lucide-react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { AlertTriangle, Bot, Check, Code, Coins, Database, FileSearch, FolderKanban, Timer, User, Wrench } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { MessageView } from '../types'
-import { abbr, cacheHitRate, fmtMs, formatTime, hasMetrics } from '../lib/metrics'
+import { abbr, cacheHitRate, fmtMs, formatTime } from '../lib/metrics'
 
 interface Props {
   messages: MessageView[]
@@ -64,8 +64,6 @@ export function MessageList({ messages, streaming, streamText, onPickSuggestion 
             </div>
           )}
           <div className="whitespace-pre-wrap break-words">{m.content}</div>
-          {m.status === 'INTERRUPTED' && <StatusNote text="已停止" />}
-          {m.status === 'ERROR' && <StatusNote text="出错" error />}
           {m.role === 'ASSISTANT' && <MetricsFooter message={m} />}
         </Bubble>
       ))}
@@ -110,58 +108,73 @@ function Bubble({ role, children }: { role: MessageView['role']; children: React
   )
 }
 
-/**
- * 助手消息指标行：时间 · 耗时 · token（总量，悬浮看输入/输出）· 缓存命中率。
- * 全空（历史旧消息或网关未返回）则只显示时间，仍保留时间不致空行突兀。
- */
-function MetricsFooter({ message }: { message: MessageView }) {
-  const time = formatTime(message.createdAt)
-  const latency = fmtMs(message.latencyMs)
-  const total = message.totalTokens ?? null
-  const hit = cacheHitRate(message)
-  const tokenTitle = [
-    message.promptTokens != null ? `输入 ${message.promptTokens.toLocaleString()}` : null,
-    message.completionTokens != null ? `输出 ${message.completionTokens.toLocaleString()}` : null,
-    message.cachedTokens != null ? `缓存读 ${message.cachedTokens.toLocaleString()}` : null,
-  ]
-    .filter(Boolean)
-    .join(' · ')
+type Tone = 'violet' | 'sky' | 'emerald' | 'rose' | 'teal'
+const TONE: Record<Tone, string> = {
+  violet: 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950 dark:text-violet-300',
+  sky: 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-300',
+  emerald: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300',
+  rose: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-300',
+  teal: 'border-teal-200 bg-teal-50 text-teal-700 dark:border-teal-900 dark:bg-teal-950 dark:text-teal-300',
+}
 
-  return (
-    <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] leading-none text-[var(--color-muted-foreground)] tabular-nums">
-      {time && (
-        <span className="inline-flex items-center gap-1">
-          <Clock className="size-3" />
-          {time}
-        </span>
-      )}
-      {latency && <span className="inline-flex items-center gap-1">{latency}</span>}
-      {total != null && (
-        <span className="inline-flex items-center gap-1" title={tokenTitle || undefined}>
-          <Coins className="size-3" />
-          {abbr(total)}
-        </span>
-      )}
-      {hit != null && hit > 0 && (
-        <span className="inline-flex items-center gap-1 text-teal-600 dark:text-teal-400" title="缓存命中率（命中部分≈不计费）">
-          <Database className="size-3" />
-          {Math.floor(hit * 100)}%
-        </span>
-      )}
-      {!hasMetrics(message) && <span className="text-[var(--color-muted-foreground)]/70">—</span>}
-    </div>
+/** 指标标签（圆角 badge，带图标/颜色）。有 onClick 则为可点（展开明细）。 */
+function Chip({ tone, icon, children, onClick, title }: { tone: Tone; icon?: ReactNode; children?: ReactNode; onClick?: () => void; title?: string }) {
+  const cls = cn(
+    'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium leading-none tabular-nums',
+    TONE[tone],
+    onClick && 'cursor-pointer select-none active:opacity-80',
+  )
+  return onClick ? (
+    <button type="button" onClick={onClick} title={title} className={cls}>{icon}{children}</button>
+  ) : (
+    <span title={title} className={cls}>{icon}{children}</span>
   )
 }
 
-function StatusNote({ text, error }: { text: string; error?: boolean }) {
+/**
+ * 助手消息指标行（对齐 claude-chat）：状态 ✓/失败 · token（紫，可点开明细）· 缓存命中率（青）· 耗时（蓝）· 时间。
+ * token chip 点开展示输入/输出/缓存读明细。无任何指标（旧消息/网关未返回）时只显示状态与时间。
+ */
+function MetricsFooter({ message }: { message: MessageView }) {
+  const [open, setOpen] = useState(false)
+  const ok = message.status === 'DONE'
+  const total = message.totalTokens ?? null
+  const hit = cacheHitRate(message)
+  const latency = fmtMs(message.latencyMs)
+  const time = formatTime(message.createdAt)
+  const statusTitle = ok ? '本轮完成' : message.status === 'INTERRUPTED' ? '已停止' : '出错'
+  const canExpand = message.promptTokens != null || message.completionTokens != null || message.cachedTokens != null
+
   return (
-    <div
-      className={cn(
-        'mt-1 text-xs',
-        error ? 'text-[var(--color-destructive)]' : 'text-[var(--color-muted-foreground)]',
+    <div className="mt-1.5 flex flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Chip tone={ok ? 'emerald' : 'rose'} icon={ok ? <Check className="size-3" /> : <AlertTriangle className="size-3" />} title={statusTitle}>
+          {ok ? null : message.status === 'INTERRUPTED' ? '已停止' : '失败'}
+        </Chip>
+        {total != null && total > 0 && (
+          <Chip tone="violet" icon={<Coins className="size-3" />} onClick={canExpand ? () => setOpen((o) => !o) : undefined} title={canExpand ? '点击查看 token 明细' : undefined}>
+            {abbr(total)}
+          </Chip>
+        )}
+        {hit != null && hit > 0 && (
+          <Chip tone="teal" icon={<Database className="size-3" />} onClick={canExpand ? () => setOpen((o) => !o) : undefined} title="缓存命中率（命中部分≈不计费）">
+            {Math.floor(hit * 100)}%
+          </Chip>
+        )}
+        {latency && (
+          <Chip tone="sky" icon={<Timer className="size-3" />}>{latency}</Chip>
+        )}
+        {time && <span className="px-1 text-[10px] tabular-nums text-[var(--color-muted-foreground)] opacity-70">{time}</span>}
+      </div>
+      {open && canExpand && (
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] tabular-nums text-[var(--color-muted-foreground)]">
+          {message.promptTokens != null && <span>输入 {abbr(message.promptTokens)}</span>}
+          {message.completionTokens != null && <span>输出 {abbr(message.completionTokens)}</span>}
+          {message.cachedTokens != null && message.cachedTokens > 0 && <span>缓存读 {abbr(message.cachedTokens)}</span>}
+          {hit != null && <span>命中 {Math.floor(hit * 100)}%</span>}
+          {message.latencyMs != null && <span>耗时 {fmtMs(message.latencyMs)}</span>}
+        </div>
       )}
-    >
-      — {text}
     </div>
   )
 }
