@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Settings2, X } from 'lucide-react'
+import { AlertTriangle, Bug, Settings2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { usePrompt } from '@/components/ui/prompt-dialog'
 import {
@@ -12,13 +13,14 @@ import {
   updateConversation,
 } from '../api'
 import { useChatStream } from '../hooks/useChatStream'
-import type { AttachmentView, ConversationView, MessageView, ModelsView, RolePreset } from '../types'
+import type { AttachmentView, CompletionDebug, ConversationView, MessageView, ModelsView, RolePreset } from '../types'
 import { ConversationList } from '../components/ConversationList'
 import { MessageList } from '../components/MessageList'
 import { Composer } from '../components/Composer'
 import { SettingsDrawer } from '../components/SettingsDrawer'
 import { SessionTotalBadge } from '../components/SessionTotalBadge'
 import { HeaderModelPicker } from '../components/HeaderModelPicker'
+import { DebugPanel } from '../components/DebugPanel'
 
 export function ChatPage() {
   const confirm = useConfirm()
@@ -32,6 +34,8 @@ export function ChatPage() {
   const [temperature, setTemperature] = useState(0.7)
   const [banner, setBanner] = useState<string | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [debugOpen, setDebugOpen] = useState(false)
+  const [debug, setDebug] = useState<CompletionDebug | null>(null)
   const [seed, setSeed] = useState<string | undefined>(undefined)
 
   const activeConv = useMemo(
@@ -59,6 +63,7 @@ export function ChatPage() {
           cachedTokens: payload.cachedTokens,
         },
       ])
+      if (payload.debug) setDebug(payload.debug)
       void refreshConversations()
     },
     onError: (message) => setBanner(message),
@@ -237,15 +242,29 @@ export function ChatPage() {
             )}
             <SessionTotalBadge messages={messages} />
           </div>
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(true)}
-            title="高级参数（角色 / 温度）"
-            className="flex size-8 shrink-0 items-center justify-center rounded-full border bg-[var(--color-background)] text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]"
-            aria-label="高级参数"
-          >
-            <Settings2 className="size-4" />
-          </button>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setDebugOpen(true)}
+              title="调试信息（最近一次请求/响应）"
+              className={cn(
+                'flex size-8 items-center justify-center rounded-full border bg-[var(--color-background)] hover:bg-[var(--color-accent)]',
+                debug ? 'text-[var(--color-foreground)]' : 'text-[var(--color-muted-foreground)]',
+              )}
+              aria-label="调试信息"
+            >
+              <Bug className="size-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setDrawerOpen(true)}
+              title="高级参数（角色 / 温度）"
+              className="flex size-8 items-center justify-center rounded-full border bg-[var(--color-background)] text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]"
+              aria-label="高级参数"
+            >
+              <Settings2 className="size-4" />
+            </button>
+          </div>
         </header>
 
         {banner && (
@@ -287,6 +306,8 @@ export function ChatPage() {
         supportsTemperature={supportsTemperature}
         disabled={!activeConv}
       />
+
+      <DebugPanel open={debugOpen} onClose={() => setDebugOpen(false)} debug={debug} />
     </div>
   )
 }

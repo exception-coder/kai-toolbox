@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.aichat.service;
 
 import com.exceptioncoder.toolbox.aichat.api.dto.AttachmentRef;
+import com.exceptioncoder.toolbox.aichat.api.dto.CompletionDebug;
 import com.exceptioncoder.toolbox.aichat.api.dto.SendMessageRequest;
 import com.exceptioncoder.toolbox.aichat.api.dto.UpdateConversationRequest;
 import com.exceptioncoder.toolbox.aichat.config.AiChatProperties;
@@ -82,8 +83,13 @@ public class AiChatService {
         final AtomicBoolean finished = new AtomicBoolean(false);
         /** 流式真正开始的时刻（runStream 中赋值），用于算耗时；0 表示尚未开始。 */
         volatile long startedAt = 0L;
+        /** 请求发起时刻（登记任务时赋值），用于调试快照。 */
+        volatile long requestedAt = 0L;
         /** 完成响应里抽出的 token 用量（中断/出错时为空，不臆造）。 */
         volatile ChatMetrics usage = ChatMetrics.EMPTY;
+        /** 上游返回元数据：回显的模型名与结束原因（调试核验用）。 */
+        volatile String responseModel;
+        volatile String finishReason;
 
         StreamContext(String taskId, String conversationId, String model, double temperature,
                       Integer maxTokens, List<dev.langchain4j.data.message.ChatMessage> messages) {
@@ -130,7 +136,9 @@ public class AiChatService {
                 buildMessages(conv, priorHistory, content, refs, models.isMultimodal(model));
 
         String taskId = "t_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
-        pending.put(taskId, new StreamContext(taskId, conv.getId(), model, temperature, maxTokens, messages));
+        StreamContext ctx = new StreamContext(taskId, conv.getId(), model, temperature, maxTokens, messages);
+        ctx.requestedAt = System.currentTimeMillis();
+        pending.put(taskId, ctx);
         return taskId;
     }
 
@@ -159,6 +167,7 @@ public class AiChatService {
             @Override
             public void onCompleteResponse(ChatResponse response) {
                 ctx.usage = extractUsage(response);
+                captureMeta(ctx, response);
                 String text = response != null && response.aiMessage() != null
                         ? response.aiMessage().text() : ctx.acc.toString();
                 finish(ctx, ctx.canceled.get() ? MessageStatus.INTERRUPTED : MessageStatus.DONE, text, null);
@@ -198,6 +207,23 @@ public class AiChatService {
         return v == null ? null : v.longValue();
     }
 
+    /** 抓取上游返回元数据：回显的模型名与结束原因，供调试核验「上游是否动手脚」。 */
+    private static void captureMeta(StreamContext ctx, ChatResponse response) {
+        if (response == null) {
+            return;
+        }
+        try {
+            if (response.finishReason() != null) {
+                ctx.finishReason = response.finishReason().toString();
+            }
+            if (response.metadata() != null && response.metadata().modelName() != null) {
+                ctx.responseModel = response.metadata().modelName();
+            }
+        } catch (RuntimeException e) {
+            log.debug("[ai-chat] 读取响应元数据失败 task={}: {}", ctx.taskId, e.toString());
+        }
+    }
+
     /** 用户停止：置标志并以已生成部分收尾。 */
     public boolean stop(String taskId) {
         StreamContext ctx = pending.get(taskId);
@@ -229,6 +255,7 @@ public class AiChatService {
             putIfPresent(done, "completionTokens", metrics.completionTokens());
             putIfPresent(done, "totalTokens", metrics.totalTokens());
             putIfPresent(done, "cachedTokens", metrics.cachedTokens());
+            done.put("debug", buildDebug(ctx, status, content, errorMessage, metrics));
             sse.publish(ctx.taskId, "done", done);
         } finally {
             sse.complete(ctx.taskId);
@@ -247,6 +274,66 @@ public class AiChatService {
         if (value != null) {
             map.put(key, value);
         }
+    }
+
+    /** 组装调试快照：真实请求参数 + 上下文 + 上游返回元数据。 */
+    private CompletionDebug buildDebug(StreamContext ctx, MessageStatus status, String content,
+                                       String errorMessage, ChatMetrics metrics) {
+        // 推理模型不下发温度，调试里如实置空（与实际请求一致）。
+        Double tempSent = models.supportsTemperature(ctx.model) ? ctx.temperature : null;
+        List<CompletionDebug.DebugMessage> msgs = new ArrayList<>(ctx.messages.size());
+        for (var m : ctx.messages) {
+            msgs.add(toDebugMessage(m));
+        }
+        return new CompletionDebug(
+                ctx.requestedAt,
+                props.getBaseUrl(),
+                ctx.model,
+                tempSent,
+                ctx.maxTokens,
+                msgs,
+                status.name(),
+                ctx.responseModel,
+                ctx.finishReason,
+                metrics.latencyMs(),
+                metrics.promptTokens(),
+                metrics.completionTokens(),
+                metrics.totalTokens(),
+                metrics.cachedTokens(),
+                content == null ? 0 : content.length(),
+                errorMessage);
+    }
+
+    private static final int DEBUG_TEXT_CAP = 4000;
+
+    /** langchain4j 消息 → 调试视图：图片只计数不带 base64，文本超长截断。 */
+    private static CompletionDebug.DebugMessage toDebugMessage(dev.langchain4j.data.message.ChatMessage m) {
+        if (m instanceof SystemMessage sm) {
+            return new CompletionDebug.DebugMessage("SYSTEM", cap(sm.text()), 0);
+        }
+        if (m instanceof AiMessage am) {
+            return new CompletionDebug.DebugMessage("ASSISTANT", cap(am.text()), 0);
+        }
+        if (m instanceof UserMessage um) {
+            StringBuilder text = new StringBuilder();
+            int images = 0;
+            for (Content c : um.contents()) {
+                if (c instanceof TextContent tc) {
+                    text.append(tc.text());
+                } else if (c instanceof ImageContent) {
+                    images++;
+                }
+            }
+            return new CompletionDebug.DebugMessage("USER", cap(text.toString()), images);
+        }
+        return new CompletionDebug.DebugMessage(m.type().name(), "", 0);
+    }
+
+    private static String cap(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.length() <= DEBUG_TEXT_CAP ? s : s.substring(0, DEBUG_TEXT_CAP) + "…(截断)";
     }
 
     private List<dev.langchain4j.data.message.ChatMessage> buildMessages(

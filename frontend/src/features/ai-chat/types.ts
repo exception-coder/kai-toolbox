@@ -95,9 +95,36 @@ export interface SendMessageBody {
   maxTokens?: number | null
 }
 
+/** 调试快照：后端真实请求 + 上游返回关键元数据，用于排障/核验。 */
+export interface DebugMessage {
+  role: string
+  text: string
+  images: number
+}
+
+export interface CompletionDebug {
+  requestedAt: number
+  baseUrl: string
+  model: string
+  temperatureSent: number | null
+  maxTokens: number | null
+  messages: DebugMessage[]
+  status: string
+  responseModel: string | null
+  finishReason: string | null
+  latencyMs: number | null
+  promptTokens: number | null
+  completionTokens: number | null
+  totalTokens: number | null
+  cachedTokens: number | null
+  responseChars: number | null
+  error: string | null
+}
+
 /** done 事件 payload；指标字段网关未提供时缺省。 */
 export interface DonePayload extends MessageMetrics {
   messageId: string
   status: MessageStatus
   content: string
+  debug?: CompletionDebug
 }
