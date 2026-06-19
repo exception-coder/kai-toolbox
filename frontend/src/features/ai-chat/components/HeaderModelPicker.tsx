@@ -11,9 +11,6 @@ interface Props {
   models: ModelInfo[]
   value: string
   onChange: (id: string) => void
-  /** 会话温度；与 effort 一样直接放在选中模型下方调节（仅支持温度的模型显示）。 */
-  temperature: number
-  onTemperatureChange: (t: number) => void
   /** 当前为兜底清单（远端不可达）。 */
   fallback?: boolean
   onRefresh?: () => void
@@ -25,7 +22,7 @@ interface Props {
  * 同家族的 effort 变体（gpt-5.5-high/medium/low）折叠为一行 + 档位切换；按平台分组或按能力排序，
  * 支持搜索与场景标签筛选。
  */
-export function HeaderModelPicker({ models, value, onChange, temperature, onTemperatureChange, fallback, onRefresh, disabled }: Props) {
+export function HeaderModelPicker({ models, value, onChange, fallback, onRefresh, disabled }: Props) {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<SortMode>('platform')
@@ -182,11 +179,11 @@ export function HeaderModelPicker({ models, value, onChange, temperature, onTemp
                   <div key={g.key} className="mb-1">
                     <div className="px-3 pb-0.5 pt-2 text-[11px] font-medium text-[var(--color-muted-foreground)]">{g.label}</div>
                     {g.families.map((f) => (
-                      <FamilyRow key={f.key} family={f} selectedId={value} onPick={pick} temperature={temperature} onTemperatureChange={onTemperatureChange} />
+                      <FamilyRow key={f.key} family={f} selectedId={value} onPick={pick} />
                     ))}
                   </div>
                 ))
-              : ranked.map((f) => <FamilyRow key={f.key} family={f} selectedId={value} onPick={pick} temperature={temperature} onTemperatureChange={onTemperatureChange} showPlatform />)}
+              : ranked.map((f) => <FamilyRow key={f.key} family={f} selectedId={value} onPick={pick} showPlatform />)}
           </div>
         </div>
       )}
@@ -212,15 +209,11 @@ function FamilyRow({
   family,
   selectedId,
   onPick,
-  temperature,
-  onTemperatureChange,
   showPlatform,
 }: {
   family: ModelFamily
   selectedId: string
   onPick: (id: string) => void
-  temperature: number
-  onTemperatureChange: (t: number) => void
   showPlatform?: boolean
 }) {
   const rep = family.rep
@@ -229,24 +222,6 @@ function FamilyRow({
   const selectedHere = family.members.some((x) => x.model.id === selectedId)
   // 不支持自定义温度（推理模型）——标出来，选模型时一眼可见。
   const fixedTemp = !rep.supportsTemperature
-
-  // 温度调节：和 effort 一样直接放模型下方；仅当前选中的、且支持温度的模型显示（温度是会话单值）。
-  const tempControl =
-    selectedHere && rep.supportsTemperature ? (
-      <div className="mt-1 flex items-center gap-2 pl-4">
-        <span className="shrink-0 text-[10px] text-[var(--color-muted-foreground)]">温度</span>
-        <input
-          type="range"
-          min={0}
-          max={2}
-          step={0.1}
-          value={temperature}
-          onChange={(e) => onTemperatureChange(Number(e.target.value))}
-          className="h-1 min-w-0 flex-1 accent-[var(--color-primary)]"
-        />
-        <span className="w-6 shrink-0 text-right text-[10px] tabular-nums text-[var(--color-foreground)]">{temperature.toFixed(1)}</span>
-      </div>
-    ) : null
 
   // 能力徽章 + 固定温度标记 + 平台后缀，放模型名下方第二行（让模型名第一行完整显示，不被挤截断）。
   const metaLine =
@@ -268,26 +243,26 @@ function FamilyRow({
       </div>
     ) : null
 
-  // 单一模型：整行可点，模型名完整换行显示。温度滑块放在按钮外（slider 不能嵌进 button）。
+  // 单一模型：整行可点，模型名完整换行显示
   if (!family.hasEffort) {
     const only = family.members[0].model
     return (
-      <div className={cn(selectedHere && 'bg-[var(--color-accent)]/60')}>
-        <button
-          type="button"
-          onClick={() => onPick(only.id)}
-          title={title}
-          className="block w-full px-3 py-1.5 text-left text-sm hover:bg-[var(--color-accent)]"
-        >
-          <div className="flex items-start gap-2">
-            <span className={cn('mt-1 size-2 shrink-0 rounded-full', modelDot(only.id))} />
-            <span className="min-w-0 flex-1 wrap-anywhere">{only.label}</span>
-            {only.id === selectedId && <Check className="mt-0.5 size-3.5 shrink-0 text-[var(--color-primary)]" />}
-          </div>
-          {metaLine}
-        </button>
-        {tempControl && <div className="px-3 pb-1.5">{tempControl}</div>}
-      </div>
+      <button
+        type="button"
+        onClick={() => onPick(only.id)}
+        title={title}
+        className={cn(
+          'block w-full px-3 py-1.5 text-left text-sm hover:bg-[var(--color-accent)]',
+          only.id === selectedId && 'bg-[var(--color-accent)]/60',
+        )}
+      >
+        <div className="flex items-start gap-2">
+          <span className={cn('mt-1 size-2 shrink-0 rounded-full', modelDot(only.id))} />
+          <span className="min-w-0 flex-1 wrap-anywhere">{only.label}</span>
+          {only.id === selectedId && <Check className="mt-0.5 size-3.5 shrink-0 text-[var(--color-primary)]" />}
+        </div>
+        {metaLine}
+      </button>
     )
   }
 
@@ -318,7 +293,6 @@ function FamilyRow({
           </button>
         ))}
       </div>
-      {tempControl}
     </div>
   )
 }

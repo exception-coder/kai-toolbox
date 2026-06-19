@@ -20,6 +20,7 @@ import { Composer } from '../components/Composer'
 import { SettingsDrawer } from '../components/SettingsDrawer'
 import { SessionTotalBadge } from '../components/SessionTotalBadge'
 import { HeaderModelPicker } from '../components/HeaderModelPicker'
+import { TemperatureControl } from '../components/TemperatureControl'
 import { DebugPanel } from '../components/DebugPanel'
 
 export function ChatPage() {
@@ -207,6 +208,9 @@ export function ChatPage() {
   const models = modelsView?.models ?? []
   const presets = modelsView?.presets ?? []
 
+  // 选中模型是否支持自定义温度；支持才在标题栏显示温度滑块（未知/不支持不显示）。
+  const supportsTemperature = models.find((m) => m.id === selectedModel)?.supportsTemperature ?? false
+
   return (
     <div className="flex h-[calc(100vh-3.5rem)] bg-[var(--color-muted)]/40">
       <aside className="w-64 shrink-0 border-r bg-[var(--color-background)]">
@@ -228,12 +232,13 @@ export function ChatPage() {
               models={models}
               value={selectedModel}
               onChange={handleModelChange}
-              temperature={temperature}
-              onTemperatureChange={setTemperature}
               fallback={modelsView?.source === 'fallback'}
               onRefresh={refreshModels}
               disabled={!activeConv}
             />
+            {activeConv && supportsTemperature && (
+              <TemperatureControl value={temperature} onChange={setTemperature} />
+            )}
             {activeConv?.title && (
               <span className="hidden truncate text-sm text-[var(--color-muted-foreground)] sm:inline" title={activeConv.systemPrompt ? `系统提示：${activeConv.systemPrompt}` : undefined}>
                 {activeConv.title}
