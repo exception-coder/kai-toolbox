@@ -69,6 +69,7 @@ export function ChatPage() {
       void refreshConversations()
     },
     onError: (message) => setBanner(message),
+    onDebug: (d) => setDebug(d),
   })
 
   const refreshConversations = useCallback(async () => {
