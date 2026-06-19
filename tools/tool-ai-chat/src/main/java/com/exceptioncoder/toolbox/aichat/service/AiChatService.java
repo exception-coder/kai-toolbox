@@ -110,6 +110,11 @@ public class AiChatService {
         if (!models.isAllowed(model)) {
             throw new ResponseStatusException(BAD_REQUEST, "model 不在可用清单内");
         }
+        // 对话接口只接受对话模型；绘图/视频模型不支持 /v1/chat/completions。
+        String category = models.categoryOf(model);
+        if (category != null && !"chat".equals(category)) {
+            throw new ResponseStatusException(BAD_REQUEST, "该模型不是对话模型（category=" + category + "），请改用对话模型");
+        }
         double temperature = firstNonNull(req.temperature(), conv.getTemperature(), props.getTemperature());
         Integer maxTokens = req.maxTokens() != null ? req.maxTokens() : conv.getMaxTokens();
         validateParams(temperature, maxTokens);

@@ -52,6 +52,11 @@ public class ImageService {
         if (!models.isAllowed(model)) {
             throw new ResponseStatusException(BAD_REQUEST, "model 不在可用清单内");
         }
+        // 绘图接口只接受绘图模型。
+        String category = models.categoryOf(model);
+        if (category != null && !"image".equals(category)) {
+            throw new ResponseStatusException(BAD_REQUEST, "该模型不是绘图模型（category=" + category + "）");
+        }
         String prompt = req.prompt() == null ? "" : req.prompt().trim();
         if (prompt.isEmpty()) {
             throw new ResponseStatusException(BAD_REQUEST, "提示词不能为空");

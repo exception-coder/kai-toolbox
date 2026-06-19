@@ -127,6 +127,18 @@ public class ModelCatalogService {
         return list(false).models().stream().anyMatch(m -> m.id().equals(modelId));
     }
 
+    /** 取模型的能力分类（chat/image/video）；不在清单返回 null。供请求端按模式校验。 */
+    public String categoryOf(String modelId) {
+        if (modelId == null || modelId.isBlank()) {
+            return null;
+        }
+        return list(false).models().stream()
+                .filter(m -> m.id().equals(modelId))
+                .findFirst()
+                .map(com.exceptioncoder.toolbox.aichat.api.dto.ModelInfo::category)
+                .orElse(null);
+    }
+
     /** 成功取到则返回并刷新缓存；失败返回 null（让调用方回退）。 */
     private List<ModelInfo> remoteOrCached(boolean refresh) {
         long now = System.currentTimeMillis();
