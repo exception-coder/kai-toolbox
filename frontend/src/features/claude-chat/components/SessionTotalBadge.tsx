@@ -21,7 +21,7 @@ export function SessionTotalBadge({ items, className }: { items: ChatItem[]; cla
       {hitRate != null && hitRate > 0 && (
         <span
           title="整会话缓存命中率（命中部分≈不计费）"
-          className="inline-flex items-center gap-1 rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[11px] font-medium leading-none tabular-nums text-teal-700 dark:border-teal-900 dark:bg-teal-950 dark:text-teal-300"
+          className="hidden min-[420px]:inline-flex items-center gap-1 rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[11px] font-medium leading-none tabular-nums text-teal-700 dark:border-teal-900 dark:bg-teal-950 dark:text-teal-300"
         >
           <Database className="size-3" />{Math.floor(hitRate * 100)}%
         </span>

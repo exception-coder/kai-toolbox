@@ -473,11 +473,11 @@ export function ChatPage() {
             <Gauge className="size-4" />
           </Button>
           {/* 常用：带文字标签，一眼可辨 */}
-          <Button variant="ghost" size="sm" className="gap-1" onClick={() => setPanel(p => p === 'new' ? 'none' : 'new')} aria-label="新建会话">
-            <Plus className="size-4" /> 新建
+          <Button variant="ghost" size="sm" className="gap-1 px-2 sm:px-3" onClick={() => setPanel(p => p === 'new' ? 'none' : 'new')} aria-label="新建会话">
+            <Plus className="size-4" /> <span className="hidden sm:inline">新建</span>
           </Button>
-          <Button variant="ghost" size="sm" className="gap-1" onClick={() => setPanel(p => p === 'sessions' ? 'none' : 'sessions')} aria-label="会话列表">
-            <List className="size-4" /> 会话
+          <Button variant="ghost" size="sm" className="gap-1 px-2 sm:px-3" onClick={() => setPanel(p => p === 'sessions' ? 'none' : 'sessions')} aria-label="会话列表">
+            <List className="size-4" /> <span className="hidden sm:inline">会话</span>
           </Button>
           {/* 其余功能收进「更多」菜单，每项带中文标签，避免一排没标识的图标 */}
           <div className="relative">
