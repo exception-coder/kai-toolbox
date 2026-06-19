@@ -4,6 +4,12 @@ export interface ModelInfo {
   multimodal: boolean
   /** 是否支持自定义温度；推理模型为 false（不下发 temperature）。 */
   supportsTemperature: boolean
+  /** 能力标签（取自网关 /api/pricing，如 推理/工具/文件/多模态/200K）；无则空。 */
+  tags: string[]
+  /** 模型介绍（取自网关 pricing description）；无则 null。 */
+  description?: string | null
+  /** 价格倍率（pricing model_ratio），作能力/成本代理；无则 0。 */
+  priceRatio?: number
 }
 
 export interface RolePreset {

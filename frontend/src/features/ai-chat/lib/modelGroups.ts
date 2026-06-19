@@ -84,11 +84,45 @@ export function modelReasoningScore(id: string): number {
   return score
 }
 
-/** 按推理力降序排序（同分按 id 字典序），返回新数组。 */
+// 用于筛选/展示的能力标签（排除上下文长度这类非能力标签，如 200K）。顺序即展示顺序。
+export const CAPABILITY_TAGS = ['推理', '工具', '文件', '多模态'] as const
+
+/** 该模型的能力标签（仅 CAPABILITY_TAGS 子集，供筛选与徽章）。 */
+export function capabilityTags(m: ModelInfo): string[] {
+  const tags = m.tags ?? []
+  return CAPABILITY_TAGS.filter((t) => tags.includes(t))
+}
+
+/** 解析上下文长度标签（如 "200K" / "32.8K"）为千 token 数；非此类返回 0。 */
+function contextK(tags: string[]): number {
+  for (const t of tags) {
+    const m = /^([\d.]+)k$/i.exec(t.trim())
+    if (m) return Number(m[1])
+  }
+  return 0
+}
+
+/**
+ * 能力评分（越高越强）：有 pricing 真实标签时用「推理标签 + 价格倍率 + 上下文长度」确定性打分；
+ * 无标签（pricing 不可达）回退到按名称的 modelReasoningScore。价格越高通常能力越强（成本代理）。
+ */
+export function modelCapabilityScore(m: ModelInfo): number {
+  const tags = m.tags ?? []
+  if (tags.length === 0) return modelReasoningScore(m.id)
+  let s = 0
+  if (tags.includes('推理')) s += 10
+  if (tags.includes('多模态')) s += 0.5
+  if (tags.includes('工具')) s += 0.5
+  s += (m.priceRatio ?? 0) * 4
+  s += contextK(tags) / 200
+  return s
+}
+
+/** 按能力降序排序（同分按 id 字典序），返回新数组。 */
 export function sortByReasoning(models: ModelInfo[]): ModelInfo[] {
   return models
     .slice()
-    .sort((a, b) => modelReasoningScore(b.id) - modelReasoningScore(a.id) || a.id.localeCompare(b.id))
+    .sort((a, b) => modelCapabilityScore(b) - modelCapabilityScore(a) || a.id.localeCompare(b.id))
 }
 
 /** 把模型清单按平台分组并排序（组按 ORDER，组内按 id 字典序）。空清单返回空数组。 */
