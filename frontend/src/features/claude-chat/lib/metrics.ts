@@ -1,9 +1,22 @@
 import type { ChatItem } from '../types'
 
-/** 数字缩写：1234 → 1.2k。 */
+/**
+ * token 数量阶梯式中文单位：千 / 万 / 百万 / 千万 / 亿。
+ * <1000 原样；保留 1 位小数（整数不带 .0）。
+ * 例：856→856，1234→1.2千，15000→1.5万，1200000→1.2百万，12000000→1.2千万，120000000→1.2亿。
+ */
 export function abbr(n: number): string {
-  if (n < 1000) return String(n)
-  return (n / 1000).toFixed(n < 10000 ? 1 : 0) + 'k'
+  if (!Number.isFinite(n) || n < 0) return '0'
+  const f = (v: number) => {
+    const s = v.toFixed(1)
+    return s.endsWith('.0') ? s.slice(0, -2) : s
+  }
+  if (n < 1e3) return String(Math.round(n))
+  if (n < 1e4) return f(n / 1e3) + '千'
+  if (n < 1e6) return f(n / 1e4) + '万'
+  if (n < 1e7) return f(n / 1e6) + '百万'
+  if (n < 1e8) return f(n / 1e7) + '千万'
+  return f(n / 1e8) + '亿'
 }
 
 /** 毫秒 → 友好耗时：<1s 显 ms，否则秒。 */
