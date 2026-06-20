@@ -28,11 +28,10 @@ public interface EngineUsageScanner {
 
     /**
      * 官方额度快照（Codex rollout 的 rate_limits）：primary=短窗(5h)，secondary=长窗(周)。
-     * deltaPercent=相较上一次读数的百分点增量（Codex=上一轮、Claude=上次拉取），可空。
+     * 「较上次」增量由 UsageService 统一计算，不在此携带。
      */
     record QuotaSnapshot(Double primaryUsedPercent, Integer primaryWindowMinutes, Long primaryResetsAt,
                          Double secondaryUsedPercent, Integer secondaryWindowMinutes, Long secondaryResetsAt,
-                         String planType, long capturedAt,
-                         Double primaryDeltaPercent, Double secondaryDeltaPercent) {
+                         String planType, long capturedAt) {
     }
 }

@@ -44,9 +44,6 @@ class ClaudeQuotaClient {
     private volatile long fetchedAt;
     private volatile boolean lastFailed = true;
     private volatile QuotaSnapshot cached;
-    // 上一次成功拉取的窗口百分比，用于算「较上次」增量
-    private volatile Double prevPrimary;
-    private volatile Double prevSecondary;
 
     ClaudeQuotaClient(ObjectMapper mapper) {
         this.mapper = mapper;
@@ -94,15 +91,11 @@ class ClaudeQuotaClient {
             Double p1 = pct(fh);
             Double p2 = pct(sd);
             if (p1 == null && p2 == null) return null;
-            // 较上一次成功拉取的增量（端点为快照，无逐轮历史，故对比上次读数）
-            Double d1 = (p1 != null && prevPrimary != null) ? p1 - prevPrimary : null;
-            Double d2 = (p2 != null && prevSecondary != null) ? p2 - prevSecondary : null;
-            prevPrimary = p1;
-            prevSecondary = p2;
+            // 增量(delta)由 UsageService 统一按「较上次构建」计算
             return new QuotaSnapshot(
                     p1, 300, resetSec(fh),
                     p2, 10080, resetSec(sd),
-                    planLabel(c), System.currentTimeMillis(), d1, d2);
+                    planLabel(c), System.currentTimeMillis());
         } catch (Exception e) {
             log.debug("[usage] claude oauth usage 失败：{}", e.toString());
             return null;

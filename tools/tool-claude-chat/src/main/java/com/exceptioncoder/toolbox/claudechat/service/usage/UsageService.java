@@ -29,6 +29,8 @@ public class UsageService {
     private final List<EngineUsageScanner> scanners;
     private volatile long cachedAt;
     private volatile List<EngineUsageView> cache;
+    // 各引擎上次构建时的窗口百分比 [primary, secondary]（NaN=缺）→ 算「较上次」增量；只在真正重算时更新
+    private final java.util.Map<String, double[]> lastQuotaPct = new java.util.concurrent.ConcurrentHashMap<>();
 
     public UsageService(List<EngineUsageScanner> scanners) {
         this.scanners = scanners;
@@ -77,14 +79,26 @@ public class UsageService {
         }
         boolean available = !r.records().isEmpty() || r.quota() != null;
         return new EngineUsageView(engine, available, hasTokens, available ? note : "近 30 天无本地记录（或未安装该引擎）",
-                today.stat(), d7.stat(), d30.stat(), toQuotaView(r.quota()));
+                today.stat(), d7.stat(), d30.stat(), toQuotaView(engine, r.quota()));
     }
 
-    private QuotaView toQuotaView(QuotaSnapshot q) {
+    /**
+     * 统一计算窗口增量：本次百分比 − 上次构建时的百分比（仅本引擎）。
+     * 这样只有「真正发生变化的引擎」才显示 delta——没用过的引擎额度没动 → delta=0 → 不显示。
+     */
+    private QuotaView toQuotaView(String engine, QuotaSnapshot q) {
         if (q == null) return null;
+        double[] last = lastQuotaPct.get(engine);
+        Double d1 = null, d2 = null;
+        if (last != null) {
+            if (q.primaryUsedPercent() != null && !Double.isNaN(last[0])) d1 = q.primaryUsedPercent() - last[0];
+            if (q.secondaryUsedPercent() != null && !Double.isNaN(last[1])) d2 = q.secondaryUsedPercent() - last[1];
+        }
+        lastQuotaPct.put(engine, new double[]{
+                q.primaryUsedPercent() != null ? q.primaryUsedPercent() : Double.NaN,
+                q.secondaryUsedPercent() != null ? q.secondaryUsedPercent() : Double.NaN});
         return new QuotaView(q.primaryUsedPercent(), q.primaryWindowMinutes(), q.primaryResetsAt(),
-                q.secondaryUsedPercent(), q.secondaryWindowMinutes(), q.secondaryResetsAt(), q.planType(),
-                q.primaryDeltaPercent(), q.secondaryDeltaPercent());
+                q.secondaryUsedPercent(), q.secondaryWindowMinutes(), q.secondaryResetsAt(), q.planType(), d1, d2);
     }
 
     /** 单窗口累加器。 */

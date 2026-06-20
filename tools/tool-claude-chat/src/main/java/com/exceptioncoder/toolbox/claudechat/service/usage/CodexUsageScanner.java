@@ -70,20 +70,13 @@ class CodexUsageScanner extends AbstractUsageScanner {
         return new ScanResult(out, buildQuota(readings));
     }
 
-    /** 最新读数为额度快照；与时间上前一条的 used_percent 差为「最近一次增量」。 */
+    /** 最新一条 rate_limits 为当前额度快照；增量(delta)由 UsageService 统一按「较上次构建」计算。 */
     private QuotaSnapshot buildQuota(List<RL> readings) {
         if (readings.isEmpty()) return null;
         readings.sort(Comparator.comparingLong(RL::ts).reversed());
         RL cur = readings.get(0);
-        RL prev = readings.size() > 1 ? readings.get(1) : null;
-        Double priDelta = delta(cur.priPct(), prev == null ? null : prev.priPct());
-        Double secDelta = delta(cur.secPct(), prev == null ? null : prev.secPct());
         return new QuotaSnapshot(cur.priPct(), cur.priWin(), cur.priReset(),
-                cur.secPct(), cur.secWin(), cur.secReset(), cur.plan(), cur.ts(), priDelta, secDelta);
-    }
-
-    private static Double delta(Double cur, Double prev) {
-        return (cur != null && prev != null) ? cur - prev : null;
+                cur.secPct(), cur.secWin(), cur.secReset(), cur.plan(), cur.ts());
     }
 
     private static Double num(JsonNode n, String k) {
