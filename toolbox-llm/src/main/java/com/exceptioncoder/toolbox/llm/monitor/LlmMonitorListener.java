@@ -2,11 +2,11 @@ package com.exceptioncoder.toolbox.llm.monitor;
 
 import com.exceptioncoder.toolbox.llm.model.ModelSpec;
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.model.ModelProvider;
-import dev.langchain4j.model.chat.Capability;
-import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.listener.ChatModelErrorContext;
+import dev.langchain4j.model.chat.listener.ChatModelListener;
+import dev.langchain4j.model.chat.listener.ChatModelRequestContext;
+import dev.langchain4j.model.chat.listener.ChatModelResponseContext;
 import dev.langchain4j.model.chat.request.ChatRequest;
-import dev.langchain4j.model.chat.request.ChatRequestParameters;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.output.TokenUsage;
 import org.slf4j.Logger;
@@ -14,58 +14,67 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 import java.util.UUID;
 
 /**
- * 计量装饰器：包裹单个真实 ChatModel，网关监控的核心采集点。
+ * 基于 LangChain4j 原生 {@link ChatModelListener} 的计量采集——网关监控的核心采集点。
  *
- * <p>每次 chat()：计时 → 调 delegate → 从 ChatResponse 取 TokenUsage/finishReason → 组装 {@link LlmCallEvent}
- * → 异步提交。失败时落 error 事件后原样 rethrow。所有采集逻辑 try/catch 隔离，绝不影响业务结果与路由行为。
- * 能力/参数/provider 元信息委托给 delegate，保证结构化输出探测正常。
+ * <p>每个池成员（一个 OpenAiChatModel）在 build 时挂一个绑定其 {@link ModelSpec} 的本监听器实例。
+ * onRequest 记起点 + attempt（存入 per-call attributes），onResponse/onError 取出算耗时、token、成本，
+ * 组装 {@link LlmCallEvent} 异步提交。采集异常全部隔离，绝不影响业务结果与路由/熔断。
+ *
+ * <p>故障转移：RoutingChatModel 每次尝试调用某成员的 chat()，即触发该成员监听器，因此失败链上
+ * 每次尝试各落一条记录（attempt 递增，由 {@link QuotaGuardChatModel} 在每次顶层调用前重置）。
  */
-public class MeteredChatModel implements ChatModel {
+public class LlmMonitorListener implements ChatModelListener {
 
-    private static final Logger log = LoggerFactory.getLogger(MeteredChatModel.class);
+    private static final Logger log = LoggerFactory.getLogger(LlmMonitorListener.class);
     private static final int ERR_MSG_MAX = 500;
 
+    private static final String K_START = "toolbox.llm.monitor.startNanos";
+    private static final String K_ATTEMPT = "toolbox.llm.monitor.attempt";
+    private static final String K_ATTR = "toolbox.llm.monitor.attr";
+
     private final ModelSpec spec;
-    private final ChatModel delegate;
     private final LlmMetricsRecorder recorder;
     private final LlmCostCalculator costCalculator;
     private final LlmTokenEstimator estimator;
 
-    public MeteredChatModel(ModelSpec spec, ChatModel delegate, LlmMetricsRecorder recorder,
-                            LlmCostCalculator costCalculator, LlmTokenEstimator estimator) {
+    public LlmMonitorListener(ModelSpec spec, LlmMetricsRecorder recorder,
+                              LlmCostCalculator costCalculator, LlmTokenEstimator estimator) {
         this.spec = spec;
-        this.delegate = delegate;
         this.recorder = recorder;
         this.costCalculator = costCalculator;
         this.estimator = estimator;
     }
 
     @Override
-    public ChatResponse chat(ChatRequest chatRequest) {
-        int attempt = LlmCallAttempt.next();
-        Instant now = Instant.now();
-        long t0 = System.nanoTime();
-        int requestChars = requestChars(chatRequest);
+    public void onRequest(ChatModelRequestContext ctx) {
         try {
-            ChatResponse resp = delegate.chat(chatRequest);
-            safeRecordSuccess(now, attempt, requestChars, elapsedMs(t0), resp);
-            return resp;
-        } catch (RuntimeException ex) {
-            safeRecordError(now, attempt, requestChars, elapsedMs(t0), ex);
-            throw ex;
+            Map<Object, Object> a = ctx.attributes();
+            a.put(K_START, System.nanoTime());
+            a.put(K_ATTEMPT, LlmCallAttempt.next());
+            a.put(K_ATTR, LlmCallContext.current());
+        } catch (Exception ex) {
+            log.warn("[toolbox-llm] 监控 onRequest 失败（忽略）: {}", ex.toString());
         }
     }
 
-    private void safeRecordSuccess(Instant now, int attempt, int requestChars, long latencyMs, ChatResponse resp) {
+    @Override
+    public void onResponse(ChatModelResponseContext ctx) {
         try {
+            Map<Object, Object> a = ctx.attributes();
+            long latencyMs = elapsedMs(a);
+            int attempt = attempt(a);
+            LlmCallContext.Attribution attr = attr(a);
+            ChatResponse resp = ctx.chatResponse();
+
             TokenUsage usage = resp.tokenUsage();
             Integer in = usage == null ? null : usage.inputTokenCount();
             Integer out = usage == null ? null : usage.outputTokenCount();
             Integer total = usage == null ? null : usage.totalTokenCount();
+            int requestChars = requestChars(ctx.chatRequest());
             int responseChars = responseChars(resp);
             boolean estimated = false;
             if (in == null && out == null && total == null) {
@@ -79,7 +88,8 @@ public class MeteredChatModel implements ChatModel {
             double cost = costCalculator.cost(spec, in, out);
             String finishReason = resp.finishReason() == null ? null : resp.finishReason().name();
             String modelName = resp.modelName() != null ? resp.modelName() : spec.getModel();
-            LlmCallContext.Attribution attr = LlmCallContext.current();
+
+            Instant now = Instant.now();
             recorder.submit(new LlmCallEvent(
                     UUID.randomUUID().toString(), now.toString(), now.toEpochMilli(),
                     spec.getTier(), spec.getId(), modelName,
@@ -89,13 +99,21 @@ public class MeteredChatModel implements ChatModel {
                     LlmCallEvent.STATUS_SUCCESS, finishReason, attempt,
                     null, null, requestChars, responseChars));
         } catch (Exception ex) {
-            log.warn("[toolbox-llm] 成功调用计量失败（忽略，不影响业务）: {}", ex.toString());
+            log.warn("[toolbox-llm] 监控 onResponse 计量失败（忽略，不影响业务）: {}", ex.toString());
         }
     }
 
-    private void safeRecordError(Instant now, int attempt, int requestChars, long latencyMs, RuntimeException error) {
+    @Override
+    public void onError(ChatModelErrorContext ctx) {
         try {
-            LlmCallContext.Attribution attr = LlmCallContext.current();
+            Map<Object, Object> a = ctx.attributes();
+            long latencyMs = elapsedMs(a);
+            int attempt = attempt(a);
+            LlmCallContext.Attribution attr = attr(a);
+            Throwable error = ctx.error();
+            int requestChars = requestChars(ctx.chatRequest());
+
+            Instant now = Instant.now();
             recorder.submit(new LlmCallEvent(
                     UUID.randomUUID().toString(), now.toString(), now.toEpochMilli(),
                     spec.getTier(), spec.getId(), spec.getModel(),
@@ -103,15 +121,30 @@ public class MeteredChatModel implements ChatModel {
                     attr == null ? null : attr.stage(),
                     null, null, null, false, 0.0, latencyMs,
                     LlmCallEvent.STATUS_ERROR, null, attempt,
-                    error.getClass().getName(), truncate(error.getMessage()),
+                    error == null ? null : error.getClass().getName(),
+                    error == null ? null : truncate(error.getMessage()),
                     requestChars, 0));
         } catch (Exception ex) {
-            log.warn("[toolbox-llm] 失败调用计量失败（忽略）: {}", ex.toString());
+            log.warn("[toolbox-llm] 监控 onError 计量失败（忽略）: {}", ex.toString());
         }
     }
 
-    private static long elapsedMs(long startNanos) {
-        return (System.nanoTime() - startNanos) / 1_000_000L;
+    private static long elapsedMs(Map<Object, Object> a) {
+        Object start = a.get(K_START);
+        if (start instanceof Long s) {
+            return (System.nanoTime() - s) / 1_000_000L;
+        }
+        return 0L;
+    }
+
+    private static int attempt(Map<Object, Object> a) {
+        Object v = a.get(K_ATTEMPT);
+        return v instanceof Integer i ? i : 1;
+    }
+
+    private static LlmCallContext.Attribution attr(Map<Object, Object> a) {
+        Object v = a.get(K_ATTR);
+        return v instanceof LlmCallContext.Attribution at ? at : null;
     }
 
     private static int requestChars(ChatRequest request) {
@@ -126,7 +159,7 @@ public class MeteredChatModel implements ChatModel {
                 }
             }
         } catch (Exception ignore) {
-            // 入参摘要仅用于估算，取不到不致命
+            // 摘要仅用于估算，取不到不致命
         }
         return n;
     }
@@ -147,22 +180,5 @@ public class MeteredChatModel implements ChatModel {
             return null;
         }
         return s.length() <= ERR_MSG_MAX ? s : s.substring(0, ERR_MSG_MAX);
-    }
-
-    // ---- 元信息委托给 delegate ----
-
-    @Override
-    public Set<Capability> supportedCapabilities() {
-        return delegate.supportedCapabilities();
-    }
-
-    @Override
-    public ChatRequestParameters defaultRequestParameters() {
-        return delegate.defaultRequestParameters();
-    }
-
-    @Override
-    public ModelProvider provider() {
-        return delegate.provider();
     }
 }

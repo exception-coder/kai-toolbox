@@ -4,12 +4,13 @@ import com.exceptioncoder.toolbox.llm.model.ModelSpec;
 import com.exceptioncoder.toolbox.llm.monitor.LlmCostCalculator;
 import com.exceptioncoder.toolbox.llm.monitor.LlmMetricsRecorder;
 import com.exceptioncoder.toolbox.llm.monitor.LlmMetricsRegistry;
+import com.exceptioncoder.toolbox.llm.monitor.LlmMonitorListener;
 import com.exceptioncoder.toolbox.llm.monitor.LlmTokenEstimator;
-import com.exceptioncoder.toolbox.llm.monitor.MeteredChatModel;
 import com.exceptioncoder.toolbox.llm.monitor.QuotaGuardChatModel;
 import com.exceptioncoder.toolbox.llm.routing.ChatModelRouter;
 import com.exceptioncoder.toolbox.llm.routing.ModelEndpoint;
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.listener.ChatModelListener;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,11 +63,10 @@ public class LlmAutoConfiguration {
         Map<String, List<ModelEndpoint>> byTier = new LinkedHashMap<>();
         List<ModelEndpoint> all = new ArrayList<>();
         for (ModelSpec spec : specs) {
-            ChatModel base = buildModel(spec);
-            ChatModel member = monitoring
-                    ? new MeteredChatModel(spec, base, recorder, cost, estimator)
-                    : base;
-            ModelEndpoint endpoint = new ModelEndpoint(spec, member);
+            ChatModelListener listener = monitoring
+                    ? new LlmMonitorListener(spec, recorder, cost, estimator)
+                    : null;
+            ModelEndpoint endpoint = new ModelEndpoint(spec, buildModel(spec, listener));
             byTier.computeIfAbsent(spec.getTier(), k -> new ArrayList<>()).add(endpoint);
             all.add(endpoint);
             log.info("[toolbox-llm] 注册模型 id={} tier={} model={} weight={} baseUrl={} 监控={}",
@@ -82,15 +82,18 @@ public class LlmAutoConfiguration {
         return new ChatModelRouter(byTier, all);
     }
 
-    private static OpenAiChatModel buildModel(ModelSpec spec) {
-        return OpenAiChatModel.builder()
+    private static OpenAiChatModel buildModel(ModelSpec spec, ChatModelListener listener) {
+        OpenAiChatModel.OpenAiChatModelBuilder builder = OpenAiChatModel.builder()
                 .baseUrl(spec.getBaseUrl())
                 .apiKey(spec.getApiKey())
                 .modelName(spec.getModel())
                 .temperature(spec.getTemperature())
                 .timeout(Duration.ofSeconds(spec.getTimeoutSeconds()))
                 .logRequests(true)
-                .logResponses(true)
-                .build();
+                .logResponses(true);
+        if (listener != null) {
+            builder.listeners(List.of(listener));
+        }
+        return builder.build();
     }
 }
