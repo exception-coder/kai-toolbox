@@ -16,4 +16,7 @@ import java.util.List;
 public class LlmProperties {
 
     private List<ModelSpec> models = new ArrayList<>();
+
+    /** 网关监控配置（token/成本计量、调用追踪、配额告警）。 */
+    private MonitorProperties monitor = new MonitorProperties();
 }

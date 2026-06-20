@@ -34,6 +34,12 @@ public class ModelSpec {
     /** 调用失败（含 429 限流）后该成员的熔断冷却时长，冷却期内路由跳过它。 */
     private long cooldownMs = 15000;
 
+    /** 输入 token 单价（元 / 百万 token），用于成本计量。0 表示不计费（如本地模型）。 */
+    private double inputPricePerMTok = 0.0;
+
+    /** 输出 token 单价（元 / 百万 token），用于成本计量。0 表示不计费。 */
+    private double outputPricePerMTok = 0.0;
+
     /** 缺省的本地 Ollama 成员——当未配置任何模型时兜底，保证开箱即用。 */
     public static ModelSpec localDefault() {
         ModelSpec s = new ModelSpec();
