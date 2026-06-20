@@ -207,7 +207,12 @@ export async function runGeminiTurn(ctx: GeminiTurnCtx): Promise<void> {
         ctx.emit({ type: 'result', usage: {}, stopReason: 'interrupted' })
       } else if (code !== 0 && !sawResult) {
         const tail = stderr.trim().slice(-300)
-        ctx.emit({ type: 'error', code: `GEMINI_EXIT_${code}`, message: tail || `gemini 退出码 ${code}` })
+        // 常见失败：headless 下 OAuth 登录过期/需重新授权（_doSetupUser 弹不出浏览器）→ 给可操作提示
+        const authIssue = /_doSetupUser|setupUser|oauth|login|reauth|authenticat|invalid_grant|browser|credential/i.test(stderr)
+        const message = authIssue
+          ? 'Gemini 登录已过期或需重新授权：headless 模式无法弹出浏览器完成 OAuth。请在本机终端运行 `gemini` 重新登录（或检查代理/网络能否访问 Google），完成后再用 Gemini 引擎；也可配置 GEMINI_API_KEY 走 API key 鉴权（免浏览器）。'
+          : (tail || `gemini 退出码 ${code}`)
+        ctx.emit({ type: 'error', code: authIssue ? 'GEMINI_AUTH' : `GEMINI_EXIT_${code}`, message })
       } else if (!sawResult) {
         ctx.emit({ type: 'result', usage: {}, stopReason: 'end_turn' })
       }
