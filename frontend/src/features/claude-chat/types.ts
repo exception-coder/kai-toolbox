@@ -82,6 +82,16 @@ export interface Attachment {
   path: string
 }
 
+/** 用户消息气泡里展示的附件（缩略图）：url 为可显示地址（图片 object/data URL）。 */
+export interface MsgAttachment {
+  name: string
+  mime?: string
+  url?: string
+}
+
+/** 发送时携带的附件：WS 只用 name/path，url/mime 仅供本端气泡显示缩略图。 */
+export type SendAttachment = Attachment & { mime?: string; url?: string }
+
 /** 权限模式：与 sidecar Agent SDK 的 permissionMode 对齐。 */
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
 
@@ -166,7 +176,7 @@ export interface TurnDiag {
 // ── 渲染用的消息项 ───────────────────────────────────────────────
 // ts：该消息块的时间（Unix ms）。实时消息=客户端发送/接收时刻；历史消息暂无（可空，UI 不显示）。
 export type ChatItem =
-  | { kind: 'user'; id: string; text: string; sdkUuid?: string; ts?: number }
+  | { kind: 'user'; id: string; text: string; sdkUuid?: string; ts?: number; attachments?: MsgAttachment[] }
   | { kind: 'assistant'; id: string; text: string; ts?: number }
   | { kind: 'tool'; id: string; toolName: string; input: unknown; output?: string; isError?: boolean; ts?: number }
   | { kind: 'result'; id: string; stopReason: string; ts?: number; usage?: Record<string, number>; latencyMs?: number; ttftMs?: number }

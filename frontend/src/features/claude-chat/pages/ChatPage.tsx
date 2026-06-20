@@ -370,8 +370,8 @@ export function ChatPage() {
     if (!draft.trim() && attachments.length === 0) return
     ensureNotifyPermission() // 借发送这个手势兜底申请一次通知权限
 
-    chat.send(draft, attachments.map(a => ({ name: a.name, path: a.path })))
-    attachments.forEach(a => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl) })
+    // 图片把本地 previewUrl 一并带上 → 气泡里显示缩略图（object URL 不在此 revoke，已被消息引用）
+    chat.send(draft, attachments.map(a => ({ name: a.name, path: a.path, mime: a.mime, url: a.previewUrl })))
     setDraft('')
     setAttachments([])
     // 发送后收回输入框高度：等 DOM 清空（下一帧）再按内容重算，避免停留在变高后的高度

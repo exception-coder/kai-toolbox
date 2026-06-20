@@ -209,9 +209,24 @@ function Row({ item, onFork, engineLabel }: { item: ChatItem; onFork?: (sdkUuid:
       return (
         <div className="flex min-w-0 max-w-full flex-col items-end">
           <MsgHeader ts={item.ts} align="end" />
-          <div className="max-w-[85%] min-w-0 whitespace-pre-wrap wrap-anywhere rounded-2xl bg-[var(--color-primary)] px-4 py-2 text-[var(--color-primary-foreground)]">
-            {item.text}
-          </div>
+          {item.attachments && item.attachments.some(a => a.url) && (
+            <div className="mb-1 flex max-w-[85%] flex-wrap justify-end gap-1.5">
+              {item.attachments.filter(a => a.url).map((a, i) => (
+                <img
+                  key={i}
+                  src={a.url}
+                  alt={a.name}
+                  title={a.name}
+                  className="max-h-40 max-w-[48%] rounded-lg border border-[var(--color-border)] object-cover"
+                />
+              ))}
+            </div>
+          )}
+          {item.text && (
+            <div className="max-w-[85%] min-w-0 whitespace-pre-wrap wrap-anywhere rounded-2xl bg-[var(--color-primary)] px-4 py-2 text-[var(--color-primary-foreground)]">
+              {item.text}
+            </div>
+          )}
           {onFork && item.sdkUuid && (
             <button
               type="button"

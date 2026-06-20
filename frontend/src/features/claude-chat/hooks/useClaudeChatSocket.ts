@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ensureFreshToken, getToken } from '@/lib/auth'
-import type { Attachment, ChatItem, ClientMessage, ConnState, Engine, ModelInfo, PendingRequest, PermissionMode, ProviderKind, ServerMessage, TurnDiag } from '../types'
+import type { Attachment, ChatItem, ClientMessage, ConnState, Engine, ModelInfo, PendingRequest, PermissionMode, ProviderKind, SendAttachment, ServerMessage, TurnDiag } from '../types'
 import { loadMessages } from '../api'
 import { notifyPrompt } from '../browserNotify'
 import { playNotifySound } from '../sound'
@@ -468,12 +468,14 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     if (!sendRaw({ type: 'resumeHistory', sdkSessionId, cwd })) connect()
   }, [sendRaw, connect])
 
-  const send = useCallback((text: string, attachments?: Attachment[]) => {
+  const send = useCallback((text: string, attachments?: SendAttachment[]) => {
     const t = text.trim()
     const hasAtt = !!attachments && attachments.length > 0
     if (!t && !hasAtt) return
-    const atts = hasAtt ? attachments : undefined
-    setItems(prev => [...prev, { kind: 'user', id: nextId(), text: t, ts: Date.now() }])
+    // WS 只发 name/path；url/mime 仅留本端气泡显示
+    const atts = hasAtt ? attachments!.map(a => ({ name: a.name, path: a.path })) : undefined
+    const disp = hasAtt ? attachments!.filter(a => a.url).map(a => ({ name: a.name, mime: a.mime, url: a.url })) : undefined
+    setItems(prev => [...prev, { kind: 'user', id: nextId(), text: t, ts: Date.now(), attachments: disp && disp.length ? disp : undefined }])
     turnStartRef.current = Date.now()
     ttftRef.current = null
     setRunning(true)
