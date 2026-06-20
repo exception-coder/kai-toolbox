@@ -116,15 +116,32 @@ class ClaudeQuotaClient {
         }
     }
 
-    /** 友好套餐名：rateLimitTier（default_claude_max_5x → Max 5x）回退 subscriptionType。 */
+    /**
+     * 友好套餐名：以 subscriptionType 为准（team/enterprise/pro 等是真实订阅），
+     * 仅个人 Max 用 rateLimitTier 细分 5x/20x。rateLimitTier 是内部限流档，不等于套餐名（如 team 的档位是 max_5x，但套餐是 Team）。
+     */
     private static String planLabel(JsonNode cred) {
         JsonNode o = cred.path("claudeAiOauth");
-        String tier = o.path("rateLimitTier").asText("");
-        if (tier.contains("max_20x")) return "Max 20x";
-        if (tier.contains("max_5x")) return "Max 5x";
-        if (tier.contains("pro")) return "Pro";
-        String sub = o.path("subscriptionType").asText("");
-        return sub.isBlank() ? null : sub;
+        String sub = o.path("subscriptionType").asText("").trim();
+        String tier = o.path("rateLimitTier").asText("").toLowerCase();
+        switch (sub.toLowerCase()) {
+            case "team":
+                return "Team";
+            case "enterprise":
+                return "Enterprise";
+            case "pro":
+                return "Pro";
+            case "max":
+                if (tier.contains("20x")) return "Max 20x";
+                if (tier.contains("5x")) return "Max 5x";
+                return "Max";
+            default:
+                // 订阅类型缺失/未知 → 退回限流档推断
+                if (tier.contains("max_20x")) return "Max 20x";
+                if (tier.contains("max_5x")) return "Max 5x";
+                if (tier.contains("pro")) return "Pro";
+                return sub.isBlank() ? null : sub;
+        }
     }
 
     private String readVersion(Path home) {
