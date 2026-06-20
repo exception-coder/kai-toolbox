@@ -29,7 +29,10 @@ public record EngineUsageView(
         }
     }
 
-    /** 官方额度快照（仅 Codex）。primary=短窗(5h)、secondary=长窗(周)。 */
+    /**
+     * 官方额度快照。primary=短窗(5h)、secondary=长窗(周)。
+     * deltaPercent=相较上一次读数的百分点增量（最近一次 token 增量对应的窗口涨幅），可空。
+     */
     public record QuotaView(
             Double primaryUsedPercent,
             Integer primaryWindowMinutes,
@@ -37,6 +40,8 @@ public record EngineUsageView(
             Double secondaryUsedPercent,
             Integer secondaryWindowMinutes,
             Long secondaryResetsAt,
-            String planType) {
+            String planType,
+            Double primaryDeltaPercent,
+            Double secondaryDeltaPercent) {
     }
 }

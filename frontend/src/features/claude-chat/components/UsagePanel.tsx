@@ -154,21 +154,22 @@ function EngineCard({ u, win }: { u: EngineUsage; win: 'today' | 'd7' | 'd30' })
       {u.quota && (
         <div className="mt-2 flex flex-col gap-1 border-t border-[var(--color-border)] pt-2 text-xs">
           {u.quota.primaryUsedPercent != null && (
-            <QuotaBar label="5 小时窗口" pct={u.quota.primaryUsedPercent} resetsAt={u.quota.primaryResetsAt} />
+            <QuotaBar label="5 小时窗口" pct={u.quota.primaryUsedPercent} resetsAt={u.quota.primaryResetsAt} delta={u.quota.primaryDeltaPercent} />
           )}
           {u.quota.secondaryUsedPercent != null && (
-            <QuotaBar label="周窗口" pct={u.quota.secondaryUsedPercent} resetsAt={u.quota.secondaryResetsAt} />
+            <QuotaBar label="周窗口" pct={u.quota.secondaryUsedPercent} resetsAt={u.quota.secondaryResetsAt} delta={u.quota.secondaryDeltaPercent} />
           )}
-          <span className="text-[10px] text-[var(--color-muted-foreground)]">官方账号额度</span>
+          <span className="text-[10px] text-[var(--color-muted-foreground)]">官方账号额度 · 括号内为较上次的增量</span>
         </div>
       )}
     </div>
   )
 }
 
-function QuotaBar({ label, pct, resetsAt }: { label: string; pct: number; resetsAt: number | null }) {
+function QuotaBar({ label, pct, resetsAt, delta }: { label: string; pct: number; resetsAt: number | null; delta?: number | null }) {
   const p = Math.max(0, Math.min(100, pct))
   const tone = p >= 90 ? 'bg-rose-500' : p >= 60 ? 'bg-amber-500' : 'bg-emerald-500'
+  const showDelta = delta != null && Math.abs(delta) >= 0.5
   return (
     <div className="flex items-center gap-2">
       <span className="w-20 shrink-0 text-[var(--color-muted-foreground)]">{label}</span>
@@ -176,6 +177,11 @@ function QuotaBar({ label, pct, resetsAt }: { label: string; pct: number; resets
         <div className={`h-full rounded-full ${tone}`} style={{ width: `${p}%` }} />
       </div>
       <span className="w-10 shrink-0 text-right tabular-nums">{p.toFixed(0)}%</span>
+      {showDelta && (
+        <span className={`shrink-0 tabular-nums ${delta! > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+          {delta! > 0 ? '+' : ''}{Math.round(delta!)}%
+        </span>
+      )}
       {resetsAt && <span className="shrink-0 text-[10px] text-[var(--color-muted-foreground)]">{resetLabel(resetsAt)}</span>}
     </div>
   )

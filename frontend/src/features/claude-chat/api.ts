@@ -159,6 +159,9 @@ export interface UsageQuota {
   primaryUsedPercent: number | null; primaryWindowMinutes: number | null; primaryResetsAt: number | null
   secondaryUsedPercent: number | null; secondaryWindowMinutes: number | null; secondaryResetsAt: number | null
   planType: string | null
+  /** 相较上一次读数的百分点增量（最近一次 token 增量对应的窗口涨幅），可空 */
+  primaryDeltaPercent?: number | null
+  secondaryDeltaPercent?: number | null
 }
 export interface EngineUsage {
   engine: string; available: boolean; hasTokens: boolean; note: string | null

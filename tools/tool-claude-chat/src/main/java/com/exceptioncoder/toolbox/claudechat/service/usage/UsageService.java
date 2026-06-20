@@ -83,7 +83,8 @@ public class UsageService {
     private QuotaView toQuotaView(QuotaSnapshot q) {
         if (q == null) return null;
         return new QuotaView(q.primaryUsedPercent(), q.primaryWindowMinutes(), q.primaryResetsAt(),
-                q.secondaryUsedPercent(), q.secondaryWindowMinutes(), q.secondaryResetsAt(), q.planType());
+                q.secondaryUsedPercent(), q.secondaryWindowMinutes(), q.secondaryResetsAt(), q.planType(),
+                q.primaryDeltaPercent(), q.secondaryDeltaPercent());
     }
 
     /** 单窗口累加器。 */
