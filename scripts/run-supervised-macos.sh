@@ -309,6 +309,24 @@ init_node_deps() {
   fi
 }
 
+# Best-effort: start the visitor-analysis AgentScope sidecar (python-services/visitor-analysis).
+# Isolated & non-fatal: first run builds .venv/pip (slow), then runs uvicorn on :9600 in background.
+# Needs VA_LLM_API_KEY (else gray-zone classify returns UNKNOWN). Backend has its own retry/backoff.
+start_visitor_analysis_sidecar() {
+  local vaDir="$REPO_ROOT/python-services/visitor-analysis"
+  if [[ ! -f "$vaDir/start.sh" ]]; then
+    echo "[supervisor] visitor-analysis start.sh missing, skip"
+    return
+  fi
+  if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:9600 -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "[supervisor] visitor-analysis sidecar already on :9600, skip"
+    return
+  fi
+  echo "[supervisor] start visitor-analysis sidecar (background, first run installs venv, slow)..."
+  ( cd "$vaDir" && PYTHON_CMD="$PYTHON_CMD" nohup bash start.sh >/dev/null 2>&1 & ) \
+    || echo "[supervisor] WARN: visitor-analysis sidecar failed to start (non-fatal)"
+}
+
 start_http_control() {
   export SUPERVISOR_HTTP_HOST="$HTTP_HOST"
   export SUPERVISOR_HTTP_PORT="$HTTP_PORT"
@@ -396,6 +414,9 @@ echo "[supervisor] repo=$REPO_ROOT  mvn=$MVN_CMD"
 
 # Ensure the node sidecars are initialized before the backend may lazily spawn them.
 init_node_deps
+
+# Best-effort: bring up the visitor-analysis AgentScope sidecar (:9600), non-fatal.
+start_visitor_analysis_sidecar
 
 # One-click start: backend + frontend together.
 start_backend

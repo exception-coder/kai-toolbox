@@ -268,6 +268,25 @@ function Start-WechatSidecar {
     }
 }
 
+# 访客分析 AgentScope sidecar（python-services\visitor-analysis）。隔离、尽力而为，同 wechat：
+#   - 独立窗口异步起，首次建 .venv/pip install 较慢，绝不阻塞 supervisor；
+#   - 整段 try/catch：起不来只 WARN，不连累 backend / frontend / 其它 sidecar；不进守护循环；
+#   - 需 VA_LLM_API_KEY（未设则灰区分类返回 UNKNOWN，后端标「待人工确认」）；端口 9600。
+function Start-VisitorAnalysisSidecar {
+    try {
+        $vaDir = Join-Path $RepoRoot 'python-services\visitor-analysis'
+        $bat = Join-Path $vaDir 'start.bat'
+        if (-not (Test-Path -LiteralPath $bat)) { Write-Host '[supervisor] visitor-analysis sidecar start.bat 不存在，跳过'; return }
+        $listening = $false
+        try { $listening = [bool](Get-NetTCPConnection -LocalPort 9600 -State Listen -ErrorAction Stop) } catch { }
+        if ($listening) { Write-Host '[supervisor] visitor-analysis sidecar 已在 :9600，跳过'; return }
+        Write-Host '[supervisor] start visitor-analysis sidecar (python-services\visitor-analysis\start.bat，独立窗口，首次装依赖较慢)...'
+        Start-Process -FilePath $bat -WorkingDirectory $vaDir -ErrorAction Stop | Out-Null
+    } catch {
+        Write-Host "[supervisor] WARN: visitor-analysis sidecar 启动失败（不影响其它作业）: $($_.Exception.Message)"
+    }
+}
+
 function Start-Frontend {
     if (-not $NpmCmd) { Write-Host '[supervisor] 跳过前端启动（npm 未找到）'; return }
     Stop-PortHolders $FrontendPort
@@ -351,6 +370,8 @@ Start-Backend
 Start-Frontend
 # 微信监控 sidecar：尽力起一次，失败/缺依赖只 WARN，不进守护循环，不连累上面两个。
 Start-WechatSidecar
+# 访客分析 AgentScope sidecar：同样尽力起一次（端口 9600），失败只 WARN。
+Start-VisitorAnalysisSidecar
 
 try {
     if ($listener) {
