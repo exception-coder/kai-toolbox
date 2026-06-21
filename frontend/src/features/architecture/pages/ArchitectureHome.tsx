@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { ComponentType } from 'react'
 import type { LucideProps } from 'lucide-react'
-import { Workflow, BotMessageSquare, Gauge, Users, ArrowRight, UserSearch } from 'lucide-react'
+import { Workflow, BotMessageSquare, Gauge, Users, ArrowRight, UserSearch, Activity } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 
@@ -46,6 +46,14 @@ const entries: Entry[] = [
     title: '访客分析（确定性优先 + AgentScope 灰区判别）',
     desc: '前台访客身份实时判别：客户库/竞品名单命中即定论（高置信无 LLM），灰区交 Python AgentScope sidecar 做一次结构化输出，Java 端代码裁决（枚举校验+置信度阈值）后落库。五张表 + SSE 阶段进度 + 软降级。',
     tags: ['确定性优先', 'Python sidecar', 'AgentScope 集成点', 'deterministic-first'],
+    ready: true,
+  },
+  {
+    to: '/tools/architecture/llm-monitor',
+    icon: Activity,
+    title: 'LLM 网关监控（对标 AgentScope 可观测性）',
+    desc: '在共享网关以装饰器洋葱实现零侵入监控：LangChain4j ChatModelListener 采集、SQLite 持久化、内置仪表盘；可选镜像到 AgentScope Studio。内置 llm-monitor 仪表盘 vs 可选 Studio 的定位对比。',
+    tags: ['LangChain4j SPI', 'SQLite', 'AgentScope Studio（可选）', 'OTel OTLP'],
     ready: true,
   },
 ]
