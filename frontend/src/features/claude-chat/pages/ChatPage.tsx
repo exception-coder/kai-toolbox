@@ -224,6 +224,7 @@ export function ChatPage() {
   const [sessTab, setSessTab] = useState<'tool' | 'history'>('tool')
   const [draft, setDraft] = useState('')
   const [newCwd, setNewCwd] = useState('')
+  const [wsIdx, setWsIdx] = useState(0) // 当前选中的工作区（root）下标，两级目录选择用
   const [newEngine, setNewEngine] = useState<Engine>('claude')
   // 第三方网关「服务商」：newProviderId 空=官方默认；newModel 为走网关时手填的模型名
   const [providers, setProviders] = useState<ProviderProfile[]>(() => loadProfiles())
@@ -300,7 +301,9 @@ export function ChatPage() {
     enabled: panel === 'new',
     staleTime: 5000,
   })
-  const wsDirs = workspaces?.roots.flatMap(r => r.dirs) ?? []
+  // 两级工作目录：先选工作区 root，再列该 root 下的一级目录（只显示名字）。
+  const wsRoots = workspaces?.roots.filter(r => r.exists) ?? []
+  const activeRoot = wsRoots.length ? wsRoots[Math.min(wsIdx, wsRoots.length - 1)] : null
 
   // 顶栏标题显示当前会话别名（与会话列表共用同一 query 缓存）；无别名/无会话时回退 Vibe Coding
   const { data: sessions = [] } = useQuery({
@@ -520,20 +523,53 @@ export function ChatPage() {
       {/* 折叠面板 */}
       {panel === 'new' && (
         <div className="border-b px-3 py-3">
-          <label className="text-xs text-[var(--color-muted-foreground)]">工作目录（cwd，留空用 home）</label>
-          <div className="mt-1 flex gap-2">
+          <label className="text-xs text-[var(--color-muted-foreground)]">工作目录（先选工作区 → 选项目，或手填路径；留空用 home）</label>
+          {/* 第 1 级：工作区（多个 root 时才显示） */}
+          {wsRoots.length > 1 && (
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {wsRoots.map((r, i) => {
+                const rname = r.root.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || r.root
+                return (
+                  <button
+                    key={r.root}
+                    type="button"
+                    title={r.root}
+                    onClick={() => setWsIdx(i)}
+                    className={`rounded-full border px-2.5 py-1 text-xs ${i === wsIdx
+                      ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10 font-medium text-[var(--color-primary)]'
+                      : 'text-[var(--color-muted-foreground)] hover:border-[var(--color-primary)]/40'}`}
+                  >
+                    {rname}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          {/* 第 2 级：该工作区下的一级目录（只显示项目名，选中即设为 cwd） */}
+          {activeRoot && activeRoot.dirs.length > 0 && (
+            <div className="mt-2 flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
+              {activeRoot.dirs.map(d => (
+                <button
+                  key={d.path}
+                  type="button"
+                  title={d.path}
+                  onClick={() => setNewCwd(d.path)}
+                  className={`rounded-md border px-2.5 py-1 text-xs ${newCwd === d.path
+                    ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10 font-medium text-[var(--color-primary)]'
+                    : 'text-[var(--color-muted-foreground)] hover:border-[var(--color-primary)]/40'}`}
+                >
+                  {d.name}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="mt-2 flex gap-2">
             <input
-              list="claude-chat-cwd-dirs"
               className="flex-1 rounded-md border bg-[var(--color-background)] px-3 py-2 text-sm"
-              placeholder={wsDirs.length ? '选择或输入工作目录…' : '例如 D:/Users/zhang/IdeaProjects/kai-toolbox'}
+              placeholder="或手填路径，例如 D:/Users/zhang/IdeaProjects/kai-toolbox"
               value={newCwd}
               onChange={e => setNewCwd(e.target.value)}
             />
-            <datalist id="claude-chat-cwd-dirs">
-              {wsDirs.map(d => (
-                <option key={d.path} value={d.path}>{d.name}</option>
-              ))}
-            </datalist>
             <Button size="lg" className="shadow-md" onClick={startNew}>开始</Button>
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
