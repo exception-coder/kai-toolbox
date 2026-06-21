@@ -24,6 +24,11 @@ NPM_CMD=
 #   ARIA2_BIN=D:\devapps\aria2-1.37.0-win-64bit-build1\aria2c.exe
 ARIA2_BIN=
 
+# SQLite DB 文件位置（仅迁 DB，其它数据不动）。留空走默认 ${toolbox.data-dir}/toolbox.db；
+# 系统盘吃紧时把 DB 单独指向大盘，避免 SQLITE_FULL。例：
+#   TOOLBOX_SQLITE_FILE=D:\kai-toolbox\toolbox.db
+TOOLBOX_SQLITE_FILE=
+
 # ── 机密项（run-supervised.ps1 启动时读入为进程环境变量；禁止硬编码进脚本）──
 # qBittorrent 密码
 TOOLBOX_QBT_PASSWORD=

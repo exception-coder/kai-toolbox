@@ -198,6 +198,9 @@ function Start-Backend {
         $javaOptions += '-Dtoolbox.ai-secretary.rag.qdrant-port=6334'
         $javaOptions += "-Dtoolbox.ai-secretary.rag.qdrant-api-key=$env:TOOLBOX_QDRANT_API_KEY"
     }
+    # SQLite DB 文件位置。留空走默认 ${toolbox.data-dir}/toolbox.db；
+    # C 盘吃紧时在 run-tools.conf 配 TOOLBOX_SQLITE_FILE 把 DB 单独放大盘（如 D:\kai-toolbox\toolbox.db）。
+    if ($env:TOOLBOX_SQLITE_FILE) { $javaOptions += "-Dtoolbox.sqlite.file=$env:TOOLBOX_SQLITE_FILE" }
     $mvnLiteral = Quote-PowerShellLiteral $MvnCmd
     $javaLiteral = Quote-PowerShellLiteral $JavaCmd
     $javaOptionsLiteral = ($javaOptions | ForEach-Object { Quote-PowerShellLiteral $_ }) -join ' '
@@ -287,6 +290,28 @@ function Start-VisitorAnalysisSidecar {
     }
 }
 
+function Start-AgentScopeStudio {
+    try {
+        $listening = $false
+        try { $listening = [bool](Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction Stop) } catch { }
+        if ($listening) { Write-Host '[supervisor] AgentScope Studio 已在 :3000，跳过'; return }
+        if (-not $NpmCmd) { Write-Host '[supervisor] npm 未找到，跳过 AgentScope Studio (:3000)'; return }
+
+        $installThenRun = -not [bool](Get-Command as_studio -ErrorAction SilentlyContinue)
+        $runCommand = if ($installThenRun) {
+            "npm install -g @agentscope/studio; if (`$LASTEXITCODE -ne 0) { exit `$LASTEXITCODE }; as_studio"
+        } else {
+            "as_studio"
+        }
+        Write-Host '[supervisor] start AgentScope Studio (:3000，独立进程，首次安装较慢)...'
+        Start-Process -FilePath (Resolve-PowerShellExe) `
+            -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $runCommand) `
+            -ErrorAction Stop | Out-Null
+    } catch {
+        Write-Host "[supervisor] WARN: AgentScope Studio 启动失败（不影响其它作业）: $($_.Exception.Message)"
+    }
+}
+
 function Start-Frontend {
     if (-not $NpmCmd) { Write-Host '[supervisor] 跳过前端启动（npm 未找到）'; return }
     Stop-PortHolders $FrontendPort
@@ -372,6 +397,8 @@ Start-Frontend
 Start-WechatSidecar
 # 访客分析 AgentScope sidecar：同样尽力起一次（端口 9600），失败只 WARN。
 Start-VisitorAnalysisSidecar
+# AgentScope Studio：移动端监控入口（端口 3000），失败不影响 toolbox 主流程。
+Start-AgentScopeStudio
 
 try {
     if ($listener) {
