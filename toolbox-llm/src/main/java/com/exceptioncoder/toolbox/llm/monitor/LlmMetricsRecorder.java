@@ -33,6 +33,8 @@ public class LlmMetricsRecorder {
     private final MonitorProperties props;
     private final ZoneId zone = ZoneId.systemDefault();
     private final BlockingQueue<LlmCallEvent> queue;
+    /** Studio 导出器：studioUrl 为空时为 null，不推送。 */
+    private final AgentScopeStudioExporter studioExporter;
 
     private volatile boolean running = true;
     private Thread worker;
@@ -42,6 +44,10 @@ public class LlmMetricsRecorder {
         this.registry = registry;
         this.props = llmProps.getMonitor();
         this.queue = new LinkedBlockingQueue<>(Math.max(100, props.getQueueCapacity()));
+        String studioUrl = props.getStudioUrl();
+        this.studioExporter = (studioUrl != null && !studioUrl.isBlank())
+                ? new AgentScopeStudioExporter(studioUrl, props.getStudioTimeoutMs())
+                : null;
     }
 
     /** 提交一条采集事件：先同步累加内存计数，再异步入队落库。绝不抛出。 */
@@ -66,8 +72,9 @@ public class LlmMetricsRecorder {
         }
         warmup();
         worker = Thread.ofVirtual().name("llm-metrics-writer").start(this::loop);
-        log.info("[toolbox-llm] 监控记录器已启动（queueCapacity={}, batchSize={}）",
-                props.getQueueCapacity(), props.getBatchSize());
+        log.info("[toolbox-llm] 监控记录器已启动（queueCapacity={}, batchSize={}, studio={}）",
+                props.getQueueCapacity(), props.getBatchSize(),
+                studioExporter != null ? props.getStudioUrl() : "disabled");
     }
 
     private void warmup() {
@@ -94,6 +101,9 @@ public class LlmMetricsRecorder {
                 batch.add(first);
                 queue.drainTo(batch, Math.max(1, props.getBatchSize()) - 1);
                 repository.batchInsert(batch);
+                if (studioExporter != null) {
+                    studioExporter.export(batch);
+                }
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
                 break;
@@ -114,6 +124,9 @@ public class LlmMetricsRecorder {
             queue.drainTo(rest);
             if (!rest.isEmpty()) {
                 repository.batchInsert(rest);
+                if (studioExporter != null) {
+                    studioExporter.export(rest);
+                }
             }
         } catch (Exception ex) {
             log.debug("[toolbox-llm] 关闭时 flush 跳过: {}", ex.toString());

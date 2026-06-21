@@ -29,6 +29,16 @@ public class MonitorProperties {
     /** 配额软阈值（占硬限比例），达到后 WARN 告警但不拒绝。 */
     private double softThreshold = 0.8;
 
+    /**
+     * AgentScope Studio 的 OTLP HTTP 地址，例如 {@code http://localhost:3000}。
+     * 为空则不推送（默认关闭）。配置后每次 LLM 调用都会异步发一条 OTel span 到 Studio，
+     * 无需任何额外 Maven 依赖（使用 Java 内置 HttpClient + OTLP JSON 格式）。
+     */
+    private String studioUrl = "";
+
+    /** 推送 Studio 的 HTTP 连接/读取超时（毫秒），超时直接丢弃，不影响业务。 */
+    private int studioTimeoutMs = 3000;
+
     /** 配额规则；为空=无限额。 */
     private List<QuotaRule> quotas = new ArrayList<>();
 
