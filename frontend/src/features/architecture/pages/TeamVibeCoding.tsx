@@ -11,6 +11,8 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Section, HFlow, VFlow, InfoCard, DecisionCard, GuardCard, CodeBlock, type Decision } from '../components/arch-ui'
 import { FigNewOld, FigDeterministic, FigFlywheel, StepFlow, Contrast } from '../components/slide-figures'
+import { TechArchitectureMap, type TechArchitectureMapProps } from '../components/TechArchitectureMap'
+import { StakeholderArchitectureViews, type StakeholderArchitectureViewsProps } from '../components/StakeholderArchitectureViews'
 
 // 五大核心原则：把「买工具」纠正为「建工作流 + 用确定性关住 LLM 的不确定性」。
 const principles: { icon: typeof Users; title: string; detail: string }[] = [
@@ -78,6 +80,60 @@ const kbLoad: { icon: typeof Users; name: string; how: string }[] = [
   { icon: Boxes, name: '多根工作区', how: 'Cursor / VS Code 同时打开「业务项目 + 知识库」两个根，跨根索引与 @ 引用' },
   { icon: GitFork, name: 'git submodule 只读', how: '知识库作只读子模块挂进项目；源唯一在独立 repo，要改回源改，杜绝误触' },
 ]
+
+const teamVibeTechMap: TechArchitectureMapProps = {
+  title: '团队 Vibe Coding 落地技术架构全景',
+  subtitle: '把方法论拆成可执行的规则插件、集中知识库、跨项目拓扑、Prompt/Agent 资产和工具分发链路。',
+  top: ['Claude Code / Codex', 'Cursor / IDE', 'GitHub / CI', '团队知识平台'],
+  clients: ['开发者工作台', '规则插件', 'MCP 知识服务', '多 Agent 流水线', 'AI Review'],
+  left: ['需求 Spec', '任务拆解', '编码生成', '代码审核', '回归验收'],
+  right: ['项目知识图谱', '术语表', '反向索引', 'Bug 复盘', '跨项目拓扑'],
+  groups: [
+    { title: '规范插件', tone: 'orange', nodes: ['编码铁律', '文档门禁', '提交规范', '自动 hook'] },
+    { title: '知识库', tone: 'green', nodes: ['项目画像', 'ER / API', '业务术语', '故障复盘'] },
+    { title: 'Agent 流水线', tone: 'purple', nodes: ['架构 Agent', '开发 Agent', 'Review Agent', 'QA Agent'] },
+    { title: '交付护栏', tone: 'cyan', nodes: ['SDD 验收', 'lint/test', 'CI Gate', '人审合并'] },
+  ],
+  bottom: ['MCP', 'RAG', 'Git Hooks', 'Spec-Driven', 'CI/CD', 'Knowledge Graph'],
+  footer: 'TEAM VIBE CODING',
+}
+
+const teamVibeStakeholderViews: StakeholderArchitectureViewsProps = {
+  title: '面向不同角色的架构视图',
+  summary: '把团队 AI 编码落地从“买工具”翻译成领导能理解的能力建设、价值闭环和分层治理。',
+  capabilities: [
+    { title: '需求标准化', items: ['规格先行', '验收明确'] },
+    { title: 'AI 生产', items: ['代码生成', '任务拆解'] },
+    { title: '知识供给', items: ['项目知识库', '业务术语'] },
+    { title: '质量护栏', items: ['规范检查', 'AI Review'] },
+    { title: '团队复用', items: ['Prompt 资产', '规则插件'] },
+    { title: '持续改进', items: ['复盘沉淀', '流程迭代'] },
+  ],
+  value: {
+    center: '团队 AI 研发体系',
+    top: '交付效率提升',
+    left: '知识复用增强',
+    right: '质量风险可控',
+    bottom: '新人上手成本下降',
+  },
+  business: {
+    actors: ['产品', '开发', '测试', '架构'],
+    platform: '团队 Vibe Coding 体系',
+    capabilities: ['规格驱动', 'AI 生产', '质量护栏'],
+    outcomes: ['交付更快', '质量更稳', '经验可复用'],
+  },
+  layers: [
+    { title: '团队工作流层', items: ['需求', '开发', 'Review', '测试', '发布'] },
+    { title: 'AI 研发能力层', items: ['SDD', 'Prompt 库', '多 Agent', '知识库 RAG'] },
+    { title: '治理与资产层', items: ['规则插件', '项目知识图谱', '跨项目拓扑', 'CI 门禁'] },
+  ],
+  c4: [
+    { level: 'Context', audience: '领导 / 老板', items: ['研发团队', 'AI 研发体系', '业务交付'] },
+    { level: 'Container', audience: '总监 / 架构师', items: ['规则插件', '知识库', 'Agent 流水线', 'CI'] },
+    { level: 'Component', audience: '开发', items: ['文档门禁', '编码规范', '知识检索', 'Review 流程'] },
+    { level: 'Code', audience: '程序员', items: ['skills', 'hooks', 'MCP server', '模板文件'] },
+  ],
+}
 
 function LayerRow({ k, v, tone }: { k: string; v: string; tone?: 'real' }) {
   return (
@@ -330,6 +386,10 @@ export function TeamVibeCoding() {
           把研发从「人写代码」升级为「人定义需求 → AI 生产代码 → 人验收」。难点不在买模型，而在用<b className="text-[var(--color-foreground)]">确定性护栏</b>把 LLM 的不确定性关进笼子。
         </p>
       </header>
+
+      <StakeholderArchitectureViews {...teamVibeStakeholderViews} />
+
+      <TechArchitectureMap {...teamVibeTechMap} />
 
       <SlideDeck>
       {/* 心智转变 */}

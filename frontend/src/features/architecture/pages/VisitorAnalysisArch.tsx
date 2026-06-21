@@ -11,6 +11,8 @@ import {
   Section, HFlow, VFlow, InfoCard, DecisionCard, GuardCard, CodeBlock,
   type Decision,
 } from '../components/arch-ui'
+import { TechArchitectureMap, type TechArchitectureMapProps } from '../components/TechArchitectureMap'
+import { StakeholderArchitectureViews, type StakeholderArchitectureViewsProps } from '../components/StakeholderArchitectureViews'
 
 /* ──────────────────────────────────────────
    数据
@@ -88,6 +90,151 @@ const coreSteps = [
   { title: '⑤ 代码裁决', desc: '枚举校验 + clamp + threshold\n→ VerdictRepository.insert', tone: 'accent' as const },
 ]
 
+const architectureLanes = [
+  {
+    label: '入口层',
+    tone: 'blue',
+    nodes: [
+      { name: '访客登记 UI', detail: '表单输入 / 结果展示 / 历史列表' },
+      { name: 'REST API', detail: 'analyze-sync / verdicts / sidecar-health' },
+    ],
+  },
+  {
+    label: 'Java 编排层',
+    tone: 'violet',
+    nodes: [
+      { name: 'VisitorAnalysisController', detail: '接收请求，暴露同步/异步接口' },
+      { name: 'VerdictService', detail: '主编排：归一化 → 匹配 → 裁决 → 落库' },
+      { name: 'Normalizer', detail: '手机号、公司名确定性归一' },
+    ],
+  },
+  {
+    label: '确定性能力层',
+    tone: 'emerald',
+    nodes: [
+      { name: 'CompetitorRepo', detail: '竞品名单优先，命中即定 COMPETITOR' },
+      { name: 'CustomerRepo', detail: '手机/公司匹配客户库，识别熟客/流失' },
+      { name: 'VisitorRepo', detail: '历史来访次数，补充灰区上下文' },
+    ],
+  },
+  {
+    label: '灰区智能层',
+    tone: 'orange',
+    nodes: [
+      { name: 'SidecarClient', detail: '只在规则无法定论时 POST /analyze' },
+      { name: 'Python FastAPI', detail: 'enrich_company + classify 一次结构化输出' },
+      { name: 'OpenAI 兼容 / AgentScope', detail: '当前 OpenAI SDK，AgentScope 为接入点' },
+    ],
+  },
+  {
+    label: '裁决与观测层',
+    tone: 'rose',
+    nodes: [
+      { name: '代码裁决', detail: '枚举校验 / clamp / 阈值 / degraded' },
+      { name: 'SQLite', detail: 'visitor / verdict / customer / competitor / feedback' },
+      { name: 'AgentScope Studio', detail: '端口 3000，接入后展示 trace/token/cost' },
+    ],
+  },
+] as const
+
+const callChainSteps = [
+  { no: '01', title: '访客提交登记', detail: '姓名、手机、公司、来访目的进入前端表单', tone: 'blue' },
+  { no: '02', title: '前端调用 Java API', detail: 'POST /api/visitor-analysis/analyze-sync', tone: 'blue' },
+  { no: '03', title: 'Controller 转入编排', detail: 'VisitorAnalysisController → VerdictService', tone: 'violet' },
+  { no: '04', title: '归一化输入', detail: 'Normalizer 生成 phoneNorm / companyNorm', tone: 'violet' },
+  { no: '05', title: '保存原始访客', detail: 'VisitorRepo.insert 保留原始字段与归一化字段', tone: 'rose' },
+  { no: '06', title: '竞品优先匹配', detail: 'CompetitorRepo 命中直接输出 COMPETITOR', tone: 'emerald' },
+  { no: '07', title: '客户库匹配', detail: 'CustomerRepo 判断 EXISTING / CHURNED', tone: 'emerald' },
+  { no: '08A', title: '规则路径定论', detail: '高置信 verdict，跳过 LLM', tone: 'emerald' },
+  { no: '08B', title: '灰区转 sidecar', detail: 'SidecarClient POST Python /analyze', tone: 'orange' },
+  { no: '09', title: '企业增强 + LLM', detail: 'enrich_company 后输出 SidecarVerdict 提议', tone: 'orange' },
+  { no: '10', title: '代码裁决', detail: 'Java 校验枚举、置信度、阈值和降级标记', tone: 'rose' },
+  { no: '11', title: '结论落库', detail: 'VerdictRepo.insert，decidedBy 标记 rule/llm/degraded', tone: 'rose' },
+  { no: '12', title: '前端/监控读取', detail: '页面展示结果；Studio 展示 AgentScope trace（接入后）', tone: 'blue' },
+] as const
+
+const toneStyles = {
+  blue: {
+    lane: 'border-blue-500/35 bg-blue-500/5',
+    badge: 'bg-blue-500/15 text-blue-700 dark:text-blue-300',
+    accent: 'text-blue-700 dark:text-blue-300',
+  },
+  violet: {
+    lane: 'border-violet-500/35 bg-violet-500/5',
+    badge: 'bg-violet-500/15 text-violet-700 dark:text-violet-300',
+    accent: 'text-violet-700 dark:text-violet-300',
+  },
+  emerald: {
+    lane: 'border-emerald-500/35 bg-emerald-500/5',
+    badge: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+    accent: 'text-emerald-700 dark:text-emerald-300',
+  },
+  orange: {
+    lane: 'border-orange-500/35 bg-orange-500/5',
+    badge: 'bg-orange-500/15 text-orange-700 dark:text-orange-300',
+    accent: 'text-orange-700 dark:text-orange-300',
+  },
+  rose: {
+    lane: 'border-rose-500/35 bg-rose-500/5',
+    badge: 'bg-rose-500/15 text-rose-700 dark:text-rose-300',
+    accent: 'text-rose-700 dark:text-rose-300',
+  },
+} as const
+
+const visitorTechMap: TechArchitectureMapProps = {
+  title: '访客分析技术架构全景',
+  subtitle: '用一张图把前端、Java 主服务、确定性匹配、Python AgentScope sidecar、监控和 SQLite 持久化串起来。',
+  top: ['React Feature', 'Spring Boot API', 'Python FastAPI', 'SQLite / AgentScope Studio'],
+  clients: ['VisitorAnalysisPage', 'REST API', 'SSE 进度流', 'SidecarClient', 'AgentScope Studio'],
+  left: ['访客登记', '历史记录', 'sidecar 状态', '人工复核', '反馈闭环'],
+  right: ['DeepSeek / OpenAI', 'AgentScope SDK', '企业增强 API', 'Qichacha/Tianyancha', 'Studio :3000'],
+  groups: [
+    { title: '接入与编排', tone: 'orange', nodes: ['VisitorAnalysisController', 'VerdictService', '任务进度广播', '降级兜底'] },
+    { title: '确定性匹配', tone: 'green', nodes: ['Normalizer', 'CompetitorRepo', 'CustomerRepo', 'VisitorRepo'] },
+    { title: '灰区智能判别', tone: 'purple', nodes: ['Python /analyze', 'enrich_company', 'classify JSON', 'AgentScope 接入点'] },
+    { title: '裁决与存储', tone: 'cyan', nodes: ['枚举校验', '置信度 clamp', 'needsReview', 'VerdictRepo.insert'] },
+  ],
+  bottom: ['HTTP', 'SSE', 'OpenAI Compatible', 'AgentScope Trace', 'SQLite WAL', '人工反馈'],
+  footer: 'VISITOR ANALYSIS',
+}
+
+const visitorStakeholderViews: StakeholderArchitectureViewsProps = {
+  title: '面向不同角色的架构视图',
+  summary: '先用业务语言讲清价值、能力和边界，再下钻到技术实现，避免一上来就进入 sidecar / SDK / trace 细节。',
+  capabilities: [
+    { title: '访客识别', items: ['客户', '竞品', '供应商'] },
+    { title: '关系判断', items: ['新客', '熟客', '流失'] },
+    { title: '规则定论', items: ['客户库命中', '竞品名单命中'] },
+    { title: '灰区辅助', items: ['信息不足时 AI 提议', '人工复核'] },
+    { title: '过程留痕', items: ['判别理由', '证据记录'] },
+    { title: '持续改进', items: ['人工反馈', '名单维护'] },
+  ],
+  value: {
+    center: '访客分析平台',
+    top: '接待效率提升',
+    left: '客户识别更快',
+    right: '风险访客可控',
+    bottom: '人工判断成本下降',
+  },
+  business: {
+    actors: ['前台', '销售', '客户成功'],
+    platform: '访客分析',
+    capabilities: ['身份判别', '关系识别', '风险提示'],
+    outcomes: ['减少误判', '提高跟进效率', '沉淀访客资产'],
+  },
+  layers: [
+    { title: '业务应用层', items: ['访客登记', '接待台', '销售跟进'] },
+    { title: '平台能力层', items: ['身份识别', '关系判断', '人工复核', '反馈闭环'] },
+    { title: '数据与智能层', items: ['客户库', '竞品名单', '历史访客', 'AI 辅助判别'] },
+  ],
+  c4: [
+    { level: 'Context', audience: '领导 / 老板', items: ['前台接待', '访客分析平台', '销售跟进'] },
+    { level: 'Container', audience: '总监 / 架构师', items: ['前端页面', 'Java 服务', 'Python 边车', '数据存储'] },
+    { level: 'Component', audience: '开发', items: ['判别编排', '规则匹配', '灰区判别', '代码裁决'] },
+    { level: 'Code', audience: '程序员', items: ['VerdictService', 'MatchService', 'SidecarClient', 'server.py'] },
+  ],
+}
+
 /* ──────────────────────────────────────────
    页面
 ────────────────────────────────────────── */
@@ -127,6 +274,137 @@ export function VisitorAnalysisArch() {
           LLM 输出只是"提议"，Java 端代码裁决（枚举校验 + 置信度阈值）后才落库。
         </p>
       </header>
+
+      <StakeholderArchitectureViews {...visitorStakeholderViews} />
+
+      <TechArchitectureMap {...visitorTechMap} />
+
+      <Section
+        icon={Network}
+        title="一图看懂：组件能力与调用链"
+        subtitle="从访客登记到最终结论，先走确定性规则；只有灰区才进入 Python sidecar 和 LLM；所有输出最后都由 Java 代码裁决"
+      >
+        <Card className="overflow-hidden border-[var(--color-primary)]/30">
+          <CardHeader className="border-b bg-[var(--color-muted)]/25 pb-3">
+            <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+              <span>端到端全景图</span>
+              <Badge variant="outline">规则优先</Badge>
+              <Badge variant="outline">灰区 LLM</Badge>
+              <Badge variant="outline">代码裁决</Badge>
+              <Badge variant="outline">监控旁路</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5 p-4">
+            <div className="grid gap-3 lg:grid-cols-5">
+              {architectureLanes.map((lane, laneIndex) => {
+                const style = toneStyles[lane.tone]
+                return (
+                  <div key={lane.label} className="relative">
+                    <div className={cn('h-full rounded-xl border p-3 shadow-sm', style.lane)}>
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <span className={cn('rounded-full px-2.5 py-1 text-xs font-semibold', style.badge)}>
+                          {lane.label}
+                        </span>
+                        <span className="text-xs text-[var(--color-muted-foreground)]">
+                          {String(laneIndex + 1).padStart(2, '0')}
+                        </span>
+                      </div>
+                      <div className="space-y-2">
+                        {lane.nodes.map(node => (
+                          <div key={node.name} className="rounded-lg border bg-[var(--color-card)] px-3 py-2">
+                            <div className={cn('text-sm font-semibold', style.accent)}>{node.name}</div>
+                            <div className="mt-1 text-xs leading-snug text-[var(--color-muted-foreground)]">
+                              {node.detail}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    {laneIndex < architectureLanes.length - 1 && (
+                      <div className="hidden lg:block">
+                        <div className="absolute -right-3 top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border bg-[var(--color-background)] text-[var(--color-muted-foreground)]">
+                          →
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-[1fr_1.15fr_1fr]">
+              <div className="rounded-xl border border-emerald-500/35 bg-emerald-500/5 p-3">
+                <div className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">规则快车道</div>
+                <div className="mt-2 space-y-2 text-xs text-[var(--color-muted-foreground)]">
+                  <div className="rounded-lg border bg-[var(--color-card)] px-3 py-2">
+                    竞品名单命中 → <b className="text-[var(--color-foreground)]">COMPETITOR · 0.99</b>
+                  </div>
+                  <div className="rounded-lg border bg-[var(--color-card)] px-3 py-2">
+                    客户库命中 → <b className="text-[var(--color-foreground)]">EXISTING / CHURNED · 0.95</b>
+                  </div>
+                  <div>确定性事实命中时不调 LLM，降低成本，也避免模型重新解释事实。</div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-orange-500/35 bg-orange-500/5 p-3">
+                <div className="text-sm font-semibold text-orange-700 dark:text-orange-300">灰区智能路径</div>
+                <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                  {[
+                    ['SidecarClient', 'Java 只把无法确定的访客发给 Python'],
+                    ['enrich_company', '补企业上下文；当前桩返回 degraded'],
+                    ['classify', '一次结构化输出 identity / confidence / evidence'],
+                  ].map(([title, detail]) => (
+                    <div key={title} className="rounded-lg border bg-[var(--color-card)] px-3 py-2">
+                      <div className="text-xs font-semibold">{title}</div>
+                      <div className="mt-1 text-xs leading-snug text-[var(--color-muted-foreground)]">{detail}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2 rounded-lg border border-dashed bg-[var(--color-card)] px-3 py-2 text-xs text-[var(--color-muted-foreground)]">
+                  AgentScope 接入后：模型调用 trace / token / cost 进入 <b className="text-[var(--color-foreground)]">Studio :3000</b>，
+                  但业务结论仍回到 Java 裁决。
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-rose-500/35 bg-rose-500/5 p-3">
+                <div className="text-sm font-semibold text-rose-700 dark:text-rose-300">裁决与回写</div>
+                <div className="mt-2 space-y-2 text-xs text-[var(--color-muted-foreground)]">
+                  <div className="rounded-lg border bg-[var(--color-card)] px-3 py-2">枚举非法 → UNKNOWN</div>
+                  <div className="rounded-lg border bg-[var(--color-card)] px-3 py-2">置信度越界 → clamp(0, 1)</div>
+                  <div className="rounded-lg border bg-[var(--color-card)] px-3 py-2">低置信 / UNKNOWN / degraded → needsReview</div>
+                  <div>最终写入 verdict，前端读取并展示。</div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">完整调用链 · 12 步</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {callChainSteps.map(step => {
+                const style = toneStyles[step.tone]
+                return (
+                  <div key={`${step.no}-${step.title}`} className={cn('rounded-lg border p-3', style.lane)}>
+                    <div className="flex items-start gap-2">
+                      <span className={cn('shrink-0 rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold', style.badge)}>
+                        {step.no}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold">{step.title}</div>
+                        <div className="mt-1 text-xs leading-snug text-[var(--color-muted-foreground)]">{step.detail}</div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      </Section>
 
       {/* ── 整体架构 ── */}
       <Section icon={Layers} title="整体架构" subtitle="两进程 + 一库：Java 主服务做编排/匹配/裁决；Python sidecar 专职灰区 LLM 判别；SQLite 持久化">
@@ -245,7 +523,7 @@ export function VisitorAnalysisArch() {
                   <div className="text-[var(--color-muted-foreground)]">→ Studio token/cost/trace 自动可视化</div>
                 </div>
                 <div className="text-[10px] text-[var(--color-muted-foreground)]">
-                  端口 VA_PORT（默认 18100）· key 走环境变量 VA_LLM_API_KEY
+                  端口 VA_PORT（默认 9600）· key 走环境变量 VA_LLM_API_KEY
                 </div>
               </div>
             </div>

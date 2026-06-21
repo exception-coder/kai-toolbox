@@ -6,6 +6,8 @@ import {
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Section, HFlow, VFlow, InfoCard, DecisionCard, GuardCard, CodeBlock, type Decision } from '../components/arch-ui'
+import { TechArchitectureMap, type TechArchitectureMapProps } from '../components/TechArchitectureMap'
+import { StakeholderArchitectureViews, type StakeholderArchitectureViewsProps } from '../components/StakeholderArchitectureViews'
 
 const decisions: Decision[] = [
   {
@@ -93,6 +95,60 @@ const implBlocks = [
   },
 ]
 
+const frontendPerfTechMap: TechArchitectureMapProps = {
+  title: '前端性能优化技术架构全景',
+  subtitle: '从浏览器入口、Vite 构建产物、React.lazy 路由分割，到 Spring 静态资源缓存策略，一张图说明首页秒开的完整链路。',
+  top: ['Browser / PWA', 'React Router', 'Vite / Rollup', 'Spring Static Resources'],
+  clients: ['AppShell', 'featureRegistry', 'Lazy Route Component', 'Suspense Fallback', 'Hashed Assets'],
+  left: ['首次打开', '二次打开', '移动端安装', '离线边界', '版本更新'],
+  right: ['index.html', 'assets/*.js', 'assets/*.css', 'sw.js', 'manifest.json'],
+  groups: [
+    { title: '入口保轻', tone: 'orange', nodes: ['manifest eager', '图标/菜单即时', '页面组件 lazy', 'PageLoading 兜底'] },
+    { title: '构建分包', tone: 'green', nodes: ['dynamic import', 'route chunk', 'vendor chunk', 'hash 文件名'] },
+    { title: '浏览器缓存', tone: 'purple', nodes: ['immutable assets', 'index no-cache', '304 校验', '旧 hash 自然淘汰'] },
+    { title: '服务端兜底', tone: 'cyan', nodes: ['SpaFallbackConfig', 'ResourceHandler', 'Cache-Control', 'SPA 路由回退'] },
+  ],
+  bottom: ['React.lazy', 'Suspense', 'HTTP Cache', 'ETag/304', 'Content Hash', 'PWA no-cache SW'],
+  footer: 'FRONTEND PERF',
+}
+
+const frontendPerfStakeholderViews: StakeholderArchitectureViewsProps = {
+  title: '面向不同角色的架构视图',
+  summary: '领导先看体验价值和交付收益，总监看性能治理路径，研发再看代码分割、缓存策略和构建细节。',
+  capabilities: [
+    { title: '首页秒开', items: ['首屏资源变小', '等待时间变短'] },
+    { title: '按需加载', items: ['进入工具才下载', '菜单即时可用'] },
+    { title: '重复打开更快', items: ['资源本地缓存', '入口自动校验'] },
+    { title: '版本自动更新', items: ['新包自动生效', '旧包自然淘汰'] },
+    { title: '移动端体验', items: ['可安装', '低等待'] },
+    { title: '交付可控', items: ['新增工具不拖慢首页', '规则可复用'] },
+  ],
+  value: {
+    center: '前端性能治理',
+    top: '用户打开更快',
+    left: '研发扩展不拖慢首页',
+    right: '发布更新更稳定',
+    bottom: '等待与投诉下降',
+  },
+  business: {
+    actors: ['用户', '开发者', '运维'],
+    platform: 'kai-toolbox 前端',
+    capabilities: ['首页秒开', '工具按需加载', '缓存自动更新'],
+    outcomes: ['体验提升', '迭代更快', '维护成本下降'],
+  },
+  layers: [
+    { title: '用户体验层', items: ['首页', '工具页', '移动端安装'] },
+    { title: '前端能力层', items: ['路由分割', '懒加载', '加载兜底', '菜单独立'] },
+    { title: '交付基础层', items: ['构建产物', '静态资源服务', '缓存策略', '版本更新'] },
+  ],
+  c4: [
+    { level: 'Context', audience: '领导 / 老板', items: ['用户', '工具平台', '更快打开'] },
+    { level: 'Container', audience: '总监 / 架构师', items: ['浏览器', 'React 前端', '静态资源服务'] },
+    { level: 'Component', audience: '开发', items: ['featureRegistry', 'React.lazy', 'Suspense', '缓存配置'] },
+    { level: 'Code', audience: '程序员', items: ['index.tsx', 'App.tsx', 'SpaFallbackConfig'] },
+  ],
+}
+
 export function FrontendPerfArch() {
   return (
     <div className="mx-auto max-w-6xl space-y-10 px-4 py-6">
@@ -115,6 +171,10 @@ export function FrontendPerfArch() {
           关键认知：<b className="text-[var(--color-foreground)]">缓存只省下载、省不掉 parse+execute</b>，所以首页慢的根因是「没分割」而非「没缓存」。
         </p>
       </header>
+
+      <StakeholderArchitectureViews {...frontendPerfStakeholderViews} />
+
+      <TechArchitectureMap {...frontendPerfTechMap} />
 
       {/* 问题定位 */}
       <Section icon={AlertTriangle} title="问题定位：缓存了为何还卡 5 秒" subtitle="featureRegistry 用 import.meta.glob({eager:true}) 启动即加载全部 36 个 manifest，而每个 manifest 顶层直 import 页面组件">

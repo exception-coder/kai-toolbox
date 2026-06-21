@@ -6,6 +6,8 @@ import {
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Section, HFlow, VFlow, InfoCard, DecisionCard, GuardCard, CodeBlock, type Decision } from '../components/arch-ui'
+import { TechArchitectureMap, type TechArchitectureMapProps } from '../components/TechArchitectureMap'
+import { StakeholderArchitectureViews, type StakeholderArchitectureViewsProps } from '../components/StakeholderArchitectureViews'
 
 type Snippet = { title: string; lang: string; code: string }
 
@@ -272,6 +274,60 @@ const guards: { tag: string; risk: string; guard: string }[] = [
   { tag: '⑥', risk: '同步接口想用异步 Agent', guard: 'CompletableFuture 把事件流折叠为同步阻塞调用，虚拟线程承载等待' },
 ]
 
+const vibeCodingTechMap: TechArchitectureMapProps = {
+  title: 'Vibe Coding 技术架构全景',
+  subtitle: '按参考图样式展示移动端、Java 后端、Node sidecar、Claude/Codex、持久化与权限交互的整体调用链。',
+  top: ['Mobile Browser', 'React AppShell', 'Spring Boot Backend', 'Node Sidecar'],
+  clients: ['Claude Chat UI', 'WS① Browser Client', 'Java SidecarClient', 'WS② Node Client', 'Claude Agent SDK'],
+  left: ['会话列表', '实时流式输出', '权限弹窗', '断线重连', '多端围观'],
+  right: ['Claude Code', 'Codex CLI', 'MCP Tools', '本地文件系统', 'Shell 命令'],
+  groups: [
+    { title: '浏览器端', tone: 'orange', nodes: ['useClaudeChatSocket', 'seq 去重', '权限决策 UI', '重连 attach'] },
+    { title: 'Java 控制面', tone: 'green', nodes: ['ClaudeChatService', 'SessionCtx', '事件环形缓冲', '虚拟线程等待'] },
+    { title: 'Node Agent 面', tone: 'purple', nodes: ['SessionManager', 'query() 事件流', 'canUseTool 挂起', 'sdkSessionId resume'] },
+    { title: '持久化与恢复', tone: 'cyan', nodes: ['SQLite 会话表', 'SDK transcript', 'pendingSends', 'CAS 重连守护'] },
+  ],
+  bottom: ['WebSocket', 'SSE/MCP', 'Virtual Threads', 'Claude SDK', 'SQLite', 'Permission Promise'],
+  footer: 'VIBE CODING',
+}
+
+const vibeCodingStakeholderViews: StakeholderArchitectureViewsProps = {
+  title: '面向不同角色的架构视图',
+  summary: '先讲清移动端 AI 编码助手解决什么问题，再把能力、业务闭环和技术下钻层次拆开。',
+  capabilities: [
+    { title: '移动办公', items: ['手机查看会话', '随时发起任务'] },
+    { title: '实时协作', items: ['流式输出', '多端同步'] },
+    { title: '安全确认', items: ['危险操作确认', '权限可控'] },
+    { title: '任务不中断', items: ['断线恢复', '进程重启续接'] },
+    { title: '产品内 AI', items: ['一次性任务', '工具能力复用'] },
+    { title: '上下文保留', items: ['会话可续', '历史可追'] },
+  ],
+  value: {
+    center: '移动端 AI 编码助手',
+    top: '研发响应更快',
+    left: '远程处理更方便',
+    right: 'AI 操作更可控',
+    bottom: '任务中断风险下降',
+  },
+  business: {
+    actors: ['开发者', '代码仓库', 'AI Agent'],
+    platform: 'Vibe Coding',
+    capabilities: ['实时对话', '权限确认', '任务恢复'],
+    outcomes: ['提高研发效率', '减少等待', '降低误操作风险'],
+  },
+  layers: [
+    { title: '用户应用层', items: ['移动端聊天', '权限弹窗', '会话列表'] },
+    { title: '平台能力层', items: ['事件流', '会话管理', '断线恢复', '多端同步'] },
+    { title: 'Agent 执行层', items: ['编码 Agent', '工具调用', '上下文续接', '本地工作区'] },
+  ],
+  c4: [
+    { level: 'Context', audience: '领导 / 老板', items: ['开发者', 'AI 编码助手', '代码仓库'] },
+    { level: 'Container', audience: '总监 / 架构师', items: ['React 前端', 'Java 后端', 'Node 边车', 'AI Agent'] },
+    { level: 'Component', audience: '开发', items: ['会话服务', '事件缓冲', '权限网关', '恢复机制'] },
+    { level: 'Code', audience: '程序员', items: ['ClaudeChatService', 'SidecarClient', 'SessionManager'] },
+  ],
+}
+
 export function VibeCodingArch() {
   return (
     <div className="mx-auto max-w-6xl space-y-10 px-4 py-6">
@@ -298,6 +354,10 @@ export function VibeCodingArch() {
           核心难点：把「异步 / 长连接 / 有状态 / 含人机交互」的 Agent 工业级桥接到 Web，并在弱网 / 进程崩溃下保证会话不丢、多端一致。
         </p>
       </header>
+
+      <StakeholderArchitectureViews {...vibeCodingStakeholderViews} />
+
+      <TechArchitectureMap {...vibeCodingTechMap} />
 
       {/* 整体架构 */}
       <Section icon={Layers} title="整体架构（三层 + 两条 WebSocket）" subtitle="Java 自己不跑 AI——真正调 Claude 的是独立 Node 进程；Java 经 WS 指挥它">
