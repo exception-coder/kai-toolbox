@@ -327,6 +327,24 @@ start_visitor_analysis_sidecar() {
     || echo "[supervisor] WARN: visitor-analysis sidecar failed to start (non-fatal)"
 }
 
+start_agentscope_studio() {
+  if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:3000 -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "[supervisor] AgentScope Studio already on :3000, skip"
+    return
+  fi
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "[supervisor] npm not on PATH, skip AgentScope Studio (:3000)"
+    return
+  fi
+  echo "[supervisor] start AgentScope Studio (:3000, background, first install may be slow)..."
+  (
+    if ! command -v as_studio >/dev/null 2>&1; then
+      npm install -g @agentscope/studio || exit 1
+    fi
+    exec as_studio
+  ) >/dev/null 2>&1 &
+}
+
 start_http_control() {
   export SUPERVISOR_HTTP_HOST="$HTTP_HOST"
   export SUPERVISOR_HTTP_PORT="$HTTP_PORT"
@@ -417,6 +435,8 @@ init_node_deps
 
 # Best-effort: bring up the visitor-analysis AgentScope sidecar (:9600), non-fatal.
 start_visitor_analysis_sidecar
+# Best-effort: bring up AgentScope Studio for mobile monitoring (:3000), non-fatal.
+start_agentscope_studio
 
 # One-click start: backend + frontend together.
 start_backend

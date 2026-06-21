@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { RefreshCw, Activity, Coins, AlertTriangle, Hash, Timer } from 'lucide-react'
+import { RefreshCw, Activity, Coins, AlertTriangle, Hash, Timer, MonitorDot, ExternalLink } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Segmented } from '@/components/ui/segmented'
 import { Button } from '@/components/ui/button'
@@ -19,6 +19,16 @@ import { QuotaBars } from '../components/QuotaBars'
 import { TraceTable } from '../components/TraceTable'
 
 const REFRESH_MS = 15_000
+const AGENTSCOPE_STUDIO_PORT = '3000'
+
+function hostForUrl(hostname: string): string {
+  return hostname.includes(':') ? `[${hostname}]` : hostname
+}
+
+function getAgentScopeStudioUrl(): string {
+  const hostname = window.location.hostname || 'localhost'
+  return `http://${hostForUrl(hostname)}:${AGENTSCOPE_STUDIO_PORT}`
+}
 
 function money(v: number, currency: string): string {
   const s = v.toFixed(v >= 1 ? 2 : 4)
@@ -98,6 +108,10 @@ export function DashboardPage() {
     else slowQ.refetch()
   }
 
+  function openAgentScopeStudio() {
+    window.open(getAgentScopeStudioUrl(), '_blank', 'noopener,noreferrer')
+  }
+
   return (
     <div className="mx-auto max-w-7xl space-y-5 p-4 md:p-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
@@ -112,6 +126,30 @@ export function DashboardPage() {
           刷新
         </Button>
       </header>
+
+      <Card className="border-violet-500/30 bg-violet-500/5">
+        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <MonitorDot className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+              <span className="text-sm font-semibold">AgentScope Studio</span>
+              <span className="rounded bg-violet-500/15 px-2 py-0.5 text-xs font-medium text-violet-700 dark:text-violet-300">
+                :{AGENTSCOPE_STUDIO_PORT}
+              </span>
+            </div>
+            <p className="text-sm text-[var(--color-muted-foreground)]">
+              Python AgentScope 侧 trace / token / span 监控入口，移动端按当前主机名直连。
+            </p>
+            <code className="block truncate rounded bg-[var(--color-muted)] px-2 py-1 text-xs text-[var(--color-muted-foreground)]">
+              http://当前主机:{AGENTSCOPE_STUDIO_PORT}
+            </code>
+          </div>
+          <Button className="w-full sm:w-auto" onClick={openAgentScopeStudio}>
+            打开 Studio
+            <ExternalLink className="h-4 w-4" />
+          </Button>
+        </CardContent>
+      </Card>
 
       {/* KPI */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
