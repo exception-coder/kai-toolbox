@@ -13,6 +13,7 @@ import {
 } from '../components/arch-ui'
 import { TechArchitectureMap, type TechArchitectureMapProps } from '../components/TechArchitectureMap'
 import { StakeholderArchitectureViews, type StakeholderArchitectureViewsProps } from '../components/StakeholderArchitectureViews'
+import { TopologyMap, type TopoNode, type TopoEdge } from '../components/TopologyMap'
 
 /* ──────────────────────────────────────────
    数据
@@ -181,6 +182,26 @@ const toneStyles = {
   },
 } as const
 
+/* 拓扑图：服务节点 + 有向依赖边 */
+const visitorTopoNodes: TopoNode[] = [
+  { id: 'ui',       label: '访客登记 UI',       sub: 'React Feature',       type: 'ui',       x: 50, y: 9  },
+  { id: 'api',      label: 'Spring Boot API',   sub: ':8080',               type: 'api',      x: 50, y: 28 },
+  { id: 'sqlite',   label: 'SQLite',            sub: 'visitor/verdict/…',   type: 'db',       x: 16, y: 52 },
+  { id: 'sidecar',  label: 'Python sidecar',    sub: 'FastAPI :18100',      type: 'service',  x: 50, y: 55 },
+  { id: 'studio',   label: 'AgentScope Studio', sub: ':3000 OTLP',          type: 'monitor',  x: 84, y: 52 },
+  { id: 'llm',      label: 'DeepSeek / 模型',   sub: 'OpenAI Compatible',   type: 'ai',       x: 50, y: 80 },
+  { id: 'enrich',   label: '企业增强 API',       sub: '桩（待接入）',         type: 'external', x: 84, y: 78 },
+]
+
+const visitorTopoEdges: TopoEdge[] = [
+  { from: 'ui',      to: 'api',     label: 'REST',        bidirectional: true },
+  { from: 'api',     to: 'sqlite',  label: 'JDBC'  },
+  { from: 'api',     to: 'sidecar', label: 'HTTP'  },
+  { from: 'api',     to: 'studio',  label: 'OTLP', dashed: true },
+  { from: 'sidecar', to: 'llm',     label: 'OpenAI API'   },
+  { from: 'sidecar', to: 'enrich',  label: 'HTTP', dashed: true },
+]
+
 const visitorTechMap: TechArchitectureMapProps = {
   title: '访客分析技术架构全景',
   subtitle: '用一张图把前端、Java 主服务、确定性匹配、Python AgentScope sidecar、监控和 SQLite 持久化串起来。',
@@ -314,6 +335,14 @@ export function VisitorAnalysisArch() {
       </header>
 
       <StakeholderArchitectureViews {...visitorStakeholderViews} />
+
+      <TopologyMap
+        title="服务拓扑图 · 谁调谁、走什么协议"
+        subtitle="节点 = 服务/存储；有向边 = 调用关系 + 协议；虚线 = 待接入或可选路径（AgentScope Studio、企业增强 API）"
+        nodes={visitorTopoNodes}
+        edges={visitorTopoEdges}
+        height={360}
+      />
 
       <TechArchitectureMap {...visitorTechMap} />
 
