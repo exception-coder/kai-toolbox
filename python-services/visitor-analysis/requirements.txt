@@ -3,7 +3,6 @@ fastapi>=0.110.0
 uvicorn[standard]>=0.27.0
 # openai：调第三方 OpenAI 兼容平台（base_url 可指向任意兼容端点）。
 openai>=1.30.0
-# agentscope：学习目标——接它的模型层 + Studio 观测。装上后在 server.py 的
-# _classify_with_agentscope 里启用。Python 是 AgentScope 的旗舰 SDK，特性最全更新最快。
-# agentscope>=1.0.0
-# agentscope[studio]  # Studio 可视化（运行追踪 / token 成本）
+# agentscope：模型层 + Studio 可观测性（token/cost/trace 自动上报）。
+# Python 是 AgentScope 的旗舰 SDK，特性最全更新最快。
+agentscope>=1.0.0
