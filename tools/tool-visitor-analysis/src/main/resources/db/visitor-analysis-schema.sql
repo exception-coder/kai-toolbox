@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS va_visitor (
     company       TEXT,
     company_norm  TEXT,
     company_addr  TEXT,
+    addr_norm     TEXT,                        -- 归一化地址（城市+区），用于地址软匹配
     email         TEXT,
     purpose       TEXT,
     source        TEXT,
@@ -17,6 +18,7 @@ CREATE TABLE IF NOT EXISTS va_visitor (
 );
 CREATE INDEX IF NOT EXISTS idx_va_visitor_phone_norm   ON va_visitor(phone_norm);
 CREATE INDEX IF NOT EXISTS idx_va_visitor_company_norm ON va_visitor(company_norm);
+CREATE INDEX IF NOT EXISTS idx_va_visitor_addr_norm    ON va_visitor(addr_norm);
 
 -- 历史客户信息库（业务侧导入的参照数据）。新客/熟客/流失客户的"真判据"来源。
 -- last_deal_at / status 有则能区分熟客 vs 流失客户;无则只能给"老客户"。
@@ -27,12 +29,28 @@ CREATE TABLE IF NOT EXISTS va_customer (
     phone_norm    TEXT,
     company       TEXT,
     company_norm  TEXT,
+    addr_norm     TEXT,                        -- 归一化地址，用于地址辅助匹配
     status        TEXT,
     last_deal_at  INTEGER,
     created_at    INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_va_customer_phone_norm   ON va_customer(phone_norm);
 CREATE INDEX IF NOT EXISTS idx_va_customer_company_norm ON va_customer(company_norm);
+CREATE INDEX IF NOT EXISTS idx_va_customer_addr_norm    ON va_customer(addr_norm);
+
+-- 公司别名表：同一家公司可能有多个写法（"腾讯"/"Tencent"/"腾讯科技"/"TX"）。
+-- canonical_norm 是在 va_customer / va_competitor 中登记的归一化主名。
+-- alias_norm 是其他写法归一化后的值。匹配时主名 + 所有别名同时查。
+CREATE TABLE IF NOT EXISTS va_company_alias (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    canonical_norm TEXT    NOT NULL,
+    alias_norm     TEXT    NOT NULL,
+    source         TEXT,                       -- manual / feedback / import
+    created_at     INTEGER NOT NULL,
+    UNIQUE(canonical_norm, alias_norm)
+);
+CREATE INDEX IF NOT EXISTS idx_va_alias_alias_norm ON va_company_alias(alias_norm);
+CREATE INDEX IF NOT EXISTS idx_va_alias_canonical  ON va_company_alias(canonical_norm);
 
 -- 竞品名单（可选路径）。命中即确定性判定为竞争对手。name_norm 唯一,人工反馈可回流扩充。
 CREATE TABLE IF NOT EXISTS va_competitor (

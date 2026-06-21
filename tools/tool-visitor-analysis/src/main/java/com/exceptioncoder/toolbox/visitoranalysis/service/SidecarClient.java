@@ -61,7 +61,8 @@ public class SidecarClient {
      * 灰区分类。把归一化字段 + 匹配上下文 + 候选类别交给 sidecar,拿回结构化提议。
      * @return 提议；不可用时返回 null
      */
-    public SidecarVerdict classify(VisitorInput in, String phoneNorm, String companyNorm, MatchResult match) {
+    public SidecarVerdict classify(VisitorInput in, String phoneNorm, String companyNorm,
+                                   String addrNorm, MatchResult match) {
         if (props.getSidecarUrl().isBlank()) {
             log.debug("sidecar 未配置,跳过灰区分类");
             return null;
@@ -72,11 +73,16 @@ public class SidecarClient {
             body.put("phone", in.phone());
             body.put("company", in.company());
             body.put("company_addr", in.companyAddr());
+            body.put("addr_norm", addrNorm);               // 地址归一化结果，辅助 LLM 理解
             body.put("email", in.email());
             body.put("purpose", in.purpose());
             body.put("phone_norm", phoneNorm);
             body.put("company_norm", companyNorm);
             body.put("visit_count", match.visitCount());
+            // 地址软匹配提示（若有相同城市+区的客户，提供给 LLM 作为参考上下文）
+            if (match.addrHint() != null && !match.addrHint().isBlank()) {
+                body.put("addr_hint", match.addrHint());
+            }
 
             // 复用配置中心「AI 对话」的 4sapi 凭证（toolbox.ai-chat.*，动态可改），随请求下发给 sidecar；
             // 缺 key 时不下发，sidecar 回退自身 VA_LLM_* 环境变量。model 用本模块配置（默认便宜模型）。

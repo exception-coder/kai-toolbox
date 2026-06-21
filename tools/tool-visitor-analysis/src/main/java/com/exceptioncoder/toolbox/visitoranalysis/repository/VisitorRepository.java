@@ -19,15 +19,15 @@ public class VisitorRepository {
     }
 
     public long insert(String name, String phone, String phoneNorm, String company,
-                       String companyNorm, String companyAddr, String email,
-                       String purpose, String source) {
+                       String companyNorm, String companyAddr, String addrNorm,
+                       String email, String purpose, String source) {
         KeyHolder kh = new GeneratedKeyHolder();
         long now = System.currentTimeMillis();
         jdbc.update(con -> {
             PreparedStatement ps = con.prepareStatement("""
                     INSERT INTO va_visitor
-                      (name, phone, phone_norm, company, company_norm, company_addr, email, purpose, source, created_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?)
+                      (name, phone, phone_norm, company, company_norm, company_addr, addr_norm, email, purpose, source, created_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)
                     """, Statement.RETURN_GENERATED_KEYS);
             ps.setString(1, name);
             ps.setString(2, phone);
@@ -35,10 +35,11 @@ public class VisitorRepository {
             ps.setString(4, company);
             ps.setString(5, companyNorm);
             ps.setString(6, companyAddr);
-            ps.setString(7, email);
-            ps.setString(8, purpose);
-            ps.setString(9, source);
-            ps.setLong(10, now);
+            ps.setString(7, addrNorm);
+            ps.setString(8, email);
+            ps.setString(9, purpose);
+            ps.setString(10, source);
+            ps.setLong(11, now);
             return ps;
         }, kh);
         Number key = kh.getKey();

@@ -15,15 +15,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 /**
  * 判别编排 + 代码裁决（系统真相）。流程：
- * ①归一化 → ②确定性匹配（命中即定,跳过 LLM）→ ④灰区交 sidecar → ⑤裁决落库。
- * "LLM 提议,代码裁决"：sidecar 输出一律经枚举校验 + 置信度阈值后才落库。
+ * ①归一化（含地址）→ ②确定性匹配（主名+别名+地址软信号，命中即定，跳过 LLM）
+ *   → ④灰区交 sidecar → ⑤裁决落库。
+ * "LLM 提议，代码裁决"：sidecar 输出一律经枚举校验 + 置信度阈值后才落库。
  */
 @Service
 public class VerdictService {
@@ -58,60 +59,78 @@ public class VerdictService {
      */
     public VerdictView analyze(String taskId, VisitorInput in, String source) {
         emit(taskId, "stage", Map.of("step", "normalize", "label", "归一化"));
-        String phoneNorm = normalizer.phone(in.phone());
+        String phoneNorm  = normalizer.phone(in.phone());
         String companyNorm = normalizer.company(in.company());
+        String addrNorm   = normalizer.addr(in.companyAddr());   // 新增：地址归一化
 
         long visitorId = visitorRepo.insert(in.name(), in.phone(), phoneNorm, in.company(),
-                companyNorm, in.companyAddr(), in.email(), in.purpose(), source);
+                companyNorm, in.companyAddr(), addrNorm, in.email(), in.purpose(), source);
 
-        emit(taskId, "stage", Map.of("step", "match", "label", "确定性匹配（查库）"));
-        MatchResult m = matchService.match(phoneNorm, companyNorm);
+        emit(taskId, "stage", Map.of("step", "match", "label", "确定性匹配（查库+别名）"));
+        MatchResult m = matchService.match(phoneNorm, companyNorm, addrNorm);
 
         VerdictView view;
         if (m.conclusive()) {
             view = decideByRule(visitorId, m);
         } else {
             emit(taskId, "stage", Map.of("step", "llm", "label", "灰区：AgentScope 判别"));
-            view = decideByLlm(visitorId, in, phoneNorm, companyNorm, m);
+            view = decideByLlm(visitorId, in, phoneNorm, companyNorm, addrNorm, m);
         }
         emit(taskId, "done", view);
         return view;
     }
 
-    /** 第②层命中：确定性定论,高置信,不调 LLM。 */
+    /** 第②层命中：确定性定论，高置信，不调 LLM。 */
     private VerdictView decideByRule(long visitorId, MatchResult m) {
         if (m.hitCompetitor()) {
-            String evidence = json(List.of("命中竞品名单：" + safe(m.competitorName())));
+            List<String> evidenceList = new ArrayList<>();
+            evidenceList.add("命中竞品名单：" + safe(m.competitorName()));
+            if (m.hitByAlias() && m.matchedAlias() != null) {
+                evidenceList.add("通过别名匹配：访客填写「" + m.matchedAlias() + "」= 竞品「" + m.competitorName() + "」");
+            }
             long id = verdictRepo.insert(visitorId, IdentityType.COMPETITOR.name(),
                     RelationshipType.NONE.name(), 0.99, "rule:competitor",
-                    "归一化公司名命中竞品名单", evidence, null, false);
+                    m.hitByAlias() ? "别名命中竞品名单" : "归一化公司名命中竞品名单",
+                    json(evidenceList), null, false);
             return verdictRepo.findById(id);
         }
-        // 命中客户库：区分熟客 / 流失客户。
+
+        // 命中客户库：区分熟客 / 流失客户
         RelationshipType rel = RelationshipType.EXISTING;
-        String reason = "命中历史客户库";
+        String reason = m.hitByAlias() ? "通过公司别名命中历史客户库" : "命中历史客户库";
         if ("churned".equalsIgnoreCase(m.customerStatus())
                 || (m.lastDealAt() != null && System.currentTimeMillis() - m.lastDealAt() > CHURN_MILLIS)) {
             rel = RelationshipType.CHURNED;
-            reason = "命中历史客户库，但最近成交久远 / 状态为流失";
+            reason += "，但最近成交久远 / 状态为流失";
         }
-        String evidence = json(List.of(reason,
-                m.lastDealAt() == null ? "无最近成交时间" : "最近成交：" + m.lastDealAt()));
+        List<String> evidenceList = new ArrayList<>();
+        evidenceList.add(reason);
+        if (m.hitByAlias() && m.matchedAlias() != null) {
+            evidenceList.add("别名匹配：访客填写「" + m.matchedAlias() + "」");
+        }
+        evidenceList.add(m.lastDealAt() == null ? "无最近成交时间" : "最近成交：" + m.lastDealAt());
+
+        // 别名命中置信度略低于主名精确命中（主名/手机=0.95，别名=0.90）
+        double confidence = m.hitByAlias() ? 0.90 : 0.95;
         long id = verdictRepo.insert(visitorId, IdentityType.CUSTOMER.name(), rel.name(),
-                0.95, "rule:customer", reason, evidence, null, false);
+                confidence, m.hitByAlias() ? "rule:customer:alias" : "rule:customer",
+                reason, json(evidenceList), null, false);
         return verdictRepo.listRecent(1).stream().filter(v -> v.id() == id).findFirst().orElseThrow();
     }
 
     /** 第④层灰区：sidecar 提议 → 代码裁决。sidecar 不可用则降级为 UNKNOWN + 待人工确认。 */
     private VerdictView decideByLlm(long visitorId, VisitorInput in, String phoneNorm,
-                                    String companyNorm, MatchResult m) {
-        SidecarVerdict proposal = sidecar.classify(in, phoneNorm, companyNorm, m);
+                                    String companyNorm, String addrNorm, MatchResult m) {
+        SidecarVerdict proposal = sidecar.classify(in, phoneNorm, companyNorm, addrNorm, m);
         if (proposal == null) {
             String reason = "灰区且 AgentScope sidecar 不可用，降级为待人工确认";
-            String hint = m.visitCount() > 0 ? "（注：该访客曾来访 " + m.visitCount() + " 次）" : "";
+            List<String> hints = new ArrayList<>();
+            hints.add(reason);
+            if (m.visitCount() > 0) hints.add("该访客曾来访 " + m.visitCount() + " 次");
+            if (m.addrHint() != null) hints.add("地址参考：" + m.addrHint());
             long id = verdictRepo.insert(visitorId, IdentityType.UNKNOWN.name(),
                     RelationshipType.NONE.name(), 0.0, "degraded:no-sidecar",
-                    reason + hint, json(List.of(reason)), null, true);
+                    reason, json(hints), null, true);
             return verdictRepo.findById(id);
         }
 

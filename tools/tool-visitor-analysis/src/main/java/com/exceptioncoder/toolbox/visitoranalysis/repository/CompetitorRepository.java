@@ -25,12 +25,24 @@ public class CompetitorRepository {
         this.jdbc = jdbc;
     }
 
-    /** 命中返回原始竞品名,未命中返回 null。 */
+    /**
+     * 命中返回原始竞品名（含别名匹配），未命中返回 null。
+     * 同时查主名（va_competitor.name_norm = companyNorm）
+     * 和别名（va_company_alias.alias_norm = companyNorm → canonical → va_competitor）。
+     */
     public String matchName(String companyNorm) {
         if (companyNorm == null || companyNorm.isEmpty()) return null;
-        List<String> hits = jdbc.queryForList(
-                "SELECT raw_name FROM va_competitor WHERE name_norm = ? LIMIT 1",
-                String.class, companyNorm);
+        List<String> hits = jdbc.queryForList("""
+                SELECT c.raw_name
+                  FROM va_competitor c
+                 WHERE c.name_norm = ?
+                UNION ALL
+                SELECT c.raw_name
+                  FROM va_competitor c
+                  JOIN va_company_alias a ON a.canonical_norm = c.name_norm
+                 WHERE a.alias_norm = ?
+                 LIMIT 1
+                """, String.class, companyNorm, companyNorm);
         return hits.isEmpty() ? null : hits.get(0);
     }
 
