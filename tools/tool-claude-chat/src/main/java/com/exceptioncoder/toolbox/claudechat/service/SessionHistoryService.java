@@ -192,15 +192,22 @@ public class SessionHistoryService {
      * nextBefore = 本批最早条目的全局索引（>0 还有更早，0 到顶）。
      */
     public MessagePage readMessages(String cwd, String sdkSessionId, Integer before, int limit) {
-        Path jsonl = findTranscript(cwd, sdkSessionId);
-        if (jsonl == null) {
-            return new MessagePage(List.of(), null);
-        }
+        // 先按 Claude transcript（~/.claude/projects）定位；找不到再回退 Codex rollout（~/.codex/sessions）。
+        // 两端 sessionId 命名空间不重叠（Codex 为 rollout 文件名尾部的 UUID），故无需引擎入参即可消歧。
         List<ChatMessageView> all;
+        Path jsonl = findTranscript(cwd, sdkSessionId);
         try {
-            all = parseAll(jsonl);
+            if (jsonl != null) {
+                all = parseAll(jsonl);
+            } else {
+                Path rollout = findCodexRollout(sdkSessionId);
+                if (rollout == null) {
+                    return new MessagePage(List.of(), null);
+                }
+                all = parseCodexRollout(rollout);
+            }
         } catch (IOException e) {
-            log.debug("[claude-chat] 解析历史消息失败 {}：{}", jsonl, e.getMessage());
+            log.debug("[claude-chat] 解析历史消息失败 {}：{}", sdkSessionId, e.getMessage());
             return new MessagePage(List.of(), null);
         }
         int n = all.size();
@@ -228,6 +235,121 @@ public class SessionHistoryService {
             log.debug("[claude-chat] 定位 transcript 失败：{}", e.getMessage());
             return null;
         }
+    }
+
+    // ===== Codex rollout 历史读取 =====
+
+    /**
+     * 定位 Codex rollout：~/.codex/sessions/&lt;年&gt;/&lt;月&gt;/&lt;日&gt;/rollout-&lt;ISO&gt;-&lt;threadId&gt;.jsonl。
+     * 文件名尾部的 UUID 即 Codex thread/session id（= 我们存的 sdkSessionId）。
+     */
+    private Path findCodexRollout(String sdkSessionId) {
+        if (sdkSessionId == null || sdkSessionId.isBlank()) {
+            return null;
+        }
+        Path root = Path.of(System.getProperty("user.home"), ".codex", "sessions");
+        if (!Files.isDirectory(root)) {
+            return null;
+        }
+        String suffix = "-" + sdkSessionId.trim() + ".jsonl";
+        try (Stream<Path> s = Files.walk(root)) {
+            return s.filter(Files::isRegularFile)
+                    .filter(p -> {
+                        String name = p.getFileName().toString();
+                        return name.startsWith("rollout-") && name.endsWith(suffix);
+                    })
+                    .findFirst()
+                    .orElse(null);
+        } catch (IOException e) {
+            log.debug("[claude-chat] 定位 Codex rollout 失败：{}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 解析 Codex rollout 为有序消息项。事件协议与 Claude transcript 不同：
+     *  - event_msg/user_message  → 真实用户文本（response_item 的 user message 含注入的 AGENTS.md，不取）；
+     *  - event_msg/agent_message → 助手最终文本；
+     *  - response_item/function_call(+function_call_output 按 call_id) → 工具调用与回填；
+     *  - event_msg/token_count   → 本轮 token（last_token_usage 增量），按用户消息边界聚合成 result 项。
+     */
+    private List<ChatMessageView> parseCodexRollout(Path jsonl) throws IOException {
+        List<ChatMessageView> out = new ArrayList<>();
+        Map<String, Integer> callIdx = new LinkedHashMap<>(); // call_id -> out 下标
+        TurnAcc acc = new TurnAcc();
+        try (BufferedReader r = Files.newBufferedReader(jsonl, StandardCharsets.UTF_8)) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                if (line.isBlank()) continue;
+                JsonNode node;
+                try {
+                    node = mapper.readTree(line);
+                } catch (Exception ignore) {
+                    continue; // 非法行跳过
+                }
+                JsonNode payload = node.path("payload");
+                String pType = payload.path("type").asText("");
+                Long ts = parseTs(node);
+                switch (pType) {
+                    case "user_message" -> {
+                        String t = payload.path("message").asText("");
+                        if (!t.isBlank()) {
+                            // 真实用户消息 = 新一轮：先把上一轮 token 落成 result 项
+                            flushTurn(out, acc);
+                            acc.reset(ts);
+                            out.add(ChatMessageView.user("h" + out.size(), t, ts));
+                        }
+                    }
+                    case "agent_message" -> {
+                        String t = payload.path("message").asText("");
+                        if (!t.isBlank()) out.add(ChatMessageView.assistant("h" + out.size(), t, ts));
+                    }
+                    case "function_call" -> {
+                        String name = payload.path("name").asText("");
+                        String callId = payload.path("call_id").asText("");
+                        Object input = parseCodexArgs(payload.path("arguments"));
+                        if (!callId.isBlank()) callIdx.put(callId, out.size());
+                        out.add(ChatMessageView.tool("h" + out.size(), name, input, null, null, ts));
+                    }
+                    case "function_call_output" -> {
+                        String callId = payload.path("call_id").asText("");
+                        String outText = stringifyCodexOutput(payload.path("output"));
+                        Integer idx = callId.isBlank() ? null : callIdx.get(callId);
+                        if (idx != null) {
+                            ChatMessageView prev = out.get(idx);
+                            out.set(idx, ChatMessageView.tool(prev.id(), prev.toolName(), prev.input(), outText, null, prev.ts()));
+                        } else {
+                            out.add(ChatMessageView.tool("h" + out.size(), "", null, outText, null, ts));
+                        }
+                    }
+                    case "token_count" -> acc.accumulateCodex(payload.path("info").path("last_token_usage"), ts);
+                    default -> { /* reasoning / web_search / session_meta / turn_context 等跳过 */ }
+                }
+            }
+        }
+        flushTurn(out, acc); // 末轮
+        return out;
+    }
+
+    /** Codex function_call.arguments 是 JSON 字符串：解析成对象供前端结构化展示；解析失败回退原串。 */
+    private Object parseCodexArgs(JsonNode arguments) {
+        if (arguments == null || arguments.isNull()) return null;
+        if (arguments.isTextual()) {
+            String s = arguments.asText();
+            try {
+                return mapper.convertValue(mapper.readTree(s), Object.class);
+            } catch (Exception e) {
+                return s;
+            }
+        }
+        return mapper.convertValue(arguments, Object.class);
+    }
+
+    /** function_call_output.output 可能是字符串或对象，统一压成文本。 */
+    private String stringifyCodexOutput(JsonNode output) {
+        if (output == null || output.isNull()) return "";
+        if (output.isTextual()) return output.asText();
+        return output.toString();
     }
 
     /** 删除历史会话：把 transcript 移到 ~/.claude/projects/_trash/&lt;来源目录&gt;/，可手动恢复；同时清别名。 */
@@ -320,7 +442,9 @@ public class SessionHistoryService {
     public SessionUsageView usageTotal(String cwd, String sdkSessionId) {
         Path jsonl = findTranscript(cwd, sdkSessionId);
         if (jsonl == null || !Files.isReadable(jsonl)) {
-            return SessionUsageView.empty();
+            // Claude transcript 不存在：回退 Codex rollout（口径不同，单独统计）
+            Path rollout = findCodexRollout(sdkSessionId);
+            return rollout != null ? codexUsageTotal(rollout) : SessionUsageView.empty();
         }
         long input = 0, output = 0, cacheRead = 0, cacheCreate = 0;
         int turns = 0;
@@ -358,6 +482,46 @@ public class SessionHistoryService {
         if (started && turnHasOutput) turns++; // 末轮
         long total = input + output + cacheRead + cacheCreate;
         return new SessionUsageView(input, output, cacheRead, cacheCreate, total, turns);
+    }
+
+    /**
+     * Codex rollout 整会话用量：token_count.info.total_token_usage 为会话累计快照，取最后一条即总和；
+     * turns 数真实用户消息（event_msg/user_message）条数。
+     */
+    private SessionUsageView codexUsageTotal(Path rollout) {
+        long input = 0, output = 0, cacheRead = 0;
+        int turns = 0;
+        try (BufferedReader r = Files.newBufferedReader(rollout, StandardCharsets.UTF_8)) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                if (line.isBlank()) continue;
+                JsonNode node;
+                try {
+                    node = mapper.readTree(line);
+                } catch (Exception ignore) {
+                    continue;
+                }
+                JsonNode payload = node.path("payload");
+                String pType = payload.path("type").asText("");
+                if ("user_message".equals(pType)) {
+                    if (!payload.path("message").asText("").isBlank()) turns++;
+                } else if ("token_count".equals(pType)) {
+                    JsonNode u = payload.path("info").path("total_token_usage");
+                    if (u.isObject()) {
+                        long inAll = u.path("input_tokens").asLong(0);
+                        long cached = u.path("cached_input_tokens").asLong(0);
+                        input = Math.max(0, inAll - cached);
+                        cacheRead = cached;
+                        output = u.path("output_tokens").asLong(0) + u.path("reasoning_output_tokens").asLong(0);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            log.debug("[claude-chat] 统计 Codex 会话用量失败 {}: {}", rollout, e.getMessage());
+            return SessionUsageView.empty();
+        }
+        long total = input + output + cacheRead;
+        return new SessionUsageView(input, output, cacheRead, 0, total, turns);
     }
 
     /** content 是否含真实用户文本（区别于 tool_result——后者是 user 类型但属同轮，不另起一轮）。 */
@@ -408,6 +572,19 @@ public class SessionHistoryService {
                 output += usage.path("output_tokens").asLong(0);
                 cacheRead += usage.path("cache_read_input_tokens").asLong(0);
                 cacheCreate += usage.path("cache_creation_input_tokens").asLong(0);
+            }
+            if (ts != null) lastTs = ts;
+            hasOutput = true;
+        }
+
+        /** Codex token 字段口径：input_tokens 含缓存，需扣减得非缓存输入；output 含推理 token。 */
+        void accumulateCodex(JsonNode usage, Long ts) {
+            if (usage != null && usage.isObject()) {
+                long inAll = usage.path("input_tokens").asLong(0);
+                long cached = usage.path("cached_input_tokens").asLong(0);
+                input += Math.max(0, inAll - cached);
+                cacheRead += cached;
+                output += usage.path("output_tokens").asLong(0) + usage.path("reasoning_output_tokens").asLong(0);
             }
             if (ts != null) lastTs = ts;
             hasOutput = true;
