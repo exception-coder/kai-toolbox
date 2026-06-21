@@ -25,6 +25,11 @@ import {
   XCircle,
   LifeBuoy,
   Scale,
+  Gauge,
+  Eye,
+  Zap,
+  GitBranch,
+  MonitorDot,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -419,6 +424,267 @@ export function ArchitecturePage() {
           —— 文字 / 语音 / 附件三种录入全部并入本模块，语音自动转写分类、数据落服务端 SQLite（非浏览器 IndexedDB）。个人秘书模块已删除。
         </p>
       </header>
+
+      {/* ── 完整全景架构图 ───────────────────────────────────── */}
+      <Section
+        icon={Layers}
+        title="完整全景架构图"
+        subtitle="从用户输入到模型响应，再到监控可观测性的全链路——含三条 Agent 链路、网关装饰器洋葱、监控旁路与长期记忆注入"
+      >
+        {/* Layer 通用包装：带颜色左边框标注系统边界 */}
+        {(() => {
+          function Layer({
+            label,
+            color,
+            children,
+          }: {
+            label: string
+            color: 'blue' | 'violet' | 'orange' | 'green' | 'rose' | 'slate'
+            children: React.ReactNode
+          }) {
+            const colors: Record<string, { border: string; bg: string; badge: string }> = {
+              blue:   { border: 'border-l-blue-500',   bg: 'bg-blue-500/5',   badge: 'bg-blue-500/15 text-blue-600 dark:text-blue-400' },
+              violet: { border: 'border-l-violet-500', bg: 'bg-violet-500/5', badge: 'bg-violet-500/15 text-violet-600 dark:text-violet-400' },
+              orange: { border: 'border-l-orange-500', bg: 'bg-orange-500/5', badge: 'bg-orange-500/15 text-orange-600 dark:text-orange-400' },
+              green:  { border: 'border-l-green-500',  bg: 'bg-green-500/5',  badge: 'bg-green-500/15 text-green-600 dark:text-green-400' },
+              rose:   { border: 'border-l-rose-500',   bg: 'bg-rose-500/5',   badge: 'bg-rose-500/15 text-rose-600 dark:text-rose-400' },
+              slate:  { border: 'border-l-slate-400',  bg: 'bg-slate-500/5',  badge: 'bg-slate-500/15 text-slate-600 dark:text-slate-400' },
+            }
+            const c = colors[color]
+            return (
+              <div className={cn('rounded-lg border border-l-4 p-3', c.border, c.bg)}>
+                <span className={cn('mb-2 inline-block rounded px-2 py-0.5 text-xs font-semibold', c.badge)}>{label}</span>
+                {children}
+              </div>
+            )
+          }
+
+          function Chip({ icon: Icon, label, sub, muted }: { icon?: typeof Cpu; label: string; sub?: string; muted?: boolean }) {
+            return (
+              <div className={cn(
+                'flex flex-col items-center gap-0.5 rounded-md border px-2.5 py-2 text-center',
+                muted ? 'bg-[var(--color-muted)] opacity-70' : 'bg-[var(--color-card)]'
+              )}>
+                {Icon && <Icon className="h-3.5 w-3.5 text-[var(--color-primary)]" />}
+                <span className="text-xs font-medium leading-tight">{label}</span>
+                {sub && <span className="text-[10px] leading-tight text-[var(--color-muted-foreground)]">{sub}</span>}
+              </div>
+            )
+          }
+
+          function Flow({ children }: { children: React.ReactNode }) {
+            return <div className="flex flex-wrap items-center gap-1.5">{children}</div>
+          }
+
+          function Sep() {
+            return <ArrowRight className="h-3 w-3 shrink-0 text-[var(--color-muted-foreground)]" />
+          }
+
+          function VSep() {
+            return <ArrowDown className="mx-auto my-1 h-3.5 w-3.5 text-[var(--color-muted-foreground)]" />
+          }
+
+          return (
+            <div className="space-y-2">
+
+              {/* ── 前端层 ── */}
+              <Layer label="前端层 · React Feature" color="blue">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <div className="text-[11px] font-medium text-[var(--color-muted-foreground)]">ai-secretary（AI 秘书）</div>
+                    <Flow>
+                      <Chip icon={Tag} label="Capture" sub="记录页" />
+                      <Chip icon={BrainCircuit} label="Recall" sub="回忆页" />
+                      <Chip icon={Cpu} label="Profile" sub="记忆页" />
+                      <Chip icon={Layers} label="Architecture" sub="本页" />
+                    </Flow>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-[11px] font-medium text-[var(--color-muted-foreground)]">llm-monitor（LLM 监控仪表盘）</div>
+                    <Flow>
+                      <Chip icon={Gauge} label="KPI 卡" />
+                      <Chip icon={Eye} label="趋势图" sub="Recharts" />
+                      <Chip icon={MonitorDot} label="配额水位" />
+                      <Chip icon={ListTree} label="调用追踪" />
+                    </Flow>
+                  </div>
+                </div>
+                <div className="mt-1.5 text-[10px] text-[var(--color-muted-foreground)]">
+                  ← REST·POST /capture /ask(SSE流) /memory &nbsp;|&nbsp; llm-monitor ← GET /api/llm/monitor/**（15s 自动刷新）
+                </div>
+              </Layer>
+
+              <VSep />
+
+              {/* ── AI 秘书后端 ── */}
+              <Layer label="AI 秘书后端 · tool-ai-secretary" color="violet">
+                <div className="space-y-2">
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+
+                    {/* 记录态 */}
+                    <div className="space-y-1 rounded-md border bg-[var(--color-card)] p-2">
+                      <div className="flex items-center gap-1 text-[11px] font-semibold text-[var(--color-primary)]">
+                        <Tag className="h-3 w-3" /> 记录态 Capture
+                      </div>
+                      <Flow>
+                        <Chip label="CaptureService" />
+                        <Sep />
+                        <Chip icon={Cpu} label="Capturer" sub="AiService" />
+                      </Flow>
+                      <Flow>
+                        <Chip label="CaptureNormalizer" sub="校验/降级" />
+                        <Sep />
+                        <Chip icon={Database} label="NoteRepo" />
+                      </Flow>
+                      <div className="mt-1 text-[10px] text-[var(--color-muted-foreground)]">{'System: now + categories + {{memory}}'}</div>
+                    </div>
+
+                    {/* 回忆态 */}
+                    <div className="space-y-1 rounded-md border bg-[var(--color-card)] p-2">
+                      <div className="flex items-center gap-1 text-[11px] font-semibold text-[var(--color-primary)]">
+                        <BrainCircuit className="h-3 w-3" /> 回忆态 Recall · SSE流
+                      </div>
+                      <Flow>
+                        <Chip label="RecallService" />
+                        <Sep />
+                        <Chip label="RecallRetriever" sub="Hybrid" />
+                      </Flow>
+                      <Flow>
+                        <Chip icon={Database} label="Qdrant" sub="向量(可选)" />
+                        <Chip icon={Database} label="LIKE" sub="关键字" />
+                      </Flow>
+                      <Flow>
+                        <Chip icon={Cpu} label="RecallAssistant" sub="AiService·语言组织" />
+                      </Flow>
+                      <div className="mt-1 text-[10px] text-[var(--color-muted-foreground)]">SSE events: recall → answer → done</div>
+                    </div>
+
+                    {/* 记忆提取 */}
+                    <div className="space-y-1 rounded-md border bg-[var(--color-card)] p-2">
+                      <div className="flex items-center gap-1 text-[11px] font-semibold text-[var(--color-primary)]">
+                        <Repeat className="h-3 w-3" /> 记忆提取 Memory
+                      </div>
+                      <Flow>
+                        <Chip icon={Cpu} label="ProfileExtractor" sub="AiService·异步" />
+                      </Flow>
+                      <Flow>
+                        <Chip label="MemoryService" sub="LLM提议·代码裁决" />
+                        <Sep />
+                        <Chip icon={Database} label="MemoryRepo" />
+                      </Flow>
+                      <Flow>
+                        <Chip label="MemoryContextBuilder" sub="{{memory}}注入" />
+                      </Flow>
+                      <div className="mt-1 text-[10px] text-[var(--color-muted-foreground)]">PROPOSED → ACTIVE → ARCHIVED</div>
+                    </div>
+                  </div>
+
+                  {/* LangChain4j 桥接层 */}
+                  <div className="rounded-md border border-dashed p-2">
+                    <div className="mb-1 text-[11px] font-medium text-[var(--color-muted-foreground)]">LangChain4j · AiServices — 向网关取 ChatModel，自身不持有具体模型</div>
+                    <Flow>
+                      <Chip icon={Boxes} label="Capturer" sub='forTier("capture")' />
+                      <Chip icon={Boxes} label="RecallAssistant" sub='forTier("recall")' />
+                      <Chip icon={Boxes} label="ProfileExtractor" sub='forTier("capture")' />
+                      <div className="ml-1 text-[11px] text-[var(--color-muted-foreground)]">→ ChatModelRouter.forTier(tier)</div>
+                    </Flow>
+                  </div>
+                </div>
+              </Layer>
+
+              <VSep />
+
+              {/* ── toolbox-llm 网关 ── */}
+              <Layer label="toolbox-llm 网关 · 装饰器洋葱" color="orange">
+                <div className="space-y-1.5">
+                  {/* 最外层：配额闸门 */}
+                  <div className="rounded-md border border-orange-500/40 bg-orange-500/5 px-3 py-2">
+                    <Flow>
+                      <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-orange-500" />
+                      <span className="text-xs font-semibold">QuotaGuardChatModel</span>
+                      <span className="text-[10px] text-[var(--color-muted-foreground)]">· 配额准入 / attempt 边界重置 / 超限抛异常 + 落 quota_blocked</span>
+                    </Flow>
+                  </div>
+                  <ArrowDown className="mx-auto h-3 w-3 text-[var(--color-muted-foreground)]" />
+                  {/* 路由层 */}
+                  <div className="rounded-md border px-3 py-2">
+                    <Flow>
+                      <GitBranch className="h-3.5 w-3.5 shrink-0 text-[var(--color-primary)]" />
+                      <span className="text-xs font-semibold">RoutingChatModel</span>
+                      <span className="text-[10px] text-[var(--color-muted-foreground)]">· 按权重随机选主成员 → 429/失败熔断并故障转移到下一个</span>
+                    </Flow>
+                  </div>
+                  <ArrowDown className="mx-auto h-3 w-3 text-[var(--color-muted-foreground)]" />
+                  {/* 最内层：模型实例 + 监听器 */}
+                  <div className="rounded-md border border-green-500/40 bg-green-500/5 px-3 py-2">
+                    <Flow>
+                      <Zap className="h-3.5 w-3.5 shrink-0 text-green-600" />
+                      <span className="text-xs font-semibold">OpenAiChatModel</span>
+                      <span className="mx-1 text-[10px] text-[var(--color-muted-foreground)]">·</span>
+                      <span className="text-xs font-semibold text-green-700 dark:text-green-400">LlmMonitorListener</span>
+                      <span className="text-[10px] text-[var(--color-muted-foreground)]">· onRequest: 存t0/attempt → onResponse: 取token/耗时 → onError: 记异常 · 全隔离</span>
+                    </Flow>
+                  </div>
+                </div>
+                <div className="mt-1.5 text-[10px] text-[var(--color-muted-foreground)]">
+                  采集数据 → LlmCallEvent → LlmMetricsRecorder（异步队列，绝不反压业务）
+                </div>
+              </Layer>
+
+              <VSep />
+
+              {/* ── 底层：外部模型 + 监控旁路 ── */}
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+
+                <Layer label="外部模型" color="slate">
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <Chip icon={Cpu} label="本地 Ollama" sub="qwen2.5-7b · tier=capture · 零成本" />
+                    <Chip icon={Cpu} label="远端 DeepSeek 等" sub="OpenAI兼容 · tier=recall" muted />
+                  </div>
+                  <div className="mt-1.5 text-[10px] text-[var(--color-muted-foreground)]">同档位互为故障转移 · 按权重分摊限流 · 切换只改 application.yml</div>
+                </Layer>
+
+                <Layer label="监控旁路 · LlmMetricsRecorder" color="green">
+                  <div className="space-y-1.5">
+                    <Flow>
+                      <Chip icon={Database} label="SQLite" sub="llm_call_log" />
+                      <Sep />
+                      <Chip icon={Gauge} label="llm-monitor" sub="仪表盘实时读" />
+                    </Flow>
+                    <Flow>
+                      <Chip icon={MonitorDot} label="AgentScope Studio" sub=":3000 · OTLP可选" muted />
+                      <Sep />
+                      <Chip label="内存滚动计数" sub="LlmMetricsRegistry" muted />
+                    </Flow>
+                    <div className="text-[10px] text-[var(--color-muted-foreground)]">
+                      有界队列(10k) + 单虚拟线程写 · 启动从DB回填当日水位
+                    </div>
+                  </div>
+                </Layer>
+
+              </div>
+
+              <VSep />
+
+              {/* ── 持久化层 ── */}
+              <Layer label="持久化层 · SQLite（WAL + FK on）" color="rose">
+                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                  <Chip icon={Database} label="ai_secretary_note" sub="记录主表" />
+                  <Chip icon={Database} label="ai_secretary_memory" sub="长期记忆三态" />
+                  <Chip icon={Database} label="ai_secretary_attachment" sub="附件元数据" />
+                  <Chip icon={Database} label="llm_call_log" sub="调用追踪" />
+                </div>
+                <div className="mt-1.5 flex flex-wrap gap-x-4 text-[10px] text-[var(--color-muted-foreground)]">
+                  <span>SchemaInitializer 全量 IF NOT EXISTS 每次启动</span>
+                  <span>工具间 schema 隔离，禁止跨表 JOIN</span>
+                  <span className="text-[var(--color-muted-foreground)]/70">（可选）Qdrant 向量库 · bge-m3 嵌入 · RAG 语义检索</span>
+                </div>
+              </Layer>
+
+            </div>
+          )
+        })()}
+      </Section>
 
       {/* 分层架构 */}
       <Section icon={Layers} title="分层架构" subtitle="请求从前端进，落到本地模型与 SQLite；SSE 作旁路把每步推回前端">
