@@ -83,12 +83,13 @@ def _build_user_prompt(payload: dict, enrichment: dict) -> str:
     return "访客信息如下，请判别：\n" + json.dumps(fields, ensure_ascii=False, indent=2)
 
 
-def _classify_openai_compatible(payload: dict, enrichment: dict) -> dict:
+def _classify_openai_compatible(payload: dict, enrichment: dict,
+                                base_url: str, api_key: str, model: str) -> dict:
     """用 openai SDK 调第三方 OpenAI 兼容平台，要 JSON 结构化输出。"""
     from openai import OpenAI  # 延迟导入，未装也能跑 /health
-    client = OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
+    client = OpenAI(base_url=base_url, api_key=api_key)
     resp = client.chat.completions.create(
-        model=LLM_MODEL,
+        model=model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": _build_user_prompt(payload, enrichment)},
@@ -98,7 +99,7 @@ def _classify_openai_compatible(payload: dict, enrichment: dict) -> dict:
     )
     content = resp.choices[0].message.content or "{}"
     data = json.loads(content)
-    data["model"] = LLM_MODEL
+    data["model"] = model
     return data
 
 
@@ -118,16 +119,22 @@ def classify(payload: dict) -> dict:
     enrichment = enrich_company(company)
     degraded = bool(enrichment.get("degraded"))
 
-    if not LLM_API_KEY:
-        # 没配 key：不瞎判，返回 UNKNOWN 让 Java 端走人工确认。
+    # 优先用调用方（Java 后端从配置中心复用 4sapi）随请求下发的 LLM 配置；缺省回退本进程环境变量。
+    llm = payload.get("llm") or {}
+    base_url = (llm.get("base_url") or LLM_BASE_URL or "").strip()
+    api_key = (llm.get("api_key") or LLM_API_KEY or "").strip()
+    model = (llm.get("model") or LLM_MODEL or "").strip()
+
+    if not api_key:
+        # 没配 key（配置中心 4sapi 与 VA_LLM_API_KEY 均空）：不瞎判，返回 UNKNOWN 让 Java 端走人工确认。
         return {"identity": "UNKNOWN", "relationship": "NONE", "confidence": 0.0,
-                "rationale": "sidecar 未配置 LLM key，无法判别灰区",
-                "evidence": ["VA_LLM_API_KEY 未设置"], "model": LLM_MODEL, "degraded": True}
+                "rationale": "未配置 LLM key，无法判别灰区",
+                "evidence": ["LLM api_key 缺失（配置中心 4sapi 或 VA_LLM_API_KEY 均未设置）"], "model": model, "degraded": True}
 
     try:
         data = _classify_with_agentscope(payload, enrichment)
     except NotImplementedError:
-        data = _classify_openai_compatible(payload, enrichment)
+        data = _classify_openai_compatible(payload, enrichment, base_url, api_key, model)
 
     # 归一化兜底：字段缺失/越界都给安全默认，最终裁决仍在 Java 端
     identity = (data.get("identity") or "UNKNOWN").upper()
@@ -144,7 +151,7 @@ def classify(payload: dict) -> dict:
 
     return {"identity": identity, "relationship": relationship, "confidence": confidence,
             "rationale": data.get("rationale", ""), "evidence": data.get("evidence", []),
-            "model": data.get("model", LLM_MODEL), "degraded": degraded}
+            "model": data.get("model", model), "degraded": degraded}
 
 
 @app.post("/analyze")

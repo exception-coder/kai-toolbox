@@ -14,6 +14,9 @@ public class VisitorAnalysisProperties {
     /** 调用 sidecar 的超时秒数。 */
     private int sidecarTimeoutSeconds = 60;
 
+    /** 灰区分类用的模型名（base-url / api-key 复用配置中心 toolbox.ai-chat 的 4sapi）。便宜模型即可。 */
+    private String llmModel = "deepseek-chat";
+
     /**
      * 置信度阈值：LLM 给出的置信度低于此值时,needs_review=1 进人工复核队列。
      * 确定性命中（客户库/竞品）不受此约束，固定高置信。
@@ -28,6 +31,11 @@ public class VisitorAnalysisProperties {
     public int getSidecarTimeoutSeconds() { return sidecarTimeoutSeconds; }
     public void setSidecarTimeoutSeconds(int sidecarTimeoutSeconds) {
         this.sidecarTimeoutSeconds = Math.max(1, sidecarTimeoutSeconds);
+    }
+
+    public String getLlmModel() { return llmModel; }
+    public void setLlmModel(String llmModel) {
+        this.llmModel = (llmModel == null || llmModel.isBlank()) ? "deepseek-chat" : llmModel.trim();
     }
 
     public double getReviewThreshold() { return reviewThreshold; }

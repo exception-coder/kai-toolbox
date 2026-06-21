@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -30,6 +31,7 @@ public class SidecarClient {
     private static final Logger log = LoggerFactory.getLogger(SidecarClient.class);
 
     private final VisitorAnalysisProperties props;
+    private final Environment env;
     private final ObjectMapper mapper = new ObjectMapper();
     // uvicorn 仅 HTTP/1.1,固定版本避免 h2c 协商问题（与 WhisperAsrClient 同理）。
     private final HttpClient http = HttpClient.newBuilder()
@@ -37,8 +39,9 @@ public class SidecarClient {
             .connectTimeout(Duration.ofSeconds(5))
             .build();
 
-    public SidecarClient(VisitorAnalysisProperties props) {
+    public SidecarClient(VisitorAnalysisProperties props, Environment env) {
         this.props = props;
+        this.env = env;
     }
 
     /** {@code GET /health} 探活,失败返回 false。 */
@@ -74,6 +77,17 @@ public class SidecarClient {
             body.put("phone_norm", phoneNorm);
             body.put("company_norm", companyNorm);
             body.put("visit_count", match.visitCount());
+
+            // 复用配置中心「AI 对话」的 4sapi 凭证（toolbox.ai-chat.*，动态可改），随请求下发给 sidecar；
+            // 缺 key 时不下发，sidecar 回退自身 VA_LLM_* 环境变量。model 用本模块配置（默认便宜模型）。
+            String apiKey = env.getProperty("toolbox.ai-chat.api-key", "");
+            if (apiKey != null && !apiKey.isBlank()) {
+                Map<String, Object> llm = new LinkedHashMap<>();
+                llm.put("base_url", env.getProperty("toolbox.ai-chat.base-url", "https://4sapi.com/v1"));
+                llm.put("api_key", apiKey);
+                llm.put("model", props.getLlmModel());
+                body.put("llm", llm);
+            }
 
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create(props.getSidecarUrl() + "/analyze"))
