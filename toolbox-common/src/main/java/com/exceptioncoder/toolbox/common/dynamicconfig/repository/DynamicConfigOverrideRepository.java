@@ -45,4 +45,11 @@ public class DynamicConfigOverrideRepository {
                 WHERE config_key = ? OR config_key LIKE ? OR config_key LIKE ?
                 """, prefix, prefix + ".%", prefix + "[%");
     }
+
+    /** 删除多个前缀下的覆盖项。 */
+    public void deleteByPrefixes(Iterable<String> prefixes) {
+        for (String prefix : prefixes) {
+            deleteByPrefix(prefix);
+        }
+    }
 }

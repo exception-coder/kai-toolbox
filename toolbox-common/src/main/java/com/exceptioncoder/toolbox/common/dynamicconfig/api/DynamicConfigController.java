@@ -40,7 +40,7 @@ public class DynamicConfigController {
 
     @PutMapping("/blocks/{id}")
     public ConfigBlockView update(@PathVariable String id, @Valid @RequestBody UpdateOverridesRequest req) {
-        return service.applyOverrides(id, req.overrides());
+        return service.applyOverrides(id, req.overrides(), req.replacePrefixes());
     }
 
     @DeleteMapping("/blocks/{id}/overrides")

@@ -21,7 +21,12 @@ import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.PropertySource;
 import org.springframework.stereotype.Service;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -35,6 +40,7 @@ import java.util.TreeSet;
 public class DynamicConfigService {
 
     private static final Logger log = LoggerFactory.getLogger(DynamicConfigService.class);
+    private static final String EMPTY_LIST_SENTINEL = "__toolbox_empty_list__";
 
     private final ConfigurableEnvironment environment;
     private final ApplicationEventPublisher publisher;
@@ -58,7 +64,7 @@ public class DynamicConfigService {
         if (persisted.isEmpty()) {
             return;
         }
-        overrideMap().putAll(persisted);
+        persisted.forEach((key, value) -> overrideMap().put(key, toRuntimeValue(value)));
         publisher.publishEvent(new EnvironmentChangeEvent(persisted.keySet()));
         log.info("[dynamic-config] 已装载 {} 条持久配置覆盖", persisted.size());
     }
@@ -73,6 +79,25 @@ public class DynamicConfigService {
         BlockMeta meta = requireBlock(blockId);
         Map<String, Object> overrides = overrideMap();
 
+        List<ConfigBlockView.Entry> entries = new ArrayList<>();
+        Set<String> listPrefixes = new LinkedHashSet<>();
+        for (Field field : meta.beanType().getDeclaredFields()) {
+            if (!isStringListField(field)) {
+                continue;
+            }
+            String key = meta.prefix() + "." + toKebabCase(field.getName());
+            List<String> values = Binder.get(environment)
+                    .bind(key, Bindable.listOf(String.class))
+                    .orElse(List.of());
+            entries.add(new ConfigBlockView.Entry(
+                    key,
+                    String.join("\n", values),
+                    hasOverrideForPrefix(overrides, key),
+                    "list",
+                    values));
+            listPrefixes.add(key);
+        }
+
         Set<String> keys = new TreeSet<>();
         for (PropertySource<?> ps : environment.getPropertySources()) {
             if (ps instanceof EnumerablePropertySource<?> eps) {
@@ -84,28 +109,42 @@ public class DynamicConfigService {
             }
         }
 
-        List<ConfigBlockView.Entry> entries = keys.stream()
+        keys.stream()
+                .filter(key -> listPrefixes.stream().noneMatch(prefix -> key.equals(prefix) || key.startsWith(prefix + "[")))
                 .map(key -> new ConfigBlockView.Entry(
                         key,
                         environment.getProperty(key),
-                        overrides.containsKey(key)))
-                .toList();
+                        overrides.containsKey(key),
+                        "string",
+                        List.of()))
+                .forEach(entries::add);
         return new ConfigBlockView(meta.prefix(), meta.name(), entries);
     }
 
-    public ConfigBlockView applyOverrides(String blockId, Map<String, String> overrides) {
+    public ConfigBlockView applyOverrides(String blockId, Map<String, String> overrides, List<String> replacePrefixes) {
         BlockMeta meta = requireBlock(blockId);
+        List<String> prefixesToReplace = replacePrefixes == null ? List.of() : replacePrefixes;
         overrides.forEach((key, value) -> {
             if (!belongsTo(meta.prefix(), key)) {
                 throw DynamicConfigException.keyNotInBlock(key, meta.prefix());
             }
         });
+        prefixesToReplace.forEach(prefix -> {
+            if (!belongsTo(meta.prefix(), prefix)) {
+                throw DynamicConfigException.keyNotInBlock(prefix, meta.prefix());
+            }
+        });
 
         Map<String, Object> map = overrideMap();
         Map<String, Object> backup = new LinkedHashMap<>();
+        Set<String> removedKeys = map.keySet().stream()
+                .filter(key -> prefixesToReplace.stream().anyMatch(prefix -> belongsTo(prefix, key)))
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        removedKeys.forEach(key -> backup.put(key, map.get(key)));
         overrides.keySet().forEach(k -> backup.put(k, map.get(k)));
 
-        map.putAll(overrides);
+        removedKeys.forEach(map::remove);
+        overrides.forEach((key, value) -> map.put(key, toRuntimeOverrideValue(key, value, prefixesToReplace)));
         try {
             // 用 Binder 把整块绑到目标类型，校验新值类型合法；失败回滚不污染。
             Binder.get(environment).bind(meta.prefix(), Bindable.of(meta.beanType()));
@@ -115,8 +154,12 @@ public class DynamicConfigService {
         }
 
         long now = System.currentTimeMillis();
-        overrides.forEach((k, v) -> repository.upsert(k, v, now));
-        publisher.publishEvent(new EnvironmentChangeEvent(overrides.keySet()));
+        repository.deleteByPrefixes(prefixesToReplace);
+        overrides.forEach((k, v) -> repository.upsert(k, toPersistedValue(k, v, prefixesToReplace), now));
+        Set<String> changedKeys = new LinkedHashSet<>(removedKeys);
+        changedKeys.addAll(prefixesToReplace);
+        changedKeys.addAll(overrides.keySet());
+        publisher.publishEvent(new EnvironmentChangeEvent(changedKeys));
         log.info("[dynamic-config] 应用 {} 条覆盖到 {}", overrides.size(), meta.prefix());
         return view(blockId);
     }
@@ -142,6 +185,59 @@ public class DynamicConfigService {
 
     private boolean belongsTo(String prefix, String key) {
         return key.equals(prefix) || key.startsWith(prefix + ".") || key.startsWith(prefix + "[");
+    }
+
+    private boolean hasOverrideForPrefix(Map<String, Object> overrides, String prefix) {
+        return overrides.keySet().stream().anyMatch(key -> key.equals(prefix) || key.startsWith(prefix + "["));
+    }
+
+    private Object toRuntimeValue(String value) {
+        if (EMPTY_LIST_SENTINEL.equals(value)) {
+            return List.of();
+        }
+        return value;
+    }
+
+    private Object toRuntimeOverrideValue(String key, String value, List<String> replacePrefixes) {
+        if (replacePrefixes.contains(key) && value.isBlank()) {
+            return List.of();
+        }
+        return value;
+    }
+
+    private String toPersistedValue(String key, String value, List<String> replacePrefixes) {
+        if (replacePrefixes.contains(key) && value.isBlank()) {
+            return EMPTY_LIST_SENTINEL;
+        }
+        return value;
+    }
+
+    private boolean isStringListField(Field field) {
+        if (!List.class.isAssignableFrom(field.getType())) {
+            return false;
+        }
+        Type type = field.getGenericType();
+        if (!(type instanceof ParameterizedType parameterizedType)) {
+            return false;
+        }
+        Type itemType = parameterizedType.getActualTypeArguments()[0];
+        return itemType == String.class;
+    }
+
+    private String toKebabCase(String value) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (Character.isUpperCase(c)) {
+                if (i > 0) {
+                    sb.append('-');
+                }
+                sb.append(Character.toLowerCase(c));
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 
     @SuppressWarnings("unchecked")

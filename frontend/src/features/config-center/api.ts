@@ -9,6 +9,8 @@ export interface ConfigEntry {
   key: string
   value: string | null
   overridden: boolean
+  type?: 'string' | 'list'
+  values?: string[] | null
 }
 
 export interface ConfigBlockView {
@@ -26,10 +28,10 @@ export function getConfigBlock(id: string) {
 }
 
 /** 提交覆盖（仅传改动的 key），不重启即生效。 */
-export function updateConfigBlock(id: string, overrides: Record<string, string>) {
+export function updateConfigBlock(id: string, overrides: Record<string, string>, replacePrefixes: string[] = []) {
   return http<ConfigBlockView>(`/config/blocks/${encodeURIComponent(id)}`, {
     method: 'PUT',
-    body: JSON.stringify({ overrides }),
+    body: JSON.stringify({ overrides, replacePrefixes }),
   })
 }
 

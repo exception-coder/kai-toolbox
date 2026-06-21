@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { RotateCcw, Save } from 'lucide-react'
+import { Plus, RotateCcw, Save, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   getConfigBlock,
@@ -63,8 +63,13 @@ function BlockEditor({ blockId, onChanged }: { blockId: string; onChanged: () =>
   const { data: block, isPending } = useQuery({ queryKey: key, queryFn: () => getConfigBlock(blockId) })
 
   const [draft, setDraft] = useState<Record<string, string>>({})
+  const [listDraft, setListDraft] = useState<Record<string, string[]>>({})
+  const entries = block ? normalizeEntries(block.entries) : []
   useEffect(() => {
-    if (block) setDraft(Object.fromEntries(block.entries.map(e => [e.key, e.value ?? ''])))
+    if (!block) return
+    const nextEntries = normalizeEntries(block.entries)
+    setDraft(Object.fromEntries(nextEntries.filter(e => !isListEntry(e)).map(e => [e.key, e.value ?? ''])))
+    setListDraft(Object.fromEntries(nextEntries.filter(isListEntry).map(e => [e.key, e.values ?? []])))
   }, [block])
 
   const applyResult = (updated: ConfigBlockView) => {
@@ -75,11 +80,29 @@ function BlockEditor({ blockId, onChanged }: { blockId: string; onChanged: () =>
   const save = useMutation({
     mutationFn: () => {
       const changed: Record<string, string> = {}
-      block?.entries.forEach(e => {
+      const replacePrefixes: string[] = []
+      entries.forEach(e => {
+        if (isListEntry(e)) {
+          const cur = normalizeList(listDraft[e.key] ?? [])
+          const prev = normalizeList(e.values ?? [])
+          if (!sameList(cur, prev)) {
+            replacePrefixes.push(e.key)
+            if (cur.length === 0) {
+              changed[e.key] = ''
+            } else {
+              cur.forEach((value, index) => {
+                changed[`${e.key}[${index}]`] = value
+              })
+            }
+          }
+          return
+        }
         const cur = draft[e.key] ?? ''
-        if (cur !== (e.value ?? '')) changed[e.key] = cur
+        if (cur !== (e.value ?? '')) {
+          changed[e.key] = cur
+        }
       })
-      return updateConfigBlock(blockId, changed)
+      return updateConfigBlock(blockId, changed, replacePrefixes)
     },
     onSuccess: applyResult,
   })
@@ -93,7 +116,12 @@ function BlockEditor({ blockId, onChanged }: { blockId: string; onChanged: () =>
     return <div className="text-sm text-[var(--color-muted-foreground)]">加载中…</div>
   }
 
-  const dirty = block.entries.some(e => (draft[e.key] ?? '') !== (e.value ?? ''))
+  const dirty = entries.some(e => {
+    if (isListEntry(e)) {
+      return !sameList(normalizeList(listDraft[e.key] ?? []), normalizeList(e.values ?? []))
+    }
+    return (draft[e.key] ?? '') !== (e.value ?? '')
+  })
 
   return (
     <div className="space-y-4">
@@ -128,17 +156,24 @@ function BlockEditor({ blockId, onChanged }: { blockId: string; onChanged: () =>
             </tr>
           </thead>
           <tbody className="divide-y">
-            {block.entries.map(e => (
+            {entries.map(e => (
               <tr key={e.key}>
-                <td className="px-3 py-2 font-mono text-xs">{e.key}</td>
-                <td className="px-3 py-2">
-                  <input
-                    className="w-full rounded-md border bg-[var(--color-background)] px-2 py-1 text-sm"
-                    value={draft[e.key] ?? ''}
-                    onChange={ev => setDraft(d => ({ ...d, [e.key]: ev.target.value }))}
-                  />
+                <td className="px-3 py-3 align-top font-mono text-xs">{e.key}</td>
+                <td className="px-3 py-2 align-top">
+                  {isListEntry(e) ? (
+                    <ListValueEditor
+                      values={listDraft[e.key] ?? []}
+                      onChange={values => setListDraft(d => ({ ...d, [e.key]: values }))}
+                    />
+                  ) : (
+                    <input
+                      className="w-full rounded-md border bg-[var(--color-background)] px-2 py-1 text-sm"
+                      value={draft[e.key] ?? ''}
+                      onChange={ev => setDraft(d => ({ ...d, [e.key]: ev.target.value }))}
+                    />
+                  )}
                 </td>
-                <td className="px-3 py-2 text-xs">
+                <td className="px-3 py-3 align-top text-xs">
                   {e.overridden
                     ? <span className="text-[var(--color-primary)]">覆盖</span>
                     : <span className="text-[var(--color-muted-foreground)]">默认</span>}
@@ -150,4 +185,101 @@ function BlockEditor({ blockId, onChanged }: { blockId: string; onChanged: () =>
       </div>
     </div>
   )
+}
+
+function ListValueEditor({ values, onChange }: { values: string[]; onChange: (values: string[]) => void }) {
+  const items = values.length === 0 ? [''] : values
+  return (
+    <div className="space-y-2">
+      {items.map((value, index) => (
+        <div key={index} className="flex gap-2">
+          <input
+            className="min-w-0 flex-1 rounded-md border bg-[var(--color-background)] px-2 py-1 text-sm"
+            value={value}
+            onChange={ev => {
+              const next = [...items]
+              next[index] = ev.target.value
+              onChange(next)
+            }}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="删除"
+            onClick={() => onChange(items.filter((_, i) => i !== index))}
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        </div>
+      ))}
+      <Button type="button" variant="outline" size="sm" onClick={() => onChange([...items, ''])}>
+        <Plus className="size-4" /> 添加
+      </Button>
+    </div>
+  )
+}
+
+function isListEntry(entry: { type?: string }) {
+  return entry.type === 'list'
+}
+
+function normalizeEntries(entries: ConfigBlockView['entries']) {
+  if (entries.some(e => e.type === 'list')) {
+    return entries
+  }
+  const indexed = new Map<string, { values: string[]; overridden: boolean }>()
+  const indexedKeys = new Set<string>()
+  entries.forEach(entry => {
+    const parsed = parseIndexedKey(entry.key)
+    if (!parsed) return
+    const group = indexed.get(parsed.baseKey) ?? { values: [], overridden: false }
+    group.values[parsed.index] = entry.value ?? ''
+    group.overridden = group.overridden || entry.overridden
+    indexed.set(parsed.baseKey, group)
+    indexedKeys.add(entry.key)
+  })
+
+  const normalized: ConfigBlockView['entries'] = []
+  entries.forEach(entry => {
+    if (indexedKeys.has(entry.key)) return
+    const group = indexed.get(entry.key)
+    if (group) {
+      normalized.push({ ...entry, type: 'list', values: compactIndexedValues(group.values), overridden: entry.overridden || group.overridden })
+      indexed.delete(entry.key)
+      return
+    }
+    if (isLegacyListKey(entry.key)) {
+      normalized.push({ ...entry, type: 'list', values: entry.value ? [entry.value] : [] })
+      return
+    }
+    normalized.push(entry)
+  })
+  indexed.forEach((group, baseKey) => {
+    normalized.push({ key: baseKey, value: compactIndexedValues(group.values).join('\n'), overridden: group.overridden, type: 'list', values: compactIndexedValues(group.values) })
+  })
+  return normalized
+}
+
+function parseIndexedKey(key: string) {
+  const match = /^(.*)\[(\d+)]$/.exec(key)
+  if (!match) return null
+  return { baseKey: match[1], index: Number(match[2]) }
+}
+
+function compactIndexedValues(values: string[]) {
+  return values.filter(value => value != null)
+}
+
+function isLegacyListKey(key: string) {
+  const name = key.split('.').at(-1) ?? ''
+  return name === 'roots' || name === 'hidden-prefixes'
+}
+
+function normalizeList(values: string[]) {
+  return values.map(v => v.trim()).filter(Boolean)
+}
+
+function sameList(a: string[], b: string[]) {
+  return a.length === b.length && a.every((value, index) => value === b[index])
 }
