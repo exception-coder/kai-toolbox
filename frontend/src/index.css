@@ -156,11 +156,17 @@
     border-color: var(--color-border);
   }
 
+  /* 禁用浏览器下拉刷新 / 滚动链：移动端下拉不再触发整页刷新，更像原生 App */
+  html {
+    overscroll-behavior: none;
+  }
+
   body {
     background: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    overscroll-behavior: none;
   }
 
   /* ==== 全局滚动条：替换原生样式，跟随主题 ====
