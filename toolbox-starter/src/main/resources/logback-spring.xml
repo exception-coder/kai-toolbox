@@ -12,6 +12,9 @@
     <springProperty scope="context" name="LOG_PATH" source="toolbox.log-dir" defaultValue="${user.home}/.kai-toolbox/logs"/>
     <springProperty scope="context" name="APP_NAME" source="spring.application.name" defaultValue="kai-toolbox"/>
 
+    <!-- 内存环形缓冲：保留最近日志，供 GET /api/system/logs 即时取用（含透传进来的 sidecar 日志） -->
+    <appender name="RING" class="com.exceptioncoder.toolbox.common.log.RingBufferLogAppender"/>
+
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
             <pattern>${CONSOLE_LOG_PATTERN}</pattern>
@@ -73,6 +76,7 @@
         <root level="INFO">
             <appender-ref ref="ASYNC_FILE"/>
             <appender-ref ref="ASYNC_ERROR_FILE"/>
+            <appender-ref ref="RING"/>
         </root>
     </springProfile>
 
@@ -81,6 +85,7 @@
             <appender-ref ref="CONSOLE"/>
             <appender-ref ref="ASYNC_FILE"/>
             <appender-ref ref="ASYNC_ERROR_FILE"/>
+            <appender-ref ref="RING"/>
         </root>
     </springProfile>
 

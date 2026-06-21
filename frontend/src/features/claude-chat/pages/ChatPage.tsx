@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, Cloud, FolderTree, GitCommit, List, Maximize2, Minimize2, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RotateCw, Send, Server, ShieldCheck, Slash, Square } from 'lucide-react'
+import { Bell, Cloud, FileText, FolderTree, GitCommit, List, Maximize2, Minimize2, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RotateCw, Send, Server, ShieldCheck, Slash, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Input } from '@/components/ui/input'
@@ -20,6 +20,7 @@ import { ModeSwitch } from '../components/ModeSwitch'
 import { SlashCommandMenu } from '../components/SlashCommandMenu'
 import { CommandMenu } from '../components/CommandMenu'
 import { PluginPanel } from '../components/PluginPanel'
+import { LogsPanel } from '../components/LogsPanel'
 import { ProviderDiagPanel } from '../components/ProviderDiagPanel'
 import { groupModels } from '../components/modelGroups'
 import { TaskspacePanel } from '../components/TaskspacePanel'
@@ -98,6 +99,7 @@ export function ChatPage() {
   // 两端 token 可能不同；用同一输入框值分别试，任一匹配并触发即算成功。重启后 WS 断、前端自动重连续上。
   // token 用应用内输入框收，不用 window.prompt：移动端浏览器/WebView 普遍禁用 prompt（静默返回 null）。
   const [showCommits, setShowCommits] = useState(false)
+  const [showLogs, setShowLogs] = useState(false)
   const [headerMenu, setHeaderMenu] = useState(false)
   const [restartOpen, setRestartOpen] = useState(false)
   const [restartToken, setRestartToken] = useState('')
@@ -505,6 +507,7 @@ export function ChatPage() {
                   <HeaderMenuItem icon={<FolderTree className="size-4" />} label="合并工作区" hint="软链接聚合多个目录" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'taskspace' ? 'none' : 'taskspace') }} />
                   <HeaderMenuItem icon={<Server className="size-4" />} label="服务商" hint="第三方网关(按会话,不动官方)" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'providers' ? 'none' : 'providers') }} />
                   <HeaderMenuItem icon={<Package className="size-4" />} label="插件更新" hint="查看/更新双端插件" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'plugins' ? 'none' : 'plugins') }} />
+                  <HeaderMenuItem icon={<FileText className="size-4" />} label="最新日志" hint="后端+sidecar 日志，一键复制排查" onClick={() => { setHeaderMenu(false); setShowLogs(true) }} />
                   <HeaderMenuItem icon={<Bell className="size-4" />} label="通知设置" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'settings' ? 'none' : 'settings') }} />
                   <HeaderMenuItem icon={<RotateCw className="size-4" />} label="重启服务" hint="经守护进程重启后端" onClick={() => { setHeaderMenu(false); openRestart() }} />
                 </div>
@@ -742,6 +745,9 @@ export function ChatPage() {
           onClose={() => setShowCommits(false)}
         />
       )}
+
+      {/* 最新日志：后端内存缓冲（含透传的 sidecar 日志），排查时一键复制 */}
+      {showLogs && <LogsPanel onClose={() => setShowLogs(false)} />}
 
       {/* 一键重启：应用内弹层（移动端 window.prompt 不可用，必须用页面内输入框收 token） */}
       {restartOpen && (

@@ -13,6 +13,19 @@ export function getSessionCommitDiff(sessionId: string, hash: string) {
   return http<CommitDiff>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/commit?hash=${encodeURIComponent(hash)}`)
 }
 
+/**
+ * 取后端最近日志（含透传进来的 sidecar 日志），用于排查时一键复制贴给 AI。
+ * 返回纯文本（后端 text/plain）。mode：error=最近告警+上下文（默认）/ all=最近全量。
+ */
+export async function fetchRecentLogs(mode: 'error' | 'all' = 'error', limit = 200): Promise<string> {
+  const qs = new URLSearchParams({ mode, limit: String(limit) })
+  const res = await authFetch(`/system/logs?${qs.toString()}`)
+  if (!res.ok) {
+    throw new Error(res.status === 401 ? '未登录或登录已过期，无法读取日志' : `读取日志失败：HTTP ${res.status}`)
+  }
+  return res.text()
+}
+
 export interface SessionUsage {
   inputTokens: number
   outputTokens: number

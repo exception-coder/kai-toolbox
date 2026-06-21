@@ -1,11 +1,15 @@
 package com.exceptioncoder.toolbox.system;
 
+import com.exceptioncoder.toolbox.common.auth.annotation.RequireAuth;
+import com.exceptioncoder.toolbox.common.log.RecentLogsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
 import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -29,10 +33,31 @@ public class SystemController {
 
     private final ApplicationContext ctx;
     private final SystemProperties props;
+    private final RecentLogsService recentLogs;
 
-    public SystemController(ApplicationContext ctx, SystemProperties props) {
+    public SystemController(ApplicationContext ctx, SystemProperties props, RecentLogsService recentLogs) {
         this.ctx = ctx;
         this.props = props;
+        this.recentLogs = recentLogs;
+    }
+
+    /**
+     * 最近日志（含透传进来的 sidecar 日志），供 Vibe Coding 排查时一键复制贴给 AI。
+     * 返回纯文本便于直接选中复制。需登录（日志可能含敏感信息）；前端 http/authFetch 自动带 JWT。
+     *
+     * @param mode    {@code error}（默认，最近 WARN/ERROR + 上下文）/ {@code all}（最近全量）
+     * @param limit   返回行数上限（1..500）
+     * @param context error 模式下每个告警前后保留的上下文行数（0..50）
+     */
+    @GetMapping(value = "/logs", produces = MediaType.TEXT_PLAIN_VALUE + ";charset=UTF-8")
+    @RequireAuth
+    public ResponseEntity<String> logs(
+            @RequestParam(defaultValue = "error") String mode,
+            @RequestParam(defaultValue = "200") int limit,
+            @RequestParam(defaultValue = "8") int context) {
+        int safeLimit = Math.max(1, Math.min(limit, 500));
+        int safeContext = Math.max(0, Math.min(context, 50));
+        return ResponseEntity.ok(recentLogs.recent(mode, safeLimit, safeContext));
     }
 
     /** token 经 query 参数或 {@code X-Restart-Token} 头传入。 */
