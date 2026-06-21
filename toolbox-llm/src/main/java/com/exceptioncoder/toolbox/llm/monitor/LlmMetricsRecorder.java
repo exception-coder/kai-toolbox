@@ -33,7 +33,7 @@ public class LlmMetricsRecorder {
     private final MonitorProperties props;
     private final ZoneId zone = ZoneId.systemDefault();
     private final BlockingQueue<LlmCallEvent> queue;
-    /** Studio 导出器：studioUrl 为空时为 null，不推送。 */
+    /** AgentScope Studio 镜像导出器：agentScopeStudioUrl 为空时为 null，不推送。 */
     private final AgentScopeStudioExporter studioExporter;
 
     private volatile boolean running = true;
@@ -44,9 +44,9 @@ public class LlmMetricsRecorder {
         this.registry = registry;
         this.props = llmProps.getMonitor();
         this.queue = new LinkedBlockingQueue<>(Math.max(100, props.getQueueCapacity()));
-        String studioUrl = props.getStudioUrl();
+        String studioUrl = props.getAgentScopeStudioUrl();
         this.studioExporter = (studioUrl != null && !studioUrl.isBlank())
-                ? new AgentScopeStudioExporter(studioUrl, props.getStudioTimeoutMs())
+                ? new AgentScopeStudioExporter(studioUrl, props.getAgentScopeStudioTimeoutMs())
                 : null;
     }
 
@@ -74,7 +74,7 @@ public class LlmMetricsRecorder {
         worker = Thread.ofVirtual().name("llm-metrics-writer").start(this::loop);
         log.info("[toolbox-llm] 监控记录器已启动（queueCapacity={}, batchSize={}, studio={}）",
                 props.getQueueCapacity(), props.getBatchSize(),
-                studioExporter != null ? props.getStudioUrl() : "disabled");
+                studioExporter != null ? props.getAgentScopeStudioUrl() : "disabled");
     }
 
     private void warmup() {

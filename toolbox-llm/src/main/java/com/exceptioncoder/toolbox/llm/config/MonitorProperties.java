@@ -30,14 +30,20 @@ public class MonitorProperties {
     private double softThreshold = 0.8;
 
     /**
-     * AgentScope Studio 的 OTLP HTTP 地址，例如 {@code http://localhost:3000}。
-     * 为空则不推送（默认关闭）。配置后每次 LLM 调用都会异步发一条 OTel span 到 Studio，
-     * 无需任何额外 Maven 依赖（使用 Java 内置 HttpClient + OTLP JSON 格式）。
+     * 【可选】将 Java 侧 LLM 调用数据镜像到 AgentScope Studio（OTLP HTTP），
+     * 例如 {@code http://localhost:3000}。留空则不推送，不影响主监控（llm-monitor 仪表盘）。
+     *
+     * <p>使用场景：同时运行了 Python sidecar（访客分析），想在一个地方（Studio）统一看
+     * Java 侧和 Python 侧两个进程的 LLM trace——配上这个 URL 就能把 Java 侧也推过去。
+     * 不关心 Studio、只用 toolbox 内置 llm-monitor 的话，不用配。
+     *
+     * <p>Studio 启动：{@code npm install -g @agentscope/studio && as_studio}（默认 :3000）。
+     * 无需额外 Maven 依赖（Java 内置 HttpClient + OTLP JSON 格式，异步推送）。
      */
-    private String studioUrl = "";
+    private String agentScopeStudioUrl = "";
 
-    /** 推送 Studio 的 HTTP 连接/读取超时（毫秒），超时直接丢弃，不影响业务。 */
-    private int studioTimeoutMs = 3000;
+    /** 推送 AgentScope Studio 的 HTTP 超时（毫秒），超时直接丢弃，不影响业务。 */
+    private int agentScopeStudioTimeoutMs = 3000;
 
     /** 配额规则；为空=无限额。 */
     private List<QuotaRule> quotas = new ArrayList<>();

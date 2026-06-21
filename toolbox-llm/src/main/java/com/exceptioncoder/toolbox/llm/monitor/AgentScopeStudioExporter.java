@@ -13,22 +13,21 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * 将 {@link LlmCallEvent} 转换为 OTLP HTTP/JSON span 推送到 AgentScope Studio。
+ * 将 Java 侧 {@link LlmCallEvent} 镜像为 OTLP HTTP/JSON span 推送到 AgentScope Studio。
  *
- * <p>零新 Maven 依赖：使用 Java 17+ 内置 {@link HttpClient} + 手拼 OTLP JSON（符合 OTel
- * Protobuf-JSON 映射规范）。Studio 收到后即可在 Trace 视图展示 token 用量、模型调用与
- * 链路耗时。
+ * <p><b>定位</b>：这是一个可选的「双写旁路」——主监控是 toolbox 内置的 llm-monitor 仪表盘
+ * （SQLite 持久化，开箱即用）。当你同时运行了 Python sidecar 并想在 Studio 统一看两侧 trace 时，
+ * 配置 {@code toolbox.llm.monitor.agent-scope-studio-url} 即可启用；不配则完全不推送。
  *
- * <p>推送完全异步（调用方用虚拟线程），HTTP 超时、网络不通等异常全部 warn 后吞掉——
- * Studio 不可用绝不影响业务与本地落库。
+ * <p>零新 Maven 依赖：Java 内置 {@link HttpClient} + 手拼 OTLP JSON（符合 OTel Protobuf-JSON
+ * 映射规范）。推送完全异步，超时 / 网络异常全部吞掉，Studio 不可用绝不影响业务与本地落库。
  *
- * <p>AgentScope 的 LLM 专属面板依赖三个 {@code agentscope.*} 属性：
+ * <p>AgentScope Studio LLM 专属面板依赖三个 {@code agentscope.*} 属性：
  * <ul>
  *   <li>{@code agentscope.function.input}  — 请求概要（tier / model / chars）</li>
  *   <li>{@code agentscope.function.output} — 响应概要（token / cost / finish_reason）</li>
  *   <li>{@code agentscope.format.count}    — total token 数（整数）</li>
  * </ul>
- * 其余字段作为普通 OTel 属性附加，便于在 Studio trace 详情里查看完整上下文。
  */
 public class AgentScopeStudioExporter {
 
