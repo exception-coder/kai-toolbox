@@ -5,6 +5,7 @@ const ArchitectureHome = lazy(() => import('./pages/ArchitectureHome').then((m) 
 const VibeCodingArch = lazy(() => import('./pages/VibeCodingArch').then((m) => ({ default: m.VibeCodingArch })))
 const FrontendPerfArch = lazy(() => import('./pages/FrontendPerfArch').then((m) => ({ default: m.FrontendPerfArch })))
 const TeamVibeCoding = lazy(() => import('./pages/TeamVibeCoding').then((m) => ({ default: m.TeamVibeCoding })))
+const VisitorAnalysisArch = lazy(() => import('./pages/VisitorAnalysisArch').then((m) => ({ default: m.VisitorAnalysisArch })))
 const manifest: FeatureManifest = {
   id: 'architecture',
   name: '实现原理',
@@ -18,6 +19,7 @@ const manifest: FeatureManifest = {
     { path: '/tools/architecture/vibe-coding', element: <VibeCodingArch /> },
     { path: '/tools/architecture/frontend-perf', element: <FrontendPerfArch /> },
     { path: '/tools/architecture/team-vibe-coding', element: <TeamVibeCoding /> },
+    { path: '/tools/architecture/visitor-analysis', element: <VisitorAnalysisArch /> },
   ],
 }
 
