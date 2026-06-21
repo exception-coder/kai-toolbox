@@ -6,3 +6,5 @@ openai>=1.30.0
 # agentscope：模型层 + Studio 可观测性（token/cost/trace 自动上报）。
 # Python 是 AgentScope 的旗舰 SDK，特性最全更新最快。
 agentscope>=1.0.0
+# 向量检索：Qdrant 客户端 + 通过 openai SDK 调 Ollama bge-m3 做嵌入。
+qdrant-client>=1.9.0

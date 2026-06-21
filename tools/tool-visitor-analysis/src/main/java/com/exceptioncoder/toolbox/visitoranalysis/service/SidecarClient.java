@@ -44,6 +44,67 @@ public class SidecarClient {
         this.env = env;
     }
 
+    // ── 向量索引（fire-and-forget，虚拟线程异步，失败只 debug 不抛）─────────────
+
+    /**
+     * 把一条客户记录异步索引到 Qdrant（/index/customer）。
+     * 用于新增/导入客户后，让该客户可被向量召回。
+     */
+    public void indexCustomer(String company, String companyNorm, String addrNorm, String status) {
+        if (props.getSidecarUrl().isBlank()) return;
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("company",      company      != null ? company      : "");
+        body.put("company_norm", companyNorm  != null ? companyNorm  : "");
+        body.put("addr_norm",    addrNorm     != null ? addrNorm     : "");
+        body.put("status",       status       != null ? status       : "");
+        _postAsync("/index/customer", body);
+    }
+
+    /**
+     * 把一条已判别的访客记录异步索引到 Qdrant（/index/visitor）。
+     * 用于每次判别完成后积累历史案例，逐步提升向量召回质量。
+     */
+    public void indexVisitor(com.exceptioncoder.toolbox.visitoranalysis.api.dto.VisitorInput in,
+                              String addrNorm, String identity, String relationship, double confidence) {
+        if (props.getSidecarUrl().isBlank()) return;
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("company",      in.company()     != null ? in.company()     : "");
+        body.put("company_addr", in.companyAddr() != null ? in.companyAddr() : "");
+        body.put("company_norm", normalizeCompany(in.company()));
+        body.put("addr_norm",    addrNorm         != null ? addrNorm         : "");
+        body.put("purpose",      in.purpose()     != null ? in.purpose()     : "");
+        body.put("identity",     identity);
+        body.put("relationship", relationship);
+        body.put("confidence",   confidence);
+        _postAsync("/index/visitor", body);
+    }
+
+    /** 公司名轻量归一化（复制 Normalizer 的核心逻辑，避免循环依赖）。 */
+    private static String normalizeCompany(String raw) {
+        if (raw == null) return "";
+        String s = raw.replaceAll("\\s+", "").trim();
+        for (String noise : new String[]{"股份有限公司","有限责任公司","有限公司","(中国)","（中国）","集团","公司","企业"}) {
+            s = s.replace(noise, "");
+        }
+        return s;
+    }
+
+    private void _postAsync(String path, Map<String, Object> body) {
+        Thread.ofVirtual().start(() -> {
+            try {
+                HttpRequest req = HttpRequest.newBuilder()
+                        .uri(URI.create(props.getSidecarUrl() + path))
+                        .timeout(Duration.ofSeconds(5))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
+                        .build();
+                http.send(req, HttpResponse.BodyHandlers.discarding());
+            } catch (Exception e) {
+                log.debug("[sidecar] {} 异步索引失败（忽略）: {}", path, e.toString());
+            }
+        });
+    }
+
     /** {@code GET /health} 探活,失败返回 false。 */
     public boolean ping() {
         if (props.getSidecarUrl().isBlank()) return false;

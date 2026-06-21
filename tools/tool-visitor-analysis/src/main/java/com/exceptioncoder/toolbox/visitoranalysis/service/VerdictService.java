@@ -77,6 +77,11 @@ public class VerdictService {
             view = decideByLlm(visitorId, in, phoneNorm, companyNorm, addrNorm, m);
         }
         emit(taskId, "done", view);
+
+        // 判别完成后异步索引到 Qdrant（fire-and-forget，不阻塞返回路径）。
+        // 所有判别都索引，confidence 会随历史积累越来越准——包括低置信的。
+        sidecar.indexVisitor(in, addrNorm, view.identity(), view.relationship(), view.confidence());
+
         return view;
     }
 
