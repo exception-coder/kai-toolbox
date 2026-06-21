@@ -88,15 +88,19 @@ def _classify_openai_compatible(payload: dict, enrichment: dict,
     """用 openai SDK 调第三方 OpenAI 兼容平台，要 JSON 结构化输出。"""
     from openai import OpenAI  # 延迟导入，未装也能跑 /health
     client = OpenAI(base_url=base_url, api_key=api_key)
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[
+    kwargs = {
+        "model": model,
+        "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": _build_user_prompt(payload, enrichment)},
         ],
-        temperature=0.2,
-        response_format={"type": "json_object"},
-    )
+        "response_format": {"type": "json_object"},
+    }
+    # 推理模型（gpt-5 / o 系列 / reasoner 等）只接受默认温度，传 temperature 会被网关拒绝。
+    ml = model.lower()
+    if not any(p in ml for p in ("gpt-5", "o1", "o3", "o4", "reasoner", "thinking", "qwq")):
+        kwargs["temperature"] = 0.2
+    resp = client.chat.completions.create(**kwargs)
     content = resp.choices[0].message.content or "{}"
     data = json.loads(content)
     data["model"] = model
