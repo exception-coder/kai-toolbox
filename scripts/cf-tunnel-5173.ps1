@@ -152,8 +152,17 @@ if ($Setup) {
   if (-not (Test-Path $certPem)) {
     Write-Host "[cf-tunnel] ① 即将打开浏览器授权登录,请选择你的域名所在的 zone ..." -ForegroundColor Yellow
     & $exe tunnel login
+    # cloudflared tunnel login 不认 TUNNEL_ORIGIN_CERT 输出路径,总把 cert.pem 写到默认 ~\.cloudflared\,
+    # 自动搬到本仓自管目录,免去手动拷贝。
     if (-not (Test-Path $certPem)) {
-      throw "登录后未在 $certPem 找到 cert.pem。请确认域名已添加到 Cloudflare 并完成授权。"
+      $defaultCert = Join-Path $env:USERPROFILE '.cloudflared\cert.pem'
+      if (Test-Path $defaultCert) {
+        Copy-Item $defaultCert $certPem -Force
+        Write-Host "[cf-tunnel]   已从默认位置拷入 cert.pem: $defaultCert" -ForegroundColor DarkGray
+      }
+    }
+    if (-not (Test-Path $certPem)) {
+      throw "登录后未找到 cert.pem(已查 $certPem 及默认 ~\.cloudflared\cert.pem)。请确认域名已添加到 Cloudflare 并完成授权。"
     }
     Write-Host "[cf-tunnel]   cert.pem 已就绪: $certPem" -ForegroundColor Green
   }
