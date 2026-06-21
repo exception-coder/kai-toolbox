@@ -45,6 +45,22 @@ export interface WorkspaceList {
   scannedAt: string
 }
 
+/** 项目内按构建标志文件识别出的一个可工作模块。 */
+export interface ProjectModule {
+  name: string
+  relPath: string
+  absPath: string
+  type: string
+}
+
+/** 项目模块扫描结果，用于项目工作台按模块打开 Vibe Coding 会话。 */
+export interface ProjectModules {
+  project: string
+  projectPath: string
+  exists: boolean
+  modules: ProjectModule[]
+}
+
 // ── 合并工作区 taskspace ──────────────────────────────────────────
 
 /** taskspace 选目录时的一个子目录：isLink 标记其本身已是链接。 */
