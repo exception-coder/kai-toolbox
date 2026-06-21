@@ -48,18 +48,23 @@ public class RagConfig {
             grpc = grpc.withApiKey(props.getQdrantApiKey());
         }
         QdrantClient client = new QdrantClient(grpc.build());
-        // 集合不存在则按向量维度 + 余弦距离创建；已存在会抛异常，吞掉即可
+        // 先查存在性，不存在才按向量维度 + 余弦距离创建：避免重复创建时 Qdrant 客户端
+        // 在 grpc 线程打出 ALREADY_EXISTS 的 ERROR 噪音（异常本会被吞，但日志已先打出）。
         try {
-            client.createCollectionAsync(
-                    props.getCollection(),
-                    Collections.VectorParams.newBuilder()
-                            .setSize(props.getVectorSize())
-                            .setDistance(Collections.Distance.Cosine)
-                            .build())
-                    .get();
-            log.info("[ai-secretary] 创建 Qdrant 集合 {} (dim={})", props.getCollection(), props.getVectorSize());
+            if (Boolean.TRUE.equals(client.collectionExistsAsync(props.getCollection()).get())) {
+                log.info("[ai-secretary] Qdrant 集合 {} 已存在，跳过创建", props.getCollection());
+            } else {
+                client.createCollectionAsync(
+                        props.getCollection(),
+                        Collections.VectorParams.newBuilder()
+                                .setSize(props.getVectorSize())
+                                .setDistance(Collections.Distance.Cosine)
+                                .build())
+                        .get();
+                log.info("[ai-secretary] 创建 Qdrant 集合 {} (dim={})", props.getCollection(), props.getVectorSize());
+            }
         } catch (Exception e) {
-            log.info("[ai-secretary] Qdrant 集合 {} 已存在或创建跳过：{}", props.getCollection(), e.getMessage());
+            log.warn("[ai-secretary] Qdrant 集合初始化失败：{}", e.getMessage());
         }
         return client;
     }
