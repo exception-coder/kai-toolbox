@@ -9,10 +9,18 @@ REM ---------------------------------------------------------------------------
 REM Launcher for the visitor-analysis AgentScope sidecar.
 REM First run: creates .venv + pip install. Subsequent runs: a few seconds.
 REM
-REM Set model platform env vars BEFORE running (key is third-party platform key):
-REM   set VA_LLM_BASE_URL=https://your-platform/v1
-REM   set VA_LLM_API_KEY=sk-xxxx
-REM   set VA_LLM_MODEL=your-model-name
+REM Set env vars BEFORE running (required / optional as noted):
+REM   [required] LLM key for gray-zone classify:
+REM     set VA_LLM_BASE_URL=https://your-platform/v1
+REM     set VA_LLM_API_KEY=sk-xxxx
+REM     set VA_LLM_MODEL=your-model-name
+REM   [optional] Qdrant vector DB for semantic recall:
+REM     set QDRANT_URL=http://localhost:6333          (or cloud https://xyz.cloud.qdrant.io:6333)
+REM     set QDRANT_API_KEY=                           (cloud API key; empty = no auth)
+REM   [optional] Ollama bge-m3 embedding:
+REM     set VA_EMBED_BASE_URL=http://localhost:11434/v1
+REM   [optional] AgentScope Studio trace visualization:
+REM     set AS_STUDIO_URL=http://localhost:3000
 
 cd /d %~dp0
 

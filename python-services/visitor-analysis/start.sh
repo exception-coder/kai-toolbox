@@ -2,10 +2,18 @@
 # Launcher for the visitor-analysis AgentScope sidecar (macOS / Linux). Mirrors start.bat.
 # First run: creates .venv + pip install. Subsequent runs: a few seconds.
 #
-# Set model platform env vars BEFORE running (key is third-party platform key):
-#   export VA_LLM_BASE_URL=https://your-platform/v1
-#   export VA_LLM_API_KEY=sk-xxxx
-#   export VA_LLM_MODEL=your-model-name
+# Set env vars BEFORE running (required / optional as noted):
+#   [required] LLM key for gray-zone classify:
+#     export VA_LLM_BASE_URL=https://your-platform/v1
+#     export VA_LLM_API_KEY=sk-xxxx
+#     export VA_LLM_MODEL=your-model-name
+#   [optional] Qdrant vector DB for semantic recall:
+#     export QDRANT_URL=http://localhost:6333          # or cloud https://xyz.cloud.qdrant.io:6333
+#     export QDRANT_API_KEY=                           # cloud API key; empty = no auth
+#   [optional] Ollama bge-m3 embedding:
+#     export VA_EMBED_BASE_URL=http://localhost:11434/v1
+#   [optional] AgentScope Studio trace visualization:
+#     export AS_STUDIO_URL=http://localhost:3000
 set -e
 cd "$(dirname "$0")"
 

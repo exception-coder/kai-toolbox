@@ -8,10 +8,13 @@
 降级策略：Qdrant 不可用 / 嵌入失败 → 返回空列表，主流程继续，不抛异常。
 
 配置（环境变量）：
-  QDRANT_URL       = http://localhost:6333   Qdrant 地址
-  VA_EMBED_BASE_URL= http://localhost:11434/v1  Ollama OpenAI 兼容端点
-  VA_EMBED_API_KEY = ollama                  Ollama 不校验 key，占位即可
-  VA_EMBED_MODEL   = bge-m3                  嵌入模型（Ollama pull bge-m3）
+  QDRANT_URL       = http://localhost:6333   Qdrant REST 地址（本地或云端均可）
+                     云端示例: https://xyz.us-east4.gcp.cloud.qdrant.io:6333
+  QDRANT_API_KEY   = （留空）               云端 Qdrant 的 API key（本地不需要）
+                     与 Java 侧 TOOLBOX_AI_SECRETARY_QDRANT_API_KEY 共用同一个 Qdrant 实例时保持一致
+  VA_EMBED_BASE_URL= http://localhost:11434/v1  Ollama bge-m3 端点
+  VA_EMBED_API_KEY = ollama                  Ollama 占位 key
+  VA_EMBED_MODEL   = bge-m3                  嵌入模型（本地 Ollama）
   VA_EMBED_DIM     = 1024                    bge-m3 向量维度
   VA_VECTOR_THRESH = 0.70                    相似度阈值（低于此值不返回）
 """
@@ -26,11 +29,12 @@ from typing import Optional
 log = logging.getLogger("visitor-analysis-vector")
 
 # ── 配置 ────────────────────────────────────────────────────────────────────
-QDRANT_URL    = os.getenv("QDRANT_URL",        "http://localhost:6333")
-EMBED_BASE_URL = os.getenv("VA_EMBED_BASE_URL", "http://localhost:11434/v1")
-EMBED_API_KEY  = os.getenv("VA_EMBED_API_KEY",  "ollama")
-EMBED_MODEL    = os.getenv("VA_EMBED_MODEL",    "bge-m3")
-EMBED_DIM      = int(os.getenv("VA_EMBED_DIM",  "1024"))
+QDRANT_URL     = os.getenv("QDRANT_URL",         "http://localhost:6333")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY",      "")   # 云端 Qdrant 需要；本地留空
+EMBED_BASE_URL = os.getenv("VA_EMBED_BASE_URL",   "http://localhost:11434/v1")
+EMBED_API_KEY  = os.getenv("VA_EMBED_API_KEY",    "ollama")
+EMBED_MODEL    = os.getenv("VA_EMBED_MODEL",      "bge-m3")
+EMBED_DIM      = int(os.getenv("VA_EMBED_DIM",    "1024"))
 VECTOR_THRESH  = float(os.getenv("VA_VECTOR_THRESH", "0.70"))
 
 COLL_CUSTOMERS = "va_customers"        # 客户参考库
@@ -56,7 +60,11 @@ def _get_client():
         try:
             from qdrant_client import QdrantClient
             from qdrant_client.models import Distance, VectorParams
-            c = QdrantClient(url=QDRANT_URL, timeout=5)
+            # 云端 Qdrant 需要 API key；本地 Docker 不需要（留空即可）
+            kwargs: dict = {"url": QDRANT_URL, "timeout": 5}
+            if QDRANT_API_KEY:
+                kwargs["api_key"] = QDRANT_API_KEY
+            c = QdrantClient(**kwargs)
             # 确保两个集合存在
             existing = {col.name for col in c.get_collections().collections}
             for name in [COLL_CUSTOMERS, COLL_VISITORS]:
@@ -230,9 +238,10 @@ def search_similar(payload: dict, limit: int = 3) -> list[dict]:
 
 def status() -> dict:
     return {
-        "ready":      _ready,
-        "qdrant_url": QDRANT_URL,
-        "embed_model": EMBED_MODEL,
-        "embed_url":  EMBED_BASE_URL,
-        "error":      _error or None,
+        "ready":        _ready,
+        "qdrant_url":   QDRANT_URL,
+        "qdrant_authed": bool(QDRANT_API_KEY),   # 是否配了 API key（不暴露 key 本身）
+        "embed_model":  EMBED_MODEL,
+        "embed_url":    EMBED_BASE_URL,
+        "error":        _error or None,
     }
