@@ -9,15 +9,21 @@ REM ---------------------------------------------------------------------------
 REM Launcher for the visitor-analysis AgentScope sidecar.
 REM First run: creates .venv + pip install. Subsequent runs: a few seconds.
 REM
-REM Set env vars BEFORE running (required / optional as noted):
-REM   [required] LLM key for gray-zone classify:
-REM     set VA_LLM_BASE_URL=https://your-platform/v1
+REM LLM mode: Java config-center 4sapi credentials take highest priority (no env needed).
+REM Env vars below are FALLBACK only (used when Java does not pass llm config).
+REM
+REM   [fallback] Cloud LLM via 4sapi (default):
+REM     set VA_LLM_BASE_URL=https://4sapi.com/v1
 REM     set VA_LLM_API_KEY=sk-xxxx
-REM     set VA_LLM_MODEL=your-model-name
+REM     set VA_LLM_MODEL=gpt-4o-mini
+REM   [fallback] Switch to local Ollama:
+REM     set VA_LLM_BASE_URL=http://localhost:11434/v1
+REM     set VA_LLM_API_KEY=ollama
+REM     set VA_LLM_MODEL=qwen2.5:7b-instruct
 REM   [optional] Qdrant vector DB for semantic recall:
 REM     set QDRANT_URL=http://localhost:6333          (or cloud https://xyz.cloud.qdrant.io:6333)
 REM     set QDRANT_API_KEY=                           (cloud API key; empty = no auth)
-REM   [optional] Ollama bge-m3 embedding:
+REM   [optional] Ollama bge-m3 embedding (for vector recall):
 REM     set VA_EMBED_BASE_URL=http://localhost:11434/v1
 REM   [optional] AgentScope Studio trace visualization:
 REM     set AS_STUDIO_URL=http://localhost:3000
@@ -43,8 +49,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if not defined VA_LLM_BASE_URL set VA_LLM_BASE_URL=https://api.deepseek.com/v1
-if not defined VA_LLM_MODEL set VA_LLM_MODEL=deepseek-chat
+REM Default fallback: 4sapi cloud (Java config-center credentials take priority in practice)
+if not defined VA_LLM_BASE_URL set VA_LLM_BASE_URL=https://4sapi.com/v1
+if not defined VA_LLM_MODEL set VA_LLM_MODEL=gpt-4o-mini
 
 echo [start] VA_LLM_BASE_URL=%VA_LLM_BASE_URL% VA_LLM_MODEL=%VA_LLM_MODEL%
 if not defined VA_LLM_API_KEY echo [start] WARNING: VA_LLM_API_KEY not set - gray-zone classify will return UNKNOWN.

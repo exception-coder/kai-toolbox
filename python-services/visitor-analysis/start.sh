@@ -2,15 +2,21 @@
 # Launcher for the visitor-analysis AgentScope sidecar (macOS / Linux). Mirrors start.bat.
 # First run: creates .venv + pip install. Subsequent runs: a few seconds.
 #
-# Set env vars BEFORE running (required / optional as noted):
-#   [required] LLM key for gray-zone classify:
-#     export VA_LLM_BASE_URL=https://your-platform/v1
+# LLM mode: Java config-center 4sapi credentials take highest priority (no env needed).
+# Env vars below are FALLBACK only (used when Java does not pass llm config).
+#
+#   [fallback] Cloud LLM via 4sapi (default):
+#     export VA_LLM_BASE_URL=https://4sapi.com/v1
 #     export VA_LLM_API_KEY=sk-xxxx
-#     export VA_LLM_MODEL=your-model-name
+#     export VA_LLM_MODEL=gpt-4o-mini
+#   [fallback] Switch to local Ollama:
+#     export VA_LLM_BASE_URL=http://localhost:11434/v1
+#     export VA_LLM_API_KEY=ollama
+#     export VA_LLM_MODEL=qwen2.5:7b-instruct
 #   [optional] Qdrant vector DB for semantic recall:
 #     export QDRANT_URL=http://localhost:6333          # or cloud https://xyz.cloud.qdrant.io:6333
 #     export QDRANT_API_KEY=                           # cloud API key; empty = no auth
-#   [optional] Ollama bge-m3 embedding:
+#   [optional] Ollama bge-m3 embedding (for vector recall):
 #     export VA_EMBED_BASE_URL=http://localhost:11434/v1
 #   [optional] AgentScope Studio trace visualization:
 #     export AS_STUDIO_URL=http://localhost:3000
@@ -31,8 +37,9 @@ echo "[setup] installing/upgrading dependencies..."
 pip install -q --upgrade pip
 pip install -q -r requirements.txt || { echo "[setup] pip install failed."; exit 1; }
 
-: "${VA_LLM_BASE_URL:=https://api.deepseek.com/v1}"
-: "${VA_LLM_MODEL:=deepseek-chat}"
+# Default fallback: 4sapi cloud (Java config-center credentials take priority in practice)
+: "${VA_LLM_BASE_URL:=https://4sapi.com/v1}"
+: "${VA_LLM_MODEL:=gpt-4o-mini}"
 export VA_LLM_BASE_URL VA_LLM_MODEL
 
 echo "[start] VA_LLM_BASE_URL=$VA_LLM_BASE_URL VA_LLM_MODEL=$VA_LLM_MODEL"
