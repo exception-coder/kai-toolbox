@@ -326,6 +326,36 @@ const vibeCodingStakeholderViews: StakeholderArchitectureViewsProps = {
     { level: 'Component', audience: '开发', items: ['会话服务', '事件缓冲', '权限网关', '恢复机制'] },
     { level: 'Code', audience: '程序员', items: ['ClaudeChatService', 'SidecarClient', 'SessionManager'] },
   ],
+  chain: [
+    { layer: '用户 / 业务入口', color: 'blue', items: ['开发者手机', '平板', '浏览器'], note: '随时随地编码' },
+    { layer: '前端展示层', color: 'blue', items: ['React 聊天界面', '权限确认弹窗', '会话列表', '流式输出渲染'] },
+    { layer: 'API / WebSocket 层', color: 'violet', items: ['Spring Boot REST', 'WS①（前端↔Java）', 'SSE 降级备选', '鉴权 JWT'] },
+    { layer: '会话编排层', color: 'violet', items: ['ClaudeChatService', '会话状态机', '断线恢复 resume', '事件缓冲区'] },
+    { layer: 'AI Agent 层', color: 'orange', items: ['WS②（Java↔Node sidecar）', 'Node SessionManager', 'Claude SDK query()', '工具权限回调'] },
+    { layer: 'Agent 工具执行层', color: 'emerald', items: ['read/write/bash 工具', '本地代码仓库', '工作目录 cwd', 'canUseTool 权限门禁'] },
+    { layer: '数据持久层', color: 'rose', items: ['SQLite · 会话记录', 'SDK sessionId（续接）', '项目工作目录映射'] },
+    { layer: '可观测性层', color: 'slate', items: ['SSE 阶段推送', '工具调用日志', 'LLM 监控（toolbox-llm）'] },
+  ],
+  deps: [
+    {
+      category: 'AI 模型 / SDK', color: 'orange',
+      items: [
+        { name: 'Claude Agent SDK（Node.js）', note: 'Anthropic 官方，query() 驱动 Agent loop' },
+        { name: 'Codex CLI（可选）', note: 'OpenAI 编码 Agent，同 sidecar 接口接入' },
+      ],
+    },
+    {
+      category: '协议 / 传输', color: 'violet',
+      items: [
+        { name: 'WebSocket（双向）', note: 'WS① 前端↔Java / WS② Java↔sidecar，单连接多路复用' },
+        { name: 'SSE（降级）', note: 'WS 不可用时备选单向推送' },
+      ],
+    },
+    {
+      category: '数据库', color: 'rose',
+      items: [{ name: 'SQLite（本地）', note: '会话记录、工作目录映射，WAL 模式' }],
+    },
+  ],
 }
 
 export function VibeCodingArch() {

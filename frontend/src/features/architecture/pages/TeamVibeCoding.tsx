@@ -133,6 +133,38 @@ const teamVibeStakeholderViews: StakeholderArchitectureViewsProps = {
     { level: 'Component', audience: '开发', items: ['文档门禁', '编码规范', '知识检索', 'Review 流程'] },
     { level: 'Code', audience: '程序员', items: ['skills', 'hooks', 'MCP server', '模板文件'] },
   ],
+  chain: [
+    { layer: '需求 / 业务入口', color: 'blue', items: ['产品需求', 'Bug 报告', '重构任务'], note: 'SDD 规格先行，无规格不生成代码' },
+    { layer: '规格设计层', color: 'violet', items: ['design-doc-required 门禁', '设计文档（-current.md）', '接口契约（-api.md）', 'coding 摘要（-coding.md）'] },
+    { layer: '知识供给层', color: 'amber', items: ['项目知识图谱', '业务术语表', '跨项目拓扑', '历史设计文档'] },
+    { layer: 'AI 生产层', color: 'orange', items: ['Claude Code / Codex', 'coding-standards 规范', '编码门禁 hooks', 'pre-implementation-orientation'] },
+    { layer: '质量护栏层', color: 'emerald', items: ['架构 lint', 'code-review skill', 'typecheck / mvn compile', 'AI Review + 人工 Review'] },
+    { layer: '交付 / 上线层', color: 'violet', items: ['git commit（逐变更）', 'CI 门禁', '发布 / 部署'] },
+    { layer: '沉淀 / 闭环层', color: 'rose', items: ['daily-work-log', '设计文档更新', '规则插件迭代', '知识图谱补录'] },
+  ],
+  deps: [
+    {
+      category: 'AI 工具', color: 'orange',
+      items: [
+        { name: 'Claude Code', note: '主力编码 Agent，规则插件 team-standards 挂载' },
+        { name: 'Codex（可选）', note: 'OpenAI 编码 Agent，通过 sidecar 协议接入' },
+      ],
+    },
+    {
+      category: '规范 / 插件', color: 'violet',
+      items: [
+        { name: 'team-standards 插件', note: '30+ skills 强制触发，覆盖设计→编码→提交全链路' },
+        { name: 'MCP Server', note: '暴露工具能力给 Agent，跨项目能力复用' },
+      ],
+    },
+    {
+      category: '知识库', color: 'amber',
+      items: [
+        { name: '用户目录 ai-docs/', note: '设计文档、知识图谱、工作日志的统一知识库' },
+        { name: '项目 docs/', note: '终版设计文档进仓，Git 管理历史' },
+      ],
+    },
+  ],
 }
 
 function LayerRow({ k, v, tone }: { k: string; v: string; tone?: 'real' }) {

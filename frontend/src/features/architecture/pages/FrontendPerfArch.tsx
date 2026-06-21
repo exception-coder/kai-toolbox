@@ -147,6 +147,37 @@ const frontendPerfStakeholderViews: StakeholderArchitectureViewsProps = {
     { level: 'Component', audience: '开发', items: ['featureRegistry', 'React.lazy', 'Suspense', '缓存配置'] },
     { level: 'Code', audience: '程序员', items: ['index.tsx', 'App.tsx', 'SpaFallbackConfig'] },
   ],
+  chain: [
+    { layer: '用户 / 业务入口', color: 'blue', items: ['浏览器（PC / 手机）', '首次访问', '重复访问'], note: '重复访问走缓存' },
+    { layer: '静态资源服务层', color: 'slate', items: ['nginx / Spring Boot 静态托管', 'index.html（no-cache）', 'hash 资产（immutable）'] },
+    { layer: '浏览器缓存层', color: 'emerald', items: ['Service Worker（仅可安装壳）', 'HTTP 缓存（Cache-Control）', 'hash 命中即不下载'] },
+    { layer: 'React 应用层', color: 'violet', items: ['App.tsx 路由分发', 'featureRegistry（eager 元数据）', 'Suspense 加载兜底'] },
+    { layer: '代码分割层', color: 'orange', items: ['React.lazy（每个 feature）', 'Vite chunk 分割', '工具页按需加载（路由触发）'] },
+    { layer: '构建产物层', color: 'rose', items: ['Vite 构建', 'hash 文件名', 'frontend/dist → BOOT-INF/static'] },
+  ],
+  deps: [
+    {
+      category: '构建工具', color: 'orange',
+      items: [
+        { name: 'Vite 6', note: '构建 + 开发代理，chunk 分割输出 hash 文件名' },
+        { name: 'TypeScript / tsc', note: '类型检查门禁，构建前强制通过' },
+      ],
+    },
+    {
+      category: '运行时框架', color: 'violet',
+      items: [
+        { name: 'React 19 + React Router v7', note: 'lazy/Suspense 路由分割基础' },
+        { name: 'TanStack Query v5', note: '数据请求缓存层' },
+      ],
+    },
+    {
+      category: '静态托管', color: 'slate',
+      items: [
+        { name: 'Spring Boot（生产）', note: 'BOOT-INF/classes/static，fat jar 内嵌' },
+        { name: 'Vite dev server（开发）', note: ':5173 代理 /api 到 :8080' },
+      ],
+    },
+  ],
 }
 
 export function FrontendPerfArch() {

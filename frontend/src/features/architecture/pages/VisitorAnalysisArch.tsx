@@ -201,6 +201,44 @@ const visitorTechMap: TechArchitectureMapProps = {
 const visitorStakeholderViews: StakeholderArchitectureViewsProps = {
   title: '面向不同角色的架构视图',
   summary: '先用业务语言讲清价值、能力和边界，再下钻到技术实现，避免一上来就进入 sidecar / SDK / trace 细节。',
+  chain: [
+    { layer: '用户 / 业务入口', color: 'blue', items: ['前台接待员', '销售', '客服'], note: '访客到访时登记' },
+    { layer: '前端展示层', color: 'blue', items: ['访客登记表单', '实时分析结果', '历史记录列表', 'sidecar 在线状态'] },
+    { layer: 'API 层', color: 'violet', items: ['Spring Boot REST', 'POST /analyze-sync', 'GET /verdicts', 'SSE 进度流'] },
+    { layer: '核心编排层', color: 'violet', items: ['VisitorAnalysisController', 'VerdictService', 'Normalizer（手机/公司归一化）'] },
+    { layer: '规则引擎层（确定性优先）', color: 'emerald', items: ['CompetitorRepo（竞品优先）', 'CustomerRepo（客户库匹配）', 'VisitorRepo（历史来访次数）'], note: '命中即定论，不调 LLM' },
+    { layer: 'AI 辅助层（灰区）', color: 'orange', items: ['SidecarClient（HTTP）', 'Python FastAPI /analyze', 'enrich_company（企业增强桩）', 'LLM 结构化输出（DeepSeek）'], note: '仅规则无法定论时触发' },
+    { layer: '裁决层（代码兜底）', color: 'violet', items: ['枚举校验 IdentityType.parse', '置信度 clamp(0,1)', 'needsReview 阈值判定', '降级 UNKNOWN'] },
+    { layer: '数据持久层', color: 'rose', items: ['SQLite · visitor（原始访客）', 'SQLite · verdict（判别结论）', 'SQLite · customer/competitor/feedback'] },
+    { layer: '可观测性层', color: 'slate', items: ['判别理由 rationale', 'decidedBy 字段（rule/llm/degraded）', 'AgentScope Studio（接入后 trace/token）', '人工复核队列'] },
+  ],
+  deps: [
+    {
+      category: '数据库', color: 'rose',
+      items: [
+        { name: 'SQLite（本地）', note: '5张表：visitor/verdict/customer/competitor/feedback，WAL 模式' },
+      ],
+    },
+    {
+      category: 'AI 模型服务', color: 'orange',
+      items: [
+        { name: 'DeepSeek API（当前）', note: 'OpenAI 兼容，通过 VA_LLM_BASE_URL 配置' },
+        { name: 'AgentScope SDK（占位）', note: 'Python sidecar 中的接入点，_classify_with_agentscope()' },
+      ],
+    },
+    {
+      category: '企业数据（待接入）', color: 'amber',
+      items: [
+        { name: '企查查 / 天眼查', note: '企业数据增强 SDK，当前为模拟桩，接口签名稳定' },
+      ],
+    },
+    {
+      category: '可观测性', color: 'slate',
+      items: [
+        { name: 'AgentScope Studio :3000', note: 'OTLP 接收端，接入后展示 token/cost/trace' },
+      ],
+    },
+  ],
   capabilities: [
     { title: '访客识别', items: ['客户', '竞品', '供应商'] },
     { title: '关系判断', items: ['新客', '熟客', '流失'] },
