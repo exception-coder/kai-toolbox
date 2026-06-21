@@ -183,39 +183,40 @@ const toneStyles = {
 } as const
 
 /**
- * 拓扑图：服务节点 + 有向依赖边
+ * 拓扑图：服务节点 + 有向依赖边（已反映 AgentScope 落地后的真实状态）
  *
- * 关键设计：Python sidecar 通过 AgentScope SDK 调模型（AgentScope 负责路由 + 自动上报
- * OTel trace 到 Studio）。当前 _classify_with_agentscope 为占位 → 回退到 OpenAI SDK，
- * 但节点/边按目标架构绘制，虚线=待接入。Studio 的 OTLP 来自 AgentScope SDK，非 Spring Boot。
+ * sidecar → AgentScope SDK → LLM：实线（已落地）
+ *   AgentScope OpenAIChatWrapper 接管 LLM 调用，失败时自动回退 OpenAI SDK 保底。
+ * AgentScope SDK → Studio：虚线（需配环境变量 AS_STUDIO_URL，不配则不推送）
+ * 企业增强 API：虚线（当前为桩，待接入真实工商数据）
  */
 const visitorTopoNodes: TopoNode[] = [
-  { id: 'ui',          label: '访客登记 UI',       sub: 'React Feature',         type: 'ui',       x: 50, y: 8  },
-  { id: 'api',         label: 'Spring Boot API',   sub: ':8080',                 type: 'api',      x: 50, y: 26 },
-  { id: 'sqlite',      label: 'SQLite',            sub: 'visitor/verdict/alias', type: 'db',       x: 18, y: 52 },
-  { id: 'sidecar',     label: 'Python sidecar',    sub: 'FastAPI :18100',        type: 'service',  x: 52, y: 52 },
-  { id: 'as_sdk',      label: 'AgentScope SDK',    sub: '模型路由 + OTel',        type: 'ai',       x: 74, y: 69 },
-  { id: 'llm',         label: 'DeepSeek / 模型',   sub: 'OpenAI Compatible',     type: 'ai',       x: 52, y: 78 },
-  { id: 'studio',      label: 'AgentScope Studio', sub: ':3000',                 type: 'monitor',  x: 88, y: 52 },
-  { id: 'enrich',      label: '企业增强 API',       sub: '桩（待接入）',           type: 'external', x: 88, y: 80 },
+  { id: 'ui',      label: '访客登记 UI',       sub: 'React Feature',         type: 'ui',       x: 50, y: 8  },
+  { id: 'api',     label: 'Spring Boot API',   sub: ':8080',                 type: 'api',      x: 50, y: 26 },
+  { id: 'sqlite',  label: 'SQLite',            sub: 'visitor/verdict/alias', type: 'db',       x: 18, y: 52 },
+  { id: 'sidecar', label: 'Python sidecar',    sub: 'FastAPI :18100',        type: 'service',  x: 52, y: 52 },
+  { id: 'as_sdk',  label: 'AgentScope SDK',    sub: 'OpenAIChatWrapper',     type: 'ai',       x: 74, y: 69 },
+  { id: 'llm',     label: 'DeepSeek / 模型',   sub: 'OpenAI Compatible',     type: 'ai',       x: 52, y: 78 },
+  { id: 'studio',  label: 'AgentScope Studio', sub: ':3000（AS_STUDIO_URL）', type: 'monitor',  x: 88, y: 52 },
+  { id: 'enrich',  label: '企业增强 API',       sub: '桩（待接入）',           type: 'external', x: 88, y: 80 },
 ]
 
 const visitorTopoEdges: TopoEdge[] = [
-  { from: 'ui',      to: 'api',     label: 'REST',         bidirectional: true },
-  { from: 'api',     to: 'sqlite',  label: 'JDBC'  },
-  { from: 'api',     to: 'sidecar', label: 'HTTP'  },
-  // sidecar → AgentScope SDK → 模型（目标架构，当前 AS SDK 占位中）
-  { from: 'sidecar', to: 'as_sdk',  label: 'AgentScope',   dashed: true },
-  { from: 'as_sdk',  to: 'llm',     label: '模型调用',      dashed: true },
-  // AgentScope SDK 自动上报 OTel trace 到 Studio
-  { from: 'as_sdk',  to: 'studio',  label: 'OTLP',         dashed: true },
+  { from: 'ui',      to: 'api',     label: 'REST',      bidirectional: true },
+  { from: 'api',     to: 'sqlite',  label: 'JDBC'       },
+  { from: 'api',     to: 'sidecar', label: 'HTTP'       },
+  // AgentScope SDK 已接入（实线）：接管 LLM 调用 + OTel 计量
+  { from: 'sidecar', to: 'as_sdk',  label: 'AS SDK'     },
+  { from: 'as_sdk',  to: 'llm',     label: '模型调用'    },
+  // Studio 需配 AS_STUDIO_URL（虚线=可选）
+  { from: 'as_sdk',  to: 'studio',  label: 'OTLP',      dashed: true },
   // 企业增强（桩，待接入）
-  { from: 'sidecar', to: 'enrich',  label: 'HTTP',         dashed: true },
+  { from: 'sidecar', to: 'enrich',  label: 'HTTP',      dashed: true },
 ]
 
 const visitorTechMap: TechArchitectureMapProps = {
   title: '访客分析技术架构全景',
-  subtitle: '用一张图把前端、Java 主服务、确定性匹配、Python AgentScope sidecar、监控和 SQLite 持久化串起来。',
+  subtitle: '前端 → Java 主服务（确定性匹配）→ Python sidecar（AgentScope SDK 接管 LLM）→ SQLite 持久化；Studio 接收 OTel trace。',
   top: ['React Feature', 'Spring Boot API', 'Python FastAPI', 'SQLite / AgentScope Studio'],
   clients: ['VisitorAnalysisPage', 'REST API', 'SSE 进度流', 'SidecarClient', 'AgentScope Studio'],
   left: ['访客登记', '历史记录', 'sidecar 状态', '人工复核', '反馈闭环'],
@@ -223,7 +224,7 @@ const visitorTechMap: TechArchitectureMapProps = {
   groups: [
     { title: '接入与编排', tone: 'orange', nodes: ['VisitorAnalysisController', 'VerdictService', '任务进度广播', '降级兜底'] },
     { title: '确定性匹配', tone: 'green', nodes: ['Normalizer', 'CompetitorRepo', 'CustomerRepo', 'VisitorRepo'] },
-    { title: '灰区智能判别', tone: 'purple', nodes: ['Python /analyze', 'enrich_company', 'classify JSON', 'AgentScope 接入点'] },
+    { title: '灰区智能判别', tone: 'purple', nodes: ['Python /analyze', 'enrich_company', 'AgentScope OpenAIChatWrapper', 'OpenAI SDK 保底兜底'] },
     { title: '裁决与存储', tone: 'cyan', nodes: ['枚举校验', '置信度 clamp', 'needsReview', 'VerdictRepo.insert'] },
   ],
   bottom: ['HTTP', 'SSE', 'OpenAI Compatible', 'AgentScope Trace', 'SQLite WAL', '人工反馈'],
@@ -239,10 +240,10 @@ const visitorStakeholderViews: StakeholderArchitectureViewsProps = {
     { layer: 'API 层', color: 'violet', items: ['Spring Boot REST', 'POST /analyze-sync', 'GET /verdicts', 'SSE 进度流'] },
     { layer: '核心编排层', color: 'violet', items: ['VisitorAnalysisController', 'VerdictService', 'Normalizer（手机/公司归一化）'] },
     { layer: '规则引擎层（确定性优先）', color: 'emerald', items: ['CompetitorRepo（竞品优先）', 'CustomerRepo（客户库匹配）', 'VisitorRepo（历史来访次数）'], note: '命中即定论，不调 LLM' },
-    { layer: 'AI 辅助层（灰区）', color: 'orange', items: ['SidecarClient（HTTP）', 'Python FastAPI /analyze', 'enrich_company（企业增强桩）', 'LLM 结构化输出（DeepSeek）'], note: '仅规则无法定论时触发' },
+    { layer: 'AI 辅助层（灰区）', color: 'orange', items: ['SidecarClient（HTTP）', 'AgentScope OpenAIChatWrapper', 'enrich_company（企业增强桩）', 'OTel span 自动上报 Studio'], note: '仅规则无法定论时触发；AS SDK 失败自动回退 OpenAI SDK' },
     { layer: '裁决层（代码兜底）', color: 'violet', items: ['枚举校验 IdentityType.parse', '置信度 clamp(0,1)', 'needsReview 阈值判定', '降级 UNKNOWN'] },
     { layer: '数据持久层', color: 'rose', items: ['SQLite · visitor（原始访客）', 'SQLite · verdict（判别结论）', 'SQLite · customer/competitor/feedback'] },
-    { layer: '可观测性层', color: 'slate', items: ['判别理由 rationale', 'decidedBy 字段（rule/llm/degraded）', 'AgentScope Studio（接入后 trace/token）', '人工复核队列'] },
+    { layer: '可观测性层', color: 'slate', items: ['判别理由 rationale', 'decidedBy 字段（rule/llm/degraded）', 'AgentScope Studio（配 AS_STUDIO_URL 即可）', '人工复核队列'] },
   ],
   deps: [
     {
@@ -254,8 +255,8 @@ const visitorStakeholderViews: StakeholderArchitectureViewsProps = {
     {
       category: 'AI 模型服务', color: 'orange',
       items: [
-        { name: 'DeepSeek API（当前）', note: 'OpenAI 兼容，通过 VA_LLM_BASE_URL 配置' },
-        { name: 'AgentScope SDK（占位）', note: 'Python sidecar 中的接入点，_classify_with_agentscope()' },
+        { name: 'AgentScope SDK（已接入）', note: 'OpenAIChatWrapper 接管 LLM 调用；失败自动回退 OpenAI SDK' },
+        { name: 'DeepSeek / 任意兼容模型', note: '通过 VA_LLM_BASE_URL + VA_LLM_MODEL 配置，AS SDK 透明路由' },
       ],
     },
     {
@@ -267,7 +268,8 @@ const visitorStakeholderViews: StakeholderArchitectureViewsProps = {
     {
       category: '可观测性', color: 'slate',
       items: [
-        { name: 'AgentScope Studio :3000', note: 'OTLP 接收端，接入后展示 token/cost/trace' },
+        { name: 'AgentScope Studio :3000', note: '配置 AS_STUDIO_URL 后自动接收 OTel span，展示 token/cost/trace' },
+        { name: '自动回退日志', note: 'AS SDK 不可用时 warn 日志 + OpenAI SDK 兜底，不影响主流程' },
       ],
     },
   ],
