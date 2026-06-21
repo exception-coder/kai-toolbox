@@ -182,24 +182,35 @@ const toneStyles = {
   },
 } as const
 
-/* 拓扑图：服务节点 + 有向依赖边 */
+/**
+ * 拓扑图：服务节点 + 有向依赖边
+ *
+ * 关键设计：Python sidecar 通过 AgentScope SDK 调模型（AgentScope 负责路由 + 自动上报
+ * OTel trace 到 Studio）。当前 _classify_with_agentscope 为占位 → 回退到 OpenAI SDK，
+ * 但节点/边按目标架构绘制，虚线=待接入。Studio 的 OTLP 来自 AgentScope SDK，非 Spring Boot。
+ */
 const visitorTopoNodes: TopoNode[] = [
-  { id: 'ui',       label: '访客登记 UI',       sub: 'React Feature',       type: 'ui',       x: 50, y: 9  },
-  { id: 'api',      label: 'Spring Boot API',   sub: ':8080',               type: 'api',      x: 50, y: 28 },
-  { id: 'sqlite',   label: 'SQLite',            sub: 'visitor/verdict/…',   type: 'db',       x: 16, y: 52 },
-  { id: 'sidecar',  label: 'Python sidecar',    sub: 'FastAPI :18100',      type: 'service',  x: 50, y: 55 },
-  { id: 'studio',   label: 'AgentScope Studio', sub: ':3000 OTLP',          type: 'monitor',  x: 84, y: 52 },
-  { id: 'llm',      label: 'DeepSeek / 模型',   sub: 'OpenAI Compatible',   type: 'ai',       x: 50, y: 80 },
-  { id: 'enrich',   label: '企业增强 API',       sub: '桩（待接入）',         type: 'external', x: 84, y: 78 },
+  { id: 'ui',          label: '访客登记 UI',       sub: 'React Feature',         type: 'ui',       x: 50, y: 8  },
+  { id: 'api',         label: 'Spring Boot API',   sub: ':8080',                 type: 'api',      x: 50, y: 26 },
+  { id: 'sqlite',      label: 'SQLite',            sub: 'visitor/verdict/alias', type: 'db',       x: 18, y: 52 },
+  { id: 'sidecar',     label: 'Python sidecar',    sub: 'FastAPI :18100',        type: 'service',  x: 52, y: 52 },
+  { id: 'as_sdk',      label: 'AgentScope SDK',    sub: '模型路由 + OTel',        type: 'ai',       x: 74, y: 69 },
+  { id: 'llm',         label: 'DeepSeek / 模型',   sub: 'OpenAI Compatible',     type: 'ai',       x: 52, y: 78 },
+  { id: 'studio',      label: 'AgentScope Studio', sub: ':3000',                 type: 'monitor',  x: 88, y: 52 },
+  { id: 'enrich',      label: '企业增强 API',       sub: '桩（待接入）',           type: 'external', x: 88, y: 80 },
 ]
 
 const visitorTopoEdges: TopoEdge[] = [
-  { from: 'ui',      to: 'api',     label: 'REST',        bidirectional: true },
+  { from: 'ui',      to: 'api',     label: 'REST',         bidirectional: true },
   { from: 'api',     to: 'sqlite',  label: 'JDBC'  },
   { from: 'api',     to: 'sidecar', label: 'HTTP'  },
-  { from: 'api',     to: 'studio',  label: 'OTLP', dashed: true },
-  { from: 'sidecar', to: 'llm',     label: 'OpenAI API'   },
-  { from: 'sidecar', to: 'enrich',  label: 'HTTP', dashed: true },
+  // sidecar → AgentScope SDK → 模型（目标架构，当前 AS SDK 占位中）
+  { from: 'sidecar', to: 'as_sdk',  label: 'AgentScope',   dashed: true },
+  { from: 'as_sdk',  to: 'llm',     label: '模型调用',      dashed: true },
+  // AgentScope SDK 自动上报 OTel trace 到 Studio
+  { from: 'as_sdk',  to: 'studio',  label: 'OTLP',         dashed: true },
+  // 企业增强（桩，待接入）
+  { from: 'sidecar', to: 'enrich',  label: 'HTTP',         dashed: true },
 ]
 
 const visitorTechMap: TechArchitectureMapProps = {
