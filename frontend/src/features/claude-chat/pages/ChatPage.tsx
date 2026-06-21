@@ -973,8 +973,9 @@ export function ChatPage() {
                   if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickSlash(slashFiltered[slashActive]); return }
                   if (e.key === 'Escape') { e.preventDefault(); setSlashDismissed(true); return }
                 }
-                // Enter 发送，Shift+Enter 换行（与分屏 SessionPane 一致）
+                // 触屏（移动端）：回车换行、由发送按钮发；桌面：Enter 发送、Shift+Enter 换行
                 if (e.key === 'Enter' && !e.shiftKey) {
+                  if (typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches) return
                   e.preventDefault()
                   if (!chat.running) submit()
                 }

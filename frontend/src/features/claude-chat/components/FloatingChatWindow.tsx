@@ -459,7 +459,7 @@ export function FloatingChatWindow() {
             value={draft}
             onChange={e => setDraft(e.target.value)}
             onPaste={onPaste}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { if (typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches) return; e.preventDefault(); submit() } }}
           />
           {chat.running ? (
             <button type="button" onClick={chat.interrupt} aria-label="中断"

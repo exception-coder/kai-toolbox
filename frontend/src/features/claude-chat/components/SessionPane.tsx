@@ -263,7 +263,10 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
             }}
             onPaste={handlePaste}
             onKeyDown={e => {
-              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!chat.running) submit() }
+              if (e.key === 'Enter' && !e.shiftKey) {
+                if (typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches) return // 触屏回车换行
+                e.preventDefault(); if (!chat.running) submit()
+              }
             }}
             rows={1}
             placeholder="发消息…（可粘贴图片）"
