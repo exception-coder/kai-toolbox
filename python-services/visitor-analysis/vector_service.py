@@ -58,12 +58,20 @@ def _get_client():
         if _ready:
             return _client
         try:
+            from urllib.parse import urlparse
             from qdrant_client import QdrantClient
             from qdrant_client.models import Distance, VectorParams
             # 云端 Qdrant 需要 API key；本地 Docker 不需要（留空即可）
             kwargs: dict = {"url": QDRANT_URL, "timeout": 5}
             if QDRANT_API_KEY:
                 kwargs["api_key"] = QDRANT_API_KEY
+            # 本地 Qdrant 必须直连：绕开系统/环境代理（如 Clash 127.0.0.1:7897）。
+            # 否则 httpx 会按 HTTP(S)_PROXY 把 localhost:6333 请求转给代理，代理连不上上游返回
+            # 502 Bad Gateway。trust_env=False 透传到底层 httpx.Client，让它忽略代理环境变量。
+            # 云端 URL 不动（保持默认 trust_env=True），以便仍可经代理出网。
+            host = (urlparse(QDRANT_URL).hostname or "").lower()
+            if host in ("localhost", "::1") or host.startswith("127."):
+                kwargs["trust_env"] = False
             c = QdrantClient(**kwargs)
             # 确保两个集合存在
             existing = {col.name for col in c.get_collections().collections}
