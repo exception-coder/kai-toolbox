@@ -125,6 +125,32 @@ public class VisitorAnalysisController {
         return customerRefRepo.list();
     }
 
+    /**
+     * 一键把历史客户资料库全量同步到向量库（Qdrant）：逐条 embed + upsert，供灰区语义召回。
+     * sidecar 离线直接返回提示；逐条统计成功/失败，custId 作为稳定 point id，重复同步走 upsert 不重复。
+     */
+    @PostMapping("/customer-refs/sync-vector")
+    public Map<String, Object> syncCustomerRefsToVector() {
+        if (!sidecar.ping()) {
+            return Map.of("ok", false, "total", 0, "indexed", 0, "failed", 0,
+                    "message", "AgentScope sidecar 未在线，无法同步向量库");
+        }
+        List<CustomerRefView> all = customerRefRepo.list();
+        int indexed = 0;
+        for (CustomerRefView c : all) {
+            boolean ok = sidecar.indexCustomerSync(
+                    c.custId(), c.custName(),
+                    normalizer.company(c.custName()),
+                    c.custAddr(),
+                    normalizer.addr(c.custAddr()),
+                    c.level());
+            if (ok) indexed++;
+        }
+        int failed = all.size() - indexed;
+        log.info("[visitor-analysis] 客户底库同步向量库: total={} indexed={} failed={}", all.size(), indexed, failed);
+        return Map.of("ok", true, "total", all.size(), "indexed", indexed, "failed", failed);
+    }
+
     @GetMapping("/competitors")
     public List<CompetitorDto> competitors() {
         return competitorRepo.list();

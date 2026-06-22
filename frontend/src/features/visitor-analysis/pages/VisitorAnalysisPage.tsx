@@ -165,6 +165,8 @@ export function VisitorAnalysisPage() {
   const [recent, setRecent] = useState<VerdictView[]>([])
   const [customers, setCustomers] = useState<CustomerRef[]>([])
   const [sidecarOnline, setSidecarOnline] = useState<boolean | null>(null)
+  const [syncing, setSyncing] = useState(false)
+  const [syncMsg, setSyncMsg] = useState<string | null>(null)
 
   const loadRecent = () => {
     http<VerdictView[]>('/visitor-analysis/verdicts?limit=20')
@@ -200,6 +202,30 @@ export function VisitorAnalysisPage() {
       setError(e instanceof Error ? e.message : '分析失败')
     } finally {
       setAnalyzing(false)
+    }
+  }
+
+  // 一键把历史客户资料库全量 embed 后写入 Qdrant 向量库，供灰区语义召回。
+  const syncVector = async () => {
+    setSyncing(true)
+    setSyncMsg(null)
+    try {
+      const r = await http<{ ok: boolean; total: number; indexed: number; failed: number; message?: string }>(
+        '/visitor-analysis/customer-refs/sync-vector',
+        { method: 'POST' },
+      )
+      if (!r.ok) {
+        setSyncMsg(r.message || '同步失败')
+      } else {
+        setSyncMsg(
+          `已同步 ${r.indexed}/${r.total} 条到向量库` +
+            (r.failed ? `，失败 ${r.failed} 条（检查嵌入模型 Ollama bge-m3 与 Qdrant 是否可用）` : ''),
+        )
+      }
+    } catch (e) {
+      setSyncMsg(e instanceof Error ? e.message : '同步失败')
+    } finally {
+      setSyncing(false)
     }
   }
 
@@ -278,15 +304,28 @@ export function VisitorAnalysisPage() {
       )}
 
       <section className="space-y-2">
-        <div className="flex items-baseline justify-between">
+        <div className="flex items-baseline justify-between gap-3">
           <h2 className="text-sm font-semibold text-muted-foreground">
             历史客户资料库（去重检索底库）
           </h2>
-          <span className="text-xs text-muted-foreground">{customers.length} 条</span>
+          <div className="flex items-center gap-3">
+            <button
+              className="rounded-md border px-3 py-1.5 text-xs font-medium transition hover:bg-muted disabled:opacity-50"
+              disabled={syncing || customers.length === 0}
+              onClick={syncVector}
+              title="把下方全部客户资料 embed 后写入 Qdrant 向量库，供灰区语义召回"
+            >
+              {syncing ? '同步中…' : '一键同步至向量库'}
+            </button>
+            <span className="text-xs text-muted-foreground">{customers.length} 条</span>
+          </div>
         </div>
         <p className="text-xs text-muted-foreground">
           镜像原系统「客户资料」。客户新增申请会按关键字 / 名称 / 地址 / 经纬度与这些记录比对，判定是否重复客户。
         </p>
+        {syncMsg && (
+          <p className="text-xs text-emerald-600">{syncMsg}</p>
+        )}
         <div className="overflow-x-auto rounded-lg border">
           <table className="w-full min-w-[960px] text-sm">
             <thead className="bg-muted/50 text-left">

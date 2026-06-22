@@ -105,6 +105,40 @@ public class SidecarClient {
         });
     }
 
+    /**
+     * 同步索引一条客户记录到 Qdrant（{@code POST /index/customer}），返回 sidecar 是否确认入库。
+     * 与 fire-and-forget 的 {@link #indexCustomer} 区别：阻塞等回执，供「一键同步底库」逐条统计成功/失败。
+     * 传入 custId 作为 sidecar 端 point id 的稳定 key，重复同步走 upsert 不产生重复点。
+     */
+    public boolean indexCustomerSync(Long custId, String company, String companyNorm,
+                                     String companyAddr, String addrNorm, String status) {
+        if (props.getSidecarUrl().isBlank()) return false;
+        try {
+            Map<String, Object> body = new LinkedHashMap<>();
+            if (custId != null) body.put("id", custId);
+            body.put("company",      company      != null ? company      : "");
+            body.put("company_norm", companyNorm  != null ? companyNorm  : "");
+            body.put("company_addr", companyAddr  != null ? companyAddr  : "");
+            body.put("addr_norm",    addrNorm     != null ? addrNorm     : "");
+            body.put("status",       status       != null ? status       : "");
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(props.getSidecarUrl() + "/index/customer"))
+                    .timeout(Duration.ofSeconds(30))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
+                    .build();
+            HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() != 200) {
+                log.warn("[sidecar] /index/customer HTTP {}: {}", resp.statusCode(), resp.body());
+                return false;
+            }
+            return mapper.readTree(resp.body()).path("indexed").asBoolean(false);
+        } catch (Exception e) {
+            log.warn("[sidecar] indexCustomerSync 失败: {}", e.toString());
+            return false;
+        }
+    }
+
     /** {@code GET /health} 探活,失败返回 false。 */
     public boolean ping() {
         if (props.getSidecarUrl().isBlank()) return false;
