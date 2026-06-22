@@ -177,6 +177,7 @@ def index_customer(customer: dict) -> bool:
                 payload={
                     "company":      customer.get("company", ""),
                     "company_norm": customer.get("company_norm", ""),
+                    "company_addr": customer.get("company_addr", ""),   # 门牌级地址，供 LLM 判「地址高度相似」
                     "addr_norm":    customer.get("addr_norm", ""),
                     "status":       customer.get("status", ""),
                     "source":       "customer",
