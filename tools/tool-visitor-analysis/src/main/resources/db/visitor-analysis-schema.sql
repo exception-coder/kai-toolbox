@@ -38,6 +38,40 @@ CREATE INDEX IF NOT EXISTS idx_va_customer_phone_norm   ON va_customer(phone_nor
 CREATE INDEX IF NOT EXISTS idx_va_customer_company_norm ON va_customer(company_norm);
 CREATE INDEX IF NOT EXISTS idx_va_customer_addr_norm    ON va_customer(addr_norm);
 
+-- 客户资料去重参照库（V1 客户新增申请去重的检索底库）。
+-- 镜像原系统"客户资料"的字段：关键字/品牌名/客户名是名称轴信号，省市区+地址+经纬度是地址轴信号。
+-- name_norm / keyword_norm / addr_norm 是预算好的归一化匹配键(由 Normalizer 统一口径)。
+-- cust_id 是原系统客户主键,唯一,重复导入按它幂等(INSERT OR IGNORE / 按空表播种)。
+CREATE TABLE IF NOT EXISTS va_customer_ref (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    cust_id       INTEGER,                     -- 原系统客户主键(custId)
+    cust_name     TEXT,                        -- 客户名称
+    keyword       TEXT,                        -- 客户关键字(原系统去重键)
+    brand_name    TEXT,                        -- 公司(品牌)名称
+    cust_type     TEXT,                        -- 客户类型:市场/品牌/电商/供应链/贸易商/外贸
+    cust_category TEXT,                        -- 客户类别:女装等
+    biz_major     TEXT,                        -- 经营大类:服装等
+    province      TEXT,
+    city          TEXT,
+    district      TEXT,
+    cust_addr     TEXT,                        -- 客户地址(门牌级,地址轴向量主输入)
+    checkin_addr  TEXT,                        -- 打卡地址
+    lng           REAL,                        -- 经度(Haversine 距离用)
+    lat           REAL,                        -- 纬度
+    level         TEXT,                        -- 客户等级:线索库等
+    cust_property TEXT,                        -- 客户属性:普通客户等
+    creator       TEXT,                        -- 创建人
+    note          TEXT,                        -- 备注
+    name_norm     TEXT,                        -- 归一化名称键
+    keyword_norm  TEXT,                        -- 归一化关键字键
+    addr_norm     TEXT,                        -- 归一化地址键(城市+区)
+    created_at    INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_va_customer_ref_cust_id ON va_customer_ref(cust_id);
+CREATE INDEX IF NOT EXISTS idx_va_customer_ref_keyword_norm ON va_customer_ref(keyword_norm);
+CREATE INDEX IF NOT EXISTS idx_va_customer_ref_name_norm    ON va_customer_ref(name_norm);
+CREATE INDEX IF NOT EXISTS idx_va_customer_ref_addr_norm    ON va_customer_ref(addr_norm);
+
 -- 公司别名表：同一家公司可能有多个写法（"腾讯"/"Tencent"/"腾讯科技"/"TX"）。
 -- canonical_norm 是在 va_customer / va_competitor 中登记的归一化主名。
 -- alias_norm 是其他写法归一化后的值。匹配时主名 + 所有别名同时查。

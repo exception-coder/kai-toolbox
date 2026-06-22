@@ -2,9 +2,11 @@ package com.exceptioncoder.toolbox.visitoranalysis.api;
 
 import com.exceptioncoder.toolbox.common.sse.SseEmitterRegistry;
 import com.exceptioncoder.toolbox.visitoranalysis.api.dto.CompetitorDto;
+import com.exceptioncoder.toolbox.visitoranalysis.api.dto.CustomerRefView;
 import com.exceptioncoder.toolbox.visitoranalysis.api.dto.VerdictView;
 import com.exceptioncoder.toolbox.visitoranalysis.api.dto.VisitorInput;
 import com.exceptioncoder.toolbox.visitoranalysis.repository.CompetitorRepository;
+import com.exceptioncoder.toolbox.visitoranalysis.repository.CustomerRefRepository;
 import com.exceptioncoder.toolbox.visitoranalysis.repository.FeedbackRepository;
 import com.exceptioncoder.toolbox.visitoranalysis.repository.VerdictRepository;
 import com.exceptioncoder.toolbox.visitoranalysis.service.Normalizer;
@@ -28,17 +30,20 @@ public class VisitorAnalysisController {
     private final VerdictService verdictService;
     private final VerdictRepository verdictRepo;
     private final CompetitorRepository competitorRepo;
+    private final CustomerRefRepository customerRefRepo;
     private final FeedbackRepository feedbackRepo;
     private final Normalizer normalizer;
     private final SidecarClient sidecar;
     private final SseEmitterRegistry sse;
 
     public VisitorAnalysisController(VerdictService verdictService, VerdictRepository verdictRepo,
-                                     CompetitorRepository competitorRepo, FeedbackRepository feedbackRepo,
+                                     CompetitorRepository competitorRepo, CustomerRefRepository customerRefRepo,
+                                     FeedbackRepository feedbackRepo,
                                      Normalizer normalizer, SidecarClient sidecar, SseEmitterRegistry sse) {
         this.verdictService = verdictService;
         this.verdictRepo = verdictRepo;
         this.competitorRepo = competitorRepo;
+        this.customerRefRepo = customerRefRepo;
         this.feedbackRepo = feedbackRepo;
         this.normalizer = normalizer;
         this.sidecar = sidecar;
@@ -112,6 +117,12 @@ public class VisitorAnalysisController {
     public void correct(@PathVariable long id, @RequestBody CorrectRequest req) {
         feedbackRepo.add(id, req.identity(), req.relationship(), req.operator(), req.note());
         verdictRepo.clearReview(id);
+    }
+
+    /** 客户资料去重参照库,前端"历史客户资料库"表格用;也是后续去重检索的底库。 */
+    @GetMapping("/customer-refs")
+    public List<CustomerRefView> customerRefs() {
+        return customerRefRepo.list();
     }
 
     @GetMapping("/competitors")
