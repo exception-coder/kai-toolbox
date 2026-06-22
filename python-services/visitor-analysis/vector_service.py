@@ -7,11 +7,16 @@
 
 降级策略：Qdrant 不可用 / 嵌入失败 → 返回空列表，主流程继续，不抛异常。
 
-配置（环境变量）：
-  QDRANT_URL       = http://localhost:6333   Qdrant REST 地址（本地或云端均可）
+配置（环境变量，优先级从高到低）：
+  QDRANT_URL       = http://localhost:6333   Qdrant REST 完整地址（显式覆盖，最高优先）
                      云端示例: https://xyz.us-east4.gcp.cloud.qdrant.io:6333
-  QDRANT_API_KEY   = （留空）               云端 Qdrant 的 API key（本地不需要）
-                     与 Java 侧 TOOLBOX_AI_SECRETARY_QDRANT_API_KEY 共用同一个 Qdrant 实例时保持一致
+  TOOLBOX_QDRANT_HOST   = 主机/IP            复用 scripts/run-tools.conf 里与 Java/AI 秘书共用的
+                     那份配置（run-supervised.ps1 注入为进程环境变量，子进程 sidecar 自动继承）。
+                     只是主机名/IP，本服务按 REST 端口拼成 http://{host}:{port}。
+  TOOLBOX_QDRANT_HTTP_PORT = 6333            上面 host 拼 URL 用的 REST 端口（Java 侧走 gRPC 6334，
+                     本服务走 REST 6333；远端两端口都需放通）。
+  QDRANT_API_KEY / TOOLBOX_QDRANT_API_KEY = （留空）  云端/带鉴权 Qdrant 的 API key（本地不需要）。
+                     前者专属本服务，后者与 Java 侧共用 run-tools.conf 的同一把 key。
   VA_EMBED_BASE_URL= http://localhost:11434/v1  Ollama bge-m3 端点
   VA_EMBED_API_KEY = ollama                  Ollama 占位 key
   VA_EMBED_MODEL   = bge-m3                  嵌入模型（本地 Ollama）
@@ -29,8 +34,26 @@ from typing import Optional
 log = logging.getLogger("visitor-analysis-vector")
 
 # ── 配置 ────────────────────────────────────────────────────────────────────
-QDRANT_URL     = os.getenv("QDRANT_URL",         "http://localhost:6333")
-QDRANT_API_KEY = os.getenv("QDRANT_API_KEY",      "")   # 云端 Qdrant 需要；本地留空
+
+def _resolve_qdrant_url() -> str:
+    """解析 Qdrant REST 地址，复用与 Java/AI 秘书共用的 run-tools.conf 配置。
+    优先级：显式 QDRANT_URL > TOOLBOX_QDRANT_HOST 拼 REST 端口 > 本地默认。
+    TOOLBOX_QDRANT_HOST 只是主机/IP（Java 侧拿它走 gRPC 6334），本服务走 REST，
+    默认 6333，可用 TOOLBOX_QDRANT_HTTP_PORT 覆盖。
+    """
+    explicit = os.getenv("QDRANT_URL")
+    if explicit:
+        return explicit
+    host = os.getenv("TOOLBOX_QDRANT_HOST")
+    if host:
+        port = os.getenv("TOOLBOX_QDRANT_HTTP_PORT", "6333")
+        return f"http://{host}:{port}"
+    return "http://localhost:6333"
+
+
+QDRANT_URL     = _resolve_qdrant_url()
+# 本服务专属 QDRANT_API_KEY 优先；否则复用 run-tools.conf 与 Java 共用的 TOOLBOX_QDRANT_API_KEY
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY") or os.getenv("TOOLBOX_QDRANT_API_KEY", "")
 EMBED_BASE_URL = os.getenv("VA_EMBED_BASE_URL",   "http://localhost:11434/v1")
 EMBED_API_KEY  = os.getenv("VA_EMBED_API_KEY",    "ollama")
 EMBED_MODEL    = os.getenv("VA_EMBED_MODEL",      "bge-m3")
