@@ -247,14 +247,15 @@ def search_similar(payload: dict, limit: int = 3) -> list[dict]:
     try:
         results: list[dict] = []
         for coll in [COLL_CUSTOMERS, COLL_VISITORS]:
-            hits = c.search(
+            # qdrant-client 1.10+ 移除了 .search()，统一走 .query_points()（query 传向量，取 .points）
+            hits = c.query_points(
                 collection_name=coll,
-                query_vector=vector,
+                query=vector,
                 limit=limit,
                 score_threshold=VECTOR_THRESH,
-            )
+            ).points
             for hit in hits:
-                results.append({"score": round(hit.score, 3), **hit.payload})
+                results.append({"score": round(hit.score, 3), **(hit.payload or {})})
         results.sort(key=lambda x: x["score"], reverse=True)
         top = results[:limit]
         if top:
