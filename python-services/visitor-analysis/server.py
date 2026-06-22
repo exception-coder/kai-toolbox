@@ -130,11 +130,19 @@ def enrich_company(company: str) -> dict:
 
 # ── System Prompt & 提示词构建 ────────────────────────────────────────────────
 
-SYSTEM_PROMPT = """你是企业前台访客身份判别助手。只依据给定信息判断访客身份，信息不足时果断选 UNKNOWN，不要编造。
-身份(identity)只能从以下取值：CUSTOMER(客户) / COMPETITOR(竞争对手) / VENDOR(供应商) / PARTNER(合作伙伴) / JOB_SEEKER(求职者) / OFFICIAL(政府监管媒体) / UNKNOWN(无法识别)。
-关系(relationship)仅当 identity=CUSTOMER 时有意义，取值：NEW(新客) / EXISTING(熟客) / CHURNED(流失)；其余情况一律 NONE。
-注意：是否为已成交老客户由系统的客户库决定，不在你的判断范围；你只在"客户库未命中的灰区"里判断访客最可能的身份。
-只输出 JSON，字段：identity, relationship, confidence(0~1 浮点), rationale(中文一句话理由), evidence(字符串数组，列出你依据的具体线索)。"""
+SYSTEM_PROMPT = """你是「客户新增申请去重」判别助手。给你一条客户新增申请，以及从历史客户资料库里向量召回的最相似记录。
+你的唯一任务：判断这条申请与库中已有客户是不是同一家——是同一家则【重复客户】，否则【新客】。
+判定要点：
+- 召回记录与本申请在【公司名称】或【公司地址】上指向同一家公司（简称/写法不同、地址表述不同也算）→ 判为重复客户。
+- 仅行业/地区雷同、但明显不是同一家公司 → 新客。
+- 手机号等可精确比对的强信号，已由系统在前置确定性步骤判定，不在你这步；你只基于公司名/地址/来访目的做「是否同一家」的判断。
+- 信息不足以确认是否同一家时，判【新客】并相应降低置信度，不要臆断。
+只输出 JSON，字段：
+  identity      固定为 "CUSTOMER"
+  relationship  取值：EXISTING(重复客户) / NEW(新客)
+  confidence    0~1 浮点（对"是否同一家"判断的把握）
+  rationale     中文一句话理由（若判重复客户，指明与召回里的哪条历史记录是同一家）
+  evidence      字符串数组，列出具体线索（公司名 / 地址 / 召回相似度等）"""
 
 
 def _build_user_prompt(payload: dict, enrichment: dict,
@@ -155,21 +163,16 @@ def _build_user_prompt(payload: dict, enrichment: dict,
     if payload.get("addr_hint"):
         fields["地址参考提示（客户库同城区公司）"] = payload["addr_hint"]
 
-    text = "访客信息如下，请判别：\n" + json.dumps(fields, ensure_ascii=False, indent=2)
+    text = "客户新增申请信息如下，请判断是否与库中已有客户重复：\n" + json.dumps(fields, ensure_ascii=False, indent=2)
 
-    # 向量召回上下文：告知 LLM 历史相似案例，辅助判断
+    # 历史客户资料库召回上下文：判断本申请是否与某条已有客户为同一家（重复客户）。
     if similar_records:
-        text += "\n\n【向量语义召回：最相似的历史记录，仅供参考，请结合当前访客信息综合判断】\n"
+        text += "\n\n【历史客户资料库召回：与本申请最相似的已有客户记录，按相似度排序，用于判断是否同一家公司】\n"
         for i, rec in enumerate(similar_records, 1):
-            company  = rec.get("company") or rec.get("company_norm", "未知公司")
-            identity = rec.get("identity", "")
-            rel      = rec.get("relationship", "")
-            score    = rec.get("score", 0)
-            source   = "客户库" if rec.get("source") == "customer" else "历史访客"
-            conf     = rec.get("confidence", "")
-            label    = f"{identity}/{rel}" if rel and rel != "NONE" else identity
-            conf_str = f"，原判置信度 {conf:.0%}" if conf else ""
-            text += f"  {i}. [{label}] {company}（相似度 {score:.0%}，来源：{source}{conf_str}）\n"
+            company = rec.get("company") or rec.get("company_norm", "未知公司")
+            score   = rec.get("score", 0)
+            source  = "客户库" if rec.get("source") == "customer" else "历史访客"
+            text += f"  {i}. {company}（相似度 {score:.0%}，来源：{source}）\n"
 
     return text
 
