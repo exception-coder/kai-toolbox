@@ -240,6 +240,7 @@ public class SidecarClient {
                 for (JsonNode s : n.get("similar")) {
                     similar.add(new SimilarRecord(
                             s.path("company").asText(null),
+                            s.path("company_addr").asText(null),
                             s.path("identity").asText(null),
                             s.path("relationship").asText(null),
                             s.path("score").asDouble(0.0),

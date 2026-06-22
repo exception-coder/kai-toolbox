@@ -4,6 +4,7 @@ package com.exceptioncoder.toolbox.visitoranalysis.api.dto;
  * 向量召回的一条历史相似记录。sidecar 用作灰区 LLM 判别的参考上下文，并随判别结果回传前端展示。
  *
  * @param company      相似记录的公司名
+ * @param companyAddr  相似记录的公司地址（门牌级；判「地址高度相似」的关键字段，前端展示）
  * @param identity     该历史记录的身份（仅历史访客有；客户库记录为空）
  * @param relationship 该历史记录的关系（同上）
  * @param score        与当前访客的余弦相似度（0~1），即「可信度」
@@ -12,6 +13,7 @@ package com.exceptioncoder.toolbox.visitoranalysis.api.dto;
  */
 public record SimilarRecord(
         String company,
+        String companyAddr,
         String identity,
         String relationship,
         double score,

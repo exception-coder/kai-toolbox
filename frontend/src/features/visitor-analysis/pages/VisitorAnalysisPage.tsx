@@ -13,6 +13,7 @@ interface VisitorInput {
 
 interface SimilarRecord {
   company: string | null
+  companyAddr: string | null
   identity: string | null
   relationship: string | null
   score: number
@@ -395,18 +396,23 @@ export function VisitorAnalysisPage() {
               </div>
               <ul className="space-y-1">
                 {result.similar.map((s, i) => (
-                  <li key={i} className="flex items-center gap-2 text-xs">
-                    <span className="inline-block w-11 shrink-0 text-right font-medium tabular-nums text-emerald-600">
+                  <li key={i} className="flex items-start gap-2 text-xs">
+                    <span className="mt-0.5 inline-block w-11 shrink-0 text-right font-medium tabular-nums text-emerald-600">
                       {(s.score * 100).toFixed(0)}%
                     </span>
-                    <span className="font-medium">{s.company || '—'}</span>
-                    <span className="text-muted-foreground">
-                      {s.source === 'customer' ? '客户库' : '历史访客'}
-                      {s.identity && ` · ${IDENTITY_LABEL[s.identity] ?? s.identity}`}
-                      {s.relationship && s.relationship !== 'NONE' &&
-                        ` / ${RELATIONSHIP_LABEL[s.relationship] ?? s.relationship}`}
-                      {s.confidence != null && ` · 原判 ${(s.confidence * 100).toFixed(0)}%`}
-                    </span>
+                    <div className="min-w-0">
+                      <div>
+                        <span className="font-medium">{s.company || '—'}</span>
+                        <span className="ml-2 text-muted-foreground">
+                          {s.source === 'customer' ? '客户库' : '历史访客'}
+                          {s.identity && ` · ${IDENTITY_LABEL[s.identity] ?? s.identity}`}
+                          {s.relationship && s.relationship !== 'NONE' &&
+                            ` / ${RELATIONSHIP_LABEL[s.relationship] ?? s.relationship}`}
+                          {s.confidence != null && ` · 原判 ${(s.confidence * 100).toFixed(0)}%`}
+                        </span>
+                      </div>
+                      <div className="text-muted-foreground">地址：{s.companyAddr || '—'}</div>
+                    </div>
                   </li>
                 ))}
               </ul>

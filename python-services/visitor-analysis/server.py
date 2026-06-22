@@ -366,6 +366,7 @@ def classify(payload: dict) -> dict:
     similar_out = [
         {
             "company":      r.get("company") or r.get("company_norm", ""),
+            "company_addr": r.get("company_addr") or r.get("addr_norm", ""),
             "identity":     r.get("identity", ""),
             "relationship": r.get("relationship", ""),
             "score":        r.get("score", 0.0),
