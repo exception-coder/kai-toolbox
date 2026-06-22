@@ -233,8 +233,8 @@ def index_visitor(visitor: dict, identity: str, relationship: str, confidence: f
 
 def search_similar(payload: dict, limit: int = 3) -> list[dict]:
     """
-    用新访客字段搜索历史相似记录（客户库 + 已标注访客）。
-    同时搜两个集合，合并后按相似度降序取 top-limit。
+    用新申请字段在去重底库（客户参照库 va_customers）里搜相似记录，按相似度降序取 top-limit。
+    只查人工维护的客户库，不查判定历史 va_visitors_labeled——判定结果不参与召回，避免自我污染。
     任何失败均返回空列表，调用方不感知。
     """
     c = _get_client()
@@ -246,7 +246,7 @@ def search_similar(payload: dict, limit: int = 3) -> list[dict]:
         return []
     try:
         results: list[dict] = []
-        for coll in [COLL_CUSTOMERS, COLL_VISITORS]:
+        for coll in [COLL_CUSTOMERS]:
             # qdrant-client 1.10+ 移除了 .search()，统一走 .query_points()（query 传向量，取 .points）
             hits = c.query_points(
                 collection_name=coll,
