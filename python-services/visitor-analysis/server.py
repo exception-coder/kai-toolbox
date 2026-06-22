@@ -185,15 +185,32 @@ def _is_reasoning_model(model_name: str) -> bool:
     return any(p in ml for p in _REASONING_HINTS)
 
 
-def _run_coro(coro):
-    """在同步上下文里跑 AgentScope 2.x 的 async 模型调用。
-    /analyze 是 async 端点（线程内已有运行中的 event loop），直接 asyncio.run 会报
-    'cannot be called from a running event loop' → 被 classify() 兜底吞掉、又退回 openai SDK。
-    故统一丢到独立线程用全新 loop 跑，无论调用方是否在 loop 里都成立。
+_bg_loop = None
+_bg_loop_lock = threading.Lock()
+
+
+def _get_bg_loop() -> "asyncio.AbstractEventLoop":
+    """常驻后台事件循环（守护线程）。所有 AgentScope async 调用都提交到这同一个 loop。
+    早先用 asyncio.run 每次新建+关闭 loop：模型底层 openai AsyncClient 的异步清理被排到
+    已关闭的 loop 上 → 刷 'Event loop is closed'。常驻 loop 不关闭，异步资源能正常回收。
     """
-    import concurrent.futures
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-        return ex.submit(asyncio.run, coro).result()
+    global _bg_loop
+    if _bg_loop is not None:
+        return _bg_loop
+    with _bg_loop_lock:
+        if _bg_loop is None:
+            loop = asyncio.new_event_loop()
+            threading.Thread(target=loop.run_forever, name="va-agent-loop", daemon=True).start()
+            _bg_loop = loop
+    return _bg_loop
+
+
+def _run_coro(coro):
+    """在同步上下文（含 /analyze 这种已有运行中 loop 的 async 端点）里跑 AgentScope async 调用：
+    提交到常驻后台 loop 并阻塞等结果，避免直接 asyncio.run 撞 'running event loop' 或关闭 loop。
+    """
+    fut = asyncio.run_coroutine_threadsafe(coro, _get_bg_loop())
+    return fut.result()
 
 
 def _loads_json_lenient(text: str) -> dict:
