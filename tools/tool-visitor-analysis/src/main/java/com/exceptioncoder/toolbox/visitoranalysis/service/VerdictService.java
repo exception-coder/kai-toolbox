@@ -8,6 +8,7 @@ import com.exceptioncoder.toolbox.visitoranalysis.api.dto.SidecarVerdict;
 import com.exceptioncoder.toolbox.visitoranalysis.api.dto.VerdictView;
 import com.exceptioncoder.toolbox.visitoranalysis.api.dto.VisitorInput;
 import com.exceptioncoder.toolbox.visitoranalysis.config.VisitorAnalysisProperties;
+import com.exceptioncoder.toolbox.visitoranalysis.repository.CustomerRefRepository;
 import com.exceptioncoder.toolbox.visitoranalysis.repository.VerdictRepository;
 import com.exceptioncoder.toolbox.visitoranalysis.repository.VisitorRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -38,18 +39,21 @@ public class VerdictService {
     private final SidecarClient sidecar;
     private final VisitorRepository visitorRepo;
     private final VerdictRepository verdictRepo;
+    private final CustomerRefRepository customerRefRepo;
     private final VisitorAnalysisProperties props;
     private final SseEmitterRegistry sse;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public VerdictService(Normalizer normalizer, MatchService matchService, SidecarClient sidecar,
                           VisitorRepository visitorRepo, VerdictRepository verdictRepo,
+                          CustomerRefRepository customerRefRepo,
                           VisitorAnalysisProperties props, SseEmitterRegistry sse) {
         this.normalizer = normalizer;
         this.matchService = matchService;
         this.sidecar = sidecar;
         this.visitorRepo = visitorRepo;
         this.verdictRepo = verdictRepo;
+        this.customerRefRepo = customerRefRepo;
         this.props = props;
         this.sse = sse;
     }
@@ -73,8 +77,15 @@ public class VerdictService {
         if (m.conclusive()) {
             view = decideByRule(visitorId, m);
         } else {
-            emit(taskId, "stage", Map.of("step", "llm", "label", "灰区：AgentScope 判别"));
-            view = decideByLlm(visitorId, in, phoneNorm, companyNorm, addrNorm, m);
+            // 确定性去重：公司名归一化精确命中底库 → 直接判重复客户，不落 LLM。
+            Map<String, Object> dup = customerRefRepo.findExactByName(companyNorm);
+            if (dup != null) {
+                emit(taskId, "stage", Map.of("step", "dedup", "label", "确定性去重：公司名完全一致"));
+                view = decideByDedupRule(visitorId, dup);
+            } else {
+                emit(taskId, "stage", Map.of("step", "llm", "label", "灰区：AgentScope 判别"));
+                view = decideByLlm(visitorId, in, phoneNorm, companyNorm, addrNorm, m);
+            }
         }
         emit(taskId, "done", view);
         // 判定只落 va_verdict（系统真相），不自动写向量库——召回底库由人工维护的客户资料库
@@ -118,6 +129,20 @@ public class VerdictService {
                 confidence, m.hitByAlias() ? "rule:customer:alias" : "rule:customer",
                 reason, json(evidenceList), null, false);
         return verdictRepo.listRecent(1).stream().filter(v -> v.id() == id).findFirst().orElseThrow();
+    }
+
+    /** 确定性去重命中：公司名完全一致 → 重复客户（CUSTOMER/EXISTING），高置信，不走 LLM。 */
+    private VerdictView decideByDedupRule(long visitorId, Map<String, Object> dup) {
+        Object custName = dup.get("cust_name");
+        Object custId = dup.get("cust_id");
+        String reason = "公司名称完全一致，命中客户资料库《" + custName + "》(custId=" + custId + ")";
+        List<String> evidence = new ArrayList<>();
+        evidence.add(reason);
+        evidence.add("规则：公司名归一化后与底库完全一致 → 重复客户（确定性，未走 LLM）");
+        long id = verdictRepo.insert(visitorId, IdentityType.CUSTOMER.name(),
+                RelationshipType.EXISTING.name(), 0.99, "rule:dedup:name",
+                reason, json(evidence), null, false);
+        return verdictRepo.findById(id);
     }
 
     /** 第④层灰区：sidecar 提议 → 代码裁决。sidecar 不可用则降级为 UNKNOWN + 待人工确认。 */

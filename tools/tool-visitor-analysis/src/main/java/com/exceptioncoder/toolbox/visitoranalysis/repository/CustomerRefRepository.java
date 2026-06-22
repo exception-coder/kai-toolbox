@@ -81,6 +81,16 @@ public class CustomerRefRepository {
         return n == null ? 0 : n;
     }
 
+    /**
+     * 公司名归一化精确命中底库（确定性去重：公司名完全一致 → 重复客户）。命中返回 {cust_id, cust_name}，否则 null。
+     */
+    public java.util.Map<String, Object> findExactByName(String nameNorm) {
+        if (nameNorm == null || nameNorm.isBlank()) return null;
+        var rows = jdbc.queryForList(
+                "SELECT cust_id, cust_name FROM va_customer_ref WHERE name_norm = ? LIMIT 1", nameNorm);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
     /** 导入 upsert：cust_id 已存在则用最新字段+归一化键覆盖，保证重导可刷新归一化结果。 */
     public void upsert(CustomerRefView c, String nameNorm, String keywordNorm, String addrNorm, long now) {
         jdbc.update("""
