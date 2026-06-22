@@ -290,6 +290,18 @@ function Start-VisitorAnalysisSidecar {
     }
 }
 
+# 显式重启（/restart）时回收两个 Python sidecar，让其吃到新代码/新配置。
+# 必须先停端口持有者：Start-* 自带「端口已监听即跳过」的幂等保护，不先停就只会被 skip、旧进程长存。
+# 停后留一小段时间让监听端口释放，避免 Start-* 误判「已在监听」而跳过。
+function Restart-PythonSidecars {
+    Write-Host '[supervisor] 回收 Python sidecar：visitor-analysis(:9600) + wechat(:9700)'
+    Stop-PortHolders 9600
+    Stop-PortHolders 9700
+    Start-Sleep -Milliseconds 800
+    Start-VisitorAnalysisSidecar
+    Start-WechatSidecar
+}
+
 function Start-AgentScopeStudio {
     try {
         $listening = $false
@@ -365,10 +377,12 @@ function Handle-Request($ctx) {
         $token = $req.Headers['X-Restart-Token']
         if ([string]::IsNullOrWhiteSpace($token)) { $token = $req.QueryString['token'] }
         if ($token -ne $RestartToken) { Write-Json $res 403 @{ error = 'token mismatch' }; return }
-        Write-Json $res 200 @{ ok = $true; message = 'restart triggered, backend will return soon' }
+        Write-Json $res 200 @{ ok = $true; message = 'restart triggered, backend + python sidecars will return soon' }
         Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') /restart received, taking over port and restarting"
         Stop-Backend
         Stop-PortHolders $BackendPort
+        # 一并回收 Python sidecar，否则改了 sidecar 代码/配置后重启不生效（旧进程占着端口被 skip）。
+        Restart-PythonSidecars
         return
     }
     Write-Json $res 404 @{ error = 'not found' }
