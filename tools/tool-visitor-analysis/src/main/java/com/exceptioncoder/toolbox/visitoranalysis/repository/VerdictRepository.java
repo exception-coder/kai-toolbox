@@ -17,7 +17,8 @@ public class VerdictRepository {
 
     private static final RowMapper<VerdictView> MAPPER = (rs, n) -> new VerdictView(
             rs.getLong("id"),
-            (Long) rs.getObject("visitor_id"),
+            // SQLite JDBC 对小整数返回 Integer 而非 Long，直接强转会 ClassCastException；统一过 Number 兜底
+            longOrNull(rs, "visitor_id"),
             rs.getString("name"),
             rs.getString("company"),
             rs.getString("identity"),
@@ -29,6 +30,12 @@ public class VerdictRepository {
             rs.getString("model"),
             rs.getInt("needs_review") == 1,
             rs.getLong("created_at"));
+
+    /** 可空整数列安全读取：SQLite 小整数走 Integer，统一过 Number 转 Long，避免强转异常。 */
+    private static Long longOrNull(java.sql.ResultSet rs, String col) throws java.sql.SQLException {
+        Object v = rs.getObject(col);
+        return v == null ? null : ((Number) v).longValue();
+    }
 
     private final JdbcTemplate jdbc;
 
