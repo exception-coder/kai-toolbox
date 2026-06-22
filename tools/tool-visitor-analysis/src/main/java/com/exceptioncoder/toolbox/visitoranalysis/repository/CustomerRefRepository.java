@@ -69,6 +69,27 @@ public class CustomerRefRepository {
         return n == null ? 0 : n;
     }
 
+    /** 导入 upsert：cust_id 已存在则用最新字段+归一化键覆盖，保证重导可刷新归一化结果。 */
+    public void upsert(CustomerRefView c, String nameNorm, String keywordNorm, String addrNorm, long now) {
+        jdbc.update("""
+                INSERT INTO va_customer_ref
+                    (cust_id, cust_name, keyword, brand_name, cust_type, cust_category, biz_major,
+                     province, city, district, cust_addr, checkin_addr, lng, lat, level, cust_property,
+                     creator, note, name_norm, keyword_norm, addr_norm, created_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(cust_id) DO UPDATE SET
+                    cust_name=excluded.cust_name, keyword=excluded.keyword, brand_name=excluded.brand_name,
+                    cust_type=excluded.cust_type, cust_category=excluded.cust_category, biz_major=excluded.biz_major,
+                    province=excluded.province, city=excluded.city, district=excluded.district,
+                    cust_addr=excluded.cust_addr, checkin_addr=excluded.checkin_addr, lng=excluded.lng, lat=excluded.lat,
+                    level=excluded.level, cust_property=excluded.cust_property, creator=excluded.creator, note=excluded.note,
+                    name_norm=excluded.name_norm, keyword_norm=excluded.keyword_norm, addr_norm=excluded.addr_norm
+                """,
+                c.custId(), c.custName(), c.keyword(), c.brandName(), c.custType(), c.custCategory(), c.bizMajor(),
+                c.province(), c.city(), c.district(), c.custAddr(), c.checkinAddr(), c.lng(), c.lat(), c.level(),
+                c.custProperty(), c.creator(), c.note(), nameNorm, keywordNorm, addrNorm, now);
+    }
+
     /** 插入一条参照客户。cust_id 唯一,已存在则跳过(INSERT OR IGNORE),保证导入幂等。 */
     public void insert(CustomerRefView c, String nameNorm, String keywordNorm, String addrNorm, long now) {
         jdbc.update("""

@@ -29,6 +29,11 @@
             <artifactId>lombok</artifactId>
             <scope>provided</scope>
         </dependency>
+        <!-- 客户资料 CSV 导入解析（版本由 spring-boot BOM 管理）。归一化仍走 Java Normalizer，单一来源。 -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.dataformat</groupId>
+            <artifactId>jackson-dataformat-csv</artifactId>
+        </dependency>
     </dependencies>
 
 </project>

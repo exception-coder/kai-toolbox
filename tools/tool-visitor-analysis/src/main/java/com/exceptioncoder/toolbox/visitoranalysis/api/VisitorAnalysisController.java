@@ -10,6 +10,7 @@ import com.exceptioncoder.toolbox.visitoranalysis.repository.CustomerRefReposito
 import com.exceptioncoder.toolbox.visitoranalysis.repository.FeedbackRepository;
 import com.exceptioncoder.toolbox.visitoranalysis.repository.VerdictRepository;
 import com.exceptioncoder.toolbox.visitoranalysis.repository.VisitorRepository;
+import com.exceptioncoder.toolbox.visitoranalysis.service.CustomerRefImportService;
 import com.exceptioncoder.toolbox.visitoranalysis.service.Normalizer;
 import com.exceptioncoder.toolbox.visitoranalysis.service.SidecarClient;
 import com.exceptioncoder.toolbox.visitoranalysis.service.VerdictService;
@@ -34,6 +35,7 @@ public class VisitorAnalysisController {
     private final CustomerRefRepository customerRefRepo;
     private final FeedbackRepository feedbackRepo;
     private final VisitorRepository visitorRepo;
+    private final CustomerRefImportService customerRefImport;
     private final Normalizer normalizer;
     private final SidecarClient sidecar;
     private final SseEmitterRegistry sse;
@@ -41,6 +43,7 @@ public class VisitorAnalysisController {
     public VisitorAnalysisController(VerdictService verdictService, VerdictRepository verdictRepo,
                                      CompetitorRepository competitorRepo, CustomerRefRepository customerRefRepo,
                                      FeedbackRepository feedbackRepo, VisitorRepository visitorRepo,
+                                     CustomerRefImportService customerRefImport,
                                      Normalizer normalizer, SidecarClient sidecar, SseEmitterRegistry sse) {
         this.verdictService = verdictService;
         this.verdictRepo = verdictRepo;
@@ -48,6 +51,7 @@ public class VisitorAnalysisController {
         this.customerRefRepo = customerRefRepo;
         this.feedbackRepo = feedbackRepo;
         this.visitorRepo = visitorRepo;
+        this.customerRefImport = customerRefImport;
         this.normalizer = normalizer;
         this.sidecar = sidecar;
         this.sse = sse;
@@ -136,6 +140,12 @@ public class VisitorAnalysisController {
     @GetMapping("/customer-refs")
     public List<CustomerRefView> customerRefs() {
         return customerRefRepo.list();
+    }
+
+    /** 从服务端 CSV 路径导入客户资料到去重参照库（归一化由 Java 统一计算）。本机工具，按 cust_id upsert。 */
+    @PostMapping("/customer-refs/import")
+    public Map<String, Object> importCustomerRefs(@RequestParam String path) throws java.io.IOException {
+        return customerRefImport.importFromCsv(path);
     }
 
     /**

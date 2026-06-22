@@ -34,32 +34,39 @@ public class Normalizer {
      */
     public String addr(String raw) {
         if (raw == null || raw.isBlank()) return "";
-        String s = toHalfWidth(raw).replaceAll("\\s+", "").trim();
+        String s = toHalfWidth(raw).replaceAll("\\s+", "");
 
-        StringBuilder result = new StringBuilder();
-
-        // 1. 直辖市判断
+        // 城市：直辖市直接取；否则在「省/自治区」前缀之后锚定取「XX市」，防止省尾被并进城市名。
+        String city = "";
+        String rest = s;
         for (String muni : new String[]{"北京", "上海", "天津", "重庆"}) {
-            if (s.contains(muni)) {
-                result.append(muni);
+            int idx = s.indexOf(muni);
+            if (idx >= 0) {
+                city = muni;
+                rest = s.substring(idx + muni.length()).replaceFirst("^市", "");
                 break;
             }
         }
-
-        // 2. 普通城市：提取"XX市"中的城市名（2-4字）
-        if (result.isEmpty()) {
-            Matcher cm = Pattern.compile("([\\u4e00-\\u9fa5]{2,4})市").matcher(s);
-            if (cm.find()) result.append(cm.group(1));
+        if (city.isEmpty()) {
+            Matcher cm = Pattern.compile(
+                    "(?:[\\u4e00-\\u9fa5]{2,7}?(?:省|自治区|特别行政区))?([\\u4e00-\\u9fa5]{2,4}?)市").matcher(s);
+            if (cm.find()) {
+                city = cm.group(1);
+                rest = s.substring(cm.end());
+            }
         }
 
-        // 3. 提取区/县（包括"XX新区"/"XX高新区"/"XX开发区"/"XX区"/"XX县"等常见形式）
-        Matcher dm = Pattern.compile("([\\u4e00-\\u9fa5]{2,6}?)(新区|高新区|经济区|开发区|区|县)").matcher(s);
-        if (dm.find()) result.append(dm.group(1));
+        // 区/县：仅在城市之后的剩余串里取，避免跨「市/省」误截。
+        String district = "";
+        Matcher dm = Pattern.compile(
+                "([\\u4e00-\\u9fa5]{2,4}?)(新区|高新区|经济技术开发区|经济开发区|经济区|开发区|区|县|旗)")
+                .matcher(rest.isEmpty() ? s : rest);
+        if (dm.find()) district = dm.group(1);
 
-        String norm = result.toString();
-        // 兜底：取原始字符串前 8 个字符（去掉省级以上前缀）
+        String norm = city + district;
+        // 兜底：解析不出城市/区时，去省前缀后取前 8 字。
         if (norm.isBlank()) {
-            norm = s.replaceAll("^[\\u4e00-\\u9fa5]{2,4}省", "");
+            norm = s.replaceFirst("^[\\u4e00-\\u9fa5]{2,4}省", "");
             norm = norm.length() > 8 ? norm.substring(0, 8) : norm;
         }
         return norm;
