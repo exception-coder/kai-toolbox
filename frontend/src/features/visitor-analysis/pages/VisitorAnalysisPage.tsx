@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { http } from '@/lib/api'
+import { useConfirm } from '@/components/ui/confirm-dialog'
 
 interface VisitorInput {
   name: string
@@ -8,6 +9,15 @@ interface VisitorInput {
   companyAddr: string
   email: string
   purpose: string
+}
+
+interface SimilarRecord {
+  company: string | null
+  identity: string | null
+  relationship: string | null
+  score: number
+  source: string | null
+  confidence: number | null
 }
 
 interface VerdictView {
@@ -24,6 +34,7 @@ interface VerdictView {
   model: string | null
   needsReview: boolean
   createdAt: number
+  similar?: SimilarRecord[]
 }
 
 interface CustomerRef {
@@ -167,6 +178,8 @@ export function VisitorAnalysisPage() {
   const [sidecarOnline, setSidecarOnline] = useState<boolean | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
+  const [clearing, setClearing] = useState(false)
+  const confirm = useConfirm()
 
   const loadRecent = () => {
     http<VerdictView[]>('/visitor-analysis/verdicts?limit=20')
@@ -226,6 +239,27 @@ export function VisitorAnalysisPage() {
       setSyncMsg(e instanceof Error ? e.message : '同步失败')
     } finally {
       setSyncing(false)
+    }
+  }
+
+  // 一键清空判别历史（判别记录 + 人工纠正 + 访客台账），参照库/竞品不动。
+  const clearVerdicts = async () => {
+    const ok = await confirm({
+      title: '清空最近判别',
+      description: '将删除全部判别记录、人工纠正与访客台账（历史客户资料库不受影响）。此操作不可撤销，确定继续？',
+      confirmText: '清空',
+      variant: 'destructive',
+    })
+    if (!ok) return
+    setClearing(true)
+    try {
+      await http<{ cleared: number }>('/visitor-analysis/verdicts', { method: 'DELETE' })
+      setRecent([])
+      setResult(null)
+    } catch {
+      /* 失败保持原列表，下次刷新自愈 */
+    } finally {
+      setClearing(false)
     }
   }
 
@@ -300,6 +334,30 @@ export function VisitorAnalysisPage() {
           </div>
           {result.rationale && <p className="mt-2 text-sm">{result.rationale}</p>}
           {result.model && <p className="mt-1 text-xs text-muted-foreground">模型：{result.model}</p>}
+          {result.similar && result.similar.length > 0 && (
+            <div className="mt-3 border-t pt-3">
+              <div className="mb-1.5 text-xs font-medium text-muted-foreground">
+                向量召回的相似历史记录（喂给 AI 作判别参考，按相似度可信度排序）
+              </div>
+              <ul className="space-y-1">
+                {result.similar.map((s, i) => (
+                  <li key={i} className="flex items-center gap-2 text-xs">
+                    <span className="inline-block w-11 shrink-0 text-right font-medium tabular-nums text-emerald-600">
+                      {(s.score * 100).toFixed(0)}%
+                    </span>
+                    <span className="font-medium">{s.company || '—'}</span>
+                    <span className="text-muted-foreground">
+                      {s.source === 'customer' ? '客户库' : '历史访客'}
+                      {s.identity && ` · ${IDENTITY_LABEL[s.identity] ?? s.identity}`}
+                      {s.relationship && s.relationship !== 'NONE' &&
+                        ` / ${RELATIONSHIP_LABEL[s.relationship] ?? s.relationship}`}
+                      {s.confidence != null && ` · 原判 ${(s.confidence * 100).toFixed(0)}%`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </section>
       )}
 
@@ -372,7 +430,17 @@ export function VisitorAnalysisPage() {
       </section>
 
       <section className="space-y-2">
-        <h2 className="text-sm font-semibold text-muted-foreground">最近判别</h2>
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 className="text-sm font-semibold text-muted-foreground">最近判别</h2>
+          <button
+            className="rounded-md border px-3 py-1.5 text-xs font-medium text-destructive transition hover:bg-destructive/10 disabled:opacity-50"
+            disabled={clearing || recent.length === 0}
+            onClick={clearVerdicts}
+            title="清空全部判别记录 / 人工纠正 / 访客台账（历史客户资料库不受影响）"
+          >
+            {clearing ? '清空中…' : '清空'}
+          </button>
+        </div>
         <div className="overflow-hidden rounded-lg border">
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-left">

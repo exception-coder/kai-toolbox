@@ -16,6 +16,7 @@ public record SidecarVerdict(
         String rationale,
         List<String> evidence,
         String model,
-        boolean degraded
+        boolean degraded,
+        List<SimilarRecord> similar
 ) {
 }

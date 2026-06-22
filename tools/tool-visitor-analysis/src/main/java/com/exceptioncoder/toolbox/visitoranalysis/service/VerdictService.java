@@ -154,7 +154,10 @@ public class VerdictService {
                 : proposal.evidence());
         long id = verdictRepo.insert(visitorId, identity.name(), rel.name(), confidence,
                 "llm", proposal.rationale(), evidence, proposal.model(), needsReview);
-        return verdictRepo.listRecent(1).stream().filter(v -> v.id() == id).findFirst().orElseThrow();
+        VerdictView view = verdictRepo.listRecent(1).stream()
+                .filter(v -> v.id() == id).findFirst().orElseThrow();
+        // 召回记录不落库，仅随即时结果回前端展示（含相似度可信度）。
+        return view.withSimilar(proposal.similar());
     }
 
     private static double clamp(Double v) {

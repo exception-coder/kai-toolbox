@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.visitoranalysis.service;
 
 import com.exceptioncoder.toolbox.visitoranalysis.api.dto.MatchResult;
 import com.exceptioncoder.toolbox.visitoranalysis.api.dto.SidecarVerdict;
+import com.exceptioncoder.toolbox.visitoranalysis.api.dto.SimilarRecord;
 import com.exceptioncoder.toolbox.visitoranalysis.api.dto.VisitorInput;
 import com.exceptioncoder.toolbox.visitoranalysis.config.VisitorAnalysisProperties;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -207,6 +208,18 @@ public class SidecarClient {
             if (n.has("evidence") && n.get("evidence").isArray()) {
                 n.get("evidence").forEach(e -> evidence.add(e.asText()));
             }
+            List<SimilarRecord> similar = new ArrayList<>();
+            if (n.has("similar") && n.get("similar").isArray()) {
+                for (JsonNode s : n.get("similar")) {
+                    similar.add(new SimilarRecord(
+                            s.path("company").asText(null),
+                            s.path("identity").asText(null),
+                            s.path("relationship").asText(null),
+                            s.path("score").asDouble(0.0),
+                            s.path("source").asText(null),
+                            s.hasNonNull("confidence") ? s.get("confidence").asDouble() : null));
+                }
+            }
             return new SidecarVerdict(
                     n.path("identity").asText(null),
                     n.path("relationship").asText(null),
@@ -214,7 +227,8 @@ public class SidecarClient {
                     n.path("rationale").asText(null),
                     evidence,
                     n.path("model").asText(null),
-                    n.path("degraded").asBoolean(false));
+                    n.path("degraded").asBoolean(false),
+                    similar);
         } catch (Exception e) {
             log.warn("sidecar 调用失败,降级处理: {}", e.toString());
             return null;

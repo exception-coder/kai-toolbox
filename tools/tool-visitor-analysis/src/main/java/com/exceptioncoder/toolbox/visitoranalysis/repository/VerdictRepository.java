@@ -94,4 +94,9 @@ public class VerdictRepository {
     public void clearReview(long verdictId) {
         jdbc.update("UPDATE va_verdict SET needs_review = 0 WHERE id = ?", verdictId);
     }
+
+    /** 清空全部判别记录，返回删除行数。用于「一键清空最近判别」。 */
+    public int clear() {
+        return jdbc.update("DELETE FROM va_verdict");
+    }
 }

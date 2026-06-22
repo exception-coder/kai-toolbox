@@ -352,6 +352,19 @@ def classify(payload: dict) -> dict:
         confidence = 0.0
     confidence = max(0.0, min(1.0, confidence))
 
+    # 向量召回记录随结果回传，供前端在判别结果处展示「相似度可信度」。
+    similar_out = [
+        {
+            "company":      r.get("company") or r.get("company_norm", ""),
+            "identity":     r.get("identity", ""),
+            "relationship": r.get("relationship", ""),
+            "score":        r.get("score", 0.0),
+            "source":       r.get("source", ""),
+            "confidence":   r.get("confidence"),
+        }
+        for r in similar_records
+    ]
+
     return {
         "identity":     identity,
         "relationship": relationship,
@@ -360,6 +373,7 @@ def classify(payload: dict) -> dict:
         "evidence":     data.get("evidence", []),
         "model":        data.get("model", model_name),
         "degraded":     degraded,
+        "similar":      similar_out,
     }
 
 

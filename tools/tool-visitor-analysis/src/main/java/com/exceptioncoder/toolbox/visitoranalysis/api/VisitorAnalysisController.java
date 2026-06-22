@@ -9,6 +9,7 @@ import com.exceptioncoder.toolbox.visitoranalysis.repository.CompetitorRepositor
 import com.exceptioncoder.toolbox.visitoranalysis.repository.CustomerRefRepository;
 import com.exceptioncoder.toolbox.visitoranalysis.repository.FeedbackRepository;
 import com.exceptioncoder.toolbox.visitoranalysis.repository.VerdictRepository;
+import com.exceptioncoder.toolbox.visitoranalysis.repository.VisitorRepository;
 import com.exceptioncoder.toolbox.visitoranalysis.service.Normalizer;
 import com.exceptioncoder.toolbox.visitoranalysis.service.SidecarClient;
 import com.exceptioncoder.toolbox.visitoranalysis.service.VerdictService;
@@ -32,19 +33,21 @@ public class VisitorAnalysisController {
     private final CompetitorRepository competitorRepo;
     private final CustomerRefRepository customerRefRepo;
     private final FeedbackRepository feedbackRepo;
+    private final VisitorRepository visitorRepo;
     private final Normalizer normalizer;
     private final SidecarClient sidecar;
     private final SseEmitterRegistry sse;
 
     public VisitorAnalysisController(VerdictService verdictService, VerdictRepository verdictRepo,
                                      CompetitorRepository competitorRepo, CustomerRefRepository customerRefRepo,
-                                     FeedbackRepository feedbackRepo,
+                                     FeedbackRepository feedbackRepo, VisitorRepository visitorRepo,
                                      Normalizer normalizer, SidecarClient sidecar, SseEmitterRegistry sse) {
         this.verdictService = verdictService;
         this.verdictRepo = verdictRepo;
         this.competitorRepo = competitorRepo;
         this.customerRefRepo = customerRefRepo;
         this.feedbackRepo = feedbackRepo;
+        this.visitorRepo = visitorRepo;
         this.normalizer = normalizer;
         this.sidecar = sidecar;
         this.sse = sse;
@@ -110,6 +113,16 @@ public class VisitorAnalysisController {
     @GetMapping("/reviews")
     public List<VerdictView> reviews() {
         return verdictRepo.listNeedsReview();
+    }
+
+    /** 一键清空判别历史：判别记录 + 人工纠正 + 访客台账一并重置；参照库/竞品/别名不动。 */
+    @DeleteMapping("/verdicts")
+    public Map<String, Object> clearVerdicts() {
+        feedbackRepo.clear();
+        int cleared = verdictRepo.clear();
+        visitorRepo.clear();
+        log.info("[visitor-analysis] 已清空判别历史: {} 条", cleared);
+        return Map.of("cleared", cleared);
     }
 
     /** 人工纠正：记录反馈并清除复核标记。 */

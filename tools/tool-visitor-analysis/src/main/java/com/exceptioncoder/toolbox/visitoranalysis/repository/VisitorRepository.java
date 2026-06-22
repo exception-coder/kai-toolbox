@@ -56,4 +56,9 @@ public class VisitorRepository {
                 phoneNorm, phoneNorm, companyNorm, companyNorm);
         return n == null ? 0 : n;
     }
+
+    /** 清空访客台账。随「一键清空最近判别」一并重置。 */
+    public int clear() {
+        return jdbc.update("DELETE FROM va_visitor");
+    }
 }

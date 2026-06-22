@@ -22,4 +22,9 @@ public class FeedbackRepository {
                 """, verdictId, correctedIdentity, correctedRelationship, operator, note,
                 System.currentTimeMillis());
     }
+
+    /** 清空人工纠正反馈。随「一键清空最近判别」一并重置。 */
+    public int clear() {
+        return jdbc.update("DELETE FROM va_feedback");
+    }
 }
