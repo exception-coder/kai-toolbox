@@ -266,6 +266,25 @@ def search_similar(payload: dict, limit: int = 3) -> list[dict]:
         return []
 
 
+# ── 清空 ──────────────────────────────────────────────────────────────────────
+
+def clear_customers() -> dict:
+    """清空客户参照库向量集合 va_customers 的全部点（集合本身保留）。用于「先清空再重新同步」。"""
+    c = _get_client()
+    if c is None:
+        return {"ok": False, "error": _error or "Qdrant 不可用"}
+    try:
+        from qdrant_client.models import FilterSelector, Filter
+        before = c.count(collection_name=COLL_CUSTOMERS).count
+        c.delete(collection_name=COLL_CUSTOMERS, points_selector=FilterSelector(filter=Filter()))
+        after = c.count(collection_name=COLL_CUSTOMERS).count
+        log.info("[vector] 清空 va_customers: %d -> %d", before, after)
+        return {"ok": True, "before": before, "after": after}
+    except Exception as exc:
+        log.warning("[vector] clear_customers 失败: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+
 # ── 状态 ──────────────────────────────────────────────────────────────────────
 
 def status() -> dict:

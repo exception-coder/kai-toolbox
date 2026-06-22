@@ -178,6 +178,7 @@ export function VisitorAnalysisPage() {
   const [sidecarOnline, setSidecarOnline] = useState<boolean | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
+  const [clearingVec, setClearingVec] = useState(false)
   const [clearing, setClearing] = useState(false)
   const confirm = useConfirm()
   const [custSearch, setCustSearch] = useState('')
@@ -263,6 +264,35 @@ export function VisitorAnalysisPage() {
       /* 失败保持原列表，下次刷新自愈 */
     } finally {
       setClearing(false)
+    }
+  }
+
+  // 清空向量库已同步的客户资料（Qdrant va_customers）；清完可重新「一键同步」灌入。
+  const clearVector = async () => {
+    const ok = await confirm({
+      title: '清空向量库客户资料',
+      description:
+        '将删除已同步进向量库（Qdrant va_customers）的全部客户向量。下方「历史客户资料库」表格（SQLite）不受影响，可随后点「一键同步至向量库」重新灌入。确定继续？',
+      confirmText: '清空',
+      variant: 'destructive',
+    })
+    if (!ok) return
+    setClearingVec(true)
+    setSyncMsg(null)
+    try {
+      const r = await http<{ ok?: boolean; before?: number; after?: number; message?: string }>(
+        '/visitor-analysis/vector/customers',
+        { method: 'DELETE' },
+      )
+      setSyncMsg(
+        r.ok
+          ? `已清空向量库客户资料（${r.before ?? '?'} → ${r.after ?? 0} 条），可重新一键同步`
+          : r.message || '清空失败',
+      )
+    } catch (e) {
+      setSyncMsg(e instanceof Error ? e.message : '清空失败')
+    } finally {
+      setClearingVec(false)
     }
   }
 
@@ -400,6 +430,14 @@ export function VisitorAnalysisPage() {
               title="把全部客户资料 embed 后写入 Qdrant 向量库，供灰区语义召回"
             >
               {syncing ? '同步中…' : '一键同步至向量库'}
+            </button>
+            <button
+              className="rounded-md border px-3 py-1.5 text-xs font-medium text-destructive transition hover:bg-destructive/10 disabled:opacity-50"
+              disabled={clearingVec}
+              onClick={clearVector}
+              title="清空向量库 va_customers 已同步的客户资料；底库表格不受影响，可重新同步"
+            >
+              {clearingVec ? '清空中…' : '清空向量库'}
             </button>
             <span className="text-xs text-muted-foreground">
               {custQuery ? `${custFiltered.length} / ${customers.length} 条` : `${customers.length} 条`}

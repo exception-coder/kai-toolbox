@@ -174,6 +174,15 @@ public class VisitorAnalysisController {
         return Map.of("ok", true, "total", all.size(), "indexed", indexed, "failed", failed);
     }
 
+    /** 清空向量库已同步的客户资料（va_customers 集合）。清完可重新点「一键同步」灌入。 */
+    @DeleteMapping("/vector/customers")
+    public Map<String, Object> clearVectorCustomers() {
+        if (!sidecar.ping()) {
+            return Map.of("ok", false, "message", "AgentScope sidecar 未在线，无法清空向量库");
+        }
+        return sidecar.clearCustomers();
+    }
+
     @GetMapping("/competitors")
     public List<CompetitorDto> competitors() {
         return competitorRepo.list();

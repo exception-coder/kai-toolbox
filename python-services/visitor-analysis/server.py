@@ -401,6 +401,12 @@ async def index_customer(request: Request):
     return JSONResponse({"indexed": ok})
 
 
+@app.post("/index/customers/clear")
+def clear_customers():
+    """清空向量库客户集合 va_customers（供「先清空再重新同步」）。"""
+    return JSONResponse(vector_service.clear_customers())
+
+
 @app.post("/index/visitor")
 async def index_visitor(request: Request):
     """Java 端在访客判别完成后调用，把判别结果作为历史案例索引到 Qdrant。"""

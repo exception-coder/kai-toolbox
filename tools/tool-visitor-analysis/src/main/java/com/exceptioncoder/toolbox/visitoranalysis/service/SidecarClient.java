@@ -140,6 +140,33 @@ public class SidecarClient {
         }
     }
 
+    /**
+     * 清空向量库客户集合 va_customers（{@code POST /index/customers/clear}）。
+     * 返回 sidecar 的结果 JSON（{ok, before, after} 或 {ok:false, error}）。
+     */
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> clearCustomers() {
+        if (props.getSidecarUrl().isBlank()) {
+            return Map.of("ok", false, "error", "sidecar 未配置");
+        }
+        try {
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(props.getSidecarUrl() + "/index/customers/clear"))
+                    .timeout(Duration.ofSeconds(15))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build();
+            HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() != 200) {
+                return Map.of("ok", false, "error", "sidecar HTTP " + resp.statusCode());
+            }
+            return mapper.readValue(resp.body(), Map.class);
+        } catch (Exception e) {
+            log.warn("[sidecar] clearCustomers 失败: {}", e.toString());
+            return Map.of("ok", false, "error", e.toString());
+        }
+    }
+
     /** {@code GET /health} 探活,失败返回 false。 */
     public boolean ping() {
         if (props.getSidecarUrl().isBlank()) return false;
