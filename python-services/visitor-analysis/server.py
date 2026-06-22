@@ -212,9 +212,8 @@ def _loads_json_lenient(text: str) -> dict:
     return json.loads(s or "{}")
 
 
-def _classify_with_agentscope(payload: dict, enrichment: dict,
-                               base_url: str, api_key: str, model_name: str,
-                               similar_records: list[dict]) -> dict:
+def _classify_with_agentscope(user_prompt: str, base_url: str, api_key: str,
+                               model_name: str, similar_count: int) -> dict:
     if not _ensure_agentscope():
         raise NotImplementedError("agentscope not available")
 
@@ -247,27 +246,28 @@ def _classify_with_agentscope(payload: dict, enrichment: dict,
         middlewares=[TracingMiddleware()],
         react_config=ReActConfig(max_iters=3),
     )
-    user = UserMsg(name="user", content=_build_user_prompt(payload, enrichment, similar_records))
+    user = UserMsg(name="user", content=user_prompt)
     # 2.x agent.reply 是 async；在独立线程新 loop 跑，兼容 async 端点的运行中 loop（见 _run_coro）。
     final = _run_coro(agent.reply(user))
+    raw = final.get_text_content() or "{}"
+    log.info("[agentscope] LLM 原始返回:\n%s", raw)
     # LLM 输出当不可信入参：仅解析，枚举校验+兜底统一在 classify()（§2）。
-    data = _loads_json_lenient(final.get_text_content() or "{}")
+    data = _loads_json_lenient(raw)
     data["model"] = model_name
     log.info("[agentscope] identity=%s confidence=%s similar=%d",
-             data.get("identity"), data.get("confidence"), len(similar_records))
+             data.get("identity"), data.get("confidence"), similar_count)
     return data
 
 
-def _classify_openai_compatible(payload: dict, enrichment: dict,
-                                 base_url: str, api_key: str, model: str,
-                                 similar_records: list[dict]) -> dict:
+def _classify_openai_compatible(user_prompt: str, base_url: str, api_key: str,
+                                 model: str, similar_count: int) -> dict:
     from openai import OpenAI
     client = OpenAI(base_url=base_url, api_key=api_key)
     kwargs: dict = {
         "model": model,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": _build_user_prompt(payload, enrichment, similar_records)},
+            {"role": "user",   "content": user_prompt},
         ],
         "response_format": {"type": "json_object"},
     }
@@ -275,10 +275,11 @@ def _classify_openai_compatible(payload: dict, enrichment: dict,
         kwargs["temperature"] = 0.2
     resp = client.chat.completions.create(**kwargs)
     content = resp.choices[0].message.content or "{}"
+    log.info("[openai-compat] LLM 原始返回:\n%s", content)
     data = json.loads(content)
     data["model"] = model
     log.info("[openai-compat] identity=%s confidence=%s similar=%d",
-             data.get("identity"), data.get("confidence"), len(similar_records))
+             data.get("identity"), data.get("confidence"), similar_count)
     return data
 
 
@@ -304,13 +305,22 @@ def classify(payload: dict) -> dict:
     # ── ② 向量召回：embed 当前访客 → 搜历史相似记录作为 LLM 上下文 ────────────
     similar_records = vector_service.search_similar(payload)
 
+    # 组装送给 LLM 的完整上下文（system + user），两条路径共用同一份（§4 单一来源）。
+    user_prompt = _build_user_prompt(payload, enrichment, similar_records)
+    similar_count = len(similar_records)
+    log.info("[llm-context] model=%s 召回相似记录=%d 条\n"
+             "================= SYSTEM PROMPT =================\n%s\n"
+             "================= USER PROMPT ===================\n%s\n"
+             "================================================",
+             model_name, similar_count, SYSTEM_PROMPT, user_prompt)
+
     # ── ③ LLM 分类（AgentScope 主路 → OpenAI SDK 保底）─────────────────────────
     try:
-        data = _classify_with_agentscope(payload, enrichment, base_url, api_key, model_name, similar_records)
+        data = _classify_with_agentscope(user_prompt, base_url, api_key, model_name, similar_count)
     except Exception as exc:
         if not isinstance(exc, NotImplementedError):
             log.warning("[agentscope] 回退 OpenAI SDK: %s", exc)
-        data = _classify_openai_compatible(payload, enrichment, base_url, api_key, model_name, similar_records)
+        data = _classify_openai_compatible(user_prompt, base_url, api_key, model_name, similar_count)
 
     # ── 代码裁决（归一化兜底，最终裁决仍在 Java 端）───────────────────────────
     identity = (data.get("identity") or "UNKNOWN").upper()
