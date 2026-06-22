@@ -180,6 +180,9 @@ export function VisitorAnalysisPage() {
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
   const [clearing, setClearing] = useState(false)
   const confirm = useConfirm()
+  const [custSearch, setCustSearch] = useState('')
+  const [custPage, setCustPage] = useState(0)
+  const [custCollapsed, setCustCollapsed] = useState(false)
 
   const loadRecent = () => {
     http<VerdictView[]>('/visitor-analysis/verdicts?limit=20')
@@ -268,6 +271,23 @@ export function VisitorAnalysisPage() {
     setForm(c.input)
     void analyze(c.input)
   }
+
+  // 历史客户资料库：客户端模糊匹配（客户名称 / 客户地址）+ 分页（每页 20）。
+  const CUST_PAGE_SIZE = 20
+  const custQuery = custSearch.trim().toLowerCase()
+  const custFiltered = custQuery
+    ? customers.filter(
+        (c) =>
+          (c.custName ?? '').toLowerCase().includes(custQuery) ||
+          (c.custAddr ?? '').toLowerCase().includes(custQuery),
+      )
+    : customers
+  const custPageCount = Math.max(1, Math.ceil(custFiltered.length / CUST_PAGE_SIZE))
+  const custPageSafe = Math.min(custPage, custPageCount - 1)
+  const custPaged = custFiltered.slice(
+    custPageSafe * CUST_PAGE_SIZE,
+    custPageSafe * CUST_PAGE_SIZE + CUST_PAGE_SIZE,
+  )
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-6">
@@ -363,70 +383,118 @@ export function VisitorAnalysisPage() {
 
       <section className="space-y-2">
         <div className="flex items-baseline justify-between gap-3">
-          <h2 className="text-sm font-semibold text-muted-foreground">
+          <button
+            type="button"
+            className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground transition hover:text-foreground"
+            onClick={() => setCustCollapsed((v) => !v)}
+            title={custCollapsed ? '展开' : '折叠'}
+          >
+            <span className="text-[10px]">{custCollapsed ? '▶' : '▼'}</span>
             历史客户资料库（去重检索底库）
-          </h2>
+          </button>
           <div className="flex items-center gap-3">
             <button
               className="rounded-md border px-3 py-1.5 text-xs font-medium transition hover:bg-muted disabled:opacity-50"
               disabled={syncing || customers.length === 0}
               onClick={syncVector}
-              title="把下方全部客户资料 embed 后写入 Qdrant 向量库，供灰区语义召回"
+              title="把全部客户资料 embed 后写入 Qdrant 向量库，供灰区语义召回"
             >
               {syncing ? '同步中…' : '一键同步至向量库'}
             </button>
-            <span className="text-xs text-muted-foreground">{customers.length} 条</span>
+            <span className="text-xs text-muted-foreground">
+              {custQuery ? `${custFiltered.length} / ${customers.length} 条` : `${customers.length} 条`}
+            </span>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">
-          镜像原系统「客户资料」。客户新增申请会按关键字 / 名称 / 地址 / 经纬度与这些记录比对，判定是否重复客户。
-        </p>
-        {syncMsg && (
-          <p className="text-xs text-emerald-600">{syncMsg}</p>
+
+        {!custCollapsed && (
+          <>
+            <p className="text-xs text-muted-foreground">
+              镜像原系统「客户资料」。客户新增申请会按关键字 / 名称 / 地址 / 经纬度与这些记录比对，判定是否重复客户。
+            </p>
+            {syncMsg && <p className="text-xs text-emerald-600">{syncMsg}</p>}
+            <input
+              value={custSearch}
+              onChange={(e) => {
+                setCustSearch(e.target.value)
+                setCustPage(0)
+              }}
+              placeholder="模糊搜索：客户名称 / 客户地址"
+              className="w-full max-w-sm rounded-md border px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/40"
+            />
+            <div className="overflow-x-auto rounded-lg border">
+              <table className="w-full min-w-[960px] text-sm">
+                <thead className="bg-muted/50 text-left">
+                  <tr>
+                    <th className="whitespace-nowrap p-2">custId</th>
+                    <th className="whitespace-nowrap p-2">客户名称</th>
+                    <th className="whitespace-nowrap p-2">关键字</th>
+                    <th className="whitespace-nowrap p-2">类别</th>
+                    <th className="whitespace-nowrap p-2">省/市/区</th>
+                    <th className="p-2">客户地址</th>
+                    <th className="whitespace-nowrap p-2">经纬度</th>
+                    <th className="whitespace-nowrap p-2">等级</th>
+                    <th className="whitespace-nowrap p-2">创建人</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {custFiltered.length === 0 && (
+                    <tr>
+                      <td className="p-3 text-muted-foreground" colSpan={9}>
+                        {customers.length === 0 ? '暂无客户资料' : '无匹配记录'}
+                      </td>
+                    </tr>
+                  )}
+                  {custPaged.map((c) => (
+                    <tr key={c.id} className="border-t align-top">
+                      <td className="whitespace-nowrap p-2 text-muted-foreground">{c.custId ?? '—'}</td>
+                      <td className="whitespace-nowrap p-2 font-medium">{c.custName || '—'}</td>
+                      <td className="whitespace-nowrap p-2">{c.keyword || '—'}</td>
+                      <td className="whitespace-nowrap p-2 text-muted-foreground">{c.custCategory || '—'}</td>
+                      <td className="whitespace-nowrap p-2 text-muted-foreground">
+                        {[c.province, c.city, c.district].filter(Boolean).join(' / ') || '—'}
+                      </td>
+                      <td className="p-2 text-muted-foreground">{c.custAddr || '—'}</td>
+                      <td className="whitespace-nowrap p-2 text-xs text-muted-foreground">
+                        {c.lng != null && c.lat != null ? `${c.lng.toFixed(5)}, ${c.lat.toFixed(5)}` : '—'}
+                      </td>
+                      <td className="whitespace-nowrap p-2 text-muted-foreground">{c.level || '—'}</td>
+                      <td className="whitespace-nowrap p-2 text-muted-foreground">{c.creator || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {custFiltered.length > CUST_PAGE_SIZE && (
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>
+                  第 {custPageSafe * CUST_PAGE_SIZE + 1}–
+                  {Math.min((custPageSafe + 1) * CUST_PAGE_SIZE, custFiltered.length)} 条，共{' '}
+                  {custFiltered.length} 条
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="rounded-md border px-2 py-1 transition hover:bg-muted disabled:opacity-40"
+                    disabled={custPageSafe <= 0}
+                    onClick={() => setCustPage(custPageSafe - 1)}
+                  >
+                    上一页
+                  </button>
+                  <span>
+                    {custPageSafe + 1} / {custPageCount}
+                  </span>
+                  <button
+                    className="rounded-md border px-2 py-1 transition hover:bg-muted disabled:opacity-40"
+                    disabled={custPageSafe >= custPageCount - 1}
+                    onClick={() => setCustPage(custPageSafe + 1)}
+                  >
+                    下一页
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
-        <div className="overflow-x-auto rounded-lg border">
-          <table className="w-full min-w-[960px] text-sm">
-            <thead className="bg-muted/50 text-left">
-              <tr>
-                <th className="whitespace-nowrap p-2">custId</th>
-                <th className="whitespace-nowrap p-2">客户名称</th>
-                <th className="whitespace-nowrap p-2">关键字</th>
-                <th className="whitespace-nowrap p-2">类别</th>
-                <th className="whitespace-nowrap p-2">省/市/区</th>
-                <th className="p-2">客户地址</th>
-                <th className="whitespace-nowrap p-2">经纬度</th>
-                <th className="whitespace-nowrap p-2">等级</th>
-                <th className="whitespace-nowrap p-2">创建人</th>
-              </tr>
-            </thead>
-            <tbody>
-              {customers.length === 0 && (
-                <tr>
-                  <td className="p-3 text-muted-foreground" colSpan={9}>
-                    暂无客户资料
-                  </td>
-                </tr>
-              )}
-              {customers.map((c) => (
-                <tr key={c.id} className="border-t align-top">
-                  <td className="whitespace-nowrap p-2 text-muted-foreground">{c.custId ?? '—'}</td>
-                  <td className="whitespace-nowrap p-2 font-medium">{c.custName || '—'}</td>
-                  <td className="whitespace-nowrap p-2">{c.keyword || '—'}</td>
-                  <td className="whitespace-nowrap p-2 text-muted-foreground">{c.custCategory || '—'}</td>
-                  <td className="whitespace-nowrap p-2 text-muted-foreground">
-                    {[c.province, c.city, c.district].filter(Boolean).join(' / ') || '—'}
-                  </td>
-                  <td className="p-2 text-muted-foreground">{c.custAddr || '—'}</td>
-                  <td className="whitespace-nowrap p-2 text-xs text-muted-foreground">
-                    {c.lng != null && c.lat != null ? `${c.lng.toFixed(5)}, ${c.lat.toFixed(5)}` : '—'}
-                  </td>
-                  <td className="whitespace-nowrap p-2 text-muted-foreground">{c.level || '—'}</td>
-                  <td className="whitespace-nowrap p-2 text-muted-foreground">{c.creator || '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
       </section>
 
       <section className="space-y-2">
