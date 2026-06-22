@@ -40,5 +40,11 @@ TOOLBOX_SYSTEM_RESTART_TOKEN=
 TOOLBOX_SUPERVISOR_RESTART_TOKEN=
 
 # AI 秘书向量 RAG：Qdrant 地址与 API Key（未设 API Key 则不启用 RAG）
+# 访客分析 sidecar 也复用这两项做向量召回（Java 走 gRPC 6334，sidecar 走 REST 6333，远端两端口都需放通）。
 TOOLBOX_QDRANT_HOST=
 TOOLBOX_QDRANT_API_KEY=
+
+# AgentScope Studio 地址（可选）：配上后，访客分析 sidecar 把灰区判别的 trace 经 OTLP 推到 Studio。
+# 需先安装并启动 Studio：npm install -g @agentscope/studio && as_studio（默认 :3000）。留空则不推 trace，不影响判别。例：
+#   AS_STUDIO_URL=http://localhost:3000
+AS_STUDIO_URL=
