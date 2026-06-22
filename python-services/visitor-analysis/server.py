@@ -196,19 +196,20 @@ def _run_coro(coro):
         return ex.submit(asyncio.run, coro).result()
 
 
-def _extract_text(response) -> str:
-    """从 AgentScope 2.x 的 ChatResponse 抽出文本：content 是结构化块列表（不再是 .text），
-    拼接所有 TextBlock 的文本。兼容 pydantic 对象与 dict 两种块形态。
+def _loads_json_lenient(text: str) -> dict:
+    """容忍模型把 JSON 包在 ```json ... ``` 代码块里：剥掉栅栏再解析。
+    走 Agent 路径时不能强制 response_format=json_object，故对输出做兜底解析（§2）。
     """
-    parts: list[str] = []
-    for block in (getattr(response, "content", None) or []):
-        is_dict = isinstance(block, dict)
-        btype = block.get("type") if is_dict else getattr(block, "type", None)
-        if btype == "text":
-            text = block.get("text") if is_dict else getattr(block, "text", None)
-            if text:
-                parts.append(text)
-    return "".join(parts).strip()
+    s = (text or "").strip()
+    if s.startswith("```"):
+        s = s[3:]
+        nl = s.find("\n")
+        if nl != -1 and s[:nl].strip().lower() in ("json", ""):
+            s = s[nl + 1:]
+        if s.endswith("```"):
+            s = s[:-3]
+        s = s.strip()
+    return json.loads(s or "{}")
 
 
 def _classify_with_agentscope(payload: dict, enrichment: dict,
@@ -217,28 +218,40 @@ def _classify_with_agentscope(payload: dict, enrichment: dict,
     if not _ensure_agentscope():
         raise NotImplementedError("agentscope not available")
 
+    from agentscope.agent import Agent, ReActConfig
     from agentscope.model import OpenAIChatModel
     from agentscope.credential import OpenAICredential
-    from agentscope.message import SystemMsg, UserMsg
+    from agentscope.message import UserMsg
+    from agentscope.middleware import TracingMiddleware
 
-    # 结构化 JSON 输出；与 openai-compat 路径同口径（推理模型不传 temperature）。
-    gen_kwargs: dict = {"response_format": {"type": "json_object"}}
+    # 非推理模型才设 temperature（单一来源 _is_reasoning_model，§4）；Agent 内部代管模型调用，
+    # 故温度走模型 Parameters 而非 per-call kwargs。
+    params = OpenAIChatModel.Parameters()
     if not _is_reasoning_model(model_name):
-        gen_kwargs["temperature"] = 0.2
+        params.temperature = 0.2
 
     model = OpenAIChatModel(
         credential=OpenAICredential(api_key=api_key, base_url=base_url),
         model=model_name,
-        stream=False,  # 非流式：一次拿回完整 ChatResponse
+        parameters=params,
+        stream=False,
     )
-    messages = [
-        SystemMsg(name="system", content=SYSTEM_PROMPT),
-        UserMsg(name="user", content=_build_user_prompt(payload, enrichment, similar_records)),
-    ]
-    # 2.x 模型调用是 async；在独立线程的新 loop 里跑，兼容 async 端点的运行中 loop（见 _run_coro）。
-    response = _run_coro(model(messages, **gen_kwargs))
-    # LLM 输出当不可信入参：这里只解析，枚举校验+兜底统一在 classify() 里做（§2）。
-    data = json.loads(_extract_text(response) or "{}")
+    # 无 toolkit：模型不产生 tool_call，reasoning 一步即出最终回复并退出循环；
+    # max_iters 仅作异常下的兜底上限（§6）。挂 TracingMiddleware：配了 AS_STUDIO_URL 时
+    # 由 _setup_studio_tracing 建的 OTel Provider 把 reply / model-call span 推到 Studio；
+    # 没配则 _check_tracing_enabled 为假、middleware 透传不产生开销。
+    agent = Agent(
+        name="visitor-classifier",
+        system_prompt=SYSTEM_PROMPT,
+        model=model,
+        middlewares=[TracingMiddleware()],
+        react_config=ReActConfig(max_iters=3),
+    )
+    user = UserMsg(name="user", content=_build_user_prompt(payload, enrichment, similar_records))
+    # 2.x agent.reply 是 async；在独立线程新 loop 跑，兼容 async 端点的运行中 loop（见 _run_coro）。
+    final = _run_coro(agent.reply(user))
+    # LLM 输出当不可信入参：仅解析，枚举校验+兜底统一在 classify()（§2）。
+    data = _loads_json_lenient(final.get_text_content() or "{}")
     data["model"] = model_name
     log.info("[agentscope] identity=%s confidence=%s similar=%d",
              data.get("identity"), data.get("confidence"), len(similar_records))
