@@ -20,6 +20,7 @@ AgentScope 集成：
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -51,7 +52,37 @@ _as_ready = False
 _as_error = ""
 
 
+_studio_traced = False
+
+
+def _setup_studio_tracing() -> None:
+    """把 AgentScope 2.x 的 OpenTelemetry span 推到 Studio（{AS_STUDIO_URL}/v1/traces，与 Java 侧同口径）。
+    仅在配了 AS_STUDIO_URL 时启用；失败只 warn，绝不影响模型调用（§6：可观测但不阻断主流程）。
+    """
+    global _studio_traced
+    if _studio_traced or not AS_STUDIO_URL:
+        return
+    try:
+        from opentelemetry import trace
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
+        endpoint = AS_STUDIO_URL.rstrip("/") + "/v1/traces"
+        provider = TracerProvider(resource=Resource.create({"service.name": "visitor-analysis-sidecar"}))
+        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint)))
+        trace.set_tracer_provider(provider)
+        _studio_traced = True
+        log.info("[agentscope] Studio tracing → %s", endpoint)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[agentscope] Studio tracing 配置失败（忽略，不影响判别）: %s", exc)
+
+
 def _ensure_agentscope() -> bool:
+    """AgentScope 2.x：不再有 agentscope.init()，能导入 OpenAIChatModel 即可用。
+    顺带尽力挂上 Studio tracing（best-effort）。失败置 _as_error 并返回 False，由调用方回退 openai SDK。
+    """
     global _as_ready, _as_error
     if _as_ready:
         return True
@@ -59,20 +90,17 @@ def _ensure_agentscope() -> bool:
         if _as_ready:
             return True
         try:
-            import agentscope
-            kwargs: dict = {}
-            if AS_STUDIO_URL:
-                kwargs["studio_url"] = AS_STUDIO_URL
-                log.info("[agentscope] 连接 Studio: %s", AS_STUDIO_URL)
-            agentscope.init(**kwargs)
+            from agentscope.model import OpenAIChatModel  # noqa: F401  仅探测可用性
+            _setup_studio_tracing()
             _as_ready = True
-            log.info("[agentscope] 初始化成功")
+            log.info("[agentscope] 就绪 (2.x OpenAIChatModel)%s",
+                     f"，Studio={AS_STUDIO_URL}" if AS_STUDIO_URL else "")
             return True
-        except ImportError:
-            _as_error = "agentscope 未安装"
+        except ImportError as exc:
+            _as_error = f"agentscope 不可用: {exc}"
             log.warning("[agentscope] %s", _as_error)
             return False
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             _as_error = str(exc)
             log.warning("[agentscope] 初始化失败: %s", exc)
             return False
@@ -148,34 +176,69 @@ def _build_user_prompt(payload: dict, enrichment: dict,
 
 # ── LLM 调用 ──────────────────────────────────────────────────────────────────
 
+# 推理类模型不接受 temperature 参数。单一来源（§4），agentscope / openai-compat 两条路径共用。
+_REASONING_HINTS = ("gpt-5", "o1", "o3", "o4", "reasoner", "thinking", "qwq")
+
+
+def _is_reasoning_model(model_name: str) -> bool:
+    ml = (model_name or "").lower()
+    return any(p in ml for p in _REASONING_HINTS)
+
+
+def _run_coro(coro):
+    """在同步上下文里跑 AgentScope 2.x 的 async 模型调用。
+    /analyze 是 async 端点（线程内已有运行中的 event loop），直接 asyncio.run 会报
+    'cannot be called from a running event loop' → 被 classify() 兜底吞掉、又退回 openai SDK。
+    故统一丢到独立线程用全新 loop 跑，无论调用方是否在 loop 里都成立。
+    """
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        return ex.submit(asyncio.run, coro).result()
+
+
+def _extract_text(response) -> str:
+    """从 AgentScope 2.x 的 ChatResponse 抽出文本：content 是结构化块列表（不再是 .text），
+    拼接所有 TextBlock 的文本。兼容 pydantic 对象与 dict 两种块形态。
+    """
+    parts: list[str] = []
+    for block in (getattr(response, "content", None) or []):
+        is_dict = isinstance(block, dict)
+        btype = block.get("type") if is_dict else getattr(block, "type", None)
+        if btype == "text":
+            text = block.get("text") if is_dict else getattr(block, "text", None)
+            if text:
+                parts.append(text)
+    return "".join(parts).strip()
+
+
 def _classify_with_agentscope(payload: dict, enrichment: dict,
                                base_url: str, api_key: str, model_name: str,
                                similar_records: list[dict]) -> dict:
     if not _ensure_agentscope():
         raise NotImplementedError("agentscope not available")
 
-    from agentscope.models import OpenAIChatWrapper
-    config_name = f"va-{abs(hash(base_url + model_name)):08x}"
-    generate_args: dict = {"response_format": {"type": "json_object"}}
-    ml = model_name.lower()
-    if not any(p in ml for p in ("gpt-5", "o1", "o3", "o4", "reasoner", "thinking", "qwq")):
-        generate_args["temperature"] = 0.2
+    from agentscope.model import OpenAIChatModel
+    from agentscope.credential import OpenAICredential
+    from agentscope.message import SystemMsg, UserMsg
 
-    model = OpenAIChatWrapper(
-        config_name=config_name,
-        model_name=model_name,
-        api_key=api_key,
-        client_args={"base_url": base_url},
-        generate_args=generate_args,
+    # 结构化 JSON 输出；与 openai-compat 路径同口径（推理模型不传 temperature）。
+    gen_kwargs: dict = {"response_format": {"type": "json_object"}}
+    if not _is_reasoning_model(model_name):
+        gen_kwargs["temperature"] = 0.2
+
+    model = OpenAIChatModel(
+        credential=OpenAICredential(api_key=api_key, base_url=base_url),
+        model=model_name,
+        stream=False,  # 非流式：一次拿回完整 ChatResponse
     )
-    from agentscope.message import Msg
     messages = [
-        Msg(name="system", content=SYSTEM_PROMPT, role="system"),
-        Msg(name="user",   content=_build_user_prompt(payload, enrichment, similar_records), role="user"),
+        SystemMsg(name="system", content=SYSTEM_PROMPT),
+        UserMsg(name="user", content=_build_user_prompt(payload, enrichment, similar_records)),
     ]
-    response = model(messages)
-    text = getattr(response, "text", None) or str(response)
-    data = json.loads(text)
+    # 2.x 模型调用是 async；在独立线程的新 loop 里跑，兼容 async 端点的运行中 loop（见 _run_coro）。
+    response = _run_coro(model(messages, **gen_kwargs))
+    # LLM 输出当不可信入参：这里只解析，枚举校验+兜底统一在 classify() 里做（§2）。
+    data = json.loads(_extract_text(response) or "{}")
     data["model"] = model_name
     log.info("[agentscope] identity=%s confidence=%s similar=%d",
              data.get("identity"), data.get("confidence"), len(similar_records))
@@ -195,8 +258,7 @@ def _classify_openai_compatible(payload: dict, enrichment: dict,
         ],
         "response_format": {"type": "json_object"},
     }
-    ml = model.lower()
-    if not any(p in ml for p in ("gpt-5", "o1", "o3", "o4", "reasoner", "thinking", "qwq")):
+    if not _is_reasoning_model(model):
         kwargs["temperature"] = 0.2
     resp = client.chat.completions.create(**kwargs)
     content = resp.choices[0].message.content or "{}"
