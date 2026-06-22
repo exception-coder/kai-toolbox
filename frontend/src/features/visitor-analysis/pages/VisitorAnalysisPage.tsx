@@ -58,6 +58,7 @@ interface CustomerRef {
   creator: string | null
   note: string | null
   createdAt: number
+  syncedAt: number | null
 }
 
 const IDENTITY_LABEL: Record<string, string> = {
@@ -184,6 +185,7 @@ export function VisitorAnalysisPage() {
   const [custSearch, setCustSearch] = useState('')
   const [custPage, setCustPage] = useState(0)
   const [custCollapsed, setCustCollapsed] = useState(false)
+  const [custSyncFilter, setCustSyncFilter] = useState<'all' | 'synced' | 'unsynced'>('all')
 
   const loadRecent = () => {
     http<VerdictView[]>('/visitor-analysis/verdicts?limit=20')
@@ -305,13 +307,15 @@ export function VisitorAnalysisPage() {
   // 历史客户资料库：客户端模糊匹配（客户名称 / 客户地址）+ 分页（每页 20）。
   const CUST_PAGE_SIZE = 20
   const custQuery = custSearch.trim().toLowerCase()
-  const custFiltered = custQuery
-    ? customers.filter(
-        (c) =>
-          (c.custName ?? '').toLowerCase().includes(custQuery) ||
-          (c.custAddr ?? '').toLowerCase().includes(custQuery),
-      )
-    : customers
+  const custFiltered = customers.filter((c) => {
+    if (custSyncFilter === 'synced' && c.syncedAt == null) return false
+    if (custSyncFilter === 'unsynced' && c.syncedAt != null) return false
+    if (!custQuery) return true
+    return (
+      (c.custName ?? '').toLowerCase().includes(custQuery) ||
+      (c.custAddr ?? '').toLowerCase().includes(custQuery)
+    )
+  })
   const custPageCount = Math.max(1, Math.ceil(custFiltered.length / CUST_PAGE_SIZE))
   const custPageSafe = Math.min(custPage, custPageCount - 1)
   const custPaged = custFiltered.slice(
@@ -440,7 +444,9 @@ export function VisitorAnalysisPage() {
               {clearingVec ? '清空中…' : '清空向量库'}
             </button>
             <span className="text-xs text-muted-foreground">
-              {custQuery ? `${custFiltered.length} / ${customers.length} 条` : `${customers.length} 条`}
+              {custFiltered.length !== customers.length
+                ? `${custFiltered.length} / ${customers.length} 条`
+                : `${customers.length} 条`}
             </span>
           </div>
         </div>
@@ -451,15 +457,30 @@ export function VisitorAnalysisPage() {
               镜像原系统「客户资料」。客户新增申请会按关键字 / 名称 / 地址 / 经纬度与这些记录比对，判定是否重复客户。
             </p>
             {syncMsg && <p className="text-xs text-emerald-600">{syncMsg}</p>}
-            <input
-              value={custSearch}
-              onChange={(e) => {
-                setCustSearch(e.target.value)
-                setCustPage(0)
-              }}
-              placeholder="模糊搜索：客户名称 / 客户地址"
-              className="w-full max-w-sm rounded-md border px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/40"
-            />
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                value={custSearch}
+                onChange={(e) => {
+                  setCustSearch(e.target.value)
+                  setCustPage(0)
+                }}
+                placeholder="模糊搜索：客户名称 / 客户地址"
+                className="w-full max-w-sm rounded-md border px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/40"
+              />
+              <select
+                value={custSyncFilter}
+                onChange={(e) => {
+                  setCustSyncFilter(e.target.value as 'all' | 'synced' | 'unsynced')
+                  setCustPage(0)
+                }}
+                className="rounded-md border px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/40"
+                title="按是否已同步至向量库过滤"
+              >
+                <option value="all">全部</option>
+                <option value="synced">已同步向量库</option>
+                <option value="unsynced">未同步</option>
+              </select>
+            </div>
             <div className="overflow-x-auto rounded-lg border">
               <table className="w-full min-w-[960px] text-sm">
                 <thead className="bg-muted/50 text-left">
@@ -473,12 +494,13 @@ export function VisitorAnalysisPage() {
                     <th className="whitespace-nowrap p-2">经纬度</th>
                     <th className="whitespace-nowrap p-2">等级</th>
                     <th className="whitespace-nowrap p-2">创建人</th>
+                    <th className="whitespace-nowrap p-2">向量库</th>
                   </tr>
                 </thead>
                 <tbody>
                   {custFiltered.length === 0 && (
                     <tr>
-                      <td className="p-3 text-muted-foreground" colSpan={9}>
+                      <td className="p-3 text-muted-foreground" colSpan={10}>
                         {customers.length === 0 ? '暂无客户资料' : '无匹配记录'}
                       </td>
                     </tr>
@@ -498,6 +520,13 @@ export function VisitorAnalysisPage() {
                       </td>
                       <td className="whitespace-nowrap p-2 text-muted-foreground">{c.level || '—'}</td>
                       <td className="whitespace-nowrap p-2 text-muted-foreground">{c.creator || '—'}</td>
+                      <td className="whitespace-nowrap p-2">
+                        {c.syncedAt != null ? (
+                          <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-600">已同步</span>
+                        ) : (
+                          <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">未同步</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

@@ -24,6 +24,7 @@ public record CustomerRefView(
         String custProperty,
         String creator,
         String note,
-        long createdAt
+        long createdAt,
+        Long syncedAt
 ) {
 }

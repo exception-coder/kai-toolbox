@@ -52,16 +52,28 @@ public class CustomerRefRepository {
             rs.getString("cust_property"),
             rs.getString("creator"),
             rs.getString("note"),
-            rs.getLong("created_at"));
+            rs.getLong("created_at"),
+            longOrNull(rs, "synced_at"));
 
     public List<CustomerRefView> list() {
         return jdbc.query("""
                 SELECT id, cust_id, cust_name, keyword, brand_name, cust_type, cust_category, biz_major,
                        province, city, district, cust_addr, checkin_addr, lng, lat, level, cust_property,
-                       creator, note, created_at
+                       creator, note, created_at, synced_at
                   FROM va_customer_ref
                  ORDER BY id ASC
                 """, MAPPER);
+    }
+
+    /** 标记某客户已同步进向量库（记同步时间）。 */
+    public void markSynced(Long custId, long syncedAt) {
+        if (custId == null) return;
+        jdbc.update("UPDATE va_customer_ref SET synced_at = ? WHERE cust_id = ?", syncedAt, custId);
+    }
+
+    /** 清空全部同步标记（向量库被清空后调用）。 */
+    public int clearSyncedAll() {
+        return jdbc.update("UPDATE va_customer_ref SET synced_at = NULL");
     }
 
     public int count() {
@@ -83,7 +95,8 @@ public class CustomerRefRepository {
                     province=excluded.province, city=excluded.city, district=excluded.district,
                     cust_addr=excluded.cust_addr, checkin_addr=excluded.checkin_addr, lng=excluded.lng, lat=excluded.lat,
                     level=excluded.level, cust_property=excluded.cust_property, creator=excluded.creator, note=excluded.note,
-                    name_norm=excluded.name_norm, keyword_norm=excluded.keyword_norm, addr_norm=excluded.addr_norm
+                    name_norm=excluded.name_norm, keyword_norm=excluded.keyword_norm, addr_norm=excluded.addr_norm,
+                    synced_at=NULL
                 """,
                 c.custId(), c.custName(), c.keyword(), c.brandName(), c.custType(), c.custCategory(), c.bizMajor(),
                 c.province(), c.city(), c.district(), c.custAddr(), c.checkinAddr(), c.lng(), c.lat(), c.level(),

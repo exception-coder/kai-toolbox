@@ -75,7 +75,8 @@ public class CustomerRefImportService {
                         trim(r.get("PRIVATETYPE")),
                         trim(r.get("MAKER")),
                         trim(r.get("NOTES")),
-                        now);
+                        now,
+                        null);   // synced_at：导入即未同步，待「一键同步」后置位
                 // 归一化键：统一走 Java Normalizer（单一来源）。
                 repo.upsert(c,
                         normalizer.company(custName),

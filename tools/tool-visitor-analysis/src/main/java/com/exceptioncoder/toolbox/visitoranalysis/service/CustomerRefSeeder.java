@@ -77,6 +77,6 @@ public class CustomerRefSeeder implements ApplicationRunner {
                                        String addr, String checkin, double lng, double lat,
                                        String level, String property, String creator, String note) {
         return new CustomerRefView(0, custId, name, keyword, brand, type, category, major,
-                province, city, district, addr, checkin, lng, lat, level, property, creator, note, 0);
+                province, city, district, addr, checkin, lng, lat, level, property, creator, note, 0, null);
     }
 }

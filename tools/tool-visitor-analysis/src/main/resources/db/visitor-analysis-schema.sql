@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS va_customer_ref (
     name_norm     TEXT,                        -- 归一化名称键
     keyword_norm  TEXT,                        -- 归一化关键字键
     addr_norm     TEXT,                        -- 归一化地址键(城市+区)
-    created_at    INTEGER NOT NULL
+    created_at    INTEGER NOT NULL,
+    synced_at     INTEGER                      -- 同步进向量库的时间;NULL=未同步(老库由 CustomerRefMigration 追加该列)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_va_customer_ref_cust_id ON va_customer_ref(cust_id);
 CREATE INDEX IF NOT EXISTS idx_va_customer_ref_keyword_norm ON va_customer_ref(keyword_norm);

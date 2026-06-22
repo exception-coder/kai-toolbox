@@ -159,6 +159,7 @@ public class VisitorAnalysisController {
                     "message", "AgentScope sidecar 未在线，无法同步向量库");
         }
         List<CustomerRefView> all = customerRefRepo.list();
+        long now = System.currentTimeMillis();
         int indexed = 0;
         for (CustomerRefView c : all) {
             boolean ok = sidecar.indexCustomerSync(
@@ -167,7 +168,10 @@ public class VisitorAnalysisController {
                     c.custAddr(),
                     normalizer.addr(c.custAddr()),
                     c.level());
-            if (ok) indexed++;
+            if (ok) {
+                indexed++;
+                customerRefRepo.markSynced(c.custId(), now);   // 置同步标记
+            }
         }
         int failed = all.size() - indexed;
         log.info("[visitor-analysis] 客户底库同步向量库: total={} indexed={} failed={}", all.size(), indexed, failed);
@@ -180,7 +184,11 @@ public class VisitorAnalysisController {
         if (!sidecar.ping()) {
             return Map.of("ok", false, "message", "AgentScope sidecar 未在线，无法清空向量库");
         }
-        return sidecar.clearCustomers();
+        Map<String, Object> result = sidecar.clearCustomers();
+        if (Boolean.TRUE.equals(result.get("ok"))) {
+            customerRefRepo.clearSyncedAll();   // 向量库清了，同步标记一并清掉
+        }
+        return result;
     }
 
     @GetMapping("/competitors")
