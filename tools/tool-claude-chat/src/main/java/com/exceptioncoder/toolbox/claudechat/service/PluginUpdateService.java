@@ -187,6 +187,34 @@ public class PluginUpdateService {
         return map;
     }
 
+    /**
+     * 跑一次 `codex plugin list`，收集 codex 实际能识别的插件名集合（含未安装；按 name@marketplace 取 name）。
+     * 仅当仓库提供 codex 清单（.agents/plugins/marketplace.json）时其插件才会出现在这里。
+     */
+    private java.util.Set<String> codexKnownPlugins() {
+        java.util.Set<String> set = new java.util.HashSet<>();
+        try {
+            List<String> cmd = new ArrayList<>(codexParts());
+            cmd.add("plugin");
+            cmd.add("list");
+            CommandResult r = runCapture(cmd);
+            for (String line : r.output.split("\\r?\\n")) {
+                String t = line.trim();
+                if (t.isEmpty()) {
+                    continue;
+                }
+                String first = t.split("\\s+")[0];      // 插件行以 "<name>@<marketplace>" 开头；表头行无 @
+                int at = first.indexOf('@');
+                if (at > 0) {
+                    set.add(first.substring(0, at));
+                }
+            }
+        } catch (Exception e) {
+            log.debug("codex plugin list（known）失败：{}", e.getMessage());
+        }
+        return set;
+    }
+
     /** 读 ~/.claude/plugins/known_marketplaces.json：marketplace 名 -> git source url（供 codex marketplace add）。 */
     private Map<String, String> readMarketplaceGitUrls(Path home) {
         Map<String, String> map = new HashMap<>();
@@ -338,7 +366,7 @@ public class PluginUpdateService {
                     results.add(runStep(taskId, "claude", "update:" + p,
                             concat(claude, "update", p + "@" + p)));
                 }
-                // Codex：marketplace 是 git 源，先 upgrade（刷新）；未配置则 add git URL（首次）；再 `plugin add <p>@<p>`。
+                // Codex：marketplace 是 git 源。先确保各 marketplace 已配置（upgrade 刷新；未配置则 add git URL）。
                 Path home = Path.of(System.getProperty("user.home"));
                 Map<String, String> gitUrls = readMarketplaceGitUrls(home);
                 List<String> codex = new ArrayList<>(codexParts());
@@ -354,8 +382,18 @@ public class PluginUpdateService {
                                     concat(codex, "marketplace", "add", url)));
                         }
                     }
-                    results.add(runStep(taskId, "codex", "plugin-add:" + p,
-                            concat(codex, "add", p + "@" + p)));
+                }
+                // 只有提供了 codex 清单(.agents/plugins/marketplace.json)的仓库，其插件才会被 codex 识别 → 才装；
+                // 否则（仅 .claude-plugin 清单）跳过并说明，避免报「plugin not found」吓人。
+                java.util.Set<String> codexKnown = codexKnownPlugins();
+                for (String p : props.getWatchedPlugins()) {
+                    if (codexKnown.contains(p)) {
+                        results.add(runStep(taskId, "codex", "plugin-add:" + p,
+                                concat(codex, "add", p + "@" + p)));
+                    } else {
+                        sse.publish(taskId, "message", Map.of("type", "line", "engine", "codex", "step", "skip:" + p,
+                                "text", "跳过 " + p + "：该仓未提供 codex 清单(.agents/plugins/marketplace.json)，仅 Claude 可用"));
+                    }
                 }
                 sse.publish(taskId, "message", Map.of("type", "done", "results", results));
             } catch (Exception e) {
