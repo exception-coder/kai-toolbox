@@ -33,6 +33,9 @@ const DEMO_STEER = [
   '要改配色/皮肤（如端午绿→国庆红金）时，UPDATE welfare_sign_theme 表（id=1），字段：',
   'accent（强调/图标）、button_bg/button_hover/button_text（按钮）、stage_bg/panel_bg（背景深底）、',
   "eyebrow（顶部小字）、cta_label（领取按钮文案）。例：UPDATE welfare_sign_theme SET accent='#ffd75e', button_bg='#c8102e' WHERE id=1。",
+  '要换背景图与聊天框吉祥物，改 welfare_sign_theme 的 backdrop_image / concierge_image 列（指向已有资源）：',
+  "国庆版用 '/assets/welfare-sign/national-bg.svg' 与 '/assets/welfare-sign/national-concierge.svg'；",
+  "端午版用 '/assets/welfare-sign/duanwu-bg.svg' 与 '/assets/welfare-sign/duanwu-concierge.svg'。",
   '改完简要说明即可，页面会自动刷新。',
   '约束：只能操作 welfare_sign_* 表（含 welfare_sign_theme）与副本目录内的文件，不要尝试其它表、命令或网络。',
 ].join('\n')

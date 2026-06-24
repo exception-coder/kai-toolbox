@@ -120,6 +120,8 @@ public class WelfareDemoSqlService {
                     theme.put("panelBg", rs.getString("panel_bg"));
                     theme.put("eyebrow", rs.getString("eyebrow"));
                     theme.put("ctaLabel", rs.getString("cta_label"));
+                    theme.put("backdropImage", rs.getString("backdrop_image"));
+                    theme.put("conciergeImage", rs.getString("concierge_image"));
                     m.put("theme", theme);
                 }
             }

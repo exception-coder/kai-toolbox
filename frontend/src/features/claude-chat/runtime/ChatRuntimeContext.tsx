@@ -56,6 +56,9 @@ interface ChatRuntime {
   chat: UseClaudeChatSocket | null
   /** 受约束免登录演示模式：悬浮窗据此屏蔽无关功能、只留缩小/展开。 */
   demo: boolean
+  /** 悬浮窗吉祥物图 URL 覆盖（demo 演示页按主题注入）；null=用内置默认。 */
+  concierge: string | null
+  setConcierge: (v: string | null) => void
   /** 引擎是否已挂载（懒启动后常驻）。 */
   active: boolean
   /** 主动激活引擎（如弹出浮窗时）。 */
@@ -104,6 +107,7 @@ export function ChatRuntimeProvider({ children, demo = false }: { children: Reac
   const [size, setSize] = useState<FloatSize>(() => persisted?.size ?? DEFAULT_SIZE)
   // 语音模式不持久化（刷新回到普通态，避免重连即弹全屏）；进入即懒激活引擎。
   const [voiceMode, setVoiceModeState] = useState(false)
+  const [concierge, setConcierge] = useState<string | null>(null)
   const activate = useCallback(() => setActive(true), [])
   const setVoiceMode = useCallback((v: boolean) => {
     if (v) setActive(true)
@@ -130,7 +134,7 @@ export function ChatRuntimeProvider({ children, demo = false }: { children: Reac
     else lastRouteRef.current = location.pathname + location.search
   }, [location.pathname, location.search])
 
-  const control = { demo, active, activate, floating, setFloating, minimized, setMinimized, pos, setPos, size, setSize, voiceMode, setVoiceMode, getReturnRoute }
+  const control = { demo, concierge, setConcierge, active, activate, floating, setFloating, minimized, setMinimized, pos, setPos, size, setSize, voiceMode, setVoiceMode, getReturnRoute }
 
   if (!active) {
     return <Ctx.Provider value={{ ...control, chat: null }}>{children}</Ctx.Provider>

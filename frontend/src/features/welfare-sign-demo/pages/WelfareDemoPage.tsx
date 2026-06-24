@@ -40,7 +40,7 @@ export function WelfareDemoPage() {
 
 /** 背景演示页：随 demo 会话就绪 / 每轮结束重拉副本库配置并重挂载，使 agent 的改动即时可见。 */
 function DemoStage() {
-  const { chat } = useChatRuntime()
+  const { chat, setConcierge } = useChatRuntime()
   const sessionId = chat?.sessionId ?? null
   const running = chat?.running ?? false
   const [config, setConfig] = useState<WelfareConfig>(FALLBACK_CONFIG)
@@ -54,11 +54,12 @@ function DemoStage() {
       const c = await http<WelfareConfig & { theme?: WelfareTheme }>(`/claude-chat/demo/welfare-config/${sessionId}`)
       setConfig(c)
       setTheme(c.theme)
+      setConcierge(c.theme?.conciergeImage ?? null) // 同步悬浮窗吉祥物
       setVersion((v) => v + 1)
     } catch {
       /* 无行/未就绪：保留当前配置，下轮再试 */
     }
-  }, [sessionId])
+  }, [sessionId, setConcierge])
 
   // 会话就绪（拿到 sessionId）即拉一次。
   useEffect(() => {

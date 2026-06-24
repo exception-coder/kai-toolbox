@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="国庆灯笼礼宾">
+  <defs>
+    <linearGradient id="nlan" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e0354c"/>
+      <stop offset="0.5" stop-color="#c8102e"/>
+      <stop offset="1" stop-color="#8f0a1f"/>
+    </linearGradient>
+    <linearGradient id="nlight" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffe79a"/>
+      <stop offset="1" stop-color="#ffd75e"/>
+    </linearGradient>
+    <radialGradient id="ncheek" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffb43a" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#ffb43a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- 顶盖 + 提绳 -->
+  <line x1="100" y1="14" x2="100" y2="34" stroke="url(#nlight)" stroke-width="3"/>
+  <rect x="74" y="32" width="52" height="12" rx="3" fill="url(#nlight)"/>
+
+  <!-- 灯笼身 -->
+  <ellipse cx="100" cy="104" rx="62" ry="60" fill="url(#nlan)" stroke="#ffd75e" stroke-width="3"/>
+  <!-- 竖向骨线 -->
+  <g stroke="#ffd75e" stroke-width="2" opacity="0.65" fill="none">
+    <path d="M100,46 Q74,104 100,162"/>
+    <path d="M100,46 Q126,104 100,162"/>
+    <path d="M100,46 Q60,104 100,162" opacity="0.5"/>
+    <path d="M100,46 Q140,104 100,162" opacity="0.5"/>
+  </g>
+  <!-- 上下金箍 -->
+  <rect x="70" y="44" width="60" height="12" rx="4" fill="url(#nlight)"/>
+  <rect x="70" y="152" width="60" height="12" rx="4" fill="url(#nlight)"/>
+
+  <!-- 表情 -->
+  <circle cx="84" cy="100" r="6" fill="#2a0407"/>
+  <circle cx="116" cy="100" r="6" fill="#2a0407"/>
+  <circle cx="86" cy="98" r="2" fill="#fff"/>
+  <circle cx="118" cy="98" r="2" fill="#fff"/>
+  <ellipse cx="72" cy="114" rx="9" ry="6" fill="url(#ncheek)"/>
+  <ellipse cx="128" cy="114" rx="9" ry="6" fill="url(#ncheek)"/>
+  <path d="M88,116 Q100,128 112,116" stroke="#2a0407" stroke-width="3" fill="none" stroke-linecap="round"/>
+
+  <!-- 流苏 -->
+  <g stroke="url(#nlight)" stroke-width="3" stroke-linecap="round">
+    <line x1="92" y1="166" x2="90" y2="190"/>
+    <line x1="100" y1="166" x2="100" y2="194"/>
+    <line x1="108" y1="166" x2="110" y2="190"/>
+  </g>
+</svg>

@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" role="img" aria-label="国庆红金夜色">
+  <defs>
+    <linearGradient id="nsky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1c0406"/>
+      <stop offset="0.42" stop-color="#3a0a0d"/>
+      <stop offset="0.72" stop-color="#7a1418"/>
+      <stop offset="0.9" stop-color="#b8252b"/>
+      <stop offset="1" stop-color="#e0a23a"/>
+    </linearGradient>
+    <radialGradient id="nglow" cx="0.5" cy="0.32" r="0.6">
+      <stop offset="0" stop-color="#ffd75e" stop-opacity="0.55"/>
+      <stop offset="0.4" stop-color="#ffb43a" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#ffb43a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ngold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffe79a"/>
+      <stop offset="0.5" stop-color="#ffd75e"/>
+      <stop offset="1" stop-color="#e0a23a"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1600" height="1000" fill="url(#nsky)"/>
+  <rect width="1600" height="1000" fill="url(#nglow)"/>
+
+  <!-- 远处城市天际线剪影 -->
+  <g fill="#1c0406" opacity="0.55">
+    <rect x="0" y="720" width="1600" height="280"/>
+    <rect x="120" y="600" width="90" height="200"/>
+    <rect x="240" y="650" width="70" height="150"/>
+    <rect x="1180" y="560" width="110" height="240"/>
+    <rect x="1320" y="640" width="80" height="160"/>
+    <rect x="1440" y="600" width="70" height="200"/>
+  </g>
+
+  <!-- 烟花 -->
+  <g stroke="url(#ngold)" stroke-width="2.5" stroke-linecap="round" opacity="0.85">
+    <g transform="translate(420,260)">
+      <line x1="0" y1="0" x2="0" y2="-90"/><line x1="0" y1="0" x2="0" y2="90"/>
+      <line x1="0" y1="0" x2="-90" y2="0"/><line x1="0" y1="0" x2="90" y2="0"/>
+      <line x1="0" y1="0" x2="64" y2="-64"/><line x1="0" y1="0" x2="-64" y2="-64"/>
+      <line x1="0" y1="0" x2="64" y2="64"/><line x1="0" y1="0" x2="-64" y2="64"/>
+    </g>
+    <g transform="translate(1160,200)" opacity="0.7">
+      <line x1="0" y1="0" x2="0" y2="-70"/><line x1="0" y1="0" x2="0" y2="70"/>
+      <line x1="0" y1="0" x2="-70" y2="0"/><line x1="0" y1="0" x2="70" y2="0"/>
+      <line x1="0" y1="0" x2="50" y2="-50"/><line x1="0" y1="0" x2="-50" y2="-50"/>
+    </g>
+  </g>
+
+  <!-- 主五角星 -->
+  <g transform="translate(800,330)">
+    <circle r="150" fill="url(#nglow)"/>
+    <path d="M0,-110 L32,-34 L112,-34 L48,16 L72,92 L0,46 L-72,92 L-48,16 L-112,-34 L-32,-34 Z"
+          fill="url(#ngold)" stroke="#fff7e8" stroke-width="2"/>
+  </g>
+
+  <!-- 散点星辉 -->
+  <g fill="#ffe79a">
+    <circle cx="300" cy="160" r="3"/><circle cx="560" cy="120" r="2.5"/>
+    <circle cx="980" cy="150" r="3"/><circle cx="1280" cy="320" r="2.5"/>
+    <circle cx="180" cy="380" r="2.5"/><circle cx="1400" cy="180" r="3"/>
+  </g>
+</svg>

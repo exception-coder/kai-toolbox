@@ -13,6 +13,8 @@ export interface WelfareTheme {
   panelBg: string     // --wf-panel   面板深底
   eyebrow: string     // 顶部 eyebrow 文案
   ctaLabel: string    // 「领取福利」按钮文案
+  backdropImage: string  // 背景图 URL（公共资源路径或外链）
+  conciergeImage: string // 聊天框吉祥物图 URL
 }
 
 export interface WelfareConfig {

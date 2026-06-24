@@ -152,7 +152,7 @@ function SignDesk({ fullscreen, config, theme, onError, onDone }: { fullscreen: 
   const [doneUrl, setDoneUrl] = useState<string | null | undefined>(undefined)
   const [popupOpen, setPopupOpen] = useState(false)
   const fields = useMemo(() => parseFields(activeConfig?.extraFieldsJson), [activeConfig?.extraFieldsJson])
-  const visual = activeConfig?.detailImageUrl || activeConfig?.loginImageUrl || LUXURY_GIFT_IMAGE
+  const visual = theme?.backdropImage || activeConfig?.detailImageUrl || activeConfig?.loginImageUrl || LUXURY_GIFT_IMAGE
   const title = activeConfig?.detailTitle || config?.detailTitle || '端午福利签收'
   const content = activeConfig?.detailContent || config?.detailContent || '粽香端午，一份心意郑重送达。请完成确认，留下你的签名。'
 

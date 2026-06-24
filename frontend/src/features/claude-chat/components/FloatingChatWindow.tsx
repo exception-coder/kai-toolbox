@@ -50,7 +50,9 @@ function deriveStatus(items: ChatItem[], running: boolean, hasPermission: boolea
  * 避免与全屏会话页双份 UI。操作的是 Context 里的同一聊天实例（同一 WS、同一会话）。
  */
 export function FloatingChatWindow() {
-  const { chat, demo, floating, setFloating, minimized, setMinimized, pos, setPos, size, setSize, setVoiceMode } = useChatRuntime()
+  const { chat, demo, concierge, floating, setFloating, minimized, setMinimized, pos, setPos, size, setSize, setVoiceMode } = useChatRuntime()
+  // 吉祥物图：demo 演示页按主题注入覆盖，否则用内置默认。
+  const conciergeSrc = concierge ?? GIFT_CONCIERGE_IMAGE
   const location = useLocation()
   const navigate = useNavigate()
   const [draft, setDraft] = useState('')
@@ -307,7 +309,7 @@ export function FloatingChatWindow() {
           ) : (
             <>
               <img
-                src={GIFT_CONCIERGE_IMAGE}
+                src={conciergeSrc}
                 alt="礼赠助手"
                 draggable={false}
                 className={`size-16 select-none object-contain drop-shadow-[0_10px_22px_rgba(111,155,84,0.5)] ${active ? 'animate-pulse' : ''}`}
@@ -397,7 +399,7 @@ export function FloatingChatWindow() {
         {giftMode ? (
           <>
             <span className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#6f9b54]/35 bg-[#0e1a12]">
-              <img src={GIFT_CONCIERGE_IMAGE} alt="" className="size-9 object-contain" />
+              <img src={conciergeSrc} alt="" className="size-9 object-contain" />
             </span>
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-medium text-[#eaf2dc]" title={headerTitle}>礼赠助手</span>
