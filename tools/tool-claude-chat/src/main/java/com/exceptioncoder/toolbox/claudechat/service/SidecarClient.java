@@ -76,6 +76,25 @@ public class SidecarClient {
                 "apiBaseUrl", nz(apiBaseUrl), "authToken", nz(authToken)));
     }
 
+    /**
+     * 福利签收演示会话：cwd = 一次性副本根、固定 claude 引擎、demo=true（sidecar 据此走沙箱硬裁决并注入
+     * welfare_db MCP）。demoApiBase 供 welfare_db 工具回灌后端执行受限 SQL。
+     */
+    public void startDemoSession(String sessionId, String cwd, String demoApiBase) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("type", "start");
+        m.put("sessionId", sessionId);
+        m.put("cwd", nz(cwd));
+        m.put("model", "");
+        m.put("mode", "default");
+        m.put("engine", "claude");
+        m.put("apiBaseUrl", "");
+        m.put("authToken", "");
+        m.put("demo", true);
+        m.put("demoApiBase", nz(demoApiBase));
+        send(m);
+    }
+
     public void resumeSession(String sessionId, String sdkSessionId, String cwd, String engine,
                               String apiBaseUrl, String authToken) {
         send(Map.of("type", "resume", "sessionId", sessionId,

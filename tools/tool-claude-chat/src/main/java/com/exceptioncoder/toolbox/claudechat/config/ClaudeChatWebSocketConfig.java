@@ -14,11 +14,14 @@ import org.springframework.web.socket.server.standard.ServletServerContainerFact
 public class ClaudeChatWebSocketConfig implements WebSocketConfigurer {
 
     private final ClaudeChatWebSocketHandler handler;
+    private final DemoWebSocketHandler demoHandler;
     private final ObjectProvider<AdminHandshakeInterceptor> adminHandshake;
 
     public ClaudeChatWebSocketConfig(ClaudeChatWebSocketHandler handler,
+                                     DemoWebSocketHandler demoHandler,
                                      ObjectProvider<AdminHandshakeInterceptor> adminHandshake) {
         this.handler = handler;
+        this.demoHandler = demoHandler;
         this.adminHandshake = adminHandshake;
     }
 
@@ -31,6 +34,9 @@ public class ClaudeChatWebSocketConfig implements WebSocketConfigurer {
         if (interceptor != null) {
             registration.addInterceptors(interceptor);
         }
+        // 福利签收演示通道：公开免登录，**不挂** Admin 拦截器；约束由副本沙箱 + canUseTool 硬保证。
+        registry.addHandler(demoHandler, "/api/claude-chat/demo/ws")
+                .setAllowedOriginPatterns("*");
     }
 
     @Bean

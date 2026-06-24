@@ -47,6 +47,7 @@ public class ClaudeChatService {
     private final AttachmentStorageService attachments;
     private final AgentOneShotService agentOneShot;
     private final ProviderModelService providerModels;
+    private final WelfareDemoSandboxProvisioner welfareDemo;
     private final ObjectMapper mapper;
 
     /** sessionId -> 运行时上下文 */
@@ -64,6 +65,7 @@ public class ClaudeChatService {
                              AttachmentStorageService attachments,
                              AgentOneShotService agentOneShot,
                              ProviderModelService providerModels,
+                             WelfareDemoSandboxProvisioner welfareDemo,
                              ObjectMapper mapper) {
         this.props = props;
         this.repo = repo;
@@ -73,6 +75,7 @@ public class ClaudeChatService {
         this.attachments = attachments;
         this.agentOneShot = agentOneShot;
         this.providerModels = providerModels;
+        this.welfareDemo = welfareDemo;
         this.mapper = mapper;
     }
 
@@ -113,6 +116,22 @@ public class ClaudeChatService {
         sidecar.startSession(sessionId, cwd, open.model(), ctx.mode, engine, apiBaseUrl, authToken);
         pushGatewayModels(ctx); // 网关会话：拉网关 /v1/models 目录推给前端，命令菜单据此选/切模型
         log.info("[claude-chat] open 会话 {} cwd={} mode={} engine={}", sessionId, cwd, ctx.mode, engine);
+    }
+
+    /**
+     * 福利签收演示会话：cwd 已是供给好的一次性副本根，demo=true 透传给 sidecar 走沙箱硬裁决。
+     * 演示会话不持久化（不入 claude_chat_session，故不进正式会话列表），随浏览器断连即销毁副本。
+     */
+    public void openDemoSession(WebSocketSession ws, String sessionId, String cwd, String demoApiBase) {
+        if (!ensureSidecar(ws)) return;
+        SessionCtx ctx = new SessionCtx(sessionId, cwd);
+        ctx.engine = "claude";
+        ctx.mode = "default";
+        ctx.demo = true;
+        sessions.put(sessionId, ctx);
+        bindViewer(ws, ctx);
+        sidecar.startDemoSession(sessionId, cwd, demoApiBase);
+        log.info("[claude-chat] open 演示会话 {} cwd={}", sessionId, cwd);
     }
 
     public void attach(WebSocketSession ws, ClientMessage.Attach attach) {
@@ -461,7 +480,15 @@ public class ClaudeChatService {
         String sessionId = wsToSession.remove(ws.getId());
         if (sessionId == null) return;
         SessionCtx ctx = sessions.get(sessionId);
-        if (ctx != null) ctx.viewers.remove(ws);
+        if (ctx == null) return;
+        ctx.viewers.remove(ws);
+        // 演示会话是一次性的：最后一个观察者断开即中断并销毁副本（不像正式会话那样留在 sidecar 续跑）。
+        if (ctx.demo && !hasActiveViewer(ctx)) {
+            sidecar.interrupt(sessionId);
+            sessions.remove(sessionId);
+            welfareDemo.dispose(sessionId);
+            log.info("[claude-chat] 演示会话 {} 断开，已销毁副本", sessionId);
+        }
     }
 
     // ===== sidecar 侧事件（由 SidecarClient 回调） =====
@@ -873,6 +900,8 @@ public class ClaudeChatService {
         final Set<WebSocketSession> viewers = ConcurrentHashMap.newKeySet();
         /** 会话权限模式，默认 default；切换后随下一轮 send 透传给 sidecar。 */
         volatile String mode = "default";
+        /** 福利签收演示会话：true 时走一次性副本沙箱，断连即销毁，不持久化、不进正式列表。 */
+        volatile boolean demo = false;
         /**
          * 当前未决的权限/提问请求。sidecar 的 canUseTool 会阻塞整轮等决策，故同一时刻至多一个。
          * 断线重连时据此重投，避免弹窗因事件缓冲淘汰或 seq 已读而丢失；决策到达或本轮结束时清空。
