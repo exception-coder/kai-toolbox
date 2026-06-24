@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { BadgeCheck, Download, Eraser, Gift, Maximize2, PenLine, Plus, Save, Trash2, UserCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -155,6 +155,19 @@ function SignDesk({ fullscreen, config, theme, blocks, showRegionMarkers = false
   const [doneUrl, setDoneUrl] = useState<string | null | undefined>(undefined)
   const [popupOpen, setPopupOpen] = useState(false)
   const fields = useMemo(() => parseFields(activeConfig?.extraFieldsJson), [activeConfig?.extraFieldsJson])
+  // 点击区块角标后被高亮的区块；呼吸几下自动熄灭。先清空再设，确保连点同一块也能重放动画。
+  const [highlight, setHighlight] = useState<string | null>(null)
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const activateRegion = useCallback((id: string) => {
+    window.clearTimeout(highlightTimer.current)
+    setHighlight(null)
+    requestAnimationFrame(() => {
+      setHighlight(id)
+      highlightTimer.current = setTimeout(() => setHighlight(null), 2600)
+    })
+  }, [])
+  useEffect(() => () => window.clearTimeout(highlightTimer.current), [])
+  const regionClass = (id: string) => (highlight === id ? ' welfare-region-pulse' : '')
   const visual = theme?.backdropImage || activeConfig?.detailImageUrl || activeConfig?.loginImageUrl || LUXURY_GIFT_IMAGE
   const title = activeConfig?.detailTitle || config?.detailTitle || '端午福利签收'
   const content = activeConfig?.detailContent || config?.detailContent || '粽香端午，一份心意郑重送达。请完成确认，留下你的签名。'
@@ -213,18 +226,18 @@ function SignDesk({ fullscreen, config, theme, blocks, showRegionMarkers = false
         <LuxuryBackdrop image={visual} />
         <div className="relative z-10 mx-auto grid min-h-[inherit] w-full max-w-7xl items-center gap-10 px-6 py-12 text-white lg:grid-cols-[1.15fr_420px] lg:px-12">
           <div className="welfare-luxury-copy max-w-4xl">
-            <p className="relative mb-6 text-xs uppercase tracking-[0.5em] text-[var(--wf-accent,#6f9b54)]" style={blockStyle(blocks, 'A')}>
-              <RegionMarker id="A" show={showRegionMarkers} />{theme?.eyebrow ?? '端午安康 · Dragon Boat Festival'}
+            <p className={`relative mb-6 text-xs uppercase tracking-[0.5em] text-[var(--wf-accent,#6f9b54)]${regionClass('A')}`} style={blockStyle(blocks, 'A')}>
+              <RegionMarker id="A" show={showRegionMarkers} onActivate={activateRegion} />{theme?.eyebrow ?? '端午安康 · Dragon Boat Festival'}
             </p>
-            <h2 className="relative max-w-4xl text-6xl font-semibold leading-[0.95] tracking-[-0.02em] md:text-8xl lg:text-9xl" style={blockStyle(blocks, 'B')}>
-              <RegionMarker id="B" show={showRegionMarkers} />{title}
+            <h2 className={`relative max-w-4xl text-6xl font-semibold leading-[0.95] tracking-[-0.02em] md:text-8xl lg:text-9xl${regionClass('B')}`} style={blockStyle(blocks, 'B')}>
+              <RegionMarker id="B" show={showRegionMarkers} onActivate={activateRegion} />{title}
             </h2>
-            <p className="relative mt-8 max-w-2xl whitespace-pre-wrap text-lg leading-8 text-white/62 md:text-xl" style={blockStyle(blocks, 'C')}>
-              <RegionMarker id="C" show={showRegionMarkers} />{content}
+            <p className={`relative mt-8 max-w-2xl whitespace-pre-wrap text-lg leading-8 text-white/62 md:text-xl${regionClass('C')}`} style={blockStyle(blocks, 'C')}>
+              <RegionMarker id="C" show={showRegionMarkers} onActivate={activateRegion} />{content}
             </p>
           </div>
-          <section className="welfare-luxury-panel relative rounded-[2rem] border border-white/10 bg-[var(--wf-panel,#0e1a12)]/70 p-6 shadow-2xl shadow-black/40 backdrop-blur-xl" style={blockStyle(blocks, 'D')}>
-            <RegionMarker id="D" show={showRegionMarkers} />
+          <section className={`welfare-luxury-panel relative rounded-[2rem] border border-white/10 bg-[var(--wf-panel,#0e1a12)]/70 p-6 shadow-2xl shadow-black/40 backdrop-blur-xl${regionClass('D')}`} style={blockStyle(blocks, 'D')}>
+            <RegionMarker id="D" show={showRegionMarkers} onActivate={activateRegion} />
             <div className="mb-8 flex items-center justify-between">
               <div>
                 <p className="text-xs uppercase tracking-[0.28em] text-white/38">Private Reception</p>
@@ -232,8 +245,8 @@ function SignDesk({ fullscreen, config, theme, blocks, showRegionMarkers = false
               </div>
               <Gift className="size-6 text-[var(--wf-accent,#6f9b54)]" />
             </div>
-            <div className="relative" style={blockStyle(blocks, 'E')}>
-              <RegionMarker id="E" show={showRegionMarkers} />
+            <div className={`relative${regionClass('E')}`} style={blockStyle(blocks, 'E')}>
+              <RegionMarker id="E" show={showRegionMarkers} onActivate={activateRegion} />
               <LuxuryInput label="员工编号 / 手机号 / 账号" value={loginId} onChange={setLoginId} />
               {config?.loginMode === 'PASSWORD' ? (
                 <LuxuryInput label="密码" type="password" value={password} onChange={setPassword} />
@@ -247,9 +260,9 @@ function SignDesk({ fullscreen, config, theme, blocks, showRegionMarkers = false
               disabled={!loginId.trim() || loginMut.isPending}
               onClick={() => loginMut.mutate()}
               style={blockStyle(blocks, 'F')}
-              className="relative mt-7 h-12 w-full rounded-full bg-[var(--wf-btn,#5e8b46)] text-sm font-medium text-[var(--wf-btn-text,#0c160c)] transition hover:bg-[var(--wf-btn-hover,#79a861)] disabled:cursor-not-allowed disabled:opacity-45"
+              className={`relative mt-7 h-12 w-full rounded-full bg-[var(--wf-btn,#5e8b46)] text-sm font-medium text-[var(--wf-btn-text,#0c160c)] transition hover:bg-[var(--wf-btn-hover,#79a861)] disabled:cursor-not-allowed disabled:opacity-45${regionClass('F')}`}
             >
-              <RegionMarker id="F" show={showRegionMarkers} />{theme?.ctaLabel ?? '领取端午福利'}
+              <RegionMarker id="F" show={showRegionMarkers} onActivate={activateRegion} />{theme?.ctaLabel ?? '领取端午福利'}
             </button>
           </section>
         </div>
@@ -324,11 +337,27 @@ function blockStyle(blocks: BlockStyleMap | undefined, id: string): CSSPropertie
   return Object.keys(s).length ? s : undefined
 }
 
-/** 展开对话框时在区块左上角显示的 A/B/C… 角标，便于用户直接指向区块精调。pointer-events-none 不挡交互。 */
-function RegionMarker({ id, show }: { id: string; show?: boolean }) {
+/**
+ * 展开对话框时在区块左上角显示的 A/B/C… 角标，便于用户直接指向区块精调。
+ * 点击角标会让对应区域呼吸灯式高亮几下（onActivate），帮用户对上「字母 ↔ 区域」。
+ * 用 span+role 而非 button——F 区块角标嵌在 <button> 内，避免 button 套 button 的非法结构。
+ */
+function RegionMarker({ id, show, onActivate }: { id: string; show?: boolean; onActivate?: (id: string) => void }) {
   if (!show) return null
+  const fire = (e: React.SyntheticEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+    onActivate?.(id)
+  }
   return (
-    <span className="pointer-events-none absolute -left-2.5 -top-2.5 z-30 flex size-6 select-none items-center justify-center rounded-full bg-[var(--wf-accent,#6f9b54)] text-[11px] font-bold leading-none text-black shadow-lg ring-2 ring-black/45">
+    <span
+      role="button"
+      tabIndex={0}
+      title={`高亮区块 ${id}`}
+      onClick={fire}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fire(e) }}
+      className="pointer-events-auto absolute -left-2.5 -top-2.5 z-30 flex size-6 cursor-pointer select-none items-center justify-center rounded-full bg-[var(--wf-accent,#6f9b54)] text-[11px] font-bold leading-none text-black shadow-lg ring-2 ring-black/45 transition hover:scale-110"
+    >
       {id}
     </span>
   )

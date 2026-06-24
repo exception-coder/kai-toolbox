@@ -59,3 +59,34 @@
     transform: translate3d(2%, -1%, 0) scale(1.04);
   }
 }
+
+/* 点击区块角标 A/B/C… 时，对应区域以呼吸灯方式高亮几下，帮用户对上「字母 ↔ 区域」。 */
+.welfare-region-pulse {
+  position: relative;
+}
+
+.welfare-region-pulse::after {
+  content: '';
+  position: absolute;
+  inset: -10px;
+  border-radius: 16px;
+  pointer-events: none;
+  z-index: 20;
+  box-shadow:
+    0 0 0 2px var(--wf-accent, #6f9b54),
+    0 0 26px 6px var(--wf-accent, #6f9b54);
+  opacity: 0;
+  animation: welfare-region-breathe 1.25s ease-in-out 0s 2;
+}
+
+@keyframes welfare-region-breathe {
+  0% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+  }
+}
