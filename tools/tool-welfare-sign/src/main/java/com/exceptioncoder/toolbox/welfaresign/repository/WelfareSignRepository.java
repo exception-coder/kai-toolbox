@@ -32,7 +32,7 @@ public class WelfareSignRepository {
         jdbc.update("""
                 INSERT INTO welfare_sign_config
                   (id, login_mode, detail_title, detail_content, signature_notice, updated_at)
-                VALUES (1, 'SMS', '节假日福利签收', '请核对福利品信息并完成线上签名。', '本人确认已收到上述福利品。', ?)
+                VALUES (1, 'SMS', '端午安康', '粽叶飘香，端午将至，一份来自公司的心意已为你备好。请确认收取，并留下你的签名。', '本人确认已收到本次端午节福利品。', ?)
                 """, now);
         return jdbc.query("SELECT * FROM welfare_sign_config WHERE id = 1", CONFIG_ROW).getFirst();
     }
@@ -58,7 +58,7 @@ public class WelfareSignRepository {
                   updated_at = excluded.updated_at
                 """,
                 normLoginMode(r.loginMode()), blank(r.redirectUrl()), blank(r.loginImageUrl()), blank(r.detailImageUrl()),
-                blank(r.detailTitle()) == null ? "节假日福利签收" : r.detailTitle().trim(),
+                blank(r.detailTitle()) == null ? "端午安康" : r.detailTitle().trim(),
                 blank(r.detailContent()), r.popupEnabled() ? 1 : 0, blank(r.popupTitle()), blank(r.popupContent()),
                 blank(r.signatureNotice()), blank(r.extraFieldsJson()), now);
         return config();
