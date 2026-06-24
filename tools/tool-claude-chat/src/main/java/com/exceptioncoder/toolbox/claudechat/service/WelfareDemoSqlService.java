@@ -4,6 +4,7 @@ import com.exceptioncoder.toolbox.claudechat.config.WelfareDemoProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -13,6 +14,7 @@ import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -120,8 +122,8 @@ public class WelfareDemoSqlService {
                     theme.put("panelBg", rs.getString("panel_bg"));
                     theme.put("eyebrow", rs.getString("eyebrow"));
                     theme.put("ctaLabel", rs.getString("cta_label"));
-                    theme.put("backdropImage", rs.getString("backdrop_image"));
-                    theme.put("conciergeImage", rs.getString("concierge_image"));
+                    theme.put("backdropImage", toImageSrc(rs.getString("backdrop_image")));
+                    theme.put("conciergeImage", toImageSrc(rs.getString("concierge_image")));
                     m.put("theme", theme);
                 }
             }
@@ -129,6 +131,24 @@ public class WelfareDemoSqlService {
         } catch (SQLException e) {
             throw new ResponseStatusException(UNPROCESSABLE_ENTITY, "读取演示配置失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * 图片字段取值 → 可直接用于 &lt;img src&gt; 的来源。
+     * agent 可填两类值：① 资源 URL（如 /assets/welfare-sign/national-bg.svg）原样返回；
+     * ② 自己生成的原始 SVG 标记（以 &lt;svg 开头）——自动包成 base64 data URI，免手工编码、即时渲染。
+     */
+    private static String toImageSrc(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String s = raw.trim();
+        // 内联标记（&lt;svg…&gt; 或带 &lt;?xml…&gt; 声明）以 '<' 开头；URL/路径/已是 data: 的不动。
+        if (s.startsWith("<")) {
+            String b64 = Base64.getEncoder().encodeToString(s.getBytes(StandardCharsets.UTF_8));
+            return "data:image/svg+xml;base64," + b64;
+        }
+        return raw;
     }
 
     private String sanitizeSingle(String sql) {
