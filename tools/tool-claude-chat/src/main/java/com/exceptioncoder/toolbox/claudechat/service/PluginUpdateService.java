@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.PluginStatusView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.PluginStatusView.EngineStatus;
+import com.exceptioncoder.toolbox.claudechat.api.dto.PluginVersionView;
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
 import com.exceptioncoder.toolbox.claudechat.config.PluginUpdateProperties;
 import com.exceptioncoder.toolbox.common.sse.SseEmitterRegistry;
@@ -17,6 +18,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -107,6 +110,68 @@ public class PluginUpdateService {
         } catch (Exception e) {
             return EngineStatus.error("Codex 版本检测失败:" + e.getMessage());
         }
+    }
+
+    /**
+     * 枚举 Claude Code 端**全部已安装插件**及其版本（当前会话实际加载的就是这些）。
+     * 纯读 {@code ~/.claude/plugins/installed_plugins.json}（已装）+ 各市场
+     * {@code marketplaces/<mk>/.claude-plugin/marketplace.json}（可用），不联网、不跑命令。
+     * 文件缺失或解析失败时返回空列表（不抛错）。按插件名升序。
+     */
+    public List<PluginVersionView> readInstalledPlugins() {
+        List<PluginVersionView> out = new ArrayList<>();
+        try {
+            Path home = Path.of(System.getProperty("user.home"));
+            Path installedFile = home.resolve(".claude/plugins/installed_plugins.json");
+            if (!Files.exists(installedFile)) {
+                return out;
+            }
+            JsonNode plugins = mapper.readTree(installedFile.toFile()).path("plugins");
+            if (!plugins.isObject()) {
+                return out;
+            }
+            Iterator<Map.Entry<String, JsonNode>> it = plugins.fields();
+            while (it.hasNext()) {
+                Map.Entry<String, JsonNode> e = it.next();
+                String selector = e.getKey();              // "<name>@<marketplace>"
+                int at = selector.lastIndexOf('@');         // 名字不含 @；按最后一个 @ 拆
+                String name = at >= 0 ? selector.substring(0, at) : selector;
+                String marketplace = at >= 0 ? selector.substring(at + 1) : "";
+                JsonNode arr = e.getValue();
+                String installed = arr.isArray() && !arr.isEmpty() ? arr.get(0).path("version").asText(null) : null;
+                String available = readMarketplaceVersion(home, marketplace, name);
+                out.add(new PluginVersionView(name, marketplace, installed, available));
+            }
+            out.sort(Comparator.comparing(PluginVersionView::name, String.CASE_INSENSITIVE_ORDER));
+        } catch (Exception ex) {
+            log.debug("读取已安装插件清单失败：{}", ex.getMessage());
+        }
+        return out;
+    }
+
+    /** 从某市场的 marketplace.json 按插件名取可用版本；取不到为 null。 */
+    private String readMarketplaceVersion(Path home, String marketplace, String pluginName) {
+        if (marketplace == null || marketplace.isBlank()) {
+            return null;
+        }
+        try {
+            Path mkFile = home.resolve(".claude/plugins/marketplaces/" + marketplace
+                    + "/.claude-plugin/marketplace.json");
+            if (!Files.exists(mkFile)) {
+                return null;
+            }
+            JsonNode arr = mapper.readTree(mkFile.toFile()).path("plugins");
+            if (arr.isArray()) {
+                for (JsonNode p : arr) {
+                    if (pluginName.equals(p.path("name").asText(null))) {
+                        return p.path("version").asText(null);
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            log.debug("读取市场 {} 版本失败：{}", marketplace, ex.getMessage());
+        }
+        return null;
     }
 
     // ===== 一键更新(SSE 实时回显)=====

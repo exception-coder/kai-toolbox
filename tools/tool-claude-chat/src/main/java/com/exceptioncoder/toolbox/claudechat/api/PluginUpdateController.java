@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.api;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.PluginStatusView;
+import com.exceptioncoder.toolbox.claudechat.api.dto.PluginVersionView;
 import com.exceptioncoder.toolbox.claudechat.service.PluginUpdateService;
 import com.exceptioncoder.toolbox.common.sse.SseEmitterRegistry;
 import org.springframework.http.MediaType;
@@ -9,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -31,6 +33,12 @@ public class PluginUpdateController {
     @GetMapping("/status")
     public PluginStatusView status() {
         return service.readStatus();
+    }
+
+    /** 列 Claude Code 端全部已安装插件及版本（当前会话所用，含 yoooni 系）。 */
+    @GetMapping("/installed")
+    public List<PluginVersionView> installed() {
+        return service.readInstalledPlugins();
     }
 
     /** 触发双端更新并以 SSE 实时回显输出。先 create+返回 emitter(挂 HTTP),再启 worker。 */
