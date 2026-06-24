@@ -124,6 +124,7 @@ public class WelfareDemoSqlService {
                     theme.put("ctaLabel", rs.getString("cta_label"));
                     theme.put("backdropImage", toImageSrc(rs.getString("backdrop_image")));
                     theme.put("conciergeImage", toImageSrc(rs.getString("concierge_image")));
+                    theme.put("blocksJson", rs.getString("blocks_json"));
                     m.put("theme", theme);
                 }
             }

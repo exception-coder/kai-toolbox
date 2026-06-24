@@ -15,7 +15,7 @@ import {
   sign,
   updateEmployee,
 } from '../api'
-import type { EmployeePayload, EmployeeView, ExtraField, LoginMode, SignRecordView, WelfareConfig, WelfareTheme } from '../types'
+import type { EmployeePayload, EmployeeView, ExtraField, LoginMode, SignRecordView, WelfareBlockStyle, WelfareConfig, WelfareTheme } from '../types'
 import type { CSSProperties } from 'react'
 import '../styles.css'
 
@@ -68,7 +68,10 @@ const EMPTY_EMPLOYEE: EmployeePayload = {
   enabled: true,
 }
 
-export function WelfareSignPage({ fullscreen = false, demoConfig, theme }: { fullscreen?: boolean; demoConfig?: WelfareConfig; theme?: WelfareTheme }) {
+/** 区块样式映射：区块 ID（A/B/C…）→ 样式覆盖。仅演示沙箱传入。 */
+export type BlockStyleMap = Record<string, WelfareBlockStyle>
+
+export function WelfareSignPage({ fullscreen = false, demoConfig, theme, blocks, showRegionMarkers = false }: { fullscreen?: boolean; demoConfig?: WelfareConfig; theme?: WelfareTheme; blocks?: BlockStyleMap; showRegionMarkers?: boolean }) {
   const qc = useQueryClient()
   // 演示主题：注入 CSS 变量覆盖写死配色（组件内 var(--wf-*,#原色) 兜底，真实页不传 theme 即原样）。
   const themeVars = theme ? {
@@ -125,7 +128,7 @@ export function WelfareSignPage({ fullscreen = false, demoConfig, theme }: { ful
 
       <main className={`min-h-0 flex-1 overflow-auto ${fullscreen ? 'p-0' : 'p-5'}`}>
         {fullscreen || mode === 'sign' ? (
-          <SignDesk fullscreen={fullscreen} config={config} theme={theme} onError={showError} onDone={() => {
+          <SignDesk fullscreen={fullscreen} config={config} theme={theme} blocks={blocks} showRegionMarkers={showRegionMarkers} onError={showError} onDone={() => {
             void qc.invalidateQueries({ queryKey: ['welfare-sign-employees'] })
             void qc.invalidateQueries({ queryKey: ['welfare-sign-records'] })
           }} />
@@ -142,7 +145,7 @@ export function WelfareSignPage({ fullscreen = false, demoConfig, theme }: { ful
   )
 }
 
-function SignDesk({ fullscreen, config, theme, onError, onDone }: { fullscreen: boolean; config?: WelfareConfig; theme?: WelfareTheme; onError: (e: unknown) => void; onDone: () => void }) {
+function SignDesk({ fullscreen, config, theme, blocks, showRegionMarkers = false, onError, onDone }: { fullscreen: boolean; config?: WelfareConfig; theme?: WelfareTheme; blocks?: BlockStyleMap; showRegionMarkers?: boolean; onError: (e: unknown) => void; onDone: () => void }) {
   const [loginId, setLoginId] = useState('')
   const [password, setPassword] = useState('')
   const [employee, setEmployee] = useState<EmployeeView | null>(null)
@@ -210,15 +213,18 @@ function SignDesk({ fullscreen, config, theme, onError, onDone }: { fullscreen: 
         <LuxuryBackdrop image={visual} />
         <div className="relative z-10 mx-auto grid min-h-[inherit] w-full max-w-7xl items-center gap-10 px-6 py-12 text-white lg:grid-cols-[1.15fr_420px] lg:px-12">
           <div className="welfare-luxury-copy max-w-4xl">
-            <p className="mb-6 text-xs uppercase tracking-[0.5em] text-[var(--wf-accent,#6f9b54)]">{theme?.eyebrow ?? '端午安康 · Dragon Boat Festival'}</p>
-            <h2 className="max-w-4xl text-6xl font-semibold leading-[0.95] tracking-[-0.02em] md:text-8xl lg:text-9xl">
-              {title}
+            <p className="relative mb-6 text-xs uppercase tracking-[0.5em] text-[var(--wf-accent,#6f9b54)]" style={blockStyle(blocks, 'A')}>
+              <RegionMarker id="A" show={showRegionMarkers} />{theme?.eyebrow ?? '端午安康 · Dragon Boat Festival'}
+            </p>
+            <h2 className="relative max-w-4xl text-6xl font-semibold leading-[0.95] tracking-[-0.02em] md:text-8xl lg:text-9xl" style={blockStyle(blocks, 'B')}>
+              <RegionMarker id="B" show={showRegionMarkers} />{title}
             </h2>
-            <p className="mt-8 max-w-2xl whitespace-pre-wrap text-lg leading-8 text-white/62 md:text-xl">
-              {content}
+            <p className="relative mt-8 max-w-2xl whitespace-pre-wrap text-lg leading-8 text-white/62 md:text-xl" style={blockStyle(blocks, 'C')}>
+              <RegionMarker id="C" show={showRegionMarkers} />{content}
             </p>
           </div>
-          <section className="welfare-luxury-panel rounded-[2rem] border border-white/10 bg-[var(--wf-panel,#0e1a12)]/70 p-6 shadow-2xl shadow-black/40 backdrop-blur-xl">
+          <section className="welfare-luxury-panel relative rounded-[2rem] border border-white/10 bg-[var(--wf-panel,#0e1a12)]/70 p-6 shadow-2xl shadow-black/40 backdrop-blur-xl" style={blockStyle(blocks, 'D')}>
+            <RegionMarker id="D" show={showRegionMarkers} />
             <div className="mb-8 flex items-center justify-between">
               <div>
                 <p className="text-xs uppercase tracking-[0.28em] text-white/38">Private Reception</p>
@@ -226,20 +232,24 @@ function SignDesk({ fullscreen, config, theme, onError, onDone }: { fullscreen: 
               </div>
               <Gift className="size-6 text-[var(--wf-accent,#6f9b54)]" />
             </div>
-            <LuxuryInput label="员工编号 / 手机号 / 账号" value={loginId} onChange={setLoginId} />
-            {config?.loginMode === 'PASSWORD' ? (
-              <LuxuryInput label="密码" type="password" value={password} onChange={setPassword} />
-            ) : (
-              <LuxuryInput label="验证码" value={MOCK_CODE} readOnly onChange={() => {}} />
-            )}
-            <p className="mt-4 text-xs leading-5 text-white/38">测试账号 {MOCK_LOGIN_ID} · 验证码 {MOCK_CODE}</p>
+            <div className="relative" style={blockStyle(blocks, 'E')}>
+              <RegionMarker id="E" show={showRegionMarkers} />
+              <LuxuryInput label="员工编号 / 手机号 / 账号" value={loginId} onChange={setLoginId} />
+              {config?.loginMode === 'PASSWORD' ? (
+                <LuxuryInput label="密码" type="password" value={password} onChange={setPassword} />
+              ) : (
+                <LuxuryInput label="验证码" value={MOCK_CODE} readOnly onChange={() => {}} />
+              )}
+              <p className="mt-4 text-xs leading-5 text-white/38">测试账号 {MOCK_LOGIN_ID} · 验证码 {MOCK_CODE}</p>
+            </div>
             <button
               type="button"
               disabled={!loginId.trim() || loginMut.isPending}
               onClick={() => loginMut.mutate()}
-              className="mt-7 h-12 w-full rounded-full bg-[var(--wf-btn,#5e8b46)] text-sm font-medium text-[var(--wf-btn-text,#0c160c)] transition hover:bg-[var(--wf-btn-hover,#79a861)] disabled:cursor-not-allowed disabled:opacity-45"
+              style={blockStyle(blocks, 'F')}
+              className="relative mt-7 h-12 w-full rounded-full bg-[var(--wf-btn,#5e8b46)] text-sm font-medium text-[var(--wf-btn-text,#0c160c)] transition hover:bg-[var(--wf-btn-hover,#79a861)] disabled:cursor-not-allowed disabled:opacity-45"
             >
-              {theme?.ctaLabel ?? '领取端午福利'}
+              <RegionMarker id="F" show={showRegionMarkers} />{theme?.ctaLabel ?? '领取端午福利'}
             </button>
           </section>
         </div>
@@ -298,6 +308,29 @@ function SignDesk({ fullscreen, config, theme, onError, onDone }: { fullscreen: 
         </div>
       )}
     </section>
+  )
+}
+
+/** 区块样式 → 内联 CSSProperties；无该区块覆盖时返回 undefined（不影响真实页/默认皮肤）。 */
+function blockStyle(blocks: BlockStyleMap | undefined, id: string): CSSProperties | undefined {
+  const b = blocks?.[id]
+  if (!b) return undefined
+  const s: CSSProperties = {}
+  if (b.color) s.color = b.color
+  if (b.fontWeight !== undefined) s.fontWeight = b.fontWeight as CSSProperties['fontWeight']
+  if (b.fontSize) s.fontSize = b.fontSize
+  if (b.letterSpacing) s.letterSpacing = b.letterSpacing
+  if (b.fontFamily) s.fontFamily = b.fontFamily
+  return Object.keys(s).length ? s : undefined
+}
+
+/** 展开对话框时在区块左上角显示的 A/B/C… 角标，便于用户直接指向区块精调。pointer-events-none 不挡交互。 */
+function RegionMarker({ id, show }: { id: string; show?: boolean }) {
+  if (!show) return null
+  return (
+    <span className="pointer-events-none absolute -left-2.5 -top-2.5 z-30 flex size-6 select-none items-center justify-center rounded-full bg-[var(--wf-accent,#6f9b54)] text-[11px] font-bold leading-none text-black shadow-lg ring-2 ring-black/45">
+      {id}
+    </span>
   )
 }
 

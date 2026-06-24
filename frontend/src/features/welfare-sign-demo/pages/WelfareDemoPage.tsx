@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { http } from '@/lib/api'
 import { ChatRuntimeProvider, useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import { FloatingChatWindow } from '@/features/claude-chat/components/FloatingChatWindow'
-import { WelfareSignPage } from '@/features/welfare-sign/pages/WelfareSignPage'
+import { WelfareSignPage, type BlockStyleMap } from '@/features/welfare-sign/pages/WelfareSignPage'
 import type { WelfareConfig, WelfareTheme } from '@/features/welfare-sign/types'
 
 /** 拉不到副本配置时的兜底端午皮肤，保证页面不空白。 */
@@ -40,13 +40,16 @@ export function WelfareDemoPage() {
 
 /** 背景演示页：随 demo 会话就绪 / 每轮结束重拉副本库配置并重挂载，使 agent 的改动即时可见。 */
 function DemoStage() {
-  const { chat, setConcierge } = useChatRuntime()
+  const { chat, setConcierge, floating, minimized } = useChatRuntime()
   const sessionId = chat?.sessionId ?? null
   const running = chat?.running ?? false
   const [config, setConfig] = useState<WelfareConfig>(FALLBACK_CONFIG)
   const [theme, setTheme] = useState<WelfareTheme | undefined>(undefined)
+  const [blocks, setBlocks] = useState<BlockStyleMap | undefined>(undefined)
   const [version, setVersion] = useState(0)
   const wasRunning = useRef(false)
+  // 仅展开对话框时显示区块角标（A/B/C…），便于用户指向区块精调；最小化成气泡时不打扰画面。
+  const showRegionMarkers = floating && !minimized
 
   const refetch = useCallback(async () => {
     if (!sessionId) return
@@ -54,6 +57,7 @@ function DemoStage() {
       const c = await http<WelfareConfig & { theme?: WelfareTheme }>(`/claude-chat/demo/welfare-config/${sessionId}`)
       setConfig(c)
       setTheme(c.theme)
+      setBlocks(parseBlocks(c.theme?.blocksJson)) // 各区块精细样式覆盖
       setConcierge(c.theme?.conciergeImage ?? null) // 同步悬浮窗吉祥物
       setVersion((v) => v + 1)
     } catch {
@@ -74,7 +78,18 @@ function DemoStage() {
 
   return (
     <div className="h-[100dvh] w-full overflow-hidden">
-      <WelfareSignPage key={version} fullscreen demoConfig={config} theme={theme} />
+      <WelfareSignPage key={version} fullscreen demoConfig={config} theme={theme} blocks={blocks} showRegionMarkers={showRegionMarkers} />
     </div>
   )
+}
+
+/** 解析 theme.blocksJson（区块 ID → 样式覆盖）；非法/空则忽略，不影响默认皮肤。 */
+function parseBlocks(raw?: string | null): BlockStyleMap | undefined {
+  if (!raw?.trim()) return undefined
+  try {
+    const v = JSON.parse(raw)
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as BlockStyleMap) : undefined
+  } catch {
+    return undefined
+  }
 }

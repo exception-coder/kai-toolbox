@@ -164,16 +164,17 @@ public class WelfareDemoSandboxProvisioner {
                       id INTEGER PRIMARY KEY,
                       accent TEXT, button_bg TEXT, button_hover TEXT, button_text TEXT,
                       stage_bg TEXT, panel_bg TEXT, eyebrow TEXT, cta_label TEXT,
-                      backdrop_image TEXT, concierge_image TEXT
+                      backdrop_image TEXT, concierge_image TEXT,
+                      blocks_json TEXT
                     )
                     """);
             st.execute("""
                     INSERT OR IGNORE INTO welfare_sign_theme
                       (id, accent, button_bg, button_hover, button_text, stage_bg, panel_bg, eyebrow, cta_label,
-                       backdrop_image, concierge_image)
+                       backdrop_image, concierge_image, blocks_json)
                     VALUES (1, '#6f9b54', '#5e8b46', '#79a861', '#0c160c', '#08130d', '#0e1a12',
                             '端午安康 · Dragon Boat Festival', '领取端午福利',
-                            '/assets/welfare-sign/duanwu-bg.svg', '/assets/welfare-sign/duanwu-concierge.svg')
+                            '/assets/welfare-sign/duanwu-bg.svg', '/assets/welfare-sign/duanwu-concierge.svg', NULL)
                     """);
         }
     }

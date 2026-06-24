@@ -15,6 +15,16 @@ export interface WelfareTheme {
   ctaLabel: string    // 「领取福利」按钮文案
   backdropImage: string  // 背景图 URL（公共资源路径或外链）
   conciergeImage: string // 聊天框吉祥物图 URL
+  blocksJson?: string | null // 各区块样式覆盖 JSON（Record<BlockId, WelfareBlockStyle>）
+}
+
+/** 单个区块（A/B/C…）的精细样式覆盖。仅传需要改的字段；以内联 style 应用，优先级高于类。 */
+export interface WelfareBlockStyle {
+  color?: string
+  fontWeight?: number | string
+  fontSize?: string       // 如 '5rem' / '120px'
+  letterSpacing?: string  // 如 '0.05em'
+  fontFamily?: string
 }
 
 export interface WelfareConfig {
