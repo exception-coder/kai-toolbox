@@ -17,8 +17,12 @@ import java.util.List;
 @ConfigurationProperties(prefix = "toolbox.welfare-demo")
 public class WelfareDemoProperties {
 
-    /** 是否开启免登录演示通道。默认关，建议演示时再开、用完即关。 */
-    private boolean enabled = false;
+    /**
+     * 是否开启免登录演示通道。默认开（应 owner 要求）。
+     * 注意：开启即允许匿名访客在一次性副本里改 welfare-sign，务必不要把本服务经公网 tunnel 暴露。
+     * 需临时关闭可设环境变量 TOOLBOX_WELFARE_DEMO_ENABLED=false。
+     */
+    private boolean enabled = true;
 
     /** 克隆来源（相对仓库根，只读复制）。welfare-sign 模块涉及的源码两处。 */
     private List<String> sourcePaths = List.of(

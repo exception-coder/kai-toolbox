@@ -35,7 +35,7 @@
 
 | 字段 | 类型 | 默认 | 说明 |
 |------|------|------|------|
-| enabled | boolean | false | 是否开启 demo 通道（默认关，显式开；建议走配置中心随开随关） |
+| enabled | boolean | true | 是否开启 demo 通道（默认开；关闭设环境变量 TOOLBOX_WELFARE_DEMO_ENABLED=false） |
 | sourcePaths | List\<String\> | `tools/tool-welfare-sign`、`frontend/src/features/welfare-sign` | 克隆来源（相对仓库根，只读复制） |
 | sandboxRoot | String | `${data-dir}/welfare-demo` | 副本根目录 |
 | allowedTablePrefix | String | `welfare_sign_` | demo 库 SQL 表名白名单前缀 |
