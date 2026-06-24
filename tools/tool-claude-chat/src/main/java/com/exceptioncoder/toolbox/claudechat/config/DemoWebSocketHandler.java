@@ -67,11 +67,13 @@ public class DemoWebSocketHandler extends TextWebSocketHandler {
             sendErrorAndClose(ws, "BAD_MESSAGE", "消息解析失败");
             return;
         }
-        // 演示只开放最小动作：开会话 / 发消息 / 中断。其它一律忽略。
+        // 演示开放：开会话 / 发消息 / 中断 / 回灌决策（AskUserQuestion 等用户作答）。其它一律忽略。
         if (msg instanceof ClientMessage.Open) {
             openDemo(ws);
         } else if (msg instanceof ClientMessage.Send send) {
             service.sendUserMessage(ws, send);
+        } else if (msg instanceof ClientMessage.Decision d) {
+            service.decision(ws, d);
         } else if (msg instanceof ClientMessage.Interrupt) {
             service.interrupt(ws);
         }

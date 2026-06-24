@@ -86,7 +86,7 @@ public class SidecarClient {
         m.put("sessionId", sessionId);
         m.put("cwd", nz(cwd));
         m.put("model", "");
-        m.put("mode", "default");
+        m.put("mode", "bypassPermissions");
         m.put("engine", "claude");
         m.put("apiBaseUrl", "");
         m.put("authToken", "");

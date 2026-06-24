@@ -75,8 +75,9 @@ export class Permissions {
     input: Record<string, unknown>,
     opts: { signal?: AbortSignal },
   ): Promise<Record<string, unknown>> => {
-    // demo 沙箱：同步硬裁决，绝不发请求/等审批（公开演示无人审批）。
-    if (this.demo) {
+    // demo 沙箱：除 AskUserQuestion 外同步硬裁决，绝不发请求/等审批（公开演示无人审批，全自动）。
+    // AskUserQuestion 例外——必须让用户作答，走下方正常「发 questionRequest + 等决策回灌」路径。
+    if (this.demo && toolName !== 'AskUserQuestion') {
       return this.demoDecision(toolName, input)
     }
     // 权限模式自动放行：AskUserQuestion 永远要弹（用户必须作答），其余按当前模式。

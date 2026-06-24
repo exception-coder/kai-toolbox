@@ -153,7 +153,8 @@ function ChatEngine({ control, demo, children }: { control: Omit<ChatRuntime, 'c
     if (autoOpenedRef.current) return
     autoOpenedRef.current = true
     if (demo) {
-      chatRef.current.open('')
+      // 全自动：受约束演示无人审批，权限模式直接 bypassPermissions（工具放行仍由沙箱 canUseTool 兜底）。
+      chatRef.current.open('', undefined, 'bypassPermissions')
       return
     }
     void (async () => {
