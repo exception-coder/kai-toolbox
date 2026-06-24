@@ -1,6 +1,6 @@
 import { authFetch, http } from '@/lib/api'
 import type { CommitDiff, CommitsResponse } from '@/components/git/types'
-import type { ChatItem, ClaudeChatSessionView, HistorySessionView, ModelInfo, NotifyConfig, PluginStatus, SuiteStatus, ProjectModules, SubdirList, TaskspaceView, WorkspaceList } from './types'
+import type { ChatItem, ClaudeChatSessionView, HistorySessionView, ModelInfo, ModuleResolve, NotifyConfig, PluginStatus, SuiteStatus, ProjectModules, SubdirList, TaskspaceView, WorkspaceList } from './types'
 
 /** 列当前会话工作目录(git 仓库)的最近提交。后端按 sessionId 解析 cwd。 */
 export function listSessionCommits(sessionId: string, limit?: number) {
@@ -81,6 +81,11 @@ export function listWorkspaces() {
 /** 某项目下的模块（确定性扫描，按构建标志文件）。供「项目工作台」列模块、懒建会话。 */
 export function fetchProjectModules(path: string) {
   return http<ProjectModules>(`/claude-chat/workspaces/modules?path=${encodeURIComponent(path)}`)
+}
+
+/** 模块路由：把一句自然语言确定性解析为候选 (项目, 模块)，供「说一句话拉起模块会话」。 */
+export function resolveModule(q: string) {
+  return http<ModuleResolve>(`/claude-chat/workspaces/resolve?q=${encodeURIComponent(q)}`)
 }
 
 // ── 合并工作区 taskspace：父目录多选 → 建软链接聚合成新工作区 ──────────

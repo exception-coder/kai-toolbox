@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { BotMessageSquare, CornerDownRight, FolderTree, Loader2, Play, RefreshCw, Search, TerminalSquare } from 'lucide-react'
+import { BotMessageSquare, Compass, CornerDownRight, FolderTree, Loader2, Play, RefreshCw, Search, Send, TerminalSquare, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
-import { fetchProjectModules, listSessions, listWorkspaces } from '@/features/claude-chat/api'
+import { fetchProjectModules, listSessions, listWorkspaces, resolveModule } from '@/features/claude-chat/api'
+import { VoiceInputButton } from '@/features/claude-chat/components/VoiceInputButton'
 import { CHAT_ROUTE, useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
-import type { ClaudeChatSessionView, ProjectModule, WorkspaceDir } from '@/features/claude-chat/types'
+import type { ClaudeChatSessionView, ModuleCandidate, ProjectModule, WorkspaceDir } from '@/features/claude-chat/types'
 
 interface PendingOpen {
   module: ProjectModule
@@ -86,6 +87,28 @@ export function ProjectWorkspacePage() {
     navigate(CHAT_ROUTE)
   }
 
+  // ── 模块路由：说一句话 → 确定性解析 (项目, 模块) → 确认后拉起会话 ──
+  const [routeQuery, setRouteQuery] = useState('')
+  const [picked, setPicked] = useState<ModuleCandidate | null>(null)
+  const resolveMut = useMutation({
+    mutationFn: resolveModule,
+    // 唯一命中直接进确认卡；多个候选清空 picked，渲染「选哪个项目」列表
+    onSuccess: result => setPicked(result.candidates.length === 1 ? result.candidates[0] : null),
+  })
+  const runResolve = (text: string) => {
+    const q = text.trim()
+    if (!q) return
+    setPicked(null)
+    resolveMut.mutate(q)
+  }
+  // 确认拉起：选中左侧项目（视觉对齐「点击项目」）+ 进入该模块会话
+  const launchCandidate = (candidate: ModuleCandidate) => {
+    setSelectedPath(candidate.projectPath)
+    openModule(candidate.module)
+  }
+  const resolveResult = resolveMut.data
+  const routeHint = resolveResult ? (resolveResult.moduleHint || resolveResult.query) : ''
+
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-4 md:p-6">
       <header className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -115,6 +138,73 @@ export function ProjectWorkspacePage() {
           刷新
         </Button>
       </header>
+
+      <Card>
+        <CardHeader className="gap-1 pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Compass className="h-4 w-4" />
+            模块路由
+          </CardTitle>
+          <CardDescription>
+            说一句话直达：「去开发 commodity 模块」「korepos 的 refund」——自动定位项目 + 模块并拉起会话
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <form
+            className="flex items-center gap-2"
+            onSubmit={event => {
+              event.preventDefault()
+              runResolve(routeQuery)
+            }}
+          >
+            <Input
+              className="flex-1"
+              value={routeQuery}
+              onChange={event => setRouteQuery(event.target.value)}
+              placeholder="例如：去开发 commodity 模块 / korepos 的 refund"
+            />
+            <VoiceInputButton onText={text => { setRouteQuery(text); runResolve(text) }} />
+            <Button type="submit" disabled={!routeQuery.trim() || resolveMut.isPending}>
+              {resolveMut.isPending ? <Loader2 className="animate-spin" /> : <Send />}
+              定位
+            </Button>
+          </form>
+
+          {resolveMut.isError ? (
+            <p className="text-sm text-[var(--color-destructive)]">{errorMessage(resolveMut.error)}</p>
+          ) : resolveResult ? (
+            picked ? (
+              <RouteTarget
+                candidate={picked}
+                session={sessionByCwd.get(normalizePath(picked.module.absPath))}
+                multi={resolveResult.candidates.length > 1}
+                onLaunch={() => launchCandidate(picked)}
+                onBack={() => setPicked(null)}
+              />
+            ) : resolveResult.candidates.length === 0 ? (
+              <p className="text-sm text-[var(--color-muted-foreground)]">
+                未匹配到模块「{routeHint}」。换个模块名，或带上项目名（如「korepos 的 refund」）再试。
+              </p>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-sm text-[var(--color-muted-foreground)]">
+                  「{routeHint}」匹配到 {resolveResult.candidates.length} 处，它是哪个项目的？
+                </p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {resolveResult.candidates.map(candidate => (
+                    <CandidateButton
+                      key={`${candidate.projectPath}|${candidate.module.absPath}`}
+                      candidate={candidate}
+                      hasSession={Boolean(sessionByCwd.get(normalizePath(candidate.module.absPath)))}
+                      onClick={() => setPicked(candidate)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )
+          ) : null}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
         <Card className="h-fit">
@@ -214,6 +304,78 @@ function ProjectButton({ project, selected, onClick }: { project: WorkspaceDir &
     >
       <span className="truncate text-sm font-medium text-[var(--color-foreground)]">{project.name}</span>
       <span className="truncate text-xs text-[var(--color-muted-foreground)]">{project.root}</span>
+    </button>
+  )
+}
+
+/** 模块路由：唯一/已选定的目标确认卡，确认后拉起会话。 */
+function RouteTarget({
+  candidate,
+  session,
+  multi,
+  onLaunch,
+  onBack,
+}: {
+  candidate: ModuleCandidate
+  session: ClaudeChatSessionView | undefined
+  multi: boolean
+  onLaunch: () => void
+  onBack: () => void
+}) {
+  return (
+    <div className="flex flex-col gap-3 rounded-md border border-[var(--color-primary)]/40 bg-[var(--color-primary)]/5 p-4">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-xs text-[var(--color-muted-foreground)]">已定位目标 · {candidate.project}</div>
+          <div className="mt-1 flex min-w-0 items-center gap-2">
+            <span className="truncate font-medium text-[var(--color-foreground)]">{candidate.module.name}</span>
+            <Badge variant={moduleTypeBadge(candidate.module.type)}>{candidate.module.type}</Badge>
+            <Badge variant={session ? 'success' : 'outline'}>{session ? '已有会话' : '未打开'}</Badge>
+          </div>
+          {candidate.module.summary
+            ? <div className="mt-1 line-clamp-2 text-xs text-[var(--color-muted-foreground)]">{candidate.module.summary}</div>
+            : null}
+          <div className="mt-1 truncate text-xs text-[var(--color-muted-foreground)]">{candidate.module.absPath}</div>
+        </div>
+      </div>
+      <div className="flex justify-end gap-2">
+        {multi ? (
+          <Button type="button" variant="ghost" size="sm" onClick={onBack}>
+            <X />换一个
+          </Button>
+        ) : null}
+        <Button type="button" size="sm" onClick={onLaunch}>
+          {session ? <BotMessageSquare /> : <Play />}
+          {session ? '拉起会话' : '新建并拉起'}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/** 模块路由：多候选时的「选项目」按钮。 */
+function CandidateButton({
+  candidate,
+  hasSession,
+  onClick,
+}: {
+  candidate: ModuleCandidate
+  hasSession: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full min-w-0 flex-col gap-1 rounded-md border border-[var(--color-border)] px-3 py-2 text-left transition-colors hover:bg-[var(--color-accent)]"
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="truncate text-sm font-medium text-[var(--color-foreground)]">{candidate.project}</span>
+        <CornerDownRight className="h-3.5 w-3.5 shrink-0 text-[var(--color-muted-foreground)]" />
+        <span className="truncate text-sm text-[var(--color-foreground)]">{candidate.module.name}</span>
+        {hasSession ? <Badge variant="success" className="text-[10px]">会话</Badge> : null}
+      </span>
+      <span className="truncate text-xs text-[var(--color-muted-foreground)]">{candidate.module.relPath}</span>
     </button>
   )
 }

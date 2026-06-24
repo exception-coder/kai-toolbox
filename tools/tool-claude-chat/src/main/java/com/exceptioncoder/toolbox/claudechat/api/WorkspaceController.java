@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.claudechat.api;
 
+import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleResolveResponse;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ProjectModulesResponse;
 import com.exceptioncoder.toolbox.claudechat.api.dto.WorkspaceListResponse;
 import com.exceptioncoder.toolbox.claudechat.service.WorkspaceScanService;
@@ -31,5 +32,14 @@ public class WorkspaceController {
     @GetMapping("/modules")
     public ProjectModulesResponse modules(@RequestParam String path) {
         return service.scanModules(path);
+    }
+
+    /**
+     * 模块路由：把一句自然语言（如「去开发 commodity 模块」「korepos 的 refund」）确定性地解析为
+     * 候选 (项目, 模块)。0 个=未匹配，1 个=可直接确认拉起，多个=前端让用户选项目。供「模块路由」入口。
+     */
+    @GetMapping("/resolve")
+    public ModuleResolveResponse resolve(@RequestParam("q") String query) {
+        return service.resolveModule(query);
     }
 }

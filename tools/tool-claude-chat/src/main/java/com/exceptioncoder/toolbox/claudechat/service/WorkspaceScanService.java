@@ -1,5 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
+import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleResolveResponse;
+import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleResolveResponse.Candidate;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ProjectModulesResponse;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ProjectModulesResponse.ModuleView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.WorkspaceDirView;
@@ -110,6 +112,116 @@ public class WorkspaceScanService {
         collectModules(root, root, 0, modules);
         modules.sort(Comparator.comparing(ModuleView::relPath, String.CASE_INSENSITIVE_ORDER));
         return new ProjectModulesResponse(name, root.toString(), true, List.copyOf(modules));
+    }
+
+    // ===== 模块路由：把一句自然语言解析为候选 (项目, 模块)，供「模块路由」拉起会话 =====
+
+    /** 自然语言中的填充词（含动作/指代/量词），剥离后剩下的才是用于匹配模块的关键片段。按长度降序删，避免短词先吃掉长词。 */
+    private static final List<String> FILLER = List.of(
+            "帮我开发", "我想开发", "我要开发", "去开发", "开发一下", "切换到", "跳转到", "进入到",
+            "帮我", "我想", "我要", "请帮", "麻烦", "顺便", "现在", "接下来",
+            "开发", "进入", "打开", "拉起", "启动", "开始", "切到", "切换", "定位", "找到", "去做", "做一下",
+            "会话", "模块", "工程", "服务", "项目", "代码", "那个", "这个", "一下", "给我", "让我", "下的", "里的",
+            "的", "去", "搞", "弄", "改", "修", "看", "来", "和", "与");
+    /** 英文填充词（按整词删，避免吃掉 module 名子串）。 */
+    private static final Set<String> FILLER_EN = Set.of(
+            "develop", "dev", "open", "start", "go", "goto", "into", "the", "a", "an",
+            "module", "project", "service", "repo", "lets", "let", "please", "to", "of", "in", "for");
+
+    /**
+     * 解析一句自然语言为候选 (项目, 模块)。全确定性：
+     * <ol>
+     *   <li>识别项目提示：输入中若出现某个项目目录名（≥2 字），记为 projectHint（取最长命中）；</li>
+     *   <li>剥离项目名 + 填充词，剩余片段为 moduleHint；</li>
+     *   <li>遍历各项目模块（含嵌套子模块）做归一化匹配：精确 > 前缀 > 包含；命中 projectHint 的项目额外加权前置；</li>
+     *   <li>moduleHint 为空但有 projectHint 时，返回该项目全部模块供选择。</li>
+     * </ol>
+     * 返回候选按得分降序、截断到 20 个。0 个=未匹配，1 个=可直接确认，多个=需用户选项目。
+     */
+    public ModuleResolveResponse resolveModule(String query) {
+        String raw = query == null ? "" : query.trim();
+        if (raw.isEmpty()) return new ModuleResolveResponse("", "", "", List.of());
+
+        WorkspaceListResponse ws = scan();
+        // 1) 项目提示：输入里出现的最长项目目录名
+        String lower = raw.toLowerCase();
+        String projectHint = "";
+        for (RootView root : ws.roots()) {
+            for (WorkspaceDirView dir : root.dirs()) {
+                String n = dir.name();
+                if (n != null && n.length() >= 2 && lower.contains(n.toLowerCase()) && n.length() > projectHint.length()) {
+                    projectHint = n;
+                }
+            }
+        }
+        // 2) 剥离项目名 + 填充词 → moduleHint
+        String moduleHint = stripToHint(raw, projectHint);
+
+        // 3) 遍历项目匹配
+        List<Scored> scored = new ArrayList<>();
+        for (RootView root : ws.roots()) {
+            if (!root.exists()) continue;
+            for (WorkspaceDirView dir : root.dirs()) {
+                boolean projectMatch = !projectHint.isEmpty() && dir.name().equalsIgnoreCase(projectHint);
+                // 有项目提示时，只在该项目内找（定位更准）；无提示则全工作区找
+                if (!projectHint.isEmpty() && !projectMatch) continue;
+                ProjectModulesResponse pm = scanModules(dir.path());
+                if (!pm.exists()) continue;
+                List<ModuleView> flat = new ArrayList<>();
+                flatten(pm.modules(), flat);
+                for (ModuleView m : flat) {
+                    String match = matchKind(m, moduleHint);
+                    if (match == null) continue;
+                    int score = "exact".equals(match) ? 3 : "prefix".equals(match) ? 2 : 1;
+                    if (projectMatch) score += 10;
+                    scored.add(new Scored(new Candidate(dir.name(), dir.path(), m, match), score));
+                }
+            }
+        }
+        scored.sort(Comparator.comparingInt(Scored::score).reversed());
+        List<Candidate> candidates = scored.stream().limit(20).map(Scored::candidate).toList();
+        return new ModuleResolveResponse(raw, moduleHint, projectHint, candidates);
+    }
+
+    private record Scored(Candidate candidate, int score) {
+    }
+
+    /** 删项目名与填充词，返回小写归一的模块关键片段。 */
+    private String stripToHint(String raw, String projectHint) {
+        String s = raw.toLowerCase();
+        if (!projectHint.isEmpty()) s = s.replace(projectHint.toLowerCase(), " ");
+        for (String f : FILLER) s = s.replace(f, " ");
+        // 英文填充词按整词删
+        StringBuilder sb = new StringBuilder();
+        for (String tok : s.split("[\\s,，。.、:：/\\\\#@!！?？\"'（）()\\[\\]]+")) {
+            if (tok.isBlank() || FILLER_EN.contains(tok)) continue;
+            if (!sb.isEmpty()) sb.append(' ');
+            sb.append(tok);
+        }
+        return sb.toString().trim();
+    }
+
+    /** 模块对 hint 的命中方式；不命中返回 null。hint 为空表示「无模块关键词」，一律视为弱命中（contains）以便列项目全部模块。 */
+    private String matchKind(ModuleView m, String hint) {
+        if (hint.isBlank()) return "contains";
+        String name = m.name() == null ? "" : m.name().toLowerCase();
+        String rel = m.relPath() == null ? "" : m.relPath().toLowerCase();
+        for (String h : hint.split("\\s+")) {
+            if (h.isBlank()) continue;
+            if (name.equals(h)) return "exact";
+            if (name.startsWith(h) || h.startsWith(name) && name.length() >= 2) return "prefix";
+            if (name.contains(h) || rel.contains(h)) return "contains";
+        }
+        return null;
+    }
+
+    /** 递归展平模块树（父 + 所有子）。 */
+    private void flatten(List<ModuleView> modules, List<ModuleView> out) {
+        if (modules == null) return;
+        for (ModuleView m : modules) {
+            out.add(m);
+            flatten(m.children(), out);
+        }
     }
 
     /** 知识库 modules.json 文件名（位于 {knowledgeBaseDir}/{project}/impl/ 下）。 */

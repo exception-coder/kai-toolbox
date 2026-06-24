@@ -65,6 +65,23 @@ export interface ProjectModules {
   modules: ProjectModule[]
 }
 
+/** 「模块路由」一条候选：把一句话定位到的 (项目, 模块)。 */
+export interface ModuleCandidate {
+  project: string
+  projectPath: string
+  module: ProjectModule
+  /** 命中方式：exact / prefix / contains */
+  match: string
+}
+
+/** 「模块路由」解析结果：candidates 0=未匹配，1=可直接确认，多=需选项目。 */
+export interface ModuleResolve {
+  query: string
+  moduleHint: string
+  projectHint: string
+  candidates: ModuleCandidate[]
+}
+
 // ── 合并工作区 taskspace ──────────────────────────────────────────
 
 /** taskspace 选目录时的一个子目录：isLink 标记其本身已是链接。 */
