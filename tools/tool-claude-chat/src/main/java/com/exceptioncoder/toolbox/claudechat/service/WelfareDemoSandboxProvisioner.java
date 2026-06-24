@@ -91,6 +91,10 @@ public class WelfareDemoSandboxProvisioner {
                 }
             }
             seedDemoDb(demoDb);
+        } catch (IOException e) {
+            // Files.createDirectories 等抛受检 IOException：清掉半成品副本，转非受检上抛（由全局异常处理兜底）。
+            disposePaths(dir, demoDb);
+            throw new UncheckedIOException("演示环境准备失败：" + e.getMessage(), e);
         } catch (RuntimeException e) {
             disposePaths(dir, demoDb);
             throw e;
