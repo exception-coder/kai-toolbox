@@ -18,11 +18,11 @@ import java.util.List;
 public class WelfareDemoProperties {
 
     /**
-     * 是否开启免登录演示通道。默认开（应 owner 要求）。
-     * 注意：开启即允许匿名访客在一次性副本里改 welfare-sign，务必不要把本服务经公网 tunnel 暴露。
-     * 需临时关闭可设环境变量 TOOLBOX_WELFARE_DEMO_ENABLED=false。
+     * 是否开启「受约束 vibecoding」演示后端（demo WS + 副本沙箱）。默认关。
+     * 注意：免登录的福利签收演示页（/showcase/welfare-sign-demo）复用真实页面，**不依赖本开关**；
+     * 本开关只控制那套独立的 vibecoding 沙箱通道，按需才开。
      */
-    private boolean enabled = true;
+    private boolean enabled = false;
 
     /** 克隆来源（相对仓库根，只读复制）。welfare-sign 模块涉及的源码两处。 */
     private List<String> sourcePaths = List.of(

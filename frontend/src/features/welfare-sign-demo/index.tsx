@@ -1,5 +1,5 @@
 import { lazy } from 'react'
-import { FlaskConical } from 'lucide-react'
+import { BadgeCheck } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 
 const WelfareDemoPage = lazy(() =>
@@ -8,10 +8,10 @@ const WelfareDemoPage = lazy(() =>
 
 const manifest: FeatureManifest = {
   id: 'welfare-sign-demo',
-  name: '福利签收 · Vibe Coding 演示',
-  icon: FlaskConical,
+  name: '福利签收（免登录演示）',
+  icon: BadgeCheck,
   group: '演示',
-  description: '免登录体验受约束的 AI 改码：只能在一次性副本里改福利签收模块，真实环境零影响',
+  description: '福利签收页的免登录公开版：无需登录即可打开「确认身份」对话框并完成签收（复用真实页面）',
   order: 90,
   layout: 'showcase',
   routes: [{ path: '/showcase/welfare-sign-demo', element: <WelfareDemoPage /> }],
