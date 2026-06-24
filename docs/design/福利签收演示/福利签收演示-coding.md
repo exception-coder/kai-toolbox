@@ -51,16 +51,17 @@
 | `com.exceptioncoder.toolbox.claudechat.config.ClaudeChatWebSocketConfig` | 改 | 注册 `/demo/ws`，该路由不挂 AdminHandshakeInterceptor |
 | `com.exceptioncoder.toolbox.claudechat.service.WelfareDemoSandboxProvisioner` | 新建 | 克隆源码 + 建/导 demo 库 + dispose + TTL 扫描 |
 | `com.exceptioncoder.toolbox.claudechat.service.WelfareDemoSqlService` | 新建 | 在 demo 库执行受限 SQL（表白名单 + 禁多语句） |
-| `com.exceptioncoder.toolbox.claudechat.service.ClaudeChatService` | 改 | openSession demo 分支：cwd=副本/isDemo/sandbox 透传；会话关闭触发 dispose |
-| `com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession` | 改 | 增 isDemo/sandbox 字段 + RowMapper/insert 兼容 |
-| `com.exceptioncoder.toolbox.claudechat.config.ClaudeChatSchemaMigration` | 改 | 补列 is_demo/sandbox（迁移兜底） |
-| `com.exceptioncoder.toolbox.common.auth.web.AdminHandshakeInterceptor` | 改 | demo WS 路径前缀跳过 ADMIN |
+| `com.exceptioncoder.toolbox.claudechat.service.ClaudeChatService` | 改 | 新增 openDemoSession（不落库）+ onBrowserDisconnected demo 分支 dispose + 注入 provisioner |
+| `com.exceptioncoder.toolbox.claudechat.api.WelfareDemoSqlController` | 新建 | POST /api/claude-chat/demo/sql（welfare_db 回灌入口） |
+| `com.exceptioncoder.toolbox.claudechat.service.SidecarClient` | 改 | 新增 startDemoSession（start 消息带 demo/demoApiBase） |
 | `sidecar/claude-agent/src/permissions.ts` | 改 | canUseTool demo 沙箱裁决（deny-by-default + cwd 内 startsWith） |
-| `sidecar/claude-agent/src/sessionManager.ts` | 改 | demo 会话 query options：cwd=副本、注入 welfare_db、isDemo 透传 |
-| `sidecar/claude-agent/src/welfareDb.ts` | 新建 | welfare_db 工具 → 后端 SQL 通道 |
+| `sidecar/claude-agent/src/sessionManager.ts` | 改 | start 增 demo/demoApiBase；demo 注入 welfare_db MCP + perms.setDemo(cwd) |
+| `sidecar/claude-agent/src/server.ts` | 改 | start 消息透传 demo/demoApiBase |
+| `sidecar/claude-agent/src/welfareDb.ts` | 新建 | welfare_db in-process MCP 工具 → 后端 SQL 通道 |
 | `frontend/src/features/welfare-sign-demo/index.tsx` | 新建 | FeatureManifest（layout showcase） |
-| `frontend/src/features/welfare-sign-demo/pages/WelfareDemoPage.tsx` | 新建 | 复用 claude-chat 对话组件 |
-| `tools/tool-claude-chat/src/main/resources/db/claude-chat-schema.sql` | 改 | is_demo/sandbox 列（IF NOT EXISTS / 迁移兜底） |
+| `frontend/src/features/welfare-sign-demo/pages/WelfareDemoPage.tsx` | 新建 | 自包含 WS 演示页（不复用共享 hook） |
+
+> 不改 ClaudeChatSession/迁移/schema（演示会话不持久化）、不改 AdminHandshakeInterceptor（demo 路由不挂拦截器即免鉴权）。
 
 ### 关键方法签名与职责
 
@@ -100,7 +101,7 @@ within(root, p): const abs = path.resolve(root, p); return abs === root || abs.s
 ```
 临时副本：${data-dir}/welfare-demo/<sandboxId>/  （源码克隆，销毁即删）
 临时 demo 库：${data-dir}/welfare-demo/<sandboxId>.db  （welfare_sign_* schema + 数据快照）
-claude_chat_session 增列：is_demo INTEGER, sandbox TEXT （迁移兜底，旧行默认 0/NULL）
+演示会话不持久化（仅内存 SessionCtx.demo），不动 claude_chat_session
 ```
 
 WelfareDemoProperties（`toolbox.welfare-demo.*`）：enabled / sourcePaths / sandboxRoot / allowedTablePrefix / ttlMinutes / maxConcurrentSandboxes / copyExcludes。

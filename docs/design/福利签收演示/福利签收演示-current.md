@@ -114,14 +114,17 @@ flowchart TD
   - `dispose(sandboxId)` / TTL 扫描：会话结束或超过 `ttlMinutes` 即删目录 + db 文件。
 - **关键设计点**：复制源**只读**真实文件（不加锁、不改真实）；导数据走只读查询真实表 → 写 demo 库；沙箱根 `normalize()` 限定在 `${data-dir}/welfare-demo/` 下，防路径逃逸。
 
-### 3.4 AdminHandshakeInterceptor（toolbox-common，改）
+### 3.4 demo WS 路由免鉴权（实现：不挂拦截器，零改鉴权类）
 
-- **职责**：对 `/api/claude-chat/demo/ws` 跳过 ADMIN 直接放行；其它路径不变。硬编码 demo 路径前缀常量。
+- **实现选择**：`ClaudeChatWebSocketConfig` 注册 demo 路由时**不添加** `AdminHandshakeInterceptor`，即天然公开；
+  且 `toolbox.auth.protected-patterns` 为空、demo SQL 端点无 `@SoftGuard`，本机内网可达。**无需修改 AdminHandshakeInterceptor**。
 
-### 3.5 ClaudeChatService#openSession（demo 分支，改）
+### 3.5 ClaudeChatService#openDemoSession（新增方法）
 
-- **职责**：识别 demo 会话，强制 `cwd=副本目录`、`engine=claude`、网关空、标 `isDemo=true` 与 `sandbox` 句柄透传给 sidecar；demo 会话不入正式列表可写域。
-- **关键设计点**：约束档是服务端单一事实源；副本目录由 Provisioner 提供，客户端不可指定。
+- **职责**：以副本目录为 cwd 建 `SessionCtx`（`demo=true`、`engine=claude`、网关空），调 `sidecar.startDemoSession`；
+  **不写库**（演示会话仅内存，故不进正式列表）。`onBrowserDisconnected` 对 demo 会话特化：最后一个观察者
+  断开即 `interrupt` + 移除 + `provisioner.dispose`（一次性，不像正式会话留 sidecar 续跑）。
+- **关键设计点**：副本目录由 Provisioner 提供，客户端不可指定；复用既有 viewer / 事件缓冲 / 路由机制。
 
 ### 3.6 sidecar permissions.canUseTool（demo 沙箱裁决，核心，改）
 
@@ -247,22 +250,21 @@ sequenceDiagram
 tools/tool-claude-chat/src/main/java/com/exceptioncoder/toolbox/claudechat/
 ├── config/
 │   ├── ClaudeChatWebSocketConfig.java          [改] 注册 /api/claude-chat/demo/ws（不挂 Admin 拦截器）
-│   ├── DemoWebSocketHandler.java               [新增] 供给副本 + demo 建会话
+│   ├── DemoWebSocketHandler.java               [新增] 供给副本 + demo 建会话（open/send/interrupt）
 │   └── WelfareDemoProperties.java              [新增] 约束档：源码白名单、表前缀、ttl、并发上限、enabled
 ├── service/
-│   ├── WelfareDemoSandboxProvisioner.java      [新增] 克隆源码 + 建 demo 库导数据 + dispose/TTL
+│   ├── WelfareDemoSandboxProvisioner.java      [新增] 克隆源码 + 建 demo 库导数据 + dispose/TTL/启动清残留
 │   ├── WelfareDemoSqlService.java              [新增] 在 demo 库执行受限 SQL
-│   └── ClaudeChatService.java                  [改] openSession demo 分支（cwd=副本/isDemo/sandbox）
-└── domain/ClaudeChatSession.java               [改] 增 isDemo / sandbox 标记列（迁移兜底）
+│   └── ClaudeChatService.java                  [改] 新增 openDemoSession + 断连销毁 demo 副本 + 注入 provisioner
+└── api/WelfareDemoSqlController.java           [新增] POST /demo/sql（welfare_db 回灌入口）
 
-toolbox-common/.../auth/web/AdminHandshakeInterceptor.java   [改] 放行 demo WS 路径
+（不改 AdminHandshakeInterceptor、不改 ClaudeChatSession/迁移/schema：demo 路由不挂拦截器即免鉴权，演示会话不持久化）
 
 sidecar/claude-agent/src/
-├── sessionManager.ts                           [改] demo 会话注入 cwd=副本 + mcp(welfare_db) + isDemo
+├── sessionManager.ts                           [改] start 增 demo/demoApiBase；demo 会话注入 welfare_db MCP + perms.setDemo(cwd)
 ├── permissions.ts                              [改] canUseTool demo 沙箱裁决（deny-by-default + cwd 内）
-└── welfareDb.ts                                [新增] welfare_db 工具 → 后端 SQL 通道
-
-tools/tool-claude-chat/src/main/resources/db/claude-chat-schema.sql   [改] 迁移补列 is_demo/sandbox（IF NOT EXISTS）
+├── server.ts                                   [改] start 消息透传 demo/demoApiBase
+└── welfareDb.ts                                [新增] welfare_db in-process MCP 工具 → 后端 SQL 通道
 
 （前端 showcase 公开页）
 frontend/src/features/welfare-sign-demo/
@@ -284,7 +286,7 @@ frontend/src/features/welfare-sign-demo/
 |------|----------|------|
 | 真实数据库表 | **无** | 真实 `welfare_sign_*` 与 toolbox.db 其它表运行期只读，不被 agent 写 |
 | demo 数据 | 新增（临时） | 每会话独立 `<sandboxId>.db`，按 welfare-sign schema 建表并导入快照，销毁即删 |
-| claude_chat_session | 有（轻微） | 增 `is_demo`、`sandbox` 列（迁移 bean 补列） |
+| claude_chat_session | **无** | 演示会话不持久化（仅内存 SessionCtx），不加列、不迁移 |
 | 文件系统 | 新增（临时） | `${data-dir}/welfare-demo/<sandboxId>/` 源码副本，销毁即删 |
 | 对外接口 | 有 | WS `/api/claude-chat/demo/ws`（免鉴权）；内部 `welfare_db` SQL 通道（仅作用 demo 库） |
 | 鉴权 | 有 | AdminHandshakeInterceptor 放行 demo WS |
