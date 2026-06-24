@@ -13,7 +13,7 @@ const manifest: FeatureManifest = {
   name: '访客分析',
   icon: UserSearch,
   group: '智能体',
-  description: '确定性匹配优先 + AgentScope 灰区判别：识别访客是新客 / 熟客 / 竞品 / 供应商等',
+  description: '确定性匹配优先 + LangChain4j 灰区判别：识别访客是新客 / 熟客 / 竞品 / 供应商等',
   order: 30,
   routes: [{ path: '/tools/visitor-analysis', element: <VisitorAnalysisPage /> }],
 }

@@ -1,6 +1,8 @@
 # 访客分析智能体 — 设计文档
 
-> 状态：设计中（首版骨架已落地）。模块：`tools/tool-visitor-analysis`（Java）+ `python-services/visitor-analysis`（Python AgentScope sidecar）+ `frontend/src/features/visitor-analysis`。
+> 状态：设计中（首版骨架已落地）。模块：`tools/tool-visitor-analysis`（Java，灰区分类 + 向量召回均在 JVM 内）+ `frontend/src/features/visitor-analysis`。
+>
+> **2026-06 变更**：灰区分类已从 Python AgentScope sidecar 迁回 Java，改用 **LangChain4j**——LLM 经共享网关 `toolbox-llm`（`ChatModelRouter`）按 tier 取得，向量召回用 `langchain4j-qdrant` + bge-m3。`python-services/visitor-analysis` 不再参与运行（保留代码备查，可删）。
 
 ## 1. 目标与本质
 
@@ -12,14 +14,14 @@
 - **竞争对手**一半是事实（命中竞品名单），一半是判断（没听过的公司是不是同行）。
 - 所以遵循**确定性优先（deterministic-first, LLM-last）**：能查库/规则匹配的全用代码定论，LLM 只啃灰区，且输出当不可信入参由代码裁决（"LLM 提议，代码裁决"）。
 
-## 2. 控制面 / 推理面 职责边界（架构原则）
+## 2. 确定面 / 概率面 职责边界（架构原则）
 
-| | 推理面（Python AgentScope sidecar） | 控制面 / 总控（Java Spring） |
+| | 概率面（LangChain4j：灰区分类 + 向量召回） | 确定面 / 总控（Java Spring） |
 |---|---|---|
-| 负责 | 灰区单次结构化分类、企业数据增强、（学习目标）Studio 观测 | 数据归属、确定性匹配、代码裁决、落库、SSE、UI |
+| 负责 | 灰区单次结构化分类、向量语义召回、企业数据增强（桩） | 数据归属、确定性匹配、代码裁决、落库、SSE、UI |
 | 性质 | 概率性、模型相关 | 确定性、事务性、**系统真相** |
 
-划边界的依据不是"谁来调度"，而是**确定性与真相归属**：确定的、要负责的归 Java；模糊的、模型相关的归 Python。这也是国内"Java 中台 + Python agent"双语言形态的缩影。
+划边界的依据不是"谁来调度"，而是**确定性与真相归属**：确定的、要负责的归代码定论；模糊的、模型相关的交 LLM 提议、再由代码裁决。两面现在都在同一 JVM 内（LangChain4j），不再跨进程桥接——少一跳网络、少一份 key 管理、少一个要单独拉起的进程。
 
 ## 3. 拓扑
 
@@ -32,30 +34,30 @@ flowchart LR
         API["VisitorAnalysisController"]
         MATCH["MatchService 确定性匹配"]
         ADJ["VerdictService 代码裁决+落库"]
+        GREY["GreyZoneService 灰区编排"]
+        CLS["GreyZoneClassifier (LangChain4j AiService)"]
+        VEC["VisitorVectorService 向量召回"]
         DB[("SQLite va_* 表")]
     end
-    subgraph PY["Python AgentScope sidecar :9600"]
-        ENR["enrich_company 模拟桩+降级"]
-        CLS["结构化分类（OpenAI 兼容/第三方平台）"]
-    end
-    STUDIO["AgentScope Studio（学习目标）"]
+    GW["共享 LLM 网关 toolbox-llm ChatModelRouter"]
+    QD[("Qdrant va_customers")]
 
     UI -->|HTTP| API --> MATCH --> DB
     API --> ADJ --> DB
-    MATCH -->|灰区才调| CLS
-    ENR --> CLS
-    CLS -.OTel.-> STUDIO
+    ADJ -->|灰区才调| GREY
+    GREY --> VEC --> QD
+    GREY --> CLS --> GW
 ```
 
 ## 4. 判别流水（五阶段）
 
 1. **归一化**（`Normalizer`，纯代码）：手机号去 +86/非数字；公司名全角转半角、去后缀。归一化键在 Java/Python/导入脚本间须一致。
 2. **确定性匹配**（`MatchService`，查库）：竞品名单 > 客户库 > 访客台账自比对。命中即定论，高置信，**跳过 LLM**。
-3. **数据增强**（sidecar `enrich_company`）：当前模拟桩，自动降级；真实接入换适配器签名不变。
-4. **灰区分类**（sidecar）：仅当②无法定论时调用。一次结构化输出（非 ReActAgent 工具循环——第三方平台 function-calling 支持参差，且工具顺序本就固定）。
+3. **数据增强**（`GreyZoneService` 内桩）：当前模拟桩，恒标记 `degraded`；真实接入换适配器签名不变。
+4. **灰区分类**（`GreyZoneService` → `VisitorVectorService` 召回 + `GreyZoneClassifier` 分类）：仅当②无法定论时调用。先向量召回历史相似客户作上下文，再一次结构化输出（LangChain4j `AiServices` 直接把 LLM 输出解析成 `ClassifyProposal` POJO，无工具循环）。
 5. **代码裁决**（`VerdictService`）：枚举校验 + 置信度阈值（`review-threshold`，默认 0.7），低于阈值或 UNKNOWN/降级 → `needs_review=1` 进人工复核。
 
-**关键决定**：确定性命中直接定论、不调 LLM，是最省也最准的路径。代价是确定性步骤不进 Studio。若要让确定性步骤也进 Studio 全链路，可将 `MatchService` 改为 sidecar 回调 Java `/internal/match` 的 AgentScope tool——本版未采用，作为演进选项。
+**关键决定**：确定性命中直接定论、不调 LLM，是最省也最准的路径。灰区 LLM 经共享网关 `toolbox-llm` 取模型——池化/限流/故障转移/计量对本模块透明，且默认回退本地 Ollama，零配置可跑；要用更强远端模型只需在 `toolbox.llm.models` 加一个 `tier: visitor` 成员。
 
 ## 5. 类别体系（正交两维）
 
@@ -79,21 +81,24 @@ flowchart LR
 - `POST /api/visitor-analysis/analyze` — 单条，SSE（stage* → done/error），前台"看判别过程"用。
 - `POST /api/visitor-analysis/analyze-sync` — 单条同步返回 `VerdictView`（前端表单用）。
 - `POST /api/visitor-analysis/batch` — 批量，SSE 进度 + 汇总。
-- `GET /verdicts?limit` · `GET /reviews` · `POST /reviews/{id}/correct` · `GET/POST/DELETE /competitors` · `GET /sidecar-health`。
+- `GET /verdicts?limit` · `GET /reviews` · `POST /reviews/{id}/correct` · `GET/POST/DELETE /competitors`。
+- `GET /sidecar-health` — 路径保留以兼容前端；语义已改为「**向量召回是否就绪**」（`{online}`）。online=false 时灰区仍可判别，只是不带历史相似客户参考，非阻断。
+- `POST /customer-refs/sync-vector` · `DELETE /vector/customers` — 客户底库 ↔ Qdrant 向量库的同步/清空。
 
-Java ↔ Python：
-- `POST {sidecar}/analyze` — body 访客字段 + 匹配上下文；resp `{identity, relationship, confidence, rationale, evidence, model, degraded}`。
-- `GET {sidecar}/health`。
+内部（同 JVM，无跨进程协议）：
+- 灰区分类 `GreyZoneClassifier.classify(userPrompt)` → `ClassifyProposal{identity, relationship, confidence, rationale, evidence}`（LangChain4j 结构化输出）。
+- 向量召回 `VisitorVectorService.searchSimilar(...)` → `List<SimilarRecord>`。
 
 ## 9. 框架选型
 
-- **Python AgentScope sidecar**（用户拍板的方案 b）：Python 是 AgentScope 旗舰 SDK，特性最全、更新最快，Studio/OTel 观测一并学。
-- 模型走**第三方 OpenAI 兼容平台**，key 由 sidecar 持有（环境变量，不进仓库）。Java 侧不接模型。
-- sidecar 不启动**不影响** Java 确定性判别，灰区降级为待人工确认。
+- **LangChain4j（同 JVM）**：灰区分类与向量召回都在 Java 内完成，不再跨进程桥接 Python。
+  - LLM 经共享网关 `toolbox-llm` 的 `ChatModelRouter.forTier(tier)` 取得，与 `tool-ai-secretary` 同套路：池化 / 限流 / 故障转移 / 计量内聚在网关，对本模块透明；未配置 `visitor` 档时回退默认（本地 Ollama），开箱即跑。
+  - 向量召回用 `langchain4j-qdrant` + OpenAI 兼容 embedding（bge-m3），独立集合 `va_customers`，默认 `rag.enabled=false`（需 Qdrant + bge-m3 才开）。
+- **为什么去掉 AgentScope sidecar**：灰区判别本质是「一次结构化分类 + 向量召回」，LangChain4j 完全覆盖；桥接 Python 多一跳网络、多一份 key/进程管理、多一个可挂的依赖，收益（Studio/OTel 观测）与本工具诉求不匹配。LLM 网关侧的 AgentScope Studio 观测（`toolbox-llm` 的 `AgentScopeStudioExporter`）是另一条独立链路，不受本次变更影响。
 
 ## 10. 开发与运行
 
 - Java：`mvn -pl tools/tool-visitor-analysis -am compile`（已验证 BUILD SUCCESS）。
 - 前端：`npm run typecheck`（已验证通过）；`npm run dev` 走 :5173 代理。
-- sidecar：`python-services/visitor-analysis/start.bat`（:9600），需设 `VA_LLM_BASE_URL/KEY/MODEL`。
+- 向量召回（可选）：① `ollama pull bge-m3` ② 启动 Qdrant（`docker run -p 6333:6333 -p 6334:6334 qdrant/qdrant`）③ 把 `toolbox.visitor-analysis.rag.enabled` 改 `true` 重启。关闭时灰区分类照常，只是不带历史召回上下文。
 - 运行红线：进程由用户自行启动；本设计的验证只到编译 + typecheck。

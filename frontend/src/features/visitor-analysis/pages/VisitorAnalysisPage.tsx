@@ -177,7 +177,7 @@ export function VisitorAnalysisPage() {
   const [error, setError] = useState<string | null>(null)
   const [recent, setRecent] = useState<VerdictView[]>([])
   const [customers, setCustomers] = useState<CustomerRef[]>([])
-  const [sidecarOnline, setSidecarOnline] = useState<boolean | null>(null)
+  const [vectorReady, setSidecarOnline] = useState<boolean | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
   const [clearingVec, setClearingVec] = useState(false)
@@ -329,11 +329,11 @@ export function VisitorAnalysisPage() {
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold">访客分析</h1>
         <p className="text-sm text-muted-foreground">
-          确定性匹配优先（客户库 / 竞品名单命中即定），灰区交 AgentScope 判别。
-          {sidecarOnline === false && (
-            <span className="ml-2 text-amber-600">· AgentScope sidecar 未在线，灰区将待人工确认</span>
+          确定性匹配优先（客户库 / 竞品名单命中即定），灰区交 LangChain4j 判别。
+          {vectorReady === false && (
+            <span className="ml-2 text-amber-600">· 向量召回未就绪，灰区判别将不带历史相似客户参考</span>
           )}
-          {sidecarOnline === true && <span className="ml-2 text-emerald-600">· sidecar 在线</span>}
+          {vectorReady === true && <span className="ml-2 text-emerald-600">· 向量召回在线</span>}
         </p>
       </header>
 

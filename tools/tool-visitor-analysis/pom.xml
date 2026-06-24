@@ -14,16 +14,29 @@
     <artifactId>tool-visitor-analysis</artifactId>
     <packaging>jar</packaging>
     <name>tool-visitor-analysis</name>
-    <description>访客分析智能体：确定性匹配优先，灰区交 Python AgentScope sidecar</description>
+    <description>访客分析智能体：确定性匹配优先，灰区交 LangChain4j（共享 LLM 网关 + Qdrant 向量召回）</description>
 
     <dependencies>
         <dependency>
             <groupId>com.exceptioncoder</groupId>
             <artifactId>toolbox-common</artifactId>
         </dependency>
-        <!-- 灰区分类由 Python AgentScope sidecar 完成（python-services/visitor-analysis），
-             Java 侧只用 JDK 自带 HttpClient 调它，不引入额外 LLM SDK。模型走第三方 OpenAI 兼容平台，
-             由 sidecar 持有 key。Java 这侧不直接接模型。 -->
+        <!-- 共享 LLM 网关：模型池 + 分级路由 + 限流故障转移（提供 ChatModelRouter）。
+             灰区分类不再桥接 Python sidecar，直接在 Java 用 LangChain4j 完成。 -->
+        <dependency>
+            <groupId>com.exceptioncoder</groupId>
+            <artifactId>toolbox-llm</artifactId>
+        </dependency>
+        <!-- LangChain4j：AiServices（声明式分类）+ 结构化输出 + Qdrant 向量召回。 -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-qdrant</artifactId>
+            <version>1.16.1-beta26</version>
+        </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>

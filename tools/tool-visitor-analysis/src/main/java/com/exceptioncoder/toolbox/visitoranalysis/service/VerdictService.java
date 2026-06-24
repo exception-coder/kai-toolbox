@@ -3,8 +3,8 @@ package com.exceptioncoder.toolbox.visitoranalysis.service;
 import com.exceptioncoder.toolbox.common.sse.SseEmitterRegistry;
 import com.exceptioncoder.toolbox.visitoranalysis.api.dto.IdentityType;
 import com.exceptioncoder.toolbox.visitoranalysis.api.dto.MatchResult;
+import com.exceptioncoder.toolbox.visitoranalysis.api.dto.GreyVerdict;
 import com.exceptioncoder.toolbox.visitoranalysis.api.dto.RelationshipType;
-import com.exceptioncoder.toolbox.visitoranalysis.api.dto.SidecarVerdict;
 import com.exceptioncoder.toolbox.visitoranalysis.api.dto.VerdictView;
 import com.exceptioncoder.toolbox.visitoranalysis.api.dto.VisitorInput;
 import com.exceptioncoder.toolbox.visitoranalysis.config.VisitorAnalysisProperties;
@@ -36,7 +36,7 @@ public class VerdictService {
 
     private final Normalizer normalizer;
     private final MatchService matchService;
-    private final SidecarClient sidecar;
+    private final GreyZoneService greyZone;
     private final VisitorRepository visitorRepo;
     private final VerdictRepository verdictRepo;
     private final CustomerRefRepository customerRefRepo;
@@ -44,13 +44,13 @@ public class VerdictService {
     private final SseEmitterRegistry sse;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public VerdictService(Normalizer normalizer, MatchService matchService, SidecarClient sidecar,
+    public VerdictService(Normalizer normalizer, MatchService matchService, GreyZoneService greyZone,
                           VisitorRepository visitorRepo, VerdictRepository verdictRepo,
                           CustomerRefRepository customerRefRepo,
                           VisitorAnalysisProperties props, SseEmitterRegistry sse) {
         this.normalizer = normalizer;
         this.matchService = matchService;
-        this.sidecar = sidecar;
+        this.greyZone = greyZone;
         this.visitorRepo = visitorRepo;
         this.verdictRepo = verdictRepo;
         this.customerRefRepo = customerRefRepo;
@@ -83,7 +83,7 @@ public class VerdictService {
                 emit(taskId, "stage", Map.of("step", "dedup", "label", "确定性去重：公司名完全一致"));
                 view = decideByDedupRule(visitorId, dup);
             } else {
-                emit(taskId, "stage", Map.of("step", "llm", "label", "灰区：AgentScope 判别"));
+                emit(taskId, "stage", Map.of("step", "llm", "label", "灰区：LLM 判别"));
                 view = decideByLlm(visitorId, in, phoneNorm, companyNorm, addrNorm, m);
             }
         }
@@ -145,12 +145,12 @@ public class VerdictService {
         return verdictRepo.findById(id);
     }
 
-    /** 第④层灰区：sidecar 提议 → 代码裁决。sidecar 不可用则降级为 UNKNOWN + 待人工确认。 */
+    /** 第④层灰区：LLM 提议 → 代码裁决。LLM 不可用则降级为 UNKNOWN + 待人工确认。 */
     private VerdictView decideByLlm(long visitorId, VisitorInput in, String phoneNorm,
                                     String companyNorm, String addrNorm, MatchResult m) {
-        SidecarVerdict proposal = sidecar.classify(in, phoneNorm, companyNorm, addrNorm, m);
+        GreyVerdict proposal = greyZone.classify(in, phoneNorm, companyNorm, addrNorm, m);
         if (proposal == null) {
-            String reason = "灰区且 AgentScope sidecar 不可用，降级为待人工确认";
+            String reason = "灰区 LLM 判别失败，降级为待人工确认";
             List<String> hints = new ArrayList<>();
             hints.add(reason);
             if (m.visitCount() > 0) hints.add("该访客曾来访 " + m.visitCount() + " 次");

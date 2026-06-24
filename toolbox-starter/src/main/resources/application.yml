@@ -143,14 +143,27 @@ toolbox:
       min-score: 0.45
       # 卡片内容目录（含 index.json 与 q/{id}.md）；相对路径按工作目录(仓库根)解析
       content-dir: frontend/public/java8gu
-  # 访客分析智能体。确定性匹配（客户库/竞品名单）在 Java 完成；灰区交 Python AgentScope sidecar。
-  # sidecar 见 python-services/visitor-analysis（默认 :9600）；不启动则灰区降级为待人工确认，不影响确定性判别。
-  # 模型 key 由 sidecar 持有（走第三方 OpenAI 兼容平台），Java 这侧不接模型。
+  # 访客分析智能体。确定性匹配（客户库/竞品名单）在 Java 完成；灰区分类已迁回 Java（LangChain4j）：
+  # 模型经共享 LLM 网关（toolbox.llm）按 tier 取得——未配置该档位时回退默认（本地 Ollama）；
+  # 要用更强的远端模型，在上面 toolbox.llm.models 加一个 tier=visitor 的成员（如 4sapi gpt-5-mini）。
+  # 向量召回（历史相似客户）默认关闭，开启前置同 ai-secretary：① ollama pull bge-m3 ② 启动 Qdrant。
   visitor-analysis:
-    sidecar-url: ${TOOLBOX_VA_SIDECAR_URL:http://127.0.0.1:9600}
-    sidecar-timeout-seconds: 60
+    tier: visitor
     # LLM 置信度低于此值的灰区判别进人工复核；确定性命中不受约束
     review-threshold: 0.7
+    rag:
+      enabled: false
+      embedding-base-url: http://localhost:11434/v1
+      embedding-api-key: ollama
+      embedding-model: bge-m3
+      vector-size: 1024            # bge-m3 原生维度，换模型须同步改并重建集合
+      qdrant-host: localhost
+      qdrant-port: 6334            # gRPC 端口（REST 是 6333）
+      qdrant-use-tls: false
+      qdrant-api-key: ${TOOLBOX_AI_SECRETARY_QDRANT_API_KEY:}
+      collection: va_customers     # 客户去重底库专用集合，与 ai-secretary 物理隔离
+      max-results: 3
+      min-score: 0.70              # 沿用原 sidecar VA_VECTOR_THRESH
   system:
     # 远程重启端点 token。经公网 tunnel 暴露，留空 = 端点关闭（返回 503）。必须显式配才开放。
     # 用环境变量覆盖：TOOLBOX_SYSTEM_RESTART_TOKEN=随机串

@@ -4,18 +4,17 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * 绑定 {@code toolbox.visitor-analysis.*}。由顶层 {@code @ConfigurationPropertiesScan} 自动注册。
+ *
+ * <p>灰区分类已从 Python AgentScope sidecar 迁回 Java：模型经共享 LLM 网关
+ * （{@code toolbox-llm} 的 {@code ChatModelRouter}）按 {@link #tier} 档位取得，
+ * 池化/限流/故障转移对本模块透明；该档位未配置时网关回退默认（本地 Ollama）。
+ * 向量召回相关配置在 {@link VisitorAnalysisRagProperties}（{@code toolbox.visitor-analysis.rag.*}）。
  */
 @ConfigurationProperties(prefix = "toolbox.visitor-analysis")
 public class VisitorAnalysisProperties {
 
-    /** Python AgentScope sidecar 地址。空表示未配置：灰区无法判别，将直接降级为 UNKNOWN + 待人工确认。 */
-    private String sidecarUrl = "http://127.0.0.1:9600";
-
-    /** 调用 sidecar 的超时秒数。 */
-    private int sidecarTimeoutSeconds = 60;
-
-    /** 灰区分类用的模型名（base-url / api-key 复用配置中心 toolbox.ai-chat 的 4sapi）。 */
-    private String llmModel = "gpt-5-mini";
+    /** 灰区分类用的 LLM 网关档位；网关未配置该档位时回退默认模型（本地 Ollama）。 */
+    private String tier = "visitor";
 
     /**
      * 置信度阈值：LLM 给出的置信度低于此值时,needs_review=1 进人工复核队列。
@@ -23,19 +22,9 @@ public class VisitorAnalysisProperties {
      */
     private double reviewThreshold = 0.7;
 
-    public String getSidecarUrl() { return sidecarUrl; }
-    public void setSidecarUrl(String sidecarUrl) {
-        this.sidecarUrl = sidecarUrl == null ? "" : sidecarUrl.trim();
-    }
-
-    public int getSidecarTimeoutSeconds() { return sidecarTimeoutSeconds; }
-    public void setSidecarTimeoutSeconds(int sidecarTimeoutSeconds) {
-        this.sidecarTimeoutSeconds = Math.max(1, sidecarTimeoutSeconds);
-    }
-
-    public String getLlmModel() { return llmModel; }
-    public void setLlmModel(String llmModel) {
-        this.llmModel = (llmModel == null || llmModel.isBlank()) ? "gpt-5-mini" : llmModel.trim();
+    public String getTier() { return tier; }
+    public void setTier(String tier) {
+        this.tier = (tier == null || tier.isBlank()) ? "visitor" : tier.trim();
     }
 
     public double getReviewThreshold() { return reviewThreshold; }

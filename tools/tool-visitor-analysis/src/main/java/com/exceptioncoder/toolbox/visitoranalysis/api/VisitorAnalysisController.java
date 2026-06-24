@@ -11,8 +11,8 @@ import com.exceptioncoder.toolbox.visitoranalysis.repository.FeedbackRepository;
 import com.exceptioncoder.toolbox.visitoranalysis.repository.VerdictRepository;
 import com.exceptioncoder.toolbox.visitoranalysis.repository.VisitorRepository;
 import com.exceptioncoder.toolbox.visitoranalysis.service.CustomerRefImportService;
+import com.exceptioncoder.toolbox.visitoranalysis.service.GreyZoneService;
 import com.exceptioncoder.toolbox.visitoranalysis.service.Normalizer;
-import com.exceptioncoder.toolbox.visitoranalysis.service.SidecarClient;
 import com.exceptioncoder.toolbox.visitoranalysis.service.VerdictService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,14 +37,14 @@ public class VisitorAnalysisController {
     private final VisitorRepository visitorRepo;
     private final CustomerRefImportService customerRefImport;
     private final Normalizer normalizer;
-    private final SidecarClient sidecar;
+    private final GreyZoneService greyZone;
     private final SseEmitterRegistry sse;
 
     public VisitorAnalysisController(VerdictService verdictService, VerdictRepository verdictRepo,
                                      CompetitorRepository competitorRepo, CustomerRefRepository customerRefRepo,
                                      FeedbackRepository feedbackRepo, VisitorRepository visitorRepo,
                                      CustomerRefImportService customerRefImport,
-                                     Normalizer normalizer, SidecarClient sidecar, SseEmitterRegistry sse) {
+                                     Normalizer normalizer, GreyZoneService greyZone, SseEmitterRegistry sse) {
         this.verdictService = verdictService;
         this.verdictRepo = verdictRepo;
         this.competitorRepo = competitorRepo;
@@ -53,7 +53,7 @@ public class VisitorAnalysisController {
         this.visitorRepo = visitorRepo;
         this.customerRefImport = customerRefImport;
         this.normalizer = normalizer;
-        this.sidecar = sidecar;
+        this.greyZone = greyZone;
         this.sse = sse;
     }
 
@@ -154,15 +154,15 @@ public class VisitorAnalysisController {
      */
     @PostMapping("/customer-refs/sync-vector")
     public Map<String, Object> syncCustomerRefsToVector() {
-        if (!sidecar.ping()) {
+        if (!greyZone.ping()) {
             return Map.of("ok", false, "total", 0, "indexed", 0, "failed", 0,
-                    "message", "AgentScope sidecar 未在线，无法同步向量库");
+                    "message", "向量库未就绪（未启用 RAG 或 Qdrant/嵌入模型不可用），无法同步向量库");
         }
         List<CustomerRefView> all = customerRefRepo.list();
         long now = System.currentTimeMillis();
         int indexed = 0;
         for (CustomerRefView c : all) {
-            boolean ok = sidecar.indexCustomerSync(
+            boolean ok = greyZone.indexCustomerSync(
                     c.custId(), c.custName(),
                     normalizer.company(c.custName()),
                     c.custAddr(),
@@ -181,10 +181,10 @@ public class VisitorAnalysisController {
     /** 清空向量库已同步的客户资料（va_customers 集合）。清完可重新点「一键同步」灌入。 */
     @DeleteMapping("/vector/customers")
     public Map<String, Object> clearVectorCustomers() {
-        if (!sidecar.ping()) {
-            return Map.of("ok", false, "message", "AgentScope sidecar 未在线，无法清空向量库");
+        if (!greyZone.ping()) {
+            return Map.of("ok", false, "message", "向量库未就绪（未启用 RAG 或 Qdrant 不可用），无法清空向量库");
         }
-        Map<String, Object> result = sidecar.clearCustomers();
+        Map<String, Object> result = greyZone.clearCustomers();
         if (Boolean.TRUE.equals(result.get("ok"))) {
             customerRefRepo.clearSyncedAll();   // 向量库清了，同步标记一并清掉
         }
@@ -208,10 +208,14 @@ public class VisitorAnalysisController {
         competitorRepo.delete(id);
     }
 
-    /** sidecar 健康状态,前端用来提示"灰区判别是否可用"。 */
+    /**
+     * 向量召回就绪状态,前端用来提示"灰区是否带历史召回上下文 / 能否同步向量库"。
+     * online=false 时灰区仍可判别（只是不带相似客户参考），故非阻断。
+     * 端点路径保留 {@code /sidecar-health} 以兼容前端，语义已从「sidecar 在线」改为「向量召回就绪」。
+     */
     @GetMapping("/sidecar-health")
     public Map<String, Object> sidecarHealth() {
-        return Map.of("online", sidecar.ping());
+        return Map.of("online", greyZone.ping());
     }
 
     public record CorrectRequest(String identity, String relationship, String operator, String note) {
