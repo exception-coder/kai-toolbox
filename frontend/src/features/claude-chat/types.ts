@@ -137,9 +137,11 @@ export interface SuiteStatus {
   name: string
   kind: 'plugin' | 'mcp'
   marketplace: string | null
-  installed: string | null
+  /** 插件在 Claude / Codex 两端的已装版本（未装为 null）。 */
+  claudeInstalled: string | null
+  codexInstalled: string | null
   available: string | null
-  /** 插件=已安装；MCP=已在 ~/.claude.json 配置。 */
+  /** 插件=任一端已安装；MCP=已在 ~/.claude.json 配置。 */
   present: boolean
   /** MCP 知识库本地短 commit（插件为 null）。 */
   repoCommit: string | null

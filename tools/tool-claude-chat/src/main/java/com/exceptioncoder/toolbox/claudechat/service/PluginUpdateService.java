@@ -121,14 +121,17 @@ public class PluginUpdateService {
     public List<SuiteStatusView> readSuites(boolean fetch) {
         Path home = Path.of(System.getProperty("user.home"));
         Map<String, String[]> installedPlugins = readInstalledPluginMap(home); // name -> [marketplace, version]
+        Map<String, String> codexInstalled = readCodexInstalled();             // name -> codex 已装版本
         Map<String, Path> mcpRepos = readMcpServers(home);                     // name -> 知识库仓根（可能 null）
         List<SuiteStatusView> out = new ArrayList<>();
         for (String name : props.getWatchedPlugins()) {
             String[] info = installedPlugins.get(name);
-            String marketplace = info != null ? info[0] : null;
-            String installed = info != null ? info[1] : null;
-            String available = marketplace != null ? readMarketplaceVersion(home, marketplace, name) : null;
-            out.add(new SuiteStatusView(name, "plugin", marketplace, installed, available, installed != null,
+            String marketplace = info != null ? info[0] : name; // 公司插件 marketplace 名 == 插件名
+            String claudeVer = info != null ? info[1] : null;
+            String codexVer = codexInstalled.get(name);
+            String available = readMarketplaceVersion(home, marketplace, name);
+            boolean present = claudeVer != null || codexVer != null;
+            out.add(new SuiteStatusView(name, "plugin", marketplace, claudeVer, codexVer, available, present,
                     null, null, null));
         }
         for (String name : props.getWatchedMcps()) {
@@ -150,9 +153,61 @@ public class PluginUpdateService {
                     // 无上游 / 解析失败 → behind 保持 null（未知）
                 }
             }
-            out.add(new SuiteStatusView(name, "mcp", null, null, null, configured, commit, date, behind));
+            out.add(new SuiteStatusView(name, "mcp", null, null, null, null, configured, commit, date, behind));
         }
         return out;
+    }
+
+    /** 跑一次 `codex plugin list`，解析出已安装插件 name -> 版本（"not installed" 跳过）。 */
+    private Map<String, String> readCodexInstalled() {
+        Map<String, String> map = new HashMap<>();
+        try {
+            List<String> cmd = new ArrayList<>(codexParts());
+            cmd.add("plugin");
+            cmd.add("list");
+            CommandResult r = runCapture(cmd);
+            for (String line : r.output.split("\\r?\\n")) {
+                String t = line.trim();
+                if (t.isEmpty() || !t.contains("installed") || t.contains("not installed")) {
+                    continue;
+                }
+                String first = t.split("\\s+")[0];      // "<name>@<marketplace>"
+                int at = first.indexOf('@');
+                if (at <= 0) {
+                    continue;
+                }
+                Matcher m = SEMVER.matcher(t);
+                if (m.find()) {
+                    map.put(first.substring(0, at), m.group(1));
+                }
+            }
+        } catch (Exception e) {
+            log.debug("codex plugin list 失败：{}", e.getMessage());
+        }
+        return map;
+    }
+
+    /** 读 ~/.claude/plugins/known_marketplaces.json：marketplace 名 -> git source url（供 codex marketplace add）。 */
+    private Map<String, String> readMarketplaceGitUrls(Path home) {
+        Map<String, String> map = new HashMap<>();
+        try {
+            Path f = home.resolve(".claude/plugins/known_marketplaces.json");
+            if (!Files.exists(f)) {
+                return map;
+            }
+            JsonNode root = mapper.readTree(f.toFile());
+            Iterator<Map.Entry<String, JsonNode>> it = root.fields();
+            while (it.hasNext()) {
+                Map.Entry<String, JsonNode> e = it.next();
+                String url = e.getValue().path("source").path("url").asText(null);
+                if (url != null && !url.isBlank()) {
+                    map.put(e.getKey(), url);
+                }
+            }
+        } catch (Exception ex) {
+            log.debug("读取 known_marketplaces 失败：{}", ex.getMessage());
+        }
+        return map;
     }
 
     /** 读 ~/.claude/plugins/installed_plugins.json：插件名 -> [marketplace, 已装版本]。 */
@@ -274,15 +329,33 @@ public class PluginUpdateService {
             List<Map<String, Object>> results = new ArrayList<>();
             try {
                 Thread.sleep(150); // 等 SSE HTTP 挂上
-                // 团队插件均为 Claude Code 插件（codex 端无此 marketplace，旧「双端」属误设）：
-                // 先 `claude plugin marketplace update` 刷新所有源，再逐个 `claude plugin update <p>@<p>`
-                // （公司三插件 marketplace 名 == 插件名）。与权威脚本 update-team-tools.ps1 一致。
+                // 公司三插件 marketplace 名 == 插件名，仓库同时带 claude / codex 两套清单 → 双端都装。
+                // Claude：`marketplace update` 刷源 + 逐个 `plugin update <p>@<p>`（与 update-team-tools.ps1 一致）。
                 List<String> claude = List.of(props.getClaudeBin(), "plugin");
                 results.add(runStep(taskId, "claude", "marketplace-update",
                         concat(claude, "marketplace", "update")));
                 for (String p : props.getWatchedPlugins()) {
                     results.add(runStep(taskId, "claude", "update:" + p,
                             concat(claude, "update", p + "@" + p)));
+                }
+                // Codex：marketplace 是 git 源，先 upgrade（刷新）；未配置则 add git URL（首次）；再 `plugin add <p>@<p>`。
+                Path home = Path.of(System.getProperty("user.home"));
+                Map<String, String> gitUrls = readMarketplaceGitUrls(home);
+                List<String> codex = new ArrayList<>(codexParts());
+                codex.add("plugin");
+                for (String p : props.getWatchedPlugins()) {
+                    Map<String, Object> up = runStep(taskId, "codex", "marketplace-upgrade:" + p,
+                            concat(codex, "marketplace", "upgrade", p));
+                    results.add(up);
+                    if (!Boolean.TRUE.equals(up.get("ok"))) {
+                        String url = gitUrls.get(p);
+                        if (url != null) {
+                            results.add(runStep(taskId, "codex", "marketplace-add:" + p,
+                                    concat(codex, "marketplace", "add", url)));
+                        }
+                    }
+                    results.add(runStep(taskId, "codex", "plugin-add:" + p,
+                            concat(codex, "add", p + "@" + p)));
                 }
                 sse.publish(taskId, "message", Map.of("type", "done", "results", results));
             } catch (Exception e) {

@@ -48,9 +48,9 @@ export function PluginPanel({ onClose }: { onClose: () => void }) {
       let m: { type: string; engine?: string; step?: string; text?: string; exitCode?: number; message?: string }
       try { m = JSON.parse(ev.data) } catch { return }
       if (m.type === 'line') {
-        setLines(prev => [...prev, `${m.text ?? ''}`])
+        setLines(prev => [...prev, `${m.engine ? `[${m.engine}] ` : ''}${m.text ?? ''}`])
       } else if (m.type === 'step') {
-        setLines(prev => [...prev, `${m.step} → exit ${m.exitCode}`])
+        setLines(prev => [...prev, `[${m.engine}] ${m.step} → exit ${m.exitCode}`])
       } else if (m.type === 'done') {
         setLines(prev => [...prev, '✓ 更新完成（重启 Claude Code 会话加载新版本）'])
         es.close(); setUpdating(false); void refresh()
@@ -83,7 +83,8 @@ export function PluginPanel({ onClose }: { onClose: () => void }) {
       ) : (
         <ul className="space-y-1">
           {suites.map(p => {
-            const outdated = p.kind === 'plugin' && p.installed && p.available && p.installed !== p.available
+            const claudeOld = p.kind === 'plugin' && p.claudeInstalled && p.available && p.claudeInstalled !== p.available
+            const codexOld = p.kind === 'plugin' && p.codexInstalled && p.available && p.codexInstalled !== p.available
             return (
               <li key={`${p.kind}:${p.name}`} className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs">
                 <span className={`shrink-0 rounded px-1 text-[10px] ${p.kind === 'mcp'
@@ -93,15 +94,17 @@ export function PluginPanel({ onClose }: { onClose: () => void }) {
                 </span>
                 <span className="min-w-0 flex-1 truncate font-medium">{p.name}</span>
                 {p.kind === 'plugin' ? (
-                  !p.present ? (
-                    <span className="shrink-0 text-[var(--color-destructive)]">未安装</span>
-                  ) : (
-                    <span className="shrink-0 text-right text-[var(--color-muted-foreground)]">
-                      已装 <span className="text-[var(--color-foreground)]">{p.installed ?? '未知'}</span>
-                      {p.available && <> · 最新 {p.available}</>}
-                      {outdated && <span className="ml-1 rounded bg-amber-100 px-1 text-amber-700 dark:bg-amber-900 dark:text-amber-200">可更新</span>}
+                  <span className="flex shrink-0 flex-col items-end gap-0.5 text-right text-[var(--color-muted-foreground)]">
+                    <span>
+                      Claude <span className={p.claudeInstalled ? 'text-[var(--color-foreground)]' : 'text-[var(--color-destructive)]'}>{p.claudeInstalled ?? '未装'}</span>
+                      {claudeOld && <span className="ml-1 rounded bg-amber-100 px-1 text-amber-700 dark:bg-amber-900 dark:text-amber-200">可更新</span>}
                     </span>
-                  )
+                    <span>
+                      Codex <span className={p.codexInstalled ? 'text-[var(--color-foreground)]' : 'text-[var(--color-destructive)]'}>{p.codexInstalled ?? '未装'}</span>
+                      {codexOld && <span className="ml-1 rounded bg-amber-100 px-1 text-amber-700 dark:bg-amber-900 dark:text-amber-200">可更新</span>}
+                    </span>
+                    {p.available && <span className="text-[10px] opacity-70">最新 {p.available}</span>}
+                  </span>
                 ) : !p.present ? (
                   <span className="shrink-0 text-[var(--color-muted-foreground)]">未配置</span>
                 ) : (
@@ -127,10 +130,10 @@ export function PluginPanel({ onClose }: { onClose: () => void }) {
       </button>
 
       <Button size="sm" className="mt-3 w-full" onClick={startUpdate} disabled={updating}>
-        <Download className="size-4" /> {updating ? '更新中…' : '一键更新团队插件（Claude）'}
+        <Download className="size-4" /> {updating ? '更新中…' : '一键更新团队插件（Claude + Codex）'}
       </Button>
       <p className="mt-1 text-[10px] text-[var(--color-muted-foreground)]">
-        更新 3 个 Claude 插件；MCP 由每日同步脚本 git pull 维护，不在此处更新。
+        双端更新 3 个插件（Codex 首次会自动添加 git 市场）；MCP 由每日同步脚本 git pull 维护，不在此处更新。
       </p>
 
       {lines.length > 0 && (
