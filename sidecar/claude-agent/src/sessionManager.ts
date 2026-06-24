@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { query, forkSession } from '@anthropic-ai/claude-agent-sdk'
 import { Permissions, type Decision } from './permissions.js'
+import { createWelfareDbServer } from './welfareDb.js'
 import { runCodexTurn } from './codexEngine.js'
 import { runGeminiTurn } from './geminiEngine.js'
 import { runOpencodeTurn } from './opencodeEngine.js'
@@ -67,6 +68,10 @@ class Session {
   engine: Engine = 'claude'
   /** 会话级权限模式，每轮 query 传入；运行中切换下一轮生效。 */
   permissionMode = 'default'
+  /** 福利签收演示会话：开启后注入受限 welfare_db MCP，权限走 perms 的 demo 沙箱硬裁决。 */
+  demo = false
+  /** demo 的 welfare_db 工具回灌后端的基址（如 http://127.0.0.1:18080）。 */
+  demoApiBase?: string
   private abort?: AbortController
   private modelsFetched = false
   /** 本轮 API 响应里实际返回的模型（来自 assistant message.model，权威）；用于调用诊断。 */
@@ -124,6 +129,10 @@ class Session {
             // plan 模式是用户主动选的，保留。官方会话不动。
             ...(this.apiBaseUrl && this.permissionMode !== 'plan'
               ? { disallowedTools: ['ExitPlanMode'] }
+              : {}),
+            // 演示会话注入受限 welfare_db MCP（agent 改数据的唯一通道，库由后端按 sessionId 绑定）。
+            ...(this.demo && this.demoApiBase
+              ? { mcpServers: { welfare_db: createWelfareDbServer(this.id, this.demoApiBase) } }
               : {}),
             cwd: safeCwd,
             model: this.model || undefined,
@@ -353,12 +362,19 @@ export class SessionManager {
     void prewarmClaudeModels()
   }
 
-  start(id: string, cwd: string, model?: string, mode?: string, engine?: string, apiBaseUrl?: string, authToken?: string): void {
+  start(id: string, cwd: string, model?: string, mode?: string, engine?: string, apiBaseUrl?: string, authToken?: string,
+        demo?: boolean, demoApiBase?: string): void {
     const s = new Session(id, cwd || process.env.HOME || process.cwd(), (e) => this.emit(id, e))
     if (model) s.model = model
     if (engine === 'codex' || engine === 'gemini' || engine === 'opencode') s.engine = engine
     if (apiBaseUrl) { s.apiBaseUrl = apiBaseUrl; s.authToken = authToken }
     if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
+    // 演示会话：cwd 即副本根，权限走 demo 沙箱硬裁决（忽略 mode），注入 welfare_db。
+    if (demo) {
+      s.demo = true
+      s.demoApiBase = demoApiBase
+      s.perms.setDemo(s.cwd)
+    }
     this.sessions.set(id, s)
     // 立即回一个 init（sdkSessionId 暂为 null），让前端拿到 Ready 启用输入；
     // 真正的 sdkSessionId 在首轮 system/init 时再次回传。
