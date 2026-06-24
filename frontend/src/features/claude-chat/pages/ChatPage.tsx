@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, Cloud, FileText, FolderTree, GitCommit, List, Maximize2, Minimize2, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RotateCw, Send, Server, ShieldCheck, Slash, Square } from 'lucide-react'
+import { Bell, Cloud, FileText, FolderTree, GitCommit, List, Maximize2, Minimize2, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, ShieldCheck, Slash, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Input } from '@/components/ui/input'
@@ -505,6 +505,9 @@ export function ChatPage() {
                   <HeaderMenuItem icon={<PictureInPicture2 className="size-4" />} label="弹出悬浮窗" hint="切到其他模块常驻显示" onClick={() => { setHeaderMenu(false); popOutFloating() }} />
                   <HeaderMenuItem icon={fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />} label={fullscreen ? '退出全屏' : '全屏显示'} onClick={() => { setHeaderMenu(false); setFullscreen(f => !f) }} />
                   {chat.sessionId && (
+                    <HeaderMenuItem icon={<RefreshCw className="size-4" />} label="重载会话" hint="重连原生会话，加载最新插件/技能/命令" onClick={() => { setHeaderMenu(false); chat.resumeCurrent() }} />
+                  )}
+                  {chat.sessionId && (
                     <HeaderMenuItem icon={<GitCommit className="size-4" />} label="提交记录" hint="当前目录 git 提交/diff" onClick={() => { setHeaderMenu(false); setShowCommits(true) }} />
                   )}
                   <HeaderMenuItem icon={<FolderTree className="size-4" />} label="合并工作区" hint="软链接聚合多个目录" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'taskspace' ? 'none' : 'taskspace') }} />
@@ -884,6 +887,7 @@ export function ChatPage() {
                 exhausted={chat.historyExhausted}
                 onFork={chat.forkSession}
                 engineLabel={engineDisplayName(chat.currentEngine, chat.currentProviderKind)}
+                onResumeCurrent={chat.resumeCurrent}
               />
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-[var(--color-muted-foreground)]">
