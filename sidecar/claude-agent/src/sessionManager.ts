@@ -29,8 +29,12 @@ const DEMO_STEER = [
   '请直接调用工具 mcp__welfare_db__exec 对 welfare_sign_config 表执行 UPDATE，例如：',
   "UPDATE welfare_sign_config SET detail_title = '中秋福利签收' WHERE id = 1。",
   '可改字段：detail_title（大标题）、detail_content（正文）、popup_title/popup_content（弹框）、',
-  'signature_notice（签名提示）、login_mode（SMS/PASSWORD）等。改完简要说明即可，页面会自动刷新。',
-  '约束：只能操作 welfare_sign_* 表与副本目录内的文件，不要尝试其它表、命令或网络。',
+  'signature_notice（签名提示）、login_mode（SMS/PASSWORD）等。',
+  '要改配色/皮肤（如端午绿→国庆红金）时，UPDATE welfare_sign_theme 表（id=1），字段：',
+  'accent（强调/图标）、button_bg/button_hover/button_text（按钮）、stage_bg/panel_bg（背景深底）、',
+  "eyebrow（顶部小字）、cta_label（领取按钮文案）。例：UPDATE welfare_sign_theme SET accent='#ffd75e', button_bg='#c8102e' WHERE id=1。",
+  '改完简要说明即可，页面会自动刷新。',
+  '约束：只能操作 welfare_sign_* 表（含 welfare_sign_theme）与副本目录内的文件，不要尝试其它表、命令或网络。',
 ].join('\n')
 
 // Claude 的 supportedModels 对所有会话是同一份、且很稳定。全局缓存，供任意会话 start/resume 即时重发。

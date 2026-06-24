@@ -87,25 +87,42 @@ public class WelfareDemoSqlService {
         if (db == null) {
             throw new ResponseStatusException(NOT_FOUND, "演示会话不存在或已结束");
         }
-        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + db);
-             Statement st = conn.createStatement();
-             ResultSet rs = st.executeQuery("SELECT * FROM welfare_sign_config WHERE id = 1")) {
-            if (!rs.next()) {
-                throw new ResponseStatusException(NOT_FOUND, "演示配置不存在");
-            }
+        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + db)) {
             Map<String, Object> m = new LinkedHashMap<>();
-            m.put("loginMode", rs.getString("login_mode"));
-            m.put("redirectUrl", rs.getString("redirect_url"));
-            m.put("loginImageUrl", rs.getString("login_image_url"));
-            m.put("detailImageUrl", rs.getString("detail_image_url"));
-            m.put("detailTitle", rs.getString("detail_title"));
-            m.put("detailContent", rs.getString("detail_content"));
-            m.put("popupEnabled", rs.getInt("popup_enabled") != 0);
-            m.put("popupTitle", rs.getString("popup_title"));
-            m.put("popupContent", rs.getString("popup_content"));
-            m.put("signatureNotice", rs.getString("signature_notice"));
-            m.put("extraFieldsJson", rs.getString("extra_fields_json"));
-            m.put("updatedAt", rs.getLong("updated_at"));
+            try (Statement st = conn.createStatement();
+                 ResultSet rs = st.executeQuery("SELECT * FROM welfare_sign_config WHERE id = 1")) {
+                if (!rs.next()) {
+                    throw new ResponseStatusException(NOT_FOUND, "演示配置不存在");
+                }
+                m.put("loginMode", rs.getString("login_mode"));
+                m.put("redirectUrl", rs.getString("redirect_url"));
+                m.put("loginImageUrl", rs.getString("login_image_url"));
+                m.put("detailImageUrl", rs.getString("detail_image_url"));
+                m.put("detailTitle", rs.getString("detail_title"));
+                m.put("detailContent", rs.getString("detail_content"));
+                m.put("popupEnabled", rs.getInt("popup_enabled") != 0);
+                m.put("popupTitle", rs.getString("popup_title"));
+                m.put("popupContent", rs.getString("popup_content"));
+                m.put("signatureNotice", rs.getString("signature_notice"));
+                m.put("extraFieldsJson", rs.getString("extra_fields_json"));
+                m.put("updatedAt", rs.getLong("updated_at"));
+            }
+            // 主题（配色 + eyebrow/cta 文案）；agent 改 welfare_sign_theme 即改演示页皮肤。
+            try (Statement st = conn.createStatement();
+                 ResultSet rs = st.executeQuery("SELECT * FROM welfare_sign_theme WHERE id = 1")) {
+                if (rs.next()) {
+                    Map<String, Object> theme = new LinkedHashMap<>();
+                    theme.put("accent", rs.getString("accent"));
+                    theme.put("buttonBg", rs.getString("button_bg"));
+                    theme.put("buttonHover", rs.getString("button_hover"));
+                    theme.put("buttonText", rs.getString("button_text"));
+                    theme.put("stageBg", rs.getString("stage_bg"));
+                    theme.put("panelBg", rs.getString("panel_bg"));
+                    theme.put("eyebrow", rs.getString("eyebrow"));
+                    theme.put("ctaLabel", rs.getString("cta_label"));
+                    m.put("theme", theme);
+                }
+            }
             return m;
         } catch (SQLException e) {
             throw new ResponseStatusException(UNPROCESSABLE_ENTITY, "读取演示配置失败: " + e.getMessage());

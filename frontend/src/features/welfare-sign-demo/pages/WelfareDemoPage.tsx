@@ -3,7 +3,7 @@ import { http } from '@/lib/api'
 import { ChatRuntimeProvider, useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import { FloatingChatWindow } from '@/features/claude-chat/components/FloatingChatWindow'
 import { WelfareSignPage } from '@/features/welfare-sign/pages/WelfareSignPage'
-import type { WelfareConfig } from '@/features/welfare-sign/types'
+import type { WelfareConfig, WelfareTheme } from '@/features/welfare-sign/types'
 
 /** 拉不到副本配置时的兜底端午皮肤，保证页面不空白。 */
 const FALLBACK_CONFIG: WelfareConfig = {
@@ -44,14 +44,16 @@ function DemoStage() {
   const sessionId = chat?.sessionId ?? null
   const running = chat?.running ?? false
   const [config, setConfig] = useState<WelfareConfig>(FALLBACK_CONFIG)
+  const [theme, setTheme] = useState<WelfareTheme | undefined>(undefined)
   const [version, setVersion] = useState(0)
   const wasRunning = useRef(false)
 
   const refetch = useCallback(async () => {
     if (!sessionId) return
     try {
-      const c = await http<WelfareConfig>(`/claude-chat/demo/welfare-config/${sessionId}`)
+      const c = await http<WelfareConfig & { theme?: WelfareTheme }>(`/claude-chat/demo/welfare-config/${sessionId}`)
       setConfig(c)
+      setTheme(c.theme)
       setVersion((v) => v + 1)
     } catch {
       /* 无行/未就绪：保留当前配置，下轮再试 */
@@ -71,7 +73,7 @@ function DemoStage() {
 
   return (
     <div className="h-[100dvh] w-full overflow-hidden">
-      <WelfareSignPage key={version} fullscreen demoConfig={config} />
+      <WelfareSignPage key={version} fullscreen demoConfig={config} theme={theme} />
     </div>
   )
 }

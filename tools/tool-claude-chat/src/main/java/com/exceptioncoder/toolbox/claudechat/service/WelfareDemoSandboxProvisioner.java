@@ -149,8 +149,29 @@ public class WelfareDemoSandboxProvisioner {
             while (m.find()) {
                 copyTableData(conn, m.group(1));
             }
+            // 3) demo 专属主题表（前缀 welfare_sign_，在 SQL 白名单内，供 agent 改配色即时反映）。
+            seedThemeTable(conn);
         } catch (SQLException e) {
             throw new IllegalStateException("建 demo 库失败: " + e.getMessage(), e);
+        }
+    }
+
+    /** demo 库建并播种 welfare_sign_theme（id=1，默认端午绿）。agent 改这张表即改演示页配色。 */
+    private void seedThemeTable(Connection demo) throws SQLException {
+        try (Statement st = demo.createStatement()) {
+            st.execute("""
+                    CREATE TABLE IF NOT EXISTS welfare_sign_theme (
+                      id INTEGER PRIMARY KEY,
+                      accent TEXT, button_bg TEXT, button_hover TEXT, button_text TEXT,
+                      stage_bg TEXT, panel_bg TEXT, eyebrow TEXT, cta_label TEXT
+                    )
+                    """);
+            st.execute("""
+                    INSERT OR IGNORE INTO welfare_sign_theme
+                      (id, accent, button_bg, button_hover, button_text, stage_bg, panel_bg, eyebrow, cta_label)
+                    VALUES (1, '#6f9b54', '#5e8b46', '#79a861', '#0c160c', '#08130d', '#0e1a12',
+                            '端午安康 · Dragon Boat Festival', '领取端午福利')
+                    """);
         }
     }
 

@@ -1,5 +1,20 @@
 export type LoginMode = 'SMS' | 'PASSWORD'
 
+/**
+ * 页面主题（配色 + 关键文案）。仅演示沙箱用：注入后 WelfareSignPage 以 CSS 变量覆盖写死配色，
+ * 真实页不传则按默认端午绿。各字段对应组件里的 var(--wf-*) 兜底色。
+ */
+export interface WelfareTheme {
+  accent: string      // --wf-accent  强调/图标/eyebrow/分隔线
+  buttonBg: string    // --wf-btn     主按钮底
+  buttonHover: string // --wf-btn-hover
+  buttonText: string  // --wf-btn-text
+  stageBg: string     // --wf-stage   舞台/背景深底
+  panelBg: string     // --wf-panel   面板深底
+  eyebrow: string     // 顶部 eyebrow 文案
+  ctaLabel: string    // 「领取福利」按钮文案
+}
+
 export interface WelfareConfig {
   loginMode: LoginMode
   redirectUrl: string | null
