@@ -4,6 +4,8 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 /**
  * team-standards 插件「版本检测 + 一键更新」配置。命令固定可配,不接受用户自定义(无注入面)。
  */
@@ -33,4 +35,11 @@ public class PluginUpdateProperties {
 
     /** 单条命令超时(毫秒) */
     private long commandTimeoutMs = 180_000L;
+
+    /** 「团队套件」面板展示的插件（按此顺序），从 ~/.claude/plugins 读版本。 */
+    private List<String> watchedPlugins = List.of(
+            "project-coding-profiles", "team-standards", "yoooni-daily-plugin");
+
+    /** 「团队套件」面板展示的 MCP server（按此顺序），从 ~/.claude.json 的 mcpServers 判断是否已配置。 */
+    private List<String> watchedMcps = List.of("cross-topology", "domain-knowledge");
 }

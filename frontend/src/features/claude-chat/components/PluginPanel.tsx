@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { RefreshCw, Download, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { authEventSource } from '@/lib/api'
-import { getPluginStatus, listInstalledPlugins, PLUGIN_UPDATE_STREAM_PATH } from '../api'
-import type { EnginePluginStatus, PluginStatus, PluginVersion } from '../types'
+import { getPluginStatus, listSuites, PLUGIN_UPDATE_STREAM_PATH } from '../api'
+import type { EnginePluginStatus, PluginStatus, SuiteStatus } from '../types'
 
 /**
  * team-standards 插件面板:展示 Claude/Codex 两端版本 + 一键更新(SSE 实时回显)。
@@ -11,7 +11,7 @@ import type { EnginePluginStatus, PluginStatus, PluginVersion } from '../types'
  */
 export function PluginPanel({ onClose }: { onClose: () => void }) {
   const [status, setStatus] = useState<PluginStatus | null>(null)
-  const [installed, setInstalled] = useState<PluginVersion[] | null>(null)
+  const [suites, setSuites] = useState<SuiteStatus[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [updating, setUpdating] = useState(false)
   const [lines, setLines] = useState<string[]>([])
@@ -21,9 +21,9 @@ export function PluginPanel({ onClose }: { onClose: () => void }) {
   const refresh = async () => {
     setLoading(true)
     try {
-      const [s, list] = await Promise.all([getPluginStatus(), listInstalledPlugins()])
+      const [s, list] = await Promise.all([getPluginStatus(), listSuites()])
       setStatus(s)
-      setInstalled(list)
+      setSuites(list)
     } catch { /* 静默 */ } finally { setLoading(false) }
   }
 
@@ -80,28 +80,38 @@ export function PluginPanel({ onClose }: { onClose: () => void }) {
         <EngineCard name="Codex" s={status?.codex} />
       </div>
 
-      {/* 本机已安装插件（当前会话所用） */}
+      {/* 团队套件（当前会话所用）：3 插件 + 2 MCP */}
       <div className="mt-3">
-        <div className="mb-1 text-xs font-medium text-[var(--color-muted-foreground)]">本机已安装插件（当前会话所用）</div>
-        {installed == null ? (
+        <div className="mb-1 text-xs font-medium text-[var(--color-muted-foreground)]">团队套件（当前会话所用）</div>
+        {suites == null ? (
           <div className="text-xs text-[var(--color-muted-foreground)]">加载中…</div>
-        ) : installed.length === 0 ? (
-          <div className="text-xs text-[var(--color-muted-foreground)]">未检测到已安装插件（~/.claude/plugins）</div>
         ) : (
           <ul className="space-y-1">
-            {installed.map(p => {
-              const outdated = p.installed && p.available && p.installed !== p.available
+            {suites.map(p => {
+              const outdated = p.kind === 'plugin' && p.installed && p.available && p.installed !== p.available
               return (
-                <li key={`${p.name}@${p.marketplace}`} className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs">
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium">{p.name}</div>
-                    {p.marketplace && <div className="truncate text-[10px] text-[var(--color-muted-foreground)]">@{p.marketplace}</div>}
-                  </div>
-                  <div className="shrink-0 text-right text-[var(--color-muted-foreground)]">
-                    已装 <span className="text-[var(--color-foreground)]">{p.installed ?? '未知'}</span>
-                    {p.available && <> · 最新 {p.available}</>}
-                  </div>
-                  {outdated && <span className="shrink-0 rounded bg-amber-100 px-1 text-amber-700 dark:bg-amber-900 dark:text-amber-200">可更新</span>}
+                <li key={`${p.kind}:${p.name}`} className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs">
+                  <span className={`shrink-0 rounded px-1 text-[10px] ${p.kind === 'mcp'
+                    ? 'bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-200'
+                    : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'}`}>
+                    {p.kind === 'mcp' ? 'MCP' : '插件'}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate font-medium">{p.name}</span>
+                  {p.kind === 'plugin' ? (
+                    !p.present ? (
+                      <span className="shrink-0 text-[var(--color-destructive)]">未安装</span>
+                    ) : (
+                      <span className="shrink-0 text-right text-[var(--color-muted-foreground)]">
+                        已装 <span className="text-[var(--color-foreground)]">{p.installed ?? '未知'}</span>
+                        {p.available && <> · 最新 {p.available}</>}
+                        {outdated && <span className="ml-1 rounded bg-amber-100 px-1 text-amber-700 dark:bg-amber-900 dark:text-amber-200">可更新</span>}
+                      </span>
+                    )
+                  ) : (
+                    <span className={`shrink-0 ${p.present ? 'text-emerald-600 dark:text-emerald-400' : 'text-[var(--color-muted-foreground)]'}`}>
+                      {p.present ? '✔ 已配置' : '未配置'}
+                    </span>
+                  )}
                 </li>
               )
             })}
