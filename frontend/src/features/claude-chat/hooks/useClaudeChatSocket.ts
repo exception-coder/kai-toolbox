@@ -42,6 +42,7 @@ type Intent =
   | { kind: 'open'; cwd: string; model?: string; mode?: PermissionMode; engine?: Engine; apiBaseUrl?: string; authToken?: string }
   | { kind: 'switch'; sessionId: string }
   | { kind: 'resumeHistory'; sdkSessionId: string; cwd: string }
+  | { kind: 'resumeCurrent'; sessionId: string }
   | { kind: 'attach'; sessionId: string; lastEventSeq: number }
 
 export interface UseClaudeChatSocket {
@@ -85,6 +86,7 @@ export interface UseClaudeChatSocket {
   switchTo: (sessionId: string) => void
   /** 续跑磁盘上的历史会话 */
   resumeHistory: (sdkSessionId: string, cwd: string) => void
+  resumeCurrent: () => void
   /** 下发一条用户消息（可带附件） */
   send: (text: string, attachments?: Attachment[]) => void
   /** 回灌权限/提问决策 */
@@ -311,6 +313,7 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     if (intent.kind === 'open') sendRaw({ type: 'open', cwd: intent.cwd, model: intent.model, mode: intent.mode, engine: intent.engine, apiBaseUrl: intent.apiBaseUrl, authToken: intent.authToken })
     else if (intent.kind === 'switch') sendRaw({ type: 'switchSession', sessionId: intent.sessionId })
     else if (intent.kind === 'resumeHistory') sendRaw({ type: 'resumeHistory', sdkSessionId: intent.sdkSessionId, cwd: intent.cwd })
+    else if (intent.kind === 'resumeCurrent') sendRaw({ type: 'resumeCurrent', sessionId: intent.sessionId })
     else sendRaw({ type: 'attach', sessionId: intent.sessionId, lastEventSeq: intent.lastEventSeq })
   }, [sendRaw])
 
@@ -468,6 +471,22 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     if (!sendRaw({ type: 'resumeHistory', sdkSessionId, cwd })) connect()
   }, [sendRaw, connect])
 
+  const resumeCurrent = useCallback(() => {
+    const sid = sessionIdRef.current
+    if (!sid) return
+    setPending(null)
+    setRunning(false)
+    setErrorMessage(null)
+    setItems(prev => {
+      const last = prev[prev.length - 1]
+      return last?.kind === 'error' ? prev.slice(0, -1) : prev
+    })
+    if (!sendRaw({ type: 'resumeCurrent', sessionId: sid })) {
+      intentRef.current = { kind: 'resumeCurrent', sessionId: sid }
+      connect()
+    }
+  }, [sendRaw, connect])
+
   const send = useCallback((text: string, attachments?: SendAttachment[]) => {
     const t = text.trim()
     const hasAtt = !!attachments && attachments.length > 0
@@ -564,5 +583,5 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     loadHistoryRef.current = loadHistory
   }, [loadHistory])
 
-  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, models, currentModel, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, open, switchTo, resumeHistory, send, decide, interrupt, setMode, setModel, switchEngine, forkSession, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, models, currentModel, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, open, switchTo, resumeHistory, resumeCurrent, send, decide, interrupt, setMode, setModel, switchEngine, forkSession, historyLoading, historyExhausted, loadHistory }
 }

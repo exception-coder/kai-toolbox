@@ -206,6 +206,61 @@ public class ClaudeChatService {
         log.info("[claude-chat] resumeHistory 会话 {} sdk={} cwd={}", id, msg.sdkSessionId(), cwd);
     }
 
+    public void resumeCurrent(WebSocketSession ws, ClientMessage.ResumeCurrent msg) {
+        SessionCtx ctx = ctxOf(ws);
+        if (ctx == null && msg.sessionId() != null && !msg.sessionId().isBlank()) {
+            String sessionId = msg.sessionId().trim();
+            ctx = sessions.get(sessionId);
+            if (ctx == null) {
+                ClaudeChatSession db = repo.findById(sessionId).orElse(null);
+                if (db != null) {
+                    SessionCtx restored = new SessionCtx(db.getId(), db.getCwd());
+                    restored.sdkSessionId = db.getSdkSessionId();
+                    restored.engine = normalizeEngine(db.getEngine());
+                    restored.apiBaseUrl = db.getApiBaseUrl();
+                    restored.authToken = db.getAuthToken();
+                    loadEngineSessions(restored, db.getEngineSessions());
+                    sessions.put(restored.sessionId, restored);
+                    ctx = restored;
+                }
+            }
+            if (ctx != null) bindViewer(ws, ctx);
+        }
+        if (ctx == null) {
+            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            return;
+        }
+        if (!ensureSidecar(ws)) return;
+
+        ClaudeChatSession db = repo.findById(ctx.sessionId).orElse(null);
+        if (db != null) {
+            if (ctx.sdkSessionId == null || ctx.sdkSessionId.isBlank()) {
+                ctx.sdkSessionId = db.getSdkSessionId();
+            }
+            if (ctx.engineSessions.isEmpty()) {
+                loadEngineSessions(ctx, db.getEngineSessions());
+            }
+        }
+        String sdkSessionId = blankToNull(ctx.engineSessions.get(ctx.engine));
+        if (sdkSessionId == null) sdkSessionId = blankToNull(ctx.sdkSessionId);
+        if (sdkSessionId == null) {
+            sendToBrowser(ctx, seq -> new ServerMessage.Error(
+                    seq, "SESSION_NOT_RESUMABLE", "当前 agent 还没有可 resume 的原生会话"));
+            return;
+        }
+
+        ctx.sdkSessionId = sdkSessionId;
+        ctx.status = SessionStatus.IDLE;
+        ctx.pendingRequest = null;
+        repo.updateSdkSessionId(ctx.sessionId, sdkSessionId);
+        repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
+        sidecar.resumeSession(ctx.sessionId, sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken);
+        final SessionCtx readyCtx = ctx; // ctx 在本方法上方被重新赋值（attach 恢复），lambda 捕获需 effectively final
+        sendToBrowser(ctx, seq -> ready(readyCtx, seq));
+        pushGatewayModels(ctx);
+        log.info("[claude-chat] resumeCurrent session={} engine={} sdk={}", ctx.sessionId, ctx.engine, sdkSessionId);
+    }
+
     public void sendUserMessage(WebSocketSession ws, ClientMessage.Send msg) {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {

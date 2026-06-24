@@ -45,12 +45,16 @@ export interface WorkspaceList {
   scannedAt: string
 }
 
-/** 项目内按构建标志文件识别出的一个可工作模块。 */
+/** 项目内识别出的一个可工作模块。children 为知识库声明的嵌套子模块。 */
 export interface ProjectModule {
   name: string
   relPath: string
   absPath: string
   type: string
+  /** 业务说明（来自知识库；自动识别的模块为空） */
+  summary?: string
+  /** 嵌套子模块（如 crm 域下的子模块）；无则空数组或缺省 */
+  children?: ProjectModule[]
 }
 
 /** 项目模块扫描结果，用于项目工作台按模块打开 Vibe Coding 会话。 */
@@ -141,6 +145,7 @@ export type ClientMessage =
   | { type: 'attach'; sessionId: string; lastEventSeq: number }
   | { type: 'switchSession'; sessionId: string }
   | { type: 'resumeHistory'; sdkSessionId: string; cwd: string }
+  | { type: 'resumeCurrent'; sessionId?: string }
   | { type: 'send'; text: string; attachments?: Attachment[] }
   | {
       type: 'decision'

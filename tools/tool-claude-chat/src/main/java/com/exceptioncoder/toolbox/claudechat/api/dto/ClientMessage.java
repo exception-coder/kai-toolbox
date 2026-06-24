@@ -13,6 +13,7 @@ import java.util.Map;
         @JsonSubTypes.Type(value = ClientMessage.Attach.class,        name = "attach"),
         @JsonSubTypes.Type(value = ClientMessage.SwitchSession.class, name = "switchSession"),
         @JsonSubTypes.Type(value = ClientMessage.ResumeHistory.class, name = "resumeHistory"),
+        @JsonSubTypes.Type(value = ClientMessage.ResumeCurrent.class, name = "resumeCurrent"),
         @JsonSubTypes.Type(value = ClientMessage.Send.class,          name = "send"),
         @JsonSubTypes.Type(value = ClientMessage.Decision.class,      name = "decision"),
         @JsonSubTypes.Type(value = ClientMessage.Interrupt.class,     name = "interrupt"),
@@ -23,7 +24,7 @@ import java.util.Map;
 })
 public sealed interface ClientMessage
         permits ClientMessage.Open, ClientMessage.Attach, ClientMessage.SwitchSession,
-                ClientMessage.ResumeHistory, ClientMessage.Send, ClientMessage.Decision,
+                ClientMessage.ResumeHistory, ClientMessage.ResumeCurrent, ClientMessage.Send, ClientMessage.Decision,
                 ClientMessage.Interrupt, ClientMessage.SetMode, ClientMessage.SetModel,
                 ClientMessage.SwitchEngine, ClientMessage.ForkSession {
 
@@ -41,6 +42,8 @@ public sealed interface ClientMessage
 
     /** 续跑磁盘上的某历史会话：为该 sdkSessionId 建元数据行后 resume */
     record ResumeHistory(String sdkSessionId, String cwd) implements ClientMessage {}
+
+    record ResumeCurrent(String sessionId) implements ClientMessage {}
 
     /** 下发一条用户消息。attachments 可空（旧客户端不带时按纯文本处理）。 */
     record Send(String text, List<Attachment> attachments) implements ClientMessage {
