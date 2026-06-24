@@ -1,0 +1,61 @@
+.welfare-luxury-stage {
+  animation: welfare-stage-in 900ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.welfare-luxury-copy {
+  animation: welfare-copy-in 1100ms cubic-bezier(0.16, 1, 0.3, 1) 180ms both;
+}
+
+.welfare-luxury-panel {
+  animation: welfare-panel-in 950ms cubic-bezier(0.16, 1, 0.3, 1) 420ms both;
+}
+
+.welfare-luxury-glow {
+  animation: welfare-glow 5200ms ease-in-out infinite alternate;
+}
+
+@keyframes welfare-stage-in {
+  from {
+    opacity: 0;
+    transform: scale(1.018);
+    filter: blur(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes welfare-copy-in {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes welfare-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(22px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes welfare-glow {
+  from {
+    opacity: 0.22;
+    transform: translate3d(-2%, 1%, 0) scale(1);
+  }
+  to {
+    opacity: 0.36;
+    transform: translate3d(2%, -1%, 0) scale(1.04);
+  }
+}

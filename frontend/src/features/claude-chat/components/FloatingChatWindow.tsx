@@ -22,6 +22,7 @@ const MIN_W = 280
 const MIN_H = 320
 const BUBBLE = 48
 const AUTO_APPROVE_KEY = 'kai-toolbox:auto-approve-permission'
+const GIFT_CONCIERGE_IMAGE = '/assets/welfare-sign/gift-concierge.png'
 type FloatAttachment = UploadedAttachment & { previewUrl?: string }
 
 /** 权限模式循环顺序与中文标签（紧凑切换用，复刻 Shift+Tab 体验）。 */
@@ -104,6 +105,7 @@ export function FloatingChatWindow() {
   // 展示页脱离 AppShell（无 Sidebar/TopBar），把「返回工作台 + 主题」收进本窗口 header，
   // 这样展示页不必再悬浮一组独立控件（ShowcaseLayout 的 dock 在本窗可见时隐藏）。
   const onShowcase = isShowcasePath(location.pathname)
+  const giftMode = location.pathname.startsWith('/tools/welfare-sign')
 
   const toggleAutoApprove = () => setAutoApprove(v => {
     const nv = !v
@@ -245,6 +247,34 @@ export function FloatingChatWindow() {
 
   // 最小化：缩成「状态板」——不显示聊天内容，只显示进度（思考中/执行中/待确认/空闲）+ 会话别名。
   // 仍可拖动 / 点击展开；有未决决策仍渲染弹框。
+  if (minimized && giftMode) {
+    return (
+      <>
+        <button
+          type="button"
+          onPointerDown={onBubbleDown}
+          onPointerMove={onBubbleMove}
+          onPointerUp={onBubbleUp}
+          aria-label={`礼赠助手 ${status}，点击展开`}
+          title={`礼赠助手 · ${status}`}
+          className="fixed z-50 cursor-move touch-none rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
+          style={{ left: pos.x, top: pos.y }}
+        >
+          <img
+            src={GIFT_CONCIERGE_IMAGE}
+            alt="礼赠助手"
+            draggable={false}
+            className={`size-16 select-none object-contain drop-shadow-[0_10px_22px_rgba(214,181,109,0.5)] ${active ? 'animate-pulse' : ''}`}
+          />
+          {pending && (
+            <span className="absolute right-1 top-1 size-2.5 rounded-full bg-[#d6b56d] ring-2 ring-[#0b0a08]" aria-hidden />
+          )}
+        </button>
+        {dialogs}
+      </>
+    )
+  }
+
   if (minimized) {
     return (
       <>
@@ -278,21 +308,36 @@ export function FloatingChatWindow() {
   }
 
   const autoHeight = compact && !showSessions // 迷你态：高度随内容自适应（不铺消息流）
+  const hoverClass = giftMode ? 'hover:bg-white/10' : 'hover:bg-[var(--color-background)]'
   return (
     <div
-      className="fixed z-50 flex flex-col overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-[0_8px_30px_-6px_rgba(0,0,0,0.18)]"
+      className={giftMode
+        ? 'fixed z-50 flex flex-col overflow-hidden rounded-[1.5rem] border border-[#c9a968]/28 bg-[#0b0a08]/94 text-white shadow-[0_24px_80px_-28px_rgba(214,181,109,0.85)] backdrop-blur-2xl'
+        : 'fixed z-50 flex flex-col overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-[0_8px_30px_-6px_rgba(0,0,0,0.18)]'}
       style={{ left: pos.x, top: pos.y, width: size.w, height: autoHeight ? undefined : size.h, maxHeight: autoHeight ? '70vh' : undefined }}
     >
       {/* 顶部品牌色细线：标识「这是 AI 助手」，而非整窗染色（方案3：同色系分层 + 品牌色点缀） */}
-      <div className="h-[3px] w-full shrink-0 bg-[var(--color-primary)]" />
+      <div className={`h-[3px] w-full shrink-0 ${giftMode ? 'bg-[#c9a968]' : 'bg-[var(--color-primary)]'}`} />
       {/* 标题栏 = 拖拽手柄。迷你态：状态 + 关键控制（仿音乐小卡片，只一行）；完整态：别名/引擎/全部按钮。 */}
       <header
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        className="flex cursor-move touch-none items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-muted)] px-3 py-2 select-none"
+        className={`flex cursor-move touch-none items-center gap-2 border-b px-3 py-2 select-none ${giftMode ? 'border-[#c9a968]/16 bg-[#11100d]/95' : 'border-[var(--color-border)] bg-[var(--color-muted)]'}`}
       >
-        {compact ? (
+        {giftMode ? (
+          <>
+            <span className="flex size-10 shrink-0 items-end justify-center overflow-hidden rounded-full border border-[#c9a968]/35 bg-[#18130c]">
+              <img src={GIFT_CONCIERGE_IMAGE} alt="" className="h-13 w-13 translate-y-2 object-contain" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium text-[#f7ead0]" title={headerTitle}>礼赠助手</span>
+              <span className={`block truncate text-[11px] ${pending ? 'font-medium text-[#d6b56d]' : 'text-white/45'}`}>
+                {status === '空闲' ? '我在这里陪你完成签收' : status}
+              </span>
+            </span>
+          </>
+        ) : compact ? (
           <>
             {active
               ? <Loader2 className="size-4 shrink-0 animate-spin text-[var(--color-primary)]" />
@@ -315,7 +360,7 @@ export function FloatingChatWindow() {
           {onShowcase && (
             <>
               <button type="button" onClick={() => navigate('/')} aria-label="返回工作台" title="返回工作台"
-                className="rounded p-1 hover:bg-[var(--color-background)]">
+                className={`rounded p-1 ${hoverClass}`}>
                 <LayoutGrid className="size-4" />
               </button>
               <ThemeMenu dense />
@@ -325,11 +370,11 @@ export function FloatingChatWindow() {
           {!compact && (
             <>
               <button type="button" onClick={() => { chat.open(''); setShowSessions(false) }} aria-label="新建会话" title="新建会话（home 目录）"
-                className="rounded p-1 hover:bg-[var(--color-background)]">
+                className={`rounded p-1 ${hoverClass}`}>
                 <Plus className="size-4" />
               </button>
               <button type="button" onClick={() => setShowSessions(s => !s)} aria-label="会话列表" title="切换会话"
-                className={`rounded p-1 hover:bg-[var(--color-background)] ${showSessions ? 'bg-[var(--color-background)]' : ''}`}>
+                className={`rounded p-1 ${hoverClass} ${showSessions ? (giftMode ? 'bg-white/10' : 'bg-[var(--color-background)]') : ''}`}>
                 <List className="size-4" />
               </button>
             </>
@@ -337,24 +382,24 @@ export function FloatingChatWindow() {
           {!showSessions && (
             <button type="button" onClick={() => setCompact(c => !c)}
               aria-label={compact ? '展开完整对话' : '收起为迷你'} title={compact ? '展开看完整对话' : '收起为迷你（只看状态）'}
-              className="rounded p-1 hover:bg-[var(--color-background)]">
+              className={`rounded p-1 ${hoverClass}`}>
               {compact ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
             </button>
           )}
           <button type="button" onClick={() => setVoiceMode(true)} aria-label="语音模式" title="白云·纯语音对话"
-            className="rounded p-1 hover:bg-[var(--color-background)]">
+            className={`rounded p-1 ${hoverClass}`}>
             <Cloud className="size-4" />
           </button>
           <button type="button" onClick={() => navigate(CHAT_ROUTE)} aria-label="展开为全屏" title="展开为全屏"
-            className="rounded p-1 hover:bg-[var(--color-background)]">
+            className={`rounded p-1 ${hoverClass}`}>
             <Maximize2 className="size-4" />
           </button>
           <button type="button" onClick={() => setMinimized(true)} aria-label="最小化" title="最小化"
-            className="rounded p-1 hover:bg-[var(--color-background)]">
+            className={`rounded p-1 ${hoverClass}`}>
             <Minus className="size-4" />
           </button>
           <button type="button" onClick={() => setFloating(false)} aria-label="关闭悬浮窗" title="关闭"
-            className="rounded p-1 hover:bg-[var(--color-background)]">
+            className={`rounded p-1 ${hoverClass}`}>
             <X className="size-4" />
           </button>
         </div>
@@ -397,12 +442,12 @@ export function FloatingChatWindow() {
           />
         </div>
       ) : (
-        <MessageList items={chat.items} running={chat.running} onFork={chat.forkSession} engineLabel={engineLabel} />
+        <MessageList items={chat.items} running={chat.running} onFork={chat.forkSession} engineLabel={engineLabel} onResumeCurrent={chat.resumeCurrent} />
       ))}
 
       {/* 迷你态输入：只一个语音按钮，识别后直接发送（不显示输入框/发送按钮，最简） */}
       {!showSessions && compact && (
-        <div className="border-t border-[var(--color-border)] bg-[var(--color-muted)] p-2.5">
+        <div className={`border-t p-2.5 ${giftMode ? 'border-[#c9a968]/14 bg-[#11100d]/95' : 'border-[var(--color-border)] bg-[var(--color-muted)]'}`}>
           {chat.running ? (
             <div className="flex items-center justify-center gap-3 text-xs text-[var(--color-muted-foreground)]">
               <Loader2 className="size-4 animate-spin" /> 处理中…
@@ -417,7 +462,7 @@ export function FloatingChatWindow() {
 
       {/* 完整态输入区（会话列表展开时隐藏） */}
       {!showSessions && !compact && (
-      <div className="border-t border-[var(--color-border)] bg-[var(--color-muted)]">
+      <div className={`border-t ${giftMode ? 'border-[#c9a968]/14 bg-[#11100d]/95' : 'border-[var(--color-border)] bg-[var(--color-muted)]'}`}>
         {(attachments.length > 0 || uploading > 0) && (
           <AttachmentChips
             items={attachments}
@@ -443,7 +488,7 @@ export function FloatingChatWindow() {
             disabled={chat.running || attachments.length + uploading >= MAX_ATTACHMENTS}
             aria-label="上传附件"
             title={attachments.length + uploading >= MAX_ATTACHMENTS ? `最多 ${MAX_ATTACHMENTS} 个附件` : '上传附件（也可直接粘贴图片）'}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border text-[var(--color-muted-foreground)] hover:bg-[var(--color-background)] disabled:opacity-50"
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border disabled:opacity-50 ${giftMode ? 'border-white/12 text-white/55 hover:bg-white/10' : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-background)]'}`}
           >
             <Paperclip className="size-4" />
           </button>
@@ -453,7 +498,7 @@ export function FloatingChatWindow() {
           />
           <textarea
             ref={taRef}
-            className="max-h-24 min-h-[2.25rem] flex-1 resize-none overflow-y-auto rounded-lg border bg-[var(--color-background)] px-2 py-1.5 text-sm"
+            className={`max-h-24 min-h-[2.25rem] flex-1 resize-none overflow-y-auto rounded-lg border px-2 py-1.5 text-sm ${giftMode ? 'border-white/12 bg-white/8 text-white placeholder:text-white/28' : 'bg-[var(--color-background)]'}`}
             placeholder="发消息 / 粘贴图片…（Shift+Enter 换行）"
             rows={1}
             value={draft}
@@ -466,7 +511,7 @@ export function FloatingChatWindow() {
               className="rounded-lg border px-3 py-2 text-sm">中断</button>
           ) : (
             <button type="button" onClick={submit} disabled={!draft.trim() && attachments.length === 0} aria-label="发送"
-              className="rounded-lg bg-[var(--color-primary)] px-3 py-2 text-[var(--color-primary-foreground)] disabled:opacity-50">
+              className={`rounded-lg px-3 py-2 disabled:opacity-50 ${giftMode ? 'bg-[#d6b56d] text-[#16130d] hover:bg-[#e4c57e]' : 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'}`}>
               <Send className="size-4" />
             </button>
           )}

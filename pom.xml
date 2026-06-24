@@ -48,6 +48,7 @@
         <module>tools/tool-ai-chat</module>
         <module>tools/tool-visitor-analysis</module>
         <module>tools/tool-wechat</module>
+        <module>tools/tool-welfare-sign</module>
         <module>toolbox-starter</module>
     </modules>
 
@@ -236,6 +237,11 @@
             <dependency>
                 <groupId>com.exceptioncoder</groupId>
                 <artifactId>tool-wechat</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-welfare-sign</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

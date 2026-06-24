@@ -136,6 +136,10 @@
             <groupId>com.exceptioncoder</groupId>
             <artifactId>tool-wechat</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.exceptioncoder</groupId>
+            <artifactId>tool-welfare-sign</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import {
   ArrowLeft, BotMessageSquare, Layers, Radio, ShieldCheck, LifeBuoy, Boxes, Network,
   Cpu, Database, Server, Repeat, Workflow, Plug, SplitSquareHorizontal, KeyRound, Gauge, Code2,
+  FolderTree, FileJson, ScanSearch, BookOpen, FolderGit2,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -265,6 +266,24 @@ const decisions: Decision[] = [
   },
 ]
 
+const moduleResolution: Decision[] = [
+  {
+    topic: '项目工作台「模块」从哪来',
+    chosen: { name: '项目自声明 .kai-modules.json（后端通用读取）', reason: '入口在项目侧：放一个 json 即可声明模块树，平台后端零改动、零项目私货；非标准工程（如老式 Java Web）也通吃' },
+    fallback: { name: '按构建标志文件自动识别', reason: '无 .kai-modules.json 时回退：pom.xml / build.gradle / package.json / go.mod… 命中即为模块；标准工程开箱即用' },
+    rejected: [
+      { name: '把项目结构硬编码进后端', reason: '每来一个非标准工程就要改 Java + 重编译 + 重启；平台被具体项目私货污染' },
+    ],
+  },
+  {
+    topic: '模块树的业务语义来源',
+    chosen: { name: '知识库（domain-knowledge）当权威源 → 生成 .kai-modules.json', reason: '知识库按 项目→模块→知识点 维护业务树（销售 / 成本 / 库存…），比扫文件系统干净、带业务含义；生成器补上代码路径后落盘' },
+    rejected: [
+      { name: '后端直连知识库 MCP', reason: '知识库是 stdio MCP + 人工部分视图 + 不存代码路径；后端实时消费三重耦合，且建会话仍缺 cwd' },
+    ],
+  },
+]
+
 const guards: { tag: string; risk: string; guard: string }[] = [
   { tag: '①', risk: '锁屏 / 弱网，浏览器 WS 断', guard: 'AI 仍在服务端跑；重连 attach{seq} → 按 seq 回放缓冲 + 客户端去重' },
   { tag: '②', risk: 'sidecar 进程崩 / 被杀', guard: 'CAS 去重的后台自动重连 + 用 sdkSessionId resume 续接，惰性恢复兜底' },
@@ -408,6 +427,33 @@ export function VibeCodingArch() {
             </div>
           </CardContent>
         </Card>
+      </Section>
+
+      {/* 项目工作台：从项目到模块到会话 */}
+      <Section icon={FolderTree} title="项目工作台（选模块进场建会话）" subtitle="对话之前先定位「在哪个模块里干活」——扫项目 → 识别模块 → 选模块当 cwd → 开 Vibe Coding 会话">
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <VFlow
+              steps={[
+                { icon: FolderGit2, title: '扫配置根下的项目', desc: 'workspace.roots 一级子目录；安全边界限制不越界扫盘', tone: 'primary' },
+                { icon: ScanSearch, title: '识别项目内的模块', desc: '优先读项目自声明，否则按构建标志文件自动识别' },
+                { icon: BotMessageSquare, title: '选中模块 → 以其目录为 cwd 开会话', desc: '模块绝对路径即 Agent 工作目录；已有会话则直接接回', tone: 'accent' },
+              ]}
+            />
+            <div className="grid gap-2 sm:grid-cols-3">
+              <InfoCard icon={FileJson} title=".kai-modules.json（自声明）" detail="项目根放一份模块树；后端通用解析，路径越界校验" />
+              <InfoCard icon={ScanSearch} title="构建文件自动识别（回退）" detail="pom.xml / gradle / package.json / go.mod / Cargo.toml…" />
+              <InfoCard icon={BookOpen} title="知识库生成模块树" detail="domain-knowledge 当权威源，生成器补代码路径后落盘" />
+            </div>
+            <p className="text-xs text-[var(--color-muted-foreground)]">
+              入口刻意放在<b className="text-[var(--color-foreground)]">项目侧</b>：标准工程靠构建文件开箱即用；非标准工程（如老式 Java Web）放一份 <code>.kai-modules.json</code> 即可，
+              <b className="text-[var(--color-foreground)]">平台后端零改动、不被任何具体项目私货污染</b>。
+            </p>
+          </CardContent>
+        </Card>
+        <div className="grid items-start gap-4 lg:grid-cols-2">
+          {moduleResolution.map(d => <DecisionCard key={d.topic} d={d} />)}
+        </div>
       </Section>
 
       {/* 流式 + 权限交互 */}

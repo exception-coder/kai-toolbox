@@ -12,6 +12,7 @@ export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const location = useLocation()
   const { brand } = useBrand()
+  const shellless = location.pathname === '/tools/welfare-sign/fullscreen'
 
   // 路由切换时关闭移动端抽屉
   useEffect(() => { setMobileOpen(false) }, [location.pathname])
@@ -43,6 +44,12 @@ export function AppShell() {
       className="flex w-screen overflow-hidden bg-[var(--color-background)] text-[var(--color-foreground)]"
       style={{ height: 'var(--app-vh, 100vh)' }}
     >
+      {shellless ? (
+        <main className="min-w-0 flex-1 overflow-y-auto">
+          <Outlet />
+        </main>
+      ) : (
+      <>
       {/* 桌面：常驻侧栏（md 及以上） */}
       <div className="hidden md:flex">
         <Sidebar features={features} collapsed={collapsed} />
@@ -68,6 +75,8 @@ export function AppShell() {
         </main>
       </div>
       <PwaInstallPrompt />
+      </>
+      )}
     </div>
   )
 }
