@@ -11,6 +11,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -74,6 +75,40 @@ public class WelfareDemoSqlService {
             return out;
         } catch (SQLException e) {
             throw new ResponseStatusException(UNPROCESSABLE_ENTITY, "SQL 执行失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 读本会话 demo 库的 welfare_sign_config（id=1），映射为前端 WelfareConfig 形状（camelCase）。
+     * 供演示页渲染与 agent 改配置后即时刷新。无库/无行抛 404，前端回退默认皮肤。
+     */
+    public Map<String, Object> readWelfareConfig(String sessionId) {
+        Path db = provisioner.demoDbFor(sessionId);
+        if (db == null) {
+            throw new ResponseStatusException(NOT_FOUND, "演示会话不存在或已结束");
+        }
+        try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + db);
+             Statement st = conn.createStatement();
+             ResultSet rs = st.executeQuery("SELECT * FROM welfare_sign_config WHERE id = 1")) {
+            if (!rs.next()) {
+                throw new ResponseStatusException(NOT_FOUND, "演示配置不存在");
+            }
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("loginMode", rs.getString("login_mode"));
+            m.put("redirectUrl", rs.getString("redirect_url"));
+            m.put("loginImageUrl", rs.getString("login_image_url"));
+            m.put("detailImageUrl", rs.getString("detail_image_url"));
+            m.put("detailTitle", rs.getString("detail_title"));
+            m.put("detailContent", rs.getString("detail_content"));
+            m.put("popupEnabled", rs.getInt("popup_enabled") != 0);
+            m.put("popupTitle", rs.getString("popup_title"));
+            m.put("popupContent", rs.getString("popup_content"));
+            m.put("signatureNotice", rs.getString("signature_notice"));
+            m.put("extraFieldsJson", rs.getString("extra_fields_json"));
+            m.put("updatedAt", rs.getLong("updated_at"));
+            return m;
+        } catch (SQLException e) {
+            throw new ResponseStatusException(UNPROCESSABLE_ENTITY, "读取演示配置失败: " + e.getMessage());
         }
     }
 

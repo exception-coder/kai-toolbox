@@ -67,14 +67,15 @@ const EMPTY_EMPLOYEE: EmployeePayload = {
   enabled: true,
 }
 
-export function WelfareSignPage({ fullscreen = false }: { fullscreen?: boolean }) {
+export function WelfareSignPage({ fullscreen = false, demoConfig }: { fullscreen?: boolean; demoConfig?: WelfareConfig }) {
   const qc = useQueryClient()
   const [mode, setMode] = useState<'sign' | 'admin'>('sign')
   const [error, setError] = useState<string | null>(null)
-  const configQuery = useQuery({ queryKey: ['welfare-sign-config'], queryFn: getConfig })
-  const employeesQuery = useQuery({ queryKey: ['welfare-sign-employees'], queryFn: listEmployees })
-  const recordsQuery = useQuery({ queryKey: ['welfare-sign-records'], queryFn: listRecords })
-  const config = configQuery.data ?? MOCK_CONFIG
+  // 演示模式（传入 demoConfig）：直接用副本库配置渲染，禁掉对真实后端的查询，纯本地 + mock 登录跑通。
+  const configQuery = useQuery({ queryKey: ['welfare-sign-config'], queryFn: getConfig, enabled: !demoConfig })
+  const employeesQuery = useQuery({ queryKey: ['welfare-sign-employees'], queryFn: listEmployees, enabled: !demoConfig })
+  const recordsQuery = useQuery({ queryKey: ['welfare-sign-records'], queryFn: listRecords, enabled: !demoConfig })
+  const config = demoConfig ?? configQuery.data ?? MOCK_CONFIG
 
   const showError = (e: unknown) => setError(e instanceof ApiError ? e.message : String(e))
 

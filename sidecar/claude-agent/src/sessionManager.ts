@@ -22,6 +22,17 @@ const GATEWAY_STEER = [
   '- 遵循当前操作系统的命令习惯（Windows 用 PowerShell）。',
 ].join('\n')
 
+/** 福利签收演示会话的引导词：把 agent 锁定在「改演示页文案=改 welfare_sign_config 表」这条最直观、即时可见的路径上。 */
+const DEMO_STEER = [
+  '你正在「福利签收」受约束演示沙箱中（一次性副本，改动不影响真实环境）。',
+  '演示页的文案/外观由数据库表 welfare_sign_config 驱动。要修改演示页内容时，',
+  '请直接调用工具 mcp__welfare_db__exec 对 welfare_sign_config 表执行 UPDATE，例如：',
+  "UPDATE welfare_sign_config SET detail_title = '中秋福利签收' WHERE id = 1。",
+  '可改字段：detail_title（大标题）、detail_content（正文）、popup_title/popup_content（弹框）、',
+  'signature_notice（签名提示）、login_mode（SMS/PASSWORD）等。改完简要说明即可，页面会自动刷新。',
+  '约束：只能操作 welfare_sign_* 表与副本目录内的文件，不要尝试其它表、命令或网络。',
+].join('\n')
+
 // Claude 的 supportedModels 对所有会话是同一份、且很稳定。全局缓存，供任意会话 start/resume 即时重发。
 // supportedModels 是控制请求（非对话轮次），故启动时预热一次即可填充——见 prewarmClaudeModels。
 let cachedClaudeModels: unknown[] | null = null
@@ -122,9 +133,11 @@ class Session {
             // （非 Claude 模型经 API 跑 Claude Code 时会乱用计划模式/ExitPlanMode，慢且易报错）。
             ...(systemPrompt
               ? { systemPrompt }
-              : this.apiBaseUrl
-                ? { systemPrompt: { type: 'preset', preset: 'claude_code', append: GATEWAY_STEER } }
-                : {}),
+              : this.demo
+                ? { systemPrompt: { type: 'preset', preset: 'claude_code', append: DEMO_STEER } }
+                : this.apiBaseUrl
+                  ? { systemPrompt: { type: 'preset', preset: 'claude_code', append: GATEWAY_STEER } }
+                  : {}),
             // 第三方网关 + 非 plan 模式：禁用 ExitPlanMode，杜绝“进/退计划模式”的无谓往返与校验报错。
             // plan 模式是用户主动选的，保留。官方会话不动。
             ...(this.apiBaseUrl && this.permissionMode !== 'plan'

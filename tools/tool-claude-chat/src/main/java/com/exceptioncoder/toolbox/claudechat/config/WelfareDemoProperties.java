@@ -18,11 +18,12 @@ import java.util.List;
 public class WelfareDemoProperties {
 
     /**
-     * 是否开启「受约束 vibecoding」演示后端（demo WS + 副本沙箱）。默认关。
-     * 注意：免登录的福利签收演示页（/showcase/welfare-sign-demo）复用真实页面，**不依赖本开关**；
-     * 本开关只控制那套独立的 vibecoding 沙箱通道，按需才开。
+     * 是否开启免登录的受约束 vibecoding 演示后端（demo WS + 副本沙箱 + welfare_db 工具）。默认开。
+     * 演示页 /showcase/welfare-sign-demo 的悬浮对话框依赖它：访客经此让 agent 改 demo 库的
+     * welfare_sign_config，演示页即时反映。约束由副本沙箱 + canUseTool + 表白名单硬保证。
+     * 临时关闭设环境变量 TOOLBOX_WELFARE_DEMO_ENABLED=false。
      */
-    private boolean enabled = false;
+    private boolean enabled = true;
 
     /** 克隆来源（相对仓库根，只读复制）。welfare-sign 模块涉及的源码两处。 */
     private List<String> sourcePaths = List.of(
