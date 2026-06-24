@@ -27,12 +27,12 @@ const MOCK_CONFIG: WelfareConfig = {
   redirectUrl: null,
   loginImageUrl: null,
   detailImageUrl: null,
-  detailTitle: '\u4e2d\u79cb\u81f4\u793c',
-  detailContent: '\u6708\u8272\u5c06\u81f3\uff0c\u4e00\u4efd\u6765\u81ea\u516c\u53f8\u7684\u5fc3\u610f\u5df2\u7ecf\u4e3a\u4f60\u5907\u597d\u3002\u8bf7\u786e\u8ba4\u6536\u53d6\uff0c\u5e76\u7559\u4e0b\u4f60\u7684\u7b7e\u540d\u3002',
+  detailTitle: '\u7aef\u5348\u5b89\u5eb7',
+  detailContent: '\u7cbd\u53f6\u98d8\u9999\uff0c\u7aef\u5348\u5c06\u81f3\uff0c\u4e00\u4efd\u6765\u81ea\u516c\u53f8\u7684\u5fc3\u610f\u5df2\u4e3a\u4f60\u5907\u597d\u3002\u8bf7\u786e\u8ba4\u6536\u53d6\uff0c\u5e76\u7559\u4e0b\u4f60\u7684\u7b7e\u540d\u3002',
   popupEnabled: true,
-  popupTitle: '\u4e00\u4efd\u90d1\u91cd\u7684\u5fc3\u610f',
+  popupTitle: '\u4e00\u4efd\u7aef\u5348\u7684\u5fc3\u610f',
   popupContent: '\u8bf7\u5728\u786e\u8ba4\u798f\u5229\u54c1\u4fe1\u606f\u540e\u5b8c\u6210\u7b7e\u540d\u3002\u7b7e\u6536\u8bb0\u5f55\u4ec5\u7528\u4e8e\u8d22\u52a1\u6838\u5bf9\u4e0e\u5408\u89c4\u7559\u5b58\u3002',
-  signatureNotice: '\u672c\u4eba\u786e\u8ba4\u5df2\u6536\u5230\u672c\u6b21\u8282\u5047\u65e5\u798f\u5229\u54c1\u3002',
+  signatureNotice: '\u672c\u4eba\u786e\u8ba4\u5df2\u6536\u5230\u672c\u6b21\u7aef\u5348\u8282\u798f\u5229\u54c1\u3002',
   extraFieldsJson: '[{"key":"address","label":"\\u6536\\u53d6\\u5730\\u70b9","required":false}]',
   updatedAt: Date.now(),
 }
@@ -142,8 +142,8 @@ function SignDesk({ fullscreen, config, onError, onDone }: { fullscreen: boolean
   const [popupOpen, setPopupOpen] = useState(false)
   const fields = useMemo(() => parseFields(activeConfig?.extraFieldsJson), [activeConfig?.extraFieldsJson])
   const visual = activeConfig?.detailImageUrl || activeConfig?.loginImageUrl || LUXURY_GIFT_IMAGE
-  const title = activeConfig?.detailTitle || config?.detailTitle || '节假日福利签收'
-  const content = activeConfig?.detailContent || config?.detailContent || '一份心意，郑重送达。请完成确认，留下你的签名。'
+  const title = activeConfig?.detailTitle || config?.detailTitle || '端午福利签收'
+  const content = activeConfig?.detailContent || config?.detailContent || '粽香端午，一份心意郑重送达。请完成确认，留下你的签名。'
 
   useEffect(() => {
     if (!activeConfig && config) setActiveConfig(config)
@@ -180,12 +180,12 @@ function SignDesk({ fullscreen, config, onError, onDone }: { fullscreen: boolean
       <section className={luxuryFrameClass(fullscreen)}>
         <LuxuryBackdrop image={visual} />
         <div className="relative z-10 mx-auto flex min-h-[inherit] w-full max-w-4xl flex-col items-center justify-center px-6 py-16 text-center text-white">
-          <UserCheck className="mb-8 size-12 text-[#c9a968]" />
-          <p className="mb-4 text-xs uppercase tracking-[0.45em] text-[#c9a968]">Received</p>
+          <UserCheck className="mb-8 size-12 text-[#6f9b54]" />
+          <p className="mb-4 text-xs uppercase tracking-[0.45em] text-[#6f9b54]">Received</p>
           <h2 className="max-w-3xl text-5xl font-semibold leading-tight md:text-7xl">心意已妥善抵达</h2>
           <p className="mt-6 max-w-xl text-base leading-7 text-white/62">你的签收记录已完成留存。感谢你在这一刻郑重确认。</p>
           <div className="mt-10 flex flex-wrap justify-center gap-3">
-            {doneUrl && <Button className="bg-[#d6b56d] text-[#16130d] hover:bg-[#e4c57e]" onClick={() => { window.location.href = doneUrl }}>进入后续系统</Button>}
+            {doneUrl && <Button className="bg-[#5e8b46] text-[#16130d] hover:bg-[#79a861]" onClick={() => { window.location.href = doneUrl }}>进入后续系统</Button>}
             <Button variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10" onClick={() => { setEmployee(null); setDoneUrl(undefined); setSignature(''); setExtra({}) }}>返回</Button>
           </div>
         </div>
@@ -199,7 +199,7 @@ function SignDesk({ fullscreen, config, onError, onDone }: { fullscreen: boolean
         <LuxuryBackdrop image={visual} />
         <div className="relative z-10 mx-auto grid min-h-[inherit] w-full max-w-7xl items-center gap-10 px-6 py-12 text-white lg:grid-cols-[1.15fr_420px] lg:px-12">
           <div className="welfare-luxury-copy max-w-4xl">
-            <p className="mb-6 text-xs uppercase tracking-[0.5em] text-[#c9a968]">Seasonal Gift</p>
+            <p className="mb-6 text-xs uppercase tracking-[0.5em] text-[#6f9b54]">端午安康 · Dragon Boat Festival</p>
             <h2 className="max-w-4xl text-6xl font-semibold leading-[0.95] tracking-[-0.02em] md:text-8xl lg:text-9xl">
               {title}
             </h2>
@@ -213,7 +213,7 @@ function SignDesk({ fullscreen, config, onError, onDone }: { fullscreen: boolean
                 <p className="text-xs uppercase tracking-[0.28em] text-white/38">Private Reception</p>
                 <h3 className="mt-2 text-2xl font-medium">确认身份</h3>
               </div>
-              <Gift className="size-6 text-[#c9a968]" />
+              <Gift className="size-6 text-[#6f9b54]" />
             </div>
             <LuxuryInput label="员工编号 / 手机号 / 账号" value={loginId} onChange={setLoginId} />
             {config?.loginMode === 'PASSWORD' ? (
@@ -226,9 +226,9 @@ function SignDesk({ fullscreen, config, onError, onDone }: { fullscreen: boolean
               type="button"
               disabled={!loginId.trim() || loginMut.isPending}
               onClick={() => loginMut.mutate()}
-              className="mt-7 h-12 w-full rounded-full bg-[#d6b56d] text-sm font-medium text-[#16130d] transition hover:bg-[#e4c57e] disabled:cursor-not-allowed disabled:opacity-45"
+              className="mt-7 h-12 w-full rounded-full bg-[#5e8b46] text-sm font-medium text-[#16130d] transition hover:bg-[#79a861] disabled:cursor-not-allowed disabled:opacity-45"
             >
-              开启礼赠
+              领取端午福利
             </button>
           </section>
         </div>
@@ -241,15 +241,15 @@ function SignDesk({ fullscreen, config, onError, onDone }: { fullscreen: boolean
       <LuxuryBackdrop image={visual} />
       <div className="relative z-10 mx-auto grid min-h-[inherit] w-full max-w-7xl items-center gap-8 px-6 py-10 text-white lg:grid-cols-[1fr_460px] lg:px-12">
         <section className="welfare-luxury-copy max-w-4xl">
-          <p className="mb-5 text-xs uppercase tracking-[0.45em] text-[#c9a968]">{employee.department || 'Gift Reception'} · {employee.employeeNo}</p>
+          <p className="mb-5 text-xs uppercase tracking-[0.45em] text-[#6f9b54]">{employee.department || 'Gift Reception'} · {employee.employeeNo}</p>
           <h2 className="max-w-4xl text-5xl font-semibold leading-[0.98] tracking-[-0.02em] md:text-7xl lg:text-8xl">{title}</h2>
           <p className="mt-7 max-w-2xl whitespace-pre-wrap text-lg leading-8 text-white/62">{content}</p>
-          <div className="mt-10 h-px w-32 bg-[#c9a968]/60" />
+          <div className="mt-10 h-px w-32 bg-[#6f9b54]/60" />
           <p className="mt-6 text-sm text-white/48">For {employee.name}{employee.phone ? ` · ${employee.phone}` : ''}</p>
         </section>
 
         <section className="welfare-luxury-panel rounded-[2rem] border border-white/10 bg-[#11100d]/72 p-6 shadow-2xl shadow-black/45 backdrop-blur-xl">
-        <h2 className="flex items-center gap-2 text-xl font-medium"><PenLine className="size-5 text-[#c9a968]" />签名确认</h2>
+        <h2 className="flex items-center gap-2 text-xl font-medium"><PenLine className="size-5 text-[#6f9b54]" />签名确认</h2>
         <p className="mt-2 text-sm leading-6 text-white/52">{activeConfig?.signatureNotice || '本人确认已收到上述福利品。'}</p>
         {fields.length > 0 && (
           <div className="mt-4 space-y-3">
@@ -268,7 +268,7 @@ function SignDesk({ fullscreen, config, onError, onDone }: { fullscreen: boolean
         )}
         <SignaturePad value={signature} onChange={setSignature} />
         <Button
-          className="mt-4 w-full rounded-full bg-[#d6b56d] text-[#16130d] hover:bg-[#e4c57e]"
+          className="mt-4 w-full rounded-full bg-[#5e8b46] text-[#16130d] hover:bg-[#79a861]"
           disabled={!signature || signMut.isPending || fields.some(f => f.required && !extra[f.key]?.trim())}
           onClick={() => signMut.mutate()}
         >
@@ -282,7 +282,7 @@ function SignDesk({ fullscreen, config, onError, onDone }: { fullscreen: boolean
           <div className="w-full max-w-md rounded-[1.5rem] border border-white/10 bg-[#11100d] p-6 text-white shadow-2xl" onClick={e => e.stopPropagation()}>
             <h3 className="text-2xl font-semibold">{activeConfig.popupTitle || '签收提示'}</h3>
             <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-white/60">{activeConfig.popupContent}</p>
-            <Button className="mt-6 w-full bg-[#d6b56d] text-[#16130d] hover:bg-[#e4c57e]" onClick={() => setPopupOpen(false)}>知道了</Button>
+            <Button className="mt-6 w-full bg-[#5e8b46] text-[#16130d] hover:bg-[#79a861]" onClick={() => setPopupOpen(false)}>知道了</Button>
           </div>
         </div>
       )}
@@ -300,7 +300,7 @@ function LuxuryBackdrop({ image }: { image: string }) {
       <img src={image} alt="" className="absolute inset-0 h-full w-full object-cover opacity-72" />
       <div className="absolute inset-0 bg-[#070706]/56" />
       <div className="absolute inset-y-0 left-0 w-[70%] bg-[#070706]/72" />
-      <div className="welfare-luxury-glow absolute -left-32 top-20 h-72 w-72 rounded-full bg-[#c9a968]/20 blur-3xl" />
+      <div className="welfare-luxury-glow absolute -left-32 top-20 h-72 w-72 rounded-full bg-[#6f9b54]/20 blur-3xl" />
       <div className="absolute inset-x-0 bottom-0 h-48 bg-[#070706]/80" />
     </>
   )
@@ -321,7 +321,7 @@ function LuxuryInput({ label, value, onChange, type = 'text', readOnly = false }
         value={value}
         readOnly={readOnly}
         onChange={e => onChange(e.target.value)}
-        className="mt-2 h-12 w-full rounded-full border border-white/12 bg-white/8 px-4 text-sm tracking-normal text-white outline-none transition placeholder:text-white/20 focus:border-[#c9a968]/70"
+        className="mt-2 h-12 w-full rounded-full border border-white/12 bg-white/8 px-4 text-sm tracking-normal text-white outline-none transition placeholder:text-white/20 focus:border-[#6f9b54]/70"
       />
     </label>
   )
