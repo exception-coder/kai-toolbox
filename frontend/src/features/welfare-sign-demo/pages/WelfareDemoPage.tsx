@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { Bot, Send, Sparkles, User, Wrench, X } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Bot, Minus, Send, Sparkles, User, Wrench } from 'lucide-react'
 import { http } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { WelfareSignPage } from '@/features/welfare-sign/pages/WelfareSignPage'
@@ -11,8 +10,13 @@ interface ChatItem {
   role: 'user' | 'assistant'
   text: string
 }
+type Pos = { x: number; y: number }
 
-/** 演示页拉不到配置（库无行/会话未就绪）时的兜底端午皮肤，保证页面不空白。 */
+const PANEL_W = 380
+const PANEL_H = 560
+const BAR_H = 52
+
+/** 拉不到副本配置时的兜底端午皮肤，保证页面不空白。 */
 const FALLBACK_CONFIG: WelfareConfig = {
   loginMode: 'SMS',
   redirectUrl: null,
@@ -31,26 +35,33 @@ const FALLBACK_CONFIG: WelfareConfig = {
 /**
  * 福利签收「免登录受约束 Vibe Coding 演示」。
  *
- * 背景 = 真实 {@link WelfareSignPage}（fullscreen），但配置来自本演示会话的一次性副本库；右下角悬浮
- * 一个 vibe coding 对话框（默认展开）。免登录访客在对话框里让 AI 改演示页文案，AI 经受约束的 welfare_db
- * 工具改副本库的 welfare_sign_config，本轮结束后页面自动重拉配置、即时反映。改动只作用于副本，真实环境零影响。
+ * 背景 = 真实 {@link WelfareSignPage}（fullscreen，配置取自本会话一次性副本库）；前景是一个**拟物风格、
+ * 可拖拽、可缩小/展开**的 vibe coding 对话框。免登录访客在框里让 AI 改本页文案，AI 经受约束的 welfare_db
+ * 工具改副本库 welfare_sign_config，本轮结束后页面自动重拉配置即时反映。改动只作用于副本，真实环境零影响。
  */
 export function WelfareDemoPage() {
   const [status, setStatus] = useState<Status>('connecting')
-  const [sessionId, setSessionId] = useState<string | null>(null)
   const [config, setConfig] = useState<WelfareConfig>(FALLBACK_CONFIG)
   const [configVersion, setConfigVersion] = useState(0)
   const [items, setItems] = useState<ChatItem[]>([])
   const [streaming, setStreaming] = useState('')
   const [running, setRunning] = useState(false)
   const [input, setInput] = useState('')
-  const [open, setOpen] = useState(true)
+  const [minimized, setMinimized] = useState(false)
   const [banner, setBanner] = useState<string | null>(null)
+  const [pos, setPos] = useState<Pos | null>(null)
 
   const wsRef = useRef<WebSocket | null>(null)
   const streamRef = useRef('')
   const sessionRef = useRef<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const dragOffset = useRef<{ dx: number; dy: number } | null>(null)
+
+  // 初始落到右下角。
+  useLayoutEffect(() => {
+    if (pos) return
+    setPos({ x: window.innerWidth - PANEL_W - 20, y: window.innerHeight - PANEL_H - 20 })
+  }, [pos])
 
   async function refetchConfig() {
     const sid = sessionRef.current
@@ -60,7 +71,7 @@ export function WelfareDemoPage() {
       setConfig(c)
       setConfigVersion((v) => v + 1)
     } catch {
-      /* 无行/未就绪：保留当前配置，下一轮再试 */
+      /* 无行/未就绪：保留当前配置，下轮再试 */
     }
   }
 
@@ -82,7 +93,6 @@ export function WelfareDemoPage() {
         case 'ready':
           setStatus('ready')
           if (typeof m.sessionId === 'string') {
-            setSessionId(m.sessionId)
             sessionRef.current = m.sessionId
             void refetchConfig()
           }
@@ -97,7 +107,7 @@ export function WelfareDemoPage() {
           setStreaming('')
           setRunning(false)
           if (text.trim()) setItems((prev) => [...prev, { role: 'assistant', text }])
-          void refetchConfig() // agent 改完配置 → 重拉 → 演示页即时反映
+          void refetchConfig()
           break
         }
         case 'error':
@@ -128,88 +138,133 @@ export function WelfareDemoPage() {
     ws.send(JSON.stringify({ type: 'send', text }))
   }
 
+  // —— 拖拽（标题栏为握把）——
+  const clamp = (x: number, y: number): Pos => {
+    const h = minimized ? BAR_H : PANEL_H
+    return {
+      x: Math.min(Math.max(8, x), window.innerWidth - PANEL_W - 8),
+      y: Math.min(Math.max(8, y), window.innerHeight - h - 8),
+    }
+  }
+  const onBarDown = (e: React.PointerEvent) => {
+    if (!pos) return
+    dragOffset.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+  const onBarMove = (e: React.PointerEvent) => {
+    if (!dragOffset.current) return
+    setPos(clamp(e.clientX - dragOffset.current.dx, e.clientY - dragOffset.current.dy))
+  }
+  const onBarUp = (e: React.PointerEvent) => {
+    dragOffset.current = null
+    e.currentTarget.releasePointerCapture(e.pointerId)
+  }
+
   return (
     <div className="relative h-[100dvh] w-full overflow-hidden">
-      {/* 背景：真实福利签收页，配置来自副本库；configVersion 变化即重挂载刷新 */}
       <WelfareSignPage key={configVersion} fullscreen demoConfig={config} />
 
-      {/* 悬浮 Vibe Coding 对话框 */}
-      {open ? (
-        <div className="fixed bottom-4 right-4 z-50 flex h-[min(70vh,560px)] w-[min(92vw,380px)] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0e1a12]/95 text-white shadow-2xl backdrop-blur-xl">
-          <header className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
-            <Sparkles className="size-4 text-[#79a861]" />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium">Vibe Coding · 受约束演示</p>
-              <p className="truncate text-[11px] text-white/45">
-                免登录 · 只能改本页文案（副本沙箱）· {statusLabel(status)}
-              </p>
-            </div>
-            <button className="text-white/50 hover:text-white" onClick={() => setOpen(false)} title="收起">
-              <X className="size-4" />
-            </button>
-          </header>
-
-          {banner && <div className="bg-rose-500/15 px-4 py-2 text-xs text-rose-300">{banner}</div>}
-
-          <div className="flex-1 space-y-3 overflow-y-auto p-3">
-            {items.length === 0 && !streaming && (
-              <p className="px-1 py-6 text-center text-xs leading-5 text-white/45">
-                试试对我说：<br />「把大标题改成『中秋福利签收』」<br />「把正文改成中秋祝福语」<br />「打开签收弹框并改个标题」
-              </p>
-            )}
-            {items.map((it, i) => (
-              <Bubble key={i} role={it.role}>
-                {it.text}
-              </Bubble>
-            ))}
-            {running && (
-              <Bubble role="assistant">
-                {streaming ? (
-                  <span className="whitespace-pre-wrap break-words">{streaming}</span>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 text-white/60">
-                    <Wrench className="size-3.5 animate-pulse" /> 正在修改演示页…
-                  </span>
-                )}
-              </Bubble>
-            )}
-            <div ref={bottomRef} />
-          </div>
-
-          <div className="flex items-end gap-2 border-t border-white/10 p-2.5">
-            <textarea
-              className="max-h-28 min-h-[40px] flex-1 resize-none rounded-lg border border-white/12 bg-white/8 px-3 py-2 text-sm outline-none placeholder:text-white/30 focus:border-[#6f9b54]/70 disabled:opacity-50"
-              rows={1}
-              placeholder={status === 'ready' ? '让 AI 改改这个页面…（Enter 发送）' : '正在连接演示环境…'}
-              value={input}
-              disabled={status !== 'ready'}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  send()
-                }
-              }}
-            />
-            <Button
-              size="icon"
-              className="bg-[#5e8b46] text-[#0c160c] hover:bg-[#79a861]"
-              disabled={status !== 'ready' || running}
-              onClick={send}
-              title="发送"
-            >
-              <Send className="size-4" />
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <button
-          className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full bg-[#5e8b46] px-4 py-3 text-sm font-medium text-[#0c160c] shadow-2xl hover:bg-[#79a861]"
-          onClick={() => setOpen(true)}
+      {/* 拟物风格可拖拽窗口 */}
+      <div
+        style={{ left: pos?.x ?? 0, top: pos?.y ?? 0, width: PANEL_W, visibility: pos ? 'visible' : 'hidden' }}
+        className={cn(
+          'fixed z-50 flex flex-col overflow-hidden rounded-2xl text-white select-none',
+          // 拟物层次：双向渐变 + 外阴影 + 内高光 + 描边
+          'border border-[#2c4434] bg-gradient-to-b from-[#17281d] to-[#0a130d]',
+          'shadow-[0_24px_60px_-18px_rgba(0,0,0,0.8),0_2px_0_rgba(255,255,255,0.04)_inset]',
+          'ring-1 ring-black/50',
+        )}
+      >
+        {/* 标题栏（握把）：木纹般的渐变 + 顶部高光 */}
+        <div
+          onPointerDown={onBarDown}
+          onPointerMove={onBarMove}
+          onPointerUp={onBarUp}
+          style={{ touchAction: 'none', height: BAR_H }}
+          className={cn(
+            'flex shrink-0 cursor-grab items-center gap-2.5 px-3 active:cursor-grabbing',
+            'border-b border-black/45 bg-gradient-to-b from-[#2a4231] to-[#1b2c20]',
+            'shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]',
+          )}
         >
-          <Sparkles className="size-4" /> Vibe Coding
-        </button>
-      )}
+          <span className="flex size-7 items-center justify-center rounded-full bg-gradient-to-b from-[#79a861] to-[#4d7339] text-[#0c160c] shadow-[inset_0_1px_1px_rgba(255,255,255,0.5),0_1px_2px_rgba(0,0,0,0.5)]">
+            <Sparkles className="size-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold leading-tight tracking-wide">Vibe Coding · 受约束演示</p>
+            {!minimized && (
+              <p className="truncate text-[11px] text-white/45">免登录 · 只能改本页文案（副本沙箱）· {statusLabel(status)}</p>
+            )}
+          </div>
+          <button
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => setMinimized((v) => !v)}
+            title={minimized ? '展开' : '缩小'}
+            className="flex size-6 items-center justify-center rounded-full bg-white/10 text-white/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] hover:bg-white/20 hover:text-white"
+          >
+            {minimized ? <Sparkles className="size-3.5" /> : <Minus className="size-3.5" />}
+          </button>
+        </div>
+
+        {!minimized && (
+          <>
+            {banner && <div className="bg-rose-500/15 px-4 py-2 text-xs text-rose-300">{banner}</div>}
+
+            <div className="flex-1 space-y-3 overflow-y-auto p-3" style={{ height: PANEL_H - BAR_H - 64 }}>
+              {items.length === 0 && !streaming && (
+                <p className="px-1 py-6 text-center text-xs leading-5 text-white/45">
+                  试试对我说：
+                  <br />「把大标题改成『中秋福利签收』」
+                  <br />「把正文改成中秋祝福语」
+                  <br />「打开签收弹框并改个标题」
+                </p>
+              )}
+              {items.map((it, i) => (
+                <Bubble key={i} role={it.role}>
+                  {it.text}
+                </Bubble>
+              ))}
+              {running && (
+                <Bubble role="assistant">
+                  {streaming ? (
+                    <span className="whitespace-pre-wrap break-words">{streaming}</span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 text-white/60">
+                      <Wrench className="size-3.5 animate-pulse" /> 正在修改演示页…
+                    </span>
+                  )}
+                </Bubble>
+              )}
+              <div ref={bottomRef} />
+            </div>
+
+            <div className="flex items-end gap-2 border-t border-black/40 bg-black/20 p-2.5">
+              <textarea
+                className="max-h-28 min-h-[40px] flex-1 resize-none rounded-lg border border-white/12 bg-white/8 px-3 py-2 text-sm outline-none placeholder:text-white/30 focus:border-[#6f9b54]/70 disabled:opacity-50"
+                rows={1}
+                placeholder={status === 'ready' ? '让 AI 改改这个页面…（Enter 发送）' : '正在连接演示环境…'}
+                value={input}
+                disabled={status !== 'ready'}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    send()
+                  }
+                }}
+              />
+              <button
+                disabled={status !== 'ready' || running}
+                onClick={send}
+                title="发送"
+                className="flex size-10 items-center justify-center rounded-lg bg-gradient-to-b from-[#79a861] to-[#4d7339] text-[#0c160c] shadow-[inset_0_1px_1px_rgba(255,255,255,0.5),0_2px_4px_rgba(0,0,0,0.5)] hover:from-[#8bbb71] disabled:opacity-40"
+              >
+                <Send className="size-4" />
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }

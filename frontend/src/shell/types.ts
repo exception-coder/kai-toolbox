@@ -25,5 +25,7 @@ export interface FeatureManifest {
   order?: number
   /** 外壳布局，默认 'tool'。'showcase' 的路由会脱离 AppShell、全屏渲染且不鉴权。 */
   layout?: FeatureLayout
+  /** 仅 showcase 生效：隐藏「返回工作台/主题」悬浮坞，让页面完全沉浸（如自带悬浮控件的演示页）。 */
+  hideDock?: boolean
   routes: FeatureRoute[]
 }
