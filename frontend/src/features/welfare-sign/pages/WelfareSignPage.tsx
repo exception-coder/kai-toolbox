@@ -361,6 +361,17 @@ function ConfigPanel({ config, onError }: { config: WelfareConfig; onError: (e: 
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['welfare-sign-config'] }),
     onError,
   })
+  // 一键把端午皮肤文案填入编辑框（标题/详情/弹框/签名提示），用户复核后点「保存配置」覆盖库中旧值。
+  // 这些字段是存进 SQLite 的配置数据，前端皮肤/默认值改不动已保存的记录，必须走保存。
+  const applyDuanwuSkin = () => setDraft(d => ({
+    ...d,
+    detailTitle: MOCK_CONFIG.detailTitle,
+    detailContent: MOCK_CONFIG.detailContent,
+    popupEnabled: true,
+    popupTitle: MOCK_CONFIG.popupTitle,
+    popupContent: MOCK_CONFIG.popupContent,
+    signatureNotice: MOCK_CONFIG.signatureNotice,
+  }))
   return (
     <section className="grid gap-4 rounded-lg border bg-[var(--color-background)] p-5 lg:grid-cols-2">
       <Field label="登录方式">
@@ -407,7 +418,10 @@ function ConfigPanel({ config, onError }: { config: WelfareConfig; onError: (e: 
         个性化字段 JSON
         <textarea className="mt-1 min-h-24 w-full rounded-md border bg-[var(--color-background)] p-3 font-mono text-xs" value={draft.extraFieldsJson ?? ''} onChange={e => setDraft({ ...draft, extraFieldsJson: e.target.value })} />
       </label>
-      <div className="lg:col-span-2 flex justify-end">
+      <div className="lg:col-span-2 flex flex-wrap items-center justify-between gap-2">
+        <Button variant="outline" type="button" onClick={applyDuanwuSkin} title="把端午皮肤的标题/详情/弹框/签名文案填入下方，复核后点保存生效">
+          <Gift className="size-4" />一键套用端午皮肤文案
+        </Button>
         <Button onClick={() => mut.mutate()} disabled={mut.isPending}><Save className="size-4" />保存配置</Button>
       </div>
     </section>
