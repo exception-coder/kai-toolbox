@@ -61,7 +61,8 @@ export function FloatingChatWindow() {
   const [autoApprove, setAutoApprove] = useState(() => localStorage.getItem(AUTO_APPROVE_KEY) === '1')
   const dragRef = useRef<{ dx: number; dy: number } | null>(null)
   const resizeRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null)
-  const bubbleRef = useRef<{ dx: number; dy: number; sx: number; sy: number; moved: boolean } | null>(null)
+  const bubbleRef = useRef<{ dx: number; dy: number; sx: number; sy: number; moved: boolean; long: boolean } | null>(null)
+  const bubbleLongTimer = useRef<number | null>(null) // 最小化气泡长按计时器：长按未拖动 → 激活语音模式
   const autoApprovedRef = useRef<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
@@ -183,23 +184,33 @@ export function FloatingChatWindow() {
 
   // 最小化气泡拖拽（拖动则移动，未拖动视为点击展开）
   const onBubbleDown = (e: React.PointerEvent) => {
-    bubbleRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y, sx: e.clientX, sy: e.clientY, moved: false }
+    bubbleRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y, sx: e.clientX, sy: e.clientY, moved: false, long: false }
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    if (bubbleLongTimer.current) clearTimeout(bubbleLongTimer.current)
+    // 长按 450ms 且未拖动 → 直接进语音模式（不展开聊天窗），方便最小化时快速说话
+    bubbleLongTimer.current = window.setTimeout(() => {
+      const b = bubbleRef.current
+      if (b && !b.moved) { b.long = true; setVoiceMode(true) }
+    }, 450)
   }
   const onBubbleMove = (e: React.PointerEvent) => {
     const b = bubbleRef.current
     if (!b) return
-    if (Math.abs(e.clientX - b.sx) > 3 || Math.abs(e.clientY - b.sy) > 3) b.moved = true
+    if (Math.abs(e.clientX - b.sx) > 3 || Math.abs(e.clientY - b.sy) > 3) {
+      b.moved = true
+      if (bubbleLongTimer.current) { clearTimeout(bubbleLongTimer.current); bubbleLongTimer.current = null } // 拖动即取消长按
+    }
     setPos({
       x: Math.max(0, Math.min(e.clientX - b.dx, window.innerWidth - BUBBLE)),
       y: Math.max(0, Math.min(e.clientY - b.dy, window.innerHeight - BUBBLE)),
     })
   }
   const onBubbleUp = (e: React.PointerEvent) => {
+    if (bubbleLongTimer.current) { clearTimeout(bubbleLongTimer.current); bubbleLongTimer.current = null }
     const b = bubbleRef.current
     bubbleRef.current = null
     ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
-    if (b && !b.moved) setMinimized(false)
+    if (b && !b.moved && !b.long) setMinimized(false) // 短按展开；长按已进语音，不再展开
   }
 
   const uploadFiles = async (files: FileList | null) => {
@@ -255,8 +266,8 @@ export function FloatingChatWindow() {
           onPointerDown={onBubbleDown}
           onPointerMove={onBubbleMove}
           onPointerUp={onBubbleUp}
-          aria-label={`礼赠助手 ${status}，点击展开`}
-          title={`礼赠助手 · ${status}`}
+          aria-label={`礼赠助手 ${status}，点击展开，长按说话`}
+          title={`礼赠助手 · ${status}（点击展开 · 长按说话）`}
           className="fixed z-50 cursor-move touch-none rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
           style={{ left: pos.x, top: pos.y }}
         >
@@ -283,8 +294,8 @@ export function FloatingChatWindow() {
           onPointerDown={onBubbleDown}
           onPointerMove={onBubbleMove}
           onPointerUp={onBubbleUp}
-          aria-label={`${headerTitle} ${status}，点击展开`}
-          title={`${headerTitle} · ${status}（拖动移动，点击展开）`}
+          aria-label={`${headerTitle} ${status}，点击展开，长按说话`}
+          title={`${headerTitle} · ${status}（拖动移动 · 点击展开 · 长按说话）`}
           className="fixed z-50 flex max-w-[72vw] cursor-move touch-none items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-card)] py-1.5 pl-2 pr-3.5 text-left shadow-lg"
           style={{ left: pos.x, top: pos.y }}
         >
