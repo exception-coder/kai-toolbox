@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="端午粽子礼宾">
+  <defs>
+    <linearGradient id="zb" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7faa4f"/>
+      <stop offset="0.5" stop-color="#5e8b46"/>
+      <stop offset="1" stop-color="#3f6630"/>
+    </linearGradient>
+    <linearGradient id="zlight" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#a7c96e"/>
+      <stop offset="1" stop-color="#6f9b54"/>
+    </linearGradient>
+    <radialGradient id="cheek" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#f2b6a0" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#f2b6a0" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="cs"><feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#1f3416" flood-opacity="0.4"/></filter>
+  </defs>
+
+  <!-- 身体阴影 -->
+  <ellipse cx="100" cy="182" rx="52" ry="9" fill="#1f3416" opacity="0.25"/>
+
+  <!-- 粽子主体（圆润四面体） -->
+  <g filter="url(#cs)">
+    <path d="M100 34
+             C 134 52 162 104 158 142
+             C 150 172 50 172 42 142
+             C 38 104 66 52 100 34 Z" fill="url(#zb)"/>
+    <!-- 受光面 -->
+    <path d="M100 34 C 134 52 162 104 158 142 C 140 150 116 150 104 138 C 100 100 100 60 100 34 Z" fill="url(#zlight)" opacity="0.55"/>
+    <!-- 棕叶折痕 -->
+    <path d="M100 36 L100 138" stroke="#3f6630" stroke-width="2.5" opacity="0.6" stroke-linecap="round"/>
+    <path d="M100 138 C 78 150 56 150 44 140" stroke="#3f6630" stroke-width="2.5" fill="none" opacity="0.55" stroke-linecap="round"/>
+    <path d="M100 138 C 122 150 144 150 156 140" stroke="#3f6630" stroke-width="2.5" fill="none" opacity="0.55" stroke-linecap="round"/>
+    <!-- 叶尖翘起 -->
+    <path d="M100 34 C 96 22 104 14 116 12 C 110 22 110 30 104 38 Z" fill="#7faa4f"/>
+  </g>
+
+  <!-- 捆扎五彩绳 -->
+  <g stroke-linecap="round" fill="none" stroke-width="3.4">
+    <path d="M58 96 C 88 86 112 86 142 96" stroke="#e4574c"/>
+    <path d="M56 108 C 88 99 112 99 144 108" stroke="#f0c247"/>
+    <path d="M58 120 C 88 112 112 112 142 120" stroke="#4a93d1"/>
+  </g>
+
+  <!-- 脸 -->
+  <ellipse cx="78" cy="118" rx="9" ry="6" fill="url(#cheek)"/>
+  <ellipse cx="122" cy="118" rx="9" ry="6" fill="url(#cheek)"/>
+  <g fill="#22351a">
+    <circle cx="84" cy="106" r="5"/>
+    <circle cx="116" cy="106" r="5"/>
+  </g>
+  <circle cx="85.6" cy="104.4" r="1.6" fill="#fff"/>
+  <circle cx="117.6" cy="104.4" r="1.6" fill="#fff"/>
+  <path d="M92 120 Q 100 128 108 120" stroke="#22351a" stroke-width="3" fill="none" stroke-linecap="round"/>
+
+  <!-- 小手举着礼物 -->
+  <g>
+    <ellipse cx="150" cy="150" rx="11" ry="9" fill="#6f9b54"/>
+    <!-- 礼盒 -->
+    <rect x="138" y="120" width="30" height="26" rx="4" fill="#f0c247"/>
+    <rect x="138" y="120" width="30" height="9" rx="3" fill="#e4574c"/>
+    <rect x="150" y="120" width="6" height="26" fill="#e4574c"/>
+    <path d="M153 120 C 147 112 159 110 161 116 C 159 119 156 120 153 120 Z" fill="#e4574c"/>
+  </g>
+  <ellipse cx="50" cy="150" rx="10" ry="8" fill="#5e8b46"/>
+</svg>

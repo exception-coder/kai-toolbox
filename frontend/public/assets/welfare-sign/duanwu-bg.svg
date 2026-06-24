@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice" role="img" aria-label="端午龙舟暮色">
+  <defs>
+    <!-- 天空：墨绿暮色 → 地平线暖金绿 -->
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#08130d"/>
+      <stop offset="0.42" stop-color="#0d2418"/>
+      <stop offset="0.7" stop-color="#1d3a22"/>
+      <stop offset="0.86" stop-color="#5e7a35"/>
+      <stop offset="1" stop-color="#9bab4e"/>
+    </linearGradient>
+    <!-- 江水 -->
+    <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8fa24a"/>
+      <stop offset="0.16" stop-color="#3f5a2c"/>
+      <stop offset="0.55" stop-color="#13251a"/>
+      <stop offset="1" stop-color="#070f0b"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fef3c8"/>
+      <stop offset="0.35" stop-color="#f2d98a"/>
+      <stop offset="0.7" stop-color="#c9bf63" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#c9bf63" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="mtnFar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#22361f"/>
+      <stop offset="1" stop-color="#16271a"/>
+    </linearGradient>
+    <linearGradient id="mtnNear" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#13231524"/>
+      <stop offset="0" stop-color="#102014"/>
+      <stop offset="1" stop-color="#0a160e"/>
+    </linearGradient>
+    <linearGradient id="leaf" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3c5a2a"/>
+      <stop offset="1" stop-color="#0c160a"/>
+    </linearGradient>
+    <filter id="soft"><feGaussianBlur stdDeviation="7"/></filter>
+  </defs>
+
+  <!-- 天空 -->
+  <rect width="1600" height="640" fill="url(#sky)"/>
+
+  <!-- 落日光晕 -->
+  <circle cx="1080" cy="540" r="420" fill="url(#sun)"/>
+  <circle cx="1080" cy="540" r="118" fill="#fdeeb8" opacity="0.92"/>
+
+  <!-- 远山三层 -->
+  <path d="M0 470 C 260 400 480 446 720 432 C 980 416 1240 470 1600 426 L1600 640 L0 640 Z" fill="url(#mtnFar)" opacity="0.7"/>
+  <path d="M0 520 C 300 470 520 506 820 492 C 1120 478 1360 524 1600 500 L1600 640 L0 640 Z" fill="#16271a" opacity="0.85"/>
+  <path d="M0 566 C 360 532 640 560 980 552 C 1280 545 1460 566 1600 556 L1600 640 L0 640 Z" fill="url(#mtnNear)"/>
+
+  <!-- 江水 -->
+  <rect y="600" width="1600" height="400" fill="url(#water)"/>
+  <!-- 落日水中倒影 -->
+  <g opacity="0.5">
+    <rect x="1040" y="612" width="80" height="300" fill="#f4e09a" opacity="0.5" filter="url(#soft)"/>
+  </g>
+  <!-- 水面波纹 -->
+  <g stroke="#cdd98e" stroke-linecap="round" opacity="0.22">
+    <line x1="120" y1="700" x2="320" y2="700" stroke-width="2"/>
+    <line x1="520" y1="742" x2="760" y2="742" stroke-width="2"/>
+    <line x1="980" y1="690" x2="1180" y2="690" stroke-width="2"/>
+    <line x1="200" y1="812" x2="470" y2="812" stroke-width="3"/>
+    <line x1="900" y1="838" x2="1240" y2="838" stroke-width="3"/>
+    <line x1="600" y1="900" x2="980" y2="900" stroke-width="3"/>
+  </g>
+
+  <!-- 龙舟（剪影，居中偏右） -->
+  <g transform="translate(720 648)">
+    <!-- 倒影 -->
+    <g transform="translate(0 150) scale(1 -0.55)" opacity="0.28">
+      <path d="M-300 0 C -210 70 210 70 300 0 C 250 38 -250 38 -300 0 Z" fill="#0c1810"/>
+    </g>
+    <!-- 船身 -->
+    <path d="M-300 0 C -210 70 210 70 300 0 C 250 38 -250 38 -300 0 Z" fill="#08120c"/>
+    <path d="M-300 0 C -210 64 210 64 300 0" fill="none" stroke="#3c5a2a" stroke-width="3" opacity="0.7"/>
+    <!-- 龙头（船首，右） -->
+    <path d="M300 0 C 332 -10 352 -34 346 -60 C 372 -50 392 -58 398 -78 C 380 -78 372 -86 374 -98 C 352 -84 330 -86 318 -70 C 312 -50 300 -22 300 0 Z" fill="#0c160a"/>
+    <circle cx="356" cy="-58" r="4" fill="#f2d98a"/>
+    <!-- 龙尾（船尾，左） -->
+    <path d="M-300 0 C -332 -8 -356 -26 -360 -52 C -340 -44 -322 -50 -316 -64 C -312 -42 -302 -20 -300 0 Z" fill="#0c160a"/>
+    <!-- 桨手剪影 -->
+    <g fill="#0a130c">
+      <circle cx="-180" cy="-26" r="13"/><rect x="-188" y="-18" width="16" height="30" rx="6"/>
+      <circle cx="-110" cy="-30" r="13"/><rect x="-118" y="-22" width="16" height="32" rx="6"/>
+      <circle cx="-40" cy="-32" r="13"/><rect x="-48" y="-24" width="16" height="34" rx="6"/>
+      <circle cx="40" cy="-32" r="13"/><rect x="32" y="-24" width="16" height="34" rx="6"/>
+      <circle cx="110" cy="-30" r="13"/><rect x="102" y="-22" width="16" height="32" rx="6"/>
+      <circle cx="180" cy="-26" r="13"/><rect x="172" y="-18" width="16" height="30" rx="6"/>
+    </g>
+    <!-- 船桨 -->
+    <g stroke="#0a130c" stroke-width="4" stroke-linecap="round">
+      <line x1="-180" y1="-6" x2="-214" y2="40"/>
+      <line x1="-110" y1="-8" x2="-144" y2="38"/>
+      <line x1="-40" y1="-10" x2="-74" y2="36"/>
+      <line x1="40" y1="-10" x2="74" y2="36"/>
+      <line x1="110" y1="-8" x2="144" y2="38"/>
+      <line x1="180" y1="-6" x2="214" y2="40"/>
+    </g>
+    <!-- 鼓手与小旗 -->
+    <line x1="0" y1="-30" x2="0" y2="-92" stroke="#0a130c" stroke-width="4"/>
+    <path d="M0 -92 L 46 -80 L 0 -68 Z" fill="#7d9a3f"/>
+  </g>
+
+  <!-- 前景：菖蒲/艾草长叶（左下） -->
+  <g fill="url(#leaf)" opacity="0.96">
+    <path d="M-20 1000 C 40 760 70 600 56 470 C 96 612 96 800 84 1000 Z"/>
+    <path d="M40 1000 C 96 800 128 660 140 520 C 168 680 156 860 150 1000 Z"/>
+    <path d="M120 1000 C 150 820 150 700 120 600 C 196 720 196 880 200 1000 Z"/>
+  </g>
+  <!-- 前景：艾草长叶（右下） -->
+  <g fill="url(#leaf)" opacity="0.96">
+    <path d="M1620 1000 C 1560 770 1540 620 1556 500 C 1512 640 1516 830 1528 1000 Z"/>
+    <path d="M1540 1000 C 1492 800 1470 670 1486 540 C 1440 700 1452 870 1458 1000 Z"/>
+    <path d="M1470 1000 C 1452 830 1456 710 1492 620 C 1416 740 1420 890 1414 1000 Z"/>
+  </g>
+
+  <!-- 漂浮的微光 / 萤火 -->
+  <g fill="#f3e7a8">
+    <circle cx="340" cy="300" r="2.4" opacity="0.8"/>
+    <circle cx="520" cy="220" r="1.8" opacity="0.6"/>
+    <circle cx="1320" cy="260" r="2.2" opacity="0.7"/>
+    <circle cx="1180" cy="180" r="1.6" opacity="0.5"/>
+    <circle cx="760" cy="150" r="2" opacity="0.6"/>
+    <circle cx="980" cy="330" r="1.8" opacity="0.55"/>
+  </g>
+</svg>

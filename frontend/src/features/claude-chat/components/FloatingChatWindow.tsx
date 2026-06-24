@@ -23,7 +23,7 @@ const MIN_W = 280
 const MIN_H = 320
 const BUBBLE = 48
 const AUTO_APPROVE_KEY = 'kai-toolbox:auto-approve-permission'
-const GIFT_CONCIERGE_IMAGE = '/assets/welfare-sign/gift-concierge.png'
+const GIFT_CONCIERGE_IMAGE = '/assets/welfare-sign/duanwu-concierge.svg'
 type FloatAttachment = UploadedAttachment & { previewUrl?: string }
 
 /** 权限模式循环顺序与中文标签（紧凑切换用，复刻 Shift+Tab 体验）。 */
@@ -295,12 +295,12 @@ export function FloatingChatWindow() {
           style={{ left: pos.x, top: pos.y }}
         >
           {bubbleListening ? (
-            <span className="flex size-16 items-center justify-center rounded-full bg-[#d6b56d]/25 ring-2 ring-[#d6b56d]">
-              <Mic className="size-7 animate-pulse text-[#d6b56d]" />
+            <span className="flex size-16 items-center justify-center rounded-full bg-[#79a861]/25 ring-2 ring-[#79a861]">
+              <Mic className="size-7 animate-pulse text-[#79a861]" />
             </span>
           ) : bubbleRecBusy ? (
             <span className="flex size-16 items-center justify-center rounded-full bg-black/55">
-              <Loader2 className="size-6 animate-spin text-[#d6b56d]" />
+              <Loader2 className="size-6 animate-spin text-[#79a861]" />
             </span>
           ) : (
             <>
@@ -308,10 +308,10 @@ export function FloatingChatWindow() {
                 src={GIFT_CONCIERGE_IMAGE}
                 alt="礼赠助手"
                 draggable={false}
-                className={`size-16 select-none object-contain drop-shadow-[0_10px_22px_rgba(214,181,109,0.5)] ${active ? 'animate-pulse' : ''}`}
+                className={`size-16 select-none object-contain drop-shadow-[0_10px_22px_rgba(111,155,84,0.5)] ${active ? 'animate-pulse' : ''}`}
               />
               {pending && (
-                <span className="absolute right-1 top-1 size-2.5 rounded-full bg-[#d6b56d] ring-2 ring-[#0b0a08]" aria-hidden />
+                <span className="absolute right-1 top-1 size-2.5 rounded-full bg-[#79a861] ring-2 ring-[#08130d]" aria-hidden />
               )}
             </>
           )}
@@ -379,27 +379,27 @@ export function FloatingChatWindow() {
   return (
     <div
       className={giftMode
-        ? 'fixed z-50 flex flex-col overflow-hidden rounded-[1.5rem] border border-[#c9a968]/28 bg-[#0b0a08]/94 text-white shadow-[0_24px_80px_-28px_rgba(214,181,109,0.85)] backdrop-blur-2xl'
+        ? 'fixed z-50 flex flex-col overflow-hidden rounded-[1.5rem] border border-[#6f9b54]/28 bg-[#08130d]/94 text-white shadow-[0_24px_80px_-28px_rgba(111,155,84,0.85)] backdrop-blur-2xl'
         : 'fixed z-50 flex flex-col overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-[0_8px_30px_-6px_rgba(0,0,0,0.18)]'}
       style={{ left: pos.x, top: pos.y, width: size.w, height: autoHeight ? undefined : size.h, maxHeight: autoHeight ? '70vh' : undefined }}
     >
       {/* 顶部品牌色细线：标识「这是 AI 助手」，而非整窗染色（方案3：同色系分层 + 品牌色点缀） */}
-      <div className={`h-[3px] w-full shrink-0 ${giftMode ? 'bg-[#c9a968]' : 'bg-[var(--color-primary)]'}`} />
+      <div className={`h-[3px] w-full shrink-0 ${giftMode ? 'bg-[#6f9b54]' : 'bg-[var(--color-primary)]'}`} />
       {/* 标题栏 = 拖拽手柄。迷你态：状态 + 关键控制（仿音乐小卡片，只一行）；完整态：别名/引擎/全部按钮。 */}
       <header
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        className={`flex cursor-move touch-none items-center gap-2 border-b px-3 py-2 select-none ${giftMode ? 'border-[#c9a968]/16 bg-[#11100d]/95' : 'border-[var(--color-border)] bg-[var(--color-muted)]'}`}
+        className={`flex cursor-move touch-none items-center gap-2 border-b px-3 py-2 select-none ${giftMode ? 'border-[#6f9b54]/16 bg-[#0e1a12]/95' : 'border-[var(--color-border)] bg-[var(--color-muted)]'}`}
       >
         {giftMode ? (
           <>
-            <span className="flex size-10 shrink-0 items-end justify-center overflow-hidden rounded-full border border-[#c9a968]/35 bg-[#18130c]">
-              <img src={GIFT_CONCIERGE_IMAGE} alt="" className="h-13 w-13 translate-y-2 object-contain" />
+            <span className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#6f9b54]/35 bg-[#0e1a12]">
+              <img src={GIFT_CONCIERGE_IMAGE} alt="" className="size-9 object-contain" />
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-medium text-[#f7ead0]" title={headerTitle}>礼赠助手</span>
-              <span className={`block truncate text-[11px] ${pending ? 'font-medium text-[#d6b56d]' : 'text-white/45'}`}>
+              <span className="block truncate text-sm font-medium text-[#eaf2dc]" title={headerTitle}>礼赠助手</span>
+              <span className={`block truncate text-[11px] ${pending ? 'font-medium text-[#79a861]' : 'text-white/45'}`}>
                 {status === '空闲' ? '我在这里陪你完成签收' : status}
               </span>
             </span>
@@ -514,7 +514,7 @@ export function FloatingChatWindow() {
 
       {/* 迷你态输入：只一个语音按钮，识别后直接发送（不显示输入框/发送按钮，最简） */}
       {!showSessions && compact && (
-        <div className={`border-t p-2.5 ${giftMode ? 'border-[#c9a968]/14 bg-[#11100d]/95' : 'border-[var(--color-border)] bg-[var(--color-muted)]'}`}>
+        <div className={`border-t p-2.5 ${giftMode ? 'border-[#6f9b54]/14 bg-[#0e1a12]/95' : 'border-[var(--color-border)] bg-[var(--color-muted)]'}`}>
           {chat.running ? (
             <div className="flex items-center justify-center gap-3 text-xs text-[var(--color-muted-foreground)]">
               <Loader2 className="size-4 animate-spin" /> 处理中…
@@ -529,7 +529,7 @@ export function FloatingChatWindow() {
 
       {/* 完整态输入区（会话列表展开时隐藏） */}
       {!showSessions && !compact && (
-      <div className={`border-t ${giftMode ? 'border-[#c9a968]/14 bg-[#11100d]/95' : 'border-[var(--color-border)] bg-[var(--color-muted)]'}`}>
+      <div className={`border-t ${giftMode ? 'border-[#6f9b54]/14 bg-[#0e1a12]/95' : 'border-[var(--color-border)] bg-[var(--color-muted)]'}`}>
         {(attachments.length > 0 || uploading > 0) && (
           <AttachmentChips
             items={attachments}
@@ -578,7 +578,7 @@ export function FloatingChatWindow() {
               className="rounded-lg border px-3 py-2 text-sm">中断</button>
           ) : (
             <button type="button" onClick={submit} disabled={!draft.trim() && attachments.length === 0} aria-label="发送"
-              className={`rounded-lg px-3 py-2 disabled:opacity-50 ${giftMode ? 'bg-[#d6b56d] text-[#16130d] hover:bg-[#e4c57e]' : 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'}`}>
+              className={`rounded-lg px-3 py-2 disabled:opacity-50 ${giftMode ? 'bg-[#79a861] text-[#0c160c] hover:bg-[#9bc16e]' : 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'}`}>
               <Send className="size-4" />
             </button>
           )}

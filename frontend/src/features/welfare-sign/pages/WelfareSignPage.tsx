@@ -18,7 +18,7 @@ import {
 import type { EmployeePayload, EmployeeView, ExtraField, LoginMode, SignRecordView, WelfareConfig } from '../types'
 import '../styles.css'
 
-const LUXURY_GIFT_IMAGE = '/assets/welfare-sign/luxury-gift.png'
+const LUXURY_GIFT_IMAGE = '/assets/welfare-sign/duanwu-bg.svg'
 const MOCK_LOGIN_ID = '13800000000'
 const MOCK_CODE = '000000'
 const MOCK_EMPLOYEE_ID = -1
@@ -185,7 +185,7 @@ function SignDesk({ fullscreen, config, onError, onDone }: { fullscreen: boolean
           <h2 className="max-w-3xl text-5xl font-semibold leading-tight md:text-7xl">心意已妥善抵达</h2>
           <p className="mt-6 max-w-xl text-base leading-7 text-white/62">你的签收记录已完成留存。感谢你在这一刻郑重确认。</p>
           <div className="mt-10 flex flex-wrap justify-center gap-3">
-            {doneUrl && <Button className="bg-[#5e8b46] text-[#16130d] hover:bg-[#79a861]" onClick={() => { window.location.href = doneUrl }}>进入后续系统</Button>}
+            {doneUrl && <Button className="bg-[#5e8b46] text-[#0c160c] hover:bg-[#79a861]" onClick={() => { window.location.href = doneUrl }}>进入后续系统</Button>}
             <Button variant="outline" className="border-white/20 bg-white/5 text-white hover:bg-white/10" onClick={() => { setEmployee(null); setDoneUrl(undefined); setSignature(''); setExtra({}) }}>返回</Button>
           </div>
         </div>
@@ -207,7 +207,7 @@ function SignDesk({ fullscreen, config, onError, onDone }: { fullscreen: boolean
               {content}
             </p>
           </div>
-          <section className="welfare-luxury-panel rounded-[2rem] border border-white/10 bg-[#11100d]/70 p-6 shadow-2xl shadow-black/40 backdrop-blur-xl">
+          <section className="welfare-luxury-panel rounded-[2rem] border border-white/10 bg-[#0e1a12]/70 p-6 shadow-2xl shadow-black/40 backdrop-blur-xl">
             <div className="mb-8 flex items-center justify-between">
               <div>
                 <p className="text-xs uppercase tracking-[0.28em] text-white/38">Private Reception</p>
@@ -226,7 +226,7 @@ function SignDesk({ fullscreen, config, onError, onDone }: { fullscreen: boolean
               type="button"
               disabled={!loginId.trim() || loginMut.isPending}
               onClick={() => loginMut.mutate()}
-              className="mt-7 h-12 w-full rounded-full bg-[#5e8b46] text-sm font-medium text-[#16130d] transition hover:bg-[#79a861] disabled:cursor-not-allowed disabled:opacity-45"
+              className="mt-7 h-12 w-full rounded-full bg-[#5e8b46] text-sm font-medium text-[#0c160c] transition hover:bg-[#79a861] disabled:cursor-not-allowed disabled:opacity-45"
             >
               领取端午福利
             </button>
@@ -248,7 +248,7 @@ function SignDesk({ fullscreen, config, onError, onDone }: { fullscreen: boolean
           <p className="mt-6 text-sm text-white/48">For {employee.name}{employee.phone ? ` · ${employee.phone}` : ''}</p>
         </section>
 
-        <section className="welfare-luxury-panel rounded-[2rem] border border-white/10 bg-[#11100d]/72 p-6 shadow-2xl shadow-black/45 backdrop-blur-xl">
+        <section className="welfare-luxury-panel rounded-[2rem] border border-white/10 bg-[#0e1a12]/72 p-6 shadow-2xl shadow-black/45 backdrop-blur-xl">
         <h2 className="flex items-center gap-2 text-xl font-medium"><PenLine className="size-5 text-[#6f9b54]" />签名确认</h2>
         <p className="mt-2 text-sm leading-6 text-white/52">{activeConfig?.signatureNotice || '本人确认已收到上述福利品。'}</p>
         {fields.length > 0 && (
@@ -268,7 +268,7 @@ function SignDesk({ fullscreen, config, onError, onDone }: { fullscreen: boolean
         )}
         <SignaturePad value={signature} onChange={setSignature} />
         <Button
-          className="mt-4 w-full rounded-full bg-[#5e8b46] text-[#16130d] hover:bg-[#79a861]"
+          className="mt-4 w-full rounded-full bg-[#5e8b46] text-[#0c160c] hover:bg-[#79a861]"
           disabled={!signature || signMut.isPending || fields.some(f => f.required && !extra[f.key]?.trim())}
           onClick={() => signMut.mutate()}
         >
@@ -279,10 +279,10 @@ function SignDesk({ fullscreen, config, onError, onDone }: { fullscreen: boolean
 
       {popupOpen && activeConfig?.popupEnabled && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setPopupOpen(false)}>
-          <div className="w-full max-w-md rounded-[1.5rem] border border-white/10 bg-[#11100d] p-6 text-white shadow-2xl" onClick={e => e.stopPropagation()}>
+          <div className="w-full max-w-md rounded-[1.5rem] border border-white/10 bg-[#0e1a12] p-6 text-white shadow-2xl" onClick={e => e.stopPropagation()}>
             <h3 className="text-2xl font-semibold">{activeConfig.popupTitle || '签收提示'}</h3>
             <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-white/60">{activeConfig.popupContent}</p>
-            <Button className="mt-6 w-full bg-[#5e8b46] text-[#16130d] hover:bg-[#79a861]" onClick={() => setPopupOpen(false)}>知道了</Button>
+            <Button className="mt-6 w-full bg-[#5e8b46] text-[#0c160c] hover:bg-[#79a861]" onClick={() => setPopupOpen(false)}>知道了</Button>
           </div>
         </div>
       )}
@@ -291,17 +291,17 @@ function SignDesk({ fullscreen, config, onError, onDone }: { fullscreen: boolean
 }
 
 function luxuryFrameClass(fullscreen: boolean) {
-  return `welfare-luxury-stage relative isolate overflow-hidden bg-[#070706] ${fullscreen ? 'min-h-[100dvh]' : 'min-h-[calc(100dvh-10rem)] rounded-lg'}`
+  return `welfare-luxury-stage relative isolate overflow-hidden bg-[#08130d] ${fullscreen ? 'min-h-[100dvh]' : 'min-h-[calc(100dvh-10rem)] rounded-lg'}`
 }
 
 function LuxuryBackdrop({ image }: { image: string }) {
   return (
     <>
       <img src={image} alt="" className="absolute inset-0 h-full w-full object-cover opacity-72" />
-      <div className="absolute inset-0 bg-[#070706]/56" />
-      <div className="absolute inset-y-0 left-0 w-[70%] bg-[#070706]/72" />
+      <div className="absolute inset-0 bg-[#08130d]/56" />
+      <div className="absolute inset-y-0 left-0 w-[70%] bg-[#08130d]/72" />
       <div className="welfare-luxury-glow absolute -left-32 top-20 h-72 w-72 rounded-full bg-[#6f9b54]/20 blur-3xl" />
-      <div className="absolute inset-x-0 bottom-0 h-48 bg-[#070706]/80" />
+      <div className="absolute inset-x-0 bottom-0 h-48 bg-[#08130d]/80" />
     </>
   )
 }
