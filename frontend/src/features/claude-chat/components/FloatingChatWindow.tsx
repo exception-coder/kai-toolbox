@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronDown, ChevronUp, Cloud, LayoutGrid, List, Loader2, Maximize2, MessageSquare, Minus, Paperclip, Plus, Send, Shield, ShieldCheck, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Cloud, LayoutGrid, List, Loader2, Maximize2, MessageSquare, Mic, Minus, Paperclip, Plus, Send, Shield, ShieldCheck, X } from 'lucide-react'
 import { CHAT_ROUTE, useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { isShowcasePath } from '@/shell/featureRegistry'
 import { ThemeMenu } from '@/shell/ThemeMenu'
@@ -12,7 +12,8 @@ import { QuestionDialog } from './QuestionDialog'
 import { AttachmentChips } from './AttachmentChips'
 import { VoiceInputButton } from './VoiceInputButton'
 import { MiniVoiceBar } from './MiniVoiceBar'
-import { listSessions, uploadAttachment, type UploadedAttachment } from '../api'
+import { useVoiceRecorder } from '../hooks/useVoiceRecorder'
+import { listSessions, transcribe, uploadAttachment, type UploadedAttachment } from '../api'
 import type { ChatItem, PermissionMode } from '../types'
 import { engineDisplayName, providerHost } from './chatStatus'
 
@@ -62,7 +63,10 @@ export function FloatingChatWindow() {
   const dragRef = useRef<{ dx: number; dy: number } | null>(null)
   const resizeRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null)
   const bubbleRef = useRef<{ dx: number; dy: number; sx: number; sy: number; moved: boolean; long: boolean } | null>(null)
-  const bubbleLongTimer = useRef<number | null>(null) // 最小化气泡长按计时器：长按未拖动 → 激活语音模式
+  const bubbleLongTimer = useRef<number | null>(null) // 最小化气泡长按计时器：长按未拖动 → 原地录音
+  const bubbleRec = useVoiceRecorder()
+  const [bubbleListening, setBubbleListening] = useState(false) // 气泡正在听（录音中）
+  const [bubbleRecBusy, setBubbleRecBusy] = useState(false)     // 松手后转写中
   const autoApprovedRef = useRef<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
@@ -183,19 +187,37 @@ export function FloatingChatWindow() {
   }
 
   // 最小化气泡拖拽（拖动则移动，未拖动视为点击展开）
+  // 松手后：停止录音 → 转写 → 有文本就自动发送（取消/失败则丢弃，不发送）。
+  const finishBubbleListen = async () => {
+    setBubbleListening(false)
+    try {
+      const blob = await bubbleRec.stop()
+      setBubbleRecBusy(true)
+      const text = (await transcribe(blob)).trim()
+      if (text) chat.send(text)
+    } catch {
+      /* 录音过短/转写失败：静默丢弃 */
+    } finally {
+      setBubbleRecBusy(false)
+    }
+  }
+
   const onBubbleDown = (e: React.PointerEvent) => {
     bubbleRef.current = { dx: e.clientX - pos.x, dy: e.clientY - pos.y, sx: e.clientX, sy: e.clientY, moved: false, long: false }
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
     if (bubbleLongTimer.current) clearTimeout(bubbleLongTimer.current)
-    // 长按 450ms 且未拖动 → 直接进语音模式（不展开聊天窗），方便最小化时快速说话
+    // 长按 450ms 且未拖动 → 小人原地变「正在听」并开始录音（不展开、不弹云朵）。不支持录音则当普通长按，松手照常展开。
     bubbleLongTimer.current = window.setTimeout(() => {
       const b = bubbleRef.current
-      if (b && !b.moved) { b.long = true; setVoiceMode(true) }
+      if (!b || b.moved || !bubbleRec.supported) return
+      b.long = true
+      bubbleRec.start().then(() => setBubbleListening(true)).catch(() => { if (bubbleRef.current) bubbleRef.current.long = false })
     }, 450)
   }
   const onBubbleMove = (e: React.PointerEvent) => {
     const b = bubbleRef.current
     if (!b) return
+    if (b.long) return // 录音中：不移动气泡、不打断
     if (Math.abs(e.clientX - b.sx) > 3 || Math.abs(e.clientY - b.sy) > 3) {
       b.moved = true
       if (bubbleLongTimer.current) { clearTimeout(bubbleLongTimer.current); bubbleLongTimer.current = null } // 拖动即取消长按
@@ -210,7 +232,8 @@ export function FloatingChatWindow() {
     const b = bubbleRef.current
     bubbleRef.current = null
     ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
-    if (b && !b.moved && !b.long) setMinimized(false) // 短按展开；长按已进语音，不再展开
+    if (b?.long) void finishBubbleListen()          // 长按录音 → 松手转写并自动发送
+    else if (b && !b.moved) setMinimized(false)      // 短按 → 展开
   }
 
   const uploadFiles = async (files: FileList | null) => {
@@ -271,14 +294,26 @@ export function FloatingChatWindow() {
           className="fixed z-50 cursor-move touch-none rounded-full p-0 transition-transform hover:scale-105 active:scale-95"
           style={{ left: pos.x, top: pos.y }}
         >
-          <img
-            src={GIFT_CONCIERGE_IMAGE}
-            alt="礼赠助手"
-            draggable={false}
-            className={`size-16 select-none object-contain drop-shadow-[0_10px_22px_rgba(214,181,109,0.5)] ${active ? 'animate-pulse' : ''}`}
-          />
-          {pending && (
-            <span className="absolute right-1 top-1 size-2.5 rounded-full bg-[#d6b56d] ring-2 ring-[#0b0a08]" aria-hidden />
+          {bubbleListening ? (
+            <span className="flex size-16 items-center justify-center rounded-full bg-[#d6b56d]/25 ring-2 ring-[#d6b56d]">
+              <Mic className="size-7 animate-pulse text-[#d6b56d]" />
+            </span>
+          ) : bubbleRecBusy ? (
+            <span className="flex size-16 items-center justify-center rounded-full bg-black/55">
+              <Loader2 className="size-6 animate-spin text-[#d6b56d]" />
+            </span>
+          ) : (
+            <>
+              <img
+                src={GIFT_CONCIERGE_IMAGE}
+                alt="礼赠助手"
+                draggable={false}
+                className={`size-16 select-none object-contain drop-shadow-[0_10px_22px_rgba(214,181,109,0.5)] ${active ? 'animate-pulse' : ''}`}
+              />
+              {pending && (
+                <span className="absolute right-1 top-1 size-2.5 rounded-full bg-[#d6b56d] ring-2 ring-[#0b0a08]" aria-hidden />
+              )}
+            </>
           )}
         </button>
         {dialogs}
@@ -299,19 +334,40 @@ export function FloatingChatWindow() {
           className="fixed z-50 flex max-w-[72vw] cursor-move touch-none items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-card)] py-1.5 pl-2 pr-3.5 text-left shadow-lg"
           style={{ left: pos.x, top: pos.y }}
         >
-          <span className={`flex size-7 shrink-0 items-center justify-center rounded-full ${active
-            ? 'bg-[var(--color-primary)]/15 text-[var(--color-primary)]'
-            : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'}`}>
-            {active ? <Loader2 className="size-4 animate-spin" /> : <MessageSquare className="size-4" />}
-          </span>
-          <span className="min-w-0">
-            <span className="block truncate text-xs font-medium leading-tight">{headerTitle}</span>
-            <span className={`block truncate text-[11px] leading-tight ${pending
-              ? 'font-medium text-amber-600 dark:text-amber-400'
-              : 'text-[var(--color-muted-foreground)]'}`}>
-              {engineLabel} · {status}
-            </span>
-          </span>
+          {bubbleListening ? (
+            <>
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)]/15 text-[var(--color-primary)]">
+                <Mic className="size-4 animate-pulse" />
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-xs font-medium leading-tight">正在听…</span>
+                <span className="block truncate text-[11px] leading-tight text-[var(--color-muted-foreground)]">松开发送 · {bubbleRec.seconds}s</span>
+              </span>
+            </>
+          ) : bubbleRecBusy ? (
+            <>
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-muted)] text-[var(--color-muted-foreground)]">
+                <Loader2 className="size-4 animate-spin" />
+              </span>
+              <span className="block truncate text-xs leading-tight text-[var(--color-muted-foreground)]">识别中…</span>
+            </>
+          ) : (
+            <>
+              <span className={`flex size-7 shrink-0 items-center justify-center rounded-full ${active
+                ? 'bg-[var(--color-primary)]/15 text-[var(--color-primary)]'
+                : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'}`}>
+                {active ? <Loader2 className="size-4 animate-spin" /> : <MessageSquare className="size-4" />}
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-xs font-medium leading-tight">{headerTitle}</span>
+                <span className={`block truncate text-[11px] leading-tight ${pending
+                  ? 'font-medium text-amber-600 dark:text-amber-400'
+                  : 'text-[var(--color-muted-foreground)]'}`}>
+                  {engineLabel} · {status}
+                </span>
+              </span>
+            </>
+          )}
         </button>
         {dialogs}
       </>
