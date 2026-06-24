@@ -1,6 +1,6 @@
 import { authFetch, http } from '@/lib/api'
 import type { CommitDiff, CommitsResponse } from '@/components/git/types'
-import type { ChatItem, ClaudeChatSessionView, HistorySessionView, ModelInfo, NotifyConfig, PluginStatus, ProjectModules, SubdirList, TaskspaceView, WorkspaceList } from './types'
+import type { ChatItem, ClaudeChatSessionView, HistorySessionView, ModelInfo, NotifyConfig, PluginStatus, PluginVersion, ProjectModules, SubdirList, TaskspaceView, WorkspaceList } from './types'
 
 /** 列当前会话工作目录(git 仓库)的最近提交。后端按 sessionId 解析 cwd。 */
 export function listSessionCommits(sessionId: string, limit?: number) {
@@ -43,6 +43,11 @@ export function fetchSessionUsage(sessionId: string) {
 /** 查 team-standards 在 Claude/Codex 两端的版本。 */
 export function getPluginStatus() {
   return http<PluginStatus>('/claude-chat/plugins/status')
+}
+
+/** 列 Claude Code 端全部已安装插件及版本（当前会话所用，含 yoooni 系）。 */
+export function listInstalledPlugins() {
+  return http<PluginVersion[]>('/claude-chat/plugins/installed')
 }
 
 /** 一键更新双端插件的 SSE 端点路径（用 authEventSource 连接，自动带 JWT；连上即触发）。 */

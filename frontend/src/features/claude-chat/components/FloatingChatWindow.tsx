@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronDown, ChevronUp, Cloud, LayoutGrid, List, Loader2, Maximize2, MessageSquare, Mic, Minus, Paperclip, Plus, Send, Shield, ShieldCheck, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Cloud, LayoutGrid, List, Loader2, Maximize2, MessageSquare, Mic, Minus, Paperclip, Plus, RotateCw, Send, Shield, ShieldCheck, X } from 'lucide-react'
 import { CHAT_ROUTE, useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { isShowcasePath } from '@/shell/featureRegistry'
 import { ThemeMenu } from '@/shell/ThemeMenu'
@@ -444,6 +444,12 @@ export function FloatingChatWindow() {
                 className={`rounded p-1 ${hoverClass} ${showSessions ? (giftMode ? 'bg-white/10' : 'bg-[var(--color-background)]') : ''}`}>
                 <List className="size-4" />
               </button>
+              {chat.sessionId && (
+                <button type="button" onClick={() => chat.resumeCurrent()} aria-label="重载会话" title="重载会话（重连原生会话，加载最新插件/技能/命令）"
+                  className={`rounded p-1 ${hoverClass}`}>
+                  <RotateCw className="size-4" />
+                </button>
+              )}
             </>
           )}
           {!showSessions && (

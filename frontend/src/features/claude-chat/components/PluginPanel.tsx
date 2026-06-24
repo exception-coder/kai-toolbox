@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { RefreshCw, Download, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { authEventSource } from '@/lib/api'
-import { getPluginStatus, PLUGIN_UPDATE_STREAM_PATH } from '../api'
-import type { EnginePluginStatus, PluginStatus } from '../types'
+import { getPluginStatus, listInstalledPlugins, PLUGIN_UPDATE_STREAM_PATH } from '../api'
+import type { EnginePluginStatus, PluginStatus, PluginVersion } from '../types'
 
 /**
  * team-standards 插件面板:展示 Claude/Codex 两端版本 + 一键更新(SSE 实时回显)。
@@ -11,6 +11,7 @@ import type { EnginePluginStatus, PluginStatus } from '../types'
  */
 export function PluginPanel({ onClose }: { onClose: () => void }) {
   const [status, setStatus] = useState<PluginStatus | null>(null)
+  const [installed, setInstalled] = useState<PluginVersion[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [updating, setUpdating] = useState(false)
   const [lines, setLines] = useState<string[]>([])
@@ -19,7 +20,11 @@ export function PluginPanel({ onClose }: { onClose: () => void }) {
 
   const refresh = async () => {
     setLoading(true)
-    try { setStatus(await getPluginStatus()) } catch { /* 静默 */ } finally { setLoading(false) }
+    try {
+      const [s, list] = await Promise.all([getPluginStatus(), listInstalledPlugins()])
+      setStatus(s)
+      setInstalled(list)
+    } catch { /* 静默 */ } finally { setLoading(false) }
   }
 
   useEffect(() => {
@@ -73,6 +78,35 @@ export function PluginPanel({ onClose }: { onClose: () => void }) {
       <div className="grid grid-cols-2 gap-2">
         <EngineCard name="Claude" s={status?.claude} />
         <EngineCard name="Codex" s={status?.codex} />
+      </div>
+
+      {/* 本机已安装插件（当前会话所用） */}
+      <div className="mt-3">
+        <div className="mb-1 text-xs font-medium text-[var(--color-muted-foreground)]">本机已安装插件（当前会话所用）</div>
+        {installed == null ? (
+          <div className="text-xs text-[var(--color-muted-foreground)]">加载中…</div>
+        ) : installed.length === 0 ? (
+          <div className="text-xs text-[var(--color-muted-foreground)]">未检测到已安装插件（~/.claude/plugins）</div>
+        ) : (
+          <ul className="space-y-1">
+            {installed.map(p => {
+              const outdated = p.installed && p.available && p.installed !== p.available
+              return (
+                <li key={`${p.name}@${p.marketplace}`} className="flex items-center gap-2 rounded-md border px-2 py-1.5 text-xs">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium">{p.name}</div>
+                    {p.marketplace && <div className="truncate text-[10px] text-[var(--color-muted-foreground)]">@{p.marketplace}</div>}
+                  </div>
+                  <div className="shrink-0 text-right text-[var(--color-muted-foreground)]">
+                    已装 <span className="text-[var(--color-foreground)]">{p.installed ?? '未知'}</span>
+                    {p.available && <> · 最新 {p.available}</>}
+                  </div>
+                  {outdated && <span className="shrink-0 rounded bg-amber-100 px-1 text-amber-700 dark:bg-amber-900 dark:text-amber-200">可更新</span>}
+                </li>
+              )
+            })}
+          </ul>
+        )}
       </div>
 
       <Button size="sm" className="mt-3 w-full" onClick={startUpdate} disabled={updating}>

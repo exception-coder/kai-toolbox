@@ -132,6 +132,14 @@ export interface PluginStatus {
   codex: EnginePluginStatus
 }
 
+/** Claude Code 端一个已安装插件的版本（当前会话所用）。installed=会话实际加载版本，available=市场可用版本。 */
+export interface PluginVersion {
+  name: string
+  marketplace: string
+  installed: string | null
+  available: string | null
+}
+
 /** 可选模型信息（来自 SDK supportedModels）。value 用于 setModel，displayName/description 供展示。 */
 export interface ModelInfo {
   value: string
