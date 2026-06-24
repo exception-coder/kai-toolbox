@@ -13,11 +13,15 @@ import java.util.List;
 public record ProjectModulesResponse(String project, String projectPath, boolean exists, List<ModuleView> modules) {
 
     /**
-     * @param name    模块目录名
-     * @param relPath 相对项目根的路径（项目根自身为 "."）；用斜杠分隔
-     * @param absPath 模块绝对路径，作为 claude-chat 会话的 cwd
-     * @param type    识别到的模块类型：maven / gradle / node / go / rust / python
+     * @param name     模块目录名或业务中文名
+     * @param relPath  相对项目根的路径（项目根自身为 "."）；用斜杠分隔
+     * @param absPath  模块绝对路径，作为 claude-chat 会话的 cwd
+     * @param type     识别到的模块类型：maven / gradle / node / go / rust / python；
+     *                 或来自知识库 modules.json 的模块（标记为 knowledge）
+     * @param summary  业务说明（来自知识库；自动识别的模块为空）
+     * @param children 子模块（知识库声明的嵌套模块，如 crm 域下的子模块）；无则为空列表
      */
-    public record ModuleView(String name, String relPath, String absPath, String type) {
+    public record ModuleView(String name, String relPath, String absPath, String type,
+                             String summary, List<ModuleView> children) {
     }
 }

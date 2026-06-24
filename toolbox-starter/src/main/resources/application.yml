@@ -351,6 +351,13 @@ toolbox:
       hidden-prefixes:
         - "."
         - "_"
+      # 知识库（project-domain-knowledge）本地 clone 的 knowledge/ 目录绝对路径。
+      # 配置后，项目工作台列模块时优先读 {此目录}/{项目目录名}/impl/modules.json
+      # （项目目录名须 == 知识库 project key），按其声明的业务模块树 + 代码路径渲染；
+      # 找不到则回退按构建标志文件自动识别。为空 = 不启用。
+      # 后端只读本地文件，不联网、不执行 git；保持最新需自行 git pull。
+      knowledge-base-dir: "D:\\Users\\zhang\\myWork\\project-domain-knowledge\\knowledge"
+      # 例： knowledge-base-dir: "D:\\Users\\zhang\\myWork\\project-domain-knowledge\\knowledge"
 
   browser-request:
     # 持久 BrowserContext 数据目录（cookies/storage state），留空 = ${toolbox.data-dir}/browser-request

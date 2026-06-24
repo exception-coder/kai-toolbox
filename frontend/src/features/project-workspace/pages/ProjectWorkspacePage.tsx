@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { BotMessageSquare, FolderTree, Loader2, Play, RefreshCw, Search, TerminalSquare } from 'lucide-react'
+import { BotMessageSquare, CornerDownRight, FolderTree, Loader2, Play, RefreshCw, Search, TerminalSquare } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -57,11 +57,7 @@ export function ProjectWorkspacePage() {
     const modules = modulesQ.data?.modules ?? []
     const q = keyword.trim().toLowerCase()
     if (!q) return modules
-    return modules.filter(module =>
-      module.name.toLowerCase().includes(q)
-      || module.relPath.toLowerCase().includes(q)
-      || module.type.toLowerCase().includes(q),
-    )
+    return filterModuleTree(modules, q)
   }, [keyword, modulesQ.data?.modules])
 
   useEffect(() => {
@@ -186,18 +182,15 @@ export function ProjectWorkspacePage() {
               <StateLine text={keyword.trim() ? '没有匹配模块' : '未识别到模块'} />
             ) : (
               <div className="grid gap-3 xl:grid-cols-2">
-                {filteredModules.map(module => {
-                  const session = sessionByCwd.get(normalizePath(module.absPath))
-                  return (
-                    <ModuleCard
-                      key={module.absPath}
-                      module={module}
-                      session={session}
-                      opening={pendingOpen?.module.absPath === module.absPath}
-                      onOpen={() => openModule(module)}
-                    />
-                  )
-                })}
+                {filteredModules.map(module => (
+                  <ModuleCard
+                    key={module.absPath}
+                    module={module}
+                    sessionByCwd={sessionByCwd}
+                    pendingPath={pendingOpen?.module.absPath ?? null}
+                    onOpen={openModule}
+                  />
+                ))}
               </div>
             )}
           </CardContent>
@@ -227,6 +220,59 @@ function ProjectButton({ project, selected, onClick }: { project: WorkspaceDir &
 
 function ModuleCard({
   module,
+  sessionByCwd,
+  pendingPath,
+  onOpen,
+}: {
+  module: ProjectModule
+  sessionByCwd: Map<string, ClaudeChatSessionView>
+  pendingPath: string | null
+  onOpen: (module: ProjectModule) => void
+}) {
+  const session = sessionByCwd.get(normalizePath(module.absPath))
+  const children = module.children ?? []
+  return (
+    <div className="flex min-w-0 flex-col gap-3 rounded-md border bg-[var(--color-background)] p-4">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate font-medium text-[var(--color-foreground)]">{module.name}</span>
+            <Badge variant={moduleTypeBadge(module.type)}>{module.type}</Badge>
+          </div>
+          {module.summary
+            ? <div className="mt-1 line-clamp-2 text-xs text-[var(--color-muted-foreground)]">{module.summary}</div>
+            : null}
+          <div className="mt-1 truncate text-xs text-[var(--color-muted-foreground)]">{module.relPath}</div>
+        </div>
+        <Badge variant={session ? 'success' : 'outline'}>{session ? '已有会话' : '未打开'}</Badge>
+      </div>
+      <Separator />
+      <div className="flex justify-end">
+        <Button type="button" size="sm" onClick={() => onOpen(module)} disabled={pendingPath === module.absPath}>
+          {pendingPath === module.absPath ? <Loader2 className="animate-spin" /> : session ? <BotMessageSquare /> : <Play />}
+          {session ? '打开会话' : '新建会话'}
+        </Button>
+      </div>
+      {children.length > 0 && (
+        <div className="space-y-1.5 border-t pt-3">
+          {children.map(child => (
+            <ModuleChildRow
+              key={child.absPath}
+              module={child}
+              session={sessionByCwd.get(normalizePath(child.absPath))}
+              opening={pendingPath === child.absPath}
+              onOpen={() => onOpen(child)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** 子模块紧凑行：用于嵌套模块（如 crm 域下的子模块），可独立开会话。 */
+function ModuleChildRow({
+  module,
   session,
   opening,
   onOpen,
@@ -237,27 +283,16 @@ function ModuleCard({
   onOpen: () => void
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-3 rounded-md border bg-[var(--color-background)] p-4">
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate font-medium text-[var(--color-foreground)]">{module.name}</span>
-            <Badge variant={moduleTypeBadge(module.type)}>{module.type}</Badge>
-          </div>
-          <div className="mt-1 truncate text-xs text-[var(--color-muted-foreground)]">{module.relPath}</div>
-        </div>
-        <Badge variant={session ? 'success' : 'outline'}>{session ? '已有会话' : '未打开'}</Badge>
+    <div className="flex min-w-0 items-center justify-between gap-2 rounded-md bg-[var(--color-muted)]/40 px-2.5 py-1.5">
+      <div className="flex min-w-0 items-center gap-2">
+        <CornerDownRight className="h-3.5 w-3.5 shrink-0 text-[var(--color-muted-foreground)]" />
+        <span className="truncate text-sm text-[var(--color-foreground)]">{module.name}</span>
+        {session ? <Badge variant="success" className="text-[10px]">会话</Badge> : null}
       </div>
-      <Separator />
-      <div className="min-w-0 truncate rounded-md bg-[var(--color-muted)] px-3 py-2 font-mono text-xs text-[var(--color-muted-foreground)]">
-        {module.absPath}
-      </div>
-      <div className="flex justify-end">
-        <Button type="button" size="sm" onClick={onOpen} disabled={opening}>
-          {opening ? <Loader2 className="animate-spin" /> : session ? <BotMessageSquare /> : <Play />}
-          {session ? '打开会话' : '新建会话'}
-        </Button>
-      </div>
+      <Button type="button" size="sm" variant="ghost" className="h-7 shrink-0 px-2 text-xs" onClick={onOpen} disabled={opening}>
+        {opening ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : session ? <BotMessageSquare className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+        {session ? '打开' : '新建'}
+      </Button>
     </div>
   )
 }
@@ -291,9 +326,30 @@ function moduleTypeBadge(type: string) {
       return 'success'
     case 'python':
       return 'warning'
+    case 'knowledge':
+      return 'secondary'
     default:
       return 'outline'
   }
+}
+
+/** 递归过滤模块树：模块自身命中则整支保留；否则保留命中的子模块。 */
+function filterModuleTree(modules: ProjectModule[], q: string): ProjectModule[] {
+  const hit = (m: ProjectModule) =>
+    m.name.toLowerCase().includes(q)
+    || m.relPath.toLowerCase().includes(q)
+    || m.type.toLowerCase().includes(q)
+    || (m.summary ?? '').toLowerCase().includes(q)
+  const out: ProjectModule[] = []
+  for (const m of modules) {
+    if (hit(m)) {
+      out.push(m)
+      continue
+    }
+    const kids = filterModuleTree(m.children ?? [], q)
+    if (kids.length > 0) out.push({ ...m, children: kids })
+  }
+  return out
 }
 
 function normalizePath(path: string) {

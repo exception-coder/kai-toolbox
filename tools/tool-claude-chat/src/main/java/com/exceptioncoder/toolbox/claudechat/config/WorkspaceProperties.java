@@ -29,4 +29,15 @@ public class WorkspaceProperties {
 
     /** 子目录名以这些前缀开头时跳过；默认 "."、"_"，对齐项目管理面板。 */
     private List<String> hiddenPrefixes = List.of(".", "_");
+
+    /**
+     * 知识库（project-domain-knowledge）本地 clone 的 {@code knowledge/} 目录绝对路径。
+     *
+     * <p>配置后，「项目工作台」列模块时优先读 {@code {knowledgeBaseDir}/{项目目录名}/impl/modules.json}
+     * （项目目录名 == 知识库 project key，须一致），按其中声明的业务模块树 + 代码路径渲染可点列表；
+     * 找不到该文件时回退到「按构建标志文件自动识别」。为空 = 不启用，始终走自动识别。</p>
+     *
+     * <p>后端只读本地文件，不联网、不执行 git；保持本地最新需自行 {@code git pull}。</p>
+     */
+    private String knowledgeBaseDir = "";
 }

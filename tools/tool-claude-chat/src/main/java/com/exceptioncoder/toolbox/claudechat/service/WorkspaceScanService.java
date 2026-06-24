@@ -30,12 +30,14 @@ import java.util.stream.Stream;
 public class WorkspaceScanService {
 
     private final WorkspaceProperties props;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     private volatile WorkspaceListResponse cache;
     private volatile long cacheExpireAt;
 
-    public WorkspaceScanService(WorkspaceProperties props) {
+    public WorkspaceScanService(WorkspaceProperties props, com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
         this.props = props;
+        this.objectMapper = objectMapper;
     }
 
     public WorkspaceListResponse scan() {
@@ -100,9 +102,96 @@ public class WorkspaceScanService {
             return new ProjectModulesResponse(name, root.toString(), false, List.of());
         }
         List<ModuleView> modules = new ArrayList<>();
+        // 优先读知识库 modules.json（业务模块树 + 代码路径）；未配置或找不到才回退按构建文件自动识别。
+        List<ModuleView> fromKnowledge = readKnowledgeModules(root, name);
+        if (fromKnowledge != null) {
+            return new ProjectModulesResponse(name, root.toString(), true, fromKnowledge);
+        }
         collectModules(root, root, 0, modules);
         modules.sort(Comparator.comparing(ModuleView::relPath, String.CASE_INSENSITIVE_ORDER));
         return new ProjectModulesResponse(name, root.toString(), true, List.copyOf(modules));
+    }
+
+    /** 知识库 modules.json 文件名（位于 {knowledgeBaseDir}/{project}/impl/ 下）。 */
+    private static final String KB_MODULES_FILE = "modules.json";
+
+    /**
+     * 读知识库为该项目声明的模块树：{@code {knowledgeBaseDir}/{projectName}/impl/modules.json}。
+     * projectName 即工作区项目目录名，须与知识库 project key 一致（方案：按目录名匹配）。
+     *
+     * <p>返回 null 表示「未启用 / 无此文件」，调用方回退自动识别；返回（可能空的）列表表示
+     * 「知识库已声明该项目」，即便为空也不再自动识别。codePath 越界（借 ../ 逃出项目根）的条目被跳过。</p>
+     */
+    private List<ModuleView> readKnowledgeModules(Path root, String projectName) {
+        String kbDir = props.getKnowledgeBaseDir();
+        if (kbDir == null || kbDir.isBlank()) return null;
+        Path manifest = Path.of(kbDir).resolve(projectName).resolve("impl").resolve(KB_MODULES_FILE);
+        if (!Files.isRegularFile(manifest)) return null;
+        try {
+            KnowledgeModules parsed = objectMapper.readValue(manifest.toFile(), KnowledgeModules.class);
+            if (parsed == null || parsed.modules() == null) return List.of();
+            List<ModuleView> out = new ArrayList<>();
+            for (KbModule m : parsed.modules()) {
+                ModuleView v = toModuleView(root, m);
+                if (v != null) out.add(v);
+            }
+            return List.copyOf(out);
+        } catch (IOException e) {
+            log.debug("解析知识库 {} 失败，按空模块处理: {}", KB_MODULES_FILE, manifest, e);
+            return List.of();
+        }
+    }
+
+    /**
+     * 把一条知识库模块声明转 ModuleView（递归子模块）。
+     *
+     * <p>cwd（absPath）以 webPath 为准——前端常是问题入口；webPath 缺省时退回 codePath。
+     * relPath 跟随被选作 cwd 的那个路径，使工作台展示与会话实际进入目录一致。
+     * codePath 与 webPath 均做越界校验；两者都缺/越界则该模块作废返回 null。</p>
+     */
+    private ModuleView toModuleView(Path root, KbModule m) {
+        if (m == null) return null;
+        Path codeAbs = safeResolve(root, m.codePath());
+        Path webAbs = safeResolve(root, m.webPath());
+        // cwd 优先前端目录，无则后端目录。
+        Path cwd = webAbs != null ? webAbs : codeAbs;
+        if (cwd == null) {
+            log.debug("知识库 {} 模块 codePath/webPath 均缺失或越界，跳过: {}", KB_MODULES_FILE, m.key());
+            return null;
+        }
+        String relStr = root.relativize(cwd).toString().replace('\\', '/');
+        String moduleName = (m.name() == null || m.name().isBlank()) ? cwd.getFileName().toString() : m.name();
+        List<ModuleView> children = new ArrayList<>();
+        if (m.children() != null) {
+            for (KbModule c : m.children()) {
+                ModuleView cv = toModuleView(root, c);
+                if (cv != null) children.add(cv);
+            }
+        }
+        return new ModuleView(moduleName, relStr, cwd.toString(), "knowledge",
+                m.summary() == null ? "" : m.summary(), List.copyOf(children));
+    }
+
+    /** 解析相对项目根的路径并做越界校验；空/越界返回 null。 */
+    private Path safeResolve(Path root, String rel) {
+        if (rel == null || rel.isBlank()) return null;
+        Path abs = root.resolve(rel.replace('\\', '/')).normalize();
+        if (!abs.startsWith(root)) {
+            log.debug("知识库 {} 中路径越界，忽略: {}", KB_MODULES_FILE, rel);
+            return null;
+        }
+        return abs;
+    }
+
+    /** 知识库 modules.json 顶层结构。 */
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    private record KnowledgeModules(List<KbModule> modules) {
+    }
+
+    /** 一条知识库模块声明：key/name 业务名，codePath 后端目录、webPath 前端目录(相对项目根)，children 嵌套子模块。 */
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    private record KbModule(String key, String name, String codePath, String webPath, String summary,
+                            List<KbModule> children) {
     }
 
     private void collectModules(Path projectRoot, Path dir, int depth, List<ModuleView> out) {
@@ -110,7 +199,7 @@ public class WorkspaceScanService {
         if (type != null) {
             Path rel = projectRoot.relativize(dir);
             String relStr = rel.toString().isEmpty() ? "." : rel.toString().replace('\\', '/');
-            out.add(new ModuleView(dir.getFileName().toString(), relStr, dir.toString(), type));
+            out.add(new ModuleView(dir.getFileName().toString(), relStr, dir.toString(), type, "", List.of()));
         }
         if (depth >= MODULE_MAX_DEPTH) return;
         try (Stream<Path> children = Files.list(dir)) {
