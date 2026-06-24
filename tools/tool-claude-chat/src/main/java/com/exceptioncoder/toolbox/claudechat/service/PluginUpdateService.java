@@ -221,19 +221,16 @@ public class PluginUpdateService {
             List<Map<String, Object>> results = new ArrayList<>();
             try {
                 Thread.sleep(150); // 等 SSE HTTP 挂上
-                String mk = props.getMarketplace();
-                String selector = props.getPluginName() + "@" + mk;
+                // 团队插件均为 Claude Code 插件（codex 端无此 marketplace，旧「双端」属误设）：
+                // 先 `claude plugin marketplace update` 刷新所有源，再逐个 `claude plugin update <p>@<p>`
+                // （公司三插件 marketplace 名 == 插件名）。与权威脚本 update-team-tools.ps1 一致。
                 List<String> claude = List.of(props.getClaudeBin(), "plugin");
                 results.add(runStep(taskId, "claude", "marketplace-update",
-                        concat(claude, "marketplace", "update", mk)));
-                results.add(runStep(taskId, "claude", "install",
-                        concat(claude, "install", selector)));
-                List<String> codex = new ArrayList<>(codexParts());
-                codex.add("plugin");
-                results.add(runStep(taskId, "codex", "marketplace-upgrade",
-                        concat(codex, "marketplace", "upgrade", mk)));
-                results.add(runStep(taskId, "codex", "add",
-                        concat(codex, "add", selector)));
+                        concat(claude, "marketplace", "update")));
+                for (String p : props.getWatchedPlugins()) {
+                    results.add(runStep(taskId, "claude", "update:" + p,
+                            concat(claude, "update", p + "@" + p)));
+                }
                 sse.publish(taskId, "message", Map.of("type", "done", "results", results));
             } catch (Exception e) {
                 sse.publish(taskId, "message", Map.of("type", "error", "message", String.valueOf(e.getMessage())));
