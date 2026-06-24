@@ -45,9 +45,9 @@ export function getPluginStatus() {
   return http<PluginStatus>('/claude-chat/plugins/status')
 }
 
-/** 列团队套件状态（3 插件 + 2 MCP，当前会话所用）：插件带版本，MCP 带是否已配置。 */
-export function listSuites() {
-  return http<SuiteStatus[]>('/claude-chat/plugins/suites')
+/** 列团队套件状态（3 插件 + 2 MCP，当前会话所用）。fetch=true 时先 git fetch MCP 知识库，使「落后远端」准确（较慢）。 */
+export function listSuites(fetch = false) {
+  return http<SuiteStatus[]>(`/claude-chat/plugins/suites${fetch ? '?fetch=true' : ''}`)
 }
 
 /** 一键更新双端插件的 SSE 端点路径（用 authEventSource 连接，自动带 JWT；连上即触发）。 */

@@ -23,7 +23,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -119,20 +118,39 @@ public class PluginUpdateService {
      * {@code marketplaces/<mk>/.claude-plugin/marketplace.json}（可用），不联网、不跑命令。
      * 文件缺失或解析失败时返回空列表（不抛错）。按插件名升序。
      */
-    public List<SuiteStatusView> readSuites() {
+    public List<SuiteStatusView> readSuites(boolean fetch) {
         Path home = Path.of(System.getProperty("user.home"));
         Map<String, String[]> installedPlugins = readInstalledPluginMap(home); // name -> [marketplace, version]
-        Set<String> mcps = readMcpServerNames(home);
+        Map<String, Path> mcpRepos = readMcpServers(home);                     // name -> 知识库仓根（可能 null）
         List<SuiteStatusView> out = new ArrayList<>();
         for (String name : props.getWatchedPlugins()) {
             String[] info = installedPlugins.get(name);
             String marketplace = info != null ? info[0] : null;
             String installed = info != null ? info[1] : null;
             String available = marketplace != null ? readMarketplaceVersion(home, marketplace, name) : null;
-            out.add(new SuiteStatusView(name, "plugin", marketplace, installed, available, installed != null));
+            out.add(new SuiteStatusView(name, "plugin", marketplace, installed, available, installed != null,
+                    null, null, null));
         }
         for (String name : props.getWatchedMcps()) {
-            out.add(new SuiteStatusView(name, "mcp", null, null, null, mcps.contains(name)));
+            boolean configured = mcpRepos.containsKey(name);
+            Path repo = mcpRepos.get(name);
+            String commit = null;
+            String date = null;
+            Integer behind = null;
+            if (repo != null && Files.isDirectory(repo)) {
+                if (fetch) {
+                    gitOutput(repo, 25_000, "fetch", "--quiet"); // best-effort：刷新上游，使 behind 反映远端实情
+                }
+                commit = nullIfBlank(gitOutput(repo, 5_000, "rev-parse", "--short", "HEAD"));
+                date = nullIfBlank(gitOutput(repo, 5_000, "log", "-1", "--format=%cs"));
+                String b = gitOutput(repo, 5_000, "rev-list", "--count", "HEAD..@{u}");
+                try {
+                    if (!b.isBlank()) behind = Integer.parseInt(b.trim());
+                } catch (NumberFormatException ignore) {
+                    // 无上游 / 解析失败 → behind 保持 null（未知）
+                }
+            }
+            out.add(new SuiteStatusView(name, "mcp", null, null, null, configured, commit, date, behind));
         }
         return out;
     }
@@ -166,22 +184,57 @@ public class PluginUpdateService {
         return map;
     }
 
-    /** 读 ~/.claude.json 顶层 mcpServers 的 server 名集合（判断 MCP 是否已配置）。 */
-    private Set<String> readMcpServerNames(Path home) {
-        Set<String> names = new java.util.HashSet<>();
+    /**
+     * 读 ~/.claude.json 顶层 mcpServers：server 名 -> 其知识库仓根（env.DOMAIN_KB_DIR 的父目录；
+     * 无该 env 则 value 为 null）。key 存在即「已配置」。
+     */
+    private Map<String, Path> readMcpServers(Path home) {
+        Map<String, Path> map = new HashMap<>();
         try {
             Path f = home.resolve(".claude.json");
             if (!Files.exists(f)) {
-                return names;
+                return map;
             }
             JsonNode mcp = mapper.readTree(f.toFile()).path("mcpServers");
-            if (mcp.isObject()) {
-                mcp.fieldNames().forEachRemaining(names::add);
+            if (!mcp.isObject()) {
+                return map;
+            }
+            Iterator<Map.Entry<String, JsonNode>> it = mcp.fields();
+            while (it.hasNext()) {
+                Map.Entry<String, JsonNode> e = it.next();
+                JsonNode kb = e.getValue().path("env").path("DOMAIN_KB_DIR");
+                Path repo = null;
+                if (kb.isTextual() && !kb.asText().isBlank()) {
+                    repo = Path.of(kb.asText()).getParent(); // knowledge 的父目录 = 仓库根
+                }
+                map.put(e.getKey(), repo);
             }
         } catch (Exception ex) {
             log.debug("读取 MCP 配置失败：{}", ex.getMessage());
         }
-        return names;
+        return map;
+    }
+
+    /** 在指定 git 仓目录跑一条 git 命令，返回 trim 后 stdout；失败/超时返回空串。 */
+    private String gitOutput(Path dir, long timeoutMs, String... args) {
+        try {
+            List<String> cmd = new ArrayList<>();
+            cmd.add("git");
+            for (String a : args) cmd.add(a);
+            Process p = new ProcessBuilder(cmd).directory(dir.toFile()).redirectErrorStream(true).start();
+            String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            if (!p.waitFor(timeoutMs, TimeUnit.MILLISECONDS)) {
+                p.destroyForcibly();
+                return "";
+            }
+            return p.exitValue() == 0 ? out.trim() : "";
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private static String nullIfBlank(String s) {
+        return s == null || s.isBlank() ? null : s;
     }
 
     /** 从某市场的 marketplace.json 按插件名取可用版本；取不到为 null。 */

@@ -12,6 +12,7 @@ import type { SuiteStatus } from '../types'
 export function PluginPanel({ onClose }: { onClose: () => void }) {
   const [suites, setSuites] = useState<SuiteStatus[] | null>(null)
   const [loading, setLoading] = useState(false)
+  const [checking, setChecking] = useState(false)
   const [updating, setUpdating] = useState(false)
   const [lines, setLines] = useState<string[]>([])
   const esRef = useRef<EventSource | null>(null)
@@ -20,6 +21,13 @@ export function PluginPanel({ onClose }: { onClose: () => void }) {
   const refresh = async () => {
     setLoading(true)
     try { setSuites(await listSuites()) } catch { /* 静默 */ } finally { setLoading(false) }
+  }
+
+  /** 对 MCP 知识库 git fetch 后再读，使「落后远端」准确（较慢）。 */
+  const checkRemote = async () => {
+    if (checking) return
+    setChecking(true)
+    try { setSuites(await listSuites(true)) } catch { /* 静默 */ } finally { setChecking(false) }
   }
 
   useEffect(() => {
@@ -94,9 +102,17 @@ export function PluginPanel({ onClose }: { onClose: () => void }) {
                       {outdated && <span className="ml-1 rounded bg-amber-100 px-1 text-amber-700 dark:bg-amber-900 dark:text-amber-200">可更新</span>}
                     </span>
                   )
+                ) : !p.present ? (
+                  <span className="shrink-0 text-[var(--color-muted-foreground)]">未配置</span>
                 ) : (
-                  <span className={`shrink-0 ${p.present ? 'text-emerald-600 dark:text-emerald-400' : 'text-[var(--color-muted-foreground)]'}`}>
-                    {p.present ? '✔ 已配置' : '未配置'}
+                  <span className="shrink-0 text-right text-[var(--color-muted-foreground)]">
+                    {p.repoDate
+                      ? <>知识库 <span className="text-[var(--color-foreground)]">{p.repoDate}</span>{p.repoCommit && <> · {p.repoCommit}</>}</>
+                      : '已配置'}
+                    {p.behind == null ? null
+                      : p.behind === 0
+                        ? <span className="ml-1 text-emerald-600 dark:text-emerald-400">已最新</span>
+                        : <span className="ml-1 rounded bg-amber-100 px-1 text-amber-700 dark:bg-amber-900 dark:text-amber-200">落后 {p.behind}</span>}
                   </span>
                 )}
               </li>
@@ -104,6 +120,11 @@ export function PluginPanel({ onClose }: { onClose: () => void }) {
           })}
         </ul>
       )}
+
+      <button type="button" onClick={checkRemote} disabled={checking}
+        className="mt-2 w-full rounded-md border py-1 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] disabled:opacity-50">
+        {checking ? '检查中…（git fetch 知识库）' : '检查 MCP 知识库是否最新（对比远端）'}
+      </button>
 
       <Button size="sm" className="mt-3 w-full" onClick={startUpdate} disabled={updating}>
         <Download className="size-4" /> {updating ? '更新中…' : '一键更新团队插件（Claude）'}

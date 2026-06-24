@@ -132,7 +132,7 @@ export interface PluginStatus {
   codex: EnginePluginStatus
 }
 
-/** 团队套件（插件 / MCP）在 Claude Code 端的状态。插件带版本，MCP 仅 present。 */
+/** 团队套件（插件 / MCP）在 Claude Code 端的状态。插件带版本；MCP 用知识库 git 状态表达版本/新鲜度。 */
 export interface SuiteStatus {
   name: string
   kind: 'plugin' | 'mcp'
@@ -141,6 +141,12 @@ export interface SuiteStatus {
   available: string | null
   /** 插件=已安装；MCP=已在 ~/.claude.json 配置。 */
   present: boolean
+  /** MCP 知识库本地短 commit（插件为 null）。 */
+  repoCommit: string | null
+  /** MCP 知识库本地提交日期 YYYY-MM-DD（插件为 null）。 */
+  repoDate: string | null
+  /** MCP 知识库落后远端的提交数：0=已最新；null=未知/无上游/未 fetch。 */
+  behind: number | null
 }
 
 /** 可选模型信息（来自 SDK supportedModels）。value 用于 setModel，displayName/description 供展示。 */
