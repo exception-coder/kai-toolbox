@@ -100,7 +100,9 @@ export interface UseClaudeChatSocket {
   loadHistory: (reset: boolean) => void
 }
 
-export function useClaudeChatSocket(): UseClaudeChatSocket {
+export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSocket {
+  // demo（受约束免登录演示）：连 /api/claude-chat/demo/ws，不带 token、不自动 attach 重连。
+  const demo = opts?.demo ?? false
   const [state, setState] = useState<ConnState>('idle')
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [items, setItems] = useState<ChatItem[]>([])
@@ -333,9 +335,11 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
   const openSocket = useCallback(() => {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     // WS 握手无法带 Authorization 头，开启鉴权后用 access_token 让 AdminHandshakeInterceptor 校验 ADMIN。
-    const token = getToken()
+    // demo 通道公开免鉴权（路由不挂拦截器），不带 token。
+    const token = demo ? null : getToken()
     const qs = token ? `?access_token=${encodeURIComponent(token)}` : ''
-    const url = `${proto}//${window.location.host}/api/claude-chat/ws${qs}`
+    const path = demo ? '/api/claude-chat/demo/ws' : '/api/claude-chat/ws'
+    const url = `${proto}//${window.location.host}${path}${qs}`
     setState('connecting')
     const ws = new WebSocket(url)
     wsRef.current = ws
@@ -362,7 +366,8 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
       wsRef.current = null
       if (manualCloseRef.current) return
       // 非主动关闭且已有会话：自动重连并 attach 回放（断连不丢消息），按指数退避避免死循环刷屏
-      if (sessionIdRef.current) {
+      // demo 会话随 WS 断开即被服务端销毁，重连 attach 已无意义；只置 closed。
+      if (!demo && sessionIdRef.current) {
         intentRef.current = { kind: 'attach', sessionId: sessionIdRef.current, lastEventSeq: lastSeqRef.current }
         setState('closed')
         const n = (reconnectAttemptsRef.current += 1)
@@ -372,7 +377,7 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
         setState('closed')
       }
     }
-  }, [applyEvent, flushIntent, flushPendingSends])
+  }, [applyEvent, flushIntent, flushPendingSends, demo])
 
   const connect = useCallback(() => {
     // 幂等：已有在连/已连的 socket，或正处于「续期+建连」异步窗口时，不再叠一条。
@@ -385,6 +390,15 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
     if (connectingRef.current) return
     connectingRef.current = true
     setState('connecting')
+    // demo：免鉴权，跳过 token 续期，直接建连。
+    if (demo) {
+      connectingRef.current = false
+      if (manualCloseRef.current) return
+      const cur = wsRef.current
+      if (cur && (cur.readyState === WebSocket.CONNECTING || cur.readyState === WebSocket.OPEN)) return
+      openSocket()
+      return
+    }
     // 重连前先确保 access token 新鲜（过期则用 refresh token 续期）。
     // 治本：避免「拿过期 token 每秒重连被握手拒」的死循环（实测曾刷 4 万条）。
     ensureFreshToken().finally(() => {
@@ -400,7 +414,7 @@ export function useClaudeChatSocket(): UseClaudeChatSocket {
       }
       openSocket()
     })
-  }, [openSocket])
+  }, [openSocket, demo])
 
   useEffect(() => {
     manualCloseRef.current = false

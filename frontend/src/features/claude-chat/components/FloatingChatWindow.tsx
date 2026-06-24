@@ -50,13 +50,14 @@ function deriveStatus(items: ChatItem[], running: boolean, hasPermission: boolea
  * 避免与全屏会话页双份 UI。操作的是 Context 里的同一聊天实例（同一 WS、同一会话）。
  */
 export function FloatingChatWindow() {
-  const { chat, floating, setFloating, minimized, setMinimized, pos, setPos, size, setSize, setVoiceMode } = useChatRuntime()
+  const { chat, demo, floating, setFloating, minimized, setMinimized, pos, setPos, size, setSize, setVoiceMode } = useChatRuntime()
   const location = useLocation()
   const navigate = useNavigate()
   const [draft, setDraft] = useState('')
   const [showSessions, setShowSessions] = useState(false)
-  // 迷你版（默认）：只显示进度状态 + 语音/输入/发送，不铺消息流；点切换看完整对话
-  const [compact, setCompact] = useState(true)
+  // 迷你版（默认）：只显示进度状态 + 语音/输入/发送，不铺消息流；点切换看完整对话。
+  // demo（受约束演示）默认展开完整对话，便于直接看到改动反馈。
+  const [compact, setCompact] = useState(!demo)
   const [attachments, setAttachments] = useState<FloatAttachment[]>([])
   const [uploading, setUploading] = useState(0)
   const [autoApprove, setAutoApprove] = useState(() => localStorage.getItem(AUTO_APPROVE_KEY) === '1')
@@ -110,7 +111,8 @@ export function FloatingChatWindow() {
   // 展示页脱离 AppShell（无 Sidebar/TopBar），把「返回工作台 + 主题」收进本窗口 header，
   // 这样展示页不必再悬浮一组独立控件（ShowcaseLayout 的 dock 在本窗可见时隐藏）。
   const onShowcase = isShowcasePath(location.pathname)
-  const giftMode = location.pathname.startsWith('/tools/welfare-sign')
+  // 礼赠助手皮肤：福利签收相关页（含受约束演示）启用，与端午页面同色系。
+  const giftMode = location.pathname.startsWith('/tools/welfare-sign') || demo
 
   const toggleAutoApprove = () => setAutoApprove(v => {
     const nv = !v
@@ -424,7 +426,7 @@ export function FloatingChatWindow() {
           </>
         )}
         <div className="flex shrink-0 gap-0.5">
-          {onShowcase && (
+          {onShowcase && !demo && (
             <>
               <button type="button" onClick={() => navigate('/')} aria-label="返回工作台" title="返回工作台"
                 className={`rounded p-1 ${hoverClass}`}>
@@ -434,7 +436,7 @@ export function FloatingChatWindow() {
               <span className="mx-0.5 w-px self-stretch bg-[var(--color-border)]" aria-hidden />
             </>
           )}
-          {!compact && (
+          {!compact && !demo && (
             <>
               <button type="button" onClick={() => { chat.open(''); setShowSessions(false) }} aria-label="新建会话" title="新建会话（home 目录）"
                 className={`rounded p-1 ${hoverClass}`}>
@@ -452,34 +454,40 @@ export function FloatingChatWindow() {
               )}
             </>
           )}
-          {!showSessions && (
+          {!showSessions && !demo && (
             <button type="button" onClick={() => setCompact(c => !c)}
               aria-label={compact ? '展开完整对话' : '收起为迷你'} title={compact ? '展开看完整对话' : '收起为迷你（只看状态）'}
               className={`rounded p-1 ${hoverClass}`}>
               {compact ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
             </button>
           )}
-          <button type="button" onClick={() => setVoiceMode(true)} aria-label="语音模式" title="白云·纯语音对话"
-            className={`rounded p-1 ${hoverClass}`}>
-            <Cloud className="size-4" />
-          </button>
-          <button type="button" onClick={() => navigate(CHAT_ROUTE)} aria-label="展开为全屏" title="展开为全屏"
-            className={`rounded p-1 ${hoverClass}`}>
-            <Maximize2 className="size-4" />
-          </button>
+          {!demo && (
+            <button type="button" onClick={() => setVoiceMode(true)} aria-label="语音模式" title="白云·纯语音对话"
+              className={`rounded p-1 ${hoverClass}`}>
+              <Cloud className="size-4" />
+            </button>
+          )}
+          {!demo && (
+            <button type="button" onClick={() => navigate(CHAT_ROUTE)} aria-label="展开为全屏" title="展开为全屏"
+              className={`rounded p-1 ${hoverClass}`}>
+              <Maximize2 className="size-4" />
+            </button>
+          )}
           <button type="button" onClick={() => setMinimized(true)} aria-label="最小化" title="最小化"
             className={`rounded p-1 ${hoverClass}`}>
             <Minus className="size-4" />
           </button>
-          <button type="button" onClick={() => setFloating(false)} aria-label="关闭悬浮窗" title="关闭"
-            className={`rounded p-1 ${hoverClass}`}>
-            <X className="size-4" />
-          </button>
+          {!demo && (
+            <button type="button" onClick={() => setFloating(false)} aria-label="关闭悬浮窗" title="关闭"
+              className={`rounded p-1 ${hoverClass}`}>
+              <X className="size-4" />
+            </button>
+          )}
         </div>
       </header>
 
-      {/* 权限模式 + 自动允许：仅完整态、非会话列表（迷你态隐藏，保持简洁） */}
-      {!compact && !showSessions && (
+      {/* 权限模式 + 自动允许：仅完整态、非会话列表（迷你态隐藏，保持简洁）。demo 受约束沙箱无人审批，隐藏。 */}
+      {!compact && !showSessions && !demo && (
         <div className="flex items-center gap-2 border-b px-2 py-1.5">
           <button
             type="button"
@@ -555,20 +563,24 @@ export function FloatingChatWindow() {
             hidden
             onChange={e => { void uploadFiles(e.target.files); e.target.value = '' }}
           />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={chat.running || attachments.length + uploading >= MAX_ATTACHMENTS}
-            aria-label="上传附件"
-            title={attachments.length + uploading >= MAX_ATTACHMENTS ? `最多 ${MAX_ATTACHMENTS} 个附件` : '上传附件（也可直接粘贴图片）'}
-            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border disabled:opacity-50 ${giftMode ? 'border-white/12 text-white/55 hover:bg-white/10' : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-background)]'}`}
-          >
-            <Paperclip className="size-4" />
-          </button>
-          <VoiceInputButton
-            disabled={chat.running}
-            onText={t => setDraft(d => (d.trim() ? `${d} ${t}` : t))}
-          />
+          {!demo && (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={chat.running || attachments.length + uploading >= MAX_ATTACHMENTS}
+              aria-label="上传附件"
+              title={attachments.length + uploading >= MAX_ATTACHMENTS ? `最多 ${MAX_ATTACHMENTS} 个附件` : '上传附件（也可直接粘贴图片）'}
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border disabled:opacity-50 ${giftMode ? 'border-white/12 text-white/55 hover:bg-white/10' : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-background)]'}`}
+            >
+              <Paperclip className="size-4" />
+            </button>
+          )}
+          {!demo && (
+            <VoiceInputButton
+              disabled={chat.running}
+              onText={t => setDraft(d => (d.trim() ? `${d} ${t}` : t))}
+            />
+          )}
           <textarea
             ref={taRef}
             className={`max-h-24 min-h-[2.25rem] flex-1 resize-none overflow-y-auto rounded-lg border px-2 py-1.5 text-sm ${giftMode ? 'border-white/12 bg-white/8 text-white placeholder:text-white/28' : 'bg-[var(--color-background)]'}`}
