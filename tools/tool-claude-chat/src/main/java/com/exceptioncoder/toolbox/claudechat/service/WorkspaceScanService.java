@@ -189,23 +189,101 @@ public class WorkspaceScanService {
     /** 扫描某项目下的模块。path 必须在配置根之内（防路径穿越/任意盘符扫描）。 */
     public ProjectModulesResponse scanModules(String projectPath) {
         if (projectPath == null || projectPath.isBlank()) {
-            return new ProjectModulesResponse("", "", false, List.of());
+            return new ProjectModulesResponse("", "", false, "unknown", "未知", List.of());
         }
         Path root = Path.of(projectPath).toAbsolutePath().normalize();
         String name = root.getFileName() == null ? root.toString() : root.getFileName().toString();
         if (!isUnderConfiguredRoot(root) || !Files.isDirectory(root)) {
             log.debug("scanModules 拒绝/不存在: {}", root);
-            return new ProjectModulesResponse(name, root.toString(), false, List.of());
+            return new ProjectModulesResponse(name, root.toString(), false, "unknown", "未知", List.of());
         }
         List<ModuleView> modules = new ArrayList<>();
         // 优先读知识库 modules.json（业务模块树 + 代码路径）；未配置或找不到才回退按构建文件自动识别。
         List<ModuleView> fromKnowledge = readKnowledgeModules(root, name);
         if (fromKnowledge != null) {
-            return new ProjectModulesResponse(name, root.toString(), true, fromKnowledge);
+            ProjectType pt = detectProjectType(root, fromKnowledge, true);
+            return new ProjectModulesResponse(name, root.toString(), true, pt.code(), pt.label(), fromKnowledge);
         }
         collectModules(root, root, 0, modules);
         modules.sort(Comparator.comparing(ModuleView::relPath, String.CASE_INSENSITIVE_ORDER));
-        return new ProjectModulesResponse(name, root.toString(), true, List.copyOf(modules));
+        ProjectType pt = detectProjectType(root, modules, false);
+        return new ProjectModulesResponse(name, root.toString(), true, pt.code(), pt.label(), List.copyOf(modules));
+    }
+
+    // ===== 项目类型识别（确定性：按根目录构建标志/工程特征），供「项目工作台」右上角展示 =====
+
+    /** 项目类型：code 供前端着色，label 中文展示。 */
+    private record ProjectType(String code, String label) {
+    }
+
+    /**
+     * 识别整个项目的类型（区别于 detectModuleType 对单个目录的判定）。按根目录特征确定性判断，
+     * 顺序：标准构建工具（maven/gradle/node/go/rust/python）> 传统 Java Web（Resin/老式 IDEA 工程，
+     * 如 Yoooni：WebRoot/WEB-INF/web.xml、resin.xml、*.iml）> 知识库声明 > 退回首个识别到的模块类型 > 未知。
+     */
+    private ProjectType detectProjectType(Path root, List<ModuleView> modules, boolean fromKnowledge) {
+        if (Files.exists(root.resolve("pom.xml"))) {
+            return new ProjectType("maven", isMavenAggregator(root.resolve("pom.xml")) ? "Maven 多模块" : "Maven");
+        }
+        if (Files.exists(root.resolve("build.gradle")) || Files.exists(root.resolve("build.gradle.kts"))
+                || Files.exists(root.resolve("settings.gradle")) || Files.exists(root.resolve("settings.gradle.kts"))) {
+            return new ProjectType("gradle", "Gradle");
+        }
+        if (Files.exists(root.resolve("package.json"))) {
+            return new ProjectType("node", hasNpmWorkspaces(root.resolve("package.json")) ? "Node Monorepo" : "Node");
+        }
+        if (Files.exists(root.resolve("go.mod"))) return new ProjectType("go", "Go");
+        if (Files.exists(root.resolve("Cargo.toml"))) return new ProjectType("rust", "Rust");
+        if (Files.exists(root.resolve("pyproject.toml")) || Files.exists(root.resolve("requirements.txt"))
+                || Files.exists(root.resolve("setup.py"))) {
+            return new ProjectType("python", "Python");
+        }
+        if (looksLikeLegacyJavaWeb(root)) return new ProjectType("java-web", "Java Web (传统)");
+        if (fromKnowledge && modules != null && !modules.isEmpty()) {
+            return new ProjectType("knowledge", "知识库声明");
+        }
+        if (modules != null && !modules.isEmpty()) {
+            String t = modules.get(0).type();
+            return new ProjectType(t == null ? "unknown" : t, t == null ? "未知" : t);
+        }
+        return new ProjectType("unknown", "未知");
+    }
+
+    /** pom.xml 是否为聚合 POM（有 &lt;modules&gt; 或 packaging=pom）。读文件失败按非聚合处理。 */
+    private boolean isMavenAggregator(Path pom) {
+        try {
+            String text = Files.readString(pom, StandardCharsets.UTF_8);
+            return text.contains("<modules>") || text.replaceAll("\\s+", "").contains("<packaging>pom</packaging>");
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /** package.json 是否声明 npm/yarn/pnpm workspaces（monorepo 标志）。解析失败按否处理。 */
+    private boolean hasNpmWorkspaces(Path pkg) {
+        try {
+            return objectMapper.readTree(pkg.toFile()).has("workspaces");
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    /** 常见 web 内容目录（含 Yoooni 的 WebRoot）；用于在其下找 WEB-INF/web.xml。 */
+    private static final List<String> WEB_CONTENT_DIRS =
+            List.of("WebRoot", "web", "webapp", "WebContent", "src/main/webapp");
+
+    /** 传统 Java Web 工程特征：resin.xml / 各 web 内容目录下的 WEB-INF/web.xml / 根目录任意 *.iml。 */
+    private boolean looksLikeLegacyJavaWeb(Path root) {
+        if (Files.exists(root.resolve("resin.xml"))) return true;
+        if (Files.exists(root.resolve("WEB-INF").resolve("web.xml"))) return true;
+        for (String webDir : WEB_CONTENT_DIRS) {
+            if (Files.exists(root.resolve(webDir).resolve("WEB-INF").resolve("web.xml"))) return true;
+        }
+        try (Stream<Path> s = Files.list(root)) {
+            return s.anyMatch(p -> p.getFileName().toString().endsWith(".iml"));
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     // ===== 模块路由：把一句自然语言解析为候选 (项目, 模块)，供「模块路由」拉起会话 =====

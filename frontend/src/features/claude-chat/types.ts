@@ -98,6 +98,10 @@ export interface ProjectModules {
   project: string
   projectPath: string
   exists: boolean
+  /** 项目类型代码（maven/gradle/node/go/rust/python/java-web/knowledge/unknown），供着色 */
+  projectType?: string
+  /** 项目类型中文标签，供项目工作台右上角展示「这是什么项目」 */
+  projectTypeLabel?: string
   modules: ProjectModule[]
 }
 

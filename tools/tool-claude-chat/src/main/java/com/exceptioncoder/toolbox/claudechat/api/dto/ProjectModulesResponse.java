@@ -5,12 +5,15 @@ import java.util.List;
 /**
  * 项目模块扫描结果（确定性扫描：按构建标志文件识别模块）。供「项目工作台」选项目后列模块、懒建会话。
  *
- * @param project     项目目录名
- * @param projectPath 项目绝对路径
- * @param exists      项目目录是否存在且在配置根内
- * @param modules     扫出的模块（含项目根自身若它也是一个模块），按相对路径升序
+ * @param project          项目目录名
+ * @param projectPath      项目绝对路径
+ * @param exists           项目目录是否存在且在配置根内
+ * @param projectType      项目类型代码（maven/gradle/node/go/rust/python/java-web/knowledge/unknown），供前端着色
+ * @param projectTypeLabel 项目类型中文标签，供「项目工作台」右上角展示「这是什么项目」
+ * @param modules          扫出的模块（含项目根自身若它也是一个模块），按相对路径升序
  */
-public record ProjectModulesResponse(String project, String projectPath, boolean exists, List<ModuleView> modules) {
+public record ProjectModulesResponse(String project, String projectPath, boolean exists,
+                                     String projectType, String projectTypeLabel, List<ModuleView> modules) {
 
     /**
      * @param name     模块目录名或业务中文名

@@ -224,7 +224,19 @@ export function ChatPage() {
     setSelecting(false)
   }
   const [sessTab, setSessTab] = useState<'tool' | 'history'>('tool')
-  const [draft, setDraft] = useState('')
+  // 聚合联动提示预填:从项目工作台「一键聚合」跳来时，读一次 sessionStorage 草稿并清除。
+  const [draft, setDraft] = useState(() => {
+    try {
+      const seed = sessionStorage.getItem('kai-toolbox:claude-chat:aggregation-draft')
+      if (seed) {
+        sessionStorage.removeItem('kai-toolbox:claude-chat:aggregation-draft')
+        return seed
+      }
+    } catch {
+      // 忽略隐私模式异常
+    }
+    return ''
+  })
   const [newCwd, setNewCwd] = useState('')
   const [wsIdx, setWsIdx] = useState(0) // 当前选中的工作区（root）下标，两级目录选择用
   const [newEngine, setNewEngine] = useState<Engine>('claude')
