@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronDown, ChevronUp, Cloud, LayoutGrid, List, Loader2, Maximize2, MessageSquare, Mic, Minus, Paperclip, Plus, RotateCw, Send, Shield, ShieldCheck, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, Cloud, Compass, LayoutGrid, List, Loader2, Maximize2, MessageSquare, Mic, Minus, Paperclip, Plus, RotateCw, Send, Shield, ShieldCheck, X } from 'lucide-react'
 import { CHAT_ROUTE, useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { isShowcasePath } from '@/shell/featureRegistry'
 import { ThemeMenu } from '@/shell/ThemeMenu'
+import { useConfirm } from '@/components/ui/confirm-dialog'
 import { MessageList } from './MessageList'
 import { SessionList } from './SessionList'
 import { PermissionDialog } from './PermissionDialog'
@@ -13,8 +14,8 @@ import { AttachmentChips } from './AttachmentChips'
 import { VoiceInputButton } from './VoiceInputButton'
 import { MiniVoiceBar } from './MiniVoiceBar'
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder'
-import { listSessions, transcribe, uploadAttachment, type UploadedAttachment } from '../api'
-import type { ChatItem, PermissionMode } from '../types'
+import { listSessions, resolveModule, transcribe, uploadAttachment, type UploadedAttachment } from '../api'
+import type { ChatItem, ModuleCandidate, PermissionMode } from '../types'
 import { engineDisplayName, providerHost } from './chatStatus'
 
 const MAX_ATTACHMENTS = 10
@@ -45,6 +46,30 @@ function deriveStatus(items: ChatItem[], running: boolean, hasPermission: boolea
   return { status: '空闲', active: false }
 }
 
+/** cwd 归一化，用于按工作目录匹配已有会话（与 ProjectWorkspacePage 一致）。 */
+function normalizePath(p: string): string {
+  return p.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase()
+}
+
+/**
+ * 「路由 vs 对话」确定性门控：仅当出现显式路由信号才返回模块提示词，否则 null（按对话处理）。
+ * 信号 = `/goto <模块>` 命令，或导航专用动词前缀（高精度，不与普通编码对话误撞）。
+ */
+const ROUTE_VERBS = ['去开发', '去做', '去模块', '打开模块', '定位模块', '切到模块', '切模块', '进入模块', '路由到', '跳到模块']
+function parseRouteIntent(text: string): string | null {
+  const t = text.trim()
+  if (!t) return null
+  const slash = t.match(/^\/goto\s+(.+)$/i)
+  if (slash) return slash[1].trim()
+  for (const v of ROUTE_VERBS) {
+    if (t.startsWith(v)) {
+      const rest = t.slice(v.length).replace(/^[\s:：]+/, '').trim()
+      if (rest) return rest
+    }
+  }
+  return null
+}
+
 /**
  * 跨路由常驻的可拖拽 / 可调大小悬浮对话窗。仅在「已弹出 + 引擎已激活 + 当前不在会话页」时渲染，
  * 避免与全屏会话页双份 UI。操作的是 Context 里的同一聊天实例（同一 WS、同一会话）。
@@ -73,6 +98,11 @@ export function FloatingChatWindow() {
   const autoApprovedRef = useRef<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
+  const confirm = useConfirm()
+  // 模块路由（说一句话去开发某模块）：candidates 为多候选待选；note 为提示文案
+  const [routeCands, setRouteCands] = useState<ModuleCandidate[] | null>(null)
+  const [routeNote, setRouteNote] = useState<string | null>(null)
+  const [routeBusy, setRouteBusy] = useState(false)
 
   // 输入框随内容自动升高（参考微信）：到 max-h 后内部滚动
   useEffect(() => {
@@ -91,6 +121,43 @@ export function FloatingChatWindow() {
   })
   const currentTitle = sessions.find(s => s.id === chat?.sessionId)?.title?.trim()
   const headerTitle = currentTitle || 'Vibe Coding'
+
+  // 拉起某模块会话：有该 cwd 的会话则续接，否则新建；随后进全屏会话页（与项目工作台一致）。
+  const launchModule = (c: ModuleCandidate) => {
+    if (!chat) return
+    const sess = sessions.find(s => normalizePath(s.cwd) === normalizePath(c.module.absPath))
+    if (sess) chat.switchTo(sess.id); else chat.open(c.module.absPath)
+    setRouteCands(null); setRouteNote(null); setDraft('')
+    setMinimized(false)
+    navigate(CHAT_ROUTE)
+  }
+  // 确定性解析模块提示词：0=没匹配(提示)，1=确认后跳，多=列候选让用户点。
+  const doRoute = async (hint: string) => {
+    setRouteNote(null); setRouteCands(null); setRouteBusy(true)
+    try {
+      const res = await resolveModule(hint)
+      const cs = res.candidates
+      if (cs.length === 0) { setRouteNote(`没找到匹配「${hint}」的模块`); return }
+      if (cs.length === 1) {
+        const c = cs[0]
+        const ok = await confirm({ title: '去开发模块', description: `跳转到「${c.project} / ${c.module.name}」开发？`, confirmText: '去开发' })
+        if (ok) launchModule(c)
+        return
+      }
+      setRouteCands(cs)
+    } catch (e) {
+      setRouteNote(e instanceof Error ? e.message : '模块解析失败')
+    } finally {
+      setRouteBusy(false)
+    }
+  }
+  // 统一入口：命中路由信号 → 走路由(返回 true，不当对话发)；否则返回 false 由调用方按对话处理。
+  const handleUserText = (text: string): boolean => {
+    const hint = parseRouteIntent(text)
+    if (hint == null) return false
+    void doRoute(hint)
+    return true
+  }
 
   // 全自动·弹窗自动允许：浮窗态下 ChatPage 已卸载，自动放行 effect 必须在本组件跑。
   useEffect(() => {
@@ -198,7 +265,7 @@ export function FloatingChatWindow() {
       const blob = await bubbleRec.stop()
       setBubbleRecBusy(true)
       const text = (await transcribe(blob)).trim()
-      if (text) chat.send(text)
+      if (text && !handleUserText(text)) chat.send(text)
     } catch {
       /* 录音过短/转写失败：静默丢弃 */
     } finally {
@@ -270,6 +337,8 @@ export function FloatingChatWindow() {
     const t = draft.trim()
     const hasAtt = attachments.length > 0
     if ((!t && !hasAtt) || chat.running) return
+    // 纯文本且命中路由信号(/goto 或导航动词) → 走模块路由，不当对话发出
+    if (!hasAtt && handleUserText(t)) { setDraft(''); return }
     chat.send(t, hasAtt ? attachments.map(a => ({ name: a.name, path: a.path })) : undefined)
     attachments.forEach(a => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl) })
     setDraft('')
@@ -528,6 +597,43 @@ export function FloatingChatWindow() {
         <MessageList items={chat.items} running={chat.running} onFork={chat.forkSession} engineLabel={engineLabel} onResumeCurrent={chat.resumeCurrent} />
       ))}
 
+      {/* 模块路由面板：解析中 / 没匹配提示 / 多候选选择（说「去开发 X 模块」或 /goto X 触发） */}
+      {(routeBusy || routeNote || routeCands) && (
+        <div className="border-t border-[var(--color-border)] bg-[var(--color-muted)] px-3 py-2 text-xs">
+          {routeBusy && (
+            <div className="flex items-center gap-2 text-[var(--color-muted-foreground)]"><Loader2 className="size-3.5 animate-spin" /> 解析模块中…</div>
+          )}
+          {!routeBusy && routeNote && (
+            <div className="flex items-start gap-2 text-amber-700 dark:text-amber-300">
+              <Compass className="mt-0.5 size-3.5 shrink-0" />
+              <span className="min-w-0 flex-1">{routeNote}</span>
+              <button type="button" onClick={() => setRouteNote(null)} className="shrink-0 rounded px-1 hover:bg-[var(--color-background)]">知道了</button>
+            </div>
+          )}
+          {!routeBusy && routeCands && (
+            <div>
+              <div className="mb-1 flex items-center gap-1 text-[var(--color-muted-foreground)]">
+                <Compass className="size-3.5" /> 匹配到多个，去哪个？
+                <button type="button" onClick={() => setRouteCands(null)} className="ml-auto rounded px-1 hover:bg-[var(--color-background)]">取消</button>
+              </div>
+              <div className="flex flex-col gap-1">
+                {routeCands.map(c => (
+                  <button
+                    key={`${c.projectPath}|${c.module.absPath}`}
+                    type="button"
+                    onClick={() => launchModule(c)}
+                    className="rounded-md border px-2 py-1.5 text-left hover:border-[var(--color-primary)] hover:bg-[var(--color-background)]"
+                  >
+                    <span className="font-medium">{c.module.name}</span>
+                    <span className="ml-1 text-[10px] text-[var(--color-muted-foreground)]">{c.project}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 迷你态输入：只一个语音按钮，识别后直接发送（不显示输入框/发送按钮，最简） */}
       {!showSessions && compact && (
         <div className={`border-t p-2.5 ${giftMode ? 'border-[#6f9b54]/14 bg-[#0e1a12]/95' : 'border-[var(--color-border)] bg-[var(--color-muted)]'}`}>
@@ -538,7 +644,7 @@ export function FloatingChatWindow() {
                 className="rounded-lg border px-3 py-1 text-xs">中断</button>
             </div>
           ) : (
-            <MiniVoiceBar onSend={t => chat.send(t)} />
+            <MiniVoiceBar onSend={t => { if (!handleUserText(t)) chat.send(t) }} />
           )}
         </div>
       )}
@@ -586,7 +692,7 @@ export function FloatingChatWindow() {
           <textarea
             ref={taRef}
             className={`max-h-24 min-h-[2.25rem] flex-1 resize-none overflow-y-auto rounded-lg border px-2 py-1.5 text-sm ${giftMode ? 'border-white/12 bg-white/8 text-white placeholder:text-white/28' : 'bg-[var(--color-background)]'}`}
-            placeholder="发消息 / 粘贴图片…（Shift+Enter 换行）"
+            placeholder="发消息 / 粘贴图片…（/goto 模块 或「去开发 X」可跳转）"
             rows={1}
             value={draft}
             onChange={e => setDraft(e.target.value)}
