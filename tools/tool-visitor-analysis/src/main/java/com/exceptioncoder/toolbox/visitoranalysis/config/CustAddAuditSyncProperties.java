@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.visitoranalysis.config;
 
+import com.exceptioncoder.toolbox.common.dynamicconfig.annotation.ConfigDesc;
 import com.exceptioncoder.toolbox.common.dynamicconfig.annotation.Refreshable;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -22,30 +23,39 @@ import org.springframework.stereotype.Component;
 public class CustAddAuditSyncProperties {
 
     /** 总开关。false 时拉取/判别定时任务直接跳过。 */
+    @ConfigDesc("总开关：开启后才定时拉取并判别客户新增审批；关闭则拉取/判别两段定时任务都跳过")
     private boolean enabled = false;
 
     /** Yoooni ERP 根地址（不含路径），如 {@code http://localhost:8080}。 */
+    @ConfigDesc("Yoooni ERP 根地址（不含路径，如 http://localhost:8080），用于拉取未审批的客户新增审批记录")
     private String baseUrl = "http://localhost:8080";
 
     /** 拉取接口鉴权头 {@code X-AI-Token} 的值，须与 Yoooni 侧一致。 */
+    @ConfigDesc("调 Yoooni 拉取接口的鉴权令牌（请求头 X-AI-Token），须与 Yoooni 侧配置一致")
     private String token = "yoooni-ai-agent-token-2026";
 
     /** 首轮 / 空表时的水位线（yyyy-MM-dd）。 */
+    @ConfigDesc("首轮/空表时的起始水位线（yyyy-MM-dd）；之后自动按已拉取记录的最大日期向前推进")
     private String defaultSinceDate = "2026-06-23";
 
     /** 拉取登记定时表达式（默认每 10 分钟）。 */
+    @ConfigDesc("拉取登记定时表达式（Spring cron，默认每 10 分钟）；调度在启动时固化，改后需重启才重排")
     private String pullCron = "0 */10 * * * *";
 
     /** 异步判别定时表达式（默认每 2 分钟）。 */
+    @ConfigDesc("异步判别定时表达式（Spring cron，默认每 2 分钟）；调度在启动时固化，改后需重启才重排")
     private String analyzeCron = "0 */2 * * * *";
 
     /** 单轮判别处理的记录条数上限。 */
+    @ConfigDesc("单轮异步判别处理的最大记录条数（防止一次判别过多拖垮）")
     private int batchLimit = 50;
 
     /** HTTP 连接超时（毫秒）。 */
+    @ConfigDesc("调 Yoooni 的连接超时（毫秒）")
     private int connectTimeoutMs = 5000;
 
     /** HTTP 读取超时（毫秒）。 */
+    @ConfigDesc("调 Yoooni 的读取超时（毫秒）")
     private int readTimeoutMs = 15000;
 
     public boolean isEnabled() { return enabled; }

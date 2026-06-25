@@ -11,6 +11,8 @@ export interface ConfigEntry {
   overridden: boolean
   type?: 'string' | 'list'
   values?: string[] | null
+  /** 配置项中文说明（取自后端字段 @ConfigDesc，无则空串） */
+  description?: string | null
 }
 
 export interface ConfigBlockView {

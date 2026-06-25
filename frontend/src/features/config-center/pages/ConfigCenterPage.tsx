@@ -158,7 +158,12 @@ function BlockEditor({ blockId, onChanged }: { blockId: string; onChanged: () =>
           <tbody className="divide-y">
             {entries.map(e => (
               <tr key={e.key}>
-                <td className="px-3 py-3 align-top font-mono text-xs">{e.key}</td>
+                <td className="px-3 py-3 align-top font-mono text-xs">
+                  {e.key}
+                  {e.description
+                    ? <div className="mt-1 font-sans text-[11px] font-normal text-[var(--color-muted-foreground)]">{e.description}</div>
+                    : null}
+                </td>
                 <td className="px-3 py-2 align-top">
                   {isListEntry(e) ? (
                     <ListValueEditor

@@ -79,6 +79,16 @@ public class DynamicConfigService {
         BlockMeta meta = requireBlock(blockId);
         Map<String, Object> overrides = overrideMap();
 
+        // 字段中文说明（@ConfigDesc）：key 与配置项 key 对齐，UI 就近展示，未标注则为空串
+        Map<String, String> descByKey = new LinkedHashMap<>();
+        for (Field field : meta.beanType().getDeclaredFields()) {
+            com.exceptioncoder.toolbox.common.dynamicconfig.annotation.ConfigDesc desc =
+                    field.getAnnotation(com.exceptioncoder.toolbox.common.dynamicconfig.annotation.ConfigDesc.class);
+            if (desc != null) {
+                descByKey.put(meta.prefix() + "." + toKebabCase(field.getName()), desc.value());
+            }
+        }
+
         List<ConfigBlockView.Entry> entries = new ArrayList<>();
         Set<String> listPrefixes = new LinkedHashSet<>();
         for (Field field : meta.beanType().getDeclaredFields()) {
@@ -94,7 +104,8 @@ public class DynamicConfigService {
                     String.join("\n", values),
                     hasOverrideForPrefix(overrides, key),
                     "list",
-                    values));
+                    values,
+                    descByKey.getOrDefault(key, "")));
             listPrefixes.add(key);
         }
 
@@ -116,7 +127,8 @@ public class DynamicConfigService {
                         environment.getProperty(key),
                         overrides.containsKey(key),
                         "string",
-                        List.of()))
+                        List.of(),
+                        descByKey.getOrDefault(key, "")))
                 .forEach(entries::add);
         return new ConfigBlockView(meta.prefix(), meta.name(), entries);
     }

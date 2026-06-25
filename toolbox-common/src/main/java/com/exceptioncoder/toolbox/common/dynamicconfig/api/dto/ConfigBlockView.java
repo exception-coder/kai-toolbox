@@ -6,12 +6,14 @@ import java.util.List;
 public record ConfigBlockView(String id, String name, List<Entry> entries) {
 
     /**
-     * @param key        扁平化配置 key
-     * @param value      当前有效值（字符串形式）
-     * @param overridden true=来自 SQLite 覆盖，false=yml 默认
-     * @param type       编辑类型：string / list
-     * @param values     list 类型的当前值；string 类型为空
+     * @param key         扁平化配置 key
+     * @param value       当前有效值（字符串形式）
+     * @param overridden  true=来自 SQLite 覆盖，false=yml 默认
+     * @param type        编辑类型：string / list
+     * @param values      list 类型的当前值；string 类型为空
+     * @param description 配置项中文说明（取自字段 {@code @ConfigDesc}，无则空串）
      */
-    public record Entry(String key, String value, boolean overridden, String type, List<String> values) {
+    public record Entry(String key, String value, boolean overridden, String type, List<String> values,
+                        String description) {
     }
 }
