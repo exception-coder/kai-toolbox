@@ -67,6 +67,11 @@ export interface UseClaudeChatSocket {
   mode: PermissionMode
   /** 当前会话可用的 slash 命令清单（来自 SDK init），用于输入框补全 */
   slashCommands: string[]
+  /** 当前会话激活的能力（来自 SDK init）：技能 / 子代理 / MCP 服务 / 输出风格 */
+  skills: string[]
+  agents: string[]
+  mcpServers: { name: string; status: string }[]
+  outputStyle: string | null
   /** 当前会话可用模型清单（来自 SDK supportedModels） */
   models: ModelInfo[]
   /** 当前模型 value */
@@ -130,6 +135,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
   const [syncWarning, setSyncWarning] = useState<string | null>(null)
   const [mode, setModeState] = useState<PermissionMode>('default')
   const [slashCommands, setSlashCommands] = useState<string[]>([])
+  const [skills, setSkills] = useState<string[]>([])
+  const [agents, setAgents] = useState<string[]>([])
+  const [mcpServers, setMcpServers] = useState<{ name: string; status: string }[]>([])
+  const [outputStyle, setOutputStyle] = useState<string | null>(null)
   const [models, setModels] = useState<ModelInfo[]>([])
   const [currentModel, setCurrentModel] = useState<string | null>(null)
   const [currentEngine, setCurrentEngine] = useState<Engine>('claude')
@@ -206,6 +215,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
           }
         }
         if (msg.slashCommands) setSlashCommands(msg.slashCommands)
+        if (msg.skills) setSkills(msg.skills)
+        if (msg.agents) setAgents(msg.agents)
+        if (msg.mcpServers) setMcpServers(msg.mcpServers)
+        setOutputStyle(msg.outputStyle ?? null)
         if (msg.engine) setCurrentEngine(msg.engine)
         setCurrentProviderKind(msg.providerKind ?? 'official')
         setCurrentProviderBaseUrl(msg.providerBaseUrl ?? null)
@@ -215,6 +228,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
           setModels([])
           setSlashCommands([])
           setCurrentModel(null)
+          setSkills([])
+          setAgents([])
+          setMcpServers([])
         }
         // 按会话状态同步 running：重连/attach 时若该会话已非 RUNNING，纠正卡死的「正在思考」
         if (msg.status) setRunning(msg.status === 'RUNNING')
@@ -657,5 +673,5 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     loadHistoryRef.current = loadHistory
   }, [loadHistory])
 
-  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, models, currentModel, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, open, switchTo, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setModel, switchEngine, switchProvider, forkSession, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, skills, agents, mcpServers, outputStyle, models, currentModel, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, open, switchTo, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setModel, switchEngine, switchProvider, forkSession, historyLoading, historyExhausted, loadHistory }
 }

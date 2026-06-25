@@ -371,6 +371,40 @@ public class ClaudeChatService {
     }
 
     /**
+     * 会话内切服务商（官方 ↔ 第三方网关，或两网关互切）：同一会话 id 与 sdkSessionId 不变，沿用原生会话续跑
+     * （保留上下文）。更新 ctx + DB + 透传 sidecar（下一轮生效），并刷新模型目录（网关→拉其 /v1/models，
+     * 官方→清空让 sidecar 的 supportedModels 重新接管），最后重发 Ready 让多端同步 provider 标识。
+     */
+    public void switchProvider(WebSocketSession ws, ClientMessage.SwitchProvider msg) {
+        SessionCtx ctx = ctxOf(ws);
+        if (ctx == null) {
+            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            return;
+        }
+        // 仅 claude/codex/gemini 走第三方网关；opencode 自管 provider，拒绝切换避免无效状态
+        boolean gatewayCapable = "claude".equals(ctx.engine) || "codex".equals(ctx.engine) || "gemini".equals(ctx.engine);
+        String apiBaseUrl = gatewayCapable ? blankToNull(msg.apiBaseUrl()) : null;
+        String authToken = apiBaseUrl == null ? null : blankToNull(msg.authToken());
+        if (!gatewayCapable && blankToNull(msg.apiBaseUrl()) != null) {
+            sendError(ws, 0, "PROVIDER_UNSUPPORTED", "当前 agent 不支持第三方网关");
+            return;
+        }
+
+        ctx.apiBaseUrl = apiBaseUrl;
+        ctx.authToken = authToken;
+        // 切到官方：清掉网关模型目录，下一轮由 sidecar supportedModels 重新下发；切到网关：下方异步拉取覆盖
+        if (apiBaseUrl == null) {
+            ctx.models = List.of();
+            ctx.currentModel = null;
+        }
+        repo.updateProvider(ctx.sessionId, apiBaseUrl, authToken);
+        sidecar.switchProvider(ctx.sessionId, apiBaseUrl, authToken);
+        sendToBrowser(ctx, seq -> ready(ctx, seq)); // 重发 Ready：providerKind/baseUrl 同步到所有看此会话的端
+        pushGatewayModels(ctx);                      // 网关会话拉模型目录；官方会话内部直接跳过
+        log.info("[claude-chat] 会话 {} 切服务商 -> {}", ctx.sessionId, apiBaseUrl == null ? "官方登录" : apiBaseUrl);
+    }
+
+    /**
      * 维护「本会话用过哪些 agent」的去重有序集合（首次出现序）。
      *
      * <p>切回曾用引擎会 resume 它的原生会话（句柄存于 engine_sessions），并非新建——故标记应是
@@ -420,7 +454,8 @@ public class ClaudeChatService {
         String providerBaseUrl = blankToNull(ctx.apiBaseUrl);
         String providerKind = providerBaseUrl == null ? "official" : "thirdParty";
         return new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands,
-                ctx.status.name(), ctx.epoch, ctx.engine, providerKind, providerBaseUrl);
+                ctx.status.name(), ctx.epoch, ctx.engine, providerKind, providerBaseUrl,
+                ctx.skills, ctx.agents, ctx.mcpServers, ctx.outputStyle);
     }
 
     /**
@@ -511,6 +546,10 @@ public class ClaudeChatService {
             case "init" -> {
                 ctx.sdkSessionId = node.path("sdkSessionId").asText(null);
                 ctx.slashCommands = parseStringList(node.get("slashCommands"));
+                ctx.skills = parseStringList(node.get("skills"));
+                ctx.agents = parseStringList(node.get("agents"));
+                ctx.mcpServers = parseMcpServers(node.get("mcpServers"));
+                ctx.outputStyle = node.hasNonNull("outputStyle") ? node.get("outputStyle").asText() : null;
                 repo.updateSdkSessionId(sessionId, ctx.sdkSessionId);
                 // 记录当前引擎拿到的句柄，持久化各引擎句柄映射（跨重启精准切回 + 增量）
                 if (ctx.sdkSessionId != null && !ctx.sdkSessionId.isBlank()) {
@@ -845,6 +884,19 @@ public class ClaudeChatService {
         return out;
     }
 
+    /** 解析 init 的 mcpServers 数组（{name,status}）。 */
+    private List<ServerMessage.McpServer> parseMcpServers(JsonNode n) {
+        if (n == null || !n.isArray()) return List.of();
+        List<ServerMessage.McpServer> out = new ArrayList<>();
+        for (JsonNode e : n) {
+            if (e != null && e.isObject()) {
+                out.add(new ServerMessage.McpServer(
+                        e.path("name").asText(""), e.path("status").asText("")));
+            }
+        }
+        return out;
+    }
+
     /** 解析 SDK supportedModels 数组（{value, displayName, description, …}）为前端 ModelInfo。 */
     private List<ModelInfo> parseModels(JsonNode n) {
         if (n == null || !n.isArray()) return List.of();
@@ -909,6 +961,11 @@ public class ClaudeChatService {
         volatile ServerMessage pendingRequest;
         /** 该会话可用的 slash 命令清单（来自 SDK init），随每条 Ready 透传给前端做补全。 */
         volatile java.util.List<String> slashCommands = java.util.List.of();
+        /** 该会话激活的能力（来自 SDK init），随 Ready 透传给前端展示。 */
+        volatile java.util.List<String> skills = java.util.List.of();
+        volatile java.util.List<String> agents = java.util.List.of();
+        volatile java.util.List<ServerMessage.McpServer> mcpServers = java.util.List.of();
+        volatile String outputStyle = null;
         /** 该会话可用模型清单（来自 SDK supportedModels）与当前模型，供命令菜单的模型组展示/切换。 */
         volatile java.util.List<ModelInfo> models = java.util.List.of();
         volatile String currentModel;

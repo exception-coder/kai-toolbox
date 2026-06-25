@@ -234,6 +234,7 @@ export type ClientMessage =
   | { type: 'setMode'; mode: PermissionMode }
   | { type: 'setModel'; model: string }
   | { type: 'switchEngine'; engine: Engine }
+  | { type: 'switchProvider'; apiBaseUrl?: string; authToken?: string }
   | { type: 'forkSession'; upToMessageId: string }
 
 // ── AskUserQuestion 结构 ─────────────────────────────────────────
@@ -246,7 +247,7 @@ export interface Question {
 
 // ── 服务端 → 客户端（均带 seq）────────────────────────────────────
 export type ServerMessage =
-  | { type: 'ready'; seq: number; sessionId: string; sdkSessionId: string | null; slashCommands?: string[]; status?: SessionStatus; epoch?: string; engine?: Engine; providerKind?: ProviderKind; providerBaseUrl?: string | null }
+  | { type: 'ready'; seq: number; sessionId: string; sdkSessionId: string | null; slashCommands?: string[]; status?: SessionStatus; epoch?: string; engine?: Engine; providerKind?: ProviderKind; providerBaseUrl?: string | null; skills?: string[]; agents?: string[]; mcpServers?: { name: string; status: string }[]; outputStyle?: string | null }
   | { type: 'assistantDelta'; seq: number; text: string }
   | { type: 'toolUse'; seq: number; toolName: string; input: unknown }
   | { type: 'toolResult'; seq: number; toolName: string; output: string; isError: boolean }

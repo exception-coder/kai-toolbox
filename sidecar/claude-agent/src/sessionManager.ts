@@ -184,11 +184,10 @@ class Session {
             includePartialMessages: true,
             canUseTool: this.perms.canUseTool,
             abortController: ac,
-            // 仅当本会话配置了第三方网关时注入 env（SDK 的 env 会整体替换子进程环境，故必须 spread process.env）。
-            // 不配置则不传 → 子进程继承官方登录，官方会话零影响。
-            ...(this.apiBaseUrl
-              ? { env: this.gatewayEnv() }
-              : {}),
+            // 网关会话注入 env（SDK 的 env 会整体替换子进程环境，故 spread process.env 再覆盖）。
+            // 官方会话也必须显式传 env：把可能从 sidecar 进程继承来的 ANTHROPIC_BASE_URL/AUTH_TOKEN/API_KEY
+            // 剔除掉——否则运行后端的 shell 若设过这些（为让 CLI 走三方），「切回官方」会因继承脏环境而仍走三方。
+            env: this.apiBaseUrl ? this.gatewayEnv() : this.officialEnv(),
             // 把 native 二进制的 stderr 透到 sidecar 日志，失败时也并入错误信息
             stderr: (s: string) => {
               nativeStderr += s
@@ -311,9 +310,15 @@ class Session {
       case 'system': {
         if (m.subtype === 'init' && m.session_id) {
           this.sdkSessionId = m.session_id as string
-          // SDK init 自带可用 slash 命令清单（含内置 + ~/.claude/commands 自定义），透传给前端做补全
+          // SDK init 自带会话能力清单：slash 命令(补全用) + 激活的 skills / subagents / MCP 服务 / 模型 / 输出风格，透传给前端展示
           const slashCommands = Array.isArray(m.slash_commands) ? m.slash_commands : []
-          this.emitSelf({ type: 'init', sdkSessionId: this.sdkSessionId, slashCommands })
+          const skills = Array.isArray(m.skills) ? m.skills : []
+          const agents = Array.isArray(m.agents) ? m.agents : []
+          const mcpServers = Array.isArray(m.mcp_servers)
+            ? (m.mcp_servers as Array<Record<string, unknown>>).map(s => ({ name: String(s.name ?? ''), status: String(s.status ?? '') }))
+            : []
+          const outputStyle = typeof m.output_style === 'string' ? m.output_style : null
+          this.emitSelf({ type: 'init', sdkSessionId: this.sdkSessionId, slashCommands, skills, agents, mcpServers, outputStyle })
         }
         break
       }
@@ -394,6 +399,18 @@ class Session {
       ANTHROPIC_AUTH_TOKEN: key,
     }
   }
+
+  /**
+   * 官方会话的子进程环境：从 sidecar 继承的 process.env 出发，显式删除 ANTHROPIC 网关相关变量，
+   * 保证「切回官方」绝不走三方——即便运行后端的 shell 预设了这些变量。其余环境（PATH、官方登录态等）保留。
+   */
+  private officialEnv(): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = { ...process.env }
+    delete env.ANTHROPIC_BASE_URL
+    delete env.ANTHROPIC_AUTH_TOKEN
+    delete env.ANTHROPIC_API_KEY
+    return env
+  }
 }
 
 /** 多会话路由：一个 sidecar 进程内按 sessionId 管理多个 Session。 */
@@ -472,6 +489,19 @@ export class SessionManager {
   setModel(id: string, model: string): void {
     const s = this.sessions.get(id)
     if (s) s.model = model
+  }
+
+  /**
+   * 会话内切服务商（官方登录 ↔ 第三方网关，或两网关互切）：仅改 apiBaseUrl/authToken，
+   * 下一轮 runTurn 即生效（runTurn 每轮动态读这俩字段决定注入 env 与引导词）。sdkSessionId
+   * 保持不变 → 沿用同一原生会话续跑（保留上下文）。空 baseUrl＝切回官方登录。
+   */
+  switchProvider(id: string, apiBaseUrl?: string, authToken?: string): void {
+    const s = this.sessions.get(id)
+    if (!s) return
+    const nextBaseUrl = apiBaseUrl?.trim()
+    s.apiBaseUrl = nextBaseUrl || undefined
+    s.authToken = nextBaseUrl ? authToken : undefined
   }
 
   /**

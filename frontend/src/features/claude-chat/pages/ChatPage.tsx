@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, Cloud, FileText, FolderTree, GitBranch, GitCommit, List, ListChecks, Maximize2, Minimize2, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, ShieldCheck, Slash, Square } from 'lucide-react'
+import { Bell, Cloud, FileText, FolderTree, GitBranch, GitCommit, List, ListChecks, Maximize2, Minimize2, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Input } from '@/components/ui/input'
@@ -17,6 +17,7 @@ import { NotifySettings } from '../components/NotifySettings'
 import { VoiceInputButton } from '../components/VoiceInputButton'
 import { AttachmentChips } from '../components/AttachmentChips'
 import { QueuedList } from '../components/QueuedList'
+import { SessionCapsPanel } from '../components/SessionCapsPanel'
 import { ModeSwitch } from '../components/ModeSwitch'
 import { ProviderSwitch } from '../components/ProviderSwitch'
 import { SlashCommandMenu } from '../components/SlashCommandMenu'
@@ -38,7 +39,7 @@ import { CommitsPanel } from '@/components/git/CommitsPanel'
 import type { Engine } from '../types'
 import { ensureNotifyPermission } from '../browserNotify'
 
-type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard'
+type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps'
 
 /** 单条消息最多附件数，与后端约定一致。 */
 const MAX_ATTACHMENTS = 10
@@ -532,6 +533,7 @@ export function ChatPage() {
                   {chat.sessionId && (
                     <HeaderMenuItem icon={<GitCommit className="size-4" />} label="提交记录" hint="当前目录 git 提交/diff" onClick={() => { setHeaderMenu(false); setShowCommits(true) }} />
                   )}
+                  <HeaderMenuItem icon={<Sparkles className="size-4" />} label="会话能力" hint="激活的技能 / 子代理 / MCP 服务" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'caps' ? 'none' : 'caps') }} />
                   <HeaderMenuItem icon={<FolderTree className="size-4" />} label="合并工作区" hint="软链接聚合多个目录" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'taskspace' ? 'none' : 'taskspace') }} />
                   <HeaderMenuItem icon={<GitBranch className="size-4" />} label="拉取项目到工作区" hint="git clone 远端仓库到工作区" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'clone' ? 'none' : 'clone') }} />
                   <HeaderMenuItem icon={<ListChecks className="size-4" />} label="项目初始化流水线" hint="拉取→画像→知识图谱→profile→聚合" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'onboard' ? 'none' : 'onboard') }} />
@@ -815,6 +817,18 @@ export function ChatPage() {
         <div className="max-h-[60vh] overflow-y-auto">
           <PluginPanel onClose={() => setPanel('none')} />
         </div>
+      )}
+
+      {panel === 'caps' && (
+        <SessionCapsPanel
+          skills={chat.skills}
+          agents={chat.agents}
+          mcpServers={chat.mcpServers}
+          outputStyle={chat.outputStyle}
+          slashCount={chat.slashCommands.length}
+          engine={chat.currentEngine}
+          onClose={() => setPanel('none')}
+        />
       )}
 
       {/* 会话目录 git 提交记录（复用通用 CommitsPanel，按 sessionId 服务端解析 cwd） */}

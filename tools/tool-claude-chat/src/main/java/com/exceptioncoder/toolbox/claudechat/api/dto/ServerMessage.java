@@ -24,7 +24,11 @@ public sealed interface ServerMessage
     /** 会话就绪。{@code epoch} 标识当前内存会话实例：后端重启/会话重建会换新值，
      *  前端据此判定服务端 seq 计数器已复位，重置自己的去重高水位，避免把重启后低 seq 消息全丢弃。 */
     @JsonTypeName("ready")
-    record Ready(long seq, String sessionId, String sdkSessionId, List<String> slashCommands, String status, String epoch, String engine, String providerKind, String providerBaseUrl) implements ServerMessage {}
+    record Ready(long seq, String sessionId, String sdkSessionId, List<String> slashCommands, String status, String epoch, String engine, String providerKind, String providerBaseUrl,
+                 List<String> skills, List<String> agents, List<McpServer> mcpServers, String outputStyle) implements ServerMessage {}
+
+    /** 会话激活的 MCP 服务（来自 SDK init）。 */
+    record McpServer(String name, String status) {}
 
     @JsonTypeName("assistantDelta")
     record AssistantDelta(long seq, String text) implements ServerMessage {}
