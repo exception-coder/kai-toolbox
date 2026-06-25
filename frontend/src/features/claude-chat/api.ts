@@ -1,6 +1,6 @@
 import { authFetch, http } from '@/lib/api'
 import type { CommitDiff, CommitsResponse } from '@/components/git/types'
-import type { ChatItem, ClaudeChatSessionView, HistorySessionView, ModelInfo, ModuleResolve, NotifyConfig, PluginStatus, SuiteStatus, ProjectModules, SubdirList, TaskspaceView, WorkspaceList } from './types'
+import type { ChatItem, ClaudeChatSessionView, CloneResult, HistorySessionView, ModelInfo, ModuleResolve, NotifyConfig, PluginStatus, SuiteStatus, ProjectModules, SubdirList, TaskspaceView, WorkspaceList } from './types'
 
 /** 列当前会话工作目录(git 仓库)的最近提交。后端按 sessionId 解析 cwd。 */
 export function listSessionCommits(sessionId: string, limit?: number) {
@@ -76,6 +76,14 @@ export function fetchProviderModels(baseUrl: string, key: string) {
 /** 列出配置根目录下的一级子目录，供新建会话选 cwd。 */
 export function listWorkspaces() {
   return http<WorkspaceList>('/claude-chat/workspaces')
+}
+
+/** 拉取（git clone）新项目到指定工作区根（须为配置的 workspace 根之一），返回落地路径可直接当 cwd。 */
+export function cloneProject(url: string, root: string) {
+  return http<CloneResult>('/claude-chat/workspaces/clone', {
+    method: 'POST',
+    body: JSON.stringify({ url, root }),
+  })
 }
 
 /** 某项目下的模块（确定性扫描，按构建标志文件）。供「项目工作台」列模块、懒建会话。 */

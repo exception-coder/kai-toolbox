@@ -5,13 +5,17 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleResolveResponse.Candi
 import com.exceptioncoder.toolbox.claudechat.api.dto.ProjectModulesResponse;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ProjectModulesResponse.ModuleView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.WorkspaceDirView;
+import com.exceptioncoder.toolbox.claudechat.api.dto.CloneResponse;
 import com.exceptioncoder.toolbox.claudechat.api.dto.WorkspaceListResponse;
 import com.exceptioncoder.toolbox.claudechat.api.dto.WorkspaceListResponse.RootView;
 import com.exceptioncoder.toolbox.claudechat.config.WorkspaceProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.OffsetDateTime;
@@ -19,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 /**
@@ -40,6 +45,95 @@ public class WorkspaceScanService {
     public WorkspaceScanService(WorkspaceProperties props, com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
         this.props = props;
         this.objectMapper = objectMapper;
+    }
+
+    /**
+     * 拉取（git clone）新项目到指定工作区根。root 必须是配置的 workspace 根之一（防越权写任意目录）；
+     * 仓库名从 url 推导并校验（防路径穿越）；目标已存在则拒绝。成功后失效扫描缓存，使新目录立即可选。
+     * 同步执行（git clone 较慢，由虚拟线程承载请求），失败抛 IllegalArgumentException 携带 git 输出尾部。
+     */
+    public CloneResponse cloneProject(String url, String root) {
+        String u = url == null ? "" : url.trim();
+        if (u.isBlank()) {
+            throw new IllegalArgumentException("git 地址不能为空");
+        }
+        if (!u.matches("(?i)^(https?://|git://|ssh://|git@).+")) {
+            throw new IllegalArgumentException("git 地址格式不支持（仅 http(s)/git/ssh）: " + u);
+        }
+        Path rootPath = resolveAllowedRoot(root);
+        String name = repoNameFromUrl(u);
+        Path target = rootPath.resolve(name).normalize();
+        if (!target.getParent().equals(rootPath)) {
+            throw new IllegalArgumentException("非法仓库名: " + name);
+        }
+        if (Files.exists(target)) {
+            throw new IllegalArgumentException("目标已存在，跳过: " + target);
+        }
+        try {
+            Files.createDirectories(rootPath);
+        } catch (IOException e) {
+            throw new IllegalArgumentException("工作区根不可写: " + e.getMessage());
+        }
+
+        ProcessBuilder pb = new ProcessBuilder("git", "clone", "--progress", u, target.toString())
+                .redirectErrorStream(true);
+        StringBuilder out = new StringBuilder();
+        try {
+            Process p = pb.start();
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+                    out.append(line).append('\n');
+                }
+            }
+            boolean done = p.waitFor(600, TimeUnit.SECONDS);
+            if (!done) {
+                p.destroyForcibly();
+                throw new IllegalArgumentException("git clone 超时（>10min），已终止");
+            }
+            if (p.exitValue() != 0) {
+                String tail = out.length() > 600 ? out.substring(out.length() - 600) : out.toString();
+                throw new IllegalArgumentException("git clone 失败: " + tail.trim());
+            }
+        } catch (IOException e) {
+            throw new IllegalArgumentException("git clone 启动失败（git 是否在 PATH？）: " + e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalArgumentException("git clone 被中断");
+        }
+        cacheExpireAt = 0; // 失效缓存：新克隆目录下次扫描即出现在工作区下拉
+        log.info("[claude-chat] 已克隆 {} -> {}", u, target);
+        return new CloneResponse(name, target.toString());
+    }
+
+    /** 校验 root 是配置的 workspace 根之一并返回规范化路径；否则拒绝（防写任意目录）。 */
+    private Path resolveAllowedRoot(String root) {
+        if (root == null || root.isBlank()) {
+            throw new IllegalArgumentException("请选择工作区");
+        }
+        Path want = Path.of(root).toAbsolutePath().normalize();
+        for (String r : props.getRoots()) {
+            if (r == null || r.isBlank()) continue;
+            if (Path.of(r).toAbsolutePath().normalize().equals(want)) {
+                return want;
+            }
+        }
+        throw new IllegalArgumentException("工作区不在允许范围: " + root);
+    }
+
+    /** 从 git url 推导仓库目录名（去末段 .git / 查询串），并校验仅含安全字符。 */
+    private String repoNameFromUrl(String url) {
+        String s = url;
+        int hash = s.indexOf('#'); if (hash >= 0) s = s.substring(0, hash);
+        int q = s.indexOf('?'); if (q >= 0) s = s.substring(0, q);
+        s = s.replaceAll("[/\\\\]+$", "");                 // 去尾部斜杠
+        int slash = Math.max(s.lastIndexOf('/'), s.lastIndexOf(':')); // scp 风格 host:path
+        String last = slash >= 0 ? s.substring(slash + 1) : s;
+        if (last.endsWith(".git")) last = last.substring(0, last.length() - 4);
+        if (!last.matches("[A-Za-z0-9._-]+") || last.equals(".") || last.equals("..")) {
+            throw new IllegalArgumentException("无法从地址解析出合法仓库名: " + url);
+        }
+        return last;
     }
 
     public WorkspaceListResponse scan() {

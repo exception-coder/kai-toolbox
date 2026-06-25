@@ -45,6 +45,12 @@ export interface WorkspaceList {
   scannedAt: string
 }
 
+/** 拉取项目结果：name=克隆目录名，path=落地绝对路径（可直接当新建会话 cwd）。 */
+export interface CloneResult {
+  name: string
+  path: string
+}
+
 /** 项目内识别出的一个可工作模块。children 为知识库声明的嵌套子模块。 */
 export interface ProjectModule {
   name: string
