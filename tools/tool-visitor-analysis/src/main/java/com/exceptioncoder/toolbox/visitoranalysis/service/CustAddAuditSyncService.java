@@ -154,11 +154,36 @@ public class CustAddAuditSyncService {
     public Map<String, Object> erpVerdict(long flowApplyId) {
         Map<String, Object> row = repo.findByFlowApplyId(flowApplyId);
         if (row == null) return Map.of("found", false);
+        Map<String, Object> v = mapRowToErp(row);
+        if (v != null) return v;
+        // 还没判别完（PENDING/ANALYZING/FAILED）→ ERP 暂不展示，保持「暂无 AI 判定」
         String status = str(row.get("analyze_status"));
-        if (!"DONE".equals(status)) {
-            // 还没判别完（PENDING/ANALYZING/FAILED）→ ERP 暂不展示，保持「暂无 AI 判定」
-            return Map.of("found", false, "status", status == null ? "" : status);
+        return Map.of("found", false, "status", status == null ? "" : status);
+    }
+
+    /**
+     * 批量回查：一次 IN 查询多个 flowApplyId，返回 {flowApplyId字符串 → 判定视图}。
+     * 只放入已判别完成(DONE)的条目；未完成/未命中的 key 直接不出现，ERP 端缺 key 即显示「暂无 AI 判定」。
+     * 同一 flowApplyId 可能对应多条审批记录(多节点)，rows 已按 id DESC，取最新一条。
+     */
+    public Map<String, Object> erpVerdicts(List<Long> flowApplyIds) {
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        if (flowApplyIds == null || flowApplyIds.isEmpty()) return out;
+        List<Map<String, Object>> rows = repo.findByFlowApplyIds(flowApplyIds);
+        for (Map<String, Object> row : rows) {
+            Long applyNo = asLongOrNull(row.get("apply_no"));
+            if (applyNo == null) continue;
+            String key = String.valueOf(applyNo);
+            if (out.containsKey(key)) continue;          // 已按 id DESC，首个=最新，后续跳过
+            Map<String, Object> v = mapRowToErp(row);    // 非 DONE 返回 null
+            if (v != null) out.put(key, v);
         }
+        return out;
+    }
+
+    /** 单条审批台账行 → ERP 展示视图（PASS/REJECT/DOUBT）。未判别完成(status≠DONE)返回 null。 */
+    private Map<String, Object> mapRowToErp(Map<String, Object> row) {
+        if (!"DONE".equals(str(row.get("analyze_status")))) return null;
 
         String identity = str(row.get("identity"));
         boolean duplicate = asInt(row.get("is_duplicate")) == 1;
@@ -194,7 +219,7 @@ public class CustAddAuditSyncService {
         out.put("isDuplicate", duplicate);
         out.put("dupCustId", dupCustId);
         out.put("needsReview", needsReview);
-        out.put("status", status);
+        out.put("status", "DONE");
         return out;
     }
 

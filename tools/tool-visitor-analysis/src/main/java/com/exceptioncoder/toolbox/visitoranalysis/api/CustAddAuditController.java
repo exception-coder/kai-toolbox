@@ -46,6 +46,15 @@ public class CustAddAuditController {
         return syncService.erpVerdict(flowApplyId);
     }
 
+    /**
+     * 批量回查（供审批列表整页一次拉取）：{@code ?flowApplyIds=1,2,3}，返回 {flowApplyId → 判定}。
+     * 只含已判别完成的条目，缺失的 id 由 ERP 端显示「暂无 AI 判定」。只读。
+     */
+    @GetMapping("/verdicts")
+    public Map<String, Object> verdicts(@RequestParam List<Long> flowApplyIds) {
+        return syncService.erpVerdicts(flowApplyIds);
+    }
+
     /** 同步台账列表（含判别结果），最近优先。 */
     @GetMapping("/records")
     public List<Map<String, Object>> records(@RequestParam(defaultValue = "100") int limit) {

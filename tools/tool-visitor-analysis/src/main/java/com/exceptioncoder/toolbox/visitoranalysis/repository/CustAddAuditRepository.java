@@ -100,6 +100,20 @@ public class CustAddAuditRepository {
         return rows.isEmpty() ? null : rows.get(0);
     }
 
+    /**
+     * 批量按 apply_no(=flowApplyId) 查记录，一次 IN 查询，LEFT JOIN 判别结果补 rationale。
+     * 结果按 id DESC 排序：同一 apply_no 的多条（多节点）中，上层取首个即最新。供 ERP 审批列表批量回查。
+     */
+    public List<Map<String, Object>> findByFlowApplyIds(List<Long> flowApplyIds) {
+        if (flowApplyIds == null || flowApplyIds.isEmpty()) return List.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(flowApplyIds.size(), "?"));
+        return jdbc.queryForList(
+                "SELECT a.*, v.rationale AS verdict_rationale FROM va_cust_add_audit a "
+                        + "LEFT JOIN va_verdict v ON v.id = a.verdict_id "
+                        + "WHERE a.apply_no IN (" + placeholders + ") ORDER BY a.id DESC",
+                flowApplyIds.toArray());
+    }
+
     /** 列表（前端查看 / 排障），最近优先。 */
     public List<Map<String, Object>> listRecent(int limit) {
         return jdbc.queryForList(
