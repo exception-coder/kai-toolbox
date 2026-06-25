@@ -579,7 +579,11 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     try {
       const before = reset ? null : historyBeforeRef.current
       const { items: hist, nextBefore } = await loadMessages(sid, cwdRef.current, before)
-      setItems(prev => (reset ? hist : [...hist, ...prev]))
+      // 一律把历史 prepend 到现有项之前，不直接替换：
+      // 进会话(switchTo/resumeHistory)会先 resetForNewSession 清空，故此刻 prev 只剩「加载期间本地新增的实时项」
+      // ——典型是刚进会话就发出的首条用户气泡（乐观插入）/已开始的流式回复。若 reset 时直接 setItems(hist)，
+      // 历史(空会话为 [])加载完成会把这条刚发的消息覆盖掉 → 「新建会话首条消息不显示」。prepend 则两者都保留。
+      setItems(prev => [...hist, ...prev])
       historyBeforeRef.current = nextBefore
       const done = nextBefore == null || nextBefore <= 0
       historyExhaustedRef.current = done
