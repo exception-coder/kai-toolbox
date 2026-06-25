@@ -24,6 +24,7 @@ const manifest: FeatureManifest = {
     { path: '/tools/visitor-analysis', element: <Navigate to="/tools/visitor-analysis/analyze" replace /> },
     { path: '/tools/visitor-analysis/analyze', element: <VisitorAnalysisPage /> },
     { path: '/tools/visitor-analysis/customers', element: <VisitorAnalysisPage /> },
+    { path: '/tools/visitor-analysis/verdicts', element: <VisitorAnalysisPage /> },
   ],
 }
 

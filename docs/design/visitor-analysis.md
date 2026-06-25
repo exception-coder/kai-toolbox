@@ -81,7 +81,8 @@ flowchart LR
 - `POST /api/visitor-analysis/analyze` — 单条，SSE（stage* → done/error），前台"看判别过程"用。
 - `POST /api/visitor-analysis/analyze-sync` — 单条同步返回 `VerdictView`（前端表单用）。
 - `POST /api/visitor-analysis/batch` — 批量，SSE 进度 + 汇总。
-- `GET /verdicts?limit` · `GET /reviews` · `POST /reviews/{id}/correct` · `GET/POST/DELETE /competitors`。
+- `GET /verdicts?limit&q&identity&needsReview` — 判别记录查询：`q`（姓名/公司模糊）、`identity`（身份枚举精确）、`needsReview`（true=仅待复核 / false=仅已确认）全可选且 AND；无条件等同最近 N 条。前端「判别记录」Tab 用。
+- `GET /reviews` · `POST /reviews/{id}/correct` · `GET/POST/DELETE /competitors`。
 - `GET /sidecar-health` — 路径保留以兼容前端；语义已改为「**向量召回是否就绪**」（`{online}`）。online=false 时灰区仍可判别，只是不带历史相似客户参考，非阻断。
 - `POST /customer-refs/sync-vector` · `DELETE /vector/customers` — 客户底库 ↔ Qdrant 向量库的同步/清空。
 - `GET /customer-refs` · `POST /customer-refs`（新增）· `PUT /customer-refs/{id}`（编辑）· `DELETE /customer-refs/{id}`（删除）· `POST /customer-refs/import`（CSV 批量）——客户去重底库的完整 CRUD。归一化键（name_norm/keyword_norm/addr_norm）一律由后端 Normalizer 现算，前端不传；编辑/删除后 synced_at 置空，提示重新「一键同步」。

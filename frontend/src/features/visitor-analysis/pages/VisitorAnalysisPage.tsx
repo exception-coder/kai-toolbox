@@ -171,20 +171,26 @@ function decidedByText(by: string): string {
   return '降级/待确认'
 }
 
-// 子路由路径：入口重定向到 analyze；两个 Tab 各自独立路径，便于侧边栏外直达 / 收藏。
+// 子路由路径：入口重定向到 analyze；各 Tab 独立路径，便于侧边栏外直达 / 收藏。
 export const VA_BASE = '/tools/visitor-analysis'
 export const VA_ANALYZE = `${VA_BASE}/analyze`
 export const VA_CUSTOMERS = `${VA_BASE}/customers`
+export const VA_VERDICTS = `${VA_BASE}/verdicts`
 
 const TABS: { path: string; label: string }[] = [
   { path: VA_ANALYZE, label: '访客分析' },
   { path: VA_CUSTOMERS, label: '客户资料库' },
+  { path: VA_VERDICTS, label: '判别记录' },
 ]
 
-/** 顶部 Tab 切换条：两个表单作为同一工具下的二级页面，路由切换、各自保留滚动位置。 */
+/** 顶部 Tab 切换条：各表单/列表作为同一工具下的二级页面，路由切换、各自保留滚动位置。 */
 function VaTabs() {
   const { pathname } = useLocation()
-  const active = pathname.startsWith(VA_CUSTOMERS) ? VA_CUSTOMERS : VA_ANALYZE
+  const active = pathname.startsWith(VA_CUSTOMERS)
+    ? VA_CUSTOMERS
+    : pathname.startsWith(VA_VERDICTS)
+      ? VA_VERDICTS
+      : VA_ANALYZE
   return (
     <div className="flex gap-1 border-b">
       {TABS.map((t) => (
@@ -211,19 +217,9 @@ function AnalyzePanel() {
   const [analyzing, setAnalyzing] = useState(false)
   const [result, setResult] = useState<VerdictView | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [recent, setRecent] = useState<VerdictView[]>([])
   const [vectorReady, setVectorReady] = useState<boolean | null>(null)
-  const [clearing, setClearing] = useState(false)
-  const confirm = useConfirm()
-
-  const loadRecent = () => {
-    http<VerdictView[]>('/visitor-analysis/verdicts?limit=20')
-      .then(setRecent)
-      .catch(() => setRecent([]))
-  }
 
   useEffect(() => {
-    loadRecent()
     http<{ online: boolean }>('/visitor-analysis/sidecar-health')
       .then((r) => setVectorReady(r.online))
       .catch(() => setVectorReady(false))
@@ -242,32 +238,10 @@ function AnalyzePanel() {
         body: JSON.stringify(input),
       })
       setResult(v)
-      loadRecent()
     } catch (e) {
       setError(e instanceof Error ? e.message : '分析失败')
     } finally {
       setAnalyzing(false)
-    }
-  }
-
-  // 一键清空判别历史（判别记录 + 人工纠正 + 访客台账），参照库/竞品不动。
-  const clearVerdicts = async () => {
-    const ok = await confirm({
-      title: '清空最近判别',
-      description: '将删除全部判别记录、人工纠正与访客台账（历史客户资料库不受影响）。此操作不可撤销，确定继续？',
-      confirmText: '清空',
-      variant: 'destructive',
-    })
-    if (!ok) return
-    setClearing(true)
-    try {
-      await http<{ cleared: number }>('/visitor-analysis/verdicts', { method: 'DELETE' })
-      setRecent([])
-      setResult(null)
-    } catch {
-      /* 失败保持原列表，下次刷新自愈 */
-    } finally {
-      setClearing(false)
     }
   }
 
@@ -370,55 +344,174 @@ function AnalyzePanel() {
           )}
         </section>
       )}
-
-      <section className="space-y-2">
-        <div className="flex items-baseline justify-between gap-3">
-          <h2 className="text-sm font-semibold text-muted-foreground">最近判别</h2>
-          <button
-            className="rounded-md border px-3 py-1.5 text-xs font-medium text-destructive transition hover:bg-destructive/10 disabled:opacity-50"
-            disabled={clearing || recent.length === 0}
-            onClick={clearVerdicts}
-            title="清空全部判别记录 / 人工纠正 / 访客台账（历史客户资料库不受影响）"
-          >
-            {clearing ? '清空中…' : '清空'}
-          </button>
-        </div>
-        <div className="overflow-hidden rounded-lg border">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50 text-left">
-              <tr>
-                <th className="p-2">姓名</th>
-                <th className="p-2">公司</th>
-                <th className="p-2">判别</th>
-                <th className="p-2">置信度</th>
-                <th className="p-2">来源</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recent.length === 0 && (
-                <tr>
-                  <td className="p-3 text-muted-foreground" colSpan={5}>
-                    暂无记录
-                  </td>
-                </tr>
-              )}
-              {recent.map((v) => (
-                <tr key={v.id} className="border-t">
-                  <td className="p-2">{v.name || '—'}</td>
-                  <td className="p-2">{v.company || '—'}</td>
-                  <td className="p-2">
-                    {identityText(v)}
-                    {v.needsReview && <span className="ml-1 text-amber-600">·待确认</span>}
-                  </td>
-                  <td className="p-2">{(v.confidence * 100).toFixed(0)}%</td>
-                  <td className="p-2 text-muted-foreground">{decidedByText(v.decidedBy)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
     </div>
+  )
+}
+
+/** 判别记录 Tab：按姓名/公司、身份、是否待复核查询判别历史，支持清空。 */
+function VerdictsPanel() {
+  const [rows, setRows] = useState<VerdictView[]>([])
+  const [loading, setLoading] = useState(false)
+  const [clearing, setClearing] = useState(false)
+  const confirm = useConfirm()
+  // 查询条件（受控）：关键字、身份枚举、复核态。
+  const [q, setQ] = useState('')
+  const [identity, setIdentity] = useState('')
+  const [review, setReview] = useState<'all' | 'review' | 'confirmed'>('all')
+  const [limit, setLimit] = useState(50)
+
+  const load = () => {
+    setLoading(true)
+    const params = new URLSearchParams()
+    params.set('limit', String(limit))
+    if (q.trim()) params.set('q', q.trim())
+    if (identity) params.set('identity', identity)
+    if (review !== 'all') params.set('needsReview', review === 'review' ? 'true' : 'false')
+    http<VerdictView[]>(`/visitor-analysis/verdicts?${params.toString()}`)
+      .then(setRows)
+      .catch(() => setRows([]))
+      .finally(() => setLoading(false))
+  }
+
+  // 首次加载默认列表；条件变化由用户点「查询」触发，避免每次输入都打后端。
+  useEffect(load, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const reset = () => {
+    setQ('')
+    setIdentity('')
+    setReview('all')
+    setLimit(50)
+  }
+
+  // 一键清空判别历史（判别记录 + 人工纠正 + 访客台账），参照库/竞品不动。
+  const clearVerdicts = async () => {
+    const ok = await confirm({
+      title: '清空判别记录',
+      description: '将删除全部判别记录、人工纠正与访客台账（历史客户资料库不受影响）。此操作不可撤销，确定继续？',
+      confirmText: '清空',
+      variant: 'destructive',
+    })
+    if (!ok) return
+    setClearing(true)
+    try {
+      await http<{ cleared: number }>('/visitor-analysis/verdicts', { method: 'DELETE' })
+      setRows([])
+    } catch {
+      /* 失败保持原列表，下次查询自愈 */
+    } finally {
+      setClearing(false)
+    }
+  }
+
+  return (
+    <section className="space-y-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">判别记录</h2>
+        <button
+          className="rounded-md border px-3 py-1.5 text-xs font-medium text-destructive transition hover:bg-destructive/10 disabled:opacity-50"
+          disabled={clearing || rows.length === 0}
+          onClick={clearVerdicts}
+          title="清空全部判别记录 / 人工纠正 / 访客台账（历史客户资料库不受影响）"
+        >
+          {clearing ? '清空中…' : '清空'}
+        </button>
+      </div>
+
+      {/* 查询条件：关键字 + 身份 + 复核态 + 条数；回车或点「查询」触发。 */}
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') load() }}
+          placeholder="模糊搜索：姓名 / 公司"
+          className="w-full max-w-xs rounded-md border px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/40"
+        />
+        <select
+          value={identity}
+          onChange={(e) => setIdentity(e.target.value)}
+          className="rounded-md border px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/40"
+          title="按身份过滤"
+        >
+          <option value="">全部身份</option>
+          {Object.entries(IDENTITY_LABEL).map(([k, v]) => (
+            <option key={k} value={k}>{v}</option>
+          ))}
+        </select>
+        <select
+          value={review}
+          onChange={(e) => setReview(e.target.value as 'all' | 'review' | 'confirmed')}
+          className="rounded-md border px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/40"
+          title="按复核状态过滤"
+        >
+          <option value="all">全部状态</option>
+          <option value="review">仅待复核</option>
+          <option value="confirmed">仅已确认</option>
+        </select>
+        <select
+          value={limit}
+          onChange={(e) => setLimit(Number(e.target.value))}
+          className="rounded-md border px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/40"
+          title="返回条数上限"
+        >
+          {[20, 50, 100, 200, 500].map((n) => (
+            <option key={n} value={n}>最多 {n} 条</option>
+          ))}
+        </select>
+        <button
+          className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
+          disabled={loading}
+          onClick={load}
+        >
+          {loading ? '查询中…' : '查询'}
+        </button>
+        <button
+          className="rounded-md border px-3 py-1.5 text-sm transition hover:bg-muted"
+          onClick={reset}
+        >
+          重置
+        </button>
+        <span className="text-xs text-muted-foreground">{rows.length} 条</span>
+      </div>
+
+      <div className="overflow-hidden rounded-lg border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50 text-left">
+            <tr>
+              <th className="p-2">姓名</th>
+              <th className="p-2">公司</th>
+              <th className="p-2">判别</th>
+              <th className="p-2">置信度</th>
+              <th className="p-2">来源</th>
+              <th className="whitespace-nowrap p-2">时间</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr>
+                <td className="p-3 text-muted-foreground" colSpan={6}>
+                  {loading ? '查询中…' : '无匹配记录'}
+                </td>
+              </tr>
+            )}
+            {rows.map((v) => (
+              <tr key={v.id} className="border-t">
+                <td className="p-2">{v.name || '—'}</td>
+                <td className="p-2">{v.company || '—'}</td>
+                <td className="p-2">
+                  {identityText(v)}
+                  {v.needsReview && <span className="ml-1 text-amber-600">·待确认</span>}
+                </td>
+                <td className="p-2">{(v.confidence * 100).toFixed(0)}%</td>
+                <td className="p-2 text-muted-foreground">{decidedByText(v.decidedBy)}</td>
+                <td className="whitespace-nowrap p-2 text-xs text-muted-foreground">
+                  {new Date(v.createdAt).toLocaleString()}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   )
 }
 
@@ -727,19 +820,23 @@ function CustomersPanel() {
 }
 
 /**
- * 访客分析工具页外壳：顶部 Tab 在「访客分析 / 客户资料库」两个二级页面间切换。
- * 三条路由（入口 + 两个 Tab）共用本组件，按 pathname 决定渲染哪个面板。
+ * 访客分析工具页外壳：顶部 Tab 在「访客分析 / 客户资料库 / 判别记录」三个二级页面间切换。
+ * 四条路由（入口重定向 + 三个 Tab）共用本组件，按 pathname 决定渲染哪个面板。
  */
 export function VisitorAnalysisPage() {
   const { pathname } = useLocation()
-  const showCustomers = pathname.startsWith(VA_CUSTOMERS)
+  const panel = pathname.startsWith(VA_CUSTOMERS)
+    ? <CustomersPanel />
+    : pathname.startsWith(VA_VERDICTS)
+      ? <VerdictsPanel />
+      : <AnalyzePanel />
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-6">
       <header className="space-y-3">
         <h1 className="text-2xl font-semibold">访客分析</h1>
         <VaTabs />
       </header>
-      {showCustomers ? <CustomersPanel /> : <AnalyzePanel />}
+      {panel}
     </div>
   )
 }

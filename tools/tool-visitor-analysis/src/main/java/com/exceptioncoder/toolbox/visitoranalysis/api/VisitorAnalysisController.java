@@ -109,9 +109,17 @@ public class VisitorAnalysisController {
         return emitter;
     }
 
+    /**
+     * 判别记录查询。全部参数可选：q（姓名/公司模糊）、identity（身份枚举精确）、
+     * needsReview（仅待复核/仅已确认）。无条件时等同最近 N 条。
+     */
     @GetMapping("/verdicts")
-    public List<VerdictView> verdicts(@RequestParam(defaultValue = "50") int limit) {
-        return verdictRepo.listRecent(Math.min(500, Math.max(1, limit)));
+    public List<VerdictView> verdicts(@RequestParam(defaultValue = "50") int limit,
+                                      @RequestParam(required = false) String q,
+                                      @RequestParam(required = false) String identity,
+                                      @RequestParam(required = false) Boolean needsReview) {
+        int capped = Math.min(500, Math.max(1, limit));
+        return verdictRepo.search(q, identity, needsReview, capped);
     }
 
     @GetMapping("/reviews")

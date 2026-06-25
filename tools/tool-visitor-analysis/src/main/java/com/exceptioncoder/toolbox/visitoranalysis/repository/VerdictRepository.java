@@ -87,6 +87,41 @@ public class VerdictRepository {
         return jdbc.query(SELECT_JOIN + " ORDER BY v.created_at DESC LIMIT ?", MAPPER, limit);
     }
 
+    /**
+     * 条件查询判别记录。三个条件全可空，皆为 AND：
+     * <ul>
+     *   <li>{@code keyword}：模糊匹配访客姓名 / 公司（LIKE，大小写不敏感）</li>
+     *   <li>{@code identity}：精确匹配身份枚举（CUSTOMER/COMPETITOR/...）</li>
+     *   <li>{@code needsReview}：true=仅待复核，false=仅已确认，null=不限</li>
+     * </ul>
+     * 按 created_at 倒序，受 limit 截断。空条件等同 {@link #listRecent}。
+     */
+    public List<VerdictView> search(String keyword, String identity, Boolean needsReview, int limit) {
+        StringBuilder sql = new StringBuilder(SELECT_JOIN);
+        List<Object> args = new java.util.ArrayList<>();
+        List<String> conds = new java.util.ArrayList<>();
+        if (keyword != null && !keyword.isBlank()) {
+            String like = "%" + keyword.trim().toLowerCase() + "%";
+            conds.add("(LOWER(COALESCE(vi.name,'')) LIKE ? OR LOWER(COALESCE(vi.company,'')) LIKE ?)");
+            args.add(like);
+            args.add(like);
+        }
+        if (identity != null && !identity.isBlank()) {
+            conds.add("v.identity = ?");
+            args.add(identity.trim().toUpperCase());
+        }
+        if (needsReview != null) {
+            conds.add("v.needs_review = ?");
+            args.add(needsReview ? 1 : 0);
+        }
+        if (!conds.isEmpty()) {
+            sql.append(" WHERE ").append(String.join(" AND ", conds));
+        }
+        sql.append(" ORDER BY v.created_at DESC LIMIT ?");
+        args.add(limit);
+        return jdbc.query(sql.toString(), MAPPER, args.toArray());
+    }
+
     public List<VerdictView> listNeedsReview() {
         return jdbc.query(SELECT_JOIN + " WHERE v.needs_review = 1 ORDER BY v.created_at DESC", MAPPER);
     }
