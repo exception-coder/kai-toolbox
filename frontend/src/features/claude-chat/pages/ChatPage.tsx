@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, Cloud, FileText, FolderTree, GitBranch, GitCommit, List, ListChecks, Maximize2, Minimize2, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
+import { Bell, Cloud, FileText, FolderTree, GitBranch, GitCommit, List, ListChecks, Maximize2, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Input } from '@/components/ui/input'
@@ -18,6 +18,7 @@ import { VoiceInputButton } from '../components/VoiceInputButton'
 import { AttachmentChips } from '../components/AttachmentChips'
 import { QueuedList } from '../components/QueuedList'
 import { SessionCapsPanel } from '../components/SessionCapsPanel'
+import { setToolColors, useToolColors } from '../lib/toolColorPref'
 import { ModeSwitch } from '../components/ModeSwitch'
 import { ProviderSwitch } from '../components/ProviderSwitch'
 import { SlashCommandMenu } from '../components/SlashCommandMenu'
@@ -190,6 +191,7 @@ export function ChatPage() {
   }
   const [panel, setPanel] = useState<Panel>('none')
   const [showUsage, setShowUsage] = useState(false)
+  const toolColors = useToolColors()
   // 整会话累计用量：后端按 sessionId 统计 transcript（不受前端分页影响）。换会话或一轮跑完后刷新。
   const [sessionUsage, setSessionUsage] = useState<SessionUsage | null>(null)
   const usageSid = chat?.sessionId ?? null
@@ -533,6 +535,7 @@ export function ChatPage() {
                   {chat.sessionId && (
                     <HeaderMenuItem icon={<GitCommit className="size-4" />} label="提交记录" hint="当前目录 git 提交/diff" onClick={() => { setHeaderMenu(false); setShowCommits(true) }} />
                   )}
+                  <HeaderMenuItem icon={<Palette className="size-4" />} label={toolColors ? '工具着色 · 开' : '工具着色 · 关'} hint="按命令/读写/子代理/技能/MCP 上色" onClick={() => { setToolColors(!toolColors) }} />
                   <HeaderMenuItem icon={<Sparkles className="size-4" />} label="会话能力" hint="激活的技能 / 子代理 / MCP 服务" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'caps' ? 'none' : 'caps') }} />
                   <HeaderMenuItem icon={<FolderTree className="size-4" />} label="合并工作区" hint="软链接聚合多个目录" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'taskspace' ? 'none' : 'taskspace') }} />
                   <HeaderMenuItem icon={<GitBranch className="size-4" />} label="拉取项目到工作区" hint="git clone 远端仓库到工作区" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'clone' ? 'none' : 'clone') }} />
