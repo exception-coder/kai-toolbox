@@ -8,6 +8,7 @@ import com.exceptioncoder.toolbox.visitoranalysis.client.YoooniFlowClient;
 import com.exceptioncoder.toolbox.visitoranalysis.config.CustAddAuditSyncProperties;
 import com.exceptioncoder.toolbox.visitoranalysis.repository.CustAddAuditRepository;
 import com.exceptioncoder.toolbox.visitoranalysis.repository.CustomerRefRepository;
+import com.exceptioncoder.toolbox.visitoranalysis.repository.FeedbackRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -41,16 +42,19 @@ public class CustAddAuditSyncService {
     private final CustAddAuditRepository repo;
     private final VerdictService verdictService;
     private final CustomerRefRepository customerRefRepo;
+    private final FeedbackRepository feedbackRepo;
     private final Normalizer normalizer;
     private final CustAddAuditSyncProperties props;
 
     public CustAddAuditSyncService(YoooniFlowClient client, CustAddAuditRepository repo,
                                    VerdictService verdictService, CustomerRefRepository customerRefRepo,
+                                   FeedbackRepository feedbackRepo,
                                    Normalizer normalizer, CustAddAuditSyncProperties props) {
         this.client = client;
         this.repo = repo;
         this.verdictService = verdictService;
         this.customerRefRepo = customerRefRepo;
+        this.feedbackRepo = feedbackRepo;
         this.normalizer = normalizer;
         this.props = props;
     }
@@ -179,6 +183,53 @@ public class CustAddAuditSyncService {
             if (v != null) out.put(key, v);
         }
         return out;
+    }
+
+    /**
+     * 接收 ERP 对 AI 判定的反馈（按 flowApplyId 定位最新一条审批台账）：
+     * 回写台账的 erp_feedback_* 字段；若判定不正确且带了正确身份/关系，同时落一条 va_feedback（按 verdict_id），
+     * 让纠正能沉淀进反馈表用于后续规则/竞品名单扩充。
+     *
+     * @return {ok, found, flowApplyId, auditId, correct} —— 未找到台账记录时 {ok:false, found:false}
+     */
+    public Map<String, Object> recordErpFeedback(long flowApplyId, boolean correct, String reason,
+                                                  String correctedIdentity, String correctedRelationship,
+                                                  String operator) {
+        Map<String, Object> row = repo.findByFlowApplyId(flowApplyId);
+        if (row == null) {
+            return Map.of("ok", false, "found", false, "flowApplyId", flowApplyId);
+        }
+        long auditId = asLongOrNull(row.get("id"));
+        long now = System.currentTimeMillis();
+        repo.saveErpFeedback(auditId, correct, blankToNull(reason),
+                blankToNull(correctedIdentity), blankToNull(correctedRelationship),
+                blankToNull(operator), now);
+
+        // 判定不正确且 ERP 给了正确结果 → 同步落 va_feedback（按 verdict_id），与人工复核纠正同一张表。
+        Long verdictId = asLongOrNull(row.get("verdict_id"));
+        if (!correct && verdictId != null
+                && (blankToNull(correctedIdentity) != null || blankToNull(correctedRelationship) != null)) {
+            feedbackRepo.add(verdictId, blankToNull(correctedIdentity), blankToNull(correctedRelationship),
+                    blankToNull(operator), blankToNull(reason));
+        }
+        log.info("[cust-add-audit] ERP 反馈 flowApplyId={} auditId={} correct={} reason={}",
+                flowApplyId, auditId, correct, trimLog(reason));
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("ok", true);
+        out.put("found", true);
+        out.put("flowApplyId", flowApplyId);
+        out.put("auditId", auditId);
+        out.put("correct", correct);
+        return out;
+    }
+
+    private static String blankToNull(String s) {
+        return (s == null || s.isBlank()) ? null : s.trim();
+    }
+
+    private static String trimLog(String s) {
+        if (s == null) return null;
+        return s.length() > 100 ? s.substring(0, 100) + "…" : s;
     }
 
     /** 单条审批台账行 → ERP 展示视图（PASS/REJECT/DOUBT）。未判别完成(status≠DONE)返回 null。 */

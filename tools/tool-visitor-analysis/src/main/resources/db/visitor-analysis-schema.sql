@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS va_visitor (
     source        TEXT,
     created_at    INTEGER NOT NULL
 );
+ALTER TABLE va_visitor ADD COLUMN company_addr TEXT;
+ALTER TABLE va_visitor ADD COLUMN addr_norm TEXT;
 CREATE INDEX IF NOT EXISTS idx_va_visitor_phone_norm   ON va_visitor(phone_norm);
 CREATE INDEX IF NOT EXISTS idx_va_visitor_company_norm ON va_visitor(company_norm);
 CREATE INDEX IF NOT EXISTS idx_va_visitor_addr_norm    ON va_visitor(addr_norm);
@@ -34,6 +36,9 @@ CREATE TABLE IF NOT EXISTS va_customer (
     last_deal_at  INTEGER,
     created_at    INTEGER NOT NULL
 );
+ALTER TABLE va_customer ADD COLUMN addr_norm TEXT;
+ALTER TABLE va_customer ADD COLUMN status TEXT;
+ALTER TABLE va_customer ADD COLUMN last_deal_at INTEGER;
 CREATE INDEX IF NOT EXISTS idx_va_customer_phone_norm   ON va_customer(phone_norm);
 CREATE INDEX IF NOT EXISTS idx_va_customer_company_norm ON va_customer(company_norm);
 CREATE INDEX IF NOT EXISTS idx_va_customer_addr_norm    ON va_customer(addr_norm);
@@ -160,6 +165,17 @@ CREATE TABLE IF NOT EXISTS va_cust_add_audit (
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_va_cust_add_audit_flowcheckid ON va_cust_add_audit(flowcheckid);
 CREATE INDEX IF NOT EXISTS idx_va_cust_add_audit_status    ON va_cust_add_audit(analyze_status);
 CREATE INDEX IF NOT EXISTS idx_va_cust_add_audit_make_date ON va_cust_add_audit(make_date);
+
+-- ERP 反馈回写：ERP 审批确认/驳回后，把「AI 判定是否正确 + 不正确原因 + 正确结果」回灌于此。
+-- 与 va_feedback（按 verdict_id 的人工纠正）并存：这里按申请单(apply_no/flowcheckid)定位、回写台账，
+-- 让后续回查/报表能看到「人工已校正」，verdict 维度的明细仍落 va_feedback。裸 ALTER 幂等（SchemaInitializer 吞 duplicate column）。
+ALTER TABLE va_cust_add_audit ADD COLUMN erp_feedback_correct INTEGER;      -- AI 判定是否正确：1 正确 / 0 不正确 / NULL 未反馈
+ALTER TABLE va_cust_add_audit ADD COLUMN erp_feedback_reason TEXT;          -- 不正确原因（correct=0 时由 ERP 提供）
+ALTER TABLE va_cust_add_audit ADD COLUMN erp_corrected_identity TEXT;       -- 人工认定的正确身份（可空）
+ALTER TABLE va_cust_add_audit ADD COLUMN erp_corrected_relationship TEXT;   -- 人工认定的正确关系（可空）
+ALTER TABLE va_cust_add_audit ADD COLUMN erp_feedback_operator TEXT;        -- 反馈操作人（ERP 审批人）
+ALTER TABLE va_cust_add_audit ADD COLUMN erp_feedback_at INTEGER;           -- 反馈时间 epoch ms
+CREATE INDEX IF NOT EXISTS idx_va_cust_add_audit_feedback ON va_cust_add_audit(erp_feedback_correct);
 
 -- 人工纠正反馈。回流后可用于扩充竞品名单 / 沉淀新的确定性规则。
 CREATE TABLE IF NOT EXISTS va_feedback (

@@ -119,4 +119,21 @@ public class CustAddAuditRepository {
         return jdbc.queryForList(
                 "SELECT * FROM va_cust_add_audit ORDER BY fetched_at DESC, id DESC LIMIT ?", limit);
     }
+
+    /**
+     * ERP 反馈回写：把「AI 判定是否正确 + 不正确原因 + 正确结果」写进台账（按主键 id）。
+     * correct 用 Integer 直存（1/0），其余可空。返回受影响行数。
+     */
+    public int saveErpFeedback(long id, boolean correct, String reason,
+                               String correctedIdentity, String correctedRelationship,
+                               String operator, long now) {
+        return jdbc.update("""
+                UPDATE va_cust_add_audit SET
+                    erp_feedback_correct = ?, erp_feedback_reason = ?,
+                    erp_corrected_identity = ?, erp_corrected_relationship = ?,
+                    erp_feedback_operator = ?, erp_feedback_at = ?
+                WHERE id = ?
+                """,
+                correct ? 1 : 0, reason, correctedIdentity, correctedRelationship, operator, now, id);
+    }
 }

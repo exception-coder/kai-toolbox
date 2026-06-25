@@ -91,6 +91,11 @@ flowchart LR
 - 灰区分类 `GreyZoneClassifier.classify(userPrompt)` → `ClassifyProposal{identity, relationship, confidence, rationale, evidence}`（LangChain4j 结构化输出）。
 - 向量召回 `VisitorVectorService.searchSimilar(...)` → `List<SimilarRecord>`。
 
+ERP 对接（`/api/visitor-analysis/cust-add-audit`，按申请单维度，与前端 `VerdictView` 维度区分）：
+- `POST /sync`（立即拉取登记）· `POST /analyze`（立即判别）· `GET /records`（台账列表）。
+- `GET /verdict?flowApplyId=` 单条回查 · `GET /verdicts?flowApplyIds=1,2,3` 批量回查 → ERP 展示视图 `{found, result(PASS/REJECT/DOUBT), reason, confidence, identity, ...}`。**只读，ERP → 查**。
+- `POST /feedback` — **ERP → 回写**：body `{flowApplyId, correct, reason?, correctedIdentity?, correctedRelationship?, operator?}`。按 `flowApplyId` 定位最新台账行，回写 `erp_feedback_*`；`correct=false` 且带正确结果时同步落一条 `va_feedback`（按 verdict_id），供后续规则/竞品名单沉淀。这是 ERP 反馈「AI 判定是否正确 + 不正确原因」的唯一入口；按申请单业务键定位，不要求 ERP 持有内部 verdict id。
+
 ## 9. 框架选型
 
 - **LangChain4j（同 JVM）**：灰区分类与向量召回都在 Java 内完成，不再跨进程桥接 Python。

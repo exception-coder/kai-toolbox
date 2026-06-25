@@ -60,4 +60,29 @@ public class CustAddAuditController {
     public List<Map<String, Object>> records(@RequestParam(defaultValue = "100") int limit) {
         return repo.listRecent(Math.min(500, Math.max(1, limit)));
     }
+
+    /**
+     * 供 Yoooni ERP 回写「AI 判定是否正确」的反馈：按 flowApplyId 定位最新一条审批台账，
+     * 回写 erp_feedback_*；correct=false 且带正确身份/关系时同步落 va_feedback。
+     * 未找到记录返回 {ok:false, found:false}。
+     */
+    @PostMapping("/feedback")
+    public Map<String, Object> feedback(@RequestBody ErpFeedbackRequest req) {
+        if (req == null || req.flowApplyId() == null) {
+            return Map.of("ok", false, "found", false, "message", "flowApplyId 必填");
+        }
+        boolean correct = req.correct() != null && req.correct();
+        return syncService.recordErpFeedback(
+                req.flowApplyId(), correct, req.reason(),
+                req.correctedIdentity(), req.correctedRelationship(), req.operator());
+    }
+
+    /**
+     * ERP 反馈入参。correct=true 表示 AI 判定正确；false 表示不正确，应带 reason（不正确原因），
+     * 可选附正确结果 correctedIdentity / correctedRelationship 与 operator（审批人）。
+     */
+    public record ErpFeedbackRequest(
+            Long flowApplyId, Boolean correct, String reason,
+            String correctedIdentity, String correctedRelationship, String operator) {
+    }
 }
