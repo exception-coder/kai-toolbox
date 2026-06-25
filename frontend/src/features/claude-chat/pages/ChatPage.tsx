@@ -16,7 +16,9 @@ import { HistoryList } from '../components/HistoryList'
 import { NotifySettings } from '../components/NotifySettings'
 import { VoiceInputButton } from '../components/VoiceInputButton'
 import { AttachmentChips } from '../components/AttachmentChips'
+import { QueuedList } from '../components/QueuedList'
 import { ModeSwitch } from '../components/ModeSwitch'
+import { ProviderSwitch } from '../components/ProviderSwitch'
 import { SlashCommandMenu } from '../components/SlashCommandMenu'
 import { CommandMenu } from '../components/CommandMenu'
 import { PluginPanel } from '../components/PluginPanel'
@@ -389,8 +391,14 @@ export function ChatPage() {
     if (!draft.trim() && attachments.length === 0) return
     ensureNotifyPermission() // 借发送这个手势兜底申请一次通知权限
 
-    // 图片把本地 previewUrl 一并带上 → 气泡里显示缩略图（object URL 不在此 revoke，已被消息引用）
-    chat.send(draft, attachments.map(a => ({ name: a.name, path: a.path, mime: a.mime, url: a.previewUrl })))
+    const atts = attachments.map(a => ({ name: a.name, path: a.path, mime: a.mime, url: a.previewUrl }))
+    // 正在回答中 → 入待发送队列，本轮结束后自动按序发；否则立即发
+    if (chat.running) {
+      chat.enqueue(draft, atts)
+    } else {
+      // 图片把本地 previewUrl 一并带上 → 气泡里显示缩略图（object URL 不在此 revoke，已被消息引用）
+      chat.send(draft, atts)
+    }
     setDraft('')
     setAttachments([])
     // 发送后收回输入框高度：等 DOM 清空（下一帧）再按内容重算，避免停留在变高后的高度
@@ -945,6 +953,7 @@ export function ChatPage() {
             {/* 底部输入：白色悬浮输入条 + 主色上边框 + 顶部阴影 */}
             {chat.sessionId && (
               <div className="border-t border-[var(--color-border)] bg-[var(--color-muted)] shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.08)]">
+          <QueuedList items={chat.queued} onRemove={chat.removeQueued} onClear={chat.clearQueued} />
           <AttachmentChips
             items={attachments}
             uploading={uploading}
@@ -970,6 +979,17 @@ export function ChatPage() {
                 <ShieldCheck className="size-3.5" /> 弹窗自动允许·{autoApprove ? '开' : '关'}
               </button>
             )}
+            {/* 服务商切换与权限组语义不同：用左外边距推到右侧，避免和权限按钮挤在一起 */}
+            <div className="ml-auto">
+              <ProviderSwitch
+                engine={chat.currentEngine}
+                providerKind={chat.currentProviderKind}
+                providerBaseUrl={chat.currentProviderBaseUrl}
+                onSwitch={chat.switchProvider}
+                onPickModel={chat.setModel}
+                align="right"
+              />
+            </div>
           </div>
           {showSlash && (
             <SlashCommandMenu commands={slashFiltered} activeIndex={slashActive} onPick={pickSlash} />
@@ -1034,7 +1054,6 @@ export function ChatPage() {
               )}
             </div>
             <VoiceInputButton
-              disabled={chat.running}
               onText={t => setDraft(d => d.trim() ? `${d} ${t}` : t)}
             />
             <textarea
@@ -1053,18 +1072,31 @@ export function ChatPage() {
                   if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickSlash(slashFiltered[slashActive]); return }
                   if (e.key === 'Escape') { e.preventDefault(); setSlashDismissed(true); return }
                 }
-                // 触屏（移动端）：回车换行、由发送按钮发；桌面：Enter 发送、Shift+Enter 换行
+                // 触屏（移动端）：回车换行、由发送按钮发；桌面：Enter 发送/排队、Shift+Enter 换行
                 if (e.key === 'Enter' && !e.shiftKey) {
                   if (typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches) return
                   e.preventDefault()
-                  if (!chat.running) submit()
+                  submit() // running 时 submit 自动入队
                 }
               }}
             />
             {chat.running ? (
-              <Button variant="outline" size="lg" onClick={chat.interrupt} aria-label="中断">
-                <Square className="size-4" /> 中断
-              </Button>
+              <div className="flex gap-1.5">
+                <Button
+                  size="lg"
+                  variant="secondary"
+                  className="shadow-sm"
+                  onClick={submit}
+                  disabled={!draft.trim() && attachments.length === 0}
+                  aria-label="排队发送"
+                  title="加入待发送队列，本轮结束后自动发出"
+                >
+                  <Plus className="size-4" />
+                </Button>
+                <Button variant="outline" size="lg" onClick={chat.interrupt} aria-label="中断">
+                  <Square className="size-4" />
+                </Button>
+              </div>
             ) : (
               <Button
                 size="lg"

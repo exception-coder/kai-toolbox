@@ -37,6 +37,13 @@ function normalizeUsage(raw: Record<string, unknown> | undefined): Record<string
   return Object.keys(out).length ? out : undefined
 }
 
+/** 待发送队列项：running 期间排队的用户消息。 */
+export interface QueuedMessage {
+  id: string
+  text: string
+  attachments?: SendAttachment[]
+}
+
 /** 连接后要发出的首个意图（区分新建 / 续跑 / 重连回放）。 */
 type Intent =
   | { kind: 'open'; cwd: string; model?: string; mode?: PermissionMode; engine?: Engine; apiBaseUrl?: string; authToken?: string }
@@ -80,6 +87,8 @@ export interface UseClaudeChatSocket {
   setModel: (model: string) => void
   /** 会话内切 agent（引擎），同一会话内换 claude/codex/gemini；上下文靠切后另发 seed 带过去 */
   switchEngine: (engine: Engine) => void
+  /** 会话内切服务商（官方 ↔ 第三方网关），同一会话与 sdkSessionId 不变，保留上下文；空入参＝切回官方 */
+  switchProvider: (provider?: { apiBaseUrl?: string; authToken?: string }) => void
   /** 从某条用户消息分叉出新会话（旧会话保留），完成后自动切到新会话 */
   forkSession: (upToMessageId: string) => void
   /** 切到工具内会话（resume 续跑） */
@@ -88,7 +97,15 @@ export interface UseClaudeChatSocket {
   resumeHistory: (sdkSessionId: string, cwd: string) => void
   resumeCurrent: () => void
   /** 下发一条用户消息（可带附件） */
-  send: (text: string, attachments?: Attachment[]) => void
+  send: (text: string, attachments?: SendAttachment[]) => void
+  /** 待发送队列：running 时入队的消息，本轮结束后按序自动发出 */
+  queued: QueuedMessage[]
+  /** 入队一条待发送消息（running 时排队；空闲时也可入队，会立即触发发送） */
+  enqueue: (text: string, attachments?: SendAttachment[]) => void
+  /** 移除队列中某条 */
+  removeQueued: (id: string) => void
+  /** 清空待发送队列 */
+  clearQueued: () => void
   /** 回灌权限/提问决策 */
   decide: (msg: Extract<ClientMessage, { type: 'decision' }>) => void
   interrupt: () => void
@@ -108,6 +125,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
   const [items, setItems] = useState<ChatItem[]>([])
   const [pending, setPending] = useState<PendingRequest | null>(null)
   const [running, setRunning] = useState(false)
+  const [queued, setQueued] = useState<QueuedMessage[]>([])
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [syncWarning, setSyncWarning] = useState<string | null>(null)
   const [mode, setModeState] = useState<PermissionMode>('default')
@@ -529,6 +547,27 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     sendRaw(msg)
   }, [sendRaw])
 
+  // ── 待发送队列：running 时入队，本轮结束(running→false 且无待确认弹窗)后按序自动发 ──
+  const enqueue = useCallback((text: string, attachments?: SendAttachment[]) => {
+    const t = text.trim()
+    if (!t && !(attachments && attachments.length > 0)) return
+    setQueued(prev => [...prev, { id: nextId(), text: t, attachments }])
+  }, [])
+  const removeQueued = useCallback((id: string) => {
+    setQueued(prev => prev.filter(q => q.id !== id))
+  }, [])
+  const clearQueued = useCallback(() => setQueued([]), [])
+
+  // 空闲（非 running、无权限/提问弹窗）且队列非空 → 取队首发出
+  const sendRef = useRef(send)
+  sendRef.current = send
+  useEffect(() => {
+    if (running || pending || queued.length === 0) return
+    const head = queued[0]
+    setQueued(prev => prev.slice(1))
+    sendRef.current(head.text, head.attachments)
+  }, [running, pending, queued])
+
   const interrupt = useCallback(() => {
     sendRaw({ type: 'interrupt' })
     setRunning(false)
@@ -556,6 +595,23 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
       setCurrentProviderBaseUrl(null)
     }
     sendRaw({ type: 'switchEngine', engine })
+  }, [sendRaw])
+
+  // 会话内切服务商（官方 ↔ 第三方网关，或两网关互切）：同一会话与 sdkSessionId 不变，保留上下文，下一轮生效。
+  // 乐观更新 provider 标识与模型列表；权威值随后端重发的 ready/models 校正。空 baseUrl＝切回官方。
+  const switchProvider = useCallback((provider?: { apiBaseUrl?: string; authToken?: string }) => {
+    const baseUrl = provider?.apiBaseUrl?.trim() || undefined
+    const token = baseUrl ? provider?.authToken : undefined
+    setCurrentProviderKind(baseUrl ? 'thirdParty' : 'official')
+    setCurrentProviderBaseUrl(baseUrl ?? null)
+    if (!baseUrl) { setModels([]); setCurrentModel(null) } // 切回官方：清网关模型，待 sidecar supportedModels 重发
+    // 关键：同步更新重连意图快照。新建会话的 intent 是带初始 provider 的 'open'，若不更新，一旦重连
+    // flushIntent 会重放旧 open（带原 baseUrl）→ 把刚切好的 provider 又覆盖回去（切回官方却被弹回三方的根因）。
+    const it = intentRef.current
+    if (it && it.kind === 'open') {
+      intentRef.current = { ...it, apiBaseUrl: baseUrl, authToken: token }
+    }
+    sendRaw({ type: 'switchProvider', apiBaseUrl: baseUrl, authToken: token })
   }, [sendRaw])
 
   // 从某条用户消息分叉出新会话（旧会话保留）。完成后服务端回 forked → 自动 switchTo 新会话。
@@ -601,5 +657,5 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     loadHistoryRef.current = loadHistory
   }, [loadHistory])
 
-  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, models, currentModel, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, open, switchTo, resumeHistory, resumeCurrent, send, decide, interrupt, setMode, setModel, switchEngine, forkSession, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, models, currentModel, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, open, switchTo, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setModel, switchEngine, switchProvider, forkSession, historyLoading, historyExhausted, loadHistory }
 }
