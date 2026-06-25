@@ -126,4 +126,82 @@ public class CustomerRefRepository {
                 c.province(), c.city(), c.district(), c.custAddr(), c.checkinAddr(), c.lng(), c.lat(), c.level(),
                 c.custProperty(), c.creator(), c.note(), nameNorm, keywordNorm, addrNorm, now);
     }
+
+    /** 按主键 id 取一条（CRUD 编辑回填 / 删除前校验用）。不存在返回 null。 */
+    public CustomerRefView findById(long id) {
+        var rows = jdbc.query("""
+                SELECT id, cust_id, cust_name, keyword, brand_name, cust_type, cust_category, biz_major,
+                       province, city, district, cust_addr, checkin_addr, lng, lat, level, cust_property,
+                       creator, note, created_at, synced_at
+                  FROM va_customer_ref WHERE id = ?
+                """, MAPPER, id);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    /**
+     * 人工新增一条参照客户，返回自增主键 id。
+     * 与导入的 {@link #insert} 区别：不依赖 cust_id 幂等（手工录入通常无原系统 custId），
+     * cust_id 可空，主键由 SQLite 自增。归一化键由调用方算好传入。
+     */
+    public long insertManual(CustomerRefView c, String nameNorm, String keywordNorm, String addrNorm, long now) {
+        org.springframework.jdbc.support.GeneratedKeyHolder kh =
+                new org.springframework.jdbc.support.GeneratedKeyHolder();
+        jdbc.update(con -> {
+            var ps = con.prepareStatement("""
+                    INSERT INTO va_customer_ref
+                        (cust_id, cust_name, keyword, brand_name, cust_type, cust_category, biz_major,
+                         province, city, district, cust_addr, checkin_addr, lng, lat, level, cust_property,
+                         creator, note, name_norm, keyword_norm, addr_norm, created_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """, new String[]{"id"});
+            int i = 1;
+            ps.setObject(i++, c.custId());
+            ps.setString(i++, c.custName());
+            ps.setString(i++, c.keyword());
+            ps.setString(i++, c.brandName());
+            ps.setString(i++, c.custType());
+            ps.setString(i++, c.custCategory());
+            ps.setString(i++, c.bizMajor());
+            ps.setString(i++, c.province());
+            ps.setString(i++, c.city());
+            ps.setString(i++, c.district());
+            ps.setString(i++, c.custAddr());
+            ps.setString(i++, c.checkinAddr());
+            ps.setObject(i++, c.lng());
+            ps.setObject(i++, c.lat());
+            ps.setString(i++, c.level());
+            ps.setString(i++, c.custProperty());
+            ps.setString(i++, c.creator());
+            ps.setString(i++, c.note());
+            ps.setString(i++, nameNorm);
+            ps.setString(i++, keywordNorm);
+            ps.setString(i++, addrNorm);
+            ps.setLong(i, now);
+            return ps;
+        }, kh);
+        Number key = kh.getKey();
+        return key == null ? 0L : key.longValue();
+    }
+
+    /**
+     * 按主键 id 更新一条。归一化键同步刷新；synced_at 置 NULL（资料改动后需重新同步向量库）。
+     * 返回受影响行数（0 表示 id 不存在）。
+     */
+    public int update(long id, CustomerRefView c, String nameNorm, String keywordNorm, String addrNorm) {
+        return jdbc.update("""
+                UPDATE va_customer_ref SET
+                    cust_id=?, cust_name=?, keyword=?, brand_name=?, cust_type=?, cust_category=?, biz_major=?,
+                    province=?, city=?, district=?, cust_addr=?, checkin_addr=?, lng=?, lat=?, level=?, cust_property=?,
+                    creator=?, note=?, name_norm=?, keyword_norm=?, addr_norm=?, synced_at=NULL
+                 WHERE id=?
+                """,
+                c.custId(), c.custName(), c.keyword(), c.brandName(), c.custType(), c.custCategory(), c.bizMajor(),
+                c.province(), c.city(), c.district(), c.custAddr(), c.checkinAddr(), c.lng(), c.lat(), c.level(),
+                c.custProperty(), c.creator(), c.note(), nameNorm, keywordNorm, addrNorm, id);
+    }
+
+    /** 按主键 id 删除一条。返回受影响行数。 */
+    public int delete(long id) {
+        return jdbc.update("DELETE FROM va_customer_ref WHERE id = ?", id);
+    }
 }

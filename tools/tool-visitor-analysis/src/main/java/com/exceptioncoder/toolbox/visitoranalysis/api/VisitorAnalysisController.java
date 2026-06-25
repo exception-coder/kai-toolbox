@@ -148,6 +148,39 @@ public class VisitorAnalysisController {
         return customerRefImport.importFromCsv(path);
     }
 
+    /** 人工新增一条客户资料。归一化键统一由 Normalizer 计算；返回新建记录（含自增 id）。 */
+    @PostMapping("/customer-refs")
+    public CustomerRefView createCustomerRef(@RequestBody CustomerRefRequest req) {
+        long now = System.currentTimeMillis();
+        CustomerRefView c = req.toView(0L, now);
+        long id = customerRefRepo.insertManual(c,
+                normalizer.company(c.custName()), normalizer.company(c.keyword()),
+                normalizer.addr(c.custAddr()), now);
+        return customerRefRepo.findById(id);
+    }
+
+    /** 编辑一条客户资料（按主键 id）。归一化键同步刷新，synced_at 置空待重新同步。 */
+    @PutMapping("/customer-refs/{id}")
+    public CustomerRefView updateCustomerRef(@PathVariable long id, @RequestBody CustomerRefRequest req) {
+        CustomerRefView existing = customerRefRepo.findById(id);
+        if (existing == null) {
+            throw new IllegalArgumentException("客户资料不存在: id=" + id);
+        }
+        CustomerRefView c = req.toView(id, existing.createdAt());
+        int n = customerRefRepo.update(id, c,
+                normalizer.company(c.custName()), normalizer.company(c.keyword()),
+                normalizer.addr(c.custAddr()));
+        if (n == 0) throw new IllegalArgumentException("客户资料不存在: id=" + id);
+        return customerRefRepo.findById(id);
+    }
+
+    /** 删除一条客户资料（按主键 id）。 */
+    @DeleteMapping("/customer-refs/{id}")
+    public Map<String, Object> deleteCustomerRef(@PathVariable long id) {
+        int n = customerRefRepo.delete(id);
+        return Map.of("deleted", n);
+    }
+
     /**
      * 一键把历史客户资料库全量同步到向量库（Qdrant）：逐条 embed + upsert，供灰区语义召回。
      * sidecar 离线直接返回提示；逐条统计成功/失败，custId 作为稳定 point id，重复同步走 upsert 不重复。
@@ -219,5 +252,25 @@ public class VisitorAnalysisController {
     }
 
     public record CorrectRequest(String identity, String relationship, String operator, String note) {
+    }
+
+    /**
+     * 客户资料新增/编辑入参。归一化键（name_norm/keyword_norm/addr_norm）不接收前端值——
+     * 一律由后端 Normalizer 现算，杜绝多端口径漂移。id/createdAt/syncedAt 也由后端掌控。
+     */
+    public record CustomerRefRequest(
+            Long custId, String custName, String keyword, String brandName,
+            String custType, String custCategory, String bizMajor,
+            String province, String city, String district,
+            String custAddr, String checkinAddr, Double lng, Double lat,
+            String level, String custProperty, String creator, String note) {
+
+        /** 转 CustomerRefView（归一化键留空，由 repository 调用方用 Normalizer 计算）。 */
+        CustomerRefView toView(long id, long createdAt) {
+            return new CustomerRefView(id, custId, custName, keyword, brandName,
+                    custType, custCategory, bizMajor, province, city, district,
+                    custAddr, checkinAddr, lng, lat, level, custProperty, creator, note,
+                    createdAt, null);
+        }
     }
 }

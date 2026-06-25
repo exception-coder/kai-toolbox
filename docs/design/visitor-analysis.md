@@ -84,6 +84,7 @@ flowchart LR
 - `GET /verdicts?limit` · `GET /reviews` · `POST /reviews/{id}/correct` · `GET/POST/DELETE /competitors`。
 - `GET /sidecar-health` — 路径保留以兼容前端；语义已改为「**向量召回是否就绪**」（`{online}`）。online=false 时灰区仍可判别，只是不带历史相似客户参考，非阻断。
 - `POST /customer-refs/sync-vector` · `DELETE /vector/customers` — 客户底库 ↔ Qdrant 向量库的同步/清空。
+- `GET /customer-refs` · `POST /customer-refs`（新增）· `PUT /customer-refs/{id}`（编辑）· `DELETE /customer-refs/{id}`（删除）· `POST /customer-refs/import`（CSV 批量）——客户去重底库的完整 CRUD。归一化键（name_norm/keyword_norm/addr_norm）一律由后端 Normalizer 现算，前端不传；编辑/删除后 synced_at 置空，提示重新「一键同步」。
 
 内部（同 JVM，无跨进程协议）：
 - 灰区分类 `GreyZoneClassifier.classify(userPrompt)` → `ClassifyProposal{identity, relationship, confidence, rationale, evidence}`（LangChain4j 结构化输出）。

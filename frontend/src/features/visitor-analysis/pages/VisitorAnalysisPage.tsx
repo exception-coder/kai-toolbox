@@ -496,6 +496,46 @@ function CustomersPanel() {
     }
   }
 
+  // 新增/编辑弹窗：editing=null 关闭；'new' 新增；CustomerRef 编辑。
+  const [editing, setEditing] = useState<CustomerRef | 'new' | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  // 删除一条客户资料（按主键 id）。
+  const removeCustomer = async (c: CustomerRef) => {
+    const ok = await confirm({
+      title: '删除客户资料',
+      description: `将从去重底库删除《${c.custName || '未命名'}》。若已同步进向量库，建议删除后重新「一键同步」。确定继续？`,
+      confirmText: '删除',
+      variant: 'destructive',
+    })
+    if (!ok) return
+    try {
+      await http<{ deleted: number }>(`/visitor-analysis/customer-refs/${c.id}`, { method: 'DELETE' })
+      loadCustomers()
+    } catch (e) {
+      setSyncMsg(e instanceof Error ? e.message : '删除失败')
+    }
+  }
+
+  // 保存新增/编辑：归一化键由后端 Normalizer 现算，前端只传业务字段。
+  const saveCustomer = async (form: CustomerRefForm) => {
+    setSaving(true)
+    try {
+      const body = JSON.stringify(toRequest(form))
+      if (editing === 'new') {
+        await http<CustomerRef>('/visitor-analysis/customer-refs', { method: 'POST', body })
+      } else if (editing) {
+        await http<CustomerRef>(`/visitor-analysis/customer-refs/${editing.id}`, { method: 'PUT', body })
+      }
+      setEditing(null)
+      loadCustomers()
+    } catch (e) {
+      setSyncMsg(e instanceof Error ? e.message : '保存失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   // 历史客户资料库：客户端模糊匹配（客户名称 / 客户地址）+ 分页（每页 20）。
   const CUST_PAGE_SIZE = 20
   const custQuery = custSearch.trim().toLowerCase()
@@ -520,6 +560,13 @@ function CustomersPanel() {
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-sm font-semibold text-muted-foreground">历史客户资料库（去重检索底库）</h2>
         <div className="flex items-center gap-3">
+          <button
+            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition hover:opacity-90"
+            onClick={() => setEditing('new')}
+            title="人工新增一条客户资料到去重底库"
+          >
+            新增客户
+          </button>
           <button
             className="rounded-md border px-3 py-1.5 text-xs font-medium transition hover:bg-muted disabled:opacity-50"
             disabled={syncing || customers.length === 0}
@@ -586,12 +633,13 @@ function CustomersPanel() {
               <th className="whitespace-nowrap p-2">等级</th>
               <th className="whitespace-nowrap p-2">创建人</th>
               <th className="whitespace-nowrap p-2">向量库</th>
+              <th className="whitespace-nowrap p-2 text-right">操作</th>
             </tr>
           </thead>
           <tbody>
             {custFiltered.length === 0 && (
               <tr>
-                <td className="p-3 text-muted-foreground" colSpan={10}>
+                <td className="p-3 text-muted-foreground" colSpan={11}>
                   {customers.length === 0 ? '暂无客户资料' : '无匹配记录'}
                 </td>
               </tr>
@@ -617,6 +665,20 @@ function CustomersPanel() {
                   ) : (
                     <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">未同步</span>
                   )}
+                </td>
+                <td className="whitespace-nowrap p-2 text-right">
+                  <button
+                    className="rounded-md border px-2 py-1 text-xs transition hover:bg-muted"
+                    onClick={() => setEditing(c)}
+                  >
+                    编辑
+                  </button>
+                  <button
+                    className="ml-1.5 rounded-md border px-2 py-1 text-xs text-destructive transition hover:bg-destructive/10"
+                    onClick={() => removeCustomer(c)}
+                  >
+                    删除
+                  </button>
                 </td>
               </tr>
             ))}
@@ -651,6 +713,15 @@ function CustomersPanel() {
           </div>
         </div>
       )}
+
+      {editing && (
+        <CustomerRefEditor
+          initial={editing === 'new' ? null : editing}
+          saving={saving}
+          onCancel={() => setEditing(null)}
+          onSave={saveCustomer}
+        />
+      )}
     </section>
   )
 }
@@ -683,5 +754,128 @@ function Field(props: { label: string; value: string; onChange: (e: React.Change
         onChange={props.onChange}
       />
     </label>
+  )
+}
+
+// ── 客户资料新增/编辑 ──────────────────────────────────────────────────────────
+
+// 表单态：全字符串，便于受控输入；数值字段（custId/lng/lat）保存时再解析。
+interface CustomerRefForm {
+  custId: string
+  custName: string
+  keyword: string
+  brandName: string
+  custType: string
+  custCategory: string
+  bizMajor: string
+  province: string
+  city: string
+  district: string
+  custAddr: string
+  checkinAddr: string
+  lng: string
+  lat: string
+  level: string
+  custProperty: string
+  creator: string
+  note: string
+}
+
+const EMPTY_FORM: CustomerRefForm = {
+  custId: '', custName: '', keyword: '', brandName: '', custType: '', custCategory: '',
+  bizMajor: '', province: '', city: '', district: '', custAddr: '', checkinAddr: '',
+  lng: '', lat: '', level: '', custProperty: '', creator: '', note: '',
+}
+
+function formFrom(c: CustomerRef): CustomerRefForm {
+  const s = (v: string | number | null) => (v == null ? '' : String(v))
+  return {
+    custId: s(c.custId), custName: s(c.custName), keyword: s(c.keyword), brandName: s(c.brandName),
+    custType: s(c.custType), custCategory: s(c.custCategory), bizMajor: s(c.bizMajor),
+    province: s(c.province), city: s(c.city), district: s(c.district), custAddr: s(c.custAddr),
+    checkinAddr: s(c.checkinAddr), lng: s(c.lng), lat: s(c.lat), level: s(c.level),
+    custProperty: s(c.custProperty), creator: s(c.creator), note: s(c.note),
+  }
+}
+
+// 表单 → 后端 CustomerRefRequest：空串转 null，数值字段解析；归一化键由后端算，不传。
+function toRequest(f: CustomerRefForm) {
+  const t = (v: string) => { const x = v.trim(); return x === '' ? null : x }
+  const num = (v: string) => { const x = v.trim(); if (x === '') return null; const n = Number(x); return Number.isFinite(n) ? n : null }
+  return {
+    custId: num(f.custId), custName: t(f.custName), keyword: t(f.keyword), brandName: t(f.brandName),
+    custType: t(f.custType), custCategory: t(f.custCategory), bizMajor: t(f.bizMajor),
+    province: t(f.province), city: t(f.city), district: t(f.district), custAddr: t(f.custAddr),
+    checkinAddr: t(f.checkinAddr), lng: num(f.lng), lat: num(f.lat), level: t(f.level),
+    custProperty: t(f.custProperty), creator: t(f.creator), note: t(f.note),
+  }
+}
+
+/** 客户资料新增/编辑弹窗。initial=null 为新增。归一化键由后端 Normalizer 现算，前端不碰。 */
+function CustomerRefEditor(props: {
+  initial: CustomerRef | null
+  saving: boolean
+  onCancel: () => void
+  onSave: (form: CustomerRefForm) => void
+}) {
+  const [form, setForm] = useState<CustomerRefForm>(() =>
+    props.initial ? formFrom(props.initial) : EMPTY_FORM,
+  )
+  const set = (k: keyof CustomerRefForm) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((f) => ({ ...f, [k]: e.target.value }))
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={props.onCancel}>
+      <div
+        className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border bg-background p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="mb-3 text-base font-semibold">{props.initial ? '编辑客户资料' : '新增客户资料'}</h3>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="客户名称" value={form.custName} onChange={set('custName')} />
+          <Field label="关键字 / 简称" value={form.keyword} onChange={set('keyword')} />
+          <Field label="公司(品牌)名称" value={form.brandName} onChange={set('brandName')} />
+          <Field label="custId（原系统主键，可空）" value={form.custId} onChange={set('custId')} />
+          <Field label="客户类型" value={form.custType} onChange={set('custType')} />
+          <Field label="客户类别" value={form.custCategory} onChange={set('custCategory')} />
+          <Field label="经营大类" value={form.bizMajor} onChange={set('bizMajor')} />
+          <Field label="客户等级" value={form.level} onChange={set('level')} />
+          <Field label="省" value={form.province} onChange={set('province')} />
+          <Field label="市" value={form.city} onChange={set('city')} />
+          <Field label="区" value={form.district} onChange={set('district')} />
+          <Field label="客户属性" value={form.custProperty} onChange={set('custProperty')} />
+          <div className="sm:col-span-2">
+            <Field label="客户地址（门牌级，去重地址轴主输入）" value={form.custAddr} onChange={set('custAddr')} />
+          </div>
+          <div className="sm:col-span-2">
+            <Field label="打卡地址" value={form.checkinAddr} onChange={set('checkinAddr')} />
+          </div>
+          <Field label="经度 lng" value={form.lng} onChange={set('lng')} />
+          <Field label="纬度 lat" value={form.lat} onChange={set('lat')} />
+          <Field label="创建人" value={form.creator} onChange={set('creator')} />
+          <Field label="备注" value={form.note} onChange={set('note')} />
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          归一化匹配键（名称 / 关键字 / 地址）由后端统一计算，无需手填；保存后该记录在向量库的同步标记会重置，需重新「一键同步」。
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            className="rounded-md border px-4 py-2 text-sm transition hover:bg-muted disabled:opacity-50"
+            onClick={props.onCancel}
+            disabled={props.saving}
+          >
+            取消
+          </button>
+          <button
+            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
+            onClick={() => props.onSave(form)}
+            disabled={props.saving || form.custName.trim() === ''}
+            title={form.custName.trim() === '' ? '客户名称必填' : undefined}
+          >
+            {props.saving ? '保存中…' : '保存'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
