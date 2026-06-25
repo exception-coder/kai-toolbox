@@ -63,6 +63,36 @@ export interface ProjectModule {
   children?: ProjectModule[]
 }
 
+/** 「项目初始化流水线」(yoooni-onboard-pipeline) 里单仓的探测线索。 */
+export interface OnboardRepo {
+  path: string
+  exists: boolean
+  role: string
+  stack: string[]
+  encoding: string
+}
+
+/** 流水线一个阶段的进度。status：done/pending/skipped。 */
+export interface OnboardStage {
+  id: string
+  name: string
+  /** full=自动 / semi=AI起草+人确认 / human=人判定 */
+  auto: string
+  gate: string
+  status: string
+  /** 完成时间 ISO，可空 */
+  at: string | null
+}
+
+/** 一次 onboard 的进度视图，镜像 ~/.kai-toolbox/onboard-<系统>.json（后端只读）。 */
+export interface OnboardView {
+  system: string
+  separated: boolean
+  createdAt: string | null
+  repos: OnboardRepo[]
+  stages: OnboardStage[]
+}
+
 /** 项目模块扫描结果，用于项目工作台按模块打开 Vibe Coding 会话。 */
 export interface ProjectModules {
   project: string

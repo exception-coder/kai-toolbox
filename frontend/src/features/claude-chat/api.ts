@@ -1,6 +1,6 @@
 import { authFetch, http } from '@/lib/api'
 import type { CommitDiff, CommitsResponse } from '@/components/git/types'
-import type { ChatItem, ClaudeChatSessionView, CloneResult, HistorySessionView, ModelInfo, ModuleResolve, NotifyConfig, PluginStatus, SuiteStatus, ProjectModules, SubdirList, TaskspaceView, WorkspaceList } from './types'
+import type { ChatItem, ClaudeChatSessionView, CloneResult, HistorySessionView, ModelInfo, ModuleResolve, NotifyConfig, OnboardView, PluginStatus, SuiteStatus, ProjectModules, SubdirList, TaskspaceView, WorkspaceList } from './types'
 
 /** 列当前会话工作目录(git 仓库)的最近提交。后端按 sessionId 解析 cwd。 */
 export function listSessionCommits(sessionId: string, limit?: number) {
@@ -94,6 +94,11 @@ export function fetchProjectModules(path: string) {
 /** 模块路由：把一句自然语言确定性解析为候选 (项目, 模块)，供「说一句话拉起模块会话」。 */
 export function resolveModule(q: string) {
   return http<ModuleResolve>(`/claude-chat/workspaces/resolve?q=${encodeURIComponent(q)}`)
+}
+
+/** 列出「项目初始化流水线」(yoooni-onboard-pipeline) 各系统的六阶段进度（镜像状态文件，后端只读）。 */
+export function listOnboard() {
+  return http<OnboardView[]>('/claude-chat/onboard')
 }
 
 // ── 合并工作区 taskspace：父目录多选 → 建软链接聚合成新工作区 ──────────

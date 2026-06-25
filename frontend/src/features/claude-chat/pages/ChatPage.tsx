@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, Cloud, FileText, FolderTree, GitBranch, GitCommit, List, Maximize2, Minimize2, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, ShieldCheck, Slash, Square } from 'lucide-react'
+import { Bell, Cloud, FileText, FolderTree, GitBranch, GitCommit, List, ListChecks, Maximize2, Minimize2, MoreHorizontal, Package, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, ShieldCheck, Slash, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Input } from '@/components/ui/input'
@@ -25,6 +25,7 @@ import { ProviderDiagPanel } from '../components/ProviderDiagPanel'
 import { groupModels } from '../components/modelGroups'
 import { TaskspacePanel } from '../components/TaskspacePanel'
 import { CloneProjectPanel } from '../components/CloneProjectPanel'
+import { OnboardPipelinePanel } from '../components/OnboardPipelinePanel'
 import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
@@ -35,7 +36,7 @@ import { CommitsPanel } from '@/components/git/CommitsPanel'
 import type { Engine } from '../types'
 import { ensureNotifyPermission } from '../browserNotify'
 
-type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone'
+type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard'
 
 /** 单条消息最多附件数，与后端约定一致。 */
 const MAX_ATTACHMENTS = 10
@@ -513,6 +514,7 @@ export function ChatPage() {
                   )}
                   <HeaderMenuItem icon={<FolderTree className="size-4" />} label="合并工作区" hint="软链接聚合多个目录" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'taskspace' ? 'none' : 'taskspace') }} />
                   <HeaderMenuItem icon={<GitBranch className="size-4" />} label="拉取项目到工作区" hint="git clone 远端仓库到工作区" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'clone' ? 'none' : 'clone') }} />
+                  <HeaderMenuItem icon={<ListChecks className="size-4" />} label="项目初始化流水线" hint="拉取→画像→知识图谱→profile→聚合" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'onboard' ? 'none' : 'onboard') }} />
                   <HeaderMenuItem icon={<Server className="size-4" />} label="服务商" hint="第三方网关(按会话,不动官方)" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'providers' ? 'none' : 'providers') }} />
                   <HeaderMenuItem icon={<Package className="size-4" />} label="插件更新" hint="查看/更新双端插件" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'plugins' ? 'none' : 'plugins') }} />
                   <HeaderMenuItem icon={<FileText className="size-4" />} label="最新日志" hint="后端+sidecar 日志，一键复制排查" onClick={() => { setHeaderMenu(false); setShowLogs(true) }} />
@@ -723,6 +725,18 @@ export function ChatPage() {
       {panel === 'clone' && (
         <CloneProjectPanel
           onCloned={dir => { setNewCwd(dir); setPanel('new') }}
+          onClose={() => setPanel('none')}
+        />
+      )}
+      {panel === 'onboard' && (
+        <OnboardPipelinePanel
+          onLaunch={(seed, cwd) => {
+            // 开一个 Claude 会话（skill 依赖 Claude 端团队插件 + Bash）并投喂触发语，
+            // 让 yoooni-onboard-pipeline 接管：open 先于 send 到达（已验证），真正一键。
+            chat.open(cwd.trim(), undefined, undefined, 'claude')
+            chat.send(seed)
+            setPanel('none')
+          }}
           onClose={() => setPanel('none')}
         />
       )}
