@@ -126,6 +126,41 @@ CREATE TABLE IF NOT EXISTS va_verdict (
 CREATE INDEX IF NOT EXISTS idx_va_verdict_visitor ON va_verdict(visitor_id);
 CREATE INDEX IF NOT EXISTS idx_va_verdict_review  ON va_verdict(needs_review);
 
+-- 客户新增审批同步台账。定时从 Yoooni ERP 拉取未审批的「客户新增审批」记录登记于此，
+-- 再异步走判别核心标记是否重复客户。flowcheckid 是 Yoooni 审批记录主键,唯一,INSERT OR IGNORE 幂等。
+-- analyze_status: PENDING(待判别)/ANALYZING(占用中)/DONE(已判别)/FAILED(判别失败)。
+CREATE TABLE IF NOT EXISTS va_cust_add_audit (
+    id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+    flowcheckid            INTEGER NOT NULL,           -- Yoooni erp_flowcheck.id（幂等键 / 回写状态用）
+    apply_no               INTEGER,                    -- 申请单号 erp_flowapply.id
+    apply_title            TEXT,                       -- 申请标题
+    applicant              TEXT,                       -- 申请人
+    apply_dept             TEXT,                       -- 申请部门
+    make_date              INTEGER,                    -- 生成日期(epoch ms，水位推进用；解析失败为 NULL)
+    make_date_raw          TEXT,                       -- 生成日期原始字符串(保真)
+    customerup_apply_logid INTEGER,                    -- 申请详情主键 erp_flowapply.srcid
+    company_brand_name     TEXT,                       -- 公司(品牌)名称 crm_customerupapplylog.name
+    customer_name          TEXT,                       -- 客户关键字/简称 crm_customerupapplylog.briefname
+    checkin_address        TEXT,                       -- 打卡地址
+    customer_address       TEXT,                       -- 客户地址(门牌级 doorcode)
+    analyze_status         TEXT    NOT NULL DEFAULT 'PENDING',
+    verdict_id             INTEGER,                    -- 关联 va_verdict.id
+    visitor_id             INTEGER,                    -- 关联 va_visitor.id
+    identity               TEXT,                       -- 判别身份(CUSTOMER/COMPETITOR/...)
+    relationship           TEXT,                       -- 客户关系(EXISTING/CHURNED/NONE)
+    confidence             REAL,                       -- 置信度
+    is_duplicate           INTEGER,                    -- 是否重复客户 1/0
+    dup_cust_id            INTEGER,                    -- 命中底库的 custId(best-effort，可空)
+    needs_review           INTEGER NOT NULL DEFAULT 0, -- 是否需人工复核
+    analyze_error          TEXT,                       -- 判别失败原因
+    fetched_at             INTEGER NOT NULL,           -- 拉取登记时间
+    analyzed_at            INTEGER,                    -- 判别完成时间
+    created_at             INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_va_cust_add_audit_flowcheckid ON va_cust_add_audit(flowcheckid);
+CREATE INDEX IF NOT EXISTS idx_va_cust_add_audit_status    ON va_cust_add_audit(analyze_status);
+CREATE INDEX IF NOT EXISTS idx_va_cust_add_audit_make_date ON va_cust_add_audit(make_date);
+
 -- 人工纠正反馈。回流后可用于扩充竞品名单 / 沉淀新的确定性规则。
 CREATE TABLE IF NOT EXISTS va_feedback (
     id                    INTEGER PRIMARY KEY AUTOINCREMENT,

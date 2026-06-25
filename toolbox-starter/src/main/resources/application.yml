@@ -164,6 +164,20 @@ toolbox:
       collection: va_customers     # 客户去重底库专用集合，与 ai-secretary 物理隔离
       max-results: 3
       min-score: 0.70              # 沿用原 sidecar VA_VECTOR_THRESH
+    # 客户新增审批同步：定时从 Yoooni ERP 拉取未审批的「客户新增审批」记录登记，再异步判别是否重复客户。
+    # 默认 enabled=false——配好 base-url/token（须与 Yoooni 侧 X-AI-Token 一致）再置 true 开启定时任务。
+    # 标 @Refreshable（CustAddAuditSyncProperties）纳入运行时配置中心：base-url/token/超时等可在线改、不重启生效；
+    # 这里的值仅作启动默认/环境变量兜底，运行期以配置中心覆盖为准。cron 改后需重启才重排。
+    cust-add-audit-sync:
+      enabled: ${TOOLBOX_VA_CUSTADD_SYNC_ENABLED:false}
+      base-url: ${TOOLBOX_VA_YOOONI_BASE_URL:http://localhost:8080}
+      token: ${TOOLBOX_VA_YOOONI_AI_TOKEN:yoooni-ai-agent-token-2026}
+      default-since-date: "2026-06-23"   # 首轮/空表水位线
+      pull-cron: "0 */10 * * * *"        # 拉取登记：每 10 分钟
+      analyze-cron: "0 */2 * * * *"      # 异步判别：每 2 分钟
+      batch-limit: 50
+      connect-timeout-ms: 5000
+      read-timeout-ms: 15000
   system:
     # 远程重启端点 token。经公网 tunnel 暴露，留空 = 端点关闭（返回 503）。必须显式配才开放。
     # 用环境变量覆盖：TOOLBOX_SYSTEM_RESTART_TOKEN=随机串
