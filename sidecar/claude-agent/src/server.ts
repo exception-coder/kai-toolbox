@@ -50,6 +50,13 @@ wss.on('connection', (ws) => {
           msg.authToken as string | undefined,
         )
         break
+      case 'switchProvider':
+        manager.switchProvider(
+          sessionId,
+          msg.apiBaseUrl as string | undefined,
+          msg.authToken as string | undefined,
+        )
+        break
       case 'forkSession':
         void manager.forkSession(sessionId, msg.upToMessageId as string)
         break

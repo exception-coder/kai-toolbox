@@ -79,6 +79,13 @@ public class ClaudeChatSessionRepository {
                 status.name(), lastSeenAt, id);
     }
 
+    /** 会话内切服务商：更新第三方网关 baseUrl + token（空＝切回官方）。sdk_session_id 不动，沿用原生会话。 */
+    public void updateProvider(String id, String apiBaseUrl, String authToken) {
+        jdbc.update(
+                "UPDATE claude_chat_session SET api_base_url = ?, auth_token = ? WHERE id = ?",
+                apiBaseUrl, authToken, id);
+    }
+
     public void updateSdkSessionId(String id, String sdkSessionId) {
         jdbc.update(
                 "UPDATE claude_chat_session SET sdk_session_id = ? WHERE id = ?",

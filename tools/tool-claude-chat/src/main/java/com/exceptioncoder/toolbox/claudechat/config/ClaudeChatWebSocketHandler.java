@@ -52,8 +52,10 @@ public class ClaudeChatWebSocketHandler extends TextWebSocketHandler {
         try {
             msg = mapper.readValue(message.getPayload(), ClientMessage.class);
         } catch (JsonProcessingException e) {
-            log.debug("[claude-chat] 非法客户端消息：{}", e.getMessage());
-            sendErrorAndClose(ws, "BAD_MESSAGE", "消息解析失败");
+            // 单条消息无法解析（脏数据 / 新前端发了旧后端不认的类型）：只回错误并忽略这一条，
+            // 不再关闭整条连接——避免前后端版本不一致时一条未知消息就把会话连接打死。
+            log.debug("[claude-chat] 非法客户端消息，已忽略：{}", e.getMessage());
+            sendError(ws, "BAD_MESSAGE", "消息解析失败（已忽略该条，请确认前后端版本一致）");
             return;
         }
 
@@ -69,6 +71,7 @@ public class ClaudeChatWebSocketHandler extends TextWebSocketHandler {
             case ClientMessage.SetMode sm -> service.setMode(ws, sm);
             case ClientMessage.SetModel sm -> service.setModel(ws, sm);
             case ClientMessage.SwitchEngine se -> service.switchEngine(ws, se);
+            case ClientMessage.SwitchProvider sp -> service.switchProvider(ws, sp);
             case ClientMessage.ForkSession fs -> service.forkSession(ws, fs);
         }
     }
@@ -82,6 +85,16 @@ public class ClaudeChatWebSocketHandler extends TextWebSocketHandler {
     @Override
     public void handleTransportError(WebSocketSession ws, Throwable exception) {
         log.debug("[claude-chat] transport error：{}", exception.getMessage());
+    }
+
+    /** 回一条错误事件，但保持连接（用于单条脏消息，不牵连整个会话）。 */
+    private void sendError(WebSocketSession ws, String code, String msg) {
+        try {
+            if (ws.isOpen()) {
+                ws.sendMessage(new TextMessage(mapper.writeValueAsString(new ServerMessage.Error(0, code, msg))));
+            }
+        } catch (IOException ignore) {
+        }
     }
 
     private void sendErrorAndClose(WebSocketSession ws, String code, String msg) {

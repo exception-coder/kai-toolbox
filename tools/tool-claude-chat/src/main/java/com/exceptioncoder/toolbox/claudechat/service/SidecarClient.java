@@ -141,6 +141,12 @@ public class SidecarClient {
                 "apiBaseUrl", nz(apiBaseUrl), "authToken", nz(authToken)));
     }
 
+    /** 会话内切服务商：仅透传 apiBaseUrl/authToken，sidecar 就地更新、下一轮生效（空 baseUrl＝官方）。 */
+    public void switchProvider(String sessionId, String apiBaseUrl, String authToken) {
+        send(Map.of("type", "switchProvider", "sessionId", sessionId,
+                "apiBaseUrl", nz(apiBaseUrl), "authToken", nz(authToken)));
+    }
+
     public void forkSession(String sessionId, String upToMessageId) {
         send(Map.of("type", "forkSession", "sessionId", sessionId, "upToMessageId", nz(upToMessageId)));
     }

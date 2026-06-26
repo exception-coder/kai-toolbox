@@ -10,6 +10,7 @@ import { SessionTotalBadge } from './SessionTotalBadge'
 import { PermissionDialog } from './PermissionDialog'
 import { QuestionDialog } from './QuestionDialog'
 import { ModeSwitch } from './ModeSwitch'
+import { ProviderSwitch } from './ProviderSwitch'
 import { AttachmentChips } from './AttachmentChips'
 import { VoiceInputButton } from './VoiceInputButton'
 import { agentStatusMeta, deriveAgentStatus, engineDisplayName, providerHost, type AgentStatus } from './chatStatus'
@@ -231,6 +232,17 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
               <ShieldCheck className="size-3" /> 自动允许·{autoApprove ? '开' : '关'}
             </button>
           )}
+          {/* 服务商切换与权限组语义不同，推到右侧分开 */}
+          <div className="ml-auto">
+            <ProviderSwitch
+              engine={chat.currentEngine}
+              providerKind={chat.currentProviderKind}
+              providerBaseUrl={chat.currentProviderBaseUrl}
+              onSwitch={chat.switchProvider}
+              onPickModel={chat.setModel}
+              align="right"
+            />
+          </div>
         </div>
         <div className="flex items-end gap-1">
           {/* 附件：label 包 input，保留原生触发（移动端 WebView 不丢手势） */}
