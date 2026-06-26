@@ -78,6 +78,14 @@ CREATE TABLE IF NOT EXISTS va_customer_ref (
     created_at    INTEGER NOT NULL,
     synced_at     INTEGER                      -- 同步进向量库的时间;NULL=未同步(老库由 CustomerRefMigration 追加该列)
 );
+-- 老库迁移：给已存在的 va_customer_ref 追加后加的列。裸 ALTER 幂等（SchemaInitializer 吞 duplicate column）。
+-- 必须放在下方 CREATE INDEX(contact_mobile_norm / tel_norm) 之前——否则老库在本次 schema 执行里
+-- 建索引时这些列还不存在（CustomerRefMigration 在 SchemaInitializer 之后才跑），直接启动失败。
+ALTER TABLE va_customer_ref ADD COLUMN tel TEXT;
+ALTER TABLE va_customer_ref ADD COLUMN tel_norm TEXT;
+ALTER TABLE va_customer_ref ADD COLUMN contact_mobile TEXT;
+ALTER TABLE va_customer_ref ADD COLUMN contact_mobile_norm TEXT;
+ALTER TABLE va_customer_ref ADD COLUMN src_lastdate INTEGER;
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_va_customer_ref_cust_id ON va_customer_ref(cust_id);
 CREATE INDEX IF NOT EXISTS idx_va_customer_ref_keyword_norm ON va_customer_ref(keyword_norm);
 CREATE INDEX IF NOT EXISTS idx_va_customer_ref_name_norm    ON va_customer_ref(name_norm);
