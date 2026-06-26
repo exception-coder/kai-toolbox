@@ -106,8 +106,9 @@ public class SidecarClient {
         send(Map.of("type", "user", "sessionId", sessionId, "text", nz(text)));
     }
 
-    public void decision(String sessionId, String reqId, String behavior,
-                         Object updatedInput, Object answers) {
+    /** 转发权限/提问决策到 sidecar。返回 false=sidecar 未连/发送失败（决策未送达），调用方据此告知前端别误以为已批准。 */
+    public boolean decision(String sessionId, String reqId, String behavior,
+                            Object updatedInput, Object answers) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("type", "decision");
         m.put("sessionId", sessionId);
@@ -115,7 +116,7 @@ public class SidecarClient {
         m.put("behavior", behavior);
         m.put("updatedInput", updatedInput);
         m.put("answers", answers);
-        send(m);
+        return send(m);
     }
 
     public void interrupt(String sessionId) {
@@ -157,15 +158,18 @@ public class SidecarClient {
                 "systemPrompt", nz(systemPrompt), "userPrompt", nz(userPrompt), "model", nz(model)));
     }
 
-    private synchronized void send(Map<String, ?> payload) {
+    /** 发送一条消息到 sidecar。返回是否真正发出（未连接/异常返回 false，供决策类消息据此回告前端）。 */
+    private synchronized boolean send(Map<String, ?> payload) {
         if (session == null || !session.isOpen()) {
             log.warn("[claude-chat] sidecar 未连接，丢弃消息 type={}", payload.get("type"));
-            return;
+            return false;
         }
         try {
             session.sendMessage(new TextMessage(mapper.writeValueAsString(payload)));
+            return true;
         } catch (IOException e) {
             log.warn("[claude-chat] 发送到 sidecar 失败：{}", e.getMessage());
+            return false;
         }
     }
 

@@ -17,6 +17,15 @@ const emit = (sessionId: string, event: Record<string, unknown>): void => {
 
 const manager = new SessionManager(emit)
 
+// 进程级兜底：sidecar 是多会话共用的单进程，任一会话/某一轮里逃逸的异常都绝不能把整个进程带崩
+// （否则所有会话一起 SIDECAR_DOWN、进行中的工具调用全丢）。这里只记日志、保活进程，由各会话自行恢复。
+process.on('uncaughtException', (err) => {
+  console.error('[sidecar] uncaughtException（已兜住，进程存活）:', err)
+})
+process.on('unhandledRejection', (reason) => {
+  console.error('[sidecar] unhandledRejection（已兜住，进程存活）:', reason)
+})
+
 wss.on('connection', (ws) => {
   active = ws
   console.log('[sidecar] Java backend connected')
@@ -30,6 +39,7 @@ wss.on('connection', (ws) => {
     }
     const type = msg.type as string
     const sessionId = msg.sessionId as string
+    try {
     switch (type) {
       case 'start':
         manager.start(sessionId, msg.cwd as string, msg.model as string, msg.mode as string, msg.engine as string, msg.apiBaseUrl as string | undefined, msg.authToken as string | undefined,
@@ -81,6 +91,14 @@ wss.on('connection', (ws) => {
         break
       default:
         console.warn('[sidecar] unknown message type:', type)
+    }
+    } catch (e) {
+      // 同步分发异常兜底：不让一条消息的处理异常冒泡到 ws 监听器（会触发进程崩溃）。
+      console.error('[sidecar] 处理消息异常（已兜住）type=' + type + ':', e)
+      if (sessionId) {
+        emit(sessionId, { type: 'error', code: 'SIDECAR_DISPATCH_ERROR', message: e instanceof Error ? e.message : String(e) })
+        emit(sessionId, { type: 'result', usage: {}, stopReason: 'error' })
+      }
     }
   })
 

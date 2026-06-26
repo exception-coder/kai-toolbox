@@ -307,10 +307,20 @@ public class ClaudeChatService {
 
     public void decision(WebSocketSession ws, ClientMessage.Decision msg) {
         SessionCtx ctx = ctxOf(ws);
-        if (ctx == null) return;
-        ctx.pendingRequest = null;
-        sidecar.decision(ctx.sessionId, msg.reqId(), msg.behavior(),
+        if (ctx == null) {
+            log.warn("[claude-chat] 收到决策但 ws 未绑定会话，丢弃 reqId={}", msg.reqId());
+            return;
+        }
+        boolean delivered = sidecar.decision(ctx.sessionId, msg.reqId(), msg.behavior(),
                 msg.updatedInput(), msg.answers());
+        if (!delivered) {
+            // sidecar 断开时决策送不到（前端已乐观关弹窗）：明确回告未送达，别让用户误以为已批准而干等超时。
+            // 不清 pendingRequest、不广播「已解决」，重连 attach 时可重投该请求。
+            sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "DECISION_UNDELIVERED",
+                    "确认未送达：sidecar 已断开，正在自动重连。重连后请对该操作重新确认或用「原生 resume」继续。"));
+            return;
+        }
+        ctx.pendingRequest = null;
         // 多端同看：广播「该请求已被处理」，让其它客户端关掉同一个弹窗
         sendToBrowser(ctx, seq -> new ServerMessage.DecisionResolved(seq, msg.reqId()));
     }

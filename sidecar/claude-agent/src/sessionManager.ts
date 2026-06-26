@@ -468,7 +468,13 @@ export class SessionManager {
       this.emit(id, { type: 'error', code: 'SESSION_NOT_FOUND', message: '会话不存在' })
       return
     }
-    void s.runTurn(text)
+    // fire-and-forget，但必须收敛异常：runTurn 的非 Claude 引擎分支（codex/gemini/opencode）没有内层 catch，
+    // 一旦 reject 会变成 unhandledRejection 拖垮整个 sidecar。这里兜成该会话的 error+result，解除前端「思考中」。
+    s.runTurn(text).catch((e) => {
+      console.error('[sidecar] runTurn 异常（已兜住）session=' + id + ':', e)
+      this.emit(id, { type: 'error', code: 'TURN_FAILED', message: e instanceof Error ? e.message : String(e) })
+      this.emit(id, { type: 'result', usage: {}, stopReason: 'error' })
+    })
   }
 
   decide(id: string, reqId: string, d: Decision): void {
