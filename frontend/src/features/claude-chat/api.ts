@@ -1,4 +1,5 @@
 import { authFetch, http } from '@/lib/api'
+import { ensureFreshToken, getToken } from '@/lib/auth'
 import type { CommitDiff, CommitsResponse } from '@/components/git/types'
 import type { ChatItem, ClaudeChatSessionView, CloneResult, HistorySessionView, ModelInfo, ModuleResolve, NotifyConfig, OnboardView, PluginStatus, SuiteStatus, ProjectModules, SubdirList, TaskspaceView, WorkspaceList } from './types'
 
@@ -228,14 +229,23 @@ export async function sttAvailable(): Promise<boolean> {
 
 /** 上传录音音频，返回转写文本。 */
 export async function transcribe(audio: Blob, language = 'auto'): Promise<string> {
+  // claude-chat 是 ADMIN-only：token 过期时软鉴权会回「200 + 空响应」而非 401，
+  // 必须先主动续期，否则转写被静默拦成空文本（表现为「识别失败/无结果」）。
+  await ensureFreshToken()
+  if (!getToken()) throw new Error('未登录或登录已过期，请重新登录后再用语音')
   const res = await authFetch(`/claude-chat/stt?language=${encodeURIComponent(language)}`, {
     method: 'POST',
     headers: { 'Content-Type': audio.type || 'application/octet-stream' },
     body: audio,
   })
   if (!res.ok) throw new Error(await errMessage(res))
-  const j = await res.json()
-  return j.text ?? ''
+  const j = await res.json().catch(() => ({}))
+  const text = (j?.text ?? '').trim()
+  if (!text) {
+    // 200 但空文本：要么登录态失效被软鉴权拦空，要么确实没识别到语音
+    throw new Error(getToken() ? '没有识别到语音内容（请说话后再停止，或确认登录未过期）' : '登录已过期，请重新登录')
+  }
+  return text
 }
 
 /** 探测本地 Kokoro TTS 是否就绪；未就绪时语音模式回落到合成动画（AI 不出声）。 */
