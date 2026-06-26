@@ -78,6 +78,13 @@ public class CustomerSyncService {
         return upsert(client.fetchCustomers(sinceDate));
     }
 
+    /** 一键删除客户底库（同步 + 导入），返回删除条数。供前端运维按钮，清完可重新首次同步。 */
+    public int clearBase() {
+        int deleted = repo.clearAll();
+        log.info("[customer-sync] 一键删除客户底库 {} 条", deleted);
+        return deleted;
+    }
+
     private int upsert(List<CustomerSyncRecord> records) {
         long now = System.currentTimeMillis();
         int n = 0;

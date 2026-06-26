@@ -81,6 +81,13 @@ public class CustomerRefRepository {
         return n == null ? 0 : n;
     }
 
+    /** 一键清空客户底库（同步 + 导入），返回删除条数。清完判定会失去去重底库，直至重新同步。 */
+    public int clearAll() {
+        int before = count();
+        jdbc.update("DELETE FROM va_customer_ref");
+        return before;
+    }
+
     /**
      * 公司名归一化精确命中底库（确定性去重：公司名完全一致 → 重复客户）。命中返回 {cust_id, cust_name}，否则 null。
      */

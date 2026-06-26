@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.visitoranalysis.api;
 
 import com.exceptioncoder.toolbox.visitoranalysis.repository.CustomerRefRepository;
 import com.exceptioncoder.toolbox.visitoranalysis.service.CustomerSyncService;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -41,5 +42,11 @@ public class CustomerSyncController {
     @GetMapping("/count")
     public Map<String, Object> count() {
         return Map.of("total", repo.count());
+    }
+
+    /** 一键删除客户底库（同步 + 导入），返回删除条数。清完可重新首次同步。 */
+    @DeleteMapping("/base")
+    public Map<String, Object> clearBase() {
+        return Map.of("deleted", sync.clearBase());
     }
 }
