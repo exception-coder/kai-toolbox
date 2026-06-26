@@ -33,15 +33,22 @@ public class SttController {
     public SttResult transcribe(InputStream body,
                                 @RequestParam(defaultValue = "auto") String language) {
         if (!stt.isAvailable()) {
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "ASR_UNAVAILABLE");
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "语音识别服务未就绪：请先启动 python-services/faster-whisper");
         }
         try {
             return new SttResult(stt.transcribe(body, language));
+        } catch (IllegalArgumentException e) {
+            // 入参/音频问题（如空录音）→ 400 + 原因
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    e.getMessage() == null ? "录音无效" : e.getMessage());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "TRANSCRIBE_INTERRUPTED");
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "转写被中断");
         } catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "TRANSCRIBE_FAILED", e);
+            // 把真实失败原因带回前端（ASR 连接失败 / HTTP 状态 / 转写错误等，已由 SpeechToTextClient 拼好）
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    e.getMessage() == null ? "转写失败" : e.getMessage(), e);
         }
     }
 }
