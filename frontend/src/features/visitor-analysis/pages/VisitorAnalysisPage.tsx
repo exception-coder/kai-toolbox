@@ -348,169 +348,227 @@ function AnalyzePanel() {
   )
 }
 
-/** 判别记录 Tab：按姓名/公司、身份、是否待复核查询判别历史，支持清空。 */
+// 客户新增审批单（va_cust_add_audit）全字段列定义：snake_case key 对齐后端 listRecent 返回。
+const AUDIT_COLS: { key: string; label: string }[] = [
+  { key: 'flowcheckid', label: '审批ID' },
+  { key: 'apply_no', label: '申请单号' },
+  { key: 'apply_title', label: '申请标题' },
+  { key: 'applicant', label: '申请人' },
+  { key: 'apply_dept', label: '申请部门' },
+  { key: 'make_date_raw', label: '生成日期' },
+  { key: 'customerup_apply_logid', label: '详情主键' },
+  { key: 'company_brand_name', label: '公司(品牌)' },
+  { key: 'customer_name', label: '客户关键字' },
+  { key: 'checkin_address', label: '打卡地址' },
+  { key: 'customer_address', label: '客户地址' },
+  { key: 'analyze_status', label: '判别状态' },
+  { key: 'identity', label: '身份' },
+  { key: 'relationship', label: '关系' },
+  { key: 'confidence', label: '置信度' },
+  { key: 'is_duplicate', label: '重复客户' },
+  { key: 'dup_cust_id', label: '命中custId' },
+  { key: 'needs_review', label: '待复核' },
+  { key: 'verdict_id', label: 'verdictId' },
+  { key: 'visitor_id', label: 'visitorId' },
+  { key: 'analyze_error', label: '错误' },
+  { key: 'fetched_at', label: '拉取时间' },
+  { key: 'analyzed_at', label: '判别时间' },
+  { key: 'created_at', label: '登记时间' },
+]
+
+/**
+ * 判别记录 Tab：统一展示「客户新增审批单」全字段 + 判别结果（身份/置信度/是否重复/待复核）。
+ * 审批单与判别结果同属一行，合成一张表；支持手动同步 / 手动判别，筛选在客户端按这张表过滤。
+ */
 function VerdictsPanel() {
-  const [rows, setRows] = useState<VerdictView[]>([])
+  const [rows, setRows] = useState<Record<string, unknown>[]>([])
   const [loading, setLoading] = useState(false)
-  const [clearing, setClearing] = useState(false)
-  const confirm = useConfirm()
-  // 查询条件（受控）：关键字、身份枚举、复核态。
+  const [syncing, setSyncing] = useState(false)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  // 客户端筛选：关键字（公司/客户/申请人/标题/地址）+ 状态。
   const [q, setQ] = useState('')
-  const [identity, setIdentity] = useState('')
-  const [review, setReview] = useState<'all' | 'review' | 'confirmed'>('all')
-  const [limit, setLimit] = useState(50)
+  const [status, setStatus] = useState<'all' | 'dup' | 'review' | 'pending'>('all')
+  const [page, setPage] = useState(0)
+  const PAGE_SIZE = 20
 
   const load = () => {
     setLoading(true)
-    const params = new URLSearchParams()
-    params.set('limit', String(limit))
-    if (q.trim()) params.set('q', q.trim())
-    if (identity) params.set('identity', identity)
-    if (review !== 'all') params.set('needsReview', review === 'review' ? 'true' : 'false')
-    http<VerdictView[]>(`/visitor-analysis/verdicts?${params.toString()}`)
+    http<Record<string, unknown>[]>('/visitor-analysis/cust-add-audit/records?limit=500')
       .then(setRows)
       .catch(() => setRows([]))
       .finally(() => setLoading(false))
   }
+  useEffect(load, [])
 
-  // 首次加载默认列表；条件变化由用户点「查询」触发，避免每次输入都打后端。
-  useEffect(load, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const reset = () => {
-    setQ('')
-    setIdentity('')
-    setReview('all')
-    setLimit(50)
+  const fmt = (k: string, v: unknown) => {
+    if (v == null || v === '') return '—'
+    if (k === 'is_duplicate' || k === 'needs_review') return v === 1 || v === true ? '是' : '否'
+    if (k === 'confidence' && typeof v === 'number') return `${(v * 100).toFixed(0)}%`
+    if ((k === 'fetched_at' || k === 'analyzed_at' || k === 'created_at') && typeof v === 'number') {
+      return new Date(v).toLocaleString()
+    }
+    return String(v)
   }
 
-  // 一键清空判别历史（判别记录 + 人工纠正 + 访客台账），参照库/竞品不动。
-  const clearVerdicts = async () => {
-    const ok = await confirm({
-      title: '清空判别记录',
-      description: '将删除全部判别记录、人工纠正与访客台账（历史客户资料库不受影响）。此操作不可撤销，确定继续？',
-      confirmText: '清空',
-      variant: 'destructive',
-    })
-    if (!ok) return
-    setClearing(true)
+  const doSync = async () => {
+    setSyncing(true)
+    setMsg(null)
     try {
-      await http<{ cleared: number }>('/visitor-analysis/verdicts', { method: 'DELETE' })
-      setRows([])
-    } catch {
-      /* 失败保持原列表，下次查询自愈 */
+      const r = await http<{ inserted: number }>('/visitor-analysis/cust-add-audit/sync', { method: 'POST' })
+      setMsg(`同步登记 ${r.inserted} 条新审批单`)
+      load()
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '同步失败（agent 是否已开 cust-add-audit-sync 且 Yoooni 可达？）')
     } finally {
-      setClearing(false)
+      setSyncing(false)
+    }
+  }
+  const doAnalyze = async () => {
+    setAnalyzing(true)
+    setMsg(null)
+    try {
+      const r = await http<{ analyzed: number }>('/visitor-analysis/cust-add-audit/analyze', { method: 'POST' })
+      setMsg(`判别完成 ${r.analyzed} 条`)
+      load()
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '判别失败')
+    } finally {
+      setAnalyzing(false)
     }
   }
 
+  const truthy = (v: unknown) => v === 1 || v === true
+  const query = q.trim().toLowerCase()
+  const filtered = rows.filter((r) => {
+    if (status === 'dup' && !truthy(r.is_duplicate)) return false
+    if (status === 'review' && !truthy(r.needs_review)) return false
+    if (status === 'pending' && r.analyzed_at != null) return false
+    if (!query) return true
+    return [
+      r.company_brand_name, r.customer_name, r.applicant,
+      r.apply_title, r.customer_address, r.checkin_address,
+    ].some((x) => String(x ?? '').toLowerCase().includes(query))
+  })
+
+  // 客户端分页（每页 20）：筛选结果再切片，页码越界自动回退。
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const pageSafe = Math.min(page, pageCount - 1)
+  const paged = filtered.slice(pageSafe * PAGE_SIZE, pageSafe * PAGE_SIZE + PAGE_SIZE)
+
   return (
     <section className="space-y-3">
-      <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-semibold text-muted-foreground">判别记录</h2>
-        <button
-          className="rounded-md border px-3 py-1.5 text-xs font-medium text-destructive transition hover:bg-destructive/10 disabled:opacity-50"
-          disabled={clearing || rows.length === 0}
-          onClick={clearVerdicts}
-          title="清空全部判别记录 / 人工纠正 / 访客台账（历史客户资料库不受影响）"
-        >
-          {clearing ? '清空中…' : '清空'}
-        </button>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-semibold text-muted-foreground">客户新增审批单（已从 Yoooni 同步，含判别结果）</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          {msg && <span className="text-xs text-muted-foreground">{msg}</span>}
+          <button
+            className="rounded-md border px-3 py-1.5 text-xs font-medium transition hover:bg-muted disabled:opacity-50"
+            disabled={syncing}
+            onClick={doSync}
+            title="手动从 Yoooni 拉取客户新增审批单（水位自 2026-06-01 起，全状态）"
+          >
+            {syncing ? '同步中…' : '手动同步'}
+          </button>
+          <button
+            className="rounded-md border px-3 py-1.5 text-xs font-medium transition hover:bg-muted disabled:opacity-50"
+            disabled={analyzing}
+            onClick={doAnalyze}
+            title="对已同步且未判别的审批单立即判别"
+          >
+            {analyzing ? '判别中…' : '手动判别'}
+          </button>
+        </div>
       </div>
 
-      {/* 查询条件：关键字 + 身份 + 复核态 + 条数；回车或点「查询」触发。 */}
+      <p className="text-xs text-muted-foreground">
+        审批单与 AI 判别结果同行展示；同步水位自 2026-06-01 起。判别仅辅助预填，最终以人工审核为准。
+      </p>
+
+      {/* 客户端筛选：关键字 + 状态。 */}
       <div className="flex flex-wrap items-center gap-2">
         <input
           value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') load() }}
-          placeholder="模糊搜索：姓名 / 公司"
+          onChange={(e) => { setQ(e.target.value); setPage(0) }}
+          placeholder="模糊搜索：公司 / 客户 / 申请人 / 标题 / 地址"
           className="w-full max-w-xs rounded-md border px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/40"
         />
         <select
-          value={identity}
-          onChange={(e) => setIdentity(e.target.value)}
+          value={status}
+          onChange={(e) => { setStatus(e.target.value as 'all' | 'dup' | 'review' | 'pending'); setPage(0) }}
           className="rounded-md border px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/40"
-          title="按身份过滤"
+          title="按判别结果过滤"
         >
-          <option value="">全部身份</option>
-          {Object.entries(IDENTITY_LABEL).map(([k, v]) => (
-            <option key={k} value={k}>{v}</option>
-          ))}
-        </select>
-        <select
-          value={review}
-          onChange={(e) => setReview(e.target.value as 'all' | 'review' | 'confirmed')}
-          className="rounded-md border px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/40"
-          title="按复核状态过滤"
-        >
-          <option value="all">全部状态</option>
+          <option value="all">全部</option>
+          <option value="dup">仅疑似重复</option>
           <option value="review">仅待复核</option>
-          <option value="confirmed">仅已确认</option>
-        </select>
-        <select
-          value={limit}
-          onChange={(e) => setLimit(Number(e.target.value))}
-          className="rounded-md border px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/40"
-          title="返回条数上限"
-        >
-          {[20, 50, 100, 200, 500].map((n) => (
-            <option key={n} value={n}>最多 {n} 条</option>
-          ))}
+          <option value="pending">仅未判别</option>
         </select>
         <button
-          className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
+          className="rounded-md border px-3 py-1.5 text-sm transition hover:bg-muted disabled:opacity-50"
           disabled={loading}
           onClick={load}
         >
-          {loading ? '查询中…' : '查询'}
+          {loading ? '刷新中…' : '刷新'}
         </button>
-        <button
-          className="rounded-md border px-3 py-1.5 text-sm transition hover:bg-muted"
-          onClick={reset}
-        >
-          重置
-        </button>
-        <span className="text-xs text-muted-foreground">{rows.length} 条</span>
+        <span className="text-xs text-muted-foreground">
+          {filtered.length !== rows.length ? `${filtered.length} / ${rows.length} 条` : `${rows.length} 条`}
+        </span>
       </div>
 
-      <div className="overflow-hidden rounded-lg border">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-lg border">
+        <table className="w-full text-xs">
           <thead className="bg-muted/50 text-left">
             <tr>
-              <th className="p-2">姓名</th>
-              <th className="p-2">公司</th>
-              <th className="p-2">判别</th>
-              <th className="p-2">置信度</th>
-              <th className="p-2">来源</th>
-              <th className="whitespace-nowrap p-2">时间</th>
+              {AUDIT_COLS.map((c) => (
+                <th key={c.key} className="whitespace-nowrap p-2">{c.label}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && (
+            {filtered.length === 0 && (
               <tr>
-                <td className="p-3 text-muted-foreground" colSpan={6}>
-                  {loading ? '查询中…' : '无匹配记录'}
+                <td className="p-3 text-muted-foreground" colSpan={AUDIT_COLS.length}>
+                  {loading ? '加载中…' : rows.length === 0 ? '暂无已同步的审批单' : '无匹配记录'}
                 </td>
               </tr>
             )}
-            {rows.map((v) => (
-              <tr key={v.id} className="border-t">
-                <td className="p-2">{v.name || '—'}</td>
-                <td className="p-2">{v.company || '—'}</td>
-                <td className="p-2">
-                  {identityText(v)}
-                  {v.needsReview && <span className="ml-1 text-amber-600">·待确认</span>}
-                </td>
-                <td className="p-2">{(v.confidence * 100).toFixed(0)}%</td>
-                <td className="p-2 text-muted-foreground">{decidedByText(v.decidedBy)}</td>
-                <td className="whitespace-nowrap p-2 text-xs text-muted-foreground">
-                  {new Date(v.createdAt).toLocaleString()}
-                </td>
+            {paged.map((r, i) => (
+              <tr key={String(r.id ?? i)} className="border-t">
+                {AUDIT_COLS.map((c) => (
+                  <td key={c.key} className="whitespace-nowrap p-2">{fmt(c.key, r[c.key])}</td>
+                ))}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {filtered.length > PAGE_SIZE && (
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>
+            第 {pageSafe * PAGE_SIZE + 1}–{Math.min((pageSafe + 1) * PAGE_SIZE, filtered.length)} 条，共{' '}
+            {filtered.length} 条
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              className="rounded-md border px-2 py-1 transition hover:bg-muted disabled:opacity-40"
+              disabled={pageSafe <= 0}
+              onClick={() => setPage(pageSafe - 1)}
+            >
+              上一页
+            </button>
+            <span>{pageSafe + 1} / {pageCount}</span>
+            <button
+              className="rounded-md border px-2 py-1 transition hover:bg-muted disabled:opacity-40"
+              disabled={pageSafe >= pageCount - 1}
+              onClick={() => setPage(pageSafe + 1)}
+            >
+              下一页
+            </button>
+          </div>
+        </div>
+      )}
     </section>
   )
 }
@@ -525,6 +583,9 @@ function CustomersPanel() {
   const [custSearch, setCustSearch] = useState('')
   const [custPage, setCustPage] = useState(0)
   const [custSyncFilter, setCustSyncFilter] = useState<'all' | 'synced' | 'unsynced'>('all')
+  const [baseSyncing, setBaseSyncing] = useState<'full' | 'incr' | null>(null)
+  const [clearingBase, setClearingBase] = useState(false)
+  const [baseMsg, setBaseMsg] = useState<string | null>(null)
 
   const loadCustomers = () => {
     http<CustomerRef[]>('/visitor-analysis/customer-refs')
@@ -533,6 +594,40 @@ function CustomersPanel() {
   }
 
   useEffect(loadCustomers, [])
+
+  // 客户底库同步（从 Yoooni）：首次全量(分页控量) / 增量(按本地水位) / 一键删除底库。
+  const syncBase = async (mode: 'full' | 'incr') => {
+    setBaseSyncing(mode)
+    setBaseMsg(null)
+    try {
+      const r = await http<{ upserted: number }>(`/visitor-analysis/customer-sync/${mode}`, { method: 'POST' })
+      setBaseMsg(`${mode === 'full' ? '首次全量' : '增量'}同步完成：upsert ${r.upserted} 条`)
+      loadCustomers()
+    } catch (e) {
+      setBaseMsg(e instanceof Error ? e.message : '同步失败（agent 是否已开 customer-sync 且 Yoooni 可达？）')
+    } finally {
+      setBaseSyncing(null)
+    }
+  }
+  const clearBase = async () => {
+    const ok = await confirm({
+      title: '一键删除客户底库',
+      description: '将清空本地 va_customer_ref 全部客户（同步 + 导入）。判定会失去去重底库，直至重新同步。此操作不可撤销，确定继续？',
+      variant: 'destructive',
+    })
+    if (!ok) return
+    setClearingBase(true)
+    setBaseMsg(null)
+    try {
+      const r = await http<{ deleted: number }>('/visitor-analysis/customer-sync/base', { method: 'DELETE' })
+      setBaseMsg(`已删除底库 ${r.deleted} 条`)
+      loadCustomers()
+    } catch (e) {
+      setBaseMsg(e instanceof Error ? e.message : '删除失败')
+    } finally {
+      setClearingBase(false)
+    }
+  }
 
   // 一键把历史客户资料库全量 embed 后写入 Qdrant 向量库，供灰区语义召回。
   const syncVector = async () => {
@@ -676,6 +771,31 @@ function CustomersPanel() {
           >
             {clearingVec ? '清空中…' : '清空向量库'}
           </button>
+          <button
+            className="rounded-md border px-3 py-1.5 text-xs font-medium transition hover:bg-muted disabled:opacity-50"
+            disabled={baseSyncing !== null}
+            onClick={() => syncBase('full')}
+            title="从 Yoooni 分页全量同步客户底库到本地（首次用，按 batchLimit 分页控量）"
+          >
+            {baseSyncing === 'full' ? '全量同步中…' : '首次同步'}
+          </button>
+          <button
+            className="rounded-md border px-3 py-1.5 text-xs font-medium transition hover:bg-muted disabled:opacity-50"
+            disabled={baseSyncing !== null}
+            onClick={() => syncBase('incr')}
+            title="按本地水位增量同步 Yoooni 变更的客户"
+          >
+            {baseSyncing === 'incr' ? '增量同步中…' : '增量同步'}
+          </button>
+          <button
+            className="rounded-md border px-3 py-1.5 text-xs font-medium text-destructive transition hover:bg-destructive/10 disabled:opacity-50"
+            disabled={clearingBase}
+            onClick={clearBase}
+            title="清空本地客户底库 va_customer_ref（含同步与导入），清完可重新首次同步"
+          >
+            {clearingBase ? '删除中…' : '一键删除底库'}
+          </button>
+          {baseMsg && <span className="text-xs text-muted-foreground">{baseMsg}</span>}
           <span className="text-xs text-muted-foreground">
             {custFiltered.length !== customers.length
               ? `${custFiltered.length} / ${customers.length} 条`

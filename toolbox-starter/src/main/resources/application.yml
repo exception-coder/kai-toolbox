@@ -172,7 +172,7 @@ toolbox:
       enabled: ${TOOLBOX_VA_CUSTADD_SYNC_ENABLED:false}
       base-url: ${TOOLBOX_VA_YOOONI_BASE_URL:http://localhost:8080}
       token: ${TOOLBOX_VA_YOOONI_AI_TOKEN:yoooni-ai-agent-token-2026}
-      default-since-date: "2026-06-23"   # 首轮/空表水位线
+      default-since-date: "2026-06-01"   # 首轮/空表水位线
       pull-cron: "0 */10 * * * *"        # 拉取登记：每 10 分钟
       analyze-cron: "0 */2 * * * *"      # 异步判别：每 2 分钟
       batch-limit: 50

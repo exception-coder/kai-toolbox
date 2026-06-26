@@ -36,7 +36,7 @@ public class CustAddAuditSyncProperties {
 
     /** 首轮 / 空表时的水位线（yyyy-MM-dd）。 */
     @ConfigDesc("首轮/空表时的起始水位线（yyyy-MM-dd）；之后自动按已拉取记录的最大日期向前推进")
-    private String defaultSinceDate = "2026-06-23";
+    private String defaultSinceDate = "2026-06-01";
 
     /** 拉取登记定时表达式（默认每 10 分钟）。 */
     @ConfigDesc("拉取登记定时表达式（Spring cron，默认每 10 分钟）；调度在启动时固化，改后需重启才重排")
