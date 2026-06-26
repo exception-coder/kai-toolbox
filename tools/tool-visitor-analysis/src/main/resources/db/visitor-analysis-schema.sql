@@ -70,6 +70,11 @@ CREATE TABLE IF NOT EXISTS va_customer_ref (
     name_norm     TEXT,                        -- 归一化名称键
     keyword_norm  TEXT,                        -- 归一化关键字键
     addr_norm     TEXT,                        -- 归一化地址键(城市+区)
+    tel           TEXT,                        -- 企业电话(CRM_CUSTOMER.tel)
+    tel_norm      TEXT,                        -- 归一化企业电话(纯数字)
+    contact_mobile TEXT,                       -- 联系人手机(CRM_CUSLINKER.mobile，代表性一个)
+    contact_mobile_norm TEXT,                  -- 归一化联系人手机(纯数字)
+    src_lastdate  INTEGER,                     -- 源客户最后修改时间(epoch ms)，客户同步增量水位
     created_at    INTEGER NOT NULL,
     synced_at     INTEGER                      -- 同步进向量库的时间;NULL=未同步(老库由 CustomerRefMigration 追加该列)
 );
@@ -77,6 +82,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uniq_va_customer_ref_cust_id ON va_customer_re
 CREATE INDEX IF NOT EXISTS idx_va_customer_ref_keyword_norm ON va_customer_ref(keyword_norm);
 CREATE INDEX IF NOT EXISTS idx_va_customer_ref_name_norm    ON va_customer_ref(name_norm);
 CREATE INDEX IF NOT EXISTS idx_va_customer_ref_addr_norm    ON va_customer_ref(addr_norm);
+CREATE INDEX IF NOT EXISTS idx_va_customer_ref_mobile_norm  ON va_customer_ref(contact_mobile_norm);
+CREATE INDEX IF NOT EXISTS idx_va_customer_ref_tel_norm     ON va_customer_ref(tel_norm);
 
 -- 公司别名表：同一家公司可能有多个写法（"腾讯"/"Tencent"/"腾讯科技"/"TX"）。
 -- canonical_norm 是在 va_customer / va_competitor 中登记的归一化主名。

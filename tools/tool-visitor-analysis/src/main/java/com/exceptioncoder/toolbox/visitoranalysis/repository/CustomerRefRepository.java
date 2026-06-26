@@ -204,4 +204,59 @@ public class CustomerRefRepository {
     public int delete(long id) {
         return jdbc.update("DELETE FROM va_customer_ref WHERE id = ?", id);
     }
+
+    // ── 客户底库同步（从 Yoooni cust 模块）─────────────────────────────
+
+    /**
+     * 客户同步 upsert：按 cust_id 幂等。只覆盖同步带来的字段（含 tel/contact_mobile 及其归一化、src_lastdate），
+     * 不动 CSV 导入维护的 brand_name/cust_type 等其它列。归一化键由调用方(Normalizer)算好传入。
+     */
+    public void upsertFromSync(Long custId, String custName, String keyword, String custAddr, String checkinAddr,
+                               String tel, String contactMobile, Double lng, Double lat,
+                               String nameNorm, String keywordNorm, String addrNorm,
+                               String telNorm, String mobileNorm, Long srcLastdate, long now) {
+        jdbc.update("""
+                INSERT INTO va_customer_ref
+                    (cust_id, cust_name, keyword, cust_addr, checkin_addr, lng, lat,
+                     tel, contact_mobile, name_norm, keyword_norm, addr_norm, tel_norm, contact_mobile_norm,
+                     src_lastdate, created_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(cust_id) DO UPDATE SET
+                    cust_name=excluded.cust_name, keyword=excluded.keyword, cust_addr=excluded.cust_addr,
+                    checkin_addr=excluded.checkin_addr, lng=excluded.lng, lat=excluded.lat,
+                    tel=excluded.tel, contact_mobile=excluded.contact_mobile,
+                    name_norm=excluded.name_norm, keyword_norm=excluded.keyword_norm, addr_norm=excluded.addr_norm,
+                    tel_norm=excluded.tel_norm, contact_mobile_norm=excluded.contact_mobile_norm,
+                    src_lastdate=excluded.src_lastdate
+                """,
+                custId, custName, keyword, custAddr, checkinAddr, lng, lat,
+                tel, contactMobile, nameNorm, keywordNorm, addrNorm, telNorm, mobileNorm, srcLastdate, now);
+    }
+
+    /** 客户同步增量水位：最大 src_lastdate（epoch ms）。无则 null。 */
+    public Long maxSrcLastdate() {
+        return jdbc.queryForObject("SELECT MAX(src_lastdate) FROM va_customer_ref", Long.class);
+    }
+
+    /**
+     * 本地精准去重（确定性）。优先级：联系手机/企业电话 &gt; 客户名(公司名) &gt; 关键字，命中即重复客户。
+     * 命中返回 {cust_id, cust_name, hit}（hit ∈ phone/name/keyword），否则 null（交向量层）。
+     */
+    public java.util.Map<String, Object> findDuplicatePrecise(String nameNorm, String mobileNorm) {
+        if (mobileNorm != null && !mobileNorm.isBlank()) {
+            var rows = jdbc.queryForList(
+                    "SELECT cust_id, cust_name, 'phone' AS hit FROM va_customer_ref "
+                            + "WHERE contact_mobile_norm = ? OR tel_norm = ? LIMIT 1", mobileNorm, mobileNorm);
+            if (!rows.isEmpty()) return rows.get(0);
+        }
+        if (nameNorm != null && !nameNorm.isBlank()) {
+            var byName = jdbc.queryForList(
+                    "SELECT cust_id, cust_name, 'name' AS hit FROM va_customer_ref WHERE name_norm = ? LIMIT 1", nameNorm);
+            if (!byName.isEmpty()) return byName.get(0);
+            var byKeyword = jdbc.queryForList(
+                    "SELECT cust_id, cust_name, 'keyword' AS hit FROM va_customer_ref WHERE keyword_norm = ? LIMIT 1", nameNorm);
+            if (!byKeyword.isEmpty()) return byKeyword.get(0);
+        }
+        return null;
+    }
 }

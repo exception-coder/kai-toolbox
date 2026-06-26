@@ -77,10 +77,10 @@ public class VerdictService {
         if (m.conclusive()) {
             view = decideByRule(visitorId, m);
         } else {
-            // 确定性去重：公司名归一化精确命中底库 → 直接判重复客户，不落 LLM。
-            Map<String, Object> dup = customerRefRepo.findExactByName(companyNorm);
+            // 精准去重（本地 SQL）：联系手机/企业电话、客户名(公司名)、关键字精确命中底库 → 直接判重复客户，不落 LLM。
+            Map<String, Object> dup = customerRefRepo.findDuplicatePrecise(companyNorm, phoneNorm);
             if (dup != null) {
-                emit(taskId, "stage", Map.of("step", "dedup", "label", "确定性去重：公司名完全一致"));
+                emit(taskId, "stage", Map.of("step", "dedup", "label", "精准去重命中"));
                 view = decideByDedupRule(visitorId, dup);
             } else {
                 emit(taskId, "stage", Map.of("step", "llm", "label", "灰区：LLM 判别"));
@@ -135,12 +135,20 @@ public class VerdictService {
     private VerdictView decideByDedupRule(long visitorId, Map<String, Object> dup) {
         Object custName = dup.get("cust_name");
         Object custId = dup.get("cust_id");
-        String reason = "公司名称完全一致，命中客户资料库《" + custName + "》(custId=" + custId + ")";
+        String hit = String.valueOf(dup.getOrDefault("hit", "name"));
+        String custRef = "《" + custName + "》" + (custId == null ? "" : "(custId=" + custId + ")");
+        String decidedBy;
+        String reason;
+        switch (hit) {
+            case "phone"      -> { decidedBy = "rule:dedup:phone";      reason = "联系手机/企业电话与底库一致，命中客户" + custRef; }
+            case "keyword"    -> { decidedBy = "rule:dedup:keyword";    reason = "客户关键字与底库一致，命中客户" + custRef; }
+            default           -> { decidedBy = "rule:dedup:name";       reason = "客户名称(公司名)与底库完全一致，命中客户" + custRef; }
+        }
         List<String> evidence = new ArrayList<>();
         evidence.add(reason);
-        evidence.add("规则：公司名归一化后与底库完全一致 → 重复客户（确定性，未走 LLM）");
+        evidence.add("精准去重命中（确定性，未走 LLM）：hit=" + hit);
         long id = verdictRepo.insert(visitorId, IdentityType.CUSTOMER.name(),
-                RelationshipType.EXISTING.name(), 0.99, "rule:dedup:name",
+                RelationshipType.EXISTING.name(), 0.99, decidedBy,
                 reason, json(evidence), null, false);
         return verdictRepo.findById(id);
     }

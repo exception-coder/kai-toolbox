@@ -178,6 +178,17 @@ toolbox:
       batch-limit: 50
       connect-timeout-ms: 5000
       read-timeout-ms: 15000
+    # 客户底库同步：定时从 Yoooni 同步客户必要判定数据到本地 va_customer_ref（供精准去重 + 向量召回）。
+    # 默认 enabled=false。标 @Refreshable：base-url/token/超时在线改即生效；cron 改后需重启。
+    customer-sync:
+      enabled: ${TOOLBOX_VA_CUSTSYNC_ENABLED:false}
+      base-url: ${TOOLBOX_VA_YOOONI_BASE_URL:http://localhost:8080}
+      token: ${TOOLBOX_VA_YOOONI_AI_TOKEN:yoooni-ai-agent-token-2026}
+      full-cron: "0 30 2 * * *"          # 全量：每天 02:30
+      incr-cron: "0 */30 * * * *"        # 增量：每 30 分钟
+      batch-limit: 500
+      connect-timeout-ms: 5000
+      read-timeout-ms: 30000
   system:
     # 远程重启端点 token。经公网 tunnel 暴露，留空 = 端点关闭（返回 503）。必须显式配才开放。
     # 用环境变量覆盖：TOOLBOX_SYSTEM_RESTART_TOKEN=随机串
