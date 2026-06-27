@@ -331,6 +331,8 @@ public class WorkspaceScanService {
 
         // 3) 遍历项目匹配
         List<Scored> scored = new ArrayList<>();
+        int scannedProjects = 0;
+        int totalModules = 0;
         for (RootView root : ws.roots()) {
             if (!root.exists()) continue;
             for (WorkspaceDirView dir : root.dirs()) {
@@ -339,19 +341,43 @@ public class WorkspaceScanService {
                 if (!projectHint.isEmpty() && !projectMatch) continue;
                 ProjectModulesResponse pm = scanModules(dir.path());
                 if (!pm.exists()) continue;
+                scannedProjects++;
                 List<ModuleView> flat = new ArrayList<>();
                 flatten(pm.modules(), flat);
+                totalModules += flat.size();
+                int hitInProject = 0;
                 for (ModuleView m : flat) {
                     String match = matchKind(m, moduleHint);
                     if (match == null) continue;
                     int score = "exact".equals(match) ? 3 : "prefix".equals(match) ? 2 : 1;
                     if (projectMatch) score += 10;
                     scored.add(new Scored(new Candidate(dir.name(), dir.path(), m, match), score));
+                    hitInProject++;
                 }
+                log.info("[module-resolve] 扫项目 {}：{} 个模块，命中 {}（moduleHint='{}'）",
+                        dir.name(), flat.size(), hitInProject, moduleHint);
             }
         }
         scored.sort(Comparator.comparingInt(Scored::score).reversed());
         List<Candidate> candidates = scored.stream().limit(20).map(Scored::candidate).toList();
+        // 完整路由诊断：找不到模块时一眼看出卡在哪一步
+        if (candidates.isEmpty()) {
+            String reason;
+            if (scannedProjects == 0) {
+                reason = projectHint.isEmpty()
+                        ? "工作区无可扫描项目（检查 workspace 根配置 / 目录是否存在）"
+                        : "未匹配到项目目录 '" + projectHint + "'（名称不一致或不在工作区根下）";
+            } else if (totalModules == 0) {
+                reason = "扫到项目但项目内未识别出任何模块（无 pom/package.json 等构建文件，或知识库 modules.json 缺失）";
+            } else {
+                reason = "模块关键词 '" + moduleHint + "' 未匹配任何模块名/路径（共 " + totalModules + " 个模块）";
+            }
+            log.warn("[module-resolve] 找不到模块：query='{}' projectHint='{}' moduleHint='{}' 扫描项目={} 模块总数={} → {}",
+                    raw, projectHint, moduleHint, scannedProjects, totalModules, reason);
+        } else {
+            log.info("[module-resolve] query='{}' projectHint='{}' moduleHint='{}' → {} 个候选（最高分 {}）",
+                    raw, projectHint, moduleHint, candidates.size(), scored.isEmpty() ? 0 : scored.get(0).score());
+        }
         return new ModuleResolveResponse(raw, moduleHint, projectHint, candidates);
     }
 
