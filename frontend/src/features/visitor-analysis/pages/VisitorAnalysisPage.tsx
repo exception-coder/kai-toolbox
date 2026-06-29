@@ -39,6 +39,14 @@ interface VerdictView {
   similar?: SimilarRecord[]
 }
 
+// 判别详情：后端 /detail/{id} 返回 —— 台账行(全字段) + 重跑后的完整判别结果(含召回)。
+interface AuditDetail {
+  found: boolean
+  message?: string
+  audit?: Record<string, unknown>
+  verdict?: VerdictView | null
+}
+
 interface CustomerRef {
   id: number
   custId: number | null
@@ -348,33 +356,66 @@ function AnalyzePanel() {
   )
 }
 
-// 客户新增审批单（va_cust_add_audit）全字段列定义：snake_case key 对齐后端 listRecent 返回。
-const AUDIT_COLS: { key: string; label: string }[] = [
-  { key: 'flowcheckid', label: '审批ID' },
-  { key: 'apply_no', label: '申请单号' },
-  { key: 'apply_title', label: '申请标题' },
-  { key: 'applicant', label: '申请人' },
-  { key: 'apply_dept', label: '申请部门' },
+// 客户新增审批单（va_cust_add_audit）列定义：判别用到的核心输入 + 判别结果排在前，
+// 单据信息其次，技术性/排障字段（主键、时间戳、错误）靠后。snake_case key 对齐后端返回。
+// wide=长文本列：设最大宽度并允许换行，避免把表撑太宽；其余短列不换行。
+const AUDIT_COLS: { key: string; label: string; wide?: boolean }[] = [
+  // —— 排序依据 ——
   { key: 'make_date_raw', label: '生成日期' },
-  { key: 'customerup_apply_logid', label: '详情主键' },
-  { key: 'company_brand_name', label: '公司(品牌)' },
-  { key: 'customer_name', label: '客户关键字' },
-  { key: 'checkin_address', label: '打卡地址' },
-  { key: 'customer_address', label: '客户地址' },
-  { key: 'analyze_status', label: '判别状态' },
-  { key: 'identity', label: '身份' },
-  { key: 'relationship', label: '关系' },
-  { key: 'confidence', label: '置信度' },
+  // —— 判别核心输入 ——
+  { key: 'company_brand_name', label: '公司(品牌)', wide: true },
+  { key: 'customer_name', label: '客户关键字', wide: true },
+  { key: 'customer_address', label: '客户地址', wide: true },
+  { key: 'checkin_address', label: '打卡地址', wide: true },
+  // —— 判别结果 ——
   { key: 'is_duplicate', label: '重复客户' },
   { key: 'dup_cust_id', label: '命中custId' },
+  { key: 'confidence', label: '置信度' },
+  { key: 'identity', label: '身份' },
+  { key: 'relationship', label: '关系' },
   { key: 'needs_review', label: '待复核' },
+  { key: 'analyze_status', label: '判别状态' },
+  // —— 单据信息 ——
+  { key: 'apply_no', label: '申请单号' },
+  { key: 'apply_title', label: '申请标题', wide: true },
+  { key: 'applicant', label: '申请人' },
+  { key: 'apply_dept', label: '申请部门', wide: true },
+  // —— 技术性 / 排障字段 ——
+  { key: 'flowcheckid', label: '审批ID' },
+  { key: 'customerup_apply_logid', label: '详情主键' },
   { key: 'verdict_id', label: 'verdictId' },
   { key: 'visitor_id', label: 'visitorId' },
-  { key: 'analyze_error', label: '错误' },
-  { key: 'fetched_at', label: '拉取时间' },
+  { key: 'analyze_error', label: '错误', wide: true },
   { key: 'analyzed_at', label: '判别时间' },
+  { key: 'fetched_at', label: '拉取时间' },
   { key: 'created_at', label: '登记时间' },
 ]
+
+// 列样式：宽列设最小+最大宽度并允许换行（min-width 防止 w-full 表格把宽列挤塌成逐字竖排），
+// 短列不换行。配合表格 min-w-full + 容器横向滚动。
+const colClass = (wide?: boolean) =>
+  wide
+    ? 'p-2 min-w-[10rem] max-w-[16rem] whitespace-normal break-words align-top'
+    : 'p-2 whitespace-nowrap align-top'
+
+/** 日期统一显示为「yyyy-MM-dd HH:mm」。入参可为 epoch ms（数字或纯数字串）或日期字符串。无法解析则原样返回。 */
+function fmtDate(v: unknown): string {
+  let d: Date
+  if (typeof v === 'number') {
+    d = new Date(v)
+  } else {
+    const s = String(v).trim()
+    // 纯数字串视作 epoch 毫秒（Yoooni 把 Oracle DATE 序列化成了毫秒时间戳）
+    if (/^\d{11,}$/.test(s)) {
+      d = new Date(Number(s))
+    } else {
+      d = new Date(s.replace(/\.\d+$/, '').replace(/-/g, '/'))
+    }
+  }
+  if (isNaN(d.getTime())) return String(v)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
 
 /**
  * 判别记录 Tab：统一展示「客户新增审批单」全字段 + 判别结果（身份/置信度/是否重复/待复核）。
@@ -382,31 +423,45 @@ const AUDIT_COLS: { key: string; label: string }[] = [
  */
 function VerdictsPanel() {
   const [rows, setRows] = useState<Record<string, unknown>[]>([])
+  const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
-  // 客户端筛选：关键字（公司/客户/申请人/标题/地址）+ 状态。
+  // 判别详情弹窗：detailFor=审批记录 id；detail=后端返回的 {audit, verdict}。
+  const [detailFor, setDetailFor] = useState<number | null>(null)
+  const [detail, setDetail] = useState<AuditDetail | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  // 当前页内的客户端筛选：关键字（公司/客户/申请人/标题/地址）+ 状态。
   const [q, setQ] = useState('')
   const [status, setStatus] = useState<'all' | 'dup' | 'review' | 'pending'>('all')
   const [page, setPage] = useState(0)
   const PAGE_SIZE = 20
 
-  const load = () => {
+  // 服务端分页：后端按生成日期降序返回 {items,total}，page 从 0 起。
+  const load = (p = page) => {
     setLoading(true)
-    http<Record<string, unknown>[]>('/visitor-analysis/cust-add-audit/records?limit=500')
-      .then(setRows)
-      .catch(() => setRows([]))
+    http<{ items: Record<string, unknown>[]; total: number }>(
+      `/visitor-analysis/cust-add-audit/records?page=${p}&pageSize=${PAGE_SIZE}`,
+    )
+      .then((r) => {
+        setRows(r.items ?? [])
+        setTotal(r.total ?? 0)
+      })
+      .catch(() => {
+        setRows([])
+        setTotal(0)
+      })
       .finally(() => setLoading(false))
   }
-  useEffect(load, [])
+  useEffect(() => { load(page) }, [page]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fmt = (k: string, v: unknown) => {
     if (v == null || v === '') return '—'
     if (k === 'is_duplicate' || k === 'needs_review') return v === 1 || v === true ? '是' : '否'
     if (k === 'confidence' && typeof v === 'number') return `${(v * 100).toFixed(0)}%`
-    if ((k === 'fetched_at' || k === 'analyzed_at' || k === 'created_at') && typeof v === 'number') {
-      return new Date(v).toLocaleString()
+    if (k === 'make_date_raw' || k === 'fetched_at' || k === 'analyzed_at' || k === 'created_at') {
+      return fmtDate(v)
     }
     return String(v)
   }
@@ -417,7 +472,7 @@ function VerdictsPanel() {
     try {
       const r = await http<{ inserted: number }>('/visitor-analysis/cust-add-audit/sync', { method: 'POST' })
       setMsg(`同步登记 ${r.inserted} 条新审批单`)
-      load()
+      if (page === 0) load(0); else setPage(0)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : '同步失败（agent 是否已开 cust-add-audit-sync 且 Yoooni 可达？）')
     } finally {
@@ -425,18 +480,40 @@ function VerdictsPanel() {
     }
   }
   const doAnalyze = async () => {
+    const ids = rows.map((r) => r.id).filter((x): x is number => typeof x === 'number')
+    if (ids.length === 0) { setMsg('当前页无可判别记录'); return }
     setAnalyzing(true)
     setMsg(null)
     try {
-      const r = await http<{ analyzed: number }>('/visitor-analysis/cust-add-audit/analyze', { method: 'POST' })
-      setMsg(`判别完成 ${r.analyzed} 条`)
-      load()
+      const r = await http<{ analyzed: number }>('/visitor-analysis/cust-add-audit/analyze-ids', {
+        method: 'POST',
+        body: JSON.stringify({ ids, force: false }),
+      })
+      setMsg(`本页判别完成 ${r.analyzed} 条`)
+      load(page)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : '判别失败')
     } finally {
       setAnalyzing(false)
     }
   }
+
+  // 打开「判别详情」：对该条重跑完整判别流程，返回台账行 + 判别结果（含召回）。重判会刷新该行结果。
+  const openDetail = async (id: number) => {
+    setDetailFor(id)
+    setDetail(null)
+    setDetailLoading(true)
+    try {
+      const d = await http<AuditDetail>(`/visitor-analysis/cust-add-audit/detail/${id}`, { method: 'POST' })
+      setDetail(d)
+      load(page)   // 刷新列表，回填最新判别结果
+    } catch (e) {
+      setDetail({ found: false, message: e instanceof Error ? e.message : '判别详情获取失败' })
+    } finally {
+      setDetailLoading(false)
+    }
+  }
+  const closeDetail = () => { setDetailFor(null); setDetail(null) }
 
   const truthy = (v: unknown) => v === 1 || v === true
   const query = q.trim().toLowerCase()
@@ -451,10 +528,10 @@ function VerdictsPanel() {
     ].some((x) => String(x ?? '').toLowerCase().includes(query))
   })
 
-  // 客户端分页（每页 20）：筛选结果再切片，页码越界自动回退。
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  // 服务端分页：total/页数来自后端；本页数据(rows)已按生成日期降序，filtered 是本页内筛选结果。
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const pageSafe = Math.min(page, pageCount - 1)
-  const paged = filtered.slice(pageSafe * PAGE_SIZE, pageSafe * PAGE_SIZE + PAGE_SIZE)
+  const paged = filtered
 
   return (
     <section className="space-y-3">
@@ -474,9 +551,9 @@ function VerdictsPanel() {
             className="rounded-md border px-3 py-1.5 text-xs font-medium transition hover:bg-muted disabled:opacity-50"
             disabled={analyzing}
             onClick={doAnalyze}
-            title="对已同步且未判别的审批单立即判别"
+            title="对当前页中未判别的审批单立即判别"
           >
-            {analyzing ? '判别中…' : '手动判别'}
+            {analyzing ? '判别中…' : '判别本页'}
           </button>
         </div>
       </div>
@@ -489,15 +566,15 @@ function VerdictsPanel() {
       <div className="flex flex-wrap items-center gap-2">
         <input
           value={q}
-          onChange={(e) => { setQ(e.target.value); setPage(0) }}
-          placeholder="模糊搜索：公司 / 客户 / 申请人 / 标题 / 地址"
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="本页内搜索：公司 / 客户 / 申请人 / 标题 / 地址"
           className="w-full max-w-xs rounded-md border px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/40"
         />
         <select
           value={status}
-          onChange={(e) => { setStatus(e.target.value as 'all' | 'dup' | 'review' | 'pending'); setPage(0) }}
+          onChange={(e) => setStatus(e.target.value as 'all' | 'dup' | 'review' | 'pending')}
           className="rounded-md border px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary/40"
-          title="按判别结果过滤"
+          title="按判别结果过滤（本页内）"
         >
           <option value="all">全部</option>
           <option value="dup">仅疑似重复</option>
@@ -507,28 +584,29 @@ function VerdictsPanel() {
         <button
           className="rounded-md border px-3 py-1.5 text-sm transition hover:bg-muted disabled:opacity-50"
           disabled={loading}
-          onClick={load}
+          onClick={() => load(page)}
         >
           {loading ? '刷新中…' : '刷新'}
         </button>
         <span className="text-xs text-muted-foreground">
-          {filtered.length !== rows.length ? `${filtered.length} / ${rows.length} 条` : `${rows.length} 条`}
+          共 {total} 条{filtered.length !== rows.length ? `（本页筛出 ${filtered.length}/${rows.length}）` : ''}
         </span>
       </div>
 
       <div className="overflow-x-auto rounded-lg border">
-        <table className="w-full text-xs">
+        <table className="min-w-full text-xs">
           <thead className="bg-muted/50 text-left">
             <tr>
               {AUDIT_COLS.map((c) => (
-                <th key={c.key} className="whitespace-nowrap p-2">{c.label}</th>
+                <th key={c.key} className={colClass(c.wide)}>{c.label}</th>
               ))}
+              <th className="whitespace-nowrap p-2 sticky right-0 bg-muted/50">操作</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 && (
               <tr>
-                <td className="p-3 text-muted-foreground" colSpan={AUDIT_COLS.length}>
+                <td className="p-3 text-muted-foreground" colSpan={AUDIT_COLS.length + 1}>
                   {loading ? '加载中…' : rows.length === 0 ? '暂无已同步的审批单' : '无匹配记录'}
                 </td>
               </tr>
@@ -536,24 +614,34 @@ function VerdictsPanel() {
             {paged.map((r, i) => (
               <tr key={String(r.id ?? i)} className="border-t">
                 {AUDIT_COLS.map((c) => (
-                  <td key={c.key} className="whitespace-nowrap p-2">{fmt(c.key, r[c.key])}</td>
+                  <td key={c.key} className={colClass(c.wide)}>{fmt(c.key, r[c.key])}</td>
                 ))}
+                <td className="whitespace-nowrap p-2 align-top sticky right-0 bg-background">
+                  <button
+                    className="rounded-md border px-2 py-1 text-xs transition hover:bg-muted disabled:opacity-50"
+                    disabled={typeof r.id !== 'number' || (detailLoading && detailFor === r.id)}
+                    onClick={() => openDetail(r.id as number)}
+                    title="对该条重跑完整判别流程并查看判别过程与关联数据"
+                  >
+                    {detailLoading && detailFor === r.id ? '判别中…' : '判别详情'}
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
 
-      {filtered.length > PAGE_SIZE && (
+      {total > PAGE_SIZE && (
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span>
-            第 {pageSafe * PAGE_SIZE + 1}–{Math.min((pageSafe + 1) * PAGE_SIZE, filtered.length)} 条，共{' '}
-            {filtered.length} 条
+            第 {total === 0 ? 0 : pageSafe * PAGE_SIZE + 1}–{Math.min((pageSafe + 1) * PAGE_SIZE, total)} 条，共{' '}
+            {total} 条
           </span>
           <div className="flex items-center gap-2">
             <button
               className="rounded-md border px-2 py-1 transition hover:bg-muted disabled:opacity-40"
-              disabled={pageSafe <= 0}
+              disabled={pageSafe <= 0 || loading}
               onClick={() => setPage(pageSafe - 1)}
             >
               上一页
@@ -561,7 +649,7 @@ function VerdictsPanel() {
             <span>{pageSafe + 1} / {pageCount}</span>
             <button
               className="rounded-md border px-2 py-1 transition hover:bg-muted disabled:opacity-40"
-              disabled={pageSafe >= pageCount - 1}
+              disabled={pageSafe >= pageCount - 1 || loading}
               onClick={() => setPage(pageSafe + 1)}
             >
               下一页
@@ -569,7 +657,140 @@ function VerdictsPanel() {
           </div>
         </div>
       )}
+
+      {detailFor != null && (
+        <AuditDetailModal
+          loading={detailLoading}
+          detail={detail}
+          onClose={closeDetail}
+        />
+      )}
     </section>
+  )
+}
+
+/**
+ * 判别详情弹窗：展示该审批记录的判别输入 + 完整判别过程（身份/关系/置信度/裁决依据/证据链/向量召回相似记录），
+ * 类似「访客分析」的结果输出。detail.verdict 为 null 表示重判失败。
+ */
+function AuditDetailModal(props: { loading: boolean; detail: AuditDetail | null; onClose: () => void }) {
+  const { loading, detail, onClose } = props
+  const audit = detail?.audit
+  const v = detail?.verdict
+
+  // evidenceJson 形如 {"evidence":[...]}，解析成字符串数组；失败返回空。
+  let evidence: string[] = []
+  if (v?.evidenceJson) {
+    try {
+      const parsed = JSON.parse(v.evidenceJson)
+      if (Array.isArray(parsed?.evidence)) evidence = parsed.evidence.map((x: unknown) => String(x))
+    } catch { /* 忽略解析错误 */ }
+  }
+
+  const info = (label: string, val: unknown) => (
+    <div className="flex gap-2 text-sm">
+      <span className="w-24 shrink-0 text-muted-foreground">{label}</span>
+      <span className="min-w-0 break-words">{val == null || val === '' ? '—' : String(val)}</span>
+    </div>
+  )
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border bg-background p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-base font-semibold">判别详情</h3>
+          <button className="rounded-md border px-3 py-1 text-sm transition hover:bg-muted" onClick={onClose}>
+            关闭
+          </button>
+        </div>
+
+        {loading && <p className="py-8 text-center text-sm text-muted-foreground">正在重跑判别流程…</p>}
+
+        {!loading && detail && detail.found === false && (
+          <p className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+            {detail.message || '未找到该审批记录'}
+          </p>
+        )}
+
+        {!loading && audit && (
+          <div className="space-y-4">
+            <section className="space-y-1 rounded-lg border bg-muted/20 p-3">
+              <div className="mb-1 text-xs font-medium text-muted-foreground">判别输入（来自审批单）</div>
+              {info('公司(品牌)', audit.company_brand_name)}
+              {info('客户关键字', audit.customer_name)}
+              {info('客户地址', audit.customer_address)}
+              {info('打卡地址', audit.checkin_address)}
+              {info('申请单号', audit.apply_no)}
+              {info('生成日期', fmtDate(audit.make_date ?? audit.make_date_raw))}
+            </section>
+
+            {v ? (
+              <section className="space-y-2 rounded-lg border p-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-base font-medium">
+                    {(IDENTITY_LABEL[v.identity] ?? v.identity)}
+                    {RELATIONSHIP_LABEL[v.relationship] ? ` · ${RELATIONSHIP_LABEL[v.relationship]}` : ''}
+                    {(audit.is_duplicate === 1 || audit.is_duplicate === true) && (
+                      <span className="ml-2 rounded bg-red-500/10 px-1.5 py-0.5 text-xs text-red-600">
+                        疑似重复{audit.dup_cust_id != null ? `（命中 custId=${audit.dup_cust_id}）` : ''}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    置信度 {(v.confidence * 100).toFixed(0)}% · {decidedByText(v.decidedBy)}
+                    {v.needsReview && <span className="ml-2 text-amber-600">· 待人工确认</span>}
+                  </div>
+                </div>
+                {v.rationale && <p className="text-sm">{v.rationale}</p>}
+                {v.model && <p className="text-xs text-muted-foreground">模型：{v.model}</p>}
+
+                {evidence.length > 0 && (
+                  <div className="border-t pt-2">
+                    <div className="mb-1 text-xs font-medium text-muted-foreground">判别依据 / 证据链</div>
+                    <ul className="list-disc space-y-0.5 pl-5 text-sm">
+                      {evidence.map((e, i) => <li key={i}>{e}</li>)}
+                    </ul>
+                  </div>
+                )}
+
+                {v.similar && v.similar.length > 0 && (
+                  <div className="border-t pt-2">
+                    <div className="mb-1 text-xs font-medium text-muted-foreground">
+                      向量召回的相似历史记录（喂给 AI 作判别参考，按相似度排序）
+                    </div>
+                    <ul className="space-y-1">
+                      {v.similar.map((s, i) => (
+                        <li key={i} className="flex items-start gap-2 text-xs">
+                          <span className="mt-0.5 inline-block w-11 shrink-0 text-right font-medium tabular-nums text-emerald-600">
+                            {(s.score * 100).toFixed(0)}%
+                          </span>
+                          <div className="min-w-0">
+                            <div>
+                              <span className="font-medium">{s.company || '—'}</span>
+                              <span className="ml-2 text-muted-foreground">
+                                {s.source === 'customer' ? '客户库' : '历史访客'}
+                              </span>
+                            </div>
+                            <div className="text-muted-foreground">地址：{s.companyAddr || '—'}</div>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </section>
+            ) : (
+              <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-700">
+                本次重判未产出结果（可能 LLM/向量服务不可用），请稍后重试或查看「错误」列。
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -836,7 +1057,7 @@ function CustomersPanel() {
         <table className="w-full min-w-[960px] text-sm">
           <thead className="bg-muted/50 text-left">
             <tr>
-              <th className="whitespace-nowrap p-2">custId</th>
+              <th className="whitespace-nowrap p-2">客户ID</th>
               <th className="whitespace-nowrap p-2">客户名称</th>
               <th className="whitespace-nowrap p-2">关键字</th>
               <th className="whitespace-nowrap p-2">类别</th>
