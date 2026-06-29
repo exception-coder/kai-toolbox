@@ -134,4 +134,20 @@ public class CustAddAuditController {
             Long flowApplyId, Boolean correct, String reason,
             String correctedIdentity, String correctedRelationship, String operator) {
     }
+
+    /**
+     * 供 Yoooni ERP 在审批人最终裁决后回推：传客观动作（通过/拒绝 + 意见 + 操作人），
+     * agent 自行用台账 AI 原判比对算出 correct 并落库。非客户新增审批（台账无记录）返回 {found:false} 被忽略。
+     */
+    @PostMapping("/erp-decision")
+    public Map<String, Object> erpDecision(@RequestBody ErpDecisionRequest req) {
+        if (req == null || req.flowApplyId() == null || req.decision() == null) {
+            return Map.of("ok", false, "found", false, "message", "flowApplyId 与 decision 必填");
+        }
+        return syncService.recordErpDecision(req.flowApplyId(), req.decision(), req.notes(), req.operator());
+    }
+
+    /** 审批裁决入参。decision: "pass"(通过) / "reject"(拒绝)；notes 审批意见；operator 审批人。 */
+    public record ErpDecisionRequest(Long flowApplyId, String decision, String notes, String operator) {
+    }
 }

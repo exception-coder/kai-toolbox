@@ -213,6 +213,39 @@ public class CustAddAuditSyncService {
     }
 
     /**
+     * 接收 ERP 审批人的最终裁决（通过/拒绝 + 意见）：按 flowApplyId 定位台账，
+     * 用台账里 AI 原判与人工裁决比对算出 correct（AI 建议拒绝且人工拒绝=正确；AI 建议通过且人工通过=正确；相反=不正确；
+     * AI 存疑/未判别则 correct 视为 true 不计错），再复用 {@link #recordErpFeedback} 落库。
+     * yoooni 只需推客观动作（decision + notes + operator），无需自行判断 AI 对错。
+     *
+     * @param decision "pass"(通过, ischeck=3) 或 "reject"(拒绝, ischeck=-1)
+     * @return {ok, found, flowApplyId, auditId, correct, aiResult}
+     */
+    public Map<String, Object> recordErpDecision(long flowApplyId, String decision, String notes, String operator) {
+        Map<String, Object> row = repo.findByFlowApplyId(flowApplyId);
+        if (row == null) {
+            return Map.of("ok", false, "found", false, "flowApplyId", flowApplyId);
+        }
+        boolean humanReject = "reject".equalsIgnoreCase(decision);
+        // 台账 AI 原判映射成 PASS/REJECT/DOUBT（未判别完成返回 null）
+        Map<String, Object> erp = mapRowToErp(row);
+        String aiResult = (erp == null) ? null : str(erp.get("result"));
+        // correct 推断：AI 给了明确通过/拒绝建议时才比对；存疑/无判定不计入对错（correct=true）。
+        boolean correct = true;
+        if ("REJECT".equals(aiResult)) {
+            correct = humanReject;            // AI 建议拒绝：人工也拒绝才算 AI 对
+        } else if ("PASS".equals(aiResult)) {
+            correct = !humanReject;           // AI 建议通过：人工也通过才算 AI 对
+        }
+        Map<String, Object> out = recordErpFeedback(flowApplyId, correct, notes, null, null, operator);
+        if (out instanceof java.util.LinkedHashMap) {
+            out.put("aiResult", aiResult == null ? "" : aiResult);
+            out.put("decision", humanReject ? "reject" : "pass");
+        }
+        return out;
+    }
+
+    /**
      * 接收 ERP 对 AI 判定的反馈（按 flowApplyId 定位最新一条审批台账）：
      * 回写台账的 erp_feedback_* 字段；若判定不正确且带了正确身份/关系，同时落一条 va_feedback（按 verdict_id），
      * 让纠正能沉淀进反馈表用于后续规则/竞品名单扩充。
