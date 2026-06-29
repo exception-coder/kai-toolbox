@@ -65,10 +65,29 @@ public class CustomerRefRepository {
                 """, MAPPER);
     }
 
-    /** 标记某客户已同步进向量库（记同步时间）。 */
-    public void markSynced(Long custId, long syncedAt) {
-        if (custId == null) return;
-        jdbc.update("UPDATE va_customer_ref SET synced_at = ? WHERE cust_id = ?", syncedAt, custId);
+    /** 取尚未同步进向量库的记录（synced_at 为空），供「一键同步」增量灌入。 */
+    public List<CustomerRefView> listUnsynced() {
+        return jdbc.query("""
+                SELECT id, cust_id, cust_name, keyword, brand_name, cust_type, cust_category, biz_major,
+                       province, city, district, cust_addr, checkin_addr, lng, lat, level, cust_property,
+                       creator, note, created_at, synced_at
+                  FROM va_customer_ref
+                 WHERE synced_at IS NULL
+                 ORDER BY id ASC
+                """, MAPPER);
+    }
+
+    /** 待同步条数（synced_at 为空）。 */
+    public int countUnsynced() {
+        Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM va_customer_ref WHERE synced_at IS NULL", Integer.class);
+        return n == null ? 0 : n;
+    }
+
+    /** 按行主键批量标记已同步（一批入库成功后整批回标，兼容无 custId 的人工录入记录）。 */
+    public void markSyncedByIds(List<Long> ids, long syncedAt) {
+        if (ids == null || ids.isEmpty()) return;
+        jdbc.batchUpdate("UPDATE va_customer_ref SET synced_at = ? WHERE id = ?",
+                ids.stream().map(id -> new Object[]{syncedAt, id}).toList());
     }
 
     /** 清空全部同步标记（向量库被清空后调用）。 */

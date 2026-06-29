@@ -56,6 +56,11 @@ public class CustAddAuditRepository {
         return rows == 1;
     }
 
+    /** 强制重置为 PENDING（供手动重判：连已判别 DONE 的也允许重新判别）。 */
+    public void resetPending(long id) {
+        jdbc.update("UPDATE va_cust_add_audit SET analyze_status = 'PENDING' WHERE id = ?", id);
+    }
+
     /** 读单条（含来源字段，供判别取公司/地址）。 */
     public Map<String, Object> get(long id) {
         List<Map<String, Object>> rows = jdbc.queryForList(
@@ -118,6 +123,19 @@ public class CustAddAuditRepository {
     public List<Map<String, Object>> listRecent(int limit) {
         return jdbc.queryForList(
                 "SELECT * FROM va_cust_add_audit ORDER BY fetched_at DESC, id DESC LIMIT ?", limit);
+    }
+
+    /** 分页：按生成日期(make_date)降序、id 兜底，最新在前。offset/limit 由上层据 page/pageSize 计算。 */
+    public List<Map<String, Object>> listPaged(int offset, int limit) {
+        return jdbc.queryForList(
+                "SELECT * FROM va_cust_add_audit ORDER BY make_date DESC, id DESC LIMIT ? OFFSET ?",
+                limit, offset);
+    }
+
+    /** 台账总条数（分页用）。 */
+    public int countAll() {
+        Integer n = jdbc.queryForObject("SELECT COUNT(*) FROM va_cust_add_audit", Integer.class);
+        return n == null ? 0 : n;
     }
 
     /**

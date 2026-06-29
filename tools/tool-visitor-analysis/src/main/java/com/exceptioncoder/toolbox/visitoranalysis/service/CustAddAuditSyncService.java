@@ -111,20 +111,47 @@ public class CustAddAuditSyncService {
         try (ExecutorService pool = Executors.newVirtualThreadPerTaskExecutor()) {
             for (Long id : ids) {
                 pool.submit(() -> {
-                    if (analyzeOne(id)) done.incrementAndGet();
+                    if (analyzeOne(id) != null) done.incrementAndGet();
                 });
             }
         } // close() 等待全部虚拟线程结束
         return done.get();
     }
 
-    /** 判别单条：占用→映射→判别→回写。返回是否本线程完成了判别。 */
-    private boolean analyzeOne(long id) {
-        if (!repo.claim(id)) return false;   // 没抢到（已被其它轮次处理）
+    /**
+     * 判别指定的若干审批记录（供前端「判别当前页」）。force=true 时连已判别(DONE)的也重判，
+     * 否则只判未完成(PENDING/FAILED)的。返回成功判别条数。
+     */
+    public int analyzeByIds(List<Long> ids, boolean force) {
+        if (ids == null || ids.isEmpty()) return 0;
+        java.util.concurrent.atomic.AtomicInteger done = new java.util.concurrent.atomic.AtomicInteger();
+        try (ExecutorService pool = Executors.newVirtualThreadPerTaskExecutor()) {
+            for (Long id : ids) {
+                pool.submit(() -> {
+                    if (force) repo.resetPending(id);   // 重置为 PENDING 以便重判
+                    if (analyzeOne(id) != null) done.incrementAndGet();
+                });
+            }
+        }
+        return done.get();
+    }
+
+    /**
+     * 判别单条并返回完整判别过程视图（含 rationale/evidence/向量召回相似记录），供前端「判别详情」。
+     * force 时先重置为 PENDING 再判。未抢到/不存在返回 null。
+     */
+    public VerdictView analyzeOneDetailed(long id, boolean force) {
+        if (force) repo.resetPending(id);
+        return analyzeOne(id);
+    }
+
+    /** 判别单条：占用→映射→判别→回写。返回判别结果视图（含召回）；未抢到/失败返回 null。 */
+    private VerdictView analyzeOne(long id) {
+        if (!repo.claim(id)) return null;   // 没抢到（已被其它轮次处理）
         long now = System.currentTimeMillis();
         try {
             Map<String, Object> row = repo.get(id);
-            if (row == null) return false;
+            if (row == null) return null;
             String company = str(row.get("company_brand_name"));
             String addr = str(row.get("customer_address"));
             if (addr == null || addr.isBlank()) addr = str(row.get("checkin_address"));
@@ -142,11 +169,11 @@ public class CustAddAuditSyncService {
 
             repo.saveVerdict(id, view.visitorId(), view.id(), view.identity(), view.relationship(),
                     view.confidence(), duplicate, dupCustId, view.needsReview(), now);
-            return true;
+            return view;
         } catch (Exception e) {
             log.warn("[cust-add-audit] 判别失败 id={}: {}", id, e.toString());
             repo.markFailed(id, e.getMessage(), now);
-            return false;
+            return null;
         }
     }
 
