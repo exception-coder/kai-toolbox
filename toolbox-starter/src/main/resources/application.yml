@@ -66,6 +66,15 @@ toolbox:
         model: qwen2.5:7b-instruct
         weight: 1
         cooldown-ms: 15000
+      # 访客分析灰区判别（tier=visitor）：走 4sapi 外网模型（OpenAI 兼容中转），复用 ai-chat 的 4sapi key。
+      # 未配 key 时 LangChain4j 调用失败 → GreyZoneService 降级为 UNKNOWN（后端标「待人工确认」），不影响主流程。
+      - id: visitor-4sapi
+        tier: visitor
+        base-url: ${TOOLBOX_LLM_VISITOR_BASE_URL:https://4sapi.com/v1}
+        api-key: ${TOOLBOX_LLM_VISITOR_KEY:${TOOLBOX_AI_CHAT_API_KEY:}}
+        model: ${TOOLBOX_LLM_VISITOR_MODEL:gpt-4o-mini}
+        weight: 1
+        cooldown-ms: 15000
       # 远端示例：与本地互为故障转移 / 限流时分摊（按需取消注释并配 key）
       # - id: deepseek
       #   tier: recall           # 回忆态多步推理，用更强的模型
@@ -151,16 +160,19 @@ toolbox:
     tier: visitor
     # LLM 置信度低于此值的灰区判别进人工复核；确定性命中不受约束
     review-threshold: 0.7
+    # 向量召回（Qdrant + 本地 Ollama bge-m3）。已纳入运行时配置中心（VisitorAnalysisRagProperties @Refreshable）：
+    # Qdrant 地址/端口/Key/集合等可在配置中心查看与修改并持久化，便于发布到不同环境动态配置实际地址。
+    # 连接相关项（host/port/api-key/enabled）改后需重启 agent 才重建连接生效；这里的值仅作启动默认/环境变量兜底。
     rag:
-      enabled: false
+      enabled: true
       embedding-base-url: http://localhost:11434/v1
       embedding-api-key: ollama
       embedding-model: bge-m3
       vector-size: 1024            # bge-m3 原生维度，换模型须同步改并重建集合
-      qdrant-host: localhost
-      qdrant-port: 6334            # gRPC 端口（REST 是 6333）
+      qdrant-host: ${TOOLBOX_QDRANT_HOST:170.106.186.65}
+      qdrant-port: ${TOOLBOX_QDRANT_PORT:6334}    # gRPC 端口（REST 是 6333）
       qdrant-use-tls: false
-      qdrant-api-key: ${TOOLBOX_AI_SECRETARY_QDRANT_API_KEY:}
+      qdrant-api-key: ${TOOLBOX_QDRANT_API_KEY:}
       collection: va_customers     # 客户去重底库专用集合，与 ai-secretary 物理隔离
       max-results: 3
       min-score: 0.70              # 沿用原 sidecar VA_VECTOR_THRESH

@@ -197,6 +197,11 @@ function Start-Backend {
         $javaOptions += "-Dtoolbox.ai-secretary.rag.qdrant-host=$qdrantHost"
         $javaOptions += '-Dtoolbox.ai-secretary.rag.qdrant-port=6334'
         $javaOptions += "-Dtoolbox.ai-secretary.rag.qdrant-api-key=$env:TOOLBOX_QDRANT_API_KEY"
+        # 访客分析向量 RAG：同一套远端 Qdrant + Key（独立集合 va_customers），用于灰区判别的相似客户召回。
+        $javaOptions += '-Dtoolbox.visitor-analysis.rag.enabled=true'
+        $javaOptions += "-Dtoolbox.visitor-analysis.rag.qdrant-host=$qdrantHost"
+        $javaOptions += '-Dtoolbox.visitor-analysis.rag.qdrant-port=6334'
+        $javaOptions += "-Dtoolbox.visitor-analysis.rag.qdrant-api-key=$env:TOOLBOX_QDRANT_API_KEY"
     }
     # SQLite DB 文件位置。留空走默认 ${toolbox.data-dir}/toolbox.db；
     # C 盘吃紧时在 run-tools.conf 配 TOOLBOX_SQLITE_FILE 把 DB 单独放大盘（如 D:\kai-toolbox\toolbox.db）。
