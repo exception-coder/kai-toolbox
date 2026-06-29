@@ -14,6 +14,7 @@ import com.exceptioncoder.toolbox.visitoranalysis.service.CustomerRefImportServi
 import com.exceptioncoder.toolbox.visitoranalysis.service.GreyZoneService;
 import com.exceptioncoder.toolbox.visitoranalysis.service.Normalizer;
 import com.exceptioncoder.toolbox.visitoranalysis.service.VerdictService;
+import com.exceptioncoder.toolbox.visitoranalysis.service.VisitorVectorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.*;
@@ -190,8 +191,9 @@ public class VisitorAnalysisController {
     }
 
     /**
-     * 一键把历史客户资料库全量同步到向量库（Qdrant）：逐条 embed + upsert，供灰区语义召回。
-     * sidecar 离线直接返回提示；逐条统计成功/失败，custId 作为稳定 point id，重复同步走 upsert 不重复。
+     * 一键把客户资料库增量同步到向量库（Qdrant）：只取尚未同步(synced_at 为空)的记录，分批 embedAll + addAll，
+     * 单次 HTTP 嵌入整批，每批入库成功后按行主键回标 synced_at——已同步过的下次直接跳过，重复点击近乎秒回。
+     * custId 作为稳定 point id，重复同步走 upsert 不重复；资料编辑/重导会把 synced_at 置空，自动纳入下次增量。
      */
     @PostMapping("/customer-refs/sync-vector")
     public Map<String, Object> syncCustomerRefsToVector() {
@@ -199,24 +201,36 @@ public class VisitorAnalysisController {
             return Map.of("ok", false, "total", 0, "indexed", 0, "failed", 0,
                     "message", "向量库未就绪（未启用 RAG 或 Qdrant/嵌入模型不可用），无法同步向量库");
         }
-        List<CustomerRefView> all = customerRefRepo.list();
+        List<CustomerRefView> pending = customerRefRepo.listUnsynced();
         long now = System.currentTimeMillis();
         int indexed = 0;
-        for (CustomerRefView c : all) {
-            boolean ok = greyZone.indexCustomerSync(
-                    c.custId(), c.custName(),
-                    normalizer.company(c.custName()),
-                    c.custAddr(),
-                    normalizer.addr(c.custAddr()),
-                    c.level());
-            if (ok) {
-                indexed++;
-                customerRefRepo.markSynced(c.custId(), now);   // 置同步标记
-            }
+        final int BATCH = 64;   // 每批嵌入条数：兼顾单次请求体积与往返次数
+        int totalBatches = (pending.size() + BATCH - 1) / BATCH;
+        long startNs = System.nanoTime();
+        log.info("[visitor-analysis] 客户底库增量同步开始：待同步 {} 条，分 {} 批", pending.size(), totalBatches);
+        for (int i = 0; i < pending.size(); i += BATCH) {
+            int batchNo = i / BATCH + 1;
+            List<CustomerRefView> chunk = pending.subList(i, Math.min(i + BATCH, pending.size()));
+            List<VisitorVectorService.CustomerToIndex> items = chunk.stream()
+                    .map(c -> new VisitorVectorService.CustomerToIndex(
+                            c.id(), c.custId(), c.custName(), normalizer.company(c.custName()),
+                            c.custAddr(), normalizer.addr(c.custAddr()), c.level()))
+                    .toList();
+            long batchStartNs = System.nanoTime();
+            List<Long> okIds = greyZone.indexCustomersBatch(items);   // 成功入库的行主键
+            customerRefRepo.markSyncedByIds(okIds, now);              // 同步一批标记一批
+            indexed += okIds.size();
+            long batchMs = (System.nanoTime() - batchStartNs) / 1_000_000;
+            long elapsedS = (System.nanoTime() - startNs) / 1_000_000_000;
+            log.info("[visitor-analysis] 同步进度 批次 {}/{}（本批 {} 条 {}ms）累计 {}/{} 条，已耗时 {}s",
+                    batchNo, totalBatches, chunk.size(), batchMs, indexed, pending.size(), elapsedS);
         }
-        int failed = all.size() - indexed;
-        log.info("[visitor-analysis] 客户底库同步向量库: total={} indexed={} failed={}", all.size(), indexed, failed);
-        return Map.of("ok", true, "total", all.size(), "indexed", indexed, "failed", failed);
+        long totalS = (System.nanoTime() - startNs) / 1_000_000_000;
+        int failed = pending.size() - indexed;
+        log.info("[visitor-analysis] 客户底库增量同步完成: pending={} indexed={} failed={} 总耗时={}s",
+                pending.size(), indexed, failed, totalS);
+        return Map.of("ok", true, "total", pending.size(), "indexed", indexed,
+                "failed", failed, "elapsedSeconds", totalS);
     }
 
     /** 清空向量库已同步的客户资料（va_customers 集合）。清完可重新点「一键同步」灌入。 */

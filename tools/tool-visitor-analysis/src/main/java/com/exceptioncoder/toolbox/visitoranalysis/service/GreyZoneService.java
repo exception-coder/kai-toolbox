@@ -131,6 +131,11 @@ public class GreyZoneService {
         return vectorService.indexCustomer(custId, company, companyNorm, companyAddr, addrNorm, status);
     }
 
+    /** 批量索引客户底库到向量库（单次 embedAll + addAll），返回成功入库的行主键 id 列表。 */
+    public java.util.List<Long> indexCustomersBatch(java.util.List<VisitorVectorService.CustomerToIndex> items) {
+        return vectorService.indexCustomersBatch(items);
+    }
+
     /** 清空向量库客户集合。返回 {ok, before, after} 或 {ok:false, error}。 */
     public Map<String, Object> clearCustomers() {
         return vectorService.clearCustomers();

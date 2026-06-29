@@ -117,6 +117,56 @@ public class VisitorVectorService {
     }
 
     /**
+     * 批量索引：一次 embedAll 把整批文本嵌入（单次 HTTP 往返），再一次 addAll 整批 upsert，
+     * 取代逐条 embed+upsert 的 N 次往返，大幅加快「一键同步至向量库」。
+     * 入参为待索引客户列表，返回成功入库的行主键 id 列表（供上层据此置同步标记，按主键而非 custId
+     * 以兼容无 custId 的人工录入记录）。文本为空的记录跳过；任何异常软降级返回空列表（不抛，避免拖垮调用方）。
+     */
+    public List<Long> indexCustomersBatch(List<CustomerToIndex> items) {
+        if (!enabled() || props.isEmpty() || items == null || items.isEmpty()) return List.of();
+        List<String> pointIds = new ArrayList<>();
+        List<TextSegment> segments = new ArrayList<>();
+        List<Long> rowIds = new ArrayList<>();
+        String coll = props.get().getCollection();
+        for (CustomerToIndex it : items) {
+            String text = buildText(it.companyNorm(), it.addrNorm(), it.company(), it.companyAddr(), null);
+            if (text.isBlank()) continue;
+            Map<String, String> meta = new LinkedHashMap<>();
+            meta.put("company", it.company() != null ? it.company() : "");
+            meta.put("company_norm", it.companyNorm() != null ? it.companyNorm() : "");
+            meta.put("company_addr", it.companyAddr() != null ? it.companyAddr() : "");
+            meta.put("addr_norm", it.addrNorm() != null ? it.addrNorm() : "");
+            meta.put("status", it.status() != null ? it.status() : "");
+            meta.put("source", "customer");
+            String key = it.custId() != null ? String.valueOf(it.custId())
+                    : (!it.companyNorm().isBlank() ? it.companyNorm() : text);
+            pointIds.add(pointId(coll, key));
+            segments.add(TextSegment.from(text, Metadata.from(meta)));
+            rowIds.add(it.id());
+        }
+        if (segments.isEmpty()) return List.of();
+        try {
+            long t0 = System.nanoTime();
+            List<Embedding> embeddings = embeddingModel.get().embedAll(segments).content();
+            long embedMs = (System.nanoTime() - t0) / 1_000_000;
+            long t1 = System.nanoTime();
+            embeddingStore.get().addAll(pointIds, embeddings, segments);
+            long upsertMs = (System.nanoTime() - t1) / 1_000_000;
+            log.info("[visitor-analysis] 批量向量索引 {} 条：嵌入 {}ms（{}ms/条），Qdrant 写入 {}ms",
+                    segments.size(), embedMs, embedMs / segments.size(), upsertMs);
+            return rowIds;
+        } catch (Exception e) {
+            log.warn("[visitor-analysis] 批量向量索引失败（{} 条）: {}", segments.size(), e.toString());
+            return List.of();
+        }
+    }
+
+    /** 批量索引入参：一条待嵌入的客户底库记录。{@code id} 为行主键，用于上层回标同步。 */
+    public record CustomerToIndex(long id, Long custId, String company, String companyNorm,
+                                  String companyAddr, String addrNorm, String status) {
+    }
+
+    /**
      * 召回与新申请最相似的历史客户记录（top-k，按相似度降序）。任何失败返回空列表，调用方不感知。
      */
     public List<SimilarRecord> searchSimilar(String company, String companyNorm,
