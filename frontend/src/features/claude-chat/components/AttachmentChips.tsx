@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { FileText, Image as ImageIcon, Loader2, X } from 'lucide-react'
 import type { UploadedAttachment } from '../api'
+import { ImageLightbox } from './ImageLightbox'
 
 type Item = UploadedAttachment & { previewUrl?: string }
 
@@ -61,24 +62,7 @@ export function AttachmentChips({
         )}
       </div>
 
-      {preview && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-          onClick={() => setPreview(null)}
-          role="dialog"
-          aria-label="图片预览"
-        >
-          <img src={preview} alt="预览" className="max-h-[90vh] max-w-full rounded-lg shadow-xl" />
-          <button
-            type="button"
-            onClick={() => setPreview(null)}
-            aria-label="关闭预览"
-            className="absolute right-4 top-4 rounded-full bg-black/50 p-2 text-white"
-          >
-            <X className="size-5" />
-          </button>
-        </div>
-      )}
+      {preview && <ImageLightbox src={preview} alt="预览" onClose={() => setPreview(null)} />}
     </>
   )
 }

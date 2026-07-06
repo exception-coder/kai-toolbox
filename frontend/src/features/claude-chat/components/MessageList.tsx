@@ -7,6 +7,7 @@ import type { ChatItem } from '../types'
 import { abbr, cacheHitRate, fmtMs, formatTime, parseUsage } from '../lib/metrics'
 import { ToolCallBubble } from './ToolCallBubble'
 import { Markdown } from './Markdown'
+import { ImageLightbox } from './ImageLightbox'
 
 interface Props {
   items: ChatItem[]
@@ -29,6 +30,8 @@ export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exh
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevHeightRef = useRef(0)
   const prependingRef = useRef(false)
+  // 点击聊天里的图片放大查看（桌面点击 / 移动端轻触均可）
+  const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null)
 
   const handleScroll = () => {
     const el = scrollRef.current
@@ -67,11 +70,13 @@ export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exh
         <div className="text-center text-xs text-[var(--color-muted-foreground)]">— 没有更早了 —</div>
       )}
       {items.map(item => (
-        <Row key={item.id} item={item} onFork={onFork} engineLabel={engineLabel} onResumeCurrent={onResumeCurrent} />
+        <Row key={item.id} item={item} onFork={onFork} engineLabel={engineLabel} onResumeCurrent={onResumeCurrent}
+          onOpenImage={(src, alt) => setViewer({ src, alt })} />
       ))}
       {running && (
         <div className="text-sm text-[var(--color-muted-foreground)]">{engineLabel} 正在思考…</div>
       )}
+      {viewer && <ImageLightbox src={viewer.src} alt={viewer.alt} onClose={() => setViewer(null)} />}
     </div>
   )
 }
@@ -204,7 +209,7 @@ function TurnStatus({ item }: { item: Extract<ChatItem, { kind: 'result' }> }) {
   )
 }
 
-function Row({ item, onFork, engineLabel, onResumeCurrent }: { item: ChatItem; onFork?: (sdkUuid: string) => void; engineLabel?: string; onResumeCurrent?: () => void }) {
+function Row({ item, onFork, engineLabel, onResumeCurrent, onOpenImage }: { item: ChatItem; onFork?: (sdkUuid: string) => void; engineLabel?: string; onResumeCurrent?: () => void; onOpenImage?: (src: string, alt: string) => void }) {
   switch (item.kind) {
     case 'user':
       return (
@@ -217,8 +222,9 @@ function Row({ item, onFork, engineLabel, onResumeCurrent }: { item: ChatItem; o
                   key={i}
                   src={a.url}
                   alt={a.name}
-                  title={a.name}
-                  className="max-h-40 max-w-[48%] rounded-lg border border-[var(--color-border)] object-cover"
+                  title={`${a.name}（点击查看大图）`}
+                  onClick={() => onOpenImage?.(a.url!, a.name)}
+                  className="max-h-40 max-w-[48%] cursor-zoom-in rounded-lg border border-[var(--color-border)] object-cover transition-opacity hover:opacity-90"
                 />
               ))}
             </div>
