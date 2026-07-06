@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ensureFreshToken, getToken } from '@/lib/auth'
+import { emitSessionExpired, ensureFreshToken, getToken, logout, useAuth } from '@/lib/auth'
 import type { Attachment, ChatItem, ClientMessage, ConnState, Engine, ModelInfo, PendingRequest, PermissionMode, ProviderKind, SendAttachment, ServerMessage, TurnDiag } from '../types'
 import { loadMessages } from '../api'
 import { notifyPrompt } from '../browserNotify'
@@ -159,6 +159,15 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
   // WS 重连退避计数（onopen 清零）+ 建连中守卫（覆盖「await 续期」异步窗口，防并发叠多条 WS）
   const reconnectAttemptsRef = useRef(0)
   const connectingRef = useRef(false)
+  // 鉴权失效检测：openedRef=本次 socket 是否曾成功 OPEN；authFailRef=连续「未 OPEN 就被关」次数
+  // （握手被后端鉴权拒绝时浏览器只报 1006，无法区分网络断开，故靠「反复握手前即关」推断为登录失效）；
+  // gaveUpRef=已因登录失效停重连（等登录成功后再恢复）；forceRefreshRef=下次连接强制续期一次 token。
+  const openedRef = useRef(false)
+  const authFailRef = useRef(0)
+  const gaveUpRef = useRef(false)
+  const forceRefreshRef = useRef(false)
+  // 订阅登录态：登录成功后 token 变化 → 若之前因失效停连，则自动恢复重连。
+  const { token: sessionToken } = useAuth()
   const sdkSessionIdRef = useRef<string | null>(null)
   const cwdRef = useRef<string>('')
   const shouldLoadHistoryRef = useRef(false)
@@ -375,11 +384,14 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     const path = demo ? '/api/claude-chat/demo/ws' : '/api/claude-chat/ws'
     const url = `${proto}//${window.location.host}${path}${qs}`
     setState('connecting')
+    openedRef.current = false // 新一次尝试：先假定未连上，onopen 置真
     const ws = new WebSocket(url)
     wsRef.current = ws
 
     ws.onopen = () => {
       reconnectAttemptsRef.current = 0 // 连上即清零退避，下次断线从最短间隔重来
+      openedRef.current = true
+      authFailRef.current = 0 // 成功握手即清鉴权失败计数
       flushIntent()
       flushPendingSends()
     }
@@ -399,6 +411,22 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     ws.onclose = () => {
       wsRef.current = null
       if (manualCloseRef.current) return
+      const openedThisAttempt = openedRef.current
+      // 「握手前就被关」且本地仍有 token：大概率是后端鉴权拒绝（token 失效）。localhost/同源下网络抖动
+      // 通常能完成握手，反复「未 OPEN 即关」几乎只可能是鉴权被拒。累计到阈值即判定登录失效，
+      // 停止重连并主动弹登录，根除「拿被拒 token 无限重连刷屏」的僵尸循环。
+      if (!demo && !openedThisAttempt && getToken()) {
+        const f = (authFailRef.current += 1)
+        if (f >= 3) {
+          gaveUpRef.current = true
+          setState('error')
+          setErrorMessage('登录已过期或凭证失效，请重新登录后重试。')
+          logout()            // 清掉被拒的 token，避免后续请求继续用它
+          emitSessionExpired() // 通知全局守卫弹登录框
+          return
+        }
+        forceRefreshRef.current = true // 下次连接前强制续期一次（治后端重启/时钟偏移导致的旧 token 被拒）
+      }
       // 非主动关闭且已有会话：自动重连并 attach 回放（断连不丢消息），按指数退避避免死循环刷屏
       // demo 会话随 WS 断开即被服务端销毁，重连 attach 已无意义；只置 closed。
       if (!demo && sessionIdRef.current) {
@@ -422,6 +450,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
       return
     }
     if (connectingRef.current) return
+    // 已因登录失效放弃：不再重连（等登录成功后由 token 变化的 effect 恢复），避免拿被拒 token 空转。
+    if (gaveUpRef.current) { setState('error'); return }
     connectingRef.current = true
     setState('connecting')
     // demo：免鉴权，跳过 token 续期，直接建连。
@@ -433,17 +463,23 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
       openSocket()
       return
     }
-    // 重连前先确保 access token 新鲜（过期则用 refresh token 续期）。
+    // 重连前先确保 access token 新鲜（过期则用 refresh token 续期）。forceRefresh=true 时强制续期一次，
+    // 治「本地以为 token 还新鲜、服务端却已拒」（后端重启/时钟偏移）的握手死循环。
     // 治本：避免「拿过期 token 每秒重连被握手拒」的死循环（实测曾刷 4 万条）。
-    ensureFreshToken().finally(() => {
+    const force = forceRefreshRef.current
+    forceRefreshRef.current = false
+    ensureFreshToken(force).finally(() => {
       connectingRef.current = false
       if (manualCloseRef.current) return
       const cur = wsRef.current
       if (cur && (cur.readyState === WebSocket.CONNECTING || cur.readyState === WebSocket.OPEN)) return
-      // 续期后仍无 token（refresh 也失效→ensureFreshToken 已 logout）：停止重连，提示重登，根除僵尸循环。
+      // 无 token：停止重连（防僵尸循环）。注意此处不主动弹登录——未登录用户（从没有 token）不该被打扰；
+      // 真正的「登录失效」弹框由 ensureFreshToken 的 refresh 失败、onclose 反复握手被拒、HTTP 401 触发。
+      // 登录后由 sessionToken 变化的 effect 自动恢复重连。
       if (!getToken()) {
+        gaveUpRef.current = true
         setState('error')
-        setErrorMessage('登录已过期，请重新登录后重试。')
+        setErrorMessage('未登录或登录已过期，请登录后重试。')
         return
       }
       openSocket()
@@ -459,6 +495,19 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
       wsRef.current = null
     }
   }, [connect])
+
+  // 登录恢复：之前因登录失效放弃重连后，一旦重新拿到 token（用户在全局登录框登录成功），
+  // 清掉放弃标记与失败计数，重新建连。demo 通道无鉴权，不参与。
+  useEffect(() => {
+    if (demo) return
+    if (gaveUpRef.current && sessionToken) {
+      gaveUpRef.current = false
+      authFailRef.current = 0
+      reconnectAttemptsRef.current = 0
+      setErrorMessage(null)
+      connect()
+    }
+  }, [sessionToken, connect, demo])
 
   const resetForNewSession = () => {
     setItems([])

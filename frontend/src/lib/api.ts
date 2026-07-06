@@ -1,6 +1,6 @@
 import { isMockEnabled } from './mock/mode'
 import { matchHttp, matchSse, MockHttpError, type Method } from './mock/registry'
-import { ensureFreshToken, withAuthToken } from './auth'
+import { emitSessionExpired, ensureFreshToken, withAuthToken } from './auth'
 
 const API_BASE = '/api'
 
@@ -27,6 +27,8 @@ export async function http<T>(path: string, init?: RequestInit): Promise<T> {
     },
   })
   if (!res.ok) {
+    // 401 且本地确曾登录（token 仍在）：判为登录失效，主动通知全局弹登录框，别只抛错让页面静默失败。
+    if (res.status === 401 && token) emitSessionExpired()
     let payload: unknown = null
     try { payload = await res.json() } catch { /* not JSON */ }
     const msg =

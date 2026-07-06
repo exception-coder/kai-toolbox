@@ -26,6 +26,21 @@ interface LoginResponse {
 
 const listeners = new Set<() => void>()
 
+// 「会话非自愿失效」订阅者：仅在 refresh 失败 / HTTP 401 / WS 握手鉴权反复被拒时触发，
+// 用于全局主动弹登录框。区别于用户主动 logout（不触发此事件，避免登出即弹登录框）。
+const expiryListeners = new Set<() => void>()
+
+/** 订阅「会话失效」事件。返回取消订阅函数。 */
+export function onSessionExpired(cb: () => void): () => void {
+  expiryListeners.add(cb)
+  return () => { expiryListeners.delete(cb) }
+}
+
+/** 广播「会话失效」：只用于非自愿失效场景。订阅方（全局登录框）自行去重。 */
+export function emitSessionExpired(): void {
+  expiryListeners.forEach(l => { try { l() } catch { /* ignore */ } })
+}
+
 function readUser(): AuthUser | null {
   const s = localStorage.getItem(USER_KEY)
   if (!s) return null
@@ -93,12 +108,14 @@ let refreshPromise: Promise<void> | null = null
  * 软鉴权端点对过期 token 返回的是空响应而非 401，无法靠 401 触发刷新，故这里按 expiresAt 主动续期。
  * 在每次 http() 请求和视频探测前调用。刷新失败则登出。
  */
-export async function ensureFreshToken(): Promise<void> {
+export async function ensureFreshToken(force = false): Promise<void> {
   const token = localStorage.getItem(TOKEN_KEY)
   const refreshToken = localStorage.getItem(REFRESH_KEY)
   if (!token || !refreshToken) return
   const expiresAt = Number(localStorage.getItem(EXPIRES_KEY) || 0)
-  if (expiresAt && Date.now() < expiresAt - REFRESH_MARGIN_MS) return
+  // force=true 时跳过 expiresAt 快捷判断，强制续期一次：治「本地以为 token 还新鲜、服务端却已拒」
+  // （后端重启换签名密钥、客户端时钟偏移、服务端 TTL 更短）导致的握手死循环。
+  if (!force && expiresAt && Date.now() < expiresAt - REFRESH_MARGIN_MS) return
 
   if (!refreshPromise) {
     refreshPromise = (async () => {
@@ -111,7 +128,9 @@ export async function ensureFreshToken(): Promise<void> {
         if (!res.ok) throw new Error('refresh failed')
         storeTokens((await res.json()) as LoginResponse)
       } catch {
+        // refresh token 也失效：清登录态并主动通知全局弹登录框（不同于用户主动 logout）。
         logout()
+        emitSessionExpired()
       } finally {
         refreshPromise = null
       }

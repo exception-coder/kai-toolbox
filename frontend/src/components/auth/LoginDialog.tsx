@@ -6,10 +6,12 @@ interface Props {
   open: boolean
   onClose: () => void
   onSuccess?: () => void
+  /** 可选提示语，显示在标题下方（如「登录已过期，请重新登录」）。 */
+  message?: string
 }
 
 /** 轻量登录弹窗：调用 /api/auth/login，成功后存 token 并回调。 */
-export function LoginDialog({ open, onClose, onSuccess }: Props) {
+export function LoginDialog({ open, onClose, onSuccess, message }: Props) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [err, setErr] = useState<string | null>(null)
@@ -40,7 +42,9 @@ export function LoginDialog({ open, onClose, onSuccess }: Props) {
         className="w-80 rounded-lg border bg-[var(--color-background)] p-4 shadow-lg"
         onClick={e => e.stopPropagation()}
       >
-        <h3 className="mb-3 text-base font-semibold">登录</h3>
+        <h3 className="mb-1 text-base font-semibold">登录</h3>
+        {message && <p className="mb-3 text-xs text-[var(--color-muted-foreground)]">{message}</p>}
+        {!message && <div className="mb-2" />}
         <input
           autoFocus
           className="mb-2 w-full rounded-md border bg-[var(--color-background)] px-3 py-2 text-sm"
