@@ -17,7 +17,7 @@ public sealed interface ServerMessage
                 ServerMessage.QuestionRequest, ServerMessage.DecisionResolved,
                 ServerMessage.Models, ServerMessage.UserMessage, ServerMessage.Forked,
                 ServerMessage.ReplayGap, ServerMessage.Result, ServerMessage.TurnInfo,
-                ServerMessage.Error {
+                ServerMessage.TurnProgress, ServerMessage.Error {
 
     long seq();
 
@@ -78,6 +78,10 @@ public sealed interface ServerMessage
      */
     @JsonTypeName("turnInfo")
     record TurnInfo(long seq, String requestedModel, String responseModel, boolean viaGateway, String baseUrl) implements ServerMessage {}
+
+    /** 本轮进行中的实时输出 token 数（来自 SDK 流式 message_delta 的累计 output_tokens），供「进行时」指示器展示。 */
+    @JsonTypeName("turnProgress")
+    record TurnProgress(long seq, long outputTokens) implements ServerMessage {}
 
     @JsonTypeName("error")
     record Error(long seq, String code, String message) implements ServerMessage {}

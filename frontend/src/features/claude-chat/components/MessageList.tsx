@@ -24,10 +24,12 @@ interface Props {
   /** 引擎展示名（Claude / Codex），用于「正在思考」文案 */
   engineLabel?: string
   onResumeCurrent?: () => void
+  /** 本轮进行中的实时输出 token 数，显示在「进行时」指示器上（0=不显示）。 */
+  turnTokens?: number
 }
 
 /** 消息流：用户气泡靠右、assistant 文本靠左、工具调用与系统标记居中。顶部上拉加载更早历史。 */
-export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exhausted, onFork, engineLabel = 'Claude', onResumeCurrent }: Props) {
+export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exhausted, onFork, engineLabel = 'Claude', onResumeCurrent, turnTokens = 0 }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevHeightRef = useRef(0)
   const prependingRef = useRef(false)
@@ -74,7 +76,7 @@ export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exh
         <Row key={item.id} item={item} onFork={onFork} engineLabel={engineLabel} onResumeCurrent={onResumeCurrent}
           onOpenImage={(src, alt) => setViewer({ src, alt })} />
       ))}
-      {running && <ThinkingIndicator engineLabel={engineLabel} />}
+      {running && <ThinkingIndicator engineLabel={engineLabel} tokens={turnTokens} />}
       {viewer && <ImageLightbox src={viewer.src} alt={viewer.alt} onClose={() => setViewer(null)} />}
     </div>
   )

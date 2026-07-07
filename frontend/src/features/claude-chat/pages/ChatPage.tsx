@@ -994,6 +994,7 @@ export function ChatPage() {
                 onFork={chat.forkSession}
                 engineLabel={engineDisplayName(chat.currentEngine, chat.currentProviderKind)}
                 onResumeCurrent={chat.resumeCurrent}
+                turnTokens={chat.turnTokens}
               />
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-[var(--color-muted-foreground)]">

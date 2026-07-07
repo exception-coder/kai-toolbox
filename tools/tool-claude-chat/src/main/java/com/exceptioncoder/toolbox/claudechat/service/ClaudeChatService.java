@@ -603,6 +603,8 @@ public class ClaudeChatService {
                     node.path("responseModel").asText(null),
                     node.path("viaGateway").asBoolean(false),
                     node.path("baseUrl").asText(null)));
+            case "turnProgress" -> sendToBrowser(ctx, seq -> new ServerMessage.TurnProgress(
+                    seq, node.path("outputTokens").asLong(0)));
             case "result" -> onResult(ctx, node);
             case "error" -> sendToBrowser(ctx, seq -> new ServerMessage.Error(
                     seq, node.path("code").asText("SIDECAR_ERROR"), node.path("message").asText("")));

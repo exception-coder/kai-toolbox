@@ -22,7 +22,7 @@ function nextWord(prev: string): string {
  * agent 干活时底部的动态状态：脉冲圆点 + 轮换的「XX 中…」措辞 + 已用秒数。
  * 每次挂载（running 变 true）重置计时；卸载即停。放在 MessageList 底部，主聊天/分屏/悬浮窗通用。
  */
-export function ThinkingIndicator({ engineLabel = 'Claude' }: { engineLabel?: string }) {
+export function ThinkingIndicator({ engineLabel = 'Claude', tokens = 0 }: { engineLabel?: string; tokens?: number }) {
   const [word, setWord] = useState(() => GERUNDS[Math.floor(Math.random() * GERUNDS.length)])
   const [elapsed, setElapsed] = useState(0)
   const startRef = useRef(Date.now())
@@ -44,6 +44,7 @@ export function ThinkingIndicator({ engineLabel = 'Claude' }: { engineLabel?: st
       </span>
       <span>{engineLabel} {word}中…</span>
       {elapsed >= 2 && <span className="tabular-nums text-xs opacity-70">· {elapsed}s</span>}
+      {tokens > 0 && <span className="tabular-nums text-xs opacity-70">· ↓ {tokens} tokens</span>}
     </div>
   )
 }

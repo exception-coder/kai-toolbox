@@ -279,6 +279,7 @@ export type ServerMessage =
   | { type: 'replayGap'; seq: number; missingFrom: number; missingTo: number }
   | { type: 'result'; seq: number; usage?: Record<string, unknown>; stopReason: string }
   | { type: 'turnInfo'; seq: number; requestedModel: string | null; responseModel: string | null; viaGateway: boolean; baseUrl: string | null }
+  | { type: 'turnProgress'; seq: number; outputTokens: number }
   | { type: 'error'; seq: number; code: string; message: string }
 
 /** 一轮调用诊断条目：请求模型 vs API 实际返回模型 + 是否经网关。供第三方会话「调用诊断」区块展示。 */

@@ -193,6 +193,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
           onFork={chat.forkSession}
           engineLabel={engineLabel}
           onResumeCurrent={chat.resumeCurrent}
+          turnTokens={chat.turnTokens}
         />
       </div>
 

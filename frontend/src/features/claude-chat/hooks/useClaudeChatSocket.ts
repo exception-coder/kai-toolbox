@@ -84,6 +84,8 @@ export interface UseClaudeChatSocket {
   currentProviderBaseUrl: string | null
   /** 调用诊断：每轮「请求模型 vs API 实际返回模型 + 是否经网关」，供第三方会话排查（最新在前）。 */
   providerDiag: TurnDiag[]
+  /** 本轮进行中的实时输出 token 数（0=尚无）。 */
+  turnTokens: number
   /** 新建会话（可带初始权限模式、引擎、第三方网关 provider；provider 仅 Claude 引擎生效） */
   open: (cwd: string, model?: string, mode?: PermissionMode, engine?: Engine, provider?: { apiBaseUrl?: string; authToken?: string }) => void
   /** 切换权限模式（下一轮生效） */
@@ -145,6 +147,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
   const [currentProviderKind, setCurrentProviderKind] = useState<ProviderKind>('official')
   const [currentProviderBaseUrl, setCurrentProviderBaseUrl] = useState<string | null>(null)
   const [providerDiag, setProviderDiag] = useState<TurnDiag[]>([])
+  // 本轮进行中的实时输出 token 数（SDK 流式 message_delta 累计），供「进行时」指示器展示。
+  const [turnTokens, setTurnTokens] = useState(0)
 
   const wsRef = useRef<WebSocket | null>(null)
   // 本轮响应延迟测量：发送时刻 + 首 token 时刻（客户端墙钟，TTFT/总耗时）
@@ -330,6 +334,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
           baseUrl: msg.baseUrl,
         }, ...prev].slice(0, 30))
         break
+      case 'turnProgress':
+        setTurnTokens(msg.outputTokens)
+        break
       case 'result': {
         setRunning(false)
         const latencyMs = turnStartRef.current != null ? Date.now() - turnStartRef.current : undefined
@@ -513,6 +520,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     setItems([])
     setPending(null)
     setRunning(false)
+    setTurnTokens(0)
     setErrorMessage(null)
     setSyncWarning(null)
     setProviderDiag([])
@@ -597,6 +605,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     setItems(prev => [...prev, { kind: 'user', id: nextId(), text: t, ts: Date.now(), attachments: disp && disp.length ? disp : undefined }])
     turnStartRef.current = Date.now()
     ttftRef.current = null
+    setTurnTokens(0) // 新一轮：清零实时 token 计数
     setRunning(true)
     if (sendRaw({ type: 'send', text: t, attachments: atts })) return
     // WS 未连上：排队并触发重连（带 attach 意图），onopen 时先 attach 再补发，避免消息丢失/卡“思考中”
@@ -725,5 +734,5 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     loadHistoryRef.current = loadHistory
   }, [loadHistory])
 
-  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, skills, agents, mcpServers, outputStyle, models, currentModel, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, open, switchTo, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setModel, switchEngine, switchProvider, forkSession, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, skills, agents, mcpServers, outputStyle, models, currentModel, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, open, switchTo, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setModel, switchEngine, switchProvider, forkSession, historyLoading, historyExhausted, loadHistory }
 }

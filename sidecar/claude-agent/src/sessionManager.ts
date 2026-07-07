@@ -117,6 +117,9 @@ class Session {
   private modelsFetched = false
   /** 本轮 API 响应里实际返回的模型（来自 assistant message.model，权威）；用于调用诊断。 */
   private lastResponseModel?: string
+  /** 本轮已完成消息的累计输出 token（跨 tool-use 多段），配合当前消息的 output_tokens 得到实时总量。 */
+  private turnBaseTokens = 0
+  private curMsgTokens = 0
   readonly perms: Permissions
 
   constructor(
@@ -145,6 +148,8 @@ class Session {
       console.warn(`[sidecar] 会话 cwd 不存在，回退到 ${safeCwd}（原 cwd: ${this.cwd}）`)
     }
     this.lastResponseModel = undefined
+    this.turnBaseTokens = 0
+    this.curMsgTokens = 0
     // 调用诊断日志：本轮发出去的模型 + 是否经第三方网关（排查“真走三方 / 回退官方”的关键）
     console.log(`[sidecar] turn start session=${this.id} model=${this.model ?? '默认'} via=${this.apiBaseUrl ?? '官方登录'}`)
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -327,6 +332,17 @@ class Session {
         const delta = ev?.delta as Record<string, unknown> | undefined
         if (ev?.type === 'content_block_delta' && delta?.type === 'text_delta') {
           this.emitSelf({ type: 'assistantDelta', text: delta.text as string })
+        } else if (ev?.type === 'message_start') {
+          // 新一段消息（tool-use 后续跑会开新消息）：把上一段的输出 token 计入基数
+          this.turnBaseTokens += this.curMsgTokens
+          this.curMsgTokens = 0
+        } else if (ev?.type === 'message_delta') {
+          // message_delta.usage.output_tokens 为该消息累计输出 token；配合基数得到本轮实时总量
+          const ot = (ev.usage as Record<string, unknown> | undefined)?.output_tokens
+          if (typeof ot === 'number') {
+            this.curMsgTokens = ot
+            this.emitSelf({ type: 'turnProgress', outputTokens: this.turnBaseTokens + ot })
+          }
         }
         break
       }
