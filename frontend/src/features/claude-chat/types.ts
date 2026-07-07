@@ -63,6 +63,25 @@ export interface ProjectModule {
   children?: ProjectModule[]
 }
 
+/** 会话工作目录文件树里的一个条目。path 为相对 cwd（/ 分隔），回传给后端展开/读取/定位。 */
+export interface FileEntry {
+  name: string
+  path: string
+  dir: boolean
+  size: number
+  mtime: number
+}
+
+/** 文本文件预览内容。binary=true 时 content 为空（二进制不预览）。 */
+export interface FileContent {
+  name: string
+  path: string
+  size: number
+  binary: boolean
+  truncated: boolean
+  content: string
+}
+
 /** 「项目初始化流水线」(yoooni-onboard-pipeline) 里单仓的探测线索。 */
 export interface OnboardRepo {
   path: string

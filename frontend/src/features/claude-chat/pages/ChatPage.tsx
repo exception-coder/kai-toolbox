@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, Cloud, FileText, FolderTree, GitBranch, GitCommit, List, ListChecks, Maximize2, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
+import { Bell, Cloud, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, List, ListChecks, Maximize2, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Input } from '@/components/ui/input'
@@ -30,6 +30,7 @@ import { groupModels } from '../components/modelGroups'
 import { TaskspacePanel } from '../components/TaskspacePanel'
 import { CloneProjectPanel } from '../components/CloneProjectPanel'
 import { OnboardPipelinePanel } from '../components/OnboardPipelinePanel'
+import { FileTreePanel } from '../components/FileTreePanel'
 import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
@@ -40,7 +41,7 @@ import { CommitsPanel } from '@/components/git/CommitsPanel'
 import type { Engine } from '../types'
 import { ensureNotifyPermission } from '../browserNotify'
 
-type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps'
+type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
 
 /** 单条消息最多附件数，与后端约定一致。 */
 const MAX_ATTACHMENTS = 10
@@ -535,6 +536,9 @@ export function ChatPage() {
                   {chat.sessionId && (
                     <HeaderMenuItem icon={<GitCommit className="size-4" />} label="提交记录" hint="当前目录 git 提交/diff" onClick={() => { setHeaderMenu(false); setShowCommits(true) }} />
                   )}
+                  {chat.sessionId && (
+                    <HeaderMenuItem icon={<FolderOpen className="size-4" />} label="工作目录" hint="展开工作目录·快速找文件/定位" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'filetree' ? 'none' : 'filetree') }} />
+                  )}
                   <HeaderMenuItem icon={<Palette className="size-4" />} label={toolColors ? '工具着色 · 开' : '工具着色 · 关'} hint="按命令/读写/子代理/技能/MCP 上色" onClick={() => { setToolColors(!toolColors) }} />
                   <HeaderMenuItem icon={<Sparkles className="size-4" />} label="会话能力" hint="激活的技能 / 子代理 / MCP 服务" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'caps' ? 'none' : 'caps') }} />
                   <HeaderMenuItem icon={<FolderTree className="size-4" />} label="合并工作区" hint="软链接聚合多个目录" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'taskspace' ? 'none' : 'taskspace') }} />
@@ -752,6 +756,9 @@ export function ChatPage() {
           onCloned={dir => { setNewCwd(dir); setPanel('new') }}
           onClose={() => setPanel('none')}
         />
+      )}
+      {panel === 'filetree' && chat.sessionId && (
+        <FileTreePanel sessionId={chat.sessionId} onClose={() => setPanel('none')} />
       )}
       {panel === 'onboard' && (
         <OnboardPipelinePanel

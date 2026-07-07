@@ -1,7 +1,7 @@
 import { authFetch, http } from '@/lib/api'
 import { ensureFreshToken, getToken } from '@/lib/auth'
 import type { CommitDiff, CommitsResponse, GitRepoRef } from '@/components/git/types'
-import type { ChatItem, ClaudeChatSessionView, CloneResult, HistorySessionView, ModelInfo, ModuleResolve, NotifyConfig, OnboardView, PluginStatus, SuiteStatus, ProjectModules, SubdirList, TaskspaceView, WorkspaceList } from './types'
+import type { ChatItem, ClaudeChatSessionView, CloneResult, FileContent, FileEntry, HistorySessionView, ModelInfo, ModuleResolve, NotifyConfig, OnboardView, PluginStatus, SuiteStatus, ProjectModules, SubdirList, TaskspaceView, WorkspaceList } from './types'
 
 /** 列会话目录下可查看提交的 git 仓库（cwd 自身是仓库→单个；否则其子目录里的仓库）。空数组=无仓库。 */
 export function listSessionGitRepos(sessionId: string) {
@@ -110,6 +110,25 @@ export function resolveModule(q: string) {
 /** 列出「项目初始化流水线」(yoooni-onboard-pipeline) 各系统的六阶段进度（镜像状态文件，后端只读）。 */
 export function listOnboard() {
   return http<OnboardView[]>('/claude-chat/onboard')
+}
+
+/** 列会话工作目录下某子目录（相对 cwd，空=根）的一级内容，供文件树懒加载。 */
+export function listSessionFiles(sessionId: string, path?: string) {
+  const qs = path ? `?path=${encodeURIComponent(path)}` : ''
+  return http<FileEntry[]>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/files${qs}`)
+}
+
+/** 读会话工作目录下某文本文件（相对 cwd）预览。 */
+export function readSessionFile(sessionId: string, path: string) {
+  return http<FileContent>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/file?path=${encodeURIComponent(path)}`)
+}
+
+/** 在系统资源管理器/Finder 里定位会话工作目录下的文件/目录（相对 cwd）。 */
+export function revealSessionFile(sessionId: string, path: string) {
+  return http<void>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/reveal`, {
+    method: 'POST',
+    body: JSON.stringify({ path }),
+  })
 }
 
 // ── 合并工作区 taskspace：父目录多选 → 建软链接聚合成新工作区 ──────────
