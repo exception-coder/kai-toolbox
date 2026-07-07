@@ -1,44 +1,75 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, ChevronRight, FileText, Folder, GitCommit, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { CommitDiff, CommitInfo } from './types'
+import type { CommitDiff, CommitInfo, GitRepoRef } from './types'
 
 interface Props {
   /** 弹层标题（如项目名 / 会话目录名） */
   title: string
-  /** 拉取提交列表 */
-  fetchCommits: () => Promise<CommitInfo[]>
+  /** 拉取提交列表（repo 为可选子仓库定位，多仓库场景由本组件传入所选仓库） */
+  fetchCommits: (repo?: string) => Promise<CommitInfo[]>
   /** 拉取某提交 diff */
-  fetchDiff: (hash: string) => Promise<CommitDiff>
+  fetchDiff: (hash: string, repo?: string) => Promise<CommitDiff>
   onClose: () => void
+  /**
+   * 可选：列出可查看的 git 仓库。用于「父目录当工作目录、子目录才是 git 仓库」的场景
+   * （taskspace 聚合 / 含多个项目的父目录）。返回 >1 个时顶部显示仓库切换；不传则按单仓（不带 repo）加载。
+   */
+  fetchRepos?: () => Promise<GitRepoRef[]>
 }
 
 /**
  * 通用 git 提交记录弹层：列最近提交，点某条看其 diff。数据源由 fetchCommits/fetchDiff 注入，
  * 与具体后端接口解耦，供 projects（按 path）/ claude-chat（按 sessionId）等复用。
+ * 提供 fetchRepos 时支持在会话 cwd 下的多个 git 子仓库间切换查看。
  */
-export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose }: Props) {
+export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRepos }: Props) {
+  const [repos, setRepos] = useState<GitRepoRef[] | null>(null)
+  const [activeRepo, setActiveRepo] = useState<string | undefined>(undefined)
   const [commits, setCommits] = useState<CommitInfo[] | null>(null)
   const [listErr, setListErr] = useState<string | null>(null)
   const [diff, setDiff] = useState<CommitDiff | null>(null)
   const [diffErr, setDiffErr] = useState<string | null>(null)
   const [diffLoading, setDiffLoading] = useState(false)
 
+  // 载入某仓库的提交（repo=undefined 表示不带 repo：cwd 单仓 / projects 用法）
+  const loadCommits = useCallback((repo: string | undefined) => {
+    setCommits(null); setListErr(null); setDiff(null); setDiffErr(null)
+    fetchCommits(repo)
+      .then(setCommits)
+      .catch(e => setListErr(e instanceof Error ? e.message : String(e)))
+  }, [fetchCommits])
+
+  // 初始化：有 fetchRepos 则先取仓库列表、选第一个并载入；否则直接不带 repo 载入。
   useEffect(() => {
     let alive = true
-    fetchCommits()
-      .then(c => { if (alive) setCommits(c) })
+    if (!fetchRepos) { loadCommits(undefined); return () => { alive = false } }
+    fetchRepos()
+      .then(rs => {
+        if (!alive) return
+        setRepos(rs)
+        const first = rs[0]?.name
+        setActiveRepo(first)
+        if (rs.length === 0) setListErr('会话目录及其子目录都不是 git 仓库')
+        else loadCommits(first)
+      })
       .catch(e => { if (alive) setListErr(e instanceof Error ? e.message : String(e)) })
     return () => { alive = false }
-    // fetchCommits 由调用方按需 memo；此处仅首次加载
+    // 仅首次加载；fetchRepos/fetchCommits 由调用方 memo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const selectRepo = (name: string) => {
+    if (name === activeRepo) return
+    setActiveRepo(name)
+    loadCommits(name)
+  }
 
   const openDiff = (hash: string) => {
     setDiff(null)
     setDiffErr(null)
     setDiffLoading(true)
-    fetchDiff(hash)
+    fetchDiff(hash, activeRepo)
       .then(setDiff)
       .catch(e => setDiffErr(e instanceof Error ? e.message : String(e)))
       .finally(() => setDiffLoading(false))
@@ -71,6 +102,28 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose }: Props)
             <X className="size-4" />
           </button>
         </div>
+
+        {/* 多个 git 子仓库（父目录当工作目录场景）：顶部切换要查看的仓库 */}
+        {repos && repos.length > 1 && !showingDiff && (
+          <div className="flex gap-1 overflow-x-auto border-b px-2 py-1.5">
+            {repos.map(r => (
+              <button
+                key={r.name}
+                type="button"
+                onClick={() => selectRepo(r.name)}
+                title={r.label}
+                className={cn(
+                  'shrink-0 rounded-full border px-2.5 py-1 text-xs',
+                  r.name === activeRepo
+                    ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10 font-medium text-[var(--color-primary)]'
+                    : 'text-[var(--color-muted-foreground)] hover:border-[var(--color-primary)]/40',
+                )}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {!showingDiff && (
           <div className="overflow-y-auto p-2">

@@ -13,6 +13,13 @@ export interface CommitsResponse {
   commits: CommitInfo[]
 }
 
+/** 工作目录下的一个 git 仓库：name 空串=目录自身即仓库，否则为子目录名（查询提交时回传）。 */
+export interface GitRepoRef {
+  name: string
+  label: string
+  isRoot: boolean
+}
+
 export interface CommitDiff {
   hash: string
   shortHash: string

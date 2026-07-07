@@ -1,17 +1,27 @@
 import { authFetch, http } from '@/lib/api'
 import { ensureFreshToken, getToken } from '@/lib/auth'
-import type { CommitDiff, CommitsResponse } from '@/components/git/types'
+import type { CommitDiff, CommitsResponse, GitRepoRef } from '@/components/git/types'
 import type { ChatItem, ClaudeChatSessionView, CloneResult, HistorySessionView, ModelInfo, ModuleResolve, NotifyConfig, OnboardView, PluginStatus, SuiteStatus, ProjectModules, SubdirList, TaskspaceView, WorkspaceList } from './types'
 
-/** 列当前会话工作目录(git 仓库)的最近提交。后端按 sessionId 解析 cwd。 */
-export function listSessionCommits(sessionId: string, limit?: number) {
-  const qs = limit ? `?limit=${limit}` : ''
+/** 列会话目录下可查看提交的 git 仓库（cwd 自身是仓库→单个；否则其子目录里的仓库）。空数组=无仓库。 */
+export function listSessionGitRepos(sessionId: string) {
+  return http<GitRepoRef[]>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/repos`)
+}
+
+/** 列会话工作目录(git 仓库)的最近提交。后端按 sessionId 解析 cwd；repo 指定子仓库（父目录聚合场景）。 */
+export function listSessionCommits(sessionId: string, limit?: number, repo?: string) {
+  const p = new URLSearchParams()
+  if (limit) p.set('limit', String(limit))
+  if (repo) p.set('repo', repo)
+  const qs = p.toString() ? `?${p.toString()}` : ''
   return http<CommitsResponse>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/commits${qs}`)
 }
 
-/** 取会话目录某提交的 diff。 */
-export function getSessionCommitDiff(sessionId: string, hash: string) {
-  return http<CommitDiff>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/commit?hash=${encodeURIComponent(hash)}`)
+/** 取会话目录某提交的 diff。repo 指定子仓库。 */
+export function getSessionCommitDiff(sessionId: string, hash: string, repo?: string) {
+  const p = new URLSearchParams({ hash })
+  if (repo) p.set('repo', repo)
+  return http<CommitDiff>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/commit?${p.toString()}`)
 }
 
 /**

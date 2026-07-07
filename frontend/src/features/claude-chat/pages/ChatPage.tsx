@@ -34,7 +34,7 @@ import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
-import { fetchProviderModels, fetchSessionUsage, getSessionCommitDiff, listSessionCommits, listSessions, listWorkspaces, uploadAttachment, type SessionUsage, type UploadedAttachment } from '../api'
+import { fetchProviderModels, fetchSessionUsage, getSessionCommitDiff, listSessionCommits, listSessionGitRepos, listSessions, listWorkspaces, uploadAttachment, type SessionUsage, type UploadedAttachment } from '../api'
 import type { ModelInfo } from '../types'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
 import type { Engine } from '../types'
@@ -838,8 +838,9 @@ export function ChatPage() {
       {showCommits && chat.sessionId && (
         <CommitsPanel
           title="会话目录"
-          fetchCommits={() => listSessionCommits(chat.sessionId!, 50).then(r => r.commits)}
-          fetchDiff={hash => getSessionCommitDiff(chat.sessionId!, hash)}
+          fetchRepos={() => listSessionGitRepos(chat.sessionId!)}
+          fetchCommits={repo => listSessionCommits(chat.sessionId!, 50, repo).then(r => r.commits)}
+          fetchDiff={(hash, repo) => getSessionCommitDiff(chat.sessionId!, hash, repo)}
           onClose={() => setShowCommits(false)}
         />
       )}
