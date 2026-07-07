@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, Cloud, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, List, ListChecks, Maximize2, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
+import { Bell, ChevronDown, Cloud, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, LayoutGrid, List, ListChecks, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Input } from '@/components/ui/input'
@@ -62,18 +62,19 @@ function loadSplitState(): { viewMode: 'single' | 'multi'; multiIds: string[] } 
 /** 附件 + 本地 blob 预览地址（图片粘贴后点击放大核对，无需后端回读端点）。 */
 type ChatAttachment = UploadedAttachment & { previewUrl?: string }
 
-/** 顶栏「更多」菜单的一项：图标 + 中文标签（+ 可选副提示），让功能一目了然。 */
-function HeaderMenuItem({ icon, label, hint, onClick }: {
+/** 顶栏「更多」菜单的一项：图标 + 中文标签（+ 可选副提示）。nested=分组内子项，左侧缩进以示层级。 */
+function HeaderMenuItem({ icon, label, hint, onClick, nested }: {
   icon: ReactNode
   label: string
   hint?: string
   onClick: () => void
+  nested?: boolean
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--color-muted)]"
+      className={`flex w-full items-center gap-2 py-2 text-left hover:bg-[var(--color-muted)] ${nested ? 'pl-9 pr-3' : 'px-3'}`}
     >
       <span className="shrink-0 text-[var(--color-muted-foreground)]">{icon}</span>
       <span className="min-w-0 flex-1">
@@ -81,6 +82,30 @@ function HeaderMenuItem({ icon, label, hint, onClick }: {
         {hint && <span className="block truncate text-[11px] text-[var(--color-muted-foreground)]">{hint}</span>}
       </span>
     </button>
+  )
+}
+
+/** 顶栏「更多」菜单的一个可折叠分组：点标题展开/收起其子项（手风琴，单开互斥），减少一次性铺陈。 */
+function MenuSection({ icon, label, open, onToggle, children }: {
+  icon: ReactNode
+  label: string
+  open: boolean
+  onToggle: () => void
+  children: ReactNode
+}) {
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--color-muted)]"
+      >
+        <span className="shrink-0 text-[var(--color-muted-foreground)]">{icon}</span>
+        <span className="flex-1 text-sm font-medium">{label}</span>
+        <ChevronDown className={`size-4 text-[var(--color-muted-foreground)] transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && <div className="pb-1">{children}</div>}
+    </div>
   )
 }
 
@@ -108,6 +133,8 @@ export function ChatPage() {
   const [showCommits, setShowCommits] = useState(false)
   const [showLogs, setShowLogs] = useState(false)
   const [headerMenu, setHeaderMenu] = useState(false)
+  // 「更多」菜单当前展开的分组（手风琴，单开互斥；null=全部收起）。跨开合记忆上次展开项。
+  const [menuGroup, setMenuGroup] = useState<'view' | 'session' | 'workspace' | 'system' | null>(null)
   const [restartOpen, setRestartOpen] = useState(false)
   const [restartToken, setRestartToken] = useState('')
   const [restartStatus, setRestartStatus] = useState('')
@@ -526,29 +553,40 @@ export function ChatPage() {
             {headerMenu && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setHeaderMenu(false)} />
-                <div className="absolute right-0 top-full z-50 mt-1 w-44 overflow-hidden rounded-xl border bg-[var(--color-popover)] py-1 text-[var(--color-popover-foreground)] shadow-xl">
-                  <HeaderMenuItem icon={<Cloud className="size-4" />} label="语音模式" hint="全屏白云·纯语音对话" onClick={() => { setHeaderMenu(false); setVoiceMode(true) }} />
-                  <HeaderMenuItem icon={<PictureInPicture2 className="size-4" />} label="弹出悬浮窗" hint="切到其他模块常驻显示" onClick={() => { setHeaderMenu(false); popOutFloating() }} />
-                  <HeaderMenuItem icon={fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />} label={fullscreen ? '退出全屏' : '全屏显示'} onClick={() => { setHeaderMenu(false); setFullscreen(f => !f) }} />
-                  {chat.sessionId && (
-                    <HeaderMenuItem icon={<RefreshCw className="size-4" />} label="重载会话" hint="重连原生会话，加载最新插件/技能/命令" onClick={() => { setHeaderMenu(false); chat.resumeCurrent() }} />
-                  )}
-                  {chat.sessionId && (
-                    <HeaderMenuItem icon={<GitCommit className="size-4" />} label="提交记录" hint="当前目录 git 提交/diff" onClick={() => { setHeaderMenu(false); setShowCommits(true) }} />
-                  )}
-                  {chat.sessionId && (
-                    <HeaderMenuItem icon={<FolderOpen className="size-4" />} label="工作目录" hint="展开工作目录·快速找文件/定位" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'filetree' ? 'none' : 'filetree') }} />
-                  )}
-                  <HeaderMenuItem icon={<Palette className="size-4" />} label={toolColors ? '工具着色 · 开' : '工具着色 · 关'} hint="按命令/读写/子代理/技能/MCP 上色" onClick={() => { setToolColors(!toolColors) }} />
-                  <HeaderMenuItem icon={<Sparkles className="size-4" />} label="会话能力" hint="激活的技能 / 子代理 / MCP 服务" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'caps' ? 'none' : 'caps') }} />
-                  <HeaderMenuItem icon={<FolderTree className="size-4" />} label="合并工作区" hint="软链接聚合多个目录" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'taskspace' ? 'none' : 'taskspace') }} />
-                  <HeaderMenuItem icon={<GitBranch className="size-4" />} label="拉取项目到工作区" hint="git clone 远端仓库到工作区" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'clone' ? 'none' : 'clone') }} />
-                  <HeaderMenuItem icon={<ListChecks className="size-4" />} label="项目初始化流水线" hint="拉取→画像→知识图谱→profile→聚合" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'onboard' ? 'none' : 'onboard') }} />
-                  <HeaderMenuItem icon={<Server className="size-4" />} label="服务商" hint="第三方网关(按会话,不动官方)" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'providers' ? 'none' : 'providers') }} />
-                  <HeaderMenuItem icon={<Package className="size-4" />} label="插件更新" hint="查看/更新双端插件" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'plugins' ? 'none' : 'plugins') }} />
-                  <HeaderMenuItem icon={<FileText className="size-4" />} label="最新日志" hint="后端+sidecar 日志，一键复制排查" onClick={() => { setHeaderMenu(false); setShowLogs(true) }} />
-                  <HeaderMenuItem icon={<Bell className="size-4" />} label="通知设置" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'settings' ? 'none' : 'settings') }} />
-                  <HeaderMenuItem icon={<RotateCw className="size-4" />} label="重启服务" hint="经守护进程重启后端" onClick={() => { setHeaderMenu(false); openRestart() }} />
+                <div className="absolute right-0 top-full z-50 mt-1 max-h-[75vh] w-56 overflow-y-auto rounded-xl border bg-[var(--color-popover)] py-1 text-[var(--color-popover-foreground)] shadow-xl">
+                  {/* 分组折叠（手风琴），单开互斥：默认全部收起，点分组才展开，减少一次性铺陈 */}
+                  {(() => { const toggle = (g: typeof menuGroup) => setMenuGroup(cur => cur === g ? null : g); return (<>
+                  <MenuSection icon={<LayoutGrid className="size-4" />} label="视图" open={menuGroup === 'view'} onToggle={() => toggle('view')}>
+                    <HeaderMenuItem nested icon={<Cloud className="size-4" />} label="语音模式" hint="全屏白云·纯语音对话" onClick={() => { setHeaderMenu(false); setVoiceMode(true) }} />
+                    <HeaderMenuItem nested icon={<PictureInPicture2 className="size-4" />} label="弹出悬浮窗" hint="切到其他模块常驻显示" onClick={() => { setHeaderMenu(false); popOutFloating() }} />
+                    <HeaderMenuItem nested icon={fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />} label={fullscreen ? '退出全屏' : '全屏显示'} onClick={() => { setHeaderMenu(false); setFullscreen(f => !f) }} />
+                    <HeaderMenuItem nested icon={<Palette className="size-4" />} label={toolColors ? '工具着色 · 开' : '工具着色 · 关'} hint="按命令/读写/子代理/技能/MCP 上色" onClick={() => { setToolColors(!toolColors) }} />
+                  </MenuSection>
+                  <MenuSection icon={<MessageSquare className="size-4" />} label="会话" open={menuGroup === 'session'} onToggle={() => toggle('session')}>
+                    {chat.sessionId && (
+                      <HeaderMenuItem nested icon={<RefreshCw className="size-4" />} label="重载会话" hint="重连原生会话，加载最新插件/技能/命令" onClick={() => { setHeaderMenu(false); chat.resumeCurrent() }} />
+                    )}
+                    <HeaderMenuItem nested icon={<Sparkles className="size-4" />} label="会话能力" hint="激活的技能 / 子代理 / MCP 服务" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'caps' ? 'none' : 'caps') }} />
+                  </MenuSection>
+                  <MenuSection icon={<FolderTree className="size-4" />} label="工作区 · 项目" open={menuGroup === 'workspace'} onToggle={() => toggle('workspace')}>
+                    {chat.sessionId && (
+                      <HeaderMenuItem nested icon={<FolderOpen className="size-4" />} label="工作目录" hint="展开工作目录·快速找文件/定位" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'filetree' ? 'none' : 'filetree') }} />
+                    )}
+                    {chat.sessionId && (
+                      <HeaderMenuItem nested icon={<GitCommit className="size-4" />} label="提交记录" hint="当前目录 git 提交/diff" onClick={() => { setHeaderMenu(false); setShowCommits(true) }} />
+                    )}
+                    <HeaderMenuItem nested icon={<FolderTree className="size-4" />} label="合并工作区" hint="软链接聚合多个目录" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'taskspace' ? 'none' : 'taskspace') }} />
+                    <HeaderMenuItem nested icon={<GitBranch className="size-4" />} label="拉取项目到工作区" hint="git clone 远端仓库到工作区" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'clone' ? 'none' : 'clone') }} />
+                    <HeaderMenuItem nested icon={<ListChecks className="size-4" />} label="项目初始化流水线" hint="拉取→画像→知识图谱→profile→聚合" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'onboard' ? 'none' : 'onboard') }} />
+                  </MenuSection>
+                  <MenuSection icon={<Settings className="size-4" />} label="系统 · 设置" open={menuGroup === 'system'} onToggle={() => toggle('system')}>
+                    <HeaderMenuItem nested icon={<Server className="size-4" />} label="服务商" hint="第三方网关(按会话,不动官方)" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'providers' ? 'none' : 'providers') }} />
+                    <HeaderMenuItem nested icon={<Package className="size-4" />} label="插件更新" hint="查看/更新双端插件" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'plugins' ? 'none' : 'plugins') }} />
+                    <HeaderMenuItem nested icon={<Bell className="size-4" />} label="通知设置" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'settings' ? 'none' : 'settings') }} />
+                    <HeaderMenuItem nested icon={<FileText className="size-4" />} label="最新日志" hint="后端+sidecar 日志，一键复制排查" onClick={() => { setHeaderMenu(false); setShowLogs(true) }} />
+                    <HeaderMenuItem nested icon={<RotateCw className="size-4" />} label="重启服务" hint="经守护进程重启后端" onClick={() => { setHeaderMenu(false); openRestart() }} />
+                  </MenuSection>
+                  </>) })()}
                 </div>
               </>
             )}
