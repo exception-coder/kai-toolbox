@@ -166,7 +166,9 @@ function ChatEngine({ control, demo, children }: { control: Omit<ChatRuntime, 'c
         const sessions = await listSessions()
         if (sessions.length === 0) return
         const latest = [...sessions].sort((a, b) => b.lastSeenAt - a.lastSeenAt)[0]
-        chatRef.current.switchTo(latest.id)
+        // 刷新恢复：若该会话仍在回答（后端 status=RUNNING 且挂在活跃 sidecar 上），带上 hint 立即显示「中断」，
+        // 避免页面还没感知到就误显示发送按钮。Ready 回来会校正。
+        chatRef.current.switchTo(latest.id, latest.status === 'RUNNING' && latest.live)
       } catch {
         // 列表拉取失败：保持空态，用户可手动新建/选择
       }

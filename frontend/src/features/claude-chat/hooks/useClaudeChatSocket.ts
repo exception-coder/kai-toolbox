@@ -97,7 +97,7 @@ export interface UseClaudeChatSocket {
   /** 从某条用户消息分叉出新会话（旧会话保留），完成后自动切到新会话 */
   forkSession: (upToMessageId: string) => void
   /** 切到工具内会话（resume 续跑） */
-  switchTo: (sessionId: string) => void
+  switchTo: (sessionId: string, hintRunning?: boolean) => void
   /** 续跑磁盘上的历史会话 */
   resumeHistory: (sdkSessionId: string, cwd: string) => void
   resumeCurrent: () => void
@@ -546,12 +546,15 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     if (!sendRaw({ type: 'open', cwd, model, mode: m, engine, apiBaseUrl, authToken })) connect()
   }, [sendRaw, connect])
 
-  const switchTo = useCallback((sid: string) => {
+  const switchTo = useCallback((sid: string, hintRunning = false) => {
     resetForNewSession()
     shouldLoadHistoryRef.current = true
     cwdRef.current = '' // 无 cwd，后端按 sdkSessionId 跨目录定位 transcript
     sessionIdRef.current = sid
     setSessionId(sid)
+    // 刷新/切回时若已知该会话仍在回答（会话列表 status=RUNNING），乐观置位 running，
+    // 让输入区立刻显示「中断」而非「发送」；随后 Ready 的 status 会校正（本轮已结束则回落发送）。
+    if (hintRunning) setRunning(true)
     intentRef.current = { kind: 'switch', sessionId: sid }
     if (!sendRaw({ type: 'switchSession', sessionId: sid })) connect()
   }, [sendRaw, connect])

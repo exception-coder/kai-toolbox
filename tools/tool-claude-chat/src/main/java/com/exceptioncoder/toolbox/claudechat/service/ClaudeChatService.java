@@ -192,7 +192,9 @@ public class ClaudeChatService {
         ctx.authToken = db.getAuthToken();
         loadEngineSessions(ctx, db.getEngineSessions());
         bindViewer(ws, ctx);
-        repo.touch(db.getId(), SessionStatus.IDLE, System.currentTimeMillis());
+        // 只更新 lastSeenAt，保留会话真实状态：若该会话仍有在跑的一轮（ctx 内存中为 RUNNING），
+        // 切回/刷新恢复时不能把 DB 状态抹成 IDLE，否则会话列表与前端 running 判定都会误判为「空闲」。
+        repo.touch(db.getId(), ctx.status, System.currentTimeMillis());
         sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), ctx.engine, ctx.apiBaseUrl, ctx.authToken);
         // 历史消息由前端按需读 SDK transcript；这里只发一个 Ready 表示已就绪
         sendToBrowser(ctx, seq -> ready(ctx, seq));
