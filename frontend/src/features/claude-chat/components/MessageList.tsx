@@ -8,6 +8,7 @@ import { abbr, cacheHitRate, fmtMs, formatTime, parseUsage } from '../lib/metric
 import { ToolCallBubble } from './ToolCallBubble'
 import { Markdown } from './Markdown'
 import { ImageLightbox } from './ImageLightbox'
+import { ThinkingIndicator } from './ThinkingIndicator'
 
 interface Props {
   items: ChatItem[]
@@ -73,9 +74,7 @@ export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exh
         <Row key={item.id} item={item} onFork={onFork} engineLabel={engineLabel} onResumeCurrent={onResumeCurrent}
           onOpenImage={(src, alt) => setViewer({ src, alt })} />
       ))}
-      {running && (
-        <div className="text-sm text-[var(--color-muted-foreground)]">{engineLabel} 正在思考…</div>
-      )}
+      {running && <ThinkingIndicator engineLabel={engineLabel} />}
       {viewer && <ImageLightbox src={viewer.src} alt={viewer.alt} onClose={() => setViewer(null)} />}
     </div>
   )
