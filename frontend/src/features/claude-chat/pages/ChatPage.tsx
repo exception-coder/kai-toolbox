@@ -483,7 +483,8 @@ export function ChatPage() {
 
   return (
     <div className={fullscreen
-      ? 'fixed inset-0 z-50 flex h-[100dvh] min-w-0 flex-col overflow-x-hidden bg-[var(--color-muted)]/40'
+      // 全屏是覆盖整个视口的浮层，背景必须不透明——否则底层（折叠侧栏等）会从半透明背景透出，左侧留残影
+      ? 'fixed inset-0 z-50 flex h-[100dvh] min-w-0 flex-col overflow-x-hidden bg-[var(--color-background)]'
       : 'flex h-[calc(100dvh-3.5rem)] min-w-0 flex-col overflow-x-hidden bg-[var(--color-muted)]/40'}>
       {/* 顶栏：中性浅灰 + 1px 边框（Notion 风），不抢视觉 */}
       <header className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-muted)] px-3 py-2 shadow-sm">
