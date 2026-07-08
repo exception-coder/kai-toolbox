@@ -250,8 +250,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
           setAgents([])
           setMcpServers([])
         }
-        // 按会话状态同步 running：重连/attach 时若该会话已非 RUNNING，纠正卡死的「正在思考」
-        if (msg.status) setRunning(msg.status === 'RUNNING')
+        // ready 只用于「关闭」running（会话已非 RUNNING → 纠正卡住的「思考中」），绝不「点亮」：
+        // running 仅由用户 send / 切会话 hint 这类明确动作置真。否则反复收到的 ready（重连/sidecar 恢复/
+        // 切换 provider 都会重发 ready）里带 RUNNING 会在一轮结束后把 spinner 重新点亮，卡死且新消息被排队。
+        if (msg.status && msg.status !== 'RUNNING') setRunning(false)
         if (msg.sdkSessionId) sdkSessionIdRef.current = msg.sdkSessionId
         // 仅 switch / resume 进会话时拉一次历史；新建会话(open，sdkSessionId 为空)不拉
         if (shouldLoadHistoryRef.current && msg.sdkSessionId) {
