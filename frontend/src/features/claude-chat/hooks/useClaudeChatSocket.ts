@@ -194,16 +194,23 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
   }, [])
 
   const applyEvent = useCallback((msg: ServerMessage) => {
+    // 诊断开关：F12 里 localStorage.setItem('cc-debug','1') 后，打印每条到达的 WS 事件，
+    // 用于区分「事件到了没渲染(seq/render)」还是「事件压根没到(后端未投递)」。默认关，零噪音。
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('cc-debug')) {
+      // eslint-disable-next-line no-console
+      console.log('[cc-ev]', msg.type, 'seq=', (msg as { seq?: number }).seq, 'lastSeq=', lastSeqRef.current, 'epoch=', lastEpochRef.current)
+    }
     // 新纪元检测：后端重启/会话重建会让服务端 seq 从头计数。若仍按幂等丢弃，会把重启后的所有消息
     // （含 ready 本身）全部吞掉 → 永远「连接中」、收不到消息。Ready.epoch 标识会话实例，变化即复位去重高水位；
     // 无 epoch 字段（旧后端）时兜底按 ready 的 seq 回退判定。
     if (msg.type === 'ready') {
       const ep = msg.epoch
-      if (ep != null) {
-        if (ep !== lastEpochRef.current) { lastSeqRef.current = 0; lastEpochRef.current = ep }
-      } else if (typeof msg.seq === 'number' && msg.seq <= lastSeqRef.current) {
-        lastSeqRef.current = 0
-      }
+      if (ep != null && ep !== lastEpochRef.current) { lastSeqRef.current = 0; lastEpochRef.current = ep }
+      // 关键兜底：ready 的 seq ≤ 当前去重高水位 = 后端会话实例/seq 已重建回退（后端重启、ctx 从 DB 重新创建等）。
+      // 同一会话的 re-ready 其 seq 恒 > 高水位（AtomicLong 单调递增），故此判定只在真回退时成立、不会误触发。
+      // 不复位的话，本次连接后续所有 live 事件(低 seq)会被整段误丢 → 表现为「留在会话里一直 XX中、不出内容，
+      // 切走再切回(会 reset+重载 transcript)才显示」。这正是该 bug 的根因。
+      if (typeof msg.seq === 'number' && msg.seq <= lastSeqRef.current) { lastSeqRef.current = 0 }
     }
     // seq 幂等：已处理过的 seq 直接丢弃，杜绝任何重复投递（HMR 残留 socket、半开连接、
     // 回放与实时重叠、一页多连接）导致的消息重复——尤其 assistantDelta 是累加的，重复必翻倍。
