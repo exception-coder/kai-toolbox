@@ -125,12 +125,21 @@ export async function ensureFreshToken(force = false): Promise<void> {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ refreshToken }),
         })
-        if (!res.ok) throw new Error('refresh failed')
-        storeTokens((await res.json()) as LoginResponse)
+        if (res.ok) {
+          storeTokens((await res.json()) as LoginResponse)
+          return
+        }
+        // 只有 401 才代表 refresh token 确实失效 → 登出并弹登录框。
+        if (res.status === 401) {
+          logout()
+          emitSessionExpired()
+          return
+        }
+        // 5xx / 其它（后端瞬时错误、重启中）：不把用户踢下线，保留会话下次再刷；真失效时后续 401 会兜住。
+        console.warn(`[auth] token 刷新暂时失败（HTTP ${res.status}），保留会话稍后重试`)
       } catch {
-        // refresh token 也失效：清登录态并主动通知全局弹登录框（不同于用户主动 logout）。
-        logout()
-        emitSessionExpired()
+        // 网络错误（后端未起/连不上）：同样别登出，保留会话稍后重试。
+        console.warn('[auth] token 刷新请求失败（网络/后端不可达），保留会话稍后重试')
       } finally {
         refreshPromise = null
       }
