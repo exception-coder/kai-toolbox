@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { Rocket, Workflow } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Database, Loader2, Rocket, Workflow } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { listWorkspaces } from '@/features/claude-chat/api'
 import { CHAT_ROUTE } from '@/features/claude-chat/runtime/ChatRuntimeContext'
+import { getErpDbConfig, saveErpDbConfig, testErpDb } from '../api'
 
 const LAUNCH_KEY = 'kai-toolbox:claude-chat:erp-dev-launch'
 
@@ -117,10 +118,86 @@ export function ErpDevPage() {
         </div>
       </div>
 
+      <ErpDbConfigSection />
+
       <p className="mt-4 text-[11px] text-[var(--color-muted-foreground)]">
         依赖团队套件已安装（domain-knowledge / cross-topology MCP、project-coding-profiles、team-standards）；
         「大脑」是团队插件里的 yoooni-erp-auto-dev skill，可随 claude plugin update 升级。
       </p>
     </div>
+  )
+}
+
+/**
+ * 测试库连接（只读）：配置 Oracle 连接信息，agent 通过后端只读 erp_db MCP 查库核对逻辑。
+ * 建议只读账号；后端另有 SELECT-only 双闸。密码存服务端、脱敏展示（留空=不改）。
+ */
+function ErpDbConfigSection() {
+  const qc = useQueryClient()
+  const { data: cfg } = useQuery({ queryKey: ['erp-db-config'], queryFn: getErpDbConfig, staleTime: 5000 })
+  const [host, setHost] = useState('')
+  const [port, setPort] = useState('1521')
+  const [service, setService] = useState('')
+  const [user, setUser] = useState('')
+  const [password, setPassword] = useState('')
+  const [testMsg, setTestMsg] = useState<string | null>(null)
+
+  // 首次载入配置后回填（密码不回填，占位提示已设置）
+  useEffect(() => {
+    if (!cfg) return
+    setHost(cfg.host ?? '')
+    setPort(cfg.port ? String(cfg.port) : '1521')
+    setService(cfg.service ?? '')
+    setUser(cfg.user ?? '')
+  }, [cfg])
+
+  const save = useMutation({
+    mutationFn: () => saveErpDbConfig({ type: 'oracle', host: host.trim(), port: Number(port) || null, service: service.trim(), user: user.trim(), password: password || undefined }),
+    onSuccess: () => { setPassword(''); setTestMsg(null); qc.invalidateQueries({ queryKey: ['erp-db-config'] }) },
+  })
+  const test = useMutation({
+    mutationFn: testErpDb,
+    onSuccess: r => setTestMsg(r.ok ? '✓ 连接成功' : `连接失败：${r.error ?? '未知'}`),
+    onError: e => setTestMsg(`连接失败：${e instanceof Error ? e.message : '未知'}`),
+  })
+
+  return (
+    <details className="mt-4 rounded-xl border bg-[var(--color-card)] p-4">
+      <summary className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+        <Database className="size-4 text-[var(--color-primary)]" />
+        测试库连接（只读，供 agent 查库核对）
+        {cfg?.configured && <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-600 dark:text-emerald-400">已配置</span>}
+      </summary>
+      <p className="mt-3 text-xs text-[var(--color-muted-foreground)]">
+        填测试环境 Oracle 连接，agent 只读查表结构/状态字典/样本数据核对逻辑——<b>只读、绝改不了库</b>（建议用只读账号，后端另有 SELECT-only 拦截）。
+      </p>
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <label className="col-span-2 sm:col-span-1 text-xs text-[var(--color-muted-foreground)]">主机
+          <Input value={host} onChange={e => setHost(e.target.value)} placeholder="如 10.0.0.12" className="mt-1" />
+        </label>
+        <label className="col-span-2 sm:col-span-1 text-xs text-[var(--color-muted-foreground)]">端口
+          <Input value={port} onChange={e => setPort(e.target.value.replace(/\D/g, ''))} placeholder="1521" className="mt-1" />
+        </label>
+        <label className="col-span-2 text-xs text-[var(--color-muted-foreground)]">Service Name
+          <Input value={service} onChange={e => setService(e.target.value)} placeholder="如 ORCLPDB1" className="mt-1" />
+        </label>
+        <label className="col-span-2 sm:col-span-1 text-xs text-[var(--color-muted-foreground)]">只读账号
+          <Input value={user} onChange={e => setUser(e.target.value)} placeholder="只读账号" className="mt-1" />
+        </label>
+        <label className="col-span-2 sm:col-span-1 text-xs text-[var(--color-muted-foreground)]">密码
+          <Input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder={cfg?.hasPassword ? '已设置（留空不改）' : '密码'} className="mt-1" />
+        </label>
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <Button size="sm" onClick={() => save.mutate()} disabled={save.isPending || !host.trim() || !service.trim() || !user.trim()}>
+          {save.isPending && <Loader2 className="size-4 animate-spin" />}保存
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => { setTestMsg(null); test.mutate() }} disabled={test.isPending || !cfg?.configured}>
+          {test.isPending && <Loader2 className="size-4 animate-spin" />}测试连接
+        </Button>
+        {save.isSuccess && !save.isPending && <span className="text-xs text-emerald-600 dark:text-emerald-400">已保存</span>}
+        {testMsg && <span className={`text-xs ${testMsg.startsWith('✓') ? 'text-emerald-600 dark:text-emerald-400' : 'text-[var(--color-destructive)]'}`}>{testMsg}</span>}
+      </div>
+    </details>
   )
 }
