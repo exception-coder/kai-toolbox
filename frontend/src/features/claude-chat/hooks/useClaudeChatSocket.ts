@@ -3,6 +3,7 @@ import { emitSessionExpired, ensureFreshToken, getToken, logout, useAuth } from 
 import type { Attachment, ChatItem, ClientMessage, ConnState, Engine, ModelInfo, PendingRequest, PermissionMode, ProviderKind, SendAttachment, ServerMessage, TurnDiag } from '../types'
 import { loadMessages } from '../api'
 import { notifyPrompt } from '../browserNotify'
+import { pushDebug } from '../lib/debugLog'
 import { playNotifySound } from '../sound'
 
 // 按 sessionId 持久化权限模式，使刷新/放大缩小/重连后该会话仍保持上次选择，而非回退 default。
@@ -187,9 +188,12 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
   const sendRaw = useCallback((msg: ClientMessage) => {
     const ws = wsRef.current
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(msg))
+      const text = JSON.stringify(msg)
+      ws.send(text)
+      pushDebug('send', msg.type, text)
       return true
     }
+    pushDebug('conn', 'send-skipped', `未连接，未发送 type=${msg.type}`)
     return false
   }, [])
 
@@ -413,6 +417,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
       reconnectAttemptsRef.current = 0 // 连上即清零退避，下次断线从最短间隔重来
       openedRef.current = true
       authFailRef.current = 0 // 成功握手即清鉴权失败计数
+      pushDebug('conn', 'open', `WS 已连接 ${path}`)
       flushIntent()
       flushPendingSends()
     }
@@ -423,14 +428,18 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
       } catch {
         return
       }
+      // 调试模式：捕获每条到达的原始报文（node sidecar 事件经后端转发），供「调试模式」弹框查看
+      pushDebug('recv', msg.type, typeof ev.data === 'string' ? ev.data : String(ev.data), (msg as { seq?: number }).seq)
       applyEvent(msg)
     }
     ws.onerror = () => {
       setState('error')
       setErrorMessage('WebSocket 连接出错')
+      pushDebug('conn', 'error', 'WebSocket 连接出错')
     }
     ws.onclose = () => {
       wsRef.current = null
+      pushDebug('conn', 'close', `WS 关闭（openedThisAttempt=${openedRef.current}）`)
       if (manualCloseRef.current) return
       const openedThisAttempt = openedRef.current
       // 「握手前就被关」且本地仍有 token：大概率是后端鉴权拒绝（token 失效）。localhost/同源下网络抖动

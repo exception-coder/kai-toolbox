@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, ChevronDown, Cloud, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, LayoutGrid, List, ListChecks, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
+import { Bell, Bug, ChevronDown, Cloud, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, LayoutGrid, List, ListChecks, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { Input } from '@/components/ui/input'
@@ -31,6 +31,7 @@ import { TaskspacePanel } from '../components/TaskspacePanel'
 import { CloneProjectPanel } from '../components/CloneProjectPanel'
 import { OnboardPipelinePanel } from '../components/OnboardPipelinePanel'
 import { FileTreePanel } from '../components/FileTreePanel'
+import { DebugPanel } from '../components/DebugPanel'
 import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
@@ -132,6 +133,7 @@ export function ChatPage() {
   // token 用应用内输入框收，不用 window.prompt：移动端浏览器/WebView 普遍禁用 prompt（静默返回 null）。
   const [showCommits, setShowCommits] = useState(false)
   const [showLogs, setShowLogs] = useState(false)
+  const [showDebug, setShowDebug] = useState(false)
   const [headerMenu, setHeaderMenu] = useState(false)
   // 「更多」菜单当前展开的分组（手风琴，单开互斥；null=全部收起）。跨开合记忆上次展开项。
   const [menuGroup, setMenuGroup] = useState<'view' | 'session' | 'workspace' | 'system' | null>(null)
@@ -585,6 +587,7 @@ export function ChatPage() {
                     <HeaderMenuItem nested icon={<Package className="size-4" />} label="插件更新" hint="查看/更新双端插件" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'plugins' ? 'none' : 'plugins') }} />
                     <HeaderMenuItem nested icon={<Bell className="size-4" />} label="通知设置" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'settings' ? 'none' : 'settings') }} />
                     <HeaderMenuItem nested icon={<FileText className="size-4" />} label="最新日志" hint="后端+sidecar 日志，一键复制排查" onClick={() => { setHeaderMenu(false); setShowLogs(true) }} />
+                    <HeaderMenuItem nested icon={<Bug className="size-4" />} label="调试模式" hint="实时交互日志（前端↔后端收发事件）" onClick={() => { setHeaderMenu(false); setShowDebug(true) }} />
                     <HeaderMenuItem nested icon={<RotateCw className="size-4" />} label="重启服务" hint="经守护进程重启后端" onClick={() => { setHeaderMenu(false); openRestart() }} />
                   </MenuSection>
                   </>) })()}
@@ -896,6 +899,7 @@ export function ChatPage() {
 
       {/* 最新日志：后端内存缓冲（含透传的 sidecar 日志），排查时一键复制 */}
       {showLogs && <LogsPanel onClose={() => setShowLogs(false)} />}
+      {showDebug && <DebugPanel onClose={() => setShowDebug(false)} />}
 
       {/* 一键重启：应用内弹层（移动端 window.prompt 不可用，必须用页面内输入框收 token） */}
       {restartOpen && (
