@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   下载 cloudflared 并把本机端口(默认 5173)暴露为公网 HTTPS。
   支持两种模式:Quick Tunnel(免登录临时地址) 与 Named Tunnel(固定域名、断线重连稳定)。
