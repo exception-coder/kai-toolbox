@@ -120,6 +120,8 @@ class Session {
   /** 本轮已完成消息的累计输出 token（跨 tool-use 多段），配合当前消息的 output_tokens 得到实时总量。 */
   private turnBaseTokens = 0
   private curMsgTokens = 0
+  /** 本轮是否已见过 SDK 的 result 消息；用于流异常收尾（未发 result）时补发，避免前端永久「思考中」。 */
+  private turnHadResult = false
   readonly perms: Permissions
 
   constructor(
@@ -150,6 +152,7 @@ class Session {
     this.lastResponseModel = undefined
     this.turnBaseTokens = 0
     this.curMsgTokens = 0
+    this.turnHadResult = false
     // 调用诊断日志：本轮发出去的模型 + 是否经第三方网关（排查“真走三方 / 回退官方”的关键）
     console.log(`[sidecar] turn start session=${this.id} model=${this.model ?? '默认'} via=${this.apiBaseUrl ?? '官方登录'}`)
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -206,6 +209,11 @@ class Session {
         for await (const m of q as AsyncIterable<Record<string, unknown>>) {
           emitted = true
           this.handle(m, toolNames)
+        }
+        // 流正常结束但未见 result（异常收尾/流提前结束）：补发一条，解除前端永久「思考中」。
+        if (!this.turnHadResult) {
+          console.warn(`[sidecar] 本轮流结束但未见 result，补发以解除前端「思考中」 session=${this.id}`)
+          this.emitSelf({ type: 'result', usage: {}, stopReason: 'end_turn' })
         }
         return
       } catch (e: unknown) {
@@ -381,6 +389,7 @@ class Session {
         break
       }
       case 'result': {
+        this.turnHadResult = true
         if (m.session_id) this.sdkSessionId = m.session_id as string
         // 调用诊断：请求模型 vs API 实际返回模型 + 是否经网关，先于 result 发，供前端区块展示
         console.log(`[sidecar] turn done session=${this.id} requested=${this.model ?? '默认'} responded=${this.lastResponseModel ?? '?'} via=${this.apiBaseUrl ?? '官方登录'}`)
