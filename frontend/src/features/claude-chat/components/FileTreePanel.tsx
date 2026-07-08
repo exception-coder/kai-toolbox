@@ -191,11 +191,12 @@ export function FileTreePanel({ sessionId, onClose, variant = 'panel', onAddToCh
             style={{ left: Math.min(menu.x, window.innerWidth - 176), top: Math.min(menu.y, window.innerHeight - 96) }}
             onClick={ev => ev.stopPropagation()}
           >
-            <div className="truncate px-3 py-1 text-[11px] text-[var(--color-muted-foreground)]" title={menu.entry.abs}>{menu.entry.name}</div>
+            {/* abs 为绝对路径（后端新字段）；旧后端未返回时降级用相对 path，保证不为 undefined。 */}
+            <div className="truncate px-3 py-1 text-[11px] text-[var(--color-muted-foreground)]" title={menu.entry.abs || menu.entry.path}>{menu.entry.name}</div>
             {onAddToChat && (
               <button
                 type="button"
-                onClick={() => { onAddToChat(menu.entry.abs); setMenu(null) }}
+                onClick={() => { onAddToChat(menu.entry.abs || menu.entry.path); setMenu(null) }}
                 className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--color-muted)]"
               >
                 <MessageSquarePlus className="size-4 text-[var(--color-muted-foreground)]" />添加到聊天
@@ -203,7 +204,7 @@ export function FileTreePanel({ sessionId, onClose, variant = 'panel', onAddToCh
             )}
             <button
               type="button"
-              onClick={() => { const a = menu.entry.abs; void copyText(a); setCopied(a); setMenu(null); setTimeout(() => setCopied(c => c === a ? null : c), 1500) }}
+              onClick={() => { const a = menu.entry.abs || menu.entry.path; void copyText(a); setCopied(a); setMenu(null); setTimeout(() => setCopied(c => c === a ? null : c), 1500) }}
               className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--color-muted)]"
             >
               <Copy className="size-4 text-[var(--color-muted-foreground)]" />复制路径
