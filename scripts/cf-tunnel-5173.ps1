@@ -51,6 +51,11 @@
 .PARAMETER TunnelName
   命名隧道的名字,默认 kai-toolbox。
 
+.PARAMETER Proxy
+  cloudflared 访问 Cloudflare(api.cloudflare.com 与边缘)走的代理,如 http://127.0.0.1:7897。
+  cloudflared 是 Go 程序不读 Windows 系统代理,靠代理上网时必须显式传;不传则复用当前 shell 已有的
+  HTTPS_PROXY/ALL_PROXY/HTTP_PROXY(若有)。直连被墙/被重置报 EOF 时用它。
+
 .EXAMPLE
   # Quick Tunnel(临时随机地址,零配置)
   ./scripts/cf-tunnel-5173.ps1
@@ -72,10 +77,26 @@ param(
   [switch]$Named,
   [switch]$Setup,
   [string]$Hostname,
-  [string]$TunnelName = 'kai-toolbox'
+  [string]$TunnelName = 'kai-toolbox',
+  [string]$Proxy = ''
 )
 
 $ErrorActionPreference = 'Stop'
+
+# cloudflared 是 Go 程序,【不读 Windows 系统代理(WinINET)】,只认 HTTPS_PROXY/HTTP_PROXY/ALL_PROXY 环境变量。
+# 若本机靠 Clash 等代理上网(直连被墙/被重置报 EOF),必须把代理经环境变量传进来,否则连不上 api.cloudflare.com 与边缘。
+# 传 -Proxy http://127.0.0.1:7897;不传则复用当前 shell 已有的代理环境变量(若有)。
+if (-not $Proxy) {
+  foreach ($v in @($env:HTTPS_PROXY, $env:ALL_PROXY, $env:HTTP_PROXY)) { if ($v) { $Proxy = $v; break } }
+}
+if ($Proxy) {
+  $env:HTTPS_PROXY = $Proxy
+  $env:HTTP_PROXY = $Proxy
+  $env:ALL_PROXY = $Proxy
+  # 别把到本机端口(回源 localhost)的流量也走代理
+  $env:NO_PROXY = 'localhost,127.0.0.1'
+  Write-Host "[cf-tunnel] 经代理访问 Cloudflare: $Proxy" -ForegroundColor DarkGray
+}
 
 $binDir = Join-Path $env:USERPROFILE '.kai-toolbox\bin'
 $exe = Join-Path $binDir 'cloudflared.exe'
@@ -190,10 +211,11 @@ if ($Setup) {
     if (-not (Test-Path $credJson)) {
       throw @"
 创建命名隧道失败:到 api.cloudflare.com 的请求被切断(EOF),未生成凭证 $credJson。
-多为代理/Clash/防火墙掐断了到 Cloudflare API 的 HTTPS。请:
-  1) 直接重试本命令(EOF 常是瞬时的);
-  2) 若持续失败:临时关闭 Clash/系统代理,或放行 api.cloudflare.com 直连后再试;
-  3) 或在 Cloudflare 后台手动建隧道,把凭证 json 放到 $credJson。
+cloudflared 不读 Windows 系统代理,直连被墙/被重置。若你本机靠代理上网(如 Clash 7897),请带上 -Proxy 重跑:
+  .\scripts\cf-tunnel-5173.ps1 -Named -Setup -Hostname $Hostname -Proxy http://127.0.0.1:7897
+其它可能:
+  1) EOF 偶发,直接重试;
+  2) 或在 Cloudflare 后台手动建隧道,把凭证 json 放到 $credJson。
 (隧道未建成前不写 DNS/config、不启动,避免后续 'credentials file doesn't exist' 的误导报错。)
 "@
     }
