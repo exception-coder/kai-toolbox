@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bell, Bug, ChevronDown, Cloud, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, LayoutGrid, List, ListChecks, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
@@ -46,6 +46,22 @@ type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' 
 
 /** 单条消息最多附件数，与后端约定一致。 */
 const MAX_ATTACHMENTS = 10
+
+/** 输入框草稿按会话持久化：{ [sessionId]: 文本 }。切会话/刷新都各自保留，互不串扰。 */
+const DRAFTS_KEY = 'kai-toolbox:claude-chat:drafts'
+/** 无会话（新建面板等）时草稿的占位键。 */
+const PENDING_DRAFT_KEY = '__pending__'
+function loadDrafts(): Record<string, string> {
+  try {
+    const o = JSON.parse(localStorage.getItem(DRAFTS_KEY) || '{}') as unknown
+    return o && typeof o === 'object' ? (o as Record<string, string>) : {}
+  } catch {
+    return {}
+  }
+}
+function saveDrafts(m: Record<string, string>) {
+  try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(m)) } catch { /* 忽略隐私模式/配额异常 */ }
+}
 
 /** 分屏视图形态持久化：刷新后恢复「上次是单/多视图 + 分屏中的会话」。 */
 const SPLIT_STATE_KEY = 'kai-toolbox:claude-chat:split-state'
@@ -259,19 +275,38 @@ export function ChatPage() {
     setSelecting(false)
   }
   const [sessTab, setSessTab] = useState<'tool' | 'history'>('tool')
-  // 聚合联动提示预填:从项目工作台「一键聚合」跳来时，读一次 sessionStorage 草稿并清除。
-  const [draft, setDraft] = useState(() => {
+  // 输入框草稿按会话绑定 + 本地持久化：切到任意会话只显示该会话自己的草稿，互不串扰、刷新保留。
+  const [drafts, setDrafts] = useState<Record<string, string>>(() => loadDrafts())
+  // 聚合联动提示预填:从项目工作台「一键聚合」跳来时读一次 sessionStorage 草稿；先存到 ref，待当前会话就绪再落到其草稿。
+  const seedRef = useRef<string | null>(null)
+  const seedReadRef = useRef(false)
+  if (!seedReadRef.current) {
+    seedReadRef.current = true
     try {
       const seed = sessionStorage.getItem('kai-toolbox:claude-chat:aggregation-draft')
-      if (seed) {
-        sessionStorage.removeItem('kai-toolbox:claude-chat:aggregation-draft')
-        return seed
-      }
-    } catch {
-      // 忽略隐私模式异常
+      if (seed) { sessionStorage.removeItem('kai-toolbox:claude-chat:aggregation-draft'); seedRef.current = seed }
+    } catch { /* 忽略隐私模式异常 */ }
+  }
+  const draftKey = chat?.sessionId ?? PENDING_DRAFT_KEY
+  const draft = drafts[draftKey] ?? ''
+  const setDraft = useCallback((v: string | ((d: string) => string)) => {
+    setDrafts(prev => {
+      const cur = prev[draftKey] ?? ''
+      const next = typeof v === 'function' ? (v as (d: string) => string)(cur) : v
+      const m = { ...prev }
+      if (next) m[draftKey] = next; else delete m[draftKey]
+      saveDrafts(m)
+      return m
+    })
+  }, [draftKey])
+  // 聚合 seed：当前会话就绪且其草稿为空时，把一次性 seed 落到该会话草稿。
+  useEffect(() => {
+    if (seedRef.current && chat?.sessionId && !(drafts[chat.sessionId])) {
+      const s = seedRef.current
+      seedRef.current = null
+      setDraft(s)
     }
-    return ''
-  })
+  }, [chat?.sessionId, drafts, setDraft])
   const [newCwd, setNewCwd] = useState('')
   const [wsIdx, setWsIdx] = useState(0) // 当前选中的工作区（root）下标，两级目录选择用
   const [newEngine, setNewEngine] = useState<Engine>('claude')
