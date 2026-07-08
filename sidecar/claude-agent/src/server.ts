@@ -17,9 +17,29 @@ const emit = (sessionId: string, event: Record<string, unknown>): void => {
 
 const manager = new SessionManager(emit)
 
-// 进程级兜底：sidecar 是多会话共用的单进程，任一会话/某一轮里逃逸的异常都绝不能把整个进程带崩
-// （否则所有会话一起 SIDECAR_DOWN、进行中的工具调用全丢）。这里只记日志、保活进程，由各会话自行恢复。
+// 是否已成功监听。监听建立【前】的致命错误（尤其 EADDRINUSE：端口已被另一个 sidecar 占用）绝不能被
+// 兜住变成「活着但没监听」的僵尸——那会打乱后端「spawn 失败→退出→回落连到已有实例」的自愈，导致
+// 事件收不到、前端永久「思考中」。此类必须退出；退出后后端会连到已有监听实例（或重新拉起）。
+let listening = false
+
+// 端口占用：已有 sidecar 在跑，本冗余实例干净退出（0），让后端连到既有监听者。
+wss.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[sidecar] 端口 ${port} 已被占用（已有 sidecar 在运行），本实例退出`)
+    process.exit(0)
+  }
+  console.error('[sidecar] WebSocketServer 致命错误，退出:', err)
+  process.exit(1)
+})
+
+// 进程级兜底：sidecar 是多会话共用的单进程，监听建立【后】任一会话/某一轮里逃逸的异常都绝不能把
+// 整个进程带崩（否则所有会话一起 SIDECAR_DOWN、进行中的工具调用全丢），只记日志、保活。
+// 但监听建立【前】的未捕获异常（启动失败）必须退出，不能兜成僵尸。
 process.on('uncaughtException', (err) => {
+  if (!listening) {
+    console.error('[sidecar] 监听建立前未捕获异常，退出:', err)
+    process.exit(1)
+  }
   console.error('[sidecar] uncaughtException（已兜住，进程存活）:', err)
 })
 process.on('unhandledRejection', (reason) => {
@@ -109,5 +129,6 @@ wss.on('connection', (ws) => {
 })
 
 wss.on('listening', () => {
+  listening = true
   console.log(`[sidecar] listening on 127.0.0.1:${port}`)
 })
