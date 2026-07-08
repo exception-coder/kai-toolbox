@@ -209,7 +209,12 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     // 回放与实时重叠、一页多连接）导致的消息重复——尤其 assistantDelta 是累加的，重复必翻倍。
     // seq=0 为连接级提示（error/replayGap 等），不参与去重，始终处理。
     if (typeof msg.seq === 'number' && msg.seq > 0) {
-      if (msg.seq <= lastSeqRef.current) return
+      if (msg.seq <= lastSeqRef.current) {
+        // 诊断：正常只应丢弃「回放重叠」的重复事件。若这里频繁丢弃 assistantDelta/result/turnProgress，
+        // 说明后端 ctx/seq 复位而 epoch 未同步（live 事件低 seq 被误判为已处理）——这正是「不刷新看不到流式内容」的根因线索。
+        console.warn('[claude-chat][seq-drop] 丢弃事件', { type: msg.type, seq: msg.seq, lastSeq: lastSeqRef.current, epoch: lastEpochRef.current })
+        return
+      }
       lastSeqRef.current = msg.seq
     }
     switch (msg.type) {
