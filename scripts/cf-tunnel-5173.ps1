@@ -202,7 +202,8 @@ ingress:
     originRequest:
 $noTls  - service: http_status:404
 "@
-  Set-Content -Path $configYml -Value $config -Encoding UTF8
+  # 无 BOM 写：cloudflared 的 YAML 解析器遇到 UTF-8 BOM 会报解析错（PS5.1 的 Set-Content -Encoding UTF8 会带 BOM）
+  [System.IO.File]::WriteAllText($configYml, $config, (New-Object System.Text.UTF8Encoding($false)))
   Write-Host ""
   Write-Host "[cf-tunnel] 初始化完成 ✅  之后日常启动只需: ./scripts/cf-tunnel-5173.ps1 -Named" -ForegroundColor Green
   Write-Host "[cf-tunnel] 现在直接启动该隧道 ..." -ForegroundColor Cyan
