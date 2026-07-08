@@ -171,8 +171,15 @@ if ($Setup) {
   }
 
   # ② 创建命名隧道(若同名隧道已存在则复用)
-  $existing = (& $exe tunnel list --output json 2>$null | ConvertFrom-Json) |
-    Where-Object { $_.name -eq $TunnelName }
+  # 注意:cloudflared 会往 stderr 打「版本过时」等日志;PS5.1 在 $ErrorActionPreference='Stop' 下会把
+  # 捕获到的原生 stderr(这里 2>$null 捕获了)当成终止错误抛出。故临时降为 Continue 再调,JSON 解析再容错。
+  $existing = $null
+  $prevEap = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try { $listOut = & $exe tunnel list --output json 2>$null } finally { $ErrorActionPreference = $prevEap }
+  if ($listOut) {
+    try { $existing = ($listOut | ConvertFrom-Json) | Where-Object { $_.name -eq $TunnelName } } catch { $existing = $null }
+  }
   if (-not $existing) {
     Write-Host "[cf-tunnel] ② 创建命名隧道 $TunnelName ..." -ForegroundColor Yellow
     & $exe tunnel create --credentials-file $credJson $TunnelName
