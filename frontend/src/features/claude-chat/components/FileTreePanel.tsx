@@ -7,6 +7,8 @@ import type { FileContent, FileEntry } from '../types'
 interface Props {
   sessionId: string
   onClose: () => void
+  /** 布局：panel=顶部折叠条（移动端）；side=右侧常驻栏（PC，类 Codex）。默认 panel。 */
+  variant?: 'panel' | 'side'
 }
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -21,7 +23,8 @@ function fmtSize(n: number): string {
  * 工作目录文件树（类 Codex 展开工作目录快速找文件）：懒加载列目录、按名筛选、
  * 点文件预览文本、每行「在文件管理器中定位」。后端按 sessionId 解析 cwd，相对路径校验防越权。
  */
-export function FileTreePanel({ sessionId, onClose }: Props) {
+export function FileTreePanel({ sessionId, onClose, variant = 'panel' }: Props) {
+  const side = variant === 'side'
   const [children, setChildren] = useState<Record<string, FileEntry[]>>({})
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState<Set<string>>(new Set())
@@ -112,7 +115,9 @@ export function FileTreePanel({ sessionId, onClose }: Props) {
   }
 
   return (
-    <div className="border-b text-sm">
+    <div className={side
+      ? 'flex h-full w-72 shrink-0 flex-col border-l border-[var(--color-border)] bg-[var(--color-background)] text-sm lg:w-80'
+      : 'border-b text-sm'}>
       <div className="flex items-center gap-2 px-3 py-2">
         <FolderTree className="size-4 text-[var(--color-primary)]" />
         <span className="font-medium">工作目录</span>
@@ -139,7 +144,7 @@ export function FileTreePanel({ sessionId, onClose }: Props) {
         </div>
       </div>
 
-      <div className="max-h-[52vh] overflow-y-auto px-2 pb-2">
+      <div className={side ? 'min-h-0 flex-1 overflow-y-auto px-2 pb-2' : 'max-h-[52vh] overflow-y-auto px-2 pb-2'}>
         {rootErr && <p className="px-2 py-3 text-xs text-[var(--color-destructive)]">{rootErr}</p>}
         {!rootErr && !children[''] && <p className="px-2 py-3 text-xs text-[var(--color-muted-foreground)]">加载中…</p>}
         {children[''] && children[''].length === 0 && <p className="px-2 py-3 text-xs text-[var(--color-muted-foreground)]">空目录</p>}

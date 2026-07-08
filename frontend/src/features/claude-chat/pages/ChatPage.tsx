@@ -796,8 +796,11 @@ export function ChatPage() {
           onClose={() => setPanel('none')}
         />
       )}
+      {/* 工作目录：移动端用顶部折叠条；PC 端改用右侧常驻栏（见下方单会话视图右列，类 Codex） */}
       {panel === 'filetree' && chat.sessionId && (
-        <FileTreePanel sessionId={chat.sessionId} onClose={() => setPanel('none')} />
+        <div className="md:hidden">
+          <FileTreePanel sessionId={chat.sessionId} onClose={() => setPanel('none')} />
+        </div>
       )}
       {panel === 'onboard' && (
         <OnboardPipelinePanel
@@ -1177,6 +1180,12 @@ export function ChatPage() {
         </div>
             )}
           </div>
+          {/* PC 端右侧文件树栏（类 Codex）：与聊天并排；移动端改用上方顶部折叠条 */}
+          {panel === 'filetree' && chat.sessionId && (
+            <div className="hidden shrink-0 md:flex">
+              <FileTreePanel sessionId={chat.sessionId} onClose={() => setPanel('none')} variant="side" />
+            </div>
+          )}
         </div>
       )}
 
