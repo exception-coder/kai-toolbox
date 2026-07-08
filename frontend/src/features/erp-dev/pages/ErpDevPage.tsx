@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Database, Loader2, Rocket, Workflow } from 'lucide-react'
+import { Database, ExternalLink, FolderPlus, Loader2, Rocket, Workflow } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { listWorkspaces } from '@/features/claude-chat/api'
@@ -47,9 +47,18 @@ export function ErpDevPage() {
     return out
   }, [workspaces])
 
+  const roots = workspaces?.roots ?? []
+  const hasRoots = roots.some(r => r.exists)
+
   const [cwd, setCwd] = useState('')
   const [moduleOrUrl, setModuleOrUrl] = useState('')
   const [requirement, setRequirement] = useState('')
+
+  // 引导：空工作区时跳到 Vibe Coding 并直接打开「拉取项目到工作区」面板
+  const goConfigureWorkspace = () => {
+    try { sessionStorage.setItem('kai-toolbox:claude-chat:open-panel', 'clone') } catch { /* ignore */ }
+    navigate(CHAT_ROUTE)
+  }
 
   useEffect(() => { if (!cwd && dirs.length > 0) setCwd(dirs[0].path) }, [dirs, cwd])
 
@@ -77,7 +86,23 @@ export function ErpDevPage() {
         <div>
           <label className="text-xs font-medium text-[var(--color-muted-foreground)]">ERP 项目目录（工作区）</label>
           {dirs.length === 0 ? (
-            <p className="mt-1 text-xs text-[var(--color-destructive)]">未发现可用工作区目录（toolbox.claude-chat.workspace.roots）。请先在 Vibe Coding 里拉取/配置 ERP 项目。</p>
+            <div className="mt-1 rounded-lg border border-dashed border-[var(--color-border)] p-3">
+              <div className="mb-1 flex items-center gap-2 text-sm font-medium">
+                <FolderPlus className="size-4 text-[var(--color-primary)]" />还没有可用的工作区目录
+              </div>
+              {hasRoots ? (
+                <p className="text-xs text-[var(--color-muted-foreground)]">
+                  工作区根已配置，但根目录下还没有项目。去 Vibe Coding「拉取项目到工作区」拉一个 ERP 项目（或用「合并工作区」聚合已有目录），回来即可在这里选到。
+                </p>
+              ) : (
+                <p className="text-xs text-[var(--color-muted-foreground)]">
+                  尚未配置工作区根。请在后端 <code className="rounded bg-[var(--color-muted)] px-1">application.yml</code> 的 <code className="rounded bg-[var(--color-muted)] px-1">toolbox.claude-chat.workspace.roots</code> 配置一个或多个目录后重启后端；也可先去 Vibe Coding 拉取项目。
+                </p>
+              )}
+              <Button size="sm" className="mt-2 gap-1" onClick={goConfigureWorkspace}>
+                <ExternalLink className="size-4" />去 Vibe Coding 配置 / 拉取项目
+              </Button>
+            </div>
           ) : (
             <select
               value={cwd}

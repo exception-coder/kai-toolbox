@@ -326,6 +326,17 @@ export function ChatPage() {
       }
     } catch { /* 解析失败忽略 */ }
   }, [chat])
+
+  // 面板 handoff：别的模块（如「ERP 需求开发」空工作区引导）跳来时指定直接打开某个面板（如 clone）。一次性。
+  useEffect(() => {
+    let raw: string | null = null
+    try { raw = sessionStorage.getItem('kai-toolbox:claude-chat:open-panel') } catch { /* ignore */ }
+    if (!raw) return
+    try { sessionStorage.removeItem('kai-toolbox:claude-chat:open-panel') } catch { /* ignore */ }
+    if (raw === 'clone' || raw === 'taskspace' || raw === 'new' || raw === 'filetree' || raw === 'onboard') {
+      setPanel(raw)
+    }
+  }, [])
   const [newCwd, setNewCwd] = useState('')
   const [wsIdx, setWsIdx] = useState(0) // 当前选中的工作区（root）下标，两级目录选择用
   const [newEngine, setNewEngine] = useState<Engine>('claude')
