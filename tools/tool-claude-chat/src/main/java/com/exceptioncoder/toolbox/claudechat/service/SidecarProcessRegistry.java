@@ -27,10 +27,13 @@ import java.util.List;
 public class SidecarProcessRegistry {
 
     private final ClaudeChatProperties props;
+    private final int serverPort;
     private volatile Process process;
 
-    public SidecarProcessRegistry(ClaudeChatProperties props) {
+    public SidecarProcessRegistry(ClaudeChatProperties props,
+                                  @org.springframework.beans.factory.annotation.Value("${server.port:8080}") int serverPort) {
         this.props = props;
+        this.serverPort = serverPort;
     }
 
     /** 幂等：进程未启动或已退出则拉起。 */
@@ -53,6 +56,8 @@ public class SidecarProcessRegistry {
                 .redirectErrorStream(true);
         // sidecar 从环境变量读监听端口，仅绑 127.0.0.1
         pb.environment().put("CLAUDE_CHAT_SIDECAR_PORT", String.valueOf(props.getSidecarPort()));
+        // 后端 HTTP 基址：供 sidecar 的 erp_db 只读 MCP 回灌查询（本机）
+        pb.environment().put("TOOLBOX_API_BASE", "http://127.0.0.1:" + serverPort);
 
         process = pb.start();
         startLogPump(process);

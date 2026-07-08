@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { query, forkSession } from '@anthropic-ai/claude-agent-sdk'
 import { Permissions, type Decision } from './permissions.js'
 import { createWelfareDbServer } from './welfareDb.js'
+import { createErpDbServer } from './erpDb.js'
 import { runCodexTurn } from './codexEngine.js'
 import { runGeminiTurn } from './geminiEngine.js'
 import { runOpencodeTurn } from './opencodeEngine.js'
@@ -162,6 +163,17 @@ class Session {
       let emitted = false
       let nativeStderr = ''
 
+      // MCP：演示会话注入 welfare_db（改数据唯一通道）；普通 Claude 会话若后端就绪(TOOLBOX_API_BASE)
+      // 注入【只读】erp_db（查 ERP 测试库核对逻辑；未配置库时工具自会回"未配置"，无害）。
+      const mcpServers: Record<string, ReturnType<typeof createWelfareDbServer>> = {}
+      if (this.demo && this.demoApiBase) {
+        mcpServers.welfare_db = createWelfareDbServer(this.id, this.demoApiBase)
+      }
+      const toolboxApiBase = process.env.TOOLBOX_API_BASE
+      if (!this.demo && toolboxApiBase) {
+        mcpServers.erp_db = createErpDbServer(toolboxApiBase)
+      }
+
       try {
         const q = query({
           prompt: text,
@@ -181,10 +193,7 @@ class Session {
             ...(this.apiBaseUrl && this.permissionMode !== 'plan'
               ? { disallowedTools: ['ExitPlanMode'] }
               : {}),
-            // 演示会话注入受限 welfare_db MCP（agent 改数据的唯一通道，库由后端按 sessionId 绑定）。
-            ...(this.demo && this.demoApiBase
-              ? { mcpServers: { welfare_db: createWelfareDbServer(this.id, this.demoApiBase) } }
-              : {}),
+            ...(Object.keys(mcpServers).length ? { mcpServers } : {}),
             cwd: safeCwd,
             model: this.model || undefined,
             resume: this.sdkSessionId || undefined,
