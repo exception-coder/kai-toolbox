@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { AlertTriangle, Check, Coins, Copy, Database, FileImage, GitBranch, Timer } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { loadState as loadCardState, saveState as saveCardState } from '@/features/markdown-card/lib/persistence'
-import type { ChatItem } from '../types'
+import type { ChatItem, ConnState } from '../types'
 import { abbr, cacheHitRate, fmtMs, formatTime, parseUsage } from '../lib/metrics'
 import { ToolCallBubble } from './ToolCallBubble'
 import { Markdown } from './Markdown'
@@ -26,10 +26,12 @@ interface Props {
   onResumeCurrent?: () => void
   /** 本轮进行中的实时输出 token 数，显示在「进行时」指示器上（0=不显示）。 */
   turnTokens?: number
+  /** WS 连接状态：非 ready 时「进行时」指示器改显示「连接中断，重连中」，避免误导为 AI 在思考。 */
+  connState?: ConnState
 }
 
 /** 消息流：用户气泡靠右、assistant 文本靠左、工具调用与系统标记居中。顶部上拉加载更早历史。 */
-export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exhausted, onFork, engineLabel = 'Claude', onResumeCurrent, turnTokens = 0 }: Props) {
+export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exhausted, onFork, engineLabel = 'Claude', onResumeCurrent, turnTokens = 0, connState = 'ready' }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevHeightRef = useRef(0)
   const prependingRef = useRef(false)
@@ -76,7 +78,7 @@ export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exh
         <Row key={item.id} item={item} onFork={onFork} engineLabel={engineLabel} onResumeCurrent={onResumeCurrent}
           onOpenImage={(src, alt) => setViewer({ src, alt })} />
       ))}
-      {running && <ThinkingIndicator engineLabel={engineLabel} tokens={turnTokens} />}
+      {running && <ThinkingIndicator engineLabel={engineLabel} tokens={turnTokens} connState={connState} />}
       {viewer && <ImageLightbox src={viewer.src} alt={viewer.alt} onClose={() => setViewer(null)} />}
     </div>
   )

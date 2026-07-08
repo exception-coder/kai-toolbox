@@ -194,6 +194,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
           engineLabel={engineLabel}
           onResumeCurrent={chat.resumeCurrent}
           turnTokens={chat.turnTokens}
+          connState={chat.state}
         />
       </div>
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import type { ConnState } from '../types'
 
 /**
  * 「进行时」措辞：模仿 Claude Code 在干活时轮换的那串 -ing 状态词（Orchestrating… / Sautéed…）。
@@ -22,7 +23,7 @@ function nextWord(prev: string): string {
  * agent 干活时底部的动态状态：脉冲圆点 + 轮换的「XX 中…」措辞 + 已用秒数。
  * 每次挂载（running 变 true）重置计时；卸载即停。放在 MessageList 底部，主聊天/分屏/悬浮窗通用。
  */
-export function ThinkingIndicator({ engineLabel = 'Claude', tokens = 0 }: { engineLabel?: string; tokens?: number }) {
+export function ThinkingIndicator({ engineLabel = 'Claude', tokens = 0, connState = 'ready' }: { engineLabel?: string; tokens?: number; connState?: ConnState }) {
   const [word, setWord] = useState(() => GERUNDS[Math.floor(Math.random() * GERUNDS.length)])
   const [elapsed, setElapsed] = useState(0)
   const startRef = useRef(Date.now())
@@ -34,6 +35,17 @@ export function ThinkingIndicator({ engineLabel = 'Claude', tokens = 0 }: { engi
     const rot = setInterval(() => setWord(prev => nextWord(prev)), 3200)
     return () => { clearInterval(tick); clearInterval(rot) }
   }, [])
+
+  // 连接不在 ready（断开/重连/出错）时诚实提示：这不是 AI 在想，是连接断了，内容会在重连后继续。
+  // 否则「一直 Claude XX中」会误导——实际是 WS 连不上、事件根本没到浏览器。
+  if (connState !== 'ready') {
+    return (
+      <div className="flex items-center gap-2 text-sm text-[var(--color-destructive)]">
+        <span className="size-2 animate-pulse rounded-full bg-[var(--color-destructive)]" />
+        <span>连接中断，正在重连…（内容会在重连后继续；若持续无响应，请确认后端/服务已启动）</span>
+      </div>
+    )
+  }
 
   return (
     <div className="flex items-center gap-2 text-sm text-[var(--color-muted-foreground)]">
