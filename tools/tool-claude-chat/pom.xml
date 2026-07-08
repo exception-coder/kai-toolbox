@@ -30,6 +30,12 @@
             <artifactId>lombok</artifactId>
             <scope>provided</scope>
         </dependency>
+        <!-- ERP 需求开发：只读连接测试环境 Oracle 供 agent 查库核对（SELECT-only，后端强制受限） -->
+        <dependency>
+            <groupId>com.oracle.database.jdbc</groupId>
+            <artifactId>ojdbc11</artifactId>
+            <version>21.11.0.0</version>
+        </dependency>
     </dependencies>
 
 </project>
