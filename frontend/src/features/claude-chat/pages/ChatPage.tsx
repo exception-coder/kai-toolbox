@@ -307,6 +307,25 @@ export function ChatPage() {
       setDraft(s)
     }
   }, [chat?.sessionId, drafts, setDraft])
+
+  // ERP 需求开发前门 handoff：「ERP 需求开发」模块把 {cwd, seed} 写 sessionStorage 后跳来，
+  // 这里一次性消费——在 ERP 工作区开一个 Claude 会话并投喂触发语拉起 yoooni-erp-auto-dev skill。
+  const erpLaunchedRef = useRef(false)
+  useEffect(() => {
+    if (erpLaunchedRef.current || !chat) return
+    let raw: string | null = null
+    try { raw = sessionStorage.getItem('kai-toolbox:claude-chat:erp-dev-launch') } catch { /* ignore */ }
+    if (!raw) return
+    erpLaunchedRef.current = true
+    try { sessionStorage.removeItem('kai-toolbox:claude-chat:erp-dev-launch') } catch { /* ignore */ }
+    try {
+      const { cwd, seed } = JSON.parse(raw) as { cwd?: string; seed?: string }
+      if (seed) {
+        chat.open((cwd ?? '').trim(), undefined, undefined, 'claude')
+        chat.send(seed)
+      }
+    } catch { /* 解析失败忽略 */ }
+  }, [chat])
   const [newCwd, setNewCwd] = useState('')
   const [wsIdx, setWsIdx] = useState(0) // 当前选中的工作区（root）下标，两级目录选择用
   const [newEngine, setNewEngine] = useState<Engine>('claude')
