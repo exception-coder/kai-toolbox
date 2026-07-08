@@ -63,10 +63,12 @@ export interface ProjectModule {
   children?: ProjectModule[]
 }
 
-/** 会话工作目录文件树里的一个条目。path 为相对 cwd（/ 分隔），回传给后端展开/读取/定位。 */
+/** 会话工作目录文件树里的一个条目。path 为相对 cwd（/ 分隔），回传给后端展开/读取/定位；abs 为绝对路径。 */
 export interface FileEntry {
   name: string
   path: string
+  /** 绝对路径，供「复制路径」「添加到聊天」。 */
+  abs: string
   dir: boolean
   size: number
   mtime: number

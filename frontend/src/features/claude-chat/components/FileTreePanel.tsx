@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { ChevronRight, ExternalLink, FileText, Folder, FolderTree, Loader2, Search, X } from 'lucide-react'
+import { ChevronRight, Copy, ExternalLink, FileText, Folder, FolderTree, Loader2, MessageSquarePlus, Search, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { listSessionFiles, readSessionFile, revealSessionFile } from '../api'
 import type { FileContent, FileEntry } from '../types'
@@ -9,9 +9,27 @@ interface Props {
   onClose: () => void
   /** 布局：panel=顶部折叠条（移动端）；side=右侧常驻栏（PC，类 Codex）。默认 panel。 */
   variant?: 'panel' | 'side'
+  /** 右键「添加到聊天」：把文件绝对路径插入输入框，供 agent 引用/读取。不传则不显示该菜单项。 */
+  onAddToChat?: (absPath: string) => void
 }
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
+/** 复制到剪贴板，clipboard API 不可用（非安全上下文等）时降级 execCommand。 */
+async function copyText(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    try { document.execCommand('copy') } catch { /* ignore */ }
+    document.body.removeChild(ta)
+  }
+}
 
 function fmtSize(n: number): string {
   if (n < 1024) return `${n}B`
@@ -23,7 +41,7 @@ function fmtSize(n: number): string {
  * 工作目录文件树（类 Codex 展开工作目录快速找文件）：懒加载列目录、按名筛选、
  * 点文件预览文本、每行「在文件管理器中定位」。后端按 sessionId 解析 cwd，相对路径校验防越权。
  */
-export function FileTreePanel({ sessionId, onClose, variant = 'panel' }: Props) {
+export function FileTreePanel({ sessionId, onClose, variant = 'panel', onAddToChat }: Props) {
   const side = variant === 'side'
   const [children, setChildren] = useState<Record<string, FileEntry[]>>({})
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -33,6 +51,9 @@ export function FileTreePanel({ sessionId, onClose, variant = 'panel' }: Props) 
   const [preview, setPreview] = useState<FileContent | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewErr, setPreviewErr] = useState<string | null>(null)
+  // 右键菜单：屏幕坐标 + 目标条目；copied=刚复制的路径（短暂反馈）
+  const [menu, setMenu] = useState<{ x: number; y: number; entry: FileEntry } | null>(null)
+  const [copied, setCopied] = useState<string | null>(null)
 
   const loadDir = useCallback(async (path: string) => {
     setLoading(s => new Set(s).add(path))
@@ -81,6 +102,7 @@ export function FileTreePanel({ sessionId, onClose, variant = 'panel' }: Props) 
         <div
           className="group flex items-center gap-1 rounded-md pr-1 hover:bg-[var(--color-muted)]"
           style={{ paddingLeft: depth * 14 + 4 }}
+          onContextMenu={ev => { ev.preventDefault(); setMenu({ x: ev.clientX, y: ev.clientY, entry: e }) }}
         >
           <button
             type="button"
@@ -159,6 +181,41 @@ export function FileTreePanel({ sessionId, onClose, variant = 'panel' }: Props) 
           onReveal={() => preview && revealSessionFile(sessionId, preview.path).catch(() => {})}
           onClose={() => { setPreview(null); setPreviewErr(null) }}
         />
+      )}
+
+      {/* 右键菜单（参考 Codex）：添加到聊天 / 复制路径。全屏透明层点击即关。 */}
+      {menu && (
+        <div className="fixed inset-0 z-[95]" onClick={() => setMenu(null)} onContextMenu={ev => { ev.preventDefault(); setMenu(null) }}>
+          <div
+            className="absolute min-w-40 overflow-hidden rounded-lg border bg-[var(--color-popover)] py-1 text-sm text-[var(--color-popover-foreground)] shadow-xl"
+            style={{ left: Math.min(menu.x, window.innerWidth - 176), top: Math.min(menu.y, window.innerHeight - 96) }}
+            onClick={ev => ev.stopPropagation()}
+          >
+            <div className="truncate px-3 py-1 text-[11px] text-[var(--color-muted-foreground)]" title={menu.entry.abs}>{menu.entry.name}</div>
+            {onAddToChat && (
+              <button
+                type="button"
+                onClick={() => { onAddToChat(menu.entry.abs); setMenu(null) }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--color-muted)]"
+              >
+                <MessageSquarePlus className="size-4 text-[var(--color-muted-foreground)]" />添加到聊天
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => { const a = menu.entry.abs; void copyText(a); setCopied(a); setMenu(null); setTimeout(() => setCopied(c => c === a ? null : c), 1500) }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[var(--color-muted)]"
+            >
+              <Copy className="size-4 text-[var(--color-muted-foreground)]" />复制路径
+            </button>
+          </div>
+        </div>
+      )}
+
+      {copied && (
+        <div className="fixed bottom-4 left-1/2 z-[96] -translate-x-1/2 rounded-md bg-black/80 px-3 py-1.5 text-xs text-white shadow-lg">
+          已复制路径
+        </div>
       )}
     </div>
   )

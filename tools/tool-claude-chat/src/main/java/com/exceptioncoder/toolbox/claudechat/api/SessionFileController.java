@@ -77,7 +77,8 @@ public class SessionFileController {
                 } catch (IOException ignore) {
                     // 读属性失败（权限/瞬时）不致命，条目仍列出
                 }
-                out.add(new FileEntryView(p.getFileName().toString(), rel(cwd, p), isDir, size, mtime));
+                out.add(new FileEntryView(p.getFileName().toString(), rel(cwd, p),
+                        p.toAbsolutePath().toString(), isDir, size, mtime));
             });
         } catch (IOException e) {
             throw new IllegalStateException("读取目录失败：" + e.getMessage(), e);
