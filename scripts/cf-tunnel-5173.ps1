@@ -182,7 +182,21 @@ if ($Setup) {
   }
   if (-not $existing) {
     Write-Host "[cf-tunnel] ② 创建命名隧道 $TunnelName ..." -ForegroundColor Yellow
-    & $exe tunnel create --credentials-file $credJson $TunnelName
+    # 带重试:到 api.cloudflare.com 的调用可能被代理/网络瞬时切断(EOF)。凭证 json 生成 = 创建成功的确证。
+    for ($i = 1; $i -le 3 -and -not (Test-Path $credJson); $i++) {
+      if ($i -gt 1) { Write-Host "[cf-tunnel]   创建未成功，重试 $i/3 ..." -ForegroundColor DarkGray; Start-Sleep -Seconds 2 }
+      & $exe tunnel create --credentials-file $credJson $TunnelName
+    }
+    if (-not (Test-Path $credJson)) {
+      throw @"
+创建命名隧道失败:到 api.cloudflare.com 的请求被切断(EOF),未生成凭证 $credJson。
+多为代理/Clash/防火墙掐断了到 Cloudflare API 的 HTTPS。请:
+  1) 直接重试本命令(EOF 常是瞬时的);
+  2) 若持续失败:临时关闭 Clash/系统代理,或放行 api.cloudflare.com 直连后再试;
+  3) 或在 Cloudflare 后台手动建隧道,把凭证 json 放到 $credJson。
+(隧道未建成前不写 DNS/config、不启动,避免后续 'credentials file doesn't exist' 的误导报错。)
+"@
+    }
   }
   else {
     Write-Host "[cf-tunnel] ② 隧道 $TunnelName 已存在(UUID=$($existing.id)),跳过创建。" -ForegroundColor DarkGray
@@ -220,6 +234,9 @@ $noTls  - service: http_status:404
 # ── 启动命名隧道 ──
 if (-not (Test-Path $configYml)) {
   throw "未找到命名隧道配置 $configYml。请先执行一次初始化: -Named -Setup -Hostname <你的域名>"
+}
+if (-not (Test-Path $credJson)) {
+  throw "未找到隧道凭证 $credJson（隧道可能没创建成功，多为到 api.cloudflare.com 的网络被切断)。请重跑: -Named -Setup -Hostname <你的域名>（见其错误提示排查代理/网络）。"
 }
 
 Write-Host ""
