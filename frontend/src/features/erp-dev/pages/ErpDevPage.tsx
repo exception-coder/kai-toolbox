@@ -14,6 +14,9 @@ import {
 const LAUNCH_KEY = 'kai-toolbox:claude-chat:erp-dev-launch'
 /** 记住上次选择的工作区目录，避免每次进来都要重选。 */
 const CWD_KEY = 'kai-toolbox:erp-dev:cwd'
+/** 记住上次填的模块/页面与需求描述，避免每次重输。 */
+const MODULE_KEY = 'kai-toolbox:erp-dev:module'
+const REQUIREMENT_KEY = 'kai-toolbox:erp-dev:requirement'
 
 /** 拼装投喂给 yoooni-erp-auto-dev skill 的触发语。 */
 function buildSeed(moduleOrUrl: string, requirement: string): string {
@@ -61,13 +64,26 @@ export function ErpDevPage() {
   const [cwd, setCwd] = useState(() => {
     try { return localStorage.getItem(CWD_KEY) ?? '' } catch { return '' }
   })
-  const [moduleOrUrl, setModuleOrUrl] = useState('')
-  const [requirement, setRequirement] = useState('')
+  const [moduleOrUrl, setModuleOrUrl] = useState(() => {
+    try { return localStorage.getItem(MODULE_KEY) ?? '' } catch { return '' }
+  })
+  const [requirement, setRequirement] = useState(() => {
+    try { return localStorage.getItem(REQUIREMENT_KEY) ?? '' } catch { return '' }
+  })
 
   // 选目录并记住（下次进来自动回填）
   const pickCwd = (path: string) => {
     setCwd(path)
     try { localStorage.setItem(CWD_KEY, path) } catch { /* 隐私模式忽略 */ }
+  }
+  // 填模块/需求并记住（下次进来自动回填）
+  const editModule = (v: string) => {
+    setModuleOrUrl(v)
+    try { localStorage.setItem(MODULE_KEY, v) } catch { /* 隐私模式忽略 */ }
+  }
+  const editRequirement = (v: string) => {
+    setRequirement(v)
+    try { localStorage.setItem(REQUIREMENT_KEY, v) } catch { /* 隐私模式忽略 */ }
   }
 
   // 引导：空工作区时跳到 Vibe Coding 并直接打开「拉取项目到工作区」面板
@@ -139,7 +155,7 @@ export function ErpDevPage() {
           <label className="text-xs font-medium text-[var(--color-muted-foreground)]">模块 / 页面（中文模块名，或直接粘页面 URL / *.action）</label>
           <Input
             value={moduleOrUrl}
-            onChange={e => setModuleOrUrl(e.target.value)}
+            onChange={e => editModule(e.target.value)}
             placeholder="如：报价审核  或  https://.../quoteAudit_list.action"
             className="mt-1"
           />
@@ -149,7 +165,7 @@ export function ErpDevPage() {
           <label className="text-xs font-medium text-[var(--color-muted-foreground)]">需求描述</label>
           <textarea
             value={requirement}
-            onChange={e => setRequirement(e.target.value)}
+            onChange={e => editRequirement(e.target.value)}
             rows={5}
             placeholder="用中文把要做的改动说清楚，例如：列表页增加「按供应商筛选」，并在导出里带上该列。"
             className="mt-1 w-full resize-y rounded-md border bg-[var(--color-background)] px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
