@@ -36,6 +36,46 @@ export function testErpDb() {
   return http<{ ok: boolean; error?: string }>('/claude-chat/erp-db/test', { method: 'POST' })
 }
 
+/** 系统中间件台的系统（精简）。 */
+export interface OpsSystemLite {
+  id: string
+  name: string
+  code: string | null
+}
+
+/** 系统中间件台的中间件实例（精简，脱敏）。 */
+export interface OpsDatasourceLite {
+  id: string
+  systemId: string
+  env: string
+  type: string
+  name: string
+  host: string
+  port: number
+  dbName: string | null
+  endpoint: string
+  passwordConfigured: boolean
+}
+
+/** 列中间件台的系统。 */
+export function listOpsSystems() {
+  return http<OpsSystemLite[]>('/ops/systems')
+}
+
+/** 列某系统下的中间件实例。 */
+export function listOpsDatasources(systemId: string) {
+  return http<OpsDatasourceLite[]>(`/ops/datasources?systemId=${encodeURIComponent(systemId)}`)
+}
+
+/**
+ * 把中间件台某数据源带入 ERP 只读连接（仅 ORACLE）。密码经后端回环流转、不进浏览器。
+ * 成功回脱敏配置视图；失败回 {ok:false,error}。
+ */
+export function importErpDbFromOps(datasourceId: string) {
+  return http<ErpDbConfigView | { ok: false; error: string }>(
+    `/claude-chat/erp-db/import/${encodeURIComponent(datasourceId)}`, { method: 'PUT' })
+}
+
 /** 本地 ERP 实例（验证用）连接（脱敏视图，不含密码）。 */
 export interface ErpAppConfigView {
   baseUrl: string

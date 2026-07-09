@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.ops.api;
 
+import com.exceptioncoder.toolbox.ops.api.dto.DatasourceConnection;
 import com.exceptioncoder.toolbox.ops.api.dto.DatasourceRequest;
 import com.exceptioncoder.toolbox.ops.api.dto.DatasourceView;
 import com.exceptioncoder.toolbox.ops.api.dto.TestResult;
@@ -42,6 +43,15 @@ public class OpsDatasourceController {
     @GetMapping("/{id}")
     public DatasourceView get(@PathVariable String id) {
         return DatasourceView.from(service.findRequired(id));
+    }
+
+    /**
+     * 完整连接信息（<b>含密码明文</b>）——仅供本机回环内部消费（如 ERP 需求开发「带入」测试库）。
+     * 单用户本地无鉴权模型下，本地进程本可直读 SQLite，此处返回凭据不额外扩大攻击面。
+     */
+    @GetMapping("/{id}/connection")
+    public DatasourceConnection connection(@PathVariable String id) {
+        return DatasourceConnection.from(service.findRequired(id));
     }
 
     @PostMapping

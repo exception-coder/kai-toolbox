@@ -3,8 +3,10 @@ package com.exceptioncoder.toolbox.claudechat.api;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ErpDbQueryResult;
 import com.exceptioncoder.toolbox.claudechat.service.ErpDbConfigService;
 import com.exceptioncoder.toolbox.claudechat.service.ErpDbConfigService.ErpDbConn;
+import com.exceptioncoder.toolbox.claudechat.service.ErpDbImportService;
 import com.exceptioncoder.toolbox.claudechat.service.ErpDbService;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -25,10 +27,12 @@ public class ErpDbController {
 
     private final ErpDbConfigService config;
     private final ErpDbService db;
+    private final ErpDbImportService importer;
 
-    public ErpDbController(ErpDbConfigService config, ErpDbService db) {
+    public ErpDbController(ErpDbConfigService config, ErpDbService db, ErpDbImportService importer) {
         this.config = config;
         this.db = db;
+        this.importer = importer;
     }
 
     /** 脱敏配置视图：不含密码，只回 hasPassword 标记。 */
@@ -73,5 +77,15 @@ public class ErpDbController {
     @PostMapping("/query")
     public ErpDbQueryResult query(@RequestBody ErpDbQueryRequest req) {
         return db.query(req.sql(), req.params());
+    }
+
+    /**
+     * 从「系统中间件台」带入某数据源到 ERP 只读连接（仅 ORACLE）。密码经后端回环流转、不进浏览器。
+     * 成功回脱敏配置视图；失败回 {ok:false, error}。
+     */
+    @PutMapping("/import/{opsDatasourceId}")
+    public Object importFromOps(@PathVariable String opsDatasourceId) {
+        String err = importer.importFromOps(opsDatasourceId);
+        return err == null ? getConfig() : Map.of("ok", false, "error", err);
     }
 }
