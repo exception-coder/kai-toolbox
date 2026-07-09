@@ -4,7 +4,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bell, Bug, ChevronDown, Cloud, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, LayoutGrid, List, ListChecks, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
-import { Input } from '@/components/ui/input'
 import { useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { MessageList } from '../components/MessageList'
 import { SessionTotalBadge } from '../components/SessionTotalBadge'
@@ -32,6 +31,7 @@ import { CloneProjectPanel } from '../components/CloneProjectPanel'
 import { OnboardPipelinePanel } from '../components/OnboardPipelinePanel'
 import { FileTreePanel } from '../components/FileTreePanel'
 import { DebugPanel } from '../components/DebugPanel'
+import { RestartDialog } from '../components/RestartDialog'
 import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
@@ -161,61 +161,7 @@ export function ChatPage() {
   // 「更多」菜单当前展开的分组（手风琴，单开互斥；null=全部收起）。跨开合记忆上次展开项。
   const [menuGroup, setMenuGroup] = useState<'view' | 'session' | 'workspace' | 'system' | null>(null)
   const [restartOpen, setRestartOpen] = useState(false)
-  const [restartToken, setRestartToken] = useState('')
-  const [restartStatus, setRestartStatus] = useState('')
-  const [restartBusy, setRestartBusy] = useState(false)
-
-  const openRestart = () => {
-    setRestartToken(localStorage.getItem('kai-toolbox:supervisor-token') ?? '')
-    setRestartStatus('')
-    setRestartOpen(true)
-  }
-
-  const doRestart = async () => {
-    const token = restartToken.trim()
-    if (!token) { setRestartStatus('请先输入 RestartToken'); return }
-    localStorage.setItem('kai-toolbox:supervisor-token', token)
-    setRestartBusy(true)
-    setRestartStatus('正在请求重启…')
-    // 带超时的 POST：通道不可达/无响应时 8s 中断，避免无限卡住。
-    const tryRestart = async (path: string): Promise<Response> => {
-      const ac = new AbortController()
-      const timer = setTimeout(() => ac.abort(), 8000)
-      try {
-        return await fetch(path, { method: 'POST', headers: { 'X-Restart-Token': token }, signal: ac.signal })
-      } finally {
-        clearTimeout(timer)
-      }
-    }
-    const attempts: { label: string; path: string }[] = [
-      { label: '后端自重启(/api/system/restart)', path: '/api/system/restart' },
-      { label: '守护进程(/supervisor/restart)', path: '/supervisor/restart' },
-    ]
-    const notes: string[] = []
-    for (const a of attempts) {
-      try {
-        const r = await tryRestart(a.path)
-        if (r.ok) {
-          setRestartStatus('✅ 重启已触发，后端数秒后回来，页面会自动重连。')
-          setRestartBusy(false)
-          return
-        }
-        if (r.status === 403) notes.push(`${a.label}：token 不匹配`)
-        else if (r.status === 503) notes.push(`${a.label}：未启用/未配置 token`)
-        else if (r.status === 404 || r.status === 405) notes.push(`${a.label}：端点不可达`)
-        else notes.push(`${a.label}：HTTP ${r.status}`)
-      } catch (e) {
-        notes.push(`${a.label}：${(e as Error)?.name === 'AbortError' ? '超时无响应' : '连不上'}`)
-      }
-    }
-    // 两条都因 token 不匹配失败：清掉本地 token 让用户重填
-    if (notes.length > 0 && notes.every(n => n.includes('token 不匹配'))) {
-      localStorage.removeItem('kai-toolbox:supervisor-token')
-    }
-    setRestartStatus('❌ 重启失败：\n' + notes.join('\n')
-      + '\n（请确认后端用 run-supervised.ps1 启动，且 run-tools.conf 配了 RestartToken）')
-    setRestartBusy(false)
-  }
+  const openRestart = () => setRestartOpen(true)
 
   // 全自动·弹窗自动允许（前端兜底）：bypassPermissions 下仍偶有工具弹 allow/deny 框，
   // 开此开关后收到权限框就自动 decide(allow)。仅对 permission 生效，question（AskUserQuestion）不自动应答。
@@ -978,36 +924,7 @@ export function ChatPage() {
       {showDebug && <DebugPanel onClose={() => setShowDebug(false)} />}
 
       {/* 一键重启：应用内弹层（移动端 window.prompt 不可用，必须用页面内输入框收 token） */}
-      {restartOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={() => { if (!restartBusy) setRestartOpen(false) }}
-        >
-          <div
-            className="w-full max-w-sm rounded-lg border bg-[var(--color-background)] p-4 shadow-xl"
-            onClick={e => e.stopPropagation()}
-          >
-            <h3 className="text-sm font-medium">重启后端服务</h3>
-            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">
-              当前连接会短暂断开，重启后页面自动重连续上会话。输入 RestartToken（run-tools.conf 里的 TOOLBOX_SYSTEM_RESTART_TOKEN 或 TOOLBOX_SUPERVISOR_RESTART_TOKEN）。
-            </p>
-            <Input
-              type="password"
-              autoFocus
-              className="mt-3"
-              placeholder="RestartToken"
-              value={restartToken}
-              onChange={e => setRestartToken(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !restartBusy) doRestart() }}
-            />
-            {restartStatus && <p className="mt-2 whitespace-pre-line text-xs">{restartStatus}</p>}
-            <div className="mt-3 flex justify-end gap-2">
-              <Button variant="outline" size="sm" disabled={restartBusy} onClick={() => setRestartOpen(false)}>取消</Button>
-              <Button size="sm" disabled={restartBusy} onClick={doRestart}>{restartBusy ? '请求中…' : '重启'}</Button>
-            </div>
-          </div>
-        </div>
-      )}
+      {restartOpen && <RestartDialog onClose={() => setRestartOpen(false)} />}
 
       {/* 同步空洞提示：断线较久时部分消息已被服务端缓冲淘汰，回放补不回 */}
       {viewMode === 'single' && chat.syncWarning && (

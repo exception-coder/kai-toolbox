@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, ChevronDown, ChevronUp, Cloud, Compass, FolderOpen, FolderTree, GitBranch, LayoutGrid, List, ListChecks, Loader2, Maximize2, MessageSquare, Mic, Minus, MoreHorizontal, Package, Paperclip, Plus, RotateCw, Send, Server, Settings, Shield, ShieldCheck, Slash, Sparkles, X } from 'lucide-react'
+import { Bell, Bug, ChevronDown, ChevronUp, Cloud, Compass, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, LayoutGrid, List, ListChecks, Loader2, Maximize2, MessageSquare, Mic, Minus, MoreHorizontal, Package, Palette, Paperclip, Plus, RotateCw, Send, Server, Settings, Shield, ShieldCheck, Slash, Sparkles, X } from 'lucide-react'
 import { CHAT_ROUTE, useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { isShowcasePath } from '@/shell/featureRegistry'
 import { ThemeMenu } from '@/shell/ThemeMenu'
@@ -14,8 +14,13 @@ import { QuestionDialog } from './QuestionDialog'
 import { AttachmentChips } from './AttachmentChips'
 import { VoiceInputButton } from './VoiceInputButton'
 import { MiniVoiceBar } from './MiniVoiceBar'
+import { LogsPanel } from './LogsPanel'
+import { DebugPanel } from './DebugPanel'
+import { RestartDialog } from './RestartDialog'
+import { CommitsPanel } from '@/components/git/CommitsPanel'
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder'
-import { listSessions, resolveModule, transcribe, uploadAttachment, type UploadedAttachment } from '../api'
+import { setToolColors, useToolColors } from '../lib/toolColorPref'
+import { getSessionCommitDiff, listSessionCommits, listSessionGitRepos, listSessions, resolveModule, transcribe, uploadAttachment, type UploadedAttachment } from '../api'
 import type { ChatItem, ModuleCandidate, PermissionMode } from '../types'
 import { engineDisplayName, providerHost } from './chatStatus'
 
@@ -86,6 +91,12 @@ export function FloatingChatWindow() {
   // 「更多选项」整窗覆盖菜单（复刻全屏头部的 … 菜单）：小窗放不下面板，点选后跳全屏并直接打开对应面板。
   const [showMore, setShowMore] = useState(false)
   const [cmdMenuOpen, setCmdMenuOpen] = useState(false) // 「指令」菜单（命令 + 模型切换）
+  // 直接在浮窗内呈现的弹层（与全屏一致的独立 modal 组件）：提交记录 / 日志 / 调试 / 重启
+  const [showCommits, setShowCommits] = useState(false)
+  const [showLogs, setShowLogs] = useState(false)
+  const [showDebug, setShowDebug] = useState(false)
+  const [restartOpen, setRestartOpen] = useState(false)
+  const toolColors = useToolColors()
   // 迷你版（默认）：只显示进度状态 + 语音/输入/发送，不铺消息流；点切换看完整对话。
   // demo（受约束演示）默认展开完整对话，便于直接看到改动反馈。
   const [compact, setCompact] = useState(!demo)
@@ -207,8 +218,16 @@ export function FloatingChatWindow() {
     setMinimized(false)
     navigate(CHAT_ROUTE)
   }
-  // 「更多选项」菜单项（分组）。inline 项在本窗直接执行；panel 项跳全屏打开对应面板。
-  const moreGroups: { label: string; items: { icon: React.ReactNode; label: string; hint?: string; onClick: () => void }[] }[] = [
+  // 「更多选项」菜单项（分组）。local 项在本窗内直接执行/弹层（无「跳全屏」提示）；其余跳全屏打开对应面板。
+  type MoreItem = { icon: React.ReactNode; label: string; hint?: string; onClick: () => void; local?: boolean }
+  const openLocal = (fn: () => void) => { setShowMore(false); fn() }
+  const moreGroups: { label: string; items: MoreItem[] }[] = [
+    {
+      label: '视图',
+      items: [
+        { icon: <Palette className="size-4" />, label: `工具着色 · ${toolColors ? '开' : '关'}`, hint: '按命令/读写/子代理/技能/MCP 上色', onClick: () => setToolColors(!toolColors), local: true },
+      ],
+    },
     {
       label: '会话',
       items: [
@@ -219,6 +238,7 @@ export function FloatingChatWindow() {
       label: '工作区 · 项目',
       items: [
         ...(chat.sessionId ? [{ icon: <FolderOpen className="size-4" />, label: '工作目录', hint: '展开目录·快速定位文件', onClick: () => openPanelFullscreen('filetree') }] : []),
+        ...(chat.sessionId ? [{ icon: <GitCommit className="size-4" />, label: '提交记录', hint: '当前目录 git 提交/diff', onClick: () => openLocal(() => setShowCommits(true)), local: true }] : []),
         { icon: <FolderTree className="size-4" />, label: '合并工作区', hint: '软链接聚合多个目录', onClick: () => openPanelFullscreen('taskspace') },
         { icon: <GitBranch className="size-4" />, label: '拉取项目到工作区', hint: 'git clone 远端仓库', onClick: () => openPanelFullscreen('clone') },
         { icon: <ListChecks className="size-4" />, label: '项目初始化流水线', hint: '拉取→画像→知识图谱→聚合', onClick: () => openPanelFullscreen('onboard') },
@@ -230,6 +250,9 @@ export function FloatingChatWindow() {
         { icon: <Server className="size-4" />, label: '服务商', hint: '第三方网关(按会话)', onClick: () => openPanelFullscreen('providers') },
         { icon: <Package className="size-4" />, label: '插件更新', hint: '查看/更新双端插件', onClick: () => openPanelFullscreen('plugins') },
         { icon: <Bell className="size-4" />, label: '通知设置', onClick: () => openPanelFullscreen('settings') },
+        { icon: <FileText className="size-4" />, label: '最新日志', hint: '后端+sidecar 日志，一键复制', onClick: () => openLocal(() => setShowLogs(true)), local: true },
+        { icon: <Bug className="size-4" />, label: '调试模式', hint: '实时收发事件日志', onClick: () => openLocal(() => setShowDebug(true)), local: true },
+        { icon: <RotateCw className="size-4" />, label: '重启服务', hint: '经守护进程重启后端', onClick: () => openLocal(() => setRestartOpen(true)), local: true },
       ],
     },
   ]
@@ -647,7 +670,7 @@ export function FloatingChatWindow() {
                     <span className="block truncate text-sm">{it.label}</span>
                     {it.hint && <span className="block truncate text-[11px] text-[var(--color-muted-foreground)]">{it.hint}</span>}
                   </span>
-                  <Maximize2 className="mt-0.5 size-3 shrink-0 text-[var(--color-muted-foreground)]" aria-label="在全屏打开" />
+                  {!it.local && <Maximize2 className="mt-0.5 size-3 shrink-0 text-[var(--color-muted-foreground)]" aria-label="在全屏打开" />}
                 </button>
               ))}
             </div>
@@ -819,6 +842,20 @@ export function FloatingChatWindow() {
         </svg>
       </div>
       )}
+
+      {/* 更多选项里就地打开的弹层：与全屏一致的独立 modal 组件（各自 fixed 覆盖，不受浮窗尺寸限制） */}
+      {showCommits && chat.sessionId && (
+        <CommitsPanel
+          title="会话目录"
+          fetchRepos={() => listSessionGitRepos(chat.sessionId!)}
+          fetchCommits={repo => listSessionCommits(chat.sessionId!, 50, repo).then(r => r.commits)}
+          fetchDiff={(hash, repo) => getSessionCommitDiff(chat.sessionId!, hash, repo)}
+          onClose={() => setShowCommits(false)}
+        />
+      )}
+      {showLogs && <LogsPanel onClose={() => setShowLogs(false)} />}
+      {showDebug && <DebugPanel onClose={() => setShowDebug(false)} />}
+      {restartOpen && <RestartDialog onClose={() => setRestartOpen(false)} />}
 
       {dialogs}
     </div>
