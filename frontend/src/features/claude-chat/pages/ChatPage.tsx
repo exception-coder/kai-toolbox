@@ -63,6 +63,13 @@ function saveDrafts(m: Record<string, string>) {
   try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(m)) } catch { /* 忽略隐私模式/配额异常 */ }
 }
 
+/** cwd 末段目录名，作为无别名会话的显示名（与会话列表 shortCwd 一致）。 */
+function headerCwdName(cwd: string): string {
+  if (!cwd) return ''
+  const i = Math.max(cwd.lastIndexOf('/'), cwd.lastIndexOf('\\'))
+  return i >= 0 && i < cwd.length - 1 ? cwd.slice(i + 1) : cwd
+}
+
 /** 分屏视图形态持久化：刷新后恢复「上次是单/多视图 + 分屏中的会话」。 */
 const SPLIT_STATE_KEY = 'kai-toolbox:claude-chat:split-state'
 function loadSplitState(): { viewMode: 'single' | 'multi'; multiIds: string[] } {
@@ -419,13 +426,16 @@ export function ChatPage() {
   const wsRoots = workspaces?.roots.filter(r => r.exists) ?? []
   const activeRoot = wsRoots.length ? wsRoots[Math.min(wsIdx, wsRoots.length - 1)] : null
 
-  // 顶栏标题显示当前会话别名（与会话列表共用同一 query 缓存）；无别名/无会话时回退 Vibe Coding
+  // 顶栏标题显示当前会话名（与会话列表一致：别名优先，无别名回退 cwd 目录名）；无会话时才回退 Vibe Coding
   const { data: sessions = [] } = useQuery({
     queryKey: ['claude-chat-sessions'],
     queryFn: listSessions,
     staleTime: 5000,
   })
-  const currentTitle = sessions.find(s => s.id === chat?.sessionId)?.title?.trim()
+  const currentSession = sessions.find(s => s.id === chat?.sessionId)
+  const currentTitle = currentSession
+    ? (currentSession.title?.trim() || headerCwdName(currentSession.cwd))
+    : undefined
   const currentProviderHost = providerHost(chat?.currentProviderBaseUrl ?? null)
   const currentEngineLabel = engineDisplayName(chat?.currentEngine ?? 'claude', chat?.currentProviderKind)
   const currentEngineTitle = chat?.currentProviderKind === 'thirdParty'
