@@ -340,7 +340,8 @@ export function ChatPage() {
     try { raw = sessionStorage.getItem('kai-toolbox:claude-chat:open-panel') } catch { /* ignore */ }
     if (!raw) return
     try { sessionStorage.removeItem('kai-toolbox:claude-chat:open-panel') } catch { /* ignore */ }
-    if (raw === 'clone' || raw === 'taskspace' || raw === 'new' || raw === 'filetree' || raw === 'onboard') {
+    if (raw === 'clone' || raw === 'taskspace' || raw === 'new' || raw === 'filetree' || raw === 'onboard'
+        || raw === 'caps' || raw === 'providers' || raw === 'plugins' || raw === 'settings' || raw === 'sessions') {
       setPanel(raw)
     }
   }, [])

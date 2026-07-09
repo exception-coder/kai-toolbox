@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronDown, ChevronUp, Cloud, Compass, LayoutGrid, List, Loader2, Maximize2, MessageSquare, Mic, Minus, Paperclip, Plus, RotateCw, Send, Shield, ShieldCheck, X } from 'lucide-react'
+import { Bell, ChevronDown, ChevronUp, Cloud, Compass, FolderOpen, FolderTree, GitBranch, LayoutGrid, List, ListChecks, Loader2, Maximize2, MessageSquare, Mic, Minus, MoreHorizontal, Package, Paperclip, Plus, RotateCw, Send, Server, Settings, Shield, ShieldCheck, Sparkles, X } from 'lucide-react'
 import { CHAT_ROUTE, useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { isShowcasePath } from '@/shell/featureRegistry'
 import { ThemeMenu } from '@/shell/ThemeMenu'
@@ -82,6 +82,8 @@ export function FloatingChatWindow() {
   const navigate = useNavigate()
   const [draft, setDraft] = useState('')
   const [showSessions, setShowSessions] = useState(false)
+  // 「更多选项」整窗覆盖菜单（复刻全屏头部的 … 菜单）：小窗放不下面板，点选后跳全屏并直接打开对应面板。
+  const [showMore, setShowMore] = useState(false)
   // 迷你版（默认）：只显示进度状态 + 语音/输入/发送，不铺消息流；点切换看完整对话。
   // demo（受约束演示）默认展开完整对话，便于直接看到改动反馈。
   const [compact, setCompact] = useState(!demo)
@@ -194,6 +196,41 @@ export function FloatingChatWindow() {
     const i = MODE_ORDER.indexOf(chat.mode)
     chat.setMode(MODE_ORDER[(i + 1) % MODE_ORDER.length])
   }
+
+  // 跳全屏并打开指定面板：小窗放不下这些面板（工作目录树/服务商/插件…），
+  // 借用 ChatPage 已有的 open-panel 一次性交接，切到全屏页时自动展开。
+  const openPanelFullscreen = (panel: string) => {
+    try { sessionStorage.setItem('kai-toolbox:claude-chat:open-panel', panel) } catch { /* ignore */ }
+    setShowMore(false)
+    setMinimized(false)
+    navigate(CHAT_ROUTE)
+  }
+  // 「更多选项」菜单项（分组）。inline 项在本窗直接执行；panel 项跳全屏打开对应面板。
+  const moreGroups: { label: string; items: { icon: React.ReactNode; label: string; hint?: string; onClick: () => void }[] }[] = [
+    {
+      label: '会话',
+      items: [
+        { icon: <Sparkles className="size-4" />, label: '会话能力', hint: '激活的技能 / 子代理 / MCP', onClick: () => openPanelFullscreen('caps') },
+      ],
+    },
+    {
+      label: '工作区 · 项目',
+      items: [
+        ...(chat.sessionId ? [{ icon: <FolderOpen className="size-4" />, label: '工作目录', hint: '展开目录·快速定位文件', onClick: () => openPanelFullscreen('filetree') }] : []),
+        { icon: <FolderTree className="size-4" />, label: '合并工作区', hint: '软链接聚合多个目录', onClick: () => openPanelFullscreen('taskspace') },
+        { icon: <GitBranch className="size-4" />, label: '拉取项目到工作区', hint: 'git clone 远端仓库', onClick: () => openPanelFullscreen('clone') },
+        { icon: <ListChecks className="size-4" />, label: '项目初始化流水线', hint: '拉取→画像→知识图谱→聚合', onClick: () => openPanelFullscreen('onboard') },
+      ],
+    },
+    {
+      label: '系统 · 设置',
+      items: [
+        { icon: <Server className="size-4" />, label: '服务商', hint: '第三方网关(按会话)', onClick: () => openPanelFullscreen('providers') },
+        { icon: <Package className="size-4" />, label: '插件更新', hint: '查看/更新双端插件', onClick: () => openPanelFullscreen('plugins') },
+        { icon: <Bell className="size-4" />, label: '通知设置', onClick: () => openPanelFullscreen('settings') },
+      ],
+    },
+  ]
 
   // 权限/提问弹框：悬浮态下也由本组件渲染（ChatPage 已卸载），否则用户无从作答。
   const pending = chat.pending
@@ -339,8 +376,9 @@ export function FloatingChatWindow() {
     if ((!t && !hasAtt) || chat.running) return
     // 纯文本且命中路由信号(/goto 或导航动词) → 走模块路由，不当对话发出
     if (!hasAtt && handleUserText(t)) { setDraft(''); return }
-    chat.send(t, hasAtt ? attachments.map(a => ({ name: a.name, path: a.path })) : undefined)
-    attachments.forEach(a => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl) })
+    // 带上 mime + 本地预览 url → 气泡里显示图片缩略图（与全屏/分屏视图一致）；
+    // 不在此 revoke object URL：它已被消息气泡引用，revoke 会让缩略图失效。
+    chat.send(t, hasAtt ? attachments.map(a => ({ name: a.name, path: a.path, mime: a.mime, url: a.previewUrl })) : undefined)
     setDraft('')
     setAttachments([])
     // 发送后收回输入框高度：等 DOM 清空（下一帧）再按内容重算
@@ -513,7 +551,7 @@ export function FloatingChatWindow() {
                 className={`rounded p-1 ${hoverClass}`}>
                 <Plus className="size-4" />
               </button>
-              <button type="button" onClick={() => setShowSessions(s => !s)} aria-label="会话列表" title="切换会话"
+              <button type="button" onClick={() => { setShowSessions(s => !s); setShowMore(false) }} aria-label="会话列表" title="切换会话"
                 className={`rounded p-1 ${hoverClass} ${showSessions ? (giftMode ? 'bg-white/10' : 'bg-[var(--color-background)]') : ''}`}>
                 <List className="size-4" />
               </button>
@@ -523,10 +561,14 @@ export function FloatingChatWindow() {
                   <RotateCw className="size-4" />
                 </button>
               )}
+              <button type="button" onClick={() => { setShowMore(s => !s); setShowSessions(false) }} aria-label="更多选项" title="更多选项（工作区/服务商/插件/通知…）"
+                className={`rounded p-1 ${hoverClass} ${showMore ? (giftMode ? 'bg-white/10' : 'bg-[var(--color-background)]') : ''}`}>
+                <MoreHorizontal className="size-4" />
+              </button>
             </>
           )}
           {!showSessions && !demo && (
-            <button type="button" onClick={() => setCompact(c => !c)}
+            <button type="button" onClick={() => { setCompact(c => !c); setShowMore(false) }}
               aria-label={compact ? '展开完整对话' : '收起为迷你'} title={compact ? '展开看完整对话' : '收起为迷你（只看状态）'}
               className={`rounded p-1 ${hoverClass}`}>
               {compact ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
@@ -585,8 +627,31 @@ export function FloatingChatWindow() {
         </div>
       )}
 
-      {/* body：仅完整态显示会话列表 / 消息流；迷你态无 body，状态在头部、直接到输入区 */}
-      {!compact && (showSessions ? (
+      {/* body：仅完整态显示 更多选项 / 会话列表 / 消息流；迷你态无 body，状态在头部、直接到输入区 */}
+      {!compact && (showMore ? (
+        <div className="flex-1 overflow-y-auto py-1">
+          {moreGroups.map(g => (
+            <div key={g.label} className="py-0.5">
+              <div className="px-3 pb-0.5 pt-1.5 text-[10px] font-medium uppercase tracking-wide text-[var(--color-muted-foreground)]">{g.label}</div>
+              {g.items.map(it => (
+                <button
+                  key={it.label}
+                  type="button"
+                  onClick={it.onClick}
+                  className={`flex w-full items-start gap-2.5 px-3 py-2 text-left ${hoverClass}`}
+                >
+                  <span className="mt-0.5 shrink-0 text-[var(--color-muted-foreground)]">{it.icon}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm">{it.label}</span>
+                    {it.hint && <span className="block truncate text-[11px] text-[var(--color-muted-foreground)]">{it.hint}</span>}
+                  </span>
+                  <Maximize2 className="mt-0.5 size-3 shrink-0 text-[var(--color-muted-foreground)]" aria-label="在全屏打开" />
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : showSessions ? (
         <div className="flex-1 overflow-y-auto">
           <SessionList
             currentSessionId={chat.sessionId}
@@ -649,8 +714,8 @@ export function FloatingChatWindow() {
         </div>
       )}
 
-      {/* 完整态输入区（会话列表展开时隐藏） */}
-      {!showSessions && !compact && (
+      {/* 完整态输入区（会话列表 / 更多选项展开时隐藏） */}
+      {!showSessions && !showMore && !compact && (
       <div className={`border-t ${giftMode ? 'border-[#6f9b54]/14 bg-[#0e1a12]/95' : 'border-[var(--color-border)] bg-[var(--color-muted)]'}`}>
         {(attachments.length > 0 || uploading > 0) && (
           <AttachmentChips
