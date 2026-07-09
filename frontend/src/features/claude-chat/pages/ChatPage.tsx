@@ -24,6 +24,7 @@ import { SlashCommandMenu } from '../components/SlashCommandMenu'
 import { CommandMenu } from '../components/CommandMenu'
 import { PluginPanel } from '../components/PluginPanel'
 import { LogsPanel } from '../components/LogsPanel'
+import { GestureDebugPanel } from '../components/GestureDebugPanel'
 import { ProviderDiagPanel } from '../components/ProviderDiagPanel'
 import { groupModels } from '../components/modelGroups'
 import { useGrabGesture, type GestureStatus } from '../hooks/useGrabGesture'
@@ -157,6 +158,7 @@ export function ChatPage() {
   // token 用应用内输入框收，不用 window.prompt：移动端浏览器/WebView 普遍禁用 prompt（静默返回 null）。
   const [showCommits, setShowCommits] = useState(false)
   const [showLogs, setShowLogs] = useState(false)
+  const [showGestureDebug, setShowGestureDebug] = useState(false)
   const [showDebug, setShowDebug] = useState(false)
   const [headerMenu, setHeaderMenu] = useState(false)
   // 「更多」菜单当前展开的分组（手风琴，单开互斥；null=全部收起）。跨开合记忆上次展开项。
@@ -622,6 +624,7 @@ export function ChatPage() {
                     <HeaderMenuItem nested icon={<Cloud className="size-4" />} label="语音模式" hint="全屏白云·纯语音对话" onClick={() => { setHeaderMenu(false); setVoiceMode(true) }} />
                     <HeaderMenuItem nested icon={<PictureInPicture2 className="size-4" />} label="弹出悬浮窗" hint="切到其他模块常驻显示" onClick={() => { setHeaderMenu(false); popOutFloating() }} />
                     <HeaderMenuItem nested icon={<Hand className="size-4" />} label={gestureOn ? '手势弹窗·开' : '手势弹窗·关'} hint={gestureOn ? '摄像头识别「抓握」→ 弹出悬浮窗' : '开启后握拳即弹出悬浮窗(仅本模块)'} onClick={() => { setHeaderMenu(false); toggleGesture() }} />
+                    <HeaderMenuItem nested icon={<Hand className="size-4" />} label="手势自检" hint="逐步测试摄像头/模型/识别，排查能否启用" onClick={() => { setHeaderMenu(false); setShowGestureDebug(true) }} />
                     <HeaderMenuItem nested icon={fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />} label={fullscreen ? '退出全屏' : '全屏显示'} onClick={() => { setHeaderMenu(false); setFullscreen(f => !f) }} />
                     <HeaderMenuItem nested icon={<Palette className="size-4" />} label={toolColors ? '工具着色 · 开' : '工具着色 · 关'} hint="按命令/读写/子代理/技能/MCP 上色" onClick={() => { setToolColors(!toolColors) }} />
                   </MenuSection>
@@ -959,6 +962,9 @@ export function ChatPage() {
 
       {/* 最新日志：后端内存缓冲（含透传的 sidecar 日志），排查时一键复制 */}
       {showLogs && <LogsPanel onClose={() => setShowLogs(false)} />}
+
+      {/* 手势自检：逐步测试摄像头/模型/识别，区分 bug 还是模型/网络/权限问题 */}
+      {showGestureDebug && <GestureDebugPanel onClose={() => setShowGestureDebug(false)} />}
       {showDebug && <DebugPanel onClose={() => setShowDebug(false)} />}
 
       {/* 一键重启：应用内弹层（移动端 window.prompt 不可用，必须用页面内输入框收 token） */}

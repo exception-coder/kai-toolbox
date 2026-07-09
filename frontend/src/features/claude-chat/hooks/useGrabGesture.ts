@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { GestureRecognizer } from '@mediapipe/tasks-vision'
+import { gestureModelUrls, gestureWasmUrl } from './gestureSources'
 
 export type GestureStatus = 'idle' | 'loading' | 'running' | 'error'
 
@@ -15,20 +16,6 @@ export type GestureStatus = 'idle' | 'loading' | 'running' | 'error'
  * google storage 若被墙需自备 gesture_recognizer.task）。加载/摄像头失败一律软降级（onStatus='error'），
  * 不抛错、不影响会话。
  */
-// WASM：jsdelivr 境内一般可达；可用 localStorage 'kai-toolbox:gesture-wasm-url' 覆盖。
-const WASM_URL = localStorage.getItem('kai-toolbox:gesture-wasm-url')
-  || 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm'
-
-// 模型候选（按序尝试，第一个加载成功即用）：
-//   1) localStorage 'kai-toolbox:gesture-model-url' 覆盖（自定义/代理地址）
-//   2) 本机 public 下自备：把 gesture_recognizer.task 放到 frontend/public/mediapipe/ 即走它（境内首选，离线可用）
-//   3) google storage 官方（境内常被墙——这也是「开了却没动静」的常见原因）
-const MODEL_URLS: string[] = [
-  localStorage.getItem('kai-toolbox:gesture-model-url') || '',
-  `${import.meta.env.BASE_URL}mediapipe/gesture_recognizer.task`,
-  'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task',
-].filter(Boolean)
-
 interface Options {
   enabled: boolean
   onGrab: () => void
@@ -91,14 +78,14 @@ export function useGrabGesture({ enabled, onGrab, onStatus, onError, cooldownMs 
 
         // 动态加载 MediaPipe（只有开启才拉，不拖累首屏）+ 逐个候选模型地址尝试，直到某个能加载
         const { FilesetResolver, GestureRecognizer } = await import('@mediapipe/tasks-vision')
-        const vision = await FilesetResolver.forVisionTasks(WASM_URL)
+        const vision = await FilesetResolver.forVisionTasks(gestureWasmUrl())
         const make = (path: string, delegate: 'GPU' | 'CPU') => GestureRecognizer.createFromOptions(vision, {
           baseOptions: { modelAssetPath: path, delegate },
           runningMode: 'VIDEO',
           numHands: 1,
         })
         let lastErr: unknown = null
-        for (const url of MODEL_URLS) {
+        for (const url of gestureModelUrls()) {
           try { recognizer = await make(url, 'GPU') } catch { try { recognizer = await make(url, 'CPU') } catch (e) { lastErr = e; recognizer = null } }
           if (recognizer) break
         }
