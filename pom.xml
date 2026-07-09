@@ -66,6 +66,7 @@
         <jjwt.version>0.12.6</jjwt.version>
         <jbcrypt.version>0.4</jbcrypt.version>
         <ojdbc.version>21.11.0.0</ojdbc.version>
+        <druid.version>1.2.23</druid.version>
         <spring-cloud.version>2024.0.0</spring-cloud.version>
         <spring-ai.version>1.0.0</spring-ai.version>
         <langchain4j.version>1.16.1</langchain4j.version>
@@ -256,6 +257,11 @@
                 <groupId>com.oracle.database.jdbc</groupId>
                 <artifactId>ojdbc11</artifactId>
                 <version>${ojdbc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.alibaba</groupId>
+                <artifactId>druid</artifactId>
+                <version>${druid.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.xerial</groupId>

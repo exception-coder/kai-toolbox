@@ -11,18 +11,24 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Redis 直连：执行任意命令并把原始返回值递归转成可序列化结构。 */
+/**
+ * Redis 查询：从 {@link OpsDataSourcePool} 借 Jedis 连接，用完归还（JedisPool 复用）。
+ */
 @Component
 public class RedisConnector {
 
-    private static final int TIMEOUT_MS = 8_000;
+    private final OpsDataSourcePool pool;
+
+    public RedisConnector(OpsDataSourcePool pool) {
+        this.pool = pool;
+    }
 
     public TestResult test(OpsDatasource ds) {
         long start = System.currentTimeMillis();
-        try (Jedis jedis = open(ds)) {
+        try (Jedis jedis = pool.borrowRedis(ds)) {
             String pong = jedis.ping();
-            return new TestResult(true, pong + " (db " + dbIndex(ds) + ")",
-                    System.currentTimeMillis() - start);
+            int db = dbIndex(ds);
+            return new TestResult(true, pong + " (db " + db + ")", System.currentTimeMillis() - start);
         } catch (Exception e) {
             return new TestResult(false, rootMessage(e), System.currentTimeMillis() - start);
         }
@@ -31,43 +37,20 @@ public class RedisConnector {
     public RedisExecResult exec(OpsDatasource ds, String commandLine) {
         long start = System.currentTimeMillis();
         List<String> tokens = tokenize(commandLine);
-        if (tokens.isEmpty()) {
-            throw new IllegalArgumentException("命令为空");
-        }
-        String cmd = tokens.get(0).toUpperCase();
+        if (tokens.isEmpty()) throw new IllegalArgumentException("命令为空");
+        String cmd  = tokens.get(0).toUpperCase();
         String[] args = tokens.subList(1, tokens.size()).toArray(new String[0]);
-        try (Jedis jedis = open(ds)) {
+        try (Jedis jedis = pool.borrowRedis(ds)) {
             ProtocolCommand pc = () -> cmd.getBytes(StandardCharsets.UTF_8);
             Object raw = jedis.sendCommand(pc, args);
-            return new RedisExecResult(commandLine.trim(), convert(raw),
-                    System.currentTimeMillis() - start);
+            return new RedisExecResult(commandLine.trim(), convert(raw), System.currentTimeMillis() - start);
         }
-    }
-
-    private Jedis open(OpsDatasource ds) {
-        Jedis jedis = new Jedis(ds.getHost(), ds.getPort(), TIMEOUT_MS);
-        String pwd = ds.getPassword();
-        String user = ds.getUsername();
-        if (pwd != null && !pwd.isBlank()) {
-            if (user != null && !user.isBlank()) {
-                jedis.auth(user, pwd);
-            } else {
-                jedis.auth(pwd);
-            }
-        }
-        int db = dbIndex(ds);
-        if (db > 0) jedis.select(db);
-        return jedis;
     }
 
     private static int dbIndex(OpsDatasource ds) {
         String db = ds.getDbName();
         if (db == null || db.isBlank()) return 0;
-        try {
-            return Integer.parseInt(db.trim());
-        } catch (NumberFormatException e) {
-            return 0;
-        }
+        try { return Integer.parseInt(db.trim()); } catch (NumberFormatException e) { return 0; }
     }
 
     @SuppressWarnings("unchecked")
@@ -92,17 +75,11 @@ public class RedisConnector {
         for (int i = 0; i < line.length(); i++) {
             char c = line.charAt(i);
             if (c == '"') {
-                inQuote = !inQuote;
-                has = true;
+                inQuote = !inQuote; has = true;
             } else if (Character.isWhitespace(c) && !inQuote) {
-                if (has) {
-                    out.add(cur.toString());
-                    cur.setLength(0);
-                    has = false;
-                }
+                if (has) { out.add(cur.toString()); cur.setLength(0); has = false; }
             } else {
-                cur.append(c);
-                has = true;
+                cur.append(c); has = true;
             }
         }
         if (has) out.add(cur.toString());

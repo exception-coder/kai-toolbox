@@ -16,10 +16,13 @@ public class OpsDatasourceService {
 
     private final DatasourceRepository datasources;
     private final QueryHistoryRepository histories;
+    private final OpsDataSourcePool pool;
 
-    public OpsDatasourceService(DatasourceRepository datasources, QueryHistoryRepository histories) {
+    public OpsDatasourceService(DatasourceRepository datasources, QueryHistoryRepository histories,
+                                OpsDataSourcePool pool) {
         this.datasources = datasources;
-        this.histories = histories;
+        this.histories   = histories;
+        this.pool        = pool;
     }
 
     public List<OpsDatasource> findAll() {
@@ -77,11 +80,13 @@ public class OpsDatasourceService {
         existing.setSortOrder(req.sortOrder() == null ? existing.getSortOrder() : req.sortOrder());
         existing.setUpdatedAt(System.currentTimeMillis());
         datasources.update(existing);
+        pool.invalidate(id);
         return existing;
     }
 
     @Transactional
     public void delete(String id) {
+        pool.invalidate(id);
         histories.deleteByDatasource(id);
         datasources.deleteById(id);
     }

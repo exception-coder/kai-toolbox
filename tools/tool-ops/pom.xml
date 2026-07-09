@@ -32,7 +32,11 @@
             <artifactId>ojdbc11</artifactId>
         </dependency>
 
-        <!-- Redis 直连（任意命令） -->
+        <!-- 连接池：SQL 用 Druid，Redis 用 JedisPool（含在 jedis 内） -->
+        <dependency>
+            <groupId>com.alibaba</groupId>
+            <artifactId>druid</artifactId>
+        </dependency>
         <dependency>
             <groupId>redis.clients</groupId>
             <artifactId>jedis</artifactId>
