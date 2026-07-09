@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, Paperclip, Send, ShieldCheck, Square, X } from 'lucide-react'
+import { AlertTriangle, Paperclip, Send, ShieldCheck, Slash, Square, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useClaudeChatSocket } from '../hooks/useClaudeChatSocket'
 import { listSessions, uploadAttachment, type UploadedAttachment } from '../api'
 import { ensureNotifyPermission } from '../browserNotify'
+import { CommandMenu } from './CommandMenu'
 import { MessageList } from './MessageList'
 import { SessionTotalBadge } from './SessionTotalBadge'
 import { PermissionDialog } from './PermissionDialog'
@@ -49,6 +50,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [uploading, setUploading] = useState(0)
+  const [cmdMenuOpen, setCmdMenuOpen] = useState(false) // 「指令」菜单（命令 + 模型切换）
   const taRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -247,6 +249,19 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
             />
           </div>
         </div>
+        {/* 指令菜单（命令 + 模型切换）：内嵌于输入区上方，避免窄块 overflow-hidden 裁切下拉 */}
+        {cmdMenuOpen && (
+          <CommandMenu
+            inline
+            commands={chat.slashCommands}
+            models={chat.models}
+            currentModel={chat.currentModel}
+            engine={chat.currentEngine}
+            onClose={() => setCmdMenuOpen(false)}
+            onPickCommand={cmd => { setDraft(d => (d.trim() ? `${d} ` : '') + '/' + cmd + ' '); setCmdMenuOpen(false); taRef.current?.focus() }}
+            onPickModel={value => { chat.setModel(value); setCmdMenuOpen(false) }}
+          />
+        )}
         <div className="flex items-end gap-1">
           {/* 附件：label 包 input，保留原生触发（移动端 WebView 不丢手势） */}
           <label
@@ -264,6 +279,16 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
             />
             <Paperclip className="size-4 text-[var(--color-primary)]" />
           </label>
+          {/* 指令：命令补全 + 第三方模型切换（复刻全屏「指令」入口） */}
+          <button
+            type="button"
+            onClick={() => setCmdMenuOpen(o => !o)}
+            aria-label="指令"
+            title="指令（命令 / 切换模型）"
+            className={`flex size-9 shrink-0 items-center justify-center rounded-md hover:bg-[var(--color-accent)] ${cmdMenuOpen ? 'bg-[var(--color-accent)]' : ''}`}
+          >
+            <Slash className="size-4 text-[var(--color-primary)]" />
+          </button>
           <VoiceInputButton
             disabled={chat.running}
             onText={t => setDraft(d => d.trim() ? `${d} ${t}` : t)}

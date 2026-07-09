@@ -15,6 +15,7 @@ export function CommandMenu({
   onPickCommand,
   onPickModel,
   onClose,
+  inline = false,
 }: {
   commands: string[]
   models: ModelInfo[]
@@ -23,6 +24,9 @@ export function CommandMenu({
   onPickCommand: (cmd: string) => void
   onPickModel: (value: string) => void
   onClose: () => void
+  /** 内嵌模式：相对定位、占满容器宽度、无 fixed 遮罩。用于 overflow-hidden 的窄容器（分屏块 / 悬浮窗），
+   *  避免默认的 w-80 绝对下拉被裁切。 */
+  inline?: boolean
 }) {
   const [q, setQ] = useState('')
   const [platform, setPlatform] = useState<string>('all') // 平台筛选：'all' 或某平台 key
@@ -40,8 +44,10 @@ export function CommandMenu({
 
   return (
     <>
-      <div className="fixed inset-0 z-40" onClick={onClose} />
-      <div className="absolute bottom-full left-0 z-50 mb-2 w-80 overflow-hidden rounded-xl border bg-[var(--color-background)] shadow-xl">
+      {!inline && <div className="fixed inset-0 z-40" onClick={onClose} />}
+      <div className={inline
+        ? 'relative z-10 mb-1 w-full overflow-hidden rounded-xl border bg-[var(--color-background)] shadow-lg'
+        : 'absolute bottom-full left-0 z-50 mb-2 w-80 overflow-hidden rounded-xl border bg-[var(--color-background)] shadow-xl'}>
         <div className="border-b p-2">
           <input
             autoFocus

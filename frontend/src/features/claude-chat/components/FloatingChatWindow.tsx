@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, ChevronDown, ChevronUp, Cloud, Compass, FolderOpen, FolderTree, GitBranch, LayoutGrid, List, ListChecks, Loader2, Maximize2, MessageSquare, Mic, Minus, MoreHorizontal, Package, Paperclip, Plus, RotateCw, Send, Server, Settings, Shield, ShieldCheck, Sparkles, X } from 'lucide-react'
+import { Bell, ChevronDown, ChevronUp, Cloud, Compass, FolderOpen, FolderTree, GitBranch, LayoutGrid, List, ListChecks, Loader2, Maximize2, MessageSquare, Mic, Minus, MoreHorizontal, Package, Paperclip, Plus, RotateCw, Send, Server, Settings, Shield, ShieldCheck, Slash, Sparkles, X } from 'lucide-react'
 import { CHAT_ROUTE, useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { isShowcasePath } from '@/shell/featureRegistry'
 import { ThemeMenu } from '@/shell/ThemeMenu'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { MessageList } from './MessageList'
 import { SessionList } from './SessionList'
+import { CommandMenu } from './CommandMenu'
 import { PermissionDialog } from './PermissionDialog'
 import { QuestionDialog } from './QuestionDialog'
 import { AttachmentChips } from './AttachmentChips'
@@ -84,6 +85,7 @@ export function FloatingChatWindow() {
   const [showSessions, setShowSessions] = useState(false)
   // 「更多选项」整窗覆盖菜单（复刻全屏头部的 … 菜单）：小窗放不下面板，点选后跳全屏并直接打开对应面板。
   const [showMore, setShowMore] = useState(false)
+  const [cmdMenuOpen, setCmdMenuOpen] = useState(false) // 「指令」菜单（命令 + 模型切换）
   // 迷你版（默认）：只显示进度状态 + 语音/输入/发送，不铺消息流；点切换看完整对话。
   // demo（受约束演示）默认展开完整对话，便于直接看到改动反馈。
   const [compact, setCompact] = useState(!demo)
@@ -728,6 +730,21 @@ export function FloatingChatWindow() {
             })}
           />
         )}
+        {/* 指令菜单（命令 + 模型切换）：内嵌于输入区上方，避免窄浮窗 overflow-hidden 裁切下拉 */}
+        {!demo && cmdMenuOpen && (
+          <div className="px-2 pt-2">
+            <CommandMenu
+              inline
+              commands={chat.slashCommands}
+              models={chat.models}
+              currentModel={chat.currentModel}
+              engine={chat.currentEngine}
+              onClose={() => setCmdMenuOpen(false)}
+              onPickCommand={cmd => { setDraft(d => (d.trim() ? `${d} ` : '') + '/' + cmd + ' '); setCmdMenuOpen(false); taRef.current?.focus() }}
+              onPickModel={value => { chat.setModel(value); setCmdMenuOpen(false) }}
+            />
+          </div>
+        )}
         <div className="flex items-end gap-2 p-2">
           <input
             ref={fileInputRef}
@@ -746,6 +763,17 @@ export function FloatingChatWindow() {
               className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border disabled:opacity-50 ${giftMode ? 'border-white/12 text-white/55 hover:bg-white/10' : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-background)]'}`}
             >
               <Paperclip className="size-4" />
+            </button>
+          )}
+          {!demo && (
+            <button
+              type="button"
+              onClick={() => setCmdMenuOpen(o => !o)}
+              aria-label="指令"
+              title="指令（命令 / 切换模型）"
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${cmdMenuOpen ? (giftMode ? 'bg-white/10' : 'bg-[var(--color-background)]') : ''} ${giftMode ? 'border-white/12 text-white/55 hover:bg-white/10' : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-background)]'}`}
+            >
+              <Slash className="size-4" />
             </button>
           )}
           {!demo && (
