@@ -88,6 +88,9 @@ interface ChatRuntime {
   /** 手势监控状态与错误（供 UI 显示指示/提示）。 */
   gestureStatus: GestureStatus
   gestureError: string | null
+  /** 临时暂停手势监控（占用摄像头的场景，如「手势自检」面板运行时），避免同标签内抢摄像头。 */
+  gesturePaused: boolean
+  setGesturePaused: (v: boolean) => void
 }
 
 const Ctx = createContext<ChatRuntime | null>(null)
@@ -148,6 +151,7 @@ export function ChatRuntimeProvider({ children, demo = false }: { children: Reac
   const [gestureStatus, setGestureStatus] = useState<GestureStatus>('idle')
   const [gestureError, setGestureError] = useState<string | null>(null)
   const [gestureFlash, setGestureFlash] = useState<GestureFlash | null>(null)
+  const [gesturePaused, setGesturePaused] = useState(false)
   const flashSeq = useRef(0)
   const toggleGesture = useCallback(() => setGestureOn(v => {
     const nv = !v
@@ -156,7 +160,7 @@ export function ChatRuntimeProvider({ children, demo = false }: { children: Reac
     return nv
   }), [])
   useGrabGesture({
-    enabled: gestureOn && (location.pathname === CHAT_ROUTE || floating),
+    enabled: gestureOn && !gesturePaused && (location.pathname === CHAT_ROUTE || floating),
     onStatus: setGestureStatus,
     onError: setGestureError,
     onGesture: g => {
@@ -170,7 +174,7 @@ export function ChatRuntimeProvider({ children, demo = false }: { children: Reac
     },
   })
 
-  const control = { demo, concierge, setConcierge, active, activate, floating, setFloating, minimized, setMinimized, pos, setPos, size, setSize, voiceMode, setVoiceMode, getReturnRoute, gestureOn, toggleGesture, gestureStatus, gestureError }
+  const control = { demo, concierge, setConcierge, active, activate, floating, setFloating, minimized, setMinimized, pos, setPos, size, setSize, voiceMode, setVoiceMode, getReturnRoute, gestureOn, toggleGesture, gestureStatus, gestureError, gesturePaused, setGesturePaused }
   const flourish = <GestureFlourish flash={gestureFlash} onDone={() => setGestureFlash(null)} />
 
   if (!active) {

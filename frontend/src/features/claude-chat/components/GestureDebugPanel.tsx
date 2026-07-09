@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { CheckCircle2, Loader2, X, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { gestureModelUrls, gestureWasmUrl } from '../hooks/gestureSources'
+import { acquireCamera, heartbeatCamera, releaseCamera } from '../hooks/cameraLock'
+import { useChatRuntime } from '../runtime/ChatRuntimeContext'
 
 type StepState = 'pending' | 'running' | 'ok' | 'fail'
 interface Step { key: string; label: string; state: StepState; detail?: string }
@@ -28,8 +30,12 @@ export function GestureDebugPanel({ onClose }: { onClose: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null)
   // 清理句柄
   const cleanupRef = useRef<() => void>(() => {})
-
-  useEffect(() => () => cleanupRef.current(), [])
+  // 自检期间暂停常驻手势监控（同标签内避免抢摄像头），关闭面板恢复
+  const { setGesturePaused } = useChatRuntime()
+  useEffect(() => {
+    setGesturePaused(true)
+    return () => { setGesturePaused(false); cleanupRef.current() }
+  }, [setGesturePaused])
 
   const set = (key: string, state: StepState, detail?: string) =>
     setSteps(prev => prev.map(s => (s.key === key ? { ...s, state, detail } : s)))
@@ -42,12 +48,15 @@ export function GestureDebugPanel({ onClose }: { onClose: () => void }) {
     let stream: MediaStream | null = null
     let recognizer: { recognizeForVideo: (v: HTMLVideoElement, t: number) => { gestures?: { categoryName: string; score: number }[][] }; close: () => void } | null = null
     let raf = 0
+    let hb: ReturnType<typeof setInterval> | undefined
     let stopped = false
     const cleanup = () => {
       stopped = true
       if (raf) cancelAnimationFrame(raf)
+      if (hb) clearInterval(hb)
       stream?.getTracks().forEach(t => t.stop())
       try { recognizer?.close() } catch { /* ignore */ }
+      releaseCamera()
     }
     cleanupRef.current = cleanup
 
@@ -61,14 +70,20 @@ export function GestureDebugPanel({ onClose }: { onClose: () => void }) {
       }
       set('secure', 'ok', location.origin)
 
-      // 2) 摄像头
+      // 2) 摄像头（先抢跨标签锁，避免与其它标签/常驻监控争用）
       set('camera', 'running')
+      if (!acquireCamera()) {
+        set('camera', 'fail', '摄像头被其它标签页/程序占用——到占用处关掉后重试')
+        setRunning(false); return
+      }
+      hb = setInterval(() => heartbeatCamera(), 1000)
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: false })
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
-        set('camera', 'fail', /Permission|NotAllowed|denied/i.test(msg) ? '权限被拒绝——地址栏允许摄像头后重试' : msg)
-        setRunning(false); return
+        set('camera', 'fail', /Permission|NotAllowed|denied/i.test(msg) ? '权限被拒绝——地址栏允许摄像头后重试'
+          : /NotReadable|in use/i.test(msg) ? '摄像头被其它程序/标签占用（关掉后重试）' : msg)
+        cleanup(); setRunning(false); return
       }
       if (stopped) { cleanup(); return }
       const video = videoRef.current!

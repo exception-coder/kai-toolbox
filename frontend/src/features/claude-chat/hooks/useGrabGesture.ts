@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { GestureRecognizer } from '@mediapipe/tasks-vision'
 import { gestureModelUrls, gestureWasmUrl } from './gestureSources'
+import { acquireCamera, heartbeatCamera, onCameraReleased, releaseCamera } from './cameraLock'
 
 export type GestureStatus = 'idle' | 'loading' | 'running' | 'error'
 
@@ -24,7 +25,7 @@ interface Options {
   /** 识别到「进入」某手势的瞬间触发（带每手势冷却）。 */
   onGesture: (g: HandGesture) => void
   onStatus?: (s: GestureStatus) => void
-  onError?: (msg: string) => void
+  onError?: (msg: string | null) => void
   /** 同一手势触发后的冷却毫秒，防连发。默认 2500。 */
   cooldownMs?: number
 }
@@ -47,42 +48,52 @@ export function useGrabGesture({ enabled, onGesture, onStatus, onError, cooldown
       return
     }
 
-    let cancelled = false
+    let disposed = false
+    let running = false
     let recognizer: GestureRecognizer | null = null
     let stream: MediaStream | null = null
     let raf = 0
+    let hb: ReturnType<typeof setInterval> | undefined
     let video: HTMLVideoElement | null = null
 
-    const cleanup = () => {
-      cancelled = true
-      if (raf) cancelAnimationFrame(raf)
-      stream?.getTracks().forEach(t => t.stop())
-      if (video) { video.srcObject = null }
+    const stopCam = (nextStatus?: GestureStatus, errMsg?: string | null) => {
+      running = false
+      if (raf) { cancelAnimationFrame(raf); raf = 0 }
+      if (hb) { clearInterval(hb); hb = undefined }
+      stream?.getTracks().forEach(t => t.stop()); stream = null
+      if (video) { video.srcObject = null; video = null }
       try { recognizer?.close() } catch { /* ignore */ }
       recognizer = null
+      releaseCamera() // 让出锁，等待中的其它标签会自动重试
+      if (nextStatus) onStatusRef.current?.(nextStatus)
+      if (errMsg !== undefined) onErrorRef.current?.(errMsg)
     }
 
-    ;(async () => {
-      onStatusRef.current?.('loading')
-      // 先开摄像头：让权限弹窗与摄像头指示灯立刻出现（即便模型稍后加载失败，用户也能看到「确实在启动识别」）
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: false })
-      } catch (e) {
-        if (cancelled) return
+    // 只在标签可见时开摄像头：切走 / 后台即释放，天然避免多标签同时抢占
+    const wantRun = () => !disposed && document.visibilityState === 'visible'
+
+    const start = async () => {
+      if (disposed || running || !wantRun()) return
+      // 跨标签单占用：别的标签正在用就不抢，报明确原因，等其释放自动重试
+      if (!acquireCamera()) {
         onStatusRef.current?.('error')
-        const msg = e instanceof Error ? e.message : String(e)
-        onErrorRef.current?.(/Permission|NotAllowed|denied/i.test(msg) ? '摄像头权限被拒绝（浏览器地址栏允许摄像头后重开）' : `摄像头打开失败：${msg}`)
+        onErrorRef.current?.('摄像头被其它标签页/程序占用——到占用处关掉后，这里会自动重试')
         return
       }
-      if (cancelled) { cleanup(); return }
+      running = true
+      onStatusRef.current?.('loading')
+      onErrorRef.current?.(null)
+      hb = setInterval(() => { if (!heartbeatCamera()) stopCam('idle') }, 1000) // 被别的标签抢走则退让
       try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: false })
+        if (disposed || !running) { stopCam(); return }
         video = document.createElement('video')
         video.playsInline = true
         video.muted = true
         video.srcObject = stream
         await video.play()
 
-        // 动态加载 MediaPipe（只有开启才拉，不拖累首屏）+ 逐个候选模型地址尝试，直到某个能加载
+        // 动态加载 MediaPipe（只有开启才拉，不拖累首屏）+ 逐个候选模型地址尝试
         const { FilesetResolver, GestureRecognizer } = await import('@mediapipe/tasks-vision')
         const vision = await FilesetResolver.forVisionTasks(gestureWasmUrl())
         const make = (path: string, delegate: 'GPU' | 'CPU') => GestureRecognizer.createFromOptions(vision, {
@@ -96,13 +107,13 @@ export function useGrabGesture({ enabled, onGesture, onStatus, onError, cooldown
           if (recognizer) break
         }
         if (!recognizer) throw (lastErr ?? new Error('所有候选模型地址均加载失败'))
-        if (cancelled) { cleanup(); return }
+        if (disposed || !running) { stopCam(); return }
         onStatusRef.current?.('running')
 
         let lastGesture = ''
         const lastFireAt: Record<string, number> = {}
         const loop = () => {
-          if (cancelled || !recognizer || !video) return
+          if (!running || disposed || !recognizer || !video) return
           const now = performance.now()
           try {
             const res = recognizer.recognizeForVideo(video, now)
@@ -118,14 +129,24 @@ export function useGrabGesture({ enabled, onGesture, onStatus, onError, cooldown
         }
         raf = requestAnimationFrame(loop)
       } catch (e) {
-        if (cancelled) return
-        cleanup()
-        onStatusRef.current?.('error')
         const msg = e instanceof Error ? e.message : String(e)
-        onErrorRef.current?.(/Permission|NotAllowed/i.test(msg) ? '摄像头权限被拒绝' : `手势模型加载失败：${msg}`)
+        const friendly = /Permission|NotAllowed|denied/i.test(msg) ? '摄像头权限被拒绝（地址栏允许摄像头后重开）'
+          : /NotReadable|in use/i.test(msg) ? '摄像头被其它程序/标签占用（关掉后重试）'
+          : `启动失败：${msg}`
+        stopCam('error', friendly)
       }
-    })()
+    }
 
-    return cleanup
+    const onVis = () => { if (document.visibilityState === 'visible') void start(); else stopCam('idle') }
+    document.addEventListener('visibilitychange', onVis)
+    const offReleased = onCameraReleased(() => { if (!running && wantRun()) void start() })
+    void start()
+
+    return () => {
+      disposed = true
+      document.removeEventListener('visibilitychange', onVis)
+      offReleased()
+      stopCam()
+    }
   }, [enabled, cooldownMs])
 }
