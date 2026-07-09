@@ -9,6 +9,8 @@ import { CHAT_ROUTE } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import { getErpDbConfig, saveErpDbConfig, testErpDb, getErpAppConfig, saveErpAppConfig, testErpApp } from '../api'
 
 const LAUNCH_KEY = 'kai-toolbox:claude-chat:erp-dev-launch'
+/** 记住上次选择的工作区目录，避免每次进来都要重选。 */
+const CWD_KEY = 'kai-toolbox:erp-dev:cwd'
 
 /** 拼装投喂给 yoooni-erp-auto-dev skill 的触发语。 */
 function buildSeed(moduleOrUrl: string, requirement: string): string {
@@ -53,9 +55,17 @@ export function ErpDevPage() {
   const roots = workspaces?.roots ?? []
   const hasRoots = roots.some(r => r.exists)
 
-  const [cwd, setCwd] = useState('')
+  const [cwd, setCwd] = useState(() => {
+    try { return localStorage.getItem(CWD_KEY) ?? '' } catch { return '' }
+  })
   const [moduleOrUrl, setModuleOrUrl] = useState('')
   const [requirement, setRequirement] = useState('')
+
+  // 选目录并记住（下次进来自动回填）
+  const pickCwd = (path: string) => {
+    setCwd(path)
+    try { localStorage.setItem(CWD_KEY, path) } catch { /* 隐私模式忽略 */ }
+  }
 
   // 引导：空工作区时跳到 Vibe Coding 并直接打开「拉取项目到工作区」面板
   const goConfigureWorkspace = () => {
@@ -63,7 +73,11 @@ export function ErpDevPage() {
     navigate(CHAT_ROUTE)
   }
 
-  useEffect(() => { if (!cwd && dirs.length > 0) setCwd(dirs[0].path) }, [dirs, cwd])
+  // 目录列表就绪后：保留上次记住的选择（仍存在时），否则回退到第一个
+  useEffect(() => {
+    if (dirs.length === 0) return
+    if (!dirs.some(d => d.path === cwd)) pickCwd(dirs[0].path)
+  }, [dirs, cwd])
 
   const canStart = cwd.length > 0 && moduleOrUrl.trim().length > 0 && requirement.trim().length > 0
 
@@ -110,7 +124,7 @@ export function ErpDevPage() {
           ) : (
             <select
               value={cwd}
-              onChange={e => setCwd(e.target.value)}
+              onChange={e => pickCwd(e.target.value)}
               className="mt-1 h-9 w-full rounded-md border bg-[var(--color-background)] px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
             >
               {dirs.map(d => <option key={d.path} value={d.path}>{d.label}</option>)}
