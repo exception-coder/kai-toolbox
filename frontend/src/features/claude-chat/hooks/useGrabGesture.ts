@@ -15,8 +15,19 @@ export type GestureStatus = 'idle' | 'loading' | 'running' | 'error'
  * google storage 若被墙需自备 gesture_recognizer.task）。加载/摄像头失败一律软降级（onStatus='error'），
  * 不抛错、不影响会话。
  */
-const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm'
-const MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task'
+// WASM：jsdelivr 境内一般可达；可用 localStorage 'kai-toolbox:gesture-wasm-url' 覆盖。
+const WASM_URL = localStorage.getItem('kai-toolbox:gesture-wasm-url')
+  || 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/wasm'
+
+// 模型候选（按序尝试，第一个加载成功即用）：
+//   1) localStorage 'kai-toolbox:gesture-model-url' 覆盖（自定义/代理地址）
+//   2) 本机 public 下自备：把 gesture_recognizer.task 放到 frontend/public/mediapipe/ 即走它（境内首选，离线可用）
+//   3) google storage 官方（境内常被墙——这也是「开了却没动静」的常见原因）
+const MODEL_URLS: string[] = [
+  localStorage.getItem('kai-toolbox:gesture-model-url') || '',
+  `${import.meta.env.BASE_URL}mediapipe/gesture_recognizer.task`,
+  'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task',
+].filter(Boolean)
 
 interface Options {
   enabled: boolean
@@ -60,26 +71,39 @@ export function useGrabGesture({ enabled, onGrab, onStatus, onError, cooldownMs 
 
     ;(async () => {
       onStatusRef.current?.('loading')
+      // 先开摄像头：让权限弹窗与摄像头指示灯立刻出现（即便模型稍后加载失败，用户也能看到「确实在启动识别」）
       try {
-        // 动态加载 MediaPipe：只有真正开启手势才拉这坨(~1MB+)，不拖累会话页首屏 chunk
-        const { FilesetResolver, GestureRecognizer } = await import('@mediapipe/tasks-vision')
-        const vision = await FilesetResolver.forVisionTasks(WASM_URL)
-        // 先试 GPU，失败回退 CPU（部分机器/浏览器无 WebGPU/WebGL）
-        const make = (delegate: 'GPU' | 'CPU') => GestureRecognizer.createFromOptions(vision, {
-          baseOptions: { modelAssetPath: MODEL_URL, delegate },
-          runningMode: 'VIDEO',
-          numHands: 1,
-        })
-        try { recognizer = await make('GPU') } catch { recognizer = await make('CPU') }
-        if (cancelled) { cleanup(); return }
-
         stream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: false })
-        if (cancelled) { cleanup(); return }
+      } catch (e) {
+        if (cancelled) return
+        onStatusRef.current?.('error')
+        const msg = e instanceof Error ? e.message : String(e)
+        onErrorRef.current?.(/Permission|NotAllowed|denied/i.test(msg) ? '摄像头权限被拒绝（浏览器地址栏允许摄像头后重开）' : `摄像头打开失败：${msg}`)
+        return
+      }
+      if (cancelled) { cleanup(); return }
+      try {
         video = document.createElement('video')
         video.playsInline = true
         video.muted = true
         video.srcObject = stream
         await video.play()
+
+        // 动态加载 MediaPipe（只有开启才拉，不拖累首屏）+ 逐个候选模型地址尝试，直到某个能加载
+        const { FilesetResolver, GestureRecognizer } = await import('@mediapipe/tasks-vision')
+        const vision = await FilesetResolver.forVisionTasks(WASM_URL)
+        const make = (path: string, delegate: 'GPU' | 'CPU') => GestureRecognizer.createFromOptions(vision, {
+          baseOptions: { modelAssetPath: path, delegate },
+          runningMode: 'VIDEO',
+          numHands: 1,
+        })
+        let lastErr: unknown = null
+        for (const url of MODEL_URLS) {
+          try { recognizer = await make(url, 'GPU') } catch { try { recognizer = await make(url, 'CPU') } catch (e) { lastErr = e; recognizer = null } }
+          if (recognizer) break
+        }
+        if (!recognizer) throw (lastErr ?? new Error('所有候选模型地址均加载失败'))
+        if (cancelled) { cleanup(); return }
         onStatusRef.current?.('running')
 
         let lastGesture = ''
