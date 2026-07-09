@@ -49,6 +49,7 @@
         <module>tools/tool-visitor-analysis</module>
         <module>tools/tool-wechat</module>
         <module>tools/tool-welfare-sign</module>
+        <module>tools/tool-ops</module>
         <module>toolbox-starter</module>
     </modules>
 
@@ -64,6 +65,7 @@
         <pty4j.version>0.12.25</pty4j.version>
         <jjwt.version>0.12.6</jjwt.version>
         <jbcrypt.version>0.4</jbcrypt.version>
+        <ojdbc.version>21.11.0.0</ojdbc.version>
         <spring-cloud.version>2024.0.0</spring-cloud.version>
         <spring-ai.version>1.0.0</spring-ai.version>
         <langchain4j.version>1.16.1</langchain4j.version>
@@ -244,7 +246,17 @@
                 <artifactId>tool-welfare-sign</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-ops</artifactId>
+                <version>${project.version}</version>
+            </dependency>
 
+            <dependency>
+                <groupId>com.oracle.database.jdbc</groupId>
+                <artifactId>ojdbc11</artifactId>
+                <version>${ojdbc.version}</version>
+            </dependency>
             <dependency>
                 <groupId>org.xerial</groupId>
                 <artifactId>sqlite-jdbc</artifactId>

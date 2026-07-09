@@ -140,6 +140,10 @@
             <groupId>com.exceptioncoder</groupId>
             <artifactId>tool-welfare-sign</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.exceptioncoder</groupId>
+            <artifactId>tool-ops</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
