@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Database, DownloadCloud, ExternalLink, FolderPlus, Loader2, Rocket, ServerCog, Workflow } from 'lucide-react'
+import {
+  Database, DownloadCloud, ExternalLink, FolderPlus, Loader2, Play, RotateCw, Rocket, ScrollText,
+  ServerCog, Square, Workflow,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { listWorkspaces } from '@/features/claude-chat/api'
@@ -9,6 +12,8 @@ import { CHAT_ROUTE } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import {
   getErpDbConfig, saveErpDbConfig, testErpDb, getErpAppConfig, saveErpAppConfig, testErpApp,
   listOpsSystems, listOpsDatasources, importErpDbFromOps,
+  getErpServiceStatus, getErpServiceLogs, startErpService, stopErpService, restartErpService,
+  ERP_SERVICE_LOG_STREAM, type ErpServiceStatus,
 } from '../api'
 
 const LAUNCH_KEY = 'kai-toolbox:claude-chat:erp-dev-launch'
@@ -180,6 +185,7 @@ export function ErpDevPage() {
         </div>
       </div>
 
+      <ErpServiceSection dirs={dirs} defaultCwd={cwd} />
       <ErpDbConfigSection />
       <ErpAppConfigSection />
 
@@ -188,6 +194,110 @@ export function ErpDevPage() {
         「大脑」是团队插件里的 yoooni-erp-auto-dev skill，可随 claude plugin update 升级。
       </p>
     </div>
+  )
+}
+
+const START_CMD_KEY = 'kai-toolbox:erp-dev:start-cmd'
+
+/**
+ * ERP 服务启停 + 前台启动日志：在工作台直接起停 Yoooni(Resin) 并实时看控制台日志，
+ * 也用于自闭环验证「改完重启让改动生效」。日志经 SSE 实时增量、自动滚到底。
+ * 只能起停/读取<b>由本工作台拉起</b>的服务（用户自己开窗口起的读不到其控制台）。
+ */
+function ErpServiceSection({ dirs, defaultCwd }: { dirs: { path: string; label: string }[]; defaultCwd: string }) {
+  const [cwd, setCwd] = useState(defaultCwd)
+  const [command, setCommand] = useState(() => {
+    try { return localStorage.getItem(START_CMD_KEY) ?? '' } catch { return '' }
+  })
+  const [status, setStatus] = useState<ErpServiceStatus | null>(null)
+  const [lines, setLines] = useState<string[]>([])
+  const [msg, setMsg] = useState<string | null>(null)
+  const logRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => { if (defaultCwd) setCwd(defaultCwd) }, [defaultCwd])
+
+  // 初次拉状态 + 日志快照
+  useEffect(() => {
+    getErpServiceStatus().then(setStatus).catch(() => {})
+    getErpServiceLogs().then(setLines).catch(() => {})
+  }, [])
+
+  // SSE 实时日志/状态（EventSource 自动重连）
+  useEffect(() => {
+    const es = new EventSource(ERP_SERVICE_LOG_STREAM)
+    const onLine = (e: Event) => setLines(prev => [...prev.slice(-1999), (e as MessageEvent).data as string])
+    es.addEventListener('log', onLine)
+    es.addEventListener('exit', onLine)
+    es.addEventListener('status', e => { try { setStatus(JSON.parse((e as MessageEvent).data)) } catch { /* ignore */ } })
+    return () => es.close()
+  }, [])
+
+  // 新日志自动滚到底
+  useEffect(() => { const el = logRef.current; if (el) el.scrollTop = el.scrollHeight }, [lines])
+
+  const running = !!status?.running
+  const setCmd = (v: string) => { setCommand(v); try { localStorage.setItem(START_CMD_KEY, v) } catch { /* ignore */ } }
+  const applyResult = (r: ErpServiceStatus | { ok: false; error: string }) => {
+    if (r && typeof r === 'object' && 'ok' in r && r.ok === false) setMsg(`失败：${r.error}`)
+    else { setStatus(r as ErpServiceStatus); setMsg(null) }
+  }
+  const onErr = (e: unknown) => setMsg(`失败：${e instanceof Error ? e.message : '未知'}`)
+
+  const start = useMutation({ mutationFn: () => startErpService(cwd, command), onSuccess: applyResult, onError: onErr })
+  const stop = useMutation({ mutationFn: () => stopErpService(), onSuccess: applyResult, onError: onErr })
+  const restart = useMutation({ mutationFn: () => restartErpService(cwd, command), onSuccess: applyResult, onError: onErr })
+  const busy = start.isPending || stop.isPending || restart.isPending
+
+  return (
+    <details className="mt-4 rounded-xl border bg-[var(--color-card)] p-4" open>
+      <summary className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+        <ScrollText className="size-4 text-[var(--color-primary)]" />
+        ERP 服务启停 + 启动日志
+        {running
+          ? <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-600 dark:text-emerald-400">运行中 · pid {status?.pid}</span>
+          : <span className="rounded bg-[var(--color-muted)] px-1.5 py-0.5 text-[10px] text-[var(--color-muted-foreground)]">已停止</span>}
+      </summary>
+      <p className="mt-3 text-xs text-[var(--color-muted-foreground)]">
+        由工作台托管拉起 Yoooni（Resin console），实时读它的<b>前台启动日志</b>；用于自闭环验证「改完重启让改动生效」。
+        只能起停/读取<b>本工作台拉起</b>的服务。停服默认结束进程树（Yoooni 无专用 stop 脚本）。
+      </p>
+      <div className="mt-3 grid gap-2">
+        <select
+          value={cwd}
+          onChange={e => setCwd(e.target.value)}
+          className="h-9 w-full rounded-md border bg-[var(--color-background)] px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
+        >
+          {dirs.length === 0 && <option value="">（无可用项目目录）</option>}
+          {dirs.map(d => <option key={d.path} value={d.path}>{d.label}</option>)}
+        </select>
+        <Input
+          value={command}
+          onChange={e => setCmd(e.target.value)}
+          placeholder="启动命令（留空=默认 .\start-yoooni.ps1，在所选项目目录下执行）"
+          className="font-mono text-xs"
+        />
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Button size="sm" onClick={() => { setMsg(null); start.mutate() }} disabled={busy || running || !cwd}>
+          {start.isPending ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />}启动
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => { setMsg(null); stop.mutate() }} disabled={busy || !running}>
+          {stop.isPending ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}停止
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => { setMsg(null); restart.mutate() }} disabled={busy || !cwd}>
+          {restart.isPending ? <Loader2 className="size-4 animate-spin" /> : <RotateCw className="size-4" />}重启（生效）
+        </Button>
+        {msg && <span className="text-xs text-[var(--color-destructive)]">{msg}</span>}
+      </div>
+      <div
+        ref={logRef}
+        className="mt-3 h-64 overflow-auto rounded-md border bg-[#0b0f14] p-2 font-mono text-[11px] leading-relaxed text-[#cbd5e1]"
+      >
+        {lines.length === 0
+          ? <div className="text-[#64748b]">暂无日志。点「启动」拉起服务后，这里实时显示前台控制台输出。</div>
+          : lines.map((l, i) => <div key={i} className="whitespace-pre-wrap break-all">{l}</div>)}
+      </div>
+    </details>
   )
 }
 
