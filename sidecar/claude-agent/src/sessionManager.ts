@@ -3,6 +3,7 @@ import { query, forkSession } from '@anthropic-ai/claude-agent-sdk'
 import { Permissions, type Decision } from './permissions.js'
 import { createWelfareDbServer } from './welfareDb.js'
 import { createErpDbServer } from './erpDb.js'
+import { createErpAppServer } from './erpApp.js'
 import { runCodexTurn } from './codexEngine.js'
 import { runGeminiTurn } from './geminiEngine.js'
 import { runOpencodeTurn } from './opencodeEngine.js'
@@ -164,7 +165,8 @@ class Session {
       let nativeStderr = ''
 
       // MCP：演示会话注入 welfare_db（改数据唯一通道）；普通 Claude 会话若后端就绪(TOOLBOX_API_BASE)
-      // 注入【只读】erp_db（查 ERP 测试库核对逻辑；未配置库时工具自会回"未配置"，无害）。
+      // 注入【只读】erp_db（查 ERP 测试库核对逻辑）+ erp_app（自闭环验证实发 *.action）；
+      // 未配置库/实例时工具自会回"未配置"，无害。
       const mcpServers: Record<string, ReturnType<typeof createWelfareDbServer>> = {}
       if (this.demo && this.demoApiBase) {
         mcpServers.welfare_db = createWelfareDbServer(this.id, this.demoApiBase)
@@ -172,6 +174,9 @@ class Session {
       const toolboxApiBase = process.env.TOOLBOX_API_BASE
       if (!this.demo && toolboxApiBase) {
         mcpServers.erp_db = createErpDbServer(toolboxApiBase)
+        // 自闭环验证：非 demo、后端就绪时挂 erp_app（登录态实发 *.action 探测改动效果；
+        // 未配置本地实例时工具自会回"未配置"，无害）。与只读 erp_db 配合：erp_app 触发、erp_db 回读。
+        mcpServers.erp_app = createErpAppServer(toolboxApiBase)
       }
 
       try {
