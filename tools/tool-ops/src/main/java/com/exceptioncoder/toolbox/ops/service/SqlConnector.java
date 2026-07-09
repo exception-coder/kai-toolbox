@@ -61,13 +61,15 @@ public class SqlConnector {
         int maxRows = maxRowsReq == null || maxRowsReq <= 0
                 ? DEFAULT_MAX_ROWS
                 : Math.min(maxRowsReq, HARD_MAX_ROWS);
+        // Oracle 单条语句带尾分号会报无效字符；统一剥离末尾分号与空白，不动语句内部。
+        String cleaned = stripTrailingSemicolon(sql);
         long start = System.currentTimeMillis();
         try (Connection conn = open(ds);
              Statement stmt = conn.createStatement()) {
             stmt.setQueryTimeout(QUERY_TIMEOUT_SEC);
             // 多取 1 行以判断是否被截断
             stmt.setMaxRows(maxRows + 1);
-            boolean hasResultSet = stmt.execute(sql);
+            boolean hasResultSet = stmt.execute(cleaned);
             if (!hasResultSet) {
                 int updateCount = stmt.getUpdateCount();
                 return new SqlQueryResult(List.of(), List.of(), 0, Math.max(updateCount, 0),
@@ -124,6 +126,15 @@ public class SqlConnector {
         String query = params.isEmpty() ? defaults : defaults + "&" + params;
         url.append("?").append(query);
         return url.toString();
+    }
+
+    static String stripTrailingSemicolon(String sql) {
+        if (sql == null) return "";
+        String s = sql.strip();
+        while (s.endsWith(";")) {
+            s = s.substring(0, s.length() - 1).strip();
+        }
+        return s;
     }
 
     private static String rootMessage(Throwable e) {
