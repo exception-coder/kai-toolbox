@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
+import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatWsProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.websocket.ContainerProvider;
@@ -30,6 +31,7 @@ import java.util.function.BiConsumer;
 public class SidecarClient {
 
     private final ClaudeChatProperties props;
+    private final ClaudeChatWsProperties wsProps;
     private final ObjectMapper mapper;
     private final StandardWebSocketClient client;
 
@@ -37,13 +39,14 @@ public class SidecarClient {
     private volatile BiConsumer<String, JsonNode> listener = (s, n) -> {};
     private volatile WebSocketSession session;
 
-    public SidecarClient(ClaudeChatProperties props, ObjectMapper mapper) {
+    public SidecarClient(ClaudeChatProperties props, ClaudeChatWsProperties wsProps, ObjectMapper mapper) {
         this.props = props;
+        this.wsProps = wsProps;
         this.mapper = mapper;
         // 客户端接收缓冲默认过小，来自 sidecar 的大消息会超限被 1009 断连、确认丢失，调到可配置大值。
         WebSocketContainer container = ContainerProvider.getWebSocketContainer();
-        container.setDefaultMaxTextMessageBufferSize(props.getWsMaxMessageBytes());
-        container.setDefaultMaxBinaryMessageBufferSize(props.getWsMaxMessageBytes());
+        container.setDefaultMaxTextMessageBufferSize(wsProps.getMaxMessageBytes());
+        container.setDefaultMaxBinaryMessageBufferSize(wsProps.getMaxMessageBytes());
         this.client = new StandardWebSocketClient(container);
     }
 
@@ -62,8 +65,8 @@ public class SidecarClient {
         while (System.nanoTime() < deadline) {
             try {
                 session = client.execute(new ClientHandler(), uri.toString()).get();
-                session.setTextMessageSizeLimit(props.getWsMaxMessageBytes());
-                session.setBinaryMessageSizeLimit(props.getWsMaxMessageBytes());
+                session.setTextMessageSizeLimit(wsProps.getMaxMessageBytes());
+                session.setBinaryMessageSizeLimit(wsProps.getMaxMessageBytes());
                 log.info("[claude-chat] 已连接 sidecar {}", uri);
                 return;
             } catch (Exception e) {

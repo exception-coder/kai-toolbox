@@ -36,13 +36,6 @@ public class ClaudeChatProperties {
     /** 等待 sidecar 就绪的最长时间（毫秒） */
     private long sidecarStartupTimeoutMs = 15_000L;
 
-    /**
-     * WebSocket 单条文本/二进制消息最大字节数（两跳都用：浏览器↔后端、后端↔sidecar）。默认 8MB。
-     * Spring/Tomcat 默认仅 8192，一条大消息（如 Write 大文件的 permissionRequest 带整份内容、大 toolResult）
-     * 会超限被以 1009 关连、确认丢失、静默失败。给足以覆盖常见源码文件；极端超大仍会失败(需 agent 分块写)。
-     */
-    private int wsMaxMessageBytes = 8 * 1024 * 1024;
-
     /** 单个附件最大字节数，默认 50MB。 */
     private long maxAttachmentBytes = 50L * 1024 * 1024;
 
