@@ -237,17 +237,22 @@ function Row({ item, onFork, engineLabel, onResumeCurrent, onOpenImage }: { item
               {item.text}
             </div>
           )}
-          {onFork && item.sdkUuid && (
-            <button
-              type="button"
-              onClick={() => onFork(item.sdkUuid!)}
-              aria-label="从此处分叉对话"
-              title="从此处分叉出新会话（保留当前会话）"
-              className="mt-1 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] active:bg-[var(--color-muted)]"
-            >
-              <GitBranch className="size-3.5" />
-              从此处分叉
-            </button>
+          {(item.text.trim() || (onFork && item.sdkUuid)) && (
+            <div className="mt-1 flex items-center gap-1">
+              {item.text.trim() && <CopyButton text={item.text} />}
+              {onFork && item.sdkUuid && (
+                <button
+                  type="button"
+                  onClick={() => onFork(item.sdkUuid!)}
+                  aria-label="从此处分叉对话"
+                  title="从此处分叉出新会话（保留当前会话）"
+                  className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] active:bg-[var(--color-muted)]"
+                >
+                  <GitBranch className="size-3.5" />
+                  从此处分叉
+                </button>
+              )}
+            </div>
           )}
         </div>
       )
