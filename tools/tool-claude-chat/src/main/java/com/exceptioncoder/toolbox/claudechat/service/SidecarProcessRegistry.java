@@ -41,6 +41,9 @@ public class SidecarProcessRegistry {
         if (process != null && process.isAlive()) {
             return;
         }
+        // 走到这＝本后端没有存活的 sidecar。若端口上还有上一轮后端遗留的孤儿 sidecar（旧代码），
+        // 后端会连上它导致修复不生效、事件卡死。启动前按 pid 文件精确杀掉它，确保拉起当前构建。
+        killOrphanSidecar();
         Path dir = resolveSidecarDir();
         Path entry = dir.resolve(props.getEntryScript());
         if (!Files.isRegularFile(entry)) {
@@ -66,6 +69,51 @@ public class SidecarProcessRegistry {
 
     public boolean isAlive() {
         return process != null && process.isAlive();
+    }
+
+    /**
+     * 按 pid 文件杀掉仍占端口的旧 sidecar（上一轮后端遗留、@PreDestroy 未跑到时的孤儿）。
+     * sidecar 监听成功时把自身 pid 写入 {@code ~/.kai-toolbox/claude-sidecar.pid}，这里读它精确定位，
+     * 只在进程仍存活、且（无法取名或名字像 node）时才杀，避免 pid 复用误伤。杀完等端口释放。
+     */
+    private void killOrphanSidecar() {
+        Path pidFile = Path.of(System.getProperty("user.home"), ".kai-toolbox", "claude-sidecar.pid");
+        if (!Files.isRegularFile(pidFile)) {
+            return;
+        }
+        long pid;
+        try {
+            pid = Long.parseLong(Files.readString(pidFile, StandardCharsets.UTF_8).trim());
+        } catch (IOException | NumberFormatException e) {
+            return;
+        }
+        ProcessHandle handle = ProcessHandle.of(pid).orElse(null);
+        if (handle == null || !handle.isAlive()) {
+            return;
+        }
+        String cmd = handle.info().command().orElse("").toLowerCase();
+        if (!cmd.isEmpty() && !cmd.contains("node")) {
+            // pid 已被非 node 进程复用，不碰
+            log.warn("[claude-chat] pid 文件 {} 指向非 node 进程（{}），跳过清理", pid, cmd);
+            return;
+        }
+        log.info("[claude-chat] 发现遗留 sidecar 孤儿进程 pid={}，先终止再拉起当前构建", pid);
+        handle.destroy();
+        try {
+            handle.onExit().get(3, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception e) {
+            handle.destroyForcibly();
+        }
+        // 端口释放有短暂延迟，稍等，避免新实例立刻撞 EADDRINUSE 又退出
+        sleep(400);
+    }
+
+    private static void sleep(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /**

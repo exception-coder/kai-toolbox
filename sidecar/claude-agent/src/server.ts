@@ -1,7 +1,32 @@
 import { WebSocketServer, type WebSocket } from 'ws'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { SessionManager } from './sessionManager.js'
 
 const port = Number(process.env.CLAUDE_CHAT_SIDECAR_PORT) || 18890
+
+// pid 文件：后端重启拉新 sidecar 前据此精确杀掉仍占端口的旧实例，避免连到旧代码孤儿进程。
+const pidFile = path.join(os.homedir(), '.kai-toolbox', 'claude-sidecar.pid')
+const writePidFile = (): void => {
+  try {
+    fs.mkdirSync(path.dirname(pidFile), { recursive: true })
+    fs.writeFileSync(pidFile, String(process.pid), 'utf8')
+  } catch (e) {
+    console.error('[sidecar] 写 pid 文件失败（忽略）:', e)
+  }
+}
+const clearPidFile = (): void => {
+  try {
+    // 仅当文件内容确为本进程 pid 才删，避免删掉后继实例写的新 pid。
+    if (fs.existsSync(pidFile) && fs.readFileSync(pidFile, 'utf8').trim() === String(process.pid)) {
+      fs.rmSync(pidFile, { force: true })
+    }
+  } catch {
+    // 忽略
+  }
+}
+process.on('exit', clearPidFile)
 
 // 仅绑 127.0.0.1：sidecar 不对外暴露，只有本机 Java 后端能连。
 const wss = new WebSocketServer({ host: '127.0.0.1', port })
@@ -130,5 +155,6 @@ wss.on('connection', (ws) => {
 
 wss.on('listening', () => {
   listening = true
+  writePidFile()
   console.log(`[sidecar] listening on 127.0.0.1:${port}`)
 })
