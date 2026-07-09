@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
+import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSettingRepository;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -8,18 +9,24 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 
 /**
- * 本地 ERP 实例（验证用）连接配置的持久化：存 {@code ~/.kai-toolbox/erp-app.json}
- * （含登录密码，仅服务端持有，前端读取时脱敏）。
+ * 本地 ERP 实例（验证用）连接配置的持久化：存 SQLite {@code claude_chat_setting} 表（name='erp-app'，payload 为 JSON 串，
+ * 含登录密码，仅服务端持有，前端读取时脱敏）。
  *
  * <p>供「ERP 需求开发」的自闭环验证用：agent 改完代码后，经 sidecar 的 erp_app MCP 回灌，
  * 后端以此配置登录拿会话、带 cookie 实发 {@code *.action} 请求，验证改动是否符合预期。
  * <b>务必只连本地/测试实例</b>——{@code ErpAppService} 另有生产域名硬拦截。</p>
+ *
+ * <p>早期该配置存 {@code ~/.kai-toolbox/erp-app.json}；现统一落 SQLite，首次读取时若表内无记录而旧 json 仍在，
+ * 自动导入并把 json 改名为 {@code .bak}（一次性平滑迁移）。</p>
  */
 @Slf4j
 @Service
 public class ErpAppConfigService {
+
+    private static final String SETTING_NAME = "erp-app";
 
     /**
      * 本地 ERP 实例连接配置。
@@ -54,25 +61,27 @@ public class ErpAppConfigService {
     }
 
     private final ObjectMapper mapper;
+    private final ClaudeChatSettingRepository settings;
 
-    public ErpAppConfigService(ObjectMapper mapper) {
+    public ErpAppConfigService(ObjectMapper mapper, ClaudeChatSettingRepository settings) {
         this.mapper = mapper;
+        this.settings = settings;
     }
 
-    private static Path file() {
+    private static Path legacyFile() {
         return Path.of(System.getProperty("user.home"), ".kai-toolbox", "erp-app.json");
     }
 
-    /** 读取完整配置（含密码）；无/损坏返回 null。 */
+    /** 读取完整配置（含密码）；无返回 null。表内无记录时尝试从旧 json 一次性导入。 */
     public ErpAppConn get() {
-        Path f = file();
-        if (!Files.isRegularFile(f)) {
-            return null;
+        String payload = settings.find(SETTING_NAME);
+        if (payload == null) {
+            return migrateFromLegacy();
         }
         try {
-            return mapper.readValue(Files.readString(f), ErpAppConn.class);
+            return mapper.readValue(payload, ErpAppConn.class);
         } catch (IOException e) {
-            log.warn("读取 erp-app.json 失败：{}", e.getMessage());
+            log.warn("解析 erp-app 配置失败：{}", e.getMessage());
             return null;
         }
     }
@@ -88,11 +97,27 @@ public class ErpAppConfigService {
             }
         }
         try {
-            Path f = file();
-            Files.createDirectories(f.getParent());
-            Files.writeString(f, mapper.writeValueAsString(toSave));
+            settings.upsert(SETTING_NAME, mapper.writeValueAsString(toSave));
         } catch (IOException e) {
             throw new IllegalStateException("保存 ERP 实例配置失败：" + e.getMessage(), e);
+        }
+    }
+
+    /** 一次性迁移：旧 erp-app.json 存在则导入到 SQLite 并改名 .bak，否则返回 null。 */
+    private ErpAppConn migrateFromLegacy() {
+        Path f = legacyFile();
+        if (!Files.isRegularFile(f)) {
+            return null;
+        }
+        try {
+            ErpAppConn conn = mapper.readValue(Files.readString(f), ErpAppConn.class);
+            settings.upsert(SETTING_NAME, mapper.writeValueAsString(conn));
+            Files.move(f, f.resolveSibling("erp-app.json.bak"), StandardCopyOption.REPLACE_EXISTING);
+            log.info("已把旧 erp-app.json 迁入 SQLite 并改名 erp-app.json.bak");
+            return conn;
+        } catch (IOException e) {
+            log.warn("迁移旧 erp-app.json 失败：{}", e.getMessage());
+            return null;
         }
     }
 }

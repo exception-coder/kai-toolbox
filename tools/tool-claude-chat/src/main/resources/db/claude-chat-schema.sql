@@ -33,3 +33,11 @@ CREATE TABLE IF NOT EXISTS claude_chat_session_alias (
     alias           TEXT NOT NULL,
     updated_at      INTEGER NOT NULL
 );
+
+-- 模块级 KV 设置：单行配置存这里（payload 存 JSON 串），如 ERP 需求开发的测试库(erp-db)/本地实例(erp-app)连接。
+-- 早期这些配置存 ~/.kai-toolbox/*.json，现统一落 SQLite（ConfigService 首次读时自动从旧 json 导入并改名 .bak）。
+CREATE TABLE IF NOT EXISTS claude_chat_setting (
+    name        TEXT PRIMARY KEY,
+    payload     TEXT NOT NULL,
+    updated_at  INTEGER NOT NULL
+);
