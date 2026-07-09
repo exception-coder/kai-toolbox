@@ -3,6 +3,8 @@ package com.exceptioncoder.toolbox.claudechat.service;
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.websocket.ContainerProvider;
+import jakarta.websocket.WebSocketContainer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
@@ -29,7 +31,7 @@ public class SidecarClient {
 
     private final ClaudeChatProperties props;
     private final ObjectMapper mapper;
-    private final StandardWebSocketClient client = new StandardWebSocketClient();
+    private final StandardWebSocketClient client;
 
     /** (sessionId|null, eventNode) -> 处理；sessionId 为 null 表示连接级事件（如断开） */
     private volatile BiConsumer<String, JsonNode> listener = (s, n) -> {};
@@ -38,6 +40,11 @@ public class SidecarClient {
     public SidecarClient(ClaudeChatProperties props, ObjectMapper mapper) {
         this.props = props;
         this.mapper = mapper;
+        // 客户端接收缓冲默认过小，来自 sidecar 的大消息会超限被 1009 断连、确认丢失，调到可配置大值。
+        WebSocketContainer container = ContainerProvider.getWebSocketContainer();
+        container.setDefaultMaxTextMessageBufferSize(props.getWsMaxMessageBytes());
+        container.setDefaultMaxBinaryMessageBufferSize(props.getWsMaxMessageBytes());
+        this.client = new StandardWebSocketClient(container);
     }
 
     public void setListener(BiConsumer<String, JsonNode> listener) {
@@ -55,6 +62,8 @@ public class SidecarClient {
         while (System.nanoTime() < deadline) {
             try {
                 session = client.execute(new ClientHandler(), uri.toString()).get();
+                session.setTextMessageSizeLimit(props.getWsMaxMessageBytes());
+                session.setBinaryMessageSizeLimit(props.getWsMaxMessageBytes());
                 log.info("[claude-chat] 已连接 sidecar {}", uri);
                 return;
             } catch (Exception e) {

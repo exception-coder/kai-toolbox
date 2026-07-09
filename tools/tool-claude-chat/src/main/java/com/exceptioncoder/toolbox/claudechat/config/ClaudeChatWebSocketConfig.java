@@ -16,13 +16,16 @@ public class ClaudeChatWebSocketConfig implements WebSocketConfigurer {
     private final ClaudeChatWebSocketHandler handler;
     private final DemoWebSocketHandler demoHandler;
     private final ObjectProvider<AdminHandshakeInterceptor> adminHandshake;
+    private final ClaudeChatProperties props;
 
     public ClaudeChatWebSocketConfig(ClaudeChatWebSocketHandler handler,
                                      DemoWebSocketHandler demoHandler,
-                                     ObjectProvider<AdminHandshakeInterceptor> adminHandshake) {
+                                     ObjectProvider<AdminHandshakeInterceptor> adminHandshake,
+                                     ClaudeChatProperties props) {
         this.handler = handler;
         this.demoHandler = demoHandler;
         this.adminHandshake = adminHandshake;
+        this.props = props;
     }
 
     @Override
@@ -42,9 +45,11 @@ public class ClaudeChatWebSocketConfig implements WebSocketConfigurer {
     @Bean
     public ServletServerContainerFactoryBean claudeChatServletServerContainer() {
         ServletServerContainerFactoryBean f = new ServletServerContainerFactoryBean();
-        // Claude 的 assistant 文本与工具结果可能较大，给到 256KB
-        f.setMaxTextMessageBufferSize(256 * 1024);
-        f.setMaxBinaryMessageBufferSize(256 * 1024);
+        // 单条大消息（Write 大文件的 permissionRequest 带整份内容、大 toolResult 等）会超默认上限被以 1009
+        // 关连、确认丢失静默失败；调到可配置的大值（默认 8MB），覆盖常见源码文件。
+        int max = props.getWsMaxMessageBytes();
+        f.setMaxTextMessageBufferSize(max);
+        f.setMaxBinaryMessageBufferSize(max);
         f.setMaxSessionIdleTimeout(0L);
         return f;
     }
