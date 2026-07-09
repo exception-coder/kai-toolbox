@@ -189,6 +189,14 @@ export function renameSession(id: string, title: string) {
   })
 }
 
+/** 设置/清除会话分组（后端持久化，跨端可见）；group 传空串=移出分组。 */
+export function setSessionGroupApi(id: string, group: string | null) {
+  return http<void>(`/claude-chat/sessions/${encodeURIComponent(id)}/group`, {
+    method: 'PUT',
+    body: JSON.stringify({ group: group ?? '' }),
+  })
+}
+
 /** 重命名本机历史会话（自定义别名；空串=清除，回落解析标题）。 */
 export function renameHistory(sdkSessionId: string, alias: string) {
   return http<void>(`/claude-chat/history/${encodeURIComponent(sdkSessionId)}/alias`, {

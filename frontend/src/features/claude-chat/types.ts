@@ -17,6 +17,8 @@ export interface ClaudeChatSessionView {
   providerKind?: ProviderKind
   /** 第三方网关 baseURL（仅展示用；后端不会回传 authToken） */
   providerBaseUrl?: string | null
+  /** 会话所属分组名（后端持久化，跨端可见）；空/缺省=未分组 */
+  group?: string | null
   status: SessionStatus
   startedAt: number
   lastSeenAt: number

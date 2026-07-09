@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS claude_chat_session (
     -- 持久化以便断连重连 / sidecar 重启后 resume 仍指向同一网关。auth_token 本地明文存（单机单用户）。
     api_base_url    TEXT,
     auth_token      TEXT,
+    -- 会话分组名（用户自定义，空=未分组）；原在浏览器 localStorage，改后端持久化后跨端/换浏览器可见
+    group_name      TEXT,
     -- RUNNING / IDLE / INTERRUPTED / DONE
     status          TEXT NOT NULL,
     started_at      INTEGER NOT NULL,

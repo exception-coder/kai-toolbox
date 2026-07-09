@@ -52,4 +52,13 @@ public class ClaudeChatSessionController {
         repo.updateTitle(id, title.trim());
         return ResponseEntity.noContent().build();
     }
+
+    /** 设置/清除会话分组（改 SQLite group_name；空/缺省=移出分组）。后端持久化，跨端可见。 */
+    @PutMapping("/{id}/group")
+    public ResponseEntity<Void> setGroup(@PathVariable String id, @RequestBody Map<String, String> body) {
+        String group = body.get("group");
+        String g = group == null || group.isBlank() ? null : group.trim();
+        repo.updateGroup(id, g);
+        return ResponseEntity.noContent().build();
+    }
 }

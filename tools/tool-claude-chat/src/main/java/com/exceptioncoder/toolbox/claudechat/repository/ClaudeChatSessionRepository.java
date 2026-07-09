@@ -28,6 +28,7 @@ public class ClaudeChatSessionRepository {
             .engineSessions(rs.getString("engine_sessions"))
             .apiBaseUrl(rs.getString("api_base_url"))
             .authToken(rs.getString("auth_token"))
+            .groupName(rs.getString("group_name"))
             .status(SessionStatus.valueOf(rs.getString("status")))
             .startedAt(rs.getLong("started_at"))
             .lastSeenAt(rs.getLong("last_seen_at"))
@@ -94,6 +95,11 @@ public class ClaudeChatSessionRepository {
 
     public void updateTitle(String id, String title) {
         jdbc.update("UPDATE claude_chat_session SET title = ? WHERE id = ?", title, id);
+    }
+
+    /** 设/清会话分组（null=移出分组）。 */
+    public void updateGroup(String id, String groupName) {
+        jdbc.update("UPDATE claude_chat_session SET group_name = ? WHERE id = ?", groupName, id);
     }
 
     public void deleteById(String id) {

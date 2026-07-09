@@ -18,6 +18,7 @@ public record ClaudeChatSessionView(
         String engines,
         String providerKind,
         String providerBaseUrl,
+        String group,
         SessionStatus status,
         long startedAt,
         long lastSeenAt,
@@ -28,9 +29,10 @@ public record ClaudeChatSessionView(
         String engines = s.getEngines() == null || s.getEngines().isBlank() ? engine : s.getEngines();
         String providerBaseUrl = s.getApiBaseUrl() == null || s.getApiBaseUrl().isBlank() ? null : s.getApiBaseUrl();
         String providerKind = providerBaseUrl == null ? "official" : "thirdParty";
+        String group = s.getGroupName() == null || s.getGroupName().isBlank() ? null : s.getGroupName();
         return new ClaudeChatSessionView(
                 s.getId(), s.getCwd(), s.getTitle(), s.getSdkSessionId(),
-                engine, engines, providerKind, providerBaseUrl,
+                engine, engines, providerKind, providerBaseUrl, group,
                 s.getStatus(), s.getStartedAt(), s.getLastSeenAt(), live);
     }
 }
