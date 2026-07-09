@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Database, DownloadCloud, ExternalLink, FolderPlus, Loader2, Play, RotateCw, Rocket, ScrollText,
-  ServerCog, Square, Workflow,
+  Database, DownloadCloud, ExternalLink, FolderPlus, Loader2, Maximize2, Play, RotateCw, Rocket,
+  ScrollText, ServerCog, Square, Workflow, X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -212,7 +212,9 @@ function ErpServiceSection({ dirs, defaultCwd }: { dirs: { path: string; label: 
   const [status, setStatus] = useState<ErpServiceStatus | null>(null)
   const [lines, setLines] = useState<string[]>([])
   const [msg, setMsg] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState(false)
   const logRef = useRef<HTMLDivElement>(null)
+  const bigLogRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { if (defaultCwd) setCwd(defaultCwd) }, [defaultCwd])
 
@@ -230,8 +232,19 @@ function ErpServiceSection({ dirs, defaultCwd }: { dirs: { path: string; label: 
     return () => es.close()
   }, [])
 
-  // 新日志自动滚到底
-  useEffect(() => { const el = logRef.current; if (el) el.scrollTop = el.scrollHeight }, [lines])
+  // 新日志自动滚到底（内嵌框 + 放大浮层）
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
+    if (bigLogRef.current) bigLogRef.current.scrollTop = bigLogRef.current.scrollHeight
+  }, [lines, expanded])
+
+  // 放大时 Esc 关闭
+  useEffect(() => {
+    if (!expanded) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setExpanded(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [expanded])
 
   const running = !!status?.running
   const setCmd = (v: string) => { setCommand(v); try { localStorage.setItem(START_CMD_KEY, v) } catch { /* ignore */ } }
@@ -245,6 +258,11 @@ function ErpServiceSection({ dirs, defaultCwd }: { dirs: { path: string; label: 
   const stop = useMutation({ mutationFn: () => stopErpService(), onSuccess: applyResult, onError: onErr })
   const restart = useMutation({ mutationFn: () => restartErpService(cwd, command), onSuccess: applyResult, onError: onErr })
   const busy = start.isPending || stop.isPending || restart.isPending
+
+  // 日志正文（内嵌框与放大浮层共用，函数化以产生独立元素）
+  const renderLog = () => lines.length === 0
+    ? <div className="text-[#64748b]">暂无日志。点「启动」拉起服务后，这里实时显示前台控制台输出。</div>
+    : lines.map((l, i) => <div key={i} className="whitespace-pre-wrap break-all">{l}</div>)
 
   return (
     <details className="mt-4 rounded-xl border bg-[var(--color-card)] p-4" open>
@@ -287,14 +305,46 @@ function ErpServiceSection({ dirs, defaultCwd }: { dirs: { path: string; label: 
         </Button>
         {msg && <span className="text-xs text-[var(--color-destructive)]">{msg}</span>}
       </div>
+      <div className="mt-3 mb-1 flex items-center justify-between">
+        <span className="text-xs text-[var(--color-muted-foreground)]">启动日志（{lines.length} 行）</span>
+        <Button size="sm" variant="ghost" className="h-7 gap-1 px-2 text-xs" onClick={() => setExpanded(true)}>
+          <Maximize2 className="size-3.5" />放大
+        </Button>
+      </div>
       <div
         ref={logRef}
-        className="mt-3 h-64 overflow-auto rounded-md border bg-[#0b0f14] p-2 font-mono text-[11px] leading-relaxed text-[#cbd5e1]"
+        onDoubleClick={() => setExpanded(true)}
+        title="双击放大"
+        className="h-64 cursor-zoom-in overflow-auto rounded-md border bg-[#0b0f14] p-2 font-mono text-[11px] leading-relaxed text-[#cbd5e1]"
       >
-        {lines.length === 0
-          ? <div className="text-[#64748b]">暂无日志。点「启动」拉起服务后，这里实时显示前台控制台输出。</div>
-          : lines.map((l, i) => <div key={i} className="whitespace-pre-wrap break-all">{l}</div>)}
+        {renderLog()}
       </div>
+
+      {expanded && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col bg-black/70 p-4 sm:p-8"
+          onClick={() => setExpanded(false)}
+        >
+          <div
+            className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#1e2733] bg-[#0b0f14] shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-[#1e2733] px-3 py-2">
+              <span className="flex items-center gap-2 font-mono text-xs text-[#cbd5e1]">
+                <ScrollText className="size-4" />ERP 启动日志
+                {running ? <span className="text-emerald-400">· 运行中 pid {status?.pid}</span> : <span className="text-[#64748b]">· 已停止</span>}
+                <span className="text-[#64748b]">（{lines.length} 行 · Esc 关闭）</span>
+              </span>
+              <Button size="sm" variant="ghost" className="h-7 gap-1 px-2 text-xs text-[#cbd5e1] hover:bg-white/10" onClick={() => setExpanded(false)}>
+                <X className="size-4" />关闭
+              </Button>
+            </div>
+            <div ref={bigLogRef} className="min-h-0 flex-1 overflow-auto p-3 font-mono text-[13px] leading-relaxed text-[#cbd5e1]">
+              {renderLog()}
+            </div>
+          </div>
+        </div>
+      )}
     </details>
   )
 }
