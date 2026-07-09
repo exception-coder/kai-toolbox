@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useClaudeChatSocket, type UseClaudeChatSocket } from '../hooks/useClaudeChatSocket'
+import { useGrabGesture, type GestureStatus } from '../hooks/useGrabGesture'
+import { GestureFlourish, type GestureFlash } from '../components/GestureFlourish'
 import { listSessions } from '../api'
 
 /** Vibe Coding 会话页路由；落在此路由即激活引擎（懒启动）。 */
@@ -80,6 +82,12 @@ interface ChatRuntime {
   setVoiceMode: (v: boolean) => void
   /** 弹出悬浮窗时应返回的路由 = 进入会话页前最后访问的非会话路由（默认 /）。 */
   getReturnRoute: () => string
+  /** 手势控制开关（默认关）：开后在会话页或悬浮态监控摄像头——抓握=弹出悬浮窗，展开=返回会话页。 */
+  gestureOn: boolean
+  toggleGesture: () => void
+  /** 手势监控状态与错误（供 UI 显示指示/提示）。 */
+  gestureStatus: GestureStatus
+  gestureError: string | null
 }
 
 const Ctx = createContext<ChatRuntime | null>(null)
@@ -124,6 +132,7 @@ export function ChatRuntimeProvider({ children, demo = false }: { children: Reac
     }
   }, [demo, floating, minimized, pos, size])
   const location = useLocation()
+  const navigate = useNavigate()
   // 记住进入会话页前最后访问的非会话路由，弹出悬浮窗时回到这里（而非每次回首页）
   const lastRouteRef = useRef('/')
   const getReturnRoute = useCallback(() => lastRouteRef.current, [])
@@ -134,13 +143,44 @@ export function ChatRuntimeProvider({ children, demo = false }: { children: Reac
     else lastRouteRef.current = location.pathname + location.search
   }, [location.pathname, location.search])
 
-  const control = { demo, concierge, setConcierge, active, activate, floating, setFloating, minimized, setMinimized, pos, setPos, size, setSize, voiceMode, setVoiceMode, getReturnRoute }
+  // ── 手势控制（默认关）：抓握=弹出悬浮窗；展开=返回会话页。仅在会话页或悬浮态监控（Vibe Coding 模块内）──
+  const [gestureOn, setGestureOn] = useState(() => { try { return localStorage.getItem('kai-toolbox:chat-gesture') === '1' } catch { return false } })
+  const [gestureStatus, setGestureStatus] = useState<GestureStatus>('idle')
+  const [gestureError, setGestureError] = useState<string | null>(null)
+  const [gestureFlash, setGestureFlash] = useState<GestureFlash | null>(null)
+  const flashSeq = useRef(0)
+  const toggleGesture = useCallback(() => setGestureOn(v => {
+    const nv = !v
+    try { localStorage.setItem('kai-toolbox:chat-gesture', nv ? '1' : '0') } catch { /* ignore */ }
+    if (!nv) { setGestureStatus('idle'); setGestureError(null) }
+    return nv
+  }), [])
+  useGrabGesture({
+    enabled: gestureOn && (location.pathname === CHAT_ROUTE || floating),
+    onStatus: setGestureStatus,
+    onError: setGestureError,
+    onGesture: g => {
+      if (g === 'Closed_Fist') {
+        setGestureFlash({ kind: 'grab', id: ++flashSeq.current })
+        if (!floating) { setActive(true); setFloating(true); setMinimized(false); navigate(getReturnRoute()) }
+      } else if (g === 'Open_Palm') {
+        setGestureFlash({ kind: 'open', id: ++flashSeq.current })
+        if (floating) { setFloating(false); setMinimized(false); navigate(CHAT_ROUTE) }
+      }
+    },
+  })
+
+  const control = { demo, concierge, setConcierge, active, activate, floating, setFloating, minimized, setMinimized, pos, setPos, size, setSize, voiceMode, setVoiceMode, getReturnRoute, gestureOn, toggleGesture, gestureStatus, gestureError }
+  const flourish = <GestureFlourish flash={gestureFlash} onDone={() => setGestureFlash(null)} />
 
   if (!active) {
-    return <Ctx.Provider value={{ ...control, chat: null }}>{children}</Ctx.Provider>
+    return <Ctx.Provider value={{ ...control, chat: null }}>{children}{flourish}</Ctx.Provider>
   }
   return (
-    <ChatEngine control={control} demo={demo}>{children}</ChatEngine>
+    <>
+      <ChatEngine control={control} demo={demo}>{children}</ChatEngine>
+      {flourish}
+    </>
   )
 }
 

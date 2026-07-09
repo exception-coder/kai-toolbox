@@ -27,7 +27,6 @@ import { LogsPanel } from '../components/LogsPanel'
 import { GestureDebugPanel } from '../components/GestureDebugPanel'
 import { ProviderDiagPanel } from '../components/ProviderDiagPanel'
 import { groupModels } from '../components/modelGroups'
-import { useGrabGesture, type GestureStatus } from '../hooks/useGrabGesture'
 import { TaskspacePanel } from '../components/TaskspacePanel'
 import { CloneProjectPanel } from '../components/CloneProjectPanel'
 import { OnboardPipelinePanel } from '../components/OnboardPipelinePanel'
@@ -136,7 +135,7 @@ function MenuSection({ icon, label, open, onToggle, children }: {
 }
 
 export function ChatPage() {
-  const { chat, setFloating, setMinimized, setVoiceMode, getReturnRoute } = useChatRuntime()
+  const { chat, setFloating, setMinimized, setVoiceMode, getReturnRoute, gestureOn, toggleGesture, gestureStatus, gestureError: gestureErr } = useChatRuntime()
   const navigate = useNavigate()
   const qc = useQueryClient()
   const pending = chat?.pending ?? null
@@ -192,22 +191,7 @@ export function ChatPage() {
     navigate(getReturnRoute())
   }
 
-  // 手势弹窗（默认关）：开后在会话页监控摄像头，识别到「抓握(握拳)」即弹出悬浮窗。仅本页(Vibe Coding)监控。
-  const [gestureOn, setGestureOn] = useState(() => localStorage.getItem('kai-toolbox:chat-gesture') === '1')
-  const [gestureStatus, setGestureStatus] = useState<GestureStatus>('idle')
-  const [gestureErr, setGestureErr] = useState<string | null>(null)
-  const toggleGesture = () => setGestureOn(v => {
-    const nv = !v
-    try { localStorage.setItem('kai-toolbox:chat-gesture', nv ? '1' : '0') } catch { /* ignore */ }
-    if (!nv) { setGestureStatus('idle'); setGestureErr(null) }
-    return nv
-  })
-  useGrabGesture({
-    enabled: gestureOn,
-    onGrab: popOutFloating,
-    onStatus: setGestureStatus,
-    onError: setGestureErr,
-  })
+  // 手势弹窗：开关/状态由 ChatRuntime 统一持有（监控上提到常驻运行时，才能在悬浮态用「展开」手势返回）。
   const [panel, setPanel] = useState<Panel>('none')
   const [showUsage, setShowUsage] = useState(false)
   const toolColors = useToolColors()
@@ -587,7 +571,7 @@ export function ChatPage() {
             type="button"
             onClick={toggleGesture}
             title={gestureErr ? `手势弹窗出错：${gestureErr}（点击关闭）`
-              : gestureStatus === 'running' ? '手势监控中：握拳=弹出悬浮窗（摄像头开启中，点击关闭）'
+              : gestureStatus === 'running' ? '手势监控中：握拳=弹窗 / 张手=返回（摄像头开启中，点击关闭）'
               : gestureStatus === 'loading' ? '手势模型加载中…（点击关闭）'
               : '手势弹窗已开（点击关闭）'}
             className={`flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] ${gestureErr
@@ -623,7 +607,7 @@ export function ChatPage() {
                   <MenuSection icon={<LayoutGrid className="size-4" />} label="视图" open={menuGroup === 'view'} onToggle={() => toggle('view')}>
                     <HeaderMenuItem nested icon={<Cloud className="size-4" />} label="语音模式" hint="全屏白云·纯语音对话" onClick={() => { setHeaderMenu(false); setVoiceMode(true) }} />
                     <HeaderMenuItem nested icon={<PictureInPicture2 className="size-4" />} label="弹出悬浮窗" hint="切到其他模块常驻显示" onClick={() => { setHeaderMenu(false); popOutFloating() }} />
-                    <HeaderMenuItem nested icon={<Hand className="size-4" />} label={gestureOn ? '手势弹窗·开' : '手势弹窗·关'} hint={gestureOn ? '摄像头识别「抓握」→ 弹出悬浮窗' : '开启后握拳即弹出悬浮窗(仅本模块)'} onClick={() => { setHeaderMenu(false); toggleGesture() }} />
+                    <HeaderMenuItem nested icon={<Hand className="size-4" />} label={gestureOn ? '手势控制·开' : '手势控制·关'} hint={gestureOn ? '握拳=弹出悬浮窗；张手=返回会话页' : '开启后：握拳弹窗 / 张手返回(仅本模块)'} onClick={() => { setHeaderMenu(false); toggleGesture() }} />
                     <HeaderMenuItem nested icon={<Hand className="size-4" />} label="手势自检" hint="逐步测试摄像头/模型/识别，排查能否启用" onClick={() => { setHeaderMenu(false); setShowGestureDebug(true) }} />
                     <HeaderMenuItem nested icon={fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />} label={fullscreen ? '退出全屏' : '全屏显示'} onClick={() => { setHeaderMenu(false); setFullscreen(f => !f) }} />
                     <HeaderMenuItem nested icon={<Palette className="size-4" />} label={toolColors ? '工具着色 · 开' : '工具着色 · 关'} hint="按命令/读写/子代理/技能/MCP 上色" onClick={() => { setToolColors(!toolColors) }} />

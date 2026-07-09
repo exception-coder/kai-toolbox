@@ -16,20 +16,26 @@ export type GestureStatus = 'idle' | 'loading' | 'running' | 'error'
  * google storage 若被墙需自备 gesture_recognizer.task）。加载/摄像头失败一律软降级（onStatus='error'），
  * 不抛错、不影响会话。
  */
+/** 关注的手势类别（MediaPipe categoryName）。 */
+export type HandGesture = 'Closed_Fist' | 'Open_Palm'
+
 interface Options {
   enabled: boolean
-  onGrab: () => void
+  /** 识别到「进入」某手势的瞬间触发（带每手势冷却）。 */
+  onGesture: (g: HandGesture) => void
   onStatus?: (s: GestureStatus) => void
   onError?: (msg: string) => void
-  /** 触发后的冷却毫秒，防一次抓握连发。默认 2500。 */
+  /** 同一手势触发后的冷却毫秒，防连发。默认 2500。 */
   cooldownMs?: number
 }
 
-export function useGrabGesture({ enabled, onGrab, onStatus, onError, cooldownMs = 2500 }: Options): void {
-  const onGrabRef = useRef(onGrab)
+const WATCHED: HandGesture[] = ['Closed_Fist', 'Open_Palm']
+
+export function useGrabGesture({ enabled, onGesture, onStatus, onError, cooldownMs = 2500 }: Options): void {
+  const onGrabRef = useRef(onGesture)
   const onStatusRef = useRef(onStatus)
   const onErrorRef = useRef(onError)
-  onGrabRef.current = onGrab
+  onGrabRef.current = onGesture
   onStatusRef.current = onStatus
   onErrorRef.current = onError
 
@@ -94,17 +100,17 @@ export function useGrabGesture({ enabled, onGrab, onStatus, onError, cooldownMs 
         onStatusRef.current?.('running')
 
         let lastGesture = ''
-        let lastFireAt = 0
+        const lastFireAt: Record<string, number> = {}
         const loop = () => {
           if (cancelled || !recognizer || !video) return
           const now = performance.now()
           try {
             const res = recognizer.recognizeForVideo(video, now)
             const g = res.gestures?.[0]?.[0]?.categoryName ?? ''
-            // 抓握 = 从非握拳变成握拳的那一刻；冷却内不重复触发
-            if (g === 'Closed_Fist' && lastGesture !== 'Closed_Fist' && now - lastFireAt > cooldownMs) {
-              lastFireAt = now
-              onGrabRef.current()
+            // 「进入」某个关注手势的瞬间触发（从别的状态切进来）；每手势各自冷却
+            if (g !== lastGesture && (WATCHED as string[]).includes(g) && now - (lastFireAt[g] ?? 0) > cooldownMs) {
+              lastFireAt[g] = now
+              onGrabRef.current(g as HandGesture)
             }
             lastGesture = g
           } catch { /* 单帧识别异常忽略，继续下一帧 */ }
