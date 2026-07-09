@@ -129,8 +129,9 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
     if (!chat.sessionId) return
     if (!draft.trim() && attachments.length === 0) return
     ensureNotifyPermission()
-    chat.send(draft, attachments.map(a => ({ name: a.name, path: a.path })))
-    attachments.forEach(a => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl) })
+    // 带上 mime + 本地预览 url → 气泡里显示图片缩略图（与单会话视图一致）；
+    // 不在此 revoke object URL：它已被消息气泡引用（revoke 会让缩略图失效）。
+    chat.send(draft, attachments.map(a => ({ name: a.name, path: a.path, mime: a.mime, url: a.previewUrl })))
     setDraft('')
     setAttachments([])
     const el = taRef.current
