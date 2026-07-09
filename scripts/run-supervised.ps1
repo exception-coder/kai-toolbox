@@ -114,6 +114,11 @@ $HttpPrefix = 'http://127.0.0.1:18081/'
 # Backend port. Must match server.port in application.yml.
 $BackendPort = 18080
 
+# claude-agent node sidecar 端口，须与 application.yml 的 toolbox.claude-chat.sidecar-port 一致。
+# 后端懒启动 node dist/server.js 绑此端口；重启时必须一并清掉，否则旧 sidecar 变孤儿占端口、
+# 新 sidecar 命中 EADDRINUSE 退出，后端连回旧代码，导致 sidecar 侧改动重启后不生效。
+$SidecarPort = 18890
+
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $RepoRoot
 
@@ -174,6 +179,9 @@ function Resolve-PowerShellExe {
 
 function Start-Backend {
     Stop-PortHolders $BackendPort
+    # 一并清掉上一代 node claude-agent sidecar：它是后端懒启动的子进程，java 先退时会被重挂养成孤儿、
+    # 逃过 tree-kill 继续占 18890；不清掉的话新后端懒启动的新 sidecar 会 EADDRINUSE 退出、连回旧代码。
+    Stop-PortHolders $SidecarPort
     Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') package and start backend..."
     $starterJar = Join-Path $RepoRoot 'toolbox-starter\target\kai-toolbox.jar'
     # 机密项一律取自 run-tools.conf（已注入环境变量），禁止硬编码进脚本（本仓为公开仓库）。
@@ -386,6 +394,7 @@ function Handle-Request($ctx) {
         Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') /restart received, taking over port and restarting"
         Stop-Backend
         Stop-PortHolders $BackendPort
+        # node claude-agent sidecar(:18890) 由守护循环随后调用的 Start-Backend 统一清理+懒启动，这里不重复处理。
         # 一并回收 Python sidecar，否则改了 sidecar 代码/配置后重启不生效（旧进程占着端口被 skip）。
         Restart-PythonSidecars
         return
