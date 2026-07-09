@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, Bug, ChevronDown, Cloud, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, LayoutGrid, List, ListChecks, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
+import { Bell, Bug, ChevronDown, Cloud, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, List, ListChecks, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useChatRuntime } from '../runtime/ChatRuntimeContext'
@@ -26,6 +26,7 @@ import { PluginPanel } from '../components/PluginPanel'
 import { LogsPanel } from '../components/LogsPanel'
 import { ProviderDiagPanel } from '../components/ProviderDiagPanel'
 import { groupModels } from '../components/modelGroups'
+import { useGrabGesture, type GestureStatus } from '../hooks/useGrabGesture'
 import { TaskspacePanel } from '../components/TaskspacePanel'
 import { CloneProjectPanel } from '../components/CloneProjectPanel'
 import { OnboardPipelinePanel } from '../components/OnboardPipelinePanel'
@@ -188,6 +189,23 @@ export function ChatPage() {
     setMinimized(false)
     navigate(getReturnRoute())
   }
+
+  // 手势弹窗（默认关）：开后在会话页监控摄像头，识别到「抓握(握拳)」即弹出悬浮窗。仅本页(Vibe Coding)监控。
+  const [gestureOn, setGestureOn] = useState(() => localStorage.getItem('kai-toolbox:chat-gesture') === '1')
+  const [gestureStatus, setGestureStatus] = useState<GestureStatus>('idle')
+  const [gestureErr, setGestureErr] = useState<string | null>(null)
+  const toggleGesture = () => setGestureOn(v => {
+    const nv = !v
+    try { localStorage.setItem('kai-toolbox:chat-gesture', nv ? '1' : '0') } catch { /* ignore */ }
+    if (!nv) { setGestureStatus('idle'); setGestureErr(null) }
+    return nv
+  })
+  useGrabGesture({
+    enabled: gestureOn,
+    onGrab: popOutFloating,
+    onStatus: setGestureStatus,
+    onError: setGestureErr,
+  })
   const [panel, setPanel] = useState<Panel>('none')
   const [showUsage, setShowUsage] = useState(false)
   const toolColors = useToolColors()
@@ -561,6 +579,25 @@ export function ChatPage() {
             <SessionTotalBadge items={chat.items} serverTotal={sessionUsage} onClick={() => setShowUsage(true)} />
           </>
         )}
+        {/* 手势弹窗状态：开启后提示摄像头正在识别（隐私可见），点击可关 */}
+        {gestureOn && (
+          <button
+            type="button"
+            onClick={toggleGesture}
+            title={gestureErr ? `手势弹窗出错：${gestureErr}（点击关闭）`
+              : gestureStatus === 'running' ? '手势监控中：握拳=弹出悬浮窗（摄像头开启中，点击关闭）'
+              : gestureStatus === 'loading' ? '手势模型加载中…（点击关闭）'
+              : '手势弹窗已开（点击关闭）'}
+            className={`flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] ${gestureErr
+              ? 'border-[var(--color-destructive)] text-[var(--color-destructive)]'
+              : gestureStatus === 'running'
+                ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400'
+                : 'text-[var(--color-muted-foreground)]'}`}
+          >
+            <Hand className={`size-3 ${gestureStatus === 'running' ? 'animate-pulse' : ''}`} />
+            {gestureErr ? '手势×' : gestureStatus === 'loading' ? '手势…' : '手势'}
+          </button>
+        )}
         <div className="ml-auto flex items-center gap-1">
           {/* 用量入口已并入头部 SessionTotalBadge（点徽章打开） */}
           {/* 常用：带文字标签，一眼可辨 */}
@@ -584,6 +621,7 @@ export function ChatPage() {
                   <MenuSection icon={<LayoutGrid className="size-4" />} label="视图" open={menuGroup === 'view'} onToggle={() => toggle('view')}>
                     <HeaderMenuItem nested icon={<Cloud className="size-4" />} label="语音模式" hint="全屏白云·纯语音对话" onClick={() => { setHeaderMenu(false); setVoiceMode(true) }} />
                     <HeaderMenuItem nested icon={<PictureInPicture2 className="size-4" />} label="弹出悬浮窗" hint="切到其他模块常驻显示" onClick={() => { setHeaderMenu(false); popOutFloating() }} />
+                    <HeaderMenuItem nested icon={<Hand className="size-4" />} label={gestureOn ? '手势弹窗·开' : '手势弹窗·关'} hint={gestureOn ? '摄像头识别「抓握」→ 弹出悬浮窗' : '开启后握拳即弹出悬浮窗(仅本模块)'} onClick={() => { setHeaderMenu(false); toggleGesture() }} />
                     <HeaderMenuItem nested icon={fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />} label={fullscreen ? '退出全屏' : '全屏显示'} onClick={() => { setHeaderMenu(false); setFullscreen(f => !f) }} />
                     <HeaderMenuItem nested icon={<Palette className="size-4" />} label={toolColors ? '工具着色 · 开' : '工具着色 · 关'} hint="按命令/读写/子代理/技能/MCP 上色" onClick={() => { setToolColors(!toolColors) }} />
                   </MenuSection>
