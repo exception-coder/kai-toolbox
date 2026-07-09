@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
@@ -36,6 +36,12 @@ public class ErpServiceManager {
     public static final String KEY = "erp-service";
     private static final int MAX_LINES = 2000;
     private static final boolean WINDOWS = System.getProperty("os.name", "").toLowerCase().contains("win");
+    /**
+     * 读进程 stdout 的编码：Windows 控制台默认是本地代码页（中文 = GBK/936），而 JVM 的 file.encoding
+     * 在 Java 18+ 默认 UTF-8——直接按 UTF-8 读会把 PowerShell/Resin 的中文日志读成乱码。
+     * 优先用 {@code native.encoding}（JVM 暴露的 OS 原生编码），Windows 兜底 GBK，其余用平台默认。
+     */
+    private static final Charset CONSOLE_CHARSET = pickConsoleCharset();
 
     private final SseEmitterRegistry sse;
 
@@ -142,6 +148,26 @@ public class ErpServiceManager {
 
     // —— 内部 ——
 
+    /** 选控制台读取编码：native.encoding → (Windows) GBK → 平台默认。 */
+    private static Charset pickConsoleCharset() {
+        String nativeEnc = System.getProperty("native.encoding");
+        if (nativeEnc != null && !nativeEnc.isBlank()) {
+            try {
+                return Charset.forName(nativeEnc);
+            } catch (Exception ignore) {
+                // 名字不识别，继续兜底
+            }
+        }
+        if (WINDOWS) {
+            try {
+                return Charset.forName("GBK");
+            } catch (Exception ignore) {
+                // 无 GBK，用默认
+            }
+        }
+        return Charset.defaultCharset();
+    }
+
     /** 默认启动命令：项目根的 start-yoooni.ps1（Windows）。 */
     private static String defaultCommand(Path dir) {
         return WINDOWS ? ".\\start-yoooni.ps1" : "./start-yoooni.sh";
@@ -159,7 +185,7 @@ public class ErpServiceManager {
     private void pumpLogs(Process p) {
         Thread.ofVirtual().name("erp-service-log").start(() -> {
             try (BufferedReader r = new BufferedReader(
-                    new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+                    new InputStreamReader(p.getInputStream(), CONSOLE_CHARSET))) {
                 String line;
                 while ((line = r.readLine()) != null) {
                     appendLine(line);

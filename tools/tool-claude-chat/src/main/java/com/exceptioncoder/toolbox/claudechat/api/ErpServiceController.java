@@ -76,11 +76,17 @@ public class ErpServiceController {
         return manager.snapshot();
     }
 
-    /** 实时日志流（SSE）：事件 log=一行日志，status=状态变化，exit=进程退出。 */
+    /**
+     * 实时日志流（SSE）：事件 log=一行日志，status=状态变化，exit=进程退出。
+     * 连上即回放当前环形缓冲（前端每次连接前清空，避免重复），再推一次状态——
+     * 这样无论何时打开/重连页面都能立刻看到已有日志，不受"连上前的输出丢失"的时序影响。
+     */
     @GetMapping(value = "/logs/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream() {
         SseEmitter emitter = sse.create(ErpServiceManager.KEY);
-        // 连上即推一次当前状态，前端立刻知道运行与否
+        for (String line : manager.snapshot()) {
+            sse.publish(ErpServiceManager.KEY, "log", line);
+        }
         sse.publish(ErpServiceManager.KEY, "status", manager.status());
         return emitter;
     }

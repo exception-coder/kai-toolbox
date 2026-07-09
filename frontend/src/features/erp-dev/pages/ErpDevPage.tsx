@@ -12,7 +12,7 @@ import { CHAT_ROUTE } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import {
   getErpDbConfig, saveErpDbConfig, testErpDb, getErpAppConfig, saveErpAppConfig, testErpApp,
   listOpsSystems, listOpsDatasources, importErpDbFromOps,
-  getErpServiceStatus, getErpServiceLogs, startErpService, stopErpService, restartErpService,
+  getErpServiceStatus, startErpService, stopErpService, restartErpService,
   ERP_SERVICE_LOG_STREAM, type ErpServiceStatus,
 } from '../api'
 
@@ -216,15 +216,13 @@ function ErpServiceSection({ dirs, defaultCwd }: { dirs: { path: string; label: 
 
   useEffect(() => { if (defaultCwd) setCwd(defaultCwd) }, [defaultCwd])
 
-  // 初次拉状态 + 日志快照
-  useEffect(() => {
-    getErpServiceStatus().then(setStatus).catch(() => {})
-    getErpServiceLogs().then(setLines).catch(() => {})
-  }, [])
+  // 初次拉一次状态（SSE 连上后也会推 status，这里让首屏更快）
+  useEffect(() => { getErpServiceStatus().then(setStatus).catch(() => {}) }, [])
 
-  // SSE 实时日志/状态（EventSource 自动重连）
+  // SSE 实时日志/状态（EventSource 自动重连）。连上即回放缓冲，故每次 open 先清空避免重连重复。
   useEffect(() => {
     const es = new EventSource(ERP_SERVICE_LOG_STREAM)
+    es.onopen = () => setLines([])
     const onLine = (e: Event) => setLines(prev => [...prev.slice(-1999), (e as MessageEvent).data as string])
     es.addEventListener('log', onLine)
     es.addEventListener('exit', onLine)
