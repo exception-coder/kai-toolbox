@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Database, ExternalLink, FolderPlus, Loader2, Rocket, Workflow } from 'lucide-react'
+import { Database, ExternalLink, FolderPlus, Loader2, Rocket, ServerCog, Workflow } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { listWorkspaces } from '@/features/claude-chat/api'
 import { CHAT_ROUTE } from '@/features/claude-chat/runtime/ChatRuntimeContext'
-import { getErpDbConfig, saveErpDbConfig, testErpDb } from '../api'
+import { getErpDbConfig, saveErpDbConfig, testErpDb, getErpAppConfig, saveErpAppConfig, testErpApp } from '../api'
 
 const LAUNCH_KEY = 'kai-toolbox:claude-chat:erp-dev-launch'
 
@@ -21,9 +21,12 @@ function buildSeed(moduleOrUrl: string, requirement: string): string {
     '请按门控流程走，每步过关卡等我拍板：',
     '① 先定位页面代码（给的是 URL/*.action 用 url-locate，中文模块名用知识图谱定位），念给我确认命中；',
     '② 查业务知识图谱(domain-knowledge)+库(状态字典/表结构，以 DDL 为准)；',
-    '③ 出轻量方案(design-doc)让我确认；',
+    '③ 出轻量方案(design-doc)让我确认，并给出「验收清单」：每条=触发动作(接口+参数)→期望结果(可机检，含回读 SQL)；',
     '④ 按编码规范改码(encoding-guard 防乱码；DB/迁移/状态字典改动单独确认)；',
-    '⑤ 自检出 diff、只改不提交。',
+    '⑤ 静态自检：编译/构建通过；',
+    '⑥ 自闭环验证：提示我让改动生效(重编译/重启本地实例)后，按验收清单用 mcp__erp_app__http_call 实发接口、',
+    '   mcp__erp_db__query 只读回读，逐条判 PASS/FAIL，输出「接口验证区块」(请求参数/响应/对应SQL)；不符就修正再验(上限3次)；',
+    '⑦ 汇总 diff、只改不提交。',
   ].join('\n')
 }
 
@@ -79,7 +82,8 @@ export function ErpDevPage() {
       </div>
       <p className="mb-5 text-sm text-[var(--color-muted-foreground)]">
         填「模块 + 需求」，交给 ERP 自动开发 agent（yoooni-erp-auto-dev）：定位页面代码 → 查业务知识图谱 + 库 →
-        出方案 → 按编码规范改码 → 自检出 diff。关键处（命中页面 / 方案 / DB 改动）会停下让你确认，<b>只改不提交</b>。
+        出方案 → 按编码规范改码 → <b>自闭环验证</b>（实发接口 + 回读数据，出接口验证区块）→ 出 diff。关键处（命中页面 /
+        方案 / DB 改动 / 生效重启）会停下让你确认，<b>只改不提交</b>。
       </p>
 
       <div className="space-y-4 rounded-xl border bg-[var(--color-card)] p-4">
@@ -144,6 +148,7 @@ export function ErpDevPage() {
       </div>
 
       <ErpDbConfigSection />
+      <ErpAppConfigSection />
 
       <p className="mt-4 text-[11px] text-[var(--color-muted-foreground)]">
         依赖团队套件已安装（domain-knowledge / cross-topology MCP、project-coding-profiles、team-standards）；
@@ -215,6 +220,89 @@ function ErpDbConfigSection() {
       </div>
       <div className="mt-3 flex items-center gap-2">
         <Button size="sm" onClick={() => save.mutate()} disabled={save.isPending || !host.trim() || !service.trim() || !user.trim()}>
+          {save.isPending && <Loader2 className="size-4 animate-spin" />}保存
+        </Button>
+        <Button size="sm" variant="outline" onClick={() => { setTestMsg(null); test.mutate() }} disabled={test.isPending || !cfg?.configured}>
+          {test.isPending && <Loader2 className="size-4 animate-spin" />}测试连接
+        </Button>
+        {save.isSuccess && !save.isPending && <span className="text-xs text-emerald-600 dark:text-emerald-400">已保存</span>}
+        {testMsg && <span className={`text-xs ${testMsg.startsWith('✓') ? 'text-emerald-600 dark:text-emerald-400' : 'text-[var(--color-destructive)]'}`}>{testMsg}</span>}
+      </div>
+    </details>
+  )
+}
+
+/**
+ * 本地 ERP 实例（验证用）：配置本地/测试实例地址 + 登录账号，agent 在自闭环验证阶段经后端 erp_app MCP
+ * 登录态实发 *.action 校验改动效果。<b>只连本地/测试实例</b>——后端另有同源白名单 + 拒生产域硬拦截。
+ * 密码存服务端、脱敏展示（留空=不改）。
+ */
+function ErpAppConfigSection() {
+  const qc = useQueryClient()
+  const { data: cfg } = useQuery({ queryKey: ['erp-app-config'], queryFn: getErpAppConfig, staleTime: 5000 })
+  const [baseUrl, setBaseUrl] = useState('')
+  const [loginPath, setLoginPath] = useState('')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [userField, setUserField] = useState('')
+  const [passField, setPassField] = useState('')
+  const [testMsg, setTestMsg] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!cfg) return
+    setBaseUrl(cfg.baseUrl ?? '')
+    setLoginPath(cfg.loginPath ?? '')
+    setUsername(cfg.username ?? '')
+    setUserField(cfg.userField ?? '')
+    setPassField(cfg.passField ?? '')
+  }, [cfg])
+
+  const save = useMutation({
+    mutationFn: () => saveErpAppConfig({
+      baseUrl: baseUrl.trim(), loginPath: loginPath.trim(), userField: userField.trim(), passField: passField.trim(),
+      username: username.trim(), password: password || undefined,
+    }),
+    onSuccess: () => { setPassword(''); setTestMsg(null); qc.invalidateQueries({ queryKey: ['erp-app-config'] }) },
+  })
+  const test = useMutation({
+    mutationFn: testErpApp,
+    onSuccess: r => setTestMsg(r.ok ? '✓ 连接/登录成功' : `失败：${r.error ?? '未知'}`),
+    onError: e => setTestMsg(`失败：${e instanceof Error ? e.message : '未知'}`),
+  })
+
+  return (
+    <details className="mt-4 rounded-xl border bg-[var(--color-card)] p-4">
+      <summary className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+        <ServerCog className="size-4 text-[var(--color-primary)]" />
+        本地 ERP 实例（验证用，供自闭环验证实发接口）
+        {cfg?.configured && <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-600 dark:text-emerald-400">已配置</span>}
+      </summary>
+      <p className="mt-3 text-xs text-[var(--color-muted-foreground)]">
+        填<b>本地/测试</b> ERP 实例地址与登录账号，agent 改完代码后按验收清单登录态实发 <code className="rounded bg-[var(--color-muted)] px-1">*.action</code> 校验效果——
+        <b>只打本地/测试实例</b>（后端强制同源白名单 + 拒生产域名 wyoooni.net）。登录路径留空=该实例无需登录。
+      </p>
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <label className="col-span-2 text-xs text-[var(--color-muted-foreground)]">实例地址（baseUrl）
+          <Input value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="如 http://127.0.0.1:8080/yoooni" className="mt-1" />
+        </label>
+        <label className="col-span-2 text-xs text-[var(--color-muted-foreground)]">登录路径（留空=无需登录）
+          <Input value={loginPath} onChange={e => setLoginPath(e.target.value)} placeholder="如 /login.action" className="mt-1" />
+        </label>
+        <label className="col-span-2 sm:col-span-1 text-xs text-[var(--color-muted-foreground)]">登录账号
+          <Input value={username} onChange={e => setUsername(e.target.value)} placeholder="测试账号" className="mt-1" />
+        </label>
+        <label className="col-span-2 sm:col-span-1 text-xs text-[var(--color-muted-foreground)]">密码
+          <Input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder={cfg?.hasPassword ? '已设置（留空不改）' : '密码'} className="mt-1" />
+        </label>
+        <label className="col-span-2 sm:col-span-1 text-xs text-[var(--color-muted-foreground)]">用户名字段（默认 username）
+          <Input value={userField} onChange={e => setUserField(e.target.value)} placeholder="username" className="mt-1" />
+        </label>
+        <label className="col-span-2 sm:col-span-1 text-xs text-[var(--color-muted-foreground)]">密码字段（默认 password）
+          <Input value={passField} onChange={e => setPassField(e.target.value)} placeholder="password" className="mt-1" />
+        </label>
+      </div>
+      <div className="mt-3 flex items-center gap-2">
+        <Button size="sm" onClick={() => save.mutate()} disabled={save.isPending || !baseUrl.trim()}>
           {save.isPending && <Loader2 className="size-4 animate-spin" />}保存
         </Button>
         <Button size="sm" variant="outline" onClick={() => { setTestMsg(null); test.mutate() }} disabled={test.isPending || !cfg?.configured}>
