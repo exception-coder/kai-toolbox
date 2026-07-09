@@ -88,5 +88,20 @@ export interface HistoryView {
   rowCount: number | null
   elapsedMs: number | null
   errorMsg: string | null
+  hasResult: boolean
+  executedAt: number
+}
+
+/** 历史详情：result 为当次执行结果快照，SQL 是 {columns,rows,rowCount,truncated}，Redis 是 {command,result}。 */
+export interface HistoryDetailView {
+  id: string
+  datasourceId: string
+  kind: string
+  content: string
+  status: 'OK' | 'ERROR'
+  rowCount: number | null
+  elapsedMs: number | null
+  errorMsg: string | null
+  result: unknown
   executedAt: number
 }

@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS ops_query_history (
     row_count     INTEGER,
     elapsed_ms    INTEGER,
     error_msg     TEXT,
+    -- 执行结果快照(JSON)：仅成功且有结果集时存，行数/体积超限则不存(仅 NULL，不截断半份数据)。
+    result_json   TEXT,
     executed_at   INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ops_hist_ds ON ops_query_history(datasource_id, executed_at DESC);

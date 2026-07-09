@@ -11,11 +11,12 @@ public record HistoryView(
         Integer rowCount,
         Long elapsedMs,
         String errorMsg,
+        boolean hasResult,
         long executedAt
 ) {
     public static HistoryView from(QueryHistory h) {
         return new HistoryView(
                 h.getId(), h.getDatasourceId(), h.getKind(), h.getContent(), h.getStatus(),
-                h.getRowCount(), h.getElapsedMs(), h.getErrorMsg(), h.getExecutedAt());
+                h.getRowCount(), h.getElapsedMs(), h.getErrorMsg(), h.isHasResult(), h.getExecutedAt());
     }
 }

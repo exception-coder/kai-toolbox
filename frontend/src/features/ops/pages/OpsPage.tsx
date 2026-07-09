@@ -11,10 +11,12 @@ import {
   listSystems, testDatasource, updateDatasource, updateSystem,
 } from '../api'
 import type { DatasourcePayload, DatasourceView, SystemPayload, SystemView, TestResult } from '../types'
+import { Segmented } from '@/components/ui/segmented'
 import { SystemEditor } from '../components/SystemEditor'
 import { DatasourceEditor } from '../components/DatasourceEditor'
 import { SqlConsole } from '../components/SqlConsole'
 import { RedisConsole } from '../components/RedisConsole'
+import { HistoryPanel } from '../components/HistoryPanel'
 import { TYPE_DEFAULT_PORT, TYPE_META, envBadge } from '../meta'
 
 const EMPTY_SYSTEM: SystemPayload = { name: '', code: '', owner: '', description: '' }
@@ -35,6 +37,7 @@ export function OpsPage() {
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [panel, setPanel] = useState<'query' | 'history'>('query')
   const [error, setError] = useState<string | null>(null)
   const [test, setTest] = useState<(TestResult & { dsId: string }) | null>(null)
 
@@ -229,7 +232,7 @@ export function OpsPage() {
                             >
                               <button
                                 className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                                onClick={() => d.queryable && setSelectedId(d.id)}
+                                onClick={() => { if (d.queryable) { setSelectedId(d.id); setPanel('query') } }}
                                 title={d.queryable ? '打开查询控制台' : '该类型暂只登记，不支持在线查询'}
                               >
                                 <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-medium', envBadge(d.env))}>
@@ -313,8 +316,16 @@ export function OpsPage() {
                   </span>
                   <span className="text-sm font-semibold">{selected.name}</span>
                   <span className="font-mono text-xs text-[var(--color-muted-foreground)]">{selected.endpoint}</span>
+                  <Segmented
+                    className="ml-auto"
+                    value={panel}
+                    onChange={setPanel}
+                    options={[{ value: 'query', label: '查询' }, { value: 'history', label: '历史' }]}
+                  />
                 </div>
-                {selected.category === 'SQL' ? (
+                {panel === 'history' ? (
+                  <HistoryPanel datasource={selected} />
+                ) : selected.category === 'SQL' ? (
                   <SqlConsole datasource={selected} />
                 ) : selected.category === 'REDIS' ? (
                   <RedisConsole datasource={selected} />

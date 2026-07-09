@@ -2,6 +2,7 @@ import { http } from '@/lib/api'
 import type {
   DatasourcePayload,
   DatasourceView,
+  HistoryDetailView,
   HistoryView,
   RedisExecResult,
   SqlQueryResult,
@@ -69,4 +70,8 @@ export function redisExec(id: string, command: string) {
 
 export function listHistory(id: string, limit = 50) {
   return http<HistoryView[]>(`/ops/datasources/${id}/history?limit=${limit}`)
+}
+
+export function getHistoryDetail(id: string, historyId: string) {
+  return http<HistoryDetailView>(`/ops/datasources/${id}/history/${historyId}`)
 }

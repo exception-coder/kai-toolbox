@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.ops.api;
 
+import com.exceptioncoder.toolbox.ops.api.dto.HistoryDetailView;
 import com.exceptioncoder.toolbox.ops.api.dto.HistoryView;
 import com.exceptioncoder.toolbox.ops.api.dto.RedisExecRequest;
 import com.exceptioncoder.toolbox.ops.api.dto.RedisExecResult;
@@ -41,5 +42,11 @@ public class OpsQueryController {
     public List<HistoryView> history(@PathVariable String id,
                                      @RequestParam(defaultValue = "50") int limit) {
         return service.history(id, limit).stream().map(HistoryView::from).toList();
+    }
+
+    /** 历史详情：带上当次执行的结果快照。id 为数据源 id（路径占位，未使用），historyId 才是查询目标。 */
+    @GetMapping("/history/{historyId}")
+    public HistoryDetailView historyDetail(@PathVariable String id, @PathVariable String historyId) {
+        return service.historyDetail(historyId);
     }
 }

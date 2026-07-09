@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Play } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { ApiError } from '@/lib/api'
 import { redisExec } from '../api'
 import type { DatasourceView, RedisExecResult } from '../types'
+import { RedisValue } from './ResultViews'
 
 interface Props {
   datasource: DatasourceView
@@ -15,18 +16,23 @@ const DANGER = /^\s*(FLUSHALL|FLUSHDB|KEYS|SHUTDOWN|CONFIG\s+SET)\b/i
 
 /** Redis 命令控制台。 */
 export function RedisConsole({ datasource }: Props) {
+  const qc = useQueryClient()
   const confirm = useConfirm()
   const [command, setCommand] = useState('')
   const [result, setResult] = useState<RedisExecResult | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const invalidateHistory = () =>
+    qc.invalidateQueries({ queryKey: ['ops', 'history', datasource.id] })
+
   const run = useMutation({
     mutationFn: () => redisExec(datasource.id, command),
     onMutate: () => setError(null),
-    onSuccess: r => setResult(r),
+    onSuccess: r => { setResult(r); invalidateHistory() },
     onError: e => {
       setResult(null)
       setError(e instanceof ApiError ? e.message : String(e))
+      invalidateHistory()
     },
   })
 
@@ -78,26 +84,4 @@ export function RedisConsole({ datasource }: Props) {
       )}
     </div>
   )
-}
-
-function RedisValue({ value }: { value: unknown }) {
-  if (value === null || value === undefined) {
-    return <span className="italic text-[var(--color-muted-foreground)]">(nil)</span>
-  }
-  if (Array.isArray(value)) {
-    if (value.length === 0) {
-      return <span className="italic text-[var(--color-muted-foreground)]">(empty array)</span>
-    }
-    return (
-      <ol className="space-y-0.5">
-        {value.map((item, i) => (
-          <li key={i} className="flex gap-2 font-mono text-xs">
-            <span className="w-8 shrink-0 text-right text-[var(--color-muted-foreground)]">{i + 1})</span>
-            <span className="min-w-0 break-all"><RedisValue value={item} /></span>
-          </li>
-        ))}
-      </ol>
-    )
-  }
-  return <span className="font-mono text-xs break-all">{String(value)}</span>
 }
