@@ -594,5 +594,8 @@ logging:
   level:
     root: INFO
     com.exceptioncoder.toolbox: DEBUG
+    # langchain4j 每次重试都 WARN + 打完整栈；端点不可达时刷屏。最终成败由业务代码兜底并打简讯，
+    # 这里压掉重试噪音（仍保留 ERROR）。
+    dev.langchain4j.internal.RetryUtils: 'ERROR'
   pattern:
     console: "%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"

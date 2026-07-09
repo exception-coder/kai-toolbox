@@ -38,10 +38,15 @@ public class NoteIndexService {
         return embeddingModel.isPresent() && embeddingStore.isPresent();
     }
 
-    /** 以 noteId 为向量点 id 写入（upsert）；文本为空或 RAG 关闭则跳过。 */
-    public void index(String noteId, String text) {
+    /**
+     * 以 noteId 为向量点 id 写入（upsert）；文本为空或 RAG 关闭则跳过。
+     *
+     * @return true=已写入 / 无需处理（关闭或空文本）；false=嵌入或写库失败（多为嵌入端点不可达）。
+     *         返回值供启动回填据此「一失败即中止」，避免端点宕机时逐条重试刷屏。
+     */
+    public boolean index(String noteId, String text) {
         if (!enabled() || !StringUtils.hasText(text)) {
-            return;
+            return true;
         }
         try {
             Embedding embedding = embeddingModel.get().embed(text).content();
@@ -49,8 +54,10 @@ public class NoteIndexService {
                     List.of(noteId),
                     List.of(embedding),
                     List.of(TextSegment.from(text, Metadata.from("noteId", noteId))));
+            return true;
         } catch (Exception e) {
             log.warn("[ai-secretary] 向量索引失败 noteId={}: {}", noteId, e.toString());
+            return false;
         }
     }
 

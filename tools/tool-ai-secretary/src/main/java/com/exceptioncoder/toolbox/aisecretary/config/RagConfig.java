@@ -82,13 +82,34 @@ public class RagConfig {
     // RecallRetriever，以便 RecallService 拿到“真实命中”并原样推前端（确定性优先 / 召回可见）。
     // 故此处不再装配 RetrievalAugmentor。
 
-    /** 启动时把现有笔记回填进向量库（按 noteId upsert，幂等）。 */
+    /**
+     * 启动时把现有笔记回填进向量库（按 noteId upsert，幂等）。
+     *
+     * <p>放虚拟线程异步跑，不阻塞启动；且「一条失败即中止」——嵌入端点（本地 Ollama）没起时，
+     * 逐条重试会刷满启动日志（每条 2 次重试 + 完整栈）。改为探测式：首条失败即判定端点不可达，
+     * 打一行可操作的提示后停手，等 Ollama 起来重启即可补全；期间 capture 的新笔记写入时也会自动补索引。
+     */
     @Bean
-    public ApplicationRunner aiSecretaryRagBackfill(NoteRepository repo, NoteIndexService index) {
-        return args -> {
-            var notes = repo.findRecent(10000);
-            notes.forEach(n -> index.index(n.id(), n.rawText()));
-            log.info("[ai-secretary] RAG 启动回填 {} 条笔记", notes.size());
-        };
+    public ApplicationRunner aiSecretaryRagBackfill(NoteRepository repo, NoteIndexService index, RagProperties props) {
+        return args -> Thread.ofVirtual().name("ai-secretary-rag-backfill").start(() -> {
+            try {
+                var notes = repo.findRecent(10000);
+                if (notes.isEmpty()) return;
+                int ok = 0;
+                for (var n : notes) {
+                    if (!index.index(n.id(), n.rawText())) {
+                        log.warn("[ai-secretary] 嵌入服务不可达，已中止 RAG 启动回填（{}/{} 完成）。"
+                                + "确认本地 Ollama 已启动并 `ollama pull {}`（端点 {}）后重启即补全；"
+                                + "新 capture 的笔记写入时也会自动补索引。",
+                                ok, notes.size(), props.getEmbeddingModel(), props.getEmbeddingBaseUrl());
+                        return;
+                    }
+                    ok++;
+                }
+                log.info("[ai-secretary] RAG 启动回填 {} 条笔记", ok);
+            } catch (Exception e) {
+                log.warn("[ai-secretary] RAG 启动回填异常，跳过：{}", e.toString());
+            }
+        });
     }
 }
