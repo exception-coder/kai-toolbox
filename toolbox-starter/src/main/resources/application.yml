@@ -75,6 +75,16 @@ toolbox:
         model: ${TOOLBOX_LLM_VISITOR_MODEL:gpt-4o-mini}
         weight: 1
         cooldown-ms: 15000
+      # Java 八股「知识补全」(tier=java8gu)：把正文加工成图解(mermaid)/面试问答/易错点/深度讲解。
+      # 需产出严格 JSON + 可渲染 mermaid，本地小模型质量不稳，故固定走 4sapi，复用同一把 key。
+      # 未配 key 时补全调用失败 → Java8guEnrichService 降级为空补全，不影响原文展示。
+      - id: java8gu-4sapi
+        tier: java8gu
+        base-url: ${TOOLBOX_LLM_JAVA8GU_BASE_URL:https://4sapi.com/v1}
+        api-key: ${TOOLBOX_LLM_JAVA8GU_KEY:${TOOLBOX_AI_CHAT_API_KEY:}}
+        model: ${TOOLBOX_LLM_JAVA8GU_MODEL:gpt-4o-mini}
+        weight: 1
+        cooldown-ms: 15000
       # 远端示例：与本地互为故障转移 / 限流时分摊（按需取消注释并配 key）
       # - id: deepseek
       #   tier: recall           # 回忆态多步推理，用更强的模型
