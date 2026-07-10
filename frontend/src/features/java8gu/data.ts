@@ -42,7 +42,8 @@ export const DEFAULT_DATA_SOURCE: DataSourceConfig = {
   owner: 'exception-coder',
   repo: 'JobInterviewLog',
   branch: 'main',
-  dir: 'java8gu-速记版',
+  // 题库在仓库里的真实路径带父目录；早期漏了 java八股文合集/ 导致 tree 前缀匹配不上→扫不到题目
+  dir: 'java八股文合集/java8gu-速记版',
   token: '',
 }
 
@@ -76,6 +77,12 @@ export function applyDataSource(cfg: DataSourceConfig): void {
     branch: cfg.branch.trim(),
     dir: cfg.dir.trim().replace(/^\/+|\/+$/g, ''),
     token: cfg.token?.trim() || '',
+  }
+  // 历史遗留纠正：官方题库仓早期存的 dir 少了父目录 java八股文合集/，会扫不到题目。
+  // 仅对该仓、且 dir 为旧错值/空时自动补全，不影响用户指向其它仓库的自定义配置。
+  if (normalized.owner === 'exception-coder' && normalized.repo === 'JobInterviewLog'
+      && (normalized.dir === 'java8gu-速记版' || normalized.dir === '')) {
+    normalized.dir = 'java八股文合集/java8gu-速记版'
   }
   if (sameSource(currentDataSource, normalized)) return
   currentDataSource = normalized
