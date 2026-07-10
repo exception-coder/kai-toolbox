@@ -7,6 +7,7 @@ import './lib/mock/loader'
 import App from './App'
 import { ConfirmProvider } from '@/components/ui/confirm-dialog'
 import { PromptProvider } from '@/components/ui/prompt-dialog'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { initTheme } from './shell/theme'
 
 // 渲染前套用已存主题（明暗 + 主色），避免首屏闪烁
@@ -33,7 +34,10 @@ createRoot(document.getElementById('root')!).render(
       <BrowserRouter>
         <ConfirmProvider>
           <PromptProvider>
-            <App />
+            {/* 顶层兜底：连外壳/运行时都崩了也只显示可刷新的兜底页，而非整屏白屏无法访问 */}
+            <ErrorBoundary label="app-root">
+              <App />
+            </ErrorBoundary>
           </PromptProvider>
         </ConfirmProvider>
       </BrowserRouter>
