@@ -8,7 +8,9 @@ import com.exceptioncoder.toolbox.llm.monitor.LlmMonitorListener;
 import com.exceptioncoder.toolbox.llm.monitor.LlmTokenEstimator;
 import com.exceptioncoder.toolbox.llm.monitor.QuotaGuardChatModel;
 import com.exceptioncoder.toolbox.llm.routing.ChatModelRouter;
+import com.exceptioncoder.toolbox.llm.routing.LazyCredentialChatModel;
 import com.exceptioncoder.toolbox.llm.routing.ModelEndpoint;
+import com.exceptioncoder.toolbox.llm.spi.LlmCredentialFallback;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.listener.ChatModelListener;
 import dev.langchain4j.model.openai.OpenAiChatModel;
@@ -44,7 +46,8 @@ public class LlmAutoConfiguration {
                                            ObjectProvider<LlmMetricsRecorder> recorderProvider,
                                            ObjectProvider<LlmMetricsRegistry> registryProvider,
                                            ObjectProvider<LlmCostCalculator> costProvider,
-                                           ObjectProvider<LlmTokenEstimator> estimatorProvider) {
+                                           ObjectProvider<LlmTokenEstimator> estimatorProvider,
+                                           ObjectProvider<LlmCredentialFallback> fallbackProvider) {
         List<ModelSpec> specs = props.getModels();
         if (specs == null || specs.isEmpty()) {
             specs = List.of(ModelSpec.localDefault());
@@ -60,18 +63,26 @@ public class LlmAutoConfiguration {
         boolean monitoring = monitor.isEnabled() && recorder != null && registry != null
                 && cost != null && estimator != null;
 
+        // 空 key 成员的凭据兜底（如复用「AI 对话」配置中心的实时 key）；无实现时为 null，行为回退静态构建。
+        LlmCredentialFallback fallback = fallbackProvider.getIfAvailable();
+
         Map<String, List<ModelEndpoint>> byTier = new LinkedHashMap<>();
         List<ModelEndpoint> all = new ArrayList<>();
         for (ModelSpec spec : specs) {
             ChatModelListener listener = monitoring
                     ? new LlmMonitorListener(spec, recorder, cost, estimator)
                     : null;
-            ModelEndpoint endpoint = new ModelEndpoint(spec, buildModel(spec, listener));
+            boolean blankKey = spec.getApiKey() == null || spec.getApiKey().isBlank();
+            boolean lazyCred = blankKey && fallback != null;
+            ChatModel model = lazyCred
+                    ? new LazyCredentialChatModel(spec, listener, fallback)
+                    : buildModel(spec, listener);
+            ModelEndpoint endpoint = new ModelEndpoint(spec, model);
             byTier.computeIfAbsent(spec.getTier(), k -> new ArrayList<>()).add(endpoint);
             all.add(endpoint);
-            log.info("[toolbox-llm] 注册模型 id={} tier={} model={} weight={} baseUrl={} 监控={}",
+            log.info("[toolbox-llm] 注册模型 id={} tier={} model={} weight={} baseUrl={} 凭据={} 监控={}",
                     spec.getId(), spec.getTier(), spec.getModel(), spec.getWeight(),
-                    spec.getBaseUrl(), monitoring);
+                    spec.getBaseUrl(), lazyCred ? "懒取(复用兜底)" : "静态", monitoring);
         }
 
         if (monitoring) {

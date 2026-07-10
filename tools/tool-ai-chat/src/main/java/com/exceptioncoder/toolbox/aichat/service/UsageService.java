@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.aichat.service;
 
 import com.exceptioncoder.toolbox.aichat.api.dto.UsageInfo;
 import com.exceptioncoder.toolbox.aichat.config.AiChatProperties;
+import com.exceptioncoder.toolbox.llm.config.LlmGatewayProperties;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,11 +22,13 @@ public class UsageService {
     private static final Logger log = LoggerFactory.getLogger(UsageService.class);
 
     private final AiChatProperties props;
+    private final LlmGatewayProperties gateway;
     // 带超时，避免网关 /api/usage/token 慢/挂时前端用量 chip 一直转圈。
     private final RestClient rest = RestClient.builder().requestFactory(timeoutFactory()).build();
 
-    public UsageService(AiChatProperties props) {
+    public UsageService(AiChatProperties props, LlmGatewayProperties gateway) {
         this.props = props;
+        this.gateway = gateway;
     }
 
     private static SimpleClientHttpRequestFactory timeoutFactory() {
@@ -44,13 +47,13 @@ public class UsageService {
     }
 
     public UsageInfo fetch() {
-        if (props.getApiKey() == null || props.getApiKey().isBlank()) {
+        if (gateway.getApiKey() == null || gateway.getApiKey().isBlank()) {
             return UsageInfo.unavailable("未配置 api-key");
         }
         try {
             TokenUsageResponse resp = rest.get()
                     .uri(usageUrl())
-                    .header("Authorization", "Bearer " + props.getApiKey())
+                    .header("Authorization", "Bearer " + gateway.getApiKey())
                     .retrieve()
                     .body(TokenUsageResponse.class);
             if (resp == null || resp.data() == null) {
@@ -76,7 +79,7 @@ public class UsageService {
      * 默认不跟随重定向，会拿到 301 的 HTML 页面导致解析失败。
      */
     private String usageUrl() {
-        String base = props.getBaseUrl();
+        String base = gateway.getBaseUrl();
         String origin = base.endsWith("/v1") ? base.substring(0, base.length() - 3)
                 : base.endsWith("/v1/") ? base.substring(0, base.length() - 4) : base;
         if (origin.endsWith("/")) {

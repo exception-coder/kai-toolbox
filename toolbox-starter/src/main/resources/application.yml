@@ -58,6 +58,12 @@ toolbox:
   # 同 tier 的多个成员构成一个池，按 weight 分发、对失败成员熔断退避（cooldown-ms）后转移到下一个。
   # 不配置任何 models 时，网关兜底用本地 Ollama qwen2.5:7b-instruct。
   llm:
+    # 中心化 LLM 凭据（统一 OpenAI 兼容出口）：全站默认复用这一处，配置中心「LLM 网关」块在线可改。
+    # 默认值链兼容旧 env：优先 TOOLBOX_LLM_*，回退旧的 TOOLBOX_AI_CHAT_*，再回退 4sapi。
+    gateway:
+      base-url: ${TOOLBOX_LLM_BASE_URL:${TOOLBOX_AI_CHAT_BASE_URL:https://4sapi.com/v1}}
+      api-key: ${TOOLBOX_LLM_API_KEY:${TOOLBOX_AI_CHAT_API_KEY:}}
+      timeout-seconds: ${TOOLBOX_LLM_TIMEOUT_SECONDS:60}
     models:
       - id: local-qwen
         tier: capture            # 记录态高频，用本地便宜模型
@@ -94,10 +100,9 @@ toolbox:
       #   weight: 2
   # 「AI 对话」模块：经 4sapi（OpenAI 兼容中转）直连多模型的 API 流式聊天。
   # 与 Vibe coding（claude-chat，agent 模式）不同——本模块直接调 /v1/chat/completions，无 agent。
-  # 标 @Refreshable，base-url / api-key / 参数可在配置中心在线改、不重启。模型清单实时取自 4sapi /v1/models。
+  # 标 @Refreshable，参数可在配置中心在线改、不重启。模型清单实时取自网关 /v1/models。
+  # 凭据(base-url/api-key)已上移到中心 toolbox.llm.gateway（配置中心「LLM 网关」块），本模块不再单独存。
   ai-chat:
-    base-url: ${TOOLBOX_AI_CHAT_BASE_URL:https://4sapi.com/v1}
-    api-key: ${TOOLBOX_AI_CHAT_API_KEY:}
     temperature: 0.7
     timeout-seconds: 60
     max-history-messages: 40
@@ -162,6 +167,10 @@ toolbox:
       min-score: 0.45
       # 卡片内容目录（含 index.json 与 q/{id}.md）；相对路径按工作目录(仓库根)解析
       content-dir: frontend/public/java8gu
+    # 知识补全（图解/面试问答/易错点/深度讲解）。标 @Refreshable：model 可在配置中心在线改、
+    # 不重启即生效（每次调用读最新值，经 ChatRequest 覆盖请求模型）。key/baseUrl 复用「AI 对话」凭据。
+    enrich:
+      model: ${TOOLBOX_LLM_JAVA8GU_MODEL:gpt-4o-mini}
   # 访客分析智能体。确定性匹配（客户库/竞品名单）在 Java 完成；灰区分类已迁回 Java（LangChain4j）：
   # 模型经共享 LLM 网关（toolbox.llm）按 tier 取得——未配置该档位时回退默认（本地 Ollama）；
   # 要用更强的远端模型，在上面 toolbox.llm.models 加一个 tier=visitor 的成员（如 4sapi gpt-5-mini）。

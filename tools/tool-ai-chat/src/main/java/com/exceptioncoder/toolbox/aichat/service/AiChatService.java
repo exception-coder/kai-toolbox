@@ -5,6 +5,7 @@ import com.exceptioncoder.toolbox.aichat.api.dto.CompletionDebug;
 import com.exceptioncoder.toolbox.aichat.api.dto.SendMessageRequest;
 import com.exceptioncoder.toolbox.aichat.api.dto.UpdateConversationRequest;
 import com.exceptioncoder.toolbox.aichat.config.AiChatProperties;
+import com.exceptioncoder.toolbox.llm.config.LlmGatewayProperties;
 import com.exceptioncoder.toolbox.aichat.domain.Conversation;
 import com.exceptioncoder.toolbox.aichat.domain.MessageRole;
 import com.exceptioncoder.toolbox.aichat.domain.MessageStatus;
@@ -52,6 +53,7 @@ public class AiChatService {
     private static final Logger log = LoggerFactory.getLogger(AiChatService.class);
 
     private final AiChatProperties props;
+    private final LlmGatewayProperties gateway;
     private final ConversationService conversations;
     private final ChatModelFactory modelFactory;
     private final ModelCatalogService models;
@@ -65,6 +67,7 @@ public class AiChatService {
     private static final int MAX_TOOL_ROUNDS = 8;
 
     public AiChatService(AiChatProperties props,
+                         LlmGatewayProperties gateway,
                          ConversationService conversations,
                          ChatModelFactory modelFactory,
                          ModelCatalogService models,
@@ -72,6 +75,7 @@ public class AiChatService {
                          SseEmitterRegistry sse,
                          ChatToolService tools) {
         this.props = props;
+        this.gateway = gateway;
         this.conversations = conversations;
         this.modelFactory = modelFactory;
         this.models = models;
@@ -391,7 +395,7 @@ public class AiChatService {
         }
         return new CompletionDebug(
                 ctx.requestedAt,
-                props.getBaseUrl(),
+                gateway.getBaseUrl(),
                 ctx.model,
                 tempSent,
                 ctx.maxTokens,

@@ -17,6 +17,12 @@
     <description>共享 LLM 网关：基于 LangChain4j 的多模型注册、分级路由、限流故障转移</description>
 
     <dependencies>
+        <!-- 动态配置中心：@Refreshable + DynamicConfigService（把中心 LLM 网关配置纳入配置中心、在线可改） -->
+        <dependency>
+            <groupId>com.exceptioncoder</groupId>
+            <artifactId>toolbox-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <!-- LangChain4j 核心类型（ChatModel / ChatRequest / Capability） -->
         <dependency>
             <groupId>dev.langchain4j</groupId>

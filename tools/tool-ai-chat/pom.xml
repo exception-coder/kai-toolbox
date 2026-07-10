@@ -21,6 +21,11 @@
             <groupId>com.exceptioncoder</groupId>
             <artifactId>toolbox-common</artifactId>
         </dependency>
+        <!-- 共享 LLM 网关：仅为实现其 LlmCredentialFallback SPI（把 AI对话 实时凭据暴露给网关空 key 成员复用） -->
+        <dependency>
+            <groupId>com.exceptioncoder</groupId>
+            <artifactId>toolbox-llm</artifactId>
+        </dependency>
         <!-- OpenAI 兼容流式客户端：直连 4sapi /v1，与 toolbox-llm 同款 BOM 管版本 -->
         <dependency>
             <groupId>dev.langchain4j</groupId>

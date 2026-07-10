@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.aichat.service;
 import com.exceptioncoder.toolbox.aichat.api.dto.ModelInfo;
 import com.exceptioncoder.toolbox.aichat.api.dto.ModelsView;
 import com.exceptioncoder.toolbox.aichat.config.AiChatProperties;
+import com.exceptioncoder.toolbox.llm.config.LlmGatewayProperties;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,13 +32,15 @@ public class ModelCatalogService {
     private static final Logger log = LoggerFactory.getLogger(ModelCatalogService.class);
 
     private final AiChatProperties props;
+    private final LlmGatewayProperties gateway;
     private final RestClient rest = RestClient.create();
 
     private volatile List<ModelInfo> cachedModels;
     private volatile long cacheExpireAt;
 
-    public ModelCatalogService(AiChatProperties props) {
+    public ModelCatalogService(AiChatProperties props, LlmGatewayProperties gateway) {
         this.props = props;
+        this.gateway = gateway;
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -170,8 +173,8 @@ public class ModelCatalogService {
         }
         try {
             ModelsApiResponse resp = rest.get()
-                    .uri(props.getBaseUrl() + "/models")
-                    .header("Authorization", "Bearer " + props.getApiKey())
+                    .uri(gateway.getBaseUrl() + "/models")
+                    .header("Authorization", "Bearer " + gateway.getApiKey())
                     .retrieve()
                     .body(ModelsApiResponse.class);
             if (resp == null || resp.data() == null || resp.data().isEmpty()) {
@@ -216,7 +219,7 @@ public class ModelCatalogService {
         try {
             PricingResponse resp = rest.get()
                     .uri(pricingUrl())
-                    .header("Authorization", "Bearer " + props.getApiKey())
+                    .header("Authorization", "Bearer " + gateway.getApiKey())
                     .retrieve()
                     .body(PricingResponse.class);
             if (resp == null || resp.data() == null) {
@@ -239,7 +242,7 @@ public class ModelCatalogService {
 
     /** 由 base-url 推导 pricing 端点：去掉末尾 /v1，拼 /api/pricing。 */
     private String pricingUrl() {
-        String base = props.getBaseUrl();
+        String base = gateway.getBaseUrl();
         String origin = base.endsWith("/v1") ? base.substring(0, base.length() - 3)
                 : base.endsWith("/v1/") ? base.substring(0, base.length() - 4) : base;
         if (origin.endsWith("/")) {
@@ -265,7 +268,7 @@ public class ModelCatalogService {
 
     @EventListener(EnvironmentChangeEvent.class)
     public void onConfigChange(EnvironmentChangeEvent event) {
-        boolean affected = event.getKeys().stream().anyMatch(k -> k.startsWith("toolbox.ai-chat"));
+        boolean affected = event.getKeys().stream().anyMatch(k -> k.startsWith("toolbox.ai-chat") || k.startsWith("toolbox.llm.gateway"));
         if (affected) {
             cachedModels = null;
             cacheExpireAt = 0;

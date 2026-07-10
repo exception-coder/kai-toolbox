@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.aichat.service;
 import com.exceptioncoder.toolbox.aichat.api.dto.VideoGenRequest;
 import com.exceptioncoder.toolbox.aichat.api.dto.VideoTask;
 import com.exceptioncoder.toolbox.aichat.config.AiChatProperties;
+import com.exceptioncoder.toolbox.llm.config.LlmGatewayProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -29,6 +30,7 @@ public class VideoService {
     private static final Logger log = LoggerFactory.getLogger(VideoService.class);
 
     private final AiChatProperties props;
+    private final LlmGatewayProperties gateway;
     private final ModelCatalogService models;
     private final ConversationService conversations;
     private final AttachmentStorageService attachments;
@@ -45,9 +47,10 @@ public class VideoService {
     private record PendingVideo(String conversationId, String prompt, String model) {
     }
 
-    public VideoService(AiChatProperties props, ModelCatalogService models,
+    public VideoService(AiChatProperties props, LlmGatewayProperties gateway, ModelCatalogService models,
                         ConversationService conversations, AttachmentStorageService attachments) {
         this.props = props;
+        this.gateway = gateway;
         this.models = models;
         this.conversations = conversations;
         this.attachments = attachments;
@@ -85,8 +88,8 @@ public class VideoService {
         }
         try {
             JsonNode resp = rest.post()
-                    .uri(props.getBaseUrl() + "/videos")
-                    .header("Authorization", "Bearer " + props.getApiKey())
+                    .uri(gateway.getBaseUrl() + "/videos")
+                    .header("Authorization", "Bearer " + gateway.getApiKey())
                     .body(body)
                     .retrieve()
                     .body(JsonNode.class);
@@ -115,8 +118,8 @@ public class VideoService {
         }
         try {
             JsonNode n = rest.get()
-                    .uri(props.getBaseUrl() + "/videos/" + id)
-                    .header("Authorization", "Bearer " + props.getApiKey())
+                    .uri(gateway.getBaseUrl() + "/videos/" + id)
+                    .header("Authorization", "Bearer " + gateway.getApiKey())
                     .retrieve()
                     .body(JsonNode.class);
             if (n == null) {

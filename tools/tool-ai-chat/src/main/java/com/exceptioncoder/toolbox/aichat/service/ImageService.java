@@ -5,6 +5,7 @@ import com.exceptioncoder.toolbox.aichat.api.dto.AttachmentView;
 import com.exceptioncoder.toolbox.aichat.api.dto.ImageGenRequest;
 import com.exceptioncoder.toolbox.aichat.api.dto.ImageGenResult;
 import com.exceptioncoder.toolbox.aichat.config.AiChatProperties;
+import com.exceptioncoder.toolbox.llm.config.LlmGatewayProperties;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,14 +32,16 @@ public class ImageService {
     private static final int MAX_N = 4;
 
     private final AiChatProperties props;
+    private final LlmGatewayProperties gateway;
     private final ModelCatalogService models;
     private final ConversationService conversations;
     private final AttachmentStorageService attachments;
     private final RestClient rest = RestClient.create();
 
-    public ImageService(AiChatProperties props, ModelCatalogService models,
+    public ImageService(AiChatProperties props, LlmGatewayProperties gateway, ModelCatalogService models,
                         ConversationService conversations, AttachmentStorageService attachments) {
         this.props = props;
+        this.gateway = gateway;
         this.models = models;
         this.conversations = conversations;
         this.attachments = attachments;
@@ -86,8 +89,8 @@ public class ImageService {
 
         try {
             ImagesApiResponse resp = rest.post()
-                    .uri(props.getBaseUrl() + "/images/generations")
-                    .header("Authorization", "Bearer " + props.getApiKey())
+                    .uri(gateway.getBaseUrl() + "/images/generations")
+                    .header("Authorization", "Bearer " + gateway.getApiKey())
                     .body(body)
                     .retrieve()
                     .body(ImagesApiResponse.class);

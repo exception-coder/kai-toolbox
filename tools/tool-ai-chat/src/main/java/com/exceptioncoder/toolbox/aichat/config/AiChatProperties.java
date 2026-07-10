@@ -25,11 +25,8 @@ import java.util.Map;
 @Setter
 public class AiChatProperties {
 
-    /** 4sapi（OpenAI 兼容）基址，须含 /v1。 */
-    private String baseUrl = "https://4sapi.com/v1";
-
-    /** API Key；建议走环境变量 TOOLBOX_AI_CHAT_API_KEY。 */
-    private String apiKey = "";
+    // 凭据(base-url/api-key)已中心化到 toolbox.llm.gateway（LlmGatewayProperties，配置中心「LLM 网关」块）。
+    // 本模块经 LlmGatewayProperties 取实时 baseUrl/apiKey，不再自存一份。
 
     /** 默认采样温度。 */
     private double temperature = 0.7;

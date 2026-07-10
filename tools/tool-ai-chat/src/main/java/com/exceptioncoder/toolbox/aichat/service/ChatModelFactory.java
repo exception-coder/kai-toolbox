@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.aichat.service;
 
 import com.exceptioncoder.toolbox.aichat.config.AiChatProperties;
+import com.exceptioncoder.toolbox.llm.config.LlmGatewayProperties;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,11 +22,13 @@ public class ChatModelFactory {
     private static final Logger log = LoggerFactory.getLogger(ChatModelFactory.class);
 
     private final AiChatProperties props;
+    private final LlmGatewayProperties gateway;
     private final ModelCatalogService models;
     private final ConcurrentHashMap<String, OpenAiStreamingChatModel> cache = new ConcurrentHashMap<>();
 
-    public ChatModelFactory(AiChatProperties props, ModelCatalogService models) {
+    public ChatModelFactory(AiChatProperties props, LlmGatewayProperties gateway, ModelCatalogService models) {
         this.props = props;
+        this.gateway = gateway;
         this.models = models;
     }
 
@@ -42,8 +45,8 @@ public class ChatModelFactory {
      */
     public OpenAiStreamingChatModel sharedModel() {
         return cache.computeIfAbsent("__shared__", k -> OpenAiStreamingChatModel.builder()
-                .baseUrl(props.getBaseUrl())
-                .apiKey(props.getApiKey())
+                .baseUrl(gateway.getBaseUrl())
+                .apiKey(gateway.getApiKey())
                 .modelName("gpt-4o-mini") // 占位,实际以 ChatRequest.modelName 为准
                 .timeout(Duration.ofSeconds(props.getTimeoutSeconds()))
                 .build());
@@ -51,8 +54,8 @@ public class ChatModelFactory {
 
     private OpenAiStreamingChatModel build(String model, Double temperature, Integer maxTokens) {
         var b = OpenAiStreamingChatModel.builder()
-                .baseUrl(props.getBaseUrl())
-                .apiKey(props.getApiKey())
+                .baseUrl(gateway.getBaseUrl())
+                .apiKey(gateway.getApiKey())
                 .modelName(model)
                 .timeout(Duration.ofSeconds(props.getTimeoutSeconds()));
         if (temperature != null) {
@@ -66,7 +69,7 @@ public class ChatModelFactory {
 
     @EventListener(EnvironmentChangeEvent.class)
     public void onConfigChange(EnvironmentChangeEvent event) {
-        boolean affected = event.getKeys().stream().anyMatch(k -> k.startsWith("toolbox.ai-chat"));
+        boolean affected = event.getKeys().stream().anyMatch(k -> k.startsWith("toolbox.ai-chat") || k.startsWith("toolbox.llm.gateway"));
         if (affected) {
             cache.clear();
             log.info("[ai-chat] 配置变更，流式模型缓存已清");
