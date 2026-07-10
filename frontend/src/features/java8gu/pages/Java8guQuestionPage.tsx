@@ -149,7 +149,7 @@ export function Java8guQuestionPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-6">
+    <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-6 2xl:max-w-[92rem]">
       {/* 面包屑 */}
       <div className="mb-3 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap text-[11px] text-[var(--color-muted-foreground)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mb-4 sm:overflow-visible sm:text-xs">
         <Link to="/tools/java8gu" className="hover:text-[var(--color-foreground)]">
@@ -250,14 +250,32 @@ export function Java8guQuestionPage() {
               <div className="h-3 w-1/2 animate-pulse rounded bg-[var(--color-muted)]/40" />
             </div>
           ) : viewMode === 'visual' ? (
-            <QuestionVisualSummary structure={structure} />
+            /* PC 双栏（2xl 起并排，其下堆叠）：左边扫速记卡片，右边同步看图解 / AI 讲解 */
+            <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_23rem] 2xl:items-start 2xl:gap-8">
+              <div className="min-w-0">
+                <QuestionVisualSummary structure={structure} />
+              </div>
+              {markdown && (
+                <div className="min-w-0 2xl:sticky 2xl:top-6">
+                  <KnowledgeEnrichPanel
+                    id={question.id}
+                    markdown={markdown}
+                    variant="pane"
+                  />
+                </div>
+              )}
+            </div>
           ) : (
-            <MarkdownViewer tokens={tokens} />
-          )}
-
-          {/* 结构化知识 · AI 增强（图解/面试题/易错点/深度讲解） */}
-          {!loadingMd && markdown && (
-            <KnowledgeEnrichPanel id={question.id} markdown={markdown} />
+            <>
+              <MarkdownViewer tokens={tokens} />
+              {markdown && (
+                <KnowledgeEnrichPanel
+                  id={question.id}
+                  markdown={markdown}
+                  variant="stacked"
+                />
+              )}
+            </>
           )}
 
           {/* Prev / Next */}

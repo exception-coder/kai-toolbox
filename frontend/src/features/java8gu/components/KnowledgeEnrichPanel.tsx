@@ -8,15 +8,21 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { HelpCircle, Loader2, Network, Sparkles, TriangleAlert } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { mergeEnrichment, parseKnowledge } from '../lib/knowledge'
 import { fetchEnrichment, type Enrichment } from '../lib/enrichApi'
 
 interface Props {
   id: string
   markdown: string
+  /**
+   * stacked：作为正文下方的整宽区块（含上分隔线）。
+   * pane：作为 PC 双栏的右侧列（无上分隔线，标题即分组头）。
+   */
+  variant?: 'stacked' | 'pane'
 }
 
-export function KnowledgeEnrichPanel({ id, markdown }: Props) {
+export function KnowledgeEnrichPanel({ id, markdown, variant = 'stacked' }: Props) {
   const base = useMemo(() => parseKnowledge(id, markdown), [id, markdown])
   const [enrich, setEnrich] = useState<Enrichment | null>(null)
   const [loading, setLoading] = useState(false)
@@ -39,7 +45,13 @@ export function KnowledgeEnrichPanel({ id, markdown }: Props) {
   const hasNativeExtras = page.diagrams.length > 0 || page.pitfalls.length > 0
 
   return (
-    <section className="mt-8 border-t border-[var(--color-border)] pt-6 sm:mt-10">
+    <section
+      className={cn(
+        variant === 'stacked'
+          ? 'mt-8 border-t border-[var(--color-border)] pt-6 sm:mt-10'
+          : 'mt-0',
+      )}
+    >
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 className="inline-flex items-center gap-1.5 text-[13.5px] font-semibold tracking-tight">
           <Sparkles className="h-4 w-4 text-[var(--color-primary)]" /> 结构化知识 · AI 增强
