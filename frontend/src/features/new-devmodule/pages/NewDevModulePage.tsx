@@ -37,8 +37,8 @@ function buildSeed(p: {
     `- 新模块 id：${p.id.trim()}`,
     `- 新模块中文名：${p.name.trim()}`,
     `- 侧边栏图标(Lucide 组件名)：${p.icon.trim() || '（留空，由你建议一个合适的）'}`,
-    `- 目标项目服务启动命令：${p.startCmd.trim()}`,
-    `- 停服命令：${p.stopCmd.trim() || '（留空＝结束进程树）'}`,
+    `- 目标项目服务启动命令：${p.startCmd.trim() || '（未填——请到项目根目录探索启停脚本：常见 start-*.ps1 / stop-*.ps1、package.json 的 scripts、pom.xml；识别后作为生成模块的默认启动/停服命令，并在关卡念给我确认）'}`,
+    `- 停服命令：${p.stopCmd.trim() || '（未填——随启动一并探索；探索不到则结束进程树）'}`,
     `- 调试必备配置项：${p.config.trim() || '无'}`,
     `- 大脑：${brainText(p.brain)}`,
     '',
@@ -83,7 +83,7 @@ export function NewDevModulePage() {
   const [config, setConfig] = useLocalState(K('config'))
   const [brain, setBrain] = useLocalState(K('brain'), 'generic')
 
-  const canStart = cwd.length > 0 && id.trim().length > 0 && name.trim().length > 0 && startCmd.trim().length > 0
+  const canStart = cwd.length > 0 && id.trim().length > 0 && name.trim().length > 0
 
   const start = () => {
     if (!canStart) return
@@ -131,8 +131,8 @@ export function NewDevModulePage() {
           <Input value={icon} onChange={e => setIcon(e.target.value)} placeholder="如 Workflow / Boxes（留空由 agent 建议）" className="mt-1" />
         </label>
 
-        <label className="block text-xs text-[var(--color-muted-foreground)]">服务启动命令（前台，在项目目录下执行）
-          <Input value={startCmd} onChange={e => setStartCmd(e.target.value)} placeholder="如 npm run dev / mvn ... spring-boot:run / .\start-xxx.ps1" className="mt-1 font-mono text-xs" />
+        <label className="block text-xs text-[var(--color-muted-foreground)]">服务启动命令（可选，留空让 agent 到项目根探索 start/stop 脚本）
+          <Input value={startCmd} onChange={e => setStartCmd(e.target.value)} placeholder="留空即探索；或填 npm run dev / mvn ... spring-boot:run / .\start-xxx.ps1" className="mt-1 font-mono text-xs" />
         </label>
 
         <label className="block text-xs text-[var(--color-muted-foreground)]">停服命令（可选，留空=结束进程树）
@@ -145,7 +145,7 @@ export function NewDevModulePage() {
             onChange={e => setConfig(e.target.value)}
             rows={3}
             placeholder="如：测试库(Oracle 只读: host/port/service/账号)、本地实例地址+登录账号……没有就留空"
-            className="mt-1 w-full resize-y rounded-md border bg-[var(--color-background)] px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
+            className="mt-1 w-full resize-y rounded-md border bg-[var(--color-background)] px-3 py-2 text-sm text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
           />
         </label>
 
