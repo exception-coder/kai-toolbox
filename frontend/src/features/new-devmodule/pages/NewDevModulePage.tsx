@@ -110,7 +110,7 @@ export function NewDevModulePage() {
           <select
             value={cwd}
             onChange={e => pickCwd(e.target.value)}
-            className="mt-1 h-9 w-full rounded-md border bg-[var(--color-background)] px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
+            className="mt-1 h-9 w-full rounded-md border bg-[var(--color-background)] px-2 text-sm text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
           >
             {dirs.length === 0 && <option value="">（无可用目录，请把 kai-toolbox 仓所在目录加入 application.yml 的 workspace.roots）</option>}
             {dirs.map(d => <option key={d.path} value={d.path}>{d.label}</option>)}
@@ -153,7 +153,7 @@ export function NewDevModulePage() {
           <select
             value={brain}
             onChange={e => setBrain(e.target.value)}
-            className="mt-1 h-9 w-full rounded-md border bg-[var(--color-background)] px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
+            className="mt-1 h-9 w-full rounded-md border bg-[var(--color-background)] px-2 text-sm text-[var(--color-foreground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
           >
             {BRAIN_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
