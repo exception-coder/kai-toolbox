@@ -46,7 +46,7 @@ public class OpsQueryService {
         return switch (ds.getType().category()) {
             case SQL -> sqlConnector.test(ds);
             case REDIS -> redisConnector.test(ds);
-            case MQ -> new TestResult(false, "MQ 连接测试暂未实现", 0);
+            case MQ, OTHER -> new TestResult(false, "该类型连接测试暂未实现（仅登记）", 0);
         };
     }
 

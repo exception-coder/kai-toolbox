@@ -2,16 +2,18 @@ package com.exceptioncoder.toolbox.ops.domain;
 
 /**
  * 中间件类型。当前落地查询能力：MYSQL / ORACLE / REDIS。
- * RABBITMQ / KAFKA 先占位（可登记、可展示），查询控制台后续再补。
+ * RABBITMQ / KAFKA / ROCKETMQ / NACOS 先占位（可登记、可展示），查询控制台后续再补。
  */
 public enum DatasourceType {
     MYSQL(Category.SQL, 3306),
     ORACLE(Category.SQL, 1521),
     REDIS(Category.REDIS, 6379),
     RABBITMQ(Category.MQ, 5672),
-    KAFKA(Category.MQ, 9092);
+    KAFKA(Category.MQ, 9092),
+    ROCKETMQ(Category.MQ, 9876),
+    NACOS(Category.OTHER, 8848);
 
-    public enum Category { SQL, REDIS, MQ }
+    public enum Category { SQL, REDIS, MQ, OTHER }
 
     private final Category category;
     private final int defaultPort;

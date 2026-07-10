@@ -1,7 +1,7 @@
 /** 系统中间件台前端类型，对应后端 /api/ops 的 DTO。 */
 
-export type DatasourceType = 'MYSQL' | 'ORACLE' | 'REDIS' | 'RABBITMQ' | 'KAFKA'
-export type DatasourceCategory = 'SQL' | 'REDIS' | 'MQ'
+export type DatasourceType = 'MYSQL' | 'ORACLE' | 'REDIS' | 'RABBITMQ' | 'KAFKA' | 'ROCKETMQ' | 'NACOS'
+export type DatasourceCategory = 'SQL' | 'REDIS' | 'MQ' | 'OTHER'
 
 export interface SystemView {
   id: string

@@ -7,9 +7,11 @@ export const TYPE_META: Record<DatasourceType, { label: string; badge: string; q
   REDIS: { label: 'Redis', badge: 'bg-rose-500/15 text-rose-600 dark:text-rose-300', queryable: true },
   RABBITMQ: { label: 'RabbitMQ', badge: 'bg-orange-500/15 text-orange-600 dark:text-orange-300', queryable: false },
   KAFKA: { label: 'Kafka', badge: 'bg-neutral-500/15 text-neutral-600 dark:text-neutral-300', queryable: false },
+  ROCKETMQ: { label: 'RocketMQ', badge: 'bg-amber-500/15 text-amber-600 dark:text-amber-300', queryable: false },
+  NACOS: { label: 'Nacos', badge: 'bg-teal-500/15 text-teal-600 dark:text-teal-300', queryable: false },
 }
 
-export const TYPE_OPTIONS: DatasourceType[] = ['MYSQL', 'ORACLE', 'REDIS', 'RABBITMQ', 'KAFKA']
+export const TYPE_OPTIONS: DatasourceType[] = ['MYSQL', 'ORACLE', 'REDIS', 'RABBITMQ', 'KAFKA', 'ROCKETMQ', 'NACOS']
 
 /** 默认端口，选类型时自动填。 */
 export const TYPE_DEFAULT_PORT: Record<DatasourceType, number> = {
@@ -18,6 +20,8 @@ export const TYPE_DEFAULT_PORT: Record<DatasourceType, number> = {
   REDIS: 6379,
   RABBITMQ: 5672,
   KAFKA: 9092,
+  ROCKETMQ: 9876,
+  NACOS: 8848,
 }
 
 /** 常用环境（可自定义输入）。 */
