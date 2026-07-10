@@ -1,6 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, ArrowRight, BookOpen, Clock, Code2, FileText, Hash } from 'lucide-react'
+import {
+  ArrowLeft,
+  ArrowRight,
+  BookOpen,
+  Clock,
+  Code2,
+  FileText,
+  Hash,
+  Lightbulb,
+  Sparkles,
+  Star,
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { Segmented } from '@/components/ui/segmented'
 import { findCategory, findQuestion, loadIndex, loadMarkdown, viewCategory } from '../data'
 import type { Java8guCategory, Java8guIndex, Java8guQuestion } from '../types'
@@ -147,7 +159,7 @@ export function Java8guQuestionPage() {
         <span className="font-mono">#{question.id}</span>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_240px] lg:gap-8">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_260px] lg:gap-8 xl:grid-cols-[minmax(0,1fr)_300px]">
         <article ref={articleRef} className="min-w-0">
           {/* 题目大标题与元信息 */}
           <header className="mb-5 border-b border-[var(--color-border)] pb-4 sm:mb-6 sm:pb-5">
@@ -182,11 +194,6 @@ export function Java8guQuestionPage() {
             <h1 className="text-xl font-semibold leading-snug tracking-tight sm:text-2xl">
               {question.title}
             </h1>
-            {question.tldr && (
-              <p className="mt-2 text-[13px] leading-relaxed text-[var(--color-muted-foreground)] sm:text-sm">
-                {question.tldr}
-              </p>
-            )}
 
             <div className="mt-3.5 flex flex-wrap items-center justify-between gap-2 sm:mt-4">
               <Segmented<ViewMode>
@@ -213,6 +220,18 @@ export function Java8guQuestionPage() {
             </div>
           </header>
 
+          {/* 一句话总结 —— 最高优先级，先理解 */}
+          {question.tldr && (
+            <div className="mb-5 overflow-hidden rounded-xl border border-[var(--color-primary)]/25 bg-gradient-to-br from-[var(--color-primary)]/10 via-[var(--color-primary)]/5 to-transparent p-4 sm:mb-6 sm:p-5">
+              <div className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--color-primary)]">
+                <Lightbulb className="h-3.5 w-3.5" /> 一句话总结
+              </div>
+              <p className="mt-2 text-[14px] font-medium leading-relaxed text-[var(--color-foreground)] sm:text-[15px]">
+                {question.tldr}
+              </p>
+            </div>
+          )}
+
           {/* 正文 */}
           {loadingMd ? (
             <div className="space-y-3">
@@ -233,29 +252,67 @@ export function Java8guQuestionPage() {
           </nav>
         </article>
 
-        {/* TOC 边栏（lg+） */}
+        {/* 元信息 / 导航边栏（lg+） */}
         <aside className="hidden lg:block">
-          <div className="sticky top-6">
-            <div className="mb-4 rounded-lg border bg-[var(--color-card)] p-3">
+          <div className="sticky top-6 space-y-4">
+            {/* 分类 + 难度 + 统计 */}
+            <div className="rounded-xl border bg-[var(--color-card)] p-3.5">
               <Link
                 to={`/tools/java8gu/c/${category.id}`}
-                className="flex items-center gap-1.5 text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+                className="flex items-center gap-1.5 text-[11.5px] font-medium text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
               >
-                <BookOpen className="h-3 w-3" />
+                <BookOpen className="h-3.5 w-3.5" />
                 {category.label}
               </Link>
-              <div className="mt-2 grid grid-cols-3 gap-1.5 text-[10.5px]">
+              <div className="mt-3 flex items-center justify-between border-t border-[var(--color-border)]/60 pt-3">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">
+                  难度
+                </span>
+                <DifficultyStars value={question.difficulty} />
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-1.5 text-[10.5px]">
                 <Cell label="字数" value={question.chars.toLocaleString()} />
                 <Cell label="章节" value={`${question.headings.length} 节`} />
                 <Cell label="阅读" value={`${question.readMin} min`} />
+                <Cell label="代码" value={`${question.codeCount} 段`} />
               </div>
             </div>
-            {viewMode === 'text' && (
-              <QuestionTocPanel items={toc} containerRef={articleRef} />
+
+            {/* 关键术语 */}
+            {structure.terms.length > 0 && (
+              <div className="rounded-xl border bg-[var(--color-card)] p-3.5">
+                <div className="mb-2.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">
+                  <Sparkles className="h-3 w-3 text-[var(--color-primary)]" /> 关键术语
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {structure.terms.slice(0, 12).map((t, i) => (
+                    <span
+                      key={i}
+                      className="rounded-full bg-[var(--color-primary)]/8 px-2 py-0.5 text-[11px] font-medium text-[var(--color-primary)] ring-1 ring-inset ring-[var(--color-primary)]/15"
+                    >
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              </div>
             )}
-            {viewMode === 'visual' && structure.sections.length > 0 && (
-              <SectionMiniNav structure={structure} />
+
+            {/* 章节导航 */}
+            {(viewMode === 'text' ? toc.length > 0 : structure.sections.length > 0) && (
+              <div className="rounded-xl border bg-[var(--color-card)] p-3.5">
+                {viewMode === 'text' ? (
+                  <QuestionTocPanel items={toc} containerRef={articleRef} />
+                ) : (
+                  <SectionMiniNav structure={structure} />
+                )}
+              </div>
             )}
+
+            {/* 上/下一题快捷跳转 */}
+            <div className="grid grid-cols-2 gap-2">
+              <RailNav direction="prev" question={navigators.prev} />
+              <RailNav direction="next" question={navigators.next} />
+            </div>
           </div>
         </aside>
       </div>
@@ -279,6 +336,56 @@ function Cell({
         {value}
       </div>
     </div>
+  )
+}
+
+function DifficultyStars({ value }: { value: number }) {
+  const v = Math.max(0, Math.min(5, Math.round(value)))
+  return (
+    <span className="flex items-center gap-0.5" title={`难度 ${v}/5`}>
+      {Array.from({ length: 5 }).map((_, i) => (
+        <Star
+          key={i}
+          className={cn(
+            'h-3.5 w-3.5',
+            i < v
+              ? 'fill-amber-400 text-amber-400'
+              : 'text-[var(--color-muted-foreground)]/30',
+          )}
+        />
+      ))}
+    </span>
+  )
+}
+
+function RailNav({
+  direction,
+  question,
+}: {
+  direction: 'prev' | 'next'
+  question?: Java8guQuestion
+}) {
+  const Icon = direction === 'prev' ? ArrowLeft : ArrowRight
+  const label = direction === 'prev' ? '上一题' : '下一题'
+  if (!question) {
+    return (
+      <div className="flex items-center justify-center rounded-lg border border-dashed px-2 py-2 text-[10.5px] text-[var(--color-muted-foreground)]/60">
+        {direction === 'prev' ? '已是首题' : '已是末题'}
+      </div>
+    )
+  }
+  return (
+    <Link
+      to={`/tools/java8gu/q/${question.id}`}
+      title={question.title}
+      className={cn(
+        'group flex items-center gap-1 rounded-lg border bg-[var(--color-card)] px-2 py-2 text-[11px] text-[var(--color-muted-foreground)] transition-colors hover:border-[var(--color-primary)]/40 hover:text-[var(--color-primary)]',
+        direction === 'next' && 'flex-row-reverse',
+      )}
+    >
+      <Icon className="h-3.5 w-3.5 shrink-0" />
+      <span className="truncate">{label}</span>
+    </Link>
   )
 }
 

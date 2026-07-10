@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronRight, Code2, FileText, Hash, Sparkles, Table2, Terminal } from 'lucide-react'
+import { ChevronDown, ChevronRight, Code2, FileText, Hash, Table2, Terminal } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ParsedCodeBlock, ParsedSection, ParsedStructure } from '../lib/structure'
 import { iconFor } from '../lib/mindmap'
@@ -24,26 +24,6 @@ export function QuestionVisualSummary({ structure }: Props) {
 
   return (
     <div className="space-y-6">
-      {/* 关键术语 chip 云 */}
-      {structure.terms.length > 0 && (
-        <SectionBlock
-          title="关键术语"
-          icon={<Sparkles className="h-3.5 w-3.5" />}
-          subtitle="正文里 ⌜加粗⌟ 与 ⌜行内代码⌟ 高频短语"
-        >
-          <div className="flex flex-wrap gap-2">
-            {structure.terms.map((t, i) => (
-              <span
-                key={i}
-                className="rounded-full bg-[var(--color-primary)]/8 px-3 py-1 text-[12.5px] font-medium text-[var(--color-primary)] ring-1 ring-inset ring-[var(--color-primary)]/15"
-              >
-                {t}
-              </span>
-            ))}
-          </div>
-        </SectionBlock>
-      )}
-
       {/* 速记卡片 —— 主体内容 */}
       {groups.length > 0 && (
         <SectionBlock
@@ -193,9 +173,9 @@ function NoteCard({
         </div>
       </header>
 
-      {/* 头部章节的 bullets */}
+      {/* 头部章节的 bullets —— 编号呈现，建立"第几个知识点"的记忆锚点 */}
       {group.head.bullets.length > 0 && (
-        <Bullets items={group.head.bullets} />
+        <KeyPoints items={group.head.bullets} />
       )}
 
       {/* 代码段引用（仅头部章节） */}
@@ -241,6 +221,24 @@ function NoteCard({
         </p>
       )}
     </article>
+  )
+}
+
+/** 编号知识点：给主章节要点建立"第几条"的视觉重点与记忆锚点 */
+function KeyPoints({ items }: { items: string[] }) {
+  return (
+    <ol className="space-y-2">
+      {items.map((b, i) => (
+        <li key={i} className="flex items-start gap-2.5">
+          <span className="mt-px inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-[var(--color-primary)]/12 text-[11px] font-bold tabular-nums text-[var(--color-primary)]">
+            {i + 1}
+          </span>
+          <span className="text-[13px] leading-relaxed text-[var(--color-foreground)]/90">
+            {b}
+          </span>
+        </li>
+      ))}
+    </ol>
   )
 }
 
