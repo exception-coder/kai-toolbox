@@ -1,8 +1,11 @@
-import { useState } from 'react'
-import { AlertTriangle, Pencil, Plus, Server, Trash2, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { AlertTriangle, Keyboard, Loader2, Pencil, Plus, RefreshCw, Server, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useConfirm } from '@/components/ui/confirm-dialog'
+import { fetchProviderModels } from '../api'
+import { groupModels } from './modelGroups'
+import type { ModelInfo } from '../types'
 import { loadProfiles, removeProfile, upsertProfile, type ProviderProfile } from '../providerProfiles'
 
 interface Props {
@@ -79,7 +82,7 @@ export function ProviderProfilesPanel({ onClose }: Props) {
         ))}
       </ul>
 
-      {/* 编辑/新增表单 */}
+      {/* 编辑/新增表单：默认模型见 ModelField（接口加载下拉 + 手动兜底） */}
       {draft && (
         <div className="mt-3 space-y-2 rounded-md border bg-[var(--color-muted)] p-2">
           <div>
@@ -94,16 +97,152 @@ export function ProviderProfilesPanel({ onClose }: Props) {
             <label className="text-xs text-[var(--color-muted-foreground)]">API Key</label>
             <Input type="password" value={draft.key} onChange={e => setDraft({ ...draft, key: e.target.value })} placeholder="sk-..." className="mt-0.5" />
           </div>
-          <div>
-            <label className="text-xs text-[var(--color-muted-foreground)]">默认模型（新建会话预填，可改）</label>
-            <Input value={draft.model} onChange={e => setDraft({ ...draft, model: e.target.value })} placeholder="网关挂的模型名，如 claude-sonnet-4-5" className="mt-0.5" />
-          </div>
+          <ModelField
+            baseUrl={draft.baseUrl}
+            apiKey={draft.key}
+            value={draft.model}
+            onChange={model => setDraft({ ...draft, model })}
+          />
           {err && <p className="text-xs text-[var(--color-destructive)]">{err}</p>}
           <div className="flex justify-end gap-2">
             <Button variant="outline" size="sm" onClick={() => setDraft(null)}>取消</Button>
             <Button size="sm" onClick={save}>保存</Button>
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * 「默认模型」选择：用该档案自己的 baseURL + Key 调后端代理 `POST /provider/models`
+ * 拉网关 `/v1/models`，按平台分组成下拉（参考 AI 对话的接口加载选择）。
+ * baseURL/Key 齐全后自动加载（去抖 500ms，避免逐字符输 Key 时狂拉）；失败或网关不给列表时
+ * 自动降级为手动输入，另留「手动输入」开关随时手填未在列表里的模型名。
+ */
+function ModelField({
+  baseUrl,
+  apiKey,
+  value,
+  onChange,
+}: {
+  baseUrl: string
+  apiKey: string
+  value: string
+  onChange: (model: string) => void
+}) {
+  const [models, setModels] = useState<ModelInfo[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [manual, setManual] = useState(false)
+  const reqSeq = useRef(0)
+
+  const load = (base: string, key: string) => {
+    const trimmed = base.trim()
+    if (!trimmed) {
+      setModels([])
+      setError(null)
+      return
+    }
+    const seq = ++reqSeq.current
+    setLoading(true)
+    setError(null)
+    fetchProviderModels(trimmed, key.trim())
+      .then(r => {
+        if (seq !== reqSeq.current) return // 已被更新的请求取代
+        const list = r.models ?? []
+        setModels(list)
+        setError(list.length === 0 ? (r.error ?? '网关未返回模型') : null)
+        if (list.length === 0) setManual(true) // 拉不到 → 退回手输
+      })
+      .catch(e => {
+        if (seq !== reqSeq.current) return
+        setModels([])
+        setError(`请求失败：${(e as Error)?.message ?? '未知错误'}`)
+        setManual(true)
+      })
+      .finally(() => {
+        if (seq === reqSeq.current) setLoading(false)
+      })
+  }
+
+  // baseURL/Key 变化后去抖自动加载（编辑已存在档案时也会自动首拉）。
+  useEffect(() => {
+    if (!baseUrl.trim()) {
+      setModels([])
+      setError(null)
+      return
+    }
+    const t = setTimeout(() => load(baseUrl, apiKey), 500)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseUrl, apiKey])
+
+  const groups = groupModels(models)
+  // 当前值不在拉到的列表里（如网关新模型/历史手填），补一个选项以免显示成空。
+  const valueMissing = value.trim() !== '' && !models.some(m => m.value === value)
+  const useSelect = !manual && models.length > 0
+
+  return (
+    <div>
+      <div className="flex items-center gap-2">
+        <label className="text-xs text-[var(--color-muted-foreground)]">默认模型（新建会话预填，可改）</label>
+        {loading && <Loader2 className="size-3 animate-spin text-[var(--color-muted-foreground)]" />}
+        <div className="ml-auto flex items-center gap-1">
+          {models.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setManual(m => !m)}
+              className="flex items-center gap-1 rounded px-1 py-0.5 text-[11px] text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]"
+              title={manual ? '从列表选择' : '手动输入模型名'}
+            >
+              {manual ? <Server className="size-3" /> : <Keyboard className="size-3" />}
+              {manual ? '从列表选' : '手动输入'}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => load(baseUrl, apiKey)}
+            disabled={loading || !baseUrl.trim()}
+            className="flex items-center gap-1 rounded px-1 py-0.5 text-[11px] text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] disabled:opacity-40"
+            title="重新加载模型列表"
+          >
+            <RefreshCw className="size-3" /> 刷新
+          </button>
+        </div>
+      </div>
+
+      {useSelect ? (
+        <select
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          className="mt-0.5 w-full rounded-md border bg-[var(--color-background)] px-2 py-1 text-sm"
+        >
+          <option value="">（不设默认，新建时再选）</option>
+          {valueMissing && <option value={value}>{value}（当前，不在列表）</option>}
+          {groups.map(g => (
+            <optgroup key={g.key} label={g.label}>
+              {g.models.map(m => (
+                <option key={m.value} value={m.value}>
+                  {m.displayName && m.displayName !== m.value ? `${m.displayName}（${m.value}）` : m.value}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      ) : (
+        <Input
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder="网关挂的模型名，如 claude-sonnet-4-5"
+          className="mt-0.5"
+        />
+      )}
+
+      {error && (
+        <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+          {error}，已切手动输入。填好 baseURL/Key 后点「刷新」重试。
+        </p>
       )}
     </div>
   )
