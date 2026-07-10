@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @ConfigurationProperties(prefix = "toolbox.visitor-analysis.cust-add-audit-sync")
-@Refreshable(name = "客户新增审批同步")
+@Refreshable(name = "客户新增审批同步", group = "访客分析")
 public class CustAddAuditSyncProperties {
 
     /** 总开关。false 时拉取/判别定时任务直接跳过。 */

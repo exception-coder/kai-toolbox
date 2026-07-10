@@ -22,7 +22,7 @@ import org.springframework.stereotype.Component;
 @Data
 @Component
 @ConfigurationProperties("toolbox.visitor-analysis.rag")
-@Refreshable(name = "访客分析向量库")
+@Refreshable(name = "访客分析向量库", group = "访客分析")
 public class VisitorAnalysisRagProperties {
 
     @ConfigDesc("总开关：开启后才装配嵌入模型 + Qdrant 向量库用于灰区判别的相似客户召回；改后需重启 agent 生效")

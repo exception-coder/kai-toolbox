@@ -22,9 +22,10 @@ public class RefreshableConfigRegistry {
     /**
      * @param prefix    配置块 prefix（= blockId）
      * @param name      展示名
+     * @param group     所属分组（空串=不分组）
      * @param beanType  目标 properties 类型，用于值绑定校验
      */
-    public record BlockMeta(String prefix, String name, Class<?> beanType) {
+    public record BlockMeta(String prefix, String name, String group, Class<?> beanType) {
     }
 
     private final Map<String, BlockMeta> blocks = new LinkedHashMap<>();
@@ -41,7 +42,7 @@ public class RefreshableConfigRegistry {
             if (prefix.isEmpty()) {
                 continue;
             }
-            blocks.put(prefix, new BlockMeta(prefix, refreshable.name(), type));
+            blocks.put(prefix, new BlockMeta(prefix, refreshable.name(), refreshable.group(), type));
         }
     }
 

@@ -14,7 +14,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @ConfigurationProperties(prefix = "toolbox.visitor-analysis.customer-sync")
-@Refreshable(name = "客户底库同步")
+@Refreshable(name = "客户底库同步", group = "访客分析")
 public class CustomerSyncProperties {
 
     @ConfigDesc("总开关：开启后才定时同步 Yoooni 客户底库到本地；关闭则不同步、实时手机查也不调用")

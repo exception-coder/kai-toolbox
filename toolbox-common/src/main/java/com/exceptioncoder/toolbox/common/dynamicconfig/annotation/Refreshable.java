@@ -20,4 +20,7 @@ public @interface Refreshable {
 
     /** 展示名，用于配置中心 UI。 */
     String name();
+
+    /** 所属分组（配置中心 UI 把同模块的多个配置块收拢到一组下）。留空则不分组、独立展示。 */
+    String group() default "";
 }

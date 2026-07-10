@@ -3,6 +3,8 @@ import { http } from '@/lib/api'
 export interface ConfigBlockSummary {
   id: string
   name: string
+  /** 所属分组（空串=不分组）。配置中心侧边栏按此收拢同模块的多个配置块。 */
+  group?: string
 }
 
 export interface ConfigEntry {

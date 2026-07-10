@@ -32,22 +32,30 @@ export function ConfigCenterPage() {
             暂无配置块（给 @ConfigurationProperties 加 @Refreshable 即纳入）
           </div>
         )}
-        <ul>
-          {blocks.map(b => (
-            <li key={b.id}>
-              <button
-                type="button"
-                onClick={() => setSelected(b.id)}
-                className={`block w-full px-3 py-2 text-left text-sm ${
-                  b.id === selected ? 'bg-[var(--color-accent)] font-medium' : 'hover:bg-[var(--color-accent)]'
-                }`}
-              >
-                <div className="truncate">{b.name}</div>
-                <div className="truncate text-xs text-[var(--color-muted-foreground)]">{b.id}</div>
-              </button>
-            </li>
-          ))}
-        </ul>
+        {/* 按 group 分组：有 group 的收拢到分组标题下，无 group 的平铺在最前。保持后端返回顺序。 */}
+        {groupBlocks(blocks).map(section => (
+          <div key={section.group || '__ungrouped__'}>
+            {section.group && (
+              <div className="px-3 pt-3 pb-1 text-xs font-semibold text-[var(--color-foreground)]">{section.group}</div>
+            )}
+            <ul>
+              {section.items.map(b => (
+                <li key={b.id}>
+                  <button
+                    type="button"
+                    onClick={() => setSelected(b.id)}
+                    className={`block w-full py-2 text-left text-sm ${section.group ? 'pl-6 pr-3' : 'px-3'} ${
+                      b.id === selected ? 'bg-[var(--color-accent)] font-medium' : 'hover:bg-[var(--color-accent)]'
+                    }`}
+                  >
+                    <div className="truncate">{b.name}</div>
+                    <div className="truncate text-xs text-[var(--color-muted-foreground)]">{b.id}</div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
       </aside>
 
       <main className="flex-1 overflow-y-auto p-4">
@@ -225,10 +233,27 @@ function ListValueEditor({ values, onChange }: { values: string[]; onChange: (va
   )
 }
 
+/** 把配置块按 group 分组：无 group 的归到最前的 ungrouped 段，其余按首次出现顺序成组。 */
+function groupBlocks(blocks: { id: string; name: string; group?: string }[]) {
+  const sections: { group: string; items: typeof blocks }[] = []
+  const indexByGroup = new Map<string, number>()
+  for (const b of blocks) {
+    const g = b.group ?? ''
+    let idx = indexByGroup.get(g)
+    if (idx === undefined) {
+      idx = sections.length
+      indexByGroup.set(g, idx)
+      sections.push({ group: g, items: [] })
+    }
+    sections[idx].items.push(b)
+  }
+  // 无分组(空串)的段排到最前
+  return sections.sort((a, b) => (a.group === '' ? -1 : b.group === '' ? 1 : 0))
+}
+
 function isListEntry(entry: { type?: string }) {
   return entry.type === 'list'
 }
-
 function normalizeEntries(entries: ConfigBlockView['entries']) {
   if (entries.some(e => e.type === 'list')) {
     return entries

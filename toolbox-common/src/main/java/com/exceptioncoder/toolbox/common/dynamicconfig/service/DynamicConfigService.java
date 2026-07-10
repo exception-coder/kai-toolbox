@@ -71,7 +71,7 @@ public class DynamicConfigService {
 
     public List<ConfigBlockSummary> listBlocks() {
         return registry.blocks().stream()
-                .map(b -> new ConfigBlockSummary(b.prefix(), b.name()))
+                .map(b -> new ConfigBlockSummary(b.prefix(), b.name(), b.group()))
                 .toList();
     }
 
