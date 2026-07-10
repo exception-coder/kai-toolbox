@@ -89,6 +89,14 @@ $ErrorActionPreference = 'Stop'
 if (-not $Proxy) {
   foreach ($v in @($env:HTTPS_PROXY, $env:ALL_PROXY, $env:HTTP_PROXY)) { if ($v) { $Proxy = $v; break } }
 }
+if (-not $Proxy) {
+  foreach ($proxyPort in @(7897, 7890, 10809, 1080)) {
+    if (Test-NetConnection 127.0.0.1 -Port $proxyPort -InformationLevel Quiet -WarningAction SilentlyContinue) {
+      $Proxy = "http://127.0.0.1:$proxyPort"
+      break
+    }
+  }
+}
 if ($Proxy) {
   $env:HTTPS_PROXY = $Proxy
   $env:HTTP_PROXY = $Proxy
@@ -128,6 +136,138 @@ else {
 }
 
 $target = "${Scheme}://localhost:$Port"
+
+function Invoke-CloudflaredCaptured {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string[]]$Arguments
+  )
+
+  $prevEap = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $output = & $exe @Arguments 2>&1 | ForEach-Object { $_.ToString() }
+    $exitCode = $LASTEXITCODE
+  }
+  finally {
+    $ErrorActionPreference = $prevEap
+  }
+
+  [pscustomobject]@{
+    ExitCode = $exitCode
+    Output = ($output -join "`n")
+  }
+}
+
+function Copy-DefaultTunnelCredential {
+  param(
+    [string]$TunnelId
+  )
+
+  if ([string]::IsNullOrWhiteSpace($TunnelId) -or (Test-Path $credJson)) {
+    return
+  }
+
+  $defaultCredJson = Join-Path $env:USERPROFILE ".cloudflared\$TunnelId.json"
+  if (Test-Path $defaultCredJson) {
+    Copy-Item $defaultCredJson $credJson -Force
+    Write-Host "[cf-tunnel]   已从默认位置拷入隧道凭证: $defaultCredJson" -ForegroundColor DarkGray
+  }
+}
+
+function Get-ExistingTunnel {
+  $prevEap = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $listOut = & $exe tunnel list --output json 2>$null
+  }
+  finally {
+    $ErrorActionPreference = $prevEap
+  }
+
+  if (-not $listOut) {
+    return $null
+  }
+
+  try {
+    return ($listOut | ConvertFrom-Json) | Where-Object { $_.name -eq $TunnelName } | Select-Object -First 1
+  }
+  catch {
+    return $null
+  }
+}
+
+function New-NamedTunnelCredential {
+  for ($i = 1; $i -le 3 -and -not (Test-Path $credJson); $i++) {
+    if ($i -gt 1) { Write-Host "[cf-tunnel]   创建未成功，重试 $i/3 ..." -ForegroundColor DarkGray; Start-Sleep -Seconds 2 }
+    $createResult = Invoke-CloudflaredCaptured @('tunnel', 'create', '--credentials-file', $credJson, $TunnelName)
+    if ($createResult.Output) {
+      Write-Host $createResult.Output
+    }
+    if ($createResult.Output -match 'tunnel with name already exists') {
+      return 'NameExists'
+    }
+  }
+
+  if (Test-Path $credJson) {
+    return 'Created'
+  }
+
+  return 'Failed'
+}
+
+function Reset-ExistingTunnelWithoutCredential {
+  param(
+    [Parameter(Mandatory = $true)]
+    $Tunnel
+  )
+
+  Write-Host "[cf-tunnel]   本机缺少凭证，删除远端同名隧道后重新创建 ..." -ForegroundColor Yellow
+  $deleteResult = Invoke-CloudflaredCaptured @('tunnel', 'delete', '--force', $Tunnel.id)
+  if ($deleteResult.Output) {
+    Write-Host $deleteResult.Output
+  }
+  if ($deleteResult.ExitCode -ne 0) {
+    throw @"
+删除远端同名隧道失败(UUID=$($Tunnel.id)),无法自动重建本机凭证。
+请稍后重试，或在 Cloudflare 后台手动删除该隧道后重新运行本命令。
+"@
+  }
+
+  $createState = New-NamedTunnelCredential
+  if ($createState -ne 'Created') {
+    throw @"
+远端同名隧道已删除，但重新创建 $TunnelName 未生成凭证 $credJson。
+请检查 Cloudflare API 网络连通性；若本机靠代理上网，请带上 -Proxy 重跑。
+"@
+  }
+}
+
+function Set-TunnelDnsRoute {
+  for ($i = 1; $i -le 3; $i++) {
+    if ($i -gt 1) { Write-Host "[cf-tunnel]   DNS 绑定未成功，重试 $i/3 ..." -ForegroundColor DarkGray; Start-Sleep -Seconds 2 }
+    $routeResult = Invoke-CloudflaredCaptured @('tunnel', 'route', 'dns', '--overwrite-dns', $TunnelName, $Hostname)
+    if ($routeResult.Output) {
+      Write-Host $routeResult.Output
+    }
+    if ($routeResult.ExitCode -eq 0) {
+      return
+    }
+  }
+
+  throw "绑定 DNS 失败: $Hostname -> $TunnelName。请检查 Cloudflare DNS 记录或稍后重试。"
+}
+
+function Stop-ExistingCloudflaredForConfig {
+  $escapedConfig = [regex]::Escape($configYml)
+  $processes = Get-CimInstance Win32_Process -Filter "name = 'cloudflared.exe'" |
+    Where-Object { $_.CommandLine -match $escapedConfig }
+
+  foreach ($process in $processes) {
+    Write-Host "[cf-tunnel] 停止旧 cloudflared 进程(PID=$($process.ProcessId)) ..." -ForegroundColor DarkGray
+    Stop-Process -Id $process.ProcessId -Force
+  }
+}
 
 # ════════════════════════════════════════════════════════════════════
 # 模式一:Quick Tunnel(默认)
@@ -192,25 +332,24 @@ if ($Setup) {
   }
 
   # ② 创建命名隧道(若同名隧道已存在则复用)
-  # 注意:cloudflared 会往 stderr 打「版本过时」等日志;PS5.1 在 $ErrorActionPreference='Stop' 下会把
-  # 捕获到的原生 stderr(这里 2>$null 捕获了)当成终止错误抛出。故临时降为 Continue 再调,JSON 解析再容错。
-  $existing = $null
-  $prevEap = $ErrorActionPreference
-  $ErrorActionPreference = 'Continue'
-  try { $listOut = & $exe tunnel list --output json 2>$null } finally { $ErrorActionPreference = $prevEap }
-  if ($listOut) {
-    try { $existing = ($listOut | ConvertFrom-Json) | Where-Object { $_.name -eq $TunnelName } } catch { $existing = $null }
-  }
+  $existing = Get-ExistingTunnel
   if (-not $existing) {
     Write-Host "[cf-tunnel] ② 创建命名隧道 $TunnelName ..." -ForegroundColor Yellow
-    # 带重试:到 api.cloudflare.com 的调用可能被代理/网络瞬时切断(EOF)。凭证 json 生成 = 创建成功的确证。
-    for ($i = 1; $i -le 3 -and -not (Test-Path $credJson); $i++) {
-      if ($i -gt 1) { Write-Host "[cf-tunnel]   创建未成功，重试 $i/3 ..." -ForegroundColor DarkGray; Start-Sleep -Seconds 2 }
-      & $exe tunnel create --credentials-file $credJson $TunnelName
+    $createState = New-NamedTunnelCredential
+    if ($createState -eq 'NameExists') {
+      $existing = Get-ExistingTunnel
+      if ($existing) {
+        Write-Host "[cf-tunnel]   远端已存在同名隧道(UUID=$($existing.id)),改为复用。" -ForegroundColor DarkGray
+        Copy-DefaultTunnelCredential $existing.id
+        if (-not (Test-Path $credJson)) {
+          Reset-ExistingTunnelWithoutCredential $existing
+        }
+      }
     }
     if (-not (Test-Path $credJson)) {
       throw @"
-创建命名隧道失败:到 api.cloudflare.com 的请求被切断(EOF),未生成凭证 $credJson。
+创建命名隧道失败:
+到 api.cloudflare.com 的请求可能被切断(EOF),未生成凭证 $credJson。
 cloudflared 不读 Windows 系统代理,直连被墙/被重置。若你本机靠代理上网(如 Clash 7897),请带上 -Proxy 重跑:
   .\scripts\cf-tunnel-5173.ps1 -Named -Setup -Hostname $Hostname -Proxy http://127.0.0.1:7897
 其它可能:
@@ -222,15 +361,15 @@ cloudflared 不读 Windows 系统代理,直连被墙/被重置。若你本机靠
   }
   else {
     Write-Host "[cf-tunnel] ② 隧道 $TunnelName 已存在(UUID=$($existing.id)),跳过创建。" -ForegroundColor DarkGray
-    # 凭证文件可能不在本目录,补导出一次
+    Copy-DefaultTunnelCredential $existing.id
     if (-not (Test-Path $credJson)) {
-      Write-Host "[cf-tunnel]   未找到本地凭证 $credJson,请确认 ~/.cloudflared 下是否有 $($existing.id).json" -ForegroundColor Yellow
+      Reset-ExistingTunnelWithoutCredential $existing
     }
   }
 
   # ③ 自动写 DNS CNAME:$Hostname -> 隧道
   Write-Host "[cf-tunnel] ③ 绑定 DNS: $Hostname -> $TunnelName ..." -ForegroundColor Yellow
-  & $exe tunnel route dns $TunnelName $Hostname
+  Set-TunnelDnsRoute
 
   # ④ 生成 config.yml(ingress 路由到本机端口)
   Write-Host "[cf-tunnel] ④ 写入配置 $configYml ..." -ForegroundColor Yellow
@@ -266,4 +405,5 @@ Write-Host "[cf-tunnel] 模式: Named Tunnel(固定域名,$TunnelName)" -Foregro
 Write-Host "[cf-tunnel] edge 传输协议: $Protocol" -ForegroundColor DarkGray
 Write-Host "[cf-tunnel] 回源目标: $target,Ctrl+C 结束。" -ForegroundColor Yellow
 Write-Host ""
+Stop-ExistingCloudflaredForConfig
 & $exe tunnel --no-autoupdate --protocol $Protocol --config $configYml run
