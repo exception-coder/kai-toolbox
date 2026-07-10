@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 public class OpsToolDescriptor implements ToolDescriptor {
 
     @Override public String id()          { return "ops"; }
-    @Override public String name()        { return "系统中间件台"; }
+    @Override public String name()        { return "系统与中间件"; }
     @Override public String icon()        { return "database-zap"; }
     @Override public String route()       { return "/tools/ops"; }
     @Override public String group()       { return "系统工具"; }

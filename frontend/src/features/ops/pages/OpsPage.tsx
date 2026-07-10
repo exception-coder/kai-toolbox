@@ -143,7 +143,7 @@ export function OpsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <DatabaseZap className="size-5" />
-            系统中间件台
+            系统与中间件
           </CardTitle>
           <CardDescription>
             登记你负责的系统与各环境中间件（MySQL / Oracle / Redis），点击实例即可直连执行查询，日常排查一步到位。
