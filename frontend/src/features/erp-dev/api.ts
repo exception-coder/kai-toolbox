@@ -76,51 +76,7 @@ export function importErpDbFromOps(datasourceId: string) {
     `/claude-chat/erp-db/import/${encodeURIComponent(datasourceId)}`, { method: 'PUT' })
 }
 
-/* ---------- ERP 服务启停 + 启动日志 ---------- */
-
-export interface ErpServiceStatus {
-  running: boolean
-  pid: number | null
-  workDir: string | null
-  command: string | null
-  startedAt: number | null
-  uptimeMs: number | null
-}
-
-type ErpServiceResult = ErpServiceStatus | { ok: false; error: string }
-
-/** SSE 日志流地址（EventSource 直连，经 Vite /api 代理）。 */
-export const ERP_SERVICE_LOG_STREAM = '/api/claude-chat/erp-service/logs/stream'
-
-export function getErpServiceStatus() {
-  return http<ErpServiceStatus>('/claude-chat/erp-service/status')
-}
-
-/** 当前日志快照（初次加载，随后走 SSE 增量）。 */
-export function getErpServiceLogs() {
-  return http<string[]>('/claude-chat/erp-service/logs')
-}
-
-/** 启动服务（command 留空=默认 start-yoooni.ps1）。 */
-export function startErpService(cwd: string, command?: string) {
-  return http<ErpServiceResult>('/claude-chat/erp-service/start', {
-    method: 'POST', body: JSON.stringify({ cwd, command: command || undefined }),
-  })
-}
-
-/** 停止服务。 */
-export function stopErpService(stopCommand?: string) {
-  return http<ErpServiceResult>('/claude-chat/erp-service/stop', {
-    method: 'POST', body: JSON.stringify({ stopCommand: stopCommand || undefined }),
-  })
-}
-
-/** 重启服务（先停再起，让改动生效）。 */
-export function restartErpService(cwd: string, command?: string, stopCommand?: string) {
-  return http<ErpServiceResult>('/claude-chat/erp-service/restart', {
-    method: 'POST', body: JSON.stringify({ cwd, command: command || undefined, stopCommand: stopCommand || undefined }),
-  })
-}
+/* ERP 服务启停 + 启动日志已迁到通用 devkit：@/features/_devkit/devServiceApi（serviceId='erp'）。 */
 
 /** 本地 ERP 实例（验证用）连接（脱敏视图，不含密码）。 */
 export interface ErpAppConfigView {
