@@ -64,6 +64,21 @@ export interface TestResult {
   elapsedMs: number
 }
 
+/** 含明文密码的完整连接信息，来自 /connection 内部端点（本机回环用）。 */
+export interface DatasourceConnection {
+  id: string
+  systemId: string
+  env: string
+  type: DatasourceType
+  name: string
+  host: string
+  port: number
+  username: string | null
+  password: string | null
+  dbName: string | null
+  params: string | null
+}
+
 export interface SqlQueryResult {
   columns: string[]
   rows: (string | null)[][]

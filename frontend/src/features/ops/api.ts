@@ -1,5 +1,6 @@
 import { http } from '@/lib/api'
 import type {
+  DatasourceConnection,
   DatasourcePayload,
   DatasourceView,
   HistoryDetailView,
@@ -50,6 +51,11 @@ export function deleteDatasource(id: string) {
 
 export function testDatasource(id: string) {
   return http<TestResult>(`/ops/datasources/${id}/test`, { method: 'POST' })
+}
+
+/** 拉取完整连接信息（含明文密码），供前端「眼睛」按需展示。 */
+export function getDatasourceConnection(id: string) {
+  return http<DatasourceConnection>(`/ops/datasources/${id}/connection`)
 }
 
 /* ---------- 查询 ---------- */

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, ChevronRight, DatabaseZap, Pencil, Plus, Server, Wifi } from 'lucide-react'
+import { ChevronDown, ChevronRight, DatabaseZap, Pencil, Plus, Server } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { useConfirm } from '@/components/ui/confirm-dialog'
@@ -17,6 +17,7 @@ import { DatasourceEditor } from '../components/DatasourceEditor'
 import { SqlConsole } from '../components/SqlConsole'
 import { RedisConsole } from '../components/RedisConsole'
 import { HistoryPanel } from '../components/HistoryPanel'
+import { DatasourceRow } from '../components/DatasourceRow'
 import { TYPE_DEFAULT_PORT, TYPE_META, envBadge } from '../meta'
 
 const EMPTY_SYSTEM: SystemPayload = { name: '', code: '', owner: '', description: '' }
@@ -221,47 +222,15 @@ export function OpsPage() {
                           </div>
                         ) : (
                           list.map(d => (
-                            <div
+                            <DatasourceRow
                               key={d.id}
-                              className={cn(
-                                'flex items-center gap-2 rounded-md border px-2 py-1.5 text-sm',
-                                selectedId === d.id
-                                  ? 'border-[var(--color-ring)] bg-[var(--color-muted)]/40'
-                                  : 'hover:bg-[var(--color-muted)]/30',
-                              )}
-                            >
-                              <button
-                                className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                                onClick={() => { if (d.queryable) { setSelectedId(d.id); setPanel('query') } }}
-                                title={d.queryable ? '打开查询控制台' : '该类型暂只登记，不支持在线查询'}
-                              >
-                                <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-medium', envBadge(d.env))}>
-                                  {d.env}
-                                </span>
-                                <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-medium', TYPE_META[d.type].badge)}>
-                                  {TYPE_META[d.type].label}
-                                </span>
-                                <span className="min-w-0 flex-1 truncate">{d.name}</span>
-                                <span className="hidden truncate font-mono text-[10px] text-[var(--color-muted-foreground)] sm:inline">
-                                  {d.endpoint}
-                                </span>
-                              </button>
-                              <button
-                                className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] disabled:opacity-50"
-                                title="测试连接"
-                                onClick={() => testDs.mutate(d.id)}
-                                disabled={testDs.isPending}
-                              >
-                                <Wifi className="size-3.5" />
-                              </button>
-                              <button
-                                className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
-                                title="编辑"
-                                onClick={() => startEditDs(d)}
-                              >
-                                <Pencil className="size-3.5" />
-                              </button>
-                            </div>
+                              d={d}
+                              selected={selectedId === d.id}
+                              testing={testDs.isPending}
+                              onOpen={() => { if (d.queryable) { setSelectedId(d.id); setPanel('query') } }}
+                              onTest={() => testDs.mutate(d.id)}
+                              onEdit={() => startEditDs(d)}
+                            />
                           ))
                         )}
                       </div>
