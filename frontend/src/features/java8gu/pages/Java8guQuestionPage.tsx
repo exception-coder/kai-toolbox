@@ -9,7 +9,6 @@ import {
   FileText,
   Hash,
   Lightbulb,
-  Sparkles,
   Star,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -17,7 +16,13 @@ import { Segmented } from '@/components/ui/segmented'
 import { findCategory, findQuestion, loadIndex, loadMarkdown, viewCategory } from '../data'
 import type { Java8guCategory, Java8guIndex, Java8guQuestion } from '../types'
 import { extractToc, parseMarkdownAST, type TocItem } from '../lib/markdown'
-import { parseStructure, type ParsedStructure } from '../lib/structure'
+import {
+  groupSections,
+  parseStructure,
+  sectionAnchorId,
+  SUMMARY_ANCHOR_ID,
+  type SectionGroup,
+} from '../lib/structure'
 import { iconFor } from '../lib/mindmap'
 import { QuestionTocPanel } from '../components/QuestionTocPanel'
 import { QuestionVisualSummary } from '../components/QuestionVisualSummary'
@@ -111,6 +116,7 @@ export function Java8guQuestionPage() {
   const tokens = useMemo(() => parseMarkdownAST(markdown), [markdown])
   const toc: TocItem[] = useMemo(() => extractToc(markdown), [markdown])
   const structure = useMemo(() => parseStructure(markdown), [markdown])
+  const groups = useMemo(() => groupSections(structure.sections), [structure])
 
   if (error) {
     return (
@@ -222,7 +228,10 @@ export function Java8guQuestionPage() {
 
           {/* 一句话总结 —— 最高优先级，先理解 */}
           {question.tldr && (
-            <div className="mb-5 overflow-hidden rounded-xl border border-[var(--color-primary)]/25 bg-gradient-to-br from-[var(--color-primary)]/10 via-[var(--color-primary)]/5 to-transparent p-4 sm:mb-6 sm:p-5">
+            <div
+              id={SUMMARY_ANCHOR_ID}
+              className="mb-5 overflow-hidden rounded-xl border border-[var(--color-primary)]/25 bg-gradient-to-br from-[var(--color-primary)]/10 via-[var(--color-primary)]/5 to-transparent p-4 [scroll-margin-top:5rem] sm:mb-6 sm:p-5"
+            >
               <div className="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-wider text-[var(--color-primary)]">
                 <Lightbulb className="h-3.5 w-3.5" /> 一句话总结
               </div>
@@ -252,11 +261,30 @@ export function Java8guQuestionPage() {
           </nav>
         </article>
 
-        {/* 元信息 / 导航边栏（lg+） */}
+        {/* 元信息 / 跳转目录边栏（lg+） */}
         <aside className="hidden lg:block">
-          <div className="sticky top-6 space-y-4">
-            {/* 分类 + 难度 + 统计 */}
-            <div className="rounded-xl border bg-[var(--color-card)] p-3.5">
+          <div className="sticky top-6 flex max-h-[calc(100vh-3rem)] flex-col gap-4">
+            {/* 章节目录 —— 主角：点击定位，滚动高亮，撑满右栏高度 */}
+            {(viewMode === 'text' ? toc.length > 0 : groups.length > 0) && (
+              <div className="flex min-h-0 flex-1 flex-col rounded-xl border bg-[var(--color-card)] p-3.5">
+                <div className="mb-2.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">
+                  <FileText className="h-3 w-3 text-[var(--color-primary)]" /> 目录
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto pr-1 [scrollbar-width:thin]">
+                  {viewMode === 'text' ? (
+                    <QuestionTocPanel items={toc} containerRef={articleRef} />
+                  ) : (
+                    <SectionOutline
+                      groups={groups}
+                      hasSummary={!!question.tldr}
+                    />
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 分类 + 难度 + 统计（紧凑） */}
+            <div className="shrink-0 rounded-xl border bg-[var(--color-card)] p-3.5">
               <Link
                 to={`/tools/java8gu/c/${category.id}`}
                 className="flex items-center gap-1.5 text-[11.5px] font-medium text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
@@ -278,38 +306,8 @@ export function Java8guQuestionPage() {
               </div>
             </div>
 
-            {/* 关键术语 */}
-            {structure.terms.length > 0 && (
-              <div className="rounded-xl border bg-[var(--color-card)] p-3.5">
-                <div className="mb-2.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">
-                  <Sparkles className="h-3 w-3 text-[var(--color-primary)]" /> 关键术语
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {structure.terms.slice(0, 12).map((t, i) => (
-                    <span
-                      key={i}
-                      className="rounded-full bg-[var(--color-primary)]/8 px-2 py-0.5 text-[11px] font-medium text-[var(--color-primary)] ring-1 ring-inset ring-[var(--color-primary)]/15"
-                    >
-                      {t}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* 章节导航 */}
-            {(viewMode === 'text' ? toc.length > 0 : structure.sections.length > 0) && (
-              <div className="rounded-xl border bg-[var(--color-card)] p-3.5">
-                {viewMode === 'text' ? (
-                  <QuestionTocPanel items={toc} containerRef={articleRef} />
-                ) : (
-                  <SectionMiniNav structure={structure} />
-                )}
-              </div>
-            )}
-
             {/* 上/下一题快捷跳转 */}
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid shrink-0 grid-cols-2 gap-2">
               <RailNav direction="prev" question={navigators.prev} />
               <RailNav direction="next" question={navigators.next} />
             </div>
@@ -389,26 +387,85 @@ function RailNav({
   )
 }
 
-function SectionMiniNav({ structure }: { structure: ParsedStructure }) {
-  const tops = structure.sections.filter(s => s.level === 2)
-  if (tops.length === 0) return null
+/**
+ * 图表视图的跳转目录：点击定位到对应速记卡片，随滚动高亮当前章节。
+ * 目录项与卡片共用 sectionAnchorId，一一对应。
+ */
+function SectionOutline({
+  groups,
+  hasSummary,
+}: {
+  groups: SectionGroup[]
+  hasSummary: boolean
+}) {
+  const [activeId, setActiveId] = useState<string | null>(null)
+
+  const entries = useMemo(() => {
+    const list: { id: string; label: string; icon: string }[] = []
+    if (hasSummary) {
+      list.push({ id: SUMMARY_ANCHOR_ID, label: '一句话总结', icon: '💡' })
+    }
+    groups.forEach((g, i) => {
+      list.push({
+        id: sectionAnchorId(i),
+        label: g.head.title,
+        icon: iconFor(g.head.title),
+      })
+    })
+    return list
+  }, [groups, hasSummary])
+
+  useEffect(() => {
+    if (entries.length === 0) return
+    const els = entries
+      .map(e => document.getElementById(e.id))
+      .filter((el): el is HTMLElement => !!el)
+    if (els.length === 0) return
+    const observer = new IntersectionObserver(
+      obs => {
+        const visible = obs
+          .filter(e => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
+        if (visible.length > 0) setActiveId(visible[0].target.id)
+      },
+      { rootMargin: '-80px 0px -55% 0px', threshold: 0 },
+    )
+    els.forEach(el => observer.observe(el))
+    return () => observer.disconnect()
+  }, [entries])
+
+  const handleJump = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  if (entries.length === 0) return null
+
   return (
-    <nav className="text-xs">
-      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">
-        章节速览
-      </div>
-      <ul className="space-y-1">
-        {tops.map((s, i) => (
-          <li
-            key={i}
-            className="flex items-center gap-1.5 rounded-md px-2 py-1 hover:bg-[var(--color-muted)]/40"
-          >
-            <span className="text-sm">{iconFor(s.title)}</span>
-            <span className="line-clamp-1 flex-1 text-[12px] text-[var(--color-foreground)]/85">
-              {s.title}
-            </span>
-          </li>
-        ))}
+    <nav>
+      <ul className="space-y-0.5">
+        {entries.map((e, i) => {
+          const active = activeId === e.id
+          const num = hasSummary ? i : i + 1
+          return (
+            <li key={e.id}>
+              <button
+                type="button"
+                onClick={() => handleJump(e.id)}
+                className={cn(
+                  'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors',
+                  active
+                    ? 'bg-[var(--color-primary)]/10 text-[var(--color-primary)]'
+                    : 'text-[var(--color-foreground)]/80 hover:bg-[var(--color-muted)]/50',
+                )}
+              >
+                <span className="w-4 shrink-0 text-center text-[13px]">
+                  {e.id === SUMMARY_ANCHOR_ID ? e.icon : num}
+                </span>
+                <span className="line-clamp-1 flex-1 text-[12px]">{e.label}</span>
+              </button>
+            </li>
+          )
+        })}
       </ul>
     </nav>
   )

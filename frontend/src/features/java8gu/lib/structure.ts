@@ -46,6 +46,39 @@ export interface ParsedStructure {
   terms: string[]
 }
 
+/** 一个 ## 章节及其下属 ### / #### 子节 */
+export interface SectionGroup {
+  head: ParsedSection
+  children: ParsedSection[]
+}
+
+/**
+ * 把扁平的 sections 按 ## 聚成组：一个 ## 一张卡片，其下的 ### / #### 作为子节。
+ * 文章若没有 ## 但有 ###，则把首个 ### 当作 head。
+ * 图表视图卡片与右栏跳转目录共用此函数，保证索引一一对应。
+ */
+export function groupSections(all: ParsedSection[]): SectionGroup[] {
+  const groups: SectionGroup[] = []
+  let current: SectionGroup | null = null
+  for (const sec of all) {
+    if (sec.level === 2 || !current) {
+      current = { head: sec, children: [] }
+      groups.push(current)
+    } else {
+      current.children.push(sec)
+    }
+  }
+  return groups
+}
+
+/** 章节卡片锚点 id —— 卡片与右栏目录跳转共用，按组序号稳定生成 */
+export function sectionAnchorId(index: number): string {
+  return `j8g-sec-${index}`
+}
+
+/** 一句话总结区块的锚点 id */
+export const SUMMARY_ANCHOR_ID = 'j8g-summary'
+
 const FENCE_RE = /^```([a-zA-Z0-9_+-]*)\s*$/
 
 export function parseStructure(raw: string): ParsedStructure {

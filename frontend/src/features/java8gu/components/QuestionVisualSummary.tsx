@@ -1,17 +1,17 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight, Code2, FileText, Hash, Table2, Terminal } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { ParsedCodeBlock, ParsedSection, ParsedStructure } from '../lib/structure'
+import {
+  groupSections,
+  sectionAnchorId,
+  type ParsedCodeBlock,
+  type ParsedStructure,
+  type SectionGroup,
+} from '../lib/structure'
 import { iconFor } from '../lib/mindmap'
 
 interface Props {
   structure: ParsedStructure
-}
-
-interface SectionGroup {
-  head: ParsedSection
-  /** 该 ## 下的所有 ### / #### 子节，按顺序 */
-  children: ParsedSection[]
 }
 
 /**
@@ -31,9 +31,15 @@ export function QuestionVisualSummary({ structure }: Props) {
           icon={<FileText className="h-3.5 w-3.5" />}
           subtitle={`共 ${groups.length} 张 · 每张一个章节的全部知识点`}
         >
-          <div className="grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-2">
+          {/* 瀑布流列：卡片按内容高度紧凑排布，横向铺满，减少纵向空洞 */}
+          <div className="gap-3 sm:gap-4 lg:columns-2 [&>*]:mb-3 sm:[&>*]:mb-4">
             {groups.map((g, i) => (
-              <NoteCard key={i} group={g} codeBlocks={structure.codeBlocks} />
+              <NoteCard
+                key={i}
+                index={i}
+                group={g}
+                codeBlocks={structure.codeBlocks}
+              />
             ))}
           </div>
         </SectionBlock>
@@ -89,24 +95,6 @@ export function QuestionVisualSummary({ structure }: Props) {
   )
 }
 
-function groupSections(all: ParsedSection[]): SectionGroup[] {
-  const groups: SectionGroup[] = []
-  let current: SectionGroup | null = null
-  for (const sec of all) {
-    if (sec.level === 2) {
-      current = { head: sec, children: [] }
-      groups.push(current)
-    } else if (current) {
-      current.children.push(sec)
-    } else {
-      // 文章没有 ## 但有 ### —— 把第一个 ### 作为 head
-      current = { head: sec, children: [] }
-      groups.push(current)
-    }
-  }
-  return groups
-}
-
 function SectionBlock({
   title,
   subtitle,
@@ -137,15 +125,20 @@ function SectionBlock({
 }
 
 function NoteCard({
+  index,
   group,
   codeBlocks,
 }: {
+  index: number
   group: SectionGroup
   codeBlocks: ParsedCodeBlock[]
 }) {
   const icon = iconFor(group.head.title)
   return (
-    <article className="flex h-full flex-col gap-3 rounded-xl border bg-[var(--color-card)] p-4 shadow-sm transition-shadow hover:shadow-md sm:p-5">
+    <article
+      id={sectionAnchorId(index)}
+      className="flex break-inside-avoid flex-col gap-3 rounded-xl border bg-[var(--color-card)] p-4 shadow-sm transition-shadow [scroll-margin-top:5rem] hover:shadow-md sm:p-5"
+    >
       {/* 卡头：title + 元 chips */}
       <header className="flex items-start gap-2.5 border-b border-[var(--color-border)]/60 pb-3">
         <span className="text-2xl leading-none">{icon}</span>
@@ -224,21 +217,52 @@ function NoteCard({
   )
 }
 
-/** 编号知识点：给主章节要点建立"第几条"的视觉重点与记忆锚点 */
+/**
+ * 编号知识点：给主章节要点建立"第几条"的视觉重点与记忆锚点。
+ * - 要点多（>8）时自动分两列，横向铺开、纵向减半，一眼扫更多；
+ * - 特别长（>16）时先折叠，"展开剩余 N 条"，避免单卡变长文。
+ */
+const KP_TWO_COL_AT = 8
+const KP_COLLAPSE_AT = 16
+const KP_INITIAL = 12
+
 function KeyPoints({ items }: { items: string[] }) {
+  const [expanded, setExpanded] = useState(false)
+  const collapsible = items.length > KP_COLLAPSE_AT
+  const shown = collapsible && !expanded ? items.slice(0, KP_INITIAL) : items
+  const twoCol = shown.length > KP_TWO_COL_AT
+
   return (
-    <ol className="space-y-2">
-      {items.map((b, i) => (
-        <li key={i} className="flex items-start gap-2.5">
-          <span className="mt-px inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-[var(--color-primary)]/12 text-[11px] font-bold tabular-nums text-[var(--color-primary)]">
-            {i + 1}
-          </span>
-          <span className="text-[13px] leading-relaxed text-[var(--color-foreground)]/90">
-            {b}
-          </span>
-        </li>
-      ))}
-    </ol>
+    <div>
+      <ol className={cn(twoCol ? 'sm:columns-2 sm:gap-x-5' : 'space-y-2')}>
+        {shown.map((b, i) => (
+          <li
+            key={i}
+            className={cn(
+              'flex items-start gap-2.5',
+              twoCol && 'mb-2 break-inside-avoid',
+            )}
+          >
+            <span className="mt-px inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-[var(--color-primary)]/12 text-[11px] font-bold tabular-nums text-[var(--color-primary)]">
+              {i + 1}
+            </span>
+            <span className="text-[13px] leading-relaxed text-[var(--color-foreground)]/90">
+              {b}
+            </span>
+          </li>
+        ))}
+      </ol>
+      {collapsible && (
+        <button
+          type="button"
+          onClick={() => setExpanded(e => !e)}
+          className="mt-1 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11.5px] font-medium text-[var(--color-primary)] hover:bg-[var(--color-primary)]/8"
+        >
+          <ChevronDown className={cn('h-3.5 w-3.5', expanded && 'rotate-180')} />
+          {expanded ? '收起' : `展开剩余 ${items.length - KP_INITIAL} 条`}
+        </button>
+      )}
+    </div>
   )
 }
 
