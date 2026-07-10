@@ -26,6 +26,7 @@ import {
 import { iconFor } from '../lib/mindmap'
 import { QuestionTocPanel } from '../components/QuestionTocPanel'
 import { QuestionVisualSummary } from '../components/QuestionVisualSummary'
+import { KnowledgeEnrichPanel } from '../components/KnowledgeEnrichPanel'
 import { MarkdownViewer } from '../components/markdown/MarkdownViewer'
 import { SendToGptButton } from '../components/SendToGptButton'
 import '../styles/java8gu.css'
@@ -252,6 +253,11 @@ export function Java8guQuestionPage() {
             <QuestionVisualSummary structure={structure} />
           ) : (
             <MarkdownViewer tokens={tokens} />
+          )}
+
+          {/* 结构化知识 · AI 增强（图解/面试题/易错点/深度讲解） */}
+          {!loadingMd && markdown && (
+            <KnowledgeEnrichPanel id={question.id} markdown={markdown} />
           )}
 
           {/* Prev / Next */}
