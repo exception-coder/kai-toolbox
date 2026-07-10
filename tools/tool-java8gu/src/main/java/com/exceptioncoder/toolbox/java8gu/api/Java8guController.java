@@ -1,7 +1,9 @@
 package com.exceptioncoder.toolbox.java8gu.api;
 
 import com.exceptioncoder.toolbox.java8gu.api.dto.AskRequest;
+import com.exceptioncoder.toolbox.java8gu.api.dto.EnrichRequest;
 import com.exceptioncoder.toolbox.java8gu.service.Java8guAskService;
+import com.exceptioncoder.toolbox.java8gu.service.Java8guEnrichService;
 import com.exceptioncoder.toolbox.java8gu.service.Java8guRagService;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,10 +24,14 @@ public class Java8guController {
 
     private final Java8guRagService ragService;
     private final Java8guAskService askService;
+    private final Java8guEnrichService enrichService;
 
-    public Java8guController(Java8guRagService ragService, Java8guAskService askService) {
+    public Java8guController(Java8guRagService ragService,
+                            Java8guAskService askService,
+                            Java8guEnrichService enrichService) {
         this.ragService = ragService;
         this.askService = askService;
+        this.enrichService = enrichService;
     }
 
     /** RAG 自检：enabled / 集合是否存在 / 已索引点数 / usable。 */
@@ -46,5 +52,14 @@ public class Java8guController {
         SseEmitter emitter = new SseEmitter(180_000L);
         askService.ask(request.question(), request.categoryId(), emitter);
         return emitter;
+    }
+
+    /**
+     * 知识补全：题目 markdown → 结构化补全（图解/面试问答/易错点/深度讲解），cache-first。
+     * 命中缓存直接返回；miss 才调 LLM。LLM 不可用时降级为空补全，不报错。
+     */
+    @PostMapping("/enrich")
+    public Map<String, Object> enrich(@RequestBody EnrichRequest request) {
+        return enrichService.enrich(request.id(), request.markdown());
     }
 }

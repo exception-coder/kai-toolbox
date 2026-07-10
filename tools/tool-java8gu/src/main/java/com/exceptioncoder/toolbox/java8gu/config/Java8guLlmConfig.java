@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.java8gu.config;
 
 import com.exceptioncoder.toolbox.java8gu.ai.Java8guAssistant;
+import com.exceptioncoder.toolbox.java8gu.ai.Java8guEnricher;
 import com.exceptioncoder.toolbox.llm.routing.ChatModelRouter;
 import dev.langchain4j.service.AiServices;
 import org.springframework.context.annotation.Bean;
@@ -18,6 +19,14 @@ public class Java8guLlmConfig {
     @Bean
     public Java8guAssistant java8guAssistant(ChatModelRouter router) {
         return AiServices.builder(Java8guAssistant.class)
+                .chatModel(router.forTier(JAVA8GU_TIER))
+                .build();
+    }
+
+    /** 知识补全器：把非结构化正文加工成图解/问答/易错点/深度讲解，结果落 SQLite 缓存。 */
+    @Bean
+    public Java8guEnricher java8guEnricher(ChatModelRouter router) {
+        return AiServices.builder(Java8guEnricher.class)
                 .chatModel(router.forTier(JAVA8GU_TIER))
                 .build();
     }
