@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { emitSessionExpired, ensureFreshToken, getToken, logout, useAuth } from '@/lib/auth'
-import type { Attachment, ChatItem, ClientMessage, ConnState, Engine, ModelInfo, PendingRequest, PermissionMode, ProviderKind, SendAttachment, ServerMessage, TurnDiag } from '../types'
+import type { Attachment, ChatItem, ClientMessage, CodexReasoningEffort, CodexSpeed, ConnState, Engine, ModelInfo, PendingRequest, PermissionMode, ProviderKind, SendAttachment, ServerMessage, TurnDiag } from '../types'
 import { loadMessages } from '../api'
 import { notifyPrompt } from '../browserNotify'
 import { pushDebug } from '../lib/debugLog'
@@ -9,6 +9,21 @@ import { playNotifySound } from '../sound'
 // 按 sessionId 持久化权限模式，使刷新/放大缩小/重连后该会话仍保持上次选择，而非回退 default。
 const VALID_MODES: PermissionMode[] = ['default', 'acceptEdits', 'plan', 'bypassPermissions']
 const modeStorageKey = (sid: string) => `kai-toolbox:chat-mode:${sid}`
+const codexStorageKey = (sid: string) => `kai-toolbox:codex-options:${sid}`
+interface CodexOptions {
+  reasoningEffort: CodexReasoningEffort
+  speed: CodexSpeed
+}
+const DEFAULT_CODEX_OPTIONS: CodexOptions = { reasoningEffort: 'low', speed: 'default' }
+function loadCodexOptions(sid: string): CodexOptions {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(codexStorageKey(sid)) ?? '{}') as Partial<CodexOptions>
+    const reasoningEffort = ['minimal', 'low', 'medium', 'high', 'xhigh'].includes(parsed.reasoningEffort ?? '')
+      ? parsed.reasoningEffort as CodexReasoningEffort
+      : DEFAULT_CODEX_OPTIONS.reasoningEffort
+    return { reasoningEffort, speed: parsed.speed === 'fast' ? 'fast' : 'default' }
+  } catch { return DEFAULT_CODEX_OPTIONS }
+}
 function loadSavedMode(sid: string): PermissionMode | null {
   try {
     const v = localStorage.getItem(modeStorageKey(sid))
@@ -77,6 +92,8 @@ export interface UseClaudeChatSocket {
   models: ModelInfo[]
   /** 当前模型 value */
   currentModel: string | null
+  codexReasoningEffort: CodexReasoningEffort
+  codexSpeed: CodexSpeed
   /** 当前会话引擎（来自 Ready），用于「思考中」文案 / 命令菜单按引擎区分 */
   currentEngine: Engine
   /** 当前 Claude 服务商来源：official=Claude Code 官方；thirdParty=第三方 Anthropic 兼容网关 */
@@ -93,6 +110,7 @@ export interface UseClaudeChatSocket {
   setMode: (mode: PermissionMode) => void
   /** 切换模型（下一轮生效） */
   setModel: (model: string) => void
+  setCodexOptions: (reasoningEffort: CodexReasoningEffort, speed: CodexSpeed) => void
   /** 会话内切 agent（引擎），同一会话内换 claude/codex/gemini；上下文靠切后另发 seed 带过去 */
   switchEngine: (engine: Engine) => void
   /** 会话内切服务商（官方 ↔ 第三方网关），同一会话与 sdkSessionId 不变，保留上下文；空入参＝切回官方 */
@@ -144,6 +162,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
   const [outputStyle, setOutputStyle] = useState<string | null>(null)
   const [models, setModels] = useState<ModelInfo[]>([])
   const [currentModel, setCurrentModel] = useState<string | null>(null)
+  const [codexReasoningEffort, setCodexReasoningEffort] = useState<CodexReasoningEffort>('low')
+  const [codexSpeed, setCodexSpeed] = useState<CodexSpeed>('default')
   const [currentEngine, setCurrentEngine] = useState<Engine>('claude')
   const [currentProviderKind, setCurrentProviderKind] = useState<ProviderKind>('official')
   const [currentProviderBaseUrl, setCurrentProviderBaseUrl] = useState<string | null>(null)
@@ -243,6 +263,12 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
             sendRaw({ type: 'setMode', mode: savedMode })
           }
         }
+        {
+          const options = loadCodexOptions(msg.sessionId)
+          setCodexReasoningEffort(options.reasoningEffort)
+          setCodexSpeed(options.speed)
+          if (msg.engine === 'codex') sendRaw({ type: 'setCodexOptions', ...options })
+        }
         if (msg.slashCommands) setSlashCommands(msg.slashCommands)
         if (msg.skills) setSkills(msg.skills)
         if (msg.agents) setAgents(msg.agents)
@@ -254,7 +280,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
         // Codex/Gemini 会话无 Claude 模型/slash 清单：进入时清掉上一个 Claude 会话残留的选项，避免误显示。
         // Claude 会话不清（其 supportedModels 在 sidecar 端缓存，清了 resume 不会再下发）。
         if (msg.engine === 'codex' || msg.engine === 'gemini') {
-          setModels([])
+          if (msg.engine === 'gemini') setModels([])
           setSlashCommands([])
           setCurrentModel(null)
           setSkills([])
@@ -685,6 +711,16 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     sendRaw({ type: 'setModel', model })
   }, [sendRaw])
 
+  const setCodexOptions = useCallback((reasoningEffort: CodexReasoningEffort, speed: CodexSpeed) => {
+    setCodexReasoningEffort(reasoningEffort)
+    setCodexSpeed(speed)
+    const sid = sessionIdRef.current
+    if (sid) {
+      try { localStorage.setItem(codexStorageKey(sid), JSON.stringify({ reasoningEffort, speed })) } catch { /* ignore */ }
+    }
+    sendRaw({ type: 'setCodexOptions', reasoningEffort, speed })
+  }, [sendRaw])
+
   // 会话内切 agent：同一会话 id 不变，乐观更新引擎；非 claude 清模型列表。上下文由调用方切后另发 seed。
   const switchEngine = useCallback((engine: Engine) => {
     setCurrentEngine(engine)
@@ -757,5 +793,5 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     loadHistoryRef.current = loadHistory
   }, [loadHistory])
 
-  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, skills, agents, mcpServers, outputStyle, models, currentModel, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, open, switchTo, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setModel, switchEngine, switchProvider, forkSession, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, skills, agents, mcpServers, outputStyle, models, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, open, switchTo, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setModel, setCodexOptions, switchEngine, switchProvider, forkSession, historyLoading, historyExhausted, loadHistory }
 }

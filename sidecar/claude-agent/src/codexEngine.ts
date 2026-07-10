@@ -1,11 +1,15 @@
 import { existsSync } from 'node:fs'
-import { Codex, type ApprovalMode, type SandboxMode, type ThreadItem, type ThreadOptions } from '@openai/codex-sdk'
+import { Codex, type ApprovalMode, type ModelReasoningEffort, type SandboxMode, type ThreadItem, type ThreadOptions } from '@openai/codex-sdk'
+
+export type CodexSpeed = 'default' | 'fast'
 
 /** 单次 Codex 轮次所需上下文，由 Session 注入；emit 复用与 Claude 相同的统一事件协议。 */
 export interface CodexTurnCtx {
   text: string
   cwd: string
   model?: string
+  reasoningEffort?: ModelReasoningEffort
+  speed?: CodexSpeed
   /** 会话权限模式（与 Claude 共用四档），映射为 Codex 的 approvalPolicy + sandboxMode。 */
   permissionMode: string
   /** 已有 thread id（resume 续跑）；无则新建线程。 */
@@ -20,7 +24,7 @@ export interface CodexTurnCtx {
 }
 
 // 官方实例：复用本机 ~/.codex 认证；SDK 内部用 @openai/codex 自带二进制，无需 codex 在 PATH。
-const codex = new Codex()
+const codexClients = new Map<CodexSpeed, Codex>()
 // 第三方网关实例按 baseUrl 缓存，避免每轮重建。
 const gatewayClients = new Map<string, Codex>()
 
@@ -31,13 +35,24 @@ function normalizeOpenAiBase(base: string): string {
 }
 
 /** 取本轮用的 Codex 实例：配了网关→（缓存的）带 baseUrl+apiKey 的实例；否则官方实例。 */
-function pickCodex(apiBaseUrl?: string, authToken?: string): Codex {
-  if (!apiBaseUrl || !apiBaseUrl.trim()) return codex
+function pickCodex(apiBaseUrl?: string, authToken?: string, speed: CodexSpeed = 'default'): Codex {
+  if (!apiBaseUrl || !apiBaseUrl.trim()) {
+    let client = codexClients.get(speed)
+    if (!client) {
+      client = new Codex(speed === 'fast' ? { config: { service_tier: 'priority' } } : undefined)
+      codexClients.set(speed, client)
+    }
+    return client
+  }
   const baseUrl = normalizeOpenAiBase(apiBaseUrl)
-  const key = baseUrl + ' ' + (authToken ?? '')
+  const key = baseUrl + ' ' + (authToken ?? '') + ' ' + speed
   let c = gatewayClients.get(key)
   if (!c) {
-    c = new Codex({ baseUrl, apiKey: authToken || undefined })
+    c = new Codex({
+      baseUrl,
+      apiKey: authToken || undefined,
+      ...(speed === 'fast' ? { config: { service_tier: 'priority' } } : {}),
+    })
     gatewayClients.set(key, c)
   }
   return c
@@ -73,9 +88,10 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
     approvalPolicy,
     sandboxMode,
     model: ctx.model || undefined,
+    modelReasoningEffort: ctx.reasoningEffort,
   }
 
-  const client = pickCodex(ctx.apiBaseUrl, ctx.authToken)
+  const client = pickCodex(ctx.apiBaseUrl, ctx.authToken, ctx.speed)
   if (ctx.apiBaseUrl) {
     console.log(`[sidecar] codex turn start model=${ctx.model ?? '默认'} via=${normalizeOpenAiBase(ctx.apiBaseUrl)}`)
   }

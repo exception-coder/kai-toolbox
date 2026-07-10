@@ -1,10 +1,13 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { query, forkSession } from '@anthropic-ai/claude-agent-sdk'
 import { Permissions, type Decision } from './permissions.js'
 import { createWelfareDbServer } from './welfareDb.js'
 import { createErpDbServer } from './erpDb.js'
 import { createErpAppServer } from './erpApp.js'
-import { runCodexTurn } from './codexEngine.js'
+import { runCodexTurn, type CodexSpeed } from './codexEngine.js'
+import type { ModelReasoningEffort } from '@openai/codex-sdk'
 import { runGeminiTurn } from './geminiEngine.js'
 import { runOpencodeTurn } from './opencodeEngine.js'
 
@@ -70,6 +73,41 @@ const DEMO_STEER = [
 let cachedClaudeModels: unknown[] | null = null
 let claudeWarmStarted = false
 
+const VALID_CODEX_EFFORTS = new Set<ModelReasoningEffort>(['minimal', 'low', 'medium', 'high', 'xhigh'])
+
+function loadCodexModels(): unknown[] {
+  try {
+    const raw = JSON.parse(readFileSync(join(homedir(), '.codex', 'models_cache.json'), 'utf8')) as {
+      models?: Array<{
+        slug?: string
+        display_name?: string
+        description?: string
+        visibility?: string
+        default_reasoning_level?: string
+        supported_reasoning_levels?: Array<{ effort?: string }>
+        additional_speed_tiers?: string[]
+      }>
+    }
+    return (raw.models ?? [])
+      .filter((model) => model.slug && model.visibility !== 'hidden')
+      .map((model) => ({
+        value: model.slug,
+        displayName: model.display_name ?? model.slug,
+        description: model.description ?? '',
+        reasoningEfforts: (model.supported_reasoning_levels ?? [])
+          .map((level) => level.effort)
+          .filter((effort): effort is ModelReasoningEffort => !!effort && VALID_CODEX_EFFORTS.has(effort as ModelReasoningEffort)),
+        defaultReasoningEffort: VALID_CODEX_EFFORTS.has(model.default_reasoning_level as ModelReasoningEffort)
+          ? model.default_reasoning_level
+          : null,
+        fastSupported: (model.additional_speed_tiers ?? []).includes('fast'),
+      }))
+  } catch (error) {
+    console.warn('[sidecar] 读取 Codex 模型缓存失败:', error instanceof Error ? error.message : String(error))
+    return []
+  }
+}
+
 /**
  * 启动预热：建一次性 query 仅发控制请求 supportedModels 取模型清单，拿到即 abort，绝不跑对话轮次。
  * 解决「sidecar 重启后首次进会话、未发消息 → 模型组空」的冷启动窗口。失败静默（首轮对话仍会再取）。
@@ -103,6 +141,8 @@ async function prewarmClaudeModels(): Promise<void> {
 class Session {
   sdkSessionId?: string
   model?: string
+  codexReasoningEffort?: ModelReasoningEffort
+  codexSpeed: CodexSpeed = 'default'
   /** 第三方网关 baseURL（Anthropic 兼容）。仅本会话生效——置则每轮 query 注入 env，不影响其它会话/官方登录。 */
   apiBaseUrl?: string
   /** 第三方网关鉴权 token（走 ANTHROPIC_API_KEY）。 */
@@ -260,6 +300,8 @@ class Session {
         text,
         cwd: this.cwd,
         model: this.model,
+        reasoningEffort: this.codexReasoningEffort,
+        speed: this.codexSpeed,
         permissionMode: this.permissionMode,
         sdkSessionId: this.sdkSessionId,
         apiBaseUrl: this.apiBaseUrl,
@@ -455,6 +497,7 @@ class Session {
 /** 多会话路由：一个 sidecar 进程内按 sessionId 管理多个 Session。 */
 export class SessionManager {
   private sessions = new Map<string, Session>()
+  private pendingCodexOptions = new Map<string, { reasoningEffort?: ModelReasoningEffort; speed: CodexSpeed }>()
 
   constructor(private emit: Emit) {
     // 启动即预热 Claude 模型清单（控制请求，不跑对话），消除重启后首次进会话的空窗
@@ -468,6 +511,7 @@ export class SessionManager {
     if (engine === 'codex' || engine === 'gemini' || engine === 'opencode') s.engine = engine
     if (apiBaseUrl) { s.apiBaseUrl = apiBaseUrl; s.authToken = authToken }
     if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
+    this.applyCodexOptions(id, s)
     // 演示会话：cwd 即副本根，权限走 demo 沙箱硬裁决（忽略 mode），注入 welfare_db。
     if (demo) {
       s.demo = true
@@ -491,6 +535,7 @@ export class SessionManager {
     if (cwd) s.cwd = cwd
     if (engine === 'codex' || engine === 'claude' || engine === 'gemini' || engine === 'opencode') s.engine = engine
     if (apiBaseUrl) { s.apiBaseUrl = apiBaseUrl; s.authToken = authToken }
+    this.applyCodexOptions(id, s)
     this.emitCachedModels(id, s)
   }
 
@@ -498,6 +543,8 @@ export class SessionManager {
   private emitCachedModels(id: string, s: Session): void {
     if (s.engine === 'claude' && cachedClaudeModels) {
       this.emit(id, { type: 'models', models: cachedClaudeModels, current: s.model ?? null })
+    } else if (s.engine === 'codex') {
+      this.emit(id, { type: 'models', models: loadCodexModels(), current: s.model ?? null })
     }
   }
 
@@ -536,6 +583,25 @@ export class SessionManager {
     if (s) s.model = model
   }
 
+  setCodexOptions(id: string, reasoningEffort: string, speed: string): void {
+    const options = {
+      reasoningEffort: VALID_CODEX_EFFORTS.has(reasoningEffort as ModelReasoningEffort)
+      ? reasoningEffort as ModelReasoningEffort
+      : undefined,
+      speed: speed === 'fast' ? 'fast' as const : 'default' as const,
+    }
+    this.pendingCodexOptions.set(id, options)
+    const session = this.sessions.get(id)
+    if (session) this.applyCodexOptions(id, session)
+  }
+
+  private applyCodexOptions(id: string, session: Session): void {
+    const options = this.pendingCodexOptions.get(id)
+    if (!options) return
+    session.codexReasoningEffort = options.reasoningEffort
+    session.codexSpeed = options.speed
+  }
+
   /**
    * 会话内切服务商（官方登录 ↔ 第三方网关，或两网关互切）：仅改 apiBaseUrl/authToken，
    * 下一轮 runTurn 即生效（runTurn 每轮动态读这俩字段决定注入 env 与引导词）。sdkSessionId
@@ -547,6 +613,7 @@ export class SessionManager {
     const nextBaseUrl = apiBaseUrl?.trim()
     s.apiBaseUrl = nextBaseUrl || undefined
     s.authToken = nextBaseUrl ? authToken : undefined
+    this.emitCachedModels(id, s)
   }
 
   /**
@@ -583,6 +650,7 @@ export class SessionManager {
   drop(id: string): void {
     this.sessions.get(id)?.interrupt()
     this.sessions.delete(id)
+    this.pendingCodexOptions.delete(id)
   }
 
   /**

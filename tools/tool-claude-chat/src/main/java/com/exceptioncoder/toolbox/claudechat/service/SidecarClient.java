@@ -143,6 +143,11 @@ public class SidecarClient {
         send(Map.of("type", "setModel", "sessionId", sessionId, "model", nz(model)));
     }
 
+    public void setCodexOptions(String sessionId, String reasoningEffort, String speed) {
+        send(Map.of("type", "setCodexOptions", "sessionId", sessionId,
+                "reasoningEffort", nz(reasoningEffort), "speed", nz(speed)));
+    }
+
     /**
      * 会话内切引擎：sidecar 置新 engine 并把 sdkSessionId 设为 Java 提供的目标句柄
      * （切回曾用引擎为其原生句柄、首次为空＝起新会话）。Java 持久化映射、是权威源。

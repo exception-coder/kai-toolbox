@@ -100,7 +100,7 @@ public class ProviderModelService {
                     if (id == null) continue;
                     String disp = firstNonBlank(
                             m.path("display_name").asText(null), m.path("displayName").asText(null), id);
-                    out.add(new ModelInfo(id, disp, ""));
+                    out.add(new ModelInfo(id, disp, "", List.of(), null, false));
                 }
             }
             if (out.isEmpty()) {

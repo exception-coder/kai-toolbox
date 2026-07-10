@@ -20,6 +20,7 @@ import { SessionCapsPanel } from '../components/SessionCapsPanel'
 import { setToolColors, useToolColors } from '../lib/toolColorPref'
 import { ModeSwitch } from '../components/ModeSwitch'
 import { ProviderSwitch } from '../components/ProviderSwitch'
+import { CodexSessionOptions } from '../components/CodexSessionOptions'
 import { SlashCommandMenu } from '../components/SlashCommandMenu'
 import { CommandMenu } from '../components/CommandMenu'
 import { PluginPanel } from '../components/PluginPanel'
@@ -1057,8 +1058,19 @@ export function ChatPage() {
               return prev.filter(a => a.id !== id)
             })}
           />
-          <div className="flex items-center gap-2 px-3 pt-2">
+          <div className="flex flex-wrap items-center gap-2 px-3 pt-2">
             <ModeSwitch mode={chat.mode} onChange={chat.setMode} />
+            {chat.currentEngine === 'codex' && (
+              <CodexSessionOptions
+                models={chat.models}
+                model={chat.currentModel}
+                reasoningEffort={chat.codexReasoningEffort}
+                speed={chat.codexSpeed}
+                disabled={chat.running}
+                onModelChange={chat.setModel}
+                onOptionsChange={chat.setCodexOptions}
+              />
+            )}
             {chat.mode === 'bypassPermissions' && (
               <button
                 type="button"

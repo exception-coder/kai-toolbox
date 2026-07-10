@@ -356,6 +356,17 @@ public class ClaudeChatService {
         log.info("[claude-chat] 会话 {} 切换模型 -> {}", ctx.sessionId, msg.model());
     }
 
+    public void setCodexOptions(WebSocketSession ws, ClientMessage.SetCodexOptions msg) {
+        SessionCtx ctx = ctxOf(ws);
+        if (ctx == null) {
+            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            return;
+        }
+        sidecar.setCodexOptions(ctx.sessionId, msg.reasoningEffort(), msg.speed());
+        log.info("[claude-chat] 会话 {} 更新 Codex 配置 effort={} speed={}",
+                ctx.sessionId, msg.reasoningEffort(), msg.speed());
+    }
+
     /**
      * 会话内切 agent（引擎）：同一会话 id 不变。保存离开引擎的句柄，切回曾用引擎则 resume 其原生会话
      * （sdkSessionId 从持久化映射取出，跨 sidecar 重启也精准），首次切到则新建；追加引擎顺序用于列表标记。
@@ -918,7 +929,11 @@ public class ClaudeChatService {
         for (JsonNode e : n) {
             String value = e.path("value").asText(null);
             if (value == null || value.isBlank()) continue;
-            out.add(new ModelInfo(value, e.path("displayName").asText(value), e.path("description").asText("")));
+            List<String> efforts = new ArrayList<>();
+            JsonNode effortNodes = e.path("reasoningEfforts");
+            if (effortNodes.isArray()) effortNodes.forEach(item -> efforts.add(item.asText()));
+            out.add(new ModelInfo(value, e.path("displayName").asText(value), e.path("description").asText(""),
+                    efforts, e.path("defaultReasoningEffort").asText(null), e.path("fastSupported").asBoolean(false)));
         }
         return out;
     }

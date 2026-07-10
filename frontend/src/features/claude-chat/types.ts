@@ -197,6 +197,8 @@ export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermiss
 
 /** 会话引擎：claude（Claude Agent SDK）/ codex（OpenAI Codex SDK）/ gemini（Gemini CLI headless）。会话级固定。 */
 export type Engine = 'claude' | 'codex' | 'gemini' | 'opencode'
+export type CodexReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+export type CodexSpeed = 'default' | 'fast'
 
 /** team-standards 插件单端版本（installed/available 取不到为 null，error 为检测失败原因）。 */
 export interface EnginePluginStatus {
@@ -236,6 +238,9 @@ export interface ModelInfo {
   value: string
   displayName: string
   description: string
+  reasoningEfforts?: CodexReasoningEffort[]
+  defaultReasoningEffort?: CodexReasoningEffort | null
+  fastSupported?: boolean
 }
 
 // ── 客户端 → 服务端 ───────────────────────────────────────────────
@@ -256,6 +261,7 @@ export type ClientMessage =
   | { type: 'interrupt' }
   | { type: 'setMode'; mode: PermissionMode }
   | { type: 'setModel'; model: string }
+  | { type: 'setCodexOptions'; reasoningEffort: CodexReasoningEffort; speed: CodexSpeed }
   | { type: 'switchEngine'; engine: Engine }
   | { type: 'switchProvider'; apiBaseUrl?: string; authToken?: string }
   | { type: 'forkSession'; upToMessageId: string }

@@ -96,6 +96,9 @@ wss.on('connection', (ws) => {
       case 'setModel':
         manager.setModel(sessionId, msg.model as string)
         break
+      case 'setCodexOptions':
+        manager.setCodexOptions(sessionId, msg.reasoningEffort as string, msg.speed as string)
+        break
       case 'switchEngine':
         manager.switchEngine(
           sessionId,
