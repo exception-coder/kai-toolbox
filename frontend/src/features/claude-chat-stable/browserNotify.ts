@@ -31,8 +31,8 @@ export function notifyPrompt(title: string, body: string): void {
   const options: NotificationOptions = {
     body,
     // 唯一 tag：保证连续多个弹框都重新提醒，而非同 tag 被系统静默替换（与可用的测试通知一致）
-    tag: 'claude-chat-prompt-' + Date.now(),
-    data: { url: '/tools/claude-chat' },
+    tag: 'claude-chat-stable-prompt-' + Date.now(),
+    data: { url: '/tools/claude-chat-stable' },
   }
 
   // 优先 Service Worker（移动端唯一可行路径）；失败再退回构造器（桌面兜底）。
@@ -71,8 +71,8 @@ export async function testNotify(): Promise<string> {
   const options: NotificationOptions = {
     body: '看到这条说明通知链路正常 ✅',
     // 每次唯一 tag：macOS/部分系统对相同 tag 会静默替换、不再重新弹横幅，唯一 tag 保证每次都弹
-    tag: 'claude-chat-test-' + Date.now(),
-    data: { url: '/tools/claude-chat' },
+    tag: 'claude-chat-stable-test-' + Date.now(),
+    data: { url: '/tools/claude-chat-stable' },
   }
   const reg = await getSwReg()
   if (reg) {

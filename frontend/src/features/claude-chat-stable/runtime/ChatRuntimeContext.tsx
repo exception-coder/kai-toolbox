@@ -6,10 +6,10 @@ import { GestureFlourish, type GestureFlash } from '../components/GestureFlouris
 import { listSessions } from '../api'
 
 /** Vibe Coding 会话页路由；落在此路由即激活引擎（懒启动）。 */
-export const CHAT_ROUTE = '/tools/claude-chat'
-export const CHAT_STABLE_ROUTE = '/tools/claude-chat-stable'
+export const CHAT_ROUTE = '/tools/claude-chat-stable'
+export const CHAT_STABLE_ROUTE = CHAT_ROUTE
 export function isChatRoute(pathname: string) {
-  return pathname === CHAT_ROUTE
+  return pathname === CHAT_ROUTE || pathname === CHAT_STABLE_ROUTE
 }
 
 interface FloatPos {
@@ -23,7 +23,7 @@ interface FloatSize {
 }
 
 /** 悬浮窗形态持久化：刷新后恢复「上次是否弹出 / 最小化 / 位置 / 尺寸」。 */
-const FLOAT_STATE_KEY = 'kai-toolbox:claude-chat:float-state'
+const FLOAT_STATE_KEY = 'kai-toolbox:claude-chat-stable:float-state'
 const DEFAULT_POS: FloatPos = { x: 12, y: 84 }
 const DEFAULT_SIZE: FloatSize = { w: 360, h: 520 }
 
@@ -151,7 +151,7 @@ export function ChatRuntimeProvider({ children, demo = false }: { children: Reac
   }, [location.pathname, location.search])
 
   // ── 手势控制（默认关）：抓握=弹出悬浮窗；展开=返回会话页。仅在会话页或悬浮态监控（Vibe Coding 模块内）──
-  const [gestureOn, setGestureOn] = useState(() => { try { return localStorage.getItem('kai-toolbox:chat-gesture') === '1' } catch { return false } })
+  const [gestureOn, setGestureOn] = useState(() => { try { return localStorage.getItem('kai-toolbox:chat-stable-gesture') === '1' } catch { return false } })
   const [gestureStatus, setGestureStatus] = useState<GestureStatus>('idle')
   const [gestureError, setGestureError] = useState<string | null>(null)
   const [gestureFlash, setGestureFlash] = useState<GestureFlash | null>(null)
@@ -159,7 +159,7 @@ export function ChatRuntimeProvider({ children, demo = false }: { children: Reac
   const flashSeq = useRef(0)
   const toggleGesture = useCallback(() => setGestureOn(v => {
     const nv = !v
-    try { localStorage.setItem('kai-toolbox:chat-gesture', nv ? '1' : '0') } catch { /* ignore */ }
+    try { localStorage.setItem('kai-toolbox:chat-stable-gesture', nv ? '1' : '0') } catch { /* ignore */ }
     if (!nv) { setGestureStatus('idle'); setGestureError(null) }
     return nv
   }), [])
