@@ -30,19 +30,37 @@ interface Props {
   readinessPorts?: { label: string; port: number }[]
 }
 
-// 日志级别配色（暗底控制台）。整行按命中的最高级别着色；默认灰。
+// 日志级别识别（暗底控制台）。整行按命中的最高级别归类；其余归 other。
 const LOG_RED = /\[(?:failed|reason):|(?:^|\s)(?:ERROR|SEVERE|FATAL)\b|BUILD FAILURE|^\s*(?:[\w.$]+\.)?[A-Z][\w.$]*(?:Exception|Error)\b\s*[:]/
 const LOG_AMBER = /(?:^|\s)WARN(?:ING)?\b|\[WARNING\]/
 const LOG_SKY = /(?:^|\s)INFO\b|\[INFO\]/
-const LOG_DIM = /(?:^|\s)(?:DEBUG|TRACE)\b|\[DEBUG\]/
 
-/** 单行日志 → tailwind 颜色类（优先级：红 > 黄 > 蓝 > 暗 > 继承默认）。 */
-function logLineClass(line: string): string {
-  if (LOG_RED.test(line)) return 'text-red-400'
-  if (LOG_AMBER.test(line)) return 'text-amber-400'
-  if (LOG_SKY.test(line)) return 'text-sky-300'
-  if (LOG_DIM.test(line)) return 'text-slate-500'
-  return ''
+type LogLevel = 'error' | 'warn' | 'info' | 'other'
+interface LogLine { t: string; lv: LogLevel }
+
+/** 单行日志 → 级别（优先级：error > warn > info > other；DEBUG/TRACE 等归 other）。 */
+function levelOf(line: string): LogLevel {
+  if (LOG_RED.test(line)) return 'error'
+  if (LOG_AMBER.test(line)) return 'warn'
+  if (LOG_SKY.test(line)) return 'info'
+  return 'other'
+}
+const LEVEL_CLASS: Record<LogLevel, string> = {
+  error: 'text-red-400', warn: 'text-amber-400', info: 'text-sky-300', other: '',
+}
+
+/** 超出上限时丢弃最旧的【非 error】行；error 行固定保留、不被刷掉（按需求）。 */
+function trimKeepErrors(list: LogLine[], max: number): LogLine[] {
+  const errorCount = list.reduce((n, l) => n + (l.lv === 'error' ? 1 : 0), 0)
+  const otherBudget = Math.max(0, max - errorCount)
+  let othersKept = 0
+  const keep: boolean[] = new Array(list.length)
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i].lv === 'error') { keep[i] = true }
+    else if (othersKept < otherBudget) { keep[i] = true; othersKept++ }
+    else { keep[i] = false }
+  }
+  return list.filter((_, i) => keep[i])
 }
 
 /**
@@ -60,15 +78,17 @@ export function DevServiceSection({
     try { return localStorage.getItem(CMD_KEY) ?? '' } catch { return '' }
   })
   const [status, setStatus] = useState<DevServiceStatus | null>(null)
-  const [lines, setLines] = useState<string[]>([])
+  const [lines, setLines] = useState<LogLine[]>([])
   const [serviceFailures, setServiceFailures] = useState<Record<string, string>>({})
   const [msg, setMsg] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(false)
+  // 级别筛选：默认全开；至少保留一个级别（不允许全关）。
+  const [activeLevels, setActiveLevels] = useState<Set<LogLevel>>(() => new Set<LogLevel>(['error', 'warn', 'info', 'other']))
   const logRef = useRef<HTMLDivElement>(null)
   const bigLogRef = useRef<HTMLDivElement>(null)
   // 日志性能：SSE 行先入缓冲，定时批量并入（避免每行一次 re-render）；pinnedRef=用户是否吸底。
   const MAX_LOG_LINES = 2000
-  const bufferRef = useRef<string[]>([])
+  const bufferRef = useRef<LogLine[]>([])
   const pinnedRef = useRef(true)
 
   useEffect(() => { if (defaultCwd) setCwd(defaultCwd) }, [defaultCwd])
@@ -83,7 +103,16 @@ export function DevServiceSection({
     es.onopen = () => { bufferRef.current = []; setLines([]) }
     const onLine = (e: Event) => {
       const line = (e as MessageEvent).data as string
-      bufferRef.current.push(line)
+      // 新一轮启动标记（DevServiceManager 在 start() 时 emit「▶ 启动中」）：清掉上一轮历史日志 + 失败徽标，
+      // 避免上次失败的 ERROR 因「固定保留」混进本轮、让人分不清是本次还是历史。
+      if (line.includes('▶ 启动中')) {
+        bufferRef.current = []
+        setServiceFailures({})
+        setLines([{ t: line, lv: levelOf(line) }])
+        pinnedRef.current = true
+        return
+      }
+      bufferRef.current.push({ t: line, lv: levelOf(line) })
       const failure = line.match(/^\[failed:([^\]]+)]\s*(.*)$/)
       const reason = line.match(/^\[reason:([^\]]+)]\s*(.*)$/)
       const match = reason ?? failure
@@ -100,10 +129,9 @@ export function DevServiceSection({
       const incoming = bufferRef.current
       bufferRef.current = []
       setLines(prev => {
-        const merged = prev.length + incoming.length > MAX_LOG_LINES
-          ? [...prev, ...incoming].slice(-MAX_LOG_LINES)
-          : [...prev, ...incoming]
-        return merged
+        const merged = [...prev, ...incoming]
+        // 超上限时丢最旧的非 error 行，error 固定保留。
+        return merged.length > MAX_LOG_LINES ? trimKeepErrors(merged, MAX_LOG_LINES) : merged
       })
     }, 200)
     return () => { clearInterval(flush); es.close() }
@@ -156,20 +184,61 @@ export function DevServiceSection({
 
   // 逐行按级别上色。用 content-visibility:auto 让屏幕外行跳过布局/绘制，保住长日志滚动性能；
   // useMemo 仅在 lines 变化时重建（不受就绪轮询/放大切换等 re-render 影响）。
+  const counts = useMemo(() => {
+    const c: Record<LogLevel, number> = { error: 0, warn: 0, info: 0, other: 0 }
+    for (const l of lines) c[l.lv]++
+    return c
+  }, [lines])
+  const visible = useMemo(() => lines.filter(l => activeLevels.has(l.lv)), [lines, activeLevels])
   const logNodes = useMemo(
-    () => lines.map((l, i) => (
+    () => visible.map((l, i) => (
       <div
         key={i}
-        className={`whitespace-pre-wrap break-all [content-visibility:auto] [contain-intrinsic-size:auto_16px] ${logLineClass(l)}`}
+        className={`whitespace-pre-wrap break-all [content-visibility:auto] [contain-intrinsic-size:auto_16px] ${LEVEL_CLASS[l.lv]}`}
       >
-        {l === '' ? ' ' : l}
+        {l.t === '' ?' ' : l.t}
       </div>
     )),
-    [lines],
+    [visible],
   )
   const renderLog = () => lines.length === 0
     ? <div className="text-[#64748b]">暂无日志。点「启动」拉起服务后，这里实时显示前台控制台输出。</div>
-    : logNodes
+    : visible.length === 0
+      ? <div className="text-[#64748b]">当前级别筛选无匹配行（点上方级别切换）。</div>
+      : logNodes
+
+  // 级别筛选切换（至少保留一个级别，不允许全关）。
+  const toggleLevel = (lv: LogLevel) => setActiveLevels(prev => {
+    const next = new Set(prev)
+    if (next.has(lv)) { next.delete(lv) } else { next.add(lv) }
+    return next.size === 0 ? prev : next
+  })
+  const LEVEL_META: { lv: LogLevel; label: string; on: string; dot: string }[] = [
+    { lv: 'error', label: 'ERROR', on: 'border-red-500/60 bg-red-500/10 text-red-400', dot: 'bg-red-500' },
+    { lv: 'warn', label: 'WARN', on: 'border-amber-500/60 bg-amber-500/10 text-amber-400', dot: 'bg-amber-500' },
+    { lv: 'info', label: 'INFO', on: 'border-sky-500/60 bg-sky-500/10 text-sky-300', dot: 'bg-sky-400' },
+    { lv: 'other', label: '其它', on: 'border-slate-500/60 bg-slate-500/10 text-slate-300', dot: 'bg-slate-400' },
+  ]
+  const renderLevelChips = (dark: boolean) => (
+    <div className="flex flex-wrap items-center gap-1">
+      {LEVEL_META.map(m => {
+        const on = activeLevels.has(m.lv)
+        const offCls = dark ? 'border-[#1e2733] text-[#64748b]' : 'border-[var(--color-border)] text-[var(--color-muted-foreground)] opacity-60'
+        return (
+          <button
+            key={m.lv}
+            type="button"
+            onClick={() => toggleLevel(m.lv)}
+            title={`${on ? '隐藏' : '显示'} ${m.label} 级日志`}
+            className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] transition ${on ? m.on : offCls}`}
+          >
+            <span className={`inline-block size-1.5 rounded-full ${m.dot} ${on ? '' : 'opacity-40'}`} />
+            {m.label}<span className="opacity-70">{counts[m.lv]}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
 
   return (
     <details className="mt-4 rounded-xl border bg-[var(--color-card)] p-4" open>
@@ -258,8 +327,11 @@ export function DevServiceSection({
           <span className="text-[10px] text-[var(--color-muted-foreground)]">（每 4s 探端口）</span>
         </div>
       )}
-      <div className="mt-3 mb-1 flex items-center justify-between">
-        <span className="text-xs text-[var(--color-muted-foreground)]">启动日志（{lines.length} 行）</span>
+      <div className="mt-3 mb-1 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-[var(--color-muted-foreground)]">启动日志（{visible.length}/{lines.length} 行）</span>
+          {renderLevelChips(false)}
+        </div>
         <Button size="sm" variant="ghost" className="h-7 gap-1 px-2 text-xs" onClick={() => { pinnedRef.current = true; setExpanded(true) }}>
           <Maximize2 className="size-3.5" />放大
         </Button>
@@ -280,15 +352,19 @@ export function DevServiceSection({
             className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-[#1e2733] bg-[#0b0f14] shadow-2xl"
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b border-[#1e2733] px-3 py-2">
-              <span className="flex items-center gap-2 font-mono text-xs text-[#cbd5e1]">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#1e2733] px-3 py-2">
+              <span className="flex items-center gap-2 font-mono text-xs text-[#cbd5e1] shrink-0">
                 <ScrollText className="size-4" />{title}
                 {running ? <span className="text-emerald-400">· 运行中 pid {status?.pid}</span> : <span className="text-[#64748b]">· 已停止</span>}
-                <span className="text-[#64748b]">（{lines.length} 行 · Esc 关闭）</span>
+                <span className="text-[#64748b]">（{visible.length}/{lines.length} 行 · Esc 关闭）</span>
               </span>
-              <Button size="sm" variant="ghost" className="h-7 gap-1 px-2 text-xs text-[#cbd5e1] hover:bg-white/10" onClick={() => setExpanded(false)}>
-                <X className="size-4" />关闭
-              </Button>
+              <div className="flex items-center gap-2">
+                {renderLevelChips(true)}
+                <span className="text-[10px] text-[#64748b]">ERROR 固定保留</span>
+                <Button size="sm" variant="ghost" className="h-7 gap-1 px-2 text-xs text-[#cbd5e1] hover:bg-white/10" onClick={() => setExpanded(false)}>
+                  <X className="size-4" />关闭
+                </Button>
+              </div>
             </div>
             <div ref={bigLogRef} onScroll={onLogScroll} className="min-h-0 flex-1 overflow-auto p-3 font-mono text-[13px] leading-relaxed text-[#cbd5e1]">
               {renderLog()}
