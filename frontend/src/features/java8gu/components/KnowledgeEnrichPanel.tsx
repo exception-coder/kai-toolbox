@@ -10,7 +10,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { HelpCircle, Loader2, Network, Sparkles, TriangleAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { mergeEnrichment, parseKnowledge } from '../lib/knowledge'
-import { fetchEnrichment, type Enrichment } from '../lib/enrichApi'
+import { fetchEnrichment, peekEnrichment, type Enrichment } from '../lib/enrichApi'
 
 interface Props {
   id: string
@@ -26,12 +26,28 @@ export function KnowledgeEnrichPanel({ id, markdown, variant = 'stacked' }: Prop
   const base = useMemo(() => parseKnowledge(id, markdown), [id, markdown])
   const [enrich, setEnrich] = useState<Enrichment | null>(null)
   const [loading, setLoading] = useState(false)
+  const [peeking, setPeeking] = useState(true)
 
-  // 切题时清掉上一题的补全结果
+  // 进题页/切题：只读缓存自动加载已补全结果（不触发 LLM）；没补全过则留手动按钮
   useEffect(() => {
+    let cancelled = false
     setEnrich(null)
     setLoading(false)
-  }, [id])
+    setPeeking(true)
+    peekEnrichment(id, markdown)
+      .then(result => {
+        if (cancelled) return
+        // miss（从未补全）不落地 enrich，避免误显示空补全区块
+        if (!result.miss) setEnrich(result)
+        setPeeking(false)
+      })
+      .catch(() => {
+        if (!cancelled) setPeeking(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [id, markdown])
 
   const page = enrich ? mergeEnrichment(base, enrich) : base
 
@@ -57,13 +73,23 @@ export function KnowledgeEnrichPanel({ id, markdown, variant = 'stacked' }: Prop
           <Sparkles className="h-4 w-4 text-[var(--color-primary)]" /> 结构化知识 · AI 增强
         </h2>
         <div className="flex items-center gap-2">
-          {enrich?.cached && (
-            <span className="text-[10.5px] text-[var(--color-muted-foreground)]">缓存命中</span>
+          {peeking && (
+            <span className="inline-flex items-center gap-1 text-[10.5px] text-[var(--color-muted-foreground)]">
+              <Loader2 className="h-3 w-3 animate-spin" /> 读取缓存…
+            </span>
+          )}
+          {!peeking && enrich?.cached && !enrich.stale && (
+            <span className="text-[10.5px] text-[var(--color-muted-foreground)]">已加载缓存</span>
+          )}
+          {!peeking && enrich?.stale && (
+            <span className="text-[10.5px] text-amber-600 dark:text-amber-400">
+              原文已更新，建议重新补全
+            </span>
           )}
           <button
             type="button"
             onClick={handleEnrich}
-            disabled={loading}
+            disabled={loading || peeking}
             className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-primary)]/30 bg-[var(--color-primary)]/8 px-3 py-1.5 text-[12px] font-medium text-[var(--color-primary)] transition-colors hover:bg-[var(--color-primary)]/14 disabled:opacity-60"
           >
             {loading ? (
@@ -83,9 +109,9 @@ export function KnowledgeEnrichPanel({ id, markdown, variant = 'stacked' }: Prop
       )}
 
       {/* 未补全且无原生附加内容时的引导 */}
-      {!enrich && !hasNativeExtras && !loading && (
+      {!enrich && !hasNativeExtras && !loading && !peeking && (
         <p className="text-[12.5px] text-[var(--color-muted-foreground)]">
-          本题原文未含图解/面试题。点上方「AI 补全」由模型生成图解、高频面试问答与深度讲解（结果会缓存，二次即时）。
+          本题原文未含图解/面试题，也尚未 AI 补全。点上方「AI 补全」由模型生成图解、高频面试问答与深度讲解（结果会缓存，下次进本题自动加载）。
         </p>
       )}
 

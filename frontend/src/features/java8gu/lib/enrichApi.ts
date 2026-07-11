@@ -10,6 +10,8 @@ interface EnrichResponse {
   id: string
   hash: string
   cached: boolean
+  miss?: boolean
+  stale?: boolean
   diagram?: string
   qa?: { q: string; a: string }[]
   pitfalls?: string[]
@@ -24,32 +26,59 @@ export interface Enrichment {
   pitfalls: string[]
   explanation?: string
   cached: boolean
+  /** 只读缓存时：该题从未补全过（此时前端展示手动按钮） */
+  miss: boolean
+  /** 命中的是旧内容的补全（原文已更新，建议重新补全） */
+  stale: boolean
   error?: string
 }
 
-const EMPTY: Enrichment = { diagrams: [], qa: [], pitfalls: [], cached: false }
+const EMPTY: Enrichment = {
+  diagrams: [],
+  qa: [],
+  pitfalls: [],
+  cached: false,
+  miss: true,
+  stale: false,
+}
 
-/**
- * 请求一道题的 AI 补全。失败一律降级为空补全（不抛错）。
- * @param id 题号
- * @param markdown 题目 markdown 原文（后端据此算缓存 hash + 加工）
- */
-export async function fetchEnrichment(id: string, markdown: string): Promise<Enrichment> {
+function toEnrichment(res: EnrichResponse): Enrichment {
+  const diagram = (res.diagram ?? '').trim()
+  return {
+    diagrams: diagram ? [{ kind: 'mermaid', code: diagram, source: 'ai' }] : [],
+    qa: (res.qa ?? []).filter(x => x && x.q && x.a),
+    pitfalls: (res.pitfalls ?? []).filter(Boolean),
+    explanation: (res.explanation ?? '').trim() || undefined,
+    cached: !!res.cached,
+    miss: !!res.miss,
+    stale: !!res.stale,
+    error: res.error,
+  }
+}
+
+async function call(id: string, markdown: string, cacheOnly: boolean): Promise<Enrichment> {
   try {
-    const res = await http<EnrichResponse>('/java8gu/enrich', {
-      method: 'POST',
-      body: JSON.stringify({ id, markdown }),
-    })
-    const diagram = (res.diagram ?? '').trim()
-    return {
-      diagrams: diagram ? [{ kind: 'mermaid', code: diagram, source: 'ai' }] : [],
-      qa: (res.qa ?? []).filter(x => x && x.q && x.a),
-      pitfalls: (res.pitfalls ?? []).filter(Boolean),
-      explanation: (res.explanation ?? '').trim() || undefined,
-      cached: !!res.cached,
-      error: res.error,
-    }
+    const res = await http<EnrichResponse>(
+      `/java8gu/enrich${cacheOnly ? '?cacheOnly=true' : ''}`,
+      { method: 'POST', body: JSON.stringify({ id, markdown }) },
+    )
+    return toEnrichment(res)
   } catch (e) {
     return { ...EMPTY, error: e instanceof Error ? e.message : String(e) }
   }
+}
+
+/**
+ * 只读缓存：进题页自动调用，判断该题是否补全过。**绝不触发 LLM、无成本。**
+ * miss=true 表示从未补全（前端展示手动按钮）；stale=true 表示命中旧内容的补全。
+ */
+export function peekEnrichment(id: string, markdown: string): Promise<Enrichment> {
+  return call(id, markdown, true)
+}
+
+/**
+ * 生成补全（cache-first）：命中缓存直接返回，miss 才调 LLM。失败降级空补全。
+ */
+export function fetchEnrichment(id: string, markdown: string): Promise<Enrichment> {
+  return call(id, markdown, false)
 }
