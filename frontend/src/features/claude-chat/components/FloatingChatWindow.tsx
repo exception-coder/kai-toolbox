@@ -8,6 +8,7 @@ import { ThemeMenu } from '@/shell/ThemeMenu'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { MessageList } from './MessageList'
 import { SessionList } from './SessionList'
+import { RecentSessions } from './RecentSessions'
 import { CommandMenu } from './CommandMenu'
 import { PermissionDialog } from './PermissionDialog'
 import { QuestionDialog } from './QuestionDialog'
@@ -55,6 +56,12 @@ function deriveStatus(items: ChatItem[], running: boolean, hasPermission: boolea
 /** cwd 归一化，用于按工作目录匹配已有会话（与 ProjectWorkspacePage 一致）。 */
 function normalizePath(p: string): string {
   return p.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase()
+}
+
+function cwdName(cwd: string): string {
+  if (!cwd) return ''
+  const index = Math.max(cwd.lastIndexOf('/'), cwd.lastIndexOf('\\'))
+  return index >= 0 && index < cwd.length - 1 ? cwd.slice(index + 1) : cwd
 }
 
 /**
@@ -134,8 +141,10 @@ export function FloatingChatWindow() {
     enabled: floating,
     staleTime: 5000,
   })
-  const currentTitle = sessions.find(s => s.id === chat?.sessionId)?.title?.trim()
-  const headerTitle = currentTitle || 'Vibe Coding'
+  const currentSession = sessions.find(s => s.id === chat?.sessionId)
+  const headerTitle = currentSession
+    ? (currentSession.title?.trim() || cwdName(currentSession.cwd))
+    : 'Vibe Coding'
 
   // 拉起某模块会话：有该 cwd 的会话则续接，否则新建；随后进全屏会话页（与项目工作台一致）。
   const launchModule = (c: ModuleCandidate) => {
@@ -678,6 +687,10 @@ export function FloatingChatWindow() {
         </div>
       ) : showSessions ? (
         <div className="flex-1 overflow-y-auto">
+          <RecentSessions
+            currentSessionId={chat.sessionId}
+            onSwitch={id => { chat.switchTo(id); setShowSessions(false) }}
+          />
           <SessionList
             currentSessionId={chat.sessionId}
             onSwitch={id => { chat.switchTo(id); setShowSessions(false) }}
