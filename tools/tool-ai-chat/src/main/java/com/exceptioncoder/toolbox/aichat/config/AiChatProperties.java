@@ -2,7 +2,6 @@ package com.exceptioncoder.toolbox.aichat.config;
 
 import com.exceptioncoder.toolbox.aichat.api.dto.ModelInfo;
 import com.exceptioncoder.toolbox.aichat.api.dto.RolePreset;
-import com.exceptioncoder.toolbox.common.dynamicconfig.annotation.Refreshable;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -20,7 +19,6 @@ import java.util.Map;
  */
 @Component
 @ConfigurationProperties(prefix = "toolbox.ai-chat")
-@Refreshable(name = "AI 对话")
 @Getter
 @Setter
 public class AiChatProperties {

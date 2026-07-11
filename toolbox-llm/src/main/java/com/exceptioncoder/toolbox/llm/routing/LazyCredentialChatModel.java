@@ -16,10 +16,10 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 「空 key」成员的懒取凭据 ChatModel 包装：每次调用从 {@link LlmCredentialFallback} 取实时 apiKey/baseUrl
- * （即「AI 对话」配置中心里的值），仅当凭据较上次变化时才重建底层 {@link OpenAiChatModel}。
+ * 「空 key」成员的懒取凭据 ChatModel 包装：每次调用从 {@link LlmCredentialFallback} 取中心 LLM 网关的实时 apiKey/baseUrl，
+ * 仅当凭据较上次变化时才重建底层 {@link OpenAiChatModel}。
  *
- * <p>如此，网关里未显式配 key 的档位（java8gu / visitor）能复用用户在「AI 对话」UI 配好的 key，
+ * <p>如此，网关里未显式配 key 的档位（java8gu / visitor）能复用用户在「LLM 网关」配置好的 key，
  * 且用户改 key 后下次调用即生效、无需重启。ChatModel 方法面与 {@link RoutingChatModel} 一致（4 个）。</p>
  */
 public class LazyCredentialChatModel implements ChatModel {

@@ -64,6 +64,7 @@ toolbox:
       base-url: ${TOOLBOX_LLM_BASE_URL:${TOOLBOX_AI_CHAT_BASE_URL:https://4sapi.com/v1}}
       api-key: ${TOOLBOX_LLM_API_KEY:${TOOLBOX_AI_CHAT_API_KEY:}}
       timeout-seconds: ${TOOLBOX_LLM_TIMEOUT_SECONDS:60}
+      java8gu-model: ${TOOLBOX_LLM_JAVA8GU_MODEL:gpt-4o-mini}
     models:
       - id: local-qwen
         tier: capture            # 记录态高频，用本地便宜模型
@@ -167,10 +168,6 @@ toolbox:
       min-score: 0.45
       # 卡片内容目录（含 index.json 与 q/{id}.md）；相对路径按工作目录(仓库根)解析
       content-dir: frontend/public/java8gu
-    # 知识补全（图解/面试问答/易错点/深度讲解）。标 @Refreshable：model 可在配置中心在线改、
-    # 不重启即生效（每次调用读最新值，经 ChatRequest 覆盖请求模型）。key/baseUrl 复用「AI 对话」凭据。
-    enrich:
-      model: ${TOOLBOX_LLM_JAVA8GU_MODEL:gpt-4o-mini}
   # 访客分析智能体。确定性匹配（客户库/竞品名单）在 Java 完成；灰区分类已迁回 Java（LangChain4j）：
   # 模型经共享 LLM 网关（toolbox.llm）按 tier 取得——未配置该档位时回退默认（本地 Ollama）；
   # 要用更强的远端模型，在上面 toolbox.llm.models 加一个 tier=visitor 的成员（如 4sapi gpt-5-mini）。

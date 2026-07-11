@@ -63,7 +63,7 @@ public class LlmAutoConfiguration {
         boolean monitoring = monitor.isEnabled() && recorder != null && registry != null
                 && cost != null && estimator != null;
 
-        // 空 key 成员的凭据兜底（如复用「AI 对话」配置中心的实时 key）；无实现时为 null，行为回退静态构建。
+        // 空 key 成员的凭据兜底（复用中心「LLM 网关」实时凭据）；无实现时为 null，行为回退静态构建。
         LlmCredentialFallback fallback = fallbackProvider.getIfAvailable();
 
         Map<String, List<ModelEndpoint>> byTier = new LinkedHashMap<>();
