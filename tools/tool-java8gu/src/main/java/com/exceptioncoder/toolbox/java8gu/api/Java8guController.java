@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -55,11 +56,16 @@ public class Java8guController {
     }
 
     /**
-     * 知识补全：题目 markdown → 结构化补全（图解/面试问答/易错点/深度讲解），cache-first。
-     * 命中缓存直接返回；miss 才调 LLM。LLM 不可用时降级为空补全，不报错。
+     * 知识补全：题目 markdown → 结构化补全（图解/面试问答/易错点/深度讲解）。
+     *
+     * @param cacheOnly true 时只读缓存（进题页自动调用，绝不触发 LLM）；
+     *                  false（默认）时 cache-first：命中直接返回，miss 才调 LLM。
      */
     @PostMapping("/enrich")
-    public Map<String, Object> enrich(@RequestBody EnrichRequest request) {
-        return enrichService.enrich(request.id(), request.markdown());
+    public Map<String, Object> enrich(@RequestBody EnrichRequest request,
+                                      @RequestParam(name = "cacheOnly", defaultValue = "false") boolean cacheOnly) {
+        return cacheOnly
+                ? enrichService.peek(request.id(), request.markdown())
+                : enrichService.enrich(request.id(), request.markdown());
     }
 }

@@ -1,10 +1,14 @@
 package com.exceptioncoder.toolbox.java8gu.service;
 
-import com.exceptioncoder.toolbox.java8gu.ai.Java8guEnricher;
 import com.exceptioncoder.toolbox.java8gu.domain.Java8guEnrichRepository;
+import com.exceptioncoder.toolbox.llm.config.LlmGatewayProperties;
+import com.exceptioncoder.toolbox.llm.routing.ChatModelRouter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.response.ChatResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -26,16 +30,91 @@ public class Java8guEnrichService {
 
     private static final Logger log = LoggerFactory.getLogger(Java8guEnrichService.class);
 
-    private final Java8guEnricher enricher;
+    /** 网关档位：与 application.yml 中 toolbox.llm.models[tier=java8gu] 对齐。 */
+    private static final String TIER = "java8gu";
+
+    /**
+     * 补全提示词模板。{@code __CARD__} 处填入题目原文。
+     * 用占位符替换而非 String.format——正文示例里含大量 JSON 花括号，format 会误判占位符。
+     */
+    private static final String PROMPT = """
+            你是 Java 面试知识库的内容加工器。下面是一道八股题的原文（markdown）：
+            ====== 原文开始 ======
+            __CARD__
+            ====== 原文结束 ======
+
+            请**只依据原文**，补全这道题在结构化展示时需要、但原文里缺失或零散的字段，
+            输出**一个 JSON 对象**，字段如下（全部必填，无内容时给空数组/空字符串）：
+
+            {
+              "diagram": "一段 mermaid 源码，用 flowchart/sequenceDiagram 等把核心流程或关系图形化；原文若已足够简单可为空字符串",
+              "qa": [ { "q": "高频面试追问", "a": "简洁准确的答案（1-3 句）" } ],
+              "pitfalls": [ "一条易错点/坑（一句话）" ],
+              "explanation": "面向面试复习的深度讲解（markdown，200-400 字，先给结论再展开）"
+            }
+
+            硬性要求：
+            - 严禁编造原文没有依据的结论、数字、API 名；拿不准就少写。
+            - mermaid 语法必须可渲染：节点文本用双引号包裹，避免特殊字符破坏语法。
+            - 直接输出 JSON 本体，**不要**用代码围栏包裹，**不要**任何前后缀文字。
+            """;
+
+    private final ChatModelRouter router;
+    private final LlmGatewayProperties gateway;
     private final Java8guEnrichRepository repo;
     private final ObjectMapper objectMapper;
 
-    public Java8guEnrichService(Java8guEnricher enricher,
+    public Java8guEnrichService(ChatModelRouter router,
+                                LlmGatewayProperties gateway,
                                 Java8guEnrichRepository repo,
                                 ObjectMapper objectMapper) {
-        this.enricher = enricher;
+        this.router = router;
+        this.gateway = gateway;
         this.repo = repo;
         this.objectMapper = objectMapper;
+    }
+
+    /**
+     * 只读缓存：进题页自动调用，判断该题是否补全过。<b>绝不调用 LLM、无成本。</b>
+     *
+     * <p>先按当前内容哈希精确命中；未命中则回退「最近一次」补全（内容已变则标 {@code stale=true}）；
+     * 都没有则 {@code miss=true}，由前端展示手动「AI 补全」按钮。</p>
+     */
+    public Map<String, Object> peek(String id, String markdown) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("id", id);
+        if (!StringUtils.hasText(markdown)) {
+            out.put("hash", "");
+            out.put("cached", false);
+            out.put("miss", true);
+            out.put("stale", false);
+            out.putAll(emptyPayload());
+            return out;
+        }
+        String hash = sha256(markdown);
+        out.put("hash", hash);
+
+        var exact = repo.find(id, hash);
+        if (exact.isPresent()) {
+            out.put("cached", true);
+            out.put("miss", false);
+            out.put("stale", false);
+            out.putAll(parsePayload(exact.get()));
+            return out;
+        }
+        var latest = repo.findLatest(id);
+        if (latest.isPresent()) {
+            out.put("cached", true);
+            out.put("miss", false);
+            out.put("stale", true); // 命中的是旧内容的补全，原文已更新
+            out.putAll(parsePayload(latest.get().payload()));
+            return out;
+        }
+        out.put("cached", false);
+        out.put("miss", true);
+        out.put("stale", false);
+        out.putAll(emptyPayload());
+        return out;
     }
 
     /**
@@ -66,11 +145,17 @@ public class Java8guEnrichService {
             return out;
         }
 
-        // 2) miss → 调 LLM 加工
+        // miss 后走共享网关 java8gu 档位，模型名来自中心 LLM 网关配置。
         out.put("cached", false);
         String raw;
         try {
-            raw = enricher.enrich(markdown);
+            ChatRequest.Builder rb = ChatRequest.builder()
+                    .messages(UserMessage.from(PROMPT.replace("__CARD__", markdown)));
+            if (StringUtils.hasText(gateway.getJava8guModel())) {
+                rb.modelName(gateway.getJava8guModel());
+            }
+            ChatResponse resp = router.forTier(TIER).chat(rb.build());
+            raw = resp.aiMessage().text();
         } catch (Exception e) {
             log.warn("[java8gu] 知识补全 LLM 调用失败 id={}：{}", id, e.toString());
             out.putAll(emptyPayload());
@@ -84,7 +169,7 @@ public class Java8guEnrichService {
 
         // 4) 落缓存（失败不影响本次返回）
         try {
-            repo.save(id, hash, payloadJson, "java8gu");
+            repo.save(id, hash, payloadJson, StringUtils.hasText(gateway.getJava8guModel()) ? gateway.getJava8guModel() : TIER);
         } catch (Exception e) {
             log.warn("[java8gu] 补全结果落缓存失败 id={}：{}", id, e.toString());
         }
