@@ -8,9 +8,14 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -71,6 +76,33 @@ public class DevServiceController {
     @GetMapping("/{id}/logs")
     public List<String> logs(@PathVariable String id) {
         return manager.snapshot(id);
+    }
+
+    /**
+     * 端口就绪探测：对 localhost 的一组端口做 TCP connect（短超时），返回 {"8889":true,...}。
+     * 供「XX 需求开发」模块的服务就绪徽标条判断各子服务是否已监听——浏览器直连后端端口会被 CORS 挡、
+     * 探不准，故统一走后端本机探测。不区分 serviceId（纯端口探测），任意模块可复用。
+     */
+    @GetMapping("/ports")
+    public Map<String, Boolean> ports(@RequestParam("ports") List<Integer> ports) {
+        Map<String, Boolean> out = new LinkedHashMap<>();
+        for (Integer p : ports) {
+            if (p == null || p <= 0 || p > 65535) {
+                continue;
+            }
+            out.put(String.valueOf(p), isOpen(p));
+        }
+        return out;
+    }
+
+    /** TCP 连一下 127.0.0.1:port，连上即视为该服务已监听。 */
+    private static boolean isOpen(int port) {
+        try (Socket s = new Socket()) {
+            s.connect(new InetSocketAddress("127.0.0.1", port), 600);
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     /**

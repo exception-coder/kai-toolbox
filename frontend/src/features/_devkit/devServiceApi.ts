@@ -42,3 +42,12 @@ export function restartDevService(id: string, cwd: string, command: string, stop
     method: 'POST', body: JSON.stringify({ cwd, command, stopCommand: stopCommand || undefined }),
   })
 }
+
+/**
+ * 端口就绪探测：后端对 localhost 的一组端口做 TCP connect，返回 { "8889": true, ... }。
+ * 供服务就绪徽标条判断多服务里各子服务是否已监听（浏览器直连后端端口会被 CORS 挡，故走后端探）。
+ */
+export function checkDevPorts(ports: number[]) {
+  return http<Record<string, boolean>>(
+    `/claude-chat/dev-service/ports?ports=${ports.join(',')}`)
+}

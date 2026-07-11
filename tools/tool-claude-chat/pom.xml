@@ -36,6 +36,12 @@
             <artifactId>ojdbc11</artifactId>
             <version>21.11.0.0</version>
         </dependency>
+        <!-- SRM 需求开发：只读连接测试环境 MySQL 供 agent 查库核对（SELECT-only，后端强制受限） -->
+        <dependency>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
+            <version>8.4.0</version>
+        </dependency>
     </dependencies>
 
 </project>

@@ -6,6 +6,8 @@ import { Permissions, type Decision } from './permissions.js'
 import { createWelfareDbServer } from './welfareDb.js'
 import { createErpDbServer } from './erpDb.js'
 import { createErpAppServer } from './erpApp.js'
+import { createSrmDbServer } from './srmDb.js'
+import { createSrmAppServer } from './srmApp.js'
 import { runCodexTurn, type CodexSpeed } from './codexEngine.js'
 import type { ModelReasoningEffort } from '@openai/codex-sdk'
 import { runGeminiTurn } from './geminiEngine.js'
@@ -217,6 +219,10 @@ class Session {
         // 自闭环验证：非 demo、后端就绪时挂 erp_app（登录态实发 *.action 探测改动效果；
         // 未配置本地实例时工具自会回"未配置"，无害）。与只读 erp_db 配合：erp_app 触发、erp_db 回读。
         mcpServers.erp_app = createErpAppServer(toolboxApiBase)
+        // SRM 需求开发同款一对：srm_db（MySQL 只读查库核对）+ srm_app（yudao 网关 OAuth2 登录态实发验证）。
+        // 未配置对应库/实例时工具自会回"未配置"，无害；「SRM需求开发」触发语显式点名这两个工具。
+        mcpServers.srm_db = createSrmDbServer(toolboxApiBase)
+        mcpServers.srm_app = createSrmAppServer(toolboxApiBase)
       }
 
       try {
