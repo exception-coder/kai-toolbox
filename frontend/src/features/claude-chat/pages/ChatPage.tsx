@@ -1186,6 +1186,8 @@ export function ChatPage() {
                   onClose={() => setCmdMenuOpen(false)}
                   onPickCommand={cmd => { setDraft('/' + cmd + ' '); setCmdMenuOpen(false) }}
                   onPickModel={value => { chat.setModel(value); setCmdMenuOpen(false) }}
+                  onRefreshModels={chat.refreshModels}
+                  modelsRefreshing={chat.modelsRefreshing}
                 />
               )}
             </div>

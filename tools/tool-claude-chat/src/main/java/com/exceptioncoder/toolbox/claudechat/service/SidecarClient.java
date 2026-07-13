@@ -143,6 +143,11 @@ public class SidecarClient {
         send(Map.of("type", "setModel", "sessionId", sessionId, "model", nz(model)));
     }
 
+    /** 主动同步模型清单：让 sidecar 重新询问 claude 二进制并回发最新 models。 */
+    public void refreshModels(String sessionId) {
+        send(Map.of("type", "refreshModels", "sessionId", sessionId));
+    }
+
     public void setCodexOptions(String sessionId, String reasoningEffort, String speed) {
         send(Map.of("type", "setCodexOptions", "sessionId", sessionId,
                 "reasoningEffort", nz(reasoningEffort), "speed", nz(speed)));

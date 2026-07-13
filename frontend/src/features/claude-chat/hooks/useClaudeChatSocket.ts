@@ -90,6 +90,8 @@ export interface UseClaudeChatSocket {
   outputStyle: string | null
   /** 当前会话可用模型清单（来自 SDK supportedModels） */
   models: ModelInfo[]
+  /** 正在主动同步模型清单（重新询问 claude 二进制）；用于按钮转圈/禁用 */
+  modelsRefreshing: boolean
   /** 当前模型 value */
   currentModel: string | null
   codexReasoningEffort: CodexReasoningEffort
@@ -110,6 +112,8 @@ export interface UseClaudeChatSocket {
   setMode: (mode: PermissionMode) => void
   /** 切换模型（下一轮生效） */
   setModel: (model: string) => void
+  /** 主动同步模型清单：让 sidecar 重新询问 claude 二进制拉最新型号（Claude Code 自更新后用） */
+  refreshModels: () => void
   setCodexOptions: (reasoningEffort: CodexReasoningEffort, speed: CodexSpeed) => void
   /** 会话内切 agent（引擎），同一会话内换 claude/codex/gemini；上下文靠切后另发 seed 带过去 */
   switchEngine: (engine: Engine) => void
@@ -161,6 +165,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
   const [mcpServers, setMcpServers] = useState<{ name: string; status: string }[]>([])
   const [outputStyle, setOutputStyle] = useState<string | null>(null)
   const [models, setModels] = useState<ModelInfo[]>([])
+  const [modelsRefreshing, setModelsRefreshing] = useState(false)
   const [currentModel, setCurrentModel] = useState<string | null>(null)
   const [codexReasoningEffort, setCodexReasoningEffort] = useState<CodexReasoningEffort>('low')
   const [codexSpeed, setCodexSpeed] = useState<CodexSpeed>('default')
@@ -345,6 +350,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
       case 'models':
         setModels(msg.models)
         setCurrentModel(msg.current)
+        setModelsRefreshing(false) // 收到最新清单：结束「同步中」态
         break
       case 'userMessage':
         // 把本轮用户消息的 SDK transcript uuid 挂到最近一条尚未标记的 user 项上，供「从此处分叉」
@@ -711,6 +717,14 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     sendRaw({ type: 'setModel', model })
   }, [sendRaw])
 
+  // 主动同步模型清单：让 sidecar 重新询问 claude 二进制（Claude Code 自更新后可拿到最新，如新增 Sonnet 5）。
+  // 最新清单经 models 事件回来时清「同步中」；兜底 15s 超时自动解除，避免拉取失败时按钮一直转。
+  const refreshModels = useCallback(() => {
+    setModelsRefreshing(true)
+    sendRaw({ type: 'refreshModels' })
+    window.setTimeout(() => setModelsRefreshing(false), 15_000)
+  }, [sendRaw])
+
   const setCodexOptions = useCallback((reasoningEffort: CodexReasoningEffort, speed: CodexSpeed) => {
     setCodexReasoningEffort(reasoningEffort)
     setCodexSpeed(speed)
@@ -793,5 +807,5 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     loadHistoryRef.current = loadHistory
   }, [loadHistory])
 
-  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, skills, agents, mcpServers, outputStyle, models, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, open, switchTo, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setModel, setCodexOptions, switchEngine, switchProvider, forkSession, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, skills, agents, mcpServers, outputStyle, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, open, switchTo, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setModel, refreshModels, setCodexOptions, switchEngine, switchProvider, forkSession, historyLoading, historyExhausted, loadHistory }
 }

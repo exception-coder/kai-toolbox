@@ -19,6 +19,7 @@ import java.util.Map;
         @JsonSubTypes.Type(value = ClientMessage.Interrupt.class,     name = "interrupt"),
         @JsonSubTypes.Type(value = ClientMessage.SetMode.class,       name = "setMode"),
         @JsonSubTypes.Type(value = ClientMessage.SetModel.class,      name = "setModel"),
+        @JsonSubTypes.Type(value = ClientMessage.RefreshModels.class, name = "refreshModels"),
         @JsonSubTypes.Type(value = ClientMessage.SetCodexOptions.class, name = "setCodexOptions"),
         @JsonSubTypes.Type(value = ClientMessage.SwitchEngine.class,  name = "switchEngine"),
         @JsonSubTypes.Type(value = ClientMessage.SwitchProvider.class, name = "switchProvider"),
@@ -27,7 +28,8 @@ import java.util.Map;
 public sealed interface ClientMessage
         permits ClientMessage.Open, ClientMessage.Attach, ClientMessage.SwitchSession,
                 ClientMessage.ResumeHistory, ClientMessage.ResumeCurrent, ClientMessage.Send, ClientMessage.Decision,
-                ClientMessage.Interrupt, ClientMessage.SetMode, ClientMessage.SetModel, ClientMessage.SetCodexOptions,
+                ClientMessage.Interrupt, ClientMessage.SetMode, ClientMessage.SetModel, ClientMessage.RefreshModels,
+                ClientMessage.SetCodexOptions,
                 ClientMessage.SwitchEngine, ClientMessage.SwitchProvider, ClientMessage.ForkSession {
 
     /**
@@ -71,6 +73,9 @@ public sealed interface ClientMessage
 
     /** 切换会话模型（ModelInfo.value）。下一轮生效。 */
     record SetModel(String model) implements ClientMessage {}
+
+    /** 主动同步 Claude 模型清单：让 sidecar 重新询问 claude 二进制并回发最新 models（Claude Code 自更新后用）。 */
+    record RefreshModels() implements ClientMessage {}
 
     record SetCodexOptions(String reasoningEffort, String speed) implements ClientMessage {}
 

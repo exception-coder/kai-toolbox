@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Check } from 'lucide-react'
+import { Check, RotateCw } from 'lucide-react'
 import type { Engine, ModelInfo } from '../types'
 import { groupModels } from './modelGroups'
 
@@ -14,6 +14,8 @@ export function CommandMenu({
   engine = 'claude',
   onPickCommand,
   onPickModel,
+  onRefreshModels,
+  modelsRefreshing = false,
   onClose,
   inline = false,
 }: {
@@ -23,6 +25,10 @@ export function CommandMenu({
   engine?: Engine
   onPickCommand: (cmd: string) => void
   onPickModel: (value: string) => void
+  /** 主动同步模型清单（仅 Claude 引擎有意义）：让 sidecar 重新询问 claude 二进制拉最新型号。 */
+  onRefreshModels?: () => void
+  /** 同步中：刷新图标转圈、按钮禁用。 */
+  modelsRefreshing?: boolean
   onClose: () => void
   /** 内嵌模式：相对定位、占满容器宽度、无 fixed 遮罩。用于 overflow-hidden 的窄容器（分屏块 / 悬浮窗），
    *  避免默认的 w-80 绝对下拉被裁切。 */
@@ -49,13 +55,28 @@ export function CommandMenu({
         ? 'relative z-10 mb-1 w-full overflow-hidden rounded-xl border bg-[var(--color-background)] shadow-lg'
         : 'absolute bottom-full left-0 z-50 mb-2 w-80 overflow-hidden rounded-xl border bg-[var(--color-background)] shadow-xl'}>
         <div className="border-b p-2">
-          <input
-            autoFocus
-            value={q}
-            onChange={e => setQ(e.target.value)}
-            placeholder="过滤命令 / 模型…"
-            className="w-full rounded-md border bg-[var(--color-background)] px-2 py-1 text-sm"
-          />
+          <div className="flex items-center gap-1.5">
+            <input
+              autoFocus
+              value={q}
+              onChange={e => setQ(e.target.value)}
+              placeholder="过滤命令 / 模型…"
+              className="min-w-0 flex-1 rounded-md border bg-[var(--color-background)] px-2 py-1 text-sm"
+            />
+            {/* 主动同步：Claude Code 自更新后，重新询问二进制拉最新模型（如新增 Sonnet 5） */}
+            {engine === 'claude' && onRefreshModels && (
+              <button
+                type="button"
+                onMouseDown={e => { e.preventDefault(); if (!modelsRefreshing) onRefreshModels() }}
+                disabled={modelsRefreshing}
+                title="同步模型清单（重新询问 Claude，用于官方更新后拉到最新型号）"
+                aria-label="同步模型清单"
+                className="flex size-7 shrink-0 items-center justify-center rounded-md border text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] disabled:opacity-50"
+              >
+                <RotateCw className={`size-3.5 ${modelsRefreshing ? 'animate-spin' : ''}`} />
+              </button>
+            )}
+          </div>
           {/* 平台筛选（二级）：模型按平台分组，点平台只看该平台下的型号，收窄长清单 */}
           {showPlatformBar && (
             <div className="mt-2 flex flex-wrap gap-1">

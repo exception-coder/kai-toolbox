@@ -356,6 +356,17 @@ public class ClaudeChatService {
         log.info("[claude-chat] 会话 {} 切换模型 -> {}", ctx.sessionId, msg.model());
     }
 
+    /** 主动同步 Claude 模型清单：转交 sidecar 重新询问 claude 二进制，最新清单经 models 事件回发（Claude Code 自更新后用）。 */
+    public void refreshModels(WebSocketSession ws) {
+        SessionCtx ctx = ctxOf(ws);
+        if (ctx == null) {
+            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            return;
+        }
+        sidecar.refreshModels(ctx.sessionId);
+        log.info("[claude-chat] 会话 {} 请求同步模型清单", ctx.sessionId);
+    }
+
     public void setCodexOptions(WebSocketSession ws, ClientMessage.SetCodexOptions msg) {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {

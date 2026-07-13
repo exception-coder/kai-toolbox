@@ -111,12 +111,11 @@ function loadCodexModels(): unknown[] {
 }
 
 /**
- * 启动预热：建一次性 query 仅发控制请求 supportedModels 取模型清单，拿到即 abort，绝不跑对话轮次。
- * 解决「sidecar 重启后首次进会话、未发消息 → 模型组空」的冷启动窗口。失败静默（首轮对话仍会再取）。
+ * 建一次性 query 仅发控制请求 supportedModels 取模型清单，拿到即 abort，绝不跑对话轮次。
+ * 这是「向 claude 原生二进制问一次当前支持的模型」的底层动作——Claude Code 会自更新，
+ * 二进制在磁盘上升级后支持的模型会变（如新增 Sonnet 5），故本函数每次都真实重新询问。
  */
-async function prewarmClaudeModels(): Promise<void> {
-  if (cachedClaudeModels || claudeWarmStarted) return
-  claudeWarmStarted = true
+async function queryClaudeModels(): Promise<unknown[] | null> {
   const ac = new AbortController()
   const safeCwd = process.env.USERPROFILE || process.env.HOME || process.cwd()
   try {
@@ -125,17 +124,49 @@ async function prewarmClaudeModels(): Promise<void> {
       options: { cwd: safeCwd, permissionMode: 'default', abortController: ac },
     } as never)
     const fn = (q as { supportedModels?: () => Promise<unknown> }).supportedModels
-    if (typeof fn === 'function') {
-      const models = await fn.call(q)
-      if (Array.isArray(models)) {
-        cachedClaudeModels = models
-        console.log(`[sidecar] 预热 Claude 模型清单：${models.length} 个`)
-      }
+    if (typeof fn !== 'function') return null
+    const models = await fn.call(q)
+    return Array.isArray(models) ? models : null
+  } finally {
+    ac.abort() // 取消一次性 query，绝不真正处理 warmup 这轮
+  }
+}
+
+/**
+ * 启动预热：取一次模型清单填充全局缓存，消除「sidecar 重启后首次进会话、未发消息 → 模型组空」的冷启动窗口。
+ * 失败静默（首轮对话仍会再取）。
+ */
+async function prewarmClaudeModels(): Promise<void> {
+  if (cachedClaudeModels || claudeWarmStarted) return
+  claudeWarmStarted = true
+  try {
+    const models = await queryClaudeModels()
+    if (models) {
+      cachedClaudeModels = models
+      console.log(`[sidecar] 预热 Claude 模型清单：${models.length} 个`)
     }
   } catch (e) {
     console.warn('[sidecar] 预热 Claude 模型失败（首轮对话会再取）：', e instanceof Error ? e.message : String(e))
-  } finally {
-    ac.abort() // 取消一次性 query，绝不真正处理 warmup 这轮
+  }
+}
+
+/**
+ * 强制重新询问 claude 二进制的支持模型并刷新全局缓存（无视既有缓存）。用于「主动同步」按钮与定时同步：
+ * Claude Code 自更新后模型清单可能已变，重启前靠本函数拉到最新。成功返回最新清单，失败返回 null（保留旧缓存）。
+ */
+async function refreshClaudeModels(): Promise<unknown[] | null> {
+  try {
+    const models = await queryClaudeModels()
+    if (models) {
+      cachedClaudeModels = models
+      console.log(`[sidecar] 刷新 Claude 模型清单：${models.length} 个`)
+      return models
+    }
+    console.warn('[sidecar] 刷新 Claude 模型：未取到清单，保留旧缓存')
+    return null
+  } catch (e) {
+    console.warn('[sidecar] 刷新 Claude 模型失败（保留旧缓存）：', e instanceof Error ? e.message : String(e))
+    return null
   }
 }
 
@@ -508,6 +539,30 @@ export class SessionManager {
   constructor(private emit: Emit) {
     // 启动即预热 Claude 模型清单（控制请求，不跑对话），消除重启后首次进会话的空窗
     void prewarmClaudeModels()
+    // 定时同步：Claude Code 会自更新，二进制升级后支持的模型会变。每 6 小时重新询问一次并广播给所有
+    // Claude 会话，长时间不重启也能拿到最新清单。unref 避免这个定时器拖住进程退出。
+    const timer = setInterval(() => { void this.refreshModels(null) }, 6 * 60 * 60 * 1000)
+    if (typeof timer.unref === 'function') timer.unref()
+  }
+
+  /**
+   * 主动/定时同步 Claude 模型清单：重新询问二进制，成功则广播 models 给所有 Claude 会话。
+   * sessionId 非空时该会话也会收到（用于按钮触发的即时反馈）；为 null 表示定时任务，广播给全部。
+   */
+  async refreshModels(sessionId: string | null): Promise<void> {
+    const models = await refreshClaudeModels()
+    if (!models) {
+      // 拉取失败：给触发者回一个提示，不打断（保留旧清单）
+      if (sessionId) this.emit(sessionId, { type: 'error', code: 'MODELS_REFRESH_FAILED', message: '同步模型清单失败，已保留上次结果（请确认 claude 可用）' })
+      return
+    }
+    for (const [id, s] of this.sessions) {
+      if (s.engine === 'claude') this.emit(id, { type: 'models', models, current: s.model ?? null })
+    }
+    // 触发会话可能尚未进 sessions（极少数时序），补发一次确保有反馈
+    if (sessionId && !this.sessions.has(sessionId)) {
+      this.emit(sessionId, { type: 'models', models, current: null })
+    }
   }
 
   start(id: string, cwd: string, model?: string, mode?: string, engine?: string, apiBaseUrl?: string, authToken?: string,

@@ -290,6 +290,7 @@ export type ClientMessage =
   | { type: 'interrupt' }
   | { type: 'setMode'; mode: PermissionMode }
   | { type: 'setModel'; model: string }
+  | { type: 'refreshModels' }
   | { type: 'setCodexOptions'; reasoningEffort: CodexReasoningEffort; speed: CodexSpeed }
   | { type: 'switchEngine'; engine: Engine }
   | { type: 'switchProvider'; apiBaseUrl?: string; authToken?: string }

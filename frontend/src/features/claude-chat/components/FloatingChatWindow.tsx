@@ -778,6 +778,8 @@ export function FloatingChatWindow() {
               onClose={() => setCmdMenuOpen(false)}
               onPickCommand={cmd => { setDraft(d => (d.trim() ? `${d} ` : '') + '/' + cmd + ' '); setCmdMenuOpen(false); taRef.current?.focus() }}
               onPickModel={value => { chat.setModel(value); setCmdMenuOpen(false) }}
+              onRefreshModels={chat.refreshModels}
+              modelsRefreshing={chat.modelsRefreshing}
             />
           </div>
         )}
