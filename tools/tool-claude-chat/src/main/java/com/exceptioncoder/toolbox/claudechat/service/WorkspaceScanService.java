@@ -2,6 +2,9 @@ package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleResolveResponse;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleResolveResponse.Candidate;
+import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleSyncApplyRequest;
+import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleSyncPreview;
+import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleSyncResult;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ProjectModulesResponse;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ProjectModulesResponse.ModuleView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.WorkspaceDirView;
@@ -21,10 +24,18 @@ import java.nio.file.Path;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
  * 扫描配置根目录的一级子目录，供新建会话选 cwd。对标项目管理面板的「一级扫描 + 短 TTL 缓存」。
@@ -186,28 +197,41 @@ public class WorkspaceScanService {
             "node_modules", "target", "dist", "build", ".git", ".idea", ".gradle",
             "out", "bin", "obj", "venv", ".venv", "__pycache__", ".next", ".turbo", "coverage", "vendor");
 
+    /** 当前配置的知识库根目录（去空白）；未配置返回空串。 */
+    private String effectiveKnowledgeDir() {
+        String d = props.getKnowledgeBaseDir();
+        return d == null ? "" : d.trim();
+    }
+
+    /** 知识库根目录在磁盘上是否存在（用于区分「没配/配错」与「该项目还没建清单」）。 */
+    private boolean knowledgeDirExists(String kbDir) {
+        return !kbDir.isBlank() && Files.isDirectory(Path.of(kbDir));
+    }
+
     /** 扫描某项目下的模块。path 必须在配置根之内（防路径穿越/任意盘符扫描）。 */
     public ProjectModulesResponse scanModules(String projectPath) {
+        String kbDir = effectiveKnowledgeDir();
+        boolean kbExists = knowledgeDirExists(kbDir);
         if (projectPath == null || projectPath.isBlank()) {
-            return new ProjectModulesResponse("", "", false, "unknown", "未知", List.of());
+            return new ProjectModulesResponse("", "", false, "unknown", "未知", false, kbDir, kbExists, List.of());
         }
         Path root = Path.of(projectPath).toAbsolutePath().normalize();
         String name = root.getFileName() == null ? root.toString() : root.getFileName().toString();
         if (!isUnderConfiguredRoot(root) || !Files.isDirectory(root)) {
             log.debug("scanModules 拒绝/不存在: {}", root);
-            return new ProjectModulesResponse(name, root.toString(), false, "unknown", "未知", List.of());
+            return new ProjectModulesResponse(name, root.toString(), false, "unknown", "未知", false, kbDir, kbExists, List.of());
         }
         List<ModuleView> modules = new ArrayList<>();
         // 优先读知识库 modules.json（业务模块树 + 代码路径）；未配置或找不到才回退按构建文件自动识别。
         List<ModuleView> fromKnowledge = readKnowledgeModules(root, name);
         if (fromKnowledge != null) {
             ProjectType pt = detectProjectType(root, fromKnowledge, true);
-            return new ProjectModulesResponse(name, root.toString(), true, pt.code(), pt.label(), fromKnowledge);
+            return new ProjectModulesResponse(name, root.toString(), true, pt.code(), pt.label(), true, kbDir, kbExists, fromKnowledge);
         }
         collectModules(root, root, 0, modules);
         modules.sort(Comparator.comparing(ModuleView::relPath, String.CASE_INSENSITIVE_ORDER));
         ProjectType pt = detectProjectType(root, modules, false);
-        return new ProjectModulesResponse(name, root.toString(), true, pt.code(), pt.label(), List.copyOf(modules));
+        return new ProjectModulesResponse(name, root.toString(), true, pt.code(), pt.label(), false, kbDir, kbExists, List.copyOf(modules));
     }
 
     // ===== 项目类型识别（确定性：按根目录构建标志/工程特征），供「项目工作台」右上角展示 =====
@@ -284,6 +308,213 @@ public class WorkspaceScanService {
         } catch (IOException e) {
             return false;
         }
+    }
+
+    // ===== 更新项目模块：按代码目录结构重新解析，与知识库 modules.json 出 diff，确认后只新增 =====
+    //   与 domain-knowledge 的 bootstrap.mjs sync-modules 同一套语义：预览只读、apply 只追加骨架不删除。
+
+    /** sync 扫描剪枝：技术/非业务目录，绝不当业务模块候选。 */
+    private static final Set<String> SYNC_IGNORE = Set.of(
+            "node_modules", "target", "dist", "build", ".git", ".idea", ".gradle", "out", "bin", "obj",
+            "venv", ".venv", "__pycache__", ".next", ".turbo", "coverage", "vendor", "WEB-INF", "test", "tests");
+
+    /** 知识库 modules.json 清单文件路径；未配置知识库返回 null。 */
+    private Path knowledgeModulesManifest(String projectName) {
+        String kbDir = props.getKnowledgeBaseDir();
+        if (kbDir == null || kbDir.isBlank()) return null;
+        return Path.of(kbDir).resolve(projectName).resolve("impl").resolve(KB_MODULES_FILE);
+    }
+
+    /** 递归展平知识库模块（父 + 所有子）。 */
+    private void flattenKb(List<KbModule> mods, List<KbModule> out) {
+        if (mods == null) return;
+        for (KbModule m : mods) {
+            out.add(m);
+            flattenKb(m.children(), out);
+        }
+    }
+
+    /**
+     * 预览「更新项目模块」：扫目标项目代码基准目录（现有 codePath 的父目录）的一级子目录当候选模块，
+     * 与 modules.json 现清单比对，返回「新增候选 / 已消失」两类差异。只读，不写盘。
+     */
+    public ModuleSyncPreview previewModuleSync(String projectPath) {
+        String kbDir = effectiveKnowledgeDir();
+        boolean kbExists = knowledgeDirExists(kbDir);
+        if (projectPath == null || projectPath.isBlank()) {
+            return new ModuleSyncPreview("", "", false, false, kbDir, kbExists, 0, List.of(), List.of());
+        }
+        Path root = Path.of(projectPath).toAbsolutePath().normalize();
+        String name = root.getFileName() == null ? root.toString() : root.getFileName().toString();
+        if (!isUnderConfiguredRoot(root) || !Files.isDirectory(root)) {
+            return new ModuleSyncPreview(name, root.toString(), false, false, kbDir, kbExists, 0, List.of(), List.of());
+        }
+        Path manifest = knowledgeModulesManifest(name);
+        if (manifest == null || !Files.isRegularFile(manifest)) {
+            // 无 modules.json：可能是知识库路径没配/配错，或该项目还没生成清单——前端据 kbExists 分流提示
+            return new ModuleSyncPreview(name, root.toString(), true, false, kbDir, kbExists, 0, List.of(), List.of());
+        }
+        List<KbModule> flat = new ArrayList<>();
+        try {
+            KnowledgeModules parsed = objectMapper.readValue(manifest.toFile(), KnowledgeModules.class);
+            flattenKb(parsed == null ? null : parsed.modules(), flat);
+        } catch (IOException e) {
+            throw new IllegalArgumentException("解析 modules.json 失败: " + e.getMessage());
+        }
+        Set<String> currentPaths = new LinkedHashSet<>();
+        Set<String> existingKeys = new HashSet<>();
+        for (KbModule m : flat) {
+            if (m.codePath() != null && !m.codePath().isBlank()) currentPaths.add(m.codePath());
+            if (m.key() != null) existingKeys.add(m.key());
+        }
+        // 基准目录：现有 codePath 的父目录（自动推导）
+        Set<String> bases = new LinkedHashSet<>();
+        for (String cp : currentPaths) {
+            int i = cp.lastIndexOf('/');
+            if (i > 0) bases.add(cp.substring(0, i));
+        }
+        // 枚举候选（各基准目录一级子目录）
+        Map<String, String> candidates = new LinkedHashMap<>(); // codePath -> key(目录名)
+        for (String base : bases) {
+            Path abs = root.resolve(base).normalize();
+            if (!abs.startsWith(root) || !Files.isDirectory(abs)) continue;
+            try (Stream<Path> s = Files.list(abs)) {
+                s.filter(Files::isDirectory).forEach(p -> {
+                    String n = p.getFileName().toString();
+                    if (n.startsWith(".") || SYNC_IGNORE.contains(n)) return;
+                    candidates.put(base + "/" + n, n);
+                });
+            } catch (IOException ignored) {
+            }
+        }
+        // 新增 = 候选中不在现清单、且不是容器（某现有 codePath 的祖先）
+        List<ModuleSyncPreview.Candidate> added = new ArrayList<>();
+        for (Map.Entry<String, String> e : candidates.entrySet()) {
+            String cp = e.getKey();
+            if (currentPaths.contains(cp)) continue;
+            boolean container = currentPaths.stream().anyMatch(p -> p.startsWith(cp + "/"));
+            if (container) continue;
+            added.add(new ModuleSyncPreview.Candidate(e.getValue(), cp, existingKeys.contains(e.getValue())));
+        }
+        added.sort(Comparator.comparing(ModuleSyncPreview.Candidate::codePath, String.CASE_INSENSITIVE_ORDER));
+        // 已消失 = 现清单里目录已不存在
+        List<ModuleSyncPreview.Missing> missing = new ArrayList<>();
+        for (KbModule m : flat) {
+            if (m.codePath() == null || m.codePath().isBlank()) continue;
+            Path abs = root.resolve(m.codePath()).normalize();
+            if (!Files.exists(abs)) {
+                missing.add(new ModuleSyncPreview.Missing(m.key(), m.name() == null ? "" : m.name(), m.codePath()));
+            }
+        }
+        return new ModuleSyncPreview(name, root.toString(), true, true, kbDir, kbExists, flat.size(), List.copyOf(added), List.copyOf(missing));
+    }
+
+    /**
+     * 应用「更新项目模块」：把 owner 勾选的候选追加进 modules.json（只新增、不删除）。
+     * 读原始 JSON 树保留 project/description 与人工字段，仅在 modules 末尾追加骨架条目；key 冲突或缺字段则跳过。
+     */
+    public ModuleSyncResult applyModuleSync(String projectPath, List<ModuleSyncApplyRequest.Ref> picks) {
+        if (projectPath == null || projectPath.isBlank()) throw new IllegalArgumentException("项目路径不能为空");
+        Path root = Path.of(projectPath).toAbsolutePath().normalize();
+        String name = root.getFileName() == null ? root.toString() : root.getFileName().toString();
+        if (!isUnderConfiguredRoot(root) || !Files.isDirectory(root)) {
+            throw new IllegalArgumentException("项目不存在或不在允许的工作区根内");
+        }
+        Path manifest = knowledgeModulesManifest(name);
+        if (manifest == null || !Files.isRegularFile(manifest)) {
+            throw new IllegalArgumentException("未找到 modules.json（先配置知识库或用 CLI sync-modules --code-base 初始化）");
+        }
+        if (picks == null || picks.isEmpty()) throw new IllegalArgumentException("未选择任何新增模块");
+        try {
+            JsonNode tree = objectMapper.readTree(manifest.toFile());
+            JsonNode modulesNode = tree == null ? null : tree.get("modules");
+            if (!(tree instanceof ObjectNode rootObj) || !(modulesNode instanceof ArrayNode modulesArr)) {
+                throw new IllegalArgumentException("modules.json 结构非法（缺 modules 数组）");
+            }
+            Set<String> keys = new HashSet<>();
+            collectKeys(modulesArr, keys);
+            int appended = 0, skipped = 0;
+            for (ModuleSyncApplyRequest.Ref p : picks) {
+                if (p.key() == null || p.codePath() == null || p.key().isBlank() || p.codePath().isBlank()) {
+                    skipped++;
+                    continue;
+                }
+                if (keys.contains(p.key())) {
+                    skipped++;
+                    continue;
+                }
+                ObjectNode m = objectMapper.createObjectNode();
+                m.put("key", p.key());
+                m.put("name", "");
+                m.put("codePath", p.codePath());
+                m.put("webPath", "");
+                modulesArr.add(m);
+                keys.add(p.key());
+                appended++;
+            }
+            if (appended > 0) {
+                Files.writeString(manifest, formatModulesJson(rootObj), StandardCharsets.UTF_8);
+                cacheExpireAt = 0; // 让工作台下次扫描立即读到新模块
+            }
+            return new ModuleSyncResult(appended, skipped, manifest.toString());
+        } catch (IOException e) {
+            throw new IllegalArgumentException("写 modules.json 失败: " + e.getMessage());
+        }
+    }
+
+    /** 递归收集 modules 数组里所有 key（含 children）。 */
+    private void collectKeys(ArrayNode modules, Set<String> out) {
+        for (JsonNode m : modules) {
+            JsonNode k = m.get("key");
+            if (k != null && k.isTextual()) out.add(k.asText());
+            if (m.get("children") instanceof ArrayNode kids) collectKeys(kids, out);
+        }
+    }
+
+    /**
+     * modules.json 定制序列化：叶子模块一行一条（保留 name/webPath/webPaths/summary 等字段），含 children 的展开为块。
+     * 与 bootstrap.mjs 的 formatModulesJson 保持同一风格，避免 CLI / UI 两处写盘互相制造格式 diff 噪声。
+     */
+    private String formatModulesJson(ObjectNode root) throws IOException {
+        StringBuilder sb = new StringBuilder("{\n");
+        List<String> topLines = new ArrayList<>();
+        var it = root.fields();
+        while (it.hasNext()) {
+            Map.Entry<String, JsonNode> e = it.next();
+            if (e.getKey().equals("modules")) continue;
+            topLines.add("  " + objectMapper.writeValueAsString(e.getKey()) + ": " + objectMapper.writeValueAsString(e.getValue()));
+        }
+        sb.append(String.join(",\n", topLines)).append(",\n  \"modules\": [\n");
+        List<String> mods = new ArrayList<>();
+        for (JsonNode m : (ArrayNode) root.get("modules")) mods.add(fmtModuleNode(m, 4));
+        sb.append(String.join(",\n", mods)).append("\n  ]\n}\n");
+        return sb.toString();
+    }
+
+    private String fmtModuleNode(JsonNode m, int indent) throws IOException {
+        String pad = " ".repeat(indent);
+        JsonNode children = m.get("children");
+        if (!(children instanceof ArrayNode kids) || kids.isEmpty()) {
+            List<String> inline = new ArrayList<>();
+            var lit = m.fields();
+            while (lit.hasNext()) {
+                Map.Entry<String, JsonNode> e = lit.next();
+                if (e.getKey().equals("children")) continue;
+                inline.add(objectMapper.writeValueAsString(e.getKey()) + ": " + objectMapper.writeValueAsString(e.getValue()));
+            }
+            return pad + "{ " + String.join(", ", inline) + " }";
+        }
+        List<String> fields = new ArrayList<>();
+        var it = m.fields();
+        while (it.hasNext()) {
+            Map.Entry<String, JsonNode> e = it.next();
+            if (e.getKey().equals("children")) continue;
+            fields.add(pad + "  " + objectMapper.writeValueAsString(e.getKey()) + ": " + objectMapper.writeValueAsString(e.getValue()));
+        }
+        List<String> cs = new ArrayList<>();
+        for (JsonNode c : kids) cs.add(fmtModuleNode(c, indent + 4));
+        return pad + "{\n" + String.join(",\n", fields) + ",\n"
+                + pad + "  \"children\": [\n" + String.join(",\n", cs) + "\n" + pad + "  ]\n" + pad + "}";
     }
 
     // ===== 模块路由：把一句自然语言解析为候选 (项目, 模块)，供「模块路由」拉起会话 =====

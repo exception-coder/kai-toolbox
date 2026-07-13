@@ -125,7 +125,36 @@ export interface ProjectModules {
   projectType?: string
   /** 项目类型中文标签，供项目工作台右上角展示「这是什么项目」 */
   projectTypeLabel?: string
+  /** 本次模块是否来自知识库 modules.json（false=按构建文件自动识别兜底） */
+  fromKnowledge?: boolean
+  /** 当前配置的知识库根目录（project-domain-knowledge 的 knowledge/ 目录）；未配置为空串 */
+  knowledgeBaseDir?: string
+  /** 上述知识库根目录是否存在，供工作台提示用户配置 */
+  knowledgeDirExists?: boolean
   modules: ProjectModule[]
+}
+
+/** 「更新项目模块」预览：按目录结构重新解析出的候选，与 modules.json 现清单的差异。 */
+export interface ModuleSyncPreview {
+  project: string
+  projectPath: string
+  exists: boolean
+  /** 是否找到该项目的知识库 modules.json（否则无法在 UI 里更新，需走 CLI --code-base） */
+  knowledgeConfigured: boolean
+  /** 当前配置的知识库根目录（project-domain-knowledge 的 knowledge/ 目录）；未配置为空串 */
+  knowledgeBaseDir: string
+  /** 上述知识库根目录在磁盘上是否存在 */
+  knowledgeDirExists: boolean
+  currentCount: number
+  added: { key: string; codePath: string; keyConflict: boolean }[]
+  missing: { key: string; name: string; codePath: string }[]
+}
+
+/** 「更新项目模块」应用结果。 */
+export interface ModuleSyncResult {
+  appended: number
+  skipped: number
+  modulesFile: string
 }
 
 /** 「模块路由」一条候选：把一句话定位到的 (项目, 模块)。 */

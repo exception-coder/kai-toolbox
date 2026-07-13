@@ -1,7 +1,7 @@
 import { authFetch, http } from '@/lib/api'
 import { ensureFreshToken, getToken } from '@/lib/auth'
 import type { CommitDiff, CommitsResponse, GitRepoRef } from '@/components/git/types'
-import type { ChatItem, ClaudeChatSessionView, CloneResult, FileContent, FileEntry, HistorySessionView, ModelInfo, ModuleResolve, NotifyConfig, OnboardView, PluginStatus, SuiteStatus, ProjectModules, SubdirList, TaskspaceView, WorkspaceList } from './types'
+import type { ChatItem, ClaudeChatSessionView, CloneResult, FileContent, FileEntry, HistorySessionView, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PluginStatus, SuiteStatus, ProjectModules, SubdirList, TaskspaceView, WorkspaceList } from './types'
 
 /** 列会话目录下可查看提交的 git 仓库（cwd 自身是仓库→单个；否则其子目录里的仓库）。空数组=无仓库。 */
 export function listSessionGitRepos(sessionId: string) {
@@ -100,6 +100,19 @@ export function cloneProject(url: string, root: string) {
 /** 某项目下的模块（确定性扫描，按构建标志文件）。供「项目工作台」列模块、懒建会话。 */
 export function fetchProjectModules(path: string) {
   return http<ProjectModules>(`/claude-chat/workspaces/modules?path=${encodeURIComponent(path)}`)
+}
+
+/** 「更新项目模块」预览：按目录结构重新解析，与 modules.json 出 diff（只读）。 */
+export function previewModuleSync(path: string) {
+  return http<ModuleSyncPreview>(`/claude-chat/workspaces/modules/sync/preview?path=${encodeURIComponent(path)}`)
+}
+
+/** 「更新项目模块」应用：把勾选的新增候选追加进 modules.json（只新增、不删除）。 */
+export function applyModuleSync(path: string, modules: { key: string; codePath: string }[]) {
+  return http<ModuleSyncResult>('/claude-chat/workspaces/modules/sync/apply', {
+    method: 'POST',
+    body: JSON.stringify({ path, modules }),
+  })
 }
 
 /** 模块路由：把一句自然语言确定性解析为候选 (项目, 模块)，供「说一句话拉起模块会话」。 */

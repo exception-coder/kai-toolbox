@@ -3,6 +3,9 @@ package com.exceptioncoder.toolbox.claudechat.api;
 import com.exceptioncoder.toolbox.claudechat.api.dto.CloneRequest;
 import com.exceptioncoder.toolbox.claudechat.api.dto.CloneResponse;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleResolveResponse;
+import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleSyncApplyRequest;
+import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleSyncPreview;
+import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleSyncResult;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ProjectModulesResponse;
 import com.exceptioncoder.toolbox.claudechat.api.dto.WorkspaceListResponse;
 import com.exceptioncoder.toolbox.claudechat.service.WorkspaceScanService;
@@ -51,5 +54,17 @@ public class WorkspaceController {
     @PostMapping("/clone")
     public CloneResponse clone(@RequestBody CloneRequest req) {
         return service.cloneProject(req.url(), req.root());
+    }
+
+    /** 「更新项目模块」预览：按代码目录重新解析，与 modules.json 出 diff（只读）。供工作台弹窗展示差异。 */
+    @GetMapping("/modules/sync/preview")
+    public ModuleSyncPreview syncPreview(@RequestParam String path) {
+        return service.previewModuleSync(path);
+    }
+
+    /** 「更新项目模块」应用：把勾选的新增候选追加进 modules.json（只新增、不删除）。 */
+    @PostMapping("/modules/sync/apply")
+    public ModuleSyncResult syncApply(@RequestBody ModuleSyncApplyRequest req) {
+        return service.applyModuleSync(req.path(), req.modules());
     }
 }

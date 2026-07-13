@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Boxes, BotMessageSquare, Compass, CornerDownRight, FolderTree, Loader2, Pin, Play, RefreshCw, Search, Send, TerminalSquare, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Boxes, BotMessageSquare, Check, Compass, CornerDownRight, Database, FolderTree, GitCompare, Loader2, Pin, Play, RefreshCw, Search, Send, Sparkles, TerminalSquare, Trash2, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -9,15 +9,54 @@ import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
-import { createTaskspace, fetchProjectModules, listSessions, listWorkspaces, resolveModule } from '@/features/claude-chat/api'
+import { applyModuleSync, createTaskspace, fetchProjectModules, listSessions, listWorkspaces, previewModuleSync, resolveModule } from '@/features/claude-chat/api'
+import { getConfigBlock, updateConfigBlock } from '@/features/config-center/api'
 import { VoiceInputButton } from '@/features/claude-chat/components/VoiceInputButton'
 import { CHAT_ROUTE, useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
-import type { ClaudeChatSessionView, ModuleCandidate, ProjectModule, ProjectModules, WorkspaceDir } from '@/features/claude-chat/types'
+import type { ClaudeChatSessionView, ModuleCandidate, ModuleSyncPreview, ProjectModule, ProjectModules, WorkspaceDir } from '@/features/claude-chat/types'
 import { AGGREGATION_DRAFT_KEY, useAggregationCart, type AggregationItem } from '../hooks/useAggregationCart'
 
 interface PendingOpen {
   module: ProjectModule
   sessionId: string | null
+}
+
+/** 知识库根目录配置块 id = WorkspaceProperties 的 @ConfigurationProperties prefix。 */
+const WORKSPACE_CFG_ID = 'toolbox.claude-chat.workspace'
+
+/** 从配置块中取出知识库路径（knowledge-base-dir）的当前值；未配置为空串。 */
+function readKnowledgeDir(entries?: { key: string; value: string | null }[]) {
+  const e = (entries ?? []).find(x => x.key.toLowerCase().includes('knowledge-base-dir') || x.key.toLowerCase().includes('knowledgebasedir'))
+  return (e?.value ?? '').trim()
+}
+
+/** sessionStorage handoff key：项目工作台「Agent 识菜单」→ 会话页拉起 Claude 跑菜单识别闭环。 */
+const MENU_SYNC_LAUNCH_KEY = 'kai-toolbox:claude-chat:module-sync-launch'
+
+/**
+ * 「按菜单识别模块」投喂给 Claude 会话的提示：agent 读前端菜单/路由产出模块清单，经 domain-knowledge 的
+ * add-modules 落盘。刻意先预览、owner 确认后再 --apply，守住「内容 agent 产、脚本只确定性落盘」的红线。
+ */
+function buildMenuSyncPrompt(project: string, projectPath: string, kbRepo: string): string {
+  return [
+    `我要更新知识库里「${project}」的模块清单（modules.json），按【前端菜单/路由】识别业务模块（不是按代码目录名）。请按下面步骤，务必保留我的确认关卡：`,
+    '',
+    `1. 读取本项目（当前工作目录：${projectPath}）的前端菜单/路由来源，识别业务模块。来源优先级：`,
+    '   - React：src/shell/featureRegistry、路由表（router/routes）、各 feature 的 index 清单；',
+    '   - 后台管理：sys_menu 菜单表 / 初始化 SQL（如 yudao 的 sys_menu.sql）、Struts/SpringMVC 的 *.xml 路由；',
+    '   - 其它任何声明"有哪些页面/菜单"的地方。',
+    '   每个业务模块产出一条 JSON：{ "key": "英文短标识", "name": "中文业务名", "codePath": "后端代码目录(相对项目根)", "webPath": "前端目录或路由(相对项目根)" }。',
+    '',
+    '2. 先【预览】，不要直接写盘。到知识库仓执行（注意是 domain-knowledge 仓，不是本项目）：',
+    `   cd ${kbRepo || '<project-domain-knowledge 仓根>'}`,
+    `   把 JSON 数组通过 stdin 或 --from 临时文件喂给（不加 --apply = 预览）：node scripts/bootstrap.mjs add-modules --project ${project}`,
+    '',
+    '3. 把预览结果（新增 / 去重跳过 / 缺字段）贴给我，等我确认后，再对同一条命令加 --apply 落盘。',
+    '',
+    '4. 落盘成功后提醒我：npm run catalog 刷新目录，MCP 端 reload_knowledge 生效。',
+    '',
+    '红线：模块内容由你识别产出、我（owner）评审确认；add-modules 只做确定性落盘（只新增/去重/保格式），不要让脚本从代码抽内容硬塞，也不要跳过我的确认直接 --apply。',
+  ].join('\n')
 }
 
 /** 项目工作台：从配置工作区选项目，按确定性模块扫描结果进入对应 Vibe Coding 会话。 */
@@ -155,6 +194,55 @@ export function ProjectWorkspacePage() {
   }
   const resolveResult = resolveMut.data
   const routeHint = resolveResult ? (resolveResult.moduleHint || resolveResult.query) : ''
+
+  // ── 更新项目模块：重新解析目录 → 出 diff → 勾选确认 → 只新增落 modules.json ──
+  const [syncOpen, setSyncOpen] = useState(false)
+  const [syncSel, setSyncSel] = useState<Set<string>>(new Set())
+  const [syncMsg, setSyncMsg] = useState<string | null>(null)
+  const [kbCfgOpen, setKbCfgOpen] = useState(false)
+  const kbBlockQ = useQuery({ queryKey: ['config-block', WORKSPACE_CFG_ID], queryFn: () => getConfigBlock(WORKSPACE_CFG_ID), staleTime: 5000 })
+  // 知识库是否已配置（路径非空）；驱动「必需配置」提醒，读运行时配置中心、不依赖后端重启
+  const kbConfigured = useMemo(() => readKnowledgeDir(kbBlockQ.data?.entries).length > 0, [kbBlockQ.data])
+  const kbKnown = kbBlockQ.isSuccess
+  const syncPreviewMut = useMutation({ mutationFn: () => previewModuleSync(selectedPath) })
+  const syncApplyMut = useMutation({
+    mutationFn: (picks: { key: string; codePath: string }[]) => applyModuleSync(selectedPath, picks),
+    onSuccess: result => {
+      setSyncMsg(`已追加 ${result.appended} 个模块${result.skipped ? `（跳过 ${result.skipped}）` : ''}`)
+      setSyncOpen(false)
+      void modulesQ.refetch()
+    },
+  })
+  // 「Agent 识菜单」：拉起 Claude 会话（cwd=目标项目）跑菜单识别闭环，产出清单经 add-modules 落知识库
+  const launchMenuAgent = () => {
+    if (!selectedProject) return
+    const kbRepo = readKnowledgeDir(kbBlockQ.data?.entries).replace(/[\\/]knowledge[\\/]?$/, '')
+    const seed = buildMenuSyncPrompt(selectedProject.name, selectedProject.path, kbRepo)
+    try {
+      sessionStorage.setItem(MENU_SYNC_LAUNCH_KEY, JSON.stringify({ cwd: selectedProject.path, seed }))
+    } catch { /* 隐私模式忽略 */ }
+    activate()
+    navigate(CHAT_ROUTE)
+  }
+
+  const openSync = () => {
+    setSyncMsg(null)
+    setSyncSel(new Set())
+    setSyncOpen(true)
+    syncPreviewMut.reset()
+    syncApplyMut.reset()
+    syncPreviewMut.mutate()
+  }
+  const closeSync = () => setSyncOpen(false)
+  const toggleSync = (codePath: string) =>
+    setSyncSel(prev => {
+      const next = new Set(prev)
+      if (next.has(codePath)) next.delete(codePath)
+      else next.add(codePath)
+      return next
+    })
+  const toggleSyncAll = (codePaths: string[]) =>
+    setSyncSel(prev => (prev.size >= codePaths.length ? new Set() : new Set(codePaths)))
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-4 md:p-6">
@@ -297,6 +385,8 @@ export function ProjectWorkspacePage() {
                   onClick={() => {
                     setSelectedPath(project.path)
                     setKeyword('')
+                    setSyncOpen(false)
+                    setSyncMsg(null)
                   }}
                 />
               ))
@@ -316,18 +406,104 @@ export function ProjectWorkspacePage() {
                   {moduleSummary(modulesQ.data?.modules.length ?? 0, filteredModules.length, sessions.length)}
                 </CardDescription>
               </div>
-              <div className="relative w-full md:w-72">
-                <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-[var(--color-muted-foreground)]" />
-                <Input
-                  className="pl-9"
-                  value={keyword}
-                  onChange={event => setKeyword(event.target.value)}
-                  placeholder="搜索模块 / 类型 / 路径"
-                />
+              <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center md:w-auto">
+                <div className="relative w-full sm:w-72">
+                  <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-[var(--color-muted-foreground)]" />
+                  <Input
+                    className="pl-9"
+                    value={keyword}
+                    onChange={event => setKeyword(event.target.value)}
+                    placeholder="搜索模块 / 类型 / 路径"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={cn('shrink-0', kbKnown && !kbConfigured && 'border-[var(--color-warning,#b45309)] text-[var(--color-warning,#b45309)]')}
+                  onClick={() => setKbCfgOpen(v => !v)}
+                  title="查看/设置知识图谱项目（modules.json 所在的 knowledge 目录）路径"
+                >
+                  <Database />
+                  知识库{kbKnown && !kbConfigured && ' · 未配置'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={openSync}
+                  disabled={!selectedProject || syncPreviewMut.isPending}
+                  title="源码模式：按代码目录重新解析模块，与 modules.json 出差异，确认后只新增"
+                >
+                  {syncPreviewMut.isPending ? <Loader2 className="animate-spin" /> : <GitCompare />}
+                  更新模块
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={launchMenuAgent}
+                  disabled={!selectedProject || !kbConfigured}
+                  title={kbConfigured
+                    ? '菜单模式：拉起 Claude 会话按前端菜单/路由识别业务模块（带中文名），预览确认后经 add-modules 落知识库'
+                    : '需先配置知识库路径'}
+                >
+                  <Sparkles />
+                  Agent 识菜单
+                </Button>
               </div>
             </div>
           </CardHeader>
           <CardContent>
+            {kbCfgOpen && (
+              <div className="mb-3 rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/20 p-3">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-sm font-medium text-[var(--color-foreground)]">
+                    <Database className="h-4 w-4" />知识库配置（全局，所有项目共用）
+                  </div>
+                  <button type="button" onClick={() => setKbCfgOpen(false)} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <p className="mb-2 text-xs text-[var(--color-muted-foreground)]">
+                  「项目工作台」按 <code>{'{知识库}/{项目名}/impl/modules.json'}</code> 读取每个项目的模块清单。
+                  {modulesQ.data && modulesQ.data.knowledgeDirExists === false && (
+                    <b className="text-[var(--color-warning,#b45309)]">　当前路径不存在或未配置。</b>
+                  )}
+                </p>
+                <KnowledgeDirSetup onSaved={() => void modulesQ.refetch()} />
+              </div>
+            )}
+            {syncOpen && (
+              <ModuleSyncPanel
+                pending={syncPreviewMut.isPending}
+                error={syncPreviewMut.isError ? errorMessage(syncPreviewMut.error) : null}
+                data={syncPreviewMut.data}
+                selected={syncSel}
+                onToggle={toggleSync}
+                onToggleAll={toggleSyncAll}
+                applying={syncApplyMut.isPending}
+                applyError={syncApplyMut.isError ? errorMessage(syncApplyMut.error) : null}
+                onApply={picks => syncApplyMut.mutate(picks)}
+                onClose={closeSync}
+                onReload={() => syncPreviewMut.mutate()}
+              />
+            )}
+            {syncMsg && (
+              <div className="mb-3 flex items-center gap-2 rounded-md border border-[var(--color-primary)]/40 bg-[var(--color-primary)]/5 px-3 py-2 text-sm text-[var(--color-foreground)]">
+                <Check className="h-4 w-4 text-[var(--color-primary)]" />
+                {syncMsg}
+              </div>
+            )}
+            {!syncOpen && modulesQ.data?.exists && (
+              <WorkspaceKnowledgeNotice
+                data={modulesQ.data}
+                onSaved={() => void modulesQ.refetch()}
+                onOpenSync={openSync}
+              />
+            )}
             {modulesQ.isLoading || modulesQ.isFetching && !modulesQ.data ? (
               <StateLine icon={<Loader2 className="h-4 w-4 animate-spin" />} text="正在扫描模块" />
             ) : modulesQ.isError ? (
@@ -670,6 +846,274 @@ function buildLinkagePrompt(items: AggregationItem[], wsDir: string): string {
   lines.push('')
   lines.push('请先阅读上述模块、理清它们之间的联动关系，再告诉我你的改造方案。')
   return lines.join('\n')
+}
+
+/** 「更新项目模块」diff 面板：展示新增候选（可勾选）+ 已消失告警，确认后只新增落 modules.json。 */
+function ModuleSyncPanel({
+  pending,
+  error,
+  data,
+  selected,
+  onToggle,
+  onToggleAll,
+  applying,
+  applyError,
+  onApply,
+  onClose,
+  onReload,
+}: {
+  pending: boolean
+  error: string | null
+  data?: ModuleSyncPreview
+  selected: Set<string>
+  onToggle: (codePath: string) => void
+  onToggleAll: (codePaths: string[]) => void
+  applying: boolean
+  applyError: string | null
+  onApply: (picks: { key: string; codePath: string }[]) => void
+  onClose: () => void
+  onReload: () => void
+}) {
+  if (pending) {
+    return <SyncPanelShell onClose={onClose}><StateLine icon={<Loader2 className="h-4 w-4 animate-spin" />} text="正在解析项目目录…" /></SyncPanelShell>
+  }
+  if (error) return <SyncPanelShell onClose={onClose}><StateLine tone="danger" text={error} /></SyncPanelShell>
+  if (!data) return null
+  if (!data.exists) return <SyncPanelShell onClose={onClose}><StateLine tone="danger" text="项目不存在或不在允许的工作区根内" /></SyncPanelShell>
+  if (!data.knowledgeConfigured) {
+    // 知识库根目录没配 / 路径不存在 → 让用户填写知识图谱项目路径
+    if (!data.knowledgeDirExists) {
+      return (
+        <SyncPanelShell onClose={onClose}>
+          <div className="space-y-2.5 text-sm text-[var(--color-muted-foreground)]">
+            <p>
+              此功能依赖<b className="text-[var(--color-foreground)]">知识图谱项目</b>（<code>project-domain-knowledge</code> 的本地 clone）——
+              模块清单 <code>modules.json</code> 由它维护。当前
+              {data.knowledgeBaseDir
+                ? <>配置的知识库路径 <code className="break-all">{data.knowledgeBaseDir}</code> <b className="text-[var(--color-destructive)]">不存在</b>。</>
+                : <>还没配置知识库路径。</>}
+            </p>
+            <KnowledgeDirSetup onSaved={onReload} saveLabel="保存并重试" />
+          </div>
+        </SyncPanelShell>
+      )
+    }
+    // 知识库路径 OK，只是该项目还没生成清单 → 给 CLI 初始化命令
+    return (
+      <SyncPanelShell onClose={onClose}>
+        <div className="space-y-2 text-sm text-[var(--color-muted-foreground)]">
+          <p>知识库已配置，但该项目还没有 <code>modules.json</code>。首次初始化需指定代码基准目录，在知识库仓根执行：</p>
+          <pre className="overflow-x-auto rounded bg-[var(--color-muted)]/50 p-2 text-xs text-[var(--color-foreground)]">cd {data.knowledgeBaseDir.replace(/[\\/]knowledge[\\/]?$/, '') || '<project-domain-knowledge 仓根>'}
+node scripts/bootstrap.mjs sync-modules --project {data.project} --project-root {data.projectPath} --code-base &lt;相对路径,逗号分隔&gt; --apply</pre>
+          <p>生成后回到这里点「更新模块」即可增量维护，无需再手敲。</p>
+        </div>
+      </SyncPanelShell>
+    )
+  }
+  const selectable = data.added.filter(a => !a.keyConflict).map(a => a.codePath)
+  const picks = data.added.filter(a => selected.has(a.codePath)).map(a => ({ key: a.key, codePath: a.codePath }))
+  return (
+    <SyncPanelShell onClose={onClose}>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-2 text-sm">
+          <span className="text-[var(--color-muted-foreground)]">现有 {data.currentCount} 条 · 新增候选 {data.added.length} · 已选 {picks.length}</span>
+          {selectable.length > 0 && (
+            <button type="button" className="text-xs text-[var(--color-primary)] hover:underline" onClick={() => onToggleAll(selectable)}>
+              {selected.size >= selectable.length ? '全不选' : '全选可选'}
+            </button>
+          )}
+        </div>
+        {data.added.length === 0 ? (
+          <StateLine text="没有新增模块，清单已与代码目录一致" />
+        ) : (
+          <div className="max-h-64 space-y-1 overflow-y-auto pr-1">
+            {data.added.map(a => (
+              <label
+                key={a.codePath}
+                className={cn(
+                  'flex min-w-0 items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm',
+                  a.keyConflict ? 'opacity-60' : 'cursor-pointer hover:bg-[var(--color-accent)]',
+                )}
+              >
+                <input
+                  type="checkbox"
+                  className="accent-[var(--color-primary)]"
+                  checked={selected.has(a.codePath)}
+                  disabled={a.keyConflict}
+                  onChange={() => onToggle(a.codePath)}
+                />
+                <span className="shrink-0 font-medium text-[var(--color-foreground)]">{a.key}</span>
+                {a.keyConflict && <Badge variant="warning" className="shrink-0 text-[10px]">key 冲突</Badge>}
+                <span className="truncate text-xs text-[var(--color-muted-foreground)]">{a.codePath}</span>
+              </label>
+            ))}
+          </div>
+        )}
+        <p className="text-xs text-[var(--color-muted-foreground)]">
+          追加为骨架条目（name / webPath 留空），落盘后请补业务名与前端目录；技术目录（如 common/excel）别勾。
+        </p>
+        {data.missing.length > 0 && (
+          <div className="space-y-0.5 rounded-md border border-[var(--color-destructive)]/30 bg-[var(--color-destructive)]/5 p-2 text-xs text-[var(--color-muted-foreground)]">
+            <div className="mb-1 flex items-center gap-1 text-[var(--color-destructive)]">
+              <AlertTriangle className="h-3.5 w-3.5" />目录已消失（{data.missing.length}）— 只告警，不自动删除
+            </div>
+            {data.missing.map(m => <div key={m.codePath} className="truncate">· {m.key}「{m.name}」({m.codePath})</div>)}
+          </div>
+        )}
+        {applyError && <p className="text-sm text-[var(--color-destructive)]">{applyError}</p>}
+        <div className="flex items-center justify-end gap-2">
+          <Button type="button" variant="ghost" size="sm" onClick={onClose}>取消</Button>
+          <Button type="button" size="sm" disabled={picks.length === 0 || applying} onClick={() => onApply(picks)}>
+            {applying ? <Loader2 className="animate-spin" /> : <Check />}
+            应用所选（{picks.length}）
+          </Button>
+        </div>
+      </div>
+    </SyncPanelShell>
+  )
+}
+
+/**
+ * 工作台级提示：进项目就主动告知知识图谱配置状态,把"填知识库路径"提到 UI 层,而不是藏在「更新模块」里。
+ * - 知识库没配/路径不存在 → 醒目横幅 + 就地填路径(保存即生效、重扫)；
+ * - 路径 OK 但该项目未纳入清单(走了自动识别) → 轻量提示,引导点「更新模块」生成。
+ */
+function WorkspaceKnowledgeNotice({
+  data,
+  onSaved,
+  onOpenSync,
+}: {
+  data: ProjectModules
+  onSaved: () => void
+  onOpenSync: () => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const blockQ = useQuery({ queryKey: ['config-block', WORKSPACE_CFG_ID], queryFn: () => getConfigBlock(WORKSPACE_CFG_ID), staleTime: 5000 })
+  const kbConfigured = readKnowledgeDir(blockQ.data?.entries).length > 0
+
+  // ① 必需项未配置（路径为空）——友好提醒，读配置中心、不依赖后端重启
+  if (blockQ.isSuccess && !kbConfigured) {
+    return (
+      <div className="mb-3 space-y-2 rounded-md border border-[var(--color-warning,#b45309)]/50 bg-[var(--color-warning,#b45309)]/10 p-3">
+        <div className="flex items-start gap-2 text-sm">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-warning,#b45309)]" />
+          <div className="min-w-0">
+            <div className="font-medium text-[var(--color-foreground)]">请先配置知识库（必需项，全局只需设置一次）</div>
+            <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
+              「项目工作台」的模块中文名、模块清单维护都依赖<b className="text-[var(--color-foreground)]">知识图谱项目</b>（<code>project-domain-knowledge</code>）。
+              当前尚未配置，只能按目录名自动识别。请检查并设置一次 knowledge 目录路径。
+            </p>
+          </div>
+          <Button type="button" size="sm" className="shrink-0" onClick={() => setExpanded(v => !v)}>
+            {expanded ? '收起' : '去配置'}
+          </Button>
+        </div>
+        {expanded && <KnowledgeDirSetup onSaved={onSaved} saveLabel="保存" />}
+      </div>
+    )
+  }
+
+  // ② 配了路径、但后端探测该目录不存在（需后端新字段；旧后端为 undefined 不误报）
+  if (data.knowledgeDirExists === false) {
+    return (
+      <div className="mb-3 space-y-2 rounded-md border border-[var(--color-warning,#b45309)]/40 bg-[var(--color-warning,#b45309)]/5 p-3">
+        <div className="flex items-start gap-2 text-sm">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-warning,#b45309)]" />
+          <div className="min-w-0">
+            <div className="font-medium text-[var(--color-foreground)]">知识库路径无效，当前按目录自动识别</div>
+            <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
+              配置的 <code className="break-all">{data.knowledgeBaseDir || '(空)'}</code> 在磁盘上不存在。请检查是否已 <code>git clone</code> 知识库、路径是否写对。
+            </p>
+          </div>
+          <Button type="button" size="sm" variant="outline" className="shrink-0" onClick={() => setExpanded(v => !v)}>
+            {expanded ? '收起' : '检查配置'}
+          </Button>
+        </div>
+        {expanded && <KnowledgeDirSetup onSaved={onSaved} saveLabel="保存并重试" />}
+      </div>
+    )
+  }
+  if (data.exists && data.fromKnowledge === false) {
+    return (
+      <div className="mb-3 flex items-center justify-between gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/30 px-3 py-2 text-xs text-[var(--color-muted-foreground)]">
+        <span>该项目暂未纳入知识图谱清单，当前按目录自动识别（模块名=目录名）。</span>
+        <Button type="button" size="sm" variant="ghost" className="h-7 shrink-0 px-2" onClick={onOpenSync}>
+          <GitCompare className="h-3.5 w-3.5" />生成清单
+        </Button>
+      </div>
+    )
+  }
+  return null
+}
+
+/**
+ * 就地查看/填写「知识图谱项目」的 knowledge 目录路径；当前值直接读运行时配置中心（不依赖后端是否已升级），
+ * 保存也写配置中心，无需重启，保存后回调（重扫模块）。saveLabel 让不同入口用不同措辞。
+ */
+function KnowledgeDirSetup({ onSaved, saveLabel = '保存' }: { onSaved: () => void; saveLabel?: string }) {
+  const qc = useQueryClient()
+  const blockQ = useQuery({ queryKey: ['config-block', WORKSPACE_CFG_ID], queryFn: () => getConfigBlock(WORKSPACE_CFG_ID) })
+  const entry = useMemo(
+    () => (blockQ.data?.entries ?? []).find(e => e.key.toLowerCase().includes('knowledge-base-dir') || e.key.toLowerCase().includes('knowledgebasedir')),
+    [blockQ.data],
+  )
+  const entryKey = entry?.key ?? `${WORKSPACE_CFG_ID}.knowledge-base-dir`
+  const [path, setPath] = useState('')
+  const [dirty, setDirty] = useState(false)
+  // 配置块加载完把当前值填进输入框（用户还没编辑时才覆盖，避免打断输入）
+  useEffect(() => { if (!dirty && entry) setPath(entry.value ?? '') }, [entry, dirty])
+  const saveMut = useMutation({
+    mutationFn: () => updateConfigBlock(WORKSPACE_CFG_ID, { [entryKey]: path.trim() }),
+    // 用返回的最新配置块直接刷新缓存 → 按钮/横幅状态即时更新，无需重启后端
+    onSuccess: res => { qc.setQueryData(['config-block', WORKSPACE_CFG_ID], res); setDirty(false); onSaved() },
+  })
+  return (
+    <div className="space-y-2 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] p-2.5">
+      <label className="block text-xs font-medium text-[var(--color-foreground)]">
+        知识图谱项目 knowledge 目录（绝对路径）
+      </label>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Input
+          className="flex-1 font-mono text-xs"
+          value={path}
+          disabled={blockQ.isLoading}
+          onChange={e => { setPath(e.target.value); setDirty(true) }}
+          placeholder={blockQ.isLoading ? '读取当前配置…' : 'D:\\Users\\你\\myWork\\project-domain-knowledge\\knowledge'}
+        />
+        <Button type="button" size="sm" className="shrink-0" disabled={!path.trim() || saveMut.isPending} onClick={() => saveMut.mutate()}>
+          {saveMut.isPending ? <Loader2 className="animate-spin" /> : <Check />}
+          {saveLabel}
+        </Button>
+      </div>
+      <p className="text-[11px] leading-relaxed text-[var(--color-muted-foreground)]">
+        指向 <code>project-domain-knowledge</code> 本地 clone 里的 <code>knowledge</code> 子目录（没有先 <code>git clone</code> 该仓库）。
+        保存即时生效（写入运行时配置中心，不重启），随后自动重新扫描。也可留空 = 关闭知识库、始终按目录自动识别。
+      </p>
+      {saveMut.isError && <p className="text-xs text-[var(--color-destructive)]">{errorMessage(saveMut.error)}</p>}
+      {saveMut.isSuccess && !dirty && <p className="text-xs text-[var(--color-primary)]">已保存并生效。</p>}
+    </div>
+  )
+}
+
+function SyncPanelShell({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div className="mb-4 rounded-md border border-[var(--color-primary)]/40 bg-[var(--color-primary)]/5 p-3">
+      <div className="mb-1.5 flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm font-medium text-[var(--color-foreground)]">
+          <GitCompare className="h-4 w-4" />更新项目模块（diff → 确认 → 只新增）
+        </div>
+        <button type="button" onClick={onClose} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <p className="mb-2.5 text-xs leading-relaxed text-[var(--color-muted-foreground)]">
+        扫描项目代码目录、与知识库 <code>modules.json</code> 比对：勾选的新目录会<b className="text-[var(--color-foreground)]">追加为骨架条目</b>（只新增，
+        不删除、不改动已有条目的中文名/路径）。改动直接写入 <code>modules.json</code>，
+        <b className="text-[var(--color-foreground)]">不执行任何脚本、不改动项目代码</b>；等价于 CLI 的 <code>bootstrap.mjs sync-modules</code>，但由后端直接读写。
+      </p>
+      {children}
+    </div>
+  )
 }
 
 /** 右上角项目类型标签：标识当前选中项目是什么工程（Maven / Java Web (传统) / Node …）。 */
