@@ -656,7 +656,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     if (!t && !hasAtt) return
     // WS 只发 name/path；url/mime 仅留本端气泡显示
     const atts = hasAtt ? attachments!.map(a => ({ name: a.name, path: a.path })) : undefined
-    const disp = hasAtt ? attachments!.filter(a => a.url).map(a => ({ name: a.name, mime: a.mime, url: a.url })) : undefined
+    // 全部附件都进气泡显示（图片带 url 缩略图，非图片文件显示文件卡片）
+    const disp = hasAtt ? attachments!.map(a => ({ name: a.name, mime: a.mime, url: a.url })) : undefined
     setItems(prev => [...prev, { kind: 'user', id: nextId(), text: t, ts: Date.now(), attachments: disp && disp.length ? disp : undefined }])
     turnStartRef.current = Date.now()
     ttftRef.current = null

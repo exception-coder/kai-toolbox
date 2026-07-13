@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, Check, Coins, Copy, Database, FileImage, GitBranch, Timer } from 'lucide-react'
+import { AlertTriangle, Check, Coins, Copy, Database, FileImage, FileText, GitBranch, Timer } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { loadState as loadCardState, saveState as saveCardState } from '@/features/markdown-card/lib/persistence'
 import type { ChatItem, ConnState } from '../types'
@@ -218,17 +218,46 @@ function Row({ item, onFork, engineLabel, onResumeCurrent, onOpenImage }: { item
       return (
         <div className="flex min-w-0 max-w-full flex-col items-end">
           <MsgHeader ts={item.ts} align="end" />
-          {item.attachments && item.attachments.some(a => a.url) && (
-            <div className="mb-1 flex max-w-[85%] flex-wrap justify-end gap-1.5">
-              {item.attachments.filter(a => a.url).map((a, i) => (
-                <img
+          {item.attachments && item.attachments.length > 0 && (
+            <div className="mb-1 flex max-w-[85%] flex-col items-end gap-1.5">
+              {/* 图片：有预览 URL，按两列网格展示 */}
+              {item.attachments.filter(a => a.url && a.mime?.startsWith('image/')).length > 0 && (
+                <div className={cn(
+                  'flex flex-wrap justify-end gap-1.5',
+                  item.attachments.filter(a => a.url && a.mime?.startsWith('image/')).length >= 2 && 'grid grid-cols-2',
+                )}>
+                  {item.attachments.filter(a => a.url && a.mime?.startsWith('image/')).map((a, i) => (
+                    <img
+                      key={i}
+                      src={a.url}
+                      alt={a.name}
+                      title={`${a.name}（点击查看大图）`}
+                      onClick={() => onOpenImage?.(a.url!, a.name)}
+                      className={cn(
+                        'cursor-zoom-in rounded-xl border border-[var(--color-border)] object-cover transition-opacity hover:opacity-90',
+                        item.attachments!.filter(a => a.url && a.mime?.startsWith('image/')).length === 1
+                          ? 'max-h-60 max-w-full'
+                          : 'h-32 w-full',
+                      )}
+                    />
+                  ))}
+                </div>
+              )}
+              {/* 非图片文件：文件卡片 */}
+              {item.attachments.filter(a => !a.url || !a.mime?.startsWith('image/')).map((a, i) => (
+                <div
                   key={i}
-                  src={a.url}
-                  alt={a.name}
-                  title={`${a.name}（点击查看大图）`}
-                  onClick={() => onOpenImage?.(a.url!, a.name)}
-                  className="max-h-40 max-w-[48%] cursor-zoom-in rounded-lg border border-[var(--color-border)] object-cover transition-opacity hover:opacity-90"
-                />
+                  className="flex items-center gap-2 rounded-xl bg-white/15 px-3 py-2 text-sm text-[var(--color-primary-foreground)]"
+                  title={a.name}
+                >
+                  <FileText className="size-4 shrink-0 opacity-80" />
+                  <span className="max-w-[16rem] truncate">{a.name}</span>
+                  {a.mime && (
+                    <span className="shrink-0 rounded bg-white/20 px-1.5 py-0.5 text-[10px] uppercase opacity-80">
+                      {a.mime.split('/').pop()?.split('+')[0] ?? 'file'}
+                    </span>
+                  )}
+                </div>
               ))}
             </div>
           )}
