@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { AlertTriangle, Bot, Check, Code, Coins, Database, FileSearch, FolderKanban, Timer, User, Wrench } from 'lucide-react'
+import { AlertTriangle, Bot, Check, Code, Coins, Database, FileSearch, FileText, FolderKanban, Timer, User, Wrench } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { MessageView, ToolStep } from '../types'
 import { abbr, cacheHitRate, fmtMs, formatTime } from '../lib/metrics'
@@ -60,17 +60,13 @@ export function MessageList({ messages, streaming, streamText, toolSteps, onPick
       {messages.map((m) => (
         <Bubble key={m.id} role={m.role}>
           {m.attachments.length > 0 && (
-            <div className="mb-2 flex flex-wrap gap-2">
-              {m.attachments.map((a) => (
-                <img key={a.id} src={a.url} alt={a.name} className="max-h-40 rounded-md border" />
-              ))}
-            </div>
+            <AttachmentGroup attachments={m.attachments} isUser={m.role === 'USER'} />
           )}
           {/* 助手消息走 markdown 渲染；用户原始输入按纯文本（不经 HTML 注入）。 */}
           {m.role === 'ASSISTANT' ? (
             <Markdown text={m.content} />
           ) : (
-            <div className="whitespace-pre-wrap break-words">{m.content}</div>
+            m.content && <div className="whitespace-pre-wrap break-words">{m.content}</div>
           )}
           {m.role === 'ASSISTANT' && <MetricsFooter message={m} />}
         </Bubble>
@@ -122,6 +118,59 @@ function ToolSteps({ steps }: { steps: ToolStep[] }) {
             )}
           </div>
         </details>
+      ))}
+    </div>
+  )
+}
+
+/** 附件展示组（图片 + 非图片文件卡片），参考 ChatGPT 样式。 */
+function AttachmentGroup({
+  attachments,
+  isUser,
+}: {
+  attachments: { id: string; name: string; mime: string; url: string }[]
+  isUser: boolean
+}) {
+  const images = attachments.filter((a) => a.mime.startsWith('image/'))
+  const files = attachments.filter((a) => !a.mime.startsWith('image/'))
+
+  return (
+    <div className="mb-2 space-y-1.5">
+      {/* 图片：单张铺满，多张两列网格 */}
+      {images.length > 0 && (
+        <div className={cn('flex flex-wrap gap-1.5', images.length >= 2 && 'grid grid-cols-2')}>
+          {images.map((a) => (
+            <img
+              key={a.id}
+              src={a.url}
+              alt={a.name}
+              title="点击查看原图"
+              className={cn(
+                'cursor-zoom-in rounded-xl object-cover',
+                images.length === 1 ? 'max-h-64 max-w-full' : 'h-32 w-full',
+              )}
+              onClick={() => window.open(a.url, '_blank')}
+            />
+          ))}
+        </div>
+      )}
+      {/* 非图片文件：卡片行 */}
+      {files.map((a) => (
+        <a
+          key={a.id}
+          href={a.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cn(
+            'flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition-colors',
+            isUser
+              ? 'bg-white/15 hover:bg-white/25'
+              : 'border bg-[var(--color-background)] hover:bg-[var(--color-accent)]',
+          )}
+        >
+          <FileText className="size-4 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">{a.name}</span>
+        </a>
       ))}
     </div>
   )

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Loader2, Paperclip, Send, Square, X } from 'lucide-react'
+import { FileText, Loader2, Paperclip, Send, Square, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { uploadAttachment } from '../api'
 import { VoiceInputButton } from './VoiceInputButton'
@@ -78,18 +78,34 @@ export function Composer(props: Props) {
     <div className="border-t bg-[var(--color-background)] p-3">
       {attachments.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">
-          {attachments.map((a) => (
-            <div key={a.id} className="relative">
-              <img src={a.url} alt={a.name} className="size-16 rounded-md border object-cover" />
-              <button
-                className="absolute -right-1 -top-1 rounded-full bg-[var(--color-destructive)] p-0.5 text-[var(--color-destructive-foreground)]"
-                onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
-                title="移除"
-              >
-                <X className="size-3" />
-              </button>
-            </div>
-          ))}
+          {attachments.map((a) => {
+            const isImage = a.mime.startsWith('image/')
+            return (
+              <div key={a.id} className="relative">
+                {isImage ? (
+                  <img
+                    src={a.url}
+                    alt={a.name}
+                    className="h-[72px] w-[72px] rounded-xl border border-[var(--color-border)] object-cover shadow-sm"
+                  />
+                ) : (
+                  <div className="flex h-[72px] w-[130px] items-center gap-2 rounded-xl border bg-[var(--color-muted)]/40 px-2.5 shadow-sm">
+                    <FileText className="size-7 shrink-0 text-[var(--color-muted-foreground)]" />
+                    <span className="min-w-0 flex-1 truncate text-xs leading-tight text-[var(--color-foreground)]">
+                      {a.name}
+                    </span>
+                  </div>
+                )}
+                <button
+                  className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-foreground)] shadow-sm transition-colors hover:bg-[var(--color-destructive)] hover:text-[var(--color-destructive-foreground)]"
+                  onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
+                  title="移除"
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            )
+          })}
         </div>
       )}
 
