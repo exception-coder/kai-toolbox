@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Database, Handshake, Loader2, Rocket, ServerCog } from 'lucide-react'
+import { ClipboardList, Database, DownloadCloud, Eye, EyeOff, Handshake, Loader2, Rocket, ServerCog } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { listWorkspaces } from '@/features/claude-chat/api'
@@ -10,6 +10,7 @@ import { DevServiceSection } from '@/features/_devkit/DevServiceSection'
 import {
   getSrmDbConfig, saveSrmDbConfig, testSrmDb,
   getSrmAppConfig, saveSrmAppConfig, testSrmApp,
+  listOpsSystems, listOpsDatasources, importSrmDbFromOps,
 } from '../api'
 
 // 复用 Vibe Coding 的 handoff 通道（ChatPage 挂载时消费：开会话 + 投喂触发语）
@@ -93,6 +94,11 @@ export function SrmDevPage() {
       <div className="mb-4 flex items-center gap-2">
         <Handshake className="size-5 text-[var(--color-primary)]" />
         <h1 className="text-lg font-semibold">SRM需求开发</h1>
+        <Link to="/tools/srm-dev/tasks" className="ml-auto">
+          <Button variant="outline" size="sm" className="gap-1">
+            <ClipboardList className="size-4" />开发任务
+          </Button>
+        </Link>
       </div>
       <p className="mb-5 text-sm text-[var(--color-muted-foreground)]">
         填「模块 + 需求」，交给自动开发 agent（yoooni-erp-auto-dev 门控流水线）：定位代码 → 查业务知识图谱(project=srm) + 库 →
@@ -171,7 +177,8 @@ export function SrmDevPage() {
 
 /**
  * SRM 测试库（MySQL 只读）：配置连接信息，agent 通过后端只读 srm_db MCP 查库核对逻辑。
- * 建议只读账号；后端另有 SELECT-only 双闸。密码存服务端、脱敏展示（留空=不改）。
+ * 建议只读账号；后端另有 SELECT-only 双闸。内部单用户系统，密码直接回显供核对/纠正
+ * （带入来的连接若密码过期，一眼就能看出与真实库不一致）。
  */
 function SrmDbConfigSection() {
   const qc = useQueryClient()
@@ -181,6 +188,7 @@ function SrmDbConfigSection() {
   const [database, setDatabase] = useState('')
   const [user, setUser] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [testMsg, setTestMsg] = useState<string | null>(null)
 
   useEffect(() => {
@@ -189,11 +197,12 @@ function SrmDbConfigSection() {
     setPort(cfg.port ? String(cfg.port) : '3306')
     setDatabase(cfg.database ?? '')
     setUser(cfg.user ?? '')
+    setPassword(cfg.password ?? '') // 内部系统：回显已存密码，便于核对/纠正
   }, [cfg])
 
   const save = useMutation({
     mutationFn: () => saveSrmDbConfig({ host: host.trim(), port: Number(port) || null, database: database.trim(), user: user.trim(), password: password || undefined }),
-    onSuccess: () => { setPassword(''); setTestMsg(null); qc.invalidateQueries({ queryKey: ['srm-db-config'] }) },
+    onSuccess: () => { setTestMsg(null); qc.invalidateQueries({ queryKey: ['srm-db-config'] }) },
   })
   const test = useMutation({
     mutationFn: testSrmDb,
@@ -211,6 +220,7 @@ function SrmDbConfigSection() {
       <p className="mt-3 text-xs text-[var(--color-muted-foreground)]">
         填测试环境 MySQL 连接，agent 只读查表结构/状态字典/样本数据核对逻辑——<b>只读、绝改不了库</b>（建议用只读账号，后端另有 SELECT-only 拦截）。
       </p>
+      <SrmDbImportFromOps />
       <div className="mt-3 grid grid-cols-2 gap-3">
         <label className="col-span-2 sm:col-span-1 text-xs text-[var(--color-muted-foreground)]">主机
           <Input value={host} onChange={e => setHost(e.target.value)} placeholder="如 10.0.0.12" className="mt-1" />
@@ -225,7 +235,23 @@ function SrmDbConfigSection() {
           <Input value={user} onChange={e => setUser(e.target.value)} placeholder="只读账号" className="mt-1" />
         </label>
         <label className="col-span-2 sm:col-span-1 text-xs text-[var(--color-muted-foreground)]">密码
-          <Input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder={cfg?.hasPassword ? '已设置（留空不改）' : '密码'} className="mt-1" />
+          <div className="relative mt-1">
+            <Input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="密码"
+              className="pr-9"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(v => !v)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+              title={showPassword ? '隐藏密码' : '显示密码'}
+            >
+              {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+            </button>
+          </div>
         </label>
       </div>
       <div className="mt-3 flex items-center gap-2">
@@ -239,6 +265,90 @@ function SrmDbConfigSection() {
         {testMsg && <span className={`text-xs ${testMsg.startsWith('✓') ? 'text-emerald-600 dark:text-emerald-400' : 'text-[var(--color-destructive)]'}`}>{testMsg}</span>}
       </div>
     </details>
+  )
+}
+
+/**
+ * 从「系统中间件台」(tool-ops) 带入测试库：选系统 → 选该系统下的 MySQL 数据源 → 一键带入。
+ * 密码经后端本机回环流转、不进浏览器；带入成功后上方连接字段自动回填。
+ */
+function SrmDbImportFromOps() {
+  const qc = useQueryClient()
+  const { data: systems } = useQuery({ queryKey: ['ops-systems'], queryFn: listOpsSystems, staleTime: 10000 })
+  const [systemId, setSystemId] = useState('')
+  const [dsId, setDsId] = useState('')
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const { data: datasources } = useQuery({
+    queryKey: ['ops-datasources', systemId],
+    queryFn: () => listOpsDatasources(systemId),
+    enabled: !!systemId,
+    staleTime: 5000,
+  })
+  // SRM 测试库为 MySQL，只带入 MYSQL 数据源
+  const mysqlDs = useMemo(() => (datasources ?? []).filter(d => d.type === 'MYSQL'), [datasources])
+
+  useEffect(() => { setDsId('') }, [systemId])
+
+  const doImport = useMutation({
+    mutationFn: () => importSrmDbFromOps(dsId),
+    onSuccess: r => {
+      if (r && typeof r === 'object' && 'ok' in r && r.ok === false) {
+        setMsg(`带入失败：${r.error}`)
+        return
+      }
+      setMsg('✓ 已带入并保存')
+      qc.invalidateQueries({ queryKey: ['srm-db-config'] })
+    },
+    onError: e => setMsg(`带入失败：${e instanceof Error ? e.message : '未知'}`),
+  })
+
+  const hasSystems = (systems ?? []).length > 0
+
+  return (
+    <div className="mt-3 rounded-lg border border-dashed border-[var(--color-border)] p-3">
+      <div className="mb-2 flex items-center gap-2 text-xs font-medium">
+        <DownloadCloud className="size-4 text-[var(--color-primary)]" />
+        从系统中间件台带入（选系统 + MySQL 数据源，免手输）
+      </div>
+      {!hasSystems ? (
+        <p className="text-xs text-[var(--color-muted-foreground)]">
+          中间件台还没有登记系统。去「运维查询」模块登记系统与数据源后，这里即可选到并一键带入。
+        </p>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            <select
+              value={systemId}
+              onChange={e => { setSystemId(e.target.value); setMsg(null) }}
+              className="h-9 w-full rounded-md border bg-[var(--color-background)] px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
+            >
+              <option value="">选择系统…</option>
+              {(systems ?? []).map(s => <option key={s.id} value={s.id}>{s.name}{s.code ? `（${s.code}）` : ''}</option>)}
+            </select>
+            <select
+              value={dsId}
+              onChange={e => { setDsId(e.target.value); setMsg(null) }}
+              disabled={!systemId}
+              className="h-9 w-full rounded-md border bg-[var(--color-background)] px-2 text-sm disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
+            >
+              <option value="">{systemId ? '选择 MySQL 数据源…' : '先选系统'}</option>
+              {mysqlDs.map(d => <option key={d.id} value={d.id}>{`${d.env}｜${d.name}（${d.endpoint}）`}</option>)}
+            </select>
+          </div>
+          {systemId && mysqlDs.length === 0 && (
+            <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">该系统下没有 MySQL 数据源。</p>
+          )}
+          <div className="mt-2 flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => { setMsg(null); doImport.mutate() }} disabled={!dsId || doImport.isPending}>
+              {doImport.isPending && <Loader2 className="size-4 animate-spin" />}带入
+            </Button>
+            <span className="text-[11px] text-[var(--color-muted-foreground)]">密码经后端回环带入、不经浏览器；带入后上方字段自动回填。</span>
+            {msg && <span className={`text-xs ${msg.startsWith('✓') ? 'text-emerald-600 dark:text-emerald-400' : 'text-[var(--color-destructive)]'}`}>{msg}</span>}
+          </div>
+        </>
+      )}
+    </div>
   )
 }
 

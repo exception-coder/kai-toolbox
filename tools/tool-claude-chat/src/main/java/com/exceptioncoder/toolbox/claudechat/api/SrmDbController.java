@@ -3,8 +3,10 @@ package com.exceptioncoder.toolbox.claudechat.api;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ErpDbQueryResult;
 import com.exceptioncoder.toolbox.claudechat.service.SrmDbConfigService;
 import com.exceptioncoder.toolbox.claudechat.service.SrmDbConfigService.SrmDbConn;
+import com.exceptioncoder.toolbox.claudechat.service.SrmDbImportService;
 import com.exceptioncoder.toolbox.claudechat.service.SrmDbService;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -25,15 +27,21 @@ public class SrmDbController {
 
     private final SrmDbConfigService config;
     private final SrmDbService db;
+    private final SrmDbImportService importer;
 
-    public SrmDbController(SrmDbConfigService config, SrmDbService db) {
+    public SrmDbController(SrmDbConfigService config, SrmDbService db, SrmDbImportService importer) {
         this.config = config;
         this.db = db;
+        this.importer = importer;
     }
 
-    /** 脱敏配置视图：不含密码，只回 hasPassword 标记。 */
+    /**
+     * 配置视图：<b>含密码明文</b>。本工具箱为本地单用户、无鉴权模型，本地进程本就能直读 SQLite，
+     * 故此处回传凭据不额外扩大攻击面；回显密码是为了让用户能直接核对/纠正「带入」来的连接
+     * （例如中间件台里存了过期密码，一眼就能看出与真实库不一致）。
+     */
     public record SrmDbConfigView(String host, Integer port, String database, String user,
-                                  boolean configured, boolean hasPassword) {
+                                  boolean configured, boolean hasPassword, String password) {
     }
 
     public record SrmDbSaveRequest(String host, Integer port, String database, String user, String password) {
@@ -46,11 +54,11 @@ public class SrmDbController {
     public SrmDbConfigView getConfig() {
         SrmDbConn c = config.get();
         if (c == null) {
-            return new SrmDbConfigView("", null, "", "", false, false);
+            return new SrmDbConfigView("", null, "", "", false, false, "");
         }
         return new SrmDbConfigView(
                 c.host(), c.port() > 0 ? c.port() : null, c.database(), c.user(),
-                c.isComplete(), c.password() != null && !c.password().isBlank());
+                c.isComplete(), c.password() != null && !c.password().isBlank(), c.password());
     }
 
     @PutMapping("/config")
@@ -71,5 +79,15 @@ public class SrmDbController {
     @PostMapping("/query")
     public ErpDbQueryResult query(@RequestBody SrmDbQueryRequest req) {
         return db.query(req.sql(), req.params());
+    }
+
+    /**
+     * 从「系统中间件台」带入某数据源到 SRM 只读连接（仅 MYSQL）。密码经后端回环流转、不进浏览器。
+     * 成功回脱敏配置视图；失败回 {ok:false, error}。
+     */
+    @PutMapping("/import/{opsDatasourceId}")
+    public Object importFromOps(@PathVariable String opsDatasourceId) {
+        String err = importer.importFromOps(opsDatasourceId);
+        return err == null ? getConfig() : Map.of("ok", false, "error", err);
     }
 }
