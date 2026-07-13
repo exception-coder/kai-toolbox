@@ -269,6 +269,14 @@ export function DevServiceSection({
               onChange={e => setCmd(e.target.value)}
               placeholder={commandPlaceholder ?? `启动命令（留空=默认：${defaultCommand}）`}
               className="font-mono text-xs pr-8"
+              name="dev-start-command"
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              data-lpignore="true"
+              data-1p-ignore="true"
+              data-form-type="other"
             />
             {command.length > 0 && (
               <button
