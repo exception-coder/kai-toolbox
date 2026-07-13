@@ -105,7 +105,7 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
 
         {/* 多个 git 子仓库（父目录当工作目录场景）：顶部切换要查看的仓库 */}
         {repos && repos.length > 1 && !showingDiff && (
-          <div className="flex gap-1 overflow-x-auto border-b px-2 py-1.5">
+          <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
             {repos.map(r => (
               <button
                 key={r.name}
@@ -113,13 +113,13 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
                 onClick={() => selectRepo(r.name)}
                 title={r.label}
                 className={cn(
-                  'shrink-0 rounded-full border px-2.5 py-1 text-xs',
+                  'inline-flex h-8 max-w-64 shrink-0 items-center rounded-full border px-3 text-xs leading-none',
                   r.name === activeRepo
                     ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10 font-medium text-[var(--color-primary)]'
                     : 'text-[var(--color-muted-foreground)] hover:border-[var(--color-primary)]/40',
                 )}
               >
-                {r.label}
+                <span className="truncate">{r.label}</span>
               </button>
             ))}
           </div>
