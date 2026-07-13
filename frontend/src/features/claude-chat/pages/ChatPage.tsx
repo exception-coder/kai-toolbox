@@ -11,6 +11,7 @@ import { UsagePanel } from '../components/UsagePanel'
 import { PermissionDialog } from '../components/PermissionDialog'
 import { QuestionDialog } from '../components/QuestionDialog'
 import { SessionList } from '../components/SessionList'
+import { RecentSessions } from '../components/RecentSessions'
 import { HistoryList } from '../components/HistoryList'
 import { NotifySettings } from '../components/NotifySettings'
 import { VoiceInputButton } from '../components/VoiceInputButton'
@@ -276,6 +277,26 @@ export function ChatPage() {
     if (!raw) return
     erpLaunchedRef.current = true
     try { sessionStorage.removeItem('kai-toolbox:claude-chat:erp-dev-launch') } catch { /* ignore */ }
+    try {
+      const { cwd, seed } = JSON.parse(raw) as { cwd?: string; seed?: string }
+      if (seed) {
+        chat.open((cwd ?? '').trim(), undefined, undefined, 'claude')
+        chat.send(seed)
+      }
+    } catch { /* 解析失败忽略 */ }
+  }, [chat])
+
+  // 「按菜单识别模块」handoff：项目工作台「Agent 识菜单」把 {cwd, seed} 写 sessionStorage 后跳来，
+  // 开一个 Claude 会话（cwd=目标项目，便于读其前端菜单/路由）并投喂提示——agent 读菜单→产模块清单→
+  // 经 domain-knowledge 的 add-modules 落 modules.json（先预览、owner 确认后再 --apply）。一次性。
+  const menuSyncLaunchedRef = useRef(false)
+  useEffect(() => {
+    if (menuSyncLaunchedRef.current || !chat) return
+    let raw: string | null = null
+    try { raw = sessionStorage.getItem('kai-toolbox:claude-chat:module-sync-launch') } catch { /* ignore */ }
+    if (!raw) return
+    menuSyncLaunchedRef.current = true
+    try { sessionStorage.removeItem('kai-toolbox:claude-chat:module-sync-launch') } catch { /* ignore */ }
     try {
       const { cwd, seed } = JSON.parse(raw) as { cwd?: string; seed?: string }
       if (seed) {
@@ -887,13 +908,21 @@ export function ChatPage() {
           </div>
           <div className="overflow-y-auto">
             {sessTab === 'tool' ? (
-              <SessionList
-                currentSessionId={chat.sessionId}
-                onSwitch={id => { chat.switchTo(id); setPanel('none') }}
-                selectable={selecting}
-                selectedIds={selected}
-                onToggleSelect={toggleSelect}
-              />
+              <>
+                {!selecting && (
+                  <RecentSessions
+                    currentSessionId={chat.sessionId}
+                    onSwitch={id => { chat.switchTo(id); setPanel('none') }}
+                  />
+                )}
+                <SessionList
+                  currentSessionId={chat.sessionId}
+                  onSwitch={id => { chat.switchTo(id); setPanel('none') }}
+                  selectable={selecting}
+                  selectedIds={selected}
+                  onToggleSelect={toggleSelect}
+                />
+              </>
             ) : (
               <HistoryList
                 defaultCwd={newCwd}
@@ -996,6 +1025,7 @@ export function ChatPage() {
                 </button>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto">
+                <RecentSessions currentSessionId={chat.sessionId} onSwitch={id => chat.switchTo(id)} />
                 <SessionList currentSessionId={chat.sessionId} onSwitch={id => chat.switchTo(id)} />
               </div>
             </aside>
