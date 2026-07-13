@@ -374,6 +374,47 @@ export async function loadMessages(
   return { items: page.items.map(toChatItem), nextBefore: page.nextBefore }
 }
 
+/** 图片扩展名列表，用于历史消息附件识别。 */
+const IMAGE_EXTS = /\.(jpg|jpeg|png|gif|webp|bmp|svg|ico)$/i
+
+/**
+ * 从用户消息文本中提取附件信息。
+ * 后端 ClaudeChatService.appendAttachmentHints() 会在消息末尾追加：
+ *   \n\n[附件] 用户上传了以下文件，需要时请用 Read 工具查看：
+ *   \n- {name} → {path}
+ *
+ * 返回：去掉附件段的纯文本 + 附件列表（图片带后端 serve URL，文件只带 name/mime）。
+ */
+function parseAttachmentsFromText(raw: string): {
+  displayText: string
+  attachments: Array<{ name: string; mime?: string; url?: string }>
+} {
+  const MARKER = '\n\n[附件] 用户上传了以下文件，需要时请用 Read 工具查看：'
+  const idx = raw.indexOf(MARKER)
+  if (idx === -1) return { displayText: raw, attachments: [] }
+
+  const displayText = raw.slice(0, idx).trim()
+  const attSection = raw.slice(idx + MARKER.length)
+  const attachments: Array<{ name: string; mime?: string; url?: string }> = []
+
+  for (const line of attSection.split('\n')) {
+    // 匹配 "- {name} → {path}"（→ 可能是全角也可能含空格）
+    const match = line.match(/^-\s+(.+?)\s+(?:→|->)\s+(.+)$/)
+    if (!match) continue
+    const name = match[1].trim()
+    const path = match[2].trim()
+    if (!name || !path) continue
+    const isImage = IMAGE_EXTS.test(name)
+    const ext = name.split('.').pop()?.toLowerCase()
+    const mime = isImage ? (ext === 'jpg' ? 'image/jpeg' : `image/${ext}`) : undefined
+    // 图片通过后端 serve 端点显示原图；非图片只展示文件名卡片
+    const url = isImage ? `/api/claude-chat/attachments/file?path=${encodeURIComponent(path)}` : undefined
+    attachments.push({ name, mime, url })
+  }
+
+  return { displayText, attachments }
+}
+
 function toChatItem(m: RawHistoryMessage): ChatItem {
   const ts = m.ts ?? undefined
   switch (m.kind) {
@@ -383,7 +424,16 @@ function toChatItem(m: RawHistoryMessage): ChatItem {
       return { kind: 'tool', id: m.id, toolName: m.toolName ?? '', input: m.input ?? null, output: m.output ?? undefined, isError: m.isError ?? undefined, ts }
     case 'result':
       return { kind: 'result', id: m.id, stopReason: m.stopReason ?? 'end_turn', ts, usage: m.usage ?? undefined, latencyMs: m.latencyMs ?? undefined }
-    default:
-      return { kind: 'user', id: m.id, text: m.text ?? '', ts }
+    default: {
+      // 用户消息：解析附件段，剥离出纯展示文本 + 附件列表
+      const { displayText, attachments } = parseAttachmentsFromText(m.text ?? '')
+      return {
+        kind: 'user',
+        id: m.id,
+        text: displayText,
+        ts,
+        attachments: attachments.length > 0 ? attachments : undefined,
+      }
+    }
   }
 }
