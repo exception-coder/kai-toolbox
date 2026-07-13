@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, RotateCcw, Save, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { fetchModels } from '@/features/ai-chat/api'
+import { HeaderModelPicker } from '@/features/ai-chat/components/HeaderModelPicker'
+import type { ModelInfo } from '@/features/ai-chat/types'
 import {
   getConfigBlock,
   listConfigBlocks,
@@ -69,6 +72,11 @@ function BlockEditor({ blockId, onChanged }: { blockId: string; onChanged: () =>
   const qc = useQueryClient()
   const key = ['config-block', blockId]
   const { data: block, isPending } = useQuery({ queryKey: key, queryFn: () => getConfigBlock(blockId) })
+  const modelQuery = useQuery({
+    queryKey: ['ai-chat-models'],
+    queryFn: () => fetchModels(false),
+    enabled: blockId === 'toolbox.llm.gateway',
+  })
 
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [listDraft, setListDraft] = useState<Record<string, string[]>>({})
@@ -154,7 +162,7 @@ function BlockEditor({ blockId, onChanged }: { blockId: string; onChanged: () =>
         </p>
       )}
 
-      <div className="overflow-hidden rounded-md border">
+      <div className="overflow-visible rounded-md border">
         <table className="w-full text-sm">
           <thead className="bg-[var(--color-muted)] text-left text-xs text-[var(--color-muted-foreground)]">
             <tr>
@@ -179,10 +187,15 @@ function BlockEditor({ blockId, onChanged }: { blockId: string; onChanged: () =>
                       onChange={values => setListDraft(d => ({ ...d, [e.key]: values }))}
                     />
                   ) : (
-                    <input
-                      className="w-full rounded-md border bg-[var(--color-background)] px-2 py-1 text-sm"
+                    <ConfigValueEditor
+                      blockId={blockId}
+                      entryKey={e.key}
                       value={draft[e.key] ?? ''}
-                      onChange={ev => setDraft(d => ({ ...d, [e.key]: ev.target.value }))}
+                      models={modelQuery.data?.models ?? []}
+                      modelsFallback={modelQuery.data?.source === 'fallback'}
+                      modelsLoading={modelQuery.isFetching}
+                      onRefreshModels={() => modelQuery.refetch()}
+                      onChange={value => setDraft(d => ({ ...d, [e.key]: value }))}
                     />
                   )}
                 </td>
@@ -197,6 +210,52 @@ function BlockEditor({ blockId, onChanged }: { blockId: string; onChanged: () =>
         </table>
       </div>
     </div>
+  )
+}
+
+function ConfigValueEditor({
+  blockId,
+  entryKey,
+  value,
+  models,
+  modelsFallback,
+  modelsLoading,
+  onRefreshModels,
+  onChange,
+}: {
+  blockId: string
+  entryKey: string
+  value: string
+  models: ModelInfo[]
+  modelsFallback: boolean
+  modelsLoading: boolean
+  onRefreshModels: () => void
+  onChange: (value: string) => void
+}) {
+  if (blockId === 'toolbox.llm.gateway' && entryKey === 'toolbox.llm.gateway.java8gu-model') {
+    const selectableModels = models.filter(model => !model.category || model.category === 'chat')
+    const options = value && !selectableModels.some(model => model.id === value)
+      ? [{ id: value, label: value, multimodal: false, supportsTemperature: true, tags: [], category: 'chat' as const }, ...selectableModels]
+      : selectableModels
+
+    return (
+      <HeaderModelPicker
+        models={options}
+        value={value}
+        onChange={onChange}
+        fallback={modelsFallback}
+        onRefresh={onRefreshModels}
+        disabled={modelsLoading && options.length === 0}
+      />
+    )
+  }
+
+  return (
+    <input
+      className="w-full rounded-md border bg-[var(--color-background)] px-2 py-1 text-sm"
+      value={value}
+      onChange={event => onChange(event.target.value)}
+    />
   )
 }
 
