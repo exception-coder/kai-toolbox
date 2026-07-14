@@ -8,7 +8,7 @@ const SrmDevTaskDetailPage = lazy(() => import('./pages/SrmDevTaskDetailPage').t
 
 const manifest: FeatureManifest = {
   id: 'srm-dev',
-  name: 'SRM需求开发',
+  name: 'SRM',
   icon: Handshake,
   group: '项目开发',
   description: '填模块+需求，交给自动开发 agent：定位代码→查知识图谱(project=srm)/库→出方案→按规范改码→自闭环验证(MySQL 只读回读 + 网关实发)→出 diff（门控·只改不提交）；另含开发任务台账（SQL 登记 + 配置变更）',

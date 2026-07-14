@@ -6,7 +6,7 @@ const ErpDevPage = lazy(() => import('./pages/ErpDevPage').then((m) => ({ defaul
 
 const manifest: FeatureManifest = {
   id: 'erp-dev',
-  name: 'ERP 需求开发',
+  name: 'ERP',
   icon: Workflow,
   group: '项目开发',
   description: '填模块+需求，交给 ERP 自动开发 agent：定位代码→查知识图谱/库→出方案→按规范改码→出 diff（门控·只改不提交）',
