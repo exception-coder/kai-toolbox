@@ -139,8 +139,8 @@ export function GlobalVideoSearch() {
         <Search className="h-4 w-4" />
       </Button>
 
-      {/* 桌面端内嵌搜索框 + popover(原逻辑) */}
-      <div ref={containerRef} className="relative hidden md:block w-72 lg:w-96 max-w-[40vw]">
+      {/* 桌面端内嵌搜索框 + popover(原逻辑)。放大占顶栏重心：填满中间区、最宽 600px。 */}
+      <div ref={containerRef} className="relative hidden md:block w-full max-w-[600px]">
         <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-muted-foreground)]" />
         <input
           ref={inputRef}

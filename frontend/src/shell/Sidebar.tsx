@@ -1,7 +1,10 @@
+import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
-import { Boxes } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+import { Boxes, LogIn, LogOut } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useAuth } from '@/lib/auth'
+import { logout, useAuth } from '@/lib/auth'
+import { LoginDialog } from '@/components/auth/LoginDialog'
 import type { FeatureManifest } from './types'
 import { entryOf } from './featureRegistry'
 import { hasFeatureAccess } from './access'
@@ -74,7 +77,63 @@ export function Sidebar({ features, collapsed }: SidebarProps) {
           </div>
         ))}
       </nav>
+
+      {/* 用户信息沉到左下角：低频入口（一天点几次），不占顶栏黄金位。折叠态只留头像。 */}
+      <SidebarUserFooter collapsed={collapsed} />
     </aside>
+  )
+}
+
+/** 侧栏页脚的用户区：已登录显示头像+用户名+角色（点击登出），未登录显示登录入口。 */
+function SidebarUserFooter({ collapsed }: { collapsed?: boolean }) {
+  const qc = useQueryClient()
+  const { user } = useAuth()
+  const [showLogin, setShowLogin] = useState(false)
+  const roleLabel = user?.roles?.[0] ?? ''
+
+  return (
+    <div className="border-t p-2">
+      {user ? (
+        <button
+          type="button"
+          onClick={() => { logout(); qc.clear() }}
+          title={`已登录：${user.username}（${user.roles.join(', ')}）— 点击登出`}
+          className={cn(
+            'group flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-sm transition-colors hover:bg-[var(--color-sidebar-accent)]',
+            collapsed && 'justify-center px-0'
+          )}
+        >
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)] text-xs font-semibold text-[var(--color-primary-foreground)]">
+            {user.username.slice(0, 1).toUpperCase()}
+          </span>
+          {!collapsed && (
+            <>
+              <span className="min-w-0 flex-1 text-left">
+                <span className="block truncate font-medium">{user.username}</span>
+                {roleLabel && (
+                  <span className="block truncate text-[11px] text-[var(--color-muted-foreground)]">{roleLabel}</span>
+                )}
+              </span>
+              <LogOut className="h-4 w-4 shrink-0 text-[var(--color-muted-foreground)] transition-colors group-hover:text-[var(--color-foreground)]" />
+            </>
+          )}
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowLogin(true)}
+          title="登录"
+          className={cn(
+            'flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-sm transition-colors hover:bg-[var(--color-sidebar-accent)]',
+            collapsed && 'justify-center px-0'
+          )}
+        >
+          <LogIn className="h-4 w-4 shrink-0" />
+          {!collapsed && <span>登录</span>}
+        </button>
+      )}
+      <LoginDialog open={showLogin} onClose={() => setShowLogin(false)} onSuccess={() => qc.clear()} />
+    </div>
   )
 }
 
