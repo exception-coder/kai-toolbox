@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom'
+import { Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { BrandLogo } from './BrandLogo'
 import { useAuth } from '@/lib/auth'
@@ -6,6 +7,7 @@ import type { FeatureManifest } from './types'
 import { entryOf } from './featureRegistry'
 import { hasFeatureAccess } from './access'
 import { useVisibleFeatures } from './menuVisibility'
+import { openCommandPalette } from './commandPaletteBus'
 import { AccountMenu } from './AccountMenu'
 import { useBrand } from './brand'
 
@@ -37,6 +39,24 @@ export function Sidebar({ features, collapsed }: SidebarProps) {
       </NavLink>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3">
+        {/* 搜索/跳转入口：打开命令面板（Ctrl/⌘+K）。放导航顶部，取代原顶栏搜索框。 */}
+        <button
+          type="button"
+          onClick={openCommandPalette}
+          title="搜索与跳转（Ctrl / ⌘ + K）"
+          className={cn(
+            'mb-3 flex w-full items-center gap-2.5 rounded-md border border-[var(--color-sidebar-border)] bg-[var(--color-background)]/60 px-2.5 py-2 text-sm text-[var(--color-muted-foreground)] transition-colors hover:bg-[var(--color-sidebar-accent)]',
+            collapsed && 'justify-center px-0'
+          )}
+        >
+          <Search className="h-4 w-4 shrink-0" />
+          {!collapsed && (
+            <>
+              <span className="flex-1 text-left">搜索</span>
+              <kbd className="shrink-0 rounded border bg-[var(--color-sidebar)] px-1.5 py-0.5 text-[10px] font-medium tabular-nums">Ctrl K</kbd>
+            </>
+          )}
+        </button>
         {visible.length === 0 && !collapsed && (
           <div className="px-2 py-1 text-xs text-[var(--color-muted-foreground)]">
             还没有任何工具
