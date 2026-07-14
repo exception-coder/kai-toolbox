@@ -2,10 +2,12 @@ package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleResolveResponse;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleResolveResponse.Candidate;
+import com.exceptioncoder.toolbox.claudechat.api.dto.KnowledgeEnsureResult;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleSyncApplyRequest;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleSyncPreview;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleSyncResult;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ProjectModulesResponse;
+import com.exceptioncoder.toolbox.common.dynamicconfig.service.DynamicConfigService;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ProjectModulesResponse.ModuleView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.WorkspaceDirView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.CloneResponse;
@@ -47,15 +49,80 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 @Service
 public class WorkspaceScanService {
 
+    /** 工作目录配置块 id = WorkspaceProperties 的 @ConfigurationProperties prefix。 */
+    private static final String WORKSPACE_BLOCK_ID = "toolbox.claude-chat.workspace";
+
     private final WorkspaceProperties props;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
+    private final DynamicConfigService dynamicConfig;
 
     private volatile WorkspaceListResponse cache;
     private volatile long cacheExpireAt;
 
-    public WorkspaceScanService(WorkspaceProperties props, com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+    public WorkspaceScanService(WorkspaceProperties props, com.fasterxml.jackson.databind.ObjectMapper objectMapper,
+                                DynamicConfigService dynamicConfig) {
         this.props = props;
         this.objectMapper = objectMapper;
+        this.dynamicConfig = dynamicConfig;
+    }
+
+    /**
+     * 自动确保知识库就绪：knowledge 目录已配置且存在则无操作；否则把配置的 git 地址自动 clone 到
+     * {@code ~/.kai-toolbox/<仓库名>} 并绑定其 knowledge 子目录（写运行时配置中心、持久化，重启仍在）。
+     *
+     * <p>用户目录必存在，避免依赖尚未配置的 workspace 根。私有仓需本机已登录企业 Git 账号；失败返回 error 而非抛异常。</p>
+     */
+    public KnowledgeEnsureResult ensureKnowledgeBase() {
+        String kbDir = effectiveKnowledgeDir();
+        if (knowledgeDirExists(kbDir)) {
+            return new KnowledgeEnsureResult("ok", kbDir, "", "", "知识库已就绪");
+        }
+        String url = props.getKnowledgeRepoUrl() == null ? "" : props.getKnowledgeRepoUrl().trim();
+        if (url.isBlank()) {
+            return new KnowledgeEnsureResult("disabled", "", "", "", "未配置知识库 git 地址，无法自动拉取");
+        }
+        if (!url.matches("(?i)^(https?://|git://|ssh://|git@).+")) {
+            return new KnowledgeEnsureResult("error", "", "", url, "git 地址格式不支持: " + url);
+        }
+        String name = repoNameFromUrl(url);
+        if (name == null || name.isBlank()) {
+            return new KnowledgeEnsureResult("error", "", "", url, "无法从地址解析仓库名: " + url);
+        }
+        Path base = Path.of(System.getProperty("user.home"), ".kai-toolbox");
+        Path target = base.resolve(name).normalize();
+        Path knowledge = target.resolve("knowledge");
+        if (Files.isDirectory(knowledge)) {
+            bindKnowledgeConfig(knowledge);
+            return new KnowledgeEnsureResult("bound", knowledge.toString(), target.toString(), url, "发现本地已有知识库，已绑定");
+        }
+        if (Files.exists(target)) {
+            return new KnowledgeEnsureResult("error", "", target.toString(), url,
+                    "目标目录已存在但缺少 knowledge 子目录: " + target + "（请检查或删除后重试）");
+        }
+        try {
+            Files.createDirectories(base);
+        } catch (IOException e) {
+            return new KnowledgeEnsureResult("error", "", target.toString(), url, "用户目录不可写: " + e.getMessage());
+        }
+        try {
+            runGitClone(url, target);
+        } catch (RuntimeException e) {
+            return new KnowledgeEnsureResult("error", "", target.toString(), url, e.getMessage());
+        }
+        if (!Files.isDirectory(knowledge)) {
+            return new KnowledgeEnsureResult("error", "", target.toString(), url,
+                    "clone 完成但未找到 knowledge 子目录，可能不是知识库仓库");
+        }
+        bindKnowledgeConfig(knowledge);
+        log.info("[claude-chat] 已自动拉取知识库 {} -> {}", url, knowledge);
+        return new KnowledgeEnsureResult("cloned", knowledge.toString(), target.toString(), url, "已自动拉取并绑定知识库");
+    }
+
+    /** 把知识库根目录写入运行时配置中心（持久化）并失效扫描缓存。 */
+    private void bindKnowledgeConfig(Path knowledge) {
+        dynamicConfig.applyOverrides(WORKSPACE_BLOCK_ID,
+                java.util.Map.of(WORKSPACE_BLOCK_ID + ".knowledge-base-dir", knowledge.toString()), java.util.List.of());
+        cacheExpireAt = 0;
     }
 
     /**
@@ -86,8 +153,19 @@ public class WorkspaceScanService {
             throw new IllegalArgumentException("工作区根不可写: " + e.getMessage());
         }
 
-        ProcessBuilder pb = new ProcessBuilder("git", "clone", "--progress", u, target.toString())
+        runGitClone(u, target);
+        cacheExpireAt = 0; // 失效缓存：新克隆目录下次扫描即出现在工作区下拉
+        log.info("[claude-chat] 已克隆 {} -> {}", u, target);
+        return new CloneResponse(name, target.toString());
+    }
+
+    /** 执行 git clone（同步，最长 10min）。失败抛 IllegalArgumentException（携带 git 输出尾部）。target 为最终落地目录。 */
+    private void runGitClone(String url, Path target) {
+        ProcessBuilder pb = new ProcessBuilder("git", "clone", "--progress", url, target.toString())
                 .redirectErrorStream(true);
+        // 禁用交互式凭据提示：未登录/无凭据时立即失败，而非在后端进程里挂起等待输入或弹窗
+        pb.environment().put("GIT_TERMINAL_PROMPT", "0");
+        pb.environment().put("GCM_INTERACTIVE", "never");
         StringBuilder out = new StringBuilder();
         try {
             Process p = pb.start();
@@ -104,7 +182,7 @@ public class WorkspaceScanService {
             }
             if (p.exitValue() != 0) {
                 String tail = out.length() > 600 ? out.substring(out.length() - 600) : out.toString();
-                throw new IllegalArgumentException("git clone 失败: " + tail.trim());
+                throw new IllegalArgumentException("git clone 失败（可能未登录企业 Git 账号 / 无权限）: " + tail.trim());
             }
         } catch (IOException e) {
             throw new IllegalArgumentException("git clone 启动失败（git 是否在 PATH？）: " + e.getMessage());
@@ -112,9 +190,6 @@ public class WorkspaceScanService {
             Thread.currentThread().interrupt();
             throw new IllegalArgumentException("git clone 被中断");
         }
-        cacheExpireAt = 0; // 失效缓存：新克隆目录下次扫描即出现在工作区下拉
-        log.info("[claude-chat] 已克隆 {} -> {}", u, target);
-        return new CloneResponse(name, target.toString());
     }
 
     /** 校验 root 是配置的 workspace 根之一并返回规范化路径；否则拒绝（防写任意目录）。 */
@@ -710,7 +785,8 @@ public class WorkspaceScanService {
             }
         }
         return new ModuleView(moduleName, relStr, cwd.toString(), "knowledge",
-                m.summary() == null ? "" : m.summary(), List.copyOf(children));
+                m.summary() == null ? "" : m.summary(), List.copyOf(children),
+                codeAbs == null ? "" : codeAbs.toString(), webAbs == null ? "" : webAbs.toString());
     }
 
     /** 解析相对项目根的路径并做越界校验；空/越界返回 null。 */
@@ -740,7 +816,7 @@ public class WorkspaceScanService {
         if (type != null) {
             Path rel = projectRoot.relativize(dir);
             String relStr = rel.toString().isEmpty() ? "." : rel.toString().replace('\\', '/');
-            out.add(new ModuleView(dir.getFileName().toString(), relStr, dir.toString(), type, "", List.of()));
+            out.add(new ModuleView(dir.getFileName().toString(), relStr, dir.toString(), type, "", List.of(), dir.toString(), ""));
         }
         if (depth >= MODULE_MAX_DEPTH) return;
         try (Stream<Path> children = Files.list(dir)) {

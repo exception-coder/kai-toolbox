@@ -267,6 +267,17 @@ export function ChatPage() {
     }
   }, [chat?.sessionId, drafts, setDraft])
 
+  // 模块编码范围 seed：项目工作台「新建会话」打开某模块时写入本模块的 codePath/webPath 约束，
+  // 会话就绪且草稿为空时预填进输入框（不自动发送——它是范围前言，用户在后面接着写需求）。一次性。
+  useEffect(() => {
+    if (!chat?.sessionId) return
+    let raw: string | null = null
+    try { raw = sessionStorage.getItem('kai-toolbox:claude-chat:module-open-context') } catch { return }
+    if (!raw) return
+    try { sessionStorage.removeItem('kai-toolbox:claude-chat:module-open-context') } catch { /* ignore */ }
+    if (!drafts[chat.sessionId]) setDraft(raw)
+  }, [chat?.sessionId, drafts, setDraft])
+
   // ERP 需求开发前门 handoff：「ERP 需求开发」模块把 {cwd, seed} 写 sessionStorage 后跳来，
   // 这里一次性消费——在 ERP 工作区开一个 Claude 会话并投喂触发语拉起 yoooni-erp-auto-dev skill。
   const erpLaunchedRef = useRef(false)

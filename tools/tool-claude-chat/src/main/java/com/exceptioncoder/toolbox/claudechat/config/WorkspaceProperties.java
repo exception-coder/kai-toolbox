@@ -40,4 +40,12 @@ public class WorkspaceProperties {
      * <p>后端只读本地文件，不联网、不执行 git；保持本地最新需自行 {@code git pull}。</p>
      */
     private String knowledgeBaseDir = "";
+
+    /**
+     * 知识图谱项目（domain-knowledge）的 git 地址。当 {@link #knowledgeBaseDir} 未配置或目录不存在时，
+     * 「项目工作台」会自动 clone 该仓库到用户目录下的 {@code ~/.kai-toolbox/<仓库名>} 并绑定其 knowledge 子目录。
+     *
+     * <p>默认企业 Gitee 地址；私有仓需本机已登录企业 Git 账号（凭据）。为空则不自动拉取。</p>
+     */
+    private String knowledgeRepoUrl = "https://gitee.com/wyoooni/project-domain-knowledge.git";
 }

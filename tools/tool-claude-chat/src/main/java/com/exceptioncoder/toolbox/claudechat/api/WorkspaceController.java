@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.claudechat.api;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.CloneRequest;
 import com.exceptioncoder.toolbox.claudechat.api.dto.CloneResponse;
+import com.exceptioncoder.toolbox.claudechat.api.dto.KnowledgeEnsureResult;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleResolveResponse;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleSyncApplyRequest;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleSyncPreview;
@@ -54,6 +55,12 @@ public class WorkspaceController {
     @PostMapping("/clone")
     public CloneResponse clone(@RequestBody CloneRequest req) {
         return service.cloneProject(req.url(), req.root());
+    }
+
+    /** 自动确保知识库就绪：未配置/目录不存在时自动 clone 到 ~/.kai-toolbox 并绑定。供工作台进入时静默调用。 */
+    @PostMapping("/knowledge/ensure")
+    public KnowledgeEnsureResult ensureKnowledge() {
+        return service.ensureKnowledgeBase();
     }
 
     /** 「更新项目模块」预览：按代码目录重新解析，与 modules.json 出 diff（只读）。供工作台弹窗展示差异。 */

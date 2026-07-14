@@ -1,7 +1,7 @@
 import { authFetch, http } from '@/lib/api'
 import { ensureFreshToken, getToken } from '@/lib/auth'
 import type { CommitDiff, CommitsResponse, GitRepoRef } from '@/components/git/types'
-import type { ChatItem, ClaudeChatSessionView, CloneResult, FileContent, FileEntry, HistorySessionView, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PluginStatus, SuiteStatus, ProjectModules, SubdirList, TaskspaceView, WorkspaceList } from './types'
+import type { ChatItem, ClaudeChatSessionView, CloneResult, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PluginStatus, SuiteStatus, ProjectModules, SubdirList, TaskspaceView, WorkspaceList } from './types'
 
 /** 列会话目录下可查看提交的 git 仓库（cwd 自身是仓库→单个；否则其子目录里的仓库）。空数组=无仓库。 */
 export function listSessionGitRepos(sessionId: string) {
@@ -112,6 +112,15 @@ export function applyModuleSync(path: string, modules: { key: string; codePath: 
   return http<ModuleSyncResult>('/claude-chat/workspaces/modules/sync/apply', {
     method: 'POST',
     body: JSON.stringify({ path, modules }),
+  })
+}
+
+/** 自动确保知识库就绪：knowledge 目录不存在时，后端自动 git clone 到 ~/.kai-toolbox 并绑定路径。 */
+export function ensureKnowledgeBase() {
+  // 加超时兜底：后端 git clone 若因未登录凭据挂起，前端不至于无限 pending（120s 后中止→报错可重试）
+  return http<KnowledgeEnsureResult>('/claude-chat/workspaces/knowledge/ensure', {
+    method: 'POST',
+    signal: AbortSignal.timeout(120_000),
   })
 }
 

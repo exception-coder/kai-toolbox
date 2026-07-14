@@ -63,6 +63,10 @@ export interface ProjectModule {
   summary?: string
   /** 嵌套子模块（如 crm 域下的子模块）；无则空数组或缺省 */
   children?: ProjectModule[]
+  /** 后端代码目录绝对路径（知识库模块来自 modules.json；自动识别=模块目录）；无则空串 */
+  codePath?: string
+  /** 前端代码目录绝对路径（知识库模块来自 modules.json）；无则空串。用于新建会话时约束编码范围 */
+  webPath?: string
 }
 
 /** 会话工作目录文件树里的一个条目。path 为相对 cwd（/ 分隔），回传给后端展开/读取/定位；abs 为绝对路径。 */
@@ -155,6 +159,16 @@ export interface ModuleSyncResult {
   appended: number
   skipped: number
   modulesFile: string
+}
+
+/** 「自动确保知识库就绪」结果：目录不存在时自动 clone 到用户目录并绑定。 */
+export interface KnowledgeEnsureResult {
+  /** ok=已就绪；bound=发现本地已有克隆已绑定；cloned=已拉取并绑定；disabled=未配置 git 地址；error=失败 */
+  status: 'ok' | 'bound' | 'cloned' | 'disabled' | 'error'
+  kbDir: string
+  target: string
+  repoUrl: string
+  message: string
 }
 
 /** 「模块路由」一条候选：把一句话定位到的 (项目, 模块)。 */

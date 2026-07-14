@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, Boxes, BotMessageSquare, Check, Compass, CornerDownRight, Database, FolderTree, GitCompare, Loader2, Pin, Play, RefreshCw, Search, Send, Sparkles, TerminalSquare, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Boxes, BotMessageSquare, Check, Compass, CornerDownRight, Database, Download, FolderTree, GitCompare, Loader2, Pin, Play, RefreshCw, Search, Send, Sparkles, TerminalSquare, Trash2, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
-import { applyModuleSync, createTaskspace, fetchProjectModules, listSessions, listWorkspaces, previewModuleSync, resolveModule } from '@/features/claude-chat/api'
+import { applyModuleSync, createTaskspace, ensureKnowledgeBase, fetchProjectModules, listSessions, listWorkspaces, previewModuleSync, resolveModule } from '@/features/claude-chat/api'
 import { getConfigBlock, updateConfigBlock } from '@/features/config-center/api'
 import { VoiceInputButton } from '@/features/claude-chat/components/VoiceInputButton'
 import { CHAT_ROUTE, useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
@@ -24,14 +24,39 @@ interface PendingOpen {
 /** 知识库根目录配置块 id = WorkspaceProperties 的 @ConfigurationProperties prefix。 */
 const WORKSPACE_CFG_ID = 'toolbox.claude-chat.workspace'
 
+
 /** 从配置块中取出知识库路径（knowledge-base-dir）的当前值；未配置为空串。 */
 function readKnowledgeDir(entries?: { key: string; value: string | null }[]) {
   const e = (entries ?? []).find(x => x.key.toLowerCase().includes('knowledge-base-dir') || x.key.toLowerCase().includes('knowledgebasedir'))
   return (e?.value ?? '').trim()
 }
 
+/** 进入工作台自动「确保知识库就绪」只尝试一次（跨路由切换不重复触发 git clone）。 */
+let knowledgeEnsureTried = false
+
 /** sessionStorage handoff key：项目工作台「Agent 识菜单」→ 会话页拉起 Claude 跑菜单识别闭环。 */
 const MENU_SYNC_LAUNCH_KEY = 'kai-toolbox:claude-chat:module-sync-launch'
+
+/** sessionStorage handoff key：新建模块会话时把本模块 codePath/webPath 编码范围预填进输入框。 */
+const MODULE_OPEN_CONTEXT_KEY = 'kai-toolbox:claude-chat:module-open-context'
+
+/**
+ * 新建模块会话时的「编码范围前言」：把本模块的前端/后端目录带进提示词约束改动范围。
+ * 有 codePath 或 webPath 才生成；末尾留「需求：」让用户接着写。无范围信息则返回空串（不预填）。
+ */
+function buildModuleScopePrompt(module: ProjectModule): string {
+  const web = (module.webPath ?? '').trim()
+  const code = (module.codePath ?? '').trim()
+  if (!web && !code) return ''
+  const lines = [`【本次工作模块：${module.name}】`]
+  if (module.summary?.trim()) lines.push(module.summary.trim())
+  lines.push('改动请优先落在本模块目录内：')
+  if (web) lines.push(`- 前端：${web}`)
+  if (code) lines.push(`- 后端：${code}`)
+  lines.push('若确实需要改动这两个目录之外的类（如公共库 / 共享 / 跨模块的类），先列出涉及了哪些外部类及原因，我确认后再改——不要擅自扩大范围，也不必因此卡住。')
+  lines.push('', '需求：')
+  return lines.join('\n')
+}
 
 /**
  * 「按菜单识别模块」投喂给 Claude 会话的提示：agent 读前端菜单/路由产出模块清单，经 domain-knowledge 的
@@ -118,6 +143,14 @@ export function ProjectWorkspacePage() {
   const openModule = (module: ProjectModule) => {
     const session = sessionByCwd.get(normalizePath(module.absPath))
     const next = { module, sessionId: session?.id ?? null }
+    // 仅新建会话时，把本模块编码范围（前端/后端目录）预填进输入框；已有会话不打扰
+    if (!next.sessionId) {
+      const seed = buildModuleScopePrompt(module)
+      try {
+        if (seed) sessionStorage.setItem(MODULE_OPEN_CONTEXT_KEY, seed)
+        else sessionStorage.removeItem(MODULE_OPEN_CONTEXT_KEY)
+      } catch { /* 隐私模式忽略 */ }
+    }
     if (!chat) {
       setPendingOpen(next)
       activate()
@@ -200,10 +233,31 @@ export function ProjectWorkspacePage() {
   const [syncSel, setSyncSel] = useState<Set<string>>(new Set())
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
   const [kbCfgOpen, setKbCfgOpen] = useState(false)
+  const qc = useQueryClient()
   const kbBlockQ = useQuery({ queryKey: ['config-block', WORKSPACE_CFG_ID], queryFn: () => getConfigBlock(WORKSPACE_CFG_ID), staleTime: 5000 })
   // 知识库是否已配置（路径非空）；驱动「必需配置」提醒，读运行时配置中心、不依赖后端重启
   const kbConfigured = useMemo(() => readKnowledgeDir(kbBlockQ.data?.entries).length > 0, [kbBlockQ.data])
   const kbKnown = kbBlockQ.isSuccess
+  // 自动确保知识库就绪：进工作台时若 knowledge 目录不存在，后端自动 clone 到用户目录并绑定——无需用户点击。
+  // 每个 app 会话只自动试一次（失败给「重试」，避免反复 git clone）。
+  const ensureKbMut = useMutation({
+    mutationFn: ensureKnowledgeBase,
+    onSuccess: res => {
+      if (res.status === 'ok' || res.status === 'bound' || res.status === 'cloned') {
+        void qc.invalidateQueries({ queryKey: ['config-block', WORKSPACE_CFG_ID] })
+        void modulesQ.refetch()
+      }
+    },
+  })
+  useEffect(() => {
+    if (knowledgeEnsureTried || !kbKnown) return // 等配置读出来再判断
+    knowledgeEnsureTried = true
+    if (!kbConfigured) ensureKbMut.mutate() // 仅"完全没配"才自动拉取；已配置则不触发（避免多余 clone/卡住）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kbKnown, kbConfigured])
+  const ensureFailed = !ensureKbMut.isPending
+    && (ensureKbMut.isError || ensureKbMut.data?.status === 'error' || ensureKbMut.data?.status === 'disabled')
+  const ensureMsg = ensureKbMut.data?.message || errorMessage(ensureKbMut.error)
   const syncPreviewMut = useMutation({ mutationFn: () => previewModuleSync(selectedPath) })
   const syncApplyMut = useMutation({
     mutationFn: (picks: { key: string; codePath: string }[]) => applyModuleSync(selectedPath, picks),
@@ -260,6 +314,12 @@ export function ProjectWorkspacePage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <KnowledgeDepBadge
+            preparing={ensureKbMut.isPending}
+            ready={kbConfigured && modulesQ.data?.knowledgeDirExists !== false}
+            known={kbKnown}
+            onClick={() => setKbCfgOpen(true)}
+          />
           {selectedProject ? (
             <ProjectTypeBadge
               loading={modulesQ.isLoading || (modulesQ.isFetching && !modulesQ.data)}
@@ -468,7 +528,8 @@ export function ProjectWorkspacePage() {
                   </button>
                 </div>
                 <p className="mb-2 text-xs text-[var(--color-muted-foreground)]">
-                  「项目工作台」按 <code>{'{知识库}/{项目名}/impl/modules.json'}</code> 读取每个项目的模块清单。
+                  <b className="text-[var(--color-foreground)]">知识库是本工作台的必备依赖</b>：按 <code>{'{知识库}/{项目名}/impl/modules.json'}</code> 读取每个项目的模块清单与中文业务名；
+                  未配置时只能按目录名识别，且「更新模块 / Agent 识菜单」不可用。
                   {modulesQ.data && modulesQ.data.knowledgeDirExists === false && (
                     <b className="text-[var(--color-warning,#b45309)]">　当前路径不存在或未配置。</b>
                   )}
@@ -497,7 +558,33 @@ export function ProjectWorkspacePage() {
                 {syncMsg}
               </div>
             )}
-            {!syncOpen && modulesQ.data?.exists && (
+            {ensureKbMut.isPending && (
+              <div className="mb-3 flex items-center gap-2 rounded-md border border-[var(--color-primary)]/40 bg-[var(--color-primary)]/5 px-3 py-2 text-sm text-[var(--color-muted-foreground)]">
+                <Loader2 className="h-4 w-4 animate-spin text-[var(--color-primary)]" />
+                正在自动准备知识库（首次会 git clone 到用户目录，请稍候）…
+              </div>
+            )}
+            {ensureFailed && (
+              <div className="mb-3 space-y-2 rounded-md border border-[var(--color-warning,#b45309)]/50 bg-[var(--color-warning,#b45309)]/10 p-3">
+                <div className="flex items-start gap-2 text-sm">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-warning,#b45309)]" />
+                  <div className="min-w-0">
+                    <div className="font-medium text-[var(--color-foreground)]">知识库自动拉取未成功，当前按目录自动识别</div>
+                    <p className="mt-0.5 break-all text-xs text-[var(--color-muted-foreground)]">{ensureMsg}</p>
+                    <p className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
+                      多为<b className="text-[var(--color-foreground)]">未登录企业 Git 账号</b>——请先在终端 <code>git</code> 登录（或配好 Gitee 凭据），再点重试。
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 gap-1.5">
+                    <Button type="button" size="sm" onClick={() => ensureKbMut.mutate()} disabled={ensureKbMut.isPending}>
+                      <RefreshCw className={cn(ensureKbMut.isPending && 'animate-spin')} />重试
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" onClick={() => setKbCfgOpen(true)}>手动配置</Button>
+                  </div>
+                </div>
+              </div>
+            )}
+            {!ensureKbMut.isPending && !ensureFailed && !syncOpen && modulesQ.data?.exists && (
               <WorkspaceKnowledgeNotice
                 data={modulesQ.data}
                 onSaved={() => void modulesQ.refetch()}
@@ -1060,37 +1147,63 @@ function KnowledgeDirSetup({ onSaved, saveLabel = '保存' }: { onSaved: () => v
   const entryKey = entry?.key ?? `${WORKSPACE_CFG_ID}.knowledge-base-dir`
   const [path, setPath] = useState('')
   const [dirty, setDirty] = useState(false)
-  // 配置块加载完把当前值填进输入框（用户还没编辑时才覆盖，避免打断输入）
   useEffect(() => { if (!dirty && entry) setPath(entry.value ?? '') }, [entry, dirty])
+
+  const afterBind = () => { void qc.invalidateQueries({ queryKey: ['config-block', WORKSPACE_CFG_ID] }); setDirty(false); onSaved() }
   const saveMut = useMutation({
     mutationFn: () => updateConfigBlock(WORKSPACE_CFG_ID, { [entryKey]: path.trim() }),
-    // 用返回的最新配置块直接刷新缓存 → 按钮/横幅状态即时更新，无需重启后端
     onSuccess: res => { qc.setQueryData(['config-block', WORKSPACE_CFG_ID], res); setDirty(false); onSaved() },
   })
+  // 拉取：走后端「自动确保」——clone 到用户目录 ~/.kai-toolbox 并绑定（与进入工作台时的自动逻辑同一入口）
+  const pullMut = useMutation({
+    mutationFn: ensureKnowledgeBase,
+    onSuccess: res => { if (res.status !== 'error' && res.status !== 'disabled') afterBind() },
+  })
+  const pullFailed = pullMut.data && (pullMut.data.status === 'error' || pullMut.data.status === 'disabled')
+
   return (
-    <div className="space-y-2 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] p-2.5">
-      <label className="block text-xs font-medium text-[var(--color-foreground)]">
-        知识图谱项目 knowledge 目录（绝对路径）
-      </label>
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <Input
-          className="flex-1 font-mono text-xs"
-          value={path}
-          disabled={blockQ.isLoading}
-          onChange={e => { setPath(e.target.value); setDirty(true) }}
-          placeholder={blockQ.isLoading ? '读取当前配置…' : 'D:\\Users\\你\\myWork\\project-domain-knowledge\\knowledge'}
-        />
-        <Button type="button" size="sm" className="shrink-0" disabled={!path.trim() || saveMut.isPending} onClick={() => saveMut.mutate()}>
-          {saveMut.isPending ? <Loader2 className="animate-spin" /> : <Check />}
-          {saveLabel}
-        </Button>
+    <div className="space-y-3 rounded-md border border-[var(--color-border)] bg-[var(--color-background)] p-2.5">
+      {/* 从 Git 拉取（走后端自动确保：clone 到用户目录并绑定） */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-xs font-medium text-[var(--color-foreground)]">从 Git 拉取知识库到用户目录（推荐）</div>
+          <Button type="button" size="sm" className="shrink-0" disabled={pullMut.isPending} onClick={() => pullMut.mutate()}>
+            {pullMut.isPending ? <Loader2 className="animate-spin" /> : <Download />}
+            {pullMut.isPending ? '拉取中…' : '拉取并绑定'}
+          </Button>
+        </div>
+        <p className="text-[11px] leading-relaxed text-[var(--color-muted-foreground)]">
+          ⚠️ 请先用<b className="text-[var(--color-foreground)]">企业账号登录 Git（Gitee）</b>（终端 <code>git</code> 登录或配好凭据）。
+          点「拉取并绑定」会自动 <code>git clone</code> 到 <code>~/.kai-toolbox/</code> 下并绑定 <code>knowledge</code> 路径；已拉过则直接绑定。未登录会失败。
+        </p>
+        {pullFailed && <p className="text-xs text-[var(--color-destructive)]">{pullMut.data?.message}</p>}
+        {pullMut.isError && <p className="text-xs text-[var(--color-destructive)]">{errorMessage(pullMut.error)}</p>}
       </div>
-      <p className="text-[11px] leading-relaxed text-[var(--color-muted-foreground)]">
-        指向 <code>project-domain-knowledge</code> 本地 clone 里的 <code>knowledge</code> 子目录（没有先 <code>git clone</code> 该仓库）。
-        保存即时生效（写入运行时配置中心，不重启），随后自动重新扫描。也可留空 = 关闭知识库、始终按目录自动识别。
-      </p>
+
+      <div className="border-t border-[var(--color-border)]" />
+
+      {/* 手动填已有本地路径 */}
+      <div className="space-y-1.5">
+        <label className="block text-xs font-medium text-[var(--color-foreground)]">或：手动填已有的 knowledge 目录（绝对路径）</label>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Input
+            className="flex-1 font-mono text-xs"
+            value={path}
+            disabled={blockQ.isLoading}
+            onChange={e => { setPath(e.target.value); setDirty(true) }}
+            placeholder={blockQ.isLoading ? '读取当前配置…' : 'D:\\Users\\你\\myWork\\project-domain-knowledge\\knowledge'}
+          />
+          <Button type="button" size="sm" variant="outline" className="shrink-0" disabled={!path.trim() || saveMut.isPending} onClick={() => saveMut.mutate()}>
+            {saveMut.isPending ? <Loader2 className="animate-spin" /> : <Check />}
+            {saveLabel}
+          </Button>
+        </div>
+        <p className="text-[11px] leading-relaxed text-[var(--color-muted-foreground)]">
+          指向本地 clone 里的 <code>knowledge</code> 子目录。保存即时生效（写运行时配置中心，不重启），随后自动重扫。留空 = 关闭知识库、按目录自动识别。
+        </p>
+      </div>
       {saveMut.isError && <p className="text-xs text-[var(--color-destructive)]">{errorMessage(saveMut.error)}</p>}
-      {saveMut.isSuccess && !dirty && <p className="text-xs text-[var(--color-primary)]">已保存并生效。</p>}
+      {(saveMut.isSuccess || (pullMut.isSuccess && !pullFailed)) && !dirty && <p className="text-xs text-[var(--color-primary)]">已绑定并生效。</p>}
     </div>
   )
 }
@@ -1113,6 +1226,34 @@ function SyncPanelShell({ children, onClose }: { children: React.ReactNode; onCl
       </p>
       {children}
     </div>
+  )
+}
+
+/**
+ * 顶部常驻「知识库依赖」状态标记：本工作台的必备依赖，明确告知用户是否已就绪。点击打开知识库配置面板。
+ * ready=已配置且目录存在；warn=未配置/无效（必需，醒目）；muted=检测/拉取中。
+ */
+function KnowledgeDepBadge({ preparing, ready, known, onClick }: { preparing: boolean; ready: boolean; known: boolean; onClick: () => void }) {
+  const tone = preparing || !known ? 'muted' : ready ? 'ok' : 'warn'
+  const label = preparing ? '准备中…' : !known ? '检测中…' : ready ? '已就绪' : '未配置（必需）'
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title="本工作台依赖「知识图谱库」(project-domain-knowledge)：提供各项目的模块清单与中文业务名。未配置时只能按目录名识别，且「更新模块 / Agent 识菜单」不可用。点击查看或配置。"
+      className={cn(
+        'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+        tone === 'ok' && 'border-[var(--color-primary)]/40 bg-[var(--color-primary)]/10 text-[var(--color-primary)]',
+        tone === 'warn' && 'border-[var(--color-warning,#b45309)] bg-[var(--color-warning,#b45309)]/15 text-[var(--color-warning,#b45309)]',
+        tone === 'muted' && 'border-[var(--color-border)] text-[var(--color-muted-foreground)]',
+      )}
+    >
+      {preparing ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        : tone === 'ok' ? <Check className="h-3.5 w-3.5" />
+          : tone === 'warn' ? <AlertTriangle className="h-3.5 w-3.5" />
+            : <Database className="h-3.5 w-3.5" />}
+      知识库依赖 · {label}
+    </button>
   )
 }
 
