@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { login } from '@/lib/auth'
+import { BrandLogo } from '@/shell/BrandLogo'
+import { BRAND_DEFAULTS } from '@/shell/brand'
 
 interface Props {
   open: boolean
@@ -39,12 +41,18 @@ export function LoginDialog({ open, onClose, onSuccess, message }: Props) {
       onClick={onClose}
     >
       <div
-        className="w-80 rounded-lg border bg-[var(--color-background)] p-4 shadow-lg"
+        className="w-[22rem] rounded-xl border bg-[var(--color-background)] p-6 shadow-xl"
         onClick={e => e.stopPropagation()}
       >
-        <h3 className="mb-1 text-base font-semibold">登录</h3>
-        {message && <p className="mb-3 text-xs text-[var(--color-muted-foreground)]">{message}</p>}
-        {!message && <div className="mb-2" />}
+        {/* 品牌头：强化第一印象——大号 logo + Forge + slogan */}
+        <div className="mb-5 flex flex-col items-center gap-2 text-center">
+          <BrandLogo className="h-11 w-11" />
+          <div>
+            <div className="text-lg font-semibold tracking-tight">{BRAND_DEFAULTS.appName}</div>
+            <div className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">{BRAND_DEFAULTS.tagline}</div>
+          </div>
+        </div>
+        {message && <p className="mb-3 text-center text-xs text-[var(--color-muted-foreground)]">{message}</p>}
         <input
           autoFocus
           className="mb-2 w-full rounded-md border bg-[var(--color-background)] px-3 py-2 text-sm"
