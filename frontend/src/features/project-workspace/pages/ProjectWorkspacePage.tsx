@@ -475,9 +475,20 @@ export function ProjectWorkspacePage() {
                   <TerminalSquare className="h-4 w-4" />
                   模块
                 </CardTitle>
-                <CardDescription className="truncate">
-                  {moduleSummary(modulesQ.data?.modules.length ?? 0, filteredModules.length, sessions.length)}
-                </CardDescription>
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[var(--color-muted-foreground)]">
+                  <span className="inline-flex items-center gap-1 whitespace-nowrap" title="识别到的模块数（筛选后/合计）">
+                    <TerminalSquare className="h-3.5 w-3.5" />
+                    模块 <b className="font-medium text-[var(--color-foreground)]">
+                      {filteredModules.length === (modulesQ.data?.modules.length ?? 0)
+                        ? (modulesQ.data?.modules.length ?? 0)
+                        : `${filteredModules.length}/${modulesQ.data?.modules.length ?? 0}`}
+                    </b>
+                  </span>
+                  <span className="inline-flex items-center gap-1 whitespace-nowrap" title="当前 Vibe Coding 会话数">
+                    <BotMessageSquare className="h-3.5 w-3.5" />
+                    会话 <b className="font-medium text-[var(--color-foreground)]">{sessions.length}</b>
+                  </span>
+                </div>
               </div>
               <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center md:w-auto">
                 <div className="relative w-full sm:w-72">
@@ -849,11 +860,6 @@ function StateLine({ text, icon, tone = 'muted' }: { text: string; icon?: React.
       <span>{text}</span>
     </div>
   )
-}
-
-function moduleSummary(total: number, shown: number, sessions: number) {
-  const mods = total === 0 ? '未识别到模块' : shown === total ? `${total} 模块` : `${shown}/${total} 模块`
-  return `${mods} · ${sessions} 会话`
 }
 
 /** 待聚合篮子面板：按项目分组展示已钉模块，可移除/清空/一键聚合。 */
