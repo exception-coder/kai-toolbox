@@ -1,6 +1,10 @@
-# kai-toolbox
+# Forge
 
-个人工具集平台 —— 一个壳子 + 多个工具模块，按需叠加。
+**The Workspace for Vibe Coding.**
+
+一个 Workspace 管理所有 AI Coding 项目 —— 项目、上下文、约束、Agent、工具与一键会话，尽在一处。
+
+> 定位（Positioning）是「Vibe Coding Workspace」，品牌名是 **Forge**；两者解耦，产品从 Vibe Coding 扩展到 AI 运维/文档/测试/知识管理时，品牌不受限。
 
 ## 当前工具
 

@@ -14,8 +14,8 @@ export interface BrandConfig {
 
 // 模块级常量：引用稳定，满足 useFeatureConfig 对 defaults 的要求
 export const BRAND_DEFAULTS: BrandConfig = {
-  appName: 'kai-toolbox',
-  tagline: '个人工具集',
+  appName: 'Forge',
+  tagline: 'The Workspace for Vibe Coding',
 }
 
 export const BRAND_FEATURE_ID = 'shell-brand'

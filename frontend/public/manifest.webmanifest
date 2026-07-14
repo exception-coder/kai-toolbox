@@ -1,7 +1,7 @@
 {
-  "name": "kai-toolbox",
-  "short_name": "kai-toolbox",
-  "description": "kai-toolbox 应用工具箱",
+  "name": "Forge",
+  "short_name": "Forge",
+  "description": "Forge — The Workspace for Vibe Coding",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
