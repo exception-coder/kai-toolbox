@@ -625,9 +625,9 @@ export function ProjectWorkspacePage() {
               <StateLine text={keyword.trim() ? '没有匹配模块' : '未识别到模块'} />
             ) : (
               <div className="grid gap-3 xl:grid-cols-2">
-                {filteredModules.map(module => (
+                {filteredModules.map((module, i) => (
                   <ModuleCard
-                    key={module.absPath}
+                    key={`${module.relPath}|${module.name}|${i}`}
                     module={module}
                     sessionByCwd={sessionByCwd}
                     pendingPath={pendingOpen?.module.absPath ?? null}
@@ -788,9 +788,9 @@ function ModuleCard({
       </div>
       {children.length > 0 && (
         <div className="space-y-1.5 border-t pt-3">
-          {children.map(child => (
+          {children.map((child, ci) => (
             <ModuleChildRow
-              key={child.absPath}
+              key={`${child.relPath}|${child.name}|${ci}`}
               module={child}
               session={sessionByCwd.get(normalizePath(child.absPath))}
               opening={pendingPath === child.absPath}
