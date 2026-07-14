@@ -73,7 +73,7 @@ export function KaiDevPage() {
     <div className="mx-auto max-w-2xl p-4 sm:p-6">
       <div className="mb-4 flex items-center gap-2">
         <Hammer className="size-5 text-[var(--color-primary)]" />
-        <h1 className="text-lg font-semibold">kai-toolbox 开发</h1>
+        <h1 className="text-lg font-semibold">Forge 开发</h1>
       </div>
       <p className="mb-5 text-sm text-[var(--color-muted-foreground)]">
         本工作台自身的开发模块（脚手架 dogfood）：选目录 + 模块/需求交给 Vibe Coding 门控开发，并可一键起停前后端服务、看前台启动日志。

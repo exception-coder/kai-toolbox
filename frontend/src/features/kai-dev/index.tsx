@@ -6,7 +6,7 @@ const KaiDevPage = lazy(() => import('./pages/KaiDevPage').then((m) => ({ defaul
 
 const manifest: FeatureManifest = {
   id: 'kai-dev',
-  name: 'kai-toolbox 开发',
+  name: 'Forge 开发',
   icon: Hammer,
   group: 'AI',
   description: '本工作台自身的开发模块：选目录+模块/需求，一键起停前后端服务并看前台日志（脚手架 dogfood 示例）',
