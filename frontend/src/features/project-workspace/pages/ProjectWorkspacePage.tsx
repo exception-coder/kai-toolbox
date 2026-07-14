@@ -263,6 +263,14 @@ export function ProjectWorkspacePage() {
   const ensureFailed = !ensureKbMut.isPending
     && (ensureKbMut.isError || ensureKbMut.data?.status === 'error' || ensureKbMut.data?.status === 'disabled')
   const ensureMsg = ensureKbMut.data?.message || errorMessage(ensureKbMut.error)
+  // 「知识库」按钮的状态外观：配置中(蓝) / 已就绪(绿) / 拉取失败(红) / 未配置·路径无效(琥珀)——让按钮本身就是状态标识
+  const kbBtn = ((): { cls: string; icon: React.ReactNode; label: string } => {
+    if (ensureKbMut.isPending) return { cls: 'border-transparent bg-[var(--color-info-soft)] text-[var(--color-info-soft-foreground)]', icon: <Loader2 className="animate-spin" />, label: '知识库 · 配置中' }
+    if (!kbKnown) return { cls: '', icon: <Database />, label: '知识库' }
+    if (ensureFailed) return { cls: 'border-transparent bg-[var(--color-destructive)] text-[var(--color-destructive-foreground)]', icon: <AlertTriangle />, label: '知识库 · 拉取失败' }
+    if (kbConfigured && modulesQ.data?.knowledgeDirExists !== false) return { cls: 'border-transparent bg-[var(--color-success-soft)] text-[var(--color-success-soft-foreground)]', icon: <Check />, label: '知识库 · 已就绪' }
+    return { cls: 'border-transparent bg-[var(--color-warning-soft)] text-[var(--color-warning-soft-foreground)]', icon: <AlertTriangle />, label: kbConfigured ? '知识库 · 路径无效' : '知识库 · 未配置' }
+  })()
   const syncPreviewMut = useMutation({ mutationFn: () => previewModuleSync(selectedPath) })
   const syncApplyMut = useMutation({
     mutationFn: (picks: { key: string; codePath: string }[]) => applyModuleSync(selectedPath, picks),
@@ -319,12 +327,6 @@ export function ProjectWorkspacePage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <KnowledgeDepBadge
-            preparing={ensureKbMut.isPending}
-            ready={kbConfigured && modulesQ.data?.knowledgeDirExists !== false}
-            known={kbKnown}
-            onClick={() => setKbCfgOpen(true)}
-          />
           {selectedProject ? (
             <ProjectTypeBadge
               loading={modulesQ.isLoading || (modulesQ.isFetching && !modulesQ.data)}
@@ -485,12 +487,12 @@ export function ProjectWorkspacePage() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  className={cn('shrink-0', kbKnown && !kbConfigured && 'border-[var(--color-warning,#b45309)] text-[var(--color-warning,#b45309)]')}
+                  className={cn('shrink-0', kbBtn.cls)}
                   onClick={() => setKbCfgOpen(v => !v)}
-                  title="查看/设置知识图谱项目（modules.json 所在的 knowledge 目录）路径"
+                  title="知识库是本工作台的必备依赖（提供模块清单/中文名）。点击查看状态与配置；未就绪时首次进入会自动拉取。"
                 >
-                  <Database />
-                  知识库{kbKnown && !kbConfigured && ' · 未配置'}
+                  {kbBtn.icon}
+                  {kbBtn.label}
                 </Button>
                 <Button
                   type="button"
@@ -1231,34 +1233,6 @@ function SyncPanelShell({ children, onClose }: { children: React.ReactNode; onCl
       </p>
       {children}
     </div>
-  )
-}
-
-/**
- * 顶部常驻「知识库依赖」状态标记：本工作台的必备依赖，明确告知用户是否已就绪。点击打开知识库配置面板。
- * ready=已配置且目录存在；warn=未配置/无效（必需，醒目）；muted=检测/拉取中。
- */
-function KnowledgeDepBadge({ preparing, ready, known, onClick }: { preparing: boolean; ready: boolean; known: boolean; onClick: () => void }) {
-  const tone = preparing || !known ? 'muted' : ready ? 'ok' : 'warn'
-  const label = preparing ? '准备中…' : !known ? '检测中…' : ready ? '已就绪' : '未配置（必需）'
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title="本工作台依赖「知识图谱库」(project-domain-knowledge)：提供各项目的模块清单与中文业务名。未配置时只能按目录名识别，且「更新模块 / Agent 识菜单」不可用。点击查看或配置。"
-      className={cn(
-        'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
-        tone === 'ok' && 'border-[var(--color-primary)]/40 bg-[var(--color-primary)]/10 text-[var(--color-primary)]',
-        tone === 'warn' && 'border-[var(--color-warning,#b45309)] bg-[var(--color-warning,#b45309)]/15 text-[var(--color-warning,#b45309)]',
-        tone === 'muted' && 'border-[var(--color-border)] text-[var(--color-muted-foreground)]',
-      )}
-    >
-      {preparing ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        : tone === 'ok' ? <Check className="h-3.5 w-3.5" />
-          : tone === 'warn' ? <AlertTriangle className="h-3.5 w-3.5" />
-            : <Database className="h-3.5 w-3.5" />}
-      知识库依赖 · {label}
-    </button>
   )
 }
 
