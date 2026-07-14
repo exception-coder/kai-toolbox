@@ -25,7 +25,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 5 }: Props)
   if (isPending || recent.length === 0) return null
 
   return (
-    <section className="border-b border-[var(--color-border)]/60 pb-1">
+    <section className="mb-2 border-b border-[var(--color-border)]/60 pb-2">
       {/* Section 标题：与 SessionList 分组 header 对齐 */}
       <div className="flex items-center gap-1.5 px-3 py-2">
         <Clock3 className="size-3 shrink-0 text-[var(--color-muted-foreground)]" />

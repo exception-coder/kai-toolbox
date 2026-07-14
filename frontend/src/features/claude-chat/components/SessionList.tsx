@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronRight, Folder, FolderMinus, FolderPlus, Pencil, Search, Tags, Trash2, X } from 'lucide-react'
+import { Bot, Check, ChevronRight, Code2, Folder, FolderMinus, FolderPlus, Pencil, Search, Sparkles, Tags, Trash2, X, Zap } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
 import { deleteSession, listSessions, renameSession, setSessionGroupApi } from '../api'
 import { engineDisplayName, providerHost } from './chatStatus'
@@ -137,25 +137,27 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
   function renderSection(key: string, label: string, list: ClaudeChatSessionView[], ungrouped: boolean) {
     const open = !collapsed.has(key)
     return (
-      <section key={`sec:${key}`} className="mb-3">
+      <section key={`sec:${key}`} className="mt-3 mb-1">
+        {/* Section header：明显的背景 + 下边框，与 Item 形成真正的层级区分 */}
         <button
           type="button"
           onClick={() => toggleGroup(key)}
-          className="sticky top-0 z-[1] flex w-full items-center gap-1.5 bg-[var(--color-background)]/95 px-3 py-2 text-left backdrop-blur-sm"
+          className="sticky top-0 z-[1] flex w-full items-center gap-1.5 border-b border-[var(--color-border)]/60 bg-[var(--color-muted)]/60 px-3 py-2.5 text-left"
         >
           <ChevronRight className={cn('size-3 shrink-0 text-[var(--color-muted-foreground)] transition-transform duration-150', open && 'rotate-90')} />
           {ungrouped
-            ? <Folder className="size-3.5 shrink-0 text-[var(--color-muted-foreground)] opacity-50" />
+            ? <Folder className="size-3.5 shrink-0 text-[var(--color-muted-foreground)]" />
             : <Tags className="size-3.5 shrink-0 text-[var(--color-primary)]" />}
-          <span className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">
+          {/* text-xs + foreground/70：比 Item 标题弱，但比之前的 muted 更有存在感 */}
+          <span className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wider text-[var(--color-foreground)]/70">
             {label}
           </span>
-          <span className="shrink-0 rounded-full bg-[var(--color-muted)] px-1.5 py-0.5 text-[10px] tabular-nums text-[var(--color-muted-foreground)]">
+          <span className="shrink-0 rounded-full bg-[var(--color-background)] px-1.5 py-0.5 text-[10px] tabular-nums text-[var(--color-muted-foreground)]">
             {list.length}
           </span>
         </button>
         {open && (
-          <ul>
+          <ul className="pt-0.5">
             {list.map(s => renderRow(s, true))}
           </ul>
         )}
@@ -186,7 +188,7 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
               : multi ? `本会话用过这些 agent（切回为续接，非新建）：${label}` : undefined
           }
           className={cn(
-            'shrink-0 rounded px-1 py-0.5 text-[10px] opacity-60',
+            'shrink-0 rounded px-1 py-0.5 text-[10px] opacity-50',
             thirdPartyClaude
               ? 'border border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300'
               : multi
@@ -211,9 +213,9 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
           isActive ? 'bg-[var(--color-primary)]/10' : 'hover:bg-[var(--color-accent)]',
         )}
       >
-        {/* Left Accent Bar：选中 primary 色，hover 时 border 色轻提示 */}
+        {/* Left Accent Bar：4px 加宽，选中态更醒目 */}
         <div className={cn(
-          'absolute inset-y-0 left-0 w-[3px] rounded-r-sm transition-colors duration-100',
+          'absolute inset-y-0 left-0 w-[4px] rounded-r-sm transition-colors duration-100',
           isActive ? 'bg-[var(--color-primary)]' : 'bg-transparent group-hover:bg-[var(--color-border)]',
         )} />
 
@@ -249,11 +251,13 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
             onClick={() => onSwitch(s.id)}
             title={`${s.title || shortCwd(s.cwd)}\n${s.cwd}`}
           >
-            {/* Line 1：Live dot + 标题（主视觉层级）+ Badge（弱化辅助） */}
+            {/* Line 1：Engine icon（类型一眼可辨）+ Live dot + 标题 + Badge（弱化辅助） */}
             <div className="flex items-center gap-1.5">
-              {s.live && (
-                <span className="size-1.5 shrink-0 rounded-full bg-emerald-500 ring-[2.5px] ring-emerald-500/20" />
-              )}
+              {/* live 时显示绿点，否则显示 engine 类型图标 */}
+              {s.live
+                ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500 ring-[2.5px] ring-emerald-500/20" />
+                : <EngineIcon engine={s.engine || 'claude'} thirdParty={s.providerKind === 'thirdParty'} />
+              }
               <span className={cn(
                 'min-w-0 flex-1 truncate text-sm leading-snug',
                 isActive
@@ -264,14 +268,14 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
               </span>
               {engineBadge}
             </div>
-            {/* Line 2：元信息（三级视觉权重） */}
+            {/* Line 2：只显示时间（path 已在 tooltip；分组内 path 由 Section 标题提供上下文） */}
             <div className={cn(
               'mt-0.5 truncate text-[11px] leading-snug',
               isActive
                 ? 'text-[var(--color-primary)]/60'
                 : 'text-[var(--color-muted-foreground)] opacity-60',
             )}>
-              {shortCwd(s.cwd)} · {formatDate(s.lastSeenAt)}
+              {formatDate(s.lastSeenAt)}
             </div>
           </button>
         )}
@@ -389,6 +393,25 @@ function GroupPicker({ current, all, onPick, onClose }: {
       </div>
     </div>
   )
+}
+
+/**
+ * Engine 类型图标：让用户扫一眼就能辨别会话引擎，不需要读文字。
+ * 尺寸 size-3（12px）+ opacity-50，保持低视觉权重，不抢标题焦点。
+ */
+function EngineIcon({ engine, thirdParty }: { engine: string; thirdParty: boolean }) {
+  if (thirdParty) {
+    return <Zap className="size-3 shrink-0 opacity-50 text-amber-500" />
+  }
+  switch (engine) {
+    case 'codex':
+      return <Code2 className="size-3 shrink-0 opacity-50 text-violet-500" />
+    case 'gemini':
+    case 'opencode':
+      return <Sparkles className="size-3 shrink-0 opacity-50 text-sky-500" />
+    default:
+      return <Bot className="size-3 shrink-0 opacity-40 text-[var(--color-muted-foreground)]" />
+  }
 }
 
 function shortCwd(cwd: string): string {
