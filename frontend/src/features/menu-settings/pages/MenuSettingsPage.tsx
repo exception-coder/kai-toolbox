@@ -1,27 +1,28 @@
 import { useMemo } from 'react'
-import { Eye, EyeOff, ListChecks, Lock, RotateCcw } from 'lucide-react'
+import { Eye, EyeOff, ListChecks, Lock, RotateCcw, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { features } from '@/shell/featureRegistry'
-import { setMenuHidden, useHiddenMenuIds } from '@/shell/menuVisibility'
+import { resetMenuVisibility, setManyVisible, setMenuVisible, useMenuVisibleSet } from '@/shell/menuVisibility'
 import type { FeatureManifest } from '@/shell/types'
 
 /** 本模块自身不可被隐藏——否则勾掉后就再也进不来「菜单配置」了（防锁死）。 */
 const SELF_ID = 'menu-settings'
 
 /**
- * 菜单配置：管理员勾选展示/隐藏各模块菜单入口（软隐藏，存本地，路由仍在、随时勾回）。
+ * 菜单配置：勾选各模块是否在菜单显示（软隐藏，存本地，路由仍在、随时勾回）。
+ * 默认只显示核心模块（DEFAULT_VISIBLE_IDS），其余默认隐藏——可在此勾选显示，或 Ctrl+K 命令面板直达。
  * 「睿程 ERP 全景图」等 manifest.hidden 的模块已在注册表层剔除，不在此清单——只能改源码开启。
  */
 export function MenuSettingsPage() {
-  const hidden = useHiddenMenuIds()
-  const hiddenSet = useMemo(() => new Set(hidden), [hidden])
+  const visibleSet = useMenuVisibleSet()
   const groups = useMemo(() => groupFeatures(features), [])
-  const hiddenCount = features.filter((f) => hiddenSet.has(f.id)).length
+  const allIds = useMemo(() => features.map((f) => f.id), [])
+  const visibleCount = features.filter((f) => visibleSet.has(f.id)).length
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
-      <div className="mb-6 flex items-start justify-between gap-4">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-3">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--color-primary)] text-[var(--color-primary-foreground)]">
             <ListChecks className="size-5" />
@@ -29,19 +30,21 @@ export function MenuSettingsPage() {
           <div>
             <h1 className="text-lg font-semibold">菜单配置</h1>
             <p className="text-xs leading-5 text-[var(--color-muted-foreground)]">
-              勾选展示 / 隐藏各模块的菜单入口。隐藏仅影响侧边栏与首页，直达链接仍可用；设置保存在本机浏览器。
+              勾选各模块是否在菜单显示。默认只显示核心模块，其余可在此开启或用 Ctrl/⌘+K 直达；隐藏仅影响侧边栏与首页，路由仍可用。设置存本机浏览器。
             </p>
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={hiddenCount === 0}
-          onClick={() => features.forEach((f) => setMenuHidden(f.id, false))}
-        >
-          <RotateCcw className="size-4" />
-          全部显示
-        </Button>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-[var(--color-muted-foreground)]">已显示 {visibleCount} / {features.length}</span>
+          <Button variant="outline" size="sm" onClick={() => resetMenuVisibility()} title="只保留核心模块">
+            <Sparkles className="size-4" />
+            恢复默认
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setManyVisible(allIds, true)}>
+            <RotateCcw className="size-4" />
+            全部显示
+          </Button>
+        </div>
       </div>
 
       <div className="space-y-5">
@@ -54,7 +57,7 @@ export function MenuSettingsPage() {
               {items.map((f) => {
                 const Icon = f.icon
                 const isSelf = f.id === SELF_ID
-                const visible = !hiddenSet.has(f.id)
+                const visible = visibleSet.has(f.id)
                 return (
                   <li key={f.id} className="flex items-center gap-3 px-4 py-3">
                     <Icon className="size-4 shrink-0 text-[var(--color-muted-foreground)]" />
@@ -75,7 +78,7 @@ export function MenuSettingsPage() {
                     <VisibilityToggle
                       visible={visible}
                       disabled={isSelf}
-                      onToggle={() => setMenuHidden(f.id, visible)}
+                      onToggle={() => setMenuVisible(f.id, !visible)}
                     />
                   </li>
                 )

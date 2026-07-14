@@ -6,7 +6,6 @@ import { cn } from '@/lib/utils'
 import { useAuth } from '@/lib/auth'
 import { entryOf, features } from './featureRegistry'
 import { hasFeatureAccess } from './access'
-import { useHiddenMenuIds } from './menuVisibility'
 import { onOpenCommandPalette } from './commandPaletteBus'
 import { getVideoLibrary } from '@/features/video-library/api'
 import { useVideoLibraryConfig } from '@/features/video-library/components/ExcludedDirsSheet'
@@ -22,14 +21,14 @@ type Row = NavRow | VideoRow
 /**
  * 命令面板（Ctrl/⌘+K）——Forge 的统一入口：跳转到任意模块 + 视频搜索等能力。
  *
- * 定位升级后，视频搜索不再常驻顶部黄金位，而是作为面板里的一项能力；顶栏搜索框改为打开本面板的触发器。
- * 跳转列表来自 featureRegistry（按角色 + 菜单软隐藏过滤，与侧栏一致）；视频区仅在有权访问视频库时出现。
+ * 定位升级后，视频搜索不再常驻顶部黄金位，而是作为面板里的一项能力；搜索入口改为侧栏「搜索」按钮 + 本快捷键。
+ * 跳转列表来自 featureRegistry，只按角色过滤——命令面板可达全部有权限的模块（含菜单里默认收起的），
+ * 这正是它的意义：菜单只留核心几个，其余靠 Ctrl/⌘+K 触达。视频区仅在有权访问视频库时出现。
  * 只挂载一次（AppShell），自身监听 Ctrl/⌘+K 开合与 Esc 关闭。
  */
 export function CommandPalette() {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const hidden = useHiddenMenuIds()
   const inputRef = useRef<HTMLInputElement>(null)
 
   const [open, setOpen] = useState(false)
@@ -69,20 +68,19 @@ export function CommandPalette() {
   }, [input, query])
 
   const roles = user?.roles ?? []
-  const hiddenSet = useMemo(() => new Set(hidden), [hidden])
 
-  // 跳转项：与侧栏一致（角色 + 软隐藏过滤），按输入模糊匹配 name/group/id。
+  // 跳转项：面板可直达所有「有权访问」的模块（含菜单里被隐藏的）——这正是命令面板的意义：菜单只留核心，其余靠它触达。
   const navRows = useMemo<NavRow[]>(() => {
     const q = query.toLowerCase()
     return features
-      .filter((f) => hasFeatureAccess(f, roles) && !hiddenSet.has(f.id))
+      .filter((f) => hasFeatureAccess(f, roles))
       .filter((f) => !q || `${f.name} ${f.group ?? ''} ${f.id}`.toLowerCase().includes(q))
       .map((f) => ({ kind: 'nav' as const, id: f.id, name: f.name, group: f.group, icon: f.icon, to: entryOf(f) }))
-  }, [query, roles, hiddenSet])
+  }, [query, roles])
 
   // 视频库可访问才启用视频搜索（无权则不显示视频区）。
   const videoFeature = features.find((f) => f.id === 'video-library')
-  const canVideo = !!videoFeature && hasFeatureAccess(videoFeature, roles) && !hiddenSet.has('video-library')
+  const canVideo = !!videoFeature && hasFeatureAccess(videoFeature, roles)
   const { config: libraryConfig } = useVideoLibraryConfig()
   const excludedDirs = libraryConfig.excludedDirs
   const videoResult = useQuery({
