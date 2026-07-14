@@ -234,20 +234,53 @@ function Stop-Backend {
     }
 }
 
-# 一次性、幂等初始化两个 node sidecar（后端按需 spawn，这里只保证依赖/构建就位，已装好就跳过）。
+# 取一组路径下最新的文件修改时间（目录递归）。用于判断源码是否比构建产物新。缺失路径跳过。
+function Get-LatestWriteTime([string[]]$paths) {
+    $latest = [datetime]::MinValue
+    foreach ($p in $paths) {
+        if (-not (Test-Path -LiteralPath $p)) { continue }
+        if (Test-Path -LiteralPath $p -PathType Container) {
+            foreach ($it in (Get-ChildItem -LiteralPath $p -Recurse -File -ErrorAction SilentlyContinue)) {
+                if ($it.LastWriteTimeUtc -gt $latest) { $latest = $it.LastWriteTimeUtc }
+            }
+        } else {
+            $it = Get-Item -LiteralPath $p -ErrorAction SilentlyContinue
+            if ($it -and $it.LastWriteTimeUtc -gt $latest) { $latest = $it.LastWriteTimeUtc }
+        }
+    }
+    return $latest
+}
+
+# 一次性、幂等初始化两个 node sidecar（后端按需 spawn，这里只保证依赖/构建就位，已就绪则跳过）。
 function Initialize-NodeDeps {
     if (-not $NpmCmd) { Write-Host '[supervisor] 跳过 sidecar 初始化（npm 未找到）'; return }
-    # 1) claude-agent（claude-chat 懒启动 node dist/server.js）：需先构建出 dist/server.js
+    # 1) claude-agent（claude-chat 懒启动 node dist/server.js）：需先构建出 dist/server.js。
+    #    关键：不只判断「dist 是否存在」，还要判断「src 是否比 dist 新」——否则改了 sidecar 源码后
+    #    因旧 dist 还在被「已构建，跳过」，后端仍加载旧代码，每次都得手动 npm run build（开发期老坑）。
     $sidecar = Join-Path $RepoRoot 'sidecar\claude-agent'
-    if (-not (Test-Path (Join-Path $sidecar 'dist\server.js'))) {
-        Write-Host '[supervisor] init claude-agent sidecar (npm install + build)...'
+    $distServer = Join-Path $sidecar 'dist\server.js'
+    $nodeModules = Join-Path $sidecar 'node_modules'
+    $pkgJson = Join-Path $sidecar 'package.json'
+    # 依赖：node_modules 缺失、或 package.json 比 node_modules 新（改了依赖）就重装。
+    $nmTime = if (Test-Path -LiteralPath $nodeModules) { (Get-Item -LiteralPath $nodeModules).LastWriteTimeUtc } else { [datetime]::MinValue }
+    $pkgTime = if (Test-Path -LiteralPath $pkgJson) { (Get-Item -LiteralPath $pkgJson).LastWriteTimeUtc } else { [datetime]::MinValue }
+    $needInstall = (-not (Test-Path -LiteralPath $nodeModules)) -or ($pkgTime -gt $nmTime)
+    # 构建：dist/server.js 缺失、或 src/tsconfig/package.json 比 dist 新就重建。
+    $srcNewest = Get-LatestWriteTime @((Join-Path $sidecar 'src'), $pkgJson, (Join-Path $sidecar 'tsconfig.json'))
+    $distTime = if (Test-Path -LiteralPath $distServer) { (Get-Item -LiteralPath $distServer).LastWriteTimeUtc } else { [datetime]::MinValue }
+    $needBuild = (-not (Test-Path -LiteralPath $distServer)) -or ($srcNewest -gt $distTime)
+    if ($needInstall -or $needBuild) {
+        $reason = if (-not (Test-Path -LiteralPath $distServer)) { 'dist/server.js 缺失' } elseif ($needBuild) { '源码比 dist 新' } else { '依赖变更' }
+        Write-Host "[supervisor] init claude-agent sidecar ($reason)..."
         Push-Location $sidecar
         try {
-            if (-not (Test-Path 'node_modules')) { & npm install --no-audit --no-fund }
-            & npm run build
-            if ($LASTEXITCODE -ne 0) { Write-Host '[supervisor] WARN: claude-agent build 失败；claude-chat 可能起不来' }
+            if ($needInstall) { & npm install --no-audit --no-fund }
+            if ($needBuild -or $needInstall) {
+                & npm run build
+                if ($LASTEXITCODE -ne 0) { Write-Host '[supervisor] WARN: claude-agent build 失败；claude-chat 可能起不来' }
+            }
         } catch { Write-Host "[supervisor] WARN: claude-agent init 出错: $($_.Exception.Message)" } finally { Pop-Location }
-    } else { Write-Host '[supervisor] claude-agent sidecar 已构建，跳过' }
+    } else { Write-Host '[supervisor] claude-agent sidecar dist 最新，跳过' }
     # 2) undetected-browser（browser-request 的 undetected-node 引擎）：需 node_modules(patchright) + chromium
     $undetected = Join-Path $RepoRoot 'node-services\undetected-browser'
     if (-not (Test-Path (Join-Path $undetected 'node_modules'))) {
