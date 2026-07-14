@@ -470,12 +470,12 @@ export function ProjectWorkspacePage() {
         <Card>
           <CardHeader className="gap-3">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-              <div>
+              <div className="min-w-0">
                 <CardTitle className="flex items-center gap-2 text-base">
                   <TerminalSquare className="h-4 w-4" />
                   模块
                 </CardTitle>
-                <CardDescription>
+                <CardDescription className="truncate">
                   {moduleSummary(modulesQ.data?.modules.length ?? 0, filteredModules.length, sessions.length)}
                 </CardDescription>
               </div>
@@ -852,9 +852,8 @@ function StateLine({ text, icon, tone = 'muted' }: { text: string; icon?: React.
 }
 
 function moduleSummary(total: number, shown: number, sessions: number) {
-  if (total === 0) return `当前已有 ${sessions} 个 Vibe Coding 会话`
-  if (shown === total) return `识别到 ${total} 个模块，当前已有 ${sessions} 个 Vibe Coding 会话`
-  return `识别到 ${total} 个模块，当前显示 ${shown} 个`
+  const mods = total === 0 ? '未识别到模块' : shown === total ? `${total} 模块` : `${shown}/${total} 模块`
+  return `${mods} · ${sessions} 会话`
 }
 
 /** 待聚合篮子面板：按项目分组展示已钉模块，可移除/清空/一键聚合。 */
