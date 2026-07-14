@@ -1,10 +1,11 @@
 import { Link } from 'react-router-dom'
-import { ArrowRight, Boxes } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/lib/auth'
 import { entryOf, features } from './featureRegistry'
 import { hasFeatureAccess } from './access'
 import { useVisibleFeatures } from './menuVisibility'
+import { BrandLogo } from './BrandLogo'
 import { useBrand } from './brand'
 
 export function HomePage() {
@@ -16,7 +17,7 @@ export function HomePage() {
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
       <div className="mb-8 flex items-center gap-3">
-        <Boxes className="h-7 w-7 text-[var(--color-primary)]" />
+        <BrandLogo className="h-7 w-7" />
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{brand.appName}</h1>
           <p className="text-sm text-[var(--color-muted-foreground)]">{brand.tagline}</p>

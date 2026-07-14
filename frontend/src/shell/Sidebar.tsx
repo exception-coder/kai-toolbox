@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom'
-import { Boxes } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { BrandLogo } from './BrandLogo'
 import { useAuth } from '@/lib/auth'
 import type { FeatureManifest } from './types'
 import { entryOf } from './featureRegistry'
@@ -32,7 +32,7 @@ export function Sidebar({ features, collapsed }: SidebarProps) {
       )}
     >
       <NavLink to="/" className="flex h-14 items-center gap-2 border-b px-4 hover:bg-[var(--color-sidebar-accent)]">
-        <Boxes className="h-5 w-5 shrink-0 text-[var(--color-primary)]" />
+        <BrandLogo className="h-5 w-5 shrink-0" />
         {!collapsed && <span className="truncate text-sm font-semibold tracking-tight">{brand.appName}</span>}
       </NavLink>
 
