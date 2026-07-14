@@ -59,18 +59,24 @@ function buildModuleScopePrompt(module: ProjectModule): string {
 }
 
 /**
- * 「按菜单识别模块」投喂给 Claude 会话的提示：agent 读前端菜单/路由产出模块清单，经 domain-knowledge 的
- * add-modules 落盘。刻意先预览、owner 确认后再 --apply，守住「内容 agent 产、脚本只确定性落盘」的红线。
+ * 「按菜单识别模块」投喂给 Claude 会话的提示：agent 从菜单权威来源（数据库动态菜单优先查库，否则读路由/配置/初始化 SQL）
+ * 识别业务模块，经 domain-knowledge 的 add-modules 落盘。刻意先预览、owner 确认后再 --apply，
+ * 守住「内容 agent 产、脚本只确定性落盘」的红线。
  */
 function buildMenuSyncPrompt(project: string, projectPath: string, kbRepo: string): string {
   return [
     `我要更新知识库里「${project}」的模块清单（modules.json），按【前端菜单/路由】识别业务模块（不是按代码目录名）。请按下面步骤，务必保留我的确认关卡：`,
     '',
-    `1. 读取本项目（当前工作目录：${projectPath}）的前端菜单/路由来源，识别业务模块。来源优先级：`,
-    '   - React：src/shell/featureRegistry、路由表（router/routes）、各 feature 的 index 清单；',
-    '   - 后台管理：sys_menu 菜单表 / 初始化 SQL（如 yudao 的 sys_menu.sql）、Struts/SpringMVC 的 *.xml 路由；',
-    '   - 其它任何声明"有哪些页面/菜单"的地方。',
+    `1. 先判断本项目（当前工作目录：${projectPath}）的菜单是【数据库动态配置】还是【代码/文件静态声明】，据此选权威来源识别业务模块：`,
+    '   ① 数据库动态菜单（很多后台系统如此，务必先确认是不是这种）——数据库是唯一权威来源，优先于代码/文件：',
+    '      去查菜单表（sys_menu / 权限菜单 / *_menu 等）拿真实菜单树。用项目里的数据库连接配置（datasource / jdbc / 配置文件）+',
+    '      本会话可用的数据库查询工具（如挂载的 *_db query MCP，没有就用项目自带的 SQL 客户端/连接）执行 SQL 读取。',
+    '      ⚠️ 不要只扫代码目录/文件就下结论——动态菜单不查库会漏或错。',
+    '   ② 静态声明：sys_menu 初始化 SQL（如 yudao 的 sys_menu.sql）、Struts/SpringMVC 的 *.xml 路由、',
+    '      React 的 src/shell/featureRegistry·路由表(router/routes)·各 feature 的 index 清单；',
+    '   ③ 两者都有时以数据库为准，代码/文件仅作补充（用来补 codePath/webPath）。',
     '   每个业务模块产出一条 JSON：{ "key": "英文短标识", "name": "中文业务名", "codePath": "后端代码目录(相对项目根)", "webPath": "前端目录或路由(相对项目根)" }。',
+    '   注：菜单表通常只给菜单名 + URL/权限标识，codePath/webPath 需你结合菜单 URL 与代码结构推导；拿不准的先留空，别硬编。',
     '',
     '2. 先【预览】，不要直接写盘。到知识库仓执行（注意是 domain-knowledge 仓，不是本项目）：',
     `   cd ${kbRepo || '<project-domain-knowledge 仓根>'}`,
