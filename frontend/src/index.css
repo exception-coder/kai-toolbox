@@ -20,9 +20,9 @@
 
   --color-border: oklch(0.92 0.005 260);
   --color-input: oklch(0.92 0.005 260);
-  --color-ring: oklch(0.55 0.18 264);
+  --color-ring: oklch(0.55 0.21 277);
 
-  --color-primary: oklch(0.55 0.18 264);
+  --color-primary: oklch(0.55 0.21 277);
   --color-primary-foreground: oklch(0.99 0 0);
 
   --color-secondary: oklch(0.96 0.005 260);
@@ -85,7 +85,7 @@
     --color-muted-foreground: oklch(0.65 0.02 260);
     --color-border: oklch(0.25 0.01 260);
     --color-input: oklch(0.25 0.01 260);
-    --color-primary: oklch(0.7 0.18 264);
+    --color-primary: oklch(0.7 0.21 277);
     --color-primary-foreground: oklch(0.15 0.01 260);
     --color-secondary: oklch(0.22 0.01 260);
     --color-secondary-foreground: oklch(0.97 0 0);
@@ -145,7 +145,7 @@
   }
 
   /* ==== 主色（与明暗正交）：只改 hue/chroma，明度走 --app-primary-l。放在 .dark 之后以覆盖其 primary ==== */
-  .accent-indigo  { --color-primary: oklch(var(--app-primary-l) 0.18 264); --color-ring: oklch(var(--app-primary-l) 0.18 264); }
+  .accent-indigo  { --color-primary: oklch(var(--app-primary-l) 0.21 277); --color-ring: oklch(var(--app-primary-l) 0.21 277); }
   .accent-sky     { --color-primary: oklch(var(--app-primary-l) 0.16 230); --color-ring: oklch(var(--app-primary-l) 0.16 230); }
   .accent-emerald { --color-primary: oklch(var(--app-primary-l) 0.15 150); --color-ring: oklch(var(--app-primary-l) 0.15 150); }
   .accent-amber   { --color-primary: oklch(var(--app-primary-l) 0.15 70);  --color-ring: oklch(var(--app-primary-l) 0.15 70); }

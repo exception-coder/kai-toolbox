@@ -19,7 +19,7 @@ export const THEME_MODES: { id: ThemeMode; label: string }[] = [
 
 /** swatch 仅用于菜单里的小色块预览，与 index.css 的 .accent-* 主色对应 */
 export const THEME_ACCENTS: { id: ThemeAccent; label: string; swatch: string }[] = [
-  { id: 'indigo', label: '靛蓝', swatch: 'oklch(0.55 0.18 264)' },
+  { id: 'indigo', label: '靛蓝', swatch: 'oklch(0.55 0.21 277)' },
   { id: 'sky', label: '青蓝', swatch: 'oklch(0.55 0.16 230)' },
   { id: 'emerald', label: '翠绿', swatch: 'oklch(0.55 0.15 150)' },
   { id: 'amber', label: '琥珀', swatch: 'oklch(0.62 0.15 70)' },
