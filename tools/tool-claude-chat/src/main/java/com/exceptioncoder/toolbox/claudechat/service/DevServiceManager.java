@@ -8,7 +8,10 @@ import org.springframework.stereotype.Component;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
@@ -19,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * 通用「开发服务」进程生命周期 + 前台日志，<b>按项目 id 多实例键控</b>——同一台工作台可同时托管
@@ -72,8 +76,8 @@ public class DevServiceManager {
         return inst(id).start(cwd, cmd);
     }
 
-    public String stop(String id, String stopCommand) {
-        return inst(id).stop(stopCommand);
+    public String stop(String id, String stopCommand, List<Integer> ports) {
+        return inst(id).stop(stopCommand, ports);
     }
 
     @PreDestroy
@@ -151,32 +155,85 @@ public class DevServiceManager {
             }
         }
 
-        synchronized String stop(String stopCommand) {
-            if (!isRunning()) {
+        /**
+         * 停服。健壮性关键：
+         * <ol>
+         *   <li>先跑用户的 stopCommand（若配了，best-effort）；</li>
+         *   <li><b>整棵进程树强杀</b>——Windows 用 {@code taskkill /F /T /PID}（OS 走父子树，比 JDK
+         *       {@code descendants().destroy()} 可靠，能杀到 powershell 下的 Resin/java 等子孙）；</li>
+         *   <li><b>按端口兜底</b>——对传入的 ports，杀掉仍在 LISTENING 的占用进程（catch 掉脱离进程树的存活者，
+         *       正是"重启没杀掉旧服务、端口占用起不来"的根因）；</li>
+         *   <li>等端口释放再返回，避免紧接着 start 撞 EADDRINUSE 又失败。</li>
+         * </ol>
+         * 即便本工作台已不再跟踪该进程（process 已 null/退出），只要给了 ports 仍会做端口兜底清理。
+         */
+        synchronized String stop(String stopCommand, List<Integer> ports) {
+            boolean hadProc = process != null && process.isAlive();
+            List<Integer> validPorts = normalizePorts(ports);
+            if (!hadProc && validPorts.isEmpty()) {
                 return "服务未在运行";
             }
-            long pid = process.pid();
+            long pid = hadProc ? process.pid() : -1;
             try {
                 if (stopCommand != null && !stopCommand.isBlank() && workDir != null) {
-                    new ProcessBuilder(wrap(stopCommand.trim())).directory(Path.of(workDir).toFile())
-                            .redirectErrorStream(true).start();
-                    appendLine("⏹ 已执行停服命令：" + stopCommand.trim());
+                    try {
+                        new ProcessBuilder(wrap(stopCommand.trim())).directory(Path.of(workDir).toFile())
+                                .redirectErrorStream(true).start();
+                        appendLine("⏹ 已执行停服命令：" + stopCommand.trim());
+                    } catch (IOException e) {
+                        appendLine("⚠ 停服命令执行失败（继续强杀）：" + e.getMessage());
+                    }
                 }
-                process.descendants().forEach(ProcessHandle::destroy);
-                process.destroy();
-                if (!process.waitFor(5, TimeUnit.SECONDS)) {
-                    process.descendants().forEach(ProcessHandle::destroyForcibly);
+                if (hadProc) {
+                    killTree(process);
+                }
+                for (int p : validPorts) {
+                    killByPort(p);
+                }
+                if (hadProc) {
                     process.destroyForcibly();
+                    process.waitFor(6, TimeUnit.SECONDS);
                 }
-                emit("⏹ 已停止服务（pid=" + pid + "）");
-                log.info("[dev-service:{}] 停止 pid={}", id, pid);
+                if (!validPorts.isEmpty()) {
+                    waitPortsFree(validPorts, 4000);
+                }
+                emit(hadProc ? "⏹ 已停止服务（pid=" + pid + "）" : "⏹ 已清理端口占用");
+                log.info("[dev-service:{}] 停止 pid={} ports={}", id, pid, validPorts);
                 return null;
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return "停止被中断";
-            } catch (IOException e) {
-                return "停止失败：" + e.getMessage();
             }
+        }
+
+        /** 强杀整棵进程树：Windows 走 taskkill /F /T，其余用 JDK 递归 destroyForcibly。 */
+        private void killTree(Process p) {
+            long pid = p.pid();
+            List<ProcessHandle> desc = p.descendants().collect(Collectors.toList());
+            if (WINDOWS) {
+                runQuiet(List.of("taskkill", "/F", "/T", "/PID", Long.toString(pid)));
+            }
+            // 跨平台兜底 / 非 Windows：强杀子孙 + 自身
+            desc.forEach(ProcessHandle::destroyForcibly);
+            p.destroyForcibly();
+        }
+
+        /** 端口兜底：杀掉仍 LISTENING 在该端口的进程（连同其子树）。绝不误杀本后端自身。 */
+        private void killByPort(int port) {
+            Long pid = findPidOnPort(port);
+            if (pid == null || pid == ProcessHandle.current().pid()) {
+                return;
+            }
+            if (WINDOWS) {
+                runQuiet(List.of("taskkill", "/F", "/T", "/PID", pid.toString()));
+            } else {
+                ProcessHandle.of(pid).ifPresent(h -> {
+                    h.descendants().forEach(ProcessHandle::destroyForcibly);
+                    h.destroyForcibly();
+                });
+            }
+            appendLine("⏹ 端口 " + port + " 兜底清理占用进程 pid=" + pid);
+            log.info("[dev-service:{}] 端口 {} 占用 pid={} 已清理", id, port, pid);
         }
 
         private void pumpLogs(Process p) {
@@ -222,16 +279,107 @@ public class DevServiceManager {
             if (isRunning()) {
                 log.info("[dev-service:{}] 后端关闭，一并停止 pid={}", id, process.pid());
                 try {
-                    process.descendants().forEach(ProcessHandle::destroy);
-                    process.destroy();
-                    if (!process.waitFor(3, TimeUnit.SECONDS)) {
-                        process.descendants().forEach(ProcessHandle::destroyForcibly);
-                        process.destroyForcibly();
-                    }
+                    killTree(process);
+                    process.waitFor(3, TimeUnit.SECONDS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
             }
+        }
+    }
+
+    // —— 进程/端口清理工具 ——
+
+    /** 规整端口列表：去空、越界、去重。 */
+    private static List<Integer> normalizePorts(List<Integer> ports) {
+        if (ports == null) {
+            return List.of();
+        }
+        return ports.stream().filter(p -> p != null && p > 0 && p <= 65535).distinct().collect(Collectors.toList());
+    }
+
+    /** 跑一条命令、丢弃输出、最多等 5s（用于 taskkill 等）。 */
+    private static void runQuiet(List<String> cmd) {
+        try {
+            Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
+            p.getInputStream().readAllBytes(); // 排空避免管道阻塞
+            p.waitFor(5, TimeUnit.SECONDS);
+        } catch (IOException e) {
+            // 忽略：kill 类命令失败不致命
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /** 查 127.0.0.1:port 上处于 LISTENING 的占用进程 pid（Windows netstat / *nix lsof）。 */
+    private static Long findPidOnPort(int port) {
+        List<String> cmd = WINDOWS
+                ? List.of("cmd", "/c", "netstat -ano -p tcp | findstr LISTENING | findstr :" + port)
+                : List.of("sh", "-c", "lsof -ti tcp:" + port + " -sTCP:LISTEN");
+        try {
+            Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
+            String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            p.waitFor(3, TimeUnit.SECONDS);
+            for (String raw : out.split("\\R")) {
+                String line = raw.trim();
+                if (line.isEmpty()) {
+                    continue;
+                }
+                if (WINDOWS) {
+                    if (!line.contains("LISTENING") || !line.contains(":" + port)) {
+                        continue;
+                    }
+                    String[] parts = line.split("\\s+");
+                    try {
+                        return Long.parseLong(parts[parts.length - 1]);
+                    } catch (NumberFormatException ignore) {
+                        // 下一行
+                    }
+                } else {
+                    try {
+                        return Long.parseLong(line);
+                    } catch (NumberFormatException ignore) {
+                        // 下一行
+                    }
+                }
+            }
+        } catch (IOException e) {
+            return null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return null;
+    }
+
+    /** 轮询等一组端口全部释放，最多 maxMs。 */
+    private static void waitPortsFree(List<Integer> ports, long maxMs) {
+        long deadline = System.nanoTime() + maxMs * 1_000_000L;
+        while (System.nanoTime() < deadline) {
+            boolean anyOpen = false;
+            for (int p : ports) {
+                if (isPortOpen(p)) {
+                    anyOpen = true;
+                    break;
+                }
+            }
+            if (!anyOpen) {
+                return;
+            }
+            try {
+                Thread.sleep(150);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+    }
+
+    private static boolean isPortOpen(int port) {
+        try (Socket s = new Socket()) {
+            s.connect(new InetSocketAddress("127.0.0.1", port), 200);
+            return true;
+        } catch (IOException e) {
+            return false;
         }
     }
 

@@ -31,15 +31,15 @@ export function startDevService(id: string, cwd: string, command: string) {
   })
 }
 
-export function stopDevService(id: string, stopCommand?: string) {
+export function stopDevService(id: string, stopCommand?: string, ports?: number[]) {
   return http<DevServiceResult>(`/claude-chat/dev-service/${encodeURIComponent(id)}/stop`, {
-    method: 'POST', body: JSON.stringify({ stopCommand: stopCommand || undefined }),
+    method: 'POST', body: JSON.stringify({ stopCommand: stopCommand || undefined, ports: ports?.length ? ports : undefined }),
   })
 }
 
-export function restartDevService(id: string, cwd: string, command: string, stopCommand?: string) {
+export function restartDevService(id: string, cwd: string, command: string, stopCommand?: string, ports?: number[]) {
   return http<DevServiceResult>(`/claude-chat/dev-service/${encodeURIComponent(id)}/restart`, {
-    method: 'POST', body: JSON.stringify({ cwd, command, stopCommand: stopCommand || undefined }),
+    method: 'POST', body: JSON.stringify({ cwd, command, stopCommand: stopCommand || undefined, ports: ports?.length ? ports : undefined }),
   })
 }
 

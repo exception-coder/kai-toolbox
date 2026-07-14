@@ -187,6 +187,7 @@ export function ErpDevPage() {
         defaultCwd={cwd}
         defaultCommand=".\\start-yoooni.ps1"
         title="ERP 服务启停 + 启动日志"
+        readinessPorts={[{ label: 'Resin', port: 80 }]}
       />
       <ErpDbConfigSection />
       <ErpAppConfigSection />

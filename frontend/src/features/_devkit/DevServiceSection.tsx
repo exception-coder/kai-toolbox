@@ -168,9 +168,12 @@ export function DevServiceSection({
   }
   const onErr = (e: unknown) => setMsg(`失败：${e instanceof Error ? e.message : '未知'}`)
 
+  // 停/重启时把本模块声明的就绪端口一并交给后端：进程树强杀之外再按端口兜底，
+  // catch 掉脱离进程树的存活者（否则"重启没杀掉旧服务、端口占用"就起不来）。
+  const killPorts = readinessPorts?.map(p => p.port)
   const start = useMutation({ mutationFn: () => startDevService(serviceId, cwd, effCommand), onSuccess: applyResult, onError: onErr })
-  const stop = useMutation({ mutationFn: () => stopDevService(serviceId, stopCommand), onSuccess: applyResult, onError: onErr })
-  const restart = useMutation({ mutationFn: () => restartDevService(serviceId, cwd, effCommand, stopCommand), onSuccess: applyResult, onError: onErr })
+  const stop = useMutation({ mutationFn: () => stopDevService(serviceId, stopCommand, killPorts), onSuccess: applyResult, onError: onErr })
+  const restart = useMutation({ mutationFn: () => restartDevService(serviceId, cwd, effCommand, stopCommand, killPorts), onSuccess: applyResult, onError: onErr })
   const busy = start.isPending || stop.isPending || restart.isPending
 
   // 多服务就绪探测：后端 TCP 探各端口，每 4s 刷新（仅当传了 readinessPorts）。

@@ -38,10 +38,10 @@ public class DevServiceController {
     public record StartRequest(String cwd, String command) {
     }
 
-    public record StopRequest(String stopCommand) {
+    public record StopRequest(String stopCommand, List<Integer> ports) {
     }
 
-    public record RestartRequest(String cwd, String command, String stopCommand) {
+    public record RestartRequest(String cwd, String command, String stopCommand, List<Integer> ports) {
     }
 
     @GetMapping("/{id}/status")
@@ -57,18 +57,14 @@ public class DevServiceController {
 
     @PostMapping("/{id}/stop")
     public Object stop(@PathVariable String id, @RequestBody(required = false) StopRequest req) {
-        String err = manager.stop(id, req == null ? null : req.stopCommand());
+        String err = manager.stop(id, req == null ? null : req.stopCommand(), req == null ? null : req.ports());
         return err == null ? manager.status(id) : Map.of("ok", false, "error", err);
     }
 
+    /** 重启：无条件先做健壮清理（进程树强杀 + 端口兜底，best-effort，即便已不在跟踪也清端口）再启动，让改动生效。 */
     @PostMapping("/{id}/restart")
     public Object restart(@PathVariable String id, @RequestBody RestartRequest req) {
-        if (manager.isRunning(id)) {
-            String stopErr = manager.stop(id, req.stopCommand());
-            if (stopErr != null) {
-                return Map.of("ok", false, "error", "停止失败：" + stopErr);
-            }
-        }
+        manager.stop(id, req.stopCommand(), req.ports()); // best-effort：忽略"未在运行"等，目标是干净起
         String err = manager.start(id, req.cwd(), req.command());
         return err == null ? manager.status(id) : Map.of("ok", false, "error", err);
     }
