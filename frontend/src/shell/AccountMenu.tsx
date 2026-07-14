@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { Check, FlaskConical, LogIn, LogOut } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { logout, useAuth } from '@/lib/auth'
 import { LoginDialog } from '@/components/auth/LoginDialog'
 import { useMockMode } from './useMockMode'
-import { pathHasMock } from './featureRegistry'
+import { entryOf, features, pathHasMock } from './featureRegistry'
+import { hasFeatureAccess } from './access'
 import {
   THEME_ACCENTS,
   THEME_MODES,
@@ -46,6 +47,10 @@ export function AccountMenu({ collapsed }: { collapsed?: boolean }) {
   const { enabled: mock, toggle: toggleMock } = useMockMode()
   const { pathname } = useLocation()
   const showMock = pathHasMock(pathname) || mock
+
+  // 管理/设置类（chrome）页面：如「菜单配置」——收进本菜单（更多），不占侧栏功能菜单。
+  const navigate = useNavigate()
+  const chromeItems = features.filter((f) => f.chrome && hasFeatureAccess(f, user?.roles ?? []))
 
   // 点菜单外部关闭。
   useEffect(() => {
@@ -134,6 +139,26 @@ export function AccountMenu({ collapsed }: { collapsed?: boolean }) {
           <div className="border-t pt-3">
             <BrandEditor />
           </div>
+
+          {/* 管理/设置类页面（chrome）：如「菜单配置」——像 ChatGPT 那样收进账号菜单，而非侧栏功能菜单 */}
+          {chromeItems.length > 0 && (
+            <div className="mt-1 border-t pt-2">
+              {chromeItems.map((f) => {
+                const Icon = f.icon
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => { setOpen(false); navigate(entryOf(f)) }}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--color-muted)]"
+                  >
+                    <Icon className="size-4 text-[var(--color-muted-foreground)]" />
+                    {f.name}
+                  </button>
+                )
+              })}
+            </div>
+          )}
 
           {/* Mock 联调开关（上下文相关时出现） */}
           {showMock && (

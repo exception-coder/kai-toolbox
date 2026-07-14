@@ -16,9 +16,11 @@ const SELF_ID = 'menu-settings'
  */
 export function MenuSettingsPage() {
   const visibleSet = useMenuVisibleSet()
-  const groups = useMemo(() => groupFeatures(features), [])
-  const allIds = useMemo(() => features.map((f) => f.id), [])
-  const visibleCount = features.filter((f) => visibleSet.has(f.id)).length
+  // 只管理「功能菜单」项；chrome（管理页，如本页自身）不作为可勾选菜单项。
+  const menuFeatures = useMemo(() => features.filter((f) => !f.chrome), [])
+  const groups = useMemo(() => groupFeatures(menuFeatures), [menuFeatures])
+  const allIds = useMemo(() => menuFeatures.map((f) => f.id), [menuFeatures])
+  const visibleCount = menuFeatures.filter((f) => visibleSet.has(f.id)).length
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
@@ -35,7 +37,7 @@ export function MenuSettingsPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-[var(--color-muted-foreground)]">已显示 {visibleCount} / {features.length}</span>
+          <span className="text-xs text-[var(--color-muted-foreground)]">已显示 {visibleCount} / {menuFeatures.length}</span>
           <Button variant="outline" size="sm" onClick={() => resetMenuVisibility()} title="只保留核心模块">
             <Sparkles className="size-4" />
             恢复默认

@@ -32,5 +32,10 @@ export interface FeatureManifest {
    * 「只能通过源码开启」：改回 false（或删除该字段）才恢复。区别于用户在「菜单配置」里勾掉的软隐藏（仅隐藏菜单入口、路由仍在）。
    */
   hidden?: boolean
+  /**
+   * 管理/设置类页面（chrome）：不进侧边栏与首页的功能菜单，也不进「菜单配置」清单，
+   * 改由左下账号菜单（「更多」）呈现；路由仍注册、Ctrl+K 亦可达。用于「菜单配置」这类平台管理能力，而非 Vibe 工具本身。
+   */
+  chrome?: boolean
   routes: FeatureRoute[]
 }
