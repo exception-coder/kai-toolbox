@@ -27,5 +27,10 @@ export interface FeatureManifest {
   layout?: FeatureLayout
   /** 仅 showcase 生效：隐藏「返回工作台/主题」悬浮坞，让页面完全沉浸（如自带悬浮控件的演示页）。 */
   hideDock?: boolean
+  /**
+   * 代码级隐藏：置 true 则该模块从注册表整体剔除——不注册路由、不进侧边栏/首页、也不出现在「菜单配置」清单里。
+   * 「只能通过源码开启」：改回 false（或删除该字段）才恢复。区别于用户在「菜单配置」里勾掉的软隐藏（仅隐藏菜单入口、路由仍在）。
+   */
+  hidden?: boolean
   routes: FeatureRoute[]
 }

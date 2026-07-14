@@ -4,13 +4,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useAuth } from '@/lib/auth'
 import { entryOf, features } from './featureRegistry'
 import { hasFeatureAccess } from './access'
+import { useVisibleFeatures } from './menuVisibility'
 import { useBrand } from './brand'
 
 export function HomePage() {
   const { user } = useAuth()
   const { brand } = useBrand()
-  // 按角色过滤首页入口卡片，与侧边栏一致。
-  const visible = features.filter(f => hasFeatureAccess(f, user?.roles ?? []))
+  // 按角色过滤首页入口卡片，再按「菜单配置」软隐藏过滤，与侧边栏一致。
+  const allowed = features.filter(f => hasFeatureAccess(f, user?.roles ?? []))
+  const visible = useVisibleFeatures(allowed)
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
       <div className="mb-8 flex items-center gap-3">

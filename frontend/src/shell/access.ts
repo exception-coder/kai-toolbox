@@ -8,6 +8,7 @@ import type { FeatureManifest } from './types'
 const REQUIRED_ROLES: Record<string, string[]> = {
   // ADMIN-only（与 application.yml 的 admin-only-patterns + 简历/账号管理对齐）
   'config-center': ['ADMIN'],
+  'menu-settings': ['ADMIN'],
   flatten: ['ADMIN'],
   'vscode-tunnel': ['ADMIN'],
   'browser-request': ['ADMIN'],

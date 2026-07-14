@@ -10,6 +10,9 @@ const modules = import.meta.glob<{ default: FeatureManifest }>(
 export const features: FeatureManifest[] = Object.values(modules)
   .map(m => m.default)
   .filter(Boolean)
+  // 代码级隐藏（manifest.hidden）：整体剔除——不注册路由、不进任何菜单面，只能改源码 hidden:false 恢复。
+  // 与用户在「菜单配置」里勾掉的软隐藏不同（后者仅隐藏菜单入口、路由仍在，见 shell/menuVisibility）。
+  .filter(f => !f.hidden)
   .sort((a, b) => (a.order ?? 100) - (b.order ?? 100) || a.name.localeCompare(b.name))
 
 export function entryOf(f: FeatureManifest): string {
