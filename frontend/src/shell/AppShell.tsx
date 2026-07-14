@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
+import { CommandPalette } from './CommandPalette'
 import { features } from './featureRegistry'
 import { PwaInstallPrompt } from './PwaInstallPrompt'
 import { useBrand } from './brand'
@@ -75,6 +76,8 @@ export function AppShell() {
         </main>
       </div>
       <PwaInstallPrompt />
+      {/* 命令面板（Ctrl/⌘+K）：只挂一次，跨所有工具页可用 */}
+      <CommandPalette />
       </>
       )}
     </div>

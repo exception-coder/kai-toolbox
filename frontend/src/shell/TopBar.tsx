@@ -1,7 +1,7 @@
-import { Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { Menu, PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useMockMode } from './useMockMode'
-import { GlobalVideoSearch } from './GlobalVideoSearch'
+import { openCommandPalette } from './commandPaletteBus'
 
 interface TopBarProps {
   onToggleSidebar: () => void
@@ -10,9 +10,9 @@ interface TopBarProps {
 }
 
 /**
- * 全局工具栏（Toolbar）——只负责「找什么」：全局搜索占据重心，别的全部让位。
- * 按 AI IDE（Cursor/Linear）趋势压到 48px；导航沉到左侧 Sidebar、账号/主题/Mock 沉到左下账号菜单，
- * 顶栏不再重复承载用户入口。左侧仅留一枚侧栏开合；Mock 生效时保留一个只读状态标提醒（切换在账号菜单）。
+ * 全局工具栏（Toolbar），压到 48px。定位升级后顶栏不再常驻某个「视频搜索框」——那只是几十个能力之一。
+ * 中间改为一个打开命令面板（Ctrl/⌘+K）的紧凑触发器，统一「跳转任意模块 + 视频搜索」等能力（见 CommandPalette）。
+ * 左侧仅留侧栏开合 + Mock 只读状态标；账号/主题/Mock 切换沉到左下账号菜单。
  */
 export function TopBar({ onToggleSidebar, onOpenMobileMenu, collapsed }: TopBarProps) {
   const { enabled: mock } = useMockMode()
@@ -36,12 +36,26 @@ export function TopBar({ onToggleSidebar, onOpenMobileMenu, collapsed }: TopBarP
         )}
       </div>
 
-      {/* 中：全局搜索占据重心（一天几十次的高频入口） */}
+      {/* 中：命令面板触发器（Ctrl/⌘+K）。桌面显示为一枚克制的搜索按钮，移动端退化为图标。 */}
       <div className="flex min-w-0 flex-1 justify-center">
-        <GlobalVideoSearch />
+        {/* 桌面 */}
+        <button
+          type="button"
+          onClick={openCommandPalette}
+          title="搜索与跳转（Ctrl / ⌘ + K）"
+          className="hidden h-8 w-full max-w-[420px] items-center gap-2 rounded-md border bg-[var(--color-muted)]/40 px-3 text-sm text-[var(--color-muted-foreground)] transition-colors hover:bg-[var(--color-muted)] md:flex"
+        >
+          <Search className="size-4 shrink-0" />
+          <span className="flex-1 text-left">搜索模块、跳转、视频…</span>
+          <kbd className="shrink-0 rounded border bg-[var(--color-background)] px-1.5 py-0.5 text-[10px] font-medium tabular-nums">Ctrl K</kbd>
+        </button>
+        {/* 移动端 */}
+        <Button variant="ghost" size="icon" onClick={openCommandPalette} title="搜索与跳转" className="md:hidden">
+          <Search className="h-4 w-4" />
+        </Button>
       </div>
 
-      {/* 右：与左侧开合按钮等宽的占位，使搜索视觉居中（顶栏其余操作已下沉账号菜单） */}
+      {/* 右：与左侧开合按钮等宽的占位，使触发器视觉居中（顶栏其余操作已下沉账号菜单） */}
       <div className="w-9 shrink-0" aria-hidden />
     </header>
   )
