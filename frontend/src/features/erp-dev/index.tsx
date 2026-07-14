@@ -8,7 +8,7 @@ const manifest: FeatureManifest = {
   id: 'erp-dev',
   name: 'ERP 需求开发',
   icon: Workflow,
-  group: 'AI 工具',
+  group: 'AI',
   description: '填模块+需求，交给 ERP 自动开发 agent：定位代码→查知识图谱/库→出方案→按规范改码→出 diff（门控·只改不提交）',
   order: 51,
   routes: [{ path: '/tools/erp-dev', element: <ErpDevPage /> }],

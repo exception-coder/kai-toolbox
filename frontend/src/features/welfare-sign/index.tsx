@@ -8,7 +8,7 @@ const manifest: FeatureManifest = {
   id: 'welfare-sign',
   name: '福利签收',
   icon: BadgeCheck,
-  group: '企业工具',
+  group: '企业',
   description: '国央企节假日福利线上签名、白名单校验、记录查询与导出',
   order: 64,
   routes: [

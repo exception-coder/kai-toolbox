@@ -8,7 +8,7 @@ const manifest: FeatureManifest = {
   id: 'ops',
   name: '系统与中间件',
   icon: DatabaseZap,
-  group: '系统工具',
+  group: '系统',
   description: '登记我负责的系统与各环境中间件，一键连上 MySQL / Oracle / Redis 执行查询排查',
   order: 6,
   routes: [{ path: '/tools/ops', element: <OpsPage /> }],

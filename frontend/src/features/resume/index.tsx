@@ -7,7 +7,7 @@ const manifest: FeatureManifest = {
   id: 'resume',
   name: '个人简历',
   icon: UserSquare2,
-  group: '内容工具',
+  group: '内容',
   description: '在线编辑个人简历：5 套模板 + 5 种主色，一键导出 PNG / PDF',
   order: 25,
   routes: [{ path: '/tools/resume', element: <ResumePage /> }],

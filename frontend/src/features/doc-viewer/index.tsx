@@ -8,7 +8,7 @@ const manifest: FeatureManifest = {
   id: 'doc-viewer',
   name: 'Markdown 文档浏览器',
   icon: BookOpen,
-  group: '学习/参考',
+  group: '参考',
   description: '浏览 GitHub 仓库或本地目录中的 markdown 文档，并支持就地编辑',
   order: 60,
   entry: '/tools/doc-viewer',

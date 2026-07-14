@@ -9,7 +9,7 @@ const manifest: FeatureManifest = {
   id: 'java8gu',
   name: 'Java 八股·卡片回顾',
   icon: GraduationCap,
-  group: '学习/参考',
+  group: '参考',
   description: '把 1300+ 题 Java 面试题按难度分桶可视化，由浅入深快速扫读；并可向量检索 + 复习问答',
   order: 65,
   entry: '/tools/java8gu',

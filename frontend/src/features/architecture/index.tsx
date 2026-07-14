@@ -11,7 +11,7 @@ const manifest: FeatureManifest = {
   id: 'architecture',
   name: '实现原理',
   icon: Workflow,
-  group: '学习/参考',
+  group: '参考',
   description: '各模块架构与实现原理的可视化深度说明（HTML 页）',
   order: 61,
   entry: '/tools/architecture',

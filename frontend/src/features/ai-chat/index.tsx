@@ -8,7 +8,7 @@ const manifest: FeatureManifest = {
   id: 'ai-chat',
   name: 'AI 对话',
   icon: MessagesSquare,
-  group: 'AI 工具',
+  group: 'AI',
   description: '经 4sapi 直连多模型的 API 流式聊天：会话历史、切模型、系统提示词、图片输入',
   order: 51,
   routes: [{ path: '/tools/ai-chat', element: <ChatPage /> }],

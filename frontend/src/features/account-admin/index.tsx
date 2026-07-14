@@ -6,7 +6,7 @@ const manifest: FeatureManifest = {
   id: 'account-admin',
   name: '账号管理',
   icon: Users,
-  group: '系统工具',
+  group: '系统',
   description: '管理员管理账号、配置角色（含只读用户）、启停与重置密码',
   order: 7,
   routes: [{ path: '/tools/account-admin', element: <AccountAdminPage /> }],

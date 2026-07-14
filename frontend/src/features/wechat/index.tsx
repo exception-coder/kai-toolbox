@@ -8,7 +8,7 @@ const manifest: FeatureManifest = {
   id: 'wechat',
   name: '微信监控',
   icon: MessageCircle,
-  group: '效率工具',
+  group: '效率',
   description: '读微信消息、监听新消息实时推送、发文字。基于 wxauto sidecar，人在外面也能看 PC 微信',
   order: 35,
   routes: [{ path: '/tools/wechat', element: <WechatPage /> }],

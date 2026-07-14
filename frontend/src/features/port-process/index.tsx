@@ -6,7 +6,7 @@ const manifest: FeatureManifest = {
   id: 'port-process',
   name: '端口进程查询',
   icon: Network,
-  group: '系统工具',
+  group: '系统',
   description: '按端口反查占用进程，自动适配 Windows / Linux / macOS，覆盖 IPv4 与 IPv6',
   order: 25,
   routes: [{ path: '/tools/port-process', element: <PortProcessPage /> }],

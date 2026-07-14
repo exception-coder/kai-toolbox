@@ -6,7 +6,7 @@ const manifest: FeatureManifest = {
   id: 'config-center',
   name: '配置中心',
   icon: SlidersHorizontal,
-  group: '系统工具',
+  group: '系统',
   description: '在线编辑可刷新配置块（@Refreshable），不重启生效，重启保留',
   order: 6,
   routes: [{ path: '/tools/config-center', element: <ConfigCenterPage /> }],

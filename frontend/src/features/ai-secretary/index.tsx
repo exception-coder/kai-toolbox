@@ -9,7 +9,7 @@ const manifest: FeatureManifest = {
   id: 'ai-secretary',
   name: 'AI 秘书',
   icon: Bot,
-  group: '内容工具',
+  group: '内容',
   description:
     'LangChain4j + 本地 Qwen 的个人助理 Agent：随手记自动分类抽取、自然语言回忆',
   order: 36,
