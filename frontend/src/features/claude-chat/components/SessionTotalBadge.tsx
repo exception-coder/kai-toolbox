@@ -1,4 +1,4 @@
-import { Coins, Database, Gauge } from 'lucide-react'
+import { Coins, Gauge } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ChatItem } from '../types'
 import type { SessionUsage } from '../api'
@@ -32,18 +32,17 @@ export function SessionTotalBadge({ items, serverTotal, onClick, className }: { 
       title={title}
       aria-label="本地用量"
       className={cn(
-        'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium leading-none tabular-nums hover:opacity-80',
-        has
-          ? 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950 dark:text-violet-300'
-          : 'border-[var(--color-border)] text-[var(--color-muted-foreground)]',
+        // 文字化：去掉高饱和双色徽章底，改中性安静文本 chip（少 dashboard 味），保留点开用量能力
+        'inline-flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] font-medium leading-none tabular-nums text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]',
         className,
       )}
     >
       {has ? (
         <>
-          <span className="inline-flex items-center gap-1"><Coins className="size-3" />{abbr(tokens)}</span>
+          <Coins className="size-3 opacity-70" />
+          <span className="text-[var(--color-foreground)]">{abbr(tokens)}</span>
           {hitRate != null && hitRate > 0 && (
-            <span className="inline-flex items-center gap-1 text-teal-600 dark:text-teal-400"><Database className="size-3" />{Math.floor(hitRate * 100)}%</span>
+            <span className="opacity-70">· 命中 {Math.floor(hitRate * 100)}%</span>
           )}
         </>
       ) : (
