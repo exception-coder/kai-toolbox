@@ -108,9 +108,11 @@ export function QuestionDialog({ questions, onSubmit, onCancel }: Props) {
               </button>
               {isPicked(q, OTHER) && (
                 <textarea
-                  className="w-full resize-none rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-3 py-2 text-sm"
+                  // eslint-disable-next-line jsx-a11y/no-autofocus
+                  autoFocus
+                  className="w-full resize-none rounded-lg border border-[var(--color-primary)] bg-[var(--color-background)] px-3 py-2 text-sm outline-none ring-1 ring-[var(--color-primary)]"
                   rows={2}
-                  placeholder="写下你的想法…"
+                  placeholder="写下你的想法…（提交前必填）"
                   value={otherText[q.question] ?? ''}
                   onChange={e => setOtherText(prev => ({ ...prev, [q.question]: e.target.value }))}
                 />
