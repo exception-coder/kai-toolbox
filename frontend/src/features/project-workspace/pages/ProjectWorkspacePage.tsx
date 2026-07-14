@@ -251,10 +251,15 @@ export function ProjectWorkspacePage() {
   })
   useEffect(() => {
     if (knowledgeEnsureTried || !kbKnown) return // 等配置读出来再判断
-    knowledgeEnsureTried = true
-    if (!kbConfigured) ensureKbMut.mutate() // 仅"完全没配"才自动拉取；已配置则不触发（避免多余 clone/卡住）
+    // 完全没配 → 立即自动拉取
+    if (!kbConfigured) { knowledgeEnsureTried = true; ensureKbMut.mutate(); return }
+    // 已配置 → 等模块扫描回来看路径是否有效：目录不存在(配错/失效)也自动拉取重绑；有效则确认就绪不再触发
+    const dirExists = modulesQ.data?.knowledgeDirExists
+    if (dirExists === false) { knowledgeEnsureTried = true; ensureKbMut.mutate() }
+    else if (dirExists === true) { knowledgeEnsureTried = true } // 确认就绪
+    // dirExists === undefined（模块尚未扫描/后端旧版）：先不决定，等下次
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kbKnown, kbConfigured])
+  }, [kbKnown, kbConfigured, modulesQ.data?.knowledgeDirExists])
   const ensureFailed = !ensureKbMut.isPending
     && (ensureKbMut.isError || ensureKbMut.data?.status === 'error' || ensureKbMut.data?.status === 'disabled')
   const ensureMsg = ensureKbMut.data?.message || errorMessage(ensureKbMut.error)
