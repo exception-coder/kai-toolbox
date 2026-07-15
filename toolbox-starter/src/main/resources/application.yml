@@ -408,6 +408,9 @@ toolbox:
       - "_"
 
   claude-chat:
+    # 一次性 Agent 任务超时：PRD 生成对复杂需求可能需要 3-5 分钟，默认 120s 容易超时。
+    # 调大到 5 分钟；简历优化等短任务也受益（无副作用，超时只是 future.get 等待上限）。
+    agent-one-shot-timeout-ms: 300000  # 5 分钟
     # 新建 Claude 会话时「工作目录下拉」的扫描配置。仅扫各 root 的一级子目录。
     # roots 为空 = 下拉为空，仍可手填 cwd。
     workspace:

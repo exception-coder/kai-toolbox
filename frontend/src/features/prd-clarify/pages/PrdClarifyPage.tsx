@@ -395,10 +395,43 @@ function InputPanel({
   )
 }
 
-// ───── 生成阶段流式展示 ─────
-function GeneratingPanel({ streamText }: { streamText: string }) {
+// ───── 生成阶段流式展示（含失败重试 UI） ─────
+function GeneratingPanel({
+  streamText,
+  failed,
+  onRetry,
+}: {
+  streamText: string
+  failed: boolean
+  onRetry: () => void
+}) {
   const endRef = useRef<HTMLDivElement>(null)
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [streamText])
+
+  if (failed) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center">
+        <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center">
+          <X className="w-6 h-6 text-red-500" />
+        </div>
+        <div>
+          <p className="font-medium text-[var(--color-foreground)] mb-1">PRD 生成未能完成</p>
+          <p className="text-sm text-[var(--color-muted-foreground)]">
+            可能是 Claude Agent 超时（复杂需求通常需要 60-120 秒）。<br />
+            问答历史已保存，点击重试即可直接重新生成。
+          </p>
+        </div>
+        <button
+          onClick={onRetry}
+          className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[var(--color-primary)] text-white text-sm font-medium hover:opacity-90"
+        >
+          <Loader2 className="w-4 h-4" />
+          重新生成 PRD
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div className="flex-1 flex flex-col p-6 overflow-hidden">
       <div className="flex items-center gap-2 mb-4 text-sm text-[var(--color-muted-foreground)]">
@@ -839,6 +872,7 @@ export function PrdClarifyPage() {
   const [streamText, setStreamText] = useState('')
   const [prdContent, setPrdContent] = useState('')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [generationFailed, setGenerationFailed] = useState(false)  // GENERATING 失败，留在当前步骤显示重试
   const abortRef = useRef<(() => void) | null>(null)
   // GENERATING 阶段用 ref 积累全文，done 时一次性赋值（避免双重 setState）
   const prdAccRef = useRef('')
@@ -909,6 +943,7 @@ export function PrdClarifyPage() {
     setStreamText('')
     setPrdContent('')
     setErrorMsg(null)
+    setGenerationFailed(false)
   }
 
   /** Step INPUT → 创建会话 → 进入多轮对话澄清 */
@@ -924,27 +959,15 @@ export function PrdClarifyPage() {
   }
 
   /**
-   * ChattingPanel 完成所有轮次后回调。
-   * 1. 保存问答历史到数据库
-   * 2. 启动 SSE 生成 PRD
+   * 启动 PRD 生成 SSE，可复用于初次生成和重试。
+   * 不改变 step（调用方负责设置 GENERATING）。
    */
-  const handleChattingDone = async (history: QaPair[]) => {
-    if (!sessionId) return
-    setErrorMsg(null)
-    qaHistoryRef.current = history
-
-    try {
-      // 把完整问答历史持久化
-      await saveQaHistory(sessionId, history)
-    } catch {
-      // 保存失败不阻断流程（generate 里会从 session.questions 读）
-    }
-
+  const startGenerateSse = (sid: string) => {
+    setGenerationFailed(false)
     setStreamText('')
     prdAccRef.current = ''
-    setStep('GENERATING')
 
-    const abort = startGenerate(sessionId, {
+    const abort = startGenerate(sid, {
       onEvent(name, data) {
         if (name === 'chunk') {
           const chunk = (data as { content: string }).content ?? ''
@@ -954,23 +977,52 @@ export function PrdClarifyPage() {
         if (name === 'done') {
           setPrdContent(prdAccRef.current)
           qc.invalidateQueries({ queryKey: ['prd-sessions'] })
-          if (urlReqItemId && sessionId) {
-            linkPrdToReqItem(urlReqItemId, sessionId).catch(() => {})
+          if (urlReqItemId && sid) {
+            linkPrdToReqItem(urlReqItemId, sid).catch(() => {})
           }
           setStep('EDITING')
         }
         if (name === 'error') {
           const d = data as { message: string }
-          setErrorMsg(d.message ?? 'PRD 生成失败')
-          setStep('CHATTING')  // 退回到对话继续
+          setErrorMsg(d.message ?? 'PRD 生成失败，可点击重试')
+          // 不改 step！保持 GENERATING 步骤，显示重试按钮
+          setGenerationFailed(true)
         }
       },
       onError() {
-        setErrorMsg('SSE 连接失败，请重试')
-        setStep('CHATTING')
+        setErrorMsg('SSE 连接失败，请点击重试')
+        setGenerationFailed(true)
       },
     })
     abortRef.current = abort
+  }
+
+  /**
+   * ChattingPanel 完成所有轮次后回调。
+   * 1. 保存问答历史到数据库
+   * 2. 启动 SSE 生成 PRD
+   */
+  const handleChattingDone = async (history: QaPair[]) => {
+    if (!sessionId) return
+    setErrorMsg(null)
+    setGenerationFailed(false)
+    qaHistoryRef.current = history
+
+    try {
+      await saveQaHistory(sessionId, history)
+    } catch {
+      // 保存失败不阻断流程
+    }
+
+    setStep('GENERATING')
+    startGenerateSse(sessionId)
+  }
+
+  /** 重试 PRD 生成（超时/失败后用户点击重试） */
+  const handleRetryGenerate = () => {
+    if (!sessionId) return
+    setErrorMsg(null)
+    startGenerateSse(sessionId)
   }
 
   /** 从历史记录恢复会话 */
@@ -1048,7 +1100,11 @@ export function PrdClarifyPage() {
         )}
 
         {step === 'GENERATING' && (
-          <GeneratingPanel streamText={streamText} />
+          <GeneratingPanel
+            streamText={streamText}
+            failed={generationFailed}
+            onRetry={handleRetryGenerate}
+          />
         )}
 
         {step === 'EDITING' && sessionId && (
