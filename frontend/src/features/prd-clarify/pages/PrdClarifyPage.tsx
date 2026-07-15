@@ -144,7 +144,7 @@ const QUICK_TEMPLATES = [
     hint: '知识图谱示例',
     title: '需求池 SLA 剩余天数预警',
     project: 'kai-toolbox',
-    module: 'tool-reqpool',
+    module: '需求管理池',
     rawInput: `当需求池中的需求接近截止日期时，系统没有任何提醒机制，
 导致产品经理经常遗忘，需求超期后才发现。
 
@@ -160,7 +160,7 @@ const QUICK_TEMPLATES = [
     hint: '业务逻辑澄清示例',
     title: '需求批量状态变更与分配',
     project: 'kai-toolbox',
-    module: 'tool-reqpool',
+    module: '需求管理池',
     rawInput: `产品经理每周会对一批需求做统一操作：
 - 将本迭代完成的需求批量标记为 DONE
 - 将下迭代的需求批量指派给同一个开发人员
@@ -175,7 +175,7 @@ const QUICK_TEMPLATES = [
     hint: '综合示例',
     title: '需求数据导入（Excel/CSV）',
     project: 'kai-toolbox',
-    module: 'tool-reqpool',
+    module: '需求管理池',
     rawInput: `我们团队在使用需求管理池之前，已有数百条需求记录存在 Excel 表格中，
 列名包括：需求名称、描述、项目、模块、优先级、负责人、截止日期。
 

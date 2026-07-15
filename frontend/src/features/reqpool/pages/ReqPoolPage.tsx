@@ -229,6 +229,22 @@ export function ReqPoolPage() {
     if (ok) deleteMut.mutate(item.id)
   }
 
+  /** 将已知的技术模块 ID 转换为中文业务名（用于 prd-clarify 展示与 PRD 生成提示词） */
+  const toModuleDisplayName = (moduleId: string | null): string => {
+    if (!moduleId) return ''
+    const MAP: Record<string, string> = {
+      'tool-reqpool':     '需求管理池',
+      'tool-prd-clarify': 'PRD澄清助手',
+      'tool-resume':      '简历管理',
+      'tool-treesize':    '磁盘分析',
+      'tool-downloader':  '下载管理',
+      'tool-ai-chat':     'AI对话',
+      'tool-claude-chat': 'Vibe Coding',
+      'tool-projects':    '项目管理',
+    }
+    return MAP[moduleId] ?? moduleId
+  }
+
   /** 开始澄清：先更新状态，再跳转到 prd-clarify 并带上需求数据 */
   const handleStartClarify = async (item: ReqItemView) => {
     await clarifyMut.mutateAsync(item.id)
@@ -236,7 +252,7 @@ export function ReqPoolPage() {
       title: item.title,
       rawInput: item.description ?? '',
       project: item.project ?? '',
-      module: item.module ?? '',
+      module: toModuleDisplayName(item.module),  // 中文业务名，不传技术 ID
       reqItemId: item.id,
     })
     navigate(`/tools/prd-clarify?${params.toString()}`)

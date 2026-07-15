@@ -197,7 +197,7 @@ public class ReqPoolController {
                 .title(title)
                 .description(description.strip())
                 .project("kai-toolbox")
-                .module("tool-reqpool")
+                .module("需求管理池")
                 .priority(priority)
                 .status("DRAFT")
                 .assignee(null)

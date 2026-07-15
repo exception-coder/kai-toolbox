@@ -31,7 +31,7 @@ export const DEMO_EXAMPLES: DemoExample[] = [
     highlight: 'AI 直接引用已有字段和状态枚举，而非泛泛询问"有哪些字段"',
     description: '在需求管理池列表中，临近截止日期的需求自动高亮预警，避免需求超期无人处理',
     project: 'kai-toolbox',
-    module: 'tool-reqpool',
+    module: '需求管理池',
     rawInput: `当需求池中的需求接近截止日期时，系统没有任何提醒机制，
 导致产品经理经常遗忘，需求超期后才发现。
 
@@ -64,7 +64,7 @@ export const DEMO_EXAMPLES: DemoExample[] = [
     highlight: '4 个关键问题消除模糊假设，避免状态机实现错误导致返工',
     description: '产品经理每周需批量变更需求状态或批量指派负责人，目前只能逐条操作，效率极低',
     project: 'kai-toolbox',
-    module: 'tool-reqpool',
+    module: '需求管理池',
     rawInput: `产品经理每周会对一批需求做统一操作：
 - 将本迭代完成的需求批量标记为 DONE
 - 将下迭代的需求批量指派给同一个开发人员
@@ -88,7 +88,7 @@ export const DEMO_EXAMPLES: DemoExample[] = [
     highlight: '知识图谱确定字段映射，业务逻辑澄清确定重复检测和失败处理规则',
     description: '团队已有大量存量需求分散在 Excel 中，希望一次性导入到需求池，无需逐条手动录入',
     project: 'kai-toolbox',
-    module: 'tool-reqpool',
+    module: '需求管理池',
     rawInput: `我们团队在使用需求管理池之前，已有数百条需求记录存在 Excel 表格中，
 列名包括：需求名称、描述、项目、模块、优先级、负责人、截止日期。
 
