@@ -199,38 +199,64 @@ public class ReqPoolController {
     }
 
     /**
-     * 从 prd_session 表同步已生成的 PRD 到需求管理池。
-     * 读取所有 status='DONE' 且尚未在 req_pool_item 中登记的会话，批量创建 PRD_READY 条目。
-     * 幂等：重复调用只新增缺失条目，不覆盖已有记录。
+     * 从 prd_session 表 Upsert 同步到需求管理池（自动调用，无需手动触发）。
+     *
+     * <ul>
+     *   <li>DONE    → PRD_READY（PRD 已生成）</li>
+     *   <li>CLARIFYING → CLARIFYING（正在澄清中）</li>
+     * </ul>
+     *
+     * <p>新记录：INSERT；已有记录且状态变了：UPDATE（如澄清完成后从 CLARIFYING 升为 PRD_READY）。
+     * 幂等：重复调用安全，只处理有差异的记录。
      */
     @PostMapping("/sync-from-prd")
     public ResponseEntity<Map<String, Object>> syncFromPrd() {
         List<Map<String, Object>> sessions = jdbc.queryForList(
-                "SELECT id, title, project, module FROM prd_session " +
-                "WHERE status = 'DONE' " +
-                "AND id NOT IN (" +
-                "  SELECT prd_session_id FROM req_pool_item WHERE prd_session_id IS NOT NULL" +
-                ")"
+                "SELECT id, title, project, module, status FROM prd_session " +
+                "WHERE status IN ('DONE', 'CLARIFYING')"
         );
 
         long now = System.currentTimeMillis();
+        int created = 0, updated = 0;
+
         for (Map<String, Object> s : sessions) {
-            ReqItem item = ReqItem.builder()
-                    .id(UUID.randomUUID().toString())
-                    .title(String.valueOf(s.getOrDefault("title", "未命名需求")))
-                    .description(null)
-                    .project(s.get("project") != null ? String.valueOf(s.get("project")) : null)
-                    .module(s.get("module") != null ? String.valueOf(s.get("module")) : null)
-                    .priority("MEDIUM")
-                    .status("PRD_READY")
-                    .prdSessionId(String.valueOf(s.get("id")))
-                    .createdAt(now)
-                    .updatedAt(now)
-                    .build();
-            repo.insert(item);
+            String prdId = String.valueOf(s.get("id"));
+            String prdStatus = String.valueOf(s.get("status"));
+            // prd_session 状态映射到 req_pool_item 状态
+            String reqStatus = "DONE".equals(prdStatus) ? "PRD_READY" : "CLARIFYING";
+
+            // 查询是否已有对应条目
+            List<Map<String, Object>> existing = jdbc.queryForList(
+                    "SELECT id, status FROM req_pool_item WHERE prd_session_id = ?", prdId);
+
+            if (existing.isEmpty()) {
+                // 新建
+                ReqItem item = ReqItem.builder()
+                        .id(UUID.randomUUID().toString())
+                        .title(String.valueOf(s.getOrDefault("title", "未命名需求")))
+                        .project(s.get("project") != null ? String.valueOf(s.get("project")) : null)
+                        .module(s.get("module") != null ? String.valueOf(s.get("module")) : null)
+                        .priority("MEDIUM")
+                        .status(reqStatus)
+                        .prdSessionId(prdId)
+                        .createdAt(now)
+                        .updatedAt(now)
+                        .build();
+                repo.insert(item);
+                created++;
+            } else {
+                // 若状态不一致则更新（如 CLARIFYING → PRD_READY）
+                String existingStatus = String.valueOf(existing.get(0).get("status"));
+                if (!reqStatus.equals(existingStatus)) {
+                    String existingId = String.valueOf(existing.get(0).get("id"));
+                    jdbc.update("UPDATE req_pool_item SET status = ?, updated_at = ? WHERE id = ?",
+                            reqStatus, now, existingId);
+                    updated++;
+                }
+            }
         }
 
-        return ResponseEntity.ok(Map.of("imported", sessions.size()));
+        return ResponseEntity.ok(Map.of("created", created, "updated", updated));
     }
 
     private ReqItem buildSeed(String title, String description, String priority, long createdAt) {

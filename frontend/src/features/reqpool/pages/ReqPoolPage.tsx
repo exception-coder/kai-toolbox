@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  BookOpen, Code2, Edit2, Layers, Loader2, Plus, RefreshCw, Search, Trash2, Download,
+  BookOpen, Code2, Edit2, Layers, Loader2, Plus, RefreshCw, Search, Trash2,
 } from 'lucide-react'
 import {
   createItem, deleteItem, listItems, startClarify, syncFromPrd, updateItem,
@@ -201,13 +201,12 @@ export function ReqPoolPage() {
 
   const syncMut = useMutation({
     mutationFn: syncFromPrd,
-    onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ['reqpool'] })
-      if (data.imported === 0) {
-        // 没有新增——可能已经全同步过了
-      }
-    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['reqpool'] }),
   })
+
+  // 页面挂载时自动静默同步（把 prd_session 的最新状态同步到需求管理池）
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { syncMut.mutate() }, [])
 
   const deleteMut = useMutation({
     mutationFn: deleteItem,
@@ -305,18 +304,10 @@ export function ReqPoolPage() {
         </div>
 
         <div className="flex items-center gap-2 ml-auto">
-          {(isFetching || syncMut.isPending) && <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-muted-foreground)]" />}
-          {/* 从 PRD 历史同步：把已生成的 PRD 一键导入需求管理池 */}
-          <button
-            onClick={() => syncMut.mutate()}
-            disabled={syncMut.isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-muted-foreground)] transition-colors"
-            title="将 PRD 澄清助手中已生成的 PRD 同步到需求管理池（幂等，可重复执行）"
-          >
-            <Download className="w-3.5 h-3.5" />
-            {syncMut.isPending ? '同步中…' : '从PRD历史同步'}
-          </button>
-          {/* 写新需求 → 跳转到 PRD澄清助手 */}
+          {/* 自动同步进行中时显示小加载指示 */}
+          {(isFetching || syncMut.isPending) && (
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-muted-foreground)]" />
+          )}
           <button
             onClick={() => navigate('/tools/prd-clarify')}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-[var(--color-primary)] text-white hover:opacity-90"
@@ -332,25 +323,23 @@ export function ReqPoolPage() {
           <div className="flex flex-col items-center justify-center h-full gap-4 text-[var(--color-muted-foreground)]">
             <Layers className="w-12 h-12 opacity-20" />
             <div className="text-center">
-              <p className="font-medium text-[var(--color-foreground)] mb-1">暂无需求记录</p>
-              <p className="text-sm">如果已在 PRD 澄清助手中生成过 PRD，点击「从PRD历史同步」即可导入</p>
+              <p className="font-medium text-[var(--color-foreground)] mb-1">
+                {syncMut.isPending ? '正在同步 PRD 历史…' : '暂无需求记录'}
+              </p>
+              <p className="text-sm">
+                {syncMut.isPending
+                  ? '从 PRD 澄清助手读取已有记录，请稍候'
+                  : '在 PRD 澄清助手中完成需求澄清并生成 PRD 后，会自动在此登记'}
+              </p>
             </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => syncMut.mutate()}
-                disabled={syncMut.isPending}
-                className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-foreground)] transition-colors"
-              >
-                <Download className="w-4 h-4" />
-                {syncMut.isPending ? '同步中…' : '从PRD历史同步'}
-              </button>
+            {!syncMut.isPending && (
               <button
                 onClick={() => navigate('/tools/prd-clarify')}
                 className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-md bg-[var(--color-primary)] text-white hover:opacity-90"
               >
                 <Plus className="w-4 h-4" /> 写新需求
               </button>
-            </div>
+            )}
           </div>
         ) : (
           <table className="w-full text-sm border-collapse">
