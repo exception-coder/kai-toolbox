@@ -50,6 +50,7 @@
         <module>tools/tool-wechat</module>
         <module>tools/tool-welfare-sign</module>
         <module>tools/tool-ops</module>
+        <module>tools/tool-prd-clarify</module>
         <module>toolbox-starter</module>
     </modules>
 
@@ -250,6 +251,11 @@
             <dependency>
                 <groupId>com.exceptioncoder</groupId>
                 <artifactId>tool-ops</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-prd-clarify</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

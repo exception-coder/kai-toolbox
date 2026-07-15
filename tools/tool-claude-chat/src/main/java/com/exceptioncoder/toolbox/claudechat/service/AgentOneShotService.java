@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
+import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -23,7 +24,7 @@ import java.util.function.Consumer;
  */
 @Slf4j
 @Service
-public class AgentOneShotService {
+public class AgentOneShotService implements AgentOneShotRunner {
 
     private static final String PREFIX = "oneshot:";
 

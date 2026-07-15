@@ -144,6 +144,10 @@
             <groupId>com.exceptioncoder</groupId>
             <artifactId>tool-ops</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.exceptioncoder</groupId>
+            <artifactId>tool-prd-clarify</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>

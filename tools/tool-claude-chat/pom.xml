@@ -20,6 +20,11 @@
             <groupId>com.exceptioncoder</groupId>
             <artifactId>toolbox-common</artifactId>
         </dependency>
+        <!-- AgentOneShotRunner 接口定义在 toolbox-llm，AgentOneShotService 实现它 -->
+        <dependency>
+            <groupId>com.exceptioncoder</groupId>
+            <artifactId>toolbox-llm</artifactId>
+        </dependency>
         <!-- 浏览器侧 WS 端点 + Java→Node sidecar 的 WS 客户端都来自这个 starter -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
