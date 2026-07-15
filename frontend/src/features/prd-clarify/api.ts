@@ -1,4 +1,4 @@
-import { http, subscribeSsePost } from '@/lib/api'
+import { http, authFetch, subscribeSsePost } from '@/lib/api'
 import type { SseHandlers } from '@/lib/api'
 import type {
   CreateSessionRequest,
@@ -33,9 +33,29 @@ export const submitAnswers = (id: string, req: SubmitAnswersRequest) =>
     body: JSON.stringify(req),
   })
 
-/** 读取 .md 文件内容（纯文本）。 */
-export const getContent = (id: string) =>
-  http<string>(`${BASE}/sessions/${id}/content`)
+/**
+ * 读取 .md 文件内容。
+ *
+ * 使用 authFetch + res.text() 而非 http() + res.json()，
+ * 兼容后端两种 Content-Type：
+ *   - text/plain（旧行为）：直接读 text
+ *   - application/json（新行为，produces = APPLICATION_JSON_VALUE）：
+ *     读 text 后 JSON.parse 去掉外层引号
+ * 无论后端是否重启，都能正确拿到 Markdown 内容。
+ */
+export const getContent = async (id: string): Promise<string> => {
+  const res = await authFetch(`${BASE}/sessions/${id}/content`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const text = await res.text()
+  if (!text) return ''
+  // 如果后端返回 JSON 字符串格式（带引号），则解析去掉引号；否则直接返回
+  try {
+    const parsed = JSON.parse(text)
+    return typeof parsed === 'string' ? parsed : text
+  } catch {
+    return text
+  }
+}
 
 /** 保存编辑后的 .md 文件。 */
 export const saveContent = (id: string, req: SaveContentRequest) =>
