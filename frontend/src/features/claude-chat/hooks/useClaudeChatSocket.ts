@@ -826,6 +826,16 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
   //
   const autoResumeCountRef = useRef(0)
   // switchToRef 已在上方定义（line ~209），此处直接复用
+
+  /**
+   * 恢复后待重发的用户消息。
+   * - text：原始消息文本
+   * - forSessionId：消息所属的逻辑会话 ID（用于防止跨会话误发）
+   * 在 QUERY_FAILED 检测时写入，在 ready 成功后消费。
+   */
+  // sendRef 已在上方定义（用于 enqueue 消费），此处直接复用
+  const pendingResendRef = useRef<{ text: string; forSessionId: string } | null>(null)
+
   useEffect(() => {
     const last = items[items.length - 1]
     if (last?.kind !== 'error') {
@@ -838,6 +848,16 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     if (count >= 3) return // 三阶段都失败，留给用户手动决策
     autoResumeCountRef.current += 1
 
+    // 捕获最后一条未被响应的用户消息，供恢复后重发
+    if (count === 0) {
+      // 只在首次触发时记录，避免多次 QUERY_FAILED 叠加导致重发错误消息
+      const lastUser = [...items].reverse().find(i => i.kind === 'user')
+      const forSid = sessionIdRef.current ?? ''
+      if (lastUser?.kind === 'user' && lastUser.text?.trim() && forSid) {
+        pendingResendRef.current = { text: lastUser.text, forSessionId: forSid }
+      }
+    }
+
     const timer = setTimeout(() => {
       if (count < 2) {
         // Phase 1：resumeCurrent（快路径，直接内存 re-attach）
@@ -848,13 +868,30 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
         const sid = sessionIdRef.current
         if (sid) {
           console.info('[claude-chat] 自动恢复 Phase 2：switchTo 降级，从 transcript 重建会话')
-          setItems(prev => { const last = prev[prev.length - 1]; return last?.kind === 'error' ? prev.slice(0, -1) : prev })
+          setItems(prev => { const l = prev[prev.length - 1]; return l?.kind === 'error' ? prev.slice(0, -1) : prev })
           switchToRef.current(sid)
         }
       }
     }, 700)
     return () => clearTimeout(timer)
   }, [items, resumeCurrent])
+
+  // ── 恢复后自动重发未处理的用户消息 ─────────────────────────────────────────
+  // sessionId 变化（ready 事件后更新）表示会话已成功恢复。
+  // 如果此时 pendingResendRef 有值且 forSessionId 与当前 sessionId 一致，
+  // 延迟 400ms（等 ready 事件完全 settle）后重发该消息。
+  useEffect(() => {
+    if (!sessionId) return
+    const pending = pendingResendRef.current
+    if (!pending) return
+    pendingResendRef.current = null // 先清除，防止重复触发
+    if (pending.forSessionId !== sessionId) return // 跨会话保护：forSessionId 不匹配则丢弃
+    const timer = setTimeout(() => {
+      console.info('[claude-chat] 会话恢复后重发未处理消息:', pending.text.slice(0, 40))
+      sendRef.current(pending.text)
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [sessionId])
   // ──────────────────────────────────────────────────────────────────────────
 
   return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, skills, agents, mcpServers, outputStyle, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, open, switchTo, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setModel, refreshModels, setCodexOptions, switchEngine, switchProvider, forkSession, historyLoading, historyExhausted, loadHistory }
