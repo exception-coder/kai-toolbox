@@ -88,11 +88,19 @@ public class AgentOneShotService implements AgentOneShotRunner {
                         try {
                             call.onDelta.accept(text);
                         } catch (Exception e) {
-                            // onDelta 抛异常（通常是 SSE 客户端已断连）：
-                            // 立即取消等待，释放虚拟线程。sidecar 侧任务仍在跑但结果会被丢弃。
-                            log.debug("[agent-oneshot] onDelta 异常，取消任务 {}：{}", requestId, e.getMessage());
+                            // onDelta 抛异常（通常是 SSE 客户端断连）：
+                            // 1. completeExceptionally 让 future.get() 立即解除阻塞，释放虚拟线程
+                            // 2. sidecar.interrupt(requestId) 通知 sidecar 中止 Claude Agent 推理
+                            //    sidecar 收到后调 session.interrupt() → AbortController.abort()，
+                            //    真正停止 LLM token 生成，避免空跑浪费资源
+                            log.debug("[agent-oneshot] onDelta 异常，取消任务 {} 并通知 sidecar 中断", requestId);
                             call.future.completeExceptionally(e);
                             calls.remove(requestId);
+                            try {
+                                sidecar.interrupt(requestId);
+                            } catch (Exception ignored) {
+                                // sidecar 断连时 interrupt 失败可忽略，任务会在 300s 超时后自然结束
+                            }
                         }
                     }
                 }

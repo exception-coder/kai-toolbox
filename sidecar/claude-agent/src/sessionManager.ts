@@ -743,8 +743,15 @@ export class SessionManager {
     if (model) s.model = model
     s.permissionMode = 'bypassPermissions'
     s.perms.setMode('bypassPermissions')
-    // 角色说明走 SDK 独立 systemPrompt 通道，user 只放任务+原文；仅影响这次一次性 query。
-    await s.runTurn(userPrompt, systemPrompt)
+    // 注册到 sessions map，使 interrupt(id) 能通过标准路径找到并中断 AbortController。
+    // finally 保证不论成功/失败/中断都清理，不留僵尸 Session。
+    this.sessions.set(id, s)
+    try {
+      // 角色说明走 SDK 独立 systemPrompt 通道，user 只放任务+原文；仅影响这次一次性 query。
+      await s.runTurn(userPrompt, systemPrompt)
+    } finally {
+      this.sessions.delete(id)
+    }
   }
 }
 
