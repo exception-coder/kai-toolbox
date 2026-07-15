@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { BotMessageSquare, ChevronRight, Code2, Copy, ExternalLink, FileText, Loader2, Plus, Rocket, Send, Trash2, User, X } from 'lucide-react'
+import { BotMessageSquare, ChevronRight, Code2, Copy, ExternalLink, FileText, Layers, Loader2, Plus, Rocket, Send, Trash2, User, X } from 'lucide-react'
 import { http } from '@/lib/api'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -959,6 +959,7 @@ function EditingPanel({
 
 // ───── 主页面 ─────
 export function PrdClarifyPage() {
+  const navigate = useNavigate()
   const qc = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const [step, setStep] = useState<PrdStep>('INPUT')
@@ -974,6 +975,10 @@ export function PrdClarifyPage() {
   const prdAccRef = useRef('')
   // 从 ChattingPanel 拿到的完整 QA history，用于 generate 时读取
   const qaHistoryRef = useRef<QaPair[]>([])
+  // 来自需求管理池时，记录来源标题，用于顶部上下文条
+  const [reqContextTitle, setReqContextTitle] = useState<string | null>(null)
+  // 防止自动启动多次执行
+  const autoStartedRef = useRef(false)
 
   // 读取 URL 参数
   const urlTitle = searchParams.get('title') ?? ''
@@ -984,6 +989,29 @@ export function PrdClarifyPage() {
   const urlReqItemId = searchParams.get('reqItemId') ?? ''
   /** 直接查看某个历史 PRD 会话（来自需求管理池「查看PRD」按钮） */
   const urlViewSession = searchParams.get('viewSession') ?? ''
+
+  // 来自需求管理池（有 reqItemId + 内容）：自动建会话、跳过 INPUT 直接开始澄清
+  // 用 ref 保证只执行一次，不因其他 state 变化重触
+  useEffect(() => {
+    if (autoStartedRef.current) return
+    if (!urlReqItemId || !urlTitle || !urlRawInput) return
+    autoStartedRef.current = true
+    setReqContextTitle(urlTitle)
+    // 直接调 handleStart，createMut 是稳定的 TanStack Query mutation
+    createMut.mutateAsync({ title: urlTitle, rawInput: urlRawInput, project: urlProject, module: urlModule, role: 'PRODUCT' })
+      .then((created) => {
+        setSessionId(created.id)
+        setSessionTitle(urlTitle)
+        setSearchParams({}, { replace: true })
+        qc.invalidateQueries({ queryKey: ['prd-sessions'] })
+        setStep('CHATTING')
+      })
+      .catch(() => {
+        autoStartedRef.current = false  // 创建失败可重试
+        setErrorMsg('会话创建失败，请重试')
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])  // 只在 mount 时执行一次
 
   // viewSession 参数：直接拉取会话内容并跳转到编辑器
   useEffect(() => {
@@ -1040,6 +1068,8 @@ export function PrdClarifyPage() {
     setPrdContent('')
     setErrorMsg(null)
     setGenerationFailed(false)
+    setReqContextTitle(null)
+    autoStartedRef.current = false
   }
 
   /** Step INPUT → 创建会话 → 进入多轮对话澄清 */
@@ -1175,6 +1205,20 @@ export function PrdClarifyPage() {
           questions={clarifyQuestions}
           onClose={() => setShowClarifyHistory(false)}
         />
+      )}
+
+      {/* 来自需求管理池的上下文条 */}
+      {reqContextTitle && step !== 'INPUT' && (
+        <div className="flex items-center gap-2 px-5 py-1.5 bg-[var(--color-primary)]/8 border-b border-[var(--color-primary)]/15 text-xs text-[var(--color-primary)]">
+          <Layers className="w-3 h-3 flex-shrink-0" />
+          <span>来自需求管理池：<strong>{reqContextTitle}</strong></span>
+          <button
+            onClick={() => navigate('/tools/reqpool')}
+            className="ml-auto underline opacity-70 hover:opacity-100"
+          >
+            返回需求池
+          </button>
+        </div>
       )}
 
       {/* 错误提示 */}
