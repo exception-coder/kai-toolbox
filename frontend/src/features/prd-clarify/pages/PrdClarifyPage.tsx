@@ -189,6 +189,26 @@ const QUICK_TEMPLATES = [
   },
 ]
 
+// ───── 角色配置 ─────
+const ROLE_CONFIG = {
+  PRODUCT: {
+    label: '产品 / 开发',
+    badge: '专业模式',
+    desc: '会问设计细节、技术约束、边界条件',
+    placeholder: '描述需求的背景、期望功能、约束条件等，越详细越好。Claude 会根据你的描述提出专业的澄清问题。',
+    color: 'text-blue-500',
+    bg: 'bg-blue-500/10 border-blue-500/30',
+  },
+  BUSINESS: {
+    label: '业务员',
+    badge: '业务模式',
+    desc: '只问影响业务结果的关键问题，跳过技术/界面细节',
+    placeholder: '用你自己的语言描述：你在工作中遇到了什么问题？你希望系统能帮你做什么？不用担心技术细节，写清楚业务场景就好。',
+    color: 'text-green-500',
+    bg: 'bg-green-500/10 border-green-500/30',
+  },
+} as const
+
 // ───── 表单（Step INPUT） ─────
 function InputPanel({
   onStart,
@@ -197,7 +217,7 @@ function InputPanel({
   initialProject = '',
   initialModule = '',
 }: {
-  onStart: (title: string, rawInput: string, project: string, module: string) => void
+  onStart: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS') => void
   initialTitle?: string
   initialRawInput?: string
   initialProject?: string
@@ -207,6 +227,7 @@ function InputPanel({
   const [rawInput, setRawInput] = useState(initialRawInput)
   const [project, setProject] = useState(initialProject)
   const [module, setModule] = useState(initialModule)
+  const [role, setRole] = useState<'PRODUCT' | 'BUSINESS'>('PRODUCT')
 
   // 当外部初始值变化时（如从 showcase 跳转带参数）同步更新
   useEffect(() => { if (initialTitle) setTitle(initialTitle) }, [initialTitle])
@@ -241,6 +262,41 @@ function InputPanel({
   return (
     <div className="flex-1 p-6 overflow-y-auto">
       <div className="max-w-2xl mx-auto space-y-5">
+        {/* 角色切换：决定 Claude 澄清的问题深度和语言风格 */}
+        <div>
+          <label className="block text-xs font-medium text-[var(--color-muted-foreground)] mb-2">你是谁？（决定 Claude 如何提问）</label>
+          <div className="grid grid-cols-2 gap-2">
+            {(['PRODUCT', 'BUSINESS'] as const).map((r) => {
+              const cfg = ROLE_CONFIG[r]
+              const active = role === r
+              return (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setRole(r)}
+                  className={`rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                    active ? cfg.bg : 'border-[var(--color-border)] hover:bg-[var(--color-muted)]/30'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className={`text-sm font-semibold ${active ? cfg.color : 'text-[var(--color-foreground)]'}`}>
+                      {cfg.label}
+                    </span>
+                    {active && (
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${cfg.bg} ${cfg.color}`}>
+                        {cfg.badge}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-[var(--color-muted-foreground)] leading-relaxed">
+                    {cfg.desc}
+                  </p>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
         {/* 快速示例（标题和 rawInput 都为空时才展示，避免干扰已输入的内容） */}
         {!title.trim() && !rawInput.trim() && (
           <div>
@@ -322,17 +378,17 @@ function InputPanel({
             value={rawInput}
             onChange={(e) => setRawInput(e.target.value)}
             rows={8}
-            placeholder="详细描述你的产品需求，越具体越好。Claude 会基于此生成澄清问题。"
+            placeholder={ROLE_CONFIG[role].placeholder}
             className="w-full px-3 py-2 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] text-sm resize-y focus:outline-none focus:ring-1 focus:ring-[var(--color-ring)]"
           />
         </div>
 
         <button
           disabled={!canSubmit}
-          onClick={() => onStart(title.trim(), rawInput.trim(), project, module)}
+          onClick={() => onStart(title.trim(), rawInput.trim(), project, module, role)}
           className="w-full py-2.5 rounded-md bg-[var(--color-primary)] text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
         >
-          开始需求澄清
+          {role === 'BUSINESS' ? '开始描述我的业务需求' : '开始需求澄清'}
         </button>
       </div>
     </div>
@@ -453,10 +509,10 @@ function ChattingPanel({
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      {/* 进度条 */}
+      {/* 进度条 + 角色提示 */}
       <div className="flex items-center gap-3 px-5 py-2 border-b border-[var(--color-border)] bg-[var(--color-card)]">
         <span className="text-xs text-[var(--color-muted-foreground)]">
-          澄清进度：{history.length} / {maxRounds} 题
+          AI 渐进澄清：{history.length} / {maxRounds} 题
         </span>
         <div className="flex-1 h-1.5 rounded-full bg-[var(--color-muted)]">
           <div
@@ -856,11 +912,11 @@ export function PrdClarifyPage() {
   }
 
   /** Step INPUT → 创建会话 → 进入多轮对话澄清 */
-  const handleStart = async (title: string, rawInput: string, project: string, module: string) => {
+  const handleStart = async (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS' = 'PRODUCT') => {
     setErrorMsg(null)
     setSessionTitle(title)
     setSearchParams({}, { replace: true })
-    const created = await createMut.mutateAsync({ title, rawInput, project, module })
+    const created = await createMut.mutateAsync({ title, rawInput, project, module, role })
     setSessionId(created.id)
     setStreamText('')
     qc.invalidateQueries({ queryKey: ['prd-sessions'] })

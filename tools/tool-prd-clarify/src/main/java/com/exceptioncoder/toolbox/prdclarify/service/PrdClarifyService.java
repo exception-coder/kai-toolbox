@@ -34,24 +34,46 @@ import java.util.UUID;
 @Service
 public class PrdClarifyService {
 
-    // ───── 多轮渐进式澄清 System Prompt ─────
+    // ───── 多轮渐进式澄清 System Prompt（按角色区分） ─────
 
     /**
-     * 多轮渐进式澄清：每次只提一个问题，基于历史回答动态追问。
-     * 当信息足够时输出 [CLARIFICATION_COMPLETE]。
+     * 产品经理/开发者角色：可以问设计细节、技术约束、边界条件，问题专业、全面。
      */
-    private static final String ASK_SYSTEM = """
-            你是一名资深产品经理，正在与用户进行需求澄清对话。
+    private static final String ASK_SYSTEM_PRODUCT = """
+            你是一名资深产品经理，正在与产品团队进行需求澄清对话。
 
-            你的任务：通过逐步提问帮助用户将模糊需求转化为可落地的产品要求，为后续 PRD 编写做准备。
+            你的目标是通过提问将模糊需求转化为可编写完整 PRD 的清晰要求。
 
-            严格规则（违反则输出无效）：
-            - 每次只输出 1 个问题，是当前最关键、最优先的澄清点
-            - 问题要简洁具体，用户可直接回答（不超过 50 字）
-            - 问题之间要有关联，基于用户上一个回答进行深挖或转移方向
-            - 最多进行 5 轮问答，若已有足够信息请提前结束
-            - 如果认为信息已经足够编写完整 PRD，直接输出一行：[CLARIFICATION_COMPLETE]
-            - 输出时不加序号、前缀、解释或任何装饰，只输出问题本身（或 [CLARIFICATION_COMPLETE]）
+            严格规则：
+            - 每次只提出 1 个问题，选择当前最关键、影响 PRD 完整性最大的
+            - 可以问（根据需求灵活选择）：业务目标、目标用户、功能边界（MVP范围）、
+              用户交互流程、界面设计细节、边界条件与异常处理、技术约束、性能安全要求、集成点
+            - 问题专业简洁，不超过 50 字，对方能直接回答
+            - 基于上一个回答动态追问或转换方向
+            - 最多 5 轮，信息足够时立即输出：[CLARIFICATION_COMPLETE]
+            - 只输出问题本身（或 [CLARIFICATION_COMPLETE]），不加序号、前缀或任何解释
+            """;
+
+    /**
+     * 业务员角色：只问影响业务结果的关键问题，跳过纯 UI/技术细节，语言通俗易懂。
+     * 例外：若界面设计直接决定业务流程（如"审批人能否在同一页看到所有待审项"），可以问。
+     */
+    private static final String ASK_SYSTEM_BUSINESS = """
+            你是一名经验丰富的业务需求收集专家，正在帮助一位业务人员（非技术背景）整理业务需求。
+
+            你的目标是通过简短对话，理解需求背后的业务价值、使用场景和关键业务规则。
+
+            严格规则：
+            - 每次只问 1 个问题，必须聚焦业务本质
+            - 可以问：业务目标（解决什么实际问题）、使用场景（谁在什么时候用）、
+              关键数据（需要看到或填写哪些信息）、业务规则（有什么特殊情况或例外）、
+              验收标准（做到什么程度才算满足需求）
+            - 不要问：界面颜色/布局/图标等纯视觉设计、数据库/接口/技术方案、
+              框架选型、任何需要技术背景才能回答的问题
+            - 例外：若界面设计直接影响业务流程（如"提交后需要立刻在当前页看到结果吗？"），可以问
+            - 语言通俗易懂，像和同事聊天一样，避免技术术语
+            - 最多 5 轮，信息足够时立即输出：[CLARIFICATION_COMPLETE]
+            - 只输出问题本身（或 [CLARIFICATION_COMPLETE]），不加序号或解释
             """;
 
     // ───── Claude Prompts ─────
@@ -112,8 +134,9 @@ public class PrdClarifyService {
 
     /** 创建会话并持久化，返回新建的会话对象。 */
     public PrdSession createSession(String title, String rawInput,
-                                    String project, String module, String model) {
+                                    String project, String module, String model, String role) {
         long now = System.currentTimeMillis();
+        String effectiveRole = (role != null && "BUSINESS".equalsIgnoreCase(role)) ? "BUSINESS" : "PRODUCT";
         PrdSession session = PrdSession.builder()
                 .id(UUID.randomUUID().toString())
                 .title(title)
@@ -121,6 +144,7 @@ public class PrdClarifyService {
                 .project(project)
                 .module(module)
                 .model(model)
+                .role(effectiveRole)
                 .status("CLARIFYING")
                 .createdAt(now)
                 .updatedAt(now)
@@ -217,10 +241,14 @@ public class PrdClarifyService {
         PrdSession session = repo.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
 
+        // 根据会话角色选择对应的澄清提示词
+        String askSystem = "BUSINESS".equals(session.getRole())
+                ? ASK_SYSTEM_BUSINESS : ASK_SYSTEM_PRODUCT;
+
         Thread.ofVirtual().name("prd-ask-").start(() -> {
             try {
                 agentRunner.stream(
-                        ASK_SYSTEM,
+                        askSystem,
                         buildAskUserPrompt(session, questionIndex, history),
                         session.getModel(),
                         delta -> sendChunk(emitter, delta));

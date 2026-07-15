@@ -22,6 +22,7 @@ public class PrdSessionRepository {
             .rawInput(rs.getString("raw_input"))
             .questions(rs.getString("questions"))
             .status(rs.getString("status"))
+            .role(rs.getString("role"))
             .mdPath(rs.getString("md_path"))
             .model(rs.getString("model"))
             .errorMsg(rs.getString("error_msg"))
@@ -37,10 +38,10 @@ public class PrdSessionRepository {
 
     public void insert(PrdSession s) {
         jdbc.update(
-                "INSERT INTO prd_session (id, title, project, module, raw_input, questions, status, md_path, model, error_msg, created_at, updated_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO prd_session (id, title, project, module, raw_input, questions, status, role, md_path, model, error_msg, created_at, updated_at) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 s.getId(), s.getTitle(), s.getProject(), s.getModule(),
-                s.getRawInput(), s.getQuestions(), s.getStatus(),
+                s.getRawInput(), s.getQuestions(), s.getStatus(), s.getRole(),
                 s.getMdPath(), s.getModel(), s.getErrorMsg(),
                 s.getCreatedAt(), s.getUpdatedAt());
     }

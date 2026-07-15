@@ -29,6 +29,7 @@ public record PrdSessionView(
         String project,
         String module,
         String status,
+        String role,
         List<QuestionItem> questions,
         String mdPath,
         String errorMsg,
@@ -43,7 +44,8 @@ public record PrdSessionView(
     public static PrdSessionView from(PrdSession s) {
         return new PrdSessionView(
                 s.getId(), s.getTitle(), s.getProject(), s.getModule(),
-                s.getStatus(), parseQuestions(s.getQuestions()),
+                s.getStatus(), s.getRole() != null ? s.getRole() : "PRODUCT",
+                parseQuestions(s.getQuestions()),
                 s.getMdPath(), s.getErrorMsg(), s.getCreatedAt(), s.getUpdatedAt());
     }
 

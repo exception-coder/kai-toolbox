@@ -60,7 +60,7 @@ public class PrdClarifyController {
     @PostMapping("/sessions")
     public PrdSessionView create(@Valid @RequestBody CreateSessionRequest req) {
         PrdSession session = service.createSession(
-                req.title(), req.rawInput(), req.project(), req.module(), req.model());
+                req.title(), req.rawInput(), req.project(), req.module(), req.model(), req.role());
         return PrdSessionView.from(session);
     }
 

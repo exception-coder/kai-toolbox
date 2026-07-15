@@ -27,6 +27,7 @@ export interface CreateSessionRequest {
   project?: string
   module?: string
   model?: string
+  role?: PrdRole
 }
 
 export interface SubmitAnswersRequest {
@@ -36,6 +37,9 @@ export interface SubmitAnswersRequest {
 export interface SaveContentRequest {
   content: string
 }
+
+/** 提需求方角色，决定 Claude 澄清问题的深度和语言风格 */
+export type PrdRole = 'PRODUCT' | 'BUSINESS'
 
 /** 前端页面内部的步骤状态机 */
 export type PrdStep =

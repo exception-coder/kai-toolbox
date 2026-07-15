@@ -26,6 +26,8 @@ public class PrdSession {
     private String status;
     private String mdPath;
     private String model;
+    /** 提需求方角色：PRODUCT（产品/开发）| BUSINESS（业务员）。决定澄清问题的深度和语言风格。 */
+    private String role;
     private String errorMsg;
     private long createdAt;
     private long updatedAt;
