@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, Bug, ChevronDown, Cloud, FileText, FlaskConical, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, List, ListChecks, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
+import { Bell, Bug, ChevronDown, ClipboardCheck, Cloud, FileText, FlaskConical, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, List, ListChecks, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useChatRuntime } from '../runtime/ChatRuntimeContext'
@@ -55,6 +55,24 @@ const MAX_ATTACHMENTS = 10
  * 发送后由 isVerifyTurnRef 标记为"核对轮"，该轮结束后不再追问，避免死循环。
  */
 const AUTO_VERIFY_PROMPT = '[自动核对] 请快速复查你刚才的技术判断（重点：文件/目录是否存在、项目类型识别、命令是否适用当前环境等）。如有错误直接纠正；若无误，一句话确认即可，不需要展开解释。'
+
+/**
+ * 需求评审模式的前置 prompt 模板。
+ * 发送前注入到用户消息最前面，让 AI 先做可行性/价值/风险分析，再决定实施。
+ * 格式说明放在最前，需求原文在最后，避免 AI 忽略分析直接实施。
+ */
+const REQ_REVIEW_PREFIX = `[需求评审] 在处理下面的需求前，请先完成评审（简洁格式即可）：
+
+**① 可行性**：技术上是否可实现？当前架构/技术栈是否支持？
+**② 价值**：解决什么问题？是否与现有功能重复或冲突？
+**③ 风险**：安全/性能/破坏性风险？
+**④ 结论**：
+- ✅ 建议实施（直接开始）
+- ⚠️ 有条件实施（说明需调整什么再开始）
+- ❌ 建议拒绝（仅明显无意义/高风险才用，必须说明原因）
+
+待评审的需求：
+`
 
 /** 输入框草稿按会话持久化：{ [sessionId]: 文本 }。切会话/刷新都各自保留，互不串扰。 */
 const DRAFTS_KEY = 'kai-toolbox:claude-chat:drafts'
@@ -223,6 +241,18 @@ export function ChatPage() {
       const nv = !v
       if (!nv) isVerifyTurnRef.current = false // 关闭时立即重置，避免残留状态
       localStorage.setItem('kai-toolbox:auto-verify', nv ? '1' : '0')
+      return nv
+    })
+  }
+
+  // ── 需求评审模式 ──────────────────────────────────────────────────────────
+  // 发送前预处理：在用户消息最前面注入 REQ_REVIEW_PREFIX，让 AI 先做可行性/价值/风险评审。
+  // 与自动核对的区别：核对是"发送后追问"；评审是"发送前注入"，AI 在同一轮就完成分析。
+  const [reqReview, setReqReview] = useState(() => localStorage.getItem('kai-toolbox:req-review') === '1')
+  const toggleReqReview = () => {
+    setReqReview(v => {
+      const nv = !v
+      localStorage.setItem('kai-toolbox:req-review', nv ? '1' : '0')
       return nv
     })
   }
@@ -526,12 +556,14 @@ export function ChatPage() {
     ensureNotifyPermission() // 借发送这个手势兜底申请一次通知权限
 
     const atts = attachments.map(a => ({ name: a.name, path: a.path, mime: a.mime, url: a.previewUrl }))
+    // 需求评审模式：在消息前注入分析指令，让 AI 先评审再决定是否实施
+    const text = reqReview && draft.trim() ? `${REQ_REVIEW_PREFIX}${draft.trim()}` : draft
     // 正在回答中 → 入待发送队列，本轮结束后自动按序发；否则立即发
     if (chat.running) {
-      chat.enqueue(draft, atts)
+      chat.enqueue(text, atts)
     } else {
       // 图片把本地 previewUrl 一并带上 → 气泡里显示缩略图（object URL 不在此 revoke，已被消息引用）
-      chat.send(draft, atts)
+      chat.send(text, atts)
     }
     setDraft('')
     setAttachments([])
@@ -1168,6 +1200,19 @@ export function ChatPage() {
                 <ShieldCheck className="size-3.5" /> 弹窗自动允许·{autoApprove ? '开' : '关'}
               </button>
             )}
+            {/* 需求评审：发送前在消息前面注入分析指令，AI 先评审可行性/价值/风险，再决定实施 */}
+            <button
+              type="button"
+              onClick={toggleReqReview}
+              title={`需求评审模式：开启后发送的消息会自动注入评审指令，AI 先分析可行性、价值、风险，${'\n'}给出「建议实施 / 有条件实施 / 拒绝」结论，再决定是否开始做。适合提出新需求前使用。`}
+              aria-label="需求评审开关"
+              className={'flex items-center gap-1 rounded-md border px-2 py-1 text-xs '
+                + (reqReview
+                  ? 'border-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-950 dark:text-violet-300'
+                  : 'text-[var(--color-muted-foreground)]')}
+            >
+              <ClipboardCheck className="size-3.5" /> 需求评审·{reqReview ? '开' : '关'}
+            </button>
             {/* 自动核对：每轮回答结束后追问一次，AI 自检后停止，不循环 */}
             <button
               type="button"
