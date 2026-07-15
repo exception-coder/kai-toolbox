@@ -2,6 +2,9 @@
 
 export type PrdSessionStatus = 'CLARIFYING' | 'GENERATING' | 'DONE' | 'ERROR'
 
+/** 提需求方角色，决定 Claude 澄清问题的深度和语言风格 */
+export type PrdRole = 'PRODUCT' | 'BUSINESS'
+
 export interface QuestionItem {
   id: number
   question: string
@@ -14,6 +17,7 @@ export interface PrdSessionView {
   project: string | null
   module: string | null
   status: PrdSessionStatus
+  role: PrdRole
   questions: QuestionItem[]
   mdPath: string | null
   errorMsg: string | null
@@ -37,9 +41,6 @@ export interface SubmitAnswersRequest {
 export interface SaveContentRequest {
   content: string
 }
-
-/** 提需求方角色，决定 Claude 澄清问题的深度和语言风格 */
-export type PrdRole = 'PRODUCT' | 'BUSINESS'
 
 /** 前端页面内部的步骤状态机 */
 export type PrdStep =
