@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ChevronRight, Copy, FileText, Loader2, Plus, Trash2 } from 'lucide-react'
+import { useSearchParams, useNavigate } from 'react-router-dom'
+import { ChevronRight, Code2, Copy, ExternalLink, FileText, Loader2, Plus, Rocket, Trash2, X } from 'lucide-react'
 import { http } from '@/lib/api'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -135,16 +136,37 @@ function HistoryPanel({
   )
 }
 
+// ───── 快捷示例模板（展示用） ─────
+const QUICK_TEMPLATES = [
+  { label: '简历评分', title: '简历完整度评分功能', hint: '知识图谱示例' },
+  { label: 'PDF 导出', title: '简历一键导出 PDF', hint: '业务逻辑澄清示例' },
+  { label: '投递追踪', title: '简历投递追踪功能', hint: '综合示例' },
+]
+
 // ───── 表单（Step INPUT） ─────
 function InputPanel({
   onStart,
+  initialTitle = '',
+  initialRawInput = '',
+  initialProject = '',
+  initialModule = '',
 }: {
   onStart: (title: string, rawInput: string, project: string, module: string) => void
+  initialTitle?: string
+  initialRawInput?: string
+  initialProject?: string
+  initialModule?: string
 }) {
-  const [title, setTitle] = useState('')
-  const [rawInput, setRawInput] = useState('')
-  const [project, setProject] = useState('')
-  const [module, setModule] = useState('')
+  const [title, setTitle] = useState(initialTitle)
+  const [rawInput, setRawInput] = useState(initialRawInput)
+  const [project, setProject] = useState(initialProject)
+  const [module, setModule] = useState(initialModule)
+
+  // 当外部初始值变化时（如从 showcase 跳转带参数）同步更新
+  useEffect(() => { if (initialTitle) setTitle(initialTitle) }, [initialTitle])
+  useEffect(() => { if (initialRawInput) setRawInput(initialRawInput) }, [initialRawInput])
+  useEffect(() => { if (initialProject) setProject(initialProject) }, [initialProject])
+  useEffect(() => { if (initialModule) setModule(initialModule) }, [initialModule])
 
   // 拉取项目列表（统一走 http()，确保 token 续期逻辑生效）
   const { data: projectsData } = useQuery({
@@ -173,6 +195,28 @@ function InputPanel({
   return (
     <div className="flex-1 p-6 overflow-y-auto">
       <div className="max-w-2xl mx-auto space-y-5">
+        {/* 快速示例（仅当表单为空时展示，方便演示） */}
+        {!title && !rawInput && (
+          <div>
+            <div className="text-xs text-[var(--color-muted-foreground)] mb-2 flex items-center gap-1.5">
+              <FileText className="w-3 h-3" />
+              演示示例（一键加载）
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              {QUICK_TEMPLATES.map((t) => (
+                <button
+                  key={t.label}
+                  onClick={() => setTitle(t.title)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full border border-[var(--color-border)] hover:border-[var(--color-ring)] bg-[var(--color-muted)]/30 text-[var(--color-foreground)] transition-colors"
+                >
+                  {t.label}
+                  <span className="text-[var(--color-muted-foreground)]">· {t.hint}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div>
           <label className="block text-sm font-medium mb-1">需求标题 <span className="text-red-500">*</span></label>
           <input
@@ -307,13 +351,111 @@ function AnsweringPanel({
   )
 }
 
+// ───── 开发提示词 Dialog ─────
+function StartDevDialog({
+  title,
+  content,
+  onClose,
+}: {
+  title: string
+  content: string
+  onClose: () => void
+}) {
+  const navigate = useNavigate()
+  const [copied, setCopied] = useState(false)
+
+  const devPrompt = `你是一位经验丰富的软件工程师。请根据以下 PRD 进行功能开发：
+
+---
+
+${content}
+
+---
+
+请先：
+1. 仔细阅读 PRD，理解需求边界和验收标准
+2. 分析现有代码库结构，找到相关模块和接口
+3. 制定实现方案并告诉我（涉及的文件、新增 API、数据库变更）
+4. 按优先级逐步实现功能
+
+准备好后请先输出实现计划，再开始写代码。`
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(devPrompt)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleGotoWorkbench = () => {
+    handleCopy()
+    navigate('/tools/claude-chat')
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+      <div className="w-full max-w-2xl max-h-[80vh] flex flex-col rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl">
+        {/* 头部 */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
+          <div className="flex items-center gap-2">
+            <Rocket className="w-4 h-4 text-[var(--color-primary)]" />
+            <span className="font-semibold text-sm">开始开发 — {title}</span>
+          </div>
+          <button onClick={onClose} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* 说明 */}
+        <div className="px-5 py-3 bg-blue-500/5 border-b border-[var(--color-border)]">
+          <p className="text-xs text-[var(--color-muted-foreground)] leading-relaxed">
+            以下是基于 PRD 自动生成的开发提示词。复制后在
+            <strong className="text-[var(--color-foreground)] mx-1">Vibe Coding 工作台</strong>
+            选择项目目录，粘贴为第一条消息，Claude 会自动分析代码库并制定实现方案。
+          </p>
+        </div>
+
+        {/* 提示词内容 */}
+        <div className="flex-1 overflow-y-auto p-5">
+          <pre className="text-xs font-mono text-[var(--color-muted-foreground)] whitespace-pre-wrap leading-relaxed bg-[var(--color-muted)]/30 rounded-lg p-4">
+            {devPrompt}
+          </pre>
+        </div>
+
+        {/* 操作按钮 */}
+        <div className="flex items-center gap-3 px-5 py-4 border-t border-[var(--color-border)]">
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-foreground)] transition-colors"
+          >
+            <Copy className="w-3.5 h-3.5" />
+            {copied ? '已复制！' : '复制提示词'}
+          </button>
+          <button
+            onClick={handleGotoWorkbench}
+            className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-[var(--color-primary)] text-white hover:opacity-90 transition-opacity font-medium"
+          >
+            <Code2 className="w-3.5 h-3.5" />
+            复制并打开工作台
+            <ExternalLink className="w-3 h-3 opacity-70" />
+          </button>
+          <span className="text-xs text-[var(--color-muted-foreground)] ml-auto">
+            在工作台粘贴即可开始开发
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ───── 编辑器面板（Step EDITING） ─────
 function EditingPanel({
   sessionId,
+  sessionTitle,
   initialContent,
   onReset,
 }: {
   sessionId: string
+  sessionTitle: string
   initialContent: string
   onReset: () => void
 }) {
@@ -321,6 +463,7 @@ function EditingPanel({
   const [isDirty, setIsDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [viewMode, setViewMode] = useState<'split' | 'edit' | 'preview'>('split')
+  const [showDevDialog, setShowDevDialog] = useState(false)
 
   const handleChange = (next: string) => {
     setContent(next)
@@ -343,6 +486,15 @@ function EditingPanel({
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
+      {/* 开发提示词 Dialog */}
+      {showDevDialog && (
+        <StartDevDialog
+          title={sessionTitle}
+          content={content}
+          onClose={() => setShowDevDialog(false)}
+        />
+      )}
+
       {/* 工具栏 */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--color-border)] bg-[var(--color-card)] gap-2">
         <div className="flex items-center gap-1 text-xs">
@@ -361,6 +513,15 @@ function EditingPanel({
           ))}
         </div>
         <div className="flex items-center gap-2">
+          {/* 核心功能按钮：开始开发 */}
+          <button
+            onClick={() => setShowDevDialog(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-green-600/20 border border-green-500/30 text-green-400 hover:bg-green-600/30 hover:text-green-300 font-medium transition-colors"
+          >
+            <Rocket className="w-3.5 h-3.5" />
+            开始开发
+          </button>
+          <div className="w-px h-4 bg-[var(--color-border)]" />
           <button
             onClick={onReset}
             className="flex items-center gap-1 px-2.5 py-1 text-xs rounded border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-muted-foreground)]"
@@ -411,14 +572,22 @@ function EditingPanel({
 // ───── 主页面 ─────
 export function PrdClarifyPage() {
   const qc = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [step, setStep] = useState<PrdStep>('INPUT')
   const [sessionId, setSessionId] = useState<string | null>(null)
+  const [sessionTitle, setSessionTitle] = useState('')
   const [streamText, setStreamText] = useState('')
   const [prdContent, setPrdContent] = useState('')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const abortRef = useRef<(() => void) | null>(null)
   // GENERATING 阶段用 ref 积累 PRD 内容（不触发渲染），done 时一次性赋值 prdContent
   const prdAccRef = useRef('')
+
+  // 读取 URL 参数（来自 showcase 演示页的跳转）
+  const urlTitle = searchParams.get('title') ?? ''
+  const urlRawInput = searchParams.get('rawInput') ?? ''
+  const urlProject = searchParams.get('project') ?? ''
+  const urlModule = searchParams.get('module') ?? ''
 
   // 当前会话详情
   const { data: session } = useQuery({
@@ -467,6 +636,9 @@ export function PrdClarifyPage() {
   /** Step INPUT → 创建会话 → 启动 SSE 澄清 */
   const handleStart = async (title: string, rawInput: string, project: string, module: string) => {
     setErrorMsg(null)
+    setSessionTitle(title)
+    // 清除 URL 参数（已被加载到表单，避免刷新后重复填充）
+    setSearchParams({}, { replace: true })
     const created = await createMut.mutateAsync({ title, rawInput, project, module })
     setSessionId(created.id)
     setStreamText('')
@@ -600,7 +772,13 @@ export function PrdClarifyPage() {
 
         {/* 主内容区 */}
         {step === 'INPUT' && (
-          <InputPanel onStart={handleStart} />
+          <InputPanel
+            onStart={handleStart}
+            initialTitle={urlTitle}
+            initialRawInput={urlRawInput}
+            initialProject={urlProject}
+            initialModule={urlModule}
+          />
         )}
 
         {step === 'CLARIFYING' && (
@@ -621,6 +799,7 @@ export function PrdClarifyPage() {
         {step === 'EDITING' && sessionId && (
           <EditingPanel
             sessionId={sessionId}
+            sessionTitle={sessionTitle || session?.title || 'PRD 文档'}
             initialContent={prdContent}
             onReset={handleReset}
           />
