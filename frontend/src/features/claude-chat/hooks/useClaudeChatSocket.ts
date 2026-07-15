@@ -310,7 +310,6 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
           const pending = pendingResendRef.current
           if (pending && pending.forSessionId === msg.sessionId) {
             pendingResendRef.current = null
-            hasAutoResentRef.current = true // 标记"已自动重发一次"，若仍失败则停止
             setTimeout(() => { sendRef.current?.(pending.text) }, 300)
           }
         }
@@ -820,88 +819,22 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     loadHistoryRef.current = loadHistory
   }, [loadHistory])
 
-  // ── 自动恢复：两阶段降级策略 ──────────────────────────────────────────────
+  // ── QUERY_FAILED 自动恢复说明 ────────────────────────────────────────────
+  // "No conversation found" 的根本修复在 sidecar（sessionManager.ts）：
+  //   runTurn() catch 住该错误 → 清空 sdkSessionId → continue 重试（无 resume）
+  //   → Claude Agent SDK 以新会话执行同一条用户消息 → 前端感知不到任何错误
   //
-  // 触发条件：最后一条 item 是 QUERY_FAILED + "No conversation found"
-  //   → sidecar 重启，会话在其内存中已丢失，但 DB 仍有记录、磁盘仍有 transcript。
+  // 因此前端不再需要自动 resumeCurrent / switchTo 的重试逻辑（那套逻辑反而会：
+  //   1. 先把错误条目移除（700ms 后）让用户看不到「新建同目录会话」按钮
+  //   2. 引发自动重发导致的死循环）。
   //
-  // Phase 1（第 1-2 次）：resumeCurrent
-  //   发 {type:'resumeCurrent', sessionId} 给 sidecar，让它尝试内存 re-attach。
-  //   快路径，成功则 0 感知恢复。
+  // 若 sidecar 三次重试后仍失败（极少数情况），错误条目留在界面，
+  // MessageList 的 isPermanentlyLost 分支会显示「新建会话（同目录）」按钮供用户点击。
   //
-  // Phase 2（第 3 次）：switchTo 降级
-  //   resumeCurrent 持续失败，说明 sidecar 完全不认识这个 sessionId。
-  //   switchTo 走全链路：后端从 DB 取 sdkSessionId+cwd → sidecar 从磁盘 JSONL
-  //   transcript 重建上下文 → 用户拿到一个"历史还在"的新 attach 会话。
-  //
-  // Phase 3（第 4 次+）：停止，保留错误让用户手动决策（避免无限循环）。
-  //
-  const autoResumeCountRef = useRef(0)
-  // switchToRef 已在上方定义（line ~209），此处直接复用
-
-  // sendRef 已在上方定义（用于 enqueue 消费），此处直接复用
-  // expectingReadyRef：auto-resume 置位后，下一个 ready 事件将触发 pendingResend 消费
+  // applyEvent 'ready' 分支里 expectingReadyRef / pendingResendRef 相关代码已保留，
+  // 但在正常流程下不会被触发（expectingReadyRef 始终为 false）。
   const expectingReadyRef = useRef(false)
   const pendingResendRef = useRef<{ text: string; forSessionId: string } | null>(null)
-  /** 已自动重发过一次的标志。若重发后仍 QUERY_FAILED，立即停止，不再循环。 */
-  const hasAutoResentRef = useRef(false)
-
-  useEffect(() => {
-    const last = items[items.length - 1]
-    if (last?.kind !== 'error') {
-      // 仅在会话真正切换（items 清空）或成功完成（result）时重置所有恢复状态
-      if (items.length === 0 || last?.kind === 'result') {
-        autoResumeCountRef.current = 0
-        hasAutoResentRef.current = false
-        pendingResendRef.current = null
-        expectingReadyRef.current = false
-      }
-      return
-    }
-    if (last.code !== 'QUERY_FAILED' || !last.message?.includes('No conversation found')) return
-
-    // ── 死循环防护 ──────────────────────────────────────────────────────────
-    // 已自动重发过一次，但重发的消息仍然 QUERY_FAILED → 会话根本性损坏，停止一切自动恢复。
-    // 留下错误条目，让用户手动新建或切换会话。
-    if (hasAutoResentRef.current) {
-      hasAutoResentRef.current = false
-      pendingResendRef.current = null
-      expectingReadyRef.current = false
-      autoResumeCountRef.current = 0
-      console.warn('[claude-chat] 自动重发后仍然失败，会话根本性损坏，停止自动恢复')
-      return
-    }
-    // ───────────────────────────────────────────────────────────────────────
-
-    const count = autoResumeCountRef.current
-    if (count >= 3) return // 三阶段都失败，留给用户手动决策
-    autoResumeCountRef.current += 1
-
-    // 每次 QUERY_FAILED 都更新待重发消息，保证始终重发最新的那条
-    const lastUser = [...items].reverse().find(i => i.kind === 'user')
-    const forSid = sessionIdRef.current ?? ''
-    if (lastUser?.kind === 'user' && lastUser.text?.trim() && forSid) {
-      pendingResendRef.current = { text: lastUser.text, forSessionId: forSid }
-    }
-
-    const timer = setTimeout(() => {
-      // 标记"正在等待 ready 以触发重发"；ready 事件处理器里消费
-      expectingReadyRef.current = true
-      if (count < 2) {
-        console.info(`[claude-chat] 自动恢复 Phase 1：resumeCurrent（第 ${count + 1} 次）`)
-        resumeCurrent()
-      } else {
-        const sid = sessionIdRef.current
-        if (sid) {
-          console.info('[claude-chat] 自动恢复 Phase 2：switchTo 降级，从 transcript 重建会话')
-          setItems(prev => { const l = prev[prev.length - 1]; return l?.kind === 'error' ? prev.slice(0, -1) : prev })
-          switchToRef.current(sid)
-        }
-      }
-    }, 700)
-    return () => clearTimeout(timer)
-  }, [items, resumeCurrent])
-  // ── pendingResend 在 applyEvent 'ready' 分支消费（见上方），无需再加 useEffect([sessionId]) ──
 
   return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, skills, agents, mcpServers, outputStyle, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, open, switchTo, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setModel, refreshModels, setCodexOptions, switchEngine, switchProvider, forkSession, historyLoading, historyExhausted, loadHistory }
 }
