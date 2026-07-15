@@ -980,13 +980,19 @@ export function PrdClarifyPage() {
   const [reqContextTitle, setReqContextTitle] = useState<string | null>(null)
   // 防止自动启动多次执行
   const autoStartedRef = useRef(false)
+  /**
+   * reqItemId 持久化到 ref：URL 参数被 setSearchParams({}) 清除后，
+   * 闭包里的 urlReqItemId 会变 ''，导致 startGenerateSse 里的判断失效。
+   * 用 ref 在 URL 清除前锁住值，整个会话周期内有效。
+   */
+  const reqItemIdRef = useRef('')
 
   // 读取 URL 参数
   const urlTitle = searchParams.get('title') ?? ''
   const urlRawInput = searchParams.get('rawInput') ?? ''
   const urlProject = searchParams.get('project') ?? ''
   const urlModule = searchParams.get('module') ?? ''
-  /** 来自需求管理池的回写 ID：PRD 完成后自动将 PRD 会话关联回需求条目 */
+  /** 来自需求管理池的回写 ID（读取一次，后续用 reqItemIdRef） */
   const urlReqItemId = searchParams.get('reqItemId') ?? ''
   /** 直接查看某个历史 PRD 会话（来自需求管理池「查看PRD」按钮） */
   const urlViewSession = searchParams.get('viewSession') ?? ''
@@ -997,13 +1003,13 @@ export function PrdClarifyPage() {
     if (autoStartedRef.current) return
     if (!urlReqItemId || !urlTitle || !urlRawInput) return
     autoStartedRef.current = true
+    reqItemIdRef.current = urlReqItemId  // ★ 在 URL 清除前锁住 reqItemId
     setReqContextTitle(urlTitle)
-    // 直接调 handleStart，createMut 是稳定的 TanStack Query mutation
     createMut.mutateAsync({ title: urlTitle, rawInput: urlRawInput, project: urlProject, module: urlModule, role: 'PRODUCT' })
       .then((created) => {
         setSessionId(created.id)
         setSessionTitle(urlTitle)
-        setSearchParams({}, { replace: true })
+        setSearchParams({}, { replace: true })  // URL 清除，但 reqItemIdRef 已保存
         qc.invalidateQueries({ queryKey: ['prd-sessions'] })
         setStep('CHATTING')
       })
@@ -1071,6 +1077,7 @@ export function PrdClarifyPage() {
     setGenerationFailed(false)
     setReqContextTitle(null)
     autoStartedRef.current = false
+    reqItemIdRef.current = ''
   }
 
   /** Step INPUT → 创建会话 → 进入多轮对话澄清 */
@@ -1104,19 +1111,28 @@ export function PrdClarifyPage() {
         if (name === 'done') {
           setPrdContent(prdAccRef.current)
           qc.invalidateQueries({ queryKey: ['prd-sessions'] })
-          if (urlReqItemId && sid) {
-            // 来自需求池：回写 PRD_READY 状态
-            linkPrdToReqItem(urlReqItemId, sid).catch(() => {})
+
+          // 使用 ref 而非 urlReqItemId（URL 已被 setSearchParams({}) 清除，闭包值会是 ''）
+          const savedReqItemId = reqItemIdRef.current
+
+          if (savedReqItemId) {
+            // 来自需求管理池：回写 PRD_READY 状态
+            linkPrdToReqItem(savedReqItemId, sid)
+              .then(() => setErrorMsg(null))
+              .catch(() => setErrorMsg('PRD 已生成，但同步到需求管理池失败，请在需求池手动更新状态'))
           } else {
-            // 独立创建的 PRD：自动在需求管理池注册一条记录（PRD澄清助手是唯一入口）
-            getSession(sid).then(s => {
-              autoRegisterToReqPool({
+            // 独立创建的 PRD：自动在需求管理池注册
+            getSession(sid)
+              .then(s => autoRegisterToReqPool({
                 title: s.title,
                 project: s.project ?? '',
                 module: s.module ?? '',
                 prdSessionId: sid,
-              }).catch(() => {})  // 注册失败不阻断主流程
-            }).catch(() => {})
+              }))
+              .then(() => {
+                qc.invalidateQueries({ queryKey: ['reqpool'] })
+              })
+              .catch(() => setErrorMsg('PRD 已生成，但自动登记到需求管理池失败（可手动到需求池查看）'))
           }
           setStep('EDITING')
         }
