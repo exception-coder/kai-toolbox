@@ -193,7 +193,13 @@ function HistoryPanel({
             <FileText className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-[var(--color-muted-foreground)]" />
             <div className="flex-1 min-w-0">
               <div className="text-xs font-medium truncate">{s.title}</div>
-              <div className={`text-[10px] ${statusColor[s.status] ?? 'text-[var(--color-muted-foreground)]'}`}>
+              {/* 项目 / 模块标签 */}
+              {(s.project || s.module) && (
+                <div className="text-[10px] text-[var(--color-muted-foreground)] truncate mt-0.5">
+                  {[s.project, s.module].filter(Boolean).join(' · ')}
+                </div>
+              )}
+              <div className={`text-[10px] mt-0.5 ${statusColor[s.status] ?? 'text-[var(--color-muted-foreground)]'}`}>
                 {s.status}
               </div>
             </div>
