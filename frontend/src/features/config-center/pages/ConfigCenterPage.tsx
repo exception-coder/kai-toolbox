@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, RotateCcw, Save, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -21,10 +22,15 @@ export function ConfigCenterPage() {
   const { data: blocksData } = useQuery({ queryKey: BLOCKS_KEY, queryFn: listConfigBlocks })
   const blocks = blocksData?.blocks ?? []
 
+  // 支持 ?block=<blockId> 深链直达某配置块（如从项目工作台「去配置中心」跳来定位 workspace 块）
+  const [searchParams] = useSearchParams()
+  const wantBlock = searchParams.get('block')
   const [selected, setSelected] = useState<string | null>(null)
   useEffect(() => {
-    if (selected === null && blocks.length > 0) setSelected(blocks[0].id)
-  }, [blocks, selected])
+    if (selected !== null || blocks.length === 0) return
+    const target = wantBlock && blocks.some(b => b.id === wantBlock) ? wantBlock : blocks[0].id
+    setSelected(target)
+  }, [blocks, selected, wantBlock])
 
   return (
     <div className="flex h-[calc(100dvh-3.5rem)]">

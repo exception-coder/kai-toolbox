@@ -448,7 +448,20 @@ export function ProjectWorkspacePage() {
             ) : workspacesQ.isError ? (
               <StateLine tone="danger" text={errorMessage(workspacesQ.error)} />
             ) : projects.length === 0 ? (
-              <StateLine text="没有可用项目" />
+              <div className="space-y-2 rounded-md border border-dashed border-[var(--color-border)] p-3 text-xs text-[var(--color-muted-foreground)]">
+                <div className="flex items-center gap-1.5 text-sm font-medium text-[var(--color-foreground)]">
+                  <AlertTriangle className="h-4 w-4 text-[var(--color-warning,#b45309)]" />
+                  没有可用项目
+                </div>
+                <p>
+                  项目列表来自配置项 <code>toolbox.claude-chat.workspace.roots</code>（工作区扫描根目录）。
+                  当前它{(workspacesQ.data?.roots?.length ?? 0) > 0 ? '下没有扫描到子目录——检查路径是否存在/写对' : '还未配置'}。
+                </p>
+                <p>去「配置中心 → Claude 工作目录」把你的代码目录（如 <code>D:\Users\你\myWork</code>）加进 roots，保存即时生效、无需重启。</p>
+                <Button type="button" size="sm" variant="outline" onClick={() => navigate(`/tools/config-center?block=${WORKSPACE_CFG_ID}`)}>
+                  <Database className="h-3.5 w-3.5" />去配置工作区目录
+                </Button>
+              </div>
             ) : (
               projects.map(project => (
                 <ProjectButton
