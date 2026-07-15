@@ -852,7 +852,12 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
   useEffect(() => {
     const last = items[items.length - 1]
     if (last?.kind !== 'error') {
-      autoResumeCountRef.current = 0 // 非错误状态重置计数
+      // 仅在会话真正切换（items 清空）或成功完成（result）时重置计数器。
+      // ❌ 不在"error 被移除、user 消息留着"时重置——那只是 resumeCurrent 清掉了错误条目，
+      //    会话本身可能仍然坏的，若此时重置则永远无法升级到 Phase 2/3，形成死循环。
+      if (items.length === 0 || last?.kind === 'result') {
+        autoResumeCountRef.current = 0
+      }
       return
     }
     if (last.code !== 'QUERY_FAILED' || !last.message?.includes('No conversation found')) return
@@ -861,13 +866,11 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     if (count >= 3) return // 三阶段都失败，留给用户手动决策
     autoResumeCountRef.current += 1
 
-    // 首次检测时记录最后一条未被响应的用户消息，供恢复后重发
-    if (count === 0) {
-      const lastUser = [...items].reverse().find(i => i.kind === 'user')
-      const forSid = sessionIdRef.current ?? ''
-      if (lastUser?.kind === 'user' && lastUser.text?.trim() && forSid) {
-        pendingResendRef.current = { text: lastUser.text, forSessionId: forSid }
-      }
+    // 每次 QUERY_FAILED 都更新待重发消息（而非仅首次），保证始终重发最新的那条
+    const lastUser = [...items].reverse().find(i => i.kind === 'user')
+    const forSid = sessionIdRef.current ?? ''
+    if (lastUser?.kind === 'user' && lastUser.text?.trim() && forSid) {
+      pendingResendRef.current = { text: lastUser.text, forSessionId: forSid }
     }
 
     const timer = setTimeout(() => {
