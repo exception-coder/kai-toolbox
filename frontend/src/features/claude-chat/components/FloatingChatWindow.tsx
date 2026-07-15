@@ -117,6 +117,8 @@ export function FloatingChatWindow() {
   const bubbleRec = useVoiceRecorder()
   const [bubbleListening, setBubbleListening] = useState(false) // 气泡正在听（录音中）
   const [bubbleRecBusy, setBubbleRecBusy] = useState(false)     // 松手后转写中
+  // 最小化状态栏：AI 工作计时器（active 时每秒 +1，空闲时清零）
+  const [elapsedSec, setElapsedSec] = useState(0)
   const autoApprovedRef = useRef<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
@@ -269,6 +271,12 @@ export function FloatingChatWindow() {
   // 权限/提问弹框：悬浮态下也由本组件渲染（ChatPage 已卸载），否则用户无从作答。
   const pending = chat.pending
   const { status, active } = deriveStatus(chat.items, chat.running, pending?.kind === 'permission', pending?.kind === 'question')
+  // active 时每秒计时，空闲时归零
+  useEffect(() => {
+    if (!active) { setElapsedSec(0); return }
+    const t = setInterval(() => setElapsedSec(s => s + 1), 1000)
+    return () => clearInterval(t)
+  }, [active])
   const dialogs = (
     <>
       {pending?.kind === 'permission' && (
@@ -467,53 +475,93 @@ export function FloatingChatWindow() {
   }
 
   if (minimized) {
+    // 本轮工具调用次数（显示 AI 活动量）
+    const recentToolCount = (() => {
+      const items = chat.items
+      let count = 0
+      for (let i = items.length - 1; i >= 0; i--) {
+        if (items[i].kind === 'result') break
+        if (items[i].kind === 'tool') count++
+      }
+      return count
+    })()
+
     return (
       <>
-        <button
-          type="button"
-          onPointerDown={onBubbleDown}
-          onPointerMove={onBubbleMove}
-          onPointerUp={onBubbleUp}
-          aria-label={`${headerTitle} ${status}，点击展开，长按说话`}
-          title={`${headerTitle} · ${status}（拖动移动 · 点击展开 · 长按说话）`}
-          className="fixed z-50 flex max-w-[72vw] cursor-move touch-none items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-card)] py-1.5 pl-2 pr-3.5 text-left shadow-lg"
+        {/*
+         * Status Bar 风格：方形（rounded-xl）而非胶囊（rounded-full），
+         * 和整个 Workspace 的扁平设计语言一致，不像 Widget 插件。
+         * 信息层：引擎名（主） + 状态/计时/工具数（辅） + 停止按钮（active 时）。
+         */}
+        <div
+          className="fixed z-50 flex max-w-[80vw] touch-none items-stretch overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-lg"
           style={{ left: pos.x, top: pos.y }}
         >
-          {bubbleListening ? (
-            <>
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)]/15 text-[var(--color-primary)]">
-                <Mic className="size-4 animate-pulse" />
-              </span>
-              <span className="min-w-0">
-                <span className="block truncate text-xs font-medium leading-tight">正在听…</span>
-                <span className="block truncate text-[11px] leading-tight text-[var(--color-muted-foreground)]">松开发送 · {bubbleRec.seconds}s</span>
-              </span>
-            </>
-          ) : bubbleRecBusy ? (
-            <>
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[var(--color-muted)] text-[var(--color-muted-foreground)]">
-                <Loader2 className="size-4 animate-spin" />
-              </span>
-              <span className="block truncate text-xs leading-tight text-[var(--color-muted-foreground)]">识别中…</span>
-            </>
-          ) : (
-            <>
-              <span className={`flex size-7 shrink-0 items-center justify-center rounded-full ${active
-                ? 'bg-[var(--color-primary)]/15 text-[var(--color-primary)]'
-                : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'}`}>
-                {active ? <Loader2 className="size-4 animate-spin" /> : <MessageSquare className="size-4" />}
-              </span>
-              <span className="min-w-0">
-                <span className="block truncate text-xs font-medium leading-tight">{headerTitle}</span>
-                <span className={`block truncate text-[11px] leading-tight ${pending
-                  ? 'font-medium text-amber-600 dark:text-amber-400'
-                  : 'text-[var(--color-muted-foreground)]'}`}>
-                  {engineLabel} · {status}
+          {/* 左侧彩色 AI 活动指示条 */}
+          <div className={`w-[3px] shrink-0 ${active ? 'bg-[var(--color-primary)]' : 'bg-[var(--color-border)]'}`} />
+
+          <button
+            type="button"
+            onPointerDown={onBubbleDown}
+            onPointerMove={onBubbleMove}
+            onPointerUp={onBubbleUp}
+            aria-label={`${engineLabel} ${status}，点击展开`}
+            title="点击展开 · 长按说话"
+            className="flex min-w-0 cursor-move items-center gap-2.5 px-3 py-2 text-left"
+          >
+            {bubbleListening ? (
+              <>
+                <span className="relative flex size-2 shrink-0">
+                  <span className="absolute inset-0 animate-ping rounded-full bg-[var(--color-primary)] opacity-75" />
+                  <span className="relative size-2 rounded-full bg-[var(--color-primary)]" />
                 </span>
-              </span>
-            </>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-semibold leading-tight text-[var(--color-primary)]">正在听…</span>
+                  <span className="block truncate text-[11px] leading-tight text-[var(--color-muted-foreground)] tabular-nums">松开发送 · {bubbleRec.seconds}s</span>
+                </span>
+              </>
+            ) : bubbleRecBusy ? (
+              <>
+                <Loader2 className="size-3.5 shrink-0 animate-spin text-[var(--color-muted-foreground)]" />
+                <span className="block truncate text-sm leading-tight text-[var(--color-muted-foreground)]">识别中…</span>
+              </>
+            ) : (
+              <>
+                {/* AI 状态指示点 */}
+                <span className="relative flex size-2 shrink-0">
+                  {active && <span className="absolute inset-0 animate-ping rounded-full bg-[var(--color-primary)] opacity-60" />}
+                  <span className={`relative size-2 rounded-full ${active ? 'bg-[var(--color-primary)]' : 'bg-[var(--color-muted-foreground)]/40'}`} />
+                </span>
+
+                <span className="min-w-0">
+                  {/* 主信息：引擎名，active 时用主色 */}
+                  <span className={`block truncate text-sm font-semibold leading-tight ${active ? 'text-[var(--color-primary)]' : 'text-[var(--color-foreground)]'}`}>
+                    {engineLabel}
+                  </span>
+                  {/* 辅助信息：状态 · 计时 · 工具数 */}
+                  <span className={`flex items-center gap-1 text-[11px] leading-tight tabular-nums ${pending ? 'font-medium text-amber-600 dark:text-amber-400' : 'text-[var(--color-muted-foreground)]'}`}>
+                    <span>{status}</span>
+                    {active && elapsedSec > 0 && <span>· {elapsedSec}s</span>}
+                    {active && recentToolCount > 0 && <span>· {recentToolCount} 工具</span>}
+                  </span>
+                </span>
+              </>
+            )}
+          </button>
+
+          {/* 停止按钮：active 时才显示 */}
+          {chat.running && !bubbleListening && !bubbleRecBusy && (
+            <button
+              type="button"
+              onPointerDown={e => e.stopPropagation()}
+              onClick={e => { e.stopPropagation(); chat.interrupt() }}
+              className="flex shrink-0 items-center self-stretch border-l border-[var(--color-border)] px-2.5 text-[11px] font-medium text-[var(--color-muted-foreground)] transition-colors hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)]"
+              title="停止"
+            >
+              停止
+            </button>
           )}
-        </button>
+        </div>
         {dialogs}
       </>
     )
