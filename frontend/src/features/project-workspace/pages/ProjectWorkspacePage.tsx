@@ -453,7 +453,21 @@ export function ProjectWorkspacePage() {
               <FolderTree className="h-4 w-4" />
               项目
             </CardTitle>
-            <CardDescription>来自 Vibe Coding 工作区配置</CardDescription>
+            <CardDescription>来自 Vibe Coding 工作区配置（workspace.roots）</CardDescription>
+            {(workspacesQ.data?.roots?.length ?? 0) > 0 && (
+              <div className="mt-1.5 space-y-1 rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/30 p-2">
+                <div className="text-[10px] font-medium uppercase tracking-wide text-[var(--color-muted-foreground)]">当前扫描目录</div>
+                {workspacesQ.data!.roots.map(r => (
+                  <div key={r.root} className="flex items-center gap-1.5 text-[11px]" title={r.root}>
+                    {r.exists
+                      ? <Check className="h-3 w-3 shrink-0 text-[var(--color-success-soft-foreground,#16a34a)]" />
+                      : <AlertTriangle className="h-3 w-3 shrink-0 text-[var(--color-warning,#b45309)]" />}
+                    <code className="truncate text-[var(--color-foreground)]">{r.root || '(空)'}</code>
+                    {!r.exists && <span className="shrink-0 text-[var(--color-warning,#b45309)]">不存在</span>}
+                  </div>
+                ))}
+              </div>
+            )}
           </CardHeader>
           <CardContent className="space-y-2">
             {workspacesQ.isLoading ? (
