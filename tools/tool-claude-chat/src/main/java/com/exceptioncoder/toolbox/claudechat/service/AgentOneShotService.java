@@ -88,7 +88,11 @@ public class AgentOneShotService implements AgentOneShotRunner {
                         try {
                             call.onDelta.accept(text);
                         } catch (Exception e) {
-                            log.warn("[agent-oneshot] onDelta 回调异常：{}", e.getMessage());
+                            // onDelta 抛异常（通常是 SSE 客户端已断连）：
+                            // 立即取消等待，释放虚拟线程。sidecar 侧任务仍在跑但结果会被丢弃。
+                            log.debug("[agent-oneshot] onDelta 异常，取消任务 {}：{}", requestId, e.getMessage());
+                            call.future.completeExceptionally(e);
+                            calls.remove(requestId);
                         }
                     }
                 }
