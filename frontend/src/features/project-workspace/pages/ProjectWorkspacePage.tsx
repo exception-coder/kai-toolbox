@@ -490,8 +490,8 @@ export function ProjectWorkspacePage() {
                   </span>
                 </div>
               </div>
-              <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center md:w-auto">
-                <div className="relative w-full sm:w-72">
+              <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
+                <div className="relative w-full sm:w-56">
                   <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-[var(--color-muted-foreground)]" />
                   <Input
                     className="pl-9"
@@ -521,7 +521,7 @@ export function ProjectWorkspacePage() {
                   title="源码模式：按代码目录重新解析模块，与 modules.json 出差异，确认后只新增"
                 >
                   {syncPreviewMut.isPending ? <Loader2 className="animate-spin" /> : <GitCompare />}
-                  更新模块
+                  <span className="hidden lg:inline">更新模块</span>
                 </Button>
                 <Button
                   type="button"
@@ -535,7 +535,7 @@ export function ProjectWorkspacePage() {
                     : '需先配置知识库路径'}
                 >
                   <Sparkles />
-                  Agent 识菜单
+                  <span className="hidden lg:inline">Agent 识菜单</span>
                 </Button>
               </div>
             </div>
