@@ -80,13 +80,36 @@ export const startGenerate = (id: string, handlers: SseHandlers) =>
   subscribeSsePost(`${BASE}/sessions/${id}/generate`, {}, handlers)
 
 /**
- * 将 PRD 会话关联到需求管理池条目（PRD 生成完成后回调）。
+ * 将 PRD 会话关联到需求管理池条目（来自需求池的跳入场景，PRD 生成完成后回调）。
  * 触发 reqpool 条目状态流转到 PRD_READY。
  */
 export const linkPrdToReqItem = (reqItemId: string, prdSessionId: string) =>
   http<void>(`/reqpool/items/${reqItemId}/link-prd`, {
     method: 'POST',
     body: JSON.stringify({ prdSessionId }),
+  })
+
+/**
+ * PRD 澄清助手生成完成后，自动在需求管理池注册一条 PRD_READY 状态的需求记录。
+ * 用于「PRD澄清助手 → 自动同步到需求管理池」场景（不经过需求池创建的独立 PRD）。
+ */
+export const autoRegisterToReqPool = (params: {
+  title: string
+  description?: string
+  project?: string
+  module?: string
+  prdSessionId: string
+}) =>
+  http<{ id: string }>('/reqpool/items', {
+    method: 'POST',
+    body: JSON.stringify({
+      title: params.title,
+      description: params.description ?? '',
+      project: params.project ?? '',
+      module: params.module ?? '',
+      priority: 'MEDIUM',
+      prdSessionId: params.prdSessionId,
+    }),
   })
 
 // ─── 多轮渐进式澄清 ───

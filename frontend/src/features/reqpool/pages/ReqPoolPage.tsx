@@ -296,11 +296,12 @@ export function ReqPoolPage() {
 
         <div className="flex items-center gap-2 ml-auto">
           {isFetching && <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-muted-foreground)]" />}
+          {/* 写新需求 → 跳转到 PRD澄清助手（唯一入口，需求必须经过澄清和 PRD 生成后才注册） */}
           <button
-            onClick={() => setEditItem('new')}
+            onClick={() => navigate('/tools/prd-clarify')}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-[var(--color-primary)] text-white hover:opacity-90"
           >
-            <Plus className="w-3.5 h-3.5" /> 新建需求
+            <Plus className="w-3.5 h-3.5" /> 写新需求
           </button>
         </div>
       </div>
@@ -311,14 +312,14 @@ export function ReqPoolPage() {
           <div className="flex flex-col items-center justify-center h-full gap-4 text-[var(--color-muted-foreground)]">
             <Layers className="w-12 h-12 opacity-20" />
             <div className="text-center">
-              <p className="font-medium text-[var(--color-foreground)] mb-1">暂无需求</p>
-              <p className="text-sm">新建需求后，点击「开始澄清」即可启动 AI 渐进式需求澄清，自动生成 PRD 文档</p>
+              <p className="font-medium text-[var(--color-foreground)] mb-1">暂无需求记录</p>
+              <p className="text-sm">在 PRD 澄清助手中完成需求澄清并生成 PRD 后，会自动在此登记</p>
             </div>
             <button
-              onClick={() => setEditItem('new')}
+              onClick={() => navigate('/tools/prd-clarify')}
               className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-md bg-[var(--color-primary)] text-white hover:opacity-90"
             >
-              <Plus className="w-4 h-4" /> 新建第一条需求
+              <Plus className="w-4 h-4" /> 去写新需求
             </button>
           </div>
         ) : (

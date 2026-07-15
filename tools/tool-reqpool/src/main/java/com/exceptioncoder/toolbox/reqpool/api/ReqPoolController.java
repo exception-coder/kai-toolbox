@@ -64,6 +64,8 @@ public class ReqPoolController {
         long now = System.currentTimeMillis();
         String priority = (req.priority() != null && !req.priority().isBlank())
                 ? req.priority() : "MEDIUM";
+        // 若携带 prdSessionId，直接设为 PRD_READY（来自 PRD澄清助手自动注册场景）
+        boolean hasPrd = req.prdSessionId() != null && !req.prdSessionId().isBlank();
         ReqItem item = ReqItem.builder()
                 .id(UUID.randomUUID().toString())
                 .title(req.title())
@@ -71,7 +73,8 @@ public class ReqPoolController {
                 .project(req.project())
                 .module(req.module())
                 .priority(priority)
-                .status("DRAFT")
+                .status(hasPrd ? "PRD_READY" : "DRAFT")
+                .prdSessionId(hasPrd ? req.prdSessionId() : null)
                 .assignee(req.assignee())
                 .deadline(req.deadline())
                 .tags(req.tags())

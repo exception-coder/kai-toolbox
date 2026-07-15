@@ -9,6 +9,7 @@ import DOMPurify from 'dompurify'
 import '@/features/doc-viewer/styles/markdown.css'
 import {
   askNextQuestion,
+  autoRegisterToReqPool,
   createSession,
   deleteSession,
   getContent,
@@ -1104,7 +1105,18 @@ export function PrdClarifyPage() {
           setPrdContent(prdAccRef.current)
           qc.invalidateQueries({ queryKey: ['prd-sessions'] })
           if (urlReqItemId && sid) {
+            // 来自需求池：回写 PRD_READY 状态
             linkPrdToReqItem(urlReqItemId, sid).catch(() => {})
+          } else {
+            // 独立创建的 PRD：自动在需求管理池注册一条记录（PRD澄清助手是唯一入口）
+            getSession(sid).then(s => {
+              autoRegisterToReqPool({
+                title: s.title,
+                project: s.project ?? '',
+                module: s.module ?? '',
+                prdSessionId: sid,
+              }).catch(() => {})  // 注册失败不阻断主流程
+            }).catch(() => {})
           }
           setStep('EDITING')
         }
