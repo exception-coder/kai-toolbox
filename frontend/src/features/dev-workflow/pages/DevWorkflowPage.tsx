@@ -15,7 +15,7 @@ import {
   XCircle,
   Zap,
 } from 'lucide-react'
-import { DEMO_EXAMPLES, type DemoExample } from '../data/examples'
+import { DEMO_EXAMPLES, type DemoExample } from '../examples'
 
 // ───── 工具 ─────
 function Badge({ label, variant }: { label: string; variant: 'blue' | 'purple' | 'green' }) {
