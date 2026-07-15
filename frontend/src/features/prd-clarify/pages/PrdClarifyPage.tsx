@@ -5,6 +5,8 @@ import { BotMessageSquare, ChevronRight, Code2, Copy, ExternalLink, FileText, Lo
 import { http } from '@/lib/api'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+// doc-viewer 的 markdown.css 含完整 prose 样式（标题层级/代码块/表格等），无需 @tailwindcss/typography
+import '@/features/doc-viewer/styles/markdown.css'
 import {
   askNextQuestion,
   createSession,
@@ -28,15 +30,18 @@ const MarkdownEditor = lazy(() =>
   }))
 )
 
-// ───── 内联 Markdown 预览（用 marked + DOMPurify，无额外依赖） ─────
+// ───── Markdown 预览：复用 doc-viewer 的 markdown.css 样式（标题层级/代码块/表格完整渲染） ─────
 function MarkdownViewer({ content }: { content: string }) {
   const html = DOMPurify.sanitize(marked.parse(content, { async: false }) as string)
   return (
-    <div
-      className="prose prose-sm dark:prose-invert max-w-none h-full overflow-y-auto p-4 text-sm"
-      // eslint-disable-next-line react/no-danger
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <div className="h-full overflow-y-auto p-6">
+      {/* doc-viewer-md 类由 doc-viewer/styles/markdown.css 定义，包含完整 prose 排版 */}
+      <div
+        className="doc-viewer-md max-w-none"
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    </div>
   )
 }
 
