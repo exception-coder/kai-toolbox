@@ -61,8 +61,8 @@ function StepBar({ step, onClickStep }: { step: PrdStep; onClickStep?: (idx: num
   return (
     <div className="flex items-center gap-2 px-6 py-3 border-b border-[var(--color-border)] bg-[var(--color-card)]">
       {STEP_LABELS.map((label, i) => {
-        // 已完成的步骤（i < active）且有点击处理器时可点击
-        const clickable = i < active && !!onClickStep
+        // 只有步骤 2（i=1，AI渐进澄清）可点击查看历史；步骤 1 回退等于重新开始，不可点
+        const clickable = i === 1 && active > 1 && !!onClickStep
         return (
           <div key={label} className="flex items-center gap-2">
             <button
