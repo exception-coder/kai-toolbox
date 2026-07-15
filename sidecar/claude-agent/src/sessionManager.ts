@@ -313,6 +313,16 @@ class Session {
           return
         }
         const message = e instanceof Error ? e.message : String(e)
+
+        // SDK 会话丢失（sidecar 重启后内存清空，旧 sdkSessionId 不再有效）：
+        // 清掉失效的 sdkSessionId，下次循环以 resume:undefined 起一个新会话，
+        // 用户的消息照常发出去，整个恢复对前端完全透明（不报错、不需用户介入）。
+        if (message.includes('No conversation found') && this.sdkSessionId && !emitted && attempt < maxAttempts) {
+          console.warn(`[sidecar] SDK 会话 ${this.sdkSessionId} 不存在，清除并以新会话重试 session=${this.id}`)
+          this.sdkSessionId = undefined
+          continue
+        }
+
         const launchFailure = /failed to launch|spawn|ENOENT|EACCES|EPERM/i.test(message)
         if (launchFailure && !emitted && attempt < maxAttempts) {
           console.error(`[sidecar] 启动 Claude 失败(第 ${attempt}/${maxAttempts} 次)，1.5s 后重试：${message}`)
