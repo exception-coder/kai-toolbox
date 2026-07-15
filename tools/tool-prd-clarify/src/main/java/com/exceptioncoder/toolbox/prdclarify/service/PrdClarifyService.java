@@ -212,10 +212,14 @@ public class PrdClarifyService {
         return fileStore.read(sessionId);
     }
 
-    /** 删除会话及关联文件。 */
+    /**
+     * 删除会话及关联文件。
+     * 先删数据库记录，再删文件：若 DB 删除失败则文件仍在（数据一致），
+     * 若文件删除失败（孤儿文件）不影响功能，下次创建同名会话会覆盖。
+     */
     public void delete(String sessionId) throws IOException {
-        fileStore.delete(sessionId);
         repo.delete(sessionId);
+        fileStore.delete(sessionId);
     }
 
     // ───── Prompt 构建 ─────
@@ -354,6 +358,11 @@ public class PrdClarifyService {
 
     // ───── SSE 工具方法 ─────
 
+    /**
+     * 向 SSE 推送文本增量。
+     * 发送失败（客户端已断开）时先关闭 emitter，再抛出异常，使外层虚拟线程感知到断连
+     * 并退出 {@code agentRunner.stream()} 循环，避免 LLM 调用继续浪费资源。
+     */
     private void sendChunk(SseEmitter emitter, String chunk) {
         if (chunk == null || chunk.isEmpty()) {
             return;
@@ -362,6 +371,7 @@ public class PrdClarifyService {
             emitter.send(SseEmitter.event().name("chunk").data(Map.of("content", chunk)));
         } catch (Exception e) {
             emitter.completeWithError(e);
+            throw new IllegalStateException("SSE client disconnected", e);
         }
     }
 
@@ -380,7 +390,8 @@ public class PrdClarifyService {
             emitter.send(SseEmitter.event().name("error").data(Map.of("message", message)));
             emitter.complete();
         } catch (Exception e) {
-            emitter.completeWithError(err);
+            // 连接已断，用触发 catch 的异常 e 而非业务异常 err，避免混淆日志
+            emitter.completeWithError(e);
         }
     }
 }

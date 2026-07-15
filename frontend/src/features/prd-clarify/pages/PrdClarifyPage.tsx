@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ChevronRight, Copy, FileText, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { ChevronRight, Copy, FileText, Loader2, Plus, Trash2 } from 'lucide-react'
+import { http } from '@/lib/api'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import {
@@ -145,27 +146,21 @@ function InputPanel({
   const [project, setProject] = useState('')
   const [module, setModule] = useState('')
 
-  // 拉取项目列表
+  // 拉取项目列表（统一走 http()，确保 token 续期逻辑生效）
   const { data: projectsData } = useQuery({
     queryKey: ['projects'],
-    queryFn: () =>
-      fetch('/api/projects', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('toolbox.auth.token') ?? ''}` },
-      }).then((r) => r.json()),
+    queryFn: () => http<{ items: Array<{ name: string; path: string }> }>('/projects'),
   })
 
   // 拉取模块列表（选了项目后）
   const { data: modulesData } = useQuery({
     queryKey: ['project-modules', project],
     queryFn: () => {
-      const item = projectsData?.items?.find((p: { name: string; path: string }) => p.name === project)
+      const item = projectsData?.items?.find((p) => p.name === project)
       if (!item) return null
-      return fetch(
-        `/api/claude-chat/workspaces/modules?path=${encodeURIComponent(item.path)}`,
-        {
-          headers: { Authorization: `Bearer ${localStorage.getItem('toolbox.auth.token') ?? ''}` },
-        }
-      ).then((r) => r.json())
+      return http<{ modules: Array<{ name: string }> }>(
+        `/claude-chat/workspaces/modules?path=${encodeURIComponent(item.path)}`
+      )
     },
     enabled: !!project && !!projectsData,
   })
@@ -422,6 +417,8 @@ export function PrdClarifyPage() {
   const [prdContent, setPrdContent] = useState('')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const abortRef = useRef<(() => void) | null>(null)
+  // GENERATING 阶段用 ref 积累 PRD 内容（不触发渲染），done 时一次性赋值 prdContent
+  const prdAccRef = useRef('')
 
   // 当前会话详情
   const { data: session } = useQuery({
@@ -448,9 +445,10 @@ export function PrdClarifyPage() {
   // 删除 mutation
   const deleteMut = useMutation({
     mutationFn: deleteSession,
-    onSuccess: () => {
+    onSuccess: (_data, deletedId) => {
       qc.invalidateQueries({ queryKey: ['prd-sessions'] })
-      if (sessionId && sessions.find(s => s.id === sessionId)) {
+      // 只有删的是当前激活的会话才 reset，避免删历史条目时中断正在进行的工作
+      if (sessionId === deletedId) {
         handleReset()
       }
     },
@@ -484,9 +482,10 @@ export function PrdClarifyPage() {
           setStreamText((t) => t + (d.content ?? ''))
         }
         if (name === 'done') {
-          // 刷新会话详情（questions 已写库）
-          qc.invalidateQueries({ queryKey: ['prd-session', created.id] })
-          setStep('ANSWERING')
+          // 等待 questions 刷新完再切步骤，避免 ANSWERING 面板闪现空列表
+          qc.refetchQueries({ queryKey: ['prd-session', created.id] }).then(() => {
+            setStep('ANSWERING')
+          })
         }
         if (name === 'error') {
           const d = data as { message: string }
@@ -510,16 +509,19 @@ export function PrdClarifyPage() {
     await answerMut.mutateAsync({ id: sessionId, answers })
 
     setStreamText('')
+    prdAccRef.current = '' // 重置 PRD 积累器
     setStep('GENERATING')
 
     const abort = startGenerate(sessionId, {
       onEvent(name, data) {
         if (name === 'chunk') {
           const d = data as { content: string }
-          setPrdContent((t) => t + (d.content ?? ''))
-          setStreamText((t) => t + (d.content ?? ''))
+          const chunk = d.content ?? ''
+          prdAccRef.current += chunk      // 无渲染开销积累全文
+          setStreamText((t) => t + chunk) // 流式展示用 state
         }
         if (name === 'done') {
+          setPrdContent(prdAccRef.current) // 一次性赋值，不双重 setState
           qc.invalidateQueries({ queryKey: ['prd-sessions'] })
           setStep('EDITING')
         }
@@ -547,10 +549,15 @@ export function PrdClarifyPage() {
 
     if (s.status === 'DONE') {
       // 拉取文件内容，进入编辑器
-      getContent(s.id).then((content) => {
-        setPrdContent(content ?? '')
-        setStep('EDITING')
-      })
+      getContent(s.id)
+        .then((content) => {
+          setPrdContent(content ?? '')
+          setStep('EDITING')
+        })
+        .catch(() => {
+          setErrorMsg('读取 PRD 文件失败，文件可能已被删除')
+          setStep('INPUT')
+        })
     } else if (s.status === 'CLARIFYING') {
       setStep('ANSWERING')
     } else if (s.status === 'GENERATING') {

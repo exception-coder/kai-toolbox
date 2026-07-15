@@ -116,8 +116,11 @@ public class PrdClarifyController {
         return emitter;
     }
 
-    /** 读取 .md 文件内容（纯文本）。 */
-    @GetMapping(value = "/sessions/{id}/content", produces = MediaType.TEXT_PLAIN_VALUE + ";charset=UTF-8")
+    /**
+     * 读取 .md 文件内容。返回 JSON 字符串，与 {@code http<string>()} 的 {@code res.json()} 调用兼容。
+     * （不使用 text/plain，因前端 {@code http()} 统一调 {@code res.json()} 解析响应）
+     */
+    @GetMapping("/sessions/{id}/content")
     public String getContent(@PathVariable String id) throws IOException {
         return service.readContent(id);
     }
