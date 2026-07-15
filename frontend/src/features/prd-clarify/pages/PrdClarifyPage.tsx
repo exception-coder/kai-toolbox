@@ -18,7 +18,7 @@ import {
   startGenerate,
   type QaPair,
 } from '../api'
-import type { PrdSessionView, PrdStep } from '../types'
+import type { PrdSessionView, PrdStep, QuestionItem } from '../types'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 
 // 编辑器 lazy import — CodeMirror chunk 只在进入 EDITING 步骤时加载
@@ -48,28 +48,100 @@ function stepIndex(step: PrdStep): number {
   return 2
 }
 
-function StepBar({ step }: { step: PrdStep }) {
+/**
+ * @param onClickStep 若传入，已完成的步骤可点击（用于从第 3 步查看第 2 步澄清记录）
+ */
+function StepBar({ step, onClickStep }: { step: PrdStep; onClickStep?: (idx: number) => void }) {
   const active = stepIndex(step)
   return (
     <div className="flex items-center gap-2 px-6 py-3 border-b border-[var(--color-border)] bg-[var(--color-card)]">
-      {STEP_LABELS.map((label, i) => (
-        <div key={label} className="flex items-center gap-2">
-          <div
-            className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold
-              ${i <= active
-                ? 'bg-[var(--color-primary)] text-white'
-                : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'}`}
-          >
-            {i + 1}
+      {STEP_LABELS.map((label, i) => {
+        // 已完成的步骤（i < active）且有点击处理器时可点击
+        const clickable = i < active && !!onClickStep
+        return (
+          <div key={label} className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => clickable && onClickStep?.(i)}
+              disabled={!clickable}
+              title={clickable ? `查看${label}` : undefined}
+              className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold transition-opacity
+                ${i <= active
+                  ? 'bg-[var(--color-primary)] text-white'
+                  : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'}
+                ${clickable ? 'cursor-pointer hover:opacity-80 ring-2 ring-[var(--color-primary)]/30' : 'cursor-default'}`}
+            >
+              {i + 1}
+            </button>
+            <span
+              onClick={() => clickable && onClickStep?.(i)}
+              className={`text-sm ${i === active ? 'font-medium' : 'text-[var(--color-muted-foreground)]'} ${clickable ? 'cursor-pointer hover:text-[var(--color-foreground)]' : ''}`}
+            >
+              {label}
+              {clickable && <span className="ml-1 text-[10px] text-[var(--color-primary)] opacity-70">↩</span>}
+            </span>
+            {i < STEP_LABELS.length - 1 && (
+              <ChevronRight className="w-4 h-4 text-[var(--color-muted-foreground)]" />
+            )}
           </div>
-          <span className={`text-sm ${i === active ? 'font-medium' : 'text-[var(--color-muted-foreground)]'}`}>
-            {label}
-          </span>
-          {i < STEP_LABELS.length - 1 && (
-            <ChevronRight className="w-4 h-4 text-[var(--color-muted-foreground)]" />
+        )
+      })}
+    </div>
+  )
+}
+
+// ───── 澄清记录只读抽屉 ─────
+function ClarifyHistorySheet({
+  questions,
+  onClose,
+}: {
+  questions: QuestionItem[]
+  onClose: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative w-full max-w-md bg-[var(--color-card)] border-l border-[var(--color-border)] flex flex-col shadow-2xl">
+        {/* 头部 */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
+          <div className="flex items-center gap-2">
+            <BotMessageSquare className="w-4 h-4 text-[var(--color-primary)]" />
+            <span className="font-semibold text-sm">澄清问答记录</span>
+            <span className="text-xs text-[var(--color-muted-foreground)]">（共 {questions.length} 题）</span>
+          </div>
+          <button onClick={onClose} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        {/* 内容 */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {questions.length === 0 ? (
+            <p className="text-sm text-[var(--color-muted-foreground)] italic">暂无澄清记录</p>
+          ) : (
+            questions.map((q, i) => (
+              <div key={q.id} className="rounded-xl border border-[var(--color-border)] overflow-hidden">
+                {/* 问题 */}
+                <div className="flex items-start gap-2.5 p-3 bg-[var(--color-muted)]/30">
+                  <div className="w-5 h-5 rounded-full bg-[var(--color-primary)]/20 flex items-center justify-center flex-shrink-0 text-[10px] font-semibold text-[var(--color-primary)]">
+                    {i + 1}
+                  </div>
+                  <p className="text-sm leading-relaxed">{q.question}</p>
+                </div>
+                {/* 答案 */}
+                <div className="flex items-start gap-2.5 p-3 border-t border-[var(--color-border)]">
+                  <User className="w-4 h-4 flex-shrink-0 mt-0.5 text-[var(--color-muted-foreground)]" />
+                  <p className="text-sm text-[var(--color-muted-foreground)] leading-relaxed">
+                    {q.answer || <span className="italic">（未填写）</span>}
+                  </p>
+                </div>
+              </div>
+            ))
           )}
         </div>
-      ))}
+        <div className="px-5 py-3 border-t border-[var(--color-border)] text-xs text-[var(--color-muted-foreground)]">
+          此记录已纳入 PRD 生成，关闭后可继续编辑文档
+        </div>
+      </div>
     </div>
   )
 }
@@ -873,6 +945,7 @@ export function PrdClarifyPage() {
   const [prdContent, setPrdContent] = useState('')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [generationFailed, setGenerationFailed] = useState(false)  // GENERATING 失败，留在当前步骤显示重试
+  const [showClarifyHistory, setShowClarifyHistory] = useState(false) // 查看澄清记录抽屉
   const abortRef = useRef<(() => void) | null>(null)
   // GENERATING 阶段用 ref 积累全文，done 时一次性赋值（避免双重 setState）
   const prdAccRef = useRef('')
@@ -1056,9 +1129,28 @@ export function PrdClarifyPage() {
     }
   }
 
+  // 澄清记录：优先从 session.questions 读取（已持久化），降级用 qaHistoryRef
+  const clarifyQuestions: QuestionItem[] = session?.questions?.length
+    ? session.questions
+    : qaHistoryRef.current.map((qa, i) => ({ id: i + 1, question: qa.question, answer: qa.answer }))
+
   return (
     <div className="h-full flex flex-col overflow-hidden bg-[var(--color-background)]">
-      <StepBar step={step} />
+      {/* 步骤条：在第 3 步时，第 2 步可点击查看澄清记录 */}
+      <StepBar
+        step={step}
+        onClickStep={(idx) => {
+          if (idx === 1) setShowClarifyHistory(true)  // 点击第 2 步 → 打开澄清记录抽屉
+        }}
+      />
+
+      {/* 澄清记录抽屉 */}
+      {showClarifyHistory && (
+        <ClarifyHistorySheet
+          questions={clarifyQuestions}
+          onClose={() => setShowClarifyHistory(false)}
+        />
+      )}
 
       {/* 错误提示 */}
       {errorMsg && (
