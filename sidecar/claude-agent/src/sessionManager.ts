@@ -425,16 +425,24 @@ class Session {
     switch (type) {
       case 'system': {
         if (m.subtype === 'init' && m.session_id) {
-          this.sdkSessionId = m.session_id as string
-          // SDK init 自带会话能力清单：slash 命令(补全用) + 激活的 skills / subagents / MCP 服务 / 模型 / 输出风格，透传给前端展示
-          const slashCommands = Array.isArray(m.slash_commands) ? m.slash_commands : []
-          const skills = Array.isArray(m.skills) ? m.skills : []
-          const agents = Array.isArray(m.agents) ? m.agents : []
-          const mcpServers = Array.isArray(m.mcp_servers)
-            ? (m.mcp_servers as Array<Record<string, unknown>>).map(s => ({ name: String(s.name ?? ''), status: String(s.status ?? '') }))
-            : []
-          const outputStyle = typeof m.output_style === 'string' ? m.output_style : null
-          this.emitSelf({ type: 'init', sdkSessionId: this.sdkSessionId, slashCommands, skills, agents, mcpServers, outputStyle })
+          // 只在新建会话（sdkSessionId 为空）时更新 session ID，避免 feature-dev 等 plugin
+          // 的并行子 agent 也会发 init 事件，把主会话 sdkSessionId 覆盖成子 agent 的 ID，
+          // 导致下次续跑时 "No conversation found"（子 agent 的 SDK 会话已结束）。
+          const isMainSession = !this.sdkSessionId
+          if (isMainSession) {
+            this.sdkSessionId = m.session_id as string
+          }
+          // 无论是主会话还是子 agent，init 事件的能力清单都只在主会话时透传前端
+          if (isMainSession) {
+            const slashCommands = Array.isArray(m.slash_commands) ? m.slash_commands : []
+            const skills = Array.isArray(m.skills) ? m.skills : []
+            const agents = Array.isArray(m.agents) ? m.agents : []
+            const mcpServers = Array.isArray(m.mcp_servers)
+              ? (m.mcp_servers as Array<Record<string, unknown>>).map(s => ({ name: String(s.name ?? ''), status: String(s.status ?? '') }))
+              : []
+            const outputStyle = typeof m.output_style === 'string' ? m.output_style : null
+            this.emitSelf({ type: 'init', sdkSessionId: this.sdkSessionId, slashCommands, skills, agents, mcpServers, outputStyle })
+          }
         }
         break
       }
