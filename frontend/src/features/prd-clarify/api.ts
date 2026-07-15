@@ -68,3 +68,28 @@ export const linkPrdToReqItem = (reqItemId: string, prdSessionId: string) =>
     method: 'POST',
     body: JSON.stringify({ prdSessionId }),
   })
+
+// ─── 多轮渐进式澄清 ───
+
+export interface QaPair { question: string; answer: string }
+
+/**
+ * 多轮澄清：请求 Claude 生成下一个问题（SSE 流式）。
+ * Claude 可能输出 [CLARIFICATION_COMPLETE] 表示信息已足够。
+ */
+export const askNextQuestion = (
+  sessionId: string,
+  questionIndex: number,
+  history: QaPair[],
+  handlers: SseHandlers,
+) =>
+  subscribeSsePost(`/prd-clarify/sessions/${sessionId}/ask`, { questionIndex, history }, handlers)
+
+/**
+ * 多轮澄清完成，保存完整问答历史（含每题的问题文本），以便 generate 使用。
+ */
+export const saveQaHistory = (sessionId: string, history: QaPair[]) =>
+  http<import('./types').PrdSessionView>(`/prd-clarify/sessions/${sessionId}/qa-history`, {
+    method: 'POST',
+    body: JSON.stringify({ history }),
+  })

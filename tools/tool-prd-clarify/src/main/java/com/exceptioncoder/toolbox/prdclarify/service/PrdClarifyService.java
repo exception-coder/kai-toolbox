@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.prdclarify.service;
 
 import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.QaPairRequest;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -32,6 +33,26 @@ import java.util.UUID;
 @Slf4j
 @Service
 public class PrdClarifyService {
+
+    // ───── 多轮渐进式澄清 System Prompt ─────
+
+    /**
+     * 多轮渐进式澄清：每次只提一个问题，基于历史回答动态追问。
+     * 当信息足够时输出 [CLARIFICATION_COMPLETE]。
+     */
+    private static final String ASK_SYSTEM = """
+            你是一名资深产品经理，正在与用户进行需求澄清对话。
+
+            你的任务：通过逐步提问帮助用户将模糊需求转化为可落地的产品要求，为后续 PRD 编写做准备。
+
+            严格规则（违反则输出无效）：
+            - 每次只输出 1 个问题，是当前最关键、最优先的澄清点
+            - 问题要简洁具体，用户可直接回答（不超过 50 字）
+            - 问题之间要有关联，基于用户上一个回答进行深挖或转移方向
+            - 最多进行 5 轮问答，若已有足够信息请提前结束
+            - 如果认为信息已经足够编写完整 PRD，直接输出一行：[CLARIFICATION_COMPLETE]
+            - 输出时不加序号、前缀、解释或任何装饰，只输出问题本身（或 [CLARIFICATION_COMPLETE]）
+            """;
 
     // ───── Claude Prompts ─────
 
@@ -161,6 +182,70 @@ public class PrdClarifyService {
         // 重新加载最新记录返回
         return repo.findById(sessionId).orElse(session);
     }
+
+    // ═══════════════════════════════════════════════════
+    // 多轮渐进式澄清：每题单独调 Claude，基于历史动态追问
+    // ═══════════════════════════════════════════════════
+
+    /**
+     * 多轮澄清——请求下一个问题。
+     *
+     * <p>Claude 接收原始需求 + 已完成的问答历史，输出下一个最关键的澄清问题；
+     * 若信息已足够，输出 {@code [CLARIFICATION_COMPLETE]}。
+     * 前端收到 {@code done} 事件后根据文本内容决定继续问还是跳转生成 PRD。
+     *
+     * @param sessionId     会话 ID
+     * @param questionIndex 当前是第几轮（0-based），用于告知 Claude 剩余轮数
+     * @param history       已完成的问答历史
+     * @param emitter       SSE 发射器（chunk/done/error）
+     */
+    public void askNextQuestion(String sessionId, int questionIndex,
+                                List<QaPairRequest> history, SseEmitter emitter) {
+        // 超过 5 轮直接完成
+        if (questionIndex >= 5) {
+            try {
+                emitter.send(SseEmitter.event().name("chunk")
+                        .data(Map.of("content", "[CLARIFICATION_COMPLETE]")));
+                emitter.send(SseEmitter.event().name("done").data("{}"));
+                emitter.complete();
+            } catch (Exception e) {
+                emitter.completeWithError(e);
+            }
+            return;
+        }
+
+        PrdSession session = repo.findById(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
+
+        Thread.ofVirtual().name("prd-ask-").start(() -> {
+            try {
+                agentRunner.stream(
+                        ASK_SYSTEM,
+                        buildAskUserPrompt(session, questionIndex, history),
+                        session.getModel(),
+                        delta -> sendChunk(emitter, delta));
+                sendDone(emitter);
+            } catch (Exception e) {
+                log.warn("[prd-clarify] askNextQuestion failed sessionId={}", sessionId, e);
+                sendError(emitter, e);
+            }
+        });
+    }
+
+    /**
+     * 多轮澄清完成后，将完整问答历史持久化到 {@code questions} 字段，以便 {@link #generate} 读取。
+     */
+    public PrdSession saveQaHistory(String sessionId, List<QaPairRequest> history) {
+        repo.findById(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
+
+        String questionsJson = buildQuestionsJson(history);
+        repo.updateQuestions(sessionId, questionsJson);
+
+        return repo.findById(sessionId).orElseThrow();
+    }
+
+    // ─────────────────────────────────────────────────
 
     /**
      * 生成阶段：读取问答，调 Claude 生成 PRD Markdown，通过 SSE 流式推出，落盘后更新库。
@@ -341,6 +426,53 @@ public class PrdClarifyService {
             return mapper.writeValueAsString(arr);
         } catch (JsonProcessingException e) {
             return "[{\"id\":1,\"question\":\"请进一步描述您的核心需求和期望效果\",\"answer\":\"\"}]";
+        }
+    }
+
+    /** 构建多轮提问的 user prompt（原始需求 + 历史问答 + 当前轮次提示）。 */
+    private String buildAskUserPrompt(PrdSession s, int questionIndex, List<QaPairRequest> history) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("需求标题：").append(s.getTitle()).append("\n");
+        if (s.getProject() != null && !s.getProject().isBlank()) {
+            sb.append("项目：").append(s.getProject());
+            if (s.getModule() != null && !s.getModule().isBlank()) {
+                sb.append(" / ").append(s.getModule());
+            }
+            sb.append("\n");
+        }
+        sb.append("\n原始需求描述：\n").append(s.getRawInput()).append("\n\n");
+
+        if (!history.isEmpty()) {
+            sb.append("已完成的澄清问答（").append(history.size()).append("轮）：\n");
+            for (var qa : history) {
+                sb.append("问：").append(qa.question()).append("\n");
+                sb.append("答：").append(qa.answer()).append("\n\n");
+            }
+        }
+
+        int remaining = 5 - questionIndex;
+        sb.append("这是第 ").append(questionIndex + 1).append(" 个问题（还可以最多再问 ")
+                .append(remaining - 1).append(" 个）。\n");
+        sb.append("请提出下一个最关键的澄清问题，或输出 [CLARIFICATION_COMPLETE]：");
+        return sb.toString();
+    }
+
+    /** 将多轮问答历史转换为 questions JSON 格式（供 generate() 读取）。 */
+    private String buildQuestionsJson(List<QaPairRequest> history) {
+        try {
+            ArrayNode arr = mapper.createArrayNode();
+            int idx = 1;
+            for (var qa : history) {
+                ObjectNode node = mapper.createObjectNode();
+                node.put("id", idx++);
+                node.put("question", qa.question());
+                node.put("answer", qa.answer());
+                arr.add(node);
+            }
+            return mapper.writeValueAsString(arr);
+        } catch (JsonProcessingException e) {
+            log.warn("[prd-clarify] buildQuestionsJson failed", e);
+            return "[]";
         }
     }
 

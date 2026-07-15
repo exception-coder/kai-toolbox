@@ -40,7 +40,6 @@ export interface SaveContentRequest {
 /** 前端页面内部的步骤状态机 */
 export type PrdStep =
   | 'INPUT'        // 填写需求表单
-  | 'CLARIFYING'   // Claude 正在生成澄清问题（SSE 流式）
-  | 'ANSWERING'    // 用户填写澄清问题的答案
+  | 'CHATTING'     // 多轮对话澄清（Claude 提问 + 用户回答，交替进行）
   | 'GENERATING'   // Claude 正在生成 PRD（SSE 流式）
   | 'EDITING'      // PRD 生成完毕，进入编辑器

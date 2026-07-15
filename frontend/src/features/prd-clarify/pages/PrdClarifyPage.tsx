@@ -1,11 +1,12 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { ChevronRight, Code2, Copy, ExternalLink, FileText, Loader2, Plus, Rocket, Trash2, X } from 'lucide-react'
+import { BotMessageSquare, ChevronRight, Code2, Copy, ExternalLink, FileText, Loader2, Plus, Rocket, Send, Trash2, User, X } from 'lucide-react'
 import { http } from '@/lib/api'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import {
+  askNextQuestion,
   createSession,
   deleteSession,
   getContent,
@@ -13,11 +14,11 @@ import {
   linkPrdToReqItem,
   listSessions,
   saveContent,
-  startClarify,
+  saveQaHistory,
   startGenerate,
-  submitAnswers,
+  type QaPair,
 } from '../api'
-import type { PrdSessionView, PrdStep, QuestionItem } from '../types'
+import type { PrdSessionView, PrdStep } from '../types'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 
 // 编辑器 lazy import — CodeMirror chunk 只在进入 EDITING 步骤时加载
@@ -40,10 +41,10 @@ function MarkdownViewer({ content }: { content: string }) {
 }
 
 // ───── 步骤指示器 ─────
-const STEP_LABELS = ['填写需求', '澄清问答', '生成 / 编辑 PRD']
+const STEP_LABELS = ['填写需求', 'AI 渐进澄清', '生成 / 编辑 PRD']
 function stepIndex(step: PrdStep): number {
   if (step === 'INPUT') return 0
-  if (step === 'CLARIFYING' || step === 'ANSWERING') return 1
+  if (step === 'CHATTING') return 1
   return 2
 }
 
@@ -338,73 +339,218 @@ function InputPanel({
   )
 }
 
-// ───── 流式展示面板（澄清阶段 / 生成阶段） ─────
-function StreamingPanel({ streamText, label }: { streamText: string; label: string }) {
+// ───── 生成阶段流式展示 ─────
+function GeneratingPanel({ streamText }: { streamText: string }) {
   const endRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [streamText])
-
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [streamText])
   return (
     <div className="flex-1 flex flex-col p-6 overflow-hidden">
       <div className="flex items-center gap-2 mb-4 text-sm text-[var(--color-muted-foreground)]">
         <Loader2 className="w-4 h-4 animate-spin" />
-        <span>{label}</span>
+        <span>Claude 正在撰写 PRD 文档…</span>
       </div>
-      <div className="flex-1 overflow-y-auto rounded-lg bg-[var(--color-muted)]/30 p-4 font-mono text-sm whitespace-pre-wrap break-words leading-relaxed">
-        {streamText || <span className="text-[var(--color-muted-foreground)] italic">等待 Claude 响应…</span>}
+      <div className="flex-1 overflow-y-auto rounded-lg bg-[var(--color-muted)]/30 p-4 text-sm whitespace-pre-wrap break-words leading-relaxed">
+        {streamText || <span className="italic">等待 Claude 响应…</span>}
         <div ref={endRef} />
       </div>
     </div>
   )
 }
 
-// ───── 澄清答题面板（Step ANSWERING） ─────
-function AnsweringPanel({
-  questions,
-  onSubmit,
+// ───── 多轮渐进澄清对话面板（Step CHATTING） ─────
+function ChattingPanel({
+  sessionId,
+  onDone,       // 澄清完成，带完整 history 调用
+  onError,
 }: {
-  questions: QuestionItem[]
-  onSubmit: (answers: string[]) => void
+  sessionId: string
+  onDone: (history: QaPair[]) => void
+  onError: (msg: string) => void
 }) {
-  const [answers, setAnswers] = useState<string[]>(() => questions.map((q) => q.answer ?? ''))
-  const allFilled = answers.every((a) => a.trim().length > 0)
+  const [history, setHistory] = useState<QaPair[]>([])          // 已完成的 Q&A
+  const [currentQ, setCurrentQ] = useState('')                  // 当前问题（流式积累）
+  const [currentA, setCurrentA] = useState('')                  // 用户正在输入的答案
+  const [isStreaming, setIsStreaming] = useState(true)          // Claude 正在输出问题
+  const abortRef = useRef<(() => void) | null>(null)
+  const endRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  const scrollToBottom = () => endRef.current?.scrollIntoView({ behavior: 'smooth' })
+
+  // 挂载时立即开始第一个问题
+  useEffect(() => {
+    askQuestion(0, [])
+    return () => abortRef.current?.()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => { scrollToBottom() }, [history, currentQ])
+
+  // 当 Claude 输出完毕后聚焦输入框
+  useEffect(() => {
+    if (!isStreaming && currentQ && !currentQ.includes('[CLARIFICATION_COMPLETE]')) {
+      setTimeout(() => inputRef.current?.focus(), 100)
+    }
+  }, [isStreaming, currentQ])
+
+  const askQuestion = (index: number, hist: QaPair[]) => {
+    setCurrentQ('')
+    setIsStreaming(true)
+    const accRef = { current: '' }
+
+    const abort = askNextQuestion(sessionId, index, hist, {
+      onEvent(name, data) {
+        if (name === 'chunk') {
+          const chunk = (data as { content: string }).content ?? ''
+          accRef.current += chunk
+          setCurrentQ(accRef.current)
+        }
+        if (name === 'done') {
+          setIsStreaming(false)
+          const text = accRef.current.trim()
+          if (text.includes('[CLARIFICATION_COMPLETE]')) {
+            // 澄清完成，把历史传给父组件
+            onDone(hist)
+          }
+        }
+        if (name === 'error') {
+          setIsStreaming(false)
+          onError((data as { message: string }).message ?? '澄清失败')
+        }
+      },
+      onError() {
+        setIsStreaming(false)
+        onError('SSE 连接失败，请重试')
+      },
+    })
+    abortRef.current = abort
+  }
+
+  const handleSubmitAnswer = () => {
+    const answer = currentA.trim()
+    if (!answer) return
+
+    const newPair: QaPair = { question: currentQ, answer }
+    const newHistory = [...history, newPair]
+    setHistory(newHistory)
+    setCurrentA('')
+    setCurrentQ('')
+
+    // 触发下一个问题
+    askQuestion(newHistory.length, newHistory)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      handleSubmitAnswer()
+    }
+  }
+
+  const isDone = !isStreaming && currentQ.includes('[CLARIFICATION_COMPLETE]')
+  const maxRounds = 5
+  const progress = Math.round(((history.length) / maxRounds) * 100)
 
   return (
-    <div className="flex-1 p-6 overflow-y-auto">
-      <div className="max-w-2xl mx-auto">
-        <p className="text-sm text-[var(--color-muted-foreground)] mb-5">
-          Claude 提出了以下澄清问题，请逐一填写答案，帮助生成更精准的 PRD。
-        </p>
-        <div className="space-y-5">
-          {questions.map((q, i) => (
-            <div key={q.id} className="rounded-lg border border-[var(--color-border)] p-4">
-              <div className="text-sm font-medium mb-2">
-                <span className="text-[var(--color-primary)] mr-1">Q{i + 1}.</span>
-                {q.question}
-              </div>
-              <textarea
-                value={answers[i] ?? ''}
-                onChange={(e) => {
-                  const next = [...answers]
-                  next[i] = e.target.value
-                  setAnswers(next)
-                }}
-                rows={3}
-                placeholder="请填写您的答案…"
-                className="w-full px-3 py-2 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] text-sm resize-y focus:outline-none focus:ring-1 focus:ring-[var(--color-ring)]"
-              />
-            </div>
-          ))}
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {/* 进度条 */}
+      <div className="flex items-center gap-3 px-5 py-2 border-b border-[var(--color-border)] bg-[var(--color-card)]">
+        <span className="text-xs text-[var(--color-muted-foreground)]">
+          澄清进度：{history.length} / {maxRounds} 题
+        </span>
+        <div className="flex-1 h-1.5 rounded-full bg-[var(--color-muted)]">
+          <div
+            className="h-full rounded-full bg-[var(--color-primary)] transition-all"
+            style={{ width: `${progress}%` }}
+          />
         </div>
-        <button
-          disabled={!allFilled}
-          onClick={() => onSubmit(answers)}
-          className="mt-6 w-full py-2.5 rounded-md bg-[var(--color-primary)] text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-        >
-          提交答案并生成 PRD
-        </button>
+        {isStreaming && (
+          <div className="flex items-center gap-1 text-xs text-[var(--color-muted-foreground)]">
+            <Loader2 className="w-3 h-3 animate-spin" />
+            Claude 思考中…
+          </div>
+        )}
       </div>
+
+      {/* 对话气泡区 */}
+      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        {/* 历史 Q&A */}
+        {history.map((qa, i) => (
+          <div key={i} className="space-y-2">
+            {/* Claude 气泡 */}
+            <div className="flex items-start gap-3">
+              <div className="w-7 h-7 rounded-full bg-[var(--color-primary)]/20 flex items-center justify-center flex-shrink-0">
+                <BotMessageSquare className="w-4 h-4 text-[var(--color-primary)]" />
+              </div>
+              <div className="flex-1 rounded-2xl rounded-tl-sm bg-[var(--color-muted)]/50 px-4 py-2.5 text-sm leading-relaxed max-w-2xl">
+                {qa.question}
+              </div>
+            </div>
+            {/* 用户气泡 */}
+            <div className="flex items-start gap-3 justify-end">
+              <div className="flex-1 rounded-2xl rounded-tr-sm bg-[var(--color-primary)]/10 border border-[var(--color-primary)]/20 px-4 py-2.5 text-sm leading-relaxed max-w-2xl text-right ml-8">
+                {qa.answer}
+              </div>
+              <div className="w-7 h-7 rounded-full bg-[var(--color-muted)] flex items-center justify-center flex-shrink-0">
+                <User className="w-4 h-4 text-[var(--color-muted-foreground)]" />
+              </div>
+            </div>
+          </div>
+        ))}
+
+        {/* 当前问题（流式中或已完成） */}
+        {currentQ && !isDone && (
+          <div className="flex items-start gap-3">
+            <div className="w-7 h-7 rounded-full bg-[var(--color-primary)]/20 flex items-center justify-center flex-shrink-0">
+              <BotMessageSquare className="w-4 h-4 text-[var(--color-primary)]" />
+            </div>
+            <div className="flex-1 rounded-2xl rounded-tl-sm bg-[var(--color-muted)]/50 px-4 py-2.5 text-sm leading-relaxed max-w-2xl">
+              {currentQ}
+              {isStreaming && (
+                <span className="inline-block w-1.5 h-4 bg-[var(--color-primary)] rounded animate-pulse ml-1 align-middle" />
+              )}
+            </div>
+          </div>
+        )}
+
+        <div ref={endRef} />
+      </div>
+
+      {/* 输入区 */}
+      {!isDone && !isStreaming && currentQ && (
+        <div className="border-t border-[var(--color-border)] bg-[var(--color-card)] p-4">
+          <div className="flex gap-2 items-end max-w-3xl mx-auto">
+            <textarea
+              ref={inputRef}
+              value={currentA}
+              onChange={e => setCurrentA(e.target.value)}
+              onKeyDown={handleKeyDown}
+              rows={3}
+              placeholder="输入你的回答… (Ctrl+Enter 提交)"
+              className="flex-1 px-3 py-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-input)] text-sm resize-none focus:outline-none focus:ring-1 focus:ring-[var(--color-ring)]"
+            />
+            <button
+              disabled={!currentA.trim()}
+              onClick={handleSubmitAnswer}
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-[var(--color-primary)] text-white text-sm font-medium hover:opacity-90 disabled:opacity-40 self-end"
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          </div>
+          <p className="text-xs text-center text-[var(--color-muted-foreground)] mt-2">
+            Claude 会根据你的回答动态追问，最多 {maxRounds} 轮
+          </p>
+        </div>
+      )}
+
+      {/* 流式中占位输入区 */}
+      {isStreaming && (
+        <div className="border-t border-[var(--color-border)] bg-[var(--color-card)] p-4">
+          <div className="max-w-3xl mx-auto h-12 rounded-xl border border-[var(--color-border)] bg-[var(--color-muted)]/30 flex items-center px-3 text-xs text-[var(--color-muted-foreground)] italic">
+            等待 Claude 提问…
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -638,8 +784,10 @@ export function PrdClarifyPage() {
   const [prdContent, setPrdContent] = useState('')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const abortRef = useRef<(() => void) | null>(null)
-  // GENERATING 阶段用 ref 积累 PRD 内容（不触发渲染），done 时一次性赋值 prdContent
+  // GENERATING 阶段用 ref 积累全文，done 时一次性赋值（避免双重 setState）
   const prdAccRef = useRef('')
+  // 从 ChattingPanel 拿到的完整 QA history，用于 generate 时读取
+  const qaHistoryRef = useRef<QaPair[]>([])
 
   // 读取 URL 参数
   const urlTitle = searchParams.get('title') ?? ''
@@ -685,11 +833,6 @@ export function PrdClarifyPage() {
   // 创建会话 mutation
   const createMut = useMutation({ mutationFn: createSession })
 
-  // 提交答案 mutation
-  const answerMut = useMutation({ mutationFn: ({ id, answers }: { id: string; answers: string[] }) =>
-    submitAnswers(id, { answers })
-  })
-
   // 删除 mutation
   const deleteMut = useMutation({
     mutationFn: deleteSession,
@@ -712,85 +855,63 @@ export function PrdClarifyPage() {
     setErrorMsg(null)
   }
 
-  /** Step INPUT → 创建会话 → 启动 SSE 澄清 */
+  /** Step INPUT → 创建会话 → 进入多轮对话澄清 */
   const handleStart = async (title: string, rawInput: string, project: string, module: string) => {
     setErrorMsg(null)
     setSessionTitle(title)
-    // 清除 URL 参数（已被加载到表单，避免刷新后重复填充）
     setSearchParams({}, { replace: true })
     const created = await createMut.mutateAsync({ title, rawInput, project, module })
     setSessionId(created.id)
     setStreamText('')
-    setStep('CLARIFYING')
-
     qc.invalidateQueries({ queryKey: ['prd-sessions'] })
-
-    // 启动澄清 SSE
-    const abort = startClarify(created.id, {
-      onEvent(name, data) {
-        if (name === 'chunk') {
-          const d = data as { content: string }
-          setStreamText((t) => t + (d.content ?? ''))
-        }
-        if (name === 'done') {
-          // 等待 questions 刷新完再切步骤，避免 ANSWERING 面板闪现空列表
-          qc.refetchQueries({ queryKey: ['prd-session', created.id] }).then(() => {
-            setStep('ANSWERING')
-          })
-        }
-        if (name === 'error') {
-          const d = data as { message: string }
-          setErrorMsg(d.message ?? '澄清失败')
-          setStep('INPUT')
-        }
-      },
-      onError() {
-        setErrorMsg('SSE 连接失败，请重试')
-        setStep('INPUT')
-      },
-    })
-    abortRef.current = abort
+    setStep('CHATTING')   // 直接进入对话澄清（ChattingPanel 挂载后自动开始第一题）
   }
 
-  /** Step ANSWERING → 提交答案 → 启动 SSE 生成 */
-  const handleSubmitAnswers = async (answers: string[]) => {
+  /**
+   * ChattingPanel 完成所有轮次后回调。
+   * 1. 保存问答历史到数据库
+   * 2. 启动 SSE 生成 PRD
+   */
+  const handleChattingDone = async (history: QaPair[]) => {
     if (!sessionId) return
     setErrorMsg(null)
+    qaHistoryRef.current = history
 
-    await answerMut.mutateAsync({ id: sessionId, answers })
+    try {
+      // 把完整问答历史持久化
+      await saveQaHistory(sessionId, history)
+    } catch {
+      // 保存失败不阻断流程（generate 里会从 session.questions 读）
+    }
 
     setStreamText('')
-    prdAccRef.current = '' // 重置 PRD 积累器
+    prdAccRef.current = ''
     setStep('GENERATING')
 
     const abort = startGenerate(sessionId, {
       onEvent(name, data) {
         if (name === 'chunk') {
-          const d = data as { content: string }
-          const chunk = d.content ?? ''
-          prdAccRef.current += chunk      // 无渲染开销积累全文
-          setStreamText((t) => t + chunk) // 流式展示用 state
+          const chunk = (data as { content: string }).content ?? ''
+          prdAccRef.current += chunk
+          setStreamText((t) => t + chunk)
         }
         if (name === 'done') {
-          setPrdContent(prdAccRef.current) // 一次性赋值，不双重 setState
+          setPrdContent(prdAccRef.current)
           qc.invalidateQueries({ queryKey: ['prd-sessions'] })
-          // 如果来自需求管理池，自动将 PRD 关联回对应需求条目（状态流转到 PRD_READY）
           if (urlReqItemId && sessionId) {
-            linkPrdToReqItem(urlReqItemId, sessionId).catch(() => {
-              // 回写失败不阻断主流程，用户仍可进入编辑器
-            })
+            linkPrdToReqItem(urlReqItemId, sessionId).catch(() => {})
           }
           setStep('EDITING')
         }
         if (name === 'error') {
           const d = data as { message: string }
           setErrorMsg(d.message ?? 'PRD 生成失败')
-          setStep('ANSWERING')
+          setStep('CHATTING')  // 退回到对话继续
         }
       },
       onError() {
         setErrorMsg('SSE 连接失败，请重试')
-        setStep('ANSWERING')
+        setStep('CHATTING')
       },
     })
     abortRef.current = abort
@@ -816,9 +937,8 @@ export function PrdClarifyPage() {
           setStep('INPUT')
         })
     } else if (s.status === 'CLARIFYING') {
-      setStep('ANSWERING')
+      setStep('CHATTING')   // 重新进入对话澄清（会从头开始，历史在 DB 里但前端重新问）
     } else if (s.status === 'GENERATING') {
-      // 正在生成，进入空流状态
       setStep('GENERATING')
     } else if (s.status === 'ERROR') {
       setErrorMsg(s.errorMsg ?? '上次执行出错')
@@ -828,8 +948,6 @@ export function PrdClarifyPage() {
     }
   }
 
-  const questions: QuestionItem[] = session?.questions ?? []
-
   return (
     <div className="h-full flex flex-col overflow-hidden bg-[var(--color-background)]">
       <StepBar step={step} />
@@ -838,15 +956,13 @@ export function PrdClarifyPage() {
       {errorMsg && (
         <div className="flex items-center gap-2 px-6 py-2 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 text-sm border-b border-red-200 dark:border-red-900">
           <span>{errorMsg}</span>
-          <button onClick={() => setErrorMsg(null)} className="ml-auto text-xs underline">
-            关闭
-          </button>
+          <button onClick={() => setErrorMsg(null)} className="ml-auto text-xs underline">关闭</button>
         </div>
       )}
 
       <div className="flex-1 flex overflow-hidden">
-        {/* 历史侧边栏（非编辑器模式下显示） */}
-        {step !== 'EDITING' && (
+        {/* 历史侧边栏（非编辑器、非对话模式下显示） */}
+        {step !== 'EDITING' && step !== 'CHATTING' && (
           <HistoryPanel
             sessions={sessions}
             activeId={sessionId}
@@ -866,19 +982,17 @@ export function PrdClarifyPage() {
           />
         )}
 
-        {step === 'CLARIFYING' && (
-          <StreamingPanel streamText={streamText} label="Claude 正在分析需求，生成澄清问题…" />
-        )}
-
-        {step === 'ANSWERING' && (
-          <AnsweringPanel
-            questions={questions}
-            onSubmit={handleSubmitAnswers}
+        {/* 多轮渐进澄清对话（ChattingPanel 自管理 askNextQuestion 循环） */}
+        {step === 'CHATTING' && sessionId && (
+          <ChattingPanel
+            sessionId={sessionId}
+            onDone={handleChattingDone}
+            onError={(msg) => { setErrorMsg(msg); setStep('INPUT') }}
           />
         )}
 
         {step === 'GENERATING' && (
-          <StreamingPanel streamText={streamText} label="Claude 正在撰写 PRD 文档…" />
+          <GeneratingPanel streamText={streamText} />
         )}
 
         {step === 'EDITING' && sessionId && (

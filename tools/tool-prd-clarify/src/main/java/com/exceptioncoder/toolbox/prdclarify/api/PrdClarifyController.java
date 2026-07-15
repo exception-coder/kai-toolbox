@@ -1,8 +1,10 @@
 package com.exceptioncoder.toolbox.prdclarify.api;
 
+import com.exceptioncoder.toolbox.prdclarify.api.dto.AskNextQuestionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.CreateSessionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.PrdSessionView;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.SaveContentRequest;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.SaveQaHistoryRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.SubmitAnswersRequest;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
@@ -95,6 +97,27 @@ public class PrdClarifyController {
         SseEmitter emitter = new SseEmitter(0L);
         service.clarify(id, emitter);
         return emitter;
+    }
+
+    /**
+     * 多轮渐进式澄清：请求 Claude 生成下一个问题（SSE 流式）。
+     * 若 Claude 认为信息足够，流式输出 [CLARIFICATION_COMPLETE]，前端据此跳过后续提问直接生成 PRD。
+     */
+    @PostMapping(value = "/sessions/{id}/ask", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter ask(@PathVariable String id,
+                          @RequestBody AskNextQuestionRequest req) {
+        SseEmitter emitter = new SseEmitter(0L);
+        service.askNextQuestion(id, req.questionIndex(), req.history(), emitter);
+        return emitter;
+    }
+
+    /**
+     * 多轮澄清完成后保存完整问答历史（替代 submitAnswers，携带每题的问题文本）。
+     */
+    @PostMapping("/sessions/{id}/qa-history")
+    public PrdSessionView saveQaHistory(@PathVariable String id,
+                                        @Valid @RequestBody SaveQaHistoryRequest req) {
+        return PrdSessionView.from(service.saveQaHistory(id, req.history()));
     }
 
     /** 提交用户对澄清问题的回答。 */
