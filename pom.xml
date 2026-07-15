@@ -51,6 +51,7 @@
         <module>tools/tool-welfare-sign</module>
         <module>tools/tool-ops</module>
         <module>tools/tool-prd-clarify</module>
+        <module>tools/tool-reqpool</module>
         <module>toolbox-starter</module>
     </modules>
 
@@ -256,6 +257,11 @@
             <dependency>
                 <groupId>com.exceptioncoder</groupId>
                 <artifactId>tool-prd-clarify</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-reqpool</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

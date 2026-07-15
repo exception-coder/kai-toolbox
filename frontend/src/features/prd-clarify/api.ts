@@ -58,3 +58,13 @@ export const startClarify = (id: string, handlers: SseHandlers) =>
  */
 export const startGenerate = (id: string, handlers: SseHandlers) =>
   subscribeSsePost(`${BASE}/sessions/${id}/generate`, {}, handlers)
+
+/**
+ * 将 PRD 会话关联到需求管理池条目（PRD 生成完成后回调）。
+ * 触发 reqpool 条目状态流转到 PRD_READY。
+ */
+export const linkPrdToReqItem = (reqItemId: string, prdSessionId: string) =>
+  http<void>(`/reqpool/items/${reqItemId}/link-prd`, {
+    method: 'POST',
+    body: JSON.stringify({ prdSessionId }),
+  })

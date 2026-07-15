@@ -10,6 +10,7 @@ import {
   deleteSession,
   getContent,
   getSession,
+  linkPrdToReqItem,
   listSessions,
   saveContent,
   startClarify,
@@ -136,51 +137,54 @@ function HistoryPanel({
   )
 }
 
-// ───── 快捷示例模板（完整数据，避免只加载标题） ─────
+// ───── 快捷示例模板（围绕需求管理池模块展开） ─────
 const QUICK_TEMPLATES = [
   {
-    label: '简历评分',
+    label: 'SLA 预警',
     hint: '知识图谱示例',
-    title: '简历完整度评分功能',
+    title: '需求池 SLA 剩余天数预警',
     project: 'kai-toolbox',
-    module: 'tool-resume',
-    rawInput: `需求背景：当前简历工作台（tool-resume）只提供 AI 优化建议，用户不清楚自己简历的整体质量水平。
-
-需求描述：增加「简历完整度评分」功能，对用户简历进行多维度评估并给出 0-100 分的综合评分，具体包括：
-- 基本信息完整度（姓名、联系方式、城市等）
-- 工作经历质量（年限描述、职责描述详细程度、量化成果）
-- 技能匹配度（与目标岗位的关联性）
-- 教育背景完整性
-- 项目经历含金量
-
-用户在简历详情页可以一键触发评分，查看各维度得分和具体改进建议，并与历史评分做对比。`,
-  },
-  {
-    label: 'PDF 导出',
-    hint: '业务逻辑澄清示例',
-    title: '简历一键导出 PDF',
-    project: 'kai-toolbox',
-    module: 'tool-resume',
-    rawInput: `需求描述：用户完成简历填写和 AI 优化后，希望能够导出为 PDF 格式，用于向企业投递简历。
-
-当前痛点：工作台提供简历在线编辑和 AI 优化，但没有导出功能。用户只能截图保存，格式不专业，且无法精确控制排版。
-
-期望效果：点击「导出 PDF」按钮，自动生成格式美观的简历 PDF 文件并下载到本地。对排版有一定要求：字体清晰、间距舒适、内容层次分明。`,
-  },
-  {
-    label: '投递追踪',
-    hint: '综合示例',
-    title: '简历投递追踪功能',
-    project: 'kai-toolbox',
-    module: 'tool-resume',
-    rawInput: `作为求职者，我希望能在简历工作台中记录和追踪我的求职投递情况，分析哪些简历版本效果更好。
+    module: 'tool-reqpool',
+    rawInput: `当需求池中的需求接近截止日期时，系统没有任何提醒机制，
+导致产品经理经常遗忘，需求超期后才发现。
 
 期望功能：
-1. 记录每次投递（目标公司、岗位、投递渠道、投递日期）
-2. 追踪投递状态流转（已投递 → 简历被查看 → 约面试 → 终面 → Offer / 已拒绝）
-3. 关联到具体的简历版本（不同公司用了不同优化版本）
-4. 看板视图：以时间线或看板形式展示所有投递的当前状态
-5. 数据统计：投递总量、各阶段转化率、平均响应天数`,
+- 在需求列表中，距截止日期 ≤3 天的需求自动标红高亮（行级变色）
+- 距截止日期 ≤7 天显示黄色警告图标
+- 在页面顶部增加"即将超期 N 条"的摘要提示条
+- 已完成（DONE）和已取消（CANCELLED）的需求不参与预警
+- 超期阈值可在设置中调整（默认 3 天和 7 天）`,
+  },
+  {
+    label: '批量操作',
+    hint: '业务逻辑澄清示例',
+    title: '需求批量状态变更与分配',
+    project: 'kai-toolbox',
+    module: 'tool-reqpool',
+    rawInput: `产品经理每周会对一批需求做统一操作：
+- 将本迭代完成的需求批量标记为 DONE
+- 将下迭代的需求批量指派给同一个开发人员
+- 将废弃的需求批量取消（状态改为 CANCELLED）
+
+目前只能逐条点击操作，每次迭代结束要手动操作几十条，非常耗时。
+
+期望效果：需求列表支持多选（勾选框），然后可以批量改状态或批量改负责人。`,
+  },
+  {
+    label: '导入Excel',
+    hint: '综合示例',
+    title: '需求数据导入（Excel/CSV）',
+    project: 'kai-toolbox',
+    module: 'tool-reqpool',
+    rawInput: `我们团队在使用需求管理池之前，已有数百条需求记录存在 Excel 表格中，
+列名包括：需求名称、描述、项目、模块、优先级、负责人、截止日期。
+
+期望功能：
+1. 支持上传 .xlsx 或 .csv 文件
+2. 提供标准导入模板（可下载）
+3. 导入前预览：展示将导入的行数、字段映射结果
+4. 导入后生成结果报告（成功 N 条/失败 N 条/跳过 N 条）
+5. 重复检测：标题完全相同的需求自动跳过（不重复导入）`,
   },
 ]
 
@@ -630,11 +634,32 @@ export function PrdClarifyPage() {
   // GENERATING 阶段用 ref 积累 PRD 内容（不触发渲染），done 时一次性赋值 prdContent
   const prdAccRef = useRef('')
 
-  // 读取 URL 参数（来自 showcase 演示页的跳转）
+  // 读取 URL 参数
   const urlTitle = searchParams.get('title') ?? ''
   const urlRawInput = searchParams.get('rawInput') ?? ''
   const urlProject = searchParams.get('project') ?? ''
   const urlModule = searchParams.get('module') ?? ''
+  /** 来自需求管理池的回写 ID：PRD 完成后自动将 PRD 会话关联回需求条目 */
+  const urlReqItemId = searchParams.get('reqItemId') ?? ''
+  /** 直接查看某个历史 PRD 会话（来自需求管理池「查看PRD」按钮） */
+  const urlViewSession = searchParams.get('viewSession') ?? ''
+
+  // viewSession 参数：直接拉取会话内容并跳转到编辑器
+  useEffect(() => {
+    if (!urlViewSession) return
+    setSearchParams({}, { replace: true })
+    setSessionId(urlViewSession)
+    getContent(urlViewSession)
+      .then((content) => {
+        setPrdContent(content ?? '')
+        setStep('EDITING')
+      })
+      .catch(() => {
+        setErrorMsg('读取 PRD 文件失败')
+        setStep('INPUT')
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlViewSession])
 
   // 当前会话详情
   const { data: session } = useQuery({
@@ -742,6 +767,12 @@ export function PrdClarifyPage() {
         if (name === 'done') {
           setPrdContent(prdAccRef.current) // 一次性赋值，不双重 setState
           qc.invalidateQueries({ queryKey: ['prd-sessions'] })
+          // 如果来自需求管理池，自动将 PRD 关联回对应需求条目（状态流转到 PRD_READY）
+          if (urlReqItemId && sessionId) {
+            linkPrdToReqItem(urlReqItemId, sessionId).catch(() => {
+              // 回写失败不阻断主流程，用户仍可进入编辑器
+            })
+          }
           setStep('EDITING')
         }
         if (name === 'error') {

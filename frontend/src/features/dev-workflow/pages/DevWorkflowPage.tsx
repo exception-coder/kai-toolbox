@@ -399,22 +399,31 @@ function ExamplesSection({ onTry }: { onTry: (example: DemoExample) => void }) {
 }
 
 // ───── CTA ─────
-function CtaSection({ onStart }: { onStart: () => void }) {
+function CtaSection({ onReqPool, onPrd }: { onReqPool: () => void; onPrd: () => void }) {
   return (
     <section className="bg-gradient-to-br from-slate-900 to-slate-950 px-8 py-16 text-center border-t border-slate-800">
       <div className="max-w-2xl mx-auto">
-        <h2 className="text-2xl font-bold text-white mb-3">从您自己的需求开始</h2>
+        <h2 className="text-2xl font-bold text-white mb-3">立即开始体验</h2>
         <p className="text-slate-500 text-sm mb-8">
-          输入真实的业务需求，体验 AI 如何逐步将模糊想法转化为可落地的 PRD 文档
+          打开需求管理池，加载演示数据，选择任一需求点击「开始澄清」，走一遍完整的 AI 研发链路
         </p>
-        <button
-          onClick={onStart}
-          className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm transition-colors shadow-lg shadow-blue-600/20"
-        >
-          <FileText className="w-4 h-4" />
-          打开 PRD 澄清助手
-          <ArrowRight className="w-4 h-4" />
-        </button>
+        <div className="flex items-center justify-center gap-3 flex-wrap">
+          <button
+            onClick={onReqPool}
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm transition-colors shadow-lg shadow-blue-600/20"
+          >
+            <Zap className="w-4 h-4" />
+            打开需求管理池
+            <ArrowRight className="w-4 h-4" />
+          </button>
+          <button
+            onClick={onPrd}
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-xl border border-slate-600 hover:border-slate-400 text-slate-300 hover:text-white text-sm transition-colors"
+          >
+            <FileText className="w-4 h-4" />
+            直接写需求澄清
+          </button>
+        </div>
       </div>
     </section>
   )
@@ -446,7 +455,10 @@ export function DevWorkflowPage() {
       <ClarifyValueSection example={clarifyExample} />
       <LiveDevSection />
       <ExamplesSection onTry={handleTryExample} />
-      <CtaSection onStart={() => navigate('/tools/prd-clarify')} />
+      <CtaSection
+        onReqPool={() => navigate('/tools/reqpool')}
+        onPrd={() => navigate('/tools/prd-clarify')}
+      />
     </div>
   )
 }
