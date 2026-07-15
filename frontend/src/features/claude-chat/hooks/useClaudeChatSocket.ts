@@ -304,12 +304,13 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
         }
         // 自动恢复后重发未处理的用户消息：
         // expectingReadyRef 由 auto-resume 效果置位，表示"下一个 ready 是恢复成功信号"。
-        // sendRef / pendingResendRef 均在本钩子内声明（refs 是稳定对象，闭包可正确访问 .current）。
+        // hasAutoResentRef 置位后，若重发的消息也失败（再次触发 QUERY_FAILED），立即中止，不再循环。
         if (expectingReadyRef.current) {
           expectingReadyRef.current = false
           const pending = pendingResendRef.current
           if (pending && pending.forSessionId === msg.sessionId) {
             pendingResendRef.current = null
+            hasAutoResentRef.current = true // 标记"已自动重发一次"，若仍失败则停止
             setTimeout(() => { sendRef.current?.(pending.text) }, 300)
           }
         }
@@ -838,35 +839,45 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
   const autoResumeCountRef = useRef(0)
   // switchToRef 已在上方定义（line ~209），此处直接复用
 
-  /**
-   * 恢复后待重发的用户消息。
-   * - text：原始消息文本
-   * - forSessionId：消息所属的逻辑会话 ID（用于防止跨会话误发）
-   * 在 QUERY_FAILED 检测时写入，在 ready 成功后消费。
-   */
   // sendRef 已在上方定义（用于 enqueue 消费），此处直接复用
   // expectingReadyRef：auto-resume 置位后，下一个 ready 事件将触发 pendingResend 消费
   const expectingReadyRef = useRef(false)
   const pendingResendRef = useRef<{ text: string; forSessionId: string } | null>(null)
+  /** 已自动重发过一次的标志。若重发后仍 QUERY_FAILED，立即停止，不再循环。 */
+  const hasAutoResentRef = useRef(false)
 
   useEffect(() => {
     const last = items[items.length - 1]
     if (last?.kind !== 'error') {
-      // 仅在会话真正切换（items 清空）或成功完成（result）时重置计数器。
-      // ❌ 不在"error 被移除、user 消息留着"时重置——那只是 resumeCurrent 清掉了错误条目，
-      //    会话本身可能仍然坏的，若此时重置则永远无法升级到 Phase 2/3，形成死循环。
+      // 仅在会话真正切换（items 清空）或成功完成（result）时重置所有恢复状态
       if (items.length === 0 || last?.kind === 'result') {
         autoResumeCountRef.current = 0
+        hasAutoResentRef.current = false
+        pendingResendRef.current = null
+        expectingReadyRef.current = false
       }
       return
     }
     if (last.code !== 'QUERY_FAILED' || !last.message?.includes('No conversation found')) return
 
+    // ── 死循环防护 ──────────────────────────────────────────────────────────
+    // 已自动重发过一次，但重发的消息仍然 QUERY_FAILED → 会话根本性损坏，停止一切自动恢复。
+    // 留下错误条目，让用户手动新建或切换会话。
+    if (hasAutoResentRef.current) {
+      hasAutoResentRef.current = false
+      pendingResendRef.current = null
+      expectingReadyRef.current = false
+      autoResumeCountRef.current = 0
+      console.warn('[claude-chat] 自动重发后仍然失败，会话根本性损坏，停止自动恢复')
+      return
+    }
+    // ───────────────────────────────────────────────────────────────────────
+
     const count = autoResumeCountRef.current
     if (count >= 3) return // 三阶段都失败，留给用户手动决策
     autoResumeCountRef.current += 1
 
-    // 每次 QUERY_FAILED 都更新待重发消息（而非仅首次），保证始终重发最新的那条
+    // 每次 QUERY_FAILED 都更新待重发消息，保证始终重发最新的那条
     const lastUser = [...items].reverse().find(i => i.kind === 'user')
     const forSid = sessionIdRef.current ?? ''
     if (lastUser?.kind === 'user' && lastUser.text?.trim() && forSid) {
