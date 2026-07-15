@@ -808,28 +808,51 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     loadHistoryRef.current = loadHistory
   }, [loadHistory])
 
-  // ── 自动恢复：sidecar 重启后会话状态丢失时自动 resume，无需用户手动点击 ──────
-  // 触发条件：最后一条 item 是 error，code 为 QUERY_FAILED 且 message 含 "No conversation found"。
-  // 这说明 sidecar 重启了，会话在其内存中已不存在，但我们的 DB 里仍有记录 + 磁盘上有 transcript。
-  // resumeCurrent 会重新 attach 到该 sessionId，让 sidecar 从 transcript 恢复上下文。
-  // 最多自动重试 2 次，超过则保留错误条目让用户手动决策（避免无限循环）。
+  // ── 自动恢复：两阶段降级策略 ──────────────────────────────────────────────
+  //
+  // 触发条件：最后一条 item 是 QUERY_FAILED + "No conversation found"
+  //   → sidecar 重启，会话在其内存中已丢失，但 DB 仍有记录、磁盘仍有 transcript。
+  //
+  // Phase 1（第 1-2 次）：resumeCurrent
+  //   发 {type:'resumeCurrent', sessionId} 给 sidecar，让它尝试内存 re-attach。
+  //   快路径，成功则 0 感知恢复。
+  //
+  // Phase 2（第 3 次）：switchTo 降级
+  //   resumeCurrent 持续失败，说明 sidecar 完全不认识这个 sessionId。
+  //   switchTo 走全链路：后端从 DB 取 sdkSessionId+cwd → sidecar 从磁盘 JSONL
+  //   transcript 重建上下文 → 用户拿到一个"历史还在"的新 attach 会话。
+  //
+  // Phase 3（第 4 次+）：停止，保留错误让用户手动决策（避免无限循环）。
+  //
   const autoResumeCountRef = useRef(0)
+  // switchToRef 已在上方定义（line ~209），此处直接复用
   useEffect(() => {
     const last = items[items.length - 1]
     if (last?.kind !== 'error') {
-      autoResumeCountRef.current = 0 // 非错误状态时重置计数
+      autoResumeCountRef.current = 0 // 非错误状态重置计数
       return
     }
     if (last.code !== 'QUERY_FAILED' || !last.message?.includes('No conversation found')) return
-    if (autoResumeCountRef.current >= 2) return // 超过最大重试次数，留给用户手动处理
 
+    const count = autoResumeCountRef.current
+    if (count >= 3) return // 三阶段都失败，留给用户手动决策
     autoResumeCountRef.current += 1
-    const attempt = autoResumeCountRef.current
+
     const timer = setTimeout(() => {
-      // 再次确认当前仍是同一条错误（避免状态已变化时误操作）
-      resumeCurrent()
-      console.info(`[claude-chat] 自动恢复 session（第 ${attempt} 次）`)
-    }, 600)
+      if (count < 2) {
+        // Phase 1：resumeCurrent（快路径，直接内存 re-attach）
+        console.info(`[claude-chat] 自动恢复 Phase 1：resumeCurrent（第 ${count + 1} 次）`)
+        resumeCurrent()
+      } else {
+        // Phase 2：switchTo 降级（从 DB + 磁盘 JSONL 重建 attach）
+        const sid = sessionIdRef.current
+        if (sid) {
+          console.info('[claude-chat] 自动恢复 Phase 2：switchTo 降级，从 transcript 重建会话')
+          setItems(prev => { const last = prev[prev.length - 1]; return last?.kind === 'error' ? prev.slice(0, -1) : prev })
+          switchToRef.current(sid)
+        }
+      }
+    }, 700)
     return () => clearTimeout(timer)
   }, [items, resumeCurrent])
   // ──────────────────────────────────────────────────────────────────────────
