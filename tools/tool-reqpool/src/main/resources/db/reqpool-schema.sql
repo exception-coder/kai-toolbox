@@ -20,3 +20,6 @@ CREATE TABLE IF NOT EXISTS req_pool_item (
 CREATE INDEX IF NOT EXISTS idx_req_pool_status   ON req_pool_item(status);
 CREATE INDEX IF NOT EXISTS idx_req_pool_priority ON req_pool_item(priority);
 CREATE INDEX IF NOT EXISTS idx_req_pool_created  ON req_pool_item(created_at DESC);
+
+-- AI 洞察分析：存储 Claude 对需求的价值/优先级分析（JSON），存量数据库兼容
+ALTER TABLE req_pool_item ADD COLUMN ai_insight TEXT;

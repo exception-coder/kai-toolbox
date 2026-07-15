@@ -39,3 +39,7 @@ export const seedDemo = () =>
 /** 从 prd_session 表同步已生成的 PRD 到需求管理池（幂等，只新增缺失条目）。 */
 export const syncFromPrd = () =>
   http<{ imported: number }>(`${BASE}/sync-from-prd`, { method: 'POST' })
+
+/** 调用 Claude 对单条需求进行 AI 价值洞察分析，结果持久化到 ai_insight 字段。 */
+export const analyzeItem = (id: string) =>
+  http<ReqItemView>(`${BASE}/items/${id}/analyze`, { method: 'POST' })

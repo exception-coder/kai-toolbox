@@ -13,6 +13,8 @@ export interface ReqItemView {
   deadline: string | null   // yyyy-MM-dd
   prdSessionId: string | null
   tags: string | null
+  /** Claude AI 价值洞察分析 JSON（含 priority/stars/recommendation/impacts/roi/estimatedHours） */
+  aiInsight: string | null
   createdAt: number
   updatedAt: number
 }

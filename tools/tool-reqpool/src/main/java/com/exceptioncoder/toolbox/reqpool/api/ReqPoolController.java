@@ -6,7 +6,9 @@ import com.exceptioncoder.toolbox.reqpool.api.dto.ReqItemView;
 import com.exceptioncoder.toolbox.reqpool.api.dto.UpdateReqRequest;
 import com.exceptioncoder.toolbox.reqpool.domain.ReqItem;
 import com.exceptioncoder.toolbox.reqpool.repository.ReqItemRepository;
+import com.exceptioncoder.toolbox.reqpool.service.ReqAnalysisService;
 import jakarta.validation.Valid;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -41,16 +43,19 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
  *   <li>POST   /seed                           — 写入演示种子数据（表为空时生效）</li>
  * </ul>
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/reqpool")
 public class ReqPoolController {
 
     private final ReqItemRepository repo;
     private final JdbcTemplate jdbc;
+    private final ReqAnalysisService analysis;
 
-    public ReqPoolController(ReqItemRepository repo, JdbcTemplate jdbc) {
+    public ReqPoolController(ReqItemRepository repo, JdbcTemplate jdbc, ReqAnalysisService analysis) {
         this.repo = repo;
         this.jdbc = jdbc;
+        this.analysis = analysis;
     }
 
     @GetMapping("/items")
@@ -196,6 +201,44 @@ public class ReqPoolController {
         );
         seeds.forEach(repo::insert);
         return ResponseEntity.ok("seeded:" + seeds.size());
+    }
+
+    /**
+     * AI 需求洞察分析：调用 Claude 评估需求价值、优先级、影响范围、ROI。
+     * 分析结果持久化到 ai_insight 字段（JSON），前端读取后渲染 AI Recommendation 卡片。
+     * 分析较耗时（10-30s），由前端异步触发，不阻塞页面加载。
+     */
+    @PostMapping("/items/{id}/analyze")
+    public ReqItemView analyze(@PathVariable String id) {
+        ReqItem item = repo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "需求不存在: " + id));
+        analysis.analyze(item);
+        return repo.findById(id).map(ReqItemView::from)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "需求不存在: " + id));
+    }
+
+    /**
+     * 批量 AI 分析：为所有缺少 ai_insight 的条目触发分析（后台逐一调用，耗时较长）。
+     * 返回将要分析的数量，实际分析在后台线程中完成。
+     */
+    @PostMapping("/batch-analyze")
+    public ResponseEntity<Map<String, Object>> batchAnalyze() {
+        List<ReqItem> items = repo.findAll(null, null, null).stream()
+                .filter(i -> i.getAiInsight() == null || i.getAiInsight().isBlank())
+                .toList();
+
+        Thread.ofVirtual().name("reqpool-batch-analyze").start(() -> {
+            for (ReqItem item : items) {
+                try {
+                    analysis.analyze(item);
+                    Thread.sleep(500); // 轻微限速，避免 sidecar 过载
+                } catch (Exception e) {
+                    log.warn("[reqpool] 批量分析失败 itemId={}: {}", item.getId(), e.getMessage());
+                }
+            }
+        });
+
+        return ResponseEntity.ok(Map.of("queued", items.size()));
     }
 
     /**

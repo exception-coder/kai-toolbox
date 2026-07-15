@@ -17,6 +17,8 @@ public record ReqItemView(
         String deadline,
         String prdSessionId,
         String tags,
+        /** AI 洞察分析 JSON（含 priority/stars/recommendation/impacts/roi/estimatedHours）。 */
+        String aiInsight,
         long createdAt,
         long updatedAt
 ) {
@@ -27,6 +29,7 @@ public record ReqItemView(
                 item.getPriority(), item.getStatus(),
                 item.getAssignee(), item.getDeadline(),
                 item.getPrdSessionId(), item.getTags(),
+                item.getAiInsight(),
                 item.getCreatedAt(), item.getUpdatedAt());
     }
 }

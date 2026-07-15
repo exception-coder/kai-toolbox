@@ -20,6 +20,11 @@
             <groupId>com.exceptioncoder</groupId>
             <artifactId>toolbox-common</artifactId>
         </dependency>
+        <!-- AgentOneShotRunner 接口（AI 需求洞察分析）；实现由 tool-claude-chat 在运行时注入 -->
+        <dependency>
+            <groupId>com.exceptioncoder</groupId>
+            <artifactId>toolbox-llm</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>

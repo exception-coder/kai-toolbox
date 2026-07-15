@@ -29,6 +29,11 @@ public class ReqItem {
     private String prdSessionId;
     /** JSON 数组字符串 */
     private String tags;
+    /**
+     * Claude AI 洞察分析（JSON），包含 priority/stars/recommendation/reason/impacts/roi/estimatedHours。
+     * 首次分析后缓存，需求更新时可重新触发。
+     */
+    private String aiInsight;
     private long createdAt;
     private long updatedAt;
 }

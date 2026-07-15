@@ -24,6 +24,7 @@ public class ReqItemRepository {
             .deadline(rs.getString("deadline"))
             .prdSessionId(rs.getString("prd_session_id"))
             .tags(rs.getString("tags"))
+            .aiInsight(rs.getString("ai_insight"))
             .createdAt(rs.getLong("created_at"))
             .updatedAt(rs.getLong("updated_at"))
             .build();
@@ -38,13 +39,19 @@ public class ReqItemRepository {
         jdbc.update("""
                 INSERT INTO req_pool_item
                   (id, title, description, project, module, priority, status,
-                   assignee, deadline, prd_session_id, tags, created_at, updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   assignee, deadline, prd_session_id, tags, ai_insight, created_at, updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 item.getId(), item.getTitle(), item.getDescription(),
                 item.getProject(), item.getModule(), item.getPriority(), item.getStatus(),
                 item.getAssignee(), item.getDeadline(), item.getPrdSessionId(),
-                item.getTags(), item.getCreatedAt(), item.getUpdatedAt());
+                item.getTags(), item.getAiInsight(), item.getCreatedAt(), item.getUpdatedAt());
+    }
+
+    /** 更新 AI 洞察分析 JSON。 */
+    public void updateAiInsight(String id, String aiInsightJson) {
+        jdbc.update("UPDATE req_pool_item SET ai_insight = ?, updated_at = ? WHERE id = ?",
+                aiInsightJson, System.currentTimeMillis(), id);
     }
 
     public Optional<ReqItem> findById(String id) {
