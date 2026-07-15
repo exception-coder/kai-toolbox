@@ -204,8 +204,20 @@ function HistoryPanel({
                   {[s.project, s.module].filter(Boolean).join(' · ')}
                 </div>
               )}
-              <div className={`text-[10px] mt-0.5 ${statusColor[s.status] ?? 'text-[var(--color-muted-foreground)]'}`}>
-                {s.status}
+              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                <span className={`text-[10px] ${statusColor[s.status] ?? 'text-[var(--color-muted-foreground)]'}`}>
+                  {s.status}
+                </span>
+                {/* 角色标记 */}
+                {s.role === 'BUSINESS' ? (
+                  <span className="text-[9px] px-1 rounded bg-green-500/15 text-green-500 border border-green-500/20 leading-tight">
+                    业务
+                  </span>
+                ) : (
+                  <span className="text-[9px] px-1 rounded bg-blue-500/15 text-blue-500 border border-blue-500/20 leading-tight">
+                    产品
+                  </span>
+                )}
               </div>
             </div>
             <button
