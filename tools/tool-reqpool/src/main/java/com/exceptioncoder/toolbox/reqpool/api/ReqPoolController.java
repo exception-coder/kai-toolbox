@@ -18,9 +18,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.springframework.http.HttpStatus.NOT_FOUND;
@@ -44,9 +46,11 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 public class ReqPoolController {
 
     private final ReqItemRepository repo;
+    private final JdbcTemplate jdbc;
 
-    public ReqPoolController(ReqItemRepository repo) {
+    public ReqPoolController(ReqItemRepository repo, JdbcTemplate jdbc) {
         this.repo = repo;
+        this.jdbc = jdbc;
     }
 
     @GetMapping("/items")
@@ -192,6 +196,41 @@ public class ReqPoolController {
         );
         seeds.forEach(repo::insert);
         return ResponseEntity.ok("seeded:" + seeds.size());
+    }
+
+    /**
+     * 从 prd_session 表同步已生成的 PRD 到需求管理池。
+     * 读取所有 status='DONE' 且尚未在 req_pool_item 中登记的会话，批量创建 PRD_READY 条目。
+     * 幂等：重复调用只新增缺失条目，不覆盖已有记录。
+     */
+    @PostMapping("/sync-from-prd")
+    public ResponseEntity<Map<String, Object>> syncFromPrd() {
+        List<Map<String, Object>> sessions = jdbc.queryForList(
+                "SELECT id, title, project, module FROM prd_session " +
+                "WHERE status = 'DONE' " +
+                "AND id NOT IN (" +
+                "  SELECT prd_session_id FROM req_pool_item WHERE prd_session_id IS NOT NULL" +
+                ")"
+        );
+
+        long now = System.currentTimeMillis();
+        for (Map<String, Object> s : sessions) {
+            ReqItem item = ReqItem.builder()
+                    .id(UUID.randomUUID().toString())
+                    .title(String.valueOf(s.getOrDefault("title", "未命名需求")))
+                    .description(null)
+                    .project(s.get("project") != null ? String.valueOf(s.get("project")) : null)
+                    .module(s.get("module") != null ? String.valueOf(s.get("module")) : null)
+                    .priority("MEDIUM")
+                    .status("PRD_READY")
+                    .prdSessionId(String.valueOf(s.get("id")))
+                    .createdAt(now)
+                    .updatedAt(now)
+                    .build();
+            repo.insert(item);
+        }
+
+        return ResponseEntity.ok(Map.of("imported", sessions.size()));
     }
 
     private ReqItem buildSeed(String title, String description, String priority, long createdAt) {

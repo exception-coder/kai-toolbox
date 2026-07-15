@@ -35,3 +35,7 @@ export const linkPrd = (id: string, prdSessionId: string) =>
 
 export const seedDemo = () =>
   http<string>(`${BASE}/seed`, { method: 'POST' })
+
+/** 从 prd_session 表同步已生成的 PRD 到需求管理池（幂等，只新增缺失条目）。 */
+export const syncFromPrd = () =>
+  http<{ imported: number }>(`${BASE}/sync-from-prd`, { method: 'POST' })

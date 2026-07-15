@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  BookOpen, Code2, Edit2, Layers, Loader2, Plus, RefreshCw, Search, Trash2,
+  BookOpen, Code2, Edit2, Layers, Loader2, Plus, RefreshCw, Search, Trash2, Download,
 } from 'lucide-react'
 import {
-  createItem, deleteItem, listItems, startClarify, updateItem,
+  createItem, deleteItem, listItems, startClarify, syncFromPrd, updateItem,
 } from '../api'
 import type { CreateReqRequest, ReqItemView, ReqPriority, ReqStatus, UpdateReqRequest } from '../types'
 import { PRIORITY_META, STATUS_META } from '../types'
@@ -199,6 +199,16 @@ export function ReqPoolPage() {
     queryFn: () => listItems(statusFilter ? { status: statusFilter } : undefined),
   })
 
+  const syncMut = useMutation({
+    mutationFn: syncFromPrd,
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['reqpool'] })
+      if (data.imported === 0) {
+        // 没有新增——可能已经全同步过了
+      }
+    },
+  })
+
   const deleteMut = useMutation({
     mutationFn: deleteItem,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['reqpool'] }),
@@ -295,8 +305,18 @@ export function ReqPoolPage() {
         </div>
 
         <div className="flex items-center gap-2 ml-auto">
-          {isFetching && <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-muted-foreground)]" />}
-          {/* 写新需求 → 跳转到 PRD澄清助手（唯一入口，需求必须经过澄清和 PRD 生成后才注册） */}
+          {(isFetching || syncMut.isPending) && <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-muted-foreground)]" />}
+          {/* 从 PRD 历史同步：把已生成的 PRD 一键导入需求管理池 */}
+          <button
+            onClick={() => syncMut.mutate()}
+            disabled={syncMut.isPending}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-muted-foreground)] transition-colors"
+            title="将 PRD 澄清助手中已生成的 PRD 同步到需求管理池（幂等，可重复执行）"
+          >
+            <Download className="w-3.5 h-3.5" />
+            {syncMut.isPending ? '同步中…' : '从PRD历史同步'}
+          </button>
+          {/* 写新需求 → 跳转到 PRD澄清助手 */}
           <button
             onClick={() => navigate('/tools/prd-clarify')}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-[var(--color-primary)] text-white hover:opacity-90"
@@ -313,14 +333,24 @@ export function ReqPoolPage() {
             <Layers className="w-12 h-12 opacity-20" />
             <div className="text-center">
               <p className="font-medium text-[var(--color-foreground)] mb-1">暂无需求记录</p>
-              <p className="text-sm">在 PRD 澄清助手中完成需求澄清并生成 PRD 后，会自动在此登记</p>
+              <p className="text-sm">如果已在 PRD 澄清助手中生成过 PRD，点击「从PRD历史同步」即可导入</p>
             </div>
-            <button
-              onClick={() => navigate('/tools/prd-clarify')}
-              className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-md bg-[var(--color-primary)] text-white hover:opacity-90"
-            >
-              <Plus className="w-4 h-4" /> 去写新需求
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={() => syncMut.mutate()}
+                disabled={syncMut.isPending}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-foreground)] transition-colors"
+              >
+                <Download className="w-4 h-4" />
+                {syncMut.isPending ? '同步中…' : '从PRD历史同步'}
+              </button>
+              <button
+                onClick={() => navigate('/tools/prd-clarify')}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-md bg-[var(--color-primary)] text-white hover:opacity-90"
+              >
+                <Plus className="w-4 h-4" /> 写新需求
+              </button>
+            </div>
           </div>
         ) : (
           <table className="w-full text-sm border-collapse">
