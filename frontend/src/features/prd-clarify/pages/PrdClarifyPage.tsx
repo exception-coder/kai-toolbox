@@ -136,11 +136,52 @@ function HistoryPanel({
   )
 }
 
-// ───── 快捷示例模板（展示用） ─────
+// ───── 快捷示例模板（完整数据，避免只加载标题） ─────
 const QUICK_TEMPLATES = [
-  { label: '简历评分', title: '简历完整度评分功能', hint: '知识图谱示例' },
-  { label: 'PDF 导出', title: '简历一键导出 PDF', hint: '业务逻辑澄清示例' },
-  { label: '投递追踪', title: '简历投递追踪功能', hint: '综合示例' },
+  {
+    label: '简历评分',
+    hint: '知识图谱示例',
+    title: '简历完整度评分功能',
+    project: 'kai-toolbox',
+    module: 'tool-resume',
+    rawInput: `需求背景：当前简历工作台（tool-resume）只提供 AI 优化建议，用户不清楚自己简历的整体质量水平。
+
+需求描述：增加「简历完整度评分」功能，对用户简历进行多维度评估并给出 0-100 分的综合评分，具体包括：
+- 基本信息完整度（姓名、联系方式、城市等）
+- 工作经历质量（年限描述、职责描述详细程度、量化成果）
+- 技能匹配度（与目标岗位的关联性）
+- 教育背景完整性
+- 项目经历含金量
+
+用户在简历详情页可以一键触发评分，查看各维度得分和具体改进建议，并与历史评分做对比。`,
+  },
+  {
+    label: 'PDF 导出',
+    hint: '业务逻辑澄清示例',
+    title: '简历一键导出 PDF',
+    project: 'kai-toolbox',
+    module: 'tool-resume',
+    rawInput: `需求描述：用户完成简历填写和 AI 优化后，希望能够导出为 PDF 格式，用于向企业投递简历。
+
+当前痛点：工作台提供简历在线编辑和 AI 优化，但没有导出功能。用户只能截图保存，格式不专业，且无法精确控制排版。
+
+期望效果：点击「导出 PDF」按钮，自动生成格式美观的简历 PDF 文件并下载到本地。对排版有一定要求：字体清晰、间距舒适、内容层次分明。`,
+  },
+  {
+    label: '投递追踪',
+    hint: '综合示例',
+    title: '简历投递追踪功能',
+    project: 'kai-toolbox',
+    module: 'tool-resume',
+    rawInput: `作为求职者，我希望能在简历工作台中记录和追踪我的求职投递情况，分析哪些简历版本效果更好。
+
+期望功能：
+1. 记录每次投递（目标公司、岗位、投递渠道、投递日期）
+2. 追踪投递状态流转（已投递 → 简历被查看 → 约面试 → 终面 → Offer / 已拒绝）
+3. 关联到具体的简历版本（不同公司用了不同优化版本）
+4. 看板视图：以时间线或看板形式展示所有投递的当前状态
+5. 数据统计：投递总量、各阶段转化率、平均响应天数`,
+  },
 ]
 
 // ───── 表单（Step INPUT） ─────
@@ -195,8 +236,8 @@ function InputPanel({
   return (
     <div className="flex-1 p-6 overflow-y-auto">
       <div className="max-w-2xl mx-auto space-y-5">
-        {/* 快速示例（仅当表单为空时展示，方便演示） */}
-        {!title && !rawInput && (
+        {/* 快速示例（标题和 rawInput 都为空时才展示，避免干扰已输入的内容） */}
+        {!title.trim() && !rawInput.trim() && (
           <div>
             <div className="text-xs text-[var(--color-muted-foreground)] mb-2 flex items-center gap-1.5">
               <FileText className="w-3 h-3" />
@@ -206,7 +247,13 @@ function InputPanel({
               {QUICK_TEMPLATES.map((t) => (
                 <button
                   key={t.label}
-                  onClick={() => setTitle(t.title)}
+                  onClick={() => {
+                    // 一次性加载完整示例数据（标题 + 原始需求 + 项目 + 模块）
+                    setTitle(t.title)
+                    setRawInput(t.rawInput)
+                    setProject(t.project)
+                    setModule(t.module)
+                  }}
                   className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full border border-[var(--color-border)] hover:border-[var(--color-ring)] bg-[var(--color-muted)]/30 text-[var(--color-foreground)] transition-colors"
                 >
                   {t.label}
