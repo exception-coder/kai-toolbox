@@ -281,30 +281,37 @@ function InputPanel({
         <div className="flex gap-3">
           <div className="flex-1">
             <label className="block text-sm font-medium mb-1">关联项目（可选）</label>
-            <select
+            {/* input+datalist：预填值永远生效，项目列表作为候选提示 */}
+            <input
+              id="project-input"
+              list="project-datalist"
               value={project}
               onChange={(e) => { setProject(e.target.value); setModule('') }}
+              placeholder="如：kai-toolbox（可手动输入）"
               className="w-full px-3 py-2 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] text-sm focus:outline-none focus:ring-1 focus:ring-[var(--color-ring)]"
-            >
-              <option value="">-- 不关联项目 --</option>
+            />
+            <datalist id="project-datalist">
               {projects.map((p) => (
-                <option key={p.name} value={p.name}>{p.name}</option>
+                <option key={p.name} value={p.name} />
               ))}
-            </select>
+            </datalist>
           </div>
           <div className="flex-1">
             <label className="block text-sm font-medium mb-1">关联模块（可选）</label>
-            <select
+            {/* 改用 input+datalist：预填值（来自 URL 参数）永远生效，加载到的模块作为候选提示 */}
+            <input
+              id="module-input"
+              list="module-datalist"
               value={module}
               onChange={(e) => setModule(e.target.value)}
-              disabled={!project || modules.length === 0}
-              className="w-full px-3 py-2 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] text-sm focus:outline-none focus:ring-1 focus:ring-[var(--color-ring)] disabled:opacity-50"
-            >
-              <option value="">-- 不关联模块 --</option>
+              placeholder="如：tool-reqpool（可手动输入）"
+              className="w-full px-3 py-2 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] text-sm focus:outline-none focus:ring-1 focus:ring-[var(--color-ring)]"
+            />
+            <datalist id="module-datalist">
               {modules.map((m) => (
-                <option key={m.name} value={m.name}>{m.name}</option>
+                <option key={m.name} value={m.name} />
               ))}
-            </select>
+            </datalist>
           </div>
         </div>
 
