@@ -140,10 +140,14 @@ public class PrdClarifyController {
     }
 
     /**
-     * 读取 .md 文件内容。返回 JSON 字符串，与 {@code http<string>()} 的 {@code res.json()} 调用兼容。
-     * （不使用 text/plain，因前端 {@code http()} 统一调 {@code res.json()} 解析响应）
+     * 读取 .md 文件内容。
+     *
+     * <p>{@code produces = APPLICATION_JSON_VALUE} 强制 Spring 使用 Jackson 序列化 {@code String}，
+     * 返回带引号的 JSON 字符串（如 {@code "# PRD..."}），与前端 {@code http<string>()} 的
+     * {@code res.json()} 调用兼容。若不加此注解，{@code StringHttpMessageConverter} 会以
+     * {@code text/plain} 返回裸字符串，导致前端 JSON.parse 失败。
      */
-    @GetMapping("/sessions/{id}/content")
+    @GetMapping(value = "/sessions/{id}/content", produces = MediaType.APPLICATION_JSON_VALUE)
     public String getContent(@PathVariable String id) throws IOException {
         return service.readContent(id);
     }

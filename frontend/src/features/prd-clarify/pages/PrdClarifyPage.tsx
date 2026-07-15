@@ -1113,15 +1113,17 @@ export function PrdClarifyPage() {
     setErrorMsg(null)
 
     if (s.status === 'DONE') {
-      // 拉取文件内容，进入编辑器
+      // 拉取文件内容，进入编辑器；即使内容为空或读取失败也进入编辑器（不强制跳 INPUT）
       getContent(s.id)
         .then((content) => {
           setPrdContent(content ?? '')
           setStep('EDITING')
         })
         .catch(() => {
-          setErrorMsg('读取 PRD 文件失败，文件可能已被删除')
-          setStep('INPUT')
+          // 文件读取失败（如文件被删、网络错误）：进入空编辑器并提示，仍可重新生成
+          setPrdContent('')
+          setStep('EDITING')
+          setErrorMsg('PRD 文件读取失败，可点击「开始开发」使用当前编辑器内容，或重新生成')
         })
     } else if (s.status === 'CLARIFYING') {
       setStep('CHATTING')   // 重新进入对话澄清（会从头开始，历史在 DB 里但前端重新问）
