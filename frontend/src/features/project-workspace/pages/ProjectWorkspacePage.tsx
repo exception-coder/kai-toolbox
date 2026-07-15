@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, Boxes, BotMessageSquare, Check, Compass, CornerDownRight, Database, Download, FolderTree, GitCompare, Loader2, Pin, Play, RefreshCw, Search, Send, Sparkles, TerminalSquare, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Boxes, BotMessageSquare, Check, Compass, CornerDownRight, Database, Download, FolderTree, GitCompare, Info, Loader2, Pin, Play, RefreshCw, Search, Send, Sparkles, TerminalSquare, Trash2, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -354,6 +354,19 @@ export function ProjectWorkspacePage() {
           </Button>
         </div>
       </header>
+
+      <div className="flex items-start gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/30 px-3 py-2 text-xs leading-relaxed text-[var(--color-muted-foreground)]">
+        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <span>
+          本工作台依赖两项<b className="text-[var(--color-foreground)]">运行时配置</b>（配置中心 →「Claude 工作目录」，改后即时生效、无需重启）：
+          左侧<b className="text-[var(--color-foreground)]">项目列表</b>来自 <code>workspace.roots</code>；
+          <b className="text-[var(--color-foreground)]">模块清单/中文名</b>来自 <code>knowledge-base-dir</code>（未配置会自动从 Git 拉取知识库）。
+          没加载出来多半是这两项没配好。
+          <button type="button" className="ml-1 font-medium text-[var(--color-primary)] hover:underline" onClick={() => navigate(`/tools/config-center?block=${WORKSPACE_CFG_ID}`)}>
+            去配置 →
+          </button>
+        </span>
+      </div>
 
       <Card>
         <CardHeader className="gap-1 pb-3">
