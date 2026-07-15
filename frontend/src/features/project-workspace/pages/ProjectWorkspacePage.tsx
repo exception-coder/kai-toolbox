@@ -375,7 +375,7 @@ export function ProjectWorkspacePage() {
             模块路由
           </CardTitle>
           <CardDescription>
-            说一句话直达：「去开发 commodity 模块」「korepos 的 refund」——自动定位项目 + 模块并拉起会话
+            说一句话直达：「去开发销售模块」「yoooni 的 生产管理」——自动定位项目 + 模块并拉起会话
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -390,7 +390,7 @@ export function ProjectWorkspacePage() {
               className="flex-1"
               value={routeQuery}
               onChange={event => setRouteQuery(event.target.value)}
-              placeholder="例如：去开发 commodity 模块 / korepos 的 refund"
+              placeholder="例如：去开发销售模块 / yoooni 的 生产管理"
             />
             <VoiceInputButton onText={text => { setRouteQuery(text); runResolve(text) }} />
             <Button type="submit" disabled={!routeQuery.trim() || resolveMut.isPending}>
@@ -412,7 +412,7 @@ export function ProjectWorkspacePage() {
               />
             ) : resolveResult.candidates.length === 0 ? (
               <p className="text-sm text-[var(--color-muted-foreground)]">
-                未匹配到模块「{routeHint}」。换个模块名，或带上项目名（如「korepos 的 refund」）再试。
+                未匹配到模块「{routeHint}」。换个模块名，或带上项目名（如「yoooni 的 生产管理」）再试。
               </p>
             ) : (
               <div className="space-y-2">
