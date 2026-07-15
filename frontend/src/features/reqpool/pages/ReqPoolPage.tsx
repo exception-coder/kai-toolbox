@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  BookOpen, Code2, Edit2, Layers, Loader2, Plus, RefreshCw, Search, Trash2, Zap,
+  BookOpen, Code2, Edit2, Layers, Loader2, Plus, RefreshCw, Search, Trash2,
 } from 'lucide-react'
 import {
-  createItem, deleteItem, listItems, seedDemo, startClarify, updateItem,
+  createItem, deleteItem, listItems, startClarify, updateItem,
 } from '../api'
 import type { CreateReqRequest, ReqItemView, ReqPriority, ReqStatus, UpdateReqRequest } from '../types'
 import { PRIORITY_META, STATUS_META } from '../types'
@@ -199,11 +199,6 @@ export function ReqPoolPage() {
     queryFn: () => listItems(statusFilter ? { status: statusFilter } : undefined),
   })
 
-  const seedMut = useMutation({
-    mutationFn: seedDemo,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['reqpool'] }),
-  })
-
   const deleteMut = useMutation({
     mutationFn: deleteItem,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['reqpool'] }),
@@ -265,7 +260,8 @@ export function ReqPoolPage() {
     }
   }
 
-  const isEmpty = items.length === 0 && !isFetching
+  // 真正没有数据（非过滤结果为空）
+  const isEmpty = items.length === 0 && !isFetching && !search && !statusFilter
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -300,16 +296,6 @@ export function ReqPoolPage() {
 
         <div className="flex items-center gap-2 ml-auto">
           {isFetching && <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-muted-foreground)]" />}
-          {/* 演示种子数据 */}
-          <button
-            onClick={() => seedMut.mutate()}
-            disabled={seedMut.isPending}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-dashed border-[var(--color-border)] hover:border-[var(--color-ring)] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] transition-colors"
-            title="写入演示种子数据（表为空时有效）"
-          >
-            <Zap className="w-3 h-3" /> 加载演示数据
-          </button>
-          {/* 新建 */}
           <button
             onClick={() => setEditItem('new')}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md bg-[var(--color-primary)] text-white hover:opacity-90"
@@ -325,14 +311,14 @@ export function ReqPoolPage() {
           <div className="flex flex-col items-center justify-center h-full gap-4 text-[var(--color-muted-foreground)]">
             <Layers className="w-12 h-12 opacity-20" />
             <div className="text-center">
-              <p className="font-medium mb-1">暂无需求</p>
-              <p className="text-sm">点击「加载演示数据」快速初始化 4 条示例需求，或手动新建</p>
+              <p className="font-medium text-[var(--color-foreground)] mb-1">暂无需求</p>
+              <p className="text-sm">新建需求后，点击「开始澄清」即可启动 AI 渐进式需求澄清，自动生成 PRD 文档</p>
             </div>
             <button
-              onClick={() => seedMut.mutate()}
+              onClick={() => setEditItem('new')}
               className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-md bg-[var(--color-primary)] text-white hover:opacity-90"
             >
-              <Zap className="w-4 h-4" /> 加载演示数据
+              <Plus className="w-4 h-4" /> 新建第一条需求
             </button>
           </div>
         ) : (
