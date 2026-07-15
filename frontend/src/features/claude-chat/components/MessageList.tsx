@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, Check, Coins, Copy, Database, FileImage, FileText, GitBranch, Timer } from 'lucide-react'
+import { AlertTriangle, Check, Coins, Copy, Database, FileImage, FileText, FolderOpen, GitBranch, Timer } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { loadState as loadCardState, saveState as saveCardState } from '@/features/markdown-card/lib/persistence'
 import type { ChatItem, ConnState } from '../types'
@@ -24,6 +24,8 @@ interface Props {
   /** 引擎展示名（Claude / Codex），用于「正在思考」文案 */
   engineLabel?: string
   onResumeCurrent?: () => void
+  /** QUERY_FAILED/No conversation found 时在同目录新建会话。 */
+  onNewSession?: () => void
   /** 本轮进行中的实时输出 token 数，显示在「进行时」指示器上（0=不显示）。 */
   turnTokens?: number
   /** WS 连接状态：非 ready 时「进行时」指示器改显示「连接中断，重连中」，避免误导为 AI 在思考。 */
@@ -31,7 +33,7 @@ interface Props {
 }
 
 /** 消息流：用户气泡靠右、assistant 文本靠左、工具调用与系统标记居中。顶部上拉加载更早历史。 */
-export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exhausted, onFork, engineLabel = 'Claude', onResumeCurrent, turnTokens = 0, connState = 'ready' }: Props) {
+export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exhausted, onFork, engineLabel = 'Claude', onResumeCurrent, onNewSession, turnTokens = 0, connState = 'ready' }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevHeightRef = useRef(0)
   const prependingRef = useRef(false)
@@ -75,7 +77,7 @@ export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exh
         <div className="text-center text-xs text-[var(--color-muted-foreground)]">— 没有更早了 —</div>
       )}
       {items.map(item => (
-        <Row key={item.id} item={item} onFork={onFork} engineLabel={engineLabel} onResumeCurrent={onResumeCurrent}
+        <Row key={item.id} item={item} onFork={onFork} engineLabel={engineLabel} onResumeCurrent={onResumeCurrent} onNewSession={onNewSession}
           onOpenImage={(src, alt) => setViewer({ src, alt })} />
       ))}
       {running && <ThinkingIndicator engineLabel={engineLabel} tokens={turnTokens} connState={connState} />}
@@ -212,7 +214,7 @@ function TurnStatus({ item }: { item: Extract<ChatItem, { kind: 'result' }> }) {
   )
 }
 
-function Row({ item, onFork, engineLabel, onResumeCurrent, onOpenImage }: { item: ChatItem; onFork?: (sdkUuid: string) => void; engineLabel?: string; onResumeCurrent?: () => void; onOpenImage?: (src: string, alt: string) => void }) {
+function Row({ item, onFork, engineLabel, onResumeCurrent, onNewSession, onOpenImage }: { item: ChatItem; onFork?: (sdkUuid: string) => void; engineLabel?: string; onResumeCurrent?: () => void; onNewSession?: () => void; onOpenImage?: (src: string, alt: string) => void }) {
   switch (item.kind) {
     case 'user':
       return (
@@ -304,21 +306,44 @@ function Row({ item, onFork, engineLabel, onResumeCurrent, onOpenImage }: { item
       return <ToolCallBubble toolName={item.toolName} input={item.input} output={item.output} isError={item.isError} />
     case 'result':
       return <TurnStatus item={item} />
-    case 'error':
+    case 'error': {
+      // 会话历史丢失（对应 JSONL 文件不存在），任何 resume 都无法恢复，需新建会话
+      const isPermanentlyLost = item.code === 'QUERY_FAILED' && !!item.message?.includes('No conversation found')
       return (
-        <div className={cn('flex max-w-full flex-wrap items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200')}>
+        <div className={cn('flex max-w-full flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-sm',
+          isPermanentlyLost
+            ? 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200'
+            : 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200',
+        )}>
           <AlertTriangle className="size-4 shrink-0" />
-          <span className="min-w-0 flex-1 break-words">{item.code}: {item.message}</span>
-          {onResumeCurrent && (
-            <button
-              type="button"
-              onClick={onResumeCurrent}
-              className="shrink-0 rounded-md border border-amber-300 bg-[var(--color-background)] px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-200 dark:hover:bg-amber-900"
-            >
-              原地 resume
-            </button>
-          )}
+          <span className="min-w-0 flex-1 break-words">
+            {isPermanentlyLost
+              ? '会话记录已永久丢失（Claude Code 历史文件不存在），resume 无法恢复。建议新建会话。'
+              : `${item.code}: ${item.message}`}
+          </span>
+          {isPermanentlyLost
+            ? (onNewSession && (
+              <button
+                type="button"
+                onClick={onNewSession}
+                className="shrink-0 rounded-md border border-red-300 bg-[var(--color-background)] px-2 py-1 text-xs font-medium text-red-800 hover:bg-red-100 dark:border-red-700 dark:text-red-200 dark:hover:bg-red-900"
+              >
+                <FolderOpen className="mr-1 inline size-3.5" />
+                新建会话（同目录）
+              </button>
+            ))
+            : (onResumeCurrent && (
+              <button
+                type="button"
+                onClick={onResumeCurrent}
+                className="shrink-0 rounded-md border border-amber-300 bg-[var(--color-background)] px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-200 dark:hover:bg-amber-900"
+              >
+                原地 resume
+              </button>
+            ))
+          }
         </div>
       )
+    }
   }
 }

@@ -1138,6 +1138,10 @@ export function ChatPage() {
                 onFork={chat.forkSession}
                 engineLabel={engineDisplayName(chat.currentEngine, chat.currentProviderKind)}
                 onResumeCurrent={chat.resumeCurrent}
+                onNewSession={currentSession ? () => {
+                  // 会话 JSONL 文件丢失无法恢复时，在同目录新建一个干净的会话
+                  chat.open(currentSession.cwd)
+                } : undefined}
                 turnTokens={chat.turnTokens}
                 connState={chat.state}
               />
