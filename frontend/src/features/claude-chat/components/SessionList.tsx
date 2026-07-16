@@ -245,15 +245,15 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
           <button
             type="button"
             className={cn(
-              'min-h-[44px] min-w-0 flex-1 py-2.5 pr-1 text-left',
+              // pr-16 给操作按钮预留隐形空间（按钮绝对定位，不占布局，但文字不能延伸进按钮区）
+              'min-h-[44px] min-w-0 flex-1 py-2.5 pr-2 text-left',
               inGroup ? 'pl-8' : 'pl-5',
             )}
             onClick={() => onSwitch(s.id)}
             title={`${s.title || shortCwd(s.cwd)}\n${s.cwd}`}
           >
-            {/* Line 1：Engine icon（类型一眼可辨）+ Live dot + 标题 + Badge（弱化辅助） */}
+            {/* Line 1：只放 icon + 标题，Badge 移走 → 标题拿到最大宽度 */}
             <div className="flex items-center gap-1.5">
-              {/* live 时显示绿点，否则显示 engine 类型图标 */}
               {s.live
                 ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500 ring-[2.5px] ring-emerald-500/20" />
                 : <EngineIcon engine={s.engine || 'claude'} thirdParty={s.providerKind === 'thirdParty'} />
@@ -266,21 +266,21 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
               )}>
                 {s.title || shortCwd(s.cwd)}
               </span>
-              {engineBadge}
             </div>
-            {/* Line 2：只显示时间（path 已在 tooltip；分组内 path 由 Section 标题提供上下文） */}
+            {/* Line 2：Badge（从 Line 1 移来）+ 时间 */}
             <div className={cn(
-              'mt-0.5 truncate text-[11px] leading-snug',
+              'mt-0.5 flex items-center gap-1.5 text-[11px] leading-snug',
               isActive
                 ? 'text-[var(--color-primary)]/60'
                 : 'text-[var(--color-muted-foreground)] opacity-60',
             )}>
-              {formatDate(s.lastSeenAt)}
+              {engineBadge}
+              <span className="tabular-nums">{formatDate(s.lastSeenAt)}</span>
             </div>
           </button>
         )}
 
-        {/* Actions：hover-reveal，避免常态视觉噪音 */}
+        {/* Actions：绝对定位，不占布局宽度，hover 时叠加显示 */}
         {editingId === s.id ? (
           <button
             type="button"
@@ -292,7 +292,14 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
             <Check className="size-3.5" />
           </button>
         ) : (
-          <div className="mr-1 flex shrink-0 items-center opacity-0 transition-opacity duration-100 group-hover:opacity-100">
+          <div
+            className={cn(
+              // 绝对定位贴右边，同行垂直居中；背景色与行状态一致，遮挡身后的文字
+              'absolute inset-y-0 right-0 flex items-center pl-2 pr-1',
+              'opacity-0 transition-opacity duration-100 group-hover:opacity-100',
+              isActive ? 'bg-[var(--color-primary)]/10' : 'bg-[var(--color-accent)]',
+            )}
+          >
             <button
               type="button"
               className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
