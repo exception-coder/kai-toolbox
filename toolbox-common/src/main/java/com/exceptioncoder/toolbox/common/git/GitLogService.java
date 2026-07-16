@@ -52,6 +52,35 @@ public class GitLogService {
         return out;
     }
 
+    /**
+     * 返回工作区待提交文件列表（{@code git status --porcelain -u}）。
+     * 每条 entry 含 x（index/暂存区状态）、y（工作树状态）、path（相对路径）、origPath（重命名时的原路径）。
+     */
+    public GitStatusResponse gitStatus(Path dir) {
+        Result r = exec(List.of(
+                props.getBinary(), "-c", "core.quotepath=false", "-C", dir.toString(),
+                "status", "--porcelain", "-u"));
+        List<GitStatusEntry> entries = new ArrayList<>();
+        for (String line : r.stdout().split("\n")) {
+            if (line.length() < 3) continue;
+            String x = String.valueOf(line.charAt(0));
+            String y = String.valueOf(line.charAt(1));
+            // char[2] 是空格分隔符
+            String rest = line.length() > 3 ? line.substring(3) : "";
+            // 重命名/复制：old -> new
+            String path, origPath = null;
+            int arrow = rest.indexOf(" -> ");
+            if (arrow >= 0) {
+                origPath = rest.substring(0, arrow).trim();
+                path = rest.substring(arrow + 4).trim();
+            } else {
+                path = rest.trim();
+            }
+            entries.add(new GitStatusEntry(x, y, path, origPath));
+        }
+        return new GitStatusResponse(entries);
+    }
+
     /** 取单提交完整 diff（含 stat + patch）。 */
     public CommitDiff commitDiff(Path dir, String hash) {
         if (hash == null || !HASH_RE.matcher(hash).matches()) {

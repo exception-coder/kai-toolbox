@@ -24,6 +24,27 @@ export function getSessionCommitDiff(sessionId: string, hash: string, repo?: str
   return http<CommitDiff>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/commit?${p.toString()}`)
 }
 
+// ── git status ───────────────────────────────────────────────────────────────
+
+export interface GitStatusEntry {
+  x: string        // 暂存区状态：M/A/D/R/?/空格
+  y: string        // 工作树状态：M/D/?/空格
+  path: string     // 相对 repo 根的路径
+  origPath: string | null  // 重命名/复制时的原路径
+}
+
+export interface GitStatusResponse {
+  entries: GitStatusEntry[]
+}
+
+/** 获取会话工作目录的待提交/未跟踪文件列表（git status --porcelain）。 */
+export function fetchSessionGitStatus(sessionId: string, repo?: string): Promise<GitStatusResponse> {
+  const p = new URLSearchParams()
+  if (repo) p.set('repo', repo)
+  const qs = p.toString() ? `?${p.toString()}` : ''
+  return http<GitStatusResponse>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/status${qs}`)
+}
+
 /**
  * 取后端最近日志（含透传进来的 sidecar 日志），用于排查时一键复制贴给 AI。
  * 返回纯文本（后端 text/plain）。mode：error=最近告警+上下文（默认）/ all=最近全量。

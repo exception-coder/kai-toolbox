@@ -39,9 +39,10 @@ import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
-import { fetchProviderModels, fetchSessionUsage, getSessionCommitDiff, listSessionCommits, listSessionGitRepos, listSessions, listWorkspaces, uploadAttachment, type SessionUsage, type UploadedAttachment } from '../api'
+import { fetchProviderModels, fetchSessionGitStatus, fetchSessionUsage, getSessionCommitDiff, listSessionCommits, listSessionGitRepos, listSessions, listWorkspaces, uploadAttachment, type SessionUsage, type UploadedAttachment } from '../api'
 import type { ModelInfo } from '../types'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
+import { GitStatusPanel } from '@/components/git/GitStatusPanel'
 import type { Engine } from '../types'
 import { ensureNotifyPermission } from '../browserNotify'
 
@@ -182,6 +183,7 @@ export function ChatPage() {
   // 两端 token 可能不同；用同一输入框值分别试，任一匹配并触发即算成功。重启后 WS 断、前端自动重连续上。
   // token 用应用内输入框收，不用 window.prompt：移动端浏览器/WebView 普遍禁用 prompt（静默返回 null）。
   const [showCommits, setShowCommits] = useState(false)
+  const [showGitStatus, setShowGitStatus] = useState(false)
   const [showLogs, setShowLogs] = useState(false)
   const [showGestureDebug, setShowGestureDebug] = useState(false)
   const [showDebug, setShowDebug] = useState(false)
@@ -730,7 +732,10 @@ export function ChatPage() {
                       <HeaderMenuItem nested icon={<FolderOpen className="size-4" />} label="工作目录" hint="展开工作目录·快速找文件/定位" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'filetree' ? 'none' : 'filetree') }} />
                     )}
                     {chat.sessionId && (
-                      <HeaderMenuItem nested icon={<GitCommit className="size-4" />} label="提交记录" hint="当前目录 git 提交/diff" onClick={() => { setHeaderMenu(false); setShowCommits(true) }} />
+                      <>
+                        <HeaderMenuItem nested icon={<GitCommit className="size-4" />} label="提交记录" hint="当前目录 git 提交/diff" onClick={() => { setHeaderMenu(false); setShowCommits(true) }} />
+                        <HeaderMenuItem nested icon={<GitBranch className="size-4" />} label="待提交文件" hint="git status · 查看未提交的改动" onClick={() => { setHeaderMenu(false); setShowGitStatus(true) }} />
+                      </>
                     )}
                     <HeaderMenuItem nested icon={<FolderTree className="size-4" />} label="合并工作区" hint="软链接聚合多个目录" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'taskspace' ? 'none' : 'taskspace') }} />
                     <HeaderMenuItem nested icon={<GitBranch className="size-4" />} label="拉取项目到工作区" hint="git clone 远端仓库到工作区" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'clone' ? 'none' : 'clone') }} />
@@ -1059,6 +1064,15 @@ export function ChatPage() {
         />
       )}
 
+      {/* 待提交文件：git status 树形视图 */}
+      {showGitStatus && chat.sessionId && (
+        <GitStatusPanel
+          title="会话目录"
+          fetchStatus={repo => fetchSessionGitStatus(chat.sessionId!, repo)}
+          onClose={() => setShowGitStatus(false)}
+        />
+      )}
+
       {/* 最新日志：后端内存缓冲（含透传的 sidecar 日志），排查时一键复制 */}
       {showLogs && <LogsPanel onClose={() => setShowLogs(false)} />}
 
@@ -1300,6 +1314,7 @@ export function ChatPage() {
                   engine={chat.currentEngine}
                   onClose={() => setCmdMenuOpen(false)}
                   onPickCommand={cmd => { setDraft('/' + cmd + ' '); setCmdMenuOpen(false) }}
+                  onPickAssistant={prompt => { setDraft(prompt); setCmdMenuOpen(false) }}
                   onPickModel={value => { chat.setModel(value); setCmdMenuOpen(false) }}
                   onRefreshModels={chat.refreshModels}
                   modelsRefreshing={chat.modelsRefreshing}

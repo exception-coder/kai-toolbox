@@ -7,6 +7,7 @@ import com.exceptioncoder.toolbox.common.git.CommitDiff;
 import com.exceptioncoder.toolbox.common.git.CommitsResponse;
 import com.exceptioncoder.toolbox.common.git.GitLogService;
 import com.exceptioncoder.toolbox.common.git.GitProperties;
+import com.exceptioncoder.toolbox.common.git.GitStatusResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -85,6 +86,14 @@ public class ClaudeChatGitController {
         Path dir = resolveSessionGitDir(id, repo);
         int lim = limit != null ? limit : gitProps.getCommitLimitDefault();
         return new CommitsResponse(git.listCommits(dir, lim));
+    }
+
+    /** 返回工作区待提交/未跟踪文件列表（git status --porcelain）。 */
+    @GetMapping("/status")
+    public GitStatusResponse status(@PathVariable String id,
+                                    @RequestParam(required = false) String repo) {
+        Path dir = resolveSessionGitDir(id, repo);
+        return git.gitStatus(dir);
     }
 
     @GetMapping("/commit")
