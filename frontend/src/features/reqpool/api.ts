@@ -43,3 +43,10 @@ export const syncFromPrd = () =>
 /** 调用 Claude 对单条需求进行 AI 价值洞察分析，结果持久化到 ai_insight 字段。 */
 export const analyzeItem = (id: string) =>
   http<ReqItemView>(`${BASE}/items/${id}/analyze`, { method: 'POST' })
+
+/**
+ * Portfolio 全局分析：把所有活跃需求一起发给 Claude，横向对比后给出相对优先级排序。
+ * 真正意义上的"A 比 B 更值得先做"，而非独立评分。
+ */
+export const portfolioAnalyze = () =>
+  http<{ summary: string; count: number }>(`${BASE}/portfolio-analyze`, { method: 'POST' })

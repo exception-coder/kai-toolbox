@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  ArrowRight, BookOpen, Code2, RefreshCw, Sparkles, Zap,
+  ArrowRight, BookOpen, Code2, Loader2, RefreshCw, Sparkles, Zap,
 } from 'lucide-react'
 import {
-  analyzeItem, deleteItem, listItems, startClarify, syncFromPrd,
+  analyzeItem, deleteItem, listItems, portfolioAnalyze, startClarify, syncFromPrd,
 } from '../api'
 import type { ReqItemView, ReqStatus } from '../types'
 import { useConfirm } from '@/components/ui/confirm-dialog'
@@ -57,6 +57,10 @@ interface AiInsight {
   impacts: string[]
   roi: 'HIGH' | 'MEDIUM' | 'LOW'
   estimatedHours: number
+  /** Portfolio 全局分析后的相对排名（1 = 最优先）；独立分析时无此字段 */
+  rank?: number
+  /** 与其他需求相比的差异点（Portfolio 分析后有） */
+  comparedTo?: string
 }
 
 function parseInsight(json: string | null | undefined): AiInsight | null {
@@ -130,6 +134,11 @@ function AiRecommendation({ insight, onAnalyze, analyzing }: {
         {insight.reason && (
           <p className="text-[11px] text-[var(--color-muted-foreground)] mt-0.5 leading-relaxed">
             {insight.reason}
+          </p>
+        )}
+        {insight.comparedTo && (
+          <p className="text-[10px] text-[var(--color-primary)]/60 mt-0.5 italic">
+            ↔ {insight.comparedTo}
           </p>
         )}
       </div>
@@ -307,6 +316,7 @@ export function ReqPoolPage() {
   const [filter, setFilter] = useState<ReqStatus | ''>('')
   const [input, setInput] = useState('')
   const [analyzingIds, setAnalyzingIds] = useState<Set<string>>(new Set())
+  const [portfolioSummary, setPortfolioSummary] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const { data: items = [] } = useQuery({
@@ -317,6 +327,14 @@ export function ReqPoolPage() {
   const syncMut = useMutation({
     mutationFn: syncFromPrd,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['reqpool'] }),
+  })
+
+  const portfolioMut = useMutation({
+    mutationFn: portfolioAnalyze,
+    onSuccess: (data) => {
+      setPortfolioSummary(data.summary)
+      qc.invalidateQueries({ queryKey: ['reqpool'] })
+    },
   })
 
   const deleteMut = useMutation({
@@ -381,6 +399,13 @@ export function ReqPoolPage() {
     }
   }
 
+  // 按 ai_insight.rank 排序（Portfolio 分析后有 rank 字段）；无 rank 的排到后面
+  const sortedItems = [...items].sort((a, b) => {
+    const ra = parseInsight(a.aiInsight)?.rank ?? 999
+    const rb = parseInsight(b.aiInsight)?.rank ?? 999
+    return ra - rb
+  })
+
   const isEmpty = items.length === 0 && !syncMut.isPending
 
   return (
@@ -421,10 +446,22 @@ export function ReqPoolPage() {
         </div>
       </div>
 
+      {/* ── Portfolio 全局分析摘要（运行后显示） ── */}
+      {portfolioSummary && (
+        <div className="mx-8 mt-5 flex items-start gap-2.5 rounded-2xl border border-[var(--color-primary)]/20 bg-[var(--color-primary)]/5 px-5 py-3">
+          <Sparkles className="w-4 h-4 text-[var(--color-primary)] flex-shrink-0 mt-0.5" />
+          <div>
+            <span className="text-xs font-bold text-[var(--color-primary)] mr-2">AI 本期建议</span>
+            <span className="text-xs text-[var(--color-foreground)]">{portfolioSummary}</span>
+          </div>
+          <button onClick={() => setPortfolioSummary(null)} className="ml-auto text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] text-lg leading-none">×</button>
+        </div>
+      )}
+
       {/* ── AI Portfolio 推荐 ── */}
       {items.length > 0 && (
         <div className="pt-5">
-          <AiPortfolio items={items} />
+          <AiPortfolio items={sortedItems} />
         </div>
       )}
 
@@ -441,12 +478,24 @@ export function ReqPoolPage() {
             {t.label}
           </button>
         ))}
-        {syncMut.isPending && (
-          <span className="ml-auto text-[11px] text-[var(--color-muted-foreground)] animate-pulse">同步中…</span>
-        )}
-        {!syncMut.isPending && items.length > 0 && (
-          <span className="ml-auto text-[11px] text-[var(--color-muted-foreground)]">{items.length} 条</span>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          {(syncMut.isPending || portfolioMut.isPending) && (
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-muted-foreground)]" />
+          )}
+          {/* Portfolio 全局排序按钮 */}
+          <button
+            onClick={() => portfolioMut.mutate()}
+            disabled={portfolioMut.isPending || items.length === 0}
+            className="flex items-center gap-1.5 px-3 py-1 text-[11px] rounded-full border border-[var(--color-primary)]/30 text-[var(--color-primary)] hover:bg-[var(--color-primary)]/10 disabled:opacity-40 transition-colors font-medium"
+            title="让 Claude 横向对比所有需求，给出本期最优开发顺序（约 30-60 秒）"
+          >
+            <Zap className="w-3 h-3" />
+            {portfolioMut.isPending ? 'AI 分析中…' : 'AI 全局排序'}
+          </button>
+          {!syncMut.isPending && items.length > 0 && (
+            <span className="text-[11px] text-[var(--color-muted-foreground)]">{items.length} 条</span>
+          )}
+        </div>
       </div>
 
       {/* ── 卡片流 ── */}
@@ -459,7 +508,7 @@ export function ReqPoolPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {items.map(item => (
+            {sortedItems.map(item => (
               <ReqCard
                 key={item.id}
                 item={item}

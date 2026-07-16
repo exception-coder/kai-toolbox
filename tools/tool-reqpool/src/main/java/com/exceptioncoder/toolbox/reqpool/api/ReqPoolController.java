@@ -218,6 +218,26 @@ public class ReqPoolController {
     }
 
     /**
+     * Portfolio 全局分析：把所有活跃需求一起发给 Claude，横向对比后给出相对优先级排序。
+     * 与独立分析不同，Portfolio 分析能真正说"A 比 B 更重要是因为…"。
+     * 调用一次耗时约 30-60s（N 条 → 1 次大调用），每次更新所有条目的 ai_insight。
+     */
+    @PostMapping("/portfolio-analyze")
+    public ResponseEntity<Map<String, Object>> portfolioAnalyze() {
+        // 只分析活跃需求（排除已取消）
+        List<ReqItem> items = repo.findAll(null, null, null).stream()
+                .filter(i -> !"CANCELLED".equals(i.getStatus()))
+                .toList();
+
+        if (items.isEmpty()) {
+            return ResponseEntity.ok(Map.of("summary", "暂无需求", "count", 0));
+        }
+
+        String summary = analysis.analyzePortfolio(items);
+        return ResponseEntity.ok(Map.of("summary", summary, "count", items.size()));
+    }
+
+    /**
      * 批量 AI 分析：为所有缺少 ai_insight 的条目触发分析（后台逐一调用，耗时较长）。
      * 返回将要分析的数量，实际分析在后台线程中完成。
      */
