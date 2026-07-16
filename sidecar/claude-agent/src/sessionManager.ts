@@ -8,6 +8,7 @@ import { createErpDbServer } from './erpDb.js'
 import { createErpAppServer } from './erpApp.js'
 import { createSrmDbServer } from './srmDb.js'
 import { createSrmAppServer } from './srmApp.js'
+import { createDomainKnowledgeServer, createCrossTopologyServer } from './knowledgeMcp.js'
 import { runCodexTurn, type CodexSpeed } from './codexEngine.js'
 import type { ModelReasoningEffort } from '@openai/codex-sdk'
 import { runGeminiTurn } from './geminiEngine.js'
@@ -255,6 +256,14 @@ class Session {
         mcpServers.srm_db = createSrmDbServer(toolboxApiBase)
         mcpServers.srm_app = createSrmAppServer(toolboxApiBase)
       }
+
+      // 业务知识图谱：domain-knowledge（业务规则/状态机/公式）+ cross-topology（枚举值/API路径/表字段）
+      // 与 claude mcp add 注册相同引擎，通过环境变量 DOMAIN_KB_DIR / CROSS_TOPO_KB_DIR 指定知识库目录。
+      // 可选：若引擎或目录不存在则跳过（零影响，工具列表为空时 Claude 不会尝试调用）。
+      const domainKb = createDomainKnowledgeServer()
+      const crossTopo = createCrossTopologyServer()
+      if (domainKb) (mcpServers as Record<string, unknown>)['domain-knowledge'] = domainKb
+      if (crossTopo) (mcpServers as Record<string, unknown>)['cross-topology'] = crossTopo
 
       try {
         const q = query({
