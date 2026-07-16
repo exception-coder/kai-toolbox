@@ -107,6 +107,14 @@ export function FloatingChatWindow() {
   // 迷你版（默认）：只显示进度状态 + 语音/输入/发送，不铺消息流；点切换看完整对话。
   // demo（受约束演示）默认展开完整对话，便于直接看到改动反馈。
   const [compact, setCompact] = useState(!demo)
+  // 当 floating 从 false 变为 true（手动弹出），自动展开为完整窗口（而非迷你 compact 条）
+  const prevFloatingRef = useRef(floating)
+  useEffect(() => {
+    if (floating && !prevFloatingRef.current) {
+      setCompact(false)
+    }
+    prevFloatingRef.current = floating
+  }, [floating])
   const [attachments, setAttachments] = useState<FloatAttachment[]>([])
   const [uploading, setUploading] = useState(0)
   const [autoApprove, setAutoApprove] = useState(() => localStorage.getItem(AUTO_APPROVE_KEY) === '1')
