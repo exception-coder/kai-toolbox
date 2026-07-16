@@ -224,27 +224,76 @@ public class SidecarProcessRegistry {
     }
 
     /**
-     * 定位 sidecar 目录。相对路径要兼容不同启动方式的工作目录：
-     * - mvn spring-boot:run（cwd = toolbox-starter 模块目录）→ 需向上跳到仓库根；
-     * - 仓库根直接跑 jar（cwd = 仓库根）→ 直接命中；
-     * 因此从 user.dir 起逐级向上找第一个存在的 {sidecarDir}/{entryScript|package.json}。
+     * 定位 sidecar 目录，三级查找策略：
+     *
+     * <ol>
+     *   <li>绝对路径：直接用（用户显式配置，最优先）。</li>
+     *   <li>从 jar/class 文件所在目录向上逐级找：适合 fat jar 分发场景——
+     *       用户把 kai-toolbox.jar 和 sidecar/ 放在同一目录，从任意工作目录启动均可定位。</li>
+     *   <li>从 user.dir 向上逐级找：兼容 mvn spring-boot:run 等开发启动方式。</li>
+     * </ol>
+     *
+     * <p>分发包推荐布局：
+     * <pre>
+     *   任意目录/
+     *   ├── kai-toolbox.jar
+     *   └── sidecar/
+     *       └── claude-agent/
+     *           └── dist/server.js
+     * </pre>
      */
     private Path resolveSidecarDir() {
         Path configured = Path.of(props.getSidecarDir());
         if (configured.isAbsolute()) {
             return configured;
         }
-        Path cur = Path.of(System.getProperty("user.dir")).toAbsolutePath();
+        // 策略 2：从 jar/class 文件所在目录向上找（分发场景）
+        Path jarDir = getJarOrClassesDir();
+        if (jarDir != null) {
+            Path found = searchUpward(jarDir, configured);
+            if (found != null) {
+                log.debug("[claude-chat] sidecar 定位于 jar 同级目录：{}", found);
+                return found;
+            }
+        }
+        // 策略 3：从 user.dir 向上找（开发/mvn 启动场景）
+        Path fromUserDir = searchUpward(Path.of(System.getProperty("user.dir")).toAbsolutePath(), configured);
+        if (fromUserDir != null) {
+            return fromUserDir;
+        }
+        // 兜底：user.dir 相对（错误信息里给出绝对路径便于排查）
+        return Path.of(System.getProperty("user.dir")).resolve(configured);
+    }
+
+    /**
+     * 获取当前运行 jar/classes 文件所在目录。
+     * - fat jar 启动：返回 jar 文件所在目录（分发根）。
+     * - mvn spring-boot:run / IDE：返回 classes 目录（开发时由 searchUpward 向上找到项目根）。
+     */
+    private Path getJarOrClassesDir() {
+        try {
+            java.net.URL loc = SidecarProcessRegistry.class.getProtectionDomain().getCodeSource().getLocation();
+            if (loc == null) return null;
+            Path p = Path.of(loc.toURI()).toAbsolutePath();
+            // fat jar：xxx.jar 本身就是文件，取父目录
+            return Files.isRegularFile(p) ? p.getParent() : p;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 从 start 目录起逐级向上（最多 5 层），找到包含 sidecar entry 或 package.json 的候选路径。 */
+    private Path searchUpward(Path start, Path relative) {
+        Path cur = start;
         for (int i = 0; i < 5 && cur != null; i++) {
-            Path cand = cur.resolve(configured);
+            Path cand = cur.resolve(relative);
             if (Files.isRegularFile(cand.resolve(props.getEntryScript()))
                     || Files.isRegularFile(cand.resolve("package.json"))) {
                 return cand;
             }
             cur = cur.getParent();
         }
-        // 兜底：按 user.dir 相对（错误信息里给出绝对路径便于排查）
-        return Path.of(System.getProperty("user.dir")).resolve(configured);
+        return null;
     }
 
     /** 把 sidecar 的 stdout/stderr 透到日志，便于排查（虚拟线程，不阻塞）。 */
