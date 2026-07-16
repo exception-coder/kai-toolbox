@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Check, RotateCw } from 'lucide-react'
+import { Check, FileText, RotateCw, Sparkles } from 'lucide-react'
 import type { Engine, ModelInfo } from '../types'
 import { groupModels } from './modelGroups'
 
@@ -13,6 +13,7 @@ export function CommandMenu({
   currentModel,
   engine = 'claude',
   onPickCommand,
+  onPickAssistant,
   onPickModel,
   onRefreshModels,
   modelsRefreshing = false,
@@ -24,6 +25,7 @@ export function CommandMenu({
   currentModel: string | null
   engine?: Engine
   onPickCommand: (cmd: string) => void
+  onPickAssistant?: (prompt: string) => void
   onPickModel: (value: string) => void
   /** 主动同步模型清单（仅 Claude 引擎有意义）：让 sidecar 重新询问 claude 二进制拉最新型号。 */
   onRefreshModels?: () => void
@@ -38,6 +40,7 @@ export function CommandMenu({
   const [platform, setPlatform] = useState<string>('all') // 平台筛选：'all' 或某平台 key
   const ql = q.toLowerCase()
   const fCmds = commands.filter(c => c.toLowerCase().includes(ql))
+  const assistants = QUICK_ASSISTANTS.filter(item => item.label.toLowerCase().includes(ql))
 
   // 先文本过滤，再按平台分组；模型多时用平台二级筛选收窄（网关动辄上百个，平铺难选）
   const textModels = models.filter(m => m.displayName.toLowerCase().includes(ql) || m.value.toLowerCase().includes(ql))
@@ -92,6 +95,25 @@ export function CommandMenu({
           )}
         </div>
         <div className="max-h-72 overflow-y-auto py-1">
+          {onPickAssistant && assistants.length > 0 && (
+            <div>
+              <div className="px-3 py-1 text-xs font-medium text-[var(--color-muted-foreground)]">快捷助手</div>
+              {assistants.map(item => {
+                const Icon = item.icon
+                return (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onMouseDown={event => { event.preventDefault(); onPickAssistant(item.prompt) }}
+                    className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-[var(--color-muted)]"
+                  >
+                    <Icon className="size-5 shrink-0" />
+                    <span className="text-sm font-medium">{item.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
           {shownGroups.map(g => (
             <div key={g.key}>
               <div className="px-3 py-1 text-xs font-medium text-[var(--color-muted-foreground)]">{g.label}（{g.models.length}）</div>
@@ -128,7 +150,7 @@ export function CommandMenu({
               ))}
             </>
           )}
-          {fModelCount === 0 && fCmds.length === 0 && (
+          {fModelCount === 0 && fCmds.length === 0 && (!onPickAssistant || assistants.length === 0) && (
             <div className="px-3 py-2 text-xs text-[var(--color-muted-foreground)]">
               {models.length === 0 && commands.length === 0
                 ? (engine === 'codex'
@@ -142,6 +164,19 @@ export function CommandMenu({
     </>
   )
 }
+
+const QUICK_ASSISTANTS = [
+  {
+    label: 'Requirements',
+    icon: Sparkles,
+    prompt: '请进入 Requirements 模式：先梳理需求目标、目标用户、使用场景、范围边界、约束、验收标准和未决问题。在关键需求确认前先向我提问，不要直接开始编码。',
+  },
+  {
+    label: 'PRD 澄清助手',
+    icon: FileText,
+    prompt: '请作为 PRD 澄清助手审阅当前需求。识别目标、用户流程、业务规则、异常场景、数据与权限、非功能要求、验收标准中的缺口，并按优先级逐项向我提问，最后输出一份可执行的需求澄清结论。',
+  },
+] as const
 
 /** 平台筛选小胶囊。 */
 function PlatformChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {

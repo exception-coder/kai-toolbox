@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Bell, Bug, ChevronDown, ChevronUp, Cloud, Compass, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, LayoutGrid, List, ListChecks, Loader2, Maximize2, MessageSquare, Mic, Minus, MoreHorizontal, Package, Palette, Paperclip, Plus, RotateCw, Send, Server, Settings, Shield, ShieldCheck, Slash, Sparkles, X } from 'lucide-react'
-import { CHAT_ROUTE, CHAT_STABLE_ROUTE, isChatRoute, useChatRuntime } from '../runtime/ChatRuntimeContext'
+import { CHAT_ROUTE, isChatRoute, useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { isShowcasePath } from '@/shell/featureRegistry'
 import { ThemeMenu } from '@/shell/ThemeMenu'
 import { useConfirm } from '@/components/ui/confirm-dialog'
@@ -196,7 +196,7 @@ export function FloatingChatWindow() {
   }, [chat, autoApprove])
 
   // 在会话页时不渲染（全屏页已在），未弹出或引擎未就绪也不渲染
-  if (!floating || !chat || isChatRoute(location.pathname) || location.pathname === CHAT_STABLE_ROUTE) return null
+  if (!floating || !chat || isChatRoute(location.pathname)) return null
 
   const engineLabel = engineDisplayName(chat.currentEngine, chat.currentProviderKind)
   const host = providerHost(chat.currentProviderBaseUrl)
@@ -825,6 +825,7 @@ export function FloatingChatWindow() {
               engine={chat.currentEngine}
               onClose={() => setCmdMenuOpen(false)}
               onPickCommand={cmd => { setDraft(d => (d.trim() ? `${d} ` : '') + '/' + cmd + ' '); setCmdMenuOpen(false); taRef.current?.focus() }}
+              onPickAssistant={prompt => { setDraft(prompt); setCmdMenuOpen(false); taRef.current?.focus() }}
               onPickModel={value => { chat.setModel(value); setCmdMenuOpen(false) }}
               onRefreshModels={chat.refreshModels}
               modelsRefreshing={chat.modelsRefreshing}

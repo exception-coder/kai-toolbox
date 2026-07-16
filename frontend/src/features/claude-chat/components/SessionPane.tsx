@@ -342,6 +342,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
             engine={chat.currentEngine}
             onClose={() => setCmdMenuOpen(false)}
             onPickCommand={cmd => { setDraft(d => (d.trim() ? `${d} ` : '') + '/' + cmd + ' '); setCmdMenuOpen(false); taRef.current?.focus() }}
+            onPickAssistant={prompt => { setDraft(prompt); setCmdMenuOpen(false); taRef.current?.focus() }}
             onPickModel={value => { chat.setModel(value); setCmdMenuOpen(false) }}
           />
         )}
