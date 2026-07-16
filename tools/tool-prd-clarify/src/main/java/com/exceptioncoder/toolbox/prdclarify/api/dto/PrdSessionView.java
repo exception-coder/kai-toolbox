@@ -30,6 +30,8 @@ public record PrdSessionView(
         String module,
         String status,
         String role,
+        /** 原始需求描述（用户在填写表单时输入的完整内容），用于历史记录弹窗展示。 */
+        String rawInput,
         List<QuestionItem> questions,
         String mdPath,
         String errorMsg,
@@ -45,6 +47,7 @@ public record PrdSessionView(
         return new PrdSessionView(
                 s.getId(), s.getTitle(), s.getProject(), s.getModule(),
                 s.getStatus(), s.getRole() != null ? s.getRole() : "PRODUCT",
+                s.getRawInput(),
                 parseQuestions(s.getQuestions()),
                 s.getMdPath(), s.getErrorMsg(), s.getCreatedAt(), s.getUpdatedAt());
     }

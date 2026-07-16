@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { BotMessageSquare, ChevronRight, Code2, Copy, ExternalLink, FileText, Layers, Loader2, Plus, Rocket, Send, Trash2, User, X } from 'lucide-react'
+import { BotMessageSquare, ChevronRight, Code2, Copy, ExternalLink, FileText, Info, Layers, Loader2, Plus, Rocket, Send, Trash2, User, X } from 'lucide-react'
 import { http } from '@/lib/api'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -152,6 +152,68 @@ function ClarifyHistorySheet({
   )
 }
 
+// ───── 原始需求描述弹出卡片 ─────
+function RawInputCard({
+  session,
+  onClose,
+}: {
+  session: PrdSessionView
+  onClose: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+      <div className="w-full max-w-xl rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl flex flex-col max-h-[80vh]">
+        {/* 头部 */}
+        <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-[var(--color-border)]">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <FileText className="w-4 h-4 text-[var(--color-primary)] flex-shrink-0" />
+              <span className="font-semibold text-sm truncate">{session.title}</span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {(session.project || session.module) && (
+                <span className="text-[11px] text-[var(--color-muted-foreground)]">
+                  {[session.project, session.module].filter(Boolean).join(' · ')}
+                </span>
+              )}
+              <span className={`text-[9px] px-1.5 py-0.5 rounded border leading-tight ${
+                session.role === 'BUSINESS'
+                  ? 'bg-green-500/15 text-green-500 border-green-500/20'
+                  : 'bg-blue-500/15 text-blue-500 border-blue-500/20'
+              }`}>
+                {session.role === 'BUSINESS' ? '业务员' : '产品/开发'}
+              </span>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] flex-shrink-0">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* 原始需求内容 */}
+        <div className="flex-1 overflow-y-auto p-5">
+          <div className="text-xs font-semibold text-[var(--color-muted-foreground)] uppercase tracking-wide mb-3">
+            原始需求描述
+          </div>
+          {session.rawInput ? (
+            <div className="text-sm leading-relaxed text-[var(--color-foreground)] whitespace-pre-wrap bg-[var(--color-muted)]/30 rounded-xl p-4">
+              {session.rawInput}
+            </div>
+          ) : (
+            <div className="text-sm text-[var(--color-muted-foreground)] italic">暂无原始需求描述</div>
+          )}
+        </div>
+
+        {/* 底部信息 */}
+        <div className="flex items-center justify-between px-5 py-3 border-t border-[var(--color-border)] text-[11px] text-[var(--color-muted-foreground)]">
+          <span>创建于 {new Date(session.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+          <span className="font-medium">{session.status}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ───── 历史侧边栏 ─────
 function HistoryPanel({
   sessions,
@@ -165,6 +227,7 @@ function HistoryPanel({
   onDelete: (id: string) => void
 }) {
   const confirm = useConfirm()
+  const [previewSession, setPreviewSession] = useState<PrdSessionView | null>(null)
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
@@ -181,56 +244,75 @@ function HistoryPanel({
   }
 
   return (
-    <div className="w-56 flex-shrink-0 border-r border-[var(--color-border)] flex flex-col overflow-hidden">
-      <div className="px-3 py-2 text-xs font-semibold text-[var(--color-muted-foreground)] uppercase tracking-wide border-b border-[var(--color-border)]">
-        历史记录
-      </div>
-      <div className="flex-1 overflow-y-auto">
-        {sessions.length === 0 && (
-          <div className="p-3 text-xs text-[var(--color-muted-foreground)]">暂无记录</div>
-        )}
-        {sessions.map((s) => (
-          <div
-            key={s.id}
-            onClick={() => onSelect(s)}
-            className={`group flex items-start gap-2 px-3 py-2 cursor-pointer hover:bg-[var(--color-muted)]/40 transition-colors
-              ${s.id === activeId ? 'bg-[var(--color-muted)]/60' : ''}`}
-          >
-            <FileText className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-[var(--color-muted-foreground)]" />
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-medium truncate">{s.title}</div>
-              {/* 项目 / 模块标签 */}
-              {(s.project || s.module) && (
-                <div className="text-[10px] text-[var(--color-muted-foreground)] truncate mt-0.5">
-                  {[s.project, s.module].filter(Boolean).join(' · ')}
-                </div>
-              )}
-              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                <span className={`text-[10px] ${statusColor[s.status] ?? 'text-[var(--color-muted-foreground)]'}`}>
-                  {s.status}
-                </span>
-                {/* 角色标记 */}
-                {s.role === 'BUSINESS' ? (
-                  <span className="text-[9px] px-1 rounded bg-green-500/15 text-green-500 border border-green-500/20 leading-tight">
-                    业务
-                  </span>
-                ) : (
-                  <span className="text-[9px] px-1 rounded bg-blue-500/15 text-blue-500 border border-blue-500/20 leading-tight">
-                    产品
-                  </span>
+    <>
+      {/* 原始需求弹出卡片 */}
+      {previewSession && (
+        <RawInputCard session={previewSession} onClose={() => setPreviewSession(null)} />
+      )}
+
+      <div className="w-56 flex-shrink-0 border-r border-[var(--color-border)] flex flex-col overflow-hidden">
+        <div className="px-3 py-2 text-xs font-semibold text-[var(--color-muted-foreground)] uppercase tracking-wide border-b border-[var(--color-border)]">
+          历史记录
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {sessions.length === 0 && (
+            <div className="p-3 text-xs text-[var(--color-muted-foreground)]">暂无记录</div>
+          )}
+          {sessions.map((s) => (
+            <div
+              key={s.id}
+              onClick={() => onSelect(s)}
+              className={`group flex items-start gap-2 px-3 py-2 cursor-pointer hover:bg-[var(--color-muted)]/40 transition-colors
+                ${s.id === activeId ? 'bg-[var(--color-muted)]/60' : ''}`}
+            >
+              <FileText className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-[var(--color-muted-foreground)]" />
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-medium truncate">{s.title}</div>
+                {/* 项目 / 模块标签 */}
+                {(s.project || s.module) && (
+                  <div className="text-[10px] text-[var(--color-muted-foreground)] truncate mt-0.5">
+                    {[s.project, s.module].filter(Boolean).join(' · ')}
+                  </div>
                 )}
+                <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                  <span className={`text-[10px] ${statusColor[s.status] ?? 'text-[var(--color-muted-foreground)]'}`}>
+                    {s.status}
+                  </span>
+                  {/* 角色标记 */}
+                  {s.role === 'BUSINESS' ? (
+                    <span className="text-[9px] px-1 rounded bg-green-500/15 text-green-500 border border-green-500/20 leading-tight">
+                      业务
+                    </span>
+                  ) : (
+                    <span className="text-[9px] px-1 rounded bg-blue-500/15 text-blue-500 border border-blue-500/20 leading-tight">
+                      产品
+                    </span>
+                  )}
+                </div>
+              </div>
+              {/* 操作按钮区（hover 显示） */}
+              <div className="hidden group-hover:flex items-center gap-1">
+                {/* 查看原始需求 */}
+                <button
+                  onClick={(e) => { e.stopPropagation(); setPreviewSession(s) }}
+                  className="text-[var(--color-muted-foreground)] hover:text-[var(--color-primary)]"
+                  title="查看原始需求"
+                >
+                  <Info className="w-3 h-3" />
+                </button>
+                {/* 删除 */}
+                <button
+                  onClick={(e) => handleDelete(e, s.id)}
+                  className="text-[var(--color-muted-foreground)] hover:text-red-500"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
               </div>
             </div>
-            <button
-              onClick={(e) => handleDelete(e, s.id)}
-              className="hidden group-hover:flex items-center text-[var(--color-muted-foreground)] hover:text-red-500"
-            >
-              <Trash2 className="w-3 h-3" />
-            </button>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
-    </div>
+    </>
   )
 }
 

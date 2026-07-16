@@ -18,6 +18,8 @@ export interface PrdSessionView {
   module: string | null
   status: PrdSessionStatus
   role: PrdRole
+  /** 原始需求描述（用于历史记录弹窗展示） */
+  rawInput: string | null
   questions: QuestionItem[]
   mdPath: string | null
   errorMsg: string | null
