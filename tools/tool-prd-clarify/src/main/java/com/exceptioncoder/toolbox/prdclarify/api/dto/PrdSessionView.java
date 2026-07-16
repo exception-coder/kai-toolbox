@@ -36,6 +36,8 @@ public record PrdSessionView(
         String mdPath,
         /** 开发文档路径（非 null 表示已生成开发文档）。 */
         String devDocPath,
+        /** 关联的 Vibe Coding 开发会话 ID（非 null 表示已启动 feature-dev 开发会话）。 */
+        String devSessionId,
         String errorMsg,
         long createdAt,
         long updatedAt
@@ -51,7 +53,7 @@ public record PrdSessionView(
                 s.getStatus(), s.getRole() != null ? s.getRole() : "PRODUCT",
                 s.getRawInput(),
                 parseQuestions(s.getQuestions()),
-                s.getMdPath(), s.getDevDocPath(), s.getErrorMsg(), s.getCreatedAt(), s.getUpdatedAt());
+                s.getMdPath(), s.getDevDocPath(), s.getDevSessionId(), s.getErrorMsg(), s.getCreatedAt(), s.getUpdatedAt());
     }
 
     private static List<QuestionItem> parseQuestions(String json) {

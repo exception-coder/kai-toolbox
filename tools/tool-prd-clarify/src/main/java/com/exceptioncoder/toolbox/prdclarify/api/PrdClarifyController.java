@@ -163,6 +163,25 @@ public class PrdClarifyController {
     // ─── 开发文档 ───────────────────────────────────────
 
     /**
+     * 关联 Vibe Coding 开发会话：「开始开发」跳转到 claude-chat 后，由前端回写 devSessionId，
+     * 建立 PRD ↔ 开发会话的双向关联，使 PRD 页面可以直接跳回对应的 Vibe Coding 会话。
+     */
+    @PostMapping("/sessions/{id}/link-dev-session")
+    public ReqItemLinkResult linkDevSession(@PathVariable String id,
+                                              @RequestBody java.util.Map<String, String> body) {
+        String devSessionId = body.get("devSessionId");
+        if (devSessionId == null || devSessionId.isBlank()) {
+            throw new ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "devSessionId 不能为空");
+        }
+        repo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "会话不存在: " + id));
+        repo.updateDevSessionId(id, devSessionId);
+        return new ReqItemLinkResult(true);
+    }
+
+    record ReqItemLinkResult(boolean ok) {}
+
+    /**
      * SSE 流式：基于 PRD 生成技术开发方案文档（四章节：技术方案/DB变更/API设计/实现步骤）。
      * 事件：chunk / done / error（与 PRD 生成接口一致）。
      */

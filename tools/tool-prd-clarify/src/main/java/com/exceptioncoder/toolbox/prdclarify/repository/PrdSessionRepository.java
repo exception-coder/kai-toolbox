@@ -25,6 +25,7 @@ public class PrdSessionRepository {
             .role(rs.getString("role"))
             .mdPath(rs.getString("md_path"))
             .devDocPath(rs.getString("dev_doc_path"))
+            .devSessionId(rs.getString("dev_session_id"))
             .model(rs.getString("model"))
             .errorMsg(rs.getString("error_msg"))
             .createdAt(rs.getLong("created_at"))
@@ -81,6 +82,12 @@ public class PrdSessionRepository {
     public void updateDevDocPath(String id, String devDocPath) {
         jdbc.update("UPDATE prd_session SET dev_doc_path = ?, updated_at = ? WHERE id = ?",
                 devDocPath, System.currentTimeMillis(), id);
+    }
+
+    /** 关联 Vibe Coding 开发会话 ID（「开始开发」跳转到 claude-chat 后回写）。 */
+    public void updateDevSessionId(String id, String devSessionId) {
+        jdbc.update("UPDATE prd_session SET dev_session_id = ?, updated_at = ? WHERE id = ?",
+                devSessionId, System.currentTimeMillis(), id);
     }
 
     /** 标记错误状态。 */

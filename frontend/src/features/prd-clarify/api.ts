@@ -106,6 +106,13 @@ export const saveDevDocContent = (id: string, content: string) =>
     body: JSON.stringify({ content }),
   })
 
+/** 关联 Vibe Coding 开发会话 ID 到 PRD 会话（由 claude-chat handoff handler 回写）。 */
+export const linkDevSession = (prdSessionId: string, devSessionId: string) =>
+  http<{ ok: boolean }>(`/prd-clarify/sessions/${prdSessionId}/link-dev-session`, {
+    method: 'POST',
+    body: JSON.stringify({ devSessionId }),
+  })
+
 /**
  * 将 PRD 会话关联到需求管理池条目（来自需求池的跳入场景，PRD 生成完成后回调）。
  * 触发 reqpool 条目状态流转到 PRD_READY。

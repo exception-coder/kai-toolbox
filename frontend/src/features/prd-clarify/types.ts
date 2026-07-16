@@ -24,6 +24,8 @@ export interface PrdSessionView {
   mdPath: string | null
   /** 开发文档路径（非 null 表示已生成开发文档） */
   devDocPath: string | null
+  /** 关联的 Vibe Coding 开发会话 ID（非 null 表示已启动 feature-dev 开发会话） */
+  devSessionId: string | null
   errorMsg: string | null
   createdAt: number
   updatedAt: number

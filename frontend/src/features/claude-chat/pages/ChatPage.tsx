@@ -391,6 +391,39 @@ export function ChatPage() {
     } catch { /* 解析失败忽略 */ }
   }, [chat])
 
+  // PRD 开发 handoff：prd-clarify「开始开发」把 {cwd, seed, prdSessionId} 写 sessionStorage 后跳来，
+  // 在指定工作目录开一个会话，自动发送 PRD 内容 + feature-dev 引导消息，并回写 devSessionId 到 PRD 记录。一次性。
+  const prdDevLaunchedRef = useRef(false)
+  useEffect(() => {
+    if (prdDevLaunchedRef.current || !chat) return
+    let raw: string | null = null
+    try { raw = sessionStorage.getItem('kai-toolbox:claude-chat:prd-dev-launch') } catch { /* ignore */ }
+    if (!raw) return
+    prdDevLaunchedRef.current = true
+    try { sessionStorage.removeItem('kai-toolbox:claude-chat:prd-dev-launch') } catch { /* ignore */ }
+    try {
+      const { cwd, seed, prdSessionId } = JSON.parse(raw) as { cwd?: string; seed?: string; prdSessionId?: string }
+      if (seed) {
+        chat.open((cwd ?? '').trim(), undefined, undefined, 'claude')
+        chat.send(seed)
+        // 回写开发会话 ID 到 PRD（非关键，失败忽略）
+        // chat.sessionId 在 init/ready 事件后设置，等 1.5s 让它稳定
+        if (prdSessionId) {
+          setTimeout(() => {
+            const sid = chat.sessionId
+            if (sid) {
+              fetch(`/api/prd-clarify/sessions/${prdSessionId}/link-dev-session`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ devSessionId: sid }),
+              }).catch(() => {})
+            }
+          }, 1500)
+        }
+      }
+    } catch { /* 解析失败忽略 */ }
+  }, [chat])
+
   // 面板 handoff：别的模块（如「ERP 需求开发」空工作区引导）跳来时指定直接打开某个面板（如 clone）。一次性。
   useEffect(() => {
     let raw: string | null = null

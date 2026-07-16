@@ -845,20 +845,28 @@ function ChattingPanel({
   )
 }
 
-// ───── 开发提示词 Dialog ─────
+// sessionStorage key，与 ChatPage handoff 约定一致
+const PRD_DEV_LAUNCH_KEY = 'kai-toolbox:claude-chat:prd-dev-launch'
+
+// ───── 开始开发 Dialog（sessionStorage handoff → Vibe Coding） ─────
 function StartDevDialog({
   title,
+  sessionId,
+  projectName,
   content,
   onClose,
 }: {
   title: string
+  sessionId: string
+  projectName: string | null
   content: string
   onClose: () => void
 }) {
   const navigate = useNavigate()
-  const [copied, setCopied] = useState(false)
+  const [launching, setLaunching] = useState(false)
 
-  const devPrompt = `你是一位经验丰富的软件工程师。请根据以下 PRD 进行功能开发：
+  /** 构建发给 Vibe Coding 的第一条消息（引导 feature-dev 流程） */
+  const buildSeed = () => `[PRD] ${title}
 
 ---
 
@@ -866,32 +874,69 @@ ${content}
 
 ---
 
-请先：
-1. 仔细阅读 PRD，理解需求边界和验收标准
-2. 分析现有代码库结构，找到相关模块和接口
-3. 制定实现方案并告诉我（涉及的文件、新增 API、数据库变更）
-4. 按优先级逐步实现功能
+请按以下步骤执行需求开发（/feature-dev 流程）：
 
-准备好后请先输出实现计划，再开始写代码。`
+**Step 1 — 理解需求**
+认真阅读以上 PRD，理解功能边界、验收标准、技术约束。
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(devPrompt)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
+**Step 2 — 代码库探索**
+探索相关现有代码（Controller / Service / Repository / 前端组件），理解现有数据模型和 API。
 
-  const handleGotoWorkbench = () => {
-    handleCopy()
-    navigate('/tools/claude-chat')
+**Step 3 — 设计技术方案**
+基于 PRD 和现有代码输出：
+- 数据库变更（完整 DDL/ALTER）
+- API 接口设计（请求/响应结构）
+- 前后端改动清单（精确到方法/组件级别）
+
+**Step 4 — 实现**
+按方案优先级逐步实现，每步完成后告知进度。完成后将技术方案文档保存到 \`docs/design/\` 目录。
+
+PRD_SESSION_ID: ${sessionId}`
+
+  const handleLaunch = async () => {
+    setLaunching(true)
+    try {
+      // 查询项目的 cwd（workspace 绝对路径）
+      let cwd = ''
+      if (projectName) {
+        try {
+          const res = await fetch('/api/claude-chat/workspaces', {
+            headers: { Authorization: `Bearer ${localStorage.getItem('toolbox.auth.token') ?? ''}` },
+          })
+          if (res.ok) {
+            const data = await res.json() as {
+              roots: Array<{ exists: boolean; dirs: Array<{ name: string; path: string }> }>
+            }
+            for (const root of data.roots ?? []) {
+              const found = root.dirs?.find(d => d.name === projectName)
+              if (found) { cwd = found.path; break }
+            }
+          }
+        } catch { /* cwd 解析失败时留空，让用户在工作台手动选 */ }
+      }
+
+      // 写入 sessionStorage（ChatPage 消费后自动删除）
+      sessionStorage.setItem(PRD_DEV_LAUNCH_KEY, JSON.stringify({
+        cwd,
+        seed: buildSeed(),
+        prdSessionId: sessionId,
+      }))
+
+      // 跳转到 Vibe Coding
+      navigate('/tools/claude-chat')
+      onClose()
+    } finally {
+      setLaunching(false)
+    }
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-2xl max-h-[80vh] flex flex-col rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl">
+      <div className="w-full max-w-lg rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl">
         {/* 头部 */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
           <div className="flex items-center gap-2">
-            <Rocket className="w-4 h-4 text-[var(--color-primary)]" />
+            <Rocket className="w-4 h-4 text-green-500" />
             <span className="font-semibold text-sm">开始开发 — {title}</span>
           </div>
           <button onClick={onClose} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
@@ -900,56 +945,67 @@ ${content}
         </div>
 
         {/* 说明 */}
-        <div className="px-5 py-3 bg-blue-500/5 border-b border-[var(--color-border)]">
-          <p className="text-xs text-[var(--color-muted-foreground)] leading-relaxed">
-            以下是基于 PRD 自动生成的开发提示词。复制后在
-            <strong className="text-[var(--color-foreground)] mx-1">Vibe Coding 工作台</strong>
-            选择项目目录，粘贴为第一条消息，Claude 会自动分析代码库并制定实现方案。
+        <div className="px-5 py-4 space-y-3">
+          <p className="text-sm text-[var(--color-foreground)] leading-relaxed">
+            点击「启动开发会话」，系统将自动：
           </p>
-        </div>
-
-        {/* 提示词内容 */}
-        <div className="flex-1 overflow-y-auto p-5">
-          <pre className="text-xs font-mono text-[var(--color-muted-foreground)] whitespace-pre-wrap leading-relaxed bg-[var(--color-muted)]/30 rounded-lg p-4">
-            {devPrompt}
-          </pre>
+          <div className="space-y-2 text-sm text-[var(--color-muted-foreground)]">
+            <div className="flex items-start gap-2">
+              <span className="w-5 h-5 rounded-full bg-green-500/15 text-green-500 flex items-center justify-center text-[11px] font-bold flex-shrink-0 mt-0.5">1</span>
+              <span>在 <strong className="text-[var(--color-foreground)]">Vibe Coding</strong> 中打开
+                {projectName ? <strong className="text-[var(--color-primary)] mx-1">{projectName}</strong> : '项目'} 工作目录
+              </span>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="w-5 h-5 rounded-full bg-green-500/15 text-green-500 flex items-center justify-center text-[11px] font-bold flex-shrink-0 mt-0.5">2</span>
+              <span>自动发送 PRD 内容 + <strong className="text-[var(--color-foreground)]">/feature-dev 引导流程</strong>（代码探索→技术方案→实现）</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="w-5 h-5 rounded-full bg-green-500/15 text-green-500 flex items-center justify-center text-[11px] font-bold flex-shrink-0 mt-0.5">3</span>
+              <span>开发完成后，技术方案文档自动<strong className="text-[var(--color-foreground)]">关联回此 PRD</strong></span>
+            </div>
+          </div>
+          {!projectName && (
+            <p className="text-xs text-amber-500 bg-amber-500/10 rounded-lg px-3 py-2">
+              ⚠ 未关联项目，打开工作台后需手动选择项目目录
+            </p>
+          )}
         </div>
 
         {/* 操作按钮 */}
-        <div className="flex items-center gap-3 px-5 py-4 border-t border-[var(--color-border)]">
-          <button
-            onClick={handleCopy}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-foreground)] transition-colors"
-          >
-            <Copy className="w-3.5 h-3.5" />
-            {copied ? '已复制！' : '复制提示词'}
+        <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-[var(--color-border)]">
+          <button onClick={onClose}
+            className="px-4 py-2 text-sm rounded-lg border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-muted-foreground)]">
+            取消
           </button>
           <button
-            onClick={handleGotoWorkbench}
-            className="flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-[var(--color-primary)] text-white hover:opacity-90 transition-opacity font-medium"
+            disabled={launching}
+            onClick={handleLaunch}
+            className="flex items-center gap-2 px-5 py-2 text-sm rounded-lg bg-green-600 text-white hover:opacity-90 disabled:opacity-50 font-medium"
           >
-            <Code2 className="w-3.5 h-3.5" />
-            复制并打开工作台
-            <ExternalLink className="w-3 h-3 opacity-70" />
+            {launching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
+            启动开发会话
           </button>
-          <span className="text-xs text-[var(--color-muted-foreground)] ml-auto">
-            在工作台粘贴即可开始开发
-          </span>
         </div>
       </div>
     </div>
   )
 }
 
+
+
+
 // ───── 编辑器面板（Step EDITING） ─────
 function EditingPanel({
   sessionId,
   sessionTitle,
+  projectName,
   initialContent,
   onReset,
 }: {
   sessionId: string
   sessionTitle: string
+  projectName: string | null
   initialContent: string
   onReset: () => void
 }) {
@@ -1036,6 +1092,8 @@ function EditingPanel({
       {showDevDialog && (
         <StartDevDialog
           title={sessionTitle}
+          sessionId={sessionId}
+          projectName={projectName}
           content={content}
           onClose={() => setShowDevDialog(false)}
         />
@@ -1525,6 +1583,7 @@ export function PrdClarifyPage() {
           <EditingPanel
             sessionId={sessionId}
             sessionTitle={sessionTitle || session?.title || 'PRD 文档'}
+            projectName={session?.project ?? urlProject ?? null}
             initialContent={prdContent}
             onReset={handleReset}
           />

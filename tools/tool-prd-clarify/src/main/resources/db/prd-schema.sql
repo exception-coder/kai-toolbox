@@ -23,6 +23,8 @@ ALTER TABLE prd_session ADD COLUMN role TEXT NOT NULL DEFAULT 'PRODUCT';
 
 -- 存量数据库兼容：补充开发文档路径列
 ALTER TABLE prd_session ADD COLUMN dev_doc_path TEXT;
+-- 关联的 Vibe Coding（claude-chat）开发会话 ID
+ALTER TABLE prd_session ADD COLUMN dev_session_id TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_prd_session_created ON prd_session(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_prd_session_status  ON prd_session(status);
