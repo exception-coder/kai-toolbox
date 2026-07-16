@@ -34,6 +34,8 @@ public record PrdSessionView(
         String rawInput,
         List<QuestionItem> questions,
         String mdPath,
+        /** 开发文档路径（非 null 表示已生成开发文档）。 */
+        String devDocPath,
         String errorMsg,
         long createdAt,
         long updatedAt
@@ -49,7 +51,7 @@ public record PrdSessionView(
                 s.getStatus(), s.getRole() != null ? s.getRole() : "PRODUCT",
                 s.getRawInput(),
                 parseQuestions(s.getQuestions()),
-                s.getMdPath(), s.getErrorMsg(), s.getCreatedAt(), s.getUpdatedAt());
+                s.getMdPath(), s.getDevDocPath(), s.getErrorMsg(), s.getCreatedAt(), s.getUpdatedAt());
     }
 
     private static List<QuestionItem> parseQuestions(String json) {

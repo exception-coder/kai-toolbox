@@ -22,6 +22,8 @@ export interface PrdSessionView {
   rawInput: string | null
   questions: QuestionItem[]
   mdPath: string | null
+  /** 开发文档路径（非 null 表示已生成开发文档） */
+  devDocPath: string | null
   errorMsg: string | null
   createdAt: number
   updatedAt: number

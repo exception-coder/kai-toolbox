@@ -79,6 +79,33 @@ export const startClarify = (id: string, handlers: SseHandlers) =>
 export const startGenerate = (id: string, handlers: SseHandlers) =>
   subscribeSsePost(`${BASE}/sessions/${id}/generate`, {}, handlers)
 
+// ─── 开发文档 ───
+
+/** SSE 流式：基于 PRD 生成技术开发方案文档（四章节）。 */
+export const startGenerateDevDoc = (id: string, handlers: SseHandlers) =>
+  subscribeSsePost(`/prd-clarify/sessions/${id}/dev-doc`, {}, handlers)
+
+/** 读取开发文档内容（与 getContent 同格式）。 */
+export const getDevDocContent = async (id: string): Promise<string> => {
+  const res = await authFetch(`/prd-clarify/sessions/${id}/dev-doc`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const text = await res.text()
+  if (!text) return ''
+  try {
+    const parsed = JSON.parse(text)
+    return typeof parsed === 'string' ? parsed : text
+  } catch {
+    return text
+  }
+}
+
+/** 保存编辑后的开发文档。 */
+export const saveDevDocContent = (id: string, content: string) =>
+  http<void>(`/prd-clarify/sessions/${id}/dev-doc`, {
+    method: 'PUT',
+    body: JSON.stringify({ content }),
+  })
+
 /**
  * 将 PRD 会话关联到需求管理池条目（来自需求池的跳入场景，PRD 生成完成后回调）。
  * 触发 reqpool 条目状态流转到 PRD_READY。

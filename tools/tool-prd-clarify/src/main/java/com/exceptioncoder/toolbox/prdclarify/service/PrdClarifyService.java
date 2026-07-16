@@ -334,6 +334,133 @@ public class PrdClarifyService {
         });
     }
 
+    // ═══════════════════════════════════════════════════
+    // 开发文档：由 PRD 转换生成的技术开发方案文档
+    // ═══════════════════════════════════════════════════
+
+    private static final String DEV_DOC_SYSTEM = """
+            你是一名资深全栈工程师，专注于将产品需求文档（PRD）转化为可直接执行的技术开发方案。
+
+            【关键：若有 MCP 工具，先查代码/业务知识图谱再生成文档，让方案基于现有真实代码】
+            - mcp__graphify-yoooni__query_graph：查 Java 类/Service/数据库表，直接引用真实代码实体
+            - mcp__domain-knowledge__search_knowledge：查业务状态机/规则，确保方案与现有业务一致
+            - mcp__cross-topology__search_knowledge：查枚举值/接口路径，补充实现细节
+
+            基于 PRD 生成一份完整的技术开发方案文档，必须包含以下四个章节：
+
+            ## 技术方案概述
+            分析实现路径，若有多种选型简要对比并说明选定方案的理由。
+            标注与现有代码的集成点（直接引用已有类名/接口/表名）。
+
+            ## 数据库变更
+            精确的 DDL/ALTER 语句：
+            - 新建表用 CREATE TABLE IF NOT EXISTS（含注释）
+            - 新增字段用 ALTER TABLE ADD COLUMN（幂等）
+            - 必须引用已有真实表名（从知识图谱获取）
+
+            ## API 接口设计
+            新增或修改的接口（RESTful），含请求/响应结构和字段说明。
+
+            ## 实现步骤（有序任务清单）
+            具体到方法/类/组件级别，格式：
+            - [ ] 后端 — [ServiceName] 新增 [methodName]：做什么
+            - [ ] 前端 — [ComponentName]：做什么
+            - [ ] 测试：关键验收点
+
+            直接输出 Markdown，不加代码块围栏，不加解释前言。
+            """;
+
+    /**
+     * 生成开发文档：基于已生成的 PRD 内容，调用 Claude 生成技术开发方案文档（四章节）。
+     * 通过 SSE 流式推出，完成后落盘到 {id}-dev.md。
+     */
+    public void generateDevDoc(String sessionId, SseEmitter emitter) {
+        PrdSession session = repo.findById(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
+
+        Thread.ofVirtual().name("prd-dev-doc-").start(() -> {
+            try {
+                // 读取已有 PRD 内容作为输入
+                String prdContent = fileStore.read(sessionId);
+                if (prdContent == null || prdContent.isBlank()) {
+                    sendError(emitter, new IllegalStateException("PRD 内容为空，请先生成 PRD"));
+                    return;
+                }
+
+                StringBuilder full = new StringBuilder();
+                String userPrompt = buildDevDocPrompt(session, prdContent);
+
+                agentRunner.stream(DEV_DOC_SYSTEM, userPrompt, session.getModel(), delta -> {
+                    full.append(delta);
+                    sendChunk(emitter, delta);
+                });
+
+                // 落盘到 {id}-dev.md
+                String devDocContent = full.toString();
+                String devDocPath = fileStore.pathFor(sessionId).toString()
+                        .replace(".md", "-dev.md");
+                java.nio.file.Files.writeString(
+                        java.nio.file.Path.of(devDocPath), devDocContent,
+                        java.nio.charset.StandardCharsets.UTF_8,
+                        java.nio.file.StandardOpenOption.CREATE,
+                        java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
+                repo.updateDevDocPath(sessionId, devDocPath);
+
+                sendDone(emitter);
+            } catch (Exception e) {
+                log.warn("[prd-clarify] 开发文档生成失败 sessionId={}", sessionId, e);
+                sendError(emitter, e);
+            }
+        });
+    }
+
+    /** 读取开发文档内容。 */
+    public String readDevDocContent(String sessionId) throws java.io.IOException {
+        PrdSession session = repo.findById(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
+        if (session.getDevDocPath() == null || session.getDevDocPath().isBlank()) {
+            return "";
+        }
+        java.nio.file.Path path = java.nio.file.Path.of(session.getDevDocPath());
+        if (!java.nio.file.Files.exists(path)) return "";
+        return java.nio.file.Files.readString(path, java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /** 保存开发文档（用户编辑后）。 */
+    public void saveDevDocContent(String sessionId, String content) throws java.io.IOException {
+        PrdSession session = repo.findById(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
+        String devDocPath = session.getDevDocPath();
+        if (devDocPath == null || devDocPath.isBlank()) {
+            // 首次保存时自动创建路径
+            devDocPath = fileStore.pathFor(sessionId).toString().replace(".md", "-dev.md");
+            repo.updateDevDocPath(sessionId, devDocPath);
+        }
+        java.nio.file.Files.writeString(
+                java.nio.file.Path.of(devDocPath), content,
+                java.nio.charset.StandardCharsets.UTF_8,
+                java.nio.file.StandardOpenOption.CREATE,
+                java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
+    }
+
+    private String buildDevDocPrompt(PrdSession s, String prdContent) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("需求标题：").append(s.getTitle()).append("\n");
+        if (s.getProject() != null && !s.getProject().isBlank()) {
+            sb.append("项目：").append(s.getProject());
+            if (s.getModule() != null && !s.getModule().isBlank()) {
+                sb.append(" / ").append(s.getModule());
+            }
+            sb.append("\n");
+        }
+        sb.append("\n以下是已确认的产品需求文档（PRD）：\n\n");
+        sb.append(prdContent).append("\n\n");
+        sb.append("请基于以上 PRD 生成完整的技术开发方案文档。");
+        return sb.toString();
+    }
+
+    // ─────────────────────────────────────────────────
+
     /** 覆写文件内容（用户在编辑器手动保存）。 */
     public void saveContent(String sessionId, String content) throws IOException {
         repo.findById(sessionId)

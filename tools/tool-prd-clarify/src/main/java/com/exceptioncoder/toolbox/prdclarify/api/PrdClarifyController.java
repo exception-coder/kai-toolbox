@@ -160,6 +160,33 @@ public class PrdClarifyController {
         return ResponseEntity.ok().build();
     }
 
+    // ─── 开发文档 ───────────────────────────────────────
+
+    /**
+     * SSE 流式：基于 PRD 生成技术开发方案文档（四章节：技术方案/DB变更/API设计/实现步骤）。
+     * 事件：chunk / done / error（与 PRD 生成接口一致）。
+     */
+    @PostMapping(value = "/sessions/{id}/dev-doc", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter generateDevDoc(@PathVariable String id) {
+        SseEmitter emitter = new SseEmitter(0L);
+        service.generateDevDoc(id, emitter);
+        return emitter;
+    }
+
+    /** 读取开发文档内容（JSON 字符串格式，与 /content 保持一致）。 */
+    @GetMapping(value = "/sessions/{id}/dev-doc", produces = MediaType.APPLICATION_JSON_VALUE)
+    public String getDevDocContent(@PathVariable String id) throws IOException {
+        return service.readDevDocContent(id);
+    }
+
+    /** 保存用户编辑后的开发文档。 */
+    @PutMapping("/sessions/{id}/dev-doc")
+    public ResponseEntity<Void> saveDevDocContent(@PathVariable String id,
+                                                   @Valid @RequestBody SaveContentRequest req) throws IOException {
+        service.saveDevDocContent(id, req.content());
+        return ResponseEntity.ok().build();
+    }
+
     /** 测试用：获取 PRD 文件路径（方便定位文件）。 */
     @GetMapping("/sessions/{id}/path")
     public Map<String, String> getPath(@PathVariable String id) {

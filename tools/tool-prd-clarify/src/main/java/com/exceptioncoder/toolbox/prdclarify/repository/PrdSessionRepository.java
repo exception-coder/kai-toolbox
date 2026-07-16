@@ -24,6 +24,7 @@ public class PrdSessionRepository {
             .status(rs.getString("status"))
             .role(rs.getString("role"))
             .mdPath(rs.getString("md_path"))
+            .devDocPath(rs.getString("dev_doc_path"))
             .model(rs.getString("model"))
             .errorMsg(rs.getString("error_msg"))
             .createdAt(rs.getLong("created_at"))
@@ -74,6 +75,12 @@ public class PrdSessionRepository {
     public void updateDone(String id, String mdPath) {
         jdbc.update("UPDATE prd_session SET md_path = ?, status = 'DONE', updated_at = ? WHERE id = ?",
                 mdPath, System.currentTimeMillis(), id);
+    }
+
+    /** 更新开发文档路径（开发文档生成完成时调用）。 */
+    public void updateDevDocPath(String id, String devDocPath) {
+        jdbc.update("UPDATE prd_session SET dev_doc_path = ?, updated_at = ? WHERE id = ?",
+                devDocPath, System.currentTimeMillis(), id);
     }
 
     /** 标记错误状态。 */

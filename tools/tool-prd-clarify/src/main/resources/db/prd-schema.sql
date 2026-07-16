@@ -21,5 +21,8 @@ CREATE TABLE IF NOT EXISTS prd_session (
 -- 存量数据库兼容：为已有表补充 role 列（SchemaInitializer 会忽略"duplicate column"错误）
 ALTER TABLE prd_session ADD COLUMN role TEXT NOT NULL DEFAULT 'PRODUCT';
 
+-- 存量数据库兼容：补充开发文档路径列
+ALTER TABLE prd_session ADD COLUMN dev_doc_path TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_prd_session_created ON prd_session(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_prd_session_status  ON prd_session(status);
