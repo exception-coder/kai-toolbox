@@ -7,7 +7,6 @@ import { listSessions } from '../api'
 
 /** Vibe Coding 会话页路由；落在此路由即激活引擎（懒启动）。 */
 export const CHAT_ROUTE = '/tools/claude-chat'
-export const CHAT_STABLE_ROUTE = '/tools/claude-chat-stable'
 export function isChatRoute(pathname: string) {
   return pathname === CHAT_ROUTE
 }

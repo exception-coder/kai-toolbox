@@ -20,7 +20,6 @@ const REQUIRED_ROLES: Record<string, string[]> = {
   resume: ['ADMIN'],
   'account-admin': ['ADMIN'],
   'claude-chat': ['ADMIN'], // Vibe Coding（WS 走 AdminHandshakeInterceptor，菜单/路由一并门禁）
-  'claude-chat-stable': ['ADMIN'], // Vibe Coding 稳定版（同上，共用 /api/claude-chat/ws）
   // 视频库 / 磁盘空间分析（与后端 TreeSizeController @SoftGuard 一致）
   'video-library': ['VIDEO_LIBRARY', 'DISK_ADMIN'],
   treesize: ['VIDEO_LIBRARY', 'DISK_ADMIN'],
