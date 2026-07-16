@@ -274,8 +274,19 @@ public class SidecarProcessRegistry {
         try {
             java.net.URL loc = SidecarProcessRegistry.class.getProtectionDomain().getCodeSource().getLocation();
             if (loc == null) return null;
+            String scheme = loc.getProtocol();
+            if ("jar".equals(scheme)) {
+                // jar:file:/path/to/app.jar!/ -> 提取实际的 jar 文件路径
+                String urlStr = loc.toString();
+                int bangIdx = urlStr.indexOf('!');
+                if (bangIdx > 0) {
+                    String jarUrl = urlStr.substring(4, bangIdx); // 去掉 "jar:" 前缀
+                    Path p = Path.of(new java.net.URL(jarUrl).toURI()).toAbsolutePath();
+                    return p.getParent();
+                }
+            }
+            // 非 jar 或解析失败：从 file:// URL 直接转换，避免 ZipPath 冲突
             Path p = Path.of(loc.toURI()).toAbsolutePath();
-            // fat jar：xxx.jar 本身就是文件，取父目录
             return Files.isRegularFile(p) ? p.getParent() : p;
         } catch (Exception e) {
             return null;
