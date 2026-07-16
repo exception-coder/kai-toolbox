@@ -61,3 +61,52 @@ export function createCrossTopologyServer(): Record<string, unknown> | null {
     env: { ...process.env, DOMAIN_KB_DIR: kbDir },
   }
 }
+
+/**
+ * graphify-yoooni：Yoooni ERP 项目代码级知识图谱。
+ * 提供 query_graph（按自然语言搜索相关 Java 类/方法/关系）、god_nodes 等工具，
+ * 与 domain-knowledge（业务规则/状态机）形成代码+业务的双层上下文。
+ *
+ * 使用 Python graphify.serve 模块，图谱文件来自
+ * project-domain-knowledge/knowledge/yoooni/impl/graphify/graph.json
+ * 或 GRAPHIFY_YOOONI_GRAPH 环境变量覆盖。
+ */
+export function createGraphifyYoooniServer(): Record<string, unknown> | null {
+  const graphFile = process.env.GRAPHIFY_YOOONI_GRAPH
+    || path.join(
+        DEFAULT_WORKSPACE,
+        'project-domain-knowledge',
+        'knowledge',
+        'yoooni',
+        'impl',
+        'graphify',
+        'graph.json'
+      )
+
+  if (!existsSync(graphFile)) {
+    return null
+  }
+
+  // Python 可执行文件：优先 GRAPHIFY_PYTHON 环境变量，其次常见安装路径，最后回退 python
+  const candidates = [
+    process.env.GRAPHIFY_PYTHON,
+    path.join(process.env.LOCALAPPDATA || '', 'Python', 'pythoncore-3.14-64', 'python.exe'),
+    'python',
+  ].filter((p): p is string => !!p)
+
+  const python = candidates.find(p => {
+    try {
+      // 简单检查：非相对路径且文件存在，或是命令名（交给系统 PATH）
+      return p === 'python' || existsSync(p)
+    } catch {
+      return false
+    }
+  }) || 'python'
+
+  return {
+    type: 'stdio',
+    command: python,
+    args: ['-m', 'graphify.serve', graphFile],
+    env: { ...process.env },
+  }
+}

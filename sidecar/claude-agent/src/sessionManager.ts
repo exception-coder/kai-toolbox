@@ -8,7 +8,7 @@ import { createErpDbServer } from './erpDb.js'
 import { createErpAppServer } from './erpApp.js'
 import { createSrmDbServer } from './srmDb.js'
 import { createSrmAppServer } from './srmApp.js'
-import { createDomainKnowledgeServer, createCrossTopologyServer } from './knowledgeMcp.js'
+import { createDomainKnowledgeServer, createCrossTopologyServer, createGraphifyYoooniServer } from './knowledgeMcp.js'
 import { runCodexTurn, type CodexSpeed } from './codexEngine.js'
 import type { ModelReasoningEffort } from '@openai/codex-sdk'
 import { runGeminiTurn } from './geminiEngine.js'
@@ -262,8 +262,11 @@ class Session {
       // 可选：若引擎或目录不存在则跳过（零影响，工具列表为空时 Claude 不会尝试调用）。
       const domainKb = createDomainKnowledgeServer()
       const crossTopo = createCrossTopologyServer()
+      const graphifyYoooni = createGraphifyYoooniServer()
       if (domainKb) (mcpServers as Record<string, unknown>)['domain-knowledge'] = domainKb
       if (crossTopo) (mcpServers as Record<string, unknown>)['cross-topology'] = crossTopo
+      // graphify-yoooni：Yoooni ERP 代码知识图谱（graph.json 不存在时自动跳过）
+      if (graphifyYoooni) (mcpServers as Record<string, unknown>)['graphify-yoooni'] = graphifyYoooni
 
       try {
         const q = query({

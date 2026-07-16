@@ -413,27 +413,47 @@ function InputPanel({
   useEffect(() => { if (initialProject) setProject(initialProject) }, [initialProject])
   useEffect(() => { if (initialModule) setModule(initialModule) }, [initialModule])
 
-  // 拉取项目列表（统一走 http()，确保 token 续期逻辑生效）
-  const { data: projectsData } = useQuery({
-    queryKey: ['projects'],
-    queryFn: () => http<{ items: Array<{ name: string; path: string }> }>('/projects'),
+  // 拉取项目列表：用 claude-chat/workspaces 而非 /projects，
+  // 因为 workspaces 支持多个 workspace root（包含 D:\yoooni\ 等非 myWork 根目录），
+  // 而 /projects 只扫 toolbox.projects.root 单个根，会遗漏其他根下的项目（如 yoooni）。
+  const { data: workspacesData } = useQuery({
+    queryKey: ['workspaces'],
+    queryFn: () => http<{
+      roots: Array<{ root: string; exists: boolean; dirs: Array<{ name: string; path: string }> }>
+    }>('/claude-chat/workspaces'),
   })
+
+  // 将所有 root 下的 dirs 展平为统一的项目列表（去重：同名取第一个）
+  const projects: Array<{ name: string; path: string }> = (() => {
+    if (!workspacesData?.roots) return []
+    const seen = new Set<string>()
+    const result: Array<{ name: string; path: string }> = []
+    for (const root of workspacesData.roots) {
+      if (!root.exists) continue
+      for (const dir of root.dirs ?? []) {
+        if (!seen.has(dir.name)) {
+          seen.add(dir.name)
+          result.push(dir)
+        }
+      }
+    }
+    return result.sort((a, b) => a.name.localeCompare(b.name, 'zh'))
+  })()
 
   // 拉取模块列表（选了项目后）
   const { data: modulesData } = useQuery({
     queryKey: ['project-modules', project],
     queryFn: () => {
-      const item = projectsData?.items?.find((p) => p.name === project)
+      const item = projects.find((p) => p.name === project)
       if (!item) return null
       return http<{ modules: Array<{ name: string }> }>(
         `/claude-chat/workspaces/modules?path=${encodeURIComponent(item.path)}`
       )
     },
-    enabled: !!project && !!projectsData,
+    enabled: !!project && projects.length > 0,
   })
 
   const modules: Array<{ name: string }> = modulesData?.modules ?? []
-  const projects: Array<{ name: string }> = projectsData?.items ?? []
 
   const canSubmit = title.trim() && rawInput.trim()
 
