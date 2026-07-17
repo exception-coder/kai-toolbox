@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { BotMessageSquare, ChevronRight, Code2, Copy, ExternalLink, FileText, Info, Layers, Loader2, Paperclip, Plus, RefreshCw, Rocket, Send, Trash2, User, Wrench, X } from 'lucide-react'
+import { BotMessageSquare, ChevronRight, Code2, Copy, ExternalLink, FileText, GitBranch, Info, Layers, Loader2, Paperclip, Plus, RefreshCw, Rocket, Send, Trash2, User, Wrench, X } from 'lucide-react'
 import { http } from '@/lib/api'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -211,6 +211,75 @@ function ClarifyHistorySheet({
   )
 }
 
+// ───── 生成修订版 Dialog ─────
+function ReviseDialog({
+  original,
+  onConfirm,
+  onClose,
+}: {
+  original: PrdSessionView
+  onConfirm: (changeDesc: string) => void
+  onClose: () => void
+}) {
+  const [changeDesc, setChangeDesc] = useState('')
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl overflow-hidden">
+        {/* 头部 */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
+          <div className="flex items-center gap-2">
+            <GitBranch className="w-4 h-4 text-amber-500" />
+            <span className="font-semibold text-sm">生成修订版</span>
+          </div>
+          <button onClick={onClose}><X className="w-4 h-4 text-[var(--color-muted-foreground)]" /></button>
+        </div>
+        {/* 原版信息 */}
+        <div className="px-5 py-3 bg-amber-500/5 border-b border-[var(--color-border)]">
+          <div className="flex items-center gap-2 text-xs text-[var(--color-muted-foreground)]">
+            <FileText className="w-3.5 h-3.5" />
+            <span>基于：</span>
+            <span className="font-medium text-[var(--color-foreground)] truncate">{original.title}</span>
+          </div>
+          <p className="text-[11px] text-[var(--color-muted-foreground)] mt-1.5 leading-relaxed">
+            将基于原 PRD 内容，重新进行 AI 渐进澄清，生成新版本。
+            原版内容会作为上下文提供给 Claude，告知这是修订而非全新需求。
+          </p>
+        </div>
+        {/* 修订说明 */}
+        <div className="px-5 py-4">
+          <label className="block text-sm font-medium mb-2">
+            修订说明（可选）
+          </label>
+          <textarea
+            value={changeDesc}
+            onChange={e => setChangeDesc(e.target.value)}
+            rows={4}
+            placeholder="描述本次修订的背景和主要变更点，如：
+· 增加了多收货地址功能
+· 调整了审批流程：去掉二级审批
+· 修正了某业务规则"
+            className="w-full px-3 py-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-input)] text-sm resize-none focus:outline-none focus:ring-1 focus:ring-amber-500/50"
+          />
+        </div>
+        {/* 操作 */}
+        <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-[var(--color-border)]">
+          <button onClick={onClose}
+            className="px-4 py-2 text-sm rounded-lg border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-muted-foreground)]">
+            取消
+          </button>
+          <button
+            onClick={() => onConfirm(changeDesc)}
+            className="flex items-center gap-2 px-5 py-2 rounded-lg bg-amber-500 text-white text-sm font-medium hover:bg-amber-400"
+          >
+            <GitBranch className="w-3.5 h-3.5" />
+            开始修订澄清
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ───── 原始需求描述弹出卡片 ─────
 function RawInputCard({
   session,
@@ -279,11 +348,13 @@ function HistoryPanel({
   activeId,
   onSelect,
   onDelete,
+  onRevise,
 }: {
   sessions: PrdSessionView[]
   activeId: string | null
   onSelect: (s: PrdSessionView) => void
   onDelete: (id: string) => void
+  onRevise: (s: PrdSessionView) => void
 }) {
   const confirm = useConfirm()
   const [previewSession, setPreviewSession] = useState<PrdSessionView | null>(null)
@@ -367,6 +438,16 @@ function HistoryPanel({
               </div>
               {/* 操作按钮区（hover 显示） */}
               <div className="hidden group-hover:flex items-center gap-1">
+                {/* 生成修订版（DONE 状态才显示） */}
+                {s.status === 'DONE' && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onRevise(s) }}
+                    className="text-[var(--color-muted-foreground)] hover:text-amber-500"
+                    title="基于此版本生成修订版"
+                  >
+                    <GitBranch className="w-3 h-3" />
+                  </button>
+                )}
                 <button
                   onClick={(e) => { e.stopPropagation(); setPreviewSession(s) }}
                   className="text-[var(--color-muted-foreground)] hover:text-[var(--color-primary)]"
@@ -1502,6 +1583,8 @@ export function PrdClarifyPage() {
    * 用 ref 在 URL 清除前锁住值，整个会话周期内有效。
    */
   const reqItemIdRef = useRef('')
+  /** 正在发起修订的原始会话（显示 ReviseDialog） */
+  const [revisingSesion, setRevisingSession] = useState<PrdSessionView | null>(null)
 
   // 读取 URL 参数
   const urlTitle = searchParams.get('title') ?? ''
@@ -1594,6 +1677,45 @@ export function PrdClarifyPage() {
     setReqContextTitle(null)
     autoStartedRef.current = false
     reqItemIdRef.current = ''
+  }
+
+  /**
+   * 基于已有 PRD 生成修订版：
+   * 1. 读取原版 PRD 内容
+   * 2. 创建新会话，rawInput = [原PRD内容 + 修订说明]，title 加版本标记
+   * 3. 直接进入 CHATTING（跳过 INPUT 表单）
+   */
+  const handleReviseConfirm = async (originalSession: PrdSessionView, changeDesc: string) => {
+    setRevisingSession(null)
+    setErrorMsg(null)
+    try {
+      // 读取原版 PRD 内容
+      const prdText = await getContent(originalSession.id)
+      const revisionRawInput = [
+        `【修订版 PRD — 基于原版：${originalSession.title}】`,
+        '',
+        '=== 原版 PRD 内容 ===',
+        prdText || '（原版内容读取失败）',
+        '=== 本次修订说明 ===',
+        changeDesc.trim() || '（未填写修订说明，请在澄清对话中补充）',
+      ].join('\n')
+
+      const newTitle = `${originalSession.title}（修订版）`
+      const created = await createMut.mutateAsync({
+        title: newTitle,
+        rawInput: revisionRawInput,
+        project: originalSession.project ?? '',
+        module: originalSession.module ?? '',
+        role: (originalSession.role as 'PRODUCT' | 'BUSINESS') ?? 'PRODUCT',
+      })
+      setSessionId(created.id)
+      setSessionTitle(newTitle)
+      setReqContextTitle(`修订自：${originalSession.title}`)
+      qc.invalidateQueries({ queryKey: ['prd-sessions'] })
+      setStep('CHATTING')
+    } catch {
+      setErrorMsg('创建修订版会话失败，请重试')
+    }
   }
 
   /** Step INPUT → 创建会话 → 进入多轮对话澄清 */
@@ -1773,6 +1895,15 @@ export function PrdClarifyPage() {
         </div>
       )}
 
+      {/* 修订版 Dialog */}
+      {revisingSesion && (
+        <ReviseDialog
+          original={revisingSesion}
+          onConfirm={(desc) => handleReviseConfirm(revisingSesion, desc)}
+          onClose={() => setRevisingSession(null)}
+        />
+      )}
+
       <div className="flex-1 flex overflow-hidden">
         {/* 历史侧边栏（非编辑器、非对话模式下显示） */}
         {step !== 'EDITING' && step !== 'CHATTING' && (
@@ -1781,6 +1912,7 @@ export function PrdClarifyPage() {
             activeId={sessionId}
             onSelect={handleSelectHistory}
             onDelete={(id) => deleteMut.mutate(id)}
+            onRevise={(s) => setRevisingSession(s)}
           />
         )}
 
