@@ -26,7 +26,7 @@ public class PrdSessionRepository {
             .mdPath(rs.getString("md_path"))
             .devDocPath(rs.getString("dev_doc_path"))
             .devSessionId(rs.getString("dev_session_id"))
-            .devDocGeneratedAt(rs.getObject("dev_doc_generated_at", Long.class))
+            .devDocGeneratedAt(rs.getObject("dev_doc_generated_at") == null ? null : rs.getLong("dev_doc_generated_at"))
             .model(rs.getString("model"))
             .errorMsg(rs.getString("error_msg"))
             .createdAt(rs.getLong("created_at"))
