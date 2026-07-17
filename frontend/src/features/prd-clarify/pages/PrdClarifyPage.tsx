@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { BotMessageSquare, ChevronRight, Code2, Copy, ExternalLink, FileText, Info, Layers, Loader2, Plus, Rocket, Send, Trash2, User, Wrench, X } from 'lucide-react'
+import { BotMessageSquare, ChevronRight, Code2, Copy, ExternalLink, FileText, Info, Layers, Loader2, Plus, RefreshCw, Rocket, Send, Trash2, User, Wrench, X } from 'lucide-react'
 import { http } from '@/lib/api'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -1036,6 +1036,8 @@ function EditingPanel({
   // ── 顶层面板模式：prd（仅 PRD）| dev（仅开发文档）| side（并排） ──
   // hasDevDoc=true 时默认进入 dev 模式，让用户直接看到开发文档全屏
   const [panelMode, setPanelMode] = useState<'prd' | 'dev' | 'side'>(hasDevDoc ? 'dev' : 'prd')
+  /** 开发文档内部视图模式（仅 dev Tab 有效） */
+  const [devViewMode, setDevViewMode] = useState<'split' | 'edit' | 'preview'>('split')
 
   // ── 开发文档状态 ──
   const [devDocContent, setDevDocContent] = useState('')
@@ -1153,17 +1155,29 @@ function EditingPanel({
           ))}
         </div>
 
-        {/* 中：PRD 子视图模式（仅 prd 或 side 模式显示） */}
-        {(panelMode === 'prd' || panelMode === 'side') && (
-          <div className="flex items-center gap-1 text-xs">
-            {(['split', 'edit', 'preview'] as const).map((m) => (
-              <button key={m} onClick={() => setPrdViewMode(m)}
-                className={`px-2 py-0.5 rounded ${prdViewMode === m ? 'bg-[var(--color-primary)] text-white' : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]'}`}>
-                {m === 'split' ? '分栏' : m === 'edit' ? '编辑' : '预览'}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* 中：子视图模式切换 */}
+        <div className="flex items-center gap-1 text-xs">
+          {panelMode === 'prd' && (['split', 'edit', 'preview'] as const).map((m) => (
+            <button key={m} onClick={() => setPrdViewMode(m)}
+              className={`px-2 py-0.5 rounded ${prdViewMode === m ? 'bg-[var(--color-primary)] text-white' : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]'}`}>
+              {m === 'split' ? '分栏' : m === 'edit' ? '编辑' : '预览'}
+            </button>
+          ))}
+          {panelMode === 'dev' && !devDocStreaming && (['split', 'edit', 'preview'] as const).map((m) => (
+            <button key={m} onClick={() => setDevViewMode(m)}
+              className={`px-2 py-0.5 rounded ${devViewMode === m ? 'bg-purple-600/30 text-purple-300' : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]'}`}>
+              {m === 'split' ? '分栏' : m === 'edit' ? '编辑' : '预览'}
+            </button>
+          ))}
+          {/* 重新生成按钮（开发文档 Tab 有内容时显示） */}
+          {panelMode === 'dev' && devDocContent && !devDocStreaming && (
+            <button onClick={handleGenerateDevDoc}
+              className="ml-1 flex items-center gap-1 px-2 py-0.5 rounded text-[var(--color-muted-foreground)] hover:text-purple-400 hover:bg-purple-500/10 transition-colors"
+              title="基于当前 PRD 重新生成开发文档（覆盖现有版本）">
+              <RefreshCw className="w-3 h-3" /> 重新生成
+            </button>
+          )}
+        </div>
 
         {/* 右：操作按钮 */}
         <div className="flex items-center gap-2 ml-auto">
@@ -1226,20 +1240,36 @@ function EditingPanel({
           </div>
         )}
 
-        {/* 开发文档全屏 */}
+        {/* 开发文档全屏（支持 split/edit/preview 子模式） */}
         {panelMode === 'dev' && (
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 overflow-hidden flex flex-col">
             {devDocStreaming ? (
-              <MarkdownViewer content={devDocContent || '正在生成开发文档，Claude 正在读取知识图谱…'} />
+              /* 生成中：实时预览 */
+              <div className="flex-1 overflow-hidden">
+                <MarkdownViewer content={devDocContent || '正在生成开发文档，Claude 正在读取知识图谱…'} />
+              </div>
             ) : devDocContent ? (
-              <Suspense fallback={<div className="p-4 text-sm text-[var(--color-muted-foreground)]">加载编辑器…</div>}>
-                <MarkdownEditor
-                  value={devDocContent}
-                  onChange={(v) => { setDevDocContent(v); setDevDocDirty(true) }}
-                  onSave={handleSaveDevDoc}
-                />
-              </Suspense>
+              /* 有内容：分栏/编辑/预览 */
+              <div className="flex-1 flex overflow-hidden">
+                {(devViewMode === 'split' || devViewMode === 'edit') && (
+                  <div className={`${devViewMode === 'split' ? 'w-1/2 border-r border-[var(--color-border)]' : 'w-full'} h-full overflow-hidden`}>
+                    <Suspense fallback={<div className="p-4 text-sm text-[var(--color-muted-foreground)]">加载编辑器…</div>}>
+                      <MarkdownEditor
+                        value={devDocContent}
+                        onChange={(v) => { setDevDocContent(v); setDevDocDirty(true) }}
+                        onSave={handleSaveDevDoc}
+                      />
+                    </Suspense>
+                  </div>
+                )}
+                {(devViewMode === 'split' || devViewMode === 'preview') && (
+                  <div className={`${devViewMode === 'split' ? 'w-1/2' : 'w-full'} h-full overflow-hidden`}>
+                    <MarkdownViewer content={devDocContent} />
+                  </div>
+                )}
+              </div>
             ) : (
+              /* 无内容：引导生成 */
               <div className="flex flex-col items-center justify-center h-full gap-4 text-[var(--color-muted-foreground)]">
                 <Wrench className="w-10 h-10 opacity-15" />
                 <div className="text-center">
