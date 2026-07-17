@@ -1160,50 +1160,54 @@ function StartDevDialog({
   /** 构建发给 Vibe Coding 的第一条消息 */
   const buildSeed = () => {
     if (hasDevDoc) {
-      // 有开发文档：直接按方案实现，无需 Claude 再做技术分析
-      return `【开发方案文档】${title}
+      // Phase 1-4 全部完成（PRD 澄清 + 代码库探索 + 架构设计），直接从 Phase 5 实施
+      return `请执行 /feature-dev:feature-dev，跳过已完成的阶段，从 Phase 5 开始：
 
----
+## feature-dev 已完成阶段状态
+- ✅ Phase 1 (Discovery) — 已完成：需求标题《${title}》
+- ✅ Phase 2 (Codebase Exploration) — 已完成：见技术方案文档
+- ✅ Phase 3 (Clarifying Q&A) — 已完成：经 AI 渐进澄清
+- ✅ Phase 4 (Architecture Design) — 已完成：见下方技术方案文档
+
+## 技术方案文档（Phase 4 产出）
 
 ${devDocContent}
 
 ---
 
-以上是已完成 AI 分析的技术开发方案文档，请直接按方案实现：
-
-1. 按「实现步骤（有序任务清单）」逐项完成，勿跳过顺序
-2. 按「数据库变更」章节执行 DDL/ALTER（注意幂等）
-3. 按「API 接口设计」章节实现接口
-4. 每个任务完成后报告进度，有疑问先问再做
+## 执行指令
+请从 **Phase 5 (Implementation)** 开始：
+1. 严格按技术方案文档的「实现步骤（有序任务清单）」逐项执行，不跳过顺序
+2. 执行「数据库变更」章节的 DDL/ALTER（幂等）
+3. 实现「API 接口设计」章节的接口
+4. 每完成一个任务项报告进度，有疑问先问再做
+5. 全部任务完成后执行 **Phase 6 (Code Review)**
 
 PRD_SESSION_ID: ${sessionId}`
     }
 
-    // 无开发文档：带 PRD + feature-dev 引导流程
-    return `[PRD] ${title}
+    // 无开发文档：Phase 1-3 完成，从 Phase 2 重新探索代码库开始
+    return `请执行 /feature-dev:feature-dev，以下阶段已完成：
 
----
+## feature-dev 已完成阶段状态
+- ✅ Phase 1 (Discovery) — 已完成：见 PRD 文档
+- ✅ Phase 3 (Clarifying Q&A) — 已完成：经 AI 渐进澄清
+- ⬜ Phase 2 (Codebase Exploration) — 待执行
+- ⬜ Phase 4 (Architecture Design) — 待执行
+- ⬜ Phase 5 (Implementation) — 待执行
+
+## PRD 文档（Phase 1+3 产出）
 
 ${content}
 
 ---
 
-请按以下步骤执行需求开发（/feature-dev 流程）：
-
-**Step 1 — 理解需求**
-认真阅读以上 PRD，理解功能边界、验收标准、技术约束。
-
-**Step 2 — 代码库探索**
-探索相关现有代码（Controller / Service / Repository / 前端组件），理解现有数据模型和 API。
-
-**Step 3 — 设计技术方案**
-基于 PRD 和现有代码输出：
-- 数据库变更（完整 DDL/ALTER）
-- API 接口设计（请求/响应结构）
-- 前后端改动清单（精确到方法/组件级别）
-
-**Step 4 — 实现**
-按方案优先级逐步实现，每步完成后告知进度。完成后将技术方案文档保存到 \`docs/design/\` 目录。
+## 执行指令
+请从 **Phase 2 (Codebase Exploration)** 开始：
+1. 探索相关现有代码（Controller / Service / Repository / 前端组件）
+2. Phase 4：设计技术方案（DB 变更 / API / 实现步骤清单）
+3. Phase 5：按方案逐步实现，完成后将方案文档保存到 \`docs/design/\`
+4. Phase 6：Code Review
 
 PRD_SESSION_ID: ${sessionId}`
   }
