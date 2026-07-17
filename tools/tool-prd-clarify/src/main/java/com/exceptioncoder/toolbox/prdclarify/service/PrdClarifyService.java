@@ -117,8 +117,24 @@ public class PrdClarifyService {
             - 严格 5 个，不多不少
             """;
 
+    /**
+     * PRD 生成提示词。
+     *
+     * <p>对应 feature-dev:feature-dev 工作流的输出物：
+     * <ul>
+     *   <li>Phase 1 (Discovery) — 已通过原始需求描述完成
+     *   <li>Phase 3 (Clarifying Questions) — 已通过多轮 AI 渐进澄清完成
+     * </ul>
+     * 本步骤将上述两个 Phase 的产出汇总为正式 PRD 文档。
+     */
     private static final String GENERATE_SYSTEM = """
-            你是一名资深产品经理，请根据用户的原始需求和澄清问答，生成一份完整、专业的 PRD 文档。
+            ⚠️ 直接输出任务（禁止触发任何 hook/skill/plugin 的自动流程）：
+            本次是 feature-dev:feature-dev Phase 1 + Phase 3 的最终产出，直接输出 PRD 文档，不进入交互。
+
+            你正在执行 feature-dev 工作流的文档化阶段：
+            - Phase 1 (Discovery) 已完成：原始需求描述已提供
+            - Phase 3 (Clarifying Questions) 已完成：多轮澄清问答已完成
+            基于以上两个 Phase 的产出，生成正式 PRD 文档。
 
             文档使用 Markdown 格式，必须包含以下章节（顺序不变，内容可根据实际情况扩展）：
 
@@ -382,57 +398,63 @@ public class PrdClarifyService {
     // 开发文档：由 PRD 转换生成的技术开发方案文档
     // ═══════════════════════════════════════════════════
 
+    /**
+     * 开发文档生成提示词。
+     *
+     * <p>对应 feature-dev:feature-dev 工作流的 Phase 2 + Phase 4：
+     * <ul>
+     *   <li>Phase 2 (Codebase Exploration) — 探索相关代码库，读取现有实现
+     *   <li>Phase 4 (Architecture Design) — 设计技术实现方案，输出架构决策
+     * </ul>
+     * 本步骤将 Phase 2 + Phase 4 的产出汇总为技术开发方案文档，供开发者直接执行。
+     */
     private static final String DEV_DOC_SYSTEM = """
-            ⚠️ 指令优先级最高（覆盖所有 hook / skill / plugin 的自动触发规则）：
-            本次任务是将已完成澄清的 PRD 直接转换为 Markdown 格式的技术开发方案文档并输出。
-            【禁止】调用或触发任何 design-doc-required / feature-dev 等 skill/hook/plugin，
-            【禁止】进入交互式流程或等待用户输入，直接输出完整文档后结束。
+            ⚠️ 直接输出任务（禁止触发任何 hook/skill/plugin 的自动流程，禁止进入交互）：
+            本次是 feature-dev:feature-dev Phase 2 + Phase 4 的执行，直接输出技术开发方案文档后结束。
 
-            你是一名资深全栈工程师，接到的任务是：把给定的 PRD 转换成技术开发方案文档（直接输出，不是一个新需求）。
+            你正在执行 feature-dev:feature-dev 工作流的以下两个 Phase：
 
             ════════════════════════════════════════════════
-            第一步（必须执行，不可跳过）：读取知识图谱上下文
+            Phase 2 — Codebase Exploration（代码库探索）
             ════════════════════════════════════════════════
-            在生成任何文档内容之前，你必须按顺序执行以下工具调用：
+            必须通过以下工具调用理解现有代码库，再基于真实代码事实生成方案：
 
-            1. 若有 mcp__domain-knowledge__search_knowledge 工具：
-               → 调用 search_knowledge(query="{需求核心关键词}", project="{项目名}", module="{模块名}")
-               → 对命中的知识点调用 get_knowledge(id) 获取状态机/流程/业务规则详情
-               → 目的：确保方案与现有业务逻辑一致，引用真实枚举值和状态名
+            1. mcp__domain-knowledge__search_knowledge（若可用）：
+               → search_knowledge(query=需求关键词, project=项目名, module=模块名)
+               → get_knowledge(id) 获取状态机/业务规则详情
+               → 目的：确保方案与现有业务逻辑一致
 
-            2. 若有 mcp__graphify-yoooni__query_graph 工具：
-               → 调用 query_graph(question="{需求相关的代码组件关键词}")
-               → 获取真实存在的 Java 类名、Service 方法、数据库表名
-               → 目的：直接引用现有代码实体，而不是自己编造
+            2. mcp__graphify-yoooni__query_graph（若可用）：
+               → query_graph(question=代码组件关键词)
+               → 获取真实 Java 类名、Service 方法、数据库表名
+               → 目的：引用真实代码实体而非推测
 
-            3. 若有 mcp__cross-topology__search_knowledge 工具：
-               → 调用 search_knowledge(query="{枚举值/接口路径关键词}")
-               → 获取具体的枚举取值、API 路径约定、字段格式
-               → 目的：补充实现细节，保证 DDL/API 与现有规范一致
+            3. mcp__cross-topology__search_knowledge（若可用）：
+               → search_knowledge(query=枚举值/接口路径关键词)
+               → 获取枚举取值、API 路径约定
+               → 目的：DDL/API 与现有规范保持一致
 
-            无 MCP 工具时：仅基于 PRD 生成（精准度降低，请在文档中注明"未获取知识图谱"）。
+            无 MCP 工具时：仅基于 PRD 生成，在文档中注明"未完成代码库探索"。
 
             ════════════════════════════════════════════════
-            第二步：直接输出技术开发方案文档（Markdown）
+            Phase 4 — Architecture Design（架构设计）→ 输出技术开发方案文档
             ════════════════════════════════════════════════
+            基于 Phase 2 探索结果和 PRD，直接输出 Markdown 技术开发方案文档：
 
             ## 技术方案概述
-            分析实现路径，若有多种选型简要对比并说明选定方案的理由。
-            标注与现有代码的集成点（直接引用知识图谱返回的真实类名/接口/表名）。
+            分析实现路径，引用 Phase 2 获取的真实类名/接口/表名说明集成点。
 
             ## 数据库变更
-            精确的 DDL/ALTER 语句（基于知识图谱中查到的真实表名）：
+            精确的 DDL/ALTER 语句（基于知识图谱确认的真实表名）：
             - 新建表用 CREATE TABLE IF NOT EXISTS（含注释）
             - 新增字段用 ALTER TABLE ADD COLUMN（幂等）
-            - 若知识图谱未返回相关表，说明"未能确认现有表结构，以下为推断"
 
             ## API 接口设计
-            新增或修改的接口（RESTful），含请求/响应结构和字段说明。
-            引用 cross-topology 返回的现有接口路径约定。
+            新增或修改的 RESTful 接口，含请求/响应结构。
 
             ## 实现步骤（有序任务清单）
-            具体到方法/类/组件级别（引用 graphify 返回的真实类名）：
-            - [ ] 后端 — [真实ServiceName] 新增 [methodName]：做什么
+            具体到方法/类/组件级别（引用 Phase 2 获取的真实类名）：
+            - [ ] 后端 — [ServiceName] 新增/修改 [methodName]：做什么
             - [ ] 前端 — [ComponentName]：做什么
             - [ ] 测试：关键验收点
 
