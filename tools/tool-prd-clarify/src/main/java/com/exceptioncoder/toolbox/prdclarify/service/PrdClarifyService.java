@@ -4,6 +4,7 @@ import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.QaPairRequest;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
+import org.springframework.beans.factory.annotation.Value;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -182,6 +183,13 @@ public class PrdClarifyService {
     private final PrdSessionRepository repo;
     private final PrdFileStore fileStore;
     private final ObjectMapper mapper;
+
+    /**
+     * 复用 application.yml 中 claude-chat 已配置的 workspace roots（同一 Spring 容器）。
+     * 开发文档优先保存到对应项目的 docs/design/ 子目录，使其纳入项目版本管理。
+     */
+    @Value("${toolbox.claude-chat.workspace.roots:}")
+    private java.util.List<String> configuredWorkspaceRoots;
 
     public PrdClarifyService(AgentOneShotRunner agentRunner,
                              PrdSessionRepository repo,
@@ -458,16 +466,17 @@ public class PrdClarifyService {
                     sendChunk(emitter, delta);
                 });
 
-                // 落盘到 {id}-dev.md
+                // 落盘：优先写入项目的 docs/design/ 目录，找不到时回退到 ~/.kai-toolbox/prd/
                 String devDocContent = full.toString();
-                String devDocPath = fileStore.pathFor(sessionId).toString()
-                        .replace(".md", "-dev.md");
+                String devDocPath = resolveDevDocPath(session);
+                java.nio.file.Files.createDirectories(java.nio.file.Path.of(devDocPath).getParent());
                 java.nio.file.Files.writeString(
                         java.nio.file.Path.of(devDocPath), devDocContent,
                         java.nio.charset.StandardCharsets.UTF_8,
                         java.nio.file.StandardOpenOption.CREATE,
                         java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
                 repo.updateDevDocPath(sessionId, devDocPath);
+                log.info("[prd-clarify] 开发文档已保存 path={}", devDocPath);
 
                 sendDone(emitter);
             } catch (Exception e) {
@@ -475,6 +484,52 @@ public class PrdClarifyService {
                 sendError(emitter, e);
             }
         });
+    }
+
+    /**
+     * 决定开发文档的落盘路径。
+     *
+     * <p><b>优先策略</b>：若 session 有关联项目，在 {@code toolbox.claude-chat.workspace.roots}
+     * 各根目录下查找与项目名匹配的子目录，将开发文档保存到该目录的
+     * {@code docs/design/{需求标题}-开发文档.md}。
+     * 这样开发文档纳入项目仓库，可被 git 提交、团队共享、Claude Code 读取。
+     *
+     * <p><b>回退策略</b>：找不到项目目录时保存到 {@code ~/.kai-toolbox/prd/{id}-dev.md}。
+     */
+    private String resolveDevDocPath(PrdSession session) {
+        if (session.getProject() != null && !session.getProject().isBlank()) {
+            try {
+                // 从 application.yml 注入的 workspace roots 中查找项目目录
+                java.util.List<String> roots = new java.util.ArrayList<>();
+                if (configuredWorkspaceRoots != null) roots.addAll(configuredWorkspaceRoots);
+                // 补充：扫描 TOOLBOX_WORKSPACE_ROOTS 环境变量（CI/CD 注入）
+                String envRoots = System.getenv("TOOLBOX_WORKSPACE_ROOTS");
+                if (envRoots != null && !envRoots.isBlank()) {
+                    for (String r : envRoots.split("[;,]")) {
+                        if (!r.isBlank()) roots.add(r.trim());
+                    }
+                }
+
+                for (String root : roots) {
+                    java.nio.file.Path candidate = java.nio.file.Path.of(root, session.getProject());
+                    if (java.nio.file.Files.isDirectory(candidate)) {
+                        // 文件名：需求标题（去除特殊字符，截断 80 字）
+                        String safeTitle = session.getTitle()
+                                .replaceAll("[\\\\/:*?\"<>|]", "_")
+                                .replaceAll("\\s+", "-")
+                                .replaceAll("-{2,}", "-");
+                        if (safeTitle.length() > 80) safeTitle = safeTitle.substring(0, 80);
+                        java.nio.file.Path designDir = candidate.resolve("docs").resolve("design");
+                        log.info("[prd-clarify] 开发文档将保存到项目目录 {}", designDir);
+                        return designDir.resolve(safeTitle + "-开发文档.md").toString();
+                    }
+                }
+            } catch (Exception e) {
+                log.debug("[prd-clarify] 项目目录查找失败，回退到默认路径: {}", e.getMessage());
+            }
+        }
+        // 回退：系统工作目录（UUID 命名，仅供系统内部使用）
+        return fileStore.pathFor(session.getId()).toString().replace(".md", "-dev.md");
     }
 
     /** 读取开发文档内容。 */
