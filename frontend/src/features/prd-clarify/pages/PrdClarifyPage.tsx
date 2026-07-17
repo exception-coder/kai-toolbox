@@ -859,7 +859,7 @@ function InputPanel({
             disabled={!canSubmit}
             onClick={() => onStartVibe(title.trim(), buildFinalRawInput(), project, module, role)}
             className="flex items-center gap-1.5 px-4 py-2.5 rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/30 text-sm text-[var(--color-foreground)] hover:bg-[var(--color-muted)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            title="在 Vibe Coding 中澄清：完整可见工具调用、MCP 查询过程"
+            title="在 Vibe Coding 中澄清：完整可见工具调用、MCP/CLI 查询过程"
           >
             <Code2 className="w-3.5 h-3.5" />
             Vibe Coding 澄清
@@ -1914,8 +1914,17 @@ export function PrdClarifyPage() {
 ${rawInput}
 
 [执行要求]
-1. 先通过 MCP 查询知识图谱（domain-knowledge / graphify-yoooni / cross-topology）了解现有系统
-2. 基于知识图谱进行多轮需求澄清对话（引用真实代码实体提问，最多 5 轮）
+1. 了解现有系统，两类知识来源分开处理：
+   a. 业务语义（domain-knowledge / cross-topology）：通过 MCP 工具查询（mcp__domain-knowledge__search_knowledge、
+      mcp__cross-topology__search_knowledge，若可用）
+   b. 代码知识图谱（graphify）：不使用 MCP，直接用 Bash 执行 CLI —— 先判断当前目录是否为多项目容器：
+      - 检查当前工作目录下是否存在 graphify-out/graph.json；若存在，直接在当前目录执行
+        graphify query "<问题>"
+      - 若不存在，说明当前目录是聚合了多个子项目的容器目录，改为列出一级子目录，找到其中
+        含 graphify-out/graph.json 的子项目（可结合上面的"模块"信息定位到具体子项目），
+        cd 进该子项目目录后再执行 graphify query "<问题>"
+      - 两种情况都找不到图谱时，跳过这一步，直接基于原始需求澄清即可，不要虚构图谱内容
+2. 基于以上背景进行多轮需求澄清对话（引用真实代码实体提问，最多 5 轮）
 3. 澄清完成后，生成完整 PRD 文档（feature-dev Phase 1+3 产出），并写入文件：
    ${prdPath}
 4. 写入成功后输出：PRD_SAVED: ${created.id}
