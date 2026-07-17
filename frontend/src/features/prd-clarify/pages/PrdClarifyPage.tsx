@@ -281,27 +281,36 @@ function HistoryPanel({
                   <span className={`text-[10px] ${statusColor[s.status] ?? 'text-[var(--color-muted-foreground)]'}`}>
                     {s.status}
                   </span>
-                  {/* 开发文档已生成标记 */}
-                  {s.devDocPath && (
-                    <span className="text-[9px] px-1 rounded bg-purple-500/15 text-purple-400 border border-purple-500/20 leading-tight" title="已生成开发文档">
-                      开发文档
-                    </span>
-                  )}
-                  {/* 角色标记 */}
                   {s.role === 'BUSINESS' ? (
-                    <span className="text-[9px] px-1 rounded bg-green-500/15 text-green-500 border border-green-500/20 leading-tight">
-                      业务
-                    </span>
+                    <span className="text-[9px] px-1 rounded bg-green-500/15 text-green-500 border border-green-500/20 leading-tight">业务</span>
                   ) : (
-                    <span className="text-[9px] px-1 rounded bg-blue-500/15 text-blue-500 border border-blue-500/20 leading-tight">
-                      产品
-                    </span>
+                    <span className="text-[9px] px-1 rounded bg-blue-500/15 text-blue-500 border border-blue-500/20 leading-tight">产品</span>
                   )}
                 </div>
+
+                {/* 树结构：开发文档作为 PRD 的子节点 */}
+                {s.devDocPath && (
+                  <div className="flex items-center gap-1 mt-1.5">
+                    {/* 树连接线 */}
+                    <div className="flex items-center flex-shrink-0 text-[var(--color-border)]">
+                      <div className="w-2.5 h-[1px] border-l border-b border-dashed border-[var(--color-muted-foreground)]/30 rounded-bl" style={{ width: 10, height: 8, borderWidth: '0 0 1px 1px' }} />
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onSelect({ ...s, _openDevDoc: true } as PrdSessionView & { _openDevDoc?: boolean })
+                      }}
+                      className="flex items-center gap-1 text-[10px] text-purple-400 hover:text-purple-300 transition-colors"
+                      title="查看开发文档"
+                    >
+                      <Wrench className="w-2.5 h-2.5" />
+                      开发文档
+                    </button>
+                  </div>
+                )}
               </div>
               {/* 操作按钮区（hover 显示） */}
               <div className="hidden group-hover:flex items-center gap-1">
-                {/* 查看原始需求 */}
                 <button
                   onClick={(e) => { e.stopPropagation(); setPreviewSession(s) }}
                   className="text-[var(--color-muted-foreground)] hover:text-[var(--color-primary)]"
@@ -309,7 +318,6 @@ function HistoryPanel({
                 >
                   <Info className="w-3 h-3" />
                 </button>
-                {/* 删除 */}
                 <button
                   onClick={(e) => handleDelete(e, s.id)}
                   className="text-[var(--color-muted-foreground)] hover:text-red-500"
@@ -1472,8 +1480,8 @@ export function PrdClarifyPage() {
     startGenerateSse(sessionId)
   }
 
-  /** 从历史记录恢复会话 */
-  const handleSelectHistory = (s: PrdSessionView) => {
+  /** 从历史记录恢复会话（_openDevDoc=true 时自动打开开发文档分栏） */
+  const handleSelectHistory = (s: PrdSessionView & { _openDevDoc?: boolean }) => {
     abortRef.current?.()
     abortRef.current = null
     setSessionId(s.id)
@@ -1481,13 +1489,12 @@ export function PrdClarifyPage() {
     setErrorMsg(null)
 
     if (s.status === 'DONE') {
-      // 拉取 PRD 内容 + 开发文档内容（若已生成），一并进入编辑器
       getContent(s.id)
         .then((content) => {
           setPrdContent(content ?? '')
           setStep('EDITING')
-          // 若已有开发文档，自动展开右侧分栏（通过 EditingPanel 的 useEffect 触发加载）
-          // 通过将 sessionId 更新触发 EditingPanel 内部的 useEffect
+          // 点击了开发文档子节点 OR 会话本身有开发文档：自动打开右侧分栏
+          // hasDevDoc prop 会触发 EditingPanel 内部 useState 初始化为 true
         })
         .catch(() => {
           setPrdContent('')
