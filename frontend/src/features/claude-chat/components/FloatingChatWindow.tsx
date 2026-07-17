@@ -126,7 +126,17 @@ export function FloatingChatWindow() {
   const [bubbleListening, setBubbleListening] = useState(false) // 气泡正在听（录音中）
   const [bubbleRecBusy, setBubbleRecBusy] = useState(false)     // 松手后转写中
   // 最小化状态栏：AI 工作计时器（active 时每秒 +1，空闲时清零）
+  // 注意：useEffect 必须在所有早返回（if !floating return null）之前定义，否则违反 React Hooks 规则。
+  // 这里用 optional chaining 安全读取，chat 为 null 时 isActive=false，效果与 active=false 一致。
   const [elapsedSec, setElapsedSec] = useState(0)
+  const _isActive = (chat?.running ?? false)
+    || (chat?.pending?.kind === 'permission')
+    || (chat?.pending?.kind === 'question')
+  useEffect(() => {
+    if (!_isActive) { setElapsedSec(0); return }
+    const t = setInterval(() => setElapsedSec(s => s + 1), 1000)
+    return () => clearInterval(t)
+  }, [_isActive])
   const autoApprovedRef = useRef<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
@@ -279,12 +289,6 @@ export function FloatingChatWindow() {
   // 权限/提问弹框：悬浮态下也由本组件渲染（ChatPage 已卸载），否则用户无从作答。
   const pending = chat.pending
   const { status, active } = deriveStatus(chat.items, chat.running, pending?.kind === 'permission', pending?.kind === 'question')
-  // active 时每秒计时，空闲时归零
-  useEffect(() => {
-    if (!active) { setElapsedSec(0); return }
-    const t = setInterval(() => setElapsedSec(s => s + 1), 1000)
-    return () => clearInterval(t)
-  }, [active])
   const dialogs = (
     <>
       {pending?.kind === 'permission' && (
