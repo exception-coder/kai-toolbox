@@ -62,51 +62,9 @@ export function createCrossTopologyServer(): Record<string, unknown> | null {
   }
 }
 
-/**
- * graphify-yoooni：Yoooni ERP 项目代码级知识图谱。
- * 提供 query_graph（按自然语言搜索相关 Java 类/方法/关系）、god_nodes 等工具，
- * 与 domain-knowledge（业务规则/状态机）形成代码+业务的双层上下文。
- *
- * 使用 Python graphify.serve 模块，图谱文件来自
- * project-domain-knowledge/knowledge/yoooni/impl/graphify/graph.json
- * 或 GRAPHIFY_YOOONI_GRAPH 环境变量覆盖。
- */
-export function createGraphifyYoooniServer(): Record<string, unknown> | null {
-  const graphFile = process.env.GRAPHIFY_YOOONI_GRAPH
-    || path.join(
-        DEFAULT_WORKSPACE,
-        'project-domain-knowledge',
-        'knowledge',
-        'yoooni',
-        'impl',
-        'graphify',
-        'graph.json'
-      )
-
-  if (!existsSync(graphFile)) {
-    return null
-  }
-
-  // Python 可执行文件：优先 GRAPHIFY_PYTHON 环境变量，其次常见安装路径，最后回退 python
-  const candidates = [
-    process.env.GRAPHIFY_PYTHON,
-    path.join(process.env.LOCALAPPDATA || '', 'Python', 'pythoncore-3.14-64', 'python.exe'),
-    'python',
-  ].filter((p): p is string => !!p)
-
-  const python = candidates.find(p => {
-    try {
-      // 简单检查：非相对路径且文件存在，或是命令名（交给系统 PATH）
-      return p === 'python' || existsSync(p)
-    } catch {
-      return false
-    }
-  }) || 'python'
-
-  return {
-    type: 'stdio',
-    command: python,
-    args: ['-m', 'graphify.serve', graphFile],
-    env: { ...process.env },
-  }
-}
+// graphify（代码知识图谱）不再走 MCP：已改为 Java 侧（tool-prd-clarify 的
+// GraphifyQueryService）在调用 Claude 前直接执行 `graphify query` CLI 子进程，
+// 按 project/module 解析到正确的图谱目录，查询结果作为 prompt 上下文注入。
+// 交互式 Vibe Coding 会话若 cwd 本身在某个含 graphify-out 的项目根下，Claude 已有
+// Bash 工具，可直接跑 CLI，同样无需 MCP。此前的 createGraphifyYoooniServer()（起
+// python -m graphify.serve 子进程）只覆盖单个硬编码项目、且经常启动失败，已移除。

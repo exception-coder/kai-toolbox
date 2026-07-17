@@ -18,7 +18,9 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * PRD 澄清核心服务。
@@ -42,7 +44,8 @@ public class PrdClarifyService {
      *
      * <p>本轮澄清对应 feature-dev 工作流的 Phase 3：通过精准提问消除需求歧义，
      * 为后续 PRD 生成（Phase 1+3 产出）和开发文档生成（Phase 2+4）提供充分的上下文。
-     * 提问前先通过 MCP 工具探索知识图谱，使问题直接引用现有代码实体（Phase 2 的先导）。
+     * 提问前 Java 层已直接调 graphify CLI 查过代码知识图谱（不经 MCP），结果作为
+     * 【代码知识图谱查询结果】区块拼进 user prompt，使问题直接引用现有代码实体（Phase 2 的先导）。
      */
     private static final String ASK_SYSTEM_PRODUCT = """
             ⚠️ 直接输出任务（禁止触发任何 hook/skill/plugin 的自动流程）：
@@ -52,12 +55,13 @@ public class PrdClarifyService {
             你正在执行 feature-dev Phase 3 — Clarifying Questions（产品/开发视角）：
             通过提问消除需求歧义，为 PRD 文档生成收集充足信息。
 
-            【Phase 3 提问前置：先通过 MCP 查三层知识图谱（为 Phase 2 Codebase Exploration 做先导）】
+            【Phase 3 提问前置：结合下方知识图谱背景（为 Phase 2 Codebase Exploration 做先导）】
 
-            第一层 — 代码知识（mcp__graphify-yoooni__query_graph，若可用）：
-            - query_graph(question="{需求关键词}")
-            - 获取相关 Java 类、Service 方法、数据库字段
+            第一层 — 代码知识（见 user prompt 中的【代码知识图谱查询结果】区块，已由系统直接调用
+            graphify CLI 查询得到，非 MCP 工具调用）：
+            - 若该区块非空，其中是真实的 Java 类、Service 方法、数据库字段
             - 目的：避免问出"现有表有哪些字段"这种已有答案的废话问题
+            - 若为空，说明该项目暂无图谱或未匹配到相关内容，忽略即可，不要假装看到了内容
 
             第二层 — 业务语义（mcp__domain-knowledge__search_knowledge，若可用）：
             - search_knowledge(query=..., project=..., module=...)
@@ -91,11 +95,12 @@ public class PrdClarifyService {
             你正在执行 feature-dev Phase 3 — Clarifying Questions（业务人员视角）：
             帮助非技术背景的业务人员把业务痛点转化为清晰的需求描述。
 
-            【Phase 3 提问前置：先通过 MCP 了解现有业务背景，用业务语言表述（不讲技术）】
+            【Phase 3 提问前置：先了解现有业务背景，用业务语言表述（不讲技术）】
             1. mcp__domain-knowledge__search_knowledge（若可用）：搜索现有业务流程和规则
                → 提问时用"现有流程是…，这个需求要在哪一步生效？"等业务语言
-            2. mcp__graphify-yoooni__query_graph（若可用）：搜索现有功能结构
-               → 转换成业务行为描述，不用类名/字段名
+            2. user prompt 中的【代码知识图谱查询结果】区块（系统已直接调用 graphify CLI 查询，
+               非 MCP 工具调用）：包含现有功能结构
+               → 转换成业务行为描述，不用类名/字段名；区块为空则忽略
 
             Phase 3 提问规则（业务版）：
             - 每次只问 1 个问题，聚焦业务本质
@@ -211,15 +216,25 @@ public class PrdClarifyService {
     private final PrdSessionRepository repo;
     private final PrdFileStore fileStore;
     private final ObjectMapper mapper;
+    private final GraphifyQueryService graphifyQuery;
+
+    /**
+     * 多轮澄清（最多 5 轮）会话内的图谱查询结果缓存：question（session 标题）在各轮间不变，
+     * 避免每轮都重新起一次 graphify CLI 子进程。key=sessionId，value 用 Optional 包装以区分
+     * 「查过但无结果」与「尚未查过」。会话删除时同步清理，避免内存无界增长。
+     */
+    private final Map<String, Optional<String>> graphifyAskCache = new ConcurrentHashMap<>();
 
     public PrdClarifyService(AgentOneShotRunner agentRunner,
                              PrdSessionRepository repo,
                              PrdFileStore fileStore,
-                             ObjectMapper mapper) {
+                             ObjectMapper mapper,
+                             GraphifyQueryService graphifyQuery) {
         this.agentRunner = agentRunner;
         this.repo = repo;
         this.fileStore = fileStore;
         this.mapper = mapper;
+        this.graphifyQuery = graphifyQuery;
     }
 
     /** 创建会话并持久化，返回新建的会话对象。 */
@@ -429,24 +444,24 @@ public class PrdClarifyService {
             ════════════════════════════════════════════════
             Phase 2 — Codebase Exploration（代码库探索）
             ════════════════════════════════════════════════
-            必须通过以下工具调用理解现有代码库，再基于真实代码事实生成方案：
+            必须结合以下上下文理解现有代码库，再基于真实代码事实生成方案：
 
             1. mcp__domain-knowledge__search_knowledge（若可用）：
                → search_knowledge(query=需求关键词, project=项目名, module=模块名)
                → get_knowledge(id) 获取状态机/业务规则详情
                → 目的：确保方案与现有业务逻辑一致
 
-            2. mcp__graphify-yoooni__query_graph（若可用）：
-               → query_graph(question=代码组件关键词)
-               → 获取真实 Java 类名、Service 方法、数据库表名
-               → 目的：引用真实代码实体而非推测
+            2. user prompt 中的【代码知识图谱查询结果】区块：系统已在调用你之前直接执行
+               graphify CLI（`graphify query`，非 MCP 工具调用）查询该项目的代码知识图谱，
+               区块内是真实 Java 类名、Service 方法、数据库表名
+               → 目的：引用真实代码实体而非推测；区块为空说明该项目暂无图谱，忽略即可
 
             3. mcp__cross-topology__search_knowledge（若可用）：
                → search_knowledge(query=枚举值/接口路径关键词)
                → 获取枚举取值、API 路径约定
                → 目的：DDL/API 与现有规范保持一致
 
-            无 MCP 工具时：仅基于 PRD 生成，在文档中注明"未完成代码库探索"。
+            以上上下文均缺失时：仅基于 PRD 生成，在文档中注明"未完成代码库探索"。
 
             ════════════════════════════════════════════════
             Phase 4 — Architecture Design（架构设计）→ 输出技术开发方案文档
@@ -559,6 +574,8 @@ public class PrdClarifyService {
             }
             sb.append("\n");
         }
+        appendGraphContext(sb, Optional.ofNullable(graphifyQuery.query(s.getProject(), s.getModule(), s.getTitle())));
+
         sb.append("\n以下是已确认的产品需求文档（PRD）：\n\n");
         sb.append(prdContent).append("\n\n");
         sb.append("请基于以上 PRD 生成完整的技术开发方案文档。");
@@ -594,6 +611,7 @@ public class PrdClarifyService {
     public void delete(String sessionId) throws IOException {
         repo.delete(sessionId);
         fileStore.delete(sessionId);
+        graphifyAskCache.remove(sessionId);
     }
 
     // ───── Prompt 构建 ─────
@@ -739,11 +757,23 @@ public class PrdClarifyService {
             }
         }
 
+        appendGraphContext(sb, graphifyAskCache.computeIfAbsent(s.getId(),
+                id -> Optional.ofNullable(graphifyQuery.query(s.getProject(), s.getModule(), s.getTitle()))));
+
         int remaining = 5 - questionIndex;
         sb.append("这是第 ").append(questionIndex + 1).append(" 个问题（还可以最多再问 ")
                 .append(remaining - 1).append(" 个）。\n");
         sb.append("请提出下一个最关键的澄清问题，或输出 [CLARIFICATION_COMPLETE]：");
         return sb.toString();
+    }
+
+    /** 把 graphify CLI 查询结果（若有）拼进 prompt，作为「代码知识图谱查询结果」区块。 */
+    private void appendGraphContext(StringBuilder sb, Optional<String> graphContext) {
+        if (graphContext.isEmpty() || graphContext.get().isBlank()) {
+            return;
+        }
+        sb.append("\n【代码知识图谱查询结果】（系统已直接调用 graphify CLI 查询，非 MCP，内容为真实代码事实）\n");
+        sb.append(graphContext.get()).append("\n");
     }
 
     /** 将多轮问答历史转换为 questions JSON 格式（供 generate() 读取）。 */

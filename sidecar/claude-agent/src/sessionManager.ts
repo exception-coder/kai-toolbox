@@ -8,7 +8,7 @@ import { createErpDbServer } from './erpDb.js'
 import { createErpAppServer } from './erpApp.js'
 import { createSrmDbServer } from './srmDb.js'
 import { createSrmAppServer } from './srmApp.js'
-import { createDomainKnowledgeServer, createCrossTopologyServer, createGraphifyYoooniServer } from './knowledgeMcp.js'
+import { createDomainKnowledgeServer, createCrossTopologyServer } from './knowledgeMcp.js'
 import { runCodexTurn, type CodexSpeed } from './codexEngine.js'
 import type { ModelReasoningEffort } from '@openai/codex-sdk'
 import { runGeminiTurn } from './geminiEngine.js'
@@ -276,13 +276,17 @@ class Session {
       // 业务知识图谱：domain-knowledge（业务规则/状态机/公式）+ cross-topology（枚举值/API路径/表字段）
       // 与 claude mcp add 注册相同引擎，通过环境变量 DOMAIN_KB_DIR / CROSS_TOPO_KB_DIR 指定知识库目录。
       // 可选：若引擎或目录不存在则跳过（零影响，工具列表为空时 Claude 不会尝试调用）。
+      //
+      // 代码知识图谱（graphify）不再走 MCP：此前的 graphify-yoooni MCP server（python -m graphify.serve）
+      // 只覆盖单个硬编码项目、且经常启动失败。已改为 Java 侧（PrdClarifyService + GraphifyQueryService）
+      // 在调用 Claude 前直接执行 `graphify query` CLI 子进程，按 project/module 解析到正确的图谱目录，
+      // 查询结果作为 prompt 上下文注入——这也是 graphify 官方推荐用法：CLI 优先于 MCP。
+      // 普通交互式 Vibe Coding 会话若 cwd 就是某个含 graphify-out 的项目根，Claude 本身已有 Bash
+      // 工具，可直接跑 `graphify query "..."`，同样无需 MCP。
       const domainKb = createDomainKnowledgeServer()
       const crossTopo = createCrossTopologyServer()
-      const graphifyYoooni = createGraphifyYoooniServer()
       if (domainKb) (mcpServers as Record<string, unknown>)['domain-knowledge'] = domainKb
       if (crossTopo) (mcpServers as Record<string, unknown>)['cross-topology'] = crossTopo
-      // graphify-yoooni：Yoooni ERP 代码知识图谱（graph.json 不存在时自动跳过）
-      if (graphifyYoooni) (mcpServers as Record<string, unknown>)['graphify-yoooni'] = graphifyYoooni
 
       try {
         const q = query({

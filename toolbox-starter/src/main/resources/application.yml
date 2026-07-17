@@ -397,6 +397,16 @@ toolbox:
       headless: true        # 调试时改 false 能看到浏览器实际渲染
       page-timeout-ms: 30000
 
+  graphify:
+    # PRD 澄清助手调用 graphify CLI 查询代码知识图谱（不经 MCP，见 GraphifyQueryService）。
+    # 关闭后 PRD 澄清/开发文档生成跳过图谱查询，不影响主流程。
+    enabled: true
+    # graphify 可执行文件。默认走 PATH（pip/uv 安装后即在 PATH），本机非 PATH 安装时改绝对路径。
+    binary: ${TOOLBOX_GRAPHIFY_BINARY:graphify}
+    timeout-seconds: 30
+    # 传给 `graphify query --budget` 的 token 预算，控制注入 prompt 的图谱上下文体量。
+    query-budget: 1500
+
   projects:
     # 「项目管理」面板扫描的根目录，仅扫描一级子目录。
     # 修改后无需重启即可在 application.yml 中调整；缓存 TTL 内的请求仍读旧值。
