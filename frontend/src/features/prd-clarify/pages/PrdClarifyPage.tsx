@@ -14,10 +14,12 @@ import {
   deleteSession,
   getContent,
   getDevDocContent,
+  checkPrdFile,
   getSession,
   linkPrdToReqItem,
   listSessions,
   parseAttachment,
+  PRD_CLARIFY_LAUNCH_KEY,
   saveContent,
   saveDevDocContent,
   saveQaHistory,
@@ -544,12 +546,14 @@ const ROLE_CONFIG = {
 // ───── 表单（Step INPUT） ─────
 function InputPanel({
   onStart,
+  onStartVibe,
   initialTitle = '',
   initialRawInput = '',
   initialProject = '',
   initialModule = '',
 }: {
   onStart: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS') => void
+  onStartVibe: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS') => void
   initialTitle?: string
   initialRawInput?: string
   initialProject?: string
@@ -820,13 +824,27 @@ function InputPanel({
           )}
         </div>
 
-        <button
-          disabled={!canSubmit}
-          onClick={() => onStart(title.trim(), buildFinalRawInput(), project, module, role)}
-          className="w-full py-2.5 rounded-md bg-[var(--color-primary)] text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-        >
-          {role === 'BUSINESS' ? '开始描述我的业务需求' : '开始需求澄清'}
-        </button>
+        {/* 两种澄清模式 */}
+        <div className="flex gap-2">
+          {/* 标准模式（内嵌简化 UI） */}
+          <button
+            disabled={!canSubmit}
+            onClick={() => onStart(title.trim(), buildFinalRawInput(), project, module, role)}
+            className="flex-1 py-2.5 rounded-md bg-[var(--color-primary)] text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+          >
+            {role === 'BUSINESS' ? '开始描述我的业务需求' : '开始澄清'}
+          </button>
+          {/* Vibe Coding 模式（完整工具调用可见） */}
+          <button
+            disabled={!canSubmit}
+            onClick={() => onStartVibe(title.trim(), buildFinalRawInput(), project, module, role)}
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/30 text-sm text-[var(--color-foreground)] hover:bg-[var(--color-muted)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            title="在 Vibe Coding 中澄清：完整可见工具调用、MCP 查询过程"
+          >
+            <Code2 className="w-3.5 h-3.5" />
+            Vibe Coding 澄清
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -1806,6 +1824,65 @@ export function PrdClarifyPage() {
   }
 
   /**
+   * Vibe Coding 模式澄清：创建会话后，通过 sessionStorage handoff 跳转 claude-chat。
+   * Claude 在 Vibe Coding 完整 UI 中执行 feature-dev Phase 3（工具调用完全可见），
+   * 澄清完成后写入 PRD 文件，用户返回时触发 check-prd-file 更新状态。
+   */
+  const handleStartVibe = async (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS' = 'PRODUCT') => {
+    setErrorMsg(null)
+    setSessionTitle(title)
+    setSearchParams({}, { replace: true })
+
+    // 创建会话（用于记录 prd_session_id，PRD 文件路径由此确定）
+    const created = await createMut.mutateAsync({ title, rawInput, project, module, role })
+    setSessionId(created.id)
+    qc.invalidateQueries({ queryKey: ['prd-sessions'] })
+
+    // 查询项目 cwd
+    let cwd = ''
+    if (project) {
+      try {
+        const res = await fetch('/api/claude-chat/workspaces', {
+          headers: { Authorization: `Bearer ${localStorage.getItem('toolbox.auth.token') ?? ''}` },
+        })
+        if (res.ok) {
+          const data = await res.json() as { roots: Array<{ exists: boolean; dirs: Array<{ name: string; path: string }> }> }
+          for (const root of data.roots ?? []) {
+            const found = root.dirs?.find(d => d.name === project)
+            if (found) { cwd = found.path; break }
+          }
+        }
+      } catch { /* cwd 解析失败时留空 */ }
+    }
+
+    // 构建 seed 消息：feature-dev Phase 3 + 指示写 PRD 文件
+    const prdPath = `~/.kai-toolbox/prd/${created.id}.md`
+    const roleDesc = role === 'BUSINESS' ? '业务人员视角（聚焦业务价值，不讲技术细节）' : '产品/开发视角（可问技术约束、边界条件）'
+    const seed = `本次任务：执行 feature-dev:feature-dev Phase 3 (Clarifying Questions) — 需求澄清
+
+[项目信息]
+标题：${title}
+项目：${project || '未指定'}
+模块：${module || '未指定'}
+澄清视角：${roleDesc}
+
+[原始需求]
+${rawInput}
+
+[执行要求]
+1. 先通过 MCP 查询知识图谱（domain-knowledge / graphify-yoooni / cross-topology）了解现有系统
+2. 基于知识图谱进行多轮需求澄清对话（引用真实代码实体提问，最多 5 轮）
+3. 澄清完成后，生成完整 PRD 文档（feature-dev Phase 1+3 产出），并写入文件：
+   ${prdPath}
+4. 写入成功后输出：PRD_SAVED: ${created.id}
+
+PRD_SESSION_ID: ${created.id}`
+
+    sessionStorage.setItem(PRD_CLARIFY_LAUNCH_KEY, JSON.stringify({ cwd, seed, prdSessionId: created.id }))
+    navigate('/tools/claude-chat')
+  }
+
+  /**
    * 启动 PRD 生成 SSE，可复用于初次生成和重试。
    * 不改变 step（调用方负责设置 GENERATING）。
    */
@@ -1995,6 +2072,7 @@ export function PrdClarifyPage() {
         {step === 'INPUT' && (
           <InputPanel
             onStart={handleStart}
+            onStartVibe={handleStartVibe}
             initialTitle={urlTitle}
             initialRawInput={urlRawInput}
             initialProject={urlProject}

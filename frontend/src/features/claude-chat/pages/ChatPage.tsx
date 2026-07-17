@@ -424,6 +424,39 @@ export function ChatPage() {
     } catch { /* 解析失败忽略 */ }
   }, [chat])
 
+  // PRD 澄清 handoff：prd-clarify「开始需求澄清」把 {cwd, seed, prdSessionId} 写 sessionStorage 后跳来，
+  // 在项目工作区开一个会话，运行 feature-dev Phase 3 澄清流程，Claude 完成后直接写 PRD 文件。
+  // PRD 文件写入后，prd-clarify 通过 check-prd-file 接口检测并更新状态。一次性。
+  const prdClarifyLaunchedRef = useRef(false)
+  useEffect(() => {
+    if (prdClarifyLaunchedRef.current || !chat) return
+    let raw: string | null = null
+    try { raw = sessionStorage.getItem('kai-toolbox:claude-chat:prd-clarify-launch') } catch { /* ignore */ }
+    if (!raw) return
+    prdClarifyLaunchedRef.current = true
+    try { sessionStorage.removeItem('kai-toolbox:claude-chat:prd-clarify-launch') } catch { /* ignore */ }
+    try {
+      const { cwd, seed, prdSessionId } = JSON.parse(raw) as { cwd?: string; seed?: string; prdSessionId?: string }
+      if (seed) {
+        chat.open((cwd ?? '').trim(), undefined, undefined, 'claude')
+        chat.send(seed)
+        // 记录关联，供 prd-clarify 页面来 check-prd-file 时使用
+        if (prdSessionId) {
+          setTimeout(() => {
+            const sid = chat.sessionId
+            if (sid) {
+              fetch(`/api/prd-clarify/sessions/${prdSessionId}/link-dev-session`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ devSessionId: sid }),
+              }).catch(() => {})
+            }
+          }, 1500)
+        }
+      }
+    } catch { /* 解析失败忽略 */ }
+  }, [chat])
+
   // 面板 handoff：别的模块（如「ERP 需求开发」空工作区引导）跳来时指定直接打开某个面板（如 clone）。一次性。
   useEffect(() => {
     let raw: string | null = null

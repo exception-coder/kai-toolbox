@@ -564,6 +564,11 @@ public class PrdClarifyService {
 
     // ─────────────────────────────────────────────────
 
+    /** 获取 PRD 文件的期望路径（供 check-prd-file 接口检测 Claude 是否已写入）。 */
+    public java.nio.file.Path getPrdFilePath(String sessionId) {
+        return fileStore.pathFor(sessionId);
+    }
+
     /** 覆写文件内容（用户在编辑器手动保存）。 */
     public void saveContent(String sessionId, String content) throws IOException {
         repo.findById(sessionId)

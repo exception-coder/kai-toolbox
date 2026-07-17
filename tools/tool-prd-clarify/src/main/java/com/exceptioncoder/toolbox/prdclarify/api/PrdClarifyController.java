@@ -107,6 +107,36 @@ public class PrdClarifyController {
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "会话不存在: " + id));
     }
 
+    /**
+     * 检查 PRD 文件是否已由 Vibe Coding 会话写入（Claude 通过 file_write 工具写入后调用此接口）。
+     * 若文件存在则更新会话状态为 DONE，使 prd-clarify 页面可刷新到编辑器。
+     * 与 feature-dev 澄清流程配合：Claude 完成澄清后写文件，前端轮询此接口确认。
+     */
+    @PostMapping("/sessions/{id}/check-prd-file")
+    public ResponseEntity<PrdSessionView> checkPrdFile(@PathVariable String id) {
+        com.exceptioncoder.toolbox.prdclarify.domain.PrdSession session = repo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "会话不存在: " + id));
+
+        // 检查文件是否存在（Claude 可能已写入，也可能还未完成）
+        java.nio.file.Path mdPath = service.getPrdFilePath(id);
+        if (java.nio.file.Files.exists(mdPath) && "DONE".equals(session.getStatus())) {
+            return ResponseEntity.ok(PrdSessionView.from(session));
+        }
+        if (java.nio.file.Files.exists(mdPath)) {
+            try {
+                // 文件已存在但状态未更新，更新状态
+                repo.updateDone(id, mdPath.toString());
+            } catch (Exception e) {
+                // 状态更新失败不阻断主流程，文件已存在即可读取
+            }
+            return ResponseEntity.ok(
+                    repo.findById(id).map(PrdSessionView::from)
+                            .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "会话不存在: " + id)));
+        }
+        // 文件还不存在
+        return ResponseEntity.ok(PrdSessionView.from(session));
+    }
+
     /** 删除会话（含 .md 文件）。 */
     @DeleteMapping("/sessions/{id}")
     public ResponseEntity<Void> delete(@PathVariable String id) throws IOException {
