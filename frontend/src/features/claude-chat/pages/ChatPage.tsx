@@ -39,7 +39,7 @@ import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
-import { fetchProviderModels, fetchSessionGitStatus, fetchSessionUsage, getSessionCommitDiff, listSessionCommits, listSessionGitRepos, listSessions, listWorkspaces, uploadAttachment, type SessionUsage, type UploadedAttachment } from '../api'
+import { fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getSessionCommitDiff, listSessionCommits, listSessionGitRepos, listSessions, listWorkspaces, uploadAttachment, type SessionUsage, type UploadedAttachment } from '../api'
 import type { ModelInfo } from '../types'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
 import { GitStatusPanel } from '@/components/git/GitStatusPanel'
@@ -1102,6 +1102,7 @@ export function ChatPage() {
         <GitStatusPanel
           title="会话目录"
           fetchStatus={repo => fetchSessionGitStatus(chat.sessionId!, repo)}
+          fetchFileDiff={(filePath, x) => fetchSessionGitFileDiff(chat.sessionId!, filePath, x)}
           onClose={() => setShowGitStatus(false)}
         />
       )}

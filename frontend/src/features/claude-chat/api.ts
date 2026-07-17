@@ -37,6 +37,23 @@ export interface GitStatusResponse {
   entries: GitStatusEntry[]
 }
 
+export interface GitFileDiffResponse {
+  diff: string
+  truncated: boolean
+}
+
+/** 获取单个文件相对于 HEAD 的 unified diff，用于侧边对比视图。 */
+export function fetchSessionGitFileDiff(
+  sessionId: string,
+  filePath: string,
+  x: string,
+  repo?: string,
+): Promise<GitFileDiffResponse> {
+  const p = new URLSearchParams({ filePath, x })
+  if (repo) p.set('repo', repo)
+  return http<GitFileDiffResponse>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/git/diff?${p.toString()}`)
+}
+
 /** 获取会话工作目录的待提交/未跟踪文件列表（git status --porcelain）。 */
 export function fetchSessionGitStatus(sessionId: string, repo?: string): Promise<GitStatusResponse> {
   const p = new URLSearchParams()

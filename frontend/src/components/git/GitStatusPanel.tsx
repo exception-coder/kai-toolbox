@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronRight, File, Folder, RefreshCw, X } from 'lucide-react'
+import { ArrowLeft, ChevronRight, File, Folder, RefreshCw, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { GitStatusEntry, GitStatusResponse } from '@/features/claude-chat/api'
+import type { GitStatusEntry, GitStatusResponse, GitFileDiffResponse } from '@/features/claude-chat/api'
+import { SideBySideDiff } from './SideBySideDiff'
 
 interface Props {
   title: string
   fetchStatus: (repo?: string) => Promise<GitStatusResponse>
+  /** 获取单个文件的 diff */
+  fetchFileDiff: (filePath: string, x: string) => Promise<GitFileDiffResponse>
   onClose: () => void
 }
 
@@ -81,11 +84,13 @@ function TreeRow({
   depth,
   collapsed,
   onToggle,
+  onPickFile,
 }: {
   node: TreeNode
   depth: number
   collapsed: Set<string>
   onToggle: (path: string) => void
+  onPickFile: (entry: GitStatusEntry) => void
 }) {
   const isCollapsed = collapsed.has(node.path)
   const leafCount = countLeaves(node)
@@ -95,11 +100,12 @@ function TreeRow({
     <>
       <div
         className={cn(
-          'flex items-center gap-1.5 rounded px-2 py-1 text-sm hover:bg-[var(--color-accent)] cursor-pointer select-none',
+          'flex items-center gap-1.5 rounded px-2 py-1 text-sm cursor-pointer select-none',
+          node.isDir ? 'hover:bg-[var(--color-accent)]' : 'hover:bg-[var(--color-accent)] active:bg-[var(--color-primary)]/10',
         )}
         style={{ paddingLeft: `${8 + depth * 16}px` }}
-        onClick={() => node.isDir && onToggle(node.path)}
-        title={node.entry?.origPath ? `${node.entry.origPath} → ${node.entry.path}` : node.path}
+        onClick={() => node.isDir ? onToggle(node.path) : node.entry && onPickFile(node.entry)}
+        title={node.entry?.origPath ? `${node.entry.origPath} → ${node.entry.path}（点击查看 diff）` : `${node.path}（点击查看 diff）`}
       >
         {node.isDir ? (
           <>
@@ -130,7 +136,7 @@ function TreeRow({
       </div>
       {node.isDir && !isCollapsed && (
         node.children.map(child => (
-          <TreeRow key={child.path} node={child} depth={depth + 1} collapsed={collapsed} onToggle={onToggle} />
+          <TreeRow key={child.path} node={child} depth={depth + 1} collapsed={collapsed} onToggle={onToggle} onPickFile={onPickFile} />
         ))
       )}
     </>
@@ -139,15 +145,35 @@ function TreeRow({
 
 // ── 主组件 ────────────────────────────────────────────────────────────────────
 
-export function GitStatusPanel({ title, fetchStatus, onClose }: Props) {
+export function GitStatusPanel({ title, fetchStatus, fetchFileDiff, onClose }: Props) {
   const [data, setData] = useState<GitStatusResponse | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
 
+  // ── diff 视图状态 ──────────────────────────────────────────────────────────
+  const [diffEntry, setDiffEntry] = useState<GitStatusEntry | null>(null)
+  const [diffData, setDiffData] = useState<{ diff: string; truncated: boolean } | null>(null)
+  const [diffLoading, setDiffLoading] = useState(false)
+  const [diffErr, setDiffErr] = useState<string | null>(null)
+
+  const openDiff = (entry: GitStatusEntry) => {
+    setDiffEntry(entry)
+    setDiffData(null)
+    setDiffErr(null)
+    setDiffLoading(true)
+    fetchFileDiff(entry.path, entry.x)
+      .then(r => setDiffData({ diff: r.diff, truncated: r.truncated }))
+      .catch(e => setDiffErr(e instanceof Error ? e.message : String(e)))
+      .finally(() => setDiffLoading(false))
+  }
+  const closeDiff = () => { setDiffEntry(null); setDiffData(null); setDiffErr(null) }
+  const showingDiff = diffEntry !== null
+
   const load = () => {
     setLoading(true)
     setErr(null)
+    closeDiff()
     fetchStatus()
       .then(d => { setData(d); setCollapsed(new Set()) })
       .catch(e => setErr(e instanceof Error ? e.message : String(e)))
@@ -183,23 +209,42 @@ export function GitStatusPanel({ title, fetchStatus, onClose }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-16" onClick={onClose}>
       <div
-        className="flex max-h-[75vh] w-full max-w-lg flex-col overflow-hidden rounded-xl border bg-[var(--color-card)] shadow-2xl"
+        className={cn(
+          'flex flex-col overflow-hidden rounded-xl border bg-[var(--color-card)] shadow-2xl',
+          showingDiff
+            ? 'max-h-[85vh] w-full max-w-5xl'   // diff 视图用更宽的面板
+            : 'max-h-[75vh] w-full max-w-lg',
+        )}
         onClick={e => e.stopPropagation()}
       >
         {/* 标题栏 */}
         <div className="flex items-center gap-2 border-b px-4 py-3">
+          {showingDiff && (
+            <button
+              type="button"
+              onClick={closeDiff}
+              className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]"
+              aria-label="返回文件列表"
+            >
+              <ArrowLeft className="size-3.5" />
+            </button>
+          )}
           <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-            待提交文件 · {title}
+            {showingDiff
+              ? <><span className="text-[var(--color-muted-foreground)]">待提交文件 · </span>{diffEntry?.path ?? ''}</>
+              : `待提交文件 · ${title}`}
           </span>
-          <button
-            type="button"
-            onClick={load}
-            disabled={loading}
-            className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)]"
-            title="刷新"
-          >
-            <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />
-          </button>
+          {!showingDiff && (
+            <button
+              type="button"
+              onClick={load}
+              disabled={loading}
+              className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)]"
+              title="刷新"
+            >
+              <RefreshCw className={cn('size-3.5', loading && 'animate-spin')} />
+            </button>
+          )}
           <button
             type="button"
             onClick={onClose}
@@ -210,43 +255,68 @@ export function GitStatusPanel({ title, fetchStatus, onClose }: Props) {
           </button>
         </div>
 
-        {/* 汇总条 */}
-        {stats && stats.total > 0 && (
-          <div className="flex flex-wrap items-center gap-2 border-b bg-[var(--color-muted)]/30 px-4 py-2 text-[11px] text-[var(--color-muted-foreground)]">
-            <span className="font-medium text-[var(--color-foreground)]">{stats.total} 个文件</span>
-            {stats.modified > 0 && <span className="text-amber-600 dark:text-amber-400">M:{stats.modified}</span>}
-            {stats.added > 0 && <span className="text-emerald-600 dark:text-emerald-400">A:{stats.added}</span>}
-            {stats.deleted > 0 && <span className="text-rose-600 dark:text-rose-400">D:{stats.deleted}</span>}
-            {stats.renamed > 0 && <span className="text-violet-600 dark:text-violet-400">R:{stats.renamed}</span>}
-            {stats.untracked > 0 && <span className="text-[var(--color-muted-foreground)]">?:{stats.untracked}</span>}
+        {/* ── Diff 视图 ─────────────────────────────────────────────────────── */}
+        {showingDiff && (
+          <div className="min-h-0 flex-1 overflow-hidden">
+            {diffLoading && (
+              <div className="flex items-center justify-center py-12 text-sm text-[var(--color-muted-foreground)]">
+                <RefreshCw className="mr-2 size-4 animate-spin" /> 加载 diff…
+              </div>
+            )}
+            {!diffLoading && diffErr && (
+              <div className="px-4 py-3 text-sm text-[var(--color-destructive)]">{diffErr}</div>
+            )}
+            {!diffLoading && diffData && (
+              <SideBySideDiff
+                diff={diffData.diff}
+                truncated={diffData.truncated}
+                className="h-full"
+              />
+            )}
           </div>
         )}
 
-        {/* 内容区 */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
-          {loading && (
-            <div className="flex items-center justify-center py-12 text-sm text-[var(--color-muted-foreground)]">
-              <RefreshCw className="mr-2 size-4 animate-spin" /> 加载中…
+        {/* ── 文件树视图 ────────────────────────────────────────────────────── */}
+        {!showingDiff && (
+          <>
+            {/* 汇总条 */}
+            {stats && stats.total > 0 && (
+              <div className="flex flex-wrap items-center gap-2 border-b bg-[var(--color-muted)]/30 px-4 py-2 text-[11px] text-[var(--color-muted-foreground)]">
+                <span className="font-medium text-[var(--color-foreground)]">{stats.total} 个文件</span>
+                {stats.modified > 0 && <span className="text-amber-600 dark:text-amber-400">M:{stats.modified}</span>}
+                {stats.added > 0 && <span className="text-emerald-600 dark:text-emerald-400">A:{stats.added}</span>}
+                {stats.deleted > 0 && <span className="text-rose-600 dark:text-rose-400">D:{stats.deleted}</span>}
+                {stats.renamed > 0 && <span className="text-violet-600 dark:text-violet-400">R:{stats.renamed}</span>}
+                {stats.untracked > 0 && <span className="text-[var(--color-muted-foreground)]">?:{stats.untracked}</span>}
+              </div>
+            )}
+            {/* 内容区 */}
+            <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+              {loading && (
+                <div className="flex items-center justify-center py-12 text-sm text-[var(--color-muted-foreground)]">
+                  <RefreshCw className="mr-2 size-4 animate-spin" /> 加载中…
+                </div>
+              )}
+              {!loading && err && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                  {err}
+                </div>
+              )}
+              {!loading && !err && data && data.entries.length === 0 && (
+                <div className="py-12 text-center text-sm text-[var(--color-muted-foreground)]">
+                  ✓ 工作区干净，没有未提交的改动
+                </div>
+              )}
+              {!loading && !err && tree.length > 0 && (
+                <div>
+                  {tree.map(node => (
+                    <TreeRow key={node.path} node={node} depth={0} collapsed={collapsed} onToggle={toggle} onPickFile={openDiff} />
+                  ))}
+                </div>
+              )}
             </div>
-          )}
-          {!loading && err && (
-            <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-              {err}
-            </div>
-          )}
-          {!loading && !err && data && data.entries.length === 0 && (
-            <div className="py-12 text-center text-sm text-[var(--color-muted-foreground)]">
-              ✓ 工作区干净，没有未提交的改动
-            </div>
-          )}
-          {!loading && !err && tree.length > 0 && (
-            <div>
-              {tree.map(node => (
-                <TreeRow key={node.path} node={node} depth={0} collapsed={collapsed} onToggle={toggle} />
-              ))}
-            </div>
-          )}
-        </div>
+          </>
+        )}
       </div>
     </div>
   )

@@ -53,6 +53,38 @@ public class GitLogService {
     }
 
     /**
+     * 返回单个文件相对于 HEAD（或暂存区）的 unified diff。
+     * 按状态选择最合适的 git diff 命令：
+     * <ul>
+     *   <li>x=A（新增已暂存）→ {@code git diff --cached HEAD -- path}（HEAD 无此文件→整文件作为 +）</li>
+     *   <li>其余 → {@code git diff HEAD -- path}（包含暂存 + 工作树相对 HEAD 的全部变化）</li>
+     *   <li>两者均为空（未跟踪等）→ 返回空 diff</li>
+     * </ul>
+     */
+    public GitFileDiffResponse gitFileDiff(Path dir, String relativePath, String x) {
+        // 新增文件（只在暂存区，HEAD 里没有）
+        boolean isAdded = "A".equals(x);
+        List<String> primaryCmd = isAdded
+                ? List.of(props.getBinary(), "-c", "core.quotepath=false", "-C", dir.toString(),
+                "diff", "--cached", "--", relativePath)
+                : List.of(props.getBinary(), "-c", "core.quotepath=false", "-C", dir.toString(),
+                "diff", "HEAD", "--", relativePath);
+        try {
+            Result r = exec(primaryCmd);
+            if (!r.stdout().isBlank()) return new GitFileDiffResponse(r.stdout(), r.truncated());
+        } catch (Exception ignore) { /* 文件不存在 HEAD 版本等，继续尝试 */ }
+        // 备选：暂存区 vs HEAD
+        if (!isAdded) {
+            try {
+                Result r = exec(List.of(props.getBinary(), "-c", "core.quotepath=false", "-C", dir.toString(),
+                        "diff", "--cached", "--", relativePath));
+                if (!r.stdout().isBlank()) return new GitFileDiffResponse(r.stdout(), r.truncated());
+            } catch (Exception ignore) { /* ignore */ }
+        }
+        return new GitFileDiffResponse("", false);
+    }
+
+    /**
      * 返回工作区待提交文件列表（{@code git status --porcelain -u}）。
      * 每条 entry 含 x（index/暂存区状态）、y（工作树状态）、path（相对路径）、origPath（重命名时的原路径）。
      */

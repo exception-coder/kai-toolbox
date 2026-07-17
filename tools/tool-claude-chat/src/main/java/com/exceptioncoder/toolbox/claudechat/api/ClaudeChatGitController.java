@@ -7,6 +7,7 @@ import com.exceptioncoder.toolbox.common.git.CommitDiff;
 import com.exceptioncoder.toolbox.common.git.CommitsResponse;
 import com.exceptioncoder.toolbox.common.git.GitLogService;
 import com.exceptioncoder.toolbox.common.git.GitProperties;
+import com.exceptioncoder.toolbox.common.git.GitFileDiffResponse;
 import com.exceptioncoder.toolbox.common.git.GitStatusResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -86,6 +87,24 @@ public class ClaudeChatGitController {
         Path dir = resolveSessionGitDir(id, repo);
         int lim = limit != null ? limit : gitProps.getCommitLimitDefault();
         return new CommitsResponse(git.listCommits(dir, lim));
+    }
+
+    /**
+     * 返回单个文件的 diff（unified patch），供前端侧边对比视图使用。
+     * filePath：相对 git 仓库根目录的路径（从 /status 接口返回的 entry.path）。
+     * x：暂存区状态字符（M/A/D/R/? 等），用于选择最合适的 diff 命令。
+     */
+    @GetMapping("/diff")
+    public GitFileDiffResponse fileDiff(@PathVariable String id,
+                                        @RequestParam String filePath,
+                                        @RequestParam(required = false, defaultValue = " ") String x,
+                                        @RequestParam(required = false) String repo) {
+        Path dir = resolveSessionGitDir(id, repo);
+        // 安全校验：相对路径不含路径穿越
+        if (filePath.contains("..") || filePath.startsWith("/") || filePath.startsWith("\\")) {
+            throw new IllegalArgumentException("非法文件路径");
+        }
+        return git.gitFileDiff(dir, filePath, x);
     }
 
     /** 返回工作区待提交/未跟踪文件列表（git status --porcelain）。 */
