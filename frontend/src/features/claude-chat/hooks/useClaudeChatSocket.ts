@@ -121,6 +121,8 @@ export interface UseClaudeChatSocket {
   switchProvider: (provider?: { apiBaseUrl?: string; authToken?: string }) => void
   /** 从某条用户消息分叉出新会话（旧会话保留），完成后自动切到新会话 */
   forkSession: (upToMessageId: string) => void
+  /** 清理异常并继续：分叉到出错前最后一条正常用户消息，丢掉中毒回合，切到新会话并自动补发续上 */
+  cleanRetry: () => void
   /** 切到工具内会话（resume 续跑） */
   switchTo: (sessionId: string, hintRunning?: boolean) => void
   /** 续跑磁盘上的历史会话 */
@@ -380,6 +382,15 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
       case 'forked':
         // 分叉完成：切到新会话续跑（旧会话保留）
         switchToRef.current(msg.sessionId)
+        // 「清理异常并继续」：分叉后待新会话 ready 时自动补发出错前的用户文本（复用 pendingResend 机制）。
+        // 在 switchTo 之后设置——switchTo 内的 resetForNewSession 只重置 state，不动这些 ref。
+        if (forkResendRef.current != null) {
+          if (forkResendRef.current.trim()) {
+            pendingResendRef.current = { forSessionId: msg.sessionId, text: forkResendRef.current }
+            expectingReadyRef.current = true
+          }
+          forkResendRef.current = null
+        }
         break
       case 'replayGap':
         // 重连回放有空洞：中间事件已被服务端缓冲淘汰，本端显示可能不全
@@ -835,6 +846,33 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
   // 但在正常流程下不会被触发（expectingReadyRef 始终为 false）。
   const expectingReadyRef = useRef(false)
   const pendingResendRef = useRef<{ text: string; forSessionId: string } | null>(null)
+  // 「清理异常并继续」：分叉到出错前最后一条正常用户消息后，待新会话 ready 时自动补发其文本。
+  const forkResendRef = useRef<string | null>(null)
+  // items 的最新快照（供 cleanRetry 在回调里读取当前列表，避免闭包旧值）。
+  const itemsRef = useRef<ChatItem[]>(items)
+  useEffect(() => { itemsRef.current = items }, [items])
 
-  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, skills, agents, mcpServers, outputStyle, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, open, switchTo, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setModel, refreshModels, setCodexOptions, switchEngine, switchProvider, forkSession, historyLoading, historyExhausted, loadHistory }
+  /**
+   * 清理异常并继续：会话被坏 thinking 块等毒化后每轮都报错时，分叉到出错前最后一条带 sdkUuid 的
+   * 用户消息（丢掉中毒的助手回合），切到干净新会话并自动补发该用户文本，续上上下文。
+   */
+  const cleanRetry = useCallback(() => {
+    const its = itemsRef.current
+    let targetUuid: string | undefined
+    let targetText = ''
+    for (let i = its.length - 1; i >= 0; i--) {
+      const it = its[i]
+      if (it.kind === 'user' && it.sdkUuid) { targetUuid = it.sdkUuid; targetText = it.text ?? ''; break }
+    }
+    if (!targetUuid) return
+    forkResendRef.current = targetText
+    setErrorMessage(null)
+    if (!sendRaw({ type: 'forkSession', upToMessageId: targetUuid })) {
+      // WS 未连上：分叉依赖存活会话，先重连；连上后用户可再次触发
+      forkResendRef.current = null
+      connect()
+    }
+  }, [sendRaw, connect])
+
+  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, skills, agents, mcpServers, outputStyle, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, open, switchTo, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setModel, refreshModels, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, loadHistory }
 }

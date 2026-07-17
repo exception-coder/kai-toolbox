@@ -757,7 +757,7 @@ export function FloatingChatWindow() {
           />
         </div>
       ) : (
-        <MessageList items={chat.items} running={chat.running} onFork={chat.forkSession} engineLabel={engineLabel} onResumeCurrent={chat.resumeCurrent} turnTokens={chat.turnTokens} connState={chat.state} />
+        <MessageList items={chat.items} running={chat.running} onFork={chat.forkSession} engineLabel={engineLabel} onResumeCurrent={chat.resumeCurrent} onCleanRetry={chat.cleanRetry} turnTokens={chat.turnTokens} connState={chat.state} />
       ))}
 
       {/* 模块路由面板：解析中 / 没匹配提示 / 多候选选择（说「去开发 X 模块」或 /goto X 触发） */}

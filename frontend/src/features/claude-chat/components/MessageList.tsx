@@ -26,6 +26,8 @@ interface Props {
   onResumeCurrent?: () => void
   /** QUERY_FAILED/No conversation found 时在同目录新建会话。 */
   onNewSession?: () => void
+  /** 清理异常并继续：坏 thinking 块等毒化会话、每轮都报错时，分叉到出错前并续上。 */
+  onCleanRetry?: () => void
   /** 本轮进行中的实时输出 token 数，显示在「进行时」指示器上（0=不显示）。 */
   turnTokens?: number
   /** WS 连接状态：非 ready 时「进行时」指示器改显示「连接中断，重连中」，避免误导为 AI 在思考。 */
@@ -33,7 +35,9 @@ interface Props {
 }
 
 /** 消息流：用户气泡靠右、assistant 文本靠左、工具调用与系统标记居中。顶部上拉加载更早历史。 */
-export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exhausted, onFork, engineLabel = 'Claude', onResumeCurrent, onNewSession, turnTokens = 0, connState = 'ready' }: Props) {
+export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exhausted, onFork, engineLabel = 'Claude', onResumeCurrent, onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready' }: Props) {
+  // 是否存在可分叉的用户消息（有 sdkUuid），供错误行的「清理异常并继续」判断可用性
+  const hasForkTarget = items.some(it => it.kind === 'user' && !!it.sdkUuid)
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevHeightRef = useRef(0)
   const prependingRef = useRef(false)
@@ -78,6 +82,7 @@ export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exh
       )}
       {items.map(item => (
         <Row key={item.id} item={item} onFork={onFork} engineLabel={engineLabel} onResumeCurrent={onResumeCurrent} onNewSession={onNewSession}
+          onCleanRetry={hasForkTarget ? onCleanRetry : undefined}
           onOpenImage={(src, alt) => setViewer({ src, alt })} />
       ))}
       {running && <ThinkingIndicator engineLabel={engineLabel} tokens={turnTokens} connState={connState} />}
@@ -214,7 +219,7 @@ function TurnStatus({ item }: { item: Extract<ChatItem, { kind: 'result' }> }) {
   )
 }
 
-function Row({ item, onFork, engineLabel, onResumeCurrent, onNewSession, onOpenImage }: { item: ChatItem; onFork?: (sdkUuid: string) => void; engineLabel?: string; onResumeCurrent?: () => void; onNewSession?: () => void; onOpenImage?: (src: string, alt: string) => void }) {
+function Row({ item, onFork, engineLabel, onResumeCurrent, onNewSession, onCleanRetry, onOpenImage }: { item: ChatItem; onFork?: (sdkUuid: string) => void; engineLabel?: string; onResumeCurrent?: () => void; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void }) {
   switch (item.kind) {
     case 'user':
       return (
@@ -309,6 +314,9 @@ function Row({ item, onFork, engineLabel, onResumeCurrent, onNewSession, onOpenI
     case 'error': {
       // 会话历史丢失（对应 JSONL 文件不存在），任何 resume 都无法恢复，需新建会话
       const isPermanentlyLost = item.code === 'QUERY_FAILED' && !!item.message?.includes('No conversation found')
+      // 坏 thinking 块签名类 400：会话被毒化，原地 resume 会把坏块反复发出→每轮都失败，
+      // 只能分叉到出错前（丢掉中毒回合）才能续。识别后主推「清理异常并继续」。
+      const isPoisoned = !isPermanentlyLost && /signature in thinking block|invalid signature/i.test(item.message ?? '')
       return (
         <div className={cn('flex max-w-full flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-sm',
           isPermanentlyLost
@@ -319,10 +327,12 @@ function Row({ item, onFork, engineLabel, onResumeCurrent, onNewSession, onOpenI
           <span className="min-w-0 flex-1 break-words">
             {isPermanentlyLost
               ? '会话记录已永久丢失（Claude Code 历史文件不存在），resume 无法恢复。建议新建会话。'
-              : `${item.code}: ${item.message}`}
+              : isPoisoned
+                ? `会话上下文异常（思考块签名失效），原地重试会一直失败。可「清理异常并继续」——分叉到出错前、丢掉异常回合后续上。（${item.message}）`
+                : `${item.code}: ${item.message}`}
           </span>
-          {isPermanentlyLost
-            ? (onNewSession && (
+          {isPermanentlyLost ? (
+            onNewSession && (
               <button
                 type="button"
                 onClick={onNewSession}
@@ -331,8 +341,17 @@ function Row({ item, onFork, engineLabel, onResumeCurrent, onNewSession, onOpenI
                 <FolderOpen className="mr-1 inline size-3.5" />
                 新建会话（同目录）
               </button>
-            ))
-            : (onResumeCurrent && (
+            )
+          ) : isPoisoned && onCleanRetry ? (
+            <button
+              type="button"
+              onClick={onCleanRetry}
+              className="shrink-0 rounded-md border border-amber-400 bg-amber-100 px-2 py-1 text-xs font-medium text-amber-900 hover:bg-amber-200 dark:border-amber-600 dark:bg-amber-900 dark:text-amber-100 dark:hover:bg-amber-800"
+            >
+              清理异常并继续
+            </button>
+          ) : (
+            onResumeCurrent && (
               <button
                 type="button"
                 onClick={onResumeCurrent}
@@ -340,8 +359,8 @@ function Row({ item, onFork, engineLabel, onResumeCurrent, onNewSession, onOpenI
               >
                 原地 resume
               </button>
-            ))
-          }
+            )
+          )}
         </div>
       )
     }
