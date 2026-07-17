@@ -37,16 +37,70 @@ const MarkdownEditor = lazy(() =>
 )
 
 // ───── Markdown 预览：复用 doc-viewer 的 markdown.css 样式（标题层级/代码块/表格完整渲染） ─────
-function MarkdownViewer({ content }: { content: string }) {
+function MarkdownViewer({ content, viewRef }: { content: string; viewRef?: React.RefObject<HTMLDivElement | null> }) {
   const html = DOMPurify.sanitize(marked.parse(content, { async: false }) as string)
   return (
-    <div className="h-full overflow-y-auto p-6">
+    <div ref={viewRef} className="h-full overflow-y-auto p-6">
       {/* doc-viewer-md 类由 doc-viewer/styles/markdown.css 定义，包含完整 prose 排版 */}
       <div
         className="doc-viewer-md max-w-none"
         // eslint-disable-next-line react/no-danger
         dangerouslySetInnerHTML={{ __html: html }}
       />
+    </div>
+  )
+}
+
+// ───── 大纲侧边栏：从 Markdown 文本提取标题，点击滚动到对应位置 ─────
+function DocOutline({
+  content,
+  targetRef,
+}: {
+  content: string
+  targetRef: React.RefObject<HTMLDivElement | null>
+}) {
+  const [activeIdx, setActiveIdx] = useState(0)
+
+  // 从 Markdown 文本解析标题列表（h1-h4）
+  const headings: Array<{ level: number; text: string }> = []
+  for (const line of content.split('\n')) {
+    const m = line.match(/^(#{1,4})\s+(.+)/)
+    if (m) headings.push({ level: m[1].length, text: m[2].trim() })
+  }
+
+  if (headings.length === 0) return null
+
+  const scrollTo = (text: string, idx: number) => {
+    setActiveIdx(idx)
+    const root = targetRef.current
+    if (!root) return
+    const els = root.querySelectorAll('h1,h2,h3,h4')
+    for (const el of els) {
+      if (el.textContent?.trim() === text) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        break
+      }
+    }
+  }
+
+  return (
+    <div className="w-48 flex-shrink-0 border-r border-[var(--color-border)] overflow-y-auto py-4 bg-[var(--color-card)]">
+      <div className="px-4 mb-3 text-[10px] font-bold uppercase tracking-wider text-[var(--color-muted-foreground)]">
+        大纲
+      </div>
+      {headings.map((h, i) => (
+        <button
+          key={i}
+          onClick={() => scrollTo(h.text, i)}
+          className={[
+            'w-full text-left py-1 text-xs truncate transition-colors hover:bg-[var(--color-muted)]/50',
+            activeIdx === i ? 'text-[var(--color-primary)] font-medium bg-[var(--color-primary)]/8' : 'text-[var(--color-foreground)]',
+            h.level === 1 ? 'px-4' : h.level === 2 ? 'pl-6 pr-4 text-[11px]' : h.level === 3 ? 'pl-8 pr-4 text-[11px] text-[var(--color-muted-foreground)]' : 'pl-10 pr-4 text-[10px] text-[var(--color-muted-foreground)]',
+          ].join(' ')}
+        >
+          {h.text}
+        </button>
+      ))}
     </div>
   )
 }
@@ -1125,6 +1179,9 @@ function EditingPanel({
   const [panelMode, setPanelMode] = useState<'prd' | 'dev' | 'side'>(hasDevDoc ? 'dev' : 'prd')
   /** 开发文档内部视图模式（仅 dev Tab 有效） */
   const [devViewMode, setDevViewMode] = useState<'split' | 'edit' | 'preview'>('split')
+  /** 大纲滚动目标 ref（预览区的滚动容器） */
+  const prdPreviewRef = useRef<HTMLDivElement>(null)
+  const devPreviewRef = useRef<HTMLDivElement>(null)
 
   // ── 开发文档状态 ──
   const [devDocContent, setDevDocContent] = useState('')
@@ -1320,8 +1377,12 @@ function EditingPanel({
               </div>
             )}
             {(prdViewMode === 'split' || prdViewMode === 'preview') && (
-              <div className={`${prdViewMode === 'split' ? 'w-1/2' : 'w-full'} h-full overflow-hidden`}>
-                <MarkdownViewer content={content} />
+              <div className={`${prdViewMode === 'split' ? 'w-1/2' : 'w-full'} h-full flex overflow-hidden`}>
+                {/* 预览模式：大纲 + 内容 */}
+                <DocOutline content={content} targetRef={prdPreviewRef} />
+                <div className="flex-1 h-full overflow-hidden">
+                  <MarkdownViewer content={content} viewRef={prdPreviewRef} />
+                </div>
               </div>
             )}
           </div>
@@ -1350,8 +1411,12 @@ function EditingPanel({
                   </div>
                 )}
                 {(devViewMode === 'split' || devViewMode === 'preview') && (
-                  <div className={`${devViewMode === 'split' ? 'w-1/2' : 'w-full'} h-full overflow-hidden`}>
-                    <MarkdownViewer content={devDocContent} />
+                  <div className={`${devViewMode === 'split' ? 'w-1/2' : 'w-full'} h-full flex overflow-hidden`}>
+                    {/* 预览模式：大纲 + 内容 */}
+                    <DocOutline content={devDocContent} targetRef={devPreviewRef} />
+                    <div className="flex-1 h-full overflow-hidden">
+                      <MarkdownViewer content={devDocContent} viewRef={devPreviewRef} />
+                    </div>
                   </div>
                 )}
               </div>
