@@ -1000,6 +1000,36 @@ function ChattingPanel({
 
       {/* 对话气泡区 */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+
+        {/* 第一题生成中：Claude 正在查知识图谱（此时 history=[] currentQ=''） */}
+        {isStreaming && !currentQ && history.length === 0 && (
+          <div className="flex items-start gap-3">
+            <div className="w-7 h-7 rounded-full bg-[var(--color-primary)]/20 flex items-center justify-center flex-shrink-0">
+              <BotMessageSquare className="w-4 h-4 text-[var(--color-primary)]" />
+            </div>
+            <div className="flex-1 rounded-2xl rounded-tl-sm bg-[var(--color-muted)]/30 border border-[var(--color-border)] px-4 py-3 max-w-2xl">
+              <div className="flex items-center gap-2 text-sm text-[var(--color-muted-foreground)] mb-2">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-primary)]" />
+                <span>Claude 正在分析需求，查询知识图谱…</span>
+              </div>
+              <div className="space-y-1.5 text-[11px] text-[var(--color-muted-foreground)]">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                  <span>读取 domain-knowledge（业务规则/状态机）</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" style={{ animationDelay: '0.3s' }} />
+                  <span>读取 graphify（代码结构/已有实现）</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" style={{ animationDelay: '0.6s' }} />
+                  <span>结合 PRD 生成精准澄清问题…</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* 历史 Q&A */}
         {history.map((qa, i) => (
           <div key={i} className="space-y-2">
@@ -1072,8 +1102,11 @@ function ChattingPanel({
       {/* 流式中占位输入区 */}
       {isStreaming && (
         <div className="border-t border-[var(--color-border)] bg-[var(--color-card)] p-4">
-          <div className="max-w-3xl mx-auto h-12 rounded-xl border border-[var(--color-border)] bg-[var(--color-muted)]/30 flex items-center px-3 text-xs text-[var(--color-muted-foreground)] italic">
-            等待 Claude 提问…
+          <div className="max-w-3xl mx-auto h-12 rounded-xl border border-[var(--color-border)] bg-[var(--color-muted)]/30 flex items-center gap-2 px-3 text-xs text-[var(--color-muted-foreground)]">
+            <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />
+            <span className="italic">
+              {currentQ ? 'Claude 正在输出问题…' : 'Claude 正在查询知识图谱，生成精准问题中（约 10-30 秒）…'}
+            </span>
           </div>
         </div>
       )}
