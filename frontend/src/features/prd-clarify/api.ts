@@ -146,6 +146,35 @@ export const autoRegisterToReqPool = (params: {
     }),
   })
 
+// ─── 附件解析 ───
+
+export interface AttachmentParseResult {
+  fileName: string
+  contentType: string
+  text: string
+  truncated: boolean
+}
+
+/**
+ * 上传附件（MD / PDF / DOCX）并解析提取文本。
+ * 返回结构化的解析结果，由前端拼接到 rawInput 中。
+ */
+export const parseAttachment = async (file: File): Promise<AttachmentParseResult> => {
+  const form = new FormData()
+  form.append('file', file)
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('toolbox.auth.token') : null
+  const res = await fetch('/api/prd-clarify/attachments/parse', {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as { message?: string }).message ?? `HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
 // ─── 多轮渐进式澄清 ───
 
 export interface QaPair { question: string; answer: string }

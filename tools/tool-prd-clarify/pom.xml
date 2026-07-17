@@ -26,6 +26,18 @@
             <groupId>com.exceptioncoder</groupId>
             <artifactId>toolbox-llm</artifactId>
         </dependency>
+        <!-- 附件解析：PDF 文本提取（Apache PDFBox） -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>3.0.3</version>
+        </dependency>
+        <!-- 附件解析：Word (.docx) 文本提取（Apache POI OOXML） -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.2.5</version>
+        </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>

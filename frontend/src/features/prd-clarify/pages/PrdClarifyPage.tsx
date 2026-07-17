@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { BotMessageSquare, ChevronRight, Code2, Copy, ExternalLink, FileText, Info, Layers, Loader2, Plus, RefreshCw, Rocket, Send, Trash2, User, Wrench, X } from 'lucide-react'
+import { BotMessageSquare, ChevronRight, Code2, Copy, ExternalLink, FileText, Info, Layers, Loader2, Paperclip, Plus, RefreshCw, Rocket, Send, Trash2, User, Wrench, X } from 'lucide-react'
 import { http } from '@/lib/api'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -17,12 +17,14 @@ import {
   getSession,
   linkPrdToReqItem,
   listSessions,
+  parseAttachment,
   saveContent,
   saveDevDocContent,
   saveQaHistory,
   startGenerate,
   startGenerateDevDoc,
   type QaPair,
+  type AttachmentParseResult,
 } from '../api'
 import type { PrdSessionView, PrdStep, QuestionItem } from '../types'
 import { useConfirm } from '@/components/ui/confirm-dialog'
@@ -423,12 +425,45 @@ function InputPanel({
   const [project, setProject] = useState(initialProject)
   const [module, setModule] = useState(initialModule)
   const [role, setRole] = useState<'PRODUCT' | 'BUSINESS'>('PRODUCT')
+  /** 已上传并解析的附件列表 */
+  const [attachments, setAttachments] = useState<AttachmentParseResult[]>([])
+  const [uploadingFile, setUploadingFile] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // 当外部初始值变化时（如从 showcase 跳转带参数）同步更新
   useEffect(() => { if (initialTitle) setTitle(initialTitle) }, [initialTitle])
   useEffect(() => { if (initialRawInput) setRawInput(initialRawInput) }, [initialRawInput])
   useEffect(() => { if (initialProject) setProject(initialProject) }, [initialProject])
   useEffect(() => { if (initialModule) setModule(initialModule) }, [initialModule])
+
+  const handleFileUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    setUploadError(null)
+    setUploadingFile(true)
+    try {
+      const results = await Promise.all(
+        Array.from(files).map(f => parseAttachment(f))
+      )
+      setAttachments(prev => [...prev, ...results])
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : '文件解析失败')
+    } finally {
+      setUploadingFile(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  /** 提交时将附件内容追加到 rawInput */
+  const buildFinalRawInput = () => {
+    let final = rawInput.trim()
+    if (attachments.length > 0) {
+      final += '\n\n' + attachments.map(a =>
+        `---\n【附件：${a.fileName}】\n${a.text}${a.truncated ? '\n（内容已截断）' : ''}\n---`
+      ).join('\n\n')
+    }
+    return final
+  }
 
   // 拉取项目列表：用 claude-chat/workspaces 而非 /projects，
   // 因为 workspaces 支持多个 workspace root（包含 D:\yoooni\ 等非 myWork 根目录），
@@ -472,7 +507,8 @@ function InputPanel({
 
   const modules: Array<{ name: string }> = modulesData?.modules ?? []
 
-  const canSubmit = title.trim() && rawInput.trim()
+  // 标题必填；描述 OR 至少有一个附件即可提交
+  const canSubmit = title.trim() && (rawInput.trim() || attachments.length > 0)
 
   return (
     <div className="flex-1 p-6 overflow-y-auto">
@@ -587,20 +623,71 @@ function InputPanel({
           </div>
         </div>
 
+        {/* 原始需求描述 + 附件上传区 */}
         <div>
-          <label className="block text-sm font-medium mb-1">原始需求描述 <span className="text-red-500">*</span></label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-sm font-medium">原始需求描述 <span className="text-red-500">*</span></label>
+            {/* 附件上传按钮 */}
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadingFile}
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-[var(--color-border)] hover:border-[var(--color-ring)] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] transition-colors"
+              title="上传 Markdown / PDF / Word 文件，提取文字作为需求描述"
+            >
+              {uploadingFile ? <Loader2 className="w-3 h-3 animate-spin" /> : <Paperclip className="w-3 h-3" />}
+              {uploadingFile ? '解析中…' : '上传附件'}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".md,.txt,.pdf,.docx,.doc"
+              multiple
+              className="hidden"
+              onChange={(e) => handleFileUpload(e.target.files)}
+            />
+          </div>
           <textarea
             value={rawInput}
             onChange={(e) => setRawInput(e.target.value)}
-            rows={8}
+            rows={attachments.length > 0 ? 4 : 8}
             placeholder={ROLE_CONFIG[role].placeholder}
             className="w-full px-3 py-2 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] text-sm resize-y focus:outline-none focus:ring-1 focus:ring-[var(--color-ring)]"
           />
+
+          {/* 上传错误 */}
+          {uploadError && (
+            <p className="text-xs text-red-500 mt-1">{uploadError}</p>
+          )}
+
+          {/* 已上传附件列表 */}
+          {attachments.length > 0 && (
+            <div className="mt-2 space-y-1">
+              <p className="text-[11px] text-[var(--color-muted-foreground)] mb-1.5">
+                附件内容将自动追加到需求描述（共 {attachments.length} 个）：
+              </p>
+              {attachments.map((att, i) => (
+                <div key={i} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/30">
+                  <FileText className="w-3.5 h-3.5 flex-shrink-0 text-[var(--color-primary)]" />
+                  <span className="text-xs font-medium truncate flex-1">{att.fileName}</span>
+                  <span className="text-[10px] text-[var(--color-muted-foreground)]">
+                    {(att.text.length / 1000).toFixed(1)}k 字{att.truncated ? '（已截断）' : ''}
+                  </span>
+                  <button
+                    onClick={() => setAttachments(prev => prev.filter((_, j) => j !== i))}
+                    className="text-[var(--color-muted-foreground)] hover:text-red-500"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <button
           disabled={!canSubmit}
-          onClick={() => onStart(title.trim(), rawInput.trim(), project, module, role)}
+          onClick={() => onStart(title.trim(), buildFinalRawInput(), project, module, role)}
           className="w-full py-2.5 rounded-md bg-[var(--color-primary)] text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
         >
           {role === 'BUSINESS' ? '开始描述我的业务需求' : '开始需求澄清'}

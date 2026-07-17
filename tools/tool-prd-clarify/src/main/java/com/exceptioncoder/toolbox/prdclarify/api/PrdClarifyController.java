@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.prdclarify.api;
 
 import com.exceptioncoder.toolbox.prdclarify.api.dto.AskNextQuestionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.CreateSessionRequest;
+import com.exceptioncoder.toolbox.prdclarify.service.AttachmentParseService;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.PrdSessionView;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.SaveContentRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.SaveQaHistoryRequest;
@@ -50,10 +51,36 @@ public class PrdClarifyController {
 
     private final PrdClarifyService service;
     private final PrdSessionRepository repo;
+    private final AttachmentParseService attachmentParser;
 
-    public PrdClarifyController(PrdClarifyService service, PrdSessionRepository repo) {
+    public PrdClarifyController(PrdClarifyService service, PrdSessionRepository repo,
+                                AttachmentParseService attachmentParser) {
         this.service = service;
         this.repo = repo;
+        this.attachmentParser = attachmentParser;
+    }
+
+    /**
+     * 附件文本提取：上传 Markdown / PDF / Word 文件，返回提取的文本内容。
+     * 前端将提取的文本追加到 rawInput 后再创建会话。
+     * 支持格式：.md / .txt / .pdf / .docx / .doc，单文件最大 20MB。
+     */
+    @PostMapping(value = "/attachments/parse", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<AttachmentParseService.ParseResult> parseAttachment(
+            @org.springframework.web.bind.annotation.RequestParam("file") org.springframework.web.multipart.MultipartFile file) {
+        if (file.isEmpty()) {
+            throw new ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "文件不能为空");
+        }
+        if (!attachmentParser.isSupported(file)) {
+            throw new ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "不支持的文件格式，请上传 .md / .pdf / .docx 文件");
+        }
+        try {
+            return ResponseEntity.ok(attachmentParser.parse(file));
+        } catch (Exception e) {
+            throw new ResponseStatusException(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR,
+                    "文件解析失败：" + e.getMessage());
+        }
     }
 
     /** 创建会话。 */
