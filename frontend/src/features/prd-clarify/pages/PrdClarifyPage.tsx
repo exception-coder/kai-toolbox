@@ -1029,12 +1029,15 @@ function EditingPanel({
   const [content, setContent] = useState(initialContent)
   const [isDirty, setIsDirty] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [viewMode, setViewMode] = useState<'split' | 'edit' | 'preview'>('split')
+  /** PRD 内部视图（只在 panelMode=prd 时有效） */
+  const [prdViewMode, setPrdViewMode] = useState<'split' | 'edit' | 'preview'>('split')
   const [showDevDialog, setShowDevDialog] = useState(false)
 
-  // ── 开发文档分栏状态 ──
-  // hasDevDoc=true 时（从历史进入且已有开发文档），自动打开右侧分栏
-  const [showDevDoc, setShowDevDoc] = useState(() => !!hasDevDoc)
+  // ── 顶层面板模式：prd（仅 PRD）| dev（仅开发文档）| side（并排） ──
+  // hasDevDoc=true 时默认进入 dev 模式，让用户直接看到开发文档全屏
+  const [panelMode, setPanelMode] = useState<'prd' | 'dev' | 'side'>(hasDevDoc ? 'dev' : 'prd')
+
+  // ── 开发文档状态 ──
   const [devDocContent, setDevDocContent] = useState('')
   const [devDocStreaming, setDevDocStreaming] = useState(false)
   const [devDocDirty, setDevDocDirty] = useState(false)
@@ -1043,7 +1046,7 @@ function EditingPanel({
   const devDocAccRef = useRef('')
 
   const handleGenerateDevDoc = () => {
-    setShowDevDoc(true)
+    setPanelMode('dev')   // 生成时切到开发文档全屏视图
     setDevDocContent('')
     setDevDocStreaming(true)
     devDocAccRef.current = ''
@@ -1078,12 +1081,12 @@ function EditingPanel({
     }
   }
 
-  // 有已生成的开发文档时自动加载
+  // 进入 dev 或 side 模式时自动加载开发文档内容（只加载一次）
   useEffect(() => {
-    if (!showDevDoc || devDocContent) return
+    if ((panelMode === 'prd') || devDocContent) return
     getDevDocContent(sessionId).then(c => { if (c) setDevDocContent(c) }).catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showDevDoc])
+  }, [panelMode])
 
   const handleChange = (next: string) => {
     setContent(next)
@@ -1117,142 +1120,172 @@ function EditingPanel({
         />
       )}
 
-      {/* 工具栏 */}
+      {/* ─── 顶部 Tab + 操作栏 ─── */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--color-border)] bg-[var(--color-card)] gap-2">
-        <div className="flex items-center gap-1 text-xs">
-          {(['split', 'edit', 'preview'] as const).map((mode) => (
+
+        {/* 左：文档 Tab 切换 */}
+        <div className="flex items-center gap-0.5 bg-[var(--color-muted)]/40 rounded-lg p-0.5 text-xs">
+          {([
+            { key: 'prd', label: 'PRD', icon: <FileText className="w-3 h-3" /> },
+            { key: 'dev', label: '开发文档', icon: <Wrench className="w-3 h-3" /> },
+            { key: 'side', label: '并排', icon: null },
+          ] as const).map(({ key, label, icon }) => (
             <button
-              key={mode}
-              onClick={() => setViewMode(mode)}
-              className={`px-2.5 py-1 rounded ${
-                viewMode === mode
-                  ? 'bg-[var(--color-primary)] text-white'
-                  : 'hover:bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'
+              key={key}
+              onClick={() => {
+                setPanelMode(key)
+                if ((key === 'dev' || key === 'side') && !devDocContent && !devDocStreaming) {
+                  // 切到开发文档时，若无内容则触发生成
+                  handleGenerateDevDoc()
+                }
+              }}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-colors ${
+                panelMode === key
+                  ? key === 'dev'
+                    ? 'bg-purple-600/20 text-purple-400 font-medium'
+                    : 'bg-[var(--color-card)] text-[var(--color-foreground)] font-medium shadow-sm'
+                  : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]'
               }`}
             >
-              {mode === 'split' ? '分栏' : mode === 'edit' ? '编辑' : '预览'}
+              {icon}{label}
+              {key === 'dev' && devDocStreaming && <Loader2 className="w-2.5 h-2.5 animate-spin ml-0.5" />}
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-2">
-          {/* 生成开发文档 */}
-          <button
-            onClick={showDevDoc ? () => setShowDevDoc(false) : handleGenerateDevDoc}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg font-medium transition-colors border ${
-              showDevDoc
-                ? 'bg-purple-600/20 border-purple-500/30 text-purple-400'
-                : 'bg-purple-600/10 border-purple-500/20 text-purple-400 hover:bg-purple-600/20'
-            }`}
-          >
-            <Wrench className="w-3.5 h-3.5" />
-            {devDocStreaming ? '生成中…' : showDevDoc ? '关闭开发文档' : '生成开发文档'}
-          </button>
-          {/* 核心功能按钮：开始开发 */}
-          <button
-            onClick={() => setShowDevDialog(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-green-600/20 border border-green-500/30 text-green-400 hover:bg-green-600/30 hover:text-green-300 font-medium transition-colors"
-          >
-            <Rocket className="w-3.5 h-3.5" />
-            开始开发
+
+        {/* 中：PRD 子视图模式（仅 prd 或 side 模式显示） */}
+        {(panelMode === 'prd' || panelMode === 'side') && (
+          <div className="flex items-center gap-1 text-xs">
+            {(['split', 'edit', 'preview'] as const).map((m) => (
+              <button key={m} onClick={() => setPrdViewMode(m)}
+                className={`px-2 py-0.5 rounded ${prdViewMode === m ? 'bg-[var(--color-primary)] text-white' : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]'}`}>
+                {m === 'split' ? '分栏' : m === 'edit' ? '编辑' : '预览'}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* 右：操作按钮 */}
+        <div className="flex items-center gap-2 ml-auto">
+          <button onClick={() => setShowDevDialog(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-green-600/20 border border-green-500/30 text-green-400 hover:bg-green-600/30 font-medium">
+            <Rocket className="w-3.5 h-3.5" /> 开始开发
           </button>
           <div className="w-px h-4 bg-[var(--color-border)]" />
-          <button
-            onClick={onReset}
-            className="flex items-center gap-1 px-2.5 py-1 text-xs rounded border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-muted-foreground)]"
-          >
+          <button onClick={onReset}
+            className="flex items-center gap-1 px-2.5 py-1 text-xs rounded border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-muted-foreground)]">
             <Plus className="w-3 h-3" /> 新建
           </button>
-          <button
-            onClick={handleCopy}
-            className="flex items-center gap-1 px-2.5 py-1 text-xs rounded border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-muted-foreground)]"
-          >
-            <Copy className="w-3 h-3" /> 复制
-          </button>
-          <button
-            disabled={!isDirty || saving}
-            onClick={handleSave}
-            className="flex items-center gap-1 px-2.5 py-1 text-xs rounded bg-[var(--color-primary)] text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-            保存
-          </button>
-          {isDirty && <span className="text-xs text-yellow-500">未保存</span>}
+          {/* 保存（根据当前 Tab 保存对应文档） */}
+          {panelMode === 'dev' ? (
+            <>
+              {devDocDirty && <span className="text-xs text-yellow-500">未保存</span>}
+              <button onClick={() => navigator.clipboard.writeText(devDocContent)}
+                className="flex items-center gap-1 px-2.5 py-1 text-xs rounded border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-muted-foreground)]">
+                <Copy className="w-3 h-3" />
+              </button>
+              <button disabled={!devDocDirty || devDocSaving} onClick={handleSaveDevDoc}
+                className="flex items-center gap-1 px-2.5 py-1 text-xs rounded bg-purple-600/20 text-purple-400 hover:bg-purple-600/30 disabled:opacity-40">
+                {devDocSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : null} 保存
+              </button>
+            </>
+          ) : (
+            <>
+              {isDirty && <span className="text-xs text-yellow-500">未保存</span>}
+              <button onClick={handleCopy}
+                className="flex items-center gap-1 px-2.5 py-1 text-xs rounded border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-muted-foreground)]">
+                <Copy className="w-3 h-3" />
+              </button>
+              <button disabled={!isDirty || saving} onClick={handleSave}
+                className="flex items-center gap-1 px-2.5 py-1 text-xs rounded bg-[var(--color-primary)] text-white hover:opacity-90 disabled:opacity-40">
+                {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : null} 保存
+              </button>
+            </>
+          )}
         </div>
       </div>
 
-      {/* 编辑区 */}
+      {/* ─── 内容区（根据 panelMode 切换） ─── */}
       <div className="flex-1 flex overflow-hidden">
-        {/* PRD 区（有开发文档时缩至左半区） */}
-        <div className={`${showDevDoc ? 'w-1/2 border-r border-[var(--color-border)]' : 'w-full'} h-full flex flex-col overflow-hidden`}>
+
+        {/* PRD 全屏 */}
+        {panelMode === 'prd' && (
           <div className="flex-1 flex overflow-hidden">
-            {(viewMode === 'split' || viewMode === 'edit') && (
-              <div className={`${viewMode === 'split' ? 'w-1/2 border-r border-[var(--color-border)]' : 'w-full'} h-full overflow-hidden`}>
+            {(prdViewMode === 'split' || prdViewMode === 'edit') && (
+              <div className={`${prdViewMode === 'split' ? 'w-1/2 border-r border-[var(--color-border)]' : 'w-full'} h-full overflow-hidden`}>
                 <Suspense fallback={<div className="p-4 text-sm text-[var(--color-muted-foreground)]">加载编辑器…</div>}>
                   <MarkdownEditor value={content} onChange={handleChange} onSave={handleSave} />
                 </Suspense>
               </div>
             )}
-            {(viewMode === 'split' || viewMode === 'preview') && (
-              <div className={`${viewMode === 'split' ? 'w-1/2' : 'w-full'} h-full overflow-hidden`}>
+            {(prdViewMode === 'split' || prdViewMode === 'preview') && (
+              <div className={`${prdViewMode === 'split' ? 'w-1/2' : 'w-full'} h-full overflow-hidden`}>
                 <MarkdownViewer content={content} />
               </div>
             )}
           </div>
-        </div>
+        )}
 
-        {/* 开发文档区（右侧分栏） */}
-        {showDevDoc && (
-          <div className="w-1/2 flex flex-col overflow-hidden">
-            {/* 开发文档工具栏 */}
-            <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--color-border)] bg-[var(--color-muted)]/20">
-              <div className="flex items-center gap-2">
-                <Wrench className="w-3.5 h-3.5 text-purple-400" />
-                <span className="text-xs font-semibold text-purple-400">开发文档</span>
-                {devDocStreaming && <Loader2 className="w-3 h-3 animate-spin text-[var(--color-muted-foreground)]" />}
-              </div>
-              <div className="flex items-center gap-2">
-                {devDocDirty && <span className="text-[10px] text-yellow-500">未保存</span>}
-                <button
-                  disabled={!devDocDirty || devDocSaving}
-                  onClick={handleSaveDevDoc}
-                  className="flex items-center gap-1 px-2 py-0.5 text-[11px] rounded bg-[var(--color-primary)] text-white hover:opacity-90 disabled:opacity-40"
-                >
-                  {devDocSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-                  保存
-                </button>
-                <button
-                  onClick={() => navigator.clipboard.writeText(devDocContent)}
-                  className="flex items-center gap-1 px-2 py-0.5 text-[11px] rounded border border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]"
-                >
-                  <Copy className="w-3 h-3" />
-                </button>
-              </div>
-            </div>
-
-            {/* 开发文档内容：流式中只读预览，完成后可编辑 */}
-            <div className="flex-1 overflow-hidden">
-              {devDocStreaming ? (
-                <MarkdownViewer content={devDocContent || '正在生成开发文档，请稍候…'} />
-              ) : devDocContent ? (
-                <Suspense fallback={<div className="p-4 text-sm text-[var(--color-muted-foreground)]">加载编辑器…</div>}>
-                  <MarkdownEditor
-                    value={devDocContent}
-                    onChange={(v) => { setDevDocContent(v); setDevDocDirty(true) }}
-                    onSave={handleSaveDevDoc}
-                  />
-                </Suspense>
-              ) : (
-                <div className="flex flex-col items-center justify-center h-full gap-3 text-[var(--color-muted-foreground)]">
-                  <Wrench className="w-8 h-8 opacity-20" />
-                  <p className="text-sm">点击「生成开发文档」开始生成</p>
-                  <button onClick={handleGenerateDevDoc}
-                    className="px-4 py-2 text-sm rounded-lg bg-purple-600/15 border border-purple-500/20 text-purple-400 hover:bg-purple-600/25">
-                    生成开发文档
-                  </button>
+        {/* 开发文档全屏 */}
+        {panelMode === 'dev' && (
+          <div className="flex-1 overflow-hidden">
+            {devDocStreaming ? (
+              <MarkdownViewer content={devDocContent || '正在生成开发文档，Claude 正在读取知识图谱…'} />
+            ) : devDocContent ? (
+              <Suspense fallback={<div className="p-4 text-sm text-[var(--color-muted-foreground)]">加载编辑器…</div>}>
+                <MarkdownEditor
+                  value={devDocContent}
+                  onChange={(v) => { setDevDocContent(v); setDevDocDirty(true) }}
+                  onSave={handleSaveDevDoc}
+                />
+              </Suspense>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full gap-4 text-[var(--color-muted-foreground)]">
+                <Wrench className="w-10 h-10 opacity-15" />
+                <div className="text-center">
+                  <p className="font-medium mb-1">还没有开发文档</p>
+                  <p className="text-sm opacity-70">Claude 会先查知识图谱，再生成精准的技术方案</p>
                 </div>
-              )}
-            </div>
+                <button onClick={handleGenerateDevDoc}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-purple-600/15 border border-purple-500/20 text-purple-400 hover:bg-purple-600/25 text-sm font-medium">
+                  <Wrench className="w-4 h-4" /> 生成开发文档
+                </button>
+              </div>
+            )}
           </div>
+        )}
+
+        {/* 并排：PRD 左 50% | 开发文档 右 50% */}
+        {panelMode === 'side' && (
+          <>
+            <div className="w-1/2 border-r border-[var(--color-border)] overflow-hidden flex flex-col">
+              <div className="px-3 py-1.5 border-b border-[var(--color-border)] bg-[var(--color-muted)]/20 text-[10px] font-semibold text-[var(--color-muted-foreground)] flex items-center gap-1">
+                <FileText className="w-3 h-3" /> PRD
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <MarkdownViewer content={content} />
+              </div>
+            </div>
+            <div className="w-1/2 overflow-hidden flex flex-col">
+              <div className="px-3 py-1.5 border-b border-[var(--color-border)] bg-[var(--color-muted)]/20 text-[10px] font-semibold text-purple-400 flex items-center gap-1">
+                <Wrench className="w-3 h-3" /> 开发文档
+                {devDocStreaming && <Loader2 className="w-2.5 h-2.5 animate-spin ml-1" />}
+              </div>
+              <div className="flex-1 overflow-hidden">
+                {devDocContent ? (
+                  <MarkdownViewer content={devDocContent} />
+                ) : devDocStreaming ? (
+                  <MarkdownViewer content="正在生成…" />
+                ) : (
+                  <div className="flex items-center justify-center h-full text-sm text-[var(--color-muted-foreground)]">
+                    <button onClick={handleGenerateDevDoc} className="text-purple-400 hover:underline">
+                      生成开发文档
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
         )}
       </div>
     </div>
