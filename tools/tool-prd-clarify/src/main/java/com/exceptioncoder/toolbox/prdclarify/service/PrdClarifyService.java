@@ -507,6 +507,7 @@ public class PrdClarifyService {
                         java.nio.file.StandardOpenOption.CREATE,
                         java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
                 repo.updateDevDocPath(sessionId, devDocPath);
+                repo.updateDevDocGeneratedAt(sessionId, System.currentTimeMillis());
                 log.info("[prd-clarify] 开发文档已保存 path={}", devDocPath);
 
                 sendDone(emitter);
@@ -544,6 +545,8 @@ public class PrdClarifyService {
                 java.nio.charset.StandardCharsets.UTF_8,
                 java.nio.file.StandardOpenOption.CREATE,
                 java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
+        // 手动编辑保存也更新生成时间，确保过期判断正确
+        repo.updateDevDocGeneratedAt(sessionId, System.currentTimeMillis());
     }
 
     private String buildDevDocPrompt(PrdSession s, String prdContent) {

@@ -29,6 +29,8 @@ public class PrdSession {
     private String devDocPath;
     /** 关联的 Vibe Coding（claude-chat）开发会话 ID，用于从 PRD 页面直接跳转到开发会话。 */
     private String devSessionId;
+    /** 开发文档最后生成时间戳（毫秒）。devDocGeneratedAt < updatedAt 时开发文档已过期。 */
+    private Long devDocGeneratedAt;
     private String model;
     /** 提需求方角色：PRODUCT（产品/开发）| BUSINESS（业务员）。决定澄清问题的深度和语言风格。 */
     private String role;

@@ -26,6 +26,8 @@ export interface PrdSessionView {
   devDocPath: string | null
   /** 关联的 Vibe Coding 开发会话 ID（非 null 表示已启动 feature-dev 开发会话） */
   devSessionId: string | null
+  /** 开发文档最后生成时间戳（毫秒）。null 或 < updatedAt 表示开发文档已过期 */
+  devDocGeneratedAt: number | null
   errorMsg: string | null
   createdAt: number
   updatedAt: number

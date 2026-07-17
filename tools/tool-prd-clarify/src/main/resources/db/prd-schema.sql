@@ -25,6 +25,8 @@ ALTER TABLE prd_session ADD COLUMN role TEXT NOT NULL DEFAULT 'PRODUCT';
 ALTER TABLE prd_session ADD COLUMN dev_doc_path TEXT;
 -- 关联的 Vibe Coding（claude-chat）开发会话 ID
 ALTER TABLE prd_session ADD COLUMN dev_session_id TEXT;
+-- 开发文档最后生成时间（用于判断开发文档是否过期：dev_doc_generated_at < updated_at 则过期）
+ALTER TABLE prd_session ADD COLUMN dev_doc_generated_at INTEGER;
 
 CREATE INDEX IF NOT EXISTS idx_prd_session_created ON prd_session(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_prd_session_status  ON prd_session(status);

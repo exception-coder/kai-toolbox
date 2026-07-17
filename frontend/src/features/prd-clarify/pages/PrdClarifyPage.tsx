@@ -418,25 +418,45 @@ function HistoryPanel({
                 </div>
 
                 {/* 树结构：开发文档作为 PRD 的子节点 */}
-                {s.devDocPath && (
-                  <div className="flex items-center gap-1 mt-1.5">
-                    {/* 树连接线 */}
-                    <div className="flex items-center flex-shrink-0 text-[var(--color-border)]">
-                      <div className="w-2.5 h-[1px] border-l border-b border-dashed border-[var(--color-muted-foreground)]/30 rounded-bl" style={{ width: 10, height: 8, borderWidth: '0 0 1px 1px' }} />
+                {s.devDocPath && (() => {
+                  // 过期判断：开发文档生成时间早于 PRD 最后更新时间
+                  const isStale = !s.devDocGeneratedAt || s.devDocGeneratedAt < s.updatedAt
+                  return (
+                    <div className="flex items-center gap-1 mt-1.5">
+                      {/* 树连接线 */}
+                      <div className="flex-shrink-0" style={{ width: 10, height: 8, borderWidth: '0 0 1px 1px', borderStyle: 'dashed', borderColor: 'rgba(100,100,100,0.3)', borderRadius: '0 0 0 3px' }} />
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onSelect({ ...s, _openDevDoc: true } as PrdSessionView & { _openDevDoc?: boolean })
+                        }}
+                        className={`flex items-center gap-1 text-[10px] transition-colors ${
+                          isStale
+                            ? 'text-amber-500 hover:text-amber-400'   // 橙色 = 过期
+                            : 'text-purple-400 hover:text-purple-300'  // 紫色 = 已同步
+                        }`}
+                        title={isStale ? '开发文档已过期（PRD 有更新），建议重新生成' : '查看开发文档（已同步最新PRD）'}
+                      >
+                        <Wrench className="w-2.5 h-2.5" />
+                        {isStale ? '开发文档（已过期）' : '开发文档'}
+                      </button>
+                      {/* 过期时显示重新生成按钮 */}
+                      {isStale && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            // 进入该 PRD 并触发重新生成开发文档
+                            onSelect({ ...s, _regenDevDoc: true } as PrdSessionView & { _regenDevDoc?: boolean })
+                          }}
+                          className="text-[9px] px-1 rounded bg-amber-500/15 text-amber-500 border border-amber-500/20 hover:bg-amber-500/25 leading-tight"
+                          title="基于最新 PRD 重新生成开发文档"
+                        >
+                          ↺ 更新
+                        </button>
+                      )}
                     </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onSelect({ ...s, _openDevDoc: true } as PrdSessionView & { _openDevDoc?: boolean })
-                      }}
-                      className="flex items-center gap-1 text-[10px] text-purple-400 hover:text-purple-300 transition-colors"
-                      title="查看开发文档"
-                    >
-                      <Wrench className="w-2.5 h-2.5" />
-                      开发文档
-                    </button>
-                  </div>
-                )}
+                  )
+                })()}
               </div>
               {/* 操作按钮区（hover 显示） */}
               <div className="hidden group-hover:flex items-center gap-1">
@@ -1334,6 +1354,7 @@ function EditingPanel({
   projectName,
   initialContent,
   hasDevDoc,
+  isDevDocStale,
   onReset,
 }: {
   sessionId: string
@@ -1342,6 +1363,8 @@ function EditingPanel({
   initialContent: string
   /** 从历史加载时，该 PRD 是否已有开发文档（devDocPath 非空） */
   hasDevDoc?: boolean
+  /** 开发文档是否过期（PRD 在开发文档生成后有更新，需要重新生成） */
+  isDevDocStale?: boolean
   onReset: () => void
 }) {
   const [content, setContent] = useState(initialContent)
@@ -1404,6 +1427,19 @@ function EditingPanel({
     }
   }
 
+  // 监听「↺ 更新」触发的重新生成事件（来自历史侧边栏）
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { sessionId: sid } = (e as CustomEvent).detail as { sessionId: string }
+      if (sid === sessionId) {
+        handleGenerateDevDoc()
+      }
+    }
+    window.addEventListener('prd-clarify:regen-dev-doc', handler)
+    return () => window.removeEventListener('prd-clarify:regen-dev-doc', handler)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId])
+
   // 进入 dev 或 side 模式时自动加载开发文档内容（只加载一次）
   useEffect(() => {
     if ((panelMode === 'prd') || devDocContent) return
@@ -1451,7 +1487,9 @@ function EditingPanel({
         <div className="flex items-center gap-0.5 bg-[var(--color-muted)]/40 rounded-lg p-0.5 text-xs">
           {([
             { key: 'prd', label: 'PRD', icon: <FileText className="w-3 h-3" /> },
-            { key: 'dev', label: '开发文档', icon: <Wrench className="w-3 h-3" /> },
+            { key: 'dev',
+              label: isDevDocStale && devDocContent ? '⚠ 开发文档' : '开发文档',
+              icon: <Wrench className="w-3 h-3" /> },
             { key: 'side', label: '并排', icon: null },
           ] as const).map(({ key, label, icon }) => (
             <button
@@ -1466,7 +1504,9 @@ function EditingPanel({
               className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-colors ${
                 panelMode === key
                   ? key === 'dev'
-                    ? 'bg-purple-600/20 text-purple-400 font-medium'
+                    ? isDevDocStale && devDocContent
+                      ? 'bg-amber-500/20 text-amber-400 font-medium'  // 过期：橙色
+                      : 'bg-purple-600/20 text-purple-400 font-medium'  // 正常：紫色
                     : 'bg-[var(--color-card)] text-[var(--color-foreground)] font-medium shadow-sm'
                   : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]'
               }`}
@@ -1974,7 +2014,7 @@ PRD_SESSION_ID: ${created.id}`
   }
 
   /** 从历史记录恢复会话（_openDevDoc=true 时自动打开开发文档分栏） */
-  const handleSelectHistory = (s: PrdSessionView & { _openDevDoc?: boolean }) => {
+  const handleSelectHistory = (s: PrdSessionView & { _openDevDoc?: boolean; _regenDevDoc?: boolean }) => {
     abortRef.current?.()
     abortRef.current = null
     setSessionId(s.id)
@@ -1986,8 +2026,14 @@ PRD_SESSION_ID: ${created.id}`
         .then((content) => {
           setPrdContent(content ?? '')
           setStep('EDITING')
-          // 点击了开发文档子节点 OR 会话本身有开发文档：自动打开右侧分栏
-          // hasDevDoc prop 会触发 EditingPanel 内部 useState 初始化为 true
+          // _regenDevDoc=true：进入编辑器后立即触发重新生成开发文档
+          if ((s as { _regenDevDoc?: boolean })._regenDevDoc) {
+            // 通过 sessionId 在 EditingPanel 里监听，不在这里直接触发（需要 devDocContent 等状态）
+            // 用 setTimeout 等 EditingPanel 挂载后再发信号
+            setTimeout(() => {
+              window.dispatchEvent(new CustomEvent('prd-clarify:regen-dev-doc', { detail: { sessionId: s.id } }))
+            }, 300)
+          }
         })
         .catch(() => {
           setPrdContent('')
@@ -2108,6 +2154,10 @@ PRD_SESSION_ID: ${created.id}`
             projectName={session?.project ?? urlProject ?? null}
             initialContent={prdContent}
             hasDevDoc={!!(session?.devDocPath)}
+            isDevDocStale={
+              !!(session?.devDocPath) &&
+              (!session?.devDocGeneratedAt || session.devDocGeneratedAt < session.updatedAt)
+            }
             onReset={handleReset}
           />
         )}

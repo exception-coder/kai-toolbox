@@ -26,6 +26,7 @@ public class PrdSessionRepository {
             .mdPath(rs.getString("md_path"))
             .devDocPath(rs.getString("dev_doc_path"))
             .devSessionId(rs.getString("dev_session_id"))
+            .devDocGeneratedAt(rs.getObject("dev_doc_generated_at", Long.class))
             .model(rs.getString("model"))
             .errorMsg(rs.getString("error_msg"))
             .createdAt(rs.getLong("created_at"))
@@ -88,6 +89,12 @@ public class PrdSessionRepository {
     public void updateDevSessionId(String id, String devSessionId) {
         jdbc.update("UPDATE prd_session SET dev_session_id = ?, updated_at = ? WHERE id = ?",
                 devSessionId, System.currentTimeMillis(), id);
+    }
+
+    /** 更新开发文档生成时间戳（生成完成时调用，用于判断开发文档是否过期）。 */
+    public void updateDevDocGeneratedAt(String id, long generatedAt) {
+        jdbc.update("UPDATE prd_session SET dev_doc_generated_at = ? WHERE id = ?",
+                generatedAt, id);
     }
 
     /** 标记错误状态。 */
