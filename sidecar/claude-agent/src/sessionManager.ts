@@ -71,10 +71,25 @@ const DEMO_STEER = [
   '约束：只能操作 welfare_sign_* 表（含 welfare_sign_theme）与副本目录内的文件，不要尝试其它表、命令或网络。',
 ].join('\n')
 
-// Claude 的 supportedModels 对所有会话是同一份、且很稳定。全局缓存，供任意会话 start/resume 即时重发。
-// supportedModels 是控制请求（非对话轮次），故启动时预热一次即可填充——见 prewarmClaudeModels。
-let cachedClaudeModels: unknown[] | null = null
+// Claude 模型清单按 provider 分别缓存：官方 supportedModels 与各第三方网关 /v1/models 是不同清单，
+// 绝不能共用一份全局缓存（否则官方刷新/官方↔三方互切会把对方清单覆盖，前端显示错 provider 的模型）。
+// key = provider 标识（'official' 或网关 baseUrl），供该 provider 的会话 start/resume/switch 即时重发。
+const claudeModelsByProvider = new Map<string, unknown[]>()
 let claudeWarmStarted = false
+
+/** provider 缓存 key：官方登录用 'official'，第三方网关用其 baseUrl（去空白）。 */
+function providerKey(apiBaseUrl?: string): string {
+  return apiBaseUrl?.trim() || 'official'
+}
+
+/** 查询官方模型时的干净环境：剔除 shell 可能预置的 ANTHROPIC 网关变量，保证问的是官方而非三方。 */
+function officialModelsEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env }
+  delete env.ANTHROPIC_BASE_URL
+  delete env.ANTHROPIC_AUTH_TOKEN
+  delete env.ANTHROPIC_API_KEY
+  return env
+}
 
 const VALID_CODEX_EFFORTS = new Set<ModelReasoningEffort>(['minimal', 'low', 'medium', 'high', 'xhigh'])
 
@@ -116,13 +131,14 @@ function loadCodexModels(): unknown[] {
  * 这是「向 claude 原生二进制问一次当前支持的模型」的底层动作——Claude Code 会自更新，
  * 二进制在磁盘上升级后支持的模型会变（如新增 Sonnet 5），故本函数每次都真实重新询问。
  */
-async function queryClaudeModels(): Promise<unknown[] | null> {
+async function queryClaudeModels(env?: NodeJS.ProcessEnv): Promise<unknown[] | null> {
   const ac = new AbortController()
   const safeCwd = process.env.USERPROFILE || process.env.HOME || process.cwd()
   try {
     const q = query({
       prompt: 'warmup',
-      options: { cwd: safeCwd, permissionMode: 'default', abortController: ac },
+      // 传 env 时问的是该 provider（网关或官方）的模型清单；不传则沿用进程环境。
+      options: { cwd: safeCwd, permissionMode: 'default', abortController: ac, ...(env ? { env } : {}) },
     } as never)
     const fn = (q as { supportedModels?: () => Promise<unknown> }).supportedModels
     if (typeof fn !== 'function') return null
@@ -138,13 +154,13 @@ async function queryClaudeModels(): Promise<unknown[] | null> {
  * 失败静默（首轮对话仍会再取）。
  */
 async function prewarmClaudeModels(): Promise<void> {
-  if (cachedClaudeModels || claudeWarmStarted) return
+  if (claudeModelsByProvider.has('official') || claudeWarmStarted) return
   claudeWarmStarted = true
   try {
-    const models = await queryClaudeModels()
+    const models = await queryClaudeModels(officialModelsEnv())
     if (models) {
-      cachedClaudeModels = models
-      console.log(`[sidecar] 预热 Claude 模型清单：${models.length} 个`)
+      claudeModelsByProvider.set('official', models)
+      console.log(`[sidecar] 预热官方 Claude 模型清单：${models.length} 个`)
     }
   } catch (e) {
     console.warn('[sidecar] 预热 Claude 模型失败（首轮对话会再取）：', e instanceof Error ? e.message : String(e))
@@ -152,21 +168,21 @@ async function prewarmClaudeModels(): Promise<void> {
 }
 
 /**
- * 强制重新询问 claude 二进制的支持模型并刷新全局缓存（无视既有缓存）。用于「主动同步」按钮与定时同步：
- * Claude Code 自更新后模型清单可能已变，重启前靠本函数拉到最新。成功返回最新清单，失败返回 null（保留旧缓存）。
+ * 强制重新询问指定 provider 的支持模型并刷新其缓存（无视既有缓存）。用于「主动同步」按钮与定时同步。
+ * key/env 决定问的是官方还是某网关——各 provider 独立缓存，互不覆盖。成功返回清单，失败返回 null（保留旧缓存）。
  */
-async function refreshClaudeModels(): Promise<unknown[] | null> {
+async function refreshClaudeModels(key: string, env?: NodeJS.ProcessEnv): Promise<unknown[] | null> {
   try {
-    const models = await queryClaudeModels()
+    const models = await queryClaudeModels(env)
     if (models) {
-      cachedClaudeModels = models
-      console.log(`[sidecar] 刷新 Claude 模型清单：${models.length} 个`)
+      claudeModelsByProvider.set(key, models)
+      console.log(`[sidecar] 刷新模型清单[${key}]：${models.length} 个`)
       return models
     }
-    console.warn('[sidecar] 刷新 Claude 模型：未取到清单，保留旧缓存')
+    console.warn(`[sidecar] 刷新模型[${key}]：未取到清单，保留旧缓存`)
     return null
   } catch (e) {
-    console.warn('[sidecar] 刷新 Claude 模型失败（保留旧缓存）：', e instanceof Error ? e.message : String(e))
+    console.warn(`[sidecar] 刷新模型[${key}]失败（保留旧缓存）：`, e instanceof Error ? e.message : String(e))
     return null
   }
 }
@@ -415,21 +431,28 @@ class Session {
     }
   }
 
-  /** 首轮取一次可用模型清单（SDK 控制请求 supportedModels），缓存避免重复；失败静默。 */
+  /** 首轮取一次可用模型清单（SDK 控制请求 supportedModels），按 provider 缓存避免重复；失败静默。 */
   private fetchModels(q: unknown): void {
     if (this.modelsFetched) return
     this.modelsFetched = true
     const fn = (q as { supportedModels?: () => Promise<unknown> }).supportedModels
     if (typeof fn !== 'function') return
+    const key = providerKey(this.apiBaseUrl) // 存到当前 provider 的缓存槽，不污染其它 provider
     Promise.resolve(fn.call(q))
       .then((models) => {
         if (Array.isArray(models)) {
-          cachedClaudeModels = models // 全局缓存，供后续会话 start/resume 即时重发
+          claudeModelsByProvider.set(key, models)
           this.emitSelf({ type: 'models', models, current: this.model ?? null })
         }
       })
       .catch((e) => console.warn('[sidecar] supportedModels 失败:', e instanceof Error ? e.message : String(e)))
   }
+
+  /** 切换 provider 后调用：使下一轮 runTurn 重新按新 provider 取一次模型清单。 */
+  resetModelsFetched(): void { this.modelsFetched = false }
+
+  /** 当前 provider 的子进程环境：第三方走网关 env，否则官方 env（剔除网关变量）。供模型刷新按会话 provider 询问。 */
+  providerEnv(): NodeJS.ProcessEnv { return this.apiBaseUrl ? this.gatewayEnv() : this.officialEnv() }
 
   // 把 SDK 消息翻译成与 Java 约定的事件
   private handle(m: Record<string, unknown>, toolNames: Map<string, string>): void {
@@ -576,22 +599,39 @@ export class SessionManager {
   }
 
   /**
-   * 主动/定时同步 Claude 模型清单：重新询问二进制，成功则广播 models 给所有 Claude 会话。
-   * sessionId 非空时该会话也会收到（用于按钮触发的即时反馈）；为 null 表示定时任务，广播给全部。
+   * 同步模型清单，**严格按 provider 隔离**，绝不跨 provider 覆盖：
+   * - 手动刷新（sessionId 非空）：问的是该会话自己的 provider（官方或其网关），只广播给同 provider 的 Claude 会话；
+   * - 定时任务（sessionId 为 null）：只刷新官方，只广播给官方 Claude 会话。第三方按各自会话手动刷新。
    */
   async refreshModels(sessionId: string | null): Promise<void> {
-    const models = await refreshClaudeModels()
-    if (!models) {
-      // 拉取失败：给触发者回一个提示，不打断（保留旧清单）
-      if (sessionId) this.emit(sessionId, { type: 'error', code: 'MODELS_REFRESH_FAILED', message: '同步模型清单失败，已保留上次结果（请确认 claude 可用）' })
+    // 手动刷新：按触发会话的 provider 询问并只广播给同 provider
+    if (sessionId) {
+      const s = this.sessions.get(sessionId)
+      if (s && s.engine === 'claude') {
+        const key = providerKey(s.apiBaseUrl)
+        const models = await refreshClaudeModels(key, s.providerEnv())
+        if (!models) {
+          this.emit(sessionId, { type: 'error', code: 'MODELS_REFRESH_FAILED', message: '同步模型清单失败，已保留上次结果（请确认 claude/网关 可用）' })
+          return
+        }
+        for (const [id, sess] of this.sessions) {
+          if (sess.engine === 'claude' && providerKey(sess.apiBaseUrl) === key) {
+            this.emit(id, { type: 'models', models, current: sess.model ?? null })
+          }
+        }
+        return
+      }
+      // 会话不在/非 claude：按官方兜底刷新，仅回给触发者
+      const models = await refreshClaudeModels('official', officialModelsEnv())
+      if (models) this.emit(sessionId, { type: 'models', models, current: null })
+      else this.emit(sessionId, { type: 'error', code: 'MODELS_REFRESH_FAILED', message: '同步模型清单失败，已保留上次结果' })
       return
     }
+    // 定时任务：只刷新官方，只广播给官方 Claude 会话（第三方不受影响）
+    const models = await refreshClaudeModels('official', officialModelsEnv())
+    if (!models) return
     for (const [id, s] of this.sessions) {
-      if (s.engine === 'claude') this.emit(id, { type: 'models', models, current: s.model ?? null })
-    }
-    // 触发会话可能尚未进 sessions（极少数时序），补发一次确保有反馈
-    if (sessionId && !this.sessions.has(sessionId)) {
-      this.emit(sessionId, { type: 'models', models, current: null })
+      if (s.engine === 'claude' && !s.apiBaseUrl) this.emit(id, { type: 'models', models, current: s.model ?? null })
     }
   }
 
@@ -630,10 +670,12 @@ export class SessionManager {
     this.emitCachedModels(id, s)
   }
 
-  /** Claude 会话且已有全局缓存时，即时重发 models，让 resume/切会话也能立刻看到模型组。 */
+  /** 按会话当前 provider 即时重发已缓存的 models，让 resume/切会话/切 provider 立刻看到对应清单。
+   *  无该 provider 缓存时不发（避免发错 provider 的旧清单）——首轮 runTurn 的 fetchModels 会补上。 */
   private emitCachedModels(id: string, s: Session): void {
-    if (s.engine === 'claude' && cachedClaudeModels) {
-      this.emit(id, { type: 'models', models: cachedClaudeModels, current: s.model ?? null })
+    if (s.engine === 'claude') {
+      const cached = claudeModelsByProvider.get(providerKey(s.apiBaseUrl))
+      if (cached) this.emit(id, { type: 'models', models: cached, current: s.model ?? null })
     } else if (s.engine === 'codex') {
       this.emit(id, { type: 'models', models: loadCodexModels(), current: s.model ?? null })
     }
@@ -704,7 +746,8 @@ export class SessionManager {
     const nextBaseUrl = apiBaseUrl?.trim()
     s.apiBaseUrl = nextBaseUrl || undefined
     s.authToken = nextBaseUrl ? authToken : undefined
-    this.emitCachedModels(id, s)
+    s.resetModelsFetched()        // 换 provider：下一轮重新取新 provider 的模型清单
+    this.emitCachedModels(id, s)  // 若新 provider 已有缓存，立刻切显示；否则待首轮补
   }
 
   /**
@@ -721,6 +764,7 @@ export class SessionManager {
     const nextBaseUrl = apiBaseUrl?.trim()
     s.apiBaseUrl = nextBaseUrl || undefined
     s.authToken = nextBaseUrl ? authToken : undefined
+    s.resetModelsFetched() // 换引擎/provider：下一轮重新取模型清单
   }
 
   /** 从某条用户消息分叉出新会话（截到该消息），emit forked 带新 sdkSessionId 给 Java 建会话续跑。 */

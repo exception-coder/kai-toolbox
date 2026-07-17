@@ -777,7 +777,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     const token = baseUrl ? provider?.authToken : undefined
     setCurrentProviderKind(baseUrl ? 'thirdParty' : 'official')
     setCurrentProviderBaseUrl(baseUrl ?? null)
-    if (!baseUrl) { setModels([]); setCurrentModel(null) } // 切回官方：清网关模型，待 sidecar supportedModels 重发
+    // 切换 provider 一律先清模型列表：官方↔第三方各自清单不同，残留会串（官方 5 个显示到第三方等）。
+    // 随后 sidecar 按新 provider 重发缓存 / 首轮 supportedModels 补上正确清单。
+    setModels([]); setCurrentModel(null)
     // 关键：同步更新重连意图快照。新建会话的 intent 是带初始 provider 的 'open'，若不更新，一旦重连
     // flushIntent 会重放旧 open（带原 baseUrl）→ 把刚切好的 provider 又覆盖回去（切回官方却被弹回三方的根因）。
     const it = intentRef.current
