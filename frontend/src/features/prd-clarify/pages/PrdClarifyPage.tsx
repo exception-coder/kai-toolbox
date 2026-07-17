@@ -281,6 +281,12 @@ function HistoryPanel({
                   <span className={`text-[10px] ${statusColor[s.status] ?? 'text-[var(--color-muted-foreground)]'}`}>
                     {s.status}
                   </span>
+                  {/* 开发文档已生成标记 */}
+                  {s.devDocPath && (
+                    <span className="text-[9px] px-1 rounded bg-purple-500/15 text-purple-400 border border-purple-500/20 leading-tight" title="已生成开发文档">
+                      开发文档
+                    </span>
+                  )}
                   {/* 角色标记 */}
                   {s.role === 'BUSINESS' ? (
                     <span className="text-[9px] px-1 rounded bg-green-500/15 text-green-500 border border-green-500/20 leading-tight">
@@ -1001,12 +1007,15 @@ function EditingPanel({
   sessionTitle,
   projectName,
   initialContent,
+  hasDevDoc,
   onReset,
 }: {
   sessionId: string
   sessionTitle: string
   projectName: string | null
   initialContent: string
+  /** 从历史加载时，该 PRD 是否已有开发文档（devDocPath 非空） */
+  hasDevDoc?: boolean
   onReset: () => void
 }) {
   const [content, setContent] = useState(initialContent)
@@ -1016,7 +1025,8 @@ function EditingPanel({
   const [showDevDialog, setShowDevDialog] = useState(false)
 
   // ── 开发文档分栏状态 ──
-  const [showDevDoc, setShowDevDoc] = useState(false)
+  // hasDevDoc=true 时（从历史进入且已有开发文档），自动打开右侧分栏
+  const [showDevDoc, setShowDevDoc] = useState(() => !!hasDevDoc)
   const [devDocContent, setDevDocContent] = useState('')
   const [devDocStreaming, setDevDocStreaming] = useState(false)
   const [devDocDirty, setDevDocDirty] = useState(false)
@@ -1471,14 +1481,15 @@ export function PrdClarifyPage() {
     setErrorMsg(null)
 
     if (s.status === 'DONE') {
-      // 拉取文件内容，进入编辑器；即使内容为空或读取失败也进入编辑器（不强制跳 INPUT）
+      // 拉取 PRD 内容 + 开发文档内容（若已生成），一并进入编辑器
       getContent(s.id)
         .then((content) => {
           setPrdContent(content ?? '')
           setStep('EDITING')
+          // 若已有开发文档，自动展开右侧分栏（通过 EditingPanel 的 useEffect 触发加载）
+          // 通过将 sessionId 更新触发 EditingPanel 内部的 useEffect
         })
         .catch(() => {
-          // 文件读取失败（如文件被删、网络错误）：进入空编辑器并提示，仍可重新生成
           setPrdContent('')
           setStep('EDITING')
           setErrorMsg('PRD 文件读取失败，可点击「开始开发」使用当前编辑器内容，或重新生成')
@@ -1585,6 +1596,7 @@ export function PrdClarifyPage() {
             sessionTitle={sessionTitle || session?.title || 'PRD 文档'}
             projectName={session?.project ?? urlProject ?? null}
             initialContent={prdContent}
+            hasDevDoc={!!(session?.devDocPath)}
             onReset={handleReset}
           />
         )}
