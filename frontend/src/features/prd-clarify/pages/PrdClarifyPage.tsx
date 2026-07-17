@@ -1090,19 +1090,46 @@ function StartDevDialog({
   sessionId,
   projectName,
   content,
+  devDocContent,
   onClose,
 }: {
   title: string
   sessionId: string
   projectName: string | null
-  content: string
+  content: string           // PRD 内容（兜底）
+  devDocContent?: string    // 开发文档内容（优先使用）
   onClose: () => void
 }) {
   const navigate = useNavigate()
   const [launching, setLaunching] = useState(false)
 
-  /** 构建发给 Vibe Coding 的第一条消息（引导 feature-dev 流程） */
-  const buildSeed = () => `[PRD] ${title}
+  // 优先使用开发文档（有具体技术方案）；无开发文档时用 PRD + feature-dev 引导
+  const hasDevDoc = !!(devDocContent && devDocContent.trim())
+
+  /** 构建发给 Vibe Coding 的第一条消息 */
+  const buildSeed = () => {
+    if (hasDevDoc) {
+      // 有开发文档：直接按方案实现，无需 Claude 再做技术分析
+      return `【开发方案文档】${title}
+
+---
+
+${devDocContent}
+
+---
+
+以上是已完成 AI 分析的技术开发方案文档，请直接按方案实现：
+
+1. 按「实现步骤（有序任务清单）」逐项完成，勿跳过顺序
+2. 按「数据库变更」章节执行 DDL/ALTER（注意幂等）
+3. 按「API 接口设计」章节实现接口
+4. 每个任务完成后报告进度，有疑问先问再做
+
+PRD_SESSION_ID: ${sessionId}`
+    }
+
+    // 无开发文档：带 PRD + feature-dev 引导流程
+    return `[PRD] ${title}
 
 ---
 
@@ -1128,6 +1155,7 @@ ${content}
 按方案优先级逐步实现，每步完成后告知进度。完成后将技术方案文档保存到 \`docs/design/\` 目录。
 
 PRD_SESSION_ID: ${sessionId}`
+  }
 
   const handleLaunch = async () => {
     setLaunching(true)
@@ -1185,6 +1213,19 @@ PRD_SESSION_ID: ${sessionId}`
           <p className="text-sm text-[var(--color-foreground)] leading-relaxed">
             点击「启动开发会话」，系统将自动：
           </p>
+          {/* 携带文档类型提示 */}
+          {hasDevDoc ? (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-500/10 border border-purple-500/20 text-xs text-purple-400">
+              <Wrench className="w-3.5 h-3.5 flex-shrink-0" />
+              <span>携带<strong className="mx-1">开发方案文档</strong>（含 DB 变更/API 设计/任务清单），Claude 可直接按方案实现，无需重新分析</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-500">
+              <FileText className="w-3.5 h-3.5 flex-shrink-0" />
+              <span>携带 <strong className="mx-1">PRD</strong>，Claude 将先分析技术方案再实现。建议先生成「开发文档」后再开始开发。</span>
+            </div>
+          )}
+
           <div className="space-y-2 text-sm text-[var(--color-muted-foreground)]">
             <div className="flex items-start gap-2">
               <span className="w-5 h-5 rounded-full bg-green-500/15 text-green-500 flex items-center justify-center text-[11px] font-bold flex-shrink-0 mt-0.5">1</span>
@@ -1194,7 +1235,7 @@ PRD_SESSION_ID: ${sessionId}`
             </div>
             <div className="flex items-start gap-2">
               <span className="w-5 h-5 rounded-full bg-green-500/15 text-green-500 flex items-center justify-center text-[11px] font-bold flex-shrink-0 mt-0.5">2</span>
-              <span>自动发送 PRD 内容 + <strong className="text-[var(--color-foreground)]">/feature-dev 引导流程</strong>（代码探索→技术方案→实现）</span>
+              <span>自动发送{hasDevDoc ? <><strong className="text-purple-400 mx-1">开发方案文档</strong>，Claude 直接按清单实现</> : <><strong className="text-[var(--color-foreground)] mx-1">PRD + feature-dev 引导</strong>（代码探索→技术方案→实现）</>}</span>
             </div>
             <div className="flex items-start gap-2">
               <span className="w-5 h-5 rounded-full bg-green-500/15 text-green-500 flex items-center justify-center text-[11px] font-bold flex-shrink-0 mt-0.5">3</span>
@@ -1336,13 +1377,14 @@ function EditingPanel({
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
-      {/* 开发提示词 Dialog */}
+      {/* 开发提示词 Dialog（优先传开发文档，无则传 PRD） */}
       {showDevDialog && (
         <StartDevDialog
           title={sessionTitle}
           sessionId={sessionId}
           projectName={projectName}
           content={content}
+          devDocContent={devDocContent}
           onClose={() => setShowDevDialog(false)}
         />
       )}

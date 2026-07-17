@@ -138,6 +138,44 @@ public class PrdClarifyService {
             直接输出 Markdown，不加代码块，不加多余解释。内容具体可落地，让工程师无需追问即可开始设计。
             """;
 
+    /**
+     * 修订版 PRD 的生成 System Prompt：在标准章节基础上，
+     * 强制添加「实现状态」章节，标注每个功能点是「已实现/本次新增/本次修改」，
+     * 避免 AI 在后续「开始开发」时重复实现已完成的功能。
+     */
+    private static final String GENERATE_SYSTEM_REVISION = """
+            你是一名资深产品经理，正在对现有 PRD 进行修订，生成新版本文档。
+
+            rawInput 中包含：
+            1. 原版 PRD 全文（=== 原版 PRD 内容 === 区域）
+            2. 本次修订说明（=== 本次修订说明 === 区域）
+
+            请根据以上信息生成修订版 PRD，必须包含以下章节（顺序不变）：
+
+            # [功能名称]（修订版 vX）
+
+            ## 0. 实现状态（【重要】供 AI 开发使用，避免重复实现）
+            按每个功能点标注当前状态：
+            - ✅ 已实现 — [功能点描述]（已完成，勿重新实现）
+            - 🆕 本版新增 — [功能点描述]（需要实现）
+            - 🔄 本版修改 — [功能点描述]（原有实现需要更新，说明改动点）
+
+            ## 1. 文档概述（含版本历史）
+            ## 2. 业务背景与目标（修订原因）
+            ## 3. 目标用户与使用场景
+            ## 4. 功能范围（Scope）
+            ### 4.1 本期包含
+            ### 4.2 本期不包含
+            ## 5. 功能需求详述
+            ## 6. 非功能性需求
+            ## 7. 数据模型影响
+            ## 8. 验收标准
+            ## 9. 开放问题与风险
+
+            第 0 章「实现状态」是最重要的章节，务必准确标注，内容直接决定后续 AI 开发的实现范围。
+            直接输出 Markdown，不加代码块，不加多余解释。
+            """;
+
     // ─────────────────────────
 
     private final AgentOneShotRunner agentRunner;
@@ -308,11 +346,16 @@ public class PrdClarifyService {
 
         repo.updateStatus(sessionId, "GENERATING");
 
+        // 检测是否修订版（rawInput 以「【修订版 PRD」开头），选用对应 prompt
+        boolean isRevision = session.getRawInput() != null
+                && session.getRawInput().startsWith("【修订版 PRD");
+        String generateSystem = isRevision ? GENERATE_SYSTEM_REVISION : GENERATE_SYSTEM;
+
         Thread.ofVirtual().name("prd-generate-").start(() -> {
             try {
                 StringBuilder full = new StringBuilder();
                 agentRunner.stream(
-                        GENERATE_SYSTEM,
+                        generateSystem,
                         buildGeneratePrompt(session),
                         session.getModel(),
                         delta -> {
