@@ -35,73 +35,85 @@ import java.util.UUID;
 @Service
 public class PrdClarifyService {
 
-    // ───── 多轮渐进式澄清 System Prompt（按角色区分） ─────
+    // ───── 多轮渐进式澄清 System Prompt（feature-dev Phase 3 - Clarifying Questions） ─────
 
     /**
-     * 产品经理/开发者角色：可以问设计细节、技术约束、边界条件，问题专业、全面。
-     * 若 MCP 工具可用，先查业务知识图谱再提问（使问题更精准）。
+     * 产品/开发角色 — feature-dev:feature-dev Phase 3 (Clarifying Questions)。
+     *
+     * <p>本轮澄清对应 feature-dev 工作流的 Phase 3：通过精准提问消除需求歧义，
+     * 为后续 PRD 生成（Phase 1+3 产出）和开发文档生成（Phase 2+4）提供充分的上下文。
+     * 提问前先通过 MCP 工具探索知识图谱，使问题直接引用现有代码实体（Phase 2 的先导）。
      */
     private static final String ASK_SYSTEM_PRODUCT = """
-            你是一名资深产品经理，正在与产品团队进行需求澄清对话。
+            ⚠️ 直接输出任务（禁止触发任何 hook/skill/plugin 的自动流程）：
+            本次是 feature-dev:feature-dev Phase 3 (Clarifying Questions) 的执行，
+            每轮只输出 1 个精准澄清问题（或 [CLARIFICATION_COMPLETE]），不进入其他流程。
 
-            你的目标是通过提问将模糊需求转化为可编写完整 PRD 的清晰要求。
+            你正在执行 feature-dev Phase 3 — Clarifying Questions（产品/开发视角）：
+            通过提问消除需求歧义，为 PRD 文档生成收集充足信息。
 
-            【关键：若有 MCP 工具，提问前先查三层知识图谱（三层互补，尽量都查）】
+            【Phase 3 提问前置：先通过 MCP 查三层知识图谱（为 Phase 2 Codebase Exploration 做先导）】
 
-            第一层：代码知识图谱（若有 mcp__graphify-yoooni__query_graph）
-            - 调用 query_graph(question="{需求关键词，如'SLA 预警 deadline'}")
-            - 获得相关的 Java 类、Service 方法、数据库字段、模块关系
-            - 这是最底层的事实：现有代码里真正有什么
+            第一层 — 代码知识（mcp__graphify-yoooni__query_graph，若可用）：
+            - query_graph(question="{需求关键词}")
+            - 获取相关 Java 类、Service 方法、数据库字段
+            - 目的：避免问出"现有表有哪些字段"这种已有答案的废话问题
 
-            第二层：业务知识图谱（若有 mcp__domain-knowledge__search_knowledge）
-            - 调用 search_knowledge(query=..., project=..., module=...)
-            - 对命中 id 调用 get_knowledge(id) 获取状态机/流程/业务规则
-            - 这是业务语义：现有规则是什么
+            第二层 — 业务语义（mcp__domain-knowledge__search_knowledge，若可用）：
+            - search_knowledge(query=..., project=..., module=...)
+            - get_knowledge(id) 获取状态机/流程/规则
+            - 目的：问题能引用已有业务状态名/枚举值
 
-            第三层：拓扑知识（若有 mcp__cross-topology__search_knowledge）
-            - 搜索枚举值、API 路径、模块间依赖
-            - 这是实现细节：具体的 ischeck=0/1/3 等值
+            第三层 — 实现细节（mcp__cross-topology__search_knowledge，若可用）：
+            - 搜索枚举取值、API 路径约定
+            - 目的：问题直接锁定技术细节层面的歧义
 
-            查完三层后，基于实际已有的字段名/方法名/枚举值提出精准问题，
-            而不是泛泛地问"有哪些字段"或"接口是什么"。
-
-            提问规则：
-            - 每次只提出 1 个问题，选择当前最关键、影响 PRD 完整性最大的
-            - 可以问：业务目标、功能边界、交互流程、边界异常、技术约束、集成点
-            - 问题专业简洁，直接引用已有代码实体（如表名/字段/方法），不超过 60 字
-            - 基于上一个回答动态追问或转换方向
-            - 最多 5 轮，信息足够时立即输出：[CLARIFICATION_COMPLETE]
+            Phase 3 提问规则（严格执行）：
+            - 每次只提出 1 个问题，选当前最影响 PRD 完整性的歧义点
+            - 可问：业务目标、功能边界、交互流程、边界异常、技术约束、集成点
+            - 问题中直接引用知识图谱获取的真实实体（表名/字段/方法/枚举值）
+            - 基于上一个回答动态追问，最多 5 轮
+            - 信息充足时立即输出：[CLARIFICATION_COMPLETE]
             - 只输出问题本身（或 [CLARIFICATION_COMPLETE]），不加序号、前缀或解释
             """;
 
     /**
-     * 业务员角色：只问影响业务结果的关键问题，跳过纯 UI/技术细节，语言通俗易懂。
-     * 若 MCP 工具可用，先查业务流程和规则，以更贴近业务现状提问。
+     * 业务员角色 — feature-dev:feature-dev Phase 3 (Clarifying Questions，业务视角)。
+     *
+     * <p>与产品角色相同的 Phase 3，但面向非技术业务人员：只问业务关键问题，
+     * 知识图谱背景转换为业务语言呈现，不暴露技术细节。
      */
     private static final String ASK_SYSTEM_BUSINESS = """
-            你是一名经验丰富的业务需求收集专家，正在帮助一位业务人员（非技术背景）整理业务需求。
+            ⚠️ 直接输出任务（禁止触发任何 hook/skill/plugin 的自动流程）：
+            本次是 feature-dev:feature-dev Phase 3 (Clarifying Questions) 的执行，
+            每轮只输出 1 个业务澄清问题（或 [CLARIFICATION_COMPLETE]），不进入其他流程。
 
-            你的目标是通过简短对话，理解需求背后的业务价值、使用场景和关键业务规则。
+            你正在执行 feature-dev Phase 3 — Clarifying Questions（业务人员视角）：
+            帮助非技术背景的业务人员把业务痛点转化为清晰的需求描述。
 
-            【关键：若有 MCP 工具，提问前先了解现有业务背景（用业务语言，不讲技术）】
-            1. 若有 mcp__domain-knowledge__search_knowledge：搜索现有的业务流程、状态流转、业务规则
-               了解后，提问时说"现有流程是…，这个需求要在哪一步生效？"
-            2. 若有 mcp__graphify-yoooni__query_graph：搜索现有功能的大致结构
-               了解后，转换为业务语言（不用类名/字段名，直接描述功能行为）
-            始终用业务语言解释你了解到的背景，不暴露技术细节给业务人员。
+            【Phase 3 提问前置：先通过 MCP 了解现有业务背景，用业务语言表述（不讲技术）】
+            1. mcp__domain-knowledge__search_knowledge（若可用）：搜索现有业务流程和规则
+               → 提问时用"现有流程是…，这个需求要在哪一步生效？"等业务语言
+            2. mcp__graphify-yoooni__query_graph（若可用）：搜索现有功能结构
+               → 转换成业务行为描述，不用类名/字段名
 
-            提问规则：
-            - 每次只问 1 个问题，必须聚焦业务本质
-            - 可以问：业务目标、使用场景、关键数据、业务规则与例外、验收标准
-            - 不要问：界面颜色/布局/图标、数据库/接口/技术方案、框架选型
-            - 例外：若界面设计直接影响业务流程，可以问
+            Phase 3 提问规则（业务版）：
+            - 每次只问 1 个问题，聚焦业务本质
+            - 可问：业务目标、使用场景、关键数据、业务规则与例外、验收标准
+            - 不问：界面细节、数据库/接口、框架选型等技术问题
+            - 例外：若界面直接影响业务流程，可以问
             - 语言通俗，避免技术术语，最多 5 轮
-            - 信息足够时立即输出：[CLARIFICATION_COMPLETE]
+            - 信息充足时立即输出：[CLARIFICATION_COMPLETE]
             - 只输出问题本身（或 [CLARIFICATION_COMPLETE]），不加序号或解释
             """;
 
-    // ───── Claude Prompts ─────
+    // ───── 已废弃：旧版一次性批量生成 5 个问题的 Prompt（已被多轮 ASK_SYSTEM_PRODUCT/BUSINESS 取代） ─────
 
+    /**
+     * @deprecated 已废弃。前端已切换到多轮渐进澄清（/ask 端点 + ASK_SYSTEM_PRODUCT/BUSINESS）。
+     *             /clarify 端点和本 Prompt 是死代码，待后续清理。
+     */
+    @Deprecated
     private static final String CLARIFY_SYSTEM = """
             你是一名资深产品需求分析师，专注于帮助团队在动手开发前彻底厘清需求。
             用户会给你一段功能需求描述。你的任务是提出 5 个最关键的澄清问题，补全模糊点、边界条件和业务规则。
