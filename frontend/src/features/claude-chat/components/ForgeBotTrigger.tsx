@@ -20,13 +20,20 @@ function buildModuleSeed(moduleLabel: string, codePath: string, ask: string): st
   ].join('\n')
 }
 
-/** 拼装「问项目」投喂语：不锁模块，先读仓库约定文档再回答/评估。 */
+/**
+ * 拼装「问项目」投喂语：不锁模块，先读仓库约定文档再回答/评估。
+ * 回答对象默认按业务人员对待——直给结论，不主动铺技术细节，用户追问了再展开，
+ * 避免把 Vibe Coding 的完整调查过程（文件路径/行号/大段表格）原样倒给一个只想要答案的人。
+ */
 function buildProjectSeed(ask: string): string {
   return [
     '关于 kai-toolbox 仓的问题（不锁定具体模块，工作台自维护）：',
     ask.trim(),
     '',
-    '先读 CLAUDE.md 和 docs/design/architecture.md 了解仓库约定，再回答/评估/建议；如涉及改码，改完给我出 diff 自检。',
+    '回答对象是业务人员，不是来读代码的：先给一句话结论，最多再补 2~3 点关键信息就够；',
+    '不要主动展开代码片段/文件路径/行号/大段表格这类实现细节，除非我明确追问细节再展开。',
+    '需要可以先读 CLAUDE.md 和 docs/design/architecture.md 核对仓库约定，但别把「读了什么」过程复述给我。',
+    '如果问题最终要改码，直接改完出 diff 给我看结果，不用先铺一堆方案说明。',
   ].join('\n')
 }
 
@@ -35,6 +42,7 @@ function buildProjectSeed(ask: string): string {
  * 分别在左上角/右上角弹出迷你输入框——左手锁定当前打开的模块，右手面向整个仓库不锁模块。
  * 提交后转交给同一个 Vibe Coding 悬浮窗实例处理（不新开一套聊天 UI），cwd 固定为后端配置的自身仓库路径。
  * 仅在配置了 {@code toolbox.claude-chat.workspace.self-repo-path} 且目录存在时出现。
+ * 气泡默认只显示你敲的原话，不显示门控提示词模板（send 的 displayText 参数，气泡上有「完整内容」可展开回看）。
  */
 export function ForgeBotTrigger() {
   const location = useLocation()
@@ -45,21 +53,25 @@ export function ForgeBotTrigger() {
   const [panel, setPanel] = useState<Panel>(null)
   const [moduleDraft, setModuleDraft] = useState('')
   const [projectDraft, setProjectDraft] = useState('')
-  const pendingRef = useRef<{ cwd: string; seed: string } | null>(null)
+  const pendingRef = useRef<{ cwd: string; seed: string; displayText: string } | null>(null)
 
   const feature = featureAtPath(location.pathname)
   // AI 存在感：ripple/呼吸不只反映本机器人自己发起的任务，而是真实的 chat.running——
   // 只要工作台里有 AI 在干活（哪怕悬浮窗是关着的），orb 都会显出「正在忙」，让它更像一个环境感知的存在，而非一颗按钮。
   const active = !!chat?.running
   const activating = !chat && !!pendingRef.current
+  // 待确认权限/提问：需要你回来处理，球体转琥珀色 + 常驻提醒角标（即使收起菜单也看得见）。
+  const needsAttention = chat?.pending?.kind === 'permission' || chat?.pending?.kind === 'question'
 
   // chat 从 null 变为可用（懒启动完成）时，把排队的一次性投喂发出去。
+  // displayText：气泡只显示用户在迷你输入框里敲的原话，不显示门控提示词模板——那是「整个 Vibe Coding」
+  // 的通用能力（send 的第三个参数），本机器人只是第一个用它的调用方。
   const deliver = useCallback(() => {
     const p = pendingRef.current
     if (!chat || !p) return
     pendingRef.current = null
     chat.open(p.cwd)
-    chat.send(p.seed)
+    chat.send(p.seed, undefined, p.displayText)
     setFloating(true)
     setMinimized(false)
   }, [chat, setFloating, setMinimized])
@@ -67,8 +79,8 @@ export function ForgeBotTrigger() {
 
   if (!selfRepo?.exists || isChatRoute(location.pathname)) return null
 
-  const queue = (seed: string) => {
-    pendingRef.current = { cwd: selfRepo.path, seed }
+  const queue = (seed: string, displayText: string) => {
+    pendingRef.current = { cwd: selfRepo.path, seed, displayText }
     if (chat) deliver(); else activate()
     setPanel(null)
     setMenuOpen(false)
@@ -78,13 +90,13 @@ export function ForgeBotTrigger() {
     const ask = moduleDraft.trim()
     if (!ask || !feature) return
     const codePath = `frontend/src/features/${feature.id}（如有对应后端模块，一并检查 tools/tool-${feature.id}）`
-    queue(buildModuleSeed(feature.name, codePath, ask))
+    queue(buildModuleSeed(feature.name, codePath, ask), ask)
     setModuleDraft('')
   }
   const submitProject = () => {
     const ask = projectDraft.trim()
     if (!ask) return
-    queue(buildProjectSeed(ask))
+    queue(buildProjectSeed(ask), ask)
     setProjectDraft('')
   }
 
@@ -125,20 +137,31 @@ export function ForgeBotTrigger() {
               <span aria-hidden className="absolute inset-0 -z-10 rounded-full animate-orb-ripple [animation-delay:0.6s]" style={{ background: 'var(--color-primary)' }} />
             </>
           )}
-          {/* 悬浮上下文提示：待命 / 唤醒中 / AI 工作中 / 当前模块名——一眼知道「它此刻知道什么」 */}
+          {/* 悬浮上下文提示：待你确认 / 待命 / 唤醒中 / AI 工作中 / 当前模块名——一眼知道「它此刻知道什么」 */}
           <span className="pointer-events-none absolute -top-9 right-0 whitespace-nowrap rounded-full border bg-[var(--color-popover)] px-2.5 py-1 text-[11px] text-[var(--color-popover-foreground)] opacity-0 shadow-md transition-opacity group-hover:opacity-100">
-            Forge · {active ? 'AI 工作中' : activating ? '唤醒中…' : feature ? feature.name : '待命'}
+            Forge · {needsAttention ? '待你确认' : active ? 'AI 工作中' : activating ? '唤醒中…' : feature ? feature.name : '待命'}
           </span>
           <button
             type="button"
             onClick={() => setMenuOpen(o => !o)}
             aria-label="Forge 自修机器人"
-            title="Forge 自修机器人：改当前模块 / 问项目"
+            title={needsAttention ? 'Forge 自修机器人：有待你确认的权限/提问' : 'Forge 自修机器人：改当前模块 / 问项目'}
             className="relative flex size-12 items-center justify-center rounded-full text-[var(--color-primary-foreground)] shadow-[0_10px_28px_-6px_var(--color-primary)] transition-transform hover:scale-105 active:scale-95"
-            style={{ background: 'radial-gradient(circle at 32% 28%, color-mix(in oklab, var(--color-primary) 55%, white 45%), var(--color-primary) 72%)' }}
+            style={{
+              background: needsAttention
+                ? 'radial-gradient(circle at 32% 28%, color-mix(in oklab, oklch(0.7 0.14 70) 55%, white 45%), oklch(0.7 0.14 70) 72%)'
+                : 'radial-gradient(circle at 32% 28%, color-mix(in oklab, var(--color-primary) 55%, white 45%), var(--color-primary) 72%)',
+            }}
           >
             {menuOpen ? <X className="size-5" /> : activating ? <Loader2 className="size-5 animate-spin" /> : <Hammer className="size-5" />}
           </button>
+          {/* 待确认权限/提问：常驻提醒角标，收起菜单也看得见——不是「AI 在忙」而是「AI 在等你」 */}
+          {needsAttention && !menuOpen && (
+            <span className="absolute right-0 top-0 flex size-3">
+              <span aria-hidden className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75" />
+              <span aria-hidden className="relative inline-flex size-3 rounded-full border-2 border-[var(--color-card)] bg-amber-500" />
+            </span>
+          )}
         </div>
       </div>
 

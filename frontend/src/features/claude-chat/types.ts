@@ -354,7 +354,10 @@ export interface TurnDiag {
 // ── 渲染用的消息项 ───────────────────────────────────────────────
 // ts：该消息块的时间（Unix ms）。实时消息=客户端发送/接收时刻；历史消息暂无（可空，UI 不显示）。
 export type ChatItem =
-  | { kind: 'user'; id: string; text: string; sdkUuid?: string; ts?: number; attachments?: MsgAttachment[] }
+  // displayText：可选的展示层覆盖——text 是实际发给 agent 的完整内容（含门控提示词等样板），
+  // displayText 是用户真正想说的那句话；渲染只显示 displayText ?? text，text 仍原样发送/参与分叉续跑。
+  // 目前只有实时会话里由 send() 发起时才可能带；历史回放（loadMessages）尚未持久化该覆盖，刷新/切回后会看到完整 text。
+  | { kind: 'user'; id: string; text: string; displayText?: string; sdkUuid?: string; ts?: number; attachments?: MsgAttachment[] }
   | { kind: 'assistant'; id: string; text: string; ts?: number }
   | { kind: 'tool'; id: string; toolName: string; input: unknown; output?: string; isError?: boolean; ts?: number }
   | { kind: 'result'; id: string; stopReason: string; ts?: number; usage?: Record<string, number>; latencyMs?: number; ttftMs?: number }

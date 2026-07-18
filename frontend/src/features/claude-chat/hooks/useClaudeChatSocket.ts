@@ -58,6 +58,8 @@ export interface QueuedMessage {
   id: string
   text: string
   attachments?: SendAttachment[]
+  /** 展示层覆盖，见 send() 同名参数。 */
+  displayText?: string
 }
 
 /** 连接后要发出的首个意图（区分新建 / 续跑 / 重连回放）。 */
@@ -128,12 +130,16 @@ export interface UseClaudeChatSocket {
   /** 续跑磁盘上的历史会话 */
   resumeHistory: (sdkSessionId: string, cwd: string) => void
   resumeCurrent: () => void
-  /** 下发一条用户消息（可带附件） */
-  send: (text: string, attachments?: SendAttachment[]) => void
+  /**
+   * 下发一条用户消息（可带附件）。displayText：可选的展示层覆盖——text 仍是实际发给 agent 的完整内容
+   * （原样上墙 WS + 参与分叉续跑），displayText 只改变本地这条气泡「显示什么」，用于隐藏门控提示词等
+   * 样板文案、只给用户看他自己真正输入的那句话（Forge 机器人等「seed 转发」场景使用）。
+   */
+  send: (text: string, attachments?: SendAttachment[], displayText?: string) => void
   /** 待发送队列：running 时入队的消息，本轮结束后按序自动发出 */
   queued: QueuedMessage[]
-  /** 入队一条待发送消息（running 时排队；空闲时也可入队，会立即触发发送） */
-  enqueue: (text: string, attachments?: SendAttachment[]) => void
+  /** 入队一条待发送消息（running 时排队；空闲时也可入队，会立即触发发送）。displayText 同 send()。 */
+  enqueue: (text: string, attachments?: SendAttachment[], displayText?: string) => void
   /** 移除队列中某条 */
   removeQueued: (id: string) => void
   /** 清空待发送队列 */
@@ -672,7 +678,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     }
   }, [sendRaw, connect])
 
-  const send = useCallback((text: string, attachments?: SendAttachment[]) => {
+  const send = useCallback((text: string, attachments?: SendAttachment[], displayText?: string) => {
     const t = text.trim()
     const hasAtt = !!attachments && attachments.length > 0
     if (!t && !hasAtt) return
@@ -680,7 +686,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     const atts = hasAtt ? attachments!.map(a => ({ name: a.name, path: a.path })) : undefined
     // 全部附件都进气泡显示（图片带 url 缩略图，非图片文件显示文件卡片）
     const disp = hasAtt ? attachments!.map(a => ({ name: a.name, mime: a.mime, url: a.url })) : undefined
-    setItems(prev => [...prev, { kind: 'user', id: nextId(), text: t, ts: Date.now(), attachments: disp && disp.length ? disp : undefined }])
+    // displayText 只影响本地这条气泡的展示；真正发给 agent 的仍是完整的 t（下面 sendRaw 不变）
+    const dt = displayText?.trim()
+    setItems(prev => [...prev, { kind: 'user', id: nextId(), text: t, displayText: dt && dt !== t ? dt : undefined, ts: Date.now(), attachments: disp && disp.length ? disp : undefined }])
     turnStartRef.current = Date.now()
     ttftRef.current = null
     setTurnTokens(0) // 新一轮：清零实时 token 计数
@@ -703,10 +711,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
   }, [sendRaw])
 
   // ── 待发送队列：running 时入队，本轮结束(running→false 且无待确认弹窗)后按序自动发 ──
-  const enqueue = useCallback((text: string, attachments?: SendAttachment[]) => {
+  const enqueue = useCallback((text: string, attachments?: SendAttachment[], displayText?: string) => {
     const t = text.trim()
     if (!t && !(attachments && attachments.length > 0)) return
-    setQueued(prev => [...prev, { id: nextId(), text: t, attachments }])
+    setQueued(prev => [...prev, { id: nextId(), text: t, attachments, displayText }])
   }, [])
   const removeQueued = useCallback((id: string) => {
     setQueued(prev => prev.filter(q => q.id !== id))
@@ -720,7 +728,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     if (running || pending || queued.length === 0) return
     const head = queued[0]
     setQueued(prev => prev.slice(1))
-    sendRef.current(head.text, head.attachments)
+    sendRef.current(head.text, head.attachments, head.displayText)
   }, [running, pending, queued])
 
   const interrupt = useCallback(() => {

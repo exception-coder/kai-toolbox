@@ -220,8 +220,14 @@ function TurnStatus({ item }: { item: Extract<ChatItem, { kind: 'result' }> }) {
 }
 
 function Row({ item, onFork, engineLabel, onResumeCurrent, onNewSession, onCleanRetry, onOpenImage }: { item: ChatItem; onFork?: (sdkUuid: string) => void; engineLabel?: string; onResumeCurrent?: () => void; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void }) {
+  // displayText：Forge 机器人等「seed 转发」场景会隐藏实际发给 agent 的完整门控样板文案，只显示用户
+  // 真正输入的那句话；保留一个不打眼的展开入口，避免完全不可见（可回看到底发了什么）。仅 'user' 项用到，
+  // 但 Hooks 规则要求无条件调用，放在 switch 之外（对其它 kind 是无副作用的多余 state，可忽略）。
+  const [showRaw, setShowRaw] = useState(false)
   switch (item.kind) {
-    case 'user':
+    case 'user': {
+      const hasOverride = !!item.displayText
+      const shown = showRaw ? item.text : (item.displayText ?? item.text)
       return (
         <div className="flex min-w-0 max-w-full flex-col items-end">
           <MsgHeader ts={item.ts} align="end" />
@@ -268,14 +274,26 @@ function Row({ item, onFork, engineLabel, onResumeCurrent, onNewSession, onClean
               ))}
             </div>
           )}
-          {item.text && (
+          {shown && (
             <div className="max-w-[85%] min-w-0 whitespace-pre-wrap wrap-anywhere rounded-2xl bg-[var(--color-primary)] px-4 py-2 text-[var(--color-primary-foreground)]">
-              {item.text}
+              {shown}
             </div>
           )}
-          {(item.text.trim() || (onFork && item.sdkUuid)) && (
+          {(shown.trim() || (onFork && item.sdkUuid) || hasOverride) && (
             <div className="mt-1 flex items-center gap-1">
-              {item.text.trim() && <CopyButton text={item.text} />}
+              {shown.trim() && <CopyButton text={shown} />}
+              {hasOverride && (
+                <button
+                  type="button"
+                  onClick={() => setShowRaw(v => !v)}
+                  aria-label={showRaw ? '收起，只看简述' : '查看实际发送的完整内容'}
+                  title={showRaw ? '收起，只看简述' : '这条气泡隐藏了实际发给 AI 的完整内容，点开查看'}
+                  className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] active:bg-[var(--color-muted)]"
+                >
+                  <FileText className="size-3.5" />
+                  {showRaw ? '收起' : '完整内容'}
+                </button>
+              )}
               {onFork && item.sdkUuid && (
                 <button
                   type="button"
@@ -292,6 +310,7 @@ function Row({ item, onFork, engineLabel, onResumeCurrent, onNewSession, onClean
           )}
         </div>
       )
+    }
     case 'assistant':
       return (
         <div className="flex min-w-0 max-w-full flex-col items-start">
