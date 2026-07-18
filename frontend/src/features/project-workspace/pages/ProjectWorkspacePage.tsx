@@ -6,7 +6,9 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Segmented } from '@/components/ui/segmented'
 import { Separator } from '@/components/ui/separator'
+import { StatusBadge } from '@/components/ui/status-badge'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
 import { applyModuleSync, createTaskspace, ensureKnowledgeBase, fetchProjectModules, listSessions, listWorkspaces, previewModuleSync, resolveModule } from '@/features/claude-chat/api'
@@ -14,7 +16,11 @@ import { getConfigBlock, updateConfigBlock } from '@/features/config-center/api'
 import { VoiceInputButton } from '@/features/claude-chat/components/VoiceInputButton'
 import { CHAT_ROUTE, useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import type { ClaudeChatSessionView, ModuleCandidate, ModuleSyncPreview, ProjectModule, ProjectModules, WorkspaceDir } from '@/features/claude-chat/types'
+import { GRAPHIFY_LABEL, GRAPHIFY_TONE, REGISTRATION_LABEL, REGISTRATION_TONE } from '@/features/knowledge-graph/components/DomainKnowledgeCard'
+import type { ProjectStatusSnapshot } from '@/features/knowledge-graph/types'
 import { AGGREGATION_DRAFT_KEY, useAggregationCart, type AggregationItem } from '../hooks/useAggregationCart'
+import { useStatusCache, type BusinessFilter, type GraphifyFilter } from '../hooks/useStatusCache'
+import { KnowledgeGraphCard } from '../components/KnowledgeGraphCard'
 
 interface PendingOpen {
   module: ProjectModule
@@ -120,6 +126,10 @@ export function ProjectWorkspacePage() {
     [workspacesQ.data],
   )
   const selectedProject = projects.find(project => project.path === selectedPath)
+
+  // 跨项目知识图谱状态筛选：懒加载缓存 + 手动「检测全部」（§11.2/11.3）
+  const kg = useStatusCache()
+  const visibleProjects = useMemo(() => projects.filter(p => kg.matches(p.path)), [projects, kg.matches])
   const sessions = sessionsQ.data ?? []
   const sessionByCwd = useMemo(() => {
     const map = new Map<string, ClaudeChatSessionView>()
@@ -454,6 +464,7 @@ export function ProjectWorkspacePage() {
               项目
             </CardTitle>
             <CardDescription>来自 Vibe Coding 工作区配置（workspace.roots）</CardDescription>
+            <KnowledgeGraphFilterBar kg={kg} onRefreshAll={() => kg.refresh(projects.map(p => p.path))} />
             {(workspacesQ.data?.roots?.length ?? 0) > 0 && (
               <div className="mt-1.5 space-y-1 rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/30 p-2">
                 <div className="text-[10px] font-medium uppercase tracking-wide text-[var(--color-muted-foreground)]">当前扫描目录</div>
@@ -489,12 +500,20 @@ export function ProjectWorkspacePage() {
                   <Database className="h-3.5 w-3.5" />去配置工作区目录
                 </Button>
               </div>
+            ) : visibleProjects.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 rounded-md border border-dashed border-[var(--color-border)] p-4 text-center text-xs text-[var(--color-muted-foreground)]">
+                <span>没有项目匹配当前的知识图谱筛选条件</span>
+                <Button type="button" size="sm" variant="ghost" onClick={() => { kg.setGraphifyFilter('ALL'); kg.setBusinessFilter('ALL') }}>
+                  清除筛选
+                </Button>
+              </div>
             ) : (
-              projects.map(project => (
+              visibleProjects.map(project => (
                 <ProjectButton
                   key={project.path}
                   project={project}
                   selected={project.path === selectedPath}
+                  snapshot={kg.snapshotOf(project.path)}
                   onClick={() => {
                     setSelectedPath(project.path)
                     setKeyword('')
@@ -655,6 +674,15 @@ export function ProjectWorkspacePage() {
                 onOpenSync={openSync}
               />
             )}
+            {selectedProject && !syncOpen && (
+              <div className="mb-3">
+                <KnowledgeGraphCard
+                  projectPath={selectedProject.path}
+                  projectName={selectedProject.name}
+                  snapshot={kg.snapshotOf(selectedProject.path)}
+                />
+              </div>
+            )}
             {modulesQ.isLoading || modulesQ.isFetching && !modulesQ.data ? (
               <StateLine icon={<Loader2 className="h-4 w-4 animate-spin" />} text="正在扫描模块" />
             ) : modulesQ.isError ? (
@@ -685,7 +713,17 @@ export function ProjectWorkspacePage() {
   )
 }
 
-function ProjectButton({ project, selected, onClick }: { project: WorkspaceDir & { root: string }; selected: boolean; onClick: () => void }) {
+function ProjectButton({
+  project,
+  selected,
+  snapshot,
+  onClick,
+}: {
+  project: WorkspaceDir & { root: string }
+  selected: boolean
+  snapshot?: ProjectStatusSnapshot
+  onClick: () => void
+}) {
   return (
     <button
       type="button"
@@ -699,7 +737,75 @@ function ProjectButton({ project, selected, onClick }: { project: WorkspaceDir &
     >
       <span className="truncate text-sm font-medium text-[var(--color-foreground)]">{project.name}</span>
       <span className="truncate text-xs text-[var(--color-muted-foreground)]">{project.root}</span>
+      <div className="mt-0.5 flex flex-wrap items-center gap-1">
+        <StatusBadge
+          tone={snapshot?.graphifyState ? GRAPHIFY_TONE[snapshot.graphifyState] : 'neutral'}
+          className="px-1.5 py-0 text-[10px]"
+        >
+          {snapshot?.graphifyState ? GRAPHIFY_LABEL[snapshot.graphifyState] : '未检测'}
+        </StatusBadge>
+        <StatusBadge
+          tone={snapshot?.businessGraphState ? REGISTRATION_TONE[snapshot.businessGraphState] : 'neutral'}
+          className="px-1.5 py-0 text-[10px]"
+        >
+          {snapshot?.businessGraphState ? REGISTRATION_LABEL[snapshot.businessGraphState] : '未检测'}
+        </StatusBadge>
+      </div>
     </button>
+  )
+}
+
+/** 左侧项目列表上方的知识图谱筛选栏：两个独立维度（Graphify / 业务图谱）+「检测全部」批量刷新。 */
+function KnowledgeGraphFilterBar({
+  kg,
+  onRefreshAll,
+}: {
+  kg: ReturnType<typeof useStatusCache>
+  onRefreshAll: () => void
+}) {
+  const graphifyOptions: { value: GraphifyFilter; label: string }[] = [
+    { value: 'ALL', label: '全部' },
+    { value: 'UNCHECKED', label: '未检测' },
+    { value: 'NOT_GENERATED', label: '未生成' },
+    { value: 'STALE', label: '已过时' },
+    { value: 'UP_TO_DATE', label: '最新' },
+  ]
+  const businessOptions: { value: BusinessFilter; label: string }[] = [
+    { value: 'ALL', label: '全部' },
+    { value: 'UNCHECKED', label: '未检测' },
+    { value: 'NOT_REGISTERED', label: '未登记' },
+    { value: 'PARTIAL', label: '部分' },
+    { value: 'REGISTERED', label: '已登记' },
+  ]
+  return (
+    <div className="mt-1.5 space-y-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/30 p-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[10px] font-medium uppercase tracking-wide text-[var(--color-muted-foreground)]">知识图谱筛选</div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-6 px-1.5 text-[11px]"
+          disabled={kg.refreshing}
+          onClick={onRefreshAll}
+          title="并发检测当前项目列表的 Graphify + 业务图谱状态，写入本地缓存"
+        >
+          {kg.refreshing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+          检测全部
+        </Button>
+      </div>
+      <div className="space-y-1">
+        <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-muted-foreground)]">
+          <span className="w-12 shrink-0">Graphify</span>
+          <Segmented value={kg.graphifyFilter} onChange={kg.setGraphifyFilter} options={graphifyOptions} size="sm" />
+        </div>
+        <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-muted-foreground)]">
+          <span className="w-12 shrink-0">业务图谱</span>
+          <Segmented value={kg.businessFilter} onChange={kg.setBusinessFilter} options={businessOptions} size="sm" />
+        </div>
+      </div>
+      {kg.refreshError && <p className="text-[11px] text-[var(--color-destructive)]">{kg.refreshError}</p>}
+    </div>
   )
 }
 
