@@ -407,13 +407,10 @@ toolbox:
     # 传给 `graphify query --budget` 的 token 预算，控制注入 prompt 的图谱上下文体量。
     query-budget: 1500
 
-  knowledge-graph:
-    # 「知识图谱管理」面板：domain-knowledge/cross-topology 登记状态检测，shell out 到各自仓库的
-    # scripts/bootstrap.mjs gaps。与上面 claude-chat.workspace.knowledge-base-dir（指向 knowledge/ 子目录，
-    # 供项目工作台渲染模块树）是同一个仓库的不同用途，本处需要仓库根目录（要跑 node scripts/... 且校验 dist/server.js）。
-    domain-knowledge-repo-path: D:\Users\zhang\myWork\project-domain-knowledge
-    cross-topology-repo-path: D:\Users\zhang\myWork\cross-project-topology
-    node-executable: node
+  # 「知识图谱管理」面板的仓库路径（domain-knowledge-repo-path/cross-topology-repo-path/node-executable）
+  # 因人而异（每台开发机 clone 位置不同），不写死在这里——纳入运行时配置中心（KnowledgeGraphProperties
+  # 的 @Refreshable），首次使用时在「配置中心 → 知识图谱仓库路径」页面按本机实际路径填写即可，DB 覆盖、
+  # 改后立即生效，不进 git、不同开发机互不影响。
 
   projects:
     # 「项目管理」面板扫描的根目录，仅扫描一级子目录。
