@@ -130,7 +130,51 @@ public class DynamicConfigService {
                         List.of(),
                         descByKey.getOrDefault(key, "")))
                 .forEach(entries::add);
+
+        appendUnconfiguredFieldDefaults(meta, keys, overrides, descByKey, entries);
         return new ConfigBlockView(meta.prefix(), meta.name(), entries);
+    }
+
+    /**
+     * 字段在任何 {@link PropertySource} 里都没有值时（yml 未写该 key、也从未被配置中心覆盖过），
+     * 上面基于 {@link EnumerablePropertySource} 的扫描完全发现不了对应 key——这类字段（哪怕只有一个
+     * Java 侧默认值，如 {@code private int x = 8 * 1024 * 1024}）在配置中心里会"隐形"，页面显示空表格、
+     * 无处可填。这里用一个纯反射默认实例把这些字段也纳入展示（值取字段初始化的 Java 默认值），
+     * 保证只要类里声明了字段就一定能在配置中心看到并编辑，不依赖作者记得同步写一份 yml 占位。
+     */
+    private void appendUnconfiguredFieldDefaults(BlockMeta meta, Set<String> discoveredKeys,
+                                                  Map<String, Object> overrides, Map<String, String> descByKey,
+                                                  List<ConfigBlockView.Entry> entries) {
+        Object defaults;
+        try {
+            defaults = meta.beanType().getDeclaredConstructor().newInstance();
+        } catch (ReflectiveOperationException e) {
+            log.warn("[dynamic-config] 无法创建 {} 的默认实例，跳过未配置字段兜底展示：{}", meta.beanType().getName(), e.getMessage());
+            return;
+        }
+        for (Field field : meta.beanType().getDeclaredFields()) {
+            if (isStringListField(field)) {
+                continue;
+            }
+            String key = meta.prefix() + "." + toKebabCase(field.getName());
+            if (discoveredKeys.contains(key)) {
+                continue;
+            }
+            Object value;
+            try {
+                field.setAccessible(true);
+                value = field.get(defaults);
+            } catch (ReflectiveOperationException e) {
+                continue;
+            }
+            entries.add(new ConfigBlockView.Entry(
+                    key,
+                    value == null ? null : String.valueOf(value),
+                    overrides.containsKey(key),
+                    "string",
+                    List.of(),
+                    descByKey.getOrDefault(key, "")));
+        }
     }
 
     public ConfigBlockView applyOverrides(String blockId, Map<String, String> overrides, List<String> replacePrefixes) {
