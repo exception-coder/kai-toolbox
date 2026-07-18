@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, Boxes, BotMessageSquare, Check, Compass, CornerDownRight, Database, Download, FolderTree, GitCompare, Info, Loader2, Pin, Play, RefreshCw, Search, Send, Sparkles, TerminalSquare, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Boxes, BotMessageSquare, Check, Compass, CornerDownRight, Database, Download, Eye, EyeOff, FolderTree, GitCompare, Info, Loader2, Pin, Play, RefreshCw, Search, Send, Sparkles, TerminalSquare, Trash2, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -20,6 +20,7 @@ import { GRAPHIFY_LABEL, GRAPHIFY_TONE, REGISTRATION_LABEL, REGISTRATION_TONE } 
 import type { ProjectStatusSnapshot } from '@/features/knowledge-graph/types'
 import { AGGREGATION_DRAFT_KEY, useAggregationCart, type AggregationItem } from '../hooks/useAggregationCart'
 import { useStatusCache, type BusinessFilter, type GraphifyFilter } from '../hooks/useStatusCache'
+import { useIgnoredProjects } from '../hooks/useIgnoredProjects'
 import { KnowledgeGraphCard } from '../components/KnowledgeGraphCard'
 
 interface PendingOpen {
@@ -130,6 +131,8 @@ export function ProjectWorkspacePage() {
   // 跨项目知识图谱状态筛选：懒加载缓存 + 手动「检测全部」（§11.2/11.3）
   const kg = useStatusCache()
   const visibleProjects = useMemo(() => projects.filter(p => kg.matches(p.path)), [projects, kg.matches])
+  // 忽略项目列表：纯前端偏好，不参与「检测全部」批量检测（§12）
+  const ignored = useIgnoredProjects()
   const sessions = sessionsQ.data ?? []
   const sessionByCwd = useMemo(() => {
     const map = new Map<string, ClaudeChatSessionView>()
@@ -464,7 +467,10 @@ export function ProjectWorkspacePage() {
               项目
             </CardTitle>
             <CardDescription>来自 Vibe Coding 工作区配置（workspace.roots）</CardDescription>
-            <KnowledgeGraphFilterBar kg={kg} onRefreshAll={() => kg.refresh(projects.map(p => p.path))} />
+            <KnowledgeGraphFilterBar
+              kg={kg}
+              onRefreshAll={() => kg.refresh(projects.filter(p => !ignored.isIgnored(p.path)).map(p => p.path))}
+            />
             {(workspacesQ.data?.roots?.length ?? 0) > 0 && (
               <div className="mt-1.5 space-y-1 rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/30 p-2">
                 <div className="text-[10px] font-medium uppercase tracking-wide text-[var(--color-muted-foreground)]">当前扫描目录</div>
@@ -514,6 +520,8 @@ export function ProjectWorkspacePage() {
                   project={project}
                   selected={project.path === selectedPath}
                   snapshot={kg.snapshotOf(project.path)}
+                  ignored={ignored.isIgnored(project.path)}
+                  onToggleIgnore={() => ignored.toggle(project.path)}
                   onClick={() => {
                     setSelectedPath(project.path)
                     setKeyword('')
@@ -717,11 +725,15 @@ function ProjectButton({
   project,
   selected,
   snapshot,
+  ignored,
+  onToggleIgnore,
   onClick,
 }: {
   project: WorkspaceDir & { root: string }
   selected: boolean
   snapshot?: ProjectStatusSnapshot
+  ignored: boolean
+  onToggleIgnore: () => void
   onClick: () => void
 }) {
   return (
@@ -738,18 +750,32 @@ function ProjectButton({
       <span className="truncate text-sm font-medium text-[var(--color-foreground)]">{project.name}</span>
       <span className="truncate text-xs text-[var(--color-muted-foreground)]">{project.root}</span>
       <div className="mt-0.5 flex flex-wrap items-center gap-1">
-        <StatusBadge
-          tone={snapshot?.graphifyState ? GRAPHIFY_TONE[snapshot.graphifyState] : 'neutral'}
-          className="px-1.5 py-0 text-[10px]"
+        {ignored ? (
+          <StatusBadge tone="neutral" className="px-1.5 py-0 text-[10px]">已忽略</StatusBadge>
+        ) : (
+          <>
+            <StatusBadge
+              tone={snapshot?.graphifyState ? GRAPHIFY_TONE[snapshot.graphifyState] : 'neutral'}
+              className="px-1.5 py-0 text-[10px]"
+            >
+              {snapshot?.graphifyState ? GRAPHIFY_LABEL[snapshot.graphifyState] : '未检测'}
+            </StatusBadge>
+            <StatusBadge
+              tone={snapshot?.businessGraphState ? REGISTRATION_TONE[snapshot.businessGraphState] : 'neutral'}
+              className="px-1.5 py-0 text-[10px]"
+            >
+              {snapshot?.businessGraphState ? REGISTRATION_LABEL[snapshot.businessGraphState] : '未检测'}
+            </StatusBadge>
+          </>
+        )}
+        <button
+          type="button"
+          className="ml-auto shrink-0 rounded p-0.5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+          title={ignored ? '取消忽略：恢复参与「检测全部」' : '忽略：不参与「检测全部」批量知识图谱检测'}
+          onClick={(e) => { e.stopPropagation(); onToggleIgnore() }}
         >
-          {snapshot?.graphifyState ? GRAPHIFY_LABEL[snapshot.graphifyState] : '未检测'}
-        </StatusBadge>
-        <StatusBadge
-          tone={snapshot?.businessGraphState ? REGISTRATION_TONE[snapshot.businessGraphState] : 'neutral'}
-          className="px-1.5 py-0 text-[10px]"
-        >
-          {snapshot?.businessGraphState ? REGISTRATION_LABEL[snapshot.businessGraphState] : '未检测'}
-        </StatusBadge>
+          {ignored ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+        </button>
       </div>
     </button>
   )
