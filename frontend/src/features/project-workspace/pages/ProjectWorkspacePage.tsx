@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Segmented } from '@/components/ui/segmented'
 import { Separator } from '@/components/ui/separator'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useConfirm } from '@/components/ui/confirm-dialog'
@@ -781,7 +780,10 @@ function ProjectButton({
   )
 }
 
-/** 左侧项目列表上方的知识图谱筛选栏：两个独立维度（Graphify / 业务图谱）+「检测全部」批量刷新。 */
+/**
+ * 左侧项目列表上方的知识图谱区：Graphify / 业务图谱两个知识源各一行 chips，纵向堆叠、可换行，
+ * 不做「数据源 × 状态」二维矩阵（避免读成后台筛选表格）。选中态用实心高亮，其余弱化。
+ */
 function KnowledgeGraphFilterBar({
   kg,
   onRefreshAll,
@@ -804,33 +806,62 @@ function KnowledgeGraphFilterBar({
     { value: 'REGISTERED', label: '已登记' },
   ]
   return (
-    <div className="mt-1.5 space-y-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/30 p-2">
+    <div className="mt-2 space-y-2.5">
       <div className="flex items-center justify-between gap-2">
-        <div className="text-[10px] font-medium uppercase tracking-wide text-[var(--color-muted-foreground)]">知识图谱筛选</div>
-        <Button
+        <span className="text-xs font-medium text-[var(--color-foreground)]">知识图谱</span>
+        <button
           type="button"
-          size="sm"
-          variant="outline"
-          className="h-6 px-1.5 text-[11px]"
+          className="flex items-center gap-1 rounded px-1 text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] disabled:opacity-50"
           disabled={kg.refreshing}
           onClick={onRefreshAll}
           title="并发检测当前项目列表的 Graphify + 业务图谱状态，写入本地缓存"
         >
           {kg.refreshing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
           检测全部
-        </Button>
+        </button>
       </div>
-      <div className="space-y-1">
-        <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-muted-foreground)]">
-          <span className="w-12 shrink-0">Graphify</span>
-          <Segmented value={kg.graphifyFilter} onChange={kg.setGraphifyFilter} options={graphifyOptions} size="sm" />
-        </div>
-        <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-muted-foreground)]">
-          <span className="w-12 shrink-0">业务图谱</span>
-          <Segmented value={kg.businessFilter} onChange={kg.setBusinessFilter} options={businessOptions} size="sm" />
-        </div>
-      </div>
+      <FilterChipRow label="Graphify" value={kg.graphifyFilter} onChange={kg.setGraphifyFilter} options={graphifyOptions} />
+      <FilterChipRow label="业务图谱" value={kg.businessFilter} onChange={kg.setBusinessFilter} options={businessOptions} />
       {kg.refreshError && <p className="text-[11px] text-[var(--color-destructive)]">{kg.refreshError}</p>}
+    </div>
+  )
+}
+
+/** 单个知识源一行：名称独占一行 + 下方可换行的 chips，选中态高亮，替代 Segmented 单行硬挤五个选项。 */
+function FilterChipRow<T extends string>({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string
+  value: T
+  onChange: (next: T) => void
+  options: ReadonlyArray<{ value: T; label: string }>
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="text-[11px] text-[var(--color-muted-foreground)]">{label}</div>
+      <div className="flex flex-wrap gap-1">
+        {options.map((opt) => {
+          const active = opt.value === value
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => onChange(opt.value)}
+              className={cn(
+                'rounded-full border px-2 py-0.5 text-[11px] transition-colors',
+                active
+                  ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10 font-medium text-[var(--color-primary)]'
+                  : 'border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]',
+              )}
+            >
+              {opt.label}
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
