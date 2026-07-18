@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronDown, ChevronRight, Network } from 'lucide-react'
+import { ChevronDown, ChevronRight, Network, Play, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -18,6 +18,16 @@ import {
 import type { ProjectStatusSnapshot } from '@/features/knowledge-graph/types'
 
 const LAUNCH_KEY = 'kai-toolbox:claude-chat:knowledge-graph-bootstrap-launch'
+const GRAPHIFY_LAUNCH_KEY = 'kai-toolbox:claude-chat:graphify-generate-launch'
+
+/**
+ * Graphify 的生成不是一条确定性 CLI 命令——`/graphify` 是一个 Claude Code skill，内部会做
+ * AST 解析 + 语义抽取子 Agent + 社区检测打标（见 `~/.claude/skills/graphify/SKILL.md`），
+ * 必须在 AI 会话里跑，不能后端直接 shell out。`--update` 对应"已生成但过时"场景的增量重建。
+ */
+function buildGraphifySeed(mode: 'full' | 'update'): string {
+  return mode === 'full' ? '/graphify' : '/graphify --update'
+}
 
 function buildBootstrapSeed(projectPath: string, projectKey: string, scope: 'full' | string[]): string {
   const scopeText = scope === 'full' ? '全部模块' : `以下模块：${scope.join('、')}`
@@ -107,6 +117,20 @@ export function KnowledgeGraphCard({
     navigate(CHAT_ROUTE)
   }
 
+  const launchGraphifyGeneration = async (mode: 'full' | 'update') => {
+    const ok = await confirm({
+      title: mode === 'full' ? '一键生成 Graphify 图谱' : '更新 Graphify 图谱',
+      description: '将跳转到 Vibe Coding，在该项目目录下运行 /graphify skill——这是一套 Agent 编排流程'
+        + '（AST 解析 + 语义抽取子 Agent + 社区检测打标），不是简单命令，项目越大耗时越久（几分钟到数十分钟不等）。'
+        + '产物写入项目自己的 graphify-out/ 目录。',
+      confirmText: '确认跳转',
+    })
+    if (!ok) return
+    const seed = buildGraphifySeed(mode)
+    try { sessionStorage.setItem(GRAPHIFY_LAUNCH_KEY, JSON.stringify({ cwd: projectPath, seed })) } catch { /* 隐私模式忽略 */ }
+    navigate(CHAT_ROUTE)
+  }
+
   const toggleGap = (repoKey: string, moduleKey: string) => {
     setSelectedGaps((prev) => {
       const set = new Set(prev[repoKey] ?? [])
@@ -144,14 +168,28 @@ export function KnowledgeGraphCard({
                 </StatusBadge>
               )}
             </CardHeader>
-            <CardContent className="text-sm text-[var(--color-muted-foreground)]">
+            <CardContent className="flex flex-col gap-3 text-sm text-[var(--color-muted-foreground)]">
               {graphifyQuery.isLoading && '检测中…'}
               {graphifyQuery.isError && <span className="text-[var(--color-destructive)]">{(graphifyQuery.error as Error).message}</span>}
               {graphifyQuery.data && (
                 <>
-                  <p>安装/生成触发暂未实现（另行开发），此处仅展示检测结果。</p>
                   {graphifyQuery.data.latestCommitAt && (
-                    <p className="mt-1">项目最新提交：{new Date(graphifyQuery.data.latestCommitAt).toLocaleString()}</p>
+                    <p>项目最新提交：{new Date(graphifyQuery.data.latestCommitAt).toLocaleString()}</p>
+                  )}
+                  {graphifyQuery.data.state === 'NOT_GENERATED' && (
+                    <Button onClick={() => launchGraphifyGeneration('full')}>
+                      <Play className="size-4" />一键生成
+                    </Button>
+                  )}
+                  {graphifyQuery.data.state === 'STALE' && (
+                    <Button onClick={() => launchGraphifyGeneration('update')}>
+                      <RefreshCw className="size-4" />更新
+                    </Button>
+                  )}
+                  {graphifyQuery.data.state === 'UP_TO_DATE' && (
+                    <Button variant="outline" onClick={() => launchGraphifyGeneration('full')}>
+                      <RefreshCw className="size-4" />强制重新生成
+                    </Button>
                   )}
                 </>
               )}

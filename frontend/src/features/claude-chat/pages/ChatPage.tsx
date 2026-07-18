@@ -390,6 +390,26 @@ export function ChatPage() {
     } catch { /* 解析失败忽略 */ }
   }, [chat])
 
+  // Graphify 生成 handoff：项目工作台知识图谱卡片把 {cwd, seed} 写 sessionStorage 后跳来，
+  // 在目标项目自己的目录开一个会话并投喂 "/graphify" 或 "/graphify --update"，拉起 graphify skill
+  // 跑代码结构图生成流程（AST 解析 + 语义抽取子 Agent + 社区检测打标，产物写入该项目的 graphify-out/）。
+  const graphifyGenerateLaunchedRef = useRef(false)
+  useEffect(() => {
+    if (graphifyGenerateLaunchedRef.current || !chat) return
+    let raw: string | null = null
+    try { raw = sessionStorage.getItem('kai-toolbox:claude-chat:graphify-generate-launch') } catch { /* ignore */ }
+    if (!raw) return
+    graphifyGenerateLaunchedRef.current = true
+    try { sessionStorage.removeItem('kai-toolbox:claude-chat:graphify-generate-launch') } catch { /* ignore */ }
+    try {
+      const { cwd, seed } = JSON.parse(raw) as { cwd?: string; seed?: string }
+      if (seed) {
+        chat.open((cwd ?? '').trim(), undefined, undefined, 'claude')
+        chat.send(seed)
+      }
+    } catch { /* 解析失败忽略 */ }
+  }, [chat])
+
   // 「按菜单识别模块」handoff：项目工作台「Agent 识菜单」把 {cwd, seed} 写 sessionStorage 后跳来，
   // 开一个 Claude 会话（cwd=目标项目，便于读其前端菜单/路由）并投喂提示——agent 读菜单→产模块清单→
   // 经 domain-knowledge 的 add-modules 落 modules.json（先预览、owner 确认后再 --apply）。一次性。
