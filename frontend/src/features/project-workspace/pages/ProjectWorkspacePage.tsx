@@ -19,7 +19,7 @@ import { GRAPHIFY_LABEL, GRAPHIFY_TONE, REGISTRATION_LABEL, REGISTRATION_TONE } 
 import type { ProjectStatusSnapshot } from '@/features/knowledge-graph/types'
 import { AGGREGATION_DRAFT_KEY, useAggregationCart, type AggregationItem } from '../hooks/useAggregationCart'
 import { useStatusCache, type BusinessFilter, type GraphifyFilter } from '../hooks/useStatusCache'
-import { useIgnoredProjects } from '../hooks/useIgnoredProjects'
+import { useIgnoredProjects, type IgnoreFilter } from '../hooks/useIgnoredProjects'
 import { KnowledgeGraphCard } from '../components/KnowledgeGraphCard'
 
 interface PendingOpen {
@@ -129,9 +129,12 @@ export function ProjectWorkspacePage() {
 
   // 跨项目知识图谱状态筛选：懒加载缓存 + 手动「检测全部」（§11.2/11.3）
   const kg = useStatusCache()
-  const visibleProjects = useMemo(() => projects.filter(p => kg.matches(p.path)), [projects, kg.matches])
   // 忽略项目列表：纯前端偏好，不参与「检测全部」批量检测（§12）
   const ignored = useIgnoredProjects()
+  const visibleProjects = useMemo(
+    () => projects.filter(p => kg.matches(p.path) && ignored.matches(p.path)),
+    [projects, kg.matches, ignored.matches],
+  )
   const sessions = sessionsQ.data ?? []
   const sessionByCwd = useMemo(() => {
     const map = new Map<string, ClaudeChatSessionView>()
@@ -468,6 +471,7 @@ export function ProjectWorkspacePage() {
             <CardDescription>来自 Vibe Coding 工作区配置（workspace.roots）</CardDescription>
             <KnowledgeGraphFilterBar
               kg={kg}
+              ignored={ignored}
               onRefreshAll={() => kg.refresh(projects.filter(p => !ignored.isIgnored(p.path)).map(p => p.path))}
             />
             {(workspacesQ.data?.roots?.length ?? 0) > 0 && (
@@ -508,7 +512,7 @@ export function ProjectWorkspacePage() {
             ) : visibleProjects.length === 0 ? (
               <div className="flex flex-col items-center gap-2 rounded-md border border-dashed border-[var(--color-border)] p-4 text-center text-xs text-[var(--color-muted-foreground)]">
                 <span>没有项目匹配当前的知识图谱筛选条件</span>
-                <Button type="button" size="sm" variant="ghost" onClick={() => { kg.setGraphifyFilter('ALL'); kg.setBusinessFilter('ALL') }}>
+                <Button type="button" size="sm" variant="ghost" onClick={() => { kg.setGraphifyFilter('ALL'); kg.setBusinessFilter('ALL'); ignored.setFilter('ALL') }}>
                   清除筛选
                 </Button>
               </div>
@@ -786,9 +790,11 @@ function ProjectButton({
  */
 function KnowledgeGraphFilterBar({
   kg,
+  ignored,
   onRefreshAll,
 }: {
   kg: ReturnType<typeof useStatusCache>
+  ignored: ReturnType<typeof useIgnoredProjects>
   onRefreshAll: () => void
 }) {
   const graphifyOptions: { value: GraphifyFilter; label: string }[] = [
@@ -804,6 +810,11 @@ function KnowledgeGraphFilterBar({
     { value: 'NOT_REGISTERED', label: '未登记' },
     { value: 'PARTIAL', label: '部分' },
     { value: 'REGISTERED', label: '已登记' },
+  ]
+  const ignoreOptions: { value: IgnoreFilter; label: string }[] = [
+    { value: 'ALL', label: '全部' },
+    { value: 'NOT_IGNORED', label: '未忽略' },
+    { value: 'IGNORED', label: '已忽略' },
   ]
   return (
     <div className="mt-2 space-y-2.5">
@@ -823,6 +834,9 @@ function KnowledgeGraphFilterBar({
       <FilterChipRow label="Graphify" value={kg.graphifyFilter} onChange={kg.setGraphifyFilter} options={graphifyOptions} />
       <FilterChipRow label="业务图谱" value={kg.businessFilter} onChange={kg.setBusinessFilter} options={businessOptions} />
       {kg.refreshError && <p className="text-[11px] text-[var(--color-destructive)]">{kg.refreshError}</p>}
+      <div className="border-t border-[var(--color-border)] pt-2">
+        <FilterChipRow label="忽略状态" value={ignored.filter} onChange={ignored.setFilter} options={ignoreOptions} />
+      </div>
     </div>
   )
 }

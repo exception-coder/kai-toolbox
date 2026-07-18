@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 
 const STORAGE_KEY = 'kai-toolbox:project-workspace:ignored-projects'
 
+export type IgnoreFilter = 'ALL' | 'IGNORED' | 'NOT_IGNORED'
+
 function load(): Set<string> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -47,5 +49,11 @@ export function useIgnoredProjects() {
     })
   }, [])
 
-  return { isIgnored, toggle, ignoredCount: ignored.size }
+  const [filter, setFilter] = useState<IgnoreFilter>('ALL')
+  const matches = useCallback((path: string) => {
+    if (filter === 'ALL') return true
+    return filter === 'IGNORED' ? ignored.has(path) : !ignored.has(path)
+  }, [filter, ignored])
+
+  return { isIgnored, toggle, ignoredCount: ignored.size, filter, setFilter, matches }
 }
