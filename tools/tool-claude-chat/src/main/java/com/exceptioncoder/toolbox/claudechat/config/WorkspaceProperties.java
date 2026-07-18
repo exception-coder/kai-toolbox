@@ -48,4 +48,12 @@ public class WorkspaceProperties {
      * <p>默认企业 Gitee 地址；私有仓需本机已登录企业 Git 账号（凭据）。为空则不自动拉取。</p>
      */
     private String knowledgeRepoUrl = "https://gitee.com/wyoooni/project-domain-knowledge.git";
+
+    /**
+     * 「自维护机器人」锁定的 kai-toolbox 仓库自身绝对路径。
+     *
+     * <p>配置后，工作台各页面角落会出现一个常驻小机器人入口，可直接对 kai-toolbox 自己发起
+     * 「改当前模块」/「问项目」——cwd 固定为此路径，不需要每次手选目录。为空 = 不启用，机器人不出现。</p>
+     */
+    private String selfRepoPath = "";
 }

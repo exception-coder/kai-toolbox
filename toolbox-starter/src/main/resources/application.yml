@@ -448,6 +448,9 @@ toolbox:
       # 后端只读本地文件，不联网、不执行 git；保持最新需自行 git pull。
       knowledge-base-dir: "D:\\Users\\zhang\\myWork\\project-domain-knowledge\\knowledge"
       # 例： knowledge-base-dir: "D:\\Users\\zhang\\myWork\\project-domain-knowledge\\knowledge"
+      # 「自维护机器人」锁定的 kai-toolbox 自身仓库路径。配置后，工作台各页面角落出现常驻小机器人，
+      # 可直接对 kai-toolbox 自己发起「改当前模块」/「问项目」——cwd 固定为此路径。为空 = 不启用。
+      self-repo-path: "D:\\Users\\zhang\\myWork\\kai-toolbox"
 
   browser-request:
     # 持久 BrowserContext 数据目录（cookies/storage state），留空 = ${toolbox.data-dir}/browser-request

@@ -8,6 +8,7 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleSyncApplyRequest;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleSyncPreview;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleSyncResult;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ProjectModulesResponse;
+import com.exceptioncoder.toolbox.claudechat.api.dto.SelfRepoResponse;
 import com.exceptioncoder.toolbox.claudechat.api.dto.WorkspaceListResponse;
 import com.exceptioncoder.toolbox.claudechat.service.WorkspaceScanService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,6 +35,12 @@ public class WorkspaceController {
     @GetMapping
     public WorkspaceListResponse list() {
         return service.scan();
+    }
+
+    /** 「自维护机器人」锁定的 kai-toolbox 自身仓库路径；未配置或目录不存在时前端隐藏机器人入口。 */
+    @GetMapping("/self")
+    public SelfRepoResponse self() {
+        return service.selfRepo();
     }
 
     /** 扫描某项目下的模块（确定性，按构建标志文件）；path 须在配置根内。供「项目工作台」列模块。 */

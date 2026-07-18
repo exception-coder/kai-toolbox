@@ -6,6 +6,7 @@ import { TopBar } from './TopBar'
 import { CommandPalette } from './CommandPalette'
 import { features } from './featureRegistry'
 import { PwaInstallPrompt } from './PwaInstallPrompt'
+import { ForgeBotTrigger } from '@/features/claude-chat/components/ForgeBotTrigger'
 import { useBrand } from './brand'
 
 export function AppShell() {
@@ -78,6 +79,8 @@ export function AppShell() {
       <PwaInstallPrompt />
       {/* 命令面板（Ctrl/⌘+K）：只挂一次，跨所有工具页可用 */}
       <CommandPalette />
+      {/* Forge 自修机器人：右下角常驻入口，仅配置了自身仓库路径时出现（见 WorkspaceProperties.selfRepoPath） */}
+      <ForgeBotTrigger />
       </>
       )}
     </div>

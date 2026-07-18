@@ -11,6 +11,7 @@ import com.exceptioncoder.toolbox.common.dynamicconfig.service.DynamicConfigServ
 import com.exceptioncoder.toolbox.claudechat.api.dto.ProjectModulesResponse.ModuleView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.WorkspaceDirView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.CloneResponse;
+import com.exceptioncoder.toolbox.claudechat.api.dto.SelfRepoResponse;
 import com.exceptioncoder.toolbox.claudechat.api.dto.WorkspaceListResponse;
 import com.exceptioncoder.toolbox.claudechat.api.dto.WorkspaceListResponse.RootView;
 import com.exceptioncoder.toolbox.claudechat.config.WorkspaceProperties;
@@ -239,6 +240,15 @@ public class WorkspaceScanService {
         int ttl = props.getCacheTtlSeconds() <= 0 ? 5 : props.getCacheTtlSeconds();
         cacheExpireAt = now + ttl * 1000L;
         return result;
+    }
+
+    /** 「自维护机器人」锁定的 kai-toolbox 自身仓库路径；exists=false 时前端隐藏机器人入口。 */
+    public SelfRepoResponse selfRepo() {
+        String path = props.getSelfRepoPath();
+        if (path == null || path.isBlank()) {
+            return new SelfRepoResponse("", false);
+        }
+        return new SelfRepoResponse(path, Files.isDirectory(Path.of(path)));
     }
 
     private RootView scanRoot(String rootSetting) {

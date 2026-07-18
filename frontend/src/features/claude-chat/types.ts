@@ -47,6 +47,12 @@ export interface WorkspaceList {
   scannedAt: string
 }
 
+/** 「自维护机器人」锁定的 kai-toolbox 自身仓库路径；exists=false 时前端隐藏机器人入口。 */
+export interface SelfRepo {
+  path: string
+  exists: boolean
+}
+
 /** 拉取项目结果：name=克隆目录名，path=落地绝对路径（可直接当新建会话 cwd）。 */
 export interface CloneResult {
   name: string
