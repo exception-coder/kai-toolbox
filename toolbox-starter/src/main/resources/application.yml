@@ -407,10 +407,16 @@ toolbox:
     # 传给 `graphify query --budget` 的 token 预算，控制注入 prompt 的图谱上下文体量。
     query-budget: 1500
 
-  # 「知识图谱管理」面板的仓库路径（domain-knowledge-repo-path/cross-topology-repo-path/node-executable）
-  # 因人而异（每台开发机 clone 位置不同），不写死在这里——纳入运行时配置中心（KnowledgeGraphProperties
-  # 的 @Refreshable），首次使用时在「配置中心 → 知识图谱仓库路径」页面按本机实际路径填写即可，DB 覆盖、
-  # 改后立即生效，不进 git、不同开发机互不影响。
+  knowledge-graph:
+    # 「知识图谱管理」面板的仓库路径，因人而异（每台开发机 clone 位置不同），不写死具体路径——
+    # 留空占位，实际值在「配置中心 → 知识图谱仓库路径」页面按本机路径填写，落 SQLite 覆盖、
+    # 改后立即生效，不进 git、不同开发机互不影响。
+    # 注：配置中心的字段发现依赖 Environment 里已存在该 key（哪怕是空值）才能显示为可编辑项，
+    # 这里必须留空字符串占位，不能整段删掉——删掉后 key 在 Environment 里完全不存在，
+    # 配置中心页面会显示一个没有任何配置项可填的空表格。
+    domain-knowledge-repo-path: ""
+    cross-topology-repo-path: ""
+    node-executable: node
 
   projects:
     # 「项目管理」面板扫描的根目录，仅扫描一级子目录。
