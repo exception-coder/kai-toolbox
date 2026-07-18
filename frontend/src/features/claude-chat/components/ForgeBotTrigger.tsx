@@ -48,6 +48,10 @@ export function ForgeBotTrigger() {
   const pendingRef = useRef<{ cwd: string; seed: string } | null>(null)
 
   const feature = featureAtPath(location.pathname)
+  // AI 存在感：ripple/呼吸不只反映本机器人自己发起的任务，而是真实的 chat.running——
+  // 只要工作台里有 AI 在干活（哪怕悬浮窗是关着的），orb 都会显出「正在忙」，让它更像一个环境感知的存在，而非一颗按钮。
+  const active = !!chat?.running
+  const activating = !chat && !!pendingRef.current
 
   // chat 从 null 变为可用（懒启动完成）时，把排队的一次性投喂发出去。
   const deliver = useCallback(() => {
@@ -86,38 +90,56 @@ export function ForgeBotTrigger() {
 
   return (
     <>
-      {/* 主图标：右下角常驻，点击展开/收起两个分裂入口 */}
-      <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-2">
+      {/* 主图标：右下角常驻的「AI Orb」——不是一个静态按钮，闲置慢呼吸，AI 干活时外圈扩散波纹，
+          呼吸/波纹用 --color-primary 走主题色，跟随用户选的主色（详见 index.css 的 orb-* 关键帧）。 */}
+      <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-3">
         {menuOpen && (
-          <div className="flex flex-col items-end gap-2 transition-all">
+          <div className="animate-orb-dock-in flex flex-col overflow-hidden rounded-2xl border border-[var(--color-border)]/70 bg-[color-mix(in_oklab,var(--color-card)_82%,transparent)] p-1.5 shadow-2xl backdrop-blur-xl">
             <button
               type="button"
               onClick={() => setPanel('project')}
               title="不锁定模块，面向整个 kai-toolbox 仓库提问/建议"
-              className="flex items-center gap-1.5 rounded-full border bg-[var(--color-card)] px-3 py-1.5 text-xs shadow-md transition hover:border-[var(--color-primary)]"
+              className="flex w-44 items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--color-primary)_14%,transparent)]"
             >
-              <MessageCircleQuestion className="size-3.5" />问项目
+              <MessageCircleQuestion className="size-4 shrink-0 text-[var(--color-primary)]" />问项目
             </button>
             <button
               type="button"
               onClick={() => feature && setPanel('module')}
               disabled={!feature}
               title={feature ? `就地对「${feature.name}」发起小修` : '当前页面不属于具体模块，试试「问项目」'}
-              className="flex items-center gap-1.5 rounded-full border bg-[var(--color-card)] px-3 py-1.5 text-xs shadow-md transition hover:border-[var(--color-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex w-44 items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--color-primary)_14%,transparent)] disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <Wrench className="size-3.5" />改这个模块
+              <Wrench className="size-4 shrink-0 text-[var(--color-primary)]" />改这个模块
             </button>
           </div>
         )}
-        <button
-          type="button"
-          onClick={() => setMenuOpen(o => !o)}
-          aria-label="Forge 自修机器人"
-          title="Forge 自修机器人：改当前模块 / 问项目"
-          className={`flex size-11 items-center justify-center rounded-full text-[var(--color-primary-foreground)] shadow-lg transition-transform hover:scale-105 active:scale-95 ${menuOpen ? 'bg-[var(--color-foreground)]' : 'bg-[var(--color-primary)]'}`}
-        >
-          {menuOpen ? <X className="size-5" /> : <Hammer className="size-5" />}
-        </button>
+
+        <div className="group relative">
+          {/* 环境光晕：闲置慢呼吸，表明「AI 在这，但没事干」 */}
+          <span aria-hidden className="absolute inset-0 -z-10 rounded-full opacity-70 blur-lg animate-orb-breathe" style={{ background: 'var(--color-primary)' }} />
+          {/* 扩散波纹：真实反映 chat.running（不局限于本机器人自己发起的任务）——工作台里只要 AI 在忙，orb 就会显出来 */}
+          {(active || activating) && (
+            <>
+              <span aria-hidden className="absolute inset-0 -z-10 rounded-full animate-orb-ripple" style={{ background: 'var(--color-primary)' }} />
+              <span aria-hidden className="absolute inset-0 -z-10 rounded-full animate-orb-ripple [animation-delay:0.6s]" style={{ background: 'var(--color-primary)' }} />
+            </>
+          )}
+          {/* 悬浮上下文提示：待命 / 唤醒中 / AI 工作中 / 当前模块名——一眼知道「它此刻知道什么」 */}
+          <span className="pointer-events-none absolute -top-9 right-0 whitespace-nowrap rounded-full border bg-[var(--color-popover)] px-2.5 py-1 text-[11px] text-[var(--color-popover-foreground)] opacity-0 shadow-md transition-opacity group-hover:opacity-100">
+            Forge · {active ? 'AI 工作中' : activating ? '唤醒中…' : feature ? feature.name : '待命'}
+          </span>
+          <button
+            type="button"
+            onClick={() => setMenuOpen(o => !o)}
+            aria-label="Forge 自修机器人"
+            title="Forge 自修机器人：改当前模块 / 问项目"
+            className="relative flex size-12 items-center justify-center rounded-full text-[var(--color-primary-foreground)] shadow-[0_10px_28px_-6px_var(--color-primary)] transition-transform hover:scale-105 active:scale-95"
+            style={{ background: 'radial-gradient(circle at 32% 28%, color-mix(in oklab, var(--color-primary) 55%, white 45%), var(--color-primary) 72%)' }}
+          >
+            {menuOpen ? <X className="size-5" /> : activating ? <Loader2 className="size-5 animate-spin" /> : <Hammer className="size-5" />}
+          </button>
+        </div>
       </div>
 
       {/* 左手：改当前模块——固定左上角 */}
@@ -172,7 +194,7 @@ interface MiniPanelProps {
 function MiniPanel({ corner, icon, title, hint, value, onChange, onSubmit, onClose, placeholder, busy }: MiniPanelProps) {
   return (
     <div
-      className={`fixed top-4 z-50 w-[min(320px,calc(100vw-2rem))] rounded-xl border bg-[var(--color-card)] shadow-xl ${corner === 'left' ? 'left-4' : 'right-4'}`}
+      className={`animate-orb-dock-in fixed top-4 z-50 w-[min(320px,calc(100vw-2rem))] rounded-xl border bg-[color-mix(in_oklab,var(--color-card)_92%,transparent)] shadow-2xl backdrop-blur-xl ${corner === 'left' ? 'left-4' : 'right-4'}`}
     >
       <div className="flex items-center gap-2 border-b px-3 py-2">
         <span className="text-[var(--color-primary)]">{icon}</span>
