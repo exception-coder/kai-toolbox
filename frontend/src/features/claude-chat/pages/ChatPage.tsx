@@ -371,6 +371,25 @@ export function ChatPage() {
     } catch { /* 解析失败忽略 */ }
   }, [chat])
 
+  // 知识图谱管理 handoff：「知识图谱管理」模块把 {cwd, seed} 写 sessionStorage 后跳来，
+  // 在 project-domain-knowledge/cross-project-topology 仓库目录开一个会话并投喂触发语拉起 domain-knowledge-bootstrap skill。
+  const kgBootstrapLaunchedRef = useRef(false)
+  useEffect(() => {
+    if (kgBootstrapLaunchedRef.current || !chat) return
+    let raw: string | null = null
+    try { raw = sessionStorage.getItem('kai-toolbox:claude-chat:knowledge-graph-bootstrap-launch') } catch { /* ignore */ }
+    if (!raw) return
+    kgBootstrapLaunchedRef.current = true
+    try { sessionStorage.removeItem('kai-toolbox:claude-chat:knowledge-graph-bootstrap-launch') } catch { /* ignore */ }
+    try {
+      const { cwd, seed } = JSON.parse(raw) as { cwd?: string; seed?: string }
+      if (seed) {
+        chat.open((cwd ?? '').trim(), undefined, undefined, 'claude')
+        chat.send(seed)
+      }
+    } catch { /* 解析失败忽略 */ }
+  }, [chat])
+
   // 「按菜单识别模块」handoff：项目工作台「Agent 识菜单」把 {cwd, seed} 写 sessionStorage 后跳来，
   // 开一个 Claude 会话（cwd=目标项目，便于读其前端菜单/路由）并投喂提示——agent 读菜单→产模块清单→
   // 经 domain-knowledge 的 add-modules 落 modules.json（先预览、owner 确认后再 --apply）。一次性。

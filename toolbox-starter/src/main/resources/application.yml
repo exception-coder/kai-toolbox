@@ -407,6 +407,14 @@ toolbox:
     # 传给 `graphify query --budget` 的 token 预算，控制注入 prompt 的图谱上下文体量。
     query-budget: 1500
 
+  knowledge-graph:
+    # 「知识图谱管理」面板：domain-knowledge/cross-topology 登记状态检测，shell out 到各自仓库的
+    # scripts/bootstrap.mjs gaps。与上面 claude-chat.workspace.knowledge-base-dir（指向 knowledge/ 子目录，
+    # 供项目工作台渲染模块树）是同一个仓库的不同用途，本处需要仓库根目录（要跑 node scripts/... 且校验 dist/server.js）。
+    domain-knowledge-repo-path: D:\Users\zhang\myWork\project-domain-knowledge
+    cross-topology-repo-path: D:\Users\zhang\myWork\cross-project-topology
+    node-executable: node
+
   projects:
     # 「项目管理」面板扫描的根目录，仅扫描一级子目录。
     # 修改后无需重启即可在 application.yml 中调整；缓存 TTL 内的请求仍读旧值。

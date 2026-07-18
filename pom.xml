@@ -52,6 +52,7 @@
         <module>tools/tool-ops</module>
         <module>tools/tool-prd-clarify</module>
         <module>tools/tool-reqpool</module>
+        <module>tools/tool-knowledge-graph</module>
         <module>toolbox-starter</module>
     </modules>
 
@@ -262,6 +263,11 @@
             <dependency>
                 <groupId>com.exceptioncoder</groupId>
                 <artifactId>tool-reqpool</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-knowledge-graph</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
