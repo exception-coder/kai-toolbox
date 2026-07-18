@@ -1,8 +1,12 @@
 import { RefreshCw } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { StatusBadge, type StatusTone } from '@/components/ui/status-badge'
 import type { DomainKnowledgeStatus, ModuleGap } from '../types'
+
+/** domain-knowledge/cross-topology 共用的运行时配置块 id（= KnowledgeGraphProperties 的 @ConfigurationProperties prefix）。 */
+const KNOWLEDGE_GRAPH_CFG_ID = 'toolbox.knowledge-graph'
 
 export const REGISTRATION_TONE: Record<string, StatusTone> = {
   NOT_REGISTERED: 'neutral',
@@ -38,6 +42,7 @@ export function DomainKnowledgeCard({
   onLaunch: (scope: 'full' | string[]) => void
 }) {
   const data = query.data
+  const navigate = useNavigate()
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
@@ -49,7 +54,18 @@ export function DomainKnowledgeCard({
       </CardHeader>
       <CardContent className="text-sm">
         {query.isLoading && <span className="text-[var(--color-muted-foreground)]">检测中…</span>}
-        {query.isError && <span className="text-[var(--color-destructive)]">{(query.error as Error).message}</span>}
+        {query.isError && (
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-[var(--color-destructive)]">{(query.error as Error).message}</span>
+            <button
+              type="button"
+              className="shrink-0 font-medium text-[var(--color-primary)] hover:underline"
+              onClick={() => navigate(`/tools/config-center?block=${KNOWLEDGE_GRAPH_CFG_ID}`)}
+            >
+              去配置 →
+            </button>
+          </div>
+        )}
         {data && (
           <div className="flex flex-col gap-3">
             <p className="text-[var(--color-muted-foreground)]">

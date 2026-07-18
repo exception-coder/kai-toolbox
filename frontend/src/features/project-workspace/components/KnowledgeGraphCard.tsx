@@ -88,11 +88,12 @@ export function KnowledgeGraphCard({
   const launchBootstrap = async (repoKey: 'domain-knowledge' | 'cross-topology', scope: 'full' | string[], label: string) => {
     const cwd = repoKey === 'domain-knowledge' ? repos?.domainKnowledgeRepoPath : repos?.crossTopologyRepoPath
     if (!cwd) {
-      await confirm({
+      const goConfig = await confirm({
         title: '尚未配置仓库路径',
-        description: `请先在配置中心设置 knowledge-graph.${repoKey === 'domain-knowledge' ? 'domain-knowledge' : 'cross-topology'}-repo-path。`,
-        confirmText: '知道了',
+        description: `请先在配置中心设置 ${repoKey === 'domain-knowledge' ? 'domain-knowledge-repo-path' : 'cross-topology-repo-path'}，再回来重试。`,
+        confirmText: '去配置 →',
       })
+      if (goConfig) navigate('/tools/config-center?block=toolbox.knowledge-graph')
       return
     }
     const ok = await confirm({
