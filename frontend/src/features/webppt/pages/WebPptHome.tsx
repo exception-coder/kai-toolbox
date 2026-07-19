@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMemo, useState, type ReactNode } from 'react'
+import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { Check, Copy } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Segmented } from '@/components/ui/segmented'
@@ -19,6 +19,36 @@ function ColorSwatch({ label, value }: { label: string; value: string }) {
   )
 }
 
+function ColorScaleSection({ title, prefix, colors }: { title: string; prefix: string; colors: string[] }) {
+  if (colors.length === 0) return null
+  return (
+    <div>
+      <p className="mb-2 text-sm font-medium">{title}</p>
+      <div className="flex flex-wrap gap-4">
+        {colors.map((c, i) => (
+          <ColorSwatch key={c + i} label={`${prefix}-${i}`} value={c} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** 三个 Card 共用的 loading/error/data 三态渲染，避免每个查询都重复一遍判断。 */
+function QueryState<T>({
+  query,
+  errorLabel,
+  children,
+}: {
+  query: UseQueryResult<T>
+  errorLabel: string
+  children: (data: T) => ReactNode
+}) {
+  if (query.isLoading) return <p className="text-sm text-[var(--color-muted-foreground)]">加载中…</p>
+  if (query.isError) return <p className="text-sm text-[var(--color-destructive)]">{errorLabel}</p>
+  if (!query.data) return null
+  return <>{children(query.data)}</>
+}
+
 function TokenPreview({ theme }: { theme: Record<string, unknown> }) {
   const colors = (theme.colors ?? {}) as Record<string, unknown>
   const typography = (theme.typography ?? {}) as Record<string, unknown>
@@ -35,26 +65,8 @@ function TokenPreview({ theme }: { theme: Record<string, unknown> }) {
           {typeof colors.accent === 'string' && <ColorSwatch label="accent" value={colors.accent} />}
         </div>
       </div>
-      {neutral.length > 0 && (
-        <div>
-          <p className="mb-2 text-sm font-medium">中性色阶</p>
-          <div className="flex flex-wrap gap-4">
-            {neutral.map((c, i) => (
-              <ColorSwatch key={c + i} label={`neutral-${i}`} value={c} />
-            ))}
-          </div>
-        </div>
-      )}
-      {chartScale.length > 0 && (
-        <div>
-          <p className="mb-2 text-sm font-medium">图表配色序列</p>
-          <div className="flex flex-wrap gap-4">
-            {chartScale.map((c, i) => (
-              <ColorSwatch key={c + i} label={`chart-${i}`} value={c} />
-            ))}
-          </div>
-        </div>
-      )}
+      <ColorScaleSection title="中性色阶" prefix="neutral" colors={neutral} />
+      <ColorScaleSection title="图表配色序列" prefix="chart" colors={chartScale} />
       {Object.keys(scale).length > 0 && (
         <div>
           <p className="mb-2 text-sm font-medium">字号阶梯</p>
@@ -126,9 +138,9 @@ export function WebPptHome() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {tokenQuery.isLoading && <p className="text-sm text-[var(--color-muted-foreground)]">加载中…</p>}
-          {tokenQuery.isError && <p className="text-sm text-[var(--color-destructive)]">Design Token 加载失败</p>}
-          {tokenQuery.data && <TokenPreview theme={tokenQuery.data.theme} />}
+          <QueryState query={tokenQuery} errorLabel="Design Token 加载失败">
+            {(data) => <TokenPreview theme={data.theme} />}
+          </QueryState>
         </CardContent>
       </Card>
 
@@ -144,13 +156,13 @@ export function WebPptHome() {
           </Button>
         </CardHeader>
         <CardContent>
-          {promptQuery.isLoading && <p className="text-sm text-[var(--color-muted-foreground)]">加载中…</p>}
-          {promptQuery.isError && <p className="text-sm text-[var(--color-destructive)]">提示词加载失败</p>}
-          {promptQuery.data && (
-            <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-md border bg-[var(--color-muted)] p-4 text-xs">
-              {promptQuery.data}
-            </pre>
-          )}
+          <QueryState query={promptQuery} errorLabel="提示词加载失败">
+            {(data) => (
+              <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-md border bg-[var(--color-muted)] p-4 text-xs">
+                {data}
+              </pre>
+            )}
+          </QueryState>
         </CardContent>
       </Card>
 
@@ -169,17 +181,19 @@ export function WebPptHome() {
           )}
         </CardHeader>
         <CardContent>
-          {samplesQuery.isLoading && <p className="text-sm text-[var(--color-muted-foreground)]">加载中…</p>}
-          {samplesQuery.isError && <p className="text-sm text-[var(--color-destructive)]">样例加载失败</p>}
-          {currentSample && (
-            <iframe
-              key={currentSample}
-              title={`webppt-sample-${currentSample}`}
-              src={sampleContentUrl(currentSample)}
-              className="h-[540px] w-full rounded-md border bg-white"
-              sandbox="allow-scripts allow-same-origin"
-            />
-          )}
+          <QueryState query={samplesQuery} errorLabel="样例加载失败">
+            {() =>
+              currentSample && (
+                <iframe
+                  key={currentSample}
+                  title={`webppt-sample-${currentSample}`}
+                  src={sampleContentUrl(currentSample)}
+                  className="h-[540px] w-full rounded-md border bg-white"
+                  sandbox="allow-scripts allow-same-origin"
+                />
+              )
+            }
+          </QueryState>
         </CardContent>
       </Card>
     </div>
