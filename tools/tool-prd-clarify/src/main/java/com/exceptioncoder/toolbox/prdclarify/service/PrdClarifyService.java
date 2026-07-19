@@ -52,6 +52,29 @@ public class PrdClarifyService {
             "NEW_MODULE", 8
     );
 
+    /**
+     * 需求类型自动判定 prompt：仅在 reqType 未显式提供时使用（典型场景：业务员角色不展示
+     * StartClarifyDialog 技术分类弹框——业务员分不清 Bug 修复/模块调整/新增模块，也判断不出
+     * 该问几轮，这类判断改由这里做一次轻量 LLM 分类，而不是甩给用户或死死写死默认值）。
+     * 严格要求单行 JSON 输出，便于确定性解析；调用异常或解析失败时上层兜底 NEW_MODULE。
+     */
+    private static final String REQ_TYPE_CLASSIFY_SYSTEM = """
+            你是需求分诊助手。根据用户提供的标题和描述，判断这是哪种类型的开发需求，
+            并给出建议的最大澄清轮数。
+
+            三种类型：
+            - BUG_FIX：现有功能出错/行为不符合预期。描述里通常有"应该是…但实际是…""不对""报错""失败"
+              这类落差表述，或直接描述了一段有问题的逻辑/代码行为
+            - MODULE_ADJUST：调整/优化现有功能的行为、界面、规则——功能本身已经存在，只是要改
+            - NEW_MODULE：全新的功能/模块，之前完全不存在
+
+            【严格输出要求】只输出一行 JSON，不加任何说明、前言、结语或 markdown 围栏：
+            {"reqType":"BUG_FIX 或 MODULE_ADJUST 或 NEW_MODULE 三选一","maxQuestions":数字}
+
+            maxQuestions 参考：BUG_FIX 给 1-2，MODULE_ADJUST 给 3-5，NEW_MODULE 给 5-8；
+            描述已经很清楚具体时取区间下限，描述简略/信息不足时取区间上限。
+            """;
+
     // ───── 多轮渐进式澄清 System Prompt（feature-dev Phase 3 - Clarifying Questions） ─────
 
     /**
@@ -325,18 +348,35 @@ public class PrdClarifyService {
     /**
      * 创建会话并持久化，返回新建的会话对象。
      *
-     * @param reqType      需求类型：BUG_FIX | MODULE_ADJUST | NEW_MODULE，null/未识别时兜底 NEW_MODULE
-     * @param maxQuestions 本次澄清最多问几轮，null 或非正数时按 reqType 从 {@link #DEFAULT_MAX_QUESTIONS} 兜底
+     * @param reqType      需求类型：BUG_FIX | MODULE_ADJUST | NEW_MODULE。null/空/未识别时说明
+     *                     前端没有展示分类弹框（典型：业务员角色），转为调用 LLM 自动判定
+     *                     （{@link #classifyReqType}），而不是静默按 NEW_MODULE 处理。
+     * @param maxQuestions 本次澄清最多问几轮，null 或非正数时按 reqType 从 {@link #DEFAULT_MAX_QUESTIONS}
+     *                     兜底（reqType 走自动判定分支时此参数被忽略，以判定结果为准）
      */
     public PrdSession createSession(String title, String rawInput,
                                     String project, String module, String model, String role,
                                     String reqType, Integer maxQuestions) {
         long now = System.currentTimeMillis();
         String effectiveRole = (role != null && "BUSINESS".equalsIgnoreCase(role)) ? "BUSINESS" : "PRODUCT";
-        String effectiveReqType = DEFAULT_MAX_QUESTIONS.containsKey(reqType) ? reqType : "NEW_MODULE";
-        int effectiveMaxQuestions = (maxQuestions != null && maxQuestions > 0)
-                ? maxQuestions
-                : DEFAULT_MAX_QUESTIONS.get(effectiveReqType);
+
+        String effectiveReqType;
+        int effectiveMaxQuestions;
+        if (DEFAULT_MAX_QUESTIONS.containsKey(reqType)) {
+            // 显式提供（StartClarifyDialog 里用户手选，或 API 直接指定）
+            effectiveReqType = reqType;
+            effectiveMaxQuestions = (maxQuestions != null && maxQuestions > 0)
+                    ? maxQuestions
+                    : DEFAULT_MAX_QUESTIONS.get(effectiveReqType);
+        } else {
+            // 未提供：不弹分类弹框的场景（业务员角色）—— LLM 自动判定，失败兜底 NEW_MODULE
+            ReqTypeClassification classification = classifyReqType(title, rawInput, model);
+            effectiveReqType = classification.reqType();
+            effectiveMaxQuestions = classification.maxQuestions();
+            log.info("[prd-clarify] 需求类型自动判定 title='{}' -> reqType={} maxQuestions={}",
+                    title, effectiveReqType, effectiveMaxQuestions);
+        }
+
         PrdSession session = PrdSession.builder()
                 .id(UUID.randomUUID().toString())
                 .title(title)
@@ -353,6 +393,36 @@ public class PrdClarifyService {
                 .build();
         repo.insert(session);
         return session;
+    }
+
+    /** 需求类型自动判定结果：reqType 三选一 + 建议澄清轮数。 */
+    private record ReqTypeClassification(String reqType, int maxQuestions) {
+    }
+
+    /**
+     * 需求类型自动判定：调一次轻量 oneShot LLM 分类（{@link #REQ_TYPE_CLASSIFY_SYSTEM}），
+     * 解析失败或调用异常时兜底 NEW_MODULE——分类是「体验优化」，不能因为它失败就把整个
+     * 创建会话流程搞挂，兜底值本身也是合理默认（新增模块走最完整的标准澄清流程）。
+     */
+    private ReqTypeClassification classifyReqType(String title, String rawInput, String model) {
+        try {
+            String userPrompt = "标题：" + title + "\n描述：" + rawInput;
+            String raw = agentRunner.runOnce(REQ_TYPE_CLASSIFY_SYSTEM, userPrompt, model);
+            JsonNode node = mapper.readTree(stripFence(raw == null ? "" : raw.trim()));
+            String type = node.path("reqType").asText("");
+            if (!DEFAULT_MAX_QUESTIONS.containsKey(type)) {
+                type = "NEW_MODULE";
+            }
+            int qs = node.path("maxQuestions").asInt(0);
+            if (qs <= 0) {
+                qs = DEFAULT_MAX_QUESTIONS.get(type);
+            }
+            qs = Math.max(1, Math.min(10, qs));
+            return new ReqTypeClassification(type, qs);
+        } catch (Exception e) {
+            log.warn("[prd-clarify] 需求类型自动判定失败，兜底 NEW_MODULE: {}", e.getMessage());
+            return new ReqTypeClassification("NEW_MODULE", DEFAULT_MAX_QUESTIONS.get("NEW_MODULE"));
+        }
     }
 
     /**

@@ -759,8 +759,10 @@ function InputPanel({
   initialProject = '',
   initialModule = '',
 }: {
-  onStart: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS', reqType: PrdReqType, maxQuestions: number) => void
-  onStartVibe: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS', reqType: PrdReqType, maxQuestions: number) => void
+  // reqType/maxQuestions 可选：业务员角色不弹确认框，直接省略这两个参数，
+  // 交给后端 LLM 自动判定（见 handleStart/handleStartVibe 里对应处理）
+  onStart: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS', reqType?: PrdReqType, maxQuestions?: number) => void
+  onStartVibe: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS', reqType?: PrdReqType, maxQuestions?: number) => void
   initialTitle?: string
   initialRawInput?: string
   initialProject?: string
@@ -1027,12 +1029,17 @@ function InputPanel({
           )}
         </div>
 
-        {/* 两种澄清模式：点击先弹 StartClarifyDialog 确认需求类型 + 澄清深度，确认后才真正发起 */}
+        {/* 两种澄清模式：产品/开发角色先弹 StartClarifyDialog 确认需求类型+澄清深度；
+            业务员角色不弹（业务员不懂 Bug/模块调整/新增模块这种技术分类，也判断不出该问几轮），
+            直接进入澄清，需求类型交给后端 LLM 自动判定（见 PrdClarifyService.classifyReqType） */}
         <div className="flex gap-2">
           {/* 标准模式（内嵌简化 UI） */}
           <button
             disabled={!canSubmit}
-            onClick={() => setPendingAction('start')}
+            onClick={() => {
+              if (role === 'BUSINESS') onStart(title.trim(), buildFinalRawInput(), project, module, role)
+              else setPendingAction('start')
+            }}
             className="flex-1 py-2.5 rounded-md bg-[var(--color-primary)] text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
           >
             {role === 'BUSINESS' ? '开始描述我的业务需求' : '开始澄清'}
@@ -1040,7 +1047,10 @@ function InputPanel({
           {/* Vibe Coding 模式（完整工具调用可见） */}
           <button
             disabled={!canSubmit}
-            onClick={() => setPendingAction('startVibe')}
+            onClick={() => {
+              if (role === 'BUSINESS') onStartVibe(title.trim(), buildFinalRawInput(), project, module, role)
+              else setPendingAction('startVibe')
+            }}
             className="flex items-center gap-1.5 px-4 py-2.5 rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/30 text-sm text-[var(--color-foreground)] hover:bg-[var(--color-muted)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             title="在 Vibe Coding 中澄清：完整可见工具调用、MCP/CLI 查询过程"
           >
@@ -2075,10 +2085,16 @@ export function PrdClarifyPage() {
     }
   }
 
-  /** Step INPUT → 创建会话 → 进入多轮对话澄清 */
+  /**
+   * Step INPUT → 创建会话 → 进入多轮对话澄清。
+   *
+   * reqType/maxQuestions 不传时（业务员角色，未弹 StartClarifyDialog）故意不给默认值——
+   * 让请求体里这两个字段真正缺失，后端据此触发 LLM 自动判定（而不是静默按 NEW_MODULE
+   * 处理，那样等于假装"判断"了，其实只是抄了个默认值）。
+   */
   const handleStart = async (
     title: string, rawInput: string, project: string, module: string,
-    role: 'PRODUCT' | 'BUSINESS' = 'PRODUCT', reqType: PrdReqType = 'NEW_MODULE', maxQuestions = 5,
+    role: 'PRODUCT' | 'BUSINESS' = 'PRODUCT', reqType?: PrdReqType, maxQuestions?: number,
   ) => {
     setErrorMsg(null)
     setSessionTitle(title)
@@ -2097,7 +2113,7 @@ export function PrdClarifyPage() {
    */
   const handleStartVibe = async (
     title: string, rawInput: string, project: string, module: string,
-    role: 'PRODUCT' | 'BUSINESS' = 'PRODUCT', reqType: PrdReqType = 'NEW_MODULE', maxQuestions = 5,
+    role: 'PRODUCT' | 'BUSINESS' = 'PRODUCT', reqType?: PrdReqType, maxQuestions?: number,
   ) => {
     setErrorMsg(null)
     setSessionTitle(title)
@@ -2125,12 +2141,16 @@ export function PrdClarifyPage() {
       } catch { /* cwd 解析失败时留空 */ }
     }
 
-    // 构建 seed 消息：feature-dev Phase 3 + 指示写 PRD 文件
+    // 构建 seed 消息：feature-dev Phase 3 + 指示写 PRD 文件。
+    // reqType/maxQuestions 一律读 created（后端返回的最终解析结果）而非入参本身——
+    // 业务员角色没传这两个字段，入参是 undefined，此时已由后端 LLM 自动判定并写回 created。
     const prdPath = `~/.kai-toolbox/prd/${created.id}.md`
     const roleDesc = role === 'BUSINESS' ? '业务人员视角（聚焦业务价值，不讲技术细节）' : '产品/开发视角（可问技术约束、边界条件）'
-    const reqTypeLabel = REQ_TYPE_CONFIG[reqType].label
+    const resolvedReqType = created.reqType
+    const resolvedMaxQuestions = created.maxQuestions
+    const reqTypeLabel = REQ_TYPE_CONFIG[resolvedReqType].label
     // Bug 修复走极简问题清单 + 缺陷修复说明结构；模块调整/新增模块走标准 PRD 9 节结构
-    const docGuide = reqType === 'BUG_FIX'
+    const docGuide = resolvedReqType === 'BUG_FIX'
       ? '只问复现步骤、期望-实际行为落差、影响范围，不问业务目标/使用场景；产出「缺陷修复说明」（问题描述/复现步骤/根因/修复方案/影响范围/验收标准），不是标准 PRD'
       : '产出标准 PRD（文档概述/业务背景/目标用户/功能范围/功能需求/非功能需求/数据模型/验收标准/开放问题共 9 节）'
     const seed = `本次任务：执行 feature-dev:feature-dev Phase 3 (Clarifying Questions) — 需求澄清
@@ -2140,7 +2160,7 @@ export function PrdClarifyPage() {
 项目：${project || '未指定'}
 模块：${module || '未指定'}
 澄清视角：${roleDesc}
-需求类型：${reqTypeLabel}（${docGuide}）
+需求类型：${reqTypeLabel}（${docGuide}）${reqType ? '' : '（由系统自动判定）'}
 
 [原始需求]
 ${rawInput}
@@ -2156,7 +2176,7 @@ ${rawInput}
         含 graphify-out/graph.json 的子项目（可结合上面的"模块"信息定位到具体子项目），
         cd 进该子项目目录后再执行 graphify query "<问题>"
       - 两种情况都找不到图谱时，跳过这一步，直接基于原始需求澄清即可，不要虚构图谱内容
-2. 基于以上背景进行多轮需求澄清对话（引用真实代码实体提问，最多 ${maxQuestions} 轮；
+2. 基于以上背景进行多轮需求澄清对话（引用真实代码实体提问，最多 ${resolvedMaxQuestions} 轮；
    信息已足够时提前结束，不要为了凑轮数硬问）
 3. 澄清完成后，按需求类型对应的文档结构生成完整文档（见上方"需求类型"括号说明），并写入文件：
    ${prdPath}
