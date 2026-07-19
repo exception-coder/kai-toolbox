@@ -29,6 +29,7 @@ public class PrdSessionRepository {
             .devDocPath(rs.getString("dev_doc_path"))
             .devSessionId(rs.getString("dev_session_id"))
             .devDocGeneratedAt(rs.getObject("dev_doc_generated_at") == null ? null : rs.getLong("dev_doc_generated_at"))
+            .devDocHistory(rs.getString("dev_doc_history"))
             .model(rs.getString("model"))
             .errorMsg(rs.getString("error_msg"))
             .createdAt(rs.getLong("created_at"))
@@ -113,6 +114,15 @@ public class PrdSessionRepository {
     public void updateDevDocGeneratedAt(String id, long generatedAt) {
         jdbc.update("UPDATE prd_session SET dev_doc_generated_at = ? WHERE id = ?",
                 generatedAt, id);
+    }
+
+    /**
+     * 更新开发文档生成历史（JSON 数组整体覆盖，追加逻辑在 Service 层完成）。
+     * 纯记账字段，故意不 touch {@code updated_at}（原因同 {@link #updateDevDocPath}）。
+     */
+    public void updateDevDocHistory(String id, String devDocHistoryJson) {
+        jdbc.update("UPDATE prd_session SET dev_doc_history = ? WHERE id = ?",
+                devDocHistoryJson, id);
     }
 
     /** 标记错误状态。 */

@@ -810,6 +810,10 @@ public class PrdClarifyService {
         PrdSession session = repo.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
         boolean update = Boolean.TRUE.equals(updateExisting);
+        // mode 用于追溯历史记录：generate=首次生成，regenerate=从最新 PRD 从零覆盖，
+        // update=基于当前开发文档增量更新（此时 extraInstructions 已含完整澄清问答文本）
+        boolean hadExistingDoc = session.getDevDocPath() != null && !session.getDevDocPath().isBlank();
+        String mode = update ? "update" : (hadExistingDoc ? "regenerate" : "generate");
 
         Thread.ofVirtual().name("prd-dev-doc-").start(() -> {
             try {
@@ -857,7 +861,8 @@ public class PrdClarifyService {
                         java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
                 repo.updateDevDocPath(sessionId, devDocPath.toString());
                 repo.updateDevDocGeneratedAt(sessionId, System.currentTimeMillis());
-                log.info("[prd-clarify] 开发文档已保存 path={} update={}", devDocPath, update);
+                recordDevDocHistory(sessionId, session.getDevDocHistory(), mode, extraInstructions);
+                log.info("[prd-clarify] 开发文档已保存 path={} mode={}", devDocPath, mode);
 
                 sendDone(emitter);
             } catch (Exception e) {
@@ -865,6 +870,32 @@ public class PrdClarifyService {
                 sendError(emitter, e);
             }
         });
+    }
+
+    /**
+     * 追加一条开发文档生成历史记录（JSON 数组整体读出、追加、写回）。version 从 1 递增，
+     * 与磁盘上 {@link #backupDevDocIfExists} 备份出的 {id}-dev-v{version}.md 大致对应
+     * （两者独立维护、都从各自的起点递增，正常使用下天然保持一致；仅历史记录本身失败时
+     * 只记警告，不影响本次生成已经成功落盘的结果）。
+     */
+    private void recordDevDocHistory(String sessionId, String existingHistoryJson, String mode, String extraInstructions) {
+        try {
+            ArrayNode arr;
+            JsonNode existing = (existingHistoryJson == null || existingHistoryJson.isBlank())
+                    ? null : mapper.readTree(existingHistoryJson);
+            arr = (existing instanceof ArrayNode existingArr) ? existingArr : mapper.createArrayNode();
+
+            ObjectNode entry = mapper.createObjectNode();
+            entry.put("version", arr.size() + 1);
+            entry.put("mode", mode);
+            entry.put("extraInstructions", extraInstructions == null ? "" : extraInstructions);
+            entry.put("generatedAt", System.currentTimeMillis());
+            arr.add(entry);
+
+            repo.updateDevDocHistory(sessionId, mapper.writeValueAsString(arr));
+        } catch (Exception e) {
+            log.warn("[prd-clarify] 记录开发文档生成历史失败（不影响本次生成结果）: {}", e.getMessage());
+        }
     }
 
     /** 读取开发文档内容。 */

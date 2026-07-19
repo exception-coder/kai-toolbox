@@ -41,6 +41,12 @@ public class PrdSession {
     private String reqType;
     /** 本次澄清最多问几轮（原硬编码 5，现由前端确认弹框按 reqType 预填、用户可调）。 */
     private int maxQuestions;
+    /**
+     * 开发文档生成历史，JSON 字符串数组，格式
+     * {@code [{version,mode,extraInstructions,generatedAt}]}，可为 null（尚未生成过）。
+     * 用于追溯每一版开发文档是基于什么补充说明/更新澄清生成的。
+     */
+    private String devDocHistory;
     private String errorMsg;
     private long createdAt;
     private long updatedAt;

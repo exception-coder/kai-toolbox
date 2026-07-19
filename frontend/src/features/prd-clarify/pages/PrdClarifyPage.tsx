@@ -31,7 +31,7 @@ import {
   type QaPair,
   type AttachmentParseResult,
 } from '../api'
-import type { PrdReqType, PrdSessionView, PrdStep, QuestionItem } from '../types'
+import type { DevDocHistoryEntry, PrdReqType, PrdSessionView, PrdStep, QuestionItem } from '../types'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 
 // 编辑器 lazy import — CodeMirror chunk 只在进入 EDITING 步骤时加载
@@ -1157,6 +1157,84 @@ function DevDocUpdateDialog({
   )
 }
 
+/** 生成场景 → 标签样式，跟历史侧边栏 role 徽标同一套视觉语言（配色分开，一眼区分三种场景）。 */
+const DEV_DOC_MODE_LABEL: Record<DevDocHistoryEntry['mode'], { label: string; color: string; bg: string }> = {
+  generate: { label: '首次生成', color: 'text-purple-400', bg: 'bg-purple-500/15 border-purple-500/20' },
+  regenerate: { label: '重新生成', color: 'text-blue-400', bg: 'bg-blue-500/15 border-blue-500/20' },
+  update: { label: '更新版本', color: 'text-amber-500', bg: 'bg-amber-500/15 border-amber-500/20' },
+}
+
+/**
+ * 开发文档生成记录只读抽屉：追溯每一版是基于什么补充说明/更新澄清生成的，
+ * UI 结构对齐 PRD 的 ClarifyHistorySheet（同一套"记录抽屉"视觉语言）。
+ */
+function DevDocHistorySheet({
+  history,
+  onClose,
+}: {
+  history: DevDocHistoryEntry[]
+  onClose: () => void
+}) {
+  // 最新的排最前面，方便先看"最近一次改动是为了什么"
+  const sorted = [...history].sort((a, b) => b.version - a.version)
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative w-full max-w-md bg-[var(--color-card)] border-l border-[var(--color-border)] flex flex-col shadow-2xl">
+        {/* 头部 */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
+          <div className="flex items-center gap-2">
+            <GitBranch className="w-4 h-4 text-purple-400" />
+            <span className="font-semibold text-sm">开发文档生成记录</span>
+            <span className="text-xs text-[var(--color-muted-foreground)]">（共 {history.length} 版）</span>
+          </div>
+          <button onClick={onClose} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        {/* 内容 */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {sorted.length === 0 ? (
+            <p className="text-sm text-[var(--color-muted-foreground)] italic">暂无生成记录</p>
+          ) : (
+            sorted.map((entry) => {
+              const cfg = DEV_DOC_MODE_LABEL[entry.mode]
+              return (
+                <div key={entry.version} className="rounded-xl border border-[var(--color-border)] overflow-hidden">
+                  <div className="flex items-center justify-between gap-2 px-3 py-2 bg-[var(--color-muted)]/30">
+                    <div className="flex items-center gap-2">
+                      <span className="w-6 h-5 rounded-full bg-[var(--color-primary)]/15 flex items-center justify-center text-[10px] font-semibold text-[var(--color-primary)]">
+                        v{entry.version}
+                      </span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded border leading-tight ${cfg.bg} ${cfg.color}`}>
+                        {cfg.label}
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-[var(--color-muted-foreground)]">
+                      {new Date(entry.generatedAt).toLocaleString('zh-CN', {
+                        month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                      })}
+                    </span>
+                  </div>
+                  <div className="p-3 text-sm leading-relaxed whitespace-pre-wrap">
+                    {entry.extraInstructions ? entry.extraInstructions : (
+                      <span className="text-[var(--color-muted-foreground)] italic">（未填写补充说明）</span>
+                    )}
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+        <div className="px-5 py-3 border-t border-[var(--color-border)] text-xs text-[var(--color-muted-foreground)]">
+          v{history.length || 0} 是当前显示的版本；更早版本的完整文件已备份在同目录 {'{id}'}-dev-v{'{n}'}.md
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ───── 角色配置 ─────
 const ROLE_CONFIG = {
   PRODUCT: {
@@ -1988,6 +2066,7 @@ function EditingPanel({
   initialContent,
   hasDevDoc,
   isDevDocStale,
+  devDocHistory = [],
   onReset,
 }: {
   sessionId: string
@@ -1998,6 +2077,8 @@ function EditingPanel({
   hasDevDoc?: boolean
   /** 开发文档是否过期（PRD 在开发文档生成后有更新，需要重新生成） */
   isDevDocStale?: boolean
+  /** 开发文档生成历史（追溯每一版是基于什么补充说明/更新澄清生成的） */
+  devDocHistory?: DevDocHistoryEntry[]
   onReset: () => void
 }) {
   const [content, setContent] = useState(initialContent)
@@ -2028,6 +2109,8 @@ function EditingPanel({
   const devDocAccRef = useRef('')
   /** 「生成开发文档」确认弹框：非 null 时打开，值决定弹框文案/是否走"基于当前更新"模式。 */
   const [genDevDocMode, setGenDevDocMode] = useState<'generate' | 'regenerate' | 'update' | null>(null)
+  /** 「生成记录」只读抽屉是否打开：追溯每一版是基于什么补充说明/更新澄清生成的。 */
+  const [showDevDocHistory, setShowDevDocHistory] = useState(false)
 
   const handleGenerateDevDoc = (extraInstructions?: string, updateExisting?: boolean) => {
     setPanelMode('dev')   // 生成时切到开发文档全屏视图
@@ -2152,6 +2235,11 @@ function EditingPanel({
         />
       )}
 
+      {/* 开发文档生成记录：追溯每一版是基于什么补充说明/更新澄清生成的 */}
+      {showDevDocHistory && (
+        <DevDocHistorySheet history={devDocHistory} onClose={() => setShowDevDocHistory(false)} />
+      )}
+
       {/* ─── 顶部 Tab + 操作栏 ─── */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--color-border)] bg-[var(--color-card)] gap-2">
 
@@ -2220,6 +2308,13 @@ function EditingPanel({
                 title="基于当前开发文档增量更新，保留原有内容并标注改动状态，自动备份旧版本">
                 <GitBranch className="w-3 h-3" /> 更新版本
               </button>
+              {devDocHistory.length > 0 && (
+                <button onClick={() => setShowDevDocHistory(true)}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded text-[var(--color-muted-foreground)] hover:text-purple-400 hover:bg-purple-500/10 transition-colors"
+                  title="查看每一版是基于什么补充说明/更新澄清生成的">
+                  <Info className="w-3 h-3" /> 生成记录（{devDocHistory.length}）
+                </button>
+              )}
             </>
           )}
         </div>
@@ -2883,6 +2978,7 @@ PRD_SESSION_ID: ${created.id}`
               !!(session?.devDocPath) &&
               (!session?.devDocGeneratedAt || session.devDocGeneratedAt < session.updatedAt)
             }
+            devDocHistory={session?.devDocHistory ?? []}
             onReset={handleReset}
           />
         )}

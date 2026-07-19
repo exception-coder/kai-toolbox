@@ -35,5 +35,12 @@ ALTER TABLE prd_session ADD COLUMN req_type TEXT NOT NULL DEFAULT 'NEW_MODULE';
 -- 本次澄清最多问几轮，由「开始澄清」确认弹框按 req_type 预填默认值、用户可调（原先硬编码 5）。
 ALTER TABLE prd_session ADD COLUMN max_questions INTEGER NOT NULL DEFAULT 5;
 
+-- 开发文档生成历史：JSON 数组，每次生成/重新生成/更新都追加一条，用于追溯"这版为什么长这样"。
+-- 格式 [{"version":1,"mode":"generate|regenerate|update","extraInstructions":"...","generatedAt":...}]。
+-- version 与磁盘上的 {id}-dev-v{n}.md 备份文件编号对应（version 对应生成出来、后续被覆盖前
+-- 备份为 v{version}.md 的那一份）。故意不 touch updated_at（原因同 dev_doc_path/dev_session_id，
+-- 详见 PrdSessionRepository 对应方法注释）。
+ALTER TABLE prd_session ADD COLUMN dev_doc_history TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_prd_session_created ON prd_session(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_prd_session_status  ON prd_session(status);

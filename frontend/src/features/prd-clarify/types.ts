@@ -20,6 +20,18 @@ export interface QuestionItem {
   answer: string
 }
 
+/**
+ * 开发文档生成历史的一条记录（追溯"这版为什么长这样"）。
+ * mode: generate（首次生成）| regenerate（基于最新 PRD 从零重新生成）|
+ *       update（基于当前开发文档增量更新，extraInstructions 含完整澄清问答文本）
+ */
+export interface DevDocHistoryEntry {
+  version: number
+  mode: 'generate' | 'regenerate' | 'update'
+  extraInstructions: string
+  generatedAt: number
+}
+
 export interface PrdSessionView {
   id: string
   title: string
@@ -41,6 +53,8 @@ export interface PrdSessionView {
   devSessionId: string | null
   /** 开发文档最后生成时间戳（毫秒）。null 或 < updatedAt 表示开发文档已过期 */
   devDocGeneratedAt: number | null
+  /** 开发文档生成历史（按发生顺序），每次生成/重新生成/更新都有一条记录 */
+  devDocHistory: DevDocHistoryEntry[]
   errorMsg: string | null
   createdAt: number
   updatedAt: number
