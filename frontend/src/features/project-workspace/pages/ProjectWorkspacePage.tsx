@@ -30,6 +30,9 @@ interface PendingOpen {
 /** 知识库根目录配置块 id = WorkspaceProperties 的 @ConfigurationProperties prefix。 */
 const WORKSPACE_CFG_ID = 'toolbox.claude-chat.workspace'
 
+/** 记住上次选中的项目路径（跨刷新/进出页面不重置）。 */
+const SELECTED_PATH_LS = 'kai-toolbox:project-workspace:selected-path'
+
 
 /** 从配置块中取出知识库路径（knowledge-base-dir）的当前值；未配置为空串。 */
 function readKnowledgeDir(entries?: { key: string; value: string | null }[]) {
@@ -100,7 +103,13 @@ function buildMenuSyncPrompt(project: string, projectPath: string, kbRepo: strin
 export function ProjectWorkspacePage() {
   const navigate = useNavigate()
   const { chat, activate } = useChatRuntime()
-  const [selectedPath, setSelectedPath] = useState('')
+  // 记住上次选中的项目（跨刷新/进出页面不重置）
+  const [selectedPath, setSelectedPath] = useState(() => {
+    try { return localStorage.getItem(SELECTED_PATH_LS) ?? '' } catch { return '' }
+  })
+  useEffect(() => {
+    if (selectedPath) { try { localStorage.setItem(SELECTED_PATH_LS, selectedPath) } catch { /* 隐私模式忽略 */ } }
+  }, [selectedPath])
   const [keyword, setKeyword] = useState('')
   const [pendingOpen, setPendingOpen] = useState<PendingOpen | null>(null)
 
@@ -149,8 +158,9 @@ export function ProjectWorkspacePage() {
   }, [keyword, modulesQ.data?.modules])
 
   useEffect(() => {
-    if (selectedPath || projects.length === 0) return
-    setSelectedPath(projects[0].path)
+    if (projects.length === 0) return
+    // 保留上次选择；仅当未选或所选项目已不在列表（被移除）时回落到第一个
+    if (!selectedPath || !projects.some(p => p.path === selectedPath)) setSelectedPath(projects[0].path)
   }, [projects, selectedPath])
 
   useEffect(() => {

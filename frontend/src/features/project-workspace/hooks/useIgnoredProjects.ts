@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 
 const STORAGE_KEY = 'kai-toolbox:project-workspace:ignored-projects'
+/** 忽略状态筛选偏好持久化 key（记住上次选择）。 */
+const FILTER_KEY = 'kai-toolbox:project-workspace:ignore-filter'
 
 export type IgnoreFilter = 'ALL' | 'IGNORED' | 'NOT_IGNORED'
 
@@ -49,7 +51,12 @@ export function useIgnoredProjects() {
     })
   }, [])
 
-  const [filter, setFilter] = useState<IgnoreFilter>('ALL')
+  const [filter, setFilter] = useState<IgnoreFilter>(() => {
+    try { return (localStorage.getItem(FILTER_KEY) as IgnoreFilter) || 'ALL' } catch { return 'ALL' }
+  })
+  useEffect(() => {
+    try { localStorage.setItem(FILTER_KEY, filter) } catch { /* 隐私模式忽略 */ }
+  }, [filter])
   const matches = useCallback((path: string) => {
     if (filter === 'ALL') return true
     return filter === 'IGNORED' ? ignored.has(path) : !ignored.has(path)
