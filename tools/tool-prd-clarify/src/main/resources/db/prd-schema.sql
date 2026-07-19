@@ -28,5 +28,12 @@ ALTER TABLE prd_session ADD COLUMN dev_session_id TEXT;
 -- 开发文档最后生成时间（用于判断开发文档是否过期：dev_doc_generated_at < updated_at 则过期）
 ALTER TABLE prd_session ADD COLUMN dev_doc_generated_at INTEGER;
 
+-- 需求类型：BUG_FIX（缺陷修复，问复现步骤/期望-实际行为，产出「缺陷修复说明」）|
+-- MODULE_ADJUST（调整现有模块）| NEW_MODULE（新增模块/功能，默认值，兼容历史数据）。
+-- 与 role 是正交维度：role 决定谁在问/技术深度，req_type 决定问什么、产出什么结构的文档。
+ALTER TABLE prd_session ADD COLUMN req_type TEXT NOT NULL DEFAULT 'NEW_MODULE';
+-- 本次澄清最多问几轮，由「开始澄清」确认弹框按 req_type 预填默认值、用户可调（原先硬编码 5）。
+ALTER TABLE prd_session ADD COLUMN max_questions INTEGER NOT NULL DEFAULT 5;
+
 CREATE INDEX IF NOT EXISTS idx_prd_session_created ON prd_session(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_prd_session_status  ON prd_session(status);

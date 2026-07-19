@@ -13,8 +13,11 @@ import jakarta.validation.constraints.Size;
  * @param model    指定模型名称（可选，null 走 sidecar 默认模型）
  */
 /**
- * @param role 提需求方角色：{@code PRODUCT}（产品经理/开发者，默认）|
- *             {@code BUSINESS}（业务人员，只问业务关键问题，跳过技术/设计细节）
+ * @param role        提需求方角色：{@code PRODUCT}（产品经理/开发者，默认）|
+ *                    {@code BUSINESS}（业务人员，只问业务关键问题，跳过技术/设计细节）
+ * @param reqType     需求类型：{@code BUG_FIX}（缺陷修复）| {@code MODULE_ADJUST}（模块调整）|
+ *                    {@code NEW_MODULE}（新增模块，默认，null 时兜底）。与 role 正交。
+ * @param maxQuestions 本次澄清最多问几轮，null/非正数时按 reqType 兜底默认值
  */
 public record CreateSessionRequest(
         @NotBlank @Size(max = 200) String title,
@@ -22,6 +25,8 @@ public record CreateSessionRequest(
         String project,
         String module,
         String model,
-        String role
+        String role,
+        String reqType,
+        Integer maxQuestions
 ) {
 }

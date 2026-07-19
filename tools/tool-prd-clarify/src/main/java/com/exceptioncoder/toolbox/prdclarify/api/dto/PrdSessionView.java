@@ -30,6 +30,10 @@ public record PrdSessionView(
         String module,
         String status,
         String role,
+        /** 需求类型：BUG_FIX | MODULE_ADJUST | NEW_MODULE，决定澄清问题重点和生成文档结构。 */
+        String reqType,
+        /** 本次澄清最多问几轮（用户在「开始澄清」确认弹框里设置）。 */
+        int maxQuestions,
         /** 原始需求描述（用户在填写表单时输入的完整内容），用于历史记录弹窗展示。 */
         String rawInput,
         List<QuestionItem> questions,
@@ -53,6 +57,8 @@ public record PrdSessionView(
         return new PrdSessionView(
                 s.getId(), s.getTitle(), s.getProject(), s.getModule(),
                 s.getStatus(), s.getRole() != null ? s.getRole() : "PRODUCT",
+                s.getReqType() != null ? s.getReqType() : "NEW_MODULE",
+                s.getMaxQuestions() > 0 ? s.getMaxQuestions() : 5,
                 s.getRawInput(),
                 parseQuestions(s.getQuestions()),
                 s.getMdPath(), s.getDevDocPath(), s.getDevSessionId(), s.getDevDocGeneratedAt(),

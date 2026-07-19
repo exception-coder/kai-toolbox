@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { BotMessageSquare, ChevronRight, Code2, Copy, ExternalLink, FileText, GitBranch, Info, Layers, Loader2, Paperclip, Plus, RefreshCw, Rocket, Send, Trash2, User, Wrench, X } from 'lucide-react'
+import { BotMessageSquare, Bug, ChevronRight, Code2, Copy, ExternalLink, FileText, GitBranch, Info, Layers, Loader2, Paperclip, Plus, RefreshCw, Rocket, Send, Sparkles, Trash2, User, Wrench, X } from 'lucide-react'
 import { http } from '@/lib/api'
 import { Combobox } from '@/components/ui/combobox'
 import { MultiSelect } from '@/components/ui/multi-select'
@@ -30,7 +30,7 @@ import {
   type QaPair,
   type AttachmentParseResult,
 } from '../api'
-import type { PrdSessionView, PrdStep, QuestionItem } from '../types'
+import type { PrdReqType, PrdSessionView, PrdStep, QuestionItem } from '../types'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 
 // 编辑器 lazy import — CodeMirror chunk 只在进入 EDITING 步骤时加载
@@ -315,6 +315,14 @@ function RawInputCard({
               }`}>
                 {session.role === 'BUSINESS' ? '业务员' : '产品/开发'}
               </span>
+              {(() => {
+                const cfg = REQ_TYPE_CONFIG[session.reqType ?? 'NEW_MODULE']
+                return (
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded border leading-tight ${cfg.bg} ${cfg.color}`}>
+                    {cfg.label}
+                  </span>
+                )
+              })()}
             </div>
           </div>
           <button onClick={onClose} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] flex-shrink-0">
@@ -417,6 +425,15 @@ function HistoryPanel({
                   ) : (
                     <span className="text-[9px] px-1 rounded bg-blue-500/15 text-blue-500 border border-blue-500/20 leading-tight">产品</span>
                   )}
+                  {/* 需求类型标签：跟 REQ_TYPE_CONFIG 配色一致，老数据无 reqType 时按 NEW_MODULE 兜底 */}
+                  {(() => {
+                    const cfg = REQ_TYPE_CONFIG[s.reqType ?? 'NEW_MODULE']
+                    return (
+                      <span className={`text-[9px] px-1 rounded border leading-tight ${cfg.bg} ${cfg.color}`}>
+                        {cfg.label}
+                      </span>
+                    )
+                  })()}
                 </div>
 
                 {/* 树结构：开发文档作为 PRD 的子节点 */}
@@ -545,6 +562,174 @@ const QUICK_TEMPLATES = [
   },
 ]
 
+// ───── 需求类型配置：与角色正交的第二个维度，决定问什么 + 产出什么结构的文档 + 默认澄清深度 ─────
+const REQ_TYPE_CONFIG: Record<PrdReqType, {
+  label: string
+  icon: typeof Bug
+  desc: string
+  color: string
+  bg: string
+  defaultMaxQuestions: number
+}> = {
+  BUG_FIX: {
+    label: 'Bug 修复',
+    icon: Bug,
+    desc: '复现步骤 + 期望/实际行为落差，通常 1-2 轮就够',
+    color: 'text-red-500',
+    bg: 'bg-red-500/10 border-red-500/30',
+    defaultMaxQuestions: 2,
+  },
+  MODULE_ADJUST: {
+    label: '模块调整',
+    icon: Wrench,
+    desc: '调整现有功能，问现状/目标/兼容性',
+    color: 'text-amber-500',
+    bg: 'bg-amber-500/10 border-amber-500/30',
+    defaultMaxQuestions: 5,
+  },
+  NEW_MODULE: {
+    label: '新增模块',
+    icon: Sparkles,
+    desc: '全新功能，问业务目标/场景/边界/验收标准',
+    color: 'text-purple-500',
+    bg: 'bg-purple-500/10 border-purple-500/30',
+    defaultMaxQuestions: 8,
+  },
+}
+
+/** 澄清深度预设档位（轮数），点选后自定义数字框会同步；用户改数字框后不再随类型自动跳档 */
+const DEPTH_PRESETS = [
+  { label: '极简', hint: '1-2 轮', value: 2 },
+  { label: '标准', hint: '3-5 轮', value: 5 },
+  { label: '深入', hint: '6-8 轮', value: 8 },
+] as const
+
+/**
+ * 「开始澄清」确认弹框：选需求类型 + 调整澄清深度。
+ *
+ * <p>需求类型决定 Claude 问什么、产出什么结构的文档（后端 PrdClarifyService 按 reqType
+ * 切换 system prompt），深度是用户可显式覆盖的最大轮数——不再让 LLM 自己隐式判断该问几轮，
+ * 对齐"确定性优先，关键决策不交给 LLM 自由发挥"的原则。
+ */
+function StartClarifyDialog({
+  onConfirm,
+  onClose,
+}: {
+  onConfirm: (reqType: PrdReqType, maxQuestions: number) => void
+  onClose: () => void
+}) {
+  const [reqType, setReqType] = useState<PrdReqType>('NEW_MODULE')
+  const [maxQuestions, setMaxQuestions] = useState(REQ_TYPE_CONFIG.NEW_MODULE.defaultMaxQuestions)
+  /** 用户是否已手动调整过深度；未调整前，切换需求类型会自动带出该类型的推荐深度 */
+  const [depthTouched, setDepthTouched] = useState(false)
+
+  const handleSelectType = (t: PrdReqType) => {
+    setReqType(t)
+    if (!depthTouched) setMaxQuestions(REQ_TYPE_CONFIG[t].defaultMaxQuestions)
+  }
+
+  const handlePickPreset = (value: number) => {
+    setMaxQuestions(value)
+    setDepthTouched(true)
+  }
+
+  const handleCustomInput = (value: number) => {
+    setMaxQuestions(Math.max(1, Math.min(10, value || 1)))
+    setDepthTouched(true)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
+          <h3 className="font-semibold text-sm">开始澄清前确认</h3>
+          <button onClick={onClose} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-[var(--color-muted-foreground)] mb-2">这是什么类型的需求？</label>
+            <div className="grid grid-cols-1 gap-2">
+              {(Object.keys(REQ_TYPE_CONFIG) as PrdReqType[]).map((t) => {
+                const cfg = REQ_TYPE_CONFIG[t]
+                const active = reqType === t
+                const Icon = cfg.icon
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => handleSelectType(t)}
+                    className={`flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                      active ? cfg.bg : 'border-[var(--color-border)] hover:bg-[var(--color-muted)]/30'
+                    }`}
+                  >
+                    <Icon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${active ? cfg.color : 'text-[var(--color-muted-foreground)]'}`} />
+                    <div>
+                      <div className={`text-sm font-semibold ${active ? cfg.color : 'text-[var(--color-foreground)]'}`}>{cfg.label}</div>
+                      <div className="text-[11px] text-[var(--color-muted-foreground)] leading-relaxed">{cfg.desc}</div>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-[var(--color-muted-foreground)] mb-2">
+              澄清深度（已按类型预填，可调整）
+            </label>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {DEPTH_PRESETS.map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => handlePickPreset(p.value)}
+                  className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${
+                    maxQuestions === p.value
+                      ? 'bg-[var(--color-primary)]/15 border-[var(--color-primary)]/30 text-[var(--color-primary)] font-medium'
+                      : 'border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:border-[var(--color-ring)]'
+                  }`}
+                >
+                  {p.label} {p.hint}
+                </button>
+              ))}
+              <div className="flex items-center gap-1 ml-1">
+                <span className="text-xs text-[var(--color-muted-foreground)]">自定义</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={maxQuestions}
+                  onChange={(e) => handleCustomInput(Number(e.target.value))}
+                  className="w-14 px-1.5 py-1 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] text-xs text-center focus:outline-none focus:ring-1 focus:ring-[var(--color-ring)]"
+                />
+                <span className="text-xs text-[var(--color-muted-foreground)]">轮</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              onClick={onClose}
+              className="px-3 py-1.5 rounded-md text-sm border border-[var(--color-border)] hover:bg-[var(--color-muted)]/30"
+            >
+              取消
+            </button>
+            <button
+              onClick={() => onConfirm(reqType, maxQuestions)}
+              className="px-4 py-1.5 rounded-md text-sm bg-[var(--color-primary)] text-white hover:opacity-90"
+            >
+              开始澄清
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ───── 角色配置 ─────
 const ROLE_CONFIG = {
   PRODUCT: {
@@ -574,8 +759,8 @@ function InputPanel({
   initialProject = '',
   initialModule = '',
 }: {
-  onStart: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS') => void
-  onStartVibe: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS') => void
+  onStart: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS', reqType: PrdReqType, maxQuestions: number) => void
+  onStartVibe: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS', reqType: PrdReqType, maxQuestions: number) => void
   initialTitle?: string
   initialRawInput?: string
   initialProject?: string
@@ -588,6 +773,9 @@ function InputPanel({
   // 无需改 schema）。UI 层用 MultiSelect 多选，只是把选中的模块名 join(', ') 写回这个字符串。
   const [module, setModule] = useState(initialModule)
   const [role, setRole] = useState<'PRODUCT' | 'BUSINESS'>('PRODUCT')
+  /** 点「开始澄清」/「Vibe Coding 澄清」时先弹出 StartClarifyDialog 确认需求类型+深度，
+   *  确认后才真正调用对应的 onStart/onStartVibe；null 表示弹框未打开。 */
+  const [pendingAction, setPendingAction] = useState<'start' | 'startVibe' | null>(null)
   /** 已上传并解析的附件列表 */
   const [attachments, setAttachments] = useState<AttachmentParseResult[]>([])
   const [uploadingFile, setUploadingFile] = useState(false)
@@ -839,12 +1027,12 @@ function InputPanel({
           )}
         </div>
 
-        {/* 两种澄清模式 */}
+        {/* 两种澄清模式：点击先弹 StartClarifyDialog 确认需求类型 + 澄清深度，确认后才真正发起 */}
         <div className="flex gap-2">
           {/* 标准模式（内嵌简化 UI） */}
           <button
             disabled={!canSubmit}
-            onClick={() => onStart(title.trim(), buildFinalRawInput(), project, module, role)}
+            onClick={() => setPendingAction('start')}
             className="flex-1 py-2.5 rounded-md bg-[var(--color-primary)] text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
           >
             {role === 'BUSINESS' ? '开始描述我的业务需求' : '开始澄清'}
@@ -852,7 +1040,7 @@ function InputPanel({
           {/* Vibe Coding 模式（完整工具调用可见） */}
           <button
             disabled={!canSubmit}
-            onClick={() => onStartVibe(title.trim(), buildFinalRawInput(), project, module, role)}
+            onClick={() => setPendingAction('startVibe')}
             className="flex items-center gap-1.5 px-4 py-2.5 rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/30 text-sm text-[var(--color-foreground)] hover:bg-[var(--color-muted)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             title="在 Vibe Coding 中澄清：完整可见工具调用、MCP/CLI 查询过程"
           >
@@ -861,6 +1049,19 @@ function InputPanel({
           </button>
         </div>
       </div>
+
+      {pendingAction && (
+        <StartClarifyDialog
+          onClose={() => setPendingAction(null)}
+          onConfirm={(reqType, maxQuestions) => {
+            const action = pendingAction
+            setPendingAction(null)
+            const args = [title.trim(), buildFinalRawInput(), project, module, role, reqType, maxQuestions] as const
+            if (action === 'start') onStart(...args)
+            else onStartVibe(...args)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -1875,11 +2076,14 @@ export function PrdClarifyPage() {
   }
 
   /** Step INPUT → 创建会话 → 进入多轮对话澄清 */
-  const handleStart = async (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS' = 'PRODUCT') => {
+  const handleStart = async (
+    title: string, rawInput: string, project: string, module: string,
+    role: 'PRODUCT' | 'BUSINESS' = 'PRODUCT', reqType: PrdReqType = 'NEW_MODULE', maxQuestions = 5,
+  ) => {
     setErrorMsg(null)
     setSessionTitle(title)
     setSearchParams({}, { replace: true })
-    const created = await createMut.mutateAsync({ title, rawInput, project, module, role })
+    const created = await createMut.mutateAsync({ title, rawInput, project, module, role, reqType, maxQuestions })
     setSessionId(created.id)
     setStreamText('')
     qc.invalidateQueries({ queryKey: ['prd-sessions'] })
@@ -1891,13 +2095,16 @@ export function PrdClarifyPage() {
    * Claude 在 Vibe Coding 完整 UI 中执行 feature-dev Phase 3（工具调用完全可见），
    * 澄清完成后写入 PRD 文件，用户返回时触发 check-prd-file 更新状态。
    */
-  const handleStartVibe = async (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS' = 'PRODUCT') => {
+  const handleStartVibe = async (
+    title: string, rawInput: string, project: string, module: string,
+    role: 'PRODUCT' | 'BUSINESS' = 'PRODUCT', reqType: PrdReqType = 'NEW_MODULE', maxQuestions = 5,
+  ) => {
     setErrorMsg(null)
     setSessionTitle(title)
     setSearchParams({}, { replace: true })
 
     // 创建会话（用于记录 prd_session_id，PRD 文件路径由此确定）
-    const created = await createMut.mutateAsync({ title, rawInput, project, module, role })
+    const created = await createMut.mutateAsync({ title, rawInput, project, module, role, reqType, maxQuestions })
     setSessionId(created.id)
     qc.invalidateQueries({ queryKey: ['prd-sessions'] })
 
@@ -1921,6 +2128,11 @@ export function PrdClarifyPage() {
     // 构建 seed 消息：feature-dev Phase 3 + 指示写 PRD 文件
     const prdPath = `~/.kai-toolbox/prd/${created.id}.md`
     const roleDesc = role === 'BUSINESS' ? '业务人员视角（聚焦业务价值，不讲技术细节）' : '产品/开发视角（可问技术约束、边界条件）'
+    const reqTypeLabel = REQ_TYPE_CONFIG[reqType].label
+    // Bug 修复走极简问题清单 + 缺陷修复说明结构；模块调整/新增模块走标准 PRD 9 节结构
+    const docGuide = reqType === 'BUG_FIX'
+      ? '只问复现步骤、期望-实际行为落差、影响范围，不问业务目标/使用场景；产出「缺陷修复说明」（问题描述/复现步骤/根因/修复方案/影响范围/验收标准），不是标准 PRD'
+      : '产出标准 PRD（文档概述/业务背景/目标用户/功能范围/功能需求/非功能需求/数据模型/验收标准/开放问题共 9 节）'
     const seed = `本次任务：执行 feature-dev:feature-dev Phase 3 (Clarifying Questions) — 需求澄清
 
 [项目信息]
@@ -1928,6 +2140,7 @@ export function PrdClarifyPage() {
 项目：${project || '未指定'}
 模块：${module || '未指定'}
 澄清视角：${roleDesc}
+需求类型：${reqTypeLabel}（${docGuide}）
 
 [原始需求]
 ${rawInput}
@@ -1943,8 +2156,9 @@ ${rawInput}
         含 graphify-out/graph.json 的子项目（可结合上面的"模块"信息定位到具体子项目），
         cd 进该子项目目录后再执行 graphify query "<问题>"
       - 两种情况都找不到图谱时，跳过这一步，直接基于原始需求澄清即可，不要虚构图谱内容
-2. 基于以上背景进行多轮需求澄清对话（引用真实代码实体提问，最多 5 轮）
-3. 澄清完成后，生成完整 PRD 文档（feature-dev Phase 1+3 产出），并写入文件：
+2. 基于以上背景进行多轮需求澄清对话（引用真实代码实体提问，最多 ${maxQuestions} 轮；
+   信息已足够时提前结束，不要为了凑轮数硬问）
+3. 澄清完成后，按需求类型对应的文档结构生成完整文档（见上方"需求类型"括号说明），并写入文件：
    ${prdPath}
 4. 写入成功后输出：PRD_SAVED: ${created.id}
 

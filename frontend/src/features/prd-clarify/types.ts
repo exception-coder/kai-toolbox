@@ -5,6 +5,15 @@ export type PrdSessionStatus = 'CLARIFYING' | 'GENERATING' | 'DONE' | 'ERROR'
 /** 提需求方角色，决定 Claude 澄清问题的深度和语言风格 */
 export type PrdRole = 'PRODUCT' | 'BUSINESS'
 
+/**
+ * 需求类型，决定「问什么」和「生成什么结构的文档」（跟 PrdRole 是正交维度，PrdRole 决定
+ * 谁在问/技术深度，PrdReqType 决定问题重点和产出物结构）：
+ * - BUG_FIX：缺陷修复，问复现步骤/期望-实际行为/影响范围，产出「缺陷修复说明」而非标准 PRD
+ * - MODULE_ADJUST：调整现有模块，问现状/目标/兼容性，产出标准 PRD
+ * - NEW_MODULE：新增模块/功能，问业务目标/场景/边界，产出标准 PRD（默认值，兼容历史数据）
+ */
+export type PrdReqType = 'BUG_FIX' | 'MODULE_ADJUST' | 'NEW_MODULE'
+
 export interface QuestionItem {
   id: number
   question: string
@@ -18,6 +27,10 @@ export interface PrdSessionView {
   module: string | null
   status: PrdSessionStatus
   role: PrdRole
+  /** 需求类型：决定澄清问题重点和生成文档结构，见 PrdReqType 注释 */
+  reqType: PrdReqType
+  /** 本次澄清最多问几轮（用户在「开始澄清」确认弹框里设置，按 reqType 预填默认值） */
+  maxQuestions: number
   /** 原始需求描述（用于历史记录弹窗展示） */
   rawInput: string | null
   questions: QuestionItem[]
@@ -40,6 +53,8 @@ export interface CreateSessionRequest {
   module?: string
   model?: string
   role?: PrdRole
+  reqType?: PrdReqType
+  maxQuestions?: number
 }
 
 export interface SubmitAnswersRequest {

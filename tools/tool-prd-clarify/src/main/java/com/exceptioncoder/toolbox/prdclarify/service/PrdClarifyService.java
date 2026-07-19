@@ -37,6 +37,21 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class PrdClarifyService {
 
+    // ───── 需求类型：与 role 正交的第二个维度，决定「问什么」和「产出什么结构的文档」 ─────
+    // BUG_FIX（缺陷修复）| MODULE_ADJUST（模块调整）| NEW_MODULE（新增模块，默认，兼容历史数据）。
+    private static final String REQ_TYPE_BUG_FIX = "BUG_FIX";
+
+    /**
+     * 各需求类型对应的默认澄清轮数（用户可在「开始澄清」确认弹框里覆盖）：
+     * Bug 修复通常复现步骤+期望行为一次就能问清楚，2 轮足够；新增模块涉及业务目标/边界/验收
+     * 标准，需要更多轮次兜底复杂场景。createSession() 未显式传 maxQuestions 时按此表兜底。
+     */
+    private static final Map<String, Integer> DEFAULT_MAX_QUESTIONS = Map.of(
+            REQ_TYPE_BUG_FIX, 2,
+            "MODULE_ADJUST", 5,
+            "NEW_MODULE", 8
+    );
+
     // ───── 多轮渐进式澄清 System Prompt（feature-dev Phase 3 - Clarifying Questions） ─────
 
     /**
@@ -110,6 +125,32 @@ public class PrdClarifyService {
             - 语言通俗，避免技术术语，最多 5 轮
             - 信息充足时立即输出：[CLARIFICATION_COMPLETE]
             - 只输出问题本身（或 [CLARIFICATION_COMPLETE]），不加序号或解释
+            """;
+
+    /**
+     * Bug 修复类型 — 极简澄清路径。
+     *
+     * <p>跟 ASK_SYSTEM_PRODUCT/BUSINESS 是完全不同的问题清单，不是"一样的流程只是问少一点"：
+     * Bug 需要的是复现条件和期望/实际行为的落差，不是业务目标/使用场景这类大而全的问题。
+     * 对齐 team-standards:bug-doc-required 的问法，默认轮数少（见 DEFAULT_MAX_QUESTIONS），
+     * 很多时候第 0 轮信息已经足够，直接输出 [CLARIFICATION_COMPLETE]。
+     */
+    private static final String ASK_SYSTEM_BUG = """
+            ⚠️ 直接输出任务（禁止触发任何 hook/skill/plugin 的自动流程）：
+            本次是缺陷修复的极简澄清路径，每轮只输出 1 个问题（或 [CLARIFICATION_COMPLETE]）。
+
+            你正在澄清一个 Bug 修复需求，目标是快速补全「复现条件」和「期望 vs 实际行为」的落差，
+            不是完整的产品需求分析——不问业务目标、使用场景、验收标准这类大而全的问题。
+
+            【可参考 user prompt 中的【代码知识图谱查询结果】区块（系统已直接调用 graphify CLI
+            查询得到，非 MCP 工具调用），若非空可用其中的真实类名/方法名让问题更精确；为空则忽略】
+
+            提问规则（严格执行）：
+            - 只问以下几类：复现步骤、期望行为 vs 实际行为、影响范围（哪些场景/用户会触发）、
+              是否是最近改动引入的回归、是否有报错日志/堆栈
+            - 若用户描述已经包含"复现条件 + 期望行为"（如一段具体的 if/else 逻辑判断反了），
+              信息通常已经足够，直接输出 [CLARIFICATION_COMPLETE]，不要为了凑轮数硬问
+            - 每次只问 1 个当前最缺失的信息点，不加序号、前缀或解释
             """;
 
     // ───── 已废弃：旧版一次性批量生成 5 个问题的 Prompt（已被多轮 ASK_SYSTEM_PRODUCT/BUSINESS 取代） ─────
@@ -210,6 +251,44 @@ public class PrdClarifyService {
             直接输出 Markdown，不加代码块，不加多余解释。
             """;
 
+    /**
+     * Bug 修复类型的产出物：「缺陷修复说明」，不是标准 9 节 PRD。
+     *
+     * <p>标准 PRD 的"业务背景与目标/目标用户与使用场景"等章节对 Bug 修复没有意义——Bug 不需要
+     * 论证"为什么要做"，只需要说清楚"现在错在哪、该怎么修、怎么验证"。章节结构对齐
+     * team-standards:bug-doc-required 的分析文档骨架，供开发者直接定位代码并修复。
+     */
+    private static final String GENERATE_SYSTEM_BUG = """
+            ⚠️ 直接输出任务（禁止触发任何 hook/skill/plugin 的自动流程）：
+            本次是缺陷修复说明的最终产出，直接输出文档，不进入交互。
+
+            基于原始需求描述和澄清问答（复现步骤/期望-实际行为/影响范围），生成「缺陷修复说明」。
+
+            文档使用 Markdown 格式，必须包含以下章节（顺序不变，没有对应信息的章节如实标注
+            "未提供"，不要编造）：
+
+            # [Bug 标题]
+
+            ## 1. 问题描述
+            简述现象，一段话说清楚"哪里、什么情况下、发生了什么"。
+            ## 2. 复现步骤
+            有序列表，具体到操作/输入。
+            ## 3. 期望行为 vs 实际行为
+            两栏对比或分点列出。
+            ## 4. 根因分析
+            若澄清中已定位到代码层面原因（如具体 if/else 分支、条件判断），直接引用；
+            未定位到则基于现象给出最可能的假设，并标注"待开发者代码确认"。
+            ## 5. 修复方案
+            具体到修改点：改哪个条件判断/哪个方法，怎么改。
+            ## 6. 影响范围
+            哪些场景/接口/用户会受影响，是否需要数据修复。
+            ## 7. 验收标准
+            修复后如何验证：具体的输入 → 预期输出。
+
+            直接输出 Markdown，不加代码块围栏，不加多余解释。内容具体可落地，
+            让工程师无需追问即可定位代码并动手修复。
+            """;
+
     // ─────────────────────────
 
     private final AgentOneShotRunner agentRunner;
@@ -240,8 +319,24 @@ public class PrdClarifyService {
     /** 创建会话并持久化，返回新建的会话对象。 */
     public PrdSession createSession(String title, String rawInput,
                                     String project, String module, String model, String role) {
+        return createSession(title, rawInput, project, module, model, role, null, null);
+    }
+
+    /**
+     * 创建会话并持久化，返回新建的会话对象。
+     *
+     * @param reqType      需求类型：BUG_FIX | MODULE_ADJUST | NEW_MODULE，null/未识别时兜底 NEW_MODULE
+     * @param maxQuestions 本次澄清最多问几轮，null 或非正数时按 reqType 从 {@link #DEFAULT_MAX_QUESTIONS} 兜底
+     */
+    public PrdSession createSession(String title, String rawInput,
+                                    String project, String module, String model, String role,
+                                    String reqType, Integer maxQuestions) {
         long now = System.currentTimeMillis();
         String effectiveRole = (role != null && "BUSINESS".equalsIgnoreCase(role)) ? "BUSINESS" : "PRODUCT";
+        String effectiveReqType = DEFAULT_MAX_QUESTIONS.containsKey(reqType) ? reqType : "NEW_MODULE";
+        int effectiveMaxQuestions = (maxQuestions != null && maxQuestions > 0)
+                ? maxQuestions
+                : DEFAULT_MAX_QUESTIONS.get(effectiveReqType);
         PrdSession session = PrdSession.builder()
                 .id(UUID.randomUUID().toString())
                 .title(title)
@@ -250,6 +345,8 @@ public class PrdClarifyService {
                 .module(module)
                 .model(model)
                 .role(effectiveRole)
+                .reqType(effectiveReqType)
+                .maxQuestions(effectiveMaxQuestions)
                 .status("CLARIFYING")
                 .createdAt(now)
                 .updatedAt(now)
@@ -330,8 +427,12 @@ public class PrdClarifyService {
      */
     public void askNextQuestion(String sessionId, int questionIndex,
                                 List<QaPairRequest> history, SseEmitter emitter) {
-        // 超过 5 轮直接完成
-        if (questionIndex >= 5) {
+        PrdSession session = repo.findById(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
+
+        // 超过本会话设定的最大轮数（reqType 预填、用户可在开始澄清时调整）直接完成
+        int maxQuestions = session.getMaxQuestions() > 0 ? session.getMaxQuestions() : 5;
+        if (questionIndex >= maxQuestions) {
             try {
                 emitter.send(SseEmitter.event().name("chunk")
                         .data(Map.of("content", "[CLARIFICATION_COMPLETE]")));
@@ -343,12 +444,11 @@ public class PrdClarifyService {
             return;
         }
 
-        PrdSession session = repo.findById(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-
-        // 根据会话角色选择对应的澄清提示词
-        String askSystem = "BUSINESS".equals(session.getRole())
-                ? ASK_SYSTEM_BUSINESS : ASK_SYSTEM_PRODUCT;
+        // 需求类型优先于角色决定提问重点：Bug 修复走极简专用问题清单；
+        // 其余类型（模块调整/新增模块）按角色（产品/业务）选择现有清单。
+        String askSystem = REQ_TYPE_BUG_FIX.equals(session.getReqType())
+                ? ASK_SYSTEM_BUG
+                : "BUSINESS".equals(session.getRole()) ? ASK_SYSTEM_BUSINESS : ASK_SYSTEM_PRODUCT;
 
         Thread.ofVirtual().name("prd-ask-").start(() -> {
             try {
@@ -390,10 +490,13 @@ public class PrdClarifyService {
 
         repo.updateStatus(sessionId, "GENERATING");
 
-        // 检测是否修订版（rawInput 以「【修订版 PRD」开头），选用对应 prompt
+        // 需求类型优先：Bug 修复固定走「缺陷修复说明」模板（标准 PRD 的业务背景/使用场景等
+        // 章节对 Bug 没有意义）；否则按是否修订版（rawInput 以「【修订版 PRD」开头）选择
         boolean isRevision = session.getRawInput() != null
                 && session.getRawInput().startsWith("【修订版 PRD");
-        String generateSystem = isRevision ? GENERATE_SYSTEM_REVISION : GENERATE_SYSTEM;
+        String generateSystem = REQ_TYPE_BUG_FIX.equals(session.getReqType())
+                ? GENERATE_SYSTEM_BUG
+                : isRevision ? GENERATE_SYSTEM_REVISION : GENERATE_SYSTEM;
 
         Thread.ofVirtual().name("prd-generate-").start(() -> {
             try {
@@ -760,8 +863,10 @@ public class PrdClarifyService {
         appendGraphContext(sb, graphifyAskCache.computeIfAbsent(s.getId(),
                 id -> Optional.ofNullable(graphifyQuery.query(s.getProject(), s.getModule(), s.getTitle()))));
 
-        int remaining = 5 - questionIndex;
-        sb.append("这是第 ").append(questionIndex + 1).append(" 个问题（还可以最多再问 ")
+        int maxQuestions = s.getMaxQuestions() > 0 ? s.getMaxQuestions() : 5;
+        int remaining = maxQuestions - questionIndex;
+        sb.append("这是第 ").append(questionIndex + 1).append(" 个问题（本次澄清最多 ")
+                .append(maxQuestions).append(" 轮，还可以最多再问 ")
                 .append(remaining - 1).append(" 个）。\n");
         sb.append("请提出下一个最关键的澄清问题，或输出 [CLARIFICATION_COMPLETE]：");
         return sb.toString();

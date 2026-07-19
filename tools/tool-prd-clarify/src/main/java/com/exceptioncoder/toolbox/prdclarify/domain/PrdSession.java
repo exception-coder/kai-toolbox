@@ -34,6 +34,13 @@ public class PrdSession {
     private String model;
     /** 提需求方角色：PRODUCT（产品/开发）| BUSINESS（业务员）。决定澄清问题的深度和语言风格。 */
     private String role;
+    /**
+     * 需求类型：BUG_FIX（缺陷修复）| MODULE_ADJUST（模块调整）| NEW_MODULE（新增模块，默认）。
+     * 与 role 正交：role 决定谁在问，reqType 决定问什么、产出什么结构的文档。
+     */
+    private String reqType;
+    /** 本次澄清最多问几轮（原硬编码 5，现由前端确认弹框按 reqType 预填、用户可调）。 */
+    private int maxQuestions;
     private String errorMsg;
     private long createdAt;
     private long updatedAt;
