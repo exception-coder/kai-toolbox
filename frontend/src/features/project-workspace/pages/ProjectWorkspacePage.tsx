@@ -33,6 +33,15 @@ const WORKSPACE_CFG_ID = 'toolbox.claude-chat.workspace'
 /** 记住上次选中的项目路径（跨刷新/进出页面不重置）。 */
 const SELECTED_PATH_LS = 'kai-toolbox:project-workspace:selected-path'
 
+/** 把检测时间 ISO 格式化为「MM-DD HH:mm」；无效/空返回空串。 */
+function fmtCheckedAt(iso?: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
 
 /** 从配置块中取出知识库路径（knowledge-base-dir）的当前值；未配置为空串。 */
 function readKnowledgeDir(entries?: { key: string; value: string | null }[]) {
@@ -162,6 +171,15 @@ export function ProjectWorkspacePage() {
     // 保留上次选择；仅当未选或所选项目已不在列表（被移除）时回落到第一个
     if (!selectedPath || !projects.some(p => p.path === selectedPath)) setSelectedPath(projects[0].path)
   }, [projects, selectedPath])
+
+  // 打开某项目时，若还没有任何检测历史（缓存无快照）就懒检测一次并记录（含检测时间）；已有历史则直接沿用、不重复检测。
+  useEffect(() => {
+    if (!selectedPath || kg.isLoading || kg.refreshing) return
+    if (ignored.isIgnored(selectedPath)) return
+    if (kg.snapshotOf(selectedPath)) return // 已有历史快照，直接展示，不重复检测
+    kg.refresh([selectedPath])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPath, kg.isLoading])
 
   useEffect(() => {
     if (!chat || !pendingOpen) return
@@ -779,6 +797,14 @@ function ProjectButton({
             >
               {snapshot?.businessGraphState ? REGISTRATION_LABEL[snapshot.businessGraphState] : '未检测'}
             </StatusBadge>
+            {snapshot?.checkedAt && (
+              <span
+                className="text-[10px] text-[var(--color-muted-foreground)]"
+                title={`上次检测：${new Date(snapshot.checkedAt).toLocaleString()}`}
+              >
+                检测于 {fmtCheckedAt(snapshot.checkedAt)}
+              </span>
+            )}
           </>
         )}
         <button
