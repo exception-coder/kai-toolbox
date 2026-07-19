@@ -79,16 +79,31 @@ public class PrdSessionRepository {
                 mdPath, System.currentTimeMillis(), id);
     }
 
-    /** 更新开发文档路径（开发文档生成完成时调用）。 */
+    /**
+     * 更新开发文档路径（开发文档生成完成时调用）。
+     *
+     * <p>故意不touch {@code updated_at}：该字段语义是「PRD 内容最后变更时间」，用于跟
+     * {@code dev_doc_generated_at} 比较判断开发文档是否过期。开发文档路径是开发文档自身的
+     * 记账信息，不代表 PRD 内容发生了变化，混进 updated_at 会导致后续任意一次纯记账更新
+     * （如 {@link #updateDevSessionId}）把 updated_at 推到 dev_doc_generated_at 之后，
+     * 造成刚生成完的开发文档被误判为过期。</p>
+     */
     public void updateDevDocPath(String id, String devDocPath) {
-        jdbc.update("UPDATE prd_session SET dev_doc_path = ?, updated_at = ? WHERE id = ?",
-                devDocPath, System.currentTimeMillis(), id);
+        jdbc.update("UPDATE prd_session SET dev_doc_path = ? WHERE id = ?",
+                devDocPath, id);
     }
 
-    /** 关联 Vibe Coding 开发会话 ID（「开始开发」跳转到 claude-chat 后回写）。 */
+    /**
+     * 关联 Vibe Coding 开发会话 ID（「开始开发」跳转到 claude-chat 后回写）。
+     *
+     * <p>纯记账字段，故意不 touch {@code updated_at}（原因同 {@link #updateDevDocPath}）：
+     * 此前会在用户点「开始开发」时把 updated_at 推到当前时间，即便 PRD/开发文档内容毫无变化，
+     * 也会让开发文档被误判为「已过期」（bug：本已是最新生成的开发文档，仅因关联了开发会话
+     * 就被标记过期）。</p>
+     */
     public void updateDevSessionId(String id, String devSessionId) {
-        jdbc.update("UPDATE prd_session SET dev_session_id = ?, updated_at = ? WHERE id = ?",
-                devSessionId, System.currentTimeMillis(), id);
+        jdbc.update("UPDATE prd_session SET dev_session_id = ? WHERE id = ?",
+                devSessionId, id);
     }
 
     /** 更新开发文档生成时间戳（生成完成时调用，用于判断开发文档是否过期）。 */
