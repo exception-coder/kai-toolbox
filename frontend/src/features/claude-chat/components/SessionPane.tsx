@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, ClipboardCheck, FlaskConical, Paperclip, Send, ShieldCheck, Slash, Square, X } from 'lucide-react'
+import { AlertTriangle, Paperclip, Send, ShieldCheck, Slash, Square, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useClaudeChatSocket } from '../hooks/useClaudeChatSocket'
 import { listSessions, uploadAttachment, type UploadedAttachment } from '../api'
@@ -31,22 +31,6 @@ interface Props {
 /** 单条消息最多附件数，与单会话视图、后端约定一致。 */
 const MAX_ATTACHMENTS = 10
 
-/** 自动核对 prompt（与 ChatPage 共用同一措辞）。 */
-const AUTO_VERIFY_PROMPT = '[自动核对] 请快速复查你刚才的技术判断（重点：文件/目录是否存在、项目类型识别、命令是否适用当前环境等）。如有错误直接纠正；若无误，一句话确认即可，不需要展开解释。'
-
-/** 需求评审前置 prompt（与 ChatPage 共用）。 */
-const REQ_REVIEW_PREFIX = `[需求评审] 在处理下面的需求前，请先完成评审（简洁格式即可）：
-
-**① 可行性**：技术上是否可实现？当前架构/技术栈是否支持？
-**② 价值**：解决什么问题？是否与现有功能重复或冲突？
-**③ 风险**：安全/性能/破坏性风险？
-**④ 结论**：
-- ✅ 建议实施（直接开始）
-- ⚠️ 有条件实施（说明需调整什么再开始）
-- ❌ 建议拒绝（仅明显无意义/高风险才用，必须说明原因）
-
-待评审的需求：
-`
 /** 「弹窗自动允许」全局开关键，与单会话视图共用，多处同步。 */
 const AUTO_APPROVE_KEY = 'kai-toolbox:auto-approve-permission'
 
@@ -105,44 +89,6 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
     return nv
   })
 
-  // ── 自动核对（与 ChatPage 逻辑一致）──────────────────────────────────────
-  const [autoVerify, setAutoVerify] = useState(() => localStorage.getItem('kai-toolbox:auto-verify') === '1')
-  const autoVerifyRef = useRef(false)
-  autoVerifyRef.current = autoVerify
-  const isVerifyTurnRef = useRef(false)
-  const sendRef = useRef(chat.send)
-  sendRef.current = chat.send
-  const prevRunningPaneRef = useRef(false)
-  useEffect(() => {
-    const wasRunning = prevRunningPaneRef.current
-    prevRunningPaneRef.current = chat.running
-    if (!wasRunning || chat.running) return
-    if (!autoVerifyRef.current || !chat.sessionId) { isVerifyTurnRef.current = false; return }
-    if (!isVerifyTurnRef.current) {
-      isVerifyTurnRef.current = true
-      sendRef.current(AUTO_VERIFY_PROMPT)
-    } else {
-      isVerifyTurnRef.current = false
-    }
-  }, [chat.running, chat.sessionId])
-  const toggleAutoVerify = () => {
-    setAutoVerify(v => {
-      const nv = !v
-      if (!nv) isVerifyTurnRef.current = false
-      localStorage.setItem('kai-toolbox:auto-verify', nv ? '1' : '0')
-      return nv
-    })
-  }
-  const [reqReview, setReqReview] = useState(() => localStorage.getItem('kai-toolbox:req-review') === '1')
-  const toggleReqReview = () => {
-    setReqReview(v => {
-      const nv = !v
-      localStorage.setItem('kai-toolbox:req-review', nv ? '1' : '0')
-      return nv
-    })
-  }
-  // ─────────────────────────────────────────────────────────────────────────
-
   const pending = chat.pending
   // 全自动 + 开关开启时，自动放行本块的权限框（仅 permission；AskUserQuestion 提问不自动应答）
   const autoApprovedRef = useRef<string | null>(null)
@@ -186,11 +132,9 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
     if (!chat.sessionId) return
     if (!draft.trim() && attachments.length === 0) return
     ensureNotifyPermission()
-    // 需求评审模式：注入前置评审指令
-    const text = reqReview && draft.trim() ? `${REQ_REVIEW_PREFIX}${draft.trim()}` : draft
     // 带上 mime + 本地预览 url → 气泡里显示图片缩略图（与单会话视图一致）；
     // 不在此 revoke object URL：它已被消息气泡引用（revoke 会让缩略图失效）。
-    chat.send(text, attachments.map(a => ({ name: a.name, path: a.path, mime: a.mime, url: a.previewUrl })))
+    chat.send(draft, attachments.map(a => ({ name: a.name, path: a.path, mime: a.mime, url: a.previewUrl })))
     setDraft('')
     setAttachments([])
     const el = taRef.current
@@ -295,32 +239,6 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
               <ShieldCheck className="size-3" /> 自动允许·{autoApprove ? '开' : '关'}
             </button>
           )}
-          {/* 需求评审（发送前注入分析指令） */}
-          <button
-            type="button"
-            onClick={toggleReqReview}
-            title="需求评审：开启后发送的消息自动注入评审指令，AI 先分析可行性/价值/风险再实施。"
-            aria-label="需求评审开关"
-            className={'flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] '
-              + (reqReview
-                ? 'border-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-950 dark:text-violet-300'
-                : 'text-[var(--color-muted-foreground)]')}
-          >
-            <ClipboardCheck className="size-3" /> 评审·{reqReview ? '开' : '关'}
-          </button>
-          {/* 自动核对（与主视图共用同一开关状态） */}
-          <button
-            type="button"
-            onClick={toggleAutoVerify}
-            title="自动核对：AI 每轮回答结束后自动追问核对，确认后停止，不循环。"
-            aria-label="自动核对开关"
-            className={'flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] '
-              + (autoVerify
-                ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
-                : 'text-[var(--color-muted-foreground)]')}
-          >
-            <FlaskConical className="size-3" /> 核对·{autoVerify ? '开' : '关'}
-          </button>
           {/* 服务商切换与权限组语义不同，推到右侧分开 */}
           <div className="ml-auto">
             <ProviderSwitch

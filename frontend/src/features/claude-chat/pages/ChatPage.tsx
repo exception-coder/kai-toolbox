@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, Bug, ChevronDown, ClipboardCheck, Cloud, FileText, FlaskConical, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, List, ListChecks, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
+import { Bell, Bug, ChevronDown, Cloud, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, List, ListChecks, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useChatRuntime } from '../runtime/ChatRuntimeContext'
@@ -50,30 +50,6 @@ type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' 
 
 /** 单条消息最多附件数，与后端约定一致。 */
 const MAX_ATTACHMENTS = 10
-
-/**
- * 自动核对模式的追问 prompt。
- * 发送后由 isVerifyTurnRef 标记为"核对轮"，该轮结束后不再追问，避免死循环。
- */
-const AUTO_VERIFY_PROMPT = '[自动核对] 请快速复查你刚才的技术判断（重点：文件/目录是否存在、项目类型识别、命令是否适用当前环境等）。如有错误直接纠正；若无误，一句话确认即可，不需要展开解释。'
-
-/**
- * 需求评审模式的前置 prompt 模板。
- * 发送前注入到用户消息最前面，让 AI 先做可行性/价值/风险分析，再决定实施。
- * 格式说明放在最前，需求原文在最后，避免 AI 忽略分析直接实施。
- */
-const REQ_REVIEW_PREFIX = `[需求评审] 在处理下面的需求前，请先完成评审（简洁格式即可）：
-
-**① 可行性**：技术上是否可实现？当前架构/技术栈是否支持？
-**② 价值**：解决什么问题？是否与现有功能重复或冲突？
-**③ 风险**：安全/性能/破坏性风险？
-**④ 结论**：
-- ✅ 建议实施（直接开始）
-- ⚠️ 有条件实施（说明需调整什么再开始）
-- ❌ 建议拒绝（仅明显无意义/高风险才用，必须说明原因）
-
-待评审的需求：
-`
 
 /** 输入框草稿按会话持久化：{ [sessionId]: 文本 }。切会话/刷新都各自保留，互不串扰。 */
 const DRAFTS_KEY = 'kai-toolbox:claude-chat:drafts'
@@ -211,54 +187,6 @@ export function ChatPage() {
     autoApprovedRef.current = pending.reqId
     chat.decide({ type: 'decision', reqId: pending.reqId, behavior: 'allow' })
   }, [pending, autoApprove, chat])
-
-  // ── 自动核对模式 ──────────────────────────────────────────────────────────
-  // 每轮 AI 回答结束后，自动追加一条核对指令让 AI 自检；AI 核对后停止，不再循环。
-  // 防死循环：isVerifyTurnRef = true 表示「下一个 running→false 是核对轮，不再触发」。
-  const [autoVerify, setAutoVerify] = useState(() => localStorage.getItem('kai-toolbox:auto-verify') === '1')
-  const autoVerifyRef = useRef(false)
-  autoVerifyRef.current = autoVerify
-  const isVerifyTurnRef = useRef(false)
-  const chatRef = useRef(chat)
-  chatRef.current = chat
-  const prevRunningRef = useRef(false)
-  const chatRunning = chat?.running ?? false
-  useEffect(() => {
-    const wasRunning = prevRunningRef.current
-    prevRunningRef.current = chatRunning
-    if (!wasRunning || chatRunning) return // 只处理 true → false 的转换
-    const c = chatRef.current
-    if (!autoVerifyRef.current || !c?.sessionId) { isVerifyTurnRef.current = false; return }
-    if (!isVerifyTurnRef.current) {
-      // 正常回答轮结束 → 自动发一条核对请求
-      isVerifyTurnRef.current = true
-      c.send(AUTO_VERIFY_PROMPT)
-    } else {
-      // 核对轮结束 → 重置，等待下一次用户主动提问
-      isVerifyTurnRef.current = false
-    }
-  }, [chatRunning])
-  const toggleAutoVerify = () => {
-    setAutoVerify(v => {
-      const nv = !v
-      if (!nv) isVerifyTurnRef.current = false // 关闭时立即重置，避免残留状态
-      localStorage.setItem('kai-toolbox:auto-verify', nv ? '1' : '0')
-      return nv
-    })
-  }
-
-  // ── 需求评审模式 ──────────────────────────────────────────────────────────
-  // 发送前预处理：在用户消息最前面注入 REQ_REVIEW_PREFIX，让 AI 先做可行性/价值/风险评审。
-  // 与自动核对的区别：核对是"发送后追问"；评审是"发送前注入"，AI 在同一轮就完成分析。
-  const [reqReview, setReqReview] = useState(() => localStorage.getItem('kai-toolbox:req-review') === '1')
-  const toggleReqReview = () => {
-    setReqReview(v => {
-      const nv = !v
-      localStorage.setItem('kai-toolbox:req-review', nv ? '1' : '0')
-      return nv
-    })
-  }
-  // ─────────────────────────────────────────────────────────────────────────
 
   // 弹出悬浮窗：开启浮窗并离开会话页（浮窗与全屏页互斥渲染）。回到进入会话页前最后访问的页面，而非每次回首页。
   const popOutFloating = () => {
@@ -663,14 +591,12 @@ export function ChatPage() {
     ensureNotifyPermission() // 借发送这个手势兜底申请一次通知权限
 
     const atts = attachments.map(a => ({ name: a.name, path: a.path, mime: a.mime, url: a.previewUrl }))
-    // 需求评审模式：在消息前注入分析指令，让 AI 先评审再决定是否实施
-    const text = reqReview && draft.trim() ? `${REQ_REVIEW_PREFIX}${draft.trim()}` : draft
     // 正在回答中 → 入待发送队列，本轮结束后自动按序发；否则立即发
     if (chat.running) {
-      chat.enqueue(text, atts)
+      chat.enqueue(draft, atts)
     } else {
       // 图片把本地 previewUrl 一并带上 → 气泡里显示缩略图（object URL 不在此 revoke，已被消息引用）
-      chat.send(text, atts)
+      chat.send(draft, atts)
     }
     setDraft('')
     setAttachments([])
@@ -1325,32 +1251,6 @@ export function ChatPage() {
                 <ShieldCheck className="size-3.5" /> 弹窗自动允许·{autoApprove ? '开' : '关'}
               </button>
             )}
-            {/* 需求评审：发送前在消息前面注入分析指令，AI 先评审可行性/价值/风险，再决定实施 */}
-            <button
-              type="button"
-              onClick={toggleReqReview}
-              title={`需求评审模式：开启后发送的消息会自动注入评审指令，AI 先分析可行性、价值、风险，${'\n'}给出「建议实施 / 有条件实施 / 拒绝」结论，再决定是否开始做。适合提出新需求前使用。`}
-              aria-label="需求评审开关"
-              className={'flex items-center gap-1 rounded-md border px-2 py-1 text-xs '
-                + (reqReview
-                  ? 'border-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-950 dark:text-violet-300'
-                  : 'text-[var(--color-muted-foreground)]')}
-            >
-              <ClipboardCheck className="size-3.5" /> 需求评审·{reqReview ? '开' : '关'}
-            </button>
-            {/* 自动核对：每轮回答结束后追问一次，AI 自检后停止，不循环 */}
-            <button
-              type="button"
-              onClick={toggleAutoVerify}
-              title="自动核对模式：AI 每轮回答结束后自动追问一句核对，AI 确认后停止（防死循环）。适合容易出现技术误判的场景，如文件是否存在、项目类型识别等。"
-              aria-label="自动核对开关"
-              className={'flex items-center gap-1 rounded-md border px-2 py-1 text-xs '
-                + (autoVerify
-                  ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
-                  : 'text-[var(--color-muted-foreground)]')}
-            >
-              <FlaskConical className="size-3.5" /> 自动核对·{autoVerify ? '开' : '关'}
-            </button>
             {/* 服务商切换与权限组语义不同：用左外边距推到右侧，避免和权限按钮挤在一起 */}
             <div className="ml-auto">
               <ProviderSwitch
