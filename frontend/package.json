@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b --noEmit",
-    "java8gu:sync": "node scripts/build-java8gu-index.mjs"
+    "java8gu:sync": "node scripts/build-java8gu-index.mjs",
+    "webppt-report:quant": "node scripts/generate-webppt-quant-data.mjs"
   },
   "dependencies": {
     "@codemirror/lang-html": "^6.4.11",
@@ -51,6 +52,7 @@
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.1.1",
     "recharts": "^2.15.0",
+    "reveal.js": "^5.2.1",
     "shiki": "^4.1.0",
     "sql-formatter": "^15.8.0",
     "tailwind-merge": "^2.5.5",
@@ -62,6 +64,7 @@
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
+    "@types/reveal.js": "^5.2.2",
     "@vitejs/plugin-react": "^4.3.4",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.2",
