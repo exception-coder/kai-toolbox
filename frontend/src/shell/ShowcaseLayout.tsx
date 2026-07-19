@@ -1,7 +1,6 @@
 import { Suspense, useLayoutEffect, useRef, useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { GripVertical, LayoutGrid } from 'lucide-react'
-import { ThemeMenu } from './ThemeMenu'
 import { featureAtPath } from './featureRegistry'
 import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 
@@ -83,7 +82,7 @@ export function ShowcaseLayout() {
       <div
         ref={dockRef}
         style={{ left: pos?.x ?? 0, top: pos?.y ?? 0, visibility: pos ? 'visible' : 'hidden' }}
-        className={`fixed z-50 flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-background)]/80 p-1 shadow-lg backdrop-blur ${dragging ? 'select-none' : ''}`}
+        className={`fixed z-50 flex items-center gap-0.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-background)]/85 p-1 shadow-lg backdrop-blur ${dragging ? 'select-none' : ''}`}
       >
         <button
           type="button"
@@ -92,7 +91,7 @@ export function ShowcaseLayout() {
           onPointerDown={onGripDown}
           onPointerMove={onGripMove}
           onPointerUp={onGripUp}
-          className={`flex h-7 w-5 items-center justify-center rounded-full text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+          className={`flex h-8 w-5 items-center justify-center rounded-md text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
           style={{ touchAction: 'none' }}
         >
           <GripVertical className="h-4 w-4" />
@@ -100,12 +99,11 @@ export function ShowcaseLayout() {
         <Link
           to="/"
           title="返回工作台"
-          className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-[var(--color-muted-foreground)] transition-colors hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)]"
+          className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium text-[var(--color-muted-foreground)] transition-colors hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)]"
         >
-          <LayoutGrid className="h-3.5 w-3.5" />
+          <LayoutGrid className="h-4 w-4 shrink-0" />
           返回工作台
         </Link>
-        <ThemeMenu />
       </div>
       )}
 
