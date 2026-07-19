@@ -398,17 +398,24 @@ export function ProjectWorkspacePage() {
         </div>
       </header>
 
-      <div className="flex items-start gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/30 px-3 py-2 text-xs leading-relaxed text-[var(--color-muted-foreground)]">
-        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-        <span>
-          本工作台依赖两项<b className="text-[var(--color-foreground)]">运行时配置</b>（配置中心 →「Claude 工作目录」，改后即时生效、无需重启）：
-          左侧<b className="text-[var(--color-foreground)]">项目列表</b>来自 <code>workspace.roots</code>；
-          <b className="text-[var(--color-foreground)]">模块清单/中文名</b>来自 <code>knowledge-base-dir</code>（未配置会自动从 Git 拉取知识库）。
-          没加载出来多半是这两项没配好。
-          <button type="button" className="ml-1 font-medium text-[var(--color-primary)] hover:underline" onClick={() => navigate(`/tools/config-center?block=${WORKSPACE_CFG_ID}`)}>
-            去配置 →
+      <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/30 px-3 py-2 text-xs leading-relaxed text-[var(--color-muted-foreground)]">
+        <div className="mb-1 flex items-center gap-1.5 font-medium text-[var(--color-foreground)]">
+          <Info className="h-3.5 w-3.5 shrink-0" />依赖声明（均可在配置中心在线修改、即时生效、无需重启）
+        </div>
+        <ul className="ml-4 list-disc space-y-0.5">
+          <li><b className="text-[var(--color-foreground)]">项目列表</b> ← <code>workspace.roots</code>（工作区扫描根目录）</li>
+          <li><b className="text-[var(--color-foreground)]">模块清单 / 中文名</b> ← 业务真理仓 <b className="text-[var(--color-foreground)]">project-domain-knowledge</b> 的 knowledge 目录（<code>workspace.knowledge-base-dir</code>，未配置会自动从 Git 拉取）</li>
+          <li><b className="text-[var(--color-foreground)]">业务真理识别</b> ← <b className="text-[var(--color-foreground)]">project-domain-knowledge</b> 仓（<code>knowledge-graph.domain-knowledge-repo-path</code>，需已 build 引擎 dist）</li>
+          <li><b className="text-[var(--color-foreground)]">跨项目拓扑识别</b> ← <b className="text-[var(--color-foreground)]">cross-project-topology</b> 仓（<code>knowledge-graph.cross-topology-repo-path</code>）</li>
+        </ul>
+        <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+          <button type="button" className="font-medium text-[var(--color-primary)] hover:underline" onClick={() => navigate(`/tools/config-center?block=${WORKSPACE_CFG_ID}`)}>
+            配置工作区 / 知识库路径 →
           </button>
-        </span>
+          <button type="button" className="font-medium text-[var(--color-primary)] hover:underline" onClick={() => navigate('/tools/config-center?block=toolbox.knowledge-graph')}>
+            配置知识图谱两仓路径 →
+          </button>
+        </div>
       </div>
 
       <Card>
