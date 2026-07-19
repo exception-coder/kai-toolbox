@@ -312,7 +312,7 @@ export function VideoPlayer({
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center text-sm text-white/90 bg-black/60">
           <div>请登录后播放</div>
           <div className="text-xs text-white/60">
-            视频库已开启访问控制，需用具备「管理员 / 视频库」权限的账号登录（右上角登录）。
+            视频库已开启访问控制，需用具备「管理员 / 视频库」权限的账号登录（登录入口在左侧菜单栏底部）。
           </div>
         </div>
       )}

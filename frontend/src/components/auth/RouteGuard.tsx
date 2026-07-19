@@ -19,7 +19,7 @@ export function RouteGuard({ feature, children }: { feature: FeatureManifest; ch
       <p className="text-sm">
         {user
           ? `该模块需要 ${required.join(' 或 ')} 权限，请联系管理员开通。`
-          : '请先登录（右上角）后再访问该模块。'}
+          : '请先登录后再访问该模块，登录入口在左侧菜单栏底部。'}
       </p>
     </div>
   )
