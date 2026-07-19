@@ -5,6 +5,19 @@ export function repoPaths() {
   return http<{ domainKnowledgeRepoPath: string | null; crossTopologyRepoPath: string | null }>('/knowledge-graph/repo-paths')
 }
 
+/** 引擎与两仓就绪：路径配否、目录存否、引擎是否已构建（dist/server.js）。 */
+export interface EngineStatus {
+  domainConfigured: boolean
+  domainRepoExists: boolean
+  engineBuilt: boolean
+  crossConfigured: boolean
+  crossRepoExists: boolean
+}
+
+export function engineStatus() {
+  return http<EngineStatus>('/knowledge-graph/engine-status')
+}
+
 export function recentProjects() {
   return http<ProjectRef[]>('/knowledge-graph/projects/recent')
 }

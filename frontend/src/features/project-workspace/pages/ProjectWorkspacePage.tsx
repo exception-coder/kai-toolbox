@@ -12,6 +12,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
 import { applyModuleSync, createTaskspace, ensureKnowledgeBase, fetchProjectModules, listSessions, listWorkspaces, previewModuleSync, resolveModule } from '@/features/claude-chat/api'
 import { getConfigBlock, updateConfigBlock } from '@/features/config-center/api'
+import { engineStatus } from '@/features/knowledge-graph/api'
 import { VoiceInputButton } from '@/features/claude-chat/components/VoiceInputButton'
 import { CHAT_ROUTE, useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import type { ClaudeChatSessionView, ModuleCandidate, ModuleSyncPreview, ProjectModule, ProjectModules, WorkspaceDir } from '@/features/claude-chat/types'
@@ -55,8 +56,8 @@ function readCfgValue(entries: { key: string; value: string | null }[] | undefin
   return (e?.value ?? '').trim()
 }
 
-/** 依赖项配置状态小标记：已配置(绿✓) / 未配置(琥珀⚠)。 */
-function DepMark({ ok }: { ok: boolean }) {
+/** 依赖项配置状态小标记：ok=绿✓，否则琥珀⚠；label 可自定义（如「未构建」「目录不存在」「就绪」）。 */
+function DepMark({ ok, label }: { ok: boolean; label?: string }) {
   return (
     <span
       className={cn(
@@ -67,7 +68,7 @@ function DepMark({ ok }: { ok: boolean }) {
       )}
     >
       {ok ? <Check className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
-      {ok ? '已配置' : '未配置'}
+      {label ?? (ok ? '已配置' : '未配置')}
     </span>
   )
 }
@@ -316,6 +317,17 @@ export function ProjectWorkspacePage() {
   const crossRepoSet = useMemo(() => readCfgValue(kgRepoBlockQ.data?.entries, 'cross-topology-repo-path').length > 0, [kgRepoBlockQ.data])
   const rootsOk = useMemo(() => (workspacesQ.data?.roots ?? []).some(r => r.exists), [workspacesQ.data])
   const kbOk = kbConfigured && modulesQ.data?.knowledgeDirExists !== false
+  // 引擎/两仓就绪检测（含 dist/server.js 是否已构建）；后端未升级时回落到"路径是否非空"
+  const engineQ = useQuery({ queryKey: ['kg-engine-status'], queryFn: engineStatus, staleTime: 5000 })
+  const eng = engineQ.data
+  const domainOk = eng ? eng.engineBuilt : domainRepoSet
+  const domainLabel = !eng
+    ? (domainRepoSet ? '已配置' : '未配置')
+    : !eng.domainConfigured ? '未配置' : !eng.domainRepoExists ? '目录不存在' : !eng.engineBuilt ? '未构建' : '就绪'
+  const crossOk = eng ? (eng.crossRepoExists && eng.engineBuilt) : crossRepoSet
+  const crossLabel = !eng
+    ? (crossRepoSet ? '已配置' : '未配置')
+    : !eng.crossConfigured ? '未配置' : !eng.crossRepoExists ? '目录不存在' : !eng.engineBuilt ? '引擎未构建' : '就绪'
   // 自动确保知识库就绪：进工作台时若 knowledge 目录不存在，后端自动 clone 到用户目录并绑定——无需用户点击。
   // 每个 app 会话只自动试一次（失败给「重试」，避免反复 git clone）。
   const ensureKbMut = useMutation({
@@ -434,8 +446,8 @@ export function ProjectWorkspacePage() {
         <ul className="ml-4 list-disc space-y-0.5">
           <li><b className="text-[var(--color-foreground)]">项目列表</b> ← <code>workspace.roots</code>（工作区扫描根目录）<DepMark ok={rootsOk} /></li>
           <li><b className="text-[var(--color-foreground)]">模块清单 / 中文名</b> ← 业务真理仓 <b className="text-[var(--color-foreground)]">project-domain-knowledge</b> 的 knowledge 目录（<code>workspace.knowledge-base-dir</code>，未配置会自动从 Git 拉取）<DepMark ok={kbOk} /></li>
-          <li><b className="text-[var(--color-foreground)]">业务真理识别</b> ← <b className="text-[var(--color-foreground)]">project-domain-knowledge</b> 仓（<code>knowledge-graph.domain-knowledge-repo-path</code>，需已 build 引擎 dist）<DepMark ok={domainRepoSet} /></li>
-          <li><b className="text-[var(--color-foreground)]">跨项目拓扑识别</b> ← <b className="text-[var(--color-foreground)]">cross-project-topology</b> 仓（<code>knowledge-graph.cross-topology-repo-path</code>）<DepMark ok={crossRepoSet} /></li>
+          <li><b className="text-[var(--color-foreground)]">业务真理识别</b> ← <b className="text-[var(--color-foreground)]">project-domain-knowledge</b> 仓（<code>knowledge-graph.domain-knowledge-repo-path</code>，需已 build 引擎 dist）<DepMark ok={domainOk} label={domainLabel} /></li>
+          <li><b className="text-[var(--color-foreground)]">跨项目拓扑识别</b> ← <b className="text-[var(--color-foreground)]">cross-project-topology</b> 仓（<code>knowledge-graph.cross-topology-repo-path</code>，复用上面引擎）<DepMark ok={crossOk} label={crossLabel} /></li>
         </ul>
         <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
           <button type="button" className="font-medium text-[var(--color-primary)] hover:underline" onClick={() => navigate(`/tools/config-center?block=${WORKSPACE_CFG_ID}`)}>

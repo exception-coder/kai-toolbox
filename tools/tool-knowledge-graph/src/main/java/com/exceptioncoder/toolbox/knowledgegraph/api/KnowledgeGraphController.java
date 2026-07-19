@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.knowledgegraph.api;
 
+import com.exceptioncoder.toolbox.knowledgegraph.api.dto.EngineStatusView;
 import com.exceptioncoder.toolbox.knowledgegraph.api.dto.ProjectPathRequest;
 import com.exceptioncoder.toolbox.knowledgegraph.api.dto.RepoPathsView;
 import com.exceptioncoder.toolbox.knowledgegraph.api.dto.StatusCacheView;
@@ -20,6 +21,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 @RestController
@@ -47,6 +50,19 @@ public class KnowledgeGraphController {
     @GetMapping("/repo-paths")
     public RepoPathsView repoPaths() {
         return new RepoPathsView(properties.getDomainKnowledgeRepoPath(), properties.getCrossTopologyRepoPath());
+    }
+
+    /** 引擎与两仓就绪检测：路径是否配、目录是否存在、引擎是否已构建（dist/server.js）。供依赖声明标记。 */
+    @GetMapping("/engine-status")
+    public EngineStatusView engineStatus() {
+        String domain = properties.getDomainKnowledgeRepoPath();
+        String cross = properties.getCrossTopologyRepoPath();
+        boolean domainConfigured = domain != null && !domain.isBlank();
+        boolean domainRepoExists = domainConfigured && Files.isDirectory(Path.of(domain));
+        boolean engineBuilt = domainRepoExists && Files.exists(Path.of(domain, "dist", "server.js"));
+        boolean crossConfigured = cross != null && !cross.isBlank();
+        boolean crossRepoExists = crossConfigured && Files.isDirectory(Path.of(cross));
+        return new EngineStatusView(domainConfigured, domainRepoExists, engineBuilt, crossConfigured, crossRepoExists);
     }
 
     @GetMapping("/projects/recent")
