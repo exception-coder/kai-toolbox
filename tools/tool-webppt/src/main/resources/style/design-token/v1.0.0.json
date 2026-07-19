@@ -1,0 +1,51 @@
+{
+  "name": "睿程ERP全景图统一风格",
+  "colors": {
+    "primary": "#1F4FD8",
+    "accent": "#00B3A4",
+    "neutral": ["#0B1220", "#334155", "#64748B", "#CBD5E1", "#F1F5F9", "#FFFFFF"],
+    "chart_scale": ["#1F4FD8", "#00B3A4", "#F59E0B", "#EF4444", "#8B5CF6", "#0EA5E9"],
+    "semantic": {
+      "success": "#16A34A",
+      "warning": "#F59E0B",
+      "danger": "#EF4444"
+    }
+  },
+  "typography": {
+    "font_cn": "\"PingFang SC\", \"Microsoft YaHei\", \"Noto Sans SC\", sans-serif",
+    "font_en": "\"Inter\", \"Segoe UI\", sans-serif",
+    "scale": {
+      "h1": 40,
+      "h2": 28,
+      "h3": 20,
+      "body": 16,
+      "caption": 13
+    },
+    "line_height": {
+      "heading": 1.25,
+      "body": 1.6
+    }
+  },
+  "spacing": {
+    "base_unit": 8,
+    "scale": [8, 16, 24, 32, 48, 64]
+  },
+  "shape": {
+    "radius": {
+      "sm": 4,
+      "md": 8,
+      "lg": 16
+    },
+    "border_width": 1
+  },
+  "elevation": {
+    "card": "0 2px 8px rgba(15, 23, 42, 0.08)",
+    "floating": "0 8px 24px rgba(15, 23, 42, 0.16)"
+  },
+  "layout": {
+    "aspect_ratio": "16:9",
+    "grid_columns": 12,
+    "safe_margin": 64,
+    "master_types": ["cover", "section", "content-single", "content-dual", "summary"]
+  }
+}

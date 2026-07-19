@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>WebPPT 风格样例 · sample-01</title>
+<!--
+  reveal.js 落地样例：本文件可直接双击在浏览器打开验证，也可被后端以 iframe 方式内嵌预览。
+  CSS 变量与 style/design-token/v1.0.0.json 手动保持一致——修改 Token 色值后，
+  只需同步这里的变量值，不涉及本文件结构或 prompt/v1.0.0.md 的任何改动（验证分层解耦）。
+-->
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5/dist/reveal.css">
+<style>
+  :root {
+    --color-primary: #1F4FD8;
+    --color-accent: #00B3A4;
+    --color-ink: #0B1220;
+    --color-ink-2: #334155;
+    --color-ink-3: #64748B;
+    --color-line: #CBD5E1;
+    --color-surface: #F1F5F9;
+    --color-white: #FFFFFF;
+    --font-cn: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+    --font-en: "Inter", "Segoe UI", sans-serif;
+    --fs-h1: 40px;
+    --fs-h2: 28px;
+    --fs-h3: 20px;
+    --fs-body: 16px;
+    --fs-caption: 13px;
+    --unit: 8px;
+    --radius-md: 8px;
+  }
+  .reveal { font-family: var(--font-cn); color: var(--color-ink); }
+  .reveal .slides section {
+    text-align: left;
+    padding: calc(var(--unit) * 8);
+    box-sizing: border-box;
+  }
+  .reveal h1, .reveal h2, .reveal h3 { font-family: var(--font-cn); font-weight: 600; margin: 0 0 calc(var(--unit) * 3); }
+  .reveal h1 { font-size: var(--fs-h1); }
+  .reveal h2 { font-size: var(--fs-h2); }
+  .reveal h3 { font-size: var(--fs-h3); }
+  .reveal p, .reveal li { font-size: var(--fs-body); line-height: 1.6; color: var(--color-ink-2); }
+  .caption { font-size: var(--fs-caption); color: var(--color-ink-3); margin-top: calc(var(--unit) * 2); }
+
+  /* 封面母版：主色底 + 反白文字 */
+  .master-cover { background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); color: var(--color-white); }
+  .master-cover h1, .master-cover p { color: var(--color-white); }
+  .master-cover .subtitle { font-size: var(--fs-h3); opacity: 0.9; }
+
+  /* 章节分隔母版：留白 + 序号强调 */
+  .master-section { background: var(--color-surface); display: flex; flex-direction: column; justify-content: center; }
+  .master-section .index { font-size: var(--fs-h1); color: var(--color-primary); font-weight: 700; }
+
+  /* 单栏内容母版 */
+  .master-content-single .chart-placeholder {
+    height: 240px;
+    border-radius: var(--radius-md);
+    background: repeating-linear-gradient(90deg, var(--color-primary) 0 8%, var(--color-accent) 8% 16%, transparent 16% 20%);
+    opacity: 0.85;
+  }
+
+  /* 双栏内容母版 */
+  .master-content-dual .columns { display: grid; grid-template-columns: 1fr 1fr; gap: calc(var(--unit) * 4); }
+  .master-content-dual .col { background: var(--color-white); border: 1px solid var(--color-line); border-radius: var(--radius-md); padding: calc(var(--unit) * 3); }
+
+  /* 总结母版 */
+  .master-summary { background: var(--color-ink); color: var(--color-white); }
+  .master-summary h2, .master-summary li { color: var(--color-white); }
+</style>
+</head>
+<body>
+<div class="reveal">
+  <div class="slides">
+
+    <section class="master-cover">
+      <h1>睿程ERP全景图 · 项目周报</h1>
+      <p class="subtitle">2026 年第 29 周 · WebPPT 统一风格 v1.0.0</p>
+    </section>
+
+    <section class="master-section">
+      <div class="index">01</div>
+      <h2>本周关键进展</h2>
+    </section>
+
+    <section class="master-content-single">
+      <h2>华东区销售同比增长 23%</h2>
+      <div class="chart-placeholder" aria-hidden="true"></div>
+      <p class="caption">数据来源：睿程ERP全景图 · 截至 2026 年 7 月 19 日</p>
+    </section>
+
+    <section class="master-content-dual">
+      <h2>风险与应对</h2>
+      <div class="columns">
+        <div class="col">
+          <h3>风险</h3>
+          <p>供应链交期波动，华南仓库存周转率下降。</p>
+        </div>
+        <div class="col">
+          <h3>应对</h3>
+          <p>启动安全库存预警，联动采购提前锁定二级供应商产能。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="master-summary">
+      <h2>总结与下一步</h2>
+      <ul>
+        <li>本周核心指标全线达标，华东区表现突出</li>
+        <li>下周重点跟踪华南仓库存周转恢复情况</li>
+        <li>月度复盘会议定于下周三召开</li>
+      </ul>
+    </section>
+
+  </div>
+</div>
+<script>
+  Reveal.initialize({ hash: true, width: 1280, height: 720 });
+</script>
+</body>
+</html>
