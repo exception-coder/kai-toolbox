@@ -39,7 +39,7 @@ import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
-import { fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getSessionCommitDiff, listSessionCommits, listSessionGitRepos, listSessions, listWorkspaces, uploadAttachment, type SessionUsage, type UploadedAttachment } from '../api'
+import { fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getSessionCommitDiff, listSessionCommits, listSessionGitRepos, listSessions, listWorkspaces, renameSession, uploadAttachment, type SessionUsage, type UploadedAttachment } from '../api'
 import type { ModelInfo } from '../types'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
 import { GitStatusPanel } from '@/components/git/GitStatusPanel'
@@ -527,6 +527,23 @@ export function ChatPage() {
   const currentTitle = currentSession
     ? (currentSession.title?.trim() || headerCwdName(currentSession.cwd))
     : undefined
+
+  // 顶栏标题双击直接改名：本地态显示编辑框，提交后写回后端并让会话列表/标题一并刷新。
+  const [editingTitle, setEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState('')
+  const startEditTitle = () => {
+    if (!currentSession) return
+    setTitleDraft(currentTitle ?? '')
+    setEditingTitle(true)
+  }
+  const commitEditTitle = async () => {
+    const t = titleDraft.trim()
+    setEditingTitle(false)
+    if (t && currentSession && t !== currentTitle) {
+      await renameSession(currentSession.id, t)
+      qc.invalidateQueries({ queryKey: ['claude-chat-sessions'] })
+    }
+  }
   const currentProviderHost = providerHost(chat?.currentProviderBaseUrl ?? null)
   const currentEngineLabel = engineDisplayName(chat?.currentEngine ?? 'claude', chat?.currentProviderKind)
   const currentEngineTitle = chat?.currentProviderKind === 'thirdParty'
@@ -661,7 +678,27 @@ export function ChatPage() {
           <span className="font-semibold">分屏 · {multiIds.length} 个会话</span>
         ) : (
           <>
-            <span className="max-w-[40vw] truncate font-semibold" title={currentTitle || 'Vibe Coding'}>{currentTitle || 'Vibe Coding'}</span>
+            {editingTitle ? (
+              <input
+                autoFocus
+                value={titleDraft}
+                onChange={e => setTitleDraft(e.target.value)}
+                onBlur={() => void commitEditTitle()}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') { e.preventDefault(); void commitEditTitle() }
+                  else if (e.key === 'Escape') setEditingTitle(false)
+                }}
+                className="max-w-[40vw] min-w-0 rounded border border-[var(--color-primary)] bg-[var(--color-background)] px-1.5 py-0.5 font-semibold outline-none"
+              />
+            ) : (
+              <span
+                className="max-w-[40vw] truncate font-semibold"
+                title={`${currentTitle || 'Vibe Coding'}${currentSession ? '\n双击重命名' : ''}`}
+                onDoubleClick={startEditTitle}
+              >
+                {currentTitle || 'Vibe Coding'}
+              </span>
+            )}
             <div className="relative shrink-0">
               <button
                 type="button"

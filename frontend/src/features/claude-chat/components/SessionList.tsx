@@ -250,7 +250,8 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
               inGroup ? 'pl-8' : 'pl-5',
             )}
             onClick={() => onSwitch(s.id)}
-            title={`${s.title || shortCwd(s.cwd)}\n${s.cwd}`}
+            onDoubleClick={e => { e.stopPropagation(); startEdit(s.id, s.title || shortCwd(s.cwd)) }}
+            title={`${s.title || shortCwd(s.cwd)}\n${s.cwd}\n（双击重命名）`}
           >
             {/* Line 1：只放 icon + 标题，Badge 移走 → 标题拿到最大宽度 */}
             <div className="flex items-center gap-1.5">
