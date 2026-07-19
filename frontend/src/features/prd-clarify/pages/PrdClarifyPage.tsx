@@ -739,21 +739,44 @@ const DEV_DOC_PROMPT_PRESETS = [
   '重点设计好数据库表结构和字段类型',
 ] as const
 
+/** 三种触发场景的文案 + 说明。update 模式基于当前开发文档增量更新，会先备份旧版本再覆盖。 */
+const GEN_DEV_DOC_MODE_CONFIG = {
+  generate: {
+    title: '生成开发文档',
+    confirmLabel: '生成开发文档',
+    hint: '补充说明（可选）—— 告诉 Claude 生成时要额外注意什么',
+    placeholder: '如：重点关注性能、参考某个现有模块的代码风格、给出更细的实现步骤…',
+  },
+  regenerate: {
+    title: '重新生成开发文档',
+    confirmLabel: '重新生成',
+    hint: '补充说明（可选）—— 本次会基于最新 PRD 从零重新生成，覆盖现有版本',
+    placeholder: '如：重点关注性能、参考某个现有模块的代码风格、给出更细的实现步骤…',
+  },
+  update: {
+    title: '基于当前开发文档更新',
+    confirmLabel: '检出新版本',
+    hint: '本次更新说明 —— 保留现有内容结构，只合并你描述的改动点，并标注 ✅已完成/🔄需调整/🆕新增',
+    placeholder: '如：新增了 XX 字段、调整了 XX 接口的入参、补充了 XX 场景的处理逻辑…',
+  },
+} as const
+
 /**
- * 「生成开发文档」确认弹框：点击开发文档 Tab / 生成按钮时不再直接触发生成，
- * 先弹这个框，让用户补充自定义提示词（如"重点关注性能""参考某个现有模块的风格"），
- * 拼进后端 buildDevDocPrompt 的 user prompt。isRegenerate 只影响标题/按钮文案。
+ * 「生成开发文档」确认弹框：点击开发文档 Tab / 生成按钮 / 更新版本按钮时不再直接触发，
+ * 先弹这个框，让用户补充自定义提示词（generate/regenerate）或更新说明（update），
+ * 拼进后端 buildDevDocPrompt / buildDevDocUpdatePrompt 的 user prompt。
  */
 function GenerateDevDocDialog({
-  isRegenerate,
+  mode,
   onConfirm,
   onClose,
 }: {
-  isRegenerate: boolean
+  mode: 'generate' | 'regenerate' | 'update'
   onConfirm: (extraInstructions: string) => void
   onClose: () => void
 }) {
   const [text, setText] = useState('')
+  const cfg = GEN_DEV_DOC_MODE_CONFIG[mode]
 
   const appendPreset = (preset: string) => {
     setText((t) => (t.trim() ? `${t.trim()}\n${preset}` : preset))
@@ -763,41 +786,48 @@ function GenerateDevDocDialog({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
       <div className="w-full max-w-lg rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
-          <h3 className="font-semibold text-sm">{isRegenerate ? '重新生成开发文档' : '生成开发文档'}</h3>
+          <h3 className="font-semibold text-sm">{cfg.title}</h3>
           <button onClick={onClose} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
             <X className="w-4 h-4" />
           </button>
         </div>
 
         <div className="p-5 space-y-3">
+          {mode === 'update' && (
+            <p className="text-[11px] text-purple-400 bg-purple-500/10 border border-purple-500/20 rounded-md px-2.5 py-1.5">
+              会先把当前开发文档备份为历史版本（{'{id}'}-dev-v{'{n}'}.md），再生成更新后的新版本，不会丢失现有内容。
+            </p>
+          )}
           <div>
             <label className="block text-xs font-medium text-[var(--color-muted-foreground)] mb-2">
-              补充说明（可选）—— 告诉 Claude 生成时要额外注意什么
+              {cfg.hint}
             </label>
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
               rows={4}
-              placeholder="如：重点关注性能、参考某个现有模块的代码风格、给出更细的实现步骤…"
+              placeholder={cfg.placeholder}
               className="w-full px-3 py-2 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] text-sm resize-y focus:outline-none focus:ring-1 focus:ring-[var(--color-ring)]"
             />
           </div>
 
-          <div>
-            <div className="text-[11px] text-[var(--color-muted-foreground)] mb-1.5">常用预设（点击追加）</div>
-            <div className="flex flex-wrap gap-1.5">
-              {DEV_DOC_PROMPT_PRESETS.map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => appendPreset(p)}
-                  className="px-2 py-1 rounded-full text-[11px] border border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:border-[var(--color-ring)] hover:text-[var(--color-foreground)] transition-colors"
-                >
-                  {p}
-                </button>
-              ))}
+          {mode !== 'update' && (
+            <div>
+              <div className="text-[11px] text-[var(--color-muted-foreground)] mb-1.5">常用预设（点击追加）</div>
+              <div className="flex flex-wrap gap-1.5">
+                {DEV_DOC_PROMPT_PRESETS.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => appendPreset(p)}
+                    className="px-2 py-1 rounded-full text-[11px] border border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:border-[var(--color-ring)] hover:text-[var(--color-foreground)] transition-colors"
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="flex justify-end gap-2 pt-1">
             <button
@@ -810,7 +840,7 @@ function GenerateDevDocDialog({
               onClick={() => onConfirm(text.trim())}
               className="px-4 py-1.5 rounded-md text-sm bg-purple-600 text-white hover:opacity-90"
             >
-              {isRegenerate ? '重新生成' : '生成开发文档'}
+              {cfg.confirmLabel}
             </button>
           </div>
         </div>
@@ -1688,10 +1718,10 @@ function EditingPanel({
   const [devDocSaving, setDevDocSaving] = useState(false)
   const devDocAbortRef = useRef<(() => void) | null>(null)
   const devDocAccRef = useRef('')
-  /** 「生成开发文档」确认弹框是否打开：点 Tab/生成按钮不再直接触发生成，先弹这个框。 */
-  const [showGenDevDocDialog, setShowGenDevDocDialog] = useState(false)
+  /** 「生成开发文档」确认弹框：非 null 时打开，值决定弹框文案/是否走"基于当前更新"模式。 */
+  const [genDevDocMode, setGenDevDocMode] = useState<'generate' | 'regenerate' | 'update' | null>(null)
 
-  const handleGenerateDevDoc = (extraInstructions?: string) => {
+  const handleGenerateDevDoc = (extraInstructions?: string, updateExisting?: boolean) => {
     setPanelMode('dev')   // 生成时切到开发文档全屏视图
     setDevDocContent('')
     setDevDocStreaming(true)
@@ -1699,7 +1729,7 @@ function EditingPanel({
     devDocAccRef.current = ''
     devDocAbortRef.current?.()
 
-    const abort = startGenerateDevDoc(sessionId, extraInstructions, {
+    const abort = startGenerateDevDoc(sessionId, extraInstructions, updateExisting, {
       onEvent(name, data) {
         if (name === 'chunk') {
           const chunk = (data as { content: string }).content ?? ''
@@ -1728,13 +1758,14 @@ function EditingPanel({
     }
   }
 
-  // 监听「↺ 更新」触发的重新生成事件（来自历史侧边栏）——同样先弹确认框，不直接生成
+  // 监听「↺ 更新」触发的重新生成事件（来自历史侧边栏，PRD 有更新导致开发文档过期）——
+  // 语义是"基于最新 PRD 重新生成"，同样先弹确认框，不直接生成
   useEffect(() => {
     const handler = (e: Event) => {
       const { sessionId: sid } = (e as CustomEvent).detail as { sessionId: string }
       if (sid === sessionId) {
         setPanelMode('dev')
-        setShowGenDevDocDialog(true)
+        setGenDevDocMode('regenerate')
       }
     }
     window.addEventListener('prd-clarify:regen-dev-doc', handler)
@@ -1789,14 +1820,15 @@ function EditingPanel({
         />
       )}
 
-      {/* 生成/重新生成开发文档确认弹框：不再点了就直接生成，先让用户看一眼要不要补充提示词 */}
-      {showGenDevDocDialog && (
+      {/* 生成/重新生成/更新开发文档确认弹框：不再点了就直接生成，先让用户看一眼要不要补充提示词 */}
+      {genDevDocMode && (
         <GenerateDevDocDialog
-          isRegenerate={!!devDocContent}
-          onClose={() => setShowGenDevDocDialog(false)}
+          mode={genDevDocMode}
+          onClose={() => setGenDevDocMode(null)}
           onConfirm={(extraInstructions) => {
-            setShowGenDevDocDialog(false)
-            handleGenerateDevDoc(extraInstructions)
+            const mode = genDevDocMode
+            setGenDevDocMode(null)
+            handleGenerateDevDoc(extraInstructions, mode === 'update')
           }}
         />
       )}
@@ -1823,7 +1855,7 @@ function EditingPanel({
                 // 弹框而非直接生成：让用户先看一眼要不要补充自定义提示词再确认。
                 if ((key === 'dev' || key === 'side') && !hasDevDoc && !devDocContent
                     && !devDocStreaming && !devDocLoading) {
-                  setShowGenDevDocDialog(true)
+                  setGenDevDocMode('generate')
                 }
               }}
               className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-colors ${
@@ -1856,13 +1888,20 @@ function EditingPanel({
               {m === 'split' ? '分栏' : m === 'edit' ? '编辑' : '预览'}
             </button>
           ))}
-          {/* 重新生成按钮（开发文档 Tab 有内容时显示） */}
+          {/* 重新生成（从最新 PRD 从零覆盖）+ 更新版本（基于当前开发文档增量更新，自动备份旧版本） */}
           {panelMode === 'dev' && devDocContent && !devDocStreaming && (
-            <button onClick={() => setShowGenDevDocDialog(true)}
-              className="ml-1 flex items-center gap-1 px-2 py-0.5 rounded text-[var(--color-muted-foreground)] hover:text-purple-400 hover:bg-purple-500/10 transition-colors"
-              title="基于当前 PRD 重新生成开发文档（覆盖现有版本）">
-              <RefreshCw className="w-3 h-3" /> 重新生成
-            </button>
+            <>
+              <button onClick={() => setGenDevDocMode('regenerate')}
+                className="ml-1 flex items-center gap-1 px-2 py-0.5 rounded text-[var(--color-muted-foreground)] hover:text-purple-400 hover:bg-purple-500/10 transition-colors"
+                title="基于最新 PRD 从零重新生成开发文档（覆盖现有版本）">
+                <RefreshCw className="w-3 h-3" /> 重新生成
+              </button>
+              <button onClick={() => setGenDevDocMode('update')}
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-[var(--color-muted-foreground)] hover:text-purple-400 hover:bg-purple-500/10 transition-colors"
+                title="基于当前开发文档增量更新，保留原有内容并标注改动状态，自动备份旧版本">
+                <GitBranch className="w-3 h-3" /> 更新版本
+              </button>
+            </>
           )}
         </div>
 
@@ -1977,7 +2016,7 @@ function EditingPanel({
                   <p className="font-medium mb-1">还没有开发文档</p>
                   <p className="text-sm opacity-70">Claude 会先查知识图谱，再生成精准的技术方案</p>
                 </div>
-                <button onClick={() => setShowGenDevDocDialog(true)}
+                <button onClick={() => setGenDevDocMode('generate')}
                   className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-purple-600/15 border border-purple-500/20 text-purple-400 hover:bg-purple-600/25 text-sm font-medium">
                   <Wrench className="w-4 h-4" /> 生成开发文档
                 </button>
@@ -2013,7 +2052,7 @@ function EditingPanel({
                   </div>
                 ) : (
                   <div className="flex items-center justify-center h-full text-sm text-[var(--color-muted-foreground)]">
-                    <button onClick={() => setShowGenDevDocDialog(true)} className="text-purple-400 hover:underline">
+                    <button onClick={() => setGenDevDocMode('generate')} className="text-purple-400 hover:underline">
                       生成开发文档
                     </button>
                   </div>

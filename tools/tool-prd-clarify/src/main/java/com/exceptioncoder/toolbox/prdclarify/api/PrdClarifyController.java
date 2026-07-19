@@ -241,17 +241,20 @@ public class PrdClarifyController {
     record ReqItemLinkResult(boolean ok) {}
 
     /**
-     * SSE 流式：基于 PRD 生成技术开发方案文档（四章节：技术方案/DB变更/API设计/实现步骤）。
-     * 事件：chunk / done / error（与 PRD 生成接口一致）。
+     * SSE 流式：生成/更新技术开发方案文档。事件：chunk / done / error（与 PRD 生成接口一致）。
      *
-     * <p>请求体可选携带 extraInstructions——前端「生成开发文档」弹框里用户补充的自定义提示词，
-     * 不生成/重新生成前不再直接触发，先让用户确认要不要额外交代点什么再点确认。</p>
+     * <p>请求体可选携带：extraInstructions——前端「生成开发文档」弹框里用户补充的自定义提示词/
+     * 更新说明；updateExisting=true 时基于当前已有开发文档做增量更新（覆盖前自动备份旧版本为
+     * {id}-dev-v{n}.md），而不是从 PRD 从零生成。不再点了就直接触发，先弹框确认。</p>
      */
     @PostMapping(value = "/sessions/{id}/dev-doc", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter generateDevDoc(@PathVariable String id,
                                       @RequestBody(required = false) GenerateDevDocRequest req) {
         SseEmitter emitter = new SseEmitter(0L);
-        service.generateDevDoc(id, req == null ? null : req.extraInstructions(), emitter);
+        service.generateDevDoc(id,
+                req == null ? null : req.extraInstructions(),
+                req == null ? null : req.updateExisting(),
+                emitter);
         return emitter;
     }
 

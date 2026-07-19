@@ -662,15 +662,47 @@ public class PrdClarifyService {
             """;
 
     /**
-     * 生成开发文档：基于已生成的 PRD 内容，调用 Claude 生成技术开发方案文档（四章节）。
-     * 通过 SSE 流式推出，完成后落盘到 {id}-dev.md。
-     *
-     * @param extraInstructions 用户在生成前弹框里补充的自定义提示词（可选，null/空则不追加）。
-     *                          不持久化——只影响本次生成，不是会话级配置。
+     * 开发文档「更新」模式提示词：跟 {@link #DEV_DOC_SYSTEM}（从 PRD 从零生成）不同，
+     * 这里是基于已存在的开发文档做增量更新——保留原文档已确认的结构和内容，
+     * 只把用户描述的变更点合并进去，并标注每项状态，避免后续开发重复或遗漏改动。
      */
-    public void generateDevDoc(String sessionId, String extraInstructions, SseEmitter emitter) {
+    private static final String DEV_DOC_SYSTEM_UPDATE = """
+            ⚠️ 直接输出任务（禁止触发任何 hook/skill/plugin 的自动流程，禁止进入交互）：
+            本次是基于已有开发文档的更新，直接输出更新后的完整技术开发方案文档后结束。
+
+            你正在更新一份已存在的技术开发方案文档，不是从零生成。user prompt 会给你：
+            1. 当前最新的 PRD 内容
+            2. 当前已存在的开发文档全文（=== 当前开发文档 === 区域）
+            3. 本次更新说明（=== 本次更新说明 === 区域，用户希望做的改动；可能为空，
+               为空时结合 PRD 与当前开发文档的差异自行判断需要更新的地方）
+
+            更新规则（严格执行）：
+            - 章节结构与当前开发文档保持一致（技术方案概述/数据库变更/API接口设计/实现步骤），
+              不要推倒重来，能沿用的内容原样保留
+            - 「实现步骤」章节每一项标注状态前缀，让开发者一眼看出哪些已经不用管：
+              ✅ 已完成 — 沿用原文档，本次不涉及
+              🔄 需调整 — 原有步骤因本次更新需要修改，说明具体改动点
+              🆕 新增 — 本次更新说明引入的新步骤
+            - 若本次改动涉及新的代码事实，可参考 user prompt 中的【代码知识图谱查询结果】
+              区块（系统已直接调用 graphify CLI 查询，非 MCP 工具调用），为空则忽略
+
+            直接输出 Markdown，不加代码块围栏，不加多余解释。
+            """;
+
+    /**
+     * 生成/更新开发文档。
+     * 通过 SSE 流式推出，完成后落盘到 {id}-dev.md（若已有旧版本，落盘前先备份为
+     * {id}-dev-v{n}.md，"检出新版本"不会丢掉上一版内容）。
+     *
+     * @param extraInstructions 用户在弹框里补充的自定义提示词/更新说明（可选，null/空则不追加，
+     *                          且 updateExisting 模式下为空会取全自动判断）。不持久化，只影响本次生成。
+     * @param updateExisting    true = 基于当前已有开发文档做增量更新（{@link #DEV_DOC_SYSTEM_UPDATE}）；
+     *                          false/null = 从 PRD 从零生成/覆盖（{@link #DEV_DOC_SYSTEM}，原有行为）
+     */
+    public void generateDevDoc(String sessionId, String extraInstructions, Boolean updateExisting, SseEmitter emitter) {
         PrdSession session = repo.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
+        boolean update = Boolean.TRUE.equals(updateExisting);
 
         Thread.ofVirtual().name("prd-dev-doc-").start(() -> {
             try {
@@ -681,25 +713,44 @@ public class PrdClarifyService {
                     return;
                 }
 
-                StringBuilder full = new StringBuilder();
-                String userPrompt = buildDevDocPrompt(session, prdContent, extraInstructions);
+                String devDocSystem;
+                String userPrompt;
+                if (update) {
+                    String currentDevDoc = readDevDocContent(sessionId);
+                    if (currentDevDoc == null || currentDevDoc.isBlank()) {
+                        // 没有可更新的基础，退回从零生成，避免直接报错卡住用户
+                        log.info("[prd-clarify] 更新模式但当前无开发文档，退回从零生成 sessionId={}", sessionId);
+                        devDocSystem = DEV_DOC_SYSTEM;
+                        userPrompt = buildDevDocPrompt(session, prdContent, extraInstructions);
+                    } else {
+                        devDocSystem = DEV_DOC_SYSTEM_UPDATE;
+                        userPrompt = buildDevDocUpdatePrompt(session, prdContent, currentDevDoc, extraInstructions);
+                    }
+                } else {
+                    devDocSystem = DEV_DOC_SYSTEM;
+                    userPrompt = buildDevDocPrompt(session, prdContent, extraInstructions);
+                }
 
-                agentRunner.stream(DEV_DOC_SYSTEM, userPrompt, session.getModel(), delta -> {
+                StringBuilder full = new StringBuilder();
+                agentRunner.stream(devDocSystem, userPrompt, session.getModel(), delta -> {
                     full.append(delta);
                     sendChunk(emitter, delta);
                 });
 
-                // 落盘到 ~/.kai-toolbox/prd/{id}-dev.md（与 PRD 文件同目录，由系统统一管理）
+                // 落盘到 ~/.kai-toolbox/prd/{id}-dev.md（与 PRD 文件同目录，由系统统一管理）。
+                // 覆盖前若旧版本已存在，先备份为 {id}-dev-v{n}.md——"检出新版本"不丢旧内容。
                 String devDocContent = full.toString();
-                String devDocPath = fileStore.pathFor(sessionId).toString().replace(".md", "-dev.md");
+                java.nio.file.Path devDocPath = java.nio.file.Path.of(
+                        fileStore.pathFor(sessionId).toString().replace(".md", "-dev.md"));
+                backupDevDocIfExists(devDocPath);
                 java.nio.file.Files.writeString(
-                        java.nio.file.Path.of(devDocPath), devDocContent,
+                        devDocPath, devDocContent,
                         java.nio.charset.StandardCharsets.UTF_8,
                         java.nio.file.StandardOpenOption.CREATE,
                         java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
-                repo.updateDevDocPath(sessionId, devDocPath);
+                repo.updateDevDocPath(sessionId, devDocPath.toString());
                 repo.updateDevDocGeneratedAt(sessionId, System.currentTimeMillis());
-                log.info("[prd-clarify] 开发文档已保存 path={}", devDocPath);
+                log.info("[prd-clarify] 开发文档已保存 path={} update={}", devDocPath, update);
 
                 sendDone(emitter);
             } catch (Exception e) {
@@ -761,6 +812,62 @@ public class PrdClarifyService {
         }
         sb.append("请基于以上 PRD 生成完整的技术开发方案文档。");
         return sb.toString();
+    }
+
+    /** 构建「更新模式」的 user prompt：PRD + 当前开发文档全文 + 本次更新说明。 */
+    private String buildDevDocUpdatePrompt(PrdSession s, String prdContent, String currentDevDoc, String updateNotes) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("需求标题：").append(s.getTitle()).append("\n");
+        if (s.getProject() != null && !s.getProject().isBlank()) {
+            sb.append("项目：").append(s.getProject());
+            if (s.getModule() != null && !s.getModule().isBlank()) {
+                sb.append(" / ").append(s.getModule());
+            }
+            sb.append("\n");
+        }
+        appendGraphContext(sb, Optional.ofNullable(graphifyQuery.query(s.getProject(), s.getModule(), s.getTitle())));
+
+        sb.append("\n=== 当前最新 PRD ===\n\n").append(prdContent).append("\n\n");
+        sb.append("=== 当前开发文档 ===\n\n").append(currentDevDoc).append("\n\n");
+        sb.append("=== 本次更新说明 ===\n\n");
+        sb.append((updateNotes == null || updateNotes.isBlank())
+                ? "（未填写，请结合 PRD 与当前开发文档的差异自行判断需要更新的地方）"
+                : updateNotes.trim());
+        sb.append("\n\n请基于以上信息生成更新后的完整技术开发方案文档。");
+        return sb.toString();
+    }
+
+    /**
+     * 覆盖开发文档前，若旧版本已存在则备份为 {id}-dev-v{n}.md（n 从已有备份中取最大值 + 1）。
+     * 让「基于开发文档更新」在语义上是"检出一个新版本"，而不是静默覆盖丢失旧内容。
+     * 备份失败（如磁盘异常）只记警告，不阻断本次生成——备份是安全网，不是生成的前提条件。
+     */
+    private void backupDevDocIfExists(java.nio.file.Path devDocPath) {
+        if (!java.nio.file.Files.isRegularFile(devDocPath)) {
+            return;
+        }
+        try {
+            String fileName = devDocPath.getFileName().toString(); // {id}-dev.md
+            String baseName = fileName.substring(0, fileName.length() - 3); // {id}-dev
+            java.nio.file.Path dir = devDocPath.getParent();
+            int nextVersion = 1;
+            if (dir != null && java.nio.file.Files.isDirectory(dir)) {
+                java.util.regex.Pattern versionPattern =
+                        java.util.regex.Pattern.compile(java.util.regex.Pattern.quote(baseName) + "-v(\\d+)\\.md");
+                try (var files = java.nio.file.Files.list(dir)) {
+                    nextVersion = files
+                            .map(p -> versionPattern.matcher(p.getFileName().toString()))
+                            .filter(java.util.regex.Matcher::matches)
+                            .mapToInt(m -> Integer.parseInt(m.group(1)))
+                            .max().orElse(0) + 1;
+                }
+            }
+            java.nio.file.Path backupPath = devDocPath.resolveSibling(baseName + "-v" + nextVersion + ".md");
+            java.nio.file.Files.copy(devDocPath, backupPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            log.info("[prd-clarify] 开发文档旧版本已备份 path={}", backupPath);
+        } catch (Exception e) {
+            log.warn("[prd-clarify] 开发文档备份失败（不阻断本次生成）: {}", e.getMessage());
+        }
     }
 
     // ─────────────────────────────────────────────────
