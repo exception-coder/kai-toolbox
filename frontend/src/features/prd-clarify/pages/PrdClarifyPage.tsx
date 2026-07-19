@@ -582,7 +582,10 @@ function InputPanel({
   const [title, setTitle] = useState(initialTitle)
   const [rawInput, setRawInput] = useState(initialRawInput)
   const [project, setProject] = useState(initialProject)
+  // module 对外契约不变：逗号分隔的字符串（跟历史记录/后端 prd_session.module 单列 TEXT 兼容，
+  // 无需改 schema）。UI 层改成多选 chips，只是把选中的模块名 join(', ') 写回这个字符串。
   const [module, setModule] = useState(initialModule)
+  const [moduleDraft, setModuleDraft] = useState('')
   const [role, setRole] = useState<'PRODUCT' | 'BUSINESS'>('PRODUCT')
   /** 已上传并解析的附件列表 */
   const [attachments, setAttachments] = useState<AttachmentParseResult[]>([])
@@ -665,6 +668,22 @@ function InputPanel({
   })
 
   const modules: Array<{ name: string }> = modulesData?.modules ?? []
+
+  // 已选模块 tag 数组：从 module 字符串派生（支持中英文逗号/顿号分隔，兼容历史遗留数据）
+  const moduleTags = module.split(/[,，、]/).map((s) => s.trim()).filter(Boolean)
+
+  const addModuleTag = (name: string) => {
+    const trimmed = name.trim()
+    if (!trimmed || moduleTags.includes(trimmed)) return
+    setModule([...moduleTags, trimmed].join(', '))
+  }
+  const removeModuleTag = (name: string) => {
+    setModule(moduleTags.filter((t) => t !== name).join(', '))
+  }
+  const toggleModuleTag = (name: string) => {
+    if (moduleTags.includes(name)) removeModuleTag(name)
+    else addModuleTag(name)
+  }
 
   // 标题必填；描述 OR 至少有一个附件即可提交
   const canSubmit = title.trim() && (rawInput.trim() || attachments.length > 0)
@@ -764,21 +783,71 @@ function InputPanel({
             </datalist>
           </div>
           <div className="flex-1">
-            <label className="block text-sm font-medium mb-1">关联模块（可选）</label>
-            {/* 改用 input+datalist：预填值（来自 URL 参数）永远生效，加载到的模块作为候选提示 */}
+            <label className="block text-sm font-medium mb-1">关联模块（可选，可多选）</label>
+            {/* 已选模块 chips：点 × 移除 */}
+            {moduleTags.length > 0 && (
+              <div className="flex flex-wrap gap-1 mb-1.5">
+                {moduleTags.map((m) => (
+                  <span
+                    key={m}
+                    className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-full text-xs bg-[var(--color-primary)]/10 text-[var(--color-primary)] border border-[var(--color-primary)]/20"
+                  >
+                    {m}
+                    <button
+                      type="button"
+                      onClick={() => removeModuleTag(m)}
+                      className="rounded-full hover:bg-[var(--color-primary)]/20 p-0.5"
+                      aria-label={`移除模块 ${m}`}
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            {/* 输入框：逗号/顿号/回车提交为一个新 tag，支持一次粘贴多个 */}
             <input
               id="module-input"
-              list="module-datalist"
-              value={module}
-              onChange={(e) => setModule(e.target.value)}
-              placeholder="如：tool-reqpool（可手动输入）"
+              value={moduleDraft}
+              onChange={(e) => setModuleDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ',' || e.key === '，' || e.key === '、') {
+                  e.preventDefault()
+                  addModuleTag(moduleDraft)
+                  setModuleDraft('')
+                } else if (e.key === 'Backspace' && !moduleDraft && moduleTags.length > 0) {
+                  // 输入框为空时按退格，删除最后一个已选 tag（跟大多数标签输入交互一致）
+                  removeModuleTag(moduleTags[moduleTags.length - 1])
+                }
+              }}
+              onBlur={() => {
+                if (moduleDraft.trim()) { addModuleTag(moduleDraft); setModuleDraft('') }
+              }}
+              placeholder={moduleTags.length ? '继续输入，回车/逗号添加…' : '如：tool-reqpool（可输入多个，逗号或回车分隔）'}
               className="w-full px-3 py-2 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] text-sm focus:outline-none focus:ring-1 focus:ring-[var(--color-ring)]"
             />
-            <datalist id="module-datalist">
-              {modules.map((m) => (
-                <option key={m.name} value={m.name} />
-              ))}
-            </datalist>
+            {/* 候选模块：点击切换选中/取消，来自当前项目扫描出的模块列表 */}
+            {modules.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1.5">
+                {modules.map((m) => {
+                  const active = moduleTags.includes(m.name)
+                  return (
+                    <button
+                      key={m.name}
+                      type="button"
+                      onClick={() => toggleModuleTag(m.name)}
+                      className={`px-2 py-0.5 rounded-full text-xs border transition-colors ${
+                        active
+                          ? 'bg-[var(--color-primary)]/15 border-[var(--color-primary)]/30 text-[var(--color-primary)]'
+                          : 'border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:border-[var(--color-ring)]'
+                      }`}
+                    >
+                      {m.name}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
 

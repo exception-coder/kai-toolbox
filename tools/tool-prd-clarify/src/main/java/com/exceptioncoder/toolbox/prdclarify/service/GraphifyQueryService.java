@@ -121,9 +121,18 @@ public class GraphifyQueryService {
             return null;
         }
         if (module != null && !module.isBlank()) {
-            String needle = module.toLowerCase();
+            // module 现支持多选，以中英文逗号/顿号分隔（如 "财务管理, 报表模块"）；
+            // 任一 token 命中子目录名即可，不要求整串匹配。
+            List<String> needles = java.util.Arrays.stream(module.split("[,，、]"))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .map(String::toLowerCase)
+                    .toList();
             Optional<Path> matched = candidates.stream()
-                    .filter(p -> p.getFileName().toString().toLowerCase().contains(needle))
+                    .filter(p -> {
+                        String name = p.getFileName().toString().toLowerCase();
+                        return needles.stream().anyMatch(name::contains);
+                    })
                     .findFirst();
             if (matched.isPresent()) {
                 return matched.get();
