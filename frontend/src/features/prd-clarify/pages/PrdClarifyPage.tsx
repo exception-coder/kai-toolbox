@@ -1386,6 +1386,9 @@ function EditingPanel({
   // ── 开发文档状态 ──
   const [devDocContent, setDevDocContent] = useState('')
   const [devDocStreaming, setDevDocStreaming] = useState(false)
+  // 首次加载已有开发文档内容期间为 true：hasDevDoc=true 时初始为 true，避免内容还没
+  // 从后端读回来的一瞬间被误判成「没有开发文档」而闪一下生成按钮/触发生成。
+  const [devDocLoading, setDevDocLoading] = useState(hasDevDoc)
   const [devDocDirty, setDevDocDirty] = useState(false)
   const [devDocSaving, setDevDocSaving] = useState(false)
   const devDocAbortRef = useRef<(() => void) | null>(null)
@@ -1395,6 +1398,7 @@ function EditingPanel({
     setPanelMode('dev')   // 生成时切到开发文档全屏视图
     setDevDocContent('')
     setDevDocStreaming(true)
+    setDevDocLoading(false)
     devDocAccRef.current = ''
     devDocAbortRef.current?.()
 
@@ -1440,10 +1444,17 @@ function EditingPanel({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId])
 
-  // 进入 dev 或 side 模式时自动加载开发文档内容（只加载一次）
+  // 进入 dev 或 side 模式时自动加载开发文档内容（只加载一次）。
+  // devDocLoading 期间点击 Tab 的判空逻辑必须等这次加载落地后再决定是否需要触发生成，
+  // 否则 hasDevDoc=true 但内容还没读回来的一瞬间会被误判成「没有开发文档」。
   useEffect(() => {
     if ((panelMode === 'prd') || devDocContent) return
-    getDevDocContent(sessionId).then(c => { if (c) setDevDocContent(c) }).catch(() => {})
+    if (!hasDevDoc) { setDevDocLoading(false); return }
+    setDevDocLoading(true)
+    getDevDocContent(sessionId)
+      .then(c => { if (c) setDevDocContent(c) })
+      .catch(() => {})
+      .finally(() => setDevDocLoading(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panelMode])
 
@@ -1496,8 +1507,11 @@ function EditingPanel({
               key={key}
               onClick={() => {
                 setPanelMode(key)
-                if ((key === 'dev' || key === 'side') && !devDocContent && !devDocStreaming) {
-                  // 切到开发文档时，若无内容则触发生成
+                // 切到开发文档时，只有确认后端确实没有开发文档（hasDevDoc=false）才触发生成；
+                // hasDevDoc=true 但本地 devDocContent 还没读回来的一瞬间（devDocLoading）不能
+                // 当作「没有开发文档」，否则会把已生成好的文档误判成需要重新生成，显示生成动画。
+                if ((key === 'dev' || key === 'side') && !hasDevDoc && !devDocContent
+                    && !devDocStreaming && !devDocLoading) {
                   handleGenerateDevDoc()
                 }
               }}
@@ -1638,6 +1652,12 @@ function EditingPanel({
                   </div>
                 )}
               </div>
+            ) : devDocLoading ? (
+              /* 已知有开发文档，正在从后端读取内容（区别于「还没有开发文档」，避免误闪生成按钮） */
+              <div className="flex flex-col items-center justify-center h-full gap-3 text-[var(--color-muted-foreground)]">
+                <Loader2 className="w-6 h-6 animate-spin opacity-40" />
+                <p className="text-sm opacity-70">正在加载开发文档…</p>
+              </div>
             ) : (
               /* 无内容：引导生成 */
               <div className="flex flex-col items-center justify-center h-full gap-4 text-[var(--color-muted-foreground)]">
@@ -1676,6 +1696,10 @@ function EditingPanel({
                   <MarkdownViewer content={devDocContent} />
                 ) : devDocStreaming ? (
                   <MarkdownViewer content="正在生成…" />
+                ) : devDocLoading ? (
+                  <div className="flex items-center justify-center h-full text-sm text-[var(--color-muted-foreground)]">
+                    <Loader2 className="w-4 h-4 animate-spin mr-1.5" />正在加载…
+                  </div>
                 ) : (
                   <div className="flex items-center justify-center h-full text-sm text-[var(--color-muted-foreground)]">
                     <button onClick={handleGenerateDevDoc} className="text-purple-400 hover:underline">
