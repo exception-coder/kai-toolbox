@@ -222,3 +222,41 @@ java -jar toolbox-starter/target/toolbox-starter-*.jar
 - 工具间数据互通 → 各工具独立 schema，互不感知
 
 需要时再加，不预埋抽象。
+
+## 9. WebPPT 风格中心工具设计（tool-webppt）
+
+作为「工具即插件」约定的又一实例：`tools/tool-webppt` 提供一套**统一、可版本追溯的 WebPPT（网页版演示文稿）风格规范**，
+本身不做内容生成，只做「规范资产的读取与版本管理」。
+
+### 9.1 分层
+
+- **Layer 0 — 内容组织原则**：如何把素材拆成标题层/论点层/证据层/行动层，固化在 `resources/style/prompt/vX.Y.Z.md` 中，与具体渲染载体无关。
+- **Layer 1 — Design Token**：配色/字体/间距/圆角/母版类型等视觉变量，固化在 `resources/style/design-token/vX.Y.Z.json`，是唯一真源。
+- **Layer 2 — 渲染适配层**：把 Token + 内容落地为某种可交付载体。当前只有 reveal.js 一种实现（`resources/style/samples/<sampleId>/index.html`，
+  可直接双击在浏览器打开验证）。未来新增 PPTX 等适配器时，只需新增 `tools/tool-webppt` 下的新适配目录 + Controller 方法，
+  Design Token 与 Prompt 文档零改动——这是验证"修改 Token 色值后无需改动提示词结构描述"的关键设计。
+
+### 9.2 风格资产即文件，不建业务表
+
+不引入 SQLite 表；版本追溯通过文件名版本号（`vX.Y.Z`）+ `resources/style/CHANGELOG.md` 实现。
+`WebPptStyleService` 启动后按需扫描 classpath 下的 `style/design-token/*.json` 得到可用版本列表，
+`latest` 取语义化版本号最大者；`CHANGELOG.md` 中 `## vX.Y.Z - YYYY-MM-DD` 起始的段落解析为版本的发布时间与摘要。
+
+### 9.3 只读 API（挂载于 `/api/webppt`，遵循「每个工具 `/api/<tool-id>`」的既有路由约定）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/webppt/style/token?version=latest` | 获取指定/最新版本 Design Token（JSON） |
+| GET | `/api/webppt/style/prompt?version=latest` | 获取风格提示词原文（`text/markdown`） |
+| GET | `/api/webppt/style/versions` | 版本列表（含发布时间、摘要、是否为当前生效版本） |
+| GET | `/api/webppt/samples` | reveal.js 落地样例清单 |
+| GET | `/api/webppt/samples/{sampleId}/content` | 样例完整 HTML（`text/html`，供前端 iframe 沙箱内嵌预览） |
+
+版本/样例缺失返回结构化 `404`（`errorCode: VERSION_NOT_FOUND` / `SAMPLE_NOT_FOUND`），资产文件损坏返回结构化 `500`
+（`errorCode: STYLE_ASSET_MALFORMED`），均由模块内 `WebPptExceptionHandler` 统一包装，不抛 Spring 默认 500 页面。
+
+### 9.4 前端
+
+`frontend/src/features/webppt/`：Design Token 可视化预览（配色色板 + 字号阶梯）、提示词一键复制、版本切换（`Segmented`）、
+reveal.js 样例 iframe 沙箱预览。均走既有 `Card`/`Button`/`Segmented` 组件与 `lib/api.ts` 的 `http`/`authFetch`，
+无二次确认交互，未引入原生 `alert/confirm/prompt`。
