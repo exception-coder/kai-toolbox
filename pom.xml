@@ -53,6 +53,7 @@
         <module>tools/tool-prd-clarify</module>
         <module>tools/tool-reqpool</module>
         <module>tools/tool-knowledge-graph</module>
+        <module>tools/tool-webppt</module>
         <module>toolbox-starter</module>
     </modules>
 
@@ -268,6 +269,11 @@
             <dependency>
                 <groupId>com.exceptioncoder</groupId>
                 <artifactId>tool-knowledge-graph</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-webppt</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
