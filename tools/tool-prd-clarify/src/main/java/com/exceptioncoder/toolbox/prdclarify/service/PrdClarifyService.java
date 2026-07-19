@@ -664,8 +664,11 @@ public class PrdClarifyService {
     /**
      * 生成开发文档：基于已生成的 PRD 内容，调用 Claude 生成技术开发方案文档（四章节）。
      * 通过 SSE 流式推出，完成后落盘到 {id}-dev.md。
+     *
+     * @param extraInstructions 用户在生成前弹框里补充的自定义提示词（可选，null/空则不追加）。
+     *                          不持久化——只影响本次生成，不是会话级配置。
      */
-    public void generateDevDoc(String sessionId, SseEmitter emitter) {
+    public void generateDevDoc(String sessionId, String extraInstructions, SseEmitter emitter) {
         PrdSession session = repo.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
 
@@ -679,7 +682,7 @@ public class PrdClarifyService {
                 }
 
                 StringBuilder full = new StringBuilder();
-                String userPrompt = buildDevDocPrompt(session, prdContent);
+                String userPrompt = buildDevDocPrompt(session, prdContent, extraInstructions);
 
                 agentRunner.stream(DEV_DOC_SYSTEM, userPrompt, session.getModel(), delta -> {
                     full.append(delta);
@@ -737,7 +740,7 @@ public class PrdClarifyService {
         repo.updateDevDocGeneratedAt(sessionId, System.currentTimeMillis());
     }
 
-    private String buildDevDocPrompt(PrdSession s, String prdContent) {
+    private String buildDevDocPrompt(PrdSession s, String prdContent, String extraInstructions) {
         StringBuilder sb = new StringBuilder();
         sb.append("需求标题：").append(s.getTitle()).append("\n");
         if (s.getProject() != null && !s.getProject().isBlank()) {
@@ -751,6 +754,11 @@ public class PrdClarifyService {
 
         sb.append("\n以下是已确认的产品需求文档（PRD）：\n\n");
         sb.append(prdContent).append("\n\n");
+        if (extraInstructions != null && !extraInstructions.isBlank()) {
+            // 放在最后、紧邻生成指令之前，保证是 Claude 读到的最新鲜上下文，优先级最高
+            sb.append("【用户补充说明——生成时请重点参考/遵循】\n");
+            sb.append(extraInstructions.trim()).append("\n\n");
+        }
         sb.append("请基于以上 PRD 生成完整的技术开发方案文档。");
         return sb.toString();
     }

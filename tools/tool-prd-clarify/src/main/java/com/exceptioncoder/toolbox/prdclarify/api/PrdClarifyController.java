@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.prdclarify.api;
 
 import com.exceptioncoder.toolbox.prdclarify.api.dto.AskNextQuestionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.CreateSessionRequest;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.GenerateDevDocRequest;
 import com.exceptioncoder.toolbox.prdclarify.service.AttachmentParseService;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.PrdSessionView;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.SaveContentRequest;
@@ -242,11 +243,15 @@ public class PrdClarifyController {
     /**
      * SSE 流式：基于 PRD 生成技术开发方案文档（四章节：技术方案/DB变更/API设计/实现步骤）。
      * 事件：chunk / done / error（与 PRD 生成接口一致）。
+     *
+     * <p>请求体可选携带 extraInstructions——前端「生成开发文档」弹框里用户补充的自定义提示词，
+     * 不生成/重新生成前不再直接触发，先让用户确认要不要额外交代点什么再点确认。</p>
      */
     @PostMapping(value = "/sessions/{id}/dev-doc", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter generateDevDoc(@PathVariable String id) {
+    public SseEmitter generateDevDoc(@PathVariable String id,
+                                      @RequestBody(required = false) GenerateDevDocRequest req) {
         SseEmitter emitter = new SseEmitter(0L);
-        service.generateDevDoc(id, emitter);
+        service.generateDevDoc(id, req == null ? null : req.extraInstructions(), emitter);
         return emitter;
     }
 

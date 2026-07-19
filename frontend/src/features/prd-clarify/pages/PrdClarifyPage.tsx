@@ -730,6 +730,95 @@ function StartClarifyDialog({
   )
 }
 
+/** 常用预设提示词：点击直接追加到文本框（换行分隔），用户也可以完全自由输入。 */
+const DEV_DOC_PROMPT_PRESETS = [
+  '重点关注可维护性和代码复用，优先复用现有工具类/组件',
+  '性能优先，标注关键索引/缓存点',
+  '给出详细到方法级别的实现步骤',
+  '参考现有代码风格保持一致，不引入新的第三方库',
+  '重点设计好数据库表结构和字段类型',
+] as const
+
+/**
+ * 「生成开发文档」确认弹框：点击开发文档 Tab / 生成按钮时不再直接触发生成，
+ * 先弹这个框，让用户补充自定义提示词（如"重点关注性能""参考某个现有模块的风格"），
+ * 拼进后端 buildDevDocPrompt 的 user prompt。isRegenerate 只影响标题/按钮文案。
+ */
+function GenerateDevDocDialog({
+  isRegenerate,
+  onConfirm,
+  onClose,
+}: {
+  isRegenerate: boolean
+  onConfirm: (extraInstructions: string) => void
+  onClose: () => void
+}) {
+  const [text, setText] = useState('')
+
+  const appendPreset = (preset: string) => {
+    setText((t) => (t.trim() ? `${t.trim()}\n${preset}` : preset))
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
+          <h3 className="font-semibold text-sm">{isRegenerate ? '重新生成开发文档' : '生成开发文档'}</h3>
+          <button onClick={onClose} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-[var(--color-muted-foreground)] mb-2">
+              补充说明（可选）—— 告诉 Claude 生成时要额外注意什么
+            </label>
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={4}
+              placeholder="如：重点关注性能、参考某个现有模块的代码风格、给出更细的实现步骤…"
+              className="w-full px-3 py-2 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] text-sm resize-y focus:outline-none focus:ring-1 focus:ring-[var(--color-ring)]"
+            />
+          </div>
+
+          <div>
+            <div className="text-[11px] text-[var(--color-muted-foreground)] mb-1.5">常用预设（点击追加）</div>
+            <div className="flex flex-wrap gap-1.5">
+              {DEV_DOC_PROMPT_PRESETS.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => appendPreset(p)}
+                  className="px-2 py-1 rounded-full text-[11px] border border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:border-[var(--color-ring)] hover:text-[var(--color-foreground)] transition-colors"
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              onClick={onClose}
+              className="px-3 py-1.5 rounded-md text-sm border border-[var(--color-border)] hover:bg-[var(--color-muted)]/30"
+            >
+              取消
+            </button>
+            <button
+              onClick={() => onConfirm(text.trim())}
+              className="px-4 py-1.5 rounded-md text-sm bg-purple-600 text-white hover:opacity-90"
+            >
+              {isRegenerate ? '重新生成' : '生成开发文档'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ───── 角色配置 ─────
 const ROLE_CONFIG = {
   PRODUCT: {
@@ -1599,8 +1688,10 @@ function EditingPanel({
   const [devDocSaving, setDevDocSaving] = useState(false)
   const devDocAbortRef = useRef<(() => void) | null>(null)
   const devDocAccRef = useRef('')
+  /** 「生成开发文档」确认弹框是否打开：点 Tab/生成按钮不再直接触发生成，先弹这个框。 */
+  const [showGenDevDocDialog, setShowGenDevDocDialog] = useState(false)
 
-  const handleGenerateDevDoc = () => {
+  const handleGenerateDevDoc = (extraInstructions?: string) => {
     setPanelMode('dev')   // 生成时切到开发文档全屏视图
     setDevDocContent('')
     setDevDocStreaming(true)
@@ -1608,7 +1699,7 @@ function EditingPanel({
     devDocAccRef.current = ''
     devDocAbortRef.current?.()
 
-    const abort = startGenerateDevDoc(sessionId, {
+    const abort = startGenerateDevDoc(sessionId, extraInstructions, {
       onEvent(name, data) {
         if (name === 'chunk') {
           const chunk = (data as { content: string }).content ?? ''
@@ -1637,12 +1728,13 @@ function EditingPanel({
     }
   }
 
-  // 监听「↺ 更新」触发的重新生成事件（来自历史侧边栏）
+  // 监听「↺ 更新」触发的重新生成事件（来自历史侧边栏）——同样先弹确认框，不直接生成
   useEffect(() => {
     const handler = (e: Event) => {
       const { sessionId: sid } = (e as CustomEvent).detail as { sessionId: string }
       if (sid === sessionId) {
-        handleGenerateDevDoc()
+        setPanelMode('dev')
+        setShowGenDevDocDialog(true)
       }
     }
     window.addEventListener('prd-clarify:regen-dev-doc', handler)
@@ -1697,6 +1789,18 @@ function EditingPanel({
         />
       )}
 
+      {/* 生成/重新生成开发文档确认弹框：不再点了就直接生成，先让用户看一眼要不要补充提示词 */}
+      {showGenDevDocDialog && (
+        <GenerateDevDocDialog
+          isRegenerate={!!devDocContent}
+          onClose={() => setShowGenDevDocDialog(false)}
+          onConfirm={(extraInstructions) => {
+            setShowGenDevDocDialog(false)
+            handleGenerateDevDoc(extraInstructions)
+          }}
+        />
+      )}
+
       {/* ─── 顶部 Tab + 操作栏 ─── */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--color-border)] bg-[var(--color-card)] gap-2">
 
@@ -1713,12 +1817,13 @@ function EditingPanel({
               key={key}
               onClick={() => {
                 setPanelMode(key)
-                // 切到开发文档时，只有确认后端确实没有开发文档（hasDevDoc=false）才触发生成；
+                // 切到开发文档时，只有确认后端确实没有开发文档（hasDevDoc=false）才弹生成确认框；
                 // hasDevDoc=true 但本地 devDocContent 还没读回来的一瞬间（devDocLoading）不能
-                // 当作「没有开发文档」，否则会把已生成好的文档误判成需要重新生成，显示生成动画。
+                // 当作「没有开发文档」，否则会把已生成好的文档误判成需要重新生成。
+                // 弹框而非直接生成：让用户先看一眼要不要补充自定义提示词再确认。
                 if ((key === 'dev' || key === 'side') && !hasDevDoc && !devDocContent
                     && !devDocStreaming && !devDocLoading) {
-                  handleGenerateDevDoc()
+                  setShowGenDevDocDialog(true)
                 }
               }}
               className={`flex items-center gap-1 px-2.5 py-1 rounded-md transition-colors ${
@@ -1753,7 +1858,7 @@ function EditingPanel({
           ))}
           {/* 重新生成按钮（开发文档 Tab 有内容时显示） */}
           {panelMode === 'dev' && devDocContent && !devDocStreaming && (
-            <button onClick={handleGenerateDevDoc}
+            <button onClick={() => setShowGenDevDocDialog(true)}
               className="ml-1 flex items-center gap-1 px-2 py-0.5 rounded text-[var(--color-muted-foreground)] hover:text-purple-400 hover:bg-purple-500/10 transition-colors"
               title="基于当前 PRD 重新生成开发文档（覆盖现有版本）">
               <RefreshCw className="w-3 h-3" /> 重新生成
@@ -1872,7 +1977,7 @@ function EditingPanel({
                   <p className="font-medium mb-1">还没有开发文档</p>
                   <p className="text-sm opacity-70">Claude 会先查知识图谱，再生成精准的技术方案</p>
                 </div>
-                <button onClick={handleGenerateDevDoc}
+                <button onClick={() => setShowGenDevDocDialog(true)}
                   className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-purple-600/15 border border-purple-500/20 text-purple-400 hover:bg-purple-600/25 text-sm font-medium">
                   <Wrench className="w-4 h-4" /> 生成开发文档
                 </button>
@@ -1908,7 +2013,7 @@ function EditingPanel({
                   </div>
                 ) : (
                   <div className="flex items-center justify-center h-full text-sm text-[var(--color-muted-foreground)]">
-                    <button onClick={handleGenerateDevDoc} className="text-purple-400 hover:underline">
+                    <button onClick={() => setShowGenDevDocDialog(true)} className="text-purple-400 hover:underline">
                       生成开发文档
                     </button>
                   </div>

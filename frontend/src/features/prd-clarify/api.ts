@@ -81,9 +81,12 @@ export const startGenerate = (id: string, handlers: SseHandlers) =>
 
 // ─── 开发文档 ───
 
-/** SSE 流式：基于 PRD 生成技术开发方案文档（四章节）。 */
-export const startGenerateDevDoc = (id: string, handlers: SseHandlers) =>
-  subscribeSsePost(`/prd-clarify/sessions/${id}/dev-doc`, {}, handlers)
+/**
+ * SSE 流式：基于 PRD 生成技术开发方案文档（四章节）。
+ * extraInstructions：用户在「生成开发文档」确认弹框里补充的自定义提示词（可选）。
+ */
+export const startGenerateDevDoc = (id: string, extraInstructions: string | undefined, handlers: SseHandlers) =>
+  subscribeSsePost(`/prd-clarify/sessions/${id}/dev-doc`, { extraInstructions }, handlers)
 
 /** 读取开发文档内容（与 getContent 同格式）。 */
 export const getDevDocContent = async (id: string): Promise<string> => {
