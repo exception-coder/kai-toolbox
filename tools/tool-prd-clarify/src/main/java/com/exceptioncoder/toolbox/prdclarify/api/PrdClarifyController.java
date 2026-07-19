@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.prdclarify.api;
 
+import com.exceptioncoder.toolbox.prdclarify.api.dto.AskNextDevDocQuestionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.AskNextQuestionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.CreateSessionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.GenerateDevDocRequest;
@@ -255,6 +256,18 @@ public class PrdClarifyController {
                 req == null ? null : req.extraInstructions(),
                 req == null ? null : req.updateExisting(),
                 emitter);
+        return emitter;
+    }
+
+    /**
+     * 开发文档更新前的多轮渐进澄清：请求 Claude 就"这次更新说明相对当前开发文档还有哪里不明确"
+     * 提出下一个问题。用法/事件与 {@code /sessions/{id}/ask}（PRD 澄清）一致。
+     */
+    @PostMapping(value = "/sessions/{id}/dev-doc/ask", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter askNextDevDocQuestion(@PathVariable String id,
+                                             @RequestBody AskNextDevDocQuestionRequest req) {
+        SseEmitter emitter = new SseEmitter(0L);
+        service.askNextDevDocQuestion(id, req.questionIndex(), req.history(), req.updateNotes(), emitter);
         return emitter;
     }
 

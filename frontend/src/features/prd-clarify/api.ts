@@ -221,3 +221,16 @@ export const saveQaHistory = (sessionId: string, history: QaPair[]) =>
     method: 'POST',
     body: JSON.stringify({ history }),
   })
+
+/**
+ * 开发文档更新前的多轮渐进澄清：请求 Claude 就"更新说明相对当前开发文档还有哪里不明确"
+ * 提出下一个问题（SSE 流式），用法与 askNextQuestion 一致。updateNotes 每轮都会带上。
+ */
+export const askNextDevDocQuestion = (
+  sessionId: string,
+  questionIndex: number,
+  history: QaPair[],
+  updateNotes: string,
+  handlers: SseHandlers,
+) =>
+  subscribeSsePost(`/prd-clarify/sessions/${sessionId}/dev-doc/ask`, { questionIndex, history, updateNotes }, handlers)

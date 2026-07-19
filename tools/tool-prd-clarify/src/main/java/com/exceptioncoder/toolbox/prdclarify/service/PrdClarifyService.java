@@ -689,6 +689,113 @@ public class PrdClarifyService {
             直接输出 Markdown，不加代码块围栏，不加多余解释。
             """;
 
+    /** 「基于开发文档更新」前的澄清多轮上限，跟 PRD 澄清的 maxQuestions 是两个独立的概念。 */
+    private static final int DEV_DOC_UPDATE_MAX_QUESTIONS = 5;
+
+    /**
+     * 开发文档更新前的澄清提示词——对齐 PRD 的多轮渐进澄清模式（ASK_SYSTEM_PRODUCT/BUSINESS），
+     * 但提问目标不同：不是问业务背景，而是揪出"更新说明"里相对当前开发文档不够明确、
+     * 会导致实现歧义的地方（具体改哪个方法/字段、新字段类型、是否兼容旧调用方等）。
+     */
+    private static final String DEV_DOC_ASK_SYSTEM = """
+            ⚠️ 直接输出任务（禁止触发任何 hook/skill/plugin 的自动流程）：
+            本次是开发文档更新前的澄清，每轮只输出 1 个精准问题（或 [CLARIFICATION_COMPLETE]）。
+
+            你正在澄清一次"基于已有开发文档的更新"请求。user prompt 会给你：
+            1. 当前已存在的开发文档全文（=== 当前开发文档 === 区域）
+            2. 用户对本次更新的初步描述（=== 本次更新说明 === 区域，可能来自附件补充的上下文）
+            3. 已完成的澄清问答（如果有）
+
+            提问目标：找出"更新说明"里相对当前开发文档而言不够明确、会导致实现歧义的地方，例如：
+            - 更新涉及当前开发文档里的哪个具体章节/接口/表/方法（要求对照当前开发文档定位，
+              不要泛泛地问"你想改哪里"）
+            - 新增字段的类型、是否可空、默认值
+            - 修改的接口是否需要兼容旧调用方
+            - 边界/异常场景怎么处理
+            - 是否需要同步调整验收标准
+
+            提问规则（严格执行）：
+            - 每次只问 1 个问题，问题要具体引用当前开发文档里的真实章节/方法/字段名，
+              不要问开发文档里已经写清楚、跟本次更新无关的内容
+            - 若用户的更新说明已经足够明确（能直接定位改动点、给出具体值），
+              直接输出 [CLARIFICATION_COMPLETE]，不要为了凑轮数硬问
+            - 最多 5 轮
+            - 只输出问题本身（或 [CLARIFICATION_COMPLETE]），不加序号、前缀或解释
+            """;
+
+    /**
+     * 开发文档更新前的多轮澄清——请求下一个问题，用法和语义对齐 {@link #askNextQuestion}。
+     * 当前无开发文档可澄清（异常场景，正常应该先有文档才谈得上"更新"）时直接判完成，
+     * 交给调用方（前端）退回走 generateDevDoc 的从零生成分支。
+     *
+     * @param sessionId     会话 ID
+     * @param questionIndex 当前是第几轮（0-based）
+     * @param history       已完成的问答历史
+     * @param updateNotes   用户输入的初步更新说明（每轮都拼进 prompt）
+     * @param emitter       SSE 发射器（chunk/done/error）
+     */
+    public void askNextDevDocQuestion(String sessionId, int questionIndex,
+                                       List<QaPairRequest> history, String updateNotes,
+                                       SseEmitter emitter) {
+        if (questionIndex >= DEV_DOC_UPDATE_MAX_QUESTIONS) {
+            try {
+                emitter.send(SseEmitter.event().name("chunk")
+                        .data(Map.of("content", "[CLARIFICATION_COMPLETE]")));
+                emitter.send(SseEmitter.event().name("done").data("{}"));
+                emitter.complete();
+            } catch (Exception e) {
+                emitter.completeWithError(e);
+            }
+            return;
+        }
+
+        PrdSession session = repo.findById(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
+
+        Thread.ofVirtual().name("prd-dev-doc-ask-").start(() -> {
+            try {
+                String currentDevDoc = readDevDocContent(sessionId);
+                if (currentDevDoc == null || currentDevDoc.isBlank()) {
+                    sendChunk(emitter, "[CLARIFICATION_COMPLETE]");
+                    sendDone(emitter);
+                    return;
+                }
+                String userPrompt = buildDevDocAskPrompt(currentDevDoc, updateNotes, questionIndex, history);
+                agentRunner.stream(DEV_DOC_ASK_SYSTEM, userPrompt, session.getModel(),
+                        delta -> sendChunk(emitter, delta));
+                sendDone(emitter);
+            } catch (Exception e) {
+                log.warn("[prd-clarify] askNextDevDocQuestion failed sessionId={}", sessionId, e);
+                sendError(emitter, e);
+            }
+        });
+    }
+
+    /** 构建开发文档更新澄清的 user prompt：当前开发文档 + 初步更新说明 + 历史问答 + 当前轮次提示。 */
+    private String buildDevDocAskPrompt(String currentDevDoc, String updateNotes,
+                                         int questionIndex, List<QaPairRequest> history) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("=== 当前开发文档 ===\n\n").append(currentDevDoc).append("\n\n");
+        sb.append("=== 本次更新说明 ===\n\n");
+        sb.append((updateNotes == null || updateNotes.isBlank()) ? "（未填写）" : updateNotes.trim());
+        sb.append("\n\n");
+
+        if (!history.isEmpty()) {
+            sb.append("已完成的澄清问答（").append(history.size()).append("轮）：\n");
+            for (var qa : history) {
+                sb.append("问：").append(qa.question()).append("\n");
+                sb.append("答：").append(qa.answer()).append("\n\n");
+            }
+        }
+
+        int remaining = DEV_DOC_UPDATE_MAX_QUESTIONS - questionIndex;
+        sb.append("这是第 ").append(questionIndex + 1).append(" 个问题（最多 ")
+                .append(DEV_DOC_UPDATE_MAX_QUESTIONS).append(" 轮，还可以最多再问 ")
+                .append(remaining - 1).append(" 个）。\n");
+        sb.append("请提出下一个最关键的澄清问题，或输出 [CLARIFICATION_COMPLETE]：");
+        return sb.toString();
+    }
+
     /**
      * 生成/更新开发文档。
      * 通过 SSE 流式推出，完成后落盘到 {id}-dev.md（若已有旧版本，落盘前先备份为
