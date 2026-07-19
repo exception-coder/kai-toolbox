@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { cn } from '@/lib/utils'
 
 // ── 数据结构 ──────────────────────────────────────────────────────────────────
@@ -105,35 +105,43 @@ const CONTENT_COLOR: Record<HalfCell['kind'], string> = {
   empty:   '',
 }
 
-function Cell({ cell }: { cell: HalfCell | undefined }) {
-  if (!cell) return <td className="w-1/2 bg-[var(--color-muted)]/30" />
+/**
+ * 单个半行（一侧的一行）。
+ * 关键点：整行 whitespace-pre + shrink-0（不换行、不收缩），让内容按真实宽度撑开父容器，
+ * 由外层 pane 的 overflow-x-auto 负责横向滚动——而不是像旧版那样用 overflow-hidden 裁掉看不见的部分。
+ */
+function PaneLine({ cell }: { cell: HalfCell | undefined }) {
+  if (!cell) return <div className="h-[22px] bg-[var(--color-muted)]/30" />
   return (
-    <td className={cn('w-1/2 whitespace-pre', CELL_BG[cell.kind])}>
-      <div className="flex min-w-0 items-start gap-0">
-        {/* 行号 */}
-        <span className={cn(
-          'w-10 shrink-0 select-none px-1.5 py-0.5 text-right font-mono text-[10px] tabular-nums',
-          LINENO_COLOR[cell.kind],
-        )}>
-          {cell.kind !== 'empty' ? cell.lineNo : ''}
-        </span>
-        {/* 符号列（+/-/空格） */}
-        <span className={cn(
-          'w-4 shrink-0 select-none py-0.5 text-center font-mono text-[10px]',
-          cell.kind === 'removed' ? 'text-rose-500' :
-          cell.kind === 'added'   ? 'text-emerald-500' : 'text-transparent',
-        )}>
-          {cell.kind === 'removed' ? '-' : cell.kind === 'added' ? '+' : ' '}
-        </span>
-        {/* 内容 */}
-        <span className={cn(
-          'flex-1 overflow-hidden py-0.5 font-mono text-[11px] leading-5',
-          CONTENT_COLOR[cell.kind],
-        )}>
-          {cell.kind !== 'empty' ? cell.content : ''}
-        </span>
-      </div>
-    </td>
+    <div className={cn('flex h-[22px] w-max min-w-full items-center whitespace-pre', CELL_BG[cell.kind])}>
+      {/* 行号 */}
+      <span className={cn(
+        'w-10 shrink-0 select-none px-1.5 text-right font-mono text-[10px] tabular-nums',
+        LINENO_COLOR[cell.kind],
+      )}>
+        {cell.kind !== 'empty' ? cell.lineNo : ''}
+      </span>
+      {/* 符号列（+/-/空格） */}
+      <span className={cn(
+        'w-4 shrink-0 select-none text-center font-mono text-[10px]',
+        cell.kind === 'removed' ? 'text-rose-500' :
+        cell.kind === 'added'   ? 'text-emerald-500' : 'text-transparent',
+      )}>
+        {cell.kind === 'removed' ? '-' : cell.kind === 'added' ? '+' : ' '}
+      </span>
+      {/* 内容：不换行、不裁剪，宽度随文本自然撑开 */}
+      <span className={cn('shrink-0 pr-4 font-mono text-[11px] leading-[22px]', CONTENT_COLOR[cell.kind])}>
+        {cell.kind !== 'empty' ? cell.content : ''}
+      </span>
+    </div>
+  )
+}
+
+function HunkRow({ text }: { text: string }) {
+  return (
+    <div className="h-[22px] whitespace-nowrap bg-cyan-500/10 pl-3 font-mono text-[10px] leading-[22px] text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-400">
+      {text}
+    </div>
   )
 }
 
@@ -151,10 +159,34 @@ interface Props {
  * 双栏侧边 diff 对比视图，参考 IntelliJ IDEA 的 diff 模式：
  * - 左栏：旧文件（删除行红底，上下文灰色）
  * - 右栏：新文件（新增行绿底，上下文灰色）
- * - hunk 分隔行（@@ ... @@）横跨两栏
+ * - hunk 分隔行（@@ ... @@）在两栏各自渲染一份，保持同一行高对齐
+ *
+ * 布局关键：左右两栏是两个独立的横向可滚动容器（各自 overflow-x-auto，且各有
+ * 固定高度 h-full，滚动条常驻可见、不用滚到文件末尾才能看到）；纵向滚动通过
+ * onScroll 互相镜像 scrollTop 保持同步，行号/行高两栏完全一致，故不会错位。
  */
 export function SideBySideDiff({ diff, truncated, className }: Props) {
   const rows = useMemo(() => parseSideBySide(diff), [diff])
+
+  const leftRef = useRef<HTMLDivElement>(null)
+  const rightRef = useRef<HTMLDivElement>(null)
+  // 防止两侧 onScroll 互相触发造成死循环：记录本次滚动是谁发起的
+  const syncingFrom = useRef<'left' | 'right' | null>(null)
+
+  const onScrollLeft = useCallback(() => {
+    if (syncingFrom.current === 'right') { syncingFrom.current = null; return }
+    const r = rightRef.current
+    if (!r || !leftRef.current) return
+    syncingFrom.current = 'left'
+    r.scrollTop = leftRef.current.scrollTop
+  }, [])
+  const onScrollRight = useCallback(() => {
+    if (syncingFrom.current === 'left') { syncingFrom.current = null; return }
+    const l = leftRef.current
+    if (!l || !rightRef.current) return
+    syncingFrom.current = 'right'
+    l.scrollTop = rightRef.current.scrollTop
+  }, [])
 
   if (!diff.trim()) {
     return (
@@ -165,40 +197,42 @@ export function SideBySideDiff({ diff, truncated, className }: Props) {
   }
 
   return (
-    <div className={cn('overflow-auto text-[11px]', className)}>
+    <div className={cn('flex min-h-0 flex-col', className)}>
       {truncated && (
-        <div className="border-b border-amber-300 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+        <div className="shrink-0 border-b border-amber-300 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
           diff 内容过大，已截断显示
         </div>
       )}
-      {/* 列头 */}
-      <div className="sticky top-0 z-10 flex border-b bg-[var(--color-muted)]/80 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)] backdrop-blur-sm">
+      {/* 列头（不参与横向滚动） */}
+      <div className="flex shrink-0 border-b bg-[var(--color-muted)]/80 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">
         <div className="w-1/2 border-r px-3 py-1.5">旧版本</div>
         <div className="w-1/2 px-3 py-1.5">新版本</div>
       </div>
-      <table className="w-full border-collapse">
-        <tbody>
-          {rows.map(row => {
-            if (row.type === 'hunk') {
-              return (
-                <tr key={row.id} className="bg-cyan-500/8 dark:bg-cyan-500/10">
-                  <td colSpan={2} className="py-0.5 pl-3 font-mono text-[10px] text-cyan-700 dark:text-cyan-400">
-                    {row.hunk}
-                  </td>
-                </tr>
-              )
-            }
-            return (
-              <tr key={row.id} className="border-b border-[var(--color-border)]/30">
-                <Cell cell={row.left} />
-                {/* 竖分隔线 */}
-                <td className="w-px border-r border-[var(--color-border)]" />
-                <Cell cell={row.right} />
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
+      {/* 双栏内容：各自独立横向滚动条（底部常驻可见），纵向滚动互相同步 */}
+      <div className="flex min-h-0 flex-1">
+        <div
+          ref={leftRef}
+          onScroll={onScrollLeft}
+          className="w-1/2 overflow-auto border-r border-[var(--color-border)]"
+        >
+          {rows.map(row => (
+            <div key={row.id}>
+              {row.type === 'hunk' ? <HunkRow text={row.hunk ?? ''} /> : <PaneLine cell={row.left} />}
+            </div>
+          ))}
+        </div>
+        <div
+          ref={rightRef}
+          onScroll={onScrollRight}
+          className="w-1/2 overflow-auto"
+        >
+          {rows.map(row => (
+            <div key={row.id}>
+              {row.type === 'hunk' ? <HunkRow text={row.hunk ?? ''} /> : <PaneLine cell={row.right} />}
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
