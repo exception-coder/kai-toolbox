@@ -910,6 +910,47 @@ public class PrdClarifyService {
         return java.nio.file.Files.readString(path, java.nio.charset.StandardCharsets.UTF_8);
     }
 
+    /**
+     * 读取开发文档某个历史版本的内容。version 对应 devDocHistory 里的版本号：
+     * 若 version 是最新版本（或超出已记录范围，兜底按最新处理），直接读当前 {id}-dev.md；
+     * 否则读磁盘上备份的 {id}-dev-v{version}.md（由 {@link #backupDevDocIfExists} 在每次
+     * 覆盖前生成）。版本号非法或备份文件缺失时返回空字符串，不抛异常，前端据此提示不可查看。
+     */
+    public String readDevDocVersionContent(String sessionId, int version) throws java.io.IOException {
+        PrdSession session = repo.findById(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
+        if (version <= 0) {
+            return "";
+        }
+        int latestVersion = countDevDocHistoryVersions(session.getDevDocHistory());
+        if (version >= latestVersion) {
+            return readDevDocContent(sessionId);
+        }
+        if (session.getDevDocPath() == null || session.getDevDocPath().isBlank()) {
+            return "";
+        }
+        java.nio.file.Path currentPath = java.nio.file.Path.of(session.getDevDocPath());
+        String fileName = currentPath.getFileName().toString(); // {id}-dev.md
+        String baseName = fileName.substring(0, fileName.length() - 3); // {id}-dev
+        java.nio.file.Path backupPath = currentPath.resolveSibling(baseName + "-v" + version + ".md");
+        if (!java.nio.file.Files.exists(backupPath)) {
+            return "";
+        }
+        return java.nio.file.Files.readString(backupPath, java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    private int countDevDocHistoryVersions(String historyJson) {
+        if (historyJson == null || historyJson.isBlank()) {
+            return 0;
+        }
+        try {
+            JsonNode arr = mapper.readTree(historyJson);
+            return arr.isArray() ? arr.size() : 0;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
     /** 保存开发文档（用户编辑后）。 */
     public void saveDevDocContent(String sessionId, String content) throws java.io.IOException {
         PrdSession session = repo.findById(sessionId)

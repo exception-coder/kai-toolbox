@@ -1,0 +1,127 @@
+/**
+ * reveal.js 母版样式——只写选择器，具体色值/字号一律走 CSS 变量，
+ * 变量值由 WebpptDeck.tsx 在根节点 inline style 里从 WebpptDesignTokens.ts 注入，
+ * 本文件不出现任何硬编码色值/字号（唯一样式取值来源见 WebpptDesignTokens.ts）。
+ *
+ * 母版 class 命名与 tool-webppt 既有 reveal.js 样例
+ * （tools/tool-webppt/.../style/samples/sample-01/index.html）保持一致，
+ * 便于团队认知复用（两处相互独立维护，不共享代码）。
+ */
+
+.webppt-deck-root .reveal {
+  font-family: var(--wp-font-cn);
+  color: var(--wp-color-ink);
+}
+
+.webppt-deck-root .reveal .slides section {
+  text-align: left;
+  padding: calc(var(--wp-unit) * 8);
+  box-sizing: border-box;
+}
+
+.webppt-deck-root .reveal h1,
+.webppt-deck-root .reveal h2,
+.webppt-deck-root .reveal h3 {
+  font-family: var(--wp-font-cn);
+  font-weight: 600;
+  margin: 0 0 calc(var(--wp-unit) * 3);
+}
+.webppt-deck-root .reveal h1 { font-size: var(--wp-fs-h1); }
+.webppt-deck-root .reveal h2 { font-size: var(--wp-fs-h2); }
+.webppt-deck-root .reveal h3 { font-size: var(--wp-fs-h3); }
+.webppt-deck-root .reveal p,
+.webppt-deck-root .reveal li {
+  font-size: var(--wp-fs-body);
+  line-height: 1.6;
+  color: var(--wp-color-ink-2);
+}
+.webppt-deck-root .caption {
+  font-size: var(--wp-fs-caption);
+  color: var(--wp-color-ink-3);
+  margin-top: calc(var(--wp-unit) * 2);
+}
+
+/* 封面母版 */
+.webppt-deck-root .master-cover {
+  background: linear-gradient(135deg, var(--wp-color-primary), var(--wp-color-accent));
+  color: var(--wp-color-white);
+}
+.webppt-deck-root .master-cover h1,
+.webppt-deck-root .master-cover p { color: var(--wp-color-white); }
+.webppt-deck-root .master-cover .eyebrow {
+  font-size: var(--wp-fs-caption);
+  letter-spacing: 0.3em;
+  opacity: 0.85;
+  text-transform: uppercase;
+}
+.webppt-deck-root .master-cover .subtitle { font-size: var(--wp-fs-h3); opacity: 0.9; }
+
+/* 章节母版：留白 + 序号强调（本篇章不逐段落用，作为可选样式保留） */
+.webppt-deck-root .master-section {
+  background: var(--wp-color-surface);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.webppt-deck-root .master-section .index {
+  font-size: var(--wp-fs-h1);
+  color: var(--wp-color-primary);
+  font-weight: 700;
+}
+
+/* 单栏内容母版 */
+.webppt-deck-root .master-content-single ul { padding-left: calc(var(--wp-unit) * 3); }
+.webppt-deck-root .master-content-single li { margin-bottom: calc(var(--wp-unit) * 1); }
+
+/* 双栏内容母版 */
+.webppt-deck-root .master-content-dual .columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: calc(var(--wp-unit) * 4);
+}
+.webppt-deck-root .master-content-dual .col {
+  background: var(--wp-color-white);
+  border: var(--wp-border-width) solid var(--wp-color-line);
+  border-radius: var(--wp-radius-md);
+  padding: calc(var(--wp-unit) * 3);
+}
+.webppt-deck-root .master-content-dual .stat-tile {
+  background: var(--wp-color-surface);
+  border-radius: var(--wp-radius-md);
+  padding: calc(var(--wp-unit) * 2) calc(var(--wp-unit) * 3);
+  text-align: center;
+}
+.webppt-deck-root .master-content-dual .stat-value {
+  font-size: var(--wp-fs-h1);
+  font-weight: 700;
+  color: var(--wp-color-primary);
+}
+.webppt-deck-root .master-content-dual .stat-label {
+  font-size: var(--wp-fs-caption);
+  color: var(--wp-color-ink-3);
+}
+
+/* 总结母版 */
+.webppt-deck-root .master-summary {
+  background: var(--wp-color-ink);
+  color: var(--wp-color-white);
+}
+.webppt-deck-root .master-summary h2,
+.webppt-deck-root .master-summary li { color: var(--wp-color-white); }
+
+/* 草拟口径 / 数据来源免责说明的通用小字条 */
+.webppt-deck-root .provenance-note {
+  font-size: var(--wp-fs-caption);
+  color: var(--wp-color-ink-3);
+  border-left: 3px solid var(--wp-color-accent);
+  padding-left: calc(var(--wp-unit) * 2);
+  margin-top: calc(var(--wp-unit) * 3);
+}
+
+/* 16:9 画布在投影分辨率与常见笔记本分辨率下都居中等比缩放，交给 reveal.js 的 width/height + center 配置，
+   这里只保证容器占满视口，不做额外的媒体查询覆写（避免和 reveal.js 内建缩放逻辑打架）。 */
+.webppt-deck-root,
+.webppt-deck-root .reveal {
+  width: 100%;
+  height: 100%;
+}

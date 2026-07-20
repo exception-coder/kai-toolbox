@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "sourceSessionId": "ee732035-edcd-4fa3-bbef-daabc44ab320",
+  "sourceNote": "全部数值来自本需求自身的 PRD 与开发文档文件的结构化解析，不包含任何 yoooni-hook-report 的真实生产数据。",
+  "generatedByNote": "insights 文案由本次开发会话中的 AI 结对编程助手阅读上述原文后归纳撰写，非在线 LLM API 自动调用。",
+  "prd": {
+    "chapterCount": 9,
+    "acceptanceCriteriaCount": 9,
+    "riskCount": 6,
+    "clarificationRounds": 7,
+    "clarificationTopics": [
+      "听众定位（技术 vs 非技术双听众）",
+      "案例选择（讲哪类平台能力）",
+      "案例对象确定（Claude Chat 多引擎会话管理）",
+      "交付形态确认（纯前端静态单页，不建后端）",
+      "架构讲解边界（讲到哪层为止，兼顾非技术听众）",
+      "Claude Chat 细节口径（引用知识图谱 draft 记录，需 owner 核实）",
+      "数据来源确认（仅用本需求自身数据，不碰 yoooni-hook-report）"
+    ]
+  },
+  "devDocIteration": {
+    "docVersionCount": 2,
+    "charsV1": 4750,
+    "charsCurrent": 6640,
+    "charsDelta": 1890,
+    "checklistItemsV1": 10,
+    "checklistItemsCurrent": 10,
+    "resolvedRisks": [
+      {
+        "id": "R5",
+        "from": "前端路由注册机制——未能确认项",
+        "to": "前端负责人现场确认——本轮已解决"
+      }
+    ]
+  },
+  "insights": [
+    "本次 PRD 澄清共 7 轮，覆盖听众定位到数据来源合规的 7 个关键歧义点，从一句话原始需求收敛为 9 章结构化文档。",
+    "PRD 落地时共写入 9 条可验收标准、6 条显式风险项——把\"要不要做\"的讨论转成了\"做完怎么判断做对了\"的清单。",
+    "开发文档从 v1 到当前版新增/修订约 1890 字符，任务项数量维持 10 项不变，核心变化是把风险 R5（前端路由注册机制未确认）转为已现场确认解决，并把原本泛泛的任务描述细化为可直接落地的代码片段。"
+  ]
+}

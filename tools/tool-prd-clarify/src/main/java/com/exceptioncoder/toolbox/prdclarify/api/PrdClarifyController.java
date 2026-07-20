@@ -277,6 +277,15 @@ public class PrdClarifyController {
         return service.readDevDocContent(id);
     }
 
+    /**
+     * 读取开发文档某个历史版本的内容（JSON 字符串格式）。version 对应 devDocHistory 里的版本号；
+     * 若是最新版本直接读当前文件，否则读磁盘上备份的 {id}-dev-v{version}.md。
+     */
+    @GetMapping(value = "/sessions/{id}/dev-doc/versions/{version}", produces = MediaType.APPLICATION_JSON_VALUE)
+    public String getDevDocVersionContent(@PathVariable String id, @PathVariable int version) throws IOException {
+        return service.readDevDocVersionContent(id, version);
+    }
+
     /** 保存用户编辑后的开发文档。 */
     @PutMapping("/sessions/{id}/dev-doc")
     public ResponseEntity<Void> saveDevDocContent(@PathVariable String id,

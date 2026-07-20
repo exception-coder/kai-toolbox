@@ -17,6 +17,7 @@ import {
   deleteSession,
   getContent,
   getDevDocContent,
+  getDevDocVersionContent,
   checkPrdFile,
   getSession,
   linkPrdToReqItem,
@@ -459,6 +460,12 @@ function HistoryPanel({
                       >
                         <Wrench className="w-2.5 h-2.5" />
                         {isStale ? '开发文档（已过期）' : '开发文档'}
+                        {/* 有多个版本时显示版本数，提示"点进去可以选版本看" */}
+                        {s.devDocHistory.length > 1 && (
+                          <span className="text-[9px] px-1 rounded bg-[var(--color-muted)] text-[var(--color-muted-foreground)] leading-tight">
+                            v{s.devDocHistory.length}
+                          </span>
+                        )}
                       </button>
                       {/* 过期时显示重新生成按钮 */}
                       {isStale && (
@@ -1170,9 +1177,12 @@ const DEV_DOC_MODE_LABEL: Record<DevDocHistoryEntry['mode'], { label: string; co
  */
 function DevDocHistorySheet({
   history,
+  onViewVersion,
   onClose,
 }: {
   history: DevDocHistoryEntry[]
+  /** 点「查看此版本」时回调，由调用方去拉取该版本内容并展示 */
+  onViewVersion: (version: number) => void
   onClose: () => void
 }) {
   // 最新的排最前面，方便先看"最近一次改动是为了什么"
@@ -1210,6 +1220,11 @@ function DevDocHistorySheet({
                       <span className={`text-[10px] px-1.5 py-0.5 rounded border leading-tight ${cfg.bg} ${cfg.color}`}>
                         {cfg.label}
                       </span>
+                      {entry.version === history.length && (
+                        <span className="text-[9px] px-1 rounded bg-green-500/15 text-green-500 border border-green-500/20 leading-tight">
+                          当前
+                        </span>
+                      )}
                     </div>
                     <span className="text-[11px] text-[var(--color-muted-foreground)]">
                       {new Date(entry.generatedAt).toLocaleString('zh-CN', {
@@ -1222,13 +1237,94 @@ function DevDocHistorySheet({
                       <span className="text-[var(--color-muted-foreground)] italic">（未填写补充说明）</span>
                     )}
                   </div>
+                  <div className="px-3 pb-2.5">
+                    <button
+                      onClick={() => onViewVersion(entry.version)}
+                      className="text-xs text-purple-400 hover:underline"
+                    >
+                      查看此版本文档内容 →
+                    </button>
+                  </div>
                 </div>
               )
             })
           )}
         </div>
         <div className="px-5 py-3 border-t border-[var(--color-border)] text-xs text-[var(--color-muted-foreground)]">
-          v{history.length || 0} 是当前显示的版本；更早版本的完整文件已备份在同目录 {'{id}'}-dev-v{'{n}'}.md
+          点「查看此版本文档内容」可预览任意历史版本的完整文档
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * 历史版本预览弹框：只读展示某个历史版本的开发文档全文——「提供选择」的落地方式：
+ * 用户在 DevDocHistorySheet 点某个版本后，这里异步拉取该版本内容并展示。
+ */
+function DevDocVersionViewDialog({
+  sessionId,
+  version,
+  isLatest,
+  onClose,
+}: {
+  sessionId: string
+  version: number
+  isLatest: boolean
+  onClose: () => void
+}) {
+  const [content, setContent] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setContent(null)
+    setError(null)
+    getDevDocVersionContent(sessionId, version)
+      .then((c) => { if (!cancelled) setContent(c) })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : '加载失败') })
+    return () => { cancelled = true }
+  }, [sessionId, version])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="w-full max-w-3xl h-[85vh] rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)] flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <GitBranch className="w-4 h-4 text-purple-400" />
+            <span className="font-semibold text-sm">开发文档 v{version}</span>
+            {isLatest && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-500/15 text-green-500 border border-green-500/20 leading-tight">
+                当前版本
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {content && (
+              <button onClick={() => navigator.clipboard.writeText(content)}
+                className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-muted-foreground)]">
+                <Copy className="w-3 h-3" /> 复制
+              </button>
+            )}
+            <button onClick={onClose} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+        <div className="flex-1 overflow-hidden">
+          {error ? (
+            <div className="h-full flex items-center justify-center text-sm text-red-500">加载失败：{error}</div>
+          ) : content === null ? (
+            <div className="h-full flex items-center justify-center text-sm text-[var(--color-muted-foreground)]">
+              <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> 加载中…
+            </div>
+          ) : content ? (
+            <MarkdownViewer content={content} />
+          ) : (
+            <div className="h-full flex items-center justify-center text-sm text-[var(--color-muted-foreground)] italic">
+              该版本内容不存在（可能已被清理）
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -2111,6 +2207,8 @@ function EditingPanel({
   const [genDevDocMode, setGenDevDocMode] = useState<'generate' | 'regenerate' | 'update' | null>(null)
   /** 「生成记录」只读抽屉是否打开：追溯每一版是基于什么补充说明/更新澄清生成的。 */
   const [showDevDocHistory, setShowDevDocHistory] = useState(false)
+  /** 正在预览的历史版本号；null 表示预览弹框未打开。 */
+  const [viewingDevDocVersion, setViewingDevDocVersion] = useState<number | null>(null)
 
   const handleGenerateDevDoc = (extraInstructions?: string, updateExisting?: boolean) => {
     setPanelMode('dev')   // 生成时切到开发文档全屏视图
@@ -2235,9 +2333,23 @@ function EditingPanel({
         />
       )}
 
-      {/* 开发文档生成记录：追溯每一版是基于什么补充说明/更新澄清生成的 */}
+      {/* 开发文档生成记录：追溯每一版是基于什么补充说明/更新澄清生成的，可选版本预览 */}
       {showDevDocHistory && (
-        <DevDocHistorySheet history={devDocHistory} onClose={() => setShowDevDocHistory(false)} />
+        <DevDocHistorySheet
+          history={devDocHistory}
+          onViewVersion={(v) => setViewingDevDocVersion(v)}
+          onClose={() => setShowDevDocHistory(false)}
+        />
+      )}
+
+      {/* 历史版本预览：只读展示某个版本的完整文档内容 */}
+      {viewingDevDocVersion !== null && (
+        <DevDocVersionViewDialog
+          sessionId={sessionId}
+          version={viewingDevDocVersion}
+          isLatest={viewingDevDocVersion === devDocHistory.length}
+          onClose={() => setViewingDevDocVersion(null)}
+        />
       )}
 
       {/* ─── 顶部 Tab + 操作栏 ─── */}

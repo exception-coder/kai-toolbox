@@ -109,6 +109,20 @@ export const getDevDocContent = async (id: string): Promise<string> => {
   }
 }
 
+/** 读取开发文档某个历史版本的内容（与 getDevDocContent 同格式）。version 对应生成记录里的版本号。 */
+export const getDevDocVersionContent = async (id: string, version: number): Promise<string> => {
+  const res = await authFetch(`/prd-clarify/sessions/${id}/dev-doc/versions/${version}`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const text = await res.text()
+  if (!text) return ''
+  try {
+    const parsed = JSON.parse(text)
+    return typeof parsed === 'string' ? parsed : text
+  } catch {
+    return text
+  }
+}
+
 /** 保存编辑后的开发文档。 */
 export const saveDevDocContent = (id: string, content: string) =>
   http<void>(`/prd-clarify/sessions/${id}/dev-doc`, {
