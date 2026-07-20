@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.prdclarify.service;
 
 import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.DevDocVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.QaPairRequest;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
@@ -911,8 +912,8 @@ public class PrdClarifyService {
     }
 
     /**
-     * 读取开发文档某个历史版本的内容。version 对应 devDocHistory 里的版本号：
-     * 若 version 是最新版本（或超出已记录范围，兜底按最新处理），直接读当前 {id}-dev.md；
+     * 读取开发文档某个历史版本的内容。version 对应磁盘上实际存在的版本号（见
+     * {@link #listDevDocVersions}）：等于当前版本号时读当前 {id}-dev.md，
      * 否则读磁盘上备份的 {id}-dev-v{version}.md（由 {@link #backupDevDocIfExists} 在每次
      * 覆盖前生成）。版本号非法或备份文件缺失时返回空字符串，不抛异常，前端据此提示不可查看。
      */
@@ -922,32 +923,108 @@ public class PrdClarifyService {
         if (version <= 0) {
             return "";
         }
-        int latestVersion = countDevDocHistoryVersions(session.getDevDocHistory());
-        if (version >= latestVersion) {
-            return readDevDocContent(sessionId);
-        }
-        if (session.getDevDocPath() == null || session.getDevDocPath().isBlank()) {
+        DevDocLocation loc = resolveDevDocLocation(session);
+        if (loc == null) {
             return "";
         }
-        java.nio.file.Path currentPath = java.nio.file.Path.of(session.getDevDocPath());
-        String fileName = currentPath.getFileName().toString(); // {id}-dev.md
-        String baseName = fileName.substring(0, fileName.length() - 3); // {id}-dev
-        java.nio.file.Path backupPath = currentPath.resolveSibling(baseName + "-v" + version + ".md");
+        List<Integer> backups = scanDevDocBackupVersions(loc);
+        int currentVersion = (backups.isEmpty() ? 0 : backups.get(backups.size() - 1)) + 1;
+        if (version == currentVersion) {
+            return readDevDocContent(sessionId);
+        }
+        if (!backups.contains(version)) {
+            return "";
+        }
+        java.nio.file.Path backupPath = loc.dir().resolve(loc.baseName() + "-v" + version + ".md");
         if (!java.nio.file.Files.exists(backupPath)) {
             return "";
         }
         return java.nio.file.Files.readString(backupPath, java.nio.charset.StandardCharsets.UTF_8);
     }
 
-    private int countDevDocHistoryVersions(String historyJson) {
-        if (historyJson == null || historyJson.isBlank()) {
-            return 0;
+    /**
+     * 列出该会话开发文档的所有版本摘要，供「生成记录」抽屉展示。
+     *
+     * <p>以磁盘上实际存在的备份文件为准（而非 {@code dev_doc_history} JSON，见
+     * {@link DevDocVersionSummary} 类注释解释为什么）——JSON 记录只是用来给扫出的版本
+     * 补充 mode/补充说明/生成时间，缺失时该版本仍会出现在列表里，只是这几项为 null。</p>
+     */
+    public List<DevDocVersionSummary> listDevDocVersions(String sessionId) {
+        PrdSession session = repo.findById(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
+        DevDocLocation loc = resolveDevDocLocation(session);
+        if (loc == null) {
+            return List.of();
         }
+        List<Integer> backups = scanDevDocBackupVersions(loc);
+        int currentVersion = (backups.isEmpty() ? 0 : backups.get(backups.size() - 1)) + 1;
+
+        Map<Integer, JsonNode> historyByVersion = new java.util.HashMap<>();
         try {
-            JsonNode arr = mapper.readTree(historyJson);
-            return arr.isArray() ? arr.size() : 0;
+            String historyJson = session.getDevDocHistory();
+            if (historyJson != null && !historyJson.isBlank()) {
+                JsonNode arr = mapper.readTree(historyJson);
+                if (arr.isArray()) {
+                    for (JsonNode node : arr) {
+                        historyByVersion.put(node.path("version").asInt(-1), node);
+                    }
+                }
+            }
         } catch (Exception e) {
-            return 0;
+            log.debug("[prd-clarify] 解析 devDocHistory 失败（不影响版本列表展示）: {}", e.getMessage());
+        }
+
+        List<Integer> allVersions = new ArrayList<>(backups);
+        allVersions.add(currentVersion);
+
+        List<DevDocVersionSummary> result = new ArrayList<>();
+        for (int v : allVersions) {
+            JsonNode h = historyByVersion.get(v);
+            Long generatedAt = h != null ? h.path("generatedAt").asLong()
+                    : (v == currentVersion ? session.getDevDocGeneratedAt() : null);
+            result.add(new DevDocVersionSummary(
+                    v,
+                    v == currentVersion,
+                    h != null ? h.path("mode").asText(null) : null,
+                    h != null ? h.path("extraInstructions").asText("") : null,
+                    generatedAt));
+        }
+        result.sort(java.util.Comparator.comparingInt(DevDocVersionSummary::version).reversed());
+        return result;
+    }
+
+    /** 开发文档所在目录 + 文件名前缀（{id}-dev），供备份/版本枚举/读取共用。 */
+    private record DevDocLocation(java.nio.file.Path dir, String baseName) {}
+
+    /** 解析当前会话开发文档的存放位置；尚未生成过开发文档时返回 null。 */
+    private DevDocLocation resolveDevDocLocation(PrdSession session) {
+        if (session.getDevDocPath() == null || session.getDevDocPath().isBlank()) {
+            return null;
+        }
+        java.nio.file.Path currentPath = java.nio.file.Path.of(session.getDevDocPath());
+        String fileName = currentPath.getFileName().toString(); // {id}-dev.md
+        String baseName = fileName.substring(0, fileName.length() - 3); // {id}-dev
+        java.nio.file.Path dir = currentPath.getParent();
+        return dir == null ? null : new DevDocLocation(dir, baseName);
+    }
+
+    /** 扫描磁盘，返回该会话开发文档所有已存在的备份版本号（不含当前版本），从小到大排序。 */
+    private List<Integer> scanDevDocBackupVersions(DevDocLocation loc) {
+        if (loc == null || !java.nio.file.Files.isDirectory(loc.dir())) {
+            return List.of();
+        }
+        java.util.regex.Pattern versionPattern =
+                java.util.regex.Pattern.compile(java.util.regex.Pattern.quote(loc.baseName()) + "-v(\\d+)\\.md");
+        try (var files = java.nio.file.Files.list(loc.dir())) {
+            return files
+                    .map(p -> versionPattern.matcher(p.getFileName().toString()))
+                    .filter(java.util.regex.Matcher::matches)
+                    .map(m -> Integer.parseInt(m.group(1)))
+                    .sorted()
+                    .toList();
+        } catch (Exception e) {
+            log.debug("[prd-clarify] 扫描开发文档备份版本失败: {}", e.getMessage());
+            return List.of();
         }
     }
 
@@ -1029,18 +1106,9 @@ public class PrdClarifyService {
             String fileName = devDocPath.getFileName().toString(); // {id}-dev.md
             String baseName = fileName.substring(0, fileName.length() - 3); // {id}-dev
             java.nio.file.Path dir = devDocPath.getParent();
-            int nextVersion = 1;
-            if (dir != null && java.nio.file.Files.isDirectory(dir)) {
-                java.util.regex.Pattern versionPattern =
-                        java.util.regex.Pattern.compile(java.util.regex.Pattern.quote(baseName) + "-v(\\d+)\\.md");
-                try (var files = java.nio.file.Files.list(dir)) {
-                    nextVersion = files
-                            .map(p -> versionPattern.matcher(p.getFileName().toString()))
-                            .filter(java.util.regex.Matcher::matches)
-                            .mapToInt(m -> Integer.parseInt(m.group(1)))
-                            .max().orElse(0) + 1;
-                }
-            }
+            DevDocLocation loc = dir == null ? null : new DevDocLocation(dir, baseName);
+            List<Integer> backups = scanDevDocBackupVersions(loc);
+            int nextVersion = (backups.isEmpty() ? 0 : backups.get(backups.size() - 1)) + 1;
             java.nio.file.Path backupPath = devDocPath.resolveSibling(baseName + "-v" + nextVersion + ".md");
             java.nio.file.Files.copy(devDocPath, backupPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             log.info("[prd-clarify] 开发文档旧版本已备份 path={}", backupPath);

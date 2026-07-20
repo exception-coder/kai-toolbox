@@ -32,6 +32,19 @@ export interface DevDocHistoryEntry {
   generatedAt: number
 }
 
+/**
+ * 开发文档某个版本的摘要（GET /dev-doc/versions 返回），以磁盘上实际存在的版本为准，
+ * 不依赖 devDocHistory JSON——mode 为 null 表示该版本早于「生成记录」功能上线，
+ * 磁盘上有备份文件但没有对应记录，仍可查看内容，只是没有补充说明可看。
+ */
+export interface DevDocVersionSummary {
+  version: number
+  isCurrent: boolean
+  mode: 'generate' | 'regenerate' | 'update' | null
+  extraInstructions: string | null
+  generatedAt: number | null
+}
+
 export interface PrdSessionView {
   id: string
   title: string

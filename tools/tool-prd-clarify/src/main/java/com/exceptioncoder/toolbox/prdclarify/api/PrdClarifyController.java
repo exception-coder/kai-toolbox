@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.prdclarify.api;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.AskNextDevDocQuestionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.AskNextQuestionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.CreateSessionRequest;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.DevDocVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.GenerateDevDocRequest;
 import com.exceptioncoder.toolbox.prdclarify.service.AttachmentParseService;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.PrdSessionView;
@@ -278,8 +279,17 @@ public class PrdClarifyController {
     }
 
     /**
-     * 读取开发文档某个历史版本的内容（JSON 字符串格式）。version 对应 devDocHistory 里的版本号；
-     * 若是最新版本直接读当前文件，否则读磁盘上备份的 {id}-dev-v{version}.md。
+     * 列出该会话开发文档的所有版本摘要（以磁盘上实际存在的备份文件为准，见
+     * {@link DevDocVersionSummary} 类注释）。供「生成记录」抽屉展示版本列表。
+     */
+    @GetMapping("/sessions/{id}/dev-doc/versions")
+    public List<DevDocVersionSummary> listDevDocVersions(@PathVariable String id) {
+        return service.listDevDocVersions(id);
+    }
+
+    /**
+     * 读取开发文档某个历史版本的内容（JSON 字符串格式）。version 对应 {@link #listDevDocVersions}
+     * 返回的版本号；若是当前版本直接读当前文件，否则读磁盘上备份的 {id}-dev-v{version}.md。
      */
     @GetMapping(value = "/sessions/{id}/dev-doc/versions/{version}", produces = MediaType.APPLICATION_JSON_VALUE)
     public String getDevDocVersionContent(@PathVariable String id, @PathVariable int version) throws IOException {

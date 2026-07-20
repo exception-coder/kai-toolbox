@@ -2,6 +2,7 @@ import { http, authFetch, subscribeSsePost } from '@/lib/api'
 import type { SseHandlers } from '@/lib/api'
 import type {
   CreateSessionRequest,
+  DevDocVersionSummary,
   PrdSessionView,
   SaveContentRequest,
   SubmitAnswersRequest,
@@ -108,6 +109,13 @@ export const getDevDocContent = async (id: string): Promise<string> => {
     return text
   }
 }
+
+/**
+ * 列出该会话开发文档的所有版本摘要（以磁盘上实际存在的备份文件为准，早于「生成记录」
+ * 功能上线的旧版本也会出现在列表里，只是 mode/extraInstructions 为 null）。
+ */
+export const listDevDocVersions = (id: string) =>
+  http<DevDocVersionSummary[]>(`${BASE}/sessions/${id}/dev-doc/versions`)
 
 /** 读取开发文档某个历史版本的内容（与 getDevDocContent 同格式）。version 对应生成记录里的版本号。 */
 export const getDevDocVersionContent = async (id: string, version: number): Promise<string> => {
