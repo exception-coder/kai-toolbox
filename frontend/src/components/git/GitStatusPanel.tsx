@@ -212,7 +212,15 @@ export function GitStatusPanel({ title, fetchStatus, fetchFileDiff, onClose }: P
         className={cn(
           'flex flex-col overflow-hidden rounded-xl border bg-[var(--color-card)] shadow-2xl',
           showingDiff
-            ? 'max-h-[85vh] w-full max-w-5xl'   // diff 视图用更宽的面板
+            // diff 视图：用固定 h-[]（而非 max-h-[]）撑出确定高度。
+            // 原因：只给 max-height 时，容器自身高度是"content-auto、被 max-height 封顶"，
+            // 当内容自然高度还没超过 85vh（比如只有二三十行差异）时 max-height 根本不会触发钳制，
+            // 子级 flex-1/h-full 链条就拿不到一个"确定"的高度基准，
+            // 导致内部 overflow-auto 面板既不裁剪也不出滚动条——多出来的行只是被外层
+            // fixed 视口边缘悄悄裁掉，观感上就是"滚动条消失了"。
+            // 固定 h-[85vh] 让高度在所有内容量下都是确定值，flex-1/h-full 链路能可靠地
+            // 逐级传递下去，双栏 overflow-auto 才能正常出滚动条。
+            ? 'h-[85vh] w-full max-w-5xl'   // diff 视图用更宽的面板
             : 'max-h-[75vh] w-full max-w-lg',
         )}
         onClick={e => e.stopPropagation()}

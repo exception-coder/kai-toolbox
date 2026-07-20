@@ -213,7 +213,7 @@ export function SideBySideDiff({ diff, truncated, className }: Props) {
         <div
           ref={leftRef}
           onScroll={onScrollLeft}
-          className="w-1/2 overflow-auto border-r border-[var(--color-border)]"
+          className="min-h-0 w-1/2 min-w-0 overflow-auto border-r border-[var(--color-border)]"
         >
           {rows.map(row => (
             <div key={row.id}>
@@ -224,7 +224,7 @@ export function SideBySideDiff({ diff, truncated, className }: Props) {
         <div
           ref={rightRef}
           onScroll={onScrollRight}
-          className="w-1/2 overflow-auto"
+          className="min-h-0 w-1/2 min-w-0 overflow-auto"
         >
           {rows.map(row => (
             <div key={row.id}>
