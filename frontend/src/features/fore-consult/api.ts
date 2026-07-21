@@ -103,3 +103,32 @@ export function listWorkspaces() {
 export function fetchProjectModules(path: string) {
   return http<ProjectModules>(`/claude-chat/workspaces/modules?path=${encodeURIComponent(path)}`)
 }
+
+// ── 业务系统展示偏好（别名 + 过滤 + 排序），本模块自有，覆盖工作区项目的呈现 ──────────
+
+export interface SystemPrefView {
+  systemName: string
+  systemSourcePath: string | null
+  alias: string | null
+  visible: boolean
+  sortOrder: number
+}
+
+export interface SaveSystemPrefItem {
+  systemName: string
+  systemSourcePath?: string | null
+  alias?: string | null
+  visible?: boolean
+  sortOrder?: number
+}
+
+export function listSystemPrefs() {
+  return http<SystemPrefView[]>('/fore-consult/system-prefs')
+}
+
+export function saveSystemPrefs(prefs: SaveSystemPrefItem[]) {
+  return http<SystemPrefView[]>('/fore-consult/system-prefs', {
+    method: 'PUT',
+    body: JSON.stringify({ prefs }),
+  })
+}

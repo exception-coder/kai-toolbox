@@ -32,3 +32,15 @@ CREATE TABLE IF NOT EXISTS consult_turn (
 CREATE INDEX IF NOT EXISTS idx_consult_session_created ON consult_session(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_consult_session_user    ON consult_session(user_id);
 CREATE INDEX IF NOT EXISTS idx_consult_turn_session    ON consult_turn(session_id, turn_index);
+
+-- 业务系统展示偏好：对工作台接口传来的项目做「别名 + 过滤 + 排序」的呈现层覆盖。
+-- 只存被定制过的系统；无记录的系统默认可见、用原名。系统字典仍来自 claude-chat workspaces，本表不复制字典。
+-- system_name 作为身份键（与前端 projects 去重后的 name 一致）。visible: 1 显示 | 0 过滤隐藏。
+CREATE TABLE IF NOT EXISTS consult_system_pref (
+    system_name         TEXT    PRIMARY KEY,              -- 系统原名（工作区项目名，身份键）
+    system_source_path  TEXT,                             -- 源码路径快照（仅供配置界面展示/追溯）
+    alias               TEXT,                             -- 业务别名（为空则用原名）
+    visible             INTEGER NOT NULL DEFAULT 1,       -- 1 显示 | 0 过滤隐藏
+    sort_order          INTEGER NOT NULL DEFAULT 0,       -- 排序权重，小的靠前
+    updated_at          INTEGER NOT NULL
+);

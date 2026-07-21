@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { History, Loader2, Radar, Send, Sparkles, Trash2, X } from 'lucide-react'
+import { Eye, EyeOff, History, Loader2, Radar, Save, Send, SlidersHorizontal, Sparkles, Trash2, X } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import type { ChatItem } from '@/features/claude-chat/types'
@@ -10,10 +10,13 @@ import {
   fetchProjectModules,
   linkDevSession,
   listConsults,
+  listSystemPrefs,
   listWorkspaces,
+  saveSystemPrefs,
   startConsult,
   type ArchiveTurnItem,
   type ConsultSessionView,
+  type SaveSystemPrefItem,
 } from '../api'
 import '../styles/space.css'
 
@@ -82,6 +85,8 @@ export function ForeConsultPage() {
   const [ask, setAsk] = useState('')
   const [panelOpen, setPanelOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [configOpen, setConfigOpen] = useState(false)
+  const [configRows, setConfigRows] = useState<Array<{ name: string; path: string; alias: string; visible: boolean }>>([])
   const [activeConsultId, setActiveConsultId] = useState<string | null>(null)
 
   const pendingRef = useRef<{ cwd: string; seed: string; displayText: string; consultId: string } | null>(null)
@@ -101,7 +106,25 @@ export function ForeConsultPage() {
     return out.sort((a, b) => a.name.localeCompare(b.name, 'zh'))
   }, [workspaces])
 
-  const layout = useMemo(() => orbLayout(projects.length), [projects.length])
+  const { data: prefs } = useQuery({ queryKey: ['fore-consult-system-prefs'], queryFn: listSystemPrefs })
+  const prefMap = useMemo(() => {
+    const m = new Map<string, { alias: string | null; visible: boolean; sortOrder: number }>()
+    for (const p of prefs ?? []) m.set(p.systemName, { alias: p.alias, visible: p.visible, sortOrder: p.sortOrder })
+    return m
+  }, [prefs])
+
+  /** 应用别名：无别名回退原名。 */
+  const displayName = useCallback((name: string) => prefMap.get(name)?.alias?.trim() || name, [prefMap])
+
+  // 星图只渲染「未被隐藏」的系统，按 (sortOrder, 展示名) 排序；无偏好记录默认可见。
+  const visibleProjects = useMemo(() => {
+    return projects
+      .filter((p) => prefMap.get(p.name)?.visible !== false)
+      .map((p) => ({ ...p, label: displayName(p.name), sortOrder: prefMap.get(p.name)?.sortOrder ?? 0 }))
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label, 'zh'))
+  }, [projects, prefMap, displayName])
+
+  const layout = useMemo(() => orbLayout(visibleProjects.length), [visibleProjects.length])
 
   const stars = useMemo(() => {
     let s = 20260721
@@ -194,6 +217,36 @@ export function ForeConsultPage() {
     },
   })
 
+  const saveConfigMutation = useMutation({
+    mutationFn: async () => {
+      const payload: SaveSystemPrefItem[] = configRows.map((r, i) => ({
+        systemName: r.name,
+        systemSourcePath: r.path,
+        alias: r.alias.trim() || null,
+        visible: r.visible,
+        sortOrder: i,
+      }))
+      return saveSystemPrefs(payload)
+    },
+    onSuccess: () => {
+      setConfigOpen(false)
+      qc.invalidateQueries({ queryKey: ['fore-consult-system-prefs'] })
+    },
+  })
+
+  const openConfig = () => {
+    // 用全部工作区项目（含当前被隐藏的）铺初始行，套上已保存的别名/可见性。
+    setConfigRows(
+      projects
+        .map((p) => {
+          const pref = prefMap.get(p.name)
+          return { name: p.name, path: p.path, alias: pref?.alias ?? '', visible: pref?.visible !== false, sortOrder: pref?.sortOrder ?? 0 }
+        })
+        .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'zh')),
+    )
+    setConfigOpen(true)
+  }
+
   const openSystem = (name: string) => {
     if (activeConsultId) return // 有咨询进行中时，先归档再开新的
     setSystem(name)
@@ -247,14 +300,25 @@ export function ForeConsultPage() {
             <p className="text-xs text-indigo-200/60">点击一颗资产星球，选定模块后向 AI 发起业务咨询</p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => setHistoryOpen((o) => !o)}
-          className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-indigo-300/25 bg-white/5 px-3 py-1.5 text-xs text-indigo-100 backdrop-blur-md transition-colors hover:bg-white/10"
-        >
-          <History className="size-3.5" />
-          历史咨询 {(history ?? []).length > 0 && `· ${(history ?? []).length}`}
-        </button>
+        <div className="pointer-events-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={openConfig}
+            className="flex items-center gap-1.5 rounded-full border border-indigo-300/25 bg-white/5 px-3 py-1.5 text-xs text-indigo-100 backdrop-blur-md transition-colors hover:bg-white/10"
+            title="管理系统别名与显示范围"
+          >
+            <SlidersHorizontal className="size-3.5" />
+            配置
+          </button>
+          <button
+            type="button"
+            onClick={() => setHistoryOpen((o) => !o)}
+            className="flex items-center gap-1.5 rounded-full border border-indigo-300/25 bg-white/5 px-3 py-1.5 text-xs text-indigo-100 backdrop-blur-md transition-colors hover:bg-white/10"
+          >
+            <History className="size-3.5" />
+            历史咨询 {(history ?? []).length > 0 && `· ${(history ?? []).length}`}
+          </button>
+        </div>
       </header>
 
       {/* 进行中横幅 */}
@@ -283,8 +347,15 @@ export function ForeConsultPage() {
           <div className="flex h-full items-center justify-center text-sm text-indigo-200/60">
             未扫描到业务系统（检查 claude-chat 工作区配置）
           </div>
+        ) : visibleProjects.length === 0 ? (
+          <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-indigo-200/60">
+            所有系统都被隐藏了
+            <button type="button" onClick={openConfig} className="rounded-full border border-indigo-300/30 bg-white/5 px-3 py-1.5 text-xs text-indigo-100 hover:bg-white/10">
+              打开配置调整显示范围
+            </button>
+          </div>
         ) : (
-          projects.map((p, i) => {
+          visibleProjects.map((p, i) => {
             const h = hashStr(p.name)
             const hue = ORB_HUES[h % ORB_HUES.length]
             const size = 52 + (h % 34)
@@ -305,7 +376,7 @@ export function ForeConsultPage() {
                   type="button"
                   onClick={() => openSystem(p.name)}
                   disabled={!!activeConsultId && system !== p.name}
-                  aria-label={p.name}
+                  aria-label={p.label}
                   className="fc-orb disabled:cursor-not-allowed disabled:opacity-40"
                   style={{
                     width: size,
@@ -314,7 +385,7 @@ export function ForeConsultPage() {
                     ['--fc-orbit-dur' as string]: `${12 + (h % 8)}s`,
                   }}
                 />
-                <span className="fc-orb-label">{p.name}</span>
+                <span className="fc-orb-label">{p.label}</span>
               </div>
             )
           })
@@ -332,7 +403,7 @@ export function ForeConsultPage() {
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <Sparkles className="size-4 text-sky-300" />
-                  <h2 className="truncate text-lg font-semibold text-white">{system}</h2>
+                  <h2 className="truncate text-lg font-semibold text-white">{displayName(system)}</h2>
                 </div>
                 <p className="mt-0.5 truncate text-xs text-indigo-200/50">{systemPath || '（自由输入的系统，无源码路径）'}</p>
               </div>
@@ -427,7 +498,7 @@ export function ForeConsultPage() {
                   <li key={s.sessionId} className="rounded-xl border border-indigo-300/15 bg-white/[0.03] px-3.5 py-3">
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex min-w-0 items-center gap-2">
-                        <span className="truncate text-sm font-medium text-white">{s.systemName}</span>
+                        <span className="truncate text-sm font-medium text-white">{displayName(s.systemName)}</span>
                         <ArchiveBadge status={s.archiveStatus} />
                       </div>
                       <button type="button" onClick={() => onDelete(s)} className="shrink-0 rounded-lg p-1 text-indigo-200/50 hover:bg-white/10 hover:text-red-300" aria-label="删除">
@@ -444,6 +515,71 @@ export function ForeConsultPage() {
                 ))}
               </ul>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 配置抽屉：别名 + 过滤 */}
+      {configOpen && (
+        <div className="fc-backdrop absolute inset-0 z-40 flex justify-end" onClick={() => setConfigOpen(false)}>
+          <div className="fc-panel flex h-full w-[min(460px,calc(100vw-2rem))] flex-col rounded-l-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-indigo-300/15 p-5">
+              <div>
+                <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
+                  <SlidersHorizontal className="size-4 text-sky-300" /> 系统别名与显示
+                </h2>
+                <p className="mt-0.5 text-xs text-indigo-200/50">取消勾选可从星图隐藏；别名为空则用原名。</p>
+              </div>
+              <button type="button" onClick={() => setConfigOpen(false)} className="rounded-lg p-1.5 text-indigo-200/70 hover:bg-white/10" aria-label="关闭">
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4">
+              {configRows.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-indigo-300/20 p-6 text-center text-sm text-indigo-200/40">未扫描到业务系统</p>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {configRows.map((r, idx) => (
+                    <li key={r.name} className={`flex items-center gap-2.5 rounded-xl border border-indigo-300/15 bg-white/[0.03] px-3 py-2.5 ${r.visible ? '' : 'opacity-55'}`}>
+                      <button
+                        type="button"
+                        onClick={() => setConfigRows((rows) => rows.map((x, i) => (i === idx ? { ...x, visible: !x.visible } : x)))}
+                        className={`shrink-0 rounded-lg p-1.5 transition-colors ${r.visible ? 'text-sky-300 hover:bg-white/10' : 'text-indigo-200/40 hover:bg-white/5'}`}
+                        title={r.visible ? '点击隐藏' : '点击显示'}
+                        aria-label={r.visible ? '隐藏' : '显示'}
+                      >
+                        {r.visible ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
+                      </button>
+                      <div className="min-w-0 flex-1">
+                        <input
+                          value={r.alias}
+                          onChange={(e) => setConfigRows((rows) => rows.map((x, i) => (i === idx ? { ...x, alias: e.target.value } : x)))}
+                          placeholder={r.name}
+                          className="fc-glass-input w-full rounded-lg px-2.5 py-1.5 text-sm"
+                        />
+                        <div className="mt-1 truncate text-[11px] text-indigo-200/40">原名：{r.name}</div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-indigo-300/15 p-4">
+              <button type="button" onClick={() => setConfigOpen(false)} className="rounded-xl px-4 py-2 text-sm text-indigo-200/70 hover:bg-white/5">
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => saveConfigMutation.mutate()}
+                disabled={saveConfigMutation.isPending}
+                className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-sky-400 to-indigo-500 px-5 py-2 text-sm font-medium text-white shadow-[0_8px_30px_-8px_rgba(99,102,241,0.8)] transition-transform hover:scale-[1.03] disabled:opacity-50"
+              >
+                {saveConfigMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                保存配置
+              </button>
+            </div>
           </div>
         </div>
       )}
