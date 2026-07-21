@@ -49,6 +49,8 @@ public record PrdSessionView(
          * 用于追溯"这版为什么长这样"。见 {@link DevDocHistoryEntryView} 各字段说明。
          */
         List<DevDocHistoryEntryView> devDocHistory,
+        /** AI 工时评估结果，尚未评估过时为 null。见 {@link DevDocEstimationView} 各字段说明。 */
+        DevDocEstimationView devDocEstimation,
         String errorMsg,
         long createdAt,
         long updatedAt
@@ -68,7 +70,27 @@ public record PrdSessionView(
      */
     public record DevDocHistoryEntryView(int version, String mode, String extraInstructions, long generatedAt) {}
 
-    /** 从领域对象转换为视图，自动解析 questions / devDocHistory JSON。 */
+    /**
+     * AI 工时评估结果（对应当前这份开发文档，开发文档一定基于最新 PRD 生成，见
+     * {@code PrdClarifyService#generateDevDoc}）。
+     *
+     * @param hoursMin    预估最少小时数
+     * @param hoursMax    预估最多小时数
+     * @param confidence  评估信心：LOW | MEDIUM | HIGH
+     * @param reasoning   整体评估依据（2-4 句话）
+     * @param breakdown   按功能点/模块拆解的工时明细
+     * @param estimatedAt 评估时间戳（毫秒）
+     * @param stale       true 表示开发文档在这次评估之后又重新生成/更新过，工时可能已经不准，
+     *                     建议重新评估（estimatedAt 早于 devDocGeneratedAt 时为 true）
+     */
+    public record DevDocEstimationView(
+            int hoursMin, int hoursMax, String confidence, String reasoning,
+            List<EstimationBreakdownItemView> breakdown, long estimatedAt, boolean stale) {}
+
+    /** 工时拆解明细的一项。 */
+    public record EstimationBreakdownItemView(String item, double hours) {}
+
+    /** 从领域对象转换为视图，自动解析 questions / devDocHistory / devDocEstimation JSON。 */
     public static PrdSessionView from(PrdSession s) {
         return new PrdSessionView(
                 s.getId(), s.getTitle(), s.getProject(), s.getModule(),
@@ -79,6 +101,7 @@ public record PrdSessionView(
                 parseQuestions(s.getQuestions()),
                 s.getMdPath(), s.getDevDocPath(), s.getDevSessionId(), s.getDevDocGeneratedAt(),
                 parseDevDocHistory(s.getDevDocHistory()),
+                parseDevDocEstimation(s.getDevDocEstimation(), s.getDevDocGeneratedAt()),
                 s.getErrorMsg(), s.getCreatedAt(), s.getUpdatedAt());
     }
 
@@ -126,6 +149,39 @@ public record PrdSessionView(
         } catch (Exception e) {
             log.warn("[prd-clarify] devDocHistory JSON 解析失败: {}", e.getMessage());
             return List.of();
+        }
+    }
+
+    /**
+     * 解析工时评估 JSON。devDocGeneratedAt 用于判断评估是否已过期（开发文档在评估之后
+     * 又重新生成过）：devDocGeneratedAt 为 null（尚未生成开发文档）时不算过期，
+     * 避免评估结果本身正常但因为没有对照时间而被误标过期。
+     */
+    private static DevDocEstimationView parseDevDocEstimation(String json, Long devDocGeneratedAt) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode node = MAPPER.readTree(json);
+            if (!node.isObject()) {
+                return null;
+            }
+            long estimatedAt = node.path("estimatedAt").asLong(0);
+            boolean stale = devDocGeneratedAt != null && estimatedAt < devDocGeneratedAt;
+            List<EstimationBreakdownItemView> breakdown = new ArrayList<>();
+            for (JsonNode item : node.path("breakdown")) {
+                breakdown.add(new EstimationBreakdownItemView(
+                        item.path("item").asText(""), item.path("hours").asDouble(0)));
+            }
+            return new DevDocEstimationView(
+                    node.path("hoursMin").asInt(0),
+                    node.path("hoursMax").asInt(0),
+                    node.path("confidence").asText("MEDIUM"),
+                    node.path("reasoning").asText(""),
+                    breakdown, estimatedAt, stale);
+        } catch (Exception e) {
+            log.warn("[prd-clarify] devDocEstimation JSON 解析失败: {}", e.getMessage());
+            return null;
         }
     }
 }

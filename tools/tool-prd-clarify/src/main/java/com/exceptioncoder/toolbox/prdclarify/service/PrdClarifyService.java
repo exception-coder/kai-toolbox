@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -320,6 +321,7 @@ public class PrdClarifyService {
     private final PrdFileStore fileStore;
     private final ObjectMapper mapper;
     private final GraphifyQueryService graphifyQuery;
+    private final DomainKnowledgeQueryService domainKnowledgeQuery;
 
     /**
      * 多轮澄清（最多 5 轮）会话内的图谱查询结果缓存：question（session 标题）在各轮间不变，
@@ -332,12 +334,14 @@ public class PrdClarifyService {
                              PrdSessionRepository repo,
                              PrdFileStore fileStore,
                              ObjectMapper mapper,
-                             GraphifyQueryService graphifyQuery) {
+                             GraphifyQueryService graphifyQuery,
+                             DomainKnowledgeQueryService domainKnowledgeQuery) {
         this.agentRunner = agentRunner;
         this.repo = repo;
         this.fileStore = fileStore;
         this.mapper = mapper;
         this.graphifyQuery = graphifyQuery;
+        this.domainKnowledgeQuery = domainKnowledgeQuery;
     }
 
     /** 创建会话并持久化，返回新建的会话对象。 */
@@ -725,6 +729,37 @@ public class PrdClarifyService {
             """;
 
     /**
+     * 工时评估系统 prompt：基于 PRD + 开发文档（+ 可选的代码/业务知识图谱查询结果）估算开发工时。
+     * 严格要求单行/纯 JSON 输出，便于确定性解析；解析失败时上层直接报错让用户重试（不像
+     * {@link #classifyReqType} 那样静默兜底——这是用户主动点按钮触发的动作，兜底出一个随意数字
+     * 反而会误导，不如明确告知失败）。
+     */
+    private static final String EFFORT_ESTIMATE_SYSTEM = """
+            你是资深技术负责人，需要基于 PRD 和开发文档评估这个需求的开发工时，单位统一用「小时」。
+
+            评估依据（按优先级）：
+            1. 开发文档里列出的改动范围——新增/调整的模块、接口、表结构、前后端工作量，是主要依据
+            2. 若提供了【代码知识图谱查询结果】：参考其中揭示的既有代码复杂度/依赖广度，
+               依赖越广、既有实现越复杂，估时应适当上浮
+            3. 若提供了【业务知识图谱查询结果】：参考其中沉淀的业务规则复杂度（如涉及的计价公式、
+               状态机、跨系统一致性要求），规则越复杂，估时应适当上浮
+            4. 若提供了【补充上下文】（如团队人力、技术栈熟悉度）：按其调整整体估时
+
+            输出要求（严格执行）：
+            - 只输出一个 JSON 对象，不要 markdown 代码块围栏、不要任何解释性文字
+            - 给出区间 hoursMin ~ hoursMax（而非单一数字），区间宽度反映不确定性，
+              不确定性越高区间越宽
+            - confidence 取 LOW/MEDIUM/HIGH，反映你对这次估算的信心
+              （PRD/开发文档信息越完整、图谱命中越多，信心越高）
+            - breakdown 按开发文档里的功能点/模块拆解，3-8 项为宜，不要拆得过细，
+              每项给出预估小时数（单一数字，不需要再给区间）
+            - reasoning 用 2-4 句话说明整体评估依据
+
+            JSON 结构：
+            {"hoursMin":数字,"hoursMax":数字,"confidence":"LOW|MEDIUM|HIGH","reasoning":"...","breakdown":[{"item":"...","hours":数字}]}
+            """;
+
+    /**
      * 开发文档更新前的多轮澄清——请求下一个问题，用法和语义对齐 {@link #askNextQuestion}。
      * 当前无开发文档可澄清（异常场景，正常应该先有文档才谈得上"更新"）时直接判完成，
      * 交给调用方（前端）退回走 generateDevDoc 的从零生成分支。
@@ -1069,6 +1104,114 @@ public class PrdClarifyService {
                 java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
         // 手动编辑保存也更新生成时间，确保过期判断正确
         repo.updateDevDocGeneratedAt(sessionId, System.currentTimeMillis());
+    }
+
+    // ───── 工时评估 ─────
+
+    /**
+     * AI 工时评估：基于当前 PRD + 当前开发文档（开发文档一定基于最新 PRD 生成，见
+     * {@link #generateDevDoc}，因此只需读这两份当前内容，不需要额外关联版本），结合代码/业务
+     * 知识图谱查询结果，调一次 oneShot LLM 给出工时区间估算，落库到 {@code dev_doc_estimation}。
+     *
+     * <p>与 {@link #classifyReqType} 的兜底策略不同：这是用户主动点按钮触发的动作，LLM 输出
+     * 解析失败时直接抛异常让请求报错，不用随意兜底值掩盖失败（兜底出的数字反而会误导决策）。</p>
+     *
+     * @param extraContext 用户在确认弹框里补充的上下文（如团队人力、技术栈熟悉度），可为空
+     * @throws IllegalStateException 尚未生成开发文档，或 LLM 输出解析失败
+     */
+    public PrdSession estimateDevDocEffort(String sessionId, String extraContext) {
+        PrdSession session = repo.findById(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
+        String prdContent;
+        String devDocContent;
+        try {
+            prdContent = fileStore.read(sessionId);
+            devDocContent = readDevDocContent(sessionId);
+        } catch (IOException e) {
+            throw new IllegalStateException("读取 PRD/开发文档失败: " + e.getMessage(), e);
+        }
+        if (devDocContent == null || devDocContent.isBlank()) {
+            throw new IllegalStateException("请先生成开发文档后再评估工时");
+        }
+        String userPrompt = buildEffortEstimatePrompt(session, prdContent, devDocContent, extraContext);
+        String raw = agentRunner.runOnce(EFFORT_ESTIMATE_SYSTEM, userPrompt, session.getModel());
+        String estimationJson = parseAndBuildEstimationJson(raw);
+        repo.updateDevDocEstimation(sessionId, estimationJson);
+        return repo.findById(sessionId).orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
+    }
+
+    private String buildEffortEstimatePrompt(PrdSession s, String prdContent, String devDocContent, String extraContext) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("需求标题：").append(s.getTitle()).append("\n");
+        if (s.getProject() != null && !s.getProject().isBlank()) {
+            sb.append("项目：").append(s.getProject());
+            if (s.getModule() != null && !s.getModule().isBlank()) {
+                sb.append(" / ").append(s.getModule());
+            }
+            sb.append("\n");
+        }
+        sb.append("\n【PRD 内容】\n").append(prdContent == null ? "" : prdContent).append("\n");
+        sb.append("\n【开发文档内容】（已基于最新 PRD 生成，以此为准做工时拆解）\n").append(devDocContent).append("\n");
+        if (extraContext != null && !extraContext.isBlank()) {
+            sb.append("\n【补充上下文】\n").append(extraContext.trim()).append("\n");
+        }
+        appendGraphContext(sb, Optional.ofNullable(graphifyQuery.query(s.getProject(), s.getModule(), s.getTitle())));
+        appendDomainContext(sb, Optional.ofNullable(domainKnowledgeQuery.query(s.getProject(), s.getTitle())));
+        sb.append("\n请基于以上信息评估开发工时，严格按系统提示的 JSON 结构输出。");
+        return sb.toString();
+    }
+
+    /** 把业务知识图谱查询结果（若有）拼进 prompt，跟 {@link #appendGraphContext}（代码知识图谱）并列。 */
+    private void appendDomainContext(StringBuilder sb, Optional<String> domainContext) {
+        if (domainContext.isEmpty() || domainContext.get().isBlank()) {
+            return;
+        }
+        sb.append("\n【业务知识图谱查询结果】（系统已直接检索 project-domain-knowledge 库，内容为团队沉淀的业务真理，可信）\n");
+        sb.append(domainContext.get()).append("\n");
+    }
+
+    /**
+     * 解析 LLM 返回的工时评估 JSON，做字段校验/归一化并补上 estimatedAt。解析失败（LLM 没按
+     * 要求输出 JSON）时直接抛异常，不做兜底——评估失败应该让用户看到并重试，而不是塞一个
+     * 随意的默认工时误导决策。
+     */
+    private String parseAndBuildEstimationJson(String raw) {
+        String cleaned = stripFence(raw == null ? "" : raw.trim());
+        JsonNode node;
+        try {
+            node = mapper.readTree(cleaned);
+        } catch (Exception e) {
+            throw new IllegalStateException("工时评估结果解析失败，请重试: " + e.getMessage(), e);
+        }
+        if (!node.isObject()) {
+            throw new IllegalStateException("工时评估结果格式不正确，请重试");
+        }
+        int hoursMin = Math.max(0, node.path("hoursMin").asInt(0));
+        int hoursMax = Math.max(hoursMin, node.path("hoursMax").asInt(hoursMin));
+        String confidence = node.path("confidence").asText("MEDIUM").toUpperCase();
+        if (!Set.of("LOW", "MEDIUM", "HIGH").contains(confidence)) {
+            confidence = "MEDIUM";
+        }
+
+        ObjectNode result = mapper.createObjectNode();
+        result.put("hoursMin", hoursMin);
+        result.put("hoursMax", hoursMax);
+        result.put("confidence", confidence);
+        result.put("reasoning", node.path("reasoning").asText(""));
+        ArrayNode breakdown = mapper.createArrayNode();
+        for (JsonNode item : node.path("breakdown")) {
+            ObjectNode b = mapper.createObjectNode();
+            b.put("item", item.path("item").asText(""));
+            b.put("hours", item.path("hours").asDouble(0));
+            breakdown.add(b);
+        }
+        result.set("breakdown", breakdown);
+        result.put("estimatedAt", System.currentTimeMillis());
+        try {
+            return mapper.writeValueAsString(result);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("工时评估结果序列化失败: " + e.getMessage(), e);
+        }
     }
 
     private String buildDevDocPrompt(PrdSession s, String prdContent, String extraInstructions) {

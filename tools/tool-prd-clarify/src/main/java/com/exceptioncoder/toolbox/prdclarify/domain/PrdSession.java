@@ -47,6 +47,14 @@ public class PrdSession {
      * 用于追溯每一版开发文档是基于什么补充说明/更新澄清生成的。
      */
     private String devDocHistory;
+    /**
+     * AI 工时评估结果，JSON 字符串，格式
+     * {@code {hoursMin,hoursMax,confidence,reasoning,breakdown:[{item,hours}],estimatedAt}}，
+     * 可为 null（尚未评估过）。开发文档一定基于最新 PRD 生成，故只对应「当前」这一份开发文档，
+     * 不像 devDocHistory 那样按版本存多份——重新生成/更新开发文档后旧评估仍保留在库里，
+     * 但 PrdSessionView 会用 estimatedAt 早于 devDocGeneratedAt 标出「已过期」。
+     */
+    private String devDocEstimation;
     private String errorMsg;
     private long createdAt;
     private long updatedAt;

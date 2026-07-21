@@ -148,6 +148,17 @@ export const saveDevDocContent = (id: string, content: string) =>
     body: JSON.stringify({ content }),
   })
 
+/**
+ * AI 工时评估：基于当前 PRD + 当前开发文档（结合代码/业务知识图谱查询结果）评估开发工时。
+ * 同步阻塞请求（一次 oneShot LLM 调用，无 SSE），extraContext 是确认弹框里补充的上下文
+ * （如团队人力、技术栈熟悉度），可不传。返回更新后的会话详情（含最新 devDocEstimation）。
+ */
+export const estimateDevDocEffort = (id: string, extraContext?: string) =>
+  http<PrdSessionView>(`${BASE}/sessions/${id}/dev-doc/estimate`, {
+    method: 'POST',
+    body: JSON.stringify({ extraContext }),
+  })
+
 /** 关联 Vibe Coding 开发会话 ID 到 PRD 会话（由 claude-chat handoff handler 回写）。 */
 export const linkDevSession = (prdSessionId: string, devSessionId: string) =>
   http<{ ok: boolean }>(`/prd-clarify/sessions/${prdSessionId}/link-dev-session`, {

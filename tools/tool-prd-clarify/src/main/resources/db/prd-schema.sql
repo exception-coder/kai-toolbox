@@ -42,5 +42,10 @@ ALTER TABLE prd_session ADD COLUMN max_questions INTEGER NOT NULL DEFAULT 5;
 -- 详见 PrdSessionRepository 对应方法注释）。
 ALTER TABLE prd_session ADD COLUMN dev_doc_history TEXT;
 
+-- AI 工时评估结果：JSON {hoursMin,hoursMax,confidence,reasoning,breakdown:[{item,hours}],estimatedAt}。
+-- 只对应「当前」开发文档（开发文档一定基于最新 PRD 生成），不按版本存多份。故意不 touch
+-- updated_at（原因同 dev_doc_history）；是否过期由前端/视图层比较 estimatedAt 与 dev_doc_generated_at。
+ALTER TABLE prd_session ADD COLUMN dev_doc_estimation TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_prd_session_created ON prd_session(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_prd_session_status  ON prd_session(status);

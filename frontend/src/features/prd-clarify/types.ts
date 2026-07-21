@@ -49,6 +49,29 @@ export interface DevDocVersionSummary {
   qaHistory: { question: string; answer: string }[]
 }
 
+export type EstimationConfidence = 'LOW' | 'MEDIUM' | 'HIGH'
+
+export interface EstimationBreakdownItem {
+  item: string
+  hours: number
+}
+
+/**
+ * AI 工时评估结果（对应「当前」这份开发文档——开发文档一定基于最新 PRD 生成，所以评估
+ * 天然只需要挂在会话上，不用像 devDocHistory 那样按版本存多份）。
+ *
+ * stale=true 表示开发文档在这次评估之后又重新生成/更新过，工时可能已经不准，建议重新评估。
+ */
+export interface DevDocEstimation {
+  hoursMin: number
+  hoursMax: number
+  confidence: EstimationConfidence
+  reasoning: string
+  breakdown: EstimationBreakdownItem[]
+  estimatedAt: number
+  stale: boolean
+}
+
 export interface PrdSessionView {
   id: string
   title: string
@@ -72,6 +95,8 @@ export interface PrdSessionView {
   devDocGeneratedAt: number | null
   /** 开发文档生成历史（按发生顺序），每次生成/重新生成/更新都有一条记录 */
   devDocHistory: DevDocHistoryEntry[]
+  /** AI 工时评估结果，尚未评估过时为 null */
+  devDocEstimation: DevDocEstimation | null
   errorMsg: string | null
   createdAt: number
   updatedAt: number

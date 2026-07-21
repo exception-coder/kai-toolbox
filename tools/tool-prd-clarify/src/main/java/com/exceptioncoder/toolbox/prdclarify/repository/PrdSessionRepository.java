@@ -30,6 +30,7 @@ public class PrdSessionRepository {
             .devSessionId(rs.getString("dev_session_id"))
             .devDocGeneratedAt(rs.getObject("dev_doc_generated_at") == null ? null : rs.getLong("dev_doc_generated_at"))
             .devDocHistory(rs.getString("dev_doc_history"))
+            .devDocEstimation(rs.getString("dev_doc_estimation"))
             .model(rs.getString("model"))
             .errorMsg(rs.getString("error_msg"))
             .createdAt(rs.getLong("created_at"))
@@ -133,6 +134,15 @@ public class PrdSessionRepository {
      */
     public void updateTitle(String id, String title) {
         jdbc.update("UPDATE prd_session SET title = ? WHERE id = ?", title, id);
+    }
+
+    /**
+     * 更新 AI 工时评估结果（JSON 整体覆盖）。
+     * 纯衍生数据，故意不 touch {@code updated_at}（原因同 {@link #updateDevDocPath}）。
+     */
+    public void updateDevDocEstimation(String id, String devDocEstimationJson) {
+        jdbc.update("UPDATE prd_session SET dev_doc_estimation = ? WHERE id = ?",
+                devDocEstimationJson, id);
     }
 
     /** 标记错误状态。 */

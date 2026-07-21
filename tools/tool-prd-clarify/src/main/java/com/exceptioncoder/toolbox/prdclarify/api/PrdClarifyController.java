@@ -4,6 +4,7 @@ import com.exceptioncoder.toolbox.prdclarify.api.dto.AskNextDevDocQuestionReques
 import com.exceptioncoder.toolbox.prdclarify.api.dto.AskNextQuestionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.CreateSessionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.DevDocVersionSummary;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.EstimateEffortRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.GenerateDevDocRequest;
 import com.exceptioncoder.toolbox.prdclarify.service.AttachmentParseService;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.PrdSessionView;
@@ -48,6 +49,7 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
  *   <li>{@code POST   /sessions/{id}/generate}    — SSE：生成 PRD 文档</li>
  *   <li>{@code GET    /sessions/{id}/content}     — 读取 .md 文件</li>
  *   <li>{@code PUT    /sessions/{id}/content}     — 保存编辑后的 .md 文件</li>
+ *   <li>{@code POST   /sessions/{id}/dev-doc/estimate} — AI 工时评估</li>
  * </ul>
  */
 @RestController
@@ -315,6 +317,19 @@ public class PrdClarifyController {
                                                    @Valid @RequestBody SaveContentRequest req) throws IOException {
         service.saveDevDocContent(id, req.content());
         return ResponseEntity.ok().build();
+    }
+
+    /**
+     * AI 工时评估：基于当前 PRD + 当前开发文档（结合代码/业务知识图谱查询结果）评估开发工时。
+     * 同步阻塞调一次 oneShot LLM（用法与 {@code createSession} 里的需求类型自动判定一致），
+     * 结果落库后随会话详情一起返回，历史列表/开发文档 Tab 都从这里读。
+     */
+    @PostMapping("/sessions/{id}/dev-doc/estimate")
+    public PrdSessionView estimateEffort(@PathVariable String id,
+                                          @RequestBody(required = false) EstimateEffortRequest req) {
+        com.exceptioncoder.toolbox.prdclarify.domain.PrdSession updated =
+                service.estimateDevDocEffort(id, req == null ? null : req.extraContext());
+        return PrdSessionView.from(updated);
     }
 
     /** 测试用：获取 PRD 文件路径（方便定位文件）。 */

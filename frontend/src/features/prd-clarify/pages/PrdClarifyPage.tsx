@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { BotMessageSquare, Bug, ChevronRight, Code2, Copy, ExternalLink, FileText, GitBranch, Info, Layers, Loader2, Paperclip, Pencil, Plus, RefreshCw, Rocket, Send, Sparkles, Trash2, User, Wrench, X } from 'lucide-react'
+import { BotMessageSquare, Bug, ChevronRight, Clock, Code2, Copy, ExternalLink, FileText, GitBranch, Info, Layers, Loader2, Paperclip, Pencil, Plus, RefreshCw, Rocket, Send, Sparkles, Trash2, User, Wrench, X } from 'lucide-react'
 import { http } from '@/lib/api'
 import { Combobox } from '@/components/ui/combobox'
 import { MultiSelect } from '@/components/ui/multi-select'
@@ -16,6 +16,7 @@ import {
   autoRegisterToReqPool,
   createSession,
   deleteSession,
+  estimateDevDocEffort,
   getContent,
   getDevDocContent,
   getDevDocVersionContent,
@@ -35,7 +36,7 @@ import {
   type QaPair,
   type AttachmentParseResult,
 } from '../api'
-import type { DevDocVersionSummary, PrdReqType, PrdSessionView, PrdStep, QuestionItem } from '../types'
+import type { DevDocEstimation, DevDocVersionSummary, EstimationConfidence, PrdReqType, PrdSessionView, PrdStep, QuestionItem } from '../types'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 
 // 编辑器 lazy import — CodeMirror chunk 只在进入 EDITING 步骤时加载
@@ -311,6 +312,114 @@ function DevDocClarifyHistorySheet({
   )
 }
 
+// ───── AI 工时评估：紧凑徽标 + 详情抽屉 ─────
+const ESTIMATION_CONFIDENCE_LABEL: Record<EstimationConfidence, string> = { LOW: '低', MEDIUM: '中', HIGH: '高' }
+const ESTIMATION_CONFIDENCE_COLOR: Record<EstimationConfidence, string> = {
+  LOW: 'bg-gray-500/15 text-gray-400 border-gray-500/20',
+  MEDIUM: 'bg-blue-500/15 text-blue-400 border-blue-500/20',
+  HIGH: 'bg-green-500/15 text-green-500 border-green-500/20',
+}
+
+/** 工时评估紧凑徽标：历史列表 + 开发文档 Tab 工具栏共用，点击打开详情抽屉。 */
+function EstimationBadge({
+  estimation,
+  onClick,
+  compact,
+}: {
+  estimation: DevDocEstimation
+  onClick?: (e: React.MouseEvent) => void
+  compact?: boolean
+}) {
+  const colorClass = estimation.stale
+    ? 'bg-amber-500/15 text-amber-500 border-amber-500/20'
+    : ESTIMATION_CONFIDENCE_COLOR[estimation.confidence]
+  return (
+    <button
+      onClick={onClick}
+      className={`inline-flex items-center gap-1 rounded border leading-tight transition-colors ${colorClass} ${
+        compact ? 'text-[9px] px-1' : 'text-[10px] px-1.5 py-0.5'
+      } ${onClick ? 'hover:opacity-80 cursor-pointer' : 'cursor-default'}`}
+      title={
+        estimation.stale
+          ? '开发文档已更新，此评估可能已过期，建议重新评估'
+          : `AI 工时评估 · 信心：${ESTIMATION_CONFIDENCE_LABEL[estimation.confidence]}`
+      }
+    >
+      <Clock className={compact ? 'w-2.5 h-2.5' : 'w-3 h-3'} />
+      {estimation.hoursMin}-{estimation.hoursMax}h
+      {estimation.stale && <span>⚠</span>}
+    </button>
+  )
+}
+
+/** 工时评估详情抽屉：评估依据 + 按模块拆解的工时明细，只读展示。 */
+function EstimationDetailSheet({
+  estimation,
+  onClose,
+}: {
+  estimation: DevDocEstimation
+  onClose: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative w-full max-w-md bg-[var(--color-card)] border-l border-[var(--color-border)] flex flex-col shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-blue-400" />
+            <span className="font-semibold text-sm">AI 工时评估</span>
+          </div>
+          <button onClick={onClose} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {estimation.stale && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-500">
+              <span>⚠</span>
+              <span>开发文档在这次评估之后又重新生成/更新过，工时可能已经不准，建议重新评估</span>
+            </div>
+          )}
+          <div className="flex items-center gap-3">
+            <div className="text-2xl font-bold text-[var(--color-foreground)]">
+              {estimation.hoursMin}–{estimation.hoursMax} <span className="text-sm font-normal text-[var(--color-muted-foreground)]">小时</span>
+            </div>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded border leading-tight ${ESTIMATION_CONFIDENCE_COLOR[estimation.confidence]}`}>
+              信心：{ESTIMATION_CONFIDENCE_LABEL[estimation.confidence]}
+            </span>
+          </div>
+          {estimation.reasoning && (
+            <div>
+              <div className="text-[10px] font-semibold text-[var(--color-muted-foreground)] uppercase tracking-wide mb-1.5">评估依据</div>
+              <p className="text-sm text-[var(--color-foreground)] leading-relaxed bg-[var(--color-muted)]/30 rounded-xl p-3">
+                {estimation.reasoning}
+              </p>
+            </div>
+          )}
+          {estimation.breakdown.length > 0 && (
+            <div>
+              <div className="text-[10px] font-semibold text-[var(--color-muted-foreground)] uppercase tracking-wide mb-1.5">
+                工时拆解（{estimation.breakdown.length} 项）
+              </div>
+              <div className="space-y-1.5">
+                {estimation.breakdown.map((b, i) => (
+                  <div key={i} className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg border border-[var(--color-border)]/60 text-sm">
+                    <span className="text-[var(--color-foreground)]">{b.item}</span>
+                    <span className="text-[var(--color-muted-foreground)] flex-shrink-0">{b.hours}h</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="px-5 py-3 border-t border-[var(--color-border)] text-xs text-[var(--color-muted-foreground)]">
+          评估于 {new Date(estimation.estimatedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}，仅供参考，不代表实际排期承诺
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ───── 生成修订版 Dialog ─────
 function ReviseDialog({
   original,
@@ -469,6 +578,7 @@ function HistoryPanel({
   const confirm = useConfirm()
   const prompt = usePrompt()
   const [previewSession, setPreviewSession] = useState<PrdSessionView | null>(null)
+  const [viewingEstimation, setViewingEstimation] = useState<DevDocEstimation | null>(null)
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
@@ -501,6 +611,11 @@ function HistoryPanel({
       {/* 原始需求弹出卡片 */}
       {previewSession && (
         <RawInputCard session={previewSession} onClose={() => setPreviewSession(null)} />
+      )}
+
+      {/* AI 工时评估详情：历史列表里点徽标只读查看，评估动作在开发文档 Tab 工具栏 */}
+      {viewingEstimation && (
+        <EstimationDetailSheet estimation={viewingEstimation} onClose={() => setViewingEstimation(null)} />
       )}
 
       <div className="w-56 flex-shrink-0 border-r border-[var(--color-border)] flex flex-col overflow-hidden">
@@ -583,6 +698,14 @@ function HistoryPanel({
                         >
                           ↺ 更新
                         </button>
+                      )}
+                      {/* AI 工时评估徽标：只读展示，评估动作在开发文档 Tab 工具栏里触发 */}
+                      {s.devDocEstimation && (
+                        <EstimationBadge
+                          estimation={s.devDocEstimation}
+                          compact
+                          onClick={(e) => { e.stopPropagation(); setViewingEstimation(s.devDocEstimation) }}
+                        />
                       )}
                     </div>
                   )
@@ -946,6 +1069,79 @@ function GenerateDevDocDialog({
               className="px-4 py-1.5 rounded-md text-sm bg-purple-600 text-white hover:opacity-90"
             >
               {cfg.confirmLabel}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * 「AI 工时评估」确认弹框：触发前让用户补充一次性上下文（团队人力/技术栈熟悉度等），
+ * 结构上对齐 GenerateDevDocDialog（简单确认框 + 可选文本域），实际评估调用由调用方
+ * （EditingPanel）负责——这里只收集 extraContext。
+ */
+function EstimateEffortDialog({
+  loading,
+  error,
+  onConfirm,
+  onClose,
+}: {
+  loading: boolean
+  error?: string | null
+  onConfirm: (extraContext: string) => void
+  onClose: () => void
+}) {
+  const [text, setText] = useState('')
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-blue-400" />
+            <h3 className="font-semibold text-sm">AI 工时评估</h3>
+          </div>
+          <button onClick={onClose} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-3">
+          <p className="text-xs text-[var(--color-muted-foreground)] leading-relaxed">
+            将基于当前 PRD + 开发文档内容，结合代码知识图谱（依赖广度/既有复杂度）和业务知识图谱
+            （相关业务规则）给出工时区间估算，仅供参考。
+          </p>
+          <div>
+            <label className="block text-xs font-medium text-[var(--color-muted-foreground)] mb-2">
+              补充上下文（可选）—— 如团队人力、对该模块技术栈的熟悉程度
+            </label>
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={3}
+              placeholder="如：只有 1 名开发，对该模块代码不熟悉；或：团队已多次开发类似功能，比较熟练"
+              className="w-full px-3 py-2 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] text-sm resize-y focus:outline-none focus:ring-1 focus:ring-[var(--color-ring)]"
+            />
+          </div>
+          {error && (
+            <p className="text-xs text-red-500 bg-red-500/10 rounded-lg px-3 py-2">{error}</p>
+          )}
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              onClick={onClose}
+              disabled={loading}
+              className="px-3 py-1.5 rounded-md text-sm border border-[var(--color-border)] hover:bg-[var(--color-muted)]/30 disabled:opacity-50"
+            >
+              取消
+            </button>
+            <button
+              onClick={() => onConfirm(text.trim())}
+              disabled={loading}
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm bg-blue-600 text-white hover:opacity-90 disabled:opacity-60"
+            >
+              {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              {loading ? '评估中…' : '开始评估'}
             </button>
           </div>
         </div>
@@ -2320,6 +2516,7 @@ function EditingPanel({
   initialContent,
   hasDevDoc,
   isDevDocStale,
+  initialDevDocEstimation,
   onReset,
 }: {
   sessionId: string
@@ -2330,6 +2527,8 @@ function EditingPanel({
   hasDevDoc?: boolean
   /** 开发文档是否过期（PRD 在开发文档生成后有更新，需要重新生成） */
   isDevDocStale?: boolean
+  /** 从历史加载时该会话已有的 AI 工时评估结果（无则 null），评估/重新评估后本地状态覆盖它 */
+  initialDevDocEstimation?: DevDocEstimation | null
   onReset: () => void
 }) {
   const [content, setContent] = useState(initialContent)
@@ -2366,6 +2565,30 @@ function EditingPanel({
   const [showDevDocClarify, setShowDevDocClarify] = useState(false)
   /** 正在预览的历史版本；null 表示预览弹框未打开。isCurrent 由 DevDocHistorySheet 拉取时一并给出。 */
   const [viewingDevDocVersion, setViewingDevDocVersion] = useState<{ version: number; isCurrent: boolean } | null>(null)
+
+  // ── AI 工时评估：对应「当前」这份开发文档，评估/重新评估后用接口返回值整体覆盖本地状态 ──
+  const [devDocEstimation, setDevDocEstimation] = useState<DevDocEstimation | null>(initialDevDocEstimation ?? null)
+  const [showEstimateDialog, setShowEstimateDialog] = useState(false)
+  const [estimating, setEstimating] = useState(false)
+  const [estimateError, setEstimateError] = useState<string | null>(null)
+  const [showEstimationDetail, setShowEstimationDetail] = useState(false)
+
+  const qc = useQueryClient()
+  const handleEstimateEffort = async (extraContext: string) => {
+    setEstimating(true)
+    setEstimateError(null)
+    try {
+      const updated = await estimateDevDocEffort(sessionId, extraContext || undefined)
+      setDevDocEstimation(updated.devDocEstimation)
+      setShowEstimateDialog(false)
+      // 历史列表徽标依赖 ['prd-sessions'] 缓存，评估结果落在 EditingPanel 本地状态，主动刷新一下
+      qc.invalidateQueries({ queryKey: ['prd-sessions'] })
+    } catch (e) {
+      setEstimateError(e instanceof Error ? e.message : '工时评估失败，请重试')
+    } finally {
+      setEstimating(false)
+    }
+  }
 
   const handleGenerateDevDoc = (extraInstructions?: string, updateExisting?: boolean, qaHistory?: QaPair[]) => {
     setPanelMode('dev')   // 生成时切到开发文档全屏视图
@@ -2518,6 +2741,19 @@ function EditingPanel({
         />
       )}
 
+      {/* AI 工时评估确认弹框 + 详情抽屉 */}
+      {showEstimateDialog && (
+        <EstimateEffortDialog
+          loading={estimating}
+          error={estimateError}
+          onConfirm={handleEstimateEffort}
+          onClose={() => { if (!estimating) { setShowEstimateDialog(false); setEstimateError(null) } }}
+        />
+      )}
+      {showEstimationDetail && devDocEstimation && (
+        <EstimationDetailSheet estimation={devDocEstimation} onClose={() => setShowEstimationDetail(false)} />
+      )}
+
       {/* ─── 顶部 Tab + 操作栏 ─── */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--color-border)] bg-[var(--color-card)] gap-2">
 
@@ -2601,6 +2837,24 @@ function EditingPanel({
                 title="查看当前这版开发文档自己的澄清问答记录（跟 PRD 的澄清记录是两份独立数据）">
                 <BotMessageSquare className="w-3 h-3" /> 本版澄清
               </button>
+              {/* AI 工时评估：基于当前 PRD + 开发文档，结合代码/业务知识图谱评估工时区间。
+                  已评估过则展示徽标（点击查看详情），否则展示触发按钮；过期时徽标变橙色提示重新评估 */}
+              {devDocEstimation ? (
+                <>
+                  <EstimationBadge estimation={devDocEstimation} onClick={() => setShowEstimationDetail(true)} />
+                  <button onClick={() => setShowEstimateDialog(true)}
+                    className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[var(--color-muted-foreground)] hover:text-blue-400 hover:bg-blue-500/10 transition-colors"
+                    title="重新评估工时">
+                    <RefreshCw className="w-3 h-3" />
+                  </button>
+                </>
+              ) : (
+                <button onClick={() => setShowEstimateDialog(true)}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded text-[var(--color-muted-foreground)] hover:text-blue-400 hover:bg-blue-500/10 transition-colors"
+                  title="AI 基于 PRD + 开发文档评估开发工时">
+                  <Clock className="w-3 h-3" /> 评估工时
+                </button>
+              )}
             </>
           )}
         </div>
@@ -3278,6 +3532,7 @@ PRD_SESSION_ID: ${created.id}`
               !!(session?.devDocPath) &&
               (!session?.devDocGeneratedAt || session.devDocGeneratedAt < session.updatedAt)
             }
+            initialDevDocEstimation={session?.devDocEstimation ?? null}
             onReset={handleReset}
           />
         )}
