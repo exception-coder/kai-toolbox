@@ -20,6 +20,12 @@
             <groupId>com.exceptioncoder</groupId>
             <artifactId>toolbox-common</artifactId>
         </dependency>
+        <!-- AgentOneShotRunner 接口（一次性 headless Claude Agent 引擎）。实现由 tool-claude-chat 提供，
+             Spring 运行时（toolbox-starter 统一装载）自动注入；本模块用 ObjectProvider 可选注入以优雅降级。 -->
+        <dependency>
+            <groupId>com.exceptioncoder</groupId>
+            <artifactId>toolbox-llm</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>

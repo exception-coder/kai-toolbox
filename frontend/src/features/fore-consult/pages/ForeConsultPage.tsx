@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Eye, EyeOff, History, Loader2, Radar, Save, Send, SlidersHorizontal, Sparkles, Trash2, X } from 'lucide-react'
+import { Eye, EyeOff, History, Loader2, Radar, Save, Send, SlidersHorizontal, Sparkles, Trash2, Waypoints, X } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import type { ChatItem } from '@/features/claude-chat/types'
@@ -10,6 +10,7 @@ import {
   fetchProjectModules,
   linkDevSession,
   listConsults,
+  analyzeTopology,
   listSystemPrefs,
   listWorkspaces,
   saveSystemPrefs,
@@ -17,6 +18,7 @@ import {
   type ArchiveTurnItem,
   type ConsultSessionView,
   type SaveSystemPrefItem,
+  type TopoLink,
 } from '../api'
 import '../styles/space.css'
 
@@ -87,6 +89,7 @@ export function ForeConsultPage() {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [configOpen, setConfigOpen] = useState(false)
   const [configRows, setConfigRows] = useState<Array<{ name: string; path: string; alias: string; visible: boolean }>>([])
+  const [topoLinks, setTopoLinks] = useState<TopoLink[] | null>(null)
   const [activeConsultId, setActiveConsultId] = useState<string | null>(null)
 
   const pendingRef = useRef<{ cwd: string; seed: string; displayText: string; consultId: string } | null>(null)
@@ -125,6 +128,38 @@ export function ForeConsultPage() {
   }, [projects, prefMap, displayName])
 
   const layout = useMemo(() => orbLayout(visibleProjects.length), [visibleProjects.length])
+
+  // 系统名 → 星图坐标（%），用于在球体之间连线。
+  const posMap = useMemo(() => {
+    const m = new Map<string, { x: number; y: number }>()
+    visibleProjects.forEach((p, i) => layout[i] && m.set(p.name, layout[i]))
+    return m
+  }, [visibleProjects, layout])
+
+  // 链路边几何：二次贝塞尔轻微外弓，标签落在曲线中点。跳过端点已隐藏的边。
+  const edges = useMemo(() => {
+    return (topoLinks ?? [])
+      .map((l) => {
+        const a = posMap.get(l.from)
+        const b = posMap.get(l.to)
+        if (!a || !b) return null
+        const mx = (a.x + b.x) / 2
+        const my = (a.y + b.y) / 2
+        const dx = b.x - a.x
+        const dy = b.y - a.y
+        const len = Math.hypot(dx, dy) || 1
+        const k = Math.min(9, len * 0.16)
+        const cx = mx + (-dy / len) * k
+        const cy = my + (dx / len) * k
+        return {
+          link: l,
+          d: `M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}`,
+          lx: 0.25 * a.x + 0.5 * cx + 0.25 * b.x,
+          ly: 0.25 * a.y + 0.5 * cy + 0.25 * b.y,
+        }
+      })
+      .filter((e): e is NonNullable<typeof e> => e !== null)
+  }, [topoLinks, posMap])
 
   const stars = useMemo(() => {
     let s = 20260721
@@ -217,6 +252,11 @@ export function ForeConsultPage() {
     },
   })
 
+  const topoMutation = useMutation({
+    mutationFn: () => analyzeTopology(visibleProjects.map((p) => p.name)),
+    onSuccess: (d) => setTopoLinks(d.links),
+  })
+
   const saveConfigMutation = useMutation({
     mutationFn: async () => {
       const payload: SaveSystemPrefItem[] = configRows.map((r, i) => ({
@@ -303,6 +343,27 @@ export function ForeConsultPage() {
         <div className="pointer-events-auto flex items-center gap-2">
           <button
             type="button"
+            onClick={() => topoMutation.mutate()}
+            disabled={visibleProjects.length < 2 || topoMutation.isPending}
+            className="flex items-center gap-1.5 rounded-full border border-sky-300/30 bg-sky-400/10 px-3 py-1.5 text-xs text-sky-100 backdrop-blur-md transition-colors hover:bg-sky-400/20 disabled:opacity-40"
+            title="调用 cross-topology 图谱分析系统之间的链路关系"
+          >
+            {topoMutation.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Waypoints className="size-3.5" />}
+            {topoMutation.isPending ? '分析中…' : '分析链路'}
+          </button>
+          {topoLinks && (
+            <button
+              type="button"
+              onClick={() => setTopoLinks(null)}
+              className="flex items-center gap-1.5 rounded-full border border-indigo-300/25 bg-white/5 px-3 py-1.5 text-xs text-indigo-100 backdrop-blur-md transition-colors hover:bg-white/10"
+              title="清除连线"
+            >
+              <X className="size-3.5" />
+              连线 {topoLinks.length}
+            </button>
+          )}
+          <button
+            type="button"
             onClick={openConfig}
             className="flex items-center gap-1.5 rounded-full border border-indigo-300/25 bg-white/5 px-3 py-1.5 text-xs text-indigo-100 backdrop-blur-md transition-colors hover:bg-white/10"
             title="管理系统别名与显示范围"
@@ -340,6 +401,33 @@ export function ForeConsultPage() {
           </button>
         </div>
       )}
+
+      {/* 系统链路：发光连线（在球体之下） */}
+      {edges.length > 0 && (
+        <svg className="pointer-events-none absolute inset-0 z-[5] h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="fc-edge-grad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#38bdf8" />
+              <stop offset="100%" stopColor="#818cf8" />
+            </linearGradient>
+          </defs>
+          {edges.map((e, i) => (
+            <path key={i} className="fc-edge" d={e.d} vectorEffect="non-scaling-stroke" />
+          ))}
+        </svg>
+      )}
+
+      {/* 链路关系标签（在连线中点） */}
+      {edges.map((e, i) => (
+        <div
+          key={i}
+          className="fc-edge-label z-20"
+          style={{ left: `${e.lx}%`, top: `${e.ly}%` }}
+          title={e.link.description || `${e.link.from} → ${e.link.to}`}
+        >
+          {e.link.relation}
+        </div>
+      ))}
 
       {/* 星系：资产球体 */}
       <div className="absolute inset-0 z-10">

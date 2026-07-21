@@ -131,6 +131,34 @@
 .fc-glass-input::placeholder { color: rgba(200, 210, 255, 0.4); }
 .fc-glass-input:focus { outline: none; border-color: rgba(150, 175, 255, 0.6); box-shadow: 0 0 0 2px rgba(120, 150, 255, 0.25); }
 
+/* 系统间链路：发光连线 + 流动虚线 */
+.fc-edge {
+  fill: none;
+  stroke: url(#fc-edge-grad);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 6 9;
+  opacity: 0.85;
+  filter: drop-shadow(0 0 4px rgba(120, 180, 255, 0.55));
+  animation: fc-flow 1s linear infinite;
+}
+
+@keyframes fc-flow { to { stroke-dashoffset: -15; } }
+
+.fc-edge-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  font-size: 10px;
+  color: rgba(226, 236, 255, 0.9);
+  background: color-mix(in oklab, #0b1024 70%, transparent);
+  border: 1px solid rgba(140, 160, 255, 0.28);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .fc-star, .fc-orb-wrap, .fc-orb::after, .fc-orb-wrap.is-active .fc-orb { animation: none !important; }
+  .fc-star, .fc-orb-wrap, .fc-orb::after, .fc-orb-wrap.is-active .fc-orb, .fc-edge { animation: none !important; }
 }

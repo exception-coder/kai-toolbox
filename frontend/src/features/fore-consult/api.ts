@@ -132,3 +132,19 @@ export function saveSystemPrefs(prefs: SaveSystemPrefItem[]) {
     body: JSON.stringify({ prefs }),
   })
 }
+
+// ── 系统链路分析：调 Claude Agent 引擎 + cross-topology MCP 查系统间关系 ──────────────
+
+export interface TopoLink {
+  from: string
+  to: string
+  relation: string
+  description: string
+}
+
+export function analyzeTopology(systems: string[]) {
+  return http<{ links: TopoLink[] }>('/fore-consult/topology', {
+    method: 'POST',
+    body: JSON.stringify({ systems }),
+  })
+}
