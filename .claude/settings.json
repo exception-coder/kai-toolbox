@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__domain-knowledge__search_knowledge",
+      "mcp__domain-knowledge__get_knowledge",
+      "mcp__domain-knowledge__list_projects",
+      "mcp__domain-knowledge__list_modules",
+      "mcp__graphify-yoooni__query_graph"
+    ]
+  }
+}
