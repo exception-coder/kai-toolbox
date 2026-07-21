@@ -54,6 +54,7 @@
         <module>tools/tool-reqpool</module>
         <module>tools/tool-knowledge-graph</module>
         <module>tools/tool-webppt</module>
+        <module>tools/tool-fore-consult</module>
         <module>toolbox-starter</module>
     </modules>
 
@@ -269,6 +270,11 @@
             <dependency>
                 <groupId>com.exceptioncoder</groupId>
                 <artifactId>tool-knowledge-graph</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-fore-consult</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

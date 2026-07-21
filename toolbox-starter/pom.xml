@@ -158,6 +158,10 @@
         </dependency>
         <dependency>
             <groupId>com.exceptioncoder</groupId>
+            <artifactId>tool-fore-consult</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.exceptioncoder</groupId>
             <artifactId>tool-webppt</artifactId>
         </dependency>
 
