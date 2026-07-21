@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, Bug, ChevronDown, Cloud, EyeOff, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, List, ListChecks, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
+import { Bell, Bug, ChevronDown, Cloud, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, List, ListChecks, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useChatRuntime } from '../runtime/ChatRuntimeContext'
@@ -28,6 +28,7 @@ import { CommandMenu } from '../components/CommandMenu'
 import { PluginPanel } from '../components/PluginPanel'
 import { LogsPanel } from '../components/LogsPanel'
 import { GestureDebugPanel } from '../components/GestureDebugPanel'
+import { ExportSessionDialog } from '../components/ExportSessionDialog'
 import { ProviderDiagPanel } from '../components/ProviderDiagPanel'
 import { groupModels } from '../components/modelGroups'
 import { TaskspacePanel } from '../components/TaskspacePanel'
@@ -161,6 +162,7 @@ export function ChatPage() {
   // token 用应用内输入框收，不用 window.prompt：移动端浏览器/WebView 普遍禁用 prompt（静默返回 null）。
   const [showCommits, setShowCommits] = useState(false)
   const [showGitStatus, setShowGitStatus] = useState(false)
+  const [showExport, setShowExport] = useState(false)
   const [showLogs, setShowLogs] = useState(false)
   const [showGestureDebug, setShowGestureDebug] = useState(false)
   const [showDebug, setShowDebug] = useState(false)
@@ -797,6 +799,9 @@ export function ChatPage() {
                       <HeaderMenuItem nested icon={<RefreshCw className="size-4" />} label="重载会话" hint="重连原生会话，加载最新插件/技能/命令" onClick={() => { setHeaderMenu(false); chat.resumeCurrent() }} />
                     )}
                     <HeaderMenuItem nested icon={<Sparkles className="size-4" />} label="会话能力" hint="激活的技能 / 子代理 / MCP 服务" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'caps' ? 'none' : 'caps') }} />
+                    {chat.sessionId && (
+                      <HeaderMenuItem nested icon={<FileDown className="size-4" />} label="导出会话" hint="导出为 PDF/Word，含图片，发给同事/领导查看" onClick={() => { setHeaderMenu(false); setShowExport(true) }} />
+                    )}
                   </MenuSection>
                   <MenuSection icon={<FolderTree className="size-4" />} label="工作区 · 项目" open={menuGroup === 'workspace'} onToggle={() => toggle('workspace')}>
                     {chat.sessionId && (
@@ -1143,6 +1148,11 @@ export function ChatPage() {
           fetchFileDiff={(filePath, x) => fetchSessionGitFileDiff(chat.sessionId!, filePath, x)}
           onClose={() => setShowGitStatus(false)}
         />
+      )}
+
+      {/* 会话导出：PDF/Word（含图片），发给同事/领导查看 */}
+      {showExport && (
+        <ExportSessionDialog items={chat.items} sessionTitle={currentTitle || 'Vibe Coding 会话记录'} onClose={() => setShowExport(false)} />
       )}
 
       {/* 最新日志：后端内存缓冲（含透传的 sidecar 日志），排查时一键复制 */}
