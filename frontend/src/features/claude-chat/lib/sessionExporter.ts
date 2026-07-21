@@ -67,44 +67,51 @@ async function waitMermaidRendered(container: HTMLElement, timeoutMs = 4000): Pr
   }
 }
 
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.onload = () => resolve(img)
-    img.onerror = () => reject(new Error('截图加载失败'))
-    img.src = src
-  })
+function nextFrame(): Promise<void> {
+  return new Promise(resolve => requestAnimationFrame(() => resolve()))
 }
 
-/** 打印视图节点已渲染完成（图片/mermaid 均就绪）后，截图并按 A4 分页导出 PDF。 */
-export async function exportSessionAsPdf(node: HTMLElement, filename: string): Promise<void> {
+/** A4 纵向按 800px 内容宽换算出的单页高度（CSS px）。导出弹窗的"页面窗口"容器要用同一组尺寸。 */
+export const PAGE_W_PX = 800
+export const PAGE_H_PX = Math.round((PAGE_W_PX * 297) / 210)
+
+/**
+ * 打印视图节点已渲染完成（图片/mermaid 均就绪）后，逐页截图导出 PDF。
+ *
+ * 会话很长时（几十页）不能把整份内容一次性截成一张巨图再让 jsPDF 用负偏移"假分页"——
+ * 那张图的像素高度会轻松超过浏览器 canvas 的尺寸/内存上限（哪怕分辨率还在，超限后
+ * 也会被静默降质/花屏，即"马赛克"）。改成用一个固定 800×PAGE_H_PX 的"页面窗口"
+ * （overflow:hidden）套住内容节点，每页只把内容整体上移一页高度再单独截一次图——
+ * 每次截的画布都只有一页大小，不会再触顶限制，页数再多也一样清晰。
+ */
+export async function exportSessionAsPdf(pageWindow: HTMLElement, content: HTMLElement, filename: string): Promise<void> {
   await waitFontsReady()
-  await waitImagesLoaded(node)
-  await waitMermaidRendered(node)
+  await waitImagesLoaded(content)
+  await waitMermaidRendered(content)
 
-  const width = node.scrollWidth
-  const height = node.scrollHeight
-  const dataUrl = await toPng(node, {
-    pixelRatio: 2,
-    cacheBust: true,
-    width,
-    height,
-    canvasWidth: width,
-    canvasHeight: height,
-    backgroundColor: '#ffffff',
-  })
-
-  const img = await loadImage(dataUrl)
-  const PAGE_W_MM = 210
-  const PAGE_H_MM = 297
-  const totalHeightMm = (img.naturalHeight / img.naturalWidth) * PAGE_W_MM
-  const pageCount = Math.max(1, Math.ceil(totalHeightMm / PAGE_H_MM))
+  const totalHeight = content.scrollHeight
+  const pageCount = Math.max(1, Math.ceil(totalHeight / PAGE_H_PX))
 
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true })
-  for (let i = 0; i < pageCount; i++) {
-    if (i > 0) doc.addPage()
-    // 同一张完整截图，每页用负 y 偏移把对应段落顶进可视区，超出页面部分被 jsPDF 自动裁掉
-    doc.addImage(dataUrl, 'PNG', 0, -(i * PAGE_H_MM), PAGE_W_MM, totalHeightMm, undefined, 'FAST')
+  const originalTransform = content.style.transform
+  try {
+    for (let i = 0; i < pageCount; i++) {
+      content.style.transform = `translateY(-${i * PAGE_H_PX}px)`
+      await nextFrame()
+      const dataUrl = await toPng(pageWindow, {
+        pixelRatio: 2,
+        cacheBust: true,
+        width: PAGE_W_PX,
+        height: PAGE_H_PX,
+        canvasWidth: PAGE_W_PX,
+        canvasHeight: PAGE_H_PX,
+        backgroundColor: '#ffffff',
+      })
+      if (i > 0) doc.addPage()
+      doc.addImage(dataUrl, 'PNG', 0, 0, 210, 297, undefined, 'FAST')
+    }
+  } finally {
+    content.style.transform = originalTransform
   }
   triggerDownload(doc.output('blob'), filename)
 }

@@ -2,7 +2,7 @@ import { useRef, useState, type CSSProperties } from 'react'
 import { AlertTriangle, FileDown, FileText, FileType, Loader2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ChatItem } from '../types'
-import { buildExportFilename, exportSessionAsDocx, exportSessionAsPdf, filterExportableItems } from '../lib/sessionExporter'
+import { buildExportFilename, exportSessionAsDocx, exportSessionAsPdf, filterExportableItems, PAGE_H_PX, PAGE_W_PX } from '../lib/sessionExporter'
 import { Markdown } from './Markdown'
 
 interface Props {
@@ -25,6 +25,7 @@ export function ExportSessionDialog({ items, sessionTitle, onClose }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<'pdf' | 'docx' | null>(null)
   const printRef = useRef<HTMLDivElement>(null)
+  const pageWindowRef = useRef<HTMLDivElement>(null)
 
   const exportable = filterExportableItems(items)
   const imageCount = exportable
@@ -36,9 +37,10 @@ export function ExportSessionDialog({ items, sessionTitle, onClose }: Props) {
     setDone(null)
     setBusy('pdf')
     try {
-      const node = printRef.current
-      if (!node) throw new Error('打印视图未就绪')
-      await exportSessionAsPdf(node, buildExportFilename(sessionTitle, 'pdf'))
+      const pageWindow = pageWindowRef.current
+      const content = printRef.current
+      if (!pageWindow || !content) throw new Error('打印视图未就绪')
+      await exportSessionAsPdf(pageWindow, content, buildExportFilename(sessionTitle, 'pdf'))
       setDone('pdf')
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -132,65 +134,69 @@ export function ExportSessionDialog({ items, sessionTitle, onClose }: Props) {
         </div>
       </div>
 
-      {/* 打印视图：外层用零尺寸 + overflow:hidden 把整块从页面上"隐形"，printRef 挂在内层——
-          内层节点自身不带 position/transform 等位移样式。html-to-image 是"克隆目标节点本身的
-          computed style 重新画一份"，如果偏移/隐藏样式是打在被截图的节点自己身上（比如之前的
-          fixed + translateX(-9999px)），克隆出来的画面里内容也会跟着被搬到画布外，截出来整张纯白——
-          这正是"PDF 导出空白"的根因。改成外层隐藏、内层节点保持"正常"，克隆出来的内容才会落在画布内。 */}
+      {/* 打印视图：外层零尺寸 + overflow:hidden 把整块从页面上"隐形"；pageWindowRef 是固定
+          "一页"大小（overflow:hidden）的窗口，真正截图的是它——PDF 逐页导出时会把内层内容
+          节点整体上移一页高度、再对这个固定小窗口单独截一次图，画布尺寸恒定不随会话长度
+          增长，避免长会话下单张巨图超出浏览器 canvas 上限导致的花屏/马赛克。
+          内层内容节点自身不带任何 position/transform 位移样式（只在导出时临时打
+          transform 位移，导出完立即复原）——同理，之前把偏移样式直接打在被截图节点自己
+          身上时，克隆出来的画面连内容一起被搬走，PDF 整页空白，就是这个坑。 */}
       <div className="fixed left-0 top-0 h-0 w-0 overflow-hidden" aria-hidden>
-        <div
-          ref={printRef}
-          className="w-[800px] bg-white px-8 py-6 text-black"
-          // 固定成浅色主题的 CSS 变量取值：Markdown 组件内部按 --color-* 变量上色，
-          // 若不覆盖，导出内容会跟随当前 App 主题（暗色/纯黑/护眼）变化，白底页面上可能出现深色代码块背景等不协调效果。
-          style={{
-            '--color-background': 'oklch(0.98 0.005 255)',
-            '--color-foreground': 'oklch(0.15 0.01 260)',
-            '--color-card': 'oklch(1 0 0)',
-            '--color-card-foreground': 'oklch(0.15 0.01 260)',
-            '--color-muted': 'oklch(0.97 0.005 260)',
-            '--color-muted-foreground': 'oklch(0.5 0.02 260)',
-            '--color-border': 'oklch(0.92 0.005 260)',
-            '--color-primary': 'oklch(0.55 0.21 277)',
-          } as CSSProperties}
-        >
-          <h1 className="mb-1 text-xl font-semibold">{sessionTitle || 'Vibe Coding 会话记录'}</h1>
-          <p className="mb-6 text-xs text-gray-500">导出时间：{new Date().toLocaleString('zh-CN')}</p>
-          <div className="flex flex-col gap-4">
-            {exportable.map(item => (
-              <div key={item.id}>
-                {item.kind === 'user' ? (
-                  <div className="flex items-end justify-end gap-2">
-                    <div className="flex max-w-[80%] flex-col items-end">
-                      <div className="mb-1 text-xs text-gray-500">用户{item.ts ? ` · ${new Date(item.ts).toLocaleString('zh-CN')}` : ''}</div>
-                      {item.attachments && item.attachments.filter(a => a.mime?.startsWith('image/')).length > 0 && (
-                        <div className="mb-1.5 flex flex-wrap justify-end gap-1.5">
-                          {item.attachments.filter(a => a.url && a.mime?.startsWith('image/')).map((a, i) => (
-                            <img key={i} src={a.url} alt={a.name} className="max-h-72 max-w-full rounded-lg border border-gray-200" />
-                          ))}
-                        </div>
-                      )}
-                      {(item.displayText ?? item.text).trim() && (
-                        <div className="whitespace-pre-wrap rounded-2xl bg-blue-600 px-4 py-2 text-white">
-                          {item.displayText ?? item.text}
-                        </div>
-                      )}
+        <div ref={pageWindowRef} style={{ width: PAGE_W_PX, height: PAGE_H_PX, overflow: 'hidden', background: '#ffffff' }}>
+          <div
+            ref={printRef}
+            className="w-[800px] bg-white px-8 py-6 text-black"
+            // 固定成浅色主题的 CSS 变量取值：Markdown 组件内部按 --color-* 变量上色，
+            // 若不覆盖，导出内容会跟随当前 App 主题（暗色/纯黑/护眼）变化，白底页面上可能出现深色代码块背景等不协调效果。
+            style={{
+              '--color-background': 'oklch(0.98 0.005 255)',
+              '--color-foreground': 'oklch(0.15 0.01 260)',
+              '--color-card': 'oklch(1 0 0)',
+              '--color-card-foreground': 'oklch(0.15 0.01 260)',
+              '--color-muted': 'oklch(0.97 0.005 260)',
+              '--color-muted-foreground': 'oklch(0.5 0.02 260)',
+              '--color-border': 'oklch(0.92 0.005 260)',
+              '--color-primary': 'oklch(0.55 0.21 277)',
+            } as CSSProperties}
+          >
+            <h1 className="mb-1 text-xl font-semibold">{sessionTitle || 'Vibe Coding 会话记录'}</h1>
+            <p className="mb-6 text-xs text-gray-500">导出时间：{new Date().toLocaleString('zh-CN')}</p>
+            <div className="flex flex-col gap-4">
+              {exportable.map(item => (
+                <div key={item.id}>
+                  {item.kind === 'user' ? (
+                    <div className="flex items-end justify-end gap-2">
+                      <div className="flex max-w-[80%] flex-col items-end">
+                        <div className="mb-1 text-xs text-gray-500">用户{item.ts ? ` · ${new Date(item.ts).toLocaleString('zh-CN')}` : ''}</div>
+                        {item.attachments && item.attachments.filter(a => a.mime?.startsWith('image/')).length > 0 && (
+                          <div className="mb-1.5 flex flex-wrap justify-end gap-1.5">
+                            {item.attachments.filter(a => a.url && a.mime?.startsWith('image/')).map((a, i) => (
+                              <img key={i} src={a.url} alt={a.name} className="max-h-72 max-w-full rounded-lg border border-gray-200" />
+                            ))}
+                          </div>
+                        )}
+                        {(item.displayText ?? item.text).trim() && (
+                          <div className="whitespace-pre-wrap rounded-2xl bg-blue-600 px-4 py-2 text-white">
+                            {item.displayText ?? item.text}
+                          </div>
+                        )}
+                      </div>
+                      <div className="mb-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">我</div>
                     </div>
-                    <div className="mb-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">我</div>
-                  </div>
-                ) : (
-                  <div className="flex items-end gap-2">
-                    <div className="mb-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-xs font-semibold text-white">AI</div>
-                    <div className="flex max-w-[85%] flex-col items-start">
-                      <div className="mb-1 text-xs text-gray-500">Claude{item.ts ? ` · ${new Date(item.ts).toLocaleString('zh-CN')}` : ''}</div>
-                      <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2">
-                        <Markdown text={item.text} />
+                  ) : (
+                    <div className="flex items-end gap-2">
+                      <div className="mb-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-xs font-semibold text-white">AI</div>
+                      <div className="flex max-w-[85%] flex-col items-start">
+                        <div className="mb-1 text-xs text-gray-500">Claude{item.ts ? ` · ${new Date(item.ts).toLocaleString('zh-CN')}` : ''}</div>
+                        <div className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2">
+                          <Markdown text={item.text} />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            ))}
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
