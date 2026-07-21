@@ -211,8 +211,98 @@ function ClarifyHistorySheet({
           )}
         </div>
         <div className="px-5 py-3 border-t border-[var(--color-border)] text-xs text-[var(--color-muted-foreground)]">
-          此记录已纳入 PRD 生成，关闭后可继续编辑文档。开发文档「更新版本」的澄清记录是
-          独立的，在开发文档 Tab 的「生成记录」里按版本单独查看
+          此记录已纳入 PRD 生成，关闭后可继续编辑文档。开发文档「更新版本」有自己独立的
+          澄清记录，切到开发文档 Tab 后点「本版澄清」单独查看
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ───── 开发文档澄清问答记录（跟 PRD 的 ClarifyHistorySheet 视觉对齐，但数据源是
+// 当前显示版本自己的 qaHistory，两者完全独立，不会混显） ─────
+function DevDocClarifyHistorySheet({
+  sessionId,
+  onClose,
+}: {
+  sessionId: string
+  onClose: () => void
+}) {
+  const [version, setVersion] = useState<DevDocVersionSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    listDevDocVersions(sessionId)
+      .then((list) => {
+        if (cancelled) return
+        const current = list.find((v) => v.isCurrent) ?? list[0] ?? null
+        setVersion(current)
+      })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : '加载失败') })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [sessionId])
+
+  const qa = version?.qaHistory ?? []
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative w-full max-w-md bg-[var(--color-card)] border-l border-[var(--color-border)] flex flex-col shadow-2xl">
+        {/* 头部 */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
+          <div className="flex items-center gap-2">
+            <BotMessageSquare className="w-4 h-4 text-purple-400" />
+            <span className="font-semibold text-sm">开发文档澄清问答记录</span>
+            {version && (
+              <span className="text-xs text-[var(--color-muted-foreground)]">
+                （v{version.version} · 共 {qa.length} 题）
+              </span>
+            )}
+          </div>
+          <button onClick={onClose} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        {/* 内容 */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {loading ? (
+            <div className="flex items-center gap-2 text-sm text-[var(--color-muted-foreground)]">
+              <Loader2 className="w-4 h-4 animate-spin" /> 加载中…
+            </div>
+          ) : error ? (
+            <p className="text-sm text-red-500">加载失败：{error}</p>
+          ) : qa.length === 0 ? (
+            <p className="text-sm text-[var(--color-muted-foreground)] italic">
+              {version?.mode === 'update'
+                ? '本版更新时说明已足够明确，未触发追加澄清提问'
+                : '当前版本不是通过「更新版本」澄清生成的，没有对应的问答记录'}
+            </p>
+          ) : (
+            qa.map((q, i) => (
+              <div key={i} className="rounded-xl border border-[var(--color-border)] overflow-hidden">
+                <div className="flex items-start gap-2.5 p-3 bg-[var(--color-muted)]/30">
+                  <div className="w-5 h-5 rounded-full bg-purple-500/20 flex items-center justify-center flex-shrink-0 text-[10px] font-semibold text-purple-400">
+                    {i + 1}
+                  </div>
+                  <p className="text-sm leading-relaxed">{q.question}</p>
+                </div>
+                <div className="flex items-start gap-2.5 p-3 border-t border-[var(--color-border)]">
+                  <User className="w-4 h-4 flex-shrink-0 mt-0.5 text-[var(--color-muted-foreground)]" />
+                  <p className="text-sm text-[var(--color-muted-foreground)] leading-relaxed">
+                    {q.answer || <span className="italic">（未填写）</span>}
+                  </p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        <div className="px-5 py-3 border-t border-[var(--color-border)] text-xs text-[var(--color-muted-foreground)]">
+          这是当前显示版本（v{version?.version ?? '?'}）自己的澄清记录，跟 PRD 澄清问答记录是
+          两份独立数据。其它历史版本各自的澄清记录，在「生成记录」里按版本查看
         </div>
       </div>
     </div>
@@ -2248,6 +2338,8 @@ function EditingPanel({
   const [genDevDocMode, setGenDevDocMode] = useState<'generate' | 'regenerate' | 'update' | null>(null)
   /** 「生成记录」只读抽屉是否打开：追溯每一版是基于什么补充说明/更新澄清生成的。 */
   const [showDevDocHistory, setShowDevDocHistory] = useState(false)
+  /** 「本版澄清」抽屉是否打开：只看当前显示版本自己的澄清问答，跟 PRD 的澄清记录完全独立。 */
+  const [showDevDocClarify, setShowDevDocClarify] = useState(false)
   /** 正在预览的历史版本；null 表示预览弹框未打开。isCurrent 由 DevDocHistorySheet 拉取时一并给出。 */
   const [viewingDevDocVersion, setViewingDevDocVersion] = useState<{ version: number; isCurrent: boolean } | null>(null)
 
@@ -2383,6 +2475,15 @@ function EditingPanel({
         />
       )}
 
+      {/* 本版澄清：只看当前显示版本自己的澄清问答，跟上面 PRD 的 ClarifyHistorySheet 对等，
+          但数据源完全独立（session.questions vs 当前 dev doc 版本的 qaHistory） */}
+      {showDevDocClarify && (
+        <DevDocClarifyHistorySheet
+          sessionId={sessionId}
+          onClose={() => setShowDevDocClarify(false)}
+        />
+      )}
+
       {/* 历史版本预览：只读展示某个版本的完整文档内容 */}
       {viewingDevDocVersion !== null && (
         <DevDocVersionViewDialog
@@ -2468,6 +2569,13 @@ function EditingPanel({
                 className="flex items-center gap-1 px-2 py-0.5 rounded text-[var(--color-muted-foreground)] hover:text-purple-400 hover:bg-purple-500/10 transition-colors"
                 title="查看所有历史版本，可选中任意版本预览完整内容">
                 <Info className="w-3 h-3" /> 生成记录
+              </button>
+              {/* 跟 PRD Tab 的「2 AI 渐进澄清」入口对等：直接看当前这版开发文档自己的澄清问答，
+                  不用先进「生成记录」再找版本——两份数据完全独立，不会跟 PRD 澄清记录混显 */}
+              <button onClick={() => setShowDevDocClarify(true)}
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-[var(--color-muted-foreground)] hover:text-purple-400 hover:bg-purple-500/10 transition-colors"
+                title="查看当前这版开发文档自己的澄清问答记录（跟 PRD 的澄清记录是两份独立数据）">
+                <BotMessageSquare className="w-3 h-3" /> 本版澄清
               </button>
             </>
           )}
