@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, Bug, ChevronDown, ChevronUp, Cloud, Compass, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, LayoutGrid, List, ListChecks, Loader2, Maximize2, MessageSquare, Mic, Minus, MoreHorizontal, Package, Palette, Paperclip, Plus, RotateCw, Send, Server, Settings, Shield, ShieldCheck, Slash, Sparkles, X } from 'lucide-react'
+import { Bell, Bug, ChevronDown, ChevronUp, Cloud, Compass, EyeOff, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, LayoutGrid, List, ListChecks, Loader2, Maximize2, MessageSquare, Mic, Minus, MoreHorizontal, Package, Palette, Paperclip, Plus, RotateCw, Send, Server, Settings, Shield, ShieldCheck, Slash, Sparkles, X } from 'lucide-react'
 import { CHAT_ROUTE, isChatRoute, useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { isShowcasePath } from '@/shell/featureRegistry'
 import { ThemeMenu } from '@/shell/ThemeMenu'
@@ -21,6 +21,7 @@ import { RestartDialog } from './RestartDialog'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder'
 import { setToolColors, useToolColors } from '../lib/toolColorPref'
+import { setHideToolCalls, useHideToolCalls } from '../lib/toolVisibilityPref'
 import { getSessionCommitDiff, listSessionCommits, listSessionGitRepos, listSessions, resolveModule, transcribe, uploadAttachment, type UploadedAttachment } from '../api'
 import type { ChatItem, ModuleCandidate, PermissionMode } from '../types'
 import { engineDisplayName, providerHost } from './chatStatus'
@@ -104,6 +105,7 @@ export function FloatingChatWindow() {
   const [showDebug, setShowDebug] = useState(false)
   const [restartOpen, setRestartOpen] = useState(false)
   const toolColors = useToolColors()
+  const hideToolCalls = useHideToolCalls()
   // 迷你版（默认）：只显示进度状态 + 语音/输入/发送，不铺消息流；点切换看完整对话。
   // demo（受约束演示）默认展开完整对话，便于直接看到改动反馈。
   const [compact, setCompact] = useState(!demo)
@@ -255,6 +257,7 @@ export function FloatingChatWindow() {
       label: '视图',
       items: [
         { icon: <Palette className="size-4" />, label: `工具着色 · ${toolColors ? '开' : '关'}`, hint: '按命令/读写/子代理/技能/MCP 上色', onClick: () => setToolColors(!toolColors), local: true },
+        { icon: <EyeOff className="size-4" />, label: `隐藏工具调用 · ${hideToolCalls ? '开' : '关'}`, hint: '消息流里不再显示 MCP/命令/读写等工具调用气泡', onClick: () => setHideToolCalls(!hideToolCalls), local: true },
       ],
     },
     {

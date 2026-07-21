@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 import { loadState as loadCardState, saveState as saveCardState } from '@/features/markdown-card/lib/persistence'
 import type { ChatItem, ConnState } from '../types'
 import { abbr, cacheHitRate, fmtMs, formatTime, parseUsage } from '../lib/metrics'
+import { useHideToolCalls } from '../lib/toolVisibilityPref'
 import { ToolCallBubble } from './ToolCallBubble'
 import { Markdown } from './Markdown'
 import { ImageLightbox } from './ImageLightbox'
@@ -38,6 +39,9 @@ interface Props {
 export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exhausted, onFork, engineLabel = 'Claude', onResumeCurrent, onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready' }: Props) {
   // 是否存在可分叉的用户消息（有 sdkUuid），供错误行的「清理异常并继续」判断可用性
   const hasForkTarget = items.some(it => it.kind === 'user' && !!it.sdkUuid)
+  // 「隐藏工具调用」开关：开启时消息流里的工具调用气泡（MCP/命令/读写/子代理…）整条不渲染，减少视觉噪音
+  const hideToolCalls = useHideToolCalls()
+  const visibleItems = hideToolCalls ? items.filter(it => it.kind !== 'tool') : items
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevHeightRef = useRef(0)
   const prependingRef = useRef(false)
@@ -64,7 +68,7 @@ export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exh
     } else {
       el.scrollTop = el.scrollHeight
     }
-  }, [items])
+  }, [visibleItems])
 
   useEffect(() => {
     if (prependingRef.current) return
@@ -80,7 +84,7 @@ export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exh
       {exhausted && items.length > 0 && (
         <div className="text-center text-xs text-[var(--color-muted-foreground)]">— 没有更早了 —</div>
       )}
-      {items.map(item => (
+      {visibleItems.map(item => (
         <Row key={item.id} item={item} onFork={onFork} engineLabel={engineLabel} onResumeCurrent={onResumeCurrent} onNewSession={onNewSession}
           onCleanRetry={hasForkTarget ? onCleanRetry : undefined}
           onOpenImage={(src, alt) => setViewer({ src, alt })} />

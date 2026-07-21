@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, Bug, ChevronDown, Cloud, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, List, ListChecks, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
+import { Bell, Bug, ChevronDown, Cloud, EyeOff, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, List, ListChecks, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useChatRuntime } from '../runtime/ChatRuntimeContext'
@@ -19,6 +19,7 @@ import { AttachmentChips } from '../components/AttachmentChips'
 import { QueuedList } from '../components/QueuedList'
 import { SessionCapsPanel } from '../components/SessionCapsPanel'
 import { setToolColors, useToolColors } from '../lib/toolColorPref'
+import { setHideToolCalls, useHideToolCalls } from '../lib/toolVisibilityPref'
 import { ModeSwitch } from '../components/ModeSwitch'
 import { ProviderSwitch } from '../components/ProviderSwitch'
 import { CodexSessionOptions } from '../components/CodexSessionOptions'
@@ -199,6 +200,7 @@ export function ChatPage() {
   const [panel, setPanel] = useState<Panel>('none')
   const [showUsage, setShowUsage] = useState(false)
   const toolColors = useToolColors()
+  const hideToolCalls = useHideToolCalls()
   // 整会话累计用量：后端按 sessionId 统计 transcript（不受前端分页影响）。换会话或一轮跑完后刷新。
   const [sessionUsage, setSessionUsage] = useState<SessionUsage | null>(null)
   const usageSid = chat?.sessionId ?? null
@@ -788,6 +790,7 @@ export function ChatPage() {
                     <HeaderMenuItem nested icon={<Hand className="size-4" />} label="手势自检" hint="逐步测试摄像头/模型/识别，排查能否启用" onClick={() => { setHeaderMenu(false); setShowGestureDebug(true) }} />
                     <HeaderMenuItem nested icon={fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />} label={fullscreen ? '退出全屏' : '全屏显示'} onClick={() => { setHeaderMenu(false); setFullscreen(f => !f) }} />
                     <HeaderMenuItem nested icon={<Palette className="size-4" />} label={toolColors ? '工具着色 · 开' : '工具着色 · 关'} hint="按命令/读写/子代理/技能/MCP 上色" onClick={() => { setToolColors(!toolColors) }} />
+                    <HeaderMenuItem nested icon={<EyeOff className="size-4" />} label={hideToolCalls ? '隐藏工具调用 · 开' : '隐藏工具调用 · 关'} hint="消息流里不再显示 MCP/命令/读写等工具调用气泡" onClick={() => { setHideToolCalls(!hideToolCalls) }} />
                   </MenuSection>
                   <MenuSection icon={<MessageSquare className="size-4" />} label="会话" open={menuGroup === 'session'} onToggle={() => toggle('session')}>
                     {chat.sessionId && (
