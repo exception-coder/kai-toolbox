@@ -1,0 +1,136 @@
+/* Fore- 业务系统咨询：太空资产星系视觉。深色沉浸场景，不跟随主题明暗（太空恒为暗）。 */
+
+.fc-space {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(1200px 700px at 78% 18%, rgba(56, 89, 168, 0.30), transparent 60%),
+    radial-gradient(900px 620px at 18% 82%, rgba(120, 58, 160, 0.26), transparent 62%),
+    radial-gradient(700px 520px at 52% 50%, rgba(20, 130, 150, 0.16), transparent 60%),
+    linear-gradient(160deg, #05060f 0%, #080a1a 45%, #05040d 100%);
+  color: #e8ecff;
+}
+
+/* 星尘层：细微网格 + 噪点感 */
+.fc-space::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(120% 120% at 50% 40%, #000 30%, transparent 78%);
+  pointer-events: none;
+}
+
+.fc-star {
+  position: absolute;
+  border-radius: 9999px;
+  background: #fff;
+  animation: fc-twinkle var(--fc-dur, 4s) ease-in-out infinite;
+  animation-delay: var(--fc-delay, 0s);
+  will-change: opacity, transform;
+}
+
+@keyframes fc-twinkle {
+  0%, 100% { opacity: 0.12; transform: scale(0.8); }
+  50% { opacity: 0.9; transform: scale(1.15); }
+}
+
+/* 资产球体：漂浮 */
+.fc-orb-wrap {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  animation: fc-drift var(--fc-drift-dur, 9s) ease-in-out infinite;
+  animation-delay: var(--fc-drift-delay, 0s);
+  will-change: transform;
+}
+
+@keyframes fc-drift {
+  0%, 100% { transform: translate(-50%, calc(-50% - 8px)); }
+  50% { transform: translate(-50%, calc(-50% + 12px)); }
+}
+
+.fc-orb {
+  position: relative;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.35s ease;
+  background:
+    radial-gradient(circle at 32% 28%, color-mix(in oklab, var(--fc-hue) 30%, white 55%), transparent 55%),
+    radial-gradient(circle at 68% 74%, color-mix(in oklab, var(--fc-hue) 65%, black 20%), var(--fc-hue) 82%);
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--fc-hue) 60%, transparent),
+    0 8px 40px -6px color-mix(in oklab, var(--fc-hue) 70%, transparent),
+    inset 0 -8px 18px -6px rgba(0, 0, 0, 0.6),
+    inset 0 6px 14px -4px rgba(255, 255, 255, 0.45);
+}
+
+.fc-orb::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 9999px;
+  background: conic-gradient(from 0deg, transparent 0%, color-mix(in oklab, var(--fc-hue) 55%, transparent) 30%, transparent 60%);
+  opacity: 0.55;
+  animation: fc-orbit var(--fc-orbit-dur, 14s) linear infinite;
+  pointer-events: none;
+}
+
+@keyframes fc-orbit { to { transform: rotate(360deg); } }
+
+.fc-orb-wrap:hover .fc-orb { transform: scale(1.14); filter: brightness(1.12); }
+.fc-orb-wrap.is-active .fc-orb {
+  animation: fc-selected-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes fc-selected-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px color-mix(in oklab, var(--fc-hue) 60%, transparent), 0 8px 40px -6px color-mix(in oklab, var(--fc-hue) 70%, transparent), inset 0 -8px 18px -6px rgba(0,0,0,0.6), inset 0 6px 14px -4px rgba(255,255,255,0.45); }
+  50% { box-shadow: 0 0 0 2px color-mix(in oklab, var(--fc-hue) 90%, transparent), 0 10px 60px 0px color-mix(in oklab, var(--fc-hue) 85%, transparent), inset 0 -8px 18px -6px rgba(0,0,0,0.6), inset 0 6px 14px -4px rgba(255,255,255,0.6); }
+}
+
+.fc-orb-label {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: rgba(232, 236, 255, 0.86);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+}
+
+/* 玻璃面板：模块选择 warp-in */
+.fc-panel {
+  animation: fc-panel-in 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  background: color-mix(in oklab, #0b1024 78%, transparent);
+  border: 1px solid rgba(140, 160, 255, 0.24);
+  box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+@keyframes fc-panel-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.fc-backdrop {
+  animation: fc-fade-in 0.3s ease;
+  background: radial-gradient(120% 120% at 50% 30%, rgba(5, 6, 15, 0.4), rgba(3, 4, 10, 0.78));
+  backdrop-filter: blur(2px);
+}
+
+@keyframes fc-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+.fc-glass-input {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(140, 160, 255, 0.22);
+  color: #e8ecff;
+}
+.fc-glass-input::placeholder { color: rgba(200, 210, 255, 0.4); }
+.fc-glass-input:focus { outline: none; border-color: rgba(150, 175, 255, 0.6); box-shadow: 0 0 0 2px rgba(120, 150, 255, 0.25); }
+
+@media (prefers-reduced-motion: reduce) {
+  .fc-star, .fc-orb-wrap, .fc-orb::after, .fc-orb-wrap.is-active .fc-orb { animation: none !important; }
+}

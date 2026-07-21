@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, MessagesSquare, Send, Trash2 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Combobox } from '@/components/ui/combobox'
-import { MultiSelect } from '@/components/ui/multi-select'
+import { History, Loader2, Radar, Send, Sparkles, Trash2, X } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import type { ChatItem } from '@/features/claude-chat/types'
@@ -18,12 +15,31 @@ import {
   type ArchiveTurnItem,
   type ConsultSessionView,
 } from '../api'
+import '../styles/space.css'
 
-/**
- * 拼装投喂给复用的 Vibe Coding 悬浮会话的「业务系统咨询」约束提示词。
- * 面向业务人员答疑：直给结论、业务口吻、不铺代码细节，并要求末尾列出引用来源
- * （为后续「引用清单结构化回吐」预留抓手，本期先以自然语言呈现）。
- */
+/** 资产球体的配色（按系统名哈希取，保证同一系统颜色稳定）。 */
+const ORB_HUES = ['#6ea8ff', '#a78bfa', '#f472b6', '#34d399', '#fbbf24', '#22d3ee', '#fb7185', '#818cf8']
+
+function hashStr(s: string): number {
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0
+  return Math.abs(h)
+}
+
+/** 黄金角螺旋布点，把系统均匀铺在星系里（确定性，随索引稳定）。 */
+function orbLayout(count: number) {
+  const out: Array<{ x: number; y: number }> = []
+  for (let i = 0; i < count; i++) {
+    const angle = i * 2.399963 // 黄金角 ≈137.5°
+    const r = Math.min(41, 6 + Math.sqrt(i) * 8.2)
+    const x = Math.max(8, Math.min(92, 50 + r * Math.cos(angle) * 1.15))
+    const y = Math.max(12, Math.min(84, 46 + r * Math.sin(angle) * 0.92))
+    out.push({ x, y })
+  }
+  return out
+}
+
+/** 拼装投喂给复用的 Vibe Coding 悬浮会话的「业务系统咨询」约束提示词。 */
 function buildConsultSeed(system: string, modules: string[], ask: string): string {
   const moduleLine = modules.length
     ? `聚焦模块：${modules.join('、')}。`
@@ -40,7 +56,7 @@ function buildConsultSeed(system: string, modules: string[], ask: string): strin
   ].join('\n')
 }
 
-/** 从 chat.items 抽取「用户问 → AI 答」成对轮次。question 取 displayText（用户原话），answer 合并该轮所有 assistant 文本。 */
+/** 从 chat.items 抽取「用户问 → AI 答」成对轮次。 */
 function extractTurns(items: ChatItem[]): ArchiveTurnItem[] {
   const raw: Array<{ question: string; answerParts: string[] }> = []
   let cur: { question: string; answerParts: string[] } | null = null
@@ -53,11 +69,7 @@ function extractTurns(items: ChatItem[]): ArchiveTurnItem[] {
     }
   }
   if (cur) raw.push(cur)
-  return raw.map((t, i) => ({
-    turnIndex: i + 1,
-    question: t.question,
-    answer: t.answerParts.join('\n\n'),
-  }))
+  return raw.map((t, i) => ({ turnIndex: i + 1, question: t.question, answer: t.answerParts.join('\n\n') }))
 }
 
 export function ForeConsultPage() {
@@ -68,9 +80,10 @@ export function ForeConsultPage() {
   const [system, setSystem] = useState('')
   const [moduleTags, setModuleTags] = useState<string[]>([])
   const [ask, setAsk] = useState('')
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [activeConsultId, setActiveConsultId] = useState<string | null>(null)
 
-  // 待投喂队列（chat 懒启动时挂起，可用后由 deliver 发出），并回写关联的会话 id。
   const pendingRef = useRef<{ cwd: string; seed: string; displayText: string; consultId: string } | null>(null)
 
   const { data: workspaces } = useQuery({ queryKey: ['workspaces'], queryFn: listWorkspaces })
@@ -88,6 +101,20 @@ export function ForeConsultPage() {
     return out.sort((a, b) => a.name.localeCompare(b.name, 'zh'))
   }, [workspaces])
 
+  const layout = useMemo(() => orbLayout(projects.length), [projects.length])
+
+  const stars = useMemo(() => {
+    let s = 20260721
+    const rand = () => ((s = (s * 1664525 + 1013904223) >>> 0), s / 4294967296)
+    return Array.from({ length: 72 }, () => ({
+      x: rand() * 100,
+      y: rand() * 100,
+      size: 1 + rand() * 2,
+      dur: 3 + rand() * 5,
+      delay: rand() * 5,
+    }))
+  }, [])
+
   const systemPath = useMemo(() => projects.find((p) => p.name === system)?.path ?? '', [projects, system])
 
   const { data: modulesData } = useQuery({
@@ -96,13 +123,12 @@ export function ForeConsultPage() {
     enabled: !!systemPath,
   })
   const moduleOptions = useMemo(
-    () => (modulesData?.modules ?? []).map((m) => ({ label: m.name, value: m.name })),
+    () => (modulesData?.modules ?? []).map((m) => m.name),
     [modulesData],
   )
 
   const { data: history } = useQuery({ queryKey: ['fore-consult-sessions'], queryFn: listConsults })
 
-  // chat 懒启动完成后把挂起的投喂发出去（复用 ForgeBotTrigger 的 deliver 模式）。
   const deliver = useCallback(() => {
     const p = pendingRef.current
     if (!chat || !p) return
@@ -111,7 +137,6 @@ export function ForeConsultPage() {
     chat.send(p.seed, undefined, p.displayText)
     setFloating(true)
     setMinimized(false)
-    // 会话 id 异步产生，稍后回写关联（失败不阻断）。
     setTimeout(() => {
       const sid = chat.sessionId
       if (sid) linkDevSession(p.consultId, sid).catch(() => {})
@@ -121,10 +146,17 @@ export function ForeConsultPage() {
     if (chat && pendingRef.current) deliver()
   }, [chat, deliver])
 
+  // 离开页面再回来时组件重挂载会丢失 activeConsultId，但悬浮会话仍在跑——
+  // 据当前 chat.sessionId 从历史里找回仍 PENDING 的会话，恢复归档入口。
+  useEffect(() => {
+    const sid = chat?.sessionId
+    if (activeConsultId || !sid) return
+    const pending = (history ?? []).find((s) => s.archiveStatus === 'PENDING' && s.devSessionId === sid)
+    if (pending) setActiveConsultId(pending.sessionId)
+  }, [history, chat, activeConsultId])
+
   const startMutation = useMutation({
     mutationFn: async () => {
-      // 系统可自由输入（不在扫描列表里也允许），此时 systemPath 为空，回退到输入的系统名，
-      // 保证「拉起会话的 cwd」与「归档的 systemSourcePath」始终一致，不出现空 cwd 与记录不符。
       const cwd = systemPath || system.trim()
       const seed = buildConsultSeed(system.trim(), moduleTags, ask)
       const created = await startConsult({
@@ -141,18 +173,10 @@ export function ForeConsultPage() {
       if (chat) deliver()
       else activate()
       setAsk('')
+      setPanelOpen(false)
       qc.invalidateQueries({ queryKey: ['fore-consult-sessions'] })
     },
   })
-
-  // 离开页面再回来时组件重挂载会丢失 activeConsultId，但悬浮会话仍在跑——
-  // 据当前 chat.sessionId 从历史里找回仍 PENDING 的会话，恢复「结束并归档」按钮，避免归档入口消失。
-  useEffect(() => {
-    const sid = chat?.sessionId
-    if (activeConsultId || !sid) return
-    const pending = (history ?? []).find((s) => s.archiveStatus === 'PENDING' && s.devSessionId === sid)
-    if (pending) setActiveConsultId(pending.sessionId)
-  }, [history, chat, activeConsultId])
 
   const archiveMutation = useMutation({
     mutationFn: async () => {
@@ -170,6 +194,18 @@ export function ForeConsultPage() {
     },
   })
 
+  const openSystem = (name: string) => {
+    if (activeConsultId) return // 有咨询进行中时，先归档再开新的
+    setSystem(name)
+    setModuleTags([])
+    setAsk('')
+    setPanelOpen(true)
+  }
+
+  const toggleModule = (m: string) => {
+    setModuleTags((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]))
+  }
+
   const onDelete = async (s: ConsultSessionView) => {
     const ok = await confirm({
       title: '删除咨询记录',
@@ -182,126 +218,245 @@ export function ForeConsultPage() {
     qc.invalidateQueries({ queryKey: ['fore-consult-sessions'] })
   }
 
-  // 有咨询进行中时禁止再开新会话：新会话会 chat.open() 清空共享的 chat.items，
-  // 令上一段未归档的对话永久丢失。必须先「结束并归档」当前会话。
   const canStart = !!system.trim() && !!ask.trim() && !startMutation.isPending && !activeConsultId
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 p-6">
-      <header className="flex items-center gap-3">
-        <MessagesSquare className="size-6 text-[var(--color-primary)]" />
-        <div>
-          <h1 className="text-lg font-semibold">业务系统咨询</h1>
-          <p className="text-sm text-[var(--color-muted-foreground)]">
-            选定业务系统与模块，用 Vibe Coding 会话以业务口吻答疑，结束后归档问答与引用来源。
-          </p>
+    <div className="fc-space h-[calc(100vh-5rem)] w-full rounded-2xl">
+      {/* 星尘 */}
+      {stars.map((st, i) => (
+        <span
+          key={i}
+          className="fc-star"
+          style={{
+            left: `${st.x}%`,
+            top: `${st.y}%`,
+            width: st.size,
+            height: st.size,
+            ['--fc-dur' as string]: `${st.dur}s`,
+            ['--fc-delay' as string]: `${st.delay}s`,
+          }}
+        />
+      ))}
+
+      {/* 顶部标题栏 */}
+      <header className="pointer-events-none absolute left-0 right-0 top-0 z-20 flex items-center justify-between px-6 py-4">
+        <div className="flex items-center gap-2.5">
+          <Radar className="size-5 text-sky-300" />
+          <div>
+            <h1 className="text-base font-semibold tracking-wide text-white">业务系统星图</h1>
+            <p className="text-xs text-indigo-200/60">点击一颗资产星球，选定模块后向 AI 发起业务咨询</p>
+          </div>
         </div>
+        <button
+          type="button"
+          onClick={() => setHistoryOpen((o) => !o)}
+          className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-indigo-300/25 bg-white/5 px-3 py-1.5 text-xs text-indigo-100 backdrop-blur-md transition-colors hover:bg-white/10"
+        >
+          <History className="size-3.5" />
+          历史咨询 {(history ?? []).length > 0 && `· ${(history ?? []).length}`}
+        </button>
       </header>
 
-      <section className="flex flex-col gap-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-5">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="flex flex-col gap-1.5 text-sm">
-            <span className="font-medium">业务系统</span>
-            <Combobox
-              id="fore-consult-system"
-              value={system}
-              onChange={(v) => { setSystem(v); setModuleTags([]) }}
-              options={projects.map((p) => ({ label: p.name, value: p.name }))}
-              placeholder="选择或输入系统名"
-              emptyText="无匹配系统，可直接输入"
-            />
-          </label>
-          <label className="flex flex-col gap-1.5 text-sm">
-            <span className="font-medium">模块（可多选，可选）</span>
-            <MultiSelect
-              id="fore-consult-modules"
-              value={moduleTags}
-              onChange={setModuleTags}
-              options={moduleOptions}
-              placeholder={system ? '下拉勾选或输入模块名' : '先选择业务系统'}
-            />
-          </label>
+      {/* 进行中横幅 */}
+      {activeConsultId && (
+        <div className="absolute left-1/2 top-16 z-20 flex -translate-x-1/2 items-center gap-3 rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-1.5 text-xs text-emerald-100 backdrop-blur-md">
+          <span className="relative flex size-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
+            <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
+          </span>
+          咨询进行中，在右下悬浮窗继续追问
+          <button
+            type="button"
+            onClick={() => archiveMutation.mutate()}
+            disabled={archiveMutation.isPending}
+            className="ml-1 flex items-center gap-1 rounded-full bg-emerald-400/90 px-2.5 py-1 font-medium text-emerald-950 transition-transform hover:scale-105 disabled:opacity-60"
+          >
+            {archiveMutation.isPending && <Loader2 className="size-3 animate-spin" />}
+            结束并归档
+          </button>
         </div>
+      )}
 
-        <label className="flex flex-col gap-1.5 text-sm">
-          <span className="font-medium">咨询问题</span>
-          <textarea
-            rows={4}
-            value={ask}
-            onChange={(e) => setAsk(e.target.value)}
-            placeholder="用业务语言描述你想问的问题，如：采购退货单在哪里录入？退货后库存怎么回冲？"
-            className="w-full resize-none rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--color-ring)]"
-          />
-        </label>
-
-        <div className="flex items-center gap-3">
-          <Button onClick={() => startMutation.mutate()} disabled={!canStart}>
-            {startMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-            开始咨询
-          </Button>
-          {activeConsultId && (
-            <Button
-              variant="outline"
-              onClick={() => archiveMutation.mutate()}
-              disabled={archiveMutation.isPending}
-            >
-              {archiveMutation.isPending && <Loader2 className="size-4 animate-spin" />}
-              结束并归档
-            </Button>
-          )}
-          {activeConsultId && (
-            <span className="text-xs text-[var(--color-muted-foreground)]">
-              咨询进行中——在右下悬浮窗继续追问，问完点「结束并归档」保存本次问答（归档后才能开启新咨询）。
-            </span>
-          )}
-        </div>
-      </section>
-
-      <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-semibold text-[var(--color-muted-foreground)]">历史咨询</h2>
-        {(history ?? []).length === 0 ? (
-          <p className="rounded-lg border border-dashed border-[var(--color-border)] p-6 text-center text-sm text-[var(--color-muted-foreground)]">
-            暂无咨询记录
-          </p>
+      {/* 星系：资产球体 */}
+      <div className="absolute inset-0 z-10">
+        {projects.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-sm text-indigo-200/60">
+            未扫描到业务系统（检查 claude-chat 工作区配置）
+          </div>
         ) : (
-          <ul className="flex flex-col gap-2">
-            {(history ?? []).map((s) => (
-              <li
-                key={s.sessionId}
-                className="flex items-center justify-between gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-3"
+          projects.map((p, i) => {
+            const h = hashStr(p.name)
+            const hue = ORB_HUES[h % ORB_HUES.length]
+            const size = 52 + (h % 34)
+            const pos = layout[i]
+            const isActive = system === p.name && (panelOpen || !!activeConsultId)
+            return (
+              <div
+                key={p.name}
+                className={`fc-orb-wrap ${isActive ? 'is-active' : ''}`}
+                style={{
+                  left: `${pos.x}%`,
+                  top: `${pos.y}%`,
+                  ['--fc-drift-dur' as string]: `${7 + (h % 5)}s`,
+                  ['--fc-drift-delay' as string]: `${(h % 40) / 10}s`,
+                }}
               >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate font-medium">{s.systemName}</span>
-                    {s.moduleNames.length > 0 && (
-                      <span className="truncate text-xs text-[var(--color-muted-foreground)]">
-                        · {s.moduleNames.join('、')}
-                      </span>
-                    )}
-                    <ArchiveBadge status={s.archiveStatus} />
-                  </div>
-                  <div className="mt-0.5 text-xs text-[var(--color-muted-foreground)]">
-                    {s.turns.length} 轮问答 · {new Date(s.createdAt).toLocaleString()}
-                  </div>
-                </div>
-                <Button variant="ghost" size="icon" onClick={() => onDelete(s)} aria-label="删除">
-                  <Trash2 className="size-4" />
-                </Button>
-              </li>
-            ))}
-          </ul>
+                <button
+                  type="button"
+                  onClick={() => openSystem(p.name)}
+                  disabled={!!activeConsultId && system !== p.name}
+                  aria-label={p.name}
+                  className="fc-orb disabled:cursor-not-allowed disabled:opacity-40"
+                  style={{
+                    width: size,
+                    height: size,
+                    ['--fc-hue' as string]: hue,
+                    ['--fc-orbit-dur' as string]: `${12 + (h % 8)}s`,
+                  }}
+                />
+                <span className="fc-orb-label">{p.name}</span>
+              </div>
+            )
+          })
         )}
-      </section>
+      </div>
+
+      {/* 模块选择 + 提问面板 */}
+      {panelOpen && (
+        <div className="fc-backdrop absolute inset-0 z-30 flex items-center justify-center p-6" onClick={() => setPanelOpen(false)}>
+          <div
+            className="fc-panel w-[min(560px,calc(100vw-3rem))] rounded-2xl p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="size-4 text-sky-300" />
+                  <h2 className="truncate text-lg font-semibold text-white">{system}</h2>
+                </div>
+                <p className="mt-0.5 truncate text-xs text-indigo-200/50">{systemPath || '（自由输入的系统，无源码路径）'}</p>
+              </div>
+              <button type="button" onClick={() => setPanelOpen(false)} className="rounded-lg p-1.5 text-indigo-200/70 hover:bg-white/10" aria-label="关闭">
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <div className="mb-2 text-xs font-medium uppercase tracking-wider text-indigo-200/60">选择模块（可多选，可不选）</div>
+              {moduleOptions.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-indigo-300/20 px-3 py-4 text-center text-xs text-indigo-200/40">
+                  该系统暂无可选模块，可直接对整个系统提问
+                </p>
+              ) : (
+                <div className="flex max-h-40 flex-wrap gap-2 overflow-y-auto pr-1">
+                  {moduleOptions.map((m) => {
+                    const on = moduleTags.includes(m)
+                    return (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => toggleModule(m)}
+                        className={`rounded-full border px-3 py-1 text-xs transition-all ${
+                          on
+                            ? 'border-sky-300/60 bg-sky-400/20 text-sky-100 shadow-[0_0_14px_-2px_rgba(120,180,255,0.6)]'
+                            : 'border-indigo-300/25 bg-white/5 text-indigo-100/80 hover:bg-white/10'
+                        }`}
+                      >
+                        {m}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="mb-5">
+              <div className="mb-2 text-xs font-medium uppercase tracking-wider text-indigo-200/60">咨询问题</div>
+              <textarea
+                autoFocus
+                rows={4}
+                value={ask}
+                onChange={(e) => setAsk(e.target.value)}
+                placeholder="用业务语言描述问题，如：采购退货单在哪里录入？退货后库存怎么回冲？"
+                className="fc-glass-input w-full resize-none rounded-xl px-3 py-2.5 text-sm"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setPanelOpen(false)}
+                className="rounded-xl px-4 py-2 text-sm text-indigo-200/70 transition-colors hover:bg-white/5"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => startMutation.mutate()}
+                disabled={!canStart}
+                className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-sky-400 to-indigo-500 px-5 py-2 text-sm font-medium text-white shadow-[0_8px_30px_-8px_rgba(99,102,241,0.8)] transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {startMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+                发起咨询
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 历史抽屉 */}
+      {historyOpen && (
+        <div className="fc-backdrop absolute inset-0 z-30 flex justify-end" onClick={() => setHistoryOpen(false)}>
+          <div
+            className="fc-panel h-full w-[min(400px,calc(100vw-2rem))] overflow-y-auto rounded-l-2xl p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
+                <History className="size-4 text-sky-300" /> 历史咨询
+              </h2>
+              <button type="button" onClick={() => setHistoryOpen(false)} className="rounded-lg p-1.5 text-indigo-200/70 hover:bg-white/10" aria-label="关闭">
+                <X className="size-4" />
+              </button>
+            </div>
+            {(history ?? []).length === 0 ? (
+              <p className="rounded-lg border border-dashed border-indigo-300/20 p-6 text-center text-sm text-indigo-200/40">暂无咨询记录</p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {(history ?? []).map((s) => (
+                  <li key={s.sessionId} className="rounded-xl border border-indigo-300/15 bg-white/[0.03] px-3.5 py-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="truncate text-sm font-medium text-white">{s.systemName}</span>
+                        <ArchiveBadge status={s.archiveStatus} />
+                      </div>
+                      <button type="button" onClick={() => onDelete(s)} className="shrink-0 rounded-lg p-1 text-indigo-200/50 hover:bg-white/10 hover:text-red-300" aria-label="删除">
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                    {s.moduleNames.length > 0 && (
+                      <div className="mt-1 truncate text-xs text-indigo-200/50">{s.moduleNames.join('、')}</div>
+                    )}
+                    <div className="mt-1 text-[11px] text-indigo-200/40">
+                      {s.turns.length} 轮问答 · {new Date(s.createdAt).toLocaleString()}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
 function ArchiveBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; cls: string }> = {
-    PENDING: { label: '进行中', cls: 'bg-amber-500/15 text-amber-600' },
-    SUCCESS: { label: '已归档', cls: 'bg-emerald-500/15 text-emerald-600' },
-    FAILED: { label: '归档失败', cls: 'bg-red-500/15 text-red-600' },
+    PENDING: { label: '进行中', cls: 'bg-amber-400/15 text-amber-300 border-amber-300/30' },
+    SUCCESS: { label: '已归档', cls: 'bg-emerald-400/15 text-emerald-300 border-emerald-300/30' },
+    FAILED: { label: '归档失败', cls: 'bg-red-400/15 text-red-300 border-red-300/30' },
   }
-  const it = map[status] ?? { label: status, cls: 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]' }
-  return <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] ${it.cls}`}>{it.label}</span>
+  const it = map[status] ?? { label: status, cls: 'bg-white/10 text-indigo-200/70 border-indigo-300/20' }
+  return <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${it.cls}`}>{it.label}</span>
 }
