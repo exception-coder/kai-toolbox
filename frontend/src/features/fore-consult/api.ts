@@ -148,3 +148,8 @@ export function analyzeTopology(systems: string[]) {
     body: JSON.stringify({ systems }),
   })
 }
+
+/** 读取已持久化的链路（页面加载时用，无需重新调引擎）。 */
+export function getTopology() {
+  return http<{ links: TopoLink[] }>('/fore-consult/topology')
+}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Eye, EyeOff, History, Loader2, Radar, Save, Send, SlidersHorizontal, Sparkles, Trash2, Waypoints, X } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
@@ -11,6 +11,7 @@ import {
   linkDevSession,
   listConsults,
   analyzeTopology,
+  getTopology,
   listSystemPrefs,
   listWorkspaces,
   saveSystemPrefs,
@@ -42,6 +43,101 @@ function orbLayout(count: number) {
     out.push({ x, y })
   }
   return out
+}
+
+type Pos = { x: number; y: number }
+
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+
+/**
+ * 力导向布局：无连线时用螺旋原样铺开；有连线时——
+ *  - 参与关系的系统在中心区做力导向（互斥 + 边弹簧 + 向心 + 避免遮挡其它边）；
+ *  - 不参与关系的系统被推到外圈椭圆环，让开中间的连线，不遮挡。
+ * 被拖拽固定（overrides）的节点不参与迭代，作为定点。确定性、无随机。
+ */
+function computeLayout(names: string[], edges: Array<{ from: string; to: string }>, overrides: Map<string, Pos>): Map<string, Pos> {
+  const seed = orbLayout(names.length)
+  const pos = new Map<string, Pos>()
+  names.forEach((n, i) => pos.set(n, overrides.get(n) ?? { ...seed[i] }))
+  if (edges.length === 0) return pos
+
+  const center = { x: 50, y: 48 }
+  const connected = new Set<string>()
+  edges.forEach((e) => { connected.add(e.from); connected.add(e.to) })
+  const conNames = names.filter((n) => connected.has(n))
+  const isoNames = names.filter((n) => !connected.has(n))
+
+  // 孤立系统：按序均匀铺在外圈椭圆环，让开中心连线区域。
+  isoNames.forEach((n, i) => {
+    if (overrides.has(n)) return
+    const ang = -Math.PI / 2 + (i / Math.max(1, isoNames.length)) * Math.PI * 2
+    pos.set(n, { x: clamp(50 + 44 * Math.cos(ang), 7, 93), y: clamp(48 + 35 * Math.sin(ang), 10, 86) })
+  })
+
+  // 连线系统：力导向。
+  const REP = 42, REST = 30, K = 0.05, GRAV = 0.05, AVOID = 0.6, MIN_EDGE = 8, STEP = 0.85, MAXSTEP = 3
+  for (let it = 0; it < 300; it++) {
+    const disp = new Map<string, Pos>()
+    conNames.forEach((n) => disp.set(n, { x: 0, y: 0 }))
+
+    for (let i = 0; i < conNames.length; i++) {
+      for (let j = i + 1; j < conNames.length; j++) {
+        const a = pos.get(conNames[i])!, b = pos.get(conNames[j])!
+        let dx = a.x - b.x, dy = a.y - b.y
+        const d2 = dx * dx + dy * dy + 0.01
+        const d = Math.sqrt(d2)
+        const f = REP / d2
+        dx = (dx / d) * f; dy = (dy / d) * f
+        const da = disp.get(conNames[i])!, db = disp.get(conNames[j])!
+        da.x += dx; da.y += dy; db.x -= dx; db.y -= dy
+      }
+    }
+    for (const e of edges) {
+      const a = pos.get(e.from), b = pos.get(e.to)
+      if (!a || !b || !disp.has(e.from) || !disp.has(e.to)) continue
+      const dx = b.x - a.x, dy = b.y - a.y
+      const d = Math.hypot(dx, dy) || 1
+      const f = (d - REST) * K
+      const ux = (dx / d) * f, uy = (dy / d) * f
+      disp.get(e.from)!.x += ux; disp.get(e.from)!.y += uy
+      disp.get(e.to)!.x -= ux; disp.get(e.to)!.y -= uy
+    }
+    conNames.forEach((n) => {
+      const p = pos.get(n)!
+      disp.get(n)!.x += (center.x - p.x) * GRAV
+      disp.get(n)!.y += (center.y - p.y) * GRAV
+    })
+    // 避免非端点节点压在某条边上
+    for (const e of edges) {
+      const a = pos.get(e.from), b = pos.get(e.to)
+      if (!a || !b) continue
+      for (const n of conNames) {
+        if (n === e.from || n === e.to) continue
+        const p = pos.get(n)!
+        const abx = b.x - a.x, aby = b.y - a.y
+        const len2 = abx * abx + aby * aby || 1
+        let t = ((p.x - a.x) * abx + (p.y - a.y) * aby) / len2
+        t = clamp(t, 0, 1)
+        const cxp = a.x + t * abx, cyp = a.y + t * aby
+        let dx = p.x - cxp, dy = p.y - cyp
+        const dist = Math.hypot(dx, dy) || 0.01
+        if (dist < MIN_EDGE) {
+          const push = (MIN_EDGE - dist) * AVOID
+          disp.get(n)!.x += (dx / dist) * push
+          disp.get(n)!.y += (dy / dist) * push
+        }
+      }
+    }
+    conNames.forEach((n) => {
+      if (overrides.has(n)) return
+      const d = disp.get(n)!
+      const mag = Math.hypot(d.x, d.y)
+      const s = mag > MAXSTEP ? MAXSTEP / mag : 1
+      const p = pos.get(n)!
+      pos.set(n, { x: clamp(p.x + d.x * s * STEP, 7, 93), y: clamp(p.y + d.y * s * STEP, 10, 86) })
+    })
+  }
+  return pos
 }
 
 /** 拼装投喂给复用的 Vibe Coding 悬浮会话的「业务系统咨询」约束提示词。 */
@@ -89,10 +185,13 @@ export function ForeConsultPage() {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [configOpen, setConfigOpen] = useState(false)
   const [configRows, setConfigRows] = useState<Array<{ name: string; path: string; alias: string; visible: boolean }>>([])
-  const [topoLinks, setTopoLinks] = useState<TopoLink[] | null>(null)
+  const [showLinks, setShowLinks] = useState(true)
+  const [overrides, setOverrides] = useState<Map<string, Pos>>(new Map())
   const [activeConsultId, setActiveConsultId] = useState<string | null>(null)
 
   const pendingRef = useRef<{ cwd: string; seed: string; displayText: string; consultId: string } | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const dragRef = useRef<{ name: string; moved: boolean } | null>(null)
 
   const { data: workspaces } = useQuery({ queryKey: ['workspaces'], queryFn: listWorkspaces })
 
@@ -127,21 +226,28 @@ export function ForeConsultPage() {
       .sort((a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label, 'zh'))
   }, [projects, prefMap, displayName])
 
-  const layout = useMemo(() => orbLayout(visibleProjects.length), [visibleProjects.length])
+  const { data: topoData } = useQuery({ queryKey: ['fore-consult-topology'], queryFn: getTopology })
+  const topoLinks = useMemo<TopoLink[]>(() => (showLinks ? topoData?.links ?? [] : []), [showLinks, topoData])
 
-  // 系统名 → 星图坐标（%），用于在球体之间连线。
-  const posMap = useMemo(() => {
-    const m = new Map<string, { x: number; y: number }>()
-    visibleProjects.forEach((p, i) => layout[i] && m.set(p.name, layout[i]))
-    return m
-  }, [visibleProjects, layout])
+  const visibleNames = useMemo(() => new Set(visibleProjects.map((p) => p.name)), [visibleProjects])
+  // 只保留两端都可见的边（隐藏某系统后其相关连线自动消失）。
+  const activeLinks = useMemo(
+    () => topoLinks.filter((l) => visibleNames.has(l.from) && visibleNames.has(l.to)),
+    [topoLinks, visibleNames],
+  )
 
-  // 链路边几何：二次贝塞尔轻微外弓，标签落在曲线中点。跳过端点已隐藏的边。
+  // 力导向坐标：有连线时把无关系的球推到外圈、让开连线，可拖拽微调。
+  const positions = useMemo(
+    () => computeLayout(visibleProjects.map((p) => p.name), activeLinks, overrides),
+    [visibleProjects, activeLinks, overrides],
+  )
+
+  // 链路边几何：二次贝塞尔轻微外弓，标签落在曲线中点。
   const edges = useMemo(() => {
-    return (topoLinks ?? [])
+    return activeLinks
       .map((l) => {
-        const a = posMap.get(l.from)
-        const b = posMap.get(l.to)
+        const a = positions.get(l.from)
+        const b = positions.get(l.to)
         if (!a || !b) return null
         const mx = (a.x + b.x) / 2
         const my = (a.y + b.y) / 2
@@ -159,7 +265,7 @@ export function ForeConsultPage() {
         }
       })
       .filter((e): e is NonNullable<typeof e> => e !== null)
-  }, [topoLinks, posMap])
+  }, [activeLinks, positions])
 
   const stars = useMemo(() => {
     let s = 20260721
@@ -254,8 +360,37 @@ export function ForeConsultPage() {
 
   const topoMutation = useMutation({
     mutationFn: () => analyzeTopology(visibleProjects.map((p) => p.name)),
-    onSuccess: (d) => setTopoLinks(d.links),
+    onSuccess: (d) => {
+      setShowLinks(true)
+      qc.setQueryData(['fore-consult-topology'], d)
+    },
   })
+
+  // 拖拽球体：pointerdown 起拽，move 更新覆盖坐标（钉住该点，其余节点力导向避让），
+  // 未移动则视为点击打开该系统。
+  const toPct = (clientX: number, clientY: number): Pos | null => {
+    const rect = containerRef.current?.getBoundingClientRect()
+    if (!rect) return null
+    return { x: clamp(((clientX - rect.left) / rect.width) * 100, 4, 96), y: clamp(((clientY - rect.top) / rect.height) * 100, 6, 92) }
+  }
+  const onOrbPointerDown = (e: ReactPointerEvent, name: string) => {
+    e.stopPropagation()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    dragRef.current = { name, moved: false }
+  }
+  const onOrbPointerMove = (e: ReactPointerEvent) => {
+    const ds = dragRef.current
+    if (!ds) return
+    const p = toPct(e.clientX, e.clientY)
+    if (!p) return
+    ds.moved = true
+    setOverrides((prev) => new Map(prev).set(ds.name, p))
+  }
+  const onOrbPointerUp = (name: string) => {
+    const ds = dragRef.current
+    dragRef.current = null
+    if (ds && !ds.moved) openSystem(name)
+  }
 
   const saveConfigMutation = useMutation({
     mutationFn: async () => {
@@ -314,7 +449,7 @@ export function ForeConsultPage() {
   const canStart = !!system.trim() && !!ask.trim() && !startMutation.isPending && !activeConsultId
 
   return (
-    <div className="fc-space h-[calc(100vh-5rem)] w-full rounded-2xl">
+    <div ref={containerRef} className="fc-space h-[calc(100vh-5rem)] w-full rounded-2xl">
       {/* 星尘 */}
       {stars.map((st, i) => (
         <span
@@ -351,15 +486,15 @@ export function ForeConsultPage() {
             {topoMutation.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Waypoints className="size-3.5" />}
             {topoMutation.isPending ? '分析中…' : '分析链路'}
           </button>
-          {topoLinks && (
+          {(topoData?.links.length ?? 0) > 0 && (
             <button
               type="button"
-              onClick={() => setTopoLinks(null)}
+              onClick={() => setShowLinks((s) => !s)}
               className="flex items-center gap-1.5 rounded-full border border-indigo-300/25 bg-white/5 px-3 py-1.5 text-xs text-indigo-100 backdrop-blur-md transition-colors hover:bg-white/10"
-              title="清除连线"
+              title={showLinks ? '隐藏连线' : '显示连线'}
             >
-              <X className="size-3.5" />
-              连线 {topoLinks.length}
+              {showLinks ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+              连线 {topoData?.links.length}
             </button>
           )}
           <button
@@ -443,12 +578,14 @@ export function ForeConsultPage() {
             </button>
           </div>
         ) : (
-          visibleProjects.map((p, i) => {
+          visibleProjects.map((p) => {
             const h = hashStr(p.name)
             const hue = ORB_HUES[h % ORB_HUES.length]
             const size = 52 + (h % 34)
-            const pos = layout[i]
+            const pos = positions.get(p.name)
+            if (!pos) return null
             const isActive = system === p.name && (panelOpen || !!activeConsultId)
+            const dragging = overrides.has(p.name)
             return (
               <div
                 key={p.name}
@@ -458,14 +595,18 @@ export function ForeConsultPage() {
                   top: `${pos.y}%`,
                   ['--fc-drift-dur' as string]: `${7 + (h % 5)}s`,
                   ['--fc-drift-delay' as string]: `${(h % 40) / 10}s`,
+                  // 显示连线时冻结漂浮，让球体稳定贴合连线端点；拖拽中的球也不漂浮。
+                  ...(dragging || edges.length > 0 ? { animation: 'none' } : {}),
                 }}
               >
                 <button
                   type="button"
-                  onClick={() => openSystem(p.name)}
+                  onPointerDown={(e) => onOrbPointerDown(e, p.name)}
+                  onPointerMove={onOrbPointerMove}
+                  onPointerUp={() => onOrbPointerUp(p.name)}
                   disabled={!!activeConsultId && system !== p.name}
                   aria-label={p.label}
-                  className="fc-orb disabled:cursor-not-allowed disabled:opacity-40"
+                  className="fc-orb cursor-grab touch-none select-none active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
                   style={{
                     width: size,
                     height: size,

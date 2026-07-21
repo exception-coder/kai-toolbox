@@ -44,3 +44,14 @@ CREATE TABLE IF NOT EXISTS consult_system_pref (
     sort_order          INTEGER NOT NULL DEFAULT 0,       -- 排序权重，小的靠前
     updated_at          INTEGER NOT NULL
 );
+
+-- 系统链路分析结果（持久化）：cross-topology 引擎查出的系统间关系边，整表在每次分析时替换。
+-- 全局单份拓扑，(from_system,to_system) 唯一。前端加载时读取渲染，无需重新调引擎。
+CREATE TABLE IF NOT EXISTS consult_topology_link (
+    from_system  TEXT    NOT NULL,                        -- 起点系统原名
+    to_system    TEXT    NOT NULL,                        -- 终点系统原名
+    relation     TEXT,                                    -- 关系类型短标签（调用/依赖/数据流…）
+    description  TEXT,                                    -- 关系说明
+    created_at   INTEGER NOT NULL,                        -- 该次分析时间（Unix 毫秒）
+    PRIMARY KEY (from_system, to_system)
+);
