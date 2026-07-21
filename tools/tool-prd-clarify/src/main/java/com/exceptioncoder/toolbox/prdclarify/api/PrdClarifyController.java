@@ -10,6 +10,7 @@ import com.exceptioncoder.toolbox.prdclarify.api.dto.PrdSessionView;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.SaveContentRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.SaveQaHistoryRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.SubmitAnswersRequest;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.UpdateTitleRequest;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
 import com.exceptioncoder.toolbox.prdclarify.service.PrdClarifyService;
@@ -40,6 +41,7 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
  *   <li>{@code POST   /sessions}                 — 创建会话</li>
  *   <li>{@code GET    /sessions}                  — 最近 50 条历史</li>
  *   <li>{@code GET    /sessions/{id}}             — 获取会话详情</li>
+ *   <li>{@code PUT    /sessions/{id}/title}       — 重命名会话标题</li>
  *   <li>{@code DELETE /sessions/{id}}             — 删除会话 + 文件</li>
  *   <li>{@code POST   /sessions/{id}/clarify}     — SSE：生成澄清问题</li>
  *   <li>{@code POST   /sessions/{id}/answers}     — 提交用户答案</li>
@@ -139,6 +141,16 @@ public class PrdClarifyController {
         }
         // 文件还不存在
         return ResponseEntity.ok(PrdSessionView.from(session));
+    }
+
+    /** 重命名会话标题（历史列表里的需求标题目前不支持编辑，补这个接口）。 */
+    @PutMapping("/sessions/{id}/title")
+    public PrdSessionView updateTitle(@PathVariable String id, @Valid @RequestBody UpdateTitleRequest req) {
+        repo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "会话不存在: " + id));
+        repo.updateTitle(id, req.title().trim());
+        return repo.findById(id).map(PrdSessionView::from)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "会话不存在: " + id));
     }
 
     /** 删除会话（含 .md 文件）。 */

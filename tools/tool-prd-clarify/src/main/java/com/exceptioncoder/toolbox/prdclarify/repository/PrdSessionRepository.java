@@ -125,6 +125,16 @@ public class PrdSessionRepository {
                 devDocHistoryJson, id);
     }
 
+    /**
+     * 重命名会话标题。
+     *
+     * <p>纯元数据字段，故意不 touch {@code updated_at}（原因同 {@link #updateDevDocPath}）：
+     * 标题跟 PRD/开发文档内容无关，改标题不应该让已生成的开发文档被误判为过期。</p>
+     */
+    public void updateTitle(String id, String title) {
+        jdbc.update("UPDATE prd_session SET title = ? WHERE id = ?", title, id);
+    }
+
     /** 标记错误状态。 */
     public void updateError(String id, String errorMsg) {
         jdbc.update("UPDATE prd_session SET status = 'ERROR', error_msg = ?, updated_at = ? WHERE id = ?",

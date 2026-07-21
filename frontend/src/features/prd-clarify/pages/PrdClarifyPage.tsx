@@ -1,10 +1,11 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { BotMessageSquare, Bug, ChevronRight, Code2, Copy, ExternalLink, FileText, GitBranch, Info, Layers, Loader2, Paperclip, Plus, RefreshCw, Rocket, Send, Sparkles, Trash2, User, Wrench, X } from 'lucide-react'
+import { BotMessageSquare, Bug, ChevronRight, Code2, Copy, ExternalLink, FileText, GitBranch, Info, Layers, Loader2, Paperclip, Pencil, Plus, RefreshCw, Rocket, Send, Sparkles, Trash2, User, Wrench, X } from 'lucide-react'
 import { http } from '@/lib/api'
 import { Combobox } from '@/components/ui/combobox'
 import { MultiSelect } from '@/components/ui/multi-select'
+import { usePrompt } from '@/components/ui/prompt-dialog'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 // doc-viewer 的 markdown.css 含完整 prose 样式（标题层级/代码块/表格等），无需 @tailwindcss/typography
@@ -30,6 +31,7 @@ import {
   saveQaHistory,
   startGenerate,
   startGenerateDevDoc,
+  updateSessionTitle,
   type QaPair,
   type AttachmentParseResult,
 } from '../api'
@@ -455,20 +457,35 @@ function HistoryPanel({
   onSelect,
   onDelete,
   onRevise,
+  onRename,
 }: {
   sessions: PrdSessionView[]
   activeId: string | null
   onSelect: (s: PrdSessionView) => void
   onDelete: (id: string) => void
   onRevise: (s: PrdSessionView) => void
+  onRename: (id: string, title: string) => void
 }) {
   const confirm = useConfirm()
+  const prompt = usePrompt()
   const [previewSession, setPreviewSession] = useState<PrdSessionView | null>(null)
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
     const ok = await confirm({ title: '删除确认', description: '删除后不可恢复，包括本地 .md 文件。', variant: 'destructive' })
     if (ok) onDelete(id)
+  }
+
+  const handleRename = async (e: React.MouseEvent, s: PrdSessionView) => {
+    e.stopPropagation()
+    const newTitle = await prompt({
+      title: '修改需求标题',
+      defaultValue: s.title,
+      placeholder: '需求标题',
+      confirmText: '保存',
+      validate: (v) => (v.trim() ? null : '标题不能为空'),
+    })
+    if (newTitle && newTitle !== s.title) onRename(s.id, newTitle)
   }
 
   const statusColor: Record<string, string> = {
@@ -583,6 +600,13 @@ function HistoryPanel({
                     <GitBranch className="w-3 h-3" />
                   </button>
                 )}
+                <button
+                  onClick={(e) => handleRename(e, s)}
+                  className="text-[var(--color-muted-foreground)] hover:text-[var(--color-primary)]"
+                  title="修改需求标题"
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); setPreviewSession(s) }}
                   className="text-[var(--color-muted-foreground)] hover:text-[var(--color-primary)]"
@@ -2852,6 +2876,19 @@ export function PrdClarifyPage() {
     },
   })
 
+  // 重命名标题 mutation：历史列表里的需求标题原来不支持编辑，补上
+  const renameMut = useMutation({
+    mutationFn: ({ id, title }: { id: string; title: string }) => updateSessionTitle(id, title),
+    onSuccess: (_data, { id }) => {
+      qc.invalidateQueries({ queryKey: ['prd-sessions'] })
+      // 改的正好是当前激活会话时，同步刷新详情缓存和顶部使用的 sessionTitle
+      if (sessionId === id) {
+        qc.invalidateQueries({ queryKey: ['prd-session', id] })
+        setSessionTitle(_data.title)
+      }
+    },
+  })
+
   const handleReset = () => {
     abortRef.current?.()
     abortRef.current = null
@@ -3197,6 +3234,7 @@ PRD_SESSION_ID: ${created.id}`
             onSelect={handleSelectHistory}
             onDelete={(id) => deleteMut.mutate(id)}
             onRevise={(s) => setRevisingSession(s)}
+            onRename={(id, title) => renameMut.mutate({ id, title })}
           />
         )}
 

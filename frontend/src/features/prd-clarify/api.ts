@@ -27,6 +27,13 @@ export const listSessions = () => http<PrdSessionView[]>(`${BASE}/sessions`)
 export const deleteSession = (id: string) =>
   http<void>(`${BASE}/sessions/${id}`, { method: 'DELETE' })
 
+/** 重命名会话标题（历史列表里的需求标题）。 */
+export const updateSessionTitle = (id: string, title: string) =>
+  http<PrdSessionView>(`${BASE}/sessions/${id}/title`, {
+    method: 'PUT',
+    body: JSON.stringify({ title }),
+  })
+
 /** 提交用户对澄清问题的答案。 */
 export const submitAnswers = (id: string, req: SubmitAnswersRequest) =>
   http<PrdSessionView>(`${BASE}/sessions/${id}/answers`, {
