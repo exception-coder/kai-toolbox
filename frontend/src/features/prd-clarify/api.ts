@@ -87,14 +87,17 @@ export const startGenerate = (id: string, handlers: SseHandlers) =>
  * extraInstructions：用户在确认弹框里补充的自定义提示词/更新说明（可选）。
  * updateExisting：true = 基于当前已有开发文档做增量更新（覆盖前自动备份旧版本），
  *                 false/undefined = 从 PRD 从零生成/覆盖（原有行为）。
+ * qaHistory：update 模式下 DevDocUpdateDialog 多轮澄清产出的问答记录（可选），结构化传给
+ *            后端持久化进这一版的生成记录，跟 PRD 首次澄清记录（session.questions）分开存。
  */
 export const startGenerateDevDoc = (
   id: string,
   extraInstructions: string | undefined,
   updateExisting: boolean | undefined,
+  qaHistory: QaPair[] | undefined,
   handlers: SseHandlers,
 ) =>
-  subscribeSsePost(`/prd-clarify/sessions/${id}/dev-doc`, { extraInstructions, updateExisting }, handlers)
+  subscribeSsePost(`/prd-clarify/sessions/${id}/dev-doc`, { extraInstructions, updateExisting, qaHistory }, handlers)
 
 /** 读取开发文档内容（与 getContent 同格式）。 */
 export const getDevDocContent = async (id: string): Promise<string> => {

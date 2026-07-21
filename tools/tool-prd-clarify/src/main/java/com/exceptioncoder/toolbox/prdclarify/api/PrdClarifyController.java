@@ -256,6 +256,7 @@ public class PrdClarifyController {
         service.generateDevDoc(id,
                 req == null ? null : req.extraInstructions(),
                 req == null ? null : req.updateExisting(),
+                req == null ? null : req.qaHistory(),
                 emitter);
         return emitter;
     }

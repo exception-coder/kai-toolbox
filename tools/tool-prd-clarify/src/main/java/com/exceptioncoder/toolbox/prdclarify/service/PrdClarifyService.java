@@ -802,17 +802,23 @@ public class PrdClarifyService {
      * 通过 SSE 流式推出，完成后落盘到 {id}-dev.md（若已有旧版本，落盘前先备份为
      * {id}-dev-v{n}.md，"检出新版本"不会丢掉上一版内容）。
      *
-     * @param extraInstructions 用户在弹框里补充的自定义提示词/更新说明（可选，null/空则不追加，
-     *                          且 updateExisting 模式下为空会取全自动判断）。不持久化，只影响本次生成。
+     * @param extraInstructions 用户在弹框里补充的自定义提示词/更新说明（可选，null/空则不追加）。
+     *                          update 模式下这里只是初步说明文本，不含澄清问答，问答走 qaHistory。
      * @param updateExisting    true = 基于当前已有开发文档做增量更新（{@link #DEV_DOC_SYSTEM_UPDATE}）；
      *                          false/null = 从 PRD 从零生成/覆盖（{@link #DEV_DOC_SYSTEM}，原有行为）
+     * @param qaHistory         update 模式下 DevDocUpdateDialog 多轮澄清产出的问答记录（可选，
+     *                          generate/regenerate 恒为空），结构化持久化进本次生成记录，
+     *                          使「生成记录」能按版本单独展示这次更新的澄清过程，跟 PRD 首次
+     *                          澄清记录（session.questions）彻底分开，不再共用同一份数据。
      */
-    public void generateDevDoc(String sessionId, String extraInstructions, Boolean updateExisting, SseEmitter emitter) {
+    public void generateDevDoc(String sessionId, String extraInstructions, Boolean updateExisting,
+                                List<QaPairRequest> qaHistory, SseEmitter emitter) {
         PrdSession session = repo.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
         boolean update = Boolean.TRUE.equals(updateExisting);
+        List<QaPairRequest> effectiveQaHistory = qaHistory == null ? List.of() : qaHistory;
         // mode 用于追溯历史记录：generate=首次生成，regenerate=从最新 PRD 从零覆盖，
-        // update=基于当前开发文档增量更新（此时 extraInstructions 已含完整澄清问答文本）
+        // update=基于当前开发文档增量更新
         boolean hadExistingDoc = session.getDevDocPath() != null && !session.getDevDocPath().isBlank();
         String mode = update ? "update" : (hadExistingDoc ? "regenerate" : "generate");
 
@@ -836,7 +842,7 @@ public class PrdClarifyService {
                         userPrompt = buildDevDocPrompt(session, prdContent, extraInstructions);
                     } else {
                         devDocSystem = DEV_DOC_SYSTEM_UPDATE;
-                        userPrompt = buildDevDocUpdatePrompt(session, prdContent, currentDevDoc, extraInstructions);
+                        userPrompt = buildDevDocUpdatePrompt(session, prdContent, currentDevDoc, extraInstructions, effectiveQaHistory);
                     }
                 } else {
                     devDocSystem = DEV_DOC_SYSTEM;
@@ -862,7 +868,7 @@ public class PrdClarifyService {
                         java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
                 repo.updateDevDocPath(sessionId, devDocPath.toString());
                 repo.updateDevDocGeneratedAt(sessionId, System.currentTimeMillis());
-                recordDevDocHistory(sessionId, session.getDevDocHistory(), mode, extraInstructions);
+                recordDevDocHistory(sessionId, session.getDevDocHistory(), mode, extraInstructions, effectiveQaHistory);
                 log.info("[prd-clarify] 开发文档已保存 path={} mode={}", devDocPath, mode);
 
                 sendDone(emitter);
@@ -879,7 +885,8 @@ public class PrdClarifyService {
      * （两者独立维护、都从各自的起点递增，正常使用下天然保持一致；仅历史记录本身失败时
      * 只记警告，不影响本次生成已经成功落盘的结果）。
      */
-    private void recordDevDocHistory(String sessionId, String existingHistoryJson, String mode, String extraInstructions) {
+    private void recordDevDocHistory(String sessionId, String existingHistoryJson, String mode,
+                                      String extraInstructions, List<QaPairRequest> qaHistory) {
         try {
             ArrayNode arr;
             JsonNode existing = (existingHistoryJson == null || existingHistoryJson.isBlank())
@@ -891,6 +898,14 @@ public class PrdClarifyService {
             entry.put("mode", mode);
             entry.put("extraInstructions", extraInstructions == null ? "" : extraInstructions);
             entry.put("generatedAt", System.currentTimeMillis());
+            ArrayNode qaArr = mapper.createArrayNode();
+            for (QaPairRequest qa : qaHistory) {
+                ObjectNode qaNode = mapper.createObjectNode();
+                qaNode.put("question", qa.question());
+                qaNode.put("answer", qa.answer());
+                qaArr.add(qaNode);
+            }
+            entry.set("qaHistory", qaArr);
             arr.add(entry);
 
             repo.updateDevDocHistory(sessionId, mapper.writeValueAsString(arr));
@@ -982,12 +997,21 @@ public class PrdClarifyService {
             JsonNode h = historyByVersion.get(v);
             Long generatedAt = h != null ? h.path("generatedAt").asLong()
                     : (v == currentVersion ? session.getDevDocGeneratedAt() : null);
+            List<QaPairRequest> qaHistory = List.of();
+            if (h != null && h.path("qaHistory").isArray()) {
+                List<QaPairRequest> parsed = new ArrayList<>();
+                for (JsonNode qaNode : h.path("qaHistory")) {
+                    parsed.add(new QaPairRequest(qaNode.path("question").asText(""), qaNode.path("answer").asText("")));
+                }
+                qaHistory = parsed;
+            }
             result.add(new DevDocVersionSummary(
                     v,
                     v == currentVersion,
                     h != null ? h.path("mode").asText(null) : null,
                     h != null ? h.path("extraInstructions").asText("") : null,
-                    generatedAt));
+                    generatedAt,
+                    qaHistory));
         }
         result.sort(java.util.Comparator.comparingInt(DevDocVersionSummary::version).reversed());
         return result;
@@ -1070,8 +1094,13 @@ public class PrdClarifyService {
         return sb.toString();
     }
 
-    /** 构建「更新模式」的 user prompt：PRD + 当前开发文档全文 + 本次更新说明。 */
-    private String buildDevDocUpdatePrompt(PrdSession s, String prdContent, String currentDevDoc, String updateNotes) {
+    /**
+     * 构建「更新模式」的 user prompt：PRD + 当前开发文档全文 + 本次更新说明 + 澄清问答。
+     * qaHistory 结构化传入并在此处格式化拼进 prompt（而不是前端先拼成一段文本再传回来），
+     * 这样 qaHistory 才能原样持久化进 devDocHistory，供「生成记录」按版本单独展示。
+     */
+    private String buildDevDocUpdatePrompt(PrdSession s, String prdContent, String currentDevDoc,
+                                            String updateNotes, List<QaPairRequest> qaHistory) {
         StringBuilder sb = new StringBuilder();
         sb.append("需求标题：").append(s.getTitle()).append("\n");
         if (s.getProject() != null && !s.getProject().isBlank()) {
@@ -1089,7 +1118,15 @@ public class PrdClarifyService {
         sb.append((updateNotes == null || updateNotes.isBlank())
                 ? "（未填写，请结合 PRD 与当前开发文档的差异自行判断需要更新的地方）"
                 : updateNotes.trim());
-        sb.append("\n\n请基于以上信息生成更新后的完整技术开发方案文档。");
+        sb.append("\n\n");
+        if (qaHistory != null && !qaHistory.isEmpty()) {
+            sb.append("=== 澄清问答 ===\n\n");
+            int idx = 1;
+            for (QaPairRequest qa : qaHistory) {
+                sb.append(idx++).append(". ").append(qa.question()).append("\n   → ").append(qa.answer()).append("\n\n");
+            }
+        }
+        sb.append("请基于以上信息生成更新后的完整技术开发方案文档。");
         return sb.toString();
     }
 

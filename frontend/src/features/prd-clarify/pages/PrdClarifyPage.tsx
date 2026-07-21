@@ -178,7 +178,7 @@ function ClarifyHistorySheet({
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
           <div className="flex items-center gap-2">
             <BotMessageSquare className="w-4 h-4 text-[var(--color-primary)]" />
-            <span className="font-semibold text-sm">澄清问答记录</span>
+            <span className="font-semibold text-sm">PRD 澄清问答记录</span>
             <span className="text-xs text-[var(--color-muted-foreground)]">（共 {questions.length} 题）</span>
           </div>
           <button onClick={onClose} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
@@ -211,7 +211,8 @@ function ClarifyHistorySheet({
           )}
         </div>
         <div className="px-5 py-3 border-t border-[var(--color-border)] text-xs text-[var(--color-muted-foreground)]">
-          此记录已纳入 PRD 生成，关闭后可继续编辑文档
+          此记录已纳入 PRD 生成，关闭后可继续编辑文档。开发文档「更新版本」的澄清记录是
+          独立的，在开发文档 Tab 的「生成记录」里按版本单独查看
         </div>
       </div>
     </div>
@@ -853,7 +854,9 @@ function DevDocUpdateDialog({
   onClose,
 }: {
   sessionId: string
-  onConfirm: (extraInstructions: string) => void
+  /** 澄清完成后回调：初步说明与问答记录分别传出，不再拼成一段文本——由后端结构化持久化，
+   *  使这一版的澄清记录能跟 PRD 首次澄清记录分开单独展示。 */
+  onConfirm: (extraInstructions: string, qaHistory: QaPair[]) => void
   onClose: () => void
 }) {
   const maxRounds = 5
@@ -938,15 +941,9 @@ function DevDocUpdateDialog({
     abortRef.current = abort
   }
 
-  /** 澄清完成：把「初步说明 + 完整问答记录」拼成最终 extraInstructions 交给调用方生成 */
+  /** 澄清完成：初步说明与问答记录分别传给调用方，不再拼成一段文本（见 onConfirm 类型注释） */
   const finishClarify = (finalHistory: QaPair[]) => {
-    let combined = finalNotesRef.current
-    if (finalHistory.length > 0) {
-      combined += '\n\n=== 澄清问答 ===\n\n' + finalHistory
-        .map((qa, i) => `${i + 1}. ${qa.question}\n   → ${qa.answer}`)
-        .join('\n\n')
-    }
-    onConfirm(combined)
+    onConfirm(finalNotesRef.current, finalHistory)
   }
 
   const handleStartClarify = () => {
@@ -1249,13 +1246,39 @@ function DevDocHistorySheet({
                       </span>
                     )}
                   </div>
-                  <div className="p-3 text-sm leading-relaxed whitespace-pre-wrap">
+                  <div className="p-3 text-sm leading-relaxed">
                     {entry.mode === null ? (
                       <span className="text-[var(--color-muted-foreground)] italic">
                         （这版早于生成记录功能上线，无补充说明记录，但可以查看当时的文档内容）
                       </span>
-                    ) : entry.extraInstructions ? entry.extraInstructions : (
-                      <span className="text-[var(--color-muted-foreground)] italic">（未填写补充说明）</span>
+                    ) : (
+                      <>
+                        {entry.extraInstructions ? (
+                          <p className="whitespace-pre-wrap">{entry.extraInstructions}</p>
+                        ) : entry.qaHistory.length === 0 ? (
+                          <p className="text-[var(--color-muted-foreground)] italic">（未填写补充说明）</p>
+                        ) : null}
+                        {/* 这一版专属的澄清问答（update 模式才有）——跟 PRD 首次澄清记录是两份独立数据 */}
+                        {entry.qaHistory.length > 0 && (
+                          <div className="space-y-1.5 mt-2">
+                            <div className="text-[10px] font-semibold text-[var(--color-muted-foreground)] uppercase tracking-wide">
+                              本版澄清问答（{entry.qaHistory.length} 轮）
+                            </div>
+                            {entry.qaHistory.map((qa, i) => (
+                              <div key={i} className="rounded-lg border border-[var(--color-border)]/60 overflow-hidden">
+                                <div className="flex items-start gap-1.5 px-2 py-1.5 bg-[var(--color-muted)]/20 text-xs">
+                                  <span className="text-[var(--color-primary)] font-semibold flex-shrink-0">Q{i + 1}</span>
+                                  <span>{qa.question}</span>
+                                </div>
+                                <div className="flex items-start gap-1.5 px-2 py-1.5 text-xs text-[var(--color-muted-foreground)]">
+                                  <span className="flex-shrink-0">A</span>
+                                  <span>{qa.answer}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                   <div className="px-3 pb-2.5">
@@ -2228,7 +2251,7 @@ function EditingPanel({
   /** 正在预览的历史版本；null 表示预览弹框未打开。isCurrent 由 DevDocHistorySheet 拉取时一并给出。 */
   const [viewingDevDocVersion, setViewingDevDocVersion] = useState<{ version: number; isCurrent: boolean } | null>(null)
 
-  const handleGenerateDevDoc = (extraInstructions?: string, updateExisting?: boolean) => {
+  const handleGenerateDevDoc = (extraInstructions?: string, updateExisting?: boolean, qaHistory?: QaPair[]) => {
     setPanelMode('dev')   // 生成时切到开发文档全屏视图
     setDevDocContent('')
     setDevDocStreaming(true)
@@ -2236,7 +2259,7 @@ function EditingPanel({
     devDocAccRef.current = ''
     devDocAbortRef.current?.()
 
-    const abort = startGenerateDevDoc(sessionId, extraInstructions, updateExisting, {
+    const abort = startGenerateDevDoc(sessionId, extraInstructions, updateExisting, qaHistory, {
       onEvent(name, data) {
         if (name === 'chunk') {
           const chunk = (data as { content: string }).content ?? ''
@@ -2344,9 +2367,9 @@ function EditingPanel({
         <DevDocUpdateDialog
           sessionId={sessionId}
           onClose={() => setGenDevDocMode(null)}
-          onConfirm={(extraInstructions) => {
+          onConfirm={(extraInstructions, qaHistory) => {
             setGenDevDocMode(null)
-            handleGenerateDevDoc(extraInstructions, true)
+            handleGenerateDevDoc(extraInstructions, true, qaHistory)
           }}
         />
       )}
