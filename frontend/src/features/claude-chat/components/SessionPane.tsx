@@ -191,6 +191,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
       {/* 消息流：flex 列容器，MessageList 靠 flex-1 拿到有界高度并内部滚动 */}
       <div className="flex min-h-0 flex-1 flex-col">
         <MessageList
+          sessionKey={sessionId}
           items={chat.items}
           running={chat.running}
           onLoadEarlier={() => chat.loadHistory(false)}

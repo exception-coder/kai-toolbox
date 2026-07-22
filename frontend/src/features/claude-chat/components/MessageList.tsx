@@ -1,5 +1,6 @@
-import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import { AlertTriangle, ArrowDown, Check, Coins, Copy, Database, FileImage, FileText, FolderOpen, GitBranch, Timer } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { loadState as loadCardState, saveState as saveCardState } from '@/features/markdown-card/lib/persistence'
@@ -33,6 +34,9 @@ interface Props {
   turnTokens?: number
   /** WS 连接状态：非 ready 时「进行时」指示器改显示「连接中断，重连中」，避免误导为 AI 在思考。 */
   connState?: ConnState
+  /** 会话标识：用于会话切换时重置虚拟列表内部状态（滚动位置/反向分页游标等），
+   *  不传则退化为不区分会话（分屏/悬浮窗按各自的 sessionId 传，主视图按 chat.sessionId 传）。 */
+  sessionKey?: string
 }
 
 /** 供外部（如「我的提问」导航面板）滚到指定消息并短暂高亮，方便一眼找到目标气泡。 */
@@ -40,101 +44,178 @@ export interface MessageListHandle {
   scrollToItem: (id: string) => void
 }
 
-/** 消息流：用户气泡靠右、assistant 文本靠左、工具调用与系统标记居中。顶部上拉加载更早历史。 */
+/** 反向分页起始游标：足够大，保证翻多少页历史都不会减到负数。 */
+const FIRST_ITEM_INDEX_START = 100_000_000
+
+/** 只在已经贴底时才跟随新内容自动滚动（'auto'=瞬间贴底，不用 'smooth' 避免流式逐字滚动动画抖动）。 */
+function followOutput(isAtBottom: boolean): 'auto' | false {
+  return isAtBottom ? 'auto' : false
+}
+
+/** 传给 Header/Footer 的高频变化值（流式输出期间 turnTokens 几乎每个 delta 都变）——
+ *  必须走 virtuoso 的 context 机制而不是闭包 + useMemo 依赖，否则每次变化都会让
+ *  components.Header/Footer 拿到"新的组件类型"，被 React 整个卸载重挂载一次，
+ *  白白丢一次 ThinkingIndicator 的挂载态、还多做一次浏览器渲染。 */
+interface ListContext {
+  loadingEarlier: boolean
+  exhausted: boolean
+  itemCount: number
+  running: boolean
+  engineLabel: string
+  turnTokens: number
+  connState: ConnState
+}
+
+function ListHeader({ context }: { context?: ListContext }) {
+  if (!context) return null
+  return (
+    <>
+      {context.loadingEarlier && (
+        <div className="py-2 text-center text-xs text-[var(--color-muted-foreground)]">加载更早…</div>
+      )}
+      {context.exhausted && context.itemCount > 0 && (
+        <div className="py-2 text-center text-xs text-[var(--color-muted-foreground)]">— 没有更早了 —</div>
+      )}
+    </>
+  )
+}
+
+function ListFooter({ context }: { context?: ListContext }) {
+  if (!context?.running) return null
+  return (
+    <div className="px-3 pb-3">
+      <ThinkingIndicator engineLabel={context.engineLabel} tokens={context.turnTokens} connState={context.connState} />
+    </div>
+  )
+}
+
+/** 模块级常量：Header/Footer 的组件引用永远不变，靠上面的 context（而非闭包）拿最新值。 */
+const LIST_COMPONENTS = { Header: ListHeader, Footer: ListFooter }
+
+/**
+ * 消息流：用户气泡靠右、assistant 文本靠左、工具调用与系统标记居中。顶部上拉加载更早历史。
+ *
+ * 用 react-virtuoso 做虚拟滚动：同一时刻只挂载可视区域附近的消息节点，翻多少页历史 DOM
+ * 规模都不再增长（此前是把每次 loadHistory 拉到的更早历史永久挂在 DOM 里，翻页越多、
+ * 消息里的代码块/mermaid/图片越多，滚动和流式渲染就越卡）。
+ *
+ * 三个原本手写的滚动行为，都换成 virtuoso 内置能力：
+ * - 反向无限滚动（上拉不跳动）：firstItemIndex，每次 prepend 就把它减去新增的条数。
+ * - 贴底跟随/锁定：followOutput（默认只在已经贴底时才跟新内容走）+ atBottomStateChange。
+ * - 跳到指定消息：scrollToIndex，配合 highlightedId 做短暂高亮（不再依赖 DOM 查询）。
+ */
 export const MessageList = forwardRef<MessageListHandle, Props>(function MessageList(
-  { items, running, onLoadEarlier, loadingEarlier, exhausted, onFork, engineLabel = 'Claude', onResumeCurrent, onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready' },
+  { items, running, onLoadEarlier, loadingEarlier, exhausted, onFork, engineLabel = 'Claude', onResumeCurrent, onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey },
   ref,
 ) {
   // 是否存在可分叉的用户消息（有 sdkUuid），供错误行的「清理异常并继续」判断可用性
-  const hasForkTarget = items.some(it => it.kind === 'user' && !!it.sdkUuid)
+  const hasForkTarget = useMemo(() => items.some(it => it.kind === 'user' && !!it.sdkUuid), [items])
   // 「隐藏工具调用」开关：开启时消息流里的工具调用气泡（MCP/命令/读写/子代理…）整条不渲染，减少视觉噪音
   const hideToolCalls = useHideToolCalls()
-  const visibleItems = hideToolCalls ? items.filter(it => it.kind !== 'tool') : items
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const prevHeightRef = useRef(0)
-  const prependingRef = useRef(false)
+  const visibleItems = useMemo(() => (hideToolCalls ? items.filter(it => it.kind !== 'tool') : items), [items, hideToolCalls])
+
+  const virtuosoRef = useRef<VirtuosoHandle>(null)
   // 点击聊天里的图片放大查看（桌面点击 / 移动端轻触均可）
   const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null)
-  // 「锁定位置」：回答生成过程中默认贴底自动滚动；用户主动往上滚离底部一定距离后自动锁定，
-  // 新增内容（流式 delta/新消息）不再拽着视图跑，方便一边看之前内容一边等它答完。
-  // 贴回底部（自己滚 or 点下面的「跳到最新」）即自动解锁，恢复贴底跟随。
-  const STICK_BOTTOM_THRESHOLD_PX = 48
-  const [stickToBottom, setStickToBottom] = useState(true)
+  // 「锁定位置」：贴底时新内容自动跟；用户滚离底部后 virtuoso 判定 atBottom=false，新增内容不再拽着视图跑。
+  const [atBottom, setAtBottom] = useState(true)
+  // 「我的提问」等外部调用 scrollToItem 后短暂高亮的目标 id（配合 kai-msg-flash 做一次性闪烁）。
+  const [highlightedId, setHighlightedId] = useState<string | null>(null)
 
-  const handleScroll = () => {
-    const el = scrollRef.current
-    if (!el) return
-    if (el.scrollTop < 80 && !loadingEarlier && !exhausted && onLoadEarlier) {
-      prevHeightRef.current = el.scrollHeight
-      prependingRef.current = true
-      onLoadEarlier()
+  // Virtuoso 的 key：切会话 或 切「隐藏工具调用」都整体重挂载虚拟列表——后者是因为过滤条件一变，
+  // visibleItems 在各个位置对应的内容全变了（不是纯粹的头部/尾部增减），继续复用旧的尺寸缓存/
+  // firstItemIndex 会跟实际内容对不上，直接重挂载最简单可靠（这个开关很少切，成本可以忽略）。
+  const resetKey = `${sessionKey ?? ''}::${hideToolCalls ? 1 : 0}`
+
+  // ── 反向分页游标：prepend 时把 firstItemIndex 减去新增条数，virtuoso 就知道"这批是往前接的"，
+  //    保持滚动位置不跳动。在渲染期间比对 items 引用变化并同步调整（React 官方推荐的
+  //    "根据 prop 变化调整 state"写法），避免多一个 effect 造成的一帧延迟/闪烁。
+  const [firstItemIndex, setFirstItemIndex] = useState(FIRST_ITEM_INDEX_START)
+  const prevResetKeyRef = useRef(resetKey)
+  const prevItemsRef = useRef(visibleItems)
+  if (resetKey !== prevResetKeyRef.current) {
+    // 切会话/切过滤条件：virtuoso 会因为下面 key={resetKey} 整体重挂载，这里把游标也归零，两边保持一致。
+    prevResetKeyRef.current = resetKey
+    prevItemsRef.current = visibleItems
+    if (firstItemIndex !== FIRST_ITEM_INDEX_START) setFirstItemIndex(FIRST_ITEM_INDEX_START)
+  } else if (visibleItems !== prevItemsRef.current) {
+    const prevArr = prevItemsRef.current
+    const prevLen = prevArr.length
+    const newLen = visibleItems.length
+    if (newLen > prevLen) {
+      const prevLastId = prevArr[prevLen - 1]?.id
+      const newLastId = visibleItems[newLen - 1]?.id
+      // 末尾 id 不变 = 新增的都在前面 = prepend（上拉加载更早历史）；末尾 id 变了 = append（新消息）。
+      if (prevLen === 0 || prevLastId === newLastId) {
+        setFirstItemIndex(idx => idx - (newLen - prevLen))
+      }
     }
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-    setStickToBottom(distanceFromBottom <= STICK_BOTTOM_THRESHOLD_PX)
+    prevItemsRef.current = visibleItems
   }
 
-  const jumpToBottom = () => {
-    const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-    setStickToBottom(true)
-  }
+  const handleStartReached = useCallback(() => {
+    if (!loadingEarlier && !exhausted) onLoadEarlier?.()
+  }, [loadingEarlier, exhausted, onLoadEarlier])
 
-  // items 变化后：上拉 prepend 时用 scrollHeight 差补偿、保持视觉位置；贴底状态下（首屏/新消息）滚到底；
-  // 已锁定（用户滚离底部）则不动，避免打断正在查看更早内容的用户。
-  useLayoutEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
-    if (prependingRef.current) {
-      el.scrollTop += el.scrollHeight - prevHeightRef.current
-      prependingRef.current = false
-    } else if (stickToBottom) {
-      el.scrollTop = el.scrollHeight
-    }
-  }, [visibleItems, stickToBottom])
+  const jumpToBottom = useCallback(() => {
+    virtuosoRef.current?.scrollToIndex({ index: Math.max(0, visibleItems.length - 1), align: 'end', behavior: 'smooth' })
+    setAtBottom(true)
+  }, [visibleItems.length])
 
+  // 一轮开始（running 从 false→true，Footer 里的「思考中」指示器刚出现）时，若本来就贴底，
+  // 主动贴一下——指示器的出现不改变 data 长度，followOutput 不会自动因此触发。
   useEffect(() => {
-    if (prependingRef.current || !stickToBottom) return
-    const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [running, stickToBottom])
+    if (running && atBottom) {
+      virtuosoRef.current?.scrollToIndex({ index: Math.max(0, visibleItems.length - 1), align: 'end' })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running])
 
   // 供「我的提问」导航面板等外部调用：滚到指定消息 + 短暂高亮闪一下，方便一眼找到目标气泡。
-  // 用 data-msg-id（而非 id）定位——同一页可能同时挂多个 MessageList 实例（分屏/悬浮窗），
-  // id 要求全局唯一，多实例下容易撞车定位错气泡；data 属性配合"只在自己 scrollRef 范围内查找"就没这问题。
   useImperativeHandle(ref, () => ({
     scrollToItem: (id: string) => {
-      const container = scrollRef.current
-      if (!container) return
-      const el = container.querySelector<HTMLElement>(`[data-msg-id="${CSS.escape(id)}"]`)
-      if (!el) return
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      el.classList.add('kai-msg-flash')
-      window.setTimeout(() => el.classList.remove('kai-msg-flash'), 1500)
+      const idx = visibleItems.findIndex(it => it.id === id)
+      if (idx === -1) return
+      virtuosoRef.current?.scrollToIndex({ index: idx, align: 'center', behavior: 'smooth' })
+      setHighlightedId(id)
+      window.setTimeout(() => setHighlightedId(cur => (cur === id ? null : cur)), 1500)
     },
-  }), [])
+  }), [visibleItems])
+
+  const itemContent = useCallback((_index: number, item: ChatItem) => (
+    <div data-msg-id={item.id} className={cn('px-3 pb-3', item.id === highlightedId && 'kai-msg-flash rounded-2xl')}>
+      <Row item={item} onFork={onFork} engineLabel={engineLabel} onResumeCurrent={onResumeCurrent} onNewSession={onNewSession}
+        onCleanRetry={hasForkTarget ? onCleanRetry : undefined}
+        onOpenImage={(src, alt) => setViewer({ src, alt })} />
+    </div>
+  ), [highlightedId, onFork, engineLabel, onResumeCurrent, onNewSession, onCleanRetry, hasForkTarget])
+
+  // 高频变化值走 context（见 ListHeader/ListFooter 顶部注释），LIST_COMPONENTS 引用永远不变。
+  const listContext: ListContext = { loadingEarlier: !!loadingEarlier, exhausted: !!exhausted, itemCount: visibleItems.length, running, engineLabel, turnTokens, connState }
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-      <div ref={scrollRef} onScroll={handleScroll} className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto px-3 py-4">
-        {loadingEarlier && (
-          <div className="text-center text-xs text-[var(--color-muted-foreground)]">加载更早…</div>
-        )}
-        {exhausted && items.length > 0 && (
-          <div className="text-center text-xs text-[var(--color-muted-foreground)]">— 没有更早了 —</div>
-        )}
-        {visibleItems.map(item => (
-          <div key={item.id} data-msg-id={item.id} className="rounded-2xl transition-shadow duration-300">
-            <Row item={item} onFork={onFork} engineLabel={engineLabel} onResumeCurrent={onResumeCurrent} onNewSession={onNewSession}
-              onCleanRetry={hasForkTarget ? onCleanRetry : undefined}
-              onOpenImage={(src, alt) => setViewer({ src, alt })} />
-          </div>
-        ))}
-        {running && <ThinkingIndicator engineLabel={engineLabel} tokens={turnTokens} connState={connState} />}
-        {viewer && <ImageLightbox src={viewer.src} alt={viewer.alt} onClose={() => setViewer(null)} />}
-      </div>
+      <Virtuoso
+        key={resetKey}
+        ref={virtuosoRef}
+        style={{ height: '100%' }}
+        className="min-w-0 overflow-x-hidden"
+        data={visibleItems}
+        context={listContext}
+        firstItemIndex={firstItemIndex}
+        initialTopMostItemIndex={Math.max(0, visibleItems.length - 1)}
+        alignToBottom
+        followOutput={followOutput}
+        atBottomThreshold={64}
+        atBottomStateChange={setAtBottom}
+        startReached={handleStartReached}
+        computeItemKey={(_index, item) => item.id}
+        itemContent={itemContent}
+        components={LIST_COMPONENTS}
+      />
       {/* 已锁定位置（滚离了底部）时的提示 + 快捷跳回：回答生成中最有用——一边看着之前内容，
           一边知道「新内容没有打断我、想看的话点一下就能追上」。 */}
-      {!stickToBottom && (
+      {!atBottom && (
         <button
           type="button"
           onClick={jumpToBottom}
@@ -144,6 +225,7 @@ export const MessageList = forwardRef<MessageListHandle, Props>(function Message
           位置已锁定{running ? '· 新回复生成中' : ''} · 跳到最新
         </button>
       )}
+      {viewer && <ImageLightbox src={viewer.src} alt={viewer.alt} onClose={() => setViewer(null)} />}
     </div>
   )
 })

@@ -1266,6 +1266,7 @@ export function ChatPage() {
             {chat.sessionId ? (
               <MessageList
                 ref={messageListRef}
+                sessionKey={chat.sessionId ?? undefined}
                 items={chat.items}
                 running={chat.running}
                 onLoadEarlier={() => chat.loadHistory(false)}
