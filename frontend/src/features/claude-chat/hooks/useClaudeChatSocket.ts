@@ -308,9 +308,14 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
           setAgents([])
           setMcpServers([])
         }
-        // ready 只用于「关闭」running（会话已非 RUNNING → 纠正卡住的「思考中」），绝不「点亮」：
-        // running 仅由用户 send / 切会话 hint 这类明确动作置真。否则反复收到的 ready（重连/sidecar 恢复/
-        // 切换 provider 都会重发 ready）里带 RUNNING 会在一轮结束后把 spinner 重新点亮，卡死且新消息被排队。
+        // ready 只用于「关闭」running（会话已非 RUNNING → 纠正卡住的「思考中」），绝不靠它「点亮」：
+        // 反复收到的 ready（重连/sidecar 恢复/切换 provider 都会重发 ready）如果带着 RUNNING，
+        // 可能是发出时该会话确实在跑、但送达前一轮已经结束的过期快照——直接信了会在一轮结束后把
+        // spinner 重新点亮，卡死且新消息被排队。点亮 running 只信两类更可靠的信号：
+        //   1. 明确动作的乐观提示——用户主动 send()，或切会话时 switchTo 的 hintRunning
+        //      （取自会话列表缓存的 status/live，如果猜错了，靠下面第 2 类信号自愈）；
+        //   2. 正在发生的事实——收到 assistantDelta/toolUse 说明该会话确凿无疑正在跑
+        //      （见对应 case，比任何缓存快照都可靠，用来兜底"猜错了"或"压根没猜过"的场景）。
         if (msg.status && msg.status !== 'RUNNING') setRunning(false)
         if (msg.sdkSessionId) sdkSessionIdRef.current = msg.sdkSessionId
         // 仅 switch / resume 进会话时拉一次历史；新建会话(open，sdkSessionId 为空)不拉
@@ -331,6 +336,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
         }
         break
       case 'assistantDelta':
+        // 实打实收到流式内容 = 该会话确凿无疑正在跑，不管此刻 running 之前是什么值都直接点亮——
+        // 比 switchTo 的 hintRunning 更可靠：hint 是切会话那一刻的乐观猜测（可能因缓存过期猜错），
+        // 这里是"正在发生的事实"，用来自愈任何猜错的场景（包括从没猜过、hint 传了 false 的老路径）。
+        setRunning(true)
         if (turnStartRef.current != null && ttftRef.current == null) {
           ttftRef.current = Date.now() - turnStartRef.current
         }
@@ -344,6 +353,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
         })
         break
       case 'toolUse':
+        setRunning(true) // 同上：工具调用同样是"正在跑"的确凿证据
         setItems(prev => [...prev, { kind: 'tool', id: nextId(), toolName: msg.toolName, input: msg.input, ts: Date.now() }])
         break
       case 'toolResult':

@@ -11,7 +11,9 @@ let groupMigrationDone = false
 
 interface Props {
   currentSessionId: string | null
-  onSwitch: (sessionId: string) => void
+  /** hintRunning：目标会话此刻是否仍在跑（status=RUNNING 且 live=挂在活跃 sidecar 上）——
+   *  切过去时用它乐观点亮"中断"按钮，不用等 Ready 校正（ready 只会关不会开，见 switchTo 里的说明）。 */
+  onSwitch: (sessionId: string, hintRunning?: boolean) => void
   selectable?: boolean
   selectedIds?: Set<string>
   onToggleSelect?: (sessionId: string) => void
@@ -249,7 +251,7 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
               'min-h-[44px] min-w-0 flex-1 py-2.5 pr-2 text-left',
               inGroup ? 'pl-8' : 'pl-5',
             )}
-            onClick={() => onSwitch(s.id)}
+            onClick={() => onSwitch(s.id, s.status === 'RUNNING' && s.live)}
             onDoubleClick={e => { e.stopPropagation(); startEdit(s.id, s.title || shortCwd(s.cwd)) }}
             title={`${s.title || shortCwd(s.cwd)}\n${s.cwd}\n（双击重命名）`}
           >

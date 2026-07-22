@@ -174,7 +174,7 @@ export function FloatingChatWindow() {
   const launchModule = (c: ModuleCandidate) => {
     if (!chat) return
     const sess = sessions.find(s => normalizePath(s.cwd) === normalizePath(c.module.absPath))
-    if (sess) chat.switchTo(sess.id); else chat.open(c.module.absPath)
+    if (sess) chat.switchTo(sess.id, sess.status === 'RUNNING' && sess.live); else chat.open(c.module.absPath)
     setRouteCands(null); setRouteNote(null); setDraft('')
     setMinimized(false)
     navigate(CHAT_ROUTE)
@@ -754,11 +754,11 @@ export function FloatingChatWindow() {
         <div className="flex-1 overflow-y-auto">
           <RecentSessions
             currentSessionId={chat.sessionId}
-            onSwitch={id => { chat.switchTo(id); setShowSessions(false) }}
+            onSwitch={(id, hintRunning) => { chat.switchTo(id, hintRunning); setShowSessions(false) }}
           />
           <SessionList
             currentSessionId={chat.sessionId}
-            onSwitch={id => { chat.switchTo(id); setShowSessions(false) }}
+            onSwitch={(id, hintRunning) => { chat.switchTo(id, hintRunning); setShowSessions(false) }}
           />
         </div>
       ) : (

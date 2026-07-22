@@ -1123,12 +1123,12 @@ export function ChatPage() {
                 {!selecting && (
                   <RecentSessions
                     currentSessionId={chat.sessionId}
-                    onSwitch={id => { chat.switchTo(id); setPanel('none') }}
+                    onSwitch={(id, hintRunning) => { chat.switchTo(id, hintRunning); setPanel('none') }}
                   />
                 )}
                 <SessionList
                   currentSessionId={chat.sessionId}
-                  onSwitch={id => { chat.switchTo(id); setPanel('none') }}
+                  onSwitch={(id, hintRunning) => { chat.switchTo(id, hintRunning); setPanel('none') }}
                   selectable={selecting}
                   selectedIds={selected}
                   onToggleSelect={toggleSelect}
@@ -1261,8 +1261,8 @@ export function ChatPage() {
                 </button>
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto">
-                <RecentSessions currentSessionId={chat.sessionId} onSwitch={id => chat.switchTo(id)} />
-                <SessionList currentSessionId={chat.sessionId} onSwitch={id => chat.switchTo(id)} />
+                <RecentSessions currentSessionId={chat.sessionId} onSwitch={(id, hintRunning) => chat.switchTo(id, hintRunning)} />
+                <SessionList currentSessionId={chat.sessionId} onSwitch={(id, hintRunning) => chat.switchTo(id, hintRunning)} />
               </div>
             </aside>
           ) : (

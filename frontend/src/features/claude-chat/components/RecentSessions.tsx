@@ -7,7 +7,9 @@ import { engineDisplayName } from './chatStatus'
 
 interface Props {
   currentSessionId: string | null
-  onSwitch: (sessionId: string) => void
+  /** hintRunning：目标会话此刻是否仍在跑（status=RUNNING 且 live=挂在活跃 sidecar 上）——
+   *  切过去时用它乐观点亮"中断"按钮，不用等 Ready 校正（ready 只会关不会开，见 switchTo 里的说明）。 */
+  onSwitch: (sessionId: string, hintRunning?: boolean) => void
   limit?: number
 }
 
@@ -88,7 +90,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 5 }: Props)
               ) : (
                 <button
                   type="button"
-                  onClick={() => onSwitch(session.id)}
+                  onClick={() => onSwitch(session.id, session.status === 'RUNNING' && session.live)}
                   onDoubleClick={e => { e.stopPropagation(); startEdit(session.id, title) }}
                   title={`${title}\n${session.cwd}\n（双击重命名）`}
                   className="flex min-h-[40px] w-full items-center gap-2 pl-5 pr-3 py-2 text-left"

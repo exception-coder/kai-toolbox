@@ -57,12 +57,19 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
   const taRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // 挂载（或 sessionId 变化）后续接一次该会话
+  // 标题取自会话列表缓存（与单会话视图共用同一 query 缓存）
+  const { data: sessions = [] } = useQuery({ queryKey: ['claude-chat-sessions'], queryFn: listSessions, staleTime: 5000 })
+  const meta = sessions.find(s => s.id === sessionId)
+
+  // 挂载（或 sessionId 变化）后续接一次该会话。若列表缓存里该会话此刻仍是 RUNNING+live，
+  // 乐观带上 hintRunning——分屏刚接进来就知道要不要显示「中断」，不用等 Ready 校正
+  // （ready 只会把 running 关掉、不会点亮，见 useClaudeChatSocket 里 switchTo 的说明）。
   const switchedRef = useRef<string | null>(null)
   useEffect(() => {
     if (switchedRef.current === sessionId) return
     switchedRef.current = sessionId
-    chat.switchTo(sessionId)
+    chat.switchTo(sessionId, meta?.status === 'RUNNING' && meta?.live)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, chat])
 
   // 派生并上报业务状态（用 ref 持有 onStatus，避免父回调 identity 变化导致的重复触发）
@@ -72,10 +79,6 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
   useEffect(() => {
     onStatusRef.current({ kind: status.kind, errorText: status.errorText, count: status.count })
   }, [status.kind, status.errorText, status.count])
-
-  // 标题取自会话列表缓存（与单会话视图共用同一 query 缓存）
-  const { data: sessions = [] } = useQuery({ queryKey: ['claude-chat-sessions'], queryFn: listSessions, staleTime: 5000 })
-  const meta = sessions.find(s => s.id === sessionId)
   const title = meta?.title?.trim() || (meta ? shortCwd(meta.cwd) : sessionId.slice(0, 8))
 
   // 弹窗自动允许：与单会话共用全局开关；监听 storage 让多块/单视图间同步
