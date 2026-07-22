@@ -4,7 +4,7 @@ import {
 } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { Archive, Loader2, MessagesSquare, Paperclip, Send, Wrench, X } from 'lucide-react'
+import { Archive, Loader2, MessagesSquare, Paperclip, Send, X } from 'lucide-react'
 import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import type { ChatItem } from '@/features/claude-chat/types'
 import { uploadConsultAttachment } from '../api'
@@ -252,14 +252,7 @@ function MessageRow({ item }: { item: ChatItem }) {
       </div>
     )
   }
-  if (item.kind === 'tool') {
-    return (
-      <div className="flex items-center gap-1.5 pl-1 text-[11px] text-indigo-200/45">
-        <Wrench className="size-3" />
-        <span className="truncate">调用 {item.toolName}{item.isError ? ' · 失败' : ''}</span>
-      </div>
-    )
-  }
+  // 本模块聊天框不展示工具调用信息（item.kind === 'tool' 直接忽略）。
   if (item.kind === 'error') {
     return (
       <div className="rounded-lg border border-red-400/30 bg-red-400/10 px-3 py-2 text-xs text-red-200">
