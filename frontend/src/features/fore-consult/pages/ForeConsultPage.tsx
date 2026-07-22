@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Eye, EyeOff, History, Loader2, Radar, Save, Send, SlidersHorizontal, Sparkles, Trash2, Waypoints, X } from 'lucide-react'
+import {
+  BarChart3, Boxes, BrainCircuit, Briefcase, Contact, Eye, EyeOff, Factory, Handshake, History,
+  Landmark, Loader2, Radar, Route, Save, Send, Server, ShoppingBag, ShoppingCart, SlidersHorizontal,
+  Trash2, Truck, Users, Warehouse, Waypoints, X, type LucideIcon,
+} from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import type { ChatItem } from '@/features/claude-chat/types'
@@ -25,6 +29,32 @@ import '../styles/space.css'
 
 /** 资产球体的配色（按系统名哈希取，保证同一系统颜色稳定）。 */
 const ORB_HUES = ['#6ea8ff', '#a78bfa', '#f472b6', '#34d399', '#fbbf24', '#22d3ee', '#fb7185', '#818cf8']
+
+// 经典业务系统 → 贴合图标（按名/别名关键词命中，具体在前，兜底通用 Server）。
+const SYSTEM_ICONS: Array<{ kw: string[]; Icon: LucideIcon }> = [
+  { kw: ['SRM', '供应商', '寻源', '采购协同'], Icon: Handshake },
+  { kw: ['SCM', '供应链'], Icon: Truck },
+  { kw: ['WMS', '仓储', '仓库', '库存'], Icon: Warehouse },
+  { kw: ['MES', '制造', '生产', '车间', '工单'], Icon: Factory },
+  { kw: ['TMS', '运输', '物流', '配送'], Icon: Route },
+  { kw: ['CRM', '客户', '会员'], Icon: Contact },
+  { kw: ['ERP'], Icon: Boxes },
+  { kw: ['OA', '办公', '协同', '审批', '流程'], Icon: Briefcase },
+  { kw: ['HR', 'HCM', '人力', '人事', '招聘', '薪酬'], Icon: Users },
+  { kw: ['FICO', 'FMS', '财务', '会计', '资金', '结算', '账'], Icon: Landmark },
+  { kw: ['POS', '收银', '零售', '门店', '门市'], Icon: ShoppingCart },
+  { kw: ['商城', '电商', 'MALL', 'SHOP', '订单', 'OMS'], Icon: ShoppingBag },
+  { kw: ['BI', '报表', '数据', '分析', '看板', '大屏'], Icon: BarChart3 },
+  { kw: ['AI', '智能', '大脑', '算法', '模型'], Icon: BrainCircuit },
+]
+
+function iconForSystem(name: string, label: string): LucideIcon {
+  const hay = `${name} ${label}`.toUpperCase()
+  for (const { kw, Icon } of SYSTEM_ICONS) {
+    if (kw.some((k) => hay.includes(k.toUpperCase()))) return Icon
+  }
+  return Server
+}
 
 function hashStr(s: string): number {
   let h = 0
@@ -447,6 +477,7 @@ export function ForeConsultPage() {
   }
 
   const canStart = !!system.trim() && !!ask.trim() && !startMutation.isPending && !activeConsultId
+  const PanelIcon = iconForSystem(system, displayName(system))
 
   return (
     <div ref={containerRef} className="fc-space h-[calc(100vh-5rem)] w-full rounded-2xl">
@@ -586,6 +617,8 @@ export function ForeConsultPage() {
             if (!pos) return null
             const isActive = system === p.name && (panelOpen || !!activeConsultId)
             const dragging = overrides.has(p.name)
+            const SysIcon = iconForSystem(p.name, p.label)
+            const iconSize = Math.round(size * 0.42)
             return (
               <div
                 key={p.name}
@@ -606,14 +639,20 @@ export function ForeConsultPage() {
                   onPointerUp={() => onOrbPointerUp(p.name)}
                   disabled={!!activeConsultId && system !== p.name}
                   aria-label={p.label}
-                  className="fc-orb cursor-grab touch-none select-none active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
+                  className="fc-orb flex cursor-grab touch-none select-none items-center justify-center active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
                   style={{
                     width: size,
                     height: size,
                     ['--fc-hue' as string]: hue,
                     ['--fc-orbit-dur' as string]: `${12 + (h % 8)}s`,
                   }}
-                />
+                >
+                  <SysIcon
+                    className="pointer-events-none relative z-[1] text-white/90"
+                    style={{ width: iconSize, height: iconSize, filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.55))' }}
+                    strokeWidth={1.8}
+                  />
+                </button>
                 <span className="fc-orb-label">{p.label}</span>
               </div>
             )
@@ -631,7 +670,7 @@ export function ForeConsultPage() {
             <div className="mb-4 flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <Sparkles className="size-4 text-sky-300" />
+                  <PanelIcon className="size-4 text-sky-300" />
                   <h2 className="truncate text-lg font-semibold text-white">{displayName(system)}</h2>
                 </div>
                 <p className="mt-0.5 truncate text-xs text-indigo-200/50">{systemPath || '（自由输入的系统，无源码路径）'}</p>
