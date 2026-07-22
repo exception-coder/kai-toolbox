@@ -59,8 +59,10 @@ public class VisitorAnalysisLlmConfig {
     @Bean
     @ConditionalOnProperty(prefix = "toolbox.visitor-analysis.rag", name = "enabled", havingValue = "true")
     public QdrantClient visitorAnalysisQdrantClient(VisitorAnalysisRagProperties props) {
+        // checkCompatibility=false：跳过建 client 时的同步版本探测。该探测在 build() 里同步请求
+        // 服务端版本号，Qdrant 不可达时会卡到超时（实测 ~80s）阻塞启动主线程——这是启动慢的主因。
         QdrantGrpcClient.Builder grpc = QdrantGrpcClient.newBuilder(
-                props.getQdrantHost(), props.getQdrantPort(), props.isQdrantUseTls());
+                props.getQdrantHost(), props.getQdrantPort(), props.isQdrantUseTls(), false);
         if (StringUtils.hasText(props.getQdrantApiKey())) {
             grpc = grpc.withApiKey(props.getQdrantApiKey());
         }
