@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import Reveal from 'reveal.js'
 import 'reveal.js/dist/reveal.css'
 import '../styles/webppt-deck.css'
-import { colors, typography, spacing, shape } from '../WebpptDesignTokens'
+import { colors, typography, spacing, shape, elevation } from '../WebpptDesignTokens'
 import type { Slide } from '../slidesContent'
 import { SlideSection } from './SlideSection'
 
@@ -10,6 +10,15 @@ import { SlideSection } from './SlideSection'
 const tokenCssVars: Record<string, string> = {
   '--wp-color-primary': colors.primary,
   '--wp-color-accent': colors.accent,
+  '--wp-color-amber': colors.chartScale[2],
+  '--wp-color-violet': colors.chartScale[4],
+  '--wp-color-primary-dark': colors.primaryDark,
+  '--wp-color-primary-soft': colors.primarySoft,
+  '--wp-color-primary-softer': colors.primarySofter,
+  '--wp-color-canvas': colors.canvas,
+  '--wp-color-canvas-soft': colors.canvasSoft,
+  '--wp-color-glow-primary': colors.glowPrimary,
+  '--wp-color-glow-accent': colors.glowAccent,
   '--wp-color-ink': colors.neutral[0],
   '--wp-color-ink-2': colors.neutral[1],
   '--wp-color-ink-3': colors.neutral[2],
@@ -26,6 +35,7 @@ const tokenCssVars: Record<string, string> = {
   '--wp-unit': `${spacing.baseUnit}px`,
   '--wp-radius-md': `${shape.radius.md}px`,
   '--wp-border-width': `${shape.borderWidth}px`,
+  '--wp-shadow-card': elevation.card,
 }
 
 export function WebpptDeck({ slides }: { slides: Slide[] }) {
@@ -41,7 +51,7 @@ export function WebpptDeck({ slides }: { slides: Slide[] }) {
       margin: 0.04,
       center: true,
       controls: true,
-      progress: true,
+      progress: false,
       keyboard: true,
       // 断网/离线场景：reveal.js 本体已随构建产物本地打包（import 'reveal.js/dist/reveal.css'
       // + npm 依赖，非 CDN），不发起任何运行时网络请求。
@@ -77,11 +87,11 @@ export function WebpptDeck({ slides }: { slides: Slide[] }) {
   }, [])
 
   return (
-    <div className="webppt-deck-root h-screen w-full" style={tokenCssVars as React.CSSProperties}>
+    <div className="webppt-deck-root" style={tokenCssVars as React.CSSProperties}>
       <div className="reveal" ref={deckRef}>
         <div className="slides">
-          {slides.map((slide) => (
-            <SlideSection key={slide.id} slide={slide} />
+          {slides.map((slide, index) => (
+            <SlideSection key={slide.id} slide={slide} index={index} total={slides.length} />
           ))}
         </div>
       </div>

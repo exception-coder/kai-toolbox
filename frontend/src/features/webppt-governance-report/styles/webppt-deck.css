@@ -15,8 +15,16 @@
 
 .webppt-deck-root .reveal .slides section {
   text-align: left;
-  padding: calc(var(--wp-unit) * 8);
+  /* 固定 1280x720 虚拟画布，reveal.js 只整体缩放不会给溢出内容换行/收缩字号，
+     内容密度高的页（如架构层堆叠）必须自己在这个预算内精打细算，所以边距不能太阔气。 */
+  padding: calc(var(--wp-unit) * 5);
   box-sizing: border-box;
+  position: relative;
+  overflow: hidden;
+  /* 注意：不要在这里兜底设 background——这个选择器（3 个祖先 class + 1 个类型）
+     specificity 比下面 .master-cover / .master-summary（2 个 class）更高，会把它们
+     的渐变/深色背景直接盖掉。默认底色统一放在下面「按母版分别声明」，跟 cover/
+     section/summary 保持同一 specificity 量级，互不覆盖。 */
 }
 
 .webppt-deck-root .reveal h1,
@@ -24,7 +32,10 @@
 .webppt-deck-root .reveal h3 {
   font-family: var(--wp-font-cn);
   font-weight: 600;
-  margin: 0 0 calc(var(--wp-unit) * 3);
+  margin: 0 0 calc(var(--wp-unit) * 2);
+}
+.webppt-deck-root .reveal p {
+  margin: 0 0 calc(var(--wp-unit) * 1.5);
 }
 .webppt-deck-root .reveal h1 { font-size: var(--wp-fs-h1); }
 .webppt-deck-root .reveal h2 { font-size: var(--wp-fs-h2); }
@@ -39,6 +50,74 @@
   font-size: var(--wp-fs-caption);
   color: var(--wp-color-ink-3);
   margin-top: calc(var(--wp-unit) * 2);
+}
+
+/* 列表统一换成色块 marker，比原生圆点更有「信息图」质感，且颜色跟主题色呼应 */
+.webppt-deck-root .reveal ul {
+  list-style: none;
+  margin: calc(var(--wp-unit) * 2) 0;
+  padding: 0;
+}
+.webppt-deck-root .reveal li {
+  position: relative;
+  padding-left: calc(var(--wp-unit) * 3);
+  margin-bottom: calc(var(--wp-unit) * 1.75);
+}
+.webppt-deck-root .reveal li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--wp-color-accent);
+}
+
+/* 每页顶部的篇章标签（对应 PRD 第 5 节的五大篇章），封面除外——统一视觉锚点，
+   也是「五大篇章顺序与 PRD 一致」这条验收标准的可视化自证。 */
+.webppt-deck-root .chapter-tag {
+  display: inline-block;
+  font-size: var(--wp-fs-caption);
+  letter-spacing: 0.15em;
+  color: var(--wp-color-white);
+  background: var(--wp-color-primary);
+  padding: calc(var(--wp-unit) * 0.5) calc(var(--wp-unit) * 2);
+  border-radius: 999px;
+  margin-bottom: calc(var(--wp-unit) * 1.5);
+}
+.webppt-deck-root .master-summary .chapter-tag {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* 页面正文与页脚共享同一块母版高度：正文可以弹性收缩，品牌与页码始终拥有独立安全区。 */
+.webppt-deck-root .slide-layout {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+.webppt-deck-root .slide-main {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* 每页底部品牌 + 页码条，弱化但持续存在；进入布局流后不会覆盖正文。 */
+.webppt-deck-root .slide-footer {
+  position: static;
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: calc(var(--wp-unit) * 2.5);
+  margin-top: calc(var(--wp-unit) * 1.5);
+  font-size: var(--wp-fs-caption);
+  color: var(--wp-color-ink-3);
+  letter-spacing: 0.04em;
+}
+.webppt-deck-root .master-summary .slide-footer {
+  color: rgba(255, 255, 255, 0.65);
 }
 
 /* 封面母版 */
@@ -56,9 +135,60 @@
 }
 .webppt-deck-root .master-cover .subtitle { font-size: var(--wp-fs-h3); opacity: 0.9; }
 
+/* 封面"流程断裂"可视化——一个需求散落在好几个不相关的工具/渠道里，中间被打断，
+   一眼就能感受到"乱"具体乱在哪，不用等到后面几页才建立共鸣。 */
+.webppt-deck-root .scatter-flow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--wp-unit) * 1.25);
+  margin-top: calc(var(--wp-unit) * 5);
+}
+.webppt-deck-root .scatter-flow-item {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--wp-unit) * 1.25);
+}
+.webppt-deck-root .scatter-flow-chip {
+  font-size: var(--wp-fs-body);
+  font-weight: 600;
+  padding: calc(var(--wp-unit) * 1) calc(var(--wp-unit) * 2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  border: var(--wp-border-width) solid rgba(255, 255, 255, 0.3);
+}
+.webppt-deck-root .scatter-flow-break {
+  font-size: var(--wp-fs-h2);
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.6));
+}
+.webppt-deck-root .scatter-caption {
+  margin-top: calc(var(--wp-unit) * 2);
+  font-size: var(--wp-fs-body);
+  opacity: 0.85;
+}
+.webppt-deck-root .cover-problems {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: calc(var(--wp-unit) * 1.5);
+  margin-top: calc(var(--wp-unit) * 2);
+}
+.webppt-deck-root .cover-problem {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: calc(var(--wp-unit) * 1.25);
+  padding: calc(var(--wp-unit) * 1.5) calc(var(--wp-unit) * 2);
+  border-radius: calc(var(--wp-radius-md) * 1.5);
+  background: rgba(255, 255, 255, 0.14);
+  border: var(--wp-border-width) solid rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(6px);
+}
+.webppt-deck-root .cover-problem-icon { font-size: var(--wp-fs-h2); }
+.webppt-deck-root .cover-problem strong { display: block; font-size: var(--wp-fs-body); }
+.webppt-deck-root .cover-problem p { margin: 2px 0; font-size: var(--wp-fs-caption); font-weight: 600; }
+.webppt-deck-root .cover-problem small { font-size: var(--wp-fs-caption); opacity: 0.8; }
+
 /* 章节母版：留白 + 序号强调（本篇章不逐段落用，作为可选样式保留） */
 .webppt-deck-root .master-section {
-  background: var(--wp-color-surface);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -69,41 +199,730 @@
   font-weight: 700;
 }
 
-/* 单栏内容母版 */
-.webppt-deck-root .master-content-single ul { padding-left: calc(var(--wp-unit) * 3); }
-.webppt-deck-root .master-content-single li { margin-bottom: calc(var(--wp-unit) * 1); }
+/* 单栏 / 双栏内容母版的统一底色——跟 cover/section/summary 同一 specificity 量级
+   （都是「.webppt-deck-root」+ 母版 class，共 2 个 class），不会互相覆盖。 */
+.webppt-deck-root .master-content-single,
+.webppt-deck-root .master-content-dual {
+  background: linear-gradient(135deg, var(--wp-color-canvas-soft), var(--wp-color-canvas));
+}
+
+/* 内容页沿用封面的蓝青品牌基因，但保持浅色阅读画布。 */
+.webppt-deck-root .reveal .slides > section.master-content-single::before,
+.webppt-deck-root .reveal .slides > section.master-content-dual::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: calc(var(--wp-unit) * 0.75);
+  background: linear-gradient(90deg, var(--wp-color-primary), var(--wp-color-accent));
+  z-index: 0;
+}
+.webppt-deck-root .reveal .slides > section.master-content-single::after,
+.webppt-deck-root .reveal .slides > section.master-content-dual::after {
+  content: '';
+  position: absolute;
+  width: calc(var(--wp-unit) * 42);
+  height: calc(var(--wp-unit) * 42);
+  right: 0;
+  top: calc(var(--wp-unit) * -14);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--wp-color-glow-accent), transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+.webppt-deck-root .master-content-single > *,
+.webppt-deck-root .master-content-dual > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* 强调卡片——原为单栏专用，doc-governance 页在双栏母版里也用它装 toolEvidence，
+   所以不按母版限定，谁引用谁生效。 */
+.webppt-deck-root .thesis-card {
+  margin-top: calc(var(--wp-unit) * 2);
+  padding: calc(var(--wp-unit) * 2) calc(var(--wp-unit) * 2.5);
+  background: var(--wp-color-white);
+  border-left: 4px solid var(--wp-color-primary);
+  border-radius: var(--wp-radius-md);
+  box-shadow: var(--wp-shadow-card);
+  font-weight: 600;
+  color: var(--wp-color-ink);
+}
+
+/* 方法论引用的大字「金句卡」——独立成页时给这类一两句话的核心论点应有的视觉份量，
+   不是随手一行小字 caption 能撑起来的。 */
+.webppt-deck-root .quote-card {
+  margin-top: calc(var(--wp-unit) * 5);
+  padding: calc(var(--wp-unit) * 4) calc(var(--wp-unit) * 5);
+  background: var(--wp-color-white);
+  border-radius: calc(var(--wp-radius-md) * 1.5);
+  box-shadow: var(--wp-shadow-card);
+  position: relative;
+}
+.webppt-deck-root .quote-card::before {
+  content: '"';
+  position: absolute;
+  left: calc(var(--wp-unit) * 2);
+  top: calc(var(--wp-unit) * -2);
+  font-size: calc(var(--wp-fs-h1) * 2.2);
+  font-family: Georgia, 'Times New Roman', serif;
+  color: var(--wp-color-accent);
+  opacity: 0.35;
+  line-height: 1;
+}
+.webppt-deck-root .quote-card p {
+  font-size: var(--wp-fs-h3);
+  font-weight: 600;
+  color: var(--wp-color-ink);
+  margin: 0 0 calc(var(--wp-unit) * 1.5);
+}
+.webppt-deck-root .quote-card p:last-child { margin-bottom: 0; }
+
+/* 方法论页用双流程泳道讲清“各自怎么跑、最后在哪里汇合”。 */
+.webppt-deck-root .method-flow-board {
+  display: grid;
+  gap: calc(var(--wp-unit) * 1.25);
+}
+.webppt-deck-root .method-lane {
+  padding: calc(var(--wp-unit) * 1.5) calc(var(--wp-unit) * 2);
+  border-radius: calc(var(--wp-radius-md) * 1.5);
+  background: var(--wp-color-white);
+  border-left: calc(var(--wp-unit) * 0.75) solid var(--lane-color);
+  box-shadow: var(--wp-shadow-card);
+}
+.webppt-deck-root .method-lane-openspec { --lane-color: var(--wp-color-primary); }
+.webppt-deck-root .method-lane-superpowers { --lane-color: var(--wp-color-accent); }
+.webppt-deck-root .method-lane header {
+  display: grid;
+  grid-template-columns: 230px 1fr;
+  align-items: center;
+  gap: calc(var(--wp-unit) * 2);
+  margin-bottom: var(--wp-unit);
+}
+.webppt-deck-root .method-lane header div { display: flex; align-items: baseline; gap: var(--wp-unit); }
+.webppt-deck-root .method-lane header strong { font-size: var(--wp-fs-h3); color: var(--lane-color); }
+.webppt-deck-root .method-lane header span { font-size: var(--wp-fs-caption); color: var(--wp-color-ink-3); }
+.webppt-deck-root .method-lane header p { margin: 0; font-size: var(--wp-fs-caption); }
+.webppt-deck-root .method-steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: calc(var(--wp-unit) * 1.25); }
+.webppt-deck-root .method-step {
+  position: relative;
+  min-height: 54px;
+  padding: var(--wp-unit);
+  border-radius: var(--wp-radius-md);
+  background: color-mix(in srgb, var(--lane-color) 8%, var(--wp-color-white));
+}
+.webppt-deck-root .method-step:not(:last-child)::after {
+  content: '→';
+  position: absolute;
+  right: calc(var(--wp-unit) * -1.25);
+  top: 16px;
+  color: var(--lane-color);
+  font-weight: 700;
+}
+.webppt-deck-root .method-step span { display: block; font-size: var(--wp-fs-caption); color: var(--lane-color); }
+.webppt-deck-root .method-step strong { font-size: var(--wp-fs-caption); color: var(--wp-color-ink); }
+.webppt-deck-root .method-boundaries { display: grid; grid-template-columns: 1fr 1fr; gap: calc(var(--wp-unit) * 1.25); }
+.webppt-deck-root .method-boundaries div {
+  padding: var(--wp-unit) calc(var(--wp-unit) * 1.5);
+  border-radius: var(--wp-radius-md);
+  background: color-mix(in srgb, var(--wp-color-primary) 6%, var(--wp-color-white));
+  border: var(--wp-border-width) solid var(--wp-color-line);
+}
+.webppt-deck-root .method-boundaries strong { font-size: var(--wp-fs-caption); color: var(--wp-color-primary); }
+.webppt-deck-root .method-boundaries p { margin: 2px 0 0; font-size: var(--wp-fs-caption); line-height: 1.35; }
+.webppt-deck-root .method-convergence {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--wp-unit) * 1.5);
+  padding: calc(var(--wp-unit) * 1.25) calc(var(--wp-unit) * 2);
+  border-radius: var(--wp-radius-md);
+  background: var(--wp-color-ink);
+  color: var(--wp-color-white);
+}
+.webppt-deck-root .method-convergence span { font-size: var(--wp-fs-caption); color: var(--wp-color-primary-soft); }
+.webppt-deck-root .method-convergence strong { font-size: var(--wp-fs-body); }
+.webppt-deck-root .method-note { margin-top: var(--wp-unit); }
+
+/* 架构层 / 闭环阶段共用的「编号卡片行」——比纯文本列表更有层次，也更贴近「架构图」的直觉。
+   5 层堆一页时纵向空间很紧（固定 1280x720 画布，超出会被裁掉，reveal.js 不会自动缩小
+   字号/换行去适应），所以这里的内边距/间距比其它卡片更保守。 */
+.webppt-deck-root .layer-stack {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--wp-unit) * 0.25);
+  margin-top: calc(var(--wp-unit) * 0.75);
+}
+.webppt-deck-root .layer-row {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(var(--wp-unit) * 2.5);
+  background: var(--wp-color-white);
+  border: var(--wp-border-width) solid var(--wp-color-line);
+  border-radius: var(--wp-radius-md);
+  padding: calc(var(--wp-unit) * 0.5) calc(var(--wp-unit) * 2.5);
+  box-shadow: var(--wp-shadow-card);
+}
+.webppt-deck-root .architecture-slide .layer-stack { margin-top: 2px; }
+.webppt-deck-root .architecture-slide .layer-row { padding-block: 2px; }
+.webppt-deck-root .architecture-slide .layer-detail,
+.webppt-deck-root .architecture-slide .layer-solves { line-height: 1.15; }
+.webppt-deck-root .architecture-slide .layer-solves { margin-top: 0; }
+.webppt-deck-root .layer-row-planned {
+  border-style: dashed;
+  opacity: 0.85;
+}
+.webppt-deck-root .layer-badge {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--wp-color-primary);
+  color: var(--wp-color-white);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: var(--wp-fs-h3);
+  line-height: 1;
+}
+.webppt-deck-root .layer-body .layer-label {
+  font-weight: 600;
+  color: var(--wp-color-ink);
+  margin-bottom: 2px;
+}
+/* 英文黑话（Skill/Hooks/MCP...）降级成括号里的小字补充，先让人看懂"这是干嘛的岗位" */
+.webppt-deck-root .layer-label-jargon {
+  font-size: var(--wp-fs-caption);
+  font-weight: 400;
+  color: var(--wp-color-ink-3);
+}
+.webppt-deck-root .layer-body .layer-detail {
+  font-size: var(--wp-fs-caption);
+  color: var(--wp-color-ink-3);
+}
+.webppt-deck-root .layer-body .layer-solves {
+  font-size: var(--wp-fs-body);
+  color: var(--wp-color-ink-2);
+  margin-top: 2px;
+}
+
+/* 议题/价值主张一类的短文案，用胶囊 chip 平铺，比长句列表更扫得快 */
+.webppt-deck-root .chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--wp-unit) * 1.25);
+  margin: calc(var(--wp-unit) * 2) 0;
+}
+.webppt-deck-root .chip {
+  display: inline-block;
+  font-size: var(--wp-fs-caption);
+  padding: calc(var(--wp-unit) * 0.75) calc(var(--wp-unit) * 1.75);
+  border-radius: 999px;
+  background: var(--wp-color-white);
+  border: var(--wp-border-width) solid var(--wp-color-line);
+  color: var(--wp-color-ink-2);
+}
+.webppt-deck-root .chip-dark {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: var(--wp-color-white);
+}
 
 /* 双栏内容母版 */
 .webppt-deck-root .master-content-dual .columns {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: calc(var(--wp-unit) * 4);
+  margin-top: calc(var(--wp-unit) * 2);
 }
 .webppt-deck-root .master-content-dual .col {
   background: var(--wp-color-white);
   border: var(--wp-border-width) solid var(--wp-color-line);
   border-radius: var(--wp-radius-md);
   padding: calc(var(--wp-unit) * 3);
+  box-shadow: var(--wp-shadow-card);
 }
-.webppt-deck-root .master-content-dual .stat-tile {
-  background: var(--wp-color-surface);
+.webppt-deck-root .master-content-dual .col.stat-grid-col {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+/* 后半段用不同的“图形语法”承载关系，避免所有内容都退化成长列表 + 同质白卡。 */
+.webppt-deck-root .knowledge-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: calc(var(--wp-unit) * 1.5);
+}
+.webppt-deck-root .knowledge-card {
+  min-height: 168px;
+  padding: calc(var(--wp-unit) * 2);
+  border-radius: calc(var(--wp-radius-md) * 1.5);
+  background: var(--wp-color-white);
+  border-top: 5px solid var(--role-color);
+  box-shadow: var(--wp-shadow-card);
+}
+.webppt-deck-root .knowledge-card-blue { --role-color: var(--wp-color-primary); }
+.webppt-deck-root .knowledge-card-amber { --role-color: var(--wp-color-amber); }
+.webppt-deck-root .knowledge-card-teal { --role-color: var(--wp-color-accent); }
+.webppt-deck-root .knowledge-card-violet { --role-color: var(--wp-color-violet); }
+.webppt-deck-root .knowledge-card-head { display: flex; align-items: center; gap: var(--wp-unit); }
+.webppt-deck-root .knowledge-icon { font-size: var(--wp-fs-h2); }
+.webppt-deck-root .knowledge-card-head strong,
+.webppt-deck-root .knowledge-card-head small { display: block; }
+.webppt-deck-root .knowledge-card-head small { color: var(--wp-color-ink-3); margin-top: 2px; }
+.webppt-deck-root .knowledge-question { margin: calc(var(--wp-unit) * 1.5) 0 calc(var(--wp-unit) * .5); font-weight: 700; color: var(--role-color); }
+.webppt-deck-root .knowledge-description { font-size: var(--wp-fs-caption); line-height: 1.45; }
+.webppt-deck-root .decision-ribbon {
+  display: grid;
+  grid-template-columns: auto auto auto auto 1fr;
+  align-items: center;
+  gap: calc(var(--wp-unit) * 1.25);
+  margin-top: calc(var(--wp-unit) * 1.5);
+  padding: calc(var(--wp-unit) * 1.25) calc(var(--wp-unit) * 2);
   border-radius: var(--wp-radius-md);
-  padding: calc(var(--wp-unit) * 2) calc(var(--wp-unit) * 3);
+  background: var(--wp-color-ink);
+  color: var(--wp-color-white);
+}
+.webppt-deck-root .decision-ribbon span { color: var(--wp-color-primary-soft); font-size: var(--wp-fs-caption); }
+.webppt-deck-root .decision-ribbon b { color: var(--wp-color-accent); }
+.webppt-deck-root .decision-ribbon p { color: var(--wp-color-line); font-size: var(--wp-fs-caption); line-height: 1.35; margin: 0; }
+
+.webppt-deck-root .handoff-layout { display: grid; grid-template-columns: 1.55fr .75fr; gap: calc(var(--wp-unit) * 2); }
+.webppt-deck-root .handoff-list { display: grid; gap: var(--wp-unit); }
+.webppt-deck-root .handoff-row {
+  display: grid;
+  grid-template-columns: 36px 180px 28px 1fr;
+  align-items: center;
+  min-height: 60px;
+  padding: var(--wp-unit) calc(var(--wp-unit) * 1.5);
+  background: var(--wp-color-white);
+  border: var(--wp-border-width) solid var(--wp-color-line);
+  border-radius: var(--wp-radius-md);
+}
+.webppt-deck-root .handoff-index { color: var(--wp-color-primary); font-weight: 700; }
+.webppt-deck-root .handoff-row strong { font-size: var(--wp-fs-caption); }
+.webppt-deck-root .handoff-arrow { color: var(--wp-color-accent); font-size: var(--wp-fs-h3); }
+.webppt-deck-root .handoff-row p { font-size: var(--wp-fs-caption); line-height: 1.4; margin: 0; }
+.webppt-deck-root .verdict-card {
+  display: flex; flex-direction: column; justify-content: center;
+  padding: calc(var(--wp-unit) * 3);
+  color: var(--wp-color-white);
+  background: linear-gradient(145deg, var(--wp-color-primary), var(--wp-color-primary-dark));
+  border-radius: calc(var(--wp-radius-md) * 2);
+  box-shadow: var(--wp-shadow-card);
+}
+.webppt-deck-root .verdict-kicker { font-size: var(--wp-fs-caption); color: var(--wp-color-primary-soft); letter-spacing: .12em; }
+.webppt-deck-root .verdict-card strong { font-size: var(--wp-fs-h3); margin: var(--wp-unit) 0; }
+.webppt-deck-root .verdict-card p { color: var(--wp-color-primary-softer); font-size: var(--wp-fs-caption); line-height: 1.55; }
+
+.webppt-deck-root .comparison-board {
+  display: grid;
+  grid-template-columns: 1fr 150px 1fr;
+  overflow: hidden;
+  background: var(--wp-color-white);
+  border: var(--wp-border-width) solid var(--wp-color-line);
+  border-radius: calc(var(--wp-radius-md) * 1.5);
+  box-shadow: var(--wp-shadow-card);
+}
+.webppt-deck-root .comparison-head { padding: calc(var(--wp-unit) * 1.5); display: grid; grid-template-columns: auto 1fr; column-gap: var(--wp-unit); }
+.webppt-deck-root .comparison-head span { grid-row: 1 / 3; font-size: var(--wp-fs-h2); }
+.webppt-deck-root .comparison-head small { color: var(--wp-color-ink-3); }
+.webppt-deck-root .comparison-head-selected { background: color-mix(in srgb, var(--wp-color-accent) 12%, var(--wp-color-white)); }
+.webppt-deck-root .comparison-axis { display: grid; place-items: center; font-size: var(--wp-fs-caption); color: var(--wp-color-ink-3); background: var(--wp-color-surface); }
+.webppt-deck-root .comparison-row { display: contents; }
+.webppt-deck-root .comparison-row > * { padding: calc(var(--wp-unit) * 1.1) calc(var(--wp-unit) * 1.5); border-top: var(--wp-border-width) solid var(--wp-color-line); font-size: var(--wp-fs-caption); }
+.webppt-deck-root .comparison-row > strong { text-align: center; background: var(--wp-color-surface); color: var(--wp-color-ink-2); }
+.webppt-deck-root .comparison-row > div:last-child { background: color-mix(in srgb, var(--wp-color-accent) 6%, var(--wp-color-white)); }
+.webppt-deck-root .choice-proof { margin: calc(var(--wp-unit) * 1.25) 0 0; padding: var(--wp-unit) calc(var(--wp-unit) * 1.5); border-left: 4px solid var(--wp-color-accent); background: var(--wp-color-white); font-size: var(--wp-fs-caption); line-height: 1.4; }
+.webppt-deck-root .choice-proof span { font-weight: 700; color: var(--wp-color-accent); margin-right: var(--wp-unit); }
+
+.webppt-deck-root .workspace-visual { display: grid; grid-template-columns: repeat(4, 1fr); gap: calc(var(--wp-unit) * .75); margin-bottom: calc(var(--wp-unit) * 1.5); }
+.webppt-deck-root .workspace-visual span { grid-column: 1 / -1; padding: var(--wp-unit); background: var(--wp-color-ink); color: var(--wp-color-white); border-radius: var(--wp-radius-md); font-weight: 600; }
+.webppt-deck-root .workspace-visual div { text-align: center; padding: var(--wp-unit) calc(var(--wp-unit) * .5); border-radius: var(--wp-radius-md); background: color-mix(in srgb, var(--wp-color-primary) 8%, var(--wp-color-white)); color: var(--wp-color-primary); font-size: var(--wp-fs-caption); font-weight: 700; }
+.webppt-deck-root .case-columns h3 { font-size: var(--wp-fs-body); }
+.webppt-deck-root .case-columns li { font-size: var(--wp-fs-caption); margin-bottom: var(--wp-unit); }
+.webppt-deck-root .lifecycle-card { background: linear-gradient(160deg, var(--wp-color-white), color-mix(in srgb, var(--wp-color-accent) 8%, var(--wp-color-white))); }
+.webppt-deck-root .lifecycle-highlight { padding: calc(var(--wp-unit) * 1.5); border-radius: var(--wp-radius-md); background: var(--wp-color-ink); color: var(--wp-color-white); font-size: var(--wp-fs-caption); }
+
+.webppt-deck-root .topic-strip { margin: 0 0 calc(var(--wp-unit) * 1.25); }
+.webppt-deck-root .loop-track { display: grid; grid-template-columns: repeat(4, 1fr); gap: calc(var(--wp-unit) * 1.25); }
+.webppt-deck-root .loop-stage { position: relative; min-height: 112px; padding: calc(var(--wp-unit) * 1.1); background: var(--wp-color-white); border-radius: var(--wp-radius-md); border: var(--wp-border-width) solid var(--wp-color-line); box-shadow: var(--wp-shadow-card); }
+.webppt-deck-root .loop-stage::after { position: absolute; z-index: 2; color: var(--wp-color-accent); font-weight: 700; }
+.webppt-deck-root .loop-stage:nth-child(1)::after,
+.webppt-deck-root .loop-stage:nth-child(2)::after,
+.webppt-deck-root .loop-stage:nth-child(3)::after { content: '→'; right: calc(var(--wp-unit) * -1.45); top: 44%; }
+.webppt-deck-root .loop-stage:nth-child(4)::after { content: '↓'; left: 50%; bottom: calc(var(--wp-unit) * -1.45); }
+.webppt-deck-root .loop-stage:nth-child(5) { grid-column: 4; }
+.webppt-deck-root .loop-stage:nth-child(6) { grid-column: 3; grid-row: 2; }
+.webppt-deck-root .loop-stage:nth-child(7) { grid-column: 2; grid-row: 2; }
+.webppt-deck-root .loop-stage:nth-child(8) { grid-column: 1; grid-row: 2; }
+.webppt-deck-root .loop-stage:nth-child(5)::after,
+.webppt-deck-root .loop-stage:nth-child(6)::after,
+.webppt-deck-root .loop-stage:nth-child(7)::after { content: '←'; left: calc(var(--wp-unit) * -1.45); top: 44%; }
+.webppt-deck-root .loop-stage-head { display: flex; align-items: center; gap: var(--wp-unit); margin-bottom: var(--wp-unit); }
+.webppt-deck-root .loop-stage-head > span { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--wp-color-primary); color: var(--wp-color-white); font-weight: 700; }
+.webppt-deck-root .loop-stage-not-called { border-style: dashed; opacity: .58; background: var(--wp-color-surface); box-shadow: none; }
+.webppt-deck-root .loop-stage-not-called .loop-stage-head > span { background: var(--wp-color-ink-3); }
+.webppt-deck-root .loop-stage-conditional { border-style: dashed; border-color: var(--wp-color-amber); background: color-mix(in srgb, var(--wp-color-amber) 10%, var(--wp-color-white)); }
+.webppt-deck-root .loop-stage-conditional .loop-stage-head > span { background: var(--wp-color-amber); }
+
+/* 三项一列的版本/留痕统计——用于文本类数值（如"2 个版本"），字号比纯数字指标小一档，
+   避免长文本在窄卡片里挤爆或换行。 */
+.webppt-deck-root .stat-grid-triple {
+  grid-template-columns: 1fr;
+  gap: calc(var(--wp-unit) * 1.25);
+}
+.webppt-deck-root .stat-value-text {
+  font-size: var(--wp-fs-h3);
+}
+
+/* 展望页：上层是四项基础能力，下层是三条未来结果；用一条过渡轨道连接“现在”和“未来”。 */
+.webppt-deck-root .outlook-thesis { margin-bottom: calc(var(--wp-unit) * 2); }
+.webppt-deck-root .outlook-foundations { display: grid; grid-template-columns: repeat(4, 1fr); gap: calc(var(--wp-unit) * 1.25); }
+.webppt-deck-root .outlook-foundation { min-height: 112px; padding: calc(var(--wp-unit) * 1.5); border-top: 4px solid var(--wp-color-primary); background: var(--wp-color-white); box-shadow: var(--wp-shadow-card); border-radius: var(--wp-radius-md); }
+.webppt-deck-root .outlook-foundation > span { display: block; font-size: var(--wp-fs-h3); margin-bottom: 4px; }
+.webppt-deck-root .outlook-foundation strong { display: block; font-size: var(--wp-fs-body); }
+.webppt-deck-root .outlook-foundation small { display: block; margin-top: 4px; color: var(--wp-color-ink-3); font-size: var(--wp-fs-caption); line-height: 1.25; }
+.webppt-deck-root .outlook-transition { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: calc(var(--wp-unit) * 1.5); margin: calc(var(--wp-unit) * 2) 0; color: var(--wp-color-primary); font-size: var(--wp-fs-caption); }
+.webppt-deck-root .outlook-transition::before,
+.webppt-deck-root .outlook-transition::after { content: ''; height: 3px; background: linear-gradient(90deg, var(--wp-color-primary), var(--wp-color-accent)); }
+.webppt-deck-root .outlook-transition span { display: none; }
+.webppt-deck-root .outlook-transition b { padding: 4px calc(var(--wp-unit) * 2); border-radius: 999px; background: color-mix(in srgb, var(--wp-color-primary) 10%, var(--wp-color-white)); }
+.webppt-deck-root .outlook-futures { display: grid; grid-template-columns: repeat(3, 1fr); gap: calc(var(--wp-unit) * 1.5); }
+.webppt-deck-root .outlook-futures article { display: flex; gap: calc(var(--wp-unit) * 1.25); padding: calc(var(--wp-unit) * 1.5); border: var(--wp-border-width) solid var(--wp-color-line); border-radius: var(--wp-radius-md); background: linear-gradient(145deg, var(--wp-color-white), color-mix(in srgb, var(--wp-color-accent) 8%, var(--wp-color-white))); }
+.webppt-deck-root .outlook-futures em { flex: 0 0 auto; color: var(--wp-color-primary); font-size: var(--wp-fs-h3); font-weight: 800; font-style: normal; }
+.webppt-deck-root .outlook-futures strong { font-size: var(--wp-fs-body); }
+.webppt-deck-root .outlook-futures p { margin: 4px 0 0; color: var(--wp-color-ink-3); font-size: var(--wp-fs-caption); line-height: 1.3; }
+.webppt-deck-root .outlook-outcome { margin-top: calc(var(--wp-unit) * 1.5); padding-left: calc(var(--wp-unit) * 1.5); border-left: 4px solid var(--wp-color-accent); font-weight: 600; }
+
+/* 单项展望页：发布会式 Hero 故事，而不是后台卡片。 */
+.webppt-deck-root .outlook-detail-heading { display: flex; align-items: center; gap: calc(var(--wp-unit) * 1.5); }
+.webppt-deck-root .outlook-detail-heading h2 { margin: 0; font-size: 38px; letter-spacing: -.035em; }
+.webppt-deck-root .outlook-status { flex: 0 0 auto; display: inline-flex; padding: 3px calc(var(--wp-unit) * 1.25); border-radius: 999px; color: var(--wp-color-white); background: var(--wp-color-primary); font-size: var(--wp-fs-caption); font-weight: 700; }
+.webppt-deck-root .outlook-detail-building .outlook-status { background: var(--wp-color-amber); }
+.webppt-deck-root .outlook-detail-future .outlook-status { background: var(--wp-color-ink-3); }
+.webppt-deck-root .outlook-promise { margin: calc(var(--wp-unit) * 1.25) 0; color: var(--wp-color-ink-2); font-size: var(--wp-fs-h3); font-weight: 600; }
+.webppt-deck-root .outlook-story-stage { display: grid; grid-template-columns: 1fr 230px 1fr; align-items: center; gap: calc(var(--wp-unit) * 2.5); min-height: 210px; }
+.webppt-deck-root .outlook-story-before,
+.webppt-deck-root .outlook-story-after { position: relative; padding: 0 calc(var(--wp-unit) * 2); }
+.webppt-deck-root .outlook-story-before { text-align: right; color: var(--wp-color-ink-3); }
+.webppt-deck-root .outlook-story-after { text-align: left; color: var(--wp-color-primary); }
+.webppt-deck-root .outlook-story-before small,
+.webppt-deck-root .outlook-story-after small { display: block; margin-bottom: calc(var(--wp-unit) * 1.25); text-transform: uppercase; letter-spacing: .18em; font-size: var(--wp-fs-caption); font-weight: 800; }
+.webppt-deck-root .outlook-story-before strong,
+.webppt-deck-root .outlook-story-after strong { font-size: 22px; line-height: 1.35; }
+.webppt-deck-root .outlook-core { position: relative; display: grid; place-items: center; width: 190px; height: 190px; margin: auto; border-radius: 50%; color: var(--wp-color-white); background: radial-gradient(circle at 35% 30%, #8fe8ff 0, #5966ff 28%, #171d5b 72%); box-shadow: 0 0 35px rgba(85,101,255,.48), inset 0 0 30px rgba(255,255,255,.25); animation: forge-core-float 4s ease-in-out infinite; }
+.webppt-deck-root .outlook-core i { position: absolute; inset: -12px; border: 1px solid rgba(90,109,255,.28); border-radius: 50%; }
+.webppt-deck-root .outlook-core i:nth-child(2) { inset: -28px; opacity: .58; }
+.webppt-deck-root .outlook-core i:nth-child(3) { inset: -45px; opacity: .28; }
+.webppt-deck-root .outlook-core span { font-size: 48px; transform: translateY(-13px); }
+.webppt-deck-root .outlook-core b { position: absolute; bottom: 32px; text-align: center; font-size: 12px; letter-spacing: .18em; }
+.webppt-deck-root .outlook-journey { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); gap: calc(var(--wp-unit) * 2); margin-top: calc(var(--wp-unit) * .5); }
+.webppt-deck-root .outlook-journey-line { position: absolute; left: 12%; right: 12%; top: 9px; height: 2px; background: linear-gradient(90deg, rgba(67,79,210,.25), var(--wp-color-primary), var(--wp-color-accent), rgba(81,190,166,.2)); }
+.webppt-deck-root .outlook-journey > div:not(.outlook-journey-line) { position: relative; text-align: center; }
+.webppt-deck-root .outlook-journey span { position: relative; z-index: 1; display: block; width: 18px; height: 18px; margin: 0 auto calc(var(--wp-unit) * 1); border: 4px solid var(--wp-color-white); border-radius: 50%; background: var(--wp-color-primary); box-shadow: 0 0 14px rgba(67,79,210,.55); }
+.webppt-deck-root .outlook-journey strong { display: block; font-size: var(--wp-fs-body); }
+.webppt-deck-root .outlook-journey small { display: block; max-width: 260px; margin: 3px auto 0; color: var(--wp-color-ink-3); font-size: 13px; line-height: 1.25; }
+.webppt-deck-root .outlook-benefit-words { display: flex; justify-content: center; gap: calc(var(--wp-unit) * 4); margin-top: calc(var(--wp-unit) * 1.5); color: var(--wp-color-ink); font-size: 18px; font-weight: 800; }
+.webppt-deck-root .outlook-benefit-words span { display: flex; align-items: baseline; gap: 6px; }
+.webppt-deck-root .outlook-benefit-words em { color: var(--wp-color-accent); font-size: 12px; font-style: normal; letter-spacing: .12em; }
+@keyframes forge-core-float { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-7px) scale(1.02); } }
+
+/* Forge Presentation Design System：统一用光、留白和层级替代后台式描边卡片。 */
+.webppt-deck-root .master-content-single,
+.webppt-deck-root .master-content-dual { background: radial-gradient(circle at 88% 12%, rgba(95,212,199,.14), transparent 28%), radial-gradient(circle at 12% 82%, rgba(79,93,230,.11), transparent 30%), #f7f9ff; }
+.webppt-deck-root .master-content-single h2,
+.webppt-deck-root .master-content-dual h2 { letter-spacing: -.035em; }
+.webppt-deck-root .chapter-tag { box-shadow: 0 8px 20px rgba(55,70,190,.16); }
+.webppt-deck-root .knowledge-card,
+.webppt-deck-root .layer-row,
+.webppt-deck-root .platform-capability-action,
+.webppt-deck-root .loop-stage,
+.webppt-deck-root .stat-tile,
+.webppt-deck-root .col { box-shadow: none; }
+.webppt-deck-root .knowledge-card,
+.webppt-deck-root .platform-capability-action,
+.webppt-deck-root .loop-stage { border-color: transparent; background: rgba(255,255,255,.58); backdrop-filter: blur(14px); }
+.webppt-deck-root .layer-row { border: 0; border-bottom: 1px solid rgba(73,88,182,.12); border-radius: 0; background: transparent; }
+.webppt-deck-root .stat-tile { border: 0; background: transparent; }
+
+/* 全篇去 Dashboard 味：类比变成轻引用，矩形容器退到背景层。 */
+.webppt-deck-root .analogy,
+.webppt-deck-root .analogy-lead { padding: 0 0 0 calc(var(--wp-unit) * 1.5); border: 0; border-left: 3px solid var(--wp-color-accent); border-radius: 0; background: transparent; box-shadow: none; }
+.webppt-deck-root .analogy-lead { margin-bottom: calc(var(--wp-unit) * 1.75); font-size: 20px; line-height: 1.35; }
+.webppt-deck-root .outlook-detail-slide .analogy { display: none; }
+.webppt-deck-root .cover-problem { padding: calc(var(--wp-unit) * 1.25) 0; border: 0; border-top: 1px solid rgba(255,255,255,.3); border-radius: 0; background: transparent; backdrop-filter: none; }
+.webppt-deck-root .thesis-card,
+.webppt-deck-root .verdict-card,
+.webppt-deck-root .method-lane,
+.webppt-deck-root .comparison-board,
+.webppt-deck-root .workspace-card,
+.webppt-deck-root .lifecycle-card { box-shadow: none; }
+.webppt-deck-root .method-lane,
+.webppt-deck-root .workspace-card,
+.webppt-deck-root .lifecycle-card { border-color: transparent; background: rgba(255,255,255,.4); backdrop-filter: blur(12px); }
+.webppt-deck-root .handoff-row { border-radius: 0; border: 0; border-bottom: 1px solid rgba(72,86,170,.14); background: transparent; }
+.webppt-deck-root .platform-capability-story { background: transparent; border: 0; box-shadow: none; }
+.webppt-deck-root .stat-value { font-size: 48px; letter-spacing: -.04em; }
+
+/* 01–03：开篇从列表/卡片改成结论舞台与横向能力轨道。 */
+.webppt-deck-root .opening-slide > .slide-content > ul,
+.webppt-deck-root .opening-slide ul { display: grid; grid-template-columns: repeat(3, 1fr); gap: calc(var(--wp-unit) * 3); margin: calc(var(--wp-unit) * 4) 0; padding: 0; list-style: none; counter-reset: pain; }
+.webppt-deck-root .opening-slide li { position: relative; margin: 0; padding-top: calc(var(--wp-unit) * 3); border-top: 2px solid rgba(68,82,190,.22); font-size: 22px; line-height: 1.45; counter-increment: pain; }
+.webppt-deck-root .opening-slide li::before { content: '0' counter(pain); position: absolute; top: -18px; left: 0; color: var(--wp-color-accent); font-size: 13px; font-weight: 800; letter-spacing: .14em; }
+.webppt-deck-root .opening-slide .thesis-card { margin-top: calc(var(--wp-unit) * 4); padding: 0; border: 0; background: transparent; color: var(--wp-color-primary); font-size: 30px; font-weight: 800; text-align: center; }
+.webppt-deck-root .architecture-slide .layer-stack { position: relative; display: grid; grid-template-columns: repeat(5, 1fr); gap: calc(var(--wp-unit) * 1.5); margin-top: calc(var(--wp-unit) * 5); }
+.webppt-deck-root .architecture-slide .layer-stack::before { content: ''; position: absolute; left: 8%; right: 8%; top: 34px; height: 3px; background: linear-gradient(90deg, var(--wp-color-primary), var(--wp-color-accent)); opacity: .45; }
+.webppt-deck-root .architecture-slide .layer-row { position: relative; z-index: 1; display: block; padding: 0 calc(var(--wp-unit) * 1.25); border: 0; text-align: center; }
+.webppt-deck-root .architecture-slide .layer-badge { width: 68px; height: 68px; margin: 0 auto calc(var(--wp-unit) * 2); border: 6px solid #f7f9ff; font-size: 30px; box-shadow: 0 0 25px rgba(68,82,190,.28); }
+.webppt-deck-root .architecture-slide .layer-label { font-size: 19px; }
+.webppt-deck-root .architecture-slide .layer-label-jargon { display: block; margin-top: 3px; }
+.webppt-deck-root .architecture-slide .layer-detail { margin-top: calc(var(--wp-unit) * 1.25); }
+.webppt-deck-root .architecture-slide .layer-solves { margin-top: calc(var(--wp-unit) * 1.25); color: var(--wp-color-primary); font-weight: 700; }
+
+/* 04–07：知识、方法和工具选型改为关系舞台、发光路径与强对比。 */
+.webppt-deck-root .knowledge-slide .knowledge-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: calc(var(--wp-unit) * 2.5); margin-top: calc(var(--wp-unit) * 3); }
+.webppt-deck-root .knowledge-slide .knowledge-card { padding: 0 calc(var(--wp-unit) * 1.5); border: 0; border-left: 1px solid rgba(68,82,190,.18); border-radius: 0; background: transparent; backdrop-filter: none; }
+.webppt-deck-root .knowledge-slide .knowledge-card:first-child { border-left: 0; }
+.webppt-deck-root .knowledge-slide .knowledge-icon { font-size: 34px; }
+.webppt-deck-root .knowledge-slide .knowledge-question { margin-top: calc(var(--wp-unit) * 2); color: var(--wp-color-primary); font-size: 20px; font-weight: 800; }
+.webppt-deck-root .knowledge-slide .knowledge-description { font-size: var(--wp-fs-caption); }
+.webppt-deck-root .knowledge-slide .decision-ribbon { margin-top: calc(var(--wp-unit) * 4); padding: calc(var(--wp-unit) * 2) 0; border: 0; border-top: 2px solid rgba(68,82,190,.18); border-bottom: 2px solid rgba(81,190,166,.18); border-radius: 0; background: transparent; text-align: center; }
+.webppt-deck-root .knowledge-slide .decision-ribbon { color: var(--wp-color-ink); }
+.webppt-deck-root .knowledge-slide .decision-ribbon span { color: var(--wp-color-ink-3); }
+.webppt-deck-root .knowledge-slide .decision-ribbon strong { color: var(--wp-color-primary); font-size: 24px; }
+.webppt-deck-root .openspec-slide .handoff-layout { grid-template-columns: 1.35fr .65fr; gap: calc(var(--wp-unit) * 5); align-items: center; }
+.webppt-deck-root .openspec-slide .handoff-row { grid-template-columns: 44px 1fr auto 1.7fr; padding: calc(var(--wp-unit) * 1.25) 0; }
+.webppt-deck-root .openspec-slide .handoff-index { color: var(--wp-color-accent); font-size: 20px; font-weight: 800; }
+.webppt-deck-root .openspec-slide .verdict-card { padding: calc(var(--wp-unit) * 3); border: 0; border-radius: 28px; background: radial-gradient(circle at 85% 12%, rgba(112,239,213,.32), transparent 34%), linear-gradient(145deg, #202968, #4b59d2); color: white; box-shadow: 0 24px 50px rgba(54,65,166,.25); }
+.webppt-deck-root .openspec-slide .verdict-card strong { font-size: 30px; line-height: 1.25; }
+.webppt-deck-root .principle-slide .method-flow-board { margin-top: calc(var(--wp-unit) * 2); }
+.webppt-deck-root .principle-slide .method-lane { padding: calc(var(--wp-unit) * 1.5) 0; border: 0; border-radius: 0; background: transparent; backdrop-filter: none; }
+.webppt-deck-root .principle-slide .method-steps { position: relative; }
+.webppt-deck-root .principle-slide .method-steps::before { content: ''; position: absolute; left: 6%; right: 6%; top: 17px; height: 2px; background: linear-gradient(90deg, var(--wp-color-primary), var(--wp-color-accent)); }
+.webppt-deck-root .principle-slide .method-step { position: relative; z-index: 1; border: 0; background: transparent; }
+.webppt-deck-root .principle-slide .method-step span { display: grid; place-items: center; width: 34px; height: 34px; margin: auto; border-radius: 50%; background: var(--wp-color-primary); color: white; box-shadow: 0 0 18px rgba(68,82,190,.4); }
+.webppt-deck-root .principle-slide .method-boundaries { border: 0; background: transparent; }
+.webppt-deck-root .tool-choice-slide .comparison-board { border: 0; background: transparent; }
+.webppt-deck-root .tool-choice-slide .comparison-head { min-height: 110px; border-radius: 24px; border: 0; }
+.webppt-deck-root .tool-choice-slide .comparison-head-muted { background: linear-gradient(145deg, #eef1f8, #dfe4ef); color: var(--wp-color-ink-2); }
+.webppt-deck-root .tool-choice-slide .comparison-head-selected { background: radial-gradient(circle at 80% 20%, rgba(108,240,212,.55), transparent 35%), linear-gradient(145deg, #3f4dcc, #6c79f0); color: white; box-shadow: 0 20px 40px rgba(61,75,190,.25); }
+.webppt-deck-root .tool-choice-slide .comparison-head-selected strong { color: white; }
+.webppt-deck-root .tool-choice-slide .comparison-head-selected small { color: rgba(255,255,255,.88); }
+.webppt-deck-root .tool-choice-slide .comparison-row { border-bottom: 1px solid rgba(68,82,190,.12); background: transparent; }
+
+/* 08–15：截图做主视觉，闭环做 Journey，数字做舞台。 */
+.webppt-deck-root .platform-capability-layout { grid-template-columns: 1.65fr .75fr; gap: calc(var(--wp-unit) * 3); align-items: center; }
+.webppt-deck-root .platform-capability-visual { transform: scale(1.03); transform-origin: left center; }
+.webppt-deck-root .platform-capability-visual img { border: 0; border-radius: 22px; box-shadow: 0 28px 70px rgba(38,48,112,.22); }
+.webppt-deck-root .platform-capability-story { padding: 0; }
+.webppt-deck-root .platform-capability-claim { font-size: 28px; line-height: 1.35; }
+.webppt-deck-root .platform-capability-action { padding: calc(var(--wp-unit) * 1.1) 0; border: 0; border-bottom: 1px solid rgba(68,82,190,.13); border-radius: 0; background: transparent; backdrop-filter: none; }
+.webppt-deck-root .platform-capability-action p { display: none; }
+.webppt-deck-root .platform-capability-outcome { padding: calc(var(--wp-unit) * 1.5) 0 0; border: 0; background: transparent; color: var(--wp-color-primary); font-weight: 800; }
+.webppt-deck-root .case-study-slide .case-columns { gap: calc(var(--wp-unit) * 5); }
+.webppt-deck-root .case-study-slide .col { padding: calc(var(--wp-unit) * 2); border: 0; border-radius: 0; background: transparent; backdrop-filter: none; }
+.webppt-deck-root .case-study-slide .workspace-visual { padding: calc(var(--wp-unit) * 3); border-radius: 30px; background: radial-gradient(circle at 50% 40%, rgba(110,225,214,.3), transparent 45%), linear-gradient(145deg,#313b9d,#5967dc); color: white; box-shadow: 0 24px 55px rgba(47,58,150,.25); }
+.webppt-deck-root .case-study-slide .lifecycle-track { margin: calc(var(--wp-unit) * 4) 0; }
+.webppt-deck-root .closed-loop-slide .loop-track { gap: calc(var(--wp-unit) * 1.5); }
+.webppt-deck-root .closed-loop-slide .loop-stage { min-height: 104px; padding: calc(var(--wp-unit) * 1.1); border: 0; border-radius: 0; border-top: 2px solid rgba(68,82,190,.18); background: transparent; backdrop-filter: none; }
+.webppt-deck-root .closed-loop-slide .loop-stage-head > span { box-shadow: 0 0 16px rgba(68,82,190,.35); }
+.webppt-deck-root .doc-governance-slide .columns { grid-template-columns: 1.35fr .65fr; gap: calc(var(--wp-unit) * 5); }
+.webppt-deck-root .doc-governance-slide .col { padding: 0; border: 0; background: transparent; }
+.webppt-deck-root .doc-governance-slide .layer-row { padding: calc(var(--wp-unit) * 1.25) 0; }
+.webppt-deck-root .doc-governance-slide .stat-grid-triple { display: grid; grid-template-columns: 1fr; gap: calc(var(--wp-unit) * 1.75); }
+.webppt-deck-root .doc-governance-slide .stat-tile {
+  min-height: 76px;
+  padding: calc(var(--wp-unit) * 2.25) calc(var(--wp-unit) * 3);
+  border: 0;
+  border-left: 4px solid var(--wp-color-primary);
+  border-radius: 18px;
+  background: rgba(255,255,255,.78);
+  box-shadow: 0 14px 30px rgba(48,61,145,.1);
+  text-align: left;
+}
+.webppt-deck-root .doc-governance-slide .stat-label { margin-top: calc(var(--wp-unit) * .75); color: var(--wp-color-ink-3); }
+.webppt-deck-root .doc-governance-slide .thesis-card { padding: 0; border: 0; background: transparent; }
+.webppt-deck-root .quant-slide .columns { grid-template-columns: 1.25fr .75fr; align-items: center; }
+.webppt-deck-root .quant-slide .stat-grid { gap: calc(var(--wp-unit) * 2); }
+.webppt-deck-root .quant-slide .stat-tile { padding: calc(var(--wp-unit) * 2); border-left: 3px solid var(--wp-color-accent); border-radius: 0; }
+.webppt-deck-root .quant-slide .stat-value { font-size: 62px; }
+.webppt-deck-root .quant-slide .col > ul { list-style: none; padding: 0; }
+.webppt-deck-root .quant-slide .col > ul li { margin-bottom: calc(var(--wp-unit) * 3); padding-left: calc(var(--wp-unit) * 2); border-left: 2px solid rgba(68,82,190,.25); font-size: 20px; }
+.webppt-deck-root .outlook-slide .outlook-foundation { padding: calc(var(--wp-unit) * 1.5) 0; border: 0; border-top: 3px solid var(--wp-color-primary); border-radius: 0; background: transparent; box-shadow: none; }
+.webppt-deck-root .outlook-slide .outlook-futures article { padding: calc(var(--wp-unit) * 1.5) 0; border: 0; border-bottom: 1px solid rgba(68,82,190,.15); border-radius: 0; background: transparent; }
+
+/* 演示内容瘦身：移除制作目的、内部依据和图上已经表达过的重复解释。 */
+.webppt-deck-root .opening-slide .analogy,
+.webppt-deck-root .provenance-note,
+.webppt-deck-root .choice-proof,
+.webppt-deck-root .method-note,
+.webppt-deck-root .doc-governance-slide .thesis-card { display: none; }
+.webppt-deck-root .architecture-slide .layer-detail,
+.webppt-deck-root .closed-loop-slide .layer-detail,
+.webppt-deck-root .doc-governance-slide .layer-detail { display: none; }
+.webppt-deck-root .knowledge-slide .knowledge-description { display: none; }
+.webppt-deck-root .knowledge-slide .decision-ribbon p { display: none; }
+.webppt-deck-root .principle-slide .method-boundaries { display: none; }
+.webppt-deck-root .opening-slide ul { margin-top: calc(var(--wp-unit) * 7); }
+.webppt-deck-root .opening-slide li { min-height: 150px; font-size: 26px; }
+.webppt-deck-root .architecture-slide .layer-row { min-height: 230px; }
+.webppt-deck-root .closed-loop-slide .loop-stage { display: grid; align-content: center; min-height: 126px; }
+.webppt-deck-root .doc-governance-slide .layer-row { min-height: 76px; align-items: center; }
+
+/* 生命周期状态机：横向步骤条，比一句拼接文字更直观 */
+.webppt-deck-root .lifecycle-track {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--wp-unit) * 1);
+  margin: calc(var(--wp-unit) * 2) 0;
+}
+.webppt-deck-root .lifecycle-step {
+  font-size: var(--wp-fs-body);
+  font-weight: 600;
+  color: var(--wp-color-primary);
+  background: var(--wp-color-surface);
+  padding: calc(var(--wp-unit) * 0.75) calc(var(--wp-unit) * 1.5);
+  border-radius: var(--wp-radius-md);
+}
+.webppt-deck-root .lifecycle-arrow {
+  color: var(--wp-color-ink-3);
+  margin-right: calc(var(--wp-unit) * 1);
+  font-weight: 400;
+}
+
+.webppt-deck-root .stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: calc(var(--wp-unit) * 2);
+}
+.webppt-deck-root .stat-tile {
+  background: var(--wp-color-white);
+  border: var(--wp-border-width) solid var(--wp-color-line);
+  border-radius: var(--wp-radius-md);
+  box-shadow: var(--wp-shadow-card);
+  padding: calc(var(--wp-unit) * 2.5) calc(var(--wp-unit) * 2);
   text-align: center;
 }
-.webppt-deck-root .master-content-dual .stat-value {
+.webppt-deck-root .stat-value {
   font-size: var(--wp-fs-h1);
   font-weight: 700;
   color: var(--wp-color-primary);
 }
-.webppt-deck-root .master-content-dual .stat-label {
+.webppt-deck-root .stat-unit {
+  font-size: 0.5em;
+  margin-left: 2px;
+  font-weight: 500;
+}
+.webppt-deck-root .stat-label {
   font-size: var(--wp-fs-caption);
   color: var(--wp-color-ink-3);
+  margin-top: calc(var(--wp-unit) * 0.5);
 }
 
-/* 总结母版 */
+/* 平台能力证据页：真实界面承担“证据”，右侧只保留动作与管理价值。 */
+.webppt-deck-root .platform-capability-layout {
+  display: grid;
+  grid-template-columns: 1.45fr 1fr;
+  gap: calc(var(--wp-unit) * 3);
+  align-items: stretch;
+}
+.webppt-deck-root .platform-capability-visual {
+  margin: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: var(--wp-border-width) solid var(--wp-color-line);
+  border-radius: var(--wp-radius-md);
+  overflow: hidden;
+  background: var(--wp-color-white);
+  box-shadow: var(--wp-shadow-card);
+}
+.webppt-deck-root .platform-capability-visual img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  object-position: center;
+}
+.webppt-deck-root .platform-capability-visual figcaption {
+  padding: calc(var(--wp-unit) * 1.25) calc(var(--wp-unit) * 2);
+  font-size: var(--wp-fs-caption);
+  font-weight: 600;
+  color: var(--wp-color-primary);
+  background: color-mix(in srgb, var(--wp-color-primary) 7%, var(--wp-color-white));
+}
+.webppt-deck-root .platform-capability-story {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.webppt-deck-root .platform-capability-claim {
+  font-size: var(--wp-fs-h3);
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--wp-color-ink);
+}
+.webppt-deck-root .platform-capability-actions {
+  display: grid;
+  gap: calc(var(--wp-unit) * 1.25);
+}
+.webppt-deck-root .platform-capability-action {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: calc(var(--wp-unit) * 1.25);
+  align-items: start;
+  padding: calc(var(--wp-unit) * 1.25);
+  border-bottom: var(--wp-border-width) solid var(--wp-color-line);
+}
+.webppt-deck-root .platform-capability-action > span {
+  display: grid;
+  place-items: center;
+  width: calc(var(--wp-unit) * 3);
+  height: calc(var(--wp-unit) * 3);
+  border-radius: 999px;
+  color: var(--wp-color-white);
+  background: var(--wp-color-primary);
+  font-size: var(--wp-fs-caption);
+  font-weight: 700;
+}
+.webppt-deck-root .platform-capability-action strong {
+  display: block;
+  color: var(--wp-color-ink);
+  font-size: var(--wp-fs-body);
+}
+.webppt-deck-root .platform-capability-action p {
+  margin: calc(var(--wp-unit) * 0.25) 0 0;
+  font-size: var(--wp-fs-caption);
+  line-height: 1.45;
+}
+.webppt-deck-root .platform-capability-outcome {
+  margin-top: auto;
+  margin-bottom: 0;
+  padding: calc(var(--wp-unit) * 1.5) calc(var(--wp-unit) * 2);
+  border-radius: var(--wp-radius-md);
+  color: var(--wp-color-ink);
+  background: color-mix(in srgb, var(--wp-color-accent) 14%, var(--wp-color-white));
+  border: var(--wp-border-width) solid color-mix(in srgb, var(--wp-color-accent) 35%, var(--wp-color-white));
+  font-weight: 600;
+}
+.webppt-deck-root .platform-capability-runtime .platform-capability-layout {
+  grid-template-columns: 1fr 1.45fr;
+}
+.webppt-deck-root .platform-capability-runtime .platform-capability-visual {
+  order: 2;
+}
+.webppt-deck-root .platform-capability-assets .platform-capability-visual img {
+  object-position: left center;
+}
+
+/* 总结母版——跟封面共用同一套渐变而不是单独一个深色调，是刻意的「首尾呼应」：
+   开场和收尾两页视觉上对上号，中间 7 页统一浅色调，全篇只有一处高对比、而不是
+   "中间浅色、结尾突然跳一块深色"这种断层感。 */
 .webppt-deck-root .master-summary {
-  background: var(--wp-color-ink);
+  background: linear-gradient(135deg, var(--wp-color-primary), var(--wp-color-accent));
   color: var(--wp-color-white);
 }
 .webppt-deck-root .master-summary h2,
@@ -118,10 +937,668 @@
   margin-top: calc(var(--wp-unit) * 3);
 }
 
+/* 「大白话」类比条——非功能性需求要求兼顾非技术听众（PRD 风险 R6：分层信息密度），
+   主线文案照旧给技术听众，这一条给不想理解术语的人一个可以直接懂的画面。
+   刻意跟 provenance-note（免责/口径说明）区分视觉语言：那个是「警示性」的左边框，
+   这个是「友好提示」的整块浅色底 + 灯泡图标，不会被听众误认成同一类东西。 */
+.webppt-deck-root .analogy {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(var(--wp-unit) * 1);
+  margin-top: calc(var(--wp-unit) * 1.25);
+  padding: calc(var(--wp-unit) * 1) calc(var(--wp-unit) * 2);
+  border-radius: var(--wp-radius-md);
+  background: color-mix(in srgb, var(--wp-color-accent) 10%, var(--wp-color-white));
+  border: var(--wp-border-width) solid color-mix(in srgb, var(--wp-color-accent) 30%, var(--wp-color-white));
+  font-size: var(--wp-fs-caption);
+  color: var(--wp-color-ink-2);
+}
+.webppt-deck-root .analogy-icon {
+  flex: 0 0 auto;
+  line-height: 1.4;
+}
+/* 深色总结母版：浅色卡片直接浮在深底上做对比，而不是硬凑一个「深色版」类比条 */
+.webppt-deck-root .master-summary .analogy {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+/* 类比在 SlideChrome 里被提到了标题下面第一位——先讲人话再讲专业细节，字号要压得住
+   场，跟"事后小字补充"的观感彻底区分开，不能还是一条不起眼的浅色小字条。 */
+.webppt-deck-root .analogy-lead {
+  margin-top: 0;
+  margin-bottom: calc(var(--wp-unit) * 2.5);
+  padding: calc(var(--wp-unit) * 1.5) calc(var(--wp-unit) * 2.5);
+  font-size: var(--wp-fs-h3);
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--wp-color-ink);
+}
+.webppt-deck-root .analogy-lead .analogy-icon {
+  font-size: 1.3em;
+}
+
 /* 16:9 画布在投影分辨率与常见笔记本分辨率下都居中等比缩放，交给 reveal.js 的 width/height + center 配置，
-   这里只保证容器占满视口，不做额外的媒体查询覆写（避免和 reveal.js 内建缩放逻辑打架）。 */
-.webppt-deck-root,
+   这里只保证容器占满视口，不做额外的媒体查询覆写（避免和 reveal.js 内建缩放逻辑打架）。
+   注意：根节点必须是显式的 100vh，不能写成百分比——ShowcaseLayout 外层容器只有
+   min-height:100vh（height 仍是 auto），百分比高度在「祖先 height 非确定值」时会直接
+   失效收缩成 0（这里的 .reveal .slides 又是 position:absolute，撑不起父级的内容高度），
+   此前就是这个连锁反应导致整页看起来空白。 */
+.webppt-deck-root {
+  width: 100%;
+  height: 100vh;
+}
 .webppt-deck-root .reveal {
   width: 100%;
   height: 100%;
 }
+
+/* 北极星开篇：把 PRD、开发文档和代码表现为一条持续增值的资产炼化链。 */
+.webppt-deck-root .north-star-slide {
+  background:
+    radial-gradient(circle at 77% 24%, rgba(91, 241, 211, .2), transparent 25%),
+    radial-gradient(circle at 24% 72%, rgba(96, 113, 255, .28), transparent 32%),
+    linear-gradient(135deg, #090d24 0%, #151b4d 52%, #112e4b 100%);
+  color: white;
+}
+.webppt-deck-root .north-star-slide::before { opacity: .22; }
+.webppt-deck-root .north-star-slide .chapter-tag { background: rgba(255,255,255,.12); color: #dbe7ff; box-shadow: none; }
+.webppt-deck-root .north-star-hero { margin-top: calc(var(--wp-unit) * 2); text-align: center; }
+.webppt-deck-root .north-star-kicker { color: #70efd5; font-size: 13px; font-weight: 800; letter-spacing: .22em; }
+.webppt-deck-root .north-star-slide .north-star-hero h2 { margin: calc(var(--wp-unit) * 1.25) 0 0; color: white; font-size: 44px; letter-spacing: -.035em; }
+.webppt-deck-root .north-star-hero p { margin: calc(var(--wp-unit) * 1.25) 0 0; color: #b9c7e9; font-size: 20px; }
+.webppt-deck-root .asset-forge-track { position: relative; display: grid; grid-template-columns: repeat(4, 1fr); gap: calc(var(--wp-unit) * 3); margin-top: calc(var(--wp-unit) * 4); }
+.webppt-deck-root .asset-forge-track::before { content: ''; position: absolute; left: 9%; right: 9%; top: 48px; height: 3px; background: linear-gradient(90deg,#5f72ff,#70efd5); box-shadow: 0 0 22px rgba(112,239,213,.75); }
+.webppt-deck-root .asset-forge-node { position: relative; z-index: 1; display: grid; justify-items: center; min-height: 148px; text-align: center; }
+.webppt-deck-root .asset-forge-icon { display: grid; place-items: center; width: 72px; height: 72px; border: 1px solid rgba(255,255,255,.28); border-radius: 50%; background: rgba(13,20,57,.88); color: #8fa1ff; font-size: 30px; box-shadow: 0 0 30px rgba(95,114,255,.42); }
+.webppt-deck-root .asset-forge-node-next .asset-forge-icon { color: #70efd5; border-color: rgba(112,239,213,.6); box-shadow: 0 0 38px rgba(112,239,213,.58); }
+.webppt-deck-root .asset-forge-node strong { margin-top: calc(var(--wp-unit) * 1.25); color: white; font-size: 21px; }
+.webppt-deck-root .asset-forge-node small { margin-top: 3px; color: #b9c7e9; font-size: 15px; }
+.webppt-deck-root .asset-forge-node em { margin-top: calc(var(--wp-unit) * .75); color: #92a0c5; font-size: 12px; font-style: normal; }
+.webppt-deck-root .asset-forge-node-next em { color: #70efd5; }
+.webppt-deck-root .north-star-outcomes { display: grid; grid-template-columns: repeat(3, 1fr); gap: calc(var(--wp-unit) * 3); margin-top: calc(var(--wp-unit) * 3); padding-top: calc(var(--wp-unit) * 2); border-top: 1px solid rgba(255,255,255,.14); }
+.webppt-deck-root .north-star-outcomes > div { display: grid; gap: 4px; text-align: center; }
+.webppt-deck-root .north-star-outcomes strong { color: white; font-size: 25px; }
+.webppt-deck-root .north-star-outcomes span { color: #aebcdd; font-size: 14px; }
+.webppt-deck-root .north-star-slide .slide-footer span { color: #91a0c4; }
+
+/* Agent Harness：与北极星页共享深色发布会视觉，用五段轨道解释模型外的执行系统。 */
+.webppt-deck-root .harness-slide {
+  background:
+    radial-gradient(circle at 82% 18%, rgba(91, 241, 211, .19), transparent 24%),
+    radial-gradient(circle at 18% 82%, rgba(96, 113, 255, .25), transparent 31%),
+    linear-gradient(135deg, #090d24 0%, #151b4d 52%, #112e4b 100%);
+  color: white;
+}
+.webppt-deck-root .harness-slide::before { opacity: .22; }
+.webppt-deck-root .harness-slide .chapter-tag { background: rgba(255,255,255,.12); color: #dbe7ff; box-shadow: none; }
+.webppt-deck-root .harness-hero { text-align: center; }
+.webppt-deck-root .harness-kicker { color: #70efd5; font-size: 13px; font-weight: 800; letter-spacing: .22em; }
+.webppt-deck-root .harness-slide .harness-hero h2 { margin: calc(var(--wp-unit) * 1) 0 0; color: white; font-size: 38px; letter-spacing: -.035em; }
+.webppt-deck-root .harness-hero p { margin: calc(var(--wp-unit) * 1) auto 0; color: #b9c7e9; font-size: 18px; }
+.webppt-deck-root .harness-track {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: calc(var(--wp-unit) * 2);
+  margin-top: calc(var(--wp-unit) * 4);
+}
+.webppt-deck-root .harness-track::before {
+  content: '';
+  position: absolute;
+  left: 5%;
+  right: 5%;
+  top: 30px;
+  height: 3px;
+  background: linear-gradient(90deg, #5f72ff, #70efd5);
+  box-shadow: 0 0 22px rgba(112,239,213,.65);
+}
+.webppt-deck-root .harness-phase { position: relative; z-index: 1; text-align: center; }
+.webppt-deck-root .harness-phase-index {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  margin: 0 auto calc(var(--wp-unit) * 1);
+  border: 1px solid rgba(255,255,255,.28);
+  border-radius: 50%;
+  background: rgba(13,20,57,.92);
+  color: #70efd5;
+  font-size: 15px;
+  font-weight: 800;
+  box-shadow: 0 0 28px rgba(95,114,255,.38);
+}
+.webppt-deck-root .harness-phase > strong { color: white; font-size: 20px; }
+.webppt-deck-root .harness-steps { display: grid; gap: 7px; margin-top: calc(var(--wp-unit) * 1.25); }
+.webppt-deck-root .harness-step { padding-left: calc(var(--wp-unit) * 1.25); border-left: 2px solid rgba(112,239,213,.42); text-align: left; }
+.webppt-deck-root .harness-step span { display: block; color: #e9efff; font-size: 14px; font-weight: 700; }
+.webppt-deck-root .harness-step small { display: block; margin-top: 1px; color: #91a0c4; font-size: 11px; line-height: 1.25; }
+.webppt-deck-root .harness-note { display: flex; align-items: center; justify-content: space-between; gap: calc(var(--wp-unit) * 3); margin-top: calc(var(--wp-unit) * 3); padding-top: calc(var(--wp-unit) * 1.5); border-top: 1px solid rgba(255,255,255,.14); }
+.webppt-deck-root .harness-note span { color: #dbe7ff; font-size: 14px; font-weight: 700; }
+.webppt-deck-root .harness-note a { color: #70efd5; font-size: 11px; text-decoration: none; white-space: nowrap; }
+.webppt-deck-root .harness-slide .slide-footer span { color: #91a0c4; }
+
+/* Harness 2.0：四层纵向架构，中间 Agent Loop 是唯一高亮主视觉。 */
+.webppt-deck-root .harness-slide .harness-hero h2 { font-size: 34px; }
+.webppt-deck-root .harness-architecture {
+  display: grid;
+  grid-template-columns: .95fr 1.08fr 1.75fr .85fr;
+  gap: calc(var(--wp-unit) * 1.5);
+  margin-top: calc(var(--wp-unit) * 2.5);
+  align-items: stretch;
+}
+.webppt-deck-root .harness-layer {
+  position: relative;
+  min-width: 0;
+  padding-top: calc(var(--wp-unit) * 3.5);
+  border-top: 1px solid rgba(255,255,255,.16);
+}
+.webppt-deck-root .harness-layer + .harness-layer::before {
+  content: '›';
+  position: absolute;
+  left: calc(var(--wp-unit) * -1.25);
+  top: 47%;
+  color: #70efd5;
+  font-size: 28px;
+  text-shadow: 0 0 16px rgba(112,239,213,.8);
+}
+.webppt-deck-root .harness-layer-label {
+  position: absolute;
+  top: calc(var(--wp-unit) * .75);
+  left: 0;
+  color: #70efd5;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .14em;
+}
+.webppt-deck-root .harness-linear-flow { display: grid; gap: 8px; }
+.webppt-deck-root .harness-node {
+  position: relative;
+  padding: 7px 8px 7px 12px;
+  border-left: 2px solid rgba(112,239,213,.48);
+  background: linear-gradient(90deg, rgba(95,114,255,.11), transparent);
+}
+.webppt-deck-root .harness-linear-flow .harness-node:not(:last-child)::after {
+  content: '↓';
+  position: absolute;
+  left: 50%;
+  bottom: -11px;
+  color: #7184dc;
+  font-size: 10px;
+}
+.webppt-deck-root .harness-node strong { display: block; color: #f4f7ff; font-size: 13px; line-height: 1.2; }
+.webppt-deck-root .harness-node small { display: block; margin-top: 2px; color: #91a0c4; font-size: 9px; line-height: 1.25; overflow-wrap: anywhere; }
+.webppt-deck-root .harness-loop-layer {
+  padding: calc(var(--wp-unit) * 3.5) calc(var(--wp-unit) * 1.5) calc(var(--wp-unit) * 1.5);
+  border: 1px solid rgba(112,239,213,.36);
+  border-radius: 22px;
+  background: radial-gradient(circle at 50% 48%, rgba(95,114,255,.22), rgba(10,18,52,.52));
+  box-shadow: inset 0 0 34px rgba(112,239,213,.08), 0 0 28px rgba(95,114,255,.14);
+}
+.webppt-deck-root .harness-loop-layer .harness-layer-label { left: calc(var(--wp-unit) * 1.5); }
+.webppt-deck-root .harness-loop-title { color: white; font-size: 18px; font-weight: 800; }
+.webppt-deck-root .harness-loop-title small { display: block; margin-top: 2px; color: #9eadd0; font-size: 9px; font-weight: 500; }
+.webppt-deck-root .harness-loop-flow {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  margin-top: calc(var(--wp-unit) * 1.5);
+}
+.webppt-deck-root .harness-loop-flow .harness-node { min-width: 0; padding: 8px 5px; border: 0; border-top: 2px solid rgba(112,239,213,.55); text-align: center; background: rgba(255,255,255,.035); }
+.webppt-deck-root .harness-loop-flow .harness-node:not(:last-child)::after { content: '›'; position: absolute; right: -6px; top: 35%; color: #70efd5; z-index: 2; }
+.webppt-deck-root .harness-loop-flow .harness-node:last-child::after { content: '↩'; display: block; margin-top: 4px; color: #70efd5; font-size: 15px; }
+.webppt-deck-root .harness-quality-layer .harness-node:last-child { border-left-color: #70efd5; background: linear-gradient(90deg, rgba(112,239,213,.18), transparent); }
+.webppt-deck-root .harness-note { margin-top: calc(var(--wp-unit) * 1.75); }
+
+/* Feature Dev：七阶段主流程 + Forge 团队增强旁路。 */
+.webppt-deck-root .feature-dev-slide {
+  background:
+    radial-gradient(circle at 82% 18%, rgba(91, 241, 211, .18), transparent 24%),
+    radial-gradient(circle at 18% 82%, rgba(96, 113, 255, .25), transparent 31%),
+    linear-gradient(135deg, #090d24 0%, #151b4d 52%, #112e4b 100%);
+  color: white;
+}
+.webppt-deck-root .feature-dev-slide::before { opacity: .22; }
+.webppt-deck-root .feature-dev-slide .chapter-tag { background: rgba(255,255,255,.12); color: #dbe7ff; box-shadow: none; }
+.webppt-deck-root .feature-dev-hero { text-align: center; }
+.webppt-deck-root .feature-dev-kicker { color: #70efd5; font-size: 12px; font-weight: 800; letter-spacing: .2em; }
+.webppt-deck-root .feature-dev-slide .feature-dev-hero h2 { margin: calc(var(--wp-unit) * .75) 0 0; color: white; font-size: 34px; letter-spacing: -.035em; }
+.webppt-deck-root .feature-dev-hero p { margin: calc(var(--wp-unit) * .75) auto 0; color: #b9c7e9; font-size: 15px; }
+.webppt-deck-root .feature-dev-track {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: calc(var(--wp-unit) * 1.15);
+  margin-top: calc(var(--wp-unit) * 3);
+}
+.webppt-deck-root .feature-dev-track::before {
+  content: '';
+  position: absolute;
+  left: 4%;
+  right: 4%;
+  top: 25px;
+  height: 3px;
+  background: linear-gradient(90deg, #5f72ff, #70efd5);
+  box-shadow: 0 0 20px rgba(112,239,213,.65);
+}
+.webppt-deck-root .feature-dev-phase { position: relative; z-index: 1; min-width: 0; text-align: center; }
+.webppt-deck-root .feature-dev-index {
+  display: grid;
+  place-items: center;
+  width: 50px;
+  height: 50px;
+  margin: 0 auto 7px;
+  border: 1px solid rgba(255,255,255,.28);
+  border-radius: 50%;
+  background: rgba(13,20,57,.94);
+  color: #70efd5;
+  font-size: 13px;
+  font-weight: 800;
+  box-shadow: 0 0 24px rgba(95,114,255,.36);
+}
+.webppt-deck-root .feature-dev-phase > strong { display: block; color: white; font-size: 15px; }
+.webppt-deck-root .feature-dev-phase > small { display: block; min-height: 26px; margin-top: 2px; color: #91a0c4; font-size: 9px; line-height: 1.2; overflow-wrap: anywhere; }
+.webppt-deck-root .feature-dev-phase p { min-height: 43px; margin: 5px 0 0; color: #cbd5ef; font-size: 10px; line-height: 1.35; }
+.webppt-deck-root .feature-dev-phase em { display: block; margin-top: 3px; font-size: 9px; font-style: normal; line-height: 1.25; }
+.webppt-deck-root .feature-dev-agent { color: #8fa1ff; }
+.webppt-deck-root .feature-dev-gate { color: #70efd5; }
+.webppt-deck-root .forge-support-rail {
+  display: grid;
+  grid-template-columns: .75fr repeat(3, 1fr) 1.25fr;
+  align-items: center;
+  gap: calc(var(--wp-unit) * 1.5);
+  margin-top: calc(var(--wp-unit) * 2.25);
+  padding: calc(var(--wp-unit) * 1.25) calc(var(--wp-unit) * 1.5);
+  border-top: 1px solid rgba(112,239,213,.36);
+  border-bottom: 1px solid rgba(255,255,255,.1);
+  background: linear-gradient(90deg, rgba(95,114,255,.12), rgba(112,239,213,.08));
+}
+.webppt-deck-root .forge-support-title { color: #70efd5; font-size: 10px; font-weight: 800; letter-spacing: .12em; }
+.webppt-deck-root .forge-support-item { display: grid; gap: 1px; padding-left: 9px; border-left: 2px solid rgba(112,239,213,.42); }
+.webppt-deck-root .forge-support-item strong { color: #f2f6ff; font-size: 11px; }
+.webppt-deck-root .forge-support-item span { color: #b9c7e9; font-size: 9px; }
+.webppt-deck-root .forge-support-item small { color: #70efd5; font-size: 8px; }
+.webppt-deck-root .forge-support-rail a { color: #70efd5; font-size: 8px; text-decoration: none; text-align: right; }
+.webppt-deck-root .feature-dev-slide .slide-footer span { color: #91a0c4; }
+
+/* Superpowers + OpenSpec：同一舞台上的两条互补治理轨道。 */
+.webppt-deck-root .workflow-compare-slide {
+  background:
+    radial-gradient(circle at 15% 18%, rgba(95,114,255,.27), transparent 29%),
+    radial-gradient(circle at 84% 78%, rgba(112,239,213,.18), transparent 28%),
+    linear-gradient(135deg, #080c24 0%, #141b4d 52%, #102d48 100%);
+  color: white;
+}
+.webppt-deck-root .workflow-compare-slide::before { opacity: .2; }
+.webppt-deck-root .workflow-compare-slide .chapter-tag { background: rgba(255,255,255,.11); color: #dbe7ff; box-shadow: none; }
+.webppt-deck-root .workflow-compare-hero { text-align: center; }
+.webppt-deck-root .workflow-compare-kicker { color: #70efd5; font-size: 11px; font-weight: 800; letter-spacing: .2em; }
+.webppt-deck-root .workflow-compare-hero h2 { margin: 5px 0 0; color: white; font-size: 32px; letter-spacing: -.035em; }
+.webppt-deck-root .workflow-compare-hero p { margin: 5px 0 0; color: #b9c7e9; font-size: 13px; }
+.webppt-deck-root .workflow-rails { display: grid; gap: 12px; margin-top: 17px; }
+.webppt-deck-root .workflow-rail {
+  display: grid;
+  grid-template-columns: 155px 1fr;
+  align-items: stretch;
+  gap: 14px;
+  padding: 13px 15px;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 19px;
+  background: linear-gradient(90deg, rgba(255,255,255,.075), rgba(255,255,255,.025));
+  box-shadow: inset 0 0 28px rgba(95,114,255,.06);
+}
+.webppt-deck-root .workflow-rail > header { display: flex; align-items: center; gap: 10px; border-right: 1px solid rgba(255,255,255,.12); }
+.webppt-deck-root .workflow-rail > header > span { color: #70efd5; font-size: 10px; font-weight: 800; letter-spacing: .12em; }
+.webppt-deck-root .workflow-rail > header strong { display: block; color: white; font-size: 17px; }
+.webppt-deck-root .workflow-rail > header small { display: block; margin-top: 3px; color: #91a0c4; font-size: 9px; }
+.webppt-deck-root .workflow-node-track { position: relative; display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+.webppt-deck-root .workflow-node-track::before {
+  content: '';
+  position: absolute;
+  left: 4%; right: 4%; top: 17px; height: 2px;
+  background: linear-gradient(90deg, #6578ff, #70efd5);
+  box-shadow: 0 0 12px rgba(112,239,213,.45);
+}
+.webppt-deck-root .workflow-node { position: relative; z-index: 1; min-width: 0; text-align: center; }
+.webppt-deck-root .workflow-node-index {
+  display: grid; place-items: center;
+  width: 34px; height: 34px; margin: 0 auto 5px;
+  border: 1px solid rgba(255,255,255,.25); border-radius: 50%;
+  background: #11183f; color: #70efd5; font-size: 9px; font-weight: 800;
+  box-shadow: 0 0 17px rgba(95,114,255,.34);
+}
+.webppt-deck-root .workflow-node > strong { display: block; color: #f7f9ff; font-size: 11px; line-height: 1.2; }
+.webppt-deck-root .workflow-node > small { display: block; min-height: 20px; margin-top: 2px; color: #91a0c4; font-size: 8px; line-height: 1.15; overflow-wrap: anywhere; }
+.webppt-deck-root .workflow-node p { margin: 3px 0 0; color: #bec9e5; font-size: 8px; line-height: 1.3; }
+.webppt-deck-root .workflow-rail-openspec { border-color: rgba(112,239,213,.22); background: linear-gradient(90deg, rgba(112,239,213,.075), rgba(255,255,255,.025)); }
+.webppt-deck-root .workflow-rail-openspec .workflow-node-index { border-radius: 9px; }
+.webppt-deck-root .workflow-compare-note {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px;
+  margin-top: 12px; padding: 9px 13px;
+  border-top: 1px solid rgba(112,239,213,.35); border-bottom: 1px solid rgba(255,255,255,.09);
+  background: linear-gradient(90deg, rgba(95,114,255,.12), rgba(112,239,213,.07));
+}
+.webppt-deck-root .workflow-compare-note > strong { color: #70efd5; font-size: 10px; letter-spacing: .08em; }
+.webppt-deck-root .workflow-compare-note > span { color: #dce5f8; font-size: 10px; }
+.webppt-deck-root .workflow-compare-note > div { display: flex; gap: 10px; }
+.webppt-deck-root .workflow-compare-note a { color: #8fa1ff; font-size: 8px; text-decoration: none; }
+.webppt-deck-root .workflow-compare-slide .slide-footer span { color: #91a0c4; }
+
+/* Forge 当前实现：Feature Dev 主链 + 双图谱上下文 + 双层规范门禁。 */
+.webppt-deck-root .forge-current-loop-slide {
+  background:
+    radial-gradient(circle at 18% 78%, rgba(95,114,255,.25), transparent 30%),
+    radial-gradient(circle at 84% 18%, rgba(112,239,213,.17), transparent 25%),
+    linear-gradient(135deg, #080c24 0%, #151b4d 52%, #102d48 100%);
+  color: white;
+}
+.webppt-deck-root .forge-current-loop-slide::before { opacity: .2; }
+.webppt-deck-root .forge-current-loop-slide .chapter-tag { background: rgba(255,255,255,.11); color: #dbe7ff; box-shadow: none; }
+.webppt-deck-root .forge-loop-hero { text-align: center; }
+.webppt-deck-root .forge-loop-kicker { color: #70efd5; font-size: 11px; font-weight: 800; letter-spacing: .2em; }
+.webppt-deck-root .forge-loop-hero h2 { margin: 5px 0 0; color: white; font-size: 32px; letter-spacing: -.035em; }
+.webppt-deck-root .forge-loop-hero p { margin: 5px 0 0; color: #b9c7e9; font-size: 13px; }
+.webppt-deck-root .forge-loop-track { position: relative; display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-top: 20px; }
+.webppt-deck-root .forge-loop-track::before {
+  content: ''; position: absolute; left: 5%; right: 5%; top: 22px; height: 3px;
+  background: linear-gradient(90deg, #6578ff, #70efd5); box-shadow: 0 0 18px rgba(112,239,213,.55);
+}
+.webppt-deck-root .forge-loop-step { position: relative; z-index: 1; min-width: 0; text-align: center; }
+.webppt-deck-root .forge-loop-index {
+  display: grid; place-items: center; width: 44px; height: 44px; margin: 0 auto 6px;
+  border: 1px solid rgba(255,255,255,.26); border-radius: 50%; background: #11183f;
+  color: #70efd5; font-size: 11px; font-weight: 800; box-shadow: 0 0 20px rgba(95,114,255,.38);
+}
+.webppt-deck-root .forge-loop-step > strong { display: block; color: white; font-size: 13px; }
+.webppt-deck-root .forge-loop-step > small { display: block; min-height: 22px; margin-top: 2px; color: #91a0c4; font-size: 8px; line-height: 1.2; overflow-wrap: anywhere; }
+.webppt-deck-root .forge-loop-step p { min-height: 34px; margin: 3px 0 0; color: #c5d0ea; font-size: 9px; line-height: 1.3; }
+.webppt-deck-root .forge-loop-step em { color: #70efd5; font-size: 8px; font-style: normal; }
+.webppt-deck-root .forge-context-review-grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 12px; margin-top: 14px; }
+.webppt-deck-root .forge-context-injection,
+.webppt-deck-root .forge-review-guards {
+  position: relative; display: grid; align-items: center; gap: 9px;
+  min-height: 80px; padding: 14px 14px 10px; border: 1px solid rgba(255,255,255,.12); border-radius: 16px;
+  background: linear-gradient(90deg, rgba(95,114,255,.11), rgba(112,239,213,.06));
+}
+.webppt-deck-root .forge-context-injection { grid-template-columns: 1fr auto 1fr 1.1fr; }
+.webppt-deck-root .forge-review-guards { grid-template-columns: 1fr 1fr; }
+.webppt-deck-root .forge-band-label { position: absolute; top: -8px; left: 14px; padding: 2px 8px; border-radius: 999px; background: #26336f; color: #70efd5; font-size: 8px; font-weight: 800; letter-spacing: .08em; }
+.webppt-deck-root .forge-context-injection div,
+.webppt-deck-root .forge-review-guards div { min-width: 0; }
+.webppt-deck-root .forge-context-injection strong,
+.webppt-deck-root .forge-review-guards strong { display: block; color: #f5f8ff; font-size: 10px; }
+.webppt-deck-root .forge-context-injection small,
+.webppt-deck-root .forge-review-guards small { display: block; margin-top: 2px; color: #96a6ca; font-size: 8px; line-height: 1.25; }
+.webppt-deck-root .forge-context-injection b { color: #70efd5; font-size: 16px; }
+.webppt-deck-root .forge-context-injection p { margin: 0; color: #d7e0f4; font-size: 9px; line-height: 1.3; }
+.webppt-deck-root .forge-review-guards div { padding-left: 9px; border-left: 2px solid rgba(112,239,213,.4); }
+.webppt-deck-root .forge-review-guards span:not(.forge-band-label) { display: block; color: #70efd5; font-size: 8px; }
+.webppt-deck-root .forge-loop-boundary { display: grid; grid-template-columns: auto 1fr; gap: 10px; margin-top: 10px; padding: 8px 12px; border-top: 1px solid rgba(112,239,213,.32); background: rgba(255,255,255,.035); }
+.webppt-deck-root .forge-loop-boundary strong { color: #70efd5; font-size: 9px; }
+.webppt-deck-root .forge-loop-boundary span { color: #c9d4eb; font-size: 9px; }
+.webppt-deck-root .forge-current-loop-slide .slide-footer span { color: #91a0c4; }
+
+/* 工具选型：双方案对决舞台，保留对比数据但去掉后台表格感。 */
+.webppt-deck-root .tool-choice-launch-slide {
+  background:
+    radial-gradient(circle at 18% 22%, rgba(95,114,255,.28), transparent 29%),
+    radial-gradient(circle at 84% 72%, rgba(112,239,213,.17), transparent 27%),
+    linear-gradient(135deg, #080c24 0%, #151b4d 52%, #102d48 100%);
+  color: white;
+}
+.webppt-deck-root .tool-choice-launch-slide::before { opacity: .2; }
+.webppt-deck-root .tool-choice-launch-slide .chapter-tag { background: rgba(255,255,255,.11); color: #dbe7ff; box-shadow: none; }
+.webppt-deck-root .tool-choice-hero { text-align: center; }
+.webppt-deck-root .tool-choice-kicker { color: #70efd5; font-size: 11px; font-weight: 800; letter-spacing: .2em; }
+.webppt-deck-root .tool-choice-hero h2 { margin: 5px 0 0; color: white; font-size: 34px; letter-spacing: -.035em; }
+.webppt-deck-root .tool-choice-hero p { margin: 5px 0 0; color: #b9c7e9; font-size: 13px; }
+.webppt-deck-root .tool-showdown {
+  display: grid; grid-template-columns: 1fr 150px 1fr; align-items: stretch;
+  margin-top: 18px; border-top: 1px solid rgba(255,255,255,.13); border-bottom: 1px solid rgba(112,239,213,.25);
+  background: linear-gradient(90deg, rgba(95,114,255,.08), rgba(255,255,255,.025), rgba(112,239,213,.07));
+}
+.webppt-deck-root .tool-contender { display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 90px; }
+.webppt-deck-root .tool-contender > span {
+  display: grid; place-items: center; width: 48px; height: 48px; border: 1px solid rgba(255,255,255,.25);
+  border-radius: 50%; background: #11183f; color: #8fa1ff; font-size: 13px; font-weight: 900;
+  box-shadow: 0 0 22px rgba(95,114,255,.35);
+}
+.webppt-deck-root .tool-contender-feature-dev > span { border-radius: 13px; color: #70efd5; box-shadow: 0 0 22px rgba(112,239,213,.28); }
+.webppt-deck-root .tool-contender strong { display: block; color: white; font-size: 19px; }
+.webppt-deck-root .tool-contender small { display: block; margin-top: 2px; color: #91a0c4; font-size: 9px; }
+.webppt-deck-root .tool-contender em { display: block; margin-top: 4px; color: #70efd5; font-size: 8px; font-style: normal; }
+.webppt-deck-root .tool-contender p { margin: 1px 0 0; color: #aab7d5; font-size: 8px; line-height: 1.2; }
+.webppt-deck-root .tool-showdown-axis { display: grid; place-items: center; color: #91a0c4; font-size: 9px; letter-spacing: .12em; border-left: 1px solid rgba(255,255,255,.08); border-right: 1px solid rgba(255,255,255,.08); }
+.webppt-deck-root .tool-showdown-row { display: contents; }
+.webppt-deck-root .tool-showdown-row > * { display: grid; place-items: center; min-height: 39px; padding: 5px 12px; border-top: 1px solid rgba(255,255,255,.08); }
+.webppt-deck-root .tool-showdown-row > div { color: #d7e0f4; font-size: 11px; text-align: center; }
+.webppt-deck-root .tool-showdown-row > div:last-child { color: #dffff7; background: rgba(112,239,213,.045); }
+.webppt-deck-root .tool-showdown-row > strong { color: #8fa1ff; font-size: 9px; font-weight: 800; letter-spacing: .08em; border-left: 1px solid rgba(255,255,255,.08); border-right: 1px solid rgba(255,255,255,.08); }
+.webppt-deck-root .tool-gap-band {
+  display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 7px;
+  margin-top: 10px; padding: 7px 10px; border-top: 1px solid rgba(143,161,255,.28); border-bottom: 1px solid rgba(143,161,255,.15);
+  background: rgba(9,14,40,.36);
+}
+.webppt-deck-root .tool-gap-band strong { color: #8fa1ff; font-size: 8px; letter-spacing: .06em; }
+.webppt-deck-root .tool-gap-band span { padding: 2px 6px; border-radius: 999px; background: rgba(255,255,255,.06); color: #d2dbef; font-size: 7px; }
+.webppt-deck-root .tool-gap-band em { color: #70efd5; font-size: 8px; font-style: normal; }
+.webppt-deck-root .tool-choice-verdict {
+  display: grid; grid-template-columns: auto auto 1fr auto; align-items: center; gap: 13px;
+  margin-top: 9px; padding: 9px 14px; border: 1px solid rgba(112,239,213,.25); border-radius: 14px;
+  background: linear-gradient(90deg, rgba(95,114,255,.14), rgba(112,239,213,.09));
+}
+.webppt-deck-root .tool-choice-verdict span { color: #70efd5; font-size: 9px; font-weight: 800; letter-spacing: .1em; }
+.webppt-deck-root .tool-choice-verdict strong { color: white; font-size: 16px; }
+.webppt-deck-root .tool-choice-verdict b { color: #cbd6ec; font-size: 9px; font-weight: 500; }
+.webppt-deck-root .tool-choice-verdict i { color: #8fa1ff; font-size: 9px; font-style: normal; }
+.webppt-deck-root .tool-choice-launch-slide .slide-footer span { color: #91a0c4; }
+
+/* Engine orchestration: launch-style system flow, aligned with the tool-choice page. */
+.webppt-deck-root .engine-orchestration-slide { color: #f7fbff; background: radial-gradient(circle at 78% 18%, rgba(54,217,197,.13), transparent 30%), radial-gradient(circle at 22% 82%, rgba(80,93,230,.23), transparent 34%), linear-gradient(135deg,#080d2a 0%,#121942 56%,#12334a 100%); }
+.webppt-deck-root .engine-orchestration-slide .slide-body { padding-top: 34px; }
+.webppt-deck-root .engine-hero { text-align: center; margin: 0 auto 24px; }
+.webppt-deck-root .engine-kicker { color: #70efd5; font-size: 10px; font-weight: 900; letter-spacing: .24em; }
+.webppt-deck-root .engine-hero h2 { margin: 8px 0 5px; color: #fff; font-size: 31px; line-height: 1.12; }
+.webppt-deck-root .engine-hero p { margin: 0; color: #b9c8e8; font-size: 12px; }
+.webppt-deck-root .engine-flow { position: relative; display: grid; grid-template-columns: 1fr 24px 1.08fr 24px 1.08fr 24px 1fr; align-items: stretch; margin: 0 18px; }
+.webppt-deck-root .engine-flow::before { content: ''; position: absolute; left: 4%; right: 4%; top: 50%; height: 2px; background: linear-gradient(90deg,#5e72ff,#5ca9ff,#70efd5); box-shadow: 0 0 18px rgba(112,239,213,.45); }
+.webppt-deck-root .engine-flow-node { position: relative; z-index: 1; min-height: 116px; padding: 17px 15px 14px; border: 1px solid rgba(151,174,255,.24); border-radius: 20px; background: linear-gradient(145deg,rgba(35,44,101,.92),rgba(14,22,61,.94)); box-shadow: 0 16px 36px rgba(1,6,29,.28); text-align: center; }
+.webppt-deck-root .engine-flow-node > span { position: absolute; top: -11px; left: 50%; translate: -50% 0; display: grid; place-items: center; width: 25px; height: 25px; border-radius: 50%; background: #101738; border: 1px solid #6f86ff; color: #70efd5; font-size: 9px; font-weight: 900; }
+.webppt-deck-root .engine-flow-node i { display: block; margin: 4px 0 10px; color: #7389e8; font-size: 8px; font-style: normal; font-weight: 900; letter-spacing: .16em; }
+.webppt-deck-root .engine-flow-node strong { display: block; color: #fff; font-size: 15px; }
+.webppt-deck-root .engine-flow-node small { display: block; margin-top: 9px; color: #aebddd; font-size: 9px; line-height: 1.45; }
+.webppt-deck-root .engine-session-node, .webppt-deck-root .engine-router-node { border-color: rgba(112,239,213,.48); box-shadow: 0 0 32px rgba(66,218,198,.12),0 16px 36px rgba(1,6,29,.28); }
+.webppt-deck-root .engine-flow-arrow { position: relative; z-index: 2; display: grid; place-items: center; color: #70efd5; font-size: 17px; }
+.webppt-deck-root .engine-pool { display: flex; justify-content: center; gap: 10px; margin: 15px 0 13px; }
+.webppt-deck-root .engine-pool span { padding: 6px 15px; border-radius: 999px; border: 1px solid rgba(112,239,213,.3); background: rgba(12,23,57,.74); color: #dffff8; font-size: 9px; font-weight: 850; letter-spacing: .08em; }
+.webppt-deck-root .engine-runtime-band { display: grid; grid-template-columns: repeat(3,1fr); gap: 0; margin: 0 18px; border-top: 1px solid rgba(112,239,213,.28); border-bottom: 1px solid rgba(112,239,213,.2); background: linear-gradient(90deg,rgba(80,99,210,.13),rgba(65,205,186,.08)); }
+.webppt-deck-root .engine-runtime-band > div { min-height: 58px; padding: 10px 18px; border-right: 1px solid rgba(255,255,255,.1); }
+.webppt-deck-root .engine-runtime-band > div:last-child { border-right: 0; }
+.webppt-deck-root .engine-runtime-band strong { color: #fff; font-size: 11px; }
+.webppt-deck-root .engine-runtime-band p { margin: 5px 0 0; color: #9fb0d2; font-size: 8.5px; line-height: 1.35; }
+.webppt-deck-root .engine-verdict { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 12px; margin: 13px 18px 0; padding: 10px 15px; border-left: 3px solid #70efd5; background: rgba(5,11,34,.55); }
+.webppt-deck-root .engine-verdict span { color: #70efd5; font-size: 9px; font-weight: 900; letter-spacing: .1em; }
+.webppt-deck-root .engine-verdict strong { color: #fff; font-size: 13px; }
+.webppt-deck-root .engine-verdict p { margin: 0; color: #9fb0d2; font-size: 9px; text-align: right; }
+.webppt-deck-root .engine-orchestration-slide .slide-footer span { color: #91a0c4; }
+
+/* Development memory loop: documents are a continuous execution asset, not a file dashboard. */
+.webppt-deck-root .doc-memory-slide { color: #f7fbff; background: radial-gradient(circle at 76% 18%,rgba(57,220,198,.13),transparent 30%), radial-gradient(circle at 18% 82%,rgba(83,96,230,.22),transparent 33%), linear-gradient(135deg,#080d2a 0%,#121942 55%,#12344b 100%); }
+.webppt-deck-root .doc-memory-slide .slide-body { padding-top: 31px; }
+.webppt-deck-root .doc-memory-hero { text-align: center; margin-bottom: 21px; }
+.webppt-deck-root .doc-memory-hero > span { color: #70efd5; font-size: 9px; font-weight: 900; letter-spacing: .23em; }
+.webppt-deck-root .doc-memory-hero h2 { margin: 7px 0 5px; color: #fff; font-size: 29px; line-height: 1.15; }
+.webppt-deck-root .doc-memory-hero p { margin: 0; color: #b6c5e4; font-size: 11px; }
+.webppt-deck-root .doc-memory-loop { position: relative; display: grid; grid-template-columns: repeat(5,1fr); gap: 13px; margin: 0 18px 34px; }
+.webppt-deck-root .doc-memory-loop::before { content: ''; position: absolute; left: 4%; right: 4%; top: 50%; height: 2px; background: linear-gradient(90deg,#6174ff,#59b9f4,#70efd5); box-shadow: 0 0 18px rgba(112,239,213,.4); }
+.webppt-deck-root .doc-memory-node { position: relative; z-index: 1; min-height: 111px; padding: 18px 13px 12px; border: 1px solid rgba(145,165,255,.28); border-radius: 18px; background: linear-gradient(145deg,rgba(35,44,101,.93),rgba(14,22,61,.95)); text-align: center; box-shadow: 0 15px 34px rgba(1,6,29,.24); }
+.webppt-deck-root .doc-memory-node > span { position: absolute; top: -10px; left: 50%; translate: -50% 0; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; border: 1px solid #6e85ff; background: #101738; color: #70efd5; font-size: 8px; font-weight: 900; }
+.webppt-deck-root .doc-memory-node strong { display: block; color: #fff; font-size: 12px; }
+.webppt-deck-root .doc-memory-node p { margin: 10px 0 0; color: #9eafd1; font-size: 8px; line-height: 1.45; }
+.webppt-deck-root .doc-memory-node b { position: absolute; right: -17px; top: 45%; color: #70efd5; font-size: 15px; }
+.webppt-deck-root .doc-memory-node-archive, .webppt-deck-root .doc-memory-node-resume { border-color: rgba(112,239,213,.48); box-shadow: 0 0 28px rgba(63,218,197,.12),0 15px 34px rgba(1,6,29,.24); }
+.webppt-deck-root .doc-memory-return { position: absolute; right: 0; bottom: -29px; display: flex; align-items: center; gap: 7px; color: #70efd5; }
+.webppt-deck-root .doc-memory-return > span { font-size: 18px; }
+.webppt-deck-root .doc-memory-return strong { font-size: 9px; }
+.webppt-deck-root .doc-memory-return small { color: #93a5ca; font-size: 8px; }
+.webppt-deck-root .doc-intelligence-layer { margin: 0 18px; border-top: 1px solid rgba(112,239,213,.25); border-bottom: 1px solid rgba(112,239,213,.18); background: linear-gradient(90deg,rgba(79,97,210,.13),rgba(65,205,186,.07)); }
+.webppt-deck-root .doc-intelligence-layer header { display: flex; align-items: center; gap: 12px; padding: 8px 15px 4px; }
+.webppt-deck-root .doc-intelligence-layer header span { color: #70efd5; font-size: 8px; font-weight: 900; letter-spacing: .14em; }
+.webppt-deck-root .doc-intelligence-layer header strong { color: #dce6fa; font-size: 10px; }
+.webppt-deck-root .doc-intelligence-items { display: grid; grid-template-columns: repeat(3,1fr); }
+.webppt-deck-root .doc-intelligence-items article { position: relative; min-height: 74px; padding: 8px 15px 10px 38px; border-right: 1px solid rgba(255,255,255,.09); }
+.webppt-deck-root .doc-intelligence-items article:last-child { border-right: 0; }
+.webppt-deck-root .doc-intelligence-items article > span { position: absolute; left: 14px; top: 10px; color: #6178e9; font-size: 9px; font-weight: 900; }
+.webppt-deck-root .doc-intelligence-items strong { color: #fff; font-size: 12px; }
+.webppt-deck-root .doc-intelligence-items p { margin: 5px 0 0; color: #9fb0d2; font-size: 8px; line-height: 1.4; }
+.webppt-deck-root .doc-memory-verdict { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; margin: 13px 18px 0; padding: 10px 14px; border-left: 3px solid #70efd5; background: rgba(5,11,34,.55); }
+.webppt-deck-root .doc-memory-verdict > span { color: #70efd5; font-size: 8px; font-weight: 900; letter-spacing: .1em; }
+.webppt-deck-root .doc-memory-verdict > strong { color: #fff; font-size: 10px; }
+.webppt-deck-root .doc-memory-verdict > div { display: flex; gap: 6px; }
+.webppt-deck-root .doc-memory-verdict i { padding: 3px 7px; border-radius: 999px; background: rgba(255,255,255,.07); color: #cdd8ef; font-size: 7px; font-style: normal; }
+.webppt-deck-root .doc-memory-slide .slide-footer span { color: #91a0c4; }
+
+/* 10–19: unified Forge launch language. */
+.webppt-deck-root .quant-launch-slide,
+.webppt-deck-root .outlook-launch-slide,
+.webppt-deck-root .outlook-detail-slide,
+.webppt-deck-root .adoption-launch-slide { color: #f7fbff; background: radial-gradient(circle at 80% 16%,rgba(55,218,199,.14),transparent 29%),radial-gradient(circle at 18% 84%,rgba(80,94,232,.23),transparent 34%),linear-gradient(135deg,#080d2a 0%,#131a48 55%,#12364d 100%); }
+.webppt-deck-root .quant-launch-slide .slide-body,
+.webppt-deck-root .outlook-launch-slide .slide-body,
+.webppt-deck-root .outlook-detail-slide .slide-body,
+.webppt-deck-root .adoption-launch-slide .slide-body { padding-top: 31px; }
+.webppt-deck-root .quant-launch-slide .slide-footer span,
+.webppt-deck-root .outlook-launch-slide .slide-footer span,
+.webppt-deck-root .outlook-detail-slide .slide-footer span,
+.webppt-deck-root .adoption-launch-slide .slide-footer span { color: #91a0c4; }
+
+/* Page 10: numeric evidence stage. */
+.webppt-deck-root .quant-hero { text-align: center; margin-bottom: 27px; }
+.webppt-deck-root .quant-hero > span { color: #70efd5; font-size: 9px; font-weight: 900; letter-spacing: .23em; }
+.webppt-deck-root .quant-hero h2 { margin: 7px 0 5px; color: #fff; font-size: 31px; line-height: 1.12; }
+.webppt-deck-root .quant-hero p { margin: 0; color: #b6c5e4; font-size: 11px; }
+.webppt-deck-root .quant-stage { position: relative; display: grid; grid-template-columns: repeat(4,1fr); gap: 0; margin: 0 27px; border-top: 1px solid rgba(112,239,213,.25); border-bottom: 1px solid rgba(112,239,213,.18); background: linear-gradient(90deg,rgba(79,97,210,.14),rgba(65,205,186,.07)); }
+.webppt-deck-root .quant-stage article { position: relative; min-height: 151px; padding: 28px 18px 18px; border-right: 1px solid rgba(255,255,255,.1); text-align: center; }
+.webppt-deck-root .quant-stage article:last-child { border-right: 0; }
+.webppt-deck-root .quant-stage article > span { position: absolute; top: 12px; left: 15px; color: #6178e9; font-size: 9px; font-weight: 900; }
+.webppt-deck-root .quant-stage strong { display: block; color: #fff; font-size: 69px; line-height: 1; letter-spacing: -.06em; text-shadow: 0 0 24px rgba(96,117,255,.3); }
+.webppt-deck-root .quant-stage strong small { margin-left: 5px; color: #70efd5; font-size: 14px; letter-spacing: 0; }
+.webppt-deck-root .quant-stage p { margin: 13px 0 0; color: #aab9d8; font-size: 10px; }
+.webppt-deck-root .quant-insight-line { display: grid; grid-template-columns: repeat(3,1fr); gap: 18px; margin: 20px 27px 0; }
+.webppt-deck-root .quant-insight-line > div { display: grid; grid-template-columns: auto 1fr; gap: 9px; padding-top: 9px; border-top: 1px solid rgba(143,161,255,.26); }
+.webppt-deck-root .quant-insight-line span { color: #70efd5; font-size: 8px; font-weight: 900; }
+.webppt-deck-root .quant-insight-line p { margin: 0; color: #c4d0e8; font-size: 9px; line-height: 1.45; }
+.webppt-deck-root .quant-verdict { display: flex; align-items: center; gap: 14px; margin: 18px 27px 0; padding: 10px 14px; border-left: 3px solid #70efd5; background: rgba(5,11,34,.54); }
+.webppt-deck-root .quant-verdict span { color: #70efd5; font-size: 8px; font-weight: 900; letter-spacing: .1em; }
+.webppt-deck-root .quant-verdict strong { color: #fff; font-size: 12px; }
+
+/* Page 11: foundations orbit into a team operating system, then fan out to outcomes. */
+.webppt-deck-root .outlook-launch-hero { text-align: center; margin-bottom: 18px; }
+.webppt-deck-root .outlook-launch-hero > span { color: #70efd5; font-size: 9px; font-weight: 900; letter-spacing: .21em; }
+.webppt-deck-root .outlook-launch-hero h2 { margin: 7px 0 5px; color: #fff; font-size: 29px; }
+.webppt-deck-root .outlook-launch-hero p { margin: 0; color: #b7c6e6; font-size: 10px; }
+.webppt-deck-root .outlook-system-map { display: grid; grid-template-columns: 1.12fr 190px 1fr; align-items: center; gap: 25px; margin: 0 27px; }
+.webppt-deck-root .outlook-foundation-ring, .webppt-deck-root .outlook-future-ray { display: grid; gap: 8px; }
+.webppt-deck-root .outlook-foundation-ring article, .webppt-deck-root .outlook-future-ray article { display: grid; align-items: center; min-height: 65px; padding: 8px 11px; border-bottom: 1px solid rgba(255,255,255,.1); background: linear-gradient(90deg,rgba(97,116,255,.1),transparent); }
+.webppt-deck-root .outlook-foundation-ring article { grid-template-columns: 35px 1fr; gap: 10px; }
+.webppt-deck-root .outlook-foundation-ring article > span { font-size: 20px; }
+.webppt-deck-root .outlook-foundation-ring small { display: block; color: #647be9; font-size: 7px; letter-spacing: .12em; }
+.webppt-deck-root .outlook-foundation-ring strong, .webppt-deck-root .outlook-future-ray strong { display: block; color: #fff; font-size: 11px; }
+.webppt-deck-root .outlook-foundation-ring p, .webppt-deck-root .outlook-future-ray p { margin: 3px 0 0; color: #94a6ca; font-size: 7.5px; line-height: 1.35; }
+.webppt-deck-root .outlook-ai-orb { position: relative; display: grid; place-items: center; width: 155px; height: 155px; margin: auto; border-radius: 50%; background: radial-gradient(circle at 35% 28%,#8ff4e2 0,#5b70ff 31%,#111942 74%); box-shadow: 0 0 45px rgba(78,223,202,.23),inset 0 0 28px rgba(255,255,255,.2); }
+.webppt-deck-root .outlook-ai-orb i { position: absolute; inset: -14px; border: 1px solid rgba(112,239,213,.28); border-radius: 50%; }
+.webppt-deck-root .outlook-ai-orb i:nth-child(2) { inset: -31px; opacity: .38; }
+.webppt-deck-root .outlook-ai-orb span { color: #dffff8; font-size: 10px; font-weight: 900; letter-spacing: .18em; }
+.webppt-deck-root .outlook-ai-orb strong { color: #fff; font-size: 22px; line-height: 1.05; text-align: center; }
+.webppt-deck-root .outlook-future-ray article { grid-template-columns: 30px 1fr; gap: 8px; border-left: 2px solid rgba(112,239,213,.38); }
+.webppt-deck-root .outlook-future-ray article > span { color: #70efd5; font-size: 12px; font-weight: 900; }
+.webppt-deck-root .outlook-launch-verdict { display: flex; align-items: center; gap: 13px; margin: 16px 27px 0; padding: 10px 14px; border-left: 3px solid #70efd5; background: rgba(5,11,34,.53); }
+.webppt-deck-root .outlook-launch-verdict span { color: #70efd5; font-size: 8px; font-weight: 900; }
+.webppt-deck-root .outlook-launch-verdict strong { color: #fff; font-size: 10px; }
+
+/* Pages 12–18: a consistent story hero with theme-specific light signatures. */
+.webppt-deck-root .outlook-detail-slide .outlook-detail-heading { justify-content: center; flex-direction: column; gap: 7px; text-align: center; }
+.webppt-deck-root .outlook-detail-slide .outlook-detail-heading h2 { max-width: 1000px; color: #fff; font-size: 29px; line-height: 1.16; }
+.webppt-deck-root .outlook-detail-slide .outlook-status { color: #09112d; background: #70efd5; font-size: 8px; letter-spacing: .08em; }
+.webppt-deck-root .outlook-detail-building .outlook-status { color: #201600; background: #f5c86a; }
+.webppt-deck-root .outlook-detail-future .outlook-status { color: #e8edff; background: #6175df; }
+.webppt-deck-root .outlook-detail-slide .outlook-promise { margin: 7px auto 10px; color: #b9c8e7; font-size: 11px; text-align: center; }
+.webppt-deck-root .outlook-detail-slide .outlook-story-stage { grid-template-columns: 1fr 185px 1fr; gap: 28px; min-height: 185px; }
+.webppt-deck-root .outlook-detail-slide .outlook-story-before, .webppt-deck-root .outlook-detail-slide .outlook-story-after { padding: 0 18px; }
+.webppt-deck-root .outlook-detail-slide .outlook-story-before { color: #93a4c7; }
+.webppt-deck-root .outlook-detail-slide .outlook-story-after { color: #dffff8; }
+.webppt-deck-root .outlook-detail-slide .outlook-story-before small, .webppt-deck-root .outlook-detail-slide .outlook-story-after small { color: #70efd5; font-size: 8px; }
+.webppt-deck-root .outlook-detail-slide .outlook-story-before strong, .webppt-deck-root .outlook-detail-slide .outlook-story-after strong { font-size: 16px; line-height: 1.38; }
+.webppt-deck-root .outlook-detail-slide .outlook-core { width: 145px; height: 145px; background: radial-gradient(circle at 34% 28%,#8ff4e2 0,#5b70ff 31%,#111942 74%); box-shadow: 0 0 44px rgba(79,218,201,.24),inset 0 0 28px rgba(255,255,255,.18); }
+.webppt-deck-root .outlook-detail-slide .outlook-core span { font-size: 37px; }
+.webppt-deck-root .outlook-detail-slide .outlook-core b { bottom: 23px; color: #fff; font-size: 9px; }
+.webppt-deck-root .outlook-detail-slide .outlook-journey { margin: 0 24px; color: #fff; }
+.webppt-deck-root .outlook-detail-slide .outlook-journey-line { background: linear-gradient(90deg,rgba(95,114,255,.2),#6076ff,#70efd5,rgba(112,239,213,.2)); }
+.webppt-deck-root .outlook-detail-slide .outlook-journey span { border-color: #111942; background: #70efd5; }
+.webppt-deck-root .outlook-detail-slide .outlook-journey strong { color: #fff; font-size: 11px; }
+.webppt-deck-root .outlook-detail-slide .outlook-journey small { color: #94a6ca; font-size: 8px; }
+.webppt-deck-root .outlook-detail-slide .outlook-benefit-words { margin-top: 16px; color: #fff; font-size: 13px; }
+.webppt-deck-root .outlook-detail-slide .outlook-benefit-words em { color: #70efd5; font-size: 8px; }
+.webppt-deck-root .outlook-detail-outlook-environment-standard { background: radial-gradient(circle at 50% 45%,rgba(245,190,92,.13),transparent 25%),linear-gradient(135deg,#090d29,#191944 55%,#24364b); }
+.webppt-deck-root .outlook-detail-outlook-living-knowledge { background: radial-gradient(circle at 50% 45%,rgba(112,239,213,.16),transparent 28%),linear-gradient(135deg,#070e2b,#12214a 55%,#123f49); }
+.webppt-deck-root .outlook-detail-outlook-document-standard { background: radial-gradient(circle at 50% 45%,rgba(120,151,255,.16),transparent 28%),linear-gradient(135deg,#080d2a,#171d50 55%,#15324a); }
+.webppt-deck-root .outlook-detail-outlook-business-assistant { background: radial-gradient(circle at 50% 45%,rgba(198,112,255,.14),transparent 28%),linear-gradient(135deg,#090d2a,#211746 55%,#17334b); }
+.webppt-deck-root .outlook-detail-outlook-developer-onboarding { background: radial-gradient(circle at 50% 45%,rgba(85,184,255,.16),transparent 28%),linear-gradient(135deg,#080e2c,#12244d 55%,#123e4d); }
+.webppt-deck-root .outlook-detail-outlook-delivery-intelligence { background: radial-gradient(circle at 50% 45%,rgba(112,239,172,.15),transparent 28%),linear-gradient(135deg,#080e2c,#142348 55%,#12463f); }
+
+/* Page 19: decision and adoption path. */
+.webppt-deck-root .adoption-hero { text-align: center; margin-bottom: 30px; }
+.webppt-deck-root .adoption-hero > span { color: #70efd5; font-size: 9px; font-weight: 900; letter-spacing: .22em; }
+.webppt-deck-root .adoption-hero h2 { margin: 8px 0 6px; color: #fff; font-size: 34px; }
+.webppt-deck-root .adoption-hero p { margin: 0; color: #b7c6e6; font-size: 11px; }
+.webppt-deck-root .adoption-path { position: relative; display: grid; grid-template-columns: repeat(4,1fr); gap: 17px; margin: 0 28px; }
+.webppt-deck-root .adoption-path::before { content: ''; position: absolute; left: 5%; right: 5%; top: 25px; height: 2px; background: linear-gradient(90deg,#6076ff,#70efd5); box-shadow: 0 0 17px rgba(112,239,213,.42); }
+.webppt-deck-root .adoption-path article { position: relative; z-index: 1; min-height: 118px; padding: 44px 14px 12px; border: 1px solid rgba(145,165,255,.24); border-radius: 19px; background: linear-gradient(145deg,rgba(35,44,101,.93),rgba(14,22,61,.95)); text-align: center; }
+.webppt-deck-root .adoption-path article > span { position: absolute; top: 10px; left: 50%; translate: -50% 0; display: grid; place-items: center; width: 31px; height: 31px; border-radius: 50%; border: 1px solid #7086ff; background: #101738; color: #70efd5; font-size: 9px; font-weight: 900; }
+.webppt-deck-root .adoption-path strong { color: #fff; font-size: 10px; line-height: 1.42; }
+.webppt-deck-root .adoption-path b { position: absolute; right: -19px; top: 43%; color: #70efd5; font-size: 16px; }
+.webppt-deck-root .adoption-value-core { display: flex; align-items: center; justify-content: center; gap: 26px; margin: 23px 28px 0; padding: 14px; border-top: 1px solid rgba(112,239,213,.25); border-bottom: 1px solid rgba(112,239,213,.18); background: linear-gradient(90deg,rgba(80,98,210,.13),rgba(65,205,186,.07)); }
+.webppt-deck-root .adoption-value-core span { color: #70efd5; font-size: 8px; font-weight: 900; letter-spacing: .11em; }
+.webppt-deck-root .adoption-value-core strong { color: #fff; font-size: 17px; }
+.webppt-deck-root .adoption-decision { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 13px; margin: 17px 28px 0; padding: 11px 14px; border-left: 3px solid #70efd5; background: rgba(5,11,34,.55); }
+.webppt-deck-root .adoption-decision span { color: #70efd5; font-size: 8px; font-weight: 900; }
+.webppt-deck-root .adoption-decision strong { color: #fff; font-size: 12px; }
+.webppt-deck-root .adoption-decision p { margin: 0; color: #9fb0d2; font-size: 9px; text-align: right; }
+
+/* Cover: a single conflict-driven hero, aligned with the launch language used by the deck. */
+.webppt-deck-root .cover-launch-slide { color: #f8fbff; background: radial-gradient(circle at 77% 35%,rgba(54,221,201,.15),transparent 27%),radial-gradient(circle at 22% 84%,rgba(82,94,234,.25),transparent 34%),linear-gradient(135deg,#070b24 0%,#121842 54%,#11364b 100%); }
+.webppt-deck-root .cover-launch-slide::before { content: ''; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg,transparent 0 49.9%,rgba(255,255,255,.025) 50%,transparent 50.1%),linear-gradient(transparent 0 49.9%,rgba(255,255,255,.018) 50%,transparent 50.1%); background-size: 72px 72px; opacity: .35; }
+.webppt-deck-root .cover-launch-hero { position: relative; display: grid; grid-template-columns: 1.13fr .87fr; align-items: center; min-height: 347px; }
+.webppt-deck-root .cover-launch-copy { position: relative; z-index: 2; padding: 8px 0 0 19px; }
+.webppt-deck-root .cover-launch-slide .eyebrow { color: #70efd5; font-size: 10px; font-weight: 900; letter-spacing: .27em; opacity: 1; }
+.webppt-deck-root .cover-launch-slide h1 { max-width: 730px; margin: 15px 0 14px; color: #fff; font-size: 47px; line-height: 1.12; letter-spacing: -.055em; text-shadow: 0 8px 35px rgba(0,0,0,.22); }
+.webppt-deck-root .cover-launch-slide .subtitle { margin: 0; color: #d9e5fb; font-size: 18px; font-weight: 700; }
+.webppt-deck-root .cover-launch-thesis { max-width: 625px; margin-top: 20px !important; padding-left: 13px; border-left: 3px solid #70efd5; color: #9fb1d4 !important; font-size: 11px !important; line-height: 1.5 !important; }
+.webppt-deck-root .cover-chaos-scene { position: relative; width: 385px; height: 310px; margin: auto; }
+.webppt-deck-root .cover-chaos-ring { position: absolute; left: 50%; top: 50%; translate: -50% -50%; border: 1px solid rgba(112,239,213,.25); border-radius: 50%; }
+.webppt-deck-root .cover-chaos-ring-outer { width: 282px; height: 282px; box-shadow: 0 0 40px rgba(79,224,202,.1); }
+.webppt-deck-root .cover-chaos-ring-inner { width: 184px; height: 184px; border-style: dashed; opacity: .75; }
+.webppt-deck-root .cover-chaos-core { position: absolute; left: 50%; top: 50%; translate: -50% -50%; display: grid; place-items: center; width: 114px; height: 114px; border-radius: 50%; background: radial-gradient(circle at 33% 28%,#8ef1df 0,#5b6eff 32%,#10173e 74%); box-shadow: 0 0 40px rgba(89,111,255,.34),inset 0 0 24px rgba(255,255,255,.18); text-align: center; }
+.webppt-deck-root .cover-chaos-core span { color: #fff; font-size: 30px; font-weight: 900; line-height: 1; }
+.webppt-deck-root .cover-chaos-core strong { color: #dbe7ff; font-size: 8px; line-height: 1.35; }
+.webppt-deck-root .cover-chaos-chip { position: absolute; z-index: 2; padding: 6px 11px; border: 1px solid rgba(143,161,255,.34); border-radius: 999px; background: rgba(10,18,52,.87); color: #dce6fa; font-size: 9px; font-weight: 800; box-shadow: 0 8px 18px rgba(0,0,0,.2); }
+.webppt-deck-root .cover-chaos-chip-1 { left: 15px; top: 57px; }
+.webppt-deck-root .cover-chaos-chip-2 { right: 9px; top: 54px; }
+.webppt-deck-root .cover-chaos-chip-3 { left: -1px; top: 151px; }
+.webppt-deck-root .cover-chaos-chip-4 { right: -2px; top: 146px; }
+.webppt-deck-root .cover-chaos-chip-5 { left: 47px; bottom: 27px; }
+.webppt-deck-root .cover-chaos-chip-6 { right: 17px; bottom: 25px; }
+.webppt-deck-root .cover-chaos-break { position: absolute; left: 50%; top: 4px; translate: -50% 0; color: #70efd5; font-size: 27px; font-style: normal; filter: drop-shadow(0 0 12px rgba(112,239,213,.65)); }
+.webppt-deck-root .cover-launch-divider { position: relative; display: grid; place-items: center; margin: 0 19px 11px; }
+.webppt-deck-root .cover-launch-divider::before { content: ''; position: absolute; left: 0; right: 0; height: 1px; background: linear-gradient(90deg,transparent,rgba(112,239,213,.42),transparent); }
+.webppt-deck-root .cover-launch-divider span { position: relative; padding: 0 14px; background: #111940; color: #70efd5; font-size: 8px; font-weight: 900; letter-spacing: .13em; }
+.webppt-deck-root .cover-launch-problems { grid-template-columns: repeat(4,1fr); gap: 0; margin: 0 19px; }
+.webppt-deck-root .cover-launch-problems .cover-problem { position: relative; grid-template-columns: 28px 1fr; gap: 8px; min-height: 103px; padding: 12px 15px; border: 0; border-right: 1px solid rgba(255,255,255,.1); border-top: 1px solid rgba(143,161,255,.22); border-radius: 0; background: linear-gradient(180deg,rgba(92,110,224,.09),rgba(9,16,48,.16)); }
+.webppt-deck-root .cover-launch-problems .cover-problem:last-child { border-right: 0; }
+.webppt-deck-root .cover-launch-problems .cover-problem > em { position: absolute; right: 11px; top: 8px; color: #6077df; font-size: 8px; font-style: normal; font-weight: 900; }
+.webppt-deck-root .cover-launch-problems .cover-problem-icon { font-size: 20px; }
+.webppt-deck-root .cover-launch-problems .cover-problem strong { color: #fff; font-size: 11px; }
+.webppt-deck-root .cover-launch-problems .cover-problem p { margin: 4px 0 3px; color: #c7d2e9; font-size: 8px; line-height: 1.35; }
+.webppt-deck-root .cover-launch-problems .cover-problem small { display: block; color: #899bbe; font-size: 7px; line-height: 1.35; }
+.webppt-deck-root .cover-launch-close { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 16px 19px 0; padding: 10px 14px; border-left: 3px solid #70efd5; background: rgba(5,11,34,.52); }
+.webppt-deck-root .cover-launch-close span { color: #70efd5; font-size: 9px; font-weight: 900; letter-spacing: .16em; }
+.webppt-deck-root .cover-launch-close strong { color: #fff; font-size: 13px; }
