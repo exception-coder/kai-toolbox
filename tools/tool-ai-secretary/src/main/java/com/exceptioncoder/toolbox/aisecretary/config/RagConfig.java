@@ -17,6 +17,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.util.StringUtils;
 
+import java.util.concurrent.TimeUnit;
+
 import com.exceptioncoder.toolbox.aisecretary.repository.NoteRepository;
 import com.exceptioncoder.toolbox.aisecretary.service.NoteIndexService;
 
@@ -47,11 +49,19 @@ public class RagConfig {
         if (StringUtils.hasText(props.getQdrantApiKey())) {
             grpc = grpc.withApiKey(props.getQdrantApiKey());
         }
-        QdrantClient client = new QdrantClient(grpc.build());
-        // 先查存在性，不存在才按向量维度 + 余弦距离创建：避免重复创建时 Qdrant 客户端
-        // 在 grpc 线程打出 ALREADY_EXISTS 的 ERROR 噪音（异常本会被吞，但日志已先打出）。
+        // 仅建客户端，不在启动主线程做任何网络调用：集合存在性检查/创建挪到下方异步 runner。
+        // 原来在此同步 collectionExistsAsync().get()（无超时），Qdrant 不可达/慢失败时会阻塞 Spring
+        // 上下文刷新，拖慢甚至卡住整个后端启动（前端表现为 /api 一直 ECONNREFUSED）。
+        return new QdrantClient(grpc.build());
+    }
+
+    /**
+     * 确保 Qdrant 集合存在（异步调用，带超时；失败返回 false，调用方据此跳过回填）。
+     * 先查存在性、不存在才按向量维度 + 余弦距离创建——避免重复创建时打 ALREADY_EXISTS 噪音。
+     */
+    private boolean ensureCollection(QdrantClient client, RagProperties props) {
         try {
-            if (Boolean.TRUE.equals(client.collectionExistsAsync(props.getCollection()).get())) {
+            if (Boolean.TRUE.equals(client.collectionExistsAsync(props.getCollection()).get(5, TimeUnit.SECONDS))) {
                 log.info("[ai-secretary] Qdrant 集合 {} 已存在，跳过创建", props.getCollection());
             } else {
                 client.createCollectionAsync(
@@ -60,13 +70,14 @@ public class RagConfig {
                                 .setSize(props.getVectorSize())
                                 .setDistance(Collections.Distance.Cosine)
                                 .build())
-                        .get();
+                        .get(5, TimeUnit.SECONDS);
                 log.info("[ai-secretary] 创建 Qdrant 集合 {} (dim={})", props.getCollection(), props.getVectorSize());
             }
+            return true;
         } catch (Exception e) {
-            log.warn("[ai-secretary] Qdrant 集合初始化失败：{}", e.getMessage());
+            log.warn("[ai-secretary] Qdrant 集合初始化失败（跳过 RAG 回填；Qdrant 恢复后重启即补全）：{}", e.getMessage());
+            return false;
         }
-        return client;
     }
 
     @Bean
@@ -90,8 +101,11 @@ public class RagConfig {
      * 打一行可操作的提示后停手，等 Ollama 起来重启即可补全；期间 capture 的新笔记写入时也会自动补索引。
      */
     @Bean
-    public ApplicationRunner aiSecretaryRagBackfill(NoteRepository repo, NoteIndexService index, RagProperties props) {
-        return args -> Thread.ofVirtual().name("ai-secretary-rag-backfill").start(() -> {
+    public ApplicationRunner aiSecretaryRagBackfill(QdrantClient aiSecretaryQdrantClient,
+                                                    NoteRepository repo, NoteIndexService index, RagProperties props) {
+        return args -> Thread.ofVirtual().name("ai-secretary-rag-init").start(() -> {
+            // 先异步确保集合存在（原来在 QdrantClient bean 里同步做，会阻塞启动）。不可达即跳过回填。
+            if (!ensureCollection(aiSecretaryQdrantClient, props)) return;
             try {
                 var notes = repo.findRecent(10000);
                 if (notes.isEmpty()) return;
