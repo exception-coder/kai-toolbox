@@ -397,14 +397,11 @@ public class SessionHistoryService {
                 Long ts = parseTs(node);
                 switch (type) {
                     case "user" -> {
-                        // isMeta=true 的 user 角色行是 Claude Code 自己的内部标注（图片工具读取的
-                        // 尺寸换算说明「[Image: original ... Multiply coordinates by ...]」、
-                        // resume 续接标记「Continue from where you left off.」、skill 加载注入的
-                        // base directory 提示等）——纯字符串内容，不是真人打字，也不是 tool_result
-                        // （tool_result 走下面 array 分支，不带 isMeta）。不过滤的话 isUserText()/
+                        // 内部标注行（isMeta / origin.kind，见 isInternalMetaLine 说明）不是真人打字，
+                        // 也不是 tool_result（tool_result 走下面 array 分支）。不过滤的话 isUserText()/
                         // appendUser() 会把它当成一条真实用户消息，误判成新一轮边界、还渲染成蓝色
                         // 「我发的」气泡。
-                        if (!node.path("isMeta").asBoolean(false)) {
+                        if (!isInternalMetaLine(node)) {
                             // 真实用户消息（含 text）= 新一轮开始：先把上一轮用量落成 result 项
                             if (isUserText(content)) {
                                 flushTurn(out, acc);
@@ -469,9 +466,9 @@ public class SessionHistoryService {
                     continue;
                 }
                 String type = node.path("type").asText("");
-                // isMeta=true 的 user 行是内部标注（图片读取说明/resume 标记等），不算真实一轮，
-                // 否则会把这类合成文本也计入 turns、打乱轮次统计——见 parseAll() 同一处理的详细说明。
-                if ("user".equals(type) && !node.path("isMeta").asBoolean(false)
+                // 内部标注行（isMeta / origin.kind）不算真实一轮，否则会把这类合成文本也计入 turns、
+                // 打乱轮次统计——见 isInternalMetaLine() / parseAll() 同一处理的详细说明。
+                if ("user".equals(type) && !isInternalMetaLine(node)
                         && isUserText(node.path("message").path("content"))) {
                     if (started && turnHasOutput) turns++;
                     started = true;
@@ -534,6 +531,24 @@ public class SessionHistoryService {
         }
         long total = input + output + cacheRead;
         return new SessionUsageView(input, output, cacheRead, 0, total, turns);
+    }
+
+    /**
+     * 这条 type=user 的行是不是 Claude Code 自己注入的内部标注（不是真人打字）。已知两种标记，
+     * 真实用户消息两者都不带（实测校验过）：
+     *   1. isMeta=true —— 图片工具读取的尺寸换算说明「[Image: original ... Multiply
+     *      coordinates by ...]」、resume 续接标记「Continue from where you left off.」、
+     *      skill 加载注入的 base directory 提示等。
+     *   2. origin.kind 非空 —— 目前实测到的取值是 "task-notification"（后台任务完成/超时通知，
+     *      形如 &lt;task-notification&gt;...&lt;/task-notification&gt; 的 XML 文本），起 kind 就是
+     *      Claude Code 自己用来标记"这条 user 角色行是系统合成注入的，不是人打的"这层含义，
+     *      不局限于这一个值，未来出现新的 kind 也一并当内部标注处理。
+     * 不过滤的话 isUserText()/appendUser() 会把这类合成文本当成真实用户消息，误判成新一轮边界、
+     * 还渲染成蓝色"我发的"气泡。
+     */
+    private boolean isInternalMetaLine(JsonNode node) {
+        if (node.path("isMeta").asBoolean(false)) return true;
+        return !node.path("origin").path("kind").asText("").isBlank();
     }
 
     /** content 是否含真实用户文本（区别于 tool_result——后者是 user 类型但属同轮，不另起一轮）。 */
