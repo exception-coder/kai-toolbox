@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, Check, Coins, Copy, Database, FileImage, FileText, FolderOpen, GitBranch, Timer } from 'lucide-react'
+import { AlertTriangle, ArrowDown, Check, Coins, Copy, Database, FileImage, FileText, FolderOpen, GitBranch, Timer } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { loadState as loadCardState, saveState as saveCardState } from '@/features/markdown-card/lib/persistence'
 import type { ChatItem, ConnState } from '../types'
@@ -55,6 +55,11 @@ export const MessageList = forwardRef<MessageListHandle, Props>(function Message
   const prependingRef = useRef(false)
   // 点击聊天里的图片放大查看（桌面点击 / 移动端轻触均可）
   const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null)
+  // 「锁定位置」：回答生成过程中默认贴底自动滚动；用户主动往上滚离底部一定距离后自动锁定，
+  // 新增内容（流式 delta/新消息）不再拽着视图跑，方便一边看之前内容一边等它答完。
+  // 贴回底部（自己滚 or 点下面的「跳到最新」）即自动解锁，恢复贴底跟随。
+  const STICK_BOTTOM_THRESHOLD_PX = 48
+  const [stickToBottom, setStickToBottom] = useState(true)
 
   const handleScroll = () => {
     const el = scrollRef.current
@@ -64,25 +69,34 @@ export const MessageList = forwardRef<MessageListHandle, Props>(function Message
       prependingRef.current = true
       onLoadEarlier()
     }
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    setStickToBottom(distanceFromBottom <= STICK_BOTTOM_THRESHOLD_PX)
   }
 
-  // items 变化后：上拉 prepend 时用 scrollHeight 差补偿、保持视觉位置；否则（首屏 / 新消息）滚到底。
+  const jumpToBottom = () => {
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+    setStickToBottom(true)
+  }
+
+  // items 变化后：上拉 prepend 时用 scrollHeight 差补偿、保持视觉位置；贴底状态下（首屏/新消息）滚到底；
+  // 已锁定（用户滚离底部）则不动，避免打断正在查看更早内容的用户。
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el) return
     if (prependingRef.current) {
       el.scrollTop += el.scrollHeight - prevHeightRef.current
       prependingRef.current = false
-    } else {
+    } else if (stickToBottom) {
       el.scrollTop = el.scrollHeight
     }
-  }, [visibleItems])
+  }, [visibleItems, stickToBottom])
 
   useEffect(() => {
-    if (prependingRef.current) return
+    if (prependingRef.current || !stickToBottom) return
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [running])
+  }, [running, stickToBottom])
 
   // 供「我的提问」导航面板等外部调用：滚到指定消息 + 短暂高亮闪一下，方便一眼找到目标气泡。
   // 用 data-msg-id（而非 id）定位——同一页可能同时挂多个 MessageList 实例（分屏/悬浮窗），
@@ -100,22 +114,36 @@ export const MessageList = forwardRef<MessageListHandle, Props>(function Message
   }), [])
 
   return (
-    <div ref={scrollRef} onScroll={handleScroll} className="flex min-w-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto px-3 py-4">
-      {loadingEarlier && (
-        <div className="text-center text-xs text-[var(--color-muted-foreground)]">加载更早…</div>
+    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+      <div ref={scrollRef} onScroll={handleScroll} className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto px-3 py-4">
+        {loadingEarlier && (
+          <div className="text-center text-xs text-[var(--color-muted-foreground)]">加载更早…</div>
+        )}
+        {exhausted && items.length > 0 && (
+          <div className="text-center text-xs text-[var(--color-muted-foreground)]">— 没有更早了 —</div>
+        )}
+        {visibleItems.map(item => (
+          <div key={item.id} data-msg-id={item.id} className="rounded-2xl transition-shadow duration-300">
+            <Row item={item} onFork={onFork} engineLabel={engineLabel} onResumeCurrent={onResumeCurrent} onNewSession={onNewSession}
+              onCleanRetry={hasForkTarget ? onCleanRetry : undefined}
+              onOpenImage={(src, alt) => setViewer({ src, alt })} />
+          </div>
+        ))}
+        {running && <ThinkingIndicator engineLabel={engineLabel} tokens={turnTokens} connState={connState} />}
+        {viewer && <ImageLightbox src={viewer.src} alt={viewer.alt} onClose={() => setViewer(null)} />}
+      </div>
+      {/* 已锁定位置（滚离了底部）时的提示 + 快捷跳回：回答生成中最有用——一边看着之前内容，
+          一边知道「新内容没有打断我、想看的话点一下就能追上」。 */}
+      {!stickToBottom && (
+        <button
+          type="button"
+          onClick={jumpToBottom}
+          className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-1.5 text-xs font-medium text-[var(--color-card-foreground)] shadow-lg transition-colors hover:bg-[var(--color-accent)]"
+        >
+          <ArrowDown className="size-3.5" />
+          位置已锁定{running ? '· 新回复生成中' : ''} · 跳到最新
+        </button>
       )}
-      {exhausted && items.length > 0 && (
-        <div className="text-center text-xs text-[var(--color-muted-foreground)]">— 没有更早了 —</div>
-      )}
-      {visibleItems.map(item => (
-        <div key={item.id} data-msg-id={item.id} className="rounded-2xl transition-shadow duration-300">
-          <Row item={item} onFork={onFork} engineLabel={engineLabel} onResumeCurrent={onResumeCurrent} onNewSession={onNewSession}
-            onCleanRetry={hasForkTarget ? onCleanRetry : undefined}
-            onOpenImage={(src, alt) => setViewer({ src, alt })} />
-        </div>
-      ))}
-      {running && <ThinkingIndicator engineLabel={engineLabel} tokens={turnTokens} connState={connState} />}
-      {viewer && <ImageLightbox src={viewer.src} alt={viewer.alt} onClose={() => setViewer(null)} />}
     </div>
   )
 })
