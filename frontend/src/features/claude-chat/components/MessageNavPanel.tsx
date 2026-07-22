@@ -6,7 +6,9 @@ import { formatTime } from '../lib/metrics'
 
 interface Props {
   items: ChatItem[]
-  onSelect: (id: string) => void
+  /** 传回完整消息（而非仅 id）：id 是解析时按下标生成的合成值，分页再拉一批更早历史后
+   *  可能整体漂移，调用方需要 ts+文本兜底匹配，所以要把点击那一刻的原始消息一并带出去。 */
+  onSelect: (item: Extract<ChatItem, { kind: 'user' }>) => void
   onClose: () => void
 }
 
@@ -23,9 +25,9 @@ function preview(item: Extract<ChatItem, { kind: 'user' }>): string {
  * 支持按文字搜索缩小范围，点击某条直接滚到主消息流里对应位置并短暂高亮——
  * 会话问答一多，靠人工上拉翻找很低效，这是专门给"次日回来找某个问答"这种场景做的快捷入口。
  *
- * 注意：这里列的是当前已加载进 chat.items 的消息（含已通过上拉分页取到的更早历史）；
- * 如果目标问题还在尚未加载的更早分页里，需要先在主消息流里上拉加载出来，本面板暂不做
- * "自动加载更早直到搜到为止"（那是另一个量级的功能——全文检索，这里先解决"看得见就能跳"）。
+ * 这里列的是当前已加载进 chat.items 的消息（含已通过上拉分页取到的更早历史）；点到的目标
+ * 若还在尚未加载的更早分页里，交给 ChatPage 的 pendingScroll 效果自动追加拉取更早历史直到
+ * 找到或加载完为止——本面板自己不关心加载状态，只负责把点中的完整消息对象交出去。
  */
 export function MessageNavPanel({ items, onSelect, onClose }: Props) {
   const [query, setQuery] = useState('')
@@ -76,7 +78,7 @@ export function MessageNavPanel({ items, onSelect, onClose }: Props) {
             <button
               key={item.id}
               type="button"
-              onClick={() => onSelect(item.id)}
+              onClick={() => onSelect(item)}
               className="flex w-full items-start gap-2 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-[var(--color-accent)]"
             >
               <span className="mt-0.5 w-6 shrink-0 text-right text-[10px] tabular-nums text-[var(--color-muted-foreground)]">

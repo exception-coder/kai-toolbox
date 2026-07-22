@@ -43,7 +43,7 @@ import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
 import { fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getSessionCommitDiff, listSessionCommits, listSessionGitRepos, listSessions, listWorkspaces, renameSession, uploadAttachment, type SessionUsage, type UploadedAttachment } from '../api'
-import type { ModelInfo } from '../types'
+import type { ChatItem, ModelInfo } from '../types'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
 import { GitStatusPanel } from '@/components/git/GitStatusPanel'
 import type { Engine } from '../types'
@@ -166,6 +166,29 @@ export function ChatPage() {
   const [showExport, setShowExport] = useState(false)
   const [showMsgNav, setShowMsgNav] = useState(false)
   const messageListRef = useRef<MessageListHandle>(null)
+  // 「我的提问」面板点中一条待滚到的目标：可能还没加载进 chat.items（分页更早历史里）。
+  const [pendingScroll, setPendingScroll] = useState<Extract<ChatItem, { kind: 'user' }> | null>(null)
+  // 目标不在当前已加载消息里时，持续触发「加载更早」直到出现或加载到头——否则用户点了没反应，
+  // 只能靠自己反复上拉去找，这正是「点击不在渲染中的提问不会自动滚动定位」的根因。
+  // 优先按 id 精确匹配；分页重新拉取更早历史后合成 id（按下标生成）可能整体漂移，
+  // 找不到时按 ts+文本兜底匹配同一条消息。
+  useEffect(() => {
+    if (!pendingScroll || !chat) return
+    const exact = chat.items.find(it => it.id === pendingScroll.id)
+    const fallback = !exact && chat.items.find(
+      (it): it is Extract<ChatItem, { kind: 'user' }> =>
+        it.kind === 'user' && it.ts === pendingScroll.ts && (it.displayText ?? it.text) === (pendingScroll.displayText ?? pendingScroll.text),
+    )
+    const target = exact ?? fallback
+    if (target) {
+      messageListRef.current?.scrollToItem(target.id)
+      setPendingScroll(null)
+      return
+    }
+    if (chat.historyLoading) return // 上一次加载还没完，等它触发的重渲染再判断一次
+    if (chat.historyExhausted) { setPendingScroll(null); return } // 加载到最早了还没找到，放弃
+    chat.loadHistory(false)
+  }, [pendingScroll, chat?.items, chat?.historyLoading, chat?.historyExhausted, chat?.loadHistory])
   const [showLogs, setShowLogs] = useState(false)
   const [showGestureDebug, setShowGestureDebug] = useState(false)
   const [showDebug, setShowDebug] = useState(false)
@@ -1161,11 +1184,12 @@ export function ChatPage() {
         <ExportSessionDialog items={chat.items} sessionTitle={currentTitle || 'Vibe Coding 会话记录'} onClose={() => setShowExport(false)} />
       )}
 
-      {/* 我的提问：只列自己发的消息，支持搜索，点击滚到消息流对应位置并高亮——方便事后找回某个问答 */}
+      {/* 我的提问：只列自己发的消息，支持搜索，点击滚到消息流对应位置并高亮——方便事后找回某个问答。
+          目标消息若还没加载进 chat.items（分页更早历史），交给 pendingScroll 效果自动追加加载直到找到。 */}
       {showMsgNav && (
         <MessageNavPanel
           items={chat.items}
-          onSelect={id => { setShowMsgNav(false); messageListRef.current?.scrollToItem(id) }}
+          onSelect={item => { setShowMsgNav(false); setPendingScroll(item) }}
           onClose={() => setShowMsgNav(false)}
         />
       )}
