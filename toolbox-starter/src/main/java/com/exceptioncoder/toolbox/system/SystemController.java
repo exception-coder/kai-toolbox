@@ -4,8 +4,6 @@ import com.exceptioncoder.toolbox.common.auth.annotation.RequireAuth;
 import com.exceptioncoder.toolbox.common.log.RecentLogsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.SpringApplication;
-import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -31,12 +29,10 @@ public class SystemController {
 
     private static final Logger log = LoggerFactory.getLogger(SystemController.class);
 
-    private final ApplicationContext ctx;
     private final SystemProperties props;
     private final RecentLogsService recentLogs;
 
-    public SystemController(ApplicationContext ctx, SystemProperties props, RecentLogsService recentLogs) {
-        this.ctx = ctx;
+    public SystemController(SystemProperties props, RecentLogsService recentLogs) {
         this.props = props;
         this.recentLogs = recentLogs;
     }
@@ -82,8 +78,10 @@ public class SystemController {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
-            int code = SpringApplication.exit(ctx, () -> 0);
-            System.exit(code);
+            // 构建可能在进程运行期间原地替换可执行 jar。此处不能再懒加载 Spring Boot 类，
+            // 否则退出时可能因新旧 jar 不一致而触发 NoClassDefFoundError。
+            // System.exit 会触发 Spring 注册的 JVM shutdown hook，ApplicationContext 仍会正常关闭。
+            System.exit(0);
         });
         return ResponseEntity.ok(Map.of("status", "restarting"));
     }
