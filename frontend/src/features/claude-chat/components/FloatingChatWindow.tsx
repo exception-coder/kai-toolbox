@@ -22,6 +22,7 @@ import { CommitsPanel } from '@/components/git/CommitsPanel'
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder'
 import { setToolColors, useToolColors } from '../lib/toolColorPref'
 import { setHideToolCalls, useHideToolCalls } from '../lib/toolVisibilityPref'
+import { PENDING_DRAFT_KEY, useDraft } from '../lib/draftPref'
 import { getSessionCommitDiff, listSessionCommits, listSessionGitRepos, listSessions, resolveModule, transcribe, uploadAttachment, type UploadedAttachment } from '../api'
 import type { ChatItem, ModuleCandidate, PermissionMode } from '../types'
 import { engineDisplayName, providerHost } from './chatStatus'
@@ -94,7 +95,8 @@ export function FloatingChatWindow() {
   const conciergeSrc = concierge ?? GIFT_CONCIERGE_IMAGE
   const location = useLocation()
   const navigate = useNavigate()
-  const [draft, setDraft] = useState('')
+  // 草稿本地持久化（按 sessionId），与主视图/分屏共用同一份存储：切视图/刷新页面都不丢。
+  const [draft, setDraft] = useDraft(chat?.sessionId ?? PENDING_DRAFT_KEY)
   const [showSessions, setShowSessions] = useState(false)
   // 「更多选项」整窗覆盖菜单（复刻全屏头部的 … 菜单）：小窗放不下面板，点选后跳全屏并直接打开对应面板。
   const [showMore, setShowMore] = useState(false)

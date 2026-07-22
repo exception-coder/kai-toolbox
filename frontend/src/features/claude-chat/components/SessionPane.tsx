@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, Paperclip, Send, ShieldCheck, Slash, Square, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useClaudeChatSocket } from '../hooks/useClaudeChatSocket'
+import { useDraft } from '../lib/draftPref'
 import { listSessions, uploadAttachment, type UploadedAttachment } from '../api'
 import { ensureNotifyPermission } from '../browserNotify'
 import { CommandMenu } from './CommandMenu'
@@ -48,7 +49,8 @@ function shortCwd(cwd: string): string {
  */
 export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
   const chat = useClaudeChatSocket()
-  const [draft, setDraft] = useState('')
+  // 草稿本地持久化（按 sessionId），与主视图/悬浮窗共用同一份存储：切视图/刷新页面都不丢。
+  const [draft, setDraft] = useDraft(sessionId)
   const [attachments, setAttachments] = useState<ChatAttachment[]>([])
   const [uploading, setUploading] = useState(0)
   const [cmdMenuOpen, setCmdMenuOpen] = useState(false) // 「指令」菜单（命令 + 模型切换）
