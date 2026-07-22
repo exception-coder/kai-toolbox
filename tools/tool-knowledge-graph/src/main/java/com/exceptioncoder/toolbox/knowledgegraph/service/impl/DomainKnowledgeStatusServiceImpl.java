@@ -26,9 +26,11 @@ import java.util.regex.Pattern;
 @Service
 public class DomainKnowledgeStatusServiceImpl implements DomainKnowledgeStatusService {
 
-    // gaps 命令每行结尾要么是"；缺类型 → ..."要么是"；6 类齐"，二选一必有，不是可选后缀
+    // gaps 命令每行结尾要么是"；缺类型 → ..."要么是"；6 类齐"，二选一必有，不是可选后缀。
+    // 模块中文名 (name) 仅当 impl/modules.json 登记了该 key 才有——cross-topology 从不登记 modules.json，
+    // 每行永远是裸 key（无括号），故 (name) 部分必须整体可选，否则这类行会被漏判成"不存在"。
     private static final Pattern GAP_LINE = Pattern.compile(
-            "^- (?<key>[a-z0-9-]+)\\((?<name>[^)]+)\\): (?<count>\\d+) 条(?<empty> ⚠ 空)?(；缺类型 → (?<missing>.+)|；6 类齐)$"
+            "^- (?<key>[a-z0-9-]+)(\\((?<name>[^)]+)\\))?: (?<count>\\d+) 条(?<empty> ⚠ 空)?(；缺类型 → (?<missing>.+)|；6 类齐)$"
     );
 
     private final KnowledgeGraphProperties props;
@@ -43,22 +45,34 @@ public class DomainKnowledgeStatusServiceImpl implements DomainKnowledgeStatusSe
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请提供项目根路径");
         }
         String projectKey = Path.of(projectRootPath).getFileName().toString();
-        String repoPath = repo == GraphRepo.DOMAIN_KNOWLEDGE
-                ? props.getDomainKnowledgeRepoPath()
-                : props.getCrossTopologyRepoPath();
-        if (repoPath == null || repoPath.isBlank()) {
+
+        // cross-project-topology 没有自己的 package.json/dist/server.js/scripts/bootstrap.mjs——
+        // 它是纯内容仓库，复用 project-domain-knowledge 的引擎，靠 DOMAIN_KB_DIR 环境变量指向
+        // 它自己的 knowledge/ 目录（见 project-domain-knowledge/src/knowledge.ts 的 KB_DIR 解析）。
+        // 因此"引擎根目录"(跑脚本、查 dist/server.js 的地方)永远是 domainKnowledgeRepoPath，
+        // crossTopologyRepoPath 只用来算 DOMAIN_KB_DIR 覆盖值，两者不能混用。
+        String engineRoot = props.getDomainKnowledgeRepoPath();
+        if (engineRoot == null || engineRoot.isBlank()) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "请先在配置中心设置 " + (repo == GraphRepo.DOMAIN_KNOWLEDGE
-                            ? "knowledge-graph.domain-knowledge-repo-path"
-                            : "knowledge-graph.cross-topology-repo-path"));
+                    "请先在配置中心设置 knowledge-graph.domain-knowledge-repo-path（cross-topology 检测同样依赖这个引擎仓库）");
         }
-        Path distEntry = Path.of(repoPath, "dist", "server.js");
+        Path distEntry = Path.of(engineRoot, "dist", "server.js");
         if (!Files.exists(distEntry)) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "仓库尚未构建：" + repoPath + " 缺少 dist/server.js，请先 npm install && npm run build");
+                    "引擎仓库尚未构建：" + engineRoot + " 缺少 dist/server.js，请先 npm install && npm run build");
         }
 
-        String stdout = runGaps(repoPath, projectKey);
+        String kbDirOverride = null;
+        if (repo == GraphRepo.CROSS_TOPOLOGY) {
+            String topologyRepo = props.getCrossTopologyRepoPath();
+            if (topologyRepo == null || topologyRepo.isBlank()) {
+                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                        "请先在配置中心设置 knowledge-graph.cross-topology-repo-path");
+            }
+            kbDirOverride = Path.of(topologyRepo, "knowledge").toString();
+        }
+
+        String stdout = runGaps(engineRoot, projectKey, kbDirOverride);
         Instant now = Instant.now();
 
         int total = 0;
@@ -77,7 +91,8 @@ public class DomainKnowledgeStatusServiceImpl implements DomainKnowledgeStatusSe
             if (m.group("empty") != null) {
                 String missing = m.group("missing");
                 List<String> missingTypes = missing == null ? List.of() : Arrays.asList(missing.split(","));
-                gaps.add(new ModuleGap(m.group("key"), m.group("name"), count, missingTypes));
+                String name = m.group("name") != null ? m.group("name") : m.group("key");
+                gaps.add(new ModuleGap(m.group("key"), name, count, missingTypes));
             }
         }
         // gaps 命令对未登记项目(无 impl/modules.json)不报错，只是不产出任何模块行——total==0 是唯一信号
@@ -87,12 +102,15 @@ public class DomainKnowledgeStatusServiceImpl implements DomainKnowledgeStatusSe
         return new DomainKnowledgeStatus(state, total, covered, gaps, now);
     }
 
-    private String runGaps(String repoPath, String projectKey) {
+    private String runGaps(String engineRoot, String projectKey, String kbDirOverride) {
         try {
-            Process p = new ProcessBuilder(props.getNodeExecutable(), "scripts/bootstrap.mjs", "gaps", projectKey)
-                    .directory(new java.io.File(repoPath))
-                    .redirectErrorStream(true)
-                    .start();
+            ProcessBuilder pb = new ProcessBuilder(props.getNodeExecutable(), "scripts/bootstrap.mjs", "gaps", projectKey)
+                    .directory(new java.io.File(engineRoot))
+                    .redirectErrorStream(true);
+            if (kbDirOverride != null) {
+                pb.environment().put("DOMAIN_KB_DIR", kbDirOverride);
+            }
+            Process p = pb.start();
             String out;
             try (var in = p.getInputStream()) {
                 out = new String(in.readAllBytes());
