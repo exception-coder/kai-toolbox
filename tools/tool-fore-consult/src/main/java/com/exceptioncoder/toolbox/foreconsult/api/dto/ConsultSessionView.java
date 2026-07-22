@@ -37,6 +37,7 @@ public record ConsultSessionView(
         String rawReferenceJson,
         String parseStatus,
         String archiveStatus,
+        String role,
         String errorMsg,
         long createdAt,
         Long endedAt,
@@ -60,6 +61,7 @@ public record ConsultSessionView(
                 s.getRawReferenceJson(),
                 s.getParseStatus() != null ? s.getParseStatus() : "NONE",
                 s.getArchiveStatus() != null ? s.getArchiveStatus() : "PENDING",
+                s.getRole() != null ? s.getRole() : "IT",
                 s.getErrorMsg(), s.getCreatedAt(), s.getEndedAt(),
                 turns != null ? turns : List.of());
     }

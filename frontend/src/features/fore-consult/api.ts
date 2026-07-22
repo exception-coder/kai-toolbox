@@ -24,6 +24,7 @@ export interface ConsultSessionView {
   rawReferenceJson: string | null
   parseStatus: string
   archiveStatus: string
+  role: string
   errorMsg: string | null
   createdAt: number
   endedAt: number | null
@@ -35,6 +36,7 @@ export interface StartSessionRequest {
   systemSourcePath: string
   moduleNames: string[]
   promptSnapshot: string
+  role: string
 }
 
 export interface ArchiveTurnItem {

@@ -12,10 +12,14 @@ CREATE TABLE IF NOT EXISTS consult_session (
     raw_reference_json  TEXT,                             -- 引擎回吐的引用清单原始 JSON（容错留档）
     parse_status        TEXT    DEFAULT 'NONE',           -- NONE|OK|FAILED，引用清单解析状态
     archive_status      TEXT    NOT NULL DEFAULT 'PENDING',
+    role                TEXT    DEFAULT 'IT',             -- 回答对象角色：IT（IT 客服）| BIZ（业务员），决定回答约束
     error_msg           TEXT,                             -- 归档失败原因
     created_at          INTEGER NOT NULL,                 -- 会话创建时间（Unix 毫秒）
     ended_at            INTEGER                           -- 会话结束时间
 );
+
+-- 存量数据库兼容：补充 role 列（SchemaInitializer 忽略 "duplicate column" 错误）
+ALTER TABLE consult_session ADD COLUMN role TEXT DEFAULT 'IT';
 
 CREATE TABLE IF NOT EXISTS consult_turn (
     turn_id              TEXT    PRIMARY KEY,             -- UUID

@@ -31,6 +31,8 @@ public class ConsultSession {
     private String parseStatus;
     /** 归档状态：PENDING | SUCCESS | FAILED。 */
     private String archiveStatus;
+    /** 回答对象角色：IT（IT 客服）| BIZ（业务员），决定回答约束。 */
+    private String role;
     private String errorMsg;
     private long createdAt;
     /** 会话结束时间（毫秒），未结束时为 null。 */

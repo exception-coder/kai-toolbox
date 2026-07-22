@@ -25,6 +25,7 @@ public class ConsultSessionRepository {
             .rawReferenceJson(rs.getString("raw_reference_json"))
             .parseStatus(rs.getString("parse_status"))
             .archiveStatus(rs.getString("archive_status"))
+            .role(rs.getString("role"))
             .errorMsg(rs.getString("error_msg"))
             .createdAt(rs.getLong("created_at"))
             .endedAt(rs.getObject("ended_at") == null ? null : rs.getLong("ended_at"))
@@ -39,11 +40,11 @@ public class ConsultSessionRepository {
     public void insert(ConsultSession s) {
         jdbc.update(
                 "INSERT INTO consult_session (session_id, user_id, system_name, system_source_path, module_names, " +
-                "prompt_snapshot, dev_session_id, raw_reference_json, parse_status, archive_status, error_msg, created_at, ended_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "prompt_snapshot, dev_session_id, raw_reference_json, parse_status, archive_status, role, error_msg, created_at, ended_at) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 s.getSessionId(), s.getUserId(), s.getSystemName(), s.getSystemSourcePath(), s.getModuleNames(),
                 s.getPromptSnapshot(), s.getDevSessionId(), s.getRawReferenceJson(), s.getParseStatus(),
-                s.getArchiveStatus(), s.getErrorMsg(), s.getCreatedAt(), s.getEndedAt());
+                s.getArchiveStatus(), s.getRole(), s.getErrorMsg(), s.getCreatedAt(), s.getEndedAt());
     }
 
     public Optional<ConsultSession> findById(String sessionId) {

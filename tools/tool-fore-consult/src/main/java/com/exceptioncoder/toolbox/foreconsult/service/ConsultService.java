@@ -45,6 +45,7 @@ public class ConsultService {
                 .systemSourcePath(req.systemSourcePath())
                 .moduleNames(serializeModules(req.moduleNames()))
                 .promptSnapshot(req.promptSnapshot())
+                .role(req.role() != null && !req.role().isBlank() ? req.role() : "IT")
                 .parseStatus("NONE")
                 .archiveStatus("PENDING")
                 .createdAt(System.currentTimeMillis())

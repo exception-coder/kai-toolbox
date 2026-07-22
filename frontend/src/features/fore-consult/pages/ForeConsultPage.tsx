@@ -209,20 +209,47 @@ function computeLayout(names: string[], edges: Array<{ from: string; to: string 
   return pos
 }
 
-/** 拼装投喂给复用的 Vibe Coding 悬浮会话的「业务系统咨询」约束提示词。 */
-function buildConsultSeed(system: string, modules: string[], ask: string): string {
+type ConsultRole = 'IT' | 'BIZ'
+const ROLE_META: Record<ConsultRole, { label: string; hint: string }> = {
+  IT: { label: 'IT 客服', hint: '前端操作路径 + 字段含义 + 是否 BUG/数据问题' },
+  BIZ: { label: '业务员', hint: '一句话结论：去哪操作什么' },
+}
+
+/** 拼装投喂给复用的 Vibe Coding 悬浮会话的「业务系统咨询」约束提示词（按角色差异化 + 共用分析纪律）。 */
+function buildConsultSeed(system: string, modules: string[], ask: string, role: ConsultRole): string {
   const moduleLine = modules.length
     ? `聚焦模块：${modules.join('、')}。`
     : '（未锁定具体模块，面向整个系统。）'
+
+  const roleBlock =
+    role === 'IT'
+      ? [
+          '回答对象是 IT 客服（需要照着你的答复去指导终端用户），请以【前端操作视角】组织回答：',
+          '1. 操作路径：从左侧菜单一步步点到哪个页面/字段（例如：左侧「菜单列表」→ 系统设置 → 用户账号管理）。',
+          '2. 相关选项/字段的含义，以及操作后产生的效果。',
+          '3. 关键使用提醒（易踩的坑，如按用户单独生效、需重新登录才生效等）。',
+          '若结论是「数据有问题」或「这是系统 BUG」，直接、简明地说清楚：属于数据问题还是 BUG、影响什么、能否临时规避。',
+          '分点、简洁、可照着操作即可；不要贴源码片段/文件路径/数据库表结构这类实现细节。',
+        ]
+      : [
+          '回答对象是业务员：只要一句话可执行的结论——去哪里、操作什么，即可，不要展开解释。',
+          '例如：「在 系统设置 → 用户账号管理 里，编辑该用户，把「禁用快捷菜单」设为『否』即可。」',
+          '若是 BUG 或数据问题，也只给一句简明结论（是不是 BUG / 数据对不对 / 该找谁处理），不要长篇分析。',
+        ]
+
+  const shared = [
+    '',
+    '【分析方法】优先调用业务知识图谱（domain-knowledge）和 graphify 代码知识图谱核对事实来定位问题；知识图谱分析不出来，再结合实际代码逻辑分析。',
+    '【数据库红线】当前连接的数据库 MCP 是「测试环境」。不要仅凭用户的截图/单据号就直接去数据库查这条记录——测试库里查不到，会误导判断。除非用户明确说明「这张截图/这条数据来自测试环境」，才可以带着截图信息去查库；否则不要查库，基于业务与代码逻辑作答。',
+  ]
+
   return [
     `关于「${system}」业务系统的咨询。${moduleLine}`,
     '问题：',
     ask.trim(),
     '',
-    '回答对象是业务人员，不是来读代码的：先给一句话结论，再用业务语言分点说明「这个功能是做什么的 / 操作入口在哪 / 有哪些注意点」，最多 3~5 点。',
-    '不要主动展开源码片段/文件路径/行号/数据库表结构这类实现细节，除非我明确追问。',
-    '可以先用已挂载的 graphify 知识图谱、domain-knowledge 业务认知、cross-topology 跨项目拓扑等能力核对事实，但不要把「查了什么」的过程复述给我。',
-    '回答末尾附一小节「引用来源」，分别列出你依据的：命中的前端菜单/页面路径、graphify 图谱节点、domain-knowledge 条目（没有就写「无」）。',
+    ...roleBlock,
+    ...shared,
   ].join('\n')
 }
 
@@ -250,6 +277,7 @@ export function ForeConsultPage() {
   const [system, setSystem] = useState('')
   const [moduleTags, setModuleTags] = useState<string[]>([])
   const [ask, setAsk] = useState('')
+  const [role, setRole] = useState<ConsultRole>('IT')
   const [moduleQuery, setModuleQuery] = useState('')
   const [modulesExpanded, setModulesExpanded] = useState(false)
   const [attachments, setAttachments] = useState<ConsultAtt[]>([])
@@ -427,12 +455,13 @@ export function ForeConsultPage() {
   const startMutation = useMutation({
     mutationFn: async () => {
       const cwd = systemPath || system.trim()
-      const seed = buildConsultSeed(system.trim(), moduleTags, ask)
+      const seed = buildConsultSeed(system.trim(), moduleTags, ask, role)
       const created = await startConsult({
         systemName: system.trim(),
         systemSourcePath: cwd,
         moduleNames: moduleTags,
         promptSnapshot: seed,
+        role,
       })
       return { created, seed, cwd }
     },
@@ -944,6 +973,25 @@ export function ForeConsultPage() {
 
             {/* Prompt Composer：Claude 风格提问区 + 建议快填 */}
             <div className="border-t border-indigo-300/12 p-4">
+              <div className="mb-2.5 flex items-center gap-2">
+                <span className="text-[11px] text-indigo-200/50">回答对象</span>
+                <div className="flex rounded-lg border border-indigo-300/20 bg-white/[0.04] p-0.5">
+                  {(['IT', 'BIZ'] as ConsultRole[]).map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setRole(r)}
+                      title={ROLE_META[r].hint}
+                      className={`rounded-md px-2.5 py-1 text-[11px] transition-colors ${
+                        role === r ? 'bg-sky-400/25 text-sky-100' : 'text-indigo-200/60 hover:text-indigo-100'
+                      }`}
+                    >
+                      {ROLE_META[r].label}
+                    </button>
+                  ))}
+                </div>
+                <span className="hidden truncate text-[10px] text-indigo-200/35 sm:inline">{ROLE_META[role].hint}</span>
+              </div>
               <div className="mb-2 flex flex-wrap gap-1.5">
                 {CONSULT_SUGGESTIONS.map((s) => (
                   <button
@@ -1049,6 +1097,9 @@ export function ForeConsultPage() {
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex min-w-0 items-center gap-2">
                         <span className="truncate text-sm font-medium text-white">{displayName(s.systemName)}</span>
+                        <span className="shrink-0 rounded-full border border-indigo-300/20 px-2 py-0.5 text-[10px] text-indigo-200/60">
+                          {s.role === 'BIZ' ? '业务员' : 'IT 客服'}
+                        </span>
                         <ArchiveBadge status={s.archiveStatus} />
                       </div>
                       <button type="button" onClick={() => onDelete(s)} className="shrink-0 rounded-lg p-1 text-indigo-200/50 hover:bg-white/10 hover:text-red-300" aria-label="删除">
