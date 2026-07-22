@@ -1,10 +1,12 @@
 package com.exceptioncoder.toolbox.foreconsult.api;
 
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ArchiveRequest;
+import com.exceptioncoder.toolbox.foreconsult.api.dto.ConsultAttachmentView;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ConsultSessionView;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ConsultTurnView;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.LinkDevSessionRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.StartSessionRequest;
+import com.exceptioncoder.toolbox.foreconsult.service.ConsultAttachmentService;
 import com.exceptioncoder.toolbox.foreconsult.service.ConsultService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -14,8 +16,12 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.util.List;
 
 /**
@@ -36,9 +42,18 @@ import java.util.List;
 public class ConsultController {
 
     private final ConsultService service;
+    private final ConsultAttachmentService attachmentService;
 
-    public ConsultController(ConsultService service) {
+    public ConsultController(ConsultService service, ConsultAttachmentService attachmentService) {
         this.service = service;
+        this.attachmentService = attachmentService;
+    }
+
+    /** 上传咨询附件（图片/Excel/Word/Markdown/PDF 等）。落盘到系统 cwd 或用户目录，返回绝对路径。 */
+    @PostMapping("/attachments")
+    public ConsultAttachmentView uploadAttachment(@RequestParam(value = "cwd", required = false) String cwd,
+                                                  @RequestPart("file") MultipartFile file) throws IOException {
+        return attachmentService.store(cwd, file);
     }
 
     /** 启动咨询会话。 */

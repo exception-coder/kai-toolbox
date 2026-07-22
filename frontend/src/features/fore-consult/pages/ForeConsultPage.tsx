@@ -1,9 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import {
+  useCallback, useEffect, useMemo, useRef, useState,
+  type ClipboardEvent as ReactClipboardEvent, type PointerEvent as ReactPointerEvent,
+} from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   BarChart3, Boxes, BrainCircuit, Briefcase, ChevronDown, Contact, Eye, EyeOff, Factory, Handshake,
-  History, Landmark, Loader2, Radar, Route, Save, Search, Send, Server, ShoppingBag, ShoppingCart,
-  SlidersHorizontal, Sparkles, Trash2, Truck, Users, Warehouse, Waypoints, X, type LucideIcon,
+  FileText, History, Landmark, Loader2, Maximize2, Minimize2, Paperclip, Radar, Route, Save, Search, Send,
+  Server, ShoppingBag, ShoppingCart, SlidersHorizontal, Sparkles, Trash2, Truck, Users, Warehouse,
+  Waypoints, X, type LucideIcon,
 } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
@@ -20,11 +24,14 @@ import {
   listWorkspaces,
   saveSystemPrefs,
   startConsult,
+  uploadConsultAttachment,
   type ArchiveTurnItem,
   type ConsultSessionView,
   type SaveSystemPrefItem,
   type TopoLink,
 } from '../api'
+
+type ConsultAtt = { name: string; path: string; mime?: string | null; url?: string }
 import '../styles/space.css'
 
 /**
@@ -245,8 +252,11 @@ export function ForeConsultPage() {
   const [ask, setAsk] = useState('')
   const [moduleQuery, setModuleQuery] = useState('')
   const [modulesExpanded, setModulesExpanded] = useState(false)
+  const [attachments, setAttachments] = useState<ConsultAtt[]>([])
+  const [uploading, setUploading] = useState(0)
   const [panelOpen, setPanelOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const [configOpen, setConfigOpen] = useState(false)
   const [configRows, setConfigRows] = useState<Array<{ name: string; path: string; alias: string; visible: boolean }>>([])
   const [showLinks, setShowLinks] = useState(true)
@@ -254,9 +264,10 @@ export function ForeConsultPage() {
   const [overrides, setOverrides] = useState<Map<string, Pos>>(new Map())
   const [activeConsultId, setActiveConsultId] = useState<string | null>(null)
 
-  const pendingRef = useRef<{ cwd: string; seed: string; displayText: string; consultId: string } | null>(null)
+  const pendingRef = useRef<{ cwd: string; seed: string; displayText: string; consultId: string; attachments: ConsultAtt[] } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ name: string; moved: boolean } | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
 
   const { data: workspaces } = useQuery({ queryKey: ['workspaces'], queryFn: listWorkspaces })
 
@@ -388,7 +399,11 @@ export function ForeConsultPage() {
     if (!chat || !p) return
     pendingRef.current = null
     chat.open(p.cwd, undefined, undefined, 'claude')
-    chat.send(p.seed, undefined, p.displayText)
+    const atts = p.attachments.length
+      ? p.attachments.map((a) => ({ name: a.name, path: a.path, mime: a.mime ?? undefined, url: a.url }))
+      : undefined
+    chat.send(p.seed, atts, p.displayText)
+    setAttachments([])
     setFloating(true)
     setMinimized(false)
     setTimeout(() => {
@@ -423,7 +438,13 @@ export function ForeConsultPage() {
     },
     onSuccess: ({ created, seed, cwd }) => {
       setActiveConsultId(created.sessionId)
-      pendingRef.current = { cwd, seed, displayText: ask.trim(), consultId: created.sessionId }
+      pendingRef.current = {
+        cwd,
+        seed,
+        displayText: ask.trim() || '（见附件）',
+        consultId: created.sessionId,
+        attachments,
+      }
       if (chat) deliver()
       else activate()
       setAsk('')
@@ -482,6 +503,19 @@ export function ForeConsultPage() {
     if (ds && !ds.moved) openSystem(name)
   }
 
+  // 全屏展示：对星图容器走浏览器 Fullscreen API。
+  useEffect(() => {
+    const onFs = () => setIsFullscreen(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', onFs)
+    return () => document.removeEventListener('fullscreenchange', onFs)
+  }, [])
+  const toggleFullscreen = () => {
+    const el = containerRef.current
+    if (!el) return
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
+    else el.requestFullscreen().catch(() => {})
+  }
+
   const saveConfigMutation = useMutation({
     mutationFn: async () => {
       const payload: SaveSystemPrefItem[] = configRows.map((r, i) => ({
@@ -519,11 +553,47 @@ export function ForeConsultPage() {
     setAsk('')
     setModuleQuery('')
     setModulesExpanded(false)
+    setAttachments([])
     setPanelOpen(true)
   }
 
   const toggleModule = (m: string) => {
     setModuleTags((prev) => (prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]))
+  }
+
+  // 附件：图片（含粘贴）/ Excel / Word / Markdown / PDF —— 上传落盘，路径随 seed 投喂给引擎自行 Read。
+  const MAX_ATT = 10
+  const handleFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    const room = MAX_ATT - attachments.length - uploading
+    const take = Array.from(files).slice(0, Math.max(0, room))
+    for (const f of take) {
+      setUploading((n) => n + 1)
+      try {
+        const att = await uploadConsultAttachment(f, systemPath || undefined)
+        const url = f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined
+        setAttachments((prev) => [...prev, { name: att.name, path: att.path, mime: att.mime, url }])
+      } catch (e) {
+        console.error('[fore-consult] 附件上传失败', e)
+      } finally {
+        setUploading((n) => n - 1)
+      }
+    }
+    if (fileRef.current) fileRef.current.value = ''
+  }
+  const handlePaste = (e: ReactClipboardEvent<HTMLTextAreaElement>) => {
+    const files = e.clipboardData?.files
+    if (files && files.length > 0) {
+      e.preventDefault()
+      void handleFiles(files)
+    }
+  }
+  const removeAttachment = (path: string) => {
+    setAttachments((prev) => {
+      const hit = prev.find((a) => a.path === path)
+      if (hit?.url) URL.revokeObjectURL(hit.url)
+      return prev.filter((a) => a.path !== path)
+    })
   }
 
   const onDelete = async (s: ConsultSessionView) => {
@@ -538,7 +608,8 @@ export function ForeConsultPage() {
     qc.invalidateQueries({ queryKey: ['fore-consult-sessions'] })
   }
 
-  const canStart = !!system.trim() && !!ask.trim() && !startMutation.isPending && !activeConsultId
+  const canStart =
+    !!system.trim() && (!!ask.trim() || attachments.length > 0) && uploading === 0 && !startMutation.isPending && !activeConsultId
   const PanelIcon = iconForSystem(system, displayName(system))
   const sysCat = categoryOf(system, displayName(system))
   const mq = moduleQuery.trim().toLowerCase()
@@ -612,6 +683,14 @@ export function ForeConsultPage() {
           >
             <History className="size-3.5" />
             历史咨询 {(history ?? []).length > 0 && `· ${(history ?? []).length}`}
+          </button>
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className="flex items-center gap-1.5 rounded-full border border-indigo-300/25 bg-white/5 px-2.5 py-1.5 text-xs text-indigo-100 backdrop-blur-md transition-colors hover:bg-white/10"
+            title={isFullscreen ? '退出全屏' : '全屏展示'}
+          >
+            {isFullscreen ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
           </button>
         </div>
       </header>
@@ -878,16 +957,58 @@ export function ForeConsultPage() {
                 ))}
               </div>
               <div className="rounded-2xl border border-indigo-300/22 bg-white/[0.04] p-2 transition-colors focus-within:border-sky-300/50 focus-within:shadow-[0_0_0_2px_rgba(120,150,255,0.2)]">
+                {(attachments.length > 0 || uploading > 0) && (
+                  <div className="mb-1.5 flex flex-wrap gap-2 px-1">
+                    {attachments.map((a) => (
+                      <div key={a.path} className="fc-attach-thumb relative flex items-center gap-1.5 rounded-lg py-1 pl-1 pr-6 text-[11px] text-indigo-100/85">
+                        {a.url ? (
+                          <img src={a.url} alt={a.name} className="size-7 rounded object-cover" />
+                        ) : (
+                          <span className="flex size-7 items-center justify-center rounded bg-white/5">
+                            <FileText className="size-3.5 text-sky-300/80" />
+                          </span>
+                        )}
+                        <span className="max-w-[120px] truncate">{a.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeAttachment(a.path)}
+                          className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-indigo-200/60 hover:bg-white/10 hover:text-white"
+                          aria-label="移除附件"
+                        >
+                          <X className="size-3" />
+                        </button>
+                      </div>
+                    ))}
+                    {uploading > 0 && (
+                      <div className="flex items-center gap-1.5 rounded-lg border border-indigo-300/20 px-2 py-1.5 text-[11px] text-indigo-200/60">
+                        <Loader2 className="size-3.5 animate-spin" /> 上传中…
+                      </div>
+                    )}
+                  </div>
+                )}
                 <textarea
                   autoFocus
                   rows={3}
                   value={ask}
                   onChange={(e) => setAsk(e.target.value)}
-                  placeholder="今天想了解这个系统的什么？用业务语言问，例如：采购退货单在哪里录入？"
+                  onPaste={handlePaste}
+                  placeholder="今天想了解这个系统的什么？用业务语言问，例如：采购退货单在哪里录入？（可粘贴/上传附件）"
                   className="w-full resize-none bg-transparent px-2 py-1.5 text-sm text-[#e8ecff] placeholder:text-indigo-200/35 focus:outline-none"
                 />
+                <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
                 <div className="flex items-center justify-between px-1 pt-1">
-                  <span className="text-[10px] text-indigo-200/40">接入 Forge · Claude 引擎</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => fileRef.current?.click()}
+                      disabled={attachments.length + uploading >= MAX_ATT}
+                      className="flex items-center gap-1 rounded-lg px-1.5 py-1 text-[11px] text-indigo-200/60 transition-colors hover:bg-white/10 hover:text-indigo-100 disabled:opacity-40"
+                      title="上传附件：图片 / Excel / Word / Markdown / PDF（也可直接粘贴图片）"
+                    >
+                      <Paperclip className="size-3.5" /> 附件
+                    </button>
+                    <span className="text-[10px] text-indigo-200/40">接入 Forge · Claude 引擎</span>
+                  </div>
                   <button
                     type="button"
                     onClick={() => startMutation.mutate()}

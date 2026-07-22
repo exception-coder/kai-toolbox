@@ -1,4 +1,4 @@
-import { http } from '@/lib/api'
+import { authFetch, http } from '@/lib/api'
 
 // ── 后端 /api/fore-consult 契约（与 tool-fore-consult 的 DTO 对齐）──────────────
 
@@ -152,4 +152,29 @@ export function analyzeTopology(systems: string[]) {
 /** 读取已持久化的链路（页面加载时用，无需重新调引擎）。 */
 export function getTopology() {
   return http<{ links: TopoLink[] }>('/fore-consult/topology')
+}
+
+// ── 咨询附件上传（图片/Excel/Word/Markdown/PDF），落盘返回绝对路径供引擎 Read ──────────
+
+export interface ConsultAttachment {
+  name: string
+  path: string
+  mime?: string | null
+  size?: number
+}
+
+export async function uploadConsultAttachment(file: File, cwd?: string): Promise<ConsultAttachment> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const q = cwd ? `?cwd=${encodeURIComponent(cwd)}` : ''
+  const res = await authFetch(`/fore-consult/attachments${q}`, { method: 'POST', body: fd })
+  if (!res.ok) {
+    let msg = `上传失败（${res.status}）`
+    try {
+      const j = (await res.json()) as { message?: string }
+      if (j?.message) msg = j.message
+    } catch { /* ignore */ }
+    throw new Error(msg)
+  }
+  return res.json()
 }

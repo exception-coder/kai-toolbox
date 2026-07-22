@@ -314,6 +314,13 @@
 }
 .fc-console-glyph svg { color: #fff; opacity: 0.6; mix-blend-mode: overlay; }
 
+/* 全屏展示：铺满视口、去圆角 */
+.fc-space:fullscreen { width: 100vw; height: 100vh; border-radius: 0; }
+.fc-space:-webkit-full-screen { width: 100vw; height: 100vh; border-radius: 0; }
+
+/* 附件缩略图 */
+.fc-attach-thumb { position: relative; border: 1px solid rgba(140, 160, 255, 0.25); background: rgba(255, 255, 255, 0.05); }
+
 @media (prefers-reduced-motion: reduce) {
   .fc-space::before, .fc-star, .fc-orb-wrap, .fc-orb, .fc-orb::after, .fc-orb-wrap.is-active .fc-orb,
   .fc-edge, .fc-core, .fc-core::before, .fc-core::after, .fc-console, .fc-console-scan::before { animation: none !important; }
