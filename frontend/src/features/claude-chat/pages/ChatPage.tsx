@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, Bug, ChevronDown, Cloud, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, List, ListChecks, ListFilter, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
+import { ArrowUpToLine, Bell, Bug, ChevronDown, Cloud, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, List, ListChecks, ListFilter, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useChatRuntime } from '../runtime/ChatRuntimeContext'
@@ -189,6 +189,19 @@ export function ChatPage() {
     if (chat.historyExhausted) { setPendingScroll(null); return } // 加载到最早了还没找到，放弃
     chat.loadHistory(false)
   }, [pendingScroll, chat?.items, chat?.historyLoading, chat?.historyExhausted, chat?.loadHistory])
+  // 「跳到会话开头」：持续触发「加载更早」直到分页到头（exhausted），再滚到已加载的第 0 条——
+  // 这样不管会话有多长、翻了多少页，一键都能直接回到最初的第一条消息，不用自己一页页往上翻。
+  const [jumpingToStart, setJumpingToStart] = useState(false)
+  useEffect(() => {
+    if (!jumpingToStart || !chat) return
+    if (chat.historyLoading) return
+    if (chat.historyExhausted) {
+      messageListRef.current?.scrollToStart()
+      setJumpingToStart(false)
+      return
+    }
+    chat.loadHistory(false)
+  }, [jumpingToStart, chat?.items, chat?.historyLoading, chat?.historyExhausted, chat?.loadHistory])
   const [showLogs, setShowLogs] = useState(false)
   const [showGestureDebug, setShowGestureDebug] = useState(false)
   const [showDebug, setShowDebug] = useState(false)
@@ -827,6 +840,9 @@ export function ChatPage() {
                     <HeaderMenuItem nested icon={<Sparkles className="size-4" />} label="会话能力" hint="激活的技能 / 子代理 / MCP 服务" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'caps' ? 'none' : 'caps') }} />
                     {chat.sessionId && (
                       <HeaderMenuItem nested icon={<ListFilter className="size-4" />} label="我的提问" hint="只看我发的消息·搜索·点击跳到对应位置" onClick={() => { setHeaderMenu(false); setShowMsgNav(true) }} />
+                    )}
+                    {chat.sessionId && (
+                      <HeaderMenuItem nested icon={<ArrowUpToLine className="size-4" />} label="跳到会话开头" hint="自动加载全部更早历史，直接回到第一条消息" onClick={() => { setHeaderMenu(false); setJumpingToStart(true) }} />
                     )}
                     {chat.sessionId && (
                       <HeaderMenuItem nested icon={<FileDown className="size-4" />} label="导出会话" hint="导出为 PDF/Word，含图片，发给同事/领导查看" onClick={() => { setHeaderMenu(false); setShowExport(true) }} />

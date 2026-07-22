@@ -42,6 +42,9 @@ interface Props {
 /** 供外部（如「我的提问」导航面板）滚到指定消息并短暂高亮，方便一眼找到目标气泡。 */
 export interface MessageListHandle {
   scrollToItem: (id: string) => void
+  /** 滚到当前已加载的最早一条（index 0）。调用方需先自行把历史加载到头（exhausted），
+   *  本方法本身不触发加载——「已加载的最早」和「整个会话的第一条」是否等价取决于调用方。 */
+  scrollToStart: () => void
 }
 
 /** 反向分页起始游标：足够大，保证翻多少页历史都不会减到负数。 */
@@ -179,6 +182,9 @@ export const MessageList = forwardRef<MessageListHandle, Props>(function Message
       virtuosoRef.current?.scrollToIndex({ index: idx, align: 'center', behavior: 'smooth' })
       setHighlightedId(id)
       window.setTimeout(() => setHighlightedId(cur => (cur === id ? null : cur)), 1500)
+    },
+    scrollToStart: () => {
+      virtuosoRef.current?.scrollToIndex({ index: 0, align: 'start', behavior: 'smooth' })
     },
   }), [visibleItems])
 
