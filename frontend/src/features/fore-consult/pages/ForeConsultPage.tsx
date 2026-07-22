@@ -5,13 +5,14 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   BarChart3, Boxes, BrainCircuit, Briefcase, ChevronDown, Contact, Eye, EyeOff, Factory, Handshake,
-  FileText, History, Landmark, Loader2, Maximize2, Minimize2, Paperclip, Radar, Route, Save, Search, Send,
-  Server, ShoppingBag, ShoppingCart, SlidersHorizontal, Sparkles, Trash2, Truck, Users, Warehouse,
-  Waypoints, X, type LucideIcon,
+  FileText, History, Landmark, Loader2, Maximize2, MessagesSquare, Minimize2, Paperclip, Radar, Route, Save,
+  Search, Send, Server, ShoppingBag, ShoppingCart, SlidersHorizontal, Sparkles, Trash2, Truck, Users,
+  Warehouse, Waypoints, X, type LucideIcon,
 } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import type { ChatItem } from '@/features/claude-chat/types'
+import { ConsultConversation } from '../components/ConsultConversation'
 import {
   archiveConsult,
   deleteConsult,
@@ -272,7 +273,7 @@ function extractTurns(items: ChatItem[]): ArchiveTurnItem[] {
 export function ForeConsultPage() {
   const qc = useQueryClient()
   const confirm = useConfirm()
-  const { chat, activate, setFloating, setMinimized } = useChatRuntime()
+  const { chat, activate, setFloating } = useChatRuntime()
 
   const [system, setSystem] = useState('')
   const [moduleTags, setModuleTags] = useState<string[]>([])
@@ -283,6 +284,7 @@ export function ForeConsultPage() {
   const [attachments, setAttachments] = useState<ConsultAtt[]>([])
   const [uploading, setUploading] = useState(0)
   const [panelOpen, setPanelOpen] = useState(false)
+  const [conversationOpen, setConversationOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [configOpen, setConfigOpen] = useState(false)
@@ -426,19 +428,22 @@ export function ForeConsultPage() {
     const p = pendingRef.current
     if (!chat || !p) return
     pendingRef.current = null
-    chat.open(p.cwd, undefined, undefined, 'claude')
+    // bypassPermissions：只读业务问答，自动放行工具，本模块面板无需权限 UI。
+    chat.open(p.cwd, undefined, 'bypassPermissions', 'claude')
     const atts = p.attachments.length
       ? p.attachments.map((a) => ({ name: a.name, path: a.path, mime: a.mime ?? undefined, url: a.url }))
       : undefined
     chat.send(p.seed, atts, p.displayText)
     setAttachments([])
-    setFloating(true)
-    setMinimized(false)
+    // 不弹 Vibe Coding 悬浮窗，改用本模块的独立会话面板同步渲染结果。
+    setFloating(false)
+    setPanelOpen(false)
+    setConversationOpen(true)
     setTimeout(() => {
       const sid = chat.sessionId
       if (sid) linkDevSession(p.consultId, sid).catch(() => {})
     }, 1500)
-  }, [chat, setFloating, setMinimized])
+  }, [chat, setFloating])
   useEffect(() => {
     if (chat && pendingRef.current) deliver()
   }, [chat, deliver])
@@ -494,6 +499,7 @@ export function ForeConsultPage() {
     },
     onSuccess: () => {
       setActiveConsultId(null)
+      setConversationOpen(false)
       qc.invalidateQueries({ queryKey: ['fore-consult-sessions'] })
     },
   })
@@ -731,12 +737,21 @@ export function ForeConsultPage() {
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
             <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
           </span>
-          咨询进行中，在右下悬浮窗继续追问
+          咨询进行中
+          {!conversationOpen && (
+            <button
+              type="button"
+              onClick={() => setConversationOpen(true)}
+              className="ml-1 flex items-center gap-1 rounded-full border border-emerald-300/40 px-2.5 py-1 font-medium text-emerald-100 transition-colors hover:bg-emerald-400/15"
+            >
+              <MessagesSquare className="size-3" /> 查看对话
+            </button>
+          )}
           <button
             type="button"
             onClick={() => archiveMutation.mutate()}
             disabled={archiveMutation.isPending}
-            className="ml-1 flex items-center gap-1 rounded-full bg-emerald-400/90 px-2.5 py-1 font-medium text-emerald-950 transition-transform hover:scale-105 disabled:opacity-60"
+            className="flex items-center gap-1 rounded-full bg-emerald-400/90 px-2.5 py-1 font-medium text-emerald-950 transition-transform hover:scale-105 disabled:opacity-60"
           >
             {archiveMutation.isPending && <Loader2 className="size-3 animate-spin" />}
             结束并归档
@@ -1071,6 +1086,18 @@ export function ForeConsultPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* 独立业务咨询会话面板（不用 Vibe Coding 悬浮窗，复用同一 WS 同步渲染） */}
+      {conversationOpen && activeConsultId && (
+        <ConsultConversation
+          systemLabel={displayName(system)}
+          roleLabel={ROLE_META[role].label}
+          cwd={systemPath || system.trim()}
+          onClose={() => setConversationOpen(false)}
+          onArchive={() => archiveMutation.mutate()}
+          archiving={archiveMutation.isPending}
+        />
       )}
 
       {/* 历史抽屉 */}
