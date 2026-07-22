@@ -397,12 +397,21 @@ public class SessionHistoryService {
                 Long ts = parseTs(node);
                 switch (type) {
                     case "user" -> {
-                        // 真实用户消息（含 text）= 新一轮开始：先把上一轮用量落成 result 项
-                        if (isUserText(content)) {
-                            flushTurn(out, acc);
-                            acc.reset(ts);
+                        // isMeta=true 的 user 角色行是 Claude Code 自己的内部标注（图片工具读取的
+                        // 尺寸换算说明「[Image: original ... Multiply coordinates by ...]」、
+                        // resume 续接标记「Continue from where you left off.」、skill 加载注入的
+                        // base directory 提示等）——纯字符串内容，不是真人打字，也不是 tool_result
+                        // （tool_result 走下面 array 分支，不带 isMeta）。不过滤的话 isUserText()/
+                        // appendUser() 会把它当成一条真实用户消息，误判成新一轮边界、还渲染成蓝色
+                        // 「我发的」气泡。
+                        if (!node.path("isMeta").asBoolean(false)) {
+                            // 真实用户消息（含 text）= 新一轮开始：先把上一轮用量落成 result 项
+                            if (isUserText(content)) {
+                                flushTurn(out, acc);
+                                acc.reset(ts);
+                            }
+                            appendUser(out, toolIdx, content, ts);
                         }
-                        appendUser(out, toolIdx, content, ts);
                     }
                     case "assistant" -> {
                         acc.accumulate(node.path("message").path("usage"), ts);
@@ -460,7 +469,10 @@ public class SessionHistoryService {
                     continue;
                 }
                 String type = node.path("type").asText("");
-                if ("user".equals(type) && isUserText(node.path("message").path("content"))) {
+                // isMeta=true 的 user 行是内部标注（图片读取说明/resume 标记等），不算真实一轮，
+                // 否则会把这类合成文本也计入 turns、打乱轮次统计——见 parseAll() 同一处理的详细说明。
+                if ("user".equals(type) && !node.path("isMeta").asBoolean(false)
+                        && isUserText(node.path("message").path("content"))) {
                     if (started && turnHasOutput) turns++;
                     started = true;
                     turnHasOutput = false;
