@@ -85,9 +85,9 @@ function orbLayout(count: number) {
   const out: Array<{ x: number; y: number }> = []
   for (let i = 0; i < count; i++) {
     const angle = i * 2.399963 // 黄金角 ≈137.5°
-    const r = Math.min(41, 6 + Math.sqrt(i) * 8.2)
-    const x = Math.max(8, Math.min(92, 50 + r * Math.cos(angle) * 1.15))
-    const y = Math.max(12, Math.min(84, 46 + r * Math.sin(angle) * 0.92))
+    const r = Math.min(42, 21 + Math.sqrt(i) * 6.5) // 从内环 21% 起，让开中央 Forge 恒星
+    const x = Math.max(8, Math.min(92, 50 + r * Math.cos(angle) * 1.2))
+    const y = Math.max(12, Math.min(85, 48 + r * Math.sin(angle) * 0.95))
     out.push({ x, y })
   }
   return out
@@ -150,10 +150,21 @@ function computeLayout(names: string[], edges: Array<{ from: string; to: string 
       disp.get(e.from)!.x += ux; disp.get(e.from)!.y += uy
       disp.get(e.to)!.x -= ux; disp.get(e.to)!.y -= uy
     }
+    // 绕中央恒星成环：拉向 orbit 半径，并排斥出恒星核心区。
+    const R_ORBIT = 27, CORE_MIN = 15
     conNames.forEach((n) => {
       const p = pos.get(n)!
-      disp.get(n)!.x += (center.x - p.x) * GRAV
-      disp.get(n)!.y += (center.y - p.y) * GRAV
+      const dx = p.x - center.x, dy = p.y - center.y
+      const dist = Math.hypot(dx, dy) || 0.01
+      const ux = dx / dist, uy = dy / dist
+      const f = (R_ORBIT - dist) * GRAV
+      disp.get(n)!.x += ux * f
+      disp.get(n)!.y += uy * f
+      if (dist < CORE_MIN) {
+        const push = (CORE_MIN - dist) * 0.8
+        disp.get(n)!.x += ux * push
+        disp.get(n)!.y += uy * push
+      }
     })
     // 避免非端点节点压在某条边上
     for (const e of edges) {
@@ -234,6 +245,7 @@ export function ForeConsultPage() {
   const [configOpen, setConfigOpen] = useState(false)
   const [configRows, setConfigRows] = useState<Array<{ name: string; path: string; alias: string; visible: boolean }>>([])
   const [showLinks, setShowLinks] = useState(true)
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
   const [overrides, setOverrides] = useState<Map<string, Pos>>(new Map())
   const [activeConsultId, setActiveConsultId] = useState<string | null>(null)
 
@@ -286,17 +298,33 @@ export function ForeConsultPage() {
   const { data: topoData } = useQuery({ queryKey: ['fore-consult-topology'], queryFn: getTopology })
   const topoLinks = useMemo<TopoLink[]>(() => (showLinks ? topoData?.links ?? [] : []), [showLinks, topoData])
 
-  const visibleNames = useMemo(() => new Set(visibleProjects.map((p) => p.name)), [visibleProjects])
-  // 只保留两端都可见的边（隐藏某系统后其相关连线自动消失）。
-  const activeLinks = useMemo(
-    () => topoLinks.filter((l) => visibleNames.has(l.from) && visibleNames.has(l.to)),
-    [topoLinks, visibleNames],
+  // 业务域筛选（顶部 chips）：null=全部。
+  const shownProjects = useMemo(
+    () => (categoryFilter ? visibleProjects.filter((p) => categoryOf(p.name, p.label).key === categoryFilter) : visibleProjects),
+    [visibleProjects, categoryFilter],
   )
 
-  // 力导向坐标：有连线时把无关系的球推到外圈、让开连线，可拖拽微调。
+  const shownNames = useMemo(() => new Set(shownProjects.map((p) => p.name)), [shownProjects])
+  // 只保留两端都在当前展示集合内的边（隐藏/筛选后其相关连线自动消失）。
+  const activeLinks = useMemo(
+    () => topoLinks.filter((l) => shownNames.has(l.from) && shownNames.has(l.to)),
+    [topoLinks, shownNames],
+  )
+
+  // 连接度：链路端点出现次数，用于「越核心的系统球越大」。
+  const degreeMap = useMemo(() => {
+    const m = new Map<string, number>()
+    activeLinks.forEach((l) => {
+      m.set(l.from, (m.get(l.from) ?? 0) + 1)
+      m.set(l.to, (m.get(l.to) ?? 0) + 1)
+    })
+    return m
+  }, [activeLinks])
+
+  // 力导向坐标：行星绕中央 Forge 恒星成环，无关系的球被推到外圈让开连线，可拖拽微调。
   const positions = useMemo(
-    () => computeLayout(visibleProjects.map((p) => p.name), activeLinks, overrides),
-    [visibleProjects, activeLinks, overrides],
+    () => computeLayout(shownProjects.map((p) => p.name), activeLinks, overrides),
+    [shownProjects, activeLinks, overrides],
   )
 
   // 链路边几何：二次贝塞尔轻微外弓，标签落在曲线中点。
@@ -595,7 +623,18 @@ export function ForeConsultPage() {
         </div>
       )}
 
-      {/* 系统链路：发光连线（在球体之下） */}
+      {/* 中央 AI 恒星：Forge —— 业务系统围绕其运行 */}
+      {projects.length > 0 && (
+        <div className="fc-core-wrap">
+          <div className="fc-core" />
+          <div className="fc-core-label">
+            <b>Forge</b>
+            <span>AI 核心</span>
+          </div>
+        </div>
+      )}
+
+      {/* 系统链路：发光数据流连线（在球体之下），带流动粒子 */}
       {edges.length > 0 && (
         <svg className="pointer-events-none absolute inset-0 z-[5] h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
           <defs>
@@ -605,7 +644,14 @@ export function ForeConsultPage() {
             </linearGradient>
           </defs>
           {edges.map((e, i) => (
-            <path key={i} className="fc-edge" d={e.d} vectorEffect="non-scaling-stroke" />
+            <g key={i}>
+              <path id={`fc-edge-${i}`} className="fc-edge" d={e.d} vectorEffect="non-scaling-stroke" />
+              <circle className="fc-particle" r={0.7}>
+                <animateMotion dur={`${2.4 + (i % 3) * 0.7}s`} repeatCount="indefinite">
+                  <mpath href={`#fc-edge-${i}`} />
+                </animateMotion>
+              </circle>
+            </g>
           ))}
         </svg>
       )}
@@ -636,10 +682,12 @@ export function ForeConsultPage() {
             </button>
           </div>
         ) : (
-          visibleProjects.map((p) => {
+          shownProjects.map((p) => {
             const h = hashStr(p.name)
             const hue = categoryOf(p.name, p.label).color
-            const size = 52 + (h % 34)
+            // 越核心（连接度越高）的系统球越大，让领导一眼看到枢纽。
+            const degree = degreeMap.get(p.name) ?? 0
+            const size = 50 + Math.min(degree, 4) * 11 + (h % 8)
             const pos = positions.get(p.name)
             if (!pos) return null
             const isActive = system === p.name && (panelOpen || !!activeConsultId)
@@ -674,11 +722,7 @@ export function ForeConsultPage() {
                     ['--fc-orbit-dur' as string]: `${12 + (h % 8)}s`,
                   }}
                 >
-                  <SysIcon
-                    className="pointer-events-none relative z-[1] text-white/90"
-                    style={{ width: iconSize, height: iconSize, filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.55))' }}
-                    strokeWidth={1.8}
-                  />
+                  <SysIcon className="fc-orb-glyph" style={{ width: iconSize, height: iconSize }} strokeWidth={1.9} />
                 </button>
                 <span className="fc-orb-label">{p.label}</span>
               </div>
@@ -687,14 +731,18 @@ export function ForeConsultPage() {
         )}
       </div>
 
-      {/* 业务域图例（左下） */}
+      {/* 业务域筛选 chips（底部居中，兼作图例） */}
       {presentCategories.length > 0 && (
-        <div className="pointer-events-none absolute bottom-4 left-4 z-20 flex max-w-[70%] flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-indigo-300/15 bg-white/[0.04] px-3 py-2 backdrop-blur-md">
+        <div className="absolute bottom-4 left-1/2 z-20 flex max-w-[86%] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-full border border-indigo-300/15 bg-white/[0.05] px-1.5 py-1 backdrop-blur-md">
+          <FilterChip label="全部" active={categoryFilter === null} onClick={() => setCategoryFilter(null)} />
           {presentCategories.map((c) => (
-            <span key={c.key} className="flex items-center gap-1.5 text-[11px] text-indigo-100/80">
-              <span className="size-2.5 rounded-full" style={{ background: c.color, boxShadow: `0 0 8px ${c.color}` }} />
-              {c.label}
-            </span>
+            <FilterChip
+              key={c.key}
+              label={c.label}
+              color={c.color}
+              active={categoryFilter === c.key}
+              onClick={() => setCategoryFilter(categoryFilter === c.key ? null : c.key)}
+            />
           ))}
         </div>
       )}
@@ -891,6 +939,23 @@ export function ForeConsultPage() {
         </div>
       )}
     </div>
+  )
+}
+
+function FilterChip({ label, active, color, onClick }: { label: string; active: boolean; color?: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] transition-colors ${
+        active ? 'bg-white/15 text-white' : 'text-indigo-100/70 hover:bg-white/10'
+      }`}
+    >
+      {color && (
+        <span className="size-2 rounded-full" style={{ background: color, boxShadow: active ? `0 0 8px ${color}` : 'none' }} />
+      )}
+      {label}
+    </button>
   )
 }
 
