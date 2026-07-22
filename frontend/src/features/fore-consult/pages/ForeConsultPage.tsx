@@ -13,6 +13,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog'
 import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import type { ChatItem } from '@/features/claude-chat/types'
 import { ConsultConversation } from '../components/ConsultConversation'
+import { ConsultHistoryDetail } from '../components/ConsultHistoryDetail'
 import {
   archiveConsult,
   deleteConsult,
@@ -285,6 +286,7 @@ export function ForeConsultPage() {
   const [uploading, setUploading] = useState(0)
   const [panelOpen, setPanelOpen] = useState(false)
   const [conversationOpen, setConversationOpen] = useState(false)
+  const [viewSession, setViewSession] = useState<{ id: string; title: string } | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [configOpen, setConfigOpen] = useState(false)
@@ -1120,7 +1122,11 @@ export function ForeConsultPage() {
             ) : (
               <ul className="flex flex-col gap-2">
                 {(history ?? []).map((s) => (
-                  <li key={s.sessionId} className="rounded-xl border border-indigo-300/15 bg-white/[0.03] px-3.5 py-3">
+                  <li
+                    key={s.sessionId}
+                    onClick={() => setViewSession({ id: s.sessionId, title: displayName(s.systemName) })}
+                    className="cursor-pointer rounded-xl border border-indigo-300/15 bg-white/[0.03] px-3.5 py-3 transition-colors hover:border-indigo-300/30 hover:bg-white/[0.06]"
+                  >
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex min-w-0 items-center gap-2">
                         <span className="truncate text-sm font-medium text-white">{displayName(s.systemName)}</span>
@@ -1129,7 +1135,7 @@ export function ForeConsultPage() {
                         </span>
                         <ArchiveBadge status={s.archiveStatus} />
                       </div>
-                      <button type="button" onClick={() => onDelete(s)} className="shrink-0 rounded-lg p-1 text-indigo-200/50 hover:bg-white/10 hover:text-red-300" aria-label="删除">
+                      <button type="button" onClick={(e) => { e.stopPropagation(); onDelete(s) }} className="shrink-0 rounded-lg p-1 text-indigo-200/50 hover:bg-white/10 hover:text-red-300" aria-label="删除">
                         <Trash2 className="size-3.5" />
                       </button>
                     </div>
@@ -1145,6 +1151,11 @@ export function ForeConsultPage() {
             )}
           </div>
         </div>
+      )}
+
+      {/* 历史咨询详情（只读查看归档问答） */}
+      {viewSession && (
+        <ConsultHistoryDetail sessionId={viewSession.id} title={viewSession.title} onClose={() => setViewSession(null)} />
       )}
 
       {/* 配置抽屉：别名 + 过滤 */}
