@@ -27,8 +27,26 @@ import {
 } from '../api'
 import '../styles/space.css'
 
-/** 资产球体的配色（按系统名哈希取，保证同一系统颜色稳定）。 */
-const ORB_HUES = ['#6ea8ff', '#a78bfa', '#f472b6', '#34d399', '#fbbf24', '#22d3ee', '#fb7185', '#818cf8']
+/**
+ * 业务域分类：决定球体配色 + 图例分组（同一业务域同色，便于把星图读成有组织的系统地图）。
+ * 具体域在前、通用兜底在后；每个系统仍保留自己的独立图标（见 SYSTEM_ICONS），只是按域着色。
+ */
+interface Category { key: string; label: string; color: string; kw: string[] }
+const CATEGORIES: Category[] = [
+  { key: 'supply', label: '供应链 / 采购', color: '#34d399', kw: ['SRM', 'SCM', 'WMS', 'TMS', '供应', '采购', '供应商', '寻源', '物流', '仓储', '仓库', '库存', '配送'] },
+  { key: 'manufacture', label: '生产制造', color: '#fb923c', kw: ['MES', 'PLM', '生产', '制造', '车间', '工单', '排产'] },
+  { key: 'sales', label: '销售 / 客户', color: '#f472b6', kw: ['CRM', 'POS', 'OMS', '客户', '会员', '销售', '商城', '电商', '订单', '零售', '门店', '门市'] },
+  { key: 'finance', label: '财务 / 资金', color: '#fbbf24', kw: ['FICO', 'FMS', '财务', '会计', '资金', '结算', '费用', '账'] },
+  { key: 'hr', label: '人力 / 行政', color: '#a78bfa', kw: ['HR', 'HCM', '人力', '人事', '薪酬', '招聘', 'OA', '办公', '审批', '流程', '协同'] },
+  { key: 'data', label: '数据 / 智能', color: '#818cf8', kw: ['BI', 'AI', '报表', '数据', '分析', '看板', '大屏', '智能', '大脑', '算法', '模型'] },
+  { key: 'erp', label: 'ERP / 中台', color: '#60a5fa', kw: ['ERP', '中台', '平台'] },
+]
+const OTHER_CATEGORY: Category = { key: 'other', label: '其他系统', color: '#94a3b8', kw: [] }
+
+function categoryOf(name: string, label: string): Category {
+  const hay = `${name} ${label}`.toUpperCase()
+  return CATEGORIES.find((c) => c.kw.some((k) => hay.includes(k.toUpperCase()))) ?? OTHER_CATEGORY
+}
 
 // 经典业务系统 → 贴合图标（按名/别名关键词命中，具体在前，兜底通用 Server）。
 const SYSTEM_ICONS: Array<{ kw: string[]; Icon: LucideIcon }> = [
@@ -255,6 +273,15 @@ export function ForeConsultPage() {
       .map((p) => ({ ...p, label: displayName(p.name), sortOrder: prefMap.get(p.name)?.sortOrder ?? 0 }))
       .sort((a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label, 'zh'))
   }, [projects, prefMap, displayName])
+
+  const presentCategories = useMemo(() => {
+    const map = new Map<string, Category>()
+    visibleProjects.forEach((p) => {
+      const c = categoryOf(p.name, p.label)
+      if (!map.has(c.key)) map.set(c.key, c)
+    })
+    return [...map.values()]
+  }, [visibleProjects])
 
   const { data: topoData } = useQuery({ queryKey: ['fore-consult-topology'], queryFn: getTopology })
   const topoLinks = useMemo<TopoLink[]>(() => (showLinks ? topoData?.links ?? [] : []), [showLinks, topoData])
@@ -611,7 +638,7 @@ export function ForeConsultPage() {
         ) : (
           visibleProjects.map((p) => {
             const h = hashStr(p.name)
-            const hue = ORB_HUES[h % ORB_HUES.length]
+            const hue = categoryOf(p.name, p.label).color
             const size = 52 + (h % 34)
             const pos = positions.get(p.name)
             if (!pos) return null
@@ -659,6 +686,18 @@ export function ForeConsultPage() {
           })
         )}
       </div>
+
+      {/* 业务域图例（左下） */}
+      {presentCategories.length > 0 && (
+        <div className="pointer-events-none absolute bottom-4 left-4 z-20 flex max-w-[70%] flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-indigo-300/15 bg-white/[0.04] px-3 py-2 backdrop-blur-md">
+          {presentCategories.map((c) => (
+            <span key={c.key} className="flex items-center gap-1.5 text-[11px] text-indigo-100/80">
+              <span className="size-2.5 rounded-full" style={{ background: c.color, boxShadow: `0 0 8px ${c.color}` }} />
+              {c.label}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* 模块选择 + 提问面板 */}
       {panelOpen && (
