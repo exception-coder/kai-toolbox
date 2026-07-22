@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  BarChart3, Boxes, BrainCircuit, Briefcase, Contact, Eye, EyeOff, Factory, Handshake, History,
-  Landmark, Loader2, Radar, Route, Save, Send, Server, ShoppingBag, ShoppingCart, SlidersHorizontal,
-  Trash2, Truck, Users, Warehouse, Waypoints, X, type LucideIcon,
+  BarChart3, Boxes, BrainCircuit, Briefcase, ChevronDown, Contact, Eye, EyeOff, Factory, Handshake,
+  History, Landmark, Loader2, Radar, Route, Save, Search, Send, Server, ShoppingBag, ShoppingCart,
+  SlidersHorizontal, Sparkles, Trash2, Truck, Users, Warehouse, Waypoints, X, type LucideIcon,
 } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
@@ -65,6 +65,9 @@ const SYSTEM_ICONS: Array<{ kw: string[]; Icon: LucideIcon }> = [
   { kw: ['BI', '报表', '数据', '分析', '看板', '大屏'], Icon: BarChart3 },
   { kw: ['AI', '智能', '大脑', '算法', '模型'], Icon: BrainCircuit },
 ]
+
+// 提问起手式（Prompt Composer 的建议快填），业务口吻、通用适用。
+const CONSULT_SUGGESTIONS = ['这个系统主要做什么？', '核心业务流程有哪些？', '和哪些系统有数据对接？']
 
 function iconForSystem(name: string, label: string): LucideIcon {
   const hay = `${name} ${label}`.toUpperCase()
@@ -240,6 +243,8 @@ export function ForeConsultPage() {
   const [system, setSystem] = useState('')
   const [moduleTags, setModuleTags] = useState<string[]>([])
   const [ask, setAsk] = useState('')
+  const [moduleQuery, setModuleQuery] = useState('')
+  const [modulesExpanded, setModulesExpanded] = useState(false)
   const [panelOpen, setPanelOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [configOpen, setConfigOpen] = useState(false)
@@ -512,6 +517,8 @@ export function ForeConsultPage() {
     setSystem(name)
     setModuleTags([])
     setAsk('')
+    setModuleQuery('')
+    setModulesExpanded(false)
     setPanelOpen(true)
   }
 
@@ -533,6 +540,12 @@ export function ForeConsultPage() {
 
   const canStart = !!system.trim() && !!ask.trim() && !startMutation.isPending && !activeConsultId
   const PanelIcon = iconForSystem(system, displayName(system))
+  const sysCat = categoryOf(system, displayName(system))
+  const mq = moduleQuery.trim().toLowerCase()
+  const filteredModules = moduleOptions.filter((m) => m.toLowerCase().includes(mq))
+  // 选中的模块排到前面，未搜索/未展开时只显示前 12 个，降低"一墙标签"的认知负担。
+  const orderedModules = [...filteredModules].sort((a, b) => (moduleTags.includes(b) ? 1 : 0) - (moduleTags.includes(a) ? 1 : 0))
+  const shownModules = mq || modulesExpanded ? orderedModules : orderedModules.slice(0, 12)
 
   return (
     <div ref={containerRef} className="fc-space h-[calc(100vh-5rem)] w-full rounded-2xl">
@@ -747,84 +760,145 @@ export function ForeConsultPage() {
         </div>
       )}
 
-      {/* 模块选择 + 提问面板 */}
+      {/* 模块选择 + 提问：全息任务控制台（侧滑，不遮银河） */}
       {panelOpen && (
-        <div className="fc-backdrop absolute inset-0 z-30 flex items-center justify-center p-6" onClick={() => setPanelOpen(false)}>
+        <div className="absolute inset-0 z-30" onClick={() => setPanelOpen(false)}>
           <div
-            className="fc-panel w-[min(560px,calc(100vw-3rem))] rounded-2xl p-6"
+            className="fc-console absolute inset-y-0 left-0 flex w-[min(440px,92vw)] flex-col"
             onClick={(e) => e.stopPropagation()}
+            style={{ ['--fc-hue' as string]: sysCat.color }}
           >
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <PanelIcon className="size-4 text-sky-300" />
-                  <h2 className="truncate text-lg font-semibold text-white">{displayName(system)}</h2>
+            <div className="fc-console-scan" />
+
+            {/* 头部：系统字形圆盘 + 名称 */}
+            <div className="flex items-start justify-between gap-3 border-b border-indigo-300/12 p-5">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="fc-console-glyph size-11 shrink-0">
+                  <PanelIcon className="size-5" strokeWidth={1.9} />
                 </div>
-                <p className="mt-0.5 truncate text-xs text-indigo-200/50">{systemPath || '（自由输入的系统，无源码路径）'}</p>
+                <div className="min-w-0">
+                  <div className="text-[10px] uppercase tracking-[0.22em] text-sky-300/70">Mission Console</div>
+                  <h2 className="truncate text-lg font-semibold text-white">{displayName(system)}</h2>
+                  <p className="truncate text-[11px] text-indigo-200/45">{systemPath || '外部系统（无源码路径）'}</p>
+                </div>
               </div>
               <button type="button" onClick={() => setPanelOpen(false)} className="rounded-lg p-1.5 text-indigo-200/70 hover:bg-white/10" aria-label="关闭">
                 <X className="size-4" />
               </button>
             </div>
 
-            <div className="mb-4">
-              <div className="mb-2 text-xs font-medium uppercase tracking-wider text-indigo-200/60">选择模块（可多选，可不选）</div>
+            {/* AI 能力状态条（真实信息：模块数 / 源码接入 / 已挂载知识能力） */}
+            <div className="flex flex-wrap items-center gap-1.5 border-b border-indigo-300/12 px-5 py-3">
+              <span className="flex items-center gap-1 rounded-md bg-white/[0.06] px-2 py-1 text-[10px] text-indigo-100/80">
+                <Boxes className="size-3" /> {moduleOptions.length} 模块
+              </span>
+              <span className="rounded-md bg-white/[0.06] px-2 py-1 text-[10px] text-indigo-100/80">
+                {systemPath ? '源码已接入' : '外部系统'}
+              </span>
+              {['知识图谱', '业务认知', '跨系统拓扑'].map((cap) => (
+                <span key={cap} className="flex items-center gap-1 rounded-md border border-emerald-300/25 bg-emerald-400/10 px-2 py-1 text-[10px] text-emerald-200/90">
+                  <span className="size-1.5 rounded-full bg-emerald-400" /> {cap}
+                </span>
+              ))}
+            </div>
+
+            {/* 模块选择：搜索 + 折叠，降低"一墙标签"负担 */}
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-[11px] uppercase tracking-wider text-indigo-200/55">选择模块 · 可多选可不选</span>
+                {moduleTags.length > 0 && (
+                  <button type="button" onClick={() => setModuleTags([])} className="text-[11px] text-indigo-200/60 hover:text-indigo-100">
+                    清空 {moduleTags.length}
+                  </button>
+                )}
+              </div>
+
               {moduleOptions.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-indigo-300/20 px-3 py-4 text-center text-xs text-indigo-200/40">
                   该系统暂无可选模块，可直接对整个系统提问
                 </p>
               ) : (
-                <div className="flex max-h-40 flex-wrap gap-2 overflow-y-auto pr-1">
-                  {moduleOptions.map((m) => {
-                    const on = moduleTags.includes(m)
-                    return (
-                      <button
-                        key={m}
-                        type="button"
-                        onClick={() => toggleModule(m)}
-                        className={`rounded-full border px-3 py-1 text-xs transition-all ${
-                          on
-                            ? 'border-sky-300/60 bg-sky-400/20 text-sky-100 shadow-[0_0_14px_-2px_rgba(120,180,255,0.6)]'
-                            : 'border-indigo-300/25 bg-white/5 text-indigo-100/80 hover:bg-white/10'
-                        }`}
-                      >
-                        {m}
-                      </button>
-                    )
-                  })}
-                </div>
+                <>
+                  {moduleOptions.length > 12 && (
+                    <div className="relative mb-2.5">
+                      <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-indigo-200/40" />
+                      <input
+                        value={moduleQuery}
+                        onChange={(e) => setModuleQuery(e.target.value)}
+                        placeholder="搜索模块…"
+                        className="fc-glass-input w-full rounded-lg py-1.5 pl-8 pr-3 text-xs"
+                      />
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    {shownModules.map((m) => {
+                      const on = moduleTags.includes(m)
+                      return (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => toggleModule(m)}
+                          className={`rounded-full border px-3 py-1 text-xs transition-all ${
+                            on
+                              ? 'border-sky-300/60 bg-sky-400/20 text-sky-100 shadow-[0_0_14px_-2px_rgba(120,180,255,0.6)]'
+                              : 'border-indigo-300/22 bg-white/[0.05] text-indigo-100/80 hover:bg-white/10'
+                          }`}
+                        >
+                          {m}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {!mq && orderedModules.length > 12 && (
+                    <button
+                      type="button"
+                      onClick={() => setModulesExpanded((v) => !v)}
+                      className="mt-2.5 flex items-center gap-1 text-[11px] text-indigo-200/60 hover:text-indigo-100"
+                    >
+                      <ChevronDown className={`size-3.5 transition-transform ${modulesExpanded ? 'rotate-180' : ''}`} />
+                      {modulesExpanded ? '收起' : `展开全部 ${orderedModules.length} 个`}
+                    </button>
+                  )}
+                </>
               )}
             </div>
 
-            <div className="mb-5">
-              <div className="mb-2 text-xs font-medium uppercase tracking-wider text-indigo-200/60">咨询问题</div>
-              <textarea
-                autoFocus
-                rows={4}
-                value={ask}
-                onChange={(e) => setAsk(e.target.value)}
-                placeholder="用业务语言描述问题，如：采购退货单在哪里录入？退货后库存怎么回冲？"
-                className="fc-glass-input w-full resize-none rounded-xl px-3 py-2.5 text-sm"
-              />
-            </div>
-
-            <div className="flex items-center justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setPanelOpen(false)}
-                className="rounded-xl px-4 py-2 text-sm text-indigo-200/70 transition-colors hover:bg-white/5"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={() => startMutation.mutate()}
-                disabled={!canStart}
-                className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-sky-400 to-indigo-500 px-5 py-2 text-sm font-medium text-white shadow-[0_8px_30px_-8px_rgba(99,102,241,0.8)] transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {startMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-                发起咨询
-              </button>
+            {/* Prompt Composer：Claude 风格提问区 + 建议快填 */}
+            <div className="border-t border-indigo-300/12 p-4">
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {CONSULT_SUGGESTIONS.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setAsk(s)}
+                    className="flex items-center gap-1 rounded-full border border-indigo-300/20 bg-white/[0.04] px-2.5 py-1 text-[11px] text-indigo-100/70 hover:bg-white/10"
+                  >
+                    <Sparkles className="size-3 text-sky-300/70" /> {s}
+                  </button>
+                ))}
+              </div>
+              <div className="rounded-2xl border border-indigo-300/22 bg-white/[0.04] p-2 transition-colors focus-within:border-sky-300/50 focus-within:shadow-[0_0_0_2px_rgba(120,150,255,0.2)]">
+                <textarea
+                  autoFocus
+                  rows={3}
+                  value={ask}
+                  onChange={(e) => setAsk(e.target.value)}
+                  placeholder="今天想了解这个系统的什么？用业务语言问，例如：采购退货单在哪里录入？"
+                  className="w-full resize-none bg-transparent px-2 py-1.5 text-sm text-[#e8ecff] placeholder:text-indigo-200/35 focus:outline-none"
+                />
+                <div className="flex items-center justify-between px-1 pt-1">
+                  <span className="text-[10px] text-indigo-200/40">接入 Forge · Claude 引擎</span>
+                  <button
+                    type="button"
+                    onClick={() => startMutation.mutate()}
+                    disabled={!canStart}
+                    className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-400 to-indigo-500 px-4 py-1.5 text-sm font-medium text-white shadow-[0_8px_30px_-8px_rgba(99,102,241,0.8)] transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {startMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+                    AI 分析
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

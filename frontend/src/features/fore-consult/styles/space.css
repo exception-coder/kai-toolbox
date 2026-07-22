@@ -260,7 +260,61 @@
 
 @keyframes fc-orbit { to { transform: rotate(360deg); } }
 
+/* ── Mission Console：从星球浮现的全息任务控制台（侧滑，不遮银河） ── */
+.fc-console {
+  animation: fc-console-in 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  background: linear-gradient(165deg, color-mix(in oklab, #0c1330 74%, transparent) 0%, color-mix(in oklab, #0a0e22 80%, transparent) 100%);
+  border-right: 1px solid rgba(140, 170, 255, 0.28);
+  box-shadow: 60px 0 140px -60px rgba(70, 110, 255, 0.5), 0 30px 90px -30px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(24px) saturate(1.25);
+}
+
+@keyframes fc-console-in {
+  from { opacity: 0; transform: translateX(-30px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* 面向银河的全息发射边 */
+.fc-console::after {
+  content: '';
+  position: absolute;
+  top: 6%;
+  bottom: 6%;
+  right: -1px;
+  width: 2px;
+  background: linear-gradient(to bottom, transparent, rgba(130, 195, 255, 0.9), rgba(160, 140, 255, 0.7), transparent);
+  box-shadow: 0 0 16px rgba(130, 195, 255, 0.7);
+  opacity: 0.85;
+}
+
+.fc-console-scan { position: absolute; left: 0; right: 0; top: 0; height: 2px; overflow: hidden; }
+.fc-console-scan::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(130, 195, 255, 0.85), transparent);
+  animation: fc-scan 3.6s ease-in-out infinite;
+}
+@keyframes fc-scan { 0% { transform: translateX(-100%); } 55%, 100% { transform: translateX(100%); } }
+
+/* 控制台里的系统字形圆盘（与行星同一视觉语言） */
+.fc-console-glyph {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background:
+    radial-gradient(circle at 36% 30%, color-mix(in oklab, var(--fc-hue) 24%, white 55%), transparent 55%),
+    radial-gradient(circle at 66% 74%, color-mix(in oklab, var(--fc-hue) 70%, black 20%), var(--fc-hue) 84%);
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--fc-hue) 55%, transparent),
+    0 0 22px -4px color-mix(in oklab, var(--fc-hue) 70%, transparent),
+    inset 0 -4px 8px rgba(0, 0, 0, 0.5), inset 0 4px 8px rgba(255, 255, 255, 0.35);
+}
+.fc-console-glyph svg { color: #fff; opacity: 0.6; mix-blend-mode: overlay; }
+
 @media (prefers-reduced-motion: reduce) {
   .fc-space::before, .fc-star, .fc-orb-wrap, .fc-orb, .fc-orb::after, .fc-orb-wrap.is-active .fc-orb,
-  .fc-edge, .fc-core, .fc-core::before, .fc-core::after { animation: none !important; }
+  .fc-edge, .fc-core, .fc-core::before, .fc-core::after, .fc-console, .fc-console-scan::before { animation: none !important; }
 }
