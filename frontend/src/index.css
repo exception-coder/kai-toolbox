@@ -248,6 +248,15 @@
   animation: slide-up 220ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
+/* ==== 消息导航跳转命中：滚到目标气泡后短暂高亮一圈，方便一眼找到（如「我的提问」面板点击跳转）==== */
+@keyframes msg-flash {
+  0% { box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 55%, transparent); }
+  100% { box-shadow: 0 0 0 3px transparent; }
+}
+.kai-msg-flash {
+  animation: msg-flash 1.5s ease-out;
+}
+
 /* ==== AI Orb（Forge 机器人触发器的「呼吸」）：闲置慢呼吸，AI 工作时外圈扩散波纹，靠 --color-primary 走主题色 ==== */
 @keyframes orb-breathe {
   0%, 100% { transform: scale(0.92); opacity: 0.45; }

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AlertTriangle, Check, Coins, Copy, Database, FileImage, FileText, FolderOpen, GitBranch, Timer } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -35,8 +35,16 @@ interface Props {
   connState?: ConnState
 }
 
+/** 供外部（如「我的提问」导航面板）滚到指定消息并短暂高亮，方便一眼找到目标气泡。 */
+export interface MessageListHandle {
+  scrollToItem: (id: string) => void
+}
+
 /** 消息流：用户气泡靠右、assistant 文本靠左、工具调用与系统标记居中。顶部上拉加载更早历史。 */
-export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exhausted, onFork, engineLabel = 'Claude', onResumeCurrent, onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready' }: Props) {
+export const MessageList = forwardRef<MessageListHandle, Props>(function MessageList(
+  { items, running, onLoadEarlier, loadingEarlier, exhausted, onFork, engineLabel = 'Claude', onResumeCurrent, onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready' },
+  ref,
+) {
   // 是否存在可分叉的用户消息（有 sdkUuid），供错误行的「清理异常并继续」判断可用性
   const hasForkTarget = items.some(it => it.kind === 'user' && !!it.sdkUuid)
   // 「隐藏工具调用」开关：开启时消息流里的工具调用气泡（MCP/命令/读写/子代理…）整条不渲染，减少视觉噪音
@@ -76,6 +84,21 @@ export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exh
     if (el) el.scrollTop = el.scrollHeight
   }, [running])
 
+  // 供「我的提问」导航面板等外部调用：滚到指定消息 + 短暂高亮闪一下，方便一眼找到目标气泡。
+  // 用 data-msg-id（而非 id）定位——同一页可能同时挂多个 MessageList 实例（分屏/悬浮窗），
+  // id 要求全局唯一，多实例下容易撞车定位错气泡；data 属性配合"只在自己 scrollRef 范围内查找"就没这问题。
+  useImperativeHandle(ref, () => ({
+    scrollToItem: (id: string) => {
+      const container = scrollRef.current
+      if (!container) return
+      const el = container.querySelector<HTMLElement>(`[data-msg-id="${CSS.escape(id)}"]`)
+      if (!el) return
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      el.classList.add('kai-msg-flash')
+      window.setTimeout(() => el.classList.remove('kai-msg-flash'), 1500)
+    },
+  }), [])
+
   return (
     <div ref={scrollRef} onScroll={handleScroll} className="flex min-w-0 flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto px-3 py-4">
       {loadingEarlier && (
@@ -85,15 +108,17 @@ export function MessageList({ items, running, onLoadEarlier, loadingEarlier, exh
         <div className="text-center text-xs text-[var(--color-muted-foreground)]">— 没有更早了 —</div>
       )}
       {visibleItems.map(item => (
-        <Row key={item.id} item={item} onFork={onFork} engineLabel={engineLabel} onResumeCurrent={onResumeCurrent} onNewSession={onNewSession}
-          onCleanRetry={hasForkTarget ? onCleanRetry : undefined}
-          onOpenImage={(src, alt) => setViewer({ src, alt })} />
+        <div key={item.id} data-msg-id={item.id} className="rounded-2xl transition-shadow duration-300">
+          <Row item={item} onFork={onFork} engineLabel={engineLabel} onResumeCurrent={onResumeCurrent} onNewSession={onNewSession}
+            onCleanRetry={hasForkTarget ? onCleanRetry : undefined}
+            onOpenImage={(src, alt) => setViewer({ src, alt })} />
+        </div>
       ))}
       {running && <ThinkingIndicator engineLabel={engineLabel} tokens={turnTokens} connState={connState} />}
       {viewer && <ImageLightbox src={viewer.src} alt={viewer.alt} onClose={() => setViewer(null)} />}
     </div>
   )
-}
+})
 
 /** 回复下方的一键复制：复制该条 assistant 的原始文本，移动端常显。 */
 function CopyButton({ text }: { text: string }) {

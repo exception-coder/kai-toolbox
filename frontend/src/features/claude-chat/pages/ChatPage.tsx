@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, Bug, ChevronDown, Cloud, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, List, ListChecks, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
+import { Bell, Bug, ChevronDown, Cloud, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, List, ListChecks, ListFilter, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useChatRuntime } from '../runtime/ChatRuntimeContext'
-import { MessageList } from '../components/MessageList'
+import { MessageList, type MessageListHandle } from '../components/MessageList'
+import { MessageNavPanel } from '../components/MessageNavPanel'
 import { SessionTotalBadge } from '../components/SessionTotalBadge'
 import { UsagePanel } from '../components/UsagePanel'
 import { PermissionDialog } from '../components/PermissionDialog'
@@ -163,6 +164,8 @@ export function ChatPage() {
   const [showCommits, setShowCommits] = useState(false)
   const [showGitStatus, setShowGitStatus] = useState(false)
   const [showExport, setShowExport] = useState(false)
+  const [showMsgNav, setShowMsgNav] = useState(false)
+  const messageListRef = useRef<MessageListHandle>(null)
   const [showLogs, setShowLogs] = useState(false)
   const [showGestureDebug, setShowGestureDebug] = useState(false)
   const [showDebug, setShowDebug] = useState(false)
@@ -800,6 +803,9 @@ export function ChatPage() {
                     )}
                     <HeaderMenuItem nested icon={<Sparkles className="size-4" />} label="会话能力" hint="激活的技能 / 子代理 / MCP 服务" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'caps' ? 'none' : 'caps') }} />
                     {chat.sessionId && (
+                      <HeaderMenuItem nested icon={<ListFilter className="size-4" />} label="我的提问" hint="只看我发的消息·搜索·点击跳到对应位置" onClick={() => { setHeaderMenu(false); setShowMsgNav(true) }} />
+                    )}
+                    {chat.sessionId && (
                       <HeaderMenuItem nested icon={<FileDown className="size-4" />} label="导出会话" hint="导出为 PDF/Word，含图片，发给同事/领导查看" onClick={() => { setHeaderMenu(false); setShowExport(true) }} />
                     )}
                   </MenuSection>
@@ -1155,6 +1161,15 @@ export function ChatPage() {
         <ExportSessionDialog items={chat.items} sessionTitle={currentTitle || 'Vibe Coding 会话记录'} onClose={() => setShowExport(false)} />
       )}
 
+      {/* 我的提问：只列自己发的消息，支持搜索，点击滚到消息流对应位置并高亮——方便事后找回某个问答 */}
+      {showMsgNav && (
+        <MessageNavPanel
+          items={chat.items}
+          onSelect={id => { setShowMsgNav(false); messageListRef.current?.scrollToItem(id) }}
+          onClose={() => setShowMsgNav(false)}
+        />
+      )}
+
       {/* 最新日志：后端内存缓冲（含透传的 sidecar 日志），排查时一键复制 */}
       {showLogs && <LogsPanel onClose={() => setShowLogs(false)} />}
 
@@ -1226,6 +1241,7 @@ export function ChatPage() {
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             {chat.sessionId ? (
               <MessageList
+                ref={messageListRef}
                 items={chat.items}
                 running={chat.running}
                 onLoadEarlier={() => chat.loadHistory(false)}
