@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
+import { setSessionGroupApi } from '@/features/claude-chat/api'
 import type { ChatItem } from '@/features/claude-chat/types'
 import { ConsultConversation } from '../components/ConsultConversation'
 import { ConsultHistoryDetail } from '../components/ConsultHistoryDetail'
@@ -77,6 +78,9 @@ const SYSTEM_ICONS: Array<{ kw: string[]; Icon: LucideIcon }> = [
 
 // 提问起手式（Prompt Composer 的建议快填），业务口吻、通用适用。
 const CONSULT_SUGGESTIONS = ['这个系统主要做什么？', '核心业务流程有哪些？', '和哪些系统有数据对接？']
+
+// 业务咨询拉起的会话统一归入该分组（claude-chat 分组即 group_name 字符串，命名即创建）。
+const CONSULT_GROUP = '业务咨询'
 
 function iconForSystem(name: string, label: string): LucideIcon {
   const hay = `${name} ${label}`.toUpperCase()
@@ -441,11 +445,18 @@ export function ForeConsultPage() {
     setFloating(false)
     setPanelOpen(false)
     setConversationOpen(true)
-    setTimeout(() => {
-      const sid = chat.sessionId
-      if (sid) linkDevSession(p.consultId, sid).catch(() => {})
-    }, 1500)
+    // 会话 id 异步产生，关联 + 分组交给下方 effect 监听 chat.sessionId 处理（比 setTimeout 读 null 可靠）。
   }, [chat, setFloating])
+
+  // 会话 id 就绪后：关联回本模块，并把该会话自动归入「业务咨询」分组（分组不存在时命名即创建）。
+  const groupedRef = useRef<string | null>(null)
+  useEffect(() => {
+    const sid = chat?.sessionId
+    if (!sid || !activeConsultId || groupedRef.current === sid) return
+    groupedRef.current = sid
+    linkDevSession(activeConsultId, sid).catch(() => {})
+    setSessionGroupApi(sid, CONSULT_GROUP).catch(() => {})
+  }, [chat?.sessionId, activeConsultId])
   useEffect(() => {
     if (chat && pendingRef.current) deliver()
   }, [chat, deliver])
