@@ -31,7 +31,18 @@ public record ArchiveRequest(
             String answer,
             String refMenuPaths,
             String refGraphifyNodes,
-            String refDomainKnowledge
+            String refDomainKnowledge,
+            List<Att> attachments
     ) {
+    }
+
+    /**
+     * 本轮用户附件引用。
+     *
+     * @param name 文件名
+     * @param path 落盘绝对路径（.kai-chat-attachments 下，供图片 serve 端点回显）
+     * @param mime 内容类型（可为 null）
+     */
+    public record Att(String name, String path, String mime) {
     }
 }

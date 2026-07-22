@@ -29,6 +29,7 @@ import {
   startConsult,
   uploadConsultAttachment,
   type ArchiveTurnItem,
+  type ConsultAttRef,
   type ConsultSessionView,
   type SaveSystemPrefItem,
   type TopoLink,
@@ -260,19 +261,32 @@ function buildConsultSeed(system: string, modules: string[], ask: string, role: 
 }
 
 /** 从 chat.items 抽取「用户问 → AI 答」成对轮次。 */
-function extractTurns(items: ChatItem[]): ArchiveTurnItem[] {
-  const raw: Array<{ question: string; answerParts: string[] }> = []
-  let cur: { question: string; answerParts: string[] } | null = null
+function extractTurns(items: ChatItem[], attMeta: Map<string, { path: string; mime?: string | null }>): ArchiveTurnItem[] {
+  type Acc = { question: string; answerParts: string[]; atts: ConsultAttRef[] }
+  const raw: Acc[] = []
+  let cur: Acc | null = null
   for (const it of items) {
     if (it.kind === 'user') {
       if (cur) raw.push(cur)
-      cur = { question: it.displayText ?? it.text, answerParts: [] }
+      const atts: ConsultAttRef[] = (it.attachments ?? [])
+        .map((a): ConsultAttRef | null => {
+          const meta = attMeta.get(a.name)
+          if (!meta?.path) return null
+          return { name: a.name, path: meta.path, mime: a.mime ?? meta.mime ?? null }
+        })
+        .filter((x): x is ConsultAttRef => x !== null)
+      cur = { question: it.displayText ?? it.text, answerParts: [], atts }
     } else if (it.kind === 'assistant' && cur) {
       if (it.text.trim()) cur.answerParts.push(it.text)
     }
   }
   if (cur) raw.push(cur)
-  return raw.map((t, i) => ({ turnIndex: i + 1, question: t.question, answer: t.answerParts.join('\n\n') }))
+  return raw.map((t, i) => ({
+    turnIndex: i + 1,
+    question: t.question,
+    answer: t.answerParts.join('\n\n'),
+    attachments: t.atts.length ? t.atts : undefined,
+  }))
 }
 
 export function ForeConsultPage() {
@@ -304,6 +318,8 @@ export function ForeConsultPage() {
   const containerRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ name: string; moved: boolean } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  // 记录本次咨询上传过的附件（含落盘 path），归档时按文件名补给对应轮次。
+  const attMetaRef = useRef<Map<string, { path: string; mime?: string | null }>>(new Map())
 
   const { data: workspaces } = useQuery({ queryKey: ['workspaces'], queryFn: listWorkspaces })
 
@@ -507,7 +523,7 @@ export function ForeConsultPage() {
       return archiveConsult(activeConsultId, {
         rawReferenceJson: JSON.stringify(items),
         parseStatus: 'NONE',
-        turns: extractTurns(items),
+        turns: extractTurns(items, attMetaRef.current),
       })
     },
     onSuccess: () => {
@@ -602,6 +618,7 @@ export function ForeConsultPage() {
     setModuleQuery('')
     setModulesExpanded(false)
     setAttachments([])
+    attMetaRef.current = new Map()
     setPanelOpen(true)
   }
 
@@ -619,6 +636,7 @@ export function ForeConsultPage() {
       setUploading((n) => n + 1)
       try {
         const att = await uploadConsultAttachment(f, systemPath || undefined)
+        attMetaRef.current.set(att.name, { path: att.path, mime: att.mime })
         const url = f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined
         setAttachments((prev) => [...prev, { name: att.name, path: att.path, mime: att.mime, url }])
       } catch (e) {
@@ -1107,6 +1125,7 @@ export function ForeConsultPage() {
           systemLabel={displayName(system)}
           roleLabel={ROLE_META[role].label}
           cwd={systemPath || system.trim()}
+          onUploaded={(name, path, mime) => attMetaRef.current.set(name, { path, mime })}
           onClose={() => setConversationOpen(false)}
           onArchive={() => archiveMutation.mutate()}
           archiving={archiveMutation.isPending}

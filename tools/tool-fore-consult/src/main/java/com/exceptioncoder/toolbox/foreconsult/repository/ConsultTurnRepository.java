@@ -22,6 +22,7 @@ public class ConsultTurnRepository {
             .refMenuPaths(rs.getString("ref_menu_paths"))
             .refGraphifyNodes(rs.getString("ref_graphify_nodes"))
             .refDomainKnowledge(rs.getString("ref_domain_knowledge"))
+            .attachments(rs.getString("attachments"))
             .createdAt(rs.getLong("created_at"))
             .build();
 
@@ -34,10 +35,10 @@ public class ConsultTurnRepository {
     public void insert(ConsultTurn t) {
         jdbc.update(
                 "INSERT INTO consult_turn (turn_id, session_id, turn_index, question, answer, " +
-                "ref_menu_paths, ref_graphify_nodes, ref_domain_knowledge, created_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "ref_menu_paths, ref_graphify_nodes, ref_domain_knowledge, attachments, created_at) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 t.getTurnId(), t.getSessionId(), t.getTurnIndex(), t.getQuestion(), t.getAnswer(),
-                t.getRefMenuPaths(), t.getRefGraphifyNodes(), t.getRefDomainKnowledge(), t.getCreatedAt());
+                t.getRefMenuPaths(), t.getRefGraphifyNodes(), t.getRefDomainKnowledge(), t.getAttachments(), t.getCreatedAt());
     }
 
     /** 某会话的全部轮次，按轮次序号升序。 */

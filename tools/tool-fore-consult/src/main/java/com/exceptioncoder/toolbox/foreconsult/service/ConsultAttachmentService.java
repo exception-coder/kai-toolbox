@@ -35,11 +35,12 @@ public class ConsultAttachmentService {
             throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "文件过大（上限 30MB）");
         }
 
+        // 统一落到 .kai-chat-attachments 下，使 claude-chat 的图片 serve 端点（校验路径含该目录）能回显缩略图。
         Path dir;
         if (cwd != null && !cwd.isBlank() && Files.isDirectory(Path.of(cwd))) {
             dir = Path.of(cwd, ATTACH_DIR, "consult");
         } else {
-            dir = Path.of(System.getProperty("user.home"), ".kai-toolbox", "consult-attachments");
+            dir = Path.of(System.getProperty("user.home"), ATTACH_DIR, "consult");
         }
         Files.createDirectories(dir);
         Path target = dir.resolve(System.currentTimeMillis() + "-" + name);

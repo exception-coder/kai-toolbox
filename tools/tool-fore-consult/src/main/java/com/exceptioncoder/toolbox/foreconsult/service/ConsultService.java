@@ -85,6 +85,7 @@ public class ConsultService {
                         .refMenuPaths(item.refMenuPaths())
                         .refGraphifyNodes(item.refGraphifyNodes())
                         .refDomainKnowledge(item.refDomainKnowledge())
+                        .attachments(serializeAttachments(item.attachments()))
                         .createdAt(now)
                         .build());
                 seq++;
@@ -135,6 +136,18 @@ public class ConsultService {
             return mapper.writeValueAsString(modules);
         } catch (Exception e) {
             log.warn("[fore-consult] moduleNames 序列化失败: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private String serializeAttachments(List<ArchiveRequest.Att> atts) {
+        if (atts == null || atts.isEmpty()) {
+            return null;
+        }
+        try {
+            return mapper.writeValueAsString(atts);
+        } catch (Exception e) {
+            log.warn("[fore-consult] 附件序列化失败: {}", e.getMessage());
             return null;
         }
     }

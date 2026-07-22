@@ -30,8 +30,12 @@ CREATE TABLE IF NOT EXISTS consult_turn (
     ref_menu_paths       TEXT,                            -- 命中的前端菜单路径/菜单名，JSON 数组
     ref_graphify_nodes   TEXT,                            -- 命中的 graphify 图谱节点，JSON 数组
     ref_domain_knowledge TEXT,                            -- 命中的 domain-knowledge 条目，JSON 数组
+    attachments          TEXT,                            -- 本轮用户附件，JSON 数组 [{name,path,mime}]
     created_at           INTEGER NOT NULL
 );
+
+-- 存量数据库兼容：补充 attachments 列（SchemaInitializer 忽略 "duplicate column" 错误）
+ALTER TABLE consult_turn ADD COLUMN attachments TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_consult_session_created ON consult_session(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_consult_session_user    ON consult_session(user_id);

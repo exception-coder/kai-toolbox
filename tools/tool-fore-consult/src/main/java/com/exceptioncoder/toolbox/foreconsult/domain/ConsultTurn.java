@@ -28,5 +28,7 @@ public class ConsultTurn {
     private String refGraphifyNodes;
     /** 命中的 domain-knowledge 条目，JSON 数组字符串，可为 null。 */
     private String refDomainKnowledge;
+    /** 本轮用户附件，JSON 数组字符串 [{name,path,mime}]，可为 null。 */
+    private String attachments;
     private long createdAt;
 }

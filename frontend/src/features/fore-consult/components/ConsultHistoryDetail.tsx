@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { Loader2, X } from 'lucide-react'
-import { getConsult } from '../api'
+import { getConsult, type ConsultAttRef } from '../api'
 
 interface Props {
   sessionId: string
@@ -14,7 +14,11 @@ interface Props {
 interface QaPair {
   question: string
   answer: string
+  attachments?: ConsultAttRef[]
 }
+
+const fileUrl = (path: string) => `/api/claude-chat/attachments/file?path=${encodeURIComponent(path)}`
+const isImage = (a: ConsultAttRef) => (a.mime ?? '').startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(a.name)
 
 function renderMarkdown(text: string): string {
   try {
@@ -58,7 +62,7 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
 
   const pairs = useMemo<QaPair[]>(() => {
     if (!data) return []
-    if (data.turns.length > 0) return data.turns.map((t) => ({ question: t.question, answer: t.answer }))
+    if (data.turns.length > 0) return data.turns.map((t) => ({ question: t.question, answer: t.answer, attachments: t.attachments }))
     return parseRawPairs(data.rawReferenceJson)
   }, [data])
 
@@ -95,6 +99,17 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
           ) : (
             pairs.map((p, i) => (
               <div key={i} className="space-y-2">
+                {p.attachments && p.attachments.length > 0 && (
+                  <div className="flex flex-wrap justify-end gap-1.5">
+                    {p.attachments.map((a, j) =>
+                      isImage(a) ? (
+                        <img key={j} src={fileUrl(a.path)} alt={a.name} title={a.name} className="size-20 rounded-lg border border-indigo-300/25 object-cover" />
+                      ) : (
+                        <span key={j} className="rounded-lg border border-indigo-300/25 bg-white/5 px-2 py-1 text-[11px] text-indigo-100/80">📄 {a.name}</span>
+                      ),
+                    )}
+                  </div>
+                )}
                 {p.question.trim() && (
                   <div className="flex justify-end">
                     <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tr-sm border border-sky-300/25 bg-sky-400/15 px-3 py-2 text-sm text-sky-50">

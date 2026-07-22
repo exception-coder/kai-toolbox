@@ -15,6 +15,7 @@ interface Props {
   systemLabel: string
   roleLabel: string
   cwd: string
+  onUploaded?: (name: string, path: string, mime?: string | null) => void
   onClose: () => void
   onArchive: () => void
   archiving: boolean
@@ -34,7 +35,7 @@ function renderMarkdown(text: string): string {
  * 不弹 Vibe Coding 悬浮窗。会话以 bypassPermissions 打开（只读业务问答，自动放行工具），
  * 万一引擎发起提问/权限，给一个「在悬浮窗处理」的兜底入口。
  */
-export function ConsultConversation({ systemLabel, roleLabel, cwd, onClose, onArchive, archiving }: Props) {
+export function ConsultConversation({ systemLabel, roleLabel, cwd, onUploaded, onClose, onArchive, archiving }: Props) {
   const { chat, setFloating, setMinimized } = useChatRuntime()
   const [text, setText] = useState('')
   const [atts, setAtts] = useState<Att[]>([])
@@ -60,6 +61,7 @@ export function ConsultConversation({ systemLabel, roleLabel, cwd, onClose, onAr
       setUploading((n) => n + 1)
       try {
         const up = await uploadConsultAttachment(f, cwd || undefined)
+        onUploaded?.(up.name, up.path, up.mime)
         const url = f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined
         setAtts((prev) => [...prev, { name: up.name, path: up.path, mime: up.mime, url }])
       } catch (e) {

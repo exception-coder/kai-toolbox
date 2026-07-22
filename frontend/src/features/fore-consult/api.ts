@@ -2,6 +2,12 @@ import { authFetch, http } from '@/lib/api'
 
 // ── 后端 /api/fore-consult 契约（与 tool-fore-consult 的 DTO 对齐）──────────────
 
+export interface ConsultAttRef {
+  name: string
+  path: string
+  mime?: string | null
+}
+
 export interface ConsultTurnView {
   turnId: string
   turnIndex: number
@@ -10,6 +16,7 @@ export interface ConsultTurnView {
   refMenuPaths: string | null
   refGraphifyNodes: string | null
   refDomainKnowledge: string | null
+  attachments: ConsultAttRef[]
   createdAt: number
 }
 
@@ -46,6 +53,7 @@ export interface ArchiveTurnItem {
   refMenuPaths?: string | null
   refGraphifyNodes?: string | null
   refDomainKnowledge?: string | null
+  attachments?: ConsultAttRef[]
 }
 
 export interface ArchiveRequest {
