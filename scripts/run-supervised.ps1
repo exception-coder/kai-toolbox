@@ -68,17 +68,54 @@ function Resolve-Tool([string]$envVal, [string]$onPath, [string[]]$fallbacks) {
     return $null
 }
 
-$MvnCmd = Resolve-Tool $env:MVN_CMD 'mvn' @(
+function Test-Java21([string]$command) {
+    try {
+        $versionOutput = (& $command -version 2>&1 | Out-String)
+        return $LASTEXITCODE -eq 0 -and $versionOutput -match 'version\s+"21(?:[.\-+]|\")'
+    } catch {
+        return $false
+    }
+}
+
+function Resolve-RequiredTool(
+    [string]$envName,
+    [string]$displayName,
+    [string]$commandName,
+    [string[]]$fallbacks,
+    [scriptblock]$validator = $null,
+    [string]$validationHint = ''
+) {
+    $configuredPath = [Environment]::GetEnvironmentVariable($envName, 'Process')
+    $resolvedPath = Resolve-Tool $configuredPath $commandName $fallbacks
+
+    while (-not $resolvedPath -or ($validator -and -not (& $validator $resolvedPath))) {
+        if ($resolvedPath) {
+            Write-Host "[supervisor] $displayName 校验失败：$resolvedPath$validationHint"
+        } else {
+            Write-Host "[supervisor] 未找到 $displayName，启动已暂停。"
+        }
+
+        $inputPath = (Read-Host "[supervisor] 请输入 $displayName 可执行文件或安装目录路径").Trim().Trim('"').Trim("'")
+        $resolvedPath = Resolve-ExePath $inputPath $commandName
+        if (-not $resolvedPath) {
+            Write-Host "[supervisor] 路径无效或其中未找到 $commandName，请重新输入。"
+        }
+    }
+
+    [Environment]::SetEnvironmentVariable($envName, $resolvedPath, 'Process')
+    Write-Host "[supervisor] $displayName=$resolvedPath"
+    return $resolvedPath
+}
+
+$MvnCmd = Resolve-RequiredTool 'MVN_CMD' 'Maven' 'mvn' @(
     'D:\devApps\apache-maven-3.9.16-bin\apache-maven-3.9.16\bin\mvn.cmd',
     'C:\Program Files\apache-maven\bin\mvn.cmd'
 )
-if (-not $MvnCmd) { Write-Host '[supervisor] 未找到 Maven：请在 run-tools.conf 配置 MVN_CMD 或把 mvn 加入 PATH。'; $MvnCmd = 'mvn' }
 
 # Java：构建(mvn)和运行(java -jar)都必须用 JDK 21，否则 jar 是 17+ 字节码、PATH 上的旧 JDK 跑不了。
-$JavaCmd = Resolve-Tool $env:JAVA_CMD 'java' @(
+$JavaCmd = Resolve-RequiredTool 'JAVA_CMD' 'Java（JDK 21）' 'java' @(
     $(if ($env:JAVA_HOME) { Join-Path $env:JAVA_HOME 'bin\java.exe' } else { $null })
-)
-if (-not $JavaCmd) { Write-Host '[supervisor] 未找到 Java：请在 run-tools.conf 配置 JAVA_CMD（需 JDK 21）。'; $JavaCmd = 'java' }
+) ${function:Test-Java21} '（必须为 JDK 21）'
 # 据 JavaCmd 反推并覆盖 JAVA_HOME，供 mvn 构建用对 JDK（本机默认 JAVA_HOME 可能是旧 JDK）。
 if ($JavaCmd -match '[\\/]bin[\\/]java(\.exe)?$') {
     $env:JAVA_HOME = Split-Path -Parent (Split-Path -Parent $JavaCmd)
@@ -94,16 +131,12 @@ $FrontendPort = 5173
 
 # npm：前端 dev 与两个 node sidecar 初始化都要它。优先 conf 注入的 NPM_CMD，其次 PATH；
 # 把其所在目录前置进 PATH，确保 spawn 出去的子 powershell 也能直接调 npm。
-$NpmCmd = Resolve-Tool $env:NPM_CMD 'npm' @(
+$NpmCmd = Resolve-RequiredTool 'NPM_CMD' 'npm' 'npm' @(
     'D:\Program Files\nodejs\npm.cmd',
     'C:\Program Files\nodejs\npm.cmd'
 )
-if ($NpmCmd) {
-    $npmDir = Split-Path -Parent $NpmCmd
-    if ($npmDir -and (";$env:PATH;" -notlike "*;$npmDir;*")) { $env:PATH = "$npmDir;$env:PATH" }
-} else {
-    Write-Host '[supervisor] 未找到 npm：前端与 sidecar 初始化将不可用（在 run-tools.conf 配置 NPM_CMD 或把 npm 加入 PATH）。'
-}
+$npmDir = Split-Path -Parent $NpmCmd
+if ($npmDir -and (";$env:PATH;" -notlike "*;$npmDir;*")) { $env:PATH = "$npmDir;$env:PATH" }
 
 # /restart 控制端点的令牌，取自 run-tools.conf 的 TOOLBOX_SUPERVISOR_RESTART_TOKEN。
 # 公开仓库禁止硬编码；未配置时令牌为空，/restart 一律拒绝。
