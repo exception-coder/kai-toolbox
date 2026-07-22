@@ -324,9 +324,17 @@ export interface Question {
   multiSelect: boolean
 }
 
+/** 会话上挂着的后台任务（Agent 工具后台化的子任务，如"先在后台调查，稍后告诉你"这类）。
+ *  主回合的 result 事件只代表"这一轮可见回复结束了"，不代表后台工作也结束——这个字段用来区分两者。 */
+export interface BackgroundTaskInfo {
+  taskId: string
+  taskType: string
+  description: string
+}
+
 // ── 服务端 → 客户端（均带 seq）────────────────────────────────────
 export type ServerMessage =
-  | { type: 'ready'; seq: number; sessionId: string; sdkSessionId: string | null; slashCommands?: string[]; status?: SessionStatus; epoch?: string; engine?: Engine; providerKind?: ProviderKind; providerBaseUrl?: string | null; skills?: string[]; agents?: string[]; mcpServers?: { name: string; status: string }[]; outputStyle?: string | null }
+  | { type: 'ready'; seq: number; sessionId: string; sdkSessionId: string | null; slashCommands?: string[]; status?: SessionStatus; epoch?: string; engine?: Engine; providerKind?: ProviderKind; providerBaseUrl?: string | null; skills?: string[]; agents?: string[]; mcpServers?: { name: string; status: string }[]; outputStyle?: string | null; backgroundTasks?: BackgroundTaskInfo[] }
   | { type: 'assistantDelta'; seq: number; text: string }
   | { type: 'toolUse'; seq: number; toolName: string; input: unknown }
   | { type: 'toolResult'; seq: number; toolName: string; output: string; isError: boolean }
@@ -341,6 +349,8 @@ export type ServerMessage =
   | { type: 'turnInfo'; seq: number; requestedModel: string | null; responseModel: string | null; viaGateway: boolean; baseUrl: string | null }
   | { type: 'turnProgress'; seq: number; outputTokens: number }
   | { type: 'error'; seq: number; code: string; message: string }
+  /** 该会话后台任务的全量快照，收到即整体覆盖（REPLACE 语义）；空数组＝当前没有后台任务在跑。 */
+  | { type: 'backgroundTasks'; seq: number; tasks: BackgroundTaskInfo[] }
 
 /** 一轮调用诊断条目：请求模型 vs API 实际返回模型 + 是否经网关。供第三方会话「调用诊断」区块展示。 */
 export interface TurnDiag {

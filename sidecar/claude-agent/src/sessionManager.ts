@@ -214,6 +214,13 @@ class Session {
   private curMsgTokens = 0
   /** 本轮是否已见过 SDK 的 result 消息；用于流异常收尾（未发 result）时补发，避免前端永久「思考中」。 */
   private turnHadResult = false
+  /**
+   * 该会话当前存活的后台任务快照（Agent 工具后台化的子任务）。SDK 用 REPLACE 语义整体下发
+   * （system/background_tasks_changed），收到即整体覆盖，不需要自己配对 start/end 事件——
+   * 空数组即代表当前没有后台任务在跑。主回合的 result 事件只代表"这一轮可见回复结束了"，
+   * 不代表会话触发的所有后台工作都结束；这份状态就是用来区分这两者的。
+   */
+  backgroundTasks: Array<{ taskId: string; taskType: string; description: string }> = []
   readonly perms: Permissions
 
   constructor(
@@ -482,6 +489,16 @@ class Session {
             const outputStyle = typeof m.output_style === 'string' ? m.output_style : null
             this.emitSelf({ type: 'init', sdkSessionId: this.sdkSessionId, slashCommands, skills, agents, mcpServers, outputStyle })
           }
+        } else if (m.subtype === 'background_tasks_changed') {
+          // SDK 的 REPLACE 语义：每次都是"当前存活的全量后台任务"，直接整体覆盖，不用配对
+          // task_started/task_notification 这类边沿事件——漏掉一个边沿事件也不会导致状态卡死。
+          const tasks = Array.isArray(m.tasks) ? (m.tasks as Array<Record<string, unknown>>) : []
+          this.backgroundTasks = tasks.map(t => ({
+            taskId: String(t.task_id ?? ''),
+            taskType: String(t.task_type ?? ''),
+            description: String(t.description ?? ''),
+          }))
+          this.emitSelf({ type: 'backgroundTasks', tasks: this.backgroundTasks })
         }
         break
       }

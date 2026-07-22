@@ -489,7 +489,7 @@ public class ClaudeChatService {
         String providerKind = providerBaseUrl == null ? "official" : "thirdParty";
         return new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands,
                 ctx.status.name(), ctx.epoch, ctx.engine, providerKind, providerBaseUrl,
-                ctx.skills, ctx.agents, ctx.mcpServers, ctx.outputStyle);
+                ctx.skills, ctx.agents, ctx.mcpServers, ctx.outputStyle, ctx.backgroundTasks);
     }
 
     /**
@@ -630,6 +630,10 @@ public class ClaudeChatService {
             case "result" -> onResult(ctx, node);
             case "error" -> sendToBrowser(ctx, seq -> new ServerMessage.Error(
                     seq, node.path("code").asText("SIDECAR_ERROR"), node.path("message").asText("")));
+            case "backgroundTasks" -> {
+                ctx.backgroundTasks = parseBackgroundTasks(node.get("tasks"));
+                sendToBrowser(ctx, seq -> new ServerMessage.BackgroundTasks(seq, ctx.backgroundTasks));
+            }
             default -> log.debug("[claude-chat] 未知 sidecar 事件 type={}", type);
         }
     }
@@ -933,6 +937,19 @@ public class ClaudeChatService {
         return out;
     }
 
+    /** 解析 sidecar 的 backgroundTasks 数组（{taskId,taskType,description}）。 */
+    private List<ServerMessage.BackgroundTaskInfo> parseBackgroundTasks(JsonNode n) {
+        if (n == null || !n.isArray()) return List.of();
+        List<ServerMessage.BackgroundTaskInfo> out = new ArrayList<>();
+        for (JsonNode e : n) {
+            if (e != null && e.isObject()) {
+                out.add(new ServerMessage.BackgroundTaskInfo(
+                        e.path("taskId").asText(""), e.path("taskType").asText(""), e.path("description").asText("")));
+            }
+        }
+        return out;
+    }
+
     /** 解析 SDK supportedModels 数组（{value, displayName, description, …}）为前端 ModelInfo。 */
     private List<ModelInfo> parseModels(JsonNode n) {
         if (n == null || !n.isArray()) return List.of();
@@ -1009,6 +1026,9 @@ public class ClaudeChatService {
         /** 该会话可用模型清单（来自 SDK supportedModels）与当前模型，供命令菜单的模型组展示/切换。 */
         volatile java.util.List<ModelInfo> models = java.util.List.of();
         volatile String currentModel;
+        /** 该会话当前存活的后台任务快照（来自 sidecar 的 backgroundTasks 事件），随每条 Ready 透传给
+         *  前端——切会话/重连那一刻就能查到是否还有后台任务在跑，不用等下一次变化事件推送。 */
+        volatile java.util.List<ServerMessage.BackgroundTaskInfo> backgroundTasks = java.util.List.of();
 
         SessionCtx(String sessionId, String cwd) {
             this.sessionId = sessionId;

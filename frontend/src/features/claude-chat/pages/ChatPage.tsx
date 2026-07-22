@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpToLine, Bell, Bug, ChevronDown, Cloud, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, List, ListChecks, ListFilter, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
+import { ArrowUpToLine, Bell, Bug, ChevronDown, Cloud, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useChatRuntime } from '../runtime/ChatRuntimeContext'
@@ -1333,6 +1333,18 @@ export function ChatPage() {
           />
           <div className="flex flex-wrap items-center gap-2 px-3 pt-2">
             <ModeSwitch mode={chat.mode} onChange={chat.setMode} />
+            {/* 后台任务提示：可见回合（result）已结束，但会话上还挂着 Agent 后台子任务没完事——
+                区分"真的没事干了"和"后台还在查、还没回来"，避免以为卡住了。不做成停止按钮：
+                这里没有可中断的前台轮次，点了也停不掉后台任务，做成按钮会误导。 */}
+            {!chat.running && chat.backgroundTasks.length > 0 && (
+              <span
+                className="flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                title={chat.backgroundTasks.map(t => t.description || t.taskType).join('\n')}
+              >
+                <Loader2 className="size-3.5 animate-spin" />
+                后台任务进行中 · {chat.backgroundTasks.length}
+              </span>
+            )}
             {chat.currentEngine === 'codex' && (
               <CodexSessionOptions
                 models={chat.models}

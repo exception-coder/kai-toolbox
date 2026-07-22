@@ -17,15 +17,18 @@ public sealed interface ServerMessage
                 ServerMessage.QuestionRequest, ServerMessage.DecisionResolved,
                 ServerMessage.Models, ServerMessage.UserMessage, ServerMessage.Forked,
                 ServerMessage.ReplayGap, ServerMessage.Result, ServerMessage.TurnInfo,
-                ServerMessage.TurnProgress, ServerMessage.Error {
+                ServerMessage.TurnProgress, ServerMessage.Error, ServerMessage.BackgroundTasks {
 
     long seq();
 
     /** 会话就绪。{@code epoch} 标识当前内存会话实例：后端重启/会话重建会换新值，
-     *  前端据此判定服务端 seq 计数器已复位，重置自己的去重高水位，避免把重启后低 seq 消息全丢弃。 */
+     *  前端据此判定服务端 seq 计数器已复位，重置自己的去重高水位，避免把重启后低 seq 消息全丢弃。
+     *  {@code backgroundTasks} 是切会话/重连那一刻的后台任务快照（见 BackgroundTasks 说明），
+     *  让前端"切换会话时"就能查到当时是否还有后台任务在跑，不用等下一次变化事件推送。 */
     @JsonTypeName("ready")
     record Ready(long seq, String sessionId, String sdkSessionId, List<String> slashCommands, String status, String epoch, String engine, String providerKind, String providerBaseUrl,
-                 List<String> skills, List<String> agents, List<McpServer> mcpServers, String outputStyle) implements ServerMessage {}
+                 List<String> skills, List<String> agents, List<McpServer> mcpServers, String outputStyle,
+                 List<BackgroundTaskInfo> backgroundTasks) implements ServerMessage {}
 
     /** 会话激活的 MCP 服务（来自 SDK init）。 */
     record McpServer(String name, String status) {}
@@ -85,4 +88,21 @@ public sealed interface ServerMessage
 
     @JsonTypeName("error")
     record Error(long seq, String code, String message) implements ServerMessage {}
+
+    /**
+     * 该会话当前存活的后台任务快照（Agent 工具后台化的子任务，如「先在后台调查，稍后告诉你」这类）。
+     * sidecar 收到 SDK 的 system/background_tasks_changed 事件（REPLACE 语义：每次都是全量存活任务）
+     * 就整体转发一份，收到即覆盖，空数组＝当前没有后台任务在跑。
+     * <p>
+     * 存在的意义：主回合的 {@link Result} 事件只代表"这一轮可见回复结束了"，不代表会话触发的所有
+     * 后台工作都结束——用户可能看到回复说"我先在后台查，稍后告诉你"，但可见回合已经显示完成，
+     * 不看这个字段就无法区分"真的没事干了"和"后台还在查、还没回来"。
+     * <p>
+     * 局限：这份状态只在 sidecar 进程与 SDK 的连接存活期间准确；sidecar 重启/宿主进程被杀后，
+     * 之前挂着的后台任务是死是活无法判断（SDK 本身不提供跨进程重启的任务状态查询能力）。
+     */
+    @JsonTypeName("backgroundTasks")
+    record BackgroundTasks(long seq, List<BackgroundTaskInfo> tasks) implements ServerMessage {}
+
+    record BackgroundTaskInfo(String taskId, String taskType, String description) {}
 }

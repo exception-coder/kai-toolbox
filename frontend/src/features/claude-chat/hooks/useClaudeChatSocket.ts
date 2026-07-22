@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { emitSessionExpired, ensureFreshToken, getToken, logout, useAuth } from '@/lib/auth'
-import type { Attachment, ChatItem, ClientMessage, CodexReasoningEffort, CodexSpeed, ConnState, Engine, ModelInfo, PendingRequest, PermissionMode, ProviderKind, SendAttachment, ServerMessage, TurnDiag } from '../types'
+import type { Attachment, BackgroundTaskInfo, ChatItem, ClientMessage, CodexReasoningEffort, CodexSpeed, ConnState, Engine, ModelInfo, PendingRequest, PermissionMode, ProviderKind, SendAttachment, ServerMessage, TurnDiag } from '../types'
 import { loadMessages } from '../api'
 import { notifyPrompt } from '../browserNotify'
 import { pushDebug } from '../lib/debugLog'
@@ -108,6 +108,9 @@ export interface UseClaudeChatSocket {
   providerDiag: TurnDiag[]
   /** 本轮进行中的实时输出 token 数（0=尚无）。 */
   turnTokens: number
+  /** 该会话当前存活的后台任务（Agent 工具后台化的子任务）。running=false 时非空，说明可见回合已
+   *  结束但后台还有工作没完事——区分"真的没事干了"和"后台还在查、还没回来"。 */
+  backgroundTasks: BackgroundTaskInfo[]
   /** 新建会话（可带初始权限模式、引擎、第三方网关 provider；provider 仅 Claude 引擎生效） */
   open: (cwd: string, model?: string, mode?: PermissionMode, engine?: Engine, provider?: { apiBaseUrl?: string; authToken?: string }) => void
   /** 切换权限模式（下一轮生效） */
@@ -171,6 +174,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
   const [skills, setSkills] = useState<string[]>([])
   const [agents, setAgents] = useState<string[]>([])
   const [mcpServers, setMcpServers] = useState<{ name: string; status: string }[]>([])
+  // 会话上挂着的后台任务（Agent 工具后台化的子任务）：result 事件只代表"这一轮可见回复结束了"，
+  // 不代表后台工作也结束——这份状态单独跟踪，用来在切会话/发送区展示"后台还有任务在跑"。
+  const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTaskInfo[]>([])
   const [outputStyle, setOutputStyle] = useState<string | null>(null)
   const [models, setModels] = useState<ModelInfo[]>([])
   const [modelsRefreshing, setModelsRefreshing] = useState(false)
@@ -286,6 +292,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
         if (msg.skills) setSkills(msg.skills)
         if (msg.agents) setAgents(msg.agents)
         if (msg.mcpServers) setMcpServers(msg.mcpServers)
+        // 后台任务快照：切会话/重连那一刻就能查到当时是否还有后台任务在跑，不用等下一次变化事件。
+        setBackgroundTasks(msg.backgroundTasks ?? [])
         setOutputStyle(msg.outputStyle ?? null)
         if (msg.engine) setCurrentEngine(msg.engine)
         setCurrentProviderKind(msg.providerKind ?? 'official')
@@ -433,6 +441,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
         if (msg.code === 'SIDECAR_DOWN') {
           setErrorMessage(msg.message)
         }
+        break
+      case 'backgroundTasks':
+        // 全量快照，REPLACE 语义：直接覆盖，不用配对开始/结束事件。
+        setBackgroundTasks(msg.tasks)
         break
     }
   }, [])
@@ -884,5 +896,5 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     }
   }, [sendRaw, connect])
 
-  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, skills, agents, mcpServers, outputStyle, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, open, switchTo, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setModel, refreshModels, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, skills, agents, mcpServers, outputStyle, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setModel, refreshModels, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, loadHistory }
 }
