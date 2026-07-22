@@ -297,7 +297,7 @@ export function ForeConsultPage() {
   const [system, setSystem] = useState('')
   const [moduleTags, setModuleTags] = useState<string[]>([])
   const [ask, setAsk] = useState('')
-  const [role, setRole] = useState<ConsultRole>('IT')
+  const [role, setRole] = useState<ConsultRole>('BIZ')
   const [moduleQuery, setModuleQuery] = useState('')
   const [modulesExpanded, setModulesExpanded] = useState(false)
   const [attachments, setAttachments] = useState<ConsultAtt[]>([])
