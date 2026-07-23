@@ -336,7 +336,7 @@ function EstimationBadge({
   return (
     <button
       onClick={onClick}
-      className={`inline-flex items-center gap-1 rounded border leading-tight transition-colors ${colorClass} ${
+      className={`inline-flex flex-shrink-0 items-center gap-1 rounded border leading-tight whitespace-nowrap transition-colors ${colorClass} ${
         compact ? 'text-[9px] px-1' : 'text-[10px] px-1.5 py-0.5'
       } ${onClick ? 'hover:opacity-80 cursor-pointer' : 'cursor-default'}`}
       title={
@@ -667,45 +667,51 @@ function HistoryPanel({
                   // 过期判断：开发文档生成时间早于 PRD 最后更新时间
                   const isStale = !s.devDocGeneratedAt || s.devDocGeneratedAt < s.updatedAt
                   return (
-                    <div className="flex items-center gap-1 mt-1.5">
-                      {/* 树连接线 */}
-                      <div className="flex-shrink-0" style={{ width: 10, height: 8, borderWidth: '0 0 1px 1px', borderStyle: 'dashed', borderColor: 'rgba(100,100,100,0.3)', borderRadius: '0 0 0 3px' }} />
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onSelect({ ...s, _openDevDoc: true } as PrdSessionView & { _openDevDoc?: boolean })
-                        }}
-                        className={`flex items-center gap-1 text-[10px] transition-colors ${
-                          isStale
-                            ? 'text-amber-500 hover:text-amber-400'   // 橙色 = 过期
-                            : 'text-purple-400 hover:text-purple-300'  // 紫色 = 已同步
-                        }`}
-                        title={isStale ? '开发文档已过期（PRD 有更新），建议重新生成' : '查看开发文档（已同步最新PRD）'}
-                      >
-                        <Wrench className="w-2.5 h-2.5" />
-                        {isStale ? '开发文档（已过期）' : '开发文档'}
-                      </button>
-                      {/* 过期时显示重新生成按钮 */}
-                      {isStale && (
+                    <div className="mt-1.5">
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {/* 树连接线 */}
+                        <div className="flex-shrink-0" style={{ width: 10, height: 8, borderWidth: '0 0 1px 1px', borderStyle: 'dashed', borderColor: 'rgba(100,100,100,0.3)', borderRadius: '0 0 0 3px' }} />
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
-                            // 进入该 PRD 并触发重新生成开发文档
-                            onSelect({ ...s, _regenDevDoc: true } as PrdSessionView & { _regenDevDoc?: boolean })
+                            onSelect({ ...s, _openDevDoc: true } as PrdSessionView & { _openDevDoc?: boolean })
                           }}
-                          className="text-[9px] px-1 rounded bg-amber-500/15 text-amber-500 border border-amber-500/20 hover:bg-amber-500/25 leading-tight"
-                          title="基于最新 PRD 重新生成开发文档"
+                          className={`flex items-center gap-1 text-[10px] whitespace-nowrap transition-colors ${
+                            isStale
+                              ? 'text-amber-500 hover:text-amber-400'   // 橙色 = 过期
+                              : 'text-purple-400 hover:text-purple-300'  // 紫色 = 已同步
+                          }`}
+                          title={isStale ? '开发文档已过期（PRD 有更新），建议重新生成' : '查看开发文档（已同步最新PRD）'}
                         >
-                          ↺ 更新
+                          <Wrench className="w-2.5 h-2.5 flex-shrink-0" />
+                          {isStale ? '开发文档（已过期）' : '开发文档'}
                         </button>
-                      )}
-                      {/* AI 工时评估徽标：只读展示，评估动作在开发文档 Tab 工具栏里触发 */}
+                        {/* 过期时显示重新生成按钮 */}
+                        {isStale && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              // 进入该 PRD 并触发重新生成开发文档
+                              onSelect({ ...s, _regenDevDoc: true } as PrdSessionView & { _regenDevDoc?: boolean })
+                            }}
+                            className="flex-shrink-0 whitespace-nowrap text-[9px] px-1 rounded bg-amber-500/15 text-amber-500 border border-amber-500/20 hover:bg-amber-500/25 leading-tight"
+                            title="基于最新 PRD 重新生成开发文档"
+                          >
+                            ↺ 更新
+                          </button>
+                        )}
+                      </div>
+                      {/* AI 工时评估徽标：单独一行展示（跟 title 对齐缩进），避免跟上面的按钮挤在
+                          同一行导致窄侧边栏里换行、中文按钮文字被逐字拆行。只读，评估动作在
+                          开发文档 Tab 工具栏里触发 */}
                       {s.devDocEstimation && (
-                        <EstimationBadge
-                          estimation={s.devDocEstimation}
-                          compact
-                          onClick={(e) => { e.stopPropagation(); setViewingEstimation(s.devDocEstimation) }}
-                        />
+                        <div className="flex items-center mt-1" style={{ paddingLeft: 14 }}>
+                          <EstimationBadge
+                            estimation={s.devDocEstimation}
+                            compact
+                            onClick={(e) => { e.stopPropagation(); setViewingEstimation(s.devDocEstimation) }}
+                          />
+                        </div>
                       )}
                     </div>
                   )
