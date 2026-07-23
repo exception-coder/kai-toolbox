@@ -346,6 +346,15 @@
 @keyframes fc-thinking { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
 .fc-thinking-dot { animation: fc-thinking 1.2s ease-in-out infinite; }
 
+/* 引导提示：轻柔发光脉冲，吸引注意但不刺眼 */
+.fc-hint { animation: fc-hint-glow 2.2s ease-in-out infinite; }
+@keyframes fc-hint-glow {
+  0%, 100% { box-shadow: 0 0 24px -10px rgba(120, 180, 255, 0.5); }
+  50% { box-shadow: 0 0 36px -2px rgba(120, 180, 255, 0.85); }
+}
+@keyframes fc-hint-nudge { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(3px); } }
+.fc-hint-icon { animation: fc-hint-nudge 1.6s ease-in-out infinite; }
+
 @media (prefers-reduced-motion: reduce) {
   .fc-space::before, .fc-star, .fc-orb-wrap, .fc-orb, .fc-orb::after, .fc-orb-wrap.is-active .fc-orb,
   .fc-edge, .fc-core, .fc-core::before, .fc-core::after, .fc-console, .fc-console-scan::before { animation: none !important; }

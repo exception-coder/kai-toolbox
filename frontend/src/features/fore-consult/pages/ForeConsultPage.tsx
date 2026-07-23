@@ -5,9 +5,9 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   BarChart3, Boxes, BrainCircuit, Briefcase, ChevronDown, Contact, Eye, EyeOff, Factory, Handshake,
-  FileText, History, Landmark, Lightbulb, Loader2, Maximize2, MessagesSquare, Minimize2, Paperclip, Radar,
-  Route, Save, Search, Send, Server, ShoppingBag, ShoppingCart, SlidersHorizontal, Sparkles, Trash2, Truck,
-  Users, Warehouse, Waypoints, X, type LucideIcon,
+  FileText, History, Landmark, Lightbulb, Loader2, Maximize2, MessagesSquare, Minimize2, MousePointerClick,
+  Paperclip, Radar, Route, Save, Search, Send, Server, ShoppingBag, ShoppingCart, SlidersHorizontal, Sparkles,
+  Trash2, Truck, Users, Warehouse, Waypoints, X, type LucideIcon,
 } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
@@ -308,6 +308,13 @@ export function ForeConsultPage() {
   const [viewSession, setViewSession] = useState<{ id: string; title: string } | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [hintDismissed, setHintDismissed] = useState(() => {
+    try {
+      return localStorage.getItem('kai-toolbox:fore-consult:hint-dismissed') === '1'
+    } catch {
+      return false
+    }
+  })
   const [configOpen, setConfigOpen] = useState(false)
   const [configRows, setConfigRows] = useState<Array<{ name: string; path: string; alias: string; visible: boolean }>>([])
   const [showLinks, setShowLinks] = useState(true)
@@ -663,8 +670,18 @@ export function ForeConsultPage() {
     setConversationOpen(true)
   }
 
+  const dismissHint = () => {
+    setHintDismissed(true)
+    try {
+      localStorage.setItem('kai-toolbox:fore-consult:hint-dismissed', '1')
+    } catch {
+      /* ignore */
+    }
+  }
+
   const openSystem = (name: string) => {
     if (activeConsultId) return // 有咨询进行中时，先归档再开新的
+    dismissHint() // 点过星球即视为已学会，之后不再提示
     setSystem(name)
     setModuleTags([])
     setAsk('')
@@ -853,6 +870,28 @@ export function ForeConsultPage() {
           </div>
         </div>
       )}
+
+      {/* 新手引导：提示点击星球发起咨询（空闲时显示，点过星球或关闭后不再提示） */}
+      {!hintDismissed &&
+        visibleProjects.length > 0 &&
+        !panelOpen &&
+        !conversationOpen &&
+        !configOpen &&
+        !historyOpen &&
+        !viewSession &&
+        !activeConsultId && (
+          <div className="pointer-events-none absolute left-1/2 top-[13%] z-20 max-w-[90%] -translate-x-1/2">
+            <div className="fc-hint pointer-events-auto flex items-center gap-2.5 rounded-full border border-sky-300/35 bg-sky-400/15 px-4 py-2 text-sm text-sky-50 backdrop-blur-md">
+              <MousePointerClick className="fc-hint-icon size-4 shrink-0 text-sky-300" />
+              <span>
+                点击任意<b className="font-semibold text-white">系统星球</b>，选定模块后即可向 AI 发起业务咨询
+              </span>
+              <button type="button" onClick={dismissHint} className="ml-1 shrink-0 rounded-full p-0.5 text-sky-100/70 hover:bg-white/10" aria-label="知道了">
+                <X className="size-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
 
       {/* 系统链路：发光数据流连线（在球体之下），带流动粒子 */}
       {edges.length > 0 && (
