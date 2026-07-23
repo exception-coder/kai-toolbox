@@ -322,6 +322,7 @@ export function ForeConsultPage() {
   // 记录本次咨询上传过的附件（含落盘 path），归档时按文件名补给对应轮次。
   const attMetaRef = useRef<Map<string, { path: string; mime?: string | null }>>(new Map())
   const syncTimerRef = useRef<number | null>(null)
+  const resumeRef = useRef<string | null>(null) // 待续跑的 claude-chat 会话 id
 
   const { data: workspaces } = useQuery({ queryKey: ['workspaces'], queryFn: listWorkspaces })
 
@@ -632,6 +633,34 @@ export function ForeConsultPage() {
         .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, 'zh')),
     )
     setConfigOpen(true)
+  }
+
+  // 续跑：chat 可用时把排队的 claude-chat 会话切过去（加载其历史 + 可继续发消息）。
+  const doResume = useCallback(() => {
+    const sid = resumeRef.current
+    if (!chat || !sid) return
+    resumeRef.current = null
+    chat.switchTo(sid)
+  }, [chat])
+  useEffect(() => {
+    if (chat && resumeRef.current) doResume()
+  }, [chat, doResume])
+
+  // 继续一次「进行中」的咨询：恢复系统/角色/活跃态，并续跑其底层会话，打开可发消息的对话面板。
+  const resumeConsult = (s: ConsultSessionView) => {
+    setSystem(s.systemName)
+    setRole(s.role === 'BIZ' ? 'BIZ' : 'IT')
+    setActiveConsultId(s.sessionId)
+    setHistoryOpen(false)
+    setViewSession(null)
+    // 不是当前活跃会话时，续跑其底层 claude-chat 会话，把历史对话切回来。
+    if (s.sessionId !== activeConsultId && s.devSessionId) {
+      attMetaRef.current = new Map()
+      resumeRef.current = s.devSessionId
+      if (chat) doResume()
+      else activate()
+    }
+    setConversationOpen(true)
   }
 
   const openSystem = (name: string) => {
@@ -1191,10 +1220,10 @@ export function ForeConsultPage() {
                   <li
                     key={s.sessionId}
                     onClick={() => {
-                      // 进行中且是当前活跃会话：打开实时对话面板（内容在 chat.items 里，归档表里还没有）。
-                      if (s.sessionId === activeConsultId) {
-                        setHistoryOpen(false)
-                        setConversationOpen(true)
+                      // 进行中（PENDING）：续跑并打开可发消息的实时对话面板，直接在会话里继续回答；
+                      // 已归档（SUCCESS/FAILED）：只读查看。无底层会话可续跑的进行中记录，退回只读。
+                      if (s.archiveStatus === 'PENDING' && (s.sessionId === activeConsultId || s.devSessionId)) {
+                        resumeConsult(s)
                       } else {
                         setViewSession({ id: s.sessionId, title: displayName(s.systemName) })
                       }
