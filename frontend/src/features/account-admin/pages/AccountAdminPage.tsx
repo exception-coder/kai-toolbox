@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, KeyRound, Pencil, RotateCcw, Trash2, UserPlus } from 'lucide-react'
+import { KeyRound, RotateCcw, Trash2, UserPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Permission } from '@/components/auth/Permission'
 import { useAuth } from '@/lib/auth'
 import {
-  COMMON_ROLES,
   assignUserRoles,
   createUser,
   deleteUser,
@@ -16,7 +15,6 @@ import {
   resetPassword,
   setEnabled,
   setUserDepartment,
-  updateRoles,
   type AdminUser,
   type ForgeDeptNode,
 } from '../api'
@@ -46,20 +44,13 @@ function AdminPanel() {
 
   const [newName, setNewName] = useState('')
   const [newPwd, setNewPwd] = useState('')
-  const [newRoles, setNewRoles] = useState<string[]>(['USER'])
-  const [editingId, setEditingId] = useState<number | null>(null)
-  const [editRoles, setEditRoles] = useState<string[]>([])
   const [err, setErr] = useState<string | null>(null)
   const [grantUser, setGrantUser] = useState<AdminUser | null>(null)
 
+  // 新账号默认仅 USER（无任何菜单权限）；建号后由「授权」抽屉分配 Forge 角色/部门。
   const create = useMutation({
-    mutationFn: () => createUser(newName.trim(), newPwd, newRoles),
-    onSuccess: () => { setNewName(''); setNewPwd(''); setNewRoles(['USER']); setErr(null); invalidate() },
-    onError: e => setErr((e as Error).message),
-  })
-  const saveRoles = useMutation({
-    mutationFn: (id: number) => updateRoles(id, editRoles),
-    onSuccess: () => { setEditingId(null); invalidate() },
+    mutationFn: () => createUser(newName.trim(), newPwd, ['USER']),
+    onSuccess: () => { setNewName(''); setNewPwd(''); setErr(null); invalidate() },
     onError: e => setErr((e as Error).message),
   })
   const toggleEnabled = useMutation({
@@ -82,9 +73,6 @@ function AdminPanel() {
   const doDelete = (u: AdminUser) => {
     if (window.confirm(`确认删除账号「${u.username}」？该操作不可恢复。`)) removeUser.mutate(u.userId)
   }
-  const startEdit = (u: AdminUser) => { setEditingId(u.userId); setEditRoles(u.roles) }
-  const toggleRole = (roles: string[], r: string, set: (v: string[]) => void) =>
-    set(roles.includes(r) ? roles.filter(x => x !== r) : [...roles, r])
 
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-4">
@@ -99,8 +87,8 @@ function AdminPanel() {
         <div className="flex flex-wrap items-center gap-2">
           <input className="w-36 rounded-md border bg-[var(--color-background)] px-2 py-1 text-sm" placeholder="用户名" value={newName} onChange={e => setNewName(e.target.value)} />
           <input type="password" className="w-36 rounded-md border bg-[var(--color-background)] px-2 py-1 text-sm" placeholder="密码" value={newPwd} onChange={e => setNewPwd(e.target.value)} />
-          <RolePicker roles={newRoles} onToggle={r => toggleRole(newRoles, r, setNewRoles)} />
           <Button size="sm" disabled={!newName.trim() || !newPwd || create.isPending} onClick={() => create.mutate()}>创建</Button>
+          <span className="text-xs text-[var(--color-muted-foreground)]">建号后用「授权」分配角色/部门</span>
         </div>
       </div>
 
@@ -111,36 +99,22 @@ function AdminPanel() {
         <div className="overflow-hidden rounded-md border">
           <table className="w-full text-sm">
             <thead className="bg-[var(--color-muted)] text-left text-xs text-[var(--color-muted-foreground)]">
-              <tr><th className="px-3 py-2">用户名</th><th className="px-3 py-2">角色</th><th className="px-3 py-2 w-20">状态</th><th className="px-3 py-2 w-64">操作</th></tr>
+              <tr><th className="px-3 py-2">用户名</th><th className="px-3 py-2">旧角色<span className="font-normal">（只读·已废弃）</span></th><th className="px-3 py-2 w-20">状态</th><th className="px-3 py-2 w-64">操作</th></tr>
             </thead>
             <tbody className="divide-y">
               {users.map(u => (
                 <tr key={u.userId}>
                   <td className="px-3 py-2 font-medium">{u.username}</td>
-                  <td className="px-3 py-2">
-                    {editingId === u.userId
-                      ? <RolePicker roles={editRoles} onToggle={r => toggleRole(editRoles, r, setEditRoles)} />
-                      : <span className="text-xs">{u.roles.join(', ') || '—'}</span>}
-                  </td>
+                  <td className="px-3 py-2"><span className="text-xs text-[var(--color-muted-foreground)]">{u.roles.join(', ') || '—'}</span></td>
                   <td className="px-3 py-2 text-xs">{u.enabled ? '启用' : <span className="text-[var(--color-muted-foreground)]">停用</span>}</td>
                   <td className="px-3 py-2">
                     <div className="flex flex-wrap gap-1">
-                      {editingId === u.userId ? (
-                        <>
-                          <Button size="sm" variant="outline" onClick={() => saveRoles.mutate(u.userId)}><Check className="size-3.5" /> 保存</Button>
-                          <Button size="sm" variant="ghost" onClick={() => setEditingId(null)}>取消</Button>
-                        </>
-                      ) : (
-                        <>
-                          <Button size="sm" variant="ghost" title="改角色" onClick={() => startEdit(u)}><Pencil className="size-3.5" /></Button>
-                          <Permission code="forge:user:btn:assign">
-                            <Button size="sm" variant="ghost" title="分配角色/部门" onClick={() => setGrantUser(u)}><KeyRound className="size-3.5" /></Button>
-                          </Permission>
-                          <Button size="sm" variant="ghost" title="重置密码" onClick={() => void doReset(u)}><RotateCcw className="size-3.5" /></Button>
-                          <Button size="sm" variant="ghost" onClick={() => toggleEnabled.mutate(u)}>{u.enabled ? '停用' : '启用'}</Button>
-                          <Button size="sm" variant="ghost" className="text-[var(--color-destructive)]" title="删除" onClick={() => doDelete(u)}><Trash2 className="size-3.5" /></Button>
-                        </>
-                      )}
+                      <Permission code="forge:user:btn:assign">
+                        <Button size="sm" variant="ghost" title="分配 Forge 角色/部门" onClick={() => setGrantUser(u)}><KeyRound className="size-3.5" /> 授权</Button>
+                      </Permission>
+                      <Button size="sm" variant="ghost" title="重置密码" onClick={() => void doReset(u)}><RotateCcw className="size-3.5" /></Button>
+                      <Button size="sm" variant="ghost" onClick={() => toggleEnabled.mutate(u)}>{u.enabled ? '停用' : '启用'}</Button>
+                      <Button size="sm" variant="ghost" className="text-[var(--color-destructive)]" title="删除" onClick={() => doDelete(u)}><Trash2 className="size-3.5" /></Button>
                     </div>
                   </td>
                 </tr>
@@ -246,21 +220,4 @@ function flattenDept(nodes: ForgeDeptNode[], depth = 0): { id: number; label: st
     { id: n.id, label: `${'　'.repeat(depth)}${n.name}` },
     ...flattenDept(n.children, depth + 1),
   ])
-}
-
-function RolePicker({ roles, onToggle }: { roles: string[]; onToggle: (r: string) => void }) {
-  return (
-    <div className="flex flex-wrap gap-1">
-      {COMMON_ROLES.map(r => (
-        <button
-          key={r}
-          type="button"
-          onClick={() => onToggle(r)}
-          className={`rounded-md border px-2 py-0.5 text-xs ${roles.includes(r) ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]' : 'text-[var(--color-muted-foreground)]'}`}
-        >
-          {r}
-        </button>
-      ))}
-    </div>
-  )
 }
