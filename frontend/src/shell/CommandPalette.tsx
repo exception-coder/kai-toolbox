@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { CornerDownLeft, Film, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useAuth } from '@/lib/auth'
+import { useAccessContext } from './permission'
 import { entryOf, features } from './featureRegistry'
 import { hasFeatureAccess } from './access'
 import { onOpenCommandPalette } from './commandPaletteBus'
@@ -28,7 +28,7 @@ type Row = NavRow | VideoRow
  */
 export function CommandPalette() {
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const access = useAccessContext()
   const inputRef = useRef<HTMLInputElement>(null)
 
   const [open, setOpen] = useState(false)
@@ -67,20 +67,18 @@ export function CommandPalette() {
     return () => window.clearTimeout(t)
   }, [input, query])
 
-  const roles = user?.roles ?? []
-
   // 跳转项：面板可直达所有「有权访问」的模块（含菜单里被隐藏的）——这正是命令面板的意义：菜单只留核心，其余靠它触达。
   const navRows = useMemo<NavRow[]>(() => {
     const q = query.toLowerCase()
     return features
-      .filter((f) => hasFeatureAccess(f, roles))
+      .filter((f) => hasFeatureAccess(f, access))
       .filter((f) => !q || `${f.name} ${f.group ?? ''} ${f.id}`.toLowerCase().includes(q))
       .map((f) => ({ kind: 'nav' as const, id: f.id, name: f.name, group: f.group, icon: f.icon, to: entryOf(f) }))
-  }, [query, roles])
+  }, [query, access])
 
   // 视频库可访问才启用视频搜索（无权则不显示视频区）。
   const videoFeature = features.find((f) => f.id === 'video-library')
-  const canVideo = !!videoFeature && hasFeatureAccess(videoFeature, roles)
+  const canVideo = !!videoFeature && hasFeatureAccess(videoFeature, access)
   const { config: libraryConfig } = useVideoLibraryConfig()
   const excludedDirs = libraryConfig.excludedDirs
   const videoResult = useQuery({

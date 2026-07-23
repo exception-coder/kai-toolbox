@@ -3,7 +3,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { useNavigate } from 'react-router-dom'
 import { LayoutGrid, Palette, Tags, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useAuth } from '@/lib/auth'
+import { useAccessContext } from './permission'
 import { entryOf, features } from './featureRegistry'
 import { hasFeatureAccess } from './access'
 import { ThemeAppearanceSection } from './ThemeAppearanceSection'
@@ -32,13 +32,13 @@ interface SettingsDialogProps {
 export function SettingsDialog({ open, onOpenChange, initialSection = 'appearance' }: SettingsDialogProps) {
   const [section, setSection] = useState<Section>(initialSection)
   const navigate = useNavigate()
-  const { user } = useAuth()
+  const access = useAccessContext()
 
   // 每次打开都回到调用方指定的默认分区（而非停留在上次关闭时的分区）
   useEffect(() => { if (open) setSection(initialSection) }, [open, initialSection])
 
   // 「工作区」分区收纳的管理类页面（如菜单配置），沿用原账号菜单里 chromeItems 的口径
-  const workspaceItems = features.filter(f => f.chrome && hasFeatureAccess(f, user?.roles ?? []))
+  const workspaceItems = features.filter(f => f.chrome && hasFeatureAccess(f, access))
 
   const goWorkspaceItem = (path: string) => {
     onOpenChange(false)

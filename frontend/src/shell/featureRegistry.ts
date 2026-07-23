@@ -13,6 +13,10 @@ export const features: FeatureManifest[] = Object.values(modules)
   // 代码级隐藏（manifest.hidden）：整体剔除——不注册路由、不进任何菜单面，只能改源码 hidden:false 恢复。
   // 与用户在「菜单配置」里勾掉的软隐藏不同（后者仅隐藏菜单入口、路由仍在，见 shell/menuVisibility）。
   .filter(f => !f.hidden)
+  // 菜单权限码自动派生：tool 布局（排除 showcase 公开故事页）且未显式声明 requiredPermission 的模块，
+  // 默认按 `menu:<id>` 门禁——从而可在「角色管理」里把菜单分配给角色。超管 / ADMIN 恒放行（见 access.ts）。
+  // 后端需有同名 `menu:<id>` 权限码（MenuPermissions 声明）才能被绑定；未声明的模块保持仅超管可见。
+  .map(f => (f.layout !== 'showcase' && !f.requiredPermission ? { ...f, requiredPermission: `menu:${f.id}` } : f))
   .sort((a, b) => (a.order ?? 100) - (b.order ?? 100) || a.name.localeCompare(b.name))
 
 export function entryOf(f: FeatureManifest): string {
