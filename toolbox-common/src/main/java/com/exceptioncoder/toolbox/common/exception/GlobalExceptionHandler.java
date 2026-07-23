@@ -3,6 +3,9 @@ package com.exceptioncoder.toolbox.common.exception;
 import com.exceptioncoder.toolbox.common.auth.AuthException;
 import com.exceptioncoder.toolbox.common.dynamicconfig.DynamicConfigException;
 import com.exceptioncoder.toolbox.common.featureconfig.FeatureConfigNotFoundException;
+import com.exceptioncoder.toolbox.common.forge.exception.DepartmentInUseException;
+import com.exceptioncoder.toolbox.common.forge.exception.ForbiddenException;
+import com.exceptioncoder.toolbox.common.forge.exception.UnauthorizedException;
 import com.exceptioncoder.toolbox.common.media.FfmpegUnavailableException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,6 +75,24 @@ public class GlobalExceptionHandler {
                 "code", e.getCode(),
                 "message", e.getMessage() == null ? "" : e.getMessage()
         ));
+    }
+
+    // ===== Forge 权限体系：硬鉴权语义（取代 SoftGuard 静默降级）=====
+    // 显式登记，避免被下方 catch-all(Exception.class) 吞成 500。
+
+    @ExceptionHandler(UnauthorizedException.class)
+    public ResponseEntity<Map<String, Object>> handleUnauthorized(UnauthorizedException e) {
+        return body(HttpStatus.UNAUTHORIZED, e.getMessage());
+    }
+
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<Map<String, Object>> handleForbidden(ForbiddenException e) {
+        return body(HttpStatus.FORBIDDEN, e.getMessage());
+    }
+
+    @ExceptionHandler(DepartmentInUseException.class)
+    public ResponseEntity<Map<String, Object>> handleDepartmentInUse(DepartmentInUseException e) {
+        return body(HttpStatus.CONFLICT, e.getMessage());
     }
 
     @ExceptionHandler(DynamicConfigException.class)
