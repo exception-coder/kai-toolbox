@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { useAuth } from '@/lib/auth'
 import { hasFeatureAccess, requiredRolesFor } from '@/shell/access'
+import { useAccessContext } from '@/shell/permission'
 import type { FeatureManifest } from '@/shell/types'
 
 /**
@@ -9,7 +10,8 @@ import type { FeatureManifest } from '@/shell/types'
  */
 export function RouteGuard({ feature, children }: { feature: FeatureManifest; children: ReactNode }) {
   const { user } = useAuth()
-  if (hasFeatureAccess(feature, user?.roles ?? [])) {
+  const access = useAccessContext()
+  if (hasFeatureAccess(feature, access)) {
     return <>{children}</>
   }
   const required = requiredRolesFor(feature.id)
