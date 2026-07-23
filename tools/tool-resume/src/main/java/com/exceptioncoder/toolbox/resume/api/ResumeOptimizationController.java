@@ -1,6 +1,6 @@
 package com.exceptioncoder.toolbox.resume.api;
 
-import com.exceptioncoder.toolbox.common.auth.annotation.SoftGuard;
+import com.exceptioncoder.toolbox.common.auth.annotation.RequireRole;
 import com.exceptioncoder.toolbox.resume.api.dto.ResumeOptimizationRequest;
 import com.exceptioncoder.toolbox.resume.api.dto.ResumeOptimizationResponse;
 import com.exceptioncoder.toolbox.resume.api.dto.WholeOptimizationRequest;
@@ -20,7 +20,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  */
 @RestController
 @RequestMapping("/api/v1/resume")
-@SoftGuard(allowReadonly = false)
+@RequireRole("ADMIN")
 public class ResumeOptimizationController {
 
     private final ResumeOptimizationService service;

@@ -3,9 +3,9 @@ package com.exceptioncoder.toolbox.common.auth.config;
 import com.exceptioncoder.toolbox.common.auth.service.AuthUserService;
 import com.exceptioncoder.toolbox.common.auth.service.JwtService;
 import com.exceptioncoder.toolbox.common.auth.service.TokenService;
+import com.exceptioncoder.toolbox.common.auth.web.AdminOnlyInterceptor;
 import com.exceptioncoder.toolbox.common.auth.web.JwtAuthFilter;
 import com.exceptioncoder.toolbox.common.auth.web.RequireAuthInterceptor;
-import com.exceptioncoder.toolbox.common.auth.web.SoftGuardInterceptor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -56,14 +56,14 @@ public class AuthAutoConfiguration implements WebMvcConfigurer {
     }
 
     @Bean
-    public SoftGuardInterceptor softGuardInterceptor() {
-        return new SoftGuardInterceptor(props);
+    public AdminOnlyInterceptor adminOnlyInterceptor() {
+        return new AdminOnlyInterceptor(props);
     }
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(requireAuthInterceptor());
-        registry.addInterceptor(softGuardInterceptor());
+        registry.addInterceptor(adminOnlyInterceptor());
     }
 
     /**
