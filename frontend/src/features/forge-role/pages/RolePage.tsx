@@ -306,25 +306,44 @@ function PermissionBindPanel({ role, onClose }: { role: RoleView; onClose: () =>
       {detail == null ? (
         <div className="text-sm text-[var(--color-muted-foreground)]">加载中…</div>
       ) : (
-        <div className="space-y-3">
-          {[...grouped.entries()].map(([moduleName, perms]) => (
-            <div key={moduleName} className="rounded-md border p-2">
-              <div className="mb-1 text-xs font-medium text-[var(--color-muted-foreground)]">{moduleName}</div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1">
-                {perms.map((p) => (
-                  <label
-                    key={p.id}
-                    className="flex items-center gap-1 text-sm"
-                    style={{ paddingLeft: p.parentCode ? 16 : 0 }}
+        <div className="space-y-2">
+          {[...grouped.entries()].map(([moduleName, perms]) => {
+            const allOn = perms.every((p) => current.has(p.id))
+            const onCount = perms.filter((p) => current.has(p.id)).length
+            const toggleGroup = () => {
+              const next = new Set(current)
+              perms.forEach((p) => (allOn ? next.delete(p.id) : next.add(p.id)))
+              setChecked(next)
+            }
+            return (
+              <div key={moduleName} className="rounded-md border">
+                <div className="flex items-center gap-2 border-b bg-[var(--color-muted)]/40 px-2.5 py-1.5">
+                  <span className="text-xs font-semibold">{moduleName}</span>
+                  <span className="text-[10px] text-[var(--color-muted-foreground)]">{onCount}/{perms.length}</span>
+                  <button
+                    type="button"
+                    className="ml-auto text-xs text-[var(--color-primary)] hover:underline"
+                    onClick={toggleGroup}
                   >
-                    <input type="checkbox" checked={current.has(p.id)} onChange={() => toggle(p.id)} />
-                    <span>{p.name}</span>
-                    <span className="text-xs text-[var(--color-muted-foreground)]">{p.code}</span>
-                  </label>
-                ))}
+                    {allOn ? '清空' : '全选'}
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 gap-x-4 gap-y-1 p-2.5 sm:grid-cols-2 lg:grid-cols-3">
+                  {perms.map((p) => (
+                    <label
+                      key={p.id}
+                      title={p.code}
+                      className="flex items-center gap-1.5 text-sm"
+                      style={{ paddingLeft: p.parentCode ? 16 : 0 }}
+                    >
+                      <input type="checkbox" checked={current.has(p.id)} onChange={() => toggle(p.id)} />
+                      <span className="truncate">{p.name}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
