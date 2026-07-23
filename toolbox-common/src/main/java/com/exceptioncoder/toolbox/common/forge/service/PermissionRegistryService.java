@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.common.forge.service;
 
+import com.exceptioncoder.toolbox.common.forge.api.dto.PermissionView;
 import com.exceptioncoder.toolbox.common.forge.model.Permission;
 import com.exceptioncoder.toolbox.common.forge.model.PermissionDef;
 import com.exceptioncoder.toolbox.common.forge.model.PermissionStatus;
@@ -53,6 +54,11 @@ public class PermissionRegistryService {
         List<String> aliveCodes = declared.stream().map(PermissionDef::code).toList();
         repository.markDeprecatedExcept(aliveCodes, now);
         log.info("Forge 权限码同步完成：声明 {} 个，其余存量码标记 DEPRECATED", declared.size());
+    }
+
+    /** 只读权限码全量列表，供角色权限勾选树按 module + parentCode 分组展示。 */
+    public List<PermissionView> list() {
+        return repository.findAll().stream().map(PermissionView::from).toList();
     }
 
     private Permission toEntity(PermissionDef def, long now) {
