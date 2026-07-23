@@ -15,6 +15,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -67,8 +68,10 @@ public class AuthAutoConfiguration implements WebMvcConfigurer {
 
     /**
      * 应用就绪后建种子管理员（若配置且用户表为空）。放在 ready 事件而非启动期，确保 schema 已建好。
+     * HIGHEST_PRECEDENCE 保证先于 Forge 初始化（ForgeInitializer 需绑定该种子管理员到超管角色）。
      */
     @EventListener(ApplicationReadyEvent.class)
+    @Order(Ordered.HIGHEST_PRECEDENCE)
     public void bootstrap() {
         userService.bootstrapAdminIfEmpty();
     }
