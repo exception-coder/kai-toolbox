@@ -990,9 +990,10 @@ export function ForeConsultPage() {
                   </button>
                 )}
               </div>
-              <p className="mb-2 text-[11px] leading-relaxed text-indigo-200/40">
-                如果你能明确是哪个模块，建议勾上——能让 AI 检索更聚焦、更高效、更准；不清楚就别选，AI 会面向整个系统作答。
-              </p>
+              <div className="mb-2 flex items-start gap-1.5 rounded-lg border border-amber-300/30 bg-amber-400/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-amber-100/90">
+                <Lightbulb className="mt-0.5 size-3 shrink-0 text-amber-300" />
+                <span>如果你能明确是哪个模块，建议勾上——能让 AI 检索更聚焦、更高效、更准；不清楚就别选，AI 会面向整个系统作答。</span>
+              </div>
 
               {moduleOptions.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-indigo-300/20 px-3 py-4 text-center text-xs text-indigo-200/40">
@@ -1077,13 +1078,13 @@ export function ForeConsultPage() {
                   </button>
                 ))}
               </div>
-              <p className="mb-2 flex items-start gap-1.5 text-[11px] leading-relaxed text-indigo-200/45">
-                <Lightbulb className="mt-0.5 size-3 shrink-0 text-amber-300/70" />
+              <div className="mb-2 flex items-start gap-1.5 rounded-lg border border-amber-300/30 bg-amber-400/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-amber-100/90">
+                <Lightbulb className="mt-0.5 size-3 shrink-0 text-amber-300" />
                 <span>
                   若问的是网页功能，建议把浏览器地址栏的 URL 一起复制进输入框——AI 能据此快速定位到对应页面、路由更准；
                   上传截图请尽量截全（含顶部浏览器地址栏），便于识别所属系统与页面路径。
                 </span>
-              </p>
+              </div>
               <div className="rounded-2xl border border-indigo-300/22 bg-white/[0.04] p-2 transition-colors focus-within:border-sky-300/50 focus-within:shadow-[0_0_0_2px_rgba(120,150,255,0.2)]">
                 {(attachments.length > 0 || uploading > 0) && (
                   <div className="mb-1.5 flex flex-wrap gap-2 px-1">
