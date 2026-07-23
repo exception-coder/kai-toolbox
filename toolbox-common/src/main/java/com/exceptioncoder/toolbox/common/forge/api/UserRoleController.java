@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 /**
  * 用户授权归属接口（FR-UR，扩展账号管理页）。业务逻辑下沉 UserGrantService。
  */
@@ -25,6 +27,12 @@ public class UserRoleController {
 
     public UserRoleController(UserGrantService userGrantService) {
         this.userGrantService = userGrantService;
+    }
+
+    @GetMapping("/grants")
+    @RequiresPermission("forge:user:menu")
+    public List<UserGrantView> allGrants() {
+        return userGrantService.allGrants();
     }
 
     @GetMapping("/{userId}/roles")

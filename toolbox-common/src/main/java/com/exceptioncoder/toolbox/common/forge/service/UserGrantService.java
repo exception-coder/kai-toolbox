@@ -12,6 +12,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
+import java.util.TreeSet;
 
 /**
  * 用户的 Forge 授权归属管理：多角色分配（全量覆盖）+ 单部门归属。
@@ -44,6 +46,18 @@ public class UserGrantService {
                 userId,
                 userRoleRepository.findRoleIdsByUser(userId),
                 userDepartmentRepository.findDepartmentIdByUser(userId).orElse(null));
+    }
+
+    /** 所有账号的授权归属，供账号列表批量展示 forge 角色/部门。 */
+    public List<UserGrantView> allGrants() {
+        Map<Long, List<Long>> roleMap = userRoleRepository.findAllGroupedByUser();
+        Map<Long, Long> deptMap = userDepartmentRepository.findAll();
+        TreeSet<Long> userIds = new TreeSet<>();
+        userIds.addAll(roleMap.keySet());
+        userIds.addAll(deptMap.keySet());
+        return userIds.stream()
+                .map(uid -> new UserGrantView(uid, roleMap.getOrDefault(uid, List.of()), deptMap.get(uid)))
+                .toList();
     }
 
     @Transactional

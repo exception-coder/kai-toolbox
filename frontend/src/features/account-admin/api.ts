@@ -72,6 +72,11 @@ export function fetchUserGrant(userId: number) {
   return http<UserGrant>(`/forge/users/${userId}/roles`)
 }
 
+/** 批量拉取所有账号的 forge 角色/部门归属，供账号列表展示。 */
+export function fetchAllUserGrants() {
+  return http<UserGrant[]>('/forge/users/grants')
+}
+
 export function assignUserRoles(userId: number, roleIds: number[]) {
   return http<UserGrant>(`/forge/users/${userId}/roles`, {
     method: 'PUT',

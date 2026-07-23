@@ -8,6 +8,7 @@ import {
   assignUserRoles,
   createUser,
   deleteUser,
+  fetchAllUserGrants,
   fetchForgeDeptTree,
   fetchForgeRoles,
   fetchUserGrant,
@@ -40,7 +41,15 @@ export function AccountAdminPage() {
 function AdminPanel() {
   const qc = useQueryClient()
   const { data: users = [], isPending } = useQuery({ queryKey: KEY, queryFn: listUsers })
+  const { data: forgeRoles = [] } = useQuery({ queryKey: ['forge-roles'], queryFn: fetchForgeRoles })
+  const { data: grants = [] } = useQuery({ queryKey: ['forge-user-grants'], queryFn: fetchAllUserGrants })
   const invalidate = () => qc.invalidateQueries({ queryKey: KEY })
+
+  // 账号 → 其 forge 角色名列表（真实权威来源）。
+  const roleNameById = new Map(forgeRoles.map(r => [r.id, r.name]))
+  const forgeRolesByUser = new Map(
+    grants.map(g => [g.userId, g.roleIds.map(id => roleNameById.get(id) ?? `#${id}`)]),
+  )
 
   const [newName, setNewName] = useState('')
   const [newPwd, setNewPwd] = useState('')
@@ -99,13 +108,13 @@ function AdminPanel() {
         <div className="overflow-hidden rounded-md border">
           <table className="w-full text-sm">
             <thead className="bg-[var(--color-muted)] text-left text-xs text-[var(--color-muted-foreground)]">
-              <tr><th className="px-3 py-2">用户名</th><th className="px-3 py-2">旧角色<span className="font-normal">（只读·已废弃）</span></th><th className="px-3 py-2 w-20">状态</th><th className="px-3 py-2 w-64">操作</th></tr>
+              <tr><th className="px-3 py-2">用户名</th><th className="px-3 py-2">Forge 角色</th><th className="px-3 py-2 w-20">状态</th><th className="px-3 py-2 w-64">操作</th></tr>
             </thead>
             <tbody className="divide-y">
               {users.map(u => (
                 <tr key={u.userId}>
                   <td className="px-3 py-2 font-medium">{u.username}</td>
-                  <td className="px-3 py-2"><span className="text-xs text-[var(--color-muted-foreground)]">{u.roles.join(', ') || '—'}</span></td>
+                  <td className="px-3 py-2"><span className="text-xs">{(forgeRolesByUser.get(u.userId) ?? []).join(', ') || '—'}</span></td>
                   <td className="px-3 py-2 text-xs">{u.enabled ? '启用' : <span className="text-[var(--color-muted-foreground)]">停用</span>}</td>
                   <td className="px-3 py-2">
                     <div className="flex flex-wrap gap-1">
@@ -129,6 +138,7 @@ function AdminPanel() {
 
 /** 用户授权抽屉：分配 Forge 多角色 + 单部门归属。变更于目标用户下次刷新/重登生效。 */
 function GrantPanel({ user, onClose }: { user: AdminUser; onClose: () => void }) {
+  const qc = useQueryClient()
   const { data: roles = [] } = useQuery({ queryKey: ['forge-roles'], queryFn: fetchForgeRoles })
   const { data: deptTree = [] } = useQuery({ queryKey: ['forge-departments'], queryFn: fetchForgeDeptTree })
   const { data: grant } = useQuery({ queryKey: ['forge-user-grant', user.userId], queryFn: () => fetchUserGrant(user.userId) })
@@ -150,7 +160,11 @@ function GrantPanel({ user, onClose }: { user: AdminUser; onClose: () => void })
       await assignUserRoles(user.userId, [...current])
       await setUserDepartment(user.userId, deptId ?? null)
     },
-    onSuccess: onClose,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['forge-user-grants'] })
+      qc.invalidateQueries({ queryKey: ['forge-user-grant', user.userId] })
+      onClose()
+    },
     onError: (e) => setErr((e as Error).message),
   })
 

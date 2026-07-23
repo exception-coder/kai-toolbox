@@ -2,8 +2,11 @@ package com.exceptioncoder.toolbox.common.forge.repository;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.stereotype.Repository;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -23,6 +26,14 @@ public class UserDepartmentRepository {
         return jdbc.queryForList(
                         "SELECT department_id FROM forge_user_department WHERE user_id = ?", Long.class, userId)
                 .stream().findFirst();
+    }
+
+    /** 所有用户 → 部门 id，供账号列表批量展示。 */
+    public Map<Long, Long> findAll() {
+        Map<Long, Long> map = new HashMap<>();
+        jdbc.query("SELECT user_id, department_id FROM forge_user_department", (RowCallbackHandler) rs ->
+                map.put(rs.getLong("user_id"), rs.getLong("department_id")));
+        return map;
     }
 
     public int countByDepartment(long departmentId) {
