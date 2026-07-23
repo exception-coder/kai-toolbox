@@ -1,18 +1,18 @@
 import { Link } from 'react-router-dom'
 import { ArrowRight } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { useAuth } from '@/lib/auth'
 import { entryOf, features } from './featureRegistry'
 import { hasFeatureAccess } from './access'
+import { useAccessContext } from './permission'
 import { useVisibleFeatures } from './menuVisibility'
 import { BrandLogo } from './BrandLogo'
 import { useBrand } from './brand'
 
 export function HomePage() {
-  const { user } = useAuth()
   const { brand } = useBrand()
-  // 按角色过滤首页入口卡片，再按「菜单配置」软隐藏过滤，与侧边栏一致。chrome（管理页）不进首页。
-  const allowed = features.filter(f => !f.chrome && hasFeatureAccess(f, user?.roles ?? []))
+  const access = useAccessContext()
+  // 按角色/权限码过滤首页入口卡片，再按「菜单配置」软隐藏过滤，与侧边栏一致。chrome（管理页）不进首页。
+  const allowed = features.filter(f => !f.chrome && hasFeatureAccess(f, access))
   const visible = useVisibleFeatures(allowed)
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">

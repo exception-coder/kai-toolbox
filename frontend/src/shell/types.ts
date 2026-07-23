@@ -37,5 +37,10 @@ export interface FeatureManifest {
    * 改由左下账号菜单（「更多」）呈现；路由仍注册、Ctrl+K 亦可达。用于「菜单配置」这类平台管理能力，而非 Vibe 工具本身。
    */
   chrome?: boolean
+  /**
+   * Forge 权限码门禁：置为某 MENU 权限码（如 'forge:role:menu'）后，菜单显隐与路由守卫按该权限码判定
+   * （超管或持有该码放行）。优先于 access.ts 的存量角色表。未设则沿用角色表/公开逻辑。
+   */
+  requiredPermission?: string
   routes: FeatureRoute[]
 }

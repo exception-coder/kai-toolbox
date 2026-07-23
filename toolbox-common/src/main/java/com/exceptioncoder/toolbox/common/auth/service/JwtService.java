@@ -28,6 +28,7 @@ public class JwtService {
 
     private static final int MIN_SECRET_BYTES = 32;
     private static final String CLAIM_ROLES = "roles";
+    private static final String CLAIM_PERMS = "perms";
     private static final String CLAIM_TYPE = "type";
     private static final String CLAIM_USERNAME = "username";
 
@@ -51,21 +52,28 @@ public class JwtService {
         this.signingKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
-    public String issueAccessToken(AuthUser user) {
-        return issue(user, TokenType.ACCESS, props.getAccessTtl().toMillis());
+    /**
+     * 签发 access token。roles + permissionCodes 由 TokenService 用 AuthoritiesResolver 解析后传入，
+     * 作为登录快照写入 claim——JwtService 保持纯算法、不查库。
+     */
+    public String issueAccessToken(AuthUser user, List<String> roles, List<String> permissionCodes) {
+        return issue(user, roles, permissionCodes, TokenType.ACCESS, props.getAccessTtl().toMillis());
     }
 
-    public String issueRefreshToken(AuthUser user) {
-        return issue(user, TokenType.REFRESH, props.getRefreshTtl().toMillis());
+    /** 签发 refresh token。只需定位用户 + 角色，不携带权限码（rotate 时会重新解析快照）。 */
+    public String issueRefreshToken(AuthUser user, List<String> roles) {
+        return issue(user, roles, List.of(), TokenType.REFRESH, props.getRefreshTtl().toMillis());
     }
 
-    private String issue(AuthUser user, TokenType type, long ttlMillis) {
+    private String issue(AuthUser user, List<String> roles, List<String> permissionCodes,
+                         TokenType type, long ttlMillis) {
         long now = System.currentTimeMillis();
         return Jwts.builder()
                 .subject(String.valueOf(user.getId()))
                 .id(UUID.randomUUID().toString())
                 .claim(CLAIM_USERNAME, user.getUsername())
-                .claim(CLAIM_ROLES, user.getRoles())
+                .claim(CLAIM_ROLES, roles == null ? List.of() : roles)
+                .claim(CLAIM_PERMS, permissionCodes == null ? List.of() : permissionCodes)
                 .claim(CLAIM_TYPE, type.name())
                 .issuedAt(new Date(now))
                 .expiration(new Date(now + ttlMillis))
@@ -88,6 +96,7 @@ public class JwtService {
                     Long.parseLong(claims.getSubject()),
                     claims.get(CLAIM_USERNAME, String.class),
                     (List<String>) claims.getOrDefault(CLAIM_ROLES, List.of()),
+                    (List<String>) claims.getOrDefault(CLAIM_PERMS, List.of()),
                     claims.getId(),
                     TokenType.valueOf(claims.get(CLAIM_TYPE, String.class)),
                     claims.getExpiration().getTime()

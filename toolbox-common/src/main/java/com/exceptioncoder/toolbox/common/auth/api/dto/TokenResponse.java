@@ -2,12 +2,16 @@ package com.exceptioncoder.toolbox.common.auth.api.dto;
 
 import com.exceptioncoder.toolbox.common.auth.service.TokenPair;
 
+import java.util.List;
+
 public record TokenResponse(
         String accessToken,
         String refreshToken,
         String tokenType,
         long expiresIn,
-        CurrentUserView user
+        CurrentUserView user,
+        List<String> permissionCodes,
+        boolean superAdmin
 ) {
     public static TokenResponse from(TokenPair pair) {
         return new TokenResponse(
@@ -15,7 +19,9 @@ public record TokenResponse(
                 pair.refreshToken(),
                 "Bearer",
                 pair.expiresInSeconds(),
-                CurrentUserView.from(pair.user())
+                CurrentUserView.from(pair.user()),
+                pair.permissionCodes(),
+                pair.superAdmin()
         );
     }
 }

@@ -1,6 +1,6 @@
 package com.exceptioncoder.toolbox.treesize.api;
 
-import com.exceptioncoder.toolbox.common.auth.annotation.SoftGuard;
+import com.exceptioncoder.toolbox.common.auth.annotation.RequireRole;
 import com.exceptioncoder.toolbox.treesize.api.dto.ProcessingOverview;
 import com.exceptioncoder.toolbox.treesize.api.dto.VideoMergeRequest;
 import com.exceptioncoder.toolbox.treesize.api.dto.VideoSyncResult;
@@ -52,7 +52,7 @@ import java.util.Optional;
  */
 @RestController
 @RequestMapping("/api/treesize/videos")
-@SoftGuard({"VIDEO_LIBRARY", "DISK_ADMIN"})
+@RequireRole({"ADMIN", "VIDEO_LIBRARY", "DISK_ADMIN"})
 public class VideoProcessingController {
 
     private final VideoSyncService syncService;

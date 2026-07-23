@@ -586,7 +586,7 @@ toolbox:
 
   auth:
     # 通用 JWT 鉴权能力库总开关。开启后登录/刷新等接口生效；但只有命中 protected-patterns
-    # 的路径才硬鉴权，其余请求仍透明放行（best-effort 认证）。视频库/磁盘管理走 @SoftGuard 软鉴权。
+    # 的路径才硬鉴权，其余请求仍透明放行（best-effort 认证）。视频库/磁盘管理走 @RequireRole 硬鉴权。
     enabled: true
     # HS256 对称密钥，>= 32 字节。本地默认值仅为开箱可启动，生产/公网务必用环境变量覆盖：
     #   TOOLBOX_AUTH_SECRET=随机长字符串(>=32)
@@ -594,11 +594,11 @@ toolbox:
     # access / refresh 有效期，支持 30m / 7d / 12h 等写法
     access-ttl: 30m
     refresh-ttl: 7d
-    # 需要「硬鉴权」(不达标 401) 的 Ant 路径。默认空 = 不硬拦任何请求。
-    # 注意：视频库/磁盘管理用 @SoftGuard 软鉴权(无权返回空)，**不要**放进这里，否则会变 401。
+    # 需要「登录级硬鉴权」(不达标 401) 的 Ant 路径。默认空 = 不硬拦任何请求。
+    # 注意：视频库/磁盘管理改用 @RequireRole 注解(VIDEO_LIBRARY/DISK_ADMIN/ADMIN)，不放这里。
     protected-patterns: []
-    # 配置驱动的 ADMIN-only 软鉴权路径：命中且 handler 无 @SoftGuard 时，非 ADMIN 一律返回空。
-    # 这批模块仅管理员可见数据。磁盘空间分析(/api/treesize)保持 @SoftGuard 注解(VIDEO_LIBRARY/DISK_ADMIN)，不在此。
+    # 配置驱动的 ADMIN-only 硬鉴权路径：命中的路径未登录 401、非 ADMIN 403(由 AdminOnlyInterceptor 强制)。
+    # 这批模块仅管理员可访问。磁盘空间分析(/api/treesize)用 @RequireRole 注解，不在此。
     admin-only-patterns:
       - "/api/config/**"          # 配置中心
       - "/api/flatten/**"         # 目录扁平化

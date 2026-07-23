@@ -3,9 +3,9 @@ package com.exceptioncoder.toolbox.common.auth.config;
 import com.exceptioncoder.toolbox.common.auth.service.AuthUserService;
 import com.exceptioncoder.toolbox.common.auth.service.JwtService;
 import com.exceptioncoder.toolbox.common.auth.service.TokenService;
+import com.exceptioncoder.toolbox.common.auth.web.AdminOnlyInterceptor;
 import com.exceptioncoder.toolbox.common.auth.web.JwtAuthFilter;
 import com.exceptioncoder.toolbox.common.auth.web.RequireAuthInterceptor;
-import com.exceptioncoder.toolbox.common.auth.web.SoftGuardInterceptor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -15,6 +15,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -55,20 +56,22 @@ public class AuthAutoConfiguration implements WebMvcConfigurer {
     }
 
     @Bean
-    public SoftGuardInterceptor softGuardInterceptor() {
-        return new SoftGuardInterceptor(props);
+    public AdminOnlyInterceptor adminOnlyInterceptor() {
+        return new AdminOnlyInterceptor(props);
     }
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(requireAuthInterceptor());
-        registry.addInterceptor(softGuardInterceptor());
+        registry.addInterceptor(adminOnlyInterceptor());
     }
 
     /**
      * 应用就绪后建种子管理员（若配置且用户表为空）。放在 ready 事件而非启动期，确保 schema 已建好。
+     * HIGHEST_PRECEDENCE 保证先于 Forge 初始化（ForgeInitializer 需绑定该种子管理员到超管角色）。
      */
     @EventListener(ApplicationReadyEvent.class)
+    @Order(Ordered.HIGHEST_PRECEDENCE)
     public void bootstrap() {
         userService.bootstrapAdminIfEmpty();
     }

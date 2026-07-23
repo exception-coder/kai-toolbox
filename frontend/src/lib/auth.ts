@@ -5,6 +5,8 @@ const TOKEN_KEY = 'toolbox.auth.token'
 const REFRESH_KEY = 'toolbox.auth.refresh'
 const EXPIRES_KEY = 'toolbox.auth.expiresAt'
 const USER_KEY = 'toolbox.auth.user'
+const PERMS_KEY = 'toolbox.auth.perms'
+const SUPERADMIN_KEY = 'toolbox.auth.superAdmin'
 
 const API = '/api'
 /** access token 过期前多久就提前刷新（毫秒）。 */
@@ -22,6 +24,9 @@ interface LoginResponse {
   tokenType: string
   expiresIn: number
   user: AuthUser
+  /** Forge 权限体系：登录快照下发的权限码集合与超管标记（后端 forge 关闭时可能缺省）。 */
+  permissionCodes?: string[]
+  superAdmin?: boolean
 }
 
 const listeners = new Set<() => void>()
@@ -47,13 +52,35 @@ function readUser(): AuthUser | null {
   try { return JSON.parse(s) as AuthUser } catch { return null }
 }
 
-let snapshot: { token: string | null; user: AuthUser | null } = {
+function readPerms(): string[] {
+  const s = localStorage.getItem(PERMS_KEY)
+  if (!s) return []
+  try { const v = JSON.parse(s); return Array.isArray(v) ? v as string[] : [] } catch { return [] }
+}
+
+function readSuperAdmin(): boolean {
+  return localStorage.getItem(SUPERADMIN_KEY) === 'true'
+}
+
+let snapshot: {
+  token: string | null
+  user: AuthUser | null
+  permissionCodes: string[]
+  superAdmin: boolean
+} = {
   token: localStorage.getItem(TOKEN_KEY),
   user: readUser(),
+  permissionCodes: readPerms(),
+  superAdmin: readSuperAdmin(),
 }
 
 function notify() {
-  snapshot = { token: localStorage.getItem(TOKEN_KEY), user: readUser() }
+  snapshot = {
+    token: localStorage.getItem(TOKEN_KEY),
+    user: readUser(),
+    permissionCodes: readPerms(),
+    superAdmin: readSuperAdmin(),
+  }
   listeners.forEach(l => l())
 }
 
@@ -62,6 +89,8 @@ function storeTokens(r: LoginResponse) {
   localStorage.setItem(REFRESH_KEY, r.refreshToken)
   localStorage.setItem(EXPIRES_KEY, String(Date.now() + r.expiresIn * 1000))
   localStorage.setItem(USER_KEY, JSON.stringify(r.user))
+  localStorage.setItem(PERMS_KEY, JSON.stringify(r.permissionCodes ?? []))
+  localStorage.setItem(SUPERADMIN_KEY, String(!!r.superAdmin))
   notify()
 }
 
@@ -71,6 +100,16 @@ export function getToken(): string | null {
 
 export function getUser(): AuthUser | null {
   return snapshot.user
+}
+
+/** 当前登录用户的权限码快照（来自登录/刷新下发，落 localStorage）。 */
+export function getPermissionCodes(): string[] {
+  return snapshot.permissionCodes
+}
+
+/** 当前用户是否超级管理员（bypass 全部权限校验）。 */
+export function isSuperAdmin(): boolean {
+  return snapshot.superAdmin
 }
 
 export async function login(username: string, password: string): Promise<AuthUser> {
@@ -97,6 +136,8 @@ export function logout() {
   localStorage.removeItem(REFRESH_KEY)
   localStorage.removeItem(EXPIRES_KEY)
   localStorage.removeItem(USER_KEY)
+  localStorage.removeItem(PERMS_KEY)
+  localStorage.removeItem(SUPERADMIN_KEY)
   for (const k of SENSITIVE_CACHE_KEYS) localStorage.removeItem(k)
   notify()
 }

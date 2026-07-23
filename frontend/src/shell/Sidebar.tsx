@@ -2,10 +2,10 @@ import { NavLink } from 'react-router-dom'
 import { Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { BrandLogo } from './BrandLogo'
-import { useAuth } from '@/lib/auth'
 import type { FeatureManifest } from './types'
 import { entryOf } from './featureRegistry'
 import { hasFeatureAccess } from './access'
+import { useAccessContext } from './permission'
 import { useVisibleFeatures } from './menuVisibility'
 import { openCommandPalette } from './commandPaletteBus'
 import { AccountMenu } from './AccountMenu'
@@ -17,10 +17,10 @@ interface SidebarProps {
 }
 
 export function Sidebar({ features, collapsed }: SidebarProps) {
-  const { user } = useAuth()
   const { brand } = useBrand()
-  // 先按当前账号角色过滤：无权模块不出现在菜单（与路由 RouteGuard 配套）。chrome（管理页）不进功能菜单，改由账号菜单呈现。
-  const allowed = features.filter(f => !f.chrome && hasFeatureAccess(f, user?.roles ?? []))
+  const access = useAccessContext()
+  // 先按当前账号角色/权限码过滤：无权模块不出现在菜单（与路由 RouteGuard 配套）。chrome（管理页）不进功能菜单，改由账号菜单呈现。
+  const allowed = features.filter(f => !f.chrome && hasFeatureAccess(f, access))
   // 再按「菜单配置」的软隐藏过滤：管理员勾掉的模块不显示入口（路由仍在，勾回来即时恢复）。
   const visible = useVisibleFeatures(allowed)
   const groups = groupFeatures(visible)

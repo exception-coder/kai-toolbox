@@ -29,10 +29,33 @@ export function requiredRolesFor(featureId: string): string[] {
   return REQUIRED_ROLES[featureId] ?? []
 }
 
-/** 当前角色是否可访问该模块。公开模块恒 true；含 ADMIN 恒 true；否则需命中所需角色之一。 */
-export function hasFeatureAccess(feature: FeatureManifest, roles: string[]): boolean {
+/** 访问上下文：角色（存量门禁） + 权限码 + 超管（Forge 权限体系）。 */
+export interface AccessContext {
+  roles: string[]
+  permissionCodes: string[]
+  superAdmin: boolean
+}
+
+function toContext(ctx: AccessContext | string[]): AccessContext {
+  if (Array.isArray(ctx)) {
+    return { roles: ctx, permissionCodes: [], superAdmin: ctx.includes('ADMIN') }
+  }
+  return ctx
+}
+
+/**
+ * 当前用户是否可访问该模块。判定顺序：
+ * 超管恒 true → manifest.requiredPermission（Forge 权限码，命中或 ADMIN 放行）→ 存量角色表门禁。
+ * 兼容旧调用（第二参传 roles 数组）。
+ */
+export function hasFeatureAccess(feature: FeatureManifest, ctx: AccessContext | string[]): boolean {
+  const c = toContext(ctx)
+  if (c.superAdmin) return true
+  if (feature.requiredPermission) {
+    return c.roles.includes('ADMIN') || c.permissionCodes.includes(feature.requiredPermission)
+  }
   const required = REQUIRED_ROLES[feature.id]
   if (!required || required.length === 0) return true
-  if (roles.includes('ADMIN')) return true
-  return required.some(r => roles.includes(r))
+  if (c.roles.includes('ADMIN')) return true
+  return required.some(r => c.roles.includes(r))
 }

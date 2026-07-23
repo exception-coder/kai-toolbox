@@ -151,6 +151,7 @@ public class AuthController {
     }
 
     private JwtPayload toPayload(AuthPrincipal p) {
-        return new JwtPayload(p.userId(), p.username(), p.roles(), p.jti(), TokenType.ACCESS, p.expiresAt());
+        return new JwtPayload(p.userId(), p.username(), p.roles(), p.permissionCodes(),
+                p.jti(), TokenType.ACCESS, p.expiresAt());
     }
 }

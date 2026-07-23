@@ -33,8 +33,8 @@ public class AuthProperties {
     private List<String> whitelist = new ArrayList<>(List.of("/api/auth/login", "/api/auth/refresh"));
 
     /**
-     * 配置驱动的 ADMIN-only 软鉴权路径（Ant 风格）。命中且 handler 无 @SoftGuard 时，
-     * 非 ADMIN 一律返回空响应（读写都拦）。用于批量把整批模块设为仅管理员可见。
+     * 配置驱动的 ADMIN-only 硬鉴权路径（Ant 风格）。命中的路径未登录返回 401、非 ADMIN 返回 403
+     * （由 AdminOnlyInterceptor 强制）。用于批量把整批模块设为仅管理员可访问。
      */
     private List<String> adminOnlyPatterns = new ArrayList<>();
 

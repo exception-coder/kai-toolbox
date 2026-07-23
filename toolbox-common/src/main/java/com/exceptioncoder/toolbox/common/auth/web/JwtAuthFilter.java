@@ -82,7 +82,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             throw AuthException.tokenInvalid();
         }
         AuthContext.set(new AuthPrincipal(
-                payload.userId(), payload.username(), payload.roles(), payload.jti(), payload.expiresAt()));
+                payload.userId(), payload.username(), payload.roles(), payload.permissionCodes(),
+                payload.jti(), payload.expiresAt()));
     }
 
     private boolean requiresAuth(String uri) {
