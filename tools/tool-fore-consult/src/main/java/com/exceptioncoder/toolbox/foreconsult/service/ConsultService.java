@@ -2,8 +2,10 @@ package com.exceptioncoder.toolbox.foreconsult.service;
 
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ArchiveRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.StartSessionRequest;
+import com.exceptioncoder.toolbox.foreconsult.domain.ConsultFeedback;
 import com.exceptioncoder.toolbox.foreconsult.domain.ConsultSession;
 import com.exceptioncoder.toolbox.foreconsult.domain.ConsultTurn;
+import com.exceptioncoder.toolbox.foreconsult.repository.ConsultFeedbackRepository;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultSessionRepository;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultTurnRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,11 +31,40 @@ public class ConsultService {
 
     private final ConsultSessionRepository sessionRepo;
     private final ConsultTurnRepository turnRepo;
+    private final ConsultFeedbackRepository feedbackRepo;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public ConsultService(ConsultSessionRepository sessionRepo, ConsultTurnRepository turnRepo) {
+    public ConsultService(ConsultSessionRepository sessionRepo, ConsultTurnRepository turnRepo,
+                          ConsultFeedbackRepository feedbackRepo) {
         this.sessionRepo = sessionRepo;
         this.turnRepo = turnRepo;
+        this.feedbackRepo = feedbackRepo;
+    }
+
+    /** 保存/更新某轮回答的评分反馈（按 sessionId+turnIndex upsert）。 */
+    public ConsultFeedback saveFeedback(String sessionId, int turnIndex, com.exceptioncoder.toolbox.foreconsult.api.dto.FeedbackRequest req) {
+        requireSession(sessionId);
+        long now = System.currentTimeMillis();
+        ConsultFeedback f = ConsultFeedback.builder()
+                .sessionId(sessionId)
+                .turnIndex(turnIndex)
+                .rating(req.rating() != null && req.rating().equalsIgnoreCase("GOOD") ? "GOOD" : "BAD")
+                .category(blankToNull(req.category()))
+                .reason(blankToNull(req.reason()))
+                .correctAnswer(blankToNull(req.correctAnswer()))
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
+        feedbackRepo.upsert(f);
+        return f;
+    }
+
+    public List<ConsultFeedback> feedbackOf(String sessionId) {
+        return feedbackRepo.findBySession(sessionId);
+    }
+
+    private static String blankToNull(String s) {
+        return s == null || s.isBlank() ? null : s.trim();
     }
 
     /** 启动咨询会话：落一条 PENDING 记录。 */
@@ -136,9 +167,10 @@ public class ConsultService {
         return turnRepo.findBySession(sessionId);
     }
 
-    /** 删除会话及其全部轮次。 */
+    /** 删除会话及其全部轮次与反馈。 */
     public void delete(String sessionId) {
         turnRepo.deleteBySession(sessionId);
+        feedbackRepo.deleteBySession(sessionId);
         sessionRepo.delete(sessionId);
     }
 

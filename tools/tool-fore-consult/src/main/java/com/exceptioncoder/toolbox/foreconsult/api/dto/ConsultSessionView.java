@@ -41,20 +41,21 @@ public record ConsultSessionView(
         String errorMsg,
         long createdAt,
         Long endedAt,
-        List<ConsultTurnView> turns
+        List<ConsultTurnView> turns,
+        List<FeedbackView> feedback
 ) {
 
     private static final Logger log = LoggerFactory.getLogger(ConsultSessionView.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
 
-    /** 列表视图：不带轮次明细。 */
+    /** 列表视图：不带轮次明细与反馈。 */
     public static ConsultSessionView from(ConsultSession s) {
-        return from(s, List.of());
+        return from(s, List.of(), List.of());
     }
 
-    /** 详情视图：带轮次明细。 */
-    public static ConsultSessionView from(ConsultSession s, List<ConsultTurnView> turns) {
+    /** 详情视图：带轮次明细与评分反馈。 */
+    public static ConsultSessionView from(ConsultSession s, List<ConsultTurnView> turns, List<FeedbackView> feedback) {
         return new ConsultSessionView(
                 s.getSessionId(), s.getUserId(), s.getSystemName(), s.getSystemSourcePath(),
                 parseModuleNames(s.getModuleNames()), s.getPromptSnapshot(), s.getDevSessionId(),
@@ -63,7 +64,8 @@ public record ConsultSessionView(
                 s.getArchiveStatus() != null ? s.getArchiveStatus() : "PENDING",
                 s.getRole() != null ? s.getRole() : "IT",
                 s.getErrorMsg(), s.getCreatedAt(), s.getEndedAt(),
-                turns != null ? turns : List.of());
+                turns != null ? turns : List.of(),
+                feedback != null ? feedback : List.of());
     }
 
     private static List<String> parseModuleNames(String json) {

@@ -1149,6 +1149,7 @@ export function ForeConsultPage() {
       {/* 独立业务咨询会话面板（不用 Vibe Coding 悬浮窗，复用同一 WS 同步渲染） */}
       {conversationOpen && activeConsultId && (
         <ConsultConversation
+          consultId={activeConsultId}
           systemLabel={displayName(system)}
           roleLabel={ROLE_META[role].label}
           cwd={systemPath || system.trim()}

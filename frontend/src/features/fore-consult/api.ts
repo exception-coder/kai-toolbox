@@ -20,6 +20,21 @@ export interface ConsultTurnView {
   createdAt: number
 }
 
+export interface FeedbackView {
+  turnIndex: number
+  rating: 'GOOD' | 'BAD'
+  category: string | null
+  reason: string | null
+  correctAnswer: string | null
+}
+
+export interface FeedbackRequest {
+  rating: 'GOOD' | 'BAD'
+  category?: string | null
+  reason?: string | null
+  correctAnswer?: string | null
+}
+
 export interface ConsultSessionView {
   sessionId: string
   userId: string | null
@@ -36,6 +51,14 @@ export interface ConsultSessionView {
   createdAt: number
   endedAt: number | null
   turns: ConsultTurnView[]
+  feedback: FeedbackView[]
+}
+
+export function submitFeedback(sessionId: string, turnIndex: number, req: FeedbackRequest) {
+  return http<FeedbackView>(`/fore-consult/sessions/${sessionId}/turns/${turnIndex}/feedback`, {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
 }
 
 export interface StartSessionRequest {

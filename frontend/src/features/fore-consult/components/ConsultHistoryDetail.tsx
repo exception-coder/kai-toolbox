@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { Loader2, X } from 'lucide-react'
-import { getConsult, type ConsultAttRef } from '../api'
+import { getConsult, type ConsultAttRef, type FeedbackView } from '../api'
 
 interface Props {
   sessionId: string
@@ -12,6 +12,7 @@ interface Props {
 }
 
 interface QaPair {
+  turnIndex: number
   question: string
   answer: string
   attachments?: ConsultAttRef[]
@@ -38,13 +39,13 @@ function parseRawPairs(raw: string | null | undefined): QaPair[] {
     let cur: { q: string; a: string[] } | null = null
     for (const it of items) {
       if (it.kind === 'user') {
-        if (cur) out.push({ question: cur.q, answer: cur.a.join('\n\n') })
+        if (cur) out.push({ turnIndex: out.length + 1, question: cur.q, answer: cur.a.join('\n\n') })
         cur = { q: it.displayText ?? it.text ?? '', a: [] }
       } else if (it.kind === 'assistant' && cur && (it.text ?? '').trim()) {
         cur.a.push(it.text ?? '')
       }
     }
-    if (cur) out.push({ question: cur.q, answer: cur.a.join('\n\n') })
+    if (cur) out.push({ turnIndex: out.length + 1, question: cur.q, answer: cur.a.join('\n\n') })
     return out
   } catch {
     return []
@@ -62,8 +63,14 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
 
   const pairs = useMemo<QaPair[]>(() => {
     if (!data) return []
-    if (data.turns.length > 0) return data.turns.map((t) => ({ question: t.question, answer: t.answer, attachments: t.attachments }))
+    if (data.turns.length > 0) return data.turns.map((t) => ({ turnIndex: t.turnIndex, question: t.question, answer: t.answer, attachments: t.attachments }))
     return parseRawPairs(data.rawReferenceJson)
+  }, [data])
+
+  const feedbackByTurn = useMemo(() => {
+    const m = new Map<number, FeedbackView>()
+    for (const f of data?.feedback ?? []) m.set(f.turnIndex, f)
+    return m
   }, [data])
 
   return (
@@ -126,6 +133,23 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
                     <div className="fc-md" dangerouslySetInnerHTML={{ __html: renderMarkdown(p.answer) }} />
                   </div>
                 )}
+                {(() => {
+                  const fb = feedbackByTurn.get(p.turnIndex)
+                  if (!fb) return null
+                  return (
+                    <div
+                      className={`max-w-[92%] rounded-lg border px-3 py-1.5 text-[11px] ${
+                        fb.rating === 'GOOD' ? 'border-emerald-300/25 bg-emerald-400/10 text-emerald-200/90' : 'border-red-300/25 bg-red-400/10 text-red-200/90'
+                      }`}
+                    >
+                      <div className="font-medium">
+                        {fb.rating === 'GOOD' ? '👍 用户反馈：满意' : `👎 用户反馈：不满意${fb.category ? ' · ' + fb.category : ''}`}
+                      </div>
+                      {fb.reason && <div className="mt-0.5 text-indigo-100/70">原因：{fb.reason}</div>}
+                      {fb.correctAnswer && <div className="mt-0.5 text-indigo-100/70">正确答案：{fb.correctAnswer}</div>}
+                    </div>
+                  )
+                })()}
               </div>
             ))
           )}

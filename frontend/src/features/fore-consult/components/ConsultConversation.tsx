@@ -4,14 +4,18 @@ import {
 } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { Archive, Loader2, MessagesSquare, Paperclip, Send, X } from 'lucide-react'
+import { Archive, Loader2, MessagesSquare, Paperclip, Send, ThumbsDown, ThumbsUp, X } from 'lucide-react'
 import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import type { ChatItem } from '@/features/claude-chat/types'
-import { uploadConsultAttachment } from '../api'
+import { submitFeedback, uploadConsultAttachment } from '../api'
 
 type Att = { name: string; path: string; mime?: string | null; url?: string }
+type Rating = 'GOOD' | 'BAD'
+
+const BAD_CATEGORIES = ['答非所问', '信息有误', '不够具体', '入口/步骤不对', '其他']
 
 interface Props {
+  consultId: string
   systemLabel: string
   roleLabel: string
   cwd: string
@@ -35,13 +39,30 @@ function renderMarkdown(text: string): string {
  * 不弹 Vibe Coding 悬浮窗。会话以 bypassPermissions 打开（只读业务问答，自动放行工具），
  * 万一引擎发起提问/权限，给一个「在悬浮窗处理」的兜底入口。
  */
-export function ConsultConversation({ systemLabel, roleLabel, cwd, onUploaded, onClose, onArchive, archiving }: Props) {
+export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, onUploaded, onClose, onArchive, archiving }: Props) {
   const { chat, setFloating, setMinimized } = useChatRuntime()
   const [text, setText] = useState('')
   const [atts, setAtts] = useState<Att[]>([])
   const [uploading, setUploading] = useState(0)
+  const [ratings, setRatings] = useState<Map<number, Rating>>(new Map())
+  const [badDialog, setBadDialog] = useState<number | null>(null) // 打开不满意弹框的 turnIndex
   const fileRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  const rateGood = (turnIndex: number) => {
+    setRatings((prev) => new Map(prev).set(turnIndex, 'GOOD'))
+    submitFeedback(consultId, turnIndex, { rating: 'GOOD' }).catch(() => {})
+  }
+  const submitBad = (turnIndex: number, category: string, reason: string, correctAnswer: string) => {
+    setRatings((prev) => new Map(prev).set(turnIndex, 'BAD'))
+    setBadDialog(null)
+    submitFeedback(consultId, turnIndex, {
+      rating: 'BAD',
+      category,
+      reason: reason.trim() || null,
+      correctAnswer: correctAnswer.trim() || null,
+    }).catch(() => {})
+  }
 
   const items = chat?.items ?? []
   const running = !!chat?.running
@@ -152,9 +173,24 @@ export function ConsultConversation({ systemLabel, roleLabel, cwd, onUploaded, o
           {items.length === 0 && !running && (
             <p className="pt-8 text-center text-sm text-indigo-200/40">正在接入 Forge…</p>
           )}
-          {items.map((it) => (
-            <MessageRow key={it.id} item={it} />
-          ))}
+          {(() => {
+            let userCount = 0
+            return items.map((it, idx) => {
+              if (it.kind === 'user') userCount += 1
+              const turnIdx = userCount
+              const next = items[idx + 1]
+              const showRating =
+                it.kind === 'assistant' && it.text.trim().length > 0 && (!next || next.kind === 'user') && !running
+              return (
+                <div key={it.id} className="space-y-1.5">
+                  <MessageRow item={it} />
+                  {showRating && (
+                    <RatingRow rating={ratings.get(turnIdx)} onGood={() => rateGood(turnIdx)} onBad={() => setBadDialog(turnIdx)} />
+                  )}
+                </div>
+              )
+            })
+          })()}
           {running && (
             <div className="flex items-center gap-2 text-xs text-indigo-200/60">
               <span className="fc-thinking-dot">●</span>
@@ -216,6 +252,90 @@ export function ConsultConversation({ systemLabel, roleLabel, cwd, onUploaded, o
               </button>
             </div>
           </div>
+        </div>
+
+        {badDialog !== null && (
+          <BadFeedbackDialog onCancel={() => setBadDialog(null)} onSubmit={(c, r, co) => submitBad(badDialog, c, r, co)} />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function RatingRow({ rating, onGood, onBad }: { rating?: Rating; onGood: () => void; onBad: () => void }) {
+  return (
+    <div className="flex items-center gap-2 pl-1 pt-0.5">
+      <span className="text-[10px] text-indigo-200/35">这条回答满意吗？</span>
+      <button
+        type="button"
+        onClick={onGood}
+        className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] transition-colors ${rating === 'GOOD' ? 'bg-emerald-400/20 text-emerald-200' : 'text-indigo-200/55 hover:bg-white/10'}`}
+      >
+        <ThumbsUp className="size-3" /> 有帮助
+      </button>
+      <button
+        type="button"
+        onClick={onBad}
+        className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] transition-colors ${rating === 'BAD' ? 'bg-red-400/20 text-red-200' : 'text-indigo-200/55 hover:bg-white/10'}`}
+      >
+        <ThumbsDown className="size-3" /> 不满意
+      </button>
+      {rating && <span className="text-[10px] text-indigo-200/30">已反馈，谢谢</span>}
+    </div>
+  )
+}
+
+function BadFeedbackDialog({ onSubmit, onCancel }: { onSubmit: (category: string, reason: string, correct: string) => void; onCancel: () => void }) {
+  const [category, setCategory] = useState(BAD_CATEGORIES[0])
+  const [reason, setReason] = useState('')
+  const [correct, setCorrect] = useState('')
+  return (
+    <div className="fc-backdrop absolute inset-0 z-40 flex items-center justify-center p-5" onClick={onCancel}>
+      <div className="fc-panel w-full max-w-md rounded-2xl p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
+            <ThumbsDown className="size-4 text-red-300" /> 反馈这条回答的问题
+          </h3>
+          <button type="button" onClick={onCancel} className="rounded-lg p-1.5 text-indigo-200/70 hover:bg-white/10" aria-label="关闭">
+            <X className="size-4" />
+          </button>
+        </div>
+        <div className="mb-3">
+          <div className="mb-1.5 text-[11px] text-indigo-200/55">问题类型</div>
+          <div className="flex flex-wrap gap-1.5">
+            {BAD_CATEGORIES.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setCategory(c)}
+                className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
+                  category === c ? 'border-sky-300/60 bg-sky-400/20 text-sky-100' : 'border-indigo-300/22 bg-white/[0.04] text-indigo-100/70 hover:bg-white/10'
+                }`}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mb-3">
+          <div className="mb-1.5 text-[11px] text-indigo-200/55">具体原因</div>
+          <textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="哪里不对 / 你期望的是什么…" className="fc-glass-input w-full resize-none rounded-lg px-2.5 py-1.5 text-sm" />
+        </div>
+        <div className="mb-4">
+          <div className="mb-1.5 text-[11px] text-indigo-200/55">正确答案（可选，若你知道）</div>
+          <textarea rows={2} value={correct} onChange={(e) => setCorrect(e.target.value)} placeholder="填写正确的操作/结论，帮助我们改进知识库" className="fc-glass-input w-full resize-none rounded-lg px-2.5 py-1.5 text-sm" />
+        </div>
+        <div className="flex items-center justify-end gap-2">
+          <button type="button" onClick={onCancel} className="rounded-xl px-4 py-2 text-sm text-indigo-200/70 hover:bg-white/5">
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={() => onSubmit(category, reason, correct)}
+            className="rounded-xl bg-gradient-to-r from-sky-400 to-indigo-500 px-4 py-2 text-sm font-medium text-white shadow-[0_8px_30px_-8px_rgba(99,102,241,0.8)] transition-transform hover:scale-[1.03]"
+          >
+            提交反馈
+          </button>
         </div>
       </div>
     </div>
