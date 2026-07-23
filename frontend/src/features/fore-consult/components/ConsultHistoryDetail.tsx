@@ -1,9 +1,10 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { Loader2, X } from 'lucide-react'
 import { getConsult, type ConsultAttRef, type FeedbackView } from '../api'
+import { ImageLightbox } from './ImageLightbox'
 
 interface Props {
   sessionId: string
@@ -56,6 +57,7 @@ const ROLE_LABEL: Record<string, string> = { IT: 'IT 客服', BIZ: '业务员' }
 
 /** 历史咨询详情：只读查看已归档的问答（含 Markdown 渲染），全息风右侧滑出。 */
 export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
+  const [lightbox, setLightbox] = useState<string | null>(null)
   const { data, isLoading } = useQuery({
     queryKey: ['fore-consult-session', sessionId],
     queryFn: () => getConsult(sessionId),
@@ -114,7 +116,7 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
                   <div className="flex flex-wrap justify-end gap-1.5">
                     {p.attachments.map((a, j) =>
                       isImage(a) ? (
-                        <img key={j} src={fileUrl(a.path)} alt={a.name} title={a.name} className="size-20 rounded-lg border border-indigo-300/25 object-cover" />
+                        <img key={j} src={fileUrl(a.path)} alt={a.name} title={a.name} onClick={() => setLightbox(fileUrl(a.path))} className="size-20 cursor-zoom-in rounded-lg border border-indigo-300/25 object-cover transition-transform hover:scale-[1.03]" />
                       ) : (
                         <span key={j} className="rounded-lg border border-indigo-300/25 bg-white/5 px-2 py-1 text-[11px] text-indigo-100/80">📄 {a.name}</span>
                       ),
@@ -159,6 +161,7 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
           只读归档 · {pairs.length} 轮问答
         </div>
       </div>
+      {lightbox && <ImageLightbox src={lightbox} onClose={() => setLightbox(null)} />}
     </div>
   )
 }

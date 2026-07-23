@@ -8,6 +8,7 @@ import { Archive, Loader2, MessagesSquare, Paperclip, Send, ThumbsDown, ThumbsUp
 import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import type { ChatItem } from '@/features/claude-chat/types'
 import { submitFeedback, uploadConsultAttachment } from '../api'
+import { ImageLightbox } from './ImageLightbox'
 
 type Att = { name: string; path: string; mime?: string | null; url?: string }
 type Rating = 'GOOD' | 'BAD'
@@ -46,6 +47,7 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
   const [uploading, setUploading] = useState(0)
   const [ratings, setRatings] = useState<Map<number, Rating>>(new Map())
   const [badDialog, setBadDialog] = useState<number | null>(null) // 打开不满意弹框的 turnIndex
+  const [lightbox, setLightbox] = useState<string | null>(null) // 图片灯箱 src
   const fileRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -183,7 +185,7 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
                 it.kind === 'assistant' && it.text.trim().length > 0 && (!next || next.kind === 'user') && !running
               return (
                 <div key={it.id} className="space-y-1.5">
-                  <MessageRow item={it} />
+                  <MessageRow item={it} onImageClick={setLightbox} />
                   {showRating && (
                     <RatingRow rating={ratings.get(turnIdx)} onGood={() => rateGood(turnIdx)} onBad={() => setBadDialog(turnIdx)} />
                   )}
@@ -208,7 +210,7 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
               <div className="mb-1.5 flex flex-wrap gap-2 px-1">
                 {atts.map((a) => (
                   <div key={a.path} className="fc-attach-thumb relative flex items-center gap-1.5 rounded-lg py-1 pl-1 pr-6 text-[11px] text-indigo-100/85">
-                    {a.url ? <img src={a.url} alt={a.name} className="size-7 rounded object-cover" /> : <span className="flex size-7 items-center justify-center rounded bg-white/5 text-sky-300/80">📄</span>}
+                    {a.url ? <img src={a.url} alt={a.name} onClick={() => setLightbox(a.url!)} className="size-7 cursor-zoom-in rounded object-cover" /> : <span className="flex size-7 items-center justify-center rounded bg-white/5 text-sky-300/80">📄</span>}
                     <span className="max-w-[120px] truncate">{a.name}</span>
                     <button type="button" onClick={() => removeAtt(a.path)} className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-indigo-200/60 hover:bg-white/10 hover:text-white" aria-label="移除">
                       <X className="size-3" />
@@ -258,6 +260,7 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
           <BadFeedbackDialog onCancel={() => setBadDialog(null)} onSubmit={(c, r, co) => submitBad(badDialog, c, r, co)} />
         )}
       </div>
+      {lightbox && <ImageLightbox src={lightbox} onClose={() => setLightbox(null)} />}
     </div>
   )
 }
@@ -342,7 +345,7 @@ function BadFeedbackDialog({ onSubmit, onCancel }: { onSubmit: (category: string
   )
 }
 
-function MessageRow({ item }: { item: ChatItem }) {
+function MessageRow({ item, onImageClick }: { item: ChatItem; onImageClick: (src: string) => void }) {
   if (item.kind === 'user') {
     const shown = item.displayText ?? item.text
     return (
@@ -351,7 +354,7 @@ function MessageRow({ item }: { item: ChatItem }) {
           <div className="flex flex-wrap justify-end gap-1.5">
             {item.attachments.map((a, i) =>
               a.url ? (
-                <img key={i} src={a.url} alt={a.name} className="size-16 rounded-lg border border-indigo-300/25 object-cover" />
+                <img key={i} src={a.url} alt={a.name} onClick={() => onImageClick(a.url!)} className="size-16 cursor-zoom-in rounded-lg border border-indigo-300/25 object-cover transition-transform hover:scale-[1.03]" />
               ) : (
                 <span key={i} className="rounded-lg border border-indigo-300/25 bg-white/5 px-2 py-1 text-[11px] text-indigo-100/80">📄 {a.name}</span>
               ),
