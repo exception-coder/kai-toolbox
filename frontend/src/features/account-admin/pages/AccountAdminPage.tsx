@@ -1,9 +1,25 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Pencil, RotateCcw, Trash2, UserPlus } from 'lucide-react'
+import { Check, KeyRound, Pencil, RotateCcw, Trash2, UserPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Permission } from '@/components/auth/Permission'
 import { useAuth } from '@/lib/auth'
-import { COMMON_ROLES, createUser, deleteUser, listUsers, resetPassword, setEnabled, updateRoles, type AdminUser } from '../api'
+import {
+  COMMON_ROLES,
+  assignUserRoles,
+  createUser,
+  deleteUser,
+  fetchForgeDeptTree,
+  fetchForgeRoles,
+  fetchUserGrant,
+  listUsers,
+  resetPassword,
+  setEnabled,
+  setUserDepartment,
+  updateRoles,
+  type AdminUser,
+  type ForgeDeptNode,
+} from '../api'
 
 const KEY = ['admin-users']
 
@@ -34,6 +50,7 @@ function AdminPanel() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editRoles, setEditRoles] = useState<string[]>([])
   const [err, setErr] = useState<string | null>(null)
+  const [grantUser, setGrantUser] = useState<AdminUser | null>(null)
 
   const create = useMutation({
     mutationFn: () => createUser(newName.trim(), newPwd, newRoles),
@@ -73,6 +90,8 @@ function AdminPanel() {
     <div className="mx-auto max-w-4xl space-y-4 p-4">
       <h2 className="text-base font-semibold">账号管理</h2>
       {err && <p className="text-sm text-[var(--color-destructive)]">{err}</p>}
+
+      {grantUser && <GrantPanel user={grantUser} onClose={() => setGrantUser(null)} />}
 
       {/* 新建账号 */}
       <div className="rounded-md border p-3">
@@ -114,6 +133,9 @@ function AdminPanel() {
                       ) : (
                         <>
                           <Button size="sm" variant="ghost" title="改角色" onClick={() => startEdit(u)}><Pencil className="size-3.5" /></Button>
+                          <Permission code="forge:user:btn:assign">
+                            <Button size="sm" variant="ghost" title="分配角色/部门" onClick={() => setGrantUser(u)}><KeyRound className="size-3.5" /></Button>
+                          </Permission>
                           <Button size="sm" variant="ghost" title="重置密码" onClick={() => void doReset(u)}><RotateCcw className="size-3.5" /></Button>
                           <Button size="sm" variant="ghost" onClick={() => toggleEnabled.mutate(u)}>{u.enabled ? '停用' : '启用'}</Button>
                           <Button size="sm" variant="ghost" className="text-[var(--color-destructive)]" title="删除" onClick={() => doDelete(u)}><Trash2 className="size-3.5" /></Button>
@@ -129,6 +151,101 @@ function AdminPanel() {
       )}
     </div>
   )
+}
+
+/** 用户授权抽屉：分配 Forge 多角色 + 单部门归属。变更于目标用户下次刷新/重登生效。 */
+function GrantPanel({ user, onClose }: { user: AdminUser; onClose: () => void }) {
+  const { data: roles = [] } = useQuery({ queryKey: ['forge-roles'], queryFn: fetchForgeRoles })
+  const { data: deptTree = [] } = useQuery({ queryKey: ['forge-departments'], queryFn: fetchForgeDeptTree })
+  const { data: grant } = useQuery({ queryKey: ['forge-user-grant', user.userId], queryFn: () => fetchUserGrant(user.userId) })
+
+  const [roleIds, setRoleIds] = useState<Set<number> | null>(null)
+  const [deptId, setDeptId] = useState<number | null | undefined>(undefined)
+  const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (grant && roleIds === null) {
+      setRoleIds(new Set(grant.roleIds))
+      setDeptId(grant.departmentId)
+    }
+  }, [grant, roleIds])
+
+  const current = roleIds ?? new Set<number>()
+  const save = useMutation({
+    mutationFn: async () => {
+      await assignUserRoles(user.userId, [...current])
+      await setUserDepartment(user.userId, deptId ?? null)
+    },
+    onSuccess: onClose,
+    onError: (e) => setErr((e as Error).message),
+  })
+
+  const toggle = (id: number) => {
+    const next = new Set(current)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setRoleIds(next)
+  }
+
+  return (
+    <div className="space-y-3 rounded-md border p-3">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-medium">授权：{user.username}</div>
+        <div className="flex gap-1">
+          <Button size="sm" disabled={save.isPending} onClick={() => save.mutate()}>保存</Button>
+          <Button size="sm" variant="ghost" onClick={onClose}>关闭</Button>
+        </div>
+      </div>
+      {err && <p className="text-sm text-[var(--color-destructive)]">{err}</p>}
+      {grant == null ? (
+        <div className="text-sm text-[var(--color-muted-foreground)]">加载中…</div>
+      ) : (
+        <>
+          <div>
+            <div className="mb-1 text-xs text-[var(--color-muted-foreground)]">角色（多选）</div>
+            <div className="flex flex-wrap gap-1">
+              {roles.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => toggle(r.id)}
+                  className={`rounded-md border px-2 py-0.5 text-xs ${
+                    current.has(r.id)
+                      ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                      : 'text-[var(--color-muted-foreground)]'
+                  }`}
+                >
+                  {r.name}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-[var(--color-muted-foreground)]">部门</span>
+            <select
+              className="rounded-md border bg-[var(--color-background)] px-2 py-1 text-sm"
+              value={deptId ?? ''}
+              onChange={(e) => setDeptId(e.target.value ? Number(e.target.value) : null)}
+            >
+              <option value="">（无）</option>
+              {flattenDept(deptTree).map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function flattenDept(nodes: ForgeDeptNode[], depth = 0): { id: number; label: string }[] {
+  return nodes.flatMap((n) => [
+    { id: n.id, label: `${'　'.repeat(depth)}${n.name}` },
+    ...flattenDept(n.children, depth + 1),
+  ])
 }
 
 function RolePicker({ roles, onToggle }: { roles: string[]; onToggle: (r: string) => void }) {

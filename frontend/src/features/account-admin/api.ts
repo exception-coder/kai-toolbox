@@ -46,3 +46,50 @@ export function resetPassword(id: number, newPassword: string) {
 export function deleteUser(id: number) {
   return http<void>(`/auth/users/${id}`, { method: 'DELETE' })
 }
+
+// ===== Forge 权限体系：用户↔角色/部门授权（扩展账号管理页）=====
+
+export interface UserGrant {
+  userId: number
+  roleIds: number[]
+  departmentId: number | null
+}
+
+export interface ForgeRoleOption {
+  id: number
+  name: string
+  code: string
+  status: string
+}
+
+export interface ForgeDeptNode {
+  id: number
+  name: string
+  children: ForgeDeptNode[]
+}
+
+export function fetchUserGrant(userId: number) {
+  return http<UserGrant>(`/forge/users/${userId}/roles`)
+}
+
+export function assignUserRoles(userId: number, roleIds: number[]) {
+  return http<UserGrant>(`/forge/users/${userId}/roles`, {
+    method: 'PUT',
+    body: JSON.stringify({ roleIds }),
+  })
+}
+
+export function setUserDepartment(userId: number, departmentId: number | null) {
+  return http<UserGrant>(`/forge/users/${userId}/department`, {
+    method: 'PUT',
+    body: JSON.stringify({ departmentId }),
+  })
+}
+
+export function fetchForgeRoles() {
+  return http<ForgeRoleOption[]>('/forge/roles')
+}
+
+export function fetchForgeDeptTree() {
+  return http<ForgeDeptNode[]>('/forge/departments/tree')
+}
