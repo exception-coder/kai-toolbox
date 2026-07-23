@@ -89,6 +89,12 @@ public class ConsultController {
         return ConsultSessionView.from(service.archive(id, req), turnViewsOf(id));
     }
 
+    /** 进行中增量同步：把当前对话落库但保持 PENDING，供其它电脑从库查看进行中的内容。 */
+    @PostMapping("/sessions/{id}/turns")
+    public ConsultSessionView syncTurns(@PathVariable String id, @RequestBody ArchiveRequest req) {
+        return ConsultSessionView.from(service.syncTurns(id, req), turnViewsOf(id));
+    }
+
     /** 删除会话（含轮次）。 */
     @DeleteMapping("/sessions/{id}")
     public ResponseEntity<Void> delete(@PathVariable String id) {

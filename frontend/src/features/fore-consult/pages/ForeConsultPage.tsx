@@ -27,6 +27,7 @@ import {
   listWorkspaces,
   saveSystemPrefs,
   startConsult,
+  syncConsultTurns,
   uploadConsultAttachment,
   type ArchiveTurnItem,
   type ConsultAttRef,
@@ -320,6 +321,7 @@ export function ForeConsultPage() {
   const fileRef = useRef<HTMLInputElement>(null)
   // 记录本次咨询上传过的附件（含落盘 path），归档时按文件名补给对应轮次。
   const attMetaRef = useRef<Map<string, { path: string; mime?: string | null }>>(new Map())
+  const syncTimerRef = useRef<number | null>(null)
 
   const { data: workspaces } = useQuery({ queryKey: ['workspaces'], queryFn: listWorkspaces })
 
@@ -473,6 +475,28 @@ export function ForeConsultPage() {
     linkDevSession(activeConsultId, sid).catch(() => {})
     setSessionGroupApi(sid, CONSULT_GROUP).catch(() => {})
   }, [chat?.sessionId, activeConsultId])
+
+  // 进行中增量落库：每当活跃咨询的对话有新内容且空闲（非回答中）时，防抖把当前轮次同步进库，
+  // 让局域网其它电脑也能从库里查看进行中的对话（不必等「结束并归档」）。
+  useEffect(() => {
+    const items = chat?.items
+    if (!activeConsultId || !chat || chat.running || !items || items.length === 0) return
+    if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current)
+    const id = activeConsultId
+    const snapshot = items
+    syncTimerRef.current = window.setTimeout(() => {
+      syncConsultTurns(id, {
+        rawReferenceJson: JSON.stringify(snapshot),
+        parseStatus: 'NONE',
+        turns: extractTurns(snapshot, attMetaRef.current),
+      })
+        .then(() => qc.invalidateQueries({ queryKey: ['fore-consult-sessions'] }))
+        .catch(() => {})
+    }, 1500)
+    return () => {
+      if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current)
+    }
+  }, [activeConsultId, chat, qc])
   useEffect(() => {
     if (chat && pendingRef.current) deliver()
   }, [chat, deliver])

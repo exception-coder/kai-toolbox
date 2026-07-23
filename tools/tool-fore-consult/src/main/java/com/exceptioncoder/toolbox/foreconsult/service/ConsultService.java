@@ -70,26 +70,7 @@ public class ConsultService {
         ConsultSession s = requireSession(sessionId);
         long now = System.currentTimeMillis();
         try {
-            // 重新归档时先清掉旧轮次，避免重复累积。
-            turnRepo.deleteBySession(sessionId);
-            List<ArchiveRequest.TurnItem> items = req.turns() != null ? req.turns() : List.of();
-            int seq = 1;
-            for (ArchiveRequest.TurnItem item : items) {
-                int index = item.turnIndex() > 0 ? item.turnIndex() : seq;
-                turnRepo.insert(ConsultTurn.builder()
-                        .turnId(UUID.randomUUID().toString())
-                        .sessionId(sessionId)
-                        .turnIndex(index)
-                        .question(item.question())
-                        .answer(item.answer())
-                        .refMenuPaths(item.refMenuPaths())
-                        .refGraphifyNodes(item.refGraphifyNodes())
-                        .refDomainKnowledge(item.refDomainKnowledge())
-                        .attachments(serializeAttachments(item.attachments()))
-                        .createdAt(now)
-                        .build());
-                seq++;
-            }
+            writeTurns(sessionId, req.turns(), now);
             String parseStatus = req.parseStatus() != null && !req.parseStatus().isBlank()
                     ? req.parseStatus() : "NONE";
             sessionRepo.markArchived(sessionId, req.rawReferenceJson(), parseStatus, now);
@@ -102,6 +83,44 @@ public class ConsultService {
                 // 连状态更新都失败时不再抛出，保持接口对前端幂等可重试。
             }
             return sessionRepo.findById(sessionId).orElse(s);
+        }
+    }
+
+    /**
+     * 进行中增量落库：把当前对话轮次写进库但**保持 PENDING**（不结束、不置 SUCCESS/ended_at），
+     * 让局域网其它电脑也能从库里查看进行中的对话内容。容错，失败忽略。
+     */
+    public ConsultSession syncTurns(String sessionId, ArchiveRequest req) {
+        ConsultSession s = requireSession(sessionId);
+        try {
+            writeTurns(sessionId, req.turns(), System.currentTimeMillis());
+            sessionRepo.updateSyncedRaw(sessionId, req.rawReferenceJson());
+        } catch (Exception e) {
+            log.warn("[fore-consult] 会话 {} 增量同步失败（忽略）: {}", sessionId, e.getMessage());
+        }
+        return sessionRepo.findById(sessionId).orElse(s);
+    }
+
+    /** 整表替换写入本次会话的轮次（归档与增量同步共用）。 */
+    private void writeTurns(String sessionId, List<ArchiveRequest.TurnItem> turns, long now) {
+        turnRepo.deleteBySession(sessionId);
+        List<ArchiveRequest.TurnItem> items = turns != null ? turns : List.of();
+        int seq = 1;
+        for (ArchiveRequest.TurnItem item : items) {
+            int index = item.turnIndex() > 0 ? item.turnIndex() : seq;
+            turnRepo.insert(ConsultTurn.builder()
+                    .turnId(UUID.randomUUID().toString())
+                    .sessionId(sessionId)
+                    .turnIndex(index)
+                    .question(item.question())
+                    .answer(item.answer())
+                    .refMenuPaths(item.refMenuPaths())
+                    .refGraphifyNodes(item.refGraphifyNodes())
+                    .refDomainKnowledge(item.refDomainKnowledge())
+                    .attachments(serializeAttachments(item.attachments()))
+                    .createdAt(now)
+                    .build());
+            seq++;
         }
     }
 

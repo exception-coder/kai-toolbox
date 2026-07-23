@@ -91,6 +91,14 @@ export function archiveConsult(id: string, req: ArchiveRequest) {
   })
 }
 
+/** 进行中增量落库（保持 PENDING）：让其它电脑也能从库里查看进行中的对话。 */
+export function syncConsultTurns(id: string, req: ArchiveRequest) {
+  return http<ConsultSessionView>(`/fore-consult/sessions/${id}/turns`, {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
+}
+
 export function deleteConsult(id: string) {
   return http<void>(`/fore-consult/sessions/${id}`, { method: 'DELETE' })
 }

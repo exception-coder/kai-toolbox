@@ -72,6 +72,12 @@ public class ConsultSessionRepository {
                 rawReferenceJson, parseStatus, endedAt, sessionId);
     }
 
+    /** 进行中增量同步：只更新原始对话 JSON，保持 archive_status/ended_at 不变。 */
+    public void updateSyncedRaw(String sessionId, String rawReferenceJson) {
+        jdbc.update("UPDATE consult_session SET raw_reference_json = ? WHERE session_id = ?",
+                rawReferenceJson, sessionId);
+    }
+
     /** 归档失败：记录错误信息，状态置 FAILED（待补偿）。 */
     public void markFailed(String sessionId, String errorMsg, long endedAt) {
         jdbc.update("UPDATE consult_session SET archive_status = 'FAILED', error_msg = ?, ended_at = ? WHERE session_id = ?",
