@@ -4,6 +4,8 @@ import com.exceptioncoder.toolbox.foreconsult.api.dto.ArchiveRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ConsultAttachmentView;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ConsultSessionView;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ConsultTurnView;
+import com.exceptioncoder.toolbox.foreconsult.api.dto.FeedbackRequest;
+import com.exceptioncoder.toolbox.foreconsult.api.dto.FeedbackView;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.LinkDevSessionRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.StartSessionRequest;
 import com.exceptioncoder.toolbox.foreconsult.service.ConsultAttachmentService;
@@ -70,10 +72,10 @@ public class ConsultController {
                 .toList();
     }
 
-    /** 会话详情（含轮次明细）。 */
+    /** 会话详情（含轮次明细 + 评分反馈）。 */
     @GetMapping("/sessions/{id}")
     public ConsultSessionView get(@PathVariable String id) {
-        return ConsultSessionView.from(service.get(id), turnViewsOf(id));
+        return ConsultSessionView.from(service.get(id), turnViewsOf(id), feedbackViewsOf(id));
     }
 
     /** 回写关联的 claude-chat 会话 id（拉起悬浮会话后由前端调用）。 */
@@ -86,26 +88,40 @@ public class ConsultController {
     /** 结束咨询并归档（一次性提交本次会话全部轮次；归档内部容错，失败会话状态置 FAILED）。 */
     @PostMapping("/sessions/{id}/archive")
     public ConsultSessionView archive(@PathVariable String id, @RequestBody ArchiveRequest req) {
-        return ConsultSessionView.from(service.archive(id, req), turnViewsOf(id));
+        return ConsultSessionView.from(service.archive(id, req), turnViewsOf(id), feedbackViewsOf(id));
     }
 
     /** 进行中增量同步：把当前对话落库但保持 PENDING，供其它电脑从库查看进行中的内容。 */
     @PostMapping("/sessions/{id}/turns")
     public ConsultSessionView syncTurns(@PathVariable String id, @RequestBody ArchiveRequest req) {
-        return ConsultSessionView.from(service.syncTurns(id, req), turnViewsOf(id));
+        return ConsultSessionView.from(service.syncTurns(id, req), turnViewsOf(id), feedbackViewsOf(id));
     }
 
-    /** 删除会话（含轮次）。 */
+    /** 某轮回答的评分/反馈（GOOD 一键；BAD 携带类型/原因/正确答案）。 */
+    @PostMapping("/sessions/{id}/turns/{turnIndex}/feedback")
+    public FeedbackView feedback(@PathVariable String id, @PathVariable int turnIndex,
+                                 @Valid @RequestBody FeedbackRequest req) {
+        return FeedbackView.from(service.saveFeedback(id, turnIndex, req));
+    }
+
+    /** 删除会话（含轮次与反馈）。 */
     @DeleteMapping("/sessions/{id}")
     public ResponseEntity<Void> delete(@PathVariable String id) {
         service.delete(id);
         return ResponseEntity.noContent().build();
     }
 
-    /** 某会话的轮次视图列表（get / archive 复用）。 */
+    /** 某会话的轮次视图列表（get / archive / sync 复用）。 */
     private List<ConsultTurnView> turnViewsOf(String id) {
         return service.turnsOf(id).stream()
                 .map(ConsultTurnView::from)
+                .toList();
+    }
+
+    /** 某会话的反馈视图列表。 */
+    private List<FeedbackView> feedbackViewsOf(String id) {
+        return service.feedbackOf(id).stream()
+                .map(FeedbackView::from)
                 .toList();
     }
 }

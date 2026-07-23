@@ -37,6 +37,20 @@ CREATE TABLE IF NOT EXISTS consult_turn (
 -- 存量数据库兼容：补充 attachments 列（SchemaInitializer 忽略 "duplicate column" 错误）
 ALTER TABLE consult_turn ADD COLUMN attachments TEXT;
 
+-- 单轮回答的用户评分/反馈。独立表，按 (session_id,turn_index) 唯一——不随 consult_turn 的
+-- 整表重写（增量同步/重新归档）而丢失。rating: GOOD（满意）| BAD（不满意）。
+CREATE TABLE IF NOT EXISTS consult_feedback (
+    session_id     TEXT    NOT NULL,                      -- 关联 consult_session
+    turn_index     INTEGER NOT NULL,                      -- 第几轮问答（从 1 开始）
+    rating         TEXT    NOT NULL,                       -- GOOD | BAD
+    category       TEXT,                                   -- 不满意类型（BAD 时）
+    reason         TEXT,                                   -- 不满意原因
+    correct_answer TEXT,                                   -- 用户提供的正确答案（可选）
+    created_at     INTEGER NOT NULL,
+    updated_at     INTEGER NOT NULL,
+    PRIMARY KEY (session_id, turn_index)
+);
+
 CREATE INDEX IF NOT EXISTS idx_consult_session_created ON consult_session(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_consult_session_user    ON consult_session(user_id);
 CREATE INDEX IF NOT EXISTS idx_consult_turn_session    ON consult_turn(session_id, turn_index);
