@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.common.auth.web;
 import com.exceptioncoder.toolbox.common.auth.AuthException;
 import com.exceptioncoder.toolbox.common.auth.annotation.RequireAuth;
 import com.exceptioncoder.toolbox.common.auth.annotation.RequireRole;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.method.HandlerMethod;
@@ -16,6 +17,12 @@ public class RequireAuthInterceptor implements HandlerInterceptor {
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
+        // 只在初始 REQUEST 派发鉴权。异步再派发(SSE/HLS 分片写完后的 ASYNC dispatch)时 AuthContext 已被
+        // 原始请求线程的 filter 清空，这里会误判未授权抛 401，破坏流式响应收尾。初始派发已鉴过权，故放行。
+        // 与 SoftGuardInterceptor/AdminOnlyInterceptor/ForgeGuardInterceptor 同款约束。
+        if (request.getDispatcherType() != DispatcherType.REQUEST) {
+            return true;
+        }
         if (!(handler instanceof HandlerMethod method)) {
             return true;
         }
