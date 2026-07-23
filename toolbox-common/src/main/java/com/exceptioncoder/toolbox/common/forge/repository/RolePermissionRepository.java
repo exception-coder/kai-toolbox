@@ -26,18 +26,17 @@ public class RolePermissionRepository {
     }
 
     /**
-     * 解析一批角色可见的、当前仍存活（ACTIVE）的权限码并集。DEPRECATED 权限码不下发。
+     * 解析用户经启用（ENABLED）角色可见的、当前仍存活（ACTIVE）的权限码并集。
+     * 禁用角色不授权，DEPRECATED 权限码不下发。单次 join 完成用户→角色→权限码解析。
      */
-    public List<String> findActivePermissionCodesByRoleIds(Collection<Long> roleIds) {
-        if (roleIds == null || roleIds.isEmpty()) {
-            return List.of();
-        }
-        String placeholders = String.join(",", roleIds.stream().map(x -> "?").toList());
+    public List<String> findActivePermissionCodesByUser(long userId) {
         return jdbc.queryForList(
-                "SELECT DISTINCT p.code FROM forge_role_permission rp "
-                        + "JOIN forge_permission p ON p.id = rp.permission_id "
-                        + "WHERE rp.role_id IN (" + placeholders + ") AND p.status = 'ACTIVE'",
-                String.class, roleIds.toArray());
+                "SELECT DISTINCT p.code FROM forge_user_role ur "
+                        + "JOIN forge_role r ON r.id = ur.role_id AND r.status = 'ENABLED' "
+                        + "JOIN forge_role_permission rp ON rp.role_id = r.id "
+                        + "JOIN forge_permission p ON p.id = rp.permission_id AND p.status = 'ACTIVE' "
+                        + "WHERE ur.user_id = ?",
+                String.class, userId);
     }
 
     public void deleteByRole(long roleId) {
