@@ -9,6 +9,7 @@ public record AuthPrincipal(
         long userId,
         String username,
         List<String> roles,
+        List<String> permissionCodes,
         String jti,
         long expiresAt
 ) {
@@ -22,5 +23,10 @@ public record AuthPrincipal(
             }
         }
         return false;
+    }
+
+    /** 是否持有指定权限码（登录快照内查找）。 */
+    public boolean hasPermission(String code) {
+        return permissionCodes != null && permissionCodes.contains(code);
     }
 }

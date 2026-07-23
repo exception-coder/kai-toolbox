@@ -29,17 +29,20 @@ public class TokenService {
     private final RefreshTokenRepository refreshRepository;
     private final TokenBlacklistRepository blacklistRepository;
     private final AuthProperties props;
+    private final AuthoritiesResolver authoritiesResolver;
 
     public TokenService(JwtService jwtService,
                         AuthUserService userService,
                         RefreshTokenRepository refreshRepository,
                         TokenBlacklistRepository blacklistRepository,
-                        AuthProperties props) {
+                        AuthProperties props,
+                        AuthoritiesResolver authoritiesResolver) {
         this.jwtService = jwtService;
         this.userService = userService;
         this.refreshRepository = refreshRepository;
         this.blacklistRepository = blacklistRepository;
         this.props = props;
+        this.authoritiesResolver = authoritiesResolver;
     }
 
     /**
@@ -48,10 +51,12 @@ public class TokenService {
     @Transactional
     public TokenPair issueFor(AuthUser user) {
         purgeExpired();
-        String access = jwtService.issueAccessToken(user);
-        String refresh = jwtService.issueRefreshToken(user);
+        AuthAuthorities authorities = authoritiesResolver.resolve(user.getId(), user.getRoles());
+        String access = jwtService.issueAccessToken(user, authorities.roles(), authorities.permissionCodes());
+        String refresh = jwtService.issueRefreshToken(user, authorities.roles());
         storeRefresh(user.getId(), refresh);
-        return new TokenPair(access, refresh, props.getAccessTtl().toSeconds(), user);
+        return new TokenPair(access, refresh, props.getAccessTtl().toSeconds(), user,
+                authorities.permissionCodes(), authorities.superAdmin());
     }
 
     /**
@@ -73,10 +78,12 @@ public class TokenService {
         refreshRepository.revokeByJti(stored.getJti());
 
         AuthUser user = userService.getById(payload.userId());
-        String access = jwtService.issueAccessToken(user);
-        String refresh = jwtService.issueRefreshToken(user);
+        AuthAuthorities authorities = authoritiesResolver.resolve(user.getId(), user.getRoles());
+        String access = jwtService.issueAccessToken(user, authorities.roles(), authorities.permissionCodes());
+        String refresh = jwtService.issueRefreshToken(user, authorities.roles());
         storeRefresh(user.getId(), refresh);
-        return new TokenPair(access, refresh, props.getAccessTtl().toSeconds(), user);
+        return new TokenPair(access, refresh, props.getAccessTtl().toSeconds(), user,
+                authorities.permissionCodes(), authorities.superAdmin());
     }
 
     private void storeRefresh(long userId, String refreshToken) {
