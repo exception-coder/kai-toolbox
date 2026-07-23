@@ -958,7 +958,7 @@ export function ForeConsultPage() {
 
             {/* 模块选择：搜索 + 折叠，降低"一墙标签"负担 */}
             <div className="flex-1 overflow-y-auto px-5 py-4">
-              <div className="mb-2 flex items-center justify-between">
+              <div className="mb-1 flex items-center justify-between">
                 <span className="text-[11px] uppercase tracking-wider text-indigo-200/55">选择模块 · 可多选可不选</span>
                 {moduleTags.length > 0 && (
                   <button type="button" onClick={() => setModuleTags([])} className="text-[11px] text-indigo-200/60 hover:text-indigo-100">
@@ -966,6 +966,9 @@ export function ForeConsultPage() {
                   </button>
                 )}
               </div>
+              <p className="mb-2 text-[11px] leading-relaxed text-indigo-200/40">
+                如果你能明确是哪个模块，建议勾上——能让 AI 检索更聚焦、更高效、更准；不清楚就别选，AI 会面向整个系统作答。
+              </p>
 
               {moduleOptions.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-indigo-300/20 px-3 py-4 text-center text-xs text-indigo-200/40">
