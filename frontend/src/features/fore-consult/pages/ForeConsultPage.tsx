@@ -5,9 +5,9 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   BarChart3, Boxes, BrainCircuit, Briefcase, ChevronDown, Contact, Eye, EyeOff, Factory, Handshake,
-  FileText, History, Landmark, Loader2, Maximize2, MessagesSquare, Minimize2, Paperclip, Radar, Route, Save,
-  Search, Send, Server, ShoppingBag, ShoppingCart, SlidersHorizontal, Sparkles, Trash2, Truck, Users,
-  Warehouse, Waypoints, X, type LucideIcon,
+  FileText, History, Landmark, Lightbulb, Loader2, Maximize2, MessagesSquare, Minimize2, Paperclip, Radar,
+  Route, Save, Search, Send, Server, ShoppingBag, ShoppingCart, SlidersHorizontal, Sparkles, Trash2, Truck,
+  Users, Warehouse, Waypoints, X, type LucideIcon,
 } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
@@ -1077,6 +1077,13 @@ export function ForeConsultPage() {
                   </button>
                 ))}
               </div>
+              <p className="mb-2 flex items-start gap-1.5 text-[11px] leading-relaxed text-indigo-200/45">
+                <Lightbulb className="mt-0.5 size-3 shrink-0 text-amber-300/70" />
+                <span>
+                  若问的是网页功能，建议把浏览器地址栏的 URL 一起复制进输入框——AI 能据此快速定位到对应页面、路由更准；
+                  上传截图请尽量截全（含顶部浏览器地址栏），便于识别所属系统与页面路径。
+                </span>
+              </p>
               <div className="rounded-2xl border border-indigo-300/22 bg-white/[0.04] p-2 transition-colors focus-within:border-sky-300/50 focus-within:shadow-[0_0_0_2px_rgba(120,150,255,0.2)]">
                 {(attachments.length > 0 || uploading > 0) && (
                   <div className="mb-1.5 flex flex-wrap gap-2 px-1">
