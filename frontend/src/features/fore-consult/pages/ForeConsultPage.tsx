@@ -1157,7 +1157,15 @@ export function ForeConsultPage() {
                 {(history ?? []).map((s) => (
                   <li
                     key={s.sessionId}
-                    onClick={() => setViewSession({ id: s.sessionId, title: displayName(s.systemName) })}
+                    onClick={() => {
+                      // 进行中且是当前活跃会话：打开实时对话面板（内容在 chat.items 里，归档表里还没有）。
+                      if (s.sessionId === activeConsultId) {
+                        setHistoryOpen(false)
+                        setConversationOpen(true)
+                      } else {
+                        setViewSession({ id: s.sessionId, title: displayName(s.systemName) })
+                      }
+                    }}
                     className="cursor-pointer rounded-xl border border-indigo-300/15 bg-white/[0.03] px-3.5 py-3 transition-colors hover:border-indigo-300/30 hover:bg-white/[0.06]"
                   >
                     <div className="flex items-center justify-between gap-2">

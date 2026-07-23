@@ -95,7 +95,11 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
               <Loader2 className="size-4 animate-spin" /> 加载中…
             </div>
           ) : pairs.length === 0 ? (
-            <p className="pt-10 text-center text-sm text-indigo-200/40">本次咨询没有归档的问答内容</p>
+            <p className="px-6 pt-10 text-center text-sm leading-relaxed text-indigo-200/40">
+              {data?.archiveStatus === 'PENDING'
+                ? '该咨询还在进行中，尚未归档。回到星图点「查看对话」可继续，结束并归档后即可在此查看完整问答。'
+                : '本次咨询没有归档的问答内容'}
+            </p>
           ) : (
             pairs.map((p, i) => (
               <div key={i} className="space-y-2">
