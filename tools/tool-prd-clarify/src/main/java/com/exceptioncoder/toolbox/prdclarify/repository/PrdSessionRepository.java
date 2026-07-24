@@ -206,6 +206,33 @@ public class PrdSessionRepository {
         jdbc.update("UPDATE prd_session SET progress_history = ? WHERE id = ?", progressHistoryJson, id);
     }
 
+    /**
+     * 更新草稿字段（保存/再次保存草稿，不改变 DRAFT 状态）。
+     *
+     * <p>跟其它 update 方法不同，这里故意 touch {@code updated_at}——草稿阶段还没有 PRD/开发文档，
+     * 不存在"内容变了但不该影响过期判断"的顾虑，touch updated_at 只是如实反映"草稿最后编辑时间"。</p>
+     */
+    public void updateDraftFields(String id, String title, String rawInput, String project, String module) {
+        jdbc.update("UPDATE prd_session SET title = ?, raw_input = ?, project = ?, module = ?, updated_at = ? WHERE id = ?",
+                title, rawInput, project, module, System.currentTimeMillis(), id);
+    }
+
+    /**
+     * 草稿转正式：把用户在恢复草稿后可能又改过的表单字段（title/rawInput/project/module）连同
+     * 「开始澄清」确认弹框里选定的 role/reqType/maxQuestions/clarifyMode 一并写回，状态从
+     * DRAFT 切到 CLARIFYING（复用同一行，不新插入一条记录——草稿和正式澄清是同一条需求的
+     * 同一个生命周期）。
+     */
+    public void startClarifyFromDraft(String id, String title, String rawInput, String project, String module,
+                                       String model, String role, String reqType, int maxQuestions,
+                                       String clarifyMode) {
+        jdbc.update("UPDATE prd_session SET title = ?, raw_input = ?, project = ?, module = ?, model = ?, " +
+                        "role = ?, req_type = ?, max_questions = ?, clarify_mode = ?, status = 'CLARIFYING', updated_at = ? " +
+                        "WHERE id = ?",
+                title, rawInput, project, module, model, role, reqType, maxQuestions, clarifyMode,
+                System.currentTimeMillis(), id);
+    }
+
     /** 标记错误状态。 */
     public void updateError(String id, String errorMsg) {
         jdbc.update("UPDATE prd_session SET status = 'ERROR', error_msg = ?, updated_at = ? WHERE id = ?",

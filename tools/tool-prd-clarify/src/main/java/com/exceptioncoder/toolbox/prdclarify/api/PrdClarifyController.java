@@ -13,6 +13,7 @@ import com.exceptioncoder.toolbox.prdclarify.service.AttachmentParseService;
 import com.exceptioncoder.toolbox.prdclarify.service.ImageAttachmentStorageService;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.PrdSessionView;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.SaveContentRequest;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.SaveDraftRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.SaveQaHistoryRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.SubmitAnswersRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.UpdateTitleRequest;
@@ -49,6 +50,9 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
  *
  * <ul>
  *   <li>{@code POST   /sessions}                 — 创建会话</li>
+ *   <li>{@code POST   /sessions/draft}            — 保存草稿（仅标题/项目/模块/需求描述）</li>
+ *   <li>{@code PUT    /sessions/{id}/draft}       — 再次保存草稿</li>
+ *   <li>{@code POST   /sessions/{id}/start-from-draft} — 草稿转正式，发起澄清</li>
  *   <li>{@code GET    /sessions}                  — 最近 50 条历史</li>
  *   <li>{@code GET    /sessions/{id}}             — 获取会话详情</li>
  *   <li>{@code PUT    /sessions/{id}/title}       — 重命名会话标题</li>
@@ -142,6 +146,49 @@ public class PrdClarifyController {
                 req.title(), req.rawInput(), req.project(), req.module(), req.model(), req.role(),
                 req.reqType(), req.maxQuestions(), createdByUserId, req.clarifyMode());
         return PrdSessionView.from(session);
+    }
+
+    /**
+     * 保存草稿：只含标题/需求描述/关联项目模块，不判定需求类型/澄清深度/模式（那些要等真正
+     * 点「开始澄清」才决定）。用于「填了个开头但还没想好要不要马上澄清」的场景，避免半成品
+     * 内容因为关掉标签页就丢失——之前 InputPanel 表单只是纯 React state，没有任何持久化路径。
+     */
+    @PostMapping("/sessions/draft")
+    public PrdSessionView saveDraft(@Valid @RequestBody SaveDraftRequest req) {
+        Long createdByUserId = AuthContext.current().map(AuthPrincipal::userId).orElse(null);
+        PrdSession session = service.saveDraft(req.title(), req.rawInput(), req.project(), req.module(), createdByUserId);
+        return PrdSessionView.from(session);
+    }
+
+    /** 再次保存草稿（覆盖字段，状态保持 DRAFT）。 */
+    @PutMapping("/sessions/{id}/draft")
+    public PrdSessionView updateDraft(@PathVariable String id, @Valid @RequestBody SaveDraftRequest req) {
+        try {
+            PrdSession session = service.updateDraft(id, req.title(), req.rawInput(), req.project(), req.module());
+            return PrdSessionView.from(session);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(NOT_FOUND, e.getMessage());
+        } catch (IllegalStateException e) {
+            throw new ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, e.getMessage());
+        }
+    }
+
+    /**
+     * 草稿转正式：原地把 DRAFT 会话切到 CLARIFYING（不新建记录），请求体跟「创建会话」同构
+     * （标题/描述/项目/模块可能在恢复草稿后又被编辑过，一并带上最终值；role/reqType/maxQuestions/
+     * clarifyMode 来自「开始澄清」确认弹框的选择）。
+     */
+    @PostMapping("/sessions/{id}/start-from-draft")
+    public PrdSessionView startFromDraft(@PathVariable String id, @Valid @RequestBody CreateSessionRequest req) {
+        try {
+            PrdSession session = service.startClarifyFromDraft(id, req.title(), req.rawInput(), req.project(),
+                    req.module(), req.model(), req.role(), req.reqType(), req.maxQuestions(), req.clarifyMode());
+            return PrdSessionView.from(session);
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(NOT_FOUND, e.getMessage());
+        } catch (IllegalStateException e) {
+            throw new ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, e.getMessage());
+        }
     }
 
     /**

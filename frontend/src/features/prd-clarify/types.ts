@@ -1,6 +1,7 @@
 /** PRD 澄清工具的 TypeScript 类型定义 */
 
-export type PrdSessionStatus = 'CLARIFYING' | 'GENERATING' | 'DONE' | 'ERROR'
+/** DRAFT：草稿，仅存了标题/关联项目模块/需求描述，尚未发起澄清（"待生成 PRD"）。 */
+export type PrdSessionStatus = 'DRAFT' | 'CLARIFYING' | 'GENERATING' | 'DONE' | 'ERROR'
 
 /** 提需求方角色，决定 Claude 澄清问题的深度和语言风格 */
 export type PrdRole = 'PRODUCT' | 'BUSINESS'
@@ -140,6 +141,14 @@ export interface CreateSessionRequest {
   reqType?: PrdReqType
   maxQuestions?: number
   clarifyMode?: PrdClarifyMode
+}
+
+/** 保存/更新草稿：只含标题/需求描述/关联项目模块，草稿阶段还不用决定角色/需求类型/澄清深度/模式。 */
+export interface SaveDraftRequest {
+  title: string
+  rawInput?: string
+  project?: string
+  module?: string
 }
 
 export interface SubmitAnswersRequest {

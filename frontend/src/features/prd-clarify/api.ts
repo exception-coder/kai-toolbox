@@ -6,6 +6,7 @@ import type {
   PrdSessionView,
   ProgressVersionSummary,
   SaveContentRequest,
+  SaveDraftRequest,
   SubmitAnswersRequest,
 } from './types'
 
@@ -14,6 +15,27 @@ const BASE = '/prd-clarify'
 /** 创建 PRD 澄清会话。 */
 export const createSession = (req: CreateSessionRequest) =>
   http<PrdSessionView>(`${BASE}/sessions`, {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
+
+/** 保存草稿（仅标题/需求描述/关联项目模块，不判定需求类型/澄清深度/模式）。 */
+export const saveDraft = (req: SaveDraftRequest) =>
+  http<PrdSessionView>(`${BASE}/sessions/draft`, {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
+
+/** 再次保存草稿（覆盖字段，状态保持 DRAFT）。 */
+export const updateDraft = (id: string, req: SaveDraftRequest) =>
+  http<PrdSessionView>(`${BASE}/sessions/${id}/draft`, {
+    method: 'PUT',
+    body: JSON.stringify(req),
+  })
+
+/** 草稿转正式：原地把 DRAFT 会话切到 CLARIFYING（不新建记录）。 */
+export const startClarifyFromDraft = (id: string, req: CreateSessionRequest) =>
+  http<PrdSessionView>(`${BASE}/sessions/${id}/start-from-draft`, {
     method: 'POST',
     body: JSON.stringify(req),
   })

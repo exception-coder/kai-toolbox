@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { BotMessageSquare, Bug, ChevronRight, ClipboardCheck, Clock, Code2, Copy, ExternalLink, FileText, GitBranch, Image as ImageIcon, Info, Layers, Loader2, Paperclip, Pencil, Plus, RefreshCw, Rocket, Send, Sparkles, Trash2, User, Wrench, X } from 'lucide-react'
+import { BotMessageSquare, Bug, ChevronRight, ClipboardCheck, Clock, Code2, Copy, ExternalLink, FileText, GitBranch, Image as ImageIcon, Info, Layers, Loader2, Paperclip, Pencil, Plus, RefreshCw, Rocket, Save, Send, Sparkles, Trash2, User, Wrench, X } from 'lucide-react'
 import { http } from '@/lib/api'
 import { MultiSelect } from '@/components/ui/multi-select'
 import { usePrompt } from '@/components/ui/prompt-dialog'
@@ -31,16 +31,19 @@ import {
   PRD_CLARIFY_LAUNCH_KEY,
   saveContent,
   saveDevDocContent,
+  saveDraft,
   saveQaHistory,
   startClarify,
+  startClarifyFromDraft,
   startGenerate,
   startGenerateDevDoc,
+  updateDraft,
   updateSessionTitle,
   uploadImageAttachment,
   type QaPair,
   type AttachmentParseResult,
 } from '../api'
-import type { DevDocEstimation, DevDocVersionSummary, EstimationConfidence, PrdClarifyMode, PrdReqType, PrdSessionView, PrdStep, ProgressVersionSummary, QuestionItem } from '../types'
+import type { CreateSessionRequest, DevDocEstimation, DevDocVersionSummary, EstimationConfidence, PrdClarifyMode, PrdReqType, PrdSessionView, PrdStep, ProgressVersionSummary, QuestionItem } from '../types'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 
 // 编辑器 lazy import — CodeMirror chunk 只在进入 EDITING 步骤时加载
@@ -610,6 +613,7 @@ function HistoryPanel({
   }
 
   const statusColor: Record<string, string> = {
+    DRAFT: 'text-[var(--color-muted-foreground)]',
     DONE: 'text-green-500',
     GENERATING: 'text-blue-500',
     CLARIFYING: 'text-yellow-500',
@@ -655,15 +659,17 @@ function HistoryPanel({
                 )}
                 <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                   <span className={`text-[10px] ${statusColor[s.status] ?? 'text-[var(--color-muted-foreground)]'}`}>
-                    {s.status}
+                    {s.status === 'DRAFT' ? '草稿' : s.status}
                   </span>
-                  {s.role === 'BUSINESS' ? (
+                  {/* 角色/需求类型标签：草稿阶段这两个字段只是占位默认值（还没到判定环节），
+                      显示出来反而误导，等转正式发起澄清后才有意义 */}
+                  {s.status !== 'DRAFT' && (s.role === 'BUSINESS' ? (
                     <span className="text-[9px] px-1 rounded bg-green-500/15 text-green-500 border border-green-500/20 leading-tight">业务</span>
                   ) : (
                     <span className="text-[9px] px-1 rounded bg-blue-500/15 text-blue-500 border border-blue-500/20 leading-tight">产品</span>
-                  )}
+                  ))}
                   {/* 需求类型标签：跟 REQ_TYPE_CONFIG 配色一致，老数据无 reqType 时按 NEW_MODULE 兜底 */}
-                  {(() => {
+                  {s.status !== 'DRAFT' && (() => {
                     const cfg = REQ_TYPE_CONFIG[s.reqType ?? 'NEW_MODULE']
                     return (
                       <span className={`text-[9px] px-1 rounded border leading-tight ${cfg.bg} ${cfg.color}`}>
@@ -2080,16 +2086,25 @@ function InputPanel({
   initialRawInput = '',
   initialProject = '',
   initialModule = '',
+  draftId = null,
+  onDraftSaved,
 }: {
   // reqType/maxQuestions 可选：业务员角色不弹确认框，直接省略这两个参数，
   // 交给后端 LLM 自动判定（见 handleStart/handleStartVibe 里对应处理）。clarifyMode 只有
   // onStart（内嵌澄清）有意义，业务员角色/未选时省略，由 createSession 兜底成 progressive。
-  onStart: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS', reqType?: PrdReqType, maxQuestions?: number, clarifyMode?: PrdClarifyMode) => void
-  onStartVibe: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS', reqType?: PrdReqType, maxQuestions?: number) => void
+  // draftId：非空时表示 onStart/onStartVibe 应该把现存的这条 DRAFT 会话原地转正式
+  // （startClarifyFromDraft），而不是新建一条记录——由 handleStart/handleStartVibe 判断。
+  onStart: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS', reqType?: PrdReqType, maxQuestions?: number, clarifyMode?: PrdClarifyMode, draftId?: string) => void
+  onStartVibe: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS', reqType?: PrdReqType, maxQuestions?: number, draftId?: string) => void
   initialTitle?: string
   initialRawInput?: string
   initialProject?: string
   initialModule?: string
+  /** 恢复草稿时传入草稿会话 id；全新填写（未保存过草稿）时为 null。 */
+  draftId?: string | null
+  /** 首次保存草稿成功后回调新生成的 id，父组件据此把 sessionId 状态同步过来，
+   *  后续再点「保存草稿」/「开始澄清」时才知道要原地更新而不是重复创建。 */
+  onDraftSaved?: (id: string) => void
 }) {
   const [title, setTitle] = useState(initialTitle)
   const [rawInput, setRawInput] = useState(initialRawInput)
@@ -2098,6 +2113,7 @@ function InputPanel({
   // 无需改 schema）。UI 层用 MultiSelect 多选，只是把选中的模块名 join(', ') 写回这个字符串。
   const [module, setModule] = useState(initialModule)
   const [role, setRole] = useState<'PRODUCT' | 'BUSINESS'>('PRODUCT')
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null)
   /** 点「开始澄清」/「Vibe Coding 澄清」时先弹出 StartClarifyDialog 确认需求类型+深度，
    *  确认后才真正调用对应的 onStart/onStartVibe；null 表示弹框未打开。 */
   const [pendingAction, setPendingAction] = useState<'start' | 'startVibe' | null>(null)
@@ -2194,6 +2210,21 @@ function InputPanel({
     }
     return final
   }
+
+  /**
+   * 保存草稿：只需要标题，不触发任何 AI 调用（不判定需求类型/不澄清）。首次保存新建一条
+   * DRAFT 记录，之后（draftId 已知）再保存就原地覆盖，不会越存越多条。
+   */
+  const saveDraftMut = useMutation({
+    mutationFn: () => {
+      const payload = { title: title.trim(), rawInput: buildFinalRawInput(), project, module }
+      return draftId ? updateDraft(draftId, payload) : saveDraft(payload)
+    },
+    onSuccess: (session) => {
+      setDraftSavedAt(Date.now())
+      if (!draftId) onDraftSaved?.(session.id)
+    },
+  })
 
   // 拉取项目列表：用 claude-chat/workspaces 而非 /projects，
   // 因为 workspaces 支持多个 workspace root（包含 D:\yoooni\ 等非 myWork 根目录），
@@ -2465,12 +2496,12 @@ function InputPanel({
         {/* 两种澄清模式：产品/开发角色先弹 StartClarifyDialog 确认需求类型+澄清深度；
             业务员角色不弹（业务员不懂 Bug/模块调整/新增模块这种技术分类，也判断不出该问几轮），
             直接进入澄清，需求类型交给后端 LLM 自动判定（见 PrdClarifyService.classifyReqType） */}
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           {/* 标准模式（内嵌简化 UI） */}
           <button
             disabled={!canSubmit}
             onClick={() => {
-              if (role === 'BUSINESS') onStart(title.trim(), buildFinalRawInput(), project, module, role)
+              if (role === 'BUSINESS') onStart(title.trim(), buildFinalRawInput(), project, module, role, undefined, undefined, undefined, draftId ?? undefined)
               else setPendingAction('start')
             }}
             className="flex-1 py-2.5 rounded-md bg-[var(--color-primary)] text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
@@ -2481,7 +2512,7 @@ function InputPanel({
           <button
             disabled={!canSubmit}
             onClick={() => {
-              if (role === 'BUSINESS') onStartVibe(title.trim(), buildFinalRawInput(), project, module, role)
+              if (role === 'BUSINESS') onStartVibe(title.trim(), buildFinalRawInput(), project, module, role, undefined, undefined, draftId ?? undefined)
               else setPendingAction('startVibe')
             }}
             className="flex items-center gap-1.5 px-4 py-2.5 rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/30 text-sm text-[var(--color-foreground)] hover:bg-[var(--color-muted)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -2490,7 +2521,28 @@ function InputPanel({
             <Code2 className="w-3.5 h-3.5" />
             Vibe Coding 澄清
           </button>
+          {/* 保存草稿：只需要标题，需求描述可以先空着，不触发任何 AI 调用，随时可以回来继续 */}
+          <button
+            type="button"
+            disabled={!title.trim() || saveDraftMut.isPending}
+            onClick={() => saveDraftMut.mutate()}
+            className="flex items-center gap-1.5 px-3 py-2.5 rounded-md border border-dashed border-[var(--color-border)] text-sm text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:border-[var(--color-ring)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            title="只存标题/项目/模块/需求描述，不触发任何 AI 调用（不判定需求类型、不发起澄清）"
+          >
+            {saveDraftMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            保存草稿
+          </button>
         </div>
+        {draftSavedAt && (
+          <p className="text-[11px] text-[var(--color-muted-foreground)] text-right">
+            草稿已保存 · {new Date(draftSavedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+          </p>
+        )}
+        {saveDraftMut.isError && (
+          <p className="text-[11px] text-red-500 text-right">
+            草稿保存失败：{saveDraftMut.error instanceof Error ? saveDraftMut.error.message : '未知错误'}
+          </p>
+        )}
       </div>
 
       {pendingAction && (
@@ -2501,9 +2553,9 @@ function InputPanel({
             const action = pendingAction
             setPendingAction(null)
             if (action === 'start') {
-              onStart(title.trim(), buildFinalRawInput(), project, module, role, reqType, maxQuestions, clarifyMode)
+              onStart(title.trim(), buildFinalRawInput(), project, module, role, reqType, maxQuestions, clarifyMode, draftId ?? undefined)
             } else {
-              onStartVibe(title.trim(), buildFinalRawInput(), project, module, role, reqType, maxQuestions)
+              onStartVibe(title.trim(), buildFinalRawInput(), project, module, role, reqType, maxQuestions, draftId ?? undefined)
             }
           }}
         />
@@ -3895,6 +3947,11 @@ export function PrdClarifyPage() {
   // 创建会话 mutation
   const createMut = useMutation({ mutationFn: createSession })
 
+  // 草稿转正式发起澄清：原地更新已存在的 DRAFT 会话，不新插入一条记录
+  const startFromDraftMut = useMutation({
+    mutationFn: ({ id, req }: { id: string; req: CreateSessionRequest }) => startClarifyFromDraft(id, req),
+  })
+
   // 删除 mutation
   const deleteMut = useMutation({
     mutationFn: deleteSession,
@@ -3984,12 +4041,16 @@ export function PrdClarifyPage() {
   const handleStart = async (
     title: string, rawInput: string, project: string, module: string,
     role: 'PRODUCT' | 'BUSINESS' = 'PRODUCT', reqType?: PrdReqType, maxQuestions?: number,
-    clarifyMode?: PrdClarifyMode,
+    clarifyMode?: PrdClarifyMode, draftId?: string,
   ) => {
     setErrorMsg(null)
     setSessionTitle(title)
     setSearchParams({}, { replace: true })
-    const created = await createMut.mutateAsync({ title, rawInput, project, module, role, reqType, maxQuestions, clarifyMode })
+    const req = { title, rawInput, project, module, role, reqType, maxQuestions, clarifyMode }
+    // draftId 非空：从草稿恢复后点「开始澄清」，原地转正式，不新建一条记录
+    const created = draftId
+      ? await startFromDraftMut.mutateAsync({ id: draftId, req })
+      : await createMut.mutateAsync(req)
     setSessionId(created.id)
     qc.setQueryData(['prd-session', created.id], created)
     setStreamText('')
@@ -4005,13 +4066,17 @@ export function PrdClarifyPage() {
   const handleStartVibe = async (
     title: string, rawInput: string, project: string, module: string,
     role: 'PRODUCT' | 'BUSINESS' = 'PRODUCT', reqType?: PrdReqType, maxQuestions?: number,
+    draftId?: string,
   ) => {
     setErrorMsg(null)
     setSessionTitle(title)
     setSearchParams({}, { replace: true })
 
-    // 创建会话（用于记录 prd_session_id，PRD 文件路径由此确定）
-    const created = await createMut.mutateAsync({ title, rawInput, project, module, role, reqType, maxQuestions })
+    // 创建会话（用于记录 prd_session_id，PRD 文件路径由此确定）；draftId 非空时原地转正式
+    const req = { title, rawInput, project, module, role, reqType, maxQuestions }
+    const created = draftId
+      ? await startFromDraftMut.mutateAsync({ id: draftId, req })
+      : await createMut.mutateAsync(req)
     setSessionId(created.id)
     qc.invalidateQueries({ queryKey: ['prd-sessions'] })
 
@@ -4207,6 +4272,10 @@ PRD_SESSION_ID: ${created.id}`
     } else if (s.status === 'ERROR') {
       setErrorMsg(s.errorMsg ?? '上次执行出错')
       setStep('INPUT')
+    } else if (s.status === 'DRAFT') {
+      // 草稿：回到 INPUT 表单继续编辑（InputPanel 从上面已预热的 session 缓存里读
+      // title/rawInput/project/module 回填，见下方 <InputPanel> 的 initialXxx 取值逻辑）
+      setStep('INPUT')
     } else {
       setStep('INPUT')
     }
@@ -4282,12 +4351,21 @@ PRD_SESSION_ID: ${created.id}`
         {/* 主内容区 */}
         {step === 'INPUT' && (
           <InputPanel
+            // key 随 sessionId 变化强制重新挂载：不这样的话，在 INPUT 步骤内直接从历史列表
+            // 切换到另一条草稿时，InputPanel 内部 useState(initialTitle) 只在挂载时读一次初始值，
+            // 不会跟着新选中的草稿刷新表单内容。
+            key={session?.status === 'DRAFT' ? sessionId : 'new'}
             onStart={handleStart}
             onStartVibe={handleStartVibe}
-            initialTitle={urlTitle}
-            initialRawInput={urlRawInput}
-            initialProject={urlProject}
-            initialModule={urlModule}
+            initialTitle={session?.status === 'DRAFT' ? (session.title ?? '') : urlTitle}
+            initialRawInput={session?.status === 'DRAFT' ? (session.rawInput ?? '') : urlRawInput}
+            initialProject={session?.status === 'DRAFT' ? (session.project ?? '') : urlProject}
+            initialModule={session?.status === 'DRAFT' ? (session.module ?? '') : urlModule}
+            draftId={session?.status === 'DRAFT' ? sessionId : null}
+            onDraftSaved={(id) => {
+              setSessionId(id)
+              qc.invalidateQueries({ queryKey: ['prd-sessions'] })
+            }}
           />
         )}
 

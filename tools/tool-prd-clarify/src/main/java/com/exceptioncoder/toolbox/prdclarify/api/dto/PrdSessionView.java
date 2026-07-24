@@ -16,7 +16,7 @@ import java.util.List;
  * @param title     需求标题
  * @param project   关联项目名
  * @param module    关联模块名
- * @param status    状态：CLARIFYING | GENERATING | DONE | ERROR
+ * @param status    状态：DRAFT | CLARIFYING | GENERATING | DONE | ERROR
  * @param questions 澄清问题列表（含用户答案），未生成时为空列表
  * @param mdPath    PRD 文件路径（仅 DONE 状态下有值）
  * @param errorMsg  错误信息（仅 ERROR 状态下有值）

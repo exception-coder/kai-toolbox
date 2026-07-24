@@ -1,5 +1,8 @@
 -- PRD 澄清会话表（产品需求澄清工具）
--- status: CLARIFYING（等待答题）| GENERATING（生成中）| DONE（完成）| ERROR（出错）
+-- status: DRAFT（草稿，仅存了标题/关联项目模块/需求描述，尚未发起澄清）|
+--         CLARIFYING（等待答题）| GENERATING（生成中）| DONE（完成）| ERROR（出错）
+-- 草稿态不需要新增列——role/req_type/max_questions/clarify_mode 沿用列默认值占位，
+-- 真正点「开始澄清」把草稿转正式时才会被重新赋值（见 PrdClarifyService#startClarifyFromDraft）。
 -- role: PRODUCT（产品/开发，问设计细节和技术约束）| BUSINESS（业务员，只问业务关键问题）
 -- questions 存 JSON 数组，格式 [{"id":1,"question":"...","answer":"..."}]
 CREATE TABLE IF NOT EXISTS prd_session (

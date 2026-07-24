@@ -383,24 +383,7 @@ public class PrdClarifyService {
                                     String clarifyMode) {
         long now = System.currentTimeMillis();
         String effectiveRole = (role != null && "BUSINESS".equalsIgnoreCase(role)) ? "BUSINESS" : "PRODUCT";
-
-        String effectiveReqType;
-        int effectiveMaxQuestions;
-        if (DEFAULT_MAX_QUESTIONS.containsKey(reqType)) {
-            // 显式提供（StartClarifyDialog 里用户手选，或 API 直接指定）
-            effectiveReqType = reqType;
-            effectiveMaxQuestions = (maxQuestions != null && maxQuestions > 0)
-                    ? maxQuestions
-                    : DEFAULT_MAX_QUESTIONS.get(effectiveReqType);
-        } else {
-            // 未提供：不弹分类弹框的场景（业务员角色）—— LLM 自动判定，失败兜底 NEW_MODULE
-            ReqTypeClassification classification = classifyReqType(title, rawInput, model);
-            effectiveReqType = classification.reqType();
-            effectiveMaxQuestions = classification.maxQuestions();
-            log.info("[prd-clarify] 需求类型自动判定 title='{}' -> reqType={} maxQuestions={}",
-                    title, effectiveReqType, effectiveMaxQuestions);
-        }
-
+        ReqTypeClassification classification = resolveReqType(title, rawInput, model, reqType, maxQuestions);
         String effectiveClarifyMode = "batch".equals(clarifyMode) ? "batch" : "progressive";
 
         PrdSession session = PrdSession.builder()
@@ -411,8 +394,8 @@ public class PrdClarifyService {
                 .module(module)
                 .model(model)
                 .role(effectiveRole)
-                .reqType(effectiveReqType)
-                .maxQuestions(effectiveMaxQuestions)
+                .reqType(classification.reqType())
+                .maxQuestions(classification.maxQuestions())
                 .clarifyMode(effectiveClarifyMode)
                 .status("CLARIFYING")
                 .createdByUserId(createdByUserId)
@@ -421,6 +404,86 @@ public class PrdClarifyService {
                 .build();
         repo.insert(session);
         return session;
+    }
+
+    /**
+     * 保存草稿：只落盘标题/需求描述/关联项目模块，不判定需求类型/澄清深度/澄清模式——那些要等
+     * 用户真正点「开始澄清」（{@link #startClarifyFromDraft}）时才需要决定，草稿阶段还没到那一步。
+     * role/reqType/maxQuestions/clarifyMode 落成跟数据库列默认值一致的占位值，转正式时会被覆盖。
+     *
+     * @param rawInput 需求描述，草稿允许暂时空着（只想先占个标题/项目/模块的位）；null 归一化为空串
+     *                 （raw_input 列 NOT NULL，不能真塞 null）
+     */
+    public PrdSession saveDraft(String title, String rawInput, String project, String module, Long createdByUserId) {
+        long now = System.currentTimeMillis();
+        PrdSession session = PrdSession.builder()
+                .id(UUID.randomUUID().toString())
+                .title(title)
+                .rawInput(rawInput == null ? "" : rawInput)
+                .project(project)
+                .module(module)
+                .role("PRODUCT")
+                .reqType("NEW_MODULE")
+                .maxQuestions(DEFAULT_MAX_QUESTIONS.get("NEW_MODULE"))
+                .clarifyMode("progressive")
+                .status("DRAFT")
+                .createdByUserId(createdByUserId)
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
+        repo.insert(session);
+        return session;
+    }
+
+    /** 再次保存草稿（覆盖字段，状态保持 DRAFT）。会话必须仍处于 DRAFT 状态，否则说明前端页面状态过期。 */
+    public PrdSession updateDraft(String sessionId, String title, String rawInput, String project, String module) {
+        PrdSession existing = repo.findById(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
+        if (!"DRAFT".equals(existing.getStatus())) {
+            throw new IllegalStateException("当前状态 " + existing.getStatus() + " 不是草稿，无法这样保存");
+        }
+        repo.updateDraftFields(sessionId, title, rawInput == null ? "" : rawInput, project, module);
+        return repo.findById(sessionId).orElseThrow();
+    }
+
+    /**
+     * 草稿转正式：发起澄清。复用 {@link #createSession} 同一套需求类型自动判定逻辑
+     * （{@link #resolveReqType}），区别只是不新插入一条记录，而是原地更新已存在的草稿行
+     * （草稿和后续的澄清/生成是同一条需求记录的同一个生命周期，不应该产生两条历史记录）。
+     */
+    public PrdSession startClarifyFromDraft(String sessionId, String title, String rawInput,
+                                             String project, String module, String model, String role,
+                                             String reqType, Integer maxQuestions, String clarifyMode) {
+        PrdSession existing = repo.findById(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
+        if (!"DRAFT".equals(existing.getStatus())) {
+            throw new IllegalStateException("当前状态 " + existing.getStatus() + " 不是草稿，不能重复发起澄清");
+        }
+        String effectiveRole = (role != null && "BUSINESS".equalsIgnoreCase(role)) ? "BUSINESS" : "PRODUCT";
+        ReqTypeClassification classification = resolveReqType(title, rawInput, model, reqType, maxQuestions);
+        String effectiveClarifyMode = "batch".equals(clarifyMode) ? "batch" : "progressive";
+        repo.startClarifyFromDraft(sessionId, title, rawInput, project, module, model,
+                effectiveRole, classification.reqType(), classification.maxQuestions(), effectiveClarifyMode);
+        return repo.findById(sessionId).orElseThrow();
+    }
+
+    /**
+     * 需求类型 + 澄清轮数解析：显式提供（StartClarifyDialog 里用户手选，或 API 直接指定）时直接采用，
+     * 否则走 LLM 自动判定（{@link #classifyReqType}，典型场景：业务员角色不弹分类弹框）。
+     * {@link #createSession} 和 {@link #startClarifyFromDraft} 共用同一套逻辑，避免两处判定标准分叉。
+     */
+    private ReqTypeClassification resolveReqType(String title, String rawInput, String model,
+                                                  String reqType, Integer maxQuestions) {
+        if (DEFAULT_MAX_QUESTIONS.containsKey(reqType)) {
+            int effectiveMaxQuestions = (maxQuestions != null && maxQuestions > 0)
+                    ? maxQuestions
+                    : DEFAULT_MAX_QUESTIONS.get(reqType);
+            return new ReqTypeClassification(reqType, effectiveMaxQuestions);
+        }
+        ReqTypeClassification classification = classifyReqType(title, rawInput, model);
+        log.info("[prd-clarify] 需求类型自动判定 title='{}' -> reqType={} maxQuestions={}",
+                title, classification.reqType(), classification.maxQuestions());
+        return classification;
     }
 
     /** 需求类型自动判定结果：reqType 三选一 + 建议澄清轮数。 */
