@@ -2876,6 +2876,46 @@ function BatchClarifyPanel({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [answers, generating, questions.length])
 
+  /** 立即保存当前草稿（不等 1s 防抖），失焦切字段/页面即将卸载时用，把"可能丢最后一次编辑"的窗口收到最小。 */
+  const flushSaveNow = () => {
+    if (generating || questions.length === 0) return
+    const hist = questions.map((q, i) => ({ question: q.question, answer: answers[i] ?? '' }))
+    if (!hist.some((h) => h.answer.trim())) return
+    saveQaHistory(sessionId, hist).then(() => setSaveError(null)).catch(() => {})
+  }
+
+  // 页面即将卸载（关标签页/刷新/系统强杀前的 pagehide 事件）时兜底再存一次：普通 fetch 在卸载过程中
+  // 大概率来不及完成，用 keepalive 让浏览器在页面已经关闭后继续把这个请求发出去，不走 http() 封装
+  // （那里有一次 await ensureFreshToken() 异步预处理，卸载场景等不起），直接读 localStorage 里的 token。
+  useEffect(() => {
+    const flushOnUnload = () => {
+      if (generating || questions.length === 0) return
+      const hist = questions.map((q, i) => ({ question: q.question, answer: answers[i] ?? '' }))
+      if (!hist.some((h) => h.answer.trim())) return
+      const token = typeof localStorage !== 'undefined' ? localStorage.getItem('toolbox.auth.token') : null
+      try {
+        fetch(`/api/prd-clarify/sessions/${sessionId}/qa-history`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ history: hist }),
+          keepalive: true,
+        })
+      } catch {
+        // 卸载过程中的兜底保存，失败也没有地方展示错误了，静默即可
+      }
+    }
+    window.addEventListener('pagehide', flushOnUnload)
+    window.addEventListener('beforeunload', flushOnUnload)
+    return () => {
+      window.removeEventListener('pagehide', flushOnUnload)
+      window.removeEventListener('beforeunload', flushOnUnload)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [answers, generating, questions])
+
   const allAnswered = questions.length > 0 && answers.every((a) => a.trim())
   const answeredCount = answers.filter((a) => a.trim()).length
 
@@ -2939,6 +2979,7 @@ function BatchClarifyPanel({
               <textarea
                 value={answers[i] ?? ''}
                 onChange={(e) => setAnswers((prev) => prev.map((a, j) => (j === i ? e.target.value : a)))}
+                onBlur={flushSaveNow}
                 rows={2}
                 placeholder="输入你的回答…"
                 className="w-full px-4 py-2.5 text-sm resize-none focus:outline-none bg-[var(--color-input)]"
@@ -4138,7 +4179,9 @@ PRD_SESSION_ID: ${created.id}`
           setErrorMsg('PRD 文件读取失败，可点击「开始开发」使用当前编辑器内容，或重新生成')
         })
     } else if (s.status === 'CLARIFYING') {
-      setStep('CHATTING')   // 重新进入对话澄清（会从头开始，历史在 DB 里但前端重新问）
+      // 重新进入对话澄清：ChattingPanel/BatchClarifyPanel 会从 session.questions 里已回答的
+      // 部分（上面已 setQueryData 预热过 s 本身）断点续问/续填，不会重新问已经答过的题
+      setStep('CHATTING')
     } else if (s.status === 'GENERATING') {
       setStep('GENERATING')
     } else if (s.status === 'ERROR') {
