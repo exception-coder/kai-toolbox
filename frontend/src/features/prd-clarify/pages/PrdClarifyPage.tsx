@@ -3392,6 +3392,12 @@ function EditingPanel({
   const [devDocLoading, setDevDocLoading] = useState(hasDevDoc)
   const [devDocDirty, setDevDocDirty] = useState(false)
   const [devDocSaving, setDevDocSaving] = useState(false)
+  /**
+   * 上次生成失败的原因（如 Claude Agent 超时）。之前 SSE error 事件只是把 devDocStreaming
+   * 设回 false，没有任何提示——用户看到的就是"生成按钮又出现了"，跟从没生成过一模一样，
+   * 会被误以为是"生成过的文档不见了"。现在把错误原因留在这里，在内容区顶部常驻展示。
+   */
+  const [devDocError, setDevDocError] = useState<string | null>(null)
   const devDocAbortRef = useRef<(() => void) | null>(null)
   const devDocAccRef = useRef('')
   /** 「生成开发文档」确认弹框：非 null 时打开，值决定弹框文案/是否走"基于当前更新"模式。 */
@@ -3447,6 +3453,7 @@ function EditingPanel({
     setDevDocContent('')
     setDevDocStreaming(true)
     setDevDocLoading(false)
+    setDevDocError(null)
     devDocAccRef.current = ''
     devDocAbortRef.current?.()
 
@@ -3462,9 +3469,14 @@ function EditingPanel({
         }
         if (name === 'error') {
           setDevDocStreaming(false)
+          const message = (data as { message?: string })?.message
+          setDevDocError(message || '开发文档生成失败，可点击重试')
         }
       },
-      onError() { setDevDocStreaming(false) },
+      onError() {
+        setDevDocStreaming(false)
+        setDevDocError('SSE 连接中断，请点击重试')
+      },
     })
     devDocAbortRef.current = abort
   }
@@ -3790,6 +3802,22 @@ function EditingPanel({
           )}
         </div>
       </div>
+
+      {/* 开发文档上次生成失败提示：常驻展示直到下一次生成开始，避免用户以为"生成过的文档不见了" */}
+      {devDocError && panelMode !== 'prd' && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 text-xs border-b border-red-200 dark:border-red-900">
+          <span className="flex-1">开发文档上次生成失败：{devDocError}</span>
+          <button
+            onClick={() => setGenDevDocMode(devDocContent || hasDevDoc ? 'regenerate' : 'generate')}
+            className="underline hover:no-underline flex-shrink-0"
+          >
+            重试
+          </button>
+          <button onClick={() => setDevDocError(null)} className="flex-shrink-0">
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
 
       {/* ─── 内容区（根据 panelMode 切换） ─── */}
       <div className="flex-1 flex overflow-hidden">
