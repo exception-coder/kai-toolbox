@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CheckCircle2, ExternalLink, FileText, Link2, Loader2, RefreshCw, X } from 'lucide-react'
+import { CheckCircle2, ExternalLink, FileText, Link2, Loader2, RefreshCw, Unlink, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Combobox } from '@/components/ui/combobox'
-import { getSessionByDevSession, linkDevSession, listSessions, startGenerateDevDoc } from '@/features/prd-clarify/api'
+import { useConfirm } from '@/components/ui/confirm-dialog'
+import { getSessionByDevSession, linkDevSession, listSessions, startGenerateDevDoc, unlinkDevSession } from '@/features/prd-clarify/api'
 import type { PrdSessionView } from '@/features/prd-clarify/types'
 
 interface Props {
@@ -26,9 +27,12 @@ interface Props {
  */
 export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
   const navigate = useNavigate()
+  const confirm = useConfirm()
   // undefined=加载中，null=确认未绑定，PrdSessionView=已绑定
   const [linked, setLinked] = useState<PrdSessionView | null | undefined>(undefined)
   const [loadErr, setLoadErr] = useState<string | null>(null)
+  const [unlinking, setUnlinking] = useState(false)
+  const [unlinkErr, setUnlinkErr] = useState<string | null>(null)
 
   const refresh = () => {
     setLoadErr(null)
@@ -70,6 +74,28 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
       setLinkErr(e instanceof Error ? e.message : String(e))
     } finally {
       setLinking(false)
+    }
+  }
+
+  // ── 取消关联 ──────────────────────────────────────────────────────────────
+  const doUnlink = async () => {
+    if (!linked) return
+    const ok = await confirm({
+      title: '取消关联',
+      description: `确认取消与「${linked.title || '（未命名）'}」的关联？取消后聊天窗口不再显示 PRD 标识，PRD/开发文档本身不受影响，可以随时重新关联。`,
+      confirmText: '取消关联',
+      variant: 'destructive',
+    })
+    if (!ok) return
+    setUnlinking(true)
+    setUnlinkErr(null)
+    try {
+      await unlinkDevSession(linked.id)
+      refresh()
+    } catch (e) {
+      setUnlinkErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setUnlinking(false)
     }
   }
 
@@ -191,16 +217,31 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
               </div>
 
               {!picking ? (
-                <button
-                  type="button"
-                  onClick={() => setPicking(true)}
-                  className="text-xs text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:underline"
-                >
-                  更换关联的 PRD
-                </button>
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPicking(true)}
+                    className="text-xs text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:underline"
+                  >
+                    更换关联的 PRD
+                  </button>
+                  <button
+                    type="button"
+                    onClick={doUnlink}
+                    disabled={unlinking}
+                    className={cn(
+                      'flex items-center gap-1 text-xs text-[var(--color-destructive)] hover:underline',
+                      unlinking && 'pointer-events-none opacity-60',
+                    )}
+                  >
+                    {unlinking ? <Loader2 className="size-3 animate-spin" /> : <Unlink className="size-3" />}
+                    取消关联
+                  </button>
+                </div>
               ) : (
                 renderPicker()
               )}
+              {unlinkErr && <p className="text-xs text-[var(--color-destructive)]">取消关联失败：{unlinkErr}</p>}
             </div>
           )}
 

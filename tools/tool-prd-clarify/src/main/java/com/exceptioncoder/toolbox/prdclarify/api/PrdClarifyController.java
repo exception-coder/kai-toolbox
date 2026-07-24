@@ -58,6 +58,7 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
  *   <li>{@code PUT    /sessions/{id}/content}     — 保存编辑后的 .md 文件</li>
  *   <li>{@code POST   /sessions/{id}/dev-doc/estimate} — AI 工时评估</li>
  *   <li>{@code POST   /sessions/{id}/link-dev-session} — 关联 Vibe Coding 开发会话</li>
+ *   <li>{@code POST   /sessions/{id}/unlink-dev-session} — 取消关联 Vibe Coding 开发会话</li>
  *   <li>{@code GET    /sessions/by-dev-session/{devSessionId}} — 按开发会话反查关联 PRD</li>
  *   <li>{@code GET    /sessions/by-dev-sessions?ids=...}   — 批量反查关联 PRD</li>
  *   <li>{@code POST   /attachments/image}         — 粘贴图片落盘</li>
@@ -308,6 +309,18 @@ public class PrdClarifyController {
         repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "会话不存在: " + id));
         repo.updateDevSessionId(id, devSessionId);
+        return new ReqItemLinkResult(true);
+    }
+
+    /**
+     * 取消关联 Vibe Coding 开发会话（{@link #linkDevSession} 的反操作）——聊天窗口「关联 PRD」
+     * 面板里除了「更换关联的 PRD」，也需要一个纯粹的「解除绑定」，不强制立刻选下一个。
+     */
+    @PostMapping("/sessions/{id}/unlink-dev-session")
+    public ReqItemLinkResult unlinkDevSession(@PathVariable String id) {
+        repo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "会话不存在: " + id));
+        repo.updateDevSessionId(id, null);
         return new ReqItemLinkResult(true);
     }
 

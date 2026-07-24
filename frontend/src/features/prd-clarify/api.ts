@@ -166,6 +166,12 @@ export const linkDevSession = (prdSessionId: string, devSessionId: string) =>
     body: JSON.stringify({ devSessionId }),
   })
 
+/** 取消关联 Vibe Coding 开发会话（{@link linkDevSession} 的反操作），供聊天窗口「关联 PRD」面板的「取消关联」用。 */
+export const unlinkDevSession = (prdSessionId: string) =>
+  http<{ ok: boolean }>(`/prd-clarify/sessions/${prdSessionId}/unlink-dev-session`, {
+    method: 'POST',
+  })
+
 /**
  * 按 Vibe Coding 开发会话 ID 反查关联的 PRD 会话（{@link linkDevSession} 的反向查询）。
  * 未绑定是正常状态（大多数会话都没绑），后端返回 404，这里转成 null 而不是抛错，
