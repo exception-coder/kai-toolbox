@@ -61,6 +61,18 @@ public class PrdSessionRepository {
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
+    /**
+     * 按关联的 Vibe Coding 开发会话 ID 反查 PRD 会话——claude-chat 聊天窗口据此判断"当前会话
+     * 是否已绑定 PRD"、渲染标识。一个开发会话正常只应关联一条 PRD；若历史数据有多条误关联到
+     * 同一个 dev_session_id，取最近更新的一条兜底。
+     */
+    public Optional<PrdSession> findByDevSessionId(String devSessionId) {
+        List<PrdSession> rows = jdbc.query(
+                "SELECT * FROM prd_session WHERE dev_session_id = ? ORDER BY updated_at DESC LIMIT 1",
+                ROW, devSessionId);
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
     /** 最近 N 条记录，按创建时间倒序，不做用户过滤（ADMIN 角色 / 未登录兜底走这个）。 */
     public List<PrdSession> findRecent(int limit) {
         return jdbc.query(

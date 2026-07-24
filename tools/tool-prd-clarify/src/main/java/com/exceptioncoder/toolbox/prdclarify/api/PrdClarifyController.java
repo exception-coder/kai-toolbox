@@ -57,6 +57,8 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
  *   <li>{@code GET    /sessions/{id}/content}     — 读取 .md 文件</li>
  *   <li>{@code PUT    /sessions/{id}/content}     — 保存编辑后的 .md 文件</li>
  *   <li>{@code POST   /sessions/{id}/dev-doc/estimate} — AI 工时评估</li>
+ *   <li>{@code POST   /sessions/{id}/link-dev-session} — 关联 Vibe Coding 开发会话</li>
+ *   <li>{@code GET    /sessions/by-dev-session/{devSessionId}} — 按开发会话反查关联 PRD</li>
  *   <li>{@code POST   /attachments/image}         — 粘贴图片落盘</li>
  *   <li>{@code GET    /attachments/image/{id}}    — 取回图片</li>
  * </ul>
@@ -309,6 +311,18 @@ public class PrdClarifyController {
     }
 
     record ReqItemLinkResult(boolean ok) {}
+
+    /**
+     * 按 Vibe Coding 开发会话 ID 反查关联的 PRD 会话（{@link #linkDevSession} 的反向查询）——
+     * claude-chat 聊天窗口用它判断"当前会话是否已绑定 PRD"、在窗口里显示标识。未绑定是正常
+     * 状态（大多数会话都没绑），返回 404，前端据此区分"没绑定"和真正的接口异常。
+     */
+    @GetMapping("/sessions/by-dev-session/{devSessionId}")
+    public PrdSessionView getByDevSession(@PathVariable String devSessionId) {
+        return repo.findByDevSessionId(devSessionId)
+                .map(PrdSessionView::from)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "未找到关联的 PRD 会话"));
+    }
 
     /**
      * SSE 流式：生成/更新技术开发方案文档。事件：chunk / done / error（与 PRD 生成接口一致）。

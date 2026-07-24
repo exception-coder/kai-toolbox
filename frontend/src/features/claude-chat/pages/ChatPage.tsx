@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpToLine, Bell, Bug, ChevronDown, Cloud, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
+import { ArrowUpToLine, Bell, Bug, ChevronDown, Cloud, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useChatRuntime } from '../runtime/ChatRuntimeContext'
@@ -48,6 +48,9 @@ import { CommitsPanel } from '@/components/git/CommitsPanel'
 import { GitStatusPanel } from '@/components/git/GitStatusPanel'
 import type { Engine } from '../types'
 import { ensureNotifyPermission } from '../browserNotify'
+import { PrdLinkPanel } from '../components/PrdLinkPanel'
+import { getSessionByDevSession } from '@/features/prd-clarify/api'
+import type { PrdSessionView } from '@/features/prd-clarify/types'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
 
@@ -164,6 +167,16 @@ export function ChatPage() {
   const [showCommits, setShowCommits] = useState(false)
   const [showGitStatus, setShowGitStatus] = useState(false)
   const [showExport, setShowExport] = useState(false)
+  const [showPrdLink, setShowPrdLink] = useState(false)
+  // 当前会话关联的 PRD（undefined=还没查/无会话，null=确认未关联），供顶栏标识展示。
+  const [linkedPrd, setLinkedPrd] = useState<PrdSessionView | null | undefined>(undefined)
+  useEffect(() => {
+    const sid = chat?.sessionId
+    if (!sid) { setLinkedPrd(undefined); return }
+    let alive = true
+    getSessionByDevSession(sid).then(v => { if (alive) setLinkedPrd(v) }).catch(() => { if (alive) setLinkedPrd(null) })
+    return () => { alive = false }
+  }, [chat?.sessionId])
   const [showMsgNav, setShowMsgNav] = useState(false)
   const messageListRef = useRef<MessageListHandle>(null)
   // 「我的提问」面板点中一条待滚到的目标：可能还没加载进 chat.items（分页更早历史里）。
@@ -785,6 +798,18 @@ export function ChatPage() {
             <SessionTotalBadge items={chat.items} serverTotal={sessionUsage} onClick={() => setShowUsage(true)} />
           </>
         )}
+        {/* 关联 PRD 标识：只在确实绑定了才显示，点击打开关联面板（查看/更换/同步更新开发文档）。 */}
+        {linkedPrd && (
+          <button
+            type="button"
+            onClick={() => setShowPrdLink(true)}
+            title={`已关联 PRD：${linkedPrd.title || '（未命名）'}（点击查看/管理）`}
+            className="flex shrink-0 items-center gap-1 rounded-full border border-[var(--color-primary)]/40 bg-[var(--color-primary)]/10 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)]"
+          >
+            <FileText className="size-3" />
+            <span className="max-w-24 truncate">{linkedPrd.title || 'PRD'}</span>
+          </button>
+        )}
         {/* 手势弹窗状态：开启后提示摄像头正在识别（隐私可见），点击可关 */}
         {gestureOn && (
           <button
@@ -846,6 +871,9 @@ export function ChatPage() {
                     )}
                     {chat.sessionId && (
                       <HeaderMenuItem nested icon={<FileDown className="size-4" />} label="导出会话" hint="导出为 PDF/Word，含图片，发给同事/领导查看" onClick={() => { setHeaderMenu(false); setShowExport(true) }} />
+                    )}
+                    {chat.sessionId && (
+                      <HeaderMenuItem nested icon={<Link2 className="size-4" />} label={linkedPrd ? '管理 PRD 关联' : '关联 PRD'} hint={linkedPrd ? `已关联：${linkedPrd.title || '（未命名）'}` : '搜索绑定一个 PRD，绑定后可一键同步更新开发文档'} onClick={() => { setHeaderMenu(false); setShowPrdLink(true) }} />
                     )}
                   </MenuSection>
                   <MenuSection icon={<FolderTree className="size-4" />} label="工作区 · 项目" open={menuGroup === 'workspace'} onToggle={() => toggle('workspace')}>
@@ -1198,6 +1226,15 @@ export function ChatPage() {
       {/* 会话导出：PDF/Word（含图片），发给同事/领导查看 */}
       {showExport && (
         <ExportSessionDialog items={chat.items} sessionTitle={currentTitle || 'Vibe Coding 会话记录'} onClose={() => setShowExport(false)} />
+      )}
+
+      {/* 关联 PRD：查看/建立/更换与 PRD 澄清助手某条记录的绑定，绑定后可一键同步更新开发文档。 */}
+      {showPrdLink && chat.sessionId && (
+        <PrdLinkPanel
+          sessionId={chat.sessionId}
+          onLinkedChange={setLinkedPrd}
+          onClose={() => setShowPrdLink(false)}
+        />
       )}
 
       {/* 我的提问：只列自己发的消息，支持搜索，点击滚到消息流对应位置并高亮——方便事后找回某个问答。

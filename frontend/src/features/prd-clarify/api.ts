@@ -1,4 +1,4 @@
-import { http, authFetch, subscribeSsePost } from '@/lib/api'
+import { ApiError, http, authFetch, subscribeSsePost } from '@/lib/api'
 import type { SseHandlers } from '@/lib/api'
 import type {
   CreateSessionRequest,
@@ -165,6 +165,20 @@ export const linkDevSession = (prdSessionId: string, devSessionId: string) =>
     method: 'POST',
     body: JSON.stringify({ devSessionId }),
   })
+
+/**
+ * 按 Vibe Coding 开发会话 ID 反查关联的 PRD 会话（{@link linkDevSession} 的反向查询）。
+ * 未绑定是正常状态（大多数会话都没绑），后端返回 404，这里转成 null 而不是抛错，
+ * 调用方（claude-chat 聊天窗口）不用为"没绑定"这个常见情况写 try/catch。
+ */
+export const getSessionByDevSession = async (devSessionId: string): Promise<PrdSessionView | null> => {
+  try {
+    return await http<PrdSessionView>(`${BASE}/sessions/by-dev-session/${devSessionId}`)
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return null
+    throw e
+  }
+}
 
 /**
  * 将 PRD 会话关联到需求管理池条目（来自需求池的跳入场景，PRD 生成完成后回调）。
