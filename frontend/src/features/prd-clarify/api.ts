@@ -240,6 +240,34 @@ export const parseAttachment = async (file: File): Promise<AttachmentParseResult
   return res.json()
 }
 
+export interface ImageAttachmentResult {
+  id: string
+  name: string
+  mime: string
+  /** 可直接用于 <img src> 的相对地址（GET /api/prd-clarify/attachments/image/{id}） */
+  url: string
+}
+
+/**
+ * "原始需求描述"文本域直接粘贴图片：落盘后返回可用于 <img src> 的地址，前端把
+ * `![粘贴图片N](url)` 插进文本域光标处，图片随文字一起构成 rawInput。
+ */
+export const uploadImageAttachment = async (file: File): Promise<ImageAttachmentResult> => {
+  const form = new FormData()
+  form.append('file', file)
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('toolbox.auth.token') : null
+  const res = await fetch('/api/prd-clarify/attachments/image', {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error((err as { message?: string }).message ?? `HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
 // ─── 多轮渐进式澄清 ───
 
 export interface QaPair { question: string; answer: string }

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { BotMessageSquare, Bug, ChevronRight, Clock, Code2, Copy, ExternalLink, FileText, GitBranch, Info, Layers, Loader2, Paperclip, Pencil, Plus, RefreshCw, Rocket, Send, Sparkles, Trash2, User, Wrench, X } from 'lucide-react'
+import { BotMessageSquare, Bug, ChevronRight, Clock, Code2, Copy, ExternalLink, FileText, GitBranch, Image as ImageIcon, Info, Layers, Loader2, Paperclip, Pencil, Plus, RefreshCw, Rocket, Send, Sparkles, Trash2, User, Wrench, X } from 'lucide-react'
 import { http } from '@/lib/api'
 import { Combobox } from '@/components/ui/combobox'
 import { MultiSelect } from '@/components/ui/multi-select'
@@ -33,6 +33,7 @@ import {
   startGenerate,
   startGenerateDevDoc,
   updateSessionTitle,
+  uploadImageAttachment,
   type QaPair,
   type AttachmentParseResult,
 } from '../api'
@@ -541,9 +542,16 @@ function RawInputCard({
             原始需求描述
           </div>
           {session.rawInput ? (
-            <div className="text-sm leading-relaxed text-[var(--color-foreground)] whitespace-pre-wrap bg-[var(--color-muted)]/30 rounded-xl p-4">
-              {session.rawInput}
-            </div>
+            // 走 Markdown 渲染（而非纯文本 whitespace-pre-wrap）：填写需求时直接粘贴的图片
+            // 是以 ![粘贴图片N](url) 语法插进 rawInput 的，只有按 Markdown 渲染才能看到
+            // 真实图片，否则历史预览里只会显示一行裸链接文本。
+            <div
+              className="doc-viewer-md max-w-none text-sm leading-relaxed bg-[var(--color-muted)]/30 rounded-xl p-4"
+              // eslint-disable-next-line react/no-danger
+              dangerouslySetInnerHTML={{
+                __html: DOMPurify.sanitize(marked.parse(session.rawInput, { async: false }) as string),
+              }}
+            />
           ) : (
             <div className="text-sm text-[var(--color-muted-foreground)] italic">暂无原始需求描述</div>
           )}
@@ -1752,6 +1760,15 @@ function InputPanel({
   const [uploadError, setUploadError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // ── 直接粘贴图片：边写内容边 Ctrl+V，图片以 Markdown 语法插进光标处，随文字一起构成
+  // rawInput（跟上面"上传附件"提取文本后追加到末尾是两种不同机制，见 handlePasteImage 注释）
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [pastedImages, setPastedImages] = useState<{ id: string; name: string; url: string; token: string }[]>([])
+  const [uploadingImage, setUploadingImage] = useState(false)
+  const [imageUploadError, setImageUploadError] = useState<string | null>(null)
+  /** 图片序号计数器，用 ref 而非 state.length 避免连续快速粘贴时读到未更新的旧值。 */
+  const imageCounterRef = useRef(0)
+
   // 当外部初始值变化时（如从 showcase 跳转带参数）同步更新
   useEffect(() => { if (initialTitle) setTitle(initialTitle) }, [initialTitle])
   useEffect(() => { if (initialRawInput) setRawInput(initialRawInput) }, [initialRawInput])
@@ -1773,6 +1790,51 @@ function InputPanel({
       setUploadingFile(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
+  }
+
+  /**
+   * 直接粘贴图片：只拦截剪贴板里含图片文件的粘贴（e.clipboardData.files 命中 image/* 才
+   * preventDefault，纯文本粘贴不受影响，走浏览器默认行为）。上传落盘后把
+   * `![粘贴图片N](url)` 插入到当前光标位置（有选区则替换选区，对齐正常粘贴语义），
+   * 插入后把光标移到插入内容之后方便继续打字。多图一次粘贴时并行上传、一次性插入，
+   * 避免逐张 setState 导致后一张覆盖前一张的插入位置。
+   */
+  const handlePasteImage = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData?.files ?? []).filter(f => f.type.startsWith('image/'))
+    if (files.length === 0) return
+    e.preventDefault()
+    const textarea = textareaRef.current
+    const start = textarea?.selectionStart ?? rawInput.length
+    const end = textarea?.selectionEnd ?? rawInput.length
+    setUploadingImage(true)
+    setImageUploadError(null)
+    try {
+      const uploaded = await Promise.all(files.map(f => uploadImageAttachment(f)))
+      const newEntries = uploaded.map((att) => {
+        imageCounterRef.current += 1
+        return { id: att.id, name: att.name, url: att.url, token: `![粘贴图片${imageCounterRef.current}](${att.url})` }
+      })
+      const insertText = newEntries.map(entry => entry.token).join('\n') + '\n'
+      setRawInput(prev => prev.slice(0, start) + insertText + prev.slice(end))
+      setPastedImages(prev => [...prev, ...newEntries])
+      requestAnimationFrame(() => {
+        if (textarea) {
+          const newPos = start + insertText.length
+          textarea.focus()
+          textarea.setSelectionRange(newPos, newPos)
+        }
+      })
+    } catch (err) {
+      setImageUploadError(err instanceof Error ? err.message : '图片上传失败')
+    } finally {
+      setUploadingImage(false)
+    }
+  }
+
+  /** 移除一张已粘贴的图片：连同插入文本域里的 Markdown 语法一起清掉。 */
+  const removePastedImage = (entry: { id: string; token: string }) => {
+    setRawInput(prev => prev.replace(entry.token + '\n', '').replace(entry.token, ''))
+    setPastedImages(prev => prev.filter(p => p.id !== entry.id))
   }
 
   /** 提交时将附件内容追加到 rawInput */
@@ -1960,16 +2022,55 @@ function InputPanel({
             />
           </div>
           <textarea
+            ref={textareaRef}
             value={rawInput}
             onChange={(e) => setRawInput(e.target.value)}
+            onPaste={handlePasteImage}
             rows={attachments.length > 0 ? 4 : 8}
-            placeholder={ROLE_CONFIG[role].placeholder}
+            placeholder={`${ROLE_CONFIG[role].placeholder}\n\n（可直接 Ctrl+V 粘贴截图/图片，边写边贴）`}
             className="w-full px-3 py-2 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] text-sm resize-y focus:outline-none focus:ring-1 focus:ring-[var(--color-ring)]"
           />
 
           {/* 上传错误 */}
           {uploadError && (
             <p className="text-xs text-red-500 mt-1">{uploadError}</p>
+          )}
+          {imageUploadError && (
+            <p className="text-xs text-red-500 mt-1">{imageUploadError}</p>
+          )}
+
+          {/* 已粘贴的图片：缩略图条，跟文本域里插入的 ![粘贴图片N](url) 一一对应，
+              点 × 连同文本域里的 Markdown 语法一起移除 */}
+          {(pastedImages.length > 0 || uploadingImage) && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {pastedImages.map((img) => (
+                <div key={img.id} className="relative group flex-shrink-0">
+                  <img
+                    src={img.url}
+                    alt={img.name}
+                    title={img.name}
+                    className="w-14 h-14 object-cover rounded-lg border border-[var(--color-border)]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removePastedImage(img)}
+                    className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="移除这张图片"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </div>
+              ))}
+              {uploadingImage && (
+                <div className="w-14 h-14 rounded-lg border border-dashed border-[var(--color-border)] flex items-center justify-center flex-shrink-0">
+                  <Loader2 className="w-4 h-4 animate-spin text-[var(--color-muted-foreground)]" />
+                </div>
+              )}
+              <span className="text-[11px] text-[var(--color-muted-foreground)] flex items-center gap-1">
+                <ImageIcon className="w-3 h-3" />
+                {uploadingImage ? '上传中…' : `已粘贴 ${pastedImages.length} 张图片`}
+              </span>
+            </div>
           )}
 
           {/* 已上传附件列表 */}

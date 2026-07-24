@@ -6,7 +6,9 @@ import com.exceptioncoder.toolbox.prdclarify.api.dto.CreateSessionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.DevDocVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.EstimateEffortRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.GenerateDevDocRequest;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.ImageAttachmentView;
 import com.exceptioncoder.toolbox.prdclarify.service.AttachmentParseService;
+import com.exceptioncoder.toolbox.prdclarify.service.ImageAttachmentStorageService;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.PrdSessionView;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.SaveContentRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.SaveQaHistoryRequest;
@@ -55,6 +57,8 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
  *   <li>{@code GET    /sessions/{id}/content}     — 读取 .md 文件</li>
  *   <li>{@code PUT    /sessions/{id}/content}     — 保存编辑后的 .md 文件</li>
  *   <li>{@code POST   /sessions/{id}/dev-doc/estimate} — AI 工时评估</li>
+ *   <li>{@code POST   /attachments/image}         — 粘贴图片落盘</li>
+ *   <li>{@code GET    /attachments/image/{id}}    — 取回图片</li>
  * </ul>
  */
 @RestController
@@ -64,15 +68,18 @@ public class PrdClarifyController {
     private final PrdClarifyService service;
     private final PrdSessionRepository repo;
     private final AttachmentParseService attachmentParser;
+    private final ImageAttachmentStorageService imageAttachmentStorage;
     /** Optional：toolbox.auth.enabled=false 时这个 bean 不存在，历史列表退化为不展示创建人用户名。 */
     private final Optional<AuthUserRepository> authUserRepo;
 
     public PrdClarifyController(PrdClarifyService service, PrdSessionRepository repo,
                                 AttachmentParseService attachmentParser,
+                                ImageAttachmentStorageService imageAttachmentStorage,
                                 Optional<AuthUserRepository> authUserRepo) {
         this.service = service;
         this.repo = repo;
         this.attachmentParser = attachmentParser;
+        this.imageAttachmentStorage = imageAttachmentStorage;
         this.authUserRepo = authUserRepo;
     }
 
@@ -97,6 +104,26 @@ public class PrdClarifyController {
             throw new ResponseStatusException(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR,
                     "文件解析失败：" + e.getMessage());
         }
+    }
+
+    /**
+     * "原始需求描述"文本域直接粘贴图片：落盘（见 {@link ImageAttachmentStorageService}），
+     * 返回可用于 {@code <img src>} 的相对地址，前端把 {@code ![粘贴图片N](url)} 插进文本域，
+     * 图片随文字一起构成 rawInput。此时 PRD 会话通常还没创建，接口本身不关联 sessionId。
+     */
+    @PostMapping(value = "/attachments/image", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ImageAttachmentView uploadImage(
+            @org.springframework.web.bind.annotation.RequestParam("file") org.springframework.web.multipart.MultipartFile file) {
+        return imageAttachmentStorage.store(file);
+    }
+
+    /** 取回粘贴/上传的图片原始字节，供 {@code <img src>} 直接引用。 */
+    @GetMapping("/attachments/image/{id}")
+    public ResponseEntity<org.springframework.core.io.Resource> downloadImage(@PathVariable String id) {
+        ImageAttachmentStorageService.DownloadFile f = imageAttachmentStorage.locate(id);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(f.mime()))
+                .body(new org.springframework.core.io.FileSystemResource(f.path()));
     }
 
     /** 创建会话，归属写成当前登录用户（未登录/鉴权关闭时为 null，历史列表按此退回旧的全局视图）。 */
