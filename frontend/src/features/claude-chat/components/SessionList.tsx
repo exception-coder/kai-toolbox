@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bot, Check, ChevronRight, Code2, Folder, FolderMinus, FolderPlus, Link2, Pencil, Search, Sparkles, Tags, Trash2, X, Zap } from 'lucide-react'
+import { Bot, Check, ChevronRight, Code2, Filter, Folder, FolderMinus, FolderPlus, Link2, Pencil, Search, Sparkles, Tags, Trash2, X, Zap } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
 import { deleteSession, listSessions, renameSession, setSessionGroupApi } from '../api'
 import { engineDisplayName, providerHost } from './chatStatus'
@@ -36,6 +36,22 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
     enabled: sessions.length > 0,
     staleTime: 60_000,
   })
+
+  // 会话筛选：按分组 + 是否关联 PRD。filterGroup 用 UNGROUPED 哨兵值表示"未分组"，
+  // 空字符串表示"全部分组"——跟下面分桶用的 UNGROUPED key 复用同一套语义，不用另开一套常量。
+  const [filterGroup, setFilterGroup] = useState('')
+  const [filterPrd, setFilterPrd] = useState<'all' | 'linked' | 'unlinked'>('all')
+  const filterActive = filterGroup !== '' || filterPrd !== 'all'
+  const clearFilter = () => { setFilterGroup(''); setFilterPrd('all') }
+  const filteredSessions = useMemo(() => sessions.filter(s => {
+    if (filterGroup) {
+      const g = (s.group ?? '').trim() || UNGROUPED
+      if (g !== filterGroup) return false
+    }
+    if (filterPrd === 'linked' && !prdLinks[s.id]) return false
+    if (filterPrd === 'unlinked' && prdLinks[s.id]) return false
+    return true
+  }), [sessions, filterGroup, filterPrd, prdLinks])
 
   useEffect(() => {
     if (groupMigrationDone) return
@@ -114,7 +130,7 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
   if (sessions.length === 0) return <div className="px-4 py-4 text-sm text-[var(--color-muted-foreground)]">还没有会话，点上方「新建」开始</div>
 
   const buckets = new Map<string, ClaudeChatSessionView[]>()
-  for (const s of sessions) {
+  for (const s of filteredSessions) {
     const g = (s.group ?? '').trim() || UNGROUPED
     if (!buckets.has(g)) buckets.set(g, [])
     buckets.get(g)!.push(s)
@@ -124,7 +140,43 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
 
   return (
     <>
-      {!hasGroups ? (
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-[var(--color-border)]/60 px-3 py-2">
+        <Filter className="size-3 shrink-0 text-[var(--color-muted-foreground)]" />
+        <select
+          value={filterGroup}
+          onChange={e => setFilterGroup(e.target.value)}
+          aria-label="按分组筛选"
+          className="h-7 max-w-28 rounded-md border bg-[var(--color-background)] px-1.5 text-xs"
+        >
+          <option value="">全部分组</option>
+          <option value={UNGROUPED}>未分组</option>
+          {allGroups.map(g => <option key={g} value={g}>{g}</option>)}
+        </select>
+        <select
+          value={filterPrd}
+          onChange={e => setFilterPrd(e.target.value as typeof filterPrd)}
+          aria-label="按是否关联 PRD 筛选"
+          className="h-7 max-w-28 rounded-md border bg-[var(--color-background)] px-1.5 text-xs"
+        >
+          <option value="all">全部会话</option>
+          <option value="linked">已关联 PRD</option>
+          <option value="unlinked">未关联 PRD</option>
+        </select>
+        {filterActive && (
+          <button
+            type="button"
+            onClick={clearFilter}
+            className="ml-auto shrink-0 text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:underline"
+          >
+            清除筛选
+          </button>
+        )}
+      </div>
+      {filteredSessions.length === 0 ? (
+        <div className="px-4 py-6 text-center text-sm text-[var(--color-muted-foreground)]">
+          没有匹配筛选条件的会话
+        </div>
+      ) : !hasGroups ? (
         <ul className="py-1">
           {(buckets.get(UNGROUPED) ?? []).map(s => renderRow(s, false))}
         </ul>
