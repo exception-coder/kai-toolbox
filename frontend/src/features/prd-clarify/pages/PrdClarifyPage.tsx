@@ -4087,7 +4087,10 @@ function EditingPanel({
           ))}
           {panelMode === 'dev' && !devDocStreaming && (['split', 'edit', 'preview'] as const).map((m) => (
             <button key={m} onClick={() => setDevViewMode(m)}
-              className={`px-2 py-0.5 rounded ${devViewMode === m ? 'bg-purple-600/30 text-purple-300' : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]'}`}>
+              // 之前选中态用 bg-purple-600/30 text-purple-300：浅紫底+浅紫字，在浅色主题下
+              // 对比度几乎为零（背景变成一整块看不清字的粉紫色块）。换成跟上面 PRD Tab 激活态
+              // 同一套配色（text-purple-400 更深、bg-purple-600/20 更浅），两个主题下都清楚。
+              className={`px-2 py-0.5 rounded ${devViewMode === m ? 'bg-purple-600/20 text-purple-400 font-medium' : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]'}`}>
               {m === 'split' ? '分栏' : m === 'edit' ? '编辑' : '预览'}
             </button>
           ))}
