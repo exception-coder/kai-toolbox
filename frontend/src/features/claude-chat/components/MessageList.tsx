@@ -117,6 +117,23 @@ export const MessageList = forwardRef<MessageListHandle, Props>(function Message
   const hideToolCalls = useHideToolCalls()
   const visibleItems = useMemo(() => (hideToolCalls ? items.filter(it => it.kind !== 'tool') : items), [items, hideToolCalls])
 
+  // 「复制本轮回复」：类似 ChatGPT，一轮回答可能被拆成好几个 assistant 气泡（工具调用打断、
+  // 多段文本），单条气泡的「复制」不够用。按 kind='result' 的回合结束标记回溯到上一条
+  // kind='user'，把中间所有 assistant 气泡的文本拼起来，键是这个 result 项的 id，供
+  // TurnStatus 渲染复制按钮用。基于完整 items（非过滤后的 visibleItems）计算，
+  // 不受「隐藏工具调用」开关影响——工具气泡本来就不参与文本拼接。
+  const turnTextByResultId = useMemo(() => {
+    const map = new Map<string, string>()
+    let buf: string[] = []
+    for (const it of items) {
+      if (it.kind === 'user') { buf = []; continue }
+      if (it.kind === 'assistant') { if (it.text.trim()) buf.push(it.text); continue }
+      if (it.kind === 'result') { if (buf.length > 0) map.set(it.id, buf.join('\n\n')); buf = []; continue }
+      // 'tool' / 'error'：不参与拼接，也不清空缓冲（工具调用打断文本不算新一轮）
+    }
+    return map
+  }, [items])
+
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   // 点击聊天里的图片放大查看（桌面点击 / 移动端轻触均可）
   const [viewer, setViewer] = useState<{ src: string; alt: string } | null>(null)
@@ -192,9 +209,10 @@ export const MessageList = forwardRef<MessageListHandle, Props>(function Message
     <div data-msg-id={item.id} className={cn('px-3 pb-3', item.id === highlightedId && 'kai-msg-flash rounded-2xl')}>
       <Row item={item} onFork={onFork} engineLabel={engineLabel} onResumeCurrent={onResumeCurrent} onNewSession={onNewSession}
         onCleanRetry={hasForkTarget ? onCleanRetry : undefined}
-        onOpenImage={(src, alt) => setViewer({ src, alt })} />
+        onOpenImage={(src, alt) => setViewer({ src, alt })}
+        turnText={item.kind === 'result' ? turnTextByResultId.get(item.id) : undefined} />
     </div>
-  ), [highlightedId, onFork, engineLabel, onResumeCurrent, onNewSession, onCleanRetry, hasForkTarget])
+  ), [highlightedId, onFork, engineLabel, onResumeCurrent, onNewSession, onCleanRetry, hasForkTarget, turnTextByResultId])
 
   // 高频变化值走 context（见 ListHeader/ListFooter 顶部注释），LIST_COMPONENTS 引用永远不变。
   const listContext: ListContext = { loadingEarlier: !!loadingEarlier, exhausted: !!exhausted, itemCount: visibleItems.length, running, engineLabel, turnTokens, connState }
@@ -236,23 +254,29 @@ export const MessageList = forwardRef<MessageListHandle, Props>(function Message
   )
 })
 
+/** 剪贴板写入 + 降级（非安全上下文/旧浏览器用隐藏 textarea + execCommand），CopyButton 和
+ *  TurnStatus 的「复制本轮」共用同一条路径。 */
+async function copyTextToClipboard(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return
+  } catch {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    try { document.execCommand('copy') } catch { /* 忽略 */ }
+    document.body.removeChild(ta)
+  }
+}
+
 /** 回复下方的一键复制：复制该条 assistant 的原始文本，移动端常显。 */
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text)
-    } catch {
-      // 降级：clipboard API 不可用（非安全上下文等）时用隐藏 textarea + execCommand
-      const ta = document.createElement('textarea')
-      ta.value = text
-      ta.style.position = 'fixed'
-      ta.style.opacity = '0'
-      document.body.appendChild(ta)
-      ta.select()
-      try { document.execCommand('copy') } catch { /* 忽略 */ }
-      document.body.removeChild(ta)
-    }
+    await copyTextToClipboard(text)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }
@@ -320,19 +344,36 @@ function MsgHeader({ label, ts, align }: { label?: string; ts?: number; align: '
   )
 }
 
-/** 本轮状态条：成功弱化为 ✓，token（紫，可点开明细）+ 耗时（蓝）+ 时间。 */
-function TurnStatus({ item }: { item: Extract<ChatItem, { kind: 'result' }> }) {
+/** 本轮状态条：成功弱化为 ✓，token（紫，可点开明细）+ 耗时（蓝）+ 时间 + 复制本轮完整回复。 */
+function TurnStatus({ item, turnText }: { item: Extract<ChatItem, { kind: 'result' }>; turnText?: string }) {
   const [open, setOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
   const ok = item.stopReason === 'success' || item.stopReason === 'end_turn'
   const u = parseUsage(item.usage)
   const hit = cacheHitRate(item.usage)
   const time = formatTime(item.ts)
+  const copyTurn = async () => {
+    if (!turnText) return
+    await copyTextToClipboard(turnText)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
   return (
     <div className="my-1 flex flex-col items-center gap-1">
       <div className="flex flex-wrap items-center justify-center gap-1.5">
         <Chip tone={ok ? 'emerald' : 'rose'} icon={ok ? <Check className="size-3" /> : <AlertTriangle className="size-3" />} title={`本轮结束：${item.stopReason}`}>
           {ok ? null : '失败'}
         </Chip>
+        {turnText && (
+          <Chip
+            tone="muted"
+            icon={copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+            onClick={copyTurn}
+            title="复制这一轮的完整回复（上一次提问到这里的所有内容，不止某一个气泡）"
+          >
+            {copied ? '已复制' : '复制本轮'}
+          </Chip>
+        )}
         {u && u.total > 0 && (
           <Chip tone="violet" icon={<Coins className="size-3" />} onClick={() => setOpen(o => !o)} title="点击查看 token 明细">
             {abbr(u.total)}
@@ -364,7 +405,7 @@ function TurnStatus({ item }: { item: Extract<ChatItem, { kind: 'result' }> }) {
   )
 }
 
-function Row({ item, onFork, engineLabel, onResumeCurrent, onNewSession, onCleanRetry, onOpenImage }: { item: ChatItem; onFork?: (sdkUuid: string) => void; engineLabel?: string; onResumeCurrent?: () => void; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void }) {
+function Row({ item, onFork, engineLabel, onResumeCurrent, onNewSession, onCleanRetry, onOpenImage, turnText }: { item: ChatItem; onFork?: (sdkUuid: string) => void; engineLabel?: string; onResumeCurrent?: () => void; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string }) {
   // displayText：Forge 机器人等「seed 转发」场景会隐藏实际发给 agent 的完整门控样板文案，只显示用户
   // 真正输入的那句话；保留一个不打眼的展开入口，避免完全不可见（可回看到底发了什么）。仅 'user' 项用到，
   // 但 Hooks 规则要求无条件调用，放在 switch 之外（对其它 kind 是无副作用的多余 state，可忽略）。
@@ -474,7 +515,7 @@ function Row({ item, onFork, engineLabel, onResumeCurrent, onNewSession, onClean
     case 'tool':
       return <ToolCallBubble toolName={item.toolName} input={item.input} output={item.output} isError={item.isError} />
     case 'result':
-      return <TurnStatus item={item} />
+      return <TurnStatus item={item} turnText={turnText} />
     case 'error': {
       // 会话历史丢失（对应 JSONL 文件不存在），任何 resume 都无法恢复，需新建会话
       const isPermanentlyLost = item.code === 'QUERY_FAILED' && !!item.message?.includes('No conversation found')
