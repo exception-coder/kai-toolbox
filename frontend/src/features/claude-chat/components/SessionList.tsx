@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bot, Check, ChevronRight, Code2, Filter, Folder, FolderMinus, FolderPlus, Link2, Pencil, Search, Sparkles, Tags, Trash2, X, Zap } from 'lucide-react'
+import { Bot, Check, ChevronDown, ChevronRight, Code2, Filter, Folder, FolderMinus, FolderPlus, Link2, Pencil, Search, Sparkles, Tags, Trash2, X, Zap } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
 import { deleteSession, listSessions, renameSession, setSessionGroupApi } from '../api'
 import { engineDisplayName, providerHost } from './chatStatus'
 import type { ClaudeChatSessionView, Engine } from '../types'
 import { getSessionsByDevSessions } from '@/features/prd-clarify/api'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
 const OLD_GROUP_KEY = 'kai-toolbox:claude-chat:session-groups'
 let groupMigrationDone = false
@@ -37,21 +38,24 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
     staleTime: 60_000,
   })
 
-  // 会话筛选：按分组 + 是否关联 PRD。filterGroup 用 UNGROUPED 哨兵值表示"未分组"，
-  // 空字符串表示"全部分组"——跟下面分桶用的 UNGROUPED key 复用同一套语义，不用另开一套常量。
-  const [filterGroup, setFilterGroup] = useState('')
+  // 会话筛选：按分组（多选）+ 是否关联 PRD。filterGroups 里用 UNGROUPED 哨兵值表示"未分组"，
+  // 跟下面分桶用的 UNGROUPED key 复用同一套语义，不用另开一套常量。空数组 = 不筛分组（全部）。
+  const [filterGroups, setFilterGroups] = useState<string[]>([])
+  const [groupFilterOpen, setGroupFilterOpen] = useState(false)
   const [filterPrd, setFilterPrd] = useState<'all' | 'linked' | 'unlinked'>('all')
-  const filterActive = filterGroup !== '' || filterPrd !== 'all'
-  const clearFilter = () => { setFilterGroup(''); setFilterPrd('all') }
+  const filterActive = filterGroups.length > 0 || filterPrd !== 'all'
+  const clearFilter = () => { setFilterGroups([]); setFilterPrd('all') }
+  const toggleFilterGroup = (g: string) => setFilterGroups(prev =>
+    prev.includes(g) ? prev.filter(x => x !== g) : [...prev, g])
   const filteredSessions = useMemo(() => sessions.filter(s => {
-    if (filterGroup) {
+    if (filterGroups.length > 0) {
       const g = (s.group ?? '').trim() || UNGROUPED
-      if (g !== filterGroup) return false
+      if (!filterGroups.includes(g)) return false
     }
     if (filterPrd === 'linked' && !prdLinks[s.id]) return false
     if (filterPrd === 'unlinked' && prdLinks[s.id]) return false
     return true
-  }), [sessions, filterGroup, filterPrd, prdLinks])
+  }), [sessions, filterGroups, filterPrd, prdLinks])
 
   useEffect(() => {
     if (groupMigrationDone) return
@@ -142,16 +146,60 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
     <>
       <div className="flex flex-wrap items-center gap-1.5 border-b border-[var(--color-border)]/60 px-3 py-2">
         <Filter className="size-3 shrink-0 text-[var(--color-muted-foreground)]" />
-        <select
-          value={filterGroup}
-          onChange={e => setFilterGroup(e.target.value)}
-          aria-label="按分组筛选"
-          className="h-7 max-w-28 rounded-md border bg-[var(--color-background)] px-1.5 text-xs"
-        >
-          <option value="">全部分组</option>
-          <option value={UNGROUPED}>未分组</option>
-          {allGroups.map(g => <option key={g} value={g}>{g}</option>)}
-        </select>
+        <Popover open={groupFilterOpen} onOpenChange={setGroupFilterOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              aria-label="按分组筛选（可多选）"
+              className={cn(
+                'flex h-7 max-w-40 items-center gap-1 rounded-md border bg-[var(--color-background)] px-1.5 text-xs',
+                filterGroups.length > 0 && 'border-[var(--color-primary)] text-[var(--color-primary)]',
+              )}
+            >
+              <span className="min-w-0 flex-1 truncate text-left">
+                {filterGroups.length === 0
+                  ? '全部分组'
+                  : filterGroups.map(g => g === UNGROUPED ? '未分组' : g).join('、')}
+              </span>
+              <ChevronDown className="size-3 shrink-0 opacity-60" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-48 p-1" align="start">
+            <ul className="max-h-56 overflow-y-auto">
+              <li>
+                <button
+                  type="button"
+                  onClick={() => toggleFilterGroup(UNGROUPED)}
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-[var(--color-accent)]"
+                >
+                  <CheckBox checked={filterGroups.includes(UNGROUPED)} />
+                  未分组
+                </button>
+              </li>
+              {allGroups.map(g => (
+                <li key={g}>
+                  <button
+                    type="button"
+                    onClick={() => toggleFilterGroup(g)}
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-[var(--color-accent)]"
+                  >
+                    <CheckBox checked={filterGroups.includes(g)} />
+                    <span className="min-w-0 flex-1 truncate">{g}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {filterGroups.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setFilterGroups([])}
+                className="mt-1 w-full rounded-sm border-t px-2 py-1.5 text-left text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)]"
+              >
+                清空分组筛选
+              </button>
+            )}
+          </PopoverContent>
+        </Popover>
         <select
           value={filterPrd}
           onChange={e => setFilterPrd(e.target.value as typeof filterPrd)}
@@ -405,6 +453,22 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
       </li>
     )
   }
+}
+
+/** 分组筛选下拉里的方形复选框，样式与 components/ui/multi-select.tsx 的候选项复选框保持一致。 */
+function CheckBox({ checked }: { checked: boolean }) {
+  return (
+    <span
+      className={cn(
+        'flex size-4 shrink-0 items-center justify-center rounded border',
+        checked
+          ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+          : 'border-[var(--color-border)]',
+      )}
+    >
+      {checked && <Check className="size-3" />}
+    </span>
+  )
 }
 
 // ─── GroupPicker ─────────────────────────────────────────────────────────────
