@@ -31,6 +31,7 @@ public class AuthUserRepository {
             .id(rs.getLong("id"))
             .username(rs.getString("username"))
             .passwordHash(rs.getString("password_hash"))
+            .realName(rs.getString("real_name"))
             .roles(splitRoles(rs.getString("roles")))
             .enabled(rs.getInt("enabled") == 1)
             .createdAt(rs.getLong("created_at"))
@@ -65,15 +66,16 @@ public class AuthUserRepository {
         KeyHolder kh = new GeneratedKeyHolder();
         jdbc.update(con -> {
             PreparedStatement ps = con.prepareStatement(
-                    "INSERT INTO auth_user (username, password_hash, roles, enabled, created_at, updated_at) "
-                            + "VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO auth_user (username, password_hash, real_name, roles, enabled, "
+                            + "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
                     Statement.RETURN_GENERATED_KEYS);
             ps.setString(1, user.getUsername());
             ps.setString(2, user.getPasswordHash());
-            ps.setString(3, joinRoles(user.getRoles()));
-            ps.setInt(4, user.isEnabled() ? 1 : 0);
-            ps.setLong(5, user.getCreatedAt());
-            ps.setLong(6, user.getUpdatedAt());
+            ps.setString(3, user.getRealName());
+            ps.setString(4, joinRoles(user.getRoles()));
+            ps.setInt(5, user.isEnabled() ? 1 : 0);
+            ps.setLong(6, user.getCreatedAt());
+            ps.setLong(7, user.getUpdatedAt());
             return ps;
         }, kh);
         Number key = kh.getKey();
@@ -92,6 +94,11 @@ public class AuthUserRepository {
     public void updateRoles(long userId, List<String> roles, long updatedAt) {
         jdbc.update("UPDATE auth_user SET roles = ?, updated_at = ? WHERE id = ?",
                 joinRoles(roles), updatedAt, userId);
+    }
+
+    public void updateRealName(long userId, String realName, long updatedAt) {
+        jdbc.update("UPDATE auth_user SET real_name = ?, updated_at = ? WHERE id = ?",
+                realName, updatedAt, userId);
     }
 
     public void updateEnabled(long userId, boolean enabled, long updatedAt) {

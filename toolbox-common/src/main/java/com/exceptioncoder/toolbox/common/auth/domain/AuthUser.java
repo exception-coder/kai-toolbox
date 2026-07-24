@@ -19,6 +19,8 @@ public class AuthUser {
     private Long id;
     private String username;
     private String passwordHash;
+    /** 真实姓名，可空。 */
+    private String realName;
     private List<String> roles;
     private boolean enabled;
     private long createdAt;

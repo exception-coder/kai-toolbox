@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { KeyRound, RotateCcw, Trash2, UserPlus } from 'lucide-react'
+import { KeyRound, Pencil, RotateCcw, Trash2, UserPlus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Permission } from '@/components/auth/Permission'
+import { usePrompt } from '@/components/ui/prompt-dialog'
 import { useAuth } from '@/lib/auth'
 import {
   assignUserRoles,
@@ -16,6 +17,7 @@ import {
   resetPassword,
   setEnabled,
   setUserDepartment,
+  updateRealName,
   type AdminUser,
   type ForgeDeptNode,
 } from '../api'
@@ -51,15 +53,17 @@ function AdminPanel() {
     grants.map(g => [g.userId, g.roleIds.map(id => roleNameById.get(id) ?? `#${id}`)]),
   )
 
+  const prompt = usePrompt()
   const [newName, setNewName] = useState('')
   const [newPwd, setNewPwd] = useState('')
+  const [newRealName, setNewRealName] = useState('')
   const [err, setErr] = useState<string | null>(null)
   const [grantUser, setGrantUser] = useState<AdminUser | null>(null)
 
   // 新账号默认仅 USER（无任何菜单权限）；建号后由「授权」抽屉分配 Forge 角色/部门。
   const create = useMutation({
-    mutationFn: () => createUser(newName.trim(), newPwd, ['USER']),
-    onSuccess: () => { setNewName(''); setNewPwd(''); setErr(null); invalidate() },
+    mutationFn: () => createUser(newName.trim(), newPwd, ['USER'], newRealName.trim() || undefined),
+    onSuccess: () => { setNewName(''); setNewPwd(''); setNewRealName(''); setErr(null); invalidate() },
     onError: e => setErr((e as Error).message),
   })
   const toggleEnabled = useMutation({
@@ -82,6 +86,16 @@ function AdminPanel() {
   const doDelete = (u: AdminUser) => {
     if (window.confirm(`确认删除账号「${u.username}」？该操作不可恢复。`)) removeUser.mutate(u.userId)
   }
+  const doRename = async (u: AdminUser) => {
+    const name = await prompt({
+      title: `修改姓名：${u.username}`,
+      placeholder: '真实姓名（留空可清除）',
+      defaultValue: u.realName ?? '',
+    })
+    if (name === null) return
+    try { await updateRealName(u.userId, name.trim()); invalidate() }
+    catch (e) { setErr((e as Error).message) }
+  }
 
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-4">
@@ -96,6 +110,7 @@ function AdminPanel() {
         <div className="flex flex-wrap items-center gap-2">
           <input className="w-36 rounded-md border bg-[var(--color-background)] px-2 py-1 text-sm" placeholder="用户名" value={newName} onChange={e => setNewName(e.target.value)} />
           <input type="password" className="w-36 rounded-md border bg-[var(--color-background)] px-2 py-1 text-sm" placeholder="密码" value={newPwd} onChange={e => setNewPwd(e.target.value)} />
+          <input className="w-28 rounded-md border bg-[var(--color-background)] px-2 py-1 text-sm" placeholder="姓名（可空）" value={newRealName} onChange={e => setNewRealName(e.target.value)} />
           <Button size="sm" disabled={!newName.trim() || !newPwd || create.isPending} onClick={() => create.mutate()}>创建</Button>
           <span className="text-xs text-[var(--color-muted-foreground)]">建号后用「授权」分配角色/部门</span>
         </div>
@@ -108,16 +123,18 @@ function AdminPanel() {
         <div className="overflow-hidden rounded-md border">
           <table className="w-full text-sm">
             <thead className="bg-[var(--color-muted)] text-left text-xs text-[var(--color-muted-foreground)]">
-              <tr><th className="px-3 py-2">用户名</th><th className="px-3 py-2">Forge 角色</th><th className="px-3 py-2 w-20">状态</th><th className="px-3 py-2 w-64">操作</th></tr>
+              <tr><th className="px-3 py-2">用户名</th><th className="px-3 py-2">姓名</th><th className="px-3 py-2">Forge 角色</th><th className="px-3 py-2 w-20">状态</th><th className="px-3 py-2 w-72">操作</th></tr>
             </thead>
             <tbody className="divide-y">
               {users.map(u => (
                 <tr key={u.userId}>
                   <td className="px-3 py-2 font-medium">{u.username}</td>
+                  <td className="px-3 py-2">{u.realName || <span className="text-[var(--color-muted-foreground)]">—</span>}</td>
                   <td className="px-3 py-2"><span className="text-xs">{(forgeRolesByUser.get(u.userId) ?? []).join(', ') || '—'}</span></td>
                   <td className="px-3 py-2 text-xs">{u.enabled ? '启用' : <span className="text-[var(--color-muted-foreground)]">停用</span>}</td>
                   <td className="px-3 py-2">
                     <div className="flex flex-wrap gap-1">
+                      <Button size="sm" variant="ghost" title="修改姓名" onClick={() => void doRename(u)}><Pencil className="size-3.5" /></Button>
                       <Permission code="forge:user:btn:assign">
                         <Button size="sm" variant="ghost" title="分配 Forge 角色/部门" onClick={() => setGrantUser(u)}><KeyRound className="size-3.5" /> 授权</Button>
                       </Permission>

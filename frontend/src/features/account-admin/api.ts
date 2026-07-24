@@ -3,6 +3,7 @@ import { http } from '@/lib/api'
 export interface AdminUser {
   userId: number
   username: string
+  realName?: string | null
   roles: string[]
   enabled: boolean
   createdAt: number
@@ -15,10 +16,17 @@ export function listUsers() {
   return http<AdminUser[]>('/auth/users')
 }
 
-export function createUser(username: string, password: string, roles: string[]) {
+export function createUser(username: string, password: string, roles: string[], realName?: string) {
   return http<unknown>('/auth/users', {
     method: 'POST',
-    body: JSON.stringify({ username, password, roles }),
+    body: JSON.stringify({ username, password, roles, realName }),
+  })
+}
+
+export function updateRealName(id: number, realName: string) {
+  return http<AdminUser>(`/auth/users/${id}/real-name`, {
+    method: 'PUT',
+    body: JSON.stringify({ realName }),
   })
 }
 

@@ -46,7 +46,7 @@ public class AuthUserService {
         return user;
     }
 
-    public AuthUser create(String username, String rawPassword, List<String> roles) {
+    public AuthUser create(String username, String rawPassword, List<String> roles, String realName) {
         if (repository.existsByUsername(username)) {
             throw AuthException.userExists();
         }
@@ -54,6 +54,7 @@ public class AuthUserService {
         AuthUser user = AuthUser.builder()
                 .username(username)
                 .passwordHash(passwordHasher.hash(rawPassword))
+                .realName(realName == null || realName.isBlank() ? null : realName.trim())
                 .roles(roles == null || roles.isEmpty() ? List.of(DEFAULT_ROLE) : roles)
                 .enabled(true)
                 .createdAt(now)
@@ -62,6 +63,13 @@ public class AuthUserService {
         long id = repository.insert(user);
         user.setId(id);
         return user;
+    }
+
+    public AuthUser updateRealName(long userId, String realName) {
+        repository.updateRealName(userId,
+                realName == null || realName.isBlank() ? null : realName.trim(),
+                System.currentTimeMillis());
+        return getById(userId);
     }
 
     public void changePassword(long userId, String oldPassword, String newPassword) {
@@ -116,7 +124,7 @@ public class AuthUserService {
         if (generated) {
             password = UUID.randomUUID().toString().replace("-", "");
         }
-        create(username, password, List.of("ADMIN", "USER"));
+        create(username, password, List.of("ADMIN", "USER"), null);
         if (generated) {
             log.warn("已创建种子管理员 [{}]，随机初始密码：{}  （仅打印一次，请尽快登录修改）", username, password);
         } else {

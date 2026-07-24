@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS auth_user (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     username      TEXT    NOT NULL UNIQUE,
     password_hash TEXT    NOT NULL,           -- BCrypt 哈希，永不存明文
+    real_name     TEXT,                       -- 真实姓名，可空
     roles         TEXT    NOT NULL DEFAULT 'USER',  -- 逗号分隔，如 'ADMIN,USER'
     enabled       INTEGER NOT NULL DEFAULT 1,
     created_at    INTEGER NOT NULL,

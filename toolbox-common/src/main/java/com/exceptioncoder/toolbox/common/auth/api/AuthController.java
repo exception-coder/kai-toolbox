@@ -12,6 +12,7 @@ import com.exceptioncoder.toolbox.common.auth.api.dto.RefreshRequest;
 import com.exceptioncoder.toolbox.common.auth.api.dto.ResetPasswordRequest;
 import com.exceptioncoder.toolbox.common.auth.api.dto.SetEnabledRequest;
 import com.exceptioncoder.toolbox.common.auth.api.dto.TokenResponse;
+import com.exceptioncoder.toolbox.common.auth.api.dto.UpdateRealNameRequest;
 import com.exceptioncoder.toolbox.common.auth.api.dto.UpdateRolesRequest;
 import com.exceptioncoder.toolbox.common.auth.domain.AuthUser;
 import com.exceptioncoder.toolbox.common.auth.domain.JwtPayload;
@@ -81,7 +82,7 @@ public class AuthController {
     @PostMapping("/users")
     @RequireRole("ADMIN")
     public CurrentUserView createUser(@Valid @RequestBody CreateUserRequest req) {
-        return CurrentUserView.from(userService.create(req.username(), req.password(), req.roles()));
+        return CurrentUserView.from(userService.create(req.username(), req.password(), req.roles(), req.realName()));
     }
 
     // ===== 账号管理（ADMIN）。设计见 ai-docs/kai-toolbox/design/JWT鉴权/账号管理/ =====
@@ -99,6 +100,12 @@ public class AuthController {
         // 角色变更后吊销该用户全部 refresh，使权限即时收敛。
         tokenService.revokeUserRefreshTokens(id);
         return AdminUserView.from(updated);
+    }
+
+    @PutMapping("/users/{id}/real-name")
+    @RequireRole("ADMIN")
+    public AdminUserView updateRealName(@PathVariable long id, @RequestBody UpdateRealNameRequest req) {
+        return AdminUserView.from(userService.updateRealName(id, req.realName()));
     }
 
     @PutMapping("/users/{id}/enabled")
