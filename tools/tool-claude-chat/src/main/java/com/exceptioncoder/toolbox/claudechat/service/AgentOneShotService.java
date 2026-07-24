@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -42,21 +43,35 @@ public class AgentOneShotService implements AgentOneShotRunner {
 
     /** 阻塞跑一次，返回完整文本。 */
     public String runOnce(String systemPrompt, String userPrompt, String model) {
-        return execute(systemPrompt, userPrompt, model, null);
+        return execute(systemPrompt, userPrompt, model, null, null);
     }
 
     /** 阻塞跑一次，逐片回调 {@code onDelta}，结束返回完整文本。 */
     public String stream(String systemPrompt, String userPrompt, String model, Consumer<String> onDelta) {
-        return execute(systemPrompt, userPrompt, model, onDelta);
+        return execute(systemPrompt, userPrompt, model, onDelta, null);
     }
 
-    private String execute(String systemPrompt, String userPrompt, String model, Consumer<String> onDelta) {
+    /** 附带图片的非流式执行：Claude 真正"看到"图片内容，不只是收到一段文字引用。 */
+    @Override
+    public String runOnce(String systemPrompt, String userPrompt, String model, List<ImageInput> images) {
+        return execute(systemPrompt, userPrompt, model, null, images);
+    }
+
+    /** 附带图片的流式执行；语义同 {@link #runOnce(String, String, String, List)}。 */
+    @Override
+    public String stream(String systemPrompt, String userPrompt, String model,
+                         Consumer<String> onDelta, List<ImageInput> images) {
+        return execute(systemPrompt, userPrompt, model, onDelta, images);
+    }
+
+    private String execute(String systemPrompt, String userPrompt, String model,
+                           Consumer<String> onDelta, List<ImageInput> images) {
         ensureReady();
         String id = PREFIX + UUID.randomUUID();
         Call call = new Call(onDelta);
         calls.put(id, call);
         try {
-            sidecar.oneShot(id, systemPrompt, userPrompt, model);
+            sidecar.oneShot(id, systemPrompt, userPrompt, model, images);
             return call.future.get(props.getAgentOneShotTimeoutMs(), TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {
             throw new RuntimeException("高质量引擎超时：Claude Agent 在 "

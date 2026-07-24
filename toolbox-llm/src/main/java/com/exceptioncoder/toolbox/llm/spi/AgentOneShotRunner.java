@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.llm.spi;
 
+import java.util.List;
 import java.util.function.Consumer;
 
 /**
@@ -35,4 +36,19 @@ public interface AgentOneShotRunner {
      * @return 完整文本
      */
     String runOnce(String systemPrompt, String userPrompt, String model);
+
+    /** 流式执行，附带图片（真正多模态，Claude 能看到图片内容）。默认委托纯文本版本，图片被忽略。 */
+    default String stream(String systemPrompt, String userPrompt, String model,
+                          Consumer<String> onDelta, List<ImageInput> images) {
+        return stream(systemPrompt, userPrompt, model, onDelta);
+    }
+
+    /** 非流式执行，附带图片；语义同 {@link #stream(String, String, String, Consumer, List)}。 */
+    default String runOnce(String systemPrompt, String userPrompt, String model, List<ImageInput> images) {
+        return runOnce(systemPrompt, userPrompt, model);
+    }
+
+    /** mimeType 仅支持 image/jpeg|png|gif|webp，调用方需自行过滤。 */
+    record ImageInput(String base64Data, String mimeType) {
+    }
 }

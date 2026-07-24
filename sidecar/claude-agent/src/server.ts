@@ -138,7 +138,13 @@ wss.on('connection', (ws) => {
         manager.interrupt(sessionId)
         break
       case 'oneShot':
-        void manager.oneShot(sessionId, msg.systemPrompt as string, msg.userPrompt as string, msg.model as string)
+        void manager.oneShot(
+          sessionId,
+          msg.systemPrompt as string,
+          msg.userPrompt as string,
+          msg.model as string,
+          msg.images as import('./sessionManager.js').OneShotImage[] | undefined,
+        )
         break
       default:
         console.warn('[sidecar] unknown message type:', type)

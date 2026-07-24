@@ -19,6 +19,18 @@ export type Engine = 'claude' | 'codex' | 'gemini' | 'opencode'
 type Emit = (sessionId: string, event: Record<string, unknown>) => void
 
 /**
+ * oneShot 场景下随文本一起发给 Claude 的图片（base64）。目前只有 oneShot 会传（PRD 澄清工具
+ * 粘贴图片场景），交互式 runTurn 走的是 ClaudeChatService.appendAttachmentHints() 那条
+ * "写文件路径提示、让 Agent 自己用 Read 工具查看"的路，两条路互不影响。
+ * mediaType 只能是 Anthropic Messages API 支持的四种（image/jpeg|png|gif|webp），
+ * 其余类型由 Java 侧过滤掉，不会传到这里。
+ */
+export interface OneShotImage {
+  mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+  data: string
+}
+
+/**
  * 第三方网关会话的 system 提示 append 词。官方客户端会在底层静默优化 agent 工作流；经第三方 API 直跑时，
  * 非 Claude 模型常把“规划/计划模式”以工具调用形式暴露出来（EnterPlanMode/ExitPlanMode 反复往返、报错），
  * 既慢又易失败。这里追加引导：直接动手、少绕计划模式。append 到 claude_code 预设之后，不替换默认提示。
@@ -237,7 +249,7 @@ class Session {
    * 对「启动 native 二进制失败」做有限重试：该二进制有 200MB+，首次启动可能被
    * 杀软实时扫描短暂锁住而 spawn 失败。只在本轮尚未产出任何消息时重试，避免重复输出。
    */
-  async runTurn(text: string, systemPrompt?: string): Promise<void> {
+  async runTurn(text: string, systemPrompt?: string, images?: OneShotImage[]): Promise<void> {
     if (this.engine === 'codex') return this.runCodexTurn(text)
     if (this.engine === 'gemini') return this.runGeminiTurn(text)
     if (this.engine === 'opencode') return this.runOpencodeTurn(text)
@@ -247,6 +259,28 @@ class Session {
     const safeCwd = existsSync(this.cwd) ? this.cwd : (process.env.USERPROFILE || process.env.HOME || process.cwd())
     if (safeCwd !== this.cwd) {
       console.warn(`[sidecar] 会话 cwd 不存在，回退到 ${safeCwd}（原 cwd: ${this.cwd}）`)
+    }
+    // 带图片时 prompt 不能是纯字符串，要构造成 SDKUserMessage（text block + image block 混排），
+    // 才能让 Claude 真正"看到"图片内容而不只是收到一段文字。每次重试都要拿到全新的生成器实例——
+    // 异步生成器只能消费一次，若在循环外只建一次、复用同一个实例，第二次重试会拿到已耗尽的迭代器。
+    const buildPrompt = (): string | AsyncIterable<Record<string, unknown>> => {
+      if (!images || images.length === 0) return text
+      return (async function* () {
+        yield {
+          type: 'user' as const,
+          message: {
+            role: 'user' as const,
+            content: [
+              { type: 'text' as const, text },
+              ...images.map((img) => ({
+                type: 'image' as const,
+                source: { type: 'base64' as const, media_type: img.mediaType, data: img.data },
+              })),
+            ],
+          },
+          parent_tool_use_id: null,
+        }
+      })()
     }
     this.lastResponseModel = undefined
     this.turnBaseTokens = 0
@@ -297,7 +331,7 @@ class Session {
 
       try {
         const q = query({
-          prompt: text,
+          prompt: buildPrompt(),
           options: {
             // 仅 oneShot 传：作为真正的 system 提示（字符串=替换 SDK 默认 system）。
             // 交互式聊天 runTurn：官方会话走 SDK 默认；第三方网关会话在默认提示后 append 引导词
@@ -814,7 +848,7 @@ export class SessionManager {
    * 把 system+user 拼成一个 prompt 跑一轮，复用 Session.handle 逐片 emit assistantDelta + result/error。
    * 用于「高质量」简历优化引擎——Agent 当作更强的 LLM，纯文本进出，不调工具、不接 MCP、不持久化。
    */
-  async oneShot(id: string, systemPrompt: string, userPrompt: string, model?: string): Promise<void> {
+  async oneShot(id: string, systemPrompt: string, userPrompt: string, model?: string, images?: OneShotImage[]): Promise<void> {
     const cwd = process.env.USERPROFILE || process.env.HOME || process.cwd()
     const s = new Session(id, cwd, (e) => this.emit(id, e))
     if (model) s.model = model
@@ -825,7 +859,9 @@ export class SessionManager {
     this.sessions.set(id, s)
     try {
       // 角色说明走 SDK 独立 systemPrompt 通道，user 只放任务+原文；仅影响这次一次性 query。
-      await s.runTurn(userPrompt, systemPrompt)
+      // images 非空时 Claude 真正"看到"图片内容（base64 image content block），而不只是
+      // 收到一段引用文字——供 PRD 澄清工具"直接粘贴图片"场景使用。
+      await s.runTurn(userPrompt, systemPrompt, images)
     } finally {
       this.sessions.delete(id)
     }

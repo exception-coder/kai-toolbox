@@ -17,12 +17,16 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Base64;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * PRD 澄清核心服务。
@@ -322,6 +326,7 @@ public class PrdClarifyService {
     private final ObjectMapper mapper;
     private final GraphifyQueryService graphifyQuery;
     private final DomainKnowledgeQueryService domainKnowledgeQuery;
+    private final ImageAttachmentStorageService imageAttachmentStorage;
 
     /**
      * 多轮澄清（最多 5 轮）会话内的图谱查询结果缓存：question（session 标题）在各轮间不变，
@@ -335,13 +340,15 @@ public class PrdClarifyService {
                              PrdFileStore fileStore,
                              ObjectMapper mapper,
                              GraphifyQueryService graphifyQuery,
-                             DomainKnowledgeQueryService domainKnowledgeQuery) {
+                             DomainKnowledgeQueryService domainKnowledgeQuery,
+                             ImageAttachmentStorageService imageAttachmentStorage) {
         this.agentRunner = agentRunner;
         this.repo = repo;
         this.fileStore = fileStore;
         this.mapper = mapper;
         this.graphifyQuery = graphifyQuery;
         this.domainKnowledgeQuery = domainKnowledgeQuery;
+        this.imageAttachmentStorage = imageAttachmentStorage;
     }
 
     /** 创建会话并持久化，返回新建的会话对象。 */
@@ -451,7 +458,8 @@ public class PrdClarifyService {
                         delta -> {
                             full.append(delta);
                             sendChunk(emitter, delta);
-                        });
+                        },
+                        extractImagesFromRawInput(session.getRawInput()));
 
                 // 解析 JSON，写回库
                 String questionsJson = parseAndBuildQuestionsJson(full.toString());
@@ -534,7 +542,8 @@ public class PrdClarifyService {
                         askSystem,
                         buildAskUserPrompt(session, questionIndex, history),
                         session.getModel(),
-                        delta -> sendChunk(emitter, delta));
+                        delta -> sendChunk(emitter, delta),
+                        extractImagesFromRawInput(session.getRawInput()));
                 sendDone(emitter);
             } catch (Exception e) {
                 log.warn("[prd-clarify] askNextQuestion failed sessionId={}", sessionId, e);
@@ -586,7 +595,8 @@ public class PrdClarifyService {
                         delta -> {
                             full.append(delta);
                             sendChunk(emitter, delta);
-                        });
+                        },
+                        extractImagesFromRawInput(session.getRawInput()));
 
                 String prdContent = full.toString();
                 fileStore.write(sessionId, prdContent);
@@ -1485,6 +1495,68 @@ public class PrdClarifyService {
                 .append(remaining - 1).append(" 个）。\n");
         sb.append("请提出下一个最关键的澄清问题，或输出 [CLARIFICATION_COMPLETE]：");
         return sb.toString();
+    }
+
+    /** 匹配 rawInput 里粘贴图片产出的 Markdown 语法：![粘贴图片N](/api/prd-clarify/attachments/image/{id})。 */
+    private static final Pattern PASTED_IMAGE_PATTERN =
+            Pattern.compile("!\\[[^]]*]\\(/api/prd-clarify/attachments/image/([a-zA-Z0-9_]+)\\)");
+
+    /** 单次调用最多带几张图片，避免一次粘贴几十张把请求体撑爆。 */
+    private static final int MAX_IMAGES_PER_CALL = 6;
+
+    /**
+     * 单次调用图片原始字节总预算。Java↔sidecar 走 WebSocket 文本帧，默认单帧上限
+     * {@code toolbox.claude-chat.ws.max-message-bytes}（8MB），Base64 还会再放大约 1.33 倍，
+     * 单张 {@link ImageAttachmentStorageService} 允许存到 20MB——真按存储上限带满 6 张会直接
+     * 撑爆 WS 帧、整条消息发不出去。这里用一个明显更保守的总字节预算兜底，超出后面的图片
+     * 直接不带（只是 Claude 少看到几张，不影响已经收集到的部分正常发出）。
+     */
+    private static final long MAX_TOTAL_IMAGE_BYTES = 5L * 1024 * 1024;
+
+    /** Anthropic Messages API 认可的图片 MIME，其余（如 image/bmp）静默跳过。 */
+    private static final Set<String> SUPPORTED_IMAGE_MIME =
+            Set.of("image/jpeg", "image/png", "image/gif", "image/webp");
+
+    /**
+     * 从 rawInput 解析出粘贴图片引用，读盘转 Base64，供 {@link AgentOneShotRunner} 的多模态重载
+     * 使用，使 Claude 在澄清/生成阶段真正"看到"图片，而不只是收到一段引用文字。单张图片读取/
+     * 不支持的 MIME 只跳过该张，不影响本次调用整体成功；超出总字节预算后不再收更多。
+     */
+    private List<AgentOneShotRunner.ImageInput> extractImagesFromRawInput(String rawInput) {
+        if (rawInput == null || rawInput.isBlank()) {
+            return List.of();
+        }
+        Matcher m = PASTED_IMAGE_PATTERN.matcher(rawInput);
+        Set<String> ids = new LinkedHashSet<>();
+        while (m.find() && ids.size() < MAX_IMAGES_PER_CALL) {
+            ids.add(m.group(1));
+        }
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        List<AgentOneShotRunner.ImageInput> images = new ArrayList<>();
+        long totalBytes = 0;
+        for (String id : ids) {
+            try {
+                ImageAttachmentStorageService.DownloadFile f = imageAttachmentStorage.locate(id);
+                if (!SUPPORTED_IMAGE_MIME.contains(f.mime())) {
+                    log.warn("[prd-clarify] 粘贴图片 {} MIME={} 不受多模态支持，跳过", id, f.mime());
+                    continue;
+                }
+                long size = java.nio.file.Files.size(f.path());
+                if (totalBytes + size > MAX_TOTAL_IMAGE_BYTES) {
+                    log.warn("[prd-clarify] 粘贴图片总大小超出单次调用预算（{}MB），后续图片不再随请求发送",
+                            MAX_TOTAL_IMAGE_BYTES / 1024 / 1024);
+                    break;
+                }
+                byte[] bytes = java.nio.file.Files.readAllBytes(f.path());
+                totalBytes += size;
+                images.add(new AgentOneShotRunner.ImageInput(Base64.getEncoder().encodeToString(bytes), f.mime()));
+            } catch (Exception e) {
+                log.warn("[prd-clarify] 读取粘贴图片 {} 失败，跳过: {}", id, e.getMessage());
+            }
+        }
+        return images;
     }
 
     /** 把 graphify CLI 查询结果（若有）拼进 prompt，作为「代码知识图谱查询结果」区块。 */

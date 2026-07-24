@@ -176,8 +176,24 @@ public class SidecarClient {
 
     /** 一次性无状态生成（高质量简历优化用）。sessionId 约定以 {@code oneshot:} 前缀，事件由 AgentOneShotService 收。 */
     public void oneShot(String sessionId, String systemPrompt, String userPrompt, String model) {
-        send(Map.of("type", "oneShot", "sessionId", sessionId,
-                "systemPrompt", nz(systemPrompt), "userPrompt", nz(userPrompt), "model", nz(model)));
+        oneShot(sessionId, systemPrompt, userPrompt, model, null);
+    }
+
+    /** 附带图片的一次性生成：images 非空时随消息一起发给 Claude（真正多模态，见 sidecar oneShot()）。 */
+    public void oneShot(String sessionId, String systemPrompt, String userPrompt, String model,
+                        java.util.List<com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput> images) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("type", "oneShot");
+        payload.put("sessionId", sessionId);
+        payload.put("systemPrompt", nz(systemPrompt));
+        payload.put("userPrompt", nz(userPrompt));
+        payload.put("model", nz(model));
+        if (images != null && !images.isEmpty()) {
+            payload.put("images", images.stream()
+                    .map(img -> Map.of("mediaType", img.mimeType(), "data", img.base64Data()))
+                    .toList());
+        }
+        send(payload);
     }
 
     /** 发送一条消息到 sidecar。返回是否真正发出（未连接/异常返回 false，供决策类消息据此回告前端）。 */
