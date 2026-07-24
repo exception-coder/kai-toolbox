@@ -2199,10 +2199,15 @@ function GeneratingPanel({
 // ───── 多轮渐进澄清对话面板（Step CHATTING） ─────
 function ChattingPanel({
   sessionId,
+  maxRounds,
   onDone,       // 澄清完成，带完整 history 调用
   onError,
 }: {
   sessionId: string
+  /** 本次澄清最多问几轮，来自 session.maxQuestions（开始澄清前确认弹框按需求类型预填/用户可调，
+   *  1-2/3-5/6-8 或自定义）。真正的轮数上限由后端 askNextQuestion 强制，这里只是展示进度用，
+   *  不做客户端侧的提前拦截。 */
+  maxRounds: number
   onDone: (history: QaPair[]) => void
   onError: (msg: string) => void
 }) {
@@ -2287,8 +2292,7 @@ function ChattingPanel({
   }
 
   const isDone = !isStreaming && currentQ.includes('[CLARIFICATION_COMPLETE]')
-  const maxRounds = 5
-  const progress = Math.round(((history.length) / maxRounds) * 100)
+  const progress = Math.min(100, Math.round((history.length / maxRounds) * 100))
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -3186,6 +3190,9 @@ export function PrdClarifyPage() {
     createMut.mutateAsync({ title: urlTitle, rawInput: urlRawInput, project: urlProject, module: urlModule, role: 'PRODUCT' })
       .then((created) => {
         setSessionId(created.id)
+        // 直接用创建返回值预热 session 缓存（含正确的 maxQuestions），避免 ChattingPanel
+        // 挂载时进度条先闪一下默认值再纠正——created 本身就是权威数据，没必要等一次多余的 refetch。
+        qc.setQueryData(['prd-session', created.id], created)
         setSessionTitle(urlTitle)
         setSearchParams({}, { replace: true })  // URL 清除，但 reqItemIdRef 已保存
         qc.invalidateQueries({ queryKey: ['prd-sessions'] })
@@ -3301,6 +3308,7 @@ export function PrdClarifyPage() {
         role: (originalSession.role as 'PRODUCT' | 'BUSINESS') ?? 'PRODUCT',
       })
       setSessionId(created.id)
+      qc.setQueryData(['prd-session', created.id], created)
       setSessionTitle(newTitle)
       setReqContextTitle(`修订自：${originalSession.title}`)
       qc.invalidateQueries({ queryKey: ['prd-sessions'] })
@@ -3326,6 +3334,7 @@ export function PrdClarifyPage() {
     setSearchParams({}, { replace: true })
     const created = await createMut.mutateAsync({ title, rawInput, project, module, role, reqType, maxQuestions })
     setSessionId(created.id)
+    qc.setQueryData(['prd-session', created.id], created)
     setStreamText('')
     qc.invalidateQueries({ queryKey: ['prd-sessions'] })
     setStep('CHATTING')   // 直接进入对话澄清（ChattingPanel 挂载后自动开始第一题）
@@ -3505,6 +3514,9 @@ PRD_SESSION_ID: ${created.id}`
     abortRef.current?.()
     abortRef.current = null
     setSessionId(s.id)
+    // 历史列表条目本身就是完整的 PrdSessionView（含正确的 maxQuestions），预热缓存跟
+    // handleStart 同样的理由：避免恢复到 CLARIFYING 状态重新进澄清对话时进度条先闪一下默认值。
+    qc.setQueryData(['prd-session', s.id], s)
     setStreamText('')
     setErrorMsg(null)
 
@@ -3622,6 +3634,7 @@ PRD_SESSION_ID: ${created.id}`
         {step === 'CHATTING' && sessionId && (
           <ChattingPanel
             sessionId={sessionId}
+            maxRounds={session?.maxQuestions && session.maxQuestions > 0 ? session.maxQuestions : 5}
             onDone={handleChattingDone}
             onError={(msg) => { setErrorMsg(msg); setStep('INPUT') }}
           />
