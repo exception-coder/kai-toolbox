@@ -347,21 +347,23 @@ public class PrdClarifyService {
     /** 创建会话并持久化，返回新建的会话对象。 */
     public PrdSession createSession(String title, String rawInput,
                                     String project, String module, String model, String role) {
-        return createSession(title, rawInput, project, module, model, role, null, null);
+        return createSession(title, rawInput, project, module, model, role, null, null, null);
     }
 
     /**
      * 创建会话并持久化，返回新建的会话对象。
      *
-     * @param reqType      需求类型：BUG_FIX | MODULE_ADJUST | NEW_MODULE。null/空/未识别时说明
-     *                     前端没有展示分类弹框（典型：业务员角色），转为调用 LLM 自动判定
-     *                     （{@link #classifyReqType}），而不是静默按 NEW_MODULE 处理。
-     * @param maxQuestions 本次澄清最多问几轮，null 或非正数时按 reqType 从 {@link #DEFAULT_MAX_QUESTIONS}
-     *                     兜底（reqType 走自动判定分支时此参数被忽略，以判定结果为准）
+     * @param reqType         需求类型：BUG_FIX | MODULE_ADJUST | NEW_MODULE。null/空/未识别时说明
+     *                        前端没有展示分类弹框（典型：业务员角色），转为调用 LLM 自动判定
+     *                        （{@link #classifyReqType}），而不是静默按 NEW_MODULE 处理。
+     * @param maxQuestions    本次澄清最多问几轮，null 或非正数时按 reqType 从 {@link #DEFAULT_MAX_QUESTIONS}
+     *                        兜底（reqType 走自动判定分支时此参数被忽略，以判定结果为准）
+     * @param createdByUserId 创建者（当前登录用户 auth_user.id），由 Controller 从 AuthContext 解析后传入；
+     *                        未登录/鉴权关闭时为 null（历史列表退回旧的「全部按时间倒序」行为，不做用户过滤）
      */
     public PrdSession createSession(String title, String rawInput,
                                     String project, String module, String model, String role,
-                                    String reqType, Integer maxQuestions) {
+                                    String reqType, Integer maxQuestions, Long createdByUserId) {
         long now = System.currentTimeMillis();
         String effectiveRole = (role != null && "BUSINESS".equalsIgnoreCase(role)) ? "BUSINESS" : "PRODUCT";
 
@@ -393,6 +395,7 @@ public class PrdClarifyService {
                 .reqType(effectiveReqType)
                 .maxQuestions(effectiveMaxQuestions)
                 .status("CLARIFYING")
+                .createdByUserId(createdByUserId)
                 .createdAt(now)
                 .updatedAt(now)
                 .build();

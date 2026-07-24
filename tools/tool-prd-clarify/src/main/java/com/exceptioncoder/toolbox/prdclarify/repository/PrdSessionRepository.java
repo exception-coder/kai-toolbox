@@ -31,6 +31,7 @@ public class PrdSessionRepository {
             .devDocGeneratedAt(rs.getObject("dev_doc_generated_at") == null ? null : rs.getLong("dev_doc_generated_at"))
             .devDocHistory(rs.getString("dev_doc_history"))
             .devDocEstimation(rs.getString("dev_doc_estimation"))
+            .createdByUserId(rs.getObject("created_by_user_id") == null ? null : rs.getLong("created_by_user_id"))
             .model(rs.getString("model"))
             .errorMsg(rs.getString("error_msg"))
             .createdAt(rs.getLong("created_at"))
@@ -45,12 +46,12 @@ public class PrdSessionRepository {
 
     public void insert(PrdSession s) {
         jdbc.update(
-                "INSERT INTO prd_session (id, title, project, module, raw_input, questions, status, role, req_type, max_questions, md_path, model, error_msg, created_at, updated_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO prd_session (id, title, project, module, raw_input, questions, status, role, req_type, max_questions, md_path, model, error_msg, created_by_user_id, created_at, updated_at) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 s.getId(), s.getTitle(), s.getProject(), s.getModule(),
                 s.getRawInput(), s.getQuestions(), s.getStatus(), s.getRole(),
                 s.getReqType(), s.getMaxQuestions(),
-                s.getMdPath(), s.getModel(), s.getErrorMsg(),
+                s.getMdPath(), s.getModel(), s.getErrorMsg(), s.getCreatedByUserId(),
                 s.getCreatedAt(), s.getUpdatedAt());
     }
 
@@ -60,10 +61,17 @@ public class PrdSessionRepository {
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
-    /** 最近 N 条记录，按创建时间倒序。 */
+    /** 最近 N 条记录，按创建时间倒序，不做用户过滤（ADMIN 角色 / 未登录兜底走这个）。 */
     public List<PrdSession> findRecent(int limit) {
         return jdbc.query(
                 "SELECT * FROM prd_session ORDER BY created_at DESC LIMIT ?", ROW, limit);
+    }
+
+    /** 最近 N 条记录，只看指定创建者（普通用户的历史列表按此隔离，见 PrdClarifyController#list）。 */
+    public List<PrdSession> findRecentByUser(int limit, long userId) {
+        return jdbc.query(
+                "SELECT * FROM prd_session WHERE created_by_user_id = ? ORDER BY created_at DESC LIMIT ?",
+                ROW, userId, limit);
     }
 
     /** 更新澄清问题（JSON 字符串）。 */
@@ -153,5 +161,23 @@ public class PrdSessionRepository {
 
     public void delete(String id) {
         jdbc.update("DELETE FROM prd_session WHERE id = ?", id);
+    }
+
+    /** 无归属（created_by_user_id 为 NULL）的记录数，供启动期迁移做幂等判断。 */
+    public long countMissingOwner() {
+        Long n = jdbc.queryForObject(
+                "SELECT COUNT(1) FROM prd_session WHERE created_by_user_id IS NULL", Long.class);
+        return n == null ? 0 : n;
+    }
+
+    /**
+     * 把所有无归属的存量记录统一回填成指定用户（启动时一次性迁移用，见
+     * {@code PrdSessionOwnerMigration}）。故意不 touch updated_at（原因同 updateDevDocPath）。
+     *
+     * @return 实际回填的行数
+     */
+    public int backfillOwner(long userId) {
+        return jdbc.update(
+                "UPDATE prd_session SET created_by_user_id = ? WHERE created_by_user_id IS NULL", userId);
     }
 }

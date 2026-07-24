@@ -51,6 +51,15 @@ public record PrdSessionView(
         List<DevDocHistoryEntryView> devDocHistory,
         /** AI 工时评估结果，尚未评估过时为 null。见 {@link DevDocEstimationView} 各字段说明。 */
         DevDocEstimationView devDocEstimation,
+        /** 创建者 auth_user.id；未登录/鉴权关闭时创建、或早于该功能上线的存量数据可能为 null。 */
+        Long createdByUserId,
+        /**
+         * 创建者用户名，尽力而为解析（见 {@link #from(PrdSession, String)}）。单会话相关接口
+         * （详情/创建/改标题等）默认不解析，传 null——只有历史列表接口会批量查一次全部用户名
+         * 再传入，避免每个会话单独查一次库。前端据此展示"创建人"标签，主要给能看到全部用户
+         * 记录的 ADMIN 用。
+         */
+        String createdByUsername,
         String errorMsg,
         long createdAt,
         long updatedAt
@@ -90,8 +99,16 @@ public record PrdSessionView(
     /** 工时拆解明细的一项。 */
     public record EstimationBreakdownItemView(String item, double hours) {}
 
-    /** 从领域对象转换为视图，自动解析 questions / devDocHistory / devDocEstimation JSON。 */
+    /** 从领域对象转换为视图，自动解析 questions / devDocHistory / devDocEstimation JSON；不解析创建者用户名。 */
     public static PrdSessionView from(PrdSession s) {
+        return from(s, null);
+    }
+
+    /**
+     * 从领域对象转换为视图，createdByUsername 由调用方解析后传入（历史列表批量查一次
+     * auth_user，避免每条记录单独查一次库；见 {@link #createdByUsername}）。
+     */
+    public static PrdSessionView from(PrdSession s, String createdByUsername) {
         return new PrdSessionView(
                 s.getId(), s.getTitle(), s.getProject(), s.getModule(),
                 s.getStatus(), s.getRole() != null ? s.getRole() : "PRODUCT",
@@ -102,6 +119,7 @@ public record PrdSessionView(
                 s.getMdPath(), s.getDevDocPath(), s.getDevSessionId(), s.getDevDocGeneratedAt(),
                 parseDevDocHistory(s.getDevDocHistory()),
                 parseDevDocEstimation(s.getDevDocEstimation(), s.getDevDocGeneratedAt()),
+                s.getCreatedByUserId(), createdByUsername,
                 s.getErrorMsg(), s.getCreatedAt(), s.getUpdatedAt());
     }
 

@@ -15,6 +15,10 @@ import com.exceptioncoder.toolbox.prdclarify.api.dto.UpdateTitleRequest;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
 import com.exceptioncoder.toolbox.prdclarify.service.PrdClarifyService;
+import com.exceptioncoder.toolbox.common.auth.domain.AuthUser;
+import com.exceptioncoder.toolbox.common.auth.repository.AuthUserRepository;
+import com.exceptioncoder.toolbox.common.auth.web.AuthContext;
+import com.exceptioncoder.toolbox.common.auth.web.AuthPrincipal;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -32,6 +36,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 
@@ -59,12 +64,16 @@ public class PrdClarifyController {
     private final PrdClarifyService service;
     private final PrdSessionRepository repo;
     private final AttachmentParseService attachmentParser;
+    /** Optional：toolbox.auth.enabled=false 时这个 bean 不存在，历史列表退化为不展示创建人用户名。 */
+    private final Optional<AuthUserRepository> authUserRepo;
 
     public PrdClarifyController(PrdClarifyService service, PrdSessionRepository repo,
-                                AttachmentParseService attachmentParser) {
+                                AttachmentParseService attachmentParser,
+                                Optional<AuthUserRepository> authUserRepo) {
         this.service = service;
         this.repo = repo;
         this.attachmentParser = attachmentParser;
+        this.authUserRepo = authUserRepo;
     }
 
     /**
@@ -90,20 +99,38 @@ public class PrdClarifyController {
         }
     }
 
-    /** 创建会话。 */
+    /** 创建会话，归属写成当前登录用户（未登录/鉴权关闭时为 null，历史列表按此退回旧的全局视图）。 */
     @PostMapping("/sessions")
     public PrdSessionView create(@Valid @RequestBody CreateSessionRequest req) {
+        Long createdByUserId = AuthContext.current().map(AuthPrincipal::userId).orElse(null);
         PrdSession session = service.createSession(
                 req.title(), req.rawInput(), req.project(), req.module(), req.model(), req.role(),
-                req.reqType(), req.maxQuestions());
+                req.reqType(), req.maxQuestions(), createdByUserId);
         return PrdSessionView.from(session);
     }
 
-    /** 历史列表（最近 50 条，按创建时间倒序）。 */
+    /**
+     * 历史列表（最近 50 条，按创建时间倒序）。按用户隔离：普通登录用户只看自己创建的会话；
+     * ADMIN 角色可见全部（超级权限，跟公司其它管理后台的惯例一致）；未登录/鉴权关闭时退回
+     * 旧的"全局最近 50 条"行为，兼容单用户场景。
+     */
     @GetMapping("/sessions")
     public List<PrdSessionView> list() {
-        return repo.findRecent(50).stream()
-                .map(PrdSessionView::from)
+        Optional<AuthPrincipal> principal = AuthContext.current();
+        List<PrdSession> sessions;
+        if (principal.isEmpty() || principal.get().hasAnyRole("ADMIN")) {
+            sessions = repo.findRecent(50);
+        } else {
+            sessions = repo.findRecentByUser(50, principal.get().userId());
+        }
+        // 批量查一次全部用户名（这个工具的用户数量级不会大，findAll() 一次够用），
+        // 避免给每条历史记录单独查一次 auth_user——主要给 ADMIN 视角区分"这条是谁的"。
+        Map<Long, String> usernameById = authUserRepo
+                .map(r -> r.findAll().stream()
+                        .collect(java.util.stream.Collectors.toMap(AuthUser::getId, AuthUser::getUsername)))
+                .orElse(Map.of());
+        return sessions.stream()
+                .map(s -> PrdSessionView.from(s, usernameById.get(s.getCreatedByUserId())))
                 .toList();
     }
 

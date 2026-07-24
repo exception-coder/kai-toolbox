@@ -97,6 +97,10 @@ export interface PrdSessionView {
   devDocHistory: DevDocHistoryEntry[]
   /** AI 工时评估结果，尚未评估过时为 null */
   devDocEstimation: DevDocEstimation | null
+  /** 创建者 auth_user.id；未登录/鉴权关闭时创建、或早于该功能上线的存量数据可能为 null */
+  createdByUserId: number | null
+  /** 创建者用户名，仅历史列表接口会解析（批量查一次），其它单会话接口一律为 null */
+  createdByUsername: string | null
   errorMsg: string | null
   createdAt: number
   updatedAt: number

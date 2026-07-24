@@ -660,6 +660,13 @@ function HistoryPanel({
                       </span>
                     )
                   })()}
+                  {/* 创建人标签：普通用户历史列表本来就只有自己的记录，这个标签主要给 ADMIN
+                      （能看到所有人记录）区分"这条是谁的"；只有后端解析出用户名时才展示 */}
+                  {s.createdByUsername && (
+                    <span className="text-[9px] px-1 rounded bg-[var(--color-muted)] text-[var(--color-muted-foreground)] border border-[var(--color-border)] leading-tight" title="创建人">
+                      @{s.createdByUsername}
+                    </span>
+                  )}
                 </div>
 
                 {/* 树结构：开发文档作为 PRD 的子节点 */}

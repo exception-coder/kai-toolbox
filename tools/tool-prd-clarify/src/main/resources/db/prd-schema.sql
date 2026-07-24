@@ -47,5 +47,12 @@ ALTER TABLE prd_session ADD COLUMN dev_doc_history TEXT;
 -- updated_at（原因同 dev_doc_history）；是否过期由前端/视图层比较 estimatedAt 与 dev_doc_generated_at。
 ALTER TABLE prd_session ADD COLUMN dev_doc_estimation TEXT;
 
+-- 创建者（auth_user.id），用于历史列表按用户隔离（ADMIN 角色不受限，可见全部）。
+-- 只加列，不在这里做存量数据回填——SchemaInitializer 跨模块扫描 *-schema.sql 不保证执行顺序，
+-- 这里直接 UPDATE 引用 auth_user 表可能在它建表前执行而报错、拖垮整个应用启动。存量回填改在
+-- PrdSessionOwnerMigration（@DependsOn("schemaInitializer")，保证所有模块建表完成后再跑）里做。
+ALTER TABLE prd_session ADD COLUMN created_by_user_id INTEGER;
+
 CREATE INDEX IF NOT EXISTS idx_prd_session_created ON prd_session(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_prd_session_status  ON prd_session(status);
+CREATE INDEX IF NOT EXISTS idx_prd_session_created_by ON prd_session(created_by_user_id);

@@ -55,6 +55,13 @@ public class PrdSession {
      * 但 PrdSessionView 会用 estimatedAt 早于 devDocGeneratedAt 标出「已过期」。
      */
     private String devDocEstimation;
+    /**
+     * 创建者：{@code auth_user.id}。由 Controller 在创建会话时从 {@code AuthContext} 解析当前登录
+     * 用户后写入，用于历史列表按用户隔离（ADMIN 角色不受此限制，可见全部）。可为 null——
+     * 未登录/鉴权关闭时创建的会话，或早于该功能上线的存量数据（已由启动期迁移
+     * {@code PrdSessionOwnerMigration} 统一回填成 admin 账号）。
+     */
+    private Long createdByUserId;
     private String errorMsg;
     private long createdAt;
     private long updatedAt;
