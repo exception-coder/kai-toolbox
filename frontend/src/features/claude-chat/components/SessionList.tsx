@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bot, Check, ChevronRight, Code2, Folder, FolderMinus, FolderPlus, Pencil, Search, Sparkles, Tags, Trash2, X, Zap } from 'lucide-react'
+import { Bot, Check, ChevronRight, Code2, Folder, FolderMinus, FolderPlus, Link2, Pencil, Search, Sparkles, Tags, Trash2, X, Zap } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
 import { deleteSession, listSessions, renameSession, setSessionGroupApi } from '../api'
 import { engineDisplayName, providerHost } from './chatStatus'
 import type { ClaudeChatSessionView, Engine } from '../types'
+import { getSessionsByDevSessions } from '@/features/prd-clarify/api'
 
 const OLD_GROUP_KEY = 'kai-toolbox:claude-chat:session-groups'
 let groupMigrationDone = false
@@ -25,6 +26,16 @@ const UNGROUPED = ' ungrouped'
 export function SessionList({ currentSessionId, onSwitch, selectable, selectedIds, onToggleSelect }: Props) {
   const qc = useQueryClient()
   const { data: sessions = [], isPending } = useQuery({ queryKey: KEY, queryFn: listSessions })
+
+  // 批量查一次"这些会话里哪些绑了 PRD"，给行首标个小图标——不然只能点进每个会话的顶栏才知道
+  // （用户原话："不然不知道哪些绑定了必须要点开"）。key 用排序后的 id 拼接，会话集合不变就不重查。
+  const sessionIdsKey = useMemo(() => [...sessions.map(s => s.id)].sort().join(','), [sessions])
+  const { data: prdLinks = {} } = useQuery({
+    queryKey: ['claude-chat-sessions-prd-links', sessionIdsKey],
+    queryFn: () => getSessionsByDevSessions(sessions.map(s => s.id)),
+    enabled: sessions.length > 0,
+    staleTime: 60_000,
+  })
 
   useEffect(() => {
     if (groupMigrationDone) return
@@ -171,6 +182,7 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
 
   function renderRow(s: ClaudeChatSessionView, inGroup: boolean) {
     const isActive = s.id === currentSessionId
+    const linkedPrd = prdLinks[s.id]
 
     const engineBadge = (() => {
       const raw = (s.engines && s.engines.trim() ? s.engines.split(',') : [s.engine || 'claude'])
@@ -269,6 +281,14 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
               )}>
                 {s.title || shortCwd(s.cwd)}
               </span>
+              {linkedPrd && (
+                <span
+                  title={`已关联 PRD：${linkedPrd.title || '（未命名）'}`}
+                  className="shrink-0 text-[var(--color-primary)] opacity-70"
+                >
+                  <Link2 className="size-3" />
+                </span>
+              )}
             </div>
             {/* Line 2：Badge（从 Line 1 移来）+ 时间 */}
             <div className={cn(

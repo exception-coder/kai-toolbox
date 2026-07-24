@@ -181,6 +181,18 @@ export const getSessionByDevSession = async (devSessionId: string): Promise<PrdS
 }
 
 /**
+ * {@link getSessionByDevSession} 的批量版本：一次性查一批开发会话 id 各自绑没绑 PRD。
+ * 供 claude-chat 会话列表（RecentSessions / SessionList）给每一行标"已关联 PRD"小图标用，
+ * 避免给每一行单独发一次请求（N+1）。返回 Map：devSessionId -> PrdSessionView，
+ * 未绑定的 id 不会出现在结果里。devSessionIds 为空数组时直接返回空对象，不发请求。
+ */
+export const getSessionsByDevSessions = async (devSessionIds: string[]): Promise<Record<string, PrdSessionView>> => {
+  if (devSessionIds.length === 0) return {}
+  const qs = devSessionIds.map(id => encodeURIComponent(id)).join(',')
+  return http<Record<string, PrdSessionView>>(`${BASE}/sessions/by-dev-sessions?ids=${qs}`)
+}
+
+/**
  * 将 PRD 会话关联到需求管理池条目（来自需求池的跳入场景，PRD 生成完成后回调）。
  * 触发 reqpool 条目状态流转到 PRD_READY。
  */

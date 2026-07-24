@@ -5,8 +5,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * prd_session 表的数据访问层。使用 JdbcTemplate + 静态 RowMapper，与其他工具模块保持一致。
@@ -72,6 +74,20 @@ public class PrdSessionRepository {
                 "SELECT * FROM prd_session WHERE dev_session_id = ? ORDER BY updated_at DESC LIMIT 1",
                 ROW, devSessionId);
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    /**
+     * 批量按 Vibe Coding 开发会话 ID 反查关联 PRD（{@link #findByDevSessionId} 的批量版本）——
+     * 会话列表页要给每一行标出"是否绑定 PRD"，逐行查询会是 N+1，这里一次 IN 查询搞定。
+     * 按 updated_at 升序返回，调用方（Controller）塞进 Map 时后写覆盖先写，同一个
+     * devSessionId 若历史上误关联了多条，跟 {@link #findByDevSessionId} 一样取最近更新的一条。
+     */
+    public List<PrdSession> findByDevSessionIds(Collection<String> devSessionIds) {
+        if (devSessionIds == null || devSessionIds.isEmpty()) return List.of();
+        String placeholders = devSessionIds.stream().map(x -> "?").collect(Collectors.joining(","));
+        return jdbc.query(
+                "SELECT * FROM prd_session WHERE dev_session_id IN (" + placeholders + ") ORDER BY updated_at ASC",
+                ROW, devSessionIds.toArray());
     }
 
     /** 最近 N 条记录，按创建时间倒序，不做用户过滤（ADMIN 角色 / 未登录兜底走这个）。 */

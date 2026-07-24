@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Clock3 } from 'lucide-react'
+import { Clock3, Link2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { listSessions, renameSession } from '../api'
 import { engineDisplayName } from './chatStatus'
+import { getSessionsByDevSessions } from '@/features/prd-clarify/api'
 
 interface Props {
   currentSessionId: string | null
@@ -26,6 +27,15 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 5 }: Props)
   const recent = [...sessions]
     .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
     .slice(0, limit)
+
+  // 同 SessionList：批量查一次这几条会话里哪些绑了 PRD，行首标个小图标，不用点开才知道。
+  const recentIdsKey = useMemo(() => [...recent.map(s => s.id)].sort().join(','), [recent])
+  const { data: prdLinks = {} } = useQuery({
+    queryKey: ['claude-chat-sessions-prd-links', recentIdsKey],
+    queryFn: () => getSessionsByDevSessions(recent.map(s => s.id)),
+    enabled: recent.length > 0,
+    staleTime: 60_000,
+  })
 
   // 双击改名：本地记录正在编辑的会话 id + 草稿文本，提交后写回并刷新列表。
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -58,6 +68,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 5 }: Props)
           const title = session.title?.trim() || shortCwd(session.cwd)
           const engineLabel = engineDisplayName(session.engine ?? 'claude', session.providerKind)
           const isEditing = editingId === session.id
+          const linkedPrd = prdLinks[session.id]
 
           return (
             <li
@@ -104,6 +115,15 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 5 }: Props)
                   )}>
                     {title}
                   </span>
+
+                  {linkedPrd && (
+                    <span
+                      title={`已关联 PRD：${linkedPrd.title || '（未命名）'}`}
+                      className="shrink-0 text-[var(--color-primary)] opacity-70"
+                    >
+                      <Link2 className="size-3" />
+                    </span>
+                  )}
 
                   {/* 右侧：当前状态 / 相对时间（三级视觉权重） */}
                   <span className={cn(

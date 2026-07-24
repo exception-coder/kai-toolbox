@@ -59,6 +59,7 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
  *   <li>{@code POST   /sessions/{id}/dev-doc/estimate} — AI 工时评估</li>
  *   <li>{@code POST   /sessions/{id}/link-dev-session} — 关联 Vibe Coding 开发会话</li>
  *   <li>{@code GET    /sessions/by-dev-session/{devSessionId}} — 按开发会话反查关联 PRD</li>
+ *   <li>{@code GET    /sessions/by-dev-sessions?ids=...}   — 批量反查关联 PRD</li>
  *   <li>{@code POST   /attachments/image}         — 粘贴图片落盘</li>
  *   <li>{@code GET    /attachments/image/{id}}    — 取回图片</li>
  * </ul>
@@ -322,6 +323,23 @@ public class PrdClarifyController {
         return repo.findByDevSessionId(devSessionId)
                 .map(PrdSessionView::from)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "未找到关联的 PRD 会话"));
+    }
+
+    /**
+     * {@link #getByDevSession} 的批量版本——claude-chat 会话列表要在每一行标出"是否绑定 PRD"，
+     * 逐行调用单条接口是 N+1 请求，这里一次性按 ids 查完。未绑定的 devSessionId 不会出现在
+     * 返回的 Map 里，前端按 key 是否存在判断，不用像单条接口那样处理 404。
+     */
+    @GetMapping("/sessions/by-dev-sessions")
+    public Map<String, PrdSessionView> getByDevSessions(@org.springframework.web.bind.annotation.RequestParam List<String> ids) {
+        if (ids == null || ids.isEmpty()) return Map.of();
+        Map<String, PrdSessionView> result = new java.util.LinkedHashMap<>();
+        for (PrdSession s : repo.findByDevSessionIds(ids)) {
+            if (s.getDevSessionId() != null && !s.getDevSessionId().isBlank()) {
+                result.put(s.getDevSessionId(), PrdSessionView.from(s));
+            }
+        }
+        return result;
     }
 
     /**
