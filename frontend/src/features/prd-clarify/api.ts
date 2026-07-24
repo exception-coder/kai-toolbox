@@ -7,6 +7,8 @@ import type {
   ProgressVersionSummary,
   SaveContentRequest,
   SaveDraftRequest,
+  SplitItem,
+  SplitPreview,
   SubmitAnswersRequest,
 } from './types'
 
@@ -38,6 +40,17 @@ export const startClarifyFromDraft = (id: string, req: CreateSessionRequest) =>
   http<PrdSessionView>(`${BASE}/sessions/${id}/start-from-draft`, {
     method: 'POST',
     body: JSON.stringify(req),
+  })
+
+/** AI 需求拆分预览：判断当前需求是否"过大"，建议拆成多个子需求。只读分析，不落库。 */
+export const splitRequirement = (id: string) =>
+  http<SplitPreview>(`${BASE}/sessions/${id}/split`, { method: 'POST' })
+
+/** 采纳拆分结果：把确认（可能编辑过）的子需求批量创建成 DRAFT 草稿，挂在当前会话下面。 */
+export const adoptSplit = (id: string, items: SplitItem[]) =>
+  http<PrdSessionView[]>(`${BASE}/sessions/${id}/split/adopt`, {
+    method: 'POST',
+    body: JSON.stringify({ items }),
   })
 
 /** 获取单个会话详情。 */

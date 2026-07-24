@@ -69,6 +69,11 @@ public record PrdSessionView(
          * 记录的 ADMIN 用。
          */
         String createdByUsername,
+        /**
+         * 父会话 ID，非 null 表示这是「需求拆分」产生的子需求（见
+         * {@code PrdClarifyService#adoptSplit}）。历史列表前端据此把子记录嵌套展示在父记录下面。
+         */
+        String parentId,
         String errorMsg,
         long createdAt,
         long updatedAt
@@ -130,7 +135,7 @@ public record PrdSessionView(
                 parseDevDocHistory(s.getDevDocHistory()),
                 parseDevDocEstimation(s.getDevDocEstimation(), s.getDevDocGeneratedAt()),
                 s.getProgressPath(), s.getProgressGeneratedAt(),
-                s.getCreatedByUserId(), createdByUsername,
+                s.getCreatedByUserId(), createdByUsername, s.getParentId(),
                 s.getErrorMsg(), s.getCreatedAt(), s.getUpdatedAt());
     }
 

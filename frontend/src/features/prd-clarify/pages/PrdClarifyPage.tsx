@@ -10,6 +10,7 @@ import DOMPurify from 'dompurify'
 // doc-viewer 的 markdown.css 含完整 prose 样式（标题层级/代码块/表格等），无需 @tailwindcss/typography
 import '@/features/doc-viewer/styles/markdown.css'
 import {
+  adoptSplit,
   askNextDevDocQuestion,
   askNextQuestion,
   autoRegisterToReqPool,
@@ -33,6 +34,7 @@ import {
   saveDevDocContent,
   saveDraft,
   saveQaHistory,
+  splitRequirement,
   startClarify,
   startClarifyFromDraft,
   startGenerate,
@@ -43,7 +45,7 @@ import {
   type QaPair,
   type AttachmentParseResult,
 } from '../api'
-import type { CreateSessionRequest, DevDocEstimation, DevDocVersionSummary, EstimationConfidence, PrdClarifyMode, PrdReqType, PrdSessionView, PrdStep, ProgressVersionSummary, QuestionItem } from '../types'
+import type { CreateSessionRequest, DevDocEstimation, DevDocVersionSummary, EstimationConfidence, PrdClarifyMode, PrdReqType, PrdSessionView, PrdStep, ProgressVersionSummary, QuestionItem, SplitItem } from '../types'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 
 // 编辑器 lazy import — CodeMirror chunk 只在进入 EDITING 步骤时加载
@@ -496,6 +498,176 @@ function ReviseDialog({
   )
 }
 
+// ───── AI 需求拆分确认弹框 ─────
+/**
+ * 打开即自动触发一次 AI 拆分分析（只读，不落库）；用户可以对每个建议的子需求勾选采纳/
+ * 编辑标题描述/整条移除，确认后点「采纳」才真正批量创建 DRAFT 子草稿（parentId 指向
+ * sessionId）。canSplit=false 时（需求本身已经够聚焦）只展示判断理由，没有可操作列表。
+ */
+function SplitReviewDialog({
+  sessionId,
+  onClose,
+  onAdopted,
+}: {
+  sessionId: string
+  onClose: () => void
+  onAdopted: () => void
+}) {
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [canSplit, setCanSplit] = useState(false)
+  const [reason, setReason] = useState<string | null>(null)
+  const [items, setItems] = useState<(SplitItem & { selected: boolean })[]>([])
+  const [adopting, setAdopting] = useState(false)
+
+  const runSplit = () => {
+    setLoading(true)
+    setError(null)
+    splitRequirement(sessionId)
+      .then((res) => {
+        setCanSplit(res.canSplit)
+        setReason(res.reason)
+        setItems(res.items.map((it) => ({ ...it, selected: true })))
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : '拆分失败，请重试'))
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    runSplit()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId])
+
+  const toggle = (i: number) =>
+    setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, selected: !it.selected } : it)))
+  const updateField = (i: number, field: 'title' | 'rawInput' | 'module', value: string) =>
+    setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, [field]: value } : it)))
+  const removeItem = (i: number) =>
+    setItems((prev) => prev.filter((_, idx) => idx !== i))
+
+  const selectedCount = items.filter((it) => it.selected).length
+
+  const handleAdopt = async () => {
+    setAdopting(true)
+    setError(null)
+    try {
+      const payload = items
+        .filter((it) => it.selected)
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        .map(({ selected, ...rest }) => rest)
+      await adoptSplit(sessionId, payload)
+      onAdopted()
+      onClose()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '采纳失败，请重试')
+    } finally {
+      setAdopting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="w-full max-w-2xl rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+        {/* 头部 */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)] flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <Layers className="w-4 h-4 text-indigo-400" />
+            <span className="font-semibold text-sm">AI 需求拆分</span>
+          </div>
+          <button onClick={onClose}><X className="w-4 h-4 text-[var(--color-muted-foreground)]" /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {loading && (
+            <div className="flex flex-col items-center justify-center py-12 gap-3 text-[var(--color-muted-foreground)]">
+              <Loader2 className="w-6 h-6 animate-spin" />
+              <p className="text-sm">Claude 正在分析需求，判断是否需要拆分…</p>
+            </div>
+          )}
+          {!loading && error && (
+            <div className="flex flex-col items-center gap-3 py-8">
+              <p className="text-sm text-red-500 text-center">{error}</p>
+              <button onClick={runSplit} className="text-xs underline text-[var(--color-primary)]">重试</button>
+            </div>
+          )}
+          {!loading && !error && !canSplit && (
+            <div className="text-center py-8">
+              <Sparkles className="w-8 h-8 mx-auto opacity-20 mb-3" />
+              <p className="text-sm font-medium mb-1">该需求已经足够聚焦，无需拆分</p>
+              {reason && <p className="text-xs text-[var(--color-muted-foreground)]">{reason}</p>}
+            </div>
+          )}
+          {!loading && !error && canSplit && (
+            <>
+              {reason && (
+                <p className="text-xs text-[var(--color-muted-foreground)] mb-3 bg-indigo-500/5 border border-indigo-500/15 rounded-lg px-3 py-2">
+                  {reason}
+                </p>
+              )}
+              {items.length === 0 ? (
+                <p className="text-xs text-[var(--color-muted-foreground)] text-center py-6">已全部移除，没有可采纳的子需求了</p>
+              ) : (
+                <div className="space-y-3">
+                  {items.map((it, i) => (
+                    <div key={i} className={`rounded-xl border p-3 transition-colors ${it.selected ? 'border-indigo-500/30 bg-indigo-500/5' : 'border-[var(--color-border)] opacity-50'}`}>
+                      <div className="flex items-start gap-2 mb-2">
+                        <input
+                          type="checkbox"
+                          checked={it.selected}
+                          onChange={() => toggle(i)}
+                          className="mt-1.5 flex-shrink-0"
+                        />
+                        <input
+                          value={it.title}
+                          onChange={(e) => updateField(i, 'title', e.target.value)}
+                          className="flex-1 px-2 py-1 text-sm font-medium rounded border border-[var(--color-border)] bg-[var(--color-input)]"
+                        />
+                        <button onClick={() => removeItem(i)} className="text-[var(--color-muted-foreground)] hover:text-red-500 flex-shrink-0" title="从列表中移除（不采纳）">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <textarea
+                        value={it.rawInput}
+                        onChange={(e) => updateField(i, 'rawInput', e.target.value)}
+                        rows={3}
+                        className="w-full px-2 py-1.5 text-xs rounded border border-[var(--color-border)] bg-[var(--color-input)] resize-y"
+                      />
+                      <input
+                        value={it.module ?? ''}
+                        onChange={(e) => updateField(i, 'module', e.target.value)}
+                        placeholder="建议归属模块（可选，留空则继承父需求的模块）"
+                        className="mt-1.5 w-full px-2 py-1 text-[11px] rounded border border-[var(--color-border)] bg-[var(--color-input)]"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* 底部操作：canSplit 且还有可采纳项时才显示，其它情况（分析中/失败/不建议拆）只有关闭 */}
+        {!loading && !error && canSplit && items.length > 0 && (
+          <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-[var(--color-border)] flex-shrink-0">
+            <button onClick={onClose}
+              className="px-4 py-2 text-sm rounded-lg border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-muted-foreground)]">
+              取消
+            </button>
+            <button
+              disabled={selectedCount === 0 || adopting}
+              onClick={handleAdopt}
+              className="flex items-center gap-2 px-5 py-2 rounded-lg bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-400 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {adopting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Layers className="w-3.5 h-3.5" />}
+              采纳 {selectedCount} 项，生成草稿
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ───── 原始需求描述弹出卡片 ─────
 function RawInputCard({
   session,
@@ -581,6 +753,7 @@ function HistoryPanel({
   onDelete,
   onRevise,
   onRename,
+  onSplit,
 }: {
   sessions: PrdSessionView[]
   activeId: string | null
@@ -588,6 +761,8 @@ function HistoryPanel({
   onDelete: (id: string) => void
   onRevise: (s: PrdSessionView) => void
   onRename: (id: string, title: string) => void
+  /** 打开「AI 需求拆分」确认弹框（对已存在的历史记录，随时都能拆，不限状态）。 */
+  onSplit: (s: PrdSessionView) => void
 }) {
   const confirm = useConfirm()
   const prompt = usePrompt()
@@ -612,15 +787,6 @@ function HistoryPanel({
     if (newTitle && newTitle !== s.title) onRename(s.id, newTitle)
   }
 
-  const statusColor: Record<string, string> = {
-    DRAFT: 'text-[var(--color-muted-foreground)]',
-    DONE: 'text-green-500',
-    GENERATING: 'text-blue-500',
-    CLARIFYING: 'text-yellow-500',
-    ANSWERING: 'text-yellow-500',
-    ERROR: 'text-red-500',
-  }
-
   // 按系统（关联项目）/ 用户筛选：project 是逗号/顿号分隔的多选字符串，按 token 匹配
   // （命中其中任意一个即算，不要求恰好等于整个字符串）；用户按 createdByUsername 精确匹配
   // （非 ADMIN 视角本来就只看得到自己的记录，这个筛选主要给 ADMIN 用）。
@@ -638,7 +804,23 @@ function HistoryPanel({
     new Set(sessions.map((s) => s.createdByUsername).filter((u): u is string => !!u))
   ).sort((a, b) => a.localeCompare(b, 'zh'))
 
-  const filteredSessions = sessions.filter((s) => {
+  // PRD 层级结构：needs-split 产生的子需求通过 parentId 挂在父需求下面。按 parentId 建
+  // 父子映射；根节点 = 没有 parentId，或 parentId 指向的记录不在当前列表里（父记录被删掉/
+  // 不在当前用户可见范围）——后一种情况兜底当根处理，避免子记录因为找不到父节点而彻底消失。
+  const byId = new Map(sessions.map((s) => [s.id, s]))
+  const childrenMap = new Map<string, PrdSessionView[]>()
+  for (const s of sessions) {
+    if (s.parentId && byId.has(s.parentId)) {
+      const arr = childrenMap.get(s.parentId) ?? []
+      arr.push(s)
+      childrenMap.set(s.parentId, arr)
+    }
+  }
+  const roots = sessions.filter((s) => !s.parentId || !byId.has(s.parentId))
+
+  // 筛选只作用于根节点：一个子需求的 project/creator 通常直接继承自父需求，筛选到父需求
+  // 就该看到它完整的拆分子树，没必要对每个子节点再单独判一次（会把子树打散、体验更差）。
+  const filteredRoots = roots.filter((s) => {
     if (filterProject && !splitProjectTags(s.project).includes(filterProject)) return false
     if (filterUser && s.createdByUsername !== filterUser) return false
     return true
@@ -704,146 +886,235 @@ function HistoryPanel({
           {sessions.length === 0 && (
             <div className="p-3 text-xs text-[var(--color-muted-foreground)]">暂无记录</div>
           )}
-          {sessions.length > 0 && filteredSessions.length === 0 && (
+          {sessions.length > 0 && filteredRoots.length === 0 && (
             <div className="p-3 text-xs text-[var(--color-muted-foreground)]">没有匹配筛选条件的记录</div>
           )}
-          {filteredSessions.map((s) => (
-            <div
+          {filteredRoots.map((s) => (
+            <HistoryItem
               key={s.id}
-              onClick={() => onSelect(s)}
-              className={`group flex items-start gap-2 px-3 py-2 cursor-pointer hover:bg-[var(--color-muted)]/40 transition-colors
-                ${s.id === activeId ? 'bg-[var(--color-muted)]/60' : ''}`}
-            >
-              <FileText className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-[var(--color-muted-foreground)]" />
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-medium truncate">{s.title}</div>
-                {/* 项目 / 模块标签 */}
-                {(s.project || s.module) && (
-                  <div className="text-[10px] text-[var(--color-muted-foreground)] truncate mt-0.5">
-                    {[s.project, s.module].filter(Boolean).join(' · ')}
-                  </div>
-                )}
-                <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                  <span className={`text-[10px] ${statusColor[s.status] ?? 'text-[var(--color-muted-foreground)]'}`}>
-                    {s.status === 'DRAFT' ? '草稿' : s.status}
-                  </span>
-                  {/* 角色/需求类型标签：草稿阶段这两个字段只是占位默认值（还没到判定环节），
-                      显示出来反而误导，等转正式发起澄清后才有意义 */}
-                  {s.status !== 'DRAFT' && (s.role === 'BUSINESS' ? (
-                    <span className="text-[9px] px-1 rounded bg-green-500/15 text-green-500 border border-green-500/20 leading-tight">业务</span>
-                  ) : (
-                    <span className="text-[9px] px-1 rounded bg-blue-500/15 text-blue-500 border border-blue-500/20 leading-tight">产品</span>
-                  ))}
-                  {/* 需求类型标签：跟 REQ_TYPE_CONFIG 配色一致，老数据无 reqType 时按 NEW_MODULE 兜底 */}
-                  {s.status !== 'DRAFT' && (() => {
-                    const cfg = REQ_TYPE_CONFIG[s.reqType ?? 'NEW_MODULE']
-                    return (
-                      <span className={`text-[9px] px-1 rounded border leading-tight ${cfg.bg} ${cfg.color}`}>
-                        {cfg.label}
-                      </span>
-                    )
-                  })()}
-                  {/* 创建人标签：普通用户历史列表本来就只有自己的记录，这个标签主要给 ADMIN
-                      （能看到所有人记录）区分"这条是谁的"；只有后端解析出用户名时才展示 */}
-                  {s.createdByUsername && (
-                    <span className="text-[9px] px-1 rounded bg-[var(--color-muted)] text-[var(--color-muted-foreground)] border border-[var(--color-border)] leading-tight" title="创建人">
-                      @{s.createdByUsername}
-                    </span>
-                  )}
-                </div>
-
-                {/* 树结构：开发文档作为 PRD 的子节点 */}
-                {s.devDocPath && (() => {
-                  // 过期判断：开发文档生成时间早于 PRD 最后更新时间
-                  const isStale = !s.devDocGeneratedAt || s.devDocGeneratedAt < s.updatedAt
-                  return (
-                    <div className="mt-1.5">
-                      <div className="flex items-center gap-1 flex-wrap">
-                        {/* 树连接线 */}
-                        <div className="flex-shrink-0" style={{ width: 10, height: 8, borderWidth: '0 0 1px 1px', borderStyle: 'dashed', borderColor: 'rgba(100,100,100,0.3)', borderRadius: '0 0 0 3px' }} />
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            onSelect({ ...s, _openDevDoc: true } as PrdSessionView & { _openDevDoc?: boolean })
-                          }}
-                          className={`flex items-center gap-1 text-[10px] whitespace-nowrap transition-colors ${
-                            isStale
-                              ? 'text-amber-500 hover:text-amber-400'   // 橙色 = 过期
-                              : 'text-purple-400 hover:text-purple-300'  // 紫色 = 已同步
-                          }`}
-                          title={isStale ? '开发文档已过期（PRD 有更新），建议重新生成' : '查看开发文档（已同步最新PRD）'}
-                        >
-                          <Wrench className="w-2.5 h-2.5 flex-shrink-0" />
-                          {isStale ? '开发文档（已过期）' : '开发文档'}
-                        </button>
-                        {/* 过期时显示重新生成按钮 */}
-                        {isStale && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              // 进入该 PRD 并触发重新生成开发文档
-                              onSelect({ ...s, _regenDevDoc: true } as PrdSessionView & { _regenDevDoc?: boolean })
-                            }}
-                            className="flex-shrink-0 whitespace-nowrap text-[9px] px-1 rounded bg-amber-500/15 text-amber-500 border border-amber-500/20 hover:bg-amber-500/25 leading-tight"
-                            title="基于最新 PRD 重新生成开发文档"
-                          >
-                            ↺ 更新
-                          </button>
-                        )}
-                      </div>
-                      {/* AI 工时评估徽标：单独一行展示（跟 title 对齐缩进），避免跟上面的按钮挤在
-                          同一行导致窄侧边栏里换行、中文按钮文字被逐字拆行。只读，评估动作在
-                          开发文档 Tab 工具栏里触发 */}
-                      {s.devDocEstimation && (
-                        <div className="flex items-center mt-1" style={{ paddingLeft: 14 }}>
-                          <EstimationBadge
-                            estimation={s.devDocEstimation}
-                            compact
-                            onClick={(e) => { e.stopPropagation(); setViewingEstimation(s.devDocEstimation) }}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  )
-                })()}
-              </div>
-              {/* 操作按钮区（hover 显示） */}
-              <div className="hidden group-hover:flex items-center gap-1">
-                {/* 生成修订版（DONE 状态才显示） */}
-                {s.status === 'DONE' && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onRevise(s) }}
-                    className="text-[var(--color-muted-foreground)] hover:text-amber-500"
-                    title="基于此版本生成修订版"
-                  >
-                    <GitBranch className="w-3 h-3" />
-                  </button>
-                )}
-                <button
-                  onClick={(e) => handleRename(e, s)}
-                  className="text-[var(--color-muted-foreground)] hover:text-[var(--color-primary)]"
-                  title="修改需求标题"
-                >
-                  <Pencil className="w-3 h-3" />
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setPreviewSession(s) }}
-                  className="text-[var(--color-muted-foreground)] hover:text-[var(--color-primary)]"
-                  title="查看原始需求"
-                >
-                  <Info className="w-3 h-3" />
-                </button>
-                <button
-                  onClick={(e) => handleDelete(e, s.id)}
-                  className="text-[var(--color-muted-foreground)] hover:text-red-500"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
-              </div>
-            </div>
+              session={s}
+              depth={0}
+              childrenMap={childrenMap}
+              activeId={activeId}
+              onSelect={onSelect}
+              onRevise={onRevise}
+              onSplit={onSplit}
+              onRenameClick={handleRename}
+              onDeleteClick={handleDelete}
+              onPreview={setPreviewSession}
+              onViewEstimation={setViewingEstimation}
+            />
           ))}
         </div>
       </div>
+    </>
+  )
+}
+
+/** 历史列表状态徽标配色（提到组件外，HistoryItem 递归渲染时复用同一份，不用每层重建）。 */
+const HISTORY_STATUS_COLOR: Record<string, string> = {
+  DRAFT: 'text-[var(--color-muted-foreground)]',
+  DONE: 'text-green-500',
+  GENERATING: 'text-blue-500',
+  CLARIFYING: 'text-yellow-500',
+  ANSWERING: 'text-yellow-500',
+  ERROR: 'text-red-500',
+}
+
+/**
+ * 历史列表的一行（递归）：先渲染自己，再递归渲染 childrenMap 里挂在自己下面的子需求
+ * （深度不设上限——正常只有「需求拆分」产生一层子节点，但子需求本身也是完整 PRD 会话，
+ * 理论上可以再被拆一次，递归结构天然支持，不用另外加限制）。
+ */
+function HistoryItem({
+  session: s,
+  depth,
+  childrenMap,
+  activeId,
+  onSelect,
+  onRevise,
+  onSplit,
+  onRenameClick,
+  onDeleteClick,
+  onPreview,
+  onViewEstimation,
+}: {
+  session: PrdSessionView
+  depth: number
+  childrenMap: Map<string, PrdSessionView[]>
+  activeId: string | null
+  onSelect: (s: PrdSessionView) => void
+  onRevise: (s: PrdSessionView) => void
+  onSplit: (s: PrdSessionView) => void
+  onRenameClick: (e: React.MouseEvent, s: PrdSessionView) => void
+  onDeleteClick: (e: React.MouseEvent, id: string) => void
+  onPreview: (s: PrdSessionView) => void
+  onViewEstimation: (est: DevDocEstimation | null) => void
+}) {
+  const children = childrenMap.get(s.id) ?? []
+  return (
+    <>
+      <div
+        onClick={() => onSelect(s)}
+        style={{ paddingLeft: 12 + depth * 14 }}
+        className={`group flex items-start gap-2 pr-3 py-2 cursor-pointer hover:bg-[var(--color-muted)]/40 transition-colors
+          ${s.id === activeId ? 'bg-[var(--color-muted)]/60' : ''}`}
+      >
+        {depth > 0
+          ? <GitBranch className="w-3 h-3 mt-0.5 flex-shrink-0 text-indigo-400 rotate-90" />
+          : <FileText className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-[var(--color-muted-foreground)]" />}
+        <div className="flex-1 min-w-0">
+          <div className="text-xs font-medium truncate">{s.title}</div>
+          {/* 项目 / 模块标签 */}
+          {(s.project || s.module) && (
+            <div className="text-[10px] text-[var(--color-muted-foreground)] truncate mt-0.5">
+              {[s.project, s.module].filter(Boolean).join(' · ')}
+            </div>
+          )}
+          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+            <span className={`text-[10px] ${HISTORY_STATUS_COLOR[s.status] ?? 'text-[var(--color-muted-foreground)]'}`}>
+              {s.status === 'DRAFT' ? '草稿' : s.status}
+            </span>
+            {/* 角色/需求类型标签：草稿阶段这两个字段只是占位默认值（还没到判定环节），
+                显示出来反而误导，等转正式发起澄清后才有意义 */}
+            {s.status !== 'DRAFT' && (s.role === 'BUSINESS' ? (
+              <span className="text-[9px] px-1 rounded bg-green-500/15 text-green-500 border border-green-500/20 leading-tight">业务</span>
+            ) : (
+              <span className="text-[9px] px-1 rounded bg-blue-500/15 text-blue-500 border border-blue-500/20 leading-tight">产品</span>
+            ))}
+            {/* 需求类型标签：跟 REQ_TYPE_CONFIG 配色一致，老数据无 reqType 时按 NEW_MODULE 兜底 */}
+            {s.status !== 'DRAFT' && (() => {
+              const cfg = REQ_TYPE_CONFIG[s.reqType ?? 'NEW_MODULE']
+              return (
+                <span className={`text-[9px] px-1 rounded border leading-tight ${cfg.bg} ${cfg.color}`}>
+                  {cfg.label}
+                </span>
+              )
+            })()}
+            {/* 创建人标签：普通用户历史列表本来就只有自己的记录，这个标签主要给 ADMIN
+                （能看到所有人记录）区分"这条是谁的"；只有后端解析出用户名时才展示 */}
+            {s.createdByUsername && (
+              <span className="text-[9px] px-1 rounded bg-[var(--color-muted)] text-[var(--color-muted-foreground)] border border-[var(--color-border)] leading-tight" title="创建人">
+                @{s.createdByUsername}
+              </span>
+            )}
+          </div>
+
+          {/* 树结构：开发文档作为 PRD 的子节点 */}
+          {s.devDocPath && (() => {
+            // 过期判断：开发文档生成时间早于 PRD 最后更新时间
+            const isStale = !s.devDocGeneratedAt || s.devDocGeneratedAt < s.updatedAt
+            return (
+              <div className="mt-1.5">
+                <div className="flex items-center gap-1 flex-wrap">
+                  {/* 树连接线 */}
+                  <div className="flex-shrink-0" style={{ width: 10, height: 8, borderWidth: '0 0 1px 1px', borderStyle: 'dashed', borderColor: 'rgba(100,100,100,0.3)', borderRadius: '0 0 0 3px' }} />
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onSelect({ ...s, _openDevDoc: true } as PrdSessionView & { _openDevDoc?: boolean })
+                    }}
+                    className={`flex items-center gap-1 text-[10px] whitespace-nowrap transition-colors ${
+                      isStale
+                        ? 'text-amber-500 hover:text-amber-400'   // 橙色 = 过期
+                        : 'text-purple-400 hover:text-purple-300'  // 紫色 = 已同步
+                    }`}
+                    title={isStale ? '开发文档已过期（PRD 有更新），建议重新生成' : '查看开发文档（已同步最新PRD）'}
+                  >
+                    <Wrench className="w-2.5 h-2.5 flex-shrink-0" />
+                    {isStale ? '开发文档（已过期）' : '开发文档'}
+                  </button>
+                  {/* 过期时显示重新生成按钮 */}
+                  {isStale && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        // 进入该 PRD 并触发重新生成开发文档
+                        onSelect({ ...s, _regenDevDoc: true } as PrdSessionView & { _regenDevDoc?: boolean })
+                      }}
+                      className="flex-shrink-0 whitespace-nowrap text-[9px] px-1 rounded bg-amber-500/15 text-amber-500 border border-amber-500/20 hover:bg-amber-500/25 leading-tight"
+                      title="基于最新 PRD 重新生成开发文档"
+                    >
+                      ↺ 更新
+                    </button>
+                  )}
+                </div>
+                {/* AI 工时评估徽标：单独一行展示（跟 title 对齐缩进），避免跟上面的按钮挤在
+                    同一行导致窄侧边栏里换行、中文按钮文字被逐字拆行。只读，评估动作在
+                    开发文档 Tab 工具栏里触发 */}
+                {s.devDocEstimation && (
+                  <div className="flex items-center mt-1" style={{ paddingLeft: 14 }}>
+                    <EstimationBadge
+                      estimation={s.devDocEstimation}
+                      compact
+                      onClick={(e) => { e.stopPropagation(); onViewEstimation(s.devDocEstimation) }}
+                    />
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+        </div>
+        {/* 操作按钮区（hover 显示） */}
+        <div className="hidden group-hover:flex items-center gap-1">
+          {/* 生成修订版（DONE 状态才显示） */}
+          {s.status === 'DONE' && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onRevise(s) }}
+              className="text-[var(--color-muted-foreground)] hover:text-amber-500"
+              title="基于此版本生成修订版"
+            >
+              <GitBranch className="w-3 h-3" />
+            </button>
+          )}
+          {/* AI 需求拆分：任意状态都能拆，只要求有需求描述可分析 */}
+          {s.rawInput && s.rawInput.trim() && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onSplit(s) }}
+              className="text-[var(--color-muted-foreground)] hover:text-indigo-400"
+              title="AI 需求拆分：判断是否该拆成多个子需求"
+            >
+              <Layers className="w-3 h-3" />
+            </button>
+          )}
+          <button
+            onClick={(e) => onRenameClick(e, s)}
+            className="text-[var(--color-muted-foreground)] hover:text-[var(--color-primary)]"
+            title="修改需求标题"
+          >
+            <Pencil className="w-3 h-3" />
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onPreview(s) }}
+            className="text-[var(--color-muted-foreground)] hover:text-[var(--color-primary)]"
+            title="查看原始需求"
+          >
+            <Info className="w-3 h-3" />
+          </button>
+          <button
+            onClick={(e) => onDeleteClick(e, s.id)}
+            className="text-[var(--color-muted-foreground)] hover:text-red-500"
+          >
+            <Trash2 className="w-3 h-3" />
+          </button>
+        </div>
+      </div>
+      {children.map((child) => (
+        <HistoryItem
+          key={child.id}
+          session={child}
+          depth={depth + 1}
+          childrenMap={childrenMap}
+          activeId={activeId}
+          onSelect={onSelect}
+          onRevise={onRevise}
+          onSplit={onSplit}
+          onRenameClick={onRenameClick}
+          onDeleteClick={onDeleteClick}
+          onPreview={onPreview}
+          onViewEstimation={onViewEstimation}
+        />
+      ))}
     </>
   )
 }
@@ -2154,6 +2425,7 @@ function InputPanel({
   initialModule = '',
   draftId = null,
   onDraftSaved,
+  onSplit,
 }: {
   // reqType/maxQuestions 可选：业务员角色不弹确认框，直接省略这两个参数，
   // 交给后端 LLM 自动判定（见 handleStart/handleStartVibe 里对应处理）。clarifyMode 只有
@@ -2171,6 +2443,8 @@ function InputPanel({
   /** 首次保存草稿成功后回调新生成的 id，父组件据此把 sessionId 状态同步过来，
    *  后续再点「保存草稿」/「开始澄清」时才知道要原地更新而不是重复创建。 */
   onDraftSaved?: (id: string) => void
+  /** 打开「AI 需求拆分」确认弹框，传入要分析的会话 id（还没有草稿时先自动保存一份再传）。 */
+  onSplit?: (id: string) => void
 }) {
   const [title, setTitle] = useState(initialTitle)
   const [rawInput, setRawInput] = useState(initialRawInput)
@@ -2317,6 +2591,23 @@ function InputPanel({
       if (!draftId) onDraftSaved?.(session.id)
     },
   })
+
+  /**
+   * 「AI 拆分需求」需要一个已存在的会话 id 才能调用（拆分接口按 sessionId 读 rawInput）。
+   * 还没保存过草稿（draftId 为空）时先静默保存一份再打开拆分弹框，用户不用先手动点
+   * 「保存草稿」再点「拆分」——两步合一步。
+   */
+  const [preparingSplit, setPreparingSplit] = useState(false)
+  const handleSplitClick = async () => {
+    if (!onSplit) return
+    setPreparingSplit(true)
+    try {
+      const id = draftId ?? (await saveDraftMut.mutateAsync()).id
+      onSplit(id)
+    } finally {
+      setPreparingSplit(false)
+    }
+  }
 
   // 拉取项目列表：用 claude-chat/workspaces 而非 /projects，
   // 因为 workspaces 支持多个 workspace root（包含 D:\yoooni\ 等非 myWork 根目录），
@@ -2624,6 +2915,20 @@ function InputPanel({
             {saveDraftMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
             保存草稿
           </button>
+          {/* AI 需求拆分：需求比较大/包含多个功能点时，先让 Claude 判断能否拆成多个可独立
+              澄清/开发的子需求。还没保存过草稿时点击会先静默存一份（拆分接口需要一个会话 id）。 */}
+          {onSplit && (
+            <button
+              type="button"
+              disabled={!canSubmit || preparingSplit}
+              onClick={handleSplitClick}
+              className="flex items-center gap-1.5 px-3 py-2.5 rounded-md border border-dashed border-[var(--color-border)] text-sm text-[var(--color-muted-foreground)] hover:text-indigo-400 hover:border-indigo-400/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              title="需求比较大/包含多个功能点时，先让 Claude 判断能否拆成多个子需求"
+            >
+              {preparingSplit ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Layers className="w-3.5 h-3.5" />}
+              AI 拆分需求
+            </button>
+          )}
         </div>
         {draftSavedAt && (
           <p className="text-[11px] text-[var(--color-muted-foreground)] text-right">
@@ -3996,6 +4301,8 @@ export function PrdClarifyPage() {
   const reqItemIdRef = useRef('')
   /** 正在发起修订的原始会话（显示 ReviseDialog） */
   const [revisingSesion, setRevisingSession] = useState<PrdSessionView | null>(null)
+  /** 正在做「AI 需求拆分」的会话 id（显示 SplitReviewDialog），null 表示弹框未打开 */
+  const [splittingSessionId, setSplittingSessionId] = useState<string | null>(null)
 
   // 读取 URL 参数
   const urlTitle = searchParams.get('title') ?? ''
@@ -4455,6 +4762,15 @@ PRD_SESSION_ID: ${created.id}`
         />
       )}
 
+      {/* AI 需求拆分确认弹框 */}
+      {splittingSessionId && (
+        <SplitReviewDialog
+          sessionId={splittingSessionId}
+          onClose={() => setSplittingSessionId(null)}
+          onAdopted={() => qc.invalidateQueries({ queryKey: ['prd-sessions'] })}
+        />
+      )}
+
       <div className="flex-1 flex overflow-hidden">
         {/* 历史侧边栏（非编辑器、非对话模式下显示） */}
         {step !== 'EDITING' && step !== 'CHATTING' && (
@@ -4465,6 +4781,7 @@ PRD_SESSION_ID: ${created.id}`
             onDelete={(id) => deleteMut.mutate(id)}
             onRevise={(s) => setRevisingSession(s)}
             onRename={(id, title) => renameMut.mutate({ id, title })}
+            onSplit={(s) => setSplittingSessionId(s.id)}
           />
         )}
 
@@ -4486,6 +4803,7 @@ PRD_SESSION_ID: ${created.id}`
               setSessionId(id)
               qc.invalidateQueries({ queryKey: ['prd-sessions'] })
             }}
+            onSplit={(id) => setSplittingSessionId(id)}
           />
         )}
 

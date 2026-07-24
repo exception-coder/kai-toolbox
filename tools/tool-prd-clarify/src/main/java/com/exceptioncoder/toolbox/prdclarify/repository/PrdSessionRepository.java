@@ -37,6 +37,7 @@ public class PrdSessionRepository {
             .progressPath(rs.getString("progress_path"))
             .progressGeneratedAt(rs.getObject("progress_generated_at") == null ? null : rs.getLong("progress_generated_at"))
             .progressHistory(rs.getString("progress_history"))
+            .parentId(rs.getString("parent_id"))
             .createdByUserId(rs.getObject("created_by_user_id") == null ? null : rs.getLong("created_by_user_id"))
             .model(rs.getString("model"))
             .errorMsg(rs.getString("error_msg"))
@@ -52,13 +53,13 @@ public class PrdSessionRepository {
 
     public void insert(PrdSession s) {
         jdbc.update(
-                "INSERT INTO prd_session (id, title, project, module, raw_input, questions, status, role, req_type, max_questions, clarify_mode, md_path, model, error_msg, created_by_user_id, created_at, updated_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO prd_session (id, title, project, module, raw_input, questions, status, role, req_type, max_questions, clarify_mode, md_path, model, error_msg, created_by_user_id, parent_id, created_at, updated_at) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 s.getId(), s.getTitle(), s.getProject(), s.getModule(),
                 s.getRawInput(), s.getQuestions(), s.getStatus(), s.getRole(),
                 s.getReqType(), s.getMaxQuestions(), s.getClarifyMode(),
                 s.getMdPath(), s.getModel(), s.getErrorMsg(), s.getCreatedByUserId(),
-                s.getCreatedAt(), s.getUpdatedAt());
+                s.getParentId(), s.getCreatedAt(), s.getUpdatedAt());
     }
 
     public Optional<PrdSession> findById(String id) {

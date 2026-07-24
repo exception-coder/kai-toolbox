@@ -72,6 +72,14 @@ ALTER TABLE prd_session ADD COLUMN progress_generated_at INTEGER;
 -- updated_at"的理由）。
 ALTER TABLE prd_session ADD COLUMN progress_history TEXT;
 
+-- 需求拆分：一个较大的需求可以先让 Claude 判断能否拆成多个可独立澄清/开发的子需求
+-- （见 PrdClarifyService#splitRequirement/adoptSplit），用户确认采纳后，每个子需求各自
+-- 落一条 DRAFT 草稿记录，parent_id 指回原会话——原会话本身不受影响，原始需求描述原样保留，
+-- 只是历史列表里多了几条挂在它下面的子记录，PRD 因此有了层级结构（目前只有拆分这一条
+-- 产生 parent_id，修订版等其它衍生记录仍是独立记录，不挂父子关系）。
+ALTER TABLE prd_session ADD COLUMN parent_id TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_prd_session_created ON prd_session(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_prd_session_status  ON prd_session(status);
 CREATE INDEX IF NOT EXISTS idx_prd_session_created_by ON prd_session(created_by_user_id);
+CREATE INDEX IF NOT EXISTS idx_prd_session_parent ON prd_session(parent_id);

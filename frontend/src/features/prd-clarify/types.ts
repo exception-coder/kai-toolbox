@@ -126,6 +126,8 @@ export interface PrdSessionView {
   createdByUserId: number | null
   /** 创建者用户名，仅历史列表接口会解析（批量查一次），其它单会话接口一律为 null */
   createdByUsername: string | null
+  /** 父会话 id，非 null 表示这是「需求拆分」产生的子需求，历史列表据此嵌套展示在父记录下面 */
+  parentId: string | null
   errorMsg: string | null
   createdAt: number
   updatedAt: number
@@ -149,6 +151,23 @@ export interface SaveDraftRequest {
   rawInput?: string
   project?: string
   module?: string
+}
+
+/**
+ * 需求拆分的一个子项：既是 POST /sessions/{id}/split 的响应元素（AI 建议），
+ * 也是 POST /sessions/{id}/split/adopt 请求体里的元素（用户确认/编辑后采纳的子需求）。
+ */
+export interface SplitItem {
+  title: string
+  rawInput: string
+  module?: string | null
+}
+
+/** AI 需求拆分预览结果：canSplit=false 时 items 为空，reason 说明为什么不建议拆。 */
+export interface SplitPreview {
+  canSplit: boolean
+  reason: string | null
+  items: SplitItem[]
 }
 
 export interface SubmitAnswersRequest {

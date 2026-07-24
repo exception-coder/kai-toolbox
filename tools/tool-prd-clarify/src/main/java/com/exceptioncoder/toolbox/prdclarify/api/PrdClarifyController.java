@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.prdclarify.api;
 
+import com.exceptioncoder.toolbox.prdclarify.api.dto.AdoptSplitRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.AskNextDevDocQuestionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.AskNextQuestionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.CreateSessionRequest;
@@ -14,6 +15,8 @@ import com.exceptioncoder.toolbox.prdclarify.service.ImageAttachmentStorageServi
 import com.exceptioncoder.toolbox.prdclarify.api.dto.PrdSessionView;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.SaveContentRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.SaveDraftRequest;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.SplitItemView;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.SplitPreviewView;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.SaveQaHistoryRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.SubmitAnswersRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.UpdateTitleRequest;
@@ -53,6 +56,8 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
  *   <li>{@code POST   /sessions/draft}            — 保存草稿（仅标题/项目/模块/需求描述）</li>
  *   <li>{@code PUT    /sessions/{id}/draft}       — 再次保存草稿</li>
  *   <li>{@code POST   /sessions/{id}/start-from-draft} — 草稿转正式，发起澄清</li>
+ *   <li>{@code POST   /sessions/{id}/split}        — AI 需求拆分预览（不落库）</li>
+ *   <li>{@code POST   /sessions/{id}/split/adopt}  — 采纳拆分结果，批量生成子需求草稿</li>
  *   <li>{@code GET    /sessions}                  — 最近 50 条历史</li>
  *   <li>{@code GET    /sessions/{id}}             — 获取会话详情</li>
  *   <li>{@code PUT    /sessions/{id}/title}       — 重命名会话标题</li>
@@ -262,6 +267,43 @@ public class PrdClarifyController {
         repo.updateTitle(id, req.title().trim());
         return repo.findById(id).map(PrdSessionView::from)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "会话不存在: " + id));
+    }
+
+    /**
+     * AI 需求拆分预览：判断当前需求是否"过大"，建议拆成多个可独立澄清/开发的子需求。
+     * 只读分析，不落库——前端展示可编辑的确认列表，用户确认后再调 {@link #adoptSplit}。
+     */
+    @PostMapping("/sessions/{id}/split")
+    public SplitPreviewView split(@PathVariable String id) {
+        try {
+            PrdClarifyService.SplitResult result = service.splitRequirement(id);
+            return new SplitPreviewView(result.canSplit(), result.reason(),
+                    result.items().stream()
+                            .map(it -> new SplitItemView(it.title(), it.rawInput(), it.module()))
+                            .toList());
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(NOT_FOUND, e.getMessage());
+        } catch (IllegalStateException e) {
+            throw new ResponseStatusException(org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
+        }
+    }
+
+    /**
+     * 采纳需求拆分：把用户确认（可能编辑过）的子需求批量创建成 DRAFT 草稿，parentId 指向当前会话。
+     */
+    @PostMapping("/sessions/{id}/split/adopt")
+    public List<PrdSessionView> adoptSplit(@PathVariable String id, @Valid @RequestBody AdoptSplitRequest req) {
+        Long createdByUserId = AuthContext.current().map(AuthPrincipal::userId).orElse(null);
+        try {
+            List<PrdClarifyService.SplitItem> items = req.items().stream()
+                    .map(it -> new PrdClarifyService.SplitItem(it.title(), it.rawInput(), it.module()))
+                    .toList();
+            return service.adoptSplit(id, items, createdByUserId).stream()
+                    .map(PrdSessionView::from)
+                    .toList();
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(NOT_FOUND, e.getMessage());
+        }
     }
 
     /** 删除会话（含 .md 文件）。 */
