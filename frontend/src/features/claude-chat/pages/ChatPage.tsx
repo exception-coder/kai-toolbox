@@ -49,6 +49,7 @@ import { GitStatusPanel } from '@/components/git/GitStatusPanel'
 import type { Engine } from '../types'
 import { ensureNotifyPermission } from '../browserNotify'
 import { PrdLinkPanel } from '../components/PrdLinkPanel'
+import { PrdAttachPanel } from '../components/PrdAttachPanel'
 import { getSessionByDevSession } from '@/features/prd-clarify/api'
 import type { PrdSessionView } from '@/features/prd-clarify/types'
 
@@ -168,6 +169,8 @@ export function ChatPage() {
   const [showGitStatus, setShowGitStatus] = useState(false)
   const [showExport, setShowExport] = useState(false)
   const [showPrdLink, setShowPrdLink] = useState(false)
+  // 「+ 更多功能」里的「PRD 文档」：搜索 PRD 澄清助手里的记录，一键把 PRD/开发文档内容附加进当前对话。
+  const [showPrdAttach, setShowPrdAttach] = useState(false)
   // 当前会话关联的 PRD（undefined=还没查/无会话，null=确认未关联），供顶栏标识展示。
   const [linkedPrd, setLinkedPrd] = useState<PrdSessionView | null | undefined>(undefined)
   useEffect(() => {
@@ -629,24 +632,36 @@ export function ChatPage() {
     setPanel('none')
   }
 
+  // 上传单个文件并落进 attachments 状态——handleFiles（本地选取/粘贴）和 handlePrdAttach
+  // （搜索附加 PRD/开发文档，见下方）共用同一条上传路径，行为（含失败提示）保持一致。
+  const uploadOneFile = async (sid: string, f: File) => {
+    setUploading(n => n + 1)
+    try {
+      const att = await uploadAttachment(sid, f)
+      const previewUrl = f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined
+      setAttachments(prev => [...prev, { ...att, previewUrl }])
+    } catch (e) {
+      console.error('[claude-chat] 附件上传失败', e)
+    } finally {
+      setUploading(n => n - 1)
+    }
+  }
+
   const handleFiles = async (files: FileList | null) => {
     if (!files || !chat.sessionId) return
     const room = MAX_ATTACHMENTS - attachments.length - uploading
     const take = Array.from(files).slice(0, Math.max(0, room))
     const sid = chat.sessionId
-    for (const f of take) {
-      setUploading(n => n + 1)
-      try {
-        const att = await uploadAttachment(sid, f)
-        const previewUrl = f.type.startsWith('image/') ? URL.createObjectURL(f) : undefined
-        setAttachments(prev => [...prev, { ...att, previewUrl }])
-      } catch (e) {
-        console.error('[claude-chat] 附件上传失败', e)
-      } finally {
-        setUploading(n => n - 1)
-      }
-    }
+    for (const f of take) await uploadOneFile(sid, f)
     if (fileRef.current) fileRef.current.value = ''
+  }
+
+  // 「PRD 文档」快捷附加：PrdAttachPanel 里选好 PRD/开发文档后回调这里，把文本内容包成
+  // File 走跟本地上传完全一样的路径——不用用户自己去 PRD 澄清助手里找文件、复制粘贴。
+  const handlePrdAttach = (file: File) => {
+    if (!chat.sessionId) return
+    if (attachments.length + uploading >= MAX_ATTACHMENTS) return
+    void uploadOneFile(chat.sessionId, file)
   }
 
   // 粘贴：剪贴板含文件（如截图）则当附件上传，纯文本照常粘贴
@@ -1237,6 +1252,15 @@ export function ChatPage() {
         />
       )}
 
+      {/* PRD 文档快捷附加：搜索 PRD 澄清助手里的记录，把 PRD/开发文档内容附加进当前对话直接提问，
+          不用用户自己去找文件——PRD/开发文档本来就是本系统自己管理的数据。 */}
+      {showPrdAttach && chat.sessionId && (
+        <PrdAttachPanel
+          onPick={handlePrdAttach}
+          onClose={() => setShowPrdAttach(false)}
+        />
+      )}
+
       {/* 我的提问：只列自己发的消息，支持搜索，点击滚到消息流对应位置并高亮——方便事后找回某个问答。
           目标消息若还没加载进 chat.items（分页更早历史），交给 pendingScroll 效果自动追加加载直到找到。 */}
       {showMsgNav && (
@@ -1430,15 +1454,15 @@ export function ChatPage() {
                 size="icon"
                 onClick={() => { setMoreOpen(o => !o); setCmdMenuOpen(false) }}
                 aria-label="更多功能"
-                title="更多功能（附件 / 指令）"
+                title="更多功能（附件 / 指令 / PRD 文档）"
               >
                 <Plus className={`size-5 transition-transform${moreOpen ? ' rotate-45' : ''}`} />
               </Button>
               {moreOpen && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setMoreOpen(false)} />
-                  <div className="absolute bottom-full left-0 z-20 mb-2 w-44 rounded-xl border bg-[var(--color-card)] p-2 shadow-lg">
-                    <div className="grid grid-cols-2 gap-1">
+                  <div className="absolute bottom-full left-0 z-20 mb-2 w-64 rounded-xl border bg-[var(--color-card)] p-2 shadow-lg">
+                    <div className="grid grid-cols-3 gap-1">
                       {/* 附件：label 包 input，保留原生触发（移动端 WebView 不丢手势） */}
                       <label
                         aria-label="添加附件"
@@ -1464,6 +1488,16 @@ export function ChatPage() {
                       >
                         <Slash className="size-5 text-[var(--color-primary)]" />
                         指令
+                      </button>
+                      {/* PRD 文档：搜索 PRD 澄清助手里的记录，一键附加 PRD/开发文档内容，不用自己去找文件 */}
+                      <button
+                        type="button"
+                        disabled={attachments.length + uploading >= MAX_ATTACHMENTS}
+                        onClick={() => { setMoreOpen(false); setShowPrdAttach(true) }}
+                        className={`flex flex-col items-center gap-1.5 rounded-lg p-2.5 text-xs hover:bg-[var(--color-accent)]${attachments.length + uploading >= MAX_ATTACHMENTS ? ' pointer-events-none opacity-50' : ''}`}
+                      >
+                        <FileText className="size-5 text-[var(--color-primary)]" />
+                        PRD 文档
                       </button>
                     </div>
                   </div>
