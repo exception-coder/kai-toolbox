@@ -58,6 +58,17 @@ ALTER TABLE prd_session ADD COLUMN created_by_user_id INTEGER;
 -- （status=CLARIFYING）时前端据此决定渲染哪种澄清面板，不会中途变来变去。
 ALTER TABLE prd_session ADD COLUMN clarify_mode TEXT NOT NULL DEFAULT 'progressive';
 
+-- 进度评估文档：结构对齐开发文档——独立落盘 + 按版本追加（不是覆盖），每次评估都基于当时
+-- 最新的 PRD + 开发文档核对代码库实际实现进度，追加一份新版本，可回看历次评估。
+-- progress_path：~/.kai-toolbox/prd/{id}-progress.md 绝对路径（非 null 表示已评估过）。
+ALTER TABLE prd_session ADD COLUMN progress_path TEXT;
+-- 最后一次评估时间（毫秒），用于跟 dev_doc_generated_at/updated_at 比较判断是否已过期。
+ALTER TABLE prd_session ADD COLUMN progress_generated_at INTEGER;
+-- 评估历史：JSON 数组 [{"version":1,"extraContext":"...","generatedAt":...}]，version 与磁盘上
+-- 备份出的 {id}-progress-v{n}.md 对应，用法完全对齐 dev_doc_history（含"故意不 touch
+-- updated_at"的理由）。
+ALTER TABLE prd_session ADD COLUMN progress_history TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_prd_session_created ON prd_session(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_prd_session_status  ON prd_session(status);
 CREATE INDEX IF NOT EXISTS idx_prd_session_created_by ON prd_session(created_by_user_id);

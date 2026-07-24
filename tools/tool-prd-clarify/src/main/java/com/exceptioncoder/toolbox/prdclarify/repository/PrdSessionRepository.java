@@ -34,6 +34,9 @@ public class PrdSessionRepository {
             .devDocGeneratedAt(rs.getObject("dev_doc_generated_at") == null ? null : rs.getLong("dev_doc_generated_at"))
             .devDocHistory(rs.getString("dev_doc_history"))
             .devDocEstimation(rs.getString("dev_doc_estimation"))
+            .progressPath(rs.getString("progress_path"))
+            .progressGeneratedAt(rs.getObject("progress_generated_at") == null ? null : rs.getLong("progress_generated_at"))
+            .progressHistory(rs.getString("progress_history"))
             .createdByUserId(rs.getObject("created_by_user_id") == null ? null : rs.getLong("created_by_user_id"))
             .model(rs.getString("model"))
             .errorMsg(rs.getString("error_msg"))
@@ -180,6 +183,27 @@ public class PrdSessionRepository {
     public void updateDevDocEstimation(String id, String devDocEstimationJson) {
         jdbc.update("UPDATE prd_session SET dev_doc_estimation = ? WHERE id = ?",
                 devDocEstimationJson, id);
+    }
+
+    /**
+     * 更新进度评估文档路径（评估完成时调用）。
+     * 故意不 touch {@code updated_at}（原因同 {@link #updateDevDocPath}）。
+     */
+    public void updateProgressPath(String id, String progressPath) {
+        jdbc.update("UPDATE prd_session SET progress_path = ? WHERE id = ?", progressPath, id);
+    }
+
+    /** 更新进度评估生成时间戳（评估完成时调用）。 */
+    public void updateProgressGeneratedAt(String id, long generatedAt) {
+        jdbc.update("UPDATE prd_session SET progress_generated_at = ? WHERE id = ?", generatedAt, id);
+    }
+
+    /**
+     * 更新进度评估历史（JSON 数组整体覆盖，追加逻辑在 Service 层完成）。
+     * 纯记账字段，故意不 touch {@code updated_at}（原因同 {@link #updateDevDocPath}）。
+     */
+    public void updateProgressHistory(String id, String progressHistoryJson) {
+        jdbc.update("UPDATE prd_session SET progress_history = ? WHERE id = ?", progressHistoryJson, id);
     }
 
     /** 标记错误状态。 */

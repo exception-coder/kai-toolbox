@@ -53,6 +53,13 @@ public record PrdSessionView(
         List<DevDocHistoryEntryView> devDocHistory,
         /** AI 工时评估结果，尚未评估过时为 null。见 {@link DevDocEstimationView} 各字段说明。 */
         DevDocEstimationView devDocEstimation,
+        /** 进度评估文档路径（非 null 表示评估过至少一次）。 */
+        String progressPath,
+        /**
+         * 最后一次进度评估时间戳（毫秒）。是否"已过期"由前端跟 devDocGeneratedAt/updatedAt
+         * 比较判断（对齐 isDevDocStale 的算法，未在后端预计算）。
+         */
+        Long progressGeneratedAt,
         /** 创建者 auth_user.id；未登录/鉴权关闭时创建、或早于该功能上线的存量数据可能为 null。 */
         Long createdByUserId,
         /**
@@ -122,6 +129,7 @@ public record PrdSessionView(
                 s.getMdPath(), s.getDevDocPath(), s.getDevSessionId(), s.getDevDocGeneratedAt(),
                 parseDevDocHistory(s.getDevDocHistory()),
                 parseDevDocEstimation(s.getDevDocEstimation(), s.getDevDocGeneratedAt()),
+                s.getProgressPath(), s.getProgressGeneratedAt(),
                 s.getCreatedByUserId(), createdByUsername,
                 s.getErrorMsg(), s.getCreatedAt(), s.getUpdatedAt());
     }

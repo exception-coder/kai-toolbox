@@ -5,8 +5,10 @@ import com.exceptioncoder.toolbox.prdclarify.api.dto.AskNextQuestionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.CreateSessionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.DevDocVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.EstimateEffortRequest;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.EvaluateProgressRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.GenerateDevDocRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.ImageAttachmentView;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.ProgressVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.service.AttachmentParseService;
 import com.exceptioncoder.toolbox.prdclarify.service.ImageAttachmentStorageService;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.PrdSessionView;
@@ -63,6 +65,8 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
  *   <li>{@code GET    /sessions/by-dev-sessions?ids=...}   — 批量反查关联 PRD</li>
  *   <li>{@code POST   /attachments/image}         — 粘贴图片落盘</li>
  *   <li>{@code GET    /attachments/image/{id}}    — 取回图片</li>
+ *   <li>{@code POST   /sessions/{id}/progress/evaluate} — SSE：AI 进度评估</li>
+ *   <li>{@code GET    /sessions/{id}/progress/versions} — 进度评估版本列表</li>
  * </ul>
  */
 @RestController
@@ -429,6 +433,46 @@ public class PrdClarifyController {
         com.exceptioncoder.toolbox.prdclarify.domain.PrdSession updated =
                 service.estimateDevDocEffort(id, req == null ? null : req.extraContext());
         return PrdSessionView.from(updated);
+    }
+
+    // ─── 进度评估 ───────────────────────────────────────
+
+    /**
+     * SSE 流式：基于当前 PRD + 开发文档核对代码库实际实现进度，生成大纲固定的 Markdown
+     * 进度评估报告。事件：chunk / done / error（与 PRD/开发文档生成接口一致）。按版本追加
+     * 落盘（覆盖前自动备份旧版本为 {id}-progress-v{n}.md），不会丢历史评估快照。
+     */
+    @PostMapping(value = "/sessions/{id}/progress/evaluate", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter evaluateProgress(@PathVariable String id,
+                                        @RequestBody(required = false) EvaluateProgressRequest req) {
+        SseEmitter emitter = new SseEmitter(0L);
+        service.evaluateProgress(id, req == null ? null : req.extraContext(), emitter);
+        return emitter;
+    }
+
+    /** 读取当前进度评估文档内容（JSON 字符串格式，与 /content 保持一致）。 */
+    @GetMapping(value = "/sessions/{id}/progress", produces = MediaType.APPLICATION_JSON_VALUE)
+    public String getProgressContent(@PathVariable String id) throws IOException {
+        return service.readProgressContent(id);
+    }
+
+    /**
+     * 列出该会话进度评估的所有版本摘要（以磁盘上实际存在的备份文件为准，见
+     * {@link ProgressVersionSummary} 类注释）。供「评估记录」抽屉展示版本列表。
+     */
+    @GetMapping("/sessions/{id}/progress/versions")
+    public List<ProgressVersionSummary> listProgressVersions(@PathVariable String id) {
+        return service.listProgressVersions(id);
+    }
+
+    /**
+     * 读取进度评估某个历史版本的内容（JSON 字符串格式）。version 对应
+     * {@link #listProgressVersions} 返回的版本号；若是当前版本直接读当前文件，否则读磁盘上
+     * 备份的 {id}-progress-v{version}.md。
+     */
+    @GetMapping(value = "/sessions/{id}/progress/versions/{version}", produces = MediaType.APPLICATION_JSON_VALUE)
+    public String getProgressVersionContent(@PathVariable String id, @PathVariable int version) throws IOException {
+        return service.readProgressVersionContent(id, version);
     }
 
     /** 测试用：获取 PRD 文件路径（方便定位文件）。 */

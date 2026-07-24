@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { BotMessageSquare, Bug, ChevronRight, Clock, Code2, Copy, ExternalLink, FileText, GitBranch, Image as ImageIcon, Info, Layers, Loader2, Paperclip, Pencil, Plus, RefreshCw, Rocket, Send, Sparkles, Trash2, User, Wrench, X } from 'lucide-react'
+import { BotMessageSquare, Bug, ChevronRight, ClipboardCheck, Clock, Code2, Copy, ExternalLink, FileText, GitBranch, Image as ImageIcon, Info, Layers, Loader2, Paperclip, Pencil, Plus, RefreshCw, Rocket, Send, Sparkles, Trash2, User, Wrench, X } from 'lucide-react'
 import { http } from '@/lib/api'
 import { Combobox } from '@/components/ui/combobox'
 import { MultiSelect } from '@/components/ui/multi-select'
@@ -17,13 +17,16 @@ import {
   createSession,
   deleteSession,
   estimateDevDocEffort,
+  evaluateProgress,
   getContent,
   getDevDocContent,
   getDevDocVersionContent,
+  getProgressVersionContent,
   checkPrdFile,
   getSession,
   linkPrdToReqItem,
   listDevDocVersions,
+  listProgressVersions,
   listSessions,
   parseAttachment,
   PRD_CLARIFY_LAUNCH_KEY,
@@ -38,7 +41,7 @@ import {
   type QaPair,
   type AttachmentParseResult,
 } from '../api'
-import type { DevDocEstimation, DevDocVersionSummary, EstimationConfidence, PrdClarifyMode, PrdReqType, PrdSessionView, PrdStep, QuestionItem } from '../types'
+import type { DevDocEstimation, DevDocVersionSummary, EstimationConfidence, PrdClarifyMode, PrdReqType, PrdSessionView, PrdStep, ProgressVersionSummary, QuestionItem } from '../types'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 
 // 编辑器 lazy import — CodeMirror chunk 只在进入 EDITING 步骤时加载
@@ -1754,6 +1757,302 @@ function DevDocVersionViewDialog({
   )
 }
 
+/**
+ * AI 进度评估弹框：确认（补充核对重点）→ 生成中（流式预览）→ 完成（渲染报告）三步状态机。
+ * 结构对齐"平台文档管事实来源、进度评估是可重复生成的派生产物"这个分工——评估基于当前
+ * PRD + 开发文档 + 代码知识图谱，报告按版本追加保存（见后端 evaluateProgress），不覆盖旧报告。
+ */
+function EvaluateProgressDialog({
+  sessionId,
+  onClose,
+  onGenerated,
+}: {
+  sessionId: string
+  onClose: () => void
+  /** 评估完成后回调，用于父组件刷新 progressPath/progressGeneratedAt（决定按钮/徽标展示）。 */
+  onGenerated: () => void
+}) {
+  const [step, setStep] = useState<'confirm' | 'generating' | 'done'>('confirm')
+  const [extraContext, setExtraContext] = useState('')
+  const [streamText, setStreamText] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const abortRef = useRef<(() => void) | null>(null)
+  const endRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (step === 'generating') endRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [streamText, step])
+  useEffect(() => () => abortRef.current?.(), [])
+
+  const handleStart = () => {
+    setStep('generating')
+    setError(null)
+    setStreamText('')
+    const accRef = { current: '' }
+    const abort = evaluateProgress(sessionId, extraContext.trim() || undefined, {
+      onEvent(name, data) {
+        if (name === 'chunk') {
+          const chunk = (data as { content: string }).content ?? ''
+          accRef.current += chunk
+          setStreamText(accRef.current)
+        }
+        if (name === 'done') {
+          setStep('done')
+          onGenerated()
+        }
+        if (name === 'error') {
+          setError((data as { message: string }).message ?? '评估失败，请重试')
+          setStep('confirm')
+        }
+      },
+      onError() {
+        setError('SSE 连接失败，请重试')
+        setStep('confirm')
+      },
+    })
+    abortRef.current = abort
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className={`w-full rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl flex flex-col ${
+        step === 'confirm' ? 'max-w-lg' : 'max-w-3xl h-[85vh]'
+      }`}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)] flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <ClipboardCheck className="w-4 h-4 text-blue-400" />
+            <span className="font-semibold text-sm">
+              {step === 'confirm' ? 'AI 进度评估' : step === 'generating' ? '正在核对进度…' : '进度评估报告'}
+            </span>
+          </div>
+          <button onClick={onClose} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {step === 'confirm' && (
+          <div className="p-5 space-y-3">
+            <p className="text-xs text-[var(--color-muted-foreground)] leading-relaxed">
+              将基于当前 PRD + 开发文档，结合代码知识图谱核对代码库里实际能查到的实现，生成一份
+              固定大纲的进度报告（已完成 / 部分完成 / 未完成 / 文档与代码差异）。每次评估按版本
+              追加保存，不会覆盖之前的评估记录。
+            </p>
+            <div>
+              <label className="block text-xs font-medium text-[var(--color-muted-foreground)] mb-2">
+                补充核对重点（可选）
+              </label>
+              <textarea
+                value={extraContext}
+                onChange={(e) => setExtraContext(e.target.value)}
+                rows={3}
+                placeholder="如：重点核对库存流水是否已写入、重点核对重复扫码幂等控制"
+                className="w-full px-3 py-2 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] text-sm resize-y focus:outline-none focus:ring-1 focus:ring-[var(--color-ring)]"
+              />
+            </div>
+            {error && <p className="text-xs text-red-500 bg-red-500/10 rounded-lg px-3 py-2">{error}</p>}
+            <div className="flex justify-end gap-2 pt-1">
+              <button onClick={onClose}
+                className="px-3 py-1.5 rounded-md text-sm border border-[var(--color-border)] hover:bg-[var(--color-muted)]/30">
+                取消
+              </button>
+              <button onClick={handleStart}
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-md text-sm bg-blue-600 text-white hover:opacity-90">
+                开始评估
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 'generating' && (
+          <div className="flex-1 overflow-y-auto p-5">
+            <div className="flex items-center gap-2 mb-3 text-sm text-[var(--color-muted-foreground)]">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Claude 正在核对 PRD / 开发文档 / 代码知识图谱…</span>
+            </div>
+            <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-[var(--color-foreground)]">
+              {streamText || <span className="italic text-[var(--color-muted-foreground)]">等待 Claude 响应…</span>}
+            </div>
+            <div ref={endRef} />
+          </div>
+        )}
+
+        {step === 'done' && (
+          <>
+            <div className="flex-1 overflow-hidden">
+              <MarkdownViewer content={streamText} />
+            </div>
+            <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--color-border)] flex-shrink-0">
+              <button onClick={() => navigator.clipboard.writeText(streamText)}
+                className="flex items-center gap-1 px-3 py-1.5 text-xs rounded border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-muted-foreground)]">
+                <Copy className="w-3 h-3" /> 复制
+              </button>
+              <button onClick={onClose}
+                className="px-4 py-1.5 rounded-md text-sm bg-[var(--color-primary)] text-white hover:opacity-90">
+                完成
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** 进度评估记录抽屉：按版本列出历次评估，结构对齐 DevDocHistorySheet（少了 mode/qaHistory）。 */
+function ProgressHistorySheet({
+  sessionId,
+  onViewVersion,
+  onClose,
+}: {
+  sessionId: string
+  onViewVersion: (version: number, isCurrent: boolean) => void
+  onClose: () => void
+}) {
+  const [versions, setVersions] = useState<ProgressVersionSummary[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    listProgressVersions(sessionId)
+      .then((list) => { if (!cancelled) setVersions(list) })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : '加载失败') })
+    return () => { cancelled = true }
+  }, [sessionId])
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative w-full max-w-md bg-[var(--color-card)] border-l border-[var(--color-border)] flex flex-col shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
+          <div className="flex items-center gap-2">
+            <ClipboardCheck className="w-4 h-4 text-blue-400" />
+            <span className="font-semibold text-sm">进度评估记录</span>
+            {versions && <span className="text-xs text-[var(--color-muted-foreground)]">（共 {versions.length} 次）</span>}
+          </div>
+          <button onClick={onClose} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5 space-y-3">
+          {error ? (
+            <p className="text-sm text-red-500">加载失败：{error}</p>
+          ) : versions === null ? (
+            <div className="flex items-center gap-2 text-sm text-[var(--color-muted-foreground)]">
+              <Loader2 className="w-4 h-4 animate-spin" /> 加载中…
+            </div>
+          ) : versions.length === 0 ? (
+            <p className="text-sm text-[var(--color-muted-foreground)] italic">暂无评估记录</p>
+          ) : (
+            versions.map((entry) => (
+              <div key={entry.version} className="rounded-xl border border-[var(--color-border)] overflow-hidden">
+                <div className="flex items-center justify-between gap-2 px-3 py-2 bg-[var(--color-muted)]/30">
+                  <div className="flex items-center gap-2">
+                    <span className="w-6 h-5 rounded-full bg-blue-500/15 flex items-center justify-center text-[10px] font-semibold text-blue-400">
+                      v{entry.version}
+                    </span>
+                    {entry.isCurrent && (
+                      <span className="text-[9px] px-1 rounded bg-green-500/15 text-green-500 border border-green-500/20 leading-tight">
+                        最新
+                      </span>
+                    )}
+                  </div>
+                  {entry.generatedAt && (
+                    <span className="text-[11px] text-[var(--color-muted-foreground)]">
+                      {new Date(entry.generatedAt).toLocaleString('zh-CN', {
+                        month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                      })}
+                    </span>
+                  )}
+                </div>
+                {entry.extraContext && (
+                  <div className="px-3 py-2 text-xs text-[var(--color-muted-foreground)]">
+                    核对重点：{entry.extraContext}
+                  </div>
+                )}
+                <div className="px-3 pb-2.5">
+                  <button onClick={() => onViewVersion(entry.version, entry.isCurrent)} className="text-xs text-blue-400 hover:underline">
+                    查看这次评估的报告 →
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** 历史进度评估报告预览：只读展示某次评估的完整报告，用法对齐 DevDocVersionViewDialog。 */
+function ProgressVersionViewDialog({
+  sessionId,
+  version,
+  isLatest,
+  onClose,
+}: {
+  sessionId: string
+  version: number
+  isLatest: boolean
+  onClose: () => void
+}) {
+  const [content, setContent] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setContent(null)
+    setError(null)
+    getProgressVersionContent(sessionId, version)
+      .then((c) => { if (!cancelled) setContent(c) })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : '加载失败') })
+    return () => { cancelled = true }
+  }, [sessionId, version])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="w-full max-w-3xl h-[85vh] rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)] flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <ClipboardCheck className="w-4 h-4 text-blue-400" />
+            <span className="font-semibold text-sm">进度评估 v{version}</span>
+            {isLatest && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-500/15 text-green-500 border border-green-500/20 leading-tight">
+                最新
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {content && (
+              <button onClick={() => navigator.clipboard.writeText(content)}
+                className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-muted-foreground)]">
+                <Copy className="w-3 h-3" /> 复制
+              </button>
+            )}
+            <button onClick={onClose} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+        <div className="flex-1 overflow-hidden">
+          {error ? (
+            <div className="h-full flex items-center justify-center text-sm text-red-500">加载失败：{error}</div>
+          ) : content === null ? (
+            <div className="h-full flex items-center justify-center text-sm text-[var(--color-muted-foreground)]">
+              <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> 加载中…
+            </div>
+          ) : content ? (
+            <MarkdownViewer content={content} />
+          ) : (
+            <div className="h-full flex items-center justify-center text-sm text-[var(--color-muted-foreground)] italic">
+              该版本内容不存在（可能已被清理）
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ───── 角色配置 ─────
 const ROLE_CONFIG = {
   PRODUCT: {
@@ -2872,6 +3171,8 @@ function EditingPanel({
   hasDevDoc,
   isDevDocStale,
   initialDevDocEstimation,
+  initialProgressPath,
+  initialProgressGeneratedAt,
   onReset,
 }: {
   sessionId: string
@@ -2884,6 +3185,10 @@ function EditingPanel({
   isDevDocStale?: boolean
   /** 从历史加载时该会话已有的 AI 工时评估结果（无则 null），评估/重新评估后本地状态覆盖它 */
   initialDevDocEstimation?: DevDocEstimation | null
+  /** 从历史加载时该会话已有的进度评估文档路径（无则 null），评估过一次后本地状态覆盖它 */
+  initialProgressPath?: string | null
+  /** 同上，进度评估最后生成时间戳 */
+  initialProgressGeneratedAt?: number | null
   onReset: () => void
 }) {
   const [content, setContent] = useState(initialContent)
@@ -2928,6 +3233,14 @@ function EditingPanel({
   const [estimateError, setEstimateError] = useState<string | null>(null)
   const [showEstimationDetail, setShowEstimationDetail] = useState(false)
 
+  // ── AI 进度评估：按版本追加，不是覆盖——本地只需要记"是否评估过/最后一次时间"，
+  // 具体历次报告内容都在后端按需拉取（ProgressHistorySheet/ProgressVersionViewDialog） ──
+  const [progressPath, setProgressPath] = useState<string | null>(initialProgressPath ?? null)
+  const [progressGeneratedAt, setProgressGeneratedAt] = useState<number | null>(initialProgressGeneratedAt ?? null)
+  const [showEvaluateProgress, setShowEvaluateProgress] = useState(false)
+  const [showProgressHistory, setShowProgressHistory] = useState(false)
+  const [viewingProgressVersion, setViewingProgressVersion] = useState<{ version: number; isCurrent: boolean } | null>(null)
+
   const qc = useQueryClient()
   const handleEstimateEffort = async (extraContext: string) => {
     setEstimating(true)
@@ -2943,6 +3256,13 @@ function EditingPanel({
     } finally {
       setEstimating(false)
     }
+  }
+
+  /** 进度评估完成后回调：标记"已评估过"，供工具栏徽标/按钮状态使用；同步刷新历史列表缓存。 */
+  const handleProgressEvaluated = () => {
+    setProgressPath(`${sessionId}-progress`)  // 占位非空即可，真实路径不需要在前端展示
+    setProgressGeneratedAt(Date.now())
+    qc.invalidateQueries({ queryKey: ['prd-sessions'] })
   }
 
   const handleGenerateDevDoc = (extraInstructions?: string, updateExisting?: boolean, qaHistory?: QaPair[]) => {
@@ -3109,6 +3429,30 @@ function EditingPanel({
         <EstimationDetailSheet estimation={devDocEstimation} onClose={() => setShowEstimationDetail(false)} />
       )}
 
+      {/* AI 进度评估弹框 + 评估记录抽屉 + 历史版本预览 */}
+      {showEvaluateProgress && (
+        <EvaluateProgressDialog
+          sessionId={sessionId}
+          onGenerated={handleProgressEvaluated}
+          onClose={() => setShowEvaluateProgress(false)}
+        />
+      )}
+      {showProgressHistory && (
+        <ProgressHistorySheet
+          sessionId={sessionId}
+          onViewVersion={(version, isCurrent) => setViewingProgressVersion({ version, isCurrent })}
+          onClose={() => setShowProgressHistory(false)}
+        />
+      )}
+      {viewingProgressVersion !== null && (
+        <ProgressVersionViewDialog
+          sessionId={sessionId}
+          version={viewingProgressVersion.version}
+          isLatest={viewingProgressVersion.isCurrent}
+          onClose={() => setViewingProgressVersion(null)}
+        />
+      )}
+
       {/* ─── 顶部 Tab + 操作栏 ─── */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--color-border)] bg-[var(--color-card)] gap-2">
 
@@ -3208,6 +3552,22 @@ function EditingPanel({
                   className="flex items-center gap-1 px-2 py-0.5 rounded text-[var(--color-muted-foreground)] hover:text-blue-400 hover:bg-blue-500/10 transition-colors"
                   title="AI 基于 PRD + 开发文档评估开发工时">
                   <Clock className="w-3 h-3" /> 评估工时
+                </button>
+              )}
+              {/* AI 进度评估：基于当前 PRD + 开发文档 + 代码知识图谱核对实际实现进度，生成固定
+                  大纲的 Markdown 报告，按版本追加保存（不覆盖），"评估记录"按钮浏览历次报告 */}
+              <button onClick={() => setShowEvaluateProgress(true)}
+                className="flex items-center gap-1 px-2 py-0.5 rounded text-[var(--color-muted-foreground)] hover:text-blue-400 hover:bg-blue-500/10 transition-colors"
+                title="AI 基于 PRD + 开发文档 + 代码知识图谱核对开发进度">
+                <ClipboardCheck className="w-3 h-3" /> {progressPath ? '重新评估进度' : '评估进度'}
+              </button>
+              {progressPath && (
+                <button onClick={() => setShowProgressHistory(true)}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[var(--color-muted-foreground)] hover:text-blue-400 hover:bg-blue-500/10 transition-colors"
+                  title={progressGeneratedAt
+                    ? `查看历次进度评估报告（最近一次 ${new Date(progressGeneratedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}）`
+                    : '查看历次进度评估报告'}>
+                  <Info className="w-3 h-3" /> 评估记录
                 </button>
               )}
             </>
@@ -3912,6 +4272,8 @@ PRD_SESSION_ID: ${created.id}`
               (!session?.devDocGeneratedAt || session.devDocGeneratedAt < session.updatedAt)
             }
             initialDevDocEstimation={session?.devDocEstimation ?? null}
+            initialProgressPath={session?.progressPath ?? null}
+            initialProgressGeneratedAt={session?.progressGeneratedAt ?? null}
             onReset={handleReset}
           />
         )}

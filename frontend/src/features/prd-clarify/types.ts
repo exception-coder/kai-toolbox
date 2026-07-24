@@ -56,6 +56,17 @@ export interface DevDocVersionSummary {
   qaHistory: { question: string; answer: string }[]
 }
 
+/**
+ * 进度评估某个版本的摘要（GET /progress/versions 返回），以磁盘上实际存在的版本为准，
+ * 用法完全对齐 DevDocVersionSummary——按版本追加落盘，不覆盖，历史评估快照可回看。
+ */
+export interface ProgressVersionSummary {
+  version: number
+  isCurrent: boolean
+  extraContext: string | null
+  generatedAt: number | null
+}
+
 export type EstimationConfidence = 'LOW' | 'MEDIUM' | 'HIGH'
 
 export interface EstimationBreakdownItem {
@@ -106,6 +117,10 @@ export interface PrdSessionView {
   devDocHistory: DevDocHistoryEntry[]
   /** AI 工时评估结果，尚未评估过时为 null */
   devDocEstimation: DevDocEstimation | null
+  /** 进度评估文档路径（非 null 表示评估过至少一次） */
+  progressPath: string | null
+  /** 最后一次进度评估时间戳（毫秒），是否"已过期"由前端跟 devDocGeneratedAt/updatedAt 比较判断 */
+  progressGeneratedAt: number | null
   /** 创建者 auth_user.id；未登录/鉴权关闭时创建、或早于该功能上线的存量数据可能为 null */
   createdByUserId: number | null
   /** 创建者用户名，仅历史列表接口会解析（批量查一次），其它单会话接口一律为 null */

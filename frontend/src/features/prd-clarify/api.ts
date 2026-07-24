@@ -4,6 +4,7 @@ import type {
   CreateSessionRequest,
   DevDocVersionSummary,
   PrdSessionView,
+  ProgressVersionSummary,
   SaveContentRequest,
   SubmitAnswersRequest,
 } from './types'
@@ -158,6 +159,53 @@ export const estimateDevDocEffort = (id: string, extraContext?: string) =>
     method: 'POST',
     body: JSON.stringify({ extraContext }),
   })
+
+// ─── 进度评估 ───
+// 平台的 PRD/开发文档是业务/技术事实来源，进度评估报告是基于它们 + 代码知识图谱核对出的
+// 派生产物，按版本追加落盘（不覆盖），用法完全对齐"开发文档"那一组接口。
+
+/**
+ * SSE 流式：基于当前 PRD + 开发文档核对代码库实际实现进度，生成大纲固定的 Markdown 报告。
+ * extraContext：确认弹框里补充的核对重点（如"重点核对库存流水是否已实现"），可不传。
+ */
+export const evaluateProgress = (
+  id: string,
+  extraContext: string | undefined,
+  handlers: SseHandlers,
+) =>
+  subscribeSsePost(`${BASE}/sessions/${id}/progress/evaluate`, { extraContext }, handlers)
+
+/** 读取当前进度评估文档内容（与 getContent 同格式）。 */
+export const getProgressContent = async (id: string): Promise<string> => {
+  const res = await authFetch(`/prd-clarify/sessions/${id}/progress`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const text = await res.text()
+  if (!text) return ''
+  try {
+    const parsed = JSON.parse(text)
+    return typeof parsed === 'string' ? parsed : text
+  } catch {
+    return text
+  }
+}
+
+/** 列出该会话进度评估的所有版本摘要（以磁盘上实际存在的备份文件为准）。 */
+export const listProgressVersions = (id: string) =>
+  http<ProgressVersionSummary[]>(`${BASE}/sessions/${id}/progress/versions`)
+
+/** 读取进度评估某个历史版本的内容（与 getProgressContent 同格式）。version 对应评估记录里的版本号。 */
+export const getProgressVersionContent = async (id: string, version: number): Promise<string> => {
+  const res = await authFetch(`/prd-clarify/sessions/${id}/progress/versions/${version}`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const text = await res.text()
+  if (!text) return ''
+  try {
+    const parsed = JSON.parse(text)
+    return typeof parsed === 'string' ? parsed : text
+  } catch {
+    return text
+  }
+}
 
 /** 关联 Vibe Coding 开发会话 ID 到 PRD 会话（由 claude-chat handoff handler 回写）。 */
 export const linkDevSession = (prdSessionId: string, devSessionId: string) =>

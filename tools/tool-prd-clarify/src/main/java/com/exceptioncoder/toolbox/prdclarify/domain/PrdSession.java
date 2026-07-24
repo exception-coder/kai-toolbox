@@ -68,6 +68,19 @@ public class PrdSession {
      * {@code PrdSessionOwnerMigration} 统一回填成 admin 账号）。
      */
     private Long createdByUserId;
+    /**
+     * 进度评估文档路径（{@code ~/.kai-toolbox/prd/{id}-progress.md}），非 null 表示评估过至少一次。
+     * 结构对齐开发文档：按版本追加落盘，覆盖前先备份为 {@code {id}-progress-v{n}.md}，不丢历史。
+     */
+    private String progressPath;
+    /** 最后一次进度评估时间戳（毫秒），用于跟 updatedAt/devDocGeneratedAt 比较判断是否已过期。 */
+    private Long progressGeneratedAt;
+    /**
+     * 进度评估历史，JSON 字符串数组，格式 {@code [{version,extraContext,generatedAt}]}，
+     * 可为 null（尚未评估过）。version 与磁盘上的 {id}-progress-v{n}.md 备份文件编号对应，
+     * 用法完全对齐 devDocHistory。
+     */
+    private String progressHistory;
     private String errorMsg;
     private long createdAt;
     private long updatedAt;
