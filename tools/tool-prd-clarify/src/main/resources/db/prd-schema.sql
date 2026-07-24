@@ -53,6 +53,11 @@ ALTER TABLE prd_session ADD COLUMN dev_doc_estimation TEXT;
 -- PrdSessionOwnerMigration（@DependsOn("schemaInitializer")，保证所有模块建表完成后再跑）里做。
 ALTER TABLE prd_session ADD COLUMN created_by_user_id INTEGER;
 
+-- 澄清模式：progressive（渐进式，逐题追问，默认，兼容存量数据）| batch（批量，一次性生成
+-- max_questions 道题，用户一次性填完）。「开始澄清前确认」弹框里选，恢复未完成会话
+-- （status=CLARIFYING）时前端据此决定渲染哪种澄清面板，不会中途变来变去。
+ALTER TABLE prd_session ADD COLUMN clarify_mode TEXT NOT NULL DEFAULT 'progressive';
+
 CREATE INDEX IF NOT EXISTS idx_prd_session_created ON prd_session(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_prd_session_status  ON prd_session(status);
 CREATE INDEX IF NOT EXISTS idx_prd_session_created_by ON prd_session(created_by_user_id);

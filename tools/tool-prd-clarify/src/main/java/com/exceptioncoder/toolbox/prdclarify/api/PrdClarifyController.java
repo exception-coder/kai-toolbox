@@ -134,7 +134,7 @@ public class PrdClarifyController {
         Long createdByUserId = AuthContext.current().map(AuthPrincipal::userId).orElse(null);
         PrdSession session = service.createSession(
                 req.title(), req.rawInput(), req.project(), req.module(), req.model(), req.role(),
-                req.reqType(), req.maxQuestions(), createdByUserId);
+                req.reqType(), req.maxQuestions(), createdByUserId, req.clarifyMode());
         return PrdSessionView.from(session);
     }
 

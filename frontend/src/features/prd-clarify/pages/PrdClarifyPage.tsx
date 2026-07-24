@@ -30,6 +30,7 @@ import {
   saveContent,
   saveDevDocContent,
   saveQaHistory,
+  startClarify,
   startGenerate,
   startGenerateDevDoc,
   updateSessionTitle,
@@ -37,7 +38,7 @@ import {
   type QaPair,
   type AttachmentParseResult,
 } from '../api'
-import type { DevDocEstimation, DevDocVersionSummary, EstimationConfidence, PrdReqType, PrdSessionView, PrdStep, QuestionItem } from '../types'
+import type { DevDocEstimation, DevDocVersionSummary, EstimationConfidence, PrdClarifyMode, PrdReqType, PrdSessionView, PrdStep, QuestionItem } from '../types'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 
 // 编辑器 lazy import — CodeMirror chunk 只在进入 EDITING 步骤时加载
@@ -874,16 +875,21 @@ const DEPTH_PRESETS = [
  * 对齐"确定性优先，关键决策不交给 LLM 自由发挥"的原则。
  */
 function StartClarifyDialog({
+  showModeToggle = true,
   onConfirm,
   onClose,
 }: {
-  onConfirm: (reqType: PrdReqType, maxQuestions: number) => void
+  /** Vibe Coding 澄清入口走的是完全独立的 Claude Code 长会话，不经过 ChattingPanel/批量表单，
+   *  批量/渐进的区分对它没有意义，调用方传 false 隐藏这个选项。 */
+  showModeToggle?: boolean
+  onConfirm: (reqType: PrdReqType, maxQuestions: number, clarifyMode: PrdClarifyMode) => void
   onClose: () => void
 }) {
   const [reqType, setReqType] = useState<PrdReqType>('NEW_MODULE')
   const [maxQuestions, setMaxQuestions] = useState(REQ_TYPE_CONFIG.NEW_MODULE.defaultMaxQuestions)
   /** 用户是否已手动调整过深度；未调整前，切换需求类型会自动带出该类型的推荐深度 */
   const [depthTouched, setDepthTouched] = useState(false)
+  const [clarifyMode, setClarifyMode] = useState<PrdClarifyMode>('progressive')
 
   const handleSelectType = (t: PrdReqType) => {
     setReqType(t)
@@ -972,6 +978,48 @@ function StartClarifyDialog({
             </div>
           </div>
 
+          {showModeToggle && (
+            <div>
+              <label className="block text-xs font-medium text-[var(--color-muted-foreground)] mb-2">
+                澄清方式
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setClarifyMode('progressive')}
+                  className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+                    clarifyMode === 'progressive'
+                      ? 'bg-[var(--color-primary)]/10 border-[var(--color-primary)]/30'
+                      : 'border-[var(--color-border)] hover:bg-[var(--color-muted)]/30'
+                  }`}
+                >
+                  <div className={`text-sm font-semibold ${clarifyMode === 'progressive' ? 'text-[var(--color-primary)]' : 'text-[var(--color-foreground)]'}`}>
+                    渐进式
+                  </div>
+                  <div className="text-[11px] text-[var(--color-muted-foreground)] leading-relaxed">
+                    一题一题问，Claude 根据你的回答动态追问
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setClarifyMode('batch')}
+                  className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+                    clarifyMode === 'batch'
+                      ? 'bg-[var(--color-primary)]/10 border-[var(--color-primary)]/30'
+                      : 'border-[var(--color-border)] hover:bg-[var(--color-muted)]/30'
+                  }`}
+                >
+                  <div className={`text-sm font-semibold ${clarifyMode === 'batch' ? 'text-[var(--color-primary)]' : 'text-[var(--color-foreground)]'}`}>
+                    批量
+                  </div>
+                  <div className="text-[11px] text-[var(--color-muted-foreground)] leading-relaxed">
+                    一次性生成全部 {maxQuestions} 题，一起填完再提交
+                  </div>
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 pt-1">
             <button
               onClick={onClose}
@@ -980,7 +1028,7 @@ function StartClarifyDialog({
               取消
             </button>
             <button
-              onClick={() => onConfirm(reqType, maxQuestions)}
+              onClick={() => onConfirm(reqType, maxQuestions, showModeToggle ? clarifyMode : 'progressive')}
               className="px-4 py-1.5 rounded-md text-sm bg-[var(--color-primary)] text-white hover:opacity-90"
             >
               开始澄清
@@ -1736,8 +1784,9 @@ function InputPanel({
   initialModule = '',
 }: {
   // reqType/maxQuestions 可选：业务员角色不弹确认框，直接省略这两个参数，
-  // 交给后端 LLM 自动判定（见 handleStart/handleStartVibe 里对应处理）
-  onStart: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS', reqType?: PrdReqType, maxQuestions?: number) => void
+  // 交给后端 LLM 自动判定（见 handleStart/handleStartVibe 里对应处理）。clarifyMode 只有
+  // onStart（内嵌澄清）有意义，业务员角色/未选时省略，由 createSession 兜底成 progressive。
+  onStart: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS', reqType?: PrdReqType, maxQuestions?: number, clarifyMode?: PrdClarifyMode) => void
   onStartVibe: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS', reqType?: PrdReqType, maxQuestions?: number) => void
   initialTitle?: string
   initialRawInput?: string
@@ -2131,13 +2180,16 @@ function InputPanel({
 
       {pendingAction && (
         <StartClarifyDialog
+          showModeToggle={pendingAction === 'start'}
           onClose={() => setPendingAction(null)}
-          onConfirm={(reqType, maxQuestions) => {
+          onConfirm={(reqType, maxQuestions, clarifyMode) => {
             const action = pendingAction
             setPendingAction(null)
-            const args = [title.trim(), buildFinalRawInput(), project, module, role, reqType, maxQuestions] as const
-            if (action === 'start') onStart(...args)
-            else onStartVibe(...args)
+            if (action === 'start') {
+              onStart(title.trim(), buildFinalRawInput(), project, module, role, reqType, maxQuestions, clarifyMode)
+            } else {
+              onStartVibe(title.trim(), buildFinalRawInput(), project, module, role, reqType, maxQuestions)
+            }
           }}
         />
       )}
@@ -2200,6 +2252,7 @@ function GeneratingPanel({
 function ChattingPanel({
   sessionId,
   maxRounds,
+  initialHistory,
   onDone,       // 澄清完成，带完整 history 调用
   onError,
 }: {
@@ -2208,22 +2261,27 @@ function ChattingPanel({
    *  1-2/3-5/6-8 或自定义）。真正的轮数上限由后端 askNextQuestion 强制，这里只是展示进度用，
    *  不做客户端侧的提前拦截。 */
   maxRounds: number
+  /** 断点续问：session.questions 里已经答过的部分（进入本面板前由父组件读出，见 PrdClarifyPage），
+   *  非空时跳过已问过的题，直接从下一题继续，不重复问。 */
+  initialHistory?: QaPair[]
   onDone: (history: QaPair[]) => void
   onError: (msg: string) => void
 }) {
-  const [history, setHistory] = useState<QaPair[]>([])          // 已完成的 Q&A
+  const [history, setHistory] = useState<QaPair[]>(() => initialHistory ?? [])  // 已完成的 Q&A
   const [currentQ, setCurrentQ] = useState('')                  // 当前问题（流式积累）
   const [currentA, setCurrentA] = useState('')                  // 用户正在输入的答案
   const [isStreaming, setIsStreaming] = useState(true)          // Claude 正在输出问题
+  const [saveError, setSaveError] = useState<string | null>(null)  // 逐题自动保存失败提示
   const abortRef = useRef<(() => void) | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   const scrollToBottom = () => endRef.current?.scrollIntoView({ behavior: 'smooth' })
 
-  // 挂载时立即开始第一个问题
+  // 挂载时立即问下一题：有断点续问历史就接着问，没有就从第 0 题开始
   useEffect(() => {
-    askQuestion(0, [])
+    const resumeHistory = initialHistory ?? []
+    askQuestion(resumeHistory.length, resumeHistory)
     return () => abortRef.current?.()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -2280,6 +2338,14 @@ function ChattingPanel({
     setCurrentA('')
     setCurrentQ('')
 
+    // 逐题自动落库：不等它完成就问下一题（不阻塞交互），中途意外退出/刷新最多丢当前
+    // 正在输入还没提交的这一题，已提交的都在库里。saveQaHistory 整体覆盖 session.questions，
+    // 每次传完整累计 history 即可，失败只提示不阻断——下一次答题会带着更新后的 newHistory
+    // 重试覆盖，不会丢已经保存成功的部分。
+    saveQaHistory(sessionId, newHistory)
+      .then(() => setSaveError(null))
+      .catch(() => setSaveError('本题进度自动保存失败，请留意网络状况，避免中途退出丢失回答'))
+
     // 触发下一个问题
     askQuestion(newHistory.length, newHistory)
   }
@@ -2314,6 +2380,13 @@ function ChattingPanel({
           </div>
         )}
       </div>
+
+      {/* 逐题自动保存失败提示：不阻断继续澄清，但要让用户知道进度可能没落库 */}
+      {saveError && (
+        <div className="px-5 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-[11px] text-amber-500">
+          ⚠ {saveError}
+        </div>
+      )}
 
       {/* 对话气泡区 */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
@@ -2427,6 +2500,170 @@ function ChattingPanel({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * 批量澄清面板（Step CHATTING，批量模式）：一次性生成 session.maxQuestions 道题（后端
+ * PrdClarifyService.clarify），用户一次性填完再统一提交——跟 ChattingPanel（渐进模式，
+ * 逐题追问）并列的两种交互，由 StartClarifyDialog 里选。
+ */
+function BatchClarifyPanel({
+  sessionId,
+  initialQuestions,
+  onDone,
+  onError,
+}: {
+  sessionId: string
+  /** 断点续问：session.questions 里已经生成/部分填过的题目（进入本面板前由父组件读出），
+   *  非空时跳过重新生成，直接展示这些题目继续填，不重复调一次生成。 */
+  initialQuestions: QuestionItem[]
+  onDone: (history: QaPair[]) => void
+  onError: (msg: string) => void
+}) {
+  const [questions, setQuestions] = useState<QuestionItem[]>(initialQuestions)
+  const [answers, setAnswers] = useState<string[]>(() => initialQuestions.map((q) => q.answer ?? ''))
+  const [generating, setGenerating] = useState(initialQuestions.length === 0)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 挂载时：已有题目（断点续问，或刚生成完再次渲染）就不重复生成；否则调批量生成接口
+  useEffect(() => {
+    if (questions.length > 0) return
+    setGenerating(true)
+    const abort = startClarify(sessionId, {
+      onEvent(name) {
+        if (name === 'done') {
+          getSession(sessionId)
+            .then((s) => {
+              setQuestions(s.questions)
+              setAnswers(s.questions.map((q) => q.answer ?? ''))
+              setGenerating(false)
+            })
+            .catch(() => {
+              setGenerating(false)
+              onError('生成问题后读取失败，请重试')
+            })
+        }
+        if (name === 'error') {
+          setGenerating(false)
+          onError('生成澄清问题失败，请重试')
+        }
+      },
+      onError() {
+        setGenerating(false)
+        onError('SSE 连接失败，请重试')
+      },
+    })
+    return () => abort()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // 防抖自动保存草稿：任一答案变化 1s 后落库一次，避免中途退出丢失已填内容。
+  // saveQaHistory 整体覆盖 session.questions，每次传完整 answers 快照即可。
+  useEffect(() => {
+    if (generating || questions.length === 0) return
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      const hist = questions.map((q, i) => ({ question: q.question, answer: answers[i] ?? '' }))
+      if (!hist.some((h) => h.answer.trim())) return  // 一个都没填，不用存
+      saveQaHistory(sessionId, hist)
+        .then(() => setSaveError(null))
+        .catch(() => setSaveError('草稿自动保存失败，请留意网络状况，避免中途退出丢失已填内容'))
+    }, 1000)
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [answers, generating, questions.length])
+
+  const allAnswered = questions.length > 0 && answers.every((a) => a.trim())
+  const answeredCount = answers.filter((a) => a.trim()).length
+
+  const handleSubmit = async () => {
+    if (!allAnswered || submitting) return
+    setSubmitting(true)
+    const hist = questions.map((q, i) => ({ question: q.question, answer: answers[i] ?? '' }))
+    try {
+      await saveQaHistory(sessionId, hist)
+      onDone(hist)
+    } catch {
+      setSubmitting(false)
+      onError('保存澄清答案失败，请重试')
+    }
+  }
+
+  if (generating) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="max-w-md w-full rounded-2xl border border-[var(--color-border)] bg-[var(--color-muted)]/30 px-6 py-8 text-center">
+          <Loader2 className="w-6 h-6 animate-spin mx-auto mb-3 text-[var(--color-primary)]" />
+          <p className="text-sm text-[var(--color-foreground)] font-medium mb-1">Claude 正在一次性生成全部澄清问题…</p>
+          <p className="text-xs text-[var(--color-muted-foreground)]">结合代码/业务知识图谱生成，约 10-30 秒</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {/* 进度条 */}
+      <div className="flex items-center gap-3 px-5 py-2 border-b border-[var(--color-border)] bg-[var(--color-card)]">
+        <span className="text-xs text-[var(--color-muted-foreground)]">
+          批量澄清：已填 {answeredCount} / {questions.length} 题
+        </span>
+        <div className="flex-1 h-1.5 rounded-full bg-[var(--color-muted)]">
+          <div
+            className="h-full rounded-full bg-[var(--color-primary)] transition-all"
+            style={{ width: `${questions.length ? Math.round((answeredCount / questions.length) * 100) : 0}%` }}
+          />
+        </div>
+      </div>
+
+      {/* 逐字段防抖自动保存失败提示：不阻断继续填写，但要让用户知道进度可能没落库 */}
+      {saveError && (
+        <div className="px-5 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-[11px] text-amber-500">
+          ⚠ {saveError}
+        </div>
+      )}
+
+      <div className="flex-1 overflow-y-auto px-5 py-4">
+        <div className="max-w-3xl mx-auto space-y-4">
+          {questions.map((q, i) => (
+            <div key={i} className="rounded-xl border border-[var(--color-border)] overflow-hidden">
+              <div className="flex items-start gap-2.5 px-4 py-3 bg-[var(--color-muted)]/30">
+                <div className="w-5 h-5 rounded-full bg-[var(--color-primary)]/20 flex items-center justify-center flex-shrink-0 text-[10px] font-semibold text-[var(--color-primary)] mt-0.5">
+                  {i + 1}
+                </div>
+                <p className="text-sm leading-relaxed">{q.question}</p>
+              </div>
+              <textarea
+                value={answers[i] ?? ''}
+                onChange={(e) => setAnswers((prev) => prev.map((a, j) => (j === i ? e.target.value : a)))}
+                rows={2}
+                placeholder="输入你的回答…"
+                className="w-full px-4 py-2.5 text-sm resize-none focus:outline-none bg-[var(--color-input)]"
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="border-t border-[var(--color-border)] bg-[var(--color-card)] p-4">
+        <div className="max-w-3xl mx-auto flex items-center justify-between gap-3">
+          <p className="text-xs text-[var(--color-muted-foreground)]">
+            {allAnswered ? '全部题目已填完，可以提交生成 PRD 了' : `还有 ${questions.length - answeredCount} 题未填`}
+          </p>
+          <button
+            disabled={!allAnswered || submitting}
+            onClick={handleSubmit}
+            className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-[var(--color-primary)] text-white text-sm font-medium hover:opacity-90 disabled:opacity-40"
+          >
+            {submitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            提交并生成 PRD
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -3328,11 +3565,12 @@ export function PrdClarifyPage() {
   const handleStart = async (
     title: string, rawInput: string, project: string, module: string,
     role: 'PRODUCT' | 'BUSINESS' = 'PRODUCT', reqType?: PrdReqType, maxQuestions?: number,
+    clarifyMode?: PrdClarifyMode,
   ) => {
     setErrorMsg(null)
     setSessionTitle(title)
     setSearchParams({}, { replace: true })
-    const created = await createMut.mutateAsync({ title, rawInput, project, module, role, reqType, maxQuestions })
+    const created = await createMut.mutateAsync({ title, rawInput, project, module, role, reqType, maxQuestions, clarifyMode })
     setSessionId(created.id)
     qc.setQueryData(['prd-session', created.id], created)
     setStreamText('')
@@ -3630,11 +3868,25 @@ PRD_SESSION_ID: ${created.id}`
           />
         )}
 
-        {/* 多轮渐进澄清对话（ChattingPanel 自管理 askNextQuestion 循环） */}
-        {step === 'CHATTING' && sessionId && (
+        {/* 多轮渐进澄清对话（ChattingPanel 自管理 askNextQuestion 循环）—— 渐进模式，
+            未选批量或 session 还没读到（新建会话必是渐进兜底）时走这条 */}
+        {step === 'CHATTING' && sessionId && session?.clarifyMode !== 'batch' && (
           <ChattingPanel
             sessionId={sessionId}
             maxRounds={session?.maxQuestions && session.maxQuestions > 0 ? session.maxQuestions : 5}
+            initialHistory={(session?.questions ?? [])
+              .filter((q) => q.answer && q.answer.trim())
+              .map((q) => ({ question: q.question, answer: q.answer }))}
+            onDone={handleChattingDone}
+            onError={(msg) => { setErrorMsg(msg); setStep('INPUT') }}
+          />
+        )}
+
+        {/* 批量澄清面板：一次性生成 maxQuestions 道题，用户一起填完再提交 —— 批量模式 */}
+        {step === 'CHATTING' && sessionId && session?.clarifyMode === 'batch' && (
+          <BatchClarifyPanel
+            sessionId={sessionId}
+            initialQuestions={session?.questions ?? []}
             onDone={handleChattingDone}
             onError={(msg) => { setErrorMsg(msg); setStep('INPUT') }}
           />

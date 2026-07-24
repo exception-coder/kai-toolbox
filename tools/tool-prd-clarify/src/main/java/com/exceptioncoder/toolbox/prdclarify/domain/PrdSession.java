@@ -42,6 +42,12 @@ public class PrdSession {
     /** 本次澄清最多问几轮（原硬编码 5，现由前端确认弹框按 reqType 预填、用户可调）。 */
     private int maxQuestions;
     /**
+     * 澄清模式：progressive（渐进式，逐题追问，默认）| batch（批量，一次性生成 maxQuestions 道题，
+     * 用户一次性填完再统一提交）。恢复未完成会话（status=CLARIFYING）时用这个字段决定渲染
+     * 哪种澄清面板，不会中途切换模式。
+     */
+    private String clarifyMode;
+    /**
      * 开发文档生成历史，JSON 字符串数组，格式
      * {@code [{version,mode,extraInstructions,generatedAt}]}，可为 null（尚未生成过）。
      * 用于追溯每一版开发文档是基于什么补充说明/更新澄清生成的。

@@ -14,6 +14,13 @@ export type PrdRole = 'PRODUCT' | 'BUSINESS'
  */
 export type PrdReqType = 'BUG_FIX' | 'MODULE_ADJUST' | 'NEW_MODULE'
 
+/**
+ * 澄清模式：progressive（渐进式，一题一题问，Claude 根据上一题答案动态追问，默认）|
+ * batch（批量，一次性生成 maxQuestions 道题，用户一次性填完再统一提交）。
+ * 在「开始澄清前确认」弹框里选，恢复未完成会话时沿用创建时选的模式，不会中途切换。
+ */
+export type PrdClarifyMode = 'progressive' | 'batch'
+
 export interface QuestionItem {
   id: number
   question: string
@@ -83,6 +90,8 @@ export interface PrdSessionView {
   reqType: PrdReqType
   /** 本次澄清最多问几轮（用户在「开始澄清」确认弹框里设置，按 reqType 预填默认值） */
   maxQuestions: number
+  /** 澄清模式：progressive（渐进式逐题追问）| batch（批量一次性生成全部问题） */
+  clarifyMode: PrdClarifyMode
   /** 原始需求描述（用于历史记录弹窗展示） */
   rawInput: string | null
   questions: QuestionItem[]
@@ -115,6 +124,7 @@ export interface CreateSessionRequest {
   role?: PrdRole
   reqType?: PrdReqType
   maxQuestions?: number
+  clarifyMode?: PrdClarifyMode
 }
 
 export interface SubmitAnswersRequest {

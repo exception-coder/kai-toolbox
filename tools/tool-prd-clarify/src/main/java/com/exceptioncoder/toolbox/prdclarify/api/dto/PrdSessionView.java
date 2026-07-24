@@ -34,6 +34,8 @@ public record PrdSessionView(
         String reqType,
         /** 本次澄清最多问几轮（用户在「开始澄清」确认弹框里设置）。 */
         int maxQuestions,
+        /** 澄清模式：progressive（渐进式逐题追问）| batch（批量一次性生成全部问题）。 */
+        String clarifyMode,
         /** 原始需求描述（用户在填写表单时输入的完整内容），用于历史记录弹窗展示。 */
         String rawInput,
         List<QuestionItem> questions,
@@ -114,6 +116,7 @@ public record PrdSessionView(
                 s.getStatus(), s.getRole() != null ? s.getRole() : "PRODUCT",
                 s.getReqType() != null ? s.getReqType() : "NEW_MODULE",
                 s.getMaxQuestions() > 0 ? s.getMaxQuestions() : 5,
+                "batch".equals(s.getClarifyMode()) ? "batch" : "progressive",
                 s.getRawInput(),
                 parseQuestions(s.getQuestions()),
                 s.getMdPath(), s.getDevDocPath(), s.getDevSessionId(), s.getDevDocGeneratedAt(),

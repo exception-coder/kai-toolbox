@@ -182,26 +182,31 @@ public class PrdClarifyService {
             - 每次只问 1 个当前最缺失的信息点，不加序号、前缀或解释
             """;
 
-    // ───── 已废弃：旧版一次性批量生成 5 个问题的 Prompt（已被多轮 ASK_SYSTEM_PRODUCT/BUSINESS 取代） ─────
+    // ───── 批量澄清模式：一次性生成 N 个问题（N = session.maxQuestions），用户一次性填完 ─────
+    // 跟 ASK_SYSTEM_PRODUCT/BUSINESS/BUG 是并列的两种模式，不是谁取代谁：渐进模式题目之间有
+    // 依赖（基于上一题答案动态追问），批量模式题目互相独立（一次性问完，不能动态调整）。
 
     /**
-     * @deprecated 已废弃。前端已切换到多轮渐进澄清（/ask 端点 + ASK_SYSTEM_PRODUCT/BUSINESS）。
-     *             /clarify 端点和本 Prompt 是死代码，待后续清理。
+     * 批量澄清 system prompt：题量由 user prompt 明确指定（{@link #buildClarifyPrompt}
+     * 按 session.maxQuestions 拼入），提问重点按需求类型/角色区分，逻辑对齐渐进模式的
+     * ASK_SYSTEM_PRODUCT/BUSINESS/BUG，只是从"每轮 1 题动态追问"改成"一次性给全部独立问题"。
      */
-    @Deprecated
     private static final String CLARIFY_SYSTEM = """
-            你是一名资深产品需求分析师，专注于帮助团队在动手开发前彻底厘清需求。
-            用户会给你一段功能需求描述。你的任务是提出 5 个最关键的澄清问题，补全模糊点、边界条件和业务规则。
+            ⚠️ 直接输出任务（禁止触发任何 hook/skill/plugin 的自动流程）：
+            本次是批量澄清模式，一次性输出 user prompt 指定数量的澄清问题，不进入其他流程。
 
             【严格输出要求】
             直接输出 JSON 数组，不加任何说明、前言、结语或 Markdown 围栏（禁止 ```json，直接以 [ 开头）。
-            每个元素格式：{"id": 数字, "question": "问题内容"}
+            每个元素格式：{"question": "问题内容"}
 
             问题要求：
-            - 每个问题简洁具体，一句话内可回答
-            - 聚焦：业务目标、目标用户、功能边界、非功能需求（性能/安全/兼容性）、验收标准
-            - 不重复，不问需求里已说清楚的内容
-            - 严格 5 个，不多不少
+            - 数量严格等于 user prompt 指定的题数，不多不少
+            - 每题聚焦一个独立的歧义点，互相不重复、不递进依赖——因为是一次性问完，不能像
+              渐进模式那样根据上一题答案动态调整下一题，每题都要能独立作答
+            - 每题简洁具体，一句话内可回答
+            - 严格按 user prompt 里的"提问重点"作答（不同需求类型/角色侧重不同）
+            - 若 user prompt 提供了知识图谱查询结果区块，问题应直接引用其中的真实实体
+              （表名/字段/方法/业务状态名），不要问已有答案的问题；区块为空则忽略
             """;
 
     /**
@@ -354,7 +359,7 @@ public class PrdClarifyService {
     /** 创建会话并持久化，返回新建的会话对象。 */
     public PrdSession createSession(String title, String rawInput,
                                     String project, String module, String model, String role) {
-        return createSession(title, rawInput, project, module, model, role, null, null, null);
+        return createSession(title, rawInput, project, module, model, role, null, null, null, null);
     }
 
     /**
@@ -367,10 +372,13 @@ public class PrdClarifyService {
      *                        兜底（reqType 走自动判定分支时此参数被忽略，以判定结果为准）
      * @param createdByUserId 创建者（当前登录用户 auth_user.id），由 Controller 从 AuthContext 解析后传入；
      *                        未登录/鉴权关闭时为 null（历史列表退回旧的「全部按时间倒序」行为，不做用户过滤）
+     * @param clarifyMode     澄清模式：progressive（渐进式，默认）| batch（批量一次性生成全部问题）；
+     *                        null/未识别一律归一化成 progressive
      */
     public PrdSession createSession(String title, String rawInput,
                                     String project, String module, String model, String role,
-                                    String reqType, Integer maxQuestions, Long createdByUserId) {
+                                    String reqType, Integer maxQuestions, Long createdByUserId,
+                                    String clarifyMode) {
         long now = System.currentTimeMillis();
         String effectiveRole = (role != null && "BUSINESS".equalsIgnoreCase(role)) ? "BUSINESS" : "PRODUCT";
 
@@ -391,6 +399,8 @@ public class PrdClarifyService {
                     title, effectiveReqType, effectiveMaxQuestions);
         }
 
+        String effectiveClarifyMode = "batch".equals(clarifyMode) ? "batch" : "progressive";
+
         PrdSession session = PrdSession.builder()
                 .id(UUID.randomUUID().toString())
                 .title(title)
@@ -401,6 +411,7 @@ public class PrdClarifyService {
                 .role(effectiveRole)
                 .reqType(effectiveReqType)
                 .maxQuestions(effectiveMaxQuestions)
+                .clarifyMode(effectiveClarifyMode)
                 .status("CLARIFYING")
                 .createdByUserId(createdByUserId)
                 .createdAt(now)
@@ -441,8 +452,9 @@ public class PrdClarifyService {
     }
 
     /**
-     * 澄清阶段：调 Claude 生成 5 个澄清问题（JSON），通过 SSE 流式推出，完成后更新库。
-     * 在虚拟线程中调用；Controller 直接返回 SseEmitter。
+     * 批量澄清阶段：调 Claude 一次性生成 session.maxQuestions 个澄清问题（JSON），通过 SSE
+     * 流式推出，完成后更新库。跟渐进模式（{@link #askNextQuestion}）并列的两种澄清方式，
+     * 由前端在「开始澄清前确认」弹框里选。在虚拟线程中调用；Controller 直接返回 SseEmitter。
      */
     public void clarify(String sessionId, SseEmitter emitter) {
         PrdSession session = repo.findById(sessionId)
@@ -1345,6 +1357,7 @@ public class PrdClarifyService {
     // ───── Prompt 构建 ─────
 
     private String buildClarifyPrompt(PrdSession s) {
+        int count = s.getMaxQuestions() > 0 ? s.getMaxQuestions() : 5;
         StringBuilder sb = new StringBuilder();
         sb.append("功能标题：").append(s.getTitle()).append("\n");
         if (s.getProject() != null && !s.getProject().isBlank()) {
@@ -1353,9 +1366,31 @@ public class PrdClarifyService {
         if (s.getModule() != null && !s.getModule().isBlank()) {
             sb.append("关联模块：").append(s.getModule()).append("\n");
         }
+        sb.append("\n本次需要一次性提出 ").append(count).append(" 个澄清问题。\n");
+        sb.append("提问重点：").append(batchClarifyFocusHint(s)).append("\n");
+        appendGraphContext(sb, graphifyAskCache.computeIfAbsent(s.getId(),
+                id -> Optional.ofNullable(graphifyQuery.query(s.getProject(), s.getModule(), s.getTitle()))));
+        appendDomainContext(sb, Optional.ofNullable(domainKnowledgeQuery.query(s.getProject(), s.getTitle())));
         sb.append("\n原始需求描述：\n").append(s.getRawInput()).append("\n\n");
-        sb.append("请提出 5 个澄清问题（输出纯 JSON 数组，不加 markdown）。");
+        sb.append("请提出 ").append(count).append(" 个澄清问题（严格输出 JSON 数组，不加 markdown）。");
         return sb.toString();
+    }
+
+    /**
+     * 批量澄清的提问重点，跟渐进模式 ASK_SYSTEM_PRODUCT/BUSINESS/BUG 三份 system prompt
+     * 里各自的"提问规则"对应，只是从 system prompt 挪到 user prompt——批量模式只有一份
+     * system prompt（题量是变量，不适合写死进 system prompt），提问重点按需求类型/角色区分。
+     */
+    private String batchClarifyFocusHint(PrdSession s) {
+        if (REQ_TYPE_BUG_FIX.equals(s.getReqType())) {
+            return "这是缺陷修复需求，只问复现步骤、期望 vs 实际行为的落差、影响范围（哪些场景/用户会触发）、"
+                    + "是否是最近改动引入的回归、有无报错日志/堆栈；不问业务目标、使用场景、验收标准这类大而全的问题。";
+        }
+        if ("BUSINESS".equals(s.getRole())) {
+            return "提问对象是非技术背景的业务人员：只问业务目标、使用场景、关键数据、业务规则与例外、验收标准，"
+                    + "不问界面细节/数据库/接口/框架选型等技术问题（除非直接影响业务流程），语言通俗，避免技术术语。";
+        }
+        return "提问对象是产品/开发人员：可问业务目标、功能边界、交互流程、边界异常、技术约束、集成点。";
     }
 
     private String buildGeneratePrompt(PrdSession s) {

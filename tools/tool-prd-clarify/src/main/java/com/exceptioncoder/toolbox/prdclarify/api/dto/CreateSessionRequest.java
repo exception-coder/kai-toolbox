@@ -18,6 +18,8 @@ import jakarta.validation.constraints.Size;
  * @param reqType     需求类型：{@code BUG_FIX}（缺陷修复）| {@code MODULE_ADJUST}（模块调整）|
  *                    {@code NEW_MODULE}（新增模块，默认，null 时兜底）。与 role 正交。
  * @param maxQuestions 本次澄清最多问几轮，null/非正数时按 reqType 兜底默认值
+ * @param clarifyMode  澄清模式：{@code progressive}（渐进式，逐题追问，默认）|
+ *                     {@code batch}（批量，一次性生成 maxQuestions 道题）。null/未识别时兜底 progressive。
  */
 public record CreateSessionRequest(
         @NotBlank @Size(max = 200) String title,
@@ -27,6 +29,7 @@ public record CreateSessionRequest(
         String model,
         String role,
         String reqType,
-        Integer maxQuestions
+        Integer maxQuestions,
+        String clarifyMode
 ) {
 }
