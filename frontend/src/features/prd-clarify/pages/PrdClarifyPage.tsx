@@ -2204,6 +2204,32 @@ function InputPanel({
   useEffect(() => { if (initialProject) setProject(initialProject) }, [initialProject])
   useEffect(() => { if (initialModule) setModule(initialModule) }, [initialModule])
 
+  /**
+   * 恢复草稿时，rawInput 里可能已经嵌了之前粘贴过的 `![粘贴图片N](url)` 图片链接
+   * （见 handlePasteImage）——图片本身落盘在后端、url 长期有效，只是 pastedImages
+   * 缩略图条是纯前端 state，不会跟着 initialRawInput 自动重建，不然文本域里就只剩
+   * 一串裸的 markdown 语法、看不出是图片。这里从 initialRawInput 里把它们解析回来，
+   * 顺便把序号计数器对齐，避免恢复草稿后继续粘贴新图片时序号从 1 重新撞车。
+   */
+  useEffect(() => {
+    if (!initialRawInput) return
+    const regex = /!\[粘贴图片(\d+)\]\((\/api\/prd-clarify\/attachments\/image\/[^)]+)\)/g
+    const found: { id: string; name: string; url: string; token: string }[] = []
+    let maxN = 0
+    let m: RegExpExecArray | null
+    while ((m = regex.exec(initialRawInput))) {
+      const n = Number(m[1])
+      const url = m[2]
+      maxN = Math.max(maxN, n)
+      found.push({ id: url.split('/').pop() ?? url, name: `粘贴图片${n}`, url, token: m[0] })
+    }
+    if (found.length > 0) {
+      setPastedImages(found)
+      imageCounterRef.current = Math.max(imageCounterRef.current, maxN)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialRawInput])
+
   const handleFileUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return
     setUploadError(null)
