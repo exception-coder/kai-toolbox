@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { BotMessageSquare, Bug, ChevronRight, ClipboardCheck, Clock, Code2, Copy, ExternalLink, FileText, GitBranch, Image as ImageIcon, Info, Layers, Loader2, Paperclip, Pencil, Plus, RefreshCw, Rocket, Save, Send, Sparkles, Trash2, User, Wrench, X } from 'lucide-react'
+import { BotMessageSquare, Bug, ChevronRight, ClipboardCheck, Clock, Code2, Copy, ExternalLink, FileText, GitBranch, Image as ImageIcon, Info, Layers, Loader2, Paperclip, Pencil, Plus, RefreshCw, Rocket, Save, Search, Send, Sparkles, Trash2, User, Wrench, X } from 'lucide-react'
 import { http } from '@/lib/api'
 import { MultiSelect } from '@/components/ui/multi-select'
 import { usePrompt } from '@/components/ui/prompt-dialog'
@@ -787,11 +787,12 @@ function HistoryPanel({
     if (newTitle && newTitle !== s.title) onRename(s.id, newTitle)
   }
 
-  // 按系统（关联项目）/ 用户筛选：project 是逗号/顿号分隔的多选字符串，按 token 匹配
-  // （命中其中任意一个即算，不要求恰好等于整个字符串）；用户按 createdByUsername 精确匹配
-  // （非 ADMIN 视角本来就只看得到自己的记录，这个筛选主要给 ADMIN 用）。
+  // 按系统（关联项目）/ 用户筛选 + 标题搜索：project 是逗号/顿号分隔的多选字符串，按 token
+  // 匹配（命中其中任意一个即算，不要求恰好等于整个字符串）；用户按 createdByUsername 精确
+  // 匹配（非 ADMIN 视角本来就只看得到自己的记录，这个筛选主要给 ADMIN 用）。
   const [filterProject, setFilterProject] = useState('')
   const [filterUser, setFilterUser] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
 
   const splitProjectTags = (project: string | null) =>
     (project ?? '').split(/[,，、]/).map((s) => s.trim()).filter(Boolean)
@@ -823,8 +824,41 @@ function HistoryPanel({
   const filteredRoots = roots.filter((s) => {
     if (filterProject && !splitProjectTags(s.project).includes(filterProject)) return false
     if (filterUser && s.createdByUsername !== filterUser) return false
+    if (searchQuery.trim() && !s.title.toLowerCase().includes(searchQuery.trim().toLowerCase())) return false
     return true
   })
+
+  // 按「主项目」（多选字符串的第一个 token）分组展示，呼应用户要的"层级关系清晰"——
+  // 项目分组 > 父 PRD > 子 PRD 三层。没有关联项目的归到"未分类"。只有一个分组时不展示
+  // 分组头（大部分人只用一个项目，加一层没有信息量的分组标题反而是噪音）。
+  const groupedRoots: { project: string; items: PrdSessionView[] }[] = []
+  const groupIndex = new Map<string, number>()
+  for (const s of filteredRoots) {
+    const p = splitProjectTags(s.project)[0] ?? '未分类'
+    let i = groupIndex.get(p)
+    if (i === undefined) {
+      i = groupedRoots.length
+      groupIndex.set(p, i)
+      groupedRoots.push({ project: p, items: [] })
+    }
+    groupedRoots[i].items.push(s)
+  }
+  const showGroupHeaders = groupedRoots.length > 1
+
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(new Set())
+  const [collapsedParents, setCollapsedParents] = useState<Set<string>>(new Set())
+  const toggleProjectCollapse = (p: string) =>
+    setCollapsedProjects((prev) => {
+      const next = new Set(prev)
+      if (next.has(p)) next.delete(p); else next.add(p)
+      return next
+    })
+  const toggleParentCollapse = (id: string) =>
+    setCollapsedParents((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
 
   return (
     <>
@@ -838,49 +872,60 @@ function HistoryPanel({
         <EstimationDetailSheet estimation={viewingEstimation} onClose={() => setViewingEstimation(null)} />
       )}
 
-      <div className="w-56 flex-shrink-0 border-r border-[var(--color-border)] flex flex-col overflow-hidden">
-        <div className="px-3 py-2 text-xs font-semibold text-[var(--color-muted-foreground)] uppercase tracking-wide border-b border-[var(--color-border)]">
-          历史记录
+      <div className="w-64 flex-shrink-0 border-r border-[var(--color-border)] flex flex-col overflow-hidden">
+        <div className="px-3 py-2.5 text-sm font-semibold border-b border-[var(--color-border)]">
+          PRD 库
         </div>
 
-        {/* 筛选栏：系统（关联项目）/ 用户，任一没有可选项时不展示对应下拉，避免空摆设 */}
-        {(projectOptions.length > 0 || userOptions.length > 0) && (
-          <div className="px-2.5 py-2 space-y-1.5 border-b border-[var(--color-border)]">
-            {projectOptions.length > 0 && (
-              <select
-                value={filterProject}
-                onChange={(e) => setFilterProject(e.target.value)}
-                className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-1.5 py-1 text-[11px] text-[var(--color-foreground)]"
-              >
-                <option value="">全部系统</option>
-                {projectOptions.map((p) => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </select>
-            )}
-            {userOptions.length > 0 && (
-              <select
-                value={filterUser}
-                onChange={(e) => setFilterUser(e.target.value)}
-                className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-1.5 py-1 text-[11px] text-[var(--color-foreground)]"
-              >
-                <option value="">全部用户</option>
-                {userOptions.map((u) => (
-                  <option key={u} value={u}>{u}</option>
-                ))}
-              </select>
-            )}
-            {(filterProject || filterUser) && (
-              <button
-                type="button"
-                onClick={() => { setFilterProject(''); setFilterUser('') }}
-                className="text-[10px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:underline"
-              >
-                清除筛选
-              </button>
-            )}
+        {/* 搜索 + 筛选栏：标题搜索 + 系统（关联项目）/ 用户下拉，任一没有可选项时不展示对应下拉 */}
+        <div className="px-2.5 py-2 space-y-1.5 border-b border-[var(--color-border)]">
+          <div className="relative">
+            <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-muted-foreground)]" />
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="搜索 PRD…"
+              className="w-full pl-6 pr-2 py-1 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] text-[11px] text-[var(--color-foreground)]"
+            />
           </div>
-        )}
+          {(projectOptions.length > 0 || userOptions.length > 0) && (
+            <div className="grid grid-cols-2 gap-1.5">
+              {projectOptions.length > 0 && (
+                <select
+                  value={filterProject}
+                  onChange={(e) => setFilterProject(e.target.value)}
+                  className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-1.5 py-1 text-[11px] text-[var(--color-foreground)]"
+                >
+                  <option value="">全部项目</option>
+                  {projectOptions.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              )}
+              {userOptions.length > 0 && (
+                <select
+                  value={filterUser}
+                  onChange={(e) => setFilterUser(e.target.value)}
+                  className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-1.5 py-1 text-[11px] text-[var(--color-foreground)]"
+                >
+                  <option value="">全部负责人</option>
+                  {userOptions.map((u) => (
+                    <option key={u} value={u}>{u}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+          {(filterProject || filterUser || searchQuery) && (
+            <button
+              type="button"
+              onClick={() => { setFilterProject(''); setFilterUser(''); setSearchQuery('') }}
+              className="text-[10px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:underline"
+            >
+              清除筛选
+            </button>
+          )}
+        </div>
 
         <div className="flex-1 overflow-y-auto">
           {sessions.length === 0 && (
@@ -889,48 +934,81 @@ function HistoryPanel({
           {sessions.length > 0 && filteredRoots.length === 0 && (
             <div className="p-3 text-xs text-[var(--color-muted-foreground)]">没有匹配筛选条件的记录</div>
           )}
-          {filteredRoots.map((s) => (
-            <HistoryItem
-              key={s.id}
-              session={s}
-              depth={0}
-              childrenMap={childrenMap}
-              activeId={activeId}
-              onSelect={onSelect}
-              onRevise={onRevise}
-              onSplit={onSplit}
-              onRenameClick={handleRename}
-              onDeleteClick={handleDelete}
-              onPreview={setPreviewSession}
-              onViewEstimation={setViewingEstimation}
-            />
-          ))}
+          {groupedRoots.map((g) => {
+            const collapsed = collapsedProjects.has(g.project)
+            return (
+              <div key={g.project}>
+                {showGroupHeaders && (
+                  <button
+                    type="button"
+                    onClick={() => toggleProjectCollapse(g.project)}
+                    className="w-full flex items-center gap-1.5 px-3 py-1.5 bg-[var(--color-muted)]/30 border-y border-[var(--color-border)] text-left hover:bg-[var(--color-muted)]/50"
+                  >
+                    <ChevronRight className={`w-3 h-3 flex-shrink-0 text-[var(--color-muted-foreground)] transition-transform ${!collapsed ? 'rotate-90' : ''}`} />
+                    <span className="text-xs font-semibold truncate">{g.project}</span>
+                    <span className="text-[10px] text-[var(--color-muted-foreground)] ml-auto flex-shrink-0">{g.items.length} 个父需求</span>
+                  </button>
+                )}
+                {!collapsed && g.items.map((s) => (
+                  <HistoryItem
+                    key={s.id}
+                    session={s}
+                    depth={0}
+                    childrenMap={childrenMap}
+                    activeId={activeId}
+                    collapsedParents={collapsedParents}
+                    onToggleCollapse={toggleParentCollapse}
+                    onSelect={onSelect}
+                    onRevise={onRevise}
+                    onSplit={onSplit}
+                    onRenameClick={handleRename}
+                    onDeleteClick={handleDelete}
+                    onPreview={setPreviewSession}
+                    onViewEstimation={setViewingEstimation}
+                  />
+                ))}
+              </div>
+            )
+          })}
         </div>
       </div>
     </>
   )
 }
 
-/** 历史列表状态徽标配色（提到组件外，HistoryItem 递归渲染时复用同一份，不用每层重建）。 */
-const HISTORY_STATUS_COLOR: Record<string, string> = {
-  DRAFT: 'text-[var(--color-muted-foreground)]',
-  DONE: 'text-green-500',
-  GENERATING: 'text-blue-500',
-  CLARIFYING: 'text-yellow-500',
-  ANSWERING: 'text-yellow-500',
-  ERROR: 'text-red-500',
+/** 状态徽标文案 + 配色（提到组件外，HistoryItem 递归渲染时复用同一份，不用每层重建）。 */
+const HISTORY_STATUS_LABEL: Record<string, string> = {
+  DRAFT: '草稿',
+  CLARIFYING: '澄清中',
+  GENERATING: '生成中',
+  DONE: 'DONE',
+  ERROR: '出错',
+}
+const HISTORY_STATUS_BADGE: Record<string, string> = {
+  DRAFT: 'text-[var(--color-muted-foreground)] border-[var(--color-border)]',
+  CLARIFYING: 'text-yellow-500 border-yellow-500/30',
+  GENERATING: 'text-blue-500 border-blue-500/30',
+  DONE: 'text-green-500 border-green-500/30',
+  ERROR: 'text-red-500 border-red-500/30',
 }
 
 /**
  * 历史列表的一行（递归）：先渲染自己，再递归渲染 childrenMap 里挂在自己下面的子需求
  * （深度不设上限——正常只有「需求拆分」产生一层子节点，但子需求本身也是完整 PRD 会话，
- * 理论上可以再被拆一次，递归结构天然支持，不用另外加限制）。
+ * 理论上可以再被拆一次，递归结构天然支持，不用另外加限制）。有子需求时行首带一个可点击
+ * 折叠的箭头（默认展开），呼应"层级关系显示清晰"——列表长了可以自己收起不关心的分支。
+ *
+ * 开发文档不再单独占一行/单独一个可点击入口：点这一行本身进入 PRD 后，EditingPanel 只要
+ * 检测到已有开发文档就会自动切到开发文档 Tab（见 EditingPanel 的 panelMode 初始值），
+ * "点 PRD 就能看开发文档"，列表这里只用一小行文字展示版本号/是否过期，不需要重复一个入口。
  */
 function HistoryItem({
   session: s,
   depth,
   childrenMap,
   activeId,
+  collapsedParents,
+  onToggleCollapse,
   onSelect,
   onRevise,
   onSplit,
@@ -943,6 +1021,8 @@ function HistoryItem({
   depth: number
   childrenMap: Map<string, PrdSessionView[]>
   activeId: string | null
+  collapsedParents: Set<string>
+  onToggleCollapse: (id: string) => void
   onSelect: (s: PrdSessionView) => void
   onRevise: (s: PrdSessionView) => void
   onSplit: (s: PrdSessionView) => void
@@ -952,29 +1032,50 @@ function HistoryItem({
   onViewEstimation: (est: DevDocEstimation | null) => void
 }) {
   const children = childrenMap.get(s.id) ?? []
+  const hasChildren = children.length > 0
+  const collapsed = collapsedParents.has(s.id)
+  const doneChildren = children.filter((c) => c.status === 'DONE').length
+  const devDocVersionCount = s.devDocHistory.length > 0 ? s.devDocHistory.length : (s.devDocPath ? 1 : 0)
+  const devDocStale = !!s.devDocPath && (!s.devDocGeneratedAt || s.devDocGeneratedAt < s.updatedAt)
+  const hasMetrics = hasChildren || !!s.devDocPath || !!s.devDocEstimation
+
   return (
     <>
       <div
         onClick={() => onSelect(s)}
-        style={{ paddingLeft: 12 + depth * 14 }}
-        className={`group flex items-start gap-2 pr-3 py-2 cursor-pointer hover:bg-[var(--color-muted)]/40 transition-colors
+        style={{ paddingLeft: 6 + depth * 16 }}
+        className={`group flex items-start gap-1.5 pr-3 py-2 cursor-pointer hover:bg-[var(--color-muted)]/40 transition-colors
           ${s.id === activeId ? 'bg-[var(--color-muted)]/60' : ''}`}
       >
+        {/* 折叠箭头（有子需求才显示，占位对齐没有子需求的行） */}
+        {hasChildren ? (
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggleCollapse(s.id) }}
+            className="mt-0.5 flex-shrink-0 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+            title={collapsed ? '展开子需求' : '收起子需求'}
+          >
+            <ChevronRight className={`w-3 h-3 transition-transform ${!collapsed ? 'rotate-90' : ''}`} />
+          </button>
+        ) : (
+          <span className="w-3 flex-shrink-0" />
+        )}
         {depth > 0
           ? <GitBranch className="w-3 h-3 mt-0.5 flex-shrink-0 text-indigo-400 rotate-90" />
           : <FileText className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-[var(--color-muted-foreground)]" />}
         <div className="flex-1 min-w-0">
-          <div className="text-xs font-medium truncate">{s.title}</div>
-          {/* 项目 / 模块标签 */}
-          {(s.project || s.module) && (
-            <div className="text-[10px] text-[var(--color-muted-foreground)] truncate mt-0.5">
-              {[s.project, s.module].filter(Boolean).join(' · ')}
-            </div>
-          )}
-          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-            <span className={`text-[10px] ${HISTORY_STATUS_COLOR[s.status] ?? 'text-[var(--color-muted-foreground)]'}`}>
-              {s.status === 'DRAFT' ? '草稿' : s.status}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-medium truncate flex-1">{s.title}</span>
+            <span className={`text-[9px] px-1.5 py-0.5 rounded-full border leading-tight flex-shrink-0 ${HISTORY_STATUS_BADGE[s.status] ?? 'text-[var(--color-muted-foreground)] border-[var(--color-border)]'}`}>
+              {HISTORY_STATUS_LABEL[s.status] ?? s.status}
             </span>
+          </div>
+          {/* 项目/负责人 + 角色/需求类型标签 */}
+          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+            {(s.project || s.createdByUsername) && (
+              <span className="text-[10px] text-[var(--color-muted-foreground)] truncate">
+                {[s.project, s.createdByUsername].filter(Boolean).join(' · ')}
+              </span>
+            )}
             {/* 角色/需求类型标签：草稿阶段这两个字段只是占位默认值（还没到判定环节），
                 显示出来反而误导，等转正式发起澄清后才有意义 */}
             {s.status !== 'DRAFT' && (s.role === 'BUSINESS' ? (
@@ -982,7 +1083,6 @@ function HistoryItem({
             ) : (
               <span className="text-[9px] px-1 rounded bg-blue-500/15 text-blue-500 border border-blue-500/20 leading-tight">产品</span>
             ))}
-            {/* 需求类型标签：跟 REQ_TYPE_CONFIG 配色一致，老数据无 reqType 时按 NEW_MODULE 兜底 */}
             {s.status !== 'DRAFT' && (() => {
               const cfg = REQ_TYPE_CONFIG[s.reqType ?? 'NEW_MODULE']
               return (
@@ -991,72 +1091,33 @@ function HistoryItem({
                 </span>
               )
             })()}
-            {/* 创建人标签：普通用户历史列表本来就只有自己的记录，这个标签主要给 ADMIN
-                （能看到所有人记录）区分"这条是谁的"；只有后端解析出用户名时才展示 */}
-            {s.createdByUsername && (
-              <span className="text-[9px] px-1 rounded bg-[var(--color-muted)] text-[var(--color-muted-foreground)] border border-[var(--color-border)] leading-tight" title="创建人">
-                @{s.createdByUsername}
-              </span>
-            )}
           </div>
 
-          {/* 树结构：开发文档作为 PRD 的子节点 */}
-          {s.devDocPath && (() => {
-            // 过期判断：开发文档生成时间早于 PRD 最后更新时间
-            const isStale = !s.devDocGeneratedAt || s.devDocGeneratedAt < s.updatedAt
-            return (
-              <div className="mt-1.5">
-                <div className="flex items-center gap-1 flex-wrap">
-                  {/* 树连接线 */}
-                  <div className="flex-shrink-0" style={{ width: 10, height: 8, borderWidth: '0 0 1px 1px', borderStyle: 'dashed', borderColor: 'rgba(100,100,100,0.3)', borderRadius: '0 0 0 3px' }} />
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onSelect({ ...s, _openDevDoc: true } as PrdSessionView & { _openDevDoc?: boolean })
-                    }}
-                    className={`flex items-center gap-1 text-[10px] whitespace-nowrap transition-colors ${
-                      isStale
-                        ? 'text-amber-500 hover:text-amber-400'   // 橙色 = 过期
-                        : 'text-purple-400 hover:text-purple-300'  // 紫色 = 已同步
-                    }`}
-                    title={isStale ? '开发文档已过期（PRD 有更新），建议重新生成' : '查看开发文档（已同步最新PRD）'}
-                  >
-                    <Wrench className="w-2.5 h-2.5 flex-shrink-0" />
-                    {isStale ? '开发文档（已过期）' : '开发文档'}
-                  </button>
-                  {/* 过期时显示重新生成按钮 */}
-                  {isStale && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        // 进入该 PRD 并触发重新生成开发文档
-                        onSelect({ ...s, _regenDevDoc: true } as PrdSessionView & { _regenDevDoc?: boolean })
-                      }}
-                      className="flex-shrink-0 whitespace-nowrap text-[9px] px-1 rounded bg-amber-500/15 text-amber-500 border border-amber-500/20 hover:bg-amber-500/25 leading-tight"
-                      title="基于最新 PRD 重新生成开发文档"
-                    >
-                      ↺ 更新
-                    </button>
-                  )}
-                </div>
-                {/* AI 工时评估徽标：单独一行展示（跟 title 对齐缩进），避免跟上面的按钮挤在
-                    同一行导致窄侧边栏里换行、中文按钮文字被逐字拆行。只读，评估动作在
-                    开发文档 Tab 工具栏里触发 */}
-                {s.devDocEstimation && (
-                  <div className="flex items-center mt-1" style={{ paddingLeft: 14 }}>
-                    <EstimationBadge
-                      estimation={s.devDocEstimation}
-                      compact
-                      onClick={(e) => { e.stopPropagation(); onViewEstimation(s.devDocEstimation) }}
-                    />
-                  </div>
-                )}
-              </div>
-            )
-          })()}
+          {/* 指标行：子 PRD 完成度 / 开发文档版本(过期高亮) / AI 工时区间，一眼看全貌 */}
+          {hasMetrics && (
+            <div className="flex items-center gap-2.5 mt-1 text-[10px] text-[var(--color-muted-foreground)] flex-wrap">
+              {hasChildren && <span>{doneChildren}/{children.length} 子 PRD</span>}
+              {s.devDocPath && (
+                <span className={`flex items-center gap-0.5 ${devDocStale ? 'text-amber-500' : ''}`}
+                  title={devDocStale ? '开发文档已过期（PRD 有更新），点进去后可重新生成' : '已生成开发文档，点这一行进去查看'}>
+                  <Wrench className="w-2.5 h-2.5" />
+                  {devDocStale ? '⚠ 开发文档' : '开发文档'}{devDocVersionCount > 0 ? ` · v${devDocVersionCount}` : ''}
+                </span>
+              )}
+              {s.devDocEstimation && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onViewEstimation(s.devDocEstimation) }}
+                  className="hover:text-blue-400"
+                  title="查看 AI 工时评估详情"
+                >
+                  {s.devDocEstimation.hoursMin}-{s.devDocEstimation.hoursMax}h
+                </button>
+              )}
+            </div>
+          )}
         </div>
         {/* 操作按钮区（hover 显示） */}
-        <div className="hidden group-hover:flex items-center gap-1">
+        <div className="hidden group-hover:flex items-center gap-1 flex-shrink-0">
           {/* 生成修订版（DONE 状态才显示） */}
           {s.status === 'DONE' && (
             <button
@@ -1099,13 +1160,15 @@ function HistoryItem({
           </button>
         </div>
       </div>
-      {children.map((child) => (
+      {hasChildren && !collapsed && children.map((child) => (
         <HistoryItem
           key={child.id}
           session={child}
           depth={depth + 1}
           childrenMap={childrenMap}
           activeId={activeId}
+          collapsedParents={collapsedParents}
+          onToggleCollapse={onToggleCollapse}
           onSelect={onSelect}
           onRevise={onRevise}
           onSplit={onSplit}
