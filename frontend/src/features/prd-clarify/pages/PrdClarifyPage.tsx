@@ -3,7 +3,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { BotMessageSquare, Bug, ChevronRight, ClipboardCheck, Clock, Code2, Copy, ExternalLink, FileText, GitBranch, Image as ImageIcon, Info, Layers, Loader2, Paperclip, Pencil, Plus, RefreshCw, Rocket, Send, Sparkles, Trash2, User, Wrench, X } from 'lucide-react'
 import { http } from '@/lib/api'
-import { Combobox } from '@/components/ui/combobox'
 import { MultiSelect } from '@/components/ui/multi-select'
 import { usePrompt } from '@/components/ui/prompt-dialog'
 import { marked } from 'marked'
@@ -2223,20 +2222,36 @@ function InputPanel({
     return result.sort((a, b) => a.name.localeCompare(b.name, 'zh'))
   })()
 
-  // 拉取模块列表（选了项目后）
-  const { data: modulesData } = useQuery({
-    queryKey: ['project-modules', project],
-    queryFn: () => {
-      const item = projects.find((p) => p.name === project)
-      if (!item) return null
-      return http<{ modules: Array<{ name: string }> }>(
-        `/claude-chat/workspaces/modules?path=${encodeURIComponent(item.path)}`
-      )
-    },
-    enabled: !!project && projects.length > 0,
+  // 已选项目 tag 数组：project 对外契约仍是逗号分隔字符串（跟 module 一样，不改 schema），
+  // UI 层用 MultiSelect 多选，选中的项目名 join(', ') 写回 project 字符串。
+  const projectTags = project.split(/[,，、]/).map((s) => s.trim()).filter(Boolean)
+
+  // 拉取模块列表：项目多选后要对每个选中的项目各查一次模块列表，而不是只查第一个——
+  // 一次性 Promise.all 并行拉取，比逐个项目单独起 useQuery 更省心（不用手写 N 个 query）。
+  const { data: modulesByProject } = useQuery({
+    queryKey: ['project-modules-multi', projectTags],
+    queryFn: () => Promise.all(
+      projectTags.map(async (projName) => {
+        const item = projects.find((p) => p.name === projName)
+        if (!item) return { project: projName, modules: [] as Array<{ name: string }> }
+        const data = await http<{ modules: Array<{ name: string }> }>(
+          `/claude-chat/workspaces/modules?path=${encodeURIComponent(item.path)}`
+        )
+        return { project: projName, modules: data.modules ?? [] }
+      })
+    ),
+    enabled: projectTags.length > 0 && projects.length > 0,
   })
 
-  const modules: Array<{ name: string }> = modulesData?.modules ?? []
+  // 模块候选项：只选了 1 个项目时保持原样平铺（不带 group，跟改造前视觉一致）；
+  // 选了多个项目时按项目分组二级展示，避免不同项目间同名模块混在一起分不清来源。
+  const moduleOptions: { label: string; value: string; group?: string }[] = (modulesByProject ?? []).flatMap((entry) =>
+    entry.modules.map((m) => ({
+      label: m.name,
+      value: m.name,
+      group: projectTags.length > 1 ? entry.project : undefined,
+    }))
+  )
 
   // 已选模块 tag 数组：从 module 字符串派生（支持中英文逗号/顿号分隔，兼容历史遗留数据），
   // 传给 MultiSelect 做受控 value；onChange 里再 join(', ') 写回 module 字符串。
@@ -2323,23 +2338,24 @@ function InputPanel({
 
         <div className="flex gap-3">
           <div className="flex-1">
-            <label className="block text-sm font-medium mb-1">关联项目（可选）</label>
-            <Combobox
+            <label className="block text-sm font-medium mb-1">关联项目（可选，可多选）</label>
+            <MultiSelect
               id="project-input"
-              value={project}
-              onChange={(v) => { setProject(v); setModule('') }}
+              value={projectTags}
+              onChange={(tags) => { setProject(tags.join(', ')); setModule('') }}
               options={projects.map((p) => ({ label: p.name, value: p.name }))}
-              placeholder="如：kai-toolbox（可手动输入）"
-              emptyText="无匹配项目，可直接输入"
+              placeholder="如：kai-toolbox（可下拉勾选或输入多个）"
             />
           </div>
           <div className="flex-1">
-            <label className="block text-sm font-medium mb-1">关联模块（可选，可多选）</label>
+            <label className="block text-sm font-medium mb-1">
+              关联模块（可选，可多选{projectTags.length > 1 ? '，按项目分组' : ''}）
+            </label>
             <MultiSelect
               id="module-input"
               value={moduleTags}
               onChange={(tags) => setModule(tags.join(', '))}
-              options={modules.map((m) => ({ label: m.name, value: m.name }))}
+              options={moduleOptions}
               placeholder="如：tool-reqpool（可下拉勾选或输入多个）"
             />
           </div>
@@ -3091,9 +3107,11 @@ PRD_SESSION_ID: ${sessionId}`
   const handleLaunch = async () => {
     setLaunching(true)
     try {
-      // 查询项目的 cwd（workspace 绝对路径）
+      // 查询项目的 cwd（workspace 绝对路径）。关联项目支持多选（逗号/顿号分隔），
+      // 但 Vibe Coding 会话只能打开一个工作目录，取第一个项目作为主项目来解析 cwd。
       let cwd = ''
-      if (projectName) {
+      const primaryProjectName = projectName?.split(/[,，、]/)[0]?.trim() ?? ''
+      if (primaryProjectName) {
         try {
           const res = await fetch('/api/claude-chat/workspaces', {
             headers: { Authorization: `Bearer ${localStorage.getItem('toolbox.auth.token') ?? ''}` },
@@ -3103,7 +3121,7 @@ PRD_SESSION_ID: ${sessionId}`
               roots: Array<{ exists: boolean; dirs: Array<{ name: string; path: string }> }>
             }
             for (const root of data.roots ?? []) {
-              const found = root.dirs?.find(d => d.name === projectName)
+              const found = root.dirs?.find(d => d.name === primaryProjectName)
               if (found) { cwd = found.path; break }
             }
           }
@@ -3997,9 +4015,11 @@ export function PrdClarifyPage() {
     setSessionId(created.id)
     qc.invalidateQueries({ queryKey: ['prd-sessions'] })
 
-    // 查询项目 cwd
+    // 查询项目 cwd。关联项目支持多选（逗号/顿号分隔），但 Vibe Coding 会话只能打开一个
+    // 工作目录，取第一个项目作为主项目来解析 cwd。
     let cwd = ''
-    if (project) {
+    const primaryProject = project.split(/[,，、]/)[0]?.trim() ?? ''
+    if (primaryProject) {
       try {
         const res = await fetch('/api/claude-chat/workspaces', {
           headers: { Authorization: `Bearer ${localStorage.getItem('toolbox.auth.token') ?? ''}` },
@@ -4007,7 +4027,7 @@ export function PrdClarifyPage() {
         if (res.ok) {
           const data = await res.json() as { roots: Array<{ exists: boolean; dirs: Array<{ name: string; path: string }> }> }
           for (const root of data.roots ?? []) {
-            const found = root.dirs?.find(d => d.name === project)
+            const found = root.dirs?.find(d => d.name === primaryProject)
             if (found) { cwd = found.path; break }
           }
         }

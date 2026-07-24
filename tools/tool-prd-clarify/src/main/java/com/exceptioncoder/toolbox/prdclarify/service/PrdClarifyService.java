@@ -18,6 +18,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -1232,8 +1233,8 @@ public class PrdClarifyService {
         if (extraContext != null && !extraContext.isBlank()) {
             sb.append("\n【补充上下文】\n").append(extraContext.trim()).append("\n");
         }
-        appendGraphContext(sb, Optional.ofNullable(graphifyQuery.query(s.getProject(), s.getModule(), s.getTitle())));
-        appendDomainContext(sb, Optional.ofNullable(domainKnowledgeQuery.query(s.getProject(), s.getTitle())));
+        appendGraphContext(sb, queryGraphContext(s.getProject(), s.getModule(), s.getTitle()));
+        appendDomainContext(sb, queryDomainContext(s.getProject(), s.getTitle()));
         sb.append("\n请基于以上信息评估开发工时，严格按系统提示的 JSON 结构输出。");
         return sb.toString();
     }
@@ -1361,8 +1362,8 @@ public class PrdClarifyService {
         if (extraContext != null && !extraContext.isBlank()) {
             sb.append("\n【补充上下文】\n").append(extraContext.trim()).append("\n");
         }
-        appendGraphContext(sb, Optional.ofNullable(graphifyQuery.query(s.getProject(), s.getModule(), s.getTitle())));
-        appendDomainContext(sb, Optional.ofNullable(domainKnowledgeQuery.query(s.getProject(), s.getTitle())));
+        appendGraphContext(sb, queryGraphContext(s.getProject(), s.getModule(), s.getTitle()));
+        appendDomainContext(sb, queryDomainContext(s.getProject(), s.getTitle()));
         sb.append("\n请基于以上信息生成开发进度评估报告，严格按系统提示的大纲输出 Markdown。");
         return sb.toString();
     }
@@ -1539,7 +1540,7 @@ public class PrdClarifyService {
             }
             sb.append("\n");
         }
-        appendGraphContext(sb, Optional.ofNullable(graphifyQuery.query(s.getProject(), s.getModule(), s.getTitle())));
+        appendGraphContext(sb, queryGraphContext(s.getProject(), s.getModule(), s.getTitle()));
 
         sb.append("\n以下是已确认的产品需求文档（PRD）：\n\n");
         sb.append(prdContent).append("\n\n");
@@ -1568,7 +1569,7 @@ public class PrdClarifyService {
             }
             sb.append("\n");
         }
-        appendGraphContext(sb, Optional.ofNullable(graphifyQuery.query(s.getProject(), s.getModule(), s.getTitle())));
+        appendGraphContext(sb, queryGraphContext(s.getProject(), s.getModule(), s.getTitle()));
 
         sb.append("\n=== 当前最新 PRD ===\n\n").append(prdContent).append("\n\n");
         sb.append("=== 当前开发文档 ===\n\n").append(currentDevDoc).append("\n\n");
@@ -1659,8 +1660,8 @@ public class PrdClarifyService {
         sb.append("\n本次需要一次性提出 ").append(count).append(" 个澄清问题。\n");
         sb.append("提问重点：").append(batchClarifyFocusHint(s)).append("\n");
         appendGraphContext(sb, graphifyAskCache.computeIfAbsent(s.getId(),
-                id -> Optional.ofNullable(graphifyQuery.query(s.getProject(), s.getModule(), s.getTitle()))));
-        appendDomainContext(sb, Optional.ofNullable(domainKnowledgeQuery.query(s.getProject(), s.getTitle())));
+                id -> queryGraphContext(s.getProject(), s.getModule(), s.getTitle())));
+        appendDomainContext(sb, queryDomainContext(s.getProject(), s.getTitle()));
         sb.append("\n原始需求描述：\n").append(s.getRawInput()).append("\n\n");
         sb.append("请提出 ").append(count).append(" 个澄清问题（严格输出 JSON 数组，不加 markdown）。");
         return sb.toString();
@@ -1811,7 +1812,7 @@ public class PrdClarifyService {
         }
 
         appendGraphContext(sb, graphifyAskCache.computeIfAbsent(s.getId(),
-                id -> Optional.ofNullable(graphifyQuery.query(s.getProject(), s.getModule(), s.getTitle()))));
+                id -> queryGraphContext(s.getProject(), s.getModule(), s.getTitle())));
 
         int maxQuestions = s.getMaxQuestions() > 0 ? s.getMaxQuestions() : 5;
         int remaining = maxQuestions - questionIndex;
@@ -1891,6 +1892,67 @@ public class PrdClarifyService {
         }
         sb.append("\n【代码知识图谱查询结果】（系统已直接调用 graphify CLI 查询，非 MCP，内容为真实代码事实）\n");
         sb.append(graphContext.get()).append("\n");
+    }
+
+    /**
+     * 关联项目支持多选，落库时按逗号/顿号拼成一个字符串（跟 module 多选同样的处理方式，
+     * 没有改表结构）。{@link GraphifyQueryService}/{@link DomainKnowledgeQueryService} 底层
+     * 一次只认一个项目名，这里拆开逐个查再拼接结果，而不是把整串"kai-toolbox, yoooni"
+     * 原样传下去——那样两个服务各自的项目目录解析/精确匹配都会直接查不到，多选就变成
+     * 查询静默失效。
+     */
+    private static List<String> splitProjects(String project) {
+        if (project == null || project.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(project.split("[,，、]"))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .distinct()
+                .toList();
+    }
+
+    /**
+     * 代码知识图谱查询，自动展开多选项目逐个查询后拼接（单项目时等价于直接查一次）。
+     * 任一项目查询失败/查不到不影响其它项目，各自独立降级为"该项目无结果"。
+     */
+    private Optional<String> queryGraphContext(String project, String module, String title) {
+        List<String> projects = splitProjects(project);
+        if (projects.size() <= 1) {
+            String p = projects.isEmpty() ? null : projects.get(0);
+            return Optional.ofNullable(graphifyQuery.query(p, module, title));
+        }
+        StringBuilder merged = new StringBuilder();
+        for (String p : projects) {
+            String result = graphifyQuery.query(p, module, title);
+            if (result != null && !result.isBlank()) {
+                if (!merged.isEmpty()) {
+                    merged.append("\n\n");
+                }
+                merged.append("--- 项目 ").append(p).append(" ---\n").append(result);
+            }
+        }
+        return merged.isEmpty() ? Optional.empty() : Optional.of(merged.toString());
+    }
+
+    /** 业务知识图谱查询，多选项目的展开逻辑对齐 {@link #queryGraphContext}。 */
+    private Optional<String> queryDomainContext(String project, String title) {
+        List<String> projects = splitProjects(project);
+        if (projects.size() <= 1) {
+            String p = projects.isEmpty() ? null : projects.get(0);
+            return Optional.ofNullable(domainKnowledgeQuery.query(p, title));
+        }
+        StringBuilder merged = new StringBuilder();
+        for (String p : projects) {
+            String result = domainKnowledgeQuery.query(p, title);
+            if (result != null && !result.isBlank()) {
+                if (!merged.isEmpty()) {
+                    merged.append("\n\n");
+                }
+                merged.append("--- 项目 ").append(p).append(" ---\n").append(result);
+            }
+        }
+        return merged.isEmpty() ? Optional.empty() : Optional.of(merged.toString());
     }
 
     /** 将多轮问答历史转换为 questions JSON 格式（供 generate() 读取）。 */

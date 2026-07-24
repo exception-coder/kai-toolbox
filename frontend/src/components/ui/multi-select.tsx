@@ -6,6 +6,9 @@ import { cn } from '@/lib/utils'
 export interface MultiSelectOption {
   label: string
   value: string
+  /** 分组标签（如所属项目名）。存在时下拉列表按分组展示二级标题；不带 group 的选项按原样平铺，
+   *  组内顺序跟随 options 数组本身的顺序（组件不做二次排序）。 */
+  group?: string
 }
 
 export interface MultiSelectProps {
@@ -44,6 +47,28 @@ export function MultiSelect({ value, onChange, options, placeholder, id, classNa
     if (!q) return options
     return options.filter((o) => o.label.toLowerCase().includes(q))
   }, [options, draft])
+
+  // 按 group 分桶，保留 options 原始顺序（同一 group 的选项在源数组里不要求相邻，这里会
+  // 按"第一次出现该 group"的位置归并，不强制调用方预先排序）。group 为 undefined 的选项
+  // 各自单独成桶（不分组的照旧一项项平铺，不会被拼到同一个"未分组"大桶里打乱原有顺序）。
+  const groupedFiltered = React.useMemo(() => {
+    const groups: { group?: string; items: MultiSelectOption[] }[] = []
+    const indexByGroup = new Map<string, number>()
+    for (const o of filtered) {
+      if (o.group === undefined) {
+        groups.push({ group: undefined, items: [o] })
+        continue
+      }
+      let idx = indexByGroup.get(o.group)
+      if (idx === undefined) {
+        idx = groups.length
+        indexByGroup.set(o.group, idx)
+        groups.push({ group: o.group, items: [] })
+      }
+      groups[idx].items.push(o)
+    }
+    return groups
+  }, [filtered])
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -104,29 +129,38 @@ export function MultiSelect({ value, onChange, options, placeholder, id, classNa
             {draft.trim() ? `回车添加自定义值 "${draft.trim()}"` : '无候选模块'}
           </div>
         ) : (
-          filtered.map((o) => {
-            const checked = value.includes(o.value)
-            return (
-              <button
-                key={o.value}
-                type="button"
-                onClick={() => toggle(o.value)}
-                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-left hover:bg-[var(--color-accent)] hover:text-[var(--color-accent-foreground)]"
-              >
-                <span
-                  className={cn(
-                    'flex items-center justify-center w-4 h-4 rounded border shrink-0',
-                    checked
-                      ? 'bg-[var(--color-primary)] border-[var(--color-primary)] text-[var(--color-primary-foreground)]'
-                      : 'border-[var(--color-border)]',
-                  )}
-                >
-                  {checked && <Check className="w-3 h-3" />}
-                </span>
-                {o.label}
-              </button>
-            )
-          })
+          groupedFiltered.map((g, gi) => (
+            <div key={g.group ?? `_ungrouped_${gi}`}>
+              {g.group && (
+                <div className="px-2 pt-1.5 pb-1 text-[10px] font-semibold text-[var(--color-muted-foreground)] uppercase tracking-wide">
+                  {g.group}
+                </div>
+              )}
+              {g.items.map((o) => {
+                const checked = value.includes(o.value)
+                return (
+                  <button
+                    key={o.value}
+                    type="button"
+                    onClick={() => toggle(o.value)}
+                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-left hover:bg-[var(--color-accent)] hover:text-[var(--color-accent-foreground)]"
+                  >
+                    <span
+                      className={cn(
+                        'flex items-center justify-center w-4 h-4 rounded border shrink-0',
+                        checked
+                          ? 'bg-[var(--color-primary)] border-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                          : 'border-[var(--color-border)]',
+                      )}
+                    >
+                      {checked && <Check className="w-3 h-3" />}
+                    </span>
+                    {o.label}
+                  </button>
+                )
+              })}
+            </div>
+          ))
         )}
       </PopoverContent>
     </Popover>
