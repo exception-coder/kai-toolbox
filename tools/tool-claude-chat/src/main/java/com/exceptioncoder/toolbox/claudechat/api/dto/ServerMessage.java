@@ -17,7 +17,8 @@ public sealed interface ServerMessage
                 ServerMessage.QuestionRequest, ServerMessage.DecisionResolved,
                 ServerMessage.Models, ServerMessage.UserMessage, ServerMessage.Forked,
                 ServerMessage.ReplayGap, ServerMessage.Result, ServerMessage.TurnInfo,
-                ServerMessage.TurnProgress, ServerMessage.Error, ServerMessage.BackgroundTasks {
+                ServerMessage.TurnProgress, ServerMessage.Error, ServerMessage.BackgroundTasks,
+                ServerMessage.PendingSessions {
 
     long seq();
 
@@ -105,4 +106,16 @@ public sealed interface ServerMessage
     record BackgroundTasks(long seq, List<BackgroundTaskInfo> tasks) implements ServerMessage {}
 
     record BackgroundTaskInfo(String taskId, String taskType, String description) {}
+
+    /**
+     * 全局跨会话「待人工确认」快照：列出当前所有有未决权限/提问请求的会话。
+     * 连接级信号（seq 固定 0，不入单会话缓冲、不参与前端去重），任一会话的 pending set/clear 即广播给
+     * 所有连接；新连接/切会话时也发一次。前端据此在任意界面标红点并可一键跳到该会话作答，
+     * 避免用户切到别的会话/模块后，某会话的 AskUserQuestion 无人应答直至超时被拒、任务中断。
+     */
+    @JsonTypeName("pendingSessions")
+    record PendingSessions(long seq, List<PendingSessionRef> sessions) implements ServerMessage {}
+
+    /** 一个待确认会话：kind=permission/question；toolName 仅权限请求有。 */
+    record PendingSessionRef(String sessionId, String cwd, String kind, String toolName) {}
 }

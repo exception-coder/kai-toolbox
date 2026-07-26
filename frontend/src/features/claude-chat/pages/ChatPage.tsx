@@ -18,6 +18,7 @@ import { NotifySettings } from '../components/NotifySettings'
 import { VoiceInputButton } from '../components/VoiceInputButton'
 import { AttachmentChips } from '../components/AttachmentChips'
 import { QueuedList } from '../components/QueuedList'
+import { PendingSessionsBanner } from '../components/PendingSessionsBanner'
 import { SessionCapsPanel } from '../components/SessionCapsPanel'
 import { PENDING_DRAFT_KEY, useDraftStore } from '../lib/draftPref'
 import { useDraftAttachments, type DraftAttachment } from '../lib/attachmentDraftPref'
@@ -1308,6 +1309,12 @@ export function ChatPage() {
 
           {/* 右侧：消息流 + 输入 */}
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            {/* 跨会话待确认：其它会话有未决权限/提问时置顶提示，点击跳去作答（避免漏答致任务超时中断）。 */}
+            <PendingSessionsBanner
+              sessions={chat.pendingSessions}
+              currentSessionId={chat.sessionId}
+              onGo={sid => chat.switchTo(sid)}
+            />
             {chat.sessionId ? (
               <MessageList
                 ref={messageListRef}

@@ -371,6 +371,15 @@ export type ServerMessage =
   | { type: 'error'; seq: number; code: string; message: string }
   /** 该会话后台任务的全量快照，收到即整体覆盖（REPLACE 语义）；空数组＝当前没有后台任务在跑。 */
   | { type: 'backgroundTasks'; seq: number; tasks: BackgroundTaskInfo[] }
+  | { type: 'pendingSessions'; seq: number; sessions: PendingSessionRef[] }
+
+/** 全局跨会话待答项：某会话有未决权限/提问请求。kind=permission/question。 */
+export interface PendingSessionRef {
+  sessionId: string
+  cwd: string
+  kind: 'permission' | 'question'
+  toolName?: string | null
+}
 
 /** 一轮调用诊断条目：请求模型 vs API 实际返回模型 + 是否经网关。供第三方会话「调用诊断」区块展示。 */
 export interface TurnDiag {

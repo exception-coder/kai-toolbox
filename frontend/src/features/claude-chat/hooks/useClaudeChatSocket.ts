@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { emitSessionExpired, ensureFreshToken, getToken, logout, useAuth } from '@/lib/auth'
-import type { Attachment, BackgroundTaskInfo, ChatItem, ClientMessage, CodexReasoningEffort, CodexSpeed, ConnState, Engine, ModelInfo, PendingRequest, PermissionMode, ProviderKind, SendAttachment, ServerMessage, TurnDiag } from '../types'
+import type { Attachment, BackgroundTaskInfo, ChatItem, ClientMessage, CodexReasoningEffort, CodexSpeed, ConnState, Engine, ModelInfo, PendingRequest, PendingSessionRef, PermissionMode, ProviderKind, SendAttachment, ServerMessage, TurnDiag } from '../types'
 import { loadMessages } from '../api'
 import { notifyPrompt } from '../browserNotify'
 import { pushDebug } from '../lib/debugLog'
@@ -84,6 +84,8 @@ export interface UseClaudeChatSocket {
   sessionId: string | null
   items: ChatItem[]
   pending: PendingRequest | null
+  /** 全局跨会话待答快照（含当前会话；UI 通常过滤掉当前会话只提示"其它会话"）。 */
+  pendingSessions: PendingSessionRef[]
   running: boolean
   errorMessage: string | null
   /** 重连回放出现空洞（部分消息已被服务端缓冲淘汰）时的提示文案；null 表示无 */
@@ -176,6 +178,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [items, setItems] = useState<ChatItem[]>([])
   const [pending, setPending] = useState<PendingRequest | null>(null)
+  // 全局跨会话待答（连接级快照，非本会话）：任意界面据此标红点并可一键跳去作答。
+  const [pendingSessions, setPendingSessions] = useState<PendingSessionRef[]>([])
   const [running, setRunning] = useState(false)
   const [queued, setQueued] = useState<QueuedMessage[]>([])
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -488,6 +492,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
       case 'backgroundTasks':
         // 全量快照，REPLACE 语义：直接覆盖，不用配对开始/结束事件。
         setBackgroundTasks(msg.tasks)
+        break
+      case 'pendingSessions':
+        // 全局跨会话待答快照（REPLACE 语义）：连接级 seq=0，始终覆盖。
+        setPendingSessions(msg.sessions)
         break
     }
   }, [])
@@ -985,5 +993,5 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     }
   }, [sendRaw, connect])
 
-  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, agents, mcpServers, outputStyle, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, pendingSessions, running, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, agents, mcpServers, outputStyle, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, loadHistory }
 }

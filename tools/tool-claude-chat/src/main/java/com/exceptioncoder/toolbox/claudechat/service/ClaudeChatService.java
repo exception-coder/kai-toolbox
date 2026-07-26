@@ -345,6 +345,7 @@ public class ClaudeChatService {
             return;
         }
         ctx.pendingRequest = null;
+        broadcastPendingSessions();
         // 多端同看：广播「该请求已被处理」，让其它客户端关掉同一个弹窗
         sendToBrowser(ctx, seq -> new ServerMessage.DecisionResolved(seq, msg.reqId()));
     }
@@ -684,6 +685,7 @@ public class ClaudeChatService {
     private void onResult(SessionCtx ctx, JsonNode node) {
         ctx.status = SessionStatus.IDLE;
         ctx.pendingRequest = null; // 本轮结束，未决请求（含超时被拒）一并失效
+        broadcastPendingSessions();
         repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
         Map<String, Object> usage = asMap(node.get("usage"));
         String stopReason = node.path("stopReason").asText("end_turn");
@@ -867,6 +869,21 @@ public class ClaudeChatService {
         }
         ctx.viewers.add(ws);
         wsToSession.put(ws.getId(), ctx.sessionId);
+        // 新绑定的连接立即拿到全局待答快照：切到 A 时也能看到 C 仍在等确认。
+        writeTo(ws, pendingSessionsSnapshot());
+    }
+
+    /** 构造当前全局待答快照（不广播，仅供 bindViewer 单发）。 */
+    private ServerMessage.PendingSessions pendingSessionsSnapshot() {
+        List<ServerMessage.PendingSessionRef> refs = new ArrayList<>();
+        for (SessionCtx c : sessions.values()) {
+            ServerMessage p = c.pendingRequest;
+            if (p == null) continue;
+            String kind = p instanceof ServerMessage.QuestionRequest ? "question" : "permission";
+            String tool = p instanceof ServerMessage.PermissionRequest pr ? pr.toolName() : null;
+            refs.add(new ServerMessage.PendingSessionRef(c.sessionId, shortCwd(c.cwd), kind, tool));
+        }
+        return new ServerMessage.PendingSessions(0, refs);
     }
 
     private boolean hasActiveViewer(SessionCtx ctx) {
@@ -908,8 +925,22 @@ public class ClaudeChatService {
      */
     private void onDecisionPrompt(SessionCtx ctx, ServerMessage msg, String title, String body) {
         ctx.pendingRequest = msg;
+        broadcastPendingSessions();
         if (!hasActiveViewer(ctx)) {
             notifications.notify(title, body + "（" + shortCwd(ctx.cwd) + "）");
+        }
+    }
+
+    /**
+     * 广播全局跨会话待答快照给所有连接（每条 ws 只在其当前会话的 viewers 里，故遍历所有会话的 viewers
+     * 即覆盖全部连接一次）。seq=0 连接级消息，不入缓冲、前端不去重。任一会话 pending set/clear 时调用。
+     */
+    private void broadcastPendingSessions() {
+        ServerMessage snapshot = pendingSessionsSnapshot();
+        for (SessionCtx c : sessions.values()) {
+            for (WebSocketSession ws : c.viewers) {
+                writeTo(ws, snapshot);
+            }
         }
     }
 

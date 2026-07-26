@@ -13,6 +13,7 @@ import { CommandMenu } from './CommandMenu'
 import { PermissionDialog } from './PermissionDialog'
 import { QuestionDialog } from './QuestionDialog'
 import { AttachmentChips } from './AttachmentChips'
+import { PendingSessionsBanner } from './PendingSessionsBanner'
 import { VoiceInputButton } from './VoiceInputButton'
 import { MiniVoiceBar } from './MiniVoiceBar'
 import { LogsPanel } from './LogsPanel'
@@ -716,6 +717,14 @@ export function FloatingChatWindow() {
           )}
         </div>
       )}
+
+      {/* 跨会话待确认：其它会话有未决权限/提问时置顶提示，点击跳去作答（迷你态也显示，避免漏答）。 */}
+      <PendingSessionsBanner
+        sessions={chat.pendingSessions}
+        currentSessionId={chat.sessionId}
+        onGo={sid => { chat.switchTo(sid); setShowSessions(false); setShowMore(false); setCompact(false) }}
+        compact
+      />
 
       {/* body：仅完整态显示 更多选项 / 会话列表 / 消息流；迷你态无 body，状态在头部、直接到输入区 */}
       {!compact && (showMore ? (
