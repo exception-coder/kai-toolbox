@@ -10,13 +10,19 @@
 # Frontend dev server is not managed here, so -Dskip.frontend=true is used.
 #
 # Usage:
-#   pwsh -File scripts\run-supervised.ps1              # dev (default, incremental)
-#   pwsh -File scripts\run-supervised.ps1 -Mode full   # package + fat jar
+#   pwsh -File scripts\run-supervised.ps1                # dev (default, incremental)
+#   pwsh -File scripts\run-supervised.ps1 -Mode full     # package + fat jar
+#   pwsh -File scripts\run-supervised.ps1 -HotReload     # dev + 存盘即编译并热重启
 # Ctrl+C stops the supervisor loop.
 
 param(
     [ValidateSet('dev', 'full')]
-    [string]$Mode = 'dev'
+    [string]$Mode = 'dev',
+    # 存盘即自动重启（源码监听 + DevTools 重启）。默认关：重启时机由人控制，
+    # 走 POST /restart。热重启会换掉 Spring 上下文却留下旧上下文的后台线程/长连接
+    # （claude-chat sidecar 就踩过：僵尸 bean 继续抢 sidecar，事件投递到没人看的一端），
+    # 编译中途的半成品 class 也会触发无意义的重启。要用就显式开。
+    [switch]$HotReload
 )
 
 $ErrorActionPreference = 'Continue'
@@ -276,6 +282,9 @@ function Start-Backend {
     # SQLite DB 文件位置。留空走默认 ${toolbox.data-dir}/toolbox.db；
     # C 盘吃紧时在 run-tools.conf 配 TOOLBOX_SQLITE_FILE 把 DB 单独放大盘（如 D:\kai-toolbox\toolbox.db）。
     if ($env:TOOLBOX_SQLITE_FILE) { $javaOptions += "-Dtoolbox.sqlite.file=$env:TOOLBOX_SQLITE_FILE" }
+    # DevTools 热重启在 application.yml 里默认关（改完由人发 POST /restart）；-HotReload 时才用
+    # 系统属性顶回来——系统属性优先级高于 application.yml，一个开关同时管住监听与重启两端。
+    if ($HotReload) { $javaOptions += '-Dspring.devtools.restart.enabled=true' }
     $mvnLiteral = Quote-PowerShellLiteral $MvnCmd
     $javaLiteral = Quote-PowerShellLiteral $JavaCmd
     $javaOptionsLiteral = ($javaOptions | ForEach-Object { Quote-PowerShellLiteral $_ }) -join ' '
@@ -303,6 +312,10 @@ function Stop-Backend {
 
 function Start-HotReloadWatcher {
     if ($Mode -ne 'dev') { return }
+    if (-not $HotReload) {
+        Write-Host '[supervisor] hot reload 关闭（默认）：改完代码自己发 POST /restart，或加 -HotReload 开启'
+        return
+    }
 
     $sourceRoots = Get-ChildItem -LiteralPath $RepoRoot -Filter 'pom.xml' -File -Recurse `
             -ErrorAction SilentlyContinue |
@@ -387,7 +400,7 @@ function Start-HotCompile {
 }
 
 function Update-HotReload {
-    if ($Mode -ne 'dev') { return }
+    if ($Mode -ne 'dev' -or -not $HotReload) { return }
     Receive-HotReloadEvents
 
     if ($script:hotCompile) {

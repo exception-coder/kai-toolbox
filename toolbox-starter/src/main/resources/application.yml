@@ -1,6 +1,14 @@
 spring:
   application:
     name: kai-toolbox
+  devtools:
+    restart:
+      # 存盘即热重启默认关：重启时机由人控制（supervisor 的 POST /restart）。
+      # 热重启换的是 Spring 上下文而非 JVM，旧上下文的后台线程/长连接会活下来继续干活
+      # （claude-chat 的 sidecar 客户端就踩过：僵尸 bean 继续抢 sidecar、事件投递到没人看的一端）；
+      # 编译中途的半成品 class 也会触发无意义的重启。要热重启用 run-supervised.ps1 -HotReload，
+      # 它会用系统属性把这里顶回 true。
+      enabled: false
   ai:
     mcp:
       server:
