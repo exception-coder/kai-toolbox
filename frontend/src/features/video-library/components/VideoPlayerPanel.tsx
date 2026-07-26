@@ -4,7 +4,7 @@ import { cn, formatBytes } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { VideoPlayer } from '@/features/video-playback/VideoPlayer'
 import { subtitleTranslatedVttUrl, subtitleVttUrl } from '../api'
-import { PlayerPlaylistPanel } from './PlayerPlaylistPanel'
+import { PlayerPlaylistPanel, type PlaylistDirProps } from './PlayerPlaylistPanel'
 import { SubtitleControls, type SubtitleDisplayMode } from './SubtitleControls'
 import { VideoThumb } from './VideoThumb'
 import type { SubtitleJob, VideoLibraryItem } from '../types'
@@ -25,6 +25,8 @@ interface Props {
   onBulkDelete?: (items: VideoLibraryItem[]) => void | Promise<void>
   /** Toggle favorite for any item. Wired by the page; same handler the list panel uses. */
   onToggleFavorite: (item: VideoLibraryItem) => void
+  /** 目录浏览。传了播放列表里就多一个「目录」页签，可以在播放器里直接换目录。 */
+  dirProps?: PlaylistDirProps
 }
 
 /** How many neighbours each side of the current item the horizontal queue strip renders. */
@@ -42,7 +44,7 @@ const PREVIEW_LG_BREAKPOINT = 1024
  * touch-friendly transport bar. The {@code key={item.path}} on {@code VideoPlayer} is what
  * makes prev/next correctly tear down the previous ffmpeg process before starting the next.
  */
-export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext, onSelect, onOpenList, onDelete, onBulkDelete, onToggleFavorite }: Props) {
+export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext, onSelect, onOpenList, onDelete, onBulkDelete, onToggleFavorite, dirProps }: Props) {
   const activeStripRef = useRef<HTMLButtonElement | null>(null)
   const playerWrapperRef = useRef<HTMLDivElement | null>(null)
   const [previewSize, setPreviewSize] = useState({ width: 0, height: 0 })
@@ -218,6 +220,9 @@ export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext
   const windowEnd = currentIndex >= 0 ? Math.min(items.length, currentIndex + QUEUE_WINDOW + 1) : items.length
   const queueWindow = items.slice(windowStart, windowEnd)
   const showStrip = items.length > 1
+  // 播放列表的可用性不能只看队列长度：接了目录浏览后，即便当前目录只筛出 1 个视频，
+  // 入口也必须留着 —— 否则用户就被困在这个目录里，没法在播放器内换到别的目录。
+  const playlistAvailable = showStrip || Boolean(dirProps)
 
   // Desktop preview: fit as many cards as the space below the transport allows.
   // Card width comes from container width / column count; card height = aspect-video image + text section.
@@ -271,7 +276,7 @@ export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext
             subtitlesAvailable={Boolean(subtitleUrl || subtitleTranslatedUrl)}
             subtitlesOn={subtitleMode !== 'off'}
             onToggleSubtitles={handleSubtitleToggle}
-            onTogglePlaylist={showStrip ? () => setPlaylistOpen(v => !v) : undefined}
+            onTogglePlaylist={playlistAvailable ? () => setPlaylistOpen(v => !v) : undefined}
             playlistOpen={playlistOpen}
             className={cn(isFullscreen && 'aspect-auto h-full')}
           />
@@ -307,7 +312,7 @@ export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext
 
           {/* 浮层播放列表：全屏用；非全屏时只在窄屏用（宽屏改成下面的贴边栏，不挡画面）。
               关闭态保留在 DOM 里靠 translate 移出，才有滑入滑出的动画。 */}
-          {showStrip && (
+          {playlistAvailable && (
             <div
               className={cn(
                 'absolute right-0 z-30 w-72 max-w-[85%] shadow-2xl transition-transform duration-300',
@@ -321,6 +326,7 @@ export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext
                 items={items}
                 currentPath={item.path}
                 open={playlistOpen}
+                dirProps={dirProps}
                 onSelect={onSelect}
                 onToggleFavorite={onToggleFavorite}
                 onClose={() => setPlaylistOpen(false)}
@@ -330,12 +336,13 @@ export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext
         </div>
 
         {/* 贴边播放列表：非全屏宽屏。作为 flex 兄弟节点存在，画面自己缩窄给它让位。 */}
-        {showStrip && !isFullscreen && playlistOpen && (
+        {playlistAvailable && !isFullscreen && playlistOpen && (
           <PlayerPlaylistPanel
             className="hidden w-56 shrink-0 border-l border-white/10 md:flex lg:w-72"
             items={items}
             currentPath={item.path}
             open={playlistOpen}
+            dirProps={dirProps}
             onSelect={onSelect}
             onToggleFavorite={onToggleFavorite}
             onClose={() => setPlaylistOpen(false)}

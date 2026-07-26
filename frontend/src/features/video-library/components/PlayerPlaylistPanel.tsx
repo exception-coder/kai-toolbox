@@ -1,7 +1,16 @@
-import { useEffect, useRef } from 'react'
-import { Play, Star, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { FolderTree, ListVideo, Play, Star, X } from 'lucide-react'
 import { cn, formatBytes } from '@/lib/utils'
-import type { VideoLibraryItem } from '../types'
+import { VideoDirectoryPanel } from './VideoDirectoryPanel'
+import type { VideoDirectoryFacet, VideoLibraryItem } from '../types'
+
+/** 目录浏览所需的一组 props，与工作台侧栏用的是同一份（作用域状态在页面手里）。 */
+export interface PlaylistDirProps {
+  facets: VideoDirectoryFacet[]
+  loading: boolean
+  selectedDir: string | null
+  onSelect: (dir: string | null) => void
+}
 
 interface Props {
   items: VideoLibraryItem[]
@@ -11,6 +20,8 @@ interface Props {
   onClose: () => void
   /** 面板是否可见。不可见时跳过「滚动到当前项」，免得在隐藏状态里白算一次布局。 */
   open: boolean
+  /** 给了才出现「目录」页签：播放器里也能换目录，不必退回工作台侧栏。 */
+  dirProps?: PlaylistDirProps
   className?: string
 }
 
@@ -28,26 +39,45 @@ export function PlayerPlaylistPanel({
   onToggleFavorite,
   onClose,
   open,
+  dirProps,
   className,
 }: Props) {
   const activeRef = useRef<HTMLButtonElement | null>(null)
+  const [tab, setTab] = useState<'list' | 'dirs'>('list')
   const currentIndex = items.findIndex(it => it.path === currentPath)
 
   // 打开或换片时把当前项滚到中间。block:'center' + nearest 容器滚动，不会带动整页。
   useEffect(() => {
-    if (!open) return
+    if (!open || tab !== 'list') return
     activeRef.current?.scrollIntoView({ block: 'center' })
-  }, [open, currentPath])
+  }, [open, currentPath, tab])
 
   return (
     <div className={cn('flex flex-col bg-black/90 text-white backdrop-blur-md', className)}>
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 px-3 py-2">
-        <div className="min-w-0 truncate text-xs font-medium">
-          播放列表
-          <span className="ml-1 tabular-nums text-white/50">
-            {currentIndex >= 0 ? `${currentIndex + 1}/${items.length}` : items.length}
-          </span>
-        </div>
+        {dirProps ? (
+          <div className="flex min-w-0 flex-1 items-center gap-1">
+            <TabBtn active={tab === 'list'} onClick={() => setTab('list')}>
+              <ListVideo className="h-3.5 w-3.5" />
+              队列
+              <span className="tabular-nums opacity-60">
+                {currentIndex >= 0 ? `${currentIndex + 1}/${items.length}` : items.length}
+              </span>
+            </TabBtn>
+            <TabBtn active={tab === 'dirs'} onClick={() => setTab('dirs')}>
+              <FolderTree className="h-3.5 w-3.5" />
+              目录
+              {dirProps.selectedDir && <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-primary)]" />}
+            </TabBtn>
+          </div>
+        ) : (
+          <div className="min-w-0 truncate text-xs font-medium">
+            播放列表
+            <span className="ml-1 tabular-nums text-white/50">
+              {currentIndex >= 0 ? `${currentIndex + 1}/${items.length}` : items.length}
+            </span>
+          </div>
+        )}
         <button
           type="button"
           onClick={onClose}
@@ -58,7 +88,22 @@ export function PlayerPlaylistPanel({
         </button>
       </div>
 
-      {items.length === 0 ? (
+      {dirProps && tab === 'dirs' ? (
+        <VideoDirectoryPanel
+          tone="dark"
+          compact
+          className="min-h-0 flex-1"
+          facets={dirProps.facets}
+          loading={dirProps.loading}
+          selectedDir={dirProps.selectedDir}
+          onSelect={dir => {
+            dirProps.onSelect(dir)
+            // 选完目录立刻切回队列：用户点目录的意图是"播这个目录里的片"，
+            // 队列此时已按新作用域重新加载，停在目录树上等于还要再点一下。
+            if (dir) setTab('list')
+          }}
+        />
+      ) : items.length === 0 ? (
         <div className="flex flex-1 items-center justify-center px-4 text-center text-xs text-white/50">
           队列为空
         </div>
@@ -120,5 +165,28 @@ export function PlayerPlaylistPanel({
         </ul>
       )}
     </div>
+  )
+}
+
+function TabBtn({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors',
+        active ? 'bg-white/15 text-white' : 'text-white/55 hover:bg-white/10 hover:text-white/85',
+      )}
+    >
+      {children}
+    </button>
   )
 }

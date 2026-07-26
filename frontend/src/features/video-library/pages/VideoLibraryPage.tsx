@@ -638,6 +638,7 @@ export function VideoLibraryPage() {
               onDelete={handleDelete}
               onBulkDelete={handleBulkDelete}
               onToggleFavorite={handleToggleFavorite}
+              dirProps={sharedDirProps}
             />
           </main>
         </div>
