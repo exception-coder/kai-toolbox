@@ -42,6 +42,11 @@ interface VideoPlayerProps {
   /** 播放列表开关 — 列表本体由父级渲染在播放器容器上，这里只把入口交给控件栏。 */
   onTogglePlaylist?: () => void
   playlistOpen?: boolean
+  /**
+   * 窗口模式下的初始画面比例，默认 landscape（16:9）。
+   * 只影响非全屏时的容器形状；全屏一律转横向，除非用户手动改过方向。
+   */
+  defaultOrientation?: 'landscape' | 'portrait'
 }
 
 type Mode = 'loading' | 'native' | 'hls' | 'unsupported' | 'error' | 'unauthorized'
@@ -78,6 +83,7 @@ export function VideoPlayer({
   onToggleSubtitles,
   onTogglePlaylist,
   playlistOpen,
+  defaultOrientation = 'landscape',
 }: VideoPlayerProps) {
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -87,7 +93,15 @@ export function VideoPlayer({
   const [probe, setProbe] = useState<ProbeResult | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [rotation, setRotation] = useState(0)
-  const [screenOrientation, setScreenOrientation] = useState<ScreenOrientationMode>('landscape')
+  const [screenOrientation, setScreenOrientation] = useState<ScreenOrientationMode>(defaultOrientation)
+  /**
+   * 用户有没有亲手改过画面方向。
+   *
+   * 用来把「窗口比例」与「全屏设备方向」两件事解耦：窗口默认可以是竖的（手机上竖握时
+   * 播放区更大），但全屏默认必须是横的 —— 两者共用一个默认值会互相打架。用户一旦手动选过，
+   * 就以他的选择为准，全屏也不再强制掰回横屏。
+   */
+  const userPickedOrientation = useRef(false)
 
   useEffect(() => {
     setMode('loading')
@@ -233,6 +247,7 @@ export function VideoPlayer({
    * 锁定设备方向（非全屏调 lock 本来也会被浏览器拒绝）。
    */
   const applyScreenOrientation = useCallback(async (next: ScreenOrientationMode) => {
+    userPickedOrientation.current = true
     setScreenOrientation(next)
     if (!document.fullscreenElement) return
     try {
@@ -248,9 +263,9 @@ export function VideoPlayer({
    * <p>手机竖着拿点全屏，期望的是「横过来占满屏幕看」，而不是在竖屏里得到一条细横带 ——
    * 各家视频 App 都是这个行为。之前只有用户手动去「旋转/画面方向」里选才会 lock。
    *
-   * <p>锁的方向取当前 {@code screenOrientation} 而不是写死 landscape：用户为竖拍视频主动
-   * 选了竖屏，进全屏就不该把他掰回横的。默认值本就是 landscape，所以不特意设置的人拿到的
-   * 就是「全屏即横屏」。
+   * <p>锁哪个方向：用户手动选过就听他的（为竖拍视频选了竖屏，进全屏不该把他掰回横的）；
+   * 没选过一律 landscape —— <b>不能直接用 screenOrientation</b>，因为窗口模式的默认比例
+   * 可能是竖的（视频库在手机上就传 portrait），沿用它会让全屏变成锁竖屏，正好反了。
    *
    * <p>退出全屏必须 unlock，否则整个页面会一直被钉在横屏。lock/unlock 在桌面浏览器与
    * iOS Safari 上都会失败（不支持），catch 掉即可 —— 那些平台本来也不需要转屏。
@@ -266,7 +281,8 @@ export function VideoPlayer({
       }
       return
     }
-    void orientation.lock?.(screenOrientation)?.catch(() => {
+    const target: ScreenOrientationMode = userPickedOrientation.current ? screenOrientation : 'landscape'
+    void orientation.lock?.(target)?.catch(() => {
       /* 桌面 / iOS Safari 不支持锁定，忽略 */
     })
   }, [effectiveFullscreen, screenOrientation])
@@ -276,9 +292,14 @@ export function VideoPlayer({
       ref={containerRef}
       className={cn(
         'relative w-full bg-black group/player overflow-hidden transition-[max-width,aspect-ratio] duration-300',
-        screenOrientation === 'landscape'
-          ? 'aspect-video'
-          : 'mx-auto aspect-[9/16] max-h-[min(82vh,760px)] max-w-[min(100%,430px)]',
+        // 全屏时必须清掉竖屏那套尺寸约束：max-w-[430px] / max-h 是为窗口模式定的，
+        // 带进全屏会把画面钉成一条窄带居中。这段内聚在播放器自己身上，
+        // 不指望调用方传 className 去覆盖（twMerge 也盖不掉 max-w/max-h）。
+        effectiveFullscreen
+          ? 'aspect-auto h-full max-h-none max-w-none'
+          : screenOrientation === 'landscape'
+            ? 'aspect-video'
+            : 'mx-auto aspect-[9/16] max-h-[min(82vh,760px)] max-w-[min(100%,430px)]',
         className,
       )}
     >

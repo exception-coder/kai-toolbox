@@ -62,6 +62,18 @@ export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext
   // Persist the user's preferred display mode across video switches — most viewers will pick
   // "dual" once and want it to stick. Re-applied on every track that completes.
   const [subtitleMode, setSubtitleMode] = useState<SubtitleDisplayMode>('dual')
+  /**
+   * 窗口模式下的默认画面比例：手机竖握时用 9:16 让播放区尽量大，桌面维持 16:9。
+   *
+   * 桌面不能一起改 —— 竖屏容器带 max-w-[430px]，在宽屏上会缩成中间一条窄带，是明显退化。
+   * 只在挂载时判一次：中途旋转设备不该把用户正在看的画面比例换掉。
+   * 全屏方向不受这里影响，仍是「没手动选过就转横屏」。
+   */
+  const [defaultOrientation] = useState<'landscape' | 'portrait'>(() =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
+      ? 'portrait'
+      : 'landscape',
+  )
   // Remembers the last non-"off" mode so the captions quick-toggle on the player can flip
   // back to whatever the user last had on, instead of always landing on "dual".
   const lastActiveSubMode = useRef<Exclude<SubtitleDisplayMode, 'off'>>('dual')
@@ -279,6 +291,7 @@ export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext
             onToggleSubtitles={handleSubtitleToggle}
             onTogglePlaylist={playlistAvailable ? () => setPlaylistOpen(v => !v) : undefined}
             playlistOpen={playlistOpen}
+            defaultOrientation={defaultOrientation}
             className={cn(isFullscreen && 'aspect-auto h-full')}
           />
 
