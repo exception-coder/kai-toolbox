@@ -4,7 +4,7 @@ import {
 } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  BarChart3, Boxes, BrainCircuit, Briefcase, ChevronDown, Contact, Eye, EyeOff, Factory, Handshake,
+  BarChart3, Boxes, BrainCircuit, Briefcase, Bug, ChevronDown, Contact, Eye, EyeOff, Factory, Handshake,
   FileText, History, Landmark, Lightbulb, Loader2, Maximize2, MessagesSquare, Minimize2, MousePointerClick,
   Paperclip, Radar, Route, Save, Search, Send, Server, ShoppingBag, ShoppingCart, SlidersHorizontal, Sparkles,
   Trash2, Truck, Users, Warehouse, Waypoints, X, type LucideIcon,
@@ -14,6 +14,7 @@ import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContex
 import { setSessionGroupApi } from '@/features/claude-chat/api'
 import type { ChatItem } from '@/features/claude-chat/types'
 import { ConsultConversation } from '../components/ConsultConversation'
+import { BugDrawer } from '../components/BugDrawer'
 import { ConsultHistoryDetail } from '../components/ConsultHistoryDetail'
 import {
   archiveConsult,
@@ -23,6 +24,7 @@ import {
   listConsults,
   analyzeTopology,
   getTopology,
+  listBugs,
   listSystemPrefs,
   listWorkspaces,
   saveSystemPrefs,
@@ -249,6 +251,11 @@ function buildConsultSeed(system: string, modules: string[], ask: string, role: 
     '',
     '【分析方法】优先调用业务知识图谱（domain-knowledge）和 graphify 代码知识图谱核对事实来定位问题；知识图谱分析不出来，再结合实际代码逻辑分析。',
     '【数据库红线】当前连接的数据库 MCP 是「测试环境」。不要仅凭用户的截图/单据号就直接去数据库查这条记录——测试库里查不到，会误导判断。除非用户明确说明「这张截图/这条数据来自测试环境」，才可以带着截图信息去查库；否则不要查库，基于业务与代码逻辑作答。',
+    '【BUG 自动登记】如果你分析后**确认这是系统 BUG 或数据问题**（不是操作指引、不是使用方法），请在正常回答之后另起一段，输出如下机器可读块（系统会自动登记留存，用户无需理会）：',
+    '<<<BUG_REPORT>>>',
+    '{"title":"一句话缺陷标题","type":"FUNCTION_BUG|DATA_ISSUE|CONFIG|PERMISSION|OTHER","severity":"LOW|MEDIUM|HIGH|CRITICAL","module":"所属模块","reproduce":"复现步骤","expected":"期望行为","actual":"实际行为","suspectArea":"疑似位置(菜单路径/接口/代码/表)","confidence":0-100}',
+    '<<<END_BUG_REPORT>>>',
+    '只有**确实是缺陷**才输出该块；纯操作指引或正常现象，绝对不要输出。块必须是合法 JSON、字段用双引号。',
   ]
 
   return [
@@ -307,6 +314,7 @@ export function ForeConsultPage() {
   const [conversationOpen, setConversationOpen] = useState(false)
   const [viewSession, setViewSession] = useState<{ id: string; title: string } | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [bugsOpen, setBugsOpen] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [hintDismissed, setHintDismissed] = useState(() => {
     try {
@@ -455,6 +463,7 @@ export function ForeConsultPage() {
   )
 
   const { data: history } = useQuery({ queryKey: ['fore-consult-sessions'], queryFn: listConsults })
+  const { data: bugs } = useQuery({ queryKey: ['fore-consult-bugs'], queryFn: listBugs })
 
   const deliver = useCallback(() => {
     const p = pendingRef.current
@@ -819,6 +828,15 @@ export function ForeConsultPage() {
           >
             <History className="size-3.5" />
             历史咨询 {(history ?? []).length > 0 && `· ${(history ?? []).length}`}
+          </button>
+          <button
+            type="button"
+            onClick={() => setBugsOpen((o) => !o)}
+            className="flex items-center gap-1.5 rounded-full border border-amber-300/25 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-100 backdrop-blur-md transition-colors hover:bg-amber-400/20"
+            title="AI 自动登记的缺陷/数据问题"
+          >
+            <Bug className="size-3.5" />
+            Bug 登记 {(bugs ?? []).length > 0 && `· ${(bugs ?? []).length}`}
           </button>
           <button
             type="button"
@@ -1230,6 +1248,7 @@ export function ForeConsultPage() {
           roleLabel={ROLE_META[role].label}
           cwd={systemPath || system.trim()}
           onUploaded={(name, path, mime) => attMetaRef.current.set(name, { path, mime })}
+          onBugRegistered={() => qc.invalidateQueries({ queryKey: ['fore-consult-bugs'] })}
           onClose={() => setConversationOpen(false)}
           onArchive={() => archiveMutation.mutate()}
           archiving={archiveMutation.isPending}
@@ -1294,6 +1313,9 @@ export function ForeConsultPage() {
           </div>
         </div>
       )}
+
+      {/* Bug 登记抽屉 */}
+      {bugsOpen && <BugDrawer onClose={() => setBugsOpen(false)} />}
 
       {/* 历史咨询详情（只读查看归档问答） */}
       {viewSession && (

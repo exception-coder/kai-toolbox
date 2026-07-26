@@ -195,6 +195,66 @@ export function getTopology() {
   return http<{ links: TopoLink[] }>('/fore-consult/topology')
 }
 
+// ── BUG 自动登记体系 ──────────────────────────────────────────────
+
+export interface ConsultBugView {
+  bugId: string
+  consultSessionId: string | null
+  systemName: string | null
+  module: string | null
+  role: string | null
+  title: string
+  type: string
+  severity: string
+  reproduce: string | null
+  expected: string | null
+  actual: string | null
+  suspectArea: string | null
+  evidence: string | null
+  question: string | null
+  answer: string | null
+  aiConfidence: number | null
+  refsJson: string | null
+  status: string
+  occurrenceCount: number
+  firstSeenAt: number
+  lastSeenAt: number
+}
+
+export interface RegisterBugRequest {
+  consultSessionId?: string | null
+  turnIndex?: number
+  title: string
+  type?: string
+  severity?: string
+  module?: string
+  reproduce?: string
+  expected?: string
+  actual?: string
+  suspectArea?: string
+  confidence?: number
+  question?: string
+  answer?: string
+  evidence?: string[]
+  refs?: string[]
+}
+
+export function registerBug(req: RegisterBugRequest) {
+  return http<ConsultBugView>('/fore-consult/bugs', { method: 'POST', body: JSON.stringify(req) })
+}
+
+export function listBugs() {
+  return http<ConsultBugView[]>('/fore-consult/bugs')
+}
+
+export function updateBugStatus(bugId: string, status: string) {
+  return http<ConsultBugView>(`/fore-consult/bugs/${bugId}/status`, { method: 'PUT', body: JSON.stringify({ status }) })
+}
+
+export function deleteBug(bugId: string) {
+  return http<void>(`/fore-consult/bugs/${bugId}`, { method: 'DELETE' })
+}
+
 // ── 咨询附件上传（图片/Excel/Word/Markdown/PDF），落盘返回绝对路径供引擎 Read ──────────
 
 export interface ConsultAttachment {

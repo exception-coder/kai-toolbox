@@ -51,6 +51,41 @@ CREATE TABLE IF NOT EXISTS consult_feedback (
     PRIMARY KEY (session_id, turn_index)
 );
 
+-- 咨询中 AI 判定为 BUG/数据问题时自动登记的缺陷档案（人工再核实）。
+-- dedup_key 去重：同「系统+模块+标题（归一）」的重复上报只累加 occurrence_count、刷新 last_seen，不重复建单。
+-- status 生命周期：NEW（AI 待核实）→ CONFIRMED / DUPLICATE / FIXED / WONTFIX / REJECTED。
+CREATE TABLE IF NOT EXISTS consult_bug (
+    bug_id             TEXT    PRIMARY KEY,              -- UUID
+    dedup_key          TEXT    NOT NULL,                 -- 去重键（系统|模块|归一标题）
+    consult_session_id TEXT,                             -- 关联咨询会话
+    dev_session_id     TEXT,                             -- 关联 claude-chat 会话
+    system_name        TEXT,
+    module             TEXT,
+    role               TEXT,                             -- 上报角色 IT|BIZ
+    user_id            TEXT,
+    title              TEXT    NOT NULL,                 -- 一句话标题
+    type               TEXT,                             -- FUNCTION_BUG|DATA_ISSUE|CONFIG|PERMISSION|OTHER
+    severity           TEXT,                             -- LOW|MEDIUM|HIGH|CRITICAL
+    reproduce          TEXT,                             -- 复现步骤
+    expected           TEXT,                             -- 期望行为
+    actual             TEXT,                             -- 实际行为
+    suspect_area       TEXT,                             -- 疑似位置（菜单路径/接口/代码/表）
+    evidence           TEXT,                             -- 证据（附件路径等，JSON）
+    question           TEXT,                             -- 用户提问原文
+    answer             TEXT,                             -- AI 结论原文
+    ai_confidence      INTEGER,                          -- AI 置信度 0-100
+    refs_json          TEXT,                             -- AI 依据的图谱/知识引用（JSON）
+    status             TEXT    NOT NULL DEFAULT 'NEW',
+    occurrence_count   INTEGER NOT NULL DEFAULT 1,
+    first_seen_at      INTEGER NOT NULL,
+    last_seen_at       INTEGER NOT NULL,
+    created_at         INTEGER NOT NULL,
+    updated_at         INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_consult_bug_dedup   ON consult_bug(dedup_key);
+CREATE INDEX IF NOT EXISTS idx_consult_bug_created ON consult_bug(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_consult_bug_status  ON consult_bug(status);
+
 CREATE INDEX IF NOT EXISTS idx_consult_session_created ON consult_session(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_consult_session_user    ON consult_session(user_id);
 CREATE INDEX IF NOT EXISTS idx_consult_turn_session    ON consult_turn(session_id, turn_index);

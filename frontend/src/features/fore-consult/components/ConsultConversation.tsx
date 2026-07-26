@@ -4,10 +4,29 @@ import {
 } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { Archive, Loader2, MessagesSquare, Paperclip, Send, ThumbsDown, ThumbsUp, X } from 'lucide-react'
+import { Archive, Bug, Loader2, MessagesSquare, Paperclip, Send, ThumbsDown, ThumbsUp, X } from 'lucide-react'
 import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import type { ChatItem } from '@/features/claude-chat/types'
-import { submitFeedback, uploadConsultAttachment } from '../api'
+import { registerBug, submitFeedback, uploadConsultAttachment } from '../api'
+
+// AI 在回答里判定为缺陷时输出的机器可读块，前端解析登记并从展示中剥离。
+const BUG_RE = /<<<BUG_REPORT>>>\s*([\s\S]*?)\s*<<<END_BUG_REPORT>>>/
+interface ParsedBug {
+  title?: string; type?: string; severity?: string; module?: string
+  reproduce?: string; expected?: string; actual?: string; suspectArea?: string; confidence?: number
+}
+function extractBug(text: string): ParsedBug | null {
+  const m = text.match(BUG_RE)
+  if (!m) return null
+  try {
+    return JSON.parse(m[1].trim()) as ParsedBug
+  } catch {
+    return null
+  }
+}
+function stripBug(text: string): string {
+  return text.replace(BUG_RE, '').trim()
+}
 import { ImageLightbox } from './ImageLightbox'
 
 type Att = { name: string; path: string; mime?: string | null; url?: string }
@@ -21,6 +40,7 @@ interface Props {
   roleLabel: string
   cwd: string
   onUploaded?: (name: string, path: string, mime?: string | null) => void
+  onBugRegistered?: () => void
   onClose: () => void
   onArchive: () => void
   archiving: boolean
@@ -40,7 +60,7 @@ function renderMarkdown(text: string): string {
  * 不弹 Vibe Coding 悬浮窗。会话以 bypassPermissions 打开（只读业务问答，自动放行工具），
  * 万一引擎发起提问/权限，给一个「在悬浮窗处理」的兜底入口。
  */
-export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, onUploaded, onClose, onArchive, archiving }: Props) {
+export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, onUploaded, onBugRegistered, onClose, onArchive, archiving }: Props) {
   const { chat, setFloating, setMinimized } = useChatRuntime()
   const [text, setText] = useState('')
   const [atts, setAtts] = useState<Att[]>([])
@@ -48,6 +68,8 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
   const [ratings, setRatings] = useState<Map<number, Rating>>(new Map())
   const [badDialog, setBadDialog] = useState<number | null>(null) // 打开不满意弹框的 turnIndex
   const [lightbox, setLightbox] = useState<string | null>(null) // 图片灯箱 src
+  const [bugTurns, setBugTurns] = useState<Set<string>>(new Set()) // 已登记 BUG 的 assistant 消息 id
+  const registeredRef = useRef<Set<string>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -75,6 +97,47 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
     const el = scrollRef.current
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
   }, [items.length, running])
+
+  // 回答完成后：解析其中的 BUG 结构化块并自动登记（每条 assistant 只处理一次）。
+  useEffect(() => {
+    if (running) return
+    items.forEach((it) => {
+      if (it.kind !== 'assistant' || registeredRef.current.has(it.id)) return
+      registeredRef.current.add(it.id)
+      const bug = extractBug(it.text)
+      if (!bug || !bug.title) return
+      const idx = items.indexOf(it)
+      let turnIndex = 0
+      let question = ''
+      for (let i = 0; i <= idx; i++) {
+        const m = items[i]
+        if (m.kind === 'user') {
+          turnIndex++
+          question = m.displayText ?? m.text
+        }
+      }
+      registerBug({
+        consultSessionId: consultId,
+        turnIndex,
+        title: bug.title,
+        type: bug.type,
+        severity: bug.severity,
+        module: bug.module,
+        reproduce: bug.reproduce,
+        expected: bug.expected,
+        actual: bug.actual,
+        suspectArea: bug.suspectArea,
+        confidence: typeof bug.confidence === 'number' ? bug.confidence : undefined,
+        question,
+        answer: stripBug(it.text),
+      })
+        .then(() => {
+          setBugTurns((p) => new Set(p).add(it.id))
+          onBugRegistered?.()
+        })
+        .catch(() => {})
+    })
+  }, [items, running, consultId, onBugRegistered])
 
   const MAX_ATT = 10
   const handleFiles = async (files: FileList | null) => {
@@ -188,6 +251,11 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
                   <MessageRow item={it} onImageClick={setLightbox} />
                   {showRating && (
                     <RatingRow rating={ratings.get(turnIdx)} onGood={() => rateGood(turnIdx)} onBad={() => setBadDialog(turnIdx)} />
+                  )}
+                  {bugTurns.has(it.id) && (
+                    <div className="flex items-center gap-1.5 pl-1 text-[11px] text-amber-300/90">
+                      <Bug className="size-3" /> 已识别为缺陷并自动登记到 Bug 库
+                    </div>
                   )}
                 </div>
               )
@@ -373,7 +441,7 @@ function MessageRow({ item, onImageClick }: { item: ChatItem; onImageClick: (src
     if (!item.text.trim()) return null
     return (
       <div className="max-w-[92%] rounded-2xl rounded-tl-sm border border-indigo-300/15 bg-white/[0.04] px-3.5 py-2.5">
-        <div className="fc-md" dangerouslySetInnerHTML={{ __html: renderMarkdown(item.text) }} />
+        <div className="fc-md" dangerouslySetInnerHTML={{ __html: renderMarkdown(stripBug(item.text)) }} />
       </div>
     )
   }
