@@ -2,6 +2,7 @@ import * as React from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { useFullscreenPortalContainer } from '@/lib/fullscreen-portal'
 import { cn } from '@/lib/utils'
 
 export interface PromptOptions {
@@ -77,6 +78,8 @@ export function PromptProvider({ children }: { children: React.ReactNode }) {
   }, [pending])
 
   const opts = pending?.options
+  // 全屏时挂到全屏元素内，否则输入框会渲染在全屏元素外面而完全不可见
+  const portalContainer = useFullscreenPortalContainer()
 
   return (
     <PromptContext.Provider value={prompt}>
@@ -85,7 +88,7 @@ export function PromptProvider({ children }: { children: React.ReactNode }) {
         open={!!pending}
         onOpenChange={open => { if (!open) finish(null) }}
       >
-        <DialogPrimitive.Portal>
+        <DialogPrimitive.Portal container={portalContainer}>
           <DialogPrimitive.Overlay
             className={cn(
               'fixed inset-0 z-50 bg-black/50 transition-opacity duration-150',

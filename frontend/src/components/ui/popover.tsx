@@ -1,5 +1,6 @@
 import * as React from 'react'
 import * as PopoverPrimitive from '@radix-ui/react-popover'
+import { useFullscreenPortalContainer } from '@/lib/fullscreen-portal'
 import { cn } from '@/lib/utils'
 
 // 同 sheet.tsx 的约定：Tailwind v4 项目无 tailwindcss-animate 插件，不用 animate-in/out 类，
@@ -12,8 +13,11 @@ const PopoverAnchor = PopoverPrimitive.Anchor
 const PopoverContent = React.forwardRef<
   React.ElementRef<typeof PopoverPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>
->(({ className, align = 'start', sideOffset = 4, ...props }, ref) => (
-  <PopoverPrimitive.Portal>
+>(({ className, align = 'start', sideOffset = 4, ...props }, ref) => {
+  // 全屏时挂到全屏元素内：portal 到 body 的气泡在原生全屏下不会被渲染
+  const portalContainer = useFullscreenPortalContainer()
+  return (
+  <PopoverPrimitive.Portal container={portalContainer}>
     <PopoverPrimitive.Content
       ref={ref}
       align={align}
@@ -25,7 +29,8 @@ const PopoverContent = React.forwardRef<
       {...props}
     />
   </PopoverPrimitive.Portal>
-))
+  )
+})
 PopoverContent.displayName = PopoverPrimitive.Content.displayName
 
 export { Popover, PopoverTrigger, PopoverAnchor, PopoverContent }

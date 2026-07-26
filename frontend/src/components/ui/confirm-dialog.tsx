@@ -2,6 +2,7 @@ import * as React from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { useFullscreenPortalContainer } from '@/lib/fullscreen-portal'
 import { cn } from '@/lib/utils'
 
 export interface ConfirmOptions {
@@ -29,6 +30,8 @@ interface PendingConfirm {
 
 export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const [pending, setPending] = React.useState<PendingConfirm | null>(null)
+  // 全屏时挂到全屏元素内，否则对话框会渲染在全屏元素外面 → 用户只看到「点了没反应」
+  const portalContainer = useFullscreenPortalContainer()
 
   const confirm = React.useCallback<ConfirmFn>(opts => {
     const options: ConfirmOptions =
@@ -56,7 +59,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
           if (!open) handleResolve(false)
         }}
       >
-        <DialogPrimitive.Portal>
+        <DialogPrimitive.Portal container={portalContainer}>
           <DialogPrimitive.Overlay
             className={cn(
               'fixed inset-0 z-50 bg-black/50 transition-opacity duration-150',

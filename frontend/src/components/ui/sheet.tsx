@@ -2,6 +2,7 @@ import * as React from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { X } from 'lucide-react'
+import { useFullscreenPortalContainer } from '@/lib/fullscreen-portal'
 import { cn } from '@/lib/utils'
 
 // Tailwind v4 项目无 tailwindcss-animate 插件，
@@ -50,8 +51,11 @@ interface SheetContentProps
 }
 
 const SheetContent = React.forwardRef<React.ElementRef<typeof DialogPrimitive.Content>, SheetContentProps>(
-  ({ side = 'right', className, children, hideCloseButton, ...props }, ref) => (
-    <SheetPortal>
+  ({ side = 'right', className, children, hideCloseButton, ...props }, ref) => {
+  // 全屏时挂到全屏元素内：portal 到 body 的抽屉在原生全屏下不会被渲染
+  const portalContainer = useFullscreenPortalContainer()
+  return (
+    <SheetPortal container={portalContainer}>
       <SheetOverlay />
       <DialogPrimitive.Content ref={ref} className={cn(sheetVariants({ side }), className)} {...props}>
         {children}
@@ -63,7 +67,8 @@ const SheetContent = React.forwardRef<React.ElementRef<typeof DialogPrimitive.Co
         )}
       </DialogPrimitive.Content>
     </SheetPortal>
-  ),
+  )
+  },
 )
 SheetContent.displayName = DialogPrimitive.Content.displayName
 
