@@ -236,8 +236,46 @@ stop_port_holders() {
   done
 }
 
+# claude-agent sidecar (claude-chat, lazily spawned as `node dist/server.js`) — ensure deps + build.
+# Idempotent: skips when dist is already up to date.
+#
+# Also called from start_backend, not just at supervisor startup: the backend re-spawns the sidecar on
+# every restart, but it loads dist/server.js. Building only once at startup means "edit sidecar source
+# -> hit restart in the UI" keeps loading a stale dist — mvn recompiles Java, the sidecar does not, and
+# the two ends silently disagree (server.ts drops unknown message types with a warn, no error surfaces).
+ensure_claude_agent_build() {
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "[supervisor] npm not on PATH, skip claude-agent build"
+    return
+  fi
+  local sidecar="$REPO_ROOT/sidecar/claude-agent"
+  local dist="$sidecar/dist/server.js"
+  local reason=""
+  if [[ ! -f "$dist" ]]; then
+    reason="dist/server.js missing"
+  # Rebuild when any source is newer than the build output — checking mere existence was the old bug:
+  # a stale dist counted as "already built", so source edits never took effect until a manual build.
+  elif [[ -n "$(find "$sidecar/src" "$sidecar/package.json" "$sidecar/tsconfig.json" -newer "$dist" -print -quit 2>/dev/null)" ]]; then
+    reason="source newer than dist"
+  fi
+  if [[ -z "$reason" ]]; then
+    echo "[supervisor] claude-agent sidecar dist up to date, skip"
+    return
+  fi
+  echo "[supervisor] init claude-agent sidecar ($reason)..."
+  (
+    cd "$sidecar" || exit 1
+    [[ -d node_modules ]] || npm install --no-audit --no-fund
+    npm run build
+  ) || echo "[supervisor] WARN: claude-agent init failed; claude-chat may not start"
+}
+
 start_backend() {
   stop_port_holders "$BACKEND_PORT"
+  # Old sidecar is gone and the new one has not spawned yet — good moment to bring dist up to date.
+  # mvn below recompiles Java, but the sidecar is a separate TS artifact; skipping this leaves the
+  # two ends on different versions. Costs one timestamp comparison when nothing changed.
+  ensure_claude_agent_build
   last_start="$(date '+%Y-%m-%dT%H:%M:%S')"
   echo "[supervisor] $(date '+%H:%M:%S') package and start backend..."
   (
@@ -301,18 +339,7 @@ init_node_deps() {
     return
   fi
 
-  # 1) claude-agent sidecar (claude-chat) — needs dist/server.js (tsc build). Cheap, core feature.
-  local sidecar="$REPO_ROOT/sidecar/claude-agent"
-  if [[ ! -f "$sidecar/dist/server.js" ]]; then
-    echo "[supervisor] init claude-agent sidecar (npm install + build)..."
-    (
-      cd "$sidecar" || exit 1
-      [[ -d node_modules ]] || npm install --no-audit --no-fund
-      npm run build
-    ) || echo "[supervisor] WARN: claude-agent init failed; claude-chat may not start"
-  else
-    echo "[supervisor] claude-agent sidecar already built, skip"
-  fi
+  ensure_claude_agent_build
 
   # 2) undetected-browser (browser-request undetected-node engine) — needs node_modules
   #    (patchright) + a patched chromium kernel. First run downloads ~150MB; then skipped.

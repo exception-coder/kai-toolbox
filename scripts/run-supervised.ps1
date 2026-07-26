@@ -250,6 +250,9 @@ function Start-Backend {
     # 一并清掉上一代 node claude-agent sidecar：它是后端懒启动的子进程，java 先退时会被重挂养成孤儿、
     # 逃过 tree-kill 继续占 18890；不清掉的话新后端懒启动的新 sidecar 会 EADDRINUSE 退出、连回旧代码。
     Stop-PortHolders $SidecarPort
+    # 旧 sidecar 已杀、新的还没起，趁这个空档把 dist 校验到最新：下面 mvn 会重编译 Java，
+    # 但 sidecar 是独立的 TS 产物，不在这儿构建就只有 Java 侧生效。源码没动时只比一次时间戳，开销可忽略。
+    Ensure-ClaudeAgentBuild
     Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') start backend (mode=$Mode)..."
     $starterJar = Join-Path $RepoRoot 'toolbox-starter\target\kai-toolbox.jar'
     # 机密项一律取自 run-tools.conf（已注入环境变量），禁止硬编码进脚本（本仓为公开仓库）。
@@ -441,12 +444,17 @@ function Get-LatestWriteTime([string[]]$paths) {
     return $latest
 }
 
-# 一次性、幂等初始化两个 node sidecar（后端按需 spawn，这里只保证依赖/构建就位，已就绪则跳过）。
-function Initialize-NodeDeps {
-    if (-not $NpmCmd) { Write-Host '[supervisor] 跳过 sidecar 初始化（npm 未找到）'; return }
-    # 1) claude-agent（claude-chat 懒启动 node dist/server.js）：需先构建出 dist/server.js。
-    #    关键：不只判断「dist 是否存在」，还要判断「src 是否比 dist 新」——否则改了 sidecar 源码后
-    #    因旧 dist 还在被「已构建，跳过」，后端仍加载旧代码，每次都得手动 npm run build（开发期老坑）。
+# claude-agent sidecar（claude-chat 懒启动 node dist/server.js）的依赖/构建就位，幂等，已最新则跳过。
+#
+# 单独成函数是为了让 Start-Backend 也能调。后端每次重启都会 Stop-PortHolders 掉旧 sidecar、再由新
+# 后端懒启动一个，而它加载的是 dist/server.js。若只在 supervisor 首启时构建一次，「改 sidecar 源码
+# → 点 UI 重启」这条最常用的路径就永远加载旧 dist：mvn 把 Java 重编译了，sidecar 还是旧的，两边
+# 版本对不上。更糟的是它不报错——server.ts 对不认识的消息类型只走 default 打一行 warn 就丢掉，
+# 表现为功能静默失效，很难往「sidecar 没重新编译」上想。
+function Ensure-ClaudeAgentBuild {
+    if (-not $NpmCmd) { Write-Host '[supervisor] 跳过 claude-agent 构建（npm 未找到）'; return }
+    # 不只判断「dist 是否存在」，还要判断「src 是否比 dist 新」——否则改了 sidecar 源码后
+    # 因旧 dist 还在被「已构建，跳过」，后端仍加载旧代码，每次都得手动 npm run build（开发期老坑）。
     $sidecar = Join-Path $RepoRoot 'sidecar\claude-agent'
     $distServer = Join-Path $sidecar 'dist\server.js'
     $nodeModules = Join-Path $sidecar 'node_modules'
@@ -471,7 +479,15 @@ function Initialize-NodeDeps {
             }
         } catch { Write-Host "[supervisor] WARN: claude-agent init 出错: $($_.Exception.Message)" } finally { Pop-Location }
     } else { Write-Host '[supervisor] claude-agent sidecar dist 最新，跳过' }
-    # 2) undetected-browser（browser-request 的 undetected-node 引擎）：需 node_modules(patchright) + chromium
+}
+
+# 一次性、幂等初始化 node sidecar 依赖（后端按需 spawn，这里只保证依赖/构建就位，已就绪则跳过）。
+# claude-agent 的构建同时也挂在 Start-Backend 上（每次重启都校验一遍），这里只是首启先跑一次。
+function Initialize-NodeDeps {
+    if (-not $NpmCmd) { Write-Host '[supervisor] 跳过 sidecar 初始化（npm 未找到）'; return }
+    Ensure-ClaudeAgentBuild
+    # undetected-browser（browser-request 的 undetected-node 引擎）：需 node_modules(patchright) + chromium。
+    # 只在首启做：与后端重启无关，且首次要下 ~150MB chromium，不该拖慢每一次重启。
     $undetected = Join-Path $RepoRoot 'node-services\undetected-browser'
     if (-not (Test-Path (Join-Path $undetected 'node_modules'))) {
         Write-Host '[supervisor] init undetected-browser (npm install + install-browser, 首次下 ~150MB chromium)...'
