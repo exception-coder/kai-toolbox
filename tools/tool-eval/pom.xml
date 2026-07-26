@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.exceptioncoder</groupId>
+        <artifactId>kai-toolbox</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>tool-eval</artifactId>
+    <packaging>jar</packaging>
+    <name>tool-eval</name>
+    <description>LLM 能力评测底座：黄金集回归、断言引擎、pass→fail 退化对比</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.exceptioncoder</groupId>
+            <artifactId>toolbox-common</artifactId>
+        </dependency>
+        <!-- AgentOneShotRunner 接口（headless 抽取 runner）；实现由 tool-claude-chat 在运行时注入 -->
+        <dependency>
+            <groupId>com.exceptioncoder</groupId>
+            <artifactId>toolbox-llm</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+</project>

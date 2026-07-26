@@ -55,6 +55,7 @@
         <module>tools/tool-knowledge-graph</module>
         <module>tools/tool-webppt</module>
         <module>tools/tool-fore-consult</module>
+        <module>tools/tool-eval</module>
         <module>toolbox-starter</module>
     </modules>
 
@@ -282,6 +283,11 @@
             <dependency>
                 <groupId>com.exceptioncoder</groupId>
                 <artifactId>tool-webppt</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-eval</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

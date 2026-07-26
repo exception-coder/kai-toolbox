@@ -68,7 +68,8 @@ public class MenuPermissions implements PermissionContributor {
                 PermissionDef.menu("menu:visitor-analysis", "访客分析", "智能体", 144),
                 PermissionDef.menu("menu:architecture", "实现原理", "参考", 145),
                 PermissionDef.menu("menu:doc-viewer", "Markdown 文档浏览器", "参考", 146),
-                PermissionDef.menu("menu:java8gu", "Java 八股·卡片回顾", "参考", 147)
+                PermissionDef.menu("menu:java8gu", "Java 八股·卡片回顾", "参考", 147),
+                PermissionDef.menu("menu:eval", "能力评测", "AI", 148)
         );
     }
 }
