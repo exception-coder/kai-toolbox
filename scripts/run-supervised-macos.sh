@@ -134,6 +134,8 @@ HTTP_HOST="${HTTP_HOST:-127.0.0.1}"
 HTTP_PORT="${HTTP_PORT:-18081}"
 BACKEND_PORT="${BACKEND_PORT:-18080}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+# faster-whisper ASR service port; must match application.yml toolbox.whisper.service-url.
+ASR_PORT="${ASR_PORT:-9500}"
 RESTART_TOKEN="${TOOLBOX_SYSTEM_RESTART_TOKEN:-zhangk2026}"
 CONTROL_DIR="${TMPDIR:-/tmp}/kai-toolbox-supervisor"
 RESTART_FILE="$CONTROL_DIR/restart.request"
@@ -154,7 +156,24 @@ TOOLBOX_ARIA2_BINARY="${TOOLBOX_ARIA2_BINARY:-${ARIA2_BIN:-aria2c}}"
 TOOLBOX_QBT_PASSWORD="${TOOLBOX_QBT_PASSWORD:-KE5RWmYs4}"
 TOOLBOX_HTTP_PROXY="${TOOLBOX_HTTP_PROXY:-http://127.0.0.1:7897}"
 TOOLBOX_SYSTEM_RESTART_TOKEN="${TOOLBOX_SYSTEM_RESTART_TOKEN:-$RESTART_TOKEN}"
-TOOLBOX_WHISPER_MODE="${TOOLBOX_WHISPER_MODE:-asr-service}"
+# whisper backend mode. Resolution order matches run-supervised.ps1: existing env wins,
+# then run-tools.conf, then the default. Reading the conf matters — run-tools.conf.example
+# documents TOOLBOX_WHISPER_MODE as THE place to set this, and env-only lookup would have
+# silently ignored it here.
+#
+# The default is asr-service rather than cli (the yml default) because cli cannot work on a
+# Mac at all: toolbox.whisper.binary points at a Windows whisper-cli.exe path. Whatever mode
+# wins, start_faster_whisper_sidecar below keeps the :9500 service consistent with it —
+# mode and the sidecar it depends on must be decided in one place, or they drift (they did).
+TOOLBOX_WHISPER_MODE="${TOOLBOX_WHISPER_MODE:-$(conf_get TOOLBOX_WHISPER_MODE)}"
+TOOLBOX_WHISPER_MODE="$(printf '%s' "${TOOLBOX_WHISPER_MODE:-asr-service}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+case "$TOOLBOX_WHISPER_MODE" in
+  cli|asr-service) ;;
+  *)
+    echo "[supervisor] WARN: TOOLBOX_WHISPER_MODE='$TOOLBOX_WHISPER_MODE' invalid (cli / asr-service only), falling back to asr-service"
+    TOOLBOX_WHISPER_MODE="asr-service"
+    ;;
+esac
 # Playwright/patchright 浏览器内核下载走国内镜像（官方 CDN 在境内常被掐，导致自动装 Chromium 失败）。
 export PLAYWRIGHT_DOWNLOAD_HOST="${PLAYWRIGHT_DOWNLOAD_HOST:-https://cdn.npmmirror.com/binaries/playwright}"
 # npm install 走国内镜像（sidecar 依赖直连 registry.npmjs.org 境内常超时/失败）。已自定义则不覆盖。
@@ -327,6 +346,32 @@ start_visitor_analysis_sidecar() {
     || echo "[supervisor] WARN: visitor-analysis sidecar failed to start (non-fatal)"
 }
 
+# Best-effort: start the faster-whisper ASR sidecar (python-services/faster-whisper, :9500).
+# Isolated & non-fatal, same shape as the visitor-analysis sidecar above.
+#
+# Started ONLY in asr-service mode — the mode decides whether this process is needed, and both
+# decisions live here. Skipping this wiring is exactly how the Windows script ended up pinning
+# the mode to asr-service while nothing ever started :9500, leaving subtitles AND language
+# detection dead. In cli mode the service would only waste memory holding a model nobody calls.
+start_faster_whisper_sidecar() {
+  if [[ "$TOOLBOX_WHISPER_MODE" != "asr-service" ]]; then
+    echo "[supervisor] whisper mode=$TOOLBOX_WHISPER_MODE, ASR sidecar (:$ASR_PORT) not needed, skip"
+    return
+  fi
+  local asrDir="$REPO_ROOT/python-services/faster-whisper"
+  if [[ ! -f "$asrDir/start.sh" ]]; then
+    echo "[supervisor] WARN: faster-whisper start.sh missing; subtitles and language detect will be unavailable"
+    return
+  fi
+  if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:"$ASR_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "[supervisor] faster-whisper sidecar already on :$ASR_PORT, skip"
+    return
+  fi
+  echo "[supervisor] start faster-whisper sidecar (:$ASR_PORT, background, first run installs venv + downloads model, slow)..."
+  ( cd "$asrDir" && PYTHON_CMD="$PYTHON_CMD" nohup bash start.sh >/dev/null 2>&1 & ) \
+    || echo "[supervisor] WARN: faster-whisper sidecar failed to start (non-fatal)"
+}
+
 start_agentscope_studio() {
   if command -v lsof >/dev/null 2>&1 && lsof -nP -iTCP:3000 -sTCP:LISTEN >/dev/null 2>&1; then
     echo "[supervisor] AgentScope Studio already on :3000, skip"
@@ -429,12 +474,15 @@ stop_port_holders "$HTTP_PORT"
 start_http_control
 echo "[supervisor] HTTP control http://$HTTP_HOST:$HTTP_PORT/  (POST /restart, GET /status)"
 echo "[supervisor] repo=$REPO_ROOT  mvn=$MVN_CMD"
+echo "[supervisor] whisper mode=$TOOLBOX_WHISPER_MODE (set TOOLBOX_WHISPER_MODE in scripts/run-tools.conf)"
 
 # Ensure the node sidecars are initialized before the backend may lazily spawn them.
 init_node_deps
 
 # Best-effort: bring up the visitor-analysis AgentScope sidecar (:9600), non-fatal.
 start_visitor_analysis_sidecar
+# faster-whisper ASR sidecar (:9500): only needed in asr-service mode, skipped in cli mode.
+start_faster_whisper_sidecar
 # Best-effort: bring up AgentScope Studio for mobile monitoring (:3000), non-fatal.
 start_agentscope_studio
 
@@ -448,6 +496,14 @@ while true; do
     echo "[supervisor] $(date '+%H:%M:%S') /restart received, taking over port and restarting"
     stop_backend
     stop_port_holders "$BACKEND_PORT"
+    # Recycle the ASR sidecar too, else edited sidecar code / changed env never takes effect:
+    # start_faster_whisper_sidecar is idempotent by port, so without killing it first the
+    # restart would just log "already on :9500, skip" and keep serving the old process.
+    # Only in asr-service mode — in cli mode anything on :9500 is not ours to kill.
+    if [[ "$TOOLBOX_WHISPER_MODE" == "asr-service" ]]; then
+      stop_port_holders "$ASR_PORT"
+      start_faster_whisper_sidecar
+    fi
     start_backend
   elif [[ -z "$backend_pid" ]] || ! kill -0 "$backend_pid" 2>/dev/null; then
     echo "[supervisor] $(date '+%H:%M:%S') backend exited, restart after 2s"

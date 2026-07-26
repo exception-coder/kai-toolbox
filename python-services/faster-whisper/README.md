@@ -27,11 +27,15 @@ start.bat
 ### Linux / macOS
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-WHISPER_MODEL=medium python -m uvicorn server:app --host 127.0.0.1 --port 9500
+bash start.sh
 ```
+
+同 `start.bat`：首次建 venv、装依赖，首次用某模型时下载权重。
+
+设备默认值按平台分：**macOS 默认 `cpu` + `int8`**，Linux 默认 `cuda` + `float16`。
+这不是偷懒——faster-whisper 底层的 CTranslate2 只有 CUDA 和 CPU 后端，**没有 Metal/MPS 后端**，
+Apple Silicon 无论如何都是 CPU 跑；在 mac 上默认 cuda 只会让模型加载直接炸。
+CPU 上跑 medium 很慢（约 GPU 的 1/30），嫌慢就 `WHISPER_MODEL=small bash start.sh`。
 
 ## 配置（环境变量）
 
@@ -63,6 +67,8 @@ VideoLanguageDetectionService 调 `/detect` 判语言，都不再 fork whisper-c
 用 supervisor 启动时不要直接改 yml，在 `scripts/run-tools.conf` 里配
 `TOOLBOX_WHISPER_MODE=asr-service` —— 脚本据此决定是否自动拉起本服务，
 两处必须一致（曾经模式钉在 asr-service 却没人启动本服务，字幕/语言识别双双失效）。
+Windows 走 `run-supervised.ps1`（缺省 cli），macOS 走 `run-supervised-macos.sh`
+（缺省 asr-service，因为 cli 模式那个 whisper-cli.exe 路径在 mac 上不存在）。
 
 可以随时改回 `cli` 退回到 whisper.cpp CLI 模式作 fallback。
 
