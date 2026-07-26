@@ -1,20 +1,17 @@
 import { useEffect, useState } from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
-import { useNavigate } from 'react-router-dom'
-import { LayoutGrid, Palette, Tags, X } from 'lucide-react'
+import { ListChecks, Palette, Tags, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useAccessContext } from './permission'
-import { entryOf, features } from './featureRegistry'
-import { hasFeatureAccess } from './access'
 import { ThemeAppearanceSection } from './ThemeAppearanceSection'
 import { BrandEditor } from './BrandEditor'
+import { MenuVisibilitySection } from './MenuVisibilitySection'
 
-type Section = 'appearance' | 'brand' | 'workspace'
+type Section = 'appearance' | 'brand' | 'menu'
 
 const NAV_ITEMS: { id: Section; label: string; icon: typeof Palette }[] = [
   { id: 'appearance', label: '外观', icon: Palette },
   { id: 'brand', label: '品牌', icon: Tags },
-  { id: 'workspace', label: '工作区', icon: LayoutGrid },
+  { id: 'menu', label: '菜单', icon: ListChecks },
 ]
 
 interface SettingsDialogProps {
@@ -27,23 +24,13 @@ interface SettingsDialogProps {
 /**
  * 工作区设置：持久化配置（Persistent UI）从账号菜单（Transient UI）里搬出来，独立成一个居中弹窗，
  * 左侧导航 + 右侧内容，参考 Notion/Cursor/Linear 的 Settings 心智——用完即关的账号菜单只留入口，
- * 真正「会反复调整」的配置（外观/品牌/工作区导航）在这里集中呈现。
+ * 真正「会反复调整」的配置（外观/品牌/菜单可见性）在这里集中呈现，不再跳独立页面。
  */
 export function SettingsDialog({ open, onOpenChange, initialSection = 'appearance' }: SettingsDialogProps) {
   const [section, setSection] = useState<Section>(initialSection)
-  const navigate = useNavigate()
-  const access = useAccessContext()
 
   // 每次打开都回到调用方指定的默认分区（而非停留在上次关闭时的分区）
   useEffect(() => { if (open) setSection(initialSection) }, [open, initialSection])
-
-  // 「工作区」分区收纳的管理类页面（如菜单配置），沿用原账号菜单里 chromeItems 的口径
-  const workspaceItems = features.filter(f => f.chrome && hasFeatureAccess(f, access))
-
-  const goWorkspaceItem = (path: string) => {
-    onOpenChange(false)
-    navigate(path)
-  }
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
@@ -117,34 +104,10 @@ export function SettingsDialog({ open, onOpenChange, initialSection = 'appearanc
                 </div>
               )}
 
-              {section === 'workspace' && (
+              {section === 'menu' && (
                 <div>
-                  <h3 className="mb-3 text-sm font-medium">工作区</h3>
-                  {workspaceItems.length === 0 ? (
-                    <p className="text-sm text-[var(--color-muted-foreground)]">暂无可管理的工作区页面。</p>
-                  ) : (
-                    <div className="space-y-1">
-                      {workspaceItems.map(f => {
-                        const Icon = f.icon
-                        return (
-                          <button
-                            key={f.id}
-                            type="button"
-                            onClick={() => goWorkspaceItem(entryOf(f))}
-                            className="flex w-full items-start gap-2.5 rounded-md px-2 py-2 text-left hover:bg-[var(--color-accent)]/60"
-                          >
-                            <Icon className="mt-0.5 size-4 shrink-0 text-[var(--color-muted-foreground)]" />
-                            <span className="min-w-0">
-                              <span className="block text-sm">{f.name}</span>
-                              {f.description && (
-                                <span className="block truncate text-xs text-[var(--color-muted-foreground)]">{f.description}</span>
-                              )}
-                            </span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  )}
+                  <h3 className="mb-3 text-sm font-medium">菜单显示</h3>
+                  <MenuVisibilitySection />
                 </div>
               )}
             </div>

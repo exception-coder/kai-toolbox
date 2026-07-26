@@ -6,13 +6,13 @@ import { features } from './featureRegistry'
 import type { FeatureManifest } from './types'
 
 /**
- * 菜单可见性：默认展示「分配给当前用户」的全部模块，用户可在「菜单配置」里手动隐藏（软隐藏，路由仍在）。
+ * 菜单可见性：默认展示「分配给当前用户」的全部模块，用户可在偏好设置的「菜单」分区手动隐藏（软隐藏，路由仍在）。
  *
  * 模型 = 可见白名单：
  *  - 未定制 → 用 DEFAULT_VISIBLE_IDS（= 全部已注册功能菜单）。侧栏/首页会再按账号权限（menu:<id>）过滤，
  *    故「分配给该用户的菜单默认即展示」，无需逐个勾选。
- *  - 用户在「菜单配置」手动隐藏后 → 持久化其完整可见集（白名单），之后以它为准。
- *  - 「菜单配置」自身始终可见（兜底，避免勾没了就再也进不去）。
+ *  - 用户手动隐藏后 → 持久化其完整可见集（白名单），之后以它为准。
+ *  - 配置入口在账号菜单的「偏好设置」弹窗里，不占菜单位，故无需「自身始终可见」的防锁死兜底。
  *
  * 持久化（按登录用户存后端）：
  *  - 已登录 → 落后端 `/api/menu-visibility`（关联当前登录用户，多设备同步）；localStorage 仅作缓存 + 兜底。
@@ -25,9 +25,6 @@ import type { FeatureManifest } from './types'
 export const DEFAULT_VISIBLE_IDS: readonly string[] = features
   .filter((f) => !f.chrome) // chrome（管理页）不进功能菜单；manifest.hidden 已在注册表层剔除
   .map((f) => f.id)
-
-/** 无论如何都保持可见的模块（防止用户把「菜单配置」自己勾掉后无法再进入）。 */
-const ALWAYS_VISIBLE = 'menu-settings'
 
 const STORAGE_KEY = 'kai-toolbox:menu-visible-ids'
 
@@ -42,13 +39,10 @@ function readStored(): string[] | null {
   }
 }
 
-/** 当前生效的可见集合（未定制走核心默认；始终含菜单配置）。 */
+/** 当前生效的可见集合（未定制走默认全集）。 */
 function computeEffective(): Set<string> {
   const stored = readStored()
-  const base = stored ?? DEFAULT_VISIBLE_IDS
-  const s = new Set(base)
-  s.add(ALWAYS_VISIBLE)
-  return s
+  return new Set(stored ?? DEFAULT_VISIBLE_IDS)
 }
 
 let effective = computeEffective()
@@ -120,28 +114,23 @@ async function hydrateForUser(userId: number) {
   // 竞态保护：await 期间用户可能已切换/登出。
   if (getUser()?.userId !== userId) return
   if (dto && dto.visibleIds) {
-    const ids = new Set(dto.visibleIds)
-    ids.add(ALWAYS_VISIBLE)
-    persist(ids)
+    persist(new Set(dto.visibleIds))
     emit()
   } else {
     const local = readStored()
     if (local && local.length) {
-      const migrated = new Set(local)
-      migrated.add(ALWAYS_VISIBLE)
-      pushServer([...migrated]) // 首次迁移上云；本地已是有效值，无需重算
+      pushServer([...new Set(local)]) // 首次迁移上云；本地已是有效值，无需重算
     }
     // 无本地记录：保持默认核心集。
   }
   hydratedUserId = userId
 }
 
-/** 设置某模块是否在菜单显示。菜单配置自身不可隐藏。 */
+/** 设置某模块是否在菜单显示。 */
 export function setMenuVisible(id: string, visible: boolean) {
   const next = new Set(effective)
   if (visible) next.add(id)
-  else if (id !== ALWAYS_VISIBLE) next.delete(id)
-  next.add(ALWAYS_VISIBLE)
+  else next.delete(id)
   persist(next)
   emit()
   if (getUser()) pushServer([...next])
@@ -152,9 +141,8 @@ export function setManyVisible(ids: string[], visible: boolean) {
   const next = new Set(effective)
   for (const id of ids) {
     if (visible) next.add(id)
-    else if (id !== ALWAYS_VISIBLE) next.delete(id)
+    else next.delete(id)
   }
-  next.add(ALWAYS_VISIBLE)
   persist(next)
   emit()
   if (getUser()) pushServer([...next])
@@ -185,7 +173,7 @@ export function useVisibleIds(): readonly string[] {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 }
 
-/** 当前可见模块 id 集合（响应式，供菜单配置渲染勾选态）。 */
+/** 当前可见模块 id 集合（响应式，供偏好设置「菜单」分区渲染勾选态）。 */
 export function useMenuVisibleSet(): ReadonlySet<string> {
   const ids = useVisibleIds()
   return useMemo(() => new Set(ids), [ids])
