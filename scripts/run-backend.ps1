@@ -1,4 +1,4 @@
-# 可靠启动 kai-toolbox 后端（供 project-runner / 手动调用）。
+﻿# 可靠启动 kai-toolbox 后端（供 project-runner / 手动调用）。
 # 固化以下步骤，避免每次临时拼命令：
 #   1. 确保 Node sidecar 已构建（claude-chat 工具依赖 sidecar/claude-agent/dist）
 #   2. 释放 18080 端口（杀掉残留监听进程）
