@@ -7,7 +7,7 @@ const manifest: FeatureManifest = {
   name: '磁盘空间分析',
   icon: HardDrive,
   group: '系统',
-  description: '扫描目录、按大小可视化、找出占用最多空间的文件夹',
+  description: '扫描目录、按大小可视化、找出占用最多空间的文件夹；另含开发机已知缓存的一键清理',
   order: 10,
   routes: [{ path: '/tools/treesize', element: <TreeSizePage /> }],
 }

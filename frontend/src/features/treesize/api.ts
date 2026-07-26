@@ -33,6 +33,64 @@ export function getCleanupCandidates(scanId: string) {
   return http<CleanupCandidate[]>(`/treesize/scans/${scanId}/cleanup-candidates`)
 }
 
+/**
+ * Dev-machine cleanup (「开发机清理」页签). Recipe-driven and scan-free: the backend owns a
+ * fixed catalog of known disk hogs, and the client only ever names recipe ids — never paths.
+ * Adding a deletable directory is a backend change by design.
+ */
+export type RecipeKind = 'DIR_CONTENTS' | 'DIR' | 'VERSIONED_DIR' | 'ADVISORY'
+export type RecipeSafety = 'SAFE' | 'REVIEW' | 'DANGEROUS'
+
+export interface DevCleanRecipe {
+  id: string
+  group: string
+  title: string
+  kind: RecipeKind
+  safety: RecipeSafety
+  size: number
+  itemCount: number
+  /** false = 本机没装这个软件（与「装了但已经很干净」区分：后者 available 且 itemCount 为 0） */
+  available: boolean
+  note: string
+  advisoryCommand: string | null
+  samplePaths: string[]
+}
+
+export interface DevCleanCapability {
+  recycleBinAvailable: boolean
+  windows: boolean
+}
+
+export interface DevCleanExecuteItem {
+  recipeId: string
+  title: string
+  freedBytes: number
+  deleted: number
+  errors: string[]
+}
+
+export interface DevCleanExecuteResult {
+  freedBytes: number
+  deleted: number
+  failed: number
+  items: DevCleanExecuteItem[]
+}
+
+export function probeDevClean() {
+  return http<DevCleanRecipe[]>('/treesize/devclean/probe')
+}
+
+export function getDevCleanCapability() {
+  return http<DevCleanCapability>('/treesize/devclean/capability')
+}
+
+export function executeDevClean(recipeIds: string[]) {
+  return http<DevCleanExecuteResult>('/treesize/devclean/execute', {
+    method: 'POST',
+    body: JSON.stringify({ recipeIds }),
+  })
+}
+
 export function deleteScan(id: string) {
   return http<void>(`/treesize/scans/${id}`, { method: 'DELETE' })
 }

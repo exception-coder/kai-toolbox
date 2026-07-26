@@ -86,6 +86,28 @@ export default manifest
 | `PUT` | `/api/treesize/ssh-hosts/{id}` | 更新 SSH 主机 |
 | `DELETE` | `/api/treesize/ssh-hosts/{id}` | 删除 SSH 主机 |
 | `POST` | `/api/treesize/ssh-hosts/{id}/test` | 测试已保存 SSH 主机连接 |
+| `GET` | `/api/treesize/devclean/probe` | 开发机清理：测量每条配方的当前占用 |
+| `GET` | `/api/treesize/devclean/capability` | 开发机清理：回收站是否可用 |
+| `POST` | `/api/treesize/devclean/execute` | 开发机清理：执行选中配方（入参只有 `recipeIds`） |
+
+### 5.1.1 开发机清理（devclean）为何与扫描并列而非合并
+
+同一个工具下的两套清理机制，差别是**知识来源**：
+
+| | `CleanupAdvisor`（扫描页签） | `DevCleanCatalog`（开发机清理页签） |
+|---|---|---|
+| 前置条件 | 必须先扫完一个目录 | 无，目标先验已知 |
+| 候选来源 | 在 `treesize_node` 上跑正则/SQL **推断** | 代码里**声明**的常量配方表 |
+| 安全等级 | 从路径形状猜 | 人工写死 |
+| 动作 | 删单个文件 | 清目录内容 / 删目录 / 保留最新 N 版 / 只提示 |
+
+三条安全约束（改动这块前必读）：
+
+1. **接口只收 `recipeId`，永不收路径。** 可被删除的目录集合在编译期由 `DevCleanCatalog` 固定，可在一个文件内审计完。加一个可删目录 = 改后端。
+2. **`DevCleanCatalog.permitted()` 双名单。** `forbiddenSubtrees()`（Windows 目录、Program Files、`Code\User`、`.ssh`/`.aws`/`.kai-toolbox`）上下双向禁删；`containerRoots()`（`%USERPROFILE%` / `%APPDATA%` / `%LOCALAPPDATA%`）只禁删自身及其祖先，否则会把整个配方表全否掉。
+3. **`TrashBin` 只走回收站，没有永久删除兜底**（与 `FileDeleteService` 的关键区别）—— 单次调用可能带走数 GB，而用户只是按类别授权的。失败**不**写入 `FailedDeleteRegistry`（那条重试链路是单文件 `Files.delete`，对目录必然永久失败），改为随响应内联返回。
+
+需要专用工具回收或会中断运行中进程的项（`pnpm store prune`、`docker system prune`、WSL `ext4.vhdx` 压缩、清空回收站）一律是 `ADVISORY`：只测体积 + 给命令，不代执行。
 
 ### 5.2 SSE 事件类型
 
@@ -176,13 +198,20 @@ CREATE TABLE treesize_ssh_host (
 ### 5.5 前端交互
 
 ```
-TreeSizePage
-├── ScanForm          # 路径输入 + 启动按钮
-├── ScanProgress      # SSE 进度条（运行中显示）
-├── BreadcrumbNav     # 当前所在路径，点击回上层
-├── Treemap           # 当前目录子项的可视化（recharts Treemap）
-└── ChildrenList      # 当前目录子项列表，按大小排序，点击下钻
+TreeSizePage                 # Segmented 页签：空间扫描 | 开发机清理
+├── [空间扫描]
+│   ├── ScanForm             # 路径输入 + 启动按钮
+│   ├── ScanProgress         # SSE 进度条（运行中显示）
+│   ├── BreadcrumbNav        # 当前所在路径，点击回上层
+│   ├── Treemap              # 当前目录子项的可视化（recharts Treemap）
+│   ├── ChildrenList         # 当前目录子项列表，按大小排序，点击下钻
+│   └── CleanupRecommendations
+└── [开发机清理]
+    └── DevCleanPanel        # 测量 → 勾选 → 执行；ADVISORY 项只展示命令
 ```
+
+页签而非独立 feature：两者共享回收站删除语义与体积格式化，拆开要复制一套失败清单/重试面板。
+「失败清单」入口只在扫描页签露出 —— 开发机清理的失败不进 `FailedDeleteRegistry`，在清理页签给入口会把用户导向一个必然为空的地方。
 
 懒加载：每次切换目录调 `/children?path=...`，只加载直接子项，不全量加载。
 

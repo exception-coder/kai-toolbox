@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import { Segmented } from '@/components/ui/segmented'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { ApiError } from '@/lib/api'
 import { useConfirm } from '@/components/ui/confirm-dialog'
@@ -16,6 +17,7 @@ import { ChildrenList } from '../components/ChildrenList'
 import { Treemap } from '../components/Treemap'
 import { VideoPlayerModal } from '../components/VideoPlayerModal'
 import { CleanupRecommendations } from '../components/CleanupRecommendations'
+import { DevCleanPanel } from '../components/DevCleanPanel'
 import { SymlinkDialog } from '../components/SymlinkDialog'
 import { FailedDeletesPanel } from '../components/FailedDeletesPanel'
 import { useScanEvents } from '../hooks/useScanEvents'
@@ -31,8 +33,20 @@ import {
 } from '../api'
 import type { NodeView, ScanView, StartScanPayload } from '../types'
 
+/**
+ * 「空间扫描」按需扫描未知目录并从结果推断清理候选；「开发机清理」走先验配方清单，不需要扫描。
+ * 两者共享回收站删除语义与体积格式化，因此做成同一工具的两个页签而不是两个 feature。
+ */
+type DiskTab = 'scan' | 'devclean'
+
+const TABS = [
+  { value: 'scan' as const, label: '空间扫描' },
+  { value: 'devclean' as const, label: '开发机清理' },
+]
+
 export function TreeSizePage() {
   const qc = useQueryClient()
+  const [tab, setTab] = useState<DiskTab>('scan')
   const [activeScan, setActiveScan] = useState<ScanView | null>(null)
   const [currentPath, setCurrentPath] = useState<string | null>(null)
   const [startError, setStartError] = useState<string | null>(null)
@@ -80,55 +94,65 @@ export function TreeSizePage() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight">磁盘空间分析</h1>
           <p className="text-sm text-[var(--color-muted-foreground)]">
-            扫描目录、按大小可视化、定位占用空间最多的文件夹
+            {tab === 'scan'
+              ? '扫描目录、按大小可视化、定位占用空间最多的文件夹'
+              : '按先验清单清理 Windows 开发机上的已知占用，无需扫描'}
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setFailedSheetOpen(true)}
-          className="relative shrink-0 gap-1.5"
-          aria-label="打开删除失败清单"
-        >
-          <AlertTriangle className="h-3.5 w-3.5" />
-          失败清单
-          {failedCount > 0 && (
-            <Badge
-              variant="destructive"
-              className="ml-1 h-4 min-w-4 justify-center rounded-full px-1 text-[10px] leading-none"
-            >
-              {failedCount > 99 ? '99+' : failedCount}
-            </Badge>
-          )}
-        </Button>
+        {/* 失败清单只在扫描页签露出：开发机清理的失败不写入该清单（详见 TrashBin 文档），
+            在这里给入口会让用户去一个必然为空的地方找原因。 */}
+        {tab === 'scan' && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setFailedSheetOpen(true)}
+            className="relative shrink-0 gap-1.5"
+            aria-label="打开删除失败清单"
+          >
+            <AlertTriangle className="h-3.5 w-3.5" />
+            失败清单
+            {failedCount > 0 && (
+              <Badge
+                variant="destructive"
+                className="ml-1 h-4 min-w-4 justify-center rounded-full px-1 text-[10px] leading-none"
+              >
+                {failedCount > 99 ? '99+' : failedCount}
+              </Badge>
+            )}
+          </Button>
+        )}
       </header>
 
-      <ScanForm
-        onStart={payload => startMutation.mutate(payload)}
-        disabled={isRunning || startMutation.isPending}
-      />
+      <Segmented value={tab} onChange={setTab} options={TABS} size="md" className="self-start" />
 
-      {startError && (
-        <div className="rounded-md border border-[var(--color-destructive)]/40 bg-[var(--color-destructive)]/10 px-3 py-2 text-xs text-[var(--color-destructive)]">
-          启动失败：{startError}
-        </div>
+      {tab === 'devclean' && <DevCleanPanel />}
+
+      {tab === 'scan' && (
+        <>
+          <ScanForm
+            onStart={payload => startMutation.mutate(payload)}
+            disabled={isRunning || startMutation.isPending}
+          />
+
+          {startError && (
+            <div className="rounded-md border border-[var(--color-destructive)]/40 bg-[var(--color-destructive)]/10 px-3 py-2 text-xs text-[var(--color-destructive)]">
+              启动失败：{startError}
+            </div>
+          )}
+
+          {activeScan && <ScanProgress rootPath={activeScan.rootPath} state={live} />}
+
+          {activeScan && (live.status === 'completed' || activeScan.status === 'COMPLETED') && (
+            <ScanResultView
+              scan={activeScan}
+              currentPath={currentPath}
+              onNavigate={setCurrentPath}
+              videoExtensions={videoConfig.videoExtensions}
+              onPlayVideo={node => setPlayingVideo({ scanId: activeScan.id, node })}
+            />
+          )}
+        </>
       )}
-
-      {activeScan && (
-        <ScanProgress rootPath={activeScan.rootPath} state={live} />
-      )}
-
-      {activeScan && (live.status === 'completed' || activeScan.status === 'COMPLETED') && (
-        <ScanResultView
-          scan={activeScan}
-          currentPath={currentPath}
-          onNavigate={setCurrentPath}
-          videoExtensions={videoConfig.videoExtensions}
-          onPlayVideo={node => setPlayingVideo({ scanId: activeScan.id, node })}
-        />
-      )}
-
-
 
       {playingVideo && (
         <VideoPlayerModal
@@ -150,19 +174,23 @@ export function TreeSizePage() {
         </SheetContent>
       </Sheet>
 
-      <Separator className="my-2" />
+      {tab === 'scan' && (
+        <>
+          <Separator className="my-2" />
 
-      <ScanHistory
-        onSelect={scan => {
-          setActiveScan(scan)
-          setCurrentPath(null)
-        }}
-        onDelete={async id => {
-          await deleteScan(id)
-          if (activeScan?.id === id) setActiveScan(null)
-          qc.invalidateQueries({ queryKey: ['treesize-history'] })
-        }}
-      />
+          <ScanHistory
+            onSelect={scan => {
+              setActiveScan(scan)
+              setCurrentPath(null)
+            }}
+            onDelete={async id => {
+              await deleteScan(id)
+              if (activeScan?.id === id) setActiveScan(null)
+              qc.invalidateQueries({ queryKey: ['treesize-history'] })
+            }}
+          />
+        </>
+      )}
     </div>
   )
 }
