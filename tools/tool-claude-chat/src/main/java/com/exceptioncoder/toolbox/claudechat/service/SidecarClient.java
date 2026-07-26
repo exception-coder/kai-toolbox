@@ -4,6 +4,7 @@ import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatWsProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PreDestroy;
 import jakarta.websocket.ContainerProvider;
 import jakarta.websocket.WebSocketContainer;
 import lombok.extern.slf4j.Slf4j;
@@ -38,6 +39,8 @@ public class SidecarClient {
     /** (sessionId|null, eventNode) -> 处理；sessionId 为 null 表示连接级事件（如断开） */
     private volatile BiConsumer<String, JsonNode> listener = (s, n) -> {};
     private volatile WebSocketSession session;
+    /** 本实例已随 Spring 上下文停机；不得再建连、不得再上报断开 */
+    private volatile boolean shuttingDown;
 
     public SidecarClient(ClaudeChatProperties props, ClaudeChatWsProperties wsProps, ObjectMapper mapper) {
         this.props = props;
@@ -56,6 +59,9 @@ public class SidecarClient {
 
     /** 幂等连接，带超时重试。需在 sidecar 进程已启动后调用。 */
     public synchronized void ensureConnected() throws IOException {
+        if (shuttingDown) {
+            throw new IOException("sidecar 客户端已停机");
+        }
         if (session != null && session.isOpen()) {
             return;
         }
@@ -81,6 +87,20 @@ public class SidecarClient {
             }
         }
         throw last != null ? last : new IOException("连接 sidecar 超时");
+    }
+
+    /**
+     * 随 Spring 上下文停机：断开连接并封死重连入口。
+     *
+     * <p>不做这一步，DevTools 热重启后旧上下文的本 bean 会连着不放、监听器照收事件、重连线程照跑，
+     * 和新上下文抢同一个 sidecar —— 事件可能被投递到已经没有浏览器观察者的那一端，前端就永远等不到回复。
+     */
+    @PreDestroy
+    public synchronized void shutdown() {
+        shuttingDown = true;
+        WebSocketSession cur = session;
+        session = null;
+        closeQuietly(cur);
     }
 
     /** 当前生效的连接才代表链路状态；陈旧连接的事件不得改写 {@link #session} 或上报断开。 */
@@ -248,6 +268,9 @@ public class SidecarClient {
 
         @Override
         public void afterConnectionClosed(WebSocketSession ws, CloseStatus status) {
+            if (shuttingDown) {
+                return;
+            }
             if (!isCurrent(ws)) {
                 // 陈旧连接的收尾：链路已由新连接接管，据此上报断开会把一次断开放大成多轮重连
                 log.debug("[claude-chat] 陈旧 sidecar 连接关闭，忽略：{}", status);

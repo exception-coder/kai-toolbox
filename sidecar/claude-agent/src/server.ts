@@ -31,12 +31,17 @@ process.on('exit', clearPidFile)
 // 仅绑 127.0.0.1：sidecar 不对外暴露，只有本机 Java 后端能连。
 const wss = new WebSocketServer({ host: '127.0.0.1', port })
 
-// 单 Java 后端：保留最近一条连接，事件都发给它。
-let active: WebSocket | null = null
+// 事件广播给所有存活的 Java 连接。同一时刻可能不止一条：后端热重启后旧 context 的客户端
+// 还没断、或误起了第二个后端。若只发「最近一条」，事件就可能发给一个已经不服务浏览器的那端，
+// 表现为前端永远收不到回复 —— 这里宁可多发（本机、按 sessionId 路由，重复投递无副作用）。
+const clients = new Set<WebSocket>()
 
 const emit = (sessionId: string, event: Record<string, unknown>): void => {
-  if (active && active.readyState === active.OPEN) {
-    active.send(JSON.stringify({ ...event, sessionId }))
+  const payload = JSON.stringify({ ...event, sessionId })
+  for (const ws of clients) {
+    if (ws.readyState === ws.OPEN) {
+      ws.send(payload)
+    }
   }
 }
 
@@ -72,8 +77,8 @@ process.on('unhandledRejection', (reason) => {
 })
 
 wss.on('connection', (ws) => {
-  active = ws
-  console.log('[sidecar] Java backend connected')
+  clients.add(ws)
+  console.log(`[sidecar] Java backend connected（当前 ${clients.size} 条）`)
 
   ws.on('message', (data) => {
     let msg: Record<string, unknown>
@@ -160,8 +165,8 @@ wss.on('connection', (ws) => {
   })
 
   ws.on('close', () => {
-    if (active === ws) active = null
-    console.log('[sidecar] Java backend disconnected')
+    clients.delete(ws)
+    console.log(`[sidecar] Java backend disconnected（剩余 ${clients.size} 条）`)
   })
 })
 

@@ -10,6 +10,7 @@ import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionReposit
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.socket.TextMessage;
@@ -60,6 +61,8 @@ public class ClaudeChatService {
     private static final long SIDECAR_RECOVERY_COOLDOWN_MS = 1000;
     /** 连续这么多次连不上，才判定端口上是僵尸监听者并强制重建 sidecar */
     private static final int SIDECAR_RESTART_AFTER_ATTEMPTS = 3;
+    /** 本实例已随 Spring 上下文停机；后台重连一律停手 */
+    private volatile boolean shuttingDown;
 
     public ClaudeChatService(ClaudeChatProperties props,
                              ClaudeChatSessionRepository repo,
@@ -86,6 +89,17 @@ public class ClaudeChatService {
     @PostConstruct
     void wireSidecar() {
         sidecar.setListener(this::onSidecarEvent);
+    }
+
+    /**
+     * 随 Spring 上下文停机：让后台重连循环立刻退出。
+     *
+     * <p>DevTools 热重启只是换上下文、不换 JVM，旧上下文的重连线程若不收口，会继续抢 sidecar、
+     * 继续 resume 一批没有浏览器观察者的会话，和新上下文互相拆台。
+     */
+    @PreDestroy
+    void stopRecovery() {
+        shuttingDown = true;
     }
 
     // ===== 浏览器侧入口（由 WebSocketHandler 调用） =====
@@ -680,6 +694,7 @@ public class ClaudeChatService {
     }
 
     private void onSidecarDown() {
+        if (shuttingDown) return;
         sessions.values().forEach(ctx -> {
             if (ctx.status == SessionStatus.RUNNING) {
                 ctx.status = SessionStatus.INTERRUPTED;
@@ -696,10 +711,12 @@ public class ClaudeChatService {
      * 重连只针对 Java↔sidecar 链路（与浏览器网络无关），故前端的浏览器重连帮不上忙，必须由后端兜。
      */
     private void scheduleSidecarRecovery() {
+        if (shuttingDown) return;
         if (!recovering.compareAndSet(false, true)) return;
         Thread.ofVirtual().name("claude-chat-sidecar-recover").start(() -> {
             try {
                 for (int attempt = 1; attempt <= 20; attempt++) {
+                    if (shuttingDown) return;
                     try {
                         if (!sidecar.isConnected()) {
                             // 连不上且已重试多次＝端口上多半是收不了连接的僵尸监听者，才强制重建；
