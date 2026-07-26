@@ -1,12 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { Film, Loader2 } from 'lucide-react'
+import Hls from 'hls.js'
 import { formatBytes } from '@/lib/utils'
 
 interface SharedVideoMeta {
   name: string
   size: number
   expiresAt: number
+  /** native = 浏览器可直接播原文件；hls = 需实时转码；none = 需转码但服务端没有 FFmpeg。 */
+  playable: 'native' | 'hls' | 'none'
 }
 
 type State =
@@ -17,9 +20,10 @@ type State =
 /**
  * 分享链接的落地页：匿名、无侧边栏、无需登录。
  *
- * 播放走原生 {@code <video src>} 指向 {@code /api/share/{token}/raw} —— 后端裸流端点支持
- * Range/206，微信与 QQ 的内置浏览器都能直接拖进度条。刻意不用 hls.js：HLS 的分片地址不带
- * 凭证，匿名场景每片都会 401，而且收链接的人也不需要转码。
+ * 播放方式由后端 {@code meta.playable} 决定，前端不按扩展名猜：
+ * 浏览器能直接解的走裸流（支持 Range，可拖进度条）；avi / mkv / HEVC 这类啃不动的走 HLS
+ * 实时转码。分享的 HLS 分片是相对地址、token 在路径里，因此分片天然带凭证，
+ * 不需要工作台内那套「hls.js 手动注 Authorization 头」的做法。
  *
  * 失效（撤销 / 过期 / 不存在）后端一律 404 且不区分原因，这里也只给一句中性的提示，
  * 不告诉访问者「这个 token 曾经存在」。
@@ -27,6 +31,7 @@ type State =
 export function SharedVideoPage() {
   const { token = '' } = useParams()
   const [state, setState] = useState<State>({ kind: 'loading' })
+  const videoRef = useRef<HTMLVideoElement | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -38,6 +43,24 @@ export function SharedVideoPage() {
       alive = false
     }
   }, [token])
+
+  // HLS 挂载。Safari / iOS 原生支持 m3u8，直接给 src 即可（也只有这条路能用，
+  // 那边没有 MSE）；其余浏览器用 hls.js 接管。
+  const needsHls = state.kind === 'ready' && state.meta.playable === 'hls'
+  useEffect(() => {
+    const video = videoRef.current
+    if (!needsHls || !video) return
+    const src = `/api/share/${encodeURIComponent(token)}/hls/playlist.m3u8`
+    if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = src
+      return
+    }
+    if (!Hls.isSupported()) return
+    const hls = new Hls({ enableWorker: true })
+    hls.loadSource(src)
+    hls.attachMedia(video)
+    return () => hls.destroy()
+  }, [needsHls, token])
 
   if (state.kind === 'loading') {
     return (
@@ -60,12 +83,26 @@ export function SharedVideoPage() {
     )
   }
 
+  if (state.meta.playable === 'none') {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-black px-8 text-center text-white/70">
+        <Film className="h-10 w-10 opacity-40" />
+        <div className="text-sm">这个视频暂时无法播放</div>
+        <div className="max-w-xs text-xs text-white/40">
+          它的格式需要服务端实时转码，但分享者的服务端当前没有可用的 FFmpeg。
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-black">
       <div className="flex min-h-0 flex-1 items-center justify-center">
         <video
+          ref={videoRef}
           className="max-h-[85vh] w-full bg-black"
-          src={`/api/share/${encodeURIComponent(token)}/raw`}
+          // HLS 的 src 由上面的 effect 挂（hls.js 或 Safari 原生），这里只管裸流那条路
+          src={state.meta.playable === 'native' ? `/api/share/${encodeURIComponent(token)}/raw` : undefined}
           poster={`/api/share/${encodeURIComponent(token)}/thumb`}
           controls
           autoPlay
