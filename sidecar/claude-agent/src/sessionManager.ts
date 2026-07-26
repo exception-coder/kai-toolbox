@@ -105,6 +105,9 @@ function officialModelsEnv(): NodeJS.ProcessEnv {
 
 const VALID_CODEX_EFFORTS = new Set<ModelReasoningEffort>(['minimal', 'low', 'medium', 'high', 'xhigh'])
 
+/** 中断时留给「未决审批的 deny 响应」写回 CLI 的时间，之后才关传输层。见 Session.interrupt()。 */
+const INTERRUPT_DENY_FLUSH_MS = 30
+
 function loadCodexModels(): unknown[] {
   try {
     const raw = JSON.parse(readFileSync(join(homedir(), '.codex', 'models_cache.json'), 'utf8')) as {
@@ -613,9 +616,25 @@ class Session {
     this.perms.resolve(reqId, d)
   }
 
+  /**
+   * 中断当前轮。顺序很关键：必须先 rejectAll() 再 abort()。
+   *
+   * claude.exe 是 SDK 的子进程，工具审批走 stdio 控制流的同步请求——它发出 can_use_tool 后
+   * 阻塞等 control_response。abort() 会让 SDK 关掉这条流（Windows 上「杀子进程」就是 stdin.end()），
+   * 一旦先 abort，rejectAll() 产生的 deny 响应就再也写不进管道，CLI 只能报
+   * 「tool permission stream closed before response received」并把该次调用判为失败。
+   * 反过来先 rejectAll()，挂起的 canUseTool 立刻 resolve 成 deny，响应能正常回到 CLI；
+   * 短暂延时让 SDK 把 control_response 写出去，最后才关流。
+   */
   interrupt(): void {
-    this.abort?.abort()
-    this.perms.rejectAll()
+    const hadPending = this.perms.rejectAll()
+    if (!hadPending) {
+      this.abort?.abort() // 无未决审批，没什么要等的，立刻关
+      return
+    }
+    // 有未决审批：让 canUseTool 的续体跑完、SDK 把 deny 的 control_response 写出去，再关传输层。
+    // setTimeout(0) 排在整个微任务队列之后，足以覆盖 promise 链；这点延迟对「中断」体感无影响。
+    setTimeout(() => this.abort?.abort(), INTERRUPT_DENY_FLUSH_MS)
   }
 
   private gatewayEnv(): NodeJS.ProcessEnv {

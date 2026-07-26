@@ -182,6 +182,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
   const [syncWarning, setSyncWarning] = useState<string | null>(null)
   const [mode, setModeState] = useState<PermissionMode>('default')
   const [autoApprove, setAutoApproveState] = useState<boolean>(loadAutoApprove)
+  // 供回调内读取最新值而不把 mode/autoApprove 卷进依赖环
+  const modeRef = useRef<PermissionMode>('default')
+  const autoApproveRef = useRef<boolean>(autoApprove)
   const [slashCommands, setSlashCommands] = useState<string[]>([])
   const [skills, setSkills] = useState<string[]>([])
   const [agents, setAgents] = useState<string[]>([])
@@ -291,13 +294,18 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
           const savedMode = loadSavedMode(msg.sessionId)
           if (savedMode) {
             setModeState(savedMode)
+            modeRef.current = savedMode
             sendRaw({ type: 'setMode', mode: savedMode })
           }
           // 「弹窗自动允许」同步给服务端一次：服务端此后自己保管并随每次 resume 回灌 sidecar，
           // 用户切走页面/关掉浏览器也不影响放行，不再需要前端盯着弹窗自动点。
           const savedAutoApprove = loadAutoApprove()
           setAutoApproveState(savedAutoApprove)
-          if (savedAutoApprove) sendRaw({ type: 'setAutoApprove', autoApprove: true })
+          autoApproveRef.current = savedAutoApprove
+          sendRaw({
+            type: 'setAutoApprove',
+            autoApprove: savedAutoApprove && modeRef.current === 'bypassPermissions',
+          })
         }
         {
           const options = loadCodexOptions(msg.sessionId)
@@ -464,7 +472,15 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
       }
       case 'error':
         setRunning(false)
-        setItems(prev => [...prev, { kind: 'error', id: nextId(), code: msg.code, message: msg.message, ts: Date.now() }])
+        // 同一条错误连续重复时不再追加：像前后端版本不一致导致的 BAD_MESSAGE，会随每次
+        // 开关切换/重连反复触发，逐条堆进消息流会把真正的对话内容顶没。保留第一条即可。
+        setItems(prev => {
+          const last = prev[prev.length - 1]
+          if (last && last.kind === 'error' && last.code === msg.code && last.message === msg.message) {
+            return prev
+          }
+          return [...prev, { kind: 'error', id: nextId(), code: msg.code, message: msg.message, ts: Date.now() }]
+        })
         if (msg.code === 'SIDECAR_DOWN') {
           setErrorMessage(msg.message)
         }
@@ -744,9 +760,14 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     }
   }, [sendRaw, connect])
 
+  /**
+   * 回灌权限/提问决策。发送失败时**不清 pending**——原先是先乐观 setPending(null) 再发，
+   * WS 恰好断开的那一瞬点「允许」，弹窗关了、消息压根没发出去，用户以为已批准，实则一路等到
+   * 5 分钟超时 deny。保留弹窗才能让用户看到并重试（重连后后端也会 redeliverPending 补投）。
+   */
   const decide = useCallback((msg: Extract<ClientMessage, { type: 'decision' }>) => {
+    if (!sendRaw(msg)) return
     setPending(null)
-    sendRaw(msg)
   }, [sendRaw])
 
   // ── 待发送队列：running 时入队，本轮结束(running→false 且无待确认弹窗)后按序自动发 ──
@@ -775,19 +796,50 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     setRunning(false)
   }, [sendRaw])
 
+  /**
+   * 切换「弹窗自动允许」：落本地偏好 + 告知服务端，之后由 sidecar 内同步裁决。
+   *
+   * 下发给服务端的值要 && 上「当前是全自动模式」——sidecar 侧的 autoApprove 刻意不看它自己的 mode
+   * （它的 mode 正是会 desync 成 default 的那个东西，看了就等于没兜底），所以「该不该放行」这个
+   * 意图判断只能由前端这边做完再下发。模式切走时必须把它降为 false，否则 default/plan 模式下
+   * 会继续静默放行，那是用户明确想逐条把关的场景。
+   */
+  const syncAutoApprove = useCallback((on: boolean, m: PermissionMode) => {
+    sendRaw({ type: 'setAutoApprove', autoApprove: on && m === 'bypassPermissions' })
+  }, [sendRaw])
+
+  const setAutoApprove = useCallback((on: boolean) => {
+    setAutoApproveState(on)
+    try { localStorage.setItem(AUTO_APPROVE_KEY, on ? '1' : '0') } catch { /* 隐私模式忽略 */ }
+    syncAutoApprove(on, modeRef.current)
+  }, [syncAutoApprove])
+
   const setMode = useCallback((m: PermissionMode) => {
     setModeState(m) // 乐观更新；下一轮 query 生效
     const sid = sessionIdRef.current
     if (sid) saveMode(sid, m) // 按会话持久化，刷新/重连后由 ready 恢复
     sendRaw({ type: 'setMode', mode: m })
-  }, [sendRaw])
+    // 模式变了要重算自动放行：切出全自动就必须收回，否则 sidecar 会继续静默放行
+    syncAutoApprove(autoApproveRef.current, m)
+  }, [sendRaw, syncAutoApprove])
 
-  /** 切换「弹窗自动允许」：落本地偏好 + 告知服务端，之后由 sidecar 同步裁决。 */
-  const setAutoApprove = useCallback((on: boolean) => {
-    setAutoApproveState(on)
-    try { localStorage.setItem(AUTO_APPROVE_KEY, on ? '1' : '0') } catch { /* 隐私模式忽略 */ }
-    sendRaw({ type: 'setAutoApprove', autoApprove: on })
-  }, [sendRaw])
+  /**
+   * 「弹窗自动允许」的前端兜底：主路径是 sidecar 内同步放行（见 permissions.ts 的 autoApprove），
+   * 那条路生效时权限框根本到不了前端。所以框既然弹到了这里，就说明 sidecar 那层没生效——
+   * 典型是后端版本旧（不认 setAutoApprove）、或该开关还没同步上。此时在这里补一次 allow。
+   *
+   * 两条路天然幂等，不是二选一：sidecar 放行了就没有弹窗，有弹窗才轮到这里。放在 hook 里而不是
+   * 某个页面组件里，才能保证全屏页/浮窗/分屏任一形态下都在跑（以前三处各抄一份，页面一切走就全失效）。
+   */
+  const autoApprovedRef = useRef<string | null>(null)
+  useEffect(() => {
+    // 只在「全自动」下兜底：该开关的语义就是全自动模式的补充，其它模式下用户是想逐条把关的。
+    if (!autoApprove || mode !== 'bypassPermissions') return
+    if (pending?.kind !== 'permission') return
+    if (autoApprovedRef.current === pending.reqId) return // 同一请求只自动放行一次
+    autoApprovedRef.current = pending.reqId
+    decide({ type: 'decision', reqId: pending.reqId, behavior: 'allow' })
+  }, [pending, autoApprove, mode, decide])
 
   const setModel = useCallback((model: string) => {
     setCurrentModel(model) // 乐观更新；下一轮 query 生效
@@ -849,6 +901,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
   }, [sendRaw])
 
   const dismissSyncWarning = useCallback(() => setSyncWarning(null), [])
+
+  useEffect(() => { modeRef.current = mode }, [mode])
+  useEffect(() => { autoApproveRef.current = autoApprove }, [autoApprove])
 
   // 保持 switchToRef 指向最新 switchTo，供 applyEvent('forked') 调用而不进依赖环
   useEffect(() => {

@@ -141,10 +141,16 @@ export class Permissions {
     if (r) r(decision)
   }
 
-  /** 会话中断：把所有挂起的请求按 deny 释放 */
-  rejectAll(): void {
+  /**
+   * 会话中断：把所有挂起的请求按 deny 释放。
+   * 返回是否确有挂起请求——调用方据此决定要不要给 deny 响应留出写回 CLI 的时间再关传输层
+   * （见 Session.interrupt()）。
+   */
+  rejectAll(): boolean {
+    const had = this.pending.size > 0
     for (const r of this.pending.values()) r(null)
     this.pending.clear()
+    return had
   }
 
   private waitFor(reqId: string, signal?: AbortSignal): Promise<Decision | null> {
