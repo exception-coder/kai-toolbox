@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.prdclarify.api;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.AdoptSplitRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.AskNextDevDocQuestionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.AskNextQuestionRequest;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.AttachmentParseView;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.CreateSessionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.DevDocVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.EstimateEffortRequest;
@@ -11,6 +12,7 @@ import com.exceptioncoder.toolbox.prdclarify.api.dto.GenerateDevDocRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.ImageAttachmentView;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.ProgressVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.service.AttachmentParseService;
+import com.exceptioncoder.toolbox.prdclarify.service.FileAttachmentStorageService;
 import com.exceptioncoder.toolbox.prdclarify.service.ImageAttachmentStorageService;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.PrdSessionView;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.SaveContentRequest;
@@ -74,6 +76,7 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
  *   <li>{@code GET    /sessions/by-dev-sessions?ids=...}   — 批量反查关联 PRD</li>
  *   <li>{@code POST   /attachments/image}         — 粘贴图片落盘</li>
  *   <li>{@code GET    /attachments/image/{id}}    — 取回图片</li>
+ *   <li>{@code GET    /attachments/file/{id}}     — 下载原始需求附件（Word/PDF/Markdown 原文件）</li>
  *   <li>{@code POST   /sessions/{id}/progress/evaluate} — SSE：AI 进度评估</li>
  *   <li>{@code GET    /sessions/{id}/progress/versions} — 进度评估版本列表</li>
  * </ul>
@@ -86,27 +89,33 @@ public class PrdClarifyController {
     private final PrdSessionRepository repo;
     private final AttachmentParseService attachmentParser;
     private final ImageAttachmentStorageService imageAttachmentStorage;
+    private final FileAttachmentStorageService fileAttachmentStorage;
     /** Optional：toolbox.auth.enabled=false 时这个 bean 不存在，历史列表退化为不展示创建人用户名。 */
     private final Optional<AuthUserRepository> authUserRepo;
 
     public PrdClarifyController(PrdClarifyService service, PrdSessionRepository repo,
                                 AttachmentParseService attachmentParser,
                                 ImageAttachmentStorageService imageAttachmentStorage,
+                                FileAttachmentStorageService fileAttachmentStorage,
                                 Optional<AuthUserRepository> authUserRepo) {
         this.service = service;
         this.repo = repo;
         this.attachmentParser = attachmentParser;
         this.imageAttachmentStorage = imageAttachmentStorage;
+        this.fileAttachmentStorage = fileAttachmentStorage;
         this.authUserRepo = authUserRepo;
     }
 
     /**
-     * 附件文本提取：上传 Markdown / PDF / Word 文件，返回提取的文本内容。
-     * 前端将提取的文本追加到 rawInput 后再创建会话。
-     * 支持格式：.md / .txt / .pdf / .docx / .doc，单文件最大 20MB。
+     * 附件文本提取 + 原文件落盘：上传 Markdown / PDF / Word 文件，一次性做两件事——
+     * ①提取文本供前端拼进 rawInput 喂给 AI；②原始文件也落盘（见
+     * {@link FileAttachmentStorageService}），返回下载链接，前端把
+     * {@code [📎 附件：filename](url)} 一并插进 rawInput，避免像之前那样解析完文本原文件就
+     * 丢了、用户回看 PRD 时找不到当初提需求的 Word/PDF 原件。
+     * 支持格式：.md / .txt / .pdf / .docx / .doc，单文件解析上限 20000 字符、落盘上限 30MB。
      */
     @PostMapping(value = "/attachments/parse", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<AttachmentParseService.ParseResult> parseAttachment(
+    public ResponseEntity<AttachmentParseView> parseAttachment(
             @org.springframework.web.bind.annotation.RequestParam("file") org.springframework.web.multipart.MultipartFile file) {
         if (file.isEmpty()) {
             throw new ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "文件不能为空");
@@ -116,7 +125,11 @@ public class PrdClarifyController {
                     "不支持的文件格式，请上传 .md / .pdf / .docx 文件");
         }
         try {
-            return ResponseEntity.ok(attachmentParser.parse(file));
+            AttachmentParseService.ParseResult parsed = attachmentParser.parse(file);
+            FileAttachmentStorageService.StoredFile stored = fileAttachmentStorage.store(file);
+            return ResponseEntity.ok(new AttachmentParseView(
+                    parsed.fileName(), parsed.contentType(), parsed.text(), parsed.truncated(),
+                    stored.id(), stored.url()));
         } catch (Exception e) {
             throw new ResponseStatusException(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR,
                     "文件解析失败：" + e.getMessage());
@@ -132,6 +145,17 @@ public class PrdClarifyController {
     public ImageAttachmentView uploadImage(
             @org.springframework.web.bind.annotation.RequestParam("file") org.springframework.web.multipart.MultipartFile file) {
         return imageAttachmentStorage.store(file);
+    }
+
+    /** 下载原始需求附件（parseAttachment 落盘的 Word/PDF/Markdown 原文件）。 */
+    @GetMapping("/attachments/file/{id}")
+    public ResponseEntity<org.springframework.core.io.Resource> downloadFile(@PathVariable String id) {
+        FileAttachmentStorageService.DownloadFile f = fileAttachmentStorage.locate(id);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(f.mime()))
+                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + f.name() + "\"")
+                .body(new org.springframework.core.io.FileSystemResource(f.path()));
     }
 
     /** 取回粘贴/上传的图片原始字节，供 {@code <img src>} 直接引用。 */

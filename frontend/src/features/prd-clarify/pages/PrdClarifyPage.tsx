@@ -1690,12 +1690,16 @@ function DevDocUpdateDialog({
     }
   }
 
-  /** 把附件内容追加到 notes，形成完整的初步更新说明 */
+  /**
+   * 把附件内容追加到 notes，形成完整的初步更新说明。原始文件已随解析一并落盘（见
+   * parseAttachment 的 fileId/url），这里把下载链接也用 Markdown 语法嵌进正文——不这样做的话
+   * 原文件解析完就没有任何入口能再找回来了，只剩抽取出来的纯文本。
+   */
   const buildFinalNotes = () => {
     let final = notes.trim()
     if (attachments.length > 0) {
       final += '\n\n' + attachments.map((a) =>
-        `---\n【附件：${a.fileName}】\n${a.text}${a.truncated ? '\n（内容已截断）' : ''}\n---`
+        `[📎 附件：${a.fileName}](${a.url})\n---\n【附件：${a.fileName}】\n${a.text}${a.truncated ? '\n（内容已截断）' : ''}\n---`
       ).join('\n\n')
     }
     return final
@@ -1821,6 +1825,16 @@ function DevDocUpdateDialog({
                   <div key={i} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/30">
                     <FileText className="w-3.5 h-3.5 flex-shrink-0 text-[var(--color-primary)]" />
                     <span className="text-xs font-medium truncate flex-1">{att.fileName}</span>
+                    <a
+                      href={att.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-[var(--color-muted-foreground)] hover:text-[var(--color-primary)]"
+                      title="下载原始文件"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
                     <button
                       onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
                       className="text-[var(--color-muted-foreground)] hover:text-red-500"
@@ -2629,12 +2643,17 @@ function InputPanel({
     setPastedImages(prev => prev.filter(p => p.id !== entry.id))
   }
 
-  /** 提交时将附件内容追加到 rawInput */
+  /**
+   * 提交时将附件内容追加到 rawInput。原始文件已随解析一并落盘（parseAttachment 的
+   * fileId/url），这里把下载链接也用 Markdown 语法嵌进正文——不这样做的话，原始 Word/PDF
+   * 文件解析完就没有任何入口能再找回来，之后回看 PRD/草稿时只剩抽取出来的纯文本，找不到
+   * 当初提需求时的原始附件（RawInputCard 按 Markdown 渲染 rawInput，链接会直接可点）。
+   */
   const buildFinalRawInput = () => {
     let final = rawInput.trim()
     if (attachments.length > 0) {
       final += '\n\n' + attachments.map(a =>
-        `---\n【附件：${a.fileName}】\n${a.text}${a.truncated ? '\n（内容已截断）' : ''}\n---`
+        `[📎 附件：${a.fileName}](${a.url})\n---\n【附件：${a.fileName}】\n${a.text}${a.truncated ? '\n（内容已截断）' : ''}\n---`
       ).join('\n\n')
     }
     return final
@@ -2927,6 +2946,17 @@ function InputPanel({
                   <span className="text-[10px] text-[var(--color-muted-foreground)]">
                     {(att.text.length / 1000).toFixed(1)}k 字{att.truncated ? '（已截断）' : ''}
                   </span>
+                  {/* 原始文件已落盘，随时可以下载查看（不止是抽取出来的纯文本） */}
+                  <a
+                    href={att.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-[var(--color-muted-foreground)] hover:text-[var(--color-primary)]"
+                    title="下载原始文件"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
                   <button
                     onClick={() => setAttachments(prev => prev.filter((_, j) => j !== i))}
                     className="text-[var(--color-muted-foreground)] hover:text-red-500"

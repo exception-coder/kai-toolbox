@@ -333,10 +333,15 @@ export interface AttachmentParseResult {
   contentType: string
   text: string
   truncated: boolean
+  /** 落盘后的附件 id */
+  fileId: string
+  /** 下载原始文件的相对地址（GET /api/prd-clarify/attachments/file/{fileId}） */
+  url: string
 }
 
 /**
- * 上传附件（MD / PDF / DOCX）并解析提取文本。
+ * 上传附件（MD / PDF / DOCX）并解析提取文本，原始文件同时落盘（见 fileId/url）——
+ * 之前只返回解析出的文本，原文件解析完就丢了，回看 PRD 时找不到当初提需求的 Word/PDF 原件。
  * 返回结构化的解析结果，由前端拼接到 rawInput 中。
  */
 export const parseAttachment = async (file: File): Promise<AttachmentParseResult> => {
