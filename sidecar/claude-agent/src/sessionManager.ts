@@ -213,6 +213,8 @@ class Session {
   engine: Engine = 'claude'
   /** 会话级权限模式，每轮 query 传入；运行中切换下一轮生效。 */
   permissionMode = 'default'
+  /** 会话级「弹窗自动允许」兜底开关，与 permissionMode 独立；见 Permissions.autoApprove 说明。 */
+  autoApprove = false
   /** 福利签收演示会话：开启后注入受限 welfare_db MCP，权限走 perms 的 demo 沙箱硬裁决。 */
   demo = false
   /** demo 的 welfare_db 工具回灌后端的基址（如 http://127.0.0.1:18080）。 */
@@ -691,12 +693,13 @@ export class SessionManager {
   }
 
   start(id: string, cwd: string, model?: string, mode?: string, engine?: string, apiBaseUrl?: string, authToken?: string,
-        demo?: boolean, demoApiBase?: string): void {
+        demo?: boolean, demoApiBase?: string, autoApprove?: boolean): void {
     const s = new Session(id, cwd || process.env.HOME || process.cwd(), (e) => this.emit(id, e))
     if (model) s.model = model
     if (engine === 'codex' || engine === 'gemini' || engine === 'opencode') s.engine = engine
     if (apiBaseUrl) { s.apiBaseUrl = apiBaseUrl; s.authToken = authToken }
     if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
+    if (autoApprove) { s.autoApprove = true; s.perms.setAutoApprove(true) }
     this.applyCodexOptions(id, s)
     // 演示会话：cwd 即副本根，权限走 demo 沙箱硬裁决（忽略 mode），注入 welfare_db。
     if (demo) {
@@ -711,7 +714,14 @@ export class SessionManager {
     this.emitCachedModels(id, s)
   }
 
-  resume(id: string, sdkSessionId: string, cwd: string, engine?: string, apiBaseUrl?: string, authToken?: string): void {
+  /**
+   * 恢复会话。mode/autoApprove 必须由 Java 一并回灌：sidecar 重建后 Session 是全新对象，
+   * 权限模式会退回 default。以前只靠前端收到 ready 后补发 setMode 纠正，可一旦当时没有浏览器在线
+   * （用户切走了页面 / 后端自愈式 resume），模式就长期停在 default——本该「全自动」的会话又开始弹审批，
+   * 而弹了也没人看，最终超时 deny 或中断成 stream closed。
+   */
+  resume(id: string, sdkSessionId: string, cwd: string, engine?: string, apiBaseUrl?: string, authToken?: string,
+         mode?: string, autoApprove?: boolean): void {
     let s = this.sessions.get(id)
     if (!s) {
       s = new Session(id, cwd, (e) => this.emit(id, e))
@@ -721,6 +731,8 @@ export class SessionManager {
     if (cwd) s.cwd = cwd
     if (engine === 'codex' || engine === 'claude' || engine === 'gemini' || engine === 'opencode') s.engine = engine
     if (apiBaseUrl) { s.apiBaseUrl = apiBaseUrl; s.authToken = authToken }
+    if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
+    if (autoApprove != null) { s.autoApprove = autoApprove; s.perms.setAutoApprove(autoApprove) }
     this.applyCodexOptions(id, s)
     this.emitCachedModels(id, s)
   }
@@ -763,6 +775,12 @@ export class SessionManager {
   setMode(id: string, mode: string): void {
     const s = this.sessions.get(id)
     if (s) { s.permissionMode = mode; s.perms.setMode(mode) }
+  }
+
+  /** 切换「弹窗自动允许」兜底开关，下一次工具调用即生效。 */
+  setAutoApprove(id: string, on: boolean): void {
+    const s = this.sessions.get(id)
+    if (s) { s.autoApprove = on; s.perms.setAutoApprove(on) }
   }
 
   /** 切换会话模型，下一轮 runTurn 生效。 */

@@ -32,7 +32,6 @@ const MIN_MARGIN = 8
 const MIN_W = 280
 const MIN_H = 320
 const BUBBLE = 48
-const AUTO_APPROVE_KEY = 'kai-toolbox:auto-approve-permission'
 const GIFT_CONCIERGE_IMAGE = '/assets/welfare-sign/duanwu-concierge.svg'
 type FloatAttachment = UploadedAttachment & { previewUrl?: string }
 
@@ -121,7 +120,6 @@ export function FloatingChatWindow() {
   }, [floating])
   const [attachments, setAttachments] = useState<FloatAttachment[]>([])
   const [uploading, setUploading] = useState(0)
-  const [autoApprove, setAutoApprove] = useState(() => localStorage.getItem(AUTO_APPROVE_KEY) === '1')
   const dragRef = useRef<{ dx: number; dy: number } | null>(null)
   const resizeRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null)
   const bubbleRef = useRef<{ dx: number; dy: number; sx: number; sy: number; moved: boolean; long: boolean } | null>(null)
@@ -141,7 +139,6 @@ export function FloatingChatWindow() {
     const t = setInterval(() => setElapsedSec(s => s + 1), 1000)
     return () => clearInterval(t)
   }, [_isActive])
-  const autoApprovedRef = useRef<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const confirm = useConfirm()
@@ -210,16 +207,6 @@ export function FloatingChatWindow() {
     return true
   }
 
-  // 全自动·弹窗自动允许：浮窗态下 ChatPage 已卸载，自动放行 effect 必须在本组件跑。
-  useEffect(() => {
-    if (!chat || chat.mode !== 'bypassPermissions' || !autoApprove) return
-    const p = chat.pending
-    if (p?.kind !== 'permission') return
-    if (autoApprovedRef.current === p.reqId) return
-    autoApprovedRef.current = p.reqId
-    chat.decide({ type: 'decision', reqId: p.reqId, behavior: 'allow' })
-  }, [chat, autoApprove])
-
   // 在会话页时不渲染（全屏页已在），未弹出或引擎未就绪也不渲染
   if (!floating || !chat || isChatRoute(location.pathname)) return null
 
@@ -234,11 +221,11 @@ export function FloatingChatWindow() {
   // 礼赠助手皮肤：福利签收相关页（含受约束演示）启用，与端午页面同色系。
   const giftMode = location.pathname.startsWith('/tools/welfare-sign') || demo
 
-  const toggleAutoApprove = () => setAutoApprove(v => {
-    const nv = !v
-    localStorage.setItem(AUTO_APPROVE_KEY, nv ? '1' : '0')
-    return nv
-  })
+  // 「弹窗自动允许」由 useClaudeChatSocket 统一持有并同步到服务端，放行在 sidecar 内完成。
+  // 原先浮窗要自己再跑一遍自动放行 effect（因为浮窗态下 ChatPage 已卸载）——这正说明该逻辑
+  // 不该寄生在任意一个视图组件上：只要没有组件挂着，自动允许就失效。
+  const autoApprove = chat?.autoApprove ?? false
+  const toggleAutoApprove = () => chat?.setAutoApprove(!autoApprove)
 
   // 点击循环切换权限模式（下一轮生效，与全屏 ModeSwitch 同语义）
   const cycleMode = () => {

@@ -125,10 +125,18 @@ public class SidecarClient {
     }
 
     public void startSession(String sessionId, String cwd, String model, String mode, String engine,
-                             String apiBaseUrl, String authToken) {
-        send(Map.of("type", "start", "sessionId", sessionId,
-                "cwd", nz(cwd), "model", nz(model), "mode", nz(mode), "engine", nz(engine),
-                "apiBaseUrl", nz(apiBaseUrl), "authToken", nz(authToken)));
+                             String apiBaseUrl, String authToken, boolean autoApprove) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("type", "start");
+        m.put("sessionId", sessionId);
+        m.put("cwd", nz(cwd));
+        m.put("model", nz(model));
+        m.put("mode", nz(mode));
+        m.put("engine", nz(engine));
+        m.put("apiBaseUrl", nz(apiBaseUrl));
+        m.put("authToken", nz(authToken));
+        m.put("autoApprove", autoApprove);
+        send(m);
     }
 
     /**
@@ -150,11 +158,24 @@ public class SidecarClient {
         send(m);
     }
 
+    /**
+     * 恢复会话。mode / autoApprove 必须一并回灌——sidecar 重建后 Session 是全新对象，权限模式会退回
+     * default。以前只靠前端收到 ready 再补发 setMode 纠正，可一旦当时没有浏览器在线（用户切走页面、
+     * 或后端自愈式 resume），模式就长期停在 default：本该全自动的会话又开始弹审批，弹了也没人看。
+     */
     public void resumeSession(String sessionId, String sdkSessionId, String cwd, String engine,
-                              String apiBaseUrl, String authToken) {
-        send(Map.of("type", "resume", "sessionId", sessionId,
-                "sdkSessionId", nz(sdkSessionId), "cwd", nz(cwd), "engine", nz(engine),
-                "apiBaseUrl", nz(apiBaseUrl), "authToken", nz(authToken)));
+                              String apiBaseUrl, String authToken, String mode, boolean autoApprove) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("type", "resume");
+        m.put("sessionId", sessionId);
+        m.put("sdkSessionId", nz(sdkSessionId));
+        m.put("cwd", nz(cwd));
+        m.put("engine", nz(engine));
+        m.put("apiBaseUrl", nz(apiBaseUrl));
+        m.put("authToken", nz(authToken));
+        m.put("mode", nz(mode));
+        m.put("autoApprove", autoApprove);
+        send(m);
     }
 
     public void userMessage(String sessionId, String text) {
@@ -180,6 +201,11 @@ public class SidecarClient {
 
     public void setMode(String sessionId, String mode) {
         send(Map.of("type", "setMode", "sessionId", sessionId, "mode", nz(mode)));
+    }
+
+    /** 同步「弹窗自动允许」：由 sidecar 内同步裁决，不依赖浏览器在线。 */
+    public void setAutoApprove(String sessionId, boolean autoApprove) {
+        send(Map.of("type", "setAutoApprove", "sessionId", sessionId, "autoApprove", autoApprove));
     }
 
     public void setModel(String sessionId, String model) {

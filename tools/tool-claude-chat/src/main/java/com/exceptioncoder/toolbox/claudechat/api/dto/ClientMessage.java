@@ -18,6 +18,7 @@ import java.util.Map;
         @JsonSubTypes.Type(value = ClientMessage.Decision.class,      name = "decision"),
         @JsonSubTypes.Type(value = ClientMessage.Interrupt.class,     name = "interrupt"),
         @JsonSubTypes.Type(value = ClientMessage.SetMode.class,       name = "setMode"),
+        @JsonSubTypes.Type(value = ClientMessage.SetAutoApprove.class, name = "setAutoApprove"),
         @JsonSubTypes.Type(value = ClientMessage.SetModel.class,      name = "setModel"),
         @JsonSubTypes.Type(value = ClientMessage.RefreshModels.class, name = "refreshModels"),
         @JsonSubTypes.Type(value = ClientMessage.SetCodexOptions.class, name = "setCodexOptions"),
@@ -28,7 +29,8 @@ import java.util.Map;
 public sealed interface ClientMessage
         permits ClientMessage.Open, ClientMessage.Attach, ClientMessage.SwitchSession,
                 ClientMessage.ResumeHistory, ClientMessage.ResumeCurrent, ClientMessage.Send, ClientMessage.Decision,
-                ClientMessage.Interrupt, ClientMessage.SetMode, ClientMessage.SetModel, ClientMessage.RefreshModels,
+                ClientMessage.Interrupt, ClientMessage.SetMode, ClientMessage.SetAutoApprove,
+                ClientMessage.SetModel, ClientMessage.RefreshModels,
                 ClientMessage.SetCodexOptions,
                 ClientMessage.SwitchEngine, ClientMessage.SwitchProvider, ClientMessage.ForkSession {
 
@@ -70,6 +72,12 @@ public sealed interface ClientMessage
 
     /** 切换会话权限模式：default / acceptEdits / plan / bypassPermissions。下一轮生效。 */
     record SetMode(String mode) implements ClientMessage {}
+
+    /**
+     * 切换「弹窗自动允许」兜底开关。服务端持有并随每次 resume 回灌 sidecar，
+     * 由 sidecar 内同步裁决——不再依赖浏览器页面活着才能自动点「允许」。
+     */
+    record SetAutoApprove(boolean autoApprove) implements ClientMessage {}
 
     /** 切换会话模型（ModelInfo.value）。下一轮生效。 */
     record SetModel(String model) implements ClientMessage {}

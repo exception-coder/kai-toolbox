@@ -33,7 +33,6 @@ interface Props {
 const MAX_ATTACHMENTS = 10
 
 /** 「弹窗自动允许」全局开关键，与单会话视图共用，多处同步。 */
-const AUTO_APPROVE_KEY = 'kai-toolbox:auto-approve-permission'
 
 type ChatAttachment = UploadedAttachment & { previewUrl?: string }
 
@@ -81,29 +80,12 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
   }, [status.kind, status.errorText, status.count])
   const title = meta?.title?.trim() || (meta ? shortCwd(meta.cwd) : sessionId.slice(0, 8))
 
-  // 弹窗自动允许：与单会话共用全局开关；监听 storage 让多块/单视图间同步
-  const [autoApprove, setAutoApprove] = useState(() => localStorage.getItem(AUTO_APPROVE_KEY) === '1')
-  useEffect(() => {
-    const onStorage = (e: StorageEvent) => { if (e.key === AUTO_APPROVE_KEY) setAutoApprove(e.newValue === '1') }
-    window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
-  }, [])
-  const toggleAutoApprove = () => setAutoApprove(v => {
-    const nv = !v
-    try { localStorage.setItem(AUTO_APPROVE_KEY, nv ? '1' : '0') } catch { /* ignore */ }
-    return nv
-  })
+  // 「弹窗自动允许」由 useClaudeChatSocket 统一持有并同步到服务端，放行在 sidecar 内完成
+  // （原先是本组件 useEffect 自动点「允许」，页面切走就失效）。
+  const autoApprove = chat.autoApprove
+  const toggleAutoApprove = () => chat.setAutoApprove(!autoApprove)
 
   const pending = chat.pending
-  // 全自动 + 开关开启时，自动放行本块的权限框（仅 permission；AskUserQuestion 提问不自动应答）
-  const autoApprovedRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (chat.mode !== 'bypassPermissions' || !autoApprove) return
-    if (pending?.kind !== 'permission') return
-    if (autoApprovedRef.current === pending.reqId) return
-    autoApprovedRef.current = pending.reqId
-    chat.decide({ type: 'decision', reqId: pending.reqId, behavior: 'allow' })
-  }, [pending, autoApprove, chat])
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || !chat.sessionId) return

@@ -9,6 +9,15 @@ import { playNotifySound } from '../sound'
 // 按 sessionId 持久化权限模式，使刷新/放大缩小/重连后该会话仍保持上次选择，而非回退 default。
 const VALID_MODES: PermissionMode[] = ['default', 'acceptEdits', 'plan', 'bypassPermissions']
 const modeStorageKey = (sid: string) => `kai-toolbox:chat-mode:${sid}`
+/**
+ * 「弹窗自动允许」：全局偏好（跨会话共用一个键，保持与旧版本一致）。
+ * 这里只存「用户的意愿」并在会话 ready 时同步给服务端一次；真正的放行裁决在 sidecar 内同步完成。
+ * 以前是前端收到弹窗再自动点「允许」，页面一旦切走/卸载就失效——该开关的语义本就与页面在不在无关。
+ */
+const AUTO_APPROVE_KEY = 'kai-toolbox:auto-approve-permission'
+function loadAutoApprove(): boolean {
+  try { return localStorage.getItem(AUTO_APPROVE_KEY) === '1' } catch { return false }
+}
 const codexStorageKey = (sid: string) => `kai-toolbox:codex-options:${sid}`
 interface CodexOptions {
   reasoningEffort: CodexReasoningEffort
@@ -115,6 +124,8 @@ export interface UseClaudeChatSocket {
   open: (cwd: string, model?: string, mode?: PermissionMode, engine?: Engine, provider?: { apiBaseUrl?: string; authToken?: string }) => void
   /** 切换权限模式（下一轮生效） */
   setMode: (mode: PermissionMode) => void
+  autoApprove: boolean
+  setAutoApprove: (on: boolean) => void
   /** 切换模型（下一轮生效） */
   setModel: (model: string) => void
   /** 主动同步模型清单：让 sidecar 重新询问 claude 二进制拉最新型号（Claude Code 自更新后用） */
@@ -170,6 +181,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [syncWarning, setSyncWarning] = useState<string | null>(null)
   const [mode, setModeState] = useState<PermissionMode>('default')
+  const [autoApprove, setAutoApproveState] = useState<boolean>(loadAutoApprove)
   const [slashCommands, setSlashCommands] = useState<string[]>([])
   const [skills, setSkills] = useState<string[]>([])
   const [agents, setAgents] = useState<string[]>([])
@@ -281,6 +293,11 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
             setModeState(savedMode)
             sendRaw({ type: 'setMode', mode: savedMode })
           }
+          // 「弹窗自动允许」同步给服务端一次：服务端此后自己保管并随每次 resume 回灌 sidecar，
+          // 用户切走页面/关掉浏览器也不影响放行，不再需要前端盯着弹窗自动点。
+          const savedAutoApprove = loadAutoApprove()
+          setAutoApproveState(savedAutoApprove)
+          if (savedAutoApprove) sendRaw({ type: 'setAutoApprove', autoApprove: true })
         }
         {
           const options = loadCodexOptions(msg.sessionId)
@@ -765,6 +782,13 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     sendRaw({ type: 'setMode', mode: m })
   }, [sendRaw])
 
+  /** 切换「弹窗自动允许」：落本地偏好 + 告知服务端，之后由 sidecar 同步裁决。 */
+  const setAutoApprove = useCallback((on: boolean) => {
+    setAutoApproveState(on)
+    try { localStorage.setItem(AUTO_APPROVE_KEY, on ? '1' : '0') } catch { /* 隐私模式忽略 */ }
+    sendRaw({ type: 'setAutoApprove', autoApprove: on })
+  }, [sendRaw])
+
   const setModel = useCallback((model: string) => {
     setCurrentModel(model) // 乐观更新；下一轮 query 生效
     sendRaw({ type: 'setModel', model })
@@ -906,5 +930,5 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     }
   }, [sendRaw, connect])
 
-  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, slashCommands, skills, agents, mcpServers, outputStyle, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setModel, refreshModels, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, running, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, agents, mcpServers, outputStyle, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, loadHistory }
 }

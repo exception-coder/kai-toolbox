@@ -131,7 +131,7 @@ public class ClaudeChatService {
         bindViewer(ws, ctx);
 
         ctx.mode = normalizeMode(open.mode());
-        sidecar.startSession(sessionId, cwd, open.model(), ctx.mode, engine, apiBaseUrl, authToken);
+        sidecar.startSession(sessionId, cwd, open.model(), ctx.mode, engine, apiBaseUrl, authToken, ctx.autoApprove);
         pushGatewayModels(ctx); // 网关会话：拉网关 /v1/models 目录推给前端，命令菜单据此选/切模型
         log.info("[claude-chat] open 会话 {} cwd={} mode={} engine={}", sessionId, cwd, ctx.mode, engine);
     }
@@ -174,7 +174,8 @@ public class ClaudeChatService {
                 bindViewer(ws, restored);
                 if (created[0]) {
                     repo.touch(db.getId(), SessionStatus.IDLE, System.currentTimeMillis());
-                    sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), restored.engine, restored.apiBaseUrl, restored.authToken);
+                    sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), restored.engine,
+                            restored.apiBaseUrl, restored.authToken, restored.mode, restored.autoApprove);
                     log.info("[claude-chat] attach 内存未命中，从 DB 恢复并 resume 会话 {}", db.getId());
                 }
                 // Ready 只发给当前这条连接（其它已在看的连接不需要重复）
@@ -213,7 +214,8 @@ public class ClaudeChatService {
         // 只更新 lastSeenAt，保留会话真实状态：若该会话仍有在跑的一轮（ctx 内存中为 RUNNING），
         // 切回/刷新恢复时不能把 DB 状态抹成 IDLE，否则会话列表与前端 running 判定都会误判为「空闲」。
         repo.touch(db.getId(), ctx.status, System.currentTimeMillis());
-        sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), ctx.engine, ctx.apiBaseUrl, ctx.authToken);
+        sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), ctx.engine, ctx.apiBaseUrl,
+                ctx.authToken, ctx.mode, ctx.autoApprove);
         // 历史消息由前端按需读 SDK transcript；这里只发一个 Ready 表示已就绪
         sendToBrowser(ctx, seq -> ready(ctx, seq));
         pushGatewayModels(ctx); // 切到网关会话：重发网关模型目录，命令菜单可选/切
@@ -240,7 +242,8 @@ public class ClaudeChatService {
         sessions.put(id, ctx);
         bindViewer(ws, ctx);
 
-        sidecar.resumeSession(id, msg.sdkSessionId(), cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken);
+        sidecar.resumeSession(id, msg.sdkSessionId(), cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken,
+                ctx.mode, ctx.autoApprove);
         sendToBrowser(ctx, seq -> ready(ctx, seq));
         log.info("[claude-chat] resumeHistory 会话 {} sdk={} cwd={}", id, msg.sdkSessionId(), cwd);
     }
@@ -293,7 +296,8 @@ public class ClaudeChatService {
         ctx.pendingRequest = null;
         repo.updateSdkSessionId(ctx.sessionId, sdkSessionId);
         repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
-        sidecar.resumeSession(ctx.sessionId, sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken);
+        sidecar.resumeSession(ctx.sessionId, sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken,
+                ctx.mode, ctx.autoApprove);
         final SessionCtx readyCtx = ctx; // ctx 在本方法上方被重新赋值（attach 恢复），lambda 捕获需 effectively final
         sendToBrowser(ctx, seq -> ready(readyCtx, seq));
         pushGatewayModels(ctx);
@@ -359,6 +363,24 @@ public class ClaudeChatService {
         ctx.mode = msg.mode();
         sidecar.setMode(ctx.sessionId, ctx.mode);
         log.info("[claude-chat] 会话 {} 切换权限模式 -> {}", ctx.sessionId, ctx.mode);
+    }
+
+    /**
+     * 切换「弹窗自动允许」。存在 ctx 上并即时同步 sidecar，之后每次 resume 一并回灌。
+     *
+     * <p>这个决策本来不需要人参与，以前却由前端 useEffect「收到弹窗就自动点允许」实现——等于把它
+     * 绑死在浏览器页面必须活着且在前台。用户切走页面后自动放行失效，请求一路挂到 5 分钟超时 deny，
+     * 期间若碰上中断或 sidecar 重建，就变成 CLI 的 tool permission stream closed。
+     */
+    public void setAutoApprove(WebSocketSession ws, ClientMessage.SetAutoApprove msg) {
+        SessionCtx ctx = ctxOf(ws);
+        if (ctx == null) {
+            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            return;
+        }
+        ctx.autoApprove = msg.autoApprove();
+        sidecar.setAutoApprove(ctx.sessionId, ctx.autoApprove);
+        log.info("[claude-chat] 会话 {} 弹窗自动允许 -> {}", ctx.sessionId, ctx.autoApprove);
     }
 
     /** 切换会话模型，下一轮 query 生效；广播当前模型让多端同步勾选。 */
@@ -753,7 +775,8 @@ public class ClaudeChatService {
         int n = 0;
         for (SessionCtx ctx : sessions.values()) {
             if (ctx.sdkSessionId == null || ctx.sdkSessionId.isBlank()) continue;
-            sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken);
+            sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken,
+                    ctx.mode, ctx.autoApprove);
             ctx.status = SessionStatus.IDLE;
             repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
             sendToBrowser(ctx, seq -> ready(ctx, seq));
@@ -777,7 +800,8 @@ public class ClaudeChatService {
             return false;
         }
         if (ctx.sdkSessionId != null && !ctx.sdkSessionId.isBlank()) {
-            sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken);
+            sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken,
+                    ctx.mode, ctx.autoApprove);
             ctx.status = SessionStatus.IDLE;
             repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
         }
@@ -1045,6 +1069,12 @@ public class ClaudeChatService {
         final Set<WebSocketSession> viewers = ConcurrentHashMap.newKeySet();
         /** 会话权限模式，默认 default；切换后随下一轮 send 透传给 sidecar。 */
         volatile String mode = "default";
+        /**
+         * 「弹窗自动允许」兜底开关。服务端持有是关键：它以前是纯前端 useEffect 自动点「允许」，
+         * 用户切走页面（组件卸载/浏览器后台节流）就失效，请求挂到超时 deny 或撞上中断变成
+         * stream closed。放到这里后随每次 resume 一并回灌 sidecar，与浏览器在不在线无关。
+         */
+        volatile boolean autoApprove = false;
         /** 福利签收演示会话：true 时走一次性副本沙箱，断连即销毁，不持久化、不进正式列表。 */
         volatile boolean demo = false;
         /**

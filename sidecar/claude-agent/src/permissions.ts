@@ -29,6 +29,17 @@ export class Permissions {
   private readonly timeoutMs: number
   /** 当前会话权限模式，由 SessionManager 同步；canUseTool 据此决定是否自动放行。 */
   private mode = 'default'
+  /**
+   * 「弹窗自动允许」兜底开关，与 mode 相互独立。
+   *
+   * 原先这是纯前端的 useEffect：收到 permissionRequest 就自动 decide(allow)。问题是这个决策
+   * 本来不需要人参与，却被绑死在「浏览器页面必须活着且在前台」上——用户切到别的页面（组件卸载或被
+   * 浏览器后台节流）、或干脆没开页面时，自动放行就不生效了：请求一路挂到 5 分钟超时 deny，
+   * 或在此期间遇上中断/sidecar 重建，直接变成 CLI 的 tool permission stream closed。
+   *
+   * 下沉到这里后，裁决在 sidecar 内同步完成，不发请求、不等任何网络回程，与浏览器在不在线彻底解耦。
+   */
+  private autoApprove = false
   /** demo 沙箱模式：开启后忽略 mode，按白名单 deny-by-default 硬裁决，不弹人工审批。 */
   private demo = false
   private allowRoot = ''
@@ -40,6 +51,11 @@ export class Permissions {
   /** 同步会话权限模式（运行中切换下一次工具调用即生效）。 */
   setMode(mode: string): void {
     this.mode = mode || 'default'
+  }
+
+  /** 同步「弹窗自动允许」兜底开关（运行中切换下一次工具调用即生效）。 */
+  setAutoApprove(on: boolean): void {
+    this.autoApprove = !!on
   }
 
   /** 开启 demo 沙箱裁决：allowRoot = 副本根（= 会话 cwd）。 */
@@ -85,6 +101,12 @@ export class Permissions {
     // 所以放行决策必须在这里做。
     if (toolName !== 'AskUserQuestion') {
       if (this.mode === 'bypassPermissions') {
+        return { behavior: 'allow', updatedInput: input }
+      }
+      // 兜底自动放行：即便 mode 因某些路径没同步上（历史上 resume 不回灌 mode 就会退回 default），
+      // 只要用户开了这个开关，也在本地同步放行，不再往浏览器要一次「其实没人看」的确认。
+      if (this.autoApprove) {
+        console.log(`[sidecar] 自动放行工具（弹窗自动允许）：${toolName}`)
         return { behavior: 'allow', updatedInput: input }
       }
       if (this.mode === 'acceptEdits' && EDIT_TOOLS.has(toolName)) {

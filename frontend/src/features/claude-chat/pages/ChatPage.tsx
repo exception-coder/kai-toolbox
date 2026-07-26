@@ -19,6 +19,7 @@ import { VoiceInputButton } from '../components/VoiceInputButton'
 import { AttachmentChips } from '../components/AttachmentChips'
 import { QueuedList } from '../components/QueuedList'
 import { SessionCapsPanel } from '../components/SessionCapsPanel'
+import { PENDING_DRAFT_KEY, useDraftStore } from '../lib/draftPref'
 import { setToolColors, useToolColors } from '../lib/toolColorPref'
 import { setHideToolCalls, useHideToolCalls } from '../lib/toolVisibilityPref'
 import { ModeSwitch } from '../components/ModeSwitch'
@@ -57,22 +58,6 @@ type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' 
 
 /** 单条消息最多附件数，与后端约定一致。 */
 const MAX_ATTACHMENTS = 10
-
-/** 输入框草稿按会话持久化：{ [sessionId]: 文本 }。切会话/刷新都各自保留，互不串扰。 */
-const DRAFTS_KEY = 'kai-toolbox:claude-chat:drafts'
-/** 无会话（新建面板等）时草稿的占位键。 */
-const PENDING_DRAFT_KEY = '__pending__'
-function loadDrafts(): Record<string, string> {
-  try {
-    const o = JSON.parse(localStorage.getItem(DRAFTS_KEY) || '{}') as unknown
-    return o && typeof o === 'object' ? (o as Record<string, string>) : {}
-  } catch {
-    return {}
-  }
-}
-function saveDrafts(m: Record<string, string>) {
-  try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(m)) } catch { /* 忽略隐私模式/配额异常 */ }
-}
 
 /** cwd 末段目录名，作为无别名会话的显示名（与会话列表 shortCwd 一致）。 */
 function headerCwdName(cwd: string): string {
@@ -227,24 +212,11 @@ export function ChatPage() {
   const [restartOpen, setRestartOpen] = useState(false)
   const openRestart = () => setRestartOpen(true)
 
-  // 全自动·弹窗自动允许（前端兜底）：bypassPermissions 下仍偶有工具弹 allow/deny 框，
-  // 开此开关后收到权限框就自动 decide(allow)。仅对 permission 生效，question（AskUserQuestion）不自动应答。
-  const [autoApprove, setAutoApprove] = useState(() => localStorage.getItem('kai-toolbox:auto-approve-permission') === '1')
-  const autoApprovedRef = useRef<string | null>(null)
-  const toggleAutoApprove = () => {
-    setAutoApprove(v => {
-      const nv = !v
-      localStorage.setItem('kai-toolbox:auto-approve-permission', nv ? '1' : '0')
-      return nv
-    })
-  }
-  useEffect(() => {
-    if (!chat || chat.mode !== 'bypassPermissions' || !autoApprove) return
-    if (pending?.kind !== 'permission') return
-    if (autoApprovedRef.current === pending.reqId) return // 同一请求只自动放行一次
-    autoApprovedRef.current = pending.reqId
-    chat.decide({ type: 'decision', reqId: pending.reqId, behavior: 'allow' })
-  }, [pending, autoApprove, chat])
+  // 「弹窗自动允许」由 useClaudeChatSocket 统一持有：开关经 WS 落到服务端，放行在 sidecar 内同步完成。
+  // 以前是这里用 useEffect「收到权限框就自动 decide(allow)」，页面一切走（组件卸载/浏览器后台节流）
+  // 就不再自动放行，请求挂到超时 deny，撞上中断/sidecar 重建则变成 CLI 的 stream closed。
+  const autoApprove = chat?.autoApprove ?? false
+  const toggleAutoApprove = () => chat?.setAutoApprove(!autoApprove)
 
   // 弹出悬浮窗：开启浮窗并离开会话页（浮窗与全屏页互斥渲染）。回到进入会话页前最后访问的页面，而非每次回首页。
   const popOutFloating = () => {
@@ -296,7 +268,8 @@ export function ChatPage() {
   }
   const [sessTab, setSessTab] = useState<'tool' | 'history'>('tool')
   // 输入框草稿按会话绑定 + 本地持久化：切到任意会话只显示该会话自己的草稿，互不串扰、刷新保留。
-  const [drafts, setDrafts] = useState<Record<string, string>>(() => loadDrafts())
+  // 用共享 store（模块级），与悬浮窗/分屏读同一份 → 主页打字后弹悬浮窗草稿不丢、即时同步。
+  const { drafts, setDraft: setDraftForKey } = useDraftStore()
   // 聚合联动提示预填:从项目工作台「一键聚合」跳来时读一次 sessionStorage 草稿；先存到 ref，待当前会话就绪再落到其草稿。
   const seedRef = useRef<string | null>(null)
   const seedReadRef = useRef(false)
@@ -310,15 +283,8 @@ export function ChatPage() {
   const draftKey = chat?.sessionId ?? PENDING_DRAFT_KEY
   const draft = drafts[draftKey] ?? ''
   const setDraft = useCallback((v: string | ((d: string) => string)) => {
-    setDrafts(prev => {
-      const cur = prev[draftKey] ?? ''
-      const next = typeof v === 'function' ? (v as (d: string) => string)(cur) : v
-      const m = { ...prev }
-      if (next) m[draftKey] = next; else delete m[draftKey]
-      saveDrafts(m)
-      return m
-    })
-  }, [draftKey])
+    setDraftForKey(draftKey, v)
+  }, [draftKey, setDraftForKey])
   // 聚合 seed：当前会话就绪且其草稿为空时，把一次性 seed 落到该会话草稿。
   useEffect(() => {
     if (seedRef.current && chat?.sessionId && !(drafts[chat.sessionId])) {

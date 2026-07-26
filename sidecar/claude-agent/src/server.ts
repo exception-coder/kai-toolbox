@@ -93,10 +93,13 @@ wss.on('connection', (ws) => {
     switch (type) {
       case 'start':
         manager.start(sessionId, msg.cwd as string, msg.model as string, msg.mode as string, msg.engine as string, msg.apiBaseUrl as string | undefined, msg.authToken as string | undefined,
-          msg.demo as boolean | undefined, msg.demoApiBase as string | undefined)
+          msg.demo as boolean | undefined, msg.demoApiBase as string | undefined, msg.autoApprove as boolean | undefined)
         break
       case 'setMode':
         manager.setMode(sessionId, msg.mode as string)
+        break
+      case 'setAutoApprove':
+        manager.setAutoApprove(sessionId, msg.autoApprove === true)
         break
       case 'setModel':
         manager.setModel(sessionId, msg.model as string)
@@ -127,7 +130,8 @@ wss.on('connection', (ws) => {
         void manager.forkSession(sessionId, msg.upToMessageId as string)
         break
       case 'resume':
-        manager.resume(sessionId, msg.sdkSessionId as string, msg.cwd as string, msg.engine as string, msg.apiBaseUrl as string | undefined, msg.authToken as string | undefined)
+        manager.resume(sessionId, msg.sdkSessionId as string, msg.cwd as string, msg.engine as string, msg.apiBaseUrl as string | undefined, msg.authToken as string | undefined,
+          msg.mode as string | undefined, msg.autoApprove as boolean | undefined)
         break
       case 'user':
         manager.user(sessionId, msg.text as string)

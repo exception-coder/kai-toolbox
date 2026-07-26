@@ -327,6 +327,8 @@ export type ClientMessage =
     }
   | { type: 'interrupt' }
   | { type: 'setMode'; mode: PermissionMode }
+  /** 「弹窗自动允许」：交由服务端保管并回灌 sidecar，放行在 sidecar 内同步完成，与页面在不在线无关。 */
+  | { type: 'setAutoApprove'; autoApprove: boolean }
   | { type: 'setModel'; model: string }
   | { type: 'refreshModels' }
   | { type: 'setCodexOptions'; reasoningEffort: CodexReasoningEffort; speed: CodexSpeed }
