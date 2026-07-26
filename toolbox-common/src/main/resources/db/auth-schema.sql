@@ -16,6 +16,10 @@ CREATE TABLE IF NOT EXISTS auth_user (
 
 CREATE INDEX IF NOT EXISTS idx_auth_user_username ON auth_user(username);
 
+-- 存量库迁移：real_name 于建表之后追加，老库 auth_user 无此列，CREATE TABLE IF NOT EXISTS 不会补。
+-- SchemaInitializer 幂等执行本语句（列已存在时吞掉 duplicate column）。SQLite 无 ADD COLUMN IF NOT EXISTS。
+ALTER TABLE auth_user ADD COLUMN real_name TEXT;
+
 -- refresh token 一次性 + 轮换：登录/刷新写入，刷新时把旧记录 revoked 置 1。
 -- 只存 token 哈希，不存明文。
 CREATE TABLE IF NOT EXISTS auth_refresh_token (
