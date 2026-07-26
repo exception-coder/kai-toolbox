@@ -47,7 +47,9 @@ interface VideoPlayerProps {
 type Mode = 'loading' | 'native' | 'hls' | 'unsupported' | 'error' | 'unauthorized'
 type ScreenOrientationMode = 'landscape' | 'portrait'
 type LockableScreenOrientation = ScreenOrientation & {
+  /** 仅 Android Chrome 等实现了 Screen Orientation API 的浏览器有；桌面与 iOS Safari 上为 undefined。 */
   lock?: (orientation: ScreenOrientationMode) => Promise<void>
+  unlock?: () => void
 }
 
 /**
@@ -239,6 +241,35 @@ export function VideoPlayer({
       /* 浏览器不支持锁定方向时，保留播放器比例切换作为兜底反馈 */
     }
   }, [])
+
+  /**
+   * 进全屏自动转横向、退出全屏解锁。
+   *
+   * <p>手机竖着拿点全屏，期望的是「横过来占满屏幕看」，而不是在竖屏里得到一条细横带 ——
+   * 各家视频 App 都是这个行为。之前只有用户手动去「旋转/画面方向」里选才会 lock。
+   *
+   * <p>锁的方向取当前 {@code screenOrientation} 而不是写死 landscape：用户为竖拍视频主动
+   * 选了竖屏，进全屏就不该把他掰回横的。默认值本就是 landscape，所以不特意设置的人拿到的
+   * 就是「全屏即横屏」。
+   *
+   * <p>退出全屏必须 unlock，否则整个页面会一直被钉在横屏。lock/unlock 在桌面浏览器与
+   * iOS Safari 上都会失败（不支持），catch 掉即可 —— 那些平台本来也不需要转屏。
+   */
+  useEffect(() => {
+    const orientation = window.screen?.orientation as LockableScreenOrientation | undefined
+    if (!orientation) return
+    if (!effectiveFullscreen) {
+      try {
+        orientation.unlock?.()
+      } catch {
+        /* 不支持就算了，不影响播放 */
+      }
+      return
+    }
+    void orientation.lock?.(screenOrientation)?.catch(() => {
+      /* 桌面 / iOS Safari 不支持锁定，忽略 */
+    })
+  }, [effectiveFullscreen, screenOrientation])
 
   return (
     <div
