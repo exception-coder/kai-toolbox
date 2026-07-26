@@ -282,6 +282,24 @@ export interface SuiteStatus {
   behind: number | null
 }
 
+/**
+ * sidecar 所用 Claude Agent SDK 的版本状态。可选模型清单由捆绑的 claude 二进制决定，
+ * SDK 落后表现为「新模型选不到」而不是报错，所以这里要能一眼看到版本。
+ */
+export interface SidecarVersion {
+  /** package.json 里声明的范围 */
+  declared: string | null
+  /** node_modules 里实际装着的版本（运行期生效的那个） */
+  installed: string | null
+  /** 该 SDK 捆绑的 claude 二进制版本 */
+  cliVersion: string | null
+  /** npm 上最新版本；仅在点了「检查更新」后才有 */
+  latest: string | null
+  outdated: boolean
+  upgradeCommand: string | null
+  error: string | null
+}
+
 /** 可选模型信息（来自 SDK supportedModels）。value 用于 setModel，displayName/description 供展示。 */
 export interface ModelInfo {
   value: string

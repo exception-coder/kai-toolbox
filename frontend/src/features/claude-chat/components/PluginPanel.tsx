@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { RefreshCw, Download, X } from 'lucide-react'
+import { RefreshCw, Download, X, Copy, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { authEventSource } from '@/lib/api'
-import { listSuites, PLUGIN_UPDATE_STREAM_PATH } from '../api'
-import type { SuiteStatus } from '../types'
+import { getSidecarVersion, listSuites, PLUGIN_UPDATE_STREAM_PATH } from '../api'
+import type { SidecarVersion, SuiteStatus } from '../types'
 
 /**
  * 团队套件面板：展示当前会话所用的 3 插件 + 2 MCP 版本/状态，并一键更新插件（SSE 实时回显）。
@@ -15,12 +15,30 @@ export function PluginPanel({ onClose }: { onClose: () => void }) {
   const [checking, setChecking] = useState(false)
   const [updating, setUpdating] = useState(false)
   const [lines, setLines] = useState<string[]>([])
+  const [sdk, setSdk] = useState<SidecarVersion | null>(null)
+  const [sdkChecking, setSdkChecking] = useState(false)
+  const [copied, setCopied] = useState(false)
   const esRef = useRef<EventSource | null>(null)
   const logRef = useRef<HTMLPreElement>(null)
 
   const refresh = async () => {
     setLoading(true)
     try { setSuites(await listSuites()) } catch { /* 静默 */ } finally { setLoading(false) }
+  }
+
+  /** check=true 才联网查 npm 最新版；进面板时只读本地版本，不联网。 */
+  const loadSdk = async (check = false) => {
+    if (check) setSdkChecking(true)
+    try { setSdk(await getSidecarVersion(check)) } catch { /* 静默 */ } finally { setSdkChecking(false) }
+  }
+
+  const copyUpgrade = async () => {
+    if (!sdk?.upgradeCommand) return
+    try {
+      await navigator.clipboard.writeText(sdk.upgradeCommand)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch { /* 剪贴板不可用则忽略，命令本身可见可手抄 */ }
   }
 
   /** 对 MCP 知识库 git fetch 后再读，使「落后远端」准确（较慢）。 */
@@ -32,6 +50,7 @@ export function PluginPanel({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     void refresh()
+    void loadSdk()
     return () => esRef.current?.close()
   }, [])
 
@@ -76,6 +95,47 @@ export function PluginPanel({ onClose }: { onClose: () => void }) {
         <Button variant="ghost" size="icon" className="ml-auto size-7" onClick={onClose} aria-label="关闭">
           <X className="size-4" />
         </Button>
+      </div>
+
+      <div className="mb-2 rounded-md border px-2 py-1.5 text-xs">
+        <div className="flex items-center gap-2">
+          <span className="font-medium">对话引擎 SDK（sidecar）</span>
+          {sdk?.outdated && (
+            <span className="rounded bg-amber-100 px-1 text-[10px] text-amber-700 dark:bg-amber-900 dark:text-amber-200">
+              可升级
+            </span>
+          )}
+          <button type="button" onClick={() => void loadSdk(true)} disabled={sdkChecking}
+            className="ml-auto rounded border px-1.5 py-0.5 text-[10px] text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] disabled:opacity-50">
+            {sdkChecking ? '查询中…' : '检查更新'}
+          </button>
+        </div>
+        {sdk == null ? (
+          <div className="mt-1 text-[var(--color-muted-foreground)]">加载中…</div>
+        ) : sdk.error ? (
+          <div className="mt-1 text-[var(--color-destructive)]">{sdk.error}</div>
+        ) : (
+          <>
+            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[var(--color-muted-foreground)]">
+              <span>已装 <span className="text-[var(--color-foreground)]">{sdk.installed ?? '未知'}</span></span>
+              {sdk.cliVersion && <span>claude <span className="text-[var(--color-foreground)]">{sdk.cliVersion}</span></span>}
+              {sdk.latest && <span>最新 <span className="text-[var(--color-foreground)]">{sdk.latest}</span></span>}
+              {sdk.latest && !sdk.outdated && <span className="text-emerald-600 dark:text-emerald-400">已最新</span>}
+            </div>
+            {sdk.outdated && sdk.upgradeCommand && (
+              <>
+                <p className="mt-1 text-[10px] leading-relaxed text-[var(--color-muted-foreground)]">
+                  可选模型清单由捆绑的 claude 二进制决定，SDK 落后只会表现为「新模型选不到」，不会报错。升级后需重启 sidecar。
+                </p>
+                <button type="button" onClick={() => void copyUpgrade()}
+                  className="mt-1 flex w-full items-center gap-1.5 rounded-md bg-[var(--color-muted)] px-2 py-1 text-left text-[10px] hover:bg-[var(--color-accent)]">
+                  <code className="min-w-0 flex-1 break-all">{sdk.upgradeCommand}</code>
+                  {copied ? <Check className="size-3 shrink-0 text-emerald-600" /> : <Copy className="size-3 shrink-0 opacity-60" />}
+                </button>
+              </>
+            )}
+          </>
+        )}
       </div>
 
       {suites == null ? (

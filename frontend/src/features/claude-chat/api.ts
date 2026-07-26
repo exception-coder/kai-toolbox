@@ -1,7 +1,7 @@
 import { authFetch, http } from '@/lib/api'
 import { ensureFreshToken, getToken } from '@/lib/auth'
 import type { CommitDiff, CommitsResponse, GitRepoRef } from '@/components/git/types'
-import type { ChatItem, ClaudeChatSessionView, CloneResult, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PluginStatus, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
+import type { ChatItem, ClaudeChatSessionView, CloneResult, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PluginStatus, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
 
 /** 列会话目录下可查看提交的 git 仓库（cwd 自身是仓库→单个；否则其子目录里的仓库）。空数组=无仓库。 */
 export function listSessionGitRepos(sessionId: string) {
@@ -101,6 +101,11 @@ export function listSuites(fetch = false) {
 
 /** 一键更新双端插件的 SSE 端点路径（用 authEventSource 连接，自动带 JWT；连上即触发）。 */
 export const PLUGIN_UPDATE_STREAM_PATH = '/claude-chat/plugins/update/stream'
+
+/** 查 sidecar 的 Claude Agent SDK 版本。check=true 时联网查 npm 最新版并判断是否落后（较慢）。 */
+export function getSidecarVersion(check = false) {
+  return http<SidecarVersion>(`/claude-chat/sidecar/version${check ? '?check=true' : ''}`)
+}
 
 /** 用当前（草稿）配置触发后端发一条测试推送，返回实际尝试的渠道（bark / ntfy）。 */
 export function testServerPush(config: NotifyConfig) {

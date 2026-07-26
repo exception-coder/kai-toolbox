@@ -86,6 +86,11 @@ public class SidecarProcessRegistry {
         log.info("[claude-chat] sidecar 已启动，pid={}, port={}", process.pid(), props.getSidecarPort());
     }
 
+    /** sidecar 所在目录（已按三级策略定位），供版本自检等只读用途复用同一份定位逻辑。 */
+    public Path sidecarDir() {
+        return resolveSidecarDir();
+    }
+
     /** 是否有可用 sidecar：本进程句柄存活，或端口上有监听者（冗余实例退让后由既有实例服务）。 */
     public boolean isAlive() {
         return (process != null && process.isAlive()) || isPortOccupied(props.getSidecarPort());
