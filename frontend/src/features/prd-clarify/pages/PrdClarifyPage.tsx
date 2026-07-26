@@ -1276,21 +1276,28 @@ const DEPTH_PRESETS = [
 ] as const
 
 /**
- * 「开始澄清」确认弹框：选需求类型 + 调整澄清深度。
+ * 「开始澄清」确认弹框：选需求类型 + 调整澄清深度 + 选澄清方式（渐进/批量）。
  *
  * <p>需求类型决定 Claude 问什么、产出什么结构的文档（后端 PrdClarifyService 按 reqType
  * 切换 system prompt），深度是用户可显式覆盖的最大轮数——不再让 LLM 自己隐式判断该问几轮，
  * 对齐"确定性优先，关键决策不交给 LLM 自由发挥"的原则。
+ *
+ * <p>业务员角色只展示「澄清方式」一节（showTypeAndDepth=false）：技术分类和该问几轮业务员
+ * 判断不了，仍交给后端 LLM 自动判定；但渐进式/批量是纯交互偏好，业务员完全能自己选，
+ * 不该被连带剥夺（一次性填完 vs 一题题聊，对赶时间的业务员差别很大）。
  */
 function StartClarifyDialog({
   showModeToggle = true,
+  showTypeAndDepth = true,
   onConfirm,
   onClose,
 }: {
   /** Vibe Coding 澄清入口走的是完全独立的 Claude Code 长会话，不经过 ChattingPanel/批量表单，
    *  批量/渐进的区分对它没有意义，调用方传 false 隐藏这个选项。 */
   showModeToggle?: boolean
-  onConfirm: (reqType: PrdReqType, maxQuestions: number, clarifyMode: PrdClarifyMode) => void
+  /** false 时隐藏需求类型/澄清深度两节，onConfirm 回传 undefined，由后端 LLM 自动判定。 */
+  showTypeAndDepth?: boolean
+  onConfirm: (reqType: PrdReqType | undefined, maxQuestions: number | undefined, clarifyMode: PrdClarifyMode) => void
   onClose: () => void
 }) {
   const [reqType, setReqType] = useState<PrdReqType>('NEW_MODULE')
@@ -1318,13 +1325,14 @@ function StartClarifyDialog({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
       <div className="w-full max-w-md rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
-          <h3 className="font-semibold text-sm">开始澄清前确认</h3>
+          <h3 className="font-semibold text-sm">{showTypeAndDepth ? '开始澄清前确认' : '选择澄清方式'}</h3>
           <button onClick={onClose} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
             <X className="w-4 h-4" />
           </button>
         </div>
 
         <div className="p-5 space-y-4">
+          {showTypeAndDepth && (
           <div>
             <label className="block text-xs font-medium text-[var(--color-muted-foreground)] mb-2">这是什么类型的需求？</label>
             <div className="grid grid-cols-1 gap-2">
@@ -1351,7 +1359,9 @@ function StartClarifyDialog({
               })}
             </div>
           </div>
+          )}
 
+          {showTypeAndDepth && (
           <div>
             <label className="block text-xs font-medium text-[var(--color-muted-foreground)] mb-2">
               澄清深度（已按类型预填，可调整）
@@ -1385,6 +1395,7 @@ function StartClarifyDialog({
               </div>
             </div>
           </div>
+          )}
 
           {showModeToggle && (
             <div>
@@ -1421,7 +1432,9 @@ function StartClarifyDialog({
                     批量
                   </div>
                   <div className="text-[11px] text-[var(--color-muted-foreground)] leading-relaxed">
-                    一次性生成全部 {maxQuestions} 题，一起填完再提交
+                    {showTypeAndDepth
+                      ? `一次性生成全部 ${maxQuestions} 题，一起填完再提交`
+                      : '一次性生成全部问题，一起填完再提交'}
                   </div>
                 </button>
               </div>
@@ -1436,7 +1449,11 @@ function StartClarifyDialog({
               取消
             </button>
             <button
-              onClick={() => onConfirm(reqType, maxQuestions, showModeToggle ? clarifyMode : 'progressive')}
+              onClick={() => onConfirm(
+                showTypeAndDepth ? reqType : undefined,
+                showTypeAndDepth ? maxQuestions : undefined,
+                showModeToggle ? clarifyMode : 'progressive',
+              )}
               className="px-4 py-1.5 rounded-md text-sm bg-[var(--color-primary)] text-white hover:opacity-90"
             >
               开始澄清
@@ -2504,9 +2521,9 @@ function InputPanel({
   onDraftSaved,
   onSplit,
 }: {
-  // reqType/maxQuestions 可选：业务员角色不弹确认框，直接省略这两个参数，
+  // reqType/maxQuestions 可选：业务员角色的确认框不问技术分类和轮数，省略这两个参数，
   // 交给后端 LLM 自动判定（见 handleStart/handleStartVibe 里对应处理）。clarifyMode 只有
-  // onStart（内嵌澄清）有意义，业务员角色/未选时省略，由 createSession 兜底成 progressive。
+  // onStart（内嵌澄清）有意义，Vibe Coding 入口省略，由 createSession 兜底成 progressive。
   // draftId：非空时表示 onStart/onStartVibe 应该把现存的这条 DRAFT 会话原地转正式
   // （startClarifyFromDraft），而不是新建一条记录——由 handleStart/handleStartVibe 判断。
   onStart: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS', reqType?: PrdReqType, maxQuestions?: number, clarifyMode?: PrdClarifyMode, draftId?: string) => void
@@ -2969,17 +2986,16 @@ function InputPanel({
           )}
         </div>
 
-        {/* 两种澄清模式：产品/开发角色先弹 StartClarifyDialog 确认需求类型+澄清深度；
-            业务员角色不弹（业务员不懂 Bug/模块调整/新增模块这种技术分类，也判断不出该问几轮），
-            直接进入澄清，需求类型交给后端 LLM 自动判定（见 PrdClarifyService.classifyReqType） */}
+        {/* 两种澄清模式都先弹 StartClarifyDialog，区别只是弹框里问什么：
+            产品/开发角色问需求类型 + 澄清深度 + 澄清方式；业务员角色只问澄清方式
+            （技术分类和轮数业务员判断不了，仍交给后端 LLM 自动判定，见
+            PrdClarifyService.classifyReqType），但渐进式/批量是纯交互偏好，不该连带剥夺。
+            Vibe Coding 入口走独立长会话，没有批量/渐进之分，业务员角色因此无可问项，直接进入。 */}
         <div className="flex items-center gap-2">
           {/* 标准模式（内嵌简化 UI） */}
           <button
             disabled={!canSubmit}
-            onClick={() => {
-              if (role === 'BUSINESS') onStart(title.trim(), buildFinalRawInput(), project, module, role, undefined, undefined, undefined, draftId ?? undefined)
-              else setPendingAction('start')
-            }}
+            onClick={() => setPendingAction('start')}
             className="flex-1 py-2.5 rounded-md bg-[var(--color-primary)] text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
           >
             {role === 'BUSINESS' ? '开始描述我的业务需求' : '开始澄清'}
@@ -3038,6 +3054,7 @@ function InputPanel({
       {pendingAction && (
         <StartClarifyDialog
           showModeToggle={pendingAction === 'start'}
+          showTypeAndDepth={role !== 'BUSINESS'}
           onClose={() => setPendingAction(null)}
           onConfirm={(reqType, maxQuestions, clarifyMode) => {
             const action = pendingAction
@@ -4557,7 +4574,7 @@ export function PrdClarifyPage() {
   /**
    * Step INPUT → 创建会话 → 进入多轮对话澄清。
    *
-   * reqType/maxQuestions 不传时（业务员角色，未弹 StartClarifyDialog）故意不给默认值——
+   * reqType/maxQuestions 不传时（业务员角色，弹框里不问技术分类和轮数）故意不给默认值——
    * 让请求体里这两个字段真正缺失，后端据此触发 LLM 自动判定（而不是静默按 NEW_MODULE
    * 处理，那样等于假装"判断"了，其实只是抄了个默认值）。
    */
