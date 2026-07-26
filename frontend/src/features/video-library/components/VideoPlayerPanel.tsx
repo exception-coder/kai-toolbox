@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { VideoPlayer } from '@/features/video-playback/VideoPlayer'
 import { subtitleTranslatedVttUrl, subtitleVttUrl } from '../api'
 import { PlayerPlaylistPanel, type PlaylistDirProps } from './PlayerPlaylistPanel'
+import { ShareVideoButton } from './ShareVideoButton'
 import { SubtitleControls, type SubtitleDisplayMode } from './SubtitleControls'
 import { VideoThumb } from './VideoThumb'
 import type { SubtitleJob, VideoLibraryItem } from '../types'
@@ -357,6 +358,7 @@ export function VideoPlayerPanel({ item, items, hasPrev, hasNext, onPrev, onNext
             {formatBytes(item.size)} · <span className="font-mono">{item.path}</span>
           </div>
         </div>
+        <ShareVideoButton item={item} />
         <button
           type="button"
           onClick={() => onToggleFavorite(item)}
