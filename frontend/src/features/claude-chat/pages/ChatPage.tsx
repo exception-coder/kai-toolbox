@@ -20,6 +20,7 @@ import { AttachmentChips } from '../components/AttachmentChips'
 import { QueuedList } from '../components/QueuedList'
 import { SessionCapsPanel } from '../components/SessionCapsPanel'
 import { PENDING_DRAFT_KEY, useDraftStore } from '../lib/draftPref'
+import { useDraftAttachments, type DraftAttachment } from '../lib/attachmentDraftPref'
 import { setToolColors, useToolColors } from '../lib/toolColorPref'
 import { setHideToolCalls, useHideToolCalls } from '../lib/toolVisibilityPref'
 import { ModeSwitch } from '../components/ModeSwitch'
@@ -43,7 +44,7 @@ import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
-import { fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getSessionCommitDiff, listSessionCommits, listSessionGitRepos, listSessions, listWorkspaces, renameSession, uploadAttachment, type SessionUsage, type UploadedAttachment } from '../api'
+import { fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getSessionCommitDiff, listSessionCommits, listSessionGitRepos, listSessions, listWorkspaces, renameSession, uploadAttachment, type SessionUsage } from '../api'
 import type { ChatItem, ModelInfo } from '../types'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
 import { GitStatusPanel } from '@/components/git/GitStatusPanel'
@@ -80,7 +81,7 @@ function loadSplitState(): { viewMode: 'single' | 'multi'; multiIds: string[] } 
 }
 
 /** 附件 + 本地 blob 预览地址（图片粘贴后点击放大核对，无需后端回读端点）。 */
-type ChatAttachment = UploadedAttachment & { previewUrl?: string }
+type ChatAttachment = DraftAttachment
 
 /** 顶栏「更多」菜单的一项：图标 + 中文标签（+ 可选副提示）。nested=分组内子项，左侧缩进以示层级。 */
 function HeaderMenuItem({ icon, label, hint, onClick, nested }: {
@@ -472,7 +473,8 @@ export function ChatPage() {
   const [providerModelsLoading, setProviderModelsLoading] = useState(false)
   const [providerModelsError, setProviderModelsError] = useState<string | null>(null)
   const [newModelPlatform, setNewModelPlatform] = useState('all') // 新建会话模型的平台二级筛选
-  const [attachments, setAttachments] = useState<ChatAttachment[]>([])
+  // 附件按会话绑定 + 共享 store：与悬浮窗/分屏同一份 → 主界面选了附件再弹悬浮窗不丢、即时同步。
+  const [attachments, setAttachments] = useDraftAttachments(chat?.sessionId ?? PENDING_DRAFT_KEY)
   const [uploading, setUploading] = useState(0)
   const [slashIdx, setSlashIdx] = useState(0)
   const [slashDismissed, setSlashDismissed] = useState(false)

@@ -4,7 +4,8 @@ import { AlertTriangle, Paperclip, Send, ShieldCheck, Slash, Square, X } from 'l
 import { Button } from '@/components/ui/button'
 import { useClaudeChatSocket } from '../hooks/useClaudeChatSocket'
 import { useDraft } from '../lib/draftPref'
-import { listSessions, uploadAttachment, type UploadedAttachment } from '../api'
+import { useDraftAttachments } from '../lib/attachmentDraftPref'
+import { listSessions, uploadAttachment } from '../api'
 import { ensureNotifyPermission } from '../browserNotify'
 import { CommandMenu } from './CommandMenu'
 import { MessageList } from './MessageList'
@@ -34,8 +35,6 @@ const MAX_ATTACHMENTS = 10
 
 /** 「弹窗自动允许」全局开关键，与单会话视图共用，多处同步。 */
 
-type ChatAttachment = UploadedAttachment & { previewUrl?: string }
-
 function shortCwd(cwd: string): string {
   const i = Math.max(cwd.lastIndexOf('/'), cwd.lastIndexOf('\\'))
   return i >= 0 && i < cwd.length - 1 ? cwd.slice(i + 1) : cwd
@@ -50,7 +49,8 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
   const chat = useClaudeChatSocket()
   // 草稿本地持久化（按 sessionId），与主视图/悬浮窗共用同一份存储：切视图/刷新页面都不丢。
   const [draft, setDraft] = useDraft(sessionId)
-  const [attachments, setAttachments] = useState<ChatAttachment[]>([])
+  // 附件走共享 store（按 sessionId），与主界面/悬浮窗同一份，切视图不丢。
+  const [attachments, setAttachments] = useDraftAttachments(sessionId)
   const [uploading, setUploading] = useState(0)
   const [cmdMenuOpen, setCmdMenuOpen] = useState(false) // 「指令」菜单（命令 + 模型切换）
   const taRef = useRef<HTMLTextAreaElement>(null)

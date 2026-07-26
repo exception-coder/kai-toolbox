@@ -23,7 +23,8 @@ import { useVoiceRecorder } from '../hooks/useVoiceRecorder'
 import { setToolColors, useToolColors } from '../lib/toolColorPref'
 import { setHideToolCalls, useHideToolCalls } from '../lib/toolVisibilityPref'
 import { PENDING_DRAFT_KEY, useDraft } from '../lib/draftPref'
-import { getSessionCommitDiff, listSessionCommits, listSessionGitRepos, listSessions, resolveModule, transcribe, uploadAttachment, type UploadedAttachment } from '../api'
+import { useDraftAttachments } from '../lib/attachmentDraftPref'
+import { getSessionCommitDiff, listSessionCommits, listSessionGitRepos, listSessions, resolveModule, transcribe, uploadAttachment } from '../api'
 import type { ChatItem, ModuleCandidate, PermissionMode } from '../types'
 import { engineDisplayName, providerHost } from './chatStatus'
 
@@ -33,7 +34,6 @@ const MIN_W = 280
 const MIN_H = 320
 const BUBBLE = 48
 const GIFT_CONCIERGE_IMAGE = '/assets/welfare-sign/duanwu-concierge.svg'
-type FloatAttachment = UploadedAttachment & { previewUrl?: string }
 
 /** 权限模式循环顺序与中文标签（紧凑切换用，复刻 Shift+Tab 体验）。 */
 const MODE_ORDER: PermissionMode[] = ['default', 'acceptEdits', 'plan', 'bypassPermissions']
@@ -118,7 +118,8 @@ export function FloatingChatWindow() {
     }
     prevFloatingRef.current = floating
   }, [floating])
-  const [attachments, setAttachments] = useState<FloatAttachment[]>([])
+  // 附件按会话绑定 + 共享 store：与主界面/分屏同一份 → 切视图不丢、即时同步。
+  const [attachments, setAttachments] = useDraftAttachments(chat?.sessionId ?? PENDING_DRAFT_KEY)
   const [uploading, setUploading] = useState(0)
   const dragRef = useRef<{ dx: number; dy: number } | null>(null)
   const resizeRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null)
