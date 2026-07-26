@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { BotMessageSquare, Bug, ChevronRight, ClipboardCheck, Clock, Code2, Copy, ExternalLink, FileText, GitBranch, Image as ImageIcon, Info, Layers, Loader2, Paperclip, Pencil, Plus, RefreshCw, Rocket, Save, Search, Send, Sparkles, Trash2, User, Wrench, X } from 'lucide-react'
@@ -103,7 +103,8 @@ function DocOutline({
   }
 
   return (
-    <div className="w-48 flex-shrink-0 border-r border-[var(--color-border)] overflow-y-auto py-4 bg-[var(--color-card)]">
+    // 移动端隐藏：192px 大纲列会把正文挤到不可读，正文本身已有标题层级可循
+    <div className="hidden w-48 flex-shrink-0 border-r border-[var(--color-border)] overflow-y-auto py-4 bg-[var(--color-card)] md:block">
       <div className="px-4 mb-3 text-[10px] font-bold uppercase tracking-wider text-[var(--color-muted-foreground)]">
         大纲
       </div>
@@ -135,21 +136,28 @@ function stepIndex(step: PrdStep): number {
 /**
  * @param onClickStep 若传入，已完成的步骤可点击（用于从第 3 步查看第 2 步澄清记录）
  */
-function StepBar({ step, onClickStep }: { step: PrdStep; onClickStep?: (idx: number) => void }) {
+function StepBar({ step, onClickStep, leading }: {
+  step: PrdStep
+  onClickStep?: (idx: number) => void
+  /** 移动端专用前置插槽（当前放「PRD 库」抽屉触发按钮），桌面端由调用方自行隐藏。 */
+  leading?: ReactNode
+}) {
   const active = stepIndex(step)
   return (
-    <div className="flex items-center gap-2 px-6 py-3 border-b border-[var(--color-border)] bg-[var(--color-card)]">
+    // 移动端窄屏放不下三段步骤文字，横向可滚动 + 不换行，避免文字被挤成一列竖排
+    <div className="flex items-center gap-1.5 px-3 py-2 border-b border-[var(--color-border)] bg-[var(--color-card)] overflow-x-auto whitespace-nowrap md:gap-2 md:px-6 md:py-3">
+      {leading}
       {STEP_LABELS.map((label, i) => {
         // 只有步骤 2（i=1，AI渐进澄清）可点击查看历史；步骤 1 回退等于重新开始，不可点
         const clickable = i === 1 && active > 1 && !!onClickStep
         return (
-          <div key={label} className="flex items-center gap-2">
+          <div key={label} className="flex items-center gap-1.5 flex-shrink-0 md:gap-2">
             <button
               type="button"
               onClick={() => clickable && onClickStep?.(i)}
               disabled={!clickable}
               title={clickable ? `查看${label}` : undefined}
-              className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold transition-opacity
+              className={`w-5 h-5 flex-shrink-0 rounded-full flex items-center justify-center text-[10px] font-semibold transition-opacity md:w-6 md:h-6 md:text-xs
                 ${i <= active
                   ? 'bg-[var(--color-primary)] text-white'
                   : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'}
@@ -159,13 +167,13 @@ function StepBar({ step, onClickStep }: { step: PrdStep; onClickStep?: (idx: num
             </button>
             <span
               onClick={() => clickable && onClickStep?.(i)}
-              className={`text-sm ${i === active ? 'font-medium' : 'text-[var(--color-muted-foreground)]'} ${clickable ? 'cursor-pointer hover:text-[var(--color-foreground)]' : ''}`}
+              className={`text-xs md:text-sm ${i === active ? 'font-medium' : 'text-[var(--color-muted-foreground)]'} ${clickable ? 'cursor-pointer hover:text-[var(--color-foreground)]' : ''}`}
             >
               {label}
               {clickable && <span className="ml-1 text-[10px] text-[var(--color-primary)] opacity-70">↩</span>}
             </span>
             {i < STEP_LABELS.length - 1 && (
-              <ChevronRight className="w-4 h-4 text-[var(--color-muted-foreground)]" />
+              <ChevronRight className="w-3.5 h-3.5 flex-shrink-0 text-[var(--color-muted-foreground)] md:w-4 md:h-4" />
             )}
           </div>
         )
@@ -754,6 +762,8 @@ function HistoryPanel({
   onRevise,
   onRename,
   onSplit,
+  mobileOpen = false,
+  onMobileClose,
 }: {
   sessions: PrdSessionView[]
   activeId: string | null
@@ -763,6 +773,9 @@ function HistoryPanel({
   onRename: (id: string, title: string) => void
   /** 打开「AI 需求拆分」确认弹框（对已存在的历史记录，随时都能拆，不限状态）。 */
   onSplit: (s: PrdSessionView) => void
+  /** 移动端抽屉是否展开。桌面端（md 及以上）此值被忽略，侧边栏常驻。 */
+  mobileOpen?: boolean
+  onMobileClose?: () => void
 }) {
   const confirm = useConfirm()
   const prompt = usePrompt()
@@ -872,9 +885,31 @@ function HistoryPanel({
         <EstimationDetailSheet estimation={viewingEstimation} onClose={() => setViewingEstimation(null)} />
       )}
 
-      <div className="w-64 flex-shrink-0 border-r border-[var(--color-border)] flex flex-col overflow-hidden">
-        <div className="px-3 py-2.5 text-sm font-semibold border-b border-[var(--color-border)]">
+      {/* 移动端抽屉遮罩：点击关闭。桌面端不渲染（侧边栏是常驻列，不需要遮罩） */}
+      {mobileOpen && (
+        <div className="absolute inset-0 z-30 bg-black/40 md:hidden" onClick={onMobileClose} />
+      )}
+
+      {/*
+       * 移动端窄屏塞不下「256px 固定侧栏 + 表单」两列（表单只剩百来像素，文字会被挤成竖排一字一行），
+       * 所以这里在 md 以下改成脱离文档流的抽屉：默认平移出屏，展开时滑入并盖一层遮罩；
+       * md 及以上退回原来的常驻列（absolute → static，translate 归零）。
+       */}
+      <div
+        className={`absolute inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] flex-col overflow-hidden border-r border-[var(--color-border)] bg-[var(--color-card)] transition-transform duration-200
+          md:static md:z-auto md:w-64 md:max-w-none md:flex-shrink-0 md:translate-x-0 md:bg-transparent md:transition-none
+          ${mobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'}`}
+      >
+        <div className="flex items-center justify-between px-3 py-2.5 text-sm font-semibold border-b border-[var(--color-border)]">
           PRD 库
+          <button
+            type="button"
+            onClick={onMobileClose}
+            className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] md:hidden"
+            title="收起 PRD 库"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
 
         {/* 搜索 + 筛选栏：标题搜索 + 系统（关联项目）/ 用户下拉，任一没有可选项时不展示对应下拉 */}
@@ -1323,7 +1358,8 @@ function StartClarifyDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl">
+      {/* 移动端小屏（尤其展开需求类型+深度+方式三节时）内容会超一屏，整卡限高可滚 */}
+      <div className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
           <h3 className="font-semibold text-sm">{showTypeAndDepth ? '开始澄清前确认' : '选择澄清方式'}</h3>
           <button onClick={onClose} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
@@ -1402,7 +1438,7 @@ function StartClarifyDialog({
               <label className="block text-xs font-medium text-[var(--color-muted-foreground)] mb-2">
                 澄清方式
               </label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <button
                   type="button"
                   onClick={() => setClarifyMode('progressive')}
@@ -2774,12 +2810,12 @@ function InputPanel({
   const canSubmit = title.trim() && (rawInput.trim() || attachments.length > 0)
 
   return (
-    <div className="flex-1 p-6 overflow-y-auto">
+    <div className="flex-1 min-w-0 p-4 overflow-y-auto md:p-6">
       <div className="max-w-2xl mx-auto space-y-5">
         {/* 角色切换：决定 Claude 澄清的问题深度和语言风格 */}
         <div>
           <label className="block text-xs font-medium text-[var(--color-muted-foreground)] mb-2">你是谁？（决定 Claude 如何提问）</label>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {(['PRODUCT', 'BUSINESS'] as const).map((r) => {
               const cfg = ROLE_CONFIG[r]
               const active = role === r
@@ -2849,8 +2885,9 @@ function InputPanel({
           />
         </div>
 
-        <div className="flex gap-3">
-          <div className="flex-1">
+        {/* 移动端上下堆叠：两个多选框并排时输入区太窄，标签和已选标签都会折行 */}
+        <div className="flex flex-col gap-3 md:flex-row">
+          <div className="flex-1 min-w-0">
             <label className="block text-sm font-medium mb-1">关联项目（可选，可多选）</label>
             <MultiSelect
               id="project-input"
@@ -2860,7 +2897,7 @@ function InputPanel({
               placeholder="如：kai-toolbox（可下拉勾选或输入多个）"
             />
           </div>
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <label className="block text-sm font-medium mb-1">
               关联模块（可选，可多选{projectTags.length > 1 ? '，按项目分组' : ''}）
             </label>
@@ -2991,12 +3028,13 @@ function InputPanel({
             （技术分类和轮数业务员判断不了，仍交给后端 LLM 自动判定，见
             PrdClarifyService.classifyReqType），但渐进式/批量是纯交互偏好，不该连带剥夺。
             Vibe Coding 入口走独立长会话，没有批量/渐进之分，业务员角色因此无可问项，直接进入。 */}
-        <div className="flex items-center gap-2">
+        {/* 移动端换行摆放：四个按钮挤一行会被压到只剩图标宽度，主按钮独占一行、其余自动折行 */}
+        <div className="flex flex-wrap items-center gap-2">
           {/* 标准模式（内嵌简化 UI） */}
           <button
             disabled={!canSubmit}
             onClick={() => setPendingAction('start')}
-            className="flex-1 py-2.5 rounded-md bg-[var(--color-primary)] text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+            className="w-full py-2.5 rounded-md bg-[var(--color-primary)] text-white text-sm font-medium hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity md:w-auto md:flex-1"
           >
             {role === 'BUSINESS' ? '开始描述我的业务需求' : '开始澄清'}
           </button>
@@ -4083,8 +4121,8 @@ function EditingPanel({
         />
       )}
 
-      {/* ─── 顶部 Tab + 操作栏 ─── */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--color-border)] bg-[var(--color-card)] gap-2">
+      {/* ─── 顶部 Tab + 操作栏（移动端按行折叠，不横向溢出） ─── */}
+      <div className="flex flex-wrap items-center justify-between px-3 py-2 border-b border-[var(--color-border)] bg-[var(--color-card)] gap-2 md:flex-nowrap md:px-4">
 
         {/* 左：文档 Tab 切换 */}
         <div className="flex items-center gap-0.5 bg-[var(--color-muted)]/40 rounded-lg p-0.5 text-xs">
@@ -4263,21 +4301,24 @@ function EditingPanel({
         </div>
       )}
 
-      {/* ─── 内容区（根据 panelMode 切换） ─── */}
-      <div className="flex-1 flex overflow-hidden">
+      {/* ─── 内容区（根据 panelMode 切换）───
+           移动端主轴改纵向：「并排」模式下 PRD/开发文档上下各占一半，而不是左右各 187px */}
+      <div className="flex-1 flex flex-col overflow-hidden md:flex-row">
 
         {/* PRD 全屏 */}
         {panelMode === 'prd' && (
           <div className="flex-1 flex overflow-hidden">
+            {/* 「分栏」在移动端退化成只显示预览：375px 再对半切，编辑器和预览都没法用；
+                想在手机上改内容显式切到「编辑」即可（edit 模式下仍是全宽编辑器） */}
             {(prdViewMode === 'split' || prdViewMode === 'edit') && (
-              <div className={`${prdViewMode === 'split' ? 'w-1/2 border-r border-[var(--color-border)]' : 'w-full'} h-full overflow-hidden`}>
+              <div className={`${prdViewMode === 'split' ? 'hidden md:block md:w-1/2 border-r border-[var(--color-border)]' : 'w-full'} h-full overflow-hidden`}>
                 <Suspense fallback={<div className="p-4 text-sm text-[var(--color-muted-foreground)]">加载编辑器…</div>}>
                   <MarkdownEditor value={content} onChange={handleChange} onSave={handleSave} />
                 </Suspense>
               </div>
             )}
             {(prdViewMode === 'split' || prdViewMode === 'preview') && (
-              <div className={`${prdViewMode === 'split' ? 'w-1/2' : 'w-full'} h-full flex overflow-hidden`}>
+              <div className={`${prdViewMode === 'split' ? 'w-full md:w-1/2' : 'w-full'} h-full flex overflow-hidden`}>
                 {/* 预览模式：大纲 + 内容 */}
                 <DocOutline content={content} targetRef={prdPreviewRef} />
                 <div className="flex-1 h-full overflow-hidden">
@@ -4300,7 +4341,7 @@ function EditingPanel({
               /* 有内容：分栏/编辑/预览 */
               <div className="flex-1 flex overflow-hidden">
                 {(devViewMode === 'split' || devViewMode === 'edit') && (
-                  <div className={`${devViewMode === 'split' ? 'w-1/2 border-r border-[var(--color-border)]' : 'w-full'} h-full overflow-hidden`}>
+                  <div className={`${devViewMode === 'split' ? 'hidden md:block md:w-1/2 border-r border-[var(--color-border)]' : 'w-full'} h-full overflow-hidden`}>
                     <Suspense fallback={<div className="p-4 text-sm text-[var(--color-muted-foreground)]">加载编辑器…</div>}>
                       <MarkdownEditor
                         value={devDocContent}
@@ -4311,7 +4352,7 @@ function EditingPanel({
                   </div>
                 )}
                 {(devViewMode === 'split' || devViewMode === 'preview') && (
-                  <div className={`${devViewMode === 'split' ? 'w-1/2' : 'w-full'} h-full flex overflow-hidden`}>
+                  <div className={`${devViewMode === 'split' ? 'w-full md:w-1/2' : 'w-full'} h-full flex overflow-hidden`}>
                     {/* 预览模式：大纲 + 内容 */}
                     <DocOutline content={devDocContent} targetRef={devPreviewRef} />
                     <div className="flex-1 h-full overflow-hidden">
@@ -4346,7 +4387,7 @@ function EditingPanel({
         {/* 并排：PRD 左 50% | 开发文档 右 50% */}
         {panelMode === 'side' && (
           <>
-            <div className="w-1/2 border-r border-[var(--color-border)] overflow-hidden flex flex-col">
+            <div className="h-1/2 w-full border-b border-[var(--color-border)] overflow-hidden flex flex-col md:h-full md:w-1/2 md:border-b-0 md:border-r">
               <div className="px-3 py-1.5 border-b border-[var(--color-border)] bg-[var(--color-muted)]/20 text-[10px] font-semibold text-[var(--color-muted-foreground)] flex items-center gap-1">
                 <FileText className="w-3 h-3" /> PRD
               </div>
@@ -4354,7 +4395,7 @@ function EditingPanel({
                 <MarkdownViewer content={content} />
               </div>
             </div>
-            <div className="w-1/2 overflow-hidden flex flex-col">
+            <div className="h-1/2 w-full overflow-hidden flex flex-col md:h-full md:w-1/2">
               <div className="px-3 py-1.5 border-b border-[var(--color-border)] bg-[var(--color-muted)]/20 text-[10px] font-semibold text-purple-400 flex items-center gap-1">
                 <Wrench className="w-3 h-3" /> 开发文档
                 {devDocStreaming && <Loader2 className="w-2.5 h-2.5 animate-spin ml-1" />}
@@ -4397,6 +4438,7 @@ export function PrdClarifyPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [generationFailed, setGenerationFailed] = useState(false)  // GENERATING 失败，留在当前步骤显示重试
   const [showClarifyHistory, setShowClarifyHistory] = useState(false) // 查看澄清记录抽屉
+  const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false)   // 移动端 PRD 库抽屉（桌面端常驻，无此状态）
   const abortRef = useRef<(() => void) | null>(null)
   // GENERATING 阶段用 ref 积累全文，done 时一次性赋值（避免双重 setState）
   const prdAccRef = useRef('')
@@ -4834,6 +4876,20 @@ PRD_SESSION_ID: ${created.id}`
         onClickStep={(idx) => {
           if (idx === 1) setShowClarifyHistory(true)  // 点击第 2 步 → 打开澄清记录抽屉
         }}
+        leading={
+          // 移动端 PRD 库抽屉触发器：只在侧边栏本该显示的步骤（非编辑/对话）才有意义
+          step !== 'EDITING' && step !== 'CHATTING' ? (
+            <button
+              type="button"
+              onClick={() => setMobileHistoryOpen(true)}
+              className="mr-1 flex flex-shrink-0 items-center gap-1 rounded-md border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] md:hidden"
+              title="打开 PRD 库"
+            >
+              <Layers className="w-3 h-3" />
+              PRD 库
+            </button>
+          ) : null
+        }
       />
 
       {/* 澄清记录抽屉 */}
@@ -4884,13 +4940,16 @@ PRD_SESSION_ID: ${created.id}`
         />
       )}
 
-      <div className="flex-1 flex overflow-hidden">
-        {/* 历史侧边栏（非编辑器、非对话模式下显示） */}
+      {/* relative：移动端 PRD 库抽屉以内容区（而非整个视口）为定位参照，不会盖住工作台 TopBar */}
+      <div className="relative flex-1 flex overflow-hidden">
+        {/* 历史侧边栏（非编辑器、非对话模式下显示）；移动端为抽屉，md 及以上为常驻列 */}
         {step !== 'EDITING' && step !== 'CHATTING' && (
           <HistoryPanel
             sessions={sessions}
             activeId={sessionId}
-            onSelect={handleSelectHistory}
+            mobileOpen={mobileHistoryOpen}
+            onMobileClose={() => setMobileHistoryOpen(false)}
+            onSelect={(s) => { setMobileHistoryOpen(false); handleSelectHistory(s) }}
             onDelete={(id) => deleteMut.mutate(id)}
             onRevise={(s) => setRevisingSession(s)}
             onRename={(id, title) => renameMut.mutate({ id, title })}
