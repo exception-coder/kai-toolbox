@@ -130,9 +130,9 @@ if (-not $env:NPM_CONFIG_REGISTRY) { $env:NPM_CONFIG_REGISTRY = 'https://registr
 $FrontendPort = 5173
 
 # whisper 后端模式，来自 run-tools.conf 的 TOOLBOX_WHISPER_MODE，缺省 cli（同 application.yml）。
-#   cli         —— whisper-cli.exe 子进程，字幕 + 语言识别都支持，需要 binary + model 就位
-#   asr-service —— faster-whisper Python 服务(:9500)，绕开 CJK 路径/参数兼容坑，但只支持字幕；
-#                  语言识别会被后端拒（server.py 没有单段 detect 接口），按钮由 capability 端点禁掉
+#   cli         —— whisper-cli.exe 子进程，需要 binary + model 就位，不占常驻显存
+#   asr-service —— faster-whisper Python 服务(:9500)，绕开 CJK 路径/参数兼容坑，模型常驻显存更快
+# 字幕与语言识别两种模式都支持；不可用时前端按 capability 端点禁用按钮并显示原因。
 # 曾经这里硬编码 asr-service，覆盖了 yml 的 cli 又从不拉起 :9500 服务，结果字幕/语言识别双双废掉。
 # 教训：运行模式与它依赖的 sidecar 必须由同一处决定 —— 见下面 Start-FasterWhisperSidecar。
 $WhisperMode = if ($env:TOOLBOX_WHISPER_MODE) { $env:TOOLBOX_WHISPER_MODE.Trim().ToLower() } else { 'cli' }

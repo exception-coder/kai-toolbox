@@ -1,6 +1,6 @@
 # faster-whisper-server
 
-本地 ASR HTTP 服务，替代 whisper.cpp CLI 作为 kai-toolbox 的字幕生成后端。
+本地 ASR HTTP 服务，替代 whisper.cpp CLI 作为 kai-toolbox 的字幕生成 + 语言识别后端。
 
 ## 为什么不再用 whisper.cpp CLI
 
@@ -57,15 +57,32 @@ toolbox:
     service-url: http://127.0.0.1:9500    # 跟服务端口对齐（9000 在 Windows + Hyper-V/Docker 环境下常被排除段保留）
 ```
 
-重启 Spring Boot 主服务即可。SubtitleService 会通过 HTTP/SSE 调本服务跑字幕，不再 fork whisper-cli 子进程。
+重启 Spring Boot 主服务即可。SubtitleService 通过 HTTP/SSE 调 `/asr` 跑字幕，
+VideoLanguageDetectionService 调 `/detect` 判语言，都不再 fork whisper-cli 子进程。
 
-可以随时改回 `mode: cli` 退回到 whisper.cpp CLI 模式作 fallback。
+用 supervisor 启动时不要直接改 yml，在 `scripts/run-tools.conf` 里配
+`TOOLBOX_WHISPER_MODE=asr-service` —— 脚本据此决定是否自动拉起本服务，
+两处必须一致（曾经模式钉在 asr-service 却没人启动本服务，字幕/语言识别双双失效）。
+
+可以随时改回 `cli` 退回到 whisper.cpp CLI 模式作 fallback。
 
 ## 接口
 
 ```
 GET /health
   → {"status": "ok", "model": "medium", "device": "cuda", "compute_type": "float16"}
+
+POST /detect?vad_filter=true
+  Content-Type: audio/wav
+  body: 原始 wav 字节（同 /asr，建议 16kHz mono PCM s16le）
+
+  只判语言不转写，对应 whisper.cpp CLI 的 --detect-language，供「视频语言识别」批量任务用。
+  返回普通 JSON（非 SSE），1-3 秒即回：
+  → {"language": "ja", "probability": 0.98, "duration": 60.0}
+
+  实现上只取 model.transcribe() 返回的 TranscriptionInfo，不迭代 segments generator ——
+  语言判定是提前做完的，所以这里只付特征提取 + 一个 30s 窗口的成本，不会真去解码整段音频。
+  失败时用 HTTP 500 + detail 表达（不像 /asr 受 SSE 限制只能发 error 事件）。
 
 POST /asr?language=<...>&initial_prompt=<...>&vad_filter=true
   Content-Type: audio/wav

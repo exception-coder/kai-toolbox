@@ -46,21 +46,19 @@ def health() -> dict:
     return {"status": "ok", "model": MODEL_NAME, "device": DEVICE, "compute_type": COMPUTE_TYPE}
 
 
-@app.post("/asr")
-async def transcribe(request: Request):
-    """转写音频文件。返回 text/event-stream，事件顺序：language → progress* + segment* → done。
+async def _receive_wav(request: Request) -> str:
+    """把 raw body 流式落盘成临时 wav 并做协议体检，返回临时文件路径。
 
-    协议（无 multipart，绕开 starlette / python-multipart 的解析器 size 限制）：
-    - query string：``language`` / ``initial_prompt`` / ``vad_filter``（URL 编码）
-    - request body：原始 wav 字节流（``Content-Type: audio/wav``）
+    ``/asr`` 与 ``/detect`` 共用，两边的入参协议完全一致：
+    ``Content-Type: audio/wav`` + 原始 wav 字节。这几道校验是踩过坑攒出来的，
+    不能只在一个端点上有——所以抽在这里，而不是复制一份。
 
     历史：原先用 ``UploadFile + Form`` 走 multipart，starlette 的 ``MultiPartParser``
     在 1MB part 上限上吃过亏，把 ``max_part_size`` 改成 500MB 在某些版本不生效，
     几百 MB 的 wav 上传被解析器中途 close socket → Java 端 "Connection reset by peer"。
     改用 raw body 后整条路径只有 ``request.stream()`` 一次拷贝，没有任何 size 限制。
 
-    出错时发 ``error`` 事件，HTTP 状态码仍是 200（SSE 协议无法在流中途改状态码）。
-    Java 端见到 error 事件就抛业务异常即可。
+    调用方负责在用完后 ``os.unlink()``；本函数自身抛 HTTPException 前会先清掉临时文件。
     """
     # 协议错配防御：Java 端如果还跑旧的 multipart 代码,body 开头会是 "--<boundary>\r\n..."
     # 而不是 wav 头,后续 av.open() 会抛 InvalidDataError 一堆 ctypes 栈很难看。
@@ -74,10 +72,6 @@ async def transcribe(request: Request):
                 "收到的请求仍是 multipart/form-data。请重启 Spring Boot 拉新版 WhisperAsrClient 代码。"
             ),
         )
-
-    language = request.query_params.get("language", "auto")
-    initial_prompt = request.query_params.get("initial_prompt", "")
-    vad_filter = request.query_params.get("vad_filter", "true").lower() == "true"
 
     # raw body 直接流式落盘。request.stream() 异步返回 chunk 已经是 bytes,
     # FastAPI/uvicorn 默认按 socket 读缓冲区大小切片(几十 KB ~ 几 MB),
@@ -114,6 +108,65 @@ async def transcribe(request: Request):
                 f"确认 Java 端 WhisperAsrClient 是 raw body 版本并已重启。"
             ),
         )
+    return tmp_path
+
+
+@app.post("/detect")
+async def detect_language(request: Request):
+    """只判语言，不转写。返回普通 JSON（非 SSE）：``{"language","probability","duration"}``。
+
+    对应 whisper.cpp CLI 的 ``--detect-language``，供「视频语言识别」批量任务用。
+    在此之前本服务只有 ``/asr``，于是 asr-service 模式下语言识别整块不可用。
+
+    实现要点：``model.transcribe()`` 的语言判定是**提前**做完的——返回的
+    ``TranscriptionInfo`` 里已经带 ``language`` / ``language_probability``，而
+    ``segments`` 是个惰性 generator。**只取 info、绝不迭代 segments**，就等于只付了
+    特征提取 + 一个 30s 窗口的语言判定成本，不会真去解码整段音频。
+
+    没有用 ``model.detect_language()``：那是 faster-whisper 较晚版本才加的方法，
+    而 requirements.txt 只要求 ``>=1.0.0``；``transcribe() + info`` 在整个 1.x 上都成立。
+
+    与 ``/asr`` 的差异：不传 ``language``（传了就等于跳过检测、probability 恒为 1.0），
+    也不传反幻觉那套阈值（它们只影响解码，这里根本不解码）。
+    """
+    vad_filter = request.query_params.get("vad_filter", "true").lower() == "true"
+    tmp_path = await _receive_wav(request)
+    try:
+        # language=None 显式表达「要自动检测」；segments generator 丢弃不迭代。
+        _segments, info = model.transcribe(tmp_path, language=None, vad_filter=vad_filter)
+        log.info("detect tmp=%s language=%s prob=%.3f duration=%.1fs",
+                 os.path.basename(tmp_path), info.language, info.language_probability, info.duration)
+        return {
+            "language": info.language,
+            "probability": info.language_probability,
+            "duration": info.duration,
+        }
+    except Exception as e:  # noqa: BLE001
+        log.exception("detect failed for %s", os.path.basename(tmp_path))
+        # 与 /asr 不同,这里没有 SSE 流,可以老实用 HTTP 状态码表达失败。
+        raise HTTPException(status_code=500, detail=f"语言检测失败：{e}") from e
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+@app.post("/asr")
+async def transcribe(request: Request):
+    """转写音频文件。返回 text/event-stream，事件顺序：language → progress* + segment* → done。
+
+    协议（无 multipart，绕开 starlette / python-multipart 的解析器 size 限制）：
+    - query string：``language`` / ``initial_prompt`` / ``vad_filter``（URL 编码）
+    - request body：原始 wav 字节流（``Content-Type: audio/wav``，见 :func:`_receive_wav`）
+
+    出错时发 ``error`` 事件，HTTP 状态码仍是 200（SSE 协议无法在流中途改状态码）。
+    Java 端见到 error 事件就抛业务异常即可。
+    """
+    language = request.query_params.get("language", "auto")
+    initial_prompt = request.query_params.get("initial_prompt", "")
+    vad_filter = request.query_params.get("vad_filter", "true").lower() == "true"
+    tmp_path = await _receive_wav(request)
 
     def event_stream():
         try:

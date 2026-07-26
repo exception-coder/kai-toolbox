@@ -31,11 +31,12 @@ TOOLBOX_SQLITE_FILE=
 
 # whisper 后端模式（留空 = cli，同 application.yml）。run-supervised.ps1 据此决定要不要
 # 拉起 faster-whisper ASR sidecar(:9500)，两者必须一致，所以只在这一处配：
-#   cli         —— 调 whisper-cli.exe 子进程；字幕 + 「识别语言」都支持，需要
-#                  toolbox.whisper.binary 与 model-path 指向的文件真实存在
+#   cli         —— 调 whisper-cli.exe 子进程；需要 toolbox.whisper.binary 与 model-path
+#                  指向的文件真实存在。模型不占常驻显存，但每个任务都要重新 load。
 #   asr-service —— 调 python-services\faster-whisper 的 HTTP 服务(:9500)，绕开 CJK 路径 /
-#                  whisper-cli 参数兼容坑；但只支持字幕，「识别语言」按钮会被禁用
-#                  （ASR 服务端没有单段 detect 接口）
+#                  whisper-cli 参数兼容坑，模型常驻显存、连续任务更快；首次要另下一份
+#                  CTranslate2 模型（境内可能需要 HF_ENDPOINT / 代理）。
+# 字幕生成与「识别语言」两种模式都支持，不可用时按钮会禁用并显示具体原因。
 TOOLBOX_WHISPER_MODE=
 
 # ── 机密项（run-supervised.ps1 启动时读入为进程环境变量；禁止硬编码进脚本）──

@@ -24,8 +24,10 @@ import java.util.stream.Stream;
 
 /**
  * 视频语言识别任务：按 size DESC 扫 {@code language IS NULL} 的视频，
- * ffmpeg 抽 25% 时间点起 60s 的 16kHz 单声道 WAV，喂给
- * {@link WhisperRunner#detectLanguage} 拿 ISO 码 + 置信度，回写
+ * ffmpeg 抽 25% 时间点起 60s 的 16kHz 单声道 WAV，按 {@code toolbox.whisper.mode} 交给
+ * {@link WhisperRunner#detectLanguage}（cli，{@code --detect-language}）或
+ * {@link WhisperAsrClient#detectLanguage}（asr-service，{@code POST /detect}）拿
+ * ISO 码 + 置信度，回写
  * {@code treesize_video.language / language_confidence / language_detected_at}。
  *
  * <p>Whisper 单实例 GPU 串行最稳，本任务由 {@link VideoProcessingJobService} 起单 virtual thread，
@@ -58,6 +60,7 @@ public class VideoLanguageDetectionService {
     private final VideoProcessingJobService jobService;
     private final VideoTableRepository videoRepo;
     private final WhisperRunner whisper;
+    private final WhisperAsrClient asr;
     private final WhisperProperties whisperProps;
     private final FfmpegProcessRegistry ffmpeg;
     private final FfmpegProbe ffprobe;
@@ -67,6 +70,7 @@ public class VideoLanguageDetectionService {
     public VideoLanguageDetectionService(VideoProcessingJobService jobService,
                                           VideoTableRepository videoRepo,
                                           WhisperRunner whisper,
+                                          WhisperAsrClient asr,
                                           WhisperProperties whisperProps,
                                           FfmpegProcessRegistry ffmpeg,
                                           FfmpegProbe ffprobe,
@@ -74,6 +78,7 @@ public class VideoLanguageDetectionService {
         this.jobService = jobService;
         this.videoRepo = videoRepo;
         this.whisper = whisper;
+        this.asr = asr;
         this.whisperProps = whisperProps;
         this.ffmpeg = ffmpeg;
         this.ffprobe = ffprobe;
@@ -97,10 +102,17 @@ public class VideoLanguageDetectionService {
      */
     public Optional<String> unavailableReason() {
         if (whisperProps.isAsrServiceMode()) {
-            // 语言识别本期只走 whisper-cli `--detect-language`；asr-service Python 端没暴露
-            // 同等单段 detect 接口（server.py 只有 /health + /asr）。
-            return Optional.of("语言识别只支持 whisper cli 模式（当前 " + whisperProps.getMode()
-                    + "）：ASR 服务端未提供单段 detect 接口");
+            if (whisperProps.getServiceUrl().isBlank()) {
+                return Optional.of("ASR 服务地址未配置：请设置 toolbox.whisper.service-url");
+            }
+            // 这里破例做一次网络探测（2s 超时）。配置齐不齐是确定的，进程活没活不是 ——
+            // 而「模式钉在 asr-service 却没人启动 :9500」正是本模块踩过的坑，
+            // 与其让用户点下去等一个连接失败，不如在按钮上就说清楚。
+            if (asr.pingHealth() == null) {
+                return Optional.of("ASR 服务未响应（" + whisperProps.getServiceUrl()
+                        + "）：请先启动 python-services/faster-whisper/start.bat");
+            }
+            return Optional.empty();
         }
         if (!whisperProps.isAvailable()) {
             return Optional.of("whisper 未配置：请设置 toolbox.whisper.binary 与 model-path");
@@ -178,7 +190,7 @@ public class VideoLanguageDetectionService {
             double sampleDur = Math.min(SAMPLE_DURATION_S, Math.max(0.5, durationS - startSec));
             wav = tmpDir.resolve(UUID.randomUUID() + ".wav");
             ffmpeg.extractAudioSlice(src, startSec, sampleDur, wav);
-            DetectedLanguage dl = whisper.detectLanguage(wav, ctx.cancelled());
+            DetectedLanguage dl = detectByMode(wav, ctx);
             if (ctx.cancelled().get()) return;   // 被强杀的 whisper 结果不写库
             videoRepo.updateLanguage(v.path(), dl.iso(), dl.confidence(), System.currentTimeMillis());
             jobService.recordSuccess(ctx, v.path());
@@ -193,6 +205,20 @@ public class VideoLanguageDetectionService {
                 try { Files.deleteIfExists(wav); } catch (IOException ignored) {}
             }
         }
+    }
+
+    /**
+     * 按 {@code toolbox.whisper.mode} 选后端。两条路径出参同为 {@link DetectedLanguage}
+     * （ISO 码 + 置信度），上层不需要知道语言是子进程判的还是 HTTP 判的。
+     *
+     * <p>唯一的分叉点就这一处 —— 别在 detectOne 里按 mode 分支，那会让抽样、失败记账、
+     * 临时文件清理这些与后端无关的逻辑跟着分裂成两份。
+     */
+    private DetectedLanguage detectByMode(Path wav, VideoProcessingJobService.JobContext ctx)
+            throws IOException, InterruptedException {
+        return whisperProps.isAsrServiceMode()
+                ? asr.detectLanguage(wav, ctx.cancelled())
+                : whisper.detectLanguage(wav, ctx.cancelled());
     }
 
     /**

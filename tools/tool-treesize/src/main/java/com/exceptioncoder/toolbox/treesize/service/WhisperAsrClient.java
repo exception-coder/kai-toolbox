@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.treesize.service;
 
 import com.exceptioncoder.toolbox.treesize.config.WhisperProperties;
+import com.exceptioncoder.toolbox.treesize.domain.DetectedLanguage;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -53,6 +54,8 @@ public class WhisperAsrClient {
     private static final long POLL_INTERVAL_MS = 250;
     /** 健康检查超时；用于启动期判定服务是否在线。 */
     private static final Duration HEALTH_TIMEOUT = Duration.ofSeconds(2);
+    /** {@code /detect} 兜底超时。判语言只解一个 30s 窗口，正常 1-3 秒；3 分钟足够冷启动排队。 */
+    private static final Duration DETECT_TIMEOUT = Duration.ofMinutes(3);
 
     private final WhisperProperties props;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -178,6 +181,61 @@ public class WhisperAsrClient {
         Files.writeString(vttPath, vtt, StandardCharsets.UTF_8);
         log.info("ASR 调用结束 写入 {} ({} 字符)", vttPath, vtt.length());
         return vttPath;
+    }
+
+    /**
+     * 只判语言不转写（{@code POST /detect}），对齐 {@link WhisperRunner#detectLanguage} 的签名，
+     * 让 {@code VideoLanguageDetectionService} 两种模式共用一条调用形状。
+     *
+     * <p>返回普通 JSON 而非 SSE：判语言是一次性的、1-3 秒就回，没有进度可流。
+     *
+     * <p>取消语义弱于 CLI 路径：CLI 那边能 {@code destroyForcibly} 掉子进程，这里只在发请求前
+     * 检查一次标志。单次调用本就只有几秒，为它加一套异步中断不值得——真取消了，最多多等这一次
+     * 请求返回，调用方随后会因 {@code cancelled} 为真而丢弃结果、不写库。
+     *
+     * @param wav       已抽好的 16kHz 单声道 WAV
+     * @param cancelled 取消标志；为 {@code null} 不可取消
+     */
+    public DetectedLanguage detectLanguage(Path wav, AtomicBoolean cancelled)
+            throws IOException, InterruptedException {
+        if (props.getServiceUrl().isBlank()) {
+            throw new IllegalStateException(
+                    "ASR 服务地址未配置：请在 application.yml 设置 toolbox.whisper.service-url");
+        }
+        if (cancelled != null && cancelled.get()) {
+            throw new InterruptedException("ASR 语言检测被取消");
+        }
+
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(props.getServiceUrl() + "/detect?vad_filter=true"))
+                .header("Content-Type", "audio/wav")
+                .timeout(props.getTimeoutSeconds() > 0
+                        ? Duration.ofSeconds(props.getTimeoutSeconds())
+                        : DETECT_TIMEOUT)
+                .POST(HttpRequest.BodyPublishers.ofFile(wav))
+                .build();
+
+        HttpResponse<String> resp;
+        try {
+            resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+        } catch (IOException e) {
+            throw new IOException(
+                    "ASR 服务连接失败（" + props.getServiceUrl() + "）：" + e.getMessage()
+                            + "。请先启动 python-services/faster-whisper/start.bat", e);
+        }
+        if (resp.statusCode() != 200) {
+            throw new IOException("ASR /detect 返回 HTTP " + resp.statusCode() + "：" + resp.body());
+        }
+
+        JsonNode body = mapper.readTree(resp.body());
+        String iso = body.path("language").asText("");
+        if (iso.isBlank()) {
+            throw new IOException("ASR /detect 未返回 language 字段：" + resp.body());
+        }
+        // probability 缺失时按 0 记：宁可置信度偏低，也不要凭空编一个 1.0 让人以为判得很准。
+        double probability = body.path("probability").asDouble(0);
+        log.debug("ASR /detect wav={} language={} p={}", wav.getFileName(), iso, probability);
+        return new DetectedLanguage(iso, probability);
     }
 
     private static String urlEncode(String s) {

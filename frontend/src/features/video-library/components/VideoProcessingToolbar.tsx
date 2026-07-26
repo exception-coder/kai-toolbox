@@ -12,7 +12,7 @@ import { ProcessingJobButton } from './ProcessingJobButton'
  * - **同步视频库**（阻塞）：把 treesize_node 里的视频 INSERT OR IGNORE 到 treesize_video
  * - **探测时长**（任务）：ffprobe 拿 duration_s + 算 duration_bucket
  * - **按名称归类**（任务）：正则去噪算系列签名 + 集数
- * - **识别语言**（任务）：whisper-cli `--detect-language` 抽 60s 音频判 ISO 码
+ * - **识别语言**（任务）：抽 60s 音频判 ISO 码（cli `--detect-language` / ASR `POST /detect`）
  * - **生成九宫格**（任务）：ffmpeg 单条命令 tile=3x3 出 contact sheet
  *
  * 后续 3 类（人物年龄 / 视觉嵌入 / 聚类）落地时在本组件追加按钮，VideoListPanel 不动。
@@ -128,7 +128,7 @@ export function VideoProcessingToolbar() {
       />
       <ProcessingJobButton
         label="识别语言"
-        title="whisper-cli --detect-language 抽 25% 位置 60s 音频判 ISO 码（GPU 串行，礼让播放）"
+        title="抽 25% 位置 60s 音频判 ISO 码（GPU 串行，礼让播放）；按 whisper 模式走 cli --detect-language 或 ASR 服务 /detect"
         icon={<Languages className="h-3.5 w-3.5" />}
         api={languageDetectApi}
         onStartError={handleStartError}
