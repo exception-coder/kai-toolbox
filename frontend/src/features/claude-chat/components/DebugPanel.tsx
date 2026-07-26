@@ -49,23 +49,35 @@ export function DebugPanel({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-3" onClick={onClose} role="dialog" aria-label="调试模式">
-      <div className="flex max-h-[85vh] w-full max-w-4xl flex-col rounded-xl border bg-[var(--color-background)] shadow-xl" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center gap-2 border-b px-3 py-2">
-          <span className="text-sm font-semibold">调试模式 · 实时交互日志</span>
-          <span className="text-xs text-[var(--color-muted-foreground)]">{entries.length} 条 · 前端↔后端(转发 node sidecar 事件)</span>
-          <input
-            value={filter}
-            onChange={e => setFilter(e.target.value)}
-            placeholder="筛选 type（如 assistantDelta / result）"
-            className="ml-2 h-7 w-52 rounded-md border bg-[var(--color-background)] px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
-          />
-          <button type="button" onClick={() => setPaused(p => !p)} title={paused ? '继续' : '暂停'} className="ml-auto rounded-md p-1 hover:bg-[var(--color-muted)]">
-            {paused ? <Play className="size-4" /> : <Pause className="size-4" />}
-          </button>
-          <button type="button" onClick={copyAll} title="复制全部" className="rounded-md p-1 hover:bg-[var(--color-muted)]"><Copy className="size-4" /></button>
-          <button type="button" onClick={() => clearDebug()} title="清空" className="rounded-md p-1 hover:bg-[var(--color-muted)]"><Trash2 className="size-4" /></button>
-          <button type="button" onClick={onClose} title="关闭" className="rounded-md p-1 hover:bg-[var(--color-muted)]"><X className="size-4" /></button>
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-2 sm:p-3" onClick={onClose} role="dialog" aria-label="调试模式">
+      <div className="flex max-h-[88dvh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border bg-[var(--color-background)] shadow-xl" onClick={e => e.stopPropagation()}>
+        {/*
+          头部：窄屏两行（标题行 / 工具行），宽屏一行。
+          原来是单行不换行的 flex，小屏放不下时所有子项一起收缩——标题被压成每行一个字、
+          图标按钮又缩不下去而溢出容器（关闭按钮跑出屏幕）。这里改成：标题区可截断（min-w-0 +
+          truncate），工具区整体 shrink-0，筛选框在窄屏占满剩余宽度、宽屏回到定宽。
+        */}
+        <div className="flex flex-col gap-2 border-b px-3 py-2 sm:flex-row sm:items-center">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="shrink-0 text-sm font-semibold">调试模式</span>
+            <span className="truncate text-xs text-[var(--color-muted-foreground)]">
+              {entries.length} 条 · 前端↔后端(转发 node sidecar 事件)
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-1 sm:ml-auto">
+            <input
+              value={filter}
+              onChange={e => setFilter(e.target.value)}
+              placeholder="筛选 type"
+              className="h-8 min-w-0 flex-1 rounded-md border bg-[var(--color-background)] px-2 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)] sm:w-52 sm:flex-none"
+            />
+            <button type="button" onClick={() => setPaused(p => !p)} title={paused ? '继续' : '暂停'} className="shrink-0 rounded-md p-1.5 hover:bg-[var(--color-muted)]">
+              {paused ? <Play className="size-4" /> : <Pause className="size-4" />}
+            </button>
+            <button type="button" onClick={copyAll} title="复制全部" className="shrink-0 rounded-md p-1.5 hover:bg-[var(--color-muted)]"><Copy className="size-4" /></button>
+            <button type="button" onClick={() => clearDebug()} title="清空" className="shrink-0 rounded-md p-1.5 hover:bg-[var(--color-muted)]"><Trash2 className="size-4" /></button>
+            <button type="button" onClick={onClose} title="关闭" className="shrink-0 rounded-md p-1.5 hover:bg-[var(--color-muted)]"><X className="size-4" /></button>
+          </div>
         </div>
 
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-2 font-mono text-[11px] leading-relaxed">
@@ -97,7 +109,7 @@ function Row({ e }: { e: DebugEntry }) {
   const Icon = e.dir === 'recv' ? ArrowDown : e.dir === 'send' ? ArrowUp : Dot
   return (
     <div className="border-b border-[var(--color-border)]/40 py-1">
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-x-1.5">
         <span className="text-[var(--color-muted-foreground)]">{fmtTs(e.ts)}</span>
         <Icon className={cn('size-3.5 shrink-0', dirCls)} />
         <span className={cn('font-semibold', dirCls)}>{e.type}</span>
