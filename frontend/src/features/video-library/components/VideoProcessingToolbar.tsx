@@ -3,7 +3,7 @@ import { Clock, Grid3X3, Languages, Loader2, RefreshCw, Tags } from 'lucide-reac
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { ApiError } from '@/lib/api'
 import { useConfirm } from '@/components/ui/confirm-dialog'
-import { durationProbeApi, getProcessingOverview, languageDetectApi, nameGroupingApi, syncVideoLibrary, thumbnailGridApi } from '../api'
+import { durationProbeApi, getProcessingOverview, getWhisperCapability, languageDetectApi, nameGroupingApi, syncVideoLibrary, thumbnailGridApi } from '../api'
 import { ProcessingJobButton } from './ProcessingJobButton'
 
 /**
@@ -28,6 +28,14 @@ export function VideoProcessingToolbar() {
   })
   const ov = overviewQuery.data
   const refreshOverview = () => { void overviewQuery.refetch() }
+
+  // whisper 后端能力：mode 由启动参数定，进程生命周期内不变，拉一次即可。
+  // 「识别语言」在 asr-service 模式下后端会直接 503，靠它把按钮提前禁掉。
+  const whisperQuery = useQuery({
+    queryKey: ['whisper-capability'],
+    queryFn: getWhisperCapability,
+    staleTime: Infinity,
+  })
 
   const syncMutation = useMutation({
     mutationFn: syncVideoLibrary,
@@ -124,6 +132,7 @@ export function VideoProcessingToolbar() {
         icon={<Languages className="h-3.5 w-3.5" />}
         api={languageDetectApi}
         onStartError={handleStartError}
+        blockedReason={whisperQuery.data?.languageDetectBlockedReason ?? null}
         cumulativeDone={ov?.languageDone}
         cumulativeTotal={ov?.total}
         onSettled={refreshOverview}

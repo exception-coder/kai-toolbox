@@ -4,6 +4,8 @@ import com.exceptioncoder.toolbox.common.auth.annotation.RequireRole;
 import com.exceptioncoder.toolbox.treesize.api.dto.ProcessingOverview;
 import com.exceptioncoder.toolbox.treesize.api.dto.VideoMergeRequest;
 import com.exceptioncoder.toolbox.treesize.api.dto.VideoSyncResult;
+import com.exceptioncoder.toolbox.treesize.api.dto.WhisperCapabilityView;
+import com.exceptioncoder.toolbox.treesize.config.WhisperProperties;
 import com.exceptioncoder.toolbox.treesize.domain.ProcessingJob;
 import com.exceptioncoder.toolbox.treesize.domain.ProcessingJobType;
 import com.exceptioncoder.toolbox.treesize.domain.VideoRow;
@@ -63,6 +65,7 @@ public class VideoProcessingController {
     private final VideoMergeService mergeService;
     private final VideoProcessingJobService jobService;
     private final VideoTableRepository videoRepo;
+    private final WhisperProperties whisperProps;
 
     public VideoProcessingController(VideoSyncService syncService,
                                       VideoDurationProbeService durationService,
@@ -71,7 +74,8 @@ public class VideoProcessingController {
                                       VideoThumbnailGridService gridService,
                                       VideoMergeService mergeService,
                                       VideoProcessingJobService jobService,
-                                      VideoTableRepository videoRepo) {
+                                      VideoTableRepository videoRepo,
+                                      WhisperProperties whisperProps) {
         this.syncService = syncService;
         this.durationService = durationService;
         this.nameGroupingService = nameGroupingService;
@@ -80,6 +84,7 @@ public class VideoProcessingController {
         this.mergeService = mergeService;
         this.jobService = jobService;
         this.videoRepo = videoRepo;
+        this.whisperProps = whisperProps;
     }
 
     // ==============================================================================
@@ -106,6 +111,19 @@ public class VideoProcessingController {
                 total - videoRepo.countNeedingNameGrouping(),
                 total - videoRepo.countNeedingLanguageDetect(),
                 total - videoRepo.countNeedingThumbnailGrid());
+    }
+
+    // ==============================================================================
+    // whisper 后端能力：让前端在「点击前」就知道哪些任务这台机器根本干不了，
+    // 而不是点下去吃一个 503。mode 是后端确定的事实，判断也只在后端一处。
+    // ==============================================================================
+
+    @GetMapping("/whisper-capability")
+    public WhisperCapabilityView whisperCapability() {
+        return new WhisperCapabilityView(
+                whisperProps.getMode(),
+                whisperProps.isAvailable(),
+                languageService.unavailableReason().orElse(null));
     }
 
     // ==============================================================================

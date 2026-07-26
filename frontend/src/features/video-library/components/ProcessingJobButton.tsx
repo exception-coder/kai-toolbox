@@ -39,10 +39,15 @@ interface Props {
   cumulativeTotal?: number
   /** 一轮任务结束时回调，父组件据此重拉 overview 刷新累计进度。 */
   onSettled?: () => void
+  /**
+   * 非空 = 这台机器当前干不了这类任务，按钮直接禁用并把原因挂到 title。
+   * 文案由后端 capability 端点给，不在前端推理，避免和后端的拒绝理由漂移。
+   */
+  blockedReason?: string | null
 }
 
 export function ProcessingJobButton({
-  label, icon, api, title, onStartError, cumulativeDone, cumulativeTotal, onSettled,
+  label, icon, api, title, onStartError, cumulativeDone, cumulativeTotal, onSettled, blockedReason,
 }: Props) {
   const [job, setJob] = useState<ProcessingJob | null>(null)
   const [starting, setStarting] = useState(false)
@@ -103,7 +108,7 @@ export function ProcessingJobButton({
   }
 
   const handleStart = async () => {
-    if (starting || stopping) return
+    if (starting || stopping || blockedReason) return
     setStarting(true)
     try {
       const r = await api.start()
@@ -195,9 +200,10 @@ export function ProcessingJobButton({
     <button
       type="button"
       onClick={handleStart}
-      disabled={starting}
-      title={(title ?? label) + finishedHint}
-      className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-2 py-1.5 text-xs hover:bg-[var(--color-accent)] disabled:opacity-50"
+      disabled={starting || !!blockedReason}
+      // 不可用时 title 只放原因：拼上任务说明反而把「为什么点不动」埋了。
+      title={blockedReason ? `不可用：${blockedReason}` : (title ?? label) + finishedHint}
+      className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-2 py-1.5 text-xs hover:bg-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50"
     >
       {starting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : icon ?? <Play className="h-3.5 w-3.5" />}
       {label}

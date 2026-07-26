@@ -89,24 +89,39 @@ public class VideoLanguageDetectionService {
     }
 
     /**
-     * 启动语言识别任务。前置：whisper 必须可用（仅 cli 模式），否则抛
-     * {@link IllegalStateException} 让 controller 返 503——不浪费一个 job 行。
+     * 语言识别当前为何不可用；{@link Optional#empty()} = 可用。
+     *
+     * <p>{@link #start()} 与 whisper capability 端点共用这一处判断，前端据此直接禁用按钮 +
+     * 显示同一句原因。故意不让前端自己按 mode 推理：那等于把同一条规则写两遍，
+     * 日后模式增减必然漂移成「按钮能点但后端拒」或反之。
      */
-    public Optional<String> start() {
+    public Optional<String> unavailableReason() {
         if (whisperProps.isAsrServiceMode()) {
             // 语言识别本期只走 whisper-cli `--detect-language`；asr-service Python 端没暴露
-            // 同等单段 detect 接口。用户用 ASR 模式时直接拒绝启动。
-            throw new IllegalStateException("language detect only supports whisper cli mode (current mode: asr-service)");
+            // 同等单段 detect 接口（server.py 只有 /health + /asr）。
+            return Optional.of("语言识别只支持 whisper cli 模式（当前 " + whisperProps.getMode()
+                    + "）：ASR 服务端未提供单段 detect 接口");
         }
         if (!whisperProps.isAvailable()) {
-            throw new IllegalStateException(
-                    "whisper unavailable: 请在 application.yml 配置 toolbox.whisper.binary 与 model-path");
+            return Optional.of("whisper 未配置：请设置 toolbox.whisper.binary 与 model-path");
         }
         if (!Files.isRegularFile(Path.of(whisperProps.getBinary()))) {
-            throw new IllegalStateException("whisper binary not found: " + whisperProps.getBinary());
+            return Optional.of("whisper 可执行文件不存在：" + whisperProps.getBinary());
         }
         if (!Files.isRegularFile(Path.of(whisperProps.getModelPath()))) {
-            throw new IllegalStateException("whisper model not found: " + whisperProps.getModelPath());
+            return Optional.of("whisper 模型文件不存在：" + whisperProps.getModelPath());
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * 启动语言识别任务。前置不满足时抛 {@link IllegalStateException} 让 controller 返 503
+     * ——不浪费一个 job 行。正常情况下前端按 capability 已把按钮禁掉，走不到这里。
+     */
+    public Optional<String> start() {
+        Optional<String> blocked = unavailableReason();
+        if (blocked.isPresent()) {
+            throw new IllegalStateException(blocked.get());
         }
         return jobService.startJob(ProcessingJobType.LANGUAGE_DETECT, this::workerLoop);
     }

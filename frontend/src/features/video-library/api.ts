@@ -256,6 +256,21 @@ export interface ProcessingOverview {
 export function getProcessingOverview() {
   return http<ProcessingOverview>('/treesize/videos/processing-overview')
 }
+
+/**
+ * whisper 后端能力。两种模式（cli / asr-service）能力不等价，用它在点击前禁掉干不了的按钮。
+ * `languageDetectBlockedReason` 非空即不可用，文案与后端 503 同源 —— 前端不按 mode 自己推理。
+ */
+export interface WhisperCapability {
+  mode: string
+  subtitleAvailable: boolean
+  /** 非空 = 不可用，值即展示给用户的原因；不再另给一个布尔位，免得两者对不上。 */
+  languageDetectBlockedReason: string | null
+}
+
+export function getWhisperCapability() {
+  return http<WhisperCapability>('/treesize/videos/whisper-capability')
+}
 // 下期上：personAgeApi / visualEmbedApi / visualClusterApi
 
 /**

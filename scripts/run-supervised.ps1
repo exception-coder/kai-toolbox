@@ -129,6 +129,21 @@ if (-not $env:NPM_CONFIG_REGISTRY) { $env:NPM_CONFIG_REGISTRY = 'https://registr
 # 前端 Vite dev 端口（须与 frontend/vite.config.ts 一致）。
 $FrontendPort = 5173
 
+# whisper 后端模式，来自 run-tools.conf 的 TOOLBOX_WHISPER_MODE，缺省 cli（同 application.yml）。
+#   cli         —— whisper-cli.exe 子进程，字幕 + 语言识别都支持，需要 binary + model 就位
+#   asr-service —— faster-whisper Python 服务(:9500)，绕开 CJK 路径/参数兼容坑，但只支持字幕；
+#                  语言识别会被后端拒（server.py 没有单段 detect 接口），按钮由 capability 端点禁掉
+# 曾经这里硬编码 asr-service，覆盖了 yml 的 cli 又从不拉起 :9500 服务，结果字幕/语言识别双双废掉。
+# 教训：运行模式与它依赖的 sidecar 必须由同一处决定 —— 见下面 Start-FasterWhisperSidecar。
+$WhisperMode = if ($env:TOOLBOX_WHISPER_MODE) { $env:TOOLBOX_WHISPER_MODE.Trim().ToLower() } else { 'cli' }
+if ($WhisperMode -notin @('cli', 'asr-service')) {
+    Write-Host "[supervisor] WARN: TOOLBOX_WHISPER_MODE='$WhisperMode' 非法（只支持 cli / asr-service），回退 cli"
+    $WhisperMode = 'cli'
+}
+
+# faster-whisper ASR 服务端口，须与 application.yml 的 toolbox.whisper.service-url 一致。
+$AsrPort = 9500
+
 # npm：前端 dev 与两个 node sidecar 初始化都要它。优先 conf 注入的 NPM_CMD，其次 PATH；
 # 把其所在目录前置进 PATH，确保 spawn 出去的子 powershell 也能直接调 npm。
 $NpmCmd = Resolve-RequiredTool 'NPM_CMD' 'npm' 'npm' @(
@@ -227,7 +242,7 @@ function Start-Backend {
         '-Dfile.encoding=UTF-8',
         '-Dstdout.encoding=UTF-8',
         '-Dstderr.encoding=UTF-8',
-        '-Dtoolbox.whisper.mode=asr-service'
+        "-Dtoolbox.whisper.mode=$WhisperMode"
     )
     if ($env:TOOLBOX_QBT_PASSWORD)         { $javaOptions += "-DTOOLBOX_QBT_PASSWORD=$env:TOOLBOX_QBT_PASSWORD" }
     if ($env:TOOLBOX_SYSTEM_RESTART_TOKEN) { $javaOptions += "-DTOOLBOX_SYSTEM_RESTART_TOKEN=$env:TOOLBOX_SYSTEM_RESTART_TOKEN" }
@@ -350,6 +365,31 @@ function Start-WechatSidecar {
     }
 }
 
+# faster-whisper ASR sidecar（python-services\faster-whisper，:9500）。隔离、尽力而为，同 wechat。
+# 只在 $WhisperMode -eq 'asr-service' 时拉起 —— 模式决定要不要这个进程，两者同一处判断，
+# 不会再出现「模式钉在 asr-service 却没人起 :9500」的空挡。cli 模式下起它纯属白占显存。
+function Start-FasterWhisperSidecar {
+    try {
+        if ($WhisperMode -ne 'asr-service') {
+            Write-Host "[supervisor] whisper mode=$WhisperMode，不需要 ASR sidecar(:$AsrPort)，跳过"
+            return
+        }
+        $asrDir = Join-Path $RepoRoot 'python-services\faster-whisper'
+        $bat = Join-Path $asrDir 'start.bat'
+        if (-not (Test-Path -LiteralPath $bat)) {
+            Write-Host '[supervisor] WARN: faster-whisper start.bat 不存在，asr-service 模式下字幕将不可用'
+            return
+        }
+        $listening = $false
+        try { $listening = [bool](Get-NetTCPConnection -LocalPort $AsrPort -State Listen -ErrorAction Stop) } catch { }
+        if ($listening) { Write-Host "[supervisor] faster-whisper sidecar 已在 :$AsrPort，跳过"; return }
+        Write-Host "[supervisor] start faster-whisper sidecar (:$AsrPort，独立窗口，首次装依赖 + 下模型较慢)..."
+        Start-Process -FilePath $bat -WorkingDirectory $asrDir -ErrorAction Stop | Out-Null
+    } catch {
+        Write-Host "[supervisor] WARN: faster-whisper sidecar 启动失败（不影响其它作业）: $($_.Exception.Message)"
+    }
+}
+
 # 访客分析 AgentScope sidecar（python-services\visitor-analysis）。隔离、尽力而为，同 wechat：
 #   - 独立窗口异步起，首次建 .venv/pip install 较慢，绝不阻塞 supervisor；
 #   - 整段 try/catch：起不来只 WARN，不连累 backend / frontend / 其它 sidecar；不进守护循环；
@@ -373,12 +413,15 @@ function Start-VisitorAnalysisSidecar {
 # 必须先停端口持有者：Start-* 自带「端口已监听即跳过」的幂等保护，不先停就只会被 skip、旧进程长存。
 # 停后留一小段时间让监听端口释放，避免 Start-* 误判「已在监听」而跳过。
 function Restart-PythonSidecars {
-    Write-Host '[supervisor] 回收 Python sidecar：visitor-analysis(:9600) + wechat(:9700)'
+    $asrNote = if ($WhisperMode -eq 'asr-service') { " + faster-whisper(:$AsrPort)" } else { '' }
+    Write-Host "[supervisor] 回收 Python sidecar：visitor-analysis(:9600) + wechat(:9700)$asrNote"
     Stop-PortHolders 9600
     Stop-PortHolders 9700
+    if ($WhisperMode -eq 'asr-service') { Stop-PortHolders $AsrPort }
     Start-Sleep -Milliseconds 800
     Start-VisitorAnalysisSidecar
     Start-WechatSidecar
+    Start-FasterWhisperSidecar
 }
 
 function Start-AgentScopeStudio {
@@ -480,6 +523,7 @@ try {
 }
 if ($listener) { Write-Host "[supervisor] HTTP control $HttpPrefix  (POST /restart, GET /status)" }
 Write-Host "[supervisor] repo=$RepoRoot  mvn=$MvnCmd  java=$JavaCmd"
+Write-Host "[supervisor] whisper mode=$WhisperMode（改用 run-tools.conf 的 TOOLBOX_WHISPER_MODE）"
 
 # 起服务前先把两个 node sidecar 的依赖/构建补齐（幂等，已就绪则秒过）。
 Initialize-NodeDeps
@@ -491,6 +535,8 @@ Start-Frontend
 Start-WechatSidecar
 # 访客分析 AgentScope sidecar：同样尽力起一次（端口 9600），失败只 WARN。
 Start-VisitorAnalysisSidecar
+# faster-whisper ASR sidecar：仅 asr-service 模式需要（端口 9500），cli 模式自动跳过。
+Start-FasterWhisperSidecar
 # AgentScope Studio：移动端监控入口（端口 3000），失败不影响 toolbox 主流程。
 Start-AgentScopeStudio
 
