@@ -150,10 +150,13 @@ export function FloatingChatWindow() {
   const [routeNote, setRouteNote] = useState<string | null>(null)
   const [routeBusy, setRouteBusy] = useState(false)
 
-  // 输入框随内容自动升高（参考微信）：到 max-h 后内部滚动
+  // 输入框随内容自动升高（参考微信）：到 max-h 后内部滚动。
+  // 空内容时强制回落到最小高度——移动端(华为 X5 等)会把换行占位符也算进 scrollHeight，
+  // 不清零会导致空框被占位符撑成多行。
   useEffect(() => {
     const el = taRef.current
     if (!el) return
+    if (!draft) { el.style.height = ''; return }
     el.style.height = 'auto'
     el.style.height = `${el.scrollHeight}px`
   }, [draft])
@@ -889,7 +892,7 @@ export function FloatingChatWindow() {
           <textarea
             ref={taRef}
             className={`max-h-24 min-h-[2.25rem] flex-1 resize-none overflow-y-auto rounded-lg border px-2 py-1.5 text-sm ${giftMode ? 'border-white/12 bg-white/8 text-white placeholder:text-white/28' : 'bg-[var(--color-background)]'}`}
-            placeholder="发消息 / 粘贴图片…（/goto 模块 或「去开发 X」可跳转）"
+            placeholder="发消息…（/goto 跳模块）"
             rows={1}
             value={draft}
             onChange={e => setDraft(e.target.value)}
