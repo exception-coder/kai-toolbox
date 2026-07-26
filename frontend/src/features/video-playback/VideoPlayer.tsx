@@ -39,6 +39,9 @@ interface VideoPlayerProps {
   subtitlesAvailable?: boolean
   subtitlesOn?: boolean
   onToggleSubtitles?: () => void
+  /** 播放列表开关 — 列表本体由父级渲染在播放器容器上，这里只把入口交给控件栏。 */
+  onTogglePlaylist?: () => void
+  playlistOpen?: boolean
 }
 
 type Mode = 'loading' | 'native' | 'hls' | 'unsupported' | 'error' | 'unauthorized'
@@ -71,6 +74,8 @@ export function VideoPlayer({
   subtitlesAvailable,
   subtitlesOn,
   onToggleSubtitles,
+  onTogglePlaylist,
+  playlistOpen,
 }: VideoPlayerProps) {
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -291,6 +296,8 @@ export function VideoPlayer({
           subtitlesAvailable={subtitlesAvailable}
           subtitlesOn={subtitlesOn}
           onToggleSubtitles={onToggleSubtitles}
+          onTogglePlaylist={onTogglePlaylist}
+          playlistOpen={playlistOpen}
         />
       )}
 

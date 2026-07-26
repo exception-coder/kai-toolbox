@@ -17,6 +17,7 @@ import {
   CaptionsOff,
   MoreHorizontal,
   ChevronsRight,
+  ListVideo,
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -38,6 +39,12 @@ interface VideoPlayerControlsProps {
   subtitlesAvailable?: boolean
   subtitlesOn?: boolean
   onToggleSubtitles?: () => void
+  /**
+   * 播放列表开关。给了才渲染按钮 —— 列表本体由父级画（它才知道队列内容），
+   * 控件栏只负责这个「入口」，这样全屏 / 非全屏共用同一个入口，不必各写一套浮层。
+   */
+  onTogglePlaylist?: () => void
+  playlistOpen?: boolean
 }
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2]
@@ -66,6 +73,8 @@ export function VideoPlayerControls({
   subtitlesAvailable = false,
   subtitlesOn = false,
   onToggleSubtitles,
+  onTogglePlaylist,
+  playlistOpen = false,
 }: VideoPlayerControlsProps) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -547,28 +556,30 @@ export function VideoPlayerControls({
 
           {/* Right cluster */}
           <div className="flex items-center gap-0.5 md:gap-1.5">
-            {hasPrev && (
-              <CtrlBtn
-                className={cn(!isFullscreen && 'hidden md:inline-flex')}
-                onClick={() => {
-                  onPrev?.()
-                  resetIdle()
-                }}
-                title="上一个"
-              >
-                <ChevronLeft className="size-5" />
-              </CtrlBtn>
+            {/* 上/下一个与播放列表在非全屏也常驻：窗口模式下用户同样要靠它们换片，
+                之前只在全屏或桌面宽屏出现，手机窗口模式得滚到播放器外面才能切集。
+                onPrev/onNext 存在就渲染（到头时禁用而非消失），避免按钮位置来回跳。 */}
+            {(onPrev || onNext) && (
+              <>
+                <CtrlBtn disabled={!hasPrev} onClick={() => { onPrev?.(); resetIdle() }} title="上一个">
+                  <ChevronLeft className="size-5" />
+                </CtrlBtn>
+                <CtrlBtn disabled={!hasNext} onClick={() => { onNext?.(); resetIdle() }} title="下一个">
+                  <ChevronRight className="size-5" />
+                </CtrlBtn>
+              </>
             )}
-            {hasNext && (
+
+            {onTogglePlaylist && (
               <CtrlBtn
-                className={cn(!isFullscreen && 'hidden md:inline-flex')}
+                active={playlistOpen}
                 onClick={() => {
-                  onNext?.()
+                  onTogglePlaylist()
                   resetIdle()
                 }}
-                title="下一个"
+                title={playlistOpen ? '关闭播放列表' : '播放列表'}
               >
-                <ChevronRight className="size-5" />
+                <ListVideo className="size-5" />
               </CtrlBtn>
             )}
 
@@ -815,16 +826,19 @@ function CtrlBtn({
   title,
   className,
   active = false,
+  disabled = false,
 }: {
   children: React.ReactNode
   onClick: (e: React.MouseEvent) => void
   title?: string
   className?: string
   active?: boolean
+  disabled?: boolean
 }) {
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={e => {
         e.stopPropagation()
         onClick(e)
@@ -833,6 +847,7 @@ function CtrlBtn({
       className={cn(
         'pointer-events-auto relative inline-flex size-9 shrink-0 items-center justify-center rounded-md text-white transition-colors',
         active ? 'bg-[var(--color-primary)] text-white' : 'hover:bg-white/15',
+        disabled && 'cursor-not-allowed opacity-35 hover:bg-transparent',
         className,
       )}
     >
