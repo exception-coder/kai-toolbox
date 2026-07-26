@@ -85,13 +85,18 @@ public class GitLogService {
     }
 
     /**
-     * 返回工作区待提交文件列表（{@code git status --porcelain -u}）。
+     * 返回工作区待提交文件列表（{@code git status --porcelain -unormal}）。
      * 每条 entry 含 x（index/暂存区状态）、y（工作树状态）、path（相对路径）、origPath（重命名时的原路径）。
+     *
+     * <p>用 {@code -unormal}（git 默认）而非 {@code -uall}：整块未跟踪目录折叠为单条目录条目（如
+     * {@code somedir/}），不逐个展开其中每个文件。避免会话目录下存在大的未跟踪目录（构建产物/数据目录等，
+     * 未被 .gitignore 覆盖）时炸出成千上万条、拖垮前端「待提交文件」树。已被 .gitignore 忽略的文件
+     * git status 本就不列出，无需额外过滤；已跟踪目录里的新增文件仍逐个显示。</p>
      */
     public GitStatusResponse gitStatus(Path dir) {
         Result r = exec(List.of(
                 props.getBinary(), "-c", "core.quotepath=false", "-C", dir.toString(),
-                "status", "--porcelain", "-u"));
+                "status", "--porcelain", "-unormal"));
         List<GitStatusEntry> entries = new ArrayList<>();
         for (String line : r.stdout().split("\n")) {
             if (line.length() < 3) continue;
