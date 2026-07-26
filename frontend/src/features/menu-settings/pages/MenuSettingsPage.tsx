@@ -10,8 +10,8 @@ import type { FeatureManifest } from '@/shell/types'
 const SELF_ID = 'menu-settings'
 
 /**
- * 菜单配置：勾选各模块是否在菜单显示（软隐藏，存本地，路由仍在、随时勾回）。
- * 默认只显示核心模块（DEFAULT_VISIBLE_IDS），其余默认隐藏——可在此勾选显示，或 Ctrl+K 命令面板直达。
+ * 菜单配置：勾选各模块是否在菜单显示（软隐藏，按账号存后端，路由仍在、随时勾回）。
+ * 默认显示分配给当前用户的全部模块（DEFAULT_VISIBLE_IDS = 全部已注册菜单，侧栏再按权限过滤）；可在此隐藏，或 Ctrl+K 命令面板直达。
  * 「睿程 ERP 全景图」等 manifest.hidden 的模块已在注册表层剔除，不在此清单——只能改源码开启。
  */
 export function MenuSettingsPage() {
@@ -32,7 +32,7 @@ export function MenuSettingsPage() {
           <div>
             <h1 className="text-lg font-semibold">菜单配置</h1>
             <p className="text-xs leading-5 text-[var(--color-muted-foreground)]">
-              勾选各模块是否在菜单显示。默认只显示核心模块，其余可在此开启或用 Ctrl/⌘+K 直达；隐藏仅影响侧边栏与首页，路由仍可用。设置存本机浏览器。
+              勾选各模块是否在菜单显示。默认只显示核心模块，其余可在此开启或用 Ctrl/⌘+K 直达；隐藏仅影响侧边栏与首页，路由仍可用。设置按账号保存，多设备同步。
             </p>
           </div>
         </div>

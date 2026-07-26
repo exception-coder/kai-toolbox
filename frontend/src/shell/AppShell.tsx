@@ -8,6 +8,7 @@ import { features } from './featureRegistry'
 import { PwaInstallPrompt } from './PwaInstallPrompt'
 import { ForgeBotTrigger } from '@/features/claude-chat/components/ForgeBotTrigger'
 import { useBrand } from './brand'
+import { useMenuVisibilitySync } from './menuVisibility'
 
 export function AppShell() {
   const [collapsed, setCollapsed] = useState(false)
@@ -15,6 +16,9 @@ export function AppShell() {
   const location = useLocation()
   const { brand } = useBrand()
   const shellless = location.pathname === '/tools/welfare-sign/fullscreen'
+
+  // 登录后把当前用户的菜单显隐从后端同步下来（未登录则 no-op，走本地兜底）。
+  useMenuVisibilitySync()
 
   // 路由切换时关闭移动端抽屉
   useEffect(() => { setMobileOpen(false) }, [location.pathname])

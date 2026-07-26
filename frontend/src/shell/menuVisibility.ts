@@ -1,30 +1,30 @@
-import { useMemo, useSyncExternalStore } from 'react'
+import { useEffect, useMemo } from 'react'
+import { useSyncExternalStore } from 'react'
+import { http } from '@/lib/api'
+import { getUser, useAuth } from '@/lib/auth'
+import { features } from './featureRegistry'
 import type { FeatureManifest } from './types'
 
 /**
- * 菜单可见性：默认只展示「当前在用」的核心模块，其余默认隐藏（仍可在「菜单配置」勾选显示，或 Ctrl+K 命令面板直达）。
+ * 菜单可见性：默认展示「分配给当前用户」的全部模块，用户可在「菜单配置」里手动隐藏（软隐藏，路由仍在）。
  *
  * 模型 = 可见白名单：
- *  - 未定制（localStorage 无记录）→ 用 DEFAULT_VISIBLE_IDS（核心集）。这样新加的模块默认也不进菜单，避免侧栏越堆越长。
- *  - 用户在「菜单配置」勾选后 → 持久化其完整可见集，之后以它为准。
+ *  - 未定制 → 用 DEFAULT_VISIBLE_IDS（= 全部已注册功能菜单）。侧栏/首页会再按账号权限（menu:<id>）过滤，
+ *    故「分配给该用户的菜单默认即展示」，无需逐个勾选。
+ *  - 用户在「菜单配置」手动隐藏后 → 持久化其完整可见集（白名单），之后以它为准。
  *  - 「菜单配置」自身始终可见（兜底，避免勾没了就再也进不去）。
  *
+ * 持久化（按登录用户存后端）：
+ *  - 已登录 → 落后端 `/api/menu-visibility`（关联当前登录用户，多设备同步）；localStorage 仅作缓存 + 兜底。
+ *  - 登录后 hydrate：拉后端；库内无记录且本地有配置 → 首次迁移上云；否则用默认集（全部已授权模块）。
+ *  - 未登录 / 接口失败 → 回退 localStorage + 默认集，不阻塞进入。
+ *
  * 与 manifest.hidden 的代码级隐藏区分：那是整体剔除（连路由都不注册）；这里只隐藏侧栏/首页入口，路由仍在。
- * 单用户本地应用，偏好落 localStorage（也契合「菜单不依赖后端」）。用 useSyncExternalStore 让各处共享、即时联动、跨标签页同步。
+ * 用 useSyncExternalStore 让各处共享、即时联动、跨标签页同步。
  */
-export const DEFAULT_VISIBLE_IDS: readonly string[] = [
-  // AI / Vibe Coding 工作台核心
-  'claude-chat',
-  'project-workspace',
-  'erp-dev',
-  'srm-dev',
-  'kai-dev',
-  'new-devmodule',
-  // 系统
-  'config-center',
-  'ops',
-  'menu-settings',
-]
+export const DEFAULT_VISIBLE_IDS: readonly string[] = features
+  .filter((f) => !f.chrome) // chrome（管理页）不进功能菜单；manifest.hidden 已在注册表层剔除
+  .map((f) => f.id)
 
 /** 无论如何都保持可见的模块（防止用户把「菜单配置」自己勾掉后无法再进入）。 */
 const ALWAYS_VISIBLE = 'menu-settings'
@@ -76,6 +76,66 @@ if (typeof window !== 'undefined') {
   })
 }
 
+// ── 后端持久化（按登录用户） ──────────────────────────────────────────
+//
+// 后端：toolbox-common 的 /api/menu-visibility（GET/PUT/DELETE，@RequireAuth，userId 取自登录态）。
+
+interface MenuVisibilityDto {
+  visibleIds: string[] | null // null = 库内无记录（未定制）
+  updatedAt: number | null
+}
+
+/** 拉当前用户的可见集；未登录/失败返回 null（由调用方走本地兜底）。 */
+async function fetchServer(): Promise<MenuVisibilityDto | null> {
+  try {
+    return await http<MenuVisibilityDto>('/menu-visibility')
+  } catch {
+    return null
+  }
+}
+
+/** best-effort 保存到后端；失败静默（本地已乐观更新，下次操作会再同步）。 */
+function pushServer(ids: string[]) {
+  void http('/menu-visibility', {
+    method: 'PUT',
+    body: JSON.stringify({ visibleIds: ids }),
+  }).catch(() => {})
+}
+
+/** best-effort 恢复默认（删除后端记录）。 */
+function deleteServer() {
+  void http('/menu-visibility', { method: 'DELETE' }).catch(() => {})
+}
+
+let hydratedUserId: number | null = null
+
+/**
+ * 登录后把该用户的可见集从后端拉下来（或首次迁移本地配置上云）。
+ * - 库内有记录 → 以它为准，镜像回 localStorage 缓存。
+ * - 库内无记录 + 本地有配置 → 首次迁移：上云，保持本地现状。
+ * - 库内无记录 + 本地也无 → 用默认核心集（computeEffective 已兜底），不改动。
+ */
+async function hydrateForUser(userId: number) {
+  const dto = await fetchServer()
+  // 竞态保护：await 期间用户可能已切换/登出。
+  if (getUser()?.userId !== userId) return
+  if (dto && dto.visibleIds) {
+    const ids = new Set(dto.visibleIds)
+    ids.add(ALWAYS_VISIBLE)
+    persist(ids)
+    emit()
+  } else {
+    const local = readStored()
+    if (local && local.length) {
+      const migrated = new Set(local)
+      migrated.add(ALWAYS_VISIBLE)
+      pushServer([...migrated]) // 首次迁移上云；本地已是有效值，无需重算
+    }
+    // 无本地记录：保持默认核心集。
+  }
+  hydratedUserId = userId
+}
+
 /** 设置某模块是否在菜单显示。菜单配置自身不可隐藏。 */
 export function setMenuVisible(id: string, visible: boolean) {
   const next = new Set(effective)
@@ -84,6 +144,7 @@ export function setMenuVisible(id: string, visible: boolean) {
   next.add(ALWAYS_VISIBLE)
   persist(next)
   emit()
+  if (getUser()) pushServer([...next])
 }
 
 /** 批量设置（如「全部显示」）。 */
@@ -96,6 +157,7 @@ export function setManyVisible(ids: string[], visible: boolean) {
   next.add(ALWAYS_VISIBLE)
   persist(next)
   emit()
+  if (getUser()) pushServer([...next])
 }
 
 /** 恢复默认（只显示核心集）。 */
@@ -106,6 +168,7 @@ export function resetMenuVisibility() {
     /* ignore */
   }
   emit()
+  if (getUser()) deleteServer()
 }
 
 function subscribe(cb: () => void) {
@@ -132,4 +195,21 @@ export function useMenuVisibleSet(): ReadonlySet<string> {
 export function useVisibleFeatures(all: FeatureManifest[]): FeatureManifest[] {
   const set = useMenuVisibleSet()
   return useMemo(() => all.filter((f) => set.has(f.id)), [all, set])
+}
+
+/**
+ * 登录态 → 菜单可见集的同步钩子：在应用外壳挂一次即可。
+ * 登录/切换用户时从后端 hydrate；登出时复位，回落 localStorage + 默认集。
+ */
+export function useMenuVisibilitySync() {
+  const { user } = useAuth()
+  const userId = user?.userId ?? null
+  useEffect(() => {
+    if (userId == null) {
+      hydratedUserId = null
+      return
+    }
+    if (hydratedUserId === userId) return
+    void hydrateForUser(userId)
+  }, [userId])
 }
