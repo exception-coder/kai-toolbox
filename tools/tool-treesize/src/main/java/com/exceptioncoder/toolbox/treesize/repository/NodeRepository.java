@@ -197,7 +197,7 @@ public class NodeRepository {
     public VideoSearchResult findVideos(List<String> extensions, String sortBy, String order,
                                          long sizeMinInclusive, long sizeMaxExclusive,
                                          String nameQuery, boolean favoritesOnly, String language,
-                                         List<String> excludeDirs,
+                                         List<String> excludeDirs, String dir,
                                          int offset, int limit) {
         if (extensions.isEmpty()) return new VideoSearchResult(List.of(), 0);
 
@@ -205,9 +205,10 @@ public class NodeRepository {
         // 用户自定义的排除目录关键词:trim、去空、去重、截断到上限,再参与查询与缓存 key
         List<String> excludes = normaliseExcludeDirs(excludeDirs);
         String lang = (language == null || language.isBlank()) ? null : language.trim();
-        String cacheKey = buildCountKey(normalisedExts, sizeMinInclusive, sizeMaxExclusive, nameQuery, favoritesOnly, lang, excludes);
+        String scopeDir = (dir == null || dir.isBlank()) ? null : dir.trim();
+        String cacheKey = buildCountKey(normalisedExts, sizeMinInclusive, sizeMaxExclusive, nameQuery, favoritesOnly, lang, excludes, scopeDir);
         long total = countCache.getOrCompute(cacheKey,
-                () -> countVideos(normalisedExts, sizeMinInclusive, sizeMaxExclusive, nameQuery, favoritesOnly, lang, excludes));
+                () -> countVideos(normalisedExts, sizeMinInclusive, sizeMaxExclusive, nameQuery, favoritesOnly, lang, excludes, scopeDir));
 
         if (total == 0 || offset >= total) {
             return new VideoSearchResult(List.of(), total);
@@ -228,6 +229,7 @@ public class NodeRepository {
         appendExtensionFilter(sql, args, normalisedExts);
         appendExcludedPathFilters(sql, args);
         appendUserExcludedDirFilters(sql, args, excludes);
+        appendDirScopeFilter(sql, args, scopeDir);
         appendSizeRangeFilter(sql, args, sizeMinInclusive, sizeMaxExclusive);
         appendKeywordFilter(sql, args, nameQuery);
         appendFavoritesOnlyFilter(sql, favoritesOnly);
@@ -252,7 +254,8 @@ public class NodeRepository {
     }
 
     private long countVideos(List<String> normalisedExts, long sizeMinInclusive, long sizeMaxExclusive,
-                             String nameQuery, boolean favoritesOnly, String language, List<String> excludes) {
+                             String nameQuery, boolean favoritesOnly, String language, List<String> excludes,
+                             String scopeDir) {
         StringBuilder sql = new StringBuilder("""
                 SELECT COUNT(*) FROM treesize_node n
                   JOIN treesize_scan s ON n.scan_id = s.id
@@ -264,12 +267,87 @@ public class NodeRepository {
         appendExtensionFilter(sql, args, normalisedExts);
         appendExcludedPathFilters(sql, args);
         appendUserExcludedDirFilters(sql, args, excludes);
+        appendDirScopeFilter(sql, args, scopeDir);
         appendSizeRangeFilter(sql, args, sizeMinInclusive, sizeMaxExclusive);
         appendKeywordFilter(sql, args, nameQuery);
         appendFavoritesOnlyFilter(sql, favoritesOnly);
         appendLanguageFilter(sql, args, language);
         Long n = jdbc.queryForObject(sql.toString(), Long.class, args.toArray());
         return n == null ? 0L : n;
+    }
+
+    /** 目录树里一个含视频的目录:目录路径 + 直属视频数 + 直属视频总大小(不含子目录,聚合交给前端)。 */
+    public record DirectoryFacet(String path, long count, long size) {}
+
+    /**
+     * 视频库「按目录浏览」的目录清单:按 {@code parent_path} 分组统计直属视频数。
+     *
+     * <p>过滤口径与 {@link #findVideos} 保持一致(扩展名白名单 + 系统垃圾目录掩码 + 用户排除关键词),
+     * 另外加了与前端列表相同的 {@code size >= minSize} 下限,避免损坏样本/空壳把目录计数灌水。
+     * 只回直属计数,祖先目录的累计数由前端建树时自下而上求和 —— 省掉一次 O(深度) 的 SQL 自连接,
+     * 也让"某目录直属 N 个 / 含子目录共 M 个"两个口径都能展示。
+     *
+     * <p>结果条数上限 {@link #MAX_DIRECTORY_ROWS},超出时截断并 WARN:目录面板是导航控件,
+     * 万级目录本来也没法用手点,不值得为极端情况把响应体撑到几 MB。
+     */
+    public List<DirectoryFacet> listVideoDirectories(List<String> extensions, List<String> excludeDirs, long minSize) {
+        if (extensions.isEmpty()) return List.of();
+        List<String> normalisedExts = extensions.stream().map(e -> e.toLowerCase()).toList();
+        List<String> excludes = normaliseExcludeDirs(excludeDirs);
+
+        StringBuilder sql = new StringBuilder("""
+                SELECT n.parent_path AS dir, COUNT(*) AS cnt, SUM(n.size) AS total_size
+                  FROM treesize_node n
+                  JOIN treesize_scan s ON n.scan_id = s.id
+                 WHERE n.is_dir = 0
+                   AND s.status = 'COMPLETED'
+                   AND n.parent_path IS NOT NULL""");
+        List<Object> args = new ArrayList<>(normalisedExts.size() + excludes.size() + 2);
+        appendExtensionFilter(sql, args, normalisedExts);
+        appendExcludedPathFilters(sql, args);
+        appendUserExcludedDirFilters(sql, args, excludes);
+        if (minSize > 0) {
+            sql.append(" AND n.size >= ?");
+            args.add(minSize);
+        }
+        sql.append(" GROUP BY n.parent_path ORDER BY n.parent_path ASC LIMIT ?");
+        args.add(MAX_DIRECTORY_ROWS + 1);
+
+        List<DirectoryFacet> rows = jdbc.query(sql.toString(),
+                (rs, i) -> new DirectoryFacet(rs.getString("dir"), rs.getLong("cnt"), rs.getLong("total_size")),
+                args.toArray());
+        if (rows.size() > MAX_DIRECTORY_ROWS) {
+            log.warn("video directory facets truncated: {} dirs matched, returning first {}",
+                    rows.size(), MAX_DIRECTORY_ROWS);
+            return rows.subList(0, MAX_DIRECTORY_ROWS);
+        }
+        return rows;
+    }
+
+    /** 目录面板一次返回的目录行数上限。 */
+    private static final int MAX_DIRECTORY_ROWS = 5000;
+
+    /**
+     * 目录作用域过滤:{@code dir} 自身 + 其所有子孙目录下的文件都算命中。
+     * 因为库里既可能存 Windows 反斜杠也可能存 POSIX 斜杠,两种前缀都要匹配。
+     * 转义策略与 {@link #appendKeywordFilter} 一致 —— 注意 Windows 路径里的 {@code \}
+     * 本身就是 LIKE 的 ESCAPE 字符,不转义会把 {@code D:\a} 里的 {@code \a} 当转义序列吃掉。
+     */
+    private static void appendDirScopeFilter(StringBuilder sql, List<Object> args, String scopeDir) {
+        if (scopeDir == null || scopeDir.isBlank()) return;
+        String dir = scopeDir.endsWith("\\") || scopeDir.endsWith("/")
+                ? scopeDir.substring(0, scopeDir.length() - 1)
+                : scopeDir;
+        String escaped = dir
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
+        sql.append(" AND (n.parent_path = ?")
+           .append(" OR n.parent_path LIKE ? ESCAPE '\\'")
+           .append(" OR n.parent_path LIKE ? ESCAPE '\\')");
+        args.add(dir);
+        args.add(escaped + "\\\\%");
+        args.add(escaped + "/%");
     }
 
     /** 语言精确过滤：非空才加 {@code AND tv.language = ?}。哨兵不在 language 列，无需特判。 */
@@ -344,11 +422,13 @@ public class NodeRepository {
 
     /** sortBy is intentionally excluded — order doesn't affect the count. language 必须进 key。 */
     private static String buildCountKey(List<String> normalisedExts, long sizeMin, long sizeMax,
-                                         String nameQuery, boolean favoritesOnly, String language, List<String> excludes) {
+                                         String nameQuery, boolean favoritesOnly, String language,
+                                         List<String> excludes, String scopeDir) {
         String q = nameQuery == null ? "" : nameQuery.trim();
-        // 排除目录关键词与语言筛选都必须进 key,否则切换后 total 仍命中旧缓存不刷新
+        // 排除目录关键词、语言筛选、目录作用域都必须进 key,否则切换后 total 仍命中旧缓存不刷新
         return String.join(",", normalisedExts) + "|" + sizeMin + "|" + sizeMax + "|" + q + "|" + favoritesOnly
-                + "|" + (language == null ? "" : language) + "|" + String.join(",", excludes);
+                + "|" + (language == null ? "" : language) + "|" + String.join(",", excludes)
+                + "|" + (scopeDir == null ? "" : scopeDir);
     }
 
     /**

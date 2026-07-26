@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CheckSquare, Combine, Loader2, Search, Sparkles, Square, Star, Trash2, X } from 'lucide-react'
+import { CheckSquare, Combine, FolderOpen, Loader2, Search, Sparkles, Square, Star, Trash2, X } from 'lucide-react'
 import { cn, formatBytes } from '@/lib/utils'
 import { VideoThumb } from './VideoThumb'
 import { VideoProcessingToolbar } from './VideoProcessingToolbar'
@@ -50,6 +50,9 @@ interface Props {
   onBulkMerge?: (items: VideoLibraryItem[]) => boolean | void | Promise<boolean | void>
   onCleanJunk?: () => void
   cleaningJunk?: boolean
+  /** 当前目录作用域（来自「目录」tab）；null = 全部目录。仅用于展示与一键清除。 */
+  currentDir?: string | null
+  onClearDir?: () => void
 }
 
 const SORT_OPTIONS: { value: `${VideoSortBy}:${VideoSortOrder}`; label: string }[] = [
@@ -92,6 +95,8 @@ export function VideoListPanel({
   onBulkMerge,
   onCleanJunk,
   cleaningJunk,
+  currentDir,
+  onClearDir,
 }: Props) {
   const sortValue = `${sortBy}:${order}` as const
   const listRef = useRef<HTMLUListElement>(null)
@@ -265,6 +270,24 @@ export function VideoListPanel({
         </div>
       ) : (
         <div className="flex flex-col gap-2 border-b px-3 py-2">
+          {currentDir && (
+            <div className="flex items-center gap-1.5 rounded-md border border-[var(--color-primary)]/40 bg-[var(--color-primary)]/10 px-2 py-1.5">
+              <FolderOpen className="h-3.5 w-3.5 shrink-0 text-[var(--color-primary)]" />
+              <span className="min-w-0 flex-1 truncate font-mono text-[11px]" title={currentDir}>
+                {currentDir}
+              </span>
+              {onClearDir && (
+                <button
+                  type="button"
+                  onClick={onClearDir}
+                  title="取消目录筛选，看全部视频"
+                  className="shrink-0 rounded p-1 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--color-muted-foreground)]" />
@@ -376,9 +399,9 @@ export function VideoListPanel({
 
       {items.length === 0 && !hasNextPage ? (
         <div className="flex flex-1 items-center justify-center px-6 py-12 text-center text-sm text-[var(--color-muted-foreground)]">
-          {sizeBucket === 'all' && !searchInput.trim() && !favoritesOnly
+          {sizeBucket === 'all' && !searchInput.trim() && !favoritesOnly && !currentDir
             ? '没有视频。请先在「磁盘空间分析」里扫描一个含视频的目录。'
-            : '当前过滤条件下没有匹配的视频。试试清空搜索、关闭「仅收藏」或选「全部大小」。'}
+            : '当前过滤条件下没有匹配的视频。试试清空搜索、取消目录筛选、关闭「仅收藏」或选「全部大小」。'}
         </div>
       ) : (
         <ul ref={listRef} className="flex-1 overflow-y-auto overscroll-contain">

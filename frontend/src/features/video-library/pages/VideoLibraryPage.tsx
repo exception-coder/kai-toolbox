@@ -8,11 +8,11 @@ import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { cn, formatBytes } from '@/lib/utils'
 import { deleteFile } from '@/features/treesize/api'
-import { addVideoFavorite, cleanJunkVideos, getVideoLanguages, getVideoLibrary, mergeVideos, removeVideoFavorite } from '../api'
+import { addVideoFavorite, cleanJunkVideos, getVideoDirectories, getVideoLanguages, getVideoLibrary, mergeVideos, removeVideoFavorite } from '../api'
 import { ExcludedDirsSheet, useVideoLibraryConfig } from '../components/ExcludedDirsSheet'
 import { PlaybackStatsPanel } from '../components/PlaybackStatsPanel'
 import { RecentVideosBar } from '../components/RecentVideosBar'
-import { VideoListPanel } from '../components/VideoListPanel'
+import { VideoLibrarySidePanel, type SidePanelTab } from '../components/VideoLibrarySidePanel'
 import { VideoPlayerPanel } from '../components/VideoPlayerPanel'
 import { loadState, saveState } from '../storage'
 import type { VideoLibraryItem, VideoLibraryPage, VideoSizeBucket, VideoSortBy, VideoSortOrder } from '../types'
@@ -90,6 +90,9 @@ export function VideoLibraryPage() {
   // list) would tear down the player. The path is what we persist; the full item lets the
   // player keep rendering even when filters exclude it from the visible list.
   const [currentItem, setCurrentItem] = useState<VideoLibraryItem | null>(null)
+  // 目录作用域：选中目录后列表只出该目录及其子目录下的视频。null = 不限目录。
+  const [dir, setDir] = useState<string | null>(persisted.dir ?? null)
+  const [sideTab, setSideTab] = useState<SidePanelTab>('list')
   const [listOpen, setListOpen] = useState(false)
   const [statsOpen, setStatsOpen] = useState(false)
   const [excludedDirsOpen, setExcludedDirsOpen] = useState(false)
@@ -110,13 +113,13 @@ export function VideoLibraryPage() {
   // 排除目录拼成稳定字符串进 key:配置变化时自动重查
   const excludedDirsKey = excludedDirs.join('\n')
   const queryKey = useMemo(
-    () => ['video-library', sortBy, order, sizeBucket, searchQuery, favoritesOnly, language, excludedDirsKey] as const,
-    [sortBy, order, sizeBucket, searchQuery, favoritesOnly, language, excludedDirsKey],
+    () => ['video-library', sortBy, order, sizeBucket, searchQuery, favoritesOnly, language, excludedDirsKey, dir ?? ''] as const,
+    [sortBy, order, sizeBucket, searchQuery, favoritesOnly, language, excludedDirsKey, dir],
   )
 
   const query = useInfiniteQuery({
     queryKey,
-    queryFn: ({ pageParam }) => getVideoLibrary(sortBy, order, sizeBucket, searchQuery, favoritesOnly, language, excludedDirs, pageParam, PAGE_SIZE),
+    queryFn: ({ pageParam }) => getVideoLibrary(sortBy, order, sizeBucket, searchQuery, favoritesOnly, language, excludedDirs, dir ?? '', pageParam, PAGE_SIZE),
     initialPageParam: 0,
     getNextPageParam: (_lastPage, allPages) => {
       const loaded = allPages.reduce((acc, p) => acc + p.items.length, 0)
@@ -159,8 +162,22 @@ export function VideoLibraryPage() {
   // saveState (private mode, quota exceeded). Search keyword is intentionally not persisted —
   // re-opening the page should start with a clean filter.
   useEffect(() => {
-    saveState({ sortBy, order, sizeBucket, favoritesOnly, language, selectedPath })
-  }, [sortBy, order, sizeBucket, favoritesOnly, language, selectedPath])
+    saveState({ sortBy, order, sizeBucket, favoritesOnly, language, selectedPath, dir })
+  }, [sortBy, order, sizeBucket, favoritesOnly, language, selectedPath, dir])
+
+  // 目录树数据：含视频的目录 + 直属视频数。排除目录配置变了要跟着重查，
+  // 否则目录面板还在显示已被排除的目录。
+  const directoriesQuery = useQuery({
+    queryKey: ['video-library-directories', excludedDirsKey],
+    queryFn: () => getVideoDirectories(excludedDirs),
+  })
+
+  // 选目录 = 换作用域并切回列表：用户点目录的意图就是"看这个目录下的视频"，
+  // 停在目录树上还得再点一次 tab 才看得到结果。移动端 Sheet 保持打开，直接接着选片。
+  const handleSelectDir = (next: string | null) => {
+    setDir(next)
+    if (next) setSideTab('list')
+  }
 
   // 「按语言筛选」下拉数据：已识别语言清单 + 计数。识别语言任务跑过才有内容。
   const languagesQuery = useQuery({
@@ -542,6 +559,15 @@ export function VideoLibraryPage() {
     onBulkMerge: handleBulkMerge,
     onCleanJunk: handleCleanJunk,
     cleaningJunk: cleanJunkMutation.isPending,
+    currentDir: dir,
+    onClearDir: () => setDir(null),
+  }
+
+  const sharedDirProps = {
+    facets: directoriesQuery.data ?? [],
+    loading: directoriesQuery.isLoading,
+    selectedDir: dir,
+    onSelect: handleSelectDir,
   }
 
   return (
@@ -591,7 +617,12 @@ export function VideoLibraryPage() {
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-[320px_1fr] md:gap-4">
           <aside className="hidden h-[calc(100vh-12rem)] overflow-hidden rounded-md border bg-[var(--color-card)] md:flex md:flex-col">
-            <VideoListPanel {...sharedListProps} />
+            <VideoLibrarySidePanel
+              tab={sideTab}
+              onTabChange={setSideTab}
+              listProps={sharedListProps}
+              dirProps={sharedDirProps}
+            />
           </aside>
 
           <main className="min-w-0 md:h-[calc(100vh-12rem)] md:overflow-hidden">
@@ -615,8 +646,13 @@ export function VideoLibraryPage() {
       <Sheet open={listOpen} onOpenChange={setListOpen}>
         <SheetContent side="bottom" className="flex h-[80vh] flex-col p-0">
           <SheetTitle className="sr-only">视频列表</SheetTitle>
-          <SheetDescription className="sr-only">选择要播放的视频</SheetDescription>
-          <VideoListPanel {...sharedListProps} />
+          <SheetDescription className="sr-only">按列表或目录选择要播放的视频</SheetDescription>
+          <VideoLibrarySidePanel
+            tab={sideTab}
+            onTabChange={setSideTab}
+            listProps={sharedListProps}
+            dirProps={sharedDirProps}
+          />
         </SheetContent>
       </Sheet>
 

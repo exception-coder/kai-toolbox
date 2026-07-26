@@ -349,6 +349,7 @@ public class TreeSizeController {
             @RequestParam(defaultValue = "false") boolean favoritesOnly,
             @RequestParam(required = false) String language,
             @RequestParam(required = false) List<String> excludeDir,
+            @RequestParam(required = false) String dir,
             @RequestParam(defaultValue = "0") int offset,
             @RequestParam(defaultValue = "200") int limit) {
         int safeLimit = Math.max(1, Math.min(limit, 1000));
@@ -363,7 +364,7 @@ public class TreeSizeController {
         thumbnailWarmer.kickOff();
         var result = nodes.findVideos(libraryExtensions, sortBy, order,
                 bucket.minBytesInclusive(), bucket.maxBytesExclusive(),
-                q, favoritesOnly, language, excludeDirs,
+                q, favoritesOnly, language, excludeDirs, dir,
                 safeOffset, safeLimit);
         return new VideoLibraryPageView(
                 result.items().stream().map(VideoLibraryItemView::from).toList(),
@@ -377,6 +378,32 @@ public class TreeSizeController {
     public List<NodeRepository.LanguageFacet> libraryLanguages() {
         return nodes.listLanguages();
     }
+
+    /**
+     * 视频库「按目录浏览」的目录清单：每个含视频的目录 + 直属视频数 + 直属总大小。
+     * 只回扁平行，树形结构与祖先累计数由前端建树时聚合 —— 目录层级是纯展示形态，
+     * 后端把口径（哪些视频算数）定死即可，没必要连带把展示形态也搬到服务端。
+     *
+     * <p>{@code excludeDir} 与 {@code /videos} 同名同义，让两边过滤口径完全一致，
+     * 避免目录树显示 12 个、点进去只有 8 个这种对不上的情况。
+     */
+    @GetMapping("/videos/directories")
+    public List<NodeRepository.DirectoryFacet> libraryDirectories(
+            @RequestParam(required = false) List<String> excludeDir) {
+        List<String> libraryExtensions = videoExt.getExtensions().stream()
+                .filter(e -> !"ts".equalsIgnoreCase(e))
+                .toList();
+        return nodes.listVideoDirectories(
+                libraryExtensions,
+                excludeDir == null ? List.of() : excludeDir,
+                MIN_LIBRARY_VIDEO_BYTES);
+    }
+
+    /**
+     * 视频库列表在前端会过滤掉小于 30 KB 的文件（损坏样本 / 空壳 / 缩略图残留）。
+     * 目录计数沿用同一下限，保证「目录显示 N 个」= 点进去实际能看到 N 个。
+     */
+    private static final long MIN_LIBRARY_VIDEO_BYTES = 30L * 1024;
 
     /**
      * The N most-recently-accessed videos (clamped to {@code [1, 50]}). "Access" is recorded on

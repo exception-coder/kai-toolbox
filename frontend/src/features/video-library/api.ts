@@ -1,6 +1,6 @@
 import { http, ApiError } from '@/lib/api'
 import { withAuthToken } from '@/lib/auth'
-import type { CleanJunkResult, PlaybackStats, RecentVideo, SubtitleJob, VideoLanguageFacet, VideoLibraryPage, VideoSizeBucket, VideoSortBy, VideoSortOrder } from './types'
+import type { CleanJunkResult, PlaybackStats, RecentVideo, SubtitleJob, VideoDirectoryFacet, VideoLanguageFacet, VideoLibraryPage, VideoSizeBucket, VideoSortBy, VideoSortOrder } from './types'
 
 export function getVideoLibrary(
   sortBy: VideoSortBy,
@@ -10,6 +10,8 @@ export function getVideoLibrary(
   favoritesOnly: boolean,
   language: string,
   excludeDirs: string[],
+  /** 目录作用域：只看该目录及其子目录下的视频；空串 = 不限目录。 */
+  dir: string,
   offset: number,
   limit: number,
 ) {
@@ -24,12 +26,28 @@ export function getVideoLibrary(
   if (q.trim()) params.set('q', q.trim())
   // 语言筛选：空 = 全部语言，不传参
   if (language.trim()) params.set('language', language.trim())
+  // 目录筛选：空 = 全部目录，不传参
+  if (dir.trim()) params.set('dir', dir.trim())
   // 排除目录关键词展开成可重复的 excludeDir 参数,后端按 List<String> 绑定
-  for (const dir of excludeDirs) {
-    const trimmed = dir.trim()
+  for (const excluded of excludeDirs) {
+    const trimmed = excluded.trim()
     if (trimmed) params.append('excludeDir', trimmed)
   }
   return http<VideoLibraryPage>(`/treesize/videos?${params.toString()}`)
+}
+
+/**
+ * 含视频的目录清单（扁平，带直属视频数）。排除目录关键词与列表接口同参，
+ * 保证目录树上的计数与点进去看到的条数口径一致。
+ */
+export function getVideoDirectories(excludeDirs: string[]) {
+  const params = new URLSearchParams()
+  for (const excluded of excludeDirs) {
+    const trimmed = excluded.trim()
+    if (trimmed) params.append('excludeDir', trimmed)
+  }
+  const qs = params.toString()
+  return http<VideoDirectoryFacet[]>(`/treesize/videos/directories${qs ? `?${qs}` : ''}`)
 }
 
 /** 已识别语言清单（语言 ISO + 计数），供「按语言筛选」下拉。 */

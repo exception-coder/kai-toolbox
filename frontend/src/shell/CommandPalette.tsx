@@ -83,7 +83,8 @@ export function CommandPalette() {
   const excludedDirs = libraryConfig.excludedDirs
   const videoResult = useQuery({
     queryKey: ['cmdk-video', query, excludedDirs.join('\n')],
-    queryFn: () => getVideoLibrary('name', 'asc', 'all', query, false, '', excludedDirs, 0, VIDEO_LIMIT),
+    // 全局搜索不限目录（dir 传空串）—— 用户在命令面板里找片子时不该被侧栏的目录作用域挡住。
+    queryFn: () => getVideoLibrary('name', 'asc', 'all', query, false, '', excludedDirs, '', 0, VIDEO_LIMIT),
     enabled: open && canVideo && query.length > 0,
     staleTime: 30_000,
   })

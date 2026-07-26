@@ -23,6 +23,16 @@ export interface CleanJunkResult {
 export type VideoSortBy = 'name' | 'size' | 'duration'
 export type VideoSortOrder = 'asc' | 'desc'
 
+/**
+ * 「按目录浏览」的一行：一个含视频的目录 + 直属视频数 + 直属视频总大小。
+ * 后端只回扁平的直属计数，树结构与祖先累计数由 {@code buildDirTree} 在前端聚合。
+ */
+export interface VideoDirectoryFacet {
+  path: string
+  count: number
+  size: number
+}
+
 /** 「按语言筛选」下拉的一项：语言 ISO 码 + 该语言已识别视频数。 */
 export interface VideoLanguageFacet {
   language: string

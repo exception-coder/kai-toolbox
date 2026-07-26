@@ -14,6 +14,8 @@ export interface PersistedState {
   favoritesOnly: boolean
   /** 「按语言筛选」选中的 ISO 码；空串 = 全部语言。 */
   language: string
+  /** 目录作用域：只看该目录及其子目录下的视频；null = 全部目录。 */
+  dir: string | null
   /** Absolute path of the last-played video. Used as a hint, not a hard requirement —
    * the page falls back to the first item when the path is no longer in the library. */
   selectedPath: string | null
