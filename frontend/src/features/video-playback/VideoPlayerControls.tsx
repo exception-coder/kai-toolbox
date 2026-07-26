@@ -32,8 +32,11 @@ interface VideoPlayerControlsProps {
   hasNext?: boolean
   title?: string
   onAutoNext?: () => void
+  /** 当前画面旋转角（受控，真值在播放器手里 —— 它才是真正把 transform 贴到 video 上的人）。 */
+  rotation?: number
   onRotate?: (degrees: number) => void
-  onToggleOrientation?: () => void
+  /** 手动指定横屏 / 竖屏。给了才渲染方向选择。 */
+  onSetOrientation?: (orientation: 'landscape' | 'portrait') => void
   screenOrientation?: 'landscape' | 'portrait'
   /** When true, render the captions quick-toggle button. */
   subtitlesAvailable?: boolean
@@ -54,7 +57,10 @@ const LONG_PRESS_MS = 500
 const LONG_PRESS_RATE = 2
 const IDLE_MS = 3000
 
-type MenuKey = null | 'speed' | 'skip' | 'more'
+type MenuKey = null | 'speed' | 'skip' | 'more' | 'rotate'
+
+/** 画面旋转的可选角度。四档够用，任意角度对播放没有实际意义。 */
+const ROTATIONS = [0, 90, 180, 270]
 type TapSide = 'left' | 'right' | 'center'
 
 export function VideoPlayerControls({
@@ -67,8 +73,9 @@ export function VideoPlayerControls({
   hasNext,
   title,
   onAutoNext,
+  rotation = 0,
   onRotate,
-  onToggleOrientation,
+  onSetOrientation,
   screenOrientation = 'landscape',
   subtitlesAvailable = false,
   subtitlesOn = false,
@@ -87,7 +94,6 @@ export function VideoPlayerControls({
   const [showControls, setShowControls] = useState(true)
   const [menu, setMenu] = useState<MenuKey>(null)
   const [skipTime, setSkipTime] = useState(10)
-  const [rotation, setRotation] = useState(0)
 
   const [isDragging, setIsDragging] = useState(false)
   const [hoverPct, setHoverPct] = useState<number | null>(null)
@@ -230,10 +236,8 @@ export function VideoPlayerControls({
       : `${m}:${s.toString().padStart(2, '0')}`
   }
 
-  const handleRotate = () => {
-    const next = (rotation + 90) % 360
-    setRotation(next)
-    onRotate?.(next)
+  const applyRotation = (degrees: number) => {
+    onRotate?.(degrees % 360)
     resetIdle()
   }
 
@@ -548,7 +552,8 @@ export function VideoPlayerControls({
             </div>
           </div>
 
-          <div className="ml-1 min-w-fit font-mono text-[11px] tabular-nums opacity-85 md:ml-2 md:text-xs">
+          {/* 超窄屏（<380px）先让位给按钮：时间进度条上已有可视反馈，不是必须的信息 */}
+          <div className="ml-1 min-w-fit font-mono text-[11px] tabular-nums opacity-85 max-[380px]:hidden md:ml-2 md:text-xs">
             {formatTime(currentTime)} / {formatTime(duration)}
           </div>
 
@@ -605,7 +610,7 @@ export function VideoPlayerControls({
                   setMenu(menu === 'speed' ? null : 'speed')
                 }}
                 className={cn(
-                  'pointer-events-auto inline-flex h-9 min-w-10 items-center justify-center rounded-md px-2 text-xs font-semibold text-white transition-colors hover:bg-white/15',
+                  'pointer-events-auto inline-flex h-8 min-w-8 items-center justify-center rounded-md px-1.5 text-xs font-semibold text-white transition-colors hover:bg-white/15 md:h-9 md:min-w-10 md:px-2',
                   menu === 'speed' && 'bg-white/20',
                 )}
                 title="播放倍速"
@@ -639,7 +644,7 @@ export function VideoPlayerControls({
                   setMenu(menu === 'skip' ? null : 'skip')
                 }}
                 className={cn(
-                  'pointer-events-auto inline-flex h-9 min-w-10 items-center justify-center rounded-md px-2 text-xs font-semibold text-white transition-colors hover:bg-white/15',
+                  'pointer-events-auto inline-flex h-8 min-w-8 items-center justify-center rounded-md px-1.5 text-xs font-semibold text-white transition-colors hover:bg-white/15 md:h-9 md:min-w-10 md:px-2',
                   menu === 'skip' && 'bg-white/20',
                 )}
                 title="跳跃秒数"
@@ -665,28 +670,74 @@ export function VideoPlayerControls({
               )}
             </div>
 
-            <CtrlBtn className="hidden md:inline-flex" onClick={handleRotate} title="画面旋转">
-              <RotateCw
-                className="size-5 transition-transform duration-200"
-                style={{ transform: `rotate(${rotation}deg)` }}
-              />
-            </CtrlBtn>
-            {onToggleOrientation && (
+            {/* 旋转 / 屏幕方向。合成一个常驻按钮：之前旋转只在桌面出现、方向切换藏在手机
+                「更多」里，同一件事分散在两处、手机上还找不到。桌面弹出浮层、手机弹出底部面板。 */}
+            <div className="relative">
               <CtrlBtn
-                className="hidden md:inline-flex"
-                onClick={() => {
-                  onToggleOrientation()
-                  resetIdle()
-                }}
-                title={screenOrientation === 'landscape' ? '切到竖屏' : '切到横屏'}
+                active={menu === 'rotate'}
+                onClick={() => setMenu(menu === 'rotate' ? null : 'rotate')}
+                title="旋转 / 屏幕方向"
               >
-                {screenOrientation === 'landscape' ? (
-                  <Smartphone className="size-5" />
-                ) : (
-                  <Monitor className="size-5" />
-                )}
+                <RotateCw
+                  className="size-5 transition-transform duration-200"
+                  style={{ transform: `rotate(${rotation}deg)` }}
+                />
               </CtrlBtn>
-            )}
+              {menu === 'rotate' && (
+                <div className="pointer-events-auto absolute bottom-full right-0 z-30 mb-2 hidden w-44 flex-col gap-2 rounded-lg border border-white/10 bg-black/95 p-2 shadow-xl backdrop-blur md:flex">
+                  <div>
+                    <div className="px-1 pb-1 text-[10px] font-semibold uppercase text-white/40">画面旋转</div>
+                    <div className="grid grid-cols-4 gap-1">
+                      {ROTATIONS.map(deg => (
+                        <button
+                          key={deg}
+                          type="button"
+                          onClick={e => {
+                            e.stopPropagation()
+                            applyRotation(deg)
+                          }}
+                          className={cn(
+                            'rounded py-1.5 text-[11px] font-semibold transition-colors',
+                            rotation === deg
+                              ? 'bg-[var(--color-primary)] text-white'
+                              : 'bg-white/10 text-white/75 hover:bg-white/20',
+                          )}
+                        >
+                          {deg}°
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {onSetOrientation && (
+                    <div>
+                      <div className="px-1 pb-1 text-[10px] font-semibold uppercase text-white/40">画面方向</div>
+                      <div className="grid grid-cols-2 gap-1">
+                        <OrientationBtn
+                          selected={screenOrientation === 'landscape'}
+                          onClick={() => {
+                            onSetOrientation('landscape')
+                            resetIdle()
+                          }}
+                        >
+                          <Monitor className="size-3.5" />
+                          横屏
+                        </OrientationBtn>
+                        <OrientationBtn
+                          selected={screenOrientation === 'portrait'}
+                          onClick={() => {
+                            onSetOrientation('portrait')
+                            resetIdle()
+                          }}
+                        >
+                          <Smartphone className="size-3.5" />
+                          竖屏
+                        </OrientationBtn>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
 
             <CtrlBtn
               className="md:hidden"
@@ -761,34 +812,68 @@ export function VideoPlayerControls({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={handleRotate}
-              className="flex items-center justify-center gap-2 rounded-md bg-white/10 py-2.5 text-sm font-medium hover:bg-white/15"
-            >
-              <RotateCw
-                className="size-4 transition-transform"
-                style={{ transform: `rotate(${rotation}deg)` }}
-              />
-              旋转 {rotation}°
-            </button>
-            {onToggleOrientation && (
-              <button
-                onClick={() => {
-                  onToggleOrientation()
-                  resetIdle()
-                }}
-                className="flex items-center justify-center gap-2 rounded-md bg-white/10 py-2.5 text-sm font-medium hover:bg-white/15"
-              >
-                {screenOrientation === 'landscape' ? (
-                  <Smartphone className="size-4" />
-                ) : (
-                  <Monitor className="size-4" />
-                )}
-                {screenOrientation === 'landscape' ? '切竖屏' : '切横屏'}
-              </button>
-            )}
+        </BottomSheet>
+      )}
+
+      {/* 旋转 / 方向：手机端底部面板，与桌面浮层同内容 */}
+      {menu === 'rotate' && (
+        <BottomSheet className="md:hidden" onClose={() => setMenu(null)}>
+          <div className="mb-3">
+            <div className="mb-1.5 text-[10px] font-semibold uppercase text-white/40">画面旋转</div>
+            <div className="grid grid-cols-4 gap-2">
+              {ROTATIONS.map(deg => (
+                <button
+                  key={deg}
+                  onClick={() => applyRotation(deg)}
+                  className={cn(
+                    'rounded-md py-2.5 text-sm font-semibold transition-colors',
+                    rotation === deg
+                      ? 'bg-[var(--color-primary)] text-white'
+                      : 'bg-white/10 text-white/80 hover:bg-white/15',
+                  )}
+                >
+                  {deg}°
+                </button>
+              ))}
+            </div>
           </div>
+          {onSetOrientation && (
+            <div>
+              <div className="mb-1.5 text-[10px] font-semibold uppercase text-white/40">画面方向</div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => {
+                    onSetOrientation('landscape')
+                    resetIdle()
+                  }}
+                  className={cn(
+                    'flex items-center justify-center gap-2 rounded-md py-2.5 text-sm font-medium transition-colors',
+                    screenOrientation === 'landscape'
+                      ? 'bg-[var(--color-primary)] text-white'
+                      : 'bg-white/10 text-white/80 hover:bg-white/15',
+                  )}
+                >
+                  <Monitor className="size-4" />
+                  横屏
+                </button>
+                <button
+                  onClick={() => {
+                    onSetOrientation('portrait')
+                    resetIdle()
+                  }}
+                  className={cn(
+                    'flex items-center justify-center gap-2 rounded-md py-2.5 text-sm font-medium transition-colors',
+                    screenOrientation === 'portrait'
+                      ? 'bg-[var(--color-primary)] text-white'
+                      : 'bg-white/10 text-white/80 hover:bg-white/15',
+                  )}
+                >
+                  <Smartphone className="size-4" />
+                  竖屏
+                </button>
+              </div>
+            </div>
+          )}
         </BottomSheet>
       )}
 
@@ -845,10 +930,38 @@ function CtrlBtn({
       }}
       title={title}
       className={cn(
-        'pointer-events-auto relative inline-flex size-9 shrink-0 items-center justify-center rounded-md text-white transition-colors',
+        // 手机上按钮多（播放/上下集/列表/字幕/倍速/旋转/更多/全屏），32px 一档才排得下；
+        // 桌面回到 36px 保持点击舒适度。
+        'pointer-events-auto relative inline-flex size-8 shrink-0 items-center justify-center rounded-md text-white transition-colors md:size-9',
         active ? 'bg-[var(--color-primary)] text-white' : 'hover:bg-white/15',
         disabled && 'cursor-not-allowed opacity-35 hover:bg-transparent',
         className,
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+function OrientationBtn({
+  children,
+  selected,
+  onClick,
+}: {
+  children: React.ReactNode
+  selected: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={e => {
+        e.stopPropagation()
+        onClick()
+      }}
+      className={cn(
+        'inline-flex items-center justify-center gap-1 rounded py-1.5 text-[11px] font-semibold transition-colors',
+        selected ? 'bg-[var(--color-primary)] text-white' : 'bg-white/10 text-white/75 hover:bg-white/20',
       )}
     >
       {children}

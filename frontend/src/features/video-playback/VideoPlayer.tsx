@@ -225,18 +225,20 @@ export function VideoPlayer({
     }
   }, [controlledToggleFullscreen])
 
-  const toggleScreenOrientation = useCallback(async () => {
-    const next: ScreenOrientationMode = screenOrientation === 'landscape' ? 'portrait' : 'landscape'
+  /**
+   * 手动设定画面方向。窗口模式下只切播放器比例（16:9 ↔ 9:16），不再顺手把页面拉进全屏 ——
+   * 用户要的是"这个竖拍视频别再上下加黑边"，不是"进全屏"；只有已经在全屏时才顺带尝试
+   * 锁定设备方向（非全屏调 lock 本来也会被浏览器拒绝）。
+   */
+  const applyScreenOrientation = useCallback(async (next: ScreenOrientationMode) => {
     setScreenOrientation(next)
+    if (!document.fullscreenElement) return
     try {
-      if (!document.fullscreenElement && containerRef.current?.requestFullscreen) {
-        await toggleFullscreen()
-      }
       await (window.screen.orientation as LockableScreenOrientation | undefined)?.lock?.(next)
     } catch {
       /* 浏览器不支持锁定方向时，保留播放器比例切换作为兜底反馈 */
     }
-  }, [screenOrientation, toggleFullscreen])
+  }, [])
 
   return (
     <div
@@ -290,8 +292,9 @@ export function VideoPlayer({
           hasNext={hasNext}
           title={title}
           onAutoNext={onNext}
+          rotation={rotation}
           onRotate={setRotation}
-          onToggleOrientation={toggleScreenOrientation}
+          onSetOrientation={o => void applyScreenOrientation(o)}
           screenOrientation={screenOrientation}
           subtitlesAvailable={subtitlesAvailable}
           subtitlesOn={subtitlesOn}
