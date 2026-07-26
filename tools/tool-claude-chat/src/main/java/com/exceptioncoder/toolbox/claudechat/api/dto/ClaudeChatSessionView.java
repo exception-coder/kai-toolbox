@@ -8,6 +8,8 @@ import com.exceptioncoder.toolbox.claudechat.domain.SessionStatus;
  *
  * @param live true 表示该会话当前仍挂在活跃 sidecar 上（可 attach 接回进行中的一轮）；
  *             false 表示只能 switchSession 触发 resume 重新拉起上下文。
+ * @param transcriptMissing true 表示该会话在磁盘上的 transcript 已不存在，resume 必然失败、
+ *             上下文无法恢复；列表里据此红标，让用户点进去之前就知道，而不是发一条消息后才收到报错。
  */
 public record ClaudeChatSessionView(
         String id,
@@ -22,9 +24,14 @@ public record ClaudeChatSessionView(
         SessionStatus status,
         long startedAt,
         long lastSeenAt,
-        boolean live
+        boolean live,
+        boolean transcriptMissing
 ) {
     public static ClaudeChatSessionView from(ClaudeChatSession s, boolean live) {
+        return from(s, live, false);
+    }
+
+    public static ClaudeChatSessionView from(ClaudeChatSession s, boolean live, boolean transcriptMissing) {
         String engine = s.getEngine() == null ? "claude" : s.getEngine();
         String engines = s.getEngines() == null || s.getEngines().isBlank() ? engine : s.getEngines();
         String providerBaseUrl = s.getApiBaseUrl() == null || s.getApiBaseUrl().isBlank() ? null : s.getApiBaseUrl();
@@ -33,6 +40,6 @@ public record ClaudeChatSessionView(
         return new ClaudeChatSessionView(
                 s.getId(), s.getCwd(), s.getTitle(), s.getSdkSessionId(),
                 engine, engines, providerKind, providerBaseUrl, group,
-                s.getStatus(), s.getStartedAt(), s.getLastSeenAt(), live);
+                s.getStatus(), s.getStartedAt(), s.getLastSeenAt(), live, transcriptMissing);
     }
 }

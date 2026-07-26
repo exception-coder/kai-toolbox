@@ -16,10 +16,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**
@@ -194,6 +198,7 @@ public class SessionHistoryService {
     public MessagePage readMessages(String cwd, String sdkSessionId, Integer before, int limit) {
         // 先按 Claude transcript（~/.claude/projects）定位；找不到再回退 Codex rollout（~/.codex/sessions）。
         // 两端 sessionId 命名空间不重叠（Codex 为 rollout 文件名尾部的 UUID），故无需引擎入参即可消歧。
+        boolean hasSid = sdkSessionId != null && !sdkSessionId.isBlank();
         List<ChatMessageView> all;
         Path jsonl = findTranscript(cwd, sdkSessionId);
         try {
@@ -202,18 +207,19 @@ public class SessionHistoryService {
             } else {
                 Path rollout = findCodexRollout(sdkSessionId);
                 if (rollout == null) {
-                    return new MessagePage(List.of(), null);
+                    // 有 sid 却两处都找不到文件 = 记录已丢失（区别于新会话本就没 sid）
+                    return hasSid ? MessagePage.missing() : MessagePage.empty();
                 }
                 all = parseCodexRollout(rollout);
             }
         } catch (IOException e) {
             log.debug("[claude-chat] 解析历史消息失败 {}：{}", sdkSessionId, e.getMessage());
-            return new MessagePage(List.of(), null);
+            return MessagePage.empty();
         }
         int n = all.size();
         int end = (before == null) ? n : Math.max(0, Math.min(before, n));
         int start = Math.max(0, end - Math.max(1, limit));
-        return new MessagePage(new ArrayList<>(all.subList(start, end)), start);
+        return new MessagePage(new ArrayList<>(all.subList(start, end)), start, false);
     }
 
     /** 定位 &lt;sid&gt;.jsonl：cwd 指定→匹配项目目录；cwd 空→跨所有目录按文件名找。 */
@@ -235,6 +241,91 @@ public class SessionHistoryService {
             log.debug("[claude-chat] 定位 transcript 失败：{}", e.getMessage());
             return null;
         }
+    }
+
+    // ===== transcript 存在性判定（会话「记录已丢失」的唯一判定源） =====
+
+    /**
+     * 该会话的 transcript 是否还在磁盘上（Claude ~/.claude/projects，找不到再回退 Codex ~/.codex/sessions）。
+     * sid 为空视为「新会话尚未产生记录」，返回 true，避免把刚建的空会话误标成丢失。
+     */
+    public boolean transcriptExists(String cwd, String sdkSessionId) {
+        if (sdkSessionId == null || sdkSessionId.isBlank()) {
+            return true;
+        }
+        return findTranscript(cwd, sdkSessionId) != null || findCodexRollout(sdkSessionId) != null;
+    }
+
+    /**
+     * 批量判定，供会话列表打标使用：整棵目录树只扫一次建 sid 索引，
+     * 避免逐会话调 {@link #transcriptExists} 造成 N 次 Files.list / Files.walk。
+     * sid 是全局唯一 UUID，故索引不区分项目目录。
+     *
+     * @return 入参中「有 sid 但磁盘上已找不到文件」的那些 sid
+     */
+    public Set<String> findMissingTranscripts(Collection<String> sdkSessionIds) {
+        Set<String> pending = new LinkedHashSet<>();
+        for (String sid : sdkSessionIds) {
+            if (sid != null && !sid.isBlank()) pending.add(sid.trim());
+        }
+        if (pending.isEmpty()) {
+            return Set.of();
+        }
+        pending.removeAll(scanClaudeSessionIds());
+        if (!pending.isEmpty()) {
+            // 只在 Claude 侧没命中时才付出 Codex 目录树的遍历成本
+            pending.removeAll(scanCodexSessionIds());
+        }
+        return pending;
+    }
+
+    /** ~/.claude/projects 下所有 &lt;sid&gt;.jsonl 的 sid 集合（跳过 _trash）。 */
+    private Set<String> scanClaudeSessionIds() {
+        Path root = Path.of(System.getProperty("user.home"), ".claude", "projects");
+        if (!Files.isDirectory(root)) {
+            return Set.of();
+        }
+        Set<String> ids = new HashSet<>();
+        try (Stream<Path> dirs = Files.list(root)) {
+            dirs.filter(Files::isDirectory)
+                .filter(d -> !"_trash".equals(d.getFileName().toString()))
+                .forEach(d -> {
+                    try (Stream<Path> files = Files.list(d)) {
+                        files.filter(p -> p.getFileName().toString().endsWith(".jsonl"))
+                             .forEach(p -> ids.add(stripExt(p.getFileName().toString())));
+                    } catch (IOException ignore) {
+                    }
+                });
+        } catch (IOException e) {
+            log.debug("[claude-chat] 扫描 transcript 索引失败：{}", e.getMessage());
+        }
+        return ids;
+    }
+
+    /** ~/.codex/sessions 下 rollout-&lt;ISO&gt;-&lt;threadId&gt;.jsonl 的 threadId 集合。 */
+    private Set<String> scanCodexSessionIds() {
+        Path root = Path.of(System.getProperty("user.home"), ".codex", "sessions");
+        if (!Files.isDirectory(root)) {
+            return Set.of();
+        }
+        Set<String> ids = new HashSet<>();
+        try (Stream<Path> s = Files.walk(root)) {
+            s.filter(Files::isRegularFile).forEach(p -> {
+                String name = p.getFileName().toString();
+                if (!name.startsWith("rollout-") || !name.endsWith(".jsonl")) return;
+                String stem = stripExt(name);
+                int dash = stem.lastIndexOf('-');
+                // rollout-<ISO 时间戳>-<uuid>：uuid 自带 '-'，按 UUID 长度回切更稳
+                if (stem.length() > 36 && stem.charAt(stem.length() - 37) == '-') {
+                    ids.add(stem.substring(stem.length() - 36));
+                } else if (dash > 0) {
+                    ids.add(stem.substring(dash + 1));
+                }
+            });
+        } catch (IOException e) {
+            log.debug("[claude-chat] 扫描 Codex rollout 索引失败：{}", e.getMessage());
+        }
+        return ids;
     }
 
     // ===== Codex rollout 历史读取 =====
