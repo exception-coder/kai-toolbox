@@ -59,14 +59,20 @@ public class SidecarClient {
         if (session != null && session.isOpen()) {
             return;
         }
+        // 旧连接不留：半开的连接会一直挂在 sidecar 上，其关闭回调还会误伤后来的新连接。
+        // 先摘掉引用再关，免得自己触发的关闭又被当成一次「链路断开」上报。
+        WebSocketSession stale = session;
+        session = null;
+        closeQuietly(stale);
         URI uri = URI.create("ws://127.0.0.1:" + props.getSidecarPort());
         long deadline = System.nanoTime() + props.getSidecarStartupTimeoutMs() * 1_000_000L;
         IOException last = null;
         while (System.nanoTime() < deadline) {
             try {
-                session = client.execute(new ClientHandler(), uri.toString()).get();
-                session.setTextMessageSizeLimit(wsProps.getMaxMessageBytes());
-                session.setBinaryMessageSizeLimit(wsProps.getMaxMessageBytes());
+                WebSocketSession ws = client.execute(new ClientHandler(), uri.toString()).get();
+                ws.setTextMessageSizeLimit(wsProps.getMaxMessageBytes());
+                ws.setBinaryMessageSizeLimit(wsProps.getMaxMessageBytes());
+                session = ws;
                 log.info("[claude-chat] 已连接 sidecar {}", uri);
                 return;
             } catch (Exception e) {
@@ -75,6 +81,23 @@ public class SidecarClient {
             }
         }
         throw last != null ? last : new IOException("连接 sidecar 超时");
+    }
+
+    /** 当前生效的连接才代表链路状态；陈旧连接的事件不得改写 {@link #session} 或上报断开。 */
+    private boolean isCurrent(WebSocketSession ws) {
+        WebSocketSession cur = session;
+        return cur != null && cur.getId().equals(ws.getId());
+    }
+
+    private static void closeQuietly(WebSocketSession ws) {
+        if (ws == null) {
+            return;
+        }
+        try {
+            ws.close();
+        } catch (Exception ignore) {
+            // 关一条已经不用的连接，失败无所谓
+        }
     }
 
     public boolean isConnected() {
@@ -225,6 +248,11 @@ public class SidecarClient {
 
         @Override
         public void afterConnectionClosed(WebSocketSession ws, CloseStatus status) {
+            if (!isCurrent(ws)) {
+                // 陈旧连接的收尾：链路已由新连接接管，据此上报断开会把一次断开放大成多轮重连
+                log.debug("[claude-chat] 陈旧 sidecar 连接关闭，忽略：{}", status);
+                return;
+            }
             log.warn("[claude-chat] 与 sidecar 的连接已关闭：{}", status);
             session = null;
             // 连接级事件：通知 service 把挂着的会话标记 INTERRUPTED

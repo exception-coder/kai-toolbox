@@ -32,6 +32,8 @@ public class SidecarProcessRegistry {
     private final ClaudeChatProperties props;
     private final int serverPort;
     private volatile Process process;
+    /** 遗留 sidecar 的清理在本 JVM 内只做一次（见 {@link #ensureStarted()}） */
+    private volatile boolean orphanCleaned;
 
     public SidecarProcessRegistry(ClaudeChatProperties props,
                                   @org.springframework.beans.factory.annotation.Value("${server.port:8080}") int serverPort) {
@@ -39,14 +41,28 @@ public class SidecarProcessRegistry {
         this.serverPort = serverPort;
     }
 
-    /** 幂等：进程未启动或已退出则拉起。 */
+    /**
+     * 幂等：确保端口上有一个可用的 sidecar。
+     *
+     * <p>判据是<b>端口事实</b>而非本地 {@link #process} 句柄：sidecar 有一条设计好的退让路径——
+     * 端口被占则冗余实例自杀（见 server.ts 的 EADDRINUSE 分支），让后端连既有监听者。因此句柄常态
+     * 是死的，若据此判定「没有 sidecar」并去杀端口占用者，杀掉的正是当前正在服务的那个实例，
+     * 拉起的新实例又自杀 —— 循环自噬，会话永远收不到事件。
+     *
+     * <p>遗留孤儿（上一轮后端 @PreDestroy 未跑到、可能是旧构建）只在本 JVM 首次调用时清理一次。
+     */
     public synchronized void ensureStarted() throws IOException {
         if (process != null && process.isAlive()) {
             return;
         }
-        // 走到这＝本后端没有存活的 sidecar。若端口上还有上一轮后端遗留的孤儿 sidecar（旧代码），
-        // 后端会连上它导致修复不生效、事件卡死。启动前按 pid 文件精确杀掉它，确保拉起当前构建。
-        killOrphanSidecar();
+        if (!orphanCleaned) {
+            killOrphanSidecar();
+            orphanCleaned = true;
+        } else if (isPortOccupied(props.getSidecarPort())) {
+            // 端口上已有监听者＝可用 sidecar（多半是本后端先前拉起、句柄随冗余实例退出而失效），直接采用
+            log.debug("[claude-chat] 端口 {} 上已有 sidecar 在监听，沿用既有实例", props.getSidecarPort());
+            return;
+        }
         Path dir = resolveSidecarDir();
         Path entry = dir.resolve(props.getEntryScript());
         if (!Files.isRegularFile(entry)) {
@@ -70,8 +86,21 @@ public class SidecarProcessRegistry {
         log.info("[claude-chat] sidecar 已启动，pid={}, port={}", process.pid(), props.getSidecarPort());
     }
 
+    /** 是否有可用 sidecar：本进程句柄存活，或端口上有监听者（冗余实例退让后由既有实例服务）。 */
     public boolean isAlive() {
-        return process != null && process.isAlive();
+        return (process != null && process.isAlive()) || isPortOccupied(props.getSidecarPort());
+    }
+
+    /**
+     * 强制重建 sidecar：端口上有监听者但连不上（僵尸监听）时的最后手段。
+     *
+     * <p>只由重连流程在多次连接失败后调用——正常路径一律沿用既有实例，见 {@link #ensureStarted()}。
+     */
+    public synchronized void restart() throws IOException {
+        stopProcess();
+        killOrphanSidecar();
+        orphanCleaned = true;
+        ensureStarted();
     }
 
     /**
@@ -324,17 +353,25 @@ public class SidecarProcessRegistry {
 
     @PreDestroy
     public void shutdown() {
-        if (process != null && process.isAlive()) {
-            log.info("[claude-chat] 关闭 sidecar 进程 pid={}", process.pid());
-            process.destroy();
-            try {
-                if (!process.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)) {
-                    process.destroyForcibly();
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+        stopProcess();
+    }
+
+    /** 结束本后端拉起的 sidecar 进程（先优雅后强杀），并清掉句柄。 */
+    private void stopProcess() {
+        if (process == null || !process.isAlive()) {
+            process = null;
+            return;
+        }
+        log.info("[claude-chat] 关闭 sidecar 进程 pid={}", process.pid());
+        process.destroy();
+        try {
+            if (!process.waitFor(3, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
             }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            process.destroyForcibly();
         }
+        process = null;
     }
 }

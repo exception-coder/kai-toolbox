@@ -56,6 +56,10 @@ public class ClaudeChatService {
     private final Map<String, String> wsToSession = new ConcurrentHashMap<>();
     /** 后台 sidecar 重连任务的去重锁，避免多次断开叠起多个重连循环 */
     private final AtomicBoolean recovering = new AtomicBoolean(false);
+    /** 一轮重连结束后的冷却时长：同一次断开的后续事件落在窗口内即被丢弃 */
+    private static final long SIDECAR_RECOVERY_COOLDOWN_MS = 1000;
+    /** 连续这么多次连不上，才判定端口上是僵尸监听者并强制重建 sidecar */
+    private static final int SIDECAR_RESTART_AFTER_ATTEMPTS = 3;
 
     public ClaudeChatService(ClaudeChatProperties props,
                              ClaudeChatSessionRepository repo,
@@ -578,18 +582,21 @@ public class ClaudeChatService {
         String type = node.path("type").asText("");
         switch (type) {
             case "init" -> {
-                ctx.sdkSessionId = node.path("sdkSessionId").asText(null);
+                // sidecar 的 start 会先回一条 sdkSessionId=null 的 init 让前端尽快可输入，真句柄首轮才回填；
+                // 空值一律不落库，否则会把已有句柄抹成 null，切回会话按句柄读历史就成了空白。
+                String sdkSessionId = node.path("sdkSessionId").asText(null);
+                if (sdkSessionId != null && !sdkSessionId.isBlank()) {
+                    ctx.sdkSessionId = sdkSessionId;
+                    repo.updateSdkSessionId(sessionId, sdkSessionId);
+                    // 记录当前引擎拿到的句柄，持久化各引擎句柄映射（跨重启精准切回 + 增量）
+                    ctx.engineSessions.put(ctx.engine, sdkSessionId);
+                    repo.updateEngineSessions(sessionId, writeEngineSessions(ctx.engineSessions));
+                }
                 ctx.slashCommands = parseStringList(node.get("slashCommands"));
                 ctx.skills = parseStringList(node.get("skills"));
                 ctx.agents = parseStringList(node.get("agents"));
                 ctx.mcpServers = parseMcpServers(node.get("mcpServers"));
                 ctx.outputStyle = node.hasNonNull("outputStyle") ? node.get("outputStyle").asText() : null;
-                repo.updateSdkSessionId(sessionId, ctx.sdkSessionId);
-                // 记录当前引擎拿到的句柄，持久化各引擎句柄映射（跨重启精准切回 + 增量）
-                if (ctx.sdkSessionId != null && !ctx.sdkSessionId.isBlank()) {
-                    ctx.engineSessions.put(ctx.engine, ctx.sdkSessionId);
-                    repo.updateEngineSessions(sessionId, writeEngineSessions(ctx.engineSessions));
-                }
                 sendToBrowser(ctx, seq -> ready(ctx, seq));
             }
             case "assistantDelta" -> sendToBrowser(ctx,
@@ -694,8 +701,18 @@ public class ClaudeChatService {
             try {
                 for (int attempt = 1; attempt <= 20; attempt++) {
                     try {
-                        processRegistry.ensureStarted();
-                        sidecar.ensureConnected();
+                        if (!sidecar.isConnected()) {
+                            // 连不上且已重试多次＝端口上多半是收不了连接的僵尸监听者，才强制重建；
+                            // 正常路径一律沿用既有 sidecar，别把正在服务的实例杀掉。
+                            if (attempt == SIDECAR_RESTART_AFTER_ATTEMPTS + 1) {
+                                log.warn("[claude-chat] sidecar 连续 {} 次连不上，强制重建",
+                                        SIDECAR_RESTART_AFTER_ATTEMPTS);
+                                processRegistry.restart();
+                            } else {
+                                processRegistry.ensureStarted();
+                            }
+                            sidecar.ensureConnected();
+                        }
                         resumeAllSessions();
                         return;
                     } catch (IOException e) {
@@ -707,6 +724,8 @@ public class ClaudeChatService {
                     }
                 }
             } finally {
+                // 一次断开会连带多条连接级事件，冷却期内的重复触发直接被 CAS 丢弃，避免叠成多轮重连
+                sleep(SIDECAR_RECOVERY_COOLDOWN_MS);
                 recovering.set(false);
             }
         });
