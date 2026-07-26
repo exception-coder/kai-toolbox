@@ -474,7 +474,7 @@ public class PrdClarifyService {
      */
     private ReqTypeClassification resolveReqType(String title, String rawInput, String model,
                                                   String reqType, Integer maxQuestions) {
-        if (DEFAULT_MAX_QUESTIONS.containsKey(reqType)) {
+        if (reqType != null && DEFAULT_MAX_QUESTIONS.containsKey(reqType)) {
             int effectiveMaxQuestions = (maxQuestions != null && maxQuestions > 0)
                     ? maxQuestions
                     : DEFAULT_MAX_QUESTIONS.get(reqType);
