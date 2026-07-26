@@ -10,8 +10,14 @@
 # Frontend dev server is not managed here, so -Dskip.frontend=true is used.
 #
 # Usage:
-#   pwsh -File scripts\run-supervised.ps1
+#   pwsh -File scripts\run-supervised.ps1              # dev (default, incremental)
+#   pwsh -File scripts\run-supervised.ps1 -Mode full   # package + fat jar
 # Ctrl+C stops the supervisor loop.
+
+param(
+    [ValidateSet('dev', 'full')]
+    [string]$Mode = 'dev'
+)
 
 $ErrorActionPreference = 'Continue'
 
@@ -176,6 +182,14 @@ $env:KAI_SUPERVISED = '1'
 $script:backend = $null
 $script:frontend = $null
 $script:lastStart = $null
+$script:hotReloadWatchers = @()
+$script:hotReloadRegistrations = @()
+$script:hotCompile = $null
+$script:hotReloadDue = $null
+$script:hotReloadFullRestart = $false
+
+$HotReloadEventPrefix = 'kai-toolbox-hot-reload'
+$HotReloadDebounceMs = 800
 
 # Stops all process trees that listen on the target port.
 function Stop-PortHolders([int]$port) {
@@ -230,7 +244,7 @@ function Start-Backend {
     # 一并清掉上一代 node claude-agent sidecar：它是后端懒启动的子进程，java 先退时会被重挂养成孤儿、
     # 逃过 tree-kill 继续占 18890；不清掉的话新后端懒启动的新 sidecar 会 EADDRINUSE 退出、连回旧代码。
     Stop-PortHolders $SidecarPort
-    Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') package and start backend..."
+    Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') start backend (mode=$Mode)..."
     $starterJar = Join-Path $RepoRoot 'toolbox-starter\target\kai-toolbox.jar'
     # 机密项一律取自 run-tools.conf（已注入环境变量），禁止硬编码进脚本（本仓为公开仓库）。
     #   TOOLBOX_QBT_PASSWORD            qBittorrent 密码
@@ -267,7 +281,12 @@ function Start-Backend {
     $javaOptionsLiteral = ($javaOptions | ForEach-Object { Quote-PowerShellLiteral $_ }) -join ' '
     $jarLiteral = Quote-PowerShellLiteral $starterJar
     $utf8Command = "chcp.com 65001 > `$null; `$utf8Encoding = [System.Text.UTF8Encoding]::new(`$false); [Console]::InputEncoding = `$utf8Encoding; [Console]::OutputEncoding = `$utf8Encoding; `$global:OutputEncoding = `$utf8Encoding"
-    $runCommand = "$utf8Command; & $mvnLiteral -pl toolbox-starter -am '-Dskip.frontend=true' package; if (`$LASTEXITCODE -ne 0) { exit `$LASTEXITCODE }; & $javaLiteral $javaOptionsLiteral -jar $jarLiteral"
+    if ($Mode -eq 'full') {
+        $runCommand = "$utf8Command; & $mvnLiteral -pl toolbox-starter -am '-Dskip.frontend=true' package; if (`$LASTEXITCODE -ne 0) { exit `$LASTEXITCODE }; & $javaLiteral $javaOptionsLiteral -jar $jarLiteral"
+    } else {
+        $jvmArgumentsProperty = Quote-PowerShellLiteral ("-Dspring-boot.run.jvmArguments=" + ($javaOptions -join ' '))
+        $runCommand = "$utf8Command; & $mvnLiteral -pl toolbox-starter -am '-Dskip.frontend=true' spring-boot:run $jvmArgumentsProperty"
+    }
     $powerShellExe = Resolve-PowerShellExe
     $script:backend = Start-Process -FilePath $powerShellExe `
         -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $runCommand) `
@@ -280,6 +299,116 @@ function Stop-Backend {
         # mvn spawns java children, so the whole process tree must be stopped.
         & taskkill /PID $script:backend.Id /T /F 2>&1 | Out-Null
     }
+}
+
+function Start-HotReloadWatcher {
+    if ($Mode -ne 'dev') { return }
+
+    $sourceRoots = Get-ChildItem -LiteralPath $RepoRoot -Filter 'pom.xml' -File -Recurse `
+            -ErrorAction SilentlyContinue |
+        ForEach-Object { Join-Path $_.DirectoryName 'src\main' } |
+        Where-Object { Test-Path -LiteralPath $_ -PathType Container } |
+        Select-Object -Unique
+    $watchSpecs = @($sourceRoots | ForEach-Object {
+        [pscustomobject]@{ Path = $_; Filter = '*.*'; Recursive = $true }
+    })
+    $watchSpecs += [pscustomobject]@{ Path = $RepoRoot; Filter = 'pom.xml'; Recursive = $true }
+
+    $watcherIndex = 0
+    foreach ($spec in $watchSpecs) {
+        $watcher = [System.IO.FileSystemWatcher]::new($spec.Path, $spec.Filter)
+        $watcher.IncludeSubdirectories = $spec.Recursive
+        $watcher.NotifyFilter = [System.IO.NotifyFilters]::FileName `
+            -bor [System.IO.NotifyFilters]::DirectoryName `
+            -bor [System.IO.NotifyFilters]::LastWrite
+        $watcher.EnableRaisingEvents = $true
+        $script:hotReloadWatchers += $watcher
+        foreach ($eventName in @('Changed', 'Created', 'Deleted', 'Renamed')) {
+            $sourceIdentifier = "$HotReloadEventPrefix-$watcherIndex-$eventName"
+            $script:hotReloadRegistrations += Register-ObjectEvent `
+                -InputObject $watcher `
+                -EventName $eventName `
+                -SourceIdentifier $sourceIdentifier
+        }
+        $watcherIndex++
+    }
+    Write-Host "[supervisor] hot reload enabled: $($sourceRoots.Count) source roots -> compile -> DevTools restart"
+}
+
+function Stop-HotReloadWatcher {
+    foreach ($registration in $script:hotReloadRegistrations) {
+        Unregister-Event -SubscriptionId $registration.Id -ErrorAction SilentlyContinue
+    }
+    Get-Event | Where-Object SourceIdentifier -Like "$HotReloadEventPrefix-*" |
+        Remove-Event -ErrorAction SilentlyContinue
+    $script:hotReloadRegistrations = @()
+    foreach ($watcher in $script:hotReloadWatchers) {
+        $watcher.Dispose()
+    }
+    $script:hotReloadWatchers = @()
+    if ($script:hotCompile -and -not $script:hotCompile.HasExited) {
+        & taskkill /PID $script:hotCompile.Id /T /F 2>&1 | Out-Null
+    }
+}
+
+function Test-HotReloadPath([string]$path) {
+    if (-not $path) { return $false }
+    $normalized = $path.Replace('/', '\')
+    if ([System.IO.Path]::GetFileName($normalized) -eq 'pom.xml') { return $true }
+    return $normalized -match '\\src\\main\\(?:java|resources)\\'
+}
+
+function Receive-HotReloadEvents {
+    $matched = $false
+    foreach ($event in @(Get-Event | Where-Object SourceIdentifier -Like "$HotReloadEventPrefix-*")) {
+        $path = $event.SourceEventArgs.FullPath
+        if (Test-HotReloadPath $path) {
+            $matched = $true
+            if ([System.IO.Path]::GetFileName($path) -eq 'pom.xml') {
+                $script:hotReloadFullRestart = $true
+            }
+        }
+        Remove-Event -EventIdentifier $event.EventIdentifier -ErrorAction SilentlyContinue
+    }
+    if ($matched) {
+        $script:hotReloadDue = (Get-Date).AddMilliseconds($HotReloadDebounceMs)
+    }
+}
+
+function Start-HotCompile {
+    $mvnLiteral = Quote-PowerShellLiteral $MvnCmd
+    $repoLiteral = Quote-PowerShellLiteral $RepoRoot
+    $command = "Set-Location -LiteralPath $repoLiteral; & $mvnLiteral -pl toolbox-starter -am '-Dskip.frontend=true' compile"
+    Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') source changed, incremental compile..."
+    $script:hotCompile = Start-Process -FilePath (Resolve-PowerShellExe) `
+        -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $command) `
+        -PassThru -NoNewWindow
+    $script:hotReloadDue = $null
+}
+
+function Update-HotReload {
+    if ($Mode -ne 'dev') { return }
+    Receive-HotReloadEvents
+
+    if ($script:hotCompile) {
+        if (-not $script:hotCompile.HasExited) { return }
+        if ($script:hotCompile.ExitCode -eq 0) {
+            Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') compile succeeded; waiting for DevTools restart"
+        } else {
+            Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') compile failed; old backend remains active"
+        }
+        $script:hotCompile = $null
+    }
+
+    if (-not $script:hotReloadDue -or (Get-Date) -lt $script:hotReloadDue) { return }
+    if ($script:hotReloadFullRestart) {
+        Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') pom.xml changed, restart backend process"
+        $script:hotReloadFullRestart = $false
+        $script:hotReloadDue = $null
+        Stop-Backend
+        return
+    }
+    Start-HotCompile
 }
 
 # 取一组路径下最新的文件修改时间（目录递归）。用于判断源码是否比构建产物新。缺失路径跳过。
@@ -558,7 +687,7 @@ try {
     $listener = $null
 }
 if ($listener) { Write-Host "[supervisor] HTTP control $HttpPrefix  (POST /restart, GET /status)" }
-Write-Host "[supervisor] repo=$RepoRoot  mvn=$MvnCmd  java=$JavaCmd"
+Write-Host "[supervisor] repo=$RepoRoot  mode=$Mode  mvn=$MvnCmd  java=$JavaCmd"
 Write-Host "[supervisor] whisper mode=$WhisperMode（改用 run-tools.conf 的 TOOLBOX_WHISPER_MODE）"
 
 # 起服务前先把两个 node sidecar 的依赖/构建补齐（幂等，已就绪则秒过）。
@@ -567,6 +696,7 @@ Initialize-NodeDeps
 # 一键：后端 + 前端一起拉起，各自守护；退出（Ctrl+C）时一并收尾。
 Start-Backend
 Start-Frontend
+Start-HotReloadWatcher
 # 微信监控 sidecar：尽力起一次，失败/缺依赖只 WARN，不进守护循环，不连累上面两个。
 Start-WechatSidecar
 # 访客分析 AgentScope sidecar：同样尽力起一次（端口 9600），失败只 WARN。
@@ -584,6 +714,7 @@ try {
                 try { Handle-Request $ctxTask.Result } catch { Write-Host "[supervisor] request handling error: $($_.Exception.Message)" }
                 $ctxTask = $listener.GetContextAsync()
             }
+            Update-HotReload
             if (-not $script:backend -or $script:backend.HasExited) {
                 Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') backend exited, restart after 2s"
                 Start-Sleep -Seconds 2
@@ -598,6 +729,7 @@ try {
     } else {
         # No control endpoint: supervise only.
         while ($true) {
+            Update-HotReload
             if (-not $script:backend -or $script:backend.HasExited) {
                 Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') backend exited, restart after 2s"
                 Start-Sleep -Seconds 2
@@ -613,6 +745,7 @@ try {
     }
 } finally {
     Write-Host '[supervisor] shutting down: stopping frontend + backend...'
+    Stop-HotReloadWatcher
     Stop-Frontend
     Stop-Backend
 }

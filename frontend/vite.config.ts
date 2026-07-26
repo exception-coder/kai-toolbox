@@ -41,6 +41,11 @@ export default defineConfig({
     // Vite 5+ 默认只允许 localhost/127.0.0.1，LAN IP / 主机名访问会被挡成空白页。
     // 本地工具箱给信任内网访问，直接全放开。
     allowedHosts: true,
+    // 开发源码始终返回完整正文，避免 Chromium 磁盘缓存损坏后收到 304 却读不到缓存内容。
+    // 生产构建仍由带 hash 的静态资源文件名控制缓存，不受此配置影响。
+    headers: {
+      'Cache-Control': 'no-store',
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:18080',

@@ -16,6 +16,7 @@
     <name>toolbox-starter</name>
 
     <properties>
+        <spring-boot.run.skip>false</spring-boot.run.skip>
         <!-- 前端项目根目录与产物路径（相对于父 pom 所在目录） -->
         <frontend.dir>${project.parent.basedir}/frontend</frontend.dir>
         <frontend.dist.dir>${frontend.dir}/dist</frontend.dist.dir>
@@ -169,6 +170,11 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-devtools</artifactId>
+            <optional>true</optional>
+        </dependency>
     </dependencies>
 
     <build>
@@ -262,6 +268,7 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
                     <mainClass>com.exceptioncoder.toolbox.ToolboxApplication</mainClass>
+                    <excludeDevtools>true</excludeDevtools>
                 </configuration>
             </plugin>
         </plugins>
