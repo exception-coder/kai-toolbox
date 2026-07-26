@@ -60,8 +60,11 @@ export function MenuVisibilitySection() {
                     <Icon className="size-4 shrink-0 text-[var(--color-muted-foreground)]" />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium">{f.name}</div>
+                      {/* 描述在窄屏隐藏：手机上先保证模块名不被挤成竖排 */}
                       {f.description && (
-                        <div className="truncate text-xs text-[var(--color-muted-foreground)]">{f.description}</div>
+                        <div className="hidden truncate text-xs text-[var(--color-muted-foreground)] sm:block">
+                          {f.description}
+                        </div>
                       )}
                     </div>
                     <VisibilityToggle visible={visible} onToggle={() => setMenuVisible(f.id, !visible)} />
@@ -86,14 +89,15 @@ function VisibilityToggle({ visible, onToggle }: { visible: boolean; onToggle: (
       onClick={onToggle}
       title={visible ? '点击隐藏' : '点击显示'}
       className={cn(
-        'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+        'inline-flex shrink-0 items-center gap-1.5 rounded-full border p-1.5 text-xs font-medium transition-colors sm:px-2.5 sm:py-1',
         visible
           ? 'border-[var(--color-primary)]/30 bg-[var(--color-primary)]/10 text-[var(--color-primary)]'
           : 'border-[var(--color-border)] bg-[var(--color-muted)] text-[var(--color-muted-foreground)]',
       )}
     >
       {visible ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
-      {visible ? '显示' : '隐藏'}
+      {/* 窄屏只留图标（开关语义由 aria-checked + 配色承担），把宽度让给模块名 */}
+      <span className="hidden sm:inline">{visible ? '显示' : '隐藏'}</span>
     </button>
   )
 }

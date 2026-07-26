@@ -43,7 +43,9 @@ export function SettingsDialog({ open, onOpenChange, initialSection = 'appearanc
         />
         <DialogPrimitive.Content
           className={cn(
-            'fixed left-1/2 top-1/2 z-50 flex h-[min(80vh,560px)] w-[min(94vw,720px)] -translate-x-1/2 -translate-y-1/2 flex-col',
+            'fixed left-1/2 top-1/2 z-50 flex -translate-x-1/2 -translate-y-1/2 flex-col',
+            // 移动端占满可用宽高（留安全边距），桌面端回到定宽居中卡片
+            'h-[min(88vh,560px)] w-[min(96vw,720px)]',
             'overflow-hidden rounded-xl border bg-[var(--color-card)] text-[var(--color-card-foreground)] shadow-2xl',
             'transition-all duration-150',
             'data-[state=closed]:scale-95 data-[state=closed]:opacity-0',
@@ -61,9 +63,14 @@ export function SettingsDialog({ open, onOpenChange, initialSection = 'appearanc
             </DialogPrimitive.Close>
           </div>
 
-          <div className="flex min-h-0 flex-1">
-            {/* 左侧导航 */}
-            <nav className="w-40 shrink-0 border-r p-2">
+          <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
+            {/* 分区导航：窄屏横向 tab 条（避免固定 w-40 侧栏吃掉半个屏宽），宽屏回到左侧竖排 */}
+            <nav
+              className={cn(
+                'flex shrink-0 gap-1 overflow-x-auto border-b p-2',
+                'sm:w-40 sm:flex-col sm:overflow-visible sm:border-b-0 sm:border-r',
+              )}
+            >
               {NAV_ITEMS.map(item => {
                 const Icon = item.icon
                 const active = section === item.id
@@ -73,7 +80,7 @@ export function SettingsDialog({ open, onOpenChange, initialSection = 'appearanc
                     type="button"
                     onClick={() => setSection(item.id)}
                     className={cn(
-                      'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
+                      'flex shrink-0 items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm transition-colors sm:w-full sm:px-2',
                       active
                         ? 'bg-[var(--color-accent)] font-medium text-[var(--color-accent-foreground)]'
                         : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]/60',
@@ -87,7 +94,7 @@ export function SettingsDialog({ open, onOpenChange, initialSection = 'appearanc
             </nav>
 
             {/* 右侧内容 */}
-            <div className="min-w-0 flex-1 overflow-y-auto p-5">
+            <div className="min-w-0 flex-1 overflow-y-auto p-4 sm:p-5">
               {section === 'appearance' && (
                 <div>
                   <h3 className="mb-3 text-sm font-medium">外观</h3>
