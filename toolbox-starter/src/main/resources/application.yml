@@ -622,6 +622,10 @@ toolbox:
     whitelist:
       - "/api/auth/login"
       - "/api/auth/refresh"
+      # 视频分享落地页（匿名播放单个视频）。授权不靠"路径没被拦"，而是靠 video_share 里
+      # 单视频、可撤销、7 天过期的随机 token + PathAccessGuard 沙箱复核（见 VideoShareController）。
+      # 显式列在这里是为了以后有人收紧 protected-patterns 时不会把分享链接一起打死。
+      - "/api/share/**"
     # 首启动若 auth_user 表为空且配置了用户名，则建一个 ADMIN 账户。
     # 密码留空时随机生成并打印到启动日志（仅打印一次）。
     bootstrap-admin-username: ${TOOLBOX_AUTH_ADMIN_USER:admin}

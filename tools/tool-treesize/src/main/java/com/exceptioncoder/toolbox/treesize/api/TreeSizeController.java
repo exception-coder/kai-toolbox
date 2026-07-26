@@ -22,6 +22,7 @@ import com.exceptioncoder.toolbox.treesize.api.dto.TaskView;
 import com.exceptioncoder.toolbox.treesize.api.dto.VideoConfigView;
 import com.exceptioncoder.toolbox.treesize.api.dto.VideoLibraryItemView;
 import com.exceptioncoder.toolbox.treesize.api.dto.VideoLibraryPageView;
+import com.exceptioncoder.toolbox.treesize.api.dto.VideoShareView;
 import com.exceptioncoder.toolbox.treesize.config.VideoExtensionsProperties;
 import com.exceptioncoder.toolbox.common.media.ProbeResult;
 import com.exceptioncoder.toolbox.treesize.domain.DeleteOutcome;
@@ -42,6 +43,7 @@ import com.exceptioncoder.toolbox.treesize.service.CleanupAdvisor;
 import com.exceptioncoder.toolbox.treesize.service.DeepLXTranslator;
 import com.exceptioncoder.toolbox.treesize.service.SubtitleService;
 import com.exceptioncoder.toolbox.treesize.service.SymlinkService;
+import com.exceptioncoder.toolbox.treesize.service.VideoShareService;
 import com.exceptioncoder.toolbox.treesize.service.TaskAssembler;
 import com.exceptioncoder.toolbox.treesize.service.TaskBroadcaster;
 import com.exceptioncoder.toolbox.treesize.service.ThumbnailWarmer;
@@ -89,6 +91,7 @@ public class TreeSizeController {
     private final TaskBroadcaster taskBroadcaster;
     private final TaskAssembler taskAssembler;
     private final DeepLXTranslator translator;
+    private final VideoShareService videoShares;
 
     public TreeSizeController(ScanService scanService,
                               ScanRepository scans,
@@ -111,7 +114,8 @@ public class TreeSizeController {
                               SubtitleJobRepository subtitleJobs,
                               TaskBroadcaster taskBroadcaster,
                               TaskAssembler taskAssembler,
-                              DeepLXTranslator translator) {
+                              DeepLXTranslator translator,
+                              VideoShareService videoShares) {
         this.scanService = scanService;
         this.scans = scans;
         this.nodes = nodes;
@@ -134,6 +138,7 @@ public class TreeSizeController {
         this.taskBroadcaster = taskBroadcaster;
         this.taskAssembler = taskAssembler;
         this.translator = translator;
+        this.videoShares = videoShares;
     }
 
     // ---------- existing endpoints (unchanged) ---------------------------
@@ -371,6 +376,36 @@ public class TreeSizeController {
                 result.total(),
                 safeOffset,
                 safeLimit);
+    }
+
+    /**
+     * 为一个视频签发公开分享链接（默认 7 天，同一视频已有有效分享时复用）。
+     * 真正的匿名播放端点在 {@link VideoShareController}（{@code /api/share/**}）—— 本类带
+     * {@code @RequireRole}，签发要登录、播放不用，两件事必须分开放。
+     */
+    @PostMapping("/videos/shares")
+    public VideoShareView createShare(@RequestParam String scanId,
+                                      @RequestParam String path,
+                                      @RequestParam String name,
+                                      @RequestParam(defaultValue = "0") long size,
+                                      @RequestParam(defaultValue = "7") int ttlDays) {
+        var share = videoShares.create(scanId, path, name, size,
+                java.time.Duration.ofDays(Math.max(1, ttlDays)));
+        return VideoShareView.from(share);
+    }
+
+    /** 我发出去的分享清单（含已过期/已撤销，用户需要看到状态）。顺带清理过期很久的记录。 */
+    @GetMapping("/videos/shares")
+    public List<VideoShareView> listShares(@RequestParam(defaultValue = "50") int limit) {
+        videoShares.purgeStale();
+        return videoShares.list(limit).stream().map(VideoShareView::from).toList();
+    }
+
+    /** 立即失效一条分享。幂等：不存在也返回 204。 */
+    @DeleteMapping("/videos/shares/{token}")
+    public ResponseEntity<Void> revokeShare(@PathVariable String token) {
+        videoShares.revoke(token);
+        return ResponseEntity.noContent().build();
     }
 
     /** 已识别语言清单 + 计数，供视频库「按语言筛选」下拉。仅 treesize_video.language 非空（识别成功）的项。 */

@@ -50,6 +50,54 @@ export function getVideoDirectories(excludeDirs: string[]) {
   return http<VideoDirectoryFacet[]>(`/treesize/videos/directories${qs ? `?${qs}` : ''}`)
 }
 
+// ---------- 公开分享链接 --------------------------------------------------
+
+/** 一条分享凭证（签发者视角，含真实路径）。 */
+export interface VideoShareRecord {
+  token: string
+  scanId: string
+  path: string
+  name: string
+  size: number
+  createdAt: number
+  expiresAt: number
+  revoked: boolean
+  expired: boolean
+  hitCount: number
+  lastAccessAt: number | null
+}
+
+/** 为一个视频签发公开链接。后端对同一视频已有有效分享时会复用，不会堆记录。 */
+export function createVideoShare(item: { scanId: string; path: string; name: string; size: number }, ttlDays = 7) {
+  const params = new URLSearchParams({
+    scanId: item.scanId,
+    path: item.path,
+    name: item.name,
+    size: String(item.size),
+    ttlDays: String(ttlDays),
+  })
+  return http<VideoShareRecord>(`/treesize/videos/shares?${params.toString()}`, { method: 'POST' })
+}
+
+export function listVideoShares(limit = 50) {
+  return http<VideoShareRecord[]>(`/treesize/videos/shares?limit=${limit}`)
+}
+
+export function revokeVideoShare(token: string) {
+  return http<void>(`/treesize/videos/shares/${encodeURIComponent(token)}`, { method: 'DELETE' })
+}
+
+/**
+ * 分享链接的绝对地址。
+ *
+ * 用 {@code window.location.origin} 而不是后端配置：工作台自己不知道有没有挂公网隧道，
+ * 但「用户此刻是从哪个地址访问的」就是最准的答案 —— 从 trycloudflare 地址打开工作台，
+ * 生成的就是公网链接；从内网 IP 打开，生成的就是内网链接（自己设备间传看）。
+ */
+export function videoShareUrl(token: string): string {
+  return `${window.location.origin}/s/${token}`
+}
+
 /** 已识别语言清单（语言 ISO + 计数），供「按语言筛选」下拉。 */
 export function getVideoLanguages() {
   return http<VideoLanguageFacet[]>(`/treesize/videos/languages`)

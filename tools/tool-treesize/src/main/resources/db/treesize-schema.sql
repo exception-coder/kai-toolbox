@@ -201,3 +201,24 @@ CREATE TABLE IF NOT EXISTS video_embedding (
 );
 
 CREATE INDEX IF NOT EXISTS idx_video_embedding_model ON video_embedding(model);
+
+-- 视频分享凭证：把单个视频以公网可访问的只读链接发出去（微信/QQ 转发）。
+-- 与登录用的 access token 严格分开 —— 那是本人全权限、30 分钟过期的 JWT，塞进 URL 转发出去
+-- 等于把整个工作台交出去。这里每条记录只授权「一个视频的只读播放」，可随时撤销。
+-- scan_id + path 一起存：播放时仍走 PathAccessGuard.resolve(scan_id, path) 复核，
+-- 保留软链接/越界的沙箱校验，不因为是匿名请求就放松。
+CREATE TABLE IF NOT EXISTS video_share (
+    token          TEXT PRIMARY KEY,
+    scan_id        TEXT NOT NULL,
+    path           TEXT NOT NULL,
+    name           TEXT NOT NULL,
+    size           INTEGER NOT NULL DEFAULT 0,
+    created_at     INTEGER NOT NULL,
+    expires_at     INTEGER NOT NULL,
+    revoked        INTEGER NOT NULL DEFAULT 0,
+    hit_count      INTEGER NOT NULL DEFAULT 0,
+    last_access_at INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_video_share_created ON video_share(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_video_share_path    ON video_share(path);
