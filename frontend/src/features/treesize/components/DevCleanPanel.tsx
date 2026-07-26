@@ -3,6 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
   Info,
   Loader2,
   RefreshCw,
@@ -23,6 +24,30 @@ import {
   type DevCleanRecipe,
   type RecipeSafety,
 } from '../api'
+import { DevCleanEntryDetails, SelectionSummary } from './DevCleanReview'
+import { DiskUsageOverview } from './DiskUsageOverview'
+import { FixedDirectoryMigrationAction } from './FixedDirectoryMigrationAction'
+import {
+  DevCleanScopePanel,
+  type DevCleanScope,
+  type DevCleanScopeSummary,
+} from './DevCleanScopePanel'
+import {
+  DevCleanToolGrid,
+  type DevCleanToolSummary,
+} from './DevCleanToolGrid'
+import { PackageCacheMigration } from './PackageCacheMigration'
+
+type SelectionView = 'all' | 'selected' | 'unselected'
+
+const EVERYDAY_GROUPS = new Set([
+  '系统临时文件',
+  '浏览器',
+  '微信 / QQ',
+  '飞书',
+  '钉钉',
+  'Windows 用户缓存',
+])
 
 /**
  * 开发机清理面板。
@@ -36,6 +61,10 @@ import {
 export function DevCleanPanel() {
   const confirm = useConfirm()
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [selectionView, setSelectionView] = useState<SelectionView>('all')
+  const [activeScope, setActiveScope] = useState<DevCleanScope>('development')
+  const [activeTool, setActiveTool] = useState<string | null>(null)
+  const [toolSort, setToolSort] = useState<'size' | 'name'>('size')
   const [result, setResult] = useState<DevCleanExecuteResult | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -104,12 +133,19 @@ export function DevCleanPanel() {
     })
   }
 
+  const clearSelection = () => {
+    setSelected(new Set())
+    setSelectionView('all')
+  }
+
   const handleRun = async () => {
     if (selectedRecipes.length === 0) return
     const risky = selectedRecipes.filter(r => r.safety !== 'SAFE')
     const ok = await confirm({
       title: `确认清理 ${selectedRecipes.length} 项？`,
       description: [
+        `已选：${selectedRecipes.map(r => r.title).join('、')}。`,
+        `未选 ${cleanable.length - selectedRecipes.length} 项，不会处理。`,
         `预计移入回收站 ${formatBytes(selectedBytes)}，共 ${formatNumber(
           selectedRecipes.reduce((s, r) => s + r.itemCount, 0),
         )} 个文件/目录。`,
@@ -127,6 +163,71 @@ export function DevCleanPanel() {
   }
 
   const groups = useMemo(() => groupBy(cleanable), [cleanable])
+  const scopeSummaries = useMemo(() => {
+    const summaries: DevCleanScopeSummary[] = ['development', 'everyday'].map(scope => {
+      const scopedGroups = groups.filter(([group]) =>
+        scope === 'everyday' ? EVERYDAY_GROUPS.has(group) : !EVERYDAY_GROUPS.has(group),
+      )
+      const scopedRecipes = scopedGroups.flatMap(([, items]) => items)
+      return {
+        scope: scope as DevCleanScope,
+        bytes: scopedRecipes.reduce((sum, recipe) => sum + recipe.size, 0),
+        selectedBytes: scopedRecipes
+          .filter(recipe => selected.has(recipe.id))
+          .reduce((sum, recipe) => sum + recipe.size, 0),
+        groupCount: scopedGroups.length,
+      }
+    })
+    return summaries
+  }, [groups, selected])
+  const scopedGroups = useMemo(
+    () =>
+      groups.filter(([group]) =>
+        activeScope === 'everyday' ? EVERYDAY_GROUPS.has(group) : !EVERYDAY_GROUPS.has(group),
+      ),
+    [activeScope, groups],
+  )
+  const visibleGroups = useMemo(
+    () =>
+      scopedGroups
+        .map(([group, items]) => [
+          group,
+          items.filter(recipe => {
+            if (selectionView === 'selected') return selected.has(recipe.id)
+            if (selectionView === 'unselected') return !selected.has(recipe.id)
+            return true
+          }),
+        ] as [string, DevCleanRecipe[]])
+        .filter(([, items]) => items.length > 0),
+    [scopedGroups, selected, selectionView],
+  )
+  const toolSummaries = useMemo(() => {
+    const summaries: DevCleanToolSummary[] = visibleGroups.map(([name, items]) => ({
+      name,
+      bytes: items.reduce((sum, recipe) => sum + recipe.size, 0),
+      selectedBytes: items
+        .filter(recipe => selected.has(recipe.id))
+        .reduce((sum, recipe) => sum + recipe.size, 0),
+      recipeCount: items.length,
+    }))
+    return summaries.sort((left, right) =>
+      toolSort === 'size'
+        ? right.bytes - left.bytes || left.name.localeCompare(right.name, 'zh-CN')
+        : left.name.localeCompare(right.name, 'zh-CN'),
+    )
+  }, [selected, toolSort, visibleGroups])
+
+  useEffect(() => {
+    if (toolSummaries.length === 0) {
+      setActiveTool(null)
+      return
+    }
+    if (!activeTool || !toolSummaries.some(tool => tool.name === activeTool)) {
+      setActiveTool(toolSummaries[0].name)
+    }
+  }, [activeTool, toolSummaries])
+
+  const activeGroup = visibleGroups.find(([group]) => group === activeTool)
   const recycleBinBroken = capability.data && !capability.data.recycleBinAvailable
 
   return (
@@ -150,7 +251,31 @@ export function DevCleanPanel() {
             不需要先扫描。删除一律先进回收站。
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap items-center gap-2">
+        <CardContent className="space-y-3">
+          <div className="grid gap-2 sm:grid-cols-3">
+            <SelectionSummary
+              active={selectionView === 'all'}
+              label="全部可清理"
+              count={cleanable.length}
+              bytes={reclaimableBytes}
+              onClick={() => setSelectionView('all')}
+            />
+            <SelectionSummary
+              active={selectionView === 'selected'}
+              label="已选中"
+              count={selectedRecipes.length}
+              bytes={selectedBytes}
+              onClick={() => setSelectionView('selected')}
+            />
+            <SelectionSummary
+              active={selectionView === 'unselected'}
+              label="未选中"
+              count={cleanable.length - selectedRecipes.length}
+              bytes={reclaimableBytes - selectedBytes}
+              onClick={() => setSelectionView('unselected')}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
             onClick={handleRun}
@@ -175,12 +300,21 @@ export function DevCleanPanel() {
             重新测量
           </Button>
           {selected.size > 0 && (
-            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="relative z-10 cursor-pointer"
+              onClick={clearSelection}
+            >
               清空选择
             </Button>
           )}
+          </div>
         </CardContent>
       </Card>
+
+      <DiskUsageOverview />
 
       {recycleBinBroken && (
         <Notice tone="danger">
@@ -192,6 +326,8 @@ export function DevCleanPanel() {
       {error && <Notice tone="danger">清理失败：{error}</Notice>}
 
       {result && <ResultSummary result={result} />}
+
+      {activeScope === 'development' && <PackageCacheMigration />}
 
       {probe.isLoading && (
         <Card>
@@ -208,7 +344,35 @@ export function DevCleanPanel() {
         </Notice>
       )}
 
-      {groups.map(([group, items]) => {
+      {cleanable.length > 0 && (
+        <DevCleanScopePanel
+          summaries={scopeSummaries}
+          activeScope={activeScope}
+          onSelect={setActiveScope}
+        />
+      )}
+
+      {toolSummaries.length > 0 && (
+        <Card>
+          <CardContent className="p-4">
+            <DevCleanToolGrid
+              tools={toolSummaries}
+              activeTool={activeTool}
+              sortMode={toolSort}
+              title={activeScope === 'development' ? '选择开发工具' : '选择常用软件'}
+              description={
+                activeScope === 'development'
+                  ? '点击图标查看开发缓存与文件明细'
+                  : '仅展示可重建缓存；聊天、账号和下载文件不会清理'
+              }
+              onSelect={setActiveTool}
+              onSortChange={setToolSort}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {activeGroup && [activeGroup].map(([group, items]) => {
         const allOn = items.every(r => selected.has(r.id))
         const groupBytes = items.reduce((s, r) => s + r.size, 0)
         return (
@@ -287,40 +451,52 @@ function RecipeRow({
   checked: boolean
   onToggle: () => void
 }) {
+  const [expanded, setExpanded] = useState(false)
   const empty = recipe.itemCount === 0
   return (
     <li className="px-3 py-3 sm:px-4">
-      <label className="flex cursor-pointer items-start gap-3">
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={onToggle}
-          disabled={empty}
-          className="mt-1 h-4 w-4 shrink-0 accent-[var(--color-primary)] disabled:opacity-40"
-        />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium">{recipe.title}</span>
-            <SafetyBadge safety={recipe.safety} />
-            {empty && <Badge variant="secondary">已是干净的</Badge>}
-          </div>
-          <p className="mt-1 text-xs leading-relaxed text-[var(--color-muted-foreground)]">
-            {recipe.note}
-          </p>
-          {recipe.samplePaths.length > 0 && (
-            <p
-              className="mt-1 truncate font-mono text-[11px] text-[var(--color-muted-foreground)]"
-              title={recipe.samplePaths.join('\n')}
-            >
-              {recipe.samplePaths[0]}
-              {recipe.itemCount > 1 && ` 等 ${formatNumber(recipe.itemCount)} 项`}
+      <div className="flex items-start gap-3">
+        <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={onToggle}
+            disabled={empty}
+            className="mt-1 h-4 w-4 shrink-0 accent-[var(--color-primary)] disabled:opacity-40"
+          />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-medium">{recipe.title}</span>
+              <SafetyBadge safety={recipe.safety} />
+              <Badge variant={checked ? 'success' : 'secondary'}>
+                {checked ? '已选' : '未选'}
+              </Badge>
+              {empty && <Badge variant="secondary">已是干净的</Badge>}
+            </div>
+            <p className="mt-1 text-xs leading-relaxed text-[var(--color-muted-foreground)]">
+              {recipe.note}
             </p>
+            <FixedDirectoryMigrationAction recipeId={recipe.id} />
+          </div>
+        </label>
+        <div className="shrink-0 text-right">
+          <div className="text-sm font-medium tabular-nums">{formatBytes(recipe.size)}</div>
+          {!empty && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-1 h-7 gap-1 px-2 text-xs"
+              onClick={() => setExpanded(value => !value)}
+            >
+              核对 {formatNumber(recipe.itemCount)} 项
+              <ChevronDown
+                className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`}
+              />
+            </Button>
           )}
         </div>
-        <div className="shrink-0 text-right text-sm font-medium tabular-nums">
-          {formatBytes(recipe.size)}
-        </div>
-      </label>
+      </div>
+      {expanded && <DevCleanEntryDetails recipe={recipe} />}
     </li>
   )
 }

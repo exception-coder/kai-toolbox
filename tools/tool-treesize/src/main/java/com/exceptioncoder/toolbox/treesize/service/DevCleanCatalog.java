@@ -93,6 +93,23 @@ public class DevCleanCatalog {
     }
 
     /**
+     * Resolve the concrete paths a recipe would move to the recycle bin.
+     *
+     * @param recipe trusted catalog recipe
+     * @return current, permitted work items
+     */
+    public List<Path> workItems(CleanupRecipe recipe) {
+        List<Path> targets = resolveTargets(recipe);
+        return switch (recipe.kind()) {
+            case DIR, ADVISORY -> targets;
+            case DIR_CONTENTS -> targets.stream().flatMap(dir -> childrenOf(dir).stream()).toList();
+            case VERSIONED_DIR -> targets.stream()
+                    .flatMap(dir -> obsoleteVersions(dir, recipe.keepLatest()).stream())
+                    .toList();
+        };
+    }
+
+    /**
      * Within a {@link RecipeKind#VERSIONED_DIR} container, the entries that are <em>not</em>
      * among the newest {@code keepLatest} of their name.
      *
@@ -100,33 +117,64 @@ public class DevCleanCatalog {
      * unparseable folder is more likely to be something we do not understand than garbage.
      */
     public List<Path> obsoleteVersions(Path container, int keepLatest) {
+        List<Path> obsolete = new ArrayList<>();
+        for (List<Path> group : versionGroups(container)) {
+            if (group.size() <= keepLatest) {
+                continue;
+            }
+            obsolete.addAll(group.subList(keepLatest, group.size()));
+        }
+        return obsolete;
+    }
+
+    /**
+     * Within a versioned container, return the newest entries explicitly preserved by a recipe.
+     *
+     * @param container versioned extension container
+     * @param keepLatest number of versions preserved per extension
+     * @return retained version directories
+     */
+    public List<Path> retainedVersions(Path container, int keepLatest) {
+        List<Path> retained = new ArrayList<>();
+        for (List<Path> group : versionGroups(container)) {
+            retained.addAll(group.subList(0, Math.min(keepLatest, group.size())));
+        }
+        return retained;
+    }
+
+    private List<List<Path>> versionGroups(Path container) {
         java.util.Map<String, List<Path>> byName = new java.util.LinkedHashMap<>();
         try (DirectoryStream<Path> entries = Files.newDirectoryStream(container)) {
             for (Path entry : entries) {
                 if (!Files.isDirectory(entry)) {
                     continue;
                 }
-                Matcher m = VERSIONED_ENTRY.matcher(entry.getFileName().toString());
-                if (!m.matches()) {
-                    continue;
+                Matcher matcher = VERSIONED_ENTRY.matcher(entry.getFileName().toString());
+                if (matcher.matches()) {
+                    byName.computeIfAbsent(
+                            matcher.group("name").toLowerCase(Locale.ROOT),
+                            key -> new ArrayList<>()
+                    ).add(entry);
                 }
-                byName.computeIfAbsent(m.group("name").toLowerCase(Locale.ROOT), k -> new ArrayList<>())
-                        .add(entry);
             }
         } catch (IOException e) {
             log.warn("devclean: cannot list versioned container {}: {}", container, e.toString());
             return List.of();
         }
+        byName.values().forEach(group ->
+                group.sort((left, right) -> compareVersions(versionOf(right), versionOf(left))));
+        return new ArrayList<>(byName.values());
+    }
 
-        List<Path> obsolete = new ArrayList<>();
-        for (List<Path> group : byName.values()) {
-            if (group.size() <= keepLatest) {
-                continue;
-            }
-            group.sort((a, b) -> compareVersions(versionOf(b), versionOf(a)));
-            obsolete.addAll(group.subList(keepLatest, group.size()));
+    private List<Path> childrenOf(Path dir) {
+        try (DirectoryStream<Path> children = Files.newDirectoryStream(dir)) {
+            List<Path> out = new ArrayList<>();
+            children.forEach(out::add);
+            return out;
+        } catch (IOException e) {
+            log.debug("devclean: cannot list {}: {}", dir, e.toString());
+            return List.of();
         }
-        return obsolete;
     }
 
     /**
@@ -375,6 +423,15 @@ public class DevCleanCatalog {
                 .targets(List.of("%APPDATA%\\Code\\logs"))
                 .note("每次启动新建一个时间戳子目录且不自动回收，装了语言服务器/AI 插件后增长很快。")
                 .build());
+        r.add(CleanupRecipe.builder()
+                .id("vscode-cached-extension-vsix")
+                .group("VS Code")
+                .title("扩展安装包缓存（CachedExtensionVSIXs）")
+                .kind(RecipeKind.DIR_CONTENTS)
+                .safety(CleanupSafety.REVIEW)
+                .targets(List.of("%APPDATA%\\Code\\CachedExtensionVSIXs"))
+                .note("不影响已安装扩展；以后重新安装或回滚扩展版本时需要联网下载。")
+                .build());
 
         // ---- AI 桌面端（Electron，缓存结构同 VS Code）--------------------------------------
         r.add(CleanupRecipe.builder()
@@ -391,6 +448,15 @@ public class DevCleanCatalog {
                 .note("只清缓存与日志，不动登录态与设置。")
                 .build());
         r.add(CleanupRecipe.builder()
+                .id("claude-vm-bundle")
+                .group("AI 桌面端")
+                .title("Claude VM 运行环境包")
+                .kind(RecipeKind.DIR_CONTENTS)
+                .safety(CleanupSafety.REVIEW)
+                .targets(List.of("%APPDATA%\\Claude\\vm_bundles"))
+                .note("体积较大，清理前必须关闭 Claude；下次使用相关能力时可能重新下载运行环境。")
+                .build());
+        r.add(CleanupRecipe.builder()
                 .id("chatgpt-desktop-cache")
                 .group("AI 桌面端")
                 .title("ChatGPT Desktop 缓存")
@@ -404,6 +470,15 @@ public class DevCleanCatalog {
                         "%LOCALAPPDATA%\\ChatGPT\\Code Cache"))
                 .note("只清缓存，不动 settings。")
                 .build());
+        r.add(CleanupRecipe.builder()
+                .id("ollama-update-packages")
+                .group("AI 桌面端")
+                .title("Ollama 更新残留")
+                .kind(RecipeKind.DIR_CONTENTS)
+                .safety(CleanupSafety.REVIEW)
+                .targets(List.of("%LOCALAPPDATA%\\Ollama\\updates_v2"))
+                .note("只清应用更新下载包，不动模型目录；正在更新 Ollama 时不要清理。")
+                .build());
 
         // ---- 包管理器缓存 ----------------------------------------------------------------
         r.add(CleanupRecipe.builder()
@@ -411,29 +486,38 @@ public class DevCleanCatalog {
                 .group("包管理器")
                 .title("npm 缓存 (_cacache)")
                 .kind(RecipeKind.DIR_CONTENTS)
-                .safety(CleanupSafety.SAFE)
+                .safety(CleanupSafety.REVIEW)
                 .targets(List.of(
                         "%LOCALAPPDATA%\\npm-cache\\_cacache",
                         "%APPDATA%\\npm-cache\\_cacache"))
-                .note("等价于 npm cache clean --force。只清 _cacache 子目录，保留 npm 自身配置。")
+                .note("只清 _cacache，保留 npm 配置和现有 node_modules；后续缺失依赖需要联网重下载。")
                 .build());
         r.add(CleanupRecipe.builder()
                 .id("yarn-cache")
                 .group("包管理器")
                 .title("Yarn 缓存")
                 .kind(RecipeKind.DIR_CONTENTS)
-                .safety(CleanupSafety.SAFE)
+                .safety(CleanupSafety.REVIEW)
                 .targets(List.of("%LOCALAPPDATA%\\Yarn\\Cache"))
-                .note("等价于 yarn cache clean。")
+                .note("保留现有项目依赖；后续安装缺失依赖需要联网重下载。")
                 .build());
         r.add(CleanupRecipe.builder()
                 .id("pip-cache")
                 .group("包管理器")
                 .title("pip 缓存")
                 .kind(RecipeKind.DIR_CONTENTS)
-                .safety(CleanupSafety.SAFE)
+                .safety(CleanupSafety.REVIEW)
                 .targets(List.of("%LOCALAPPDATA%\\pip\\Cache"))
-                .note("等价于 pip cache purge。")
+                .note("保留现有虚拟环境；后续安装需要联网重下载，部分包还会重新构建 wheel。")
+                .build());
+        r.add(CleanupRecipe.builder()
+                .id("maven-repository")
+                .group("包管理器")
+                .title("Maven 本地仓库")
+                .kind(RecipeKind.DIR_CONTENTS)
+                .safety(CleanupSafety.REVIEW)
+                .targets(List.of("%USERPROFILE%\\.m2\\repository"))
+                .note("保留 Maven settings.xml；后续构建缺失依赖和插件时需要联网重新下载。")
                 .build());
         r.add(CleanupRecipe.builder()
                 .id("gradle-caches")
@@ -459,10 +543,26 @@ public class DevCleanCatalog {
                 .safety(CleanupSafety.REVIEW)
                 .targets(List.of(
                         "%LOCALAPPDATA%\\JetBrains\\*\\caches",
+                        "%LOCALAPPDATA%\\JetBrains\\*\\index",
                         "%LOCALAPPDATA%\\JetBrains\\*\\log",
-                        "%LOCALAPPDATA%\\JetBrains\\*\\tmp"))
+                        "%LOCALAPPDATA%\\JetBrains\\*\\tmp",
+                        "%LOCALAPPDATA%\\JetBrains\\*\\jcef_cache",
+                        "%LOCALAPPDATA%\\JetBrains\\*\\full-line",
+                        "%LOCALAPPDATA%\\JetBrains\\*\\semantic-search"))
                 .note("清掉后 IDEA 下次打开会重建索引（大项目可能几分钟）。不动 %APPDATA%\\JetBrains 下的配置。"
                         + "建议 IDEA 关闭后再清，否则大量文件被占用。")
+                .build());
+
+        // ---- API 工具 -------------------------------------------------------------------
+        r.add(CleanupRecipe.builder()
+                .id("postman-old-versions")
+                .group("API 工具")
+                .title("Postman 历史程序版本（保留最新一版）")
+                .kind(RecipeKind.VERSIONED_DIR)
+                .safety(CleanupSafety.SAFE)
+                .targets(List.of("%LOCALAPPDATA%\\Postman"))
+                .keepLatest(1)
+                .note("只处理 app-* 程序版本目录并保留最新一版，不动工作区、登录态和 packages。")
                 .build());
 
         // ---- 系统临时文件 ----------------------------------------------------------------
@@ -512,6 +612,61 @@ public class DevCleanCatalog {
                 .note("不动 Cookies / 登录态 / 书签。")
                 .build());
 
+        // ---- 常用通信软件 ---------------------------------------------------------------
+        r.add(CleanupRecipe.builder()
+                .id("wechat-logs-and-updates")
+                .group("微信 / QQ")
+                .title("微信日志、崩溃记录与更新缓存")
+                .kind(RecipeKind.DIR_CONTENTS)
+                .safety(CleanupSafety.SAFE)
+                .targets(List.of(
+                        "%APPDATA%\\Tencent\\xwechat\\log",
+                        "%APPDATA%\\Tencent\\xwechat\\crashinfo",
+                        "%APPDATA%\\Tencent\\xwechat\\update",
+                        "%APPDATA%\\Tencent\\WeChat\\log",
+                        "%APPDATA%\\Tencent\\WeChat\\crash",
+                        "%APPDATA%\\Tencent\\WeChat\\temp"))
+                .note("只清日志、崩溃和更新临时文件；不动聊天记录、登录信息、接收文件及图片资源。"
+                        + "建议退出微信后执行。")
+                .build());
+        r.add(CleanupRecipe.builder()
+                .id("lark-rebuildable-cache")
+                .group("飞书")
+                .title("飞书代码缓存与 GPU 缓存")
+                .kind(RecipeKind.DIR_CONTENTS)
+                .safety(CleanupSafety.SAFE)
+                .targets(List.of(
+                        "%APPDATA%\\LarkInternational\\CodeCache",
+                        "%APPDATA%\\LarkInternational\\Default\\Cache",
+                        "%APPDATA%\\LarkInternational\\Default\\Code Cache",
+                        "%APPDATA%\\LarkInternational\\Default\\GPUCache",
+                        "%APPDATA%\\LarkInternational\\GPUCache",
+                        "%APPDATA%\\LarkInternational\\logs"))
+                .note("只清 Electron/Chromium 可重建缓存与日志，不动账号、聊天、下载和业务数据。"
+                        + "建议退出飞书后执行。")
+                .build());
+        r.add(CleanupRecipe.builder()
+                .id("dingtalk-logs")
+                .group("钉钉")
+                .title("钉钉日志与更新日志")
+                .kind(RecipeKind.DIR_CONTENTS)
+                .safety(CleanupSafety.SAFE)
+                .targets(List.of(
+                        "%APPDATA%\\DingTalk\\log",
+                        "%APPDATA%\\DingTalk\\holmeslogs",
+                        "%APPDATA%\\DingTalk\\updaterlogs"))
+                .note("不动聊天、账号、下载文件、表情和图片缓存。建议退出钉钉后执行。")
+                .build());
+        r.add(CleanupRecipe.builder()
+                .id("windows-user-error-reports")
+                .group("Windows 用户缓存")
+                .title("Windows 用户错误报告")
+                .kind(RecipeKind.DIR_CONTENTS)
+                .safety(CleanupSafety.SAFE)
+                .targets(List.of("%LOCALAPPDATA%\\Microsoft\\Windows\\WER"))
+                .note("仅清当前用户的 Windows 错误报告，不触碰系统组件、更新缓存和安装器。")
+                .build());
+
         // ---- 只测量、不代执行 -------------------------------------------------------------
         // 这些要么需要专用工具才能安全回收（硬链接 store、Docker 分层），要么会中断正在运行的东西
         // （wsl --shutdown）。我们报体积 + 给命令，执行权留给用户。
@@ -536,19 +691,6 @@ public class DevCleanCatalog {
                 .advisoryCommand("pnpm store prune")
                 .note("store 里的包被各项目 node_modules 以硬链接引用，直接删目录会让现有项目的依赖变成坏链接。"
                         + "必须用 prune 让 pnpm 自己判断哪些已无人引用。")
-                .build());
-        r.add(CleanupRecipe.builder()
-                .id("advisory-maven-repo")
-                .group("需要手动执行")
-                .title("Maven 本地仓库")
-                .kind(RecipeKind.ADVISORY)
-                .safety(CleanupSafety.REVIEW)
-                .targets(List.of("%USERPROFILE%\\.m2\\repository"))
-                .advisoryCommand("# 按最后访问时间清理，而不是整删：\n"
-                        + "Get-ChildItem \"$env:USERPROFILE\\.m2\\repository\" -Recurse -Include *.jar "
-                        + "| Where-Object { $_.LastAccessTime -lt (Get-Date).AddDays(-180) }")
-                .note("整删会让所有 Java 项目下次构建全量重下（本机是 Java 主力机，净负收益）。"
-                        + "只故意不提供一键删除按钮。")
                 .build());
         r.add(CleanupRecipe.builder()
                 .id("advisory-docker")

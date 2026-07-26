@@ -88,6 +88,11 @@ export default manifest
 | `POST` | `/api/treesize/ssh-hosts/{id}/test` | 测试已保存 SSH 主机连接 |
 | `GET` | `/api/treesize/devclean/probe` | 开发机清理：测量每条配方的当前占用 |
 | `GET` | `/api/treesize/devclean/capability` | 开发机清理：回收站是否可用 |
+| `GET` | `/api/treesize/devclean/recipes/{recipeId}/entries` | 开发机清理：按可信配方核对具体文件/目录 |
+| `GET` | `/api/treesize/devclean/package-caches` | 开发机清理：查询 npm、pip、Maven 当前缓存配置 |
+| `POST` | `/api/treesize/devclean/package-caches/{managerId}/configure` | 开发机清理：备份配置并切换未来缓存目录 |
+| `GET` | `/api/treesize/devclean/fixed-directory-migrations` | 开发机清理：查询白名单固定软件目录迁移状态 |
+| `POST` | `/api/treesize/devclean/fixed-directory-migrations/{migrationId}/execute` | 开发机清理：复制、创建 Junction、校验并回滚 |
 | `POST` | `/api/treesize/devclean/execute` | 开发机清理：执行选中配方（入参只有 `recipeIds`） |
 
 ### 5.1.1 开发机清理（devclean）为何与扫描并列而非合并
@@ -106,8 +111,11 @@ export default manifest
 1. **接口只收 `recipeId`，永不收路径。** 可被删除的目录集合在编译期由 `DevCleanCatalog` 固定，可在一个文件内审计完。加一个可删目录 = 改后端。
 2. **`DevCleanCatalog.permitted()` 双名单。** `forbiddenSubtrees()`（Windows 目录、Program Files、`Code\User`、`.ssh`/`.aws`/`.kai-toolbox`）上下双向禁删；`containerRoots()`（`%USERPROFILE%` / `%APPDATA%` / `%LOCALAPPDATA%`）只禁删自身及其祖先，否则会把整个配方表全否掉。
 3. **`TrashBin` 只走回收站，没有永久删除兜底**（与 `FileDeleteService` 的关键区别）—— 单次调用可能带走数 GB，而用户只是按类别授权的。失败**不**写入 `FailedDeleteRegistry`（那条重试链路是单文件 `Files.delete`，对目录必然永久失败），改为随响应内联返回。
+4. **固定软件目录迁移只收 `migrationId` 和目标路径。** 源路径由 `FixedDirectoryMigrationService` 白名单决定；先复制并核对文件数、字节数和相对路径，再备份源目录、创建 Windows Junction。失败恢复源目录，成功后原备份仍保留，避免迁移过程把清理授权扩大为任意路径文件操作。
 
 需要专用工具回收或会中断运行中进程的项（`pnpm store prune`、`docker system prune`、WSL `ext4.vhdx` 压缩、清空回收站）一律是 `ADVISORY`：只测体积 + 给命令，不代执行。
+
+包管理器缓存配置迁移只修改 npm、pip、Maven 的用户级配置，并固定拼接管理器子目录；旧缓存不自动搬运或删除，仍由配方测量后交给用户核对。Gradle 的用户目录混有 wrapper、daemon 和初始化配置，不按普通缓存自动迁移。
 
 ### 5.2 SSE 事件类型
 

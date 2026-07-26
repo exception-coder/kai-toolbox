@@ -61,6 +61,42 @@ export interface DevCleanCapability {
   windows: boolean
 }
 
+export interface DiskUsageItem {
+  name: string
+  path: string
+  scope: string
+  size: number
+  directory: boolean
+}
+
+export interface DiskUsage {
+  drive: string
+  totalBytes: number
+  usedBytes: number
+  freeBytes: number
+  measuredBytes: number
+  rootItems: DiskUsageItem[]
+  softwareItems: DiskUsageItem[]
+}
+
+export interface DevCleanEntry {
+  path: string
+  name: string
+  directory: boolean
+  size: number
+}
+
+export interface DevCleanEntries {
+  recipeId: string
+  entries: DevCleanEntry[]
+  totalCount: number
+  returnedCount: number
+  truncated: boolean
+  retainedEntries: DevCleanEntry[]
+  retainedCount: number
+  retainedTruncated: boolean
+}
+
 export interface DevCleanExecuteItem {
   recipeId: string
   title: string
@@ -76,6 +112,38 @@ export interface DevCleanExecuteResult {
   items: DevCleanExecuteItem[]
 }
 
+export interface PackageCacheView {
+  managerId: 'npm' | 'pip' | 'maven'
+  displayName: string
+  currentPath: string
+  defaultPath: string
+  configPath: string
+  migrationSupported: boolean
+  previousPath: string | null
+  backupPath: string | null
+  configurationMethod: string
+  configurationKey: string
+  verificationCommand: string
+  cleanupHint: string
+  message: string
+}
+
+export interface FixedDirectoryMigrationView {
+  migrationId: string
+  recipeId: string
+  displayName: string
+  sourcePath: string
+  targetPath: string | null
+  backupPath: string | null
+  available: boolean
+  alreadyLinked: boolean
+  junctionVerified: boolean
+  estimatedBytes: number
+  copiedFiles: number
+  copiedBytes: number
+  message: string
+}
+
 export function probeDevClean() {
   return http<DevCleanRecipe[]>('/treesize/devclean/probe')
 }
@@ -84,11 +152,47 @@ export function getDevCleanCapability() {
   return http<DevCleanCapability>('/treesize/devclean/capability')
 }
 
+export function analyzeDiskUsage() {
+  return http<DiskUsage>('/treesize/devclean/disk-usage')
+}
+
+export function getDevCleanEntries(recipeId: string) {
+  return http<DevCleanEntries>(`/treesize/devclean/recipes/${encodeURIComponent(recipeId)}/entries`)
+}
+
 export function executeDevClean(recipeIds: string[]) {
   return http<DevCleanExecuteResult>('/treesize/devclean/execute', {
     method: 'POST',
     body: JSON.stringify({ recipeIds }),
   })
+}
+
+export function listPackageCaches() {
+  return http<PackageCacheView[]>('/treesize/devclean/package-caches')
+}
+
+export function configurePackageCache(managerId: string, targetPath: string) {
+  return http<PackageCacheView>(
+    `/treesize/devclean/package-caches/${encodeURIComponent(managerId)}/configure`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ targetPath }),
+    },
+  )
+}
+
+export function listFixedDirectoryMigrations() {
+  return http<FixedDirectoryMigrationView[]>('/treesize/devclean/fixed-directory-migrations')
+}
+
+export function migrateFixedDirectory(migrationId: string, targetPath: string) {
+  return http<FixedDirectoryMigrationView>(
+    `/treesize/devclean/fixed-directory-migrations/${encodeURIComponent(migrationId)}/execute`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ targetPath }),
+    },
+  )
 }
 
 export function deleteScan(id: string) {

@@ -424,11 +424,47 @@ function Restart-PythonSidecars {
     Start-FasterWhisperSidecar
 }
 
+# 返回 :$port 上监听进程的 pid / 名字 / 命令行（无人监听则 Occupied=$false）。
+# 「端口被占」不等于「我要的那个服务在跑」——要跳过启动，得先凭命令行认出占用者是谁。
+function Get-PortHolder([int]$port) {
+    $holderPid = $null
+    try {
+        $holderPid = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction Stop |
+            Select-Object -ExpandProperty OwningProcess -Unique | Select-Object -First 1
+    } catch {
+        foreach ($l in (netstat -ano | Select-String ":$port\s.*LISTENING")) {
+            $tok = ($l.ToString().Trim() -split '\s+')[-1]
+            if ($tok -match '^\d+$') { $holderPid = [int]$tok; break }
+        }
+    }
+    if (-not $holderPid) {
+        return [pscustomobject]@{ Occupied = $false; ProcessId = $null; Name = $null; CommandLine = $null }
+    }
+    $name = $null
+    $commandLine = $null
+    try {
+        $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$holderPid" -ErrorAction Stop
+        $name = $proc.Name
+        $commandLine = $proc.CommandLine
+    } catch {
+        # 拿不到进程详情（权限/进程刚退）：只回 pid，调用方按「认不出」处理
+    }
+    return [pscustomobject]@{ Occupied = $true; ProcessId = $holderPid; Name = $name; CommandLine = $commandLine }
+}
+
 function Start-AgentScopeStudio {
     try {
-        $listening = $false
-        try { $listening = [bool](Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction Stop) } catch { }
-        if ($listening) { Write-Host '[supervisor] AgentScope Studio 已在 :3000，跳过'; return }
+        # 3000 是烂大街的端口（别的 dev server / 面板都可能占）。只按「端口有人监听」就跳过，
+        # 会在被别人占用时静默不启动，日志还写着一句让人放心的「已在 :3000」——认人再决定。
+        $holder = Get-PortHolder 3000
+        if ($holder.Occupied) {
+            if ("$($holder.CommandLine)" -match 'as_studio|agentscope') {
+                Write-Host '[supervisor] AgentScope Studio 已在 :3000，跳过'
+            } else {
+                Write-Host "[supervisor] WARN: :3000 被非 Studio 进程占用（PID=$($holder.ProcessId) $($holder.Name)），本次不启动 Studio；要腾端口可跑 stop-supervised.ps1 -Ports 3000"
+            }
+            return
+        }
         if (-not $NpmCmd) { Write-Host '[supervisor] npm 未找到，跳过 AgentScope Studio (:3000)'; return }
 
         $installThenRun = -not [bool](Get-Command as_studio -ErrorAction SilentlyContinue)

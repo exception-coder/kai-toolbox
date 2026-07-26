@@ -5,9 +5,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.io.IOException;
-import java.nio.file.DirectoryStream;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -141,32 +138,8 @@ public class DevCleanService {
         return out;
     }
 
-    /**
-     * The concrete paths a recipe would delete. Single source of truth for both phases, so the
-     * number shown to the user and the number acted on cannot drift apart.
-     */
     private List<Path> workItems(CleanupRecipe recipe) {
-        List<Path> targets = catalog.resolveTargets(recipe);
-        return switch (recipe.kind()) {
-            // Advisory recipes still resolve targets so we can report their size, but they are
-            // never handed to the deleter (execute() refuses them upstream).
-            case DIR, ADVISORY -> targets;
-            case DIR_CONTENTS -> targets.stream().flatMap(dir -> childrenOf(dir).stream()).toList();
-            case VERSIONED_DIR -> targets.stream()
-                    .flatMap(dir -> catalog.obsoleteVersions(dir, recipe.keepLatest()).stream())
-                    .toList();
-        };
-    }
-
-    private List<Path> childrenOf(Path dir) {
-        try (DirectoryStream<Path> children = Files.newDirectoryStream(dir)) {
-            List<Path> out = new ArrayList<>();
-            children.forEach(out::add);
-            return out;
-        } catch (IOException e) {
-            log.debug("devclean: cannot list {}: {}", dir, e.toString());
-            return List.of();
-        }
+        return catalog.workItems(recipe);
     }
 
     /** A few example paths so the user can sanity-check what a category actually covers. */
