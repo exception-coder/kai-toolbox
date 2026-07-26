@@ -16,6 +16,7 @@ import {
   autoRegisterToReqPool,
   createSession,
   deleteSession,
+  distributeAnswer,
   estimateDevDocEffort,
   evaluateProgress,
   getContent,
@@ -3441,6 +3442,18 @@ function BatchClarifyPanel({
   const [submitting, setSubmitting] = useState(false)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // ── 一次性回答：整段写/粘贴 → 交给模型拆分归位到各题（省掉逐题复制粘贴的体力活）。
+  // 默认折叠：逐题作答质量更高（每题针对性回答、不容易漏），一次性回答是给"已经在别处
+  // 想清楚了、只想快点贴进来"的场景兜底，不该是首选路径。
+  const [bulkOpen, setBulkOpen] = useState(false)
+  const [bulkText, setBulkText] = useState('')
+  const [distributing, setDistributing] = useState(false)
+  const [distributeError, setDistributeError] = useState<string | null>(null)
+  /** 上一次分配的结果摘要 + 分配前的答案快照（供「撤销分配」原样还原） */
+  const [distributeResult, setDistributeResult] = useState<
+    { matchedCount: number; total: number; unmatchedNumbers: number[]; leftover: string; snapshot: string[] } | null
+  >(null)
+
   // 挂载时：已有题目（断点续问，或刚生成完再次渲染）就不重复生成；否则调批量生成接口
   useEffect(() => {
     if (questions.length > 0) return
@@ -3532,6 +3545,44 @@ function BatchClarifyPanel({
   const allAnswered = questions.length > 0 && answers.every((a) => a.trim())
   const answeredCount = answers.filter((a) => a.trim()).length
 
+  /**
+   * 把整段回答交给模型拆分归位。分配结果只填进输入框，用户仍需逐题核对——所以：
+   * 模型没匹配到内容的题保留用户已经手填的答案（空串不覆盖非空），且保留分配前快照支持一键撤销。
+   */
+  const handleDistribute = async () => {
+    if (!bulkText.trim() || distributing) return
+    setDistributing(true)
+    setDistributeError(null)
+    try {
+      const dist = await distributeAnswer(sessionId, bulkText.trim())
+      const snapshot = [...answers]
+      setAnswers((prev) =>
+        questions.map((_, i) => {
+          const assigned = (dist.answers[i] ?? '').trim()
+          return assigned || prev[i] || ''
+        }),
+      )
+      setDistributeResult({
+        matchedCount: dist.matchedCount,
+        total: questions.length,
+        unmatchedNumbers: dist.unmatchedNumbers,
+        leftover: dist.leftover,
+        snapshot,
+      })
+    } catch (e) {
+      setDistributeError(e instanceof Error ? e.message : 'AI 整理失败，请重试或改用逐题填写')
+    } finally {
+      setDistributing(false)
+    }
+  }
+
+  /** 撤销上一次分配，把答案还原成分配前的快照（模型分错/覆盖了自己写的内容时用）。 */
+  const handleUndoDistribute = () => {
+    if (!distributeResult) return
+    setAnswers(distributeResult.snapshot)
+    setDistributeResult(null)
+  }
+
   const handleSubmit = async () => {
     if (!allAnswered || submitting) return
     setSubmitting(true)
@@ -3579,8 +3630,99 @@ function BatchClarifyPanel({
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-5 py-4">
+      <div className="flex-1 overflow-y-auto px-4 py-4 md:px-5">
         <div className="max-w-3xl mx-auto space-y-4">
+          {/* ── 一次性回答（默认折叠，逐题作答仍是推荐路径）── */}
+          {!bulkOpen ? (
+            <button
+              type="button"
+              onClick={() => setBulkOpen(true)}
+              className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-[var(--color-border)] px-3 py-2 text-xs text-[var(--color-muted-foreground)] hover:border-[var(--color-ring)] hover:text-[var(--color-foreground)] transition-colors"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              已经想好了？一次性粘贴回答，AI 自动分配到各题
+            </button>
+          ) : (
+            <div className="rounded-xl border border-[var(--color-primary)]/25 bg-[var(--color-primary)]/5 overflow-hidden">
+              <div className="flex items-start justify-between gap-2 px-4 py-2.5 border-b border-[var(--color-primary)]/15">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-primary)]">
+                    <Sparkles className="w-3.5 h-3.5 flex-shrink-0" />
+                    一次性回答（AI 自动分配到各题）
+                  </div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-[var(--color-muted-foreground)]">
+                    建议还是逐题回答，针对性更强、不容易漏；这里适合你已经在别处想清楚、只想整段贴进来的情况。
+                    AI 只做拆分归位，不会替你编答案，没覆盖到的题会留空等你补。
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBulkOpen(false)}
+                  className="flex-shrink-0 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+                  title="收起"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <textarea
+                value={bulkText}
+                onChange={(e) => setBulkText(e.target.value)}
+                rows={5}
+                placeholder={`把对上面 ${questions.length} 题的回答一起写在这里，可以带题号也可以不带，例如：\n1. 超时就强制退出，当前记录会自动存草稿\n导出用 xlsx，管理员能看全部人的记录`}
+                className="w-full px-4 py-2.5 text-sm resize-y focus:outline-none bg-[var(--color-input)]"
+              />
+
+              <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
+                <span className="text-[11px] text-[var(--color-muted-foreground)]">
+                  分配后仍可逐题修改，不满意可一键撤销
+                </span>
+                <button
+                  type="button"
+                  disabled={!bulkText.trim() || distributing}
+                  onClick={handleDistribute}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[var(--color-primary)] text-white text-xs font-medium hover:opacity-90 disabled:opacity-40"
+                >
+                  {distributing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                  {distributing ? 'AI 整理中…' : 'AI 自动分配到各题'}
+                </button>
+              </div>
+
+              {distributeError && (
+                <div className="px-4 pb-2.5 text-[11px] text-red-500">⚠ {distributeError}</div>
+              )}
+
+              {distributeResult && (
+                <div className="mx-4 mb-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] px-3 py-2 space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+                    <span className="font-medium text-[var(--color-foreground)]">
+                      已分配 {distributeResult.matchedCount} / {distributeResult.total} 题
+                    </span>
+                    {distributeResult.unmatchedNumbers.length > 0 && (
+                      <span className="text-amber-500">
+                        第 {distributeResult.unmatchedNumbers.join('、')} 题没匹配到内容，请手动补充
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleUndoDistribute}
+                      className="ml-auto underline text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+                    >
+                      撤销分配
+                    </button>
+                  </div>
+                  {/* 没归到任何一题的内容原样展示，避免用户粘贴的内容被静默吞掉 */}
+                  {distributeResult.leftover && (
+                    <div className="text-[11px] text-[var(--color-muted-foreground)]">
+                      <span className="text-amber-500">未归类内容：</span>
+                      <span className="whitespace-pre-wrap break-words">{distributeResult.leftover}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {questions.map((q, i) => (
             <div key={i} className="rounded-xl border border-[var(--color-border)] overflow-hidden">
               <div className="flex items-start gap-2.5 px-4 py-3 bg-[var(--color-muted)]/30">

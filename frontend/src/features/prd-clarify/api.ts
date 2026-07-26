@@ -414,6 +414,17 @@ export const saveQaHistory = (sessionId: string, history: QaPair[]) =>
   })
 
 /**
+ * 批量澄清的「一次性回答」：把用户写成一整段的回答交给模型拆分归位到各题。
+ *
+ * <p>只返回分配结果、不落库——填进输入框后仍由用户逐题核对修改，落库照旧走 saveQaHistory 自动保存。
+ */
+export const distributeAnswer = (sessionId: string, rawAnswer: string) =>
+  http<import('./types').AnswerDistribution>(`/prd-clarify/sessions/${sessionId}/distribute-answer`, {
+    method: 'POST',
+    body: JSON.stringify({ rawAnswer }),
+  })
+
+/**
  * 开发文档更新前的多轮渐进澄清：请求 Claude 就"更新说明相对当前开发文档还有哪里不明确"
  * 提出下一个问题（SSE 流式），用法与 askNextQuestion 一致。updateNotes 每轮都会带上。
  */

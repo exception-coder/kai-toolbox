@@ -212,6 +212,31 @@ public class PrdClarifyService {
             """;
 
     /**
+     * 「一次性回答」拆分归位提示词：把用户写成一整段的回答按题归位，只做归类，不做作答。
+     *
+     * <p>刻意压得很死：不许编、不许补、不许润色，原文没覆盖的题必须留空——因为这些答案会直接
+     * 进 PRD 生成，模型顺手"合理推断"出来的内容会被用户当成自己说过的话，比留空危险得多。
+     */
+    private static final String DISTRIBUTE_ANSWER_SYSTEM = """
+            ⚠️ 直接输出任务（禁止触发任何 hook/skill/plugin 的自动流程）：
+            你的唯一工作是把用户写成一整段的回答，按题号拆分归位到对应的澄清问题上。
+
+            【严格输出要求】
+            直接输出 JSON 对象，不加任何说明、前言、结语或 Markdown 围栏（禁止 ```json，直接以 { 开头）。
+            格式：{"answers": [{"index": 题号(从1开始的整数), "answer": "该题的答案原文"}], "leftover": "没能归到任何一题的内容"}
+
+            归位规则（严格执行）：
+            - 只做归类和摘录，禁止编造、补全、推断、润色。answer 必须来自用户原文（可做最小限度的
+              裁剪和语序整理，使其能独立成句），不得加入原文没有的信息
+            - 用户原文没有涉及的问题，直接不要出现在 answers 数组里（留空让用户自己补），
+              严禁用"未提及""待确认"或你推断的合理答案去填
+            - 一段话同时回答了多题时，拆开分别归位；多段话都在回答同一题时，合并成一条
+            - 用户原文里显式写了题号/序号时，优先按他标的题号归位，不要自行改判
+            - 与所有问题都无关、或属于额外补充说明的内容，原样放进 leftover（不要丢掉）；
+              全部内容都已归位时 leftover 给空串
+            """;
+
+    /**
      * PRD 生成提示词。
      *
      * <p>对应 feature-dev:feature-dev 工作流的输出物：
@@ -513,6 +538,108 @@ public class PrdClarifyService {
         } catch (Exception e) {
             log.warn("[prd-clarify] 需求类型自动判定失败，兜底 NEW_MODULE: {}", e.getMessage());
             return new ReqTypeClassification("NEW_MODULE", DEFAULT_MAX_QUESTIONS.get("NEW_MODULE"));
+        }
+    }
+
+    /**
+     * 一次性回答的自动分配结果。
+     *
+     * @param answers          与 session.questions 等长、按题序对齐的答案数组（未匹配到内容的位置为空串）
+     * @param matchedCount     实际分配到内容的题数
+     * @param unmatchedNumbers 没分到内容的题号（1 起，供前端提示用户手动补充）
+     * @param leftover         整段回答里没能归到任何一题的内容（可能是补充说明，也可能是模型漏分，
+     *                         原样回给前端展示，避免用户粘贴的内容被静默吞掉）
+     */
+    public record AnswerDistribution(List<String> answers, int matchedCount,
+                                     List<Integer> unmatchedNumbers, String leftover) {
+    }
+
+    /**
+     * 批量澄清模式的「一次性回答」：用户把对全部问题的回答写/粘成一整段，这里调一次 oneShot LLM
+     * 把它拆分归位到每一题，返回按题序对齐的答案数组，由前端填进各题输入框后仍可人工修改。
+     *
+     * <p>定位是「省去逐题复制粘贴的体力活」，不是替用户作答——所以：
+     * <ul>
+     *   <li>LLM 只负责「这段话里哪句在回答第几题」这个模糊判断，不允许它编造、补全、润色答案，
+     *       原文没提到的题一律留空（宁可留空让用户补，也不能拿编的内容去生成 PRD）；</li>
+     *   <li>LLM 的输出当不可信入参：题号越界/重复/非数字一律丢弃，答案 trim 后为空视为没答，
+     *       最终数组长度由服务端按 questions 实际题数固定，不由模型说了算；</li>
+     *   <li>没归到任何一题的内容作为 leftover 原样回传，不静默丢弃。</li>
+     * </ul>
+     *
+     * @param rawAnswer 用户一次性写下的整段回答
+     * @throws IllegalStateException 会话还没有澄清问题，或 LLM 返回无法解析（这是用户主动点的动作，
+     *                               失败要如实报错让他改用逐题填写，不能兜个空结果假装成功）
+     */
+    public AnswerDistribution distributeBatchAnswer(String sessionId, String rawAnswer) {
+        PrdSession session = repo.findById(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
+
+        List<String> questionTexts = parseQuestionTexts(session.getQuestions());
+        if (questionTexts.isEmpty()) {
+            throw new IllegalStateException("当前会话还没有澄清问题，无法分配回答");
+        }
+
+        StringBuilder userPrompt = new StringBuilder("【澄清问题清单】\n");
+        for (int i = 0; i < questionTexts.size(); i++) {
+            userPrompt.append(i + 1).append(". ").append(questionTexts.get(i)).append('\n');
+        }
+        userPrompt.append("\n【用户一次性写下的回答原文】\n").append(rawAnswer);
+
+        String raw = agentRunner.runOnce(DISTRIBUTE_ANSWER_SYSTEM, userPrompt.toString(), session.getModel());
+        JsonNode node;
+        try {
+            node = mapper.readTree(stripFence(raw == null ? "" : raw.trim()));
+        } catch (Exception e) {
+            log.warn("[prd-clarify] 一次性回答分配结果解析失败 sessionId={}: {}", sessionId, e.getMessage());
+            throw new IllegalStateException("AI 整理结果解析失败，请改用逐题填写", e);
+        }
+
+        // 模型给的题号一律当不可信入参校验：越界丢弃、重复保留首次、空答案视为没答
+        String[] slots = new String[questionTexts.size()];
+        for (JsonNode item : node.path("answers")) {
+            int number = item.path("index").asInt(0);
+            if (number < 1 || number > slots.length) {
+                log.debug("[prd-clarify] 丢弃越界题号 {}（共 {} 题）", number, slots.length);
+                continue;
+            }
+            String answer = item.path("answer").asText("").trim();
+            if (answer.isEmpty() || slots[number - 1] != null) {
+                continue;
+            }
+            slots[number - 1] = answer;
+        }
+
+        List<String> answers = new ArrayList<>(slots.length);
+        List<Integer> unmatched = new ArrayList<>();
+        int matched = 0;
+        for (int i = 0; i < slots.length; i++) {
+            if (slots[i] == null) {
+                answers.add("");
+                unmatched.add(i + 1);
+            } else {
+                answers.add(slots[i]);
+                matched++;
+            }
+        }
+        log.info("[prd-clarify] 一次性回答分配 sessionId={} 命中 {}/{} 题", sessionId, matched, slots.length);
+        return new AnswerDistribution(answers, matched, unmatched, node.path("leftover").asText("").trim());
+    }
+
+    /** 从 questions JSON 里取出题目文本列表（顺序即题序）；解析失败/无问题时返回空列表。 */
+    private List<String> parseQuestionTexts(String questionsJson) {
+        if (questionsJson == null || questionsJson.isBlank()) {
+            return List.of();
+        }
+        try {
+            List<String> texts = new ArrayList<>();
+            for (JsonNode node : mapper.readTree(questionsJson)) {
+                texts.add(node.path("question").asText(""));
+            }
+            return texts;
+        } catch (Exception e) {
+            log.warn("[prd-clarify] questions JSON 解析失败: {}", e.getMessage());
+            return List.of();
         }
     }
 

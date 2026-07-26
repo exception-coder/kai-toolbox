@@ -6,6 +6,7 @@ import com.exceptioncoder.toolbox.prdclarify.api.dto.AskNextQuestionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.AttachmentParseView;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.CreateSessionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.DevDocVersionSummary;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.DistributeAnswerRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.EstimateEffortRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.EvaluateProgressRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.GenerateDevDocRequest;
@@ -368,6 +369,19 @@ public class PrdClarifyController {
     public PrdSessionView saveQaHistory(@PathVariable String id,
                                         @Valid @RequestBody SaveQaHistoryRequest req) {
         return PrdSessionView.from(service.saveQaHistory(id, req.history()));
+    }
+
+    /**
+     * 批量澄清模式的「一次性回答」：把用户写成一整段的回答拆分归位到各题，返回按题序对齐的答案数组。
+     *
+     * <p>只返回分配结果、不落库——用户还要在前端逐题核对修改，落库交给原有的 qa-history 自动保存，
+     * 避免"AI 分配完就当成用户最终答案"。
+     */
+    @PostMapping("/sessions/{id}/distribute-answer")
+    public PrdClarifyService.AnswerDistribution distributeAnswer(
+            @PathVariable String id,
+            @Valid @RequestBody DistributeAnswerRequest req) {
+        return service.distributeBatchAnswer(id, req.rawAnswer());
     }
 
     /** 提交用户对澄清问题的回答。 */

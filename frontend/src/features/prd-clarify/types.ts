@@ -29,6 +29,20 @@ export interface QuestionItem {
 }
 
 /**
+ * 批量澄清「一次性回答」的自动分配结果（后端 PrdClarifyService.AnswerDistribution）。
+ */
+export interface AnswerDistribution {
+  /** 与题目等长、按题序对齐的答案数组；没匹配到内容的位置是空串 */
+  answers: string[]
+  /** 实际分配到内容的题数 */
+  matchedCount: number
+  /** 没分到内容的题号（1 起），提示用户手动补充 */
+  unmatchedNumbers: number[]
+  /** 没能归到任何一题的剩余内容（可能是额外补充说明，也可能是模型漏分） */
+  leftover: string
+}
+
+/**
  * 开发文档生成历史的一条记录（追溯"这版为什么长这样"）。
  * mode: generate（首次生成）| regenerate（基于最新 PRD 从零重新生成）|
  *       update（基于当前开发文档增量更新，extraInstructions 含完整澄清问答文本）
