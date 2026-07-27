@@ -102,6 +102,26 @@ CREATE TABLE IF NOT EXISTS consult_system_pref (
     updated_at          INTEGER NOT NULL
 );
 
+-- 每轮问答的 BUG 抽取台账：既保证不重复抽（省钱），也留下「为什么这轮没登记」的凭据。
+-- 主键刻意用 (session_id, turn_index) 而非 turn_id：consult_turn 在每次增量同步时被整表重写、
+-- turn_id 每次都是新 UUID，挂在 turn_id 上的状态会被冲掉（同 consult_feedback 的处理）。
+-- answer_hash 是幂等依据：前端每 1.5s 防抖同步一次且整表重写，没有它就会把整段对话反复重抽。
+-- 答案变长/被改写时 hash 变化，才重新抽一次。
+CREATE TABLE IF NOT EXISTS consult_turn_extraction (
+    session_id     TEXT    NOT NULL,
+    turn_index     INTEGER NOT NULL,
+    answer_hash    TEXT    NOT NULL,               -- 抽取时所依据的答案指纹
+    status         TEXT    NOT NULL,               -- DONE 已判定 | FAILED 调用或解析失败
+    is_bug         INTEGER,                        -- 1 判定为缺陷 | 0 非缺陷 | NULL 未判定成功
+    bug_id         TEXT,                           -- 命中登记时的 consult_bug.bug_id
+    prompt_version INTEGER,                        -- 本次实际使用的提示词版本，退化归因用
+    raw            TEXT,                           -- 原始输出，解析失败时排查用
+    error          TEXT,
+    extracted_at   INTEGER NOT NULL,
+    PRIMARY KEY (session_id, turn_index)
+);
+CREATE INDEX IF NOT EXISTS idx_consult_extraction_bug ON consult_turn_extraction(bug_id);
+
 -- 版本化提示词：BUG 抽取口径的唯一事实源。
 -- 口径原本写死在前端 buildConsultSeed 的字符串字面量里，改一次就无法复现旧行为，
 -- 「本周答对、改了 prompt 后下周答错」查不出是哪一版变的。落库并只追加版本后，

@@ -7,6 +7,7 @@ import com.exceptioncoder.toolbox.foreconsult.domain.ConsultSession;
 import com.exceptioncoder.toolbox.foreconsult.domain.ConsultTurn;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultFeedbackRepository;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultSessionRepository;
+import com.exceptioncoder.toolbox.foreconsult.repository.ConsultTurnExtractionRepository;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultTurnRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -32,13 +33,16 @@ public class ConsultService {
     private final ConsultSessionRepository sessionRepo;
     private final ConsultTurnRepository turnRepo;
     private final ConsultFeedbackRepository feedbackRepo;
+    private final ConsultTurnExtractionRepository extractionRepo;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public ConsultService(ConsultSessionRepository sessionRepo, ConsultTurnRepository turnRepo,
-                          ConsultFeedbackRepository feedbackRepo) {
+                          ConsultFeedbackRepository feedbackRepo,
+                          ConsultTurnExtractionRepository extractionRepo) {
         this.sessionRepo = sessionRepo;
         this.turnRepo = turnRepo;
         this.feedbackRepo = feedbackRepo;
+        this.extractionRepo = extractionRepo;
     }
 
     /** 保存/更新某轮回答的评分反馈（按 sessionId+turnIndex upsert）。 */
@@ -171,6 +175,8 @@ public class ConsultService {
     public void delete(String sessionId) {
         turnRepo.deleteBySession(sessionId);
         feedbackRepo.deleteBySession(sessionId);
+        // 抽取台账随会话走：留着会让同 id 的新会话（极端情况）命中旧指纹而被误跳过
+        extractionRepo.deleteBySession(sessionId);
         sessionRepo.delete(sessionId);
     }
 

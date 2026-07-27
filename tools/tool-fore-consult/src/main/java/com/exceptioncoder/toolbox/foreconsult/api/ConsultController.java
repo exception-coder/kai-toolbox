@@ -10,6 +10,7 @@ import com.exceptioncoder.toolbox.foreconsult.api.dto.LinkDevSessionRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.StartSessionRequest;
 import com.exceptioncoder.toolbox.foreconsult.service.ConsultAttachmentService;
 import com.exceptioncoder.toolbox.foreconsult.service.ConsultService;
+import com.exceptioncoder.toolbox.foreconsult.service.TurnBugExtractionService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -45,10 +46,13 @@ public class ConsultController {
 
     private final ConsultService service;
     private final ConsultAttachmentService attachmentService;
+    private final TurnBugExtractionService bugExtractionService;
 
-    public ConsultController(ConsultService service, ConsultAttachmentService attachmentService) {
+    public ConsultController(ConsultService service, ConsultAttachmentService attachmentService,
+                             TurnBugExtractionService bugExtractionService) {
         this.service = service;
         this.attachmentService = attachmentService;
+        this.bugExtractionService = bugExtractionService;
     }
 
     /** 上传咨询附件（图片/Excel/Word/Markdown/PDF 等）。落盘到系统 cwd 或用户目录，返回绝对路径。 */
@@ -95,6 +99,23 @@ public class ConsultController {
     @PostMapping("/sessions/{id}/turns")
     public ConsultSessionView syncTurns(@PathVariable String id, @RequestBody ArchiveRequest req) {
         return ConsultSessionView.from(service.syncTurns(id, req), turnViewsOf(id), feedbackViewsOf(id));
+    }
+
+    /**
+     * 对该会话已落库的轮次跑后端 BUG 抽取，命中即登记。
+     *
+     * <p>目前是手动触发：前端仍在用「回答里夹带机器可读块 + 前端登记」的老路径，
+     * 两边同时自动跑会把同一缺陷登记两遍（虽有 dedup_key 兜底成累加，语义上仍是错的）。
+     * 待前端摘掉解析与登记后，再把本调用挂到轮次落库钩子上转为自动。
+     *
+     * @param force 忽略答案指纹强制重抽，换了提示词版本后重跑用
+     */
+    @PostMapping("/sessions/{id}/extract-bugs")
+    public TurnBugExtractionService.Summary extractBugs(
+            @PathVariable String id,
+            @RequestParam(required = false) String model,
+            @RequestParam(defaultValue = "false") boolean force) {
+        return bugExtractionService.extractSession(id, model, force);
     }
 
     /** 某轮回答的评分/反馈（GOOD 一键；BAD 携带类型/原因/正确答案）。 */
