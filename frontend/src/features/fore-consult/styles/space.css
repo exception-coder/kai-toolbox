@@ -3,7 +3,10 @@
 .fc-space {
   position: relative;
   overflow: hidden;
+  isolation: isolate;
+  contain: layout paint style;
   background:
+    conic-gradient(from 120deg at 30% 30%, rgba(94, 124, 255, 0.09), transparent 25%, rgba(168, 85, 247, 0.08) 55%, transparent 80%),
     radial-gradient(1100px 640px at 78% 16%, rgba(56, 89, 168, 0.28), transparent 60%),
     radial-gradient(900px 600px at 16% 84%, rgba(120, 58, 160, 0.24), transparent 62%),
     radial-gradient(680px 520px at 50% 52%, rgba(20, 130, 150, 0.14), transparent 60%),
@@ -11,36 +14,18 @@
   color: #e8ecff;
 }
 
-/* 极光层：缓慢流动的星云带，让背景更电影感 */
+/* 单个平铺层生成星尘，不为每颗星创建 DOM 或独立合成层。 */
 .fc-space::before {
   content: '';
   position: absolute;
-  inset: -20%;
+  inset: 0;
   background:
-    conic-gradient(from 120deg at 30% 30%, rgba(94, 124, 255, 0.10), transparent 25%, rgba(168, 85, 247, 0.10) 55%, transparent 80%),
-    radial-gradient(60% 50% at 70% 60%, rgba(34, 211, 238, 0.08), transparent 70%);
-  filter: blur(30px);
-  animation: fc-aurora 32s ease-in-out infinite alternate;
+    radial-gradient(circle, rgba(255, 255, 255, 0.72) 0 0.8px, transparent 1px) 9px 13px / 47px 53px,
+    radial-gradient(circle, rgba(170, 205, 255, 0.48) 0 0.7px, transparent 1px) 22px 31px / 73px 67px,
+    radial-gradient(circle, rgba(216, 190, 255, 0.34) 0 1px, transparent 1.3px) 41px 7px / 109px 97px;
+  opacity: 0.72;
   pointer-events: none;
-}
-
-@keyframes fc-aurora {
-  0% { transform: translate3d(-3%, -2%, 0) rotate(0deg) scale(1.05); opacity: 0.8; }
-  100% { transform: translate3d(4%, 3%, 0) rotate(8deg) scale(1.15); opacity: 1; }
-}
-
-.fc-star {
-  position: absolute;
-  border-radius: 9999px;
-  background: #fff;
-  animation: fc-twinkle var(--fc-dur, 4s) ease-in-out infinite;
-  animation-delay: var(--fc-delay, 0s);
-  will-change: opacity, transform;
-}
-
-@keyframes fc-twinkle {
-  0%, 100% { opacity: 0.1; transform: scale(0.8); }
-  50% { opacity: 0.85; transform: scale(1.15); }
+  z-index: 0;
 }
 
 /* ── 中央 AI 恒星：Forge ─────────────────────────────── */
@@ -68,7 +53,6 @@
     0 0 40px 6px rgba(250, 204, 120, 0.5),
     0 0 90px 24px rgba(129, 108, 240, 0.45),
     inset 0 -6px 16px rgba(90, 40, 140, 0.5);
-  animation: fc-core-pulse 4s ease-in-out infinite;
 }
 
 .fc-core::before {
@@ -77,7 +61,6 @@
   inset: -22px;
   border-radius: 9999px;
   background: conic-gradient(from 0deg, transparent, rgba(253, 224, 138, 0.55), transparent 32%, rgba(168, 130, 255, 0.5) 60%, transparent 82%);
-  animation: fc-orbit 18s linear infinite;
   opacity: 0.7;
 }
 
@@ -87,12 +70,6 @@
   inset: -46px;
   border-radius: 9999px;
   border: 1px dashed rgba(180, 200, 255, 0.18);
-  animation: fc-orbit 40s linear infinite reverse;
-}
-
-@keyframes fc-core-pulse {
-  0%, 100% { box-shadow: 0 0 0 1px rgba(255,255,255,0.4), 0 0 40px 6px rgba(250,204,120,0.5), 0 0 90px 24px rgba(129,108,240,0.45), inset 0 -6px 16px rgba(90,40,140,0.5); }
-  50% { box-shadow: 0 0 0 1px rgba(255,255,255,0.5), 0 0 54px 10px rgba(250,204,120,0.62), 0 0 120px 34px rgba(129,108,240,0.55), inset 0 -6px 16px rgba(90,40,140,0.5); }
 }
 
 .fc-core-label {
@@ -107,15 +84,7 @@
 .fc-orb-wrap {
   position: absolute;
   transform: translate(-50%, -50%);
-  animation: fc-drift var(--fc-drift-dur, 9s) ease-in-out infinite;
-  animation-delay: var(--fc-drift-delay, 0s);
-  will-change: transform;
   z-index: 10;
-}
-
-@keyframes fc-drift {
-  0%, 100% { transform: translate(-50%, calc(-50% - 6px)); }
-  50% { transform: translate(-50%, calc(-50% + 10px)); }
 }
 
 .fc-orb {
@@ -131,8 +100,6 @@
     inset 0 -9px 20px -6px rgba(0, 0, 0, 0.66),
     inset 0 7px 15px -4px rgba(255, 255, 255, 0.5),
     inset 6px 0 14px -8px rgba(255, 255, 255, 0.25);
-  animation: fc-breathe 5s ease-in-out infinite;
-  animation-delay: var(--fc-drift-delay, 0s);
 }
 
 /* 大气层光晕：把行星"嵌入"太空，而不是浮在上面 */
@@ -141,9 +108,8 @@
   position: absolute;
   inset: -38%;
   border-radius: 9999px;
-  background: radial-gradient(circle, color-mix(in oklab, var(--fc-hue) 60%, transparent) 0%, transparent 66%);
-  filter: blur(7px);
-  opacity: 0.55;
+  background: radial-gradient(circle, color-mix(in oklab, var(--fc-hue) 35%, transparent) 0%, transparent 68%);
+  opacity: 0.78;
   z-index: -1;
   pointer-events: none;
 }
@@ -156,22 +122,17 @@
   border-radius: 9999px;
   background: conic-gradient(from 0deg, transparent 0%, color-mix(in oklab, var(--fc-hue) 50%, transparent) 28%, transparent 58%);
   opacity: 0.5;
-  animation: fc-orbit var(--fc-orbit-dur, 14s) linear infinite;
   pointer-events: none;
-}
-
-@keyframes fc-breathe {
-  0%, 100% { box-shadow: 0 0 0 1px color-mix(in oklab, var(--fc-hue) 55%, transparent), 0 6px 30px -8px color-mix(in oklab, var(--fc-hue) 60%, transparent), inset 0 -9px 20px -6px rgba(0,0,0,0.66), inset 0 7px 15px -4px rgba(255,255,255,0.5); }
-  50% { box-shadow: 0 0 0 1px color-mix(in oklab, var(--fc-hue) 70%, transparent), 0 10px 46px -6px color-mix(in oklab, var(--fc-hue) 78%, transparent), inset 0 -9px 20px -6px rgba(0,0,0,0.66), inset 0 7px 15px -4px rgba(255,255,255,0.6); }
 }
 
 .fc-orb-wrap:hover { z-index: 30; }
 .fc-orb-wrap:hover .fc-orb { transform: scale(1.16); filter: brightness(1.14); }
-.fc-orb-wrap.is-active .fc-orb { animation: fc-selected-pulse 1.6s ease-in-out infinite; }
-
-@keyframes fc-selected-pulse {
-  0%, 100% { box-shadow: 0 0 0 2px color-mix(in oklab, var(--fc-hue) 75%, transparent), 0 8px 40px -6px color-mix(in oklab, var(--fc-hue) 80%, transparent), inset 0 -9px 20px -6px rgba(0,0,0,0.66), inset 0 7px 15px -4px rgba(255,255,255,0.5); }
-  50% { box-shadow: 0 0 0 3px color-mix(in oklab, var(--fc-hue) 95%, transparent), 0 12px 64px 0 color-mix(in oklab, var(--fc-hue) 90%, transparent), inset 0 -9px 20px -6px rgba(0,0,0,0.66), inset 0 7px 15px -4px rgba(255,255,255,0.65); }
+.fc-orb-wrap.is-active .fc-orb {
+  box-shadow:
+    0 0 0 2px color-mix(in oklab, var(--fc-hue) 78%, transparent),
+    0 8px 40px -6px color-mix(in oklab, var(--fc-hue) 75%, transparent),
+    inset 0 -9px 20px -6px rgba(0, 0, 0, 0.66),
+    inset 0 7px 15px -4px rgba(255, 255, 255, 0.5);
 }
 
 /* 融合式字形：不是贴上去的白 SVG，而是像刻在星球表面的浮雕 */
@@ -181,7 +142,6 @@
   color: #ffffff;
   opacity: 0.62;
   mix-blend-mode: overlay;
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
   pointer-events: none;
 }
 
@@ -199,20 +159,21 @@
 }
 
 /* ── 数据流连线 ─────────────────────────────────── */
+.fc-edge-glow {
+  fill: none;
+  stroke: rgba(98, 150, 255, 0.18);
+  stroke-width: 5.5;
+  stroke-linecap: round;
+}
+
 .fc-edge {
   fill: none;
   stroke: url(#fc-edge-grad);
-  stroke-width: 1.8;
+  stroke-width: 1.35;
   stroke-linecap: round;
-  stroke-dasharray: 5 9;
-  opacity: 0.85;
-  filter: drop-shadow(0 0 4px rgba(120, 180, 255, 0.5));
-  animation: fc-flow 1.1s linear infinite;
+  stroke-dasharray: 4 7;
+  opacity: 0.92;
 }
-
-@keyframes fc-flow { to { stroke-dashoffset: -14; } }
-
-.fc-particle { fill: #bfe0ff; filter: drop-shadow(0 0 3px rgba(150, 200, 255, 0.9)); }
 
 .fc-edge-label {
   position: absolute;
@@ -226,6 +187,15 @@
   border: 1px solid rgba(140, 160, 255, 0.28);
   backdrop-filter: blur(6px);
   pointer-events: none;
+}
+
+.fc-toolbar {
+  padding: 4px;
+  border: 1px solid rgba(148, 163, 255, 0.16);
+  border-radius: 9999px;
+  background: rgba(9, 13, 33, 0.62);
+  box-shadow: 0 14px 38px -24px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(12px) saturate(1.12);
 }
 
 /* ── 面板 / 玻璃 ─────────────────────────────────── */
@@ -257,8 +227,6 @@
 }
 .fc-glass-input::placeholder { color: rgba(200, 210, 255, 0.4); }
 .fc-glass-input:focus { outline: none; border-color: rgba(150, 175, 255, 0.6); box-shadow: 0 0 0 2px rgba(120, 150, 255, 0.25); }
-
-@keyframes fc-orbit { to { transform: rotate(360deg); } }
 
 /* ── Mission Console：从星球浮现的全息任务控制台（侧滑，不遮银河） ── */
 .fc-console {
@@ -356,6 +324,6 @@
 .fc-hint-icon { animation: fc-hint-nudge 1.6s ease-in-out infinite; }
 
 @media (prefers-reduced-motion: reduce) {
-  .fc-space::before, .fc-star, .fc-orb-wrap, .fc-orb, .fc-orb::after, .fc-orb-wrap.is-active .fc-orb,
-  .fc-edge, .fc-core, .fc-core::before, .fc-core::after, .fc-console, .fc-console-scan::before { animation: none !important; }
+  .fc-panel, .fc-backdrop, .fc-console, .fc-console-scan::before,
+  .fc-thinking-dot, .fc-hint, .fc-hint-icon { animation: none !important; }
 }
