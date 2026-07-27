@@ -116,6 +116,15 @@ public class TurnBugExtractionService {
                             .error("输出无法解析为 JSON").build());
                     continue;
                 }
+                if (e.isBug() && (e.title() == null || e.title().isBlank())) {
+                    // 判定为缺陷却没给标题：BugService 直调不过 @NotBlank（那只在 Controller 生效），
+                    // title().trim() 会直接 NPE；且标题是 dedup_key 的组成部分，缺了也无法去重。
+                    failed++;
+                    extractionRepo.upsert(row.status("FAILED").isBug(true)
+                            .promptVersion(result.promptVersion()).raw(result.raw())
+                            .error("判定为缺陷但未给出标题，无法登记").build());
+                    continue;
+                }
                 String bugId = null;
                 if (e.isBug()) {
                     ConsultBug bug = bugService.register(toRegisterRequest(sessionId, turn, e, answer));
