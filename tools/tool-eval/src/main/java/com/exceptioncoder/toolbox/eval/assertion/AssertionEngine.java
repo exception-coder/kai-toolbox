@@ -168,10 +168,13 @@ public class AssertionEngine {
             Map.Entry<String, JsonNode> entry = fields.next();
             String name = entry.getKey();
             JsonNode value = entry.getValue();
-            if (fuzzyFields != null && fuzzyFields.contains(name)) {
-                specs.add(new AssertionSpec(AssertionType.NON_NULL.name(), name, null, 0.5));
-            } else if (isMissing(value)) {
+            // 顺序不可调换：期望值为 null 时语义是「不该抽出来」，必须先于自由文本降级判定。
+            // 若先降级，负样本里的 title:null 会变成 NON_NULL（要求该字段必须存在），
+            // 与期望完全相反且永远无法满足——整批负样本会恒判负，看起来像模型全错。
+            if (isMissing(value)) {
                 specs.add(new AssertionSpec(AssertionType.ABSENT.name(), name, null, 1.0));
+            } else if (fuzzyFields != null && fuzzyFields.contains(name)) {
+                specs.add(new AssertionSpec(AssertionType.NON_NULL.name(), name, null, 0.5));
             } else if (value.isValueNode()) {
                 specs.add(new AssertionSpec(AssertionType.EQUALS_IGNORE_CASE.name(), name, value, 1.0));
             }
