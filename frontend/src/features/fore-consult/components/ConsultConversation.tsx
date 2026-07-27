@@ -1,5 +1,5 @@
 import {
-  useEffect, useRef, useState,
+  memo, useEffect, useMemo, useRef, useState,
   type ClipboardEvent as ReactClipboardEvent,
 } from 'react'
 import { marked } from 'marked'
@@ -91,6 +91,10 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
   const items = chat?.items ?? []
   const running = !!chat?.running
   const pending = chat?.pending
+  // 立即反馈：只要最后一条是用户消息（已发出、还没等到回复），就显示"思考/接入中"，
+  // 不必等 chat.running 变 true（引擎连接/开会话有延迟，否则会白等一段时间没反馈）。
+  const lastItem = items[items.length - 1]
+  const waiting = running || lastItem?.kind === 'user'
 
   // 新消息 / 思考状态变化时滚到底
   useEffect(() => {
@@ -261,12 +265,12 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
               )
             })
           })()}
-          {running && (
+          {waiting && (
             <div className="flex items-center gap-2 text-xs text-indigo-200/60">
               <span className="fc-thinking-dot">●</span>
               <span className="fc-thinking-dot" style={{ animationDelay: '0.2s' }}>●</span>
               <span className="fc-thinking-dot" style={{ animationDelay: '0.4s' }}>●</span>
-              <span className="ml-1">AI 思考中…</span>
+              <span className="ml-1">{running ? 'AI 思考中…' : '正在接入 Forge…'}</span>
             </div>
           )}
         </div>
@@ -413,7 +417,11 @@ function BadFeedbackDialog({ onSubmit, onCancel }: { onSubmit: (category: string
   )
 }
 
-function MessageRow({ item, onImageClick }: { item: ChatItem; onImageClick: (src: string) => void }) {
+const MessageRow = memo(function MessageRow({ item, onImageClick }: { item: ChatItem; onImageClick: (src: string) => void }) {
+  const assistantHtml = useMemo(
+    () => (item.kind === 'assistant' && item.text.trim() ? renderMarkdown(stripBug(item.text)) : ''),
+    [item],
+  )
   if (item.kind === 'user') {
     const shown = item.displayText ?? item.text
     return (
@@ -441,7 +449,7 @@ function MessageRow({ item, onImageClick }: { item: ChatItem; onImageClick: (src
     if (!item.text.trim()) return null
     return (
       <div className="max-w-[92%] rounded-2xl rounded-tl-sm border border-indigo-300/15 bg-white/[0.04] px-3.5 py-2.5">
-        <div className="fc-md" dangerouslySetInnerHTML={{ __html: renderMarkdown(stripBug(item.text)) }} />
+        <div className="fc-md" dangerouslySetInnerHTML={{ __html: assistantHtml }} />
       </div>
     )
   }
@@ -454,4 +462,4 @@ function MessageRow({ item, onImageClick }: { item: ChatItem; onImageClick: (src
     )
   }
   return null
-}
+})
