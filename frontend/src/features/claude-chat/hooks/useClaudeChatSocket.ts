@@ -232,6 +232,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
   const forceRefreshRef = useRef(false)
   /** 探针在途标记：多次 close 只跑一个探针，避免断网时并发刷请求。 */
   const probingRef = useRef(false)
+  /** 待触发的退避重连定时器：网络恢复时要能提前取消它，避免与立即重连叠成两条退避链。 */
+  const reconnectTimerRef = useRef<number | null>(null)
   // 订阅登录态：登录成功后 token 变化 → 若之前因失效停连，则自动恢复重连。
   const { token: sessionToken } = useAuth()
   const sdkSessionIdRef = useRef<string | null>(null)
@@ -617,7 +619,11 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
         setState('closed')
         const n = (reconnectAttemptsRef.current += 1)
         const delay = Math.min(30_000, 1000 * 2 ** Math.min(n, 5)) + Math.floor(Math.random() * 500)
-        setTimeout(() => connect(), delay)
+        if (reconnectTimerRef.current != null) window.clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = window.setTimeout(() => {
+          reconnectTimerRef.current = null
+          connect()
+        }, delay)
       } else {
         setState('closed')
       }
@@ -674,10 +680,38 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     connect()
     return () => {
       manualCloseRef.current = true
+      if (reconnectTimerRef.current != null) {
+        window.clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = null
+      }
       wsRef.current?.close()
       wsRef.current = null
     }
   }, [connect])
+
+  /**
+   * 网络恢复即刻重连，不等退避到点。
+   *
+   * 退避上限 30s，断网久了恢复后最坏要干等半分钟——而 online 事件本身就是「可以连了」的确定信号，
+   * 没有理由不用。同时清零退避计数（这一轮失败是断网造成的，不该让下一次重连继承长延迟）
+   * 与鉴权失败计数（那几次 close 全是网络原因，不能算在凭证头上）。
+   */
+  useEffect(() => {
+    if (demo) return
+    const onOnline = () => {
+      if (manualCloseRef.current || gaveUpRef.current) return // 已卸载 / 已确认登录失效，不掺和
+      if (reconnectTimerRef.current != null) {
+        window.clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = null
+      }
+      reconnectAttemptsRef.current = 0
+      authFailRef.current = 0
+      pushDebug('conn', 'online', '网络恢复，立即重连（跳过退避等待）')
+      connect() // 自身幂等：已有 CONNECTING/OPEN 的 socket 时直接返回
+    }
+    window.addEventListener('online', onOnline)
+    return () => window.removeEventListener('online', onOnline)
+  }, [connect, demo])
 
   // 登录恢复：之前因登录失效放弃重连后，一旦重新拿到 token（用户在全局登录框登录成功），
   // 清掉放弃标记与失败计数，重新建连。demo 通道无鉴权，不参与。
