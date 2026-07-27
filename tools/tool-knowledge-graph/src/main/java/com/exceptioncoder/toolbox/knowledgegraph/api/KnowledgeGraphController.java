@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.knowledgegraph.api;
 
 import com.exceptioncoder.toolbox.knowledgegraph.api.dto.EngineStatusView;
+import com.exceptioncoder.toolbox.knowledgegraph.api.dto.GraphifyGraphView;
 import com.exceptioncoder.toolbox.knowledgegraph.api.dto.ProjectPathRequest;
 import com.exceptioncoder.toolbox.knowledgegraph.api.dto.RepoPathsView;
 import com.exceptioncoder.toolbox.knowledgegraph.api.dto.StatusCacheView;
@@ -11,6 +12,7 @@ import com.exceptioncoder.toolbox.knowledgegraph.model.GraphRepo;
 import com.exceptioncoder.toolbox.knowledgegraph.model.GraphifyProjectStatus;
 import com.exceptioncoder.toolbox.knowledgegraph.model.ProjectRef;
 import com.exceptioncoder.toolbox.knowledgegraph.service.DomainKnowledgeStatusService;
+import com.exceptioncoder.toolbox.knowledgegraph.service.GraphifyGraphService;
 import com.exceptioncoder.toolbox.knowledgegraph.service.GraphifyProjectStatusService;
 import com.exceptioncoder.toolbox.knowledgegraph.service.LocalProjectSelectionService;
 import com.exceptioncoder.toolbox.knowledgegraph.service.StatusCacheService;
@@ -34,17 +36,20 @@ public class KnowledgeGraphController {
     private final DomainKnowledgeStatusService domainKnowledgeStatus;
     private final StatusCacheService statusCache;
     private final KnowledgeGraphProperties properties;
+    private final GraphifyGraphService graphifyGraph;
 
     public KnowledgeGraphController(LocalProjectSelectionService projectSelection,
                                      GraphifyProjectStatusService graphifyStatus,
                                      DomainKnowledgeStatusService domainKnowledgeStatus,
                                      StatusCacheService statusCache,
-                                     KnowledgeGraphProperties properties) {
+                                     KnowledgeGraphProperties properties,
+                                     GraphifyGraphService graphifyGraph) {
         this.projectSelection = projectSelection;
         this.graphifyStatus = graphifyStatus;
         this.domainKnowledgeStatus = domainKnowledgeStatus;
         this.statusCache = statusCache;
         this.properties = properties;
+        this.graphifyGraph = graphifyGraph;
     }
 
     @GetMapping("/repo-paths")
@@ -80,6 +85,13 @@ public class KnowledgeGraphController {
     @GetMapping("/graphify/status")
     public GraphifyProjectStatus getGraphifyStatus(@RequestParam String path) {
         return graphifyStatus.detectStatus(path);
+    }
+
+    /** 读取该项目 graphify-out/graph.json，返回按度数截断的子图供前端 3D 力导图渲染。 */
+    @GetMapping("/graphify/graph")
+    public GraphifyGraphView getGraphifyGraph(@RequestParam String path,
+                                              @RequestParam(defaultValue = "0") int limit) {
+        return graphifyGraph.loadGraph(path, limit);
     }
 
     @GetMapping("/domain-knowledge/status")

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, Boxes, BotMessageSquare, Check, Compass, CornerDownRight, Database, Download, Eye, EyeOff, FolderTree, GitCompare, Info, Loader2, Pin, Play, RefreshCw, Search, Send, Sparkles, TerminalSquare, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Boxes, BotMessageSquare, Check, Compass, CornerDownRight, Database, Download, Eye, EyeOff, FolderTree, GitCompare, Info, Loader2, Network, Pin, Play, RefreshCw, Search, Send, Sparkles, TerminalSquare, Trash2, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils'
 import { applyModuleSync, createTaskspace, ensureKnowledgeBase, fetchProjectModules, listSessions, listWorkspaces, previewModuleSync, resolveModule } from '@/features/claude-chat/api'
 import { getConfigBlock, updateConfigBlock } from '@/features/config-center/api'
 import { engineStatus } from '@/features/knowledge-graph/api'
+import { GraphifyGraphModal } from '../components/GraphifyGraphModal'
 import { VoiceInputButton } from '@/features/claude-chat/components/VoiceInputButton'
 import { CHAT_ROUTE, useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import type { ClaudeChatSessionView, ModuleCandidate, ModuleSyncPreview, ProjectModule, ProjectModules, WorkspaceDir } from '@/features/claude-chat/types'
@@ -317,6 +318,10 @@ export function ProjectWorkspacePage() {
   const crossRepoSet = useMemo(() => readCfgValue(kgRepoBlockQ.data?.entries, 'cross-topology-repo-path').length > 0, [kgRepoBlockQ.data])
   const rootsOk = useMemo(() => (workspacesQ.data?.roots ?? []).some(r => r.exists), [workspacesQ.data])
   const kbOk = kbConfigured && modulesQ.data?.knowledgeDirExists !== false
+  // Graphify 3D 图：仅当所选项目已生成图（graphify-out）才可看
+  const [graphOpen, setGraphOpen] = useState(false)
+  const graphifyState = kg.snapshotOf(selectedPath)?.graphifyState
+  const hasGraphify = graphifyState === 'UP_TO_DATE' || graphifyState === 'STALE'
   // 引擎/两仓就绪检测（含 dist/server.js 是否已构建）；后端未升级时回落到"路径是否非空"
   const engineQ = useQuery({ queryKey: ['kg-engine-status'], queryFn: engineStatus, staleTime: 5000 })
   const eng = engineQ.data
@@ -683,6 +688,20 @@ export function ProjectWorkspacePage() {
                   <Sparkles />
                   <span className="hidden lg:inline">Agent 识菜单</span>
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => setGraphOpen(true)}
+                  disabled={!selectedProject || !hasGraphify}
+                  title={hasGraphify
+                    ? 'Graphify 代码结构图（3D 力导图）'
+                    : '该项目暂无 Graphify 图（graphify-out/graph.json）；先在项目里跑 graphify 生成'}
+                >
+                  <Network />
+                  <span className="hidden lg:inline">Graphify 图</span>
+                </Button>
               </div>
             </div>
           </CardHeader>
@@ -796,6 +815,13 @@ export function ProjectWorkspacePage() {
           </CardContent>
         </Card>
       </div>
+
+      <GraphifyGraphModal
+        open={graphOpen}
+        projectPath={selectedPath}
+        projectName={selectedProject?.name ?? ''}
+        onClose={() => setGraphOpen(false)}
+      />
     </div>
   )
 }

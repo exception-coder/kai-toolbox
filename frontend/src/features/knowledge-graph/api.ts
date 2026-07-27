@@ -18,6 +18,21 @@ export function engineStatus() {
   return http<EngineStatus>('/knowledge-graph/engine-status')
 }
 
+/** Graphify 3D 力导图数据（后端按度数截断的子图）。 */
+export interface GraphifyGraph {
+  total: number
+  shown: number
+  truncated: boolean
+  nodes: { id: string; label: string; group: string | null; community: number | null; communityName: string | null }[]
+  links: { source: string; target: string; relation: string | null }[]
+}
+
+export function graphifyGraph(path: string, limit = 0) {
+  const p = new URLSearchParams({ path })
+  if (limit) p.set('limit', String(limit))
+  return http<GraphifyGraph>(`/knowledge-graph/graphify/graph?${p.toString()}`)
+}
+
 export function recentProjects() {
   return http<ProjectRef[]>('/knowledge-graph/projects/recent')
 }
