@@ -28,6 +28,10 @@ CREATE TABLE IF NOT EXISTS eval_case (
 CREATE INDEX IF NOT EXISTS idx_eval_case_scenario ON eval_case(scenario);
 CREATE INDEX IF NOT EXISTS idx_eval_case_dataset  ON eval_case(dataset);
 CREATE INDEX IF NOT EXISTS idx_eval_case_enabled  ON eval_case(enabled);
+-- source_ref 幂等由 DB 兜底：应用层「先查后插」在并发/重跑下拦不住重复回捞。
+-- 用偏索引而非普通唯一索引——手工建的用例没有来源，source_ref 为 NULL 或空串是正常的，不该互斥。
+CREATE UNIQUE INDEX IF NOT EXISTS uk_eval_case_source_ref ON eval_case(source_ref)
+    WHERE source_ref IS NOT NULL AND source_ref <> '';
 
 -- ---------------------------------------------------------------------------
 -- 版本化提示词：被测链路的 prompt 必须可版本化，否则「回归」无从谈起
