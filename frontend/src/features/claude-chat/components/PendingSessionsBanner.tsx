@@ -15,15 +15,16 @@ export function PendingSessionsBanner({ sessions, currentSessionId, onGo, compac
   const others = sessions.filter(s => s.sessionId !== currentSessionId)
   if (others.length === 0) return null
   const first = others[0]
+  const displayName = (s: PendingSessionRef) => s.title || s.cwd
   const label = others.length === 1
-    ? `会话「${first.cwd}」${first.kind === 'question' ? '有提问待回答' : '有操作待确认'}`
+    ? `会话「${displayName(first)}」${first.kind === 'question' ? '有提问待回答' : '有操作待确认'}`
     : `${others.length} 个会话待你确认`
 
   return (
     <button
       type="button"
       onClick={() => onGo(first.sessionId)}
-      title={others.map(s => `${s.cwd}：${s.kind === 'question' ? '提问待回答' : (s.toolName ? s.toolName + ' 待确认' : '操作待确认')}`).join('\n')}
+      title={others.map(s => `${displayName(s)}：${s.kind === 'question' ? '提问待回答' : (s.toolName ? s.toolName + ' 待确认' : '操作待确认')}`).join('\n')}
       className={`flex w-full items-center gap-2 border-b border-amber-300/60 bg-amber-50 px-3 text-amber-800 hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-300 dark:hover:bg-amber-900/50 ${compact ? 'py-1 text-[11px]' : 'py-1.5 text-xs'}`}
     >
       {first.kind === 'question'

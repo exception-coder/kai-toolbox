@@ -1,6 +1,8 @@
 package com.exceptioncoder.toolbox.claudechat.api;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeChatSessionView;
+import com.exceptioncoder.toolbox.claudechat.api.dto.ClientMessage;
+import com.exceptioncoder.toolbox.claudechat.api.dto.ServerMessage;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatService;
@@ -80,5 +82,32 @@ public class ClaudeChatSessionController {
         String g = group == null || group.isBlank() ? null : group.trim();
         repo.updateGroup(id, g);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * 跨会话答题：读取「非当前打开会话」的未决权限/提问请求详情（若有）。
+     * 配合 {@link #decidePending}，让提问弹窗能在任意模块/页面自动弹出并直接作答，
+     * 不必先切到该会话——之前只有一条跨会话横幅提示"去确认"，点了才跳转、才看得到题面。
+     * 204 = 该会话当前没有未决请求（可能已被别的端处理，或本来就没有）。
+     */
+    @GetMapping("/{id}/pending")
+    public ResponseEntity<ServerMessage> pending(@PathVariable String id) {
+        return service.pendingRequestOf(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    /**
+     * 跨会话答题：提交对某会话未决请求的决策，不需要把该会话切成当前 WS 绑定的会话。
+     * 请求体与 WS 的 decision 消息同构（reqId/behavior/updatedInput/answers）。
+     */
+    @PostMapping("/{id}/pending/decision")
+    public ResponseEntity<Map<String, Boolean>> decidePending(@PathVariable String id,
+                                                                @RequestBody ClientMessage.Decision body) {
+        boolean ok = service.decisionForSession(id, body);
+        if (!ok) {
+            return ResponseEntity.unprocessableEntity().body(Map.of("ok", false));
+        }
+        return ResponseEntity.ok(Map.of("ok", true));
     }
 }

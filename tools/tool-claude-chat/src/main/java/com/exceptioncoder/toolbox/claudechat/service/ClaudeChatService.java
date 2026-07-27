@@ -335,6 +335,32 @@ public class ClaudeChatService {
             log.warn("[claude-chat] 收到决策但 ws 未绑定会话，丢弃 reqId={}", msg.reqId());
             return;
         }
+        applyDecision(ctx, msg);
+    }
+
+    /**
+     * 跨会话答题用的 REST 入口（见 {@code ClaudeChatSessionController#decidePending}）：
+     * 「其它模块也能弹出提问、选完自动回复」需要在不把这个会话切成当前浏览会话的前提下投递决策，
+     * WS 路径的 {@link #decision} 天生绑定"发起连接当前挂在哪个会话"，这里直接按 sessionId 找 ctx，
+     * 核心投递/广播逻辑跟 WS 路径完全一致（见 {@link #applyDecision}）。
+     *
+     * @return false = 会话不存在或 sidecar 未送达，调用方（Controller）据此给前端明确报错，
+     *         而不是静默假成功——静默失败会让用户以为已经答完，实际请求仍挂着直到超时被拒。
+     */
+    public boolean decisionForSession(String sessionId, ClientMessage.Decision msg) {
+        SessionCtx ctx = sessions.get(sessionId);
+        if (ctx == null) return false;
+        return applyDecision(ctx, msg);
+    }
+
+    /** 读取某会话当前的未决权限/提问请求详情（REST 跨会话答题弹窗用，见 decisionForSession 说明）。 */
+    public java.util.Optional<ServerMessage> pendingRequestOf(String sessionId) {
+        SessionCtx ctx = sessions.get(sessionId);
+        return ctx == null ? java.util.Optional.empty() : java.util.Optional.ofNullable(ctx.pendingRequest);
+    }
+
+    /** 决策投递核心逻辑：只依赖 ctx，不依赖发起连接，WS 路径与 REST 路径共用。 */
+    private boolean applyDecision(SessionCtx ctx, ClientMessage.Decision msg) {
         boolean delivered = sidecar.decision(ctx.sessionId, msg.reqId(), msg.behavior(),
                 msg.updatedInput(), msg.answers());
         if (!delivered) {
@@ -342,12 +368,13 @@ public class ClaudeChatService {
             // 不清 pendingRequest、不广播「已解决」，重连 attach 时可重投该请求。
             sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "DECISION_UNDELIVERED",
                     "确认未送达：sidecar 已断开，正在自动重连。重连后请对该操作重新确认或用「原生 resume」继续。"));
-            return;
+            return false;
         }
         ctx.pendingRequest = null;
         broadcastPendingSessions();
         // 多端同看：广播「该请求已被处理」，让其它客户端关掉同一个弹窗
         sendToBrowser(ctx, seq -> new ServerMessage.DecisionResolved(seq, msg.reqId()));
+        return true;
     }
 
     /** 切换会话权限模式，下一轮 query 生效；非法值拒绝。 */
@@ -693,7 +720,7 @@ public class ClaudeChatService {
         // 所有观察者都不在线才推送，避免打扰
         if (!hasActiveViewer(ctx)) {
             String engineLabel = "codex".equals(ctx.engine) ? "Codex" : "Claude";
-            notifications.notifyDone(engineLabel + " 任务完成", shortCwd(ctx.cwd));
+            notifications.notifyDone(engineLabel + " 任务完成", sessionLabel(ctx));
         }
     }
 
@@ -881,7 +908,7 @@ public class ClaudeChatService {
             if (p == null) continue;
             String kind = p instanceof ServerMessage.QuestionRequest ? "question" : "permission";
             String tool = p instanceof ServerMessage.PermissionRequest pr ? pr.toolName() : null;
-            refs.add(new ServerMessage.PendingSessionRef(c.sessionId, shortCwd(c.cwd), kind, tool));
+            refs.add(new ServerMessage.PendingSessionRef(c.sessionId, shortCwd(c.cwd), kind, tool, sessionLabel(c)));
         }
         return new ServerMessage.PendingSessions(0, refs);
     }
@@ -927,7 +954,7 @@ public class ClaudeChatService {
         ctx.pendingRequest = msg;
         broadcastPendingSessions();
         if (!hasActiveViewer(ctx)) {
-            notifications.notify(title, body + "（" + shortCwd(ctx.cwd) + "）");
+            notifications.notify(title, body + "（" + sessionLabel(ctx) + "）");
         }
     }
 
@@ -1071,6 +1098,16 @@ public class ClaudeChatService {
         if (cwd == null) return "";
         int i = Math.max(cwd.lastIndexOf('/'), cwd.lastIndexOf('\\'));
         return i >= 0 && i < cwd.length() - 1 ? cwd.substring(i + 1) : cwd;
+    }
+
+    /**
+     * 该会话给人看的标签：优先用户在「会话列表」里设置的标题（DB title 字段），未设置则退化为
+     * 目录名。跨会话待答横幅、决策提醒推送、任务完成推送三处统一走这里——之前都是清一色显示
+     * 目录名，往往就是仓库根目录名（如 "kai-toolbox"），跟用户实际认得的会话别名对不上。
+     */
+    private String sessionLabel(SessionCtx ctx) {
+        String title = repo.findById(ctx.sessionId).map(ClaudeChatSession::getTitle).orElse(null);
+        return title != null && !title.isBlank() ? title : shortCwd(ctx.cwd);
     }
 
     @FunctionalInterface

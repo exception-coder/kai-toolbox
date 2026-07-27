@@ -1,7 +1,7 @@
 import { authFetch, http } from '@/lib/api'
 import { ensureFreshToken, getToken } from '@/lib/auth'
 import type { CommitDiff, CommitsResponse, GitRepoRef } from '@/components/git/types'
-import type { ChatItem, ClaudeChatSessionView, CloneResult, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PluginStatus, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
+import type { ChatItem, ClaudeChatSessionView, CloneResult, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PluginStatus, ServerMessage, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
 
 /** 列会话目录下可查看提交的 git 仓库（cwd 自身是仓库→单个；否则其子目录里的仓库）。空数组=无仓库。 */
 export function listSessionGitRepos(sessionId: string) {
@@ -264,6 +264,30 @@ export function setSessionGroupApi(id: string, group: string | null) {
   return http<void>(`/claude-chat/sessions/${encodeURIComponent(id)}/group`, {
     method: 'PUT',
     body: JSON.stringify({ group: group ?? '' }),
+  })
+}
+
+/**
+ * 跨会话答题：读取「非当前打开会话」的未决权限/提问请求详情（若有）。返回值与 WS 收到的
+ * questionRequest/permissionRequest 同构（type 字段区分）。204 时 http() 返回 undefined。
+ */
+export function getPendingRequest(sessionId: string) {
+  return http<ServerMessage | undefined>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/pending`)
+}
+
+/**
+ * 跨会话答题：提交对某会话未决请求的决策，不需要先把该会话切成当前打开的会话——
+ * 配合 getPendingRequest，让提问弹窗能在任意模块自动弹出并直接作答。
+ */
+export function submitPendingDecision(sessionId: string, decision: {
+  reqId: string
+  behavior: 'allow' | 'deny'
+  updatedInput?: Record<string, unknown>
+  answers?: Record<string, string | string[]>
+}) {
+  return http<{ ok: boolean }>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/pending/decision`, {
+    method: 'POST',
+    body: JSON.stringify(decision),
   })
 }
 

@@ -9,13 +9,15 @@ interface Props {
   questions: Question[]
   onSubmit: (answers: Record<string, string | string[]>) => void
   onCancel: () => void
+  /** 跨会话弹出时标注"这道题来自哪个会话"（当前会话本地弹出时不传）。 */
+  sourceLabel?: string
 }
 
 /** Other 选项的内部哨兵 label；提交时替换成用户自定义文本，不会回传 "__other__"。 */
 const OTHER = '__other__'
 
 /** AskUserQuestion 可视化弹窗：单选/多选，末尾带 Other 自定义输入（都不合适时自己写）。 */
-export function QuestionDialog({ questions, onSubmit, onCancel }: Props) {
+export function QuestionDialog({ questions, onSubmit, onCancel, sourceLabel }: Props) {
   // 每个问题的当前选择：单选存 string，多选存 string[]
   const [picks, setPicks] = useState<Record<string, string | string[]>>({})
   // 每个问题的 Other 自定义文本
@@ -68,6 +70,11 @@ export function QuestionDialog({ questions, onSubmit, onCancel }: Props) {
         <ListChecks className="size-5 text-[var(--color-primary)]" />
         <h3 className="text-base font-semibold">Claude 想确认</h3>
       </div>
+      {sourceLabel && (
+        <p className="mb-3 -mt-2 truncate text-xs text-[var(--color-muted-foreground)]">
+          来自会话「{sourceLabel}」
+        </p>
+      )}
       <div className="max-h-[60vh] space-y-4 overflow-y-auto">
         {questions.map(q => (
           <div key={q.question}>

@@ -379,6 +379,8 @@ export interface PendingSessionRef {
   cwd: string
   kind: 'permission' | 'question'
   toolName?: string | null
+  /** 用户给该会话设置的别名；未设置为 null/undefined，展示时应退化为 cwd。 */
+  title?: string | null
 }
 
 /** 一轮调用诊断条目：请求模型 vs API 实际返回模型 + 是否经网关。供第三方会话「调用诊断」区块展示。 */

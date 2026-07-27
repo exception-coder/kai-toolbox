@@ -116,6 +116,10 @@ public sealed interface ServerMessage
     @JsonTypeName("pendingSessions")
     record PendingSessions(long seq, List<PendingSessionRef> sessions) implements ServerMessage {}
 
-    /** 一个待确认会话：kind=permission/question；toolName 仅权限请求有。 */
-    record PendingSessionRef(String sessionId, String cwd, String kind, String toolName) {}
+    /**
+     * 一个待确认会话：kind=permission/question；toolName 仅权限请求有。
+     * title=用户给会话取的别名（未设置则为 null，前端据此退化显示 cwd）——之前这里没有这个字段，
+     * 横幅/推送通知一律显示 cwd（往往就是仓库根目录名，如 "kai-toolbox"，跟用户实际认得的会话名对不上）。
+     */
+    record PendingSessionRef(String sessionId, String cwd, String kind, String toolName, String title) {}
 }
