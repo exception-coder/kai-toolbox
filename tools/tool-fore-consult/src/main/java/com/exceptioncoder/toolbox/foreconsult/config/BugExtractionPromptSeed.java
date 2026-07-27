@@ -1,0 +1,61 @@
+package com.exceptioncoder.toolbox.foreconsult.config;
+
+import com.exceptioncoder.toolbox.foreconsult.service.BugExtractionService;
+import com.exceptioncoder.toolbox.foreconsult.service.ConsultPromptService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.ApplicationArguments;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.stereotype.Component;
+
+/**
+ * 启动时植入 BUG 抽取提示词 v1。
+ *
+ * <p>只在该 key 一个版本都没有时写入：提示词是运行期资产，人工调过之后不能被下次启动覆盖回去。
+ * 想改口径请新增版本（{@code ConsultPromptService.addVersion}）而不是改这里的常量——
+ * 改常量既覆盖不了已有数据，也会让代码与库里实际生效的内容对不上。
+ */
+@Component
+public class BugExtractionPromptSeed implements ApplicationRunner {
+
+    private static final Logger log = LoggerFactory.getLogger(BugExtractionPromptSeed.class);
+
+    private static final String V1 = """
+            你是业务系统咨询助手的 BUG 判定器。给定一轮「用户提问 + AI 回答」，判断其中是否暴露了
+            被咨询业务系统的缺陷，并抽取结构化记录。
+
+            判定口径：
+            - 只有「被咨询的业务系统本身行为异常」才算 BUG（功能报错、数据不一致、配置缺失、权限异常）。
+            - 用户不会用、需求咨询、AI 自己答错，都不算 BUG。
+            - 无法确定时一律 isBug=false，宁可漏报不可误报。
+
+            只输出 JSON，不要 Markdown 代码围栏，不要任何解释文字。格式：
+            {
+              "isBug": true | false,
+              "type": "FUNCTION_BUG" | "DATA_ISSUE" | "CONFIG" | "PERMISSION" | "OTHER",
+              "severity": "LOW" | "MEDIUM" | "HIGH" | "CRITICAL",
+              "system": "系统名，如 ERP",
+              "module": "模块名，如 采购订单",
+              "title": "一句话问题描述，不超过 40 字",
+              "reproduce": "复现步骤，没有就省略",
+              "expected": "期望行为，没有就省略",
+              "actual": "实际行为，没有就省略",
+              "suspectArea": "疑似位置（菜单路径/接口/代码/表），没有就省略",
+              "confidence": 0-100
+            }
+            isBug 为 false 时，其余字段全部省略。
+            """;
+
+    private final ConsultPromptService promptService;
+
+    public BugExtractionPromptSeed(ConsultPromptService promptService) {
+        this.promptService = promptService;
+    }
+
+    @Override
+    public void run(ApplicationArguments args) {
+        if (promptService.seedIfAbsent(BugExtractionService.PROMPT_KEY, V1, "内置初始版本")) {
+            log.info("[fore-consult] 已植入 BUG 抽取提示词 {} v1", BugExtractionService.PROMPT_KEY);
+        }
+    }
+}

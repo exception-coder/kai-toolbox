@@ -102,6 +102,23 @@ CREATE TABLE IF NOT EXISTS consult_system_pref (
     updated_at          INTEGER NOT NULL
 );
 
+-- 版本化提示词：BUG 抽取口径的唯一事实源。
+-- 口径原本写死在前端 buildConsultSeed 的字符串字面量里，改一次就无法复现旧行为，
+-- 「本周答对、改了 prompt 后下周答错」查不出是哪一版变的。落库并只追加版本后，
+-- 线上取 active 版跑，评测可固定任意版本重放，退化才归得了因。
+-- 同 key 下仅一条 active=1；内容变更即新增版本，不原地改。
+CREATE TABLE IF NOT EXISTS consult_prompt (
+    id         TEXT    PRIMARY KEY,
+    prompt_key TEXT    NOT NULL,                          -- 如 bug-extraction
+    version    INTEGER NOT NULL,                          -- 从 1 递增
+    content    TEXT    NOT NULL,
+    note       TEXT,                                      -- 版本说明，便于人工识别这版改了什么
+    active     INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_consult_prompt_key_ver ON consult_prompt(prompt_key, version);
+CREATE INDEX IF NOT EXISTS idx_consult_prompt_active ON consult_prompt(prompt_key, active);
+
 -- 系统链路分析结果（持久化）：cross-topology 引擎查出的系统间关系边，整表在每次分析时替换。
 -- 全局单份拓扑，(from_system,to_system) 唯一。前端加载时读取渲染，无需重新调引擎。
 CREATE TABLE IF NOT EXISTS consult_topology_link (
