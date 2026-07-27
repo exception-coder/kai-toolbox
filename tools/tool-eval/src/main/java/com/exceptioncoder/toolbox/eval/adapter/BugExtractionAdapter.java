@@ -1,42 +1,39 @@
 package com.exceptioncoder.toolbox.eval.adapter;
 
 import com.exceptioncoder.toolbox.eval.spi.EvalAdapter;
-import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
-import com.fasterxml.jackson.databind.JsonNode;
+import com.exceptioncoder.toolbox.llm.spi.BugExtractionRunner;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
-import java.util.Locale;
-import java.util.Set;
+import java.util.List;
 
 /**
- * 场景 ②（EXTRACTION）适配器：把「咨询问答 → 结构化 BUG 记录」这条链路搬到后端，使其可重放。
+ * 场景 ②（EXTRACTION）适配器：把 fore-consult 的「咨询问答 → 结构化 BUG 记录」链路接进评测。
  * <p>
- * 背景：fore-consult 后端不含回答引擎，抽取判断与提示词原本只存在于前端会话里，改一次 prompt
- * 就无法复现旧口径。本 adapter 是该链路的 headless 副本，也是后续 fore-consult 前端应当收敛到的单一事实源。
+ * 本类曾经是该链路的 headless 副本，自带一份 prompt 与归一化逻辑。副本的问题是会漂移——
+ * 线上口径改了而副本没跟上时，评测依旧全绿，退化照样漏，评测反而变成安慰剂。
+ * 现已收敛：调用被测系统自己的 {@link BugExtractionRunner} 实现，提示词也取它托管的版本，
+ * 评测跑的就是线上那条路径。
  * <p>
- * 确定性优先的落点在 {@link #normalize}：LLM 的输出一律当作不可信入参，枚举字段由代码用白名单裁决，
- * 越界值归一到兜底枚举而非原样透传——否则评测测的是「LLM 会不会瞎编枚举」，而不是它判得准不准。
+ * 因此本类只剩两件事：把用例入参喂进去，把结果整形成断言层要的 JsonNode。
+ * 一旦这里再出现任何判定逻辑或 prompt 文本，就说明副本又长回来了。
  */
 @Slf4j
 @Component
 public class BugExtractionAdapter implements EvalAdapter {
 
     public static final String ID = "bug-extraction";
+    /** 仅用于写进 eval_run.prompt_key 做展示与溯源；提示词内容存在 fore-consult 侧。 */
     public static final String PROMPT_KEY = "bug-extraction";
     public static final String SCENARIO = "EXTRACTION";
 
-    /** 与 fore-consult BugService 的白名单保持一致，改动需两处同步。 */
-    private static final Set<String> TYPES = Set.of("FUNCTION_BUG", "DATA_ISSUE", "CONFIG", "PERMISSION", "OTHER");
-    private static final Set<String> SEVERITIES = Set.of("LOW", "MEDIUM", "HIGH", "CRITICAL");
-
-    private final ObjectProvider<AgentOneShotRunner> runnerProvider;
+    private final ObjectProvider<BugExtractionRunner> runnerProvider;
     private final ObjectMapper mapper;
 
-    public BugExtractionAdapter(ObjectProvider<AgentOneShotRunner> runnerProvider, ObjectMapper mapper) {
+    public BugExtractionAdapter(ObjectProvider<BugExtractionRunner> runnerProvider, ObjectMapper mapper) {
         this.runnerProvider = runnerProvider;
         this.mapper = mapper;
     }
@@ -57,93 +54,81 @@ public class BugExtractionAdapter implements EvalAdapter {
     }
 
     @Override
-    public Output run(Input input) throws Exception {
-        AgentOneShotRunner runner = runnerProvider.getIfAvailable();
-        if (runner == null) {
-            throw new IllegalStateException("AgentOneShotRunner 不可用（tool-claude-chat 未装载），无法执行抽取");
+    public Integer pinExternalPromptVersion(Integer requested) {
+        List<BugExtractionRunner.PromptVersion> versions = requireRunner().listPromptVersions();
+        if (versions.isEmpty()) {
+            throw new IllegalStateException("fore-consult 侧尚无 " + PROMPT_KEY + " 提示词版本");
         }
-        JsonNode payload = input.payload();
-        String question = payload.path("question").asText("");
-        String answer = payload.path("answer").asText("");
+        if (requested != null) {
+            boolean exists = versions.stream().anyMatch(v -> v.version() == requested);
+            if (!exists) {
+                throw new IllegalArgumentException("提示词版本不存在: " + PROMPT_KEY + " v" + requested);
+            }
+            return requested;
+        }
+        return versions.stream().filter(BugExtractionRunner.PromptVersion::active).findFirst()
+                .map(BugExtractionRunner.PromptVersion::version)
+                .orElseThrow(() -> new IllegalStateException("fore-consult 侧无生效的 " + PROMPT_KEY + " 提示词"));
+    }
+
+    @Override
+    public Output run(Input input) {
+        BugExtractionRunner runner = requireRunner();
+        String question = input.payload().path("question").asText("");
+        String answer = input.payload().path("answer").asText("");
         if (question.isBlank() && answer.isBlank()) {
             throw new IllegalArgumentException("input_json 需要至少提供 question 或 answer");
         }
 
-        String userPrompt = """
-                【用户提问】
-                %s
+        BugExtractionRunner.Result result =
+                runner.extract(question, answer, input.model(), input.promptVersion());
 
-                【AI 回答】
-                %s
-                """.formatted(question, answer);
-
-        long start = System.currentTimeMillis();
-        String raw = runner.runOnce(input.prompt(), userPrompt, input.model());
-        long latency = System.currentTimeMillis() - start;
-
-        JsonNode parsed;
-        try {
-            parsed = mapper.readTree(stripFence(raw));
-        } catch (Exception e) {
-            // 解析失败不抛：raw 交给断言层判负，比吞成 ERROR 更能定位问题
-            log.warn("bug-extraction 输出非 JSON, caseId={}", input.caseId());
-            return new Output(null, raw, latency);
+        if (result.extracted() == null) {
+            // 解析失败不抛异常：交断言层判负能看清是哪条用例的输出跑偏，
+            // 吞成 ERROR 会和「引擎挂了」混在一起，统计上分不出质量问题还是链路问题。
+            log.warn("bug-extraction 输出无法解析, caseId={}", input.caseId());
+            return new Output(null, result.raw(), result.latencyMs());
         }
-        return new Output(normalize(parsed), raw, latency);
+        return new Output(toJson(result.extracted()), result.raw(), result.latencyMs());
+    }
+
+    private BugExtractionRunner requireRunner() {
+        BugExtractionRunner runner = runnerProvider.getIfAvailable();
+        if (runner == null) {
+            throw new IllegalStateException("BugExtractionRunner 不可用（tool-fore-consult 未装载），无法执行抽取");
+        }
+        return runner;
     }
 
     /**
-     * LLM 提议、代码裁决：枚举白名单化、布尔强制化、字符串去空白。
-     * 越界枚举归一到兜底值，而非原样透传。
+     * 判定非 BUG 时只输出 isBug，其余字段一律缺席。
+     * 这不是省事：断言层据此推导 ABSENT，「不该抽的却抽出来了」正是靠字段在不在判出来的，
+     * 补一堆 null 上去会让这类误报判不出来。
      */
-    private JsonNode normalize(JsonNode parsed) {
+    private ObjectNode toJson(BugExtractionRunner.Extracted e) {
         ObjectNode out = mapper.createObjectNode();
-        boolean isBug = parsed.path("isBug").asBoolean(false);
-        out.put("isBug", isBug);
-        if (!isBug) {
-            // 判定非 BUG 时其余字段一律不产出，避免「不该抽的抽出来」被漏测
+        out.put("isBug", e.isBug());
+        if (!e.isBug()) {
             return out;
         }
-        out.put("type", whitelist(parsed.path("type").asText(null), TYPES, "OTHER"));
-        out.put("severity", whitelist(parsed.path("severity").asText(null), SEVERITIES, "MEDIUM"));
-        out.put("system", trimOrNull(parsed.path("system").asText(null)));
-        out.put("module", trimOrNull(parsed.path("module").asText(null)));
-        out.put("title", trimOrNull(parsed.path("title").asText(null)));
+        putIfPresent(out, "type", e.type());
+        putIfPresent(out, "severity", e.severity());
+        putIfPresent(out, "system", e.system());
+        putIfPresent(out, "module", e.module());
+        putIfPresent(out, "title", e.title());
+        putIfPresent(out, "reproduce", e.reproduce());
+        putIfPresent(out, "expected", e.expected());
+        putIfPresent(out, "actual", e.actual());
+        putIfPresent(out, "suspectArea", e.suspectArea());
+        if (e.confidence() != null) {
+            out.put("confidence", e.confidence());
+        }
         return out;
     }
 
-    private String whitelist(String raw, Set<String> allowed, String fallback) {
-        if (raw == null || raw.isBlank()) {
-            return fallback;
+    private static void putIfPresent(ObjectNode out, String field, String value) {
+        if (value != null) {
+            out.put(field, value);
         }
-        String upper = raw.trim().toUpperCase(Locale.ROOT);
-        return allowed.contains(upper) ? upper : fallback;
-    }
-
-    private String trimOrNull(String raw) {
-        if (raw == null) {
-            return null;
-        }
-        String t = raw.trim();
-        return t.isEmpty() ? null : t;
-    }
-
-    /** 去掉模型偶发套上的 Markdown 代码围栏。 */
-    private String stripFence(String raw) {
-        if (raw == null) {
-            return "";
-        }
-        String s = raw.trim();
-        if (s.startsWith("```")) {
-            int firstBreak = s.indexOf('\n');
-            if (firstBreak > 0) {
-                s = s.substring(firstBreak + 1);
-            }
-            int lastFence = s.lastIndexOf("```");
-            if (lastFence >= 0) {
-                s = s.substring(0, lastFence);
-            }
-        }
-        return s.trim();
     }
 }

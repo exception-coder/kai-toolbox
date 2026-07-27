@@ -87,9 +87,14 @@ public class EvalRunService {
         if (cases.isEmpty()) {
             throw new ResponseStatusException(BAD_REQUEST, "数据集无启用用例: " + req.dataset());
         }
-        Optional<EvalPrompt> prompt = promptService.resolve(adapter.promptKey(), req.promptVersion());
-        if (adapter.promptKey() != null && prompt.isEmpty()) {
-            throw new ResponseStatusException(BAD_REQUEST, "提示词未配置: " + adapter.promptKey());
+        // 提示词托管在被测系统侧的 adapter 走这条：由它固定版本，评测只负责记录，不再自存一份口径。
+        Integer externalPromptVersion = adapter.pinExternalPromptVersion(req.promptVersion());
+        Optional<EvalPrompt> prompt = Optional.empty();
+        if (externalPromptVersion == null) {
+            prompt = promptService.resolve(adapter.promptKey(), req.promptVersion());
+            if (adapter.promptKey() != null && prompt.isEmpty()) {
+                throw new ResponseStatusException(BAD_REQUEST, "提示词未配置: " + adapter.promptKey());
+            }
         }
 
         EvalRun run = EvalRun.builder()
@@ -99,7 +104,9 @@ public class EvalRunService {
                 .adapter(adapter.id())
                 .model(req.model())
                 .promptKey(adapter.promptKey())
-                .promptVersion(prompt.map(EvalPrompt::getVersion).orElse(null))
+                .promptVersion(externalPromptVersion != null
+                        ? externalPromptVersion
+                        : prompt.map(EvalPrompt::getVersion).orElse(null))
                 .status("RUNNING")
                 .total(cases.size())
                 .note(req.note())
@@ -143,7 +150,8 @@ public class EvalRunService {
         try {
             JsonNode payload = mapper.readTree(c.getInputJson());
             EvalAdapter.Output out = adapter.run(
-                    new EvalAdapter.Input(c.getId(), payload, run.getModel(), promptContent));
+                    new EvalAdapter.Input(c.getId(), payload, run.getModel(), promptContent,
+                            run.getPromptVersion()));
 
             List<AssertionSpec> specs = resolveSpecs(c);
             AssertionEngine.Verdict verdict = assertionEngine.evaluate(out.result(), specs);

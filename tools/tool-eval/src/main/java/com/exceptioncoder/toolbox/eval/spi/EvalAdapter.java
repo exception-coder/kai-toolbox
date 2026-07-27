@@ -28,15 +28,29 @@ public interface EvalAdapter {
         return null;
     }
 
+    /**
+     * 提示词由被测系统自己托管时（收敛后的正确形态），返回本轮要固定的版本号；
+     * 返回 {@code null} 表示提示词存在评测侧的 eval_prompt 里，由 L0 负责解析。
+     *
+     * <p>为什么要「固定」而不是每条用例现取 active：跑批过程中有人激活了新版本的话，
+     * 同一轮 run 会前半段用旧版、后半段用新版，报告就再也解释不清了。
+     *
+     * @param requested 用户指定的版本，null 表示取当前生效版本
+     */
+    default Integer pinExternalPromptVersion(Integer requested) {
+        return null;
+    }
+
     Output run(Input input) throws Exception;
 
     /**
-     * @param caseId  用例 id，仅用于日志溯源
-     * @param payload eval_case.input_json 解析后的对象
-     * @param model   指定模型，null 表示引擎默认
-     * @param prompt  已解析出的提示词内容，null 表示该 adapter 不需要
+     * @param caseId        用例 id，仅用于日志溯源
+     * @param payload       eval_case.input_json 解析后的对象
+     * @param model         指定模型，null 表示引擎默认
+     * @param prompt        已解析出的提示词内容，null 表示该 adapter 不从评测侧取提示词
+     * @param promptVersion 本轮固定的提示词版本，供托管在被测系统侧的 adapter 透传下去
      */
-    record Input(String caseId, JsonNode payload, String model, String prompt) {
+    record Input(String caseId, JsonNode payload, String model, String prompt, Integer promptVersion) {
     }
 
     /**
