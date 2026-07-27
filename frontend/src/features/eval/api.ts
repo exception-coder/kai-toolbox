@@ -8,6 +8,8 @@ import type {
   EvalResult,
   EvalRun,
   ExtractionSummary,
+  HarvestResult,
+  SampleSource,
   SaveCaseRequest,
   StartRunRequest,
 } from './types'
@@ -36,6 +38,14 @@ export const updateCase = (id: string, body: SaveCaseRequest) =>
 
 export const deleteCase = (id: string) =>
   http<void>(`${BASE}/cases/${id}`, { method: 'DELETE' })
+
+export const listSources = () => http<SampleSource[]>(`${BASE}/cases/sources`)
+
+export const harvest = (source: string, dataset?: string) => {
+  const q = new URLSearchParams({ source })
+  if (dataset) q.set('dataset', dataset)
+  return http<HarvestResult>(`${BASE}/cases/harvest?${q.toString()}`, { method: 'POST' })
+}
 
 export const importCases = (body: SaveCaseRequest[]) =>
   http<{ received: number; created: number; skipped: number }>(`${BASE}/cases/import`, {

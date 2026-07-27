@@ -110,6 +110,25 @@ export interface ExtractionSummary {
   f1: number
 }
 
+/** 可纳入黄金集的样本来源（各工具暴露自己已被人工裁决过的历史记录）。 */
+export interface SampleSource {
+  id: string
+  displayName: string
+  scenario: string
+  /** 来源当前样本总数 */
+  total: number
+  /** 尚未纳入黄金集的条数 */
+  pending: number
+}
+
+export interface HarvestResult {
+  source: string
+  dataset: string
+  received: number
+  created: number
+  skipped: number
+}
+
 export interface StartRunRequest {
   adapter: string
   dataset: string

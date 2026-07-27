@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.eval.service;
 
+import com.exceptioncoder.toolbox.common.eval.EvalSampleSource;
 import com.exceptioncoder.toolbox.eval.api.dto.SaveCaseRequest;
 import com.exceptioncoder.toolbox.eval.domain.EvalCase;
 import com.exceptioncoder.toolbox.eval.repository.EvalCaseRepository;
@@ -9,8 +10,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
@@ -22,10 +27,66 @@ public class EvalCaseService {
 
     private final EvalCaseRepository repo;
     private final ObjectMapper mapper;
+    private final Map<String, EvalSampleSource> sources;
 
-    public EvalCaseService(EvalCaseRepository repo, ObjectMapper mapper) {
+    public EvalCaseService(EvalCaseRepository repo, ObjectMapper mapper, List<EvalSampleSource> sourceBeans) {
         this.repo = repo;
         this.mapper = mapper;
+        this.sources = sourceBeans.stream().collect(
+                Collectors.toMap(EvalSampleSource::id, Function.identity(), (a, b) -> a, LinkedHashMap::new));
+    }
+
+    /** 各来源当前有多少条样本、其中多少条还没纳入黄金集，供界面显示「N 条待纳入」。 */
+    public List<SourceStat> listSources() {
+        return sources.values().stream().map(s -> {
+            List<EvalSampleSource.Sample> all = s.collect();
+            long pending = all.stream()
+                    .filter(x -> x.sourceRef() != null && !x.sourceRef().isBlank())
+                    .filter(x -> !repo.existsBySourceRef(x.sourceRef()))
+                    .count();
+            return new SourceStat(s.id(), s.displayName(), s.scenario(), all.size(), (int) pending);
+        }).toList();
+    }
+
+    /**
+     * 从指定来源纳入样本，按 sourceRef 幂等——已纳入的原样跳过，不会覆盖你手工改过的用例。
+     *
+     * <p>整批同生共死：中途失败全部回滚，避免出现「导了一半」这种说不清纳入了多少的中间态。
+     */
+    @Transactional
+    public HarvestResult harvest(String sourceId, String dataset) {
+        EvalSampleSource source = sources.get(sourceId);
+        if (source == null) {
+            throw new ResponseStatusException(BAD_REQUEST,
+                    "未知样本来源: " + sourceId + "，可用: " + sources.keySet());
+        }
+        String ds = dataset == null || dataset.isBlank() ? sourceId : dataset.trim();
+        List<EvalSampleSource.Sample> samples = source.collect();
+        int created = 0;
+        for (EvalSampleSource.Sample s : samples) {
+            if (s.sourceRef() == null || s.sourceRef().isBlank()) {
+                throw new ResponseStatusException(BAD_REQUEST,
+                        "样本来源 " + sourceId + " 返回了空 sourceRef，无法幂等去重");
+            }
+            if (repo.existsBySourceRef(s.sourceRef())) {
+                continue;
+            }
+            create(new SaveCaseRequest(source.scenario(), ds, s.title(), s.inputJson(),
+                    s.expectedJson(), null, s.tags(), s.sourceRef(), true));
+            created++;
+        }
+        log.info("[eval] 从 {} 纳入 {} 条（共 {} 条样本）", sourceId, created, samples.size());
+        return new HarvestResult(sourceId, ds, samples.size(), created, samples.size() - created);
+    }
+
+    /**
+     * @param total   来源当前样本总数
+     * @param pending 尚未纳入黄金集的条数
+     */
+    public record SourceStat(String id, String displayName, String scenario, int total, int pending) {
+    }
+
+    public record HarvestResult(String source, String dataset, int received, int created, int skipped) {
     }
 
     public EvalCase create(SaveCaseRequest req) {

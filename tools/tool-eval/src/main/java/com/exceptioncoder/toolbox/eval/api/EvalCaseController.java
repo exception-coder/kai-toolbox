@@ -55,6 +55,23 @@ public class EvalCaseController {
         return service.listDatasets();
     }
 
+    /** 可纳入的样本来源及各自「待纳入」条数。 */
+    @GetMapping("/sources")
+    public List<EvalCaseService.SourceStat> sources() {
+        return service.listSources();
+    }
+
+    /**
+     * 从某来源一键纳入黄金集，按 sourceRef 幂等。
+     *
+     * @param dataset 目标数据集名，省略则用来源 id
+     */
+    @PostMapping("/harvest")
+    public EvalCaseService.HarvestResult harvest(@RequestParam String source,
+                                                 @RequestParam(required = false) String dataset) {
+        return service.harvest(source, dataset);
+    }
+
     @GetMapping("/{id}")
     public EvalCase get(@PathVariable String id) {
         return service.get(id);

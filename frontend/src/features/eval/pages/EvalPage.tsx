@@ -1,8 +1,11 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, CheckCircle2, GitCompare, Loader2, Play, RefreshCw, XCircle } from 'lucide-react'
 import {
-  deleteRun, getDiff, getExtractionSummary, listAdapters, listDatasets, listResults, listRuns, startRun,
+  AlertTriangle, CheckCircle2, Download, GitCompare, Loader2, Play, RefreshCw, XCircle,
+} from 'lucide-react'
+import {
+  deleteRun, getDiff, getExtractionSummary, harvest, listAdapters, listDatasets, listResults,
+  listRuns, listSources, startRun,
 } from '../api'
 import type { AssertionOutcome, EvalResult, EvalRun } from '../types'
 import { Button } from '@/components/ui/button'
@@ -46,6 +49,16 @@ export function EvalPage() {
   const [baseRun, setBaseRun] = useState<string>('')
 
   const datasetsQ = useQuery({ queryKey: ['eval', 'datasets'], queryFn: listDatasets })
+  const sourcesQ = useQuery({ queryKey: ['eval', 'sources'], queryFn: listSources })
+  const harvestM = useMutation({
+    mutationFn: (source: string) => harvest(source),
+    onSuccess: (r) => {
+      // 纳入后数据集下拉与待纳入计数都会变，一并刷新；顺手选中刚纳入的数据集，省一次手动选择
+      qc.invalidateQueries({ queryKey: ['eval', 'datasets'] })
+      qc.invalidateQueries({ queryKey: ['eval', 'sources'] })
+      if (r.created > 0) setDataset(r.dataset)
+    },
+  })
   const adaptersQ = useQuery({ queryKey: ['eval', 'adapters'], queryFn: listAdapters })
 
   const runsQ = useQuery({
@@ -122,6 +135,57 @@ export function EvalPage() {
           刷新
         </Button>
       </header>
+
+      {/* ───── 样本来源：把已人工裁决的历史记录纳入黄金集 ───── */}
+      <section className="rounded-lg border p-4">
+        <div className="mb-2 flex items-baseline gap-2">
+          <h2 className="text-sm font-medium">样本来源</h2>
+          <span className="text-xs text-[var(--color-muted-foreground)]">
+            把各模块中已被人工裁决过的历史记录纳入黄金集。纳入即冻结快照，之后再改原记录不影响已有用例，跑批才可比。
+          </span>
+        </div>
+        {sourcesQ.data?.length ? (
+          <ul className="flex flex-col gap-2">
+            {sourcesQ.data.map((s) => (
+              <li key={s.id} className="flex flex-wrap items-center gap-3 rounded-md border px-3 py-2">
+                <span className="text-sm">{s.displayName}</span>
+                <span className="text-xs text-[var(--color-muted-foreground)]">
+                  共 {s.total} 条{s.pending > 0 ? ` · 待纳入 ${s.pending} 条` : ' · 已全部纳入'}
+                </span>
+                <Button
+                  className="ml-auto"
+                  size="sm"
+                  variant={s.pending > 0 ? 'default' : 'outline'}
+                  disabled={s.pending === 0 || harvestM.isPending}
+                  onClick={() => harvestM.mutate(s.id)}
+                >
+                  {harvestM.isPending && harvestM.variables === s.id ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <Download />
+                  )}
+                  纳入黄金集
+                </Button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-[var(--color-muted-foreground)]">
+            暂无样本来源。业务系统咨询里把 AI 登记的缺陷「确认」或「驳回」后，这里就会出现可纳入的样本。
+          </p>
+        )}
+        {harvestM.isError && (
+          <p className="mt-2 text-xs text-[var(--color-danger)]">
+            {(harvestM.error as Error).message}
+          </p>
+        )}
+        {harvestM.isSuccess && (
+          <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">
+            已纳入 {harvestM.data.created} 条到数据集「{harvestM.data.dataset}」
+            {harvestM.data.skipped > 0 ? `，跳过 ${harvestM.data.skipped} 条（此前已纳入）` : ''}。
+          </p>
+        )}
+      </section>
 
       {/* ───── 发起评测 ───── */}
       <section className="flex flex-wrap items-end gap-3 rounded-lg border p-4">

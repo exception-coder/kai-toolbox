@@ -47,6 +47,12 @@ public class ConsultTurnRepository {
                 "SELECT * FROM consult_turn WHERE session_id = ? ORDER BY turn_index ASC", ROW, sessionId);
     }
 
+    /** 跨会话取有回答的轮次，最近优先。评测样本回捞用。 */
+    public List<ConsultTurn> findAllAnswered(int limit) {
+        return jdbc.query("SELECT * FROM consult_turn WHERE answer IS NOT NULL AND TRIM(answer) <> '' "
+                + "ORDER BY created_at DESC LIMIT ?", ROW, limit);
+    }
+
     public void deleteBySession(String sessionId) {
         jdbc.update("DELETE FROM consult_turn WHERE session_id = ?", sessionId);
     }
