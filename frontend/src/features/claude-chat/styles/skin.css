@@ -14,7 +14,6 @@
  */
 
 .cc-skin {
-  position: relative;
   isolation: isolate;
   /* 引擎品牌色三元组：主色 + 环绕色轮取的两个邻近色，保证够「炫」又不脏 */
   --skin-c1: #d97757;
@@ -23,10 +22,18 @@
   --skin-alpha: 0.3;
   --skin-base: #faf7f5;
   background: var(--skin-base);
-  /* 注意：不在这里加 overflow:hidden——这个类挂在整页/浮窗的最外层容器上，容器内还有
-     「更多」下拉菜单等 position:absolute 的交互浮层，整体裁剪会连带把它们按容器边界切掉、
-     点不到（真实翻过车：曾经这么改过，导致炫彩皮肤下「弹出悬浮窗」菜单项点了没反应）。
-     背景漂移动画自己的溢出裁剪交给下面独立的 .cc-skin-bg 层，两者互不影响。 */
+  /*
+   * 故意不在这里写 position:relative——这个类是跟着 JSX 用 import '../styles/skin.css'
+   * 懒加载进来的（挂在 ChatPage/FloatingChatWindow 组件上），产物里对应的 <link> 是运行时
+   * 动态插进 <head> 的，比 Tailwind 主样式表晚，两条同特异性规则谁在文档里排后谁赢。
+   * 悬浮窗/全屏视图那两个用法本身就是 Tailwind 的 `fixed`，一旦这里再写 position:relative，
+   * 会晚于 `.fixed { position: fixed }` 插入、把它整个覆盖掉——悬浮窗从「贴视口浮动」
+   * 变成「按文档流相对定位」，直接飘到页面看不见的地方，点「弹出悬浮窗」跟没点一样。
+   * 真正需要 position:relative 兜底（给 .cc-skin-bg 提供定位上下文）的只有 ChatPage 非全屏
+   * 分支——它自己没设 position，直接在那处的 className 里显式加 `relative`（Tailwind 工具类，
+   * 跟其它工具类同一张表、同一批插入，不会有加载时序上的先后之争）。fixed/absolute 本身已经
+   * 是「已定位元素」，不需要也不能再叠一个 relative。
+   */
 }
 
 /*

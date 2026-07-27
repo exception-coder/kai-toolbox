@@ -717,7 +717,10 @@ export function ChatPage() {
       fullscreen
         // 全屏是覆盖整个视口的浮层，背景必须不透明——否则底层（折叠侧栏等）会从半透明背景透出，左侧留残影
         ? 'fixed inset-0 z-50 flex h-[100dvh] min-w-0 flex-col overflow-x-hidden'
-        : 'flex h-[calc(100dvh-3.5rem)] min-w-0 flex-col overflow-x-hidden',
+        // relative：给皮肤开启时的 .cc-skin-bg（position:absolute）提供定位上下文，
+        // 不能写进 skin.css 的 .cc-skin 规则里——那边懒加载晚于 Tailwind 插入，会把
+        // fullscreen 分支 `fixed` 覆盖掉，见 skin.css 顶部注释。
+        : 'relative flex h-[calc(100dvh-3.5rem)] min-w-0 flex-col overflow-x-hidden',
       // 皮肤自带底色（见 skin.css 的 --skin-base），开启时让位，避免两层底色叠加
       !skin && (fullscreen ? 'bg-[var(--color-background)]' : 'bg-[var(--color-muted)]/40'),
       skinClass(skin, chat?.currentEngine ?? 'claude', !!chat?.running),
