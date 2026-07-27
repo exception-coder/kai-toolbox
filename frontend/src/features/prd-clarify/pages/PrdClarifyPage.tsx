@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { BotMessageSquare, Bug, ChevronRight, ClipboardCheck, Clock, Code2, Copy, ExternalLink, FileText, GitBranch, Image as ImageIcon, Info, Layers, Loader2, Paperclip, Pencil, Plus, RefreshCw, Rocket, Save, Search, Send, Sparkles, Trash2, User, Wrench, X } from 'lucide-react'
+import { BotMessageSquare, Bug, ChevronRight, ClipboardCheck, Clock, Code2, Copy, ExternalLink, FileText, FolderOpen, GitBranch, Image as ImageIcon, Info, Layers, Loader2, Paperclip, Pencil, Plus, RefreshCw, Rocket, Save, Search, Send, Sparkles, Trash2, User, Wrench, X } from 'lucide-react'
 import { http } from '@/lib/api'
 import { MultiSelect } from '@/components/ui/multi-select'
 import { usePrompt } from '@/components/ui/prompt-dialog'
@@ -3966,6 +3966,8 @@ function EditingPanel({
   sessionTitle,
   projectName,
   initialContent,
+  mdPath,
+  devDocPath,
   hasDevDoc,
   isDevDocStale,
   initialDevDocEstimation,
@@ -3977,6 +3979,10 @@ function EditingPanel({
   sessionTitle: string
   projectName: string | null
   initialContent: string
+  /** PRD 文件绝对路径（~/.kai-toolbox/prd/{id}.md），供「复制路径」按钮用，方便直接定位文件 */
+  mdPath?: string | null
+  /** 开发文档文件绝对路径，同上；尚未生成开发文档时为 null */
+  devDocPath?: string | null
   /** 从历史加载时，该 PRD 是否已有开发文档（devDocPath 非空） */
   hasDevDoc?: boolean
   /** 开发文档是否过期（PRD 在开发文档生成后有更新，需要重新生成） */
@@ -4158,6 +4164,19 @@ function EditingPanel({
 
   const handleCopy = () => {
     navigator.clipboard.writeText(content)
+  }
+
+  /**
+   * 复制文件绝对路径（PRD .md / 开发文档 .md），方便直接在编辑器/资源管理器里定位文件，
+   * 不用再从 ~/.kai-toolbox/prd/ 目录里翻。复制成功后按钮图标短暂变成对勾提示一下，
+   * 因为路径字符串本身不可见，不给反馈的话用户不知道到底有没有复制成功。
+   */
+  const [pathCopied, setPathCopied] = useState<'prd' | 'dev' | null>(null)
+  const copyPath = (path: string | null | undefined, which: 'prd' | 'dev') => {
+    if (!path) return
+    navigator.clipboard.writeText(path)
+    setPathCopied(which)
+    setTimeout(() => setPathCopied((cur) => (cur === which ? null : cur)), 1500)
   }
 
   return (
@@ -4402,7 +4421,16 @@ function EditingPanel({
           {panelMode === 'dev' ? (
             <>
               {devDocDirty && <span className="text-xs text-yellow-500">未保存</span>}
+              {devDocPath && (
+                <button onClick={() => copyPath(devDocPath, 'dev')}
+                  title={devDocPath}
+                  className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-muted-foreground)]">
+                  {pathCopied === 'dev' ? <ClipboardCheck className="w-3 h-3 text-green-500" /> : <FolderOpen className="w-3 h-3" />}
+                  复制路径
+                </button>
+              )}
               <button onClick={() => navigator.clipboard.writeText(devDocContent)}
+                title="复制内容"
                 className="flex items-center gap-1 px-2.5 py-1 text-xs rounded border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-muted-foreground)]">
                 <Copy className="w-3 h-3" />
               </button>
@@ -4414,7 +4442,16 @@ function EditingPanel({
           ) : (
             <>
               {isDirty && <span className="text-xs text-yellow-500">未保存</span>}
+              {mdPath && (
+                <button onClick={() => copyPath(mdPath, 'prd')}
+                  title={mdPath}
+                  className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-muted-foreground)]">
+                  {pathCopied === 'prd' ? <ClipboardCheck className="w-3 h-3 text-green-500" /> : <FolderOpen className="w-3 h-3" />}
+                  复制路径
+                </button>
+              )}
               <button onClick={handleCopy}
+                title="复制内容"
                 className="flex items-center gap-1 px-2.5 py-1 text-xs rounded border border-[var(--color-border)] hover:bg-[var(--color-muted)] text-[var(--color-muted-foreground)]">
                 <Copy className="w-3 h-3" />
               </button>
@@ -5159,6 +5196,8 @@ PRD_SESSION_ID: ${created.id}`
             sessionTitle={sessionTitle || session?.title || 'PRD 文档'}
             projectName={session?.project ?? urlProject ?? null}
             initialContent={prdContent}
+            mdPath={session?.mdPath}
+            devDocPath={session?.devDocPath}
             hasDevDoc={!!(session?.devDocPath)}
             isDevDocStale={
               !!(session?.devDocPath) &&
