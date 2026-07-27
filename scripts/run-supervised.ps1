@@ -642,9 +642,42 @@ function Start-AgentScopeStudio {
 
 function Start-Frontend {
     if (-not $NpmCmd) { Write-Host '[supervisor] 跳过前端启动（npm 未找到）'; return }
+    $frontendDir = Join-Path $RepoRoot 'frontend'
+    $nodeModules = Join-Path $frontendDir 'node_modules'
+    $installedLock = Join-Path $nodeModules '.package-lock.json'
+    $packageFiles = @(
+        (Join-Path $frontendDir 'package.json'),
+        (Join-Path $frontendDir 'package-lock.json')
+    )
+    $installedTime = if (Test-Path -LiteralPath $installedLock) {
+        (Get-Item -LiteralPath $installedLock).LastWriteTimeUtc
+    } else {
+        [datetime]::MinValue
+    }
+    $dependencyTime = Get-LatestWriteTime $packageFiles
+    $needInstall = (-not (Test-Path -LiteralPath $nodeModules)) -or
+        (-not (Test-Path -LiteralPath $installedLock)) -or
+        ($dependencyTime -gt $installedTime)
+
+    if ($needInstall) {
+        Write-Host '[supervisor] frontend 依赖缺失或已变更，执行 npm install...'
+        Push-Location $frontendDir
+        try {
+            & $NpmCmd install --no-audit --no-fund
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host '[supervisor] ERROR: frontend npm install 失败，跳过前端启动'
+                return
+            }
+        } catch {
+            Write-Host "[supervisor] ERROR: frontend npm install 出错，跳过前端启动: $($_.Exception.Message)"
+            return
+        } finally {
+            Pop-Location
+        }
+    }
+
     Stop-PortHolders $FrontendPort
     Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') start frontend (vite dev :$FrontendPort)..."
-    $frontendDir = Join-Path $RepoRoot 'frontend'
     $utf8Command = "chcp.com 65001 > `$null; `$utf8Encoding = [System.Text.UTF8Encoding]::new(`$false); [Console]::InputEncoding = `$utf8Encoding; [Console]::OutputEncoding = `$utf8Encoding; `$global:OutputEncoding = `$utf8Encoding"
     $dirLiteral = Quote-PowerShellLiteral $frontendDir
     $runCommand = "$utf8Command; Set-Location -LiteralPath $dirLiteral; npm run dev"
