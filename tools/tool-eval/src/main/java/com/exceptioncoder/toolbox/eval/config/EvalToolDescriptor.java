@@ -13,7 +13,7 @@ public class EvalToolDescriptor implements ToolDescriptor {
 
     @Override
     public String name() {
-        return "能力评测";
+        return "回归评测";
     }
 
     @Override
@@ -33,7 +33,7 @@ public class EvalToolDescriptor implements ToolDescriptor {
 
     @Override
     public String description() {
-        return "黄金集回归评测：断言引擎、提示词版本对比、pass→fail 退化清单";
+        return "黄金集回归：断言引擎、提示词版本对比、pass→fail 退化清单";
     }
 
     @Override
