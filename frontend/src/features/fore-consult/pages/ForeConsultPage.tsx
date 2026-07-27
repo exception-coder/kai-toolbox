@@ -333,9 +333,13 @@ export function ForeConsultPage() {
   const pendingRef = useRef<{ cwd: string; seed: string; displayText: string; consultId: string; attachments: ConsultAtt[] } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ name: string; moved: boolean } | null>(null)
+  const dragFrameRef = useRef<number | null>(null)
+  const pendingDragRef = useRef<{ name: string; pos: Pos } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   // 记录本次咨询上传过的附件（含落盘 path），归档时按文件名补给对应轮次。
   const attMetaRef = useRef<Map<string, { path: string; mime?: string | null }>>(new Map())
+  const attachmentsRef = useRef(attachments)
+  attachmentsRef.current = attachments
   const syncTimerRef = useRef<number | null>(null)
   const resumeRef = useRef<string | null>(null) // 待续跑的 claude-chat 会话 id
 
@@ -408,9 +412,19 @@ export function ForeConsultPage() {
   }, [activeLinks])
 
   // 力导向坐标：行星绕中央 Forge 恒星成环，无关系的球被推到外圈让开连线，可拖拽微调。
+  const basePositions = useMemo(
+    () => computeLayout(shownProjects.map((p) => p.name), activeLinks, new Map()),
+    [shownProjects, activeLinks],
+  )
+  // 拖动只覆盖当前节点坐标，不再把高频 pointermove 送进 300 轮力导向迭代。
   const positions = useMemo(
-    () => computeLayout(shownProjects.map((p) => p.name), activeLinks, overrides),
-    [shownProjects, activeLinks, overrides],
+    () => {
+      if (overrides.size === 0) return basePositions
+      const merged = new Map(basePositions)
+      overrides.forEach((pos, name) => merged.set(name, pos))
+      return merged
+    },
+    [basePositions, overrides],
   )
 
   // 链路边几何：二次贝塞尔轻微外弓，标签落在曲线中点。
@@ -438,18 +452,6 @@ export function ForeConsultPage() {
       .filter((e): e is NonNullable<typeof e> => e !== null)
   }, [activeLinks, positions])
 
-  const stars = useMemo(() => {
-    let s = 20260721
-    const rand = () => ((s = (s * 1664525 + 1013904223) >>> 0), s / 4294967296)
-    return Array.from({ length: 72 }, () => ({
-      x: rand() * 100,
-      y: rand() * 100,
-      size: 1 + rand() * 2,
-      dur: 3 + rand() * 5,
-      delay: rand() * 5,
-    }))
-  }, [])
-
   const systemPath = useMemo(() => projects.find((p) => p.name === system)?.path ?? '', [projects, system])
 
   const { data: modulesData } = useQuery({
@@ -462,8 +464,17 @@ export function ForeConsultPage() {
     [modulesData],
   )
 
-  const { data: history } = useQuery({ queryKey: ['fore-consult-sessions'], queryFn: listConsults })
-  const { data: bugs } = useQuery({ queryKey: ['fore-consult-bugs'], queryFn: listBugs })
+  const shouldLoadHistory = historyOpen || (!!chat?.sessionId && !activeConsultId)
+  const { data: history } = useQuery({
+    queryKey: ['fore-consult-sessions'],
+    queryFn: listConsults,
+    enabled: shouldLoadHistory,
+  })
+  const { data: bugs } = useQuery({
+    queryKey: ['fore-consult-bugs'],
+    queryFn: listBugs,
+    enabled: bugsOpen,
+  })
 
   const deliver = useCallback(() => {
     const p = pendingRef.current
@@ -517,6 +528,15 @@ export function ForeConsultPage() {
   useEffect(() => {
     if (chat && pendingRef.current) deliver()
   }, [chat, deliver])
+
+  useEffect(() => {
+    return () => {
+      if (dragFrameRef.current !== null) window.cancelAnimationFrame(dragFrameRef.current)
+      attachmentsRef.current.forEach((attachment) => {
+        if (attachment.url) URL.revokeObjectURL(attachment.url)
+      })
+    }
+  }, [])
 
   // 离开页面再回来时组件重挂载会丢失 activeConsultId，但悬浮会话仍在跑——
   // 据当前 chat.sessionId 从历史里找回仍 PENDING 的会话，恢复归档入口。
@@ -582,8 +602,7 @@ export function ForeConsultPage() {
     },
   })
 
-  // 拖拽球体：pointerdown 起拽，move 更新覆盖坐标（钉住该点，其余节点力导向避让），
-  // 未移动则视为点击打开该系统。
+  // 拖拽球体：pointermove 合并到浏览器下一绘制帧，每帧最多触发一次 React 更新。
   const toPct = (clientX: number, clientY: number): Pos | null => {
     const rect = containerRef.current?.getBoundingClientRect()
     if (!rect) return null
@@ -600,7 +619,14 @@ export function ForeConsultPage() {
     const p = toPct(e.clientX, e.clientY)
     if (!p) return
     ds.moved = true
-    setOverrides((prev) => new Map(prev).set(ds.name, p))
+    pendingDragRef.current = { name: ds.name, pos: p }
+    if (dragFrameRef.current !== null) return
+    dragFrameRef.current = window.requestAnimationFrame(() => {
+      dragFrameRef.current = null
+      const pending = pendingDragRef.current
+      pendingDragRef.current = null
+      if (pending) setOverrides((prev) => new Map(prev).set(pending.name, pending.pos))
+    })
   }
   const onOrbPointerUp = (name: string) => {
     const ds = dragRef.current
@@ -757,30 +783,20 @@ export function ForeConsultPage() {
     !!system.trim() && (!!ask.trim() || attachments.length > 0) && uploading === 0 && !startMutation.isPending && !activeConsultId
   const PanelIcon = iconForSystem(system, displayName(system))
   const sysCat = categoryOf(system, displayName(system))
-  const mq = moduleQuery.trim().toLowerCase()
-  const filteredModules = moduleOptions.filter((m) => m.toLowerCase().includes(mq))
-  // 选中的模块排到前面，未搜索/未展开时只显示前 12 个，降低"一墙标签"的认知负担。
-  const orderedModules = [...filteredModules].sort((a, b) => (moduleTags.includes(b) ? 1 : 0) - (moduleTags.includes(a) ? 1 : 0))
-  const shownModules = mq || modulesExpanded ? orderedModules : orderedModules.slice(0, 12)
+  const { shownModules, moduleResultCount, hasModuleQuery } = useMemo(() => {
+    const query = moduleQuery.trim().toLowerCase()
+    const selected = new Set(moduleTags)
+    const filtered = moduleOptions.filter((moduleName) => moduleName.toLowerCase().includes(query))
+    filtered.sort((a, b) => Number(selected.has(b)) - Number(selected.has(a)))
+    return {
+      shownModules: query || modulesExpanded ? filtered : filtered.slice(0, 12),
+      moduleResultCount: filtered.length,
+      hasModuleQuery: query.length > 0,
+    }
+  }, [moduleOptions, moduleQuery, moduleTags, modulesExpanded])
 
   return (
     <div ref={containerRef} className="fc-space h-[calc(100vh-5rem)] w-full rounded-2xl">
-      {/* 星尘 */}
-      {stars.map((st, i) => (
-        <span
-          key={i}
-          className="fc-star"
-          style={{
-            left: `${st.x}%`,
-            top: `${st.y}%`,
-            width: st.size,
-            height: st.size,
-            ['--fc-dur' as string]: `${st.dur}s`,
-            ['--fc-delay' as string]: `${st.delay}s`,
-          }}
-        />
-      ))}
-
       {/* 顶部标题栏 */}
       <header className="pointer-events-none absolute left-0 right-0 top-0 z-20 flex items-center justify-between px-6 py-4">
         <div className="flex items-center gap-2.5">
@@ -790,12 +806,12 @@ export function ForeConsultPage() {
             <p className="text-xs text-indigo-200/60">点击一颗资产星球，选定模块后向 AI 发起业务咨询</p>
           </div>
         </div>
-        <div className="pointer-events-auto flex items-center gap-2">
+        <div className="fc-toolbar pointer-events-auto flex items-center gap-1.5">
           <button
             type="button"
             onClick={() => topoMutation.mutate()}
             disabled={visibleProjects.length < 2 || topoMutation.isPending}
-            className="flex items-center gap-1.5 rounded-full border border-sky-300/30 bg-sky-400/10 px-3 py-1.5 text-xs text-sky-100 backdrop-blur-md transition-colors hover:bg-sky-400/20 disabled:opacity-40"
+            className="flex items-center gap-1.5 rounded-full border border-sky-300/25 bg-sky-400/10 px-3 py-1.5 text-xs text-sky-100 transition-colors hover:bg-sky-400/20 disabled:opacity-40"
             title="调用 cross-topology 图谱分析系统之间的链路关系"
           >
             {topoMutation.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Waypoints className="size-3.5" />}
@@ -805,7 +821,7 @@ export function ForeConsultPage() {
             <button
               type="button"
               onClick={() => setShowLinks((s) => !s)}
-              className="flex items-center gap-1.5 rounded-full border border-indigo-300/25 bg-white/5 px-3 py-1.5 text-xs text-indigo-100 backdrop-blur-md transition-colors hover:bg-white/10"
+              className="flex items-center gap-1.5 rounded-full border border-indigo-300/20 bg-white/[0.04] px-3 py-1.5 text-xs text-indigo-100 transition-colors hover:bg-white/10"
               title={showLinks ? '隐藏连线' : '显示连线'}
             >
               {showLinks ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
@@ -815,7 +831,7 @@ export function ForeConsultPage() {
           <button
             type="button"
             onClick={openConfig}
-            className="flex items-center gap-1.5 rounded-full border border-indigo-300/25 bg-white/5 px-3 py-1.5 text-xs text-indigo-100 backdrop-blur-md transition-colors hover:bg-white/10"
+            className="flex items-center gap-1.5 rounded-full border border-indigo-300/20 bg-white/[0.04] px-3 py-1.5 text-xs text-indigo-100 transition-colors hover:bg-white/10"
             title="管理系统别名与显示范围"
           >
             <SlidersHorizontal className="size-3.5" />
@@ -824,7 +840,7 @@ export function ForeConsultPage() {
           <button
             type="button"
             onClick={() => setHistoryOpen((o) => !o)}
-            className="flex items-center gap-1.5 rounded-full border border-indigo-300/25 bg-white/5 px-3 py-1.5 text-xs text-indigo-100 backdrop-blur-md transition-colors hover:bg-white/10"
+            className="flex items-center gap-1.5 rounded-full border border-indigo-300/20 bg-white/[0.04] px-3 py-1.5 text-xs text-indigo-100 transition-colors hover:bg-white/10"
           >
             <History className="size-3.5" />
             历史咨询 {(history ?? []).length > 0 && `· ${(history ?? []).length}`}
@@ -832,7 +848,7 @@ export function ForeConsultPage() {
           <button
             type="button"
             onClick={() => setBugsOpen((o) => !o)}
-            className="flex items-center gap-1.5 rounded-full border border-amber-300/25 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-100 backdrop-blur-md transition-colors hover:bg-amber-400/20"
+            className="flex items-center gap-1.5 rounded-full border border-amber-300/20 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-100 transition-colors hover:bg-amber-400/20"
             title="AI 自动登记的缺陷/数据问题"
           >
             <Bug className="size-3.5" />
@@ -841,7 +857,7 @@ export function ForeConsultPage() {
           <button
             type="button"
             onClick={toggleFullscreen}
-            className="flex items-center gap-1.5 rounded-full border border-indigo-300/25 bg-white/5 px-2.5 py-1.5 text-xs text-indigo-100 backdrop-blur-md transition-colors hover:bg-white/10"
+            className="flex items-center gap-1.5 rounded-full border border-indigo-300/20 bg-white/[0.04] px-2.5 py-1.5 text-xs text-indigo-100 transition-colors hover:bg-white/10"
             title={isFullscreen ? '退出全屏' : '全屏展示'}
           >
             {isFullscreen ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
@@ -849,8 +865,9 @@ export function ForeConsultPage() {
         </div>
       </header>
 
-      {/* 进行中横幅 */}
-      {activeConsultId && (
+      {/* 进行中横幅：对话面板打开时隐藏（面板 z-30 全屏遮罩会盖住本横幅 z-20，
+          否则点这里的「结束并归档」会先被遮罩吃掉变成关闭对话，导致要点两次）。归档入口此时用面板头部的按钮。 */}
+      {activeConsultId && !conversationOpen && (
         <div className="absolute left-1/2 top-16 z-20 flex -translate-x-1/2 items-center gap-3 rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-1.5 text-xs text-emerald-100 backdrop-blur-md">
           <span className="relative flex size-2">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
@@ -922,12 +939,8 @@ export function ForeConsultPage() {
           </defs>
           {edges.map((e, i) => (
             <g key={i}>
-              <path id={`fc-edge-${i}`} className="fc-edge" d={e.d} vectorEffect="non-scaling-stroke" />
-              <circle className="fc-particle" r={0.7}>
-                <animateMotion dur={`${2.4 + (i % 3) * 0.7}s`} repeatCount="indefinite">
-                  <mpath href={`#fc-edge-${i}`} />
-                </animateMotion>
-              </circle>
+              <path className="fc-edge-glow" d={e.d} vectorEffect="non-scaling-stroke" />
+              <path className="fc-edge" d={e.d} vectorEffect="non-scaling-stroke" />
             </g>
           ))}
         </svg>
@@ -1117,14 +1130,14 @@ export function ForeConsultPage() {
                       )
                     })}
                   </div>
-                  {!mq && orderedModules.length > 12 && (
+                  {!hasModuleQuery && moduleResultCount > 12 && (
                     <button
                       type="button"
                       onClick={() => setModulesExpanded((v) => !v)}
                       className="mt-2.5 flex items-center gap-1 text-[11px] text-indigo-200/60 hover:text-indigo-100"
                     >
                       <ChevronDown className={`size-3.5 transition-transform ${modulesExpanded ? 'rotate-180' : ''}`} />
-                      {modulesExpanded ? '收起' : `展开全部 ${orderedModules.length} 个`}
+                      {modulesExpanded ? '收起' : `展开全部 ${moduleResultCount} 个`}
                     </button>
                   )}
                 </>
