@@ -10,6 +10,7 @@ import { ensureNotifyPermission } from '../browserNotify'
 import { CommandMenu } from './CommandMenu'
 import { MessageList } from './MessageList'
 import { SessionTotalBadge } from './SessionTotalBadge'
+import { EngineIcon } from './EngineIcon'
 import { PermissionDialog } from './PermissionDialog'
 import { QuestionDialog } from './QuestionDialog'
 import { ModeSwitch } from './ModeSwitch'
@@ -146,14 +147,14 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
         <span className={`size-2.5 shrink-0 rounded-full ${sm.dot}${sm.pulse ? ' animate-pulse' : ''}`} />
         <span className="min-w-0 flex-1 truncate text-sm font-semibold" title={meta?.cwd}>{title}</span>
         <SessionTotalBadge items={chat.items} />
-        <span
+        {/* 分屏每块都很窄，引擎只留品牌图标；完整名称在 title 里 */}
+        <EngineIcon
+          engine={chat.currentEngine}
+          thirdParty={chat.currentProviderKind === 'thirdParty'}
+          className="size-3.5"
           title={engineTitle}
-          className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${chat.currentProviderKind === 'thirdParty'
-            ? 'border border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300'
-            : 'bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}
-        >
-          {engineLabel}
-        </span>
+          aria-label={engineLabel}
+        />
         <span className={`shrink-0 text-xs font-medium ${sm.text}`}>{sm.label}</span>
         <button
           type="button"

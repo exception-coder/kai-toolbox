@@ -18,6 +18,7 @@ import { VoiceInputButton } from './VoiceInputButton'
 import { MiniVoiceBar } from './MiniVoiceBar'
 import { LogsPanel } from './LogsPanel'
 import { DebugPanel } from './DebugPanel'
+import { EngineIcon } from './EngineIcon'
 import { RestartDialog } from './RestartDialog'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder'
@@ -617,12 +618,14 @@ export function FloatingChatWindow() {
           <>
             <MessageSquare className="size-4 shrink-0" />
             <span className="min-w-0 flex-1 truncate text-sm font-semibold" title={headerTitle}>{headerTitle}</span>
-            <span
+            {/* 浮窗横向空间最紧，引擎只留品牌图标；完整名称在 title 里 */}
+            <EngineIcon
+              engine={chat.currentEngine}
+              thirdParty={chat.currentProviderKind === 'thirdParty'}
+              className="size-3.5"
               title={engineTitle}
-              className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${chat.currentProviderKind === 'thirdParty'
-                ? 'border border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300'
-                : 'bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}
-            >{engineLabel}</span>
+              aria-label={engineLabel}
+            />
           </>
         )}
         <div className="flex shrink-0 gap-0.5">

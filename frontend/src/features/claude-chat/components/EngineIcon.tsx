@@ -1,0 +1,72 @@
+import { Zap } from 'lucide-react'
+import { RiOpenaiFill } from 'react-icons/ri'
+import { SiClaude, SiGooglegemini, SiOpencode } from 'react-icons/si'
+import type { IconType } from 'react-icons'
+import { cn } from '@/lib/utils'
+import type { Engine } from '../types'
+
+/**
+ * 引擎品牌图标 + 品牌色。
+ *
+ * 用各厂商自己的商标（react-icons 的 Simple Icons / Remix 集）而不是通用 lucide 图标：
+ * 引擎是「谁在干活」这个信息里最需要一眼认出的部分，品牌形状的识别成本远低于读文字，
+ * 窄屏下也能把文字标签整个省掉。之前 SessionList 用 Bot / Code2 / Sparkles 顶替，
+ * 且 gemini 与 opencode 共用同一个 Sparkles，根本区分不出来。
+ */
+const ENGINE_ICONS: Record<Engine, IconType> = {
+  claude: SiClaude,
+  codex: RiOpenaiFill,
+  gemini: SiGooglegemini,
+  opencode: SiOpencode,
+}
+
+/** 品牌主色（暗色模式下调亮一档保证对比度）。 */
+const ENGINE_COLORS: Record<Engine, string> = {
+  claude: 'text-[#d97757]',
+  codex: 'text-[#0f9d76] dark:text-[#19c37d]',
+  gemini: 'text-[#4285f4] dark:text-[#8ab4f8]',
+  opencode: 'text-[var(--color-foreground)]',
+}
+
+export function engineIconOf(engine: string): IconType {
+  return ENGINE_ICONS[engine as Engine] ?? SiClaude
+}
+
+export function engineColorOf(engine: string): string {
+  return ENGINE_COLORS[engine as Engine] ?? ENGINE_COLORS.claude
+}
+
+/**
+ * 单个引擎图标。thirdParty=true 时右下角叠一枚琥珀色闪电角标，
+ * 表示「同一引擎但走第三方网关」——这是引擎之外的正交维度，不该挤掉品牌本身。
+ */
+export function EngineIcon({
+  engine,
+  thirdParty,
+  className,
+  muted,
+  title,
+  'aria-label': ariaLabel,
+}: {
+  engine: string
+  thirdParty?: boolean
+  className?: string
+  /** 安静态：降饱和，用于列表等不该抢视觉的位置。 */
+  muted?: boolean
+  /** 悬浮说明；只剩图标时这是唯一能看到引擎全名的地方，别省。 */
+  title?: string
+  'aria-label'?: string
+}) {
+  const Icon = engineIconOf(engine)
+  return (
+    <span className="relative inline-flex shrink-0" title={title} aria-label={ariaLabel ?? title} role={ariaLabel ?? title ? 'img' : undefined}>
+      <Icon className={cn('shrink-0', engineColorOf(engine), muted && 'opacity-60', className)} />
+      {thirdParty && (
+        <Zap
+          className="absolute -bottom-0.5 -right-1 size-2 fill-amber-500 text-amber-500"
+          aria-hidden
+        />
+      )}
+    </span>
+  )
+}

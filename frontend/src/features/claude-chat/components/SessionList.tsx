@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bot, Check, ChevronDown, ChevronRight, Code2, Filter, Folder, FolderMinus, FolderPlus, Link2, Pencil, Search, Sparkles, Tags, Trash2, X, Zap } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, Filter, Folder, FolderMinus, FolderPlus, Link2, Pencil, Search, Tags, Trash2, X } from 'lucide-react'
+import { EngineIcon } from './EngineIcon'
 import { cn, formatDate } from '@/lib/utils'
 import { deleteSession, listSessions, renameSession, setSessionGroupApi } from '../api'
 import { engineDisplayName, providerHost } from './chatStatus'
@@ -371,7 +372,7 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
             <div className="flex items-center gap-1.5">
               {s.live
                 ? <span className="size-1.5 shrink-0 rounded-full bg-emerald-500 ring-[2.5px] ring-emerald-500/20" />
-                : <EngineIcon engine={s.engine || 'claude'} thirdParty={s.providerKind === 'thirdParty'} />
+                : <EngineIcon engine={s.engine || 'claude'} thirdParty={s.providerKind === 'thirdParty'} className="size-3" muted />
               }
               <span className={cn(
                 'min-w-0 flex-1 truncate text-sm leading-snug',
@@ -539,25 +540,6 @@ function GroupPicker({ current, all, onPick, onClose }: {
       </div>
     </div>
   )
-}
-
-/**
- * Engine 类型图标：让用户扫一眼就能辨别会话引擎，不需要读文字。
- * 尺寸 size-3（12px）+ opacity-50，保持低视觉权重，不抢标题焦点。
- */
-function EngineIcon({ engine, thirdParty }: { engine: string; thirdParty: boolean }) {
-  if (thirdParty) {
-    return <Zap className="size-3 shrink-0 opacity-50 text-amber-500" />
-  }
-  switch (engine) {
-    case 'codex':
-      return <Code2 className="size-3 shrink-0 opacity-50 text-violet-500" />
-    case 'gemini':
-    case 'opencode':
-      return <Sparkles className="size-3 shrink-0 opacity-50 text-sky-500" />
-    default:
-      return <Bot className="size-3 shrink-0 opacity-40 text-[var(--color-muted-foreground)]" />
-  }
 }
 
 function shortCwd(cwd: string): string {

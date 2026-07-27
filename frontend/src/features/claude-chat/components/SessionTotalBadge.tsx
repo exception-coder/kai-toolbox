@@ -41,8 +41,13 @@ export function SessionTotalBadge({ items, serverTotal, onClick, className }: { 
         <>
           <Coins className="size-3 opacity-70" />
           <span className="text-[var(--color-foreground)]">{abbr(tokens)}</span>
+          {/*
+            命中率窄屏隐藏：它是「看一眼知道缓存有没有在起作用」的次要指标，不需要常驻。
+            顶栏一整行除标题外全是 shrink-0，多这几个字就等于从标题身上扣宽度——手机上标题
+            会被压成一两个字。tokens 留着（更常看），命中率仍在 title 与用量面板里可查。
+          */}
           {hitRate != null && hitRate > 0 && (
-            <span className="opacity-70">· 命中 {Math.floor(hitRate * 100)}%</span>
+            <span className="hidden opacity-70 sm:inline">· 命中 {Math.floor(hitRate * 100)}%</span>
           )}
         </>
       ) : (

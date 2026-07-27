@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpToLine, Bell, Bug, ChevronDown, Cloud, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
+import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -9,6 +9,7 @@ import { useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { MessageList, type MessageListHandle } from '../components/MessageList'
 import { MessageNavPanel } from '../components/MessageNavPanel'
 import { SessionTotalBadge } from '../components/SessionTotalBadge'
+import { EngineIcon } from '../components/EngineIcon'
 import { UsagePanel } from '../components/UsagePanel'
 import { PermissionDialog } from '../components/PermissionDialog'
 import { QuestionDialog } from '../components/QuestionDialog'
@@ -733,7 +734,9 @@ export function ChatPage() {
               />
             ) : (
               <span
-                className="max-w-[40vw] truncate font-semibold"
+                // flex-1 min-w-0：让标题吃掉剩余空间而不是被固定成 40vw。旁边的胶囊/徽章都是
+                // shrink-0，整行唯一能压缩的就是它，给够弹性才不会在窄屏被压成「B...」。
+                className="min-w-0 flex-1 truncate font-semibold"
                 title={`${currentTitle || 'Vibe Coding'}${currentSession ? '\n双击重命名' : ''}`}
                 onDoubleClick={startEditTitle}
               >
@@ -745,13 +748,17 @@ export function ChatPage() {
                 type="button"
                 onClick={() => setEngineMenuOpen(o => !o)}
                 title={currentEngineTitle}
-                className={`rounded px-1.5 py-0.5 text-[10px] ${chat.currentEngine === 'codex'
-                  ? 'bg-violet-100 text-violet-700 dark:bg-violet-900 dark:text-violet-200'
-                  : chat.currentProviderKind === 'thirdParty'
-                    ? 'border border-amber-400 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300'
-                    : 'border border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-muted-foreground)]'}`}
+                aria-label={currentEngineTitle}
+                // 品牌图标为主、文字为辅：窄屏只留图标（品牌形状本身就够认），sm 以上才补文字。
+                className="flex items-center gap-1 rounded px-1 py-0.5 text-[10px] text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] sm:px-1.5"
               >
-                {currentEngineLabel} ▾
+                <EngineIcon
+                  engine={chat.currentEngine}
+                  thirdParty={chat.currentProviderKind === 'thirdParty'}
+                  className="size-3.5"
+                />
+                <span className="hidden sm:inline">{currentEngineLabel}</span>
+                <ChevronDown className="size-3 opacity-50" />
               </button>
               {engineMenuOpen && (
                 <>
@@ -764,9 +771,11 @@ export function ChatPage() {
                         type="button"
                         onClick={() => pickEngine(eng)}
                         disabled={chat.running}
-                        className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-xs hover:bg-[var(--color-accent)] disabled:opacity-40 ${eng === chat.currentEngine ? 'font-semibold text-[var(--color-primary)]' : ''}`}
+                        className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-[var(--color-accent)] disabled:opacity-40 ${eng === chat.currentEngine ? 'font-semibold text-[var(--color-primary)]' : ''}`}
                       >
-                        {engineName(eng)}{eng === chat.currentEngine && ' ·当前'}
+                        <EngineIcon engine={eng} className="size-3.5" />
+                        <span className="min-w-0 flex-1 truncate text-left">{engineName(eng)}</span>
+                        {eng === chat.currentEngine && <Check className="size-3.5 shrink-0" />}
                       </button>
                     ))}
                   </div>
