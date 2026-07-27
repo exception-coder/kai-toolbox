@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowUpToLine, Bell, Bug, ChevronDown, Cloud, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { MessageList, type MessageListHandle } from '../components/MessageList'
@@ -1112,57 +1113,61 @@ export function ChatPage() {
       {panel === 'providers' && (
         <ProviderProfilesPanel onClose={() => { setProviders(loadProfiles()); setPanel('new') }} />
       )}
-      {panel === 'sessions' && (
-        <div className="flex max-h-[55vh] flex-col border-b">
-          <div className="flex items-center gap-1 px-3 pt-2">
-            <TabBtn active={sessTab === 'tool'} onClick={() => setSessTab('tool')}>工具会话</TabBtn>
-            <TabBtn active={sessTab === 'history'} onClick={() => setSessTab('history')}>本机历史</TabBtn>
-            {sessTab === 'tool' && (
-              <button
-                type="button"
-                onClick={() => { setSelecting(v => !v); setSelected(new Set()) }}
-                className={`ml-auto rounded-full px-3 py-0.5 text-xs ${selecting
-                  ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
-                  : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]'}`}
-              >
-                {selecting ? '取消多选' : '多选并看'}
-              </button>
-            )}
-          </div>
-          <div className="overflow-y-auto">
-            {sessTab === 'tool' ? (
-              <>
-                {!selecting && (
-                  <RecentSessions
+      {/* 会话列表：左侧滑出抽屉（参考 app 菜单栏），PC/移动端一致的侧边会话导航。 */}
+      <Sheet open={panel === 'sessions'} onOpenChange={o => { if (!o) setPanel('none') }}>
+        <SheetContent side="left" className="w-72 max-w-[85vw] p-0">
+          <SheetTitle className="sr-only">会话列表</SheetTitle>
+          <div className="flex h-full flex-col">
+            <div className="flex items-center gap-1 px-3 pt-3">
+              <TabBtn active={sessTab === 'tool'} onClick={() => setSessTab('tool')}>工具会话</TabBtn>
+              <TabBtn active={sessTab === 'history'} onClick={() => setSessTab('history')}>本机历史</TabBtn>
+              {sessTab === 'tool' && (
+                <button
+                  type="button"
+                  onClick={() => { setSelecting(v => !v); setSelected(new Set()) }}
+                  className={`ml-auto rounded-full px-3 py-0.5 text-xs ${selecting
+                    ? 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
+                    : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]'}`}
+                >
+                  {selecting ? '取消多选' : '多选并看'}
+                </button>
+              )}
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {sessTab === 'tool' ? (
+                <>
+                  {!selecting && (
+                    <RecentSessions
+                      currentSessionId={chat.sessionId}
+                      onSwitch={(id, hintRunning) => { chat.switchTo(id, hintRunning); setPanel('none') }}
+                    />
+                  )}
+                  <SessionList
                     currentSessionId={chat.sessionId}
                     onSwitch={(id, hintRunning) => { chat.switchTo(id, hintRunning); setPanel('none') }}
+                    selectable={selecting}
+                    selectedIds={selected}
+                    onToggleSelect={toggleSelect}
                   />
-                )}
-                <SessionList
-                  currentSessionId={chat.sessionId}
-                  onSwitch={(id, hintRunning) => { chat.switchTo(id, hintRunning); setPanel('none') }}
-                  selectable={selecting}
-                  selectedIds={selected}
-                  onToggleSelect={toggleSelect}
+                </>
+              ) : (
+                <HistoryList
+                  defaultCwd={newCwd}
+                  onPick={(sid, cwd) => { chat.resumeHistory(sid, cwd); setPanel('none') }}
                 />
-              </>
-            ) : (
-              <HistoryList
-                defaultCwd={newCwd}
-                onPick={(sid, cwd) => { chat.resumeHistory(sid, cwd); setPanel('none') }}
-              />
+              )}
+            </div>
+            {selecting && sessTab === 'tool' && (
+              <div className="flex items-center gap-2 border-t px-3 py-2">
+                <span className="text-xs text-[var(--color-muted-foreground)]">已选 {selected.size} 个</span>
+                <Button size="sm" className="ml-auto" disabled={selected.size === 0} onClick={enterMulti}>
+                  并行查看选中（{selected.size}）
+                </Button>
+              </div>
             )}
           </div>
-          {selecting && sessTab === 'tool' && (
-            <div className="flex items-center gap-2 border-t px-3 py-2">
-              <span className="text-xs text-[var(--color-muted-foreground)]">已选 {selected.size} 个</span>
-              <Button size="sm" className="ml-auto" disabled={selected.size === 0} onClick={enterMulti}>
-                并行查看选中（{selected.size}）
-              </Button>
-            </div>
-          )}
-        </div>
-      )}
+        </SheetContent>
+      </Sheet>
       {panel === 'settings' && (
         <div className="max-h-[60vh] overflow-y-auto border-b">
           <NotifySettings onClose={() => setPanel('none')} />
