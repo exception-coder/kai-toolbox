@@ -596,6 +596,8 @@ export function FloatingChatWindow() {
       )}
       style={{ left: pos.x, top: pos.y, width: size.w, height: autoHeight ? undefined : size.h, maxHeight: autoHeight ? '70vh' : undefined }}
     >
+      {/* 极光背景独立裁剪层：见 skin.css .cc-skin-bg 注释 */}
+      {!giftMode && skin && <div className="cc-skin-bg" aria-hidden="true" />}
       {/* 顶部品牌色细线：标识「这是 AI 助手」，而非整窗染色（方案3：同色系分层 + 品牌色点缀） */}
       <div className={`h-[3px] w-full shrink-0 ${giftMode ? 'bg-[#6f9b54]' : 'bg-[var(--color-primary)]'}`} />
       {/* 标题栏 = 拖拽手柄。迷你态：状态 + 关键控制（仿音乐小卡片，只一行）；完整态：别名/引擎/全部按钮。 */}

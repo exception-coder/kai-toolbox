@@ -722,6 +722,9 @@ export function ChatPage() {
       !skin && (fullscreen ? 'bg-[var(--color-background)]' : 'bg-[var(--color-muted)]/40'),
       skinClass(skin, chat?.currentEngine ?? 'claude', !!chat?.running),
     )}>
+      {/* 极光背景独立裁剪层：见 skin.css .cc-skin-bg 注释——跟外层容器分开，
+          不连带裁掉「更多」下拉等需要正常溢出显示的浮层。 */}
+      {skin && <div className="cc-skin-bg" aria-hidden="true" />}
       {/* 顶栏：中性浅灰 + 1px 边框（Notion 风），不抢视觉。
           relative z-30：炫彩皮肤下 header 带 backdrop-filter 会自成层叠上下文，把「更多」下拉
           (absolute z-50) 关在其中；header 若无显式 z 又排在消息区/输入栏之前，后者会整体盖住

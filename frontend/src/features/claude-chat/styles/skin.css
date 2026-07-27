@@ -16,10 +16,6 @@
 .cc-skin {
   position: relative;
   isolation: isolate;
-  /* ::before/::after 用 inset: -30% 外扩一圈防止漂移露边（见下方注释），必须在这里裁掉——
-     否则这圈溢出不会被吸收，会直接撑大页面实际的可滚动高度，出现一大片可以滚进去的空白
-     （下面看到的其实是外扩出去、本该被裁掉的极光背景）。 */
-  overflow: hidden;
   /* 引擎品牌色三元组：主色 + 环绕色轮取的两个邻近色，保证够「炫」又不脏 */
   --skin-c1: #d97757;
   --skin-c2: #a855f7;
@@ -27,6 +23,23 @@
   --skin-alpha: 0.3;
   --skin-base: #faf7f5;
   background: var(--skin-base);
+  /* 注意：不在这里加 overflow:hidden——这个类挂在整页/浮窗的最外层容器上，容器内还有
+     「更多」下拉菜单等 position:absolute 的交互浮层，整体裁剪会连带把它们按容器边界切掉、
+     点不到（真实翻过车：曾经这么改过，导致炫彩皮肤下「弹出悬浮窗」菜单项点了没反应）。
+     背景漂移动画自己的溢出裁剪交给下面独立的 .cc-skin-bg 层，两者互不影响。 */
+}
+
+/*
+ * 极光背景专用的裁剪层：跟 .cc-skin 本体分开渲染（JSX 里作为其第一个子元素挂 .cc-skin-bg），
+ * 只裁剪这一层自己的溢出，不影响 .cc-skin 容器里其它需要正常溢出显示的浮层（下拉菜单等）。
+ * absolute + inset:0 铺满父容器，z-index:-1 借 .cc-skin 的 isolation:isolate 稳稳压在最底。
+ */
+.cc-skin-bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  z-index: -1;
+  pointer-events: none;
 }
 
 .cc-skin-codex {
@@ -65,41 +78,41 @@
   --skin-base: #000;
 }
 
-.cc-skin::before,
-.cc-skin::after {
+.cc-skin-bg::before,
+.cc-skin-bg::after {
   content: '';
   position: absolute;
-  /* 外扩一圈，漂移时边缘不会露出硬边 */
+  /* 外扩一圈，漂移时边缘不会露出硬边；由父级 .cc-skin-bg 的 overflow:hidden 裁掉溢出部分 */
   inset: -30%;
-  z-index: -1;
   pointer-events: none;
   opacity: var(--skin-alpha);
   will-change: transform;
 }
 
-.cc-skin::before {
+.cc-skin-bg::before {
   background:
     radial-gradient(38% 44% at 18% 22%, var(--skin-c1) 0%, transparent 70%),
     radial-gradient(34% 40% at 82% 30%, var(--skin-c2) 0%, transparent 72%);
   animation: cc-skin-drift-a 46s ease-in-out infinite alternate;
 }
 
-.cc-skin::after {
+.cc-skin-bg::after {
   background:
     radial-gradient(42% 46% at 70% 82%, var(--skin-c3) 0%, transparent 70%),
     radial-gradient(30% 36% at 30% 74%, var(--skin-c2) 0%, transparent 74%);
   animation: cc-skin-drift-b 67s ease-in-out infinite alternate;
 }
 
-/* agent 正在跑：呼吸加快 + 略微提亮，作为余光可感的「它在动」信号 */
-.cc-skin-live::before {
+/* agent 正在跑：呼吸加快 + 略微提亮，作为余光可感的「它在动」信号。cc-skin-live 仍挂在
+   .cc-skin 本体上，这里靠后代选择器找到子层 .cc-skin-bg 的伪元素。 */
+.cc-skin-live .cc-skin-bg::before {
   animation-duration: 15s;
 }
-.cc-skin-live::after {
+.cc-skin-live .cc-skin-bg::after {
   animation-duration: 21s;
 }
-.cc-skin-live::before,
-.cc-skin-live::after {
+.cc-skin-live .cc-skin-bg::before,
+.cc-skin-live .cc-skin-bg::after {
   opacity: calc(var(--skin-alpha) * 1.25);
 }
 
@@ -115,8 +128,8 @@
 
 /* 减少动态偏好：保留静态虹彩，去掉漂移。不动的层没必要再占合成层，一并撤掉 will-change。 */
 @media (prefers-reduced-motion: reduce) {
-  .cc-skin::before,
-  .cc-skin::after {
+  .cc-skin-bg::before,
+  .cc-skin-bg::after {
     animation: none;
     will-change: auto;
   }
