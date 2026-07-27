@@ -189,6 +189,38 @@ export async function ensureFreshToken(force = false): Promise<void> {
   await refreshPromise
 }
 
+/**
+ * 鉴权探针结果。
+ * - valid：token 确实有效
+ * - expired：后端明确拒绝（401/403），是真的失效
+ * - unreachable：网络不通 / 后端 5xx / 后端没起——**不能**据此登出
+ */
+export type AuthProbeResult = 'valid' | 'expired' | 'unreachable'
+
+/**
+ * 主动问一次后端「我这个 token 还认不认」。
+ *
+ * 存在的理由：WebSocket 握手失败在浏览器里是**不可区分**的——握手被后端 403 拒绝，和网线拔了
+ * 根本连不上，`onclose` 拿到的都是 code 1006，浏览器不暴露握手的 HTTP 状态码。所以「连续 N 次
+ * 握手前被关 = 登录失效」这个推断在断网时必然误判，把有效 token 也清掉。
+ *
+ * 与其从模糊信号猜，不如直接发一个带鉴权的轻量请求让后端裁决：fetch 被 reject 就是网络问题，
+ * 拿到 401/403 才是真失效。
+ */
+export async function probeAuth(): Promise<AuthProbeResult> {
+  const token = localStorage.getItem(TOKEN_KEY)
+  if (!token) return 'expired'
+  try {
+    const res = await fetch(`${API}/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
+    if (res.ok) return 'valid'
+    if (res.status === 401 || res.status === 403) return 'expired'
+    // 5xx / 其它：后端在重启或出错，不是凭证问题
+    return 'unreachable'
+  } catch {
+    return 'unreachable'
+  }
+}
+
 function subscribe(cb: () => void): () => void {
   listeners.add(cb)
   return () => { listeners.delete(cb) }

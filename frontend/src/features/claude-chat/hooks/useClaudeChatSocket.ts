@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { emitSessionExpired, ensureFreshToken, getToken, logout, useAuth } from '@/lib/auth'
+import { emitSessionExpired, ensureFreshToken, getToken, logout, probeAuth, useAuth } from '@/lib/auth'
 import type { Attachment, BackgroundTaskInfo, ChatItem, ClientMessage, CodexReasoningEffort, CodexSpeed, ConnState, Engine, ModelInfo, PendingRequest, PendingSessionRef, PermissionMode, ProviderKind, SendAttachment, ServerMessage, TurnDiag } from '../types'
 import { loadMessages } from '../api'
 import { notifyPrompt } from '../browserNotify'
@@ -222,13 +222,16 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
   // WS 重连退避计数（onopen 清零）+ 建连中守卫（覆盖「await 续期」异步窗口，防并发叠多条 WS）
   const reconnectAttemptsRef = useRef(0)
   const connectingRef = useRef(false)
-  // 鉴权失效检测：openedRef=本次 socket 是否曾成功 OPEN；authFailRef=连续「未 OPEN 就被关」次数
-  // （握手被后端鉴权拒绝时浏览器只报 1006，无法区分网络断开，故靠「反复握手前即关」推断为登录失效）；
-  // gaveUpRef=已因登录失效停重连（等登录成功后再恢复）；forceRefreshRef=下次连接强制续期一次 token。
+  // 鉴权失效检测：openedRef=本次 socket 是否曾成功 OPEN；authFailRef=连续「未 OPEN 就被关」次数。
+  // 注意 authFailRef 到阈值**只是触发一次探针的信号，不是判据**——握手被后端 403 拒绝和网线拔了，
+  // 浏览器给的都是 close code 1006（握手的 HTTP 状态不暴露给 JS），单凭它无法区分，只能去问后端。
+  // gaveUpRef=已确认登录失效、停重连（等登录成功后再恢复）；forceRefreshRef=下次连接强制续期一次 token。
   const openedRef = useRef(false)
   const authFailRef = useRef(0)
   const gaveUpRef = useRef(false)
   const forceRefreshRef = useRef(false)
+  /** 探针在途标记：多次 close 只跑一个探针，避免断网时并发刷请求。 */
+  const probingRef = useRef(false)
   // 订阅登录态：登录成功后 token 变化 → 若之前因失效停连，则自动恢复重连。
   const { token: sessionToken } = useAuth()
   const sdkSessionIdRef = useRef<string | null>(null)
@@ -522,6 +525,32 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     }
   }, [sendRaw])
 
+  /**
+   * 反复握手前即断时，问后端一次「凭证还认不认」，据实处置：
+   * - expired：确实失效 → 停重连、清 token、弹登录框（这才是唯一该打扰用户的场景）
+   * - unreachable：断网 / 后端没起 → 什么都不做，保留 token，继续按退避重连，网络回来自然接上
+   * - valid：凭证没问题，握手失败另有原因（后端重启中等）→ 同样继续重连
+   *
+   * 计数器清零是关键：不清的话下一次 close 又会立刻满足阈值，断网期间会反复打探针。
+   */
+  const confirmAuthOrKeepRetrying = useCallback(() => {
+    if (probingRef.current) return
+    probingRef.current = true
+    authFailRef.current = 0
+    void probeAuth().then(result => {
+      probingRef.current = false
+      if (result !== 'expired') {
+        pushDebug('conn', 'auth-probe', `握手反复失败，但凭证探针返回 ${result}：判为网络问题，保留登录态继续重连`)
+        return
+      }
+      gaveUpRef.current = true
+      setState('error')
+      setErrorMessage('登录已过期或凭证失效，请重新登录后重试。')
+      logout()             // 后端已明确拒绝，此时清 token 才是对的
+      emitSessionExpired() // 通知全局守卫弹登录框
+    })
+  }, [])
+
   // 用新鲜 token 真正建 WS（已确保 token 续期、并发守卫已置位）。
   const openSocket = useCallback(() => {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -565,20 +594,21 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
       pushDebug('conn', 'close', `WS 关闭（openedThisAttempt=${openedRef.current}）`)
       if (manualCloseRef.current) return
       const openedThisAttempt = openedRef.current
-      // 「握手前就被关」且本地仍有 token：大概率是后端鉴权拒绝（token 失效）。localhost/同源下网络抖动
-      // 通常能完成握手，反复「未 OPEN 即关」几乎只可能是鉴权被拒。累计到阈值即判定登录失效，
-      // 停止重连并主动弹登录，根除「拿被拒 token 无限重连刷屏」的僵尸循环。
-      if (!demo && !openedThisAttempt && getToken()) {
+      // 「握手前就被关」+ 本地有 token：只当作「可能是鉴权被拒」的线索去核实，不当判据。
+      // 曾经的假设是「同源下网络抖动通常能完成握手，反复未 OPEN 即关几乎只可能是鉴权被拒」——
+      // 断网场景下这不成立：手机切网/断流时每次都连不上，攒够 3 次就把有效 token 清了、弹登录框。
+      // 浏览器已知处于离线状态：连不上是必然的，与凭证无关，不计入鉴权失败。
+      const offline = typeof navigator !== 'undefined' && navigator.onLine === false
+      if (!demo && !offline && !openedThisAttempt && getToken()) {
         const f = (authFailRef.current += 1)
         if (f >= 3) {
-          gaveUpRef.current = true
-          setState('error')
-          setErrorMessage('登录已过期或凭证失效，请重新登录后重试。')
-          logout()            // 清掉被拒的 token，避免后续请求继续用它
-          emitSessionExpired() // 通知全局守卫弹登录框
-          return
+          // 到阈值只说明「反复握手前就断」，**不足以判定登录失效**：握手被 403 拒和网线拔了，
+          // onclose 拿到的都是 code 1006，浏览器不暴露握手的 HTTP 状态。所以这里不再直接 logout，
+          // 而是发一个带鉴权的探针请求让后端裁决，拿到真 401/403 才停重连并弹登录框。
+          confirmAuthOrKeepRetrying()
+        } else {
+          forceRefreshRef.current = true // 下次连接前强制续期一次（治后端重启/时钟偏移导致的旧 token 被拒）
         }
-        forceRefreshRef.current = true // 下次连接前强制续期一次（治后端重启/时钟偏移导致的旧 token 被拒）
       }
       // 非主动关闭且已有会话：自动重连并 attach 回放（断连不丢消息），按指数退避避免死循环刷屏
       // demo 会话随 WS 断开即被服务端销毁，重连 attach 已无意义；只置 closed。
@@ -592,7 +622,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
         setState('closed')
       }
     }
-  }, [applyEvent, flushIntent, flushPendingSends, demo])
+  }, [applyEvent, flushIntent, flushPendingSends, demo, confirmAuthOrKeepRetrying])
 
   const connect = useCallback(() => {
     // 幂等：已有在连/已连的 socket，或正处于「续期+建连」异步窗口时，不再叠一条。
