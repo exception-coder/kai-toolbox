@@ -772,29 +772,45 @@ public class PrdClarifyService {
     // ─────────────────────────────────────────────────
 
     /**
-     * 生成阶段：读取问答，调 Claude 生成 PRD Markdown，通过 SSE 流式推出，落盘后更新库。
+     * 生成/更新阶段：调 Claude 生成或增量更新 PRD Markdown，通过 SSE 流式推出，落盘后更新库。
      * 在虚拟线程中调用；Controller 直接返回 SseEmitter。
+     *
+     * @param extraInstructions update=true 时用户补充的本次更新说明（可选，null/空表示不追加）。
+     * @param updateExisting    true = 基于当前已有 PRD 内容做增量更新——复用「生成修订版」
+     *                          （PrdClarifyPage.tsx#handleReviseConfirm）同一套 GENERATE_SYSTEM_REVISION
+     *                          system prompt 和 === 原版 PRD 内容 === / === 本次修订说明 === 输入格式
+     *                          约定，区别是不新建会话、不走多轮澄清，原地覆盖同一份文件（旧版本先备份
+     *                          为 {id}-v{n}.md，语义是"检出新版本"而不是静默覆盖）。当前无 PRD 内容
+     *                          时退回从零生成，避免直接报错卡住用户。
+     *                          false/null = 原有行为：按原始需求描述+澄清问答从零生成/覆盖。
      */
-    public void generate(String sessionId, SseEmitter emitter) {
+    public void generate(String sessionId, String extraInstructions, Boolean updateExisting, SseEmitter emitter) {
         PrdSession session = repo.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
 
         repo.updateStatus(sessionId, "GENERATING");
-
-        // 需求类型优先：Bug 修复固定走「缺陷修复说明」模板（标准 PRD 的业务背景/使用场景等
-        // 章节对 Bug 没有意义）；否则按是否修订版（rawInput 以「【修订版 PRD」开头）选择
-        boolean isRevision = session.getRawInput() != null
-                && session.getRawInput().startsWith("【修订版 PRD");
-        String generateSystem = REQ_TYPE_BUG_FIX.equals(session.getReqType())
-                ? GENERATE_SYSTEM_BUG
-                : isRevision ? GENERATE_SYSTEM_REVISION : GENERATE_SYSTEM;
+        boolean update = Boolean.TRUE.equals(updateExisting);
 
         Thread.ofVirtual().name("prd-generate-").start(() -> {
             try {
+                String generateSystem;
+                String prompt;
+                String currentPrd = update ? fileStore.read(sessionId) : null;
+                if (update && currentPrd != null && !currentPrd.isBlank()) {
+                    generateSystem = GENERATE_SYSTEM_REVISION;
+                    prompt = buildPrdUpdatePrompt(session, currentPrd, extraInstructions);
+                } else {
+                    if (update) {
+                        log.info("[prd-clarify] 更新模式但当前无 PRD 内容，退回从零生成 sessionId={}", sessionId);
+                    }
+                    generateSystem = pickFreshGenerateSystem(session);
+                    prompt = buildGeneratePrompt(session);
+                }
+
                 StringBuilder full = new StringBuilder();
                 agentRunner.stream(
                         generateSystem,
-                        buildGeneratePrompt(session),
+                        prompt,
                         session.getModel(),
                         delta -> {
                             full.append(delta);
@@ -803,9 +819,12 @@ public class PrdClarifyService {
                         extractImagesFromRawInput(session.getRawInput()));
 
                 String prdContent = full.toString();
+                java.nio.file.Path mdPath = fileStore.pathFor(sessionId);
+                if (update) {
+                    backupPrdIfExists(mdPath);
+                }
                 fileStore.write(sessionId, prdContent);
-                String mdPath = fileStore.pathFor(sessionId).toString();
-                repo.updateDone(sessionId, mdPath);
+                repo.updateDone(sessionId, mdPath.toString());
 
                 sendDone(emitter);
             } catch (Exception e) {
@@ -814,6 +833,75 @@ public class PrdClarifyService {
                 sendError(emitter, e);
             }
         });
+    }
+
+    /** 需求类型优先：Bug 修复固定走「缺陷修复说明」模板；否则按是否修订版（rawInput 以
+     *  「【修订版 PRD」开头）选择——从零生成/覆盖场景（非增量更新）用。 */
+    private String pickFreshGenerateSystem(PrdSession session) {
+        boolean isRevision = session.getRawInput() != null
+                && session.getRawInput().startsWith("【修订版 PRD");
+        return REQ_TYPE_BUG_FIX.equals(session.getReqType())
+                ? GENERATE_SYSTEM_BUG
+                : isRevision ? GENERATE_SYSTEM_REVISION : GENERATE_SYSTEM;
+    }
+
+    /**
+     * 「一键更新 PRD」的增量更新 prompt：跟「生成修订版」走同一套输入格式约定（=== 原版 PRD
+     * 内容 === / === 本次修订说明 ===），配合 GENERATE_SYSTEM_REVISION 复用即可，不用再写一套
+     * 新 system prompt。
+     */
+    private String buildPrdUpdatePrompt(PrdSession s, String currentPrd, String extraInstructions) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("功能标题：").append(s.getTitle()).append("\n\n");
+        sb.append("=== 原版 PRD 内容 ===\n").append(currentPrd).append("\n\n");
+        sb.append("=== 本次修订说明 ===\n");
+        sb.append(extraInstructions != null && !extraInstructions.isBlank()
+                ? extraInstructions.trim()
+                : "（未提供具体说明，请基于当前内容审视并适度完善，在「实现状态」章节标注哪些是本次调整）");
+        sb.append('\n');
+        return sb.toString();
+    }
+
+    /**
+     * 覆盖 PRD 前，若旧版本已存在则备份为 {id}-v{n}.md（n 从已有备份中取最大值 + 1），
+     * 跟开发文档 {@link #backupDevDocIfExists} 同一套命名/递增策略——「一键更新」在语义上是
+     * "检出新版本"，不是静默覆盖丢失旧内容。备份失败只记警告，不阻断本次更新。
+     */
+    private void backupPrdIfExists(java.nio.file.Path mdPath) {
+        if (!java.nio.file.Files.isRegularFile(mdPath)) {
+            return;
+        }
+        try {
+            String fileName = mdPath.getFileName().toString(); // {id}.md
+            String baseName = fileName.substring(0, fileName.length() - 3); // {id}
+            java.nio.file.Path dir = mdPath.getParent();
+            List<Integer> backups = scanPrdBackupVersions(dir, baseName);
+            int nextVersion = (backups.isEmpty() ? 0 : backups.get(backups.size() - 1)) + 1;
+            java.nio.file.Path backupPath = mdPath.resolveSibling(baseName + "-v" + nextVersion + ".md");
+            java.nio.file.Files.copy(mdPath, backupPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            log.info("[prd-clarify] PRD 旧版本已备份 path={}", backupPath);
+        } catch (Exception e) {
+            log.warn("[prd-clarify] PRD 备份失败（不阻断本次更新）: {}", e.getMessage());
+        }
+    }
+
+    private List<Integer> scanPrdBackupVersions(java.nio.file.Path dir, String baseName) {
+        if (dir == null || !java.nio.file.Files.isDirectory(dir)) {
+            return List.of();
+        }
+        java.util.regex.Pattern versionPattern =
+                java.util.regex.Pattern.compile(java.util.regex.Pattern.quote(baseName) + "-v(\\d+)\\.md");
+        try (var files = java.nio.file.Files.list(dir)) {
+            return files
+                    .map(p -> versionPattern.matcher(p.getFileName().toString()))
+                    .filter(java.util.regex.Matcher::matches)
+                    .map(m -> Integer.parseInt(m.group(1)))
+                    .sorted()
+                    .toList();
+        } catch (Exception e) {
+            log.debug("[prd-clarify] 扫描 PRD 备份版本失败: {}", e.getMessage());
+            return List.of();
+        }
     }
 
     // ═══════════════════════════════════════════════════

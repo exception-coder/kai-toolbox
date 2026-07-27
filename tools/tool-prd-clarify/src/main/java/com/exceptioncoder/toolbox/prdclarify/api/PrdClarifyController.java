@@ -10,6 +10,7 @@ import com.exceptioncoder.toolbox.prdclarify.api.dto.DistributeAnswerRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.EstimateEffortRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.EvaluateProgressRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.GenerateDevDocRequest;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.GeneratePrdRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.ImageAttachmentView;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.ProgressVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.service.AttachmentParseService;
@@ -67,7 +68,7 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
  *   <li>{@code DELETE /sessions/{id}}             — 删除会话 + 文件</li>
  *   <li>{@code POST   /sessions/{id}/clarify}     — SSE：生成澄清问题</li>
  *   <li>{@code POST   /sessions/{id}/answers}     — 提交用户答案</li>
- *   <li>{@code POST   /sessions/{id}/generate}    — SSE：生成 PRD 文档</li>
+ *   <li>{@code POST   /sessions/{id}/generate}    — SSE：生成/更新 PRD 文档（updateExisting=true 走增量更新）</li>
  *   <li>{@code GET    /sessions/{id}/content}     — 读取 .md 文件</li>
  *   <li>{@code PUT    /sessions/{id}/content}     — 保存编辑后的 .md 文件</li>
  *   <li>{@code POST   /sessions/{id}/dev-doc/estimate} — AI 工时评估</li>
@@ -393,13 +394,16 @@ public class PrdClarifyController {
     }
 
     /**
-     * SSE 流式：调 Claude 生成 PRD Markdown 文档。
+     * SSE 流式：调 Claude 生成/更新 PRD Markdown 文档。
      * 事件：chunk（content 增量）、done（完成）、error（失败）。
+     * req 缺省或 updateExisting!=true：原有行为，从原始需求描述+澄清问答从零生成/覆盖。
+     * updateExisting=true：基于当前已有 PRD 内容做增量更新，旧版本自动备份，见
+     * {@link com.exceptioncoder.toolbox.prdclarify.service.PrdClarifyService#generate}。
      */
     @PostMapping(value = "/sessions/{id}/generate", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter generate(@PathVariable String id) {
+    public SseEmitter generate(@PathVariable String id, @RequestBody(required = false) GeneratePrdRequest req) {
         SseEmitter emitter = new SseEmitter(0L);
-        service.generate(id, emitter);
+        service.generate(id, req == null ? null : req.extraInstructions(), req == null ? null : req.updateExisting(), emitter);
         return emitter;
     }
 

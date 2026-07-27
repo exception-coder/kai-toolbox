@@ -117,11 +117,18 @@ export const startClarify = (id: string, handlers: SseHandlers) =>
   subscribeSsePost(`${BASE}/sessions/${id}/clarify`, {}, handlers)
 
 /**
- * SSE：触发 PRD 生成阶段。
- * 事件同上：chunk / done / error。
+ * SSE：触发 PRD 生成/更新阶段。事件同上：chunk / done / error。
+ * extraInstructions/updateExisting 用法跟 {@link startGenerateDevDoc} 对齐：
+ * updateExisting=true 时基于当前已有 PRD 内容做增量更新（旧版本自动备份），
+ * extraInstructions 是这次更新说明；缺省即原有行为——从原始需求描述+澄清问答从零生成。
  */
-export const startGenerate = (id: string, handlers: SseHandlers) =>
-  subscribeSsePost(`${BASE}/sessions/${id}/generate`, {}, handlers)
+export const startGenerate = (
+  id: string,
+  handlers: SseHandlers,
+  extraInstructions?: string,
+  updateExisting?: boolean,
+) =>
+  subscribeSsePost(`${BASE}/sessions/${id}/generate`, { extraInstructions, updateExisting }, handlers)
 
 // ─── 开发文档 ───
 

@@ -1,11 +1,28 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CheckCircle2, ExternalLink, FileText, Link2, Loader2, RefreshCw, Unlink, X } from 'lucide-react'
+import { Check, CheckCircle2, Copy, ExternalLink, FileText, Link2, Loader2, RefreshCw, Unlink, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Combobox } from '@/components/ui/combobox'
 import { useConfirm } from '@/components/ui/confirm-dialog'
-import { getSessionByDevSession, linkDevSession, listSessions, startGenerateDevDoc, unlinkDevSession } from '@/features/prd-clarify/api'
+import { getSessionByDevSession, linkDevSession, listSessions, startGenerate, startGenerateDevDoc, unlinkDevSession } from '@/features/prd-clarify/api'
 import type { PrdSessionView } from '@/features/prd-clarify/types'
+
+/** 剪贴板写入 + 降级（非安全上下文/旧浏览器用隐藏 textarea + execCommand）。 */
+async function copyTextToClipboard(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return
+  } catch {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    try { document.execCommand('copy') } catch { /* 忽略 */ }
+    document.body.removeChild(ta)
+  }
+}
 
 interface Props {
   /** 当前 Vibe Coding 会话 id（即 claude-chat 的 chat.sessionId）。 */
@@ -16,14 +33,16 @@ interface Props {
 }
 
 /**
- * 「关联 PRD」面板：展示/建立/更换 当前会话与 PRD 澄清助手某条记录的绑定，绑定后可以一键
- * 把这次会话的改动说明同步进对应的开发文档。
+ * 「关联 PRD」面板：展示/建立/更换 当前会话与 PRD 澄清助手某条记录的绑定，绑定后可以
+ * 复制文档路径、一键把这次会话的改动同步进 PRD + 开发文档(TDD)。
  *
  * 绑定关系本身早就有（`prd_session.dev_session_id`，PRD 页面「开始开发」跳过来时会自动建立），
- * 这个面板补的是缺的那一半：(1) 反过来查"我这个会话绑没绑"、在聊天窗口露出标识；
+ * 这个面板补的是缺的那部分：(1) 反过来查"我这个会话绑没绑"、在聊天窗口露出标识；
  * (2) 让已经开着、不是走自动握手流程创建的会话也能手动搜索绑定一个 PRD；
- * (3) 提供一个"同步更新开发文档"入口——复用 PRD 澄清助手现成的 AI 增量更新生成流程
- * （不新建轻量追加接口，按用户要求走已验证过的那条路）。
+ * (3) 复制 PRD/开发文档的文件路径，方便贴进对话或终端引用；
+ * (4) 「一键更新 PRD + 开发文档」——复用 PRD 澄清助手现成的 AI 增量更新生成流程：PRD 走
+ * 「生成修订版」同一套 prompt（原地覆盖同一份文件，不新建会话），开发文档走已有的增量更新，
+ * 旧版本都自动备份进历史。
  */
 export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
   const navigate = useNavigate()
@@ -99,35 +118,91 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
     }
   }
 
-  // ── 同步更新开发文档：复用 PRD 澄清助手现成的 AI 增量更新生成流程 ─────────────
-  const [note, setNote] = useState('')
-  const [syncing, setSyncing] = useState(false)
-  const [syncDone, setSyncDone] = useState(false)
-  const [syncErr, setSyncErr] = useState<string | null>(null)
-
-  const doSync = () => {
+  // ── 复制文档路径：绑定后经常要在别处（终端、跟 Claude 说"看看这个文件"）引用这两份文件，
+  // 省得跑去 PRD 澄清助手里找路径再复制。 ──────────────────────────────────────
+  const [pathCopied, setPathCopied] = useState(false)
+  const doCopyPaths = async () => {
     if (!linked) return
-    setSyncing(true)
-    setSyncDone(false)
-    setSyncErr(null)
-    startGenerateDevDoc(linked.id, note.trim() || undefined, true, undefined, {
+    const text = [
+      `PRD：${linked.mdPath || '（尚未生成）'}`,
+      `开发文档（TDD）：${linked.devDocPath || '（尚未生成）'}`,
+    ].join('\n')
+    await copyTextToClipboard(text)
+    setPathCopied(true)
+    setTimeout(() => setPathCopied(false), 1500)
+  }
+
+  // ── 一键更新 PRD + 开发文档(TDD)：复用 PRD 澄清助手现成的 AI 增量更新生成流程——
+  // PRD 走「生成修订版」同一套 prompt（原地覆盖，不新建会话）+ 开发文档走已有的增量更新，
+  // 顺序执行、共用一份"这次改了什么"说明。 ────────────────────────────────────
+  const [note, setNote] = useState('')
+  const [updateStage, setUpdateStage] = useState<'prd' | 'devdoc' | null>(null)
+  const [updateDone, setUpdateDone] = useState<'both' | 'devdoc' | null>(null)
+  const [updateErr, setUpdateErr] = useState<string | null>(null)
+  const updating = updateStage !== null
+
+  const runGeneratePrd = (id: string, n: string) => new Promise<void>((resolve, reject) => {
+    startGenerate(id, {
       onEvent(name, data) {
-        if (name === 'done') {
-          setSyncing(false)
-          setSyncDone(true)
-          setNote('')
-          refresh() // 拉一份最新的 devDocGeneratedAt/devDocHistory
-        } else if (name === 'error') {
-          setSyncing(false)
-          const msg = data && typeof data === 'object' && 'message' in data ? String((data as { message: unknown }).message) : '更新失败'
-          setSyncErr(msg)
+        if (name === 'done') resolve()
+        else if (name === 'error') {
+          const msg = data && typeof data === 'object' && 'message' in data ? String((data as { message: unknown }).message) : 'PRD 更新失败'
+          reject(new Error(msg))
         }
       },
-      onError(err) {
-        setSyncing(false)
-        setSyncErr(err instanceof Error ? err.message : String(err))
+      onError(err) { reject(err instanceof Error ? err : new Error(String(err))) },
+    }, n || undefined, true)
+  })
+
+  const runGenerateDevDoc = (id: string, n: string) => new Promise<void>((resolve, reject) => {
+    startGenerateDevDoc(id, n || undefined, true, undefined, {
+      onEvent(name, data) {
+        if (name === 'done') resolve()
+        else if (name === 'error') {
+          const msg = data && typeof data === 'object' && 'message' in data ? String((data as { message: unknown }).message) : '开发文档更新失败'
+          reject(new Error(msg))
+        }
       },
+      onError(err) { reject(err instanceof Error ? err : new Error(String(err))) },
     })
+  })
+
+  const doUpdateBoth = async () => {
+    if (!linked) return
+    setUpdateErr(null)
+    setUpdateDone(null)
+    const n = note.trim()
+    try {
+      setUpdateStage('prd')
+      await runGeneratePrd(linked.id, n)
+      setUpdateStage('devdoc')
+      await runGenerateDevDoc(linked.id, n)
+      setUpdateStage(null)
+      setUpdateDone('both')
+      setNote('')
+      refresh() // 拉一份最新的 mdPath/devDocGeneratedAt
+    } catch (e) {
+      setUpdateStage(null)
+      setUpdateErr(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const doUpdateDevDocOnly = async () => {
+    if (!linked) return
+    setUpdateErr(null)
+    setUpdateDone(null)
+    const n = note.trim()
+    try {
+      setUpdateStage('devdoc')
+      await runGenerateDevDoc(linked.id, n)
+      setUpdateStage(null)
+      setUpdateDone('devdoc')
+      setNote('')
+      refresh()
+    } catch (e) {
+      setUpdateStage(null)
+      setUpdateErr(e instanceof Error ? e.message : String(e))
+    }
   }
 
   const openPrd = (prdId: string) => {
@@ -171,48 +246,72 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
                     {linked.project}{linked.module ? ` / ${linked.module}` : ''}
                   </p>
                 )}
-                <button
-                  type="button"
-                  onClick={() => openPrd(linked.id)}
-                  className="mt-1.5 flex items-center gap-1 text-xs text-[var(--color-primary)] hover:underline"
-                >
-                  <ExternalLink className="size-3" />在 PRD 澄清助手里打开
-                </button>
+                <div className="mt-1.5 flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => openPrd(linked.id)}
+                    className="flex items-center gap-1 text-xs text-[var(--color-primary)] hover:underline"
+                  >
+                    <ExternalLink className="size-3" />在 PRD 澄清助手里打开
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void doCopyPaths()}
+                    title="复制 PRD + 开发文档(TDD) 的文件路径，方便贴进对话或终端引用"
+                    className="flex items-center gap-1 text-xs text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:underline"
+                  >
+                    {pathCopied ? <Check className="size-3" /> : <Copy className="size-3" />}
+                    {pathCopied ? '已复制路径' : '复制文档路径'}
+                  </button>
+                </div>
               </div>
 
               <div className="rounded-lg border px-3 py-2.5">
-                <p className="mb-1.5 text-xs font-medium text-[var(--color-muted-foreground)]">同步更新开发文档</p>
+                <p className="mb-1.5 text-xs font-medium text-[var(--color-muted-foreground)]">一键更新 PRD + 开发文档(TDD)</p>
                 <p className="mb-2 text-[11px] leading-relaxed text-[var(--color-muted-foreground)]">
-                  基于当前开发文档做增量更新（走 PRD 澄清助手已有的 AI 生成流程，旧版本自动备份进历史）。
-                  可以简单说一句这次改了什么，留空则按当前 PRD/开发文档原样重新梳理一遍。
+                  依次对 PRD 和开发文档做增量更新（都走 PRD 澄清助手已有的 AI 生成流程，旧版本自动
+                  备份进历史，原地覆盖同一份文件、路径不变）。可以简单说一句这次改了什么，留空则
+                  按当前内容原样重新梳理一遍。
                 </p>
                 <textarea
                   value={note}
                   onChange={e => setNote(e.target.value)}
-                  disabled={syncing}
+                  disabled={updating}
                   placeholder="（可选）这次改了什么，简单说一句…"
                   rows={2}
                   className="mb-2 w-full resize-none rounded-md border bg-[var(--color-background)] px-2 py-1.5 text-xs"
                 />
                 <button
                   type="button"
-                  onClick={doSync}
-                  disabled={syncing}
+                  onClick={doUpdateBoth}
+                  disabled={updating}
                   className={cn(
                     'flex w-full items-center justify-center gap-1.5 rounded-md bg-[var(--color-primary)] px-3 py-1.5 text-xs font-medium text-[var(--color-primary-foreground)] hover:opacity-90',
-                    syncing && 'pointer-events-none opacity-60',
+                    updating && 'pointer-events-none opacity-60',
                   )}
                 >
-                  {syncing ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
-                  {syncing ? '正在更新…' : '同步更新开发文档'}
+                  {updating ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+                  {updateStage === 'prd' ? '正在更新 PRD…' : updateStage === 'devdoc' ? '正在更新开发文档…' : '一键更新 PRD + 开发文档'}
                 </button>
-                {syncDone && (
+                <button
+                  type="button"
+                  onClick={doUpdateDevDocOnly}
+                  disabled={updating}
+                  className={cn(
+                    'mt-1.5 w-full text-center text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:underline',
+                    updating && 'pointer-events-none opacity-60',
+                  )}
+                >
+                  只更新开发文档，PRD 不动
+                </button>
+                {updateDone && (
                   <p className="mt-1.5 flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
-                    <CheckCircle2 className="size-3.5" />已更新，去 PRD 澄清助手可查看最新版本
+                    <CheckCircle2 className="size-3.5" />
+                    {updateDone === 'both' ? 'PRD + 开发文档已更新，去 PRD 澄清助手可查看最新版本' : '开发文档已更新，去 PRD 澄清助手可查看最新版本'}
                   </p>
                 )}
-                {syncErr && (
-                  <p className="mt-1.5 text-xs text-[var(--color-destructive)]">更新失败：{syncErr}</p>
+                {updateErr && (
+                  <p className="mt-1.5 text-xs text-[var(--color-destructive)]">更新失败：{updateErr}</p>
                 )}
               </div>
 
