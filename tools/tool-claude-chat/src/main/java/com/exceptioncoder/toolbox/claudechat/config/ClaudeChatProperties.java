@@ -42,6 +42,11 @@ public class ClaudeChatProperties {
     /** 单条消息最多附件数。 */
     private int maxAttachmentsPerMessage = 10;
 
-    /** 一次性 Agent 任务（高质量简历优化）最长等待时间（毫秒）。 */
-    private long agentOneShotTimeoutMs = 120_000L;
+    /**
+     * 一次性 Agent 任务（简历优化、PRD 需求分诊/工时评估/进度评估/开发文档生成等）最长等待
+     * 时间（毫秒）。这里只是 application.yml 缺失该配置时的兜底默认值，实际生效值以
+     * {@code toolbox.claude-chat.agent-one-shot-timeout-ms} 为准（当前配的是 20 分钟，
+     * 开发文档生成偶尔会跑到 5 分钟以上）。
+     */
+    private long agentOneShotTimeoutMs = 1_200_000L;
 }

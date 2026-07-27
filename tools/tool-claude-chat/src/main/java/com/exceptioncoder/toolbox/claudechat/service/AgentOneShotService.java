@@ -74,8 +74,9 @@ public class AgentOneShotService implements AgentOneShotRunner {
             sidecar.oneShot(id, systemPrompt, userPrompt, model, images);
             return call.future.get(props.getAgentOneShotTimeoutMs(), TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {
-            throw new RuntimeException("高质量引擎超时：Claude Agent 在 "
-                    + (props.getAgentOneShotTimeoutMs() / 1000) + "s 内未返回结果", e);
+            long seconds = props.getAgentOneShotTimeoutMs() / 1000;
+            String limit = seconds >= 60 ? (seconds / 60) + "分钟" : seconds + "s";
+            throw new RuntimeException("高质量引擎超时：Claude Agent 在 " + limit + " 内未返回结果", e);
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
