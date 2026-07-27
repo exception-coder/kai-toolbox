@@ -722,8 +722,11 @@ export function ChatPage() {
       !skin && (fullscreen ? 'bg-[var(--color-background)]' : 'bg-[var(--color-muted)]/40'),
       skinClass(skin, chat?.currentEngine ?? 'claude', !!chat?.running),
     )}>
-      {/* 顶栏：中性浅灰 + 1px 边框（Notion 风），不抢视觉 */}
-      <header className="cc-skin-surface flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-muted)] px-3 py-2 shadow-sm">
+      {/* 顶栏：中性浅灰 + 1px 边框（Notion 风），不抢视觉。
+          relative z-30：炫彩皮肤下 header 带 backdrop-filter 会自成层叠上下文，把「更多」下拉
+          (absolute z-50) 关在其中；header 若无显式 z 又排在消息区/输入栏之前，后者会整体盖住
+          下拉的下半部分导致点不到。抬高 header 层级使其子树压在正文之上（仍低于 z-50/60 模态）。 */}
+      <header className="cc-skin-surface relative z-30 flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-muted)] px-3 py-2 shadow-sm">
         {viewMode === 'multi' ? (
           /* 分屏下顶部不挂某一个会话的标题/引擎/状态/用量（各 pane 自带），只给中性标识 */
           <span className="font-semibold">分屏 · {multiIds.length} 个会话</span>
