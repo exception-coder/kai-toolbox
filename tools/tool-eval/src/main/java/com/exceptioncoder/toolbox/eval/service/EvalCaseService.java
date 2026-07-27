@@ -13,6 +13,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -54,7 +55,7 @@ public class EvalCaseService {
      * <p>整批同生共死：中途失败全部回滚，避免出现「导了一半」这种说不清纳入了多少的中间态。
      */
     @Transactional
-    public HarvestResult harvest(String sourceId, String dataset) {
+    public HarvestResult harvest(String sourceId, String dataset, boolean refresh) {
         EvalSampleSource source = sources.get(sourceId);
         if (source == null) {
             throw new ResponseStatusException(BAD_REQUEST,
@@ -62,21 +63,37 @@ public class EvalCaseService {
         }
         String ds = dataset == null || dataset.isBlank() ? sourceId : dataset.trim();
         List<EvalSampleSource.Sample> samples = source.collect();
-        int created = 0;
+        int created = 0, updated = 0;
         for (EvalSampleSource.Sample s : samples) {
             if (s.sourceRef() == null || s.sourceRef().isBlank()) {
                 throw new ResponseStatusException(BAD_REQUEST,
                         "样本来源 " + sourceId + " 返回了空 sourceRef，无法幂等去重");
             }
-            if (repo.existsBySourceRef(s.sourceRef())) {
+            Optional<EvalCase> existing = repo.findBySourceRef(s.sourceRef());
+            if (existing.isPresent()) {
+                if (!refresh) {
+                    continue;
+                }
+                // 保留原用例 id：eval_result 与退化对比都按 case_id 关联，换 id 会让历史报告对不上号
+                EvalCase c = existing.get();
+                c.setTitle(s.title());
+                c.setInputJson(s.inputJson());
+                c.setExpectedJson(s.expectedJson());
+                c.setAssertJson(s.assertJson());
+                c.setTags(s.tags());
+                c.setUpdatedAt(System.currentTimeMillis());
+                repo.update(c);
+                updated++;
                 continue;
             }
             create(new SaveCaseRequest(source.scenario(), ds, s.title(), s.inputJson(),
-                    s.expectedJson(), null, s.tags(), s.sourceRef(), true));
+                    s.expectedJson(), s.assertJson(), s.tags(), s.sourceRef(), true));
             created++;
         }
-        log.info("[eval] 从 {} 纳入 {} 条（共 {} 条样本）", sourceId, created, samples.size());
-        return new HarvestResult(sourceId, ds, samples.size(), created, samples.size() - created);
+        log.info("[eval] 从 {} 纳入 {} 条、重生成 {} 条（共 {} 条样本）",
+                sourceId, created, updated, samples.size());
+        return new HarvestResult(sourceId, ds, samples.size(), created, updated,
+                samples.size() - created - updated);
     }
 
     /**
@@ -86,7 +103,13 @@ public class EvalCaseService {
     public record SourceStat(String id, String displayName, String scenario, int total, int pending) {
     }
 
-    public record HarvestResult(String source, String dataset, int received, int created, int skipped) {
+    /**
+     * @param created 新纳入条数
+     * @param updated 重新生成的已有用例条数（仅 refresh 时非零）
+     * @param skipped 已存在且未重新生成的条数
+     */
+    public record HarvestResult(String source, String dataset, int received, int created,
+                                int updated, int skipped) {
     }
 
     public EvalCase create(SaveCaseRequest req) {

@@ -126,6 +126,8 @@ export interface HarvestResult {
   dataset: string
   received: number
   created: number
+  /** 重新生成的已有用例条数（仅 refresh 时非零） */
+  updated: number
   skipped: number
 }
 

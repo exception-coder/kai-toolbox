@@ -65,11 +65,14 @@ public class EvalCaseController {
      * 从某来源一键纳入黄金集，按 sourceRef 幂等。
      *
      * @param dataset 目标数据集名，省略则用来源 id
+     * @param refresh 为 true 时按 sourceRef 重新生成已纳入的用例（保留用例 id 与历史结果关联）。
+     *                用于回捞逻辑本身修好之后刷新存量用例；会覆盖手工改过的期望值与断言，故默认 false。
      */
     @PostMapping("/harvest")
     public EvalCaseService.HarvestResult harvest(@RequestParam String source,
-                                                 @RequestParam(required = false) String dataset) {
-        return service.harvest(source, dataset);
+                                                 @RequestParam(required = false) String dataset,
+                                                 @RequestParam(defaultValue = "false") boolean refresh) {
+        return service.harvest(source, dataset, refresh);
     }
 
     @GetMapping("/{id}")

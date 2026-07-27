@@ -41,8 +41,10 @@ public interface EvalSampleSource {
      * @param title        用例标题，人读用
      * @param inputJson    被测链路的入参 JSON 对象
      * @param expectedJson 黄金答案 JSON 对象
+     * @param assertJson   断言配置 JSON 数组；传 {@code null} 则由评测侧从 expectedJson 按默认策略推导
      * @param tags         JSON 数组字符串，建议标注来源与标注强度（如 ["harvested","REJECTED"]）
      */
-    record Sample(String sourceRef, String title, String inputJson, String expectedJson, String tags) {
+    record Sample(String sourceRef, String title, String inputJson, String expectedJson,
+                  String assertJson, String tags) {
     }
 }

@@ -4,6 +4,7 @@ import com.exceptioncoder.toolbox.common.eval.EvalSampleSource;
 import com.exceptioncoder.toolbox.foreconsult.domain.ConsultTurn;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultTurnRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Component;
 
@@ -33,6 +34,8 @@ public class ConsultTurnSampleSource implements EvalSampleSource {
     private static final int MAX = 2000;
     /** 太短的回答多半是打断/报错残留，不足以支撑判定。 */
     private static final int MIN_ANSWER_LEN = 20;
+    /** 与 adapter 归一化后的输出字段对齐；不含 system——那是会话环境上下文，非抽取产物。 */
+    private static final String[] FIELDS = {"type", "severity", "module", "title"};
 
     private final ConsultTurnRepository turnRepo;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -75,6 +78,7 @@ public class ConsultTurnSampleSource implements EvalSampleSource {
                     truncate("[未报缺陷] " + question.strip().replaceAll("\\s+", " "), 200),
                     input(question, answer),
                     expectedNotBug(),
+                    assertNotBug(),
                     tags("harvested", "NOT_REPORTED", "weak-label")));
         }
         return samples;
@@ -90,10 +94,29 @@ public class ConsultTurnSampleSource implements EvalSampleSource {
     private String expectedNotBug() {
         ObjectNode n = mapper.createObjectNode();
         n.put("isBug", false);
-        for (String f : new String[]{"type", "severity", "system", "module", "title"}) {
+        for (String f : FIELDS) {
             n.putNull(f);
         }
         return n.toString();
+    }
+
+    /** 判定必须为 false，且一个字段都不许吐——「不该抽的抽出来」正是负样本要抓的误报。 */
+    private String assertNotBug() {
+        ArrayNode arr = mapper.createArrayNode();
+        ObjectNode isBug = mapper.createObjectNode();
+        isBug.put("type", "EQUALS_IGNORE_CASE");
+        isBug.put("path", "isBug");
+        isBug.set("expected", mapper.getNodeFactory().booleanNode(false));
+        isBug.put("weight", 1.0);
+        arr.add(isBug);
+        for (String f : FIELDS) {
+            ObjectNode n = mapper.createObjectNode();
+            n.put("type", "ABSENT");
+            n.put("path", f);
+            n.put("weight", 1.0);
+            arr.add(n);
+        }
+        return arr.toString();
     }
 
     private String tags(String... values) {

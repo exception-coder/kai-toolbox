@@ -41,9 +41,10 @@ export const deleteCase = (id: string) =>
 
 export const listSources = () => http<SampleSource[]>(`${BASE}/cases/sources`)
 
-export const harvest = (source: string, dataset?: string) => {
+export const harvest = (source: string, opts?: { dataset?: string; refresh?: boolean }) => {
   const q = new URLSearchParams({ source })
-  if (dataset) q.set('dataset', dataset)
+  if (opts?.dataset) q.set('dataset', opts.dataset)
+  if (opts?.refresh) q.set('refresh', 'true')
   return http<HarvestResult>(`${BASE}/cases/harvest?${q.toString()}`, { method: 'POST' })
 }
 

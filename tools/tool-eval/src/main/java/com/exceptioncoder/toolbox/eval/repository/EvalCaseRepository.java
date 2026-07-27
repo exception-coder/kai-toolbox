@@ -103,6 +103,11 @@ public class EvalCaseRepository {
         return n != null && n > 0;
     }
 
+    public Optional<EvalCase> findBySourceRef(String sourceRef) {
+        List<EvalCase> rows = jdbc.query("SELECT * FROM eval_case WHERE source_ref=? LIMIT 1", ROW, sourceRef);
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
     public int delete(String id) {
         return jdbc.update("DELETE FROM eval_case WHERE id=?", id);
     }

@@ -51,7 +51,7 @@ export function EvalPage() {
   const datasetsQ = useQuery({ queryKey: ['eval', 'datasets'], queryFn: listDatasets })
   const sourcesQ = useQuery({ queryKey: ['eval', 'sources'], queryFn: listSources })
   const harvestM = useMutation({
-    mutationFn: (source: string) => harvest(source),
+    mutationFn: (v: { source: string; refresh?: boolean }) => harvest(v.source, { refresh: v.refresh }),
     onSuccess: (r) => {
       // 纳入后数据集下拉与待纳入计数都会变，一并刷新；顺手选中刚纳入的数据集，省一次手动选择
       qc.invalidateQueries({ queryKey: ['eval', 'datasets'] })
@@ -69,16 +69,20 @@ export function EvalPage() {
       (q.state.data as EvalRun[] | undefined)?.some((r) => r.status === 'RUNNING') ? 2000 : false,
   })
 
-  const resultsQ = useQuery({
-    queryKey: ['eval', 'results', selectedRun],
-    queryFn: () => listResults(selectedRun),
-    enabled: !!selectedRun,
-  })
-
   const currentRun = useMemo(
     () => runsQ.data?.find((r) => r.id === selectedRun),
     [runsQ.data, selectedRun],
   )
+
+  // 运行状态进 queryKey：跑批刚发起时结果集必然是空的，若不随状态变化重取，
+  // 跑完后明细会永远停在最初那次空响应上（指标有数、明细空白）。
+  // RUNNING 期间顺带轮询，串行跑批能看到结果一条条出来。
+  const resultsQ = useQuery({
+    queryKey: ['eval', 'results', selectedRun, currentRun?.status ?? ''],
+    queryFn: () => listResults(selectedRun),
+    enabled: !!selectedRun,
+    refetchInterval: currentRun?.status === 'RUNNING' ? 2000 : false,
+  })
 
   const summaryQ = useQuery({
     queryKey: ['eval', 'summary', selectedRun],
@@ -157,14 +161,29 @@ export function EvalPage() {
                   size="sm"
                   variant={s.pending > 0 ? 'default' : 'outline'}
                   disabled={s.pending === 0 || harvestM.isPending}
-                  onClick={() => harvestM.mutate(s.id)}
+                  onClick={() => harvestM.mutate({ source: s.id })}
                 >
-                  {harvestM.isPending && harvestM.variables === s.id ? (
+                  {harvestM.isPending && harvestM.variables?.source === s.id && !harvestM.variables.refresh ? (
                     <Loader2 className="animate-spin" />
                   ) : (
                     <Download />
                   )}
                   纳入黄金集
+                </Button>
+                {/* 回捞逻辑修好后刷新存量用例用；会覆盖手工改过的期望值，故与主按钮分开 */}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  title="按来源重新生成已纳入的用例（保留用例 id 与历史结果关联，会覆盖手工改过的期望值与断言）"
+                  disabled={s.total === s.pending || harvestM.isPending}
+                  onClick={() => harvestM.mutate({ source: s.id, refresh: true })}
+                >
+                  {harvestM.isPending && harvestM.variables?.refresh ? (
+                    <Loader2 className="animate-spin" />
+                  ) : (
+                    <RefreshCw />
+                  )}
+                  重新生成
                 </Button>
               </li>
             ))}
@@ -181,7 +200,8 @@ export function EvalPage() {
         )}
         {harvestM.isSuccess && (
           <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">
-            已纳入 {harvestM.data.created} 条到数据集「{harvestM.data.dataset}」
+            数据集「{harvestM.data.dataset}」：新纳入 {harvestM.data.created} 条
+            {harvestM.data.updated > 0 ? `，重新生成 ${harvestM.data.updated} 条` : ''}
             {harvestM.data.skipped > 0 ? `，跳过 ${harvestM.data.skipped} 条（此前已纳入）` : ''}。
           </p>
         )}
@@ -298,7 +318,11 @@ export function EvalPage() {
           {/* 混淆矩阵：通过率会被大量非 BUG 用例稀释，误报率才是这条链路的风险面 */}
           {summaryQ.data && (
             <section className="rounded-lg border p-4">
-              <h2 className="mb-3 text-sm font-medium">抽取判定质量（isBug）</h2>
+              <h2 className="mb-1 text-sm font-medium">抽取判定质量（只看 isBug 这一项）</h2>
+              <p className="mb-3 text-xs text-[var(--color-muted-foreground)]">
+                这组数字只衡量「是不是缺陷」判对没有，不看 type/severity/module 等字段。
+                所以它可以是 100%，而上面的用例仍然整条判负——那是字段答错，不是判定答错。两者口径不同，不矛盾。
+              </p>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <Metric label="精确率 Precision" value={pct(summaryQ.data.precision)} hint="判为 BUG 的里有多少真是" />
                 <Metric label="召回率 Recall" value={pct(summaryQ.data.recall)} hint="真 BUG 里抓到了多少" />
@@ -309,6 +333,15 @@ export function EvalPage() {
                   hint="误报直接消耗人工核实成本"
                 />
               </div>
+              {summaryQ.data.falsePositive + summaryQ.data.trueNegative === 0 && (
+                <p className="mt-3 flex items-start gap-2 rounded-md border border-[var(--color-warning)] p-2 text-xs text-[var(--color-warning)]">
+                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                  <span>
+                    该数据集没有负样本（期望 isBug=false 的用例），精确率必然是 100%——
+                    模型无脑一律答「是缺陷」也能拿满分。先纳入负样本，这组数字才有意义。
+                  </span>
+                </p>
+              )}
             </section>
           )}
 
@@ -370,7 +403,11 @@ export function EvalPage() {
               <div className="divide-y">
                 {resultsQ.data?.map((r) => <ResultRow key={r.id} result={r} />)}
                 {resultsQ.data?.length === 0 && (
-                  <p className="p-4 text-xs text-[var(--color-muted-foreground)]">暂无结果，运行可能仍在进行。</p>
+                  <p className="p-4 text-xs text-[var(--color-muted-foreground)]">
+                    {currentRun?.status === 'RUNNING'
+                      ? '运行中，结果逐条产出…'
+                      : '这次运行没有产生任何结果——通常是数据集里没有启用的用例。'}
+                  </p>
                 )}
               </div>
             </section>

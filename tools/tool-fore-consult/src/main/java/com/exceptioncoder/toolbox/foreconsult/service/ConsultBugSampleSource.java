@@ -3,7 +3,9 @@ package com.exceptioncoder.toolbox.foreconsult.service;
 import com.exceptioncoder.toolbox.common.eval.EvalSampleSource;
 import com.exceptioncoder.toolbox.foreconsult.domain.ConsultBug;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultBugRepository;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,6 +67,7 @@ public class ConsultBugSampleSource implements EvalSampleSource {
                     truncate("[" + b.getStatus() + "] " + safe(b.getTitle()), 200),
                     input(question, answer),
                     confirmed ? expectedBug(b) : expectedNotBug(),
+                    confirmed ? assertBug(b) : assertNotBug(),
                     tags(b.getStatus(), "human-label")));
         }
         log.debug("[fore-consult] 已裁决缺陷样本 {} 条", samples.size());
@@ -80,17 +83,67 @@ public class ConsultBugSampleSource implements EvalSampleSource {
         return n.toString();
     }
 
-    /** 只写 adapter 归一化后会产出的字段；多写的字段推导不出断言，只是噪声。 */
+    /**
+     * 只写 adapter 归一化后会产出的字段；多写的字段推导不出断言，只是噪声。
+     *
+     * <p>刻意不写 {@code system}：它来自会话选定的工作区项目名（如 yoooni），是环境上下文而非抽取产物——
+     * BugService 登记时也是从会话回填、忽略请求里的值。模型只看得到问答正文，
+     * 让它去猜这个名字必然判负，那是用例的错不是模型的错。
+     */
     private String expectedBug(ConsultBug b) {
         ObjectNode n = mapper.createObjectNode();
         n.put("isBug", true);
         n.put("type", b.getType());
         n.put("severity", b.getSeverity());
-        n.put("system", b.getSystemName());
         n.put("module", b.getModule());
-        // title 是自由文本，断言层会自动降级成 NON_NULL，不做相等判定，换个措辞不算退化
         n.put("title", b.getTitle());
         return n.toString();
+    }
+
+    /**
+     * 显式断言而非交给默认推导，因为这些字段的可判定性差别很大：
+     * <ul>
+     *   <li>isBug / type —— 有明确枚举，严格相等。</li>
+     *   <li>severity —— 分级本身带主观性，HIGH 与 MEDIUM 之争不该等同于判错类型，保留相等但降权。</li>
+     *   <li>module —— 人工填的常是「crm(客诉)/qc(品控)/warehouse(仓库)」这类多模块串，
+     *       要求模型逐字复现不现实，只断言给出了模块。</li>
+     *   <li>title —— 自由文本，换个措辞不算退化。</li>
+     * </ul>
+     */
+    private String assertBug(ConsultBug b) {
+        ArrayNode arr = mapper.createArrayNode();
+        arr.add(spec("EQUALS_IGNORE_CASE", "isBug", mapper.getNodeFactory().booleanNode(true), 1.0));
+        arr.add(spec("EQUALS_IGNORE_CASE", "type", textOrNull(b.getType()), 1.0));
+        arr.add(spec("EQUALS_IGNORE_CASE", "severity", textOrNull(b.getSeverity()), 0.5));
+        arr.add(spec("NON_NULL", "module", null, 0.5));
+        arr.add(spec("NON_NULL", "title", null, 0.5));
+        return arr.toString();
+    }
+
+    /** 负样本：判定必须为 false，且其余字段一个都不许吐——「不该抽的抽出来」正是要抓的误报。 */
+    private String assertNotBug() {
+        ArrayNode arr = mapper.createArrayNode();
+        arr.add(spec("EQUALS_IGNORE_CASE", "isBug", mapper.getNodeFactory().booleanNode(false), 1.0));
+        for (String f : new String[]{"type", "severity", "module", "title"}) {
+            arr.add(spec("ABSENT", f, null, 1.0));
+        }
+        return arr.toString();
+    }
+
+    /** expected 必须写进断言本身：断言层是拿 spec.expected 去比对的，不会回头读 expected_json。 */
+    private ObjectNode spec(String type, String path, JsonNode expected, double weight) {
+        ObjectNode n = mapper.createObjectNode();
+        n.put("type", type);
+        n.put("path", path);
+        if (expected != null) {
+            n.set("expected", expected);
+        }
+        n.put("weight", weight);
+        return n;
+    }
+
+    private JsonNode textOrNull(String s) {
+        return s == null || s.isBlank() ? null : mapper.getNodeFactory().textNode(s);
     }
 
     /**
