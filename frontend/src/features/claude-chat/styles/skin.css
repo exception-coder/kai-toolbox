@@ -1,0 +1,134 @@
+/*
+ * 炫彩皮肤（Vibe Coding 工作区背景）
+ *
+ * 设计取向：氛围只出现在「负空间」，文字永远落在实底或磨砂面板上。
+ * 这是一个每天要读大量代码与日志的工作台，背景再好看也不能吃掉一丝可读性——
+ * 所以极光只铺在消息流的空隙里，气泡/输入框/侧栏各自保留自己的底。
+ *
+ * 极光主色跟随当前引擎的品牌色（见 skinPref.skinClass）：背景因此携带信息而不只是装饰，
+ * 余光就能分辨「现在是 Claude 还是 Codex 在跑」。running 时呼吸加快、亮度略升，
+ * 同样是给余光的信号，不需要盯着 spinner。
+ *
+ * 性能：只用 radial-gradient 大软边 + transform 动画（GPU 合成），不用 filter: blur()
+ * ——满屏 blur 在手机上是实打实的掉帧来源。两层不同速度反向漂移，叠出流动的虹彩。
+ */
+
+.cc-skin {
+  position: relative;
+  isolation: isolate;
+  /* 引擎品牌色三元组：主色 + 环绕色轮取的两个邻近色，保证够「炫」又不脏 */
+  --skin-c1: #d97757;
+  --skin-c2: #a855f7;
+  --skin-c3: #f59e0b;
+  --skin-alpha: 0.3;
+  --skin-base: #faf7f5;
+  background: var(--skin-base);
+}
+
+.cc-skin-codex {
+  --skin-c1: #19c37d;
+  --skin-c2: #06b6d4;
+  --skin-c3: #a3e635;
+  --skin-base: #f4faf7;
+}
+
+.cc-skin-gemini {
+  --skin-c1: #4285f4;
+  --skin-c2: #a855f7;
+  --skin-c3: #22d3ee;
+  --skin-base: #f5f8fe;
+}
+
+.cc-skin-opencode {
+  --skin-c1: #e879f9;
+  --skin-c2: #818cf8;
+  --skin-c3: #f472b6;
+  --skin-base: #fbf6fe;
+}
+
+/* 暗色下极光是在近黑底上「发光」，可以更饱和；亮色下必须收着，否则正文发灰 */
+.dark .cc-skin {
+  --skin-alpha: 0.44;
+  --skin-base: #0b0b0e;
+}
+.dark .cc-skin-codex { --skin-base: #07100d; }
+.dark .cc-skin-gemini { --skin-base: #080b14; }
+.dark .cc-skin-opencode { --skin-base: #0e0813; }
+
+/* 纯黑 OLED 模式：用户明确要省电/要纯黑，皮肤只留极淡一层，不破坏纯黑底 */
+.theme-black .cc-skin {
+  --skin-alpha: 0.3;
+  --skin-base: #000;
+}
+
+.cc-skin::before,
+.cc-skin::after {
+  content: '';
+  position: absolute;
+  /* 外扩一圈，漂移时边缘不会露出硬边 */
+  inset: -30%;
+  z-index: -1;
+  pointer-events: none;
+  opacity: var(--skin-alpha);
+  will-change: transform;
+}
+
+.cc-skin::before {
+  background:
+    radial-gradient(38% 44% at 18% 22%, var(--skin-c1) 0%, transparent 70%),
+    radial-gradient(34% 40% at 82% 30%, var(--skin-c2) 0%, transparent 72%);
+  animation: cc-skin-drift-a 46s ease-in-out infinite alternate;
+}
+
+.cc-skin::after {
+  background:
+    radial-gradient(42% 46% at 70% 82%, var(--skin-c3) 0%, transparent 70%),
+    radial-gradient(30% 36% at 30% 74%, var(--skin-c2) 0%, transparent 74%);
+  animation: cc-skin-drift-b 67s ease-in-out infinite alternate;
+}
+
+/* agent 正在跑：呼吸加快 + 略微提亮，作为余光可感的「它在动」信号 */
+.cc-skin-live::before {
+  animation-duration: 15s;
+}
+.cc-skin-live::after {
+  animation-duration: 21s;
+}
+.cc-skin-live::before,
+.cc-skin-live::after {
+  opacity: calc(var(--skin-alpha) * 1.25);
+}
+
+@keyframes cc-skin-drift-a {
+  from { transform: translate3d(-4%, -3%, 0) scale(1); }
+  to   { transform: translate3d(5%, 4%, 0) scale(1.15); }
+}
+
+@keyframes cc-skin-drift-b {
+  from { transform: translate3d(4%, 3%, 0) scale(1.1); }
+  to   { transform: translate3d(-5%, -4%, 0) scale(1); }
+}
+
+/* 减少动态偏好：保留静态虹彩，去掉漂移。不动的层没必要再占合成层，一并撤掉 will-change。 */
+@media (prefers-reduced-motion: reduce) {
+  .cc-skin::before,
+  .cc-skin::after {
+    animation: none;
+    will-change: auto;
+  }
+}
+
+/*
+ * 皮肤开启时，原本不透明的表面改磨砂——让极光从下面透上来，
+ * 否则顶栏/输入区/侧栏三块实底会把背景切成互不相连的碎片。
+ * 用 :where() 保持零特异性，不干扰这些元素自身的状态类。
+ */
+.cc-skin :where(.cc-skin-surface) {
+  background-color: color-mix(in oklab, var(--color-muted) 62%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.cc-skin :where(.cc-skin-surface-solid) {
+  background-color: color-mix(in oklab, var(--color-background) 70%, transparent);
+  backdrop-filter: blur(12px);
+}

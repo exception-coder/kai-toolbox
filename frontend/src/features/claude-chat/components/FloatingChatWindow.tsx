@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, Bug, ChevronDown, ChevronUp, Cloud, Compass, EyeOff, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, LayoutGrid, List, ListChecks, Loader2, Maximize2, MessageSquare, Mic, Minus, MoreHorizontal, Package, Palette, Paperclip, Plus, RotateCw, Send, Server, Settings, Shield, ShieldCheck, Slash, Sparkles, X } from 'lucide-react'
+import { Bell, Bug, ChevronDown, ChevronUp, Cloud, Compass, EyeOff, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, LayoutGrid, List, ListChecks, Loader2, Maximize2, MessageSquare, Mic, Minus, MoreHorizontal, Package, Palette, Paperclip, Plus, Rainbow, RotateCw, Send, Server, Settings, Shield, ShieldCheck, Slash, Sparkles, X } from 'lucide-react'
 import { CHAT_ROUTE, isChatRoute, useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { isShowcasePath } from '@/shell/featureRegistry'
 import { ThemeMenu } from '@/shell/ThemeMenu'
@@ -18,7 +18,10 @@ import { VoiceInputButton } from './VoiceInputButton'
 import { MiniVoiceBar } from './MiniVoiceBar'
 import { LogsPanel } from './LogsPanel'
 import { DebugPanel } from './DebugPanel'
+import { cn } from '@/lib/utils'
 import { EngineIcon } from './EngineIcon'
+import { setSkin, skinClass, useSkin } from '../lib/skinPref'
+import '../styles/skin.css'
 import { RestartDialog } from './RestartDialog'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder'
@@ -108,6 +111,7 @@ export function FloatingChatWindow() {
   const [showDebug, setShowDebug] = useState(false)
   const [restartOpen, setRestartOpen] = useState(false)
   const toolColors = useToolColors()
+  const skin = useSkin()
   const hideToolCalls = useHideToolCalls()
   // 迷你版（默认）：只显示进度状态 + 语音/输入/发送，不铺消息流；点切换看完整对话。
   // demo（受约束演示）默认展开完整对话，便于直接看到改动反馈。
@@ -251,6 +255,7 @@ export function FloatingChatWindow() {
     {
       label: '视图',
       items: [
+        { icon: <Rainbow className="size-4" />, label: `炫彩皮肤 · ${skin ? '开' : '关'}`, hint: '工作区铺一层极光背景，颜色跟随当前引擎', onClick: () => setSkin(!skin), local: true },
         { icon: <Palette className="size-4" />, label: `工具着色 · ${toolColors ? '开' : '关'}`, hint: '按命令/读写/子代理/技能/MCP 上色', onClick: () => setToolColors(!toolColors), local: true },
         { icon: <EyeOff className="size-4" />, label: `隐藏工具调用 · ${hideToolCalls ? '开' : '关'}`, hint: '消息流里不再显示 MCP/命令/读写等工具调用气泡', onClick: () => setHideToolCalls(!hideToolCalls), local: true },
       ],
@@ -581,9 +586,14 @@ export function FloatingChatWindow() {
   const hoverClass = giftMode ? 'hover:bg-white/10' : 'hover:bg-[var(--color-background)]'
   return (
     <div
-      className={giftMode
-        ? 'fixed z-50 flex flex-col overflow-hidden rounded-[1.5rem] border border-[#6f9b54]/28 bg-[#08130d]/94 text-white shadow-[0_24px_80px_-28px_rgba(111,155,84,0.85)] backdrop-blur-2xl'
-        : 'fixed z-50 flex flex-col overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-[0_8px_30px_-6px_rgba(0,0,0,0.18)]'}
+      className={cn(
+        giftMode
+          ? 'fixed z-50 flex flex-col overflow-hidden rounded-[1.5rem] border border-[#6f9b54]/28 bg-[#08130d]/94 text-white shadow-[0_24px_80px_-28px_rgba(111,155,84,0.85)] backdrop-blur-2xl'
+          : 'fixed z-50 flex flex-col overflow-hidden rounded-xl border border-[var(--color-border)] shadow-[0_8px_30px_-6px_rgba(0,0,0,0.18)]',
+        // 礼赠皮肤已是整窗染色方案，两者互斥；否则皮肤开时让出 card 底色给极光
+        !giftMode && !skin && 'bg-[var(--color-card)]',
+        !giftMode && skinClass(skin, chat?.currentEngine ?? 'claude', !!chat?.running),
+      )}
       style={{ left: pos.x, top: pos.y, width: size.w, height: autoHeight ? undefined : size.h, maxHeight: autoHeight ? '70vh' : undefined }}
     >
       {/* 顶部品牌色细线：标识「这是 AI 助手」，而非整窗染色（方案3：同色系分层 + 品牌色点缀） */}
@@ -593,7 +603,7 @@ export function FloatingChatWindow() {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        className={`flex cursor-move touch-none items-center gap-2 border-b px-3 py-2 select-none ${giftMode ? 'border-[#6f9b54]/16 bg-[#0e1a12]/95' : 'border-[var(--color-border)] bg-[var(--color-muted)]'}`}
+        className={`cc-skin-surface flex cursor-move touch-none items-center gap-2 border-b px-3 py-2 select-none ${giftMode ? 'border-[#6f9b54]/16 bg-[#0e1a12]/95' : 'border-[var(--color-border)] bg-[var(--color-muted)]'}`}
       >
         {giftMode ? (
           <>

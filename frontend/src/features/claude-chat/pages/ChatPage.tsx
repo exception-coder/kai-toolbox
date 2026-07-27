@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
+import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -24,7 +24,10 @@ import { PendingSessionsBanner } from '../components/PendingSessionsBanner'
 import { SessionCapsPanel } from '../components/SessionCapsPanel'
 import { PENDING_DRAFT_KEY, useDraftStore } from '../lib/draftPref'
 import { useDraftAttachments, type DraftAttachment } from '../lib/attachmentDraftPref'
+import { cn } from '@/lib/utils'
 import { setToolColors, useToolColors } from '../lib/toolColorPref'
+import { setSkin, skinClass, useSkin } from '../lib/skinPref'
+import '../styles/skin.css'
 import { setHideToolCalls, useHideToolCalls } from '../lib/toolVisibilityPref'
 import { ModeSwitch } from '../components/ModeSwitch'
 import { ProviderSwitch } from '../components/ProviderSwitch'
@@ -233,6 +236,7 @@ export function ChatPage() {
   const [panel, setPanel] = useState<Panel>('none')
   const [showUsage, setShowUsage] = useState(false)
   const toolColors = useToolColors()
+  const skin = useSkin()
   const hideToolCalls = useHideToolCalls()
   // 整会话累计用量：后端按 sessionId 统计 transcript（不受前端分页影响）。换会话或一轮跑完后刷新。
   const [sessionUsage, setSessionUsage] = useState<SessionUsage | null>(null)
@@ -709,12 +713,17 @@ export function ChatPage() {
   }
 
   return (
-    <div className={fullscreen
-      // 全屏是覆盖整个视口的浮层，背景必须不透明——否则底层（折叠侧栏等）会从半透明背景透出，左侧留残影
-      ? 'fixed inset-0 z-50 flex h-[100dvh] min-w-0 flex-col overflow-x-hidden bg-[var(--color-background)]'
-      : 'flex h-[calc(100dvh-3.5rem)] min-w-0 flex-col overflow-x-hidden bg-[var(--color-muted)]/40'}>
+    <div className={cn(
+      fullscreen
+        // 全屏是覆盖整个视口的浮层，背景必须不透明——否则底层（折叠侧栏等）会从半透明背景透出，左侧留残影
+        ? 'fixed inset-0 z-50 flex h-[100dvh] min-w-0 flex-col overflow-x-hidden'
+        : 'flex h-[calc(100dvh-3.5rem)] min-w-0 flex-col overflow-x-hidden',
+      // 皮肤自带底色（见 skin.css 的 --skin-base），开启时让位，避免两层底色叠加
+      !skin && (fullscreen ? 'bg-[var(--color-background)]' : 'bg-[var(--color-muted)]/40'),
+      skinClass(skin, chat?.currentEngine ?? 'claude', !!chat?.running),
+    )}>
       {/* 顶栏：中性浅灰 + 1px 边框（Notion 风），不抢视觉 */}
-      <header className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-muted)] px-3 py-2 shadow-sm">
+      <header className="cc-skin-surface flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-muted)] px-3 py-2 shadow-sm">
         {viewMode === 'multi' ? (
           /* 分屏下顶部不挂某一个会话的标题/引擎/状态/用量（各 pane 自带），只给中性标识 */
           <span className="font-semibold">分屏 · {multiIds.length} 个会话</span>
@@ -849,6 +858,7 @@ export function ChatPage() {
                     <HeaderMenuItem nested icon={<Hand className="size-4" />} label={gestureOn ? '手势控制·开' : '手势控制·关'} hint={gestureOn ? '握拳=弹出悬浮窗；张手=返回会话页' : '开启后：握拳弹窗 / 张手返回(仅本模块)'} onClick={() => { setHeaderMenu(false); toggleGesture() }} />
                     <HeaderMenuItem nested icon={<Hand className="size-4" />} label="手势自检" hint="逐步测试摄像头/模型/识别，排查能否启用" onClick={() => { setHeaderMenu(false); setShowGestureDebug(true) }} />
                     <HeaderMenuItem nested icon={fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />} label={fullscreen ? '退出全屏' : '全屏显示'} onClick={() => { setHeaderMenu(false); setFullscreen(f => !f) }} />
+                    <HeaderMenuItem nested icon={<Rainbow className="size-4" />} label={skin ? '炫彩皮肤 · 开' : '炫彩皮肤 · 关'} hint="工作区铺一层极光背景，颜色跟随当前引擎，运行时呼吸加快" onClick={() => { setSkin(!skin) }} />
                     <HeaderMenuItem nested icon={<Palette className="size-4" />} label={toolColors ? '工具着色 · 开' : '工具着色 · 关'} hint="按命令/读写/子代理/技能/MCP 上色" onClick={() => { setToolColors(!toolColors) }} />
                     <HeaderMenuItem nested icon={<EyeOff className="size-4" />} label={hideToolCalls ? '隐藏工具调用 · 开' : '隐藏工具调用 · 关'} hint="消息流里不再显示 MCP/命令/读写等工具调用气泡" onClick={() => { setHideToolCalls(!hideToolCalls) }} />
                   </MenuSection>
@@ -1294,7 +1304,7 @@ export function ChatPage() {
         <div className="flex min-h-0 min-w-0 flex-1">
           {/* 常驻会话导航（md+ 显示，可折叠）：免去每次开右上角「会话」面板才能切历史会话 */}
           {railOpen ? (
-            <aside className="hidden w-60 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-background)] md:flex">
+            <aside className="cc-skin-surface-solid hidden w-60 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-background)] md:flex">
               <div className="flex items-center gap-1 border-b px-2 py-1.5">
                 <span className="text-xs font-medium text-[var(--color-muted-foreground)]">会话</span>
                 <button type="button" onClick={() => setPanel('new')} className="ml-auto rounded p-1 hover:bg-[var(--color-accent)]" aria-label="新建会话" title="新建会话">
@@ -1313,7 +1323,7 @@ export function ChatPage() {
             <button
               type="button"
               onClick={() => setRailOpen(true)}
-              className="hidden w-8 shrink-0 items-start justify-center border-r border-[var(--color-border)] bg-[var(--color-background)] pt-2 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] md:flex"
+              className="cc-skin-surface-solid hidden w-8 shrink-0 items-start justify-center border-r border-[var(--color-border)] bg-[var(--color-background)] pt-2 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] md:flex"
               aria-label="展开会话列表"
               title="展开会话列表"
             >
@@ -1370,7 +1380,7 @@ export function ChatPage() {
 
             {/* 底部输入：白色悬浮输入条 + 主色上边框 + 顶部阴影 */}
             {chat.sessionId && (
-              <div className="border-t border-[var(--color-border)] bg-[var(--color-muted)] shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.08)]">
+              <div className="cc-skin-surface border-t border-[var(--color-border)] bg-[var(--color-muted)] shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.08)]">
           <QueuedList items={chat.queued} onRemove={chat.removeQueued} onClear={chat.clearQueued} />
           <AttachmentChips
             items={attachments}
