@@ -218,6 +218,9 @@ public class ClaudeChatService {
                 ctx.authToken, ctx.mode, ctx.autoApprove);
         // 历史消息由前端按需读 SDK transcript；这里只发一个 Ready 表示已就绪
         sendToBrowser(ctx, seq -> ready(ctx, seq));
+        // 该会话若有未决权限/提问请求，随切换补发一次：不然只有 attach（断线重连）路径会重投，
+        // 从跨会话横幅点「去确认」走的是这条 switchSession，之前收不到，弹窗切过去后"看不到题面"。
+        if (ctx.pendingRequest != null) writeTo(ws, ctx.pendingRequest);
         pushGatewayModels(ctx); // 切到网关会话：重发网关模型目录，命令菜单可选/切
     }
 
