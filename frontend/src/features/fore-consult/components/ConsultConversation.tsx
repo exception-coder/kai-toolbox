@@ -4,7 +4,7 @@ import {
 } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { Archive, Bug, Loader2, MessagesSquare, Paperclip, Send, ThumbsDown, ThumbsUp, X } from 'lucide-react'
+import { Archive, Bug, Loader2, MessagesSquare, Paperclip, Quote, Send, ThumbsDown, ThumbsUp, X } from 'lucide-react'
 import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import type { ChatItem } from '@/features/claude-chat/types'
 import { registerBug, submitFeedback, uploadConsultAttachment } from '../api'
@@ -72,6 +72,27 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
   const registeredRef = useRef<Set<string>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const textRef = useRef<HTMLTextAreaElement>(null)
+
+  // 引用某条消息：原文转 Markdown 引用块带进输入框，空一行让用户在下面接着追问。
+  const quoteMessage = (raw: string) => {
+    const MAX = 800
+    const src = raw.length > MAX ? raw.slice(0, MAX).trimEnd() + ' …' : raw
+    const block = src
+      .split('\n')
+      .map((l) => (l.trim() ? '> ' + l : '>'))
+      .join('\n')
+    setText((prev) => (prev.trim() ? prev.replace(/\n+$/, '') + '\n\n' : '') + block + '\n\n')
+    setTimeout(() => {
+      const el = textRef.current
+      if (el) {
+        el.focus()
+        const len = el.value.length
+        el.setSelectionRange(len, len)
+        el.scrollTop = el.scrollHeight
+      }
+    }, 0)
+  }
 
   const rateGood = (turnIndex: number) => {
     setRatings((prev) => new Map(prev).set(turnIndex, 'GOOD'))
@@ -250,9 +271,22 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
               const next = items[idx + 1]
               const showRating =
                 it.kind === 'assistant' && it.text.trim().length > 0 && (!next || next.kind === 'user') && !running
+              const quotable = it.kind === 'assistant' ? stripBug(it.text) : it.kind === 'user' ? it.displayText ?? it.text : ''
               return (
-                <div key={it.id} className="space-y-1.5">
+                <div key={it.id} className="group space-y-1.5">
                   <MessageRow item={it} onImageClick={setLightbox} />
+                  {quotable.trim() && (
+                    <div className={`flex opacity-0 transition-opacity group-hover:opacity-100 ${it.kind === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      <button
+                        type="button"
+                        onClick={() => quoteMessage(quotable)}
+                        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-indigo-200/50 transition-colors hover:bg-white/10 hover:text-indigo-100"
+                        title="引用这条消息到输入框追问"
+                      >
+                        <Quote className="size-3" /> 引用
+                      </button>
+                    </div>
+                  )}
                   {showRating && (
                     <RatingRow rating={ratings.get(turnIdx)} onGood={() => rateGood(turnIdx)} onBad={() => setBadDialog(turnIdx)} />
                   )}
@@ -297,7 +331,8 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
               </div>
             )}
             <textarea
-              rows={2}
+              ref={textRef}
+              rows={3}
               value={text}
               onChange={(e) => setText(e.target.value)}
               onPaste={onPaste}
