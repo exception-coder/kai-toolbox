@@ -99,15 +99,25 @@ public class ClaudeChatSessionController {
 
     /**
      * 跨会话答题：提交对某会话未决请求的决策，不需要把该会话切成当前 WS 绑定的会话。
-     * 请求体与 WS 的 decision 消息同构（reqId/behavior/updatedInput/answers）。
+     * 请求体字段跟 WS 的 decision 消息一致（reqId/behavior/updatedInput/answers），但类型上
+     * 特意不直接绑定 {@link ClientMessage.Decision}——它实现了密封接口 {@link ClientMessage}，
+     * 该接口类上标了 @JsonTypeInfo(property="type")，Jackson 反序列化具体子类时仍会继承要求
+     * JSON 里带判别字段 "type"；这里是纯 REST 业务体，没有 WS 信封的 type，直接绑会 400/500
+     * （HttpMessageNotReadableException: missing type id property 'type'）。收到后手动转一次。
      */
     @PostMapping("/{id}/pending/decision")
     public ResponseEntity<Map<String, Boolean>> decidePending(@PathVariable String id,
-                                                                @RequestBody ClientMessage.Decision body) {
-        boolean ok = service.decisionForSession(id, body);
+                                                                @RequestBody PendingDecisionRequest body) {
+        ClientMessage.Decision decision = new ClientMessage.Decision(
+                body.reqId(), body.behavior(), body.updatedInput(), body.answers());
+        boolean ok = service.decisionForSession(id, decision);
         if (!ok) {
             return ResponseEntity.unprocessableEntity().body(Map.of("ok", false));
         }
         return ResponseEntity.ok(Map.of("ok", true));
     }
+
+    record PendingDecisionRequest(String reqId, String behavior,
+                                   Map<String, Object> updatedInput,
+                                   Map<String, Object> answers) {}
 }
