@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -42,9 +43,15 @@ public class BugController {
         return ConsultBugView.from(service.register(req));
     }
 
+    /**
+     * @param status 可重复的状态过滤（如 {@code ?status=CONFIRMED&status=REJECTED}），省略则不过滤
+     * @param limit  上限，默认 100，钳制在 1~1000
+     */
     @GetMapping
-    public List<ConsultBugView> list() {
-        return service.listRecent(100).stream().map(ConsultBugView::from).toList();
+    public List<ConsultBugView> list(@RequestParam(required = false) List<String> status,
+                                     @RequestParam(defaultValue = "100") int limit) {
+        int capped = Math.min(Math.max(limit, 1), 1000);
+        return service.listRecent(status, capped).stream().map(ConsultBugView::from).toList();
     }
 
     @PutMapping("/{id}/status")

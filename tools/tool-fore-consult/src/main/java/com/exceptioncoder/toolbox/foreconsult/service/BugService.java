@@ -92,6 +92,20 @@ public class BugService {
         return bugRepo.findRecent(limit);
     }
 
+    /** 按状态过滤的近期列表；未知状态直接拒绝，避免拼错状态名时静默返回空集当成「没有数据」。 */
+    public List<ConsultBug> listRecent(List<String> statuses, int limit) {
+        if (statuses == null || statuses.isEmpty()) {
+            return bugRepo.findRecent(limit);
+        }
+        List<String> normalized = statuses.stream().map(BugService::upper).toList();
+        for (String st : normalized) {
+            if (!STATUSES.contains(st)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "未知状态: " + st + "，可选: " + STATUSES);
+            }
+        }
+        return bugRepo.findRecentByStatus(normalized, limit);
+    }
+
     public ConsultBug updateStatus(String bugId, String status) {
         String st = upper(status);
         if (!STATUSES.contains(st)) {

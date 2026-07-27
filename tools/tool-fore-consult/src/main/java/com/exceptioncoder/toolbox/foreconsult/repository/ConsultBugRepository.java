@@ -91,6 +91,26 @@ public class ConsultBugRepository {
         return jdbc.query("SELECT * FROM consult_bug ORDER BY last_seen_at DESC LIMIT ?", ROW, limit);
     }
 
+    /**
+     * 按状态过滤的近期列表，statuses 为空时等价 {@link #findRecent(int)}。
+     * 回捞黄金集要的是人工已裁决过的记录（CONFIRMED/REJECTED），这类通常量少且靠后，
+     * 单纯按时间取前 N 条会把它们挤掉。
+     */
+    public List<ConsultBug> findRecentByStatus(List<String> statuses, int limit) {
+        if (statuses == null || statuses.isEmpty()) {
+            return findRecent(limit);
+        }
+        String placeholders = String.join(",", java.util.Collections.nCopies(statuses.size(), "?"));
+        Object[] args = new Object[statuses.size() + 1];
+        for (int i = 0; i < statuses.size(); i++) {
+            args[i] = statuses.get(i);
+        }
+        args[statuses.size()] = limit;
+        return jdbc.query(
+                "SELECT * FROM consult_bug WHERE status IN (" + placeholders + ") ORDER BY last_seen_at DESC LIMIT ?",
+                ROW, args);
+    }
+
     public void delete(String bugId) {
         jdbc.update("DELETE FROM consult_bug WHERE bug_id = ?", bugId);
     }
