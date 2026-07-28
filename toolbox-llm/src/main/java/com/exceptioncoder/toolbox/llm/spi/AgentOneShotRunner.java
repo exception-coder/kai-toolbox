@@ -14,6 +14,7 @@ import java.util.function.Consumer;
  * <p>调用此接口应在虚拟线程中进行，不要在 Spring MVC 请求线程中直接调。
  */
 public interface AgentOneShotRunner {
+    String DEFAULT_ENGINE = "claude";
 
     /**
      * 流式执行：每产出一片文本回调一次 {@code onDelta}，全部完成后返回全文。
@@ -25,7 +26,11 @@ public interface AgentOneShotRunner {
      * @return 完整文本
      * @throws RuntimeException 引擎不可用、超时或推理失败时
      */
-    String stream(String systemPrompt, String userPrompt, String model, Consumer<String> onDelta);
+    default String stream(String systemPrompt, String userPrompt, String model, Consumer<String> onDelta) {
+        return stream(systemPrompt, userPrompt, model, DEFAULT_ENGINE, onDelta);
+    }
+
+    String stream(String systemPrompt, String userPrompt, String model, String engine, Consumer<String> onDelta);
 
     /**
      * 非流式执行：等待推理完成后返回全文。
@@ -35,17 +40,31 @@ public interface AgentOneShotRunner {
      * @param model        模型名称，传 {@code null} 则使用默认模型
      * @return 完整文本
      */
-    String runOnce(String systemPrompt, String userPrompt, String model);
+    default String runOnce(String systemPrompt, String userPrompt, String model) {
+        return runOnce(systemPrompt, userPrompt, model, DEFAULT_ENGINE);
+    }
+
+    String runOnce(String systemPrompt, String userPrompt, String model, String engine);
 
     /** 流式执行，附带图片（真正多模态，Claude 能看到图片内容）。默认委托纯文本版本，图片被忽略。 */
     default String stream(String systemPrompt, String userPrompt, String model,
                           Consumer<String> onDelta, List<ImageInput> images) {
-        return stream(systemPrompt, userPrompt, model, onDelta);
+        return stream(systemPrompt, userPrompt, model, DEFAULT_ENGINE, onDelta, images);
+    }
+
+    default String stream(String systemPrompt, String userPrompt, String model, String engine,
+                          Consumer<String> onDelta, List<ImageInput> images) {
+        return stream(systemPrompt, userPrompt, model, engine, onDelta);
     }
 
     /** 非流式执行，附带图片；语义同 {@link #stream(String, String, String, Consumer, List)}。 */
     default String runOnce(String systemPrompt, String userPrompt, String model, List<ImageInput> images) {
-        return runOnce(systemPrompt, userPrompt, model);
+        return runOnce(systemPrompt, userPrompt, model, DEFAULT_ENGINE, images);
+    }
+
+    default String runOnce(String systemPrompt, String userPrompt, String model, String engine,
+                           List<ImageInput> images) {
+        return runOnce(systemPrompt, userPrompt, model, engine);
     }
 
     /** mimeType 仅支持 image/jpeg|png|gif|webp，调用方需自行过滤。 */

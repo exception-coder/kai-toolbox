@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS prd_session (
     role        TEXT    NOT NULL DEFAULT 'PRODUCT', -- 提需求方角色，决定澄清问题的深度
     md_path     TEXT,                           -- ~/.kai-toolbox/prd/{id}.md 绝对路径
     model       TEXT,                           -- 使用的模型（null 走 sidecar 默认模型）
+    engine      TEXT    NOT NULL DEFAULT 'claude', -- Agent 执行引擎：claude | codex
     error_msg   TEXT,                           -- ERROR 状态时的错误信息
     created_at  INTEGER NOT NULL,               -- Unix 毫秒
     updated_at  INTEGER NOT NULL
@@ -23,6 +24,7 @@ CREATE TABLE IF NOT EXISTS prd_session (
 
 -- 存量数据库兼容：为已有表补充 role 列（SchemaInitializer 会忽略"duplicate column"错误）
 ALTER TABLE prd_session ADD COLUMN role TEXT NOT NULL DEFAULT 'PRODUCT';
+ALTER TABLE prd_session ADD COLUMN engine TEXT NOT NULL DEFAULT 'claude';
 
 -- 存量数据库兼容：补充开发文档路径列
 ALTER TABLE prd_session ADD COLUMN dev_doc_path TEXT;

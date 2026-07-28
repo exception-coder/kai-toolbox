@@ -127,8 +127,9 @@ export const startGenerate = (
   handlers: SseHandlers,
   extraInstructions?: string,
   updateExisting?: boolean,
+  engine?: 'claude' | 'codex',
 ) =>
-  subscribeSsePost(`${BASE}/sessions/${id}/generate`, { extraInstructions, updateExisting }, handlers)
+  subscribeSsePost(`${BASE}/sessions/${id}/generate`, { extraInstructions, updateExisting, engine }, handlers)
 
 // ─── 开发文档 ───
 
@@ -146,8 +147,9 @@ export const startGenerateDevDoc = (
   updateExisting: boolean | undefined,
   qaHistory: QaPair[] | undefined,
   handlers: SseHandlers,
+  engine?: 'claude' | 'codex',
 ) =>
-  subscribeSsePost(`/prd-clarify/sessions/${id}/dev-doc`, { extraInstructions, updateExisting, qaHistory }, handlers)
+  subscribeSsePost(`/prd-clarify/sessions/${id}/dev-doc`, { extraInstructions, updateExisting, qaHistory, engine }, handlers)
 
 /** 读取开发文档内容（与 getContent 同格式）。 */
 export const getDevDocContent = async (id: string): Promise<string> => {
@@ -441,5 +443,6 @@ export const askNextDevDocQuestion = (
   history: QaPair[],
   updateNotes: string,
   handlers: SseHandlers,
+  engine?: 'claude' | 'codex',
 ) =>
-  subscribeSsePost(`/prd-clarify/sessions/${sessionId}/dev-doc/ask`, { questionIndex, history, updateNotes }, handlers)
+  subscribeSsePost(`/prd-clarify/sessions/${sessionId}/dev-doc/ask`, { questionIndex, history, updateNotes, engine }, handlers)

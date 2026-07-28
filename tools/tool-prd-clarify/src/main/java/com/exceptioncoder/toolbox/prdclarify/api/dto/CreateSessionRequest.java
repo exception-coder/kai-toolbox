@@ -27,6 +27,7 @@ public record CreateSessionRequest(
         String project,
         String module,
         String model,
+        String engine,
         String role,
         String reqType,
         Integer maxQuestions,

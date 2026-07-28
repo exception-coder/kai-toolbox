@@ -21,6 +21,7 @@ export type PrdReqType = 'BUG_FIX' | 'MODULE_ADJUST' | 'NEW_MODULE'
  * 在「开始澄清前确认」弹框里选，恢复未完成会话时沿用创建时选的模式，不会中途切换。
  */
 export type PrdClarifyMode = 'progressive' | 'batch'
+export type AgentEngine = 'claude' | 'codex'
 
 export interface QuestionItem {
   id: number
@@ -111,6 +112,7 @@ export interface PrdSessionView {
   project: string | null
   module: string | null
   status: PrdSessionStatus
+  engine: AgentEngine
   role: PrdRole
   /** 需求类型：决定澄清问题重点和生成文档结构，见 PrdReqType 注释 */
   reqType: PrdReqType
@@ -153,6 +155,7 @@ export interface CreateSessionRequest {
   project?: string
   module?: string
   model?: string
+  engine?: AgentEngine
   role?: PrdRole
   reqType?: PrdReqType
   maxQuestions?: number

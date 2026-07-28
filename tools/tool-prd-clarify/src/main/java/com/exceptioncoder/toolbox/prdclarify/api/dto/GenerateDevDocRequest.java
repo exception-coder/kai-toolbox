@@ -14,5 +14,6 @@ import java.util.List;
  *                          generate/regenerate 模式恒为空）；结构化持久化后，「生成记录」才能
  *                          按版本分别展示每次更新的澄清过程，而不是和 PRD 首次澄清记录混在一起看。
  */
-public record GenerateDevDocRequest(String extraInstructions, Boolean updateExisting, List<QaPairRequest> qaHistory) {
+public record GenerateDevDocRequest(String extraInstructions, Boolean updateExisting, List<QaPairRequest> qaHistory,
+                                    String engine) {
 }

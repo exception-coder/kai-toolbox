@@ -125,7 +125,7 @@ public class SidecarClient {
     }
 
     public void startSession(String sessionId, String cwd, String model, String mode, String engine,
-                             String apiBaseUrl, String authToken, boolean autoApprove) {
+                             String apiBaseUrl, String authToken, String codexHome, boolean autoApprove) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("type", "start");
         m.put("sessionId", sessionId);
@@ -135,6 +135,7 @@ public class SidecarClient {
         m.put("engine", nz(engine));
         m.put("apiBaseUrl", nz(apiBaseUrl));
         m.put("authToken", nz(authToken));
+        m.put("codexHome", nz(codexHome));
         m.put("autoApprove", autoApprove);
         send(m);
     }
@@ -164,7 +165,8 @@ public class SidecarClient {
      * 或后端自愈式 resume），模式就长期停在 default：本该全自动的会话又开始弹审批，弹了也没人看。
      */
     public void resumeSession(String sessionId, String sdkSessionId, String cwd, String engine,
-                              String apiBaseUrl, String authToken, String mode, boolean autoApprove) {
+                              String apiBaseUrl, String authToken, String codexHome,
+                              String mode, boolean autoApprove) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("type", "resume");
         m.put("sessionId", sessionId);
@@ -173,6 +175,7 @@ public class SidecarClient {
         m.put("engine", nz(engine));
         m.put("apiBaseUrl", nz(apiBaseUrl));
         m.put("authToken", nz(authToken));
+        m.put("codexHome", nz(codexHome));
         m.put("mode", nz(mode));
         m.put("autoApprove", autoApprove);
         send(m);
@@ -244,12 +247,8 @@ public class SidecarClient {
     }
 
     /** 一次性无状态生成（高质量简历优化用）。sessionId 约定以 {@code oneshot:} 前缀，事件由 AgentOneShotService 收。 */
-    public void oneShot(String sessionId, String systemPrompt, String userPrompt, String model) {
-        oneShot(sessionId, systemPrompt, userPrompt, model, null);
-    }
-
-    /** 附带图片的一次性生成：images 非空时随消息一起发给 Claude（真正多模态，见 sidecar oneShot()）。 */
-    public void oneShot(String sessionId, String systemPrompt, String userPrompt, String model,
+    /** 一次性生成；engine 为 claude 或 codex。 */
+    public void oneShot(String sessionId, String systemPrompt, String userPrompt, String model, String engine,
                         java.util.List<com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput> images) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("type", "oneShot");
@@ -257,6 +256,7 @@ public class SidecarClient {
         payload.put("systemPrompt", nz(systemPrompt));
         payload.put("userPrompt", nz(userPrompt));
         payload.put("model", nz(model));
+        payload.put("engine", nz(engine));
         if (images != null && !images.isEmpty()) {
             payload.put("images", images.stream()
                     .map(img -> Map.of("mediaType", img.mimeType(), "data", img.base64Data()))

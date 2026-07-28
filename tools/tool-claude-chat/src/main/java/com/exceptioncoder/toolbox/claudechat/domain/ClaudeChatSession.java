@@ -22,6 +22,8 @@ public class ClaudeChatSession {
     private String apiBaseUrl;
     /** 第三方网关鉴权 token（ANTHROPIC_AUTH_TOKEN）；本地明文存。 */
     private String authToken;
+    /** Codex 官方登录配置根目录；空值使用默认 ~/.codex。 */
+    private String codexHome;
     /** 会话所属分组名（用户自定义，如 "toolbox"）；空=未分组。后端持久化，跨端可见。 */
     private String groupName;
     private SessionStatus status;

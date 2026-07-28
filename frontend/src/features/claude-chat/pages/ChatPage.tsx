@@ -436,9 +436,14 @@ export function ChatPage() {
     prdClarifyLaunchedRef.current = true
     try { sessionStorage.removeItem('kai-toolbox:claude-chat:prd-clarify-launch') } catch { /* ignore */ }
     try {
-      const { cwd, seed, prdSessionId } = JSON.parse(raw) as { cwd?: string; seed?: string; prdSessionId?: string }
+      const { cwd, seed, prdSessionId, engine } = JSON.parse(raw) as {
+        cwd?: string
+        seed?: string
+        prdSessionId?: string
+        engine?: 'claude' | 'codex'
+      }
       if (seed) {
-        chat.open((cwd ?? '').trim(), undefined, undefined, 'claude')
+        chat.open((cwd ?? '').trim(), undefined, undefined, engine === 'codex' ? 'codex' : 'claude')
         chat.send(seed)
         // 记录关联，供 prd-clarify 页面来 check-prd-file 时使用
         if (prdSessionId) {
@@ -1420,7 +1425,6 @@ export function ChatPage() {
                 model={chat.currentModel}
                 reasoningEffort={chat.codexReasoningEffort}
                 speed={chat.codexSpeed}
-                disabled={chat.running}
                 onModelChange={chat.setModel}
                 onOptionsChange={chat.setCodexOptions}
               />

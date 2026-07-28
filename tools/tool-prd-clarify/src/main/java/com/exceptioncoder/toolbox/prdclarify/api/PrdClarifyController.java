@@ -174,7 +174,7 @@ public class PrdClarifyController {
     public PrdSessionView create(@Valid @RequestBody CreateSessionRequest req) {
         Long createdByUserId = AuthContext.current().map(AuthPrincipal::userId).orElse(null);
         PrdSession session = service.createSession(
-                req.title(), req.rawInput(), req.project(), req.module(), req.model(), req.role(),
+                req.title(), req.rawInput(), req.project(), req.module(), req.model(), req.engine(), req.role(),
                 req.reqType(), req.maxQuestions(), createdByUserId, req.clarifyMode());
         return PrdSessionView.from(session);
     }
@@ -213,7 +213,7 @@ public class PrdClarifyController {
     public PrdSessionView startFromDraft(@PathVariable String id, @Valid @RequestBody CreateSessionRequest req) {
         try {
             PrdSession session = service.startClarifyFromDraft(id, req.title(), req.rawInput(), req.project(),
-                    req.module(), req.model(), req.role(), req.reqType(), req.maxQuestions(), req.clarifyMode());
+                    req.module(), req.model(), req.engine(), req.role(), req.reqType(), req.maxQuestions(), req.clarifyMode());
             return PrdSessionView.from(session);
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(NOT_FOUND, e.getMessage());
@@ -403,6 +403,9 @@ public class PrdClarifyController {
     @PostMapping(value = "/sessions/{id}/generate", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter generate(@PathVariable String id, @RequestBody(required = false) GeneratePrdRequest req) {
         SseEmitter emitter = new SseEmitter(0L);
+        if (req != null && req.engine() != null) {
+            repo.updateEngine(id, normalizeEngine(req.engine()));
+        }
         service.generate(id, req == null ? null : req.extraInstructions(), req == null ? null : req.updateExisting(), emitter);
         return emitter;
     }
@@ -501,12 +504,22 @@ public class PrdClarifyController {
     public SseEmitter generateDevDoc(@PathVariable String id,
                                       @RequestBody(required = false) GenerateDevDocRequest req) {
         SseEmitter emitter = new SseEmitter(0L);
+        if (req != null && req.engine() != null) {
+            repo.updateEngine(id, normalizeEngine(req.engine()));
+        }
         service.generateDevDoc(id,
                 req == null ? null : req.extraInstructions(),
                 req == null ? null : req.updateExisting(),
                 req == null ? null : req.qaHistory(),
                 emitter);
         return emitter;
+    }
+
+    private static String normalizeEngine(String engine) {
+        if (engine == null || engine.isBlank() || "claude".equalsIgnoreCase(engine)) return "claude";
+        if ("codex".equalsIgnoreCase(engine)) return "codex";
+        throw new ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
+                "不支持的 Agent 引擎: " + engine);
     }
 
     /**
@@ -517,6 +530,9 @@ public class PrdClarifyController {
     public SseEmitter askNextDevDocQuestion(@PathVariable String id,
                                              @RequestBody AskNextDevDocQuestionRequest req) {
         SseEmitter emitter = new SseEmitter(0L);
+        if (req.engine() != null) {
+            repo.updateEngine(id, normalizeEngine(req.engine()));
+        }
         service.askNextDevDocQuestion(id, req.questionIndex(), req.history(), req.updateNotes(), emitter);
         return emitter;
     }

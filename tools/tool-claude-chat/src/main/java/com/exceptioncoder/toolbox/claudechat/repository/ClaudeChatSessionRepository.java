@@ -28,6 +28,7 @@ public class ClaudeChatSessionRepository {
             .engineSessions(rs.getString("engine_sessions"))
             .apiBaseUrl(rs.getString("api_base_url"))
             .authToken(rs.getString("auth_token"))
+            .codexHome(rs.getString("codex_home"))
             .groupName(rs.getString("group_name"))
             .status(SessionStatus.valueOf(rs.getString("status")))
             .startedAt(rs.getLong("started_at"))
@@ -49,12 +50,12 @@ public class ClaudeChatSessionRepository {
         String engine = s.getEngine() == null ? "claude" : s.getEngine();
         jdbc.update("""
                 INSERT INTO claude_chat_session
-                  (id, cwd, title, sdk_session_id, engine, engines, api_base_url, auth_token, status, started_at, last_seen_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  (id, cwd, title, sdk_session_id, engine, engines, api_base_url, auth_token, codex_home, status, started_at, last_seen_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 s.getId(), s.getCwd(), s.getTitle(), s.getSdkSessionId(),
                 engine, s.getEngines() == null ? engine : s.getEngines(),
-                s.getApiBaseUrl(), s.getAuthToken(),
+                s.getApiBaseUrl(), s.getAuthToken(), s.getCodexHome(),
                 s.getStatus().name(), s.getStartedAt(), s.getLastSeenAt());
     }
 

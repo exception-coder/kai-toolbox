@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 import { listSessions, renameSession } from '../api'
 import { engineDisplayName } from './chatStatus'
 import { getSessionsByDevSessions } from '@/features/prd-clarify/api'
+import { SessionActivityBar } from './SessionActivityBar'
 
 interface Props {
   currentSessionId: string | null
@@ -23,7 +24,11 @@ const SESSION_QUERY_KEY = ['claude-chat-sessions']
  */
 export function RecentSessions({ currentSessionId, onSwitch, limit = 5 }: Props) {
   const qc = useQueryClient()
-  const { data: sessions = [], isPending } = useQuery({ queryKey: SESSION_QUERY_KEY, queryFn: listSessions })
+  const { data: sessions = [], isPending } = useQuery({
+    queryKey: SESSION_QUERY_KEY,
+    queryFn: listSessions,
+    refetchInterval: 3_000,
+  })
   const recent = [...sessions]
     .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
     .slice(0, limit)
@@ -69,23 +74,25 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 5 }: Props)
           const engineLabel = engineDisplayName(session.engine ?? 'claude', session.providerKind)
           const isEditing = editingId === session.id
           const linkedPrd = prdLinks[session.id]
+          const isRunning = session.status === 'RUNNING' && session.live
 
           return (
             <li
               key={session.id}
               className={cn(
-                'group relative transition-colors duration-100',
+                'group relative isolate transition-colors duration-100',
                 isActive ? 'bg-[var(--color-primary)]/10' : 'hover:bg-[var(--color-accent)]',
               )}
             >
+              {isRunning && <SessionActivityBar />}
               {/* Left Accent Bar：与 SessionList 完全一致 */}
               <div className={cn(
-                'absolute inset-y-0 left-0 w-[3px] rounded-r-sm transition-colors duration-100',
+                'absolute inset-y-0 left-0 z-20 w-[3px] rounded-r-sm transition-colors duration-100',
                 isActive ? 'bg-[var(--color-primary)]' : 'bg-transparent group-hover:bg-[var(--color-border)]',
               )} />
 
               {isEditing ? (
-                <div className="flex min-h-[40px] w-full items-center gap-2 pl-5 pr-3 py-2">
+                <div className="relative z-10 flex min-h-[40px] w-full items-center gap-2 pl-5 pr-3 py-2">
                   <input
                     autoFocus
                     value={draft}
@@ -104,7 +111,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 5 }: Props)
                   onClick={() => onSwitch(session.id, session.status === 'RUNNING' && session.live)}
                   onDoubleClick={e => { e.stopPropagation(); startEdit(session.id, title) }}
                   title={`${title}\n${session.cwd}\n（双击重命名）`}
-                  className="flex min-h-[40px] w-full items-center gap-2 pl-5 pr-3 py-2 text-left"
+                  className="relative z-10 flex min-h-[40px] w-full items-center gap-2 pl-5 pr-3 py-2 text-left"
                 >
                   {/* 标题（主视觉层级） */}
                   <span className={cn(

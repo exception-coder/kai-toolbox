@@ -312,7 +312,7 @@ export interface ModelInfo {
 
 // ── 客户端 → 服务端 ───────────────────────────────────────────────
 export type ClientMessage =
-  | { type: 'open'; cwd: string; model?: string; mode?: PermissionMode; engine?: Engine; apiBaseUrl?: string; authToken?: string }
+  | { type: 'open'; cwd: string; model?: string; mode?: PermissionMode; engine?: Engine; apiBaseUrl?: string; authToken?: string; codexHome?: string }
   | { type: 'attach'; sessionId: string; lastEventSeq: number }
   | { type: 'switchSession'; sessionId: string }
   | { type: 'resumeHistory'; sdkSessionId: string; cwd: string }

@@ -1311,6 +1311,8 @@ const DEPTH_PRESETS = [
   { label: '深入', hint: '6-8 轮', value: 8 },
 ] as const
 
+type ClarifyEngine = 'claude' | 'codex'
+
 /**
  * 「开始澄清」确认弹框：选需求类型 + 调整澄清深度 + 选澄清方式（渐进/批量）。
  *
@@ -1325,6 +1327,7 @@ const DEPTH_PRESETS = [
 function StartClarifyDialog({
   showModeToggle = true,
   showTypeAndDepth = true,
+  showEngineToggle = false,
   onConfirm,
   onClose,
 }: {
@@ -1333,7 +1336,8 @@ function StartClarifyDialog({
   showModeToggle?: boolean
   /** false 时隐藏需求类型/澄清深度两节，onConfirm 回传 undefined，由后端 LLM 自动判定。 */
   showTypeAndDepth?: boolean
-  onConfirm: (reqType: PrdReqType | undefined, maxQuestions: number | undefined, clarifyMode: PrdClarifyMode) => void
+  showEngineToggle?: boolean
+  onConfirm: (reqType: PrdReqType | undefined, maxQuestions: number | undefined, clarifyMode: PrdClarifyMode, engine: ClarifyEngine) => void
   onClose: () => void
 }) {
   const [reqType, setReqType] = useState<PrdReqType>('NEW_MODULE')
@@ -1341,6 +1345,7 @@ function StartClarifyDialog({
   /** 用户是否已手动调整过深度；未调整前，切换需求类型会自动带出该类型的推荐深度 */
   const [depthTouched, setDepthTouched] = useState(false)
   const [clarifyMode, setClarifyMode] = useState<PrdClarifyMode>('progressive')
+  const [engine, setEngine] = useState<ClarifyEngine>('claude')
 
   const handleSelectType = (t: PrdReqType) => {
     setReqType(t)
@@ -1478,6 +1483,33 @@ function StartClarifyDialog({
             </div>
           )}
 
+          {showEngineToggle && (
+            <div>
+              <label className="block text-xs font-medium text-[var(--color-muted-foreground)] mb-2">
+                执行引擎
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  { value: 'claude', label: 'Claude Code' },
+                  { value: 'codex', label: 'Codex' },
+                ] as const).map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setEngine(option.value)}
+                    className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                      engine === option.value
+                        ? 'bg-[var(--color-primary)]/10 border-[var(--color-primary)]/30 text-[var(--color-primary)]'
+                        : 'border-[var(--color-border)] text-[var(--color-foreground)] hover:bg-[var(--color-muted)]/30'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-end gap-2 pt-1">
             <button
               onClick={onClose}
@@ -1490,6 +1522,7 @@ function StartClarifyDialog({
                 showTypeAndDepth ? reqType : undefined,
                 showTypeAndDepth ? maxQuestions : undefined,
                 showModeToggle ? clarifyMode : 'progressive',
+                engine,
               )}
               className="px-4 py-1.5 rounded-md text-sm bg-[var(--color-primary)] text-white hover:opacity-90"
             >
@@ -1538,10 +1571,11 @@ function GenerateDevDocDialog({
   onClose,
 }: {
   mode: 'generate' | 'regenerate'
-  onConfirm: (extraInstructions: string) => void
+  onConfirm: (extraInstructions: string, engine: ClarifyEngine) => void
   onClose: () => void
 }) {
   const [text, setText] = useState('')
+  const [engine, setEngine] = useState<ClarifyEngine>('claude')
   const cfg = GEN_DEV_DOC_MODE_CONFIG[mode]
 
   const appendPreset = (preset: string) => {
@@ -1573,6 +1607,20 @@ function GenerateDevDocDialog({
           </div>
 
           <div>
+            <div className="text-[11px] text-[var(--color-muted-foreground)] mb-1.5">执行引擎</div>
+            <div className="grid grid-cols-2 gap-2">
+              {(['claude', 'codex'] as const).map((value) => (
+                <button key={value} type="button" onClick={() => setEngine(value)}
+                  className={`rounded-lg border px-3 py-2 text-sm ${engine === value
+                    ? 'bg-[var(--color-primary)]/10 border-[var(--color-primary)]/30 text-[var(--color-primary)]'
+                    : 'border-[var(--color-border)]'}`}>
+                  {value === 'claude' ? 'Claude Code' : 'Codex'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
             <div className="text-[11px] text-[var(--color-muted-foreground)] mb-1.5">常用预设（点击追加）</div>
             <div className="flex flex-wrap gap-1.5">
               {DEV_DOC_PROMPT_PRESETS.map((p) => (
@@ -1596,7 +1644,7 @@ function GenerateDevDocDialog({
               取消
             </button>
             <button
-              onClick={() => onConfirm(text.trim())}
+              onClick={() => onConfirm(text.trim(), engine)}
               className="px-4 py-1.5 rounded-md text-sm bg-purple-600 text-white hover:opacity-90"
             >
               {cfg.confirmLabel}
@@ -1697,11 +1745,12 @@ function DevDocUpdateDialog({
   sessionId: string
   /** 澄清完成后回调：初步说明与问答记录分别传出，不再拼成一段文本——由后端结构化持久化，
    *  使这一版的澄清记录能跟 PRD 首次澄清记录分开单独展示。 */
-  onConfirm: (extraInstructions: string, qaHistory: QaPair[]) => void
+  onConfirm: (extraInstructions: string, qaHistory: QaPair[], engine: ClarifyEngine) => void
   onClose: () => void
 }) {
   const maxRounds = 5
   const [step, setStep] = useState<'input' | 'clarifying'>('input')
+  const [engine, setEngine] = useState<ClarifyEngine>('claude')
 
   // ── input 步骤：初步更新说明 + 附件 ──
   const [notes, setNotes] = useState('')
@@ -1782,13 +1831,13 @@ function DevDocUpdateDialog({
         }
       },
       onError() { setIsStreaming(false) },
-    })
+    }, engine)
     abortRef.current = abort
   }
 
   /** 澄清完成：初步说明与问答记录分别传给调用方，不再拼成一段文本（见 onConfirm 类型注释） */
   const finishClarify = (finalHistory: QaPair[]) => {
-    onConfirm(finalNotesRef.current, finalHistory)
+    onConfirm(finalNotesRef.current, finalHistory, engine)
   }
 
   const handleStartClarify = () => {
@@ -1899,6 +1948,20 @@ function DevDocUpdateDialog({
                 ))}
               </div>
             )}
+
+            <div>
+              <div className="text-[11px] text-[var(--color-muted-foreground)] mb-1.5">执行引擎</div>
+              <div className="grid grid-cols-2 gap-2">
+                {(['claude', 'codex'] as const).map((value) => (
+                  <button key={value} type="button" onClick={() => setEngine(value)}
+                    className={`rounded-lg border px-3 py-2 text-sm ${engine === value
+                      ? 'bg-[var(--color-primary)]/10 border-[var(--color-primary)]/30 text-[var(--color-primary)]'
+                      : 'border-[var(--color-border)]'}`}>
+                    {value === 'claude' ? 'Claude Code' : 'Codex'}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <div className="flex justify-end gap-2 pt-1">
               <button onClick={onClose} className="px-3 py-1.5 rounded-md text-sm border border-[var(--color-border)] hover:bg-[var(--color-muted)]/30">
@@ -2563,8 +2626,8 @@ function InputPanel({
   // onStart（内嵌澄清）有意义，Vibe Coding 入口省略，由 createSession 兜底成 progressive。
   // draftId：非空时表示 onStart/onStartVibe 应该把现存的这条 DRAFT 会话原地转正式
   // （startClarifyFromDraft），而不是新建一条记录——由 handleStart/handleStartVibe 判断。
-  onStart: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS', reqType?: PrdReqType, maxQuestions?: number, clarifyMode?: PrdClarifyMode, draftId?: string) => void
-  onStartVibe: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS', reqType?: PrdReqType, maxQuestions?: number, draftId?: string) => void
+  onStart: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS', reqType?: PrdReqType, maxQuestions?: number, clarifyMode?: PrdClarifyMode, draftId?: string, engine?: ClarifyEngine) => void
+  onStartVibe: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS', reqType?: PrdReqType, maxQuestions?: number, draftId?: string, engine?: ClarifyEngine) => void
   initialTitle?: string
   initialRawInput?: string
   initialProject?: string
@@ -3042,10 +3105,7 @@ function InputPanel({
           {/* Vibe Coding 模式（完整工具调用可见） */}
           <button
             disabled={!canSubmit}
-            onClick={() => {
-              if (role === 'BUSINESS') onStartVibe(title.trim(), buildFinalRawInput(), project, module, role, undefined, undefined, draftId ?? undefined)
-              else setPendingAction('startVibe')
-            }}
+            onClick={() => setPendingAction('startVibe')}
             className="flex items-center gap-1.5 px-4 py-2.5 rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/30 text-sm text-[var(--color-foreground)] hover:bg-[var(--color-muted)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             title="在 Vibe Coding 中澄清：完整可见工具调用、MCP/CLI 查询过程"
           >
@@ -3094,14 +3154,15 @@ function InputPanel({
         <StartClarifyDialog
           showModeToggle={pendingAction === 'start'}
           showTypeAndDepth={role !== 'BUSINESS'}
+          showEngineToggle
           onClose={() => setPendingAction(null)}
-          onConfirm={(reqType, maxQuestions, clarifyMode) => {
+          onConfirm={(reqType, maxQuestions, clarifyMode, engine) => {
             const action = pendingAction
             setPendingAction(null)
             if (action === 'start') {
-              onStart(title.trim(), buildFinalRawInput(), project, module, role, reqType, maxQuestions, clarifyMode, draftId ?? undefined)
+              onStart(title.trim(), buildFinalRawInput(), project, module, role, reqType, maxQuestions, clarifyMode, draftId ?? undefined, engine)
             } else {
-              onStartVibe(title.trim(), buildFinalRawInput(), project, module, role, reqType, maxQuestions, draftId ?? undefined)
+              onStartVibe(title.trim(), buildFinalRawInput(), project, module, role, reqType, maxQuestions, draftId ?? undefined, engine)
             }
           }}
         />
@@ -4075,7 +4136,7 @@ function EditingPanel({
     qc.invalidateQueries({ queryKey: ['prd-sessions'] })
   }
 
-  const handleGenerateDevDoc = (extraInstructions?: string, updateExisting?: boolean, qaHistory?: QaPair[]) => {
+  const handleGenerateDevDoc = (extraInstructions?: string, updateExisting?: boolean, qaHistory?: QaPair[], engine?: ClarifyEngine) => {
     setPanelMode('dev')   // 生成时切到开发文档全屏视图
     setDevDocContent('')
     setDevDocStreaming(true)
@@ -4104,7 +4165,7 @@ function EditingPanel({
         setDevDocStreaming(false)
         setDevDocError('SSE 连接中断，请点击重试')
       },
-    })
+    }, engine)
     devDocAbortRef.current = abort
   }
 
@@ -4198,9 +4259,9 @@ function EditingPanel({
         <GenerateDevDocDialog
           mode={genDevDocMode}
           onClose={() => setGenDevDocMode(null)}
-          onConfirm={(extraInstructions) => {
+          onConfirm={(extraInstructions, engine) => {
             setGenDevDocMode(null)
-            handleGenerateDevDoc(extraInstructions, false)
+            handleGenerateDevDoc(extraInstructions, false, undefined, engine)
           }}
         />
       )}
@@ -4210,9 +4271,9 @@ function EditingPanel({
         <DevDocUpdateDialog
           sessionId={sessionId}
           onClose={() => setGenDevDocMode(null)}
-          onConfirm={(extraInstructions, qaHistory) => {
+          onConfirm={(extraInstructions, qaHistory, engine) => {
             setGenDevDocMode(null)
-            handleGenerateDevDoc(extraInstructions, true, qaHistory)
+            handleGenerateDevDoc(extraInstructions, true, qaHistory, engine)
           }}
         />
       )}
@@ -4802,12 +4863,12 @@ export function PrdClarifyPage() {
   const handleStart = async (
     title: string, rawInput: string, project: string, module: string,
     role: 'PRODUCT' | 'BUSINESS' = 'PRODUCT', reqType?: PrdReqType, maxQuestions?: number,
-    clarifyMode?: PrdClarifyMode, draftId?: string,
+    clarifyMode?: PrdClarifyMode, draftId?: string, engine: ClarifyEngine = 'claude',
   ) => {
     setErrorMsg(null)
     setSessionTitle(title)
     setSearchParams({}, { replace: true })
-    const req = { title, rawInput, project, module, role, reqType, maxQuestions, clarifyMode }
+    const req = { title, rawInput, project, module, role, reqType, maxQuestions, clarifyMode, engine }
     // draftId 非空：从草稿恢复后点「开始澄清」，原地转正式，不新建一条记录
     const created = draftId
       ? await startFromDraftMut.mutateAsync({ id: draftId, req })
@@ -4827,14 +4888,14 @@ export function PrdClarifyPage() {
   const handleStartVibe = async (
     title: string, rawInput: string, project: string, module: string,
     role: 'PRODUCT' | 'BUSINESS' = 'PRODUCT', reqType?: PrdReqType, maxQuestions?: number,
-    draftId?: string,
+    draftId?: string, engine: ClarifyEngine = 'claude',
   ) => {
     setErrorMsg(null)
     setSessionTitle(title)
     setSearchParams({}, { replace: true })
 
     // 创建会话（用于记录 prd_session_id，PRD 文件路径由此确定）；draftId 非空时原地转正式
-    const req = { title, rawInput, project, module, role, reqType, maxQuestions }
+    const req = { title, rawInput, project, module, role, reqType, maxQuestions, engine }
     const created = draftId
       ? await startFromDraftMut.mutateAsync({ id: draftId, req })
       : await createMut.mutateAsync(req)
@@ -4903,7 +4964,7 @@ ${rawInput}
 
 PRD_SESSION_ID: ${created.id}`
 
-    sessionStorage.setItem(PRD_CLARIFY_LAUNCH_KEY, JSON.stringify({ cwd, seed, prdSessionId: created.id }))
+    sessionStorage.setItem(PRD_CLARIFY_LAUNCH_KEY, JSON.stringify({ cwd, seed, prdSessionId: created.id, engine }))
     navigate('/tools/claude-chat')
   }
 

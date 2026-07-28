@@ -3,10 +3,15 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { Loader2, Maximize2, Play, RotateCw, ScrollText, Square, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { VirtualLog } from './VirtualLog'
 import {
   devServiceLogStream, getDevServiceStatus, startDevService, stopDevService, restartDevService,
   checkDevPorts, type DevServiceStatus,
 } from './devServiceApi'
+
+// 定高窗口化的行高（px）：inline 视图字号 11px、放大浮层字号 13px，各给足行高保证单行不裁切。
+const ROW_H_INLINE = 18
+const ROW_H_EXPANDED = 20
 
 interface Props {
   /** 项目/服务 id，一个 id 一条进程 + 一条日志流（如 'erp'、'kai-toolbox'）。 */
@@ -28,6 +33,10 @@ interface Props {
    * 由后端 TCP 探端口判绿/灰，直观显示"哪些起好了"。留空=不显示（单服务无需）。
    */
   readinessPorts?: { label: string; port: number }[]
+  /** SQLite 中恢复的服务级项目与自定义指令。 */
+  preference?: { cwd: string; command: string }
+  /** 项目或指令变化时交给父工作台统一持久化。 */
+  onPreferenceChange?: (value: { cwd: string; command: string }) => void
 }
 
 // 日志级别识别（暗底控制台）。整行按命中的最高级别归类；其余归 other。
@@ -71,10 +80,12 @@ function trimKeepErrors(list: LogLine[], max: number): LogLine[] {
 export function DevServiceSection({
   serviceId, dirs, defaultCwd, defaultCommand,
   commandPlaceholder, title = '服务启停 + 启动日志', stopCommand, readinessPorts,
+  preference, onPreferenceChange,
 }: Props) {
   const CMD_KEY = `kai-toolbox:dev:start-cmd:${serviceId}`
-  const [cwd, setCwd] = useState(defaultCwd)
+  const [cwd, setCwd] = useState(preference?.cwd || defaultCwd)
   const [command, setCommand] = useState(() => {
+    if (preference?.command) return preference.command
     try { return localStorage.getItem(CMD_KEY) ?? '' } catch { return '' }
   })
   const [status, setStatus] = useState<DevServiceStatus | null>(null)
@@ -84,14 +95,26 @@ export function DevServiceSection({
   const [expanded, setExpanded] = useState(false)
   // 级别筛选：默认全开；至少保留一个级别（不允许全关）。
   const [activeLevels, setActiveLevels] = useState<Set<LogLevel>>(() => new Set<LogLevel>(['error', 'warn', 'info', 'other']))
-  const logRef = useRef<HTMLDivElement>(null)
-  const bigLogRef = useRef<HTMLDivElement>(null)
-  // 日志性能：SSE 行先入缓冲，定时批量并入（避免每行一次 re-render）；pinnedRef=用户是否吸底。
+  // 日志性能：SSE 行先入缓冲，定时批量并入（避免每行一次 re-render）；pinnedRef=用户是否吸底
+  // （inline 与放大浮层的两个 VirtualLog 共享同一份吸底标记）。滚动/吸底/窗口化由 VirtualLog 内部管。
   const MAX_LOG_LINES = 2000
   const bufferRef = useRef<LogLine[]>([])
   const pinnedRef = useRef(true)
+  const legacyPreferenceReported = useRef(false)
 
-  useEffect(() => { if (defaultCwd) setCwd(defaultCwd) }, [defaultCwd])
+  useEffect(() => {
+    if (preference || legacyPreferenceReported.current || (!cwd && !command)) return
+    legacyPreferenceReported.current = true
+    onPreferenceChange?.({ cwd, command })
+  }, [command, cwd, onPreferenceChange, preference])
+
+  useEffect(() => {
+    const next = preference?.cwd || defaultCwd
+    if (next) setCwd(next)
+  }, [defaultCwd, preference?.cwd])
+  useEffect(() => {
+    if (preference) setCommand(preference.command ?? '')
+  }, [preference])
 
   useEffect(() => { getDevServiceStatus(serviceId).then(setStatus).catch(() => {}) }, [serviceId])
 
@@ -137,21 +160,6 @@ export function DevServiceSection({
     return () => { clearInterval(flush); es.close() }
   }, [serviceId])
 
-  // 仅当用户吸底时自动滚到底（往上翻看历史时不打断）。用 rAF 合并布局读写。
-  useEffect(() => {
-    if (!pinnedRef.current) return
-    const el = expanded ? bigLogRef.current : logRef.current
-    if (!el) return
-    const id = requestAnimationFrame(() => { el.scrollTop = el.scrollHeight })
-    return () => cancelAnimationFrame(id)
-  }, [lines, expanded])
-
-  // 滚动时判断是否仍吸底（距底 < 40px 视为吸底）。
-  const onLogScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const el = e.currentTarget
-    pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
-  }
-
   useEffect(() => {
     if (!expanded) return
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setExpanded(false) }
@@ -161,7 +169,15 @@ export function DevServiceSection({
 
   const running = !!status?.running
   const effCommand = command.trim() || defaultCommand
-  const setCmd = (v: string) => { setCommand(v); try { localStorage.setItem(CMD_KEY, v) } catch { /* ignore */ } }
+  const setServiceCwd = (value: string) => {
+    setCwd(value)
+    onPreferenceChange?.({ cwd: value, command })
+  }
+  const setCmd = (value: string) => {
+    setCommand(value)
+    onPreferenceChange?.({ cwd, command: value })
+    try { localStorage.setItem(CMD_KEY, value) } catch { /* 兼容旧数据迁移 */ }
+  }
   const applyResult = (r: DevServiceStatus | { ok: false; error: string }) => {
     if (r && typeof r === 'object' && 'ok' in r && r.ok === false) setMsg(`失败：${r.error}`)
     else { setStatus(r as DevServiceStatus); setMsg(null) }
@@ -185,30 +201,21 @@ export function DevServiceSection({
     refetchInterval: 4000,
   })
 
-  // 逐行按级别上色。用 content-visibility:auto 让屏幕外行跳过布局/绘制，保住长日志滚动性能；
-  // useMemo 仅在 lines 变化时重建（不受就绪轮询/放大切换等 re-render 影响）。
+  // 级别计数：useMemo 仅在 lines 变化时重建（不受就绪轮询/放大切换等 re-render 影响）。
   const counts = useMemo(() => {
     const c: Record<LogLevel, number> = { error: 0, warn: 0, info: 0, other: 0 }
     for (const l of lines) c[l.lv]++
     return c
   }, [lines])
   const visible = useMemo(() => lines.filter(l => activeLevels.has(l.lv)), [lines, activeLevels])
-  const logNodes = useMemo(
-    () => visible.map((l, i) => (
-      <div
-        key={i}
-        className={`whitespace-pre-wrap break-all [content-visibility:auto] [contain-intrinsic-size:auto_16px] ${LEVEL_CLASS[l.lv]}`}
-      >
-        {l.t === '' ?' ' : l.t}
-      </div>
-    )),
-    [visible],
-  )
-  const renderLog = () => lines.length === 0
+  const renderRow = (i: number) => {
+    const l = visible[i]
+    if (!l) return null
+    return <span className={LEVEL_CLASS[l.lv]}>{l.t === '' ? ' ' : l.t}</span>
+  }
+  const emptyNode = lines.length === 0
     ? <div className="text-[#64748b]">暂无日志。点「启动」拉起服务后，这里实时显示前台控制台输出。</div>
-    : visible.length === 0
-      ? <div className="text-[#64748b]">当前级别筛选无匹配行（点上方级别切换）。</div>
-      : logNodes
+    : <div className="text-[#64748b]">当前级别筛选无匹配行（点上方级别切换）。</div>
 
   // 级别筛选切换（至少保留一个级别，不允许全关）。
   const toggleLevel = (lv: LogLevel) => setActiveLevels(prev => {
@@ -259,7 +266,7 @@ export function DevServiceSection({
       <div className="mt-3 grid gap-2">
         <select
           value={cwd}
-          onChange={e => setCwd(e.target.value)}
+          onChange={e => setServiceCwd(e.target.value)}
           className="h-9 w-full rounded-md border bg-[var(--color-background)] px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
         >
           {dirs.length === 0 && <option value="">（无可用项目目录）</option>}
@@ -347,15 +354,16 @@ export function DevServiceSection({
           <Maximize2 className="size-3.5" />放大
         </Button>
       </div>
-      <div
-        ref={logRef}
-        onScroll={onLogScroll}
+      <VirtualLog
+        count={visible.length}
+        rowHeight={ROW_H_INLINE}
+        renderRow={renderRow}
+        pinnedRef={pinnedRef}
+        empty={emptyNode}
         onDoubleClick={() => { pinnedRef.current = true; setExpanded(true) }}
         title="双击放大"
-        className="h-64 cursor-zoom-in overflow-auto rounded-md border bg-[#0b0f14] p-2 font-mono text-[11px] leading-relaxed text-[#cbd5e1]"
-      >
-        {renderLog()}
-      </div>
+        className="h-64 cursor-zoom-in overflow-auto rounded-md border bg-[#0b0f14] p-2 font-mono text-[11px] text-[#cbd5e1]"
+      />
 
       {expanded && (
         <div className="fixed inset-0 z-50 flex flex-col bg-black/70 p-4 sm:p-8" onClick={() => setExpanded(false)}>
@@ -377,9 +385,14 @@ export function DevServiceSection({
                 </Button>
               </div>
             </div>
-            <div ref={bigLogRef} onScroll={onLogScroll} className="min-h-0 flex-1 overflow-auto p-3 font-mono text-[13px] leading-relaxed text-[#cbd5e1]">
-              {renderLog()}
-            </div>
+            <VirtualLog
+              count={visible.length}
+              rowHeight={ROW_H_EXPANDED}
+              renderRow={renderRow}
+              pinnedRef={pinnedRef}
+              empty={emptyNode}
+              className="min-h-0 flex-1 overflow-auto p-3 font-mono text-[13px] text-[#cbd5e1]"
+            />
           </div>
         </div>
       )}

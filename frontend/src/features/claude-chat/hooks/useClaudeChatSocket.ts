@@ -73,7 +73,7 @@ export interface QueuedMessage {
 
 /** 连接后要发出的首个意图（区分新建 / 续跑 / 重连回放）。 */
 type Intent =
-  | { kind: 'open'; cwd: string; model?: string; mode?: PermissionMode; engine?: Engine; apiBaseUrl?: string; authToken?: string }
+  | { kind: 'open'; cwd: string; model?: string; mode?: PermissionMode; engine?: Engine; apiBaseUrl?: string; authToken?: string; codexHome?: string }
   | { kind: 'switch'; sessionId: string }
   | { kind: 'resumeHistory'; sdkSessionId: string; cwd: string }
   | { kind: 'resumeCurrent'; sessionId: string }
@@ -123,7 +123,7 @@ export interface UseClaudeChatSocket {
    *  结束但后台还有工作没完事——区分"真的没事干了"和"后台还在查、还没回来"。 */
   backgroundTasks: BackgroundTaskInfo[]
   /** 新建会话（可带初始权限模式、引擎、第三方网关 provider；provider 仅 Claude 引擎生效） */
-  open: (cwd: string, model?: string, mode?: PermissionMode, engine?: Engine, provider?: { apiBaseUrl?: string; authToken?: string }) => void
+  open: (cwd: string, model?: string, mode?: PermissionMode, engine?: Engine, provider?: { apiBaseUrl?: string; authToken?: string; codexHome?: string }) => void
   /** 切换权限模式（下一轮生效） */
   setMode: (mode: PermissionMode) => void
   autoApprove: boolean
@@ -508,7 +508,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
   const flushIntent = useCallback(() => {
     const intent = intentRef.current
     if (!intent) return
-    if (intent.kind === 'open') sendRaw({ type: 'open', cwd: intent.cwd, model: intent.model, mode: intent.mode, engine: intent.engine, apiBaseUrl: intent.apiBaseUrl, authToken: intent.authToken })
+    if (intent.kind === 'open') sendRaw({ type: 'open', cwd: intent.cwd, model: intent.model, mode: intent.mode, engine: intent.engine, apiBaseUrl: intent.apiBaseUrl, authToken: intent.authToken, codexHome: intent.codexHome })
     else if (intent.kind === 'switch') sendRaw({ type: 'switchSession', sessionId: intent.sessionId })
     else if (intent.kind === 'resumeHistory') sendRaw({ type: 'resumeHistory', sdkSessionId: intent.sdkSessionId, cwd: intent.cwd })
     else if (intent.kind === 'resumeCurrent') sendRaw({ type: 'resumeCurrent', sessionId: intent.sessionId })
@@ -746,7 +746,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     setCurrentProviderBaseUrl(null)
   }
 
-  const open = useCallback((cwd: string, model?: string, m?: PermissionMode, engine?: Engine, provider?: { apiBaseUrl?: string; authToken?: string }) => {
+  const open = useCallback((cwd: string, model?: string, m?: PermissionMode, engine?: Engine, provider?: { apiBaseUrl?: string; authToken?: string; codexHome?: string }) => {
     resetForNewSession()
     shouldLoadHistoryRef.current = false
     cwdRef.current = cwd
@@ -760,8 +760,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     const authToken = provider?.authToken
     setCurrentProviderKind(apiBaseUrl ? 'thirdParty' : 'official')
     setCurrentProviderBaseUrl(apiBaseUrl ?? null)
-    intentRef.current = { kind: 'open', cwd, model, mode: m, engine, apiBaseUrl, authToken }
-    if (!sendRaw({ type: 'open', cwd, model, mode: m, engine, apiBaseUrl, authToken })) connect()
+    const codexHome = provider?.codexHome
+    intentRef.current = { kind: 'open', cwd, model, mode: m, engine, apiBaseUrl, authToken, codexHome }
+    if (!sendRaw({ type: 'open', cwd, model, mode: m, engine, apiBaseUrl, authToken, codexHome })) connect()
   }, [sendRaw, connect])
 
   const switchTo = useCallback((sid: string, hintRunning = false) => {

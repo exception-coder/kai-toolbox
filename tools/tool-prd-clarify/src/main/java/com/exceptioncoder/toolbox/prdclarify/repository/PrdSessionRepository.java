@@ -40,6 +40,7 @@ public class PrdSessionRepository {
             .parentId(rs.getString("parent_id"))
             .createdByUserId(rs.getObject("created_by_user_id") == null ? null : rs.getLong("created_by_user_id"))
             .model(rs.getString("model"))
+            .engine(rs.getString("engine"))
             .errorMsg(rs.getString("error_msg"))
             .createdAt(rs.getLong("created_at"))
             .updatedAt(rs.getLong("updated_at"))
@@ -53,12 +54,12 @@ public class PrdSessionRepository {
 
     public void insert(PrdSession s) {
         jdbc.update(
-                "INSERT INTO prd_session (id, title, project, module, raw_input, questions, status, role, req_type, max_questions, clarify_mode, md_path, model, error_msg, created_by_user_id, parent_id, created_at, updated_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO prd_session (id, title, project, module, raw_input, questions, status, role, req_type, max_questions, clarify_mode, md_path, model, engine, error_msg, created_by_user_id, parent_id, created_at, updated_at) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 s.getId(), s.getTitle(), s.getProject(), s.getModule(),
                 s.getRawInput(), s.getQuestions(), s.getStatus(), s.getRole(),
                 s.getReqType(), s.getMaxQuestions(), s.getClarifyMode(),
-                s.getMdPath(), s.getModel(), s.getErrorMsg(), s.getCreatedByUserId(),
+                s.getMdPath(), s.getModel(), s.getEngine(), s.getErrorMsg(), s.getCreatedByUserId(),
                 s.getParentId(), s.getCreatedAt(), s.getUpdatedAt());
     }
 
@@ -225,13 +226,18 @@ public class PrdSessionRepository {
      * 同一个生命周期）。
      */
     public void startClarifyFromDraft(String id, String title, String rawInput, String project, String module,
-                                       String model, String role, String reqType, int maxQuestions,
+                                       String model, String engine, String role, String reqType, int maxQuestions,
                                        String clarifyMode) {
-        jdbc.update("UPDATE prd_session SET title = ?, raw_input = ?, project = ?, module = ?, model = ?, " +
+        jdbc.update("UPDATE prd_session SET title = ?, raw_input = ?, project = ?, module = ?, model = ?, engine = ?, " +
                         "role = ?, req_type = ?, max_questions = ?, clarify_mode = ?, status = 'CLARIFYING', updated_at = ? " +
                         "WHERE id = ?",
-                title, rawInput, project, module, model, role, reqType, maxQuestions, clarifyMode,
+                title, rawInput, project, module, model, engine, role, reqType, maxQuestions, clarifyMode,
                 System.currentTimeMillis(), id);
+    }
+
+    /** 更新会话默认执行引擎；纯元数据，不影响文档过期判断。 */
+    public void updateEngine(String id, String engine) {
+        jdbc.update("UPDATE prd_session SET engine = ? WHERE id = ?", engine, id);
     }
 
     /** 标记错误状态。 */

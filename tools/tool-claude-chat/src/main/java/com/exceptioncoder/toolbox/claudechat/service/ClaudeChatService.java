@@ -117,21 +117,24 @@ public class ClaudeChatService {
         boolean gatewayCapable = "claude".equals(engine) || "codex".equals(engine) || "gemini".equals(engine);
         String apiBaseUrl = gatewayCapable ? blankToNull(open.apiBaseUrl()) : null;
         String authToken = apiBaseUrl == null ? null : blankToNull(open.authToken());
+        String codexHome = "codex".equals(engine) && apiBaseUrl == null ? blankToNull(open.codexHome()) : null;
         repo.insert(ClaudeChatSession.builder()
                 .id(sessionId).cwd(cwd).title(null).sdkSessionId(null).engine(engine)
-                .apiBaseUrl(apiBaseUrl).authToken(authToken)
+                .apiBaseUrl(apiBaseUrl).authToken(authToken).codexHome(codexHome)
                 .status(SessionStatus.IDLE).startedAt(now).lastSeenAt(now).build());
 
         SessionCtx ctx = new SessionCtx(sessionId, cwd);
         ctx.engine = engine;
         ctx.apiBaseUrl = apiBaseUrl;
         ctx.authToken = authToken;
+        ctx.codexHome = codexHome;
         ctx.currentModel = blankToNull(open.model()); // 网关默认模型，供菜单高亮当前项
         sessions.put(sessionId, ctx);
         bindViewer(ws, ctx);
 
         ctx.mode = normalizeMode(open.mode());
-        sidecar.startSession(sessionId, cwd, open.model(), ctx.mode, engine, apiBaseUrl, authToken, ctx.autoApprove);
+        sidecar.startSession(sessionId, cwd, open.model(), ctx.mode, engine, apiBaseUrl, authToken,
+                codexHome, ctx.autoApprove);
         pushGatewayModels(ctx); // 网关会话：拉网关 /v1/models 目录推给前端，命令菜单据此选/切模型
         log.info("[claude-chat] open 会话 {} cwd={} mode={} engine={}", sessionId, cwd, ctx.mode, engine);
     }
@@ -168,6 +171,7 @@ public class ClaudeChatService {
                     c.engine = normalizeEngine(db.getEngine());
                     c.apiBaseUrl = db.getApiBaseUrl();
                     c.authToken = db.getAuthToken();
+                    c.codexHome = db.getCodexHome();
                     loadEngineSessions(c, db.getEngineSessions());
                     return c;
                 });
@@ -175,7 +179,8 @@ public class ClaudeChatService {
                 if (created[0]) {
                     repo.touch(db.getId(), SessionStatus.IDLE, System.currentTimeMillis());
                     sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), restored.engine,
-                            restored.apiBaseUrl, restored.authToken, restored.mode, restored.autoApprove);
+                            restored.apiBaseUrl, restored.authToken, restored.codexHome,
+                            restored.mode, restored.autoApprove);
                     log.info("[claude-chat] attach 内存未命中，从 DB 恢复并 resume 会话 {}", db.getId());
                 }
                 // Ready 只发给当前这条连接（其它已在看的连接不需要重复）
@@ -209,13 +214,14 @@ public class ClaudeChatService {
         ctx.engine = normalizeEngine(db.getEngine());
         ctx.apiBaseUrl = db.getApiBaseUrl();
         ctx.authToken = db.getAuthToken();
+        ctx.codexHome = db.getCodexHome();
         loadEngineSessions(ctx, db.getEngineSessions());
         bindViewer(ws, ctx);
         // 只更新 lastSeenAt，保留会话真实状态：若该会话仍有在跑的一轮（ctx 内存中为 RUNNING），
         // 切回/刷新恢复时不能把 DB 状态抹成 IDLE，否则会话列表与前端 running 判定都会误判为「空闲」。
         repo.touch(db.getId(), ctx.status, System.currentTimeMillis());
         sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), ctx.engine, ctx.apiBaseUrl,
-                ctx.authToken, ctx.mode, ctx.autoApprove);
+                ctx.authToken, ctx.codexHome, ctx.mode, ctx.autoApprove);
         // 历史消息由前端按需读 SDK transcript；这里只发一个 Ready 表示已就绪
         sendToBrowser(ctx, seq -> ready(ctx, seq));
         // 该会话若有未决权限/提问请求，随切换补发一次：不然只有 attach（断线重连）路径会重投，
@@ -245,7 +251,7 @@ public class ClaudeChatService {
         sessions.put(id, ctx);
         bindViewer(ws, ctx);
 
-        sidecar.resumeSession(id, msg.sdkSessionId(), cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken,
+        sidecar.resumeSession(id, msg.sdkSessionId(), cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
                 ctx.mode, ctx.autoApprove);
         sendToBrowser(ctx, seq -> ready(ctx, seq));
         log.info("[claude-chat] resumeHistory 会话 {} sdk={} cwd={}", id, msg.sdkSessionId(), cwd);
@@ -299,7 +305,7 @@ public class ClaudeChatService {
         ctx.pendingRequest = null;
         repo.updateSdkSessionId(ctx.sessionId, sdkSessionId);
         repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
-        sidecar.resumeSession(ctx.sessionId, sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken,
+        sidecar.resumeSession(ctx.sessionId, sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
                 ctx.mode, ctx.autoApprove);
         final SessionCtx readyCtx = ctx; // ctx 在本方法上方被重新赋值（attach 恢复），lambda 捕获需 effectively final
         sendToBrowser(ctx, seq -> ready(readyCtx, seq));
@@ -807,7 +813,7 @@ public class ClaudeChatService {
         int n = 0;
         for (SessionCtx ctx : sessions.values()) {
             if (ctx.sdkSessionId == null || ctx.sdkSessionId.isBlank()) continue;
-            sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken,
+            sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
                     ctx.mode, ctx.autoApprove);
             ctx.status = SessionStatus.IDLE;
             repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
@@ -832,7 +838,7 @@ public class ClaudeChatService {
             return false;
         }
         if (ctx.sdkSessionId != null && !ctx.sdkSessionId.isBlank()) {
-            sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken,
+            sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
                     ctx.mode, ctx.autoApprove);
             ctx.status = SessionStatus.IDLE;
             repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
@@ -1136,6 +1142,8 @@ public class ClaudeChatService {
         /** 第三方网关 baseURL/token（仅 Claude 会话）；start/resume 透传给 sidecar，使重连/重启后仍指向同一网关。空=官方。 */
         volatile String apiBaseUrl;
         volatile String authToken;
+        /** Codex 官方登录配置根目录；空值使用默认 ~/.codex。 */
+        volatile String codexHome;
         /** 当前在看本会话的所有浏览器连接（多端同看）。广播事件遍历此集合，断开按连接移除。 */
         final Set<WebSocketSession> viewers = ConcurrentHashMap.newKeySet();
         /** 会话权限模式，默认 default；切换后随下一轮 send 透传给 sidecar。 */

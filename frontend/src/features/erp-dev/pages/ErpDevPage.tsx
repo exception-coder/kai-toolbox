@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { listWorkspaces } from '@/features/claude-chat/api'
 import { CHAT_ROUTE } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import { DevServiceSection } from '@/features/_devkit/DevServiceSection'
+import { useDevWorkbenchPreference } from '@/features/_devkit/useDevWorkbenchPreference'
 import {
   getErpDbConfig, saveErpDbConfig, testErpDb, getErpAppConfig, saveErpAppConfig, testErpApp,
   listOpsSystems, listOpsDatasources, importErpDbFromOps,
@@ -62,29 +63,21 @@ export function ErpDevPage() {
   const roots = workspaces?.roots ?? []
   const hasRoots = roots.some(r => r.exists)
 
-  const [cwd, setCwd] = useState(() => {
-    try { return localStorage.getItem(CWD_KEY) ?? '' } catch { return '' }
+  const devPreference = useDevWorkbenchPreference('erp-dev', {
+    cwd: CWD_KEY, module: MODULE_KEY, requirement: REQUIREMENT_KEY,
   })
-  const [moduleOrUrl, setModuleOrUrl] = useState(() => {
-    try { return localStorage.getItem(MODULE_KEY) ?? '' } catch { return '' }
-  })
-  const [requirement, setRequirement] = useState(() => {
-    try { return localStorage.getItem(REQUIREMENT_KEY) ?? '' } catch { return '' }
-  })
+  const { cwd, module: moduleOrUrl, requirement } = devPreference.preference
 
   // 选目录并记住（下次进来自动回填）
   const pickCwd = (path: string) => {
-    setCwd(path)
-    try { localStorage.setItem(CWD_KEY, path) } catch { /* 隐私模式忽略 */ }
+    devPreference.setField('cwd', path)
   }
   // 填模块/需求并记住（下次进来自动回填）
   const editModule = (v: string) => {
-    setModuleOrUrl(v)
-    try { localStorage.setItem(MODULE_KEY, v) } catch { /* 隐私模式忽略 */ }
+    devPreference.setField('module', v)
   }
   const editRequirement = (v: string) => {
-    setRequirement(v)
-    try { localStorage.setItem(REQUIREMENT_KEY, v) } catch { /* 隐私模式忽略 */ }
+    devPreference.setField('requirement', v)
   }
 
   // 引导：空工作区时跳到 Vibe Coding 并直接打开「拉取项目到工作区」面板
@@ -95,9 +88,9 @@ export function ErpDevPage() {
 
   // 目录列表就绪后：保留上次记住的选择（仍存在时），否则回退到第一个
   useEffect(() => {
-    if (dirs.length === 0) return
+    if (!devPreference.hydrated || dirs.length === 0) return
     if (!dirs.some(d => d.path === cwd)) pickCwd(dirs[0].path)
-  }, [dirs, cwd])
+  }, [devPreference.hydrated, dirs, cwd])
 
   const canStart = cwd.length > 0 && moduleOrUrl.trim().length > 0 && requirement.trim().length > 0
 
@@ -185,6 +178,8 @@ export function ErpDevPage() {
         serviceId="erp"
         dirs={dirs}
         defaultCwd={cwd}
+        preference={devPreference.preference.services.erp}
+        onPreferenceChange={value => devPreference.setService('erp', value)}
         defaultCommand=".\\start-yoooni.ps1"
         title="ERP 服务启停 + 启动日志"
         readinessPorts={[{ label: 'Resin', port: 80 }]}

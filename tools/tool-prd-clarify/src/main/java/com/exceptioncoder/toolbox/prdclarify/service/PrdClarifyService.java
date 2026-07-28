@@ -386,7 +386,7 @@ public class PrdClarifyService {
     /** 创建会话并持久化，返回新建的会话对象。 */
     public PrdSession createSession(String title, String rawInput,
                                     String project, String module, String model, String role) {
-        return createSession(title, rawInput, project, module, model, role, null, null, null, null);
+        return createSession(title, rawInput, project, module, model, "claude", role, null, null, null, null);
     }
 
     /**
@@ -403,12 +403,13 @@ public class PrdClarifyService {
      *                        null/未识别一律归一化成 progressive
      */
     public PrdSession createSession(String title, String rawInput,
-                                    String project, String module, String model, String role,
+                                    String project, String module, String model, String engine, String role,
                                     String reqType, Integer maxQuestions, Long createdByUserId,
                                     String clarifyMode) {
         long now = System.currentTimeMillis();
         String effectiveRole = (role != null && "BUSINESS".equalsIgnoreCase(role)) ? "BUSINESS" : "PRODUCT";
-        ReqTypeClassification classification = resolveReqType(title, rawInput, model, reqType, maxQuestions);
+        String effectiveEngine = normalizeEngine(engine);
+        ReqTypeClassification classification = resolveReqType(title, rawInput, model, effectiveEngine, reqType, maxQuestions);
         String effectiveClarifyMode = "batch".equals(clarifyMode) ? "batch" : "progressive";
 
         PrdSession session = PrdSession.builder()
@@ -418,6 +419,7 @@ public class PrdClarifyService {
                 .project(project)
                 .module(module)
                 .model(model)
+                .engine(effectiveEngine)
                 .role(effectiveRole)
                 .reqType(classification.reqType())
                 .maxQuestions(classification.maxQuestions())
@@ -477,7 +479,7 @@ public class PrdClarifyService {
      * （草稿和后续的澄清/生成是同一条需求记录的同一个生命周期，不应该产生两条历史记录）。
      */
     public PrdSession startClarifyFromDraft(String sessionId, String title, String rawInput,
-                                             String project, String module, String model, String role,
+                                             String project, String module, String model, String engine, String role,
                                              String reqType, Integer maxQuestions, String clarifyMode) {
         PrdSession existing = repo.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
@@ -485,9 +487,10 @@ public class PrdClarifyService {
             throw new IllegalStateException("当前状态 " + existing.getStatus() + " 不是草稿，不能重复发起澄清");
         }
         String effectiveRole = (role != null && "BUSINESS".equalsIgnoreCase(role)) ? "BUSINESS" : "PRODUCT";
-        ReqTypeClassification classification = resolveReqType(title, rawInput, model, reqType, maxQuestions);
+        String effectiveEngine = normalizeEngine(engine);
+        ReqTypeClassification classification = resolveReqType(title, rawInput, model, effectiveEngine, reqType, maxQuestions);
         String effectiveClarifyMode = "batch".equals(clarifyMode) ? "batch" : "progressive";
-        repo.startClarifyFromDraft(sessionId, title, rawInput, project, module, model,
+        repo.startClarifyFromDraft(sessionId, title, rawInput, project, module, model, effectiveEngine,
                 effectiveRole, classification.reqType(), classification.maxQuestions(), effectiveClarifyMode);
         return repo.findById(sessionId).orElseThrow();
     }
@@ -497,7 +500,7 @@ public class PrdClarifyService {
      * 否则走 LLM 自动判定（{@link #classifyReqType}，典型场景：业务员角色不弹分类弹框）。
      * {@link #createSession} 和 {@link #startClarifyFromDraft} 共用同一套逻辑，避免两处判定标准分叉。
      */
-    private ReqTypeClassification resolveReqType(String title, String rawInput, String model,
+    private ReqTypeClassification resolveReqType(String title, String rawInput, String model, String engine,
                                                   String reqType, Integer maxQuestions) {
         if (reqType != null && DEFAULT_MAX_QUESTIONS.containsKey(reqType)) {
             int effectiveMaxQuestions = (maxQuestions != null && maxQuestions > 0)
@@ -505,7 +508,7 @@ public class PrdClarifyService {
                     : DEFAULT_MAX_QUESTIONS.get(reqType);
             return new ReqTypeClassification(reqType, effectiveMaxQuestions);
         }
-        ReqTypeClassification classification = classifyReqType(title, rawInput, model);
+        ReqTypeClassification classification = classifyReqType(title, rawInput, model, engine);
         log.info("[prd-clarify] 需求类型自动判定 title='{}' -> reqType={} maxQuestions={}",
                 title, classification.reqType(), classification.maxQuestions());
         return classification;
@@ -520,10 +523,10 @@ public class PrdClarifyService {
      * 解析失败或调用异常时兜底 NEW_MODULE——分类是「体验优化」，不能因为它失败就把整个
      * 创建会话流程搞挂，兜底值本身也是合理默认（新增模块走最完整的标准澄清流程）。
      */
-    private ReqTypeClassification classifyReqType(String title, String rawInput, String model) {
+    private ReqTypeClassification classifyReqType(String title, String rawInput, String model, String engine) {
         try {
             String userPrompt = "标题：" + title + "\n描述：" + rawInput;
-            String raw = agentRunner.runOnce(REQ_TYPE_CLASSIFY_SYSTEM, userPrompt, model);
+            String raw = agentRunner.runOnce(REQ_TYPE_CLASSIFY_SYSTEM, userPrompt, model, engine);
             JsonNode node = mapper.readTree(stripFence(raw == null ? "" : raw.trim()));
             String type = node.path("reqType").asText("");
             if (!DEFAULT_MAX_QUESTIONS.containsKey(type)) {
@@ -539,6 +542,12 @@ public class PrdClarifyService {
             log.warn("[prd-clarify] 需求类型自动判定失败，兜底 NEW_MODULE: {}", e.getMessage());
             return new ReqTypeClassification("NEW_MODULE", DEFAULT_MAX_QUESTIONS.get("NEW_MODULE"));
         }
+    }
+
+    private static String normalizeEngine(String engine) {
+        if (engine == null || engine.isBlank() || "claude".equalsIgnoreCase(engine)) return "claude";
+        if ("codex".equalsIgnoreCase(engine)) return "codex";
+        throw new IllegalArgumentException("不支持的 Agent 引擎: " + engine);
     }
 
     /**
@@ -586,7 +595,8 @@ public class PrdClarifyService {
         }
         userPrompt.append("\n【用户一次性写下的回答原文】\n").append(rawAnswer);
 
-        String raw = agentRunner.runOnce(DISTRIBUTE_ANSWER_SYSTEM, userPrompt.toString(), session.getModel());
+        String raw = agentRunner.runOnce(DISTRIBUTE_ANSWER_SYSTEM, userPrompt.toString(),
+                session.getModel(), normalizeEngine(session.getEngine()));
         JsonNode node;
         try {
             node = mapper.readTree(stripFence(raw == null ? "" : raw.trim()));
@@ -659,6 +669,7 @@ public class PrdClarifyService {
                         CLARIFY_SYSTEM,
                         buildClarifyPrompt(session),
                         session.getModel(),
+                        normalizeEngine(session.getEngine()),
                         delta -> {
                             full.append(delta);
                             sendChunk(emitter, delta);
@@ -746,6 +757,7 @@ public class PrdClarifyService {
                         askSystem,
                         buildAskUserPrompt(session, questionIndex, history),
                         session.getModel(),
+                        normalizeEngine(session.getEngine()),
                         delta -> sendChunk(emitter, delta),
                         extractImagesFromRawInput(session.getRawInput()));
                 sendDone(emitter);
@@ -812,6 +824,7 @@ public class PrdClarifyService {
                         generateSystem,
                         prompt,
                         session.getModel(),
+                        normalizeEngine(session.getEngine()),
                         delta -> {
                             full.append(delta);
                             sendChunk(emitter, delta);
@@ -1154,6 +1167,7 @@ public class PrdClarifyService {
                 }
                 String userPrompt = buildDevDocAskPrompt(currentDevDoc, updateNotes, questionIndex, history);
                 agentRunner.stream(DEV_DOC_ASK_SYSTEM, userPrompt, session.getModel(),
+                        normalizeEngine(session.getEngine()),
                         delta -> sendChunk(emitter, delta));
                 sendDone(emitter);
             } catch (Exception e) {
@@ -1241,7 +1255,8 @@ public class PrdClarifyService {
                 }
 
                 StringBuilder full = new StringBuilder();
-                agentRunner.stream(devDocSystem, userPrompt, session.getModel(), delta -> {
+                agentRunner.stream(devDocSystem, userPrompt, session.getModel(),
+                        normalizeEngine(session.getEngine()), delta -> {
                     full.append(delta);
                     sendChunk(emitter, delta);
                 });
@@ -1490,7 +1505,8 @@ public class PrdClarifyService {
             throw new IllegalStateException("请先生成开发文档后再评估工时");
         }
         String userPrompt = buildEffortEstimatePrompt(session, prdContent, devDocContent, extraContext);
-        String raw = agentRunner.runOnce(EFFORT_ESTIMATE_SYSTEM, userPrompt, session.getModel());
+        String raw = agentRunner.runOnce(EFFORT_ESTIMATE_SYSTEM, userPrompt, session.getModel(),
+                normalizeEngine(session.getEngine()));
         String estimationJson = parseAndBuildEstimationJson(raw);
         repo.updateDevDocEstimation(sessionId, estimationJson);
         return repo.findById(sessionId).orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
@@ -1620,7 +1636,8 @@ public class PrdClarifyService {
             throw new IllegalStateException("需求描述为空，无法拆分");
         }
         String userPrompt = buildSplitPrompt(session);
-        String raw = agentRunner.runOnce(SPLIT_SYSTEM, userPrompt, session.getModel());
+        String raw = agentRunner.runOnce(SPLIT_SYSTEM, userPrompt, session.getModel(),
+                normalizeEngine(session.getEngine()));
         return parseSplitResult(raw);
     }
 
@@ -1745,7 +1762,8 @@ public class PrdClarifyService {
 
                 String userPrompt = buildProgressEvalPrompt(session, prdContent, devDocContent, extraContext);
                 StringBuilder full = new StringBuilder();
-                agentRunner.stream(PROGRESS_EVAL_SYSTEM, userPrompt, session.getModel(), delta -> {
+                agentRunner.stream(PROGRESS_EVAL_SYSTEM, userPrompt, session.getModel(),
+                        normalizeEngine(session.getEngine()), delta -> {
                     full.append(delta);
                     sendChunk(emitter, delta);
                 });

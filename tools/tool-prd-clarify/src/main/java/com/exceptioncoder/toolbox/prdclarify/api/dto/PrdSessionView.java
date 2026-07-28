@@ -29,6 +29,7 @@ public record PrdSessionView(
         String project,
         String module,
         String status,
+        String engine,
         String role,
         /** 需求类型：BUG_FIX | MODULE_ADJUST | NEW_MODULE，决定澄清问题重点和生成文档结构。 */
         String reqType,
@@ -125,7 +126,8 @@ public record PrdSessionView(
     public static PrdSessionView from(PrdSession s, String createdByUsername) {
         return new PrdSessionView(
                 s.getId(), s.getTitle(), s.getProject(), s.getModule(),
-                s.getStatus(), s.getRole() != null ? s.getRole() : "PRODUCT",
+                s.getStatus(), "codex".equalsIgnoreCase(s.getEngine()) ? "codex" : "claude",
+                s.getRole() != null ? s.getRole() : "PRODUCT",
                 s.getReqType() != null ? s.getReqType() : "NEW_MODULE",
                 s.getMaxQuestions() > 0 ? s.getMaxQuestions() : 5,
                 "batch".equals(s.getClarifyMode()) ? "batch" : "progressive",

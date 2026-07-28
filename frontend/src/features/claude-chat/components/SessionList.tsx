@@ -8,6 +8,7 @@ import { engineDisplayName, providerHost } from './chatStatus'
 import type { ClaudeChatSessionView, Engine } from '../types'
 import { getSessionsByDevSessions } from '@/features/prd-clarify/api'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { SessionActivityBar } from './SessionActivityBar'
 
 const OLD_GROUP_KEY = 'kai-toolbox:claude-chat:session-groups'
 let groupMigrationDone = false
@@ -27,7 +28,11 @@ const UNGROUPED = ' ungrouped'
 
 export function SessionList({ currentSessionId, onSwitch, selectable, selectedIds, onToggleSelect }: Props) {
   const qc = useQueryClient()
-  const { data: sessions = [], isPending } = useQuery({ queryKey: KEY, queryFn: listSessions })
+  const { data: sessions = [], isPending } = useQuery({
+    queryKey: KEY,
+    queryFn: listSessions,
+    refetchInterval: 3_000,
+  })
 
   // 批量查一次"这些会话里哪些绑了 PRD"，给行首标个小图标——不然只能点进每个会话的顶栏才知道
   // （用户原话："不然不知道哪些绑定了必须要点开"）。key 用排序后的 id 拼接，会话集合不变就不重查。
@@ -284,6 +289,7 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
   function renderRow(s: ClaudeChatSessionView, inGroup: boolean) {
     const isActive = s.id === currentSessionId
     const linkedPrd = prdLinks[s.id]
+    const isRunning = s.status === 'RUNNING' && s.live
 
     const engineBadge = (() => {
       const raw = (s.engines && s.engines.trim() ? s.engines.split(',') : [s.engine || 'claude'])
@@ -324,20 +330,21 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
       <li
         key={s.id}
         className={cn(
-          'group relative flex items-center gap-1 transition-colors duration-100',
+          'group relative isolate flex items-center gap-1 transition-colors duration-100',
           isActive ? 'bg-[var(--color-primary)]/10' : 'hover:bg-[var(--color-accent)]',
         )}
       >
+        {isRunning && <SessionActivityBar />}
         {/* Left Accent Bar：4px 加宽，选中态更醒目 */}
         <div className={cn(
-          'absolute inset-y-0 left-0 w-[4px] rounded-r-sm transition-colors duration-100',
+          'absolute inset-y-0 left-0 z-20 w-[4px] rounded-r-sm transition-colors duration-100',
           isActive ? 'bg-[var(--color-primary)]' : 'bg-transparent group-hover:bg-[var(--color-border)]',
         )} />
 
         {selectable && (
           <input
             type="checkbox"
-            className="ml-4 size-4 shrink-0"
+            className="relative z-10 ml-4 size-4 shrink-0"
             checked={selectedIds?.has(s.id) ?? false}
             onChange={() => onToggleSelect?.(s.id)}
             aria-label={`选择会话 ${s.title || shortCwd(s.cwd)}`}
@@ -347,7 +354,7 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
         {editingId === s.id ? (
           <input
             autoFocus
-            className={cn('min-w-0 flex-1 rounded-md border bg-[var(--color-background)] px-2 py-1 text-sm', inGroup ? 'ml-8' : 'ml-5')}
+            className={cn('relative z-10 min-w-0 flex-1 rounded-md border bg-[var(--color-background)] px-2 py-1 text-sm', inGroup ? 'ml-8' : 'ml-5')}
             value={draft}
             onChange={e => setDraft(e.target.value)}
             onKeyDown={e => {
@@ -361,7 +368,7 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
             type="button"
             className={cn(
               // pr-16 给操作按钮预留隐形空间（按钮绝对定位，不占布局，但文字不能延伸进按钮区）
-              'min-h-[44px] min-w-0 flex-1 py-2.5 pr-2 text-left',
+              'relative z-10 min-h-[44px] min-w-0 flex-1 py-2.5 pr-2 text-left',
               inGroup ? 'pl-8' : 'pl-5',
             )}
             onClick={() => onSwitch(s.id, s.status === 'RUNNING' && s.live)}
@@ -408,7 +415,7 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
         {editingId === s.id ? (
           <button
             type="button"
-            className="mr-1 rounded p-1.5 text-[var(--color-primary)]"
+            className="relative z-10 mr-1 rounded p-1.5 text-[var(--color-primary)]"
             onMouseDown={e => e.preventDefault()}
             onClick={() => void commitEdit(s.id)}
             aria-label="确认重命名"
@@ -419,7 +426,7 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
           <div
             className={cn(
               // 绝对定位贴右边，同行垂直居中；背景色与行状态一致，遮挡身后的文字
-              'absolute inset-y-0 right-0 flex items-center pl-2 pr-1',
+              'absolute inset-y-0 right-0 z-10 flex items-center pl-2 pr-1',
               'opacity-0 transition-opacity duration-100 group-hover:opacity-100',
               isActive ? 'bg-[var(--color-primary)]/10' : 'bg-[var(--color-accent)]',
             )}

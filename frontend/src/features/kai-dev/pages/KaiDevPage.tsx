@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Hammer, Rocket } from 'lucide-react'
@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { listWorkspaces } from '@/features/claude-chat/api'
 import { CHAT_ROUTE } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import { DevServiceSection } from '@/features/_devkit/DevServiceSection'
+import { useDevWorkbenchPreference } from '@/features/_devkit/useDevWorkbenchPreference'
 
 // 复用 Vibe Coding 的 handoff 通道（ChatPage 挂载时消费：开会话 + 投喂触发语）
 const LAUNCH_KEY = 'kai-toolbox:claude-chat:erp-dev-launch'
@@ -48,18 +49,19 @@ export function KaiDevPage() {
     return out
   }, [workspaces])
 
-  const [cwd, setCwd] = useState(() => { try { return localStorage.getItem(CWD_KEY) ?? '' } catch { return '' } })
-  const [moduleOrPath, setModuleOrPath] = useState(() => { try { return localStorage.getItem(MODULE_KEY) ?? '' } catch { return '' } })
-  const [requirement, setRequirement] = useState(() => { try { return localStorage.getItem(REQ_KEY) ?? '' } catch { return '' } })
+  const devPreference = useDevWorkbenchPreference('kai-dev', {
+    cwd: CWD_KEY, module: MODULE_KEY, requirement: REQ_KEY,
+  })
+  const { cwd, module: moduleOrPath, requirement } = devPreference.preference
 
-  const pickCwd = (p: string) => { setCwd(p); try { localStorage.setItem(CWD_KEY, p) } catch { /* ignore */ } }
-  const editModule = (v: string) => { setModuleOrPath(v); try { localStorage.setItem(MODULE_KEY, v) } catch { /* ignore */ } }
-  const editReq = (v: string) => { setRequirement(v); try { localStorage.setItem(REQ_KEY, v) } catch { /* ignore */ } }
+  const pickCwd = (p: string) => devPreference.setField('cwd', p)
+  const editModule = (v: string) => devPreference.setField('module', v)
+  const editReq = (v: string) => devPreference.setField('requirement', v)
 
   useEffect(() => {
-    if (dirs.length === 0) return
+    if (!devPreference.hydrated || dirs.length === 0) return
     if (!dirs.some(d => d.path === cwd)) pickCwd(dirs[0].path)
-  }, [dirs, cwd])
+  }, [devPreference.hydrated, dirs, cwd])
 
   const canStart = cwd.length > 0 && moduleOrPath.trim().length > 0 && requirement.trim().length > 0
   const start = () => {
@@ -117,6 +119,8 @@ export function KaiDevPage() {
         serviceId="kai-backend"
         dirs={dirs}
         defaultCwd={cwd}
+        preference={devPreference.preference.services['kai-backend']}
+        onPreferenceChange={value => devPreference.setService('kai-backend', value)}
         defaultCommand="mvn -pl toolbox-starter -am spring-boot:run"
         title="后端服务启停 + 启动日志"
       />
@@ -124,6 +128,8 @@ export function KaiDevPage() {
         serviceId="kai-frontend"
         dirs={dirs}
         defaultCwd={cwd}
+        preference={devPreference.preference.services['kai-frontend']}
+        onPreferenceChange={value => devPreference.setService('kai-frontend', value)}
         defaultCommand="cd frontend; npm run dev"
         title="前端 Dev 服务启停 + 日志"
       />

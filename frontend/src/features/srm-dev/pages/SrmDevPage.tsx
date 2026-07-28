@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { listWorkspaces } from '@/features/claude-chat/api'
 import { CHAT_ROUTE } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import { DevServiceSection } from '@/features/_devkit/DevServiceSection'
+import { useDevWorkbenchPreference } from '@/features/_devkit/useDevWorkbenchPreference'
 import {
   getSrmDbConfig, saveSrmDbConfig, testSrmDb,
   getSrmAppConfig, saveSrmAppConfig, testSrmApp,
@@ -67,19 +68,20 @@ export function SrmDevPage() {
     return out
   }, [workspaces])
 
-  const [cwd, setCwd] = useState(() => { try { return localStorage.getItem(CWD_KEY) ?? '' } catch { return '' } })
-  const [moduleName, setModuleName] = useState(() => { try { return localStorage.getItem(MODULE_KEY) ?? '' } catch { return '' } })
-  const [requirement, setRequirement] = useState(() => { try { return localStorage.getItem(REQUIREMENT_KEY) ?? '' } catch { return '' } })
+  const devPreference = useDevWorkbenchPreference('srm-dev', {
+    cwd: CWD_KEY, module: MODULE_KEY, requirement: REQUIREMENT_KEY,
+  })
+  const { cwd, module: moduleName, requirement } = devPreference.preference
 
-  const pickCwd = (p: string) => { setCwd(p); try { localStorage.setItem(CWD_KEY, p) } catch { /* 隐私模式忽略 */ } }
-  const editModule = (v: string) => { setModuleName(v); try { localStorage.setItem(MODULE_KEY, v) } catch { /* 隐私模式忽略 */ } }
-  const editRequirement = (v: string) => { setRequirement(v); try { localStorage.setItem(REQUIREMENT_KEY, v) } catch { /* 隐私模式忽略 */ } }
+  const pickCwd = (p: string) => devPreference.setField('cwd', p)
+  const editModule = (v: string) => devPreference.setField('module', v)
+  const editRequirement = (v: string) => devPreference.setField('requirement', v)
 
   // 目录列表就绪后：保留上次记住的选择（仍存在时），否则回退到第一个
   useEffect(() => {
-    if (dirs.length === 0) return
+    if (!devPreference.hydrated || dirs.length === 0) return
     if (!dirs.some(d => d.path === cwd)) pickCwd(dirs[0].path)
-  }, [dirs, cwd])
+  }, [devPreference.hydrated, dirs, cwd])
 
   const canStart = cwd.length > 0 && moduleName.trim().length > 0 && requirement.trim().length > 0
   const start = () => {
@@ -152,6 +154,8 @@ export function SrmDevPage() {
         serviceId="srm"
         dirs={dirs}
         defaultCwd={cwd}
+        preference={devPreference.preference.services.srm}
+        onPreferenceChange={value => devPreference.setService('srm', value)}
         defaultCommand="powershell -NoProfile -ExecutionPolicy Bypass -File .\\start-srm.ps1 -Foreground"
         stopCommand="powershell -NoProfile -ExecutionPolicy Bypass -File .\\stop-srm.ps1"
         commandPlaceholder="首次或改过公共模块加 -Build：… start-srm.ps1 -Foreground -Build"

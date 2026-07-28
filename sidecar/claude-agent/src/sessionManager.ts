@@ -110,7 +110,8 @@ const INTERRUPT_DENY_FLUSH_MS = 30
 
 function loadCodexModels(): unknown[] {
   try {
-    const raw = JSON.parse(readFileSync(join(homedir(), '.codex', 'models_cache.json'), 'utf8')) as {
+    const codexHome = process.env.CODEX_HOME?.trim() || join(homedir(), '.codex')
+    const raw = JSON.parse(readFileSync(join(codexHome, 'models_cache.json'), 'utf8')) as {
       models?: Array<{
         slug?: string
         display_name?: string
@@ -212,6 +213,8 @@ class Session {
   apiBaseUrl?: string
   /** 第三方网关鉴权 token（走 ANTHROPIC_API_KEY）。 */
   authToken?: string
+  /** Codex 官方登录配置根目录；空值使用默认 ~/.codex。 */
+  codexHome?: string
   /** 会话引擎，新建时定、resume 沿用；决定 runTurn 走 Claude 还是 Codex。 */
   engine: Engine = 'claude'
   /** 会话级权限模式，每轮 query 传入；运行中切换下一轮生效。 */
@@ -431,6 +434,7 @@ class Session {
         sdkSessionId: this.sdkSessionId,
         apiBaseUrl: this.apiBaseUrl,
         authToken: this.authToken,
+        codexHome: this.codexHome,
         signal: ac.signal,
         emit: (e) => this.emitSelf(e),
         setSdkSessionId: (id) => { this.sdkSessionId = id },
@@ -663,6 +667,7 @@ class Session {
 /** 多会话路由：一个 sidecar 进程内按 sessionId 管理多个 Session。 */
 export class SessionManager {
   private sessions = new Map<string, Session>()
+  private oneShotControllers = new Map<string, AbortController>()
   private pendingCodexOptions = new Map<string, { reasoningEffort?: ModelReasoningEffort; speed: CodexSpeed }>()
 
   constructor(private emit: Emit) {
@@ -711,12 +716,13 @@ export class SessionManager {
     }
   }
 
-  start(id: string, cwd: string, model?: string, mode?: string, engine?: string, apiBaseUrl?: string, authToken?: string,
+  start(id: string, cwd: string, model?: string, mode?: string, engine?: string, apiBaseUrl?: string, authToken?: string, codexHome?: string,
         demo?: boolean, demoApiBase?: string, autoApprove?: boolean): void {
     const s = new Session(id, cwd || process.env.HOME || process.cwd(), (e) => this.emit(id, e))
     if (model) s.model = model
     if (engine === 'codex' || engine === 'gemini' || engine === 'opencode') s.engine = engine
     if (apiBaseUrl) { s.apiBaseUrl = apiBaseUrl; s.authToken = authToken }
+    if (codexHome) s.codexHome = codexHome
     if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
     if (autoApprove) { s.autoApprove = true; s.perms.setAutoApprove(true) }
     this.applyCodexOptions(id, s)
@@ -739,7 +745,7 @@ export class SessionManager {
    * （用户切走了页面 / 后端自愈式 resume），模式就长期停在 default——本该「全自动」的会话又开始弹审批，
    * 而弹了也没人看，最终超时 deny 或中断成 stream closed。
    */
-  resume(id: string, sdkSessionId: string, cwd: string, engine?: string, apiBaseUrl?: string, authToken?: string,
+  resume(id: string, sdkSessionId: string, cwd: string, engine?: string, apiBaseUrl?: string, authToken?: string, codexHome?: string,
          mode?: string, autoApprove?: boolean): void {
     let s = this.sessions.get(id)
     if (!s) {
@@ -750,6 +756,7 @@ export class SessionManager {
     if (cwd) s.cwd = cwd
     if (engine === 'codex' || engine === 'claude' || engine === 'gemini' || engine === 'opencode') s.engine = engine
     if (apiBaseUrl) { s.apiBaseUrl = apiBaseUrl; s.authToken = authToken }
+    s.codexHome = codexHome || undefined
     if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
     if (autoApprove != null) { s.autoApprove = autoApprove; s.perms.setAutoApprove(autoApprove) }
     this.applyCodexOptions(id, s)
@@ -787,6 +794,7 @@ export class SessionManager {
   }
 
   interrupt(id: string): void {
+    this.oneShotControllers.get(id)?.abort()
     this.sessions.get(id)?.interrupt()
   }
 
@@ -857,6 +865,7 @@ export class SessionManager {
     s.apiBaseUrl = nextBaseUrl || undefined
     s.authToken = nextBaseUrl ? authToken : undefined
     s.resetModelsFetched() // 换引擎/provider：下一轮重新取模型清单
+    this.emitCachedModels(id, s)
   }
 
   /** 从某条用户消息分叉出新会话（截到该消息），emit forked 带新 sdkSessionId 给 Java 建会话续跑。 */
@@ -885,8 +894,31 @@ export class SessionManager {
    * 把 system+user 拼成一个 prompt 跑一轮，复用 Session.handle 逐片 emit assistantDelta + result/error。
    * 用于「高质量」简历优化引擎——Agent 当作更强的 LLM，纯文本进出，不调工具、不接 MCP、不持久化。
    */
-  async oneShot(id: string, systemPrompt: string, userPrompt: string, model?: string, images?: OneShotImage[]): Promise<void> {
+  async oneShot(id: string, systemPrompt: string, userPrompt: string, model?: string, engine?: string, images?: OneShotImage[]): Promise<void> {
     const cwd = process.env.USERPROFILE || process.env.HOME || process.cwd()
+    if (engine === 'codex') {
+      if (images?.length) {
+        this.emit(id, { type: 'error', code: 'CODEX_IMAGES_UNSUPPORTED', message: 'Codex 一次性任务暂不支持图片输入，请改用 Claude Code' })
+        this.emit(id, { type: 'result', usage: {}, stopReason: 'error' })
+        return
+      }
+      const controller = new AbortController()
+      this.oneShotControllers.set(id, controller)
+      try {
+        await runCodexTurn({
+          text: `${systemPrompt}\n\n${userPrompt}`,
+          cwd,
+          model,
+          permissionMode: 'bypassPermissions',
+          signal: controller.signal,
+          emit: (e) => this.emit(id, e),
+          setSdkSessionId: () => {},
+        })
+      } finally {
+        this.oneShotControllers.delete(id)
+      }
+      return
+    }
     const s = new Session(id, cwd, (e) => this.emit(id, e))
     if (model) s.model = model
     s.permissionMode = 'bypassPermissions'

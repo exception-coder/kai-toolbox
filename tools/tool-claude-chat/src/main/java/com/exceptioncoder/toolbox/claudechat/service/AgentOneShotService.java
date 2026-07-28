@@ -42,41 +42,41 @@ public class AgentOneShotService implements AgentOneShotRunner {
     }
 
     /** 阻塞跑一次，返回完整文本。 */
-    public String runOnce(String systemPrompt, String userPrompt, String model) {
-        return execute(systemPrompt, userPrompt, model, null, null);
+    public String runOnce(String systemPrompt, String userPrompt, String model, String engine) {
+        return execute(systemPrompt, userPrompt, model, engine, null, null);
     }
 
     /** 阻塞跑一次，逐片回调 {@code onDelta}，结束返回完整文本。 */
-    public String stream(String systemPrompt, String userPrompt, String model, Consumer<String> onDelta) {
-        return execute(systemPrompt, userPrompt, model, onDelta, null);
+    public String stream(String systemPrompt, String userPrompt, String model, String engine, Consumer<String> onDelta) {
+        return execute(systemPrompt, userPrompt, model, engine, onDelta, null);
     }
 
     /** 附带图片的非流式执行：Claude 真正"看到"图片内容，不只是收到一段文字引用。 */
     @Override
-    public String runOnce(String systemPrompt, String userPrompt, String model, List<ImageInput> images) {
-        return execute(systemPrompt, userPrompt, model, null, images);
+    public String runOnce(String systemPrompt, String userPrompt, String model, String engine, List<ImageInput> images) {
+        return execute(systemPrompt, userPrompt, model, engine, null, images);
     }
 
     /** 附带图片的流式执行；语义同 {@link #runOnce(String, String, String, List)}。 */
     @Override
-    public String stream(String systemPrompt, String userPrompt, String model,
+    public String stream(String systemPrompt, String userPrompt, String model, String engine,
                          Consumer<String> onDelta, List<ImageInput> images) {
-        return execute(systemPrompt, userPrompt, model, onDelta, images);
+        return execute(systemPrompt, userPrompt, model, engine, onDelta, images);
     }
 
-    private String execute(String systemPrompt, String userPrompt, String model,
+    private String execute(String systemPrompt, String userPrompt, String model, String engine,
                            Consumer<String> onDelta, List<ImageInput> images) {
         ensureReady();
         String id = PREFIX + UUID.randomUUID();
         Call call = new Call(onDelta);
         calls.put(id, call);
         try {
-            sidecar.oneShot(id, systemPrompt, userPrompt, model, images);
+            sidecar.oneShot(id, systemPrompt, userPrompt, model, normalizeEngine(engine), images);
             return call.future.get(props.getAgentOneShotTimeoutMs(), TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {
             long seconds = props.getAgentOneShotTimeoutMs() / 1000;
             String limit = seconds >= 60 ? (seconds / 60) + "分钟" : seconds + "s";
-            throw new RuntimeException("高质量引擎超时：Claude Agent 在 " + limit + " 内未返回结果", e);
+            throw new RuntimeException("高质量引擎超时：" + normalizeEngine(engine) + " 在 " + limit + " 内未返回结果", e);
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
@@ -86,6 +86,16 @@ public class AgentOneShotService implements AgentOneShotRunner {
         } finally {
             calls.remove(id);
         }
+    }
+
+    private static String normalizeEngine(String engine) {
+        if (engine == null || engine.isBlank() || "claude".equalsIgnoreCase(engine)) {
+            return "claude";
+        }
+        if ("codex".equalsIgnoreCase(engine)) {
+            return "codex";
+        }
+        throw new IllegalArgumentException("不支持的 Agent 引擎: " + engine);
     }
 
     /** 由 ClaudeChatService 把 {@code oneshot:} 前缀的 sidecar 事件转发进来。 */

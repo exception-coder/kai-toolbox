@@ -93,7 +93,7 @@ wss.on('connection', (ws) => {
     switch (type) {
       case 'start':
         manager.start(sessionId, msg.cwd as string, msg.model as string, msg.mode as string, msg.engine as string, msg.apiBaseUrl as string | undefined, msg.authToken as string | undefined,
-          msg.demo as boolean | undefined, msg.demoApiBase as string | undefined, msg.autoApprove as boolean | undefined)
+          msg.codexHome as string | undefined, msg.demo as boolean | undefined, msg.demoApiBase as string | undefined, msg.autoApprove as boolean | undefined)
         break
       case 'setMode':
         manager.setMode(sessionId, msg.mode as string)
@@ -131,7 +131,7 @@ wss.on('connection', (ws) => {
         break
       case 'resume':
         manager.resume(sessionId, msg.sdkSessionId as string, msg.cwd as string, msg.engine as string, msg.apiBaseUrl as string | undefined, msg.authToken as string | undefined,
-          msg.mode as string | undefined, msg.autoApprove as boolean | undefined)
+          msg.codexHome as string | undefined, msg.mode as string | undefined, msg.autoApprove as boolean | undefined)
         break
       case 'user':
         manager.user(sessionId, msg.text as string)
@@ -152,6 +152,7 @@ wss.on('connection', (ws) => {
           msg.systemPrompt as string,
           msg.userPrompt as string,
           msg.model as string,
+          msg.engine as string,
           msg.images as import('./sessionManager.js').OneShotImage[] | undefined,
         )
         break

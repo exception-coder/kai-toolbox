@@ -13,6 +13,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog'
 import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import { setSessionGroupApi } from '@/features/claude-chat/api'
 import type { ChatItem } from '@/features/claude-chat/types'
+import type { Engine } from '@/features/claude-chat/types'
 import { ConsultConversation } from '../components/ConsultConversation'
 import { BugDrawer } from '../components/BugDrawer'
 import { ConsultHistoryDetail } from '../components/ConsultHistoryDetail'
@@ -85,6 +86,7 @@ const CONSULT_SUGGESTIONS = ['这个系统主要做什么？', '核心业务流�
 
 // 业务咨询拉起的会话统一归入该分组（claude-chat 分组即 group_name 字符串，命名即创建）。
 const CONSULT_GROUP = '业务咨询'
+const CODEX_HOME_PREF = 'kai-toolbox:fore-consult:codex-home'
 
 function iconForSystem(name: string, label: string): LucideIcon {
   const hay = `${name} ${label}`.toUpperCase()
@@ -306,6 +308,14 @@ export function ForeConsultPage() {
   const [moduleTags, setModuleTags] = useState<string[]>([])
   const [ask, setAsk] = useState('')
   const [role, setRole] = useState<ConsultRole>('BIZ')
+  const [engine, setEngine] = useState<Extract<Engine, 'claude' | 'codex'>>('claude')
+  const [codexHome, setCodexHome] = useState(() => {
+    try {
+      return localStorage.getItem(CODEX_HOME_PREF) ?? ''
+    } catch {
+      return ''
+    }
+  })
   const [moduleQuery, setModuleQuery] = useState('')
   const [modulesExpanded, setModulesExpanded] = useState(false)
   const [attachments, setAttachments] = useState<ConsultAtt[]>([])
@@ -330,7 +340,15 @@ export function ForeConsultPage() {
   const [overrides, setOverrides] = useState<Map<string, Pos>>(new Map())
   const [activeConsultId, setActiveConsultId] = useState<string | null>(null)
 
-  const pendingRef = useRef<{ cwd: string; seed: string; displayText: string; consultId: string; attachments: ConsultAtt[] } | null>(null)
+  const pendingRef = useRef<{
+    cwd: string
+    seed: string
+    displayText: string
+    consultId: string
+    attachments: ConsultAtt[]
+    engine: 'claude' | 'codex'
+    codexHome?: string
+  } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ name: string; moved: boolean } | null>(null)
   const dragFrameRef = useRef<number | null>(null)
@@ -481,7 +499,13 @@ export function ForeConsultPage() {
     if (!chat || !p) return
     pendingRef.current = null
     // bypassPermissions：只读业务问答，自动放行工具，本模块面板无需权限 UI。
-    chat.open(p.cwd, undefined, 'bypassPermissions', 'claude')
+    chat.open(
+      p.cwd,
+      undefined,
+      'bypassPermissions',
+      p.engine,
+      p.engine === 'codex' ? { codexHome: p.codexHome } : undefined,
+    )
     const atts = p.attachments.length
       ? p.attachments.map((a) => ({ name: a.name, path: a.path, mime: a.mime ?? undefined, url: a.url }))
       : undefined
@@ -568,6 +592,15 @@ export function ForeConsultPage() {
         displayText: ask.trim() || '（见附件）',
         consultId: created.sessionId,
         attachments,
+        engine,
+        codexHome: engine === 'codex' ? codexHome.trim() || undefined : undefined,
+      }
+      if (engine === 'codex') {
+        try {
+          localStorage.setItem(CODEX_HOME_PREF, codexHome.trim())
+        } catch {
+          /* 浏览器禁用存储时仅本次会话生效 */
+        }
       }
       if (chat) deliver()
       else activate()
@@ -1164,6 +1197,42 @@ export function ForeConsultPage() {
                   ))}
                 </div>
                 <span className="hidden truncate text-[10px] text-indigo-200/35 sm:inline">{ROLE_META[role].hint}</span>
+              </div>
+              <div className="mb-2.5 rounded-xl border border-indigo-300/20 bg-white/[0.03] p-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-indigo-200/50">咨询引擎</span>
+                  <div className="flex rounded-lg border border-indigo-300/20 bg-white/[0.04] p-0.5">
+                    {(['claude', 'codex'] as const).map((item) => (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => setEngine(item)}
+                        className={`rounded-md px-2.5 py-1 text-[11px] transition-colors ${
+                          engine === item ? 'bg-sky-400/25 text-sky-100' : 'text-indigo-200/60 hover:text-indigo-100'
+                        }`}
+                      >
+                        {item === 'claude' ? 'Claude Code' : 'Codex'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {engine === 'codex' && (
+                  <div className="mt-2">
+                    <label className="mb-1 block text-[10px] text-indigo-200/45" htmlFor="fore-consult-codex-home">
+                      Codex 授权目录（留空使用默认 %USERPROFILE%\.codex）
+                    </label>
+                    <input
+                      id="fore-consult-codex-home"
+                      value={codexHome}
+                      onChange={(event) => setCodexHome(event.target.value)}
+                      placeholder="%USERPROFILE%\.codex-account-yx"
+                      className="fc-glass-input w-full rounded-lg px-2.5 py-1.5 text-xs"
+                    />
+                    <p className="mt-1 text-[10px] leading-relaxed text-amber-100/65">
+                      目录需提前创建并执行 codex login；它只决定登录账号，不改变上方项目工作目录。
+                    </p>
+                  </div>
+                )}
               </div>
               <div className="mb-2 flex flex-wrap gap-1.5">
                 {CONSULT_SUGGESTIONS.map((s) => (

@@ -1,4 +1,6 @@
 import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { resolve } from 'node:path'
 import { Codex, type ApprovalMode, type ModelReasoningEffort, type SandboxMode, type ThreadItem, type ThreadOptions } from '@openai/codex-sdk'
 
 export type CodexSpeed = 'default' | 'fast'
@@ -18,13 +20,15 @@ export interface CodexTurnCtx {
   apiBaseUrl?: string
   /** 第三方网关 API Key（走 OpenAI 鉴权）。 */
   authToken?: string
+  /** Codex 官方登录配置根目录；空值使用默认 ~/.codex。 */
+  codexHome?: string
   signal: AbortSignal
   emit: (e: Record<string, unknown>) => void
   setSdkSessionId: (id: string) => void
 }
 
 // 官方实例：复用本机 ~/.codex 认证；SDK 内部用 @openai/codex 自带二进制，无需 codex 在 PATH。
-const codexClients = new Map<CodexSpeed, Codex>()
+const codexClients = new Map<string, Codex>()
 // 第三方网关实例按 baseUrl 缓存，避免每轮重建。
 const gatewayClients = new Map<string, Codex>()
 
@@ -35,12 +39,35 @@ function normalizeOpenAiBase(base: string): string {
 }
 
 /** 取本轮用的 Codex 实例：配了网关→（缓存的）带 baseUrl+apiKey 的实例；否则官方实例。 */
-function pickCodex(apiBaseUrl?: string, authToken?: string, speed: CodexSpeed = 'default'): Codex {
+function normalizeCodexHome(value?: string): string | undefined {
+  const raw = value?.trim()
+  if (!raw) return undefined
+  const expanded = raw
+    .replace(/^~(?=[\\/]|$)/, homedir())
+    .replace(/%([^%]+)%/g, (_, name: string) => process.env[name] ?? `%${name}%`)
+    .replace(/\$env:([A-Za-z_][A-Za-z0-9_]*)/gi, (_, name: string) => process.env[name] ?? `$env:${name}`)
+  return resolve(expanded)
+}
+
+function codexEnv(codexHome: string): Record<string, string> {
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+  )
+  env.CODEX_HOME = codexHome
+  return env
+}
+
+function pickCodex(apiBaseUrl?: string, authToken?: string, speed: CodexSpeed = 'default', codexHome?: string): Codex {
   if (!apiBaseUrl || !apiBaseUrl.trim()) {
-    let client = codexClients.get(speed)
+    const home = normalizeCodexHome(codexHome)
+    const key = `${speed} ${home ?? '<default>'}`
+    let client = codexClients.get(key)
     if (!client) {
-      client = new Codex(speed === 'fast' ? { config: { service_tier: 'priority' } } : undefined)
-      codexClients.set(speed, client)
+      client = new Codex({
+        ...(home ? { env: codexEnv(home) } : {}),
+        ...(speed === 'fast' ? { config: { service_tier: 'priority' } } : {}),
+      })
+      codexClients.set(key, client)
     }
     return client
   }
@@ -81,6 +108,16 @@ function mapMode(mode: string): { approvalPolicy: ApprovalMode; sandboxMode: San
 /** 跑一轮 Codex：建/resume thread → runStreamed → 把 ThreadEvent 翻译成统一协议事件。 */
 export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
   const safeCwd = existsSync(ctx.cwd) ? ctx.cwd : (process.env.USERPROFILE || process.env.HOME || process.cwd())
+  const home = normalizeCodexHome(ctx.codexHome)
+  if (home && !existsSync(home)) {
+    ctx.emit({
+      type: 'error',
+      code: 'CODEX_HOME_NOT_FOUND',
+      message: `Codex 授权目录不存在：${home}。请先创建目录并在该 CODEX_HOME 下执行 codex login。`,
+    })
+    ctx.emit({ type: 'result', usage: {}, stopReason: 'error' })
+    return
+  }
   const { approvalPolicy, sandboxMode } = mapMode(ctx.permissionMode)
   const opts: ThreadOptions = {
     workingDirectory: safeCwd,
@@ -91,7 +128,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
     modelReasoningEffort: ctx.reasoningEffort,
   }
 
-  const client = pickCodex(ctx.apiBaseUrl, ctx.authToken, ctx.speed)
+  const client = pickCodex(ctx.apiBaseUrl, ctx.authToken, ctx.speed, home)
   if (ctx.apiBaseUrl) {
     console.log(`[sidecar] codex turn start model=${ctx.model ?? '默认'} via=${normalizeOpenAiBase(ctx.apiBaseUrl)}`)
   }

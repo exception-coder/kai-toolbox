@@ -13,5 +13,6 @@ import java.util.List;
 public record AskNextDevDocQuestionRequest(
         int questionIndex,
         List<QaPairRequest> history,
-        String updateNotes
+        String updateNotes,
+        String engine
 ) {}

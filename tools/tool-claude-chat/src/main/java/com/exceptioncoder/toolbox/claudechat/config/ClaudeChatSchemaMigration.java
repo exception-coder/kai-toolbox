@@ -64,6 +64,12 @@ public class ClaudeChatSchemaMigration {
         } catch (Exception e) {
             log.debug("[claude-chat] auth_token 列迁移跳过：{}", e.getMessage());
         }
+        try {
+            jdbc.execute("ALTER TABLE claude_chat_session ADD COLUMN codex_home TEXT");
+            log.info("[claude-chat] 迁移：claude_chat_session 已补 codex_home 列");
+        } catch (Exception e) {
+            log.debug("[claude-chat] codex_home 列迁移跳过：{}", e.getMessage());
+        }
         // 会话分组列（原在浏览器 localStorage，改后端持久化后跨端/换浏览器可见）
         try {
             jdbc.execute("ALTER TABLE claude_chat_session ADD COLUMN group_name TEXT");
