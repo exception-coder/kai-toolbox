@@ -29,6 +29,7 @@ import java.util.List;
 public record ConsultSessionView(
         String sessionId,
         String userId,
+        String questionTitle,
         String systemName,
         String systemSourcePath,
         List<String> moduleNames,
@@ -57,7 +58,7 @@ public record ConsultSessionView(
     /** 详情视图：带轮次明细与评分反馈。 */
     public static ConsultSessionView from(ConsultSession s, List<ConsultTurnView> turns, List<FeedbackView> feedback) {
         return new ConsultSessionView(
-                s.getSessionId(), s.getUserId(), s.getSystemName(), s.getSystemSourcePath(),
+                s.getSessionId(), s.getUserId(), s.getQuestionTitle(), s.getSystemName(), s.getSystemSourcePath(),
                 parseModuleNames(s.getModuleNames()), s.getPromptSnapshot(), s.getDevSessionId(),
                 s.getRawReferenceJson(),
                 s.getParseStatus() != null ? s.getParseStatus() : "NONE",

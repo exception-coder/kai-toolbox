@@ -95,12 +95,18 @@ export function getPluginStatus() {
 }
 
 /** 列团队套件状态（3 插件 + 2 MCP，当前会话所用）。fetch=true 时先 git fetch MCP 知识库，使「落后远端」准确（较慢）。 */
-export function listSuites(fetch = false) {
-  return http<SuiteStatus[]>(`/claude-chat/plugins/suites${fetch ? '?fetch=true' : ''}`)
+export function listSuites(sessionId?: string, fetch = false) {
+  const params = new URLSearchParams()
+  if (sessionId) params.set('sessionId', sessionId)
+  if (fetch) params.set('fetch', 'true')
+  const query = params.toString()
+  return http<SuiteStatus[]>(`/claude-chat/plugins/suites${query ? `?${query}` : ''}`)
 }
 
-/** 一键更新双端插件的 SSE 端点路径（用 authEventSource 连接，自动带 JWT；连上即触发）。 */
-export const PLUGIN_UPDATE_STREAM_PATH = '/claude-chat/plugins/update/stream'
+/** 一键更新双端插件的 SSE 端点（用 authEventSource 连接，自动带 JWT；连上即触发）。 */
+export function pluginUpdateStreamPath(sessionId?: string) {
+  return `/claude-chat/plugins/update/stream${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`
+}
 
 /** 查 sidecar 的 Claude Agent SDK 版本。check=true 时联网查 npm 最新版并判断是否落后（较慢）。 */
 export function getSidecarVersion(check = false) {

@@ -1,15 +1,18 @@
 package com.exceptioncoder.toolbox.foreconsult.api;
 
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ArchiveRequest;
+import com.exceptioncoder.toolbox.foreconsult.api.dto.ClassifyQuestionRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ConsultAttachmentView;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ConsultSessionView;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ConsultTurnView;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.FeedbackRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.FeedbackView;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.LinkDevSessionRequest;
+import com.exceptioncoder.toolbox.foreconsult.api.dto.QuestionClassificationView;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.StartSessionRequest;
 import com.exceptioncoder.toolbox.foreconsult.service.ConsultAttachmentService;
 import com.exceptioncoder.toolbox.foreconsult.service.ConsultService;
+import com.exceptioncoder.toolbox.foreconsult.service.ConsultQuestionClassifier;
 import com.exceptioncoder.toolbox.foreconsult.service.TurnBugExtractionService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -47,12 +50,15 @@ public class ConsultController {
     private final ConsultService service;
     private final ConsultAttachmentService attachmentService;
     private final TurnBugExtractionService bugExtractionService;
+    private final ConsultQuestionClassifier questionClassifier;
 
     public ConsultController(ConsultService service, ConsultAttachmentService attachmentService,
-                             TurnBugExtractionService bugExtractionService) {
+                             TurnBugExtractionService bugExtractionService,
+                             ConsultQuestionClassifier questionClassifier) {
         this.service = service;
         this.attachmentService = attachmentService;
         this.bugExtractionService = bugExtractionService;
+        this.questionClassifier = questionClassifier;
     }
 
     /** 上传咨询附件（图片/Excel/Word/Markdown/PDF 等）。落盘到系统 cwd 或用户目录，返回绝对路径。 */
@@ -99,6 +105,13 @@ public class ConsultController {
     @PostMapping("/sessions/{id}/turns")
     public ConsultSessionView syncTurns(@PathVariable String id, @RequestBody ArchiveRequest req) {
         return ConsultSessionView.from(service.syncTurns(id, req), turnViewsOf(id), feedbackViewsOf(id));
+    }
+
+    @PostMapping("/sessions/{id}/classify-question")
+    public QuestionClassificationView classifyQuestion(
+            @PathVariable String id,
+            @Valid @RequestBody ClassifyQuestionRequest req) {
+        return questionClassifier.classify(id, req);
     }
 
     /**

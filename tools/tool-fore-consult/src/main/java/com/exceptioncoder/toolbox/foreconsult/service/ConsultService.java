@@ -1,5 +1,7 @@
 package com.exceptioncoder.toolbox.foreconsult.service;
 
+import com.exceptioncoder.toolbox.common.auth.web.AuthContext;
+import com.exceptioncoder.toolbox.common.auth.web.AuthPrincipal;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ArchiveRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.StartSessionRequest;
 import com.exceptioncoder.toolbox.foreconsult.domain.ConsultFeedback;
@@ -73,9 +75,13 @@ public class ConsultService {
 
     /** 启动咨询会话：落一条 PENDING 记录。 */
     public ConsultSession startSession(StartSessionRequest req) {
+        String currentUserId = AuthContext.current()
+                .map(AuthPrincipal::userId)
+                .map(String::valueOf)
+                .orElseGet(() -> blankToNull(req.userId()));
         ConsultSession s = ConsultSession.builder()
                 .sessionId(UUID.randomUUID().toString())
-                .userId(req.userId())
+                .userId(currentUserId)
                 .systemName(req.systemName())
                 .systemSourcePath(req.systemSourcePath())
                 .moduleNames(serializeModules(req.moduleNames()))
@@ -140,6 +146,12 @@ public class ConsultService {
     private void writeTurns(String sessionId, List<ArchiveRequest.TurnItem> turns, long now) {
         turnRepo.deleteBySession(sessionId);
         List<ArchiveRequest.TurnItem> items = turns != null ? turns : List.of();
+        items.stream()
+                .map(ArchiveRequest.TurnItem::question)
+                .filter(question -> question != null && !question.isBlank())
+                .findFirst()
+                .map(ConsultService::deriveQuestionTitle)
+                .ifPresent(title -> sessionRepo.updateQuestionTitleIfEmpty(sessionId, title));
         int seq = 1;
         for (ArchiveRequest.TurnItem item : items) {
             int index = item.turnIndex() > 0 ? item.turnIndex() : seq;
@@ -157,6 +169,11 @@ public class ConsultService {
                     .build());
             seq++;
         }
+    }
+
+    private static String deriveQuestionTitle(String question) {
+        String normalized = question.replaceAll("\\s+", " ").trim();
+        return normalized.length() <= 40 ? normalized : normalized.substring(0, 39) + "…";
     }
 
     public List<ConsultSession> listRecent(int limit) {

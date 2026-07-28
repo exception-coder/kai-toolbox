@@ -41,16 +41,18 @@ public class PluginUpdateController {
      * fetch=true 时先对 MCP 知识库仓 git fetch，使「落后远端」数准确（较慢，按需调用）。
      */
     @GetMapping("/suites")
-    public List<SuiteStatusView> suites(@RequestParam(defaultValue = "false") boolean fetch) {
-        return service.readSuites(fetch);
+    public List<SuiteStatusView> suites(
+            @RequestParam(required = false) String sessionId,
+            @RequestParam(defaultValue = "false") boolean fetch) {
+        return service.readSuites(sessionId, fetch);
     }
 
     /** 触发双端更新并以 SSE 实时回显输出。先 create+返回 emitter(挂 HTTP),再启 worker。 */
     @GetMapping(value = "/update/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter updateStream() {
+    public SseEmitter updateStream(@RequestParam(required = false) String sessionId) {
         String taskId = UUID.randomUUID().toString();
         SseEmitter emitter = sse.create(taskId);
-        service.startUpdate(taskId);
+        service.startUpdate(taskId, sessionId);
         return emitter;
     }
 }

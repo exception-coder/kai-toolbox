@@ -5,6 +5,7 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.PluginStatusView.EngineStat
 import com.exceptioncoder.toolbox.claudechat.api.dto.SuiteStatusView;
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
 import com.exceptioncoder.toolbox.claudechat.config.PluginUpdateProperties;
+import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.common.sse.SseEmitterRegistry;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -44,13 +45,16 @@ public class PluginUpdateService {
 
     private final PluginUpdateProperties props;
     private final ClaudeChatProperties chatProps;
+    private final ClaudeChatSessionRepository sessionRepository;
     private final SseEmitterRegistry sse;
     private final ObjectMapper mapper;
 
     public PluginUpdateService(PluginUpdateProperties props, ClaudeChatProperties chatProps,
+                               ClaudeChatSessionRepository sessionRepository,
                                SseEmitterRegistry sse, ObjectMapper mapper) {
         this.props = props;
         this.chatProps = chatProps;
+        this.sessionRepository = sessionRepository;
         this.sse = sse;
         this.mapper = mapper;
     }
@@ -118,10 +122,11 @@ public class PluginUpdateService {
      * {@code marketplaces/<mk>/.claude-plugin/marketplace.json}（可用），不联网、不跑命令。
      * 文件缺失或解析失败时返回空列表（不抛错）。按插件名升序。
      */
-    public List<SuiteStatusView> readSuites(boolean fetch) {
+    public List<SuiteStatusView> readSuites(String sessionId, boolean fetch) {
         Path home = Path.of(System.getProperty("user.home"));
         Map<String, String[]> installedPlugins = readInstalledPluginMap(home); // name -> [marketplace, version]
-        Map<String, String> codexInstalled = readCodexInstalled();             // name -> codex 已装版本
+        Path codexHome = resolveCodexHome(sessionId);
+        Map<String, String> codexInstalled = readCodexInstalled(codexHome);    // name -> codex 已装版本
         Map<String, Path> mcpRepos = readMcpServers(home);                     // name -> 知识库仓根（可能 null）
         List<SuiteStatusView> out = new ArrayList<>();
         for (String name : props.getWatchedPlugins()) {
@@ -159,13 +164,13 @@ public class PluginUpdateService {
     }
 
     /** 跑一次 `codex plugin list`，解析出已安装插件 name -> 版本（"not installed" 跳过）。 */
-    private Map<String, String> readCodexInstalled() {
+    private Map<String, String> readCodexInstalled(Path codexHome) {
         Map<String, String> map = new HashMap<>();
         try {
             List<String> cmd = new ArrayList<>(codexParts());
             cmd.add("plugin");
             cmd.add("list");
-            CommandResult r = runCapture(cmd);
+            CommandResult r = runCapture(cmd, codexHome);
             for (String line : r.output.split("\\r?\\n")) {
                 String t = line.trim();
                 if (t.isEmpty() || !t.contains("installed") || t.contains("not installed")) {
@@ -191,13 +196,13 @@ public class PluginUpdateService {
      * 跑一次 `codex plugin list`，收集 codex 实际能识别的插件名集合（含未安装；按 name@marketplace 取 name）。
      * 仅当仓库提供 codex 清单（.agents/plugins/marketplace.json）时其插件才会出现在这里。
      */
-    private java.util.Set<String> codexKnownPlugins() {
+    private java.util.Set<String> codexKnownPlugins(Path codexHome) {
         java.util.Set<String> set = new java.util.HashSet<>();
         try {
             List<String> cmd = new ArrayList<>(codexParts());
             cmd.add("plugin");
             cmd.add("list");
-            CommandResult r = runCapture(cmd);
+            CommandResult r = runCapture(cmd, codexHome);
             for (String line : r.output.split("\\r?\\n")) {
                 String t = line.trim();
                 if (t.isEmpty()) {
@@ -352,7 +357,8 @@ public class PluginUpdateService {
      * emitter 由调用方(controller)先 create 并返回给 Spring 挂上 HTTP;此处仅启动 worker,
      * 开头小睡确保 SSE 连接已建立再发首条,避免早发事件丢失。
      */
-    public void startUpdate(String taskId) {
+    public void startUpdate(String taskId, String sessionId) {
+        Path codexHome = resolveCodexHome(sessionId);
         Thread.ofVirtual().name("plugin-update-" + taskId).start(() -> {
             List<Map<String, Object>> results = new ArrayList<>();
             try {
@@ -373,23 +379,23 @@ public class PluginUpdateService {
                 codex.add("plugin");
                 for (String p : props.getWatchedPlugins()) {
                     Map<String, Object> up = runStep(taskId, "codex", "marketplace-upgrade:" + p,
-                            concat(codex, "marketplace", "upgrade", p));
+                            concat(codex, "marketplace", "upgrade", p), codexHome);
                     results.add(up);
                     if (!Boolean.TRUE.equals(up.get("ok"))) {
                         String url = gitUrls.get(p);
                         if (url != null) {
                             results.add(runStep(taskId, "codex", "marketplace-add:" + p,
-                                    concat(codex, "marketplace", "add", url)));
+                                    concat(codex, "marketplace", "add", url), codexHome));
                         }
                     }
                 }
                 // 只有提供了 codex 清单(.agents/plugins/marketplace.json)的仓库，其插件才会被 codex 识别 → 才装；
                 // 否则（仅 .claude-plugin 清单）跳过并说明，避免报「plugin not found」吓人。
-                java.util.Set<String> codexKnown = codexKnownPlugins();
+                java.util.Set<String> codexKnown = codexKnownPlugins(codexHome);
                 for (String p : props.getWatchedPlugins()) {
                     if (codexKnown.contains(p)) {
                         results.add(runStep(taskId, "codex", "plugin-add:" + p,
-                                concat(codex, "add", p + "@" + p)));
+                                concat(codex, "add", p + "@" + p), codexHome));
                     } else {
                         sse.publish(taskId, "message", Map.of("type", "line", "engine", "codex", "step", "skip:" + p,
                                 "text", "跳过 " + p + "：该仓未提供 codex 清单(.agents/plugins/marketplace.json)，仅 Claude 可用"));
@@ -406,11 +412,18 @@ public class PluginUpdateService {
 
     /** 跑一步命令,stdout/stderr 合并后逐行 publish;返回该步结果。 */
     private Map<String, Object> runStep(String taskId, String engine, String step, List<String> parts) {
+        return runStep(taskId, engine, step, parts, null);
+    }
+
+    /** 跑一步命令，并可指定该进程使用的 Codex 授权目录。 */
+    private Map<String, Object> runStep(String taskId, String engine, String step, List<String> parts, Path codexHome) {
         sse.publish(taskId, "message", Map.of("type", "line", "engine", engine, "step", step,
                 "text", "$ " + String.join(" ", parts)));
         int exit;
         try {
-            Process p = new ProcessBuilder(wrap(parts)).redirectErrorStream(true).start();
+            ProcessBuilder builder = new ProcessBuilder(wrap(parts)).redirectErrorStream(true);
+            applyCodexHome(builder, codexHome);
+            Process p = builder.start();
             try (BufferedReader br = new BufferedReader(
                     new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
                 String line;
@@ -436,7 +449,14 @@ public class PluginUpdateService {
     }
 
     private CommandResult runCapture(List<String> parts) throws IOException, InterruptedException {
-        Process p = new ProcessBuilder(wrap(parts)).redirectErrorStream(true).start();
+        return runCapture(parts, null);
+    }
+
+    /** 执行命令并捕获输出；Codex 命令显式绑定授权目录，空值表示默认目录。 */
+    private CommandResult runCapture(List<String> parts, Path codexHome) throws IOException, InterruptedException {
+        ProcessBuilder builder = new ProcessBuilder(wrap(parts)).redirectErrorStream(true);
+        applyCodexHome(builder, codexHome);
+        Process p = builder.start();
         StringBuilder out = new StringBuilder();
         try (BufferedReader br = new BufferedReader(
                 new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
@@ -451,6 +471,26 @@ public class PluginUpdateService {
     private static int forceKill(Process p) {
         p.destroyForcibly();
         return -1;
+    }
+
+    /** 按会话读取 Codex Home；会话不存在或未配置时使用 Codex 默认目录。 */
+    private Path resolveCodexHome(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return null;
+        }
+        return sessionRepository.findById(sessionId)
+                .map(session -> nullIfBlank(session.getCodexHome()))
+                .map(Path::of)
+                .orElse(null);
+    }
+
+    /** 防止后端进程继承的 CODEX_HOME 污染本次命令。 */
+    private static void applyCodexHome(ProcessBuilder builder, Path codexHome) {
+        if (codexHome == null) {
+            builder.environment().remove("CODEX_HOME");
+            return;
+        }
+        builder.environment().put("CODEX_HOME", codexHome.toAbsolutePath().normalize().toString());
     }
 
     /** Windows 下经 cmd /c 调(claude 是 .cmd/.ps1 shim);其它平台直接执行。 */

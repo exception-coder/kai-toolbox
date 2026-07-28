@@ -17,6 +17,7 @@ public class ConsultSessionRepository {
     private static final RowMapper<ConsultSession> ROW = (rs, i) -> ConsultSession.builder()
             .sessionId(rs.getString("session_id"))
             .userId(rs.getString("user_id"))
+            .questionTitle(rs.getString("question_title"))
             .systemName(rs.getString("system_name"))
             .systemSourcePath(rs.getString("system_source_path"))
             .moduleNames(rs.getString("module_names"))
@@ -39,10 +40,10 @@ public class ConsultSessionRepository {
 
     public void insert(ConsultSession s) {
         jdbc.update(
-                "INSERT INTO consult_session (session_id, user_id, system_name, system_source_path, module_names, " +
+                "INSERT INTO consult_session (session_id, user_id, question_title, system_name, system_source_path, module_names, " +
                 "prompt_snapshot, dev_session_id, raw_reference_json, parse_status, archive_status, role, error_msg, created_at, ended_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                s.getSessionId(), s.getUserId(), s.getSystemName(), s.getSystemSourcePath(), s.getModuleNames(),
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                s.getSessionId(), s.getUserId(), s.getQuestionTitle(), s.getSystemName(), s.getSystemSourcePath(), s.getModuleNames(),
                 s.getPromptSnapshot(), s.getDevSessionId(), s.getRawReferenceJson(), s.getParseStatus(),
                 s.getArchiveStatus(), s.getRole(), s.getErrorMsg(), s.getCreatedAt(), s.getEndedAt());
     }
@@ -76,6 +77,12 @@ public class ConsultSessionRepository {
     public void updateSyncedRaw(String sessionId, String rawReferenceJson) {
         jdbc.update("UPDATE consult_session SET raw_reference_json = ? WHERE session_id = ?",
                 rawReferenceJson, sessionId);
+    }
+
+    public void updateQuestionTitleIfEmpty(String sessionId, String questionTitle) {
+        jdbc.update("UPDATE consult_session SET question_title = ? WHERE session_id = ? " +
+                        "AND (question_title IS NULL OR TRIM(question_title) = '')",
+                questionTitle, sessionId);
     }
 
     /** 归档失败：记录错误信息，状态置 FAILED（待补偿）。 */

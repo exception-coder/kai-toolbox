@@ -1208,7 +1208,7 @@ export function ChatPage() {
       )}
       {panel === 'plugins' && (
         <div className="max-h-[60vh] overflow-y-auto">
-          <PluginPanel onClose={() => setPanel('none')} />
+          <PluginPanel sessionId={chat.sessionId ?? undefined} onClose={() => setPanel('none')} />
         </div>
       )}
 

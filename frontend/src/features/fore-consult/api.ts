@@ -38,6 +38,7 @@ export interface FeedbackRequest {
 export interface ConsultSessionView {
   sessionId: string
   userId: string | null
+  questionTitle: string | null
   systemName: string
   systemSourcePath: string
   moduleNames: string[]
@@ -52,6 +53,20 @@ export interface ConsultSessionView {
   endedAt: number | null
   turns: ConsultTurnView[]
   feedback: FeedbackView[]
+}
+
+export type QuestionClassification = 'FOLLOW_UP' | 'NEW_QUESTION'
+
+export interface QuestionClassificationView {
+  classification: QuestionClassification
+  reason: string
+}
+
+export function classifyConsultQuestion(sessionId: string, question: string, firstQuestion?: string) {
+  return http<QuestionClassificationView>(`/fore-consult/sessions/${sessionId}/classify-question`, {
+    method: 'POST',
+    body: JSON.stringify({ question, firstQuestion }),
+  })
 }
 
 export function submitFeedback(sessionId: string, turnIndex: number, req: FeedbackRequest) {

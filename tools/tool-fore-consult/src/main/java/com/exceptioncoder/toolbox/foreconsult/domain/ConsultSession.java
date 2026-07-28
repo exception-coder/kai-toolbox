@@ -17,6 +17,7 @@ public class ConsultSession {
 
     private String sessionId;
     private String userId;
+    private String questionTitle;
     private String systemName;
     private String systemSourcePath;
     /** 所选模块名列表，JSON 数组字符串，如 {@code ["采购","退货"]}，可为 null。 */

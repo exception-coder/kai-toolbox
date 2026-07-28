@@ -1365,14 +1365,14 @@ export function ForeConsultPage() {
                       if (s.archiveStatus === 'PENDING' && (s.sessionId === activeConsultId || s.devSessionId)) {
                         resumeConsult(s)
                       } else {
-                        setViewSession({ id: s.sessionId, title: displayName(s.systemName) })
+                        setViewSession({ id: s.sessionId, title: s.questionTitle || displayName(s.systemName) })
                       }
                     }}
                     className="cursor-pointer rounded-xl border border-indigo-300/15 bg-white/[0.03] px-3.5 py-3 transition-colors hover:border-indigo-300/30 hover:bg-white/[0.06]"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex min-w-0 items-center gap-2">
-                        <span className="truncate text-sm font-medium text-white">{displayName(s.systemName)}</span>
+                        <span className="truncate text-sm font-medium text-white">{s.questionTitle || displayName(s.systemName)}</span>
                         <span className="shrink-0 rounded-full border border-indigo-300/20 px-2 py-0.5 text-[10px] text-indigo-200/60">
                           {s.role === 'BIZ' ? '业务员' : 'IT 客服'}
                         </span>

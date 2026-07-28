@@ -4,6 +4,7 @@
 CREATE TABLE IF NOT EXISTS consult_session (
     session_id          TEXT    PRIMARY KEY,              -- UUID，会话唯一标识
     user_id             TEXT,                             -- 发起咨询的用户（沿用现有登录体系）
+    question_title      TEXT,                             -- 首个明确问题生成的归档标题
     system_name         TEXT    NOT NULL,                 -- 所选系统名（来自 workspaces）
     system_source_path  TEXT    NOT NULL,                 -- 所选系统源码路径快照（会话 cwd）
     module_names        TEXT,                             -- 所选模块名列表，JSON 数组字符串 ["采购","退货"]
@@ -20,6 +21,7 @@ CREATE TABLE IF NOT EXISTS consult_session (
 
 -- 存量数据库兼容：补充 role 列（SchemaInitializer 忽略 "duplicate column" 错误）
 ALTER TABLE consult_session ADD COLUMN role TEXT DEFAULT 'IT';
+ALTER TABLE consult_session ADD COLUMN question_title TEXT;
 
 CREATE TABLE IF NOT EXISTS consult_turn (
     turn_id              TEXT    PRIMARY KEY,             -- UUID

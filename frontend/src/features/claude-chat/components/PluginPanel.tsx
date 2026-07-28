@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { RefreshCw, Download, X, Copy, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { authEventSource } from '@/lib/api'
-import { getSidecarVersion, listSuites, PLUGIN_UPDATE_STREAM_PATH } from '../api'
+import { getSidecarVersion, listSuites, pluginUpdateStreamPath } from '../api'
 import type { SidecarVersion, SuiteStatus } from '../types'
 
 /**
  * 团队套件面板：展示当前会话所用的 3 插件 + 2 MCP 版本/状态，并一键更新插件（SSE 实时回显）。
- * 团队插件均为 Claude Code 插件（codex 端无此 marketplace）；更新走固定后端命令、非 AI 流。
+ * 三个团队插件同时支持 Claude Code 与 Codex；更新走固定后端命令、非 AI 流。
  */
-export function PluginPanel({ onClose }: { onClose: () => void }) {
+export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClose: () => void }) {
   const [suites, setSuites] = useState<SuiteStatus[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [checking, setChecking] = useState(false)
@@ -23,7 +23,7 @@ export function PluginPanel({ onClose }: { onClose: () => void }) {
 
   const refresh = async () => {
     setLoading(true)
-    try { setSuites(await listSuites()) } catch { /* 静默 */ } finally { setLoading(false) }
+    try { setSuites(await listSuites(sessionId)) } catch { /* 静默 */ } finally { setLoading(false) }
   }
 
   /** check=true 才联网查 npm 最新版；进面板时只读本地版本，不联网。 */
@@ -45,14 +45,14 @@ export function PluginPanel({ onClose }: { onClose: () => void }) {
   const checkRemote = async () => {
     if (checking) return
     setChecking(true)
-    try { setSuites(await listSuites(true)) } catch { /* 静默 */ } finally { setChecking(false) }
+    try { setSuites(await listSuites(sessionId, true)) } catch { /* 静默 */ } finally { setChecking(false) }
   }
 
   useEffect(() => {
     void refresh()
     void loadSdk()
     return () => esRef.current?.close()
-  }, [])
+  }, [sessionId])
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
@@ -61,7 +61,7 @@ export function PluginPanel({ onClose }: { onClose: () => void }) {
   const startUpdate = () => {
     if (updating) return
     setLines([]); setUpdating(true)
-    const es = authEventSource(PLUGIN_UPDATE_STREAM_PATH)
+    const es = authEventSource(pluginUpdateStreamPath(sessionId))
     esRef.current = es
     es.onmessage = ev => {
       let m: { type: string; engine?: string; step?: string; text?: string; exitCode?: number; message?: string }

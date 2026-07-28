@@ -1,13 +1,14 @@
 import {
   memo, useEffect, useMemo, useRef, useState,
-  type ClipboardEvent as ReactClipboardEvent,
+  type ClipboardEvent as ReactClipboardEvent, type ReactNode,
 } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { Archive, Bug, Loader2, MessagesSquare, Paperclip, Quote, Send, ThumbsDown, ThumbsUp, X } from 'lucide-react'
+import { Archive, Bug, CheckCircle2, CircleDashed, Database, GitBranch, Loader2, MessagesSquare, Paperclip, Quote, Send, ShieldAlert, ThumbsDown, ThumbsUp, X } from 'lucide-react'
 import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import type { ChatItem } from '@/features/claude-chat/types'
-import { registerBug, submitFeedback, uploadConsultAttachment } from '../api'
+import { classifyConsultQuestion, registerBug, submitFeedback, uploadConsultAttachment } from '../api'
+import { buildConsultTurnAudits, type AuditEvidence, type AuditState, type ConsultTurnAudit } from '../consultAudit'
 
 // AI 在回答里判定为缺陷时输出的机器可读块，前端解析登记并从展示中剥离。
 const BUG_RE = /<<<BUG_REPORT>>>\s*([\s\S]*?)\s*<<<END_BUG_REPORT>>>/
@@ -70,6 +71,8 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
   const [lightbox, setLightbox] = useState<string | null>(null) // 图片灯箱 src
   const [bugTurns, setBugTurns] = useState<Set<string>>(new Set()) // 已登记 BUG 的 assistant 消息 id
   const registeredRef = useRef<Set<string>>(new Set())
+  const [classifying, setClassifying] = useState(false)
+  const [newQuestionReason, setNewQuestionReason] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLTextAreaElement>(null)
@@ -116,6 +119,7 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
   // 不必等 chat.running 变 true（引擎连接/开会话有延迟，否则会白等一段时间没反馈）。
   const lastItem = items[items.length - 1]
   const waiting = running || lastItem?.kind === 'user'
+  const turnAudits = useMemo(() => buildConsultTurnAudits(items, running), [items, running])
 
   // 新消息 / 思考状态变化时滚到底
   useEffect(() => {
@@ -198,14 +202,40 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
     })
   }
 
-  const canSend = !!chat && (!!text.trim() || atts.length > 0) && uploading === 0
-  const send = () => {
-    if (!chat || !canSend) return
+  const hasSendableContent = !!chat && (!!text.trim() || atts.length > 0) && uploading === 0
+  const canSend = hasSendableContent && !classifying
+  const sendNow = () => {
+    if (!chat || !hasSendableContent) return
     const sa = atts.length ? atts.map((a) => ({ name: a.name, path: a.path, mime: a.mime ?? undefined, url: a.url })) : undefined
     if (running) chat.enqueue(text, sa)
     else chat.send(text, sa)
     setText('')
     setAtts([])
+  }
+  const send = async () => {
+    if (!chat || !canSend) return
+    const firstQuestion = items.find((item) => item.kind === 'user')
+    if (!firstQuestion || firstQuestion.kind !== 'user') {
+      sendNow()
+      return
+    }
+    setClassifying(true)
+    try {
+      const result = await classifyConsultQuestion(
+        consultId,
+        text.trim() || '补充附件',
+        firstQuestion.displayText ?? firstQuestion.text,
+      )
+      if (result.classification === 'NEW_QUESTION') {
+        setNewQuestionReason(result.reason)
+        return
+      }
+      sendNow()
+    } catch {
+      sendNow()
+    } finally {
+      setClassifying(false)
+    }
   }
 
   return (
@@ -288,7 +318,10 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
                     </div>
                   )}
                   {showRating && (
-                    <RatingRow rating={ratings.get(turnIdx)} onGood={() => rateGood(turnIdx)} onBad={() => setBadDialog(turnIdx)} />
+                    <>
+                      {turnAudits.get(it.id) && <ConsultAuditRow audit={turnAudits.get(it.id)!} />}
+                      <RatingRow rating={ratings.get(turnIdx)} onGood={() => rateGood(turnIdx)} onBad={() => setBadDialog(turnIdx)} />
+                    </>
                   )}
                   {bugTurns.has(it.id) && (
                     <div className="flex items-center gap-1.5 pl-1 text-[11px] text-amber-300/90">
@@ -336,7 +369,7 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
               value={text}
               onChange={(e) => setText(e.target.value)}
               onPaste={onPaste}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
               placeholder="继续追问…（Enter 发送 / Shift+Enter 换行，可粘贴或上传附件）"
               className="w-full resize-none bg-transparent px-2 py-1.5 text-sm text-[#e8ecff] placeholder:text-indigo-200/35 focus:outline-none"
             />
@@ -353,11 +386,12 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
               </button>
               <button
                 type="button"
-                onClick={send}
+                onClick={() => void send()}
                 disabled={!canSend}
                 className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-400 to-indigo-500 px-4 py-1.5 text-sm font-medium text-white shadow-[0_8px_30px_-8px_rgba(99,102,241,0.8)] transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <Send className="size-4" /> 发送
+                {classifying ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+                {classifying ? '识别中…' : '发送'}
               </button>
             </div>
           </div>
@@ -366,10 +400,105 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
         {badDialog !== null && (
           <BadFeedbackDialog onCancel={() => setBadDialog(null)} onSubmit={(c, r, co) => submitBad(badDialog, c, r, co)} />
         )}
+        {newQuestionReason !== null && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-5">
+            <div className="w-full max-w-sm rounded-2xl border border-amber-300/25 bg-[#11172f] p-5 shadow-2xl">
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-100">
+                <ShieldAlert className="size-4" /> 这可能是一个新问题
+              </div>
+              <p className="text-sm leading-6 text-indigo-100/75">
+                为便于按系统和问题独立归档、评测，请结束当前咨询，再选择所属系统开启新的业务会话。
+              </p>
+              <p className="mt-2 text-xs text-indigo-200/45">识别依据：{newQuestionReason}</p>
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewQuestionReason(null)
+                    sendNow()
+                  }}
+                  className="rounded-xl px-3 py-2 text-sm text-indigo-100/70 hover:bg-white/5"
+                >
+                  仍作为追问
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewQuestionReason(null)
+                    onArchive()
+                  }}
+                  className="rounded-xl bg-amber-400 px-3 py-2 text-sm font-medium text-amber-950 hover:bg-amber-300"
+                >
+                  结束当前咨询
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       {lightbox && <ImageLightbox src={lightbox} onClose={() => setLightbox(null)} />}
     </div>
   )
+}
+
+const AUDIT_TONE: Record<AuditState, string> = {
+  running: 'border-sky-300/25 bg-sky-400/10 text-sky-200',
+  pass: 'border-emerald-300/25 bg-emerald-400/10 text-emerald-200',
+  idle: 'border-indigo-300/15 bg-white/[0.03] text-indigo-200/55',
+  warn: 'border-amber-300/35 bg-amber-400/12 text-amber-200',
+}
+
+function ConsultAuditRow({ audit }: { audit: ConsultTurnAudit }) {
+  return (
+    <div className="flex flex-wrap gap-1.5 pl-1 pt-0.5">
+      <AuditBadge
+        icon={<GitBranch className="size-3" />}
+        label={audit.domain.state === 'pass' ? `业务图 · ${audit.domain.evidence.length} 次` : audit.domain.state === 'running' ? '业务图 · 检查中' : '业务图 · 未查询'}
+        state={audit.domain.state}
+        evidence={audit.domain.evidence}
+      />
+      <AuditBadge
+        icon={<GitBranch className="size-3" />}
+        label={audit.graphify.state === 'pass' ? `代码图 · ${audit.graphify.evidence.length} 次` : audit.graphify.state === 'running' ? '代码图 · 检查中' : '代码图 · 未查询'}
+        state={audit.graphify.state}
+        evidence={audit.graphify.evidence}
+      />
+      <AuditBadge
+        icon={audit.bug.state === 'warn' ? <Bug className="size-3" /> : <CheckCircle2 className="size-3" />}
+        label={audit.bug.label}
+        state={audit.bug.state}
+      />
+      <AuditBadge
+        icon={audit.database.state === 'warn' ? <ShieldAlert className="size-3" /> : <Database className="size-3" />}
+        label={audit.database.label}
+        state={audit.database.state}
+        evidence={audit.database.evidence}
+      />
+    </div>
+  )
+}
+
+function AuditBadge({ icon, label, state, evidence = [] }: {
+  icon: ReactNode
+  label: string
+  state: AuditState
+  evidence?: AuditEvidence[]
+}) {
+  const details = evidence
+    .map((entry) => [
+      entry.toolName,
+      entry.input ? `输入：${entry.input}` : '',
+      entry.output ? `结果：${entry.output}` : '',
+      entry.isError ? '调用失败' : '',
+    ].filter(Boolean).join('\n'))
+    .join('\n\n')
+  const content = (
+    <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] ${AUDIT_TONE[state]}`}>
+      {state === 'running' ? <CircleDashed className="size-3 animate-spin" /> : icon}
+      {label}
+    </span>
+  )
+  return details ? <details className="group/audit cursor-pointer" title="点击查看调用证据"><summary className="list-none">{content}</summary><pre className="mt-1 max-w-[460px] whitespace-pre-wrap rounded-lg border border-indigo-300/15 bg-black/25 p-2 text-[10px] leading-relaxed text-indigo-100/70">{details}</pre></details> : content
 }
 
 function RatingRow({ rating, onGood, onBad }: { rating?: Rating; onGood: () => void; onBad: () => void }) {
