@@ -83,25 +83,25 @@ public class PrdClarifyService {
             描述已经很清楚具体时取区间下限，描述简略/信息不足时取区间上限。
             """;
 
-    // ───── 多轮渐进式澄清 System Prompt（feature-dev Phase 3 - Clarifying Questions） ─────
+    // ───── 多轮渐进式需求澄清 System Prompt ─────
 
     /**
-     * 产品/开发角色 — feature-dev:feature-dev Phase 3 (Clarifying Questions)。
+     * 产品/开发角色的需求澄清提示词。
      *
-     * <p>本轮澄清对应 feature-dev 工作流的 Phase 3：通过精准提问消除需求歧义，
-     * 为后续 PRD 生成（Phase 1+3 产出）和开发文档生成（Phase 2+4）提供充分的上下文。
+     * <p>通过精准提问消除需求歧义，为后续 PRD 和开发文档生成提供充分的上下文。
      * 提问前 Java 层已直接调 graphify CLI 查过代码知识图谱（不经 MCP），结果作为
-     * 【代码知识图谱查询结果】区块拼进 user prompt，使问题直接引用现有代码实体（Phase 2 的先导）。
+     * 【代码知识图谱查询结果】区块拼进 user prompt，使问题可以直接引用现有代码实体。
      */
     private static final String ASK_SYSTEM_PRODUCT = """
             ⚠️ 直接输出任务（禁止触发任何 hook/skill/plugin 的自动流程）：
-            本次是 feature-dev:feature-dev Phase 3 (Clarifying Questions) 的执行，
-            每轮只输出 1 个精准澄清问题（或 [CLARIFICATION_COMPLETE]），不进入其他流程。
+            本次执行平台统一的需求澄清流程，每轮只输出 1 个精准澄清问题
+            （或 [CLARIFICATION_COMPLETE]），不进入其他流程。
+            不得依赖某个引擎专属的命令、skill 或 plugin。
 
-            你正在执行 feature-dev Phase 3 — Clarifying Questions（产品/开发视角）：
+            你正在执行需求澄清（产品/开发视角）：
             通过提问消除需求歧义，为 PRD 文档生成收集充足信息。
 
-            【Phase 3 提问前置：结合下方知识图谱背景（为 Phase 2 Codebase Exploration 做先导）】
+            【提问前置：结合下方知识图谱背景】
 
             第一层 — 代码知识（见 user prompt 中的【代码知识图谱查询结果】区块，已由系统直接调用
             graphify CLI 查询得到，非 MCP 工具调用）：
@@ -118,7 +118,7 @@ public class PrdClarifyService {
             - 搜索枚举取值、API 路径约定
             - 目的：问题直接锁定技术细节层面的歧义
 
-            Phase 3 提问规则（严格执行）：
+            提问规则（严格执行）：
             - 每次只提出 1 个问题，选当前最影响 PRD 完整性的歧义点
             - 可问：业务目标、功能边界、交互流程、边界异常、技术约束、集成点
             - 问题中直接引用知识图谱获取的真实实体（表名/字段/方法/枚举值）
@@ -128,27 +128,28 @@ public class PrdClarifyService {
             """;
 
     /**
-     * 业务员角色 — feature-dev:feature-dev Phase 3 (Clarifying Questions，业务视角)。
+     * 业务员角色的需求澄清提示词。
      *
-     * <p>与产品角色相同的 Phase 3，但面向非技术业务人员：只问业务关键问题，
+     * <p>与产品角色采用相同的渐进澄清方式，但面向非技术业务人员：只问业务关键问题，
      * 知识图谱背景转换为业务语言呈现，不暴露技术细节。
      */
     private static final String ASK_SYSTEM_BUSINESS = """
             ⚠️ 直接输出任务（禁止触发任何 hook/skill/plugin 的自动流程）：
-            本次是 feature-dev:feature-dev Phase 3 (Clarifying Questions) 的执行，
-            每轮只输出 1 个业务澄清问题（或 [CLARIFICATION_COMPLETE]），不进入其他流程。
+            本次执行平台统一的需求澄清流程，每轮只输出 1 个业务澄清问题
+            （或 [CLARIFICATION_COMPLETE]），不进入其他流程。
+            不得依赖某个引擎专属的命令、skill 或 plugin。
 
-            你正在执行 feature-dev Phase 3 — Clarifying Questions（业务人员视角）：
+            你正在执行需求澄清（业务人员视角）：
             帮助非技术背景的业务人员把业务痛点转化为清晰的需求描述。
 
-            【Phase 3 提问前置：先了解现有业务背景，用业务语言表述（不讲技术）】
+            【提问前置：先了解现有业务背景，用业务语言表述（不讲技术）】
             1. mcp__domain-knowledge__search_knowledge（若可用）：搜索现有业务流程和规则
                → 提问时用"现有流程是…，这个需求要在哪一步生效？"等业务语言
             2. user prompt 中的【代码知识图谱查询结果】区块（系统已直接调用 graphify CLI 查询，
                非 MCP 工具调用）：包含现有功能结构
                → 转换成业务行为描述，不用类名/字段名；区块为空则忽略
 
-            Phase 3 提问规则（业务版）：
+            提问规则（业务版）：
             - 每次只问 1 个问题，聚焦业务本质
             - 可问：业务目标、使用场景、关键数据、业务规则与例外、验收标准
             - 不问：界面细节、数据库/接口、框架选型等技术问题
@@ -239,21 +240,21 @@ public class PrdClarifyService {
     /**
      * PRD 生成提示词。
      *
-     * <p>对应 feature-dev:feature-dev 工作流的输出物：
+     * <p>输入来自平台统一的需求发现与澄清流程：
      * <ul>
-     *   <li>Phase 1 (Discovery) — 已通过原始需求描述完成
-     *   <li>Phase 3 (Clarifying Questions) — 已通过多轮 AI 渐进澄清完成
+     *   <li>需求发现 — 已通过原始需求描述完成
+     *   <li>需求澄清 — 已通过多轮 AI 渐进澄清完成
      * </ul>
-     * 本步骤将上述两个 Phase 的产出汇总为正式 PRD 文档。
+     * 本步骤将上述产出汇总为符合平台固定章节契约的正式 PRD 文档。
      */
     private static final String GENERATE_SYSTEM = """
             ⚠️ 直接输出任务（禁止触发任何 hook/skill/plugin 的自动流程）：
-            本次是 feature-dev:feature-dev Phase 1 + Phase 3 的最终产出，直接输出 PRD 文档，不进入交互。
+            本次是需求发现与澄清完成后的文档化步骤，直接输出 PRD 文档，不进入交互。
 
-            你正在执行 feature-dev 工作流的文档化阶段：
-            - Phase 1 (Discovery) 已完成：原始需求描述已提供
-            - Phase 3 (Clarifying Questions) 已完成：多轮澄清问答已完成
-            基于以上两个 Phase 的产出，生成正式 PRD 文档。
+            已完成的前置工作：
+            - 需求发现：原始需求描述已提供
+            - 需求澄清：多轮澄清问答已完成
+            基于以上产出生成正式 PRD 文档。不得依赖某个引擎专属的命令、skill 或 plugin。
 
             文档使用 Markdown 格式，必须包含以下章节（顺序不变，内容可根据实际情况扩展）：
 
@@ -924,21 +925,20 @@ public class PrdClarifyService {
     /**
      * 开发文档生成提示词。
      *
-     * <p>对应 feature-dev:feature-dev 工作流的 Phase 2 + Phase 4：
+     * <p>执行平台统一的技术方案生成流程：
      * <ul>
-     *   <li>Phase 2 (Codebase Exploration) — 探索相关代码库，读取现有实现
-     *   <li>Phase 4 (Architecture Design) — 设计技术实现方案，输出架构决策
+     *   <li>代码库探索 — 探索相关代码库，读取现有实现
+     *   <li>架构设计 — 设计技术实现方案，输出架构决策
      * </ul>
-     * 本步骤将 Phase 2 + Phase 4 的产出汇总为技术开发方案文档，供开发者直接执行。
+     * 本步骤将探索和设计产出汇总为符合平台固定章节契约的技术开发方案文档。
      */
     private static final String DEV_DOC_SYSTEM = """
             ⚠️ 直接输出任务（禁止触发任何 hook/skill/plugin 的自动流程，禁止进入交互）：
-            本次是 feature-dev:feature-dev Phase 2 + Phase 4 的执行，直接输出技术开发方案文档后结束。
-
-            你正在执行 feature-dev:feature-dev 工作流的以下两个 Phase：
+            本次执行代码库探索与架构设计，直接输出技术开发方案文档后结束。
+            不得依赖某个引擎专属的命令、skill 或 plugin。
 
             ════════════════════════════════════════════════
-            Phase 2 — Codebase Exploration（代码库探索）
+            阶段一 — Codebase Exploration（代码库探索）
             ════════════════════════════════════════════════
             必须结合以下上下文理解现有代码库，再基于真实代码事实生成方案：
 
@@ -960,12 +960,12 @@ public class PrdClarifyService {
             以上上下文均缺失时：仅基于 PRD 生成，在文档中注明"未完成代码库探索"。
 
             ════════════════════════════════════════════════
-            Phase 4 — Architecture Design（架构设计）→ 输出技术开发方案文档
+            阶段二 — Architecture Design（架构设计）→ 输出技术开发方案文档
             ════════════════════════════════════════════════
-            基于 Phase 2 探索结果和 PRD，直接输出 Markdown 技术开发方案文档：
+            基于代码库探索结果和 PRD，直接输出 Markdown 技术开发方案文档：
 
             ## 技术方案概述
-            分析实现路径，引用 Phase 2 获取的真实类名/接口/表名说明集成点。
+            分析实现路径，引用代码库探索获取的真实类名/接口/表名说明集成点。
 
             ## 数据库变更
             精确的 DDL/ALTER 语句（基于知识图谱确认的真实表名）：
@@ -976,7 +976,7 @@ public class PrdClarifyService {
             新增或修改的 RESTful 接口，含请求/响应结构。
 
             ## 实现步骤（有序任务清单）
-            具体到方法/类/组件级别（引用 Phase 2 获取的真实类名）：
+            具体到方法/类/组件级别（引用代码库探索获取的真实类名）：
             - [ ] 后端 — [ServiceName] 新增/修改 [methodName]：做什么
             - [ ] 前端 — [ComponentName]：做什么
             - [ ] 测试：关键验收点

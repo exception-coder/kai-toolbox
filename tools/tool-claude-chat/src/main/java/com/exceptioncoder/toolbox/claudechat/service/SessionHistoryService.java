@@ -42,6 +42,10 @@ public class SessionHistoryService {
     /** 标题扫描的最大行数，超过仍未命中首条 user 文本就放弃 */
     private static final int TITLE_SCAN_LINES = 500;
     private static final int TITLE_MAX_CHARS = 60;
+    private static final String CODEX_CONTINUATION_PREFIX =
+            "This session is being continued from a previous conversation that ran out of context.";
+    private static final String CODEX_CONTINUATION_END =
+            "Pick up the last task as if the break never happened.";
 
     private final ObjectMapper mapper;
     private final SessionAliasRepository aliasRepo;
@@ -383,7 +387,7 @@ public class SessionHistoryService {
                 Long ts = parseTs(node);
                 switch (pType) {
                     case "user_message" -> {
-                        String t = payload.path("message").asText("");
+                        String t = normalizeCodexUserMessage(payload.path("message").asText(""));
                         if (!t.isBlank()) {
                             // 真实用户消息 = 新一轮：先把上一轮 token 落成 result 项
                             flushTurn(out, acc);
@@ -420,6 +424,25 @@ public class SessionHistoryService {
         }
         flushTurn(out, acc); // 末轮
         return out;
+    }
+
+    /**
+     * Codex 自动压缩后会把内部续接摘要与本轮真实输入合并成一条 user_message。
+     * 只有完整命中首尾固定标记才剥离，避免误伤普通用户文本。
+     */
+    static String normalizeCodexUserMessage(String message) {
+        if (message == null || message.isBlank()) {
+            return "";
+        }
+        String candidate = message.stripLeading();
+        if (!candidate.startsWith(CODEX_CONTINUATION_PREFIX)) {
+            return message;
+        }
+        int end = candidate.indexOf(CODEX_CONTINUATION_END, CODEX_CONTINUATION_PREFIX.length());
+        if (end < 0) {
+            return message;
+        }
+        return candidate.substring(end + CODEX_CONTINUATION_END.length()).stripLeading();
     }
 
     /** Codex function_call.arguments 是 JSON 字符串：解析成对象供前端结构化展示；解析失败回退原串。 */
@@ -604,7 +627,8 @@ public class SessionHistoryService {
                 JsonNode payload = node.path("payload");
                 String pType = payload.path("type").asText("");
                 if ("user_message".equals(pType)) {
-                    if (!payload.path("message").asText("").isBlank()) turns++;
+                    String message = normalizeCodexUserMessage(payload.path("message").asText(""));
+                    if (!message.isBlank()) turns++;
                 } else if ("token_count".equals(pType)) {
                     JsonNode u = payload.path("info").path("total_token_usage");
                     if (u.isObject()) {

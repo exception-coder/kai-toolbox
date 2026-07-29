@@ -1,10 +1,24 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Check, CheckCircle2, Copy, ExternalLink, FileText, Link2, Loader2, RefreshCw, Unlink, X } from 'lucide-react'
+import { AlertTriangle, Check, CheckCircle2, Copy, ExternalLink, FileText, Link2, Loader2, RefreshCw, Sparkles, Unlink, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Combobox } from '@/components/ui/combobox'
 import { useConfirm } from '@/components/ui/confirm-dialog'
-import { getSessionByDevSession, linkDevSession, listSessions, startGenerate, startGenerateDevDoc, unlinkDevSession } from '@/features/prd-clarify/api'
+import {
+  analyzeDocChanges,
+  getLatestDocChangeCandidate,
+  getSessionByDevSession,
+  linkDevSession,
+  listSessions,
+  overrideDocChangeDecision,
+  reanalyzeDocChanges,
+  startGenerate,
+  startGenerateDevDoc,
+  unlinkDevSession,
+  updateDocChangeStage,
+  type DocChangeDecision,
+  type PrdDocChangeCandidate,
+} from '@/features/prd-clarify/api'
 import type { PrdSessionView } from '@/features/prd-clarify/types'
 
 /** 剪贴板写入 + 降级（非安全上下文/旧浏览器用隐藏 textarea + execCommand）。 */
@@ -31,6 +45,16 @@ interface Props {
   /** 绑定状态变化时通知外层——顶栏那个 PRD 标识要跟着刷新，不用外层自己再查一遍。 */
   onLinkedChange?: (linked: PrdSessionView | null) => void
 }
+
+const DECISION_LABELS: Record<DocChangeDecision, string> = {
+  NONE: '无需更新',
+  PRD_ONLY: '只更新 PRD',
+  TDD_ONLY: '只更新 TDD',
+  BOTH: 'PRD + TDD',
+  UNCERTAIN: '需要确认',
+}
+
+const DECISION_OPTIONS: DocChangeDecision[] = ['NONE', 'PRD_ONLY', 'TDD_ONLY', 'BOTH', 'UNCERTAIN']
 
 /**
  * 「关联 PRD」面板：展示/建立/更换 当前会话与 PRD 澄清助手某条记录的绑定，绑定后可以
@@ -132,14 +156,70 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
     setTimeout(() => setPathCopied(false), 1500)
   }
 
-  // ── 一键更新 PRD + 开发文档(TDD)：复用 PRD 澄清助手现成的 AI 增量更新生成流程——
-  // PRD 走「生成修订版」同一套 prompt（原地覆盖，不新建会话）+ 开发文档走已有的增量更新，
-  // 顺序执行、共用一份"这次改了什么"说明。 ────────────────────────────────────
+  // ── AI 变更候选：先分析对话 + Git，再由用户确认更新范围。正式文档生成仍复用原接口。 ──
+  const [candidate, setCandidate] = useState<PrdDocChangeCandidate | null>(null)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [analysisErr, setAnalysisErr] = useState<string | null>(null)
+  const [decisionSaving, setDecisionSaving] = useState(false)
+  const [clarificationAnswer, setClarificationAnswer] = useState('')
+  const [reanalyzing, setReanalyzing] = useState(false)
   const [note, setNote] = useState('')
   const [updateStage, setUpdateStage] = useState<'prd' | 'devdoc' | null>(null)
-  const [updateDone, setUpdateDone] = useState<'both' | 'devdoc' | null>(null)
   const [updateErr, setUpdateErr] = useState<string | null>(null)
-  const updating = updateStage !== null
+  const updating = updateStage !== null || analyzing || reanalyzing || decisionSaving
+
+  useEffect(() => {
+    if (!linked) {
+      setCandidate(null)
+      return
+    }
+    let alive = true
+    getLatestDocChangeCandidate(linked.id)
+      .then(value => { if (alive) setCandidate(value ?? null) })
+      .catch(() => { /* 候选恢复失败不影响 PRD 绑定和路径操作 */ })
+    return () => { alive = false }
+  }, [linked?.id])
+
+  const doAnalyze = async () => {
+    if (!linked) return
+    setAnalyzing(true)
+    setAnalysisErr(null)
+    setUpdateErr(null)
+    try {
+      setCandidate(await analyzeDocChanges(linked.id))
+    } catch (e) {
+      setAnalysisErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setAnalyzing(false)
+    }
+  }
+
+  const doOverrideDecision = async (decision: DocChangeDecision) => {
+    if (!candidate || decision === candidate.decision) return
+    setDecisionSaving(true)
+    setAnalysisErr(null)
+    try {
+      setCandidate(await overrideDocChangeDecision(candidate.id, decision))
+    } catch (e) {
+      setAnalysisErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDecisionSaving(false)
+    }
+  }
+
+  const doReanalyze = async () => {
+    if (!candidate || !clarificationAnswer.trim()) return
+    setReanalyzing(true)
+    setAnalysisErr(null)
+    try {
+      setCandidate(await reanalyzeDocChanges(candidate.id, clarificationAnswer.trim()))
+      setClarificationAnswer('')
+    } catch (e) {
+      setAnalysisErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setReanalyzing(false)
+    }
+  }
 
   const runGeneratePrd = (id: string, n: string) => new Promise<void>((resolve, reject) => {
     startGenerate(id, {
@@ -167,42 +247,76 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
     })
   })
 
-  const doUpdateBoth = async () => {
-    if (!linked) return
-    setUpdateErr(null)
-    setUpdateDone(null)
-    const n = note.trim()
-    try {
-      setUpdateStage('prd')
-      await runGeneratePrd(linked.id, n)
-      setUpdateStage('devdoc')
-      await runGenerateDevDoc(linked.id, n)
-      setUpdateStage(null)
-      setUpdateDone('both')
-      setNote('')
-      refresh() // 拉一份最新的 mdPath/devDocGeneratedAt
-    } catch (e) {
-      setUpdateStage(null)
-      setUpdateErr(e instanceof Error ? e.message : String(e))
-    }
+  const buildUpdateNote = (value: PrdDocChangeCandidate) => {
+    const lines = [
+      value.summary,
+      value.reasoning ? `判断理由：${value.reasoning}` : '',
+      value.prdPatchPlan.length > 0 ? `PRD 拟修改章节：${value.prdPatchPlan.join('；')}` : '',
+      value.tddPatchPlan.length > 0 ? `TDD 拟修改章节：${value.tddPatchPlan.join('；')}` : '',
+      value.evidence.length > 0 ? `事实证据：${value.evidence.join('；')}` : '',
+      note.trim() ? `用户补充：${note.trim()}` : '',
+    ]
+    return lines.filter(Boolean).join('\n')
   }
 
-  const doUpdateDevDocOnly = async () => {
-    if (!linked) return
+  const runConfirmedUpdate = async () => {
+    if (!linked || !candidate) return
+    const decision = candidate.decision
+    if (decision === 'NONE') {
+      setCandidate(await updateDocChangeStage(candidate.id, 'NO_UPDATE'))
+      return
+    }
+    if (decision === 'UNCERTAIN') {
+      setUpdateErr('仍有未决问题，请先补充信息或人工调整更新范围')
+      return
+    }
     setUpdateErr(null)
-    setUpdateDone(null)
-    const n = note.trim()
+    const n = buildUpdateNote(candidate)
+    let current = candidate
     try {
-      setUpdateStage('devdoc')
-      await runGenerateDevDoc(linked.id, n)
+      if (current.status === 'PENDING') {
+        current = await updateDocChangeStage(current.id, 'CONFIRM')
+        setCandidate(current)
+      }
+
+      // PARTIAL/TDD 或已有 prdAppliedAt 的 BOTH 候选直接从 TDD 续跑，不重复覆盖 PRD。
+      const resumeTdd = current.applyStage === 'TDD' && current.prdAppliedAt != null
+      if ((decision === 'PRD_ONLY' || decision === 'BOTH') && !resumeTdd) {
+        current = await updateDocChangeStage(current.id, 'START_PRD')
+        setCandidate(current)
+        setUpdateStage('prd')
+        await runGeneratePrd(linked.id, n)
+        current = await updateDocChangeStage(current.id, decision === 'PRD_ONLY' ? 'PRD_ONLY_SUCCESS' : 'PRD_SUCCESS')
+        setCandidate(current)
+      }
+
+      if (decision === 'TDD_ONLY' || decision === 'BOTH') {
+        current = await updateDocChangeStage(current.id, 'START_TDD')
+        setCandidate(current)
+        setUpdateStage('devdoc')
+        await runGenerateDevDoc(linked.id, n)
+        current = await updateDocChangeStage(current.id, 'TDD_SUCCESS')
+        setCandidate(current)
+      }
+
       setUpdateStage(null)
-      setUpdateDone('devdoc')
       setNote('')
       refresh()
     } catch (e) {
       setUpdateStage(null)
-      setUpdateErr(e instanceof Error ? e.message : String(e))
+      const message = e instanceof Error ? e.message : String(e)
+      setUpdateErr(message)
+      try {
+        setCandidate(await updateDocChangeStage(current.id, 'FAIL', message))
+      } catch {
+        // 原始失败优先展示；状态登记失败会在下次打开时由当前阶段反映。
+      }
     }
+  }
+
+  const doDismiss = async () => {
+    if (!candidate) return
+    setCandidate(await updateDocChangeStage(candidate.id, 'DISMISS'))
   }
 
   const openPrd = (prdId: string) => {
@@ -267,52 +381,197 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
               </div>
 
               <div className="rounded-lg border px-3 py-2.5">
-                <p className="mb-1.5 text-xs font-medium text-[var(--color-muted-foreground)]">一键更新 PRD + 开发文档(TDD)</p>
+                <div className="mb-1.5 flex items-center gap-1.5">
+                  <Sparkles className="size-3.5 text-violet-500" />
+                  <p className="text-xs font-medium">文档变更分析</p>
+                </div>
                 <p className="mb-2 text-[11px] leading-relaxed text-[var(--color-muted-foreground)]">
-                  依次对 PRD 和开发文档做增量更新（都走 PRD 澄清助手已有的 AI 生成流程，旧版本自动
-                  备份进历史，原地覆盖同一份文件、路径不变）。可以简单说一句这次改了什么，留空则
-                  按当前内容原样重新梳理一遍。
+                  AI 会综合上次同步后的开发对话、工具调用和 Git 变化，先判断该更新 PRD、TDD、两者还是无需更新。
+                  只登记建议，不会自动覆盖正式文档。
                 </p>
-                <textarea
-                  value={note}
-                  onChange={e => setNote(e.target.value)}
-                  disabled={updating}
-                  placeholder="（可选）这次改了什么，简单说一句…"
-                  rows={2}
-                  className="mb-2 w-full resize-none rounded-md border bg-[var(--color-background)] px-2 py-1.5 text-xs"
-                />
-                <button
-                  type="button"
-                  onClick={doUpdateBoth}
-                  disabled={updating}
-                  className={cn(
-                    'flex w-full items-center justify-center gap-1.5 rounded-md bg-[var(--color-primary)] px-3 py-1.5 text-xs font-medium text-[var(--color-primary-foreground)] hover:opacity-90',
-                    updating && 'pointer-events-none opacity-60',
-                  )}
-                >
-                  {updating ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
-                  {updateStage === 'prd' ? '正在更新 PRD…' : updateStage === 'devdoc' ? '正在更新开发文档…' : '一键更新 PRD + 开发文档'}
-                </button>
-                <button
-                  type="button"
-                  onClick={doUpdateDevDocOnly}
-                  disabled={updating}
-                  className={cn(
-                    'mt-1.5 w-full text-center text-[11px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] hover:underline',
-                    updating && 'pointer-events-none opacity-60',
-                  )}
-                >
-                  只更新开发文档，PRD 不动
-                </button>
-                {updateDone && (
-                  <p className="mt-1.5 flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
-                    <CheckCircle2 className="size-3.5" />
-                    {updateDone === 'both' ? 'PRD + 开发文档已更新，去 PRD 澄清助手可查看最新版本' : '开发文档已更新，去 PRD 澄清助手可查看最新版本'}
-                  </p>
+
+                {!candidate && (
+                  <button
+                    type="button"
+                    onClick={() => void doAnalyze()}
+                    disabled={updating}
+                    className={cn(
+                      'flex w-full items-center justify-center gap-1.5 rounded-md bg-[var(--color-primary)] px-3 py-1.5 text-xs font-medium text-[var(--color-primary-foreground)] hover:opacity-90',
+                      updating && 'pointer-events-none opacity-60',
+                    )}
+                  >
+                    {analyzing ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+                    {analyzing ? '正在分析对话与代码变化…' : '分析本次变更'}
+                  </button>
                 )}
-                {updateErr && (
-                  <p className="mt-1.5 text-xs text-[var(--color-destructive)]">更新失败：{updateErr}</p>
+
+                {candidate && (
+                  <div className="space-y-2.5">
+                    <div className="rounded-md border bg-[var(--color-muted)]/30 p-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-[var(--color-muted-foreground)]">AI 建议</span>
+                        <span className="rounded-full bg-violet-500/10 px-2 py-0.5 text-[11px] font-medium text-violet-700 dark:text-violet-300">
+                          {DECISION_LABELS[candidate.aiDecision]}
+                        </span>
+                        <span className="ml-auto text-[11px] text-[var(--color-muted-foreground)]">
+                          置信度 {candidate.confidence}%
+                        </span>
+                      </div>
+                      {candidate.summary && <p className="mt-1.5 text-xs leading-relaxed">{candidate.summary}</p>}
+                      {candidate.reasoning && (
+                        <p className="mt-1 text-[11px] leading-relaxed text-[var(--color-muted-foreground)]">
+                          {candidate.reasoning}
+                        </p>
+                      )}
+                    </div>
+
+                    <label className="block text-[11px] text-[var(--color-muted-foreground)]">
+                      最终更新范围（可人工调整）
+                      <select
+                        value={candidate.decision}
+                        onChange={event => void doOverrideDecision(event.target.value as DocChangeDecision)}
+                        disabled={updating || candidate.status === 'APPLYING' || candidate.status === 'APPLIED' || candidate.prdAppliedAt != null || candidate.tddAppliedAt != null}
+                        className="mt-1 w-full rounded-md border bg-[var(--color-background)] px-2 py-1.5 text-xs text-[var(--color-foreground)]"
+                      >
+                        {DECISION_OPTIONS.map(value => (
+                          <option key={value} value={value}>{DECISION_LABELS[value]}</option>
+                        ))}
+                      </select>
+                    </label>
+
+                    {candidate.evidence.length > 0 && (
+                      <details className="rounded-md border px-2 py-1.5 text-[11px]">
+                        <summary className="cursor-pointer font-medium">判断证据（{candidate.evidence.length}）</summary>
+                        <ul className="mt-1.5 list-disc space-y-1 pl-4 text-[var(--color-muted-foreground)]">
+                          {candidate.evidence.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}
+                        </ul>
+                      </details>
+                    )}
+
+                    {(candidate.prdPatchPlan.length > 0 || candidate.tddPatchPlan.length > 0) && (
+                      <details className="rounded-md border px-2 py-1.5 text-[11px]">
+                        <summary className="cursor-pointer font-medium">拟修改章节</summary>
+                        {candidate.prdPatchPlan.length > 0 && (
+                          <p className="mt-1.5 text-[var(--color-muted-foreground)]">PRD：{candidate.prdPatchPlan.join('；')}</p>
+                        )}
+                        {candidate.tddPatchPlan.length > 0 && (
+                          <p className="mt-1 text-[var(--color-muted-foreground)]">TDD：{candidate.tddPatchPlan.join('；')}</p>
+                        )}
+                      </details>
+                    )}
+
+                    {candidate.risks.length > 0 && (
+                      <div className="flex items-start gap-1.5 rounded-md bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-800 dark:text-amber-200">
+                        <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+                        <span>{candidate.risks.join('；')}</span>
+                      </div>
+                    )}
+
+                    {candidate.decision === 'UNCERTAIN' && (
+                      <div className="rounded-md border border-amber-400/60 p-2">
+                        <p className="text-xs font-medium">需要补充一个关键信息</p>
+                        <p className="mt-1 text-[11px] text-[var(--color-muted-foreground)]">
+                          {candidate.clarificationQuestion || '请补充这次最终确认的变化。'}
+                        </p>
+                        <textarea
+                          value={clarificationAnswer}
+                          onChange={event => setClarificationAnswer(event.target.value)}
+                          rows={2}
+                          placeholder="只回答这个阻塞问题；信息充分后 AI 会停止追问"
+                          className="mt-2 w-full resize-none rounded-md border bg-[var(--color-background)] px-2 py-1.5 text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void doReanalyze()}
+                          disabled={reanalyzing || !clarificationAnswer.trim()}
+                          className="mt-1.5 flex w-full items-center justify-center gap-1 rounded-md border px-2 py-1.5 text-xs hover:bg-[var(--color-accent)] disabled:opacity-50"
+                        >
+                          {reanalyzing && <Loader2 className="size-3 animate-spin" />}
+                          补充并重新分析
+                        </button>
+                      </div>
+                    )}
+
+                    {candidate.decision !== 'NONE' && candidate.decision !== 'UNCERTAIN'
+                      && !['APPLIED', 'DISMISSED', 'NO_UPDATE'].includes(candidate.status) && (
+                      <textarea
+                        value={note}
+                        onChange={event => setNote(event.target.value)}
+                        disabled={updating}
+                        placeholder="（可选）给文档生成器的额外约束；AI 摘要会自动带入"
+                        rows={2}
+                        className="w-full resize-none rounded-md border bg-[var(--color-background)] px-2 py-1.5 text-xs"
+                      />
+                    )}
+
+                    {!['APPLIED', 'DISMISSED', 'NO_UPDATE'].includes(candidate.status) && candidate.decision !== 'UNCERTAIN' && (
+                      <button
+                        type="button"
+                        onClick={() => void runConfirmedUpdate()}
+                        disabled={updating}
+                        className={cn(
+                          'flex w-full items-center justify-center gap-1.5 rounded-md bg-[var(--color-primary)] px-3 py-1.5 text-xs font-medium text-[var(--color-primary-foreground)] hover:opacity-90',
+                          updating && 'pointer-events-none opacity-60',
+                        )}
+                      >
+                        {updateStage ? <Loader2 className="size-3.5 animate-spin" /> : candidate.decision === 'NONE' ? <Check className="size-3.5" /> : <RefreshCw className="size-3.5" />}
+                        {updateStage === 'prd'
+                          ? '正在更新 PRD…'
+                          : updateStage === 'devdoc'
+                            ? '正在更新 TDD…'
+                            : candidate.status === 'PARTIAL' && candidate.applyStage === 'TDD'
+                              ? '继续更新 TDD'
+                              : candidate.decision === 'NONE'
+                                ? '标记无需更新'
+                                : candidate.decision === 'PRD_ONLY'
+                                  ? '确认并更新 PRD'
+                                  : candidate.decision === 'TDD_ONLY'
+                                    ? '确认并更新 TDD'
+                                    : '确认并依次更新 PRD + TDD'}
+                      </button>
+                    )}
+
+                    {candidate.status === 'APPLIED' && (
+                      <p className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+                        <CheckCircle2 className="size-3.5" />候选对应的正式文档已全部更新
+                      </p>
+                    )}
+                    {candidate.status === 'NO_UPDATE' && (
+                      <p className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+                        <CheckCircle2 className="size-3.5" />已确认本次无需更新正式文档
+                      </p>
+                    )}
+                    {candidate.status === 'PARTIAL' && candidate.lastError && (
+                      <p className="text-xs text-[var(--color-destructive)]">
+                        上次在 {candidate.applyStage === 'PRD' ? 'PRD' : 'TDD'} 阶段失败：{candidate.lastError}
+                      </p>
+                    )}
+
+                    <div className="flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void doAnalyze()}
+                        disabled={updating}
+                        className="text-[11px] text-[var(--color-muted-foreground)] hover:underline disabled:opacity-50"
+                      >
+                        重新检查最新变化
+                      </button>
+                      {!['APPLIED', 'DISMISSED', 'NO_UPDATE'].includes(candidate.status) && (
+                        <button
+                          type="button"
+                          onClick={() => void doDismiss()}
+                          disabled={updating}
+                          className="text-[11px] text-[var(--color-muted-foreground)] hover:underline disabled:opacity-50"
+                        >
+                          暂不更新
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 )}
+
+                {analysisErr && <p className="mt-1.5 text-xs text-[var(--color-destructive)]">分析失败：{analysisErr}</p>}
+                {updateErr && <p className="mt-1.5 text-xs text-[var(--color-destructive)]">更新失败：{updateErr}</p>}
               </div>
 
               {!picking ? (

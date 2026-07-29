@@ -4882,7 +4882,7 @@ export function PrdClarifyPage() {
 
   /**
    * Vibe Coding 模式澄清：创建会话后，通过 sessionStorage handoff 跳转 claude-chat。
-   * Claude 在 Vibe Coding 完整 UI 中执行 feature-dev Phase 3（工具调用完全可见），
+   * 所选引擎在 Vibe Coding 完整 UI 中执行平台统一的需求澄清流程（工具调用完全可见），
    * 澄清完成后写入 PRD 文件，用户返回时触发 check-prd-file 更新状态。
    */
   const handleStartVibe = async (
@@ -4921,7 +4921,7 @@ export function PrdClarifyPage() {
       } catch { /* cwd 解析失败时留空 */ }
     }
 
-    // 构建 seed 消息：feature-dev Phase 3 + 指示写 PRD 文件。
+    // 构建 seed 消息：平台无关的需求澄清流程 + 指示写 PRD 文件。
     // reqType/maxQuestions 一律读 created（后端返回的最终解析结果）而非入参本身——
     // 业务员角色没传这两个字段，入参是 undefined，此时已由后端 LLM 自动判定并写回 created。
     const prdPath = `~/.kai-toolbox/prd/${created.id}.md`
@@ -4933,7 +4933,8 @@ export function PrdClarifyPage() {
     const docGuide = resolvedReqType === 'BUG_FIX'
       ? '只问复现步骤、期望-实际行为落差、影响范围，不问业务目标/使用场景；产出「缺陷修复说明」（问题描述/复现步骤/根因/修复方案/影响范围/验收标准），不是标准 PRD'
       : '产出标准 PRD（文档概述/业务背景/目标用户/功能范围/功能需求/非功能需求/数据模型/验收标准/开放问题共 9 节）'
-    const seed = `本次任务：执行 feature-dev:feature-dev Phase 3 (Clarifying Questions) — 需求澄清
+    const seed = `本次任务：执行需求发现、代码背景调研、逐轮澄清并生成需求文档。
+本流程适用于当前所选引擎，不得调用或假设存在某个引擎专属的命令、skill 或 plugin。
 
 [项目信息]
 标题：${title}

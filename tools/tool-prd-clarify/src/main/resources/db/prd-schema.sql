@@ -85,3 +85,38 @@ CREATE INDEX IF NOT EXISTS idx_prd_session_created ON prd_session(created_at DES
 CREATE INDEX IF NOT EXISTS idx_prd_session_status  ON prd_session(status);
 CREATE INDEX IF NOT EXISTS idx_prd_session_created_by ON prd_session(created_by_user_id);
 CREATE INDEX IF NOT EXISTS idx_prd_session_parent ON prd_session(parent_id);
+
+-- Vibe Coding 文档变更候选：AI 只负责分析和登记，用户确认后仍复用现有 PRD/TDD 生成接口。
+-- decision 是用户最终采用的范围，ai_decision 保留模型原始建议，便于审计覆写。
+CREATE TABLE IF NOT EXISTS prd_doc_change_candidate (
+    id                          TEXT PRIMARY KEY,
+    prd_session_id              TEXT NOT NULL,
+    dev_session_id              TEXT NOT NULL,
+    conversation_from_seq       INTEGER NOT NULL DEFAULT 0,
+    conversation_to_seq         INTEGER NOT NULL DEFAULT 0,
+    code_snapshot_hash          TEXT NOT NULL,
+    decision                    TEXT NOT NULL,
+    ai_decision                 TEXT NOT NULL,
+    summary                     TEXT,
+    reasoning                   TEXT,
+    evidence_json               TEXT,
+    prd_patch_plan_json         TEXT,
+    tdd_patch_plan_json         TEXT,
+    risks_json                  TEXT,
+    clarification_question      TEXT,
+    clarification_history_json  TEXT,
+    confidence                  INTEGER NOT NULL DEFAULT 0,
+    status                      TEXT NOT NULL DEFAULT 'PENDING',
+    apply_stage                 TEXT NOT NULL DEFAULT 'NONE',
+    last_error                  TEXT,
+    prd_applied_at              INTEGER,
+    tdd_applied_at              INTEGER,
+    created_at                  INTEGER NOT NULL,
+    updated_at                  INTEGER NOT NULL,
+    FOREIGN KEY (prd_session_id) REFERENCES prd_session(id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_prd_doc_candidate_snapshot
+    ON prd_doc_change_candidate(prd_session_id, dev_session_id, code_snapshot_hash);
+CREATE INDEX IF NOT EXISTS idx_prd_doc_candidate_latest
+    ON prd_doc_change_candidate(prd_session_id, created_at DESC);

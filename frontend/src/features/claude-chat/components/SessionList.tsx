@@ -51,11 +51,14 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
   const [filterGroups, setFilterGroups] = useState<string[]>([])
   const [groupFilterOpen, setGroupFilterOpen] = useState(false)
   const [filterPrd, setFilterPrd] = useState<'all' | 'linked' | 'unlinked'>('all')
-  const filterActive = filterGroups.length > 0 || filterPrd !== 'all'
-  const clearFilter = () => { setFilterGroups([]); setFilterPrd('all') }
+  const [aliasQuery, setAliasQuery] = useState('')
+  const normalizedAliasQuery = aliasQuery.trim().toLocaleLowerCase()
+  const filterActive = filterGroups.length > 0 || filterPrd !== 'all' || !!normalizedAliasQuery
+  const clearFilter = () => { setFilterGroups([]); setFilterPrd('all'); setAliasQuery('') }
   const toggleFilterGroup = (g: string) => setFilterGroups(prev =>
     prev.includes(g) ? prev.filter(x => x !== g) : [...prev, g])
   const filteredSessions = useMemo(() => sessions.filter(s => {
+    if (normalizedAliasQuery && !(s.title ?? '').toLocaleLowerCase().includes(normalizedAliasQuery)) return false
     if (filterGroups.length > 0) {
       const g = (s.group ?? '').trim() || UNGROUPED
       if (!filterGroups.includes(g)) return false
@@ -63,7 +66,7 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
     if (filterPrd === 'linked' && !prdLinks[s.id]) return false
     if (filterPrd === 'unlinked' && prdLinks[s.id]) return false
     return true
-  }), [sessions, filterGroups, filterPrd, prdLinks])
+  }), [sessions, normalizedAliasQuery, filterGroups, filterPrd, prdLinks])
 
   useEffect(() => {
     if (groupMigrationDone) return
@@ -161,6 +164,26 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
   return (
     <>
       <div className="flex flex-wrap items-center gap-1.5 border-b border-[var(--color-border)]/60 px-3 py-2">
+        <div className="relative w-full">
+          <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-[var(--color-muted-foreground)]" />
+          <input
+            value={aliasQuery}
+            onChange={e => setAliasQuery(e.target.value)}
+            placeholder="搜索会话别名…"
+            aria-label="搜索会话别名"
+            className="h-8 w-full rounded-md border bg-[var(--color-background)] pl-7 pr-7 text-xs outline-none focus:border-[var(--color-primary)]"
+          />
+          {aliasQuery && (
+            <button
+              type="button"
+              onClick={() => setAliasQuery('')}
+              aria-label="清空会话搜索"
+              className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
+        </div>
         <Filter className="size-3 shrink-0 text-[var(--color-muted-foreground)]" />
         <Popover open={groupFilterOpen} onOpenChange={setGroupFilterOpen}>
           <PopoverTrigger asChild>
@@ -238,7 +261,7 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
       </div>
       {filteredSessions.length === 0 ? (
         <div className="px-4 py-6 text-center text-sm text-[var(--color-muted-foreground)]">
-          没有匹配筛选条件的会话
+          没有匹配搜索或筛选条件的会话
         </div>
       ) : !hasGroups ? (
         <ul className="py-1">

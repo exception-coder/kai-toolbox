@@ -4,6 +4,9 @@ import com.exceptioncoder.toolbox.prdclarify.api.dto.AdoptSplitRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.AskNextDevDocQuestionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.AskNextQuestionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.AttachmentParseView;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.CandidateDecisionRequest;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.CandidateReanalyzeRequest;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.CandidateStageRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.CreateSessionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.DevDocVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.DistributeAnswerRequest;
@@ -13,6 +16,7 @@ import com.exceptioncoder.toolbox.prdclarify.api.dto.GenerateDevDocRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.GeneratePrdRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.ImageAttachmentView;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.ProgressVersionSummary;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.PrdDocChangeCandidateView;
 import com.exceptioncoder.toolbox.prdclarify.service.AttachmentParseService;
 import com.exceptioncoder.toolbox.prdclarify.service.FileAttachmentStorageService;
 import com.exceptioncoder.toolbox.prdclarify.service.ImageAttachmentStorageService;
@@ -27,6 +31,7 @@ import com.exceptioncoder.toolbox.prdclarify.api.dto.UpdateTitleRequest;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
 import com.exceptioncoder.toolbox.prdclarify.service.PrdClarifyService;
+import com.exceptioncoder.toolbox.prdclarify.service.PrdDocChangeAnalysisService;
 import com.exceptioncoder.toolbox.common.auth.domain.AuthUser;
 import com.exceptioncoder.toolbox.common.auth.repository.AuthUserRepository;
 import com.exceptioncoder.toolbox.common.auth.web.AuthContext;
@@ -92,6 +97,7 @@ public class PrdClarifyController {
     private final AttachmentParseService attachmentParser;
     private final ImageAttachmentStorageService imageAttachmentStorage;
     private final FileAttachmentStorageService fileAttachmentStorage;
+    private final PrdDocChangeAnalysisService changeAnalysisService;
     /** Optional：toolbox.auth.enabled=false 时这个 bean 不存在，历史列表退化为不展示创建人用户名。 */
     private final Optional<AuthUserRepository> authUserRepo;
 
@@ -99,12 +105,14 @@ public class PrdClarifyController {
                                 AttachmentParseService attachmentParser,
                                 ImageAttachmentStorageService imageAttachmentStorage,
                                 FileAttachmentStorageService fileAttachmentStorage,
+                                PrdDocChangeAnalysisService changeAnalysisService,
                                 Optional<AuthUserRepository> authUserRepo) {
         this.service = service;
         this.repo = repo;
         this.attachmentParser = attachmentParser;
         this.imageAttachmentStorage = imageAttachmentStorage;
         this.fileAttachmentStorage = fileAttachmentStorage;
+        this.changeAnalysisService = changeAnalysisService;
         this.authUserRepo = authUserRepo;
     }
 
@@ -580,6 +588,48 @@ public class PrdClarifyController {
         com.exceptioncoder.toolbox.prdclarify.domain.PrdSession updated =
                 service.estimateDevDocEffort(id, req == null ? null : req.extraContext());
         return PrdSessionView.from(updated);
+    }
+
+    // ─── Vibe Coding 文档变更候选 ───────────────────────
+
+    /** 分析上次同步点之后的开发对话与 Git 变化，生成或幂等复用一条候选。 */
+    @PostMapping("/sessions/{id}/change-candidates/analyze")
+    public PrdDocChangeCandidateView analyzeDocumentChanges(@PathVariable String id) {
+        return PrdDocChangeCandidateView.from(changeAnalysisService.analyze(id));
+    }
+
+    /** 恢复最近候选；从 PRD 面板重新打开时据此显示未完成阶段。 */
+    @GetMapping("/sessions/{id}/change-candidates/latest")
+    public ResponseEntity<PrdDocChangeCandidateView> latestDocumentChange(@PathVariable String id) {
+        PrdDocChangeCandidateView view = PrdDocChangeCandidateView.from(changeAnalysisService.latest(id));
+        return view == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(view);
+    }
+
+    /** 用户覆写 AI 建议范围，AI 原始判定保持不变。 */
+    @PutMapping("/change-candidates/{candidateId}/decision")
+    public PrdDocChangeCandidateView overrideDocumentChangeDecision(
+            @PathVariable String candidateId,
+            @RequestBody CandidateDecisionRequest request) {
+        return PrdDocChangeCandidateView.from(
+                changeAnalysisService.overrideDecision(candidateId, request.decision()));
+    }
+
+    /** 回答当前唯一阻塞问题后重新分析；信息充分时不再继续追问。 */
+    @PostMapping("/change-candidates/{candidateId}/reanalyze")
+    public PrdDocChangeCandidateView reanalyzeDocumentChange(
+            @PathVariable String candidateId,
+            @RequestBody CandidateReanalyzeRequest request) {
+        return PrdDocChangeCandidateView.from(
+                changeAnalysisService.reanalyze(candidateId, request.answer()));
+    }
+
+    /** 记录人工确认、分阶段开始/成功/失败、暂不处理或无需更新。 */
+    @PostMapping("/change-candidates/{candidateId}/stage")
+    public PrdDocChangeCandidateView updateDocumentChangeStage(
+            @PathVariable String candidateId,
+            @RequestBody CandidateStageRequest request) {
+        return PrdDocChangeCandidateView.from(
+                changeAnalysisService.applyAction(candidateId, request.action(), request.error()));
     }
 
     // ─── 进度评估 ───────────────────────────────────────

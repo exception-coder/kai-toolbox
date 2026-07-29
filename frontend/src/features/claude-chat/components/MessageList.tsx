@@ -11,6 +11,7 @@ import { ToolCallBubble } from './ToolCallBubble'
 import { Markdown } from './Markdown'
 import { ImageLightbox } from './ImageLightbox'
 import { ThinkingIndicator } from './ThinkingIndicator'
+import { EngineIcon } from './EngineIcon'
 
 interface Props {
   items: ChatItem[]
@@ -446,13 +447,13 @@ function Row({ item, onFork, engineLabel, onResumeCurrent, onNewSession, onClean
               {item.attachments.filter(a => !a.url || !a.mime?.startsWith('image/')).map((a, i) => (
                 <div
                   key={i}
-                  className="flex items-center gap-2 rounded-xl bg-white/15 px-3 py-2 text-sm text-[var(--color-primary-foreground)]"
+                  className="flex items-center gap-2 rounded-xl border border-[var(--color-primary)]/25 bg-[var(--color-primary)]/10 px-3 py-2 text-sm text-[var(--color-foreground)] shadow-sm"
                   title={a.name}
                 >
-                  <FileText className="size-4 shrink-0 opacity-80" />
+                  <FileText className="size-4 shrink-0 text-[var(--color-primary)]" />
                   <span className="max-w-[16rem] truncate">{a.name}</span>
                   {a.mime && (
-                    <span className="shrink-0 rounded bg-white/20 px-1.5 py-0.5 text-[10px] uppercase opacity-80">
+                    <span className="shrink-0 rounded bg-[var(--color-primary)]/10 px-1.5 py-0.5 text-[10px] font-medium uppercase text-[var(--color-primary)]">
                       {a.mime.split('/').pop()?.split('+')[0] ?? 'file'}
                     </span>
                   )}
@@ -499,17 +500,27 @@ function Row({ item, onFork, engineLabel, onResumeCurrent, onNewSession, onClean
     }
     case 'assistant':
       return (
-        <div className="flex min-w-0 max-w-full flex-col items-start">
-          <MsgHeader label={engineLabel} ts={item.ts} align="start" />
-          <div className="max-w-[90%] min-w-0 wrap-anywhere rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-2 text-[var(--color-card-foreground)] shadow-sm">
-            <Markdown text={item.text} className="min-w-0" />
+        <div className="flex min-w-0 max-w-full items-start gap-2">
+          <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-sm">
+            <EngineIcon
+              engine={engineLabel?.split(' ·', 1)[0].toLowerCase() ?? 'claude'}
+              thirdParty={engineLabel?.includes('· 第三方')}
+              className="size-5"
+              title={engineLabel}
+            />
           </div>
-          {item.text.trim() && (
-            <div className="flex items-center gap-1">
-              <CopyButton text={item.text} />
-              <ToCardButton text={item.text} />
+          <div className="flex min-w-0 flex-1 flex-col items-start">
+            <MsgHeader label={engineLabel} ts={item.ts} align="start" />
+            <div className="max-w-[90%] min-w-0 wrap-anywhere rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-2 text-[var(--color-card-foreground)] shadow-sm">
+              <Markdown text={item.text} className="min-w-0" />
             </div>
-          )}
+            {item.text.trim() && (
+              <div className="flex items-center gap-1">
+                <CopyButton text={item.text} />
+                <ToCardButton text={item.text} />
+              </div>
+            )}
+          </div>
         </div>
       )
     case 'tool':

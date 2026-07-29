@@ -290,6 +290,79 @@ export const getSessionsByDevSessions = async (devSessionIds: string[]): Promise
   return http<Record<string, PrdSessionView>>(`${BASE}/sessions/by-dev-sessions?ids=${qs}`)
 }
 
+// ─── Vibe Coding 文档变更候选 ───
+
+export type DocChangeDecision = 'NONE' | 'PRD_ONLY' | 'TDD_ONLY' | 'BOTH' | 'UNCERTAIN'
+export type DocChangeStatus = 'PENDING' | 'CONFIRMED' | 'APPLYING' | 'PARTIAL' | 'APPLIED' | 'DISMISSED' | 'NO_UPDATE'
+export type DocChangeStage = 'NONE' | 'PRD' | 'TDD' | 'DONE'
+
+export interface PrdDocChangeCandidate {
+  id: string
+  prdSessionId: string
+  devSessionId: string
+  conversationFromSeq: number
+  conversationToSeq: number
+  decision: DocChangeDecision
+  aiDecision: DocChangeDecision
+  summary: string
+  reasoning: string
+  evidence: string[]
+  prdPatchPlan: string[]
+  tddPatchPlan: string[]
+  risks: string[]
+  clarificationQuestion: string
+  confidence: number
+  status: DocChangeStatus
+  applyStage: DocChangeStage
+  lastError: string | null
+  prdAppliedAt: number | null
+  tddAppliedAt: number | null
+  createdAt: number
+  updatedAt: number
+}
+
+export type CandidateStageAction =
+  | 'CONFIRM'
+  | 'START_PRD'
+  | 'PRD_SUCCESS'
+  | 'START_TDD'
+  | 'TDD_SUCCESS'
+  | 'PRD_ONLY_SUCCESS'
+  | 'FAIL'
+  | 'DISMISS'
+  | 'NO_UPDATE'
+
+/** 分析上次同步点之后的开发对话与 Git 快照；相同快照由后端幂等复用。 */
+export const analyzeDocChanges = (prdSessionId: string) =>
+  http<PrdDocChangeCandidate>(`${BASE}/sessions/${prdSessionId}/change-candidates/analyze`, {
+    method: 'POST',
+  })
+
+/** 恢复最近一次候选和分阶段执行断点。没有候选时后端返回 null。 */
+export const getLatestDocChangeCandidate = (prdSessionId: string) =>
+  http<PrdDocChangeCandidate | undefined>(`${BASE}/sessions/${prdSessionId}/change-candidates/latest`)
+
+/** 用户覆写 AI 建议范围；aiDecision 保持原值供审计。 */
+export const overrideDocChangeDecision = (candidateId: string, decision: DocChangeDecision) =>
+  http<PrdDocChangeCandidate>(`${BASE}/change-candidates/${candidateId}/decision`, {
+    method: 'PUT',
+    body: JSON.stringify({ decision }),
+  })
+
+/** 回答当前唯一阻塞问题后重新分析。 */
+export const reanalyzeDocChanges = (candidateId: string, answer: string) =>
+  http<PrdDocChangeCandidate>(`${BASE}/change-candidates/${candidateId}/reanalyze`, {
+    method: 'POST',
+    body: JSON.stringify({ answer }),
+  })
+
+/** 记录确认、阶段开始/成功/失败、暂不处理或无需更新。 */
+export const updateDocChangeStage = (candidateId: string, action: CandidateStageAction, error?: string) =>
+  http<PrdDocChangeCandidate>(`${BASE}/change-candidates/${candidateId}/stage`, {
+    method: 'POST',
+    body: JSON.stringify({ action, error }),
+  })
+
 /**
  * 将 PRD 会话关联到需求管理池条目（来自需求池的跳入场景，PRD 生成完成后回调）。
  * 触发 reqpool 条目状态流转到 PRD_READY。
