@@ -1,5 +1,5 @@
-import { useMemo } from 'react'
-import { Eye, EyeOff, RotateCcw, Sparkles } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Eye, EyeOff, RotateCcw, Search, Sparkles, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { features } from './featureRegistry'
@@ -17,11 +17,22 @@ import type { FeatureManifest } from './types'
 export function MenuVisibilitySection() {
   const access = useAccessContext()
   const visibleSet = useMenuVisibleSet()
+  const [query, setQuery] = useState('')
   const menuFeatures = useMemo(
     () => features.filter((f) => !f.chrome && hasFeatureAccess(f, access)),
     [access],
   )
-  const groups = useMemo(() => groupFeatures(menuFeatures), [menuFeatures])
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const filteredFeatures = useMemo(() => {
+    if (!normalizedQuery) return menuFeatures
+    return menuFeatures.filter((feature) => [
+      feature.name,
+      feature.description,
+      feature.group,
+      feature.id,
+    ].filter(Boolean).join(' ').toLocaleLowerCase().includes(normalizedQuery))
+  }, [menuFeatures, normalizedQuery])
+  const groups = useMemo(() => groupFeatures(filteredFeatures), [filteredFeatures])
   const allIds = useMemo(() => menuFeatures.map((f) => f.id), [menuFeatures])
   const visibleCount = menuFeatures.filter((f) => visibleSet.has(f.id)).length
 
@@ -31,9 +42,44 @@ export function MenuVisibilitySection() {
         勾选各模块是否在菜单显示。隐藏仅影响侧边栏与首页，路由仍可用（Ctrl/⌘+K 直达）；设置按账号保存，多设备同步。
       </p>
 
+      <div className="relative mt-3">
+        <Search
+          aria-hidden="true"
+          className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--color-muted-foreground)]"
+        />
+        <input
+          type="text"
+          inputMode="search"
+          autoComplete="off"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              setQuery('')
+              event.currentTarget.blur()
+            }
+          }}
+          placeholder="搜索菜单名称、描述、分组或 ID"
+          aria-label="搜索菜单"
+          className="h-9 w-full rounded-md border bg-[var(--color-background)] pl-9 pr-9 text-sm outline-none placeholder:text-[var(--color-muted-foreground)] focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/15"
+        />
+        {query && (
+          <button
+            type="button"
+            onClick={() => setQuery('')}
+            aria-label="清空菜单搜索"
+            title="清空搜索"
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)]"
+          >
+            <X className="size-3.5" />
+          </button>
+        )}
+      </div>
+
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <span className="mr-auto text-xs text-[var(--color-muted-foreground)]">
           已显示 {visibleCount} / {menuFeatures.length}
+          {normalizedQuery && ` · 找到 ${filteredFeatures.length} 个`}
         </span>
         <Button variant="outline" size="sm" onClick={() => resetMenuVisibility()} title="恢复默认可见集">
           <Sparkles className="size-4" />
@@ -46,34 +92,45 @@ export function MenuVisibilitySection() {
       </div>
 
       <div className="mt-4 space-y-4">
-        {groups.map(({ group, items }) => (
-          <section key={group ?? '_'} className="rounded-lg border">
-            <div className="border-b px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-[var(--color-muted-foreground)]">
-              {group ?? '通用'}
-            </div>
-            <ul className="divide-y">
-              {items.map((f) => {
-                const Icon = f.icon
-                const visible = visibleSet.has(f.id)
-                return (
-                  <li key={f.id} className="flex items-center gap-2.5 px-3 py-2">
-                    <Icon className="size-4 shrink-0 text-[var(--color-muted-foreground)]" />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium">{f.name}</div>
-                      {/* 描述在窄屏隐藏：手机上先保证模块名不被挤成竖排 */}
-                      {f.description && (
-                        <div className="hidden truncate text-xs text-[var(--color-muted-foreground)] sm:block">
-                          {f.description}
-                        </div>
-                      )}
-                    </div>
-                    <VisibilityToggle visible={visible} onToggle={() => setMenuVisible(f.id, !visible)} />
-                  </li>
-                )
-              })}
-            </ul>
-          </section>
-        ))}
+        {groups.length === 0 ? (
+          <div className="rounded-lg border border-dashed px-4 py-8 text-center">
+            <Search className="mx-auto size-5 text-[var(--color-muted-foreground)]" />
+            <p className="mt-2 text-sm font-medium">没有找到相关菜单</p>
+            <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">换个关键词，或清空搜索查看全部菜单。</p>
+            <Button variant="outline" size="sm" className="mt-3" onClick={() => setQuery('')}>
+              清空搜索
+            </Button>
+          </div>
+        ) : (
+          groups.map(({ group, items }) => (
+            <section key={group ?? '_'} className="rounded-lg border">
+              <div className="border-b px-3 py-1.5 text-[11px] font-medium uppercase tracking-wider text-[var(--color-muted-foreground)]">
+                {group ?? '通用'}
+              </div>
+              <ul className="divide-y">
+                {items.map((f) => {
+                  const Icon = f.icon
+                  const visible = visibleSet.has(f.id)
+                  return (
+                    <li key={f.id} className="flex items-center gap-2.5 px-3 py-2">
+                      <Icon className="size-4 shrink-0 text-[var(--color-muted-foreground)]" />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium">{f.name}</div>
+                        {/* 描述在窄屏隐藏：手机上先保证模块名不被挤成竖排 */}
+                        {f.description && (
+                          <div className="hidden truncate text-xs text-[var(--color-muted-foreground)] sm:block">
+                            {f.description}
+                          </div>
+                        )}
+                      </div>
+                      <VisibilityToggle visible={visible} onToggle={() => setMenuVisible(f.id, !visible)} />
+                    </li>
+                  )
+                })}
+              </ul>
+            </section>
+          ))
+        )}
       </div>
     </div>
   )
