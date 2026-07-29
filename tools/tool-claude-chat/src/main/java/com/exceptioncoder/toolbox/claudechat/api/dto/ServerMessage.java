@@ -29,7 +29,8 @@ public sealed interface ServerMessage
     @JsonTypeName("ready")
     record Ready(long seq, String sessionId, String sdkSessionId, List<String> slashCommands, String status, String epoch, String engine, String providerKind, String providerBaseUrl,
                  List<String> skills, List<String> agents, List<McpServer> mcpServers, String outputStyle,
-                 List<BackgroundTaskInfo> backgroundTasks) implements ServerMessage {}
+                 List<BackgroundTaskInfo> backgroundTasks, String selectedModel,
+                 String codexReasoningEffort, String codexSpeed) implements ServerMessage {}
 
     /** 会话激活的 MCP 服务（来自 SDK init）。 */
     record McpServer(String name, String status) {}

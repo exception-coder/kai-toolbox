@@ -40,3 +40,9 @@
 - `POST /api/fore-consult/sessions/{id}/classify-question`：返回分类枚举和简短理由。
 - `ConsultConversation.tsx`：追问发送前调用分类接口；新问题弹窗提供“结束当前咨询”和“仍作为追问”，结束后回到系统选择区新建会话。
 - 历史列表及详情优先展示 `questionTitle`，为空的存量记录退化为系统名。
+
+## 7. 多进行中会话
+
+- `ForeConsultPage.tsx` 不再用 `activeConsultId` 禁止打开其他系统或创建新咨询。
+- `activeConsultId` 仅表示当前展示和同步的咨询，不代表系统中唯一的 `PENDING` 会话。
+- 切换会话继续复用历史列表的 `resumeConsult`，后端会话状态与接口无需调整。

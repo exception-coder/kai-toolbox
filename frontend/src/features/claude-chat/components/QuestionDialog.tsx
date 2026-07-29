@@ -9,6 +9,8 @@ interface Props {
   questions: Question[]
   onSubmit: (answers: Record<string, string | string[]>) => void
   onCancel: () => void
+  submitting?: boolean
+  submitError?: string | null
   /** 跨会话弹出时标注"这道题来自哪个会话"（当前会话本地弹出时不传）。 */
   sourceLabel?: string
 }
@@ -17,7 +19,14 @@ interface Props {
 const OTHER = '__other__'
 
 /** AskUserQuestion 可视化弹窗：单选/多选，末尾带 Other 自定义输入（都不合适时自己写）。 */
-export function QuestionDialog({ questions, onSubmit, onCancel, sourceLabel }: Props) {
+export function QuestionDialog({
+  questions,
+  onSubmit,
+  onCancel,
+  sourceLabel,
+  submitting = false,
+  submitError,
+}: Props) {
   // 每个问题的当前选择：单选存 string，多选存 string[]
   const [picks, setPicks] = useState<Record<string, string | string[]>>({})
   // 每个问题的 Other 自定义文本
@@ -128,12 +137,17 @@ export function QuestionDialog({ questions, onSubmit, onCancel, sourceLabel }: P
           </div>
         ))}
       </div>
+      {submitError && (
+        <p className="mt-3 text-sm text-[var(--color-destructive)]" role="alert">
+          {submitError}
+        </p>
+      )}
       <div className="mt-4 flex gap-3">
-        <Button variant="outline" size="lg" className="flex-1" onClick={onCancel}>
+        <Button type="button" variant="outline" size="lg" className="flex-1" disabled={submitting} onClick={onCancel}>
           取消
         </Button>
-        <Button size="lg" className="flex-1 shadow-md" disabled={!allAnswered} onClick={submit}>
-          提交
+        <Button type="button" size="lg" className="flex-1 shadow-md" disabled={!allAnswered || submitting} onClick={submit}>
+          {submitting ? '提交中…' : '提交'}
         </Button>
       </div>
     </Overlay>

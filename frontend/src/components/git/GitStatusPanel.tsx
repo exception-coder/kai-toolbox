@@ -2,13 +2,16 @@ import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, ChevronRight, File, Folder, RefreshCw, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { GitStatusEntry, GitStatusResponse, GitFileDiffResponse } from '@/features/claude-chat/api'
+import type { GitRepoRef } from './types'
 import { SideBySideDiff } from './SideBySideDiff'
 
 interface Props {
   title: string
   fetchStatus: (repo?: string) => Promise<GitStatusResponse>
   /** 获取单个文件的 diff */
-  fetchFileDiff: (filePath: string, x: string) => Promise<GitFileDiffResponse>
+  fetchFileDiff: (filePath: string, x: string, repo?: string) => Promise<GitFileDiffResponse>
+  /** 列出会话目录下可查看的 Git 仓库；多仓库时显示切换入口。 */
+  fetchRepos?: () => Promise<GitRepoRef[]>
   onClose: () => void
 }
 
@@ -145,7 +148,9 @@ function TreeRow({
 
 // ── 主组件 ────────────────────────────────────────────────────────────────────
 
-export function GitStatusPanel({ title, fetchStatus, fetchFileDiff, onClose }: Props) {
+export function GitStatusPanel({ title, fetchStatus, fetchFileDiff, fetchRepos, onClose }: Props) {
+  const [repos, setRepos] = useState<GitRepoRef[] | null>(null)
+  const [activeRepo, setActiveRepo] = useState<string | undefined>(undefined)
   const [data, setData] = useState<GitStatusResponse | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -162,7 +167,7 @@ export function GitStatusPanel({ title, fetchStatus, fetchFileDiff, onClose }: P
     setDiffData(null)
     setDiffErr(null)
     setDiffLoading(true)
-    fetchFileDiff(entry.path, entry.x)
+    fetchFileDiff(entry.path, entry.x, activeRepo)
       .then(r => setDiffData({ diff: r.diff, truncated: r.truncated }))
       .catch(e => setDiffErr(e instanceof Error ? e.message : String(e)))
       .finally(() => setDiffLoading(false))
@@ -170,17 +175,51 @@ export function GitStatusPanel({ title, fetchStatus, fetchFileDiff, onClose }: P
   const closeDiff = () => { setDiffEntry(null); setDiffData(null); setDiffErr(null) }
   const showingDiff = diffEntry !== null
 
-  const load = () => {
+  const load = (repo?: string) => {
     setLoading(true)
     setErr(null)
     closeDiff()
-    fetchStatus()
+    fetchStatus(repo)
       .then(d => { setData(d); setCollapsed(new Set()) })
       .catch(e => setErr(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    let alive = true
+    if (!fetchRepos) {
+      load()
+      return () => { alive = false }
+    }
+    setLoading(true)
+    fetchRepos()
+      .then(rs => {
+        if (!alive) return
+        setRepos(rs)
+        const first = rs[0]?.name
+        setActiveRepo(first)
+        if (rs.length === 0) {
+          setLoading(false)
+          setErr('会话目录及其子目录都不是 git 仓库')
+          return
+        }
+        load(first)
+      })
+      .catch(e => {
+        if (!alive) return
+        setLoading(false)
+        setErr(e instanceof Error ? e.message : String(e))
+      })
+    return () => { alive = false }
+    // 初始化只执行一次；请求函数由调用方注入。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const selectRepo = (repo: string) => {
+    if (repo === activeRepo) return
+    setActiveRepo(repo)
+    load(repo)
+  }
 
   const tree = useMemo(() => (data ? buildTree(data.entries) : []), [data])
 
@@ -245,7 +284,7 @@ export function GitStatusPanel({ title, fetchStatus, fetchFileDiff, onClose }: P
           {!showingDiff && (
             <button
               type="button"
-              onClick={load}
+              onClick={() => load(activeRepo)}
               disabled={loading}
               className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)]"
               title="刷新"
@@ -262,6 +301,27 @@ export function GitStatusPanel({ title, fetchStatus, fetchFileDiff, onClose }: P
             <X className="size-3.5" />
           </button>
         </div>
+
+        {repos && repos.length > 1 && !showingDiff && (
+          <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
+            {repos.map(repo => (
+              <button
+                key={repo.name}
+                type="button"
+                onClick={() => selectRepo(repo.name)}
+                title={repo.label}
+                className={cn(
+                  'inline-flex h-8 max-w-64 shrink-0 items-center rounded-full border px-3 text-xs leading-none',
+                  repo.name === activeRepo
+                    ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10 font-medium text-[var(--color-primary)]'
+                    : 'text-[var(--color-muted-foreground)] hover:border-[var(--color-primary)]/40',
+                )}
+              >
+                <span className="truncate">{repo.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* ── Diff 视图 ─────────────────────────────────────────────────────── */}
         {showingDiff && (

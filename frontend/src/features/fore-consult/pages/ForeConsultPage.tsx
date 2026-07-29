@@ -748,7 +748,6 @@ export function ForeConsultPage() {
   }
 
   const openSystem = (name: string) => {
-    if (activeConsultId) return // 有咨询进行中时，先归档再开新的
     dismissHint() // 点过星球即视为已学会，之后不再提示
     setSystem(name)
     setModuleTags([])
@@ -813,7 +812,7 @@ export function ForeConsultPage() {
   }
 
   const canStart =
-    !!system.trim() && (!!ask.trim() || attachments.length > 0) && uploading === 0 && !startMutation.isPending && !activeConsultId
+    !!system.trim() && (!!ask.trim() || attachments.length > 0) && uploading === 0 && !startMutation.isPending
   const PanelIcon = iconForSystem(system, displayName(system))
   const sysCat = categoryOf(system, displayName(system))
   const { shownModules, moduleResultCount, hasModuleQuery } = useMemo(() => {
@@ -1035,7 +1034,6 @@ export function ForeConsultPage() {
                   onPointerDown={(e) => onOrbPointerDown(e, p.name)}
                   onPointerMove={onOrbPointerMove}
                   onPointerUp={() => onOrbPointerUp(p.name)}
-                  disabled={!!activeConsultId && system !== p.name}
                   aria-label={p.label}
                   className="fc-orb flex cursor-grab touch-none select-none items-center justify-center active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
                   style={{

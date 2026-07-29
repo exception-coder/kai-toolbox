@@ -1239,8 +1239,9 @@ export function ChatPage() {
       {showGitStatus && chat.sessionId && (
         <GitStatusPanel
           title="会话目录"
+          fetchRepos={() => listSessionGitRepos(chat.sessionId!)}
           fetchStatus={repo => fetchSessionGitStatus(chat.sessionId!, repo)}
-          fetchFileDiff={(filePath, x) => fetchSessionGitFileDiff(chat.sessionId!, filePath, x)}
+          fetchFileDiff={(filePath, x, repo) => fetchSessionGitFileDiff(chat.sessionId!, filePath, x, repo)}
           onClose={() => setShowGitStatus(false)}
         />
       )}

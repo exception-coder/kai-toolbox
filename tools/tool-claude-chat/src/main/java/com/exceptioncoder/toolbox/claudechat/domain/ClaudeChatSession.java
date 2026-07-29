@@ -24,6 +24,12 @@ public class ClaudeChatSession {
     private String authToken;
     /** Codex 官方登录配置根目录；空值使用默认 ~/.codex。 */
     private String codexHome;
+    /** 本会话选择的模型；空值表示使用引擎默认模型。 */
+    private String selectedModel;
+    /** Codex 推理强度；空值表示使用 SDK 默认值。 */
+    private String codexReasoningEffort;
+    /** Codex 速度档位：default / fast。 */
+    private String codexSpeed;
     /** 会话所属分组名（用户自定义，如 "toolbox"）；空=未分组。后端持久化，跨端可见。 */
     private String groupName;
     private SessionStatus status;

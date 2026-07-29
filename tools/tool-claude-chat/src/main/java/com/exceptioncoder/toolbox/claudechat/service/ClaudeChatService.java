@@ -121,6 +121,7 @@ public class ClaudeChatService {
         repo.insert(ClaudeChatSession.builder()
                 .id(sessionId).cwd(cwd).title(null).sdkSessionId(null).engine(engine)
                 .apiBaseUrl(apiBaseUrl).authToken(authToken).codexHome(codexHome)
+                .selectedModel(blankToNull(open.model())).codexReasoningEffort("low").codexSpeed("default")
                 .status(SessionStatus.IDLE).startedAt(now).lastSeenAt(now).build());
 
         SessionCtx ctx = new SessionCtx(sessionId, cwd);
@@ -172,6 +173,7 @@ public class ClaudeChatService {
                     c.apiBaseUrl = db.getApiBaseUrl();
                     c.authToken = db.getAuthToken();
                     c.codexHome = db.getCodexHome();
+                    restoreModelOptions(c, db);
                     loadEngineSessions(c, db.getEngineSessions());
                     return c;
                 });
@@ -180,7 +182,8 @@ public class ClaudeChatService {
                     repo.touch(db.getId(), SessionStatus.IDLE, System.currentTimeMillis());
                     sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), restored.engine,
                             restored.apiBaseUrl, restored.authToken, restored.codexHome,
-                            restored.mode, restored.autoApprove);
+                            restored.mode, restored.autoApprove, restored.currentModel,
+                            restored.codexReasoningEffort, restored.codexSpeed);
                     log.info("[claude-chat] attach 内存未命中，从 DB 恢复并 resume 会话 {}", db.getId());
                 }
                 // Ready 只发给当前这条连接（其它已在看的连接不需要重复）
@@ -215,13 +218,15 @@ public class ClaudeChatService {
         ctx.apiBaseUrl = db.getApiBaseUrl();
         ctx.authToken = db.getAuthToken();
         ctx.codexHome = db.getCodexHome();
+        restoreModelOptions(ctx, db);
         loadEngineSessions(ctx, db.getEngineSessions());
         bindViewer(ws, ctx);
         // 只更新 lastSeenAt，保留会话真实状态：若该会话仍有在跑的一轮（ctx 内存中为 RUNNING），
         // 切回/刷新恢复时不能把 DB 状态抹成 IDLE，否则会话列表与前端 running 判定都会误判为「空闲」。
         repo.touch(db.getId(), ctx.status, System.currentTimeMillis());
         sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), ctx.engine, ctx.apiBaseUrl,
-                ctx.authToken, ctx.codexHome, ctx.mode, ctx.autoApprove);
+                ctx.authToken, ctx.codexHome, ctx.mode, ctx.autoApprove, ctx.currentModel,
+                ctx.codexReasoningEffort, ctx.codexSpeed);
         // 历史消息由前端按需读 SDK transcript；这里只发一个 Ready 表示已就绪
         sendToBrowser(ctx, seq -> ready(ctx, seq));
         // 该会话若有未决权限/提问请求，随切换补发一次：不然只有 attach（断线重连）路径会重投，
@@ -252,7 +257,7 @@ public class ClaudeChatService {
         bindViewer(ws, ctx);
 
         sidecar.resumeSession(id, msg.sdkSessionId(), cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
-                ctx.mode, ctx.autoApprove);
+                ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed);
         sendToBrowser(ctx, seq -> ready(ctx, seq));
         log.info("[claude-chat] resumeHistory 会话 {} sdk={} cwd={}", id, msg.sdkSessionId(), cwd);
     }
@@ -270,6 +275,8 @@ public class ClaudeChatService {
                     restored.engine = normalizeEngine(db.getEngine());
                     restored.apiBaseUrl = db.getApiBaseUrl();
                     restored.authToken = db.getAuthToken();
+                    restored.codexHome = db.getCodexHome();
+                    restoreModelOptions(restored, db);
                     loadEngineSessions(restored, db.getEngineSessions());
                     sessions.put(restored.sessionId, restored);
                     ctx = restored;
@@ -285,6 +292,7 @@ public class ClaudeChatService {
 
         ClaudeChatSession db = repo.findById(ctx.sessionId).orElse(null);
         if (db != null) {
+            restoreModelOptions(ctx, db);
             if (ctx.sdkSessionId == null || ctx.sdkSessionId.isBlank()) {
                 ctx.sdkSessionId = db.getSdkSessionId();
             }
@@ -306,7 +314,7 @@ public class ClaudeChatService {
         repo.updateSdkSessionId(ctx.sessionId, sdkSessionId);
         repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
         sidecar.resumeSession(ctx.sessionId, sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
-                ctx.mode, ctx.autoApprove);
+                ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed);
         final SessionCtx readyCtx = ctx; // ctx 在本方法上方被重新赋值（attach 恢复），lambda 捕获需 effectively final
         sendToBrowser(ctx, seq -> ready(readyCtx, seq));
         pushGatewayModels(ctx);
@@ -428,6 +436,7 @@ public class ClaudeChatService {
             return;
         }
         ctx.currentModel = msg.model();
+        repo.updateSelectedModel(ctx.sessionId, blankToNull(msg.model()));
         sidecar.setModel(ctx.sessionId, msg.model());
         sendToBrowser(ctx, seq -> new ServerMessage.Models(seq, ctx.models, ctx.currentModel));
         log.info("[claude-chat] 会话 {} 切换模型 -> {}", ctx.sessionId, msg.model());
@@ -450,7 +459,10 @@ public class ClaudeChatService {
             sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
-        sidecar.setCodexOptions(ctx.sessionId, msg.reasoningEffort(), msg.speed());
+        ctx.codexReasoningEffort = msg.reasoningEffort();
+        ctx.codexSpeed = msg.speed();
+        repo.updateCodexOptions(ctx.sessionId, ctx.codexReasoningEffort, ctx.codexSpeed);
+        sidecar.setCodexOptions(ctx.sessionId, ctx.codexReasoningEffort, ctx.codexSpeed);
         log.info("[claude-chat] 会话 {} 更新 Codex 配置 effort={} speed={}",
                 ctx.sessionId, msg.reasoningEffort(), msg.speed());
     }
@@ -566,7 +578,18 @@ public class ClaudeChatService {
         String providerKind = providerBaseUrl == null ? "official" : "thirdParty";
         return new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands,
                 ctx.status.name(), ctx.epoch, ctx.engine, providerKind, providerBaseUrl,
-                ctx.skills, ctx.agents, ctx.mcpServers, ctx.outputStyle, ctx.backgroundTasks);
+                ctx.skills, ctx.agents, ctx.mcpServers, ctx.outputStyle, ctx.backgroundTasks,
+                ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed);
+    }
+
+    /** 从 SQLite 会话元数据恢复模型、推理强度和速度。 */
+    private void restoreModelOptions(SessionCtx ctx, ClaudeChatSession db) {
+        ctx.currentModel = blankToNull(db.getSelectedModel());
+        ctx.codexReasoningEffort = blankToNull(db.getCodexReasoningEffort());
+        ctx.codexSpeed = blankToNull(db.getCodexSpeed());
+        if (ctx.codexSpeed == null) {
+            ctx.codexSpeed = "default";
+        }
     }
 
     /**
@@ -814,7 +837,7 @@ public class ClaudeChatService {
         for (SessionCtx ctx : sessions.values()) {
             if (ctx.sdkSessionId == null || ctx.sdkSessionId.isBlank()) continue;
             sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
-                    ctx.mode, ctx.autoApprove);
+                    ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed);
             ctx.status = SessionStatus.IDLE;
             repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
             sendToBrowser(ctx, seq -> ready(ctx, seq));
@@ -839,7 +862,7 @@ public class ClaudeChatService {
         }
         if (ctx.sdkSessionId != null && !ctx.sdkSessionId.isBlank()) {
             sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
-                    ctx.mode, ctx.autoApprove);
+                    ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed);
             ctx.status = SessionStatus.IDLE;
             repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
         }
@@ -1171,6 +1194,8 @@ public class ClaudeChatService {
         /** 该会话可用模型清单（来自 SDK supportedModels）与当前模型，供命令菜单的模型组展示/切换。 */
         volatile java.util.List<ModelInfo> models = java.util.List.of();
         volatile String currentModel;
+        volatile String codexReasoningEffort = "low";
+        volatile String codexSpeed = "default";
         /** 该会话当前存活的后台任务快照（来自 sidecar 的 backgroundTasks 事件），随每条 Ready 透传给
          *  前端——切会话/重连那一刻就能查到是否还有后台任务在跑，不用等下一次变化事件推送。 */
         volatile java.util.List<ServerMessage.BackgroundTaskInfo> backgroundTasks = java.util.List.of();

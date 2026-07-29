@@ -27,14 +27,21 @@ function Inner({ chat }: { chat: UseClaudeChatSocket }) {
 
   const [detail, setDetail] = useState<{ sessionId: string; reqId: string; questions: Question[]; label: string } | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!target) { setDetail(null); return }
+    if (!target) {
+      setDetail(null)
+      setSubmitError(null)
+      return
+    }
     let alive = true
     getPendingRequest(target.sessionId).then(msg => {
       if (!alive) return
       if (msg && msg.type === 'questionRequest') {
         setDetail({ sessionId: target.sessionId, reqId: msg.reqId, questions: msg.questions, label: target.title || target.cwd })
+        setSubmitting(false)
+        setSubmitError(null)
       } else {
         // 已被别的端处理，或读取时机撞上了状态切换：不展示，等下一次 pendingSessions 广播更新
         setDetail(null)
@@ -49,11 +56,14 @@ function Inner({ chat }: { chat: UseClaudeChatSocket }) {
   const decide = async (behavior: 'allow' | 'deny', answers?: Record<string, string | string[]>) => {
     if (submitting) return
     setSubmitting(true)
+    setSubmitError(null)
     try {
       await submitPendingDecision(detail.sessionId, { reqId: detail.reqId, behavior, answers })
+      setSubmitting(false)
       setDetail(null)
     } catch (e) {
       console.error('[claude-chat] 跨会话答题提交失败', e)
+      setSubmitError(e instanceof Error ? e.message : '提交失败，请稍后重试')
       setSubmitting(false)
     }
   }
@@ -62,6 +72,8 @@ function Inner({ chat }: { chat: UseClaudeChatSocket }) {
     <QuestionDialog
       questions={detail.questions}
       sourceLabel={detail.label}
+      submitting={submitting}
+      submitError={submitError}
       onCancel={() => void decide('deny')}
       onSubmit={answers => void decide('allow', answers)}
     />

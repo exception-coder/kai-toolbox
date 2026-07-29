@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
 import { ShieldQuestion } from 'lucide-react'
 
@@ -35,12 +36,17 @@ export function PermissionDialog({ toolName, input, onAllow, onDeny }: Props) {
 }
 
 export function Overlay({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-3 sm:items-center">
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/40 p-3 sm:items-center"
+      role="dialog"
+      aria-modal="true"
+    >
       <div className="w-full max-w-md rounded-2xl bg-[var(--color-background)] p-4 shadow-xl">
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

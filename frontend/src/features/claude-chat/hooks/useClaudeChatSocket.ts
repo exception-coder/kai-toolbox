@@ -317,7 +317,11 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
           })
         }
         {
-          const options = loadCodexOptions(msg.sessionId)
+          const fallback = loadCodexOptions(msg.sessionId)
+          const options = {
+            reasoningEffort: msg.codexReasoningEffort ?? fallback.reasoningEffort,
+            speed: msg.codexSpeed ?? fallback.speed,
+          }
           setCodexReasoningEffort(options.reasoningEffort)
           setCodexSpeed(options.speed)
           if (msg.engine === 'codex') sendRaw({ type: 'setCodexOptions', ...options })
@@ -337,7 +341,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
         if (msg.engine === 'codex' || msg.engine === 'gemini') {
           if (msg.engine === 'gemini') setModels([])
           setSlashCommands([])
-          setCurrentModel(null)
+          // 新后端由 ready 返回会话持久化模型；旧后端没有该字段时保留当前值，
+          // 等随后 models 事件校正，避免每轮 ready 再次清成“默认”。
+          if (msg.selectedModel !== undefined) setCurrentModel(msg.selectedModel)
           setSkills([])
           setAgents([])
           setMcpServers([])

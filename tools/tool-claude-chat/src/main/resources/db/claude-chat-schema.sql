@@ -20,6 +20,10 @@ CREATE TABLE IF NOT EXISTS claude_chat_session (
     auth_token      TEXT,
     -- Codex 官方登录配置根目录；空=默认 ~/.codex。仅保存路径，不读取其中认证内容。
     codex_home      TEXT,
+    -- 会话级模型与 Codex 执行参数；切换、刷新、sidecar 重建后按原选择恢复。
+    selected_model  TEXT,
+    codex_reasoning_effort TEXT,
+    codex_speed     TEXT DEFAULT 'default',
     -- 会话分组名（用户自定义，空=未分组）；原在浏览器 localStorage，改后端持久化后跨端/换浏览器可见
     group_name      TEXT,
     -- RUNNING / IDLE / INTERRUPTED / DONE

@@ -70,12 +70,25 @@ public class ClaudeChatSchemaMigration {
         } catch (Exception e) {
             log.debug("[claude-chat] codex_home 列迁移跳过：{}", e.getMessage());
         }
+        addColumn("selected_model", "TEXT");
+        addColumn("codex_reasoning_effort", "TEXT");
+        addColumn("codex_speed", "TEXT DEFAULT 'default'");
         // 会话分组列（原在浏览器 localStorage，改后端持久化后跨端/换浏览器可见）
         try {
             jdbc.execute("ALTER TABLE claude_chat_session ADD COLUMN group_name TEXT");
             log.info("[claude-chat] 迁移：claude_chat_session 已补 group_name 列");
         } catch (Exception e) {
             log.debug("[claude-chat] group_name 列迁移跳过：{}", e.getMessage());
+        }
+    }
+
+    /** 为存量会话表幂等补列。 */
+    private void addColumn(String column, String definition) {
+        try {
+            jdbc.execute("ALTER TABLE claude_chat_session ADD COLUMN " + column + " " + definition);
+            log.info("[claude-chat] 迁移：claude_chat_session 已补 {} 列", column);
+        } catch (Exception e) {
+            log.debug("[claude-chat] {} 列迁移跳过：{}", column, e.getMessage());
         }
     }
 }

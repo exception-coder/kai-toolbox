@@ -8,6 +8,7 @@ import { createErpDbServer } from './erpDb.js'
 import { createErpAppServer } from './erpApp.js'
 import { createSrmDbServer } from './srmDb.js'
 import { createSrmAppServer } from './srmApp.js'
+import { createScmDbServer } from './scmDb.js'
 import { createDomainKnowledgeServer, createCrossTopologyServer } from './knowledgeMcp.js'
 import { runCodexTurn, type CodexSpeed } from './codexEngine.js'
 import type { ModelReasoningEffort } from '@openai/codex-sdk'
@@ -320,6 +321,9 @@ class Session {
         // 未配置对应库/实例时工具自会回"未配置"，无害；「SRM需求开发」触发语显式点名这两个工具。
         mcpServers.srm_db = createSrmDbServer(toolboxApiBase)
         mcpServers.srm_app = createSrmAppServer(toolboxApiBase)
+        // SCM 需求开发：只挂只读 scm_db（MySQL 查库核对）；无 scm_app——SCM 暂无像 ERP/SRM 那样
+        // 可供登录态实发的网关/接口约定，验证口径改为「重启后查库回读」。未配置库时工具自会回"未配置"，无害。
+        mcpServers.scm_db = createScmDbServer(toolboxApiBase)
       }
 
       // 业务知识图谱：domain-knowledge（业务规则/状态机/公式）+ cross-topology（枚举值/API路径/表字段）
@@ -746,7 +750,7 @@ export class SessionManager {
    * 而弹了也没人看，最终超时 deny 或中断成 stream closed。
    */
   resume(id: string, sdkSessionId: string, cwd: string, engine?: string, apiBaseUrl?: string, authToken?: string, codexHome?: string,
-         mode?: string, autoApprove?: boolean): void {
+         mode?: string, autoApprove?: boolean, model?: string, codexReasoningEffort?: string, codexSpeed?: string): void {
     let s = this.sessions.get(id)
     if (!s) {
       s = new Session(id, cwd, (e) => this.emit(id, e))
@@ -759,6 +763,8 @@ export class SessionManager {
     s.codexHome = codexHome || undefined
     if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
     if (autoApprove != null) { s.autoApprove = autoApprove; s.perms.setAutoApprove(autoApprove) }
+    s.model = model || undefined
+    this.setCodexOptions(id, codexReasoningEffort ?? '', codexSpeed ?? 'default')
     this.applyCodexOptions(id, s)
     this.emitCachedModels(id, s)
   }

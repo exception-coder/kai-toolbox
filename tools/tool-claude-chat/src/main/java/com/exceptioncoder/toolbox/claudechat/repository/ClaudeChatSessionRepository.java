@@ -29,6 +29,9 @@ public class ClaudeChatSessionRepository {
             .apiBaseUrl(rs.getString("api_base_url"))
             .authToken(rs.getString("auth_token"))
             .codexHome(rs.getString("codex_home"))
+            .selectedModel(rs.getString("selected_model"))
+            .codexReasoningEffort(rs.getString("codex_reasoning_effort"))
+            .codexSpeed(rs.getString("codex_speed"))
             .groupName(rs.getString("group_name"))
             .status(SessionStatus.valueOf(rs.getString("status")))
             .startedAt(rs.getLong("started_at"))
@@ -50,12 +53,14 @@ public class ClaudeChatSessionRepository {
         String engine = s.getEngine() == null ? "claude" : s.getEngine();
         jdbc.update("""
                 INSERT INTO claude_chat_session
-                  (id, cwd, title, sdk_session_id, engine, engines, api_base_url, auth_token, codex_home, status, started_at, last_seen_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  (id, cwd, title, sdk_session_id, engine, engines, api_base_url, auth_token, codex_home,
+                   selected_model, codex_reasoning_effort, codex_speed, status, started_at, last_seen_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 s.getId(), s.getCwd(), s.getTitle(), s.getSdkSessionId(),
                 engine, s.getEngines() == null ? engine : s.getEngines(),
                 s.getApiBaseUrl(), s.getAuthToken(), s.getCodexHome(),
+                s.getSelectedModel(), s.getCodexReasoningEffort(), s.getCodexSpeed(),
                 s.getStatus().name(), s.getStartedAt(), s.getLastSeenAt());
     }
 
@@ -86,6 +91,18 @@ public class ClaudeChatSessionRepository {
         jdbc.update(
                 "UPDATE claude_chat_session SET api_base_url = ?, auth_token = ? WHERE id = ?",
                 apiBaseUrl, authToken, id);
+    }
+
+    /** 保存会话选择的模型。 */
+    public void updateSelectedModel(String id, String model) {
+        jdbc.update("UPDATE claude_chat_session SET selected_model = ? WHERE id = ?", model, id);
+    }
+
+    /** 保存 Codex 推理强度与速度。 */
+    public void updateCodexOptions(String id, String reasoningEffort, String speed) {
+        jdbc.update(
+                "UPDATE claude_chat_session SET codex_reasoning_effort = ?, codex_speed = ? WHERE id = ?",
+                reasoningEffort, speed, id);
     }
 
     public void updateSdkSessionId(String id, String sdkSessionId) {

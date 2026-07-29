@@ -131,7 +131,8 @@ wss.on('connection', (ws) => {
         break
       case 'resume':
         manager.resume(sessionId, msg.sdkSessionId as string, msg.cwd as string, msg.engine as string, msg.apiBaseUrl as string | undefined, msg.authToken as string | undefined,
-          msg.codexHome as string | undefined, msg.mode as string | undefined, msg.autoApprove as boolean | undefined)
+          msg.codexHome as string | undefined, msg.mode as string | undefined, msg.autoApprove as boolean | undefined,
+          msg.model as string | undefined, msg.codexReasoningEffort as string | undefined, msg.codexSpeed as string | undefined)
         break
       case 'user':
         manager.user(sessionId, msg.text as string)
