@@ -346,7 +346,7 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
         <div className="border-t border-indigo-300/12 p-3">
           <div className="rounded-2xl border border-indigo-300/22 bg-white/[0.04] p-2 transition-colors focus-within:border-sky-300/50 focus-within:shadow-[0_0_0_2px_rgba(120,150,255,0.2)]">
             {(atts.length > 0 || uploading > 0) && (
-              <div className="mb-1.5 flex flex-wrap gap-2 px-1">
+              <div className="mb-1.5 flex max-h-20 flex-wrap gap-2 overflow-y-auto px-1">
                 {atts.map((a) => (
                   <div key={a.path} className="fc-attach-thumb relative flex items-center gap-1.5 rounded-lg py-1 pl-1 pr-6 text-[11px] text-indigo-100/85">
                     {a.url ? <img src={a.url} alt={a.name} onClick={() => setLightbox(a.url!)} className="size-7 cursor-zoom-in rounded object-cover" /> : <span className="flex size-7 items-center justify-center rounded bg-white/5 text-sky-300/80">📄</span>}
@@ -369,8 +369,12 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
               value={text}
               onChange={(e) => setText(e.target.value)}
               onPaste={onPaste}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
-              placeholder="继续追问…（Enter 发送 / Shift+Enter 换行，可粘贴或上传附件）"
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter' || !e.shiftKey || e.nativeEvent.isComposing) return
+                e.preventDefault()
+                void send()
+              }}
+              placeholder="继续追问…（Shift+Enter 发送 / Enter 换行，可粘贴或上传附件）"
               className="w-full resize-none bg-transparent px-2 py-1.5 text-sm text-[#e8ecff] placeholder:text-indigo-200/35 focus:outline-none"
             />
             <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />

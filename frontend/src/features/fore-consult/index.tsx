@@ -1,5 +1,6 @@
 import { lazy } from 'react'
 import { MessagesSquare } from 'lucide-react'
+import { ConfirmProvider } from '@/components/ui/confirm-dialog'
 import type { FeatureManifest } from '@/shell/types'
 
 const ForeConsultPage = lazy(() =>
@@ -13,7 +14,14 @@ const manifest: FeatureManifest = {
   group: 'AI',
   description: '选定业务系统与模块，复用 Vibe Coding 会话以业务口吻答疑并归档引用',
   order: 56,
-  routes: [{ path: '/tools/fore-consult', element: <ForeConsultPage /> }],
+  routes: [{
+    path: '/tools/fore-consult',
+    element: (
+      <ConfirmProvider>
+        <ForeConsultPage />
+      </ConfirmProvider>
+    ),
+  }],
 }
 
 export default manifest

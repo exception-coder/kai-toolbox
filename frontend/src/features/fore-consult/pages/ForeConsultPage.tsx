@@ -1176,7 +1176,7 @@ export function ForeConsultPage() {
             </div>
 
             {/* Prompt Composer：Claude 风格提问区 + 建议快填 */}
-            <div className="border-t border-indigo-300/12 p-4">
+            <div className="min-h-0 overflow-y-auto border-t border-indigo-300/12 p-4">
               <div className="mb-2.5 flex items-center gap-2">
                 <span className="text-[11px] text-indigo-200/50">回答对象</span>
                 <div className="flex rounded-lg border border-indigo-300/20 bg-white/[0.04] p-0.5">
@@ -1253,7 +1253,7 @@ export function ForeConsultPage() {
               </div>
               <div className="rounded-2xl border border-indigo-300/22 bg-white/[0.04] p-2 transition-colors focus-within:border-sky-300/50 focus-within:shadow-[0_0_0_2px_rgba(120,150,255,0.2)]">
                 {(attachments.length > 0 || uploading > 0) && (
-                  <div className="mb-1.5 flex flex-wrap gap-2 px-1">
+                  <div className="mb-1.5 flex max-h-20 flex-wrap gap-2 overflow-y-auto px-1">
                     {attachments.map((a) => (
                       <div key={a.path} className="fc-attach-thumb relative flex items-center gap-1.5 rounded-lg py-1 pl-1 pr-6 text-[11px] text-indigo-100/85">
                         {a.url ? (
@@ -1287,11 +1287,16 @@ export function ForeConsultPage() {
                   value={ask}
                   onChange={(e) => setAsk(e.target.value)}
                   onPaste={handlePaste}
-                  placeholder="今天想了解这个系统的什么？用业务语言问，例如：采购退货单在哪里录入？（可粘贴/上传附件）"
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter' || !e.shiftKey || e.nativeEvent.isComposing) return
+                    e.preventDefault()
+                    if (canStart) startMutation.mutate()
+                  }}
+                  placeholder="今天想了解这个系统的什么？用业务语言问，例如：采购退货单在哪里录入？（Shift+Enter 发送，可粘贴/上传附件）"
                   className="w-full resize-none bg-transparent px-2 py-1.5 text-sm text-[#e8ecff] placeholder:text-indigo-200/35 focus:outline-none"
                 />
                 <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
-                <div className="flex items-center justify-between px-1 pt-1">
+                <div className="sticky bottom-0 z-10 flex items-center justify-between rounded-b-xl bg-[#12172d]/95 px-1 pt-1 backdrop-blur">
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
