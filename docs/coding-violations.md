@@ -12,3 +12,4 @@
 | 5 | CSS 完整性 | 页面级重构只覆盖卡片部分属性，通用样式回流后形成白底但零水平内边距 | 页面级变体必须完整定义布局、背景、边界和间距，并检查最终计算样式 | webppt-deck.css | 2026-07-21 | 1 |
 | 6 | 布局安全性 | 固定绝对定位页脚未参与正文布局，新增高内容页面时覆盖正文 | 页脚必须进入母版布局流或预留可验证安全区，并逐页执行正文与页脚碰撞检查 | SlideSection.tsx、webppt-deck.css | 2026-07-21 | 1 |
 | 7 | 架构约束 | 将 npm、pip、Maven 不同配置语义过度抽象为统一缓存迁移流程 | 统一入口只负责编排；每个包管理器用独立策略处理原生配置、优先级、备份和验证 | PackageCacheConfigService.java、PackageCacheMigration.tsx | 2026-07-26 | 1 |
+| 8 | 异常处理 | 将同名的 Codex item error 与顶层致命 error 混写在一个分支中，代码审查时无法直观看出严重级别边界 | 按 SDK 事件层级明确命名转换函数和事件码，item error 按官方 non-fatal 语义处理，turn.failed 与顶层 error 保持致命 | codexEngine.ts | 2026-07-29 | 1 |

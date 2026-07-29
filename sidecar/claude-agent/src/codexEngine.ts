@@ -1,7 +1,15 @@
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { resolve } from 'node:path'
-import { Codex, type ApprovalMode, type ModelReasoningEffort, type SandboxMode, type ThreadItem, type ThreadOptions } from '@openai/codex-sdk'
+import {
+  Codex,
+  type ApprovalMode,
+  type ErrorItem,
+  type ModelReasoningEffort,
+  type SandboxMode,
+  type ThreadItem,
+  type ThreadOptions,
+} from '@openai/codex-sdk'
 
 export type CodexSpeed = 'default' | 'fast'
 
@@ -229,15 +237,23 @@ function handleItem(
       }
       break
     case 'error':
-      // Codex 会把可恢复的运行提示（例如 Skill 描述超过上下文预算而被缩短）
-      // 也表示为 error item；轮次是否失败由 turn.failed / 流级 error 决定。
-      // 只在 completed 阶段上报一次非致命告警，避免 one-shot 消费者提前终止任务。
-      if (phase === 'item.completed') {
-        ctx.emit({ type: 'warning', code: 'CODEX_ITEM_WARNING', message: item.message })
-      }
+      handleNonFatalErrorItem(phase, item, ctx)
       break
     // todo_list：v1 忽略
   }
+}
+
+/**
+ * Codex SDK 将 ErrorItem 明确定义为 non-fatal；真正不可恢复的错误由 turn.failed
+ * 或顶层 ThreadErrorEvent(type=error) 表达。独立命名该转换，避免与顶层致命 error 混淆。
+ */
+function handleNonFatalErrorItem(
+  phase: 'item.started' | 'item.updated' | 'item.completed',
+  item: ErrorItem,
+  ctx: CodexTurnCtx,
+): void {
+  if (phase !== 'item.completed') return
+  ctx.emit({ type: 'warning', code: 'CODEX_NON_FATAL_ITEM_ERROR', message: item.message })
 }
 
 function safeStringify(v: unknown): string {
