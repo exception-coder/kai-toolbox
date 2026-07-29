@@ -229,7 +229,12 @@ function handleItem(
       }
       break
     case 'error':
-      ctx.emit({ type: 'error', code: 'CODEX_ITEM_ERROR', message: item.message })
+      // Codex 会把可恢复的运行提示（例如 Skill 描述超过上下文预算而被缩短）
+      // 也表示为 error item；轮次是否失败由 turn.failed / 流级 error 决定。
+      // 只在 completed 阶段上报一次非致命告警，避免 one-shot 消费者提前终止任务。
+      if (phase === 'item.completed') {
+        ctx.emit({ type: 'warning', code: 'CODEX_ITEM_WARNING', message: item.message })
+      }
       break
     // todo_list：v1 忽略
   }
