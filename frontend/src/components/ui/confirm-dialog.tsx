@@ -95,14 +95,14 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
               </div>
             </div>
             <div className="mt-5 flex items-center justify-end gap-2">
-              <Button variant="outline" size="sm" onClick={() => handleResolve(false)}>
+              <Button variant="outline" size="sm" onClick={() => handleResolve(false)} autoFocus={isDestructive}>
                 {opts?.cancelText ?? '取消'}
               </Button>
               <Button
                 variant={isDestructive ? 'destructive' : 'default'}
                 size="sm"
                 onClick={() => handleResolve(true)}
-                autoFocus
+                autoFocus={!isDestructive}
               >
                 {opts?.confirmText ?? '确认'}
               </Button>

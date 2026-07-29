@@ -8,6 +8,7 @@ import { engineDisplayName, providerHost } from './chatStatus'
 import type { ClaudeChatSessionView, Engine } from '../types'
 import { getSessionsByDevSessions } from '@/features/prd-clarify/api'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { useConfirm } from '@/components/ui/confirm-dialog'
 import { SessionActivityBar } from './SessionActivityBar'
 
 const OLD_GROUP_KEY = 'kai-toolbox:claude-chat:session-groups'
@@ -28,6 +29,7 @@ const UNGROUPED = ' ungrouped'
 
 export function SessionList({ currentSessionId, onSwitch, selectable, selectedIds, onToggleSelect }: Props) {
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const { data: sessions = [], isPending } = useQuery({
     queryKey: KEY,
     queryFn: listSessions,
@@ -112,8 +114,16 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [groupPickFor, setGroupPickFor] = useState<ClaudeChatSessionView | null>(null)
 
-  const remove = async (id: string) => {
-    await deleteSession(id)
+  const remove = async (session: ClaudeChatSessionView) => {
+    const ok = await confirm({
+      title: '删除会话？',
+      description: `会话“${session.title || shortCwd(session.cwd)}”删除后无法恢复。`,
+      confirmText: '确认删除',
+      cancelText: '取消',
+      variant: 'destructive',
+    })
+    if (!ok) return
+    await deleteSession(session.id)
     qc.invalidateQueries({ queryKey: KEY })
   }
 
@@ -451,7 +461,7 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
             <button
               type="button"
               className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:text-[var(--color-destructive)]"
-              onClick={e => { e.stopPropagation(); void remove(s.id) }}
+              onClick={e => { e.stopPropagation(); void remove(s) }}
               aria-label="删除会话"
             >
               <Trash2 className="size-3.5" />
