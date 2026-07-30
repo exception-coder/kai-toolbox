@@ -101,22 +101,143 @@ function hashStr(s: string): number {
   return Math.abs(h)
 }
 
-/** 黄金角螺旋布点，把系统均匀铺在星系里（确定性，随索引稳定）。 */
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+
+function orbDiameter(name: string, degree: number): number {
+  return 50 + Math.min(degree, 4) * 11 + (hashStr(name) % 8)
+}
+
+function estimatedLabelWidth(label: string): number {
+  const width = Array.from(label).reduce((sum, char) => sum + (char.charCodeAt(0) > 255 ? 12.5 : 7.4), 0)
+  return clamp(width + 16, 44, 220)
+}
+
+/** 确定性的多圈布点：每一圈等角分布，避免黄金角在节点较少时把相邻星球排到同一象限。 */
 function orbLayout(count: number) {
   const out: Array<{ x: number; y: number }> = []
-  for (let i = 0; i < count; i++) {
-    const angle = i * 2.399963 // 黄金角 ≈137.5°
-    const r = Math.min(42, 21 + Math.sqrt(i) * 6.5) // 从内环 21% 起，让开中央 Forge 恒星
-    const x = Math.max(8, Math.min(92, 50 + r * Math.cos(angle) * 1.2))
-    const y = Math.max(12, Math.min(85, 48 + r * Math.sin(angle) * 0.95))
-    out.push({ x, y })
+  let placed = 0
+  let ring = 0
+  while (placed < count) {
+    const ringCount = Math.min(count - placed, 7 * (ring + 1))
+    const radiusX = Math.min(44, 25 + ring * 10)
+    const radiusY = Math.min(36, 23 + ring * 7)
+    const phase = -Math.PI / 2 + (ring % 2 === 0 ? 0 : Math.PI / Math.max(ringCount, 1))
+    for (let index = 0; index < ringCount; index++) {
+      const angle = phase + (index / ringCount) * Math.PI * 2
+      out.push({
+        x: clamp(50 + radiusX * Math.cos(angle), 7, 93),
+        y: clamp(48 + radiusY * Math.sin(angle), 10, 86),
+      })
+    }
+    placed += ringCount
+    ring++
   }
   return out
 }
 
 type Pos = { x: number; y: number }
+type CanvasSize = { width: number; height: number }
 
-const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+/**
+ * 按星球的实际像素直径做最终防碰撞。力导向负责表达关系，这一步只负责保证默认展示时
+ * 球体、标签和中央 Forge 核心之间留有清晰间距；用户手动拖拽过的节点保持原位。
+ */
+function resolveOrbCollisions(
+  source: Map<string, Pos>,
+  names: string[],
+  sizes: Map<string, number>,
+  labels: Map<string, string>,
+  pinned: Map<string, Pos>,
+  canvas: CanvasSize,
+): Map<string, Pos> {
+  const width = Math.max(canvas.width, 640)
+  const height = Math.max(canvas.height, 480)
+  const points = new Map<string, Pos>()
+  names.forEach((name) => {
+    const p = source.get(name)
+    if (p) points.set(name, { x: (p.x / 100) * width, y: (p.y / 100) * height })
+  })
+
+  const move = (name: string, dx: number, dy: number) => {
+    if (pinned.has(name)) return
+    const p = points.get(name)
+    if (p) {
+      p.x += dx
+      p.y += dy
+    }
+  }
+
+  const boundsOf = (name: string) => {
+    const p = points.get(name)!
+    const radius = (sizes.get(name) ?? 50) / 2
+    const halfWidth = Math.max(radius + 14, estimatedLabelWidth(labels.get(name) ?? name) / 2 + 8)
+    return {
+      left: p.x - halfWidth,
+      right: p.x + halfWidth,
+      // 上方只需覆盖球体和轻量光晕；下方还要包含 8px 间隔与单行名称。
+      top: p.y - radius - 16,
+      bottom: p.y + radius + 40,
+    }
+  }
+
+  for (let iteration = 0; iteration < 80; iteration++) {
+    let adjusted = false
+    for (let i = 0; i < names.length; i++) {
+      for (let j = i + 1; j < names.length; j++) {
+        const aName = names[i]
+        const bName = names[j]
+        const a = points.get(aName)
+        const b = points.get(bName)
+        if (!a || !b || (pinned.has(aName) && pinned.has(bName))) continue
+        const aBounds = boundsOf(aName)
+        const bBounds = boundsOf(bName)
+        const overlapX = Math.min(aBounds.right, bBounds.right) - Math.max(aBounds.left, bBounds.left)
+        const overlapY = Math.min(aBounds.bottom, bBounds.bottom) - Math.max(aBounds.top, bBounds.top)
+        if (overlapX <= 0 || overlapY <= 0) continue
+
+        const separateOnX = overlapX < overlapY
+        const centerDelta = separateOnX ? b.x - a.x : b.y - a.y
+        const deterministicSign = hashStr(`${aName}:${bName}`) % 2 === 0 ? 1 : -1
+        const direction = Math.abs(centerDelta) > 0.1 ? Math.sign(centerDelta) : deterministicSign
+        const pushX = separateOnX ? direction * (overlapX + 8) : 0
+        const pushY = separateOnX ? 0 : direction * (overlapY + 8)
+        if (pinned.has(aName)) {
+          move(bName, pushX, pushY)
+        } else if (pinned.has(bName)) {
+          move(aName, -pushX, -pushY)
+        } else {
+          move(aName, -pushX * 0.5, -pushY * 0.5)
+          move(bName, pushX * 0.5, pushY * 0.5)
+        }
+        adjusted = true
+      }
+    }
+
+    for (const name of names) {
+      if (pinned.has(name)) continue
+      const p = points.get(name)
+      if (!p) continue
+      const radius = (sizes.get(name) ?? 50) / 2
+      const coreDx = p.x - width * 0.5
+      const coreDy = p.y - height * 0.48
+      const coreDistance = Math.hypot(coreDx, coreDy) || 0.1
+      const coreMinimum = radius + 102
+      if (coreDistance < coreMinimum) {
+        const push = coreMinimum - coreDistance + 0.5
+        p.x += (coreDx / coreDistance) * push
+        p.y += (coreDy / coreDistance) * push
+        adjusted = true
+      }
+      p.x = clamp(p.x, radius + 22, width - radius - 22)
+      p.y = clamp(p.y, radius + 76, height - radius - 76)
+    }
+    if (!adjusted) break
+  }
+
+  const result = new Map<string, Pos>()
+  points.forEach((p, name) => result.set(name, { x: (p.x / width) * 100, y: (p.y / height) * 100 }))
+  return result
+}
 
 /**
  * 力导向布局：无连线时用螺旋原样铺开；有连线时——
@@ -309,6 +430,7 @@ export function ForeConsultPage() {
   const [role, setRole] = useState<ConsultRole>(CONSULT_ROLE)
   const [moduleQuery, setModuleQuery] = useState('')
   const [modulesExpanded, setModulesExpanded] = useState(false)
+  const [modulePickerOpen, setModulePickerOpen] = useState(false)
   const [attachments, setAttachments] = useState<ConsultAtt[]>([])
   const [uploading, setUploading] = useState(0)
   const [panelOpen, setPanelOpen] = useState(false)
@@ -340,6 +462,7 @@ export function ForeConsultPage() {
     attachments: ConsultAtt[]
   } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const [canvasSize, setCanvasSize] = useState<CanvasSize>({ width: 1600, height: 900 })
   const dragRef = useRef<{ name: string; moved: boolean } | null>(null)
   const dragFrameRef = useRef<number | null>(null)
   const pendingDragRef = useRef<{ name: string; pos: Pos } | null>(null)
@@ -350,6 +473,25 @@ export function ForeConsultPage() {
   attachmentsRef.current = attachments
   const syncTimerRef = useRef<number | null>(null)
   const resumeRef = useRef<string | null>(null) // 待续跑的 claude-chat 会话 id
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const updateSize = () => {
+      const rect = container.getBoundingClientRect()
+      if (rect.width > 0 && rect.height > 0) {
+        setCanvasSize((current) =>
+          current.width === rect.width && current.height === rect.height
+            ? current
+            : { width: rect.width, height: rect.height },
+        )
+      }
+    }
+    updateSize()
+    const observer = new ResizeObserver(updateSize)
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [])
 
   const { data: workspaces } = useQuery({ queryKey: ['workspaces'], queryFn: listWorkspaces })
 
@@ -419,6 +561,16 @@ export function ForeConsultPage() {
     return m
   }, [activeLinks])
 
+  const orbSizes = useMemo(() => {
+    const sizes = new Map<string, number>()
+    shownProjects.forEach((project) => sizes.set(project.name, orbDiameter(project.name, degreeMap.get(project.name) ?? 0)))
+    return sizes
+  }, [shownProjects, degreeMap])
+  const orbLabels = useMemo(
+    () => new Map(shownProjects.map((project) => [project.name, project.label])),
+    [shownProjects],
+  )
+
   // 力导向坐标：行星绕中央 Forge 恒星成环，无关系的球被推到外圈让开连线，可拖拽微调。
   const basePositions = useMemo(
     () => computeLayout(shownProjects.map((p) => p.name), activeLinks, new Map()),
@@ -427,38 +579,63 @@ export function ForeConsultPage() {
   // 拖动只覆盖当前节点坐标，不再把高频 pointermove 送进 300 轮力导向迭代。
   const positions = useMemo(
     () => {
-      if (overrides.size === 0) return basePositions
       const merged = new Map(basePositions)
       overrides.forEach((pos, name) => merged.set(name, pos))
-      return merged
+      return resolveOrbCollisions(
+        merged,
+        shownProjects.map((project) => project.name),
+        orbSizes,
+        orbLabels,
+        overrides,
+        canvasSize,
+      )
     },
-    [basePositions, overrides],
+    [basePositions, overrides, shownProjects, orbSizes, orbLabels, canvasSize],
   )
 
-  // 链路边几何：二次贝塞尔轻微外弓，标签落在曲线中点。
+  // 链路边几何：从调用方球体边缘出发、以箭头落到被调用方球体边缘，方向为 from → to。
   const edges = useMemo(() => {
+    const width = Math.max(canvasSize.width, 640)
+    const height = Math.max(canvasSize.height, 480)
     return activeLinks
       .map((l) => {
         const a = positions.get(l.from)
         const b = positions.get(l.to)
         if (!a || !b) return null
-        const mx = (a.x + b.x) / 2
-        const my = (a.y + b.y) / 2
-        const dx = b.x - a.x
-        const dy = b.y - a.y
-        const len = Math.hypot(dx, dy) || 1
-        const k = Math.min(9, len * 0.16)
-        const cx = mx + (-dy / len) * k
-        const cy = my + (dx / len) * k
+        const aPx = { x: (a.x / 100) * width, y: (a.y / 100) * height }
+        const bPx = { x: (b.x / 100) * width, y: (b.y / 100) * height }
+        const dx = bPx.x - aPx.x
+        const dy = bPx.y - aPx.y
+        const length = Math.hypot(dx, dy) || 1
+        const ux = dx / length
+        const uy = dy / length
+        const startPad = (orbSizes.get(l.from) ?? 50) / 2 + 6
+        const endPad = (orbSizes.get(l.to) ?? 50) / 2 + 10
+        const start = {
+          x: aPx.x + ux * Math.min(startPad, length * 0.25),
+          y: aPx.y + uy * Math.min(startPad, length * 0.25),
+        }
+        const end = {
+          x: bPx.x - ux * Math.min(endPad, length * 0.25),
+          y: bPx.y - uy * Math.min(endPad, length * 0.25),
+        }
+        const mx = (start.x + end.x) / 2
+        const my = (start.y + end.y) / 2
+        const curve = Math.min(72, length * 0.13)
+        const control = { x: mx - uy * curve, y: my + ux * curve }
+        const pct = (point: Pos): Pos => ({ x: (point.x / width) * 100, y: (point.y / height) * 100 })
+        const s = pct(start)
+        const c = pct(control)
+        const e = pct(end)
         return {
           link: l,
-          d: `M ${a.x} ${a.y} Q ${cx} ${cy} ${b.x} ${b.y}`,
-          lx: 0.25 * a.x + 0.5 * cx + 0.25 * b.x,
-          ly: 0.25 * a.y + 0.5 * cy + 0.25 * b.y,
+          d: `M ${s.x} ${s.y} Q ${c.x} ${c.y} ${e.x} ${e.y}`,
+          lx: 0.25 * s.x + 0.5 * c.x + 0.25 * e.x,
+          ly: 0.25 * s.y + 0.5 * c.y + 0.25 * e.y,
         }
       })
       .filter((e): e is NonNullable<typeof e> => e !== null)
-  }, [activeLinks, positions])
+  }, [activeLinks, positions, orbSizes, canvasSize])
 
   const systemPath = useMemo(() => projects.find((p) => p.name === system)?.path ?? '', [projects, system])
 
@@ -505,6 +682,7 @@ export function ForeConsultPage() {
       : undefined
     chat.send(p.seed, atts, p.displayText)
     setAttachments([])
+    setModulePickerOpen(false)
     setPanelOpen(false)
     setConversationOpen(true)
     // 会话 id 异步产生，关联 + 分组交给下方 effect 监听 chat.sessionId 处理（比 setTimeout 读 null 可靠）。
@@ -744,6 +922,7 @@ export function ForeConsultPage() {
     setAsk('')
     setModuleQuery('')
     setModulesExpanded(false)
+    setModulePickerOpen(false)
     setAttachments([])
     attMetaRef.current = new Map()
     setPanelOpen(true)
@@ -822,10 +1001,10 @@ export function ForeConsultPage() {
       {/* 顶部标题栏 */}
       <header className="pointer-events-none absolute left-0 right-0 top-0 z-20 flex items-center justify-between px-6 py-4">
         <div className="flex items-center gap-2.5">
-          <Radar className="size-5 text-sky-300" />
+          <Radar className="size-5 text-sky-600" />
           <div>
-            <h1 className="text-base font-semibold tracking-wide text-white">业务系统星图</h1>
-            <p className="text-xs text-indigo-200/60">点击一颗资产星球，选定模块后向 AI 发起业务咨询</p>
+            <h1 className="text-base font-semibold tracking-wide text-slate-900">业务系统图谱</h1>
+            <p className="text-xs text-slate-500">点击一个业务系统，选定模块后向 AI 发起咨询</p>
           </div>
         </div>
         <div className="fc-toolbar pointer-events-auto flex items-center gap-1.5">
@@ -833,7 +1012,7 @@ export function ForeConsultPage() {
             type="button"
             onClick={() => topoMutation.mutate()}
             disabled={visibleProjects.length < 2 || topoMutation.isPending}
-            className="flex items-center gap-1.5 rounded-full border border-sky-300/25 bg-sky-400/10 px-3 py-1.5 text-xs text-sky-100 transition-colors hover:bg-sky-400/20 disabled:opacity-40"
+            className="flex items-center gap-1.5 rounded-full border border-sky-200/80 bg-sky-50/80 px-3 py-1.5 text-xs text-sky-700 transition-colors hover:bg-sky-100 disabled:opacity-40"
             title="调用 cross-topology 图谱分析系统之间的链路关系"
           >
             {topoMutation.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Waypoints className="size-3.5" />}
@@ -843,7 +1022,7 @@ export function ForeConsultPage() {
             <button
               type="button"
               onClick={() => setShowLinks((s) => !s)}
-              className="flex items-center gap-1.5 rounded-full border border-indigo-300/20 bg-white/[0.04] px-3 py-1.5 text-xs text-indigo-100 transition-colors hover:bg-white/10"
+              className="flex items-center gap-1.5 rounded-full border border-slate-200/70 bg-white/50 px-3 py-1.5 text-xs text-slate-600 transition-colors hover:bg-white/80 hover:text-slate-900"
               title={showLinks ? '隐藏连线' : '显示连线'}
             >
               {showLinks ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
@@ -853,7 +1032,7 @@ export function ForeConsultPage() {
           <button
             type="button"
             onClick={openConfig}
-            className="flex items-center gap-1.5 rounded-full border border-indigo-300/20 bg-white/[0.04] px-3 py-1.5 text-xs text-indigo-100 transition-colors hover:bg-white/10"
+            className="flex items-center gap-1.5 rounded-full border border-slate-200/70 bg-white/50 px-3 py-1.5 text-xs text-slate-600 transition-colors hover:bg-white/80 hover:text-slate-900"
             title="管理系统别名与显示范围"
           >
             <SlidersHorizontal className="size-3.5" />
@@ -862,7 +1041,7 @@ export function ForeConsultPage() {
           <button
             type="button"
             onClick={() => setHistoryOpen((o) => !o)}
-            className="flex items-center gap-1.5 rounded-full border border-indigo-300/20 bg-white/[0.04] px-3 py-1.5 text-xs text-indigo-100 transition-colors hover:bg-white/10"
+            className="flex items-center gap-1.5 rounded-full border border-slate-200/70 bg-white/50 px-3 py-1.5 text-xs text-slate-600 transition-colors hover:bg-white/80 hover:text-slate-900"
           >
             <History className="size-3.5" />
             历史咨询 {(history ?? []).length > 0 && `· ${(history ?? []).length}`}
@@ -870,7 +1049,7 @@ export function ForeConsultPage() {
           <button
             type="button"
             onClick={() => setBugsOpen((o) => !o)}
-            className="flex items-center gap-1.5 rounded-full border border-amber-300/20 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-100 transition-colors hover:bg-amber-400/20"
+            className="flex items-center gap-1.5 rounded-full border border-amber-200/80 bg-amber-50/75 px-3 py-1.5 text-xs text-amber-700 transition-colors hover:bg-amber-100"
             title="AI 自动登记的缺陷/数据问题"
           >
             <Bug className="size-3.5" />
@@ -879,7 +1058,7 @@ export function ForeConsultPage() {
           <button
             type="button"
             onClick={toggleFullscreen}
-            className="flex items-center gap-1.5 rounded-full border border-indigo-300/20 bg-white/[0.04] px-2.5 py-1.5 text-xs text-indigo-100 transition-colors hover:bg-white/10"
+            className="flex items-center gap-1.5 rounded-full border border-slate-200/70 bg-white/50 px-2.5 py-1.5 text-xs text-slate-600 transition-colors hover:bg-white/80 hover:text-slate-900"
             title={isFullscreen ? '退出全屏' : '全屏展示'}
           >
             {isFullscreen ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
@@ -896,7 +1075,7 @@ export function ForeConsultPage() {
           onPointerUp={(event) => event.stopPropagation()}
           onClick={(event) => event.stopPropagation()}
         >
-          <div className="flex items-center gap-3 rounded-full border border-emerald-300/30 bg-[#102b2a]/90 px-4 py-1.5 text-xs text-emerald-100 shadow-[0_12px_36px_-16px_rgba(52,211,153,0.9)] backdrop-blur-md">
+          <div className="flex items-center gap-3 rounded-full border border-emerald-200/80 bg-white/75 px-4 py-1.5 text-xs text-emerald-700 shadow-[0_16px_38px_-24px_rgba(5,150,105,0.45)] backdrop-blur-xl">
             <span className="relative flex size-2">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
               <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
@@ -905,7 +1084,7 @@ export function ForeConsultPage() {
             <button
               type="button"
               onClick={() => setConversationOpen(true)}
-              className="ml-1 flex items-center gap-1 rounded-full border border-emerald-300/40 px-2.5 py-1 font-medium text-emerald-100 transition-colors hover:bg-emerald-400/15"
+              className="ml-1 flex items-center gap-1 rounded-full border border-emerald-200 px-2.5 py-1 font-medium text-emerald-700 transition-colors hover:bg-emerald-50"
             >
               <MessagesSquare className="size-3" /> 查看对话
             </button>
@@ -928,7 +1107,7 @@ export function ForeConsultPage() {
       {activeConsultId && archiveError && (
         <div
           role="alert"
-          className="absolute left-1/2 top-28 z-[60] flex max-w-[90%] -translate-x-1/2 items-center gap-2 rounded-xl border border-rose-300/30 bg-rose-950/90 px-3 py-2 text-xs text-rose-100 shadow-xl backdrop-blur-md"
+          className="absolute left-1/2 top-28 z-[60] flex max-w-[90%] -translate-x-1/2 items-center gap-2 rounded-xl border border-rose-200 bg-white/85 px-3 py-2 text-xs text-rose-700 shadow-xl backdrop-blur-xl"
           onPointerDown={(event) => event.stopPropagation()}
           onClick={(event) => event.stopPropagation()}
         >
@@ -944,7 +1123,7 @@ export function ForeConsultPage() {
           <button
             type="button"
             onClick={() => setArchiveError(null)}
-            className="shrink-0 rounded-md p-1 text-rose-100/70 hover:bg-white/10"
+            className="shrink-0 rounded-md p-1 text-rose-500 hover:bg-rose-50"
             aria-label="关闭归档错误提示"
           >
             <X className="size-3.5" />
@@ -973,12 +1152,12 @@ export function ForeConsultPage() {
         !viewSession &&
         !activeConsultId && (
           <div className="pointer-events-none absolute left-1/2 top-[13%] z-20 max-w-[90%] -translate-x-1/2">
-            <div className="fc-hint pointer-events-auto flex items-center gap-2.5 rounded-full border border-sky-300/35 bg-sky-400/15 px-4 py-2 text-sm text-sky-50 backdrop-blur-md">
-              <MousePointerClick className="fc-hint-icon size-4 shrink-0 text-sky-300" />
+            <div className="fc-hint pointer-events-auto flex items-center gap-2.5 rounded-full border border-white/80 bg-white/68 px-4 py-2 text-sm text-slate-600 backdrop-blur-xl">
+              <MousePointerClick className="fc-hint-icon size-4 shrink-0 text-sky-600" />
               <span>
-                点击任意<b className="font-semibold text-white">系统星球</b>，选定模块后即可向 AI 发起业务咨询
+                点击任意<b className="font-semibold text-slate-900">业务系统</b>，选定模块后即可向 AI 发起咨询
               </span>
-              <button type="button" onClick={dismissHint} className="ml-1 shrink-0 rounded-full p-0.5 text-sky-100/70 hover:bg-white/10" aria-label="知道了">
+              <button type="button" onClick={dismissHint} className="ml-1 shrink-0 rounded-full p-0.5 text-slate-400 hover:bg-slate-100" aria-label="知道了">
                 <X className="size-3.5" />
               </button>
             </div>
@@ -990,14 +1169,26 @@ export function ForeConsultPage() {
         <svg className="pointer-events-none absolute inset-0 z-[5] h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
           <defs>
             <linearGradient id="fc-edge-grad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="#38bdf8" />
-              <stop offset="100%" stopColor="#818cf8" />
+              <stop offset="0%" stopColor="#0ea5e9" />
+              <stop offset="100%" stopColor="#6366f1" />
             </linearGradient>
+            <marker
+              id="fc-edge-arrow"
+              viewBox="0 0 10 10"
+              refX="8.5"
+              refY="5"
+              markerWidth="7"
+              markerHeight="7"
+              orient="auto-start-reverse"
+              markerUnits="strokeWidth"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b" />
+            </marker>
           </defs>
           {edges.map((e, i) => (
             <g key={i}>
               <path className="fc-edge-glow" d={e.d} vectorEffect="non-scaling-stroke" />
-              <path className="fc-edge" d={e.d} vectorEffect="non-scaling-stroke" />
+              <path className="fc-edge" d={e.d} markerEnd="url(#fc-edge-arrow)" vectorEffect="non-scaling-stroke" />
             </g>
           ))}
         </svg>
@@ -1018,13 +1209,13 @@ export function ForeConsultPage() {
       {/* 星系：资产球体 */}
       <div className="absolute inset-0 z-10">
         {projects.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-sm text-indigo-200/60">
+          <div className="flex h-full items-center justify-center text-sm text-slate-500">
             未扫描到业务系统（检查 claude-chat 工作区配置）
           </div>
         ) : visibleProjects.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-indigo-200/60">
+          <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-slate-400">
             所有系统都被隐藏了
-            <button type="button" onClick={openConfig} className="rounded-full border border-indigo-300/30 bg-white/5 px-3 py-1.5 text-xs text-indigo-100 hover:bg-white/10">
+            <button type="button" onClick={openConfig} className="rounded-full border border-slate-200 bg-white/65 px-3 py-1.5 text-xs text-slate-700 hover:bg-white">
               打开配置调整显示范围
             </button>
           </div>
@@ -1033,8 +1224,7 @@ export function ForeConsultPage() {
             const h = hashStr(p.name)
             const hue = categoryOf(p.name, p.label).color
             // 越核心（连接度越高）的系统球越大，让领导一眼看到枢纽。
-            const degree = degreeMap.get(p.name) ?? 0
-            const size = 50 + Math.min(degree, 4) * 11 + (h % 8)
+            const size = orbSizes.get(p.name) ?? orbDiameter(p.name, 0)
             const pos = positions.get(p.name)
             if (!pos) return null
             const isActive = system === p.name && (panelOpen || !!activeConsultId)
@@ -1070,7 +1260,7 @@ export function ForeConsultPage() {
                 >
                   <SysIcon className="fc-orb-glyph" style={{ width: iconSize, height: iconSize }} strokeWidth={1.9} />
                 </button>
-                <span className="fc-orb-label">{p.label}</span>
+                <span className="fc-orb-label" title={p.label}>{p.label}</span>
               </div>
             )
           })
@@ -1079,7 +1269,9 @@ export function ForeConsultPage() {
 
       {/* 业务域筛选 chips（底部居中，兼作图例） */}
       {presentCategories.length > 0 && (
-        <div className="absolute bottom-4 left-1/2 z-20 flex max-w-[86%] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-full border border-indigo-300/15 bg-white/[0.05] px-1.5 py-1 backdrop-blur-md">
+        <div className={`absolute left-1/2 z-20 flex max-w-[86%] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-full border border-white/80 bg-white/55 px-1.5 py-1 shadow-[0_16px_36px_-26px_rgba(15,23,42,0.32)] backdrop-blur-xl transition-[bottom] duration-300 ${
+          panelOpen ? 'bottom-[172px]' : 'bottom-4'
+        }`}>
           <FilterChip label="全部" active={categoryFilter === null} onClick={() => setCategoryFilter(null)} />
           {presentCategories.map((c) => (
             <FilterChip
@@ -1093,84 +1285,46 @@ export function ForeConsultPage() {
         </div>
       )}
 
-      {/* 模块选择 + 提问：全息任务控制台（侧滑，不遮银河） */}
+      {/* AI Mission Workspace：图谱是主舞台，咨询仅作为底部轻量入口。 */}
       {panelOpen && (
-        <div className="absolute inset-0 z-30" onClick={() => setPanelOpen(false)}>
-          <div
-            className="fc-console absolute inset-y-0 left-0 flex w-[min(440px,92vw)] flex-col"
-            onClick={(e) => e.stopPropagation()}
-            style={{ ['--fc-hue' as string]: sysCat.color }}
-          >
-            <div className="fc-console-scan" />
-
-            {/* 头部：系统字形圆盘 + 名称 */}
-            <div className="flex items-start justify-between gap-3 border-b border-indigo-300/12 p-5">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="fc-console-glyph size-11 shrink-0">
-                  <PanelIcon className="size-5" strokeWidth={1.9} />
+        <section
+          className="fc-prompt-dock absolute bottom-5 left-1/2 z-40 w-[min(860px,calc(100%-32px))] -translate-x-1/2"
+          style={{ ['--fc-hue' as string]: sysCat.color }}
+          aria-label={`${displayName(system)} 业务咨询`}
+        >
+          {modulePickerOpen && (
+            <div className="fc-module-picker absolute bottom-[calc(100%+10px)] left-1/2 w-[min(660px,100%)] -translate-x-1/2 overflow-hidden rounded-2xl p-3">
+              <div className="mb-2 flex items-center justify-between px-1">
+                <div>
+                  <p className="text-xs font-medium text-slate-900">聚焦业务模块</p>
+                  <p className="mt-0.5 text-[10px] text-slate-500">可选；不选择时 Forge 会分析整个系统</p>
                 </div>
-                <div className="min-w-0">
-                  <div className="text-[10px] uppercase tracking-[0.22em] text-sky-300/70">Mission Console</div>
-                  <h2 className="truncate text-lg font-semibold text-white">{displayName(system)}</h2>
-                  <p className="truncate text-[11px] text-indigo-200/45">{systemPath || '外部系统（无源码路径）'}</p>
-                </div>
-              </div>
-              <button type="button" onClick={() => setPanelOpen(false)} className="rounded-lg p-1.5 text-indigo-200/70 hover:bg-white/10" aria-label="关闭">
-                <X className="size-4" />
-              </button>
-            </div>
-
-            {/* AI 能力状态条（真实信息：模块数 / 源码接入 / 已挂载知识能力） */}
-            <div className="flex flex-wrap items-center gap-1.5 border-b border-indigo-300/12 px-5 py-3">
-              <span className="flex items-center gap-1 rounded-md bg-white/[0.06] px-2 py-1 text-[10px] text-indigo-100/80">
-                <Boxes className="size-3" /> {moduleOptions.length} 模块
-              </span>
-              <span className="rounded-md bg-white/[0.06] px-2 py-1 text-[10px] text-indigo-100/80">
-                {systemPath ? '源码已接入' : '外部系统'}
-              </span>
-              {['知识图谱', '业务认知', '跨系统拓扑'].map((cap) => (
-                <span key={cap} className="flex items-center gap-1 rounded-md border border-emerald-300/25 bg-emerald-400/10 px-2 py-1 text-[10px] text-emerald-200/90">
-                  <span className="size-1.5 rounded-full bg-emerald-400" /> {cap}
-                </span>
-              ))}
-            </div>
-
-            {/* 模块选择优先完整露出；展开较多模块时，最多占面板约一半并在区内滚动。 */}
-            <div className="max-h-[46%] shrink-0 overflow-y-auto border-b border-indigo-300/12 bg-sky-400/[0.025] px-5 py-4">
-              <div className="mb-1 flex items-center justify-between">
-                <span className="flex items-center gap-1.5 text-xs font-medium text-indigo-100/85">
-                  <Boxes className="size-3.5 text-sky-300/80" />
-                  选择业务模块 <span className="font-normal text-indigo-200/45">（可选）</span>
-                </span>
                 {moduleTags.length > 0 && (
-                  <button type="button" onClick={() => setModuleTags([])} className="text-[11px] text-indigo-200/60 hover:text-indigo-100">
-                    已选 {moduleTags.length} · 清空
+                  <button
+                    type="button"
+                    onClick={() => setModuleTags([])}
+                    className="rounded-lg px-2 py-1 text-[11px] text-slate-500 hover:bg-white/70 hover:text-slate-900"
+                  >
+                    清空 {moduleTags.length} 项
                   </button>
                 )}
               </div>
-              <div className="mb-2 flex items-start gap-1.5 rounded-lg border border-amber-300/30 bg-amber-400/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-amber-100/90">
-                <Lightbulb className="mt-0.5 size-3 shrink-0 text-amber-300" />
-                <span>如果你能明确是哪个模块，建议勾上——能让 AI 检索更聚焦、更高效、更准；不清楚就别选，AI 会面向整个系统作答。</span>
-              </div>
-
               {moduleOptions.length === 0 ? (
-                <p className="rounded-lg border border-dashed border-indigo-300/20 px-3 py-4 text-center text-xs text-indigo-200/40">
-                  该系统暂无可选模块，可直接对整个系统提问
-                </p>
+                <p className="px-2 py-5 text-center text-xs text-slate-400">暂无模块数据，可直接对整个系统提问</p>
               ) : (
                 <>
-                  {moduleOptions.length > 12 && (
-                    <div className="relative mb-2.5">
-                      <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-indigo-200/40" />
+                  {moduleOptions.length > 8 && (
+                    <div className="relative mb-2">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-slate-500" />
                       <input
                         value={moduleQuery}
                         onChange={(e) => setModuleQuery(e.target.value)}
-                        placeholder="搜索模块…"
-                        className="fc-glass-input w-full rounded-lg py-1.5 pl-8 pr-3 text-xs"
+                        placeholder="输入模块名称…"
+                        className="fc-module-search w-full rounded-xl py-2 pl-9 pr-3 text-xs"
                       />
                     </div>
                   )}
-                  <div className="flex flex-wrap gap-2">
+                  <div className="grid max-h-48 grid-cols-1 gap-1 overflow-y-auto sm:grid-cols-2">
                     {shownModules.map((m) => {
                       const on = moduleTags.includes(m)
                       return (
@@ -1178,13 +1332,13 @@ export function ForeConsultPage() {
                           key={m}
                           type="button"
                           onClick={() => toggleModule(m)}
-                          className={`rounded-full border px-3 py-1 text-xs transition-all ${
-                            on
-                              ? 'border-sky-300/60 bg-sky-400/20 text-sky-100 shadow-[0_0_14px_-2px_rgba(120,180,255,0.6)]'
-                              : 'border-indigo-300/22 bg-white/[0.05] text-indigo-100/80 hover:bg-white/10'
+                          className={`flex min-w-0 items-center gap-2 rounded-xl px-3 py-2 text-left text-xs transition-colors ${
+                            on ? 'bg-sky-100/80 text-sky-700' : 'text-slate-600 hover:bg-white/70 hover:text-slate-900'
                           }`}
                         >
-                          {m}
+                          <span className={`size-1.5 shrink-0 rounded-full ${on ? 'bg-cyan-300 shadow-[0_0_10px_rgba(103,232,249,0.55)]' : 'bg-slate-500'}`} />
+                          <span className="truncate">{m}</span>
+                          {on && <span className="ml-auto text-sky-600">✓</span>}
                         </button>
                       )
                     })}
@@ -1192,100 +1346,150 @@ export function ForeConsultPage() {
                   {!hasModuleQuery && moduleResultCount > 12 && (
                     <button
                       type="button"
-                      onClick={() => setModulesExpanded((v) => !v)}
-                      className="mt-2.5 flex items-center gap-1 text-[11px] text-indigo-200/60 hover:text-indigo-100"
+                      onClick={() => setModulesExpanded((value) => !value)}
+                      className="mt-2 flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-slate-500 hover:bg-white/70 hover:text-slate-900"
                     >
                       <ChevronDown className={`size-3.5 transition-transform ${modulesExpanded ? 'rotate-180' : ''}`} />
-                      {modulesExpanded ? '收起' : `展开全部 ${moduleResultCount} 个`}
+                      {modulesExpanded ? '收起模块' : `查看全部 ${moduleResultCount} 个模块`}
                     </button>
                   )}
                 </>
               )}
             </div>
+          )}
 
-            {/* Prompt Composer：业务咨询配置由场景固定，默认直接露出消息输入框。 */}
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              <div className="mb-2 flex items-start gap-1.5 rounded-lg border border-amber-300/30 bg-amber-400/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-amber-100/90">
-                <Lightbulb className="mt-0.5 size-3 shrink-0 text-amber-300" />
-                <span>
-                  若问的是网页功能，建议把浏览器地址栏的 URL 一起复制进输入框——AI 能据此快速定位到对应页面、路由更准；
-                  上传截图请尽量截全（含顶部浏览器地址栏），便于识别所属系统与页面路径。
+          <div className="flex items-center gap-3 px-3 pb-2 pt-2.5">
+            <div className="fc-console-glyph size-9 shrink-0">
+              <PanelIcon className="size-4" strokeWidth={1.9} />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h2 className="truncate text-sm font-medium text-slate-900">{displayName(system)}</h2>
+                <span className="hidden items-center gap-1 text-[10px] text-emerald-700/70 sm:flex">
+                  <span className="size-1.5 rounded-full bg-emerald-400/80" />
+                  {systemPath ? '已连接' : '外部系统'}
+                </span>
+                <span className="hidden items-center gap-1 text-[10px] text-slate-400 sm:flex">
+                  <span className="size-1.5 rounded-full bg-sky-300/65" />
+                  知识就绪
                 </span>
               </div>
-              <div className="rounded-2xl border border-indigo-300/22 bg-white/[0.04] p-2 transition-colors focus-within:border-sky-300/50 focus-within:shadow-[0_0_0_2px_rgba(120,150,255,0.2)]">
-                {(attachments.length > 0 || uploading > 0) && (
-                  <div className="mb-1.5 flex max-h-20 flex-wrap gap-2 overflow-y-auto px-1">
-                    {attachments.map((a) => (
-                      <div key={a.path} className="fc-attach-thumb relative flex items-center gap-1.5 rounded-lg py-1 pl-1 pr-6 text-[11px] text-indigo-100/85">
-                        {a.url ? (
-                          <img src={a.url} alt={a.name} className="size-7 rounded object-cover" />
-                        ) : (
-                          <span className="flex size-7 items-center justify-center rounded bg-white/5">
-                            <FileText className="size-3.5 text-sky-300/80" />
-                          </span>
-                        )}
-                        <span className="max-w-[120px] truncate">{a.name}</span>
-                        <button
-                          type="button"
-                          onClick={() => removeAttachment(a.path)}
-                          className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-indigo-200/60 hover:bg-white/10 hover:text-white"
-                          aria-label="移除附件"
-                        >
-                          <X className="size-3" />
-                        </button>
-                      </div>
-                    ))}
-                    {uploading > 0 && (
-                      <div className="flex items-center gap-1.5 rounded-lg border border-indigo-300/20 px-2 py-1.5 text-[11px] text-indigo-200/60">
-                        <Loader2 className="size-3.5 animate-spin" /> 上传中…
-                      </div>
-                    )}
-                  </div>
-                )}
-                <textarea
-                  autoFocus
-                  rows={3}
-                  value={ask}
-                  onChange={(e) => setAsk(e.target.value)}
-                  onPaste={handlePaste}
-                  onKeyDown={(e) => {
-                    if (e.key !== 'Enter' || !e.shiftKey || e.nativeEvent.isComposing) return
-                    e.preventDefault()
-                    if (canStart) startMutation.mutate()
-                  }}
-                  placeholder="今天想了解这个系统的什么？用业务语言问，例如：采购退货单在哪里录入？（Shift+Enter 发送，可粘贴/上传附件）"
-                  className="w-full resize-none bg-transparent px-2 py-1.5 text-sm text-[#e8ecff] placeholder:text-indigo-200/35 focus:outline-none"
-                />
-                <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
-                <div className="sticky bottom-0 z-10 flex items-center justify-between rounded-b-xl bg-[#12172d]/95 px-1 pt-1 backdrop-blur">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => fileRef.current?.click()}
-                      disabled={attachments.length + uploading >= MAX_ATT}
-                      className="flex items-center gap-1 rounded-lg px-1.5 py-1 text-[11px] text-indigo-200/60 transition-colors hover:bg-white/10 hover:text-indigo-100 disabled:opacity-40"
-                      title="上传附件：图片 / Excel / Word / Markdown / PDF（也可直接粘贴图片）"
-                    >
-                      <Paperclip className="size-3.5" /> 附件
-                    </button>
-                    <span className="text-[10px] text-indigo-200/40">
-                      接入 Forge · Codex 引擎
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => startMutation.mutate()}
-                    disabled={!canStart}
-                    className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-400 to-indigo-500 px-4 py-1.5 text-sm font-medium text-white shadow-[0_8px_30px_-8px_rgba(99,102,241,0.8)] transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {startMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-                    AI 分析
-                  </button>
-                </div>
-              </div>
+              <p className="mt-0.5 truncate text-[10px] text-slate-500">
+                {moduleOptions.length} 个模块 · Forge 跨系统分析
+              </p>
+            </div>
+            <div className="ml-auto flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setModulePickerOpen((open) => !open)}
+                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] transition-colors ${
+                  modulePickerOpen || moduleTags.length > 0
+                    ? 'bg-sky-100/80 text-sky-700'
+                    : 'text-slate-500 hover:bg-white/65 hover:text-slate-900'
+                }`}
+                aria-expanded={modulePickerOpen}
+              >
+                <Boxes className="size-3.5" />
+                {moduleTags.length > 0 ? `模块 ${moduleTags.length}` : '聚焦模块'}
+                <ChevronDown className={`size-3 transition-transform ${modulePickerOpen ? 'rotate-180' : ''}`} />
+              </button>
+              <button
+                type="button"
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-white/65 hover:text-slate-900"
+                title="页面问题可附上 URL；截图尽量包含浏览器地址栏，便于 Forge 准确定位页面。"
+                aria-label="咨询提示"
+              >
+                <Lightbulb className="size-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setModulePickerOpen(false)
+                  setPanelOpen(false)
+                }}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-white/65 hover:text-slate-900"
+                aria-label="关闭咨询入口"
+              >
+                <X className="size-3.5" />
+              </button>
             </div>
           </div>
-        </div>
+
+          <div className="fc-prompt-field mx-2 mb-2 rounded-2xl px-2 pb-2 pt-1.5">
+            {(attachments.length > 0 || uploading > 0) && (
+              <div className="mb-1 flex max-h-16 flex-wrap gap-1.5 overflow-y-auto px-1">
+                {attachments.map((a) => (
+                  <div key={a.path} className="fc-attach-thumb relative flex items-center gap-1.5 rounded-lg py-1 pl-1 pr-6 text-[11px] text-slate-600">
+                    {a.url ? (
+                      <img src={a.url} alt={a.name} className="size-6 rounded object-cover" />
+                    ) : (
+                      <span className="flex size-6 items-center justify-center rounded bg-slate-100/80">
+                        <FileText className="size-3 text-sky-600/70" />
+                      </span>
+                    )}
+                    <span className="max-w-[120px] truncate">{a.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeAttachment(a.path)}
+                      className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900"
+                      aria-label="移除附件"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                ))}
+                {uploading > 0 && (
+                  <div className="flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] text-slate-400">
+                    <Loader2 className="size-3 animate-spin" /> 上传中…
+                  </div>
+                )}
+              </div>
+            )}
+            <textarea
+              autoFocus
+              rows={2}
+              value={ask}
+              onChange={(e) => setAsk(e.target.value)}
+              onPaste={handlePaste}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return
+                e.preventDefault()
+                if (canStart) startMutation.mutate()
+              }}
+              placeholder={`向 Forge 询问 ${displayName(system)}，例如：采购退货单在哪里录入？`}
+              className="max-h-28 min-h-11 w-full resize-none overflow-y-auto bg-transparent px-2 py-1.5 text-sm leading-6 text-slate-800 placeholder:text-slate-400 focus:outline-none"
+            />
+            <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
+            <div className="flex items-center justify-between gap-3 px-1 pt-1">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  disabled={attachments.length + uploading >= MAX_ATT}
+                  className="flex shrink-0 items-center gap-1 rounded-lg px-1.5 py-1 text-[11px] text-slate-500 transition-colors hover:bg-white/65 hover:text-slate-900 disabled:opacity-35"
+                  title="上传图片、Excel、Word、Markdown 或 PDF；也可直接粘贴图片"
+                >
+                  <Paperclip className="size-3.5" /> 附件
+                </button>
+                {moduleTags.length > 0 && (
+                  <span className="max-w-[260px] truncate text-[10px] text-sky-700/70">
+                    聚焦：{moduleTags.join('、')}
+                  </span>
+                )}
+                <span className="hidden text-[10px] text-slate-500 sm:inline">Enter 发送 · Shift+Enter 换行</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => startMutation.mutate()}
+                disabled={!canStart}
+                className="fc-ask-button flex shrink-0 items-center gap-1.5 rounded-xl px-4 py-1.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-35"
+              >
+                {startMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+                Ask Forge
+              </button>
+            </div>
+          </div>
+        </section>
       )}
 
       {/* 独立业务咨询会话面板（不用 Vibe Coding 悬浮窗，复用同一 WS 同步渲染） */}
@@ -1312,15 +1516,15 @@ export function ForeConsultPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
-                <History className="size-4 text-sky-300" /> 历史咨询
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <History className="size-4 text-sky-600" /> 历史咨询
               </h2>
-              <button type="button" onClick={() => setHistoryOpen(false)} className="rounded-lg p-1.5 text-indigo-200/70 hover:bg-white/10" aria-label="关闭">
+              <button type="button" onClick={() => setHistoryOpen(false)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900" aria-label="关闭">
                 <X className="size-4" />
               </button>
             </div>
             {(history ?? []).length === 0 ? (
-              <p className="rounded-lg border border-dashed border-indigo-300/20 p-6 text-center text-sm text-indigo-200/40">暂无咨询记录</p>
+              <p className="rounded-lg border border-dashed border-slate-300/80 p-6 text-center text-sm text-slate-500">暂无咨询记录</p>
             ) : (
               <ul className="flex flex-col gap-2">
                 {(history ?? []).map((s) => (
@@ -1335,24 +1539,24 @@ export function ForeConsultPage() {
                         setViewSession({ id: s.sessionId, title: s.questionTitle || displayName(s.systemName) })
                       }
                     }}
-                    className="cursor-pointer rounded-xl border border-indigo-300/15 bg-white/[0.03] px-3.5 py-3 transition-colors hover:border-indigo-300/30 hover:bg-white/[0.06]"
+                    className="cursor-pointer rounded-xl border border-slate-200/80 bg-white/45 px-3.5 py-3 transition-colors hover:border-sky-200 hover:bg-white/75"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex min-w-0 items-center gap-2">
-                        <span className="truncate text-sm font-medium text-white">{s.questionTitle || displayName(s.systemName)}</span>
-                        <span className="shrink-0 rounded-full border border-indigo-300/20 px-2 py-0.5 text-[10px] text-indigo-200/60">
+                        <span className="truncate text-sm font-medium text-slate-900">{s.questionTitle || displayName(s.systemName)}</span>
+                        <span className="shrink-0 rounded-full border border-slate-200 px-2 py-0.5 text-[10px] text-slate-500">
                           {s.role === 'BIZ' ? '业务员' : 'IT 客服'}
                         </span>
                         <ArchiveBadge status={s.archiveStatus} />
                       </div>
-                      <button type="button" onClick={(e) => { e.stopPropagation(); onDelete(s) }} className="shrink-0 rounded-lg p-1 text-indigo-200/50 hover:bg-white/10 hover:text-red-300" aria-label="删除">
+                      <button type="button" onClick={(e) => { e.stopPropagation(); onDelete(s) }} className="shrink-0 rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600" aria-label="删除">
                         <Trash2 className="size-3.5" />
                       </button>
                     </div>
                     {s.moduleNames.length > 0 && (
-                      <div className="mt-1 truncate text-xs text-indigo-200/50">{s.moduleNames.join('、')}</div>
+                      <div className="mt-1 truncate text-xs text-slate-500">{s.moduleNames.join('、')}</div>
                     )}
-                    <div className="mt-1 text-[11px] text-indigo-200/40">
+                    <div className="mt-1 text-[11px] text-slate-400">
                       {s.turns.length} 轮问答 · {new Date(s.createdAt).toLocaleString()}
                     </div>
                   </li>
@@ -1375,29 +1579,29 @@ export function ForeConsultPage() {
       {configOpen && (
         <div className="fc-backdrop absolute inset-0 z-40 flex justify-end" onClick={() => setConfigOpen(false)}>
           <div className="fc-panel flex h-full w-[min(460px,calc(100vw-2rem))] flex-col rounded-l-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-indigo-300/15 p-5">
+            <div className="flex items-center justify-between border-b border-slate-200/80 p-5">
               <div>
-                <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
-                  <SlidersHorizontal className="size-4 text-sky-300" /> 系统别名与显示
+                <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                  <SlidersHorizontal className="size-4 text-sky-600" /> 系统别名与显示
                 </h2>
-                <p className="mt-0.5 text-xs text-indigo-200/50">取消勾选可从星图隐藏；别名为空则用原名。</p>
+                <p className="mt-0.5 text-xs text-slate-500">取消勾选可从图谱隐藏；别名为空则用原名。</p>
               </div>
-              <button type="button" onClick={() => setConfigOpen(false)} className="rounded-lg p-1.5 text-indigo-200/70 hover:bg-white/10" aria-label="关闭">
+              <button type="button" onClick={() => setConfigOpen(false)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900" aria-label="关闭">
                 <X className="size-4" />
               </button>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4">
               {configRows.length === 0 ? (
-                <p className="rounded-lg border border-dashed border-indigo-300/20 p-6 text-center text-sm text-indigo-200/40">未扫描到业务系统</p>
+                <p className="rounded-lg border border-dashed border-slate-300/80 p-6 text-center text-sm text-slate-500">未扫描到业务系统</p>
               ) : (
                 <ul className="flex flex-col gap-2">
                   {configRows.map((r, idx) => (
-                    <li key={r.name} className={`flex items-center gap-2.5 rounded-xl border border-indigo-300/15 bg-white/[0.03] px-3 py-2.5 ${r.visible ? '' : 'opacity-55'}`}>
+                    <li key={r.name} className={`flex items-center gap-2.5 rounded-xl border border-slate-200/80 bg-white/45 px-3 py-2.5 ${r.visible ? '' : 'opacity-55'}`}>
                       <button
                         type="button"
                         onClick={() => setConfigRows((rows) => rows.map((x, i) => (i === idx ? { ...x, visible: !x.visible } : x)))}
-                        className={`shrink-0 rounded-lg p-1.5 transition-colors ${r.visible ? 'text-sky-300 hover:bg-white/10' : 'text-indigo-200/40 hover:bg-white/5'}`}
+                        className={`shrink-0 rounded-lg p-1.5 transition-colors ${r.visible ? 'text-sky-600 hover:bg-sky-50' : 'text-slate-400 hover:bg-slate-100'}`}
                         title={r.visible ? '点击隐藏' : '点击显示'}
                         aria-label={r.visible ? '隐藏' : '显示'}
                       >
@@ -1410,7 +1614,7 @@ export function ForeConsultPage() {
                           placeholder={r.name}
                           className="fc-glass-input w-full rounded-lg px-2.5 py-1.5 text-sm"
                         />
-                        <div className="mt-1 truncate text-[11px] text-indigo-200/40">原名：{r.name}</div>
+                        <div className="mt-1 truncate text-[11px] text-slate-400">原名：{r.name}</div>
                       </div>
                     </li>
                   ))}
@@ -1418,8 +1622,8 @@ export function ForeConsultPage() {
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-3 border-t border-indigo-300/15 p-4">
-              <button type="button" onClick={() => setConfigOpen(false)} className="rounded-xl px-4 py-2 text-sm text-indigo-200/70 hover:bg-white/5">
+            <div className="flex items-center justify-end gap-3 border-t border-slate-200/80 p-4">
+              <button type="button" onClick={() => setConfigOpen(false)} className="rounded-xl px-4 py-2 text-sm text-slate-500 hover:bg-white/65 hover:text-slate-900">
                 取消
               </button>
               <button
@@ -1445,7 +1649,9 @@ function FilterChip({ label, active, color, onClick }: { label: string; active: 
       type="button"
       onClick={onClick}
       className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] transition-colors ${
-        active ? 'bg-white/15 text-white' : 'text-indigo-100/70 hover:bg-white/10'
+        active
+          ? 'bg-white/90 text-slate-900 shadow-[0_4px_12px_-8px_rgba(15,23,42,0.38)]'
+          : 'text-slate-500 hover:bg-white/55 hover:text-slate-900'
       }`}
     >
       {color && (
@@ -1458,10 +1664,10 @@ function FilterChip({ label, active, color, onClick }: { label: string; active: 
 
 function ArchiveBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; cls: string }> = {
-    PENDING: { label: '进行中', cls: 'bg-amber-400/15 text-amber-300 border-amber-300/30' },
-    SUCCESS: { label: '已归档', cls: 'bg-emerald-400/15 text-emerald-300 border-emerald-300/30' },
-    FAILED: { label: '归档失败', cls: 'bg-red-400/15 text-red-300 border-red-300/30' },
+    PENDING: { label: '进行中', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+    SUCCESS: { label: '已归档', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+    FAILED: { label: '归档失败', cls: 'bg-red-50 text-red-700 border-red-200' },
   }
-  const it = map[status] ?? { label: status, cls: 'bg-white/10 text-indigo-200/70 border-indigo-300/20' }
+  const it = map[status] ?? { label: status, cls: 'bg-slate-50 text-slate-600 border-slate-200' }
   return <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${it.cls}`}>{it.label}</span>
 }

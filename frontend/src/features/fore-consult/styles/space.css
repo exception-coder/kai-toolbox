@@ -1,4 +1,4 @@
-/* Fore- 业务系统咨询：Enterprise AI Galaxy 视觉。深色沉浸场景，恒为暗（不跟随主题）。 */
+/* Fore- 业务系统咨询：明亮的 AI 玻璃工作台。 */
 
 .fc-space {
   position: relative;
@@ -6,23 +6,22 @@
   isolation: isolate;
   contain: layout paint style;
   background:
-    conic-gradient(from 120deg at 30% 30%, rgba(94, 124, 255, 0.09), transparent 25%, rgba(168, 85, 247, 0.08) 55%, transparent 80%),
-    radial-gradient(1100px 640px at 78% 16%, rgba(56, 89, 168, 0.28), transparent 60%),
-    radial-gradient(900px 600px at 16% 84%, rgba(120, 58, 160, 0.24), transparent 62%),
-    radial-gradient(680px 520px at 50% 52%, rgba(20, 130, 150, 0.14), transparent 60%),
-    linear-gradient(160deg, #04050d 0%, #070919 46%, #04030b 100%);
-  color: #e8ecff;
+    radial-gradient(900px 560px at 88% 5%, rgba(125, 211, 252, 0.26), transparent 65%),
+    radial-gradient(760px 520px at 8% 88%, rgba(196, 181, 253, 0.2), transparent 68%),
+    radial-gradient(620px 460px at 54% 48%, rgba(255, 255, 255, 0.94), transparent 72%),
+    linear-gradient(145deg, #f8fafc 0%, #edf3f8 52%, #f7f9fc 100%);
+  color: #1e293b;
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.16);
 }
 
-/* 单个平铺层生成星尘，不为每颗星创建 DOM 或独立合成层。 */
+/* 柔和的玻璃高光，不再使用星尘纹理。 */
 .fc-space::before {
   content: '';
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle, rgba(255, 255, 255, 0.72) 0 0.8px, transparent 1px) 9px 13px / 47px 53px,
-    radial-gradient(circle, rgba(170, 205, 255, 0.48) 0 0.7px, transparent 1px) 22px 31px / 73px 67px,
-    radial-gradient(circle, rgba(216, 190, 255, 0.34) 0 1px, transparent 1.3px) 41px 7px / 109px 97px;
+    linear-gradient(112deg, rgba(255, 255, 255, 0.74), transparent 34%),
+    radial-gradient(480px 260px at 66% 24%, rgba(255, 255, 255, 0.72), transparent 72%);
   opacity: 0.72;
   pointer-events: none;
   z-index: 0;
@@ -47,29 +46,35 @@
   height: 88px;
   border-radius: 9999px;
   background:
-    radial-gradient(circle at 42% 38%, #ffffff 0%, #fde68a 22%, #fca5f5 52%, #7c6cf0 82%);
+    radial-gradient(circle at 35% 26%, rgba(255, 255, 255, 0.98), transparent 35%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.88), rgba(225, 232, 255, 0.58)),
+    conic-gradient(from 210deg, rgba(147, 197, 253, 0.72), rgba(216, 180, 254, 0.58), rgba(253, 230, 138, 0.5), rgba(147, 197, 253, 0.72));
+  border: 1px solid rgba(255, 255, 255, 0.86);
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.4),
-    0 0 40px 6px rgba(250, 204, 120, 0.5),
-    0 0 90px 24px rgba(129, 108, 240, 0.45),
-    inset 0 -6px 16px rgba(90, 40, 140, 0.5);
+    0 20px 50px -22px rgba(71, 85, 105, 0.42),
+    0 8px 26px -18px rgba(99, 102, 241, 0.36),
+    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    inset 0 -10px 24px rgba(148, 163, 184, 0.12);
+  backdrop-filter: blur(18px) saturate(1.08);
 }
 
 .fc-core::before {
   content: '';
   position: absolute;
-  inset: -22px;
+  inset: -18px;
   border-radius: 9999px;
-  background: conic-gradient(from 0deg, transparent, rgba(253, 224, 138, 0.55), transparent 32%, rgba(168, 130, 255, 0.5) 60%, transparent 82%);
-  opacity: 0.7;
+  background: conic-gradient(from 20deg, rgba(125, 211, 252, 0.2), rgba(196, 181, 253, 0.34), rgba(253, 230, 138, 0.2), rgba(125, 211, 252, 0.2));
+  filter: blur(10px);
+  opacity: 0.62;
+  z-index: -1;
 }
 
 .fc-core::after {
   content: '';
   position: absolute;
-  inset: -46px;
+  inset: -38px;
   border-radius: 9999px;
-  border: 1px dashed rgba(180, 200, 255, 0.18);
+  border: 1px solid rgba(100, 116, 139, 0.12);
 }
 
 .fc-core-label {
@@ -77,8 +82,8 @@
   text-align: center;
   white-space: nowrap;
 }
-.fc-core-label b { display: block; font-size: 13px; letter-spacing: 0.12em; color: #fff; text-shadow: 0 0 14px rgba(250, 204, 120, 0.7); }
-.fc-core-label span { font-size: 10px; letter-spacing: 0.06em; color: rgba(200, 210, 255, 0.55); }
+.fc-core-label b { display: block; font-size: 13px; letter-spacing: 0.12em; color: #334155; }
+.fc-core-label span { font-size: 10px; letter-spacing: 0.06em; color: #94a3b8; }
 
 /* ── 业务行星 ─────────────────────────────────────── */
 .fc-orb-wrap {
@@ -93,55 +98,57 @@
   cursor: pointer;
   transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.35s ease;
   background:
-    radial-gradient(circle at 34% 28%, color-mix(in oklab, var(--fc-hue) 22%, white 60%), transparent 52%),
-    radial-gradient(circle at 66% 76%, color-mix(in oklab, var(--fc-hue) 72%, black 22%), var(--fc-hue) 84%);
+    radial-gradient(circle at 32% 24%, rgba(255, 255, 255, 0.92), transparent 44%),
+    linear-gradient(145deg, color-mix(in oklab, var(--fc-hue) 24%, white), color-mix(in oklab, var(--fc-hue) 12%, rgba(255, 255, 255, 0.72)));
+  border: 1px solid color-mix(in oklab, var(--fc-hue) 24%, rgba(255, 255, 255, 0.88));
   box-shadow:
-    0 0 0 1px color-mix(in oklab, var(--fc-hue) 55%, transparent),
-    inset 0 -9px 20px -6px rgba(0, 0, 0, 0.66),
-    inset 0 7px 15px -4px rgba(255, 255, 255, 0.5),
-    inset 6px 0 14px -8px rgba(255, 255, 255, 0.25);
+    0 18px 38px -20px color-mix(in oklab, var(--fc-hue) 38%, rgba(71, 85, 105, 0.3)),
+    0 8px 18px -16px rgba(15, 23, 42, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.94),
+    inset 0 -10px 22px rgba(148, 163, 184, 0.1);
+  backdrop-filter: blur(16px) saturate(0.92);
 }
 
-/* 大气层光晕：把行星"嵌入"太空，而不是浮在上面 */
+/* 节点周围只保留很轻的业务色景深。 */
 .fc-orb::before {
   content: '';
   position: absolute;
   inset: -38%;
   border-radius: 9999px;
-  background: radial-gradient(circle, color-mix(in oklab, var(--fc-hue) 35%, transparent) 0%, transparent 68%);
-  opacity: 0.78;
+  background: radial-gradient(circle, color-mix(in oklab, var(--fc-hue) 16%, transparent) 0%, transparent 68%);
+  opacity: 0.5;
   z-index: -1;
   pointer-events: none;
 }
 
-/* 细自转光环 */
+/* 玻璃高光。 */
 .fc-orb::after {
   content: '';
   position: absolute;
-  inset: -5px;
+  inset: 1px;
   border-radius: 9999px;
-  background: conic-gradient(from 0deg, transparent 0%, color-mix(in oklab, var(--fc-hue) 50%, transparent) 28%, transparent 58%);
-  opacity: 0.5;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.52), transparent 42%);
+  opacity: 0.74;
   pointer-events: none;
 }
 
 .fc-orb-wrap:hover { z-index: 30; }
-.fc-orb-wrap:hover .fc-orb { transform: scale(1.16); filter: brightness(1.14); }
+.fc-orb-wrap:hover .fc-orb { transform: scale(1.1); filter: brightness(1.02); }
 .fc-orb-wrap.is-active .fc-orb {
   box-shadow:
-    0 0 0 2px color-mix(in oklab, var(--fc-hue) 78%, transparent),
-    0 8px 40px -6px color-mix(in oklab, var(--fc-hue) 75%, transparent),
-    inset 0 -9px 20px -6px rgba(0, 0, 0, 0.66),
-    inset 0 7px 15px -4px rgba(255, 255, 255, 0.5);
+    0 0 0 2px color-mix(in oklab, var(--fc-hue) 48%, transparent),
+    0 22px 44px -20px color-mix(in oklab, var(--fc-hue) 58%, rgba(71, 85, 105, 0.28)),
+    inset 0 1px 0 rgba(255, 255, 255, 0.94),
+    inset 0 -10px 22px rgba(148, 163, 184, 0.1);
 }
 
-/* 融合式字形：不是贴上去的白 SVG，而是像刻在星球表面的浮雕 */
+/* 节点字形以清晰可读为主。 */
 .fc-orb-glyph {
   position: relative;
   z-index: 1;
-  color: #ffffff;
-  opacity: 0.62;
-  mix-blend-mode: overlay;
+  color: color-mix(in oklab, var(--fc-hue) 68%, #334155);
+  opacity: 0.88;
+  mix-blend-mode: normal;
   pointer-events: none;
 }
 
@@ -150,19 +157,22 @@
   top: calc(100% + 8px);
   left: 50%;
   transform: translateX(-50%);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
   letter-spacing: 0.02em;
-  color: rgba(232, 236, 255, 0.9);
-  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.85);
+  color: #475569;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.82);
   pointer-events: none;
 }
 
 /* ── 数据流连线 ─────────────────────────────────── */
 .fc-edge-glow {
   fill: none;
-  stroke: rgba(98, 150, 255, 0.18);
-  stroke-width: 5.5;
+  stroke: rgba(100, 116, 139, 0.1);
+  stroke-width: 4.5;
   stroke-linecap: round;
 }
 
@@ -172,8 +182,11 @@
   stroke-width: 1.35;
   stroke-linecap: round;
   stroke-dasharray: 4 7;
-  opacity: 0.92;
+  opacity: 0.68;
+  animation: fc-edge-flow 2.8s linear infinite;
 }
+
+@keyframes fc-edge-flow { to { stroke-dashoffset: -22; } }
 
 .fc-edge-label {
   position: absolute;
@@ -182,29 +195,30 @@
   padding: 1px 7px;
   border-radius: 9999px;
   font-size: 10px;
-  color: rgba(226, 236, 255, 0.9);
-  background: color-mix(in oklab, #0b1024 68%, transparent);
-  border: 1px solid rgba(140, 160, 255, 0.28);
-  backdrop-filter: blur(6px);
+  color: #64748b;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow: 0 8px 20px -14px rgba(15, 23, 42, 0.32);
+  backdrop-filter: blur(12px) saturate(0.9);
   pointer-events: none;
 }
 
 .fc-toolbar {
   padding: 4px;
-  border: 1px solid rgba(148, 163, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 9999px;
-  background: rgba(9, 13, 33, 0.62);
-  box-shadow: 0 14px 38px -24px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.07);
-  backdrop-filter: blur(12px) saturate(1.12);
+  background: rgba(255, 255, 255, 0.54);
+  box-shadow: 0 18px 40px -28px rgba(15, 23, 42, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(22px) saturate(1.08);
 }
 
 /* ── 面板 / 玻璃 ─────────────────────────────────── */
 .fc-panel {
   animation: fc-panel-in 0.4s cubic-bezier(0.22, 1, 0.36, 1);
-  background: color-mix(in oklab, #0b1024 78%, transparent);
-  border: 1px solid rgba(140, 160, 255, 0.24);
-  box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  backdrop-filter: blur(18px);
+  background: rgba(248, 250, 252, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.86);
+  box-shadow: 0 30px 80px -28px rgba(15, 23, 42, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(28px) saturate(1.04);
 }
 
 @keyframes fc-panel-in {
@@ -214,56 +228,93 @@
 
 .fc-backdrop {
   animation: fc-fade-in 0.3s ease;
-  background: radial-gradient(120% 120% at 50% 30%, rgba(5, 6, 15, 0.4), rgba(3, 4, 10, 0.78));
-  backdrop-filter: blur(2px);
+  background: rgba(226, 232, 240, 0.38);
+  backdrop-filter: blur(8px) saturate(0.9);
 }
 
 @keyframes fc-fade-in { from { opacity: 0; } to { opacity: 1; } }
 
 .fc-glass-input {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(140, 160, 255, 0.22);
-  color: #e8ecff;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  color: #1e293b;
 }
-.fc-glass-input::placeholder { color: rgba(200, 210, 255, 0.4); }
-.fc-glass-input:focus { outline: none; border-color: rgba(150, 175, 255, 0.6); box-shadow: 0 0 0 2px rgba(120, 150, 255, 0.25); }
+.fc-glass-input::placeholder { color: #94a3b8; }
+.fc-glass-input:focus { outline: none; border-color: rgba(56, 189, 248, 0.42); box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.1); }
 
-/* ── Mission Console：从星球浮现的全息任务控制台（侧滑，不遮银河） ── */
-.fc-console {
-  animation: fc-console-in 0.45s cubic-bezier(0.22, 1, 0.36, 1);
-  background: linear-gradient(165deg, color-mix(in oklab, #0c1330 74%, transparent) 0%, color-mix(in oklab, #0a0e22 80%, transparent) 100%);
-  border-right: 1px solid rgba(140, 170, 255, 0.28);
-  box-shadow: 60px 0 140px -60px rgba(70, 110, 255, 0.5), 0 30px 90px -30px rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(24px) saturate(1.25);
+/* ── AI Mission Workspace：底部 Prompt Dock，图谱保持为主舞台 ── */
+.fc-prompt-dock {
+  animation: fc-prompt-dock-in 0.36s cubic-bezier(0.22, 1, 0.36, 1);
+  border: 1px solid rgba(255, 255, 255, 0.84);
+  border-radius: 22px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.78), rgba(244, 247, 251, 0.68)),
+    color-mix(in oklab, var(--fc-hue) 2%, transparent);
+  box-shadow:
+    0 30px 70px -28px rgba(15, 23, 42, 0.38),
+    0 12px 30px -24px color-mix(in oklab, var(--fc-hue) 28%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(28px) saturate(1.04);
 }
 
-@keyframes fc-console-in {
-  from { opacity: 0; transform: translateX(-30px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-
-/* 面向银河的全息发射边 */
-.fc-console::after {
+.fc-prompt-dock::before {
   content: '';
   position: absolute;
-  top: 6%;
-  bottom: 6%;
-  right: -1px;
-  width: 2px;
-  background: linear-gradient(to bottom, transparent, rgba(130, 195, 255, 0.9), rgba(160, 140, 255, 0.7), transparent);
-  box-shadow: 0 0 16px rgba(130, 195, 255, 0.7);
-  opacity: 0.85;
+  left: 12%;
+  right: 12%;
+  top: -1px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--fc-hue) 26%, white), transparent);
+  opacity: 0.58;
+  pointer-events: none;
 }
 
-.fc-console-scan { position: absolute; left: 0; right: 0; top: 0; height: 2px; overflow: hidden; }
-.fc-console-scan::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(130, 195, 255, 0.85), transparent);
-  animation: fc-scan 3.6s ease-in-out infinite;
+@keyframes fc-prompt-dock-in {
+  from { opacity: 0; transform: translate(-50%, 18px) scale(0.985); }
+  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
 }
-@keyframes fc-scan { 0% { transform: translateX(-100%); } 55%, 100% { transform: translateX(100%); } }
+
+.fc-prompt-field {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(255, 255, 255, 0.54);
+  transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+}
+
+.fc-prompt-field:focus-within {
+  border-color: rgba(56, 189, 248, 0.38);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.08);
+}
+
+.fc-module-picker {
+  animation: fc-module-picker-in 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  background: rgba(248, 250, 252, 0.86);
+  box-shadow: 0 26px 70px -30px rgba(15, 23, 42, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(30px) saturate(1.02);
+}
+
+@keyframes fc-module-picker-in {
+  from { opacity: 0; transform: translate(-50%, 8px) scale(0.99); }
+  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+
+.fc-module-search {
+  border: 0;
+  outline: none;
+  color: #1e293b;
+  background: rgba(255, 255, 255, 0.64);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.18);
+}
+.fc-module-search::placeholder { color: #94a3b8; }
+.fc-module-search:focus { box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.42), 0 0 0 3px rgba(56, 189, 248, 0.08); }
+
+.fc-ask-button {
+  background: linear-gradient(120deg, #3b82f6, #6366f1);
+  box-shadow: 0 12px 26px -15px rgba(79, 70, 229, 0.62), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  transition: transform 160ms ease, filter 160ms ease, opacity 160ms ease;
+}
+.fc-ask-button:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.08); }
 
 /* 控制台里的系统字形圆盘（与行星同一视觉语言） */
 .fc-console-glyph {
@@ -273,25 +324,65 @@
   justify-content: center;
   border-radius: 9999px;
   background:
-    radial-gradient(circle at 36% 30%, color-mix(in oklab, var(--fc-hue) 24%, white 55%), transparent 55%),
-    radial-gradient(circle at 66% 74%, color-mix(in oklab, var(--fc-hue) 70%, black 20%), var(--fc-hue) 84%);
+    radial-gradient(circle at 34% 26%, rgba(255, 255, 255, 0.94), transparent 48%),
+    linear-gradient(145deg, color-mix(in oklab, var(--fc-hue) 25%, white), color-mix(in oklab, var(--fc-hue) 12%, white));
+  border: 1px solid color-mix(in oklab, var(--fc-hue) 20%, rgba(255, 255, 255, 0.9));
   box-shadow:
-    0 0 0 1px color-mix(in oklab, var(--fc-hue) 55%, transparent),
-    0 0 22px -4px color-mix(in oklab, var(--fc-hue) 70%, transparent),
-    inset 0 -4px 8px rgba(0, 0, 0, 0.5), inset 0 4px 8px rgba(255, 255, 255, 0.35);
+    0 10px 24px -15px color-mix(in oklab, var(--fc-hue) 38%, rgba(71, 85, 105, 0.24)),
+    inset 0 1px 0 rgba(255, 255, 255, 0.94);
 }
-.fc-console-glyph svg { color: #fff; opacity: 0.6; mix-blend-mode: overlay; }
+.fc-console-glyph svg { color: color-mix(in oklab, var(--fc-hue) 68%, #334155); opacity: 0.9; }
+
+/* 发送后的独立会话：浅色玻璃侧边栏，确保在明亮图谱上仍有稳定对比。 */
+.fc-conversation-layer {
+  background: linear-gradient(90deg, rgba(226, 232, 240, 0.3) 0, rgba(226, 232, 240, 0.12) 560px, transparent 760px);
+  backdrop-filter: blur(2px);
+}
+
+.fc-console {
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 24px;
+  background: rgba(248, 250, 252, 0.9);
+  box-shadow:
+    0 34px 90px -34px rgba(15, 23, 42, 0.4),
+    0 16px 38px -30px rgba(59, 130, 246, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(34px) saturate(1.06);
+  animation: fc-console-in 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.fc-console-scan {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(420px 260px at 8% 0%, rgba(125, 211, 252, 0.14), transparent 72%),
+    radial-gradient(360px 240px at 96% 100%, rgba(196, 181, 253, 0.12), transparent 74%);
+  pointer-events: none;
+}
+
+.fc-console > :not(.fc-console-scan) {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes fc-console-in {
+  from { opacity: 0; transform: translateX(-18px) scale(0.99); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
 
 /* 全屏展示：铺满视口、去圆角 */
 .fc-space:fullscreen { width: 100vw; height: 100vh; border-radius: 0; }
 .fc-space:-webkit-full-screen { width: 100vw; height: 100vh; border-radius: 0; }
 
 /* 附件缩略图 */
-.fc-attach-thumb { position: relative; border: 1px solid rgba(140, 160, 255, 0.25); background: rgba(255, 255, 255, 0.05); }
+.fc-attach-thumb { position: relative; border: 1px solid rgba(148, 163, 184, 0.16); background: rgba(255, 255, 255, 0.58); }
 
-/* 会话面板的 Markdown 渲染（暗色全息风） */
-.fc-md { font-size: 13px; line-height: 1.7; color: rgba(226, 236, 255, 0.92); word-break: break-word; }
-.fc-md h1, .fc-md h2, .fc-md h3, .fc-md h4 { font-weight: 600; color: #fff; margin: 0.8em 0 0.4em; line-height: 1.35; }
+/* 会话面板的 Markdown 渲染。 */
+.fc-md { font-size: 13px; line-height: 1.7; color: #475569; word-break: break-word; }
+.fc-md h1, .fc-md h2, .fc-md h3, .fc-md h4 { font-weight: 600; color: #0f172a; margin: 0.8em 0 0.4em; line-height: 1.35; }
 .fc-md h1 { font-size: 1.16em; }
 .fc-md h2 { font-size: 1.08em; }
 .fc-md h3, .fc-md h4 { font-size: 1em; }
@@ -300,30 +391,30 @@
 .fc-md ul { list-style: disc; }
 .fc-md ol { list-style: decimal; }
 .fc-md li { margin: 0.25em 0; }
-.fc-md strong { color: #fff; font-weight: 600; }
-.fc-md em { color: rgba(226, 236, 255, 0.8); }
-.fc-md a { color: #7dd3fc; text-decoration: underline; }
-.fc-md code { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(140, 160, 255, 0.2); border-radius: 4px; padding: 0 4px; font-size: 0.9em; }
-.fc-md pre { background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(140, 160, 255, 0.18); border-radius: 8px; padding: 10px; overflow: auto; margin: 0.6em 0; }
+.fc-md strong { color: #0f172a; font-weight: 600; }
+.fc-md em { color: #64748b; }
+.fc-md a { color: #2563eb; text-decoration: underline; }
+.fc-md code { background: rgba(226, 232, 240, 0.72); border: 1px solid rgba(148, 163, 184, 0.18); border-radius: 4px; padding: 0 4px; font-size: 0.9em; }
+.fc-md pre { background: #172033; border: 1px solid rgba(15, 23, 42, 0.12); border-radius: 10px; padding: 10px; overflow: auto; margin: 0.6em 0; color: #e2e8f0; }
 .fc-md pre code { background: none; border: none; padding: 0; }
-.fc-md blockquote { border-left: 2px solid rgba(140, 160, 255, 0.4); padding-left: 0.8em; color: rgba(200, 210, 255, 0.7); margin: 0.5em 0; }
+.fc-md blockquote { border-left: 2px solid rgba(59, 130, 246, 0.35); padding-left: 0.8em; color: #64748b; margin: 0.5em 0; }
 .fc-md table { border-collapse: collapse; margin: 0.5em 0; font-size: 0.92em; display: block; overflow-x: auto; }
-.fc-md th, .fc-md td { border: 1px solid rgba(140, 160, 255, 0.2); padding: 3px 8px; }
-.fc-md th { background: rgba(255, 255, 255, 0.05); }
+.fc-md th, .fc-md td { border: 1px solid rgba(148, 163, 184, 0.24); padding: 3px 8px; }
+.fc-md th { background: rgba(226, 232, 240, 0.55); color: #334155; }
 
 @keyframes fc-thinking { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
 .fc-thinking-dot { animation: fc-thinking 1.2s ease-in-out infinite; }
 
-/* 引导提示：轻柔发光脉冲，吸引注意但不刺眼 */
+/* 引导提示：轻柔景深，吸引注意但不刺眼。 */
 .fc-hint { animation: fc-hint-glow 2.2s ease-in-out infinite; }
 @keyframes fc-hint-glow {
-  0%, 100% { box-shadow: 0 0 24px -10px rgba(120, 180, 255, 0.5); }
-  50% { box-shadow: 0 0 36px -2px rgba(120, 180, 255, 0.85); }
+  0%, 100% { box-shadow: 0 14px 32px -24px rgba(37, 99, 235, 0.24); }
+  50% { box-shadow: 0 18px 38px -24px rgba(37, 99, 235, 0.36); }
 }
 @keyframes fc-hint-nudge { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(3px); } }
 .fc-hint-icon { animation: fc-hint-nudge 1.6s ease-in-out infinite; }
 
 @media (prefers-reduced-motion: reduce) {
-  .fc-panel, .fc-backdrop, .fc-console, .fc-console-scan::before,
+  .fc-panel, .fc-backdrop, .fc-prompt-dock, .fc-module-picker, .fc-console, .fc-edge,
   .fc-thinking-dot, .fc-hint, .fc-hint-icon { animation: none !important; }
 }

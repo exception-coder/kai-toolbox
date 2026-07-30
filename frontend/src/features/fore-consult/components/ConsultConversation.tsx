@@ -58,7 +58,7 @@ function renderMarkdown(text: string): string {
 }
 
 /**
- * 业务咨询独立会话面板：全息风，只做「发消息 / 附件 / 查看」。
+ * 业务咨询独立会话面板：玻璃侧边栏，只做「发消息 / 附件 / 查看」。
  * 复用 claude-chat 协议的业务咨询专用 WS（chat.open/send/items）驱动，结果在本面板同步渲染。
  * 会话以 bypassPermissions 打开（只读业务问答，自动放行工具），不连接 ADMIN-only 的 Vibe Coding 通道。
  */
@@ -259,21 +259,21 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
   }
 
   return (
-    <div className="absolute inset-0 z-30" onClick={onClose}>
+    <div className="fc-conversation-layer absolute inset-0 z-30" onClick={onClose}>
       <div
-        className="fc-console absolute inset-y-0 left-0 flex w-[min(520px,94vw)] flex-col"
+        className="fc-console absolute inset-y-3 left-3 flex w-[min(520px,calc(100%-24px))] flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="fc-console-scan" />
 
         {/* 头部 */}
-        <div className="flex items-center justify-between gap-3 border-b border-indigo-300/12 p-4">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200/80 p-4">
           <div className="flex min-w-0 items-center gap-2.5">
-            <MessagesSquare className="size-4 shrink-0 text-sky-300" />
+            <MessagesSquare className="size-4 shrink-0 text-sky-600" />
             <div className="min-w-0">
-              <div className="text-[10px] uppercase tracking-[0.22em] text-sky-300/70">Consult Session</div>
-              <h2 className="truncate text-sm font-semibold text-white">
-                {systemLabel} <span className="ml-1 text-[11px] font-normal text-indigo-200/50">· {roleLabel}</span>
+              <div className="text-[10px] uppercase tracking-[0.22em] text-sky-600/70">Consult Session</div>
+              <h2 className="truncate text-sm font-semibold text-slate-900">
+                {systemLabel} <span className="ml-1 text-[11px] font-normal text-slate-500">· {roleLabel}</span>
               </h2>
             </div>
           </div>
@@ -286,13 +286,13 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
                 onArchive()
               }}
               disabled={archiving}
-              className="flex min-w-[76px] items-center justify-center gap-1 rounded-lg border border-emerald-300/25 bg-emerald-400/10 px-2.5 py-1 text-[11px] text-emerald-200/90 transition-colors hover:bg-emerald-400/20 disabled:cursor-wait disabled:opacity-60"
+              className="flex min-w-[76px] items-center justify-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50/80 px-2.5 py-1 text-[11px] text-emerald-700 transition-colors hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60"
               title="结束并归档本次咨询"
             >
               {archiving ? <Loader2 className="size-3 animate-spin" /> : <Archive className="size-3" />}
               {archiving ? '归档中…' : '结束归档'}
             </button>
-            <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-indigo-200/70 hover:bg-white/10" aria-label="收起">
+            <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900" aria-label="收起">
               <X className="size-4" />
             </button>
           </div>
@@ -300,15 +300,15 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
 
         {/* 正常 bypass 不会触发；异常出现待确认时留在咨询面板提示，避免跳入 ADMIN-only 悬浮窗。 */}
         {pending && (
-          <div className="border-b border-amber-300/20 bg-amber-400/10 px-4 py-2 text-[11px] text-amber-100">
+          <div className="shrink-0 border-b border-amber-200 bg-amber-50/80 px-4 py-2 text-[11px] text-amber-700">
             AI 需要额外确认，请在输入框补充相关信息后重新发送；业务咨询不会跳转到管理员专用悬浮窗。
           </div>
         )}
 
         {/* 消息流 */}
-        <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
+        <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
           {items.length === 0 && !running && (
-            <p className="pt-8 text-center text-sm text-indigo-200/40">正在接入 Forge…</p>
+            <p className="pt-8 text-center text-sm text-slate-400">正在接入 Forge…</p>
           )}
           {(() => {
             let userCount = 0
@@ -327,7 +327,7 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
                       <button
                         type="button"
                         onClick={() => quoteMessage(quotable)}
-                        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-indigo-200/50 transition-colors hover:bg-white/10 hover:text-indigo-100"
+                        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
                         title="引用这条消息到输入框追问"
                       >
                         <Quote className="size-3" /> 引用
@@ -341,7 +341,7 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
                     </>
                   )}
                   {bugTurns.has(it.id) && (
-                    <div className="flex items-center gap-1.5 pl-1 text-[11px] text-amber-300/90">
+                    <div className="flex items-center gap-1.5 pl-1 text-[11px] text-amber-700">
                       <Bug className="size-3" /> 已识别为缺陷并自动登记到 Bug 库
                     </div>
                   )}
@@ -350,7 +350,7 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
             })
           })()}
           {waiting && (
-            <div className="flex items-center gap-2 text-xs text-indigo-200/60">
+            <div className="flex items-center gap-2 text-xs text-slate-500">
               <span className="fc-thinking-dot">●</span>
               <span className="fc-thinking-dot" style={{ animationDelay: '0.2s' }}>●</span>
               <span className="fc-thinking-dot" style={{ animationDelay: '0.4s' }}>●</span>
@@ -360,21 +360,21 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
         </div>
 
         {/* 组合器 */}
-        <div className="border-t border-indigo-300/12 p-3">
-          <div className="rounded-2xl border border-indigo-300/22 bg-white/[0.04] p-2 transition-colors focus-within:border-sky-300/50 focus-within:shadow-[0_0_0_2px_rgba(120,150,255,0.2)]">
+        <div className="shrink-0 border-t border-slate-200/80 p-3">
+          <div className="rounded-2xl border border-slate-200 bg-white/65 p-2 shadow-[0_10px_28px_-24px_rgba(15,23,42,0.3)] transition-colors focus-within:border-sky-300 focus-within:bg-white/85 focus-within:shadow-[0_0_0_3px_rgba(56,189,248,0.1)]">
             {(atts.length > 0 || uploading > 0) && (
               <div className="mb-1.5 flex max-h-20 flex-wrap gap-2 overflow-y-auto px-1">
                 {atts.map((a) => (
-                  <div key={a.path} className="fc-attach-thumb relative flex items-center gap-1.5 rounded-lg py-1 pl-1 pr-6 text-[11px] text-indigo-100/85">
-                    {a.url ? <img src={a.url} alt={a.name} onClick={() => setLightbox(a.url!)} className="size-7 cursor-zoom-in rounded object-cover" /> : <span className="flex size-7 items-center justify-center rounded bg-white/5 text-sky-300/80">📄</span>}
+                  <div key={a.path} className="fc-attach-thumb relative flex items-center gap-1.5 rounded-lg py-1 pl-1 pr-6 text-[11px] text-slate-600">
+                    {a.url ? <img src={a.url} alt={a.name} onClick={() => setLightbox(a.url!)} className="size-7 cursor-zoom-in rounded object-cover" /> : <span className="flex size-7 items-center justify-center rounded bg-slate-100 text-sky-600/80">📄</span>}
                     <span className="max-w-[120px] truncate">{a.name}</span>
-                    <button type="button" onClick={() => removeAtt(a.path)} className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-indigo-200/60 hover:bg-white/10 hover:text-white" aria-label="移除">
+                    <button type="button" onClick={() => removeAtt(a.path)} className="absolute right-1 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900" aria-label="移除">
                       <X className="size-3" />
                     </button>
                   </div>
                 ))}
                 {uploading > 0 && (
-                  <div className="flex items-center gap-1.5 rounded-lg border border-indigo-300/20 px-2 py-1.5 text-[11px] text-indigo-200/60">
+                  <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2 py-1.5 text-[11px] text-slate-500">
                     <Loader2 className="size-3.5 animate-spin" /> 上传中…
                   </div>
                 )}
@@ -392,7 +392,7 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
                 void send()
               }}
               placeholder="继续追问…（Shift+Enter 发送 / Enter 换行，可粘贴或上传附件）"
-              className="w-full resize-none bg-transparent px-2 py-1.5 text-sm text-[#e8ecff] placeholder:text-indigo-200/35 focus:outline-none"
+              className="w-full resize-none bg-transparent px-2 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none"
             />
             <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
             <div className="flex items-center justify-between px-1">
@@ -400,7 +400,7 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
                 type="button"
                 onClick={() => fileRef.current?.click()}
                 disabled={atts.length + uploading >= MAX_ATT}
-                className="flex items-center gap-1 rounded-lg px-1.5 py-1 text-[11px] text-indigo-200/60 transition-colors hover:bg-white/10 hover:text-indigo-100 disabled:opacity-40"
+                className="flex items-center gap-1 rounded-lg px-1.5 py-1 text-[11px] text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40"
                 title="上传附件：图片/Excel/Word/Markdown/PDF"
               >
                 <Paperclip className="size-3.5" /> 附件
@@ -422,15 +422,15 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
           <BadFeedbackDialog onCancel={() => setBadDialog(null)} onSubmit={(c, r, co) => submitBad(badDialog, c, r, co)} />
         )}
         {newQuestionReason !== null && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-5">
-            <div className="w-full max-w-sm rounded-2xl border border-amber-300/25 bg-[#11172f] p-5 shadow-2xl">
-              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-100">
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-200/55 p-5 backdrop-blur-md">
+            <div className="w-full max-w-sm rounded-2xl border border-white/90 bg-white/90 p-5 shadow-2xl">
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-700">
                 <ShieldAlert className="size-4" /> 这可能是一个新问题
               </div>
-              <p className="text-sm leading-6 text-indigo-100/75">
+              <p className="text-sm leading-6 text-slate-600">
                 为便于按系统和问题独立归档、评测，请结束当前咨询，再选择所属系统开启新的业务会话。
               </p>
-              <p className="mt-2 text-xs text-indigo-200/45">识别依据：{newQuestionReason}</p>
+              <p className="mt-2 text-xs text-slate-400">识别依据：{newQuestionReason}</p>
               <div className="mt-5 flex justify-end gap-2">
                 <button
                   type="button"
@@ -438,7 +438,7 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
                     setNewQuestionReason(null)
                     sendCurrentAsFollowUp()
                   }}
-                  className="rounded-xl px-3 py-2 text-sm text-indigo-100/70 hover:bg-white/5"
+                  className="rounded-xl px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900"
                 >
                   仍作为追问
                 </button>
@@ -463,10 +463,10 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
 }
 
 const AUDIT_TONE: Record<AuditState, string> = {
-  running: 'border-sky-300/25 bg-sky-400/10 text-sky-200',
-  pass: 'border-emerald-300/25 bg-emerald-400/10 text-emerald-200',
-  idle: 'border-indigo-300/15 bg-white/[0.03] text-indigo-200/55',
-  warn: 'border-amber-300/35 bg-amber-400/12 text-amber-200',
+  running: 'border-sky-200 bg-sky-50 text-sky-700',
+  pass: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  idle: 'border-slate-200 bg-slate-50/80 text-slate-500',
+  warn: 'border-amber-200 bg-amber-50 text-amber-700',
 }
 
 function ConsultAuditRow({ audit }: { audit: ConsultTurnAudit }) {
@@ -519,28 +519,28 @@ function AuditBadge({ icon, label, state, evidence = [] }: {
       {label}
     </span>
   )
-  return details ? <details className="group/audit cursor-pointer" title="点击查看调用证据"><summary className="list-none">{content}</summary><pre className="mt-1 max-w-[460px] whitespace-pre-wrap rounded-lg border border-indigo-300/15 bg-black/25 p-2 text-[10px] leading-relaxed text-indigo-100/70">{details}</pre></details> : content
+  return details ? <details className="group/audit cursor-pointer" title="点击查看调用证据"><summary className="list-none">{content}</summary><pre className="mt-1 max-w-[460px] whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-900 p-2 text-[10px] leading-relaxed text-slate-200">{details}</pre></details> : content
 }
 
 function RatingRow({ rating, onGood, onBad }: { rating?: Rating; onGood: () => void; onBad: () => void }) {
   return (
     <div className="flex items-center gap-2 pl-1 pt-0.5">
-      <span className="text-[10px] text-indigo-200/35">这条回答满意吗？</span>
+      <span className="text-[10px] text-slate-400">这条回答满意吗？</span>
       <button
         type="button"
         onClick={onGood}
-        className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] transition-colors ${rating === 'GOOD' ? 'bg-emerald-400/20 text-emerald-200' : 'text-indigo-200/55 hover:bg-white/10'}`}
+        className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] transition-colors ${rating === 'GOOD' ? 'bg-emerald-50 text-emerald-700' : 'text-slate-500 hover:bg-slate-100'}`}
       >
         <ThumbsUp className="size-3" /> 有帮助
       </button>
       <button
         type="button"
         onClick={onBad}
-        className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] transition-colors ${rating === 'BAD' ? 'bg-red-400/20 text-red-200' : 'text-indigo-200/55 hover:bg-white/10'}`}
+        className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] transition-colors ${rating === 'BAD' ? 'bg-red-50 text-red-700' : 'text-slate-500 hover:bg-slate-100'}`}
       >
         <ThumbsDown className="size-3" /> 不满意
       </button>
-      {rating && <span className="text-[10px] text-indigo-200/30">已反馈，谢谢</span>}
+      {rating && <span className="text-[10px] text-slate-400">已反馈，谢谢</span>}
     </div>
   )
 }
@@ -553,15 +553,15 @@ function BadFeedbackDialog({ onSubmit, onCancel }: { onSubmit: (category: string
     <div className="fc-backdrop absolute inset-0 z-40 flex items-center justify-center p-5" onClick={onCancel}>
       <div className="fc-panel w-full max-w-md rounded-2xl p-5" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="flex items-center gap-2 text-sm font-semibold text-white">
-            <ThumbsDown className="size-4 text-red-300" /> 反馈这条回答的问题
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+            <ThumbsDown className="size-4 text-red-500" /> 反馈这条回答的问题
           </h3>
-          <button type="button" onClick={onCancel} className="rounded-lg p-1.5 text-indigo-200/70 hover:bg-white/10" aria-label="关闭">
+          <button type="button" onClick={onCancel} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900" aria-label="关闭">
             <X className="size-4" />
           </button>
         </div>
         <div className="mb-3">
-          <div className="mb-1.5 text-[11px] text-indigo-200/55">问题类型</div>
+          <div className="mb-1.5 text-[11px] text-slate-500">问题类型</div>
           <div className="flex flex-wrap gap-1.5">
             {BAD_CATEGORIES.map((c) => (
               <button
@@ -569,7 +569,7 @@ function BadFeedbackDialog({ onSubmit, onCancel }: { onSubmit: (category: string
                 type="button"
                 onClick={() => setCategory(c)}
                 className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
-                  category === c ? 'border-sky-300/60 bg-sky-400/20 text-sky-100' : 'border-indigo-300/22 bg-white/[0.04] text-indigo-100/70 hover:bg-white/10'
+                  category === c ? 'border-sky-300 bg-sky-50 text-sky-700' : 'border-slate-200 bg-white/60 text-slate-600 hover:bg-slate-50'
                 }`}
               >
                 {c}
@@ -578,15 +578,15 @@ function BadFeedbackDialog({ onSubmit, onCancel }: { onSubmit: (category: string
           </div>
         </div>
         <div className="mb-3">
-          <div className="mb-1.5 text-[11px] text-indigo-200/55">具体原因</div>
+          <div className="mb-1.5 text-[11px] text-slate-500">具体原因</div>
           <textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="哪里不对 / 你期望的是什么…" className="fc-glass-input w-full resize-none rounded-lg px-2.5 py-1.5 text-sm" />
         </div>
         <div className="mb-4">
-          <div className="mb-1.5 text-[11px] text-indigo-200/55">正确答案（可选，若你知道）</div>
+          <div className="mb-1.5 text-[11px] text-slate-500">正确答案（可选，若你知道）</div>
           <textarea rows={2} value={correct} onChange={(e) => setCorrect(e.target.value)} placeholder="填写正确的操作/结论，帮助我们改进知识库" className="fc-glass-input w-full resize-none rounded-lg px-2.5 py-1.5 text-sm" />
         </div>
         <div className="flex items-center justify-end gap-2">
-          <button type="button" onClick={onCancel} className="rounded-xl px-4 py-2 text-sm text-indigo-200/70 hover:bg-white/5">
+          <button type="button" onClick={onCancel} className="rounded-xl px-4 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900">
             取消
           </button>
           <button
@@ -615,15 +615,15 @@ const MessageRow = memo(function MessageRow({ item, onImageClick }: { item: Chat
           <div className="flex flex-wrap justify-end gap-1.5">
             {item.attachments.map((a, i) =>
               a.url ? (
-                <img key={i} src={a.url} alt={a.name} onClick={() => onImageClick(a.url!)} className="size-16 cursor-zoom-in rounded-lg border border-indigo-300/25 object-cover transition-transform hover:scale-[1.03]" />
+                <img key={i} src={a.url} alt={a.name} onClick={() => onImageClick(a.url!)} className="size-16 cursor-zoom-in rounded-lg border border-slate-200 object-cover transition-transform hover:scale-[1.03]" />
               ) : (
-                <span key={i} className="rounded-lg border border-indigo-300/25 bg-white/5 px-2 py-1 text-[11px] text-indigo-100/80">📄 {a.name}</span>
+                <span key={i} className="rounded-lg border border-slate-200 bg-white/65 px-2 py-1 text-[11px] text-slate-600">📄 {a.name}</span>
               ),
             )}
           </div>
         )}
         {shown.trim() && (
-          <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tr-sm border border-sky-300/25 bg-sky-400/15 px-3 py-2 text-sm text-sky-50">
+          <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tr-sm border border-blue-200 bg-blue-500 px-3 py-2 text-sm text-white shadow-[0_10px_24px_-16px_rgba(37,99,235,0.65)]">
             {shown}
           </div>
         )}
@@ -633,7 +633,7 @@ const MessageRow = memo(function MessageRow({ item, onImageClick }: { item: Chat
   if (item.kind === 'assistant') {
     if (!item.text.trim()) return null
     return (
-      <div className="max-w-[92%] rounded-2xl rounded-tl-sm border border-indigo-300/15 bg-white/[0.04] px-3.5 py-2.5">
+      <div className="max-w-[92%] rounded-2xl rounded-tl-sm border border-slate-200/90 bg-white/72 px-3.5 py-2.5 shadow-[0_12px_30px_-26px_rgba(15,23,42,0.32)]">
         <div className="fc-md" dangerouslySetInnerHTML={{ __html: assistantHtml }} />
       </div>
     )
@@ -641,7 +641,7 @@ const MessageRow = memo(function MessageRow({ item, onImageClick }: { item: Chat
   // 本模块聊天框不展示工具调用信息（item.kind === 'tool' 直接忽略）。
   if (item.kind === 'error') {
     return (
-      <div className="rounded-lg border border-red-400/30 bg-red-400/10 px-3 py-2 text-xs text-red-200">
+      <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
         出错：{item.message}
       </div>
     )
