@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 
 /**
@@ -18,7 +19,7 @@ export function ImageLightbox({ src, alt, onClose }: { src: string; alt?: string
     }
   }, [onClose])
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 p-4"
       onClick={onClose}
@@ -41,6 +42,7 @@ export function ImageLightbox({ src, alt, onClose }: { src: string; alt?: string
       >
         <X className="size-5" />
       </button>
-    </div>
+    </div>,
+    document.body,
   )
 }

@@ -41,8 +41,7 @@ export function useDraftAttachments(
   key: string | null | undefined,
 ): [DraftAttachment[], (v: DraftAttachment[] | ((prev: DraftAttachment[]) => DraftAttachment[])) => void] {
   const k = key ?? PENDING_KEY
-  const all = useSyncExternalStore(subscribe, () => store, () => store)
-  const items = all.get(k) ?? EMPTY
+  const items = useSyncExternalStore(subscribe, () => get(k), () => EMPTY)
   const set = useCallback((v: DraftAttachment[] | ((prev: DraftAttachment[]) => DraftAttachment[])) => {
     const prev = get(k)
     const next = typeof v === 'function' ? (v as (p: DraftAttachment[]) => DraftAttachment[])(prev) : v
