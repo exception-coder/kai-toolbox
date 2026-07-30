@@ -2,9 +2,9 @@ import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'rea
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { BotMessageSquare, Bug, ChevronRight, ClipboardCheck, Clock, Code2, Copy, ExternalLink, FileText, FolderOpen, GitBranch, Image as ImageIcon, Info, Layers, Loader2, Paperclip, Pencil, Plus, RefreshCw, Rocket, Save, Search, Send, Sparkles, Trash2, User, Wrench, X } from 'lucide-react'
-import { http } from '@/lib/api'
-import { MultiSelect } from '@/components/ui/multi-select'
+import { SystemModuleSelector } from '@/components/prd/SystemModuleSelector'
 import { usePrompt } from '@/components/ui/prompt-dialog'
+import { splitCatalogValues } from '@/lib/systemCatalog'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 // doc-viewer 的 markdown.css 含完整 prose 样式（标题层级/代码块/表格等），无需 @tailwindcss/typography
@@ -2643,8 +2643,8 @@ function InputPanel({
   const [title, setTitle] = useState(initialTitle)
   const [rawInput, setRawInput] = useState(initialRawInput)
   const [project, setProject] = useState(initialProject)
-  // module 对外契约不变：逗号分隔的字符串（跟历史记录/后端 prd_session.module 单列 TEXT 兼容，
-  // 无需改 schema）。UI 层用 MultiSelect 多选，只是把选中的模块名 join(', ') 写回这个字符串。
+  // 多系统仍使用历史逗号分隔字段持久化，并约定首项是主系统，无需修改存量 schema。
+  const [primaryProject, setPrimaryProject] = useState(splitCatalogValues(initialProject)[0] ?? '')
   const [module, setModule] = useState(initialModule)
   const [role, setRole] = useState<'PRODUCT' | 'BUSINESS'>('PRODUCT')
   const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null)
@@ -2669,7 +2669,11 @@ function InputPanel({
   // 当外部初始值变化时（如从 showcase 跳转带参数）同步更新
   useEffect(() => { if (initialTitle) setTitle(initialTitle) }, [initialTitle])
   useEffect(() => { if (initialRawInput) setRawInput(initialRawInput) }, [initialRawInput])
-  useEffect(() => { if (initialProject) setProject(initialProject) }, [initialProject])
+  useEffect(() => {
+    if (!initialProject) return
+    setProject(initialProject)
+    setPrimaryProject(splitCatalogValues(initialProject)[0] ?? '')
+  }, [initialProject])
   useEffect(() => { if (initialModule) setModule(initialModule) }, [initialModule])
 
   /**
@@ -2808,67 +2812,8 @@ function InputPanel({
     }
   }
 
-  // 拉取项目列表：用 claude-chat/workspaces 而非 /projects，
-  // 因为 workspaces 支持多个 workspace root（包含 D:\yoooni\ 等非 myWork 根目录），
-  // 而 /projects 只扫 toolbox.projects.root 单个根，会遗漏其他根下的项目（如 yoooni）。
-  const { data: workspacesData } = useQuery({
-    queryKey: ['workspaces'],
-    queryFn: () => http<{
-      roots: Array<{ root: string; exists: boolean; dirs: Array<{ name: string; path: string }> }>
-    }>('/claude-chat/workspaces'),
-  })
-
-  // 将所有 root 下的 dirs 展平为统一的项目列表（去重：同名取第一个）
-  const projects: Array<{ name: string; path: string }> = (() => {
-    if (!workspacesData?.roots) return []
-    const seen = new Set<string>()
-    const result: Array<{ name: string; path: string }> = []
-    for (const root of workspacesData.roots) {
-      if (!root.exists) continue
-      for (const dir of root.dirs ?? []) {
-        if (!seen.has(dir.name)) {
-          seen.add(dir.name)
-          result.push(dir)
-        }
-      }
-    }
-    return result.sort((a, b) => a.name.localeCompare(b.name, 'zh'))
-  })()
-
-  // 已选项目 tag 数组：project 对外契约仍是逗号分隔字符串（跟 module 一样，不改 schema），
-  // UI 层用 MultiSelect 多选，选中的项目名 join(', ') 写回 project 字符串。
-  const projectTags = project.split(/[,，、]/).map((s) => s.trim()).filter(Boolean)
-
-  // 拉取模块列表：项目多选后要对每个选中的项目各查一次模块列表，而不是只查第一个——
-  // 一次性 Promise.all 并行拉取，比逐个项目单独起 useQuery 更省心（不用手写 N 个 query）。
-  const { data: modulesByProject } = useQuery({
-    queryKey: ['project-modules-multi', projectTags],
-    queryFn: () => Promise.all(
-      projectTags.map(async (projName) => {
-        const item = projects.find((p) => p.name === projName)
-        if (!item) return { project: projName, modules: [] as Array<{ name: string }> }
-        const data = await http<{ modules: Array<{ name: string }> }>(
-          `/claude-chat/workspaces/modules?path=${encodeURIComponent(item.path)}`
-        )
-        return { project: projName, modules: data.modules ?? [] }
-      })
-    ),
-    enabled: projectTags.length > 0 && projects.length > 0,
-  })
-
-  // 模块候选项：只选了 1 个项目时保持原样平铺（不带 group，跟改造前视觉一致）；
-  // 选了多个项目时按项目分组二级展示，避免不同项目间同名模块混在一起分不清来源。
-  const moduleOptions: { label: string; value: string; group?: string }[] = (modulesByProject ?? []).flatMap((entry) =>
-    entry.modules.map((m) => ({
-      label: m.name,
-      value: m.name,
-      group: projectTags.length > 1 ? entry.project : undefined,
-    }))
-  )
-
-  // 已选模块 tag 数组：从 module 字符串派生（支持中英文逗号/顿号分隔，兼容历史遗留数据），
-  // 传给 MultiSelect 做受控 value；onChange 里再 join(', ') 写回 module 字符串。
-  const moduleTags = module.split(/[,，、]/).map((s) => s.trim()).filter(Boolean)
+  const projectTags = splitCatalogValues(project)
+  const moduleTags = splitCatalogValues(module)
 
   // 标题必填；描述 OR 至少有一个附件即可提交
   const canSubmit = title.trim() && (rawInput.trim() || attachments.length > 0)
@@ -2927,6 +2872,7 @@ function InputPanel({
                     setTitle(t.title)
                     setRawInput(t.rawInput)
                     setProject(t.project)
+                    setPrimaryProject(splitCatalogValues(t.project)[0] ?? '')
                     setModule(t.module)
                   }}
                   className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full border border-[var(--color-border)] hover:border-[var(--color-ring)] bg-[var(--color-muted)]/30 text-[var(--color-foreground)] transition-colors"
@@ -2949,31 +2895,16 @@ function InputPanel({
           />
         </div>
 
-        {/* 移动端上下堆叠：两个多选框并排时输入区太窄，标签和已选标签都会折行 */}
-        <div className="flex flex-col gap-3 md:flex-row">
-          <div className="flex-1 min-w-0">
-            <label className="block text-sm font-medium mb-1">关联项目（可选，可多选）</label>
-            <MultiSelect
-              id="project-input"
-              value={projectTags}
-              onChange={(tags) => { setProject(tags.join(', ')); setModule('') }}
-              options={projects.map((p) => ({ label: p.name, value: p.name }))}
-              placeholder="如：kai-toolbox（可下拉勾选或输入多个）"
-            />
-          </div>
-          <div className="flex-1 min-w-0">
-            <label className="block text-sm font-medium mb-1">
-              关联模块（可选，可多选{projectTags.length > 1 ? '，按项目分组' : ''}）
-            </label>
-            <MultiSelect
-              id="module-input"
-              value={moduleTags}
-              onChange={(tags) => setModule(tags.join(', '))}
-              options={moduleOptions}
-              placeholder="如：tool-reqpool（可下拉勾选或输入多个）"
-            />
-          </div>
-        </div>
+        <SystemModuleSelector
+          systems={projectTags}
+          modules={moduleTags}
+          primarySystem={primaryProject}
+          onSystemsChange={(systems, primarySystem) => {
+            setProject(systems.join(', '))
+            setPrimaryProject(primarySystem)
+          }}
+          onModulesChange={(modules) => setModule(modules.join(', '))}
+        />
 
         {/* 原始需求描述 + 附件上传区 */}
         <div>
@@ -4704,6 +4635,8 @@ export function PrdClarifyPage() {
   const urlRawInput = searchParams.get('rawInput') ?? ''
   const urlProject = searchParams.get('project') ?? ''
   const urlModule = searchParams.get('module') ?? ''
+  /** 从交付中心创建后直接锁定的 PRD 澄清会话。 */
+  const urlSessionId = searchParams.get('sessionId') ?? ''
   /** 来自需求管理池的回写 ID（读取一次，后续用 reqItemIdRef） */
   const urlReqItemId = searchParams.get('reqItemId') ?? ''
   /** 直接查看某个历史 PRD 会话（来自需求管理池「查看PRD」按钮） */
@@ -4734,6 +4667,27 @@ export function PrdClarifyPage() {
       })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])  // 只在 mount 时执行一次
+
+  // 交付中心已经创建了正式会话，这里只加载并锁定，不再重复创建。
+  useEffect(() => {
+    if (!urlSessionId) return
+    setSearchParams({}, { replace: true })
+    setSessionId(urlSessionId)
+    setStep('CHATTING')
+    qc.fetchQuery({
+      queryKey: ['prd-session', urlSessionId],
+      queryFn: () => getSession(urlSessionId),
+    })
+      .then((loaded) => {
+        setSessionTitle(loaded.title)
+      })
+      .catch(() => {
+        setSessionId(null)
+        setErrorMsg('目标 PRD 会话不存在或无法访问')
+        setStep('INPUT')
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlSessionId])
 
   // viewSession 参数：直接拉取会话内容并跳转到编辑器
   useEffect(() => {

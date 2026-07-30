@@ -1,17 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertCircle, Loader2, Radar, RefreshCw, Sparkles } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { AlertCircle, FilePlus2, Loader2, Radar, RefreshCw, Sparkles } from 'lucide-react'
 import { getDeliveryOverview } from '../api'
 import { AiInspector } from '../components/AiInspector'
 import { DeliveryCanvas } from '../components/DeliveryCanvas'
 import { DeliveryStatusStrip } from '../components/DeliveryStatusStrip'
 import { ProjectRail } from '../components/ProjectRail'
+import { PrdDraftDialog } from '../components/PrdDraftDialog'
 import { buildProjects, findingsForRequirement } from '../viewModel'
 
 export function DeliveryCenterPage() {
+  const navigate = useNavigate()
   const [selectedProject, setSelectedProject] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+  const [draftOpen, setDraftOpen] = useState(false)
   const overviewQuery = useQuery({
     queryKey: ['delivery-overview'],
     queryFn: () => getDeliveryOverview(),
@@ -70,6 +74,13 @@ export function DeliveryCenterPage() {
             >
               <RefreshCw className={`h-3 w-3 ${overviewQuery.isFetching ? 'animate-spin' : ''}`} />刷新
             </button>
+            <button
+              type="button"
+              onClick={() => setDraftOpen(true)}
+              className="inline-flex items-center gap-1 border border-[var(--color-primary)]/40 px-2.5 py-1.5 font-medium text-[var(--color-primary)] hover:bg-[var(--color-primary)]/10"
+            >
+              <FilePlus2 className="h-3 w-3" />起草 PRD
+            </button>
           </div>
         </header>
 
@@ -108,6 +119,13 @@ export function DeliveryCenterPage() {
           </main>
         )}
       </div>
+      {draftOpen && (
+        <PrdDraftDialog
+          initialProject={activeProject}
+          onClose={() => setDraftOpen(false)}
+          onCreated={sessionId => navigate(`/tools/prd-clarify?sessionId=${encodeURIComponent(sessionId)}`)}
+        />
+      )}
     </div>
   )
 }

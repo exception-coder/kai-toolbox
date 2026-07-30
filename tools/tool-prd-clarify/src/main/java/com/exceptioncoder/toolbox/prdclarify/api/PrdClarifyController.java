@@ -27,6 +27,8 @@ import com.exceptioncoder.toolbox.prdclarify.api.dto.SplitItemView;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.SplitPreviewView;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.SaveQaHistoryRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.SubmitAnswersRequest;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.SuggestTitleRequest;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.SuggestTitleView;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.UpdateTitleRequest;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
@@ -185,6 +187,14 @@ public class PrdClarifyController {
                 req.title(), req.rawInput(), req.project(), req.module(), req.model(), req.engine(), req.role(),
                 req.reqType(), req.maxQuestions(), createdByUserId, req.clarifyMode());
         return PrdSessionView.from(session);
+    }
+
+    /** 根据系统、模块、需求描述和粘贴图片生成规范 PRD 标题。 */
+    @PostMapping("/title-suggestion")
+    public SuggestTitleView suggestTitle(@Valid @RequestBody SuggestTitleRequest req) {
+        PrdClarifyService.TitleSuggestion suggestion =
+                service.suggestTitle(req.project(), req.module(), req.rawInput());
+        return new SuggestTitleView(suggestion.shortTitle(), suggestion.title());
     }
 
     /**

@@ -83,6 +83,13 @@ public class PrdClarifyService {
             描述已经很清楚具体时取区间下限，描述简略/信息不足时取区间上限。
             """;
 
+    private static final int MAX_SUGGESTED_TITLE_CODE_POINTS = 40;
+    private static final String TITLE_SUGGESTION_SYSTEM = """
+            你是软件需求命名助手。根据系统、模块、需求描述和图片，提炼一个准确的中文业务短标题。
+            只输出短标题，不要包含系统名、模块名、序号、引号、句号、解释或 Markdown。
+            标题使用“动作 + 对象”或“对象 + 能力”结构，最多 20 个汉字，避免“需求”“功能优化”等空泛表述。
+            """;
+
     // ───── 多轮渐进式需求澄清 System Prompt ─────
 
     /**
@@ -519,6 +526,35 @@ public class PrdClarifyService {
     private record ReqTypeClassification(String reqType, int maxQuestions) {
     }
 
+    /** AI 标题建议，完整标题由代码按固定格式拼接。 */
+    public record TitleSuggestion(String shortTitle, String title) {
+    }
+
+    /**
+     * 从需求文本和图片提炼业务短标题；模型异常时使用描述首行降级。
+     *
+     * @param project  系统或项目名称
+     * @param module   业务模块名称
+     * @param rawInput 需求描述及附件引用
+     * @return 确定性格式化后的标题建议
+     */
+    public TitleSuggestion suggestTitle(String project, String module, String rawInput) {
+        String normalizedProject = requireTitlePart(project, "系统");
+        String normalizedModule = requireTitlePart(module, "模块");
+        String fallback = fallbackShortTitle(rawInput);
+        String candidate = fallback;
+        try {
+            String prompt = "系统：" + normalizedProject + "\n模块：" + normalizedModule + "\n需求描述：\n" + rawInput;
+            List<AgentOneShotRunner.ImageInput> images = extractImagesFromRawInput(rawInput);
+            candidate = agentRunner.runOnce(
+                    TITLE_SUGGESTION_SYSTEM, prompt, null, AgentOneShotRunner.DEFAULT_ENGINE, images);
+        } catch (Exception e) {
+            log.warn("[prd-clarify] 标题建议生成失败，使用描述摘要: {}", e.getMessage());
+        }
+        String shortTitle = normalizeShortTitle(candidate, normalizedProject, normalizedModule, fallback);
+        return new TitleSuggestion(shortTitle, String.join("-", normalizedProject, normalizedModule, shortTitle));
+    }
+
     /**
      * 需求类型自动判定：调一次轻量 oneShot LLM 分类（{@link #REQ_TYPE_CLASSIFY_SYSTEM}），
      * 解析失败或调用异常时兜底 NEW_MODULE——分类是「体验优化」，不能因为它失败就把整个
@@ -549,6 +585,66 @@ public class PrdClarifyService {
         if (engine == null || engine.isBlank() || "claude".equalsIgnoreCase(engine)) return "claude";
         if ("codex".equalsIgnoreCase(engine)) return "codex";
         throw new IllegalArgumentException("不支持的 Agent 引擎: " + engine);
+    }
+
+    private static String requireTitlePart(String value, String fieldName) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(fieldName + "不能为空");
+        }
+        return value.trim().replaceAll("\\s*-\\s*", "-");
+    }
+
+    private static String normalizeShortTitle(String value, String project, String module, String fallback) {
+        String title = stripFence(value == null ? "" : value.trim())
+                .lines()
+                .filter(line -> !line.isBlank())
+                .findFirst()
+                .orElse(fallback)
+                .trim()
+                .replaceFirst("^(标题|短标题)\\s*[:：]\\s*", "")
+                .replaceFirst("^#{1,6}\\s*", "")
+                .replaceFirst("^[-*]\\s+", "")
+                .replaceAll("^[\"'“”‘’《》]+|[\"'“”‘’《》。！？!?；;]+$", "");
+        String combinedPrefix = project + "-" + module + "-";
+        if (title.startsWith(combinedPrefix)) {
+            title = title.substring(combinedPrefix.length()).trim();
+        } else {
+            title = removeTitlePrefix(removeTitlePrefix(title, project), module);
+        }
+        if (title.isBlank()) {
+            title = fallback;
+        }
+        return truncateCodePoints(title, MAX_SUGGESTED_TITLE_CODE_POINTS);
+    }
+
+    private static String removeTitlePrefix(String title, String prefix) {
+        if (!title.startsWith(prefix)) {
+            return title;
+        }
+        return title.substring(prefix.length()).replaceFirst("^\\s*[-—:：]\\s*", "").trim();
+    }
+
+    private static String fallbackShortTitle(String rawInput) {
+        if (rawInput == null) {
+            return "新需求";
+        }
+        return rawInput.lines()
+                .map(String::trim)
+                .filter(line -> !line.isBlank())
+                .filter(line -> !line.startsWith("![") && !line.startsWith("[📎"))
+                .map(line -> line.replaceFirst("^#{1,6}\\s*", "").replaceFirst("^[-*]\\s*", ""))
+                .filter(line -> !line.isBlank())
+                .findFirst()
+                .map(line -> truncateCodePoints(line, MAX_SUGGESTED_TITLE_CODE_POINTS))
+                .orElse("新需求");
+    }
+
+    private static String truncateCodePoints(String value, int maxCodePoints) {
+        int count = value.codePointCount(0, value.length());
+        if (count <= maxCodePoints) {
+            return value;
+        }
+        return value.substring(0, value.offsetByCodePoints(0, maxCodePoints));
     }
 
     /**

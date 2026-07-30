@@ -11,6 +11,14 @@ import type {
   SplitPreview,
   SubmitAnswersRequest,
 } from './types'
+export {
+  parsePrdAttachment as parseAttachment,
+  uploadPrdImage as uploadImageAttachment,
+} from '@/lib/prdAttachments'
+export type {
+  PrdAttachmentParseResult as AttachmentParseResult,
+  PrdImageAttachmentResult as ImageAttachmentResult,
+} from '@/lib/prdAttachments'
 
 const BASE = '/prd-clarify'
 
@@ -407,68 +415,6 @@ export const PRD_CLARIFY_LAUNCH_KEY = 'kai-toolbox:claude-chat:prd-clarify-launc
  */
 export const checkPrdFile = (id: string) =>
   http<PrdSessionView>(`${BASE}/sessions/${id}/check-prd-file`, { method: 'POST' })
-
-// ─── 附件解析 ───
-
-export interface AttachmentParseResult {
-  fileName: string
-  contentType: string
-  text: string
-  truncated: boolean
-  /** 落盘后的附件 id */
-  fileId: string
-  /** 下载原始文件的相对地址（GET /api/prd-clarify/attachments/file/{fileId}） */
-  url: string
-}
-
-/**
- * 上传附件（MD / PDF / DOCX）并解析提取文本，原始文件同时落盘（见 fileId/url）——
- * 之前只返回解析出的文本，原文件解析完就丢了，回看 PRD 时找不到当初提需求的 Word/PDF 原件。
- * 返回结构化的解析结果，由前端拼接到 rawInput 中。
- */
-export const parseAttachment = async (file: File): Promise<AttachmentParseResult> => {
-  const form = new FormData()
-  form.append('file', file)
-  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('toolbox.auth.token') : null
-  const res = await fetch('/api/prd-clarify/attachments/parse', {
-    method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: form,
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error((err as { message?: string }).message ?? `HTTP ${res.status}`)
-  }
-  return res.json()
-}
-
-export interface ImageAttachmentResult {
-  id: string
-  name: string
-  mime: string
-  /** 可直接用于 <img src> 的相对地址（GET /api/prd-clarify/attachments/image/{id}） */
-  url: string
-}
-
-/**
- * "原始需求描述"文本域直接粘贴图片：落盘后返回可用于 <img src> 的地址，前端把
- * `![粘贴图片N](url)` 插进文本域光标处，图片随文字一起构成 rawInput。
- */
-export const uploadImageAttachment = async (file: File): Promise<ImageAttachmentResult> => {
-  const form = new FormData()
-  form.append('file', file)
-  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('toolbox.auth.token') : null
-  const res = await fetch('/api/prd-clarify/attachments/image', {
-    method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: form,
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error((err as { message?: string }).message ?? `HTTP ${res.status}`)
-  }
-  return res.json()
-}
 
 // ─── 多轮渐进式澄清 ───
 

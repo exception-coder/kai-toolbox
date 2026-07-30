@@ -18,6 +18,9 @@ export interface MultiSelectProps {
   placeholder?: string
   id?: string
   className?: string
+  emptyText?: string
+  allowCustom?: boolean
+  clearable?: boolean
 }
 
 /**
@@ -26,7 +29,17 @@ export interface MultiSelectProps {
  * （如手填一个候选列表未收录的模块名）。已选项以可移除的 chips 展示在输入框内，
  * 输入框为空时按退格删除最后一个 chip，跟主流标签输入交互一致。
  */
-export function MultiSelect({ value, onChange, options, placeholder, id, className }: MultiSelectProps) {
+export function MultiSelect({
+  value,
+  onChange,
+  options,
+  placeholder,
+  id,
+  className,
+  emptyText = '没有匹配的候选项',
+  allowCustom = true,
+  clearable = true,
+}: MultiSelectProps) {
   const [open, setOpen] = React.useState(false)
   const [draft, setDraft] = React.useState('')
   const inputRef = React.useRef<HTMLInputElement>(null)
@@ -38,7 +51,7 @@ export function MultiSelect({ value, onChange, options, placeholder, id, classNa
   const removeTag = (v: string) => onChange(value.filter((x) => x !== v))
   const commitDraft = () => {
     const trimmed = draft.trim()
-    if (trimmed && !value.includes(trimmed)) onChange([...value, trimmed])
+    if (allowCustom && trimmed && !value.includes(trimmed)) onChange([...value, trimmed])
     setDraft('')
   }
 
@@ -78,6 +91,9 @@ export function MultiSelect({ value, onChange, options, placeholder, id, classNa
             'flex flex-wrap items-center gap-1 min-h-9 w-full px-2 py-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] text-sm cursor-text focus-within:ring-1 focus-within:ring-[var(--color-ring)]',
             className,
           )}
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={id ? `${id}-options` : undefined}
           onClick={() => { setOpen(true); inputRef.current?.focus() }}
         >
           {value.map((v) => (
@@ -112,21 +128,37 @@ export function MultiSelect({ value, onChange, options, placeholder, id, classNa
                 setOpen(false)
               }
             }}
-            onBlur={commitDraft}
             placeholder={value.length ? '' : placeholder}
             autoComplete="off"
             className="flex-1 min-w-[80px] bg-transparent outline-none placeholder:text-[var(--color-muted-foreground)]"
           />
+          {clearable && value.length > 0 && (
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={(e) => {
+                e.stopPropagation()
+                onChange([])
+                inputRef.current?.focus()
+              }}
+              className="rounded p-0.5 text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)]"
+              aria-label="清空全部已选项"
+              title="清空全部"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
           <ChevronDown className="w-3.5 h-3.5 text-[var(--color-muted-foreground)] shrink-0" />
         </div>
       </PopoverAnchor>
       <PopoverContent
+        id={id ? `${id}-options` : undefined}
         onOpenAutoFocus={(e) => e.preventDefault()}
         className="w-[var(--radix-popover-trigger-width)] max-h-56 overflow-y-auto p-1"
       >
         {filtered.length === 0 ? (
           <div className="px-2 py-1.5 text-xs text-[var(--color-muted-foreground)]">
-            {draft.trim() ? `回车添加自定义值 "${draft.trim()}"` : '无候选模块'}
+            {draft.trim() && allowCustom ? `回车添加自定义值 "${draft.trim()}"` : emptyText}
           </div>
         ) : (
           groupedFiltered.map((g, gi) => (
@@ -140,8 +172,10 @@ export function MultiSelect({ value, onChange, options, placeholder, id, classNa
                 const checked = value.includes(o.value)
                 return (
                   <button
-                    key={o.value}
+                    key={`${o.group ?? ''}:${o.value}:${o.label}`}
                     type="button"
+                    role="option"
+                    aria-selected={checked}
                     onClick={() => toggle(o.value)}
                     className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-left hover:bg-[var(--color-accent)] hover:text-[var(--color-accent-foreground)]"
                   >
