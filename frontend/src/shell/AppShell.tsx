@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { Sidebar } from './Sidebar'
@@ -13,15 +13,43 @@ import { useMenuVisibilitySync } from './menuVisibility'
 export function AppShell() {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const collapsedRef = useRef(collapsed)
+  const collapsedBeforeConsultRef = useRef<boolean | null>(null)
+  const wasConsultRouteRef = useRef(false)
   const location = useLocation()
   const { brand } = useBrand()
   const shellless = location.pathname === '/tools/welfare-sign/fullscreen'
+  const isConsultRoute =
+    location.pathname === '/tools/fore-consult' ||
+    location.pathname.startsWith('/tools/fore-consult/')
 
   // 登录后把当前用户的菜单显隐从后端同步下来（未登录则 no-op，走本地兜底）。
   useMenuVisibilitySync()
 
   // 路由切换时关闭移动端抽屉
   useEffect(() => { setMobileOpen(false) }, [location.pathname])
+
+  useLayoutEffect(() => {
+    collapsedRef.current = collapsed
+  }, [collapsed])
+
+  // 业务咨询以图谱为主舞台：进入时自动收起桌面侧栏，离开后恢复进入前的状态。
+  // 仅在路由边界执行一次，用户留在模块内时仍可通过 TopBar 手动展开。
+  useLayoutEffect(() => {
+    if (isConsultRoute && !wasConsultRouteRef.current) {
+      collapsedBeforeConsultRef.current = collapsedRef.current
+      collapsedRef.current = true
+      setCollapsed(true)
+    } else if (!isConsultRoute && wasConsultRouteRef.current) {
+      const previous = collapsedBeforeConsultRef.current
+      collapsedBeforeConsultRef.current = null
+      if (previous !== null) {
+        collapsedRef.current = previous
+        setCollapsed(previous)
+      }
+    }
+    wasConsultRouteRef.current = isConsultRoute
+  }, [isConsultRoute])
 
   // 应用名同步到浏览器标签标题
   useEffect(() => {
