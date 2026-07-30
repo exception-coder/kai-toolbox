@@ -154,10 +154,10 @@ function EngineCard({ u, win }: { u: EngineUsage; win: 'today' | 'd7' | 'd30' })
       {u.quota && (
         <div className="mt-2 flex flex-col gap-1 border-t border-[var(--color-border)] pt-2 text-xs">
           {u.quota.primaryUsedPercent != null && (
-            <QuotaBar label="5 小时窗口" pct={u.quota.primaryUsedPercent} resetsAt={u.quota.primaryResetsAt} delta={u.quota.primaryDeltaPercent} />
+            <QuotaBar windowMinutes={u.quota.primaryWindowMinutes} pct={u.quota.primaryUsedPercent} resetsAt={u.quota.primaryResetsAt} delta={u.quota.primaryDeltaPercent} />
           )}
           {u.quota.secondaryUsedPercent != null && (
-            <QuotaBar label="周窗口" pct={u.quota.secondaryUsedPercent} resetsAt={u.quota.secondaryResetsAt} delta={u.quota.secondaryDeltaPercent} />
+            <QuotaBar windowMinutes={u.quota.secondaryWindowMinutes} pct={u.quota.secondaryUsedPercent} resetsAt={u.quota.secondaryResetsAt} delta={u.quota.secondaryDeltaPercent} />
           )}
           <span className="text-[10px] text-[var(--color-muted-foreground)]">官方账号额度 · 括号内为较上次的增量</span>
         </div>
@@ -166,13 +166,18 @@ function EngineCard({ u, win }: { u: EngineUsage; win: 'today' | 'd7' | 'd30' })
   )
 }
 
-function QuotaBar({ label, pct, resetsAt, delta }: { label: string; pct: number; resetsAt: number | null; delta?: number | null }) {
+function QuotaBar({ windowMinutes, pct, resetsAt, delta }: {
+  windowMinutes: number | null
+  pct: number
+  resetsAt: number | null
+  delta?: number | null
+}) {
   const p = Math.max(0, Math.min(100, pct))
   const tone = p >= 90 ? 'bg-rose-500' : p >= 60 ? 'bg-amber-500' : 'bg-emerald-500'
   const showDelta = delta != null && Math.abs(delta) >= 0.5
   return (
     <div className="flex items-center gap-2">
-      <span className="w-20 shrink-0 text-[var(--color-muted-foreground)]">{label}</span>
+      <span className="w-20 shrink-0 text-[var(--color-muted-foreground)]">{quotaWindowLabel(windowMinutes)}</span>
       <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--color-muted)]">
         <div className={`h-full rounded-full ${tone}`} style={{ width: `${p}%` }} />
       </div>
@@ -182,15 +187,29 @@ function QuotaBar({ label, pct, resetsAt, delta }: { label: string; pct: number;
           {delta! > 0 ? '+' : ''}{Math.round(delta!)}%
         </span>
       )}
-      {resetsAt && <span className="shrink-0 text-[10px] text-[var(--color-muted-foreground)]">{resetLabel(resetsAt)}</span>}
+      {resetsAt && <span className="shrink-0 text-[10px] text-[var(--color-muted-foreground)]">{resetLabel(resetsAt, windowMinutes)}</span>}
     </div>
   )
 }
 
-/** resets_at 是 epoch 秒；显示「Xh 后重置」。 */
-function resetLabel(resetsAtSec: number): string {
+/** 根据官方返回的窗口分钟数显示，不绑定某一版 Codex 额度策略。 */
+function quotaWindowLabel(windowMinutes: number | null): string {
+  if (!windowMinutes || windowMinutes <= 0) return '用量窗口'
+  if (windowMinutes % 10_080 === 0) return `${windowMinutes / 10_080} 周`
+  if (windowMinutes % 1_440 === 0) return `${windowMinutes / 1_440} 天`
+  if (windowMinutes % 60 === 0) return `${windowMinutes / 60} 小时`
+  return `${windowMinutes} 分钟`
+}
+
+/** 长窗口显示重置日期，小时级窗口保留相对倒计时。 */
+function resetLabel(resetsAtSec: number, windowMinutes: number | null): string {
   const ms = resetsAtSec * 1000 - Date.now()
   if (ms <= 0) return '即将重置'
+  if (windowMinutes != null && windowMinutes >= 1_440) {
+    const date = new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' })
+      .format(new Date(resetsAtSec * 1000))
+    return `${date}重置`
+  }
   const h = Math.floor(ms / 3_600_000)
   const m = Math.floor((ms % 3_600_000) / 60_000)
   return h > 0 ? `${h}h 后重置` : `${m}m 后重置`
