@@ -194,10 +194,16 @@ export function ChatRuntimeProvider({ children, demo = false }: { children: Reac
 /** 真正持有聊天实例的常驻组件：调一次 hook，经 Context 暴露给会话页与浮窗。 */
 function ChatEngine({ control, demo, children }: { control: Omit<ChatRuntime, 'chat'>; demo: boolean; children: ReactNode }) {
   const chat = useClaudeChatSocket(demo ? { demo: true } : undefined)
+  const location = useLocation()
+  const targetSessionId = useMemo(
+    () => new URLSearchParams(location.search).get('sessionId')?.trim() || null,
+    [location.search],
+  )
 
   // 挂载即开一次会话：demo 直接 open（服务端供给受约束副本沙箱，忽略入参）；
-  // 正式态续接最近一条会话（原在 ChatPage，迁到引擎挂载时跑一次）。
+  // 正式态优先打开路由指定会话，否则续接最近一条会话。
   const autoOpenedRef = useRef(false)
+  const switchedTargetRef = useRef<string | null>(null)
   const chatRef = useRef(chat)
   chatRef.current = chat
   useEffect(() => {
@@ -206,6 +212,11 @@ function ChatEngine({ control, demo, children }: { control: Omit<ChatRuntime, 'c
     if (demo) {
       // 全自动：受约束演示无人审批，权限模式直接 bypassPermissions（工具放行仍由沙箱 canUseTool 兜底）。
       chatRef.current.open('', undefined, 'bypassPermissions')
+      return
+    }
+    if (targetSessionId) {
+      switchedTargetRef.current = targetSessionId
+      chatRef.current.switchTo(targetSessionId)
       return
     }
     void (async () => {
@@ -220,7 +231,13 @@ function ChatEngine({ control, demo, children }: { control: Omit<ChatRuntime, 'c
         // 列表拉取失败：保持空态，用户可手动新建/选择
       }
     })()
-  }, [demo])
+  }, [demo, targetSessionId])
+
+  useEffect(() => {
+    if (demo || !targetSessionId || switchedTargetRef.current === targetSessionId) return
+    switchedTargetRef.current = targetSessionId
+    chatRef.current.switchTo(targetSessionId)
+  }, [demo, targetSessionId])
 
   return <Ctx.Provider value={{ ...control, chat }}>{children}</Ctx.Provider>
 }

@@ -1,0 +1,481 @@
+package com.exceptioncoder.toolbox.prdclarify.delivery;
+
+import com.exceptioncoder.toolbox.prdclarify.api.dto.DeliveryOverviewView;
+import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
+import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.Optional;
+
+/**
+ * 将用户可见 PRD、开发文档和进度报告投影为 AI 交付中心大看板。
+ */
+@Service
+public class DeliveryOverviewService {
+
+    private static final Logger log = LoggerFactory.getLogger(DeliveryOverviewService.class);
+    private static final int MAX_REQUIREMENTS = 500;
+
+    private final PrdSessionRepository repository;
+    private final ProgressReportParser reportParser;
+    private final DeliveryMetrics metrics;
+
+    public DeliveryOverviewService(
+            PrdSessionRepository repository,
+            ProgressReportParser reportParser,
+            DeliveryMetrics metrics) {
+        this.repository = repository;
+        this.reportParser = reportParser;
+        this.metrics = metrics;
+    }
+
+    /**
+     * 构建当前用户可见的交付概览。
+     *
+     * @param administrator 是否管理员或鉴权关闭
+     * @param userId 普通用户 ID
+     * @param project 项目筛选
+     * @param module 模块筛选
+     * @param query 搜索词
+     * @return 完整交付投影
+     */
+    public DeliveryOverviewView overview(
+            boolean administrator,
+            Long userId,
+            String project,
+            String module,
+            String query) {
+        List<PrdSession> visibleSessions = administrator
+                ? repository.findRecent(MAX_REQUIREMENTS)
+                : repository.findRecentByUser(MAX_REQUIREMENTS, Objects.requireNonNull(userId));
+        DeliveryOverviewView.FilterOptionsView filterOptions = filterOptions(visibleSessions);
+        List<PrdSession> filteredSessions = visibleSessions.stream()
+                .filter(session -> matches(session, project, module, query))
+                .toList();
+
+        List<String> warnings = new ArrayList<>();
+        List<RequirementProjection> projections = filteredSessions.stream()
+                .map(session -> project(session, warnings))
+                .sorted(Comparator
+                        .comparingInt((RequirementProjection item) -> item.requirement().healthScore())
+                        .thenComparing(item -> item.requirement().updatedAt(), Comparator.reverseOrder()))
+                .toList();
+        List<DeliveryOverviewView.RequirementView> requirements = projections.stream()
+                .map(RequirementProjection::requirement)
+                .toList();
+        List<DeliveryOverviewView.FindingView> findings = projections.stream()
+                .flatMap(item -> item.findings().stream())
+                .sorted(Comparator
+                        .comparingInt((DeliveryOverviewView.FindingView item) -> severityRank(item.severity()))
+                        .thenComparing(DeliveryOverviewView.FindingView::title))
+                .toList();
+
+        return new DeliveryOverviewView(
+                System.currentTimeMillis(),
+                summary(requirements, findings),
+                filterOptions,
+                requirements,
+                findings,
+                List.copyOf(warnings));
+    }
+
+    private RequirementProjection project(PrdSession session, List<String> warnings) {
+        boolean prdComplete = "DONE".equals(session.getStatus()) && fileExists(session.getMdPath());
+        boolean tddPresent = fileExists(session.getDevDocPath());
+        boolean tddStale = tddPresent && session.getDevDocGeneratedAt() != null
+                && session.getDevDocGeneratedAt() < session.getUpdatedAt();
+        long assessmentBaseline = Math.max(
+                session.getUpdatedAt(),
+                Optional.ofNullable(session.getDevDocGeneratedAt()).orElse(0L));
+        boolean assessmentPresent = fileExists(session.getProgressPath());
+        boolean assessmentStale = assessmentPresent && session.getProgressGeneratedAt() != null
+                && session.getProgressGeneratedAt() < assessmentBaseline;
+
+        ProgressReportParser.ParsedProgressReport report = ProgressReportParser.ParsedProgressReport.empty();
+        boolean assessmentError = false;
+        if (assessmentPresent) {
+            try {
+                String markdown = Files.readString(Path.of(session.getProgressPath()), StandardCharsets.UTF_8);
+                report = reportParser.parse(markdown);
+            } catch (Exception exception) {
+                assessmentError = true;
+                warnings.add("“" + session.getTitle() + "”的进度报告读取失败");
+                log.warn("读取交付进度报告失败, sessionId={}", session.getId(), exception);
+            }
+        }
+
+        int completedWithoutEvidence = (int) report.completed().stream()
+                .filter(item -> item.evidence().isEmpty())
+                .count();
+        Integer codeScore = assessmentError
+                ? null
+                : metrics.codeProgress(report.completed().size(), report.partial().size(), report.missing().size());
+        int confidence = metrics.confidence(
+                prdComplete,
+                tddPresent,
+                tddStale,
+                assessmentPresent && !assessmentError,
+                assessmentStale,
+                completedWithoutEvidence);
+        int health = metrics.health(
+                prdComplete,
+                tddPresent,
+                tddStale,
+                assessmentPresent && !assessmentError,
+                assessmentStale,
+                report.partial().size(),
+                report.missing().size(),
+                completedWithoutEvidence);
+
+        List<String> staleReasons = staleReasons(tddStale, assessmentStale, assessmentError);
+        DeliveryOverviewView.RequirementView requirement = new DeliveryOverviewView.RequirementView(
+                session.getId(),
+                session.getParentId(),
+                session.getTitle(),
+                blankAsUnassigned(session.getProject()),
+                blankAsUnassigned(session.getModule()),
+                session.getStatus(),
+                session.getUpdatedAt(),
+                links(session),
+                stages(session, prdComplete, tddPresent, tddStale, assessmentPresent, assessmentStale,
+                        assessmentError, codeScore),
+                new DeliveryOverviewView.CoverageView(
+                        report.completed().size(),
+                        report.partial().size(),
+                        report.missing().size(),
+                        report.total()),
+                new DeliveryOverviewView.ProgressItemsView(
+                        progressItems(report.completed()),
+                        progressItems(report.partial()),
+                        progressItems(report.missing())),
+                report.alignment().stream()
+                        .map(item -> new DeliveryOverviewView.AlignmentFindingView(
+                                item.requirement(), item.expected(), item.actual(), item.status()))
+                        .toList(),
+                confidence,
+                health,
+                metrics.grade(health),
+                staleReasons);
+        return new RequirementProjection(requirement, findings(requirement, prdComplete, tddPresent, tddStale,
+                assessmentPresent, assessmentStale, assessmentError, completedWithoutEvidence));
+    }
+
+    private DeliveryOverviewView.StageSetView stages(
+            PrdSession session,
+            boolean prdComplete,
+            boolean tddPresent,
+            boolean tddStale,
+            boolean assessmentPresent,
+            boolean assessmentStale,
+            boolean assessmentError,
+            Integer codeScore) {
+        return new DeliveryOverviewView.StageSetView(
+                new DeliveryOverviewView.StageView(
+                        prdComplete ? "COMPLETE" : "MISSING",
+                        prdComplete ? 100 : 0,
+                        session.getUpdatedAt(),
+                        prdComplete ? "PRD 已归档" : "PRD 尚未完成或文件缺失"),
+                new DeliveryOverviewView.StageView(
+                        tddStale ? "STALE" : tddPresent ? "COMPLETE" : "MISSING",
+                        tddPresent ? 100 : 0,
+                        session.getDevDocGeneratedAt(),
+                        tddStale ? "开发文档早于最新 PRD" : tddPresent ? "开发文档已生成" : "尚未生成开发文档"),
+                new DeliveryOverviewView.StageView(
+                        codeStage(assessmentPresent, assessmentStale, assessmentError, codeScore),
+                        codeScore,
+                        session.getProgressGeneratedAt(),
+                        codeNote(assessmentPresent, assessmentStale, assessmentError, codeScore)),
+                new DeliveryOverviewView.StageView(
+                        "UNAVAILABLE", null, null, "待接入测试报告"),
+                new DeliveryOverviewView.StageView(
+                        "UNAVAILABLE", null, null, "待接入部署与运行数据"));
+    }
+
+    private String codeStage(
+            boolean assessmentPresent,
+            boolean assessmentStale,
+            boolean assessmentError,
+            Integer codeScore) {
+        if (assessmentError) {
+            return "ERROR";
+        }
+        if (!assessmentPresent || codeScore == null) {
+            return "UNAVAILABLE";
+        }
+        if (assessmentStale) {
+            return "STALE";
+        }
+        return codeScore >= 100 ? "COMPLETE" : "PARTIAL";
+    }
+
+    private String codeNote(
+            boolean assessmentPresent,
+            boolean assessmentStale,
+            boolean assessmentError,
+            Integer codeScore) {
+        if (assessmentError) {
+            return "进度报告读取或解析失败";
+        }
+        if (!assessmentPresent) {
+            return "尚未执行代码进度评估";
+        }
+        if (codeScore == null) {
+            return "报告中没有可统计的功能点";
+        }
+        return assessmentStale ? "代码评估早于最新文档" : "基于最新进度评估";
+    }
+
+    private List<DeliveryOverviewView.FindingView> findings(
+            DeliveryOverviewView.RequirementView requirement,
+            boolean prdComplete,
+            boolean tddPresent,
+            boolean tddStale,
+            boolean assessmentPresent,
+            boolean assessmentStale,
+            boolean assessmentError,
+            int completedWithoutEvidence) {
+        List<DeliveryOverviewView.FindingView> findings = new ArrayList<>();
+        if (!prdComplete) {
+            addFinding(findings, requirement, "DOCUMENT_GAP", "HIGH", "PRD 尚未形成可归档事实",
+                    "会话状态或 PRD 文件未完成", "返回 PRD 澄清助手完成并保存 PRD");
+        }
+        if (prdComplete && !tddPresent) {
+            addFinding(findings, requirement, "DOCUMENT_GAP", "HIGH", "缺少开发文档",
+                    "PRD 已完成，但尚未生成 TDD", "基于最新 PRD 生成开发文档");
+        }
+        if (tddStale) {
+            addFinding(findings, requirement, "DOCUMENT_STALE", "HIGH", "开发文档已经过期",
+                    "开发文档生成时间早于 PRD 更新时间", "先同步开发文档再继续评估");
+        }
+        if (tddPresent && !assessmentPresent) {
+            addFinding(findings, requirement, "ASSESSMENT_GAP", "MEDIUM", "缺少代码进度评估",
+                    "已有开发文档，但没有代码核对报告", "执行一次 AI 进度评估");
+        }
+        if (assessmentStale) {
+            addFinding(findings, requirement, "ASSESSMENT_STALE", "HIGH", "代码进度评估已经过期",
+                    "评估时间早于最新 PRD 或开发文档", "重新执行进度评估校准真实状态");
+        }
+        if (assessmentError) {
+            addFinding(findings, requirement, "SOURCE_ERROR", "HIGH", "进度报告无法读取",
+                    "磁盘文件缺失、损坏或格式不可解析", "检查报告文件后重新评估");
+        }
+        for (DeliveryOverviewView.ProgressItemView item : requirement.progressItems().missing()) {
+            addFinding(findings, requirement, "IMPLEMENTATION_GAP", "HIGH", item.title() + " 尚未实现",
+                    firstNonBlank(item.actual(), "最新评估未找到对应代码实现"),
+                    "回到开发会话补齐后重新评估");
+        }
+        for (DeliveryOverviewView.ProgressItemView item : requirement.progressItems().partial()) {
+            addFinding(findings, requirement, "PARTIAL_IMPLEMENTATION", "MEDIUM", item.title() + " 仅部分实现",
+                    firstNonBlank(item.missing(), "最新评估仍存在缺失项"),
+                    "补齐缺失分支并增加对应验证");
+        }
+        if (completedWithoutEvidence > 0) {
+            addFinding(findings, requirement, "EVIDENCE_GAP", "MEDIUM", "已完成项缺少代码证据",
+                    completedWithoutEvidence + " 个已完成项没有类、方法或文件证据",
+                    "重新评估并补充可追溯代码证据");
+        }
+        for (DeliveryOverviewView.AlignmentFindingView item : requirement.alignmentFindings()) {
+            if (!isCompleteStatus(item.status())) {
+                addFinding(findings, requirement, "ALIGNMENT_GAP", "HIGH", item.requirement() + " 与文档存在偏差",
+                        item.actual(), "按文档要求修正实现或确认更新 PRD");
+            }
+        }
+        return List.copyOf(findings);
+    }
+
+    private void addFinding(
+            List<DeliveryOverviewView.FindingView> findings,
+            DeliveryOverviewView.RequirementView requirement,
+            String type,
+            String severity,
+            String title,
+            String evidence,
+            String recommendation) {
+        findings.add(new DeliveryOverviewView.FindingView(
+                requirement.id() + ":" + type.toLowerCase(Locale.ROOT) + ":" + findings.size(),
+                requirement.id(),
+                type,
+                severity,
+                title,
+                evidence,
+                recommendation));
+    }
+
+    private DeliveryOverviewView.SummaryView summary(
+            List<DeliveryOverviewView.RequirementView> requirements,
+            List<DeliveryOverviewView.FindingView> findings) {
+        if (requirements.isEmpty()) {
+            return new DeliveryOverviewView.SummaryView(
+                    0, 0, 0, null, 0, 0, 0, 0, "E",
+                    0, 0, 0, 0, 0);
+        }
+
+        int prdCompletion = average(requirements.stream().map(item -> item.stages().prd().score()).toList());
+        int tddCompletion = average(requirements.stream().map(item -> item.stages().tdd().score()).toList());
+        Integer codeProgress = averageNullable(requirements.stream().map(item -> item.stages().code().score()).toList());
+        int assessed = (int) requirements.stream().filter(item -> item.stages().code().score() != null).count();
+        int assessmentCoverage = Math.round(assessed * 100F / requirements.size());
+        int overallProgress = average(requirements.stream()
+                .map(item -> metrics.overallProgress(
+                        item.stages().prd().score(),
+                        item.stages().tdd().score(),
+                        item.stages().code().score()))
+                .toList());
+        int confidence = average(requirements.stream().map(DeliveryOverviewView.RequirementView::confidence).toList());
+        int health = average(requirements.stream().map(DeliveryOverviewView.RequirementView::healthScore).toList());
+        int completed = requirements.stream().mapToInt(item -> item.coverage().completed()).sum();
+        int partial = requirements.stream().mapToInt(item -> item.coverage().partial()).sum();
+        int missing = requirements.stream().mapToInt(item -> item.coverage().missing()).sum();
+        int unassessed = requirements.size() - assessed;
+        int highRisk = (int) findings.stream().filter(item -> "HIGH".equals(item.severity())).count();
+
+        return new DeliveryOverviewView.SummaryView(
+                requirements.size(), prdCompletion, tddCompletion, codeProgress, assessmentCoverage,
+                overallProgress, confidence, health, metrics.grade(health),
+                completed, partial, missing, unassessed, highRisk);
+    }
+
+    private DeliveryOverviewView.FilterOptionsView filterOptions(List<PrdSession> sessions) {
+        List<String> projects = sessions.stream()
+                .map(PrdSession::getProject)
+                .filter(value -> value != null && !value.isBlank())
+                .distinct()
+                .sorted()
+                .toList();
+        List<String> modules = sessions.stream()
+                .map(PrdSession::getModule)
+                .filter(value -> value != null && !value.isBlank())
+                .distinct()
+                .sorted()
+                .toList();
+        return new DeliveryOverviewView.FilterOptionsView(projects, modules);
+    }
+
+    private boolean matches(PrdSession session, String project, String module, String query) {
+        if (hasText(project) && !project.equals(session.getProject())) {
+            return false;
+        }
+        if (hasText(module) && !module.equals(session.getModule())) {
+            return false;
+        }
+        if (!hasText(query)) {
+            return true;
+        }
+        String keyword = query.trim().toLowerCase(Locale.ROOT);
+        return contains(session.getTitle(), keyword)
+                || contains(session.getProject(), keyword)
+                || contains(session.getModule(), keyword);
+    }
+
+    private boolean contains(String value, String keyword) {
+        return value != null && value.toLowerCase(Locale.ROOT).contains(keyword);
+    }
+
+    private boolean fileExists(String path) {
+        if (!hasText(path)) {
+            return false;
+        }
+        try {
+            return Files.isRegularFile(Path.of(path));
+        } catch (Exception exception) {
+            return false;
+        }
+    }
+
+    private DeliveryOverviewView.RequirementLinksView links(PrdSession session) {
+        String developmentLink = hasText(session.getDevSessionId())
+                ? "/tools/claude-chat?sessionId="
+                        + URLEncoder.encode(session.getDevSessionId(), StandardCharsets.UTF_8)
+                : null;
+        return new DeliveryOverviewView.RequirementLinksView(
+                "/tools/prd-clarify?viewSession=" + session.getId(),
+                developmentLink,
+                "/tools/project-workspace");
+    }
+
+    private List<DeliveryOverviewView.ProgressItemView> progressItems(
+            List<ProgressReportParser.ProgressItem> items) {
+        return items.stream()
+                .map(item -> new DeliveryOverviewView.ProgressItemView(
+                        item.title(),
+                        item.evidence(),
+                        item.implemented(),
+                        item.missing(),
+                        item.expected(),
+                        item.actual()))
+                .toList();
+    }
+
+    private List<String> staleReasons(boolean tddStale, boolean assessmentStale, boolean assessmentError) {
+        List<String> reasons = new ArrayList<>();
+        if (tddStale) {
+            reasons.add("开发文档早于最新 PRD");
+        }
+        if (assessmentStale) {
+            reasons.add("进度评估早于最新文档");
+        }
+        if (assessmentError) {
+            reasons.add("进度报告读取失败");
+        }
+        return List.copyOf(reasons);
+    }
+
+    private String blankAsUnassigned(String value) {
+        return hasText(value) ? value : "未归档";
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private String firstNonBlank(String value, String fallback) {
+        return hasText(value) ? value : fallback;
+    }
+
+    private boolean isCompleteStatus(String status) {
+        if (status == null) {
+            return false;
+        }
+        String normalized = status.toLowerCase(Locale.ROOT);
+        if (normalized.contains("未完成") || normalized.contains("部分")
+                || normalized.contains("缺失") || normalized.contains("偏差")) {
+            return false;
+        }
+        return normalized.contains("完成") || normalized.contains("一致") || normalized.contains("已实现");
+    }
+
+    private int severityRank(String severity) {
+        return switch (severity) {
+            case "HIGH" -> 0;
+            case "MEDIUM" -> 1;
+            default -> 2;
+        };
+    }
+
+    private int average(List<Integer> values) {
+        return values.isEmpty()
+                ? 0
+                : (int) Math.round(values.stream().mapToInt(Integer::intValue).average().orElse(0));
+    }
+
+    private Integer averageNullable(List<Integer> values) {
+        List<Integer> known = values.stream().filter(Objects::nonNull).toList();
+        return known.isEmpty() ? null : average(known);
+    }
+
+    private record RequirementProjection(
+            DeliveryOverviewView.RequirementView requirement,
+            List<DeliveryOverviewView.FindingView> findings) {
+    }
+}
