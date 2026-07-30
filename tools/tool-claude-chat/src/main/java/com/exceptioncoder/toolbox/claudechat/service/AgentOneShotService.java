@@ -87,6 +87,15 @@ public class AgentOneShotService implements AgentOneShotRunner {
             String limit = seconds >= 60 ? (seconds / 60) + "分钟" : seconds + "s";
             throw new RuntimeException("高质量引擎超时：" + normalizeEngine(request.engine())
                     + " 在 " + limit + " 内未返回结果", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            // 调用方采用更短的业务超时（如追问分类）时，真正通知 sidecar 停止生成，避免后台空跑。
+            try {
+                sidecar.interrupt(id);
+            } catch (Exception ignored) {
+                // sidecar 已断开时无需二次处理，finally 仍会清理本地 call。
+            }
+            throw new RuntimeException("一次性 Agent 任务已取消", e);
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {

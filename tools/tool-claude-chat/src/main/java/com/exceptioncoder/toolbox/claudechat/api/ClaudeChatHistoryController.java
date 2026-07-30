@@ -49,7 +49,10 @@ public class ClaudeChatHistoryController {
                                 @RequestParam(required = false) String cwd,
                                 @RequestParam(required = false) Integer before,
                                 @RequestParam(defaultValue = "30") int limit) {
-        return history.readMessages(cwd, sdkSessionId, before, limit);
+        String codexHome = sessionRepo.findBySdkSessionId(sdkSessionId)
+                .map(ClaudeChatSession::getCodexHome)
+                .orElse(null);
+        return history.readMessages(cwd, sdkSessionId, codexHome, before, limit);
     }
 
     /**
@@ -79,7 +82,7 @@ public class ClaudeChatHistoryController {
                 // 映射解析失败：至少统计当前段，不影响主流程
             }
         }
-        return history.usageTotal(db.getCwd(), new ArrayList<>(sids));
+        return history.usageTotal(db.getCwd(), new ArrayList<>(sids), db.getCodexHome());
     }
 
     /** 删除历史会话：移到回收目录，可手动恢复（不破坏原生 /resume 的其它会话）。 */

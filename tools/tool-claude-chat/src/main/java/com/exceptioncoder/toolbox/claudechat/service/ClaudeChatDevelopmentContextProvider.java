@@ -102,7 +102,8 @@ public class ClaudeChatDevelopmentContextProvider implements DevelopmentChangeCo
         List<TimedConversationEntry> collected = new ArrayList<>();
         long fallbackOffset = 0;
         for (String sdkSessionId : sessionIds) {
-            var page = historyService.readMessages(session.getCwd(), sdkSessionId, null, Integer.MAX_VALUE);
+            var page = historyService.readMessages(
+                    session.getCwd(), sdkSessionId, session.getCodexHome(), null, Integer.MAX_VALUE);
             if (page.transcriptMissing()) {
                 warnings.add("会话段 " + sdkSessionId + " 的 transcript 已丢失");
                 continue;

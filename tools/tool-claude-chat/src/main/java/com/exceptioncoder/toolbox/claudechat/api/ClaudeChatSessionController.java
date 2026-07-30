@@ -43,8 +43,12 @@ public class ClaudeChatSessionController {
     public List<ClaudeChatSessionView> list() {
         List<ClaudeChatSession> all = repo.findAll();
         // 一次目录扫描批量判定 transcript 存在性，避免逐会话遍历目录树
-        Set<String> missing = historyService.findMissingTranscripts(
-                all.stream().filter(this::transcriptAware).map(ClaudeChatSession::getSdkSessionId).toList());
+        Set<String> missing = historyService.findMissingTranscriptsByLocation(
+                all.stream()
+                        .filter(this::transcriptAware)
+                        .map(s -> new SessionHistoryService.TranscriptLocation(
+                                s.getSdkSessionId(), s.getCodexHome()))
+                        .toList());
         return all.stream()
                 .map(s -> ClaudeChatSessionView.from(s, service.isLive(s.getId()),
                         transcriptAware(s) && missing.contains(s.getSdkSessionId())))

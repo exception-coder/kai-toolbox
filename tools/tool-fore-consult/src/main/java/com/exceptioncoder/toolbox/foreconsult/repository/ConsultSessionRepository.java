@@ -60,6 +60,13 @@ public class ConsultSessionRepository {
                 "SELECT * FROM consult_session ORDER BY created_at DESC LIMIT ?", ROW, limit);
     }
 
+    /** 某用户最近 N 条会话，按创建时间倒序。ADMIN 是否走此查询由 service 层决定。 */
+    public List<ConsultSession> findRecentByUserId(String userId, int limit) {
+        return jdbc.query(
+                "SELECT * FROM consult_session WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+                ROW, userId, limit);
+    }
+
     /** 关联 claude-chat 会话 id（拉起悬浮会话后回写）。 */
     public void updateDevSessionId(String sessionId, String devSessionId) {
         jdbc.update("UPDATE consult_session SET dev_session_id = ? WHERE session_id = ?",

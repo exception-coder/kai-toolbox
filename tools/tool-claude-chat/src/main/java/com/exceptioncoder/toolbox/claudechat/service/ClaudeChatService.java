@@ -118,10 +118,12 @@ public class ClaudeChatService {
         String apiBaseUrl = gatewayCapable ? blankToNull(open.apiBaseUrl()) : null;
         String authToken = apiBaseUrl == null ? null : blankToNull(open.authToken());
         String codexHome = "codex".equals(engine) && apiBaseUrl == null ? blankToNull(open.codexHome()) : null;
+        String codexReasoningEffort = normalizeCodexReasoningEffort(open.codexReasoningEffort());
+        String codexSpeed = normalizeCodexSpeed(open.codexSpeed());
         repo.insert(ClaudeChatSession.builder()
                 .id(sessionId).cwd(cwd).title(null).sdkSessionId(null).engine(engine)
                 .apiBaseUrl(apiBaseUrl).authToken(authToken).codexHome(codexHome)
-                .selectedModel(blankToNull(open.model())).codexReasoningEffort("low").codexSpeed("default")
+                .selectedModel(blankToNull(open.model())).codexReasoningEffort(codexReasoningEffort).codexSpeed(codexSpeed)
                 .status(SessionStatus.IDLE).startedAt(now).lastSeenAt(now).build());
 
         SessionCtx ctx = new SessionCtx(sessionId, cwd);
@@ -130,12 +132,14 @@ public class ClaudeChatService {
         ctx.authToken = authToken;
         ctx.codexHome = codexHome;
         ctx.currentModel = blankToNull(open.model()); // 网关默认模型，供菜单高亮当前项
+        ctx.codexReasoningEffort = codexReasoningEffort;
+        ctx.codexSpeed = codexSpeed;
         sessions.put(sessionId, ctx);
         bindViewer(ws, ctx);
 
         ctx.mode = normalizeMode(open.mode());
         sidecar.startSession(sessionId, cwd, open.model(), ctx.mode, engine, apiBaseUrl, authToken,
-                codexHome, ctx.autoApprove);
+                codexHome, ctx.autoApprove, codexReasoningEffort, codexSpeed);
         pushGatewayModels(ctx); // 网关会话：拉网关 /v1/models 目录推给前端，命令菜单据此选/切模型
         log.info("[claude-chat] open 会话 {} cwd={} mode={} engine={}", sessionId, cwd, ctx.mode, engine);
     }
@@ -618,6 +622,15 @@ public class ClaudeChatService {
 
     private static String normalizeEngine(String e) {
         return "codex".equals(e) || "gemini".equals(e) || "opencode".equals(e) ? e : "claude";
+    }
+
+    private static String normalizeCodexReasoningEffort(String effort) {
+        return "minimal".equals(effort) || "low".equals(effort) || "medium".equals(effort)
+                || "high".equals(effort) || "xhigh".equals(effort) ? effort : "low";
+    }
+
+    private static String normalizeCodexSpeed(String speed) {
+        return "fast".equals(speed) ? "fast" : "default";
     }
 
     public void interrupt(WebSocketSession ws) {

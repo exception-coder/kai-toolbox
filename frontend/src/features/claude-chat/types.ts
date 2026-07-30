@@ -17,6 +17,8 @@ export interface ClaudeChatSessionView {
   providerKind?: ProviderKind
   /** 第三方网关 baseURL（仅展示用；后端不会回传 authToken） */
   providerBaseUrl?: string | null
+  /** 官方 Codex 会话绑定的授权目录；空值表示使用默认目录 */
+  codexHome?: string | null
   /** 会话所属分组名（后端持久化，跨端可见）；空/缺省=未分组 */
   group?: string | null
   status: SessionStatus
@@ -312,7 +314,18 @@ export interface ModelInfo {
 
 // ── 客户端 → 服务端 ───────────────────────────────────────────────
 export type ClientMessage =
-  | { type: 'open'; cwd: string; model?: string; mode?: PermissionMode; engine?: Engine; apiBaseUrl?: string; authToken?: string; codexHome?: string }
+  | {
+      type: 'open'
+      cwd: string
+      model?: string
+      mode?: PermissionMode
+      engine?: Engine
+      apiBaseUrl?: string
+      authToken?: string
+      codexHome?: string
+      codexReasoningEffort?: CodexReasoningEffort
+      codexSpeed?: CodexSpeed
+    }
   | { type: 'attach'; sessionId: string; lastEventSeq: number }
   | { type: 'switchSession'; sessionId: string }
   | { type: 'resumeHistory'; sdkSessionId: string; cwd: string }

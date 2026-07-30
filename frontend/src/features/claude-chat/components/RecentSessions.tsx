@@ -16,6 +16,7 @@ interface Props {
 }
 
 const SESSION_QUERY_KEY = ['claude-chat-sessions']
+const BUSINESS_CONSULT_GROUP = '业务咨询'
 
 /**
  * 最近会话快速入口：显示最近 N 条会话，风格与 SessionList 保持一致。
@@ -29,7 +30,8 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 5 }: Props)
     queryFn: listSessions,
     refetchInterval: 3_000,
   })
-  const recent = [...sessions]
+  const recent = sessions
+    .filter(session => (session.group ?? '').trim() !== BUSINESS_CONSULT_GROUP)
     .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
     .slice(0, limit)
 

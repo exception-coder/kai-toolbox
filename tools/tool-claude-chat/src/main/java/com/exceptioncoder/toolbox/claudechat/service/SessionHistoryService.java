@@ -200,6 +200,15 @@ public class SessionHistoryService {
      * nextBefore = 本批最早条目的全局索引（>0 还有更早，0 到顶）。
      */
     public MessagePage readMessages(String cwd, String sdkSessionId, Integer before, int limit) {
+        return readMessages(cwd, sdkSessionId, null, before, limit);
+    }
+
+    /**
+     * Read history using the CODEX_HOME that created the session. CODEX_HOME controls
+     * both authentication/configuration and the sessions directory.
+     */
+    public MessagePage readMessages(String cwd, String sdkSessionId, String codexHome,
+                                    Integer before, int limit) {
         // 先按 Claude transcript（~/.claude/projects）定位；找不到再回退 Codex rollout（~/.codex/sessions）。
         // 两端 sessionId 命名空间不重叠（Codex 为 rollout 文件名尾部的 UUID），故无需引擎入参即可消歧。
         boolean hasSid = sdkSessionId != null && !sdkSessionId.isBlank();
@@ -209,7 +218,7 @@ public class SessionHistoryService {
             if (jsonl != null) {
                 all = parseAll(jsonl);
             } else {
-                Path rollout = findCodexRollout(sdkSessionId);
+                Path rollout = findCodexRollout(sdkSessionId, codexHome);
                 if (rollout == null) {
                     // 有 sid 却两处都找不到文件 = 记录已丢失（区别于新会话本就没 sid）
                     return hasSid ? MessagePage.missing() : MessagePage.empty();
@@ -254,10 +263,15 @@ public class SessionHistoryService {
      * sid 为空视为「新会话尚未产生记录」，返回 true，避免把刚建的空会话误标成丢失。
      */
     public boolean transcriptExists(String cwd, String sdkSessionId) {
+        return transcriptExists(cwd, sdkSessionId, null);
+    }
+
+    public boolean transcriptExists(String cwd, String sdkSessionId, String codexHome) {
         if (sdkSessionId == null || sdkSessionId.isBlank()) {
             return true;
         }
-        return findTranscript(cwd, sdkSessionId) != null || findCodexRollout(sdkSessionId) != null;
+        return findTranscript(cwd, sdkSessionId) != null
+                || findCodexRollout(sdkSessionId, codexHome) != null;
     }
 
     /**
@@ -268,17 +282,43 @@ public class SessionHistoryService {
      * @return 入参中「有 sid 但磁盘上已找不到文件」的那些 sid
      */
     public Set<String> findMissingTranscripts(Collection<String> sdkSessionIds) {
+        return findMissingTranscriptsByLocation(sdkSessionIds.stream()
+                .map(sid -> new TranscriptLocation(sid, null))
+                .toList());
+    }
+
+    public record TranscriptLocation(String sdkSessionId, String codexHome) {}
+
+    /**
+     * 按每条逻辑会话保存的 CODEX_HOME 批量判定 transcript 是否存在。
+     * 每个不同的 sessions 目录最多遍历一次。
+     */
+    public Set<String> findMissingTranscriptsByLocation(Collection<TranscriptLocation> locations) {
         Set<String> pending = new LinkedHashSet<>();
-        for (String sid : sdkSessionIds) {
-            if (sid != null && !sid.isBlank()) pending.add(sid.trim());
+        Map<String, String> codexHomeBySid = new LinkedHashMap<>();
+        for (TranscriptLocation location : locations) {
+            if (location == null) continue;
+            String sid = location.sdkSessionId();
+            if (sid != null && !sid.isBlank()) {
+                String normalizedSid = sid.trim();
+                pending.add(normalizedSid);
+                codexHomeBySid.put(normalizedSid, normalizeCodexHome(location.codexHome()));
+            }
         }
         if (pending.isEmpty()) {
             return Set.of();
         }
         pending.removeAll(scanClaudeSessionIds());
         if (!pending.isEmpty()) {
-            // 只在 Claude 侧没命中时才付出 Codex 目录树的遍历成本
-            pending.removeAll(scanCodexSessionIds());
+            Map<String, Set<String>> idsByHome = new LinkedHashMap<>();
+            for (String sid : pending) {
+                idsByHome.computeIfAbsent(codexHomeBySid.get(sid), ignored -> new LinkedHashSet<>())
+                        .add(sid);
+            }
+            for (Map.Entry<String, Set<String>> entry : idsByHome.entrySet()) {
+                Set<String> found = scanCodexSessionIds(entry.getKey());
+                pending.removeIf(sid -> entry.getValue().contains(sid) && found.contains(sid));
+            }
         }
         return pending;
     }
@@ -307,8 +347,8 @@ public class SessionHistoryService {
     }
 
     /** ~/.codex/sessions 下 rollout-&lt;ISO&gt;-&lt;threadId&gt;.jsonl 的 threadId 集合。 */
-    private Set<String> scanCodexSessionIds() {
-        Path root = Path.of(System.getProperty("user.home"), ".codex", "sessions");
+    private Set<String> scanCodexSessionIds(String codexHome) {
+        Path root = codexSessionsRoot(codexHome);
         if (!Files.isDirectory(root)) {
             return Set.of();
         }
@@ -338,11 +378,11 @@ public class SessionHistoryService {
      * 定位 Codex rollout：~/.codex/sessions/&lt;年&gt;/&lt;月&gt;/&lt;日&gt;/rollout-&lt;ISO&gt;-&lt;threadId&gt;.jsonl。
      * 文件名尾部的 UUID 即 Codex thread/session id（= 我们存的 sdkSessionId）。
      */
-    private Path findCodexRollout(String sdkSessionId) {
+    private Path findCodexRollout(String sdkSessionId, String codexHome) {
         if (sdkSessionId == null || sdkSessionId.isBlank()) {
             return null;
         }
-        Path root = Path.of(System.getProperty("user.home"), ".codex", "sessions");
+        Path root = codexSessionsRoot(codexHome);
         if (!Files.isDirectory(root)) {
             return null;
         }
@@ -359,6 +399,18 @@ public class SessionHistoryService {
             log.debug("[claude-chat] 定位 Codex rollout 失败：{}", e.getMessage());
             return null;
         }
+    }
+
+    private static Path codexSessionsRoot(String codexHome) {
+        String normalized = normalizeCodexHome(codexHome);
+        Path home = normalized == null
+                ? Path.of(System.getProperty("user.home"), ".codex")
+                : Path.of(normalized);
+        return home.toAbsolutePath().normalize().resolve("sessions");
+    }
+
+    private static String normalizeCodexHome(String codexHome) {
+        return codexHome == null || codexHome.isBlank() ? null : codexHome.trim();
     }
 
     /**
@@ -544,11 +596,15 @@ public class SessionHistoryService {
      */
     /** 跨多段 transcript 求和：多 agent 会话每个引擎一段，逐段累加得整会话总和。 */
     public SessionUsageView usageTotal(String cwd, List<String> sdkSessionIds) {
+        return usageTotal(cwd, sdkSessionIds, null);
+    }
+
+    public SessionUsageView usageTotal(String cwd, List<String> sdkSessionIds, String codexHome) {
         long input = 0, output = 0, cacheRead = 0, cacheCreate = 0;
         int turns = 0;
         for (String sid : sdkSessionIds) {
             if (sid == null || sid.isBlank()) continue;
-            SessionUsageView one = usageTotal(cwd, sid);
+            SessionUsageView one = usageTotal(cwd, sid, codexHome);
             input += one.inputTokens();
             output += one.outputTokens();
             cacheRead += one.cacheReadTokens();
@@ -560,10 +616,14 @@ public class SessionHistoryService {
     }
 
     public SessionUsageView usageTotal(String cwd, String sdkSessionId) {
+        return usageTotal(cwd, sdkSessionId, null);
+    }
+
+    public SessionUsageView usageTotal(String cwd, String sdkSessionId, String codexHome) {
         Path jsonl = findTranscript(cwd, sdkSessionId);
         if (jsonl == null || !Files.isReadable(jsonl)) {
             // Claude transcript 不存在：回退 Codex rollout（口径不同，单独统计）
-            Path rollout = findCodexRollout(sdkSessionId);
+            Path rollout = findCodexRollout(sdkSessionId, codexHome);
             return rollout != null ? codexUsageTotal(rollout) : SessionUsageView.empty();
         }
         long input = 0, output = 0, cacheRead = 0, cacheCreate = 0;

@@ -6,14 +6,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   BarChart3, Boxes, BrainCircuit, Briefcase, Bug, ChevronDown, Contact, Eye, EyeOff, Factory, Handshake,
   FileText, History, Landmark, Lightbulb, Loader2, Maximize2, MessagesSquare, Minimize2, MousePointerClick,
-  Paperclip, Radar, Route, Save, Search, Send, Server, ShoppingBag, ShoppingCart, SlidersHorizontal, Sparkles,
+  Paperclip, Radar, Route, Save, Search, Send, Server, ShoppingBag, ShoppingCart, SlidersHorizontal,
   Trash2, Truck, Users, Warehouse, Waypoints, X, type LucideIcon,
 } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
-import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
+import { useClaudeChatSocket } from '@/features/claude-chat/hooks/useClaudeChatSocket'
 import { setSessionGroupApi } from '@/features/claude-chat/api'
 import type { ChatItem } from '@/features/claude-chat/types'
-import type { Engine } from '@/features/claude-chat/types'
 import { ConsultConversation } from '../components/ConsultConversation'
 import { BugDrawer } from '../components/BugDrawer'
 import { ConsultHistoryDetail } from '../components/ConsultHistoryDetail'
@@ -81,12 +80,12 @@ const SYSTEM_ICONS: Array<{ kw: string[]; Icon: LucideIcon }> = [
   { kw: ['AI', '智能', '大脑', '算法', '模型'], Icon: BrainCircuit },
 ]
 
-// 提问起手式（Prompt Composer 的建议快填），业务口吻、通用适用。
-const CONSULT_SUGGESTIONS = ['这个系统主要做什么？', '核心业务流程有哪些？', '和哪些系统有数据对接？']
-
 // 业务咨询拉起的会话统一归入该分组（claude-chat 分组即 group_name 字符串，命名即创建）。
 const CONSULT_GROUP = '业务咨询'
-const CODEX_HOME_PREF = 'kai-toolbox:fore-consult:codex-home'
+const CONSULT_CODEX_HOME = 'C:\\Users\\zhang\\.codex-account-yx'
+const CONSULT_CODEX_REASONING = 'medium'
+const CONSULT_CODEX_SPEED = 'fast'
+const CONSULT_ROLE: ConsultRole = 'BIZ'
 
 function iconForSystem(name: string, label: string): LucideIcon {
   const hay = `${name} ${label}`.toUpperCase()
@@ -252,7 +251,7 @@ function buildConsultSeed(system: string, modules: string[], ask: string, role: 
   const shared = [
     '',
     '【分析方法】优先调用业务知识图谱（domain-knowledge）和 graphify 代码知识图谱核对事实来定位问题；知识图谱分析不出来，再结合实际代码逻辑分析。',
-    '【数据库红线】当前连接的数据库 MCP 是「测试环境」。不要仅凭用户的截图/单据号就直接去数据库查这条记录——测试库里查不到，会误导判断。除非用户明确说明「这张截图/这条数据来自测试环境」，才可以带着截图信息去查库；否则不要查库，基于业务与代码逻辑作答。',
+    '【数据库红线】当前连接的数据库 MCP 是「测试环境」。不要仅凭用户的截图/单据号就直接去数据库查这条记录——测试库里查不到，会误导判断。除非用户明确说明「这张截图/这条数据来自测试环境」，才可以带着截图信息去查库；否则不要查库，基于业务与代码逻辑作答。若咨询涉及生产环境中具体页面的数据问题，应明确告知用户「当前暂未连接生产环境，无法直接核验该数据」，并补充可执行的测试建议，例如「请在测试环境用一张同类型的××单查看并复现对应情况」；其中“××单”应结合业务上下文写成具体单据类型，能确定测试单号时一并告知用户，不要原样输出占位词。',
     '【BUG 自动登记】如果你分析后**确认这是系统 BUG 或数据问题**（不是操作指引、不是使用方法），请在正常回答之后另起一段，输出如下机器可读块（系统会自动登记留存，用户无需理会）：',
     '<<<BUG_REPORT>>>',
     '{"title":"一句话缺陷标题","type":"FUNCTION_BUG|DATA_ISSUE|CONFIG|PERMISSION|OTHER","severity":"LOW|MEDIUM|HIGH|CRITICAL","module":"所属模块","reproduce":"复现步骤","expected":"期望行为","actual":"实际行为","suspectArea":"疑似位置(菜单路径/接口/代码/表)","confidence":0-100}',
@@ -302,20 +301,12 @@ function extractTurns(items: ChatItem[], attMeta: Map<string, { path: string; mi
 export function ForeConsultPage() {
   const qc = useQueryClient()
   const confirm = useConfirm()
-  const { chat, activate, setFloating } = useChatRuntime()
+  const chat = useClaudeChatSocket({ channel: 'consult' })
 
   const [system, setSystem] = useState('')
   const [moduleTags, setModuleTags] = useState<string[]>([])
   const [ask, setAsk] = useState('')
-  const [role, setRole] = useState<ConsultRole>('BIZ')
-  const [engine, setEngine] = useState<Extract<Engine, 'claude' | 'codex'>>('claude')
-  const [codexHome, setCodexHome] = useState(() => {
-    try {
-      return localStorage.getItem(CODEX_HOME_PREF) ?? ''
-    } catch {
-      return ''
-    }
-  })
+  const [role, setRole] = useState<ConsultRole>(CONSULT_ROLE)
   const [moduleQuery, setModuleQuery] = useState('')
   const [modulesExpanded, setModulesExpanded] = useState(false)
   const [attachments, setAttachments] = useState<ConsultAtt[]>([])
@@ -325,6 +316,7 @@ export function ForeConsultPage() {
   const [viewSession, setViewSession] = useState<{ id: string; title: string } | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [bugsOpen, setBugsOpen] = useState(false)
+  const [archiveError, setArchiveError] = useState<string | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [hintDismissed, setHintDismissed] = useState(() => {
     try {
@@ -346,8 +338,6 @@ export function ForeConsultPage() {
     displayText: string
     consultId: string
     attachments: ConsultAtt[]
-    engine: 'claude' | 'codex'
-    codexHome?: string
   } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ name: string; moved: boolean } | null>(null)
@@ -496,27 +486,29 @@ export function ForeConsultPage() {
 
   const deliver = useCallback(() => {
     const p = pendingRef.current
-    if (!chat || !p) return
+    if (!p) return
     pendingRef.current = null
     // bypassPermissions：只读业务问答，自动放行工具，本模块面板无需权限 UI。
     chat.open(
       p.cwd,
       undefined,
       'bypassPermissions',
-      p.engine,
-      p.engine === 'codex' ? { codexHome: p.codexHome } : undefined,
+      'codex',
+      {
+        codexHome: CONSULT_CODEX_HOME,
+        codexReasoningEffort: CONSULT_CODEX_REASONING,
+        codexSpeed: CONSULT_CODEX_SPEED,
+      },
     )
     const atts = p.attachments.length
       ? p.attachments.map((a) => ({ name: a.name, path: a.path, mime: a.mime ?? undefined, url: a.url }))
       : undefined
     chat.send(p.seed, atts, p.displayText)
     setAttachments([])
-    // 不弹 Vibe Coding 悬浮窗，改用本模块的独立会话面板同步渲染结果。
-    setFloating(false)
     setPanelOpen(false)
     setConversationOpen(true)
     // 会话 id 异步产生，关联 + 分组交给下方 effect 监听 chat.sessionId 处理（比 setTimeout 读 null 可靠）。
-  }, [chat, setFloating])
+  }, [chat])
 
   // 会话 id 就绪后：关联回本模块，并把该会话自动归入「业务咨询」分组（分组不存在时命名即创建）。
   const groupedRef = useRef<string | null>(null)
@@ -574,17 +566,18 @@ export function ForeConsultPage() {
   const startMutation = useMutation({
     mutationFn: async () => {
       const cwd = systemPath || system.trim()
-      const seed = buildConsultSeed(system.trim(), moduleTags, ask, role)
+      const seed = buildConsultSeed(system.trim(), moduleTags, ask, CONSULT_ROLE)
       const created = await startConsult({
         systemName: system.trim(),
         systemSourcePath: cwd,
         moduleNames: moduleTags,
         promptSnapshot: seed,
-        role,
+        role: CONSULT_ROLE,
       })
       return { created, seed, cwd }
     },
     onSuccess: ({ created, seed, cwd }) => {
+      setRole(CONSULT_ROLE)
       setActiveConsultId(created.sessionId)
       pendingRef.current = {
         cwd,
@@ -592,18 +585,8 @@ export function ForeConsultPage() {
         displayText: ask.trim() || '（见附件）',
         consultId: created.sessionId,
         attachments,
-        engine,
-        codexHome: engine === 'codex' ? codexHome.trim() || undefined : undefined,
       }
-      if (engine === 'codex') {
-        try {
-          localStorage.setItem(CODEX_HOME_PREF, codexHome.trim())
-        } catch {
-          /* 浏览器禁用存储时仅本次会话生效 */
-        }
-      }
-      if (chat) deliver()
-      else activate()
+      deliver()
       setAsk('')
       setPanelOpen(false)
       qc.invalidateQueries({ queryKey: ['fore-consult-sessions'] })
@@ -620,12 +603,23 @@ export function ForeConsultPage() {
         turns: extractTurns(items, attMetaRef.current),
       })
     },
+    onMutate: () => {
+      setArchiveError(null)
+    },
     onSuccess: () => {
+      setArchiveError(null)
       setActiveConsultId(null)
       setConversationOpen(false)
       qc.invalidateQueries({ queryKey: ['fore-consult-sessions'] })
     },
+    onError: (error) => {
+      setArchiveError(error instanceof Error ? error.message : '归档失败，请重试')
+    },
   })
+  const triggerArchive = () => {
+    if (!activeConsultId || archiveMutation.isPending) return
+    archiveMutation.mutate()
+  }
 
   const topoMutation = useMutation({
     mutationFn: () => analyzeTopology(visibleProjects.map((p) => p.name)),
@@ -713,13 +707,10 @@ export function ForeConsultPage() {
   // 续跑：chat 可用时把排队的 claude-chat 会话切过去（加载其历史 + 可继续发消息）。
   const doResume = useCallback(() => {
     const sid = resumeRef.current
-    if (!chat || !sid) return
+    if (!sid) return
     resumeRef.current = null
     chat.switchTo(sid)
   }, [chat])
-  useEffect(() => {
-    if (chat && resumeRef.current) doResume()
-  }, [chat, doResume])
 
   // 继续一次「进行中」的咨询：恢复系统/角色/活跃态，并续跑其底层会话，打开可发消息的对话面板。
   const resumeConsult = (s: ConsultSessionView) => {
@@ -732,8 +723,7 @@ export function ForeConsultPage() {
     if (s.sessionId !== activeConsultId && s.devSessionId) {
       attMetaRef.current = new Map()
       resumeRef.current = s.devSessionId
-      if (chat) doResume()
-      else activate()
+      doResume()
     }
     setConversationOpen(true)
   }
@@ -900,13 +890,18 @@ export function ForeConsultPage() {
       {/* 进行中横幅：对话面板打开时隐藏（面板 z-30 全屏遮罩会盖住本横幅 z-20，
           否则点这里的「结束并归档」会先被遮罩吃掉变成关闭对话，导致要点两次）。归档入口此时用面板头部的按钮。 */}
       {activeConsultId && !conversationOpen && (
-        <div className="absolute left-1/2 top-16 z-20 flex -translate-x-1/2 items-center gap-3 rounded-full border border-emerald-300/30 bg-emerald-400/10 px-4 py-1.5 text-xs text-emerald-100 backdrop-blur-md">
-          <span className="relative flex size-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
-            <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
-          </span>
-          咨询进行中
-          {!conversationOpen && (
+        <div
+          className="absolute left-1/2 top-14 z-50 -translate-x-1/2 p-3"
+          onPointerDown={(event) => event.stopPropagation()}
+          onPointerUp={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="flex items-center gap-3 rounded-full border border-emerald-300/30 bg-[#102b2a]/90 px-4 py-1.5 text-xs text-emerald-100 shadow-[0_12px_36px_-16px_rgba(52,211,153,0.9)] backdrop-blur-md">
+            <span className="relative flex size-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
+              <span className="relative inline-flex size-2 rounded-full bg-emerald-400" />
+            </span>
+            咨询进行中
             <button
               type="button"
               onClick={() => setConversationOpen(true)}
@@ -914,15 +909,45 @@ export function ForeConsultPage() {
             >
               <MessagesSquare className="size-3" /> 查看对话
             </button>
-          )}
+            <button
+              type="button"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation()
+                triggerArchive()
+              }}
+              disabled={archiveMutation.isPending}
+              className="flex min-w-[88px] items-center justify-center gap-1 rounded-full bg-emerald-400/90 px-2.5 py-1 font-medium text-emerald-950 transition-transform hover:scale-105 disabled:cursor-wait disabled:opacity-70"
+            >
+              {archiveMutation.isPending && <Loader2 className="size-3 animate-spin" />}
+              {archiveMutation.isPending ? '归档中…' : '结束并归档'}
+            </button>
+          </div>
+        </div>
+      )}
+      {activeConsultId && archiveError && (
+        <div
+          role="alert"
+          className="absolute left-1/2 top-28 z-[60] flex max-w-[90%] -translate-x-1/2 items-center gap-2 rounded-xl border border-rose-300/30 bg-rose-950/90 px-3 py-2 text-xs text-rose-100 shadow-xl backdrop-blur-md"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <span className="max-w-[360px] truncate">归档失败：{archiveError}</span>
           <button
             type="button"
-            onClick={() => archiveMutation.mutate()}
+            onClick={triggerArchive}
             disabled={archiveMutation.isPending}
-            className="flex items-center gap-1 rounded-full bg-emerald-400/90 px-2.5 py-1 font-medium text-emerald-950 transition-transform hover:scale-105 disabled:opacity-60"
+            className="shrink-0 rounded-lg bg-rose-300 px-2 py-1 font-medium text-rose-950 disabled:opacity-60"
           >
-            {archiveMutation.isPending && <Loader2 className="size-3 animate-spin" />}
-            结束并归档
+            重试
+          </button>
+          <button
+            type="button"
+            onClick={() => setArchiveError(null)}
+            className="shrink-0 rounded-md p-1 text-rose-100/70 hover:bg-white/10"
+            aria-label="关闭归档错误提示"
+          >
+            <X className="size-3.5" />
           </button>
         </div>
       )}
@@ -1110,13 +1135,16 @@ export function ForeConsultPage() {
               ))}
             </div>
 
-            {/* 模块选择：搜索 + 折叠，降低"一墙标签"负担 */}
-            <div className="flex-1 overflow-y-auto px-5 py-4">
+            {/* 模块选择优先完整露出；展开较多模块时，最多占面板约一半并在区内滚动。 */}
+            <div className="max-h-[46%] shrink-0 overflow-y-auto border-b border-indigo-300/12 bg-sky-400/[0.025] px-5 py-4">
               <div className="mb-1 flex items-center justify-between">
-                <span className="text-[11px] uppercase tracking-wider text-indigo-200/55">选择模块 · 可多选可不选</span>
+                <span className="flex items-center gap-1.5 text-xs font-medium text-indigo-100/85">
+                  <Boxes className="size-3.5 text-sky-300/80" />
+                  选择业务模块 <span className="font-normal text-indigo-200/45">（可选）</span>
+                </span>
                 {moduleTags.length > 0 && (
                   <button type="button" onClick={() => setModuleTags([])} className="text-[11px] text-indigo-200/60 hover:text-indigo-100">
-                    清空 {moduleTags.length}
+                    已选 {moduleTags.length} · 清空
                   </button>
                 )}
               </div>
@@ -1175,75 +1203,8 @@ export function ForeConsultPage() {
               )}
             </div>
 
-            {/* Prompt Composer：Claude 风格提问区 + 建议快填 */}
-            <div className="min-h-0 overflow-y-auto border-t border-indigo-300/12 p-4">
-              <div className="mb-2.5 flex items-center gap-2">
-                <span className="text-[11px] text-indigo-200/50">回答对象</span>
-                <div className="flex rounded-lg border border-indigo-300/20 bg-white/[0.04] p-0.5">
-                  {(['IT', 'BIZ'] as ConsultRole[]).map((r) => (
-                    <button
-                      key={r}
-                      type="button"
-                      onClick={() => setRole(r)}
-                      title={ROLE_META[r].hint}
-                      className={`rounded-md px-2.5 py-1 text-[11px] transition-colors ${
-                        role === r ? 'bg-sky-400/25 text-sky-100' : 'text-indigo-200/60 hover:text-indigo-100'
-                      }`}
-                    >
-                      {ROLE_META[r].label}
-                    </button>
-                  ))}
-                </div>
-                <span className="hidden truncate text-[10px] text-indigo-200/35 sm:inline">{ROLE_META[role].hint}</span>
-              </div>
-              <div className="mb-2.5 rounded-xl border border-indigo-300/20 bg-white/[0.03] p-2.5">
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] text-indigo-200/50">咨询引擎</span>
-                  <div className="flex rounded-lg border border-indigo-300/20 bg-white/[0.04] p-0.5">
-                    {(['claude', 'codex'] as const).map((item) => (
-                      <button
-                        key={item}
-                        type="button"
-                        onClick={() => setEngine(item)}
-                        className={`rounded-md px-2.5 py-1 text-[11px] transition-colors ${
-                          engine === item ? 'bg-sky-400/25 text-sky-100' : 'text-indigo-200/60 hover:text-indigo-100'
-                        }`}
-                      >
-                        {item === 'claude' ? 'Claude Code' : 'Codex'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                {engine === 'codex' && (
-                  <div className="mt-2">
-                    <label className="mb-1 block text-[10px] text-indigo-200/45" htmlFor="fore-consult-codex-home">
-                      Codex 授权目录（留空使用默认 %USERPROFILE%\.codex）
-                    </label>
-                    <input
-                      id="fore-consult-codex-home"
-                      value={codexHome}
-                      onChange={(event) => setCodexHome(event.target.value)}
-                      placeholder="%USERPROFILE%\.codex-account-yx"
-                      className="fc-glass-input w-full rounded-lg px-2.5 py-1.5 text-xs"
-                    />
-                    <p className="mt-1 text-[10px] leading-relaxed text-amber-100/65">
-                      目录需提前创建并执行 codex login；它只决定登录账号，不改变上方项目工作目录。
-                    </p>
-                  </div>
-                )}
-              </div>
-              <div className="mb-2 flex flex-wrap gap-1.5">
-                {CONSULT_SUGGESTIONS.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => setAsk(s)}
-                    className="flex items-center gap-1 rounded-full border border-indigo-300/20 bg-white/[0.04] px-2.5 py-1 text-[11px] text-indigo-100/70 hover:bg-white/10"
-                  >
-                    <Sparkles className="size-3 text-sky-300/70" /> {s}
-                  </button>
-                ))}
-              </div>
+            {/* Prompt Composer：业务咨询配置由场景固定，默认直接露出消息输入框。 */}
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
               <div className="mb-2 flex items-start gap-1.5 rounded-lg border border-amber-300/30 bg-amber-400/10 px-2.5 py-1.5 text-[11px] leading-relaxed text-amber-100/90">
                 <Lightbulb className="mt-0.5 size-3 shrink-0 text-amber-300" />
                 <span>
@@ -1307,7 +1268,9 @@ export function ForeConsultPage() {
                     >
                       <Paperclip className="size-3.5" /> 附件
                     </button>
-                    <span className="text-[10px] text-indigo-200/40">接入 Forge · Claude 引擎</span>
+                    <span className="text-[10px] text-indigo-200/40">
+                      接入 Forge · Codex 引擎
+                    </span>
                   </div>
                   <button
                     type="button"
@@ -1328,6 +1291,7 @@ export function ForeConsultPage() {
       {/* 独立业务咨询会话面板（不用 Vibe Coding 悬浮窗，复用同一 WS 同步渲染） */}
       {conversationOpen && activeConsultId && (
         <ConsultConversation
+          chat={chat}
           consultId={activeConsultId}
           systemLabel={displayName(system)}
           roleLabel={ROLE_META[role].label}
@@ -1335,7 +1299,7 @@ export function ForeConsultPage() {
           onUploaded={(name, path, mime) => attMetaRef.current.set(name, { path, mime })}
           onBugRegistered={() => qc.invalidateQueries({ queryKey: ['fore-consult-bugs'] })}
           onClose={() => setConversationOpen(false)}
-          onArchive={() => archiveMutation.mutate()}
+          onArchive={triggerArchive}
           archiving={archiveMutation.isPending}
         />
       )}

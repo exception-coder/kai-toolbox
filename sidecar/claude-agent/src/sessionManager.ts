@@ -729,7 +729,7 @@ export class SessionManager {
   }
 
   start(id: string, cwd: string, model?: string, mode?: string, engine?: string, apiBaseUrl?: string, authToken?: string, codexHome?: string,
-        demo?: boolean, demoApiBase?: string, autoApprove?: boolean): void {
+        demo?: boolean, demoApiBase?: string, autoApprove?: boolean, codexReasoningEffort?: string, codexSpeed?: string): void {
     const s = new Session(id, cwd || process.env.HOME || process.cwd(), (e) => this.emit(id, e))
     if (model) s.model = model
     if (engine === 'codex' || engine === 'gemini' || engine === 'opencode') s.engine = engine
@@ -737,6 +737,10 @@ export class SessionManager {
     if (codexHome) s.codexHome = codexHome
     if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
     if (autoApprove) { s.autoApprove = true; s.perms.setAutoApprove(true) }
+    s.codexReasoningEffort = VALID_CODEX_EFFORTS.has(codexReasoningEffort as ModelReasoningEffort)
+      ? codexReasoningEffort as ModelReasoningEffort
+      : undefined
+    s.codexSpeed = codexSpeed === 'fast' ? 'fast' : 'default'
     this.applyCodexOptions(id, s)
     // 演示会话：cwd 即副本根，权限走 demo 沙箱硬裁决（忽略 mode），注入 welfare_db。
     if (demo) {

@@ -1,4 +1,4 @@
-import { Gauge, Zap } from 'lucide-react'
+import { FolderKey, Gauge, Zap } from 'lucide-react'
 import type { CodexReasoningEffort, CodexSpeed, ModelInfo } from '../types'
 
 interface Props {
@@ -6,6 +6,8 @@ interface Props {
   model: string | null
   reasoningEffort: CodexReasoningEffort
   speed: CodexSpeed
+  codexHome?: string | null
+  showCodexHome?: boolean
   disabled?: boolean
   onModelChange: (model: string) => void
   onOptionsChange: (effort: CodexReasoningEffort, speed: CodexSpeed) => void
@@ -18,11 +20,22 @@ const EFFORTS: Array<{ value: CodexReasoningEffort; label: string }> = [
   { value: 'xhigh', label: '超高' },
 ]
 
-export function CodexSessionOptions({ models, model, reasoningEffort, speed, disabled, onModelChange, onOptionsChange }: Props) {
+export function CodexSessionOptions({
+  models,
+  model,
+  reasoningEffort,
+  speed,
+  codexHome,
+  showCodexHome,
+  disabled,
+  onModelChange,
+  onOptionsChange,
+}: Props) {
   const selectedModel = models.find(item => item.value === model)
   const supportedEfforts = selectedModel?.reasoningEfforts?.length ? selectedModel.reasoningEfforts : EFFORTS.map(item => item.value)
   const visibleEfforts = EFFORTS.filter(item => supportedEfforts.includes(item.value))
   const fastSupported = !selectedModel || selectedModel.fastSupported !== false
+  const authHomeLabel = codexHome?.trim() || '默认目录（%USERPROFILE%\\.codex）'
 
   const changeModel = (nextModel: string) => {
     onModelChange(nextModel)
@@ -68,6 +81,16 @@ export function CodexSessionOptions({ models, model, reasoningEffort, speed, dis
       >
         <Zap className="size-3.5" /> Fast
       </button>
+      {showCodexHome && (
+        <span
+          className="flex h-7 min-w-0 max-w-64 items-center gap-1 rounded-md border px-2 text-xs text-[var(--color-muted-foreground)]"
+          title={`当前会话 Codex Auth 目录：${authHomeLabel}`}
+        >
+          <FolderKey className="size-3.5 shrink-0" />
+          <span className="shrink-0">Auth</span>
+          <span className="truncate text-[var(--color-foreground)]">{authHomeLabel}</span>
+        </span>
+      )}
     </div>
   )
 }

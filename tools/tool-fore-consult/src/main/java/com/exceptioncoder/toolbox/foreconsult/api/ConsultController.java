@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.foreconsult.api;
 
+import com.exceptioncoder.toolbox.common.auth.annotation.RequireAuth;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ArchiveRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ClassifyQuestionRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ConsultAttachmentView;
@@ -45,6 +46,7 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/api/fore-consult")
+@RequireAuth
 public class ConsultController {
 
     private final ConsultService service;
@@ -101,7 +103,7 @@ public class ConsultController {
         return ConsultSessionView.from(service.archive(id, req), turnViewsOf(id), feedbackViewsOf(id));
     }
 
-    /** 进行中增量同步：把当前对话落库但保持 PENDING，供其它电脑从库查看进行中的内容。 */
+    /** 进行中增量同步：把当前对话落库但保持 PENDING，供同一用户在其它电脑或管理员查看。 */
     @PostMapping("/sessions/{id}/turns")
     public ConsultSessionView syncTurns(@PathVariable String id, @RequestBody ArchiveRequest req) {
         return ConsultSessionView.from(service.syncTurns(id, req), turnViewsOf(id), feedbackViewsOf(id));
@@ -111,6 +113,7 @@ public class ConsultController {
     public QuestionClassificationView classifyQuestion(
             @PathVariable String id,
             @Valid @RequestBody ClassifyQuestionRequest req) {
+        service.get(id);
         return questionClassifier.classify(id, req);
     }
 
@@ -128,6 +131,7 @@ public class ConsultController {
             @PathVariable String id,
             @RequestParam(required = false) String model,
             @RequestParam(defaultValue = "false") boolean force) {
+        service.get(id);
         return bugExtractionService.extractSession(id, model, force);
     }
 

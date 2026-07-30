@@ -13,7 +13,17 @@ WebSocket `open` 消息新增可选字段：
 
 `start` 与 `resume` 消息新增同名可选字段 `codexHome`。sidecar 不向浏览器回传目录内容，仅将其用于创建 Codex SDK 客户端。
 
-## 3. 咨询归档扩展
+## 3. 会话查询
+
+`GET /api/claude-chat/sessions` 的 `ClaudeChatSessionView` 新增可空字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `codexHome` | string / null | 官方 Codex 会话绑定的授权目录；空值表示默认 `%USERPROFILE%\.codex` |
+
+接口只返回目录路径元数据，不读取或返回目录内的 `auth.json`、token 等认证内容。第三方网关会话不使用该字段。
+
+## 4. 咨询归档扩展
 
 - `ConsultSessionView` 新增 `questionTitle`，表示由首个明确问题生成的归档标题。
 - `POST /api/fore-consult/sessions/{id}/classify-question`

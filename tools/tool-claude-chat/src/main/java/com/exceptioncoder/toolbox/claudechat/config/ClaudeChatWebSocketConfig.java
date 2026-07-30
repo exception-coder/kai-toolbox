@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.config;
 
 import com.exceptioncoder.toolbox.common.auth.web.AdminHandshakeInterceptor;
+import com.exceptioncoder.toolbox.common.auth.web.AuthenticatedHandshakeInterceptor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,15 +17,18 @@ public class ClaudeChatWebSocketConfig implements WebSocketConfigurer {
     private final ClaudeChatWebSocketHandler handler;
     private final DemoWebSocketHandler demoHandler;
     private final ObjectProvider<AdminHandshakeInterceptor> adminHandshake;
+    private final ObjectProvider<AuthenticatedHandshakeInterceptor> authenticatedHandshake;
     private final ClaudeChatWsProperties wsProps;
 
     public ClaudeChatWebSocketConfig(ClaudeChatWebSocketHandler handler,
                                      DemoWebSocketHandler demoHandler,
                                      ObjectProvider<AdminHandshakeInterceptor> adminHandshake,
+                                     ObjectProvider<AuthenticatedHandshakeInterceptor> authenticatedHandshake,
                                      ClaudeChatWsProperties wsProps) {
         this.handler = handler;
         this.demoHandler = demoHandler;
         this.adminHandshake = adminHandshake;
+        this.authenticatedHandshake = authenticatedHandshake;
         this.wsProps = wsProps;
     }
 
@@ -36,6 +40,13 @@ public class ClaudeChatWebSocketConfig implements WebSocketConfigurer {
         AdminHandshakeInterceptor interceptor = adminHandshake.getIfAvailable();
         if (interceptor != null) {
             registration.addInterceptors(interceptor);
+        }
+        // 业务咨询复用会话引擎，但面向普通登录用户；使用独立入口，避免放宽 Vibe Coding 的 ADMIN 门禁。
+        var consultRegistration = registry.addHandler(handler, "/api/claude-chat/consult/ws")
+                .setAllowedOriginPatterns("*");
+        AuthenticatedHandshakeInterceptor consultInterceptor = authenticatedHandshake.getIfAvailable();
+        if (consultInterceptor != null) {
+            consultRegistration.addInterceptors(consultInterceptor);
         }
         // 福利签收演示通道：公开免登录，**不挂** Admin 拦截器；约束由副本沙箱 + canUseTool 硬保证。
         registry.addHandler(demoHandler, "/api/claude-chat/demo/ws")

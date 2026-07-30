@@ -5,7 +5,7 @@ import {
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { Archive, Bug, CheckCircle2, CircleDashed, Database, GitBranch, Loader2, MessagesSquare, Paperclip, Quote, Send, ShieldAlert, ThumbsDown, ThumbsUp, X } from 'lucide-react'
-import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
+import type { UseClaudeChatSocket } from '@/features/claude-chat/hooks/useClaudeChatSocket'
 import type { ChatItem } from '@/features/claude-chat/types'
 import { classifyConsultQuestion, registerBug, submitFeedback, uploadConsultAttachment } from '../api'
 import { buildConsultTurnAudits, type AuditEvidence, type AuditState, type ConsultTurnAudit } from '../consultAudit'
@@ -34,8 +34,10 @@ type Att = { name: string; path: string; mime?: string | null; url?: string }
 type Rating = 'GOOD' | 'BAD'
 
 const BAD_CATEGORIES = ['答非所问', '信息有误', '不够具体', '入口/步骤不对', '其他']
+const QUESTION_CLASSIFY_TIMEOUT_MS = 6_500
 
 interface Props {
+  chat: UseClaudeChatSocket
   consultId: string
   systemLabel: string
   roleLabel: string
@@ -57,12 +59,10 @@ function renderMarkdown(text: string): string {
 
 /**
  * 业务咨询独立会话面板：全息风，只做「发消息 / 附件 / 查看」。
- * 复用 claude-chat 运行时的同一 WS（chat.open/send/items）驱动，结果在本面板同步渲染，
- * 不弹 Vibe Coding 悬浮窗。会话以 bypassPermissions 打开（只读业务问答，自动放行工具），
- * 万一引擎发起提问/权限，给一个「在悬浮窗处理」的兜底入口。
+ * 复用 claude-chat 协议的业务咨询专用 WS（chat.open/send/items）驱动，结果在本面板同步渲染。
+ * 会话以 bypassPermissions 打开（只读业务问答，自动放行工具），不连接 ADMIN-only 的 Vibe Coding 通道。
  */
-export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, onUploaded, onBugRegistered, onClose, onArchive, archiving }: Props) {
-  const { chat, setFloating, setMinimized } = useChatRuntime()
+export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, cwd, onUploaded, onBugRegistered, onClose, onArchive, archiving }: Props) {
   const [text, setText] = useState('')
   const [atts, setAtts] = useState<Att[]>([])
   const [uploading, setUploading] = useState(0)
@@ -204,36 +204,56 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
 
   const hasSendableContent = !!chat && (!!text.trim() || atts.length > 0) && uploading === 0
   const canSend = hasSendableContent && !classifying
-  const sendNow = () => {
-    if (!chat || !hasSendableContent) return
-    const sa = atts.length ? atts.map((a) => ({ name: a.name, path: a.path, mime: a.mime ?? undefined, url: a.url })) : undefined
-    if (running) chat.enqueue(text, sa)
-    else chat.send(text, sa)
+  const dispatchMessage = (
+    message: string,
+    attachments: Array<{ name: string; path: string; mime?: string; url?: string }> | undefined,
+    shouldQueue: boolean,
+  ) => {
+    if (shouldQueue) chat.enqueue(message, attachments)
+    else chat.send(message, attachments)
     setText('')
     setAtts([])
   }
+  const sendCurrentAsFollowUp = () => {
+    if (!hasSendableContent) return
+    const attachments = atts.length
+      ? atts.map((a) => ({ name: a.name, path: a.path, mime: a.mime ?? undefined, url: a.url }))
+      : undefined
+    dispatchMessage(text, attachments, running)
+  }
   const send = async () => {
     if (!chat || !canSend) return
+    // 分类是异步的，先快照本次点击发送的内容，避免等待期间输入状态变化导致消息丢失或错发。
+    const message = text
+    const attachments = atts.length
+      ? atts.map((a) => ({ name: a.name, path: a.path, mime: a.mime ?? undefined, url: a.url }))
+      : undefined
+    const shouldQueue = running
     const firstQuestion = items.find((item) => item.kind === 'user')
     if (!firstQuestion || firstQuestion.kind !== 'user') {
-      sendNow()
+      dispatchMessage(message, attachments, shouldQueue)
       return
     }
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), QUESTION_CLASSIFY_TIMEOUT_MS)
     setClassifying(true)
     try {
       const result = await classifyConsultQuestion(
         consultId,
-        text.trim() || '补充附件',
+        message.trim() || '补充附件',
         firstQuestion.displayText ?? firstQuestion.text,
+        controller.signal,
       )
       if (result.classification === 'NEW_QUESTION') {
         setNewQuestionReason(result.reason)
         return
       }
-      sendNow()
+      dispatchMessage(message, attachments, shouldQueue)
     } catch {
-      sendNow()
+      // 分类只是辅助拦截，超时、断网或服务异常都必须放行用户消息，不能卡在“识别中”。
+      dispatchMessage(message, attachments, shouldQueue)
     } finally {
+      window.clearTimeout(timeout)
       setClassifying(false)
     }
   }
@@ -260,13 +280,17 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
           <div className="flex items-center gap-1.5">
             <button
               type="button"
-              onClick={onArchive}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation()
+                onArchive()
+              }}
               disabled={archiving}
-              className="flex items-center gap-1 rounded-lg border border-emerald-300/25 bg-emerald-400/10 px-2.5 py-1 text-[11px] text-emerald-200/90 transition-colors hover:bg-emerald-400/20 disabled:opacity-50"
+              className="flex min-w-[76px] items-center justify-center gap-1 rounded-lg border border-emerald-300/25 bg-emerald-400/10 px-2.5 py-1 text-[11px] text-emerald-200/90 transition-colors hover:bg-emerald-400/20 disabled:cursor-wait disabled:opacity-60"
               title="结束并归档本次咨询"
             >
               {archiving ? <Loader2 className="size-3 animate-spin" /> : <Archive className="size-3" />}
-              结束归档
+              {archiving ? '归档中…' : '结束归档'}
             </button>
             <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-indigo-200/70 hover:bg-white/10" aria-label="收起">
               <X className="size-4" />
@@ -274,17 +298,10 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
           </div>
         </div>
 
-        {/* 待确认兜底：正常 bypass 不会触发；若引擎提问/要权限，引导去悬浮窗处理 */}
+        {/* 正常 bypass 不会触发；异常出现待确认时留在咨询面板提示，避免跳入 ADMIN-only 悬浮窗。 */}
         {pending && (
-          <div className="flex items-center justify-between gap-2 border-b border-amber-300/20 bg-amber-400/10 px-4 py-2 text-[11px] text-amber-100">
-            <span>AI 需要你确认一步操作</span>
-            <button
-              type="button"
-              onClick={() => { setFloating(true); setMinimized(false) }}
-              className="rounded-md bg-amber-400/80 px-2 py-0.5 font-medium text-amber-950 hover:bg-amber-300"
-            >
-              在悬浮窗处理
-            </button>
+          <div className="border-b border-amber-300/20 bg-amber-400/10 px-4 py-2 text-[11px] text-amber-100">
+            AI 需要额外确认，请在输入框补充相关信息后重新发送；业务咨询不会跳转到管理员专用悬浮窗。
           </div>
         )}
 
@@ -419,7 +436,7 @@ export function ConsultConversation({ consultId, systemLabel, roleLabel, cwd, on
                   type="button"
                   onClick={() => {
                     setNewQuestionReason(null)
-                    sendNow()
+                    sendCurrentAsFollowUp()
                   }}
                   className="rounded-xl px-3 py-2 text-sm text-indigo-100/70 hover:bg-white/5"
                 >

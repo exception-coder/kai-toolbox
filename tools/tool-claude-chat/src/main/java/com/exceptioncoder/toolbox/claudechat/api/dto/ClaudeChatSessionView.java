@@ -20,6 +20,7 @@ public record ClaudeChatSessionView(
         String engines,
         String providerKind,
         String providerBaseUrl,
+        String codexHome,
         String group,
         SessionStatus status,
         long startedAt,
@@ -39,7 +40,7 @@ public record ClaudeChatSessionView(
         String group = s.getGroupName() == null || s.getGroupName().isBlank() ? null : s.getGroupName();
         return new ClaudeChatSessionView(
                 s.getId(), s.getCwd(), s.getTitle(), s.getSdkSessionId(),
-                engine, engines, providerKind, providerBaseUrl, group,
+                engine, engines, providerKind, providerBaseUrl, s.getCodexHome(), group,
                 s.getStatus(), s.getStartedAt(), s.getLastSeenAt(), live, transcriptMissing);
     }
 }

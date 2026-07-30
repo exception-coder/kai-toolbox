@@ -49,6 +49,13 @@ public class ClaudeChatSessionRepository {
                 .stream().findFirst();
     }
 
+    public Optional<ClaudeChatSession> findBySdkSessionId(String sdkSessionId) {
+        return jdbc.query(
+                        "SELECT * FROM claude_chat_session WHERE sdk_session_id = ? ORDER BY last_seen_at DESC LIMIT 1",
+                        ROW, sdkSessionId)
+                .stream().findFirst();
+    }
+
     public void insert(ClaudeChatSession s) {
         String engine = s.getEngine() == null ? "claude" : s.getEngine();
         jdbc.update("""

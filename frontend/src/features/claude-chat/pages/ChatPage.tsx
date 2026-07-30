@@ -24,6 +24,7 @@ import { PendingSessionsBanner } from '../components/PendingSessionsBanner'
 import { SessionCapsPanel } from '../components/SessionCapsPanel'
 import { PENDING_DRAFT_KEY, useDraftStore } from '../lib/draftPref'
 import { useDraftAttachments, type DraftAttachment } from '../lib/attachmentDraftPref'
+import { loadCodexHomePreference, saveCodexHomePreference } from '../lib/codexHomePref'
 import { cn } from '@/lib/utils'
 import { setToolColors, useToolColors } from '../lib/toolColorPref'
 import { setSkin, skinClass, useSkin } from '../lib/skinPref'
@@ -476,6 +477,7 @@ export function ChatPage() {
   const [newCwd, setNewCwd] = useState('')
   const [wsIdx, setWsIdx] = useState(0) // 当前选中的工作区（root）下标，两级目录选择用
   const [newEngine, setNewEngine] = useState<Engine>('claude')
+  const [newCodexHome, setNewCodexHome] = useState(loadCodexHomePreference)
   // 第三方网关「服务商」：newProviderId 空=官方默认；newModel 为走网关时手填的模型名
   const [providers, setProviders] = useState<ProviderProfile[]>(() => loadProfiles())
   const [newProviderId, setNewProviderId] = useState('')
@@ -603,11 +605,16 @@ export function ChatPage() {
     // 第三方网关对 Claude / Codex / Gemini 生效（各走各的协议端点）
     const usesGateway = newEngine === 'claude' || newEngine === 'codex' || newEngine === 'gemini'
     const profile = usesGateway ? providers.find(p => p.id === newProviderId) : undefined
-    const provider = profile ? { apiBaseUrl: profile.baseUrl, authToken: profile.key } : undefined
+    const provider = profile
+      ? { apiBaseUrl: profile.baseUrl, authToken: profile.key }
+      : newEngine === 'codex'
+        ? { codexHome: newCodexHome.trim() || undefined }
+        : undefined
     // 模型：claude/codex 网关用档案/手填；opencode 用手填的 provider/model（留空走默认）；其它引擎不传
     const model = newEngine === 'opencode'
       ? (newModel.trim() || undefined)
       : profile ? (newModel.trim() || profile.model || undefined) : undefined
+    if (newEngine === 'codex' && !profile) saveCodexHomePreference(newCodexHome)
     chat.open(newCwd.trim(), model, undefined, newEngine, provider)
     setPanel('none')
   }
@@ -1000,6 +1007,23 @@ export function ChatPage() {
               <span className="text-xs text-[var(--color-muted-foreground)]">（多 provider agent，跑第三方模型推荐；需本机装 opencode 并配置 provider：opencode auth login）</span>
             )}
           </div>
+          {newEngine === 'codex' && newProviderId === '' && (
+            <div className="mt-3 rounded-lg border bg-[var(--color-muted)]/30 p-3">
+              <label className="mb-1 block text-xs font-medium" htmlFor="vibe-coding-codex-home">
+                Codex Auth 目录
+              </label>
+              <input
+                id="vibe-coding-codex-home"
+                value={newCodexHome}
+                onChange={event => setNewCodexHome(event.target.value)}
+                placeholder="%USERPROFILE%\.codex-account-yx"
+                className="h-8 w-full rounded-md border bg-[var(--color-background)] px-2 text-sm"
+              />
+              <p className="mt-1 text-[11px] leading-relaxed text-[var(--color-muted-foreground)]">
+                留空使用默认 %USERPROFILE%\.codex。目录需提前执行 codex login；选择结果只绑定本次会话，不改变项目工作目录。
+              </p>
+            </div>
+          )}
           {/* OpenCode 引擎：provider/鉴权由 opencode 自己管理，这里只填模型 providerID/modelID */}
           {newEngine === 'opencode' && (
             <div className="mt-3 flex items-center gap-2">
@@ -1425,6 +1449,8 @@ export function ChatPage() {
                 model={chat.currentModel}
                 reasoningEffort={chat.codexReasoningEffort}
                 speed={chat.codexSpeed}
+                codexHome={currentSession?.codexHome}
+                showCodexHome={Boolean(currentSession && currentSession.providerKind !== 'thirdParty')}
                 onModelChange={chat.setModel}
                 onOptionsChange={chat.setCodexOptions}
               />

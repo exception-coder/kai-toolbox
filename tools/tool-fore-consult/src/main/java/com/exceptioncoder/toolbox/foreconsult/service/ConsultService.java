@@ -49,7 +49,7 @@ public class ConsultService {
 
     /** 保存/更新某轮回答的评分反馈（按 sessionId+turnIndex upsert）。 */
     public ConsultFeedback saveFeedback(String sessionId, int turnIndex, com.exceptioncoder.toolbox.foreconsult.api.dto.FeedbackRequest req) {
-        requireSession(sessionId);
+        requireAccessibleSession(sessionId);
         long now = System.currentTimeMillis();
         ConsultFeedback f = ConsultFeedback.builder()
                 .sessionId(sessionId)
@@ -66,6 +66,7 @@ public class ConsultService {
     }
 
     public List<ConsultFeedback> feedbackOf(String sessionId) {
+        requireAccessibleSession(sessionId);
         return feedbackRepo.findBySession(sessionId);
     }
 
@@ -97,7 +98,7 @@ public class ConsultService {
 
     /** 回写关联的 claude-chat 会话 id。 */
     public ConsultSession linkDevSession(String sessionId, String devSessionId) {
-        ConsultSession s = requireSession(sessionId);
+        ConsultSession s = requireAccessibleSession(sessionId);
         sessionRepo.updateDevSessionId(sessionId, devSessionId);
         s.setDevSessionId(devSessionId);
         return s;
@@ -108,14 +109,14 @@ public class ConsultService {
      * 会话降级为 FAILED 并记录原因，方法本身不抛异常（会话不存在除外）。
      */
     public ConsultSession archive(String sessionId, ArchiveRequest req) {
-        ConsultSession s = requireSession(sessionId);
+        ConsultSession s = requireAccessibleSession(sessionId);
         long now = System.currentTimeMillis();
         try {
             writeTurns(sessionId, req.turns(), now);
             String parseStatus = req.parseStatus() != null && !req.parseStatus().isBlank()
                     ? req.parseStatus() : "NONE";
             sessionRepo.markArchived(sessionId, req.rawReferenceJson(), parseStatus, now);
-            return requireSession(sessionId);
+            return requireAccessibleSession(sessionId);
         } catch (Exception e) {
             log.warn("[fore-consult] 会话 {} 归档失败，降级为 FAILED: {}", sessionId, e.getMessage(), e);
             try {
@@ -129,10 +130,10 @@ public class ConsultService {
 
     /**
      * 进行中增量落库：把当前对话轮次写进库但**保持 PENDING**（不结束、不置 SUCCESS/ended_at），
-     * 让局域网其它电脑也能从库里查看进行中的对话内容。容错，失败忽略。
+     * 让同一用户在其它电脑（以及管理员）也能从库里查看进行中的对话内容。容错，失败忽略。
      */
     public ConsultSession syncTurns(String sessionId, ArchiveRequest req) {
-        ConsultSession s = requireSession(sessionId);
+        ConsultSession s = requireAccessibleSession(sessionId);
         try {
             writeTurns(sessionId, req.turns(), System.currentTimeMillis());
             sessionRepo.updateSyncedRaw(sessionId, req.rawReferenceJson());
@@ -177,19 +178,24 @@ public class ConsultService {
     }
 
     public List<ConsultSession> listRecent(int limit) {
-        return sessionRepo.findRecent(limit);
+        return AuthContext.current()
+                .filter(principal -> !principal.hasAnyRole("ADMIN"))
+                .map(principal -> sessionRepo.findRecentByUserId(String.valueOf(principal.userId()), limit))
+                .orElseGet(() -> sessionRepo.findRecent(limit));
     }
 
     public ConsultSession get(String sessionId) {
-        return requireSession(sessionId);
+        return requireAccessibleSession(sessionId);
     }
 
     public List<ConsultTurn> turnsOf(String sessionId) {
+        requireAccessibleSession(sessionId);
         return turnRepo.findBySession(sessionId);
     }
 
     /** 删除会话及其全部轮次与反馈。 */
     public void delete(String sessionId) {
+        requireAccessibleSession(sessionId);
         turnRepo.deleteBySession(sessionId);
         feedbackRepo.deleteBySession(sessionId);
         // 抽取台账随会话走：留着会让同 id 的新会话（极端情况）命中旧指纹而被误跳过
@@ -197,9 +203,22 @@ public class ConsultService {
         sessionRepo.delete(sessionId);
     }
 
-    private ConsultSession requireSession(String sessionId) {
-        return sessionRepo.findById(sessionId)
-                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "咨询会话不存在: " + sessionId));
+    private ConsultSession requireAccessibleSession(String sessionId) {
+        ConsultSession session = sessionRepo.findById(sessionId)
+                .orElseThrow(() -> notFound(sessionId));
+        AuthContext.current().ifPresent(principal -> {
+            boolean admin = principal.hasAnyRole("ADMIN");
+            boolean owner = String.valueOf(principal.userId()).equals(session.getUserId());
+            if (!admin && !owner) {
+                // 对非本人会话统一按不存在处理，避免通过 UUID 探测他人的咨询记录。
+                throw notFound(sessionId);
+            }
+        });
+        return session;
+    }
+
+    private static ResponseStatusException notFound(String sessionId) {
+        return new ResponseStatusException(NOT_FOUND, "咨询会话不存在: " + sessionId);
     }
 
     private String serializeModules(List<String> modules) {

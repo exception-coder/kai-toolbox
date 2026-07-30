@@ -13,3 +13,4 @@
 | 6 | 布局安全性 | 固定绝对定位页脚未参与正文布局，新增高内容页面时覆盖正文 | 页脚必须进入母版布局流或预留可验证安全区，并逐页执行正文与页脚碰撞检查 | SlideSection.tsx、webppt-deck.css | 2026-07-21 | 1 |
 | 7 | 架构约束 | 将 npm、pip、Maven 不同配置语义过度抽象为统一缓存迁移流程 | 统一入口只负责编排；每个包管理器用独立策略处理原生配置、优先级、备份和验证 | PackageCacheConfigService.java、PackageCacheMigration.tsx | 2026-07-26 | 1 |
 | 8 | 异常处理 | 将同名的 Codex item error 与顶层致命 error 混写在一个分支中，代码审查时无法直观看出严重级别边界 | 按 SDK 事件层级明确命名转换函数和事件码，item error 按官方 non-fatal 语义处理，turn.failed 与顶层 error 保持致命 | codexEngine.ts | 2026-07-29 | 1 |
+| 9 | 架构约束 | 在交付中心另用原生 datalist 实现系统/模块选择，绕开 PRD 已有数据源和统一多选交互 | 将系统与模块数据查询、级联多选和主系统规则抽成共享能力，所有 PRD 入口统一复用 | PrdDraftDialog.tsx | 2026-07-29 | 1 |

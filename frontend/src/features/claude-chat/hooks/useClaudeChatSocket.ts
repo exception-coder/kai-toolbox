@@ -73,7 +73,18 @@ export interface QueuedMessage {
 
 /** 连接后要发出的首个意图（区分新建 / 续跑 / 重连回放）。 */
 type Intent =
-  | { kind: 'open'; cwd: string; model?: string; mode?: PermissionMode; engine?: Engine; apiBaseUrl?: string; authToken?: string; codexHome?: string }
+  | {
+      kind: 'open'
+      cwd: string
+      model?: string
+      mode?: PermissionMode
+      engine?: Engine
+      apiBaseUrl?: string
+      authToken?: string
+      codexHome?: string
+      codexReasoningEffort?: CodexReasoningEffort
+      codexSpeed?: CodexSpeed
+    }
   | { kind: 'switch'; sessionId: string }
   | { kind: 'resumeHistory'; sdkSessionId: string; cwd: string }
   | { kind: 'resumeCurrent'; sessionId: string }
@@ -123,7 +134,19 @@ export interface UseClaudeChatSocket {
    *  结束但后台还有工作没完事——区分"真的没事干了"和"后台还在查、还没回来"。 */
   backgroundTasks: BackgroundTaskInfo[]
   /** 新建会话（可带初始权限模式、引擎、第三方网关 provider；provider 仅 Claude 引擎生效） */
-  open: (cwd: string, model?: string, mode?: PermissionMode, engine?: Engine, provider?: { apiBaseUrl?: string; authToken?: string; codexHome?: string }) => void
+  open: (
+    cwd: string,
+    model?: string,
+    mode?: PermissionMode,
+    engine?: Engine,
+    provider?: {
+      apiBaseUrl?: string
+      authToken?: string
+      codexHome?: string
+      codexReasoningEffort?: CodexReasoningEffort
+      codexSpeed?: CodexSpeed
+    },
+  ) => void
   /** 切换权限模式（下一轮生效） */
   setMode: (mode: PermissionMode) => void
   autoApprove: boolean
@@ -171,9 +194,12 @@ export interface UseClaudeChatSocket {
   loadHistory: (reset: boolean) => void
 }
 
-export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSocket {
+export type ClaudeChatChannel = 'admin' | 'consult'
+
+export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeChatChannel }): UseClaudeChatSocket {
   // demo（受约束免登录演示）：连 /api/claude-chat/demo/ws，不带 token、不自动 attach 重连。
   const demo = opts?.demo ?? false
+  const channel = opts?.channel ?? 'admin'
   const [state, setState] = useState<ConnState>('idle')
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [items, setItems] = useState<ChatItem[]>([])
@@ -514,7 +540,18 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
   const flushIntent = useCallback(() => {
     const intent = intentRef.current
     if (!intent) return
-    if (intent.kind === 'open') sendRaw({ type: 'open', cwd: intent.cwd, model: intent.model, mode: intent.mode, engine: intent.engine, apiBaseUrl: intent.apiBaseUrl, authToken: intent.authToken, codexHome: intent.codexHome })
+    if (intent.kind === 'open') sendRaw({
+      type: 'open',
+      cwd: intent.cwd,
+      model: intent.model,
+      mode: intent.mode,
+      engine: intent.engine,
+      apiBaseUrl: intent.apiBaseUrl,
+      authToken: intent.authToken,
+      codexHome: intent.codexHome,
+      codexReasoningEffort: intent.codexReasoningEffort,
+      codexSpeed: intent.codexSpeed,
+    })
     else if (intent.kind === 'switch') sendRaw({ type: 'switchSession', sessionId: intent.sessionId })
     else if (intent.kind === 'resumeHistory') sendRaw({ type: 'resumeHistory', sdkSessionId: intent.sdkSessionId, cwd: intent.cwd })
     else if (intent.kind === 'resumeCurrent') sendRaw({ type: 'resumeCurrent', sessionId: intent.sessionId })
@@ -562,11 +599,16 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
   // 用新鲜 token 真正建 WS（已确保 token 续期、并发守卫已置位）。
   const openSocket = useCallback(() => {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    // WS 握手无法带 Authorization 头，开启鉴权后用 access_token 让 AdminHandshakeInterceptor 校验 ADMIN。
+    // WS 握手无法带 Authorization 头，通过 access_token 查询参数鉴权：
+    // Vibe Coding 走 admin 通道校验 ADMIN；业务咨询走 consult 通道，只要求有效登录用户。
     // demo 通道公开免鉴权（路由不挂拦截器），不带 token。
     const token = demo ? null : getToken()
     const qs = token ? `?access_token=${encodeURIComponent(token)}` : ''
-    const path = demo ? '/api/claude-chat/demo/ws' : '/api/claude-chat/ws'
+    const path = demo
+      ? '/api/claude-chat/demo/ws'
+      : channel === 'consult'
+        ? '/api/claude-chat/consult/ws'
+        : '/api/claude-chat/ws'
     const url = `${proto}//${window.location.host}${path}${qs}`
     setState('connecting')
     openedRef.current = false // 新一次尝试：先假定未连上，onopen 置真
@@ -634,7 +676,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
         setState('closed')
       }
     }
-  }, [applyEvent, flushIntent, flushPendingSends, demo, confirmAuthOrKeepRetrying])
+  }, [applyEvent, flushIntent, flushPendingSends, demo, channel, confirmAuthOrKeepRetrying])
 
   const connect = useCallback(() => {
     // 幂等：已有在连/已连的 socket，或正处于「续期+建连」异步窗口时，不再叠一条。
@@ -752,7 +794,13 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     setCurrentProviderBaseUrl(null)
   }
 
-  const open = useCallback((cwd: string, model?: string, m?: PermissionMode, engine?: Engine, provider?: { apiBaseUrl?: string; authToken?: string; codexHome?: string }) => {
+  const open = useCallback((cwd: string, model?: string, m?: PermissionMode, engine?: Engine, provider?: {
+    apiBaseUrl?: string
+    authToken?: string
+    codexHome?: string
+    codexReasoningEffort?: CodexReasoningEffort
+    codexSpeed?: CodexSpeed
+  }) => {
     resetForNewSession()
     shouldLoadHistoryRef.current = false
     cwdRef.current = cwd
@@ -767,8 +815,32 @@ export function useClaudeChatSocket(opts?: { demo?: boolean }): UseClaudeChatSoc
     setCurrentProviderKind(apiBaseUrl ? 'thirdParty' : 'official')
     setCurrentProviderBaseUrl(apiBaseUrl ?? null)
     const codexHome = provider?.codexHome
-    intentRef.current = { kind: 'open', cwd, model, mode: m, engine, apiBaseUrl, authToken, codexHome }
-    if (!sendRaw({ type: 'open', cwd, model, mode: m, engine, apiBaseUrl, authToken, codexHome })) connect()
+    const codexReasoningEffort = provider?.codexReasoningEffort
+    const codexSpeed = provider?.codexSpeed
+    intentRef.current = {
+      kind: 'open',
+      cwd,
+      model,
+      mode: m,
+      engine,
+      apiBaseUrl,
+      authToken,
+      codexHome,
+      codexReasoningEffort,
+      codexSpeed,
+    }
+    if (!sendRaw({
+      type: 'open',
+      cwd,
+      model,
+      mode: m,
+      engine,
+      apiBaseUrl,
+      authToken,
+      codexHome,
+      codexReasoningEffort,
+      codexSpeed,
+    })) connect()
   }, [sendRaw, connect])
 
   const switchTo = useCallback((sid: string, hintRunning = false) => {

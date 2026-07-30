@@ -10,6 +10,8 @@
 ## 2. 前端落点
 
 - `ForeConsultPage.tsx`：引擎选择、Codex 授权目录输入、本地记忆，并在 `chat.open` 时透传。
+- `ChatPage.tsx`：Vibe Coding 新建 Codex 官方会话时复用授权目录偏好，在 `chat.open` 的 provider 参数中透传；第三方网关模式不传。
+- `ClaudeChatSessionView` 与 `CodexSessionOptions.tsx`：会话列表返回 `codexHome` 元数据，当前官方 Codex 会话在参数区只读展示默认目录或自定义目录。
 - `useClaudeChatSocket.ts` 与 `types.ts`：扩展 `open` 协议参数。
 
 ## 3. 后端与 sidecar 落点
@@ -21,6 +23,7 @@
 ## 4. 安全约束
 
 - 不记录目录内认证内容，不读取或回传 `auth.json`。
+- 会话查询只回传授权目录字符串，不探测目录内容或登录凭据。
 - 日志只允许记录会话和引擎，不输出 token。
 - 不自动创建授权目录，不代替用户执行登录。
 

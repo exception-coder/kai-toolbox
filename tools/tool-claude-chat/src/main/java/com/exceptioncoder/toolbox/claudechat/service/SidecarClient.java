@@ -125,7 +125,8 @@ public class SidecarClient {
     }
 
     public void startSession(String sessionId, String cwd, String model, String mode, String engine,
-                             String apiBaseUrl, String authToken, String codexHome, boolean autoApprove) {
+                             String apiBaseUrl, String authToken, String codexHome, boolean autoApprove,
+                             String codexReasoningEffort, String codexSpeed) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("type", "start");
         m.put("sessionId", sessionId);
@@ -137,6 +138,8 @@ public class SidecarClient {
         m.put("authToken", nz(authToken));
         m.put("codexHome", nz(codexHome));
         m.put("autoApprove", autoApprove);
+        m.put("codexReasoningEffort", nz(codexReasoningEffort));
+        m.put("codexSpeed", nz(codexSpeed));
         send(m);
     }
 

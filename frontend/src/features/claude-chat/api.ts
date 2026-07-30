@@ -1,5 +1,6 @@
 import { authFetch, http } from '@/lib/api'
 import { ensureFreshToken, getToken } from '@/lib/auth'
+import { listSystemModules, listSystemWorkspaces } from '@/lib/systemCatalog'
 import type { CommitDiff, CommitsResponse, GitRepoRef } from '@/components/git/types'
 import type { ChatItem, ClaudeChatSessionView, CloneResult, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PluginStatus, ServerMessage, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
 
@@ -134,8 +135,8 @@ export function fetchProviderModels(baseUrl: string, key: string) {
 }
 
 /** 列出配置根目录下的一级子目录，供新建会话选 cwd。 */
-export function listWorkspaces() {
-  return http<WorkspaceList>('/claude-chat/workspaces')
+export function listWorkspaces(): Promise<WorkspaceList> {
+  return listSystemWorkspaces()
 }
 
 /** 「自维护机器人」锁定的 kai-toolbox 自身仓库路径；exists=false 时前端隐藏机器人入口。 */
@@ -152,8 +153,8 @@ export function cloneProject(url: string, root: string) {
 }
 
 /** 某项目下的模块（确定性扫描，按构建标志文件）。供「项目工作台」列模块、懒建会话。 */
-export function fetchProjectModules(path: string) {
-  return http<ProjectModules>(`/claude-chat/workspaces/modules?path=${encodeURIComponent(path)}`)
+export function fetchProjectModules(path: string): Promise<ProjectModules> {
+  return listSystemModules(path)
 }
 
 /** 「更新项目模块」预览：按目录结构重新解析，与 modules.json 出 diff（只读）。 */

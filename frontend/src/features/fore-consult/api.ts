@@ -1,4 +1,5 @@
 import { authFetch, http } from '@/lib/api'
+import { listSystemModules, listSystemWorkspaces } from '@/lib/systemCatalog'
 
 // ── 后端 /api/fore-consult 契约（与 tool-fore-consult 的 DTO 对齐）──────────────
 
@@ -62,10 +63,16 @@ export interface QuestionClassificationView {
   reason: string
 }
 
-export function classifyConsultQuestion(sessionId: string, question: string, firstQuestion?: string) {
+export function classifyConsultQuestion(
+  sessionId: string,
+  question: string,
+  firstQuestion?: string,
+  signal?: AbortSignal,
+) {
   return http<QuestionClassificationView>(`/fore-consult/sessions/${sessionId}/classify-question`, {
     method: 'POST',
     body: JSON.stringify({ question, firstQuestion }),
+    signal,
   })
 }
 
@@ -129,7 +136,7 @@ export function archiveConsult(id: string, req: ArchiveRequest) {
   })
 }
 
-/** 进行中增量落库（保持 PENDING）：让其它电脑也能从库里查看进行中的对话。 */
+/** 进行中增量落库（保持 PENDING）：让同一用户在其它电脑或管理员查看进行中的对话。 */
 export function syncConsultTurns(id: string, req: ArchiveRequest) {
   return http<ConsultSessionView>(`/fore-consult/sessions/${id}/turns`, {
     method: 'POST',
@@ -152,12 +159,12 @@ export interface ProjectModules {
   modules: Array<{ name: string }>
 }
 
-export function listWorkspaces() {
-  return http<WorkspaceList>('/claude-chat/workspaces')
+export function listWorkspaces(): Promise<WorkspaceList> {
+  return listSystemWorkspaces()
 }
 
-export function fetchProjectModules(path: string) {
-  return http<ProjectModules>(`/claude-chat/workspaces/modules?path=${encodeURIComponent(path)}`)
+export function fetchProjectModules(path: string): Promise<ProjectModules> {
+  return listSystemModules(path)
 }
 
 // ── 业务系统展示偏好（别名 + 过滤 + 排序），本模块自有，覆盖工作区项目的呈现 ──────────

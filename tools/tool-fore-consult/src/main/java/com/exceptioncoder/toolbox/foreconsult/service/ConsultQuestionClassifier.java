@@ -11,8 +11,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 
@@ -34,15 +39,19 @@ public class ConsultQuestionClassifier {
     private final ConsultSessionRepository sessionRepository;
     private final ConsultTurnRepository turnRepository;
     private final ObjectMapper mapper;
+    private final long timeoutMs;
 
     public ConsultQuestionClassifier(ObjectProvider<AgentOneShotRunner> runnerProvider,
                                      ConsultSessionRepository sessionRepository,
                                      ConsultTurnRepository turnRepository,
-                                     ObjectMapper mapper) {
+                                     ObjectMapper mapper,
+                                     @Value("${toolbox.fore-consult.question-classify-timeout-ms:5000}")
+                                     long timeoutMs) {
         this.runnerProvider = runnerProvider;
         this.sessionRepository = sessionRepository;
         this.turnRepository = turnRepository;
         this.mapper = mapper;
+        this.timeoutMs = Math.max(100, timeoutMs);
     }
 
     public QuestionClassificationView classify(String sessionId, ClassifyQuestionRequest request) {
@@ -64,7 +73,7 @@ public class ConsultQuestionClassifier {
         String userPrompt = "【首个问题】\n%s\n\n【本次输入】\n%s"
                 .formatted(firstQuestion.trim(), request.question().trim());
         try {
-            String raw = runner.runOnce(SYSTEM_PROMPT, userPrompt, null);
+            String raw = runWithTimeout(runner, userPrompt);
             JsonNode result = mapper.readTree(stripFence(raw == null ? "" : raw.trim()));
             String classification = result.path("classification").asText("").trim().toUpperCase();
             if (!FOLLOW_UP.equals(classification) && !NEW_QUESTION.equals(classification)) {
@@ -73,9 +82,27 @@ public class ConsultQuestionClassifier {
             String reason = result.path("reason").asText("").trim();
             return new QuestionClassificationView(classification,
                     reason.isBlank() ? "已完成问题边界识别" : truncate(reason, 60));
+        } catch (TimeoutException e) {
+            return fallback("识别超时，按追问放行");
         } catch (Exception e) {
             log.warn("[fore-consult] 问题边界识别失败，sessionId={}: {}", sessionId, e.getMessage());
             return fallback("识别失败，按追问放行");
+        }
+    }
+
+    private String runWithTimeout(AgentOneShotRunner runner, String userPrompt) throws Exception {
+        FutureTask<String> task = new FutureTask<>(() -> runner.runOnce(SYSTEM_PROMPT, userPrompt, null));
+        Thread.ofVirtual().name("fore-consult-classify").start(task);
+        try {
+            return task.get(timeoutMs, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            task.cancel(true);
+            log.info("[fore-consult] 问题边界识别超过 {}ms，按追问放行", timeoutMs);
+            throw e;
+        } catch (InterruptedException e) {
+            task.cancel(true);
+            Thread.currentThread().interrupt();
+            throw e;
         }
     }
 
