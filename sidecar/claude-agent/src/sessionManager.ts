@@ -220,6 +220,8 @@ class Session {
   engine: Engine = 'claude'
   /** 会话级权限模式，每轮 query 传入；运行中切换下一轮生效。 */
   permissionMode = 'default'
+  /** 一次性分析可设 disabled，移除 Claude 内置工具与设置源。 */
+  toolPolicy = 'default'
   /** 会话级「弹窗自动允许」兜底开关，与 permissionMode 独立；见 Permissions.autoApprove 说明。 */
   autoApprove = false
   /** 福利签收演示会话：开启后注入受限 welfare_db MCP，权限走 perms 的 demo 沙箱硬裁决。 */
@@ -308,11 +310,11 @@ class Session {
       // 注入【只读】erp_db（查 ERP 测试库核对逻辑）+ erp_app（自闭环验证实发 *.action）；
       // 未配置库/实例时工具自会回"未配置"，无害。
       const mcpServers: Record<string, ReturnType<typeof createWelfareDbServer>> = {}
-      if (this.demo && this.demoApiBase) {
+      if (this.toolPolicy !== 'disabled' && this.demo && this.demoApiBase) {
         mcpServers.welfare_db = createWelfareDbServer(this.id, this.demoApiBase)
       }
       const toolboxApiBase = process.env.TOOLBOX_API_BASE
-      if (!this.demo && toolboxApiBase) {
+      if (this.toolPolicy !== 'disabled' && !this.demo && toolboxApiBase) {
         mcpServers.erp_db = createErpDbServer(toolboxApiBase)
         // 自闭环验证：非 demo、后端就绪时挂 erp_app（登录态实发 *.action 探测改动效果；
         // 未配置本地实例时工具自会回"未配置"，无害）。与只读 erp_db 配合：erp_app 触发、erp_db 回读。
@@ -336,10 +338,12 @@ class Session {
       // 查询结果作为 prompt 上下文注入——这也是 graphify 官方推荐用法：CLI 优先于 MCP。
       // 普通交互式 Vibe Coding 会话若 cwd 就是某个含 graphify-out 的项目根，Claude 本身已有 Bash
       // 工具，可直接跑 `graphify query "..."`，同样无需 MCP。
-      const domainKb = createDomainKnowledgeServer()
-      const crossTopo = createCrossTopologyServer()
-      if (domainKb) (mcpServers as Record<string, unknown>)['domain-knowledge'] = domainKb
-      if (crossTopo) (mcpServers as Record<string, unknown>)['cross-topology'] = crossTopo
+      if (this.toolPolicy !== 'disabled') {
+        const domainKb = createDomainKnowledgeServer()
+        const crossTopo = createCrossTopologyServer()
+        if (domainKb) (mcpServers as Record<string, unknown>)['domain-knowledge'] = domainKb
+        if (crossTopo) (mcpServers as Record<string, unknown>)['cross-topology'] = crossTopo
+      }
 
       try {
         const q = query({
@@ -359,6 +363,9 @@ class Session {
             // plan 模式是用户主动选的，保留。官方会话不动。
             ...(this.apiBaseUrl && this.permissionMode !== 'plan'
               ? { disallowedTools: ['ExitPlanMode'] }
+              : {}),
+            ...(this.toolPolicy === 'disabled'
+              ? { tools: [], settingSources: [] }
               : {}),
             ...(Object.keys(mcpServers).length ? { mcpServers } : {}),
             cwd: safeCwd,
@@ -435,6 +442,7 @@ class Session {
         reasoningEffort: this.codexReasoningEffort,
         speed: this.codexSpeed,
         permissionMode: this.permissionMode,
+        toolPolicy: this.toolPolicy,
         sdkSessionId: this.sdkSessionId,
         apiBaseUrl: this.apiBaseUrl,
         authToken: this.authToken,
@@ -900,8 +908,24 @@ export class SessionManager {
    * 把 system+user 拼成一个 prompt 跑一轮，复用 Session.handle 逐片 emit assistantDelta + result/error。
    * 用于「高质量」简历优化引擎——Agent 当作更强的 LLM，纯文本进出，不调工具、不接 MCP、不持久化。
    */
-  async oneShot(id: string, systemPrompt: string, userPrompt: string, model?: string, engine?: string, images?: OneShotImage[]): Promise<void> {
-    const cwd = process.env.USERPROFILE || process.env.HOME || process.cwd()
+  async oneShot(
+    id: string,
+    systemPrompt: string,
+    userPrompt: string,
+    model?: string,
+    engine?: string,
+    images?: OneShotImage[],
+    options?: {
+      cwd?: string
+      reasoningEffort?: string
+      speed?: string
+      apiBaseUrl?: string
+      authToken?: string
+      codexHome?: string
+      toolPolicy?: string
+    },
+  ): Promise<void> {
+    const cwd = options?.cwd || process.env.USERPROFILE || process.env.HOME || process.cwd()
     if (engine === 'codex') {
       if (images?.length) {
         this.emit(id, { type: 'error', code: 'CODEX_IMAGES_UNSUPPORTED', message: 'Codex 一次性任务暂不支持图片输入，请改用 Claude Code' })
@@ -912,10 +936,20 @@ export class SessionManager {
       this.oneShotControllers.set(id, controller)
       try {
         await runCodexTurn({
-          text: `${systemPrompt}\n\n${userPrompt}`,
+          text: options?.toolPolicy === 'disabled'
+            ? `${systemPrompt}\n\n禁止调用任何工具、命令、网络或文件操作，只能根据消息中提供的证据输出答案。\n\n${userPrompt}`
+            : `${systemPrompt}\n\n${userPrompt}`,
           cwd,
           model,
+          reasoningEffort: VALID_CODEX_EFFORTS.has(options?.reasoningEffort as ModelReasoningEffort)
+            ? options?.reasoningEffort as ModelReasoningEffort
+            : undefined,
+          speed: options?.speed === 'fast' ? 'fast' : 'default',
+          apiBaseUrl: options?.apiBaseUrl,
+          authToken: options?.authToken,
+          codexHome: options?.codexHome,
           permissionMode: 'bypassPermissions',
+          toolPolicy: options?.toolPolicy,
           signal: controller.signal,
           emit: (e) => this.emit(id, e),
           setSdkSessionId: () => {},
@@ -927,6 +961,14 @@ export class SessionManager {
     }
     const s = new Session(id, cwd, (e) => this.emit(id, e))
     if (model) s.model = model
+    s.apiBaseUrl = options?.apiBaseUrl
+    s.authToken = options?.authToken
+    s.codexHome = options?.codexHome
+    s.codexReasoningEffort = VALID_CODEX_EFFORTS.has(options?.reasoningEffort as ModelReasoningEffort)
+      ? options?.reasoningEffort as ModelReasoningEffort
+      : undefined
+    s.codexSpeed = options?.speed === 'fast' ? 'fast' : 'default'
+    s.toolPolicy = options?.toolPolicy || 'default'
     s.permissionMode = 'bypassPermissions'
     s.perms.setMode('bypassPermissions')
     // 注册到 sessions map，使 interrupt(id) 能通过标准路径找到并中断 AbortController。

@@ -120,3 +120,26 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_prd_doc_candidate_snapshot
     ON prd_doc_change_candidate(prd_session_id, dev_session_id, code_snapshot_hash);
 CREATE INDEX IF NOT EXISTS idx_prd_doc_candidate_latest
     ON prd_doc_change_candidate(prd_session_id, created_at DESC);
+
+-- 每个候选分析时使用的代码事实位置；候选完成后据此推进稳定同步基线。
+CREATE TABLE IF NOT EXISTS prd_doc_change_analysis_snapshot (
+    candidate_id                 TEXT PRIMARY KEY,
+    repository_heads_json        TEXT NOT NULL DEFAULT '{}',
+    workspace_snapshot_hash      TEXT NOT NULL,
+    created_at                   INTEGER NOT NULL,
+    FOREIGN KEY (candidate_id) REFERENCES prd_doc_change_candidate(id) ON DELETE CASCADE
+);
+
+-- 最近一次用户已确认处理完成的文档同步点。
+CREATE TABLE IF NOT EXISTS prd_doc_change_baseline (
+    prd_session_id               TEXT NOT NULL,
+    dev_session_id               TEXT NOT NULL,
+    conversation_seq             INTEGER NOT NULL DEFAULT 0,
+    repository_heads_json        TEXT NOT NULL DEFAULT '{}',
+    workspace_snapshot_hash      TEXT NOT NULL,
+    prd_hash                     TEXT NOT NULL,
+    tdd_hash                     TEXT NOT NULL,
+    updated_at                   INTEGER NOT NULL,
+    PRIMARY KEY (prd_session_id, dev_session_id),
+    FOREIGN KEY (prd_session_id) REFERENCES prd_session(id) ON DELETE CASCADE
+);

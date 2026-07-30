@@ -1,10 +1,12 @@
 package com.exceptioncoder.toolbox.prdclarify.service;
 
-import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
 import com.exceptioncoder.toolbox.llm.spi.DevelopmentChangeContextProvider;
 import com.exceptioncoder.toolbox.llm.spi.DevelopmentChangeContextProvider.DevelopmentChangeContext;
+import com.exceptioncoder.toolbox.llm.spi.DevelopmentChangeContextProvider.DevelopmentSyncPoint;
+import com.exceptioncoder.toolbox.prdclarify.domain.PrdDocChangeBaseline;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdDocChangeCandidate;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
+import com.exceptioncoder.toolbox.prdclarify.repository.PrdDocChangeBaselineRepository;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdDocChangeCandidateRepository;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -17,122 +19,83 @@ import org.springframework.stereotype.Service;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-/**
- * 将开发对话与 Git 事实规整为可确认的 PRD/TDD 更新候选。
- */
+/** 编排开发证据采集、双阶段 AI 分析、候选状态和同步基线。 */
 @Service
 public class PrdDocChangeAnalysisService {
 
-    private static final String PROMPT_VERSION = "v1";
     private static final Set<String> DECISIONS =
             Set.of("NONE", "PRD_ONLY", "TDD_ONLY", "BOTH", "UNCERTAIN");
-    private static final int MAX_DOCUMENT_CHARS = 60_000;
-    private static final int MAX_CONTEXT_CHARS = 140_000;
-
-    private static final String SYSTEM_PROMPT = """
-            你是软件交付文档变更分析器。你的任务不是改文档，而是根据开发事实判断 PRD/TDD 是否需要更新。
-
-            判定：
-            - NONE：仅调试、环境、日志、临时探索，最终产品行为和技术方案均未变化。
-            - PRD_ONLY：业务目标、范围、规则、交互、异常或验收变化，但技术方案无需调整。
-            - TDD_ONLY：接口、类、数据、依赖、事务、异常、兼容或测试策略变化，但产品行为不变。
-            - BOTH：需求事实变化且引起技术方案变化。
-            - UNCERTAIN：存在冲突，或缺少只能由用户决定的关键业务事实。
-
-            必须区分“讨论过”与“最终确认”。被否定、撤销、仅头脑风暴的内容不得写成确定事实。
-            Git diff 能确认的技术事实不要再问用户；只有用户必须决定的阻塞事实才追问。
-            UNCERTAIN 时 clarificationQuestion 必须只有一个最关键问题；其余判定该字段为空字符串。
-
-            只输出一个 JSON 对象，禁止 Markdown 围栏和解释。字段必须完整：
-            {
-              "decision":"NONE|PRD_ONLY|TDD_ONLY|BOTH|UNCERTAIN",
-              "summary":"可直接作为文档更新说明的摘要",
-              "reasoning":"判断理由",
-              "evidence":["对话、工具或代码证据"],
-              "prdPatchPlan":["拟修改 PRD 章节"],
-              "tddPatchPlan":["拟修改 TDD 章节"],
-              "risks":["风险或非阻塞待确认项"],
-              "clarificationQuestion":"",
-              "confidence":0
-            }
-            """;
 
     private final PrdSessionRepository sessionRepository;
     private final PrdDocChangeCandidateRepository candidateRepository;
+    private final PrdDocChangeBaselineRepository baselineRepository;
     private final ObjectProvider<DevelopmentChangeContextProvider> contextProvider;
-    private final AgentOneShotRunner agentRunner;
+    private final PrdDocChangeEvidenceBuilder evidenceBuilder;
+    private final PrdDocChangeAgentAnalyzer analyzer;
+    private final PrdDocChangeAgentVerifier verifier;
+    private final PrdDocChangeConfidencePolicy confidencePolicy;
     private final PrdFileStore fileStore;
     private final ObjectMapper mapper;
 
     public PrdDocChangeAnalysisService(PrdSessionRepository sessionRepository,
                                        PrdDocChangeCandidateRepository candidateRepository,
+                                       PrdDocChangeBaselineRepository baselineRepository,
                                        ObjectProvider<DevelopmentChangeContextProvider> contextProvider,
-                                       AgentOneShotRunner agentRunner,
+                                       PrdDocChangeEvidenceBuilder evidenceBuilder,
+                                       PrdDocChangeAgentAnalyzer analyzer,
+                                       PrdDocChangeAgentVerifier verifier,
+                                       PrdDocChangeConfidencePolicy confidencePolicy,
                                        PrdFileStore fileStore,
                                        ObjectMapper mapper) {
         this.sessionRepository = sessionRepository;
         this.candidateRepository = candidateRepository;
+        this.baselineRepository = baselineRepository;
         this.contextProvider = contextProvider;
-        this.agentRunner = agentRunner;
+        this.evidenceBuilder = evidenceBuilder;
+        this.analyzer = analyzer;
+        this.verifier = verifier;
+        this.confidencePolicy = confidencePolicy;
         this.fileStore = fileStore;
         this.mapper = mapper;
     }
 
+    /** 基于最近完成同步点生成或幂等复用文档变更候选。 */
     public PrdDocChangeCandidate analyze(String prdSessionId) {
-        PrdSession session = requireSession(prdSessionId);
-        if (session.getDevSessionId() == null || session.getDevSessionId().isBlank()) {
-            throw new IllegalStateException("当前 PRD 尚未关联 Vibe Coding 会话");
-        }
-        PrdDocChangeCandidate latest = candidateRepository.findLatest(prdSessionId).orElse(null);
-        long afterSequence = latest == null ? 0 : latest.getConversationToSeq();
-        DevelopmentChangeContext context = requireContextProvider()
-                .snapshot(session.getDevSessionId(), afterSequence);
-
+        PrdSession session = requireLinkedSession(prdSessionId);
+        PrdDocChangeBaseline baseline = baselineRepository
+                .find(prdSessionId, session.getDevSessionId()).orElse(null);
+        DevelopmentChangeContext context = snapshot(session.getDevSessionId(), syncPoint(baseline));
+        PrdDocChangeEvidenceBundle evidence = buildEvidence(session, context, "[]");
+        String snapshotHash = snapshotHash(context, evidence, "[]");
         PrdDocChangeCandidate duplicate = candidateRepository
-                .findBySnapshot(prdSessionId, session.getDevSessionId(), context.snapshotHash())
+                .findBySnapshot(prdSessionId, session.getDevSessionId(), snapshotHash)
                 .orElse(null);
         if (duplicate != null) {
             return duplicate;
         }
 
-        ParsedAnalysis analysis = runAnalysis(session, context, "[]");
+        PreparedAnalysis prepared = analyzeEvidence(evidence, snapshotHash);
         long now = System.currentTimeMillis();
-        PrdDocChangeCandidate candidate = PrdDocChangeCandidate.builder()
-                .id(UUID.randomUUID().toString())
-                .prdSessionId(prdSessionId)
-                .devSessionId(session.getDevSessionId())
-                .conversationFromSeq(context.fromSequence())
-                .conversationToSeq(context.toSequence())
-                .codeSnapshotHash(context.snapshotHash())
-                .decision(analysis.decision())
-                .aiDecision(analysis.decision())
-                .summary(analysis.summary())
-                .reasoning(analysis.reasoning())
-                .evidenceJson(writeJson(analysis.evidence()))
-                .prdPatchPlanJson(writeJson(analysis.prdPatchPlan()))
-                .tddPatchPlanJson(writeJson(analysis.tddPatchPlan()))
-                .risksJson(writeJson(analysis.risks()))
-                .clarificationQuestion(analysis.clarificationQuestion())
-                .clarificationHistoryJson("[]")
-                .confidence(analysis.confidence())
-                .status("PENDING")
-                .applyStage("NONE")
-                .createdAt(now)
-                .updatedAt(now)
-                .build();
+        PrdDocChangeCandidate candidate = toCandidate(session, context, prepared, now);
         candidateRepository.insert(candidate);
+        baselineRepository.saveCandidateSnapshot(candidate.getId(), context.repositories(), context.snapshotHash());
         return candidate;
     }
 
+    /** 返回 PRD 的最近一次候选。 */
     public PrdDocChangeCandidate latest(String prdSessionId) {
         requireSession(prdSessionId);
         return candidateRepository.findLatest(prdSessionId).orElse(null);
     }
 
+    /** 在文档执行前覆写 AI 建议范围。 */
     public PrdDocChangeCandidate overrideDecision(String candidateId, String decision) {
         requireDecision(decision);
         PrdDocChangeCandidate candidate = requireCandidate(candidateId);
@@ -144,29 +107,34 @@ public class PrdDocChangeAnalysisService {
         return requireCandidate(candidateId);
     }
 
+    /** 将用户回答登记为新证据后重新执行分析和复核。 */
     public PrdDocChangeCandidate reanalyze(String candidateId, String answer) {
         if (answer == null || answer.isBlank()) {
             throw new IllegalArgumentException("补充信息不能为空");
         }
         PrdDocChangeCandidate candidate = requireCandidate(candidateId);
         PrdSession session = requireSession(candidate.getPrdSessionId());
-        DevelopmentChangeContext context = requireContextProvider()
-                .snapshot(candidate.getDevSessionId(), candidate.getConversationFromSeq());
-        ArrayNode history = readArray(candidate.getClarificationHistoryJson());
-        ObjectNode item = mapper.createObjectNode();
-        item.put("question", candidate.getClarificationQuestion() == null ? "" : candidate.getClarificationQuestion());
-        item.put("answer", answer.trim());
-        history.add(item);
-        ParsedAnalysis analysis = runAnalysis(session, context, history.toString());
-        candidateRepository.updateAnalysis(candidateId, context.toSequence(), context.snapshotHash(),
-                analysis.decision(), analysis.decision(),
-                analysis.summary(), analysis.reasoning(), writeJson(analysis.evidence()),
-                writeJson(analysis.prdPatchPlan()), writeJson(analysis.tddPatchPlan()),
-                writeJson(analysis.risks()), analysis.clarificationQuestion(), history.toString(),
-                analysis.confidence());
+        PrdDocChangeBaseline baseline = baselineRepository
+                .find(candidate.getPrdSessionId(), candidate.getDevSessionId()).orElse(null);
+        long sequence = baseline == null ? candidate.getConversationFromSeq() : baseline.conversationSequence();
+        Map<String, String> heads = baseline == null ? Map.of() : baseline.repositoryHeads();
+        DevelopmentChangeContext context = snapshot(
+                candidate.getDevSessionId(), new DevelopmentSyncPoint(sequence, heads));
+        ArrayNode history = appendClarification(candidate, answer);
+        PrdDocChangeEvidenceBundle evidence = buildEvidence(session, context, history.toString());
+        PreparedAnalysis prepared = analyzeEvidence(
+                evidence, snapshotHash(context, evidence, history.toString()));
+        PrdDocChangeFinalAnalysis analysis = prepared.analysis();
+        candidateRepository.updateAnalysis(candidateId, context.toSequence(), prepared.snapshotHash(),
+                analysis.decision(), analysis.decision(), analysis.summary(), analysis.reasoning(),
+                writeJson(analysis.evidence()), writeJson(analysis.prdPatchPlan()),
+                writeJson(analysis.tddPatchPlan()), writeJson(analysis.risks()),
+                analysis.clarificationQuestion(), history.toString(), analysis.confidence());
+        baselineRepository.saveCandidateSnapshot(candidateId, context.repositories(), context.snapshotHash());
         return requireCandidate(candidateId);
     }
 
+    /** 校验并记录候选执行阶段；完成或无需更新时推进同步基线。 */
     public PrdDocChangeCandidate applyAction(String candidateId, String action, String error) {
         PrdDocChangeCandidate candidate = requireCandidate(candidateId);
         requireActionAllowed(candidate, action);
@@ -192,7 +160,79 @@ public class PrdDocChangeAnalysisService {
                     null, null, null);
             default -> throw new IllegalArgumentException("不支持的候选操作: " + action);
         }
-        return requireCandidate(candidateId);
+        PrdDocChangeCandidate updated = requireCandidate(candidateId);
+        if (Set.of("APPLIED", "NO_UPDATE").contains(updated.getStatus())) {
+            PrdSession session = requireSession(updated.getPrdSessionId());
+            baselineRepository.promote(updated, hash(readPrd(session.getId())), hash(readTdd(session)));
+        }
+        return updated;
+    }
+
+    private PrdDocChangeEvidenceBundle buildEvidence(PrdSession session, DevelopmentChangeContext context,
+                                                      String clarificationHistoryJson) {
+        return evidenceBuilder.build(
+                session, context, readPrd(session.getId()), readTdd(session), clarificationHistoryJson);
+    }
+
+    private PreparedAnalysis analyzeEvidence(PrdDocChangeEvidenceBundle evidence, String snapshotHash) {
+        PrdDocChangeAnalysisResult draft = analyzer.analyze(evidence);
+        PrdDocChangeVerificationResult verification = verifier.verify(evidence, draft);
+        PrdDocChangeFinalAnalysis analysis = confidencePolicy.evaluate(evidence, draft, verification);
+        return new PreparedAnalysis(analysis, snapshotHash);
+    }
+
+    private String snapshotHash(DevelopmentChangeContext context, PrdDocChangeEvidenceBundle evidence,
+                                String clarificationHistoryJson) {
+        return hash(context.snapshotHash() + "\n" + evidence.prdHash()
+                + "\n" + evidence.tddHash() + "\n" + clarificationHistoryJson);
+    }
+
+    private PrdDocChangeCandidate toCandidate(PrdSession session, DevelopmentChangeContext context,
+                                               PreparedAnalysis prepared, long now) {
+        PrdDocChangeFinalAnalysis analysis = prepared.analysis();
+        return PrdDocChangeCandidate.builder()
+                .id(UUID.randomUUID().toString())
+                .prdSessionId(session.getId())
+                .devSessionId(session.getDevSessionId())
+                .conversationFromSeq(context.fromSequence())
+                .conversationToSeq(context.toSequence())
+                .codeSnapshotHash(prepared.snapshotHash())
+                .decision(analysis.decision())
+                .aiDecision(analysis.decision())
+                .summary(analysis.summary())
+                .reasoning(analysis.reasoning())
+                .evidenceJson(writeJson(analysis.evidence()))
+                .prdPatchPlanJson(writeJson(analysis.prdPatchPlan()))
+                .tddPatchPlanJson(writeJson(analysis.tddPatchPlan()))
+                .risksJson(writeJson(analysis.risks()))
+                .clarificationQuestion(analysis.clarificationQuestion())
+                .clarificationHistoryJson("[]")
+                .confidence(analysis.confidence())
+                .status("PENDING")
+                .applyStage("NONE")
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
+    }
+
+    private ArrayNode appendClarification(PrdDocChangeCandidate candidate, String answer) {
+        ArrayNode history = readArray(candidate.getClarificationHistoryJson());
+        ObjectNode item = mapper.createObjectNode();
+        item.put("question", candidate.getClarificationQuestion() == null
+                ? "" : candidate.getClarificationQuestion());
+        item.put("answer", answer.trim());
+        history.add(item);
+        return history;
+    }
+
+    private DevelopmentChangeContext snapshot(String devSessionId, DevelopmentSyncPoint syncPoint) {
+        return requireContextProvider().snapshot(devSessionId, syncPoint);
+    }
+
+    private static DevelopmentSyncPoint syncPoint(PrdDocChangeBaseline baseline) {
+        return baseline == null
+                ? new DevelopmentSyncPoint(0, Map.of())
+                : new DevelopmentSyncPoint(baseline.conversationSequence(), baseline.repositoryHeads());
     }
 
     private void requireActionAllowed(PrdDocChangeCandidate candidate, String action) {
@@ -216,60 +256,12 @@ public class PrdDocChangeAnalysisService {
         }
     }
 
-    private ParsedAnalysis runAnalysis(PrdSession session, DevelopmentChangeContext context,
-                                       String clarificationHistoryJson) {
-        String prompt = buildPrompt(session, context, clarificationHistoryJson);
-        String raw = agentRunner.runOnce(SYSTEM_PROMPT, prompt, session.getModel(), normalizeEngine(session.getEngine()));
-        return parse(raw);
-    }
-
-    private String buildPrompt(PrdSession session, DevelopmentChangeContext context,
-                               String clarificationHistoryJson) {
-        String prd = readPrd(session.getId());
-        String tdd = readTdd(session);
-        String contextJson = writeJson(context);
-        return """
-                提示词版本：%s
-                需求标题：%s
-
-                === 当前 PRD ===
-                %s
-
-                === 当前 TDD ===
-                %s
-
-                === 上次同步点后的开发上下文 ===
-                %s
-
-                === 已补充的澄清回答 ===
-                %s
-                """.formatted(PROMPT_VERSION, session.getTitle(),
-                truncate(prd, MAX_DOCUMENT_CHARS), truncate(tdd, MAX_DOCUMENT_CHARS),
-                truncate(contextJson, MAX_CONTEXT_CHARS), clarificationHistoryJson);
-    }
-
-    private ParsedAnalysis parse(String raw) {
-        try {
-            JsonNode node = mapper.readTree(stripFence(raw == null ? "" : raw.trim()));
-            String decision = node.path("decision").asText("").toUpperCase();
-            requireDecision(decision);
-            String question = text(node, "clarificationQuestion");
-            if ("UNCERTAIN".equals(decision) && question.isBlank()) {
-                question = "当前证据不足，请补充这次最终确认的业务或技术结论。";
-            }
-            if (!"UNCERTAIN".equals(decision)) {
-                question = "";
-            }
-            return new ParsedAnalysis(decision, text(node, "summary"), text(node, "reasoning"),
-                    strings(node.path("evidence")), strings(node.path("prdPatchPlan")),
-                    strings(node.path("tddPatchPlan")), strings(node.path("risks")),
-                    question, Math.max(0, Math.min(100, node.path("confidence").asInt(0))));
-        } catch (Exception e) {
-            return new ParsedAnalysis("UNCERTAIN", "AI 分析结果格式异常，尚不能安全更新正式文档",
-                    "模型未返回符合契约的结构化结果：" + e.getMessage(), List.of(),
-                    List.of(), List.of(), List.of("可重试分析，或补充最终确认结论"),
-                    "请补充这次开发最终确认并实际落地的核心变化。", 0);
+    private PrdSession requireLinkedSession(String id) {
+        PrdSession session = requireSession(id);
+        if (session.getDevSessionId() == null || session.getDevSessionId().isBlank()) {
+            throw new IllegalStateException("当前 PRD 尚未关联 Vibe Coding 会话");
         }
+        return session;
     }
 
     private PrdSession requireSession(String id) {
@@ -320,7 +312,7 @@ public class PrdDocChangeAnalysisService {
         try {
             return mapper.writeValueAsString(value);
         } catch (Exception e) {
-            return "[]";
+            throw new IllegalStateException("序列化文档变更候选失败", e);
         }
     }
 
@@ -329,7 +321,7 @@ public class PrdDocChangeAnalysisService {
             JsonNode node = mapper.readTree(json == null ? "[]" : json);
             return node instanceof ArrayNode array ? array : mapper.createArrayNode();
         } catch (Exception e) {
-            return mapper.createArrayNode();
+            throw new IllegalStateException("候选澄清历史已损坏，无法继续分析", e);
         }
     }
 
@@ -341,59 +333,19 @@ public class PrdDocChangeAnalysisService {
         if (error == null || error.isBlank()) {
             return "文档更新失败";
         }
-        return truncate(error.trim(), 1_000);
+        return error.trim().substring(0, Math.min(1_000, error.trim().length()));
     }
 
-    private static String normalizeEngine(String engine) {
-        return "codex".equalsIgnoreCase(engine) ? "codex" : "claude";
-    }
-
-    private static String text(JsonNode node, String field) {
-        return node.path(field).asText("").trim();
-    }
-
-    private static List<String> strings(JsonNode node) {
-        if (!node.isArray()) {
-            return List.of();
+    private static String hash(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest((value == null ? "" : value)
+                    .getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception e) {
+            throw new IllegalStateException("生成文档变更快照失败", e);
         }
-        return java.util.stream.StreamSupport.stream(node.spliterator(), false)
-                .map(JsonNode::asText)
-                .map(String::trim)
-                .filter(value -> !value.isBlank())
-                .toList();
     }
 
-    private static String stripFence(String value) {
-        String cleaned = value;
-        if (cleaned.startsWith("```")) {
-            int newline = cleaned.indexOf('\n');
-            cleaned = newline >= 0 ? cleaned.substring(newline + 1) : cleaned;
-        }
-        if (cleaned.endsWith("```")) {
-            cleaned = cleaned.substring(0, cleaned.length() - 3);
-        }
-        int start = cleaned.indexOf('{');
-        int end = cleaned.lastIndexOf('}');
-        return start >= 0 && end >= start ? cleaned.substring(start, end + 1) : cleaned.trim();
-    }
-
-    private static String truncate(String value, int maxChars) {
-        if (value == null) {
-            return "";
-        }
-        return value.length() <= maxChars ? value : value.substring(0, maxChars) + "\n…（已截断）";
-    }
-
-    private record ParsedAnalysis(
-            String decision,
-            String summary,
-            String reasoning,
-            List<String> evidence,
-            List<String> prdPatchPlan,
-            List<String> tddPatchPlan,
-            List<String> risks,
-            String clarificationQuestion,
-            int confidence
-    ) {
+    private record PreparedAnalysis(PrdDocChangeFinalAnalysis analysis, String snapshotHash) {
     }
 }

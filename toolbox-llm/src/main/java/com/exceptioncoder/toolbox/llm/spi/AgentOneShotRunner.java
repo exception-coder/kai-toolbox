@@ -15,6 +15,7 @@ import java.util.function.Consumer;
  */
 public interface AgentOneShotRunner {
     String DEFAULT_ENGINE = "claude";
+    String TOOL_POLICY_DISABLED = "disabled";
 
     /**
      * 流式执行：每产出一片文本回调一次 {@code onDelta}，全部完成后返回全文。
@@ -46,6 +47,16 @@ public interface AgentOneShotRunner {
 
     String runOnce(String systemPrompt, String userPrompt, String model, String engine);
 
+    /**
+     * 按指定的开发会话执行配置运行独立任务。
+     *
+     * @param request 一次性任务及其运行配置；敏感字段仅供底层引擎使用
+     * @return 完整文本
+     */
+    default String runOnce(ExecutionRequest request) {
+        return runOnce(request.systemPrompt(), request.userPrompt(), request.model(), request.engine());
+    }
+
     /** 流式执行，附带图片（真正多模态，Claude 能看到图片内容）。默认委托纯文本版本，图片被忽略。 */
     default String stream(String systemPrompt, String userPrompt, String model,
                           Consumer<String> onDelta, List<ImageInput> images) {
@@ -69,5 +80,21 @@ public interface AgentOneShotRunner {
 
     /** mimeType 仅支持 image/jpeg|png|gif|webp，调用方需自行过滤。 */
     record ImageInput(String base64Data, String mimeType) {
+    }
+
+    /** 一次性任务的强类型执行配置。 */
+    record ExecutionRequest(
+            String systemPrompt,
+            String userPrompt,
+            String cwd,
+            String model,
+            String engine,
+            String reasoningEffort,
+            String speed,
+            String apiBaseUrl,
+            String authToken,
+            String codexHome,
+            String toolPolicy
+    ) {
     }
 }

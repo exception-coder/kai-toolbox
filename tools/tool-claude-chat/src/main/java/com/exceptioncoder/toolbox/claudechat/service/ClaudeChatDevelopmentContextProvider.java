@@ -5,6 +5,7 @@ import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.common.git.GitFileDiffResponse;
 import com.exceptioncoder.toolbox.common.git.GitLogService;
+import com.exceptioncoder.toolbox.common.git.GitRangeDiffResponse;
 import com.exceptioncoder.toolbox.common.git.GitStatusEntry;
 import com.exceptioncoder.toolbox.common.git.GitStatusResponse;
 import com.exceptioncoder.toolbox.llm.spi.DevelopmentChangeContextProvider;
@@ -54,10 +55,16 @@ public class ClaudeChatDevelopmentContextProvider implements DevelopmentChangeCo
 
     @Override
     public DevelopmentChangeContext snapshot(String devSessionId, long afterSequence) {
+        return snapshot(devSessionId, new DevelopmentSyncPoint(afterSequence, Map.of()));
+    }
+
+    @Override
+    public DevelopmentChangeContext snapshot(String devSessionId, DevelopmentSyncPoint baseline) {
         ClaudeChatSession session = sessionRepository.findById(devSessionId)
                 .orElseThrow(() -> new IllegalArgumentException("开发会话不存在: " + devSessionId));
         List<String> warnings = new ArrayList<>();
         List<ConversationEntry> allEntries = readConversation(session, warnings);
+        long afterSequence = baseline.conversationSequence();
         long toSequence = allEntries.isEmpty() ? afterSequence : allEntries.get(allEntries.size() - 1).sequence();
         List<ConversationEntry> incremental = allEntries.stream()
                 .filter(entry -> entry.sequence() > afterSequence)
@@ -67,11 +74,13 @@ public class ClaudeChatDevelopmentContextProvider implements DevelopmentChangeCo
             warnings.add("增量对话超过 " + MAX_CONVERSATION_ENTRIES + " 条，已保留最近部分");
         }
 
-        List<GitRepositoryChange> repositories = readGitChanges(Path.of(session.getCwd()), warnings);
+        List<GitRepositoryChange> repositories = readGitChanges(
+                Path.of(session.getCwd()), baseline.repositoryHeads(), warnings);
         // 哈希覆盖完整会话事实 + 当前 Git 状态，游标只控制送给分析器的增量内容。
         // 这样文档同步后工作区未提交变化仍留着时，重复点击不会把同一快照登记第二次。
         String hash = hash(allEntries, repositories);
-        return new DevelopmentChangeContext(afterSequence, toSequence, incremental, repositories, hash, warnings);
+        return new DevelopmentChangeContext(afterSequence, toSequence, incremental, repositories, hash, warnings,
+                executionProfile(session));
     }
 
     private List<ConversationEntry> readConversation(ClaudeChatSession session, List<String> warnings) {
@@ -143,7 +152,8 @@ public class ClaudeChatDevelopmentContextProvider implements DevelopmentChangeCo
         return text.toString();
     }
 
-    private List<GitRepositoryChange> readGitChanges(Path cwd, List<String> warnings) {
+    private List<GitRepositoryChange> readGitChanges(Path cwd, Map<String, String> baselineHeads,
+                                                     List<String> warnings) {
         if (!Files.isDirectory(cwd)) {
             warnings.add("开发会话工作目录不存在，无法读取 Git 变化");
             return List.of();
@@ -156,35 +166,59 @@ public class ClaudeChatDevelopmentContextProvider implements DevelopmentChangeCo
         List<GitRepositoryChange> result = new ArrayList<>();
         for (Path repository : repositories) {
             try {
-                result.add(readRepositoryChange(repository));
+                String repositoryKey = pathKey(repository);
+                result.add(readRepositoryChange(repository, repositoryKey, baselineHeads.get(repositoryKey)));
             } catch (Exception e) {
-                result.add(new GitRepositoryChange(repository.toString(), List.of(), "", false, e.getMessage()));
+                result.add(new GitRepositoryChange(pathKey(repository), repository.toString(),
+                        baselineHeads.get(pathKey(repository)), null, List.of(), "", false, e.getMessage()));
             }
         }
         return result;
     }
 
-    private GitRepositoryChange readRepositoryChange(Path repository) {
+    private GitRepositoryChange readRepositoryChange(Path repository, String repositoryKey, String baseCommit) {
         GitStatusResponse status = gitLogService.gitStatus(repository);
-        List<String> files = status.entries().stream()
-                .map(entry -> entry.x() + entry.y() + " " + entry.path())
-                .toList();
+        LinkedHashSet<String> files = new LinkedHashSet<>();
         StringBuilder diff = new StringBuilder();
         boolean truncated = false;
+        String rangeError = null;
+        String headCommit = null;
+        try {
+            headCommit = gitLogService.listCommits(repository, 1).stream()
+                    .findFirst()
+                    .map(com.exceptioncoder.toolbox.common.git.CommitInfo::hash)
+                    .orElse(null);
+        } catch (Exception e) {
+            rangeError = "无法读取仓库 HEAD：" + e.getMessage();
+        }
+        if (baseCommit != null && headCommit != null && !baseCommit.equals(headCommit)) {
+            try {
+                GitRangeDiffResponse committed = gitLogService.rangeDiff(repository, baseCommit, headCommit);
+                files.addAll(committed.changedFiles());
+                appendWithinLimit(diff, committed.diff());
+                truncated = committed.truncated() || committed.diff().length() > MAX_REPOSITORY_DIFF_CHARS;
+            } catch (Exception e) {
+                rangeError = "无法读取基线提交差异：" + e.getMessage();
+            }
+        }
         for (GitStatusEntry entry : status.entries()) {
+            files.add(entry.x() + entry.y() + " " + entry.path());
             if (diff.length() >= MAX_REPOSITORY_DIFF_CHARS) {
                 truncated = true;
                 break;
             }
             GitFileDiffResponse fileDiff = gitLogService.gitFileDiff(repository, entry.path(), entry.x());
-            if (!fileDiff.diff().isBlank()) {
-                int room = MAX_REPOSITORY_DIFF_CHARS - diff.length();
-                String part = fileDiff.diff();
-                diff.append(part, 0, Math.min(room, part.length())).append('\n');
-                truncated = truncated || fileDiff.truncated() || part.length() > room;
+            String change = fileDiff.diff().isBlank()
+                    ? readUntrackedContent(repository, entry) : fileDiff.diff();
+            if (!change.isBlank()) {
+                int before = diff.length();
+                appendWithinLimit(diff, change);
+                truncated = truncated || fileDiff.truncated()
+                        || before + change.length() > MAX_REPOSITORY_DIFF_CHARS;
             }
         }
-        return new GitRepositoryChange(repository.toString(), files, diff.toString(), truncated, null);
+        return new GitRepositoryChange(repositoryKey, repository.toString(), baseCommit, headCommit,
+                List.copyOf(files), diff.toString(), truncated, rangeError);
     }
 
     private List<Path> resolveRepositories(Path cwd) {
@@ -211,6 +245,27 @@ public class ClaudeChatDevelopmentContextProvider implements DevelopmentChangeCo
         return Files.exists(path.resolve(".git"));
     }
 
+    private String readUntrackedContent(Path repository, GitStatusEntry entry) {
+        if (!"?".equals(entry.x()) || !"?".equals(entry.y())) {
+            return "";
+        }
+        try {
+            Path file = repository.resolve(entry.path()).normalize();
+            if (!file.startsWith(repository) || !Files.isRegularFile(file)) {
+                return "";
+            }
+            byte[] bytes;
+            try (var input = Files.newInputStream(file)) {
+                bytes = input.readNBytes(MAX_REPOSITORY_DIFF_CHARS + 1);
+            }
+            String content = new String(bytes, 0, Math.min(bytes.length, MAX_REPOSITORY_DIFF_CHARS),
+                    StandardCharsets.UTF_8);
+            return "--- untracked: " + entry.path() + " ---\n" + content;
+        } catch (Exception e) {
+            return "--- untracked: " + entry.path() + " ---\n读取失败：" + e.getMessage();
+        }
+    }
+
     private String safeJson(Object value) {
         try {
             return mapper.writeValueAsString(value);
@@ -228,6 +283,34 @@ public class ClaudeChatDevelopmentContextProvider implements DevelopmentChangeCo
         } catch (Exception e) {
             throw new IllegalStateException("生成开发变更快照失败", e);
         }
+    }
+
+    private AnalysisExecutionProfile executionProfile(ClaudeChatSession session) {
+        String engine = "codex".equalsIgnoreCase(session.getEngine()) ? "codex" : "claude";
+        String providerKind = session.getApiBaseUrl() == null || session.getApiBaseUrl().isBlank()
+                ? "official" : "gateway";
+        return new AnalysisExecutionProfile(session.getCwd(), engine, session.getSelectedModel(),
+                session.getCodexReasoningEffort(), session.getCodexSpeed(), session.getApiBaseUrl(),
+                session.getAuthToken(), session.getCodexHome(), providerKind);
+    }
+
+    private String pathKey(Path repository) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = repository.toAbsolutePath().normalize().toString()
+                    .getBytes(StandardCharsets.UTF_8);
+            return HexFormat.of().formatHex(digest.digest(bytes));
+        } catch (Exception e) {
+            throw new IllegalStateException("生成仓库标识失败", e);
+        }
+    }
+
+    private static void appendWithinLimit(StringBuilder target, String value) {
+        if (value == null || value.isBlank() || target.length() >= MAX_REPOSITORY_DIFF_CHARS) {
+            return;
+        }
+        int room = MAX_REPOSITORY_DIFF_CHARS - target.length();
+        target.append(value, 0, Math.min(room, value.length())).append('\n');
     }
 
     private static String truncate(String value, int maxChars) {

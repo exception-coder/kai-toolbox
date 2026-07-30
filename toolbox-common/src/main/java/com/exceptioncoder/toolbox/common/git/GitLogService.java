@@ -137,6 +137,36 @@ public class GitLogService {
         return new CommitDiff(hash, hash.length() > 7 ? hash.substring(0, 7) : hash, "", "", "", raw, r.truncated());
     }
 
+    /**
+     * 返回两个提交之间的文件清单和统一 diff。
+     *
+     * @param dir  仓库目录
+     * @param base 基线提交
+     * @param head 当前提交
+     * @return 提交区间变化
+     */
+    public GitRangeDiffResponse rangeDiff(Path dir, String base, String head) {
+        requireHash(base);
+        requireHash(head);
+        Result names = exec(List.of(
+                props.getBinary(), "-c", "core.quotepath=false", "-C", dir.toString(),
+                "diff", "--name-status", base + ".." + head));
+        Result diff = exec(List.of(
+                props.getBinary(), "-c", "core.quotepath=false", "-C", dir.toString(),
+                "diff", "--no-color", base + ".." + head));
+        List<String> changedFiles = names.stdout().lines()
+                .map(String::trim)
+                .filter(line -> !line.isBlank())
+                .toList();
+        return new GitRangeDiffResponse(changedFiles, diff.stdout(), names.truncated() || diff.truncated());
+    }
+
+    private static void requireHash(String hash) {
+        if (hash == null || !HASH_RE.matcher(hash).matches()) {
+            throw new IllegalArgumentException("hash 非法");
+        }
+    }
+
     private record Result(String stdout, boolean truncated) {
     }
 

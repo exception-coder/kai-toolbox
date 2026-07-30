@@ -9,6 +9,7 @@ import {
   type SandboxMode,
   type ThreadItem,
   type ThreadOptions,
+  type WebSearchMode,
 } from '@openai/codex-sdk'
 
 export type CodexSpeed = 'default' | 'fast'
@@ -22,6 +23,8 @@ export interface CodexTurnCtx {
   speed?: CodexSpeed
   /** 会话权限模式（与 Claude 共用四档），映射为 Codex 的 approvalPolicy + sandboxMode。 */
   permissionMode: string
+  /** 一次性分析任务的工具策略；disabled 强制只读沙箱并关闭网络。 */
+  toolPolicy?: string
   /** 已有 thread id（resume 续跑）；无则新建线程。 */
   sdkSessionId?: string
   /** 第三方 OpenAI 兼容网关 baseURL；置则本轮走该网关（Codex 原生 OpenAI 协议，接网关更顺）。空=本机 ~/.codex 登录。 */
@@ -126,7 +129,10 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
     ctx.emit({ type: 'result', usage: {}, stopReason: 'error' })
     return
   }
-  const { approvalPolicy, sandboxMode } = mapMode(ctx.permissionMode)
+  const toolsDisabled = ctx.toolPolicy === 'disabled'
+  const { approvalPolicy, sandboxMode } = toolsDisabled
+    ? { approvalPolicy: 'never' as ApprovalMode, sandboxMode: 'read-only' as SandboxMode }
+    : mapMode(ctx.permissionMode)
   const opts: ThreadOptions = {
     workingDirectory: safeCwd,
     skipGitRepoCheck: true,
@@ -134,6 +140,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
     sandboxMode,
     model: ctx.model || undefined,
     modelReasoningEffort: ctx.reasoningEffort,
+    ...(toolsDisabled ? { networkAccessEnabled: false, webSearchMode: 'disabled' as WebSearchMode } : {}),
   }
 
   const client = pickCodex(ctx.apiBaseUrl, ctx.authToken, ctx.speed, home)

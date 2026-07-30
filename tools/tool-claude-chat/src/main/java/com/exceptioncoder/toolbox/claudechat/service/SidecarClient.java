@@ -254,13 +254,31 @@ public class SidecarClient {
     /** 一次性生成；engine 为 claude 或 codex。 */
     public void oneShot(String sessionId, String systemPrompt, String userPrompt, String model, String engine,
                         java.util.List<com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput> images) {
+        var request = new com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ExecutionRequest(
+                systemPrompt, userPrompt, null, model, engine,
+                null, null, null, null, null, null);
+        oneShot(sessionId, request, engine, images);
+    }
+
+    /** 按指定执行配置发起独立的一次性任务。 */
+    public void oneShot(String sessionId,
+                        com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ExecutionRequest request,
+                        String normalizedEngine,
+                        java.util.List<com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput> images) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("type", "oneShot");
         payload.put("sessionId", sessionId);
-        payload.put("systemPrompt", nz(systemPrompt));
-        payload.put("userPrompt", nz(userPrompt));
-        payload.put("model", nz(model));
-        payload.put("engine", nz(engine));
+        payload.put("systemPrompt", nz(request.systemPrompt()));
+        payload.put("userPrompt", nz(request.userPrompt()));
+        payload.put("cwd", nz(request.cwd()));
+        payload.put("model", nz(request.model()));
+        payload.put("engine", nz(normalizedEngine));
+        payload.put("reasoningEffort", nz(request.reasoningEffort()));
+        payload.put("speed", nz(request.speed()));
+        payload.put("apiBaseUrl", nz(request.apiBaseUrl()));
+        payload.put("authToken", nz(request.authToken()));
+        payload.put("codexHome", nz(request.codexHome()));
+        payload.put("toolPolicy", nz(request.toolPolicy()));
         if (images != null && !images.isEmpty()) {
             payload.put("images", images.stream()
                     .map(img -> Map.of("mediaType", img.mimeType(), "data", img.base64Data()))

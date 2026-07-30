@@ -386,8 +386,8 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
                   <p className="text-xs font-medium">文档变更分析</p>
                 </div>
                 <p className="mb-2 text-[11px] leading-relaxed text-[var(--color-muted-foreground)]">
-                  AI 会综合上次同步后的开发对话、工具调用和 Git 变化，先判断该更新 PRD、TDD、两者还是无需更新。
-                  只登记建议，不会自动覆盖正式文档。
+                  系统会从上次完成同步点采集对话、工具、Git 和文档证据，复用当前开发会话的模型配置完成分析与独立复核。
+                  只登记建议，不会修改代码或自动覆盖正式文档。
                 </p>
 
                 {!candidate && (
@@ -401,7 +401,7 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
                     )}
                   >
                     {analyzing ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
-                    {analyzing ? '正在分析对话与代码变化…' : '分析本次变更'}
+                    {analyzing ? '正在整理证据并复核…' : '分析本次变更'}
                   </button>
                 )}
 

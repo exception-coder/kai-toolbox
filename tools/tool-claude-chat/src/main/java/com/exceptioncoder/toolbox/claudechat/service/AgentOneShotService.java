@@ -43,40 +43,50 @@ public class AgentOneShotService implements AgentOneShotRunner {
 
     /** 阻塞跑一次，返回完整文本。 */
     public String runOnce(String systemPrompt, String userPrompt, String model, String engine) {
-        return execute(systemPrompt, userPrompt, model, engine, null, null);
+        return execute(new ExecutionRequest(systemPrompt, userPrompt, null, model, engine,
+                null, null, null, null, null, null), null, null);
+    }
+
+    /** 按调用方提供的会话配置执行独立的一次性任务。 */
+    @Override
+    public String runOnce(ExecutionRequest request) {
+        return execute(request, null, null);
     }
 
     /** 阻塞跑一次，逐片回调 {@code onDelta}，结束返回完整文本。 */
     public String stream(String systemPrompt, String userPrompt, String model, String engine, Consumer<String> onDelta) {
-        return execute(systemPrompt, userPrompt, model, engine, onDelta, null);
+        return execute(new ExecutionRequest(systemPrompt, userPrompt, null, model, engine,
+                null, null, null, null, null, null), onDelta, null);
     }
 
     /** 附带图片的非流式执行：Claude 真正"看到"图片内容，不只是收到一段文字引用。 */
     @Override
     public String runOnce(String systemPrompt, String userPrompt, String model, String engine, List<ImageInput> images) {
-        return execute(systemPrompt, userPrompt, model, engine, null, images);
+        return execute(new ExecutionRequest(systemPrompt, userPrompt, null, model, engine,
+                null, null, null, null, null, null), null, images);
     }
 
     /** 附带图片的流式执行；语义同 {@link #runOnce(String, String, String, List)}。 */
     @Override
     public String stream(String systemPrompt, String userPrompt, String model, String engine,
                          Consumer<String> onDelta, List<ImageInput> images) {
-        return execute(systemPrompt, userPrompt, model, engine, onDelta, images);
+        return execute(new ExecutionRequest(systemPrompt, userPrompt, null, model, engine,
+                null, null, null, null, null, null), onDelta, images);
     }
 
-    private String execute(String systemPrompt, String userPrompt, String model, String engine,
-                           Consumer<String> onDelta, List<ImageInput> images) {
+    private String execute(ExecutionRequest request, Consumer<String> onDelta, List<ImageInput> images) {
         ensureReady();
         String id = PREFIX + UUID.randomUUID();
         Call call = new Call(onDelta);
         calls.put(id, call);
         try {
-            sidecar.oneShot(id, systemPrompt, userPrompt, model, normalizeEngine(engine), images);
+            sidecar.oneShot(id, request, normalizeEngine(request.engine()), images);
             return call.future.get(props.getAgentOneShotTimeoutMs(), TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {
             long seconds = props.getAgentOneShotTimeoutMs() / 1000;
             String limit = seconds >= 60 ? (seconds / 60) + "分钟" : seconds + "s";
-            throw new RuntimeException("高质量引擎超时：" + normalizeEngine(engine) + " 在 " + limit + " 内未返回结果", e);
+            throw new RuntimeException("高质量引擎超时：" + normalizeEngine(request.engine())
+                    + " 在 " + limit + " 内未返回结果", e);
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {

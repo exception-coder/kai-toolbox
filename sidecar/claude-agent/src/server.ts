@@ -155,6 +155,15 @@ wss.on('connection', (ws) => {
           msg.model as string,
           msg.engine as string,
           msg.images as import('./sessionManager.js').OneShotImage[] | undefined,
+          {
+            cwd: msg.cwd as string | undefined,
+            reasoningEffort: msg.reasoningEffort as string | undefined,
+            speed: msg.speed as string | undefined,
+            apiBaseUrl: msg.apiBaseUrl as string | undefined,
+            authToken: msg.authToken as string | undefined,
+            codexHome: msg.codexHome as string | undefined,
+            toolPolicy: msg.toolPolicy as string | undefined,
+          },
         )
         break
       default:
