@@ -11,6 +11,12 @@ import {
   type ThreadOptions,
   type WebSearchMode,
 } from '@openai/codex-sdk'
+import {
+  CONSULT_READONLY_MCP_SERVERS,
+  CONSULT_READONLY_POLICY,
+  CONSULT_READONLY_PROMPT,
+  consultReadonlyCodexConfig,
+} from './codexSecurity.js'
 
 export type CodexSpeed = 'default' | 'fast'
 
@@ -64,19 +70,32 @@ function codexEnv(codexHome: string): Record<string, string> {
   const env = Object.fromEntries(
     Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
   )
+  // sidecar 可能由另一个 Codex 终端启动；不能把父会话身份/内部托管权限继承给业务咨询子进程。
+  delete env.CODEX_THREAD_ID
+  delete env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE
   env.CODEX_HOME = codexHome
   return env
 }
 
-function pickCodex(apiBaseUrl?: string, authToken?: string, speed: CodexSpeed = 'default', codexHome?: string): Codex {
+function pickCodex(
+  apiBaseUrl?: string,
+  authToken?: string,
+  speed: CodexSpeed = 'default',
+  codexHome?: string,
+  toolPolicy = 'default',
+): Codex {
   if (!apiBaseUrl || !apiBaseUrl.trim()) {
     const home = normalizeCodexHome(codexHome)
-    const key = `${speed} ${home ?? '<default>'}`
+    const key = `${speed} ${home ?? '<default>'} ${toolPolicy}`
     let client = codexClients.get(key)
     if (!client) {
+      const config = {
+        ...(speed === 'fast' ? { service_tier: 'priority' } : {}),
+        ...(toolPolicy === CONSULT_READONLY_POLICY ? consultReadonlyCodexConfig(home) : {}),
+      }
       client = new Codex({
         ...(home ? { env: codexEnv(home) } : {}),
-        ...(speed === 'fast' ? { config: { service_tier: 'priority' } } : {}),
+        ...(Object.keys(config).length ? { config } : {}),
       })
       codexClients.set(key, client)
     }
@@ -130,7 +149,8 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
     return
   }
   const toolsDisabled = ctx.toolPolicy === 'disabled'
-  const { approvalPolicy, sandboxMode } = toolsDisabled
+  const consultReadonly = ctx.toolPolicy === CONSULT_READONLY_POLICY
+  const { approvalPolicy, sandboxMode } = toolsDisabled || consultReadonly
     ? { approvalPolicy: 'never' as ApprovalMode, sandboxMode: 'read-only' as SandboxMode }
     : mapMode(ctx.permissionMode)
   const opts: ThreadOptions = {
@@ -140,10 +160,12 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
     sandboxMode,
     model: ctx.model || undefined,
     modelReasoningEffort: ctx.reasoningEffort,
-    ...(toolsDisabled ? { networkAccessEnabled: false, webSearchMode: 'disabled' as WebSearchMode } : {}),
+    ...(toolsDisabled || consultReadonly
+      ? { networkAccessEnabled: false, webSearchMode: 'disabled' as WebSearchMode }
+      : {}),
   }
 
-  const client = pickCodex(ctx.apiBaseUrl, ctx.authToken, ctx.speed, home)
+  const client = pickCodex(ctx.apiBaseUrl, ctx.authToken, ctx.speed, home, ctx.toolPolicy)
   if (ctx.apiBaseUrl) {
     console.log(`[sidecar] codex turn start model=${ctx.model ?? '默认'} via=${normalizeOpenAiBase(ctx.apiBaseUrl)}`)
   }
@@ -152,7 +174,8 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
   const lastText = new Map<string, string>()
 
   try {
-    const { events } = await thread.runStreamed(ctx.text, { signal: ctx.signal })
+    const prompt = consultReadonly ? `${CONSULT_READONLY_PROMPT}\n\n${ctx.text}` : ctx.text
+    const { events } = await thread.runStreamed(prompt, { signal: ctx.signal })
     for await (const ev of events) {
       switch (ev.type) {
         case 'thread.started':
@@ -230,6 +253,16 @@ function handleItem(
       break
     case 'mcp_tool_call': {
       const label = `${item.server}/${item.tool}`
+      if (ctx.toolPolicy === CONSULT_READONLY_POLICY && !CONSULT_READONLY_MCP_SERVERS.has(item.server)) {
+        if (phase === 'item.started') {
+          ctx.emit({
+            type: 'error',
+            code: 'READONLY_MCP_BLOCKED',
+            message: `业务咨询拒绝了未列入白名单的 MCP：${item.server}`,
+          })
+        }
+        break
+      }
       if (phase === 'item.started') {
         ctx.emit({ type: 'toolUse', toolName: label, input: item.arguments })
       } else if (phase === 'item.completed') {

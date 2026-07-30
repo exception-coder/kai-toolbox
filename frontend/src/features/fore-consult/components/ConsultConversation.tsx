@@ -60,7 +60,7 @@ function renderMarkdown(text: string): string {
 /**
  * 业务咨询独立会话面板：玻璃侧边栏，只做「发消息 / 附件 / 查看」。
  * 复用 claude-chat 协议的业务咨询专用 WS（chat.open/send/items）驱动，结果在本面板同步渲染。
- * 会话以 bypassPermissions 打开（只读业务问答，自动放行工具），不连接 ADMIN-only 的 Vibe Coding 通道。
+ * 会话从 consult 专用通道打开；服务端强制 consult-readonly，只允许读取与白名单 MCP。
  */
 export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, cwd, onUploaded, onBugRegistered, onClose, onArchive, archiving }: Props) {
   const [text, setText] = useState('')

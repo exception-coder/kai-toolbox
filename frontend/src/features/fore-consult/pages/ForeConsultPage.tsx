@@ -371,6 +371,7 @@ function buildConsultSeed(system: string, modules: string[], ask: string, role: 
 
   const shared = [
     '',
+    '【只读安全边界】这是业务咨询会话，只能读取/搜索源码、查询知识图谱，并调用系统注入的只读 MCP/工具。禁止创建、编辑、删除、移动文件，禁止执行任何会改变 Git、依赖、配置、数据库或业务数据的操作；即使用户要求也不得执行写操作。',
     '【分析方法】优先调用业务知识图谱（domain-knowledge）和 graphify 代码知识图谱核对事实来定位问题；知识图谱分析不出来，再结合实际代码逻辑分析。',
     '【数据库红线】当前连接的数据库 MCP 是「测试环境」。不要仅凭用户的截图/单据号就直接去数据库查这条记录——测试库里查不到，会误导判断。除非用户明确说明「这张截图/这条数据来自测试环境」，才可以带着截图信息去查库；否则不要查库，基于业务与代码逻辑作答。若咨询涉及生产环境中具体页面的数据问题，应明确告知用户「当前暂未连接生产环境，无法直接核验该数据」，并补充可执行的测试建议，例如「请在测试环境用一张同类型的××单查看并复现对应情况」；其中“××单”应结合业务上下文写成具体单据类型，能确定测试单号时一并告知用户，不要原样输出占位词。',
     '【BUG 自动登记】如果你分析后**确认这是系统 BUG 或数据问题**（不是操作指引、不是使用方法），请在正常回答之后另起一段，输出如下机器可读块（系统会自动登记留存，用户无需理会）：',
@@ -665,11 +666,11 @@ export function ForeConsultPage() {
     const p = pendingRef.current
     if (!p) return
     pendingRef.current = null
-    // bypassPermissions：只读业务问答，自动放行工具，本模块面板无需权限 UI。
+    // 前端用 plan 表达只读意图；真正的安全边界由 consult WS 入口在服务端强制为 consult-readonly。
     chat.open(
       p.cwd,
       undefined,
-      'bypassPermissions',
+      'plan',
       'codex',
       {
         codexHome: CONSULT_CODEX_HOME,

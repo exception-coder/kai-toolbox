@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS claude_chat_session (
     selected_model  TEXT,
     codex_reasoning_effort TEXT,
     codex_speed     TEXT DEFAULT 'default',
+    -- 服务端执行能力边界：standard / consult-readonly。业务咨询入口强制只读，不接受客户端降级。
+    execution_policy TEXT DEFAULT 'standard',
     -- 会话分组名（用户自定义，空=未分组）；原在浏览器 localStorage，改后端持久化后跨端/换浏览器可见
     group_name      TEXT,
     -- RUNNING / IDLE / INTERRUPTED / DONE

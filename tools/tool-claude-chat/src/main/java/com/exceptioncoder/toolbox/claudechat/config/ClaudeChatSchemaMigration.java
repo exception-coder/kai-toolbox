@@ -73,12 +73,24 @@ public class ClaudeChatSchemaMigration {
         addColumn("selected_model", "TEXT");
         addColumn("codex_reasoning_effort", "TEXT");
         addColumn("codex_speed", "TEXT DEFAULT 'default'");
+        addColumn("execution_policy", "TEXT DEFAULT 'standard'");
         // 会话分组列（原在浏览器 localStorage，改后端持久化后跨端/换浏览器可见）
         try {
             jdbc.execute("ALTER TABLE claude_chat_session ADD COLUMN group_name TEXT");
             log.info("[claude-chat] 迁移：claude_chat_session 已补 group_name 列");
         } catch (Exception e) {
             log.debug("[claude-chat] group_name 列迁移跳过：{}", e.getMessage());
+        }
+        // 兼容修复前已经创建的业务咨询会话：它们已有固定分组，但尚未持久化执行策略。
+        try {
+            jdbc.update("""
+                    UPDATE claude_chat_session
+                       SET execution_policy = 'consult-readonly'
+                     WHERE group_name = '业务咨询'
+                       AND (execution_policy IS NULL OR execution_policy = '' OR execution_policy = 'standard')
+                    """);
+        } catch (Exception e) {
+            log.debug("[claude-chat] 业务咨询执行策略回填跳过：{}", e.getMessage());
         }
     }
 

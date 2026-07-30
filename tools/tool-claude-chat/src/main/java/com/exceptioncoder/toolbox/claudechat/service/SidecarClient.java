@@ -126,7 +126,7 @@ public class SidecarClient {
 
     public void startSession(String sessionId, String cwd, String model, String mode, String engine,
                              String apiBaseUrl, String authToken, String codexHome, boolean autoApprove,
-                             String codexReasoningEffort, String codexSpeed) {
+                             String codexReasoningEffort, String codexSpeed, String toolPolicy) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("type", "start");
         m.put("sessionId", sessionId);
@@ -140,6 +140,7 @@ public class SidecarClient {
         m.put("autoApprove", autoApprove);
         m.put("codexReasoningEffort", nz(codexReasoningEffort));
         m.put("codexSpeed", nz(codexSpeed));
+        m.put("toolPolicy", nz(toolPolicy));
         send(m);
     }
 
@@ -170,7 +171,7 @@ public class SidecarClient {
     public void resumeSession(String sessionId, String sdkSessionId, String cwd, String engine,
                               String apiBaseUrl, String authToken, String codexHome,
                               String mode, boolean autoApprove, String model,
-                              String codexReasoningEffort, String codexSpeed) {
+                              String codexReasoningEffort, String codexSpeed, String toolPolicy) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("type", "resume");
         m.put("sessionId", sessionId);
@@ -185,6 +186,7 @@ public class SidecarClient {
         m.put("model", nz(model));
         m.put("codexReasoningEffort", nz(codexReasoningEffort));
         m.put("codexSpeed", nz(codexSpeed));
+        m.put("toolPolicy", nz(toolPolicy));
         send(m);
     }
 

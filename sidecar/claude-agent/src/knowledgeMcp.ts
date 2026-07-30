@@ -13,11 +13,47 @@ import os from 'node:os'
  */
 
 const DEFAULT_WORKSPACE = path.join(os.homedir(), 'myWork')
+const WORKSPACE_CANDIDATES = [
+  process.env.KAI_WORKSPACE_ROOT,
+  DEFAULT_WORKSPACE,
+  // sidecar 默认 cwd=<kai-toolbox>/sidecar/claude-agent，向上三级即各项目共同的 myWork。
+  path.resolve(process.cwd(), '..', '..', '..'),
+].filter((value): value is string => !!value)
+
+function firstExisting(relativePath: string): string {
+  for (const workspace of WORKSPACE_CANDIDATES) {
+    const candidate = path.join(workspace, relativePath)
+    if (existsSync(candidate)) return candidate
+  }
+  return path.join(DEFAULT_WORKSPACE, relativePath)
+}
 
 /** 知识引擎脚本路径（project-domain-knowledge/dist/server.js） */
 function resolveEngine(): string {
   return process.env.DOMAIN_KNOWLEDGE_ENGINE
-    || path.join(DEFAULT_WORKSPACE, 'project-domain-knowledge', 'dist', 'server.js')
+    || firstExisting(path.join('project-domain-knowledge', 'dist', 'server.js'))
+}
+
+const READONLY_KNOWLEDGE_TOOLS = [
+  'list_projects',
+  'list_modules',
+  'list_topics',
+  'search_knowledge',
+  'get_knowledge',
+  'get_related',
+]
+
+function codexServer(engine: string, kbDir: string): Record<string, unknown> | null {
+  if (!existsSync(engine) || !existsSync(kbDir)) return null
+  return {
+    command: process.execPath,
+    args: [engine],
+    env: { DOMAIN_KB_DIR: kbDir },
+    enabled: true,
+    // reload_knowledge 不进入咨询白名单，避免咨询会话改变服务端运行状态。
+    enabled_tools: READONLY_KNOWLEDGE_TOOLS,
+    default_tools_approval_mode: 'approve',
+  }
 }
 
 /**
@@ -27,7 +63,7 @@ function resolveEngine(): string {
 export function createDomainKnowledgeServer(): Record<string, unknown> | null {
   const engine = resolveEngine()
   const kbDir = process.env.DOMAIN_KB_DIR
-    || path.join(DEFAULT_WORKSPACE, 'project-domain-knowledge', 'knowledge')
+    || firstExisting(path.join('project-domain-knowledge', 'knowledge'))
 
   if (!existsSync(engine) || !existsSync(kbDir)) {
     return null
@@ -48,7 +84,7 @@ export function createDomainKnowledgeServer(): Record<string, unknown> | null {
 export function createCrossTopologyServer(): Record<string, unknown> | null {
   const engine = resolveEngine()
   const kbDir = process.env.CROSS_TOPO_KB_DIR
-    || path.join(DEFAULT_WORKSPACE, 'cross-project-topology', 'knowledge')
+    || firstExisting(path.join('cross-project-topology', 'knowledge'))
 
   if (!existsSync(engine) || !existsSync(kbDir)) {
     return null
@@ -60,6 +96,21 @@ export function createCrossTopologyServer(): Record<string, unknown> | null {
     args: [engine],
     env: { ...process.env, DOMAIN_KB_DIR: kbDir },
   }
+}
+
+/** Codex CLI config.toml 形态的只读知识 MCP（区别于 Claude SDK 的 type=stdio 形态）。 */
+export function createCodexDomainKnowledgeServer(): Record<string, unknown> | null {
+  const engine = resolveEngine()
+  const kbDir = process.env.DOMAIN_KB_DIR
+    || firstExisting(path.join('project-domain-knowledge', 'knowledge'))
+  return codexServer(engine, kbDir)
+}
+
+export function createCodexCrossTopologyServer(): Record<string, unknown> | null {
+  const engine = resolveEngine()
+  const kbDir = process.env.CROSS_TOPO_KB_DIR
+    || firstExisting(path.join('cross-project-topology', 'knowledge'))
+  return codexServer(engine, kbDir)
 }
 
 // graphify（代码知识图谱）不再走 MCP：已改为 Java 侧（tool-prd-clarify 的

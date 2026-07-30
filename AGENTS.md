@@ -39,6 +39,11 @@ A tool has two halves that register **independently** — the frontend is the si
 
 `frontend/src/shell/featureRegistry.ts` uses `import.meta.glob('../features/*/index.tsx', { eager: true })` to auto-collect every feature's manifest at build time. Each feature exports a default `FeatureManifest` (see `frontend/src/shell/types.ts`) containing `id`, `name`, a Lucide `icon` *component reference* (not a string — avoids string→component mapping), `group`, `order`, and `routes`. `App.tsx` flattens those routes into the router. **Adding a new tool = create `frontend/src/features/<id>/index.tsx` exporting a manifest; no router/sidebar edits needed.** Sidebar and home page both read from `features`, so the menu works even if the backend is down.
 
+Menu RBAC metadata is generated from the same manifests by `frontend/scripts/generate-feature-permissions.mjs`.
+`npm run dev` and `npm run build` refresh `frontend/public/feature-menu-permissions.json`; the packaged backend
+loads that catalog and syncs it into `forge_permission` at startup. Do not add menu entries to Java manually.
+Use `npm run feature-catalog:check` to detect a stale generated catalog.
+
 ### Backend registration (optional, for cross-tool service discovery)
 
 Each tool module defines a `@Component` implementing `com.exceptioncoder.toolbox.common.tool.ToolDescriptor`. `ToolRegistry` collects all beans and exposes them at `GET /api/tools`. The current frontend does **not** read this — it's reserved for future tool-to-tool discovery on the server. Don't add UI logic that depends on `/api/tools`.

@@ -316,13 +316,18 @@ class Session {
       const toolboxApiBase = process.env.TOOLBOX_API_BASE
       if (this.toolPolicy !== 'disabled' && !this.demo && toolboxApiBase) {
         mcpServers.erp_db = createErpDbServer(toolboxApiBase)
-        // 自闭环验证：非 demo、后端就绪时挂 erp_app（登录态实发 *.action 探测改动效果；
-        // 未配置本地实例时工具自会回"未配置"，无害）。与只读 erp_db 配合：erp_app 触发、erp_db 回读。
-        mcpServers.erp_app = createErpAppServer(toolboxApiBase)
+        // 业务咨询只读策略只注入数据库查询工具；可真实写测试环境的 app 工具仅限普通开发会话。
+        if (this.toolPolicy !== 'consult-readonly') {
+          // 自闭环验证：非 demo、后端就绪时挂 erp_app（登录态实发 *.action 探测改动效果；
+          // 未配置本地实例时工具自会回"未配置"，无害）。与只读 erp_db 配合：erp_app 触发、erp_db 回读。
+          mcpServers.erp_app = createErpAppServer(toolboxApiBase)
+        }
         // SRM 需求开发同款一对：srm_db（MySQL 只读查库核对）+ srm_app（yudao 网关 OAuth2 登录态实发验证）。
         // 未配置对应库/实例时工具自会回"未配置"，无害；「SRM需求开发」触发语显式点名这两个工具。
         mcpServers.srm_db = createSrmDbServer(toolboxApiBase)
-        mcpServers.srm_app = createSrmAppServer(toolboxApiBase)
+        if (this.toolPolicy !== 'consult-readonly') {
+          mcpServers.srm_app = createSrmAppServer(toolboxApiBase)
+        }
         // SCM 需求开发：只挂只读 scm_db（MySQL 查库核对）；无 scm_app——SCM 暂无像 ERP/SRM 那样
         // 可供登录态实发的网关/接口约定，验证口径改为「重启后查库回读」。未配置库时工具自会回"未配置"，无害。
         mcpServers.scm_db = createScmDbServer(toolboxApiBase)
@@ -366,6 +371,26 @@ class Session {
               : {}),
             ...(this.toolPolicy === 'disabled'
               ? { tools: [], settingSources: [] }
+              : {}),
+            ...(this.toolPolicy === 'consult-readonly'
+              ? {
+                  allowedTools: [
+                    'Read', 'Glob', 'Grep', 'AskUserQuestion',
+                    'mcp__erp_db__query', 'mcp__srm_db__query', 'mcp__scm_db__query',
+                    'mcp__domain-knowledge__list_projects',
+                    'mcp__domain-knowledge__list_modules',
+                    'mcp__domain-knowledge__list_topics',
+                    'mcp__domain-knowledge__search_knowledge',
+                    'mcp__domain-knowledge__get_knowledge',
+                    'mcp__domain-knowledge__get_related',
+                    'mcp__cross-topology__list_projects',
+                    'mcp__cross-topology__list_modules',
+                    'mcp__cross-topology__list_topics',
+                    'mcp__cross-topology__search_knowledge',
+                    'mcp__cross-topology__get_knowledge',
+                    'mcp__cross-topology__get_related',
+                  ],
+                }
               : {}),
             ...(Object.keys(mcpServers).length ? { mcpServers } : {}),
             cwd: safeCwd,
@@ -729,7 +754,8 @@ export class SessionManager {
   }
 
   start(id: string, cwd: string, model?: string, mode?: string, engine?: string, apiBaseUrl?: string, authToken?: string, codexHome?: string,
-        demo?: boolean, demoApiBase?: string, autoApprove?: boolean, codexReasoningEffort?: string, codexSpeed?: string): void {
+        demo?: boolean, demoApiBase?: string, autoApprove?: boolean, codexReasoningEffort?: string, codexSpeed?: string,
+        toolPolicy?: string): void {
     const s = new Session(id, cwd || process.env.HOME || process.cwd(), (e) => this.emit(id, e))
     if (model) s.model = model
     if (engine === 'codex' || engine === 'gemini' || engine === 'opencode') s.engine = engine
@@ -737,6 +763,8 @@ export class SessionManager {
     if (codexHome) s.codexHome = codexHome
     if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
     if (autoApprove) { s.autoApprove = true; s.perms.setAutoApprove(true) }
+    s.toolPolicy = toolPolicy === 'consult-readonly' ? 'consult-readonly' : 'default'
+    s.perms.setToolPolicy(s.toolPolicy)
     s.codexReasoningEffort = VALID_CODEX_EFFORTS.has(codexReasoningEffort as ModelReasoningEffort)
       ? codexReasoningEffort as ModelReasoningEffort
       : undefined
@@ -762,7 +790,8 @@ export class SessionManager {
    * 而弹了也没人看，最终超时 deny 或中断成 stream closed。
    */
   resume(id: string, sdkSessionId: string, cwd: string, engine?: string, apiBaseUrl?: string, authToken?: string, codexHome?: string,
-         mode?: string, autoApprove?: boolean, model?: string, codexReasoningEffort?: string, codexSpeed?: string): void {
+         mode?: string, autoApprove?: boolean, model?: string, codexReasoningEffort?: string, codexSpeed?: string,
+         toolPolicy?: string): void {
     let s = this.sessions.get(id)
     if (!s) {
       s = new Session(id, cwd, (e) => this.emit(id, e))
@@ -775,6 +804,8 @@ export class SessionManager {
     s.codexHome = codexHome || undefined
     if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
     if (autoApprove != null) { s.autoApprove = autoApprove; s.perms.setAutoApprove(autoApprove) }
+    s.toolPolicy = toolPolicy === 'consult-readonly' ? 'consult-readonly' : 'default'
+    s.perms.setToolPolicy(s.toolPolicy)
     s.model = model || undefined
     this.setCodexOptions(id, codexReasoningEffort ?? '', codexSpeed ?? 'default')
     this.applyCodexOptions(id, s)

@@ -15,7 +15,8 @@ export const features: FeatureManifest[] = Object.values(modules)
   .filter(f => !f.hidden)
   // 菜单权限码自动派生：tool 布局（排除 showcase 公开故事页）且未显式声明 requiredPermission 的模块，
   // 默认按 `menu:<id>` 门禁——从而可在「角色管理」里把菜单分配给角色。超管 / ADMIN 恒放行（见 access.ts）。
-  // 后端需有同名 `menu:<id>` 权限码（MenuPermissions 声明）才能被绑定；未声明的模块保持仅超管可见。
+  // frontend/scripts/generate-feature-permissions.mjs 会在 dev/build 前从同一批 manifest 生成后端权限目录，
+  // Java 不再维护第二份菜单清单；新增、改名、换组或删除 feature 都会在下次构建 + 后端启动时同步入库。
   .map(f => (f.layout !== 'showcase' && !f.requiredPermission ? { ...f, requiredPermission: `menu:${f.id}` } : f))
   .sort((a, b) => (a.order ?? 100) - (b.order ?? 100) || a.name.localeCompare(b.name))
 

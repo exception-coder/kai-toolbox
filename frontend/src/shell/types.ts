@@ -39,7 +39,8 @@ export interface FeatureManifest {
   chrome?: boolean
   /**
    * Forge 权限码门禁：置为某 MENU 权限码（如 'forge:role:menu'）后，菜单显隐与路由守卫按该权限码判定
-   * （超管或持有该码放行）。优先于 access.ts 的存量角色表。未设则沿用角色表/公开逻辑。
+   * （超管或持有该码放行）。未设置的 tool feature 自动使用 `menu:<id>`。
+   * 前端构建会从 manifest 生成后端权限目录，禁止再在 Java 中重复声明菜单名称、分组和排序。
    */
   requiredPermission?: string
   routes: FeatureRoute[]

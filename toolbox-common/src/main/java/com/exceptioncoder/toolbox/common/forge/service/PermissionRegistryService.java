@@ -12,6 +12,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Set;
+import java.util.HashSet;
 
 /**
  * 权限码同步：启动时收集所有 {@link PermissionContributor} 声明的权限码，幂等 upsert 进 forge_permission，
@@ -41,6 +43,7 @@ public class PermissionRegistryService {
         List<PermissionDef> declared = contributors.stream()
                 .flatMap(c -> c.permissions().stream())
                 .toList();
+        assertUniqueCodes(declared);
 
         for (PermissionDef def : declared) {
             Permission entity = toEntity(def, now);
@@ -54,6 +57,19 @@ public class PermissionRegistryService {
         List<String> aliveCodes = declared.stream().map(PermissionDef::code).toList();
         repository.markDeprecatedExcept(aliveCodes, now);
         log.info("Forge 权限码同步完成：声明 {} 个，其余存量码标记 DEPRECATED", declared.size());
+    }
+
+    private void assertUniqueCodes(List<PermissionDef> declared) {
+        Set<String> seen = new HashSet<>();
+        List<String> duplicates = declared.stream()
+                .map(PermissionDef::code)
+                .filter(code -> !seen.add(code))
+                .distinct()
+                .sorted()
+                .toList();
+        if (!duplicates.isEmpty()) {
+            throw new IllegalStateException("权限声明存在重复 code，拒绝同步：" + String.join(", ", duplicates));
+        }
     }
 
     /** 只读权限码全量列表，供角色权限勾选树按 module + parentCode 分组展示。 */

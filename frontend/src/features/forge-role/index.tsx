@@ -9,7 +9,7 @@ const manifest: FeatureManifest = {
   name: '角色管理',
   icon: ShieldCheck,
   group: '系统',
-  description: '角色维护与权限码分配（按模块分组勾选）',
+  description: '角色维护与三级权限浏览器',
   order: 9,
   requiredPermission: 'forge:role:menu',
   routes: [{ path: '/tools/forge-role', element: <RolePage /> }],

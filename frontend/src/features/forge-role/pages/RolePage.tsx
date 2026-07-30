@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { KeyRound, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -6,20 +6,16 @@ import { useConfirm } from '@/components/ui/confirm-dialog'
 import { Permission } from '@/components/auth/Permission'
 import { usePermission } from '@/shell/permission'
 import {
-  bindPermissions,
   createRole,
   deleteRole,
-  getRole,
-  listPermissions,
   listRoles,
   updateRole,
-  type PermissionView,
   type RoleSaveRequest,
   type RoleView,
 } from '../api'
+import { PermissionExplorer } from '../components/PermissionExplorer'
 
 const ROLES_KEY = ['forge-roles']
-const PERMS_KEY = ['forge-permissions']
 const DATA_SCOPES = ['ALL', 'DEPT', 'SELF', 'CUSTOM']
 
 interface FormState {
@@ -95,6 +91,10 @@ export function RolePage() {
       variant: 'destructive',
     })
     if (ok) remove.mutate(r.id)
+  }
+
+  if (bindRole) {
+    return <PermissionExplorer role={bindRole} onClose={() => setBindRole(null)} />
   }
 
   return (
@@ -184,8 +184,6 @@ export function RolePage() {
           </table>
         </div>
       )}
-
-      {bindRole && <PermissionBindPanel role={bindRole} onClose={() => setBindRole(null)} />}
     </div>
   )
 }
@@ -257,105 +255,4 @@ function RoleForm({
       </div>
     </div>
   )
-}
-
-function PermissionBindPanel({ role, onClose }: { role: RoleView; onClose: () => void }) {
-  const qc = useQueryClient()
-  const { data: permissions = [] } = useQuery({ queryKey: PERMS_KEY, queryFn: listPermissions })
-  const { data: detail } = useQuery({ queryKey: ['forge-role', role.id], queryFn: () => getRole(role.id) })
-  const [checked, setChecked] = useState<Set<number> | null>(null)
-  const [err, setErr] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (detail && checked === null) setChecked(new Set(detail.permissionIds))
-  }, [detail, checked])
-
-  const grouped = useMemo(() => groupByModule(permissions), [permissions])
-  const current = checked ?? new Set<number>()
-
-  const save = useMutation({
-    mutationFn: () => bindPermissions(role.id, [...current]),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['forge-role', role.id] })
-      onClose()
-    },
-    onError: (e) => setErr((e as Error).message),
-  })
-
-  const toggle = (id: number) => {
-    const next = new Set(current)
-    if (next.has(id)) next.delete(id)
-    else next.add(id)
-    setChecked(next)
-  }
-
-  return (
-    <div className="space-y-2 rounded-md border p-3">
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-medium">分配权限：{role.name}</div>
-        <div className="flex gap-1">
-          <Button size="sm" disabled={save.isPending} onClick={() => save.mutate()}>
-            保存绑定
-          </Button>
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            关闭
-          </Button>
-        </div>
-      </div>
-      {err && <p className="text-sm text-[var(--color-destructive)]">{err}</p>}
-      {detail == null ? (
-        <div className="text-sm text-[var(--color-muted-foreground)]">加载中…</div>
-      ) : (
-        <div className="space-y-2">
-          {[...grouped.entries()].map(([moduleName, perms]) => {
-            const allOn = perms.every((p) => current.has(p.id))
-            const onCount = perms.filter((p) => current.has(p.id)).length
-            const toggleGroup = () => {
-              const next = new Set(current)
-              perms.forEach((p) => (allOn ? next.delete(p.id) : next.add(p.id)))
-              setChecked(next)
-            }
-            return (
-              <div key={moduleName} className="rounded-md border">
-                <div className="flex items-center gap-2 border-b bg-[var(--color-muted)]/40 px-2.5 py-1.5">
-                  <span className="text-xs font-semibold">{moduleName}</span>
-                  <span className="text-[10px] text-[var(--color-muted-foreground)]">{onCount}/{perms.length}</span>
-                  <button
-                    type="button"
-                    className="ml-auto text-xs text-[var(--color-primary)] hover:underline"
-                    onClick={toggleGroup}
-                  >
-                    {allOn ? '清空' : '全选'}
-                  </button>
-                </div>
-                <div className="grid grid-cols-1 gap-x-4 gap-y-1 p-2.5 sm:grid-cols-2 lg:grid-cols-3">
-                  {perms.map((p) => (
-                    <label
-                      key={p.id}
-                      title={p.code}
-                      className="flex items-center gap-1.5 text-sm"
-                      style={{ paddingLeft: p.parentCode ? 16 : 0 }}
-                    >
-                      <input type="checkbox" checked={current.has(p.id)} onChange={() => toggle(p.id)} />
-                      <span className="truncate">{p.name}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function groupByModule(permissions: PermissionView[]): Map<string, PermissionView[]> {
-  const map = new Map<string, PermissionView[]>()
-  for (const p of [...permissions].sort((a, b) => a.sort - b.sort)) {
-    const list = map.get(p.module)
-    if (list) list.push(p)
-    else map.set(p.module, [p])
-  }
-  return map
 }

@@ -108,25 +108,33 @@ public class ClaudeChatService {
         if (!ensureSidecar(ws)) return;
         String sessionId = UUID.randomUUID().toString();
         long now = System.currentTimeMillis();
+        String executionPolicy = SessionExecutionPolicy.forWebSocket(ws.getUri());
+        boolean consultReadonly = SessionExecutionPolicy.isConsultReadonly(executionPolicy);
         String cwd = open.cwd() == null || open.cwd().isBlank()
                 ? System.getProperty("user.home") : open.cwd().trim();
 
-        String engine = normalizeEngine(open.engine());
+        // 咨询入口固定走 Codex；不能通过手工构造 WS 消息切到尚未纳入只读裁决的其它引擎。
+        String engine = consultReadonly ? "codex" : normalizeEngine(open.engine());
         // 第三方网关对 Claude / Codex / Gemini 引擎生效（Claude→Anthropic 兼容、Codex→OpenAI 兼容、
         // Gemini→Google 兼容，各走各的协议端点）；opencode 自管 provider，忽略网关参数。
         boolean gatewayCapable = "claude".equals(engine) || "codex".equals(engine) || "gemini".equals(engine);
-        String apiBaseUrl = gatewayCapable ? blankToNull(open.apiBaseUrl()) : null;
+        // 业务咨询不接受浏览器指定的第三方网关，避免把源码/业务数据送往任意外部地址。
+        String apiBaseUrl = !consultReadonly && gatewayCapable ? blankToNull(open.apiBaseUrl()) : null;
         String authToken = apiBaseUrl == null ? null : blankToNull(open.authToken());
-        String codexHome = "codex".equals(engine) && apiBaseUrl == null ? blankToNull(open.codexHome()) : null;
+        String codexHome = consultReadonly
+                ? SessionExecutionPolicy.CONSULT_CODEX_HOME
+                : "codex".equals(engine) && apiBaseUrl == null ? blankToNull(open.codexHome()) : null;
         String codexReasoningEffort = normalizeCodexReasoningEffort(open.codexReasoningEffort());
         String codexSpeed = normalizeCodexSpeed(open.codexSpeed());
         repo.insert(ClaudeChatSession.builder()
                 .id(sessionId).cwd(cwd).title(null).sdkSessionId(null).engine(engine)
                 .apiBaseUrl(apiBaseUrl).authToken(authToken).codexHome(codexHome)
                 .selectedModel(blankToNull(open.model())).codexReasoningEffort(codexReasoningEffort).codexSpeed(codexSpeed)
+                .executionPolicy(executionPolicy)
                 .status(SessionStatus.IDLE).startedAt(now).lastSeenAt(now).build());
 
         SessionCtx ctx = new SessionCtx(sessionId, cwd);
+        ctx.executionPolicy = executionPolicy;
         ctx.engine = engine;
         ctx.apiBaseUrl = apiBaseUrl;
         ctx.authToken = authToken;
@@ -137,9 +145,10 @@ public class ClaudeChatService {
         sessions.put(sessionId, ctx);
         bindViewer(ws, ctx);
 
-        ctx.mode = normalizeMode(open.mode());
+        // UI 模式不是安全边界；咨询会话固定为 plan，真正的硬约束由 executionPolicy/toolPolicy 执行。
+        ctx.mode = consultReadonly ? "plan" : normalizeMode(open.mode());
         sidecar.startSession(sessionId, cwd, open.model(), ctx.mode, engine, apiBaseUrl, authToken,
-                codexHome, ctx.autoApprove, codexReasoningEffort, codexSpeed);
+                codexHome, ctx.autoApprove, codexReasoningEffort, codexSpeed, ctx.executionPolicy);
         pushGatewayModels(ctx); // 网关会话：拉网关 /v1/models 目录推给前端，命令菜单据此选/切模型
         log.info("[claude-chat] open 会话 {} cwd={} mode={} engine={}", sessionId, cwd, ctx.mode, engine);
     }
@@ -177,17 +186,20 @@ public class ClaudeChatService {
                     c.apiBaseUrl = db.getApiBaseUrl();
                     c.authToken = db.getAuthToken();
                     c.codexHome = db.getCodexHome();
+                    c.executionPolicy = executionPolicyOf(db);
+                    enforceReadonlyDefaults(c);
                     restoreModelOptions(c, db);
                     loadEngineSessions(c, db.getEngineSessions());
                     return c;
                 });
+                if (!canBind(ws, restored.executionPolicy)) return;
                 bindViewer(ws, restored);
                 if (created[0]) {
                     repo.touch(db.getId(), SessionStatus.IDLE, System.currentTimeMillis());
                     sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), restored.engine,
                             restored.apiBaseUrl, restored.authToken, restored.codexHome,
                             restored.mode, restored.autoApprove, restored.currentModel,
-                            restored.codexReasoningEffort, restored.codexSpeed);
+                            restored.codexReasoningEffort, restored.codexSpeed, restored.executionPolicy);
                     log.info("[claude-chat] attach 内存未命中，从 DB 恢复并 resume 会话 {}", db.getId());
                 }
                 // Ready 只发给当前这条连接（其它已在看的连接不需要重复）
@@ -198,6 +210,7 @@ public class ClaudeChatService {
             sendError(ws, 0, "SESSION_NOT_FOUND", "会话不存在或已结束，请切换或新建");
             return;
         }
+        if (!canBind(ws, ctx.executionPolicy)) return;
         bindViewer(ws, ctx);
         warnIfReplayGap(ctx, ws, attach.lastEventSeq());
         replayBuffer(ctx, ws, attach.lastEventSeq());
@@ -216,12 +229,16 @@ public class ClaudeChatService {
             sendError(ws, 0, "SESSION_NOT_FOUND", "会话不存在");
             return;
         }
+        String executionPolicy = executionPolicyOf(db);
+        if (!canBind(ws, executionPolicy)) return;
         SessionCtx ctx = sessions.computeIfAbsent(db.getId(), id -> new SessionCtx(id, db.getCwd()));
         ctx.sdkSessionId = db.getSdkSessionId();
         ctx.engine = normalizeEngine(db.getEngine());
         ctx.apiBaseUrl = db.getApiBaseUrl();
         ctx.authToken = db.getAuthToken();
         ctx.codexHome = db.getCodexHome();
+        ctx.executionPolicy = executionPolicy;
+        enforceReadonlyDefaults(ctx);
         restoreModelOptions(ctx, db);
         loadEngineSessions(ctx, db.getEngineSessions());
         bindViewer(ws, ctx);
@@ -230,7 +247,7 @@ public class ClaudeChatService {
         repo.touch(db.getId(), ctx.status, System.currentTimeMillis());
         sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), ctx.engine, ctx.apiBaseUrl,
                 ctx.authToken, ctx.codexHome, ctx.mode, ctx.autoApprove, ctx.currentModel,
-                ctx.codexReasoningEffort, ctx.codexSpeed);
+                ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy);
         // 历史消息由前端按需读 SDK transcript；这里只发一个 Ready 表示已就绪
         sendToBrowser(ctx, seq -> ready(ctx, seq));
         // 该会话若有未决权限/提问请求，随切换补发一次：不然只有 attach（断线重连）路径会重投，
@@ -242,6 +259,10 @@ public class ClaudeChatService {
     /** 续跑磁盘上的历史会话：建一条本工具的元数据行后 resume，之后它也出现在工具会话列表里。 */
     public void resumeHistory(WebSocketSession ws, ClientMessage.ResumeHistory msg) {
         if (!ensureSidecar(ws)) return;
+        if (SessionExecutionPolicy.isConsultReadonly(SessionExecutionPolicy.forWebSocket(ws.getUri()))) {
+            sendError(ws, 0, "READONLY_POLICY", "业务咨询通道不能导入或续跑任意历史会话");
+            return;
+        }
         if (msg.sdkSessionId() == null || msg.sdkSessionId().isBlank()) {
             sendError(ws, 0, "BAD_MESSAGE", "缺少 sdkSessionId");
             return;
@@ -253,6 +274,7 @@ public class ClaudeChatService {
 
         repo.insert(ClaudeChatSession.builder()
                 .id(id).cwd(cwd).title(null).sdkSessionId(msg.sdkSessionId()).engine("claude")
+                .executionPolicy(SessionExecutionPolicy.STANDARD)
                 .status(SessionStatus.IDLE).startedAt(now).lastSeenAt(now).build());
 
         SessionCtx ctx = new SessionCtx(id, cwd);
@@ -261,7 +283,7 @@ public class ClaudeChatService {
         bindViewer(ws, ctx);
 
         sidecar.resumeSession(id, msg.sdkSessionId(), cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
-                ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed);
+                ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy);
         sendToBrowser(ctx, seq -> ready(ctx, seq));
         log.info("[claude-chat] resumeHistory 会话 {} sdk={} cwd={}", id, msg.sdkSessionId(), cwd);
     }
@@ -280,18 +302,24 @@ public class ClaudeChatService {
                     restored.apiBaseUrl = db.getApiBaseUrl();
                     restored.authToken = db.getAuthToken();
                     restored.codexHome = db.getCodexHome();
+                    restored.executionPolicy = executionPolicyOf(db);
+                    enforceReadonlyDefaults(restored);
                     restoreModelOptions(restored, db);
                     loadEngineSessions(restored, db.getEngineSessions());
                     sessions.put(restored.sessionId, restored);
                     ctx = restored;
                 }
             }
-            if (ctx != null) bindViewer(ws, ctx);
+            if (ctx != null) {
+                if (!canBind(ws, ctx.executionPolicy)) return;
+                bindViewer(ws, ctx);
+            }
         }
         if (ctx == null) {
             sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
+        if (!canBind(ws, ctx.executionPolicy)) return;
         if (!ensureSidecar(ws)) return;
 
         ClaudeChatSession db = repo.findById(ctx.sessionId).orElse(null);
@@ -318,7 +346,7 @@ public class ClaudeChatService {
         repo.updateSdkSessionId(ctx.sessionId, sdkSessionId);
         repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
         sidecar.resumeSession(ctx.sessionId, sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
-                ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed);
+                ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy);
         final SessionCtx readyCtx = ctx; // ctx 在本方法上方被重新赋值（attach 恢复），lambda 捕获需 effectively final
         sendToBrowser(ctx, seq -> ready(readyCtx, seq));
         pushGatewayModels(ctx);
@@ -405,6 +433,10 @@ public class ClaudeChatService {
             sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
+        if (isConsultReadonly(ctx)) {
+            sendError(ws, 0, "READONLY_POLICY", "业务咨询会话的只读权限不可切换");
+            return;
+        }
         if (!isValidMode(msg.mode())) {
             sendError(ws, 0, "BAD_MODE", "非法权限模式：" + msg.mode());
             return;
@@ -425,6 +457,10 @@ public class ClaudeChatService {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {
             sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            return;
+        }
+        if (isConsultReadonly(ctx)) {
+            sendError(ws, 0, "READONLY_POLICY", "业务咨询会话禁止开启自动放行");
             return;
         }
         ctx.autoApprove = msg.autoApprove();
@@ -481,6 +517,10 @@ public class ClaudeChatService {
             sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
+        if (isConsultReadonly(ctx)) {
+            sendError(ws, 0, "READONLY_POLICY", "业务咨询会话不允许切换执行引擎");
+            return;
+        }
         String engine = normalizeEngine(msg.engine());
         if (engine.equals(ctx.engine)) return; // 同引擎无需切
         String prev = repo.findById(ctx.sessionId).map(ClaudeChatSession::getEngines).orElse(null);
@@ -506,6 +546,10 @@ public class ClaudeChatService {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {
             sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            return;
+        }
+        if (isConsultReadonly(ctx)) {
+            sendError(ws, 0, "READONLY_POLICY", "业务咨询会话不允许切换到第三方网关");
             return;
         }
         // 仅 claude/codex/gemini 走第三方网关；opencode 自管 provider，拒绝切换避免无效状态
@@ -646,6 +690,10 @@ public class ClaudeChatService {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {
             sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            return;
+        }
+        if (isConsultReadonly(ctx)) {
+            sendError(ws, 0, "READONLY_POLICY", "业务咨询会话不允许分叉为可编辑会话");
             return;
         }
         if (msg.upToMessageId() == null || msg.upToMessageId().isBlank()) {
@@ -850,7 +898,7 @@ public class ClaudeChatService {
         for (SessionCtx ctx : sessions.values()) {
             if (ctx.sdkSessionId == null || ctx.sdkSessionId.isBlank()) continue;
             sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
-                    ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed);
+                    ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy);
             ctx.status = SessionStatus.IDLE;
             repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
             sendToBrowser(ctx, seq -> ready(ctx, seq));
@@ -875,7 +923,7 @@ public class ClaudeChatService {
         }
         if (ctx.sdkSessionId != null && !ctx.sdkSessionId.isBlank()) {
             sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
-                    ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed);
+                    ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy);
             ctx.status = SessionStatus.IDLE;
             repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
         }
@@ -885,6 +933,39 @@ public class ClaudeChatService {
     /** 空白串归一为 null，避免把空网关地址当成有效配置。 */
     private static String blankToNull(String s) {
         return s == null || s.isBlank() ? null : s.trim();
+    }
+
+    private static String executionPolicyOf(ClaudeChatSession session) {
+        if ("业务咨询".equals(session.getGroupName())) {
+            return SessionExecutionPolicy.CONSULT_READONLY;
+        }
+        return SessionExecutionPolicy.normalize(session.getExecutionPolicy());
+    }
+
+    private static boolean isConsultReadonly(SessionCtx ctx) {
+        return SessionExecutionPolicy.isConsultReadonly(ctx.executionPolicy);
+    }
+
+    private static void enforceReadonlyDefaults(SessionCtx ctx) {
+        if (!isConsultReadonly(ctx)) return;
+        ctx.mode = "plan";
+        ctx.autoApprove = false;
+        ctx.apiBaseUrl = null;
+        ctx.authToken = null;
+        ctx.codexHome = SessionExecutionPolicy.CONSULT_CODEX_HOME;
+    }
+
+    /**
+     * 普通登录用户只能从 consult 入口绑定只读咨询会话；不能借独立入口猜测 ID 后接管 ADMIN 会话。
+     */
+    private boolean canBind(WebSocketSession ws, String targetPolicy) {
+        boolean consultChannel = SessionExecutionPolicy.isConsultReadonly(
+                SessionExecutionPolicy.forWebSocket(ws.getUri()));
+        if (consultChannel && !SessionExecutionPolicy.isConsultReadonly(targetPolicy)) {
+            sendError(ws, 0, "SESSION_FORBIDDEN", "业务咨询通道只能访问业务咨询会话");
+            return false;
+        }
+        return true;
     }
 
     private static void sleep(long ms) {
@@ -1184,6 +1265,8 @@ public class ClaudeChatService {
         final Set<WebSocketSession> viewers = ConcurrentHashMap.newKeySet();
         /** 会话权限模式，默认 default；切换后随下一轮 send 透传给 sidecar。 */
         volatile String mode = "default";
+        /** 服务端执行能力边界；咨询只读策略优先于 mode，且会随持久化恢复。 */
+        volatile String executionPolicy = SessionExecutionPolicy.STANDARD;
         /**
          * 「弹窗自动允许」兜底开关。服务端持有是关键：它以前是纯前端 useEffect 自动点「允许」，
          * 用户切走页面（组件卸载/浏览器后台节流）就失效，请求挂到超时 deny 或撞上中断变成

@@ -1,0 +1,377 @@
+{
+  "schemaVersion": 1,
+  "generatedFrom": "frontend/src/features/*/index.tsx",
+  "permissions": [
+    {
+      "featureId": "projects",
+      "code": "menu:projects",
+      "name": "项目管理",
+      "module": "系统",
+      "sort": 5
+    },
+    {
+      "featureId": "config-center",
+      "code": "menu:config-center",
+      "name": "配置中心",
+      "module": "系统",
+      "sort": 6
+    },
+    {
+      "featureId": "ops",
+      "code": "menu:ops",
+      "name": "系统与中间件",
+      "module": "系统",
+      "sort": 6
+    },
+    {
+      "featureId": "account-admin",
+      "code": "menu:account-admin",
+      "name": "账号管理",
+      "module": "系统",
+      "sort": 7
+    },
+    {
+      "featureId": "forge-department",
+      "code": "forge:dept:menu",
+      "name": "部门管理",
+      "module": "forge-department",
+      "sort": 8
+    },
+    {
+      "featureId": "forge-role",
+      "code": "forge:role:menu",
+      "name": "角色管理",
+      "module": "forge-role",
+      "sort": 9
+    },
+    {
+      "featureId": "treesize",
+      "code": "menu:treesize",
+      "name": "磁盘空间分析",
+      "module": "系统",
+      "sort": 10
+    },
+    {
+      "featureId": "task-center",
+      "code": "menu:task-center",
+      "name": "任务中心",
+      "module": "系统",
+      "sort": 18
+    },
+    {
+      "featureId": "flatten",
+      "code": "menu:flatten",
+      "name": "目录扁平化",
+      "module": "系统",
+      "sort": 20
+    },
+    {
+      "featureId": "lan-share",
+      "code": "menu:lan-share",
+      "name": "局域网文件传输",
+      "module": "网络",
+      "sort": 20
+    },
+    {
+      "featureId": "video-library",
+      "code": "menu:video-library",
+      "name": "视频库",
+      "module": "媒体",
+      "sort": 20
+    },
+    {
+      "featureId": "ffmpeg-lab",
+      "code": "menu:ffmpeg-lab",
+      "name": "FFmpeg 转码实验台",
+      "module": "媒体",
+      "sort": 21
+    },
+    {
+      "featureId": "video-condense",
+      "code": "menu:video-condense",
+      "name": "视频智能变速",
+      "module": "媒体",
+      "sort": 22
+    },
+    {
+      "featureId": "downloader",
+      "code": "menu:downloader",
+      "name": "智能加速下载器",
+      "module": "网络",
+      "sort": 25
+    },
+    {
+      "featureId": "port-process",
+      "code": "menu:port-process",
+      "name": "端口进程查询",
+      "module": "系统",
+      "sort": 25
+    },
+    {
+      "featureId": "resume",
+      "code": "menu:resume",
+      "name": "个人简历",
+      "module": "内容",
+      "sort": 25
+    },
+    {
+      "featureId": "magnet",
+      "code": "menu:magnet",
+      "name": "磁力 / BT 下载",
+      "module": "网络",
+      "sort": 26
+    },
+    {
+      "featureId": "workline",
+      "code": "menu:workline",
+      "name": "工作线",
+      "module": "内容",
+      "sort": 26
+    },
+    {
+      "featureId": "hosts",
+      "code": "menu:hosts",
+      "name": "主机管理",
+      "module": "运维",
+      "sort": 30
+    },
+    {
+      "featureId": "mail",
+      "code": "menu:mail",
+      "name": "收件箱",
+      "module": "网络",
+      "sort": 30
+    },
+    {
+      "featureId": "markdown-card",
+      "code": "menu:markdown-card",
+      "name": "Markdown 转卡片",
+      "module": "内容",
+      "sort": 30
+    },
+    {
+      "featureId": "visitor-analysis",
+      "code": "menu:visitor-analysis",
+      "name": "访客分析",
+      "module": "智能体",
+      "sort": 30
+    },
+    {
+      "featureId": "webterm",
+      "code": "menu:webterm",
+      "name": "Web 终端",
+      "module": "系统",
+      "sort": 30
+    },
+    {
+      "featureId": "docker",
+      "code": "menu:docker",
+      "name": "Docker 治理",
+      "module": "运维",
+      "sort": 35
+    },
+    {
+      "featureId": "frp-config",
+      "code": "menu:frp-config",
+      "name": "frp 可视化配置",
+      "module": "运维",
+      "sort": 35
+    },
+    {
+      "featureId": "image-mosaic",
+      "code": "menu:image-mosaic",
+      "name": "图片打码",
+      "module": "内容",
+      "sort": 35
+    },
+    {
+      "featureId": "wechat",
+      "code": "menu:wechat",
+      "name": "微信监控",
+      "module": "效率",
+      "sort": 35
+    },
+    {
+      "featureId": "ai-secretary",
+      "code": "menu:ai-secretary",
+      "name": "AI 秘书",
+      "module": "内容",
+      "sort": 36
+    },
+    {
+      "featureId": "crypto",
+      "code": "menu:crypto",
+      "name": "加解密工具",
+      "module": "内容",
+      "sort": 40
+    },
+    {
+      "featureId": "vscode-tunnel",
+      "code": "menu:vscode-tunnel",
+      "name": "VS Code Tunnel",
+      "module": "系统",
+      "sort": 40
+    },
+    {
+      "featureId": "qrcode",
+      "code": "menu:qrcode",
+      "name": "二维码工具",
+      "module": "内容",
+      "sort": 45
+    },
+    {
+      "featureId": "delivery-center",
+      "code": "menu:delivery-center",
+      "name": "AI 交付中心",
+      "module": "AI",
+      "sort": 49
+    },
+    {
+      "featureId": "claude-chat",
+      "code": "menu:claude-chat",
+      "name": "Vibe Coding",
+      "module": "AI",
+      "sort": 50
+    },
+    {
+      "featureId": "formatter",
+      "code": "menu:formatter",
+      "name": "格式化工具",
+      "module": "内容",
+      "sort": 50
+    },
+    {
+      "featureId": "media-parser",
+      "code": "menu:media-parser",
+      "name": "媒体解析",
+      "module": "网络",
+      "sort": 50
+    },
+    {
+      "featureId": "ai-chat",
+      "code": "menu:ai-chat",
+      "name": "AI 对话",
+      "module": "AI",
+      "sort": 51
+    },
+    {
+      "featureId": "erp-dev",
+      "code": "menu:erp-dev",
+      "name": "ERP",
+      "module": "项目开发",
+      "sort": 51
+    },
+    {
+      "featureId": "project-workspace",
+      "code": "menu:project-workspace",
+      "name": "项目工作台",
+      "module": "AI",
+      "sort": 51
+    },
+    {
+      "featureId": "kai-dev",
+      "code": "menu:kai-dev",
+      "name": "Forge",
+      "module": "项目开发",
+      "sort": 52
+    },
+    {
+      "featureId": "reqpool",
+      "code": "menu:reqpool",
+      "name": "Requirements",
+      "module": "AI",
+      "sort": 53
+    },
+    {
+      "featureId": "srm-dev",
+      "code": "menu:srm-dev",
+      "name": "SRM",
+      "module": "项目开发",
+      "sort": 54
+    },
+    {
+      "featureId": "browser-request",
+      "code": "menu:browser-request",
+      "name": "站点录制编排",
+      "module": "网络",
+      "sort": 55
+    },
+    {
+      "featureId": "prd-clarify",
+      "code": "menu:prd-clarify",
+      "name": "PRD 澄清助手",
+      "module": "AI",
+      "sort": 55
+    },
+    {
+      "featureId": "scm-dev",
+      "code": "menu:scm-dev",
+      "name": "SCM",
+      "module": "项目开发",
+      "sort": 55
+    },
+    {
+      "featureId": "fore-consult",
+      "code": "menu:fore-consult",
+      "name": "业务系统咨询",
+      "module": "AI",
+      "sort": 56
+    },
+    {
+      "featureId": "eval",
+      "code": "menu:eval",
+      "name": "回归评测",
+      "module": "AI",
+      "sort": 57
+    },
+    {
+      "featureId": "new-devmodule",
+      "code": "menu:new-devmodule",
+      "name": "新增模块",
+      "module": "项目开发",
+      "sort": 59
+    },
+    {
+      "featureId": "doc-viewer",
+      "code": "menu:doc-viewer",
+      "name": "Markdown 文档浏览器",
+      "module": "参考",
+      "sort": 60
+    },
+    {
+      "featureId": "architecture",
+      "code": "menu:architecture",
+      "name": "实现原理",
+      "module": "参考",
+      "sort": 61
+    },
+    {
+      "featureId": "llm-monitor",
+      "code": "menu:llm-monitor",
+      "name": "LLM 监控",
+      "module": "运维",
+      "sort": 62
+    },
+    {
+      "featureId": "welfare-sign",
+      "code": "menu:welfare-sign",
+      "name": "福利签收",
+      "module": "企业",
+      "sort": 64
+    },
+    {
+      "featureId": "java8gu",
+      "code": "menu:java8gu",
+      "name": "Java 八股·卡片回顾",
+      "module": "参考",
+      "sort": 65
+    },
+    {
+      "featureId": "webppt",
+      "code": "menu:webppt",
+      "name": "WebPPT 风格中心",
+      "module": "内容",
+      "sort": 70
+    }
+  ]
+}

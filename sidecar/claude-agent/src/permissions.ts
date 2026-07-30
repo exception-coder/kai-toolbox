@@ -19,6 +19,21 @@ const DEMO_FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', '
 /** demo 唯一放行的数据工具（in-process MCP，受后端表白名单二次把关）。 */
 const DEMO_DB_TOOL = 'mcp__welfare_db__exec'
 
+/** 业务咨询只读策略：内置工具只开放读能力；MCP 也必须命中明确的只读白名单。 */
+const CONSULT_READ_TOOLS = new Set(['Read', 'Glob', 'Grep'])
+const CONSULT_READONLY_MCP_TOOLS = new Set([
+  'mcp__erp_db__query',
+  'mcp__srm_db__query',
+  'mcp__scm_db__query',
+  'mcp__consult-readonly__erp_db_query',
+  'mcp__consult-readonly__srm_db_query',
+  'mcp__consult-readonly__scm_db_query',
+])
+const CONSULT_READONLY_MCP_PREFIXES = [
+  'mcp__domain-knowledge__',
+  'mcp__cross-topology__',
+]
+
 /**
  * 单会话的权限/提问交互。绑定到 query() 的 canUseTool 回调：
  * Claude 要用工具或调用 AskUserQuestion 时暂停，发结构化请求给 Java，阻塞等决策回灌。
@@ -29,6 +44,8 @@ export class Permissions {
   private readonly timeoutMs: number
   /** 当前会话权限模式，由 SessionManager 同步；canUseTool 据此决定是否自动放行。 */
   private mode = 'default'
+  /** 服务端下发的能力边界；consult-readonly 优先于 mode/autoApprove，不能被前端放宽。 */
+  private toolPolicy = 'default'
   /**
    * 「弹窗自动允许」兜底开关，与 mode 相互独立。
    *
@@ -51,6 +68,10 @@ export class Permissions {
   /** 同步会话权限模式（运行中切换下一次工具调用即生效）。 */
   setMode(mode: string): void {
     this.mode = mode || 'default'
+  }
+
+  setToolPolicy(policy: string): void {
+    this.toolPolicy = policy === 'consult-readonly' ? 'consult-readonly' : 'default'
   }
 
   /** 同步「弹窗自动允许」兜底开关（运行中切换下一次工具调用即生效）。 */
@@ -85,6 +106,18 @@ export class Permissions {
     return abs === this.allowRoot || abs.startsWith(this.allowRoot + sep)
   }
 
+  private consultReadonlyDecision(toolName: string, input: Record<string, unknown>): Record<string, unknown> {
+    if (CONSULT_READ_TOOLS.has(toolName)
+      || CONSULT_READONLY_MCP_TOOLS.has(toolName)
+      || CONSULT_READONLY_MCP_PREFIXES.some(prefix => toolName.startsWith(prefix))) {
+      return { behavior: 'allow', updatedInput: input }
+    }
+    return {
+      behavior: 'deny',
+      message: `业务咨询为只读会话，禁止调用写入或命令工具：${toolName}`,
+    }
+  }
+
   // 传给 query({ options: { canUseTool } })
   canUseTool = async (
     toolName: string,
@@ -95,6 +128,10 @@ export class Permissions {
     // AskUserQuestion 例外——必须让用户作答，走下方正常「发 questionRequest + 等决策回灌」路径。
     if (this.demo && toolName !== 'AskUserQuestion') {
       return this.demoDecision(toolName, input)
+    }
+    // 服务端硬策略优先于 bypassPermissions/autoApprove。AskUserQuestion 仍走正常问答交互。
+    if (this.toolPolicy === 'consult-readonly' && toolName !== 'AskUserQuestion') {
+      return this.consultReadonlyDecision(toolName, input)
     }
     // 权限模式自动放行：AskUserQuestion 永远要弹（用户必须作答），其余按当前模式。
     // SDK 一旦提供 canUseTool 就对每个工具调用触发它，permissionMode 不会绕过本回调，

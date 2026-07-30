@@ -64,6 +64,15 @@ export default manifest
 
 `shell/featureRegistry.ts` 用 Vite 的 `import.meta.glob('../features/*/index.tsx', { eager: true })` 自动收集，按 `order` 排序。新增工具只需新建目录 + 写 manifest，不需要改任何路由表。
 
+菜单 RBAC 也以这份 manifest 为事实源。`frontend/scripts/generate-feature-permissions.mjs` 在 `npm run dev` /
+`npm run build` 前读取所有 manifest，排除 `hidden:true` 与 `layout:'showcase'`，并生成
+`frontend/public/feature-menu-permissions.json`。普通工具默认得到 `menu:<id>`，显式
+`requiredPermission` 则沿用该权限码。生产构建会把目录复制到 `classpath:/static/`，后端
+`MenuPermissions` 启动时加载目录，再由 `PermissionRegistryService` 幂等同步数据库。
+
+因此新增、改名、换组、调整排序或删除菜单时，**只修改 FeatureManifest**；不要再维护 Java 菜单清单。
+`npm run feature-catalog:check` 会检查生成目录是否与 manifest 一致。
+
 ### 后端 ToolDescriptor（可选）
 
 后端依然提供 `ToolDescriptor` 接口 + `GET /api/tools`，留作未来跨工具的服务端发现机制（例如某个工具需要列出其他工具的状态）。**当前前端不依赖此接口**——后端宕机不影响菜单显示。
