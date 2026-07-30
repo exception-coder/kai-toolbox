@@ -185,7 +185,6 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
           exhausted={chat.historyExhausted}
           onFork={chat.forkSession}
           engineLabel={engineLabel}
-          onResumeCurrent={chat.resumeCurrent}
           onCleanRetry={chat.cleanRetry}
           turnTokens={chat.turnTokens}
           connState={chat.state}

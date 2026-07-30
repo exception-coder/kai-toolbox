@@ -26,7 +26,6 @@ interface Props {
   onFork?: (sdkUuid: string) => void
   /** 引擎展示名（Claude / Codex），用于「正在思考」文案 */
   engineLabel?: string
-  onResumeCurrent?: () => void
   /** QUERY_FAILED/No conversation found 时在同目录新建会话。 */
   onNewSession?: () => void
   /** 清理异常并继续：坏 thinking 块等毒化会话、每轮都报错时，分叉到出错前并续上。 */
@@ -109,7 +108,7 @@ const LIST_COMPONENTS = { Header: ListHeader, Footer: ListFooter }
  * - 跳到指定消息：scrollToIndex，配合 highlightedId 做短暂高亮（不再依赖 DOM 查询）。
  */
 export const MessageList = forwardRef<MessageListHandle, Props>(function MessageList(
-  { items, running, onLoadEarlier, loadingEarlier, exhausted, onFork, engineLabel = 'Claude', onResumeCurrent, onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey },
+  { items, running, onLoadEarlier, loadingEarlier, exhausted, onFork, engineLabel = 'Claude', onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey },
   ref,
 ) {
   // 是否存在可分叉的用户消息（有 sdkUuid），供错误行的「清理异常并继续」判断可用性
@@ -208,12 +207,12 @@ export const MessageList = forwardRef<MessageListHandle, Props>(function Message
 
   const itemContent = useCallback((_index: number, item: ChatItem) => (
     <div data-msg-id={item.id} className={cn('px-3 pb-3', item.id === highlightedId && 'kai-msg-flash rounded-2xl')}>
-      <Row item={item} onFork={onFork} engineLabel={engineLabel} onResumeCurrent={onResumeCurrent} onNewSession={onNewSession}
+      <Row item={item} onFork={onFork} engineLabel={engineLabel} onNewSession={onNewSession}
         onCleanRetry={hasForkTarget ? onCleanRetry : undefined}
         onOpenImage={(src, alt) => setViewer({ src, alt })}
         turnText={item.kind === 'result' ? turnTextByResultId.get(item.id) : undefined} />
     </div>
-  ), [highlightedId, onFork, engineLabel, onResumeCurrent, onNewSession, onCleanRetry, hasForkTarget, turnTextByResultId])
+  ), [highlightedId, onFork, engineLabel, onNewSession, onCleanRetry, hasForkTarget, turnTextByResultId])
 
   // 高频变化值走 context（见 ListHeader/ListFooter 顶部注释），LIST_COMPONENTS 引用永远不变。
   const listContext: ListContext = { loadingEarlier: !!loadingEarlier, exhausted: !!exhausted, itemCount: visibleItems.length, running, engineLabel, turnTokens, connState }
@@ -406,7 +405,7 @@ function TurnStatus({ item, turnText }: { item: Extract<ChatItem, { kind: 'resul
   )
 }
 
-function Row({ item, onFork, engineLabel, onResumeCurrent, onNewSession, onCleanRetry, onOpenImage, turnText }: { item: ChatItem; onFork?: (sdkUuid: string) => void; engineLabel?: string; onResumeCurrent?: () => void; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string }) {
+function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText }: { item: ChatItem; onFork?: (sdkUuid: string) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string }) {
   // displayText：Forge 机器人等「seed 转发」场景会隐藏实际发给 agent 的完整门控样板文案，只显示用户
   // 真正输入的那句话；保留一个不打眼的展开入口，避免完全不可见（可回看到底发了什么）。仅 'user' 项用到，
   // 但 Hooks 规则要求无条件调用，放在 switch 之外（对其它 kind 是无副作用的多余 state，可忽略）。
@@ -566,17 +565,7 @@ function Row({ item, onFork, engineLabel, onResumeCurrent, onNewSession, onClean
             >
               清理异常并继续
             </button>
-          ) : (
-            onResumeCurrent && (
-              <button
-                type="button"
-                onClick={onResumeCurrent}
-                className="shrink-0 rounded-md border border-amber-300 bg-[var(--color-background)] px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:text-amber-200 dark:hover:bg-amber-900"
-              >
-                原地 resume
-              </button>
-            )
-          )}
+          ) : null}
         </div>
       )
     }
