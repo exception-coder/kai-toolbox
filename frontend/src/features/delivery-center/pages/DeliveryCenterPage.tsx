@@ -11,7 +11,9 @@ import { DeliveryStatusStrip } from '../components/DeliveryStatusStrip'
 import { ProjectRail } from '../components/ProjectRail'
 import { PrdDraftDialog } from '../components/PrdDraftDialog'
 import { FeishuRequirementImportDialog } from '../components/FeishuRequirementImportDialog'
+import { DeliveryStageDialog } from '../components/DeliveryStageDialog'
 import { buildProjects, findingsForRequirement } from '../viewModel'
+import type { DeliveryRequirement, DeliveryStageKey } from '../types'
 
 export function DeliveryCenterPage() {
   const navigate = useNavigate()
@@ -20,6 +22,10 @@ export function DeliveryCenterPage() {
   const [query, setQuery] = useState('')
   const [draftOpen, setDraftOpen] = useState(false)
   const [feishuOpen, setFeishuOpen] = useState(false)
+  const [stageDialog, setStageDialog] = useState<{
+    requirement: DeliveryRequirement
+    stage: DeliveryStageKey
+  } | null>(null)
   const [importedDraft, setImportedDraft] = useState<{
     title: string
     businessFields: PrdBusinessFields
@@ -132,8 +138,27 @@ export function DeliveryCenterPage() {
               onQueryChange={setQuery}
               selectedId={selectedId}
               onSelect={setSelectedId}
+              onStageSelect={(requirement, stage) => {
+                setSelectedId(requirement.id)
+                if (stage === 'code' && requirement.links.development) {
+                  navigate(requirement.links.development)
+                  return
+                }
+                setStageDialog({ requirement, stage })
+              }}
             />
-            <AiInspector requirement={selected} findings={selectedFindings} />
+            <AiInspector
+              requirement={selected}
+              findings={selectedFindings}
+              onStageSelect={stage => {
+                if (!selected) return
+                if (stage === 'code' && selected.links.development) {
+                  navigate(selected.links.development)
+                  return
+                }
+                setStageDialog({ requirement: selected, stage })
+              }}
+            />
           </main>
         )}
       </div>
@@ -157,6 +182,13 @@ export function DeliveryCenterPage() {
             setFeishuOpen(false)
             setDraftOpen(true)
           }}
+        />
+      )}
+      {stageDialog && (
+        <DeliveryStageDialog
+          requirement={stageDialog.requirement}
+          stage={stageDialog.stage}
+          onClose={() => setStageDialog(null)}
         />
       )}
     </div>

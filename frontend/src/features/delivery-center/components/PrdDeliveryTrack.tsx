@@ -1,6 +1,6 @@
 import { AlertTriangle, Check, CircleDashed, CircleDot, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { DeliveryFinding, DeliveryRequirement, StageStatus } from '../types'
+import type { DeliveryFinding, DeliveryRequirement, DeliveryStageKey, StageStatus } from '../types'
 import { requirementProgress } from '../viewModel'
 
 interface Props {
@@ -8,26 +8,31 @@ interface Props {
   findings: DeliveryFinding[]
   selected: boolean
   onSelect: () => void
+  onStageSelect: (stage: DeliveryStageKey) => void
 }
 
-export function PrdDeliveryTrack({ requirement, findings, selected, onSelect }: Props) {
+export function PrdDeliveryTrack({ requirement, findings, selected, onSelect, onStageSelect }: Props) {
   const progress = requirementProgress(requirement)
   const stages = [
-    ['PRD 草稿', requirement.stages.prdDraft.status, requirement.stages.prdDraft.score],
-    ['PRD 澄清', requirement.stages.prdClarify.status, requirement.stages.prdClarify.score],
-    ['PRD', requirement.stages.prd.status, requirement.stages.prd.score],
-    ['TDD 澄清', requirement.stages.tddClarify.status, requirement.stages.tddClarify.score],
-    ['TDD', requirement.stages.tdd.status, requirement.stages.tdd.score],
-    ['Code', requirement.stages.code.status, requirement.stages.code.score],
-    ['Test', requirement.stages.test.status, requirement.stages.test.score],
-    ['Runtime', requirement.stages.runtime.status, requirement.stages.runtime.score],
+    ['prdDraft', 'PRD 草稿', requirement.stages.prdDraft.status, requirement.stages.prdDraft.score],
+    ['prdClarify', 'PRD 澄清', requirement.stages.prdClarify.status, requirement.stages.prdClarify.score],
+    ['prd', 'PRD', requirement.stages.prd.status, requirement.stages.prd.score],
+    ['tddClarify', 'TDD 澄清', requirement.stages.tddClarify.status, requirement.stages.tddClarify.score],
+    ['tdd', 'TDD', requirement.stages.tdd.status, requirement.stages.tdd.score],
+    ['code', 'Code', requirement.stages.code.status, requirement.stages.code.score],
+    ['test', 'Test', requirement.stages.test.status, requirement.stages.test.score],
+    ['runtime', 'Runtime', requirement.stages.runtime.status, requirement.stages.runtime.score],
   ] as const
   const highRisk = findings.filter(item => item.severity === 'HIGH').length
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
+      onKeyDown={event => {
+        if (event.key === 'Enter' || event.key === ' ') onSelect()
+      }}
       className={cn(
         'group relative w-full px-3 py-3 text-left transition-colors',
         selected ? 'bg-[var(--color-primary)]/8' : 'hover:bg-[var(--color-muted)]/55',
@@ -51,10 +56,15 @@ export function PrdDeliveryTrack({ requirement, findings, selected, onSelect }: 
             )}
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-x-1 gap-y-1">
-            {stages.map(([label, status, score], index) => (
-              <div key={label} className="flex items-center">
+            {stages.map(([key, label, status, score], index) => (
+              <div key={key} className="flex items-center">
                 {index > 0 && <span className="mx-1 h-px w-3 bg-[var(--color-border)]" />}
-                <StageSignal label={label} status={status} score={score} />
+                <StageSignal
+                  label={label}
+                  status={status}
+                  score={score}
+                  onClick={() => onStageSelect(key)}
+                />
               </div>
             ))}
           </div>
@@ -72,11 +82,21 @@ export function PrdDeliveryTrack({ requirement, findings, selected, onSelect }: 
           </div>
         </div>
       </div>
-    </button>
+    </div>
   )
 }
 
-function StageSignal({ label, status, score }: { label: string; status: StageStatus; score: number | null }) {
+function StageSignal({
+  label,
+  status,
+  score,
+  onClick,
+}: {
+  label: string
+  status: StageStatus
+  score: number | null
+  onClick: () => void
+}) {
   const Icon = status === 'COMPLETE'
     ? Check
     : status === 'MISSING' || status === 'ERROR'
@@ -92,10 +112,22 @@ function StageSignal({ label, status, score }: { label: string; status: StageSta
         ? 'text-[var(--color-warning)]'
         : 'text-[var(--color-muted-foreground)]'
   return (
-    <span className={cn('inline-flex items-center gap-1 text-[9px]', tone)}>
+    <button
+      type="button"
+      onClick={event => {
+        event.stopPropagation()
+        onClick()
+      }}
+      className={cn(
+        'inline-flex items-center gap-1 rounded px-1 py-0.5 text-[9px] outline-none transition-colors',
+        'hover:bg-[var(--color-muted)] focus-visible:ring-1 focus-visible:ring-[var(--color-ring)]',
+        tone,
+      )}
+      title={`打开${label}`}
+    >
       <Icon className="h-2.5 w-2.5" />
       {label}
       {score != null && score < 100 ? ` ${score}%` : ''}
-    </span>
+    </button>
   )
 }

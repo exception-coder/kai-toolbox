@@ -1,13 +1,14 @@
 import { ArrowUpRight, BrainCircuit, Check, Clock3, CircleDashed, TriangleAlert, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import type { DeliveryFinding, DeliveryRequirement, ProgressItem, StageStatus } from '../types'
+import type { DeliveryFinding, DeliveryRequirement, DeliveryStageKey, ProgressItem, StageStatus } from '../types'
 
 interface Props {
   requirement: DeliveryRequirement | null
   findings: DeliveryFinding[]
+  onStageSelect: (stage: DeliveryStageKey) => void
 }
 
-export function AiInspector({ requirement, findings }: Props) {
+export function AiInspector({ requirement, findings, onStageSelect }: Props) {
   const navigate = useNavigate()
   if (!requirement) {
     return (
@@ -21,14 +22,14 @@ export function AiInspector({ requirement, findings }: Props) {
   }
 
   const stages = [
-    ['PRD 草稿', requirement.stages.prdDraft.status, requirement.stages.prdDraft.score],
-    ['PRD 澄清', requirement.stages.prdClarify.status, requirement.stages.prdClarify.score],
-    ['PRD', requirement.stages.prd.status, requirement.stages.prd.score],
-    ['TDD 澄清', requirement.stages.tddClarify.status, requirement.stages.tddClarify.score],
-    ['TDD', requirement.stages.tdd.status, requirement.stages.tdd.score],
-    ['Code', requirement.stages.code.status, requirement.stages.code.score],
-    ['Test', requirement.stages.test.status, requirement.stages.test.score],
-    ['Runtime', requirement.stages.runtime.status, requirement.stages.runtime.score],
+    ['prdDraft', 'PRD 草稿', requirement.stages.prdDraft.status, requirement.stages.prdDraft.score],
+    ['prdClarify', 'PRD 澄清', requirement.stages.prdClarify.status, requirement.stages.prdClarify.score],
+    ['prd', 'PRD', requirement.stages.prd.status, requirement.stages.prd.score],
+    ['tddClarify', 'TDD 澄清', requirement.stages.tddClarify.status, requirement.stages.tddClarify.score],
+    ['tdd', 'TDD', requirement.stages.tdd.status, requirement.stages.tdd.score],
+    ['code', 'Code', requirement.stages.code.status, requirement.stages.code.score],
+    ['test', 'Test', requirement.stages.test.status, requirement.stages.test.score],
+    ['runtime', 'Runtime', requirement.stages.runtime.status, requirement.stages.runtime.score],
   ] as const
   const comparisonItems = [
     ...requirement.progressItems.missing,
@@ -54,10 +55,10 @@ export function AiInspector({ requirement, findings }: Props) {
           <Clock3 className="h-2.5 w-2.5" />更新于 {formatTime(requirement.updatedAt)} · 可信度 {requirement.confidence}%
         </div>
         <div className="mt-4 flex items-center">
-          {stages.map(([label, status, score], index) => (
-            <div key={label} className="flex min-w-0 flex-1 items-center">
+          {stages.map(([key, label, status, score], index) => (
+            <div key={key} className="flex min-w-0 flex-1 items-center">
               {index > 0 && <span className="h-px flex-1 bg-[var(--color-border)]" />}
-              <InspectorStage label={label} status={status} score={score} />
+              <InspectorStage label={label} status={status} score={score} onClick={() => onStageSelect(key)} />
             </div>
           ))}
         </div>
@@ -134,7 +135,17 @@ export function AiInspector({ requirement, findings }: Props) {
   )
 }
 
-function InspectorStage({ label, status, score }: { label: string; status: StageStatus; score: number | null }) {
+function InspectorStage({
+  label,
+  status,
+  score,
+  onClick,
+}: {
+  label: string
+  status: StageStatus
+  score: number | null
+  onClick: () => void
+}) {
   const Icon = status === 'COMPLETE' ? Check : status === 'MISSING' || status === 'ERROR' ? X : CircleDashed
   const tone = status === 'COMPLETE'
     ? 'text-[var(--color-success)]'
@@ -144,11 +155,16 @@ function InspectorStage({ label, status, score }: { label: string; status: Stage
         ? 'text-[var(--color-warning)]'
         : 'text-[var(--color-muted-foreground)]'
   return (
-    <div className={`shrink-0 text-center ${tone}`}>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`shrink-0 rounded px-0.5 py-1 text-center outline-none hover:bg-[var(--color-muted)] focus-visible:ring-1 focus-visible:ring-[var(--color-ring)] ${tone}`}
+      title={`打开${label}`}
+    >
       <Icon className="mx-auto h-3 w-3" />
       <div className="mt-1 text-[8px]">{label}</div>
       <div className="text-[8px]">{score == null ? '—' : `${score}%`}</div>
-    </div>
+    </button>
   )
 }
 

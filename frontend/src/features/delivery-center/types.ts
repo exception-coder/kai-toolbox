@@ -6,6 +6,16 @@ export type StageStatus =
   | 'UNAVAILABLE'
   | 'ERROR'
 
+export type DeliveryStageKey =
+  | 'prdDraft'
+  | 'prdClarify'
+  | 'prd'
+  | 'tddClarify'
+  | 'tdd'
+  | 'code'
+  | 'test'
+  | 'runtime'
+
 export type FindingSeverity = 'HIGH' | 'MEDIUM' | 'LOW'
 
 export interface DeliverySummary {

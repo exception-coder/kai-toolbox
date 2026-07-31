@@ -1,5 +1,5 @@
 import { AlertTriangle, Boxes, Search } from 'lucide-react'
-import type { DeliveryFinding, DeliveryRequirement } from '../types'
+import type { DeliveryFinding, DeliveryRequirement, DeliveryStageKey } from '../types'
 import { buildModules, findingsForRequirement } from '../viewModel'
 import { PrdDeliveryTrack } from './PrdDeliveryTrack'
 
@@ -11,6 +11,7 @@ interface Props {
   onQueryChange: (value: string) => void
   selectedId: string | null
   onSelect: (id: string) => void
+  onStageSelect: (requirement: DeliveryRequirement, stage: DeliveryStageKey) => void
 }
 
 export function DeliveryCanvas({
@@ -21,6 +22,7 @@ export function DeliveryCanvas({
   onQueryChange,
   selectedId,
   onSelect,
+  onStageSelect,
 }: Props) {
   const normalizedQuery = query.trim().toLocaleLowerCase('zh-CN')
   const filtered = normalizedQuery
@@ -83,6 +85,7 @@ export function DeliveryCanvas({
                       findings={findingsForRequirement(findings, requirement.id)}
                       selected={selectedId === requirement.id}
                       onSelect={() => onSelect(requirement.id)}
+                      onStageSelect={stage => onStageSelect(requirement, stage)}
                     />
                   ))}
                 </div>

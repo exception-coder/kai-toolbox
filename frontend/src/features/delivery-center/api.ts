@@ -50,7 +50,11 @@ export function suggestPrdTitle(project: string, module: string, rawInput: strin
 export function createPrdDraft(request: CreatePrdDraftRequest) {
   return http<{ id: string }>('/prd-clarify/sessions', {
     method: 'POST',
-    body: JSON.stringify({ ...request, role: 'PRODUCT' }),
+    body: JSON.stringify({
+      ...request,
+      role: 'BUSINESS',
+      clarifyMode: 'batch',
+    }),
   })
 }
 
