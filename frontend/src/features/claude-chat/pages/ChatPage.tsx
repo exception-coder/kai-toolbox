@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Send, Server, Settings, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
+import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Send, Server, Settings, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -35,6 +35,7 @@ import { ProviderSwitch } from '../components/ProviderSwitch'
 import { CodexSessionOptions } from '../components/CodexSessionOptions'
 import { SlashCommandMenu } from '../components/SlashCommandMenu'
 import { CommandMenu } from '../components/CommandMenu'
+import { ProjectMentionButton, ProjectMentionMenu, useProjectMention } from '../components/ProjectMention'
 import { PluginPanel } from '../components/PluginPanel'
 import { LogsPanel } from '../components/LogsPanel'
 import { GestureDebugPanel } from '../components/GestureDebugPanel'
@@ -61,6 +62,7 @@ import { PrdLinkPanel } from '../components/PrdLinkPanel'
 import { PrdAttachPanel } from '../components/PrdAttachPanel'
 import { getSessionByDevSession } from '@/features/prd-clarify/api'
 import type { PrdSessionView } from '@/features/prd-clarify/types'
+import { countPrdReferenceDocuments, uploadPrdReference } from '../lib/prdReference'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
 
@@ -219,12 +221,6 @@ export function ChatPage() {
   const [menuGroup, setMenuGroup] = useState<'view' | 'session' | 'workspace' | 'system' | null>(null)
   const [restartOpen, setRestartOpen] = useState(false)
   const openRestart = () => setRestartOpen(true)
-
-  // 「弹窗自动允许」由 useClaudeChatSocket 统一持有：开关经 WS 落到服务端，放行在 sidecar 内同步完成。
-  // 以前是这里用 useEffect「收到权限框就自动 decide(allow)」，页面一切走（组件卸载/浏览器后台节流）
-  // 就不再自动放行，请求挂到超时 deny，撞上中断/sidecar 重建则变成 CLI 的 stream closed。
-  const autoApprove = chat?.autoApprove ?? false
-  const toggleAutoApprove = () => chat?.setAutoApprove(!autoApprove)
 
   // 弹出悬浮窗：开启浮窗并离开会话页（浮窗与全屏页互斥渲染）。回到进入会话页前最后访问的页面，而非每次回首页。
   const popOutFloating = () => {
@@ -498,6 +494,20 @@ export function ChatPage() {
   const [fullscreen, setFullscreen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
+  const handlePrdMention = useCallback(async (prdSession: PrdSessionView) => {
+    if (!chat?.sessionId) throw new Error('请先创建或打开会话')
+    const required = countPrdReferenceDocuments(prdSession)
+    const available = MAX_ATTACHMENTS - attachments.length - uploading
+    if (required > available) throw new Error(`引用该 PRD 需要 ${required} 个附件名额，当前仅剩 ${Math.max(available, 0)} 个`)
+    setUploading(count => count + required)
+    try {
+      const added = await uploadPrdReference(chat.sessionId, prdSession)
+      setAttachments(current => [...current, ...added])
+    } finally {
+      setUploading(count => count - required)
+    }
+  }, [attachments.length, chat?.sessionId, setAttachments, uploading])
+  const projectMention = useProjectMention(draft, setDraft, taRef, { onPickPrd: handlePrdMention })
   const engineWatermark = useRef<Record<string, number>>({}) // 每引擎"上次看到的消息位置"，切 agent 时算增量 seed
 
   // 新建会话：网关模型按平台分组 + 平台二级筛选（网关动辄上百个，平铺难选）
@@ -1455,20 +1465,6 @@ export function ChatPage() {
                 onOptionsChange={chat.setCodexOptions}
               />
             )}
-            {chat.mode === 'bypassPermissions' && (
-              <button
-                type="button"
-                onClick={toggleAutoApprove}
-                title="全自动下：弹出的权限框自动点「允许」（仅权限框；AskUserQuestion 提问不自动应答）"
-                aria-label="弹窗自动允许开关"
-                className={'flex items-center gap-1 rounded-md border px-2 py-1 text-xs '
-                  + (autoApprove
-                    ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                    : 'text-[var(--color-muted-foreground)]')}
-              >
-                <ShieldCheck className="size-3.5" /> 弹窗自动允许·{autoApprove ? '开' : '关'}
-              </button>
-            )}
             {/* 服务商切换与权限组语义不同：用左外边距推到右侧，避免和权限按钮挤在一起 */}
             <div className="ml-auto">
               <ProviderSwitch
@@ -1484,6 +1480,17 @@ export function ChatPage() {
           {showSlash && (
             <SlashCommandMenu commands={slashFiltered} activeIndex={slashActive} onPick={pickSlash} />
           )}
+          <ProjectMentionMenu
+            open={projectMention.open}
+            references={projectMention.references}
+            activeIndex={projectMention.activeIndex}
+            loading={projectMention.loading}
+            warning={projectMention.warning}
+            actionError={projectMention.actionError}
+            busyKey={projectMention.busyKey}
+            className="mx-3 mb-1"
+            onPick={reference => { void projectMention.pickReference(reference) }}
+          />
           <div className="flex items-end gap-2 px-3 py-2">
             {/* 微信式「+ 更多功能」：附件 / 指令收纳其中 */}
             <div className="relative">
@@ -1556,6 +1563,14 @@ export function ChatPage() {
                 />
               )}
             </div>
+            <ProjectMentionButton
+              active={projectMention.open}
+              onToggle={() => {
+                setMoreOpen(false)
+                setCmdMenuOpen(false)
+                projectMention.togglePicker()
+              }}
+            />
             <VoiceInputButton
               onText={t => setDraft(d => d.trim() ? `${d} ${t}` : t)}
             />
@@ -1565,9 +1580,14 @@ export function ChatPage() {
               placeholder=""
               rows={1}
               value={draft}
-              onChange={e => { setDraft(e.target.value); setSlashDismissed(false); setSlashIdx(0) }}
+              onChange={e => {
+                projectMention.handleChange(e.target.value, e.target.selectionStart)
+                setSlashDismissed(false)
+                setSlashIdx(0)
+              }}
               onPaste={handlePaste}
               onKeyDown={e => {
+                if (projectMention.handleKeyDown(e)) return
                 // slash 菜单打开时：方向键导航、Enter/Tab 选中、Esc 关闭
                 if (showSlash) {
                   if (e.key === 'ArrowDown') { e.preventDefault(); setSlashIdx(i => (i + 1) % slashFiltered.length); return }

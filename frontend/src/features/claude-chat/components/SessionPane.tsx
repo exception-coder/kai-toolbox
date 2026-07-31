@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, Paperclip, Send, ShieldCheck, Slash, Square, X } from 'lucide-react'
+import { AlertTriangle, Paperclip, Send, Slash, Square, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useClaudeChatSocket } from '../hooks/useClaudeChatSocket'
 import { useDraft } from '../lib/draftPref'
@@ -17,8 +17,11 @@ import { ModeSwitch } from './ModeSwitch'
 import { ProviderSwitch } from './ProviderSwitch'
 import { AttachmentChips } from './AttachmentChips'
 import { VoiceInputButton } from './VoiceInputButton'
+import { ProjectMentionButton, ProjectMentionMenu, useProjectMention } from './ProjectMention'
 import { agentStatusMeta, deriveAgentStatus, engineDisplayName, providerHost, type AgentStatus } from './chatStatus'
 import { ProviderDiagPanel } from './ProviderDiagPanel'
+import type { PrdSessionView } from '@/features/prd-clarify/types'
+import { countPrdReferenceDocuments, uploadPrdReference } from '../lib/prdReference'
 
 interface Props {
   /** 本块续接的会话 id。 */
@@ -34,8 +37,6 @@ interface Props {
 /** 单条消息最多附件数，与单会话视图、后端约定一致。 */
 const MAX_ATTACHMENTS = 10
 
-/** 「弹窗自动允许」全局开关键，与单会话视图共用，多处同步。 */
-
 function shortCwd(cwd: string): string {
   const i = Math.max(cwd.lastIndexOf('/'), cwd.lastIndexOf('\\'))
   return i >= 0 && i < cwd.length - 1 ? cwd.slice(i + 1) : cwd
@@ -43,7 +44,7 @@ function shortCwd(cwd: string): string {
 
 /**
  * 分屏中的单个 Agent 会话块：自带独立 WS（useClaudeChatSocket 自包含），挂载后续接指定会话，
- * 与其它块**同时并存可交互**（各自发消息/流式回复/图片上传/语音/权限·提问/弹窗自动允许）。
+ * 与其它块**同时并存可交互**（各自发消息/流式回复/图片上传/语音/权限与提问）。
  * 块头按 Agent 区分色染色 + 状态点，报错时顶部红色状态条突出。
  */
 export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
@@ -55,6 +56,20 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
   const [uploading, setUploading] = useState(0)
   const [cmdMenuOpen, setCmdMenuOpen] = useState(false) // 「指令」菜单（命令 + 模型切换）
   const taRef = useRef<HTMLTextAreaElement>(null)
+  const handlePrdMention = useCallback(async (prdSession: PrdSessionView) => {
+    if (!chat.sessionId) throw new Error('请先创建或打开会话')
+    const required = countPrdReferenceDocuments(prdSession)
+    const available = MAX_ATTACHMENTS - attachments.length - uploading
+    if (required > available) throw new Error(`引用该 PRD 需要 ${required} 个附件名额，当前仅剩 ${Math.max(available, 0)} 个`)
+    setUploading(count => count + required)
+    try {
+      const added = await uploadPrdReference(chat.sessionId, prdSession)
+      setAttachments(current => [...current, ...added])
+    } finally {
+      setUploading(count => count - required)
+    }
+  }, [attachments.length, chat.sessionId, setAttachments, uploading])
+  const projectMention = useProjectMention(draft, setDraft, taRef, { onPickPrd: handlePrdMention })
   const fileRef = useRef<HTMLInputElement>(null)
 
   // 标题取自会话列表缓存（与单会话视图共用同一 query 缓存）
@@ -80,11 +95,6 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
     onStatusRef.current({ kind: status.kind, errorText: status.errorText, count: status.count })
   }, [status.kind, status.errorText, status.count])
   const title = meta?.title?.trim() || (meta ? shortCwd(meta.cwd) : sessionId.slice(0, 8))
-
-  // 「弹窗自动允许」由 useClaudeChatSocket 统一持有并同步到服务端，放行在 sidecar 内完成
-  // （原先是本组件 useEffect 自动点「允许」，页面切走就失效）。
-  const autoApprove = chat.autoApprove
-  const toggleAutoApprove = () => chat.setAutoApprove(!autoApprove)
 
   const pending = chat.pending
 
@@ -200,7 +210,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
         compact
       />
 
-      {/* 输入条：附件预览 + 模式/自动允许 + 附件/语音/输入/发送 */}
+      {/* 输入条：附件预览 + 模式 + 附件/语音/输入/发送 */}
       <div className="border-t bg-[var(--color-muted)] px-2 py-1.5">
         <AttachmentChips
           items={attachments}
@@ -213,20 +223,6 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
         />
         <div className="mb-1 flex items-center gap-1">
           <ModeSwitch mode={chat.mode} onChange={chat.setMode} />
-          {chat.mode === 'bypassPermissions' && (
-            <button
-              type="button"
-              onClick={toggleAutoApprove}
-              title="全自动下：弹出的权限框自动点「允许」（仅权限框；AskUserQuestion 提问不自动应答）"
-              aria-label="弹窗自动允许开关"
-              className={'flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] '
-                + (autoApprove
-                  ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                  : 'text-[var(--color-muted-foreground)]')}
-            >
-              <ShieldCheck className="size-3" /> 自动允许·{autoApprove ? '开' : '关'}
-            </button>
-          )}
           {/* 服务商切换与权限组语义不同，推到右侧分开 */}
           <div className="ml-auto">
             <ProviderSwitch
@@ -253,6 +249,17 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
             onPickModel={value => { chat.setModel(value); setCmdMenuOpen(false) }}
           />
         )}
+        <ProjectMentionMenu
+          open={projectMention.open}
+          references={projectMention.references}
+          activeIndex={projectMention.activeIndex}
+          loading={projectMention.loading}
+          warning={projectMention.warning}
+          actionError={projectMention.actionError}
+          busyKey={projectMention.busyKey}
+          className="mb-1"
+          onPick={reference => { void projectMention.pickReference(reference) }}
+        />
         <div className="flex items-end gap-1">
           {/* 附件：label 包 input，保留原生触发（移动端 WebView 不丢手势） */}
           <label
@@ -280,6 +287,14 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
           >
             <Slash className="size-4 text-[var(--color-primary)]" />
           </button>
+          <ProjectMentionButton
+            active={projectMention.open}
+            className="rounded-md border-0"
+            onToggle={() => {
+              setCmdMenuOpen(false)
+              projectMention.togglePicker()
+            }}
+          />
           <VoiceInputButton
             disabled={chat.running}
             onText={t => setDraft(d => d.trim() ? `${d} ${t}` : t)}
@@ -288,13 +303,14 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
             ref={taRef}
             value={draft}
             onChange={e => {
-              setDraft(e.target.value)
+              projectMention.handleChange(e.target.value, e.target.selectionStart)
               const el = e.target
               el.style.height = 'auto'
               el.style.height = `${Math.min(el.scrollHeight, 120)}px`
             }}
             onPaste={handlePaste}
             onKeyDown={e => {
+              if (projectMention.handleKeyDown(e)) return
               if (e.key === 'Enter' && !e.shiftKey) {
                 if (typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches) return // 触屏回车换行
                 e.preventDefault(); if (!chat.running) submit()

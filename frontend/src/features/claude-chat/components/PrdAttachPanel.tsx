@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { FileText, Loader2, Search, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Combobox } from '@/components/ui/combobox'
-import { getContent, getDevDocContent, listSessions } from '@/features/prd-clarify/api'
+import { listSessions } from '@/features/prd-clarify/api'
 import type { PrdSessionView } from '@/features/prd-clarify/types'
+import { createPrdDocumentFile } from '../lib/prdReference'
 
 interface Props {
   /** 选好文档后回调，携带一个包装好文本内容的 File——调用方按普通附件上传路径处理即可。 */
@@ -42,11 +43,7 @@ export function PrdAttachPanel({ onPick, onClose }: Props) {
     setFetching(kind)
     setErr(null)
     try {
-      const content = kind === 'prd' ? await getContent(target.id) : await getDevDocContent(target.id)
-      if (!content.trim()) throw new Error('文档内容为空')
-      const suffix = kind === 'prd' ? 'PRD' : '开发文档'
-      const safeTitle = (target.title || target.id).replace(/[\\/:*?"<>|]/g, '_')
-      const file = new File([content], `${safeTitle}-${suffix}.md`, { type: 'text/markdown' })
+      const file = await createPrdDocumentFile(target, kind)
       onPick(file)
       onClose()
     } catch (e) {

@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Bell, Bug, ChevronDown, ChevronUp, Cloud, Compass, EyeOff, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, LayoutGrid, List, ListChecks, Loader2, Maximize2, MessageSquare, Mic, Minus, MoreHorizontal, Package, Palette, Paperclip, Plus, Rainbow, RotateCw, Send, Server, Settings, Shield, ShieldCheck, Slash, Sparkles, X } from 'lucide-react'
+import { Bell, Bug, ChevronDown, ChevronUp, Cloud, Compass, EyeOff, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, LayoutGrid, List, ListChecks, Loader2, Maximize2, MessageSquare, Mic, Minus, MoreHorizontal, Package, Palette, Paperclip, Plus, Rainbow, RotateCw, Send, Server, Settings, Shield, Slash, Sparkles, X } from 'lucide-react'
 import { CHAT_ROUTE, isChatRoute, useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { isShowcasePath } from '@/shell/featureRegistry'
 import { ThemeMenu } from '@/shell/ThemeMenu'
@@ -15,6 +15,7 @@ import { QuestionDialog } from './QuestionDialog'
 import { AttachmentChips } from './AttachmentChips'
 import { PendingSessionsBanner } from './PendingSessionsBanner'
 import { VoiceInputButton } from './VoiceInputButton'
+import { ProjectMentionButton, ProjectMentionMenu, useProjectMention } from './ProjectMention'
 import { MiniVoiceBar } from './MiniVoiceBar'
 import { LogsPanel } from './LogsPanel'
 import { DebugPanel } from './DebugPanel'
@@ -32,6 +33,8 @@ import { useDraftAttachments } from '../lib/attachmentDraftPref'
 import { getSessionCommitDiff, listSessionCommits, listSessionGitRepos, listSessions, resolveModule, transcribe, uploadAttachment } from '../api'
 import type { ChatItem, ModuleCandidate, PermissionMode } from '../types'
 import { engineDisplayName, providerHost } from './chatStatus'
+import type { PrdSessionView } from '@/features/prd-clarify/types'
+import { countPrdReferenceDocuments, uploadPrdReference } from '../lib/prdReference'
 
 const MAX_ATTACHMENTS = 10
 const MIN_MARGIN = 8
@@ -148,6 +151,23 @@ export function FloatingChatWindow() {
   }, [_isActive])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
+  const handlePrdMention = useCallback(async (prdSession: PrdSessionView) => {
+    if (!chat?.sessionId) throw new Error('请先创建或打开会话')
+    const required = countPrdReferenceDocuments(prdSession)
+    const available = MAX_ATTACHMENTS - attachments.length - uploading
+    if (required > available) throw new Error(`引用该 PRD 需要 ${required} 个附件名额，当前仅剩 ${Math.max(available, 0)} 个`)
+    setUploading(count => count + required)
+    try {
+      const added = await uploadPrdReference(chat.sessionId, prdSession)
+      setAttachments(current => [...current, ...added])
+    } finally {
+      setUploading(count => count - required)
+    }
+  }, [attachments.length, chat?.sessionId, setAttachments, uploading])
+  const projectMention = useProjectMention(draft, setDraft, taRef, {
+    enabled: !demo,
+    onPickPrd: handlePrdMention,
+  })
   const confirm = useConfirm()
   // 模块路由（说一句话去开发某模块）：candidates 为多候选待选；note 为提示文案
   const [routeCands, setRouteCands] = useState<ModuleCandidate[] | null>(null)
@@ -227,12 +247,6 @@ export function FloatingChatWindow() {
   const onShowcase = isShowcasePath(location.pathname)
   // 礼赠助手皮肤：福利签收相关页（含受约束演示）启用，与端午页面同色系。
   const giftMode = location.pathname.startsWith('/tools/welfare-sign') || demo
-
-  // 「弹窗自动允许」由 useClaudeChatSocket 统一持有并同步到服务端，放行在 sidecar 内完成。
-  // 原先浮窗要自己再跑一遍自动放行 effect（因为浮窗态下 ChatPage 已卸载）——这正说明该逻辑
-  // 不该寄生在任意一个视图组件上：只要没有组件挂着，自动允许就失效。
-  const autoApprove = chat?.autoApprove ?? false
-  const toggleAutoApprove = () => chat?.setAutoApprove(!autoApprove)
 
   // 点击循环切换权限模式（下一轮生效，与全屏 ModeSwitch 同语义）
   const cycleMode = () => {
@@ -705,7 +719,7 @@ export function FloatingChatWindow() {
         </div>
       </header>
 
-      {/* 权限模式 + 自动允许：仅完整态、非会话列表（迷你态隐藏，保持简洁）。demo 受约束沙箱无人审批，隐藏。 */}
+      {/* 权限模式：仅完整态、非会话列表（迷你态隐藏，保持简洁）。demo 受约束沙箱无人审批，隐藏。 */}
       {!compact && !showSessions && !demo && (
         <div className="flex items-center gap-2 border-b px-2 py-1.5">
           <button
@@ -718,18 +732,6 @@ export function FloatingChatWindow() {
           >
             <Shield className="size-3.5" /> 权限：{MODE_LABELS[chat.mode]}
           </button>
-          {chat.mode === 'bypassPermissions' && (
-            <button
-              type="button"
-              onClick={toggleAutoApprove}
-              title="全自动下：弹出的权限框自动点「允许」（仅权限框，提问不自动应答）"
-              className={`flex shrink-0 items-center gap-1 rounded border px-1.5 py-1 text-[11px] ${autoApprove
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300'
-                : 'text-[var(--color-muted-foreground)]'}`}
-            >
-              <ShieldCheck className="size-3.5" /> 自动允许·{autoApprove ? '开' : '关'}
-            </button>
-          )}
         </div>
       )}
 
@@ -864,6 +866,19 @@ export function FloatingChatWindow() {
             />
           </div>
         )}
+        {!demo && (
+          <ProjectMentionMenu
+            open={projectMention.open}
+            references={projectMention.references}
+            activeIndex={projectMention.activeIndex}
+            loading={projectMention.loading}
+            warning={projectMention.warning}
+            actionError={projectMention.actionError}
+            busyKey={projectMention.busyKey}
+            className="mx-2 mt-2"
+            onPick={reference => { void projectMention.pickReference(reference) }}
+          />
+        )}
         <div className="flex items-end gap-2 p-2">
           <input
             ref={fileInputRef}
@@ -883,6 +898,16 @@ export function FloatingChatWindow() {
             >
               <Paperclip className="size-4" />
             </button>
+          )}
+          {!demo && (
+            <ProjectMentionButton
+              active={projectMention.open}
+              className={giftMode ? 'border-white/12 text-white/55 hover:bg-white/10' : undefined}
+              onToggle={() => {
+                setCmdMenuOpen(false)
+                projectMention.togglePicker()
+              }}
+            />
           )}
           {!demo && (
             <button
@@ -907,9 +932,16 @@ export function FloatingChatWindow() {
             placeholder="发消息…（/goto 跳模块）"
             rows={1}
             value={draft}
-            onChange={e => setDraft(e.target.value)}
+            onChange={e => projectMention.handleChange(e.target.value, e.target.selectionStart)}
             onPaste={onPaste}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { if (typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches) return; e.preventDefault(); submit() } }}
+            onKeyDown={e => {
+              if (projectMention.handleKeyDown(e)) return
+              if (e.key === 'Enter' && !e.shiftKey) {
+                if (typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches) return
+                e.preventDefault()
+                submit()
+              }
+            }}
           />
           {chat.running ? (
             <button type="button" onClick={chat.interrupt} aria-label="中断"
