@@ -326,21 +326,26 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         // 恢复该会话上次的权限模式（按 sessionId 持久化），并同步给 sidecar，
         // 使刷新/放大缩小/重连后不回退 default。
         {
-          const savedMode = loadSavedMode(msg.sessionId)
-          if (savedMode) {
+          const savedMode = channel === 'consult' ? null : loadSavedMode(msg.sessionId)
+          if (channel === 'consult') {
+            setModeState('plan')
+            modeRef.current = 'plan'
+          } else if (savedMode) {
             setModeState(savedMode)
             modeRef.current = savedMode
             sendRaw({ type: 'setMode', mode: savedMode })
           }
           // 「弹窗自动允许」同步给服务端一次：服务端此后自己保管并随每次 resume 回灌 sidecar，
           // 用户切走页面/关掉浏览器也不影响放行，不再需要前端盯着弹窗自动点。
-          const savedAutoApprove = loadAutoApprove()
+          const savedAutoApprove = channel === 'consult' ? false : loadAutoApprove()
           setAutoApproveState(savedAutoApprove)
           autoApproveRef.current = savedAutoApprove
-          sendRaw({
-            type: 'setAutoApprove',
-            autoApprove: savedAutoApprove && modeRef.current === 'bypassPermissions',
-          })
+          if (channel !== 'consult') {
+            sendRaw({
+              type: 'setAutoApprove',
+              autoApprove: savedAutoApprove && modeRef.current === 'bypassPermissions',
+            })
+          }
         }
         {
           const fallback = loadCodexOptions(msg.sessionId)
@@ -956,23 +961,34 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
    * 会继续静默放行，那是用户明确想逐条把关的场景。
    */
   const syncAutoApprove = useCallback((on: boolean, m: PermissionMode) => {
+    if (channel === 'consult') return
     sendRaw({ type: 'setAutoApprove', autoApprove: on && m === 'bypassPermissions' })
-  }, [sendRaw])
+  }, [channel, sendRaw])
 
   const setAutoApprove = useCallback((on: boolean) => {
+    if (channel === 'consult') {
+      setAutoApproveState(false)
+      autoApproveRef.current = false
+      return
+    }
     setAutoApproveState(on)
     try { localStorage.setItem(AUTO_APPROVE_KEY, on ? '1' : '0') } catch { /* 隐私模式忽略 */ }
     syncAutoApprove(on, modeRef.current)
-  }, [syncAutoApprove])
+  }, [channel, syncAutoApprove])
 
   const setMode = useCallback((m: PermissionMode) => {
+    if (channel === 'consult') {
+      setModeState('plan')
+      modeRef.current = 'plan'
+      return
+    }
     setModeState(m) // 乐观更新；下一轮 query 生效
     const sid = sessionIdRef.current
     if (sid) saveMode(sid, m) // 按会话持久化，刷新/重连后由 ready 恢复
     sendRaw({ type: 'setMode', mode: m })
     // 模式变了要重算自动放行：切出全自动就必须收回，否则 sidecar 会继续静默放行
     syncAutoApprove(autoApproveRef.current, m)
-  }, [sendRaw, syncAutoApprove])
+  }, [channel, sendRaw, syncAutoApprove])
 
   /**
    * 「弹窗自动允许」的前端兜底：主路径是 sidecar 内同步放行（见 permissions.ts 的 autoApprove），

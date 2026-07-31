@@ -63,6 +63,29 @@ export interface QuestionClassificationView {
   reason: string
 }
 
+export interface ConsultDispatchView {
+  action: 'SEND' | 'START_NEW_SESSION'
+  reason: string
+  prompt: string | null
+  pipelineVersion: string | null
+  steps: Array<{ id: string; label: string; availability: 'AVAILABLE' | 'PARTIAL' | 'PLACEHOLDER' }>
+  capabilityGaps: string[]
+}
+
+export function dispatchConsultQuestion(
+  sessionId: string,
+  question: string,
+  firstQuestion?: string,
+  forceFollowUp = false,
+  signal?: AbortSignal,
+) {
+  return http<ConsultDispatchView>(`/fore-consult/sessions/${sessionId}/dispatch`, {
+    method: 'POST',
+    body: JSON.stringify({ question, firstQuestion, forceFollowUp }),
+    signal,
+  })
+}
+
 export function classifyConsultQuestion(
   sessionId: string,
   question: string,
@@ -87,7 +110,7 @@ export interface StartSessionRequest {
   systemName: string
   systemSourcePath: string
   moduleNames: string[]
-  promptSnapshot: string
+  question: string
   role: string
 }
 

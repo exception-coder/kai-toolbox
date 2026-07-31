@@ -7,11 +7,6 @@ import {
 } from './knowledgeMcp.js'
 
 export const CONSULT_READONLY_POLICY = 'consult-readonly'
-export const CONSULT_READONLY_MCP_SERVERS = new Set([
-  'consult-readonly',
-  'domain-knowledge',
-  'cross-topology',
-])
 
 export const CONSULT_READONLY_PROMPT = [
   '【系统只读安全边界】本会话只能读取、搜索和调用系统明确注入的只读 MCP 工具。',

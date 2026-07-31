@@ -75,7 +75,7 @@ public class ConsultService {
     }
 
     /** 启动咨询会话：落一条 PENDING 记录。 */
-    public ConsultSession startSession(StartSessionRequest req) {
+    public ConsultSession startSession(StartSessionRequest req, String promptSnapshot) {
         String currentUserId = AuthContext.current()
                 .map(AuthPrincipal::userId)
                 .map(String::valueOf)
@@ -86,7 +86,7 @@ public class ConsultService {
                 .systemName(req.systemName())
                 .systemSourcePath(req.systemSourcePath())
                 .moduleNames(serializeModules(req.moduleNames()))
-                .promptSnapshot(req.promptSnapshot())
+                .promptSnapshot(promptSnapshot)
                 .role(req.role() != null && !req.role().isBlank() ? req.role() : "IT")
                 .parseStatus("NONE")
                 .archiveStatus("PENDING")

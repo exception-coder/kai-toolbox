@@ -5,13 +5,16 @@ import com.exceptioncoder.toolbox.foreconsult.api.dto.ArchiveRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ClassifyQuestionRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ConsultAttachmentView;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ConsultSessionView;
+import com.exceptioncoder.toolbox.foreconsult.api.dto.ConsultDispatchView;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ConsultTurnView;
+import com.exceptioncoder.toolbox.foreconsult.api.dto.DispatchConsultRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.FeedbackRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.FeedbackView;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.LinkDevSessionRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.QuestionClassificationView;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.StartSessionRequest;
 import com.exceptioncoder.toolbox.foreconsult.service.ConsultAttachmentService;
+import com.exceptioncoder.toolbox.foreconsult.service.ConsultDispatchService;
 import com.exceptioncoder.toolbox.foreconsult.service.ConsultService;
 import com.exceptioncoder.toolbox.foreconsult.service.ConsultQuestionClassifier;
 import com.exceptioncoder.toolbox.foreconsult.service.TurnBugExtractionService;
@@ -53,14 +56,17 @@ public class ConsultController {
     private final ConsultAttachmentService attachmentService;
     private final TurnBugExtractionService bugExtractionService;
     private final ConsultQuestionClassifier questionClassifier;
+    private final ConsultDispatchService dispatchService;
 
     public ConsultController(ConsultService service, ConsultAttachmentService attachmentService,
                              TurnBugExtractionService bugExtractionService,
-                             ConsultQuestionClassifier questionClassifier) {
+                             ConsultQuestionClassifier questionClassifier,
+                             ConsultDispatchService dispatchService) {
         this.service = service;
         this.attachmentService = attachmentService;
         this.bugExtractionService = bugExtractionService;
         this.questionClassifier = questionClassifier;
+        this.dispatchService = dispatchService;
     }
 
     /** 上传咨询附件（图片/Excel/Word/Markdown/PDF 等）。落盘到系统 cwd 或用户目录，返回绝对路径。 */
@@ -73,7 +79,15 @@ public class ConsultController {
     /** 启动咨询会话。 */
     @PostMapping("/sessions")
     public ConsultSessionView start(@Valid @RequestBody StartSessionRequest req) {
-        return ConsultSessionView.from(service.startSession(req));
+        var orchestration = dispatchService.initial(req);
+        return ConsultSessionView.from(service.startSession(req, orchestration.prompt()));
+    }
+
+    /** Classify and enrich a follow-up with the same server-owned orchestration pipeline. */
+    @PostMapping("/sessions/{id}/dispatch")
+    public ConsultDispatchView dispatch(@PathVariable String id,
+                                        @Valid @RequestBody DispatchConsultRequest req) {
+        return dispatchService.followUp(service.get(id), req);
     }
 
     /** 历史列表（最近 50 条，按创建时间倒序）。 */

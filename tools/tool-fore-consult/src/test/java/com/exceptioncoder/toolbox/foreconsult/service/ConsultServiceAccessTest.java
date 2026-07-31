@@ -83,13 +83,14 @@ class ConsultServiceAccessTest {
     void newSessionAlwaysUsesAuthenticatedUserId() {
         authenticate(7L, "yuy", "USER");
         StartSessionRequest request =
-                new StartSessionRequest("ERP", "D:\\erp", List.of(), "prompt", "forged-user", "BIZ");
+                new StartSessionRequest("ERP", "D:\\erp", List.of(), "question", "forged-user", "BIZ");
 
-        service.startSession(request);
+        service.startSession(request, "server-built-prompt");
 
         ArgumentCaptor<ConsultSession> captor = ArgumentCaptor.forClass(ConsultSession.class);
         verify(sessionRepo).insert(captor.capture());
         assertThat(captor.getValue().getUserId()).isEqualTo("7");
+        assertThat(captor.getValue().getPromptSnapshot()).isEqualTo("server-built-prompt");
     }
 
     private static void authenticate(long userId, String username, String role) {

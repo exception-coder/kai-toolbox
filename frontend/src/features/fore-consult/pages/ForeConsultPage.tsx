@@ -745,15 +745,15 @@ export function ForeConsultPage() {
   const startMutation = useMutation({
     mutationFn: async () => {
       const cwd = systemPath || system.trim()
-      const seed = buildConsultSeed(system.trim(), moduleTags, ask, CONSULT_ROLE)
+      const legacySeed = buildConsultSeed(system.trim(), moduleTags, ask, CONSULT_ROLE)
       const created = await startConsult({
         systemName: system.trim(),
         systemSourcePath: cwd,
         moduleNames: moduleTags,
-        promptSnapshot: seed,
+        question: ask.trim() || '请结合附件识别并分析业务问题',
         role: CONSULT_ROLE,
       })
-      return { created, seed, cwd }
+      return { created, seed: created.promptSnapshot || legacySeed, cwd }
     },
     onSuccess: ({ created, seed, cwd }) => {
       setRole(CONSULT_ROLE)

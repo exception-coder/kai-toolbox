@@ -7,7 +7,7 @@ import DOMPurify from 'dompurify'
 import { Archive, Bug, CheckCircle2, CircleDashed, Database, GitBranch, Loader2, MessagesSquare, Paperclip, Quote, Send, ShieldAlert, ThumbsDown, ThumbsUp, X } from 'lucide-react'
 import type { UseClaudeChatSocket } from '@/features/claude-chat/hooks/useClaudeChatSocket'
 import type { ChatItem } from '@/features/claude-chat/types'
-import { classifyConsultQuestion, registerBug, submitFeedback, uploadConsultAttachment } from '../api'
+import { dispatchConsultQuestion, registerBug, submitFeedback, uploadConsultAttachment } from '../api'
 import { buildConsultTurnAudits, type AuditEvidence, type AuditState, type ConsultTurnAudit } from '../consultAudit'
 
 // AI 在回答里判定为缺陷时输出的机器可读块，前端解析登记并从展示中剥离。
@@ -208,18 +208,34 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
     message: string,
     attachments: Array<{ name: string; path: string; mime?: string; url?: string }> | undefined,
     shouldQueue: boolean,
+    displayText = message,
   ) => {
-    if (shouldQueue) chat.enqueue(message, attachments)
-    else chat.send(message, attachments)
+    if (shouldQueue) chat.enqueue(message, attachments, displayText)
+    else chat.send(message, attachments, displayText)
     setText('')
     setAtts([])
   }
-  const sendCurrentAsFollowUp = () => {
+  const sendCurrentAsFollowUp = async () => {
     if (!hasSendableContent) return
+    const message = text
     const attachments = atts.length
       ? atts.map((a) => ({ name: a.name, path: a.path, mime: a.mime ?? undefined, url: a.url }))
       : undefined
-    dispatchMessage(text, attachments, running)
+    const firstQuestion = items.find((item) => item.kind === 'user')
+    setClassifying(true)
+    try {
+      const result = await dispatchConsultQuestion(
+        consultId,
+        message.trim() || '补充附件',
+        firstQuestion?.kind === 'user' ? firstQuestion.displayText ?? firstQuestion.text : undefined,
+        true,
+      )
+      dispatchMessage(result.prompt ?? message, attachments, running, message)
+    } catch {
+      dispatchMessage(message, attachments, running)
+    } finally {
+      setClassifying(false)
+    }
   }
   const send = async () => {
     if (!chat || !canSend) return
@@ -238,17 +254,18 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
     const timeout = window.setTimeout(() => controller.abort(), QUESTION_CLASSIFY_TIMEOUT_MS)
     setClassifying(true)
     try {
-      const result = await classifyConsultQuestion(
+      const result = await dispatchConsultQuestion(
         consultId,
         message.trim() || '补充附件',
         firstQuestion.displayText ?? firstQuestion.text,
+        false,
         controller.signal,
       )
-      if (result.classification === 'NEW_QUESTION') {
+      if (result.action === 'START_NEW_SESSION') {
         setNewQuestionReason(result.reason)
         return
       }
-      dispatchMessage(message, attachments, shouldQueue)
+      dispatchMessage(result.prompt ?? message, attachments, shouldQueue, message)
     } catch {
       // 分类只是辅助拦截，超时、断网或服务异常都必须放行用户消息，不能卡在“识别中”。
       dispatchMessage(message, attachments, shouldQueue)

@@ -434,6 +434,11 @@ public class ClaudeChatService {
             return;
         }
         if (isConsultReadonly(ctx)) {
+            if ("plan".equals(msg.mode())) {
+                ctx.mode = "plan";
+                sidecar.setMode(ctx.sessionId, ctx.mode);
+                return;
+            }
             sendError(ws, 0, "READONLY_POLICY", "业务咨询会话的只读权限不可切换");
             return;
         }
@@ -460,7 +465,11 @@ public class ClaudeChatService {
             return;
         }
         if (isConsultReadonly(ctx)) {
-            sendError(ws, 0, "READONLY_POLICY", "业务咨询会话禁止开启自动放行");
+            ctx.autoApprove = false;
+            sidecar.setAutoApprove(ctx.sessionId, false);
+            if (msg.autoApprove()) {
+                sendError(ws, 0, "READONLY_POLICY", "业务咨询会话禁止开启自动放行");
+            }
             return;
         }
         ctx.autoApprove = msg.autoApprove();

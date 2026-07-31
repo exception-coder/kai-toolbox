@@ -12,7 +12,6 @@ import {
   type WebSearchMode,
 } from '@openai/codex-sdk'
 import {
-  CONSULT_READONLY_MCP_SERVERS,
   CONSULT_READONLY_POLICY,
   CONSULT_READONLY_PROMPT,
   consultReadonlyCodexConfig,
@@ -253,16 +252,9 @@ function handleItem(
       break
     case 'mcp_tool_call': {
       const label = `${item.server}/${item.tool}`
-      if (ctx.toolPolicy === CONSULT_READONLY_POLICY && !CONSULT_READONLY_MCP_SERVERS.has(item.server)) {
-        if (phase === 'item.started') {
-          ctx.emit({
-            type: 'error',
-            code: 'READONLY_MCP_BLOCKED',
-            message: `业务咨询拒绝了未列入白名单的 MCP：${item.server}`,
-          })
-        }
-        break
-      }
+      // 咨询会话可用的外部 MCP 已在创建 Codex 客户端时通过配置禁用/注入。
+      // 此处只负责展示 SDK 事件；内置技能读取也可能以上报内部 server 名称，
+      // 因此不能再按 server 名称制造一条“拒绝调用”的错误消息。
       if (phase === 'item.started') {
         ctx.emit({ type: 'toolUse', toolName: label, input: item.arguments })
       } else if (phase === 'item.completed') {
