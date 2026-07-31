@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.prdclarify.api.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import com.exceptioncoder.toolbox.prdclarify.domain.PrdBusinessFields;
 
 /**
  * 创建 PRD 澄清会话的请求体。
@@ -31,6 +32,7 @@ public record CreateSessionRequest(
         String role,
         String reqType,
         Integer maxQuestions,
-        String clarifyMode
+        String clarifyMode,
+        PrdBusinessFields businessFields
 ) {
 }

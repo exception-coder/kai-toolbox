@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { AlertCircle, FilePlus2, Loader2, Radar, RefreshCw, Sparkles } from 'lucide-react'
+import { AlertCircle, FilePlus2, Loader2, Radar, RefreshCw, Sparkles, Table2 } from 'lucide-react'
 import { getDeliveryOverview } from '../api'
+import type { FeishuRequirementRecord } from '../api'
+import type { PrdBusinessFields } from '@/features/prd-clarify/types'
 import { AiInspector } from '../components/AiInspector'
 import { DeliveryCanvas } from '../components/DeliveryCanvas'
 import { DeliveryStatusStrip } from '../components/DeliveryStatusStrip'
 import { ProjectRail } from '../components/ProjectRail'
 import { PrdDraftDialog } from '../components/PrdDraftDialog'
+import { FeishuRequirementImportDialog } from '../components/FeishuRequirementImportDialog'
 import { buildProjects, findingsForRequirement } from '../viewModel'
 
 export function DeliveryCenterPage() {
@@ -16,6 +19,11 @@ export function DeliveryCenterPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [draftOpen, setDraftOpen] = useState(false)
+  const [feishuOpen, setFeishuOpen] = useState(false)
+  const [importedDraft, setImportedDraft] = useState<{
+    title: string
+    businessFields: PrdBusinessFields
+  } | null>(null)
   const overviewQuery = useQuery({
     queryKey: ['delivery-overview'],
     queryFn: () => getDeliveryOverview(),
@@ -76,7 +84,17 @@ export function DeliveryCenterPage() {
             </button>
             <button
               type="button"
-              onClick={() => setDraftOpen(true)}
+              onClick={() => setFeishuOpen(true)}
+              className="inline-flex items-center gap-1 border border-[#3370ff]/40 px-2.5 py-1.5 font-medium text-[#3370ff] hover:bg-[#3370ff]/10"
+            >
+              <Table2 className="h-3 w-3" />飞书需求
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setImportedDraft(null)
+                setDraftOpen(true)
+              }}
               className="inline-flex items-center gap-1 border border-[var(--color-primary)]/40 px-2.5 py-1.5 font-medium text-[var(--color-primary)] hover:bg-[var(--color-primary)]/10"
             >
               <FilePlus2 className="h-3 w-3" />起草 PRD
@@ -122,8 +140,23 @@ export function DeliveryCenterPage() {
       {draftOpen && (
         <PrdDraftDialog
           initialProject={activeProject}
+          initialShortTitle={importedDraft?.title}
+          initialBusinessFields={importedDraft?.businessFields}
           onClose={() => setDraftOpen(false)}
           onCreated={sessionId => navigate(`/tools/prd-clarify?sessionId=${encodeURIComponent(sessionId)}`)}
+        />
+      )}
+      {feishuOpen && (
+        <FeishuRequirementImportDialog
+          onClose={() => setFeishuOpen(false)}
+          onSelect={(record, _sourceUrl) => {
+            setImportedDraft({
+              title: record.title,
+              businessFields: mapFeishuBusinessFields(record),
+            })
+            setFeishuOpen(false)
+            setDraftOpen(true)
+          }}
         />
       )}
     </div>
@@ -171,4 +204,44 @@ function formatTime(timestamp: number) {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(timestamp))
+}
+
+function mapFeishuBusinessFields(record: FeishuRequirementRecord): PrdBusinessFields {
+  return {
+    requirementDetail: findField(record, '需求详情', 'fld4MyICot'),
+    businessBackground: findField(record, '需求背景/业务痛点', '需求背景', '业务痛点', 'fld57ObEhK'),
+    businessRequirementType: normalizeBusinessRequirementType(
+      findField(record, '需求类型', 'fld2JgJuVL'),
+    ),
+    requirementSoftware: findField(record, '需求软件', 'fld43K1LNl'),
+    initiatingDepartment: findField(record, '发起部门', 'fld6iE5Iix'),
+    requester: findField(record, '提出人', 'fldeHXs8Cx'),
+    requestedAt: normalizeRequestedAt(findField(record, '提出日期', 'fld1K9bTud')),
+    attachments: findField(record, '附件', 'fld79KCQet'),
+    followUpRecords: findField(record, '跟进记录', '处理反馈', 'fldwa51TeQ'),
+  }
+}
+
+function findField(record: FeishuRequirementRecord, ...names: string[]) {
+  for (const name of names) {
+    const value = record.fields[name]
+    if (value?.trim()) return value.trim()
+  }
+  return ''
+}
+
+function normalizeBusinessRequirementType(value: string) {
+  const labels: Record<string, string> = {
+    optki0Xnkb: '功能优化',
+    optQ9FhwmC: '新需求',
+    optaw9hHim: '数据异常',
+    optph80OtF: '系统缺陷',
+  }
+  return labels[value] ?? value
+}
+
+function normalizeRequestedAt(value: string) {
+  if (!/^\d{12,}$/.test(value)) return value
+  const timestamp = Number(value)
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString().slice(0, 10) : value
 }

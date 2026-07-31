@@ -60,7 +60,7 @@ export interface DevDocHistoryEntry {
  * 不依赖 devDocHistory JSON——mode 为 null 表示该版本早于「生成记录」功能上线，
  * 磁盘上有备份文件但没有对应记录，仍可查看内容，只是没有补充说明可看。
  *
- * qaHistory 是这一版专属的澄清问答记录（update 模式下才可能非空），跟 PRD 首次澄清记录
+ * qaHistory 是这一版 TDD 专属的技术澄清问答记录，跟 PRD 首次业务澄清记录
  * （PrdSessionView.questions）是两份完全独立的数据，不会共用/混显。
  */
 export interface DevDocVersionSummary {
@@ -122,6 +122,8 @@ export interface PrdSessionView {
   clarifyMode: PrdClarifyMode
   /** 原始需求描述（用于历史记录弹窗展示） */
   rawInput: string | null
+  /** 业务来源结构化字段（飞书需求池导入或 PRD 起草时填写） */
+  businessFields: PrdBusinessFields
   questions: QuestionItem[]
   mdPath: string | null
   /** 开发文档路径（非 null 表示已生成开发文档） */
@@ -149,6 +151,20 @@ export interface PrdSessionView {
   updatedAt: number
 }
 
+export interface PrdBusinessFields {
+  requirementDetail?: string | null
+  businessBackground?: string | null
+  /** 业务侧原始分类，不等同于 reqType 的 AI 澄清策略分类 */
+  businessRequirementType?: string | null
+  requirementSoftware?: string | null
+  initiatingDepartment?: string | null
+  requester?: string | null
+  /** ISO 日期文本 yyyy-MM-dd */
+  requestedAt?: string | null
+  attachments?: string | null
+  followUpRecords?: string | null
+}
+
 export interface CreateSessionRequest {
   title: string
   rawInput: string
@@ -160,6 +176,7 @@ export interface CreateSessionRequest {
   reqType?: PrdReqType
   maxQuestions?: number
   clarifyMode?: PrdClarifyMode
+  businessFields?: PrdBusinessFields
 }
 
 /** 保存/更新草稿：只含标题/需求描述/关联项目模块，草稿阶段还不用决定角色/需求类型/澄清深度/模式。 */
@@ -168,6 +185,7 @@ export interface SaveDraftRequest {
   rawInput?: string
   project?: string
   module?: string
+  businessFields?: PrdBusinessFields
 }
 
 /**

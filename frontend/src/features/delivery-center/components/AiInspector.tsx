@@ -21,7 +21,10 @@ export function AiInspector({ requirement, findings }: Props) {
   }
 
   const stages = [
+    ['PRD 草稿', requirement.stages.prdDraft.status, requirement.stages.prdDraft.score],
+    ['PRD 澄清', requirement.stages.prdClarify.status, requirement.stages.prdClarify.score],
     ['PRD', requirement.stages.prd.status, requirement.stages.prd.score],
+    ['TDD 澄清', requirement.stages.tddClarify.status, requirement.stages.tddClarify.score],
     ['TDD', requirement.stages.tdd.status, requirement.stages.tdd.score],
     ['Code', requirement.stages.code.status, requirement.stages.code.score],
     ['Test', requirement.stages.test.status, requirement.stages.test.score],

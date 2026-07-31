@@ -4,6 +4,7 @@ import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.DevDocVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.ProgressVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.QaPairRequest;
+import com.exceptioncoder.toolbox.prdclarify.domain.PrdBusinessFields;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
 import org.springframework.beans.factory.annotation.Value;
@@ -105,8 +106,8 @@ public class PrdClarifyService {
             （或 [CLARIFICATION_COMPLETE]），不进入其他流程。
             不得依赖某个引擎专属的命令、skill 或 plugin。
 
-            你正在执行需求澄清（产品/开发视角）：
-            通过提问消除需求歧义，为 PRD 文档生成收集充足信息。
+            你正在执行 PRD 生成前的需求澄清（产品/开发视角）：
+            只确认业务目标、范围和规则，为 PRD 文档生成收集充足信息。技术设计留到 TDD 澄清。
 
             【提问前置：结合下方知识图谱背景】
 
@@ -121,15 +122,15 @@ public class PrdClarifyService {
             - get_knowledge(id) 获取状态机/流程/规则
             - 目的：问题能引用已有业务状态名/枚举值
 
-            第三层 — 实现细节（mcp__cross-topology__search_knowledge，若可用）：
-            - 搜索枚举取值、API 路径约定
-            - 目的：问题直接锁定技术细节层面的歧义
-
             提问规则（严格执行）：
-            - 每次只提出 1 个问题，选当前最影响 PRD 完整性的歧义点
-            - 可问：业务目标、功能边界、交互流程、边界异常、技术约束、集成点
-            - 问题中直接引用知识图谱获取的真实实体（表名/字段/方法/枚举值）
+            - 只问如果不明确就无法确定产品目标、业务范围、业务规则或验收口径的问题
+            - 可问：业务目标、用户与场景、功能边界、业务流程、业务规则与例外、验收标准
+            - 禁止询问：数据库/字段/API/类/方法、框架选型、代码结构、部署方案等实现细节
+            - 代码与业务知识图谱只用于识别现有业务行为、避免重复提问；向用户提问时转成业务语言，
+              不暴露表名、字段名、类名或方法名
             - 基于上一个回答动态追问，最多 5 轮
+            - 只有开发者/产品负责人必须作出明确业务决策时才提问；可从上下文确定、可由实现阶段
+              自行选择、或不影响 PRD 完成的问题不要问
             - 信息充足时立即输出：[CLARIFICATION_COMPLETE]
             - 只输出问题本身（或 [CLARIFICATION_COMPLETE]），不加序号、前缀或解释
             """;
@@ -157,7 +158,7 @@ public class PrdClarifyService {
                → 转换成业务行为描述，不用类名/字段名；区块为空则忽略
 
             提问规则（业务版）：
-            - 每次只问 1 个问题，聚焦业务本质
+            - 每次只问 1 个如果不明确就无法完成 PRD 的业务决策，聚焦业务本质
             - 可问：业务目标、使用场景、关键数据、业务规则与例外、验收标准
             - 不问：界面细节、数据库/接口、框架选型等技术问题
             - 例外：若界面直接影响业务流程，可以问
@@ -215,8 +216,10 @@ public class PrdClarifyService {
               渐进模式那样根据上一题答案动态调整下一题，每题都要能独立作答
             - 每题简洁具体，一句话内可回答
             - 严格按 user prompt 里的"提问重点"作答（不同需求类型/角色侧重不同）
-            - 若 user prompt 提供了知识图谱查询结果区块，问题应直接引用其中的真实实体
-              （表名/字段/方法/业务状态名），不要问已有答案的问题；区块为空则忽略
+            - 这是 PRD 生成前的业务澄清：只问业务目标、用户场景、范围、业务规则/例外和验收口径
+            - 禁止询问数据库、字段、API、类、方法、框架、代码结构或部署方案等技术实现细节
+            - 知识图谱只用于理解现有行为和避免已有答案的问题，提问必须转成业务语言
+            - 每个问题都必须是产品/开发负责人不明确回答就无法完成 PRD 的关键决策
             """;
 
     /**
@@ -394,7 +397,8 @@ public class PrdClarifyService {
     /** 创建会话并持久化，返回新建的会话对象。 */
     public PrdSession createSession(String title, String rawInput,
                                     String project, String module, String model, String role) {
-        return createSession(title, rawInput, project, module, model, "claude", role, null, null, null, null);
+        return createSession(title, rawInput, project, module, model, "claude", role,
+                null, null, null, null, PrdBusinessFields.empty());
     }
 
     /**
@@ -413,8 +417,9 @@ public class PrdClarifyService {
     public PrdSession createSession(String title, String rawInput,
                                     String project, String module, String model, String engine, String role,
                                     String reqType, Integer maxQuestions, Long createdByUserId,
-                                    String clarifyMode) {
+                                    String clarifyMode, PrdBusinessFields businessFields) {
         long now = System.currentTimeMillis();
+        PrdBusinessFields fields = businessFields == null ? PrdBusinessFields.empty() : businessFields;
         String effectiveRole = (role != null && "BUSINESS".equalsIgnoreCase(role)) ? "BUSINESS" : "PRODUCT";
         String effectiveEngine = normalizeEngine(engine);
         ReqTypeClassification classification = resolveReqType(title, rawInput, model, effectiveEngine, reqType, maxQuestions);
@@ -426,6 +431,15 @@ public class PrdClarifyService {
                 .rawInput(rawInput)
                 .project(project)
                 .module(module)
+                .requirementDetail(fields.requirementDetail())
+                .businessBackground(fields.businessBackground())
+                .businessRequirementType(fields.businessRequirementType())
+                .requirementSoftware(fields.requirementSoftware())
+                .initiatingDepartment(fields.initiatingDepartment())
+                .requester(fields.requester())
+                .requestedAt(fields.requestedAt())
+                .attachments(fields.attachments())
+                .followUpRecords(fields.followUpRecords())
                 .model(model)
                 .engine(effectiveEngine)
                 .role(effectiveRole)
@@ -449,14 +463,25 @@ public class PrdClarifyService {
      * @param rawInput 需求描述，草稿允许暂时空着（只想先占个标题/项目/模块的位）；null 归一化为空串
      *                 （raw_input 列 NOT NULL，不能真塞 null）
      */
-    public PrdSession saveDraft(String title, String rawInput, String project, String module, Long createdByUserId) {
+    public PrdSession saveDraft(String title, String rawInput, String project, String module, Long createdByUserId,
+                                PrdBusinessFields businessFields) {
         long now = System.currentTimeMillis();
+        PrdBusinessFields fields = businessFields == null ? PrdBusinessFields.empty() : businessFields;
         PrdSession session = PrdSession.builder()
                 .id(UUID.randomUUID().toString())
                 .title(title)
                 .rawInput(rawInput == null ? "" : rawInput)
                 .project(project)
                 .module(module)
+                .requirementDetail(fields.requirementDetail())
+                .businessBackground(fields.businessBackground())
+                .businessRequirementType(fields.businessRequirementType())
+                .requirementSoftware(fields.requirementSoftware())
+                .initiatingDepartment(fields.initiatingDepartment())
+                .requester(fields.requester())
+                .requestedAt(fields.requestedAt())
+                .attachments(fields.attachments())
+                .followUpRecords(fields.followUpRecords())
                 .role("PRODUCT")
                 .reqType("NEW_MODULE")
                 .maxQuestions(DEFAULT_MAX_QUESTIONS.get("NEW_MODULE"))
@@ -471,13 +496,14 @@ public class PrdClarifyService {
     }
 
     /** 再次保存草稿（覆盖字段，状态保持 DRAFT）。会话必须仍处于 DRAFT 状态，否则说明前端页面状态过期。 */
-    public PrdSession updateDraft(String sessionId, String title, String rawInput, String project, String module) {
+    public PrdSession updateDraft(String sessionId, String title, String rawInput, String project, String module,
+                                  PrdBusinessFields businessFields) {
         PrdSession existing = repo.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
         if (!"DRAFT".equals(existing.getStatus())) {
             throw new IllegalStateException("当前状态 " + existing.getStatus() + " 不是草稿，无法这样保存");
         }
-        repo.updateDraftFields(sessionId, title, rawInput == null ? "" : rawInput, project, module);
+        repo.updateDraftFields(sessionId, title, rawInput == null ? "" : rawInput, project, module, businessFields);
         return repo.findById(sessionId).orElseThrow();
     }
 
@@ -488,7 +514,8 @@ public class PrdClarifyService {
      */
     public PrdSession startClarifyFromDraft(String sessionId, String title, String rawInput,
                                              String project, String module, String model, String engine, String role,
-                                             String reqType, Integer maxQuestions, String clarifyMode) {
+                                             String reqType, Integer maxQuestions, String clarifyMode,
+                                             PrdBusinessFields businessFields) {
         PrdSession existing = repo.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
         if (!"DRAFT".equals(existing.getStatus())) {
@@ -499,7 +526,8 @@ public class PrdClarifyService {
         ReqTypeClassification classification = resolveReqType(title, rawInput, model, effectiveEngine, reqType, maxQuestions);
         String effectiveClarifyMode = "batch".equals(clarifyMode) ? "batch" : "progressive";
         repo.startClarifyFromDraft(sessionId, title, rawInput, project, module, model, effectiveEngine,
-                effectiveRole, classification.reqType(), classification.maxQuestions(), effectiveClarifyMode);
+                effectiveRole, classification.reqType(), classification.maxQuestions(), effectiveClarifyMode,
+                businessFields);
         return repo.findById(sessionId).orElseThrow();
     }
 
@@ -1108,35 +1136,56 @@ public class PrdClarifyService {
             直接输出 Markdown，不加代码块围栏，不加多余解释。
             """;
 
-    /** 「基于开发文档更新」前的澄清多轮上限，跟 PRD 澄清的 maxQuestions 是两个独立的概念。 */
+    /** TDD 生成/更新前的澄清多轮上限，跟 PRD 澄清的 maxQuestions 是两个独立的概念。 */
     private static final int DEV_DOC_UPDATE_MAX_QUESTIONS = 5;
 
     /**
-     * 开发文档更新前的澄清提示词——对齐 PRD 的多轮渐进澄清模式（ASK_SYSTEM_PRODUCT/BUSINESS），
-     * 但提问目标不同：不是问业务背景，而是揪出"更新说明"里相对当前开发文档不够明确、
-     * 会导致实现歧义的地方（具体改哪个方法/字段、新字段类型、是否兼容旧调用方等）。
+     * 首次/重新生成 TDD 前的技术澄清。PRD 已经确定业务目标，这里只核对编码前必须由开发者
+     * 明确的关键技术决策；可以从代码或知识图谱确定、或开发者可自行安全选择的问题不得提问。
      */
-    private static final String DEV_DOC_ASK_SYSTEM = """
+    private static final String DEV_DOC_INITIAL_ASK_SYSTEM = """
             ⚠️ 直接输出任务（禁止触发任何 hook/skill/plugin 的自动流程）：
-            本次是开发文档更新前的澄清，每轮只输出 1 个精准问题（或 [CLARIFICATION_COMPLETE]）。
+            本次是 TDD 生成前的技术澄清，每轮只输出 1 个精准问题（或 [CLARIFICATION_COMPLETE]）。
 
-            你正在澄清一次"基于已有开发文档的更新"请求。user prompt 会给你：
-            1. 当前已存在的开发文档全文（=== 当前开发文档 === 区域）
-            2. 用户对本次更新的初步描述（=== 本次更新说明 === 区域，可能来自附件补充的上下文）
-            3. 已完成的澄清问答（如果有）
+            user prompt 会提供正式 PRD、代码知识图谱、业务知识图谱、用户补充约束和历史问答。
+            先用这些事实自行消除疑问，只把“若不由开发者明确，TDD 会产生不同实现结果或带来
+            兼容/数据/安全风险”的内容做成问题卡片。
 
-            提问目标：找出"更新说明"里相对当前开发文档而言不够明确、会导致实现歧义的地方，例如：
-            - 更新涉及当前开发文档里的哪个具体章节/接口/表/方法（要求对照当前开发文档定位，
-              不要泛泛地问"你想改哪里"）
-            - 新增字段的类型、是否可空、默认值
-            - 修改的接口是否需要兼容旧调用方
-            - 边界/异常场景怎么处理
-            - 是否需要同步调整验收标准
+            可提问范围：
+            - 既有 API/事件/数据结构的兼容策略与迁移方式
+            - 数据一致性、幂等、事务边界、并发冲突和失败补偿
+            - 权限、安全、审计、性能容量等会改变实现方案的硬约束
+            - 多种实现路径会影响现有代码边界时，需要开发者选择的关键方案
+
+            禁止提问：
+            - PRD 已确认的业务目标、范围、流程或验收口径
+            - 代码/知识图谱里已有明确答案的问题
+            - 命名、目录、普通类拆分、局部写法等开发者可以自行决定的细枝末节
+            - “是否还有补充”“想用什么技术”等宽泛问题
 
             提问规则（严格执行）：
-            - 每次只问 1 个问题，问题要具体引用当前开发文档里的真实章节/方法/字段名，
-              不要问开发文档里已经写清楚、跟本次更新无关的内容
-            - 若用户的更新说明已经足够明确（能直接定位改动点、给出具体值），
+            - 每次只问 1 个问题，并给出从 PRD/图谱发现的具体冲突或选择背景
+            - 问题必须让开发者能给出明确选项、规则或数值，不能泛泛讨论
+            - 若编码关键细节都能从现有事实确定，直接输出 [CLARIFICATION_COMPLETE]
+            - 最多 5 轮；不要为了凑轮数硬问
+            - 只输出问题本身（或 [CLARIFICATION_COMPLETE]），不加序号、前缀或解释
+            """;
+
+    /**
+     * 已有 TDD 增量更新前的技术澄清。
+     */
+    private static final String DEV_DOC_UPDATE_ASK_SYSTEM = """
+            ⚠️ 直接输出任务（禁止触发任何 hook/skill/plugin 的自动流程）：
+            本次是已有 TDD 更新前的技术澄清，每轮只输出 1 个精准问题（或 [CLARIFICATION_COMPLETE]）。
+
+            user prompt 会给出当前 TDD、最新 PRD、代码/业务知识图谱、更新说明和历史问答。
+            找出本次更新相对当前 TDD 会导致实现分歧，且必须由开发者明确的关键技术决策，例如：
+            兼容旧调用方、字段迁移/默认值、事务与幂等、异常补偿、权限与性能硬约束。
+
+            提问规则（严格执行）：
+            - 每次只问 1 个问题，具体引用当前 TDD 或图谱中的真实接口、表、方法或约束
+            - 不问已有答案、跟本次更新无关、或开发者可自行安全决定的普通实现细节
+            - 若更新说明已经足够明确且不会产生关键实现分歧，
               直接输出 [CLARIFICATION_COMPLETE]，不要为了凑轮数硬问
             - 最多 5 轮
             - 只输出问题本身（或 [CLARIFICATION_COMPLETE]），不加序号、前缀或解释
@@ -1224,20 +1273,12 @@ public class PrdClarifyService {
             类名/方法名/文件路径。直接输出 Markdown，不加代码块围栏，不加多余解释。
             """;
 
-    /**
-     * 开发文档更新前的多轮澄清——请求下一个问题，用法和语义对齐 {@link #askNextQuestion}。
-     * 当前无开发文档可澄清（异常场景，正常应该先有文档才谈得上"更新"）时直接判完成，
-     * 交给调用方（前端）退回走 generateDevDoc 的从零生成分支。
-     *
-     * @param sessionId     会话 ID
-     * @param questionIndex 当前是第几轮（0-based）
-     * @param history       已完成的问答历史
-     * @param updateNotes   用户输入的初步更新说明（每轮都拼进 prompt）
-     * @param emitter       SSE 发射器（chunk/done/error）
-     */
+    /** TDD 生成/更新前的多轮技术澄清——请求下一个必须由开发者明确的问题。 */
     public void askNextDevDocQuestion(String sessionId, int questionIndex,
                                        List<QaPairRequest> history, String updateNotes,
+                                       String mode,
                                        SseEmitter emitter) {
+        List<QaPairRequest> effectiveHistory = history == null ? List.of() : history;
         if (questionIndex >= DEV_DOC_UPDATE_MAX_QUESTIONS) {
             try {
                 emitter.send(SseEmitter.event().name("chunk")
@@ -1255,14 +1296,19 @@ public class PrdClarifyService {
 
         Thread.ofVirtual().name("prd-dev-doc-ask-").start(() -> {
             try {
-                String currentDevDoc = readDevDocContent(sessionId);
-                if (currentDevDoc == null || currentDevDoc.isBlank()) {
-                    sendChunk(emitter, "[CLARIFICATION_COMPLETE]");
-                    sendDone(emitter);
-                    return;
+                boolean update = "update".equalsIgnoreCase(mode);
+                String prdContent = fileStore.read(sessionId);
+                if (prdContent == null || prdContent.isBlank()) {
+                    throw new IllegalStateException("PRD 内容为空，请先完成 PRD");
                 }
-                String userPrompt = buildDevDocAskPrompt(currentDevDoc, updateNotes, questionIndex, history);
-                agentRunner.stream(DEV_DOC_ASK_SYSTEM, userPrompt, session.getModel(),
+                String currentDevDoc = update ? readDevDocContent(sessionId) : null;
+                if (update && (currentDevDoc == null || currentDevDoc.isBlank())) {
+                    throw new IllegalStateException("当前 TDD 内容为空，无法执行增量更新澄清");
+                }
+                String userPrompt = buildDevDocAskPrompt(
+                        session, prdContent, currentDevDoc, updateNotes, questionIndex, effectiveHistory, update);
+                String systemPrompt = update ? DEV_DOC_UPDATE_ASK_SYSTEM : DEV_DOC_INITIAL_ASK_SYSTEM;
+                agentRunner.stream(systemPrompt, userPrompt, session.getModel(),
                         normalizeEngine(session.getEngine()),
                         delta -> sendChunk(emitter, delta));
                 sendDone(emitter);
@@ -1273,12 +1319,19 @@ public class PrdClarifyService {
         });
     }
 
-    /** 构建开发文档更新澄清的 user prompt：当前开发文档 + 初步更新说明 + 历史问答 + 当前轮次提示。 */
-    private String buildDevDocAskPrompt(String currentDevDoc, String updateNotes,
-                                         int questionIndex, List<QaPairRequest> history) {
+    /** 构建 TDD 技术澄清上下文：PRD + 图谱事实 + 可选当前 TDD/补充约束 + 历史问答。 */
+    private String buildDevDocAskPrompt(PrdSession session, String prdContent, String currentDevDoc,
+                                         String updateNotes, int questionIndex,
+                                         List<QaPairRequest> history, boolean update) {
         StringBuilder sb = new StringBuilder();
-        sb.append("=== 当前开发文档 ===\n\n").append(currentDevDoc).append("\n\n");
-        sb.append("=== 本次更新说明 ===\n\n");
+        sb.append("需求标题：").append(session.getTitle()).append("\n");
+        appendGraphContext(sb, queryGraphContext(session.getProject(), session.getModule(), session.getTitle()));
+        appendDomainContext(sb, queryDomainContext(session.getProject(), session.getTitle()));
+        sb.append("\n=== 已确认 PRD ===\n\n").append(prdContent).append("\n\n");
+        if (update) {
+            sb.append("=== 当前 TDD ===\n\n").append(currentDevDoc).append("\n\n");
+        }
+        sb.append(update ? "=== 本次更新说明 ===\n\n" : "=== 开发者补充约束 ===\n\n");
         sb.append((updateNotes == null || updateNotes.isBlank()) ? "（未填写）" : updateNotes.trim());
         sb.append("\n\n");
 
@@ -1303,19 +1356,21 @@ public class PrdClarifyService {
      * 通过 SSE 流式推出，完成后落盘到 {id}-dev.md（若已有旧版本，落盘前先备份为
      * {id}-dev-v{n}.md，"检出新版本"不会丢掉上一版内容）。
      *
-     * @param extraInstructions 用户在弹框里补充的自定义提示词/更新说明（可选，null/空则不追加）。
-     *                          update 模式下这里只是初步说明文本，不含澄清问答，问答走 qaHistory。
+     * @param extraInstructions 用户在弹框里补充的开发约束/更新说明（可选，null/空则不追加）。
      * @param updateExisting    true = 基于当前已有开发文档做增量更新（{@link #DEV_DOC_SYSTEM_UPDATE}）；
      *                          false/null = 从 PRD 从零生成/覆盖（{@link #DEV_DOC_SYSTEM}，原有行为）
-     * @param qaHistory         update 模式下 DevDocUpdateDialog 多轮澄清产出的问答记录（可选，
-     *                          generate/regenerate 恒为空），结构化持久化进本次生成记录，
-     *                          使「生成记录」能按版本单独展示这次更新的澄清过程，跟 PRD 首次
-     *                          澄清记录（session.questions）彻底分开，不再共用同一份数据。
+     * @param qaHistory         本次 TDD 生成/更新前的技术澄清问答，结构化持久化进生成记录，
+     *                          与 PRD 业务澄清（session.questions）分开。
+     * @param clarificationCompleted 是否已经走完 TDD 澄清关卡；即使 AI 判断无需提问也必须为 true
      */
     public void generateDevDoc(String sessionId, String extraInstructions, Boolean updateExisting,
-                                List<QaPairRequest> qaHistory, SseEmitter emitter) {
+                                List<QaPairRequest> qaHistory, Boolean clarificationCompleted,
+                                SseEmitter emitter) {
         PrdSession session = repo.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
+        if (!Boolean.TRUE.equals(clarificationCompleted)) {
+            throw new IllegalStateException("请先完成 TDD 技术澄清，再生成开发文档");
+        }
         boolean update = Boolean.TRUE.equals(updateExisting);
         List<QaPairRequest> effectiveQaHistory = qaHistory == null ? List.of() : qaHistory;
         // mode 用于追溯历史记录：generate=首次生成，regenerate=从最新 PRD 从零覆盖，
@@ -1340,14 +1395,16 @@ public class PrdClarifyService {
                         // 没有可更新的基础，退回从零生成，避免直接报错卡住用户
                         log.info("[prd-clarify] 更新模式但当前无开发文档，退回从零生成 sessionId={}", sessionId);
                         devDocSystem = DEV_DOC_SYSTEM;
-                        userPrompt = buildDevDocPrompt(session, prdContent, extraInstructions);
+                        userPrompt = buildDevDocPrompt(
+                                session, prdContent, extraInstructions, effectiveQaHistory);
                     } else {
                         devDocSystem = DEV_DOC_SYSTEM_UPDATE;
                         userPrompt = buildDevDocUpdatePrompt(session, prdContent, currentDevDoc, extraInstructions, effectiveQaHistory);
                     }
                 } else {
                     devDocSystem = DEV_DOC_SYSTEM;
-                    userPrompt = buildDevDocPrompt(session, prdContent, extraInstructions);
+                    userPrompt = buildDevDocPrompt(
+                            session, prdContent, extraInstructions, effectiveQaHistory);
                 }
 
                 StringBuilder full = new StringBuilder();
@@ -1370,7 +1427,8 @@ public class PrdClarifyService {
                         java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
                 repo.updateDevDocPath(sessionId, devDocPath.toString());
                 repo.updateDevDocGeneratedAt(sessionId, System.currentTimeMillis());
-                recordDevDocHistory(sessionId, session.getDevDocHistory(), mode, extraInstructions, effectiveQaHistory);
+                recordDevDocHistory(
+                        sessionId, session.getDevDocHistory(), mode, extraInstructions, effectiveQaHistory, true);
                 log.info("[prd-clarify] 开发文档已保存 path={} mode={}", devDocPath, mode);
 
                 sendDone(emitter);
@@ -1388,7 +1446,8 @@ public class PrdClarifyService {
      * 只记警告，不影响本次生成已经成功落盘的结果）。
      */
     private void recordDevDocHistory(String sessionId, String existingHistoryJson, String mode,
-                                      String extraInstructions, List<QaPairRequest> qaHistory) {
+                                      String extraInstructions, List<QaPairRequest> qaHistory,
+                                      boolean clarificationCompleted) {
         try {
             ArrayNode arr;
             JsonNode existing = (existingHistoryJson == null || existingHistoryJson.isBlank())
@@ -1400,6 +1459,7 @@ public class PrdClarifyService {
             entry.put("mode", mode);
             entry.put("extraInstructions", extraInstructions == null ? "" : extraInstructions);
             entry.put("generatedAt", System.currentTimeMillis());
+            entry.put("clarificationCompleted", clarificationCompleted);
             ArrayNode qaArr = mapper.createArrayNode();
             for (QaPairRequest qa : qaHistory) {
                 ObjectNode qaNode = mapper.createObjectNode();
@@ -2069,7 +2129,8 @@ public class PrdClarifyService {
         }
     }
 
-    private String buildDevDocPrompt(PrdSession s, String prdContent, String extraInstructions) {
+    private String buildDevDocPrompt(PrdSession s, String prdContent, String extraInstructions,
+                                     List<QaPairRequest> qaHistory) {
         StringBuilder sb = new StringBuilder();
         sb.append("需求标题：").append(s.getTitle()).append("\n");
         if (s.getProject() != null && !s.getProject().isBlank()) {
@@ -2087,6 +2148,14 @@ public class PrdClarifyService {
             // 放在最后、紧邻生成指令之前，保证是 Claude 读到的最新鲜上下文，优先级最高
             sb.append("【用户补充说明——生成时请重点参考/遵循】\n");
             sb.append(extraInstructions.trim()).append("\n\n");
+        }
+        if (qaHistory != null && !qaHistory.isEmpty()) {
+            sb.append("【TDD 生成前已确认的技术澄清】\n");
+            int idx = 1;
+            for (QaPairRequest qa : qaHistory) {
+                sb.append(idx++).append(". ").append(qa.question())
+                        .append("\n   → ").append(qa.answer()).append("\n\n");
+            }
         }
         sb.append("请基于以上 PRD 生成完整的技术开发方案文档。");
         return sb.toString();
@@ -2214,13 +2283,14 @@ public class PrdClarifyService {
     private String batchClarifyFocusHint(PrdSession s) {
         if (REQ_TYPE_BUG_FIX.equals(s.getReqType())) {
             return "这是缺陷修复需求，只问复现步骤、期望 vs 实际行为的落差、影响范围（哪些场景/用户会触发）、"
-                    + "是否是最近改动引入的回归、有无报错日志/堆栈；不问业务目标、使用场景、验收标准这类大而全的问题。";
+                    + "业务上的正确处理规则；不问代码位置、报错堆栈或具体修复方式。";
         }
         if ("BUSINESS".equals(s.getRole())) {
             return "提问对象是非技术背景的业务人员：只问业务目标、使用场景、关键数据、业务规则与例外、验收标准，"
                     + "不问界面细节/数据库/接口/框架选型等技术问题（除非直接影响业务流程），语言通俗，避免技术术语。";
         }
-        return "提问对象是产品/开发人员：可问业务目标、功能边界、交互流程、边界异常、技术约束、集成点。";
+        return "提问对象是产品/开发人员：只问业务目标、用户场景、功能边界、业务流程、业务规则与例外、"
+                + "验收口径；不问数据库、字段、接口、类、方法、框架或部署等实现细节。";
     }
 
     private String buildGeneratePrompt(PrdSession s) {
@@ -2352,6 +2422,7 @@ public class PrdClarifyService {
 
         appendGraphContext(sb, graphifyAskCache.computeIfAbsent(s.getId(),
                 id -> queryGraphContext(s.getProject(), s.getModule(), s.getTitle())));
+        appendDomainContext(sb, queryDomainContext(s.getProject(), s.getTitle()));
 
         int maxQuestions = s.getMaxQuestions() > 0 ? s.getMaxQuestions() : 5;
         int remaining = maxQuestions - questionIndex;

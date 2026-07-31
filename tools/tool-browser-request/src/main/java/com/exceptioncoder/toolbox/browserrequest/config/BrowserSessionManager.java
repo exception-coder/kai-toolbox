@@ -9,6 +9,8 @@ import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
+import com.microsoft.playwright.Response;
+import com.microsoft.playwright.options.Cookie;
 import com.microsoft.playwright.options.Proxy;
 import com.microsoft.playwright.options.RequestOptions;
 import com.microsoft.playwright.options.WaitForSelectorState;
@@ -19,6 +21,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -114,6 +118,89 @@ public class BrowserSessionManager {
     public java.util.Set<String> getOpenSessionIds() {
         return java.util.Set.copyOf(contexts.keySet());
     }
+
+    /**
+     * 使用一次性 Cookie 打开页面并收集页面加载期间的 JSON 响应。
+     *
+     * <p>该入口只服务于需要复用网页登录态的只读拉取场景。临时上下文不会进入
+     * {@link #contexts}，Cookie 不落盘、不写日志，调用结束后立即销毁。</p>
+     */
+    public List<CapturedJsonResponse> captureJsonResponses(String url, String cookieHeader, long waitMs) {
+        return runOnWorker(() -> {
+            ensureBrowser();
+            URI target = URI.create(url);
+            Browser.NewContextOptions opts = new Browser.NewContextOptions()
+                    .setUserAgent(StealthConfig.UA)
+                    .setLocale(StealthConfig.LOCALE)
+                    .setTimezoneId(StealthConfig.TIMEZONE)
+                    .setBypassCSP(true)
+                    .setViewportSize(1440, 900)
+                    .setExtraHTTPHeaders(StealthConfig.extraHttpHeaders());
+            try (BrowserContext ctx = browser.newContext(opts)) {
+                ctx.setDefaultTimeout(props.getRequestTimeoutMs());
+                ctx.setDefaultNavigationTimeout(props.getRequestTimeoutMs());
+                ctx.addInitScript(StealthConfig.initScript());
+                ctx.addCookies(parseCookieHeader(cookieHeader, target));
+
+                List<CapturedJsonResponse> captured = new ArrayList<>();
+                ctx.onResponse(response -> captureJsonResponse(response, captured));
+                Page page = ctx.newPage();
+                page.navigate(url, new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+                page.waitForTimeout(Math.max(1_000, Math.min(waitMs, 15_000)));
+                return List.copyOf(captured);
+            }
+        });
+    }
+
+    private static List<Cookie> parseCookieHeader(String cookieHeader, URI target) {
+        List<Cookie> cookies = new ArrayList<>();
+        String origin = target.getScheme() + "://" + target.getHost();
+        for (String part : cookieHeader.split(";")) {
+            String trimmed = part.trim();
+            int separator = trimmed.indexOf('=');
+            if (separator <= 0) continue;
+            String name = trimmed.substring(0, separator).trim();
+            String value = trimmed.substring(separator + 1).trim();
+            if (name.isEmpty()) continue;
+            Cookie cookie = new Cookie(name, value).setSecure(true);
+            if (name.startsWith("__Host-")) {
+                cookie.setUrl(origin);
+            } else {
+                cookie.setDomain(".feishu.cn").setPath("/");
+            }
+            cookies.add(cookie);
+        }
+        if (cookies.isEmpty()) {
+            throw new IllegalArgumentException("Cookie 格式无效，请粘贴浏览器请求头中的完整 Cookie 值");
+        }
+        return cookies;
+    }
+
+    private static void captureJsonResponse(Response response, List<CapturedJsonResponse> captured) {
+        try {
+            if (captured.size() >= 120 || !isFeishuHost(response.url())) return;
+            String contentType = response.headerValue("content-type");
+            if (contentType == null || !contentType.toLowerCase().contains("json")) return;
+            byte[] body = response.body();
+            if (body.length == 0 || body.length > 5 * 1024 * 1024) return;
+            String text = new String(body, StandardCharsets.UTF_8).trim();
+            if (!text.startsWith("{") && !text.startsWith("[")) return;
+            captured.add(new CapturedJsonResponse(response.url(), text));
+        } catch (Exception ignored) {
+            // 某些流式/取消响应无法读取 body；忽略后继续收集其它候选响应。
+        }
+    }
+
+    private static boolean isFeishuHost(String url) {
+        try {
+            String host = URI.create(url).getHost();
+            return host != null && (host.equals("feishu.cn") || host.endsWith(".feishu.cn"));
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    public record CapturedJsonResponse(String url, String body) {}
 
     /** 当前页面截图（JPEG 字节），供「实时画面」。会话未打开/无页签返回 null。 */
     public byte[] screenshot(String sessionId) {

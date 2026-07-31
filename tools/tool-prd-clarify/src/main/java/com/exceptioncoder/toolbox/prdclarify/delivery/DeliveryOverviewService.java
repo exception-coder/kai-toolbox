@@ -1,5 +1,7 @@
 package com.exceptioncoder.toolbox.prdclarify.delivery;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.DeliveryOverviewView;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
@@ -30,14 +32,17 @@ public class DeliveryOverviewService {
     private final PrdSessionRepository repository;
     private final ProgressReportParser reportParser;
     private final DeliveryMetrics metrics;
+    private final ObjectMapper objectMapper;
 
     public DeliveryOverviewService(
             PrdSessionRepository repository,
             ProgressReportParser reportParser,
-            DeliveryMetrics metrics) {
+            DeliveryMetrics metrics,
+            ObjectMapper objectMapper) {
         this.repository = repository;
         this.reportParser = reportParser;
         this.metrics = metrics;
+        this.objectMapper = objectMapper;
     }
 
     /**
@@ -181,11 +186,14 @@ public class DeliveryOverviewService {
             boolean assessmentError,
             Integer codeScore) {
         return new DeliveryOverviewView.StageSetView(
+                prdDraftStage(session),
+                prdClarifyStage(session),
                 new DeliveryOverviewView.StageView(
                         prdComplete ? "COMPLETE" : "MISSING",
                         prdComplete ? 100 : 0,
                         session.getUpdatedAt(),
                         prdComplete ? "PRD 已归档" : "PRD 尚未完成或文件缺失"),
+                tddClarifyStage(session, prdComplete, tddPresent),
                 new DeliveryOverviewView.StageView(
                         tddStale ? "STALE" : tddPresent ? "COMPLETE" : "MISSING",
                         tddPresent ? 100 : 0,
@@ -200,6 +208,93 @@ public class DeliveryOverviewService {
                         "UNAVAILABLE", null, null, "待接入测试报告"),
                 new DeliveryOverviewView.StageView(
                         "UNAVAILABLE", null, null, "待接入部署与运行数据"));
+    }
+
+    private DeliveryOverviewView.StageView prdDraftStage(PrdSession session) {
+        boolean hasDraft = session.getRawInput() != null && !session.getRawInput().isBlank();
+        return new DeliveryOverviewView.StageView(
+                hasDraft ? "COMPLETE" : "MISSING",
+                hasDraft ? 100 : 0,
+                session.getCreatedAt(),
+                hasDraft ? "需求草稿已保存" : "需求草稿内容为空");
+    }
+
+    private DeliveryOverviewView.StageView prdClarifyStage(PrdSession session) {
+        String status = session.getStatus();
+        if ("DRAFT".equals(status)) {
+            return new DeliveryOverviewView.StageView(
+                    "MISSING", 0, session.getUpdatedAt(), "尚未开始 PRD 业务澄清");
+        }
+        if ("ERROR".equals(status)) {
+            return new DeliveryOverviewView.StageView(
+                    "ERROR", clarificationProgress(session), session.getUpdatedAt(), "PRD 澄清执行失败");
+        }
+        if ("CLARIFYING".equals(status)) {
+            int score = clarificationProgress(session);
+            return new DeliveryOverviewView.StageView(
+                    "PARTIAL", score, session.getUpdatedAt(),
+                    score > 0 ? "正在核对 PRD 必须明确的业务问题" : "等待核对 PRD 业务问题");
+        }
+        return new DeliveryOverviewView.StageView(
+                "COMPLETE", 100, session.getUpdatedAt(), "PRD 业务目标、范围和规则已确认");
+    }
+
+    private DeliveryOverviewView.StageView tddClarifyStage(
+            PrdSession session, boolean prdComplete, boolean tddPresent) {
+        if (!prdComplete) {
+            return new DeliveryOverviewView.StageView(
+                    "UNAVAILABLE", null, null, "请先完成 PRD 与业务澄清");
+        }
+        boolean recorded = hasRecordedTddClarification(session.getDevDocHistory());
+        if (recorded) {
+            return new DeliveryOverviewView.StageView(
+                    "COMPLETE", 100, session.getDevDocGeneratedAt(), "编码前关键技术决策已由开发者确认");
+        }
+        if (tddPresent) {
+            return new DeliveryOverviewView.StageView(
+                    "PARTIAL", 50, session.getDevDocGeneratedAt(), "旧版 TDD 未记录生成前技术澄清");
+        }
+        return new DeliveryOverviewView.StageView(
+                "MISSING", 0, null, "待核对编码前必须明确的关键技术细节");
+    }
+
+    private int clarificationProgress(PrdSession session) {
+        int total = Math.max(1, session.getMaxQuestions());
+        int answered = 0;
+        try {
+            JsonNode questions = objectMapper.readTree(session.getQuestions());
+            if (questions != null && questions.isArray()) {
+                for (JsonNode question : questions) {
+                    if (!question.path("answer").asText("").isBlank()) {
+                        answered++;
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // 历史脏数据不影响交付看板，按尚未回答展示。
+        }
+        return Math.min(99, Math.round(answered * 100f / total));
+    }
+
+    private boolean hasRecordedTddClarification(String historyJson) {
+        if (historyJson == null || historyJson.isBlank()) {
+            return false;
+        }
+        try {
+            JsonNode history = objectMapper.readTree(historyJson);
+            if (history == null || !history.isArray()) {
+                return false;
+            }
+            for (JsonNode version : history) {
+                if (version.path("clarificationCompleted").asBoolean(false)
+                        || (version.path("qaHistory").isArray() && !version.path("qaHistory").isEmpty())) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+            // 旧版历史无法解析时按未记录澄清处理。
+        }
+        return false;
     }
 
     private String codeStage(

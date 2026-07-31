@@ -8,10 +8,14 @@ import {
   type PrdImageAttachmentResult,
 } from '@/lib/prdAttachments'
 import { splitCatalogValues } from '@/lib/systemCatalog'
+import type { PrdBusinessFields } from '@/features/prd-clarify/types'
 import { createPrdDraft, suggestPrdTitle } from '../api'
 
 interface PrdDraftDialogProps {
   initialProject: string
+  initialShortTitle?: string
+  initialDescription?: string
+  initialBusinessFields?: PrdBusinessFields
   onClose: () => void
   onCreated: (sessionId: string) => void
 }
@@ -19,14 +23,27 @@ interface PrdDraftDialogProps {
 /** AI 交付中心的 PRD 起草入口，创建后把生命周期交回 PRD 澄清模块。 */
 export function PrdDraftDialog({
   initialProject,
+  initialShortTitle = '',
+  initialDescription = '',
+  initialBusinessFields = {},
   onClose,
   onCreated,
 }: PrdDraftDialogProps) {
   const [systems, setSystems] = useState(() => splitCatalogValues(initialProject))
   const [primarySystem, setPrimarySystem] = useState(() => splitCatalogValues(initialProject)[0] ?? '')
   const [modules, setModules] = useState<string[]>([])
-  const [shortTitle, setShortTitle] = useState('')
-  const [description, setDescription] = useState('')
+  const [shortTitle, setShortTitle] = useState(() => initialShortTitle.slice(0, 40))
+  const [description, setDescription] = useState(
+    initialBusinessFields.requirementDetail ?? initialDescription,
+  )
+  const [businessBackground, setBusinessBackground] = useState(initialBusinessFields.businessBackground ?? '')
+  const [businessRequirementType, setBusinessRequirementType] = useState(initialBusinessFields.businessRequirementType ?? '')
+  const [requirementSoftware, setRequirementSoftware] = useState(initialBusinessFields.requirementSoftware ?? '')
+  const [initiatingDepartment, setInitiatingDepartment] = useState(initialBusinessFields.initiatingDepartment ?? '')
+  const [requester, setRequester] = useState(initialBusinessFields.requester ?? '')
+  const [requestedAt, setRequestedAt] = useState(initialBusinessFields.requestedAt ?? '')
+  const [sourceAttachments, setSourceAttachments] = useState(initialBusinessFields.attachments ?? '')
+  const [followUpRecords, setFollowUpRecords] = useState(initialBusinessFields.followUpRecords ?? '')
   const [attachments, setAttachments] = useState<PrdAttachmentParseResult[]>([])
   const [images, setImages] = useState<Array<PrdImageAttachmentResult & { token: string }>>([])
   const [busy, setBusy] = useState<'title' | 'create' | 'file' | 'image' | null>(null)
@@ -37,8 +54,23 @@ export function PrdDraftDialog({
 
   const moduleTitle = summarizeModules(modules)
   const title = [primarySystem.trim(), moduleTitle, shortTitle.trim()].filter(Boolean).join('-')
-  const rawInput = buildRawInput(description, attachments)
-  const canGenerate = systems.length > 0 && primarySystem.trim() && modules.length > 0 && rawInput.trim() && !busy
+  const rawInput = buildRawInput({
+    description,
+    businessBackground,
+    businessRequirementType,
+    requirementSoftware,
+    initiatingDepartment,
+    requester,
+    requestedAt,
+    sourceAttachments,
+    followUpRecords,
+    attachments,
+  })
+  const canGenerate = systems.length > 0
+    && primarySystem.trim()
+    && modules.length > 0
+    && description.trim()
+    && !busy
   const canCreate = canGenerate && shortTitle.trim()
 
   const handleFiles = async (files: FileList | null) => {
@@ -107,6 +139,17 @@ export function PrdDraftDialog({
         rawInput,
         project: systems.join(', '),
         module: modules.join(', '),
+        businessFields: {
+          requirementDetail: description.trim(),
+          businessBackground: businessBackground.trim(),
+          businessRequirementType: businessRequirementType.trim(),
+          requirementSoftware: requirementSoftware.trim(),
+          initiatingDepartment: initiatingDepartment.trim(),
+          requester: requester.trim(),
+          requestedAt: requestedAt.trim(),
+          attachments: buildAttachmentField(sourceAttachments, attachments),
+          followUpRecords: followUpRecords.trim(),
+        },
       })
       onCreated(session.id)
     } catch (cause) {
@@ -180,7 +223,67 @@ export function PrdDraftDialog({
             {shortTitle.trim() && <p className="mt-1.5 text-[10px] text-[var(--color-muted-foreground)]">最终标题：{title}</p>}
           </Field>
 
-          <Field label="需求澄清描述" required>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="需求类型">
+              <input
+                value={businessRequirementType}
+                onChange={event => setBusinessRequirementType(event.target.value)}
+                list="prd-business-requirement-types"
+                placeholder="新需求 / 功能优化 / 系统缺陷"
+                className={inputClass}
+              />
+              <datalist id="prd-business-requirement-types">
+                <option value="新需求" />
+                <option value="功能优化" />
+                <option value="系统缺陷" />
+                <option value="数据异常" />
+              </datalist>
+            </Field>
+            <Field label="需求软件">
+              <input
+                value={requirementSoftware}
+                onChange={event => setRequirementSoftware(event.target.value)}
+                placeholder="ERP / SRM / 自研系统"
+                className={inputClass}
+              />
+            </Field>
+            <Field label="发起部门">
+              <input
+                value={initiatingDepartment}
+                onChange={event => setInitiatingDepartment(event.target.value)}
+                placeholder="需求发起部门"
+                className={inputClass}
+              />
+            </Field>
+            <Field label="提出人">
+              <input
+                value={requester}
+                onChange={event => setRequester(event.target.value)}
+                placeholder="需求提出人"
+                className={inputClass}
+              />
+            </Field>
+            <Field label="提出日期">
+              <input
+                type="date"
+                value={requestedAt}
+                onChange={event => setRequestedAt(event.target.value)}
+                className={inputClass}
+              />
+            </Field>
+          </div>
+
+          <Field label="需求背景 / 业务痛点">
+            <textarea
+              value={businessBackground}
+              onChange={event => setBusinessBackground(event.target.value)}
+              rows={4}
+              placeholder="说明当前业务现状、问题和影响。"
+              className={`${inputClass} resize-y`}
+            />
+          </Field>
+
+          <Field label="需求详情" required>
             <div className="mb-2 flex justify-end">
               <button
                 type="button"
@@ -206,7 +309,27 @@ export function PrdDraftDialog({
               onChange={event => setDescription(event.target.value)}
               onPaste={handlePaste}
               rows={8}
-              placeholder="说明业务目标、现状、期望流程和验收标准；可直接 Ctrl+V 粘贴截图。"
+              placeholder="说明业务目标、期望流程、业务规则和验收标准；可直接 Ctrl+V 粘贴截图。"
+              className={`${inputClass} resize-y`}
+            />
+          </Field>
+
+          <Field label="跟进记录">
+            <textarea
+              value={followUpRecords}
+              onChange={event => setFollowUpRecords(event.target.value)}
+              rows={4}
+              placeholder="记录补充反馈、处理进展和待确认事项。"
+              className={`${inputClass} resize-y`}
+            />
+          </Field>
+
+          <Field label="来源附件">
+            <textarea
+              value={sourceAttachments}
+              onChange={event => setSourceAttachments(event.target.value)}
+              rows={2}
+              placeholder="从需求池导入的附件名称或链接；本页上传的新附件也会自动写入数据对象。"
               className={`${inputClass} resize-y`}
             />
           </Field>
@@ -276,13 +399,54 @@ function Field({ label, required, children }: { label: string; required?: boolea
   )
 }
 
-function buildRawInput(description: string, attachments: PrdAttachmentParseResult[]) {
-  const base = description.trim()
+function buildRawInput({
+  description,
+  businessBackground,
+  businessRequirementType,
+  requirementSoftware,
+  initiatingDepartment,
+  requester,
+  requestedAt,
+  sourceAttachments,
+  followUpRecords,
+  attachments,
+}: {
+  description: string
+  businessBackground: string
+  businessRequirementType: string
+  requirementSoftware: string
+  initiatingDepartment: string
+  requester: string
+  requestedAt: string
+  sourceAttachments: string
+  followUpRecords: string
+  attachments: PrdAttachmentParseResult[]
+}) {
+  const attributes = [
+    businessRequirementType.trim() && `- 需求类型：${businessRequirementType.trim()}`,
+    requirementSoftware.trim() && `- 需求软件：${requirementSoftware.trim()}`,
+    initiatingDepartment.trim() && `- 发起部门：${initiatingDepartment.trim()}`,
+    requester.trim() && `- 提出人：${requester.trim()}`,
+    requestedAt.trim() && `- 提出日期：${requestedAt.trim()}`,
+  ].filter(Boolean)
+  const sections = [
+    attributes.length > 0 && `## 业务属性\n${attributes.join('\n')}`,
+    businessBackground.trim() && `## 需求背景 / 业务痛点\n${businessBackground.trim()}`,
+    description.trim() && `## 需求详情\n${description.trim()}`,
+    sourceAttachments.trim() && `## 来源附件\n${sourceAttachments.trim()}`,
+    followUpRecords.trim() && `## 跟进记录\n${followUpRecords.trim()}`,
+  ].filter(Boolean)
+  const base = sections.join('\n\n')
   if (attachments.length === 0) return base
   const appendix = attachments.map(attachment =>
     `[📎 附件：${attachment.fileName}](${attachment.url})\n---\n【附件：${attachment.fileName}】\n${attachment.text}${attachment.truncated ? '\n（内容已截断）' : ''}\n---`
   ).join('\n\n')
   return `${base}\n\n${appendix}`.trim()
+}
+
+function buildAttachmentField(source: string, attachments: PrdAttachmentParseResult[]) {
+  const uploaded = attachments.map(attachment => `[${attachment.fileName}](${attachment.url})`)
+  return [source.trim(), ...uploaded].filter(Boolean).join('\n')
 }
 
 function messageOf(cause: unknown, fallback: string) {

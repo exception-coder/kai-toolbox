@@ -185,7 +185,7 @@ public class PrdClarifyController {
         Long createdByUserId = AuthContext.current().map(AuthPrincipal::userId).orElse(null);
         PrdSession session = service.createSession(
                 req.title(), req.rawInput(), req.project(), req.module(), req.model(), req.engine(), req.role(),
-                req.reqType(), req.maxQuestions(), createdByUserId, req.clarifyMode());
+                req.reqType(), req.maxQuestions(), createdByUserId, req.clarifyMode(), req.businessFields());
         return PrdSessionView.from(session);
     }
 
@@ -205,7 +205,8 @@ public class PrdClarifyController {
     @PostMapping("/sessions/draft")
     public PrdSessionView saveDraft(@Valid @RequestBody SaveDraftRequest req) {
         Long createdByUserId = AuthContext.current().map(AuthPrincipal::userId).orElse(null);
-        PrdSession session = service.saveDraft(req.title(), req.rawInput(), req.project(), req.module(), createdByUserId);
+        PrdSession session = service.saveDraft(
+                req.title(), req.rawInput(), req.project(), req.module(), createdByUserId, req.businessFields());
         return PrdSessionView.from(session);
     }
 
@@ -213,7 +214,8 @@ public class PrdClarifyController {
     @PutMapping("/sessions/{id}/draft")
     public PrdSessionView updateDraft(@PathVariable String id, @Valid @RequestBody SaveDraftRequest req) {
         try {
-            PrdSession session = service.updateDraft(id, req.title(), req.rawInput(), req.project(), req.module());
+            PrdSession session = service.updateDraft(
+                    id, req.title(), req.rawInput(), req.project(), req.module(), req.businessFields());
             return PrdSessionView.from(session);
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(NOT_FOUND, e.getMessage());
@@ -231,7 +233,8 @@ public class PrdClarifyController {
     public PrdSessionView startFromDraft(@PathVariable String id, @Valid @RequestBody CreateSessionRequest req) {
         try {
             PrdSession session = service.startClarifyFromDraft(id, req.title(), req.rawInput(), req.project(),
-                    req.module(), req.model(), req.engine(), req.role(), req.reqType(), req.maxQuestions(), req.clarifyMode());
+                    req.module(), req.model(), req.engine(), req.role(), req.reqType(), req.maxQuestions(),
+                    req.clarifyMode(), req.businessFields());
             return PrdSessionView.from(session);
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(NOT_FOUND, e.getMessage());
@@ -529,6 +532,7 @@ public class PrdClarifyController {
                 req == null ? null : req.extraInstructions(),
                 req == null ? null : req.updateExisting(),
                 req == null ? null : req.qaHistory(),
+                req == null ? null : req.clarificationCompleted(),
                 emitter);
         return emitter;
     }
@@ -541,8 +545,8 @@ public class PrdClarifyController {
     }
 
     /**
-     * 开发文档更新前的多轮渐进澄清：请求 Claude 就"这次更新说明相对当前开发文档还有哪里不明确"
-     * 提出下一个问题。用法/事件与 {@code /sessions/{id}/ask}（PRD 澄清）一致。
+     * TDD 生成/更新前的多轮渐进澄清。initial 模式核对编码前必须明确的关键技术决策，
+     * update 模式核对本次更新相对当前 TDD 的实现歧义。
      */
     @PostMapping(value = "/sessions/{id}/dev-doc/ask", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter askNextDevDocQuestion(@PathVariable String id,
@@ -551,7 +555,8 @@ public class PrdClarifyController {
         if (req.engine() != null) {
             repo.updateEngine(id, normalizeEngine(req.engine()));
         }
-        service.askNextDevDocQuestion(id, req.questionIndex(), req.history(), req.updateNotes(), emitter);
+        service.askNextDevDocQuestion(
+                id, req.questionIndex(), req.history(), req.updateNotes(), req.mode(), emitter);
         return emitter;
     }
 

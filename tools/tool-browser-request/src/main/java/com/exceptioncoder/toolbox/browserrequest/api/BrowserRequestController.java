@@ -7,6 +7,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import com.exceptioncoder.toolbox.browserrequest.api.dto.CreateTaskRequest;
 import com.exceptioncoder.toolbox.browserrequest.api.dto.GenerateFlowRequest;
+import com.exceptioncoder.toolbox.browserrequest.api.dto.PullFeishuRequirementsRequest;
 import com.exceptioncoder.toolbox.browserrequest.api.dto.ReplayRequest;
 import com.exceptioncoder.toolbox.browserrequest.api.dto.RunFlowRequest;
 import com.exceptioncoder.toolbox.browserrequest.api.dto.SaveFlowRequest;
@@ -22,6 +23,7 @@ import com.exceptioncoder.toolbox.browserrequest.service.BrowserRequestService;
 import com.exceptioncoder.toolbox.browserrequest.service.RecordingService;
 import com.exceptioncoder.toolbox.browserrequest.service.ReplayExecutor;
 import com.exceptioncoder.toolbox.browserrequest.service.BrowserRequestTaskService;
+import com.exceptioncoder.toolbox.browserrequest.service.FeishuRequirementPullService;
 import com.exceptioncoder.toolbox.common.sse.SseEmitterRegistry;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
@@ -48,19 +50,22 @@ public class BrowserRequestController {
     private final ReplayExecutor replay;
     private final SseEmitterRegistry sseRegistry;
     private final AiFlowService aiFlowSvc;
+    private final FeishuRequirementPullService feishuRequirementPullService;
 
     public BrowserRequestController(BrowserRequestService sessionSvc,
                                     RecordingService recordingSvc,
                                     BrowserRequestTaskService taskSvc,
                                     ReplayExecutor replay,
                                     SseEmitterRegistry sseRegistry,
-                                    AiFlowService aiFlowSvc) {
+                                    AiFlowService aiFlowSvc,
+                                    FeishuRequirementPullService feishuRequirementPullService) {
         this.sessionSvc = sessionSvc;
         this.recordingSvc = recordingSvc;
         this.taskSvc = taskSvc;
         this.replay = replay;
         this.sseRegistry = sseRegistry;
         this.aiFlowSvc = aiFlowSvc;
+        this.feishuRequirementPullService = feishuRequirementPullService;
     }
 
     // ── 会话 ────────────────────────────────────────────────────────────────
@@ -119,6 +124,17 @@ public class BrowserRequestController {
     @DeleteMapping("/sessions/{id}")
     public void deleteSession(@PathVariable String id) {
         sessionSvc.delete(id);
+    }
+
+    /**
+     * 使用调用方提供的一次性 Cookie 拉取飞书多维表格需求。
+     * 优先直连 HAR 中的 records 接口；旧调用方未提供 recordsUrl 时使用浏览器兼容模式。
+     * Cookie 仅用于本次请求，不持久化。
+     */
+    @PostMapping("/feishu/requirements/pull")
+    public FeishuRequirementPullService.PullResult pullFeishuRequirements(
+            @Valid @RequestBody PullFeishuRequirementsRequest req) {
+        return feishuRequirementPullService.pull(req.url(), req.cookie(), req.recordsUrl());
     }
 
     // ── 录制 ────────────────────────────────────────────────────────────────

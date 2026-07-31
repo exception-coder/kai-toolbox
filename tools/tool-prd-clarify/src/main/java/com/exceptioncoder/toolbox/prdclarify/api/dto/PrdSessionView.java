@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.prdclarify.api.dto;
 
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
+import com.exceptioncoder.toolbox.prdclarify.domain.PrdBusinessFields;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -39,6 +40,8 @@ public record PrdSessionView(
         String clarifyMode,
         /** 原始需求描述（用户在填写表单时输入的完整内容），用于历史记录弹窗展示。 */
         String rawInput,
+        /** 业务来源结构化字段（飞书需求池导入或 PRD 起草时填写）。 */
+        PrdBusinessFields businessFields,
         List<QuestionItem> questions,
         String mdPath,
         /** 开发文档路径（非 null 表示已生成开发文档）。 */
@@ -132,6 +135,10 @@ public record PrdSessionView(
                 s.getMaxQuestions() > 0 ? s.getMaxQuestions() : 5,
                 "batch".equals(s.getClarifyMode()) ? "batch" : "progressive",
                 s.getRawInput(),
+                new PrdBusinessFields(
+                        s.getRequirementDetail(), s.getBusinessBackground(), s.getBusinessRequirementType(),
+                        s.getRequirementSoftware(), s.getInitiatingDepartment(), s.getRequester(),
+                        s.getRequestedAt(), s.getAttachments(), s.getFollowUpRecords()),
                 parseQuestions(s.getQuestions()),
                 s.getMdPath(), s.getDevDocPath(), s.getDevSessionId(), s.getDevDocGeneratedAt(),
                 parseDevDocHistory(s.getDevDocHistory()),

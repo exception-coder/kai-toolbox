@@ -146,18 +146,23 @@ export const startGenerate = (
  * extraInstructions：用户在确认弹框里补充的自定义提示词/更新说明（可选）。
  * updateExisting：true = 基于当前已有开发文档做增量更新（覆盖前自动备份旧版本），
  *                 false/undefined = 从 PRD 从零生成/覆盖（原有行为）。
- * qaHistory：update 模式下 DevDocUpdateDialog 多轮澄清产出的问答记录（可选），结构化传给
- *            后端持久化进这一版的生成记录，跟 PRD 首次澄清记录（session.questions）分开存。
+ * qaHistory：本次 TDD 生成/更新前的技术澄清问答，跟 PRD 业务澄清记录分开存。
+ * clarificationCompleted：必须为 true；即使 AI 判断无需追问，也表示已走完 TDD 澄清关卡。
  */
 export const startGenerateDevDoc = (
   id: string,
   extraInstructions: string | undefined,
   updateExisting: boolean | undefined,
   qaHistory: QaPair[] | undefined,
+  clarificationCompleted: boolean,
   handlers: SseHandlers,
   engine?: 'claude' | 'codex',
 ) =>
-  subscribeSsePost(`/prd-clarify/sessions/${id}/dev-doc`, { extraInstructions, updateExisting, qaHistory, engine }, handlers)
+  subscribeSsePost(
+    `/prd-clarify/sessions/${id}/dev-doc`,
+    { extraInstructions, updateExisting, qaHistory, clarificationCompleted, engine },
+    handlers,
+  )
 
 /** 读取开发文档内容（与 getContent 同格式）。 */
 export const getDevDocContent = async (id: string): Promise<string> => {
@@ -453,15 +458,20 @@ export const distributeAnswer = (sessionId: string, rawAnswer: string) =>
   })
 
 /**
- * 开发文档更新前的多轮渐进澄清：请求 Claude 就"更新说明相对当前开发文档还有哪里不明确"
- * 提出下一个问题（SSE 流式），用法与 askNextQuestion 一致。updateNotes 每轮都会带上。
+ * TDD 生成/更新前的多轮渐进澄清。initial 核对编码前必须明确的技术决策，
+ * update 核对更新说明相对当前 TDD 的实现歧义。
  */
 export const askNextDevDocQuestion = (
   sessionId: string,
   questionIndex: number,
   history: QaPair[],
   updateNotes: string,
+  mode: 'initial' | 'update',
   handlers: SseHandlers,
   engine?: 'claude' | 'codex',
 ) =>
-  subscribeSsePost(`/prd-clarify/sessions/${sessionId}/dev-doc/ask`, { questionIndex, history, updateNotes, engine }, handlers)
+  subscribeSsePost(
+    `/prd-clarify/sessions/${sessionId}/dev-doc/ask`,
+    { questionIndex, history, updateNotes, mode, engine },
+    handlers,
+  )

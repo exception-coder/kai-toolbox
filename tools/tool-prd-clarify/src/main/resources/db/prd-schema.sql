@@ -81,6 +81,18 @@ ALTER TABLE prd_session ADD COLUMN progress_history TEXT;
 -- 产生 parent_id，修订版等其它衍生记录仍是独立记录，不挂父子关系）。
 ALTER TABLE prd_session ADD COLUMN parent_id TEXT;
 
+-- 业务需求来源字段：从飞书需求池导入或在 PRD 起草表单中录入。
+-- business_requirement_type 是业务侧原始分类，不与 req_type（AI 澄清策略分类）混用。
+ALTER TABLE prd_session ADD COLUMN requirement_detail TEXT;
+ALTER TABLE prd_session ADD COLUMN business_background TEXT;
+ALTER TABLE prd_session ADD COLUMN business_requirement_type TEXT;
+ALTER TABLE prd_session ADD COLUMN requirement_software TEXT;
+ALTER TABLE prd_session ADD COLUMN initiating_department TEXT;
+ALTER TABLE prd_session ADD COLUMN requester TEXT;
+ALTER TABLE prd_session ADD COLUMN requested_at TEXT;
+ALTER TABLE prd_session ADD COLUMN source_attachments TEXT;
+ALTER TABLE prd_session ADD COLUMN follow_up_records TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_prd_session_created ON prd_session(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_prd_session_status  ON prd_session(status);
 CREATE INDEX IF NOT EXISTS idx_prd_session_created_by ON prd_session(created_by_user_id);

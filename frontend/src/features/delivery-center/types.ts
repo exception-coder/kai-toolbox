@@ -55,7 +55,10 @@ export interface DeliveryRequirement {
     workspace: string
   }
   stages: {
+    prdDraft: StageView
+    prdClarify: StageView
     prd: StageView
+    tddClarify: StageView
     tdd: StageView
     code: StageView
     test: StageView
@@ -105,4 +108,3 @@ export interface DeliveryOverview {
   findings: DeliveryFinding[]
   warnings: string[]
 }
-

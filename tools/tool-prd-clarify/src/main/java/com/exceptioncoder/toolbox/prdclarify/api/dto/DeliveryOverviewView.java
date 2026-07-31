@@ -70,9 +70,12 @@ public record DeliveryOverviewView(
     public record RequirementLinksView(String prd, String development, String workspace) {
     }
 
-    /** PRD、TDD、代码、测试和运行时五阶段。 */
+    /** 从需求草稿到运行时的完整交付阶段链路。 */
     public record StageSetView(
+            StageView prdDraft,
+            StageView prdClarify,
             StageView prd,
+            StageView tddClarify,
             StageView tdd,
             StageView code,
             StageView test,

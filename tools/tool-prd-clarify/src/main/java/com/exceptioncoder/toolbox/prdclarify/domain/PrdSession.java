@@ -21,6 +21,17 @@ public class PrdSession {
     private String project;
     private String module;
     private String rawInput;
+    private String requirementDetail;
+    private String businessBackground;
+    private String businessRequirementType;
+    private String requirementSoftware;
+    private String initiatingDepartment;
+    private String requester;
+    /** 业务侧提出日期，保存 ISO 日期文本（yyyy-MM-dd），避免跨时区产生日期偏移。 */
+    private String requestedAt;
+    /** 来源附件的名称、链接或 Markdown 文本。 */
+    private String attachments;
+    private String followUpRecords;
     /** JSON 字符串，格式 [{id,question,answer}]，可为 null（尚未生成问题时）。 */
     private String questions;
     private String status;

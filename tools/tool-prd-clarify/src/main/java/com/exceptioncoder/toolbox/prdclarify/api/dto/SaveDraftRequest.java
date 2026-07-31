@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.prdclarify.api.dto;
 
+import com.exceptioncoder.toolbox.prdclarify.domain.PrdBusinessFields;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -16,6 +17,7 @@ public record SaveDraftRequest(
         @NotBlank @Size(max = 200) String title,
         String rawInput,
         String project,
-        String module
+        String module,
+        PrdBusinessFields businessFields
 ) {
 }

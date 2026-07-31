@@ -235,7 +235,8 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
   })
 
   const runGenerateDevDoc = (id: string, n: string) => new Promise<void>((resolve, reject) => {
-    startGenerateDevDoc(id, n || undefined, true, undefined, {
+    // 此入口只有用户确认 AI 文档变更候选后才会执行，候选核对即本次 TDD 更新澄清关卡。
+    startGenerateDevDoc(id, n || undefined, true, undefined, true, {
       onEvent(name, data) {
         if (name === 'done') resolve()
         else if (name === 'error') {
