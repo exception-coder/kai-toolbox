@@ -125,8 +125,8 @@ export const saveContent = (id: string, req: SaveContentRequest) =>
  * 事件：chunk（content 增量）、done（完成）、error（失败）。
  * 使用 subscribeSsePost 以便携带 Authorization header。
  */
-export const startClarify = (id: string, handlers: SseHandlers) =>
-  subscribeSsePost(`${BASE}/sessions/${id}/clarify`, {}, handlers)
+export const startClarify = (id: string, handlers: SseHandlers, engine?: 'claude' | 'codex') =>
+  subscribeSsePost(`${BASE}/sessions/${id}/clarify`, { engine }, handlers)
 
 /**
  * SSE：触发 PRD 生成/更新阶段。事件同上：chunk / done / error。

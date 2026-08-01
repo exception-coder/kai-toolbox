@@ -447,10 +447,11 @@ function ReviseDialog({
   onClose,
 }: {
   original: PrdSessionView
-  onConfirm: (changeDesc: string) => void
+  onConfirm: (changeDesc: string, engine: ClarifyEngine) => void
   onClose: () => void
 }) {
   const [changeDesc, setChangeDesc] = useState('')
+  const [engine, setEngine] = useState<ClarifyEngine>(original.engine === 'codex' ? 'codex' : 'claude')
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
       <div className="w-full max-w-lg rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl overflow-hidden">
@@ -471,7 +472,7 @@ function ReviseDialog({
           </div>
           <p className="text-[11px] text-[var(--color-muted-foreground)] mt-1.5 leading-relaxed">
             将基于原 PRD 内容，重新进行 AI 渐进澄清，生成新版本。
-            原版内容会作为上下文提供给 Claude，告知这是修订而非全新需求。
+            原版内容会作为上下文提供给所选引擎，告知这是修订而非全新需求。
           </p>
         </div>
         {/* 修订说明 */}
@@ -489,6 +490,28 @@ function ReviseDialog({
 · 修正了某业务规则"
             className="w-full px-3 py-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-input)] text-sm resize-none focus:outline-none focus:ring-1 focus:ring-amber-500/50"
           />
+          <div className="mt-4">
+            <label className="block text-sm font-medium mb-2">执行引擎</label>
+            <div className="grid grid-cols-2 gap-2">
+              {([['claude', 'Claude Code'], ['codex', 'Codex']] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setEngine(value)}
+                  className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                    engine === value
+                      ? 'border-amber-500/50 bg-amber-500/10 text-amber-500'
+                      : 'border-[var(--color-border)] text-[var(--color-foreground)] hover:bg-[var(--color-muted)]/30'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-[11px] text-[var(--color-muted-foreground)]">
+              默认继承原版本使用的引擎，本次修订可单独切换。
+            </p>
+          </div>
         </div>
         {/* 操作 */}
         <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-[var(--color-border)]">
@@ -497,7 +520,7 @@ function ReviseDialog({
             取消
           </button>
           <button
-            onClick={() => onConfirm(changeDesc)}
+            onClick={() => onConfirm(changeDesc, engine)}
             className="flex items-center gap-2 px-5 py-2 rounded-lg bg-amber-500 text-white text-sm font-medium hover:bg-amber-400"
           >
             <GitBranch className="w-3.5 h-3.5" />
@@ -1665,11 +1688,13 @@ function EstimateEffortDialog({
 function DevDocUpdateDialog({
   sessionId,
   mode,
+  initialEngine,
   onConfirm,
   onClose,
 }: {
   sessionId: string
   mode: 'initial' | 'update'
+  initialEngine: ClarifyEngine
   /** 澄清完成后回调：初步说明与问答记录分别传出，不再拼成一段文本——由后端结构化持久化，
    *  使这一版的澄清记录能跟 PRD 首次澄清记录分开单独展示。 */
   onConfirm: (extraInstructions: string, qaHistory: QaPair[], engine: ClarifyEngine) => void
@@ -1678,7 +1703,7 @@ function DevDocUpdateDialog({
   const isUpdate = mode === 'update'
   const maxRounds = 5
   const [step, setStep] = useState<'input' | 'clarifying'>('input')
-  const [engine, setEngine] = useState<ClarifyEngine>('claude')
+  const [engine, setEngine] = useState<ClarifyEngine>(initialEngine)
 
   // ── input 步骤：初步更新说明 + 附件 ──
   const [notes, setNotes] = useState('')
@@ -3186,15 +3211,90 @@ function GeneratingPanel({
   )
 }
 
+// ───── 修订会话准备面板（点击开始修订后立即展示） ─────
+function RevisionPreparingPanel({
+  engine,
+  stage,
+}: {
+  engine: ClarifyEngine
+  stage: 'reading' | 'creating'
+}) {
+  const engineName = engine === 'codex' ? 'Codex' : 'Claude Code'
+  const stages = [
+    { key: 'reading', label: '读取原 PRD 内容与版本上下文' },
+    { key: 'creating', label: '创建修订会话并保存所选引擎' },
+    { key: 'clarifying', label: '进入 AI 澄清并生成首个问题' },
+  ] as const
+  const activeIndex = stage === 'reading' ? 0 : 1
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex items-center gap-3 px-5 py-2 border-b border-[var(--color-border)] bg-[var(--color-card)]">
+        <span className="text-xs text-[var(--color-muted-foreground)]">正在启动修订澄清</span>
+        <div className="flex-1 h-1.5 rounded-full bg-[var(--color-muted)] overflow-hidden">
+          <div
+            className="h-full rounded-full bg-[var(--color-primary)] transition-all duration-500"
+            style={{ width: stage === 'reading' ? '25%' : '65%' }}
+          />
+        </div>
+        <div className="flex items-center gap-1 text-xs text-[var(--color-muted-foreground)]">
+          <Loader2 className="w-3 h-3 animate-spin" />
+          {engineName} 准备中…
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-5 py-4">
+        <div className="flex items-start gap-3">
+          <div className="w-7 h-7 rounded-full bg-[var(--color-primary)]/20 flex items-center justify-center flex-shrink-0">
+            <GitBranch className="w-4 h-4 text-[var(--color-primary)]" />
+          </div>
+          <div className="flex-1 max-w-2xl rounded-2xl rounded-tl-sm bg-[var(--color-muted)]/30 border border-[var(--color-border)] px-4 py-3">
+            <div className="flex items-center gap-2 text-sm text-[var(--color-foreground)] mb-3">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-primary)]" />
+              <span>修订请求已提交，正在准备澄清环境…</span>
+            </div>
+            <div className="space-y-2 text-xs">
+              {stages.map((item, index) => (
+                <div
+                  key={item.key}
+                  className={`flex items-center gap-2 ${
+                    index <= activeIndex
+                      ? 'text-[var(--color-foreground)]'
+                      : 'text-[var(--color-muted-foreground)] opacity-60'
+                  }`}
+                >
+                  {index < activeIndex ? (
+                    <span className="flex size-4 items-center justify-center rounded-full bg-green-500/15 text-[10px] text-green-500">✓</span>
+                  ) : index === activeIndex ? (
+                    <Loader2 className="size-4 animate-spin text-[var(--color-primary)]" />
+                  ) : (
+                    <span className="size-4 rounded-full border border-[var(--color-border)]" />
+                  )}
+                  <span>{item.label}</span>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-[11px] text-[var(--color-muted-foreground)]">
+              页面已进入修订流程，请勿重复点击；准备完成后会自动显示第一个澄清问题。
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ───── 多轮渐进澄清对话面板（Step CHATTING） ─────
 function ChattingPanel({
   sessionId,
+  engine,
   maxRounds,
   initialHistory,
   onDone,       // 澄清完成，带完整 history 调用
   onError,
 }: {
   sessionId: string
+  engine: ClarifyEngine
   /** 本次澄清最多问几轮，来自 session.maxQuestions（开始澄清前确认弹框按需求类型预填/用户可调，
    *  1-2/3-5/6-8 或自定义）。真正的轮数上限由后端 askNextQuestion 强制，这里只是展示进度用，
    *  不做客户端侧的提前拦截。 */
@@ -3205,6 +3305,7 @@ function ChattingPanel({
   onDone: (history: QaPair[]) => void
   onError: (msg: string) => void
 }) {
+  const engineName = engine === 'codex' ? 'Codex' : 'Claude Code'
   const [history, setHistory] = useState<QaPair[]>(() => initialHistory ?? [])  // 已完成的 Q&A
   const [currentQ, setCurrentQ] = useState('')                  // 当前问题（流式积累）
   const [currentA, setCurrentA] = useState('')                  // 用户正在输入的答案
@@ -3314,7 +3415,7 @@ function ChattingPanel({
         {isStreaming && (
           <div className="flex items-center gap-1 text-xs text-[var(--color-muted-foreground)]">
             <Loader2 className="w-3 h-3 animate-spin" />
-            Claude 思考中…
+            {engineName} 思考中…
           </div>
         )}
       </div>
@@ -3338,7 +3439,7 @@ function ChattingPanel({
             <div className="flex-1 rounded-2xl rounded-tl-sm bg-[var(--color-muted)]/30 border border-[var(--color-border)] px-4 py-3 max-w-2xl">
               <div className="flex items-center gap-2 text-sm text-[var(--color-muted-foreground)] mb-2">
                 <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--color-primary)]" />
-                <span>Claude 正在分析需求，查询知识图谱…</span>
+                <span>{engineName} 正在分析需求，查询知识图谱…</span>
               </div>
               <div className="space-y-1.5 text-[11px] text-[var(--color-muted-foreground)]">
                 <div className="flex items-center gap-1.5">
@@ -3422,7 +3523,7 @@ function ChattingPanel({
             </button>
           </div>
           <p className="text-xs text-center text-[var(--color-muted-foreground)] mt-2">
-            Claude 会根据你的回答动态追问，最多 {maxRounds} 轮
+            {engineName} 会根据你的回答动态追问，最多 {maxRounds} 轮
           </p>
         </div>
       )}
@@ -3433,7 +3534,9 @@ function ChattingPanel({
           <div className="max-w-3xl mx-auto h-12 rounded-xl border border-[var(--color-border)] bg-[var(--color-muted)]/30 flex items-center gap-2 px-3 text-xs text-[var(--color-muted-foreground)]">
             <Loader2 className="w-3 h-3 animate-spin flex-shrink-0" />
             <span className="italic">
-              {currentQ ? 'Claude 正在输出问题…' : 'Claude 正在查询知识图谱，生成精准问题中（约 10-30 秒）…'}
+              {currentQ
+                ? `${engineName} 正在输出问题…`
+                : `${engineName} 正在查询知识图谱，生成精准问题中（约 10-30 秒）…`}
             </span>
           </div>
         </div>
@@ -3996,6 +4099,7 @@ function EditingPanel({
   hasDevDoc,
   isDevDocStale,
   initialDevDocEstimation,
+  currentEngine,
   initialProgressPath,
   initialProgressGeneratedAt,
   onReturnToClarify,
@@ -4015,6 +4119,8 @@ function EditingPanel({
   isDevDocStale?: boolean
   /** 从历史加载时该会话已有的 AI 工时评估结果（无则 null），评估/重新评估后本地状态覆盖它 */
   initialDevDocEstimation?: DevDocEstimation | null
+  /** 当前 PRD 会话引擎；TDD 澄清默认继承，用户仍可在弹窗中切换。 */
+  currentEngine: ClarifyEngine
   /** 从历史加载时该会话已有的进度评估文档路径（无则 null），评估过一次后本地状态覆盖它 */
   initialProgressPath?: string | null
   /** 同上，进度评估最后生成时间戳 */
@@ -4294,6 +4400,7 @@ function EditingPanel({
         <DevDocUpdateDialog
           sessionId={sessionId}
           mode="initial"
+          initialEngine={currentEngine}
           onClose={() => setGenDevDocMode(null)}
           onConfirm={(extraInstructions, qaHistory, engine) => {
             setGenDevDocMode(null)
@@ -4307,6 +4414,7 @@ function EditingPanel({
         <DevDocUpdateDialog
           sessionId={sessionId}
           mode="update"
+          initialEngine={currentEngine}
           onClose={() => setGenDevDocMode(null)}
           onConfirm={(extraInstructions, qaHistory, engine) => {
             setGenDevDocMode(null)
@@ -4757,6 +4865,11 @@ export function PrdClarifyPage() {
   const reqItemIdRef = useRef('')
   /** 正在发起修订的原始会话（显示 ReviseDialog） */
   const [revisingSesion, setRevisingSession] = useState<PrdSessionView | null>(null)
+  /** 修订请求提交后、正式会话创建前的即时反馈状态 */
+  const [revisionPreparing, setRevisionPreparing] = useState<{
+    engine: ClarifyEngine
+    stage: 'reading' | 'creating'
+  } | null>(null)
   /** 正在做「AI 需求拆分」的会话 id（显示 SplitReviewDialog），null 表示弹框未打开 */
   const [splittingSessionId, setSplittingSessionId] = useState<string | null>(null)
 
@@ -4771,6 +4884,7 @@ export function PrdClarifyPage() {
   const urlReqItemId = searchParams.get('reqItemId') ?? ''
   /** 直接查看某个历史 PRD 会话（来自需求管理池「查看PRD」按钮） */
   const urlViewSession = searchParams.get('viewSession') ?? ''
+  const [autoStartPending, setAutoStartPending] = useState(false)
 
   // 来自需求管理池（有 reqItemId + 内容）：自动建会话、跳过 INPUT 直接开始澄清
   // 用 ref 保证只执行一次，不因其他 state 变化重触
@@ -4780,7 +4894,28 @@ export function PrdClarifyPage() {
     autoStartedRef.current = true
     reqItemIdRef.current = urlReqItemId  // ★ 在 URL 清除前锁住 reqItemId
     setReqContextTitle(urlTitle)
-    createMut.mutateAsync({ title: urlTitle, rawInput: urlRawInput, project: urlProject, module: urlModule, role: 'PRODUCT' })
+    setAutoStartPending(true)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])  // 只在 mount 时执行一次
+
+  const handleAutoStartConfirm = (
+    reqType: PrdReqType | undefined,
+    maxQuestions: number | undefined,
+    clarifyMode: PrdClarifyMode,
+    engine: ClarifyEngine,
+  ) => {
+    setAutoStartPending(false)
+    createMut.mutateAsync({
+      title: urlTitle,
+      rawInput: urlRawInput,
+      project: urlProject,
+      module: urlModule,
+      role: 'PRODUCT',
+      reqType,
+      maxQuestions,
+      clarifyMode,
+      engine,
+    })
       .then((created) => {
         setSessionId(created.id)
         // 直接用创建返回值预热 session 缓存（含正确的 maxQuestions），避免 ChattingPanel
@@ -4795,8 +4930,7 @@ export function PrdClarifyPage() {
         autoStartedRef.current = false  // 创建失败可重试
         setErrorMsg('会话创建失败，请重试')
       })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])  // 只在 mount 时执行一次
+  }
 
   // 交付中心已经创建了正式会话，这里只加载并锁定，不再重复创建。
   useEffect(() => {
@@ -4893,6 +5027,8 @@ export function PrdClarifyPage() {
     setErrorMsg(null)
     setGenerationFailed(false)
     setReqContextTitle(null)
+    setRevisionPreparing(null)
+    setRevisingSession(null)
     autoStartedRef.current = false
     reqItemIdRef.current = ''
   }
@@ -4903,12 +5039,20 @@ export function PrdClarifyPage() {
    * 2. 创建新会话，rawInput = [原PRD内容 + 修订说明]，title 加版本标记
    * 3. 直接进入 CHATTING（跳过 INPUT 表单）
    */
-  const handleReviseConfirm = async (originalSession: PrdSessionView, changeDesc: string) => {
+  const handleReviseConfirm = async (originalSession: PrdSessionView, changeDesc: string, engine: ClarifyEngine) => {
     setRevisingSession(null)
     setErrorMsg(null)
+    setSessionId(null)
+    setStreamText('')
+    setPrdContent('')
+    setSessionTitle(`${originalSession.title}（修订版）`)
+    setReqContextTitle(`修订自：${originalSession.title}`)
+    setRevisionPreparing({ engine, stage: 'reading' })
+    setStep('CHATTING')
     try {
       // 读取原版 PRD 内容
       const prdText = await getContent(originalSession.id)
+      setRevisionPreparing({ engine, stage: 'creating' })
       const revisionRawInput = [
         `【修订版 PRD — 基于原版：${originalSession.title}】`,
         '',
@@ -4924,6 +5068,7 @@ export function PrdClarifyPage() {
         rawInput: revisionRawInput,
         project: originalSession.project ?? '',
         module: originalSession.module ?? '',
+        engine,
         role: (originalSession.role as 'PRODUCT' | 'BUSINESS') ?? 'PRODUCT',
       })
       setSessionId(created.id)
@@ -4931,8 +5076,11 @@ export function PrdClarifyPage() {
       setSessionTitle(newTitle)
       setReqContextTitle(`修订自：${originalSession.title}`)
       qc.invalidateQueries({ queryKey: ['prd-sessions'] })
+      setRevisionPreparing(null)
       setStep('CHATTING')
     } catch {
+      setRevisionPreparing(null)
+      setStep('INPUT')
       setErrorMsg('创建修订版会话失败，请重试')
     }
   }
@@ -5276,11 +5424,23 @@ PRD_SESSION_ID: ${created.id}`
         </div>
       )}
 
+      {/* 需求池自动入口：启动澄清前确认引擎 */}
+      {autoStartPending && (
+        <StartClarifyDialog
+          showEngineToggle
+          onConfirm={handleAutoStartConfirm}
+          onClose={() => {
+            setAutoStartPending(false)
+            setSearchParams({}, { replace: true })
+          }}
+        />
+      )}
+
       {/* 修订版 Dialog */}
       {revisingSesion && (
         <ReviseDialog
           original={revisingSesion}
-          onConfirm={(desc) => handleReviseConfirm(revisingSesion, desc)}
+          onConfirm={(desc, engine) => handleReviseConfirm(revisingSesion, desc, engine)}
           onClose={() => setRevisingSession(null)}
         />
       )}
@@ -5333,11 +5493,20 @@ PRD_SESSION_ID: ${created.id}`
           />
         )}
 
+        {/* 修订会话尚在创建时先给出即时反馈，避免用户误以为点击未生效 */}
+        {step === 'CHATTING' && revisionPreparing && (
+          <RevisionPreparingPanel
+            engine={revisionPreparing.engine}
+            stage={revisionPreparing.stage}
+          />
+        )}
+
         {/* 多轮渐进澄清对话（ChattingPanel 自管理 askNextQuestion 循环）—— 渐进模式，
             未选批量或 session 还没读到（新建会话必是渐进兜底）时走这条 */}
-        {step === 'CHATTING' && sessionId && session?.clarifyMode !== 'batch' && (
+        {step === 'CHATTING' && !revisionPreparing && sessionId && session?.clarifyMode !== 'batch' && (
           <ChattingPanel
             sessionId={sessionId}
+            engine={session?.engine === 'codex' ? 'codex' : 'claude'}
             maxRounds={session?.maxQuestions && session.maxQuestions > 0 ? session.maxQuestions : 5}
             initialHistory={(session?.questions ?? [])
               .filter((q) => q.answer && q.answer.trim())
@@ -5380,6 +5549,7 @@ PRD_SESSION_ID: ${created.id}`
               (!session?.devDocGeneratedAt || session.devDocGeneratedAt < session.updatedAt)
             }
             initialDevDocEstimation={session?.devDocEstimation ?? null}
+            currentEngine={session?.engine === 'codex' ? 'codex' : 'claude'}
             initialProgressPath={session?.progressPath ?? null}
             initialProgressGeneratedAt={session?.progressGeneratedAt ?? null}
             onReturnToClarify={handleReturnToClarify}

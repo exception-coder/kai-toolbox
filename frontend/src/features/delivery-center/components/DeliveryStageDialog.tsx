@@ -56,6 +56,8 @@ export function DeliveryStageDialog({ requirement, stage, onClose }: Props) {
   const [busy, setBusy] = useState('')
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState('')
+  const [engine, setEngine] = useState<'claude' | 'codex'>('claude')
+  const [engineReady, setEngineReady] = useState(false)
   const abortRef = useRef<(() => void) | null>(null)
   const questionAccRef = useRef('')
 
@@ -68,6 +70,7 @@ export function DeliveryStageDialog({ requirement, stage, onClose }: Props) {
       .then(async loaded => {
         if (!active) return
         setSession(loaded)
+        setEngine(loaded.engine === 'codex' ? 'codex' : 'claude')
         setQuestions(loaded.questions ?? [])
         setAnswers((loaded.questions ?? []).map(item => item.answer ?? ''))
 
@@ -99,6 +102,7 @@ export function DeliveryStageDialog({ requirement, stage, onClose }: Props) {
   useEffect(() => {
     if (!session || busy || error) return
     if (stage === 'prdClarify' && session.questions.length === 0 && session.status !== 'DONE') {
+      if (!engineReady) return
       void preparePrdQuestions(session)
     }
     if (
@@ -108,11 +112,12 @@ export function DeliveryStageDialog({ requirement, stage, onClose }: Props) {
       && tddHistory.length === 0
       && !currentQuestion
     ) {
+      if (!engineReady) return
       askTddQuestion(session, 0, [])
     }
     // 会话先落入状态，再结束初始读取；busy 变为空时才真正启动澄清。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.id, busy, error])
+  }, [session?.id, busy, error, engineReady])
 
   const preparePrdQuestions = async (loaded: PrdSessionView) => {
     setBusy('AI 正在从业务视角整理必须澄清的问题')
@@ -125,7 +130,7 @@ export function DeliveryStageDialog({ requirement, stage, onClose }: Props) {
           rawInput: loaded.rawInput ?? '',
           project: loaded.project ?? undefined,
           module: loaded.module ?? undefined,
-          engine: loaded.engine,
+          engine,
           role: 'BUSINESS',
           reqType: loaded.reqType,
           maxQuestions: loaded.maxQuestions || 5,
@@ -152,7 +157,7 @@ export function DeliveryStageDialog({ requirement, stage, onClose }: Props) {
           setBusy('')
           setError(messageOf(cause, '业务澄清连接失败'))
         },
-      })
+      }, engine)
     } catch (cause) {
       setBusy('')
       setError(messageOf(cause, '无法启动 PRD 澄清'))
@@ -193,7 +198,7 @@ export function DeliveryStageDialog({ requirement, stage, onClose }: Props) {
           setBusy('')
           setError(messageOf(cause, 'PRD 生成连接失败'))
         },
-      }, undefined, false, session.engine)
+      }, undefined, false, engine)
     } catch (cause) {
       setBusy('')
       setError(messageOf(cause, '澄清答案保存失败'))
@@ -230,7 +235,7 @@ export function DeliveryStageDialog({ requirement, stage, onClose }: Props) {
           setError(messageOf(cause, 'TDD 澄清连接失败'))
         },
       },
-      loaded.engine,
+      engine,
     )
   }
 
@@ -278,7 +283,7 @@ export function DeliveryStageDialog({ requirement, stage, onClose }: Props) {
           setError(messageOf(cause, 'TDD 生成连接失败'))
         },
       },
-      loaded.engine,
+      engine,
     )
   }
 
@@ -287,6 +292,11 @@ export function DeliveryStageDialog({ requirement, stage, onClose }: Props) {
     [session],
   )
   const stageView = requirement.stages[stage]
+  const needsEngineStart = !!session && (
+    (stage === 'prdClarify' && session.questions.length === 0 && session.status !== 'DONE')
+    || (stage === 'tddClarify' && session.status === 'DONE' && !session.devDocPath
+      && tddHistory.length === 0 && !currentQuestion)
+  )
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
@@ -303,6 +313,36 @@ export function DeliveryStageDialog({ requirement, stage, onClose }: Props) {
             <X className="h-4 w-4" />
           </button>
         </header>
+
+        {(stage === 'prdClarify' || stage === 'tddClarify') && session && (
+          <div className="flex flex-wrap items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-muted)]/20 px-5 py-3">
+            <span className="mr-1 text-xs text-[var(--color-muted-foreground)]">执行引擎</span>
+            {([['claude', 'Claude Code'], ['codex', 'Codex']] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                disabled={!!busy || engineReady}
+                onClick={() => setEngine(value)}
+                className={`border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-60 ${
+                  engine === value
+                    ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]'
+                    : 'border-[var(--color-border)] hover:bg-[var(--color-muted)]/40'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+            {needsEngineStart && !engineReady && (
+              <button
+                type="button"
+                onClick={() => setEngineReady(true)}
+                className="ml-auto bg-[var(--color-primary)] px-3 py-1.5 text-xs font-medium text-white"
+              >
+                使用 {engine === 'codex' ? 'Codex' : 'Claude Code'} 开始
+              </button>
+            )}
+          </div>
+        )}
 
         {busy && (
           <div className="border-b border-[var(--color-border)] px-5 py-3">

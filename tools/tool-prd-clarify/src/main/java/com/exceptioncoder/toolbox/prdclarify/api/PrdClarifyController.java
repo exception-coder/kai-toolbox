@@ -366,8 +366,12 @@ public class PrdClarifyController {
      * 前端用 subscribeSsePost 消费。
      */
     @PostMapping(value = "/sessions/{id}/clarify", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter clarify(@PathVariable String id) {
+    public SseEmitter clarify(@PathVariable String id,
+                              @RequestBody(required = false) Map<String, String> req) {
         SseEmitter emitter = new SseEmitter(0L);
+        if (req != null && req.get("engine") != null) {
+            repo.updateEngine(id, normalizeEngine(req.get("engine")));
+        }
         service.clarify(id, emitter);
         return emitter;
     }

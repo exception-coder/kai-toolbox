@@ -166,7 +166,12 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
   const [note, setNote] = useState('')
   const [updateStage, setUpdateStage] = useState<'prd' | 'devdoc' | null>(null)
   const [updateErr, setUpdateErr] = useState<string | null>(null)
+  const [docEngine, setDocEngine] = useState<'claude' | 'codex'>('claude')
   const updating = updateStage !== null || analyzing || reanalyzing || decisionSaving
+
+  useEffect(() => {
+    if (linked) setDocEngine(linked.engine === 'codex' ? 'codex' : 'claude')
+  }, [linked?.id, linked?.engine])
 
   useEffect(() => {
     if (!linked) {
@@ -231,7 +236,7 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
         }
       },
       onError(err) { reject(err instanceof Error ? err : new Error(String(err))) },
-    }, n || undefined, true)
+    }, n || undefined, true, docEngine)
   })
 
   const runGenerateDevDoc = (id: string, n: string) => new Promise<void>((resolve, reject) => {
@@ -245,7 +250,7 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
         }
       },
       onError(err) { reject(err instanceof Error ? err : new Error(String(err))) },
-    })
+    }, docEngine)
   })
 
   const buildUpdateNote = (value: PrdDocChangeCandidate) => {
@@ -506,30 +511,50 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
                     )}
 
                     {!['APPLIED', 'DISMISSED', 'NO_UPDATE'].includes(candidate.status) && candidate.decision !== 'UNCERTAIN' && (
-                      <button
-                        type="button"
-                        onClick={() => void runConfirmedUpdate()}
-                        disabled={updating}
-                        className={cn(
-                          'flex w-full items-center justify-center gap-1.5 rounded-md bg-[var(--color-primary)] px-3 py-1.5 text-xs font-medium text-[var(--color-primary-foreground)] hover:opacity-90',
-                          updating && 'pointer-events-none opacity-60',
-                        )}
-                      >
-                        {updateStage ? <Loader2 className="size-3.5 animate-spin" /> : candidate.decision === 'NONE' ? <Check className="size-3.5" /> : <RefreshCw className="size-3.5" />}
-                        {updateStage === 'prd'
-                          ? '正在更新 PRD…'
-                          : updateStage === 'devdoc'
-                            ? '正在更新 TDD…'
-                            : candidate.status === 'PARTIAL' && candidate.applyStage === 'TDD'
-                              ? '继续更新 TDD'
-                              : candidate.decision === 'NONE'
-                                ? '标记无需更新'
-                                : candidate.decision === 'PRD_ONLY'
-                                  ? '确认并更新 PRD'
-                                  : candidate.decision === 'TDD_ONLY'
-                                    ? '确认并更新 TDD'
-                                    : '确认并依次更新 PRD + TDD'}
-                      </button>
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {([['claude', 'Claude Code'], ['codex', 'Codex']] as const).map(([value, label]) => (
+                            <button
+                              key={value}
+                              type="button"
+                              disabled={updating}
+                              onClick={() => setDocEngine(value)}
+                              className={cn(
+                                'rounded-md border px-2 py-1.5 text-[11px] font-medium',
+                                docEngine === value
+                                  ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]'
+                                  : 'border-[var(--color-border)] text-[var(--color-muted-foreground)]',
+                              )}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void runConfirmedUpdate()}
+                          disabled={updating}
+                          className={cn(
+                            'flex w-full items-center justify-center gap-1.5 rounded-md bg-[var(--color-primary)] px-3 py-1.5 text-xs font-medium text-[var(--color-primary-foreground)] hover:opacity-90',
+                            updating && 'pointer-events-none opacity-60',
+                          )}
+                        >
+                          {updateStage ? <Loader2 className="size-3.5 animate-spin" /> : candidate.decision === 'NONE' ? <Check className="size-3.5" /> : <RefreshCw className="size-3.5" />}
+                          {updateStage === 'prd'
+                            ? '正在更新 PRD…'
+                            : updateStage === 'devdoc'
+                              ? '正在更新 TDD…'
+                              : candidate.status === 'PARTIAL' && candidate.applyStage === 'TDD'
+                                ? '继续更新 TDD'
+                                : candidate.decision === 'NONE'
+                                  ? '标记无需更新'
+                                  : candidate.decision === 'PRD_ONLY'
+                                    ? '确认并更新 PRD'
+                                    : candidate.decision === 'TDD_ONLY'
+                                      ? '确认并更新 TDD'
+                                      : '确认并依次更新 PRD + TDD'}
+                        </button>
+                      </div>
                     )}
 
                     {candidate.status === 'APPLIED' && (
