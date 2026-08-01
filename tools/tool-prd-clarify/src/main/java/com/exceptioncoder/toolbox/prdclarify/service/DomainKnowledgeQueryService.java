@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -63,19 +64,24 @@ public class DomainKnowledgeQueryService {
         }
         try {
             String script = buildScript(distEntry, project, question);
-            ProcessBuilder pb = new ProcessBuilder(props.getNodeExecutable(), "--input-type=module", "-e", script);
+            // Passing generated source through "node -e" is unsafe on Windows: the
+            // command-line conversion can strip JSON quotes around file:// URLs.
+            // Stdin preserves the ESM source byte-for-byte on every platform.
+            ProcessBuilder pb = new ProcessBuilder(props.getNodeExecutable(), "--input-type=module", "-");
             pb.redirectErrorStream(true);
             Process process = pb.start();
-            String output;
-            try (var is = process.getInputStream()) {
-                output = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            try (var os = process.getOutputStream()) {
+                os.write(script.getBytes(StandardCharsets.UTF_8));
             }
+            CompletableFuture<String> outputFuture = CompletableFuture.supplyAsync(() -> readOutput(process));
             boolean finished = process.waitFor(props.getTimeoutSeconds(), TimeUnit.SECONDS);
             if (!finished) {
                 process.destroyForcibly();
+                outputFuture.cancel(true);
                 log.warn("[domain-knowledge] 查询超时 project={}", project);
                 return null;
             }
+            String output = outputFuture.join();
             if (process.exitValue() != 0) {
                 log.warn("[domain-knowledge] 查询退出码非 0 project={} output={}", project, trim(output));
                 return null;
@@ -117,5 +123,13 @@ public class DomainKnowledgeQueryService {
     private static String trim(String s) {
         if (s == null) return "";
         return s.length() > 300 ? s.substring(0, 300) + "…" : s;
+    }
+
+    private static String readOutput(Process process) {
+        try (var is = process.getInputStream()) {
+            return new String(is.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            return "";
+        }
     }
 }

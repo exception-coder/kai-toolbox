@@ -1394,6 +1394,7 @@ public class PrdClarifyService {
 
         Thread.ofVirtual().name("prd-dev-doc-").start(() -> {
             try {
+                sendProgress(emitter, "正在准备 PRD、技术澄清与知识图谱上下文");
                 // 读取已有 PRD 内容作为输入
                 String prdContent = fileStore.read(sessionId);
                 if (prdContent == null || prdContent.isBlank()) {
@@ -1422,6 +1423,9 @@ public class PrdClarifyService {
                 }
 
                 StringBuilder full = new StringBuilder();
+                sendProgress(emitter, "codex".equalsIgnoreCase(session.getEngine())
+                        ? "Codex 正在生成开发文档，首段内容可能需要稍候"
+                        : "Claude 正在生成开发文档");
                 agentRunner.stream(devDocSystem, userPrompt, session.getModel(),
                         normalizeEngine(session.getEngine()), delta -> {
                     full.append(delta);
@@ -1429,6 +1433,7 @@ public class PrdClarifyService {
                 });
 
                 // 落盘到 ~/.kai-toolbox/prd/{id}-dev.md（与 PRD 文件同目录，由系统统一管理）。
+                sendProgress(emitter, "内容生成完成，正在保存开发文档");
                 // 覆盖前若旧版本已存在，先备份为 {id}-dev-v{n}.md——"检出新版本"不丢旧内容。
                 String devDocContent = full.toString();
                 java.nio.file.Path devDocPath = java.nio.file.Path.of(
@@ -2635,6 +2640,15 @@ public class PrdClarifyService {
             emitter.complete();
         } catch (Exception e) {
             emitter.completeWithError(e);
+        }
+    }
+
+    private void sendProgress(SseEmitter emitter, String message) {
+        try {
+            emitter.send(SseEmitter.event().name("progress").data(Map.of("message", message)));
+        } catch (Exception e) {
+            emitter.completeWithError(e);
+            throw new IllegalStateException("SSE client disconnected", e);
         }
     }
 

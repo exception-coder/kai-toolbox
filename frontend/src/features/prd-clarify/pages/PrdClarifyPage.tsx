@@ -4045,6 +4045,7 @@ function EditingPanel({
   // ── 开发文档状态 ──
   const [devDocContent, setDevDocContent] = useState('')
   const [devDocStreaming, setDevDocStreaming] = useState(false)
+  const [devDocProgress, setDevDocProgress] = useState('')
   // 首次加载已有开发文档内容期间为 true：hasDevDoc=true 时初始为 true，避免内容还没
   // 从后端读回来的一瞬间被误判成「没有开发文档」而闪一下生成按钮/触发生成。
   const [devDocLoading, setDevDocLoading] = useState(hasDevDoc)
@@ -4110,30 +4111,75 @@ function EditingPanel({
     setPanelMode('dev')   // 生成时切到开发文档全屏视图
     setDevDocContent('')
     setDevDocStreaming(true)
+    setDevDocProgress(engine === 'codex' ? '正在连接 Codex…' : '正在连接 Claude…')
     setDevDocLoading(false)
     setDevDocError(null)
     devDocAccRef.current = ''
     devDocAbortRef.current?.()
+    let terminalEventReceived = false
+
+    const loadPersistedDevDoc = async () => {
+      try {
+        const persisted = await getDevDocContent(sessionId)
+        if (persisted) {
+          devDocAccRef.current = persisted
+          setDevDocContent(persisted)
+          setDevDocStreaming(false)
+          setDevDocProgress('')
+          return true
+        }
+      } catch {
+        // 保留已经收到的流式内容；错误由调用方按当前连接状态展示。
+      }
+      return false
+    }
 
     const abort = startGenerateDevDoc(sessionId, extraInstructions, updateExisting, qaHistory, true, {
       onEvent(name, data) {
+        if (name === 'progress') {
+          setDevDocProgress((data as { message?: string }).message || '正在生成开发文档…')
+        }
         if (name === 'chunk') {
           const chunk = (data as { content: string }).content ?? ''
           devDocAccRef.current += chunk
           setDevDocContent(devDocAccRef.current)
+          setDevDocProgress(`${engine === 'codex' ? 'Codex' : 'Claude'} 正在生成，已接收 ${devDocAccRef.current.length.toLocaleString()} 字符`)
         }
         if (name === 'done') {
-          setDevDocStreaming(false)
+          terminalEventReceived = true
+          setDevDocProgress('生成完成，正在读取已保存文档…')
+          void loadPersistedDevDoc().then((loaded) => {
+            setDevDocStreaming(false)
+            setDevDocProgress('')
+            if (!loaded && !devDocAccRef.current) {
+              setDevDocError('生成已结束，但未能读取保存结果，请刷新页面重试')
+            }
+          })
         }
         if (name === 'error') {
+          terminalEventReceived = true
           setDevDocStreaming(false)
+          setDevDocProgress('')
           const message = (data as { message?: string })?.message
           setDevDocError(message || '开发文档生成失败，可点击重试')
         }
       },
       onError() {
         setDevDocStreaming(false)
+        setDevDocProgress('')
         setDevDocError('SSE 连接中断，请点击重试')
+      },
+      onClose() {
+        if (terminalEventReceived) return
+        // 某些代理/运行环境可能吞掉最后一个 done 帧。连接关闭时主动回读，
+        // 后端若已完成落盘，用户无需刷新页面就能看到结果。
+        void loadPersistedDevDoc().then((loaded) => {
+          if (!loaded) {
+            setDevDocStreaming(false)
+            setDevDocProgress('')
+            setDevDocError('生成连接已关闭，且暂未读取到生成结果，请重试')
+          }
+        })
       },
     }, engine)
     devDocAbortRef.current = abort
@@ -4583,8 +4629,14 @@ function EditingPanel({
           <div className="flex-1 overflow-hidden flex flex-col">
             {devDocStreaming ? (
               /* 生成中：实时预览 */
-              <div className="flex-1 overflow-hidden">
-                <MarkdownViewer content={devDocContent || '正在生成开发文档，Claude 正在读取知识图谱…'} />
+              <div className="flex-1 overflow-hidden flex flex-col">
+                <div className="flex items-center gap-2 border-b border-purple-500/20 bg-purple-500/10 px-4 py-2 text-xs text-purple-500">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>{devDocProgress || '正在生成开发文档…'}</span>
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  <MarkdownViewer content={devDocContent || '正在准备生成上下文，请稍候…'} />
+                </div>
               </div>
             ) : devDocContent ? (
               /* 有内容：分栏/编辑/预览 */
