@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { renderMarkdownToHtml } from '../lib/renderMarkdown'
 import { replaceMermaidBlocks } from '../lib/mermaidRenderer'
 import type { RewriteContext } from '../lib/rewriteRelativeLinks'
-import { MermaidLightbox } from './MermaidLightbox'
+import { MermaidLightbox } from '@/components/markdown/MermaidLightbox'
 import '../styles/markdown.css'
 
 interface MarkdownPreviewProps {

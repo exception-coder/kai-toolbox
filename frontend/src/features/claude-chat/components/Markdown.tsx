@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import mermaid from 'mermaid'
+import { Maximize2 } from 'lucide-react'
+import { MermaidLightbox } from '@/components/markdown/MermaidLightbox'
 import { cn } from '@/lib/utils'
 
 // ── Mermaid 初始化（全局一次）──────────────────────────────────────────────────
@@ -27,6 +29,7 @@ function ensureMermaidInit() {
 function MermaidDiagram({ code }: { code: string }) {
   const [svg, setSvg] = useState<string | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
   const idRef = useRef(`mg-${Math.random().toString(36).slice(2, 9)}`)
 
   useEffect(() => {
@@ -60,11 +63,33 @@ function MermaidDiagram({ code }: { code: string }) {
   }
 
   return (
-    <div
-      className="my-2 overflow-x-auto rounded-lg bg-[var(--color-background)] p-2 [&_svg]:max-w-full"
-      // mermaid 返回的是清洁 SVG，无脚本，安全注入
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
+    <>
+      <div className="group relative my-2 rounded-lg bg-[var(--color-background)]">
+        <button
+          type="button"
+          onClick={() => setLightboxOpen(true)}
+          className="absolute right-2 top-2 z-10 flex size-8 items-center justify-center rounded-md border border-[var(--color-border)] bg-[var(--color-background)]/90 text-[var(--color-muted-foreground)] shadow-sm backdrop-blur hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)]"
+          title="全屏查看图表"
+          aria-label="全屏查看 Mermaid 图表"
+        >
+          <Maximize2 className="size-4" />
+        </button>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setLightboxOpen(true)}
+          onKeyDown={event => {
+            if (event.key === 'Enter' || event.key === ' ') setLightboxOpen(true)
+          }}
+          className="cursor-zoom-in overflow-x-auto p-2 pr-12 [&_svg]:max-w-full"
+          // mermaid 返回的是清洁 SVG，无脚本，安全注入
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
+      </div>
+      {lightboxOpen && (
+        <MermaidLightbox svgHtml={svg} onClose={() => setLightboxOpen(false)} />
+      )}
+    </>
   )
 }
 
