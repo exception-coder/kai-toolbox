@@ -144,7 +144,7 @@ export interface PrdSessionView {
   createdByUserId: number | null
   /** 创建者用户名，仅历史列表接口会解析（批量查一次），其它单会话接口一律为 null */
   createdByUsername: string | null
-  /** 父会话 id，非 null 表示这是「需求拆分」产生的子需求，历史列表据此嵌套展示在父记录下面 */
+  /** 父会话 id，非 null 表示这是需求拆分或修订产生的子 PRD，历史列表据此嵌套展示 */
   parentId: string | null
   errorMsg: string | null
   createdAt: number
@@ -177,6 +177,8 @@ export interface CreateSessionRequest {
   maxQuestions?: number
   clarifyMode?: PrdClarifyMode
   businessFields?: PrdBusinessFields
+  /** 修订版/拆分子需求的来源会话；普通新建会话不传。 */
+  parentId?: string
 }
 
 /** 保存/更新草稿：只含标题/需求描述/关联项目模块，草稿阶段还不用决定角色/需求类型/澄清深度/模式。 */

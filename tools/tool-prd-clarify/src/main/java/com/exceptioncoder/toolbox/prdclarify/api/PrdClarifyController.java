@@ -30,6 +30,7 @@ import com.exceptioncoder.toolbox.prdclarify.api.dto.SubmitAnswersRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.SuggestTitleRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.SuggestTitleView;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.UpdateTitleRequest;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.UpdateProjectRequest;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
 import com.exceptioncoder.toolbox.prdclarify.service.PrdClarifyService;
@@ -185,7 +186,8 @@ public class PrdClarifyController {
         Long createdByUserId = AuthContext.current().map(AuthPrincipal::userId).orElse(null);
         PrdSession session = service.createSession(
                 req.title(), req.rawInput(), req.project(), req.module(), req.model(), req.engine(), req.role(),
-                req.reqType(), req.maxQuestions(), createdByUserId, req.clarifyMode(), req.businessFields());
+                req.reqType(), req.maxQuestions(), createdByUserId, req.clarifyMode(), req.businessFields(),
+                req.parentId());
         return PrdSessionView.from(session);
     }
 
@@ -395,6 +397,21 @@ public class PrdClarifyController {
     public PrdSessionView saveQaHistory(@PathVariable String id,
                                         @Valid @RequestBody SaveQaHistoryRequest req) {
         return PrdSessionView.from(service.saveQaHistory(id, req.history()));
+    }
+
+    /** 修改 PRD 分组（关联项目）；根节点移动时其全部拆分/修订后代一起移动。 */
+    @PutMapping("/sessions/{id}/project")
+    public PrdSessionView updateProject(@PathVariable String id, @Valid @RequestBody UpdateProjectRequest req) {
+        PrdSession session = repo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "会话不存在: " + id));
+        if (session.getParentId() != null) {
+            throw new ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,
+                    "子 PRD 不能脱离父节点单独修改分组，请修改根 PRD 分组");
+        }
+        String project = req.project() == null || req.project().isBlank() ? null : req.project().trim();
+        repo.updateProjectTree(id, project);
+        return repo.findById(id).map(PrdSessionView::from)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "会话不存在: " + id));
     }
 
     /** 保留当前 PRD 和问答记录，把已经生成/出错的会话恢复到需求澄清阶段。 */

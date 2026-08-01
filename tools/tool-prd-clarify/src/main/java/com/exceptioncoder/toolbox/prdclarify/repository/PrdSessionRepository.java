@@ -195,6 +195,51 @@ public class PrdSessionRepository {
     }
 
     /**
+     * 修改根 PRD 的项目分组，并递归同步全部拆分/修订子孙节点。
+     * project 是列表分组依据，整棵树必须保持一致，避免父节点移动后子节点仍显示旧项目。
+     */
+    public int updateProjectTree(String id, String project) {
+        return jdbc.update("""
+                WITH RECURSIVE descendants(id) AS (
+                    SELECT id FROM prd_session WHERE id = ?
+                    UNION
+                    SELECT child.id
+                    FROM prd_session child
+                    JOIN descendants parent ON child.parent_id = parent.id
+                )
+                UPDATE prd_session SET project = ? WHERE id IN (SELECT id FROM descendants)
+                """, id, project);
+    }
+
+    /**
+     * 给该功能上线前创建的修订版补 parent_id。修订 raw_input 的首行含原版标题，取修订创建前
+     * 最近一条同标题记录作为父节点；只处理 parent_id 为空的记录，重复启动是幂等空操作。
+     */
+    public int backfillRevisionParents() {
+        return jdbc.update("""
+                UPDATE prd_session
+                SET parent_id = (
+                    SELECT parent.id
+                    FROM prd_session parent
+                    WHERE parent.id <> prd_session.id
+                      AND parent.created_at < prd_session.created_at
+                      AND prd_session.raw_input LIKE '【修订版 PRD — 基于原版：' || parent.title || '】%'
+                    ORDER BY parent.created_at DESC
+                    LIMIT 1
+                )
+                WHERE parent_id IS NULL
+                  AND raw_input LIKE '【修订版 PRD — 基于原版：%'
+                  AND EXISTS (
+                    SELECT 1
+                    FROM prd_session parent
+                    WHERE parent.id <> prd_session.id
+                      AND parent.created_at < prd_session.created_at
+                      AND prd_session.raw_input LIKE '【修订版 PRD — 基于原版：' || parent.title || '】%'
+                  )
+                """);
+    }
+
+    /**
      * 更新 AI 工时评估结果（JSON 整体覆盖）。
      * 纯衍生数据，故意不 touch {@code updated_at}（原因同 {@link #updateDevDocPath}）。
      */

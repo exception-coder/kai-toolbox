@@ -82,6 +82,13 @@ export const updateSessionTitle = (id: string, title: string) =>
     body: JSON.stringify({ title }),
   })
 
+/** 修改根 PRD 分组（关联项目），后端会同步整棵子 PRD 树；空字符串移到“未分类”。 */
+export const updateSessionProject = (id: string, project: string) =>
+  http<PrdSessionView>(`${BASE}/sessions/${id}/project`, {
+    method: 'PUT',
+    body: JSON.stringify({ project }),
+  })
+
 /** 提交用户对澄清问题的答案。 */
 export const submitAnswers = (id: string, req: SubmitAnswersRequest) =>
   http<PrdSessionView>(`${BASE}/sessions/${id}/answers`, {

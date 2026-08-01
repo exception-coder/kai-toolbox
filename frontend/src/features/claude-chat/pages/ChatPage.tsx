@@ -61,7 +61,7 @@ import { ensureNotifyPermission } from '../browserNotify'
 import { PrdLinkPanel } from '../components/PrdLinkPanel'
 import { PendingSqlPanel } from '../components/PendingSqlPanel'
 import { PrdAttachPanel } from '../components/PrdAttachPanel'
-import { getSessionByDevSession } from '@/features/prd-clarify/api'
+import { getSessionByDevSession, linkDevSession } from '@/features/prd-clarify/api'
 import type { PrdSessionView } from '@/features/prd-clarify/types'
 import { countPrdReferenceDocuments, uploadPrdReference } from '../lib/prdReference'
 
@@ -168,14 +168,59 @@ export function ChatPage() {
   const [showPendingSql, setShowPendingSql] = useState(false)
   // 「+ 更多功能」里的「PRD 文档」：搜索 PRD 澄清助手里的记录，一键把 PRD/开发文档内容附加进当前对话。
   const [showPrdAttach, setShowPrdAttach] = useState(false)
+  // PRD handoff 不能靠固定延时读取 sessionId：新会话 ID 由 WebSocket init/ready 异步返回。
+  // 记录发起前的旧 ID，等真正出现不同的新 ID 后再执行带鉴权的关联请求。
+  const pendingAutoPrdLinkRef = useRef<{
+    prdSessionId: string
+    previousDevSessionId: string | null
+  } | null>(null)
+  const autoPrdLinkInFlightRef = useRef(false)
   // 当前会话关联的 PRD（undefined=还没查/无会话，null=确认未关联），供顶栏标识展示。
   const [linkedPrd, setLinkedPrd] = useState<PrdSessionView | null | undefined>(undefined)
   useEffect(() => {
     const sid = chat?.sessionId
     if (!sid) { setLinkedPrd(undefined); return }
+    const pending = pendingAutoPrdLinkRef.current
+    if (pending && sid !== pending.previousDevSessionId) {
+      // 自动关联尚未完成时不抢先查询“未关联”，成功后由下方 effect 回填权威结果。
+      setLinkedPrd(undefined)
+      return
+    }
     let alive = true
     getSessionByDevSession(sid).then(v => { if (alive) setLinkedPrd(v) }).catch(() => { if (alive) setLinkedPrd(null) })
     return () => { alive = false }
+  }, [chat?.sessionId])
+
+  useEffect(() => {
+    const pending = pendingAutoPrdLinkRef.current
+    const devSessionId = chat?.sessionId
+    if (!pending || !devSessionId || devSessionId === pending.previousDevSessionId || autoPrdLinkInFlightRef.current) return
+
+    let cancelled = false
+    autoPrdLinkInFlightRef.current = true
+    const linkWithRetry = async () => {
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        try {
+          await linkDevSession(pending.prdSessionId, devSessionId)
+          const linked = await getSessionByDevSession(devSessionId)
+          if (!cancelled) {
+            pendingAutoPrdLinkRef.current = null
+            setLinkedPrd(linked)
+          }
+          return
+        } catch {
+          if (attempt < 3) {
+            await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)))
+          }
+        }
+      }
+      if (!cancelled) {
+        pendingAutoPrdLinkRef.current = null
+        setLinkedPrd(null)
+      }
+    }
+    void linkWithRetry().finally(() => { autoPrdLinkInFlightRef.current = false })
+    return () => { cancelled = true }
   }, [chat?.sessionId])
   const [pendingSql, setPendingSql] = useState<SessionPendingSql | null | undefined>(undefined)
   useEffect(() => {
@@ -400,7 +445,7 @@ export function ChatPage() {
     } catch { /* 解析失败忽略 */ }
   }, [chat])
 
-  // PRD 开发 handoff：prd-clarify「开始开发」把 {cwd, seed, prdSessionId} 写 sessionStorage 后跳来，
+  // PRD 开发 handoff：prd-clarify「开始开发」把 cwd/seed/引擎/Codex Auth 目录写 sessionStorage 后跳来，
   // 在指定工作目录开一个会话，自动发送 PRD 内容 + feature-dev 引导消息，并回写 devSessionId 到 PRD 记录。一次性。
   const prdDevLaunchedRef = useRef(false)
   useEffect(() => {
@@ -411,24 +456,29 @@ export function ChatPage() {
     prdDevLaunchedRef.current = true
     try { sessionStorage.removeItem('kai-toolbox:claude-chat:prd-dev-launch') } catch { /* ignore */ }
     try {
-      const { cwd, seed, prdSessionId } = JSON.parse(raw) as { cwd?: string; seed?: string; prdSessionId?: string }
+      const { cwd, seed, prdSessionId, engine, codexHome } = JSON.parse(raw) as {
+        cwd?: string
+        seed?: string
+        prdSessionId?: string
+        engine?: 'claude' | 'codex'
+        codexHome?: string
+      }
       if (seed) {
-        chat.open((cwd ?? '').trim(), undefined, undefined, 'claude')
-        chat.send(seed)
-        // 回写开发会话 ID 到 PRD（非关键，失败忽略）
-        // chat.sessionId 在 init/ready 事件后设置，等 1.5s 让它稳定
+        const selectedEngine = engine === 'codex' ? 'codex' : 'claude'
         if (prdSessionId) {
-          setTimeout(() => {
-            const sid = chat.sessionId
-            if (sid) {
-              fetch(`/api/prd-clarify/sessions/${prdSessionId}/link-dev-session`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ devSessionId: sid }),
-              }).catch(() => {})
-            }
-          }, 1500)
+          pendingAutoPrdLinkRef.current = {
+            prdSessionId,
+            previousDevSessionId: chat.sessionId,
+          }
         }
+        chat.open(
+          (cwd ?? '').trim(),
+          undefined,
+          undefined,
+          selectedEngine,
+          selectedEngine === 'codex' ? { codexHome: codexHome?.trim() || undefined } : undefined,
+        )
+        chat.send(seed)
       }
     } catch { /* 解析失败忽略 */ }
   }, [chat])
@@ -452,21 +502,14 @@ export function ChatPage() {
         engine?: 'claude' | 'codex'
       }
       if (seed) {
+        if (prdSessionId) {
+          pendingAutoPrdLinkRef.current = {
+            prdSessionId,
+            previousDevSessionId: chat.sessionId,
+          }
+        }
         chat.open((cwd ?? '').trim(), undefined, undefined, engine === 'codex' ? 'codex' : 'claude')
         chat.send(seed)
-        // 记录关联，供 prd-clarify 页面来 check-prd-file 时使用
-        if (prdSessionId) {
-          setTimeout(() => {
-            const sid = chat.sessionId
-            if (sid) {
-              fetch(`/api/prd-clarify/sessions/${prdSessionId}/link-dev-session`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ devSessionId: sid }),
-              }).catch(() => {})
-            }
-          }, 1500)
-        }
       }
     } catch { /* 解析失败忽略 */ }
   }, [chat])

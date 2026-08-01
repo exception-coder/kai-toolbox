@@ -33,6 +33,7 @@ public record CreateSessionRequest(
         String reqType,
         Integer maxQuestions,
         String clarifyMode,
-        PrdBusinessFields businessFields
+        PrdBusinessFields businessFields,
+        String parentId
 ) {
 }

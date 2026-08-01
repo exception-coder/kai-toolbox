@@ -14,6 +14,8 @@ export interface ComboboxProps {
   options: ComboboxOption[]
   placeholder?: string
   emptyText?: string
+  /** 展开时先显示全部候选；用户开始输入后再按输入值过滤。 */
+  showAllOnOpen?: boolean
   id?: string
   className?: string
 }
@@ -26,26 +28,41 @@ export interface ComboboxProps {
  * 数据」自动填充抢先展示（样式是浏览器自己的、不可控，内容也是历史输入痕迹而非我们的
  * 候选项），体验混乱且不符合本项目自有控件体系。
  */
-export function Combobox({ value, onChange, options, placeholder, emptyText = '无匹配项', id, className }: ComboboxProps) {
+export function Combobox({
+  value,
+  onChange,
+  options,
+  placeholder,
+  emptyText = '无匹配项',
+  showAllOnOpen = false,
+  id,
+  className,
+}: ComboboxProps) {
   const [open, setOpen] = React.useState(false)
+  const [typedSinceOpen, setTypedSinceOpen] = React.useState(false)
   const inputRef = React.useRef<HTMLInputElement>(null)
 
   const filtered = React.useMemo(() => {
-    const q = value.trim().toLowerCase()
+    const q = showAllOnOpen && open && !typedSinceOpen ? '' : value.trim().toLowerCase()
     if (!q) return options
     return options.filter((o) => o.label.toLowerCase().includes(q))
-  }, [options, value])
+  }, [open, options, showAllOnOpen, typedSinceOpen, value])
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen)
+    if (nextOpen) setTypedSinceOpen(false)
+  }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverAnchor asChild>
         <div className={cn('relative', className)}>
           <input
             id={id}
             ref={inputRef}
             value={value}
-            onChange={(e) => { onChange(e.target.value); setOpen(true) }}
-            onFocus={() => setOpen(true)}
+            onChange={(e) => { onChange(e.target.value); setTypedSinceOpen(true); setOpen(true) }}
+            onFocus={() => handleOpenChange(true)}
             onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false) }}
             placeholder={placeholder}
             autoComplete="off"
@@ -54,7 +71,7 @@ export function Combobox({ value, onChange, options, placeholder, emptyText = '�
           <button
             type="button"
             tabIndex={-1}
-            onClick={() => { setOpen((o) => !o); inputRef.current?.focus() }}
+            onClick={() => { handleOpenChange(!open); inputRef.current?.focus() }}
             className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--color-muted-foreground)]"
             aria-label="展开候选列表"
           >

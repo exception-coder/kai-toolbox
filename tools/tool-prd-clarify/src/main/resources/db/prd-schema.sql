@@ -77,8 +77,8 @@ ALTER TABLE prd_session ADD COLUMN progress_history TEXT;
 -- 需求拆分：一个较大的需求可以先让 Claude 判断能否拆成多个可独立澄清/开发的子需求
 -- （见 PrdClarifyService#splitRequirement/adoptSplit），用户确认采纳后，每个子需求各自
 -- 落一条 DRAFT 草稿记录，parent_id 指回原会话——原会话本身不受影响，原始需求描述原样保留，
--- 只是历史列表里多了几条挂在它下面的子记录，PRD 因此有了层级结构（目前只有拆分这一条
--- 产生 parent_id，修订版等其它衍生记录仍是独立记录，不挂父子关系）。
+-- 只是历史列表里多了几条挂在它下面的子记录，PRD 因此有了层级结构；修订版也通过
+-- parent_id 挂在其来源版本下面，形成可折叠的版本树。
 ALTER TABLE prd_session ADD COLUMN parent_id TEXT;
 
 -- 业务需求来源字段：从飞书需求池导入或在 PRD 起草表单中录入。

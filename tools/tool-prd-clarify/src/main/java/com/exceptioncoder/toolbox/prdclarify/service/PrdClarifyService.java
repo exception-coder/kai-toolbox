@@ -398,7 +398,7 @@ public class PrdClarifyService {
     public PrdSession createSession(String title, String rawInput,
                                     String project, String module, String model, String role) {
         return createSession(title, rawInput, project, module, model, "claude", role,
-                null, null, null, null, PrdBusinessFields.empty());
+                null, null, null, null, PrdBusinessFields.empty(), null);
     }
 
     /**
@@ -417,11 +417,15 @@ public class PrdClarifyService {
     public PrdSession createSession(String title, String rawInput,
                                     String project, String module, String model, String engine, String role,
                                     String reqType, Integer maxQuestions, Long createdByUserId,
-                                    String clarifyMode, PrdBusinessFields businessFields) {
+                                    String clarifyMode, PrdBusinessFields businessFields, String parentId) {
         long now = System.currentTimeMillis();
         PrdBusinessFields fields = businessFields == null ? PrdBusinessFields.empty() : businessFields;
         String effectiveRole = (role != null && "BUSINESS".equalsIgnoreCase(role)) ? "BUSINESS" : "PRODUCT";
         String effectiveEngine = normalizeEngine(engine);
+        String effectiveParentId = parentId == null || parentId.isBlank() ? null : parentId.trim();
+        if (effectiveParentId != null && repo.findById(effectiveParentId).isEmpty()) {
+            throw new IllegalArgumentException("父 PRD 会话不存在: " + effectiveParentId);
+        }
         ReqTypeClassification classification = resolveReqType(title, rawInput, model, effectiveEngine, reqType, maxQuestions);
         String effectiveClarifyMode = "batch".equals(clarifyMode) ? "batch" : "progressive";
 
@@ -448,6 +452,7 @@ public class PrdClarifyService {
                 .clarifyMode(effectiveClarifyMode)
                 .status("CLARIFYING")
                 .createdByUserId(createdByUserId)
+                .parentId(effectiveParentId)
                 .createdAt(now)
                 .updatedAt(now)
                 .build();

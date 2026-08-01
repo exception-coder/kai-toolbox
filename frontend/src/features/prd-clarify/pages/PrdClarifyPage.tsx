@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { BotMessageSquare, Bug, ChevronRight, ClipboardCheck, Clock, Code2, Copy, ExternalLink, FileText, FolderOpen, GitBranch, Image as ImageIcon, Info, Layers, Loader2, Paperclip, Pencil, Plus, RefreshCw, Rocket, Save, Search, Send, Sparkles, Trash2, User, Wrench, X } from 'lucide-react'
 import { SystemModuleSelector } from '@/components/prd/SystemModuleSelector'
+import { Combobox } from '@/components/ui/combobox'
 import { usePrompt } from '@/components/ui/prompt-dialog'
 import { splitCatalogValues } from '@/lib/systemCatalog'
 import { formatDuration } from '@/lib/utils'
@@ -43,6 +44,7 @@ import {
   startGenerate,
   startGenerateDevDoc,
   updateDraft,
+  updateSessionProject,
   updateSessionTitle,
   uploadImageAttachment,
   type QaPair,
@@ -50,6 +52,7 @@ import {
 } from '../api'
 import type { CreateSessionRequest, DevDocEstimation, DevDocVersionSummary, EstimationConfidence, PrdClarifyMode, PrdReqType, PrdSessionView, PrdStep, ProgressVersionSummary, QuestionItem, SplitItem } from '../types'
 import { useConfirm } from '@/components/ui/confirm-dialog'
+import { loadCodexHomePreference, saveCodexHomePreference } from '@/features/claude-chat/lib/codexHomePref'
 
 // 编辑器 lazy import — CodeMirror chunk 只在进入 EDITING 步骤时加载
 const MarkdownEditor = lazy(() =>
@@ -818,6 +821,85 @@ function businessFieldEntries(session: PrdSessionView): Array<[string, string, b
 }
 
 // ───── 历史侧边栏 ─────
+function ChangeGroupDialog({
+  session,
+  projectOptions,
+  onConfirm,
+  onClose,
+}: {
+  session: PrdSessionView
+  projectOptions: string[]
+  onConfirm: (group: string) => void
+  onClose: () => void
+}) {
+  const currentGroup = (session.project ?? '').split(/[,，、]/).map((item) => item.trim()).find(Boolean) ?? '未分类'
+  const [group, setGroup] = useState(currentGroup)
+  const options = [
+    ...projectOptions.filter((item) => item !== '未分类').map((item) => ({ value: item, label: item })),
+    { value: '未分类', label: '未分类' },
+  ]
+  const targetGroup = group.trim()
+  const isNew = targetGroup !== '' && targetGroup !== '未分类' && !projectOptions.includes(targetGroup)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl overflow-visible">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
+          <div className="flex items-center gap-2">
+            <FolderOpen className="w-4 h-4 text-blue-500" />
+            <span className="font-semibold text-sm">修改 PRD 分组</span>
+          </div>
+          <button type="button" onClick={onClose}>
+            <X className="w-4 h-4 text-[var(--color-muted-foreground)]" />
+          </button>
+        </div>
+
+        <div className="px-5 py-4 space-y-3">
+          <div className="text-xs text-[var(--color-muted-foreground)]">
+            <span>当前 PRD：</span>
+            <span className="font-medium text-[var(--color-foreground)]">{session.title}</span>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">目标分组</label>
+            <Combobox
+              value={group}
+              onChange={setGroup}
+              options={options}
+              placeholder="选择现有分组或输入新分组名称"
+              emptyText="没有匹配的现有分组，保存后将创建新分组"
+              showAllOnOpen
+            />
+            <p className="mt-2 text-[11px] text-[var(--color-muted-foreground)]">
+              展开会显示全部 {projectOptions.length} 个现有分组；直接输入新名称即可创建。
+            </p>
+            {isNew && (
+              <p className="mt-1 text-[11px] text-blue-500">将创建新分组“{targetGroup}”</p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-[var(--color-border)]">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-sm rounded-lg border border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]/40"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            disabled={!targetGroup || targetGroup === currentGroup}
+            onClick={() => onConfirm(targetGroup)}
+            className="px-5 py-2 text-sm font-medium rounded-lg bg-[var(--color-primary)] text-white hover:opacity-90 disabled:opacity-40"
+          >
+            移动
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function HistoryPanel({
   sessions,
   activeId,
@@ -825,6 +907,7 @@ function HistoryPanel({
   onDelete,
   onRevise,
   onRename,
+  onChangeGroup,
   onSplit,
   mobileOpen = false,
   onMobileClose,
@@ -835,6 +918,7 @@ function HistoryPanel({
   onDelete: (id: string) => void
   onRevise: (s: PrdSessionView) => void
   onRename: (id: string, title: string) => void
+  onChangeGroup: (id: string, project: string) => void
   /** 打开「AI 需求拆分」确认弹框（对已存在的历史记录，随时都能拆，不限状态）。 */
   onSplit: (s: PrdSessionView) => void
   /** 移动端抽屉是否展开。桌面端（md 及以上）此值被忽略，侧边栏常驻。 */
@@ -845,6 +929,7 @@ function HistoryPanel({
   const prompt = usePrompt()
   const [previewSession, setPreviewSession] = useState<PrdSessionView | null>(null)
   const [viewingEstimation, setViewingEstimation] = useState<DevDocEstimation | null>(null)
+  const [changingGroupSession, setChangingGroupSession] = useState<PrdSessionView | null>(null)
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
@@ -878,11 +963,26 @@ function HistoryPanel({
     new Set(sessions.flatMap((s) => splitProjectTags(s.project)))
   ).sort((a, b) => a.localeCompare(b, 'zh'))
 
+  const handleChangeGroup = (e: React.MouseEvent, s: PrdSessionView) => {
+    e.stopPropagation()
+    setChangingGroupSession(s)
+  }
+
+  const confirmChangeGroup = (s: PrdSessionView, project: string) => {
+    const currentProjects = splitProjectTags(s.project)
+    // 分组取关联项目首项；换组时保留其余关联项目，移到“未分类”则清空全部关联。
+    const nextProject = project === '未分类'
+      ? ''
+      : [project, ...currentProjects.slice(1).filter((item) => item !== project)].join(', ')
+    onChangeGroup(s.id, nextProject)
+    setChangingGroupSession(null)
+  }
+
   const userOptions = Array.from(
     new Set(sessions.map((s) => s.createdByUsername).filter((u): u is string => !!u))
   ).sort((a, b) => a.localeCompare(b, 'zh'))
 
-  // PRD 层级结构：needs-split 产生的子需求通过 parentId 挂在父需求下面。按 parentId 建
+  // PRD 层级结构：需求拆分子项和修订版都通过 parentId 挂在来源 PRD 下面。按 parentId 建
   // 父子映射；根节点 = 没有 parentId，或 parentId 指向的记录不在当前列表里（父记录被删掉/
   // 不在当前用户可见范围）——后一种情况兜底当根处理，避免子记录因为找不到父节点而彻底消失。
   const byId = new Map(sessions.map((s) => [s.id, s]))
@@ -947,6 +1047,15 @@ function HistoryPanel({
       {/* AI 工时评估详情：历史列表里点徽标只读查看，评估动作在开发文档 Tab 工具栏 */}
       {viewingEstimation && (
         <EstimationDetailSheet estimation={viewingEstimation} onClose={() => setViewingEstimation(null)} />
+      )}
+
+      {changingGroupSession && (
+        <ChangeGroupDialog
+          session={changingGroupSession}
+          projectOptions={projectOptions}
+          onConfirm={(group) => confirmChangeGroup(changingGroupSession, group)}
+          onClose={() => setChangingGroupSession(null)}
+        />
       )}
 
       {/* 移动端抽屉遮罩：点击关闭。桌面端不渲染（侧边栏是常驻列，不需要遮罩） */}
@@ -1061,6 +1170,7 @@ function HistoryPanel({
                     onRevise={onRevise}
                     onSplit={onSplit}
                     onRenameClick={handleRename}
+                    onChangeGroupClick={handleChangeGroup}
                     onDeleteClick={handleDelete}
                     onPreview={setPreviewSession}
                     onViewEstimation={setViewingEstimation}
@@ -1112,6 +1222,7 @@ function HistoryItem({
   onRevise,
   onSplit,
   onRenameClick,
+  onChangeGroupClick,
   onDeleteClick,
   onPreview,
   onViewEstimation,
@@ -1126,6 +1237,7 @@ function HistoryItem({
   onRevise: (s: PrdSessionView) => void
   onSplit: (s: PrdSessionView) => void
   onRenameClick: (e: React.MouseEvent, s: PrdSessionView) => void
+  onChangeGroupClick: (e: React.MouseEvent, s: PrdSessionView) => void
   onDeleteClick: (e: React.MouseEvent, id: string) => void
   onPreview: (s: PrdSessionView) => void
   onViewEstimation: (est: DevDocEstimation | null) => void
@@ -1244,6 +1356,15 @@ function HistoryItem({
           >
             <Pencil className="w-3 h-3" />
           </button>
+          {depth === 0 && (
+            <button
+              onClick={(e) => onChangeGroupClick(e, s)}
+              className="text-[var(--color-muted-foreground)] hover:text-blue-500"
+              title="修改分组（整棵子 PRD 树会一起移动）"
+            >
+              <FolderOpen className="w-3 h-3" />
+            </button>
+          )}
           <button
             onClick={(e) => { e.stopPropagation(); onPreview(s) }}
             className="text-[var(--color-muted-foreground)] hover:text-[var(--color-primary)]"
@@ -1272,6 +1393,7 @@ function HistoryItem({
           onRevise={onRevise}
           onSplit={onSplit}
           onRenameClick={onRenameClick}
+          onChangeGroupClick={onChangeGroupClick}
           onDeleteClick={onDeleteClick}
           onPreview={onPreview}
           onViewEstimation={onViewEstimation}
@@ -3901,6 +4023,7 @@ function StartDevDialog({
   projectName,
   content,
   devDocContent,
+  initialEngine,
   onClose,
 }: {
   title: string
@@ -3908,10 +4031,14 @@ function StartDevDialog({
   projectName: string | null
   content: string           // PRD 内容（兜底）
   devDocContent?: string    // 开发文档内容（优先使用）
+  initialEngine: ClarifyEngine
   onClose: () => void
 }) {
   const navigate = useNavigate()
   const [launching, setLaunching] = useState(false)
+  const [engine, setEngine] = useState<ClarifyEngine>(initialEngine)
+  const [codexHome, setCodexHome] = useState(loadCodexHomePreference)
+  const agentName = engine === 'codex' ? 'Codex' : 'Claude Code'
 
   // 优先使用开发文档（有具体技术方案）；无开发文档时用 PRD + feature-dev 引导
   const hasDevDoc = !!(devDocContent && devDocContent.trim())
@@ -4000,7 +4127,10 @@ PRD_SESSION_ID: ${sessionId}`
         cwd,
         seed: buildSeed(),
         prdSessionId: sessionId,
+        engine,
+        codexHome: engine === 'codex' ? (codexHome.trim() || undefined) : undefined,
       }))
+      if (engine === 'codex') saveCodexHomePreference(codexHome)
 
       // 跳转到 Vibe Coding
       navigate('/tools/claude-chat')
@@ -4012,7 +4142,7 @@ PRD_SESSION_ID: ${sessionId}`
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl">
         {/* 头部 */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
           <div className="flex items-center gap-2">
@@ -4026,6 +4156,44 @@ PRD_SESSION_ID: ${sessionId}`
 
         {/* 说明 */}
         <div className="px-5 py-4 space-y-3">
+          <div>
+            <label className="block text-sm font-medium mb-2">开发引擎</label>
+            <div className="grid grid-cols-2 gap-2">
+              {([['claude', 'Claude Code'], ['codex', 'Codex']] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setEngine(value)}
+                  className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                    engine === value
+                      ? 'border-green-500/50 bg-green-500/10 text-green-500'
+                      : 'border-[var(--color-border)] text-[var(--color-foreground)] hover:bg-[var(--color-muted)]/30'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {engine === 'codex' && (
+            <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/20 p-3">
+              <label className="mb-1.5 block text-xs font-medium" htmlFor="prd-dev-codex-home">
+                Codex Auth 目录
+              </label>
+              <input
+                id="prd-dev-codex-home"
+                value={codexHome}
+                onChange={(event) => setCodexHome(event.target.value)}
+                placeholder="%USERPROFILE%\.codex-account-yx"
+                className="h-9 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--color-ring)]"
+              />
+              <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--color-muted-foreground)]">
+                留空使用默认 %USERPROFILE%\.codex。不同目录可分别执行 codex login，从而让本次开发会话使用不同账号；不会修改项目工作目录。
+              </p>
+            </div>
+          )}
+
           <p className="text-sm text-[var(--color-foreground)] leading-relaxed">
             点击「启动开发会话」，系统将自动：
           </p>
@@ -4033,12 +4201,12 @@ PRD_SESSION_ID: ${sessionId}`
           {hasDevDoc ? (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-500/10 border border-purple-500/20 text-xs text-purple-400">
               <Wrench className="w-3.5 h-3.5 flex-shrink-0" />
-              <span>携带<strong className="mx-1">开发方案文档</strong>（含 DB 变更/API 设计/任务清单），Claude 可直接按方案实现，无需重新分析</span>
+              <span>携带<strong className="mx-1">开发方案文档</strong>（含 DB 变更/API 设计/任务清单），{agentName} 可直接按方案实现，无需重新分析</span>
             </div>
           ) : (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-500">
               <FileText className="w-3.5 h-3.5 flex-shrink-0" />
-              <span>携带 <strong className="mx-1">PRD</strong>，Claude 将先分析技术方案再实现。建议先生成「开发文档」后再开始开发。</span>
+              <span>携带 <strong className="mx-1">PRD</strong>，{agentName} 将先分析技术方案再实现。建议先生成「开发文档」后再开始开发。</span>
             </div>
           )}
 
@@ -4051,7 +4219,7 @@ PRD_SESSION_ID: ${sessionId}`
             </div>
             <div className="flex items-start gap-2">
               <span className="w-5 h-5 rounded-full bg-green-500/15 text-green-500 flex items-center justify-center text-[11px] font-bold flex-shrink-0 mt-0.5">2</span>
-              <span>自动发送{hasDevDoc ? <><strong className="text-purple-400 mx-1">开发方案文档</strong>，Claude 直接按清单实现</> : <><strong className="text-[var(--color-foreground)] mx-1">PRD + feature-dev 引导</strong>（代码探索→技术方案→实现）</>}</span>
+              <span>自动发送{hasDevDoc ? <><strong className="text-purple-400 mx-1">开发方案文档</strong>，{agentName} 直接按清单实现</> : <><strong className="text-[var(--color-foreground)] mx-1">PRD + feature-dev 引导</strong>（代码探索→技术方案→实现）</>}</span>
             </div>
             <div className="flex items-start gap-2">
               <span className="w-5 h-5 rounded-full bg-green-500/15 text-green-500 flex items-center justify-center text-[11px] font-bold flex-shrink-0 mt-0.5">3</span>
@@ -4391,6 +4559,7 @@ function EditingPanel({
           projectName={projectName}
           content={content}
           devDocContent={devDocContent}
+          initialEngine={currentEngine}
           onClose={() => setShowDevDialog(false)}
         />
       )}
@@ -5017,6 +5186,18 @@ export function PrdClarifyPage() {
     },
   })
 
+  // 修改根 PRD 分组；后端会同步整棵拆分/修订子树，成功后刷新列表与当前详情。
+  const changeGroupMut = useMutation({
+    mutationFn: ({ id, project }: { id: string; project: string }) => updateSessionProject(id, project),
+    onSuccess: (_data, { id }) => {
+      qc.invalidateQueries({ queryKey: ['prd-sessions'] })
+      if (sessionId === id) {
+        qc.invalidateQueries({ queryKey: ['prd-session', id] })
+      }
+    },
+    onError: () => setErrorMsg('修改 PRD 分组失败，请重试'),
+  })
+
   const handleReset = () => {
     abortRef.current?.()
     abortRef.current = null
@@ -5070,6 +5251,7 @@ export function PrdClarifyPage() {
         module: originalSession.module ?? '',
         engine,
         role: (originalSession.role as 'PRODUCT' | 'BUSINESS') ?? 'PRODUCT',
+        parentId: originalSession.id,
       })
       setSessionId(created.id)
       qc.setQueryData(['prd-session', created.id], created)
@@ -5467,6 +5649,7 @@ PRD_SESSION_ID: ${created.id}`
             onDelete={(id) => deleteMut.mutate(id)}
             onRevise={(s) => setRevisingSession(s)}
             onRename={(id, title) => renameMut.mutate({ id, title })}
+            onChangeGroup={(id, project) => changeGroupMut.mutate({ id, project })}
             onSplit={(s) => setSplittingSessionId(s.id)}
           />
         )}
