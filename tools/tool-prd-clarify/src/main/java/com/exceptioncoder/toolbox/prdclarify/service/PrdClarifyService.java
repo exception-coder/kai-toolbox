@@ -787,6 +787,9 @@ public class PrdClarifyService {
         PrdSession session = repo.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
 
+        // ERROR 会话允许从澄清阶段重试；开始执行时立即恢复状态并清掉上次错误。
+        repo.updateStatus(sessionId, "CLARIFYING");
+
         Thread.ofVirtual().name("prd-clarify-").start(() -> {
             try {
                 StringBuilder full = new StringBuilder();
@@ -903,6 +906,17 @@ public class PrdClarifyService {
         String questionsJson = buildQuestionsJson(history);
         repo.updateQuestions(sessionId, questionsJson);
 
+        return repo.findById(sessionId).orElseThrow();
+    }
+
+    /**
+     * 已进入生成/编辑阶段后回到需求澄清。保留现有 PRD 文件和问答历史，只恢复生命周期状态；
+     * 这样误跳过澄清的会话无需删除重建，完成补充澄清后可在同一会话重新生成。
+     */
+    public PrdSession returnToClarify(String sessionId) {
+        repo.findById(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
+        repo.updateStatus(sessionId, "CLARIFYING");
         return repo.findById(sessionId).orElseThrow();
     }
 

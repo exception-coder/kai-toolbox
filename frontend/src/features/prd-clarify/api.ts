@@ -50,6 +50,10 @@ export const startClarifyFromDraft = (id: string, req: CreateSessionRequest) =>
     body: JSON.stringify(req),
   })
 
+/** 已进入生成/编辑阶段后回退到需求澄清；保留现有 PRD 文件和已保存问答。 */
+export const returnToClarify = (id: string) =>
+  http<PrdSessionView>(`${BASE}/sessions/${id}/return-to-clarify`, { method: 'POST' })
+
 /** AI 需求拆分预览：判断当前需求是否"过大"，建议拆成多个子需求。只读分析，不落库。 */
 export const splitRequirement = (id: string) =>
   http<SplitPreview>(`${BASE}/sessions/${id}/split`, { method: 'POST' })

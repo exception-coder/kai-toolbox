@@ -5,6 +5,7 @@ import { BotMessageSquare, Bug, ChevronRight, ClipboardCheck, Clock, Code2, Copy
 import { SystemModuleSelector } from '@/components/prd/SystemModuleSelector'
 import { usePrompt } from '@/components/ui/prompt-dialog'
 import { splitCatalogValues } from '@/lib/systemCatalog'
+import { formatDuration } from '@/lib/utils'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 // doc-viewer 的 markdown.css 含完整 prose 样式（标题层级/代码块/表格等），无需 @tailwindcss/typography
@@ -35,6 +36,7 @@ import {
   saveDevDocContent,
   saveDraft,
   saveQaHistory,
+  returnToClarify,
   splitRequirement,
   startClarify,
   startClarifyFromDraft,
@@ -3060,13 +3062,26 @@ function GeneratingPanel({
   streamText,
   failed,
   onRetry,
+  engine,
 }: {
   streamText: string
   failed: boolean
   onRetry: () => void
+  engine?: 'claude' | 'codex'
 }) {
   const endRef = useRef<HTMLDivElement>(null)
+  const [elapsedMs, setElapsedMs] = useState(0)
+  const agentName = engine === 'codex' ? 'Codex' : 'Claude'
+  const receiving = streamText.length > 0
+
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [streamText])
+  useEffect(() => {
+    if (failed) return
+    const startedAt = Date.now()
+    setElapsedMs(0)
+    const timer = window.setInterval(() => setElapsedMs(Date.now() - startedAt), 1000)
+    return () => window.clearInterval(timer)
+  }, [failed])
 
   if (failed) {
     return (
@@ -3093,13 +3108,78 @@ function GeneratingPanel({
   }
 
   return (
-    <div className="flex-1 flex flex-col p-6 overflow-hidden">
-      <div className="flex items-center gap-2 mb-4 text-sm text-[var(--color-muted-foreground)]">
-        <Loader2 className="w-4 h-4 animate-spin" />
-        <span>Claude 正在撰写 PRD 文档…</span>
+    <div className="flex-1 flex flex-col gap-4 p-6 overflow-hidden">
+      <div className="rounded-xl border border-[var(--color-primary)]/20 bg-[var(--color-primary)]/5 px-5 py-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="mt-0.5 flex size-9 flex-shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)]/12">
+              <Loader2 className="size-4 animate-spin text-[var(--color-primary)]" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-[var(--color-foreground)]">
+                {receiving ? `${agentName} 正在持续生成 PRD` : `正在等待 ${agentName} 返回首段内容`}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-[var(--color-muted-foreground)]">
+                {receiving
+                  ? `已接收 ${streamText.length.toLocaleString('zh-CN')} 个字符，内容会继续实时追加。`
+                  : elapsedMs < 20_000
+                    ? '正在整理原始需求、澄清问答和附件，准备生成上下文。'
+                    : elapsedMs < 60_000
+                      ? '模型正在分析需求并组织文档结构，首段内容尚未返回。'
+                      : '复杂需求或包含图片时首段响应会更慢，任务仍在服务端执行，请保持页面打开。'}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-shrink-0 items-center gap-1.5 rounded-full border border-[var(--color-border)] bg-[var(--color-background)]/80 px-3 py-1 text-xs text-[var(--color-muted-foreground)]">
+            <Clock className="size-3.5" />
+            已等待 {formatDuration(elapsedMs)}
+          </div>
+        </div>
+
+        <div className="mt-4 h-1 overflow-hidden rounded-full bg-[var(--color-muted)]">
+          <div className="h-full w-full origin-left animate-pulse rounded-full bg-[var(--color-primary)]" />
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4">
+          {[
+            { label: '任务已提交', state: 'done' },
+            { label: '等待首段响应', state: receiving ? 'done' : 'active' },
+            { label: '接收 PRD 内容', state: receiving ? 'active' : 'pending' },
+            { label: '保存并进入编辑', state: 'pending' },
+          ].map((item, index) => (
+            <div
+              key={item.label}
+              className={`flex items-center gap-1.5 rounded-md px-2.5 py-2 ${
+                item.state === 'active'
+                  ? 'bg-[var(--color-primary)]/12 font-medium text-[var(--color-primary)]'
+                  : item.state === 'done'
+                    ? 'text-[var(--color-foreground)]'
+                    : 'text-[var(--color-muted-foreground)] opacity-60'
+              }`}
+            >
+              <span className={`flex size-4 flex-shrink-0 items-center justify-center rounded-full text-[9px] ${
+                item.state === 'done'
+                  ? 'bg-emerald-500/15 text-emerald-500'
+                  : item.state === 'active'
+                    ? 'bg-[var(--color-primary)]/15 text-[var(--color-primary)]'
+                    : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'
+              }`}>
+                {item.state === 'done' ? '✓' : index + 1}
+              </span>
+              <span>{item.label}</span>
+            </div>
+          ))}
+        </div>
       </div>
-      <div className="flex-1 overflow-y-auto rounded-lg bg-[var(--color-muted)]/30 p-4 text-sm whitespace-pre-wrap break-words leading-relaxed">
-        {streamText || <span className="italic">等待 Claude 响应…</span>}
+
+      <div className="flex-1 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-muted)]/20 p-4 text-sm whitespace-pre-wrap break-words leading-relaxed">
+        {streamText || (
+          <div className="flex h-full min-h-40 flex-col items-center justify-center gap-2 text-center text-[var(--color-muted-foreground)]">
+            <Sparkles className="size-6 animate-pulse text-[var(--color-primary)]" />
+            <p className="text-sm">PRD 内容将在模型返回后实时显示在这里</p>
+            <p className="text-xs">通常需要 60–120 秒，复杂需求可能更久</p>
+          </div>
+        )}
         <div ref={endRef} />
       </div>
     </div>
@@ -3918,6 +3998,7 @@ function EditingPanel({
   initialDevDocEstimation,
   initialProgressPath,
   initialProgressGeneratedAt,
+  onReturnToClarify,
   onReset,
 }: {
   sessionId: string
@@ -3938,11 +4019,16 @@ function EditingPanel({
   initialProgressPath?: string | null
   /** 同上，进度评估最后生成时间戳 */
   initialProgressGeneratedAt?: number | null
+  /** PRD 已生成但业务澄清不充分时，保留现有文档并回到原会话继续澄清。 */
+  onReturnToClarify: () => Promise<void>
   onReset: () => void
 }) {
   const [content, setContent] = useState(initialContent)
   const [isDirty, setIsDirty] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [returningToClarify, setReturningToClarify] = useState(false)
+  const [returnToClarifyError, setReturnToClarifyError] = useState<string | null>(null)
+  const confirm = useConfirm()
   /** PRD 内部视图（只在 panelMode=prd 时有效） */
   const [prdViewMode, setPrdViewMode] = useState<'split' | 'edit' | 'preview'>('split')
   const [showDevDialog, setShowDevDialog] = useState(false)
@@ -4104,6 +4190,25 @@ function EditingPanel({
       setIsDirty(false)
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleReturnToClarify = async () => {
+    const ok = await confirm({
+      title: '返回需求澄清？',
+      description: isDirty
+        ? '当前 PRD 有未保存的修改，返回后这些修改会丢失。已保存的 PRD 文件会保留，完成澄清后可重新生成。'
+        : '当前 PRD 文件会保留。系统将回到 AI 需求澄清，已有问答会继续保留，完成后可重新生成 PRD。',
+      confirmText: '返回澄清',
+    })
+    if (!ok) return
+    setReturningToClarify(true)
+    setReturnToClarifyError(null)
+    try {
+      await onReturnToClarify()
+    } catch (cause) {
+      setReturnToClarifyError(cause instanceof Error ? cause.message : '无法返回需求澄清，请重试')
+      setReturningToClarify(false)
     }
   }
 
@@ -4355,6 +4460,17 @@ function EditingPanel({
 
         {/* 右：操作按钮 */}
         <div className="flex items-center gap-2 ml-auto">
+          <button
+            disabled={returningToClarify}
+            onClick={handleReturnToClarify}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-[var(--color-primary)]/30 bg-[var(--color-primary)]/8 text-[var(--color-primary)] hover:bg-[var(--color-primary)]/15 disabled:opacity-50 font-medium"
+            title="保留当前 PRD，返回 AI 需求澄清继续补充问题"
+          >
+            {returningToClarify
+              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              : <BotMessageSquare className="w-3.5 h-3.5" />}
+            返回需求澄清
+          </button>
           <button onClick={() => setShowDevDialog(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-green-600/20 border border-green-500/30 text-green-400 hover:bg-green-600/30 font-medium">
             <Rocket className="w-3.5 h-3.5" /> 开始开发
@@ -4410,6 +4526,13 @@ function EditingPanel({
           )}
         </div>
       </div>
+
+      {returnToClarifyError && (
+        <div className="flex items-center gap-2 border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-600 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400">
+          <span className="flex-1">返回需求澄清失败：{returnToClarifyError}</span>
+          <button onClick={() => setReturnToClarifyError(null)}><X className="w-3 h-3" /></button>
+        </div>
+      )}
 
       {/* 开发文档上次生成失败提示：常驻展示直到下一次生成开始，避免用户以为"生成过的文档不见了" */}
       {devDocError && panelMode !== 'prd' && (
@@ -4965,6 +5088,23 @@ PRD_SESSION_ID: ${created.id}`
     startGenerateSse(sessionId)
   }
 
+  /** 保留当前 PRD 文件，把生命周期恢复到澄清阶段并继续原会话。 */
+  const handleReturnToClarify = async () => {
+    if (!sessionId) return
+    abortRef.current?.()
+    abortRef.current = null
+    const restored = await returnToClarify(sessionId)
+    qc.setQueryData(['prd-session', sessionId], restored)
+    qc.invalidateQueries({ queryKey: ['prd-sessions'] })
+    qaHistoryRef.current = restored.questions
+      .filter((question) => question.answer?.trim())
+      .map((question) => ({ question: question.question, answer: question.answer }))
+    setStreamText('')
+    setErrorMsg(null)
+    setGenerationFailed(false)
+    setStep('CHATTING')
+  }
+
   /** 从历史记录恢复会话（_openDevDoc=true 时自动打开开发文档分栏） */
   const handleSelectHistory = (s: PrdSessionView & { _openDevDoc?: boolean; _regenDevDoc?: boolean }) => {
     abortRef.current?.()
@@ -5002,8 +5142,20 @@ PRD_SESSION_ID: ${created.id}`
     } else if (s.status === 'GENERATING') {
       setStep('GENERATING')
     } else if (s.status === 'ERROR') {
-      setErrorMsg(s.errorMsg ?? '上次执行出错')
-      setStep('INPUT')
+      const clarificationComplete = s.questions.length > 0
+        && s.questions.every((question) => question.answer?.trim())
+      if (clarificationComplete) {
+        // 澄清问答齐全，说明失败发生在最终 PRD 生成阶段，直接复用问答重试生成。
+        setErrorMsg(s.errorMsg ?? '上次生成 PRD 出错')
+        setGenerationFailed(true)
+        setStep('GENERATING')
+      } else {
+        // 批量澄清失败也会把会话记为 ERROR。没有题目或仍有未回答题目时必须回到
+        // CHATTING 重新提问/续答，不能越过澄清直接生成 PRD。
+        setErrorMsg(null)
+        setGenerationFailed(false)
+        setStep('CHATTING')
+      }
     } else if (s.status === 'DRAFT') {
       // 草稿：回到 INPUT 表单继续编辑（InputPanel 从上面已预热的 session 缓存里读
       // title/rawInput/project/module 回填，见下方 <InputPanel> 的 initialXxx 取值逻辑）
@@ -5158,6 +5310,7 @@ PRD_SESSION_ID: ${created.id}`
             streamText={streamText}
             failed={generationFailed}
             onRetry={handleRetryGenerate}
+            engine={session?.engine}
           />
         )}
 
@@ -5177,6 +5330,7 @@ PRD_SESSION_ID: ${created.id}`
             initialDevDocEstimation={session?.devDocEstimation ?? null}
             initialProgressPath={session?.progressPath ?? null}
             initialProgressGeneratedAt={session?.progressGeneratedAt ?? null}
+            onReturnToClarify={handleReturnToClarify}
             onReset={handleReset}
           />
         )}

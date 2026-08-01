@@ -393,6 +393,16 @@ public class PrdClarifyController {
         return PrdSessionView.from(service.saveQaHistory(id, req.history()));
     }
 
+    /** 保留当前 PRD 和问答记录，把已经生成/出错的会话恢复到需求澄清阶段。 */
+    @PostMapping("/sessions/{id}/return-to-clarify")
+    public PrdSessionView returnToClarify(@PathVariable String id) {
+        try {
+            return PrdSessionView.from(service.returnToClarify(id));
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(NOT_FOUND, e.getMessage());
+        }
+    }
+
     /**
      * 批量澄清模式的「一次性回答」：把用户写成一整段的回答拆分归位到各题，返回按题序对齐的答案数组。
      *

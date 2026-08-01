@@ -132,7 +132,7 @@ public class PrdSessionRepository {
 
     /** 更新状态。 */
     public void updateStatus(String id, String status) {
-        jdbc.update("UPDATE prd_session SET status = ?, updated_at = ? WHERE id = ?",
+        jdbc.update("UPDATE prd_session SET status = ?, error_msg = NULL, updated_at = ? WHERE id = ?",
                 status, System.currentTimeMillis(), id);
     }
 
