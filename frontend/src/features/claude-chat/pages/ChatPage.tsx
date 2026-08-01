@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Send, Server, Settings, Slash, Sparkles, Square } from 'lucide-react'
+import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Database, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Send, Server, Settings, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -52,13 +52,14 @@ import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
-import { fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getSessionCommitDiff, listSessionCommits, listSessionGitRepos, listSessions, listWorkspaces, renameSession, uploadAttachment, type SessionUsage } from '../api'
-import type { ChatItem, ModelInfo } from '../types'
+import { fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getSessionCommitDiff, getSessionPendingSql, listSessionCommits, listSessionGitRepos, listSessions, listWorkspaces, renameSession, uploadAttachment, type SessionUsage } from '../api'
+import type { ChatItem, ModelInfo, SessionPendingSql } from '../types'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
 import { GitStatusPanel } from '@/components/git/GitStatusPanel'
 import type { Engine } from '../types'
 import { ensureNotifyPermission } from '../browserNotify'
 import { PrdLinkPanel } from '../components/PrdLinkPanel'
+import { PendingSqlPanel } from '../components/PendingSqlPanel'
 import { PrdAttachPanel } from '../components/PrdAttachPanel'
 import { getSessionByDevSession } from '@/features/prd-clarify/api'
 import type { PrdSessionView } from '@/features/prd-clarify/types'
@@ -164,6 +165,7 @@ export function ChatPage() {
   const [showGitStatus, setShowGitStatus] = useState(false)
   const [showExport, setShowExport] = useState(false)
   const [showPrdLink, setShowPrdLink] = useState(false)
+  const [showPendingSql, setShowPendingSql] = useState(false)
   // 「+ 更多功能」里的「PRD 文档」：搜索 PRD 澄清助手里的记录，一键把 PRD/开发文档内容附加进当前对话。
   const [showPrdAttach, setShowPrdAttach] = useState(false)
   // 当前会话关联的 PRD（undefined=还没查/无会话，null=确认未关联），供顶栏标识展示。
@@ -173,6 +175,16 @@ export function ChatPage() {
     if (!sid) { setLinkedPrd(undefined); return }
     let alive = true
     getSessionByDevSession(sid).then(v => { if (alive) setLinkedPrd(v) }).catch(() => { if (alive) setLinkedPrd(null) })
+    return () => { alive = false }
+  }, [chat?.sessionId])
+  const [pendingSql, setPendingSql] = useState<SessionPendingSql | null | undefined>(undefined)
+  useEffect(() => {
+    const sessionId = chat?.sessionId
+    if (!sessionId) { setPendingSql(undefined); return }
+    let alive = true
+    getSessionPendingSql(sessionId)
+      .then(value => { if (alive) setPendingSql(value) })
+      .catch(() => { if (alive) setPendingSql(null) })
     return () => { alive = false }
   }, [chat?.sessionId])
   const [showMsgNav, setShowMsgNav] = useState(false)
@@ -844,6 +856,19 @@ export function ChatPage() {
             <span className="max-w-24 truncate">{linkedPrd.title || 'PRD'}</span>
           </button>
         )}
+        {pendingSql && (
+          <button
+            type="button"
+            onClick={() => setShowPendingSql(true)}
+            title={`待执行 SQL：${pendingSql.title || '未命名登记'}（点击查看/管理）`}
+            className={`flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] ${pendingSql.status === 'PENDING'
+              ? 'border-amber-500/60 bg-amber-100/80 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300'
+              : 'border-[var(--color-border)] bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'}`}
+          >
+            <Database className="size-3" />
+            <span>{pendingSql.status === 'PENDING' ? 'SQL 待执行' : pendingSql.status === 'EXECUTED' ? 'SQL 已执行' : 'SQL 已取消'}</span>
+          </button>
+        )}
         {/* 手势弹窗状态：开启后提示摄像头正在识别（隐私可见），点击可关 */}
         {gestureOn && (
           <button
@@ -909,6 +934,9 @@ export function ChatPage() {
                     )}
                     {chat.sessionId && (
                       <HeaderMenuItem nested icon={<Link2 className="size-4" />} label={linkedPrd ? '管理 PRD 关联' : '关联 PRD'} hint={linkedPrd ? `已关联：${linkedPrd.title || '（未命名）'}` : '搜索绑定一个 PRD，绑定后可一键同步更新开发文档'} onClick={() => { setHeaderMenu(false); setShowPrdLink(true) }} />
+                    )}
+                    {chat.sessionId && (
+                      <HeaderMenuItem nested icon={<Database className="size-4" />} label={pendingSql ? '管理待执行 SQL' : '登记待执行 SQL'} hint={pendingSql ? `${pendingSql.title || '未命名登记'} · ${pendingSql.status === 'PENDING' ? '待执行' : pendingSql.status === 'EXECUTED' ? '已执行' : '已取消'}` : '关联本次开发涉及的 DDL / DML，仅登记不执行'} onClick={() => { setHeaderMenu(false); setShowPendingSql(true) }} />
                     )}
                   </MenuSection>
                   <MenuSection icon={<FolderTree className="size-4" />} label="工作区 · 项目" open={menuGroup === 'workspace'} onToggle={() => toggle('workspace')}>
@@ -1291,6 +1319,14 @@ export function ChatPage() {
           sessionId={chat.sessionId}
           onLinkedChange={setLinkedPrd}
           onClose={() => setShowPrdLink(false)}
+        />
+      )}
+
+      {showPendingSql && chat.sessionId && (
+        <PendingSqlPanel
+          sessionId={chat.sessionId}
+          onChanged={setPendingSql}
+          onClose={() => setShowPendingSql(false)}
         />
       )}
 

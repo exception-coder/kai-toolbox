@@ -2,7 +2,44 @@ import { authFetch, http } from '@/lib/api'
 import { ensureFreshToken, getToken } from '@/lib/auth'
 import { listSystemModules, listSystemWorkspaces } from '@/lib/systemCatalog'
 import type { CommitDiff, CommitsResponse, GitRepoRef } from '@/components/git/types'
-import type { ChatItem, ClaudeChatSessionView, CloneResult, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PluginStatus, ServerMessage, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
+import type { ChatItem, ClaudeChatSessionView, CloneResult, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PendingSqlChangeType, PendingSqlStatus, PluginStatus, ServerMessage, SessionPendingSql, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
+
+/** 查询会话关联的 SQL 登记；未登记返回 null。 */
+export async function getSessionPendingSql(sessionId: string): Promise<SessionPendingSql | null> {
+  const result = await http<SessionPendingSql | undefined>(
+    `/claude-chat/sessions/${encodeURIComponent(sessionId)}/pending-sql`,
+  )
+  return result ?? null
+}
+
+/** 保存登记。保存正文意味着有新变更，后端会把状态置为待执行。 */
+export function saveSessionPendingSql(sessionId: string, input: {
+  title?: string
+  targetEnvironment?: string
+  changeType: PendingSqlChangeType
+  sqlText: string
+}): Promise<SessionPendingSql> {
+  return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/pending-sql`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  })
+}
+
+/** 人工更新 SQL 登记状态，接口不会执行 SQL。 */
+export function updateSessionPendingSqlStatus(
+  sessionId: string,
+  status: PendingSqlStatus,
+): Promise<SessionPendingSql> {
+  return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/pending-sql/status`, {
+    method: 'PUT',
+    body: JSON.stringify({ status }),
+  })
+}
+
+/** 解除会话的 SQL 登记。 */
+export function deleteSessionPendingSql(sessionId: string): Promise<void> {
+  return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/pending-sql`, { method: 'DELETE' })
+}
 
 /** 列会话目录下可查看提交的 git 仓库（cwd 自身是仓库→单个；否则其子目录里的仓库）。空数组=无仓库。 */
 export function listSessionGitRepos(sessionId: string) {

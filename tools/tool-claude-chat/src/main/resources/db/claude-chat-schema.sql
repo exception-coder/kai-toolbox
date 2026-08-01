@@ -37,6 +37,21 @@ CREATE TABLE IF NOT EXISTS claude_chat_session (
 CREATE INDEX IF NOT EXISTS idx_claude_chat_session_seen
     ON claude_chat_session(last_seen_at DESC);
 
+-- Vibe Coding 会话关联的待执行 SQL 台账。只登记和维护人工状态，后端绝不执行 sql_text。
+CREATE TABLE IF NOT EXISTS claude_chat_pending_sql (
+    session_id          TEXT PRIMARY KEY,
+    title               TEXT,
+    target_environment  TEXT,
+    -- DDL / DML / MIXED
+    change_type         TEXT NOT NULL DEFAULT 'MIXED',
+    sql_text            TEXT NOT NULL,
+    -- PENDING / EXECUTED / CANCELLED
+    status              TEXT NOT NULL DEFAULT 'PENDING',
+    created_at          INTEGER NOT NULL,
+    updated_at          INTEGER NOT NULL,
+    executed_at         INTEGER
+);
+
 -- 本机历史会话（transcript jsonl）的自定义别名，叠加显示，不改文件。
 CREATE TABLE IF NOT EXISTS claude_chat_session_alias (
     sdk_session_id  TEXT PRIMARY KEY,

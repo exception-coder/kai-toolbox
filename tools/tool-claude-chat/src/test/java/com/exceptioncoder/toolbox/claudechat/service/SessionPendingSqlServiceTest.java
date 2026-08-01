@@ -1,0 +1,88 @@
+package com.exceptioncoder.toolbox.claudechat.service;
+
+import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
+import com.exceptioncoder.toolbox.claudechat.domain.SessionPendingSql;
+import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
+import com.exceptioncoder.toolbox.claudechat.repository.SessionPendingSqlRepository;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+class SessionPendingSqlServiceTest {
+
+    private SessionPendingSqlRepository repository;
+    private ClaudeChatSessionRepository sessionRepository;
+    private SessionPendingSqlService service;
+
+    @BeforeEach
+    void setUp() {
+        repository = mock(SessionPendingSqlRepository.class);
+        sessionRepository = mock(ClaudeChatSessionRepository.class);
+        service = new SessionPendingSqlService(repository, sessionRepository);
+        when(sessionRepository.findById("session-1")).thenReturn(Optional.of(mock(ClaudeChatSession.class)));
+    }
+
+    @Test
+    void saveNormalizesInputAndAlwaysReturnsToPending() {
+        SessionPendingSql existing = new SessionPendingSql(
+                "session-1", "旧标题", "测试库", "DDL", "ALTER TABLE old_table;",
+                SessionPendingSql.STATUS_EXECUTED, 100L, 200L, 200L);
+        when(repository.findBySessionId("session-1")).thenReturn(existing);
+
+        SessionPendingSql result = service.save(
+                "session-1", "  新标题  ", " 生产库 ", "dml", "  UPDATE sample SET value = 1;  ");
+
+        ArgumentCaptor<SessionPendingSql> captor = ArgumentCaptor.forClass(SessionPendingSql.class);
+        verify(repository).upsert(captor.capture());
+        SessionPendingSql saved = captor.getValue();
+        assertThat(saved.title()).isEqualTo("新标题");
+        assertThat(saved.targetEnvironment()).isEqualTo("生产库");
+        assertThat(saved.changeType()).isEqualTo(SessionPendingSql.TYPE_DML);
+        assertThat(saved.sqlText()).isEqualTo("UPDATE sample SET value = 1;");
+        assertThat(saved.status()).isEqualTo(SessionPendingSql.STATUS_PENDING);
+        assertThat(saved.createdAt()).isEqualTo(100L);
+        assertThat(saved.executedAt()).isNull();
+        assertThat(result).isEqualTo(saved);
+    }
+
+    @Test
+    void executedStatusWritesExecutionTimeWithoutExecutingSql() {
+        SessionPendingSql existing = new SessionPendingSql(
+                "session-1", null, null, "MIXED", "SELECT 1;",
+                SessionPendingSql.STATUS_PENDING, 100L, 100L, null);
+        when(repository.findBySessionId("session-1")).thenReturn(existing);
+
+        SessionPendingSql result = service.updateStatus("session-1", "executed");
+
+        assertThat(result.status()).isEqualTo(SessionPendingSql.STATUS_EXECUTED);
+        assertThat(result.executedAt()).isNotNull();
+        verify(repository).updateStatus(
+                org.mockito.ArgumentMatchers.eq("session-1"),
+                org.mockito.ArgumentMatchers.eq(SessionPendingSql.STATUS_EXECUTED),
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    void rejectsBlankSqlAndUnknownStatus() {
+        assertThatThrownBy(() -> service.save("session-1", null, null, "DDL", "  "))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("SQL 内容不能为空");
+
+        SessionPendingSql existing = new SessionPendingSql(
+                "session-1", null, null, "DDL", "CREATE TABLE sample(id INTEGER);",
+                SessionPendingSql.STATUS_PENDING, 100L, 100L, null);
+        when(repository.findBySessionId("session-1")).thenReturn(existing);
+        assertThatThrownBy(() -> service.updateStatus("session-1", "FAILED"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("不支持的 SQL 登记状态");
+    }
+}

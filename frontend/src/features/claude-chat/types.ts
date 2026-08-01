@@ -2,6 +2,23 @@
 
 export type SessionStatus = 'RUNNING' | 'IDLE' | 'INTERRUPTED' | 'DONE'
 
+export type PendingSqlStatus = 'PENDING' | 'EXECUTED' | 'CANCELLED'
+
+export type PendingSqlChangeType = 'DDL' | 'DML' | 'MIXED'
+
+/** Vibe Coding 会话关联的 SQL 台账；状态由用户维护，平台不会执行其中脚本。 */
+export interface SessionPendingSql {
+  sessionId: string
+  title: string | null
+  targetEnvironment: string | null
+  changeType: PendingSqlChangeType
+  sqlText: string
+  status: PendingSqlStatus
+  createdAt: number
+  updatedAt: number
+  executedAt: number | null
+}
+
 export type ProviderKind = 'official' | 'thirdParty'
 
 export interface ClaudeChatSessionView {
