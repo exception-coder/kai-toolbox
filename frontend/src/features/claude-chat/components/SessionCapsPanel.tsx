@@ -11,9 +11,10 @@ interface Props {
   onClose: () => void
 }
 
-/** 会话能力面板：展示 SDK init 返回的激活技能 / 子代理 / MCP 服务 / 输出风格。仅 Claude 引擎有数据。 */
+/** 会话能力面板：Claude 展示完整 SDK init 信息，Codex 展示平台运行时注入的 MCP。 */
 export function SessionCapsPanel({ skills, agents, mcpServers, outputStyle, slashCount, engine, onClose }: Props) {
   const isClaude = engine === 'claude'
+  const isCodex = engine === 'codex'
   return (
     <div className="border-b border-[var(--color-border)] bg-[var(--color-muted)]/40 px-3 py-3">
       <div className="mb-2 flex items-center gap-2">
@@ -25,8 +26,16 @@ export function SessionCapsPanel({ skills, agents, mcpServers, outputStyle, slas
         </button>
       </div>
 
-      {!isClaude ? (
-        <p className="text-xs text-[var(--color-muted-foreground)]">当前为 {engine} 引擎，能力清单仅 Claude 会话提供。</p>
+      {!isClaude && !isCodex ? (
+        <p className="text-xs text-[var(--color-muted-foreground)]">当前为 {engine} 引擎，暂未提供能力清单。</p>
+      ) : isCodex ? (
+        <CapGroup
+          icon={<Server className="size-3.5" />}
+          title="MCP 服务"
+          items={mcpServers.map(s => `${s.name}${s.status && s.status !== 'connected' ? `（${s.status}）` : ''}`)}
+          empty="未配置 kai-toolbox MCP 服务"
+          tone={mcpServers}
+        />
       ) : (
         <div className="flex flex-col gap-3">
           <CapGroup icon={<Sparkles className="size-3.5" />} title="技能 Skills" items={skills} empty="无激活技能" />
@@ -66,7 +75,8 @@ function CapGroup({ icon, title, items, empty, tone }: {
       ) : (
         <div className="flex flex-wrap gap-1.5">
           {items.map((it, i) => {
-            const bad = tone && tone[i] && tone[i].status && tone[i].status !== 'connected'
+            const status = tone?.[i]?.status
+            const bad = status === 'failed' || status === 'error' || status === 'disconnected'
             return (
               <span
                 key={it + i}

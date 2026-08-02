@@ -33,6 +33,8 @@ public class PrdSessionRepository {
             .attachments(rs.getString("source_attachments"))
             .followUpRecords(rs.getString("follow_up_records"))
             .questions(rs.getString("questions"))
+            .prdQuestionsGeneratedAt(rs.getObject("prd_questions_generated_at") == null ? null : rs.getLong("prd_questions_generated_at"))
+            .prdGeneratedAt(rs.getObject("prd_generated_at") == null ? null : rs.getLong("prd_generated_at"))
             .status(rs.getString("status"))
             .role(rs.getString("role"))
             .reqType(rs.getString("req_type"))
@@ -42,7 +44,11 @@ public class PrdSessionRepository {
             .devDocPath(rs.getString("dev_doc_path"))
             .devSessionId(rs.getString("dev_session_id"))
             .devDocGeneratedAt(rs.getObject("dev_doc_generated_at") == null ? null : rs.getLong("dev_doc_generated_at"))
+            .devDocQuestionsGeneratedAt(rs.getObject("dev_doc_questions_generated_at") == null ? null : rs.getLong("dev_doc_questions_generated_at"))
             .devDocHistory(rs.getString("dev_doc_history"))
+            .devDocQaDraft(rs.getString("dev_doc_qa_draft"))
+            .devDocWorkStatus(rs.getString("dev_doc_work_status"))
+            .devDocWorkError(rs.getString("dev_doc_work_error"))
             .devDocEstimation(rs.getString("dev_doc_estimation"))
             .progressPath(rs.getString("progress_path"))
             .progressGeneratedAt(rs.getObject("progress_generated_at") == null ? null : rs.getLong("progress_generated_at"))
@@ -83,6 +89,25 @@ public class PrdSessionRepository {
         List<PrdSession> rows = jdbc.query(
                 "SELECT * FROM prd_session WHERE id = ?", ROW, id);
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    public int nextRevisionNumber(String parentId) {
+        Integer count = jdbc.queryForObject(
+                """
+                SELECT COUNT(*) FROM prd_session
+                WHERE parent_id = ?
+                  AND (raw_input LIKE '【后台自动修订%' OR raw_input LIKE '【修订版 PRD%')
+                """, Integer.class, parentId);
+        return (count == null ? 0 : count) + 2;
+    }
+
+    public Optional<PrdSession> findLatestRevision(String parentId) {
+        List<PrdSession> rows = jdbc.query("""
+                SELECT * FROM prd_session
+                WHERE parent_id = ? AND raw_input LIKE '【后台自动修订%'
+                ORDER BY created_at DESC LIMIT 1
+                """, ROW, parentId);
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.getFirst());
     }
 
     /**
@@ -130,6 +155,17 @@ public class PrdSessionRepository {
                 questionsJson, System.currentTimeMillis(), id);
     }
 
+    /** 保存本次批量 PRD 澄清问题，并记录问题真正返回的时间。 */
+    public void updateGeneratedQuestions(String id, String questionsJson) {
+        long now = System.currentTimeMillis();
+        jdbc.update("UPDATE prd_session SET questions = ?, prd_questions_generated_at = ?, updated_at = ? WHERE id = ?",
+                questionsJson, now, now, id);
+    }
+
+    public void clearPrdQuestionsGeneratedAt(String id) {
+        jdbc.update("UPDATE prd_session SET prd_questions_generated_at = NULL WHERE id = ?", id);
+    }
+
     /** 更新状态。 */
     public void updateStatus(String id, String status) {
         jdbc.update("UPDATE prd_session SET status = ?, error_msg = NULL, updated_at = ? WHERE id = ?",
@@ -138,8 +174,9 @@ public class PrdSessionRepository {
 
     /** 更新 md_path 和状态（生成完成时调用）。 */
     public void updateDone(String id, String mdPath) {
-        jdbc.update("UPDATE prd_session SET md_path = ?, status = 'DONE', updated_at = ? WHERE id = ?",
-                mdPath, System.currentTimeMillis(), id);
+        long now = System.currentTimeMillis();
+        jdbc.update("UPDATE prd_session SET md_path = ?, status = 'DONE', prd_generated_at = ?, updated_at = ? WHERE id = ?",
+                mdPath, now, now, id);
     }
 
     /**
@@ -182,6 +219,20 @@ public class PrdSessionRepository {
     public void updateDevDocHistory(String id, String devDocHistoryJson) {
         jdbc.update("UPDATE prd_session SET dev_doc_history = ? WHERE id = ?",
                 devDocHistoryJson, id);
+    }
+
+    /** 保存/清空尚未成功生成 TDD 的技术澄清问答，不影响 PRD 新旧判断。 */
+    public void updateDevDocQaDraft(String id, String qaDraftJson) {
+        jdbc.update("UPDATE prd_session SET dev_doc_qa_draft = ? WHERE id = ?", qaDraftJson, id);
+    }
+
+    public void updateDevDocWorkStatus(String id, String status, String error) {
+        jdbc.update("UPDATE prd_session SET dev_doc_work_status = ?, dev_doc_work_error = ? WHERE id = ?",
+                status, error, id);
+    }
+
+    public void updateDevDocQuestionsGeneratedAt(String id, Long generatedAt) {
+        jdbc.update("UPDATE prd_session SET dev_doc_questions_generated_at = ? WHERE id = ?", generatedAt, id);
     }
 
     /**

@@ -17,6 +17,8 @@ public class PrdDocChangeCandidate {
     private String aiDecision;
     private String summary;
     private String reasoning;
+    private String changeCauseType;
+    private String changeCauseDetail;
     private String evidenceJson;
     private String prdPatchPlanJson;
     private String tddPatchPlanJson;
@@ -29,6 +31,7 @@ public class PrdDocChangeCandidate {
     private String lastError;
     private Long prdAppliedAt;
     private Long tddAppliedAt;
+    private String revisionSessionId;
     private long createdAt;
     private long updatedAt;
 }

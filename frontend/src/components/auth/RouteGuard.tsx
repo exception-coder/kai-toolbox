@@ -1,8 +1,10 @@
-import type { ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useAuth } from '@/lib/auth'
 import { hasFeatureAccess, requiredRolesFor } from '@/shell/access'
 import { useAccessContext } from '@/shell/permission'
 import type { FeatureManifest } from '@/shell/types'
+import { getDevelopmentAccess } from '@/features/reqpool/api'
 
 /**
  * 路由级门禁：无权访问该模块时渲染占位（请登录 / 需要权限），不渲染真实页面，
@@ -11,8 +13,32 @@ import type { FeatureManifest } from '@/shell/types'
 export function RouteGuard({ feature, children }: { feature: FeatureManifest; children: ReactNode }) {
   const { user } = useAuth()
   const access = useAccessContext()
-  if (hasFeatureAccess(feature, access)) {
+  const location = useLocation()
+  const normalAccess = hasFeatureAccess(feature, access)
+  const scopedPrdSessionId = useMemo(() => {
+    if (feature.id !== 'claude-chat') return null
+    return new URLSearchParams(location.search).get('prdSessionId')?.trim() || null
+  }, [feature.id, location.search])
+  const [scopedState, setScopedState] = useState<'idle' | 'checking' | 'allowed' | 'denied'>('idle')
+
+  useEffect(() => {
+    if (normalAccess || !scopedPrdSessionId) {
+      setScopedState('idle')
+      return
+    }
+    let alive = true
+    setScopedState('checking')
+    getDevelopmentAccess(scopedPrdSessionId)
+      .then(() => { if (alive) setScopedState('allowed') })
+      .catch(() => { if (alive) setScopedState('denied') })
+    return () => { alive = false }
+  }, [normalAccess, scopedPrdSessionId])
+
+  if (normalAccess || (scopedPrdSessionId && scopedState === 'allowed')) {
     return <>{children}</>
+  }
+  if (scopedPrdSessionId && scopedState === 'checking') {
+    return <div className="flex h-full items-center justify-center text-sm text-[var(--color-muted-foreground)]">正在验证需求开发权限…</div>
   }
   const required = requiredRolesFor(feature.id)
   return (

@@ -3,7 +3,12 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useClaudeChatSocket, type UseClaudeChatSocket } from '../hooks/useClaudeChatSocket'
 import { useGrabGesture, type GestureStatus } from '../hooks/useGrabGesture'
 import { GestureFlourish, type GestureFlash } from '../components/GestureFlourish'
-import { listSessions } from '../api'
+import { getSelfRepo, listSessions, renameSession } from '../api'
+import {
+  EMERGENCY_REPAIR_REQUEST_EVENT,
+  publishEmergencyRepairStatus,
+  type EmergencyRepairRequest,
+} from '@/lib/emergencyRepair'
 
 /** Vibe Coding 会话页路由；落在此路由即激活引擎（懒启动）。 */
 export const CHAT_ROUTE = '/tools/claude-chat'
@@ -122,11 +127,28 @@ export function ChatRuntimeProvider({ children, demo = false }: { children: Reac
   // 语音模式不持久化（刷新回到普通态，避免重连即弹全屏）；进入即懒激活引擎。
   const [voiceMode, setVoiceModeState] = useState(false)
   const [concierge, setConcierge] = useState<string | null>(null)
+  const [emergencyRepair, setEmergencyRepair] = useState<EmergencyRepairRequest | null>(null)
+  const handleEmergencyRepairDone = useCallback(() => setEmergencyRepair(null), [])
   const activate = useCallback(() => setActive(true), [])
   const setVoiceMode = useCallback((v: boolean) => {
     if (v) setActive(true)
     setVoiceModeState(v)
   }, [])
+
+  // shell 错误边界不依赖任何业务 feature；收到紧急修复事件后先激活常驻聊天引擎，
+  // 即使 Vibe Coding 页面自己的 chunk/import 已崩溃，也能从这里创建并发送修复会话。
+  useEffect(() => {
+    if (demo) return
+    const onEmergencyRepair = (event: Event) => {
+      const request = (event as CustomEvent<EmergencyRepairRequest>).detail
+      if (!request?.id) return
+      setEmergencyRepair(request)
+      setActive(true)
+      publishEmergencyRepairStatus({ id: request.id, state: 'starting', message: '正在检查现有会话并启动临时修复…' })
+    }
+    window.addEventListener(EMERGENCY_REPAIR_REQUEST_EVENT, onEmergencyRepair)
+    return () => window.removeEventListener(EMERGENCY_REPAIR_REQUEST_EVENT, onEmergencyRepair)
+  }, [demo])
 
   // 形态变化即写回本地（节流意义不大，状态变更频率低）。demo 不持久化，避免覆盖正式悬浮窗形态。
   useEffect(() => {
@@ -185,24 +207,132 @@ export function ChatRuntimeProvider({ children, demo = false }: { children: Reac
   }
   return (
     <>
-      <ChatEngine control={control} demo={demo}>{children}</ChatEngine>
+      <ChatEngine
+        control={control}
+        demo={demo}
+        emergencyRepair={emergencyRepair}
+        onEmergencyRepairHandled={handleEmergencyRepairDone}
+      >
+        {children}
+      </ChatEngine>
       {flourish}
     </>
   )
 }
 
 /** 真正持有聊天实例的常驻组件：调一次 hook，经 Context 暴露给会话页与浮窗。 */
-function ChatEngine({ control, demo, children }: { control: Omit<ChatRuntime, 'chat'>; demo: boolean; children: ReactNode }) {
-  const chat = useClaudeChatSocket(demo ? { demo: true } : undefined)
+function ChatEngine({
+  control,
+  demo,
+  emergencyRepair,
+  onEmergencyRepairHandled,
+  children,
+}: {
+  control: Omit<ChatRuntime, 'chat'>
+  demo: boolean
+  emergencyRepair: EmergencyRepairRequest | null
+  onEmergencyRepairHandled: () => void
+  children: ReactNode
+}) {
   const location = useLocation()
+  const routePrdSessionId = useMemo(
+    () => new URLSearchParams(location.search).get('prdSessionId')?.trim() || null,
+    [location.search],
+  )
+  // 离开会话页弹成浮窗后仍保留本次 PRD 授权范围，避免重连退回 ADMIN 通道。
+  const [prdSessionId, setPrdSessionId] = useState<string | null>(routePrdSessionId)
+  useEffect(() => {
+    if (routePrdSessionId) setPrdSessionId(routePrdSessionId)
+  }, [routePrdSessionId])
+  const chat = useClaudeChatSocket(demo
+    ? { demo: true }
+    : prdSessionId
+      ? { channel: 'prd-dev', prdSessionId }
+      : undefined)
   const targetSessionId = useMemo(
     () => new URLSearchParams(location.search).get('sessionId')?.trim() || null,
     [location.search],
   )
+  const handledEmergencyRef = useRef<string | null>(null)
+  const pendingEmergencyTitleRef = useRef<{ requestId: string; title: string } | null>(null)
+  const autoOpenedRef = useRef(false)
+
+  useEffect(() => {
+    if (demo || !emergencyRepair || handledEmergencyRef.current === emergencyRepair.id) return
+    handledEmergencyRef.current = emergencyRepair.id
+    // 紧急任务自己会选择/创建会话，阻止下面的“恢复最近会话”与它并发抢占当前连接。
+    autoOpenedRef.current = true
+    const request = emergencyRepair
+    void (async () => {
+      try {
+        const [selfRepo, sessions] = await Promise.all([getSelfRepo(), listSessions()])
+        if (!selfRepo.exists || !selfRepo.path?.trim()) throw new Error('未配置 kai-toolbox 自维护仓库，无法创建修复会话')
+
+        const normalizedSelf = normalizePath(selfRepo.path)
+        const featureNeedles = [request.featureId.toLowerCase()]
+        if (request.featureId === 'claude-chat') featureNeedles.push('vibe coding', 'vibe', 'vb')
+        const recentConversation = JSON.stringify(chat.items.slice(-30)).toLowerCase()
+        const currentSessionMentionsFeature = featureNeedles.some(needle => recentConversation.includes(needle))
+        const reusable = sessions.find(session => {
+          if (normalizePath(session.cwd) !== normalizedSelf) return false
+          if (!session.live) return false
+          const title = session.title?.toLowerCase() || ''
+          return title.includes('紧急修复')
+            || featureNeedles.some(needle => title.includes(needle))
+            || (session.id === chat.sessionId && currentSessionMentionsFeature)
+        })
+        const title = `[紧急修复][${request.featureId}] ${new Date(request.requestedAt).toLocaleString()}`
+        const prompt = buildEmergencyRepairPrompt(request)
+
+        if (reusable) {
+          chat.switchTo(reusable.id, reusable.status === 'RUNNING' && reusable.live)
+          chat.enqueue(prompt, undefined, `紧急修复 ${request.featureId}：检查异常并立即恢复模块`)
+          publishEmergencyRepairStatus({
+            id: request.id,
+            state: 'started',
+            sessionId: reusable.id,
+            message: `已找到正在处理该模块的会话“${reusable.title || reusable.id.slice(0, 8)}”，修复指令已强制加入队列。`,
+          })
+        } else {
+          pendingEmergencyTitleRef.current = { requestId: request.id, title }
+          chat.open(selfRepo.path, undefined, 'bypassPermissions', chat.currentEngine === 'codex' ? 'codex' : 'claude')
+          chat.send(prompt, undefined, `紧急修复 ${request.featureId}：检查异常并立即恢复模块`)
+          publishEmergencyRepairStatus({
+            id: request.id,
+            state: 'started',
+            message: '未发现正在修复该模块的活跃会话，已创建全自动临时会话并发出修复指令。',
+          })
+        }
+      } catch (error) {
+        handledEmergencyRef.current = null
+        publishEmergencyRepairStatus({
+          id: request.id,
+          state: 'failed',
+          message: error instanceof Error ? error.message : '紧急修复会话启动失败',
+        })
+      } finally {
+        onEmergencyRepairHandled()
+      }
+    })()
+  }, [chat, demo, emergencyRepair, onEmergencyRepairHandled])
+
+  useEffect(() => {
+    const pendingTitle = pendingEmergencyTitleRef.current
+    if (!pendingTitle || !chat.sessionId) return
+    pendingEmergencyTitleRef.current = null
+    renameSession(chat.sessionId, pendingTitle.title).catch(() => {
+      // 标题只用于后续复用识别；改名失败不影响已发出的修复任务。
+    })
+    publishEmergencyRepairStatus({
+      id: pendingTitle.requestId,
+      state: 'started',
+      sessionId: chat.sessionId,
+      message: `全自动临时修复会话 ${chat.sessionId.slice(0, 8)} 已开始执行。`,
+    })
+  }, [chat.sessionId])
 
   // 挂载即开一次会话：demo 直接 open（服务端供给受约束副本沙箱，忽略入参）；
   // 正式态优先打开路由指定会话，否则续接最近一条会话。
-  const autoOpenedRef = useRef(false)
   const switchedTargetRef = useRef<string | null>(null)
   const chatRef = useRef(chat)
   chatRef.current = chat
@@ -219,6 +349,9 @@ function ChatEngine({ control, demo, children }: { control: Omit<ChatRuntime, 'c
       chatRef.current.switchTo(targetSessionId)
       return
     }
+    // 需求代码节点的新开发 handoff 会由 ChatPage 立即 open；不要先自动切到“最近会话”，
+    // 否则负责人范围通道会正确拒绝那条无关会话，并在界面上产生一次误导性的报错。
+    if (prdSessionId) return
     void (async () => {
       try {
         const sessions = await listSessions()
@@ -231,7 +364,7 @@ function ChatEngine({ control, demo, children }: { control: Omit<ChatRuntime, 'c
         // 列表拉取失败：保持空态，用户可手动新建/选择
       }
     })()
-  }, [demo, targetSessionId])
+  }, [demo, targetSessionId, prdSessionId])
 
   useEffect(() => {
     if (demo || !targetSessionId || switchedTargetRef.current === targetSessionId) return
@@ -240,4 +373,25 @@ function ChatEngine({ control, demo, children }: { control: Omit<ChatRuntime, 'c
   }, [demo, targetSessionId])
 
   return <Ctx.Provider value={{ ...control, chat }}>{children}</Ctx.Provider>
+}
+
+function normalizePath(value: string): string {
+  return value.trim().replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase()
+}
+
+function buildEmergencyRepairPrompt(request: EmergencyRepairRequest): string {
+  return `这是 kai-toolbox 的紧急自修复任务，请立即执行，不要只给建议。
+
+故障模块：${request.featureId}
+故障路由：${request.route}
+浏览器错误：${request.errorName}: ${request.errorMessage}
+
+执行要求：
+1. 先检查是否已有会话或未提交改动正在修改 Vibe Coding / ${request.featureId} 模块，理解并保留这些增量；严禁 git reset、checkout 覆盖、删除用户改动或擅自提交。
+2. 结合错误信息定位真正根因，直接修复模块。若是导入/导出不一致，核对调用端与实际实现，不能只用刷新页面规避。
+3. 优先恢复页面可用性，同时检查移动端与相关调用链不再触发同类异常。
+4. 至少运行 frontend typecheck；涉及后端或 sidecar 时补充对应编译/测试。
+5. 完成后明确说明修改文件、根因、验证结果；如受阻，给出可执行的失败原因。
+
+这是临时紧急会话，请现在开始检查并修复。`
 }

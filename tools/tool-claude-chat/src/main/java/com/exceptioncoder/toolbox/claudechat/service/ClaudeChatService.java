@@ -688,7 +688,21 @@ public class ClaudeChatService {
 
     public void interrupt(WebSocketSession ws) {
         SessionCtx ctx = ctxOf(ws);
-        if (ctx != null) sidecar.interrupt(ctx.sessionId);
+        if (ctx == null) {
+            log.warn("[claude-chat] 忽略中断请求：浏览器连接尚未绑定会话 ws={}", ws.getId());
+            sendError(ws, 0, "SESSION_NOT_FOUND", "当前连接尚未绑定会话，中断未发送");
+            return;
+        }
+        boolean delivered = sidecar.interrupt(ctx.sessionId);
+        if (delivered) {
+            log.info("[claude-chat] 中断请求已发送到 sidecar session={} engine={} status={}",
+                    ctx.sessionId, ctx.engine, ctx.status);
+            return;
+        }
+        log.warn("[claude-chat] 中断请求发送失败：sidecar 未连接 session={} engine={}",
+                ctx.sessionId, ctx.engine);
+        sendToBrowser(ctx, seq -> new ServerMessage.Error(
+                seq, "INTERRUPT_UNDELIVERED", "中断未送达：sidecar 当前未连接，请等待重连后重试"));
     }
 
     /**
@@ -818,6 +832,9 @@ public class ClaudeChatService {
         repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
         Map<String, Object> usage = asMap(node.get("usage"));
         String stopReason = node.path("stopReason").asText("end_turn");
+        if ("interrupted".equals(stopReason)) {
+            log.info("[claude-chat] 当前轮已中断 session={} engine={}", ctx.sessionId, ctx.engine);
+        }
         sendToBrowser(ctx, seq -> new ServerMessage.Result(seq, usage, stopReason));
         // 所有观察者都不在线才推送，避免打扰
         if (!hasActiveViewer(ctx)) {

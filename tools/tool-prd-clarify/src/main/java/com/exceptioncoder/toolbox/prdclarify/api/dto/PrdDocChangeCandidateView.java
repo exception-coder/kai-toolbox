@@ -17,6 +17,8 @@ public record PrdDocChangeCandidateView(
         String aiDecision,
         String summary,
         String reasoning,
+        String changeCauseType,
+        String changeCauseDetail,
         List<String> evidence,
         List<String> prdPatchPlan,
         List<String> tddPatchPlan,
@@ -28,6 +30,7 @@ public record PrdDocChangeCandidateView(
         String lastError,
         Long prdAppliedAt,
         Long tddAppliedAt,
+        String revisionSessionId,
         long createdAt,
         long updatedAt
 ) {
@@ -41,11 +44,13 @@ public record PrdDocChangeCandidateView(
                 candidate.getId(), candidate.getPrdSessionId(), candidate.getDevSessionId(),
                 candidate.getConversationFromSeq(), candidate.getConversationToSeq(),
                 candidate.getDecision(), candidate.getAiDecision(), candidate.getSummary(),
-                candidate.getReasoning(), strings(candidate.getEvidenceJson()),
+                candidate.getReasoning(), candidate.getChangeCauseType(), candidate.getChangeCauseDetail(),
+                strings(candidate.getEvidenceJson()),
                 strings(candidate.getPrdPatchPlanJson()), strings(candidate.getTddPatchPlanJson()),
                 strings(candidate.getRisksJson()), candidate.getClarificationQuestion(),
                 candidate.getConfidence(), candidate.getStatus(), candidate.getApplyStage(),
                 candidate.getLastError(), candidate.getPrdAppliedAt(), candidate.getTddAppliedAt(),
+                candidate.getRevisionSessionId(),
                 candidate.getCreatedAt(), candidate.getUpdatedAt());
     }
 

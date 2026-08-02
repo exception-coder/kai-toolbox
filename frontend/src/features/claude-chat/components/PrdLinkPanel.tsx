@@ -12,11 +12,11 @@ import {
   listSessions,
   overrideDocChangeDecision,
   reanalyzeDocChanges,
-  startGenerate,
-  startGenerateDevDoc,
+  startBackgroundDocUpdate,
   unlinkDevSession,
   updateDocChangeStage,
   type DocChangeDecision,
+  type DocChangeCauseType,
   type PrdDocChangeCandidate,
 } from '@/features/prd-clarify/api'
 import type { PrdSessionView } from '@/features/prd-clarify/types'
@@ -55,6 +55,16 @@ const DECISION_LABELS: Record<DocChangeDecision, string> = {
 }
 
 const DECISION_OPTIONS: DocChangeDecision[] = ['NONE', 'PRD_ONLY', 'TDD_ONLY', 'BOTH', 'UNCERTAIN']
+
+const CHANGE_CAUSE_LABELS: Record<DocChangeCauseType, string> = {
+  REQUIREMENT_AMBIGUITY: '原始需求/草稿不明确',
+  BUSINESS_CHANGE: '业务规则或范围发生变化',
+  TECHNICAL_GAP: '技术方案考虑不足',
+  DATA_MODEL_GAP: '库表/数据模型考虑不足',
+  IMPLEMENTATION_DISCOVERY: '开发中发现新的事实',
+  MIXED: '产品与技术复合原因',
+  OTHER: '其他原因',
+}
 
 /**
  * 「关联 PRD」面板：展示/建立/更换 当前会话与 PRD 澄清助手某条记录的绑定，绑定后可以
@@ -164,10 +174,10 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
   const [clarificationAnswer, setClarificationAnswer] = useState('')
   const [reanalyzing, setReanalyzing] = useState(false)
   const [note, setNote] = useState('')
-  const [updateStage, setUpdateStage] = useState<'prd' | 'devdoc' | null>(null)
+  const [startingUpdate, setStartingUpdate] = useState(false)
   const [updateErr, setUpdateErr] = useState<string | null>(null)
   const [docEngine, setDocEngine] = useState<'claude' | 'codex'>('claude')
-  const updating = updateStage !== null || analyzing || reanalyzing || decisionSaving
+  const updating = startingUpdate || candidate?.status === 'APPLYING' || analyzing || reanalyzing || decisionSaving
 
   useEffect(() => {
     if (linked) setDocEngine(linked.engine === 'codex' ? 'codex' : 'claude')
@@ -226,47 +236,8 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
     }
   }
 
-  const runGeneratePrd = (id: string, n: string) => new Promise<void>((resolve, reject) => {
-    startGenerate(id, {
-      onEvent(name, data) {
-        if (name === 'done') resolve()
-        else if (name === 'error') {
-          const msg = data && typeof data === 'object' && 'message' in data ? String((data as { message: unknown }).message) : 'PRD 更新失败'
-          reject(new Error(msg))
-        }
-      },
-      onError(err) { reject(err instanceof Error ? err : new Error(String(err))) },
-    }, n || undefined, true, docEngine)
-  })
-
-  const runGenerateDevDoc = (id: string, n: string) => new Promise<void>((resolve, reject) => {
-    // 此入口只有用户确认 AI 文档变更候选后才会执行，候选核对即本次 TDD 更新澄清关卡。
-    startGenerateDevDoc(id, n || undefined, true, undefined, true, {
-      onEvent(name, data) {
-        if (name === 'done') resolve()
-        else if (name === 'error') {
-          const msg = data && typeof data === 'object' && 'message' in data ? String((data as { message: unknown }).message) : '开发文档更新失败'
-          reject(new Error(msg))
-        }
-      },
-      onError(err) { reject(err instanceof Error ? err : new Error(String(err))) },
-    }, docEngine)
-  })
-
-  const buildUpdateNote = (value: PrdDocChangeCandidate) => {
-    const lines = [
-      value.summary,
-      value.reasoning ? `判断理由：${value.reasoning}` : '',
-      value.prdPatchPlan.length > 0 ? `PRD 拟修改章节：${value.prdPatchPlan.join('；')}` : '',
-      value.tddPatchPlan.length > 0 ? `TDD 拟修改章节：${value.tddPatchPlan.join('；')}` : '',
-      value.evidence.length > 0 ? `事实证据：${value.evidence.join('；')}` : '',
-      note.trim() ? `用户补充：${note.trim()}` : '',
-    ]
-    return lines.filter(Boolean).join('\n')
-  }
-
   const runConfirmedUpdate = async () => {
-    if (!linked || !candidate) return
+    if (!candidate) return
     const decision = candidate.decision
     if (decision === 'NONE') {
       setCandidate(await updateDocChangeStage(candidate.id, 'NO_UPDATE'))
@@ -276,49 +247,27 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
       setUpdateErr('仍有未决问题，请先补充信息或人工调整更新范围')
       return
     }
+    setStartingUpdate(true)
     setUpdateErr(null)
-    const n = buildUpdateNote(candidate)
-    let current = candidate
     try {
-      if (current.status === 'PENDING') {
-        current = await updateDocChangeStage(current.id, 'CONFIRM')
-        setCandidate(current)
-      }
-
-      // PARTIAL/TDD 或已有 prdAppliedAt 的 BOTH 候选直接从 TDD 续跑，不重复覆盖 PRD。
-      const resumeTdd = current.applyStage === 'TDD' && current.prdAppliedAt != null
-      if ((decision === 'PRD_ONLY' || decision === 'BOTH') && !resumeTdd) {
-        current = await updateDocChangeStage(current.id, 'START_PRD')
-        setCandidate(current)
-        setUpdateStage('prd')
-        await runGeneratePrd(linked.id, n)
-        current = await updateDocChangeStage(current.id, decision === 'PRD_ONLY' ? 'PRD_ONLY_SUCCESS' : 'PRD_SUCCESS')
-        setCandidate(current)
-      }
-
-      if (decision === 'TDD_ONLY' || decision === 'BOTH') {
-        current = await updateDocChangeStage(current.id, 'START_TDD')
-        setCandidate(current)
-        setUpdateStage('devdoc')
-        await runGenerateDevDoc(linked.id, n)
-        current = await updateDocChangeStage(current.id, 'TDD_SUCCESS')
-        setCandidate(current)
-      }
-
-      setUpdateStage(null)
+      setCandidate(await startBackgroundDocUpdate(candidate.id, docEngine, note.trim() || undefined))
       setNote('')
-      refresh()
     } catch (e) {
-      setUpdateStage(null)
-      const message = e instanceof Error ? e.message : String(e)
-      setUpdateErr(message)
-      try {
-        setCandidate(await updateDocChangeStage(current.id, 'FAIL', message))
-      } catch {
-        // 原始失败优先展示；状态登记失败会在下次打开时由当前阶段反映。
-      }
+      setUpdateErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setStartingUpdate(false)
     }
   }
+
+  useEffect(() => {
+    if (!linked || candidate?.status !== 'APPLYING') return
+    const timer = window.setInterval(() => {
+      getLatestDocChangeCandidate(linked.id).then(value => {
+        if (value) setCandidate(value)
+      }).catch(() => { /* 后台任务不依赖轮询连接；下次轮询继续恢复。 */ })
+    }, 2_000)
+    return () => window.clearInterval(timer)
+  }, [linked?.id, candidate?.status])
 
   const doDismiss = async () => {
     if (!candidate) return
@@ -500,14 +449,15 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
 
                     {candidate.decision !== 'NONE' && candidate.decision !== 'UNCERTAIN'
                       && !['APPLIED', 'DISMISSED', 'NO_UPDATE'].includes(candidate.status) && (
-                      <textarea
-                        value={note}
-                        onChange={event => setNote(event.target.value)}
-                        disabled={updating}
-                        placeholder="（可选）给文档生成器的额外约束；AI 摘要会自动带入"
-                        rows={2}
-                        className="w-full resize-none rounded-md border bg-[var(--color-background)] px-2 py-1.5 text-xs"
-                      />
+                      <div className="space-y-2 rounded-md border border-violet-300/70 bg-violet-500/5 p-2.5">
+                        <p className="text-xs font-medium">变更闭环</p>
+                        <p className="text-[11px] text-[var(--color-muted-foreground)]">变更原因由 AI 根据会话、PRD/TDD 与代码证据自动归因，并随候选写入原版本链。</p>
+                        <div className="rounded-md border bg-[var(--color-background)] px-2.5 py-2">
+                          <p className="text-[11px] font-medium text-violet-700 dark:text-violet-300">{CHANGE_CAUSE_LABELS[candidate.changeCauseType || 'OTHER']}</p>
+                          <p className="mt-1 text-xs leading-relaxed">{candidate.changeCauseDetail || candidate.reasoning || candidate.summary}</p>
+                        </div>
+                        <textarea value={note} onChange={event => setNote(event.target.value)} disabled={updating} placeholder="（可选）给文档生成器的额外约束" rows={2} className="w-full resize-none rounded-md border bg-[var(--color-background)] px-2 py-1.5 text-xs" />
+                      </div>
                     )}
 
                     {!['APPLIED', 'DISMISSED', 'NO_UPDATE'].includes(candidate.status) && candidate.decision !== 'UNCERTAIN' && (
@@ -539,20 +489,18 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
                             updating && 'pointer-events-none opacity-60',
                           )}
                         >
-                          {updateStage ? <Loader2 className="size-3.5 animate-spin" /> : candidate.decision === 'NONE' ? <Check className="size-3.5" /> : <RefreshCw className="size-3.5" />}
-                          {updateStage === 'prd'
-                            ? '正在更新 PRD…'
-                            : updateStage === 'devdoc'
-                              ? '正在更新 TDD…'
-                              : candidate.status === 'PARTIAL' && candidate.applyStage === 'TDD'
-                                ? '继续更新 TDD'
-                                : candidate.decision === 'NONE'
-                                  ? '标记无需更新'
-                                  : candidate.decision === 'PRD_ONLY'
-                                    ? '确认并更新 PRD'
-                                    : candidate.decision === 'TDD_ONLY'
-                                      ? '确认并更新 TDD'
-                                      : '确认并依次更新 PRD + TDD'}
+                          {updating ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
+                          {candidate.status === 'APPLYING'
+                            ? `后台更新中 · ${candidate.applyStage === 'PRD' ? 'PRD' : 'TDD'}`
+                            : candidate.status === 'PARTIAL' && candidate.applyStage === 'TDD'
+                              ? '后台继续更新 TDD'
+                              : candidate.decision === 'NONE'
+                                ? '标记无需更新'
+                                : candidate.decision === 'PRD_ONLY'
+                                  ? '后台更新 PRD'
+                                  : candidate.decision === 'TDD_ONLY'
+                                    ? '后台更新 TDD'
+                                    : '后台依次更新 PRD + TDD'}
                         </button>
                       </div>
                     )}
@@ -578,9 +526,10 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
                         type="button"
                         onClick={() => void doAnalyze()}
                         disabled={updating}
-                        className="text-[11px] text-[var(--color-muted-foreground)] hover:underline disabled:opacity-50"
+                        className="flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-medium text-[var(--color-foreground)] hover:bg-[var(--color-accent)] disabled:opacity-50"
                       >
-                        重新检查最新变化
+                        {analyzing ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
+                        {analyzing ? '正在重新分析…' : '再次分析更新'}
                       </button>
                       {!['APPLIED', 'DISMISSED', 'NO_UPDATE'].includes(candidate.status) && (
                         <button

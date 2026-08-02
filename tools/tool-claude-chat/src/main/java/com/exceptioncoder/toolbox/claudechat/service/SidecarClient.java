@@ -207,8 +207,13 @@ public class SidecarClient {
         return send(m);
     }
 
-    public void interrupt(String sessionId) {
-        send(Map.of("type", "interrupt", "sessionId", sessionId));
+    /**
+     * 请求 sidecar 中断当前轮。
+     *
+     * @return true 表示中断消息已写入 sidecar WebSocket；false 表示链路不可用，调用方不能假装中断成功
+     */
+    public boolean interrupt(String sessionId) {
+        return send(Map.of("type", "interrupt", "sessionId", sessionId));
     }
 
     public void setMode(String sessionId, String mode) {

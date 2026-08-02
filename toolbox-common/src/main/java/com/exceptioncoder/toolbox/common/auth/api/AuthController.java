@@ -4,6 +4,7 @@ import com.exceptioncoder.toolbox.common.auth.AuthException;
 import com.exceptioncoder.toolbox.common.auth.annotation.RequireAuth;
 import com.exceptioncoder.toolbox.common.auth.annotation.RequireRole;
 import com.exceptioncoder.toolbox.common.auth.api.dto.AdminUserView;
+import com.exceptioncoder.toolbox.common.auth.api.dto.AssignableUserView;
 import com.exceptioncoder.toolbox.common.auth.api.dto.ChangePasswordRequest;
 import com.exceptioncoder.toolbox.common.auth.api.dto.CreateUserRequest;
 import com.exceptioncoder.toolbox.common.auth.api.dto.CurrentUserView;
@@ -83,6 +84,16 @@ public class AuthController {
     @RequireRole("ADMIN")
     public CurrentUserView createUser(@Valid @RequestBody CreateUserRequest req) {
         return CurrentUserView.from(userService.create(req.username(), req.password(), req.roles(), req.realName()));
+    }
+
+    /** 登录用户均可查询的指派候选，只返回启用账号的最小公开信息。 */
+    @GetMapping("/users/options")
+    @RequireAuth
+    public List<AssignableUserView> listAssignableUsers() {
+        return userService.list().stream()
+                .filter(AuthUser::isEnabled)
+                .map(AssignableUserView::from)
+                .toList();
     }
 
     // ===== 账号管理（ADMIN）。设计见 ai-docs/kai-toolbox/design/JWT鉴权/账号管理/ =====

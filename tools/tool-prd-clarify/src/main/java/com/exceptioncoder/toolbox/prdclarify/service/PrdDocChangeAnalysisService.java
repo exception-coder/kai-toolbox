@@ -71,17 +71,36 @@ public class PrdDocChangeAnalysisService {
         PrdSession session = requireLinkedSession(prdSessionId);
         PrdDocChangeBaseline baseline = baselineRepository
                 .find(prdSessionId, session.getDevSessionId()).orElse(null);
-        DevelopmentChangeContext context = snapshot(session.getDevSessionId(), syncPoint(baseline));
-        PrdDocChangeEvidenceBundle evidence = buildEvidence(session, context, "[]");
+        PrdDocChangeCandidate previous = candidateRepository.findLatestMeaningful(prdSessionId).orElse(null);
+        DevelopmentSyncPoint syncPoint = syncPoint(baseline);
+        if (previous != null && previous.getConversationToSeq() > syncPoint.conversationSequence()) {
+            syncPoint = new DevelopmentSyncPoint(previous.getConversationToSeq(), syncPoint.repositoryHeads());
+        }
+        DevelopmentChangeContext context = snapshot(session.getDevSessionId(), syncPoint);
+        PrdDocChangeEvidenceBundle evidence = evidenceBuilder.build(
+                session, context, readPrd(session.getId()), readTdd(session), "[]", previous);
         String snapshotHash = snapshotHash(context, evidence, "[]");
         PrdDocChangeCandidate duplicate = candidateRepository
                 .findBySnapshot(prdSessionId, session.getDevSessionId(), snapshotHash)
                 .orElse(null);
-        if (duplicate != null) {
+        if (duplicate != null && isMeaningful(duplicate)) {
             return duplicate;
         }
 
         PreparedAnalysis prepared = analyzeEvidence(evidence, snapshotHash);
+        if (duplicate != null) {
+            PrdDocChangeFinalAnalysis analysis = prepared.analysis();
+            candidateRepository.updateAnalysis(duplicate.getId(), context.toSequence(), prepared.snapshotHash(),
+                    analysis.decision(), analysis.decision(), analysis.summary(), analysis.reasoning(),
+                    writeJson(analysis.evidence()), writeJson(analysis.prdPatchPlan()),
+                    writeJson(analysis.tddPatchPlan()), writeJson(analysis.risks()),
+                    analysis.clarificationQuestion(), duplicate.getClarificationHistoryJson(),
+                    analysis.confidence());
+            candidateRepository.updateChangeCause(duplicate.getId(), inferCauseType(analysis.decision()),
+                    inferCauseDetail(analysis));
+            baselineRepository.saveCandidateSnapshot(duplicate.getId(), context.repositories(), context.snapshotHash());
+            return requireCandidate(duplicate.getId());
+        }
         long now = System.currentTimeMillis();
         PrdDocChangeCandidate candidate = toCandidate(session, context, prepared, now);
         candidateRepository.insert(candidate);
@@ -92,7 +111,14 @@ public class PrdDocChangeAnalysisService {
     /** 返回 PRD 的最近一次候选。 */
     public PrdDocChangeCandidate latest(String prdSessionId) {
         requireSession(prdSessionId);
-        return candidateRepository.findLatest(prdSessionId).orElse(null);
+        PrdDocChangeCandidate latest = candidateRepository.findLatest(prdSessionId).orElse(null);
+        if (latest == null || isMeaningful(latest) || "APPLYING".equals(latest.getStatus())
+                || "PARTIAL".equals(latest.getStatus())) {
+            return latest;
+        }
+        // 最近一次调用若只产出空 claims/0% 结论，面板仍展示上一条有效结果，避免用户已确认的
+        // 分析被一条不可用候选覆盖；再次分析会在同一失败快照上真正重试。
+        return candidateRepository.findLatestMeaningful(prdSessionId).orElse(latest);
     }
 
     /** 在文档执行前覆写 AI 建议范围。 */
@@ -130,6 +156,8 @@ public class PrdDocChangeAnalysisService {
                 writeJson(analysis.evidence()), writeJson(analysis.prdPatchPlan()),
                 writeJson(analysis.tddPatchPlan()), writeJson(analysis.risks()),
                 analysis.clarificationQuestion(), history.toString(), analysis.confidence());
+        candidateRepository.updateChangeCause(candidateId, inferCauseType(analysis.decision()),
+                inferCauseDetail(analysis));
         baselineRepository.saveCandidateSnapshot(candidateId, context.repositories(), context.snapshotHash());
         return requireCandidate(candidateId);
     }
@@ -201,6 +229,8 @@ public class PrdDocChangeAnalysisService {
                 .aiDecision(analysis.decision())
                 .summary(analysis.summary())
                 .reasoning(analysis.reasoning())
+                .changeCauseType(inferCauseType(analysis.decision()))
+                .changeCauseDetail(inferCauseDetail(analysis))
                 .evidenceJson(writeJson(analysis.evidence()))
                 .prdPatchPlanJson(writeJson(analysis.prdPatchPlan()))
                 .tddPatchPlanJson(writeJson(analysis.tddPatchPlan()))
@@ -290,7 +320,9 @@ public class PrdDocChangeAnalysisService {
 
     private String readPrd(String sessionId) {
         try {
-            return fileStore.read(sessionId);
+            PrdSession source = sessionRepository.findLatestRevision(sessionId)
+                    .orElseGet(() -> requireSession(sessionId));
+            return fileStore.read(source.getId());
         } catch (Exception e) {
             return "";
         }
@@ -298,10 +330,11 @@ public class PrdDocChangeAnalysisService {
 
     private String readTdd(PrdSession session) {
         try {
-            if (session.getDevDocPath() == null || session.getDevDocPath().isBlank()) {
+            PrdSession source = sessionRepository.findLatestRevision(session.getId()).orElse(session);
+            if (source.getDevDocPath() == null || source.getDevDocPath().isBlank()) {
                 return "";
             }
-            Path path = Path.of(session.getDevDocPath());
+            Path path = Path.of(source.getDevDocPath());
             return Files.isRegularFile(path) ? Files.readString(path, StandardCharsets.UTF_8) : "";
         } catch (Exception e) {
             return "";
@@ -327,6 +360,44 @@ public class PrdDocChangeAnalysisService {
 
     private static String firstStage(String decision) {
         return "TDD_ONLY".equals(decision) ? "TDD" : "PRD";
+    }
+
+    public PrdDocChangeCandidate confirmChangeCause(String candidateId, String causeType, String detail) {
+        PrdDocChangeCandidate candidate = requireCandidate(candidateId);
+        if (!"PENDING".equals(candidate.getStatus()) && !"CONFIRMED".equals(candidate.getStatus())) {
+            throw new IllegalStateException("文档更新已开始，不能再修改变更原因");
+        }
+        String normalizedDetail = detail == null ? "" : detail.trim();
+        if (normalizedDetail.isBlank()) {
+            throw new IllegalArgumentException("每次更新 PRD/TDD 前必须补充变更原因");
+        }
+        String normalizedType = causeType == null ? "OTHER" : causeType.trim().toUpperCase();
+        if (!Set.of("REQUIREMENT_AMBIGUITY", "BUSINESS_CHANGE", "TECHNICAL_GAP", "DATA_MODEL_GAP", "IMPLEMENTATION_DISCOVERY", "MIXED", "OTHER").contains(normalizedType)) {
+            throw new IllegalArgumentException("不支持的变更原因分类: " + causeType);
+        }
+        candidateRepository.updateChangeCause(candidateId, normalizedType, normalizedDetail);
+        return requireCandidate(candidateId);
+    }
+
+    private static String inferCauseType(String decision) {
+        return switch (decision) {
+            case "PRD_ONLY" -> "REQUIREMENT_AMBIGUITY";
+            case "TDD_ONLY" -> "TECHNICAL_GAP";
+            case "BOTH" -> "MIXED";
+            default -> "OTHER";
+        };
+    }
+
+    private static String inferCauseDetail(PrdDocChangeFinalAnalysis analysis) {
+        if (analysis.reasoning() != null && !analysis.reasoning().isBlank()) return analysis.reasoning().trim();
+        return analysis.summary() == null ? "" : analysis.summary().trim();
+    }
+
+    private static boolean isMeaningful(PrdDocChangeCandidate candidate) {
+        return candidate.getSummary() != null && !candidate.getSummary().isBlank()
+                && candidate.getEvidenceJson() != null
+                && !candidate.getEvidenceJson().isBlank()
+                && !"[]".equals(candidate.getEvidenceJson().trim());
     }
 
     private static String normalizeError(String error) {

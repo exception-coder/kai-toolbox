@@ -14,5 +14,5 @@ import java.util.List;
  * @param clarificationCompleted 是否已经走完本次 TDD 技术澄清（即使 AI 判断无需提问也为 true）
  */
 public record GenerateDevDocRequest(String extraInstructions, Boolean updateExisting, List<QaPairRequest> qaHistory,
-                                    Boolean clarificationCompleted, String engine) {
+                                    Boolean clarificationCompleted, String engine, Boolean background) {
 }

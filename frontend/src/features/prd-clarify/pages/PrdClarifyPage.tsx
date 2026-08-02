@@ -7,10 +7,9 @@ import { Combobox } from '@/components/ui/combobox'
 import { usePrompt } from '@/components/ui/prompt-dialog'
 import { splitCatalogValues } from '@/lib/systemCatalog'
 import { formatDuration } from '@/lib/utils'
+import { MarkdownContent } from '@/components/markdown/MarkdownContent'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-// doc-viewer 的 markdown.css 含完整 prose 样式（标题层级/代码块/表格等），无需 @tailwindcss/typography
-import '@/features/doc-viewer/styles/markdown.css'
 import {
   adoptSplit,
   askNextDevDocQuestion,
@@ -60,21 +59,6 @@ const MarkdownEditor = lazy(() =>
     default: m.MarkdownEditor,
   }))
 )
-
-// ───── Markdown 预览：复用 doc-viewer 的 markdown.css 样式（标题层级/代码块/表格完整渲染） ─────
-function MarkdownViewer({ content, viewRef }: { content: string; viewRef?: React.RefObject<HTMLDivElement | null> }) {
-  const html = DOMPurify.sanitize(marked.parse(content, { async: false }) as string)
-  return (
-    <div ref={viewRef} className="h-full overflow-y-auto p-6">
-      {/* doc-viewer-md 类由 doc-viewer/styles/markdown.css 定义，包含完整 prose 排版 */}
-      <div
-        className="doc-viewer-md max-w-none"
-        // eslint-disable-next-line react/no-danger
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
-    </div>
-  )
-}
 
 // ───── 大纲侧边栏：从 Markdown 文本提取标题，点击滚动到对应位置 ─────
 function DocOutline({
@@ -1249,6 +1233,7 @@ function HistoryItem({
   const devDocVersionCount = s.devDocHistory.length > 0 ? s.devDocHistory.length : (s.devDocPath ? 1 : 0)
   const devDocStale = !!s.devDocPath && (!s.devDocGeneratedAt || s.devDocGeneratedAt < s.updatedAt)
   const hasMetrics = hasChildren || !!s.devDocPath || !!s.devDocEstimation
+    || s.devDocWorkStatus === 'ERROR' || s.devDocWorkStatus === 'GENERATING' || !!s.errorMsg
 
   return (
     <>
@@ -1314,6 +1299,19 @@ function HistoryItem({
                   <Wrench className="w-2.5 h-2.5" />
                   {devDocStale ? '⚠ 开发文档' : '开发文档'}{devDocVersionCount > 0 ? ` · v${devDocVersionCount}` : ''}
                 </span>
+              )}
+              {s.devDocWorkStatus === 'GENERATING' && (
+                <span className="flex items-center gap-0.5 text-blue-500">
+                  <Loader2 className="w-2.5 h-2.5 animate-spin" />开发文档后台生成中
+                </span>
+              )}
+              {s.devDocWorkStatus === 'ERROR' && (
+                <span className="max-w-full truncate text-red-500" title={s.devDocWorkError || '开发文档生成失败'}>
+                  ⚠ 开发文档失败：{s.devDocWorkError || '未知原因'}
+                </span>
+              )}
+              {s.status === 'ERROR' && s.errorMsg && (
+                <span className="max-w-full truncate text-red-500" title={s.errorMsg}>⚠ PRD 失败：{s.errorMsg}</span>
               )}
               {s.devDocEstimation && (
                 <button
@@ -2383,7 +2381,7 @@ function DevDocVersionViewDialog({
               <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> 加载中…
             </div>
           ) : content ? (
-            <MarkdownViewer content={content} />
+            <MarkdownContent content={content} />
           ) : (
             <div className="h-full flex items-center justify-center text-sm text-[var(--color-muted-foreground)] italic">
               该版本内容不存在（可能已被清理）
@@ -2517,7 +2515,7 @@ function EvaluateProgressDialog({
         {step === 'done' && (
           <>
             <div className="flex-1 overflow-hidden">
-              <MarkdownViewer content={streamText} />
+              <MarkdownContent content={streamText} />
             </div>
             <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--color-border)] flex-shrink-0">
               <button onClick={() => navigator.clipboard.writeText(streamText)}
@@ -2679,7 +2677,7 @@ function ProgressVersionViewDialog({
               <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> 加载中…
             </div>
           ) : content ? (
-            <MarkdownViewer content={content} />
+            <MarkdownContent content={content} />
           ) : (
             <div className="h-full flex items-center justify-center text-sm text-[var(--color-muted-foreground)] italic">
               该版本内容不存在（可能已被清理）
@@ -4894,7 +4892,7 @@ function EditingPanel({
                 {/* 预览模式：大纲 + 内容 */}
                 <DocOutline content={content} targetRef={prdPreviewRef} />
                 <div className="flex-1 h-full overflow-hidden">
-                  <MarkdownViewer content={content} viewRef={prdPreviewRef} />
+                  <MarkdownContent content={content} containerRef={prdPreviewRef} />
                 </div>
               </div>
             )}
@@ -4912,7 +4910,7 @@ function EditingPanel({
                   <span>{devDocProgress || '正在生成开发文档…'}</span>
                 </div>
                 <div className="flex-1 overflow-hidden">
-                  <MarkdownViewer content={devDocContent || '正在准备生成上下文，请稍候…'} />
+                  <MarkdownContent content={devDocContent || '正在准备生成上下文，请稍候…'} />
                 </div>
               </div>
             ) : devDocContent ? (
@@ -4934,7 +4932,7 @@ function EditingPanel({
                     {/* 预览模式：大纲 + 内容 */}
                     <DocOutline content={devDocContent} targetRef={devPreviewRef} />
                     <div className="flex-1 h-full overflow-hidden">
-                      <MarkdownViewer content={devDocContent} viewRef={devPreviewRef} />
+                      <MarkdownContent content={devDocContent} containerRef={devPreviewRef} />
                     </div>
                   </div>
                 )}
@@ -4970,7 +4968,7 @@ function EditingPanel({
                 <FileText className="w-3 h-3" /> PRD
               </div>
               <div className="flex-1 overflow-hidden">
-                <MarkdownViewer content={content} />
+                <MarkdownContent content={content} />
               </div>
             </div>
             <div className="h-1/2 w-full overflow-hidden flex flex-col md:h-full md:w-1/2">
@@ -4980,9 +4978,9 @@ function EditingPanel({
               </div>
               <div className="flex-1 overflow-hidden">
                 {devDocContent ? (
-                  <MarkdownViewer content={devDocContent} />
+                  <MarkdownContent content={devDocContent} />
                 ) : devDocStreaming ? (
-                  <MarkdownViewer content="正在生成…" />
+                  <MarkdownContent content="正在生成…" />
                 ) : devDocLoading ? (
                   <div className="flex items-center justify-center h-full text-sm text-[var(--color-muted-foreground)]">
                     <Loader2 className="w-4 h-4 animate-spin mr-1.5" />正在加载…
@@ -5714,7 +5712,7 @@ PRD_SESSION_ID: ${created.id}`
             streamText={streamText}
             failed={generationFailed}
             onRetry={handleRetryGenerate}
-            engine={session?.engine}
+            engine={session?.engine ?? undefined}
           />
         )}
 

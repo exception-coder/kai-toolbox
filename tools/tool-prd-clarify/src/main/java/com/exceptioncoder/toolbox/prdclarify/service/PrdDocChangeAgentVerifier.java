@@ -21,6 +21,8 @@ public class PrdDocChangeAgentVerifier {
             你是文档变更分析复核器。只能检查给定分析是否被给定证据支持，不得创造新事实。
             检查证据 ID 是否存在、claim 是否被证据直接支持、decision 是否覆盖 claims、
             是否遗漏明显冲突。recommendedDecision 若不同，必须能由已有证据支持。
+            Git 不是必要证据：用户会话可以支持已确认需求；用户已确认但尚未编码的技术、接口、库表或
+            数据模型决策可以支持 TDD 更新。PREVIOUS_ANALYSIS 只代表上次分析基线，本轮变化应由增量证据支持。
             只输出 JSON：
             {
               "verified":true,

@@ -43,6 +43,23 @@ export function MultiSelect({
   const [open, setOpen] = React.useState(false)
   const [draft, setDraft] = React.useState('')
   const inputRef = React.useRef<HTMLInputElement>(null)
+  const rootRef = React.useRef<HTMLDivElement>(null)
+  const contentRef = React.useRef<HTMLDivElement>(null)
+
+  // 候选层通过 Portal 渲染，不属于输入框的 DOM 子树。在捕获阶段同时检查输入区与
+  // Portal 内容，确保嵌套在 Dialog、Sheet 等容器中时，点击其它区域也能可靠收起。
+  React.useEffect(() => {
+    if (!open) return
+    const handleOutsidePointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (rootRef.current?.contains(target) || contentRef.current?.contains(target)) return
+      setOpen(false)
+      setDraft('')
+    }
+    document.addEventListener('pointerdown', handleOutsidePointerDown, true)
+    return () => document.removeEventListener('pointerdown', handleOutsidePointerDown, true)
+  }, [open])
 
   const toggle = (v: string) => {
     if (value.includes(v)) onChange(value.filter((x) => x !== v))
@@ -87,6 +104,7 @@ export function MultiSelect({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverAnchor asChild>
         <div
+          ref={rootRef}
           className={cn(
             'flex flex-wrap items-center gap-1 min-h-9 w-full px-2 py-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] text-sm cursor-text focus-within:ring-1 focus-within:ring-[var(--color-ring)]',
             className,
@@ -152,6 +170,7 @@ export function MultiSelect({
         </div>
       </PopoverAnchor>
       <PopoverContent
+        ref={contentRef}
         id={id ? `${id}-options` : undefined}
         onOpenAutoFocus={(e) => e.preventDefault()}
         className="w-[var(--radix-popover-trigger-width)] max-h-56 overflow-y-auto p-1"

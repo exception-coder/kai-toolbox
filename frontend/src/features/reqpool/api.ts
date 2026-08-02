@@ -1,5 +1,5 @@
 import { http } from '@/lib/api'
-import type { CreateReqRequest, ReqItemView, ReqStatus, ReqPriority, UpdateReqRequest } from './types'
+import type { AssignableUser, CreateReqRequest, ReqItemView, ReqStatus, ReqPriority, UpdateReqRequest } from './types'
 
 const BASE = '/reqpool'
 
@@ -15,6 +15,17 @@ export const listItems = (filters?: { status?: ReqStatus; project?: string; prio
 export const getItem = (id: string) =>
   http<ReqItemView>(`${BASE}/items/${id}`)
 
+export interface DevelopmentAccess {
+  allowed: boolean
+  itemId: string
+  prdSessionId: string
+  devSessionId: string
+}
+
+/** ADMIN 或需求负责人进入 PRD 范围 Vibe Coding 前的权威鉴权。 */
+export const getDevelopmentAccess = (prdSessionId: string) =>
+  http<DevelopmentAccess>(`${BASE}/prd-sessions/${encodeURIComponent(prdSessionId)}/development-access`)
+
 export const createItem = (req: CreateReqRequest) =>
   http<ReqItemView>(`${BASE}/items`, { method: 'POST', body: JSON.stringify(req) })
 
@@ -23,6 +34,29 @@ export const updateItem = (id: string, req: UpdateReqRequest) =>
 
 export const deleteItem = (id: string) =>
   http<void>(`${BASE}/items/${id}`, { method: 'DELETE' })
+
+export const deleteItems = async (ids: string[]) => {
+  const uniqueIds = [...new Set(ids)]
+  const batchSize = 20
+  let deleted = 0
+  for (let offset = 0; offset < uniqueIds.length; offset += batchSize) {
+    const batch = uniqueIds.slice(offset, offset + batchSize)
+    await Promise.all(batch.map(deleteItem))
+    deleted += batch.length
+  }
+  return { requested: uniqueIds.length, deleted }
+}
+
+/** 当前登录用户可见的启用账号候选，只返回指派需要的最小信息。 */
+export const listAssignableUsers = () =>
+  http<AssignableUser[]>('/auth/users/options')
+
+/** 通过账号 ID 绑定负责人；传 null 可解除指派。 */
+export const assignItem = (id: string, userId: number | null) =>
+  http<ReqItemView>(`${BASE}/items/${id}/assignee`, {
+    method: 'PUT',
+    body: JSON.stringify({ userId }),
+  })
 
 export const startClarify = (id: string) =>
   http<ReqItemView>(`${BASE}/items/${id}/start-clarify`, { method: 'POST' })
@@ -38,7 +72,7 @@ export const seedDemo = () =>
 
 /** 从 prd_session 表同步已生成的 PRD 到需求管理池（幂等，只新增缺失条目）。 */
 export const syncFromPrd = () =>
-  http<{ imported: number }>(`${BASE}/sync-from-prd`, { method: 'POST' })
+  http<{ created: number; updated: number; deleted: number }>(`${BASE}/sync-from-prd`, { method: 'POST' })
 
 /** 调用 Claude 对单条需求进行 AI 价值洞察分析，结果持久化到 ai_insight 字段。 */
 export const analyzeItem = (id: string) =>

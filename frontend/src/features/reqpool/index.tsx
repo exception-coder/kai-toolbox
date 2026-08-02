@@ -1,5 +1,5 @@
 import { lazy } from 'react'
-import { Sparkles } from 'lucide-react'
+import { TableProperties } from 'lucide-react'
 import type { FeatureManifest } from '@/shell/types'
 
 const ReqPoolPage = lazy(() =>
@@ -8,10 +8,10 @@ const ReqPoolPage = lazy(() =>
 
 const manifest: FeatureManifest = {
   id: 'reqpool',
-  name: 'Requirements',
-  icon: Sparkles,
+  name: 'AI 需求中枢',
+  icon: TableProperties,
   group: 'AI',
-  description: '表达想法，AI 自动澄清需求、生成 PRD，驱动开发',
+  description: '统一登记、统一判定，基于 PRD/TDD/代码证据自动同步真实进度',
   order: 53,
   routes: [{ path: '/tools/reqpool', element: <ReqPoolPage /> }],
 }

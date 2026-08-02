@@ -17,17 +17,17 @@ export interface ModuleView {
 }
 
 export function requirementProgress(requirement: DeliveryRequirement) {
+  // 需求与技术方案只是前置证据，不代表功能已经交付。固定权重、不对已知阶段重新归一化：
+  // PRD 10% + TDD 10% + 本地代码核查 80%。没有代码评估时最高只能到 20%，避免文档齐全即 100%。
   const weightedStages: Array<[StageView, number]> = [
-    [requirement.stages.prd, 0.3],
-    [requirement.stages.tdd, 0.25],
-    [requirement.stages.code, 0.45],
+    [requirement.stages.prd, 0.1],
+    [requirement.stages.tdd, 0.1],
+    [requirement.stages.code, 0.8],
   ]
-  const knownStages = weightedStages.filter(([stage]) => stage.score != null)
-  const knownWeight = knownStages.reduce((sum, [, weight]) => sum + weight, 0)
-  if (knownWeight === 0) return null
-  return Math.round(
-    knownStages.reduce((sum, [stage, weight]) => sum + (stage.score ?? 0) * weight, 0) / knownWeight,
-  )
+  return Math.round(weightedStages.reduce(
+    (sum, [stage, weight]) => sum + (stage.score ?? 0) * weight,
+    0,
+  ))
 }
 
 export function buildProjects(

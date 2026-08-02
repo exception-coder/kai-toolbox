@@ -10,5 +10,5 @@ package com.exceptioncoder.toolbox.prdclarify.api.dto;
  *                          区别是不新建会话、原地覆盖同一份文件，旧版本自动备份）；
  *                          false/null = 从原始需求描述+澄清问答从零生成/覆盖（原有行为，默认）。
  */
-public record GeneratePrdRequest(String extraInstructions, Boolean updateExisting, String engine) {
+public record GeneratePrdRequest(String extraInstructions, Boolean updateExisting, String engine, Boolean background) {
 }

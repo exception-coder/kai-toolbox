@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS req_pool_item (
     priority       TEXT    NOT NULL DEFAULT 'MEDIUM',
     status         TEXT    NOT NULL DEFAULT 'DRAFT',
     assignee       TEXT,                            -- 负责人
+    assignee_user_id INTEGER,                       -- 绑定 auth_user.id，assignee 仅作展示快照
     deadline       TEXT,                            -- 截止日期（yyyy-MM-dd）
     prd_session_id TEXT,                            -- 关联的 prd_session.id（澄清完成后回写）
     tags           TEXT,                            -- JSON 数组，如 ["前端","数据库"]
@@ -23,3 +24,13 @@ CREATE INDEX IF NOT EXISTS idx_req_pool_created  ON req_pool_item(created_at DES
 
 -- AI 洞察分析：存储 Claude 对需求的价值/优先级分析（JSON），存量数据库兼容
 ALTER TABLE req_pool_item ADD COLUMN ai_insight TEXT;
+
+-- 负责人账号绑定。SQLite 不支持 ADD COLUMN IF NOT EXISTS，SchemaInitializer 会吞掉重复列错误。
+ALTER TABLE req_pool_item ADD COLUMN assignee_user_id INTEGER;
+
+-- 用户主动从需求中枢删除某条 PRD 镜像后保留排除标记，避免下次自动同步重新导入。
+-- 源 PRD 本身不受影响；源 PRD 删除后同步任务会清理对应标记。
+CREATE TABLE IF NOT EXISTS req_pool_prd_exclusion (
+    prd_session_id TEXT PRIMARY KEY,
+    excluded_at    INTEGER NOT NULL
+);

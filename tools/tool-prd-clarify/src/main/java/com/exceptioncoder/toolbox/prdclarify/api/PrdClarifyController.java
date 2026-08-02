@@ -5,6 +5,8 @@ import com.exceptioncoder.toolbox.prdclarify.api.dto.AskNextDevDocQuestionReques
 import com.exceptioncoder.toolbox.prdclarify.api.dto.AskNextQuestionRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.AttachmentParseView;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.CandidateDecisionRequest;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.CandidateChangeCauseRequest;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.BackgroundDocUpdateRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.CandidateReanalyzeRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.CandidateStageRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.CreateSessionRequest;
@@ -13,6 +15,7 @@ import com.exceptioncoder.toolbox.prdclarify.api.dto.DistributeAnswerRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.EstimateEffortRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.EvaluateProgressRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.GenerateDevDocRequest;
+import com.exceptioncoder.toolbox.prdclarify.api.dto.GenerateDevDocQuestionsRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.GeneratePrdRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.ImageAttachmentView;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.ProgressVersionSummary;
@@ -35,6 +38,7 @@ import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
 import com.exceptioncoder.toolbox.prdclarify.service.PrdClarifyService;
 import com.exceptioncoder.toolbox.prdclarify.service.PrdDocChangeAnalysisService;
+import com.exceptioncoder.toolbox.prdclarify.service.PrdDocChangeApplyService;
 import com.exceptioncoder.toolbox.common.auth.domain.AuthUser;
 import com.exceptioncoder.toolbox.common.auth.repository.AuthUserRepository;
 import com.exceptioncoder.toolbox.common.auth.web.AuthContext;
@@ -101,6 +105,7 @@ public class PrdClarifyController {
     private final ImageAttachmentStorageService imageAttachmentStorage;
     private final FileAttachmentStorageService fileAttachmentStorage;
     private final PrdDocChangeAnalysisService changeAnalysisService;
+    private final PrdDocChangeApplyService changeApplyService;
     /** Optional：toolbox.auth.enabled=false 时这个 bean 不存在，历史列表退化为不展示创建人用户名。 */
     private final Optional<AuthUserRepository> authUserRepo;
 
@@ -109,6 +114,7 @@ public class PrdClarifyController {
                                 ImageAttachmentStorageService imageAttachmentStorage,
                                 FileAttachmentStorageService fileAttachmentStorage,
                                 PrdDocChangeAnalysisService changeAnalysisService,
+                                PrdDocChangeApplyService changeApplyService,
                                 Optional<AuthUserRepository> authUserRepo) {
         this.service = service;
         this.repo = repo;
@@ -116,6 +122,7 @@ public class PrdClarifyController {
         this.imageAttachmentStorage = imageAttachmentStorage;
         this.fileAttachmentStorage = fileAttachmentStorage;
         this.changeAnalysisService = changeAnalysisService;
+        this.changeApplyService = changeApplyService;
         this.authUserRepo = authUserRepo;
     }
 
@@ -458,7 +465,8 @@ public class PrdClarifyController {
         if (req != null && req.engine() != null) {
             repo.updateEngine(id, normalizeEngine(req.engine()));
         }
-        service.generate(id, req == null ? null : req.extraInstructions(), req == null ? null : req.updateExisting(), emitter);
+        service.generate(id, req == null ? null : req.extraInstructions(), req == null ? null : req.updateExisting(),
+                req != null && Boolean.TRUE.equals(req.background()), emitter);
         return emitter;
     }
 
@@ -564,6 +572,7 @@ public class PrdClarifyController {
                 req == null ? null : req.updateExisting(),
                 req == null ? null : req.qaHistory(),
                 req == null ? null : req.clarificationCompleted(),
+                req == null ? null : req.background(),
                 emitter);
         return emitter;
     }
@@ -588,6 +597,20 @@ public class PrdClarifyController {
         }
         service.askNextDevDocQuestion(
                 id, req.questionIndex(), req.history(), req.updateNotes(), req.mode(), emitter);
+        return emitter;
+    }
+
+    /**
+     * TDD 生成/更新前的批量技术澄清：一次返回全部关键问题，避免逐题调用模型。
+     */
+    @PostMapping(value = "/sessions/{id}/dev-doc/questions", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter generateDevDocQuestions(@PathVariable String id,
+                                               @RequestBody GenerateDevDocQuestionsRequest req) {
+        SseEmitter emitter = new SseEmitter(0L);
+        if (req.engine() != null) {
+            repo.updateEngine(id, normalizeEngine(req.engine()));
+        }
+        service.generateDevDocQuestions(id, req.updateNotes(), req.mode(), req.background(), emitter);
         return emitter;
     }
 
@@ -658,6 +681,24 @@ public class PrdClarifyController {
             @RequestBody CandidateDecisionRequest request) {
         return PrdDocChangeCandidateView.from(
                 changeAnalysisService.overrideDecision(candidateId, request.decision()));
+    }
+
+    @PutMapping("/change-candidates/{candidateId}/cause")
+    public PrdDocChangeCandidateView confirmDocumentChangeCause(
+            @PathVariable String candidateId,
+            @RequestBody CandidateChangeCauseRequest request) {
+        return PrdDocChangeCandidateView.from(
+                changeAnalysisService.confirmChangeCause(candidateId, request.causeType(), request.detail()));
+    }
+
+    /** 立即返回 APPLYING；PRD/TDD 在后端独立执行，浏览器和反向代理断线不会取消任务。 */
+    @PostMapping("/change-candidates/{candidateId}/apply-background")
+    public PrdDocChangeCandidateView applyDocumentChangeInBackground(
+            @PathVariable String candidateId,
+            @RequestBody(required = false) BackgroundDocUpdateRequest request) {
+        return PrdDocChangeCandidateView.from(changeApplyService.start(candidateId,
+                request == null ? null : request.engine(),
+                request == null ? null : request.extraInstructions()));
     }
 
     /** 回答当前唯一阻塞问题后重新分析；信息充分时不再继续追问。 */

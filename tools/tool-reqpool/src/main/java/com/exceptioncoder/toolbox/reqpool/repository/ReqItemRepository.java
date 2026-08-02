@@ -21,6 +21,7 @@ public class ReqItemRepository {
             .priority(rs.getString("priority"))
             .status(rs.getString("status"))
             .assignee(rs.getString("assignee"))
+            .assigneeUserId(nullableLong(rs.getObject("assignee_user_id")))
             .deadline(rs.getString("deadline"))
             .prdSessionId(rs.getString("prd_session_id"))
             .tags(rs.getString("tags"))
@@ -28,6 +29,23 @@ public class ReqItemRepository {
             .createdAt(rs.getLong("created_at"))
             .updatedAt(rs.getLong("updated_at"))
             .build();
+
+    /**
+     * SQLite 是动态类型数据库，旧库迁移后的可空列可能由驱动返回 null、Integer、Long 或文本。
+     * xerial-sqlite-jdbc 的 getObject(column, Long.class) 对 null 会抛 Bad value for type Long，
+     * 因此先读取原始值，再做宽容转换；无法识别的历史脏值按“未绑定账号”处理。
+     */
+    private static Long nullableLong(Object value) {
+        if (value == null) return null;
+        if (value instanceof Number number) return number.longValue();
+        String text = String.valueOf(value).trim();
+        if (text.isEmpty()) return null;
+        try {
+            return Long.valueOf(text);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
 
     private final JdbcTemplate jdbc;
 
@@ -39,12 +57,12 @@ public class ReqItemRepository {
         jdbc.update("""
                 INSERT INTO req_pool_item
                   (id, title, description, project, module, priority, status,
-                   assignee, deadline, prd_session_id, tags, ai_insight, created_at, updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   assignee, assignee_user_id, deadline, prd_session_id, tags, ai_insight, created_at, updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 item.getId(), item.getTitle(), item.getDescription(),
                 item.getProject(), item.getModule(), item.getPriority(), item.getStatus(),
-                item.getAssignee(), item.getDeadline(), item.getPrdSessionId(),
+                item.getAssignee(), item.getAssigneeUserId(), item.getDeadline(), item.getPrdSessionId(),
                 item.getTags(), item.getAiInsight(), item.getCreatedAt(), item.getUpdatedAt());
     }
 
@@ -58,6 +76,18 @@ public class ReqItemRepository {
         List<ReqItem> rows = jdbc.query(
                 "SELECT * FROM req_pool_item WHERE id = ?", ROW, id);
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
+    /** PRD 与需求池是一对一镜像；历史重复数据优先取已绑定负责人的记录。 */
+    public Optional<ReqItem> findByPrdSessionId(String prdSessionId) {
+        if (prdSessionId == null || prdSessionId.isBlank()) return Optional.empty();
+        List<ReqItem> rows = jdbc.query("""
+                SELECT * FROM req_pool_item
+                WHERE prd_session_id = ?
+                ORDER BY CASE WHEN assignee_user_id IS NOT NULL THEN 0 ELSE 1 END, created_at ASC
+                LIMIT 1
+                """, ROW, prdSessionId);
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.getFirst());
     }
 
     /**
@@ -86,12 +116,12 @@ public class ReqItemRepository {
         jdbc.update("""
                 UPDATE req_pool_item SET
                   title=?, description=?, project=?, module=?, priority=?, status=?,
-                  assignee=?, deadline=?, prd_session_id=?, tags=?, updated_at=?
+                  assignee=?, assignee_user_id=?, deadline=?, prd_session_id=?, tags=?, updated_at=?
                 WHERE id=?
                 """,
                 item.getTitle(), item.getDescription(),
                 item.getProject(), item.getModule(), item.getPriority(), item.getStatus(),
-                item.getAssignee(), item.getDeadline(), item.getPrdSessionId(),
+                item.getAssignee(), item.getAssigneeUserId(), item.getDeadline(), item.getPrdSessionId(),
                 item.getTags(), item.getUpdatedAt(), item.getId());
     }
 

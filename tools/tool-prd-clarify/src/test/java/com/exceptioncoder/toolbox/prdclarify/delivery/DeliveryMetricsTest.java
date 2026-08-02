@@ -16,8 +16,9 @@ class DeliveryMetricsTest {
 
     @Test
     void normalizesOverallProgressWhenCodeIsUnknown() {
-        assertThat(metrics.overallProgress(100, 0, null)).isEqualTo(55);
-        assertThat(metrics.overallProgress(100, 100, 50)).isEqualTo(78);
+        assertThat(metrics.overallProgress(100, 0, null)).isEqualTo(10);
+        assertThat(metrics.overallProgress(100, 100, null)).isEqualTo(20);
+        assertThat(metrics.overallProgress(100, 100, 50)).isEqualTo(60);
     }
 
     @Test

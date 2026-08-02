@@ -1,6 +1,11 @@
-import { Component, type ReactNode } from 'react'
+import { Component, useEffect, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, RefreshCw, RotateCcw, Home } from 'lucide-react'
+import { AlertTriangle, RefreshCw, RotateCcw, Home, Wrench } from 'lucide-react'
+import {
+  EMERGENCY_REPAIR_STATUS_EVENT,
+  requestEmergencyRepair,
+  type EmergencyRepairStatus,
+} from '@/lib/emergencyRepair'
 
 interface Props {
   children: ReactNode
@@ -33,7 +38,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (!this.state.error) return this.props.children
-    return <Fallback error={this.state.error} onReset={this.reset} compact={this.props.compact} />
+    return <Fallback error={this.state.error} onReset={this.reset} compact={this.props.compact} label={this.props.label} />
   }
 }
 
@@ -44,9 +49,31 @@ function isChunkError(e: Error): boolean {
   )
 }
 
-function Fallback({ error, onReset, compact }: { error: Error; onReset: () => void; compact?: boolean }) {
+function Fallback({ error, onReset, compact, label }: { error: Error; onReset: () => void; compact?: boolean; label?: string }) {
   const navigate = useNavigate()
   const chunk = isChunkError(error)
+  const [repairId, setRepairId] = useState<string | null>(null)
+  const [repairStatus, setRepairStatus] = useState<EmergencyRepairStatus | null>(null)
+
+  useEffect(() => {
+    const onStatus = (event: Event) => {
+      const status = (event as CustomEvent<EmergencyRepairStatus>).detail
+      if (status?.id === repairId) setRepairStatus(status)
+    }
+    window.addEventListener(EMERGENCY_REPAIR_STATUS_EVENT, onStatus)
+    return () => window.removeEventListener(EMERGENCY_REPAIR_STATUS_EVENT, onStatus)
+  }, [repairId])
+
+  const startRepair = () => {
+    const id = requestEmergencyRepair({
+      featureId: label || 'unknown-module',
+      route: location.pathname + location.search,
+      errorName: error.name,
+      errorMessage: error.message,
+    })
+    setRepairId(id)
+    setRepairStatus({ id, state: 'starting', message: '正在检查现有会话并启动临时修复…' })
+  }
 
   if (compact) {
     return (
@@ -84,7 +111,21 @@ function Fallback({ error, onReset, compact }: { error: Error; onReset: () => vo
         <button type="button" onClick={() => navigate('/')} className="inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm hover:bg-[var(--color-accent)]">
           <Home className="size-4" /> 返回工作台
         </button>
+        <button
+          type="button"
+          onClick={startRepair}
+          disabled={repairStatus?.state === 'starting' || repairStatus?.state === 'started'}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/50 bg-red-500/10 px-3 py-2 text-sm text-red-600 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60 dark:text-red-400"
+        >
+          {repairStatus?.state === 'starting' ? <RefreshCw className="size-4 animate-spin" /> : <Wrench className="size-4" />}
+          {repairStatus?.state === 'starting' ? '正在发起修复…' : repairStatus?.state === 'started' ? '修复会话已启动' : '紧急修复'}
+        </button>
       </div>
+      {repairStatus && (
+        <p className={`max-w-md text-xs ${repairStatus.state === 'failed' ? 'text-red-600 dark:text-red-400' : 'text-[var(--color-muted-foreground)]'}`}>
+          {repairStatus.message}
+        </p>
+      )}
       <details className="max-w-md text-left text-xs text-[var(--color-muted-foreground)]">
         <summary className="cursor-pointer select-none">错误详情</summary>
         <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md bg-[var(--color-muted)] p-2">{error.name}: {error.message}</pre>

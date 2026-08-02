@@ -10,7 +10,7 @@ import { createSrmDbServer } from './srmDb.js'
 import { createSrmAppServer } from './srmApp.js'
 import { createScmDbServer } from './scmDb.js'
 import { createDomainKnowledgeServer, createCrossTopologyServer } from './knowledgeMcp.js'
-import { runCodexTurn, type CodexSpeed } from './codexEngine.js'
+import { codexMcpCapabilities, runCodexTurn, type CodexSpeed } from './codexEngine.js'
 import type { ModelReasoningEffort } from '@openai/codex-sdk'
 import { runGeminiTurn } from './geminiEngine.js'
 import { runOpencodeTurn } from './opencodeEngine.js'
@@ -20,11 +20,10 @@ export type Engine = 'claude' | 'codex' | 'gemini' | 'opencode'
 type Emit = (sessionId: string, event: Record<string, unknown>) => void
 
 /**
- * oneShot 场景下随文本一起发给 Claude 的图片（base64）。目前只有 oneShot 会传（PRD 澄清工具
- * 粘贴图片场景），交互式 runTurn 走的是 ClaudeChatService.appendAttachmentHints() 那条
- * "写文件路径提示、让 Agent 自己用 Read 工具查看"的路，两条路互不影响。
- * mediaType 只能是 Anthropic Messages API 支持的四种（image/jpeg|png|gif|webp），
- * 其余类型由 Java 侧过滤掉，不会传到这里。
+ * oneShot 场景下随文本一起发给多模态引擎的图片（base64）。Claude 使用 image content block，
+ * Codex 会先写入临时文件再作为 local_image 输入。目前只有 oneShot 会传（PRD 澄清工具粘贴图片场景）；
+ * 交互式 runTurn 仍走 ClaudeChatService.appendAttachmentHints() 的本地附件路径提示。
+ * mediaType 只允许 image/jpeg|png|gif|webp，其余类型由 Java 侧过滤掉。
  */
 export interface OneShotImage {
   mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
@@ -669,6 +668,8 @@ class Session {
    */
   interrupt(): void {
     const hadPending = this.perms.rejectAll()
+    const hadActiveTurn = this.abort != null
+    console.log(`[sidecar] interrupt requested session=${this.id} engine=${this.engine} active=${hadActiveTurn} pendingDecision=${hadPending}`)
     if (!hadPending) {
       this.abort?.abort() // 无未决审批，没什么要等的，立刻关
       return
@@ -779,7 +780,11 @@ export class SessionManager {
     this.sessions.set(id, s)
     // 立即回一个 init（sdkSessionId 暂为 null），让前端拿到 Ready 启用输入；
     // 真正的 sdkSessionId 在首轮 system/init 时再次回传。
-    this.emit(id, { type: 'init', sdkSessionId: null })
+    this.emit(id, {
+      type: 'init',
+      sdkSessionId: null,
+      ...(s.engine === 'codex' ? { mcpServers: codexMcpCapabilities(s.toolPolicy) } : {}),
+    })
     this.emitCachedModels(id, s)
   }
 
@@ -809,6 +814,9 @@ export class SessionManager {
     s.model = model || undefined
     this.setCodexOptions(id, codexReasoningEffort ?? '', codexSpeed ?? 'default')
     this.applyCodexOptions(id, s)
+    if (s.engine === 'codex') {
+      this.emit(id, { type: 'init', sdkSessionId: s.sdkSessionId ?? null, mcpServers: codexMcpCapabilities(s.toolPolicy) })
+    }
     this.emitCachedModels(id, s)
   }
 
@@ -914,6 +922,9 @@ export class SessionManager {
     s.apiBaseUrl = nextBaseUrl || undefined
     s.authToken = nextBaseUrl ? authToken : undefined
     s.resetModelsFetched() // 换引擎/provider：下一轮重新取模型清单
+    if (s.engine === 'codex') {
+      this.emit(id, { type: 'init', sdkSessionId: s.sdkSessionId ?? null, mcpServers: codexMcpCapabilities(s.toolPolicy) })
+    }
     this.emitCachedModels(id, s)
   }
 
@@ -941,7 +952,7 @@ export class SessionManager {
   /**
    * 一次性无状态生成：建临时 Session（不入 sessions Map），bypassPermissions，
    * 把 system+user 拼成一个 prompt 跑一轮，复用 Session.handle 逐片 emit assistantDelta + result/error。
-   * 用于「高质量」简历优化引擎——Agent 当作更强的 LLM，纯文本进出，不调工具、不接 MCP、不持久化。
+   * 用于 PRD 澄清、简历优化等一次性 Agent 任务；可按 toolPolicy 禁用工具，不持久化原生会话。
    */
   async oneShot(
     id: string,
@@ -962,11 +973,6 @@ export class SessionManager {
   ): Promise<void> {
     const cwd = options?.cwd || process.env.USERPROFILE || process.env.HOME || process.cwd()
     if (engine === 'codex') {
-      if (images?.length) {
-        this.emit(id, { type: 'error', code: 'CODEX_IMAGES_UNSUPPORTED', message: 'Codex 一次性任务暂不支持图片输入，请改用 Claude Code' })
-        this.emit(id, { type: 'result', usage: {}, stopReason: 'error' })
-        return
-      }
       const controller = new AbortController()
       this.oneShotControllers.set(id, controller)
       try {
@@ -983,6 +989,7 @@ export class SessionManager {
           apiBaseUrl: options?.apiBaseUrl,
           authToken: options?.authToken,
           codexHome: options?.codexHome,
+          images,
           permissionMode: 'bypassPermissions',
           toolPolicy: options?.toolPolicy,
           signal: controller.signal,

@@ -34,6 +34,10 @@ public class PrdSession {
     private String followUpRecords;
     /** JSON 字符串，格式 [{id,question,answer}]，可为 null（尚未生成问题时）。 */
     private String questions;
+    /** 最近一次 PRD 批量澄清问题生成完成时间（毫秒）。 */
+    private Long prdQuestionsGeneratedAt;
+    /** 最近一次 PRD 文档生成完成时间（毫秒）。 */
+    private Long prdGeneratedAt;
     private String status;
     private String mdPath;
     /** 开发文档路径（由 PRD 转换生成，存于 ~/.kai-toolbox/prd/{id}-dev.md）。 */
@@ -42,6 +46,8 @@ public class PrdSession {
     private String devSessionId;
     /** 开发文档最后生成时间戳（毫秒）。devDocGeneratedAt < updatedAt 时开发文档已过期。 */
     private Long devDocGeneratedAt;
+    /** 最近一次 TDD 批量澄清问题生成完成时间（毫秒）。 */
+    private Long devDocQuestionsGeneratedAt;
     private String model;
     /** Agent 执行引擎：claude（默认）| codex。 */
     private String engine;
@@ -66,6 +72,11 @@ public class PrdSession {
      * 用于追溯每一版开发文档是基于什么补充说明/更新澄清生成的。
      */
     private String devDocHistory;
+    /** 最近一次已提交但尚未成功生成 TDD 的技术澄清问答 JSON。 */
+    private String devDocQaDraft;
+    /** TDD 点按作业状态，独立于 PRD status。 */
+    private String devDocWorkStatus;
+    private String devDocWorkError;
     /**
      * AI 工时评估结果，JSON 字符串，格式
      * {@code {hoursMin,hoursMax,confidence,reasoning,breakdown:[{item,hours}],estimatedAt}}，

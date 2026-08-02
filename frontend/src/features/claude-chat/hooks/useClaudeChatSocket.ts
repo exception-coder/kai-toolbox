@@ -194,12 +194,13 @@ export interface UseClaudeChatSocket {
   loadHistory: (reset: boolean) => void
 }
 
-export type ClaudeChatChannel = 'admin' | 'consult'
+export type ClaudeChatChannel = 'admin' | 'consult' | 'prd-dev'
 
-export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeChatChannel }): UseClaudeChatSocket {
+export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeChatChannel; prdSessionId?: string | null }): UseClaudeChatSocket {
   // demo（受约束免登录演示）：连 /api/claude-chat/demo/ws，不带 token、不自动 attach 重连。
   const demo = opts?.demo ?? false
   const channel = opts?.channel ?? 'admin'
+  const prdSessionId = opts?.prdSessionId?.trim() || null
   const [state, setState] = useState<ConnState>('idle')
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [items, setItems] = useState<ChatItem[]>([])
@@ -608,12 +609,17 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     // Vibe Coding 走 admin 通道校验 ADMIN；业务咨询走 consult 通道，只要求有效登录用户。
     // demo 通道公开免鉴权（路由不挂拦截器），不带 token。
     const token = demo ? null : getToken()
-    const qs = token ? `?access_token=${encodeURIComponent(token)}` : ''
+    const query = new URLSearchParams()
+    if (token) query.set('access_token', token)
+    if (channel === 'prd-dev' && prdSessionId) query.set('prd_session_id', prdSessionId)
+    const qs = query.size ? `?${query.toString()}` : ''
     const path = demo
       ? '/api/claude-chat/demo/ws'
       : channel === 'consult'
         ? '/api/claude-chat/consult/ws'
-        : '/api/claude-chat/ws'
+        : channel === 'prd-dev'
+          ? '/api/claude-chat/prd-dev/ws'
+          : '/api/claude-chat/ws'
     const url = `${proto}//${window.location.host}${path}${qs}`
     setState('connecting')
     openedRef.current = false // 新一次尝试：先假定未连上，onopen 置真
@@ -681,7 +687,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         setState('closed')
       }
     }
-  }, [applyEvent, flushIntent, flushPendingSends, demo, channel, confirmAuthOrKeepRetrying])
+  }, [applyEvent, flushIntent, flushPendingSends, demo, channel, prdSessionId, confirmAuthOrKeepRetrying])
 
   const connect = useCallback(() => {
     // 幂等：已有在连/已连的 socket，或正处于「续期+建连」异步窗口时，不再叠一条。
@@ -948,8 +954,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   }, [running, pending, queued])
 
   const interrupt = useCallback(() => {
+    // 不在点击时乐观结束运行态：消息可能因 WS 断开根本没有发出。
+    // 只有后端收到 sidecar 的 result(interrupted) 后，applyEvent 才会把 running 置回 false。
     sendRaw({ type: 'interrupt' })
-    setRunning(false)
   }, [sendRaw])
 
   /**

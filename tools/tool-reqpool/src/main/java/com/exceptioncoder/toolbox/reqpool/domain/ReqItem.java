@@ -23,6 +23,8 @@ public class ReqItem {
     /** DRAFT | CLARIFYING | PRD_READY | IN_DEV | DONE | CANCELLED */
     private String status;
     private String assignee;
+    /** 绑定的 auth_user.id；assignee 仅保留选择时的姓名快照用于降级展示。 */
+    private Long assigneeUserId;
     /** yyyy-MM-dd */
     private String deadline;
     /** 关联的 prd_session.id */

@@ -4,6 +4,7 @@ import com.exceptioncoder.toolbox.llm.spi.DevelopmentChangeContextProvider.Conve
 import com.exceptioncoder.toolbox.llm.spi.DevelopmentChangeContextProvider.DevelopmentChangeContext;
 import com.exceptioncoder.toolbox.llm.spi.DevelopmentChangeContextProvider.GitRepositoryChange;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
+import com.exceptioncoder.toolbox.prdclarify.domain.PrdDocChangeCandidate;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
@@ -30,8 +31,16 @@ public class PrdDocChangeEvidenceBuilder {
     /** 构造不会包含鉴权信息的分析证据包。 */
     public PrdDocChangeEvidenceBundle build(PrdSession session, DevelopmentChangeContext context,
                                             String prd, String tdd, String clarificationHistoryJson) {
+        return build(session, context, prd, tdd, clarificationHistoryJson, null);
+    }
+
+    /** 再次分析时把上一轮结论作为基线证据，并只追加其后的会话事实。 */
+    public PrdDocChangeEvidenceBundle build(PrdSession session, DevelopmentChangeContext context,
+                                            String prd, String tdd, String clarificationHistoryJson,
+                                            PrdDocChangeCandidate previousAnalysis) {
         List<PrdDocChangeEvidenceBundle.EvidenceItem> items = new ArrayList<>();
         addDocuments(items, prd, tdd);
+        addPreviousAnalysis(items, previousAnalysis);
         addConversation(items, context.conversation());
         addRepositories(items, context.repositories());
         addClarifications(items, clarificationHistoryJson);
@@ -40,6 +49,17 @@ public class PrdDocChangeEvidenceBuilder {
                 session.getTitle(), session.getProject(), session.getModule(),
                 truncate(prd, MAX_DOCUMENT_CHARS), truncate(tdd, MAX_DOCUMENT_CHARS),
                 hash(prd), hash(tdd), List.copyOf(items), context.warnings(), context.executionProfile());
+    }
+
+    private void addPreviousAnalysis(List<PrdDocChangeEvidenceBundle.EvidenceItem> items,
+                                     PrdDocChangeCandidate previous) {
+        if (previous == null) return;
+        String content = "上次范围=" + previous.getDecision()
+                + "\n摘要=" + value(previous.getSummary())
+                + "\n理由=" + value(previous.getReasoning())
+                + "\n已分析到会话序号=" + previous.getConversationToSeq();
+        items.add(new PrdDocChangeEvidenceBundle.EvidenceItem(
+                "ANALYSIS-PREV", "PREVIOUS_ANALYSIS", "上次文档差异分析结论", content, false));
     }
 
     private void addDocuments(List<PrdDocChangeEvidenceBundle.EvidenceItem> items, String prd, String tdd) {
@@ -136,5 +156,9 @@ public class PrdDocChangeEvidenceBuilder {
         String normalized = value == null ? "" : value;
         return normalized.length() <= maxChars
                 ? normalized : normalized.substring(0, maxChars) + "\n…（已截断）";
+    }
+
+    private static String value(String value) {
+        return value == null ? "" : value;
     }
 }

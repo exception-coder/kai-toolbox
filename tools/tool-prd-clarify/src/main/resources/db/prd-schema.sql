@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS prd_session (
     role        TEXT    NOT NULL DEFAULT 'PRODUCT', -- 提需求方角色，决定澄清问题的深度
     md_path     TEXT,                           -- ~/.kai-toolbox/prd/{id}.md 绝对路径
     model       TEXT,                           -- 使用的模型（null 走 sidecar 默认模型）
-    engine      TEXT    NOT NULL DEFAULT 'claude', -- Agent 执行引擎：claude | codex
+    engine      TEXT,                           -- 草稿为空；开始澄清后写入 claude | codex
     error_msg   TEXT,                           -- ERROR 状态时的错误信息
     created_at  INTEGER NOT NULL,               -- Unix 毫秒
     updated_at  INTEGER NOT NULL
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS prd_session (
 
 -- 存量数据库兼容：为已有表补充 role 列（SchemaInitializer 会忽略"duplicate column"错误）
 ALTER TABLE prd_session ADD COLUMN role TEXT NOT NULL DEFAULT 'PRODUCT';
-ALTER TABLE prd_session ADD COLUMN engine TEXT NOT NULL DEFAULT 'claude';
+ALTER TABLE prd_session ADD COLUMN engine TEXT;
 
 -- 存量数据库兼容：补充开发文档路径列
 ALTER TABLE prd_session ADD COLUMN dev_doc_path TEXT;
@@ -46,6 +46,20 @@ ALTER TABLE prd_session ADD COLUMN max_questions INTEGER NOT NULL DEFAULT 5;
 -- 备份为 v{version}.md 的那一份）。故意不 touch updated_at（原因同 dev_doc_path/dev_session_id，
 -- 详见 PrdSessionRepository 对应方法注释）。
 ALTER TABLE prd_session ADD COLUMN dev_doc_history TEXT;
+
+-- TDD 技术澄清暂存：用户提交答案时立即保存，文档生成失败或连接中断后可恢复继续生成。
+-- 成功生成并写入 dev_doc_history 后清空；纯暂存字段不 touch updated_at。
+ALTER TABLE prd_session ADD COLUMN dev_doc_qa_draft TEXT;
+-- TDD 点按作业状态：BUILDING_QUESTIONS | AWAITING_ANSWERS | GENERATING | ERROR | DONE。
+ALTER TABLE prd_session ADD COLUMN dev_doc_work_status TEXT;
+ALTER TABLE prd_session ADD COLUMN dev_doc_work_error TEXT;
+
+-- 需求中枢节点时间线：分别记录 PRD/TDD 澄清问题真正生成完成的时间。
+-- created_at 是需求登记时间；PRD 输出时间复用 DONE 时的 updated_at；TDD 输出时间复用
+-- dev_doc_generated_at。单独落库避免用 updated_at 猜测问题何时返回。
+ALTER TABLE prd_session ADD COLUMN prd_questions_generated_at INTEGER;
+ALTER TABLE prd_session ADD COLUMN prd_generated_at INTEGER;
+ALTER TABLE prd_session ADD COLUMN dev_doc_questions_generated_at INTEGER;
 
 -- AI 工时评估结果：JSON {hoursMin,hoursMax,confidence,reasoning,breakdown:[{item,hours}],estimatedAt}。
 -- 只对应「当前」开发文档（开发文档一定基于最新 PRD 生成），不按版本存多份。故意不 touch
@@ -111,6 +125,8 @@ CREATE TABLE IF NOT EXISTS prd_doc_change_candidate (
     ai_decision                 TEXT NOT NULL,
     summary                     TEXT,
     reasoning                   TEXT,
+    change_cause_type           TEXT,
+    change_cause_detail         TEXT,
     evidence_json               TEXT,
     prd_patch_plan_json         TEXT,
     tdd_patch_plan_json         TEXT,
@@ -123,6 +139,7 @@ CREATE TABLE IF NOT EXISTS prd_doc_change_candidate (
     last_error                  TEXT,
     prd_applied_at              INTEGER,
     tdd_applied_at              INTEGER,
+    revision_session_id         TEXT,
     created_at                  INTEGER NOT NULL,
     updated_at                  INTEGER NOT NULL,
     FOREIGN KEY (prd_session_id) REFERENCES prd_session(id) ON DELETE CASCADE
@@ -132,6 +149,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_prd_doc_candidate_snapshot
     ON prd_doc_change_candidate(prd_session_id, dev_session_id, code_snapshot_hash);
 CREATE INDEX IF NOT EXISTS idx_prd_doc_candidate_latest
     ON prd_doc_change_candidate(prd_session_id, created_at DESC);
+
+-- 存量候选兼容：变更原因由 AI 初判，用户确认更新时可补充并固化。
+ALTER TABLE prd_doc_change_candidate ADD COLUMN change_cause_type TEXT;
+ALTER TABLE prd_doc_change_candidate ADD COLUMN change_cause_detail TEXT;
+ALTER TABLE prd_doc_change_candidate ADD COLUMN revision_session_id TEXT;
 
 -- 每个候选分析时使用的代码事实位置；候选完成后据此推进稳定同步基线。
 CREATE TABLE IF NOT EXISTS prd_doc_change_analysis_snapshot (

@@ -77,11 +77,12 @@ class PrdDocChangeAnalysisServiceTest {
         when(sessionRepository.findById("prd-1")).thenReturn(Optional.of(session));
         when(providerHolder.getIfAvailable()).thenReturn(contextProvider);
         when(baselineRepository.find("prd-1", "dev-1")).thenReturn(Optional.empty());
+        when(candidateRepository.findLatest("prd-1")).thenReturn(Optional.empty());
         when(contextProvider.snapshot("dev-1", new DevelopmentSyncPoint(0, java.util.Map.of())))
                 .thenReturn(context);
         when(candidateRepository.findBySnapshot(any(), any(), any())).thenReturn(Optional.empty());
         when(fileStore.read("prd-1")).thenReturn("# PRD");
-        when(evidenceBuilder.build(session, context, "# PRD", "", "[]")).thenReturn(bundle);
+        when(evidenceBuilder.build(session, context, "# PRD", "", "[]", null)).thenReturn(bundle);
         when(analyzer.analyze(bundle)).thenReturn(draft);
         when(verifier.verify(bundle, draft)).thenReturn(verification);
         when(confidencePolicy.evaluate(bundle, draft, verification)).thenReturn(
@@ -112,6 +113,8 @@ class PrdDocChangeAnalysisServiceTest {
                 .devSessionId("dev-1")
                 .decision("NONE")
                 .aiDecision("NONE")
+                .summary("当前文档已覆盖新增说明")
+                .evidenceJson("[\"CONV-0001\"]")
                 .build();
         when(candidateRepository.findBySnapshot(any(), any(), any())).thenReturn(Optional.of(existing));
 
@@ -124,7 +127,7 @@ class PrdDocChangeAnalysisServiceTest {
     }
 
     @Test
-    void collectsFromLastCompletedBaselineInsteadOfLatestCandidate() {
+    void collectsFromLastCompletedBaselineWhenThereIsNoPreviousAnalysis() {
         PrdDocChangeBaseline baseline = new PrdDocChangeBaseline(
                 "prd-1", "dev-1", 2, java.util.Map.of("repo-key", "abc1234"),
                 "old-snapshot", "old-prd", "old-tdd", 1);

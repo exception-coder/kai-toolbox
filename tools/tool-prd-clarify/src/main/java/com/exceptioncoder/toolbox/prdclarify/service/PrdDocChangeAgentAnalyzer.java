@@ -25,12 +25,16 @@ public class PrdDocChangeAgentAnalyzer {
             - CONFIRMED_REQUIREMENT：用户最终确认的业务事实
             - REJECTED_OPTION：被否定或撤销的方案
             - IMPLEMENTED_TECHNICAL_FACT：代码或工具结果支持的实现事实
+            - PROPOSED_TECHNICAL_DECISION：用户在会话中已确认、但尚未编码的技术或数据设计决策
             - DISCUSSION_ONLY：探索性讨论
             - CONFLICT：对话、代码和文档之间冲突
             - MISSING_DECISION：只能由用户决定的业务缺口
 
             判定范围：NONE、PRD_ONLY、TDD_ONLY、BOTH、UNCERTAIN。
             被否定方案和纯讨论不得驱动正式文档更新。每条 claim 必须引用输入中存在的 evidenceIds。
+            Git 不是文档更新的前置条件。新增会话中已确认的需求可驱动 PRD/TDD 更新；已确认但尚未编码的
+            技术选型、接口、库表或数据模型决策应标为 PROPOSED_TECHNICAL_DECISION，并可驱动 TDD 更新。
+            PREVIOUS_ANALYSIS 是上次分析基线，不得把它误判为本轮新增事实；应与本轮增量会话及当前文档比较。
             UNCERTAIN 时 clarificationQuestion 只允许一个最阻塞的问题；其他判定必须为空。
             只输出 JSON，不要 Markdown：
             {

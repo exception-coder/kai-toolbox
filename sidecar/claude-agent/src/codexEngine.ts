@@ -1,10 +1,13 @@
-import { existsSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { resolve } from 'node:path'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   Codex,
   type ApprovalMode,
+  type CodexOptions,
   type ErrorItem,
+  type Input,
   type ModelReasoningEffort,
   type SandboxMode,
   type ThreadItem,
@@ -18,6 +21,20 @@ import {
 } from './codexSecurity.js'
 
 export type CodexSpeed = 'default' | 'fast'
+
+export const CODEX_TOOLBOX_MCP_SERVERS = ['erp_db', 'erp_app', 'srm_db', 'srm_app', 'scm_db'] as const
+
+/** Codex 没有 Claude 的 system/init 能力清单，供 sidecar 主动上报运行时注入的 MCP。 */
+export function codexMcpCapabilities(toolPolicy: string): Array<{ name: string; status: string }> {
+  if (!process.env.TOOLBOX_API_BASE || toolPolicy === 'disabled') return []
+  if (toolPolicy === CONSULT_READONLY_POLICY) return [{ name: 'consult-readonly', status: 'configured' }]
+  return CODEX_TOOLBOX_MCP_SERVERS.map(name => ({ name, status: 'configured' }))
+}
+
+export interface CodexImageInput {
+  mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+  data: string
+}
 
 /** 单次 Codex 轮次所需上下文，由 Session 注入；emit 复用与 Claude 相同的统一事件协议。 */
 export interface CodexTurnCtx {
@@ -38,6 +55,8 @@ export interface CodexTurnCtx {
   authToken?: string
   /** Codex 官方登录配置根目录；空值使用默认 ~/.codex。 */
   codexHome?: string
+  /** 一次性任务的图片；sidecar 会转临时文件并以 local_image 交给 Codex SDK。 */
+  images?: CodexImageInput[]
   signal: AbortSignal
   emit: (e: Record<string, unknown>) => void
   setSdkSessionId: (id: string) => void
@@ -76,6 +95,36 @@ function codexEnv(codexHome: string): Record<string, string> {
   return env
 }
 
+function standardToolboxMcpConfig(): NonNullable<CodexOptions['config']> {
+  const apiBase = process.env.TOOLBOX_API_BASE?.trim()
+  if (!apiBase) return {}
+  const here = dirname(fileURLToPath(import.meta.url))
+  const compiledBridge = join(here, 'toolboxMcpBridge.js')
+  const sourceBridge = join(here, 'toolboxMcpBridge.ts')
+  const bridge = existsSync(compiledBridge) ? compiledBridge : sourceBridge
+  const mcpServers = Object.fromEntries(CODEX_TOOLBOX_MCP_SERVERS.map(name => [name, {
+    command: process.execPath,
+    args: bridge === sourceBridge ? ['--experimental-strip-types', bridge, name] : [bridge, name],
+    env: { TOOLBOX_API_BASE: apiBase },
+    enabled: true,
+    required: true,
+    // 查询库自动放行；应用探测可能写测试数据，沿用 Codex 的写操作审批。
+    default_tools_approval_mode: name.endsWith('_db') ? 'auto' : 'writes',
+  }]))
+  return { mcp_servers: mcpServers }
+}
+
+function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: string): NonNullable<CodexOptions['config']> {
+  return {
+    ...(speed === 'fast' ? { service_tier: 'priority' } : {}),
+    ...(toolPolicy === CONSULT_READONLY_POLICY
+      ? consultReadonlyCodexConfig(codexHome)
+      : toolPolicy === 'disabled'
+        ? {}
+        : standardToolboxMcpConfig()),
+  }
+}
+
 function pickCodex(
   apiBaseUrl?: string,
   authToken?: string,
@@ -88,10 +137,7 @@ function pickCodex(
     const key = `${speed} ${home ?? '<default>'} ${toolPolicy}`
     let client = codexClients.get(key)
     if (!client) {
-      const config = {
-        ...(speed === 'fast' ? { service_tier: 'priority' } : {}),
-        ...(toolPolicy === CONSULT_READONLY_POLICY ? consultReadonlyCodexConfig(home) : {}),
-      }
+      const config = buildCodexConfig(speed, toolPolicy, home)
       client = new Codex({
         ...(home ? { env: codexEnv(home) } : {}),
         ...(Object.keys(config).length ? { config } : {}),
@@ -101,13 +147,14 @@ function pickCodex(
     return client
   }
   const baseUrl = normalizeOpenAiBase(apiBaseUrl)
-  const key = baseUrl + ' ' + (authToken ?? '') + ' ' + speed
+  const key = baseUrl + ' ' + (authToken ?? '') + ' ' + speed + ' ' + toolPolicy
   let c = gatewayClients.get(key)
   if (!c) {
+    const config = buildCodexConfig(speed, toolPolicy, normalizeCodexHome(codexHome))
     c = new Codex({
       baseUrl,
       apiKey: authToken || undefined,
-      ...(speed === 'fast' ? { config: { service_tier: 'priority' } } : {}),
+      ...(Object.keys(config).length ? { config } : {}),
     })
     gatewayClients.set(key, c)
   }
@@ -164,23 +211,30 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
       : {}),
   }
 
-  const client = pickCodex(ctx.apiBaseUrl, ctx.authToken, ctx.speed, home, ctx.toolPolicy)
-  if (ctx.apiBaseUrl) {
-    console.log(`[sidecar] codex turn start model=${ctx.model ?? '默认'} via=${normalizeOpenAiBase(ctx.apiBaseUrl)}`)
-  }
-  const thread = ctx.sdkSessionId ? client.resumeThread(ctx.sdkSessionId, opts) : client.startThread(opts)
   // agent_message 是全量文本，前端 assistantDelta 语义为累加 → 按 item id 记录已发文本，只发增量
   const lastText = new Map<string, string>()
+  let tempImageDir: string | undefined
 
   try {
     const prompt = consultReadonly ? `${CONSULT_READONLY_PROMPT}\n\n${ctx.text}` : ctx.text
-    const { events } = await thread.runStreamed(prompt, { signal: ctx.signal })
+    const prepared = prepareCodexInput(prompt, ctx.images)
+    tempImageDir = prepared.tempDir
+    const client = pickCodex(ctx.apiBaseUrl, ctx.authToken, ctx.speed, home, ctx.toolPolicy)
+    if (ctx.apiBaseUrl) {
+      console.log(`[sidecar] codex turn start model=${ctx.model ?? '默认'} via=${normalizeOpenAiBase(ctx.apiBaseUrl)}`)
+    }
+    const thread = ctx.sdkSessionId ? client.resumeThread(ctx.sdkSessionId, opts) : client.startThread(opts)
+    const { events } = await thread.runStreamed(prepared.input, { signal: ctx.signal })
     for await (const ev of events) {
       switch (ev.type) {
         case 'thread.started':
           if (ev.thread_id) {
             ctx.setSdkSessionId(ev.thread_id)
-            ctx.emit({ type: 'init', sdkSessionId: ev.thread_id })
+            ctx.emit({
+              type: 'init',
+              sdkSessionId: ev.thread_id,
+              mcpServers: codexMcpCapabilities(ctx.toolPolicy ?? 'default'),
+            })
           }
           break
         case 'item.started':
@@ -213,6 +267,26 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
       return
     }
     ctx.emit({ type: 'error', code: 'CODEX_QUERY_FAILED', message: e instanceof Error ? e.message : String(e) })
+  } finally {
+    if (tempImageDir) rmSync(tempImageDir, { recursive: true, force: true })
+  }
+}
+
+function prepareCodexInput(text: string, images?: CodexImageInput[]): { input: Input; tempDir?: string } {
+  if (!images?.length) return { input: text }
+  const tempDir = mkdtempSync(join(tmpdir(), 'kai-toolbox-codex-images-'))
+  const input: Input = [{ type: 'text', text }]
+  try {
+    images.forEach((image, index) => {
+      const ext = image.mediaType === 'image/jpeg' ? 'jpg' : image.mediaType.split('/')[1]
+      const path = join(tempDir, `image-${index + 1}.${ext}`)
+      writeFileSync(path, Buffer.from(image.data, 'base64'))
+      input.push({ type: 'local_image', path })
+    })
+    return { input, tempDir }
+  } catch (error) {
+    rmSync(tempDir, { recursive: true, force: true })
+    throw error
   }
 }
 

@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.reqpool.api;
 
+import com.exceptioncoder.toolbox.reqpool.api.dto.AssignReqRequest;
 import com.exceptioncoder.toolbox.reqpool.api.dto.CreateReqRequest;
 import com.exceptioncoder.toolbox.reqpool.api.dto.LinkPrdRequest;
 import com.exceptioncoder.toolbox.reqpool.api.dto.ReqItemView;
@@ -7,6 +8,10 @@ import com.exceptioncoder.toolbox.reqpool.api.dto.UpdateReqRequest;
 import com.exceptioncoder.toolbox.reqpool.domain.ReqItem;
 import com.exceptioncoder.toolbox.reqpool.repository.ReqItemRepository;
 import com.exceptioncoder.toolbox.reqpool.service.ReqAnalysisService;
+import com.exceptioncoder.toolbox.reqpool.service.ReqDevelopmentAccessPolicy;
+import com.exceptioncoder.toolbox.common.auth.config.AuthProperties;
+import com.exceptioncoder.toolbox.common.auth.web.AuthContext;
+import com.exceptioncoder.toolbox.common.auth.web.AuthPrincipal;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -22,9 +27,11 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 import static org.springframework.http.HttpStatus.NOT_FOUND;
@@ -51,11 +58,16 @@ public class ReqPoolController {
     private final ReqItemRepository repo;
     private final JdbcTemplate jdbc;
     private final ReqAnalysisService analysis;
+    private final ReqDevelopmentAccessPolicy developmentAccess;
+    private final AuthProperties authProperties;
 
-    public ReqPoolController(ReqItemRepository repo, JdbcTemplate jdbc, ReqAnalysisService analysis) {
+    public ReqPoolController(ReqItemRepository repo, JdbcTemplate jdbc, ReqAnalysisService analysis,
+                             ReqDevelopmentAccessPolicy developmentAccess, AuthProperties authProperties) {
         this.repo = repo;
         this.jdbc = jdbc;
         this.analysis = analysis;
+        this.developmentAccess = developmentAccess;
+        this.authProperties = authProperties;
     }
 
     @GetMapping("/items")
@@ -101,6 +113,33 @@ public class ReqPoolController {
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "需求不存在: " + id));
     }
 
+    /**
+     * 代码节点进入 Vibe Coding 前的权威权限检查。
+     * ADMIN 可处理全部需求；普通账号只可处理 assignee_user_id 与本人一致的需求。
+     */
+    @GetMapping("/prd-sessions/{prdSessionId}/development-access")
+    public Map<String, Object> developmentAccess(@PathVariable String prdSessionId) {
+        ReqItem item = repo.findByPrdSessionId(prdSessionId)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "未找到 PRD 对应的需求登记"));
+        AuthPrincipal principal = AuthContext.current().orElse(null);
+        boolean admin = principal != null && principal.hasAnyRole("ADMIN");
+        boolean allowed = !authProperties.isEnabled()
+                || admin
+                || (principal != null && developmentAccess.canDevelop(principal.userId(), prdSessionId));
+        if (!allowed) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "仅管理员或该需求负责人可以发起开发");
+        }
+        String devSessionId = jdbc.query(
+                "SELECT dev_session_id FROM prd_session WHERE id = ?",
+                rs -> rs.next() ? rs.getString(1) : null,
+                prdSessionId);
+        return Map.of(
+                "allowed", true,
+                "itemId", item.getId(),
+                "prdSessionId", prdSessionId,
+                "devSessionId", devSessionId == null ? "" : devSessionId);
+    }
+
     @PutMapping("/items/{id}")
     public ReqItemView update(@PathVariable String id,
                               @Valid @RequestBody UpdateReqRequest req) {
@@ -112,7 +151,11 @@ public class ReqPoolController {
         existing.setModule(req.module() != null ? req.module() : existing.getModule());
         existing.setPriority(req.priority() != null ? req.priority() : existing.getPriority());
         existing.setStatus(req.status() != null ? req.status() : existing.getStatus());
-        existing.setAssignee(req.assignee() != null ? req.assignee() : existing.getAssignee());
+        if (req.assignee() != null) {
+            // 兼容旧客户端的文本负责人更新，但解除旧账号绑定，避免姓名与账号 ID 不一致。
+            existing.setAssignee(req.assignee());
+            existing.setAssigneeUserId(null);
+        }
         existing.setDeadline(req.deadline() != null ? req.deadline() : existing.getDeadline());
         existing.setTags(req.tags() != null ? req.tags() : existing.getTags());
         existing.setUpdatedAt(System.currentTimeMillis());
@@ -120,10 +163,52 @@ public class ReqPoolController {
         return ReqItemView.from(existing);
     }
 
+    /** 绑定启用账号为负责人；姓名字段只保存显示快照，账号 ID 才是稳定关联。 */
+    @PutMapping("/items/{id}/assignee")
+    public ReqItemView assign(@PathVariable String id, @RequestBody AssignReqRequest req) {
+        ReqItem existing = repo.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "需求不存在: " + id));
+        if (req.userId() == null) {
+            existing.setAssignee(null);
+            existing.setAssigneeUserId(null);
+        } else {
+            List<Map<String, Object>> users = jdbc.queryForList(
+                    "SELECT id, username, real_name FROM auth_user WHERE id = ? AND enabled = 1",
+                    req.userId());
+            if (users.isEmpty()) {
+                throw new ResponseStatusException(NOT_FOUND, "指派账号不存在或已停用: " + req.userId());
+            }
+            Map<String, Object> user = users.getFirst();
+            String username = String.valueOf(user.get("username"));
+            String realName = user.get("real_name") != null ? String.valueOf(user.get("real_name")).trim() : "";
+            existing.setAssignee(realName.isBlank() ? username : realName);
+            existing.setAssigneeUserId(req.userId());
+        }
+        existing.setUpdatedAt(System.currentTimeMillis());
+        repo.update(existing);
+        return ReqItemView.from(existing);
+    }
+
     @DeleteMapping("/items/{id}")
+    @Transactional
     public ResponseEntity<Void> delete(@PathVariable String id) {
-        repo.delete(id);
+        deleteOne(id);
         return ResponseEntity.noContent().build();
+    }
+
+    private boolean deleteOne(String id) {
+        ReqItem existing = repo.findById(id).orElse(null);
+        if (existing == null) return false;
+        String prdSessionId = existing.getPrdSessionId();
+        if (prdSessionId != null && !prdSessionId.isBlank()) {
+            jdbc.update("""
+                    INSERT INTO req_pool_prd_exclusion (prd_session_id, excluded_at)
+                    VALUES (?, ?)
+                    ON CONFLICT(prd_session_id) DO UPDATE SET excluded_at = excluded.excluded_at
+                    """, prdSessionId, System.currentTimeMillis());
+        }
+        repo.delete(id);
+        return true;
     }
 
     /** 标记开始澄清：状态流转 DRAFT → CLARIFYING。 */
@@ -265,40 +350,73 @@ public class ReqPoolController {
      * 从 prd_session 表 Upsert 同步到需求管理池（自动调用，无需手动触发）。
      *
      * <ul>
+     *   <li>DRAFT   → DRAFT（快速起草后已进入统一需求池，尚未开始澄清）</li>
      *   <li>DONE    → PRD_READY（PRD 已生成）</li>
      *   <li>CLARIFYING → CLARIFYING（正在澄清中）</li>
      * </ul>
      *
-     * <p>新记录：INSERT；已有记录且状态变了：UPDATE（如澄清完成后从 CLARIFYING 升为 PRD_READY）。
-     * 幂等：重复调用安全，只处理有差异的记录。
+     * <p>新记录：INSERT；已有记录发生变化：UPDATE；已绑定 PRD 但源 PRD 不存在：DELETE。
+     * 独立登记（prd_session_id 为空）的需求不参与删除。幂等：重复调用安全，只处理差异。
      */
     @PostMapping("/sync-from-prd")
     public ResponseEntity<Map<String, Object>> syncFromPrd() {
         List<Map<String, Object>> sessions = jdbc.queryForList(
-                "SELECT id, title, project, module, status FROM prd_session " +
-                "WHERE status IN ('DONE', 'CLARIFYING')"
+                "SELECT id, title, raw_input, project, module, status FROM prd_session " +
+                "WHERE status IN ('DRAFT', 'DONE', 'CLARIFYING') " +
+                "AND NOT EXISTS (SELECT 1 FROM req_pool_prd_exclusion " +
+                "WHERE req_pool_prd_exclusion.prd_session_id = prd_session.id)"
         );
 
         long now = System.currentTimeMillis();
         int created = 0, updated = 0;
 
+        // 需求池是 PRD 的镜像视图之一：只清理“明确绑定过 PRD、但源记录已删除”的孤立镜像。
+        // prd_session_id 为空的独立登记/演示需求不受影响。
+        int deleted = jdbc.update("""
+                DELETE FROM req_pool_item
+                WHERE prd_session_id IS NOT NULL
+                  AND NOT EXISTS (
+                    SELECT 1 FROM prd_session
+                    WHERE prd_session.id = req_pool_item.prd_session_id
+                  )
+                """);
+        jdbc.update("""
+                DELETE FROM req_pool_prd_exclusion
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM prd_session
+                  WHERE prd_session.id = req_pool_prd_exclusion.prd_session_id
+                )
+                """);
+
         for (Map<String, Object> s : sessions) {
             String prdId = String.valueOf(s.get("id"));
             String prdStatus = String.valueOf(s.get("status"));
+            String title = s.get("title") != null ? String.valueOf(s.get("title")) : "未命名需求";
+            String description = s.get("raw_input") != null ? String.valueOf(s.get("raw_input")) : null;
+            String project = s.get("project") != null ? String.valueOf(s.get("project")) : null;
+            String module = s.get("module") != null ? String.valueOf(s.get("module")) : null;
             // prd_session 状态映射到 req_pool_item 状态
-            String reqStatus = "DONE".equals(prdStatus) ? "PRD_READY" : "CLARIFYING";
+            String reqStatus = switch (prdStatus) {
+                case "DONE" -> "PRD_READY";
+                case "CLARIFYING" -> "CLARIFYING";
+                default -> "DRAFT";
+            };
 
             // 查询是否已有对应条目
             List<Map<String, Object>> existing = jdbc.queryForList(
-                    "SELECT id, status FROM req_pool_item WHERE prd_session_id = ?", prdId);
+                    "SELECT id, title, description, project, module, status " +
+                            "FROM req_pool_item WHERE prd_session_id = ? " +
+                            "ORDER BY CASE WHEN assignee_user_id IS NOT NULL OR assignee IS NOT NULL THEN 0 ELSE 1 END, " +
+                            "CASE WHEN deadline IS NOT NULL AND deadline <> '' THEN 0 ELSE 1 END, created_at ASC", prdId);
 
             if (existing.isEmpty()) {
                 // 新建
                 ReqItem item = ReqItem.builder()
                         .id(UUID.randomUUID().toString())
-                        .title(String.valueOf(s.getOrDefault("title", "未命名需求")))
-                        .project(s.get("project") != null ? String.valueOf(s.get("project")) : null)
-                        .module(s.get("module") != null ? String.valueOf(s.get("module")) : null)
+                        .title(title)
+                        .description(description)
+                        .project(project)
+                        .module(module)
                         .priority("MEDIUM")
                         .status(reqStatus)
                         .prdSessionId(prdId)
@@ -308,18 +426,29 @@ public class ReqPoolController {
                 repo.insert(item);
                 created++;
             } else {
-                // 若状态不一致则更新（如 CLARIFYING → PRD_READY）
-                String existingStatus = String.valueOf(existing.get(0).get("status"));
-                if (!reqStatus.equals(existingStatus)) {
-                    String existingId = String.valueOf(existing.get(0).get("id"));
-                    jdbc.update("UPDATE req_pool_item SET status = ?, updated_at = ? WHERE id = ?",
-                            reqStatus, now, existingId);
+                // PRD 草稿是事实源：标题、描述、项目、模块和阶段发生变化时统一回写需求池。
+                // 历史版本可能为同一 PRD 建出多条镜像：保留负责人/承诺信息更完整的一条，其余直接去重。
+                Map<String, Object> current = existing.getFirst();
+                String existingId = String.valueOf(current.get("id"));
+                for (int index = 1; index < existing.size(); index++) {
+                    repo.delete(String.valueOf(existing.get(index).get("id")));
+                    deleted++;
+                }
+                boolean changed = !Objects.equals(title, current.get("title"))
+                        || !Objects.equals(description, current.get("description"))
+                        || !Objects.equals(project, current.get("project"))
+                        || !Objects.equals(module, current.get("module"))
+                        || !Objects.equals(reqStatus, current.get("status"));
+                if (changed) {
+                    jdbc.update("UPDATE req_pool_item SET title = ?, description = ?, project = ?, " +
+                                    "module = ?, status = ?, updated_at = ? WHERE id = ?",
+                            title, description, project, module, reqStatus, now, existingId);
                     updated++;
                 }
             }
         }
 
-        return ResponseEntity.ok(Map.of("created", created, "updated", updated));
+        return ResponseEntity.ok(Map.of("created", created, "updated", updated, "deleted", deleted));
     }
 
     private ReqItem buildSeed(String title, String description, String priority, long createdAt) {

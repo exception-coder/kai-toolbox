@@ -12,9 +12,11 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.220",
     "@google/gemini-cli": "^0.45.2",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@openai/codex-sdk": "^0.145.0",
     "@opencode-ai/sdk": "^1.17.7",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

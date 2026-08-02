@@ -43,6 +43,10 @@ public record PrdSessionView(
         /** 业务来源结构化字段（飞书需求池导入或 PRD 起草时填写）。 */
         PrdBusinessFields businessFields,
         List<QuestionItem> questions,
+        /** 最近一次 PRD 澄清问题生成完成时间（毫秒）。 */
+        Long prdQuestionsGeneratedAt,
+        /** 最近一次 PRD 文档生成完成时间（毫秒）。 */
+        Long prdGeneratedAt,
         String mdPath,
         /** 开发文档路径（非 null 表示已生成开发文档）。 */
         String devDocPath,
@@ -50,11 +54,18 @@ public record PrdSessionView(
         String devSessionId,
         /** 开发文档最后生成时间戳（毫秒）。null 或小于 updatedAt 表示开发文档已过期。 */
         Long devDocGeneratedAt,
+        /** 最近一次 TDD 澄清问题生成完成时间（毫秒）。 */
+        Long devDocQuestionsGeneratedAt,
         /**
          * 开发文档生成历史（按发生顺序，version 从 1 递增），每次生成/重新生成/更新都有一条记录，
          * 用于追溯"这版为什么长这样"。见 {@link DevDocHistoryEntryView} 各字段说明。
          */
         List<DevDocHistoryEntryView> devDocHistory,
+        /** 已提交但尚未成功生成 TDD 的技术澄清答案；失败重试时用于恢复表单。 */
+        List<DevDocQaDraftItemView> devDocQaDraft,
+        /** TDD 点按作业状态：BUILDING_QUESTIONS | AWAITING_ANSWERS | GENERATING | ERROR | DONE。 */
+        String devDocWorkStatus,
+        String devDocWorkError,
         /** AI 工时评估结果，尚未评估过时为 null。见 {@link DevDocEstimationView} 各字段说明。 */
         DevDocEstimationView devDocEstimation,
         /** 进度评估文档路径（非 null 表示评估过至少一次）。 */
@@ -97,6 +108,8 @@ public record PrdSessionView(
      */
     public record DevDocHistoryEntryView(int version, String mode, String extraInstructions, long generatedAt) {}
 
+    public record DevDocQaDraftItemView(String question, String answer) {}
+
     /**
      * AI 工时评估结果（对应当前这份开发文档，开发文档一定基于最新 PRD 生成，见
      * {@code PrdClarifyService#generateDevDoc}）。
@@ -129,7 +142,8 @@ public record PrdSessionView(
     public static PrdSessionView from(PrdSession s, String createdByUsername) {
         return new PrdSessionView(
                 s.getId(), s.getTitle(), s.getProject(), s.getModule(),
-                s.getStatus(), "codex".equalsIgnoreCase(s.getEngine()) ? "codex" : "claude",
+                s.getStatus(), s.getEngine() == null ? null
+                        : ("codex".equalsIgnoreCase(s.getEngine()) ? "codex" : "claude"),
                 s.getRole() != null ? s.getRole() : "PRODUCT",
                 s.getReqType() != null ? s.getReqType() : "NEW_MODULE",
                 s.getMaxQuestions() > 0 ? s.getMaxQuestions() : 5,
@@ -139,9 +153,12 @@ public record PrdSessionView(
                         s.getRequirementDetail(), s.getBusinessBackground(), s.getBusinessRequirementType(),
                         s.getRequirementSoftware(), s.getInitiatingDepartment(), s.getRequester(),
                         s.getRequestedAt(), s.getAttachments(), s.getFollowUpRecords()),
-                parseQuestions(s.getQuestions()),
+                parseQuestions(s.getQuestions()), s.getPrdQuestionsGeneratedAt(), s.getPrdGeneratedAt(),
                 s.getMdPath(), s.getDevDocPath(), s.getDevSessionId(), s.getDevDocGeneratedAt(),
+                s.getDevDocQuestionsGeneratedAt(),
                 parseDevDocHistory(s.getDevDocHistory()),
+                parseDevDocQaDraft(s.getDevDocQaDraft()),
+                s.getDevDocWorkStatus(), s.getDevDocWorkError(),
                 parseDevDocEstimation(s.getDevDocEstimation(), s.getDevDocGeneratedAt()),
                 s.getProgressPath(), s.getProgressGeneratedAt(),
                 s.getCreatedByUserId(), createdByUsername, s.getParentId(),
@@ -191,6 +208,25 @@ public record PrdSessionView(
             return result;
         } catch (Exception e) {
             log.warn("[prd-clarify] devDocHistory JSON 解析失败: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    private static List<DevDocQaDraftItemView> parseDevDocQaDraft(String json) {
+        if (json == null || json.isBlank()) return List.of();
+        try {
+            JsonNode arr = MAPPER.readTree(json);
+            if (!arr.isArray()) return List.of();
+            List<DevDocQaDraftItemView> result = new ArrayList<>();
+            for (JsonNode node : arr) {
+                String question = node.path("question").asText("").trim();
+                if (!question.isBlank()) {
+                    result.add(new DevDocQaDraftItemView(question, node.path("answer").asText("")));
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("[prd-clarify] devDocQaDraft JSON 解析失败: {}", e.getMessage());
             return List.of();
         }
     }

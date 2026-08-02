@@ -278,7 +278,7 @@
     {
       "featureId": "reqpool",
       "code": "menu:reqpool",
-      "name": "Requirements",
+      "name": "AI 需求中枢",
       "module": "AI",
       "sort": 53
     },

@@ -8,9 +8,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class DeliveryMetrics {
 
-    private static final int PRD_WEIGHT = 30;
-    private static final int TDD_WEIGHT = 25;
-    private static final int CODE_WEIGHT = 45;
+    private static final int PRD_WEIGHT = 10;
+    private static final int TDD_WEIGHT = 10;
+    private static final int CODE_WEIGHT = 80;
 
     /**
      * 按完成、部分完成和未完成数量计算代码实现度。
@@ -26,16 +26,14 @@ public class DeliveryMetrics {
     }
 
     /**
-     * 对已知阶段重新归一化权重，未知代码阶段不会被当作零分。
+     * 固定权重计算真实交付进度。PRD/TDD 只是前置证据，各占 10%；代码核查占 80%。
+     * 未执行本地代码评估时代码按 0 分，而不是把文档阶段重新归一化成 100%。
      */
     public int overallProgress(int prdScore, int tddScore, Integer codeScore) {
-        int weighted = prdScore * PRD_WEIGHT + tddScore * TDD_WEIGHT;
-        int weights = PRD_WEIGHT + TDD_WEIGHT;
-        if (codeScore != null) {
-            weighted += codeScore * CODE_WEIGHT;
-            weights += CODE_WEIGHT;
-        }
-        return clamp(Math.round((float) weighted / weights));
+        int weighted = prdScore * PRD_WEIGHT
+                + tddScore * TDD_WEIGHT
+                + (codeScore == null ? 0 : codeScore) * CODE_WEIGHT;
+        return clamp(Math.round((float) weighted / 100));
     }
 
     /**

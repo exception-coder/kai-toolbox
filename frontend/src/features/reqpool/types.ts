@@ -10,6 +10,7 @@ export interface ReqItemView {
   priority: ReqPriority
   status: ReqStatus
   assignee: string | null
+  assigneeUserId: number | null
   deadline: string | null   // yyyy-MM-dd
   prdSessionId: string | null
   tags: string | null
@@ -28,6 +29,12 @@ export interface CreateReqRequest {
   assignee?: string
   deadline?: string
   tags?: string
+}
+
+export interface AssignableUser {
+  userId: number
+  username: string
+  realName: string | null
 }
 
 export interface UpdateReqRequest extends Partial<CreateReqRequest> {

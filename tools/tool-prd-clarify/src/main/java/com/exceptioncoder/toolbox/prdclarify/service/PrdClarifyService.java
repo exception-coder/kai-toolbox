@@ -28,6 +28,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -794,6 +795,7 @@ public class PrdClarifyService {
 
         // ERROR 会话允许从澄清阶段重试；开始执行时立即恢复状态并清掉上次错误。
         repo.updateStatus(sessionId, "CLARIFYING");
+        repo.clearPrdQuestionsGeneratedAt(sessionId);
 
         Thread.ofVirtual().name("prd-clarify-").start(() -> {
             try {
@@ -811,7 +813,7 @@ public class PrdClarifyService {
 
                 // 解析 JSON，写回库
                 String questionsJson = parseAndBuildQuestionsJson(full.toString());
-                repo.updateQuestions(sessionId, questionsJson);
+                repo.updateGeneratedQuestions(sessionId, questionsJson);
 
                 sendDone(emitter);
             } catch (Exception e) {
@@ -941,6 +943,12 @@ public class PrdClarifyService {
      *                          false/null = 原有行为：按原始需求描述+澄清问答从零生成/覆盖。
      */
     public void generate(String sessionId, String extraInstructions, Boolean updateExisting, SseEmitter emitter) {
+        generate(sessionId, extraInstructions, updateExisting, false, emitter);
+    }
+
+    /** 后台 PRD 生成：客户端断开后继续模型调用、版本备份和落盘。 */
+    public void generate(String sessionId, String extraInstructions, Boolean updateExisting,
+                         boolean continueOnDisconnect, SseEmitter emitter) {
         PrdSession session = repo.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
 
@@ -948,6 +956,7 @@ public class PrdClarifyService {
         boolean update = Boolean.TRUE.equals(updateExisting);
 
         Thread.ofVirtual().name("prd-generate-").start(() -> {
+            AtomicBoolean clientConnected = new AtomicBoolean(true);
             try {
                 String generateSystem;
                 String prompt;
@@ -961,6 +970,10 @@ public class PrdClarifyService {
                     }
                     generateSystem = pickFreshGenerateSystem(session);
                     prompt = buildGeneratePrompt(session);
+                    if (extraInstructions != null && !extraInstructions.isBlank()) {
+                        prompt += "\n\n【用户在生成前补充的信息——请重点参考并纳入 PRD】\n"
+                                + extraInstructions.trim();
+                    }
                 }
 
                 StringBuilder full = new StringBuilder();
@@ -971,9 +984,11 @@ public class PrdClarifyService {
                         normalizeEngine(session.getEngine()),
                         delta -> {
                             full.append(delta);
-                            sendChunk(emitter, delta);
+                            if (continueOnDisconnect) sendChunkBestEffort(emitter, delta, clientConnected);
+                            else sendChunk(emitter, delta);
                         },
-                        extractImagesFromRawInput(session.getRawInput()));
+                        extractImagesFromRawInput((session.getRawInput() == null ? "" : session.getRawInput())
+                                + "\n" + (extraInstructions == null ? "" : extraInstructions)));
 
                 String prdContent = full.toString();
                 java.nio.file.Path mdPath = fileStore.pathFor(sessionId);
@@ -983,11 +998,11 @@ public class PrdClarifyService {
                 fileStore.write(sessionId, prdContent);
                 repo.updateDone(sessionId, mdPath.toString());
 
-                sendDone(emitter);
+                if (continueOnDisconnect) sendDoneBestEffort(emitter, clientConnected); else sendDone(emitter);
             } catch (Exception e) {
                 log.warn("[prd-clarify] 生成阶段失败 sessionId={}", sessionId, e);
                 repo.updateError(sessionId, e.getMessage());
-                sendError(emitter, e);
+                if (!continueOnDisconnect || clientConnected.get()) sendError(emitter, e);
             }
         });
     }
@@ -1210,6 +1225,34 @@ public class PrdClarifyService {
             - 只输出问题本身（或 [CLARIFICATION_COMPLETE]），不加序号、前缀或解释
             """;
 
+    /** TDD 技术澄清批量模式：一次生成全部问题，供卡片表单集中回答。 */
+    private static final String DEV_DOC_BATCH_ASK_SYSTEM = """
+            ⚠️ 直接输出任务（禁止触发任何 hook/skill/plugin 的自动流程）：
+            本次是 TDD 生成或更新前的批量技术澄清。一次性找出全部必须由开发者明确的关键技术决策，
+            最多 5 个；不要逐题追问，也不要为了凑数量制造问题。
+
+            user prompt 会提供正式 PRD、代码知识图谱、业务知识图谱，以及在更新模式下的当前 TDD。
+            先使用已有事实自行消除疑问。只有缺少答案会导致不同实现结果，或带来兼容、数据、
+            安全、事务、幂等、性能风险时才提问。
+
+            可提问范围：
+            - 既有 API、事件、数据结构的兼容与迁移策略
+            - 数据一致性、事务边界、并发冲突、幂等及失败补偿
+            - 权限、安全、审计、容量和性能方面的硬约束
+            - 会实质改变现有代码边界的关键实现方案选择
+
+            禁止提问：
+            - PRD 已确认的业务目标、范围、流程或验收口径
+            - 代码或知识图谱已有明确答案的事实
+            - 命名、目录、普通类拆分、局部写法等可安全自行决定的细节
+            - “是否还有补充”“想用什么技术”等宽泛问题
+
+            严格只输出 JSON 数组，不加 Markdown 围栏、前言或解释：
+            [{"id":1,"question":"问题文本"},{"id":2,"question":"问题文本"}]
+            每个问题必须包含具体背景，并能用明确选项、规则或数值回答。按风险和阻塞程度排序。
+            如果现有信息已经足够，输出空数组 []。
+            """;
+
     /**
      * 工时评估系统 prompt：基于 PRD + 开发文档（+ 可选的代码/业务知识图谱查询结果）估算开发工时。
      * 严格要求单行/纯 JSON 输出，便于确定性解析；解析失败时上层直接报错让用户重试（不像
@@ -1338,10 +1381,72 @@ public class PrdClarifyService {
         });
     }
 
+    /** TDD 生成/更新前的批量技术澄清——一次模型调用生成全部问题。 */
+    public void generateDevDocQuestions(String sessionId, String updateNotes, String mode,
+                                        Boolean background, SseEmitter emitter) {
+        PrdSession session = repo.findById(sessionId)
+                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
+        boolean continueOnDisconnect = Boolean.TRUE.equals(background);
+        repo.updateDevDocQaDraft(sessionId, null);
+        repo.updateDevDocQuestionsGeneratedAt(sessionId, null);
+        repo.updateDevDocWorkStatus(sessionId, "BUILDING_QUESTIONS", null);
+
+        Thread.ofVirtual().name("prd-dev-doc-questions-").start(() -> {
+            AtomicBoolean clientConnected = new AtomicBoolean(true);
+            try {
+                boolean update = "update".equalsIgnoreCase(mode);
+                String prdContent = fileStore.read(sessionId);
+                if (prdContent == null || prdContent.isBlank()) {
+                    throw new IllegalStateException("PRD 内容为空，请先完成 PRD");
+                }
+                String currentDevDoc = update ? readDevDocContent(sessionId) : null;
+                if (update && (currentDevDoc == null || currentDevDoc.isBlank())) {
+                    throw new IllegalStateException("当前 TDD 内容为空，无法执行增量更新澄清");
+                }
+                String userPrompt = buildDevDocContextPrompt(
+                        session, prdContent, currentDevDoc, updateNotes, List.of(), update)
+                        .append("请一次性输出全部关键技术澄清问题（最多 ")
+                        .append(DEV_DOC_UPDATE_MAX_QUESTIONS)
+                        .append(" 个），没有问题时输出 []。")
+                        .toString();
+                StringBuilder full = new StringBuilder();
+                agentRunner.stream(DEV_DOC_BATCH_ASK_SYSTEM, userPrompt, session.getModel(),
+                        normalizeEngine(session.getEngine()),
+                        delta -> {
+                            full.append(delta);
+                            if (continueOnDisconnect) sendChunkBestEffort(emitter, delta, clientConnected);
+                            else sendChunk(emitter, delta);
+                        });
+                String questionsJson = parseDevDocQuestionsJson(full.toString());
+                repo.updateDevDocQaDraft(sessionId, questionsJson);
+                repo.updateDevDocQuestionsGeneratedAt(sessionId, System.currentTimeMillis());
+                repo.updateDevDocWorkStatus(sessionId, "AWAITING_ANSWERS", null);
+                if (continueOnDisconnect) sendDoneBestEffort(emitter, clientConnected); else sendDone(emitter);
+            } catch (Exception e) {
+                log.warn("[prd-clarify] generateDevDocQuestions failed sessionId={}", sessionId, e);
+                repo.updateDevDocWorkStatus(sessionId, "ERROR", e.getMessage());
+                if (!continueOnDisconnect || clientConnected.get()) sendError(emitter, e);
+            }
+        });
+    }
+
     /** 构建 TDD 技术澄清上下文：PRD + 图谱事实 + 可选当前 TDD/补充约束 + 历史问答。 */
     private String buildDevDocAskPrompt(PrdSession session, String prdContent, String currentDevDoc,
                                          String updateNotes, int questionIndex,
                                          List<QaPairRequest> history, boolean update) {
+        StringBuilder sb = buildDevDocContextPrompt(
+                session, prdContent, currentDevDoc, updateNotes, history, update);
+        int remaining = DEV_DOC_UPDATE_MAX_QUESTIONS - questionIndex;
+        sb.append("这是第 ").append(questionIndex + 1).append(" 个问题（最多 ")
+                .append(DEV_DOC_UPDATE_MAX_QUESTIONS).append(" 轮，还可以最多再问 ")
+                .append(remaining - 1).append(" 个）。\n");
+        sb.append("请提出下一个最关键的澄清问题，或输出 [CLARIFICATION_COMPLETE]：");
+        return sb.toString();
+    }
+
+    private StringBuilder buildDevDocContextPrompt(PrdSession session, String prdContent,
+                                                     String currentDevDoc, String updateNotes,
+                                                     List<QaPairRequest> history, boolean update) {
         StringBuilder sb = new StringBuilder();
         sb.append("需求标题：").append(session.getTitle()).append("\n");
         appendGraphContext(sb, queryGraphContext(session.getProject(), session.getModule(), session.getTitle()));
@@ -1361,13 +1466,7 @@ public class PrdClarifyService {
                 sb.append("答：").append(qa.answer()).append("\n\n");
             }
         }
-
-        int remaining = DEV_DOC_UPDATE_MAX_QUESTIONS - questionIndex;
-        sb.append("这是第 ").append(questionIndex + 1).append(" 个问题（最多 ")
-                .append(DEV_DOC_UPDATE_MAX_QUESTIONS).append(" 轮，还可以最多再问 ")
-                .append(remaining - 1).append(" 个）。\n");
-        sb.append("请提出下一个最关键的澄清问题，或输出 [CLARIFICATION_COMPLETE]：");
-        return sb.toString();
+        return sb;
     }
 
     /**
@@ -1384,6 +1483,7 @@ public class PrdClarifyService {
      */
     public void generateDevDoc(String sessionId, String extraInstructions, Boolean updateExisting,
                                 List<QaPairRequest> qaHistory, Boolean clarificationCompleted,
+                                Boolean background,
                                 SseEmitter emitter) {
         PrdSession session = repo.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
@@ -1391,18 +1491,25 @@ public class PrdClarifyService {
             throw new IllegalStateException("请先完成 TDD 技术澄清，再生成开发文档");
         }
         boolean update = Boolean.TRUE.equals(updateExisting);
+        boolean continueOnDisconnect = Boolean.TRUE.equals(background);
         List<QaPairRequest> effectiveQaHistory = qaHistory == null ? List.of() : qaHistory;
+        // 用户点击提交时立即暂存。生成失败、浏览器刷新或网络断开后仍能恢复，不再把答案绑在成功落盘上。
+        repo.updateDevDocQaDraft(sessionId, buildQuestionsJson(effectiveQaHistory));
+        repo.updateDevDocWorkStatus(sessionId, "GENERATING", null);
         // mode 用于追溯历史记录：generate=首次生成，regenerate=从最新 PRD 从零覆盖，
         // update=基于当前开发文档增量更新
         boolean hadExistingDoc = session.getDevDocPath() != null && !session.getDevDocPath().isBlank();
         String mode = update ? "update" : (hadExistingDoc ? "regenerate" : "generate");
 
         Thread.ofVirtual().name("prd-dev-doc-").start(() -> {
+            AtomicBoolean clientConnected = new AtomicBoolean(true);
             try {
-                sendProgress(emitter, "正在准备 PRD、技术澄清与知识图谱上下文");
+                sendDevDocProgress(emitter, "正在准备 PRD、技术澄清与知识图谱上下文",
+                        continueOnDisconnect, clientConnected);
                 // 读取已有 PRD 内容作为输入
                 String prdContent = fileStore.read(sessionId);
                 if (prdContent == null || prdContent.isBlank()) {
+                    repo.updateDevDocWorkStatus(sessionId, "ERROR", "PRD 内容为空，请先生成 PRD");
                     sendError(emitter, new IllegalStateException("PRD 内容为空，请先生成 PRD"));
                     return;
                 }
@@ -1428,17 +1535,23 @@ public class PrdClarifyService {
                 }
 
                 StringBuilder full = new StringBuilder();
-                sendProgress(emitter, "codex".equalsIgnoreCase(session.getEngine())
+                sendDevDocProgress(emitter, "codex".equalsIgnoreCase(session.getEngine())
                         ? "Codex 正在生成开发文档，首段内容可能需要稍候"
-                        : "Claude 正在生成开发文档");
+                        : "Claude 正在生成开发文档", continueOnDisconnect, clientConnected);
                 agentRunner.stream(devDocSystem, userPrompt, session.getModel(),
                         normalizeEngine(session.getEngine()), delta -> {
                     full.append(delta);
-                    sendChunk(emitter, delta);
-                });
+                    if (continueOnDisconnect) {
+                        sendChunkBestEffort(emitter, delta, clientConnected);
+                    } else {
+                        sendChunk(emitter, delta);
+                    }
+                }, extractImagesFromRawInput((session.getRawInput() == null ? "" : session.getRawInput())
+                        + "\n" + (extraInstructions == null ? "" : extraInstructions)));
 
                 // 落盘到 ~/.kai-toolbox/prd/{id}-dev.md（与 PRD 文件同目录，由系统统一管理）。
-                sendProgress(emitter, "内容生成完成，正在保存开发文档");
+                sendDevDocProgress(emitter, "内容生成完成，正在保存开发文档",
+                        continueOnDisconnect, clientConnected);
                 // 覆盖前若旧版本已存在，先备份为 {id}-dev-v{n}.md——"检出新版本"不丢旧内容。
                 String devDocContent = full.toString();
                 java.nio.file.Path devDocPath = java.nio.file.Path.of(
@@ -1453,12 +1566,15 @@ public class PrdClarifyService {
                 repo.updateDevDocGeneratedAt(sessionId, System.currentTimeMillis());
                 recordDevDocHistory(
                         sessionId, session.getDevDocHistory(), mode, extraInstructions, effectiveQaHistory, true);
+                repo.updateDevDocQaDraft(sessionId, null);
+                repo.updateDevDocWorkStatus(sessionId, "DONE", null);
                 log.info("[prd-clarify] 开发文档已保存 path={} mode={}", devDocPath, mode);
 
-                sendDone(emitter);
+                if (continueOnDisconnect) sendDoneBestEffort(emitter, clientConnected); else sendDone(emitter);
             } catch (Exception e) {
                 log.warn("[prd-clarify] 开发文档生成失败 sessionId={}", sessionId, e);
-                sendError(emitter, e);
+                repo.updateDevDocWorkStatus(sessionId, "ERROR", e.getMessage());
+                if (!continueOnDisconnect || clientConnected.get()) sendError(emitter, e);
             }
         });
     }
@@ -1985,7 +2101,15 @@ public class PrdClarifyService {
         if (extraContext != null && !extraContext.isBlank()) {
             sb.append("\n【补充上下文】\n").append(extraContext.trim()).append("\n");
         }
-        appendGraphContext(sb, queryGraphContext(s.getProject(), s.getModule(), s.getTitle()));
+        Optional<String> localCodeEvidence = queryGraphContext(
+                s.getProject(),
+                s.getModule(),
+                "核查需求“" + s.getTitle() + "”的本地代码实现进度；返回相关类、方法、接口、数据表、配置和测试证据");
+        appendGraphContext(sb, localCodeEvidence);
+        if (localCodeEvidence.isEmpty()) {
+            sb.append("\n【本地代码检查结果】\n未找到可用的本地代码知识图谱证据。"
+                    + "本次不得把任何功能判定为已完成；请全部列为未完成，并明确说明缺少本地代码证据。\n");
+        }
         appendDomainContext(sb, queryDomainContext(s.getProject(), s.getTitle()));
         sb.append("\n请基于以上信息生成开发进度评估报告，严格按系统提示的大纲输出 Markdown。");
         return sb.toString();
@@ -2382,6 +2506,110 @@ public class PrdClarifyService {
         }
     }
 
+    /**
+     * 为 Vibe Coding 文档变更创建真正的修订子节点。先复制父 PRD 作为增量生成基线，随后
+     * PRD/TDD 都写入子会话，PRD 库可通过 parent_id 展示完整版本树。
+     */
+    public PrdSession createBackgroundRevision(String parentId, String changeReason) throws IOException {
+        PrdSession parent = repo.findById(parentId)
+                .orElseThrow(() -> new IllegalArgumentException("父 PRD 会话不存在: " + parentId));
+        PrdSession source = repo.findLatestRevision(parentId).orElse(parent);
+        return createBackgroundRevision(parent, source, changeReason, fileStore.read(source.getId()));
+    }
+
+    private PrdSession createBackgroundRevision(PrdSession parent, PrdSession metadataSource,
+                                                String changeReason, String initialPrdContent) throws IOException {
+        String parentId = parent.getId();
+        int version = repo.nextRevisionNumber(parentId);
+        long now = System.currentTimeMillis();
+        PrdSession revision = PrdSession.builder()
+                .id(UUID.randomUUID().toString())
+                .title(parent.getTitle() + "（修订版 v" + version + "）")
+                .project(parent.getProject()).module(parent.getModule())
+                .rawInput("【后台自动修订 — 基于：" + parent.getTitle() + "】\n" + value(changeReason))
+                .requirementDetail(parent.getRequirementDetail())
+                .businessBackground(parent.getBusinessBackground())
+                .businessRequirementType(parent.getBusinessRequirementType())
+                .requirementSoftware(parent.getRequirementSoftware())
+                .initiatingDepartment(parent.getInitiatingDepartment())
+                .requester(parent.getRequester()).requestedAt(parent.getRequestedAt())
+                .attachments(parent.getAttachments()).followUpRecords(parent.getFollowUpRecords())
+                .questions(metadataSource.getQuestions()).status("DONE").role(parent.getRole())
+                .reqType(parent.getReqType()).maxQuestions(parent.getMaxQuestions())
+                .clarifyMode(parent.getClarifyMode()).model(parent.getModel()).engine(parent.getEngine())
+                .createdByUserId(parent.getCreatedByUserId()).parentId(parentId)
+                .createdAt(now).updatedAt(now).build();
+        repo.insert(revision);
+        fileStore.write(revision.getId(), initialPrdContent == null ? "" : initialPrdContent);
+        repo.updateDone(revision.getId(), fileStore.pathFor(revision.getId()).toString());
+        return repo.findById(revision.getId()).orElseThrow();
+    }
+
+    /**
+     * 兼容旧前端/SSE 更新链路：旧实现会先把新版 PRD 原地写回根会话，随后网关以 524 结束，
+     * 因而 PRD 库看不到修订子节点。恢复时把当前主文件提升为真正的 vN 子节点，再用更新前自动
+     * 留下的最新 {parentId}-vN.md 备份还原根 PRD。备份只读不删除，失败时也不会丢失任何版本。
+     */
+    public PrdSession recoverInPlacePrdAsBackgroundRevision(String parentId, String changeReason) throws IOException {
+        PrdSession parent = repo.findById(parentId)
+                .orElseThrow(() -> new IllegalArgumentException("父 PRD 会话不存在: " + parentId));
+        PrdSession metadataSource = repo.findLatestRevision(parentId).orElse(parent);
+        java.nio.file.Path parentPath = fileStore.pathFor(parentId);
+        java.nio.file.Path dir = parentPath.getParent();
+        List<Integer> backups = scanPrdBackupVersions(dir, parentId);
+        if (backups.isEmpty()) {
+            throw new IllegalStateException("检测到旧版 PRD 已原地更新，但找不到更新前备份，无法安全恢复版本树");
+        }
+        int latestVersion = backups.get(backups.size() - 1);
+        java.nio.file.Path backupPath = parentPath.resolveSibling(parentId + "-v" + latestVersion + ".md");
+        String originalContent = java.nio.file.Files.readString(backupPath, java.nio.charset.StandardCharsets.UTF_8);
+        String updatedContent = fileStore.read(parentId);
+        if (updatedContent == null || updatedContent.isBlank()) {
+            throw new IllegalStateException("检测到旧版 PRD 已更新，但当前新版文件为空，无法提升为修订节点");
+        }
+
+        // 必须显式复制根会话当前主文件；已有更早修订节点时不能误取“最新子节点”的旧内容。
+        PrdSession revision = createBackgroundRevision(parent, metadataSource, changeReason, updatedContent);
+        try {
+            fileStore.write(parentId, originalContent);
+            repo.updateDone(parentId, parentPath.toString());
+            log.info("[prd-clarify] 已恢复旧版原地更新为修订树 parentId={} revisionId={} backup={}",
+                    parentId, revision.getId(), backupPath);
+            return revision;
+        } catch (Exception restoreError) {
+            // 子节点已经保存了新版；根文件仍保持新版或写入失败前状态，两个版本都没有丢失。
+            throw new IOException("修订子节点已创建，但根 PRD 从备份还原失败: " + restoreError.getMessage(), restoreError);
+        }
+    }
+
+    private static String value(String value) {
+        return value == null ? "" : value;
+    }
+
+    /** 严格解析 TDD 批量技术问题；允许空数组（表示无需开发者补充决策）。 */
+    private String parseDevDocQuestionsJson(String raw) throws JsonProcessingException {
+        String cleaned = stripFence(raw == null ? "" : raw.trim());
+        JsonNode source = mapper.readTree(cleaned);
+        if (!source.isArray()) {
+            throw new IllegalStateException("TDD 技术问题返回格式不是 JSON 数组");
+        }
+        ArrayNode result = mapper.createArrayNode();
+        int id = 1;
+        Set<String> seen = new LinkedHashSet<>();
+        for (JsonNode node : source) {
+            String question = node.isTextual() ? node.asText("").trim()
+                    : node.path("question").asText("").trim();
+            if (question.isBlank() || !seen.add(question)) continue;
+            ObjectNode item = mapper.createObjectNode();
+            item.put("id", id++);
+            item.put("question", question);
+            item.put("answer", "");
+            result.add(item);
+            if (result.size() >= DEV_DOC_UPDATE_MAX_QUESTIONS) break;
+        }
+        return mapper.writeValueAsString(result);
+    }
+
     /** 将用户答案合并进已有的 questions JSON。 */
     private String mergeAnswers(String questionsJson, List<String> answers) {
         if (questionsJson == null || questionsJson.isBlank()) {
@@ -2636,6 +2864,42 @@ public class PrdClarifyService {
         } catch (Exception e) {
             emitter.completeWithError(e);
             throw new IllegalStateException("SSE client disconnected", e);
+        }
+    }
+
+    /** 后台 TDD 生成专用：客户端断开只停止推流，不取消模型任务和后续落盘。 */
+    private void sendChunkBestEffort(SseEmitter emitter, String chunk, AtomicBoolean clientConnected) {
+        if (chunk == null || chunk.isEmpty() || !clientConnected.get()) return;
+        try {
+            emitter.send(SseEmitter.event().name("chunk").data(Map.of("content", chunk)));
+        } catch (Exception e) {
+            clientConnected.set(false);
+            log.info("[prd-clarify] TDD 后台生成客户端已断开，继续执行并落盘");
+        }
+    }
+
+    private void sendDevDocProgress(SseEmitter emitter, String message, boolean continueOnDisconnect,
+                                    AtomicBoolean clientConnected) {
+        if (!continueOnDisconnect) {
+            sendProgress(emitter, message);
+            return;
+        }
+        if (!clientConnected.get()) return;
+        try {
+            emitter.send(SseEmitter.event().name("progress").data(Map.of("message", message)));
+        } catch (Exception e) {
+            clientConnected.set(false);
+            log.info("[prd-clarify] TDD 后台生成客户端已断开，继续执行并落盘");
+        }
+    }
+
+    private void sendDoneBestEffort(SseEmitter emitter, AtomicBoolean clientConnected) {
+        if (!clientConnected.get()) return;
+        try {
+            emitter.send(SseEmitter.event().name("done").data("{}"));
+            emitter.complete();
+        } catch (Exception e) {
+            clientConnected.set(false);
         }
     }
 

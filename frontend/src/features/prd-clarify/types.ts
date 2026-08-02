@@ -112,7 +112,8 @@ export interface PrdSessionView {
   project: string | null
   module: string | null
   status: PrdSessionStatus
-  engine: AgentEngine
+  /** 草稿阶段尚未选择执行引擎；真正开始澄清时才写入。 */
+  engine: AgentEngine | null
   role: PrdRole
   /** 需求类型：决定澄清问题重点和生成文档结构，见 PrdReqType 注释 */
   reqType: PrdReqType
@@ -125,6 +126,10 @@ export interface PrdSessionView {
   /** 业务来源结构化字段（飞书需求池导入或 PRD 起草时填写） */
   businessFields: PrdBusinessFields
   questions: QuestionItem[]
+  /** 最近一次 PRD 澄清问题生成完成时间戳（毫秒） */
+  prdQuestionsGeneratedAt: number | null
+  /** 最近一次 PRD 文档生成完成时间戳（毫秒） */
+  prdGeneratedAt: number | null
   mdPath: string | null
   /** 开发文档路径（非 null 表示已生成开发文档） */
   devDocPath: string | null
@@ -132,8 +137,15 @@ export interface PrdSessionView {
   devSessionId: string | null
   /** 开发文档最后生成时间戳（毫秒）。null 或 < updatedAt 表示开发文档已过期 */
   devDocGeneratedAt: number | null
+  /** 最近一次 TDD 澄清问题生成完成时间戳（毫秒） */
+  devDocQuestionsGeneratedAt: number | null
   /** 开发文档生成历史（按发生顺序），每次生成/重新生成/更新都有一条记录 */
   devDocHistory: DevDocHistoryEntry[]
+  /** 已提交但尚未成功生成 TDD 的技术澄清答案；失败重试时恢复到表单 */
+  devDocQaDraft: Array<{ question: string; answer: string }>
+  /** TDD 点按作业的持久状态，刷新页面后仍可恢复节点颜色。 */
+  devDocWorkStatus: 'BUILDING_QUESTIONS' | 'AWAITING_ANSWERS' | 'GENERATING' | 'ERROR' | 'DONE' | null
+  devDocWorkError: string | null
   /** AI 工时评估结果，尚未评估过时为 null */
   devDocEstimation: DevDocEstimation | null
   /** 进度评估文档路径（非 null 表示评估过至少一次） */

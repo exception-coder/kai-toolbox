@@ -60,8 +60,8 @@ export function SystemModuleSelector({
             value={modules}
             onChange={onModulesChange}
             options={catalog.moduleOptions}
-            placeholder={systems.length ? '选择或输入模块，可多选' : '请先选择系统'}
-            emptyText={systems.length ? '没有匹配的模块' : '选择系统后加载模块'}
+            placeholder={systems.length ? '选择或输入模块，可多选' : required ? '请先选择系统' : '选择或输入模块，可选'}
+            emptyText={systems.length ? '没有匹配的模块' : required ? '选择系统后加载模块' : '可直接输入新模块'}
           />
         </label>
       </div>

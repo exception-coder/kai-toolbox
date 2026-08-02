@@ -809,7 +809,7 @@ export function ChatPage() {
           relative z-30：炫彩皮肤下 header 带 backdrop-filter 会自成层叠上下文，把「更多」下拉
           (absolute z-50) 关在其中；header 若无显式 z 又排在消息区/输入栏之前，后者会整体盖住
           下拉的下半部分导致点不到。抬高 header 层级使其子树压在正文之上（仍低于 z-50/60 模态）。 */}
-      <header className="cc-skin-surface relative z-30 flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-muted)] px-3 py-2 shadow-sm">
+      <header className="cc-skin-surface relative z-30 flex min-w-0 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-muted)] px-3 py-2 shadow-sm max-sm:gap-1 max-sm:px-2">
         {viewMode === 'multi' ? (
           /* 分屏下顶部不挂某一个会话的标题/引擎/状态/用量（各 pane 自带），只给中性标识 */
           <span className="font-semibold">分屏 · {multiIds.length} 个会话</span>
@@ -893,7 +893,7 @@ export function ChatPage() {
             type="button"
             onClick={() => setShowPrdLink(true)}
             title={`已关联 PRD：${linkedPrd.title || '（未命名）'}（点击查看/管理）`}
-            className="flex shrink-0 items-center gap-1 rounded-full border border-[var(--color-primary)]/40 bg-[var(--color-primary)]/10 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)]"
+            className="flex shrink-0 items-center gap-1 rounded-full border border-[var(--color-primary)]/40 bg-[var(--color-primary)]/10 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] max-sm:hidden"
           >
             <FileText className="size-3" />
             <span className="max-w-24 truncate">{linkedPrd.title || 'PRD'}</span>
@@ -904,7 +904,7 @@ export function ChatPage() {
             type="button"
             onClick={() => setShowPendingSql(true)}
             title={`待执行 SQL：${pendingSql.title || '未命名登记'}（点击查看/管理）`}
-            className={`flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] ${pendingSql.status === 'PENDING'
+            className={`flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] max-sm:hidden ${pendingSql.status === 'PENDING'
               ? 'border-amber-500/60 bg-amber-100/80 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300'
               : 'border-[var(--color-border)] bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'}`}
           >
@@ -921,7 +921,7 @@ export function ChatPage() {
               : gestureStatus === 'running' ? '手势监控中：握拳=弹窗 / 张手=返回（摄像头开启中，点击关闭）'
               : gestureStatus === 'loading' ? '手势模型加载中…（点击关闭）'
               : '手势弹窗已开（点击关闭）'}
-            className={`flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] ${gestureErr
+            className={`flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] max-sm:hidden ${gestureErr
               ? 'border-[var(--color-destructive)] text-[var(--color-destructive)]'
               : gestureStatus === 'running'
                 ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400'
@@ -931,7 +931,7 @@ export function ChatPage() {
             {gestureErr ? '手势×' : gestureStatus === 'loading' ? '手势…' : '手势'}
           </button>
         )}
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex shrink-0 items-center gap-1 max-sm:gap-0">
           {/* 用量入口已并入头部 SessionTotalBadge（点徽章打开） */}
           {/* 常用：带文字标签，一眼可辨 */}
           <Button variant="ghost" size="sm" className="gap-1 px-2 sm:px-3" onClick={() => setPanel(p => p === 'new' ? 'none' : 'new')} aria-label="新建会话">
@@ -941,7 +941,7 @@ export function ChatPage() {
             <List className="size-4" /> <span className="hidden sm:inline">会话</span>
           </Button>
           {/* 其余功能收进「更多」菜单，每项带中文标签，避免一排没标识的图标 */}
-          <div className="relative">
+          <div className="relative max-sm:order-first">
             <Button variant="ghost" size="icon" onClick={() => setHeaderMenu(o => !o)} aria-label="更多功能" title="更多功能">
               <MoreHorizontal className="size-5" />
             </Button>

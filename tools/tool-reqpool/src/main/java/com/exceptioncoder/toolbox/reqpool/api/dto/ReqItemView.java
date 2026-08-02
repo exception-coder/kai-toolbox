@@ -14,6 +14,7 @@ public record ReqItemView(
         String priority,
         String status,
         String assignee,
+        Long assigneeUserId,
         String deadline,
         String prdSessionId,
         String tags,
@@ -27,7 +28,7 @@ public record ReqItemView(
                 item.getId(), item.getTitle(), item.getDescription(),
                 item.getProject(), item.getModule(),
                 item.getPriority(), item.getStatus(),
-                item.getAssignee(), item.getDeadline(),
+                item.getAssignee(), item.getAssigneeUserId(), item.getDeadline(),
                 item.getPrdSessionId(), item.getTags(),
                 item.getAiInsight(),
                 item.getCreatedAt(), item.getUpdatedAt());

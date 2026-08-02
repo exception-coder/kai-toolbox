@@ -17,7 +17,7 @@ public class PrdDocChangeConfidencePolicy {
     private static final Set<String> TECHNICAL_DECISIONS = Set.of("TDD_ONLY", "BOTH");
     private static final Set<String> CLAIM_TYPES = Set.of(
             "CONFIRMED_REQUIREMENT", "REJECTED_OPTION", "IMPLEMENTED_TECHNICAL_FACT",
-            "DISCUSSION_ONLY", "CONFLICT", "MISSING_DECISION");
+            "PROPOSED_TECHNICAL_DECISION", "DISCUSSION_ONLY", "CONFLICT", "MISSING_DECISION");
 
     /** 合并分析与复核结果，生成可持久化候选。 */
     public PrdDocChangeFinalAnalysis evaluate(PrdDocChangeEvidenceBundle bundle,
@@ -110,13 +110,15 @@ public class PrdDocChangeConfidencePolicy {
     }
 
     private boolean hasTechnicalEvidence(List<PrdDocChangeAnalysisResult.Claim> claims,
-                                         Map<String, PrdDocChangeEvidenceBundle.EvidenceItem> evidenceById) {
+                                           Map<String, PrdDocChangeEvidenceBundle.EvidenceItem> evidenceById) {
         return claims.stream()
-                .filter(claim -> "IMPLEMENTED_TECHNICAL_FACT".equals(claim.type()))
+                .filter(claim -> Set.of("IMPLEMENTED_TECHNICAL_FACT", "PROPOSED_TECHNICAL_DECISION",
+                        "CONFIRMED_REQUIREMENT").contains(claim.type()))
                 .flatMap(claim -> claim.evidenceIds().stream())
                 .map(evidenceById::get)
                 .filter(java.util.Objects::nonNull)
-                .anyMatch(item -> Set.of("GIT_CHANGE", "TOOL_RESULT").contains(item.type()));
+                .anyMatch(item -> Set.of("GIT_CHANGE", "TOOL_RESULT", "USER_MESSAGE", "CLARIFICATION")
+                        .contains(item.type()));
     }
 
     private int confidence(PrdDocChangeEvidenceBundle bundle, PrdDocChangeAnalysisResult analysis,

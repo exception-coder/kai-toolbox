@@ -59,7 +59,7 @@ public class AgentOneShotService implements AgentOneShotRunner {
                 null, null, null, null, null, null), onDelta, null);
     }
 
-    /** 附带图片的非流式执行：Claude 真正"看到"图片内容，不只是收到一段文字引用。 */
+    /** 附带图片的非流式执行：Claude/Codex 真正接收图片内容，不只是收到一段文字引用。 */
     @Override
     public String runOnce(String systemPrompt, String userPrompt, String model, String engine, List<ImageInput> images) {
         return execute(new ExecutionRequest(systemPrompt, userPrompt, null, model, engine,

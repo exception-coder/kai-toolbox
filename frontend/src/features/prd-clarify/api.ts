@@ -168,10 +168,11 @@ export const startGenerateDevDoc = (
   clarificationCompleted: boolean,
   handlers: SseHandlers,
   engine?: 'claude' | 'codex',
+  background = false,
 ) =>
   subscribeSsePost(
     `/prd-clarify/sessions/${id}/dev-doc`,
-    { extraInstructions, updateExisting, qaHistory, clarificationCompleted, engine },
+    { extraInstructions, updateExisting, qaHistory, clarificationCompleted, engine, background },
     handlers,
   )
 
@@ -330,6 +331,8 @@ export interface PrdDocChangeCandidate {
   aiDecision: DocChangeDecision
   summary: string
   reasoning: string
+  changeCauseType: DocChangeCauseType
+  changeCauseDetail: string
   evidence: string[]
   prdPatchPlan: string[]
   tddPatchPlan: string[]
@@ -341,9 +344,19 @@ export interface PrdDocChangeCandidate {
   lastError: string | null
   prdAppliedAt: number | null
   tddAppliedAt: number | null
+  revisionSessionId: string | null
   createdAt: number
   updatedAt: number
 }
+
+export type DocChangeCauseType =
+  | 'REQUIREMENT_AMBIGUITY'
+  | 'BUSINESS_CHANGE'
+  | 'TECHNICAL_GAP'
+  | 'DATA_MODEL_GAP'
+  | 'IMPLEMENTATION_DISCOVERY'
+  | 'MIXED'
+  | 'OTHER'
 
 export type CandidateStageAction =
   | 'CONFIRM'
@@ -371,6 +384,20 @@ export const overrideDocChangeDecision = (candidateId: string, decision: DocChan
   http<PrdDocChangeCandidate>(`${BASE}/change-candidates/${candidateId}/decision`, {
     method: 'PUT',
     body: JSON.stringify({ decision }),
+  })
+
+/** 固化本次更新的根因；生成提示和版本审计均引用同一候选。 */
+export const confirmDocChangeCause = (candidateId: string, causeType: DocChangeCauseType, detail: string) =>
+  http<PrdDocChangeCandidate>(`${BASE}/change-candidates/${candidateId}/cause`, {
+    method: 'PUT',
+    body: JSON.stringify({ causeType, detail }),
+  })
+
+/** 后端独立编排 PRD/TDD 更新；请求立即返回，页面关闭或网络断开不影响任务。 */
+export const startBackgroundDocUpdate = (candidateId: string, engine: 'claude' | 'codex', extraInstructions?: string) =>
+  http<PrdDocChangeCandidate>(`${BASE}/change-candidates/${candidateId}/apply-background`, {
+    method: 'POST',
+    body: JSON.stringify({ engine, extraInstructions }),
   })
 
 /** 回答当前唯一阻塞问题后重新分析。 */
@@ -484,5 +511,20 @@ export const askNextDevDocQuestion = (
   subscribeSsePost(
     `/prd-clarify/sessions/${sessionId}/dev-doc/ask`,
     { questionIndex, history, updateNotes, mode, engine },
+    handlers,
+  )
+
+/** TDD 生成/更新前一次性生成全部技术澄清问题。 */
+export const generateDevDocQuestions = (
+  sessionId: string,
+  updateNotes: string,
+  mode: 'initial' | 'update',
+  handlers: SseHandlers,
+  engine?: 'claude' | 'codex',
+  background = false,
+) =>
+  subscribeSsePost(
+    `/prd-clarify/sessions/${sessionId}/dev-doc/questions`,
+    { updateNotes, mode, engine, background },
     handlers,
   )
