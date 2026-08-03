@@ -38,6 +38,9 @@ public class PrdDocChangeCandidateRepository {
                     .prdAppliedAt(rs.getObject("prd_applied_at") == null ? null : rs.getLong("prd_applied_at"))
                     .tddAppliedAt(rs.getObject("tdd_applied_at") == null ? null : rs.getLong("tdd_applied_at"))
                     .revisionSessionId(rs.getString("revision_session_id"))
+                    .diffLedgerJson(rs.getString("diff_ledger_json"))
+                    .alignmentConclusionJson(rs.getString("alignment_conclusion_json"))
+                    .verifiedAt(rs.getObject("verified_at") == null ? null : rs.getLong("verified_at"))
                     .createdAt(rs.getLong("created_at"))
                     .updatedAt(rs.getLong("updated_at"))
                     .build();
@@ -59,6 +62,14 @@ public class PrdDocChangeCandidateRepository {
                 ORDER BY created_at DESC
                 LIMIT 1
                 """, prdSessionId);
+    }
+
+    public List<PrdDocChangeCandidate> findAllByPrdSession(String prdSessionId) {
+        return jdbc.query("""
+                SELECT * FROM prd_doc_change_candidate
+                WHERE prd_session_id = ?
+                ORDER BY created_at DESC
+                """, ROW, prdSessionId);
     }
 
     /** 最近一次真正产出结论和证据的分析；空 claims/空摘要的失败候选不能成为下一轮基线。 */
@@ -89,8 +100,9 @@ public class PrdDocChangeCandidateRepository {
                   change_cause_detail, evidence_json,
                   prd_patch_plan_json, tdd_patch_plan_json, risks_json, clarification_question,
                   clarification_history_json, confidence, status, apply_stage, last_error,
-                  prd_applied_at, tdd_applied_at, revision_session_id, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  prd_applied_at, tdd_applied_at, revision_session_id, diff_ledger_json,
+                  alignment_conclusion_json, verified_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 candidate.getId(), candidate.getPrdSessionId(), candidate.getDevSessionId(),
                 candidate.getConversationFromSeq(), candidate.getConversationToSeq(),
@@ -101,7 +113,8 @@ public class PrdDocChangeCandidateRepository {
                 candidate.getClarificationQuestion(), candidate.getClarificationHistoryJson(),
                 candidate.getConfidence(), candidate.getStatus(), candidate.getApplyStage(),
                 candidate.getLastError(), candidate.getPrdAppliedAt(), candidate.getTddAppliedAt(),
-                candidate.getRevisionSessionId(),
+                candidate.getRevisionSessionId(), candidate.getDiffLedgerJson(),
+                candidate.getAlignmentConclusionJson(), candidate.getVerifiedAt(),
                 candidate.getCreatedAt(), candidate.getUpdatedAt());
     }
 
@@ -126,6 +139,19 @@ public class PrdDocChangeCandidateRepository {
                 revisionSessionId, System.currentTimeMillis(), id);
     }
 
+    public void updateLedger(String id, String ledgerJson, String conclusionJson, Long verifiedAt) {
+        jdbc.update("""
+                UPDATE prd_doc_change_candidate
+                SET diff_ledger_json = ?, alignment_conclusion_json = ?, verified_at = ?, last_error = NULL, updated_at = ?
+                WHERE id = ?
+                """, ledgerJson, conclusionJson, verifiedAt, System.currentTimeMillis(), id);
+    }
+
+    public void updateVerificationError(String id, String error) {
+        jdbc.update("UPDATE prd_doc_change_candidate SET last_error = ?, updated_at = ? WHERE id = ?",
+                error, System.currentTimeMillis(), id);
+    }
+
     public void updateAnalysis(String id, long conversationToSeq, String snapshotHash,
                                String decision, String aiDecision, String summary, String reasoning,
                                String evidenceJson, String prdPlanJson, String tddPlanJson, String risksJson,
@@ -136,6 +162,7 @@ public class PrdDocChangeCandidateRepository {
                     decision = ?, ai_decision = ?, summary = ?, reasoning = ?, evidence_json = ?,
                     prd_patch_plan_json = ?, tdd_patch_plan_json = ?, risks_json = ?,
                     clarification_question = ?, clarification_history_json = ?, confidence = ?,
+                    verified_at = NULL,
                     status = 'PENDING', last_error = NULL, updated_at = ?
                 WHERE id = ?
                 """, conversationToSeq, snapshotHash, decision, aiDecision, summary, reasoning,

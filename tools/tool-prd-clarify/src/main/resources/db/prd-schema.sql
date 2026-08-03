@@ -140,6 +140,9 @@ CREATE TABLE IF NOT EXISTS prd_doc_change_candidate (
     prd_applied_at              INTEGER,
     tdd_applied_at              INTEGER,
     revision_session_id         TEXT,
+    diff_ledger_json            TEXT NOT NULL DEFAULT '[]',
+    alignment_conclusion_json   TEXT NOT NULL DEFAULT '{}',
+    verified_at                 INTEGER,
     created_at                  INTEGER NOT NULL,
     updated_at                  INTEGER NOT NULL,
     FOREIGN KEY (prd_session_id) REFERENCES prd_session(id) ON DELETE CASCADE

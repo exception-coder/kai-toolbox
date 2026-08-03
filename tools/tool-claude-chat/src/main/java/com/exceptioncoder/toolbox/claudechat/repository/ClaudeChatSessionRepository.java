@@ -34,6 +34,7 @@ public class ClaudeChatSessionRepository {
             .codexSpeed(rs.getString("codex_speed"))
             .executionPolicy(rs.getString("execution_policy"))
             .groupName(rs.getString("group_name"))
+            .subgroupName(rs.getString("subgroup_name"))
             .status(SessionStatus.valueOf(rs.getString("status")))
             .startedAt(rs.getLong("started_at"))
             .lastSeenAt(rs.getLong("last_seen_at"))
@@ -124,9 +125,10 @@ public class ClaudeChatSessionRepository {
         jdbc.update("UPDATE claude_chat_session SET title = ? WHERE id = ?", title, id);
     }
 
-    /** 设/清会话分组（null=移出分组）。 */
-    public void updateGroup(String id, String groupName) {
-        jdbc.update("UPDATE claude_chat_session SET group_name = ? WHERE id = ?", groupName, id);
+    /** 设/清两级会话分组（一级=系统/项目，二级=需求；一级为空时二级必须同时清空）。 */
+    public void updateGroup(String id, String groupName, String subgroupName) {
+        jdbc.update("UPDATE claude_chat_session SET group_name = ?, subgroup_name = ? WHERE id = ?",
+                groupName, groupName == null ? null : subgroupName, id);
     }
 
     public void deleteById(String id) {

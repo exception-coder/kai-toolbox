@@ -81,6 +81,7 @@ public class ClaudeChatSchemaMigration {
         } catch (Exception e) {
             log.debug("[claude-chat] group_name 列迁移跳过：{}", e.getMessage());
         }
+        addColumn("subgroup_name", "TEXT");
         // 兼容修复前已经创建的业务咨询会话：它们已有固定分组，但尚未持久化执行策略。
         try {
             jdbc.update("""

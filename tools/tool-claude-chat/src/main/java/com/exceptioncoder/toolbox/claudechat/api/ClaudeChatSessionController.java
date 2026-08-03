@@ -84,7 +84,9 @@ public class ClaudeChatSessionController {
     public ResponseEntity<Void> setGroup(@PathVariable String id, @RequestBody Map<String, String> body) {
         String group = body.get("group");
         String g = group == null || group.isBlank() ? null : group.trim();
-        repo.updateGroup(id, g);
+        String subgroup = body.get("subgroup");
+        String sg = subgroup == null || subgroup.isBlank() ? null : subgroup.trim();
+        repo.updateGroup(id, g, sg);
         return ResponseEntity.noContent().build();
     }
 

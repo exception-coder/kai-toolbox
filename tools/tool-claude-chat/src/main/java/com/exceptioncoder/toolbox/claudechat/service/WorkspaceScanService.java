@@ -8,6 +8,7 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleSyncPreview;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleSyncResult;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ProjectModulesResponse;
 import com.exceptioncoder.toolbox.common.dynamicconfig.service.DynamicConfigService;
+import com.exceptioncoder.toolbox.llm.spi.LocalProjectResolver;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ProjectModulesResponse.ModuleView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.WorkspaceDirView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.CloneResponse;
@@ -32,6 +33,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
@@ -48,7 +50,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
  */
 @Slf4j
 @Service
-public class WorkspaceScanService {
+public class WorkspaceScanService implements LocalProjectResolver {
 
     /** 工作目录配置块 id = WorkspaceProperties 的 @ConfigurationProperties prefix。 */
     private static final String WORKSPACE_BLOCK_ID = "toolbox.claude-chat.workspace";
@@ -65,6 +67,23 @@ public class WorkspaceScanService {
         this.props = props;
         this.objectMapper = objectMapper;
         this.dynamicConfig = dynamicConfig;
+    }
+
+    /** 只从已配置工作区扫描结果中解析，不接受调用方直接传任意绝对路径。 */
+    @Override
+    public Optional<ProjectLocation> resolve(String projectName) {
+        if (projectName == null || projectName.isBlank()) return Optional.empty();
+        List<String> candidates = java.util.Arrays.stream(projectName.split("[,，、]"))
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .toList();
+        if (candidates.isEmpty()) return Optional.empty();
+        return scan().roots().stream()
+                .filter(RootView::exists)
+                .flatMap(root -> root.dirs().stream())
+                .filter(dir -> candidates.stream().anyMatch(name -> dir.name().equalsIgnoreCase(name)))
+                .findFirst()
+                .map(dir -> new ProjectLocation(dir.name(), dir.path()));
     }
 
     /**

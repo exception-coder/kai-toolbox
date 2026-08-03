@@ -220,13 +220,12 @@ export const saveDevDocContent = (id: string, content: string) =>
 
 /**
  * AI 工时评估：基于当前 PRD + 当前开发文档（结合代码/业务知识图谱查询结果）评估开发工时。
- * 同步阻塞请求（一次 oneShot LLM 调用，无 SSE），extraContext 是确认弹框里补充的上下文
- * （如团队人力、技术栈熟悉度），可不传。返回更新后的会话详情（含最新 devDocEstimation）。
+ * 只登记后台任务并立即返回，extraContext 是补充上下文。通过 getSession 轮询 workStatus。
  */
-export const estimateDevDocEffort = (id: string, extraContext?: string) =>
+export const estimateDevDocEffort = (id: string, extraContext?: string, engine?: 'codex' | 'claude') =>
   http<PrdSessionView>(`${BASE}/sessions/${id}/dev-doc/estimate`, {
     method: 'POST',
-    body: JSON.stringify({ extraContext }),
+    body: JSON.stringify({ extraContext, engine }),
   })
 
 // ─── 进度评估 ───
@@ -320,6 +319,37 @@ export const getSessionsByDevSessions = async (devSessionIds: string[]): Promise
 export type DocChangeDecision = 'NONE' | 'PRD_ONLY' | 'TDD_ONLY' | 'BOTH' | 'UNCERTAIN'
 export type DocChangeStatus = 'PENDING' | 'CONFIRMED' | 'APPLYING' | 'PARTIAL' | 'APPLIED' | 'DISMISSED' | 'NO_UPDATE'
 export type DocChangeStage = 'NONE' | 'PRD' | 'TDD' | 'DONE'
+export type DocDiffStatus = 'MATCHED' | 'MISMATCH' | 'PROPOSED' | 'CONFIRMED' | 'APPLIED' | 'VERIFIED' | 'UNRESOLVED' | 'OUT_OF_SCOPE'
+
+export interface PrdDocDiffItem {
+  id: string
+  sourceDocument: 'PRD' | 'TDD' | 'BOTH'
+  sourceSection: string
+  currentDocument: string
+  evidenceLevel: 'DOCUMENT' | 'CODE' | 'TOOL' | 'USER_CONFIRMED' | 'LLM_PROPOSAL'
+  evidenceIds: string[]
+  actualEvidence: string
+  proposedChange: string
+  changeKind: 'CODE_FACT' | 'BUSINESS_DECISION'
+  status: DocDiffStatus
+}
+
+export interface PrdDocAlignmentConclusion {
+  codeFactAlignment: 'PASSED' | 'FAILED' | 'PENDING'
+  businessDecisionCompleteness: 'PASSED' | 'FAILED' | 'PENDING'
+  documentFiling: 'PASSED' | 'FAILED' | 'PENDING'
+  implementationGate: 'ALLOWED' | 'BLOCKED'
+  total: number
+  verified: number
+  unresolved: number
+  codeFactCorrections: number
+  confirmedBusinessDecisions: number
+  outOfScope: number
+  prdFiled: number
+  tddFiled: number
+  finalDocumentVersion: string
+  summary: string
+}
 
 export interface PrdDocChangeCandidate {
   id: string
@@ -345,6 +375,9 @@ export interface PrdDocChangeCandidate {
   prdAppliedAt: number | null
   tddAppliedAt: number | null
   revisionSessionId: string | null
+  diffLedger: PrdDocDiffItem[]
+  alignmentConclusion: PrdDocAlignmentConclusion
+  verifiedAt: number | null
   createdAt: number
   updatedAt: number
 }
@@ -379,6 +412,10 @@ export const analyzeDocChanges = (prdSessionId: string) =>
 export const getLatestDocChangeCandidate = (prdSessionId: string) =>
   http<PrdDocChangeCandidate | undefined>(`${BASE}/sessions/${prdSessionId}/change-candidates/latest`)
 
+/** 完整变更审计历史，包含 AI 归因、执行结果和关联修订版本。 */
+export const getDocChangeHistory = (prdSessionId: string) =>
+  http<PrdDocChangeCandidate[]>(`${BASE}/sessions/${prdSessionId}/change-candidates`)
+
 /** 用户覆写 AI 建议范围；aiDecision 保持原值供审计。 */
 export const overrideDocChangeDecision = (candidateId: string, decision: DocChangeDecision) =>
   http<PrdDocChangeCandidate>(`${BASE}/change-candidates/${candidateId}/decision`, {
@@ -394,11 +431,24 @@ export const confirmDocChangeCause = (candidateId: string, causeType: DocChangeC
   })
 
 /** 后端独立编排 PRD/TDD 更新；请求立即返回，页面关闭或网络断开不影响任务。 */
-export const startBackgroundDocUpdate = (candidateId: string, engine: 'claude' | 'codex', extraInstructions?: string) =>
-  http<PrdDocChangeCandidate>(`${BASE}/change-candidates/${candidateId}/apply-background`, {
-    method: 'POST',
-    body: JSON.stringify({ engine, extraInstructions }),
-  })
+export const startBackgroundDocUpdate = async (
+  candidateId: string,
+  engine: 'claude' | 'codex',
+  extraInstructions?: string,
+) => {
+  try {
+    return await http<PrdDocChangeCandidate>(`${BASE}/change-candidates/${candidateId}/apply-background`, {
+      method: 'POST',
+      body: JSON.stringify({ engine, extraInstructions }),
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (/NoResourceFoundException|No static resource|apply-background/i.test(message)) {
+      throw new Error('当前 Java 后端尚未加载后台文档更新接口，请重启后端后重试；本次 TDD 更新尚未开始。')
+    }
+    throw error
+  }
+}
 
 /** 回答当前唯一阻塞问题后重新分析。 */
 export const reanalyzeDocChanges = (candidateId: string, answer: string) =>

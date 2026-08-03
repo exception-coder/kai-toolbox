@@ -57,6 +57,16 @@ public class PrdDocChangeEvidenceBuilder {
         String content = "上次范围=" + previous.getDecision()
                 + "\n摘要=" + value(previous.getSummary())
                 + "\n理由=" + value(previous.getReasoning())
+                + "\n变更原因分类=" + value(previous.getChangeCauseType())
+                + "\n变更原因说明=" + value(previous.getChangeCauseDetail())
+                + "\n已确认差异证据=" + value(previous.getEvidenceJson())
+                + "\nPRD差异清单=" + value(previous.getPrdPatchPlanJson())
+                + "\nTDD差异清单=" + value(previous.getTddPatchPlanJson())
+                + "\n风险与冲突=" + value(previous.getRisksJson())
+                + "\n差异账本=" + value(previous.getDiffLedgerJson())
+                + "\n对齐定论=" + value(previous.getAlignmentConclusionJson())
+                + "\n执行状态=" + value(previous.getStatus()) + "/" + value(previous.getApplyStage())
+                + "\n关联修订版本=" + value(previous.getRevisionSessionId())
                 + "\n已分析到会话序号=" + previous.getConversationToSeq();
         items.add(new PrdDocChangeEvidenceBundle.EvidenceItem(
                 "ANALYSIS-PREV", "PREVIOUS_ANALYSIS", "上次文档差异分析结论", content, false));

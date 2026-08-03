@@ -18,6 +18,9 @@ export interface ComboboxProps {
   showAllOnOpen?: boolean
   id?: string
   className?: string
+  contentClassName?: string
+  disabled?: boolean
+  autoFocus?: boolean
 }
 
 /**
@@ -37,6 +40,9 @@ export function Combobox({
   showAllOnOpen = false,
   id,
   className,
+  contentClassName,
+  disabled = false,
+  autoFocus = false,
 }: ComboboxProps) {
   const [open, setOpen] = React.useState(false)
   const [typedSinceOpen, setTypedSinceOpen] = React.useState(false)
@@ -61,18 +67,21 @@ export function Combobox({
             id={id}
             ref={inputRef}
             value={value}
+            disabled={disabled}
+            autoFocus={autoFocus}
             onChange={(e) => { onChange(e.target.value); setTypedSinceOpen(true); setOpen(true) }}
             onFocus={() => handleOpenChange(true)}
             onKeyDown={(e) => { if (e.key === 'Escape') setOpen(false) }}
             placeholder={placeholder}
             autoComplete="off"
-            className="w-full px-3 py-2 pr-8 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] text-sm focus:outline-none focus:ring-1 focus:ring-[var(--color-ring)]"
+            className="w-full px-3 py-2 pr-8 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] text-sm focus:outline-none focus:ring-1 focus:ring-[var(--color-ring)] disabled:cursor-not-allowed disabled:opacity-50"
           />
           <button
             type="button"
             tabIndex={-1}
+            disabled={disabled}
             onClick={() => { handleOpenChange(!open); inputRef.current?.focus() }}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--color-muted-foreground)]"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--color-muted-foreground)] disabled:cursor-not-allowed"
             aria-label="展开候选列表"
           >
             <ChevronDown className="w-3.5 h-3.5" />
@@ -81,7 +90,7 @@ export function Combobox({
       </PopoverAnchor>
       <PopoverContent
         onOpenAutoFocus={(e) => e.preventDefault()}
-        className="w-[var(--radix-popover-trigger-width)] max-h-56 overflow-y-auto p-1"
+        className={cn('w-[var(--radix-popover-trigger-width)] max-h-56 overflow-y-auto p-1', contentClassName)}
       >
         {filtered.length === 0 ? (
           <div className="px-2 py-1.5 text-xs text-[var(--color-muted-foreground)]">{emptyText}</div>

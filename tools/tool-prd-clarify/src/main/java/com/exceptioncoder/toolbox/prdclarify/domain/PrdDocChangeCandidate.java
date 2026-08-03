@@ -32,6 +32,9 @@ public class PrdDocChangeCandidate {
     private Long prdAppliedAt;
     private Long tddAppliedAt;
     private String revisionSessionId;
+    private String diffLedgerJson;
+    private String alignmentConclusionJson;
+    private Long verifiedAt;
     private long createdAt;
     private long updatedAt;
 }

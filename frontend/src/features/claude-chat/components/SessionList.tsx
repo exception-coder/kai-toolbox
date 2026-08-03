@@ -9,6 +9,7 @@ import type { ClaudeChatSessionView, Engine } from '../types'
 import { getSessionsByDevSessions } from '@/features/prd-clarify/api'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useConfirm } from '@/components/ui/confirm-dialog'
+import { Combobox } from '@/components/ui/combobox'
 import { SessionActivityBar } from './SessionActivityBar'
 
 const OLD_GROUP_KEY = 'kai-toolbox:claude-chat:session-groups'
@@ -107,8 +108,11 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
     () => [...new Set(sessions.map(s => (s.group ?? '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
     [sessions],
   )
-  const applyGroup = async (id: string, g: string | null) => {
-    await setSessionGroupApi(id, g)
+  const allGroupPaths = useMemo(() => sessions
+    .map(s => ({ project: (s.group ?? '').trim(), requirement: (s.subgroup ?? '').trim() }))
+    .filter(x => x.project), [sessions])
+  const applyGroup = async (id: string, project: string | null, requirement?: string | null) => {
+    await setSessionGroupApi(id, project, requirement)
     qc.invalidateQueries({ queryKey: KEY })
   }
 
@@ -152,11 +156,14 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
   if (isPending) return <div className="px-4 py-4 text-sm text-[var(--color-muted-foreground)]">加载中…</div>
   if (sessions.length === 0) return <div className="px-4 py-4 text-sm text-[var(--color-muted-foreground)]">还没有会话，点上方「新建」开始</div>
 
-  const buckets = new Map<string, ClaudeChatSessionView[]>()
+  const buckets = new Map<string, Map<string, ClaudeChatSessionView[]>>()
   for (const s of filteredSessions) {
-    const g = (s.group ?? '').trim() || UNGROUPED
-    if (!buckets.has(g)) buckets.set(g, [])
-    buckets.get(g)!.push(s)
+    const project = (s.group ?? '').trim() || UNGROUPED
+    const requirement = (s.subgroup ?? '').trim() || UNGROUPED
+    if (!buckets.has(project)) buckets.set(project, new Map())
+    const requirements = buckets.get(project)!
+    if (!requirements.has(requirement)) requirements.set(requirement, [])
+    requirements.get(requirement)!.push(s)
   }
   const namedGroups = [...buckets.keys()].filter(g => g !== UNGROUPED).sort((a, b) => a.localeCompare(b))
   const hasGroups = namedGroups.length > 0
@@ -265,19 +272,20 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
         </div>
       ) : !hasGroups ? (
         <ul className="py-1">
-          {(buckets.get(UNGROUPED) ?? []).map(s => renderRow(s, false))}
+          {[...(buckets.get(UNGROUPED)?.values() ?? [])].flat().map(s => renderRow(s, false))}
         </ul>
       ) : (
         <div className="py-1">
-          {namedGroups.map(name => renderSection(name, name, buckets.get(name)!, false))}
-          {buckets.has(UNGROUPED) && renderSection(UNGROUPED, '未分组', buckets.get(UNGROUPED)!, true)}
+          {namedGroups.map(name => renderProjectSection(name, name, buckets.get(name)!, false))}
+          {buckets.has(UNGROUPED) && renderProjectSection(UNGROUPED, '未分组', buckets.get(UNGROUPED)!, true)}
         </div>
       )}
       {groupPickFor && (
         <GroupPicker
-          current={(groupPickFor.group ?? '').trim()}
-          all={allGroups}
-          onPick={g => { void applyGroup(groupPickFor.id, g); setGroupPickFor(null) }}
+          currentProject={(groupPickFor.group ?? '').trim()}
+          currentRequirement={(groupPickFor.subgroup ?? '').trim()}
+          all={allGroupPaths}
+          onPick={(project, requirement) => { void applyGroup(groupPickFor.id, project, requirement); setGroupPickFor(null) }}
           onClose={() => setGroupPickFor(null)}
         />
       )}
@@ -286,14 +294,17 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
 
   // ─── Section ───────────────────────────────────────────────────────────────
 
-  function renderSection(key: string, label: string, list: ClaudeChatSessionView[], ungrouped: boolean) {
-    const open = !collapsed.has(key)
+  function renderProjectSection(key: string, label: string, requirements: Map<string, ClaudeChatSessionView[]>, ungrouped: boolean) {
+    const collapseKey = `project:${key}`
+    const open = !collapsed.has(collapseKey)
+    const count = [...requirements.values()].reduce((sum, list) => sum + list.length, 0)
+    const namedRequirements = [...requirements.keys()].filter(x => x !== UNGROUPED).sort((a, b) => a.localeCompare(b))
     return (
       <section key={`sec:${key}`} className="mt-3 mb-1">
         {/* Section header：明显的背景 + 下边框，与 Item 形成真正的层级区分 */}
         <button
           type="button"
-          onClick={() => toggleGroup(key)}
+          onClick={() => toggleGroup(collapseKey)}
           className="sticky top-0 z-[1] flex w-full items-center gap-1.5 border-b border-[var(--color-border)]/60 bg-[var(--color-muted)]/60 px-3 py-2.5 text-left"
         >
           <ChevronRight className={cn('size-3 shrink-0 text-[var(--color-muted-foreground)] transition-transform duration-150', open && 'rotate-90')} />
@@ -305,14 +316,36 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
             {label}
           </span>
           <span className="shrink-0 rounded-full bg-[var(--color-background)] px-1.5 py-0.5 text-[10px] tabular-nums text-[var(--color-muted-foreground)]">
-            {list.length}
+            {count}
           </span>
         </button>
         {open && (
-          <ul className="pt-0.5">
-            {list.map(s => renderRow(s, true))}
-          </ul>
+          <div>
+            {namedRequirements.map(requirement => renderRequirementSection(key, requirement, requirement, requirements.get(requirement)!))}
+            {requirements.has(UNGROUPED)
+              && renderRequirementSection(key, UNGROUPED, ungrouped ? '未分类会话' : '未指定需求', requirements.get(UNGROUPED)!)}
+          </div>
         )}
+      </section>
+    )
+  }
+
+  function renderRequirementSection(project: string, key: string, label: string, list: ClaudeChatSessionView[]) {
+    const collapseKey = `requirement:${project}:${key}`
+    const open = !collapsed.has(collapseKey)
+    return (
+      <section key={collapseKey} className="border-b border-[var(--color-border)]/30">
+        <button
+          type="button"
+          onClick={() => toggleGroup(collapseKey)}
+          className="flex w-full items-center gap-1.5 bg-[var(--color-muted)]/25 py-2 pl-7 pr-3 text-left"
+        >
+          <ChevronRight className={cn('size-3 shrink-0 text-[var(--color-muted-foreground)] transition-transform', open && 'rotate-90')} />
+          <Folder className="size-3.5 shrink-0 text-[var(--color-muted-foreground)]" />
+          <span className="min-w-0 flex-1 truncate text-xs font-medium text-[var(--color-foreground)]/75">{label}</span>
+          <span className="text-[10px] tabular-nums text-[var(--color-muted-foreground)]">{list.length}</span>
+        </button>
+        {open && <ul>{list.map(s => renderRow(s, true))}</ul>}
       </section>
     )
   }
@@ -460,7 +493,8 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
             className={cn(
               // 绝对定位贴右边，同行垂直居中；背景色与行状态一致，遮挡身后的文字
               'absolute inset-y-0 right-0 z-10 flex items-center pl-2 pr-1',
-              'opacity-0 transition-opacity duration-100 group-hover:opacity-100',
+              // 触屏没有 hover：移动端始终显示操作，桌面端仍在 hover 时出现。
+              'opacity-100 transition-opacity duration-100 sm:opacity-0 sm:group-hover:opacity-100',
               isActive ? 'bg-[var(--color-primary)]/10' : 'bg-[var(--color-accent)]',
             )}
           >
@@ -468,8 +502,8 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
               type="button"
               className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
               onClick={e => { e.stopPropagation(); assignGroup(s) }}
-              aria-label="移动到分组"
-              title="移动到分组"
+              aria-label="设置系统和需求分组"
+              title="设置系统和需求分组"
             >
               <Tags className="size-3.5" />
             </button>
@@ -514,69 +548,67 @@ function CheckBox({ checked }: { checked: boolean }) {
 
 // ─── GroupPicker ─────────────────────────────────────────────────────────────
 
-function GroupPicker({ current, all, onPick, onClose }: {
-  current: string; all: string[]
-  onPick: (g: string | null) => void; onClose: () => void
+function GroupPicker({ currentProject, currentRequirement, all, onPick, onClose }: {
+  currentProject: string
+  currentRequirement: string
+  all: { project: string; requirement: string }[]
+  onPick: (project: string | null, requirement?: string | null) => void
+  onClose: () => void
 }) {
-  const [q, setQ] = useState('')
-  const query = q.trim().toLowerCase()
-  const filtered = query ? all.filter(g => g.toLowerCase().includes(query)) : all
-  const exact = all.some(g => g.toLowerCase() === query)
+  const [project, setProject] = useState(currentProject)
+  const [requirement, setRequirement] = useState(currentRequirement)
+  const projects = [...new Set(all.map(x => x.project))].sort((a, b) => a.localeCompare(b))
+  const requirements = [...new Set(all
+    .filter(x => x.project === project && x.requirement)
+    .map(x => x.requirement))].sort((a, b) => a.localeCompare(b))
+  const canSave = !!project.trim()
 
   return (
     <div className="fixed inset-0 z-[80] flex items-start justify-center bg-black/40 p-4 pt-24" onClick={onClose} role="dialog" aria-label="移动到分组">
-      <div className="w-72 rounded-xl border bg-[var(--color-popover)] p-3 text-[var(--color-popover-foreground)] shadow-xl" onClick={e => e.stopPropagation()}>
+      <div className="w-80 rounded-xl border bg-[var(--color-popover)] p-3 text-[var(--color-popover-foreground)] shadow-xl" onClick={e => e.stopPropagation()}>
         <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-          <Tags className="size-4 text-[var(--color-primary)]" />移动到分组
+          <Tags className="size-4 text-[var(--color-primary)]" />设置两级分组
           <button type="button" onClick={onClose} aria-label="关闭" className="ml-auto rounded p-1 text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]"><X className="size-4" /></button>
         </div>
-        <div className="flex items-center gap-1.5 rounded-md border bg-[var(--color-background)] px-2">
-          <Search className="size-3.5 shrink-0 text-[var(--color-muted-foreground)]" />
-          <input
-            autoFocus value={q}
-            onChange={e => setQ(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Escape') { onClose(); return }
-              if (e.key !== 'Enter') return
-              e.preventDefault()
-              const qq = q.trim()
-              const exactMatch = all.find(g => g.toLowerCase() === qq.toLowerCase())
-              if (exactMatch) onPick(exactMatch)
-              else if (qq) onPick(qq)
-              else if (filtered.length === 1) onPick(filtered[0])
-            }}
-            placeholder="搜索或输入新分组名…"
-            className="h-8 w-full bg-transparent text-sm focus-visible:outline-none"
+        <label className="block text-xs font-medium text-[var(--color-muted-foreground)]">
+          一级：系统 / 项目
+          <Combobox
+            autoFocus
+            value={project}
+            onChange={value => { setProject(value); setRequirement('') }}
+            options={projects.map(value => ({ value, label: value }))}
+            showAllOnOpen
+            placeholder="例如：SRM、ERP、kai-toolbox"
+            emptyText="没有匹配的项目，可直接输入新项目"
+            className="mt-1 font-normal text-[var(--color-foreground)]"
+            contentClassName="z-[90]"
           />
+        </label>
+        <label className="mt-3 block text-xs font-medium text-[var(--color-muted-foreground)]">
+          二级：需求
+          <Combobox
+            value={requirement}
+            disabled={!project.trim()}
+            onChange={setRequirement}
+            options={requirements.map(value => ({ value, label: value }))}
+            showAllOnOpen
+            placeholder="例如：报价含税含运改造"
+            emptyText="没有匹配的需求，可直接输入新需求"
+            className="mt-1 font-normal text-[var(--color-foreground)]"
+            contentClassName="z-[90]"
+          />
+        </label>
+        <p className="mt-2 text-[11px] text-[var(--color-muted-foreground)]">同一系统/项目下可建立多个需求分组，会话归档到具体需求中。</p>
+        <div className="mt-3 flex items-center gap-2">
+          {(currentProject || currentRequirement) && (
+            <button type="button" onClick={() => onPick(null)} className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]">
+              <FolderMinus className="size-3.5" />移出分组
+            </button>
+          )}
+          <button type="button" onClick={() => onPick(project.trim(), requirement.trim() || null)} disabled={!canSave} className="ml-auto inline-flex items-center gap-1 rounded-md bg-[var(--color-primary)] px-3 py-1.5 text-xs text-[var(--color-primary-foreground)] disabled:opacity-50">
+            <FolderPlus className="size-3.5" />保存分组
+          </button>
         </div>
-        <ul className="mt-2 max-h-56 overflow-y-auto">
-          {q.trim() && !exact && (
-            <li>
-              <button type="button" onClick={() => onPick(q.trim())} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-[var(--color-muted)]">
-                <FolderPlus className="size-4 text-[var(--color-primary)]" />新建「{q.trim()}」
-              </button>
-            </li>
-          )}
-          {filtered.map(g => (
-            <li key={g}>
-              <button type="button" onClick={() => onPick(g)} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-[var(--color-muted)]">
-                <Tags className="size-4 text-[var(--color-muted-foreground)]" />
-                <span className="min-w-0 flex-1 truncate">{g}</span>
-                {g === current && <Check className="size-4 shrink-0 text-[var(--color-primary)]" />}
-              </button>
-            </li>
-          ))}
-          {!filtered.length && !q.trim() && (
-            <li className="px-2 py-2 text-xs text-[var(--color-muted-foreground)]">还没有分组，输入名字即可新建。</li>
-          )}
-          {current && (
-            <li className="mt-1 border-t pt-1">
-              <button type="button" onClick={() => onPick(null)} className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]">
-                <FolderMinus className="size-4" />移出分组（当前：{current}）
-              </button>
-            </li>
-          )}
-        </ul>
       </div>
     </div>
   )

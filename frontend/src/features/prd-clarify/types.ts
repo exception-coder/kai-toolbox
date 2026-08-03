@@ -102,8 +102,22 @@ export interface DevDocEstimation {
   confidence: EstimationConfidence
   reasoning: string
   breakdown: EstimationBreakdownItem[]
+  inspectedFiles: string[]
+  codeEvidenceSummary: string
+  assumptions: string[]
+  risks: string[]
+  engine: AgentEngine | ''
+  projectPath: string
+  codeInspected: boolean
+  sourceSessionId: string
+  sourceTitle: string
+  workStatus: 'IDLE' | 'RUNNING' | 'COMPLETED' | 'ERROR'
+  workError: string
+  startedAt: number
+  completedAt: number | null
   estimatedAt: number
   stale: boolean
+  staleReasons: string[]
 }
 
 export interface PrdSessionView {

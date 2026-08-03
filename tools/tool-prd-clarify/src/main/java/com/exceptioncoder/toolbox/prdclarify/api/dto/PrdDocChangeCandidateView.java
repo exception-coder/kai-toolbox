@@ -1,6 +1,8 @@
 package com.exceptioncoder.toolbox.prdclarify.api.dto;
 
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdDocChangeCandidate;
+import com.exceptioncoder.toolbox.prdclarify.service.PrdDocAlignmentConclusion;
+import com.exceptioncoder.toolbox.prdclarify.service.PrdDocDiffItem;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -31,6 +33,9 @@ public record PrdDocChangeCandidateView(
         Long prdAppliedAt,
         Long tddAppliedAt,
         String revisionSessionId,
+        List<PrdDocDiffItem> diffLedger,
+        PrdDocAlignmentConclusion alignmentConclusion,
+        Long verifiedAt,
         long createdAt,
         long updatedAt
 ) {
@@ -51,7 +56,29 @@ public record PrdDocChangeCandidateView(
                 candidate.getConfidence(), candidate.getStatus(), candidate.getApplyStage(),
                 candidate.getLastError(), candidate.getPrdAppliedAt(), candidate.getTddAppliedAt(),
                 candidate.getRevisionSessionId(),
+                ledger(candidate.getDiffLedgerJson()), conclusion(candidate.getAlignmentConclusionJson()),
+                candidate.getVerifiedAt(),
                 candidate.getCreatedAt(), candidate.getUpdatedAt());
+    }
+
+    private static List<PrdDocDiffItem> ledger(String json) {
+        try {
+            if (json == null || json.isBlank()) return List.of();
+            return MAPPER.readerForListOf(PrdDocDiffItem.class).readValue(json);
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    private static PrdDocAlignmentConclusion conclusion(String json) {
+        try {
+            if (json == null || json.isBlank() || "{}".equals(json.trim())) {
+                return PrdDocAlignmentConclusion.pending();
+            }
+            return MAPPER.readValue(json, PrdDocAlignmentConclusion.class);
+        } catch (Exception e) {
+            return PrdDocAlignmentConclusion.pending();
+        }
     }
 
     private static List<String> strings(String json) {

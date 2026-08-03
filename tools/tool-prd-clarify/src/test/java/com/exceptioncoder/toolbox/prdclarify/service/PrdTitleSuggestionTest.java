@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.prdclarify.service;
 import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.ObjectProvider;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -51,6 +52,7 @@ class PrdTitleSuggestionTest {
                 new ObjectMapper(),
                 mock(GraphifyQueryService.class),
                 mock(DomainKnowledgeQueryService.class),
-                mock(ImageAttachmentStorageService.class));
+                mock(ImageAttachmentStorageService.class),
+                mock(ObjectProvider.class));
     }
 }

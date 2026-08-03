@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -18,6 +18,7 @@ import {
   FileText,
   Filter,
   Gauge,
+  GitBranch,
   GripVertical,
   LayoutList,
   Lightbulb,
@@ -72,6 +73,7 @@ import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContex
 import {
   getContent as getPrdContent,
   getDevDocContent,
+  estimateDevDocEffort,
   evaluateProgress as runCodeProgressAnalysis,
   generateDevDocQuestions,
   getSession as getPrdSession,
@@ -208,6 +210,64 @@ function relativeTime(value: number) {
   return `${Math.floor(hours / 24)} 天前`
 }
 
+interface RequirementHierarchy {
+  roots: ReqItemView[]
+  childrenByItemId: Map<string, ReqItemView[]>
+}
+
+/**
+ * 需求池条目是一份 PRD 会话镜像；PRD 的 parentId 才是权威父子关系。
+ * 这里把修订版和拆分子需求重新挂回根需求，避免每个版本被误展示成平级需求。
+ */
+function buildRequirementHierarchy(
+  items: ReqItemView[],
+  sessionsById: Map<string, PrdSessionView>,
+  overview?: DeliveryOverview,
+): RequirementHierarchy {
+  const itemByPrdSessionId = new Map(items
+    .filter((item): item is ReqItemView & { prdSessionId: string } => !!item.prdSessionId)
+    .map(item => [item.prdSessionId, item]))
+  const deliveryById = new Map(overview?.requirements.map(requirement => [requirement.id, requirement]) ?? [])
+  const childrenByItemId = new Map<string, ReqItemView[]>()
+  const childIds = new Set<string>()
+
+  for (const item of items) {
+    if (!item.prdSessionId) continue
+    const parentPrdSessionId = sessionsById.get(item.prdSessionId)?.parentId
+      ?? deliveryById.get(item.prdSessionId)?.parentId
+    const parentItem = parentPrdSessionId ? itemByPrdSessionId.get(parentPrdSessionId) : undefined
+    if (!parentItem || parentItem.id === item.id) continue
+    const siblings = childrenByItemId.get(parentItem.id) ?? []
+    siblings.push(item)
+    childrenByItemId.set(parentItem.id, siblings)
+    childIds.add(item.id)
+  }
+
+  for (const children of childrenByItemId.values()) {
+    children.sort((left, right) => left.createdAt - right.createdAt)
+  }
+  return {
+    roots: items.filter(item => !childIds.has(item.id)),
+    childrenByItemId,
+  }
+}
+
+function branchSome(
+  item: ReqItemView,
+  childrenByItemId: Map<string, ReqItemView[]>,
+  predicate: (candidate: ReqItemView) => boolean,
+): boolean {
+  return predicate(item)
+    || (childrenByItemId.get(item.id) ?? []).some(child => branchSome(child, childrenByItemId, predicate))
+}
+
+function descendantCount(itemId: string, childrenByItemId: Map<string, ReqItemView[]>): number {
+  return (childrenByItemId.get(itemId) ?? []).reduce(
+    (total, child) => total + 1 + descendantCount(child.id, childrenByItemId),
+    0,
+  )
+}
+
 function deliveryFor(item: ReqItemView, overview?: DeliveryOverview) {
   if (!item.prdSessionId || !overview) return undefined
   return overview.requirements.find(requirement => requirement.id === item.prdSessionId)
@@ -334,6 +394,143 @@ function TddStageDot({ state }: { state: TddNodeState }) {
     return <span className="grid h-5 w-5 place-items-center rounded-full bg-rose-500 text-[10px] font-bold text-white">!</span>
   }
   return <span className="h-5 w-5 rounded-full border border-dashed border-[var(--color-border)] bg-[var(--color-background)]" />
+}
+
+function prdRelationLabel(session?: PrdSessionView) {
+  if (!session) return '子节点'
+  const version = session.title.match(/修订版\s*v(\d+)/i)?.[1]
+  if (version) return `修订 V${version}`
+  if (session.rawInput?.startsWith('【后台自动修订') || session.rawInput?.startsWith('【修订版 PRD')) return '修订版本'
+  return '拆分子需求'
+}
+
+interface RequirementLineageActions {
+  onStartPrd: (item: ReqItemView, engine: AgentEngine) => Promise<void>
+  onAnswerPrd: (item: ReqItemView) => void
+  onPreviewPrd: (item: ReqItemView) => void
+  onStartTdd: (item: ReqItemView, engine: AgentEngine) => void
+  onAnswerTdd: (item: ReqItemView, requirement: DeliveryRequirement) => void
+  onPreviewTdd: (item: ReqItemView) => void
+}
+
+interface RequirementLineageRunState {
+  clarifyingPrdIds: Set<string>
+  generatingPrdIds: Set<string>
+  buildingTddQuestionIds: Set<string>
+  generatingTddIds: Set<string>
+  failedTddIds: Set<string>
+}
+
+function RequirementLineage({
+  parent,
+  childrenByItemId,
+  sessionsById,
+  overview,
+  actions,
+  runState,
+}: {
+  parent: ReqItemView
+  childrenByItemId: Map<string, ReqItemView[]>
+  sessionsById: Map<string, PrdSessionView>
+  overview?: DeliveryOverview
+  actions: RequirementLineageActions
+  runState: RequirementLineageRunState
+}) {
+  const children = childrenByItemId.get(parent.id) ?? []
+  const [expanded, setExpanded] = useState(true)
+  if (children.length === 0) return null
+  const total = descendantCount(parent.id, childrenByItemId)
+
+  return (
+    <div className="rounded-xl border border-violet-200/80 bg-violet-50/45 p-2.5 dark:border-violet-900/70 dark:bg-violet-950/15">
+      <button
+        type="button"
+        onClick={() => setExpanded(value => !value)}
+        className="flex w-full items-center gap-2 text-left text-[10px] font-semibold text-violet-700 dark:text-violet-300"
+        aria-expanded={expanded}
+      >
+        <ChevronRight className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+        <GitBranch className="h-3.5 w-3.5" />
+        版本 / 子需求关系
+        <span className="rounded-full bg-white/80 px-1.5 py-0.5 text-[9px] font-medium text-violet-600 dark:bg-violet-950/70 dark:text-violet-300">{total} 个节点</span>
+        <span className="ml-auto font-normal text-[9px] text-[var(--color-muted-foreground)]">{expanded ? '收起' : '展开'}</span>
+      </button>
+      {expanded && (
+        <div className="mt-2 ml-1.5 border-l border-violet-300/80 pl-3 dark:border-violet-800">
+          {children.map(child => (
+            <RequirementLineageNode
+              key={child.id}
+              item={child}
+              childrenByItemId={childrenByItemId}
+              sessionsById={sessionsById}
+              overview={overview}
+              actions={actions}
+              runState={runState}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RequirementLineageNode({
+  item,
+  childrenByItemId,
+  sessionsById,
+  overview,
+  actions,
+  runState,
+}: {
+  item: ReqItemView
+  childrenByItemId: Map<string, ReqItemView[]>
+  sessionsById: Map<string, PrdSessionView>
+  overview?: DeliveryOverview
+  actions: RequirementLineageActions
+  runState: RequirementLineageRunState
+}) {
+  const session = item.prdSessionId ? sessionsById.get(item.prdSessionId) : undefined
+  const requirement = deliveryFor(item, overview)
+  const children = childrenByItemId.get(item.id) ?? []
+  const prdSessionId = item.prdSessionId
+  const prdRunning = !!prdSessionId && (runState.clarifyingPrdIds.has(prdSessionId) || runState.generatingPrdIds.has(prdSessionId))
+  const tddBuilding = !!prdSessionId && runState.buildingTddQuestionIds.has(prdSessionId)
+  const tddGenerating = !!prdSessionId && runState.generatingTddIds.has(prdSessionId)
+  const tddFailed = !!prdSessionId && runState.failedTddIds.has(prdSessionId)
+
+  return (
+    <div className="relative py-1.5 before:absolute before:-left-3 before:top-5 before:w-2.5 before:border-t before:border-violet-300/80 dark:before:border-violet-800">
+      <div className="flex w-full flex-col gap-3 rounded-lg border border-transparent bg-white/75 px-2.5 py-2 text-left transition-colors hover:border-violet-200 hover:bg-white dark:bg-black/10 dark:hover:border-violet-900 dark:hover:bg-violet-950/25 sm:flex-row sm:items-center">
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="shrink-0 rounded bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold text-violet-700 dark:bg-violet-950 dark:text-violet-300">{prdRelationLabel(session)}</span>
+            <span className="truncate text-[10px] font-medium">{item.title}</span>
+          </div>
+          <div className="mt-1 truncate text-[9px] text-[var(--color-muted-foreground)]">{item.project || '待归属'} · {item.module || '待归类'} · {relativeTime(item.updatedAt)}更新</div>
+        </div>
+        <DeliveryTrack
+          item={item}
+          requirement={requirement}
+          prdSession={session}
+          prdRunning={prdRunning}
+          tddBuilding={tddBuilding}
+          tddGenerating={tddGenerating}
+          tddFailed={tddFailed}
+          onStartPrd={engine => actions.onStartPrd(item, engine)}
+          onAnswerPrd={() => actions.onAnswerPrd(item)}
+          onPreviewPrd={() => actions.onPreviewPrd(item)}
+          onStartTdd={engine => actions.onStartTdd(item, engine)}
+          onAnswerTdd={() => requirement && actions.onAnswerTdd(item, requirement)}
+          onPreviewTdd={() => actions.onPreviewTdd(item)}
+        />
+      </div>
+      {children.length > 0 && (
+        <div className="ml-3 border-l border-violet-300/80 pl-3 dark:border-violet-800">
+          {children.map(child => <RequirementLineageNode key={child.id} item={child} childrenByItemId={childrenByItemId} sessionsById={sessionsById} overview={overview} actions={actions} runState={runState} />)}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function DocumentStatusLegend() {
@@ -722,6 +919,10 @@ function TddStageNode({
 
   const openNode = (event: React.MouseEvent) => {
     event.stopPropagation()
+    if (state === 'awaiting') {
+      onAnswer()
+      return
+    }
     setOpen(true)
   }
 
@@ -1630,18 +1831,47 @@ function AssigneeCell({
 
 function DeadlineEditor({
   item,
+  prdSession,
   saving,
   onSave,
 }: {
   item: ReqItemView
+  prdSession?: PrdSessionView
   saving: boolean
   onSave: (deadline: string) => Promise<void>
 }) {
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState(item.deadline ?? '')
   const [error, setError] = useState('')
+  const [engine, setEngine] = useState<AgentEngine>('codex')
+  const [extraContext, setExtraContext] = useState('')
+  const [estimating, setEstimating] = useState(false)
+  const [estimation, setEstimation] = useState(prdSession?.devDocEstimation ?? null)
 
   useEffect(() => setDraft(item.deadline ?? ''), [item.deadline])
+  useEffect(() => setEstimation(prdSession?.devDocEstimation ?? null), [prdSession?.devDocEstimation])
+
+  const evaluationRunning = estimation?.workStatus === 'RUNNING'
+  useEffect(() => {
+    if (!evaluationRunning || !item.prdSessionId) return
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const poll = async () => {
+      try {
+        const latest = await getPrdSession(item.prdSessionId!)
+        if (cancelled) return
+        setEstimation(latest.devDocEstimation)
+        if (latest.devDocEstimation?.workStatus === 'RUNNING') timer = setTimeout(poll, 2000)
+      } catch {
+        if (!cancelled) timer = setTimeout(poll, 4000)
+      }
+    }
+    timer = setTimeout(poll, 1200)
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [evaluationRunning, item.prdSessionId])
 
   const save = async (value = draft) => {
     setError('')
@@ -1653,27 +1883,92 @@ function DeadlineEditor({
     }
   }
 
+  const estimate = async () => {
+    if (!item.prdSessionId || estimating || evaluationRunning) return
+    setEstimating(true)
+    setError('')
+    try {
+      const updated = await estimateDevDocEffort(item.prdSessionId, extraContext.trim() || undefined, engine)
+      setEstimation(updated.devDocEstimation)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'AI 工时评估失败')
+    } finally {
+      setEstimating(false)
+    }
+  }
+
+  const suggested = estimation && !estimation.stale ? suggestedCommitmentDate(estimation.hoursMax) : ''
+  const confidenceLabel = estimation?.confidence === 'HIGH' ? '高' : estimation?.confidence === 'LOW' ? '低' : '中'
+
   return (
     <Popover open={open} onOpenChange={next => { setOpen(next); setDraft(item.deadline ?? ''); setError('') }}>
       <PopoverTrigger asChild>
         <button type="button" onClick={event => event.stopPropagation()} className={`group/deadline mt-2 flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-[10px] hover:bg-[var(--color-muted)] ${item.deadline ? 'text-[var(--color-muted-foreground)]' : 'text-amber-600'}`} title="点击填写承诺时间">
           <CalendarDays className="h-3 w-3" />
           <span>{dateLabel(item.deadline)}</span>
+          {evaluationRunning && <span className="flex items-center gap-1 text-violet-600"><Loader2 className="h-2.5 w-2.5 animate-spin" />AI评估中</span>}
           <span className="ml-auto text-[9px] text-violet-500 opacity-0 transition-opacity group-hover/deadline:opacity-100">编辑</span>
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" sideOffset={5} className="w-64 p-3" onClick={event => event.stopPropagation()}>
+      <PopoverContent align="start" sideOffset={5} className="max-h-[min(85vh,44rem)] w-[min(92vw,25rem)] overflow-y-auto p-0" onClick={event => event.stopPropagation()}>
+        <div className="p-3">
         <div className="text-xs font-semibold">承诺完成时间</div>
         <p className="mt-1 text-[9px] text-[var(--color-muted-foreground)]">用于风险识别、排期承诺和超期提醒。</p>
         <input type="date" autoFocus value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && draft) void save(); if (event.key === 'Escape') setOpen(false) }} className="mt-3 h-9 w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-2.5 text-xs outline-none focus:border-violet-400" />
-        {error && <div className="mt-2 text-[10px] text-rose-500">{error}</div>}
         <div className="mt-3 flex items-center justify-between">
           <button type="button" disabled={saving || !item.deadline} onClick={() => void save('')} className="text-[10px] text-rose-500 disabled:opacity-30">清除时间</button>
           <button type="button" disabled={saving || !draft} onClick={() => void save()} className="flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-2 text-[10px] font-medium text-white disabled:opacity-40">{saving && <Loader2 className="h-3 w-3 animate-spin" />}保存</button>
         </div>
+        </div>
+
+        <div className="border-t border-[var(--color-border)] bg-violet-50/45 p-3 dark:bg-violet-950/15">
+          <div className="flex items-start justify-between gap-3">
+            <div><div className="flex items-center gap-1.5 text-xs font-semibold text-violet-700 dark:text-violet-300"><Bot className="h-3.5 w-3.5" />AI 辅助编码工时评估</div><p className="mt-1 text-[9px] leading-4 text-[var(--color-muted-foreground)]">按 Codex / Claude Code 主导编码、人负责审查验证的协作口径估算，任务在后台运行。</p></div>
+            <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[9px] text-violet-600 shadow-sm dark:bg-black/20">非承诺值</span>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {(['codex', 'claude'] as const).map(value => <button key={value} type="button" disabled={estimating || evaluationRunning} onClick={() => setEngine(value)} className={`rounded-lg border px-2.5 py-2 text-[10px] font-medium ${engine === value ? 'border-violet-400 bg-white text-violet-700 shadow-sm dark:bg-violet-950/60 dark:text-violet-300' : 'border-[var(--color-border)] text-[var(--color-muted-foreground)]'}`}>{value === 'codex' ? 'Codex（默认）' : 'Claude Code'}</button>)}
+          </div>
+          <textarea value={extraContext} disabled={estimating || evaluationRunning} onChange={event => setExtraContext(event.target.value)} rows={2} placeholder="可选：补充必须兼容的旧逻辑、外部联调范围、验证限制…" className="mt-2 w-full resize-none rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-2.5 py-2 text-[10px] leading-4 outline-none focus:border-violet-400" />
+          <button type="button" disabled={!item.prdSessionId || estimating || evaluationRunning} onClick={() => void estimate()} className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2.5 text-[10px] font-medium text-white disabled:opacity-40 dark:bg-slate-100 dark:text-slate-900">{estimating || evaluationRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}{estimating ? '正在提交后台任务…' : evaluationRunning ? `后台评估中 · ${estimation?.workStatus === 'RUNNING' ? '可关闭弹框' : ''}` : estimation ? '重新评估 AI 编码工时' : '开始后台 AI 工时评估'}</button>
+          {!item.prdSessionId && <p className="mt-2 text-center text-[9px] text-amber-600">请先关联或生成 PRD，才能建立估算证据链。</p>}
+
+          {estimation && (
+            <div className="mt-3 rounded-xl border border-violet-200 bg-white p-3 dark:border-violet-900 dark:bg-black/15">
+              {evaluationRunning && <div className="mb-2 flex items-center gap-2 rounded-lg bg-violet-50 px-2.5 py-2 text-[9px] text-violet-700 dark:bg-violet-950/30 dark:text-violet-300"><Loader2 className="h-3.5 w-3.5 animate-spin" /><div><div className="font-semibold">Code Agent 正在后台核查并估算</div><div>可以关闭弹框，完成后结果会自动刷新。</div></div></div>}
+              {estimation.workStatus === 'ERROR' && <div className="mb-2 rounded-lg bg-rose-50 px-2.5 py-2 text-[9px] leading-4 text-rose-600 dark:bg-rose-950/30 dark:text-rose-300"><div className="font-semibold">后台评估失败</div><div>{estimation.workError || '请重新发起评估'}</div></div>}
+              {estimation.estimatedAt > 0 && evaluationRunning && <div className="mb-2 text-[9px] text-[var(--color-muted-foreground)]">下方暂时保留上一版结果，后台完成后将自动替换。</div>}
+              {estimation.estimatedAt > 0 && estimation.stale && <div className="mb-2 rounded-lg bg-amber-50 px-2.5 py-2 text-[9px] leading-4 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"><div className="font-semibold">评估已过期，请重新评估后再承诺</div><div>{(estimation.staleReasons?.length ? estimation.staleReasons : ['PRD 或 TDD 已变化']).join('；')}</div></div>}
+              {estimation.estimatedAt > 0 && estimation.sourceSessionId && estimation.sourceSessionId !== item.prdSessionId && <div className="mb-2 text-[9px] text-violet-600 dark:text-violet-300">评估依据：{estimation.sourceTitle || '最新 PRD 修订版'}</div>}
+              {estimation.estimatedAt > 0 && <div className="flex items-end justify-between gap-3"><div><div className="text-[9px] text-[var(--color-muted-foreground)]">AI Code Agent 协作工时</div><div className="mt-1 text-lg font-semibold tabular-nums">{estimation.hoursMin}–{estimation.hoursMax}<span className="ml-1 text-[10px] font-normal">小时</span></div></div><div className="text-right text-[9px] text-[var(--color-muted-foreground)]">约 {formatPersonDays(estimation.hoursMin)}–{formatPersonDays(estimation.hoursMax)} 人日<br />信心：{confidenceLabel}</div></div>}
+              {estimation.estimatedAt > 0 && <div className={`mt-2 rounded-lg px-2.5 py-2 text-[9px] leading-4 ${estimation.codeInspected ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300'}`}>{estimation.codeInspected ? `已核查本地代码 · ${estimation.inspectedFiles?.length ?? 0} 个关键文件` : '未命中本地项目，本次主要依据 PRD / TDD 估算'}{estimation.codeEvidenceSummary ? `：${estimation.codeEvidenceSummary}` : ''}</div>}
+              {estimation.estimatedAt > 0 && estimation.reasoning && <p className="mt-2 text-[9px] leading-4 text-[var(--color-muted-foreground)]">{estimation.reasoning}</p>}
+              {estimation.estimatedAt > 0 && estimation.breakdown.length > 0 && <div className="mt-2 space-y-1 border-t border-[var(--color-border)] pt-2">{estimation.breakdown.slice(0, 6).map((part, index) => <div key={`${part.item}-${index}`} className="flex items-center justify-between gap-2 text-[9px]"><span className="min-w-0 truncate">{part.item}</span><span className="shrink-0 tabular-nums text-[var(--color-muted-foreground)]">{part.hours}h</span></div>)}</div>}
+              {suggested && <button type="button" onClick={() => setDraft(suggested)} className="mt-3 w-full rounded-lg border border-violet-200 px-2.5 py-2 text-[9px] font-medium text-violet-700 hover:bg-violet-50 dark:border-violet-900 dark:text-violet-300 dark:hover:bg-violet-950/30">按单人 6h/工作日填入建议日期：{suggested}</button>}
+            </div>
+          )}
+          {error && <div className="mt-2 rounded-lg bg-rose-50 px-2.5 py-2 text-[10px] text-rose-500 dark:bg-rose-950/25">{error}</div>}
+        </div>
       </PopoverContent>
     </Popover>
   )
+}
+
+function formatPersonDays(hours: number) {
+  return Math.max(0, hours / 6).toLocaleString('zh-CN', { maximumFractionDigits: 1 })
+}
+
+function suggestedCommitmentDate(hoursMax: number) {
+  let remaining = Math.max(1, Math.ceil(hoursMax / 6))
+  const date = new Date()
+  date.setHours(12, 0, 0, 0)
+  while (remaining > 0) {
+    date.setDate(date.getDate() + 1)
+    const day = date.getDay()
+    if (day !== 0 && day !== 6) remaining -= 1
+  }
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
 export function ReqPoolPage() {
@@ -1740,26 +2035,33 @@ export function ReqPoolPage() {
   const items = itemsQuery.data ?? []
   const overview = overviewQuery.data
   const prdSessionById = useMemo(() => new Map((prdSessionsQuery.data ?? []).map(session => [session.id, session])), [prdSessionsQuery.data])
-  const filteredItems = useMemo(() => items
-    .filter(item => !status || item.status === status)
-    .filter(item => !decisionFilter || decisionOf(item) === decisionFilter)
-    .filter(item => {
-      const keyword = query.trim().toLowerCase()
+  const sortedItems = useMemo(() => [...items].sort((a, b) => {
+    const rankA = parseInsight(a.aiInsight)?.rank ?? 999
+    const rankB = parseInsight(b.aiInsight)?.rank ?? 999
+    return rankA - rankB || b.updatedAt - a.updatedAt
+  }), [items])
+  const hierarchy = useMemo(
+    () => buildRequirementHierarchy(sortedItems, prdSessionById, overview),
+    [overview, prdSessionById, sortedItems],
+  )
+  const rootItems = hierarchy.roots
+  const filteredItems = useMemo(() => {
+    const keyword = query.trim().toLowerCase()
+    const matches = (item: ReqItemView) => {
+      if (status && item.status !== status) return false
+      if (decisionFilter && decisionOf(item) !== decisionFilter) return false
       if (!keyword) return true
       return [item.title, item.description, item.project, item.module, item.assignee, item.tags].some(value => value?.toLowerCase().includes(keyword))
-    })
-    .sort((a, b) => {
-      const rankA = parseInsight(a.aiInsight)?.rank ?? 999
-      const rankB = parseInsight(b.aiInsight)?.rank ?? 999
-      return rankA - rankB || b.updatedAt - a.updatedAt
-    }), [decisionFilter, items, query, status])
+    }
+    return rootItems.filter(item => branchSome(item, hierarchy.childrenByItemId, matches))
+  }, [decisionFilter, hierarchy.childrenByItemId, query, rootItems, status])
 
   const counts = useMemo(() => ({
-    now: items.filter(item => decisionOf(item) === 'NOW').length,
-    clarify: items.filter(item => decisionOf(item) === 'CLARIFY').length,
-    delivery: items.filter(item => item.status === 'IN_DEV' || item.status === 'PRD_READY').length,
-    risk: overview?.summary.highRiskCount ?? items.filter(item => !item.assignee || !item.deadline).length,
-  }), [items, overview])
+    now: rootItems.filter(item => decisionOf(item) === 'NOW').length,
+    clarify: rootItems.filter(item => decisionOf(item) === 'CLARIFY').length,
+    delivery: rootItems.filter(item => item.status === 'IN_DEV' || item.status === 'PRD_READY').length,
+    risk: rootItems.filter(item => !item.assignee || !item.deadline || (deliveryFor(item, overview)?.staleReasons.length ?? 0) > 0).length,
+  }), [overview, rootItems])
 
   const enabled = (id: string) => fields.find(field => field.id === id)?.enabled ?? false
   const columns = fields.filter(field => field.enabled).length
@@ -2200,6 +2502,22 @@ export function ReqPoolPage() {
     }
   }
 
+  const lineageActions: RequirementLineageActions = {
+    onStartPrd: (item, engine) => startPrdClarifyAsync(item, engine),
+    onAnswerPrd: item => { void openPrdQuestions(item) },
+    onPreviewPrd: item => setPreviewPrd(item),
+    onStartTdd: (item, engine) => { if (item.prdSessionId) startTddQuestionsAsync(item.prdSessionId, engine) },
+    onAnswerTdd: (_item, requirement) => setTddWork(requirement),
+    onPreviewTdd: item => setPreviewTdd(item),
+  }
+  const lineageRunState: RequirementLineageRunState = {
+    clarifyingPrdIds,
+    generatingPrdIds,
+    buildingTddQuestionIds,
+    generatingTddIds,
+    failedTddIds,
+  }
+
   return (
     <div className="min-h-full bg-[var(--color-background)] text-[var(--color-foreground)]">
       <header className="border-b border-[var(--color-border)] bg-[var(--color-card)]">
@@ -2245,7 +2563,7 @@ export function ReqPoolPage() {
         </div>
       </section>
 
-      {view === 'leader' ? <LeaderBrief items={items} overview={overview} /> : (
+      {view === 'leader' ? <LeaderBrief items={rootItems} overview={overview} /> : (
         <main className="px-5 pb-10 pt-4 lg:px-8">
           <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {[
@@ -2266,7 +2584,7 @@ export function ReqPoolPage() {
               </div>
               <div className="ml-auto flex items-center gap-1">
                 <DocumentStatusLegend />
-                <button onClick={() => portfolioMutation.mutate()} disabled={portfolioMutation.isPending || items.length === 0} className="flex h-9 items-center gap-1.5 rounded-lg border border-violet-200 px-3 text-xs font-medium text-violet-700 hover:bg-violet-50 disabled:opacity-40 dark:border-violet-900 dark:text-violet-300 dark:hover:bg-violet-950/30">{portfolioMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Gauge className="h-3.5 w-3.5" />}重算优先级</button>
+                <button onClick={() => portfolioMutation.mutate()} disabled={portfolioMutation.isPending || rootItems.length === 0} className="flex h-9 items-center gap-1.5 rounded-lg border border-violet-200 px-3 text-xs font-medium text-violet-700 hover:bg-violet-50 disabled:opacity-40 dark:border-violet-900 dark:text-violet-300 dark:hover:bg-violet-950/30">{portfolioMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Gauge className="h-3.5 w-3.5" />}重算优先级</button>
                 <button onClick={() => setStudioOpen(true)} className="grid h-9 w-9 place-items-center rounded-lg border border-[var(--color-border)] text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]" title="字段与视图"><Settings2 className="h-3.5 w-3.5" /></button>
               </div>
             </div>
@@ -2274,15 +2592,15 @@ export function ReqPoolPage() {
             {selectedIds.size > 0 && <div className="flex flex-wrap items-center gap-3 border-b border-violet-200 bg-violet-50/70 px-4 py-2.5 dark:border-violet-900 dark:bg-violet-950/20"><span className="text-xs font-semibold text-violet-700 dark:text-violet-300">已选择 {selectedIds.size} 条需求</span><span className="text-[10px] text-[var(--color-muted-foreground)]">可跨筛选条件保留选择</span><div className="ml-auto flex items-center gap-2"><button type="button" disabled={bulkDeleting} onClick={() => setSelectedIds(new Set())} className="rounded-lg px-2.5 py-1.5 text-[10px] text-[var(--color-muted-foreground)] hover:bg-white/70 disabled:opacity-40 dark:hover:bg-black/15">取消选择</button><button type="button" disabled={bulkDeleting} onClick={() => void removeSelected()} className="flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-[10px] font-medium text-white shadow-sm hover:bg-rose-700 disabled:opacity-50">{bulkDeleting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}批量删除</button></div></div>}
             {bulkDeleteError && <div className="border-b border-rose-200 bg-rose-50 px-4 py-2 text-[10px] text-rose-600 dark:border-rose-900 dark:bg-rose-950/25 dark:text-rose-300">{bulkDeleteError}</div>}
 
-            {itemsQuery.isLoading ? <div className="grid min-h-72 place-items-center"><div className="flex items-center gap-2 text-xs text-[var(--color-muted-foreground)]"><Loader2 className="h-4 w-4 animate-spin" />正在汇总需求与交付证据…</div></div> : filteredItems.length === 0 ? (
-              <div className="grid min-h-72 place-items-center p-8 text-center"><div><span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-violet-50 text-violet-600 dark:bg-violet-950/40"><TableProperties className="h-5 w-5" /></span><h3 className="mt-4 text-sm font-semibold">{items.length === 0 ? '建立第一份统一需求台账' : '没有符合条件的需求'}</h3><p className="mx-auto mt-2 max-w-sm text-xs leading-5 text-[var(--color-muted-foreground)]">{items.length === 0 ? '可以登记真实需求，或载入演示数据体验统一判定、证据同步和领导汇报。' : '尝试清除筛选，或让 AI 为你创建新的展示视图。'}</p>{items.length === 0 && <div className="mt-4 flex justify-center gap-2"><button onClick={() => seedMutation.mutate()} disabled={seedMutation.isPending} className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs font-medium hover:bg-[var(--color-muted)]">载入演示数据</button><button onClick={() => setQuickEntryOpen(true)} className="rounded-lg bg-violet-600 px-3 py-2 text-xs font-medium text-white">快速登记需求</button></div>}</div></div>
+            {(itemsQuery.isLoading || prdSessionsQuery.isLoading) ? <div className="grid min-h-72 place-items-center"><div className="flex items-center gap-2 text-xs text-[var(--color-muted-foreground)]"><Loader2 className="h-4 w-4 animate-spin" />正在汇总需求与交付证据…</div></div> : filteredItems.length === 0 ? (
+              <div className="grid min-h-72 place-items-center p-8 text-center"><div><span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-violet-50 text-violet-600 dark:bg-violet-950/40"><TableProperties className="h-5 w-5" /></span><h3 className="mt-4 text-sm font-semibold">{rootItems.length === 0 ? '建立第一份统一需求台账' : '没有符合条件的需求'}</h3><p className="mx-auto mt-2 max-w-sm text-xs leading-5 text-[var(--color-muted-foreground)]">{rootItems.length === 0 ? '可以登记真实需求，或载入演示数据体验统一判定、证据同步和领导汇报。' : '尝试清除筛选，或让 AI 为你创建新的展示视图。'}</p>{rootItems.length === 0 && <div className="mt-4 flex justify-center gap-2"><button onClick={() => seedMutation.mutate()} disabled={seedMutation.isPending} className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs font-medium hover:bg-[var(--color-muted)]">载入演示数据</button><button onClick={() => setQuickEntryOpen(true)} className="rounded-lg bg-violet-600 px-3 py-2 text-xs font-medium text-white">快速登记需求</button></div>}</div></div>
             ) : (
               <div className="overflow-x-auto">
                 <div className="divide-y divide-[var(--color-border)] md:hidden">
                   {filteredItems.map(item => {
                     const requirement = deliveryFor(item, overview)
                     const session = item.prdSessionId ? prdSessionById.get(item.prdSessionId) : undefined
-                    return <MobileRequirementCard key={item.id} item={item} requirement={requirement} prdSession={session} selected={selectedIds.has(item.id)} prdRunning={!!item.prdSessionId && (clarifyingPrdIds.has(item.prdSessionId) || generatingPrdIds.has(item.prdSessionId))} tddBuilding={!!item.prdSessionId && buildingTddQuestionIds.has(item.prdSessionId)} tddGenerating={!!item.prdSessionId && generatingTddIds.has(item.prdSessionId)} tddFailed={!!item.prdSessionId && failedTddIds.has(item.prdSessionId)} onToggle={() => toggleSelected(item.id)} onOpen={() => setSelected(item)} onDelete={() => void remove(item)} onStartPrd={engine => startPrdClarifyAsync(item, engine)} onAnswerPrd={() => void openPrdQuestions(item)} onPreviewPrd={() => setPreviewPrd(item)} onStartTdd={engine => item.prdSessionId && startTddQuestionsAsync(item.prdSessionId, engine)} onAnswerTdd={() => requirement && setTddWork(requirement)} onPreviewTdd={() => setPreviewTdd(item)} />
+                    return <div key={item.id}><MobileRequirementCard item={item} requirement={requirement} prdSession={session} selected={selectedIds.has(item.id)} prdRunning={!!item.prdSessionId && (clarifyingPrdIds.has(item.prdSessionId) || generatingPrdIds.has(item.prdSessionId))} tddBuilding={!!item.prdSessionId && buildingTddQuestionIds.has(item.prdSessionId)} tddGenerating={!!item.prdSessionId && generatingTddIds.has(item.prdSessionId)} tddFailed={!!item.prdSessionId && failedTddIds.has(item.prdSessionId)} onToggle={() => toggleSelected(item.id)} onOpen={() => setSelected(item)} onDelete={() => void remove(item)} onStartPrd={engine => startPrdClarifyAsync(item, engine)} onAnswerPrd={() => void openPrdQuestions(item)} onPreviewPrd={() => setPreviewPrd(item)} onStartTdd={engine => item.prdSessionId && startTddQuestionsAsync(item.prdSessionId, engine)} onAnswerTdd={() => requirement && setTddWork(requirement)} onPreviewTdd={() => setPreviewTdd(item)} />{(hierarchy.childrenByItemId.get(item.id)?.length ?? 0) > 0 && <div className="px-4 pb-4"><RequirementLineage parent={item} childrenByItemId={hierarchy.childrenByItemId} sessionsById={prdSessionById} overview={overview} actions={lineageActions} runState={lineageRunState} /></div>}</div>
                   })}
                 </div>
                 <table className="hidden w-full min-w-[1080px] border-collapse text-left md:table">
@@ -2306,21 +2624,21 @@ export function ReqPoolPage() {
                       ? `事实质量 ${factQuality.score} 分：${factQuality.deductions[0].reason}`
                       : null
                     const risk = requirement?.staleReasons[0] || factRisk || (missingOwner ? '尚未明确唯一负责人' : item.status === 'DRAFT' ? '需补齐验收口径' : '暂无新增风险')
-                    return <tr key={item.id} onClick={() => setSelected(item)} className={`group cursor-pointer align-top transition-colors hover:bg-violet-50/35 dark:hover:bg-violet-950/10 ${selectedIds.has(item.id) ? 'bg-violet-50/65 dark:bg-violet-950/20' : ''} ${density === 'compact' ? '[&>td]:py-2.5' : '[&>td]:py-4'}`}>
+                    return <Fragment key={item.id}><tr onClick={() => setSelected(item)} className={`group cursor-pointer align-top transition-colors hover:bg-violet-50/35 dark:hover:bg-violet-950/10 ${selectedIds.has(item.id) ? 'bg-violet-50/65 dark:bg-violet-950/20' : ''} ${density === 'compact' ? '[&>td]:py-2.5' : '[&>td]:py-4'}`}>
                       <td className="px-3"><input type="checkbox" checked={selectedIds.has(item.id)} onClick={event => event.stopPropagation()} onChange={() => toggleSelected(item.id)} className="h-3.5 w-3.5 cursor-pointer rounded border-[var(--color-border)] accent-violet-600" aria-label={`选择需求：${item.title}`} /></td>
                       {enabled('decision') && <td className="px-4"><DecisionBadge decision={decisionOf(item)} /></td>}
                       {enabled('requirement') && <td className="px-4"><div className="flex items-start gap-2.5"><span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-violet-50 text-violet-600 dark:bg-violet-950/40 dark:text-violet-300"><FileText className="h-3.5 w-3.5" /></span><div className="min-w-0"><div className="line-clamp-2 text-xs font-semibold leading-5">{item.title}</div><div className="mt-1.5 flex flex-wrap items-center gap-1.5"><span className={`rounded px-1.5 py-0.5 text-[9px] font-medium ${STATUS_META[item.status].cls}`}>{STATUS_META[item.status].label}</span><FactQualityBadge item={item} session={session} /><span className="max-w-[140px] truncate text-[10px] text-[var(--color-muted-foreground)]">{item.project || '待归属'} · {item.module || '待归类'}</span></div></div></div></td>}
                       {enabled('value') && <td className="px-4"><p className="line-clamp-2 text-xs leading-5 text-[var(--color-foreground)]/85">{insight?.reason || excerpt(item.description)}</p><div className="mt-1.5 flex items-center gap-2 text-[10px] text-[var(--color-muted-foreground)]"><TrendingUp className="h-3 w-3 text-violet-500" />ROI {insight?.roi === 'HIGH' ? '高' : insight?.roi === 'LOW' ? '低' : '待验证'}{insight?.estimatedHours ? ` · ${insight.estimatedHours}h` : ''}</div></td>}
-                      {enabled('owner') && <td className="px-4"><AssigneeCell item={item} users={usersQuery.data ?? []} loading={usersQuery.isLoading} unavailable={usersQuery.isError} saving={assigningId === item.id} onAssign={userId => handleAssign(item.id, userId)} /><DeadlineEditor item={item} saving={deadlineSavingId === item.id} onSave={deadline => handleDeadline(item.id, deadline)} /></td>}
+                      {enabled('owner') && <td className="px-4"><AssigneeCell item={item} users={usersQuery.data ?? []} loading={usersQuery.isLoading} unavailable={usersQuery.isError} saving={assigningId === item.id} onAssign={userId => handleAssign(item.id, userId)} /><DeadlineEditor item={item} prdSession={session} saving={deadlineSavingId === item.id} onSave={deadline => handleDeadline(item.id, deadline)} /></td>}
                       {enabled('delivery') && <td className="px-4"><DeliveryTrack item={item} requirement={requirement} prdSession={item.prdSessionId ? prdSessionById.get(item.prdSessionId) : undefined} prdRunning={!!item.prdSessionId && (clarifyingPrdIds.has(item.prdSessionId) || generatingPrdIds.has(item.prdSessionId))} tddBuilding={!!item.prdSessionId && buildingTddQuestionIds.has(item.prdSessionId)} tddGenerating={!!item.prdSessionId && generatingTddIds.has(item.prdSessionId)} tddFailed={!!item.prdSessionId && failedTddIds.has(item.prdSessionId)} onStartPrd={engine => startPrdClarifyAsync(item, engine)} onAnswerPrd={() => void openPrdQuestions(item)} onPreviewPrd={() => setPreviewPrd(item)} onStartTdd={engine => item.prdSessionId && startTddQuestionsAsync(item.prdSessionId, engine)} onAnswerTdd={() => requirement && setTddWork(requirement)} onPreviewTdd={() => setPreviewTdd(item)} /></td>}
                       {enabled('risk') && <td className="px-4"><div className={`flex items-start gap-1.5 text-[11px] leading-5 ${risk.includes('暂无') ? 'text-[var(--color-muted-foreground)]' : 'text-amber-700 dark:text-amber-300'}`}>{risk.includes('暂无') ? <CircleCheck className="mt-1 h-3 w-3 shrink-0 text-emerald-500" /> : <AlertTriangle className="mt-1 h-3 w-3 shrink-0" />}<span className="line-clamp-2">{risk}</span></div><div className="mt-1.5 flex items-center gap-1 text-[10px] text-[var(--color-muted-foreground)]"><Clock3 className="h-3 w-3" />{relativeTime(item.updatedAt)}自动更新</div></td>}
                       <td className="px-2"><div className="flex items-center justify-end gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100"><button onClick={event => { event.stopPropagation(); void remove(item) }} className="rounded-lg p-2 text-[var(--color-muted-foreground)] hover:bg-rose-50 hover:text-rose-500 dark:hover:bg-rose-950/30" title="删除当前需求" aria-label={`删除需求：${item.title}`}><Trash2 className="h-3.5 w-3.5" /></button><button onClick={event => { event.stopPropagation(); setSelected(item) }} className="rounded-lg p-2 text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]" title="查看需求详情" aria-label={`查看需求：${item.title}`}><ChevronRight className="h-4 w-4" /></button></div></td>
-                    </tr>
+                    </tr>{(hierarchy.childrenByItemId.get(item.id)?.length ?? 0) > 0 && <tr className="bg-[var(--color-muted)]/10"><td colSpan={columns + 2} className="px-4 pb-3 pt-0"><div className="ml-10"><RequirementLineage parent={item} childrenByItemId={hierarchy.childrenByItemId} sessionsById={prdSessionById} overview={overview} actions={lineageActions} runState={lineageRunState} /></div></td></tr>}</Fragment>
                   })}</tbody>
                 </table>
               </div>
             )}
-            <div className="flex items-center justify-between border-t border-[var(--color-border)] px-4 py-3 text-[10px] text-[var(--color-muted-foreground)]"><span>共 {filteredItems.length} / {items.length} 项 · 当前展示 {columns} 个标准字段组</span><div className="flex items-center gap-4"><span className="flex items-center gap-1.5"><Radio className="h-3 w-3 text-emerald-500" />证据自动同步</span><button onClick={() => setStudioOpen(true)} className="flex items-center gap-1 text-violet-600"><PanelRightOpen className="h-3 w-3" />配置视图</button></div></div>
+            <div className="flex items-center justify-between border-t border-[var(--color-border)] px-4 py-3 text-[10px] text-[var(--color-muted-foreground)]"><span>共 {filteredItems.length} / {rootItems.length} 项根需求 · {items.length - rootItems.length} 个子节点已归入关系树 · 当前展示 {columns} 个标准字段组</span><div className="flex items-center gap-4"><span className="flex items-center gap-1.5"><Radio className="h-3 w-3 text-emerald-500" />证据自动同步</span><button onClick={() => setStudioOpen(true)} className="flex items-center gap-1 text-violet-600"><PanelRightOpen className="h-3 w-3" />配置视图</button></div></div>
           </div>
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 px-1 text-[10px] text-[var(--color-muted-foreground)]"><span>判定模型：战略匹配 30% · 用户影响 25% · 可量化收益 25% · 成本与风险 20%</span><span>最后证据同步：{overview?.generatedAt ? relativeTime(overview.generatedAt) : '等待数据源'}</span></div>

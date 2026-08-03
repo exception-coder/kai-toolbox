@@ -32,7 +32,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 
@@ -310,7 +312,7 @@ public class ReqPoolController {
     @PostMapping("/portfolio-analyze")
     public ResponseEntity<Map<String, Object>> portfolioAnalyze() {
         // 只分析活跃需求（排除已取消）
-        List<ReqItem> items = repo.findAll(null, null, null).stream()
+        List<ReqItem> items = rootRequirements(repo.findAll(null, null, null)).stream()
                 .filter(i -> !"CANCELLED".equals(i.getStatus()))
                 .toList();
 
@@ -328,7 +330,7 @@ public class ReqPoolController {
      */
     @PostMapping("/batch-analyze")
     public ResponseEntity<Map<String, Object>> batchAnalyze() {
-        List<ReqItem> items = repo.findAll(null, null, null).stream()
+        List<ReqItem> items = rootRequirements(repo.findAll(null, null, null)).stream()
                 .filter(i -> i.getAiInsight() == null || i.getAiInsight().isBlank())
                 .toList();
 
@@ -449,6 +451,23 @@ public class ReqPoolController {
         }
 
         return ResponseEntity.ok(Map.of("created", created, "updated", updated, "deleted", deleted));
+    }
+
+    /**
+     * 修订版与拆分子需求仍保留独立交付证据，但组合分析只能按根需求参与一次，
+     * 否则同一条业务需求的 v2/v3 会被重复计权并挤占优先级名次。
+     */
+    private List<ReqItem> rootRequirements(List<ReqItem> items) {
+        Set<String> childSessionIds = jdbc.queryForList(
+                        "SELECT id FROM prd_session WHERE parent_id IS NOT NULL AND parent_id <> ''",
+                        String.class)
+                .stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        return items.stream()
+                .filter(item -> item.getPrdSessionId() == null
+                        || !childSessionIds.contains(item.getPrdSessionId()))
+                .toList();
     }
 
     private ReqItem buildSeed(String title, String description, String priority, long createdAt) {

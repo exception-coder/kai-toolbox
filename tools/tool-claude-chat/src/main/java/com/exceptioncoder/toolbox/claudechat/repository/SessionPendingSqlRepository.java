@@ -20,12 +20,17 @@ public class SessionPendingSqlRepository {
             rs.getString("status"),
             rs.getLong("created_at"),
             rs.getLong("updated_at"),
-            rs.getObject("executed_at", Long.class));
+            nullableLong(rs, "executed_at"));
 
     private final JdbcTemplate jdbc;
 
     public SessionPendingSqlRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
+    }
+
+    private static Long nullableLong(java.sql.ResultSet rs, String column) throws java.sql.SQLException {
+        long value = rs.getLong(column);
+        return rs.wasNull() ? null : value;
     }
 
     /** 查询会话登记，不存在时返回 {@code null}。 */

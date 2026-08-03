@@ -34,6 +34,8 @@ public class ClaudeChatSession {
     private String executionPolicy;
     /** 会话所属分组名（用户自定义，如 "toolbox"）；空=未分组。后端持久化，跨端可见。 */
     private String groupName;
+    /** 二级需求分组；一级 groupName 通常表示系统/项目。 */
+    private String subgroupName;
     private SessionStatus status;
     private long startedAt;
     private long lastSeenAt;

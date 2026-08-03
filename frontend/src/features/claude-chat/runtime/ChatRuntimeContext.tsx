@@ -244,10 +244,14 @@ function ChatEngine({
   useEffect(() => {
     if (routePrdSessionId) setPrdSessionId(routePrdSessionId)
   }, [routePrdSessionId])
+  // 路由参数必须在本次 render 就决定连接通道，不能等上面的 state effect 再切换。
+  // 否则“打开已绑定开发会话”会先在 ADMIN 通道发 switch，下一拍才重连 PRD 通道；
+  // 首次 switch 的去重标记却被保留，最终左侧有会话、右侧 currentSession 仍为空。
+  const effectivePrdSessionId = routePrdSessionId ?? prdSessionId
   const chat = useClaudeChatSocket(demo
     ? { demo: true }
-    : prdSessionId
-      ? { channel: 'prd-dev', prdSessionId }
+    : effectivePrdSessionId
+      ? { channel: 'prd-dev', prdSessionId: effectivePrdSessionId }
       : undefined)
   const targetSessionId = useMemo(
     () => new URLSearchParams(location.search).get('sessionId')?.trim() || null,
@@ -336,6 +340,11 @@ function ChatEngine({
   const switchedTargetRef = useRef<string | null>(null)
   const chatRef = useRef(chat)
   chatRef.current = chat
+  // 同一个目标只自动恢复一次，之后允许用户手动“切换会话”接管其它开发会话；
+  // 只有路由目标或 PRD 授权通道真正变化时才解除一次性保护并重新恢复。
+  useEffect(() => {
+    switchedTargetRef.current = null
+  }, [effectivePrdSessionId, targetSessionId])
   useEffect(() => {
     if (autoOpenedRef.current) return
     autoOpenedRef.current = true
@@ -351,7 +360,7 @@ function ChatEngine({
     }
     // 需求代码节点的新开发 handoff 会由 ChatPage 立即 open；不要先自动切到“最近会话”，
     // 否则负责人范围通道会正确拒绝那条无关会话，并在界面上产生一次误导性的报错。
-    if (prdSessionId) return
+    if (effectivePrdSessionId) return
     void (async () => {
       try {
         const sessions = await listSessions()
@@ -364,13 +373,13 @@ function ChatEngine({
         // 列表拉取失败：保持空态，用户可手动新建/选择
       }
     })()
-  }, [demo, targetSessionId, prdSessionId])
+  }, [demo, targetSessionId, effectivePrdSessionId])
 
   useEffect(() => {
     if (demo || !targetSessionId || switchedTargetRef.current === targetSessionId) return
     switchedTargetRef.current = targetSessionId
     chatRef.current.switchTo(targetSessionId)
-  }, [demo, targetSessionId])
+  }, [demo, effectivePrdSessionId, targetSessionId])
 
   return <Ctx.Provider value={{ ...control, chat }}>{children}</Ctx.Provider>
 }

@@ -29,6 +29,10 @@ class PrdDocChangeAgentAnalyzerTest {
                 List.of(), profile);
         when(runner.runOnce(org.mockito.ArgumentMatchers.any())).thenReturn("""
                 {"decision":"PRD_ONLY","summary":"增加搜索","reasoning":"用户已确认",
+                 "changeCauseType":"BUSINESS_CHANGE","changeCauseDetail":"用户补充了新的搜索范围",
+                 "diffLedger":[{"id":"DIFF-001","sourceDocument":"PRD","sourceSection":"搜索",
+                 "currentDocument":"未定义","evidenceLevel":"USER_CONFIRMED","evidenceIds":["CONV-0001"],
+                 "actualEvidence":"用户确认增加搜索","proposedChange":"补充搜索要求","changeKind":"CODE_FACT","status":"PROPOSED"}],
                  "claims":[{"type":"CONFIRMED_REQUIREMENT","statement":"增加搜索",
                  "evidenceIds":["CONV-0001"],"documentImpact":"PRD"}],
                  "prdPatchPlan":["交互"],"tddPatchPlan":[],"risks":[],
@@ -47,6 +51,10 @@ class PrdDocChangeAgentAnalyzerTest {
         assertThat(request.getValue().toolPolicy()).isEqualTo(AgentOneShotRunner.TOOL_POLICY_DISABLED);
         assertThat(request.getValue().userPrompt()).doesNotContain("secret");
         assertThat(result.decision()).isEqualTo("PRD_ONLY");
+        assertThat(result.changeCauseType()).isEqualTo("BUSINESS_CHANGE");
+        assertThat(result.changeCauseDetail()).isEqualTo("用户补充了新的搜索范围");
+        assertThat(result.diffLedger()).hasSize(1);
+        assertThat(result.diffLedger().getFirst().status()).isEqualTo("PROPOSED");
     }
 
     @Test

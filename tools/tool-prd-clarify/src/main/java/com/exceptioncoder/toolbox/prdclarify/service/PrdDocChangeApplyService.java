@@ -39,8 +39,14 @@ public class PrdDocChangeApplyService {
         if (!Set.of("PRD_ONLY", "TDD_ONLY", "BOTH").contains(candidate.getDecision())) {
             throw new IllegalStateException("当前 AI 结论没有可执行的 PRD/TDD 更新范围");
         }
+        analysisService.assertReadyForApply(candidateId);
         if ("APPLYING".equals(candidate.getStatus())) return candidate;
-        if ("APPLIED".equals(candidate.getStatus())) return candidate;
+        if ("APPLIED".equals(candidate.getStatus())) {
+            if (candidate.getVerifiedAt() == null) {
+                Thread.ofVirtual().name("prd-doc-change-verify-").start(() -> finalizeLedger(candidateId));
+            }
+            return candidate;
+        }
         if (!Set.of("PENDING", "CONFIRMED", "PARTIAL").contains(candidate.getStatus())) {
             throw new IllegalStateException("当前候选状态不能启动后台更新: " + candidate.getStatus());
         }
@@ -50,7 +56,13 @@ public class PrdDocChangeApplyService {
         boolean recoveredPrdAlreadyFinished = "PARTIAL".equals(current.getStatus())
                 && "PRD".equals(current.getApplyStage()) && prdFinishedAfterCandidate(current);
         String note = buildUpdateNote(current, extraInstructions);
-        if (current.getRevisionSessionId() == null || current.getRevisionSessionId().isBlank()) {
+        if ("TDD_ONLY".equals(current.getDecision())
+                && (current.getRevisionSessionId() == null || current.getRevisionSessionId().isBlank())) {
+            // 只更新技术方案时 PRD 内容没有产生新版本，直接把 TDD 写回当前所选 PRD 节点。
+            // revision_session_id 仍明确记录实际目标，避免候选详情看起来像“未关联更新版本”。
+            candidateRepository.updateRevisionSession(candidateId, current.getPrdSessionId());
+            current = requireCandidate(candidateId);
+        } else if (current.getRevisionSessionId() == null || current.getRevisionSessionId().isBlank()) {
             try {
                 PrdSession revision = recoveredPrdAlreadyFinished
                         ? clarifyService.recoverInPlacePrdAsBackgroundRevision(
@@ -73,7 +85,10 @@ public class PrdDocChangeApplyService {
             if (recoveredPrdAlreadyFinished) {
                 current = analysisService.applyAction(candidateId,
                         "PRD_ONLY".equals(current.getDecision()) ? "PRD_ONLY_SUCCESS" : "PRD_SUCCESS", null);
-                if ("APPLIED".equals(current.getStatus())) return current;
+                if ("APPLIED".equals(current.getStatus())) {
+                    Thread.ofVirtual().name("prd-doc-change-verify-").start(() -> finalizeLedger(candidateId));
+                    return current;
+                }
                 current = analysisService.applyAction(candidateId, "START_TDD", null);
             }
         }
@@ -92,12 +107,16 @@ public class PrdDocChangeApplyService {
                 runPrd(targetSessionId, note);
                 current = analysisService.applyAction(candidateId,
                         "PRD_ONLY".equals(current.getDecision()) ? "PRD_ONLY_SUCCESS" : "PRD_SUCCESS", null);
-                if ("APPLIED".equals(current.getStatus())) return;
+                if ("APPLIED".equals(current.getStatus())) {
+                    finalizeLedger(candidateId);
+                    return;
+                }
                 current = analysisService.applyAction(candidateId, "START_TDD", null);
             }
             if ("TDD".equals(current.getApplyStage())) {
                 runTdd(targetSessionId, note);
                 analysisService.applyAction(candidateId, "TDD_SUCCESS", null);
+                finalizeLedger(candidateId);
             }
         } catch (Exception e) {
             log.warn("[prd-clarify] 后台文档更新失败 candidateId={}", candidateId, e);
@@ -109,6 +128,16 @@ public class PrdDocChangeApplyService {
             } catch (Exception stateError) {
                 log.error("[prd-clarify] 登记后台文档更新失败状态失败 candidateId={}", candidateId, stateError);
             }
+        }
+    }
+
+    private void finalizeLedger(String candidateId) {
+        try {
+            analysisService.markLedgerApplied(candidateId);
+            analysisService.verifyAppliedDocuments(candidateId);
+        } catch (Exception e) {
+            log.warn("[prd-clarify] 正式文档已写回，但差异账本独立复核失败 candidateId={}", candidateId, e);
+            analysisService.recordVerificationFailure(candidateId, message(e));
         }
     }
 
@@ -159,10 +188,15 @@ public class PrdDocChangeApplyService {
         StringBuilder note = new StringBuilder();
         note.append("变更原因分类：").append(value(candidate.getChangeCauseType())).append('\n');
         note.append("AI 变更原因：").append(value(candidate.getChangeCauseDetail())).append('\n');
-        note.append("分析摘要：").append(value(candidate.getSummary())).append('\n');
-        note.append("判断理由：").append(value(candidate.getReasoning())).append('\n');
-        note.append("PRD 修改计划：").append(value(candidate.getPrdPatchPlanJson())).append('\n');
-        note.append("TDD 修改计划：").append(value(candidate.getTddPatchPlanJson())).append('\n');
+        note.append("差异汇总：").append(value(candidate.getSummary())).append('\n');
+        note.append("差异判断理由：").append(value(candidate.getReasoning())).append('\n');
+        note.append("差异证据：").append(value(candidate.getEvidenceJson())).append('\n');
+        note.append("差异账本：").append(value(candidate.getDiffLedgerJson())).append('\n');
+        note.append("PRD 差异更新清单：").append(value(candidate.getPrdPatchPlanJson())).append('\n');
+        note.append("TDD 差异更新清单：").append(value(candidate.getTddPatchPlanJson())).append('\n');
+        note.append("风险与冲突：").append(value(candidate.getRisksJson())).append('\n');
+        note.append("要求：只应用账本中已确认或有确定事实支持且属于本次目标文档的差异；"
+                + "UNRESOLVED/OUT_OF_SCOPE 不得写成已确认需求。保留未受影响内容，不得自行扩写无证据的新需求。\n");
         if (extra != null && !extra.isBlank()) note.append("额外约束：").append(extra.trim()).append('\n');
         return note.toString();
     }

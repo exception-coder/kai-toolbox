@@ -124,7 +124,7 @@ function stepIndex(step: PrdStep): number {
 }
 
 /**
- * @param onClickStep 若传入，已完成的步骤可点击（用于从第 3 步查看第 2 步澄清记录）
+ * @param onClickStep 若传入，已完成的步骤可点击（返回填写需求或查看澄清记录）
  */
 function StepBar({ step, onClickStep, leading }: {
   step: PrdStep
@@ -138,15 +138,15 @@ function StepBar({ step, onClickStep, leading }: {
     <div className="flex items-center gap-1.5 px-3 py-2 border-b border-[var(--color-border)] bg-[var(--color-card)] overflow-x-auto whitespace-nowrap md:gap-2 md:px-6 md:py-3">
       {leading}
       {STEP_LABELS.map((label, i) => {
-        // 只有步骤 2（i=1，AI渐进澄清）可点击查看历史；步骤 1 回退等于重新开始，不可点
-        const clickable = i === 1 && active > 1 && !!onClickStep
+        const clickable = ((i === 0 && active > 0) || (i === 1 && active > 1)) && !!onClickStep
+        const clickTitle = i === 0 ? '返回填写需求' : `查看${label}`
         return (
           <div key={label} className="flex items-center gap-1.5 flex-shrink-0 md:gap-2">
             <button
               type="button"
               onClick={() => clickable && onClickStep?.(i)}
               disabled={!clickable}
-              title={clickable ? `查看${label}` : undefined}
+              title={clickable ? clickTitle : undefined}
               className={`w-5 h-5 flex-shrink-0 rounded-full flex items-center justify-center text-[10px] font-semibold transition-opacity md:w-6 md:h-6 md:text-xs
                 ${i <= active
                   ? 'bg-[var(--color-primary)] text-white'
@@ -337,8 +337,14 @@ function EstimationBadge({
   onClick?: (e: React.MouseEvent) => void
   compact?: boolean
 }) {
-  const colorClass = estimation.stale
-    ? 'bg-amber-500/15 text-amber-500 border-amber-500/20'
+  const running = estimation.workStatus === 'RUNNING'
+  const failed = estimation.workStatus === 'ERROR'
+  const colorClass = running
+    ? 'bg-violet-500/15 text-violet-400 border-violet-500/20'
+    : estimation.stale
+      ? 'bg-amber-500/15 text-amber-500 border-amber-500/20'
+      : failed
+        ? 'bg-red-500/15 text-red-400 border-red-500/20'
     : ESTIMATION_CONFIDENCE_COLOR[estimation.confidence]
   return (
     <button
@@ -347,13 +353,17 @@ function EstimationBadge({
         compact ? 'text-[9px] px-1' : 'text-[10px] px-1.5 py-0.5'
       } ${onClick ? 'hover:opacity-80 cursor-pointer' : 'cursor-default'}`}
       title={
-        estimation.stale
+        running
+          ? 'AI 工时正在后台评估'
+          : failed
+            ? estimation.workError || 'AI 工时评估失败'
+          : estimation.stale
           ? '开发文档已更新，此评估可能已过期，建议重新评估'
           : `AI 工时评估 · 信心：${ESTIMATION_CONFIDENCE_LABEL[estimation.confidence]}`
       }
     >
-      <Clock className={compact ? 'w-2.5 h-2.5' : 'w-3 h-3'} />
-      {estimation.hoursMin}-{estimation.hoursMax}h
+      {running ? <Loader2 className={`${compact ? 'w-2.5 h-2.5' : 'w-3 h-3'} animate-spin`} /> : <Clock className={compact ? 'w-2.5 h-2.5' : 'w-3 h-3'} />}
+      {running ? '评估中' : failed ? '评估失败' : `${estimation.hoursMin}-${estimation.hoursMax}h`}
       {estimation.stale && <span>⚠</span>}
     </button>
   )
@@ -4356,6 +4366,28 @@ function EditingPanel({
   const [viewingProgressVersion, setViewingProgressVersion] = useState<{ version: number; isCurrent: boolean } | null>(null)
 
   const qc = useQueryClient()
+  useEffect(() => {
+    if (devDocEstimation?.workStatus !== 'RUNNING') return
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const poll = async () => {
+      try {
+        const latest = await getSession(sessionId)
+        if (cancelled) return
+        setDevDocEstimation(latest.devDocEstimation)
+        if (latest.devDocEstimation?.workStatus === 'RUNNING') timer = setTimeout(poll, 2000)
+        else qc.invalidateQueries({ queryKey: ['prd-sessions'] })
+      } catch {
+        if (!cancelled) timer = setTimeout(poll, 4000)
+      }
+    }
+    timer = setTimeout(poll, 1200)
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [devDocEstimation?.workStatus, qc, sessionId])
+
   const handleEstimateEffort = async (extraContext: string) => {
     setEstimating(true)
     setEstimateError(null)
@@ -5212,6 +5244,18 @@ export function PrdClarifyPage() {
     reqItemIdRef.current = ''
   }
 
+  /** 返回填写需求页并回填当前会话内容；再次提交时创建新会话，旧记录保持不变。 */
+  const handleBackToInput = () => {
+    abortRef.current?.()
+    abortRef.current = null
+    prdAccRef.current = ''
+    setStreamText('')
+    setErrorMsg(null)
+    setGenerationFailed(false)
+    setRevisionPreparing(null)
+    setStep('INPUT')
+  }
+
   /**
    * 基于已有 PRD 生成修订版：
    * 1. 读取原版 PRD 内容
@@ -5552,10 +5596,11 @@ PRD_SESSION_ID: ${created.id}`
 
   return (
     <div className="h-full flex flex-col overflow-hidden bg-[var(--color-background)]">
-      {/* 步骤条：在第 3 步时，第 2 步可点击查看澄清记录 */}
+      {/* 步骤条：可返回第 1 步重新填写；在第 3 步可查看第 2 步澄清记录 */}
       <StepBar
         step={step}
         onClickStep={(idx) => {
+          if (idx === 0) handleBackToInput()
           if (idx === 1) setShowClarifyHistory(true)  // 点击第 2 步 → 打开澄清记录抽屉
         }}
         leading={
@@ -5655,16 +5700,14 @@ PRD_SESSION_ID: ${created.id}`
         {/* 主内容区 */}
         {step === 'INPUT' && (
           <InputPanel
-            // key 随 sessionId 变化强制重新挂载：不这样的话，在 INPUT 步骤内直接从历史列表
-            // 切换到另一条草稿时，InputPanel 内部 useState(initialTitle) 只在挂载时读一次初始值，
-            // 不会跟着新选中的草稿刷新表单内容。
-            key={session?.status === 'DRAFT' ? sessionId : 'new'}
+            // 返回第 1 步时回填当前会话；非草稿再次提交会创建新会话，不覆盖旧记录。
+            key={sessionId ?? 'new'}
             onStart={handleStart}
             onStartVibe={handleStartVibe}
-            initialTitle={session?.status === 'DRAFT' ? (session.title ?? '') : urlTitle}
-            initialRawInput={session?.status === 'DRAFT' ? (session.rawInput ?? '') : urlRawInput}
-            initialProject={session?.status === 'DRAFT' ? (session.project ?? '') : urlProject}
-            initialModule={session?.status === 'DRAFT' ? (session.module ?? '') : urlModule}
+            initialTitle={session?.title ?? urlTitle}
+            initialRawInput={session?.rawInput ?? urlRawInput}
+            initialProject={session?.project ?? urlProject}
+            initialModule={session?.module ?? urlModule}
             draftId={session?.status === 'DRAFT' ? sessionId : null}
             onDraftSaved={(id) => {
               setSessionId(id)

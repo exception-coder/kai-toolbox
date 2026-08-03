@@ -38,6 +38,8 @@ export interface ClaudeChatSessionView {
   codexHome?: string | null
   /** 会话所属分组名（后端持久化，跨端可见）；空/缺省=未分组 */
   group?: string | null
+  /** 二级需求分组；一级 group 通常表示系统/项目。 */
+  subgroup?: string | null
   status: SessionStatus
   startedAt: number
   lastSeenAt: number

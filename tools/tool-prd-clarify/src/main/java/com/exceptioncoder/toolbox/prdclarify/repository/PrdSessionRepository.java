@@ -104,7 +104,8 @@ public class PrdSessionRepository {
     public Optional<PrdSession> findLatestRevision(String parentId) {
         List<PrdSession> rows = jdbc.query("""
                 SELECT * FROM prd_session
-                WHERE parent_id = ? AND raw_input LIKE '【后台自动修订%'
+                WHERE parent_id = ?
+                  AND (raw_input LIKE '【后台自动修订%' OR raw_input LIKE '【修订版 PRD%')
                 ORDER BY created_at DESC LIMIT 1
                 """, ROW, parentId);
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.getFirst());

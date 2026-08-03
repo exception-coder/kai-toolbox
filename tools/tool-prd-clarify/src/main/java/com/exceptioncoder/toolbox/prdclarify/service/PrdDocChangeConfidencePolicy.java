@@ -13,8 +13,6 @@ import java.util.stream.Collectors;
 @Service
 public class PrdDocChangeConfidencePolicy {
 
-    private static final Set<String> PRD_DECISIONS = Set.of("PRD_ONLY", "BOTH");
-    private static final Set<String> TECHNICAL_DECISIONS = Set.of("TDD_ONLY", "BOTH");
     private static final Set<String> CLAIM_TYPES = Set.of(
             "CONFIRMED_REQUIREMENT", "REJECTED_OPTION", "IMPLEMENTED_TECHNICAL_FACT",
             "PROPOSED_TECHNICAL_DECISION", "DISCUSSION_ONLY", "CONFLICT", "MISSING_DECISION");
@@ -38,22 +36,15 @@ public class PrdDocChangeConfidencePolicy {
         boolean decisionConflict = !verification.recommendedDecision().isBlank()
                 && !analysis.decision().equals(verification.recommendedDecision());
         if (decisionConflict) {
-            risks.add("分析器与复核器对更新范围判断不一致："
+            risks.add("独立复核对更新范围有不同建议（仅供审计，不覆盖主分析结论）："
                     + analysis.decision() + " / " + verification.recommendedDecision());
         }
-        boolean missingRequirementEvidence = PRD_DECISIONS.contains(analysis.decision())
-                && !hasRequirementEvidence(supportedClaims, evidenceById);
-        boolean missingTechnicalEvidence = TECHNICAL_DECISIONS.contains(analysis.decision())
-                && !hasTechnicalEvidence(supportedClaims, evidenceById);
-        boolean forcedUncertain = !analysis.parsed() || !verification.verified() || decisionConflict
-                || !verification.conflicts().isEmpty() || !verification.missingEvidenceIds().isEmpty()
-                || missingRequirementEvidence || missingTechnicalEvidence;
-        if (missingRequirementEvidence) {
-            risks.add("PRD 变更缺少用户确认或澄清证据");
-        }
-        if (missingTechnicalEvidence) {
-            risks.add("TDD 变更缺少 Git 或工具结果证据");
-        }
+        // 服务端只守住机器契约和引用完整性，不再用固定的“某类文档必须对应某类证据”规则
+        // 代替会话引擎判断业务差异。Git 不是前置条件，复核器意见也只作为审计提示。
+        boolean expectsChanges = Set.of("PRD_ONLY", "TDD_ONLY", "BOTH").contains(analysis.decision());
+        boolean allClaimsInvalid = expectsChanges && !analysis.claims().isEmpty() && supportedClaims.isEmpty();
+        boolean forcedUncertain = !analysis.parsed()
+                || !verification.missingEvidenceIds().isEmpty() || allClaimsInvalid;
         if (!unsupportedIndexes.isEmpty()) {
             risks.add("有 " + unsupportedIndexes.size() + " 条结论缺少有效证据，已从候选证据中剔除");
         }
@@ -69,9 +60,21 @@ public class PrdDocChangeConfidencePolicy {
                 .map(claim -> "[" + claim.type() + "]["
                         + String.join(",", claim.evidenceIds()) + "] " + claim.statement())
                 .toList();
-        return new PrdDocChangeFinalAnalysis(decision, analysis.summary(), reasoning, evidence,
+        List<PrdDocDiffItem> ledger = analysis.diffLedger().stream()
+                .map(item -> "MATCHED".equals(item.status()) && verification.verified()
+                        && verification.missingEvidenceIds().isEmpty() && verification.conflicts().isEmpty()
+                        ? withStatus(item, "VERIFIED") : item)
+                .toList();
+        return new PrdDocChangeFinalAnalysis(decision, analysis.summary(), reasoning,
+                analysis.changeCauseType(), analysis.changeCauseDetail(), ledger, evidence,
                 analysis.prdPatchPlan(), analysis.tddPatchPlan(), List.copyOf(new java.util.LinkedHashSet<>(risks)),
                 question, confidence);
+    }
+
+    private static PrdDocDiffItem withStatus(PrdDocDiffItem item, String status) {
+        return new PrdDocDiffItem(item.id(), item.sourceDocument(), item.sourceSection(), item.currentDocument(),
+                item.evidenceLevel(), item.evidenceIds(), item.actualEvidence(), item.proposedChange(),
+                item.changeKind(), status);
     }
 
     private Set<Integer> unsupportedIndexes(PrdDocChangeAnalysisResult analysis,
@@ -97,28 +100,6 @@ public class PrdDocChangeConfidencePolicy {
             }
         }
         return supported;
-    }
-
-    private boolean hasRequirementEvidence(List<PrdDocChangeAnalysisResult.Claim> claims,
-                                           Map<String, PrdDocChangeEvidenceBundle.EvidenceItem> evidenceById) {
-        return claims.stream()
-                .filter(claim -> "CONFIRMED_REQUIREMENT".equals(claim.type()))
-                .flatMap(claim -> claim.evidenceIds().stream())
-                .map(evidenceById::get)
-                .filter(java.util.Objects::nonNull)
-                .anyMatch(item -> Set.of("USER_MESSAGE", "CLARIFICATION").contains(item.type()));
-    }
-
-    private boolean hasTechnicalEvidence(List<PrdDocChangeAnalysisResult.Claim> claims,
-                                           Map<String, PrdDocChangeEvidenceBundle.EvidenceItem> evidenceById) {
-        return claims.stream()
-                .filter(claim -> Set.of("IMPLEMENTED_TECHNICAL_FACT", "PROPOSED_TECHNICAL_DECISION",
-                        "CONFIRMED_REQUIREMENT").contains(claim.type()))
-                .flatMap(claim -> claim.evidenceIds().stream())
-                .map(evidenceById::get)
-                .filter(java.util.Objects::nonNull)
-                .anyMatch(item -> Set.of("GIT_CHANGE", "TOOL_RESULT", "USER_MESSAGE", "CLARIFICATION")
-                        .contains(item.type()));
     }
 
     private int confidence(PrdDocChangeEvidenceBundle bundle, PrdDocChangeAnalysisResult analysis,

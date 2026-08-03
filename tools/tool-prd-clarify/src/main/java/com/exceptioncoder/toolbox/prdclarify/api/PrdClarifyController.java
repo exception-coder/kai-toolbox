@@ -648,14 +648,16 @@ public class PrdClarifyController {
 
     /**
      * AI 工时评估：基于当前 PRD + 当前开发文档（结合代码/业务知识图谱查询结果）评估开发工时。
-     * 同步阻塞调一次 oneShot LLM（用法与 {@code createSession} 里的需求类型自动判定一致），
-     * 结果落库后随会话详情一起返回，历史列表/开发文档 Tab 都从这里读。
+     * 请求只登记后台任务并立即返回；任务状态和结果都落在会话详情中，前端可轮询且关闭弹框不影响执行。
      */
     @PostMapping("/sessions/{id}/dev-doc/estimate")
     public PrdSessionView estimateEffort(@PathVariable String id,
                                           @RequestBody(required = false) EstimateEffortRequest req) {
         com.exceptioncoder.toolbox.prdclarify.domain.PrdSession updated =
-                service.estimateDevDocEffort(id, req == null ? null : req.extraContext());
+                service.startEstimateDevDocEffort(
+                        id,
+                        req == null ? null : req.extraContext(),
+                        req == null ? null : req.engine());
         return PrdSessionView.from(updated);
     }
 
@@ -672,6 +674,12 @@ public class PrdClarifyController {
     public ResponseEntity<PrdDocChangeCandidateView> latestDocumentChange(@PathVariable String id) {
         PrdDocChangeCandidateView view = PrdDocChangeCandidateView.from(changeAnalysisService.latest(id));
         return view == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(view);
+    }
+
+    /** 查询全部分析与后台更新记录，供完成后审计变更原因和版本关联。 */
+    @GetMapping("/sessions/{id}/change-candidates")
+    public java.util.List<PrdDocChangeCandidateView> documentChangeHistory(@PathVariable String id) {
+        return changeAnalysisService.history(id).stream().map(PrdDocChangeCandidateView::from).toList();
     }
 
     /** 用户覆写 AI 建议范围，AI 原始判定保持不变。 */

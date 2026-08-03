@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { emitSessionExpired, ensureFreshToken, getToken, logout, probeAuth, useAuth } from '@/lib/auth'
 import type { Attachment, BackgroundTaskInfo, ChatItem, ClientMessage, CodexReasoningEffort, CodexSpeed, ConnState, Engine, ModelInfo, PendingRequest, PendingSessionRef, PermissionMode, ProviderKind, SendAttachment, ServerMessage, TurnDiag } from '../types'
 import { loadMessages } from '../api'
@@ -627,6 +627,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     wsRef.current = ws
 
     ws.onopen = () => {
+      if (wsRef.current !== ws) return
       reconnectAttemptsRef.current = 0 // 连上即清零退避，下次断线从最短间隔重来
       openedRef.current = true
       authFailRef.current = 0 // 成功握手即清鉴权失败计数
@@ -635,6 +636,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       flushPendingSends()
     }
     ws.onmessage = ev => {
+      if (wsRef.current !== ws) return
       let msg: ServerMessage
       try {
         msg = JSON.parse(ev.data)
@@ -646,11 +648,15 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       applyEvent(msg)
     }
     ws.onerror = () => {
+      if (wsRef.current !== ws) return
       setState('error')
       setErrorMessage('WebSocket 连接出错')
       pushDebug('conn', 'error', 'WebSocket 连接出错')
     }
     ws.onclose = () => {
+      // 切换 ADMIN / PRD 开发通道时，旧 socket 的 close 可能晚于新 socket 建立；
+      // 旧回调不能清掉新连接或按旧会话再次发起重连。
+      if (wsRef.current !== ws) return
       wsRef.current = null
       pushDebug('conn', 'close', `WS 关闭（openedThisAttempt=${openedRef.current}）`)
       if (manualCloseRef.current) return
@@ -734,7 +740,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     })
   }, [openSocket, demo])
 
-  useEffect(() => {
+  // 通道切换必须在页面的普通 effect（例如“开始开发”handoff）之前完成清理。
+  // 否则 handoff 会把 open/send 发给上一条仍处于 OPEN 的 ADMIN socket，形成已创建但未绑定 PRD 的孤儿会话。
+  useLayoutEffect(() => {
     manualCloseRef.current = false
     connect()
     return () => {

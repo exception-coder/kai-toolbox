@@ -304,10 +304,10 @@ export function renameSession(id: string, title: string) {
 }
 
 /** 设置/清除会话分组（后端持久化，跨端可见）；group 传空串=移出分组。 */
-export function setSessionGroupApi(id: string, group: string | null) {
+export function setSessionGroupApi(id: string, group: string | null, subgroup?: string | null) {
   return http<void>(`/claude-chat/sessions/${encodeURIComponent(id)}/group`, {
     method: 'PUT',
-    body: JSON.stringify({ group: group ?? '' }),
+    body: JSON.stringify({ group: group ?? '', subgroup: group ? subgroup ?? '' : '' }),
   })
 }
 

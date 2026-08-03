@@ -11,7 +11,7 @@ class PrdDocChangeConfidencePolicyTest {
     private final PrdDocChangeConfidencePolicy policy = new PrdDocChangeConfidencePolicy();
 
     @Test
-    void forcesUncertainWhenPrdDecisionHasNoConfirmedUserEvidence() {
+    void keepsEngineDecisionWithoutHardCodingEvidenceTypeRules() {
         PrdDocChangeEvidenceBundle bundle = bundle(List.of(
                 new PrdDocChangeEvidenceBundle.EvidenceItem(
                         "GIT-0001", "GIT_CHANGE", "代码变化", "diff", false)));
@@ -25,9 +25,9 @@ class PrdDocChangeConfidencePolicyTest {
 
         PrdDocChangeFinalAnalysis result = policy.evaluate(bundle, analysis, verification);
 
-        assertThat(result.decision()).isEqualTo("UNCERTAIN");
-        assertThat(result.confidence()).isLessThanOrEqualTo(45);
-        assertThat(result.risks()).anyMatch(item -> item.contains("缺少用户确认"));
+        assertThat(result.decision()).isEqualTo("BOTH");
+        assertThat(result.confidence()).isGreaterThan(45);
+        assertThat(result.risks()).noneMatch(item -> item.contains("缺少用户确认"));
     }
 
     @Test
@@ -51,7 +51,7 @@ class PrdDocChangeConfidencePolicyTest {
     }
 
     @Test
-    void forcesUncertainWhenAnalyzerAndVerifierDisagree() {
+    void keepsPrimaryEngineDecisionWhenVerifierOnlyRecommendsAnotherScope() {
         PrdDocChangeEvidenceBundle bundle = bundle(List.of(
                 new PrdDocChangeEvidenceBundle.EvidenceItem(
                         "GIT-0001", "GIT_CHANGE", "代码变化", "diff", false)));
@@ -65,8 +65,8 @@ class PrdDocChangeConfidencePolicyTest {
 
         PrdDocChangeFinalAnalysis result = policy.evaluate(bundle, analysis, verification);
 
-        assertThat(result.decision()).isEqualTo("UNCERTAIN");
-        assertThat(result.risks()).anyMatch(item -> item.contains("判断不一致"));
+        assertThat(result.decision()).isEqualTo("TDD_ONLY");
+        assertThat(result.risks()).anyMatch(item -> item.contains("不同建议"));
     }
 
     @Test
@@ -89,6 +89,48 @@ class PrdDocChangeConfidencePolicyTest {
 
         assertThat(result.decision()).isEqualTo("BOTH");
         assertThat(result.risks()).noneMatch(item -> item.contains("缺少 Git"));
+    }
+
+    @Test
+    void onlyIndependentVerificationPromotesMatchedLedgerItemToVerified() {
+        PrdDocChangeEvidenceBundle bundle = bundle(List.of(
+                new PrdDocChangeEvidenceBundle.EvidenceItem(
+                        "DOC-TDD", "DOCUMENT", "latest TDD", "table=ERP_MDEVELOPCALC", false)));
+        PrdDocDiffItem item = new PrdDocDiffItem(
+                "DIFF-001", "TDD", "database", "ERP_MDEVELOPCALC", "DOCUMENT",
+                List.of("DOC-TDD"), "ERP_MDEVELOPCALC", "none", "CODE_FACT", "MATCHED");
+        PrdDocChangeAnalysisResult analysis = new PrdDocChangeAnalysisResult(
+                "NONE", "aligned", "latest formal TDD matches evidence", "OTHER", "already filed",
+                List.of(item), List.of(new PrdDocChangeAnalysisResult.Claim(
+                        "IMPLEMENTED_TECHNICAL_FACT", "table matches", List.of("DOC-TDD"), "TDD")),
+                List.of(), List.of(), List.of(), "", 90, true);
+        PrdDocChangeVerificationResult verification = new PrdDocChangeVerificationResult(
+                true, "NONE", List.of(), List.of(), List.of(), 5, List.of());
+
+        PrdDocChangeFinalAnalysis result = policy.evaluate(bundle, analysis, verification);
+
+        assertThat(result.diffLedger()).extracting(PrdDocDiffItem::status).containsExactly("VERIFIED");
+    }
+
+    @Test
+    void proposalNeverBecomesVerifiedWithoutFormalDocumentMatch() {
+        PrdDocChangeEvidenceBundle bundle = bundle(List.of(
+                new PrdDocChangeEvidenceBundle.EvidenceItem(
+                        "CONV-0001", "ASSISTANT_MESSAGE", "proposal", "rename table", false)));
+        PrdDocDiffItem item = new PrdDocDiffItem(
+                "DIFF-001", "TDD", "database", "old", "LLM_PROPOSAL",
+                List.of("CONV-0001"), "rename table", "use new name", "CODE_FACT", "PROPOSED");
+        PrdDocChangeAnalysisResult analysis = new PrdDocChangeAnalysisResult(
+                "TDD_ONLY", "proposal", "not filed", "OTHER", "proposal only",
+                List.of(item), List.of(new PrdDocChangeAnalysisResult.Claim(
+                        "DISCUSSION_ONLY", "rename proposal", List.of("CONV-0001"), "TDD")),
+                List.of(), List.of("database"), List.of(), "", 80, true);
+        PrdDocChangeVerificationResult verification = new PrdDocChangeVerificationResult(
+                true, "TDD_ONLY", List.of(), List.of(), List.of(), 0, List.of());
+
+        PrdDocChangeFinalAnalysis result = policy.evaluate(bundle, analysis, verification);
+
+        assertThat(result.diffLedger()).extracting(PrdDocDiffItem::status).containsExactly("PROPOSED");
     }
 
     private PrdDocChangeEvidenceBundle bundle(List<PrdDocChangeEvidenceBundle.EvidenceItem> evidence) {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Database, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Send, Server, Settings, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -143,6 +143,11 @@ function MenuSection({ icon, label, open, onToggle, children }: {
 export function ChatPage() {
   const { chat, setFloating, setMinimized, setVoiceMode, getReturnRoute, gestureOn, toggleGesture, gestureStatus, gestureError: gestureErr } = useChatRuntime()
   const navigate = useNavigate()
+  const location = useLocation()
+  const scopedPrdSessionId = useMemo(
+    () => new URLSearchParams(location.search).get('prdSessionId')?.trim() || null,
+    [location.search],
+  )
   const qc = useQueryClient()
   const pending = chat?.pending ?? null
 
@@ -173,6 +178,7 @@ export function ChatPage() {
   const pendingAutoPrdLinkRef = useRef<{
     prdSessionId: string
     previousDevSessionId: string | null
+    targetDevSessionId?: string
   } | null>(null)
   const autoPrdLinkInFlightRef = useRef(false)
   // 当前会话关联的 PRD（undefined=还没查/无会话，null=确认未关联），供顶栏标识展示。
@@ -194,34 +200,50 @@ export function ChatPage() {
   useEffect(() => {
     const pending = pendingAutoPrdLinkRef.current
     const devSessionId = chat?.sessionId
-    if (!pending || !devSessionId || devSessionId === pending.previousDevSessionId || autoPrdLinkInFlightRef.current) return
+    if (!pending || !devSessionId || devSessionId === pending.previousDevSessionId) return
 
-    let cancelled = false
+    // 通道重连时可能连续收到多个 sessionId。始终记录最新目标，并由单个串行 worker 做“最后一次绑定”，
+    // 避免旧请求尚未结束时新 effect 被 inFlight 直接跳过，最终留下有内容但没有 PRD/TDD 关联的会话。
+    pending.targetDevSessionId = devSessionId
+    if (autoPrdLinkInFlightRef.current) return
     autoPrdLinkInFlightRef.current = true
-    const linkWithRetry = async () => {
-      for (let attempt = 0; attempt < 4; attempt += 1) {
-        try {
-          await linkDevSession(pending.prdSessionId, devSessionId)
-          const linked = await getSessionByDevSession(devSessionId)
-          if (!cancelled) {
-            pendingAutoPrdLinkRef.current = null
-            setLinkedPrd(linked)
-          }
-          return
-        } catch {
-          if (attempt < 3) {
-            await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)))
+    const linkLatestTarget = async () => {
+      while (pendingAutoPrdLinkRef.current?.targetDevSessionId) {
+        const current = pendingAutoPrdLinkRef.current
+        const targetDevSessionId = current.targetDevSessionId
+        if (!targetDevSessionId) return
+        let linked: PrdSessionView | null = null
+
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          // 新 ready 已给出更新的会话 ID：停止重试旧目标，回到 while 绑定最新目标。
+          if (pendingAutoPrdLinkRef.current?.targetDevSessionId !== targetDevSessionId) break
+          try {
+            await linkDevSession(current.prdSessionId, targetDevSessionId)
+            linked = await getSessionByDevSession(targetDevSessionId)
+            break
+          } catch {
+            if (attempt < 3) {
+              await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)))
+            }
           }
         }
-      }
-      if (!cancelled) {
+
+        const latest = pendingAutoPrdLinkRef.current
+        if (latest?.targetDevSessionId !== targetDevSessionId) continue
+        if (linked) {
+          pendingAutoPrdLinkRef.current = null
+          setLinkedPrd(linked)
+          // 把已确认的双向关系写进路由；刷新可恢复，且之后手工切换会话不会被重新强绑。
+          navigate(`/tools/claude-chat?sessionId=${encodeURIComponent(targetDevSessionId)}&prdSessionId=${encodeURIComponent(current.prdSessionId)}`, { replace: true })
+          return
+        }
         pendingAutoPrdLinkRef.current = null
         setLinkedPrd(null)
+        return
       }
     }
-    void linkWithRetry().finally(() => { autoPrdLinkInFlightRef.current = false })
-    return () => { cancelled = true }
-  }, [chat?.sessionId])
+    void linkLatestTarget().finally(() => { autoPrdLinkInFlightRef.current = false })
+  }, [chat?.sessionId, navigate])
   const [pendingSql, setPendingSql] = useState<SessionPendingSql | null | undefined>(undefined)
   useEffect(() => {
     const sessionId = chat?.sessionId
@@ -1360,6 +1382,7 @@ export function ChatPage() {
       {showPrdLink && chat.sessionId && (
         <PrdLinkPanel
           sessionId={chat.sessionId}
+          suggestedPrdSessionId={scopedPrdSessionId}
           onLinkedChange={setLinkedPrd}
           onClose={() => setShowPrdLink(false)}
         />

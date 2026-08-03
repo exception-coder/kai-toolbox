@@ -96,8 +96,9 @@ public class PrdDocChangeAnalysisService {
                     writeJson(analysis.tddPatchPlan()), writeJson(analysis.risks()),
                     analysis.clarificationQuestion(), duplicate.getClarificationHistoryJson(),
                     analysis.confidence());
-            candidateRepository.updateChangeCause(duplicate.getId(), inferCauseType(analysis.decision()),
-                    inferCauseDetail(analysis));
+            candidateRepository.updateChangeCause(duplicate.getId(), normalizeCauseType(analysis.changeCauseType()),
+                    causeDetail(analysis));
+            saveLedger(duplicate.getId(), analysis.diffLedger(), null);
             baselineRepository.saveCandidateSnapshot(duplicate.getId(), context.repositories(), context.snapshotHash());
             return requireCandidate(duplicate.getId());
         }
@@ -119,6 +120,12 @@ public class PrdDocChangeAnalysisService {
         // 最近一次调用若只产出空 claims/0% 结论，面板仍展示上一条有效结果，避免用户已确认的
         // 分析被一条不可用候选覆盖；再次分析会在同一失败快照上真正重试。
         return candidateRepository.findLatestMeaningful(prdSessionId).orElse(latest);
+    }
+
+    /** 返回该 PRD 在当前开发会话中产生的完整文档变更审计历史。 */
+    public List<PrdDocChangeCandidate> history(String prdSessionId) {
+        requireSession(prdSessionId);
+        return candidateRepository.findAllByPrdSession(prdSessionId);
     }
 
     /** 在文档执行前覆写 AI 建议范围。 */
@@ -156,8 +163,9 @@ public class PrdDocChangeAnalysisService {
                 writeJson(analysis.evidence()), writeJson(analysis.prdPatchPlan()),
                 writeJson(analysis.tddPatchPlan()), writeJson(analysis.risks()),
                 analysis.clarificationQuestion(), history.toString(), analysis.confidence());
-        candidateRepository.updateChangeCause(candidateId, inferCauseType(analysis.decision()),
-                inferCauseDetail(analysis));
+        candidateRepository.updateChangeCause(candidateId, normalizeCauseType(analysis.changeCauseType()),
+                causeDetail(analysis));
+        saveLedger(candidateId, analysis.diffLedger(), null);
         baselineRepository.saveCandidateSnapshot(candidateId, context.repositories(), context.snapshotHash());
         return requireCandidate(candidateId);
     }
@@ -229,8 +237,8 @@ public class PrdDocChangeAnalysisService {
                 .aiDecision(analysis.decision())
                 .summary(analysis.summary())
                 .reasoning(analysis.reasoning())
-                .changeCauseType(inferCauseType(analysis.decision()))
-                .changeCauseDetail(inferCauseDetail(analysis))
+                .changeCauseType(normalizeCauseType(analysis.changeCauseType()))
+                .changeCauseDetail(causeDetail(analysis))
                 .evidenceJson(writeJson(analysis.evidence()))
                 .prdPatchPlanJson(writeJson(analysis.prdPatchPlan()))
                 .tddPatchPlanJson(writeJson(analysis.tddPatchPlan()))
@@ -240,6 +248,9 @@ public class PrdDocChangeAnalysisService {
                 .confidence(analysis.confidence())
                 .status("PENDING")
                 .applyStage("NONE")
+                .diffLedgerJson(writeJson(analysis.diffLedger()))
+                .alignmentConclusionJson(writeJson(conclusion(analysis.diffLedger(), "", analysis.summary())))
+                .verifiedAt(isImplementationAllowed(analysis.diffLedger()) ? now : null)
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
@@ -349,6 +360,143 @@ public class PrdDocChangeAnalysisService {
         }
     }
 
+    public void saveLedger(String candidateId, List<PrdDocDiffItem> ledger,
+                           String finalDocumentVersion) {
+        PrdDocChangeCandidate candidate = requireCandidate(candidateId);
+        List<PrdDocDiffItem> safeLedger = ledger == null ? List.of() : List.copyOf(ledger);
+        PrdDocAlignmentConclusion result = conclusion(
+                safeLedger, finalDocumentVersion, candidate.getSummary());
+        candidateRepository.updateLedger(candidateId, writeJson(safeLedger), writeJson(result), null);
+    }
+
+    /** 文档生成成功只代表已落档，不能直接代表对齐通过。 */
+    public void markLedgerApplied(String candidateId) {
+        PrdDocChangeCandidate candidate = requireCandidate(candidateId);
+        List<PrdDocDiffItem> ledger = readLedger(candidate.getDiffLedgerJson());
+        List<PrdDocDiffItem> applied = ledger.stream().map(item ->
+                targets(candidate.getDecision(), item.sourceDocument())
+                        && Set.of("MISMATCH", "PROPOSED", "CONFIRMED", "MATCHED").contains(item.status())
+                        ? withStatus(item, "APPLIED") : item).toList();
+        saveLedger(candidateId, applied, versionLabel(candidate));
+    }
+
+    public void assertReadyForApply(String candidateId) {
+        PrdDocChangeCandidate candidate = requireCandidate(candidateId);
+        List<PrdDocDiffItem> ledger = readLedger(candidate.getDiffLedgerJson());
+        if (ledger.isEmpty()) {
+            throw new IllegalStateException("差异账本为空，请先重新分析后再写回正式 PRD/TDD");
+        }
+        boolean blocked = ledger.stream().anyMatch(item -> "UNRESOLVED".equals(item.status())
+                || ("BUSINESS_DECISION".equals(item.changeKind()) && "PROPOSED".equals(item.status())));
+        if (blocked) {
+            throw new IllegalStateException("差异账本仍有未确认的业务决策，不能写回正式 PRD/TDD");
+        }
+    }
+
+    public void recordVerificationFailure(String candidateId, String error) {
+        candidateRepository.updateVerificationError(candidateId,
+                error == null || error.isBlank() ? "正式文档独立复核失败" : error);
+    }
+
+    /** 重新读取正式 PRD/TDD 后再次分析和独立复核；只有复核确认的 MATCHED 才会转成 VERIFIED。 */
+    public PrdDocChangeCandidate verifyAppliedDocuments(String candidateId) {
+        PrdDocChangeCandidate candidate = requireCandidate(candidateId);
+        String targetId = candidate.getRevisionSessionId() == null || candidate.getRevisionSessionId().isBlank()
+                ? candidate.getPrdSessionId() : candidate.getRevisionSessionId();
+        PrdSession target = requireSession(targetId);
+        PrdDocChangeBaseline baseline = baselineRepository
+                .find(candidate.getPrdSessionId(), candidate.getDevSessionId()).orElse(null);
+        Map<String, String> heads = baseline == null ? Map.of() : baseline.repositoryHeads();
+        DevelopmentChangeContext context = snapshot(candidate.getDevSessionId(),
+                new DevelopmentSyncPoint(candidate.getConversationToSeq(), heads));
+        PrdDocChangeEvidenceBundle evidence = evidenceBuilder.build(
+                target, context, readPrd(targetId), readTdd(target), "[]", candidate);
+        PrdDocChangeFinalAnalysis verification = analyzeEvidence(
+                evidence, snapshotHash(context, evidence, "[]")).analysis();
+
+        Map<String, PrdDocDiffItem> refreshed = verification.diffLedger().stream()
+                .collect(java.util.stream.Collectors.toMap(PrdDocDiffItem::id, item -> item, (a, b) -> b,
+                        java.util.LinkedHashMap::new));
+        List<PrdDocDiffItem> merged = new java.util.ArrayList<>();
+        for (PrdDocDiffItem previous : readLedger(candidate.getDiffLedgerJson())) {
+            PrdDocDiffItem current = refreshed.remove(previous.id());
+            merged.add(current == null ? previous : current);
+        }
+        merged.addAll(refreshed.values());
+        saveVerifiedLedger(candidateId, merged, target.getTitle());
+        return requireCandidate(candidateId);
+    }
+
+    private void saveVerifiedLedger(String candidateId, List<PrdDocDiffItem> ledger,
+                                    String finalDocumentVersion) {
+        PrdDocChangeCandidate candidate = requireCandidate(candidateId);
+        PrdDocAlignmentConclusion result = conclusion(ledger, finalDocumentVersion, candidate.getSummary());
+        candidateRepository.updateLedger(candidateId, writeJson(ledger), writeJson(result),
+                System.currentTimeMillis());
+    }
+
+    private List<PrdDocDiffItem> readLedger(String json) {
+        try {
+            if (json == null || json.isBlank()) return List.of();
+            return mapper.readerForListOf(PrdDocDiffItem.class).readValue(json);
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    private static PrdDocDiffItem withStatus(PrdDocDiffItem item, String status) {
+        return new PrdDocDiffItem(item.id(), item.sourceDocument(), item.sourceSection(), item.currentDocument(),
+                item.evidenceLevel(), item.evidenceIds(), item.actualEvidence(), item.proposedChange(),
+                item.changeKind(), status);
+    }
+
+    private static boolean targets(String decision, String document) {
+        return "BOTH".equals(decision) || "BOTH".equals(document)
+                || ("PRD_ONLY".equals(decision) && "PRD".equals(document))
+                || ("TDD_ONLY".equals(decision) && "TDD".equals(document));
+    }
+
+    private static String versionLabel(PrdDocChangeCandidate candidate) {
+        return candidate.getRevisionSessionId() == null ? "" : candidate.getRevisionSessionId();
+    }
+
+    private static PrdDocAlignmentConclusion conclusion(List<PrdDocDiffItem> ledger,
+                                                         String finalDocumentVersion,
+                                                         String summary) {
+        List<PrdDocDiffItem> scoped = ledger.stream()
+                .filter(item -> !"OUT_OF_SCOPE".equals(item.status())).toList();
+        boolean codeFacts = scoped.stream().filter(item -> "CODE_FACT".equals(item.changeKind()))
+                .allMatch(item -> "VERIFIED".equals(item.status()));
+        boolean business = scoped.stream().filter(item -> "BUSINESS_DECISION".equals(item.changeKind()))
+                .allMatch(item -> Set.of("CONFIRMED", "APPLIED", "VERIFIED").contains(item.status()));
+        boolean filed = scoped.stream().allMatch(item -> "VERIFIED".equals(item.status()));
+        int verified = (int) ledger.stream().filter(item -> "VERIFIED".equals(item.status())).count();
+        int unresolved = (int) scoped.stream().filter(item -> !"VERIFIED".equals(item.status())).count();
+        int codeFactCorrections = (int) ledger.stream().filter(item -> "CODE_FACT".equals(item.changeKind())).count();
+        int confirmedBusiness = (int) ledger.stream().filter(item -> "BUSINESS_DECISION".equals(item.changeKind())
+                && Set.of("CONFIRMED", "APPLIED", "VERIFIED").contains(item.status())).count();
+        int outOfScope = (int) ledger.stream().filter(item -> "OUT_OF_SCOPE".equals(item.status())).count();
+        int prdFiled = (int) ledger.stream().filter(item -> Set.of("PRD", "BOTH").contains(item.sourceDocument())
+                && Set.of("APPLIED", "VERIFIED").contains(item.status())).count();
+        int tddFiled = (int) ledger.stream().filter(item -> Set.of("TDD", "BOTH").contains(item.sourceDocument())
+                && Set.of("APPLIED", "VERIFIED").contains(item.status())).count();
+        boolean allowed = !ledger.isEmpty() && codeFacts && business && filed && unresolved == 0;
+        if (ledger.isEmpty()) return PrdDocAlignmentConclusion.pending();
+        return new PrdDocAlignmentConclusion(
+                codeFacts ? "PASSED" : "FAILED",
+                business ? "PASSED" : "FAILED",
+                filed ? "PASSED" : "FAILED",
+                allowed ? "ALLOWED" : "BLOCKED",
+                ledger.size(), verified, unresolved,
+                codeFactCorrections, confirmedBusiness, outOfScope, prdFiled, tddFiled,
+                finalDocumentVersion == null ? "" : finalDocumentVersion,
+                summary == null ? "" : summary);
+    }
+
+    private static boolean isImplementationAllowed(List<PrdDocDiffItem> ledger) {
+        return "ALLOWED".equals(conclusion(ledger, "", "").implementationGate());
+    }
+
     private ArrayNode readArray(String json) {
         try {
             JsonNode node = mapper.readTree(json == null ? "[]" : json);
@@ -379,16 +527,16 @@ public class PrdDocChangeAnalysisService {
         return requireCandidate(candidateId);
     }
 
-    private static String inferCauseType(String decision) {
-        return switch (decision) {
-            case "PRD_ONLY" -> "REQUIREMENT_AMBIGUITY";
-            case "TDD_ONLY" -> "TECHNICAL_GAP";
-            case "BOTH" -> "MIXED";
-            default -> "OTHER";
-        };
+    private static String normalizeCauseType(String causeType) {
+        String normalized = causeType == null ? "OTHER" : causeType.trim().toUpperCase();
+        return Set.of("REQUIREMENT_AMBIGUITY", "BUSINESS_CHANGE", "TECHNICAL_GAP", "DATA_MODEL_GAP",
+                "IMPLEMENTATION_DISCOVERY", "MIXED", "OTHER").contains(normalized) ? normalized : "OTHER";
     }
 
-    private static String inferCauseDetail(PrdDocChangeFinalAnalysis analysis) {
+    private static String causeDetail(PrdDocChangeFinalAnalysis analysis) {
+        if (analysis.changeCauseDetail() != null && !analysis.changeCauseDetail().isBlank()) {
+            return analysis.changeCauseDetail().trim();
+        }
         if (analysis.reasoning() != null && !analysis.reasoning().isBlank()) return analysis.reasoning().trim();
         return analysis.summary() == null ? "" : analysis.summary().trim();
     }

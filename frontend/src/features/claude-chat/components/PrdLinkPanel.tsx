@@ -6,6 +6,7 @@ import { Combobox } from '@/components/ui/combobox'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import {
   analyzeDocChanges,
+  getDocChangeHistory,
   getLatestDocChangeCandidate,
   getSessionByDevSession,
   linkDevSession,
@@ -41,6 +42,8 @@ async function copyTextToClipboard(text: string): Promise<void> {
 interface Props {
   /** 当前 Vibe Coding 会话 id（即 claude-chat 的 chat.sessionId）。 */
   sessionId: string
+  /** 从需求代码节点进入时的 PRD，会话若因旧版本竞态漏绑，可一键按这个权威 ID 补绑。 */
+  suggestedPrdSessionId?: string | null
   onClose: () => void
   /** 绑定状态变化时通知外层——顶栏那个 PRD 标识要跟着刷新，不用外层自己再查一遍。 */
   onLinkedChange?: (linked: PrdSessionView | null) => void
@@ -66,6 +69,48 @@ const CHANGE_CAUSE_LABELS: Record<DocChangeCauseType, string> = {
   OTHER: '其他原因',
 }
 
+const CHANGE_STATUS_LABELS: Record<PrdDocChangeCandidate['status'], string> = {
+  PENDING: '待更新',
+  CONFIRMED: '已确认',
+  APPLYING: '后台更新中',
+  PARTIAL: '更新失败/待恢复',
+  APPLIED: '更新完成',
+  DISMISSED: '暂不更新',
+  NO_UPDATE: '无需更新',
+}
+
+const DIFF_STATUS_LABELS: Record<PrdDocChangeCandidate['diffLedger'][number]['status'], string> = {
+  MATCHED: '文档与证据一致',
+  MISMATCH: '发现冲突',
+  PROPOSED: 'AI 建议',
+  CONFIRMED: '用户已确认，待落档',
+  APPLIED: '已写回，待复核',
+  VERIFIED: '复核通过',
+  UNRESOLVED: '待用户决策',
+  OUT_OF_SCOPE: '本次不处理',
+}
+
+const EVIDENCE_LEVEL_LABELS: Record<PrdDocChangeCandidate['diffLedger'][number]['evidenceLevel'], string> = {
+  DOCUMENT: '正式文档', CODE: '真实代码', TOOL: '工具读取', USER_CONFIRMED: '用户确认', LLM_PROPOSAL: 'AI 建议',
+}
+
+function conclusionLabel(value: 'PASSED' | 'FAILED' | 'PENDING') {
+  return value === 'PASSED' ? '通过' : value === 'FAILED' ? '未通过' : '待评估'
+}
+
+function formatChangeTime(value: number) {
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  }).format(new Date(value))
+}
+
+const EMPTY_ALIGNMENT: PrdDocChangeCandidate['alignmentConclusion'] = {
+  codeFactAlignment: 'PENDING', businessDecisionCompleteness: 'PENDING', documentFiling: 'PENDING',
+  implementationGate: 'BLOCKED', total: 0, verified: 0, unresolved: 0,
+  codeFactCorrections: 0, confirmedBusinessDecisions: 0, outOfScope: 0, prdFiled: 0, tddFiled: 0,
+  finalDocumentVersion: '', summary: '',
+}
+
 /**
  * 「关联 PRD」面板：展示/建立/更换 当前会话与 PRD 澄清助手某条记录的绑定，绑定后可以
  * 复制文档路径、一键把这次会话的改动同步进 PRD + 开发文档(TDD)。
@@ -78,7 +123,7 @@ const CHANGE_CAUSE_LABELS: Record<DocChangeCauseType, string> = {
  * 「生成修订版」同一套 prompt（原地覆盖同一份文件，不新建会话），开发文档走已有的增量更新，
  * 旧版本都自动备份进历史。
  */
-export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
+export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLinkedChange }: Props) {
   const navigate = useNavigate()
   const confirm = useConfirm()
   // undefined=加载中，null=确认未绑定，PrdSessionView=已绑定
@@ -102,6 +147,22 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
   const [pickValue, setPickValue] = useState('')
   const [linking, setLinking] = useState(false)
   const [linkErr, setLinkErr] = useState<string | null>(null)
+
+  const linkSuggested = async () => {
+    if (!suggestedPrdSessionId || linking) return
+    setLinking(true)
+    setLinkErr(null)
+    try {
+      await linkDevSession(suggestedPrdSessionId, sessionId)
+      const value = await getSessionByDevSession(sessionId)
+      setLinked(value)
+      onLinkedChange?.(value)
+    } catch (cause) {
+      setLinkErr(cause instanceof Error ? cause.message : '补充关联失败')
+    } finally {
+      setLinking(false)
+    }
+  }
 
   useEffect(() => {
     if (!picking) return
@@ -168,6 +229,7 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
 
   // ── AI 变更候选：先分析对话 + Git，再由用户确认更新范围。正式文档生成仍复用原接口。 ──
   const [candidate, setCandidate] = useState<PrdDocChangeCandidate | null>(null)
+  const [changeHistory, setChangeHistory] = useState<PrdDocChangeCandidate[]>([])
   const [analyzing, setAnalyzing] = useState(false)
   const [analysisErr, setAnalysisErr] = useState<string | null>(null)
   const [decisionSaving, setDecisionSaving] = useState(false)
@@ -178,6 +240,14 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
   const [updateErr, setUpdateErr] = useState<string | null>(null)
   const [docEngine, setDocEngine] = useState<'claude' | 'codex'>('claude')
   const updating = startingUpdate || candidate?.status === 'APPLYING' || analyzing || reanalyzing || decisionSaving
+  const diffLedger = candidate?.diffLedger ?? []
+  const alignment = candidate?.alignmentConclusion ?? EMPTY_ALIGNMENT
+
+  const rememberCandidate = (value: PrdDocChangeCandidate) => {
+    setCandidate(value)
+    setChangeHistory(previous => [value, ...previous.filter(item => item.id !== value.id)]
+      .sort((a, b) => b.createdAt - a.createdAt))
+  }
 
   useEffect(() => {
     if (linked) setDocEngine(linked.engine === 'codex' ? 'codex' : 'claude')
@@ -186,11 +256,16 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
   useEffect(() => {
     if (!linked) {
       setCandidate(null)
+      setChangeHistory([])
       return
     }
     let alive = true
-    getLatestDocChangeCandidate(linked.id)
-      .then(value => { if (alive) setCandidate(value ?? null) })
+    Promise.all([getLatestDocChangeCandidate(linked.id), getDocChangeHistory(linked.id)])
+      .then(([latest, history]) => {
+        if (!alive) return
+        setCandidate(latest ?? null)
+        setChangeHistory(history)
+      })
       .catch(() => { /* 候选恢复失败不影响 PRD 绑定和路径操作 */ })
     return () => { alive = false }
   }, [linked?.id])
@@ -201,7 +276,7 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
     setAnalysisErr(null)
     setUpdateErr(null)
     try {
-      setCandidate(await analyzeDocChanges(linked.id))
+      rememberCandidate(await analyzeDocChanges(linked.id))
     } catch (e) {
       setAnalysisErr(e instanceof Error ? e.message : String(e))
     } finally {
@@ -214,7 +289,7 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
     setDecisionSaving(true)
     setAnalysisErr(null)
     try {
-      setCandidate(await overrideDocChangeDecision(candidate.id, decision))
+      rememberCandidate(await overrideDocChangeDecision(candidate.id, decision))
     } catch (e) {
       setAnalysisErr(e instanceof Error ? e.message : String(e))
     } finally {
@@ -227,7 +302,7 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
     setReanalyzing(true)
     setAnalysisErr(null)
     try {
-      setCandidate(await reanalyzeDocChanges(candidate.id, clarificationAnswer.trim()))
+      rememberCandidate(await reanalyzeDocChanges(candidate.id, clarificationAnswer.trim()))
       setClarificationAnswer('')
     } catch (e) {
       setAnalysisErr(e instanceof Error ? e.message : String(e))
@@ -240,7 +315,7 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
     if (!candidate) return
     const decision = candidate.decision
     if (decision === 'NONE') {
-      setCandidate(await updateDocChangeStage(candidate.id, 'NO_UPDATE'))
+      rememberCandidate(await updateDocChangeStage(candidate.id, 'NO_UPDATE'))
       return
     }
     if (decision === 'UNCERTAIN') {
@@ -250,7 +325,7 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
     setStartingUpdate(true)
     setUpdateErr(null)
     try {
-      setCandidate(await startBackgroundDocUpdate(candidate.id, docEngine, note.trim() || undefined))
+      rememberCandidate(await startBackgroundDocUpdate(candidate.id, docEngine, note.trim() || undefined))
       setNote('')
     } catch (e) {
       setUpdateErr(e instanceof Error ? e.message : String(e))
@@ -260,18 +335,19 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
   }
 
   useEffect(() => {
-    if (!linked || candidate?.status !== 'APPLYING') return
+    if (!linked || (candidate?.status !== 'APPLYING'
+      && !(candidate?.status === 'APPLIED' && candidate.verifiedAt == null && !candidate.lastError))) return
     const timer = window.setInterval(() => {
       getLatestDocChangeCandidate(linked.id).then(value => {
-        if (value) setCandidate(value)
+        if (value) rememberCandidate(value)
       }).catch(() => { /* 后台任务不依赖轮询连接；下次轮询继续恢复。 */ })
     }, 2_000)
     return () => window.clearInterval(timer)
-  }, [linked?.id, candidate?.status])
+  }, [linked?.id, candidate?.status, candidate?.verifiedAt])
 
   const doDismiss = async () => {
     if (!candidate) return
-    setCandidate(await updateDocChangeStage(candidate.id, 'DISMISS'))
+    rememberCandidate(await updateDocChangeStage(candidate.id, 'DISMISS'))
   }
 
   const openPrd = (prdId: string) => {
@@ -341,8 +417,8 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
                   <p className="text-xs font-medium">文档变更分析</p>
                 </div>
                 <p className="mb-2 text-[11px] leading-relaxed text-[var(--color-muted-foreground)]">
-                  系统会从上次完成同步点采集对话、工具、Git 和文档证据，复用当前开发会话的模型配置完成分析与独立复核。
-                  只登记建议，不会修改代码或自动覆盖正式文档。
+                  系统会读取最新正式 PRD/TDD、真实代码、工具证据、用户确认及上次差异账本，复用当前会话引擎汇总增量差异。
+                  分析只生成变更集，不代表正式文档已经更新。
                 </p>
 
                 {!candidate && (
@@ -356,7 +432,7 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
                     )}
                   >
                     {analyzing ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
-                    {analyzing ? '正在整理证据并复核…' : '分析本次变更'}
+                    {analyzing ? '正在汇总证据与差异…' : '生成本次差异账本'}
                   </button>
                 )}
 
@@ -379,6 +455,74 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
                         </p>
                       )}
                     </div>
+
+                    {diffLedger.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+                          {([
+                            ['代码事实对齐', alignment.codeFactAlignment],
+                            ['业务决策完整性', alignment.businessDecisionCompleteness],
+                            ['正式文档落档', alignment.documentFiling],
+                          ] as const).map(([label, value]) => (
+                            <div key={label} className="rounded-md border bg-[var(--color-background)] px-2 py-1.5">
+                              <p className="text-[10px] text-[var(--color-muted-foreground)]">{label}</p>
+                              <p className={cn('mt-0.5 text-xs font-medium', value === 'PASSED'
+                                ? 'text-emerald-600 dark:text-emerald-400'
+                                : value === 'FAILED' ? 'text-red-600 dark:text-red-400' : 'text-amber-600')}>
+                                {conclusionLabel(value)}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                        <div className={cn(
+                          'flex items-center justify-between rounded-md border px-2.5 py-2 text-xs font-medium',
+                          alignment.implementationGate === 'ALLOWED'
+                            ? 'border-emerald-400/60 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                            : 'border-red-400/60 bg-red-500/10 text-red-700 dark:text-red-300',
+                        )}>
+                          <span>实施准入</span>
+                          <span>{alignment.implementationGate === 'ALLOWED' ? '允许进入 Phase 5' : 'Phase 4 补充中，禁止进入 Phase 5'}</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-3 gap-y-1 rounded-md bg-[var(--color-muted)]/25 px-2.5 py-2 text-[10px] text-[var(--color-muted-foreground)] sm:grid-cols-3">
+                          <span>新增差异：{alignment.total} 项</span>
+                          <span>代码事实：{alignment.codeFactCorrections} 项</span>
+                          <span>业务确认：{alignment.confirmedBusinessDecisions} 项</span>
+                          <span>排除范围：{alignment.outOfScope} 项</span>
+                          <span>已落档 PRD：{alignment.prdFiled} 项</span>
+                          <span>已落档 TDD：{alignment.tddFiled} 项</span>
+                          <span>未解决：{alignment.unresolved} 项</span>
+                          {alignment.finalDocumentVersion && <span className="col-span-2">最终文档：{alignment.finalDocumentVersion}</span>}
+                        </div>
+
+                        <details open className="rounded-md border px-2 py-1.5 text-[11px]">
+                          <summary className="cursor-pointer font-medium">
+                            差异账本（{alignment.verified}/{alignment.total} 已复核）
+                          </summary>
+                          <div className="mt-2 space-y-2">
+                            {diffLedger.map(item => (
+                              <div key={item.id} className="rounded-md bg-[var(--color-muted)]/35 p-2">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className="font-mono font-semibold">{item.id}</span>
+                                  <span className="rounded bg-[var(--color-background)] px-1 py-0.5 text-[10px]">{item.sourceDocument} · {item.sourceSection || '未指定章节'}</span>
+                                  <span className={cn('ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-medium',
+                                    item.status === 'VERIFIED' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                                      : item.status === 'UNRESOLVED' || item.status === 'MISMATCH' ? 'bg-red-500/10 text-red-700 dark:text-red-300'
+                                        : item.status === 'APPLIED' || item.status === 'CONFIRMED' ? 'bg-blue-500/10 text-blue-700 dark:text-blue-300'
+                                          : 'bg-amber-500/10 text-amber-700 dark:text-amber-300')}>
+                                    {DIFF_STATUS_LABELS[item.status]}
+                                  </span>
+                                </div>
+                                <div className="mt-1.5 grid gap-1 text-[var(--color-muted-foreground)]">
+                                  <p><span className="font-medium text-[var(--color-foreground)]">当前文档：</span>{item.currentDocument || '未记录'}</p>
+                                  <p><span className="font-medium text-[var(--color-foreground)]">真实证据：</span>{item.actualEvidence || '未记录'} <span className="opacity-70">（{EVIDENCE_LEVEL_LABELS[item.evidenceLevel] || item.evidenceLevel}）</span></p>
+                                  <p><span className="font-medium text-[var(--color-foreground)]">建议修改：</span>{item.proposedChange || '无需修改'}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      </div>
+                    )}
 
                     <label className="block text-[11px] text-[var(--color-muted-foreground)]">
                       最终更新范围（可人工调整）
@@ -447,8 +591,7 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
                       </div>
                     )}
 
-                    {candidate.decision !== 'NONE' && candidate.decision !== 'UNCERTAIN'
-                      && !['APPLIED', 'DISMISSED', 'NO_UPDATE'].includes(candidate.status) && (
+                    {candidate.decision !== 'NONE' && candidate.decision !== 'UNCERTAIN' && (
                       <div className="space-y-2 rounded-md border border-violet-300/70 bg-violet-500/5 p-2.5">
                         <p className="text-xs font-medium">变更闭环</p>
                         <p className="text-[11px] text-[var(--color-muted-foreground)]">变更原因由 AI 根据会话、PRD/TDD 与代码证据自动归因，并随候选写入原版本链。</p>
@@ -456,12 +599,19 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
                           <p className="text-[11px] font-medium text-violet-700 dark:text-violet-300">{CHANGE_CAUSE_LABELS[candidate.changeCauseType || 'OTHER']}</p>
                           <p className="mt-1 text-xs leading-relaxed">{candidate.changeCauseDetail || candidate.reasoning || candidate.summary}</p>
                         </div>
-                        <textarea value={note} onChange={event => setNote(event.target.value)} disabled={updating} placeholder="（可选）给文档生成器的额外约束" rows={2} className="w-full resize-none rounded-md border bg-[var(--color-background)] px-2 py-1.5 text-xs" />
+                        {!['APPLIED', 'DISMISSED', 'NO_UPDATE'].includes(candidate.status) && (
+                          <textarea value={note} onChange={event => setNote(event.target.value)} disabled={updating} placeholder="（可选）给文档生成器的额外约束" rows={2} className="w-full resize-none rounded-md border bg-[var(--color-background)] px-2 py-1.5 text-xs" />
+                        )}
                       </div>
                     )}
 
                     {!['APPLIED', 'DISMISSED', 'NO_UPDATE'].includes(candidate.status) && candidate.decision !== 'UNCERTAIN' && (
                       <div className="space-y-2">
+                        {candidate.decision !== 'NONE' && diffLedger.length === 0 && (
+                          <p className="rounded-md bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">
+                            这是旧版分析记录，尚无可审计差异账本；请先点击“再次分析更新”。
+                          </p>
+                        )}
                         <div className="grid grid-cols-2 gap-1.5">
                           {([['claude', 'Claude Code'], ['codex', 'Codex']] as const).map(([value, label]) => (
                             <button
@@ -483,32 +633,46 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
                         <button
                           type="button"
                           onClick={() => void runConfirmedUpdate()}
-                          disabled={updating}
+                          disabled={updating || (candidate.decision !== 'NONE' && diffLedger.length === 0)}
                           className={cn(
                             'flex w-full items-center justify-center gap-1.5 rounded-md bg-[var(--color-primary)] px-3 py-1.5 text-xs font-medium text-[var(--color-primary-foreground)] hover:opacity-90',
                             updating && 'pointer-events-none opacity-60',
                           )}
                         >
                           {updating ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
-                          {candidate.status === 'APPLYING'
+                          {candidate.decision !== 'NONE' && diffLedger.length === 0
+                            ? '请先生成差异账本'
+                            : candidate.status === 'APPLYING'
                             ? `后台更新中 · ${candidate.applyStage === 'PRD' ? 'PRD' : 'TDD'}`
                             : candidate.status === 'PARTIAL' && candidate.applyStage === 'TDD'
                               ? '后台继续更新 TDD'
                               : candidate.decision === 'NONE'
                                 ? '标记无需更新'
                                 : candidate.decision === 'PRD_ONLY'
-                                  ? '后台更新 PRD'
+                                  ? '确认差异并后台写回 PRD'
                                   : candidate.decision === 'TDD_ONLY'
-                                    ? '后台更新 TDD'
-                                    : '后台依次更新 PRD + TDD'}
+                                    ? '确认差异并后台写回 TDD'
+                                    : '确认差异并后台写回 PRD + TDD'}
                         </button>
                       </div>
                     )}
 
                     {candidate.status === 'APPLIED' && (
-                      <p className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
-                        <CheckCircle2 className="size-3.5" />候选对应的正式文档已全部更新
-                      </p>
+                      candidate.verifiedAt ? (
+                        <p className={cn('flex items-center gap-1 text-xs', alignment.implementationGate === 'ALLOWED'
+                          ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400')}>
+                          <CheckCircle2 className="size-3.5" />
+                          {alignment.implementationGate === 'ALLOWED'
+                            ? '正式文档已写回并通过独立复核'
+                            : '正式文档已写回，但仍有未通过的差异项'}
+                        </p>
+                      ) : candidate.lastError ? (
+                        <p className="text-xs text-red-600 dark:text-red-400">正式文档已写回，但独立复核失败：{candidate.lastError}</p>
+                      ) : (
+                        <p className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400">
+                          <Loader2 className="size-3.5 animate-spin" />正式文档已写回，正在重新读取并独立复核…
+                        </p>
+                      )
                     )}
                     {candidate.status === 'NO_UPDATE' && (
                       <p className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
@@ -543,6 +707,57 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
                       )}
                     </div>
                   </div>
+                )}
+
+                {changeHistory.length > 0 && (
+                  <details className="rounded-md border px-2.5 py-2 text-[11px]">
+                    <summary className="cursor-pointer font-medium">PRD/TDD 变更历史（{changeHistory.length}）</summary>
+                    <div className="mt-2 space-y-2">
+                      {changeHistory.map(item => (
+                        <div key={item.id} className="rounded-md bg-[var(--color-muted)]/35 p-2">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-medium">{DECISION_LABELS[item.decision]}</span>
+                            <span className={cn(
+                              'rounded-full px-1.5 py-0.5 text-[10px]',
+                              item.status === 'APPLIED' || item.status === 'NO_UPDATE'
+                                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                                : item.status === 'PARTIAL'
+                                  ? 'bg-red-500/10 text-red-700 dark:text-red-300'
+                                  : 'bg-violet-500/10 text-violet-700 dark:text-violet-300',
+                            )}>
+                              {CHANGE_STATUS_LABELS[item.status]}
+                            </span>
+                            <span className="ml-auto text-[10px] text-[var(--color-muted-foreground)]">
+                              {formatChangeTime(item.createdAt)}
+                            </span>
+                          </div>
+                          <p className="mt-1 font-medium text-violet-700 dark:text-violet-300">
+                            {CHANGE_CAUSE_LABELS[item.changeCauseType || 'OTHER']}
+                          </p>
+                          <p className="mt-0.5 leading-relaxed text-[var(--color-muted-foreground)]">
+                            {item.changeCauseDetail || item.reasoning || item.summary || '未记录原因说明'}
+                          </p>
+                          {(item.prdAppliedAt || item.tddAppliedAt) && (
+                            <p className="mt-1 text-[10px] text-[var(--color-muted-foreground)]">
+                              {item.prdAppliedAt ? `PRD 完成：${formatChangeTime(item.prdAppliedAt)}` : ''}
+                              {item.prdAppliedAt && item.tddAppliedAt ? ' · ' : ''}
+                              {item.tddAppliedAt ? `TDD 完成：${formatChangeTime(item.tddAppliedAt)}` : ''}
+                            </p>
+                          )}
+                          {item.lastError && <p className="mt-1 text-red-600 dark:text-red-400">失败原因：{item.lastError}</p>}
+                          {item.revisionSessionId && item.revisionSessionId !== item.prdSessionId && (
+                            <button
+                              type="button"
+                              onClick={() => openPrd(item.revisionSessionId!)}
+                              className="mt-1 inline-flex items-center gap-1 text-[var(--color-primary)] hover:underline"
+                            >
+                              <ExternalLink className="size-3" />查看关联 PRD 修订版
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
                 )}
 
                 {analysisErr && <p className="mt-1.5 text-xs text-[var(--color-destructive)]">分析失败：{analysisErr}</p>}
@@ -581,13 +796,27 @@ export function PrdLinkPanel({ sessionId, onClose, onLinkedChange }: Props) {
           {linked === null && !picking && (
             <div className="py-4 text-center">
               <p className="mb-3 text-xs text-[var(--color-muted-foreground)]">当前会话还没有关联 PRD</p>
-              <button
-                type="button"
-                onClick={() => setPicking(true)}
-                className="rounded-md bg-[var(--color-primary)] px-3 py-1.5 text-xs font-medium text-[var(--color-primary-foreground)] hover:opacity-90"
-              >
-                搜索并关联一个 PRD
-              </button>
+              <div className="flex flex-wrap justify-center gap-2">
+                {suggestedPrdSessionId && (
+                  <button
+                    type="button"
+                    disabled={linking}
+                    onClick={() => void linkSuggested()}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-[var(--color-primary)] px-3 py-1.5 text-xs font-medium text-[var(--color-primary-foreground)] hover:opacity-90 disabled:opacity-60"
+                  >
+                    {linking ? <Loader2 className="size-3 animate-spin" /> : <Link2 className="size-3" />}
+                    关联当前需求的 PRD / TDD
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setPicking(true)}
+                  className="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--color-muted)]"
+                >
+                  搜索其他 PRD
+                </button>
+              </div>
+              {linkErr && <p className="mt-2 text-xs text-[var(--color-destructive)]">关联失败：{linkErr}</p>}
             </div>
           )}
           {linked === null && picking && renderPicker()}

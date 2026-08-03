@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.prdclarify.api.dto;
 
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdBusinessFields;
+import com.exceptioncoder.toolbox.prdclarify.service.EstimationEvidenceFingerprint;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -125,7 +126,13 @@ public record PrdSessionView(
      */
     public record DevDocEstimationView(
             int hoursMin, int hoursMax, String confidence, String reasoning,
-            List<EstimationBreakdownItemView> breakdown, long estimatedAt, boolean stale) {}
+            List<EstimationBreakdownItemView> breakdown,
+            List<String> inspectedFiles, String codeEvidenceSummary,
+            List<String> assumptions, List<String> risks,
+            String engine, String projectPath, boolean codeInspected,
+            String sourceSessionId, String sourceTitle,
+            String workStatus, String workError, long startedAt, Long completedAt,
+            long estimatedAt, boolean stale, List<String> staleReasons) {}
 
     /** 工时拆解明细的一项。 */
     public record EstimationBreakdownItemView(String item, double hours) {}
@@ -159,7 +166,7 @@ public record PrdSessionView(
                 parseDevDocHistory(s.getDevDocHistory()),
                 parseDevDocQaDraft(s.getDevDocQaDraft()),
                 s.getDevDocWorkStatus(), s.getDevDocWorkError(),
-                parseDevDocEstimation(s.getDevDocEstimation(), s.getDevDocGeneratedAt()),
+                parseDevDocEstimation(s.getDevDocEstimation(), s),
                 s.getProgressPath(), s.getProgressGeneratedAt(),
                 s.getCreatedByUserId(), createdByUsername, s.getParentId(),
                 s.getErrorMsg(), s.getCreatedAt(), s.getUpdatedAt());
@@ -231,12 +238,8 @@ public record PrdSessionView(
         }
     }
 
-    /**
-     * 解析工时评估 JSON。devDocGeneratedAt 用于判断评估是否已过期（开发文档在评估之后
-     * 又重新生成过）：devDocGeneratedAt 为 null（尚未生成开发文档）时不算过期，
-     * 避免评估结果本身正常但因为没有对照时间而被误标过期。
-     */
-    private static DevDocEstimationView parseDevDocEstimation(String json, Long devDocGeneratedAt) {
+    /** 解析工时评估并实时核对当时使用的 PRD、TDD 和关键代码文件指纹。 */
+    private static DevDocEstimationView parseDevDocEstimation(String json, PrdSession session) {
         if (json == null || json.isBlank()) {
             return null;
         }
@@ -246,21 +249,81 @@ public record PrdSessionView(
                 return null;
             }
             long estimatedAt = node.path("estimatedAt").asLong(0);
-            boolean stale = devDocGeneratedAt != null && estimatedAt < devDocGeneratedAt;
+            long startedAt = node.path("startedAt").asLong(0);
+            String workStatus = node.path("workStatus").asText(estimatedAt > 0 ? "COMPLETED" : "IDLE");
+            String workError = node.path("workError").asText("");
+            Long completedAt = node.hasNonNull("completedAt") ? node.path("completedAt").asLong() : null;
+            if ("RUNNING".equals(workStatus) && startedAt > 0
+                    && System.currentTimeMillis() - startedAt > 30 * 60 * 1000L) {
+                workStatus = "ERROR";
+                workError = "后台评估任务已中断，请重新发起";
+            }
+            List<String> staleReasons = new ArrayList<>();
+            String invalidatedReason = node.path("invalidatedReason").asText("").trim();
+            if (!invalidatedReason.isBlank()) staleReasons.add(invalidatedReason);
+
+            if (node.hasNonNull("prdFingerprint")) {
+                if (!node.path("prdFingerprint").asText("")
+                        .equals(EstimationEvidenceFingerprint.fileOrEmpty(node.path("prdPath").asText("")))) {
+                    staleReasons.add("PRD 已更新");
+                }
+                if (!node.path("tddFingerprint").asText("")
+                        .equals(EstimationEvidenceFingerprint.fileOrEmpty(node.path("tddPath").asText("")))) {
+                    staleReasons.add("TDD 已更新");
+                }
+                String codeFingerprint = node.path("codeFingerprint").asText("");
+                List<String> inspectedFilesForCheck = parseStringArray(node.path("inspectedFiles"));
+                if (!codeFingerprint.isBlank() && !codeFingerprint.equals(
+                        EstimationEvidenceFingerprint.inspectedFiles(
+                                node.path("projectPath").asText(""), inspectedFilesForCheck))) {
+                    staleReasons.add("已核查的代码发生变化");
+                }
+            } else {
+                // 兼容功能上线前的旧评估记录：没有内容指纹时退回生成时间判断。
+                if (session.getPrdGeneratedAt() != null && estimatedAt < session.getPrdGeneratedAt()) {
+                    staleReasons.add("PRD 已重新生成");
+                }
+                if (session.getDevDocGeneratedAt() != null && estimatedAt < session.getDevDocGeneratedAt()) {
+                    staleReasons.add("TDD 已重新生成");
+                }
+            }
+            // 第一次后台评估尚无上一版结果，不应把 0 时间戳误判成旧评估过期。
+            if (estimatedAt == 0) staleReasons.clear();
             List<EstimationBreakdownItemView> breakdown = new ArrayList<>();
             for (JsonNode item : node.path("breakdown")) {
                 breakdown.add(new EstimationBreakdownItemView(
                         item.path("item").asText(""), item.path("hours").asDouble(0)));
             }
+            List<String> inspectedFiles = parseStringArray(node.path("inspectedFiles"));
+            List<String> assumptions = parseStringArray(node.path("assumptions"));
+            List<String> risks = parseStringArray(node.path("risks"));
             return new DevDocEstimationView(
                     node.path("hoursMin").asInt(0),
                     node.path("hoursMax").asInt(0),
                     node.path("confidence").asText("MEDIUM"),
                     node.path("reasoning").asText(""),
-                    breakdown, estimatedAt, stale);
+                    breakdown,
+                    inspectedFiles, node.path("codeEvidenceSummary").asText(""),
+                    assumptions, risks,
+                    node.path("engine").asText(""), node.path("projectPath").asText(""),
+                    node.path("codeInspected").asBoolean(false),
+                    node.path("sourceSessionId").asText(session.getId()),
+                    node.path("sourceTitle").asText(session.getTitle()),
+                    workStatus, workError, startedAt, completedAt,
+                    estimatedAt, !staleReasons.isEmpty(), List.copyOf(staleReasons));
         } catch (Exception e) {
             log.warn("[prd-clarify] devDocEstimation JSON 解析失败: {}", e.getMessage());
             return null;
         }
+    }
+
+    private static List<String> parseStringArray(JsonNode node) {
+        if (!node.isArray()) return List.of();
+        List<String> result = new ArrayList<>();
+        for (JsonNode value : node) {
+            String text = value.asText("").trim();
+            if (!text.isBlank()) result.add(text);
+        }
+        return result;
     }
 }
