@@ -104,6 +104,35 @@ function formatChangeTime(value: number) {
   }).format(new Date(value))
 }
 
+function plainQuestions(candidate: PrdDocChangeCandidate): string[] {
+  const source = candidate.clarificationQuestion?.trim() || ''
+  const normalized = source
+    .replace(/(?:^|\s)[（(]?(\d+)[）).、]\s*/g, '\n$1. ')
+    .replace(/[；;]\s*(?=(?:请|是否|能否|要不要|需不需要|可否))/g, '\n')
+  const parsed = normalized.split(/\n+/)
+    .map(item => item.replace(/^\s*\d+[.、)]\s*/, '').trim())
+    .filter(Boolean)
+
+  const ledgerQuestions = candidate.diffLedger
+    .filter(item => item.changeKind === 'BUSINESS_DECISION'
+      && (item.status === 'UNRESOLVED' || item.status === 'PROPOSED'))
+    .map(item => item.proposedChange || item.actualEvidence)
+    .map(item => item.replace(/^建议(?:修改|确认)?[：:]?\s*/, '').trim())
+    .filter(Boolean)
+
+  const values = parsed.length > 1 ? parsed : ledgerQuestions.length > 0 ? ledgerQuestions : parsed
+  return [...new Set(values)].slice(0, 5).map(value => {
+    const clean = value
+      .replace(/\[(?:CONV|DOC|GIT|TOOL|DIFF|DEC|ANALYSIS)[^\]]*]/gi, '')
+      .replace(/^请确认(?:以下[^：:]*[：:])?\s*/, '')
+      .trim()
+    if (/^[是否能可要需]/.test(clean) || clean.startsWith('要不要')) {
+      return `${clean.replace(/[。？?]+$/, '')}？`
+    }
+    return `是否确认：${clean.replace(/[。？?]+$/, '')}？`
+  })
+}
+
 const EMPTY_ALIGNMENT: PrdDocChangeCandidate['alignmentConclusion'] = {
   codeFactAlignment: 'PENDING', businessDecisionCompleteness: 'PENDING', documentFiling: 'PENDING',
   implementationGate: 'BLOCKED', total: 0, verified: 0, unresolved: 0,
@@ -242,6 +271,7 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
   const updating = startingUpdate || candidate?.status === 'APPLYING' || analyzing || reanalyzing || decisionSaving
   const diffLedger = candidate?.diffLedger ?? []
   const alignment = candidate?.alignmentConclusion ?? EMPTY_ALIGNMENT
+  const clarificationQuestions = candidate ? plainQuestions(candidate) : []
 
   const rememberCandidate = (value: PrdDocChangeCandidate) => {
     setCandidate(value)
@@ -450,9 +480,10 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
                       </div>
                       {candidate.summary && <p className="mt-1.5 text-xs leading-relaxed">{candidate.summary}</p>}
                       {candidate.reasoning && (
-                        <p className="mt-1 text-[11px] leading-relaxed text-[var(--color-muted-foreground)]">
-                          {candidate.reasoning}
-                        </p>
+                        <details className="mt-1 text-[11px] text-[var(--color-muted-foreground)]">
+                          <summary className="cursor-pointer">查看 AI 判断说明</summary>
+                          <p className="mt-1 leading-relaxed">{candidate.reasoning}</p>
+                        </details>
                       )}
                     </div>
 
@@ -494,7 +525,7 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
                           {alignment.finalDocumentVersion && <span className="col-span-2">最终文档：{alignment.finalDocumentVersion}</span>}
                         </div>
 
-                        <details open className="rounded-md border px-2 py-1.5 text-[11px]">
+                        <details className="rounded-md border px-2 py-1.5 text-[11px]">
                           <summary className="cursor-pointer font-medium">
                             差异账本（{alignment.verified}/{alignment.total} 已复核）
                           </summary>
@@ -560,23 +591,28 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
                     )}
 
                     {candidate.risks.length > 0 && (
-                      <div className="flex items-start gap-1.5 rounded-md bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-800 dark:text-amber-200">
-                        <AlertTriangle className="mt-0.5 size-3 shrink-0" />
-                        <span>{candidate.risks.join('；')}</span>
-                      </div>
+                      <details className="rounded-md border border-amber-300/60 bg-amber-500/5 px-2 py-1.5 text-[11px]">
+                        <summary className="flex cursor-pointer items-center gap-1.5 font-medium text-amber-800 dark:text-amber-200">
+                          <AlertTriangle className="size-3 shrink-0" />风险与复核详情（{candidate.risks.length}）
+                        </summary>
+                        <ol className="mt-2 list-decimal space-y-1 pl-5 text-[var(--color-muted-foreground)]">
+                          {candidate.risks.map((risk, index) => <li key={`${index}-${risk}`}>{risk}</li>)}
+                        </ol>
+                      </details>
                     )}
 
                     {candidate.decision === 'UNCERTAIN' && (
-                      <div className="rounded-md border border-amber-400/60 p-2">
-                        <p className="text-xs font-medium">需要补充一个关键信息</p>
-                        <p className="mt-1 text-[11px] text-[var(--color-muted-foreground)]">
-                          {candidate.clarificationQuestion || '请补充这次最终确认的变化。'}
-                        </p>
+                      <div className="rounded-md border border-amber-400/60 bg-amber-500/5 p-2.5">
+                        <p className="text-xs font-medium">请按编号确认</p>
+                        <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-xs leading-relaxed">
+                          {(clarificationQuestions.length > 0 ? clarificationQuestions : ['这次最终确认的变化是什么？'])
+                            .map((question, index) => <li key={`${index}-${question}`}>{question}</li>)}
+                        </ol>
                         <textarea
                           value={clarificationAnswer}
                           onChange={event => setClarificationAnswer(event.target.value)}
-                          rows={2}
-                          placeholder="只回答这个阻塞问题；信息充分后 AI 会停止追问"
+                          rows={3}
+                          placeholder={'请按编号回答，例如：\n1. 是，按整单保存\n2. 否，本期不包含 App 入口'}
                           className="mt-2 w-full resize-none rounded-md border bg-[var(--color-background)] px-2 py-1.5 text-xs"
                         />
                         <button
@@ -594,10 +630,12 @@ export function PrdLinkPanel({ sessionId, suggestedPrdSessionId, onClose, onLink
                     {candidate.decision !== 'NONE' && candidate.decision !== 'UNCERTAIN' && (
                       <div className="space-y-2 rounded-md border border-violet-300/70 bg-violet-500/5 p-2.5">
                         <p className="text-xs font-medium">变更闭环</p>
-                        <p className="text-[11px] text-[var(--color-muted-foreground)]">变更原因由 AI 根据会话、PRD/TDD 与代码证据自动归因，并随候选写入原版本链。</p>
                         <div className="rounded-md border bg-[var(--color-background)] px-2.5 py-2">
                           <p className="text-[11px] font-medium text-violet-700 dark:text-violet-300">{CHANGE_CAUSE_LABELS[candidate.changeCauseType || 'OTHER']}</p>
-                          <p className="mt-1 text-xs leading-relaxed">{candidate.changeCauseDetail || candidate.reasoning || candidate.summary}</p>
+                          <details className="mt-1 text-xs">
+                            <summary className="cursor-pointer text-[var(--color-muted-foreground)]">查看变更原因详情</summary>
+                            <p className="mt-1 leading-relaxed">{candidate.changeCauseDetail || candidate.reasoning || candidate.summary}</p>
+                          </details>
                         </div>
                         {!['APPLIED', 'DISMISSED', 'NO_UPDATE'].includes(candidate.status) && (
                           <textarea value={note} onChange={event => setNote(event.target.value)} disabled={updating} placeholder="（可选）给文档生成器的额外约束" rows={2} className="w-full resize-none rounded-md border bg-[var(--color-background)] px-2 py-1.5 text-xs" />

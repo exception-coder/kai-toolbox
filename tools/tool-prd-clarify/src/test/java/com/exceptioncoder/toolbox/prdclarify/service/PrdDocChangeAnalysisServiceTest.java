@@ -111,6 +111,7 @@ class PrdDocChangeAnalysisServiceTest {
                 .id("candidate-1")
                 .prdSessionId("prd-1")
                 .devSessionId("dev-1")
+                .codeSnapshotHash(PrdDocChangeAnalysisService.ANALYSIS_PROTOCOL + ":snapshot")
                 .decision("NONE")
                 .aiDecision("NONE")
                 .summary("当前文档已覆盖新增说明")
@@ -124,6 +125,43 @@ class PrdDocChangeAnalysisServiceTest {
         verify(analyzer, never()).analyze(bundle);
         verify(candidateRepository, never()).insert(any());
         verify(baselineRepository, never()).saveCandidateSnapshot(any(), any(), any());
+    }
+
+    @Test
+    void doesNotReuseLegacyCandidateAfterAnalysisProtocolUpgrade() {
+        PrdDocChangeCandidate legacy = PrdDocChangeCandidate.builder()
+                .id("legacy-candidate")
+                .prdSessionId("prd-1")
+                .devSessionId("dev-1")
+                .codeSnapshotHash("legacy-unversioned-snapshot")
+                .decision("UNCERTAIN")
+                .aiDecision("UNCERTAIN")
+                .summary("旧评估结论")
+                .evidenceJson("[\"CONV-0001\"]")
+                .build();
+        when(candidateRepository.findLatestMeaningful("prd-1")).thenReturn(Optional.of(legacy));
+        when(candidateRepository.findBySnapshot(any(), any(), any())).thenReturn(Optional.of(legacy));
+
+        PrdDocChangeCandidate result = service.analyze("prd-1");
+
+        assertThat(result.getId()).isNotEqualTo("legacy-candidate");
+        assertThat(result.getCodeSnapshotHash())
+                .startsWith(PrdDocChangeAnalysisService.ANALYSIS_PROTOCOL + ":");
+        verify(analyzer).analyze(bundle);
+        verify(candidateRepository).insert(any());
+    }
+
+    @Test
+    void doesNotExposeLegacyCandidateAsLatestCurrentAnalysis() {
+        PrdDocChangeCandidate legacy = PrdDocChangeCandidate.builder()
+                .id("legacy-candidate")
+                .codeSnapshotHash("legacy-unversioned-snapshot")
+                .summary("旧评估结论")
+                .evidenceJson("[\"CONV-0001\"]")
+                .build();
+        when(candidateRepository.findLatest("prd-1")).thenReturn(Optional.of(legacy));
+
+        assertThat(service.latest("prd-1")).isNull();
     }
 
     @Test

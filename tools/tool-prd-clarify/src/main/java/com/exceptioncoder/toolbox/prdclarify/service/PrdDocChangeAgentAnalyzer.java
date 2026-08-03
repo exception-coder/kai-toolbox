@@ -16,7 +16,7 @@ import java.util.stream.StreamSupport;
 @Service
 public class PrdDocChangeAgentAnalyzer {
 
-    private static final String PROMPT_VERSION = "v2-evidence";
+    private static final String PROMPT_VERSION = "v3-plain-questions";
     private static final Set<String> DECISIONS =
             Set.of("NONE", "PRD_ONLY", "TDD_ONLY", "BOTH", "UNCERTAIN");
     private static final Set<String> CHANGE_CAUSES = Set.of(
@@ -49,7 +49,9 @@ public class PrdDocChangeAgentAnalyzer {
             正式文档与高等级证据冲突标为 MISMATCH；仍需用户决策标为 UNRESOLVED；明确排除标为 OUT_OF_SCOPE。
             只有当前正式 PRD/TDD 内容已经与证据一致时才可标 MATCHED。分析阶段禁止输出 APPLIED 或 VERIFIED。
             如果 PREVIOUS_ANALYSIS 中已有差异 ID，必须沿用该 ID 并根据本轮正式文档与新增证据更新状态，不得另造重复项。
-            只要存在 UNRESOLVED，或业务决策仍是 PROPOSED，decision 必须为 UNCERTAIN 并提出唯一最阻塞的确认问题。
+            只要存在 UNRESOLVED，或业务决策仍是 PROPOSED，decision 必须为 UNCERTAIN，并列出所有会阻塞落档的业务问题，最多 5 个。
+            clarificationQuestion 必须使用“1. ...？\n2. ...？”格式：每行只问一个决定，使用业务人员能直接回答的短句，
+            不得出现 evidence ID、diff ID、状态机名、评估过程、长段背景或把多个决定塞进同一句。代码事实不得向用户提问。
             变更原因必须独立于“更新哪些文档”进行归因，只能选择一个最符合证据的主因：
             - REQUIREMENT_AMBIGUITY：原始需求或既有 PRD 表述不清，后续澄清才明确
             - BUSINESS_CHANGE：业务规则、边界或范围在原确认后发生变化
@@ -59,7 +61,7 @@ public class PrdDocChangeAgentAnalyzer {
             - MIXED：存在两个以上同等关键且无法归入单一主因的原因
             - OTHER：证据支持的原因确实不属于以上类别
             changeCauseDetail 必须引用本轮证据说明“原文档缺了什么、什么新事实导致更新”，不能只复述 PRD_ONLY/TDD_ONLY/BOTH。
-            UNCERTAIN 时 clarificationQuestion 只允许一个最阻塞的问题；其他判定必须为空。
+            UNCERTAIN 时 clarificationQuestion 输出上述编号问题；其他判定必须为空。
             只输出 JSON，不要 Markdown：
             {
               "decision":"NONE|PRD_ONLY|TDD_ONLY|BOTH|UNCERTAIN",

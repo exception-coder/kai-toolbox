@@ -30,6 +30,12 @@ import java.util.UUID;
 @Service
 public class PrdDocChangeAnalysisService {
 
+    /**
+     * 分析协议属于快照的一部分。评估规则升级后，即使会话、Git 与文档都未变化，
+     * 旧协议生成的候选也不能被幂等复用或作为新版分析基线。
+     */
+    static final String ANALYSIS_PROTOCOL = "alignment-ledger-v3";
+
     private static final Set<String> DECISIONS =
             Set.of("NONE", "PRD_ONLY", "TDD_ONLY", "BOTH", "UNCERTAIN");
 
@@ -71,7 +77,9 @@ public class PrdDocChangeAnalysisService {
         PrdSession session = requireLinkedSession(prdSessionId);
         PrdDocChangeBaseline baseline = baselineRepository
                 .find(prdSessionId, session.getDevSessionId()).orElse(null);
-        PrdDocChangeCandidate previous = candidateRepository.findLatestMeaningful(prdSessionId).orElse(null);
+        PrdDocChangeCandidate previous = candidateRepository.findLatestMeaningful(prdSessionId)
+                .filter(PrdDocChangeAnalysisService::usesCurrentAnalysisProtocol)
+                .orElse(null);
         DevelopmentSyncPoint syncPoint = syncPoint(baseline);
         if (previous != null && previous.getConversationToSeq() > syncPoint.conversationSequence()) {
             syncPoint = new DevelopmentSyncPoint(previous.getConversationToSeq(), syncPoint.repositoryHeads());
@@ -82,6 +90,7 @@ public class PrdDocChangeAnalysisService {
         String snapshotHash = snapshotHash(context, evidence, "[]");
         PrdDocChangeCandidate duplicate = candidateRepository
                 .findBySnapshot(prdSessionId, session.getDevSessionId(), snapshotHash)
+                .filter(PrdDocChangeAnalysisService::usesCurrentAnalysisProtocol)
                 .orElse(null);
         if (duplicate != null && isMeaningful(duplicate)) {
             return duplicate;
@@ -113,6 +122,9 @@ public class PrdDocChangeAnalysisService {
     public PrdDocChangeCandidate latest(String prdSessionId) {
         requireSession(prdSessionId);
         PrdDocChangeCandidate latest = candidateRepository.findLatest(prdSessionId).orElse(null);
+        if (latest != null && !usesCurrentAnalysisProtocol(latest)) {
+            return null;
+        }
         if (latest == null || isMeaningful(latest) || "APPLYING".equals(latest.getStatus())
                 || "PARTIAL".equals(latest.getStatus())) {
             return latest;
@@ -219,8 +231,13 @@ public class PrdDocChangeAnalysisService {
 
     private String snapshotHash(DevelopmentChangeContext context, PrdDocChangeEvidenceBundle evidence,
                                 String clarificationHistoryJson) {
-        return hash(context.snapshotHash() + "\n" + evidence.prdHash()
+        return ANALYSIS_PROTOCOL + ":" + hash(context.snapshotHash() + "\n" + evidence.prdHash()
                 + "\n" + evidence.tddHash() + "\n" + clarificationHistoryJson);
+    }
+
+    private static boolean usesCurrentAnalysisProtocol(PrdDocChangeCandidate candidate) {
+        return candidate != null && candidate.getCodeSnapshotHash() != null
+                && candidate.getCodeSnapshotHash().startsWith(ANALYSIS_PROTOCOL + ":");
     }
 
     private PrdDocChangeCandidate toCandidate(PrdSession session, DevelopmentChangeContext context,
