@@ -19,10 +19,11 @@ import {
   CONSULT_READONLY_PROMPT,
   consultReadonlyCodexConfig,
 } from './codexSecurity.js'
+import { FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
 
 export type CodexSpeed = 'default' | 'fast'
 
-export const CODEX_TOOLBOX_MCP_SERVERS = ['erp_db', 'erp_app', 'srm_db', 'srm_app', 'scm_db'] as const
+export const CODEX_TOOLBOX_MCP_SERVERS = ['forge', 'erp_db', 'erp_app', 'srm_db', 'srm_app', 'scm_db'] as const
 
 /** Codex 没有 Claude 的 system/init 能力清单，供 sidecar 主动上报运行时注入的 MCP。 */
 export function codexMcpCapabilities(toolPolicy: string): Array<{ name: string; status: string }> {
@@ -38,6 +39,8 @@ export interface CodexImageInput {
 
 /** 单次 Codex 轮次所需上下文，由 Session 注入；emit 复用与 Claude 相同的统一事件协议。 */
 export interface CodexTurnCtx {
+  /** 持久化 Vibe Coding 会话 id；one-shot 不传，避免把后台任务误登记为会话 SQL。 */
+  sessionId?: string
   text: string
   cwd: string
   model?: string
@@ -95,33 +98,38 @@ function codexEnv(codexHome: string): Record<string, string> {
   return env
 }
 
-function standardToolboxMcpConfig(): NonNullable<CodexOptions['config']> {
+function standardToolboxMcpConfig(sessionId?: string): NonNullable<CodexOptions['config']> {
   const apiBase = process.env.TOOLBOX_API_BASE?.trim()
   if (!apiBase) return {}
   const here = dirname(fileURLToPath(import.meta.url))
   const compiledBridge = join(here, 'toolboxMcpBridge.js')
   const sourceBridge = join(here, 'toolboxMcpBridge.ts')
   const bridge = existsSync(compiledBridge) ? compiledBridge : sourceBridge
-  const mcpServers = Object.fromEntries(CODEX_TOOLBOX_MCP_SERVERS.map(name => [name, {
+  const enabledServers = CODEX_TOOLBOX_MCP_SERVERS.filter(name => name !== 'forge' || !!sessionId)
+  const mcpServers = Object.fromEntries(enabledServers.map(name => [name, {
     command: process.execPath,
     args: bridge === sourceBridge ? ['--experimental-strip-types', bridge, name] : [bridge, name],
-    env: { TOOLBOX_API_BASE: apiBase },
+    env: {
+      TOOLBOX_API_BASE: apiBase,
+      ...(name === 'forge' && sessionId ? { TOOLBOX_SESSION_ID: sessionId } : {}),
+    },
     enabled: true,
     required: true,
     // 查询库自动放行；应用探测可能写测试数据，沿用 Codex 的写操作审批。
-    default_tools_approval_mode: name.endsWith('_db') ? 'auto' : 'writes',
+    default_tools_approval_mode: name.endsWith('_db') || name === 'forge' ? 'auto' : 'writes',
   }]))
   return { mcp_servers: mcpServers }
 }
 
-function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: string): NonNullable<CodexOptions['config']> {
+function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: string,
+                          sessionId?: string): NonNullable<CodexOptions['config']> {
   return {
     ...(speed === 'fast' ? { service_tier: 'priority' } : {}),
     ...(toolPolicy === CONSULT_READONLY_POLICY
       ? consultReadonlyCodexConfig(codexHome)
       : toolPolicy === 'disabled'
         ? {}
-        : standardToolboxMcpConfig()),
+        : standardToolboxMcpConfig(sessionId)),
   }
 }
 
@@ -131,13 +139,14 @@ function pickCodex(
   speed: CodexSpeed = 'default',
   codexHome?: string,
   toolPolicy = 'default',
+  sessionId?: string,
 ): Codex {
   if (!apiBaseUrl || !apiBaseUrl.trim()) {
     const home = normalizeCodexHome(codexHome)
-    const key = `${speed} ${home ?? '<default>'} ${toolPolicy}`
+    const key = `${speed} ${home ?? '<default>'} ${toolPolicy} ${sessionId ?? '<one-shot>'}`
     let client = codexClients.get(key)
     if (!client) {
-      const config = buildCodexConfig(speed, toolPolicy, home)
+      const config = buildCodexConfig(speed, toolPolicy, home, sessionId)
       client = new Codex({
         ...(home ? { env: codexEnv(home) } : {}),
         ...(Object.keys(config).length ? { config } : {}),
@@ -147,10 +156,10 @@ function pickCodex(
     return client
   }
   const baseUrl = normalizeOpenAiBase(apiBaseUrl)
-  const key = baseUrl + ' ' + (authToken ?? '') + ' ' + speed + ' ' + toolPolicy
+  const key = baseUrl + ' ' + (authToken ?? '') + ' ' + speed + ' ' + toolPolicy + ' ' + (sessionId ?? '<one-shot>')
   let c = gatewayClients.get(key)
   if (!c) {
-    const config = buildCodexConfig(speed, toolPolicy, normalizeCodexHome(codexHome))
+    const config = buildCodexConfig(speed, toolPolicy, normalizeCodexHome(codexHome), sessionId)
     c = new Codex({
       baseUrl,
       apiKey: authToken || undefined,
@@ -216,10 +225,12 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
   let tempImageDir: string | undefined
 
   try {
-    const prompt = consultReadonly ? `${CONSULT_READONLY_PROMPT}\n\n${ctx.text}` : ctx.text
+    const prompt = consultReadonly
+      ? `${CONSULT_READONLY_PROMPT}\n\n${ctx.text}`
+      : ctx.sessionId ? `${FORGE_PENDING_SQL_STEER}\n\n${ctx.text}` : ctx.text
     const prepared = prepareCodexInput(prompt, ctx.images)
     tempImageDir = prepared.tempDir
-    const client = pickCodex(ctx.apiBaseUrl, ctx.authToken, ctx.speed, home, ctx.toolPolicy)
+    const client = pickCodex(ctx.apiBaseUrl, ctx.authToken, ctx.speed, home, ctx.toolPolicy, ctx.sessionId)
     if (ctx.apiBaseUrl) {
       console.log(`[sidecar] codex turn start model=${ctx.model ?? '默认'} via=${normalizeOpenAiBase(ctx.apiBaseUrl)}`)
     }

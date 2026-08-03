@@ -18,6 +18,8 @@ const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 const DEMO_FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Read', 'Glob', 'Grep'])
 /** demo 唯一放行的数据工具（in-process MCP，受后端表白名单二次把关）。 */
 const DEMO_DB_TOOL = 'mcp__welfare_db__exec'
+/** 只写 Forge 本地台账、不执行数据库的安全工具；普通开发会话无需弹审批。 */
+const FORGE_SAFE_TOOLS = new Set(['mcp__forge__register_pending_sql'])
 
 /** 业务咨询只读策略：内置工具只开放读能力；MCP 也必须命中明确的只读白名单。 */
 const CONSULT_READ_TOOLS = new Set(['Read', 'Glob', 'Grep'])
@@ -132,6 +134,9 @@ export class Permissions {
     // 服务端硬策略优先于 bypassPermissions/autoApprove。AskUserQuestion 仍走正常问答交互。
     if (this.toolPolicy === 'consult-readonly' && toolName !== 'AskUserQuestion') {
       return this.consultReadonlyDecision(toolName, input)
+    }
+    if (FORGE_SAFE_TOOLS.has(toolName)) {
+      return { behavior: 'allow', updatedInput: input }
     }
     // 权限模式自动放行：AskUserQuestion 永远要弹（用户必须作答），其余按当前模式。
     // SDK 一旦提供 canUseTool 就对每个工具调用触发它，permissionMode 不会绕过本回调，

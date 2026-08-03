@@ -249,10 +249,13 @@ export function ChatPage() {
     const sessionId = chat?.sessionId
     if (!sessionId) { setPendingSql(undefined); return }
     let alive = true
-    getSessionPendingSql(sessionId)
+    const refreshPendingSql = () => getSessionPendingSql(sessionId)
       .then(value => { if (alive) setPendingSql(value) })
       .catch(() => { if (alive) setPendingSql(null) })
-    return () => { alive = false }
+    void refreshPendingSql()
+    // Agent 可在前端弹框关闭甚至页面切后台时通过 Forge Tool 自动登记；轻量轮询让顶栏标识自动出现。
+    const timer = window.setInterval(() => { void refreshPendingSql() }, 3_000)
+    return () => { alive = false; window.clearInterval(timer) }
   }, [chat?.sessionId])
   const [showMsgNav, setShowMsgNav] = useState(false)
   const messageListRef = useRef<MessageListHandle>(null)

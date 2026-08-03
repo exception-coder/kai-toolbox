@@ -6,6 +6,7 @@ import com.exceptioncoder.toolbox.claudechat.repository.SessionPendingSqlReposit
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
+import java.util.regex.Pattern;
 import java.util.Set;
 
 /** 会话待执行 SQL 的校验、保存与人工状态管理。 */
@@ -19,6 +20,8 @@ public class SessionPendingSqlService {
             SessionPendingSql.STATUS_PENDING,
             SessionPendingSql.STATUS_EXECUTED,
             SessionPendingSql.STATUS_CANCELLED);
+    private static final Pattern DATABASE_CHANGE = Pattern.compile(
+            "(?is)\\b(CREATE|ALTER|DROP|TRUNCATE|COMMENT|GRANT|REVOKE|INSERT|UPDATE|DELETE|MERGE|REPLACE)\\b");
 
     private final SessionPendingSqlRepository repository;
     private final ClaudeChatSessionRepository sessionRepository;
@@ -55,6 +58,42 @@ public class SessionPendingSqlService {
                 null);
         repository.upsert(pendingSql);
         return pendingSql;
+    }
+
+    /**
+     * Forge Agent Tool 自动登记。默认把同一会话分多次生成的 SQL 合并到一份台账中；
+     * 完全相同的调用保持幂等，不会把人工已完成状态重新改回待执行。
+     */
+    public SessionPendingSql registerFromTool(String sessionId, String title, String targetEnvironment,
+                                              String changeType, String sqlText, String mode) {
+        requireSession(sessionId);
+        String normalizedSql = normalizeSql(sqlText);
+        if (!DATABASE_CHANGE.matcher(normalizedSql).find()) {
+            throw new IllegalArgumentException("Forge Tool 只登记 DDL/DML，纯查询 SQL 不进入待执行台账");
+        }
+        String normalizedType = normalizeChangeType(changeType);
+        String normalizedMode = mode == null || mode.isBlank() ? "APPEND" : mode.trim().toUpperCase();
+        if (!Set.of("APPEND", "REPLACE").contains(normalizedMode)) {
+            throw new IllegalArgumentException("不支持的自动登记模式：" + mode);
+        }
+
+        SessionPendingSql existing = repository.findBySessionId(sessionId);
+        if (existing == null) {
+            return save(sessionId, title, targetEnvironment, normalizedType, normalizedSql);
+        }
+        String mergedSql = "REPLACE".equals(normalizedMode)
+                ? normalizedSql
+                : appendDistinct(existing.sqlText(), normalizedSql);
+        String mergedTitle = firstNonBlank(title, existing.title());
+        String mergedEnvironment = firstNonBlank(targetEnvironment, existing.targetEnvironment());
+        String mergedType = mergeChangeType(existing.changeType(), normalizedType);
+        if (existing.sqlText().equals(mergedSql)
+                && java.util.Objects.equals(existing.title(), mergedTitle)
+                && java.util.Objects.equals(existing.targetEnvironment(), mergedEnvironment)
+                && existing.changeType().equals(mergedType)) {
+            return existing;
+        }
+        return save(sessionId, mergedTitle, mergedEnvironment, mergedType, mergedSql);
     }
 
     /** 更新人工处理状态，不触发任何 SQL 执行。 */
@@ -121,5 +160,21 @@ public class SessionPendingSqlService {
 
     private static String trimOrNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static String firstNonBlank(String preferred, String fallback) {
+        String value = trimOrNull(preferred);
+        return value == null ? fallback : value;
+    }
+
+    private static String mergeChangeType(String existing, String incoming) {
+        return existing.equals(incoming) ? existing : SessionPendingSql.TYPE_MIXED;
+    }
+
+    private static String appendDistinct(String existing, String incoming) {
+        String current = existing == null ? "" : existing.trim();
+        if (current.isEmpty()) return incoming;
+        if (current.contains(incoming)) return current;
+        return current + "\n\n-- Forge 自动登记：补充 SQL\n" + incoming;
     }
 }

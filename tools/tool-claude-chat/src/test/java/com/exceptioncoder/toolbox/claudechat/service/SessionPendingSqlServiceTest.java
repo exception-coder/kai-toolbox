@@ -85,4 +85,40 @@ class SessionPendingSqlServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("不支持的 SQL 登记状态");
     }
+
+    @Test
+    void forgeToolAppendsDistinctSqlAndMergesChangeType() {
+        SessionPendingSql existing = new SessionPendingSql(
+                "session-1", "新增报价表", "SRM 测试库", "DDL", "CREATE TABLE quote(id BIGINT);",
+                SessionPendingSql.STATUS_PENDING, 100L, 100L, null);
+        when(repository.findBySessionId("session-1")).thenReturn(existing);
+
+        SessionPendingSql result = service.registerFromTool(
+                "session-1", null, null, "DML", "INSERT INTO quote(id) VALUES (1);", "append");
+
+        ArgumentCaptor<SessionPendingSql> captor = ArgumentCaptor.forClass(SessionPendingSql.class);
+        verify(repository).upsert(captor.capture());
+        assertThat(captor.getValue().sqlText()).contains("CREATE TABLE quote", "INSERT INTO quote");
+        assertThat(captor.getValue().changeType()).isEqualTo(SessionPendingSql.TYPE_MIXED);
+        assertThat(captor.getValue().title()).isEqualTo("新增报价表");
+        assertThat(result.status()).isEqualTo(SessionPendingSql.STATUS_PENDING);
+    }
+
+    @Test
+    void forgeToolIsIdempotentAndRejectsSelectOnlySql() {
+        SessionPendingSql existing = new SessionPendingSql(
+                "session-1", "新增报价表", "SRM 测试库", "DDL", "CREATE TABLE quote(id BIGINT);",
+                SessionPendingSql.STATUS_EXECUTED, 100L, 200L, 200L);
+        when(repository.findBySessionId("session-1")).thenReturn(existing);
+
+        SessionPendingSql unchanged = service.registerFromTool(
+                "session-1", "新增报价表", "SRM 测试库", "DDL", "CREATE TABLE quote(id BIGINT);", "append");
+
+        assertThat(unchanged).isSameAs(existing);
+        assertThat(unchanged.status()).isEqualTo(SessionPendingSql.STATUS_EXECUTED);
+        assertThatThrownBy(() -> service.registerFromTool(
+                "session-1", null, null, "DML", "SELECT * FROM quote", "append"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("纯查询 SQL");
+    }
 }

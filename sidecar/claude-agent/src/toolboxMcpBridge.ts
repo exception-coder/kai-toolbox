@@ -2,16 +2,20 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 
-type ServerName = 'erp_db' | 'erp_app' | 'srm_db' | 'srm_app' | 'scm_db'
+type ServerName = 'forge' | 'erp_db' | 'erp_app' | 'srm_db' | 'srm_app' | 'scm_db'
 
 const serverName = process.argv[2] as ServerName | undefined
 const apiBase = process.env.TOOLBOX_API_BASE?.replace(/\/+$/, '')
+const sessionId = process.env.TOOLBOX_SESSION_ID?.trim()
 
-if (!serverName || !['erp_db', 'erp_app', 'srm_db', 'srm_app', 'scm_db'].includes(serverName)) {
+if (!serverName || !['forge', 'erp_db', 'erp_app', 'srm_db', 'srm_app', 'scm_db'].includes(serverName)) {
   throw new Error('缺少或不支持的 kai-toolbox MCP server 名称')
 }
 if (!apiBase) {
   throw new Error('缺少 TOOLBOX_API_BASE，无法回灌 kai-toolbox 后端')
+}
+if (serverName === 'forge' && !sessionId) {
+  throw new Error('缺少 TOOLBOX_SESSION_ID，无法关联当前会话的待执行 SQL')
 }
 
 const server = new McpServer(
@@ -47,7 +51,25 @@ const querySchema = {
   params: z.array(z.any()).optional().describe('按顺序绑定到 ? 占位符的参数'),
 }
 
-if (serverName === 'erp_db') {
+if (serverName === 'forge') {
+  server.registerTool('register_pending_sql', {
+    description: [
+      '把当前开发会话新建或实质修改的 DDL/DML 登记到 Forge“待执行 SQL”台账。生成数据库变更后必须调用。',
+      '只登记、绝不执行数据库；不要登记 SELECT/WITH 诊断查询；禁止包含密码、Token 或连接凭据。',
+    ].join(' '),
+    inputSchema: {
+      title: z.string().optional().describe('简短登记标题'),
+      targetEnvironment: z.string().optional().describe('目标库或环境，不确定可留空'),
+      changeType: z.enum(['DDL', 'DML', 'MIXED']).default('MIXED'),
+      sqlText: z.string().describe('完整、可交付人工执行的 DDL/DML SQL'),
+      mode: z.enum(['append', 'replace']).default('append'),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  }, ({ title, targetEnvironment, changeType, sqlText, mode }) => post(
+    `/api/claude-chat/sessions/${encodeURIComponent(sessionId!)}/pending-sql/auto-register`,
+    { title, targetEnvironment, changeType, sqlText, mode },
+  ))
+} else if (serverName === 'erp_db') {
   server.registerTool('query', {
     description: '在 ERP 测试 Oracle 库执行只读 SQL，用于核对表结构、状态字典和样本数据。禁止写入或 DDL，最多返回 200 行。',
     inputSchema: querySchema,

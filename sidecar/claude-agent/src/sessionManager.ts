@@ -9,6 +9,7 @@ import { createErpAppServer } from './erpApp.js'
 import { createSrmDbServer } from './srmDb.js'
 import { createSrmAppServer } from './srmApp.js'
 import { createScmDbServer } from './scmDb.js'
+import { createForgePendingSqlServer, FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
 import { createDomainKnowledgeServer, createCrossTopologyServer } from './knowledgeMcp.js'
 import { codexMcpCapabilities, runCodexTurn, type CodexSpeed } from './codexEngine.js'
 import type { ModelReasoningEffort } from '@openai/codex-sdk'
@@ -221,6 +222,8 @@ class Session {
   permissionMode = 'default'
   /** 一次性分析可设 disabled，移除 Claude 内置工具与设置源。 */
   toolPolicy = 'default'
+  /** 仅真实交互会话启用；one-shot 后台任务的 id 不是持久会话，不能写会话 SQL 台账。 */
+  forgeSqlRegistration = true
   /** 会话级「弹窗自动允许」兜底开关，与 permissionMode 独立；见 Permissions.autoApprove 说明。 */
   autoApprove = false
   /** 福利签收演示会话：开启后注入受限 welfare_db MCP，权限走 perms 的 demo 沙箱硬裁决。 */
@@ -314,6 +317,9 @@ class Session {
       }
       const toolboxApiBase = process.env.TOOLBOX_API_BASE
       if (this.toolPolicy !== 'disabled' && !this.demo && toolboxApiBase) {
+        if (this.toolPolicy !== 'consult-readonly' && this.forgeSqlRegistration) {
+          mcpServers.forge = createForgePendingSqlServer(this.id, toolboxApiBase)
+        }
         mcpServers.erp_db = createErpDbServer(toolboxApiBase)
         // 业务咨询只读策略只注入数据库查询工具；可真实写测试环境的 app 工具仅限普通开发会话。
         if (this.toolPolicy !== 'consult-readonly') {
@@ -360,9 +366,15 @@ class Session {
               ? { systemPrompt }
               : this.demo
                 ? { systemPrompt: { type: 'preset', preset: 'claude_code', append: DEMO_STEER } }
-                : this.apiBaseUrl
-                  ? { systemPrompt: { type: 'preset', preset: 'claude_code', append: GATEWAY_STEER } }
-                  : {}),
+                : {
+                    systemPrompt: {
+                      type: 'preset',
+                      preset: 'claude_code',
+                      append: [this.apiBaseUrl ? GATEWAY_STEER : '',
+                        toolboxApiBase && this.forgeSqlRegistration ? FORGE_PENDING_SQL_STEER : '']
+                        .filter(Boolean).join('\n\n'),
+                    },
+                  }),
             // 第三方网关 + 非 plan 模式：禁用 ExitPlanMode，杜绝“进/退计划模式”的无谓往返与校验报错。
             // plan 模式是用户主动选的，保留。官方会话不动。
             ...(this.apiBaseUrl && this.permissionMode !== 'plan'
@@ -460,6 +472,7 @@ class Session {
     this.abort = ac
     try {
       await runCodexTurn({
+        sessionId: this.id,
         text,
         cwd: this.cwd,
         model: this.model,
@@ -1002,6 +1015,7 @@ export class SessionManager {
       return
     }
     const s = new Session(id, cwd, (e) => this.emit(id, e))
+    s.forgeSqlRegistration = false
     if (model) s.model = model
     s.apiBaseUrl = options?.apiBaseUrl
     s.authToken = options?.authToken

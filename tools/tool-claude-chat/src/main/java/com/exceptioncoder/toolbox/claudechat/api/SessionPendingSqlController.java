@@ -36,6 +36,14 @@ public class SessionPendingSqlController {
                 request.changeType(), request.sqlText());
     }
 
+    /** Forge Agent Tool 回灌入口：只登记、去重和合并，绝不连接或执行目标数据库。 */
+    @PutMapping("/auto-register")
+    public SessionPendingSql autoRegister(@PathVariable String sessionId,
+                                          @RequestBody AutoRegisterRequest request) {
+        return service.registerFromTool(sessionId, request.title(), request.targetEnvironment(),
+                request.changeType(), request.sqlText(), request.mode());
+    }
+
     /** 人工维护执行状态，不触发目标库操作。 */
     @PutMapping("/status")
     public SessionPendingSql updateStatus(@PathVariable String sessionId,
@@ -54,5 +62,9 @@ public class SessionPendingSqlController {
     }
 
     public record StatusRequest(String status) {
+    }
+
+    public record AutoRegisterRequest(String title, String targetEnvironment, String changeType,
+                                      String sqlText, String mode) {
     }
 }
