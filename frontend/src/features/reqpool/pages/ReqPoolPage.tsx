@@ -14,6 +14,7 @@ import {
   ChevronRight,
   CircleCheck,
   Clock3,
+  Copy,
   Database,
   FileText,
   Filter,
@@ -771,6 +772,8 @@ function PrdStageNode({
   const [engine, setEngine] = useState<AgentEngine>('codex')
   const [startError, setStartError] = useState('')
   const [showClarification, setShowClarification] = useState(false)
+  const [pathsCopied, setPathsCopied] = useState(false)
+  const [pathCopyError, setPathCopyError] = useState('')
   const state = prdNodeState(item, requirement, prdSession)
   const sessionQuery = useQuery({
     queryKey: ['prd-session', item.prdSessionId],
@@ -797,6 +800,21 @@ function PrdStageNode({
   const session = sessionQuery.data ?? prdSession
   const questionsReady = (session?.questions.length ?? 0) > 0
 
+  const copyDocumentPaths = async () => {
+    if (!session?.mdPath) return
+    const paths = [`PRD：${session.mdPath}`]
+    if (session.devDocPath) paths.push(`TDD（最新）：${session.devDocPath}`)
+    try {
+      await navigator.clipboard.writeText(paths.join('\n'))
+      setPathCopyError('')
+      setPathsCopied(true)
+      window.setTimeout(() => setPathsCopied(false), 2_000)
+    } catch {
+      setPathsCopied(false)
+      setPathCopyError('复制失败，请检查浏览器剪贴板权限')
+    }
+  }
+
   if (state === 'empty') {
     return (
       <div className="flex flex-col items-center gap-1" title="尚未关联 PRD">
@@ -807,7 +825,7 @@ function PrdStageNode({
   }
 
   return (
-    <Popover open={open} onOpenChange={next => { setOpen(next); if (!next) setStartError('') }}>
+    <Popover open={open} onOpenChange={next => { setOpen(next); if (!next) { setStartError(''); setPathCopyError(''); setPathsCopied(false) } }}>
       <PopoverAnchor asChild>
         <button
           type="button"
@@ -869,8 +887,20 @@ function PrdStageNode({
               <button type="button" onClick={() => { setOpen(false); onAnswer() }} className="w-full rounded-lg bg-amber-500 px-3 py-2.5 text-xs font-medium text-white hover:bg-amber-600">填写澄清答案</button>
             </div>
           ) : state === 'done' ? (
-            <div className="p-4">
+            <div className="space-y-2 p-4">
               <button type="button" onClick={() => { setOpen(false); onPreview() }} className="w-full rounded-lg bg-emerald-600 px-3 py-2.5 text-xs font-medium text-white hover:bg-emerald-700">预览 PRD 文档</button>
+              {session?.mdPath && (
+                <button
+                  type="button"
+                  onClick={() => void copyDocumentPaths()}
+                  title={`PRD：${session.mdPath}${session.devDocPath ? `\nTDD（最新）：${session.devDocPath}` : '\nTDD：尚未生成'}`}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--color-border)] px-3 py-2.5 text-xs font-medium hover:bg-[var(--color-muted)]"
+                >
+                  {pathsCopied ? <CircleCheck className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+                  {pathsCopied ? 'PRD / TDD 路径已复制' : session.devDocPath ? '复制 PRD / 最新 TDD 路径' : '复制 PRD 路径（暂无 TDD）'}
+                </button>
+              )}
+              {pathCopyError && <p className="text-center text-[10px] text-rose-600 dark:text-rose-300">{pathCopyError}</p>}
             </div>
           ) : (
             <div className="space-y-3 p-4">

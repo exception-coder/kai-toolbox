@@ -22,6 +22,7 @@ class PrdSessionRepositoryTreeTest {
                     title TEXT NOT NULL,
                     project TEXT,
                     parent_id TEXT,
+                    dev_session_id TEXT,
                     raw_input TEXT,
                     created_at INTEGER NOT NULL
                 )
@@ -56,6 +57,18 @@ class PrdSessionRepositoryTreeTest {
         assertEquals(0, repo.backfillRevisionParents());
     }
 
+    @Test
+    void rebindingDevelopmentSessionClearsItsPreviousPrdOwner() {
+        insert("old-prd", "旧需求", "Forge", null, "旧需求", 1);
+        insert("new-prd", "新需求", "Forge", null, "新需求", 2);
+        jdbc.update("UPDATE prd_session SET dev_session_id = 'dev-1' WHERE id = 'old-prd'");
+
+        repo.updateDevSessionId("new-prd", "dev-1");
+
+        assertEquals(null, devSessionOf("old-prd"));
+        assertEquals("dev-1", devSessionOf("new-prd"));
+    }
+
     private void insert(String id, String title, String project, String parentId, String rawInput, long createdAt) {
         jdbc.update("INSERT INTO prd_session (id, title, project, parent_id, raw_input, created_at) VALUES (?, ?, ?, ?, ?, ?)",
                 id, title, project, parentId, rawInput, createdAt);
@@ -67,5 +80,9 @@ class PrdSessionRepositoryTreeTest {
 
     private String parentOf(String id) {
         return jdbc.queryForObject("SELECT parent_id FROM prd_session WHERE id = ?", String.class, id);
+    }
+
+    private String devSessionOf(String id) {
+        return jdbc.queryForObject("SELECT dev_session_id FROM prd_session WHERE id = ?", String.class, id);
     }
 }

@@ -5,6 +5,7 @@ import com.exceptioncoder.toolbox.prdclarify.domain.PrdBusinessFields;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
 import java.util.List;
@@ -202,7 +203,13 @@ public class PrdSessionRepository {
      * 也会让开发文档被误判为「已过期」（bug：本已是最新生成的开发文档，仅因关联了开发会话
      * 就被标记过期）。</p>
      */
+    @Transactional
     public void updateDevSessionId(String id, String devSessionId) {
+        if (devSessionId != null && !devSessionId.isBlank()) {
+            // 开发会话与 PRD 是一对一关系：绑定目标会话前清掉它可能残留的旧 PRD 关系。
+            jdbc.update("UPDATE prd_session SET dev_session_id = NULL WHERE dev_session_id = ? AND id <> ?",
+                    devSessionId, id);
+        }
         jdbc.update("UPDATE prd_session SET dev_session_id = ? WHERE id = ?",
                 devSessionId, id);
     }
