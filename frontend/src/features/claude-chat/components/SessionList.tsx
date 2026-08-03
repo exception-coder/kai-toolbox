@@ -281,7 +281,7 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
         </div>
       )}
       {groupPickFor && (
-        <GroupPicker
+        <SessionGroupPicker
           currentProject={(groupPickFor.group ?? '').trim()}
           currentRequirement={(groupPickFor.subgroup ?? '').trim()}
           all={allGroupPaths}
@@ -548,7 +548,7 @@ function CheckBox({ checked }: { checked: boolean }) {
 
 // ─── GroupPicker ─────────────────────────────────────────────────────────────
 
-function GroupPicker({ currentProject, currentRequirement, all, onPick, onClose }: {
+export function SessionGroupPicker({ currentProject, currentRequirement, all, onPick, onClose }: {
   currentProject: string
   currentRequirement: string
   all: { project: string; requirement: string }[]
