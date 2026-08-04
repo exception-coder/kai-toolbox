@@ -317,11 +317,11 @@ class Session {
       }
       const toolboxApiBase = process.env.TOOLBOX_API_BASE
       if (this.toolPolicy !== 'disabled' && !this.demo && toolboxApiBase) {
-        if (this.toolPolicy !== 'consult-readonly' && this.forgeSqlRegistration) {
+        if (this.forgeSqlRegistration) {
           mcpServers.forge = createForgePendingSqlServer(this.id, toolboxApiBase)
         }
         mcpServers.erp_db = createErpDbServer(toolboxApiBase)
-        // 业务咨询只读策略只注入数据库查询工具；可真实写测试环境的 app 工具仅限普通开发会话。
+        // 业务咨询只读策略只注入数据库查询工具和 Forge SQL 台账；可真实写测试环境的 app 工具仅限普通开发会话。
         if (this.toolPolicy !== 'consult-readonly') {
           // 自闭环验证：非 demo、后端就绪时挂 erp_app（登录态实发 *.action 探测改动效果；
           // 未配置本地实例时工具自会回"未配置"，无害）。与只读 erp_db 配合：erp_app 触发、erp_db 回读。
@@ -387,6 +387,7 @@ class Session {
               ? {
                   allowedTools: [
                     'Read', 'Glob', 'Grep', 'AskUserQuestion',
+                    'mcp__forge__register_pending_sql',
                     'mcp__erp_db__query', 'mcp__srm_db__query', 'mcp__scm_db__query',
                     'mcp__domain-knowledge__list_projects',
                     'mcp__domain-knowledge__list_modules',
@@ -796,7 +797,7 @@ export class SessionManager {
     this.emit(id, {
       type: 'init',
       sdkSessionId: null,
-      ...(s.engine === 'codex' ? { mcpServers: codexMcpCapabilities(s.toolPolicy) } : {}),
+      ...(s.engine === 'codex' ? { mcpServers: codexMcpCapabilities(s.toolPolicy, s.id) } : {}),
     })
     this.emitCachedModels(id, s)
   }
@@ -828,7 +829,7 @@ export class SessionManager {
     this.setCodexOptions(id, codexReasoningEffort ?? '', codexSpeed ?? 'default')
     this.applyCodexOptions(id, s)
     if (s.engine === 'codex') {
-      this.emit(id, { type: 'init', sdkSessionId: s.sdkSessionId ?? null, mcpServers: codexMcpCapabilities(s.toolPolicy) })
+      this.emit(id, { type: 'init', sdkSessionId: s.sdkSessionId ?? null, mcpServers: codexMcpCapabilities(s.toolPolicy, s.id) })
     }
     this.emitCachedModels(id, s)
   }
@@ -936,7 +937,7 @@ export class SessionManager {
     s.authToken = nextBaseUrl ? authToken : undefined
     s.resetModelsFetched() // 换引擎/provider：下一轮重新取模型清单
     if (s.engine === 'codex') {
-      this.emit(id, { type: 'init', sdkSessionId: s.sdkSessionId ?? null, mcpServers: codexMcpCapabilities(s.toolPolicy) })
+      this.emit(id, { type: 'init', sdkSessionId: s.sdkSessionId ?? null, mcpServers: codexMcpCapabilities(s.toolPolicy, s.id) })
     }
     this.emitCachedModels(id, s)
   }

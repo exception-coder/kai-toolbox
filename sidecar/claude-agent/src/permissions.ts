@@ -109,7 +109,8 @@ export class Permissions {
   }
 
   private consultReadonlyDecision(toolName: string, input: Record<string, unknown>): Record<string, unknown> {
-    if (CONSULT_READ_TOOLS.has(toolName)
+    if (FORGE_SAFE_TOOLS.has(toolName)
+      || CONSULT_READ_TOOLS.has(toolName)
       || CONSULT_READONLY_MCP_TOOLS.has(toolName)
       || CONSULT_READONLY_MCP_PREFIXES.some(prefix => toolName.startsWith(prefix))) {
       return { behavior: 'allow', updatedInput: input }

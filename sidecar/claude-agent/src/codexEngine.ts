@@ -26,9 +26,12 @@ export type CodexSpeed = 'default' | 'fast'
 export const CODEX_TOOLBOX_MCP_SERVERS = ['forge', 'erp_db', 'erp_app', 'srm_db', 'srm_app', 'scm_db'] as const
 
 /** Codex 没有 Claude 的 system/init 能力清单，供 sidecar 主动上报运行时注入的 MCP。 */
-export function codexMcpCapabilities(toolPolicy: string): Array<{ name: string; status: string }> {
+export function codexMcpCapabilities(toolPolicy: string, sessionId?: string): Array<{ name: string; status: string }> {
   if (!process.env.TOOLBOX_API_BASE || toolPolicy === 'disabled') return []
-  if (toolPolicy === CONSULT_READONLY_POLICY) return [{ name: 'consult-readonly', status: 'configured' }]
+  if (toolPolicy === CONSULT_READONLY_POLICY) return [
+    { name: 'consult-readonly', status: 'configured' },
+    ...(sessionId ? [{ name: 'forge', status: 'configured' }] : []),
+  ]
   return CODEX_TOOLBOX_MCP_SERVERS.map(name => ({ name, status: 'configured' }))
 }
 
@@ -126,7 +129,7 @@ function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: str
   return {
     ...(speed === 'fast' ? { service_tier: 'priority' } : {}),
     ...(toolPolicy === CONSULT_READONLY_POLICY
-      ? consultReadonlyCodexConfig(codexHome)
+      ? consultReadonlyCodexConfig(codexHome, sessionId)
       : toolPolicy === 'disabled'
         ? {}
         : standardToolboxMcpConfig(sessionId)),
@@ -244,7 +247,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
             ctx.emit({
               type: 'init',
               sdkSessionId: ev.thread_id,
-              mcpServers: codexMcpCapabilities(ctx.toolPolicy ?? 'default'),
+              mcpServers: codexMcpCapabilities(ctx.toolPolicy ?? 'default', ctx.sessionId),
             })
           }
           break

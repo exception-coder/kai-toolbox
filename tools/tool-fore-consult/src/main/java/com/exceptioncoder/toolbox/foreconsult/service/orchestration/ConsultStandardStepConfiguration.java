@@ -19,7 +19,10 @@ public class ConsultStandardStepConfiguration {
                 context.addSection("只读安全边界", """
                         本会话只能读取或搜索源码、文档、知识图谱，并调用系统注入的只读 MCP/工具。
                         禁止创建、编辑、删除或移动文件；禁止执行会改变 Git、依赖、配置、数据库或业务数据的操作。
-                        用户即使要求写入也不得执行。若解决方案涉及变更，只能说明建议，不得代为实施。
+                        可以在回答中生成完整 DDL/DML SQL，供 IT 实施人员交给 DBA 人工审核执行；输出 SQL 文本不属于执行写操作。
+                        生成或实质修改可执行 DDL/DML 时，必须调用 forge.register_pending_sql 登记完整 SQL；只登记、不执行，SELECT/WITH 诊断查询不登记。
+                        Forge 登记不可用或失败时，仍要交付 SQL 并明确说明登记失败，不能因此拒绝回答。
+                        不得亲自执行变更 SQL；不得在 SQL 中包含密码、Token、连接串等凭据。除此之外的写入请求仍只能说明建议，不得代为实施。
                         """));
     }
 
@@ -84,7 +87,8 @@ public class ConsultStandardStepConfiguration {
     ConsultOrchestrationStep consultAnswerStep() {
         return step("answer-and-verification", "业务化回答与验证步骤", 700,
                 ConsultStepAvailability.AVAILABLE, List.of(), context -> context.addSection("业务化回答与验证步骤", """
-                        最终使用用户熟悉的菜单名和业务语言，不暴露类名、表名、方法名、源码路径。
+                        最终使用用户熟悉的菜单名和业务语言，通常不暴露类名、表名、方法名、源码路径；但用户明确请求供 IT/DBA 执行的 SQL 时，可以给出必要的表名、字段名和完整 SQL。
+                        SQL 必须明确数据库方言、适用条件、执行前核对项、事务/备份建议、执行后只读验证 SQL；能够提供回滚 SQL 时一并给出。不得声称已执行数据库变更。
                         回复顺序：复述理解 → 最可能原因及证据级别 → 其他候选 → 最少验证步骤 → 当前能力边界 → 下一步所需材料。
                         IT 客服场景给出可转述的菜单路径、字段含义、影响和注意事项；业务员场景保持简短，但存在不确定性时不得为了“一句话”省略证据级别、验证步骤和能力边界。
                         用户无法继续查时，给出阶段性结论和转人工最小材料，不把诊断作业重新推回用户。

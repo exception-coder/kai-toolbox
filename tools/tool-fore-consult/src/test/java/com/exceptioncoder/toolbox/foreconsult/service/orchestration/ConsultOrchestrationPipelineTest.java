@@ -37,6 +37,10 @@ class ConsultOrchestrationPipelineTest {
                 .contains("当前未连接生产数据库和日志")
                 .contains("静态代码只能证明")
                 .contains("已确认＝")
+                .contains("可以在回答中生成完整 DDL/DML SQL")
+                .contains("forge.register_pending_sql")
+                .contains("不能因此拒绝回答")
+                .contains("不得亲自执行变更 SQL")
                 .contains("不得声称已经创建外部工单")
                 .contains("业务员场景保持简短")
                 .contains("销售订单已提交后为什么不能修改？");
