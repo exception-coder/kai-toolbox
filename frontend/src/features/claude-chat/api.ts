@@ -3,6 +3,7 @@ import { ensureFreshToken, getToken } from '@/lib/auth'
 import { listSystemModules, listSystemWorkspaces } from '@/lib/systemCatalog'
 import type { CommitDiff, CommitsResponse, GitRepoRef } from '@/components/git/types'
 import type { ChatItem, ClaudeChatSessionView, CloneResult, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PendingSqlChangeType, PendingSqlStatus, PluginStatus, ServerMessage, SessionPendingSql, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
+import { normalizeUserMessageForDisplay } from './messageDisplay'
 
 /** 查询会话关联的 SQL 登记；未登记返回 null。 */
 export async function getSessionPendingSql(sessionId: string): Promise<SessionPendingSql | null> {
@@ -551,7 +552,7 @@ function toChatItem(m: RawHistoryMessage): ChatItem {
       return { kind: 'result', id: m.id, stopReason: m.stopReason ?? 'end_turn', ts, usage: m.usage ?? undefined, latencyMs: m.latencyMs ?? undefined }
     default: {
       // 用户消息：解析附件段，剥离出纯展示文本 + 附件列表
-      const { displayText, attachments } = parseAttachmentsFromText(m.text ?? '')
+      const { displayText, attachments } = parseAttachmentsFromText(normalizeUserMessageForDisplay(m.text ?? ''))
       return {
         kind: 'user',
         id: m.id,

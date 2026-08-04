@@ -126,8 +126,14 @@ function standardToolboxMcpConfig(sessionId?: string): NonNullable<CodexOptions[
 
 function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: string,
                           sessionId?: string): NonNullable<CodexOptions['config']> {
+  const developerInstructions = toolPolicy === CONSULT_READONLY_POLICY
+    ? CONSULT_READONLY_PROMPT
+    : toolPolicy !== 'disabled' && sessionId
+      ? FORGE_PENDING_SQL_STEER
+      : undefined
   return {
     ...(speed === 'fast' ? { service_tier: 'priority' } : {}),
+    ...(developerInstructions ? { developer_instructions: developerInstructions } : {}),
     ...(toolPolicy === CONSULT_READONLY_POLICY
       ? consultReadonlyCodexConfig(codexHome, sessionId)
       : toolPolicy === 'disabled'
@@ -228,10 +234,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
   let tempImageDir: string | undefined
 
   try {
-    const prompt = consultReadonly
-      ? `${CONSULT_READONLY_PROMPT}\n\n${ctx.text}`
-      : ctx.sessionId ? `${FORGE_PENDING_SQL_STEER}\n\n${ctx.text}` : ctx.text
-    const prepared = prepareCodexInput(prompt, ctx.images)
+    const prepared = prepareCodexInput(ctx.text, ctx.images)
     tempImageDir = prepared.tempDir
     const client = pickCodex(ctx.apiBaseUrl, ctx.authToken, ctx.speed, home, ctx.toolPolicy, ctx.sessionId)
     if (ctx.apiBaseUrl) {
