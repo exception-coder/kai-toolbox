@@ -69,6 +69,8 @@ export interface QueuedMessage {
   attachments?: SendAttachment[]
   /** 展示层覆盖，见 send() 同名参数。 */
   displayText?: string
+  /** 平台生成、仅供模型使用的本轮约束，不进入用户消息历史。 */
+  developerInstructions?: string
 }
 
 /** 连接后要发出的首个意图（区分新建 / 续跑 / 重连回放）。 */
@@ -171,14 +173,14 @@ export interface UseClaudeChatSocket {
   resumeCurrent: () => void
   /**
    * 下发一条用户消息（可带附件）。displayText：可选的展示层覆盖——text 仍是实际发给 agent 的完整内容
-   * （原样上墙 WS + 参与分叉续跑），displayText 只改变本地这条气泡「显示什么」，用于隐藏门控提示词等
-   * 样板文案、只给用户看他自己真正输入的那句话（Forge 机器人等「seed 转发」场景使用）。
+   * text 是会持久化的真实用户消息；displayText 仅用于普通展示别名。
+   * 平台调度协议必须走 developerInstructions，不能再借 displayText 隐藏后混入用户历史。
    */
-  send: (text: string, attachments?: SendAttachment[], displayText?: string) => void
+  send: (text: string, attachments?: SendAttachment[], displayText?: string, developerInstructions?: string) => void
   /** 待发送队列：running 时入队的消息，本轮结束后按序自动发出 */
   queued: QueuedMessage[]
   /** 入队一条待发送消息（running 时排队；空闲时也可入队，会立即触发发送）。displayText 同 send()。 */
-  enqueue: (text: string, attachments?: SendAttachment[], displayText?: string) => void
+  enqueue: (text: string, attachments?: SendAttachment[], displayText?: string, developerInstructions?: string) => void
   /** 移除队列中某条 */
   removeQueued: (id: string) => void
   /** 清空待发送队列 */
@@ -565,14 +567,23 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   }, [sendRaw])
 
   // 断线期间发出的用户消息排这里，重连 attach 后自动补发，避免静默丢失 + “思考中”卡死
-  const pendingSendsRef = useRef<{ text: string; attachments?: Attachment[] }[]>([])
+  const pendingSendsRef = useRef<{
+    text: string
+    attachments?: Attachment[]
+    developerInstructions?: string
+  }[]>([])
 
   const flushPendingSends = useCallback(() => {
     if (pendingSendsRef.current.length === 0) return
     const queue = pendingSendsRef.current
     pendingSendsRef.current = [] // 先清空再发，防多连接竞态下重复补发
     for (const m of queue) {
-      sendRaw({ type: 'send', text: m.text, attachments: m.attachments })
+      sendRaw({
+        type: 'send',
+        text: m.text,
+        attachments: m.attachments,
+        developerInstructions: m.developerInstructions,
+      })
     }
   }, [sendRaw])
 
@@ -903,7 +914,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
   }, [sendRaw, connect])
 
-  const send = useCallback((text: string, attachments?: SendAttachment[], displayText?: string) => {
+  const send = useCallback((text: string, attachments?: SendAttachment[], displayText?: string,
+                            developerInstructions?: string) => {
     const t = text.trim()
     const hasAtt = !!attachments && attachments.length > 0
     if (!t && !hasAtt) return
@@ -918,9 +930,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     ttftRef.current = null
     setTurnTokens(0) // 新一轮：清零实时 token 计数
     setRunning(true)
-    if (sendRaw({ type: 'send', text: t, attachments: atts })) return
+    const hiddenInstructions = developerInstructions?.trim() || undefined
+    if (sendRaw({ type: 'send', text: t, attachments: atts, developerInstructions: hiddenInstructions })) return
     // WS 未连上：排队并触发重连（带 attach 意图），onopen 时先 attach 再补发，避免消息丢失/卡“思考中”
-    pendingSendsRef.current.push({ text: t, attachments: atts })
+    pendingSendsRef.current.push({ text: t, attachments: atts, developerInstructions: hiddenInstructions })
     const ws = wsRef.current
     if (!ws || ws.readyState !== WebSocket.CONNECTING) {
       if (sessionIdRef.current) {
@@ -941,10 +954,11 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   }, [sendRaw])
 
   // ── 待发送队列：running 时入队，本轮结束(running→false 且无待确认弹窗)后按序自动发 ──
-  const enqueue = useCallback((text: string, attachments?: SendAttachment[], displayText?: string) => {
+  const enqueue = useCallback((text: string, attachments?: SendAttachment[], displayText?: string,
+                               developerInstructions?: string) => {
     const t = text.trim()
     if (!t && !(attachments && attachments.length > 0)) return
-    setQueued(prev => [...prev, { id: nextId(), text: t, attachments, displayText }])
+    setQueued(prev => [...prev, { id: nextId(), text: t, attachments, displayText, developerInstructions }])
   }, [])
   const removeQueued = useCallback((id: string) => {
     setQueued(prev => prev.filter(q => q.id !== id))
@@ -958,7 +972,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     if (running || pending || queued.length === 0) return
     const head = queued[0]
     setQueued(prev => prev.slice(1))
-    sendRef.current(head.text, head.attachments, head.displayText)
+    sendRef.current(head.text, head.attachments, head.displayText, head.developerInstructions)
   }, [running, pending, queued])
 
   const interrupt = useCallback(() => {

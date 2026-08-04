@@ -349,7 +349,7 @@ export type ClientMessage =
   | { type: 'switchSession'; sessionId: string }
   | { type: 'resumeHistory'; sdkSessionId: string; cwd: string }
   | { type: 'resumeCurrent'; sessionId?: string }
-  | { type: 'send'; text: string; attachments?: Attachment[] }
+  | { type: 'send'; text: string; attachments?: Attachment[]; developerInstructions?: string }
   | {
       type: 'decision'
       reqId: string

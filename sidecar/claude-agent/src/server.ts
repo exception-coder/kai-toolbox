@@ -137,7 +137,7 @@ wss.on('connection', (ws) => {
           msg.toolPolicy as string | undefined)
         break
       case 'user':
-        manager.user(sessionId, msg.text as string)
+        manager.user(sessionId, msg.text as string, msg.developerInstructions as string | undefined)
         break
       case 'decision':
         manager.decide(sessionId, msg.reqId as string, {

@@ -683,7 +683,7 @@ export function ForeConsultPage() {
     const atts = p.attachments.length
       ? p.attachments.map((a) => ({ name: a.name, path: a.path, mime: a.mime ?? undefined, url: a.url }))
       : undefined
-    chat.send(p.seed, atts, p.displayText)
+    chat.send(p.displayText, atts, undefined, p.seed)
     setAttachments([])
     setModulePickerOpen(false)
     setPanelOpen(false)

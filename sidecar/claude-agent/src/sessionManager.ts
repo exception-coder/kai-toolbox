@@ -262,8 +262,9 @@ class Session {
    * 对「启动 native 二进制失败」做有限重试：该二进制有 200MB+，首次启动可能被
    * 杀软实时扫描短暂锁住而 spawn 失败。只在本轮尚未产出任何消息时重试，避免重复输出。
    */
-  async runTurn(text: string, systemPrompt?: string, images?: OneShotImage[]): Promise<void> {
-    if (this.engine === 'codex') return this.runCodexTurn(text)
+  async runTurn(text: string, systemPrompt?: string, images?: OneShotImage[],
+                developerInstructions?: string): Promise<void> {
+    if (this.engine === 'codex') return this.runCodexTurn(text, developerInstructions)
     if (this.engine === 'gemini') return this.runGeminiTurn(text)
     if (this.engine === 'opencode') return this.runOpencodeTurn(text)
     const maxAttempts = 3
@@ -371,7 +372,8 @@ class Session {
                       type: 'preset',
                       preset: 'claude_code',
                       append: [this.apiBaseUrl ? GATEWAY_STEER : '',
-                        toolboxApiBase && this.forgeSqlRegistration ? FORGE_PENDING_SQL_STEER : '']
+                        toolboxApiBase && this.forgeSqlRegistration ? FORGE_PENDING_SQL_STEER : '',
+                        developerInstructions ?? '']
                         .filter(Boolean).join('\n\n'),
                     },
                   }),
@@ -468,7 +470,7 @@ class Session {
   }
 
   /** 跑一轮 Codex：委托 codexEngine 翻译事件流，AbortController 支持中断。 */
-  private async runCodexTurn(text: string): Promise<void> {
+  private async runCodexTurn(text: string, developerInstructions?: string): Promise<void> {
     const ac = new AbortController()
     this.abort = ac
     try {
@@ -481,6 +483,7 @@ class Session {
         speed: this.codexSpeed,
         permissionMode: this.permissionMode,
         toolPolicy: this.toolPolicy,
+        developerInstructions,
         sdkSessionId: this.sdkSessionId,
         apiBaseUrl: this.apiBaseUrl,
         authToken: this.authToken,
@@ -845,7 +848,7 @@ export class SessionManager {
     }
   }
 
-  user(id: string, text: string): void {
+  user(id: string, text: string, developerInstructions?: string): void {
     const s = this.sessions.get(id)
     if (!s) {
       this.emit(id, { type: 'error', code: 'SESSION_NOT_FOUND', message: '会话不存在' })
@@ -853,7 +856,10 @@ export class SessionManager {
     }
     // fire-and-forget，但必须收敛异常：runTurn 的非 Claude 引擎分支（codex/gemini/opencode）没有内层 catch，
     // 一旦 reject 会变成 unhandledRejection 拖垮整个 sidecar。这里兜成该会话的 error+result，解除前端「思考中」。
-    s.runTurn(text).catch((e) => {
+    const hiddenInstructions = s.toolPolicy === 'consult-readonly'
+      ? developerInstructions?.trim() || undefined
+      : undefined
+    s.runTurn(text, undefined, undefined, hiddenInstructions).catch((e) => {
       console.error('[sidecar] runTurn 异常（已兜住）session=' + id + ':', e)
       this.emit(id, { type: 'error', code: 'TURN_FAILED', message: e instanceof Error ? e.message : String(e) })
       this.emit(id, { type: 'result', usage: {}, stopReason: 'error' })

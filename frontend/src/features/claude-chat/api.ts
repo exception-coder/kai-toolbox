@@ -552,13 +552,14 @@ function toChatItem(m: RawHistoryMessage): ChatItem {
       return { kind: 'result', id: m.id, stopReason: m.stopReason ?? 'end_turn', ts, usage: m.usage ?? undefined, latencyMs: m.latencyMs ?? undefined }
     default: {
       // 用户消息：解析附件段，剥离出纯展示文本 + 附件列表
-      const { displayText, attachments } = parseAttachmentsFromText(normalizeUserMessageForDisplay(m.text ?? ''))
+      const parsed = parseAttachmentsFromText(m.text ?? '')
+      const displayText = normalizeUserMessageForDisplay(parsed.displayText)
       return {
         kind: 'user',
         id: m.id,
         text: displayText,
         ts,
-        attachments: attachments.length > 0 ? attachments : undefined,
+        attachments: parsed.attachments.length > 0 ? parsed.attachments : undefined,
       }
     }
   }

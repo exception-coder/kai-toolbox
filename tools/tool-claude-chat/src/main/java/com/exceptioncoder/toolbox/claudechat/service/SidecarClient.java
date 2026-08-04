@@ -190,8 +190,13 @@ public class SidecarClient {
         send(m);
     }
 
-    public void userMessage(String sessionId, String text) {
-        send(Map.of("type", "user", "sessionId", sessionId, "text", nz(text)));
+    public void userMessage(String sessionId, String text, String developerInstructions) {
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("type", "user");
+        message.put("sessionId", sessionId);
+        message.put("text", nz(text));
+        message.put("developerInstructions", nz(developerInstructions));
+        send(message);
     }
 
     /** 转发权限/提问决策到 sidecar。返回 false=sidecar 未连/发送失败（决策未送达），调用方据此告知前端别误以为已批准。 */

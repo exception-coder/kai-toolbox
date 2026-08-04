@@ -208,10 +208,10 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
     message: string,
     attachments: Array<{ name: string; path: string; mime?: string; url?: string }> | undefined,
     shouldQueue: boolean,
-    displayText = message,
+    developerInstructions?: string,
   ) => {
-    if (shouldQueue) chat.enqueue(message, attachments, displayText)
-    else chat.send(message, attachments, displayText)
+    if (shouldQueue) chat.enqueue(message, attachments, undefined, developerInstructions)
+    else chat.send(message, attachments, undefined, developerInstructions)
     setText('')
     setAtts([])
   }
@@ -230,7 +230,7 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
         firstQuestion?.kind === 'user' ? firstQuestion.displayText ?? firstQuestion.text : undefined,
         true,
       )
-      dispatchMessage(result.prompt ?? message, attachments, running, message)
+      dispatchMessage(message, attachments, running, result.prompt ?? undefined)
     } catch {
       dispatchMessage(message, attachments, running)
     } finally {

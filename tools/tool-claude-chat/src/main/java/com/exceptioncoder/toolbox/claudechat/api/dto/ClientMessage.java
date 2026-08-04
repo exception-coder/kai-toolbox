@@ -53,7 +53,7 @@ public sealed interface ClientMessage
     record ResumeCurrent(String sessionId) implements ClientMessage {}
 
     /** 下发一条用户消息。attachments 可空（旧客户端不带时按纯文本处理）。 */
-    record Send(String text, List<Attachment> attachments) implements ClientMessage {
+    record Send(String text, List<Attachment> attachments, String developerInstructions) implements ClientMessage {
         /** 附件引用：name 展示用，path 为服务端绝对路径，供 Claude 用 Read 读取。 */
         public record Attachment(String name, String path) {}
     }

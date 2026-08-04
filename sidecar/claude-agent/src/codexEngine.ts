@@ -53,6 +53,8 @@ export interface CodexTurnCtx {
   permissionMode: string
   /** 一次性分析任务的工具策略；disabled 强制只读沙箱并关闭网络。 */
   toolPolicy?: string
+  /** 平台生成、仅供模型使用的本轮约束；只在 consult-readonly 会话中接收。 */
+  developerInstructions?: string
   /** 已有 thread id（resume 续跑）；无则新建线程。 */
   sdkSessionId?: string
   /** 第三方 OpenAI 兼容网关 baseURL；置则本轮走该网关（Codex 原生 OpenAI 协议，接网关更顺）。空=本机 ~/.codex 登录。 */
@@ -125,12 +127,17 @@ function standardToolboxMcpConfig(sessionId?: string): NonNullable<CodexOptions[
 }
 
 function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: string,
-                          sessionId?: string): NonNullable<CodexOptions['config']> {
-  const developerInstructions = toolPolicy === CONSULT_READONLY_POLICY
+                          sessionId?: string,
+                          turnDeveloperInstructions?: string): NonNullable<CodexOptions['config']> {
+  const baseDeveloperInstructions = toolPolicy === CONSULT_READONLY_POLICY
     ? CONSULT_READONLY_PROMPT
     : toolPolicy !== 'disabled' && sessionId
       ? FORGE_PENDING_SQL_STEER
       : undefined
+  const developerInstructions = [
+    baseDeveloperInstructions,
+    toolPolicy === CONSULT_READONLY_POLICY ? turnDeveloperInstructions?.trim() : undefined,
+  ].filter(Boolean).join('\n\n') || undefined
   return {
     ...(speed === 'fast' ? { service_tier: 'priority' } : {}),
     ...(developerInstructions ? { developer_instructions: developerInstructions } : {}),
@@ -149,13 +156,20 @@ function pickCodex(
   codexHome?: string,
   toolPolicy = 'default',
   sessionId?: string,
+  developerInstructions?: string,
 ): Codex {
   if (!apiBaseUrl || !apiBaseUrl.trim()) {
     const home = normalizeCodexHome(codexHome)
+    const config = buildCodexConfig(speed, toolPolicy, home, sessionId, developerInstructions)
+    if (developerInstructions) {
+      return new Codex({
+        ...(home ? { env: codexEnv(home) } : {}),
+        ...(Object.keys(config).length ? { config } : {}),
+      })
+    }
     const key = `${speed} ${home ?? '<default>'} ${toolPolicy} ${sessionId ?? '<one-shot>'}`
     let client = codexClients.get(key)
     if (!client) {
-      const config = buildCodexConfig(speed, toolPolicy, home, sessionId)
       client = new Codex({
         ...(home ? { env: codexEnv(home) } : {}),
         ...(Object.keys(config).length ? { config } : {}),
@@ -165,10 +179,23 @@ function pickCodex(
     return client
   }
   const baseUrl = normalizeOpenAiBase(apiBaseUrl)
+  const config = buildCodexConfig(
+    speed,
+    toolPolicy,
+    normalizeCodexHome(codexHome),
+    sessionId,
+    developerInstructions,
+  )
+  if (developerInstructions) {
+    return new Codex({
+      baseUrl,
+      apiKey: authToken || undefined,
+      ...(Object.keys(config).length ? { config } : {}),
+    })
+  }
   const key = baseUrl + ' ' + (authToken ?? '') + ' ' + speed + ' ' + toolPolicy + ' ' + (sessionId ?? '<one-shot>')
   let c = gatewayClients.get(key)
   if (!c) {
-    const config = buildCodexConfig(speed, toolPolicy, normalizeCodexHome(codexHome), sessionId)
     c = new Codex({
       baseUrl,
       apiKey: authToken || undefined,
@@ -236,7 +263,15 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
   try {
     const prepared = prepareCodexInput(ctx.text, ctx.images)
     tempImageDir = prepared.tempDir
-    const client = pickCodex(ctx.apiBaseUrl, ctx.authToken, ctx.speed, home, ctx.toolPolicy, ctx.sessionId)
+    const client = pickCodex(
+      ctx.apiBaseUrl,
+      ctx.authToken,
+      ctx.speed,
+      home,
+      ctx.toolPolicy,
+      ctx.sessionId,
+      ctx.developerInstructions,
+    )
     if (ctx.apiBaseUrl) {
       console.log(`[sidecar] codex turn start model=${ctx.model ?? '默认'} via=${normalizeOpenAiBase(ctx.apiBaseUrl)}`)
     }

@@ -362,7 +362,11 @@ public class ClaudeChatService {
         if (!ensureSessionResumable(ctx)) return; // sidecar 断了先就地重连+resume，避免静默丢消息
         ctx.status = SessionStatus.RUNNING;
         repo.touch(ctx.sessionId, SessionStatus.RUNNING, System.currentTimeMillis());
-        sidecar.userMessage(ctx.sessionId, appendAttachmentHints(msg.text(), msg.attachments()));
+        String developerInstructions = SessionExecutionPolicy.CONSULT_READONLY.equals(ctx.executionPolicy)
+                ? blankToNull(msg.developerInstructions())
+                : null;
+        sidecar.userMessage(ctx.sessionId, appendAttachmentHints(msg.text(), msg.attachments()),
+                developerInstructions);
     }
 
     /** 把附件路径以结构化提示拼到用户文本末尾，让 Claude 自行 Read；无附件则原样返回。 */
