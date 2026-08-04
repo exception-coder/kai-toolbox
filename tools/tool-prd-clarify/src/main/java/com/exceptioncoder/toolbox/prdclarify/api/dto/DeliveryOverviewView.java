@@ -60,6 +60,7 @@ public record DeliveryOverviewView(
             CoverageView coverage,
             ProgressItemsView progressItems,
             List<AlignmentFindingView> alignmentFindings,
+            EffortProgressView effortProgress,
             int confidence,
             int healthScore,
             String healthGrade,
@@ -109,6 +110,30 @@ public record DeliveryOverviewView(
 
     /** PRD 或开发文档与当前代码的差异。 */
     public record AlignmentFindingView(String requirement, String expected, String actual, String status) {
+    }
+
+    /**
+     * “责任与时间”的总工时基线与最新代码分析结果的对照。剩余工时只按代码实现进度扣减，
+     * 工作日统一按 6 个 AI 有效编码小时折算。
+     */
+    public record EffortProgressView(
+            int baselineHoursMin,
+            int baselineHoursMax,
+            double baselineWorkdaysMin,
+            double baselineWorkdaysMax,
+            Integer codeProgress,
+            int deliveryProgress,
+            Double completedHoursMin,
+            Double completedHoursMax,
+            Double remainingHoursMin,
+            Double remainingHoursMax,
+            Double remainingWorkdaysMin,
+            Double remainingWorkdaysMax,
+            int hoursPerWorkday,
+            long estimatedAt,
+            Long analyzedAt,
+            boolean baselineStale,
+            List<String> baselineStaleReasons) {
     }
 
     /** 一条可定位到需求的交付发现。 */

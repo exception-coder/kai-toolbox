@@ -1123,6 +1123,8 @@ function CodeStageNode({ item, requirement, prdSession }: {
   const [loadingDevelopment, setLoadingDevelopment] = useState(false)
   const [developmentDocs, setDevelopmentDocs] = useState<{ prd: string; tdd?: string } | null>(null)
   const code = requirement?.stages.code
+  const effort = requirement?.effortProgress
+  const deliveryProgress = requirement ? requirementProgress(requirement) : null
   const canAnalyze = !!requirement && requirement.stages.tdd.status !== 'MISSING'
   const isAdmin = !!user?.roles?.includes('ADMIN')
   const isAssignee = !!user && item.assigneeUserId === user.userId
@@ -1192,7 +1194,7 @@ function CodeStageNode({ item, requirement, prdSession }: {
               <div className="text-xs font-semibold">本地代码实现分析</div>
               <span className="text-sm font-semibold tabular-nums">{code?.score == null ? '未分析' : `${code.score}%`}</span>
             </div>
-            <p className="mt-1.5 text-[10px] leading-4 text-[var(--color-muted-foreground)]">按 TDD 功能点检查本地代码知识图谱中的类、方法、接口、数据表与测试证据。</p>
+            <p className="mt-1.5 text-[10px] leading-4 text-[var(--color-muted-foreground)]">综合当前 PRD、最新 TDD 与本地代码证据核对真实实现，并关联原 AI 总工时估算剩余工作量。</p>
           </div>
           <div className="space-y-3 p-4">
             <div className="rounded-lg bg-[var(--color-muted)]/55 px-3 py-2.5">
@@ -1200,6 +1202,49 @@ function CodeStageNode({ item, requirement, prdSession }: {
               <div className="mt-1 text-[11px] font-medium tabular-nums">{code?.updatedAt ? formatLifecycleTime(code.updatedAt) : '尚未分析'}</div>
               {code?.status === 'STALE' && <div className="mt-1 text-[10px] text-amber-600">PRD/TDD 已更新，本次结果已过期</div>}
             </div>
+            {effort && (
+              <div className="overflow-hidden rounded-xl border border-violet-200 bg-violet-50/45 dark:border-violet-900 dark:bg-violet-950/20">
+                <div className="border-b border-violet-200/70 px-3 py-2.5 dark:border-violet-900/70">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1.5 text-[10px] font-semibold text-violet-700 dark:text-violet-300"><Gauge className="h-3.5 w-3.5" />当前进度 vs 原预估</span>
+                    <span className="text-[9px] text-[var(--color-muted-foreground)]">{effort.hoursPerWorkday}h / AI工作日</span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <div className="rounded-lg bg-white/80 px-2.5 py-2 dark:bg-black/15">
+                      <div className="text-[8px] text-[var(--color-muted-foreground)]">当前交付进度</div>
+                      <div className="mt-0.5 text-base font-semibold tabular-nums">{deliveryProgress ?? effort.deliveryProgress}%</div>
+                    </div>
+                    <div className="rounded-lg bg-white/80 px-2.5 py-2 dark:bg-black/15">
+                      <div className="text-[8px] text-[var(--color-muted-foreground)]">代码实现进度</div>
+                      <div className="mt-0.5 text-base font-semibold tabular-nums">{effort.codeProgress == null ? '待分析' : `${effort.codeProgress}%`}</div>
+                    </div>
+                  </div>
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-violet-100 dark:bg-violet-950">
+                    <div className="h-full rounded-full bg-violet-500 transition-all" style={{ width: `${effort.codeProgress ?? 0}%` }} />
+                  </div>
+                </div>
+                <div className="space-y-2 px-3 py-2.5 text-[9px]">
+                  <div className="flex items-center justify-between gap-3"><span className="text-[var(--color-muted-foreground)]">原评估总工时</span><span className="font-medium tabular-nums">{formatEffortRange(effort.baselineHoursMin, effort.baselineHoursMax)}h · {formatEffortRange(effort.baselineWorkdaysMin, effort.baselineWorkdaysMax)}工作日</span></div>
+                  {effort.remainingHoursMin != null && effort.remainingHoursMax != null && effort.remainingWorkdaysMin != null && effort.remainingWorkdaysMax != null ? (
+                    <>
+                      <div className="flex items-center justify-between gap-3"><span className="text-[var(--color-muted-foreground)]">按进度折算已完成</span><span className="tabular-nums">{formatEffortRange(effort.completedHoursMin, effort.completedHoursMax)}h</span></div>
+                      <div className="rounded-lg bg-violet-600 px-2.5 py-2 text-white">
+                        <div className="flex items-end justify-between gap-3"><span>预计剩余</span><span className="text-sm font-semibold tabular-nums">{formatEffortRange(effort.remainingWorkdaysMin, effort.remainingWorkdaysMax)} 工作日</span></div>
+                        <div className="mt-0.5 text-right text-[8px] text-white/75">约 {formatEffortRange(effort.remainingHoursMin, effort.remainingHoursMax)} 小时</div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-violet-300 px-2.5 py-2 text-center text-violet-700 dark:border-violet-800 dark:text-violet-300">执行本地代码分析后生成剩余工时与工作日</div>
+                  )}
+                  {effort.baselineStale && <div className="rounded-lg bg-amber-50 px-2.5 py-2 leading-4 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">原工时基线已过期：{effort.baselineStaleReasons.join('；')}。建议先在“责任与时间”重新评估。</div>}
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-violet-200/70 pt-2 text-[8px] text-[var(--color-muted-foreground)] dark:border-violet-900/70">
+                    <span>工时基线：{formatCompactTime(effort.estimatedAt)}</span>
+                    <span>代码分析：{effort.analyzedAt ? formatCompactTime(effort.analyzedAt) : '尚未分析'}</span>
+                  </div>
+                  <div className="leading-4 text-[var(--color-muted-foreground)]">剩余量按代码实现进度扣减；PRD/TDD 只计入交付进度，不虚减编码工作量。</div>
+                </div>
+              </div>
+            )}
             <p className="text-[10px] leading-4 text-[var(--color-muted-foreground)]">{code?.note || '完成 PRD 与 TDD 后即可核查本地实现。没有真实代码证据的功能不会计为完成。'}</p>
             {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-[10px] leading-4 text-rose-600 dark:bg-rose-950/30 dark:text-rose-300">{error}</p>}
             <button type="button" disabled={!canAnalyze || running} onClick={analyze} className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 py-2.5 text-xs font-medium text-white disabled:opacity-40 dark:bg-slate-100 dark:text-slate-900">
@@ -1238,6 +1283,12 @@ function formatCompactTime(timestamp: number) {
   return new Intl.DateTimeFormat('zh-CN', {
     month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
   }).format(new Date(timestamp))
+}
+
+function formatEffortRange(min: number | null, max: number | null) {
+  if (min == null || max == null) return '—'
+  const format = (value: number) => value.toLocaleString('zh-CN', { maximumFractionDigits: 1 })
+  return min === max ? format(min) : `${format(min)}–${format(max)}`
 }
 
 function PrdQuestionsModal({ item, session, onClose, onSubmit }: {

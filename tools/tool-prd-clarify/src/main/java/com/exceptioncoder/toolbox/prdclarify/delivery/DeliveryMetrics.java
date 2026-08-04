@@ -11,6 +11,8 @@ public class DeliveryMetrics {
     private static final int PRD_WEIGHT = 10;
     private static final int TDD_WEIGHT = 10;
     private static final int CODE_WEIGHT = 80;
+    /** 与需求中枢“责任与时间”工时评估保持同一口径：AI 每工作日按 6 个有效编码小时。 */
+    public static final int AI_HOURS_PER_WORKDAY = 6;
 
     /**
      * 按完成、部分完成和未完成数量计算代码实现度。
@@ -34,6 +36,37 @@ public class DeliveryMetrics {
                 + tddScore * TDD_WEIGHT
                 + (codeScore == null ? 0 : codeScore) * CODE_WEIGHT;
         return clamp(Math.round((float) weighted / 100));
+    }
+
+    /**
+     * 用责任时间处保存的原始总工时作为固定基线，根据真实代码实现进度计算已完成量和剩余量。
+     * PRD/TDD 是交付前置证据，不从编码工时中扣除；否则“文档完成即 20%”会错误地把尚未编码的
+     * 工作量减少 20%。
+     */
+    public EffortProjection effortProjection(int baselineHoursMin, int baselineHoursMax, Integer codeScore) {
+        int safeMin = Math.max(0, baselineHoursMin);
+        int safeMax = Math.max(safeMin, baselineHoursMax);
+        double baselineDaysMin = roundOne(safeMin / (double) AI_HOURS_PER_WORKDAY);
+        double baselineDaysMax = roundOne(safeMax / (double) AI_HOURS_PER_WORKDAY);
+        if (codeScore == null) {
+            return new EffortProjection(
+                    safeMin, safeMax, baselineDaysMin, baselineDaysMax,
+                    null, null, null, null, null, null, null);
+        }
+
+        int progress = clamp(codeScore);
+        double completedRatio = progress / 100d;
+        double remainingRatio = 1d - completedRatio;
+        double completedHoursMin = roundOne(safeMin * completedRatio);
+        double completedHoursMax = roundOne(safeMax * completedRatio);
+        double remainingHoursMin = roundOne(safeMin * remainingRatio);
+        double remainingHoursMax = roundOne(safeMax * remainingRatio);
+        return new EffortProjection(
+                safeMin, safeMax, baselineDaysMin, baselineDaysMax, progress,
+                completedHoursMin, completedHoursMax,
+                remainingHoursMin, remainingHoursMax,
+                roundOne(remainingHoursMin / AI_HOURS_PER_WORKDAY),
+                roundOne(remainingHoursMax / AI_HOURS_PER_WORKDAY));
     }
 
     /**
@@ -103,5 +136,24 @@ public class DeliveryMetrics {
 
     private int clamp(int value) {
         return Math.max(0, Math.min(100, value));
+    }
+
+    private double roundOne(double value) {
+        return Math.round(value * 10d) / 10d;
+    }
+
+    /** 原工时基线与当前代码进度的确定性换算结果。 */
+    public record EffortProjection(
+            int baselineHoursMin,
+            int baselineHoursMax,
+            double baselineWorkdaysMin,
+            double baselineWorkdaysMax,
+            Integer codeProgress,
+            Double completedHoursMin,
+            Double completedHoursMax,
+            Double remainingHoursMin,
+            Double remainingHoursMax,
+            Double remainingWorkdaysMin,
+            Double remainingWorkdaysMax) {
     }
 }

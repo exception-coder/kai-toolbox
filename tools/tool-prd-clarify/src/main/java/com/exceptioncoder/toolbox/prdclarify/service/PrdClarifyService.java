@@ -2293,22 +2293,28 @@ public class PrdClarifyService {
      * {@code {id}-progress.md}（覆盖前先备份为 {id}-progress-v{n}.md，"检出新版本"不丢历史）。
      */
     public void evaluateProgress(String sessionId, String extraContext, SseEmitter emitter) {
-        PrdSession session = repo.findById(sessionId)
+        PrdSession requestedSession = repo.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
+        // 根需求存在修订节点时，代码分析必须采用当前最新 PRD/TDD；报告仍挂回用户点击的需求节点。
+        PrdSession sourceSession = resolveLatestEffortSource(requestedSession);
 
         Thread.ofVirtual().name("prd-progress-").start(() -> {
             try {
-                String prdContent = fileStore.read(sessionId);
-                String devDocContent = readDevDocContent(sessionId);
+                String prdContent = fileStore.read(sourceSession.getId());
+                String devDocContent = readDevDocContent(sourceSession.getId());
                 if (devDocContent == null || devDocContent.isBlank()) {
                     sendError(emitter, new IllegalStateException("请先生成开发文档后再评估进度"));
                     return;
                 }
 
-                String userPrompt = buildProgressEvalPrompt(session, prdContent, devDocContent, extraContext);
+                String effortBaselineJson = requestedSession.getDevDocEstimation() != null
+                        ? requestedSession.getDevDocEstimation()
+                        : sourceSession.getDevDocEstimation();
+                String userPrompt = buildProgressEvalPrompt(
+                        sourceSession, prdContent, devDocContent, effortBaselineJson, extraContext);
                 StringBuilder full = new StringBuilder();
-                agentRunner.stream(PROGRESS_EVAL_SYSTEM, userPrompt, session.getModel(),
-                        normalizeEngine(session.getEngine()), delta -> {
+                agentRunner.stream(PROGRESS_EVAL_SYSTEM, userPrompt, sourceSession.getModel(),
+                        normalizeEngine(sourceSession.getEngine()), delta -> {
                     full.append(delta);
                     sendChunk(emitter, delta);
                 });
@@ -2324,8 +2330,9 @@ public class PrdClarifyService {
                         java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
                 repo.updateProgressPath(sessionId, progressPath.toString());
                 repo.updateProgressGeneratedAt(sessionId, System.currentTimeMillis());
-                recordProgressHistory(sessionId, session.getProgressHistory(), extraContext);
-                log.info("[prd-clarify] 进度评估已保存 path={}", progressPath);
+                recordProgressHistory(sessionId, requestedSession.getProgressHistory(), extraContext);
+                log.info("[prd-clarify] 进度评估已保存 path={} sourceSessionId={}",
+                        progressPath, sourceSession.getId());
 
                 sendDone(emitter);
             } catch (Exception e) {
@@ -2335,7 +2342,12 @@ public class PrdClarifyService {
         });
     }
 
-    private String buildProgressEvalPrompt(PrdSession s, String prdContent, String devDocContent, String extraContext) {
+    private String buildProgressEvalPrompt(
+            PrdSession s,
+            String prdContent,
+            String devDocContent,
+            String effortBaselineJson,
+            String extraContext) {
         StringBuilder sb = new StringBuilder();
         sb.append("需求标题：").append(s.getTitle()).append("\n");
         if (s.getProject() != null && !s.getProject().isBlank()) {
@@ -2346,7 +2358,9 @@ public class PrdClarifyService {
             sb.append("\n");
         }
         sb.append("\n【PRD 内容】\n").append(prdContent == null ? "" : prdContent).append("\n");
-        sb.append("\n【开发文档内容】（技术方案基准，逐项核对是否已落地）\n").append(devDocContent).append("\n");
+        sb.append("\n【最新 TDD / 开发文档内容】（技术方案基准，逐项核对是否已落地）\n")
+                .append(devDocContent).append("\n");
+        appendProgressEffortBaseline(sb, effortBaselineJson);
         if (extraContext != null && !extraContext.isBlank()) {
             sb.append("\n【补充上下文】\n").append(extraContext.trim()).append("\n");
         }
@@ -2362,6 +2376,40 @@ public class PrdClarifyService {
         appendDomainContext(sb, queryDomainContext(s.getProject(), s.getTitle()));
         sb.append("\n请基于以上信息生成开发进度评估报告，严格按系统提示的大纲输出 Markdown。");
         return sb.toString();
+    }
+
+    /** 把责任时间处已经生成的总工时评估作为固定基线传给代码分析，避免再次凭空估总量。 */
+    private void appendProgressEffortBaseline(StringBuilder sb, String estimationJson) {
+        if (estimationJson == null || estimationJson.isBlank()) {
+            sb.append("\n【原 AI 总工时评估基线】\n尚未生成总工时评估；只核对实现进度，"
+                    + "剩余工时将在后端等待基线补齐后再计算。\n");
+            return;
+        }
+        try {
+            JsonNode estimation = mapper.readTree(estimationJson);
+            int hoursMin = Math.max(0, estimation.path("hoursMin").asInt(0));
+            int hoursMax = Math.max(hoursMin, estimation.path("hoursMax").asInt(hoursMin));
+            long estimatedAt = estimation.path("estimatedAt").asLong(0);
+            if (!estimation.isObject() || hoursMax <= 0 || estimatedAt <= 0) {
+                sb.append("\n【原 AI 总工时评估基线】\n尚无有效的已完成评估结果。\n");
+                return;
+            }
+            sb.append("\n【原 AI 总工时评估基线】（来自需求中枢“责任与时间”，固定总量，不得按当前代码反向缩小）\n")
+                    .append("- 原评估总工时：").append(hoursMin).append("-").append(hoursMax).append(" 小时\n")
+                    .append("- 折算口径：6 个 AI 有效编码小时 / 工作日\n")
+                    .append("- 评估信心：").append(estimation.path("confidence").asText("MEDIUM")).append("\n")
+                    .append("- 评估时间：").append(estimatedAt).append("（Unix 毫秒）\n");
+            String reasoning = estimation.path("reasoning").asText("").trim();
+            if (!reasoning.isBlank()) sb.append("- 原评估依据：").append(reasoning).append("\n");
+            String invalidatedReason = estimation.path("invalidatedReason").asText("").trim();
+            if (!invalidatedReason.isBlank()) {
+                sb.append("- 基线状态：已过期（").append(invalidatedReason).append("），报告必须明确提示重新评估总工时\n");
+            }
+            sb.append("代码功能点状态必须继续基于当前 PRD、最新 TDD 与真实代码证据判断；"
+                    + "剩余小时和工作日由后端按代码进度确定性换算。\n");
+        } catch (Exception exception) {
+            sb.append("\n【原 AI 总工时评估基线】\n历史评估数据无法解析；不得自行编造工时。\n");
+        }
     }
 
     /**

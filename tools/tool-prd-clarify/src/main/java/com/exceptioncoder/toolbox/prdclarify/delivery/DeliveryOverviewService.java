@@ -126,6 +126,10 @@ public class DeliveryOverviewService {
         Integer codeScore = assessmentError
                 ? null
                 : metrics.codeProgress(report.completed().size(), report.partial().size(), report.missing().size());
+        int deliveryProgress = metrics.overallProgress(prdComplete ? 100 : 0, tddPresent ? 100 : 0, codeScore);
+        DeliveryOverviewView.EffortProgressView effortProgress = effortProgress(
+                session, codeScore, deliveryProgress,
+                assessmentPresent && !assessmentError && !assessmentStale);
         int confidence = metrics.confidence(
                 prdComplete,
                 tddPresent,
@@ -168,12 +172,72 @@ public class DeliveryOverviewService {
                         .map(item -> new DeliveryOverviewView.AlignmentFindingView(
                                 item.requirement(), item.expected(), item.actual(), item.status()))
                         .toList(),
+                effortProgress,
                 confidence,
                 health,
                 metrics.grade(health),
                 staleReasons);
         return new RequirementProjection(requirement, findings(requirement, prdComplete, tddPresent, tddStale,
                 assessmentPresent, assessmentStale, assessmentError, completedWithoutEvidence));
+    }
+
+    /**
+     * 将责任时间处持久化的原始 AI 工时评估投影为“当前代码进度 vs 剩余工作量”。
+     * 只接受已经产出过有效结果的记录；后台重评中仍保留上一版数值，因此 estimatedAt 有值时
+     * 继续展示旧基线并由 workStatus 提示刷新状态。
+     */
+    private DeliveryOverviewView.EffortProgressView effortProgress(
+            PrdSession session,
+            Integer codeScore,
+            int deliveryProgress,
+            boolean assessmentAvailable) {
+        if (session.getDevDocEstimation() == null || session.getDevDocEstimation().isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode estimation = objectMapper.readTree(session.getDevDocEstimation());
+            long estimatedAt = estimation.path("estimatedAt").asLong(0);
+            int hoursMin = Math.max(0, estimation.path("hoursMin").asInt(0));
+            int hoursMax = Math.max(hoursMin, estimation.path("hoursMax").asInt(hoursMin));
+            if (!estimation.isObject() || estimatedAt <= 0 || hoursMax <= 0) {
+                return null;
+            }
+
+            List<String> staleReasons = new ArrayList<>();
+            String invalidatedReason = estimation.path("invalidatedReason").asText("").trim();
+            if (!invalidatedReason.isBlank()) staleReasons.add(invalidatedReason);
+            if (session.getPrdGeneratedAt() != null && estimatedAt < session.getPrdGeneratedAt()) {
+                staleReasons.add("PRD 晚于原工时评估");
+            }
+            if (session.getDevDocGeneratedAt() != null && estimatedAt < session.getDevDocGeneratedAt()) {
+                staleReasons.add("TDD 晚于原工时评估");
+            }
+
+            Integer effectiveCodeScore = assessmentAvailable ? codeScore : null;
+            DeliveryMetrics.EffortProjection projection = metrics.effortProjection(
+                    hoursMin, hoursMax, effectiveCodeScore);
+            return new DeliveryOverviewView.EffortProgressView(
+                    projection.baselineHoursMin(),
+                    projection.baselineHoursMax(),
+                    projection.baselineWorkdaysMin(),
+                    projection.baselineWorkdaysMax(),
+                    projection.codeProgress(),
+                    deliveryProgress,
+                    projection.completedHoursMin(),
+                    projection.completedHoursMax(),
+                    projection.remainingHoursMin(),
+                    projection.remainingHoursMax(),
+                    projection.remainingWorkdaysMin(),
+                    projection.remainingWorkdaysMax(),
+                    DeliveryMetrics.AI_HOURS_PER_WORKDAY,
+                    estimatedAt,
+                    assessmentAvailable ? session.getProgressGeneratedAt() : null,
+                    !staleReasons.isEmpty(),
+                    staleReasons.stream().distinct().toList());
+        } catch (Exception exception) {
+            log.warn("解析 AI 工时基线失败, sessionId={}", session.getId(), exception);
+            return null;
+        }
     }
 
     private DeliveryOverviewView.StageSetView stages(

@@ -51,6 +51,26 @@ export interface ProgressItem {
   actual: string
 }
 
+export interface EffortProgress {
+  baselineHoursMin: number
+  baselineHoursMax: number
+  baselineWorkdaysMin: number
+  baselineWorkdaysMax: number
+  codeProgress: number | null
+  deliveryProgress: number
+  completedHoursMin: number | null
+  completedHoursMax: number | null
+  remainingHoursMin: number | null
+  remainingHoursMax: number | null
+  remainingWorkdaysMin: number | null
+  remainingWorkdaysMax: number | null
+  hoursPerWorkday: number
+  estimatedAt: number
+  analyzedAt: number | null
+  baselineStale: boolean
+  baselineStaleReasons: string[]
+}
+
 export interface DeliveryRequirement {
   id: string
   parentId: string | null
@@ -85,6 +105,8 @@ export interface DeliveryRequirement {
     partial: ProgressItem[]
     missing: ProgressItem[]
   }
+  /** 原 AI 总工时基线与最新代码实现进度的确定性对照。 */
+  effortProgress?: EffortProgress | null
   alignmentFindings: Array<{
     requirement: string
     expected: string
