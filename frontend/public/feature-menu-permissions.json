@@ -3,6 +3,13 @@
   "generatedFrom": "frontend/src/features/*/index.tsx",
   "permissions": [
     {
+      "featureId": "quick-launch",
+      "code": "menu:quick-launch",
+      "name": "快捷入口",
+      "module": "效率",
+      "sort": 1
+    },
+    {
       "featureId": "projects",
       "code": "menu:projects",
       "name": "项目管理",
@@ -330,6 +337,13 @@
       "name": "新增模块",
       "module": "项目开发",
       "sort": 59
+    },
+    {
+      "featureId": "db-console",
+      "code": "menu:db-console",
+      "name": "DB Console",
+      "module": "项目开发",
+      "sort": 60
     },
     {
       "featureId": "doc-viewer",

@@ -119,6 +119,10 @@
         </dependency>
         <dependency>
             <groupId>com.exceptioncoder</groupId>
+            <artifactId>tool-quick-launch</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.exceptioncoder</groupId>
             <artifactId>tool-ai-secretary</artifactId>
         </dependency>
         <dependency>

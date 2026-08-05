@@ -43,6 +43,7 @@
         <module>tools/tool-claude-chat</module>
         <module>tools/tool-video-condense</module>
         <module>tools/tool-workline</module>
+        <module>tools/tool-quick-launch</module>
         <module>tools/tool-ai-secretary</module>
         <module>tools/tool-java8gu</module>
         <module>tools/tool-ai-chat</module>
@@ -223,6 +224,11 @@
             <dependency>
                 <groupId>com.exceptioncoder</groupId>
                 <artifactId>tool-workline</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.exceptioncoder</groupId>
+                <artifactId>tool-quick-launch</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
