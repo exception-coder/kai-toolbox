@@ -57,7 +57,7 @@ public class KnowledgeGraphController {
         return new RepoPathsView(properties.getDomainKnowledgeRepoPath(), properties.getCrossTopologyRepoPath());
     }
 
-    /** 引擎与两仓就绪检测：路径是否配、目录是否存在、引擎是否已构建（dist/server.js）。供依赖声明标记。 */
+    /** 引擎与两仓就绪检测：初始化目录是否存在、引擎是否已构建（dist/server.js）。 */
     @GetMapping("/engine-status")
     public EngineStatusView engineStatus() {
         String domain = properties.getDomainKnowledgeRepoPath();

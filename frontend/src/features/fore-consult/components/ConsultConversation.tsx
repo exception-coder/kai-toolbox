@@ -1,10 +1,10 @@
 import {
-  memo, useEffect, useMemo, useRef, useState,
+  memo, useEffect, useLayoutEffect, useMemo, useRef, useState,
   type ClipboardEvent as ReactClipboardEvent, type ReactNode,
 } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { Archive, Bug, CheckCircle2, CircleDashed, Database, GitBranch, Loader2, MessagesSquare, Paperclip, Quote, Send, ShieldAlert, ThumbsDown, ThumbsUp, X } from 'lucide-react'
+import { Archive, Bug, CheckCircle2, CircleDashed, Copy, Database, GitBranch, Loader2, MessagesSquare, Paperclip, Quote, Send, ShieldAlert, Square, ThumbsDown, ThumbsUp, X } from 'lucide-react'
 import type { UseClaudeChatSocket } from '@/features/claude-chat/hooks/useClaudeChatSocket'
 import type { ChatItem } from '@/features/claude-chat/types'
 import { dispatchConsultQuestion, registerBug, submitFeedback, uploadConsultAttachment } from '../api'
@@ -35,6 +35,8 @@ type Rating = 'GOOD' | 'BAD'
 
 const BAD_CATEGORIES = ['答非所问', '信息有误', '不够具体', '入口/步骤不对', '其他']
 const QUESTION_CLASSIFY_TIMEOUT_MS = 6_500
+const HISTORY_LOAD_THRESHOLD_PX = 48
+const BOTTOM_FOLLOW_THRESHOLD_PX = 64
 
 interface Props {
   chat: UseClaudeChatSocket
@@ -64,6 +66,7 @@ function renderMarkdown(text: string): string {
  */
 export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, cwd, onUploaded, onBugRegistered, onClose, onArchive, archiving }: Props) {
   const [text, setText] = useState('')
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
   const [atts, setAtts] = useState<Att[]>([])
   const [uploading, setUploading] = useState(0)
   const [ratings, setRatings] = useState<Map<number, Rating>>(new Map())
@@ -76,6 +79,10 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
   const fileRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLTextAreaElement>(null)
+  const historyScrollSnapshotRef = useRef<{ scrollHeight: number; scrollTop: number; itemCount: number } | null>(null)
+  const isNearBottomRef = useRef(true)
+  const previousRenderRef = useRef({ itemCount: 0, firstId: '', lastId: '', running: false })
+  const [historyPagingEnabled, setHistoryPagingEnabled] = useState(chat.historyLoading)
 
   // 引用某条消息：原文转 Markdown 引用块带进输入框，空一行让用户在下面接着追问。
   const quoteMessage = (raw: string) => {
@@ -95,6 +102,30 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
         el.scrollTop = el.scrollHeight
       }
     }, 0)
+  }
+
+  const copyMessage = async (messageId: string, raw: string) => {
+    try {
+      await navigator.clipboard.writeText(raw)
+    } catch {
+      const textarea = document.createElement('textarea')
+      textarea.value = raw
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      textarea.remove()
+    }
+    setCopiedMessageId(messageId)
+    window.setTimeout(() => {
+      setCopiedMessageId((current) => current === messageId ? null : current)
+    }, 1600)
+  }
+
+  const interruptGeneration = () => {
+    chat.clearQueued()
+    chat.interrupt()
   }
 
   const rateGood = (turnIndex: number) => {
@@ -118,14 +149,68 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
   // 立即反馈：只要最后一条是用户消息（已发出、还没等到回复），就显示"思考/接入中"，
   // 不必等 chat.running 变 true（引擎连接/开会话有延迟，否则会白等一段时间没反馈）。
   const lastItem = items[items.length - 1]
+  const firstItemId = items[0]?.id ?? ''
+  const lastItemId = lastItem?.id ?? ''
   const waiting = running || lastItem?.kind === 'user'
   const turnAudits = useMemo(() => buildConsultTurnAudits(items, running), [items, running])
 
-  // 新消息 / 思考状态变化时滚到底
   useEffect(() => {
+    setHistoryPagingEnabled(chat.historyLoading)
+    historyScrollSnapshotRef.current = null
+    isNearBottomRef.current = true
+    previousRenderRef.current = { itemCount: 0, firstId: '', lastId: '', running: false }
+  }, [consultId])
+
+  useEffect(() => {
+    if (chat.historyLoading) setHistoryPagingEnabled(true)
+  }, [chat.historyLoading])
+
+  useLayoutEffect(() => {
     const el = scrollRef.current
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
-  }, [items.length, running])
+    if (!el) return
+
+    if (chat.historyLoading) {
+      historyScrollSnapshotRef.current ??= {
+        scrollHeight: el.scrollHeight,
+        scrollTop: el.scrollTop,
+        itemCount: items.length,
+      }
+      return
+    }
+
+    const snapshot = historyScrollSnapshotRef.current
+    if (snapshot) {
+      if (items.length > snapshot.itemCount) {
+        el.scrollTop = snapshot.scrollTop + el.scrollHeight - snapshot.scrollHeight
+      }
+      historyScrollSnapshotRef.current = null
+      previousRenderRef.current = { itemCount: items.length, firstId: firstItemId, lastId: lastItemId, running }
+      return
+    }
+
+    const previous = previousRenderRef.current
+    const initialContent = previous.itemCount === 0 && items.length > 0
+    const appended = items.length > previous.itemCount && previous.firstId === firstItemId
+    const runningChanged = previous.running !== running
+    if (initialContent || (isNearBottomRef.current && (appended || runningChanged))) {
+      el.scrollTo({ top: el.scrollHeight, behavior: initialContent ? 'auto' : 'smooth' })
+    }
+    previousRenderRef.current = { itemCount: items.length, firstId: firstItemId, lastId: lastItemId, running }
+  }, [chat.historyLoading, firstItemId, items.length, lastItemId, running])
+
+  const handleMessageScroll = () => {
+    const el = scrollRef.current
+    if (!el) return
+    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_FOLLOW_THRESHOLD_PX
+    if (
+      historyPagingEnabled
+      && el.scrollTop <= HISTORY_LOAD_THRESHOLD_PX
+      && !chat.historyLoading
+      && !chat.historyExhausted
+    ) {
+      chat.loadHistory(false)
+    }
+  }
 
   // 回答完成后：解析其中的 BUG 结构化块并自动登记（每条 assistant 只处理一次）。
   useEffect(() => {
@@ -210,6 +295,7 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
     shouldQueue: boolean,
     developerInstructions?: string,
   ) => {
+    isNearBottomRef.current = true
     if (shouldQueue) chat.enqueue(message, attachments, undefined, developerInstructions)
     else chat.send(message, attachments, undefined, developerInstructions)
     setText('')
@@ -265,7 +351,7 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
         setNewQuestionReason(result.reason)
         return
       }
-      dispatchMessage(result.prompt ?? message, attachments, shouldQueue, message)
+      dispatchMessage(message, attachments, shouldQueue, result.prompt ?? undefined)
     } catch {
       // 分类只是辅助拦截，超时、断网或服务异常都必须放行用户消息，不能卡在“识别中”。
       dispatchMessage(message, attachments, shouldQueue)
@@ -323,7 +409,15 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
         )}
 
         {/* 消息流 */}
-        <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
+        <div ref={scrollRef} onScroll={handleMessageScroll} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
+          {historyPagingEnabled && chat.historyLoading && items.length > 0 && (
+            <div className="flex items-center justify-center gap-1.5 py-1 text-[11px] text-slate-400">
+              <Loader2 className="size-3 animate-spin" /> 正在加载更早消息…
+            </div>
+          )}
+          {historyPagingEnabled && chat.historyExhausted && items.length > 0 && (
+            <div className="py-1 text-center text-[11px] text-slate-400">已到会话最早消息</div>
+          )}
           {items.length === 0 && !running && (
             <p className="pt-8 text-center text-sm text-slate-400">正在接入 Forge…</p>
           )}
@@ -340,7 +434,7 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
                 <div key={it.id} className="group space-y-1.5">
                   <MessageRow item={it} onImageClick={setLightbox} />
                   {quotable.trim() && (
-                    <div className={`flex opacity-0 transition-opacity group-hover:opacity-100 ${it.kind === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 ${it.kind === 'user' ? 'justify-end' : 'justify-start'}`}>
                       <button
                         type="button"
                         onClick={() => quoteMessage(quotable)}
@@ -348,6 +442,14 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
                         title="引用这条消息到输入框追问"
                       >
                         <Quote className="size-3" /> 引用
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void copyMessage(it.id, quotable)}
+                        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                        title="复制消息内容"
+                      >
+                        <Copy className="size-3" /> {copiedMessageId === it.id ? '已复制' : '复制'}
                       </button>
                     </div>
                   )}
@@ -422,15 +524,27 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
               >
                 <Paperclip className="size-3.5" /> 附件
               </button>
-              <button
-                type="button"
-                onClick={() => void send()}
-                disabled={!canSend}
-                className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-400 to-indigo-500 px-4 py-1.5 text-sm font-medium text-white shadow-[0_8px_30px_-8px_rgba(99,102,241,0.8)] transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {classifying ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-                {classifying ? '识别中…' : '发送'}
-              </button>
+              <div className="flex items-center gap-2">
+                {running && (
+                  <button
+                    type="button"
+                    onClick={interruptGeneration}
+                    className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:border-red-300 hover:bg-red-100"
+                    title="中断当前处理并清除待发送消息"
+                  >
+                    <Square className="size-3.5 fill-current" /> 中断
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void send()}
+                  disabled={!canSend}
+                  className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-400 to-indigo-500 px-4 py-1.5 text-sm font-medium text-white shadow-[0_8px_30px_-8px_rgba(99,102,241,0.8)] transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {classifying ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+                  {classifying ? '识别中…' : running ? '排队发送' : '发送'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

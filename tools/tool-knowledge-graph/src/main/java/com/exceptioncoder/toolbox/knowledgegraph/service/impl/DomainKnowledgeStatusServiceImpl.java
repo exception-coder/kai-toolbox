@@ -54,7 +54,7 @@ public class DomainKnowledgeStatusServiceImpl implements DomainKnowledgeStatusSe
         String engineRoot = props.getDomainKnowledgeRepoPath();
         if (engineRoot == null || engineRoot.isBlank()) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "请先在配置中心设置 knowledge-graph.domain-knowledge-repo-path（cross-topology 检测同样依赖这个引擎仓库）");
+                    "团队依赖尚未初始化，请先在 Vibe Coding 拉取 project-domain-knowledge");
         }
         Path distEntry = Path.of(engineRoot, "dist", "server.js");
         if (!Files.exists(distEntry)) {
@@ -67,7 +67,7 @@ public class DomainKnowledgeStatusServiceImpl implements DomainKnowledgeStatusSe
             String topologyRepo = props.getCrossTopologyRepoPath();
             if (topologyRepo == null || topologyRepo.isBlank()) {
                 throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                        "请先在配置中心设置 knowledge-graph.cross-topology-repo-path");
+                        "团队依赖尚未初始化，请先在 Vibe Coding 拉取 cross-project-topology");
             }
             kbDirOverride = Path.of(topologyRepo, "knowledge").toString();
         }

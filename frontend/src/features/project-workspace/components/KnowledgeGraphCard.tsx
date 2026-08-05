@@ -98,12 +98,12 @@ export function KnowledgeGraphCard({
   const launchBootstrap = async (repoKey: 'domain-knowledge' | 'cross-topology', scope: 'full' | string[], label: string) => {
     const cwd = repoKey === 'domain-knowledge' ? repos?.domainKnowledgeRepoPath : repos?.crossTopologyRepoPath
     if (!cwd) {
-      const goConfig = await confirm({
-        title: '尚未配置仓库路径',
-        description: `请先在配置中心设置 ${repoKey === 'domain-knowledge' ? 'domain-knowledge-repo-path' : 'cross-topology-repo-path'}，再回来重试。`,
-        confirmText: '去配置 →',
+      await confirm({
+        title: '团队依赖尚未初始化',
+        description: `请先在 Vibe Coding 拉取 ${repoKey === 'domain-knowledge' ? 'project-domain-knowledge' : 'cross-project-topology'}，再回来重试。`,
+        confirmText: '知道了',
+        cancelText: '关闭',
       })
-      if (goConfig) navigate('/tools/config-center?block=toolbox.knowledge-graph')
       return
     }
     const ok = await confirm({
