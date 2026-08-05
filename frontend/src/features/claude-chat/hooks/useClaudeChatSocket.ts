@@ -114,6 +114,8 @@ export interface UseClaudeChatSocket {
   agents: string[]
   mcpServers: { name: string; status: string }[]
   outputStyle: string | null
+  /** 正在向 sidecar 重新请求当前会话能力快照。 */
+  capabilitiesRefreshing: boolean
   /** 当前会话可用模型清单（来自 SDK supportedModels） */
   models: ModelInfo[]
   /** 正在主动同步模型清单（重新询问 claude 二进制）；用于按钮转圈/禁用 */
@@ -157,6 +159,8 @@ export interface UseClaudeChatSocket {
   setModel: (model: string) => void
   /** 主动同步模型清单：让 sidecar 重新询问 claude 二进制拉最新型号（Claude Code 自更新后用） */
   refreshModels: () => void
+  /** 主动刷新技能、子代理与 MCP 能力清单。 */
+  refreshCapabilities: () => void
   setCodexOptions: (reasoningEffort: CodexReasoningEffort, speed: CodexSpeed) => void
   /** 会话内切 agent（引擎），同一会话内换 claude/codex/gemini；上下文靠切后另发 seed 带过去 */
   switchEngine: (engine: Engine) => void
@@ -222,6 +226,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const [skills, setSkills] = useState<string[]>([])
   const [agents, setAgents] = useState<string[]>([])
   const [mcpServers, setMcpServers] = useState<{ name: string; status: string }[]>([])
+  const [capabilitiesRefreshing, setCapabilitiesRefreshing] = useState(false)
   // 会话上挂着的后台任务（Agent 工具后台化的子任务）：result 事件只代表"这一轮可见回复结束了"，
   // 不代表后台工作也结束——这份状态单独跟踪，用来在切会话/发送区展示"后台还有任务在跑"。
   const [backgroundTasks, setBackgroundTasks] = useState<BackgroundTaskInfo[]>([])
@@ -322,6 +327,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
     switch (msg.type) {
       case 'ready':
+        setCapabilitiesRefreshing(false)
         sessionIdRef.current = msg.sessionId
         setSessionId(msg.sessionId)
         setState('ready')
@@ -380,7 +386,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           if (msg.selectedModel !== undefined) setCurrentModel(msg.selectedModel)
           setSkills([])
           setAgents([])
-          setMcpServers([])
+          if (msg.engine === 'gemini') setMcpServers([])
         }
         // ready 只用于「关闭」running（会话已非 RUNNING → 纠正卡住的「思考中」），绝不靠它「点亮」：
         // 反复收到的 ready（重连/sidecar 恢复/切换 provider 都会重发 ready）如果带着 RUNNING，
@@ -464,13 +470,27 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         setModelsRefreshing(false) // 收到最新清单：结束「同步中」态
         break
       case 'userMessage':
-        // 把本轮用户消息的 SDK transcript uuid 挂到最近一条尚未标记的 user 项上，供「从此处分叉」
+        // 把本轮用户消息的 SDK transcript uuid 挂到最近一条 user 项上，供异常清理回退
         setItems(prev => {
           for (let i = prev.length - 1; i >= 0; i--) {
             const it = prev[i]
             if (it.kind === 'user' && !it.sdkUuid) {
               const copy = prev.slice()
               copy[i] = { ...it, sdkUuid: msg.uuid }
+              return copy
+            }
+          }
+          return prev
+        })
+        break
+      case 'forkAnchor':
+        // 挂到本轮最后一条回答：Claude 是 message UUID，Codex 是 turn ID。
+        setItems(prev => {
+          for (let i = prev.length - 1; i >= 0; i--) {
+            const it = prev[i]
+            if (it.kind === 'assistant' && !it.forkAnchor) {
+              const copy = prev.slice()
+              copy[i] = { ...it, forkAnchor: msg.anchor }
               return copy
             }
           }
@@ -521,6 +541,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       }
       case 'error':
         setRunning(false)
+        if (msg.code === 'CAPABILITIES_UNAVAILABLE') setCapabilitiesRefreshing(false)
         // 同一条错误连续重复时不再追加：像前后端版本不一致导致的 BAD_MESSAGE，会随每次
         // 开关切换/重连反复触发，逐条堆进消息流会把真正的对话内容顶没。保留第一条即可。
         setItems(prev => {
@@ -1050,6 +1071,13 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     window.setTimeout(() => setModelsRefreshing(false), 15_000)
   }, [sendRaw])
 
+  // 能力刷新不触发模型调用：Codex 重新计算平台注入的 MCP；Claude 重发最近一次 SDK init 快照。
+  const refreshCapabilities = useCallback(() => {
+    setCapabilitiesRefreshing(true)
+    sendRaw({ type: 'refreshCapabilities' })
+    window.setTimeout(() => setCapabilitiesRefreshing(false), 10_000)
+  }, [sendRaw])
+
   const setCodexOptions = useCallback((reasoningEffort: CodexReasoningEffort, speed: CodexSpeed) => {
     setCodexReasoningEffort(reasoningEffort)
     setCodexSpeed(speed)
@@ -1091,7 +1119,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     sendRaw({ type: 'switchProvider', apiBaseUrl: baseUrl, authToken: token })
   }, [sendRaw])
 
-  // 从某条用户消息分叉出新会话（旧会话保留）。完成后服务端回 forked → 自动 switchTo 新会话。
+  // 保留到指定回答为止并分叉新会话（旧会话保留）。
   const forkSession = useCallback((upToMessageId: string) => {
     sendRaw({ type: 'forkSession', upToMessageId })
   }, [sendRaw])
@@ -1181,5 +1209,5 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
   }, [sendRaw, connect])
 
-  return { state, sessionId, items, pending, pendingSessions, running, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, agents, mcpServers, outputStyle, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, pendingSessions, running, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, agents, mcpServers, outputStyle, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, loadHistory }
 }

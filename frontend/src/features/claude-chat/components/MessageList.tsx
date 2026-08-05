@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react'
+import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
 import { AlertTriangle, ArrowDown, Check, Coins, Copy, Database, FileImage, FileText, FolderOpen, GitBranch, Timer } from 'lucide-react'
@@ -22,8 +22,8 @@ interface Props {
   loadingEarlier?: boolean
   /** 已无更早历史 */
   exhausted?: boolean
-  /** 从某条用户消息分叉新会话（仅当该消息带 sdkUuid 时可用） */
-  onFork?: (sdkUuid: string) => void
+  /** 从某条 AI 回答处分叉新会话（Claude message UUID / Codex turn ID） */
+  onFork?: (forkAnchor: string) => void
   /** 引擎展示名（Claude / Codex），用于「正在思考」文案 */
   engineLabel?: string
   /** QUERY_FAILED/No conversation found 时在同目录新建会话。 */
@@ -107,7 +107,7 @@ const LIST_COMPONENTS = { Header: ListHeader, Footer: ListFooter }
  * - 贴底跟随/锁定：followOutput（默认只在已经贴底时才跟新内容走）+ atBottomStateChange。
  * - 跳到指定消息：scrollToIndex，配合 highlightedId 做短暂高亮（不再依赖 DOM 查询）。
  */
-export const MessageList = forwardRef<MessageListHandle, Props>(function MessageList(
+export const MessageList = memo(forwardRef<MessageListHandle, Props>(function MessageList(
   { items, running, onLoadEarlier, loadingEarlier, exhausted, onFork, engineLabel = 'Claude', onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey },
   ref,
 ) {
@@ -252,7 +252,7 @@ export const MessageList = forwardRef<MessageListHandle, Props>(function Message
       {viewer && <ImageLightbox src={viewer.src} alt={viewer.alt} onClose={() => setViewer(null)} />}
     </div>
   )
-})
+}))
 
 /** 剪贴板写入 + 降级（非安全上下文/旧浏览器用隐藏 textarea + execCommand），CopyButton 和
  *  TurnStatus 的「复制本轮」共用同一条路径。 */
@@ -405,7 +405,7 @@ function TurnStatus({ item, turnText }: { item: Extract<ChatItem, { kind: 'resul
   )
 }
 
-function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText }: { item: ChatItem; onFork?: (sdkUuid: string) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string }) {
+function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText }: { item: ChatItem; onFork?: (forkAnchor: string) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string }) {
   // displayText：Forge 机器人等「seed 转发」场景会隐藏实际发给 agent 的完整门控样板文案，只显示用户
   // 真正输入的那句话；保留一个不打眼的展开入口，避免完全不可见（可回看到底发了什么）。仅 'user' 项用到，
   // 但 Hooks 规则要求无条件调用，放在 switch 之外（对其它 kind 是无副作用的多余 state，可忽略）。
@@ -465,7 +465,7 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
               {shown}
             </div>
           )}
-          {(shown.trim() || (onFork && item.sdkUuid) || hasOverride) && (
+          {(shown.trim() || hasOverride) && (
             <div className="mt-1 flex items-center gap-1">
               {shown.trim() && <CopyButton text={shown} />}
               {hasOverride && (
@@ -478,18 +478,6 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
                 >
                   <FileText className="size-3.5" />
                   {showRaw ? '收起' : '完整内容'}
-                </button>
-              )}
-              {onFork && item.sdkUuid && (
-                <button
-                  type="button"
-                  onClick={() => onFork(item.sdkUuid!)}
-                  aria-label="从此处分叉对话"
-                  title="从此处分叉出新会话（保留当前会话）"
-                  className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] active:bg-[var(--color-muted)]"
-                >
-                  <GitBranch className="size-3.5" />
-                  从此处分叉
                 </button>
               )}
             </div>
@@ -517,6 +505,18 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
               <div className="flex items-center gap-1">
                 <CopyButton text={item.text} />
                 <ToCardButton text={item.text} />
+                {onFork && item.forkAnchor && (
+                  <button
+                    type="button"
+                    onClick={() => onFork(item.forkAnchor!)}
+                    aria-label="从这条回答处分叉对话"
+                    title="保留到这条回答为止，并从这里创建独立新会话"
+                    className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] active:bg-[var(--color-muted)]"
+                  >
+                    <GitBranch className="size-3.5" />
+                    从此处分叉
+                  </button>
+                )}
               </div>
             )}
           </div>

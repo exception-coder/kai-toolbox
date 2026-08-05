@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
 /** 会话待执行 SQL 的登记接口，只维护本地台账，不执行 SQL。 */
@@ -37,7 +38,7 @@ public class SessionPendingSqlController {
     }
 
     /** Forge Agent Tool 回灌入口：只登记、去重和合并，绝不连接或执行目标数据库。 */
-    @PutMapping("/auto-register")
+    @RequestMapping(path = "/auto-register", method = {RequestMethod.PUT, RequestMethod.POST})
     public SessionPendingSql autoRegister(@PathVariable String sessionId,
                                           @RequestBody AutoRegisterRequest request) {
         return service.registerFromTool(sessionId, request.title(), request.targetEnvironment(),

@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
-import { Check, Clipboard, Database, Loader2, RotateCcw, Save, Trash2, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Check, Clipboard, Database, Loader2, Maximize2, Minimize2, RotateCcw, Save, Trash2, X } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
+import { cn } from '@/lib/utils'
 import {
   deleteSessionPendingSql,
   getSessionPendingSql,
@@ -32,6 +33,34 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const sqlAreaRef = useRef<HTMLTextAreaElement>(null)
+  const [sqlViewport, setSqlViewport] = useState({
+    firstLine: 1,
+    lastLine: 1,
+    totalLines: 1,
+    progress: 0,
+    thumbTop: 0,
+    thumbHeight: 100,
+    scrollable: false,
+  })
+
+  const updateSqlViewport = (element: HTMLTextAreaElement | null) => {
+    if (!element) return
+    const lineHeight = 24
+    const totalLines = Math.max(1, element.value.split('\n').length)
+    const maxScroll = Math.max(0, element.scrollHeight - element.clientHeight)
+    const progress = maxScroll > 0 ? Math.min(100, Math.round((element.scrollTop / maxScroll) * 100)) : 0
+    const visibleLineCount = Math.max(1, Math.floor(element.clientHeight / lineHeight))
+    const firstLine = Math.min(totalLines, Math.floor(element.scrollTop / lineHeight) + 1)
+    const lastLine = Math.min(totalLines, firstLine + visibleLineCount - 1)
+    const thumbHeight = maxScroll > 0
+      ? Math.max(8, Math.min(100, (element.clientHeight / element.scrollHeight) * 100))
+      : 100
+    const thumbTop = maxScroll > 0 ? (progress / 100) * (100 - thumbHeight) : 0
+
+    setSqlViewport({ firstLine, lastLine, totalLines, progress, thumbTop, thumbHeight, scrollable: maxScroll > 0 })
+  }
 
   useEffect(() => {
     let alive = true
@@ -51,6 +80,31 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
       })
     return () => { alive = false }
   }, [sessionId])
+
+  useEffect(() => {
+    const element = sqlAreaRef.current
+    if (!element) return
+    const frame = window.requestAnimationFrame(() => updateSqlViewport(element))
+    const observer = new ResizeObserver(() => updateSqlViewport(element))
+    observer.observe(element)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
+  }, [registration, sqlText, isFullscreen])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (isFullscreen) {
+        setIsFullscreen(false)
+      } else {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isFullscreen, onClose])
 
   const handleSave = async () => {
     if (!sqlText.trim()) {
@@ -127,9 +181,20 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 px-3 pt-10 sm:pt-16" onClick={onClose}>
+    <div
+      className={cn(
+        'fixed inset-0 z-50 flex justify-center bg-black/40',
+        isFullscreen ? 'items-stretch p-0' : 'items-start px-3 pt-10 sm:pt-16',
+      )}
+      onClick={onClose}
+    >
       <div
-        className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border bg-[var(--color-card)] shadow-2xl"
+        className={cn(
+          'flex w-full flex-col overflow-hidden bg-[var(--color-card)] shadow-2xl',
+          isFullscreen
+            ? 'h-[100dvh] max-h-none max-w-none rounded-none border-0'
+            : 'max-h-[85vh] max-w-2xl rounded-xl border',
+        )}
         onClick={event => event.stopPropagation()}
       >
         <div className="flex items-center gap-2 border-b px-4 py-3">
@@ -143,12 +208,24 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
               {STATUS_LABELS[registration.status]}
             </span>
           )}
+          <button
+            type="button"
+            onClick={() => setIsFullscreen(value => !value)}
+            className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]"
+            aria-label={isFullscreen ? '退出全屏' : '全屏查看'}
+            title={isFullscreen ? '退出全屏' : '全屏查看'}
+          >
+            {isFullscreen ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+          </button>
           <button type="button" onClick={onClose} className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]" aria-label="关闭">
             <X className="size-3.5" />
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
+        <div className={cn(
+          'min-h-0 flex-1 px-4 py-4',
+          isFullscreen ? 'flex flex-col gap-3 overflow-hidden' : 'space-y-3 overflow-y-auto',
+        )}>
           <div className="rounded-lg border border-amber-300/60 bg-amber-50/70 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
             这里只登记和复制 SQL，不会连接或执行任何数据库。请勿填写密码、Token 等凭据。
           </div>
@@ -193,20 +270,49 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
                 </select>
               </label>
 
-              <label className="block space-y-1 text-xs font-medium">
-                <span>SQL 内容</span>
-                <textarea
-                  value={sqlText}
-                  onChange={event => setSqlText(event.target.value)}
-                  placeholder="粘贴待执行的 DDL / DML，可包含多条语句…"
-                  spellCheck={false}
-                  className="min-h-64 w-full resize-y rounded-md border bg-slate-950 p-3 font-mono text-sm leading-6 text-slate-100 outline-none focus:border-[var(--color-primary)]"
-                />
+              <label className={cn(
+                'text-xs font-medium',
+                isFullscreen ? 'flex min-h-32 flex-1 flex-col gap-1' : 'block space-y-1',
+              )}>
+                <span className="flex items-center justify-between gap-3">
+                  <span>SQL 内容</span>
+                  <span className="font-normal tabular-nums text-[var(--color-muted-foreground)]">
+                    {sqlViewport.scrollable
+                      ? `第 ${sqlViewport.firstLine}–${sqlViewport.lastLine} / ${sqlViewport.totalLines} 行 · ${sqlViewport.progress}%`
+                      : `${sqlViewport.totalLines} 行 · 全部可见`}
+                  </span>
+                </span>
+                <div className={cn(
+                  'relative overflow-hidden rounded-md border bg-slate-950 focus-within:border-[var(--color-primary)]',
+                  isFullscreen ? 'min-h-0 flex-1' : 'h-72',
+                )}>
+                  <textarea
+                    ref={sqlAreaRef}
+                    value={sqlText}
+                    onChange={event => {
+                      setSqlText(event.target.value)
+                      updateSqlViewport(event.currentTarget)
+                    }}
+                    onScroll={event => updateSqlViewport(event.currentTarget)}
+                    placeholder="粘贴待执行的 DDL / DML，可包含多条语句…"
+                    spellCheck={false}
+                    className="h-full w-full resize-none overflow-y-scroll bg-transparent p-3 pr-8 font-mono text-sm leading-6 text-slate-100 outline-none [scrollbar-gutter:stable] [scrollbar-width:auto] [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-500 [&::-webkit-scrollbar-track]:bg-slate-800"
+                  />
+                  <div
+                    className="pointer-events-none absolute bottom-2 right-4 top-2 w-1.5 overflow-hidden rounded-full bg-white/10"
+                    aria-hidden="true"
+                  >
+                    <div
+                      className="absolute left-0 right-0 rounded-full bg-cyan-400/80 shadow-[0_0_6px_rgba(34,211,238,0.45)] transition-[top,height] duration-100"
+                      style={{ top: `${sqlViewport.thumbTop}%`, height: `${sqlViewport.thumbHeight}%` }}
+                    />
+                  </div>
+                </div>
               </label>
 
               {error && <p className="text-xs text-[var(--color-destructive)]">{error}</p>}
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={handleSave}

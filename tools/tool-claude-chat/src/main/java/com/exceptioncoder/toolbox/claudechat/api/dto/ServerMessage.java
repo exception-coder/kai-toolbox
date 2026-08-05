@@ -15,7 +15,7 @@ public sealed interface ServerMessage
         permits ServerMessage.Ready, ServerMessage.AssistantDelta, ServerMessage.ToolUse,
                 ServerMessage.ToolResult, ServerMessage.PermissionRequest,
                 ServerMessage.QuestionRequest, ServerMessage.DecisionResolved,
-                ServerMessage.Models, ServerMessage.UserMessage, ServerMessage.Forked,
+                ServerMessage.Models, ServerMessage.UserMessage, ServerMessage.ForkAnchor, ServerMessage.Forked,
                 ServerMessage.ReplayGap, ServerMessage.Result, ServerMessage.TurnInfo,
                 ServerMessage.TurnProgress, ServerMessage.Error, ServerMessage.BackgroundTasks,
                 ServerMessage.PendingSessions {
@@ -58,9 +58,13 @@ public sealed interface ServerMessage
     @JsonTypeName("models")
     record Models(long seq, List<ModelInfo> models, String current) implements ServerMessage {}
 
-    /** 关联刚发出的用户消息与其 SDK transcript uuid，供前端「从此处分叉」定位。 */
+    /** 关联刚发出的用户消息与其 SDK transcript UUID，供异常清理回退定位。 */
     @JsonTypeName("userMessage")
     record UserMessage(long seq, String uuid) implements ServerMessage {}
+
+    /** 当前回答对应的原生分叉锚点：Claude message UUID / Codex turn ID。 */
+    @JsonTypeName("forkAnchor")
+    record ForkAnchor(long seq, String anchor) implements ServerMessage {}
 
     /** 分叉完成：sessionId 为新建的工具内会话 id，前端 switchTo 续跑。 */
     @JsonTypeName("forked")

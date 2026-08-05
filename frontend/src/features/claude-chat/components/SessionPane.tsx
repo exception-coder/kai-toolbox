@@ -146,6 +146,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
   const engineTitle = chat.currentProviderKind === 'thirdParty'
     ? `第三方网关：${host ?? chat.currentProviderBaseUrl ?? '未知'}`
     : undefined
+  const handleLoadEarlier = useCallback(() => chat.loadHistory(false), [chat.loadHistory])
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border bg-[var(--color-background)]">
@@ -190,7 +191,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
           sessionKey={sessionId}
           items={chat.items}
           running={chat.running}
-          onLoadEarlier={() => chat.loadHistory(false)}
+          onLoadEarlier={handleLoadEarlier}
           loadingEarlier={chat.historyLoading}
           exhausted={chat.historyExhausted}
           onFork={chat.forkSession}

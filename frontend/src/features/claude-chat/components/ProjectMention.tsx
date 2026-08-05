@@ -113,10 +113,12 @@ function interleaveReferences(
 
 /** 识别光标前正在输入的引用，不匹配邮箱和已有反引号路径。 */
 function findTypingTrigger(value: string, cursor: number): MentionTrigger | null {
-  const prefix = value.slice(0, cursor)
+  // @ 引用只可能出现在光标附近，无需在每次输入/退格时扫描整份长草稿。
+  const scanStart = Math.max(0, cursor - 512)
+  const prefix = value.slice(scanStart, cursor)
   const match = /(^|\s)@([^\s@`]*)$/.exec(prefix)
   if (!match) return null
-  const start = (match.index ?? 0) + match[1].length
+  const start = scanStart + (match.index ?? 0) + match[1].length
   return { start, end: cursor, query: match[2] }
 }
 

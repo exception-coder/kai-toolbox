@@ -22,7 +22,7 @@ import { AttachmentChips } from '../components/AttachmentChips'
 import { QueuedList } from '../components/QueuedList'
 import { PendingSessionsBanner } from '../components/PendingSessionsBanner'
 import { SessionCapsPanel } from '../components/SessionCapsPanel'
-import { PENDING_DRAFT_KEY, useDraftStore } from '../lib/draftPref'
+import { PENDING_DRAFT_KEY, useDraft } from '../lib/draftPref'
 import { useDraftAttachments, type DraftAttachment } from '../lib/attachmentDraftPref'
 import { loadCodexHomePreference, saveCodexHomePreference } from '../lib/codexHomePref'
 import { cn } from '@/lib/utils'
@@ -356,7 +356,6 @@ export function ChatPage() {
   const [sessTab, setSessTab] = useState<'tool' | 'history'>('tool')
   // 输入框草稿按会话绑定 + 本地持久化：切到任意会话只显示该会话自己的草稿，互不串扰、刷新保留。
   // 用共享 store（模块级），与悬浮窗/分屏读同一份 → 主页打字后弹悬浮窗草稿不丢、即时同步。
-  const { drafts, setDraft: setDraftForKey } = useDraftStore()
   // 聚合联动提示预填:从项目工作台「一键聚合」跳来时读一次 sessionStorage 草稿；先存到 ref，待当前会话就绪再落到其草稿。
   const seedRef = useRef<string | null>(null)
   const seedReadRef = useRef(false)
@@ -368,18 +367,15 @@ export function ChatPage() {
     } catch { /* 忽略隐私模式异常 */ }
   }
   const draftKey = chat?.sessionId ?? PENDING_DRAFT_KEY
-  const draft = drafts[draftKey] ?? ''
-  const setDraft = useCallback((v: string | ((d: string) => string)) => {
-    setDraftForKey(draftKey, v)
-  }, [draftKey, setDraftForKey])
+  const [draft, setDraft] = useDraft(draftKey)
   // 聚合 seed：当前会话就绪且其草稿为空时，把一次性 seed 落到该会话草稿。
   useEffect(() => {
-    if (seedRef.current && chat?.sessionId && !(drafts[chat.sessionId])) {
+    if (seedRef.current && chat?.sessionId && !draft) {
       const s = seedRef.current
       seedRef.current = null
       setDraft(s)
     }
-  }, [chat?.sessionId, drafts, setDraft])
+  }, [chat?.sessionId, draft, setDraft])
 
   // 模块编码范围 seed：项目工作台「新建会话」打开某模块时写入本模块的 codePath/webPath 约束，
   // 会话就绪且草稿为空时预填进输入框（不自动发送——它是范围前言，用户在后面接着写需求）。一次性。
@@ -389,8 +385,8 @@ export function ChatPage() {
     try { raw = sessionStorage.getItem('kai-toolbox:claude-chat:module-open-context') } catch { return }
     if (!raw) return
     try { sessionStorage.removeItem('kai-toolbox:claude-chat:module-open-context') } catch { /* ignore */ }
-    if (!drafts[chat.sessionId]) setDraft(raw)
-  }, [chat?.sessionId, drafts, setDraft])
+    if (!draft) setDraft(raw)
+  }, [chat?.sessionId, draft, setDraft])
 
   // ERP 需求开发前门 handoff：「ERP 需求开发」模块把 {cwd, seed} 写 sessionStorage 后跳来，
   // 这里一次性消费——在 ERP 工作区开一个 Claude 会话并投喂触发语拉起 yoooni-erp-auto-dev skill。
@@ -658,6 +654,10 @@ export function ChatPage() {
   const currentTitle = currentSession
     ? (currentSession.title?.trim() || headerCwdName(currentSession.cwd))
     : undefined
+  const handleLoadEarlier = useCallback(() => chat?.loadHistory(false), [chat?.loadHistory])
+  const handleNewSession = useCallback(() => {
+    if (chat && currentSession) chat.open(currentSession.cwd)
+  }, [chat?.open, currentSession?.cwd])
 
   // 顶栏标题双击直接改名：本地态显示编辑框，提交后写回后端并让会话列表/标题一并刷新。
   const [editingTitle, setEditingTitle] = useState(false)
@@ -965,6 +965,16 @@ export function ChatPage() {
           <Button variant="ghost" size="sm" className="gap-1 px-2 sm:px-3" onClick={() => setPanel(p => p === 'sessions' ? 'none' : 'sessions')} aria-label="会话列表">
             <List className="size-4" /> <span className="hidden sm:inline">会话</span>
           </Button>
+          <Button
+            variant={panel === 'plugins' ? 'secondary' : 'ghost'}
+            size="sm"
+            className="gap-1 px-2 sm:px-3"
+            onClick={() => setPanel(p => p === 'plugins' ? 'none' : 'plugins')}
+            aria-label="团队依赖"
+            title="拉取依赖项目并安装到 Claude Code / Codex"
+          >
+            <Package className="size-4" /> <span className="hidden sm:inline">团队依赖</span>
+          </Button>
           {/* 其余功能收进「更多」菜单，每项带中文标签，避免一排没标识的图标 */}
           <div className="relative max-sm:order-first">
             <Button variant="ghost" size="icon" onClick={() => setHeaderMenu(o => !o)} aria-label="更多功能" title="更多功能">
@@ -1023,7 +1033,7 @@ export function ChatPage() {
                   </MenuSection>
                   <MenuSection icon={<Settings className="size-4" />} label="系统 · 设置" open={menuGroup === 'system'} onToggle={() => toggle('system')}>
                     <HeaderMenuItem nested icon={<Server className="size-4" />} label="服务商" hint="第三方网关(按会话,不动官方)" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'providers' ? 'none' : 'providers') }} />
-                    <HeaderMenuItem nested icon={<Package className="size-4" />} label="插件更新" hint="查看/更新双端插件" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'plugins' ? 'none' : 'plugins') }} />
+                    <HeaderMenuItem nested icon={<Package className="size-4" />} label="团队依赖" hint="拉取仓库并安装到 Claude Code / Codex" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'plugins' ? 'none' : 'plugins') }} />
                     <HeaderMenuItem nested icon={<Bell className="size-4" />} label="通知设置" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'settings' ? 'none' : 'settings') }} />
                     <HeaderMenuItem nested icon={<FileText className="size-4" />} label="最新日志" hint="后端+sidecar 日志，一键复制排查" onClick={() => { setHeaderMenu(false); setShowLogs(true) }} />
                     <HeaderMenuItem nested icon={<Bug className="size-4" />} label="调试模式" hint="实时交互日志（前端↔后端收发事件）" onClick={() => { setHeaderMenu(false); setShowDebug(true) }} />
@@ -1350,6 +1360,8 @@ export function ChatPage() {
           outputStyle={chat.outputStyle}
           slashCount={chat.slashCommands.length}
           engine={chat.currentEngine}
+          refreshing={chat.capabilitiesRefreshing}
+          onRefresh={chat.refreshCapabilities}
           onClose={() => setPanel('none')}
         />
       )}
@@ -1499,16 +1511,13 @@ export function ChatPage() {
                 sessionKey={chat.sessionId ?? undefined}
                 items={chat.items}
                 running={chat.running}
-                onLoadEarlier={() => chat.loadHistory(false)}
+                onLoadEarlier={handleLoadEarlier}
                 loadingEarlier={chat.historyLoading}
                 exhausted={chat.historyExhausted}
                 onFork={chat.forkSession}
                 engineLabel={engineDisplayName(chat.currentEngine, chat.currentProviderKind)}
                 onCleanRetry={chat.cleanRetry}
-                onNewSession={currentSession ? () => {
-                  // 会话 JSONL 文件丢失无法恢复时，在同目录新建一个干净的会话
-                  chat.open(currentSession.cwd)
-                } : undefined}
+                onNewSession={currentSession ? handleNewSession : undefined}
                 turnTokens={chat.turnTokens}
                 connState={chat.state}
               />

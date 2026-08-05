@@ -72,6 +72,7 @@ public class ClaudeChatWebSocketHandler extends TextWebSocketHandler {
             case ClientMessage.SetAutoApprove sa -> service.setAutoApprove(ws, sa);
             case ClientMessage.SetModel sm -> service.setModel(ws, sm);
             case ClientMessage.RefreshModels ignored -> service.refreshModels(ws);
+            case ClientMessage.RefreshCapabilities ignored -> service.refreshCapabilities(ws);
             case ClientMessage.SetCodexOptions options -> service.setCodexOptions(ws, options);
             case ClientMessage.SwitchEngine se -> service.switchEngine(ws, se);
             case ClientMessage.SwitchProvider sp -> service.switchProvider(ws, sp);

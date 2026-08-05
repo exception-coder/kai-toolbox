@@ -93,30 +93,31 @@
   inset: -30%;
   pointer-events: none;
   opacity: var(--skin-alpha);
-  will-change: transform;
+  /* 全屏渐变与毛玻璃叠加时会持续占用合成线程；聊天页保持静态背景即可。 */
+  will-change: auto;
 }
 
 .cc-skin-bg::before {
   background:
     radial-gradient(38% 44% at 18% 22%, var(--skin-c1) 0%, transparent 70%),
     radial-gradient(34% 40% at 82% 30%, var(--skin-c2) 0%, transparent 72%);
-  animation: cc-skin-drift-a 46s ease-in-out infinite alternate;
+  animation: none;
 }
 
 .cc-skin-bg::after {
   background:
     radial-gradient(42% 46% at 70% 82%, var(--skin-c3) 0%, transparent 70%),
     radial-gradient(30% 36% at 30% 74%, var(--skin-c2) 0%, transparent 74%);
-  animation: cc-skin-drift-b 67s ease-in-out infinite alternate;
+  animation: none;
 }
 
 /* agent 正在跑：呼吸加快 + 略微提亮，作为余光可感的「它在动」信号。cc-skin-live 仍挂在
    .cc-skin 本体上，这里靠后代选择器找到子层 .cc-skin-bg 的伪元素。 */
 .cc-skin-live .cc-skin-bg::before {
-  animation-duration: 15s;
+  animation-duration: 0s;
 }
 .cc-skin-live .cc-skin-bg::after {
-  animation-duration: 21s;
+  animation-duration: 0s;
 }
 .cc-skin-live .cc-skin-bg::before,
 .cc-skin-live .cc-skin-bg::after {
@@ -149,10 +150,10 @@
  */
 .cc-skin :where(.cc-skin-surface) {
   background-color: color-mix(in oklab, var(--color-muted) 62%, transparent);
-  backdrop-filter: blur(12px);
+  backdrop-filter: none;
 }
 
 .cc-skin :where(.cc-skin-surface-solid) {
   background-color: color-mix(in oklab, var(--color-background) 70%, transparent);
-  backdrop-filter: blur(12px);
+  backdrop-filter: none;
 }

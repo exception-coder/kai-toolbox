@@ -41,7 +41,7 @@ function buildProjectSeed(ask: string): string {
  * 「Forge 自修机器人」常驻触发器：右下角悬浮小锤子图标，点开分裂出「改这个模块」/「问项目」两个入口，
  * 分别在左上角/右上角弹出迷你输入框——左手锁定当前打开的模块，右手面向整个仓库不锁模块。
  * 提交后转交给同一个 Vibe Coding 悬浮窗实例处理（不新开一套聊天 UI），cwd 固定为后端配置的自身仓库路径。
- * 仅在配置了 {@code toolbox.claude-chat.workspace.self-repo-path} 且目录存在时出现。
+ * 仅在后端从当前运行目录识别到 kai-toolbox 仓库时出现。
  * 气泡默认只显示你敲的原话，不显示门控提示词模板（send 的 displayText 参数，气泡上有「完整内容」可展开回看）。
  */
 export function ForgeBotTrigger() {

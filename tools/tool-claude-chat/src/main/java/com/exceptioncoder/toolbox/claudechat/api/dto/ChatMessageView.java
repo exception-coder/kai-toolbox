@@ -13,6 +13,7 @@ public record ChatMessageView(
         String id,
         String kind,                 // user / assistant / tool / result
         String text,                 // user / assistant
+        String forkAnchor,           // assistant：Claude message UUID / Codex turn ID
         String toolName,             // tool
         Object input,                // tool
         String output,               // tool
@@ -23,18 +24,22 @@ public record ChatMessageView(
         Long latencyMs               // result：本轮耗时（ms），可空
 ) {
     public static ChatMessageView user(String id, String text, Long ts) {
-        return new ChatMessageView(id, "user", text, null, null, null, null, null, ts, null, null);
+        return new ChatMessageView(id, "user", text, null, null, null, null, null, null, ts, null, null);
     }
 
     public static ChatMessageView assistant(String id, String text, Long ts) {
-        return new ChatMessageView(id, "assistant", text, null, null, null, null, null, ts, null, null);
+        return assistant(id, text, null, ts);
+    }
+
+    public static ChatMessageView assistant(String id, String text, String forkAnchor, Long ts) {
+        return new ChatMessageView(id, "assistant", text, forkAnchor, null, null, null, null, null, ts, null, null);
     }
 
     public static ChatMessageView tool(String id, String toolName, Object input, String output, Boolean isError, Long ts) {
-        return new ChatMessageView(id, "tool", null, toolName, input, output, isError, null, ts, null, null);
+        return new ChatMessageView(id, "tool", null, null, toolName, input, output, isError, null, ts, null, null);
     }
 
     public static ChatMessageView result(String id, String stopReason, Long ts, Map<String, Object> usage, Long latencyMs) {
-        return new ChatMessageView(id, "result", null, null, null, null, null, stopReason, ts, usage, latencyMs);
+        return new ChatMessageView(id, "result", null, null, null, null, null, null, stopReason, ts, usage, latencyMs);
     }
 }

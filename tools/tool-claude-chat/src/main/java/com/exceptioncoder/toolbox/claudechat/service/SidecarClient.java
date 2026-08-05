@@ -239,6 +239,11 @@ public class SidecarClient {
         send(Map.of("type", "refreshModels", "sessionId", sessionId));
     }
 
+    /** 主动重发当前会话能力清单。 */
+    public void refreshCapabilities(String sessionId) {
+        send(Map.of("type", "refreshCapabilities", "sessionId", sessionId));
+    }
+
     public void setCodexOptions(String sessionId, String reasoningEffort, String speed) {
         send(Map.of("type", "setCodexOptions", "sessionId", sessionId,
                 "reasoningEffort", nz(reasoningEffort), "speed", nz(speed)));

@@ -21,6 +21,7 @@ import java.util.Map;
         @JsonSubTypes.Type(value = ClientMessage.SetAutoApprove.class, name = "setAutoApprove"),
         @JsonSubTypes.Type(value = ClientMessage.SetModel.class,      name = "setModel"),
         @JsonSubTypes.Type(value = ClientMessage.RefreshModels.class, name = "refreshModels"),
+        @JsonSubTypes.Type(value = ClientMessage.RefreshCapabilities.class, name = "refreshCapabilities"),
         @JsonSubTypes.Type(value = ClientMessage.SetCodexOptions.class, name = "setCodexOptions"),
         @JsonSubTypes.Type(value = ClientMessage.SwitchEngine.class,  name = "switchEngine"),
         @JsonSubTypes.Type(value = ClientMessage.SwitchProvider.class, name = "switchProvider"),
@@ -30,7 +31,7 @@ public sealed interface ClientMessage
         permits ClientMessage.Open, ClientMessage.Attach, ClientMessage.SwitchSession,
                 ClientMessage.ResumeHistory, ClientMessage.ResumeCurrent, ClientMessage.Send, ClientMessage.Decision,
                 ClientMessage.Interrupt, ClientMessage.SetMode, ClientMessage.SetAutoApprove,
-                ClientMessage.SetModel, ClientMessage.RefreshModels,
+                ClientMessage.SetModel, ClientMessage.RefreshModels, ClientMessage.RefreshCapabilities,
                 ClientMessage.SetCodexOptions,
                 ClientMessage.SwitchEngine, ClientMessage.SwitchProvider, ClientMessage.ForkSession {
 
@@ -86,6 +87,9 @@ public sealed interface ClientMessage
     /** 主动同步 Claude 模型清单：让 sidecar 重新询问 claude 二进制并回发最新 models（Claude Code 自更新后用）。 */
     record RefreshModels() implements ClientMessage {}
 
+    /** 主动重发当前会话能力清单：Codex 重新计算运行时 MCP，Claude 返回最近一次 SDK init 快照。 */
+    record RefreshCapabilities() implements ClientMessage {}
+
     record SetCodexOptions(String reasoningEffort, String speed) implements ClientMessage {}
 
     /**
@@ -102,7 +106,10 @@ public sealed interface ClientMessage
      */
     record SwitchProvider(String apiBaseUrl, String authToken) implements ClientMessage {}
 
-    /** 从当前会话的某条用户消息分叉出新会话。upToMessageId 为该消息的 SDK transcript uuid。 */
+    /**
+     * 保留到指定回答为止并分叉原生会话。upToMessageId：
+     * Claude 为 SDK transcript UUID，Codex 为 App Server turn ID。
+     */
     record ForkSession(String upToMessageId) implements ClientMessage {}
 
     /** AskUserQuestion 的单个问题结构（供前端渲染，回灌走 Decision.answers） */

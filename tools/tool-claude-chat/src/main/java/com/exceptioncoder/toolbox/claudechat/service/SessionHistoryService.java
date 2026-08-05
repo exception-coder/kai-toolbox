@@ -424,6 +424,7 @@ public class SessionHistoryService {
         List<ChatMessageView> out = new ArrayList<>();
         Map<String, Integer> callIdx = new LinkedHashMap<>(); // call_id -> out 下标
         TurnAcc acc = new TurnAcc();
+        String currentTurnId = null;
         try (BufferedReader r = Files.newBufferedReader(jsonl, StandardCharsets.UTF_8)) {
             String line;
             while ((line = r.readLine()) != null) {
@@ -438,6 +439,7 @@ public class SessionHistoryService {
                 String pType = payload.path("type").asText("");
                 Long ts = parseTs(node);
                 switch (pType) {
+                    case "task_started" -> currentTurnId = payload.path("turn_id").asText(null);
                     case "user_message" -> {
                         String t = normalizeCodexUserMessage(payload.path("message").asText(""));
                         if (!t.isBlank()) {
@@ -449,7 +451,8 @@ public class SessionHistoryService {
                     }
                     case "agent_message" -> {
                         String t = payload.path("message").asText("");
-                        if (!t.isBlank()) out.add(ChatMessageView.assistant("h" + out.size(), t, ts));
+                        if (!t.isBlank()) out.add(ChatMessageView.assistant(
+                                "h" + out.size(), t, currentTurnId, ts));
                     }
                     case "function_call" -> {
                         String name = payload.path("name").asText("");
@@ -578,7 +581,7 @@ public class SessionHistoryService {
                     }
                     case "assistant" -> {
                         acc.accumulate(node.path("message").path("usage"), ts);
-                        appendAssistant(out, toolIdx, content, ts);
+                        appendAssistant(out, toolIdx, content, node.path("uuid").asText(null), ts);
                     }
                     case "result" -> out.add(ChatMessageView.result(
                             "h" + out.size(), node.path("subtype").asText("end_turn"), ts, null, null));
@@ -820,10 +823,11 @@ public class SessionHistoryService {
         }
     }
 
-    private void appendAssistant(List<ChatMessageView> out, Map<String, Integer> toolIdx, JsonNode content, Long ts) {
+    private void appendAssistant(List<ChatMessageView> out, Map<String, Integer> toolIdx,
+                                 JsonNode content, String forkAnchor, Long ts) {
         if (content.isTextual()) {
             String t = content.asText();
-            if (!t.isBlank()) out.add(ChatMessageView.assistant("h" + out.size(), t, ts));
+            if (!t.isBlank()) out.add(ChatMessageView.assistant("h" + out.size(), t, forkAnchor, ts));
             return;
         }
         if (!content.isArray()) return;
@@ -831,7 +835,7 @@ public class SessionHistoryService {
             String bt = b.path("type").asText("");
             if ("text".equals(bt)) {
                 String t = b.path("text").asText("");
-                if (!t.isBlank()) out.add(ChatMessageView.assistant("h" + out.size(), t, ts));
+                if (!t.isBlank()) out.add(ChatMessageView.assistant("h" + out.size(), t, forkAnchor, ts));
             } else if ("tool_use".equals(bt)) {
                 String useId = b.path("id").asText("");
                 Object input = b.has("input") ? mapper.convertValue(b.get("input"), Object.class) : null;

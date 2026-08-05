@@ -506,6 +506,17 @@ public class ClaudeChatService {
         log.info("[claude-chat] 会话 {} 请求同步模型清单", ctx.sessionId);
     }
 
+    /** 主动刷新能力面板：由 sidecar 按当前引擎重发能力快照。 */
+    public void refreshCapabilities(WebSocketSession ws) {
+        SessionCtx ctx = ctxOf(ws);
+        if (ctx == null) {
+            sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            return;
+        }
+        sidecar.refreshCapabilities(ctx.sessionId);
+        log.info("[claude-chat] 会话 {} 请求刷新能力清单", ctx.sessionId);
+    }
+
     public void setCodexOptions(WebSocketSession ws, ClientMessage.SetCodexOptions msg) {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {
@@ -719,17 +730,18 @@ public class ClaudeChatService {
             sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
-        if (isConsultReadonly(ctx)) {
-            sendError(ws, 0, "READONLY_POLICY", "业务咨询会话不允许分叉为可编辑会话");
+        if (msg.upToMessageId() == null || msg.upToMessageId().isBlank()) {
+            sendError(ws, 0, "BAD_MESSAGE", "缺少要分叉到的消息标识");
             return;
         }
-        if (msg.upToMessageId() == null || msg.upToMessageId().isBlank()) {
-            sendError(ws, 0, "BAD_MESSAGE", "缺少分叉锚点消息");
+        if (ctx.status == SessionStatus.RUNNING) {
+            sendError(ws, 0, "FORK_BUSY", "当前回复尚未结束，请先等待完成或中断后再分叉");
             return;
         }
         if (!ensureSessionResumable(ctx)) return;
         sidecar.forkSession(ctx.sessionId, msg.upToMessageId());
-        log.info("[claude-chat] 会话 {} 请求分叉 upTo={}", ctx.sessionId, msg.upToMessageId());
+        log.info("[claude-chat] 会话 {} 请求分叉 engine={} upTo={}",
+                ctx.sessionId, ctx.engine, blankToNull(msg.upToMessageId()));
     }
 
     /** 浏览器连接断开：仅把该连接从会话观察者集合移除（不杀会话，其它端可继续看，任务在 sidecar 跑）。 */
@@ -809,6 +821,8 @@ public class ClaudeChatService {
             }
             case "userMessage" -> sendToBrowser(ctx,
                     seq -> new ServerMessage.UserMessage(seq, node.path("uuid").asText("")));
+            case "forkAnchor" -> sendToBrowser(ctx,
+                    seq -> new ServerMessage.ForkAnchor(seq, node.path("anchor").asText("")));
             case "forked" -> onForked(ctx, node);
             case "turnInfo" -> sendToBrowser(ctx, seq -> new ServerMessage.TurnInfo(
                     seq,
@@ -858,12 +872,28 @@ public class ClaudeChatService {
             return;
         }
         String cwd = node.path("cwd").asText(ctx.cwd);
+        String forkEngine = node.path("engine").asText(ctx.engine);
         String newId = UUID.randomUUID().toString();
         long now = System.currentTimeMillis();
+        ClaudeChatSession source = repo.findById(ctx.sessionId).orElse(null);
+        String sourceTitle = source == null ? null : blankToNull(source.getTitle());
         repo.insert(ClaudeChatSession.builder()
-                .id(newId).cwd(cwd).title(null).sdkSessionId(newSdk).engine(ctx.engine)
+                .id(newId).cwd(cwd)
+                .title(sourceTitle == null ? null : sourceTitle + "（分支）")
+                .sdkSessionId(newSdk).engine(forkEngine).engines(forkEngine)
+                .apiBaseUrl(ctx.apiBaseUrl).authToken(ctx.authToken).codexHome(ctx.codexHome)
+                .selectedModel(ctx.currentModel)
+                .codexReasoningEffort(ctx.codexReasoningEffort).codexSpeed(ctx.codexSpeed)
+                .executionPolicy(ctx.executionPolicy)
                 .status(SessionStatus.IDLE).startedAt(now).lastSeenAt(now).build());
-        log.info("[claude-chat] 会话 {} 分叉出新会话 {} sdk={}", ctx.sessionId, newId, newSdk);
+        // 新会话只继承本次实际分叉的原生引擎句柄；不能共享源会话其它引擎的句柄，否则会串上下文。
+        repo.switchEngine(newId, forkEngine, forkEngine, newSdk,
+                writeEngineSessions(Map.of(forkEngine, newSdk)));
+        if (source != null && source.getGroupName() != null) {
+            repo.updateGroup(newId, source.getGroupName(), source.getSubgroupName());
+        }
+        log.info("[claude-chat] 会话 {} 分叉出新会话 {} engine={} sdk={}",
+                ctx.sessionId, newId, forkEngine, newSdk);
         sendToBrowser(ctx, seq -> new ServerMessage.Forked(seq, newId));
     }
 

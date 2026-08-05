@@ -61,6 +61,7 @@ class SessionHistoryServiceTest {
                 .resolve("rollout-2026-07-30T00-01-02-" + sid + ".jsonl");
         Files.createDirectories(rollout.getParent());
         Files.writeString(rollout, """
+                {"timestamp":"2026-07-30T00:01:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-123"}}
                 {"timestamp":"2026-07-30T00:01:02Z","type":"event_msg","payload":{"type":"user_message","message":"修复自定义目录历史"}}
                 {"timestamp":"2026-07-30T00:01:03Z","type":"event_msg","payload":{"type":"agent_message","message":"已完成"}}
                 """);
@@ -72,6 +73,7 @@ class SessionHistoryServiceTest {
         assertThat(page.transcriptMissing()).isFalse();
         assertThat(page.items()).extracting(item -> item.kind() + ":" + item.text())
                 .containsExactly("user:修复自定义目录历史", "assistant:已完成");
+        assertThat(page.items().get(1).forkAnchor()).isEqualTo("turn-123");
         assertThat(service.transcriptExists(null, sid, codexHome.toString())).isTrue();
     }
 
