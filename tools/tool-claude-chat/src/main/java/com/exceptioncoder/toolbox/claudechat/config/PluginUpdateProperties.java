@@ -36,6 +36,9 @@ public class PluginUpdateProperties {
     /** 单条命令超时(毫秒) */
     private long commandTimeoutMs = 180_000L;
 
+    /** 团队依赖仓库的工作区；空时使用 ~/.kai-toolbox/team-tools。 */
+    private String dependencyWorkspace = "";
+
     /** 「团队套件」面板展示的插件（按此顺序），从 ~/.claude/plugins 读版本。 */
     private List<String> watchedPlugins = List.of(
             "project-coding-profiles", "team-standards", "yoooni-daily-plugin");

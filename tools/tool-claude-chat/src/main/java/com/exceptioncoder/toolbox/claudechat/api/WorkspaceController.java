@@ -64,7 +64,7 @@ public class WorkspaceController {
         return service.cloneProject(req.url(), req.root());
     }
 
-    /** 自动确保知识库就绪：未配置/目录不存在时自动 clone 到 ~/.kai-toolbox 并绑定。供工作台进入时静默调用。 */
+    /** 检查团队初始化生成的固定知识库目录是否就绪。供工作台进入时静默调用。 */
     @PostMapping("/knowledge/ensure")
     public KnowledgeEnsureResult ensureKnowledge() {
         return service.ensureKnowledgeBase();

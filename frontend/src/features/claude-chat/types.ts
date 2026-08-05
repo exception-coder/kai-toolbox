@@ -188,9 +188,9 @@ export interface ModuleSyncResult {
   modulesFile: string
 }
 
-/** 「自动确保知识库就绪」结果：目录不存在时自动 clone 到用户目录并绑定。 */
+/** 团队初始化知识库目录的就绪检查结果。 */
 export interface KnowledgeEnsureResult {
-  /** ok=已就绪；bound=发现本地已有克隆已绑定；cloned=已拉取并绑定；disabled=未配置 git 地址；error=失败 */
+  /** ok=已就绪；disabled=尚未执行团队依赖初始化；其余值兼容旧版后端。 */
   status: 'ok' | 'bound' | 'cloned' | 'disabled' | 'error'
   kbDir: string
   target: string
@@ -303,6 +303,33 @@ export interface SuiteStatus {
   behind: number | null
 }
 
+export interface TeamDependencyEnvironment {
+  os: 'windows' | 'macos' | 'other'
+  ready: boolean
+  tools: Array<{
+    id: 'git' | 'node' | 'claude' | 'codex'
+    name: string
+    installed: boolean
+    version: string | null
+    installCommand: string
+    officialUrl: string
+  }>
+}
+
+export interface TeamRepositoryStatus {
+  name: string
+  cloned: boolean
+  source: 'gitee' | 'github' | 'other' | null
+  sourceMatches: boolean
+  commit: string | null
+  commitDate: string | null
+  lastSyncedAt: number | null
+  behind: number | null
+  ahead: number | null
+  dirty: boolean
+  remoteChecked: boolean
+}
+
 /**
  * sidecar 所用 Claude Agent SDK 的版本状态。可选模型清单由捆绑的 claude 二进制决定，
  * SDK 落后表现为「新模型选不到」而不是报错，所以这里要能一眼看到版本。
@@ -363,6 +390,7 @@ export type ClientMessage =
   | { type: 'setAutoApprove'; autoApprove: boolean }
   | { type: 'setModel'; model: string }
   | { type: 'refreshModels' }
+  | { type: 'refreshCapabilities' }
   | { type: 'setCodexOptions'; reasoningEffort: CodexReasoningEffort; speed: CodexSpeed }
   | { type: 'switchEngine'; engine: Engine }
   | { type: 'switchProvider'; apiBaseUrl?: string; authToken?: string }
@@ -395,6 +423,7 @@ export type ServerMessage =
   | { type: 'decisionResolved'; seq: number; reqId: string }
   | { type: 'models'; seq: number; models: ModelInfo[]; current: string | null }
   | { type: 'userMessage'; seq: number; uuid: string }
+  | { type: 'forkAnchor'; seq: number; anchor: string }
   | { type: 'forked'; seq: number; sessionId: string }
   | { type: 'replayGap'; seq: number; missingFrom: number; missingTo: number }
   | { type: 'result'; seq: number; usage?: Record<string, unknown>; stopReason: string }
@@ -431,7 +460,7 @@ export type ChatItem =
   // displayText 是用户真正想说的那句话；渲染只显示 displayText ?? text，text 仍原样发送/参与分叉续跑。
   // 目前只有实时会话里由 send() 发起时才可能带；历史回放（loadMessages）尚未持久化该覆盖，刷新/切回后会看到完整 text。
   | { kind: 'user'; id: string; text: string; displayText?: string; sdkUuid?: string; ts?: number; attachments?: MsgAttachment[] }
-  | { kind: 'assistant'; id: string; text: string; ts?: number }
+  | { kind: 'assistant'; id: string; text: string; forkAnchor?: string; ts?: number }
   | { kind: 'tool'; id: string; toolName: string; input: unknown; output?: string; isError?: boolean; ts?: number }
   | { kind: 'result'; id: string; stopReason: string; ts?: number; usage?: Record<string, number>; latencyMs?: number; ttftMs?: number }
   | { kind: 'error'; id: string; code: string; message: string; ts?: number }

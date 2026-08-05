@@ -142,9 +142,28 @@ export function listSuites(sessionId?: string, fetch = false) {
   return http<SuiteStatus[]>(`/claude-chat/plugins/suites${query ? `?${query}` : ''}`)
 }
 
+/** 检查团队依赖安装所需的本机 CLI 环境。 */
+export function getTeamDependencyEnvironment(sessionId?: string) {
+  return http<import('./types').TeamDependencyEnvironment>(
+    `/claude-chat/plugins/environment${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`,
+  )
+}
+
+export function listTeamRepositories(source: 'gitee' | 'github', fetch = false) {
+  const params = new URLSearchParams({ source, fetch: String(fetch) })
+  return http<import('./types').TeamRepositoryStatus[]>(`/claude-chat/plugins/repositories?${params.toString()}`)
+}
+
 /** 一键更新双端插件的 SSE 端点（用 authEventSource 连接，自动带 JWT；连上即触发）。 */
 export function pluginUpdateStreamPath(sessionId?: string) {
   return `/claude-chat/plugins/update/stream${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`
+}
+
+/** 拉取五个团队依赖仓库，并安装到 Claude Code 与 Codex。 */
+export function pluginInstallStreamPath(sessionId: string | undefined, source: 'gitee' | 'github') {
+  const params = new URLSearchParams({ source })
+  if (sessionId) params.set('sessionId', sessionId)
+  return `/claude-chat/plugins/install/stream?${params.toString()}`
 }
 
 /** 查 sidecar 的 Claude Agent SDK 版本。check=true 时联网查 npm 最新版并判断是否落后（较慢）。 */
@@ -208,9 +227,8 @@ export function applyModuleSync(path: string, modules: { key: string; codePath: 
   })
 }
 
-/** 自动确保知识库就绪：knowledge 目录不存在时，后端自动 git clone 到 ~/.kai-toolbox 并绑定路径。 */
+/** 检查团队初始化生成的固定知识库目录是否就绪。 */
 export function ensureKnowledgeBase() {
-  // 加超时兜底：后端 git clone 若因未登录凭据挂起，前端不至于无限 pending（120s 后中止→报错可重试）
   return http<KnowledgeEnsureResult>('/claude-chat/workspaces/knowledge/ensure', {
     method: 'POST',
     signal: AbortSignal.timeout(120_000),
@@ -473,6 +491,7 @@ interface RawHistoryMessage {
   id: string
   kind: string
   text?: string
+  forkAnchor?: string
   toolName?: string
   input?: unknown
   output?: string
@@ -545,7 +564,7 @@ function toChatItem(m: RawHistoryMessage): ChatItem {
   const ts = m.ts ?? undefined
   switch (m.kind) {
     case 'assistant':
-      return { kind: 'assistant', id: m.id, text: m.text ?? '', ts }
+      return { kind: 'assistant', id: m.id, text: m.text ?? '', forkAnchor: m.forkAnchor, ts }
     case 'tool':
       return { kind: 'tool', id: m.id, toolName: m.toolName ?? '', input: m.input ?? null, output: m.output ?? undefined, isError: m.isError ?? undefined, ts }
     case 'result':

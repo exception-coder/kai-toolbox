@@ -3,12 +3,16 @@ package com.exceptioncoder.toolbox.claudechat.service;
 import com.exceptioncoder.toolbox.claudechat.api.dto.PluginStatusView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.PluginStatusView.EngineStatus;
 import com.exceptioncoder.toolbox.claudechat.api.dto.SuiteStatusView;
+import com.exceptioncoder.toolbox.claudechat.api.dto.TeamDependencyEnvironmentView;
+import com.exceptioncoder.toolbox.claudechat.api.dto.TeamDependencyEnvironmentView.ToolView;
+import com.exceptioncoder.toolbox.claudechat.api.dto.TeamRepositoryStatusView;
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
 import com.exceptioncoder.toolbox.claudechat.config.PluginUpdateProperties;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.common.sse.SseEmitterRegistry;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -19,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -48,18 +53,148 @@ public class PluginUpdateService {
     private final ClaudeChatSessionRepository sessionRepository;
     private final SseEmitterRegistry sse;
     private final ObjectMapper mapper;
+    private final SidecarProcessRegistry sidecarRegistry;
+
+    private static final List<String> DEPENDENCY_REPOS = List.of(
+            "cross-project-topology", "project-coding-profiles", "project-domain-knowledge",
+            "team-standards", "yoooni-daily-plugin");
+    private static final String SYNC_STATE_FILE = ".forge-sync-state.json";
+    private static final Map<String, String> GITEE_OWNERS = Map.ofEntries(
+            Map.entry("cross-project-topology", "wyoooni"), Map.entry("project-coding-profiles", "wyoooni"),
+            Map.entry("project-domain-knowledge", "wyoooni"), Map.entry("team-standards", "wyoooni"),
+            Map.entry("yoooni-daily-plugin", "wyoooni"));
+    private static final Map<String, String> GITHUB_OWNERS = Map.ofEntries(
+            Map.entry("cross-project-topology", "exception-coder"), Map.entry("project-coding-profiles", "exception-coder"),
+            Map.entry("project-domain-knowledge", "exception-coder"), Map.entry("team-standards", "exception-coder"),
+            Map.entry("yoooni-daily-plugin", "exception-coder"));
 
     public PluginUpdateService(PluginUpdateProperties props, ClaudeChatProperties chatProps,
                                ClaudeChatSessionRepository sessionRepository,
-                               SseEmitterRegistry sse, ObjectMapper mapper) {
+                               SseEmitterRegistry sse, ObjectMapper mapper,
+                               SidecarProcessRegistry sidecarRegistry) {
         this.props = props;
         this.chatProps = chatProps;
         this.sessionRepository = sessionRepository;
         this.sse = sse;
         this.mapper = mapper;
+        this.sidecarRegistry = sidecarRegistry;
     }
 
     // ===== 版本检测 =====
+
+    public TeamDependencyEnvironmentView readEnvironment(String sessionId) {
+        boolean mac = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("mac");
+        String os = WINDOWS ? "windows" : mac ? "macos" : "other";
+        ToolView git = tool("git", "Git", List.of("git", "--version"), null,
+                WINDOWS ? "winget install --id Git.Git -e --source winget" : "xcode-select --install",
+                WINDOWS ? "https://git-scm.com/install/windows" : "https://git-scm.com/install/mac");
+        ToolView node = nodeTool();
+        ToolView claude = tool("claude", "Claude Code", List.of(props.getClaudeBin(), "--version"), null,
+                "npm install --global @anthropic-ai/claude-code",
+                "https://docs.anthropic.com/en/docs/claude-code/getting-started");
+        ToolView codex = tool("codex", "Codex", concat(codexParts(), "--version"), resolveCodexHome(sessionId),
+                "npm install --global @openai/codex", "https://developers.openai.com/codex/cli/");
+        List<ToolView> tools = List.of(git, node, claude, codex);
+        return new TeamDependencyEnvironmentView(os, tools.stream().allMatch(ToolView::installed), tools);
+    }
+
+    private ToolView nodeTool() {
+        CommandResult node = captureVersion(List.of("node", "--version"), null);
+        CommandResult npm = captureVersion(List.of("npm", "--version"), null);
+        boolean installed = node.exitCode == 0 && npm.exitCode == 0;
+        String version = installed ? node.output.trim() + " · npm " + npm.output.trim()
+                : node.exitCode == 0 ? node.output.trim() + "（npm 缺失）" : null;
+        String command = WINDOWS ? "winget install OpenJS.NodeJS.LTS" : "brew install node";
+        return new ToolView("node", "Node.js + npm", installed, version, command, "https://nodejs.org/en/download");
+    }
+
+    private ToolView tool(String id, String name, List<String> command, Path codexHome,
+                          String installCommand, String officialUrl) {
+        CommandResult result = captureVersion(command, codexHome);
+        boolean installed = result.exitCode == 0;
+        return new ToolView(id, name, installed, installed ? nullIfBlank(result.output.trim()) : null,
+                installCommand, officialUrl);
+    }
+
+    private CommandResult captureVersion(List<String> command, Path codexHome) {
+        try {
+            return runCapture(command, codexHome);
+        } catch (Exception e) {
+            return new CommandResult(-1, "");
+        }
+    }
+
+    public List<TeamRepositoryStatusView> readRepositoryStatuses(String requestedSource, boolean fetch) {
+        String selectedSource = normalizeSource(requestedSource);
+        Path workspace = dependencyWorkspace();
+        JsonNode syncState = readSyncState(workspace);
+        List<TeamRepositoryStatusView> statuses = new ArrayList<>();
+        for (String name : DEPENDENCY_REPOS) {
+            Path repo = workspace.resolve(name).toAbsolutePath().normalize();
+            boolean cloned = Files.isDirectory(repo.resolve(".git"));
+            if (!cloned) {
+                statuses.add(new TeamRepositoryStatusView(name, false, null, false,
+                        null, null, null, null, null, false, fetch));
+                continue;
+            }
+            String remote = gitOutput(repo, 5_000, "remote", "get-url", "origin");
+            String actualSource = remote.contains("github.com") ? "github" : remote.contains("gitee.com") ? "gitee" : "other";
+            boolean matches = sameGitRemote(remote, repoUrl(name, selectedSource));
+            boolean remoteChecked = false;
+            if (fetch && matches) {
+                remoteChecked = gitCapture(repo, 15_000, "fetch", "--quiet", "origin").exitCode == 0;
+            }
+            String commit = nullIfBlank(gitOutput(repo, 5_000, "rev-parse", "--short", "HEAD"));
+            String commitDate = nullIfBlank(gitOutput(repo, 5_000, "log", "-1", "--format=%cs"));
+            Integer behind = parseGitCount(gitOutput(repo, 5_000, "rev-list", "--count", "HEAD..@{u}"));
+            Integer ahead = parseGitCount(gitOutput(repo, 5_000, "rev-list", "--count", "@{u}..HEAD"));
+            boolean dirty = !gitOutput(repo, 5_000, "status", "--porcelain").isBlank();
+            JsonNode state = syncState.path(name);
+            Long lastSyncedAt = state.path("syncedAt").canConvertToLong() ? state.path("syncedAt").asLong() : null;
+            if (lastSyncedAt == null) {
+                try {
+                    Path fetchHead = repo.resolve(".git/FETCH_HEAD");
+                    if (Files.exists(fetchHead)) lastSyncedAt = Files.getLastModifiedTime(fetchHead).toMillis();
+                } catch (IOException ignore) {
+                    // 无法读取时间时保持未知
+                }
+            }
+            statuses.add(new TeamRepositoryStatusView(name, true, actualSource, matches,
+                    commit, commitDate, lastSyncedAt, behind, ahead, dirty, remoteChecked));
+        }
+        return statuses;
+    }
+
+    private static Integer parseGitCount(String value) {
+        try {
+            return value == null || value.isBlank() ? null : Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private JsonNode readSyncState(Path workspace) {
+        try {
+            Path file = workspace.resolve(SYNC_STATE_FILE);
+            return Files.exists(file) ? mapper.readTree(file.toFile()) : mapper.createObjectNode();
+        } catch (Exception e) {
+            return mapper.createObjectNode();
+        }
+    }
+
+    private synchronized void recordSuccessfulSync(Path workspace, String repo, String source) {
+        try {
+            Files.createDirectories(workspace);
+            JsonNode current = readSyncState(workspace);
+            ObjectNode root = current instanceof ObjectNode object ? object : mapper.createObjectNode();
+            ObjectNode state = root.withObject("/" + repo);
+            state.put("source", source);
+            state.put("syncedAt", System.currentTimeMillis());
+            mapper.writerWithDefaultPrettyPrinter().writeValue(workspace.resolve(SYNC_STATE_FILE).toFile(), root);
+        } catch (Exception e) {
+            log.warn("记录团队仓库同步时间失败: {}", e.getMessage());
+        }
+    }
 
     public PluginStatusView readStatus() {
         return new PluginStatusView(props.getMarketplace(), readClaudeStatus(), readCodexStatus());
@@ -305,19 +440,24 @@ public class PluginUpdateService {
 
     /** 在指定 git 仓目录跑一条 git 命令，返回 trim 后 stdout；失败/超时返回空串。 */
     private String gitOutput(Path dir, long timeoutMs, String... args) {
+        CommandResult result = gitCapture(dir, timeoutMs, args);
+        return result.exitCode == 0 ? result.output.trim() : "";
+    }
+
+    private CommandResult gitCapture(Path dir, long timeoutMs, String... args) {
         try {
             List<String> cmd = new ArrayList<>();
             cmd.add("git");
             for (String a : args) cmd.add(a);
             Process p = new ProcessBuilder(cmd).directory(dir.toFile()).redirectErrorStream(true).start();
-            String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             if (!p.waitFor(timeoutMs, TimeUnit.MILLISECONDS)) {
                 p.destroyForcibly();
-                return "";
+                return new CommandResult(-1, "");
             }
-            return p.exitValue() == 0 ? out.trim() : "";
+            String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            return new CommandResult(p.exitValue(), out);
         } catch (Exception e) {
-            return "";
+            return new CommandResult(-1, "");
         }
     }
 
@@ -351,6 +491,151 @@ public class PluginUpdateService {
     }
 
     // ===== 一键更新(SSE 实时回显)=====
+
+    /** 拉取/快进更新全部依赖仓，构建 MCP 引擎，并安装到 Claude Code 与 Codex。 */
+    public void startInstall(String taskId, String sessionId, String requestedSource) {
+        Path codexHome = resolveCodexHome(sessionId);
+        Thread.ofVirtual().name("plugin-install-" + taskId).start(() -> {
+            List<Map<String, Object>> results = new ArrayList<>();
+            try {
+                Thread.sleep(150);
+                String source = normalizeSource(requestedSource);
+                Path workspace = dependencyWorkspace();
+                Files.createDirectories(workspace);
+                sse.publish(taskId, "message", Map.of("type", "line", "engine", "git",
+                        "text", "使用 " + source.toUpperCase(Locale.ROOT) + " 源，目录：" + workspace));
+                for (String repo : DEPENDENCY_REPOS) {
+                    String url = repoUrl(repo, source);
+                    Path dir = workspace.resolve(repo).normalize();
+                    Map<String, Object> syncResult;
+                    if (!dir.getParent().equals(workspace)) {
+                        throw new IllegalStateException("非法依赖仓库路径: " + dir);
+                    }
+                    if (Files.isDirectory(dir.resolve(".git"))) {
+                        String currentRemote = gitOutput(dir, 5_000, "remote", "get-url", "origin");
+                        if (!sameGitRemote(currentRemote, url)) {
+                            sse.publish(taskId, "message", Map.of("type", "line", "engine", "git",
+                                    "text", "切换源：移除 " + dir + "（" + currentRemote + " → " + url + "）"));
+                            deleteRepository(workspace, dir);
+                            syncResult = runStep(taskId, "git", "clone:" + repo,
+                                    List.of("git", "clone", url, dir.toString()), null, workspace);
+                        } else {
+                            syncResult = runStep(taskId, "git", "pull:" + repo,
+                                    List.of("git", "pull", "--ff-only"), null, dir);
+                        }
+                    } else if (Files.exists(dir)) {
+                        throw new IllegalStateException("目标已存在但不是 Git 仓库: " + dir);
+                    } else {
+                        syncResult = runStep(taskId, "git", "clone:" + repo,
+                                List.of("git", "clone", url, dir.toString()), null, workspace);
+                    }
+                    results.add(syncResult);
+                    if (Boolean.TRUE.equals(syncResult.get("ok"))) {
+                        recordSuccessfulSync(workspace, repo, source);
+                    }
+                }
+
+                Path engineRepo = workspace.resolve("project-domain-knowledge");
+                results.add(runStep(taskId, "mcp", "npm-install",
+                        List.of("npm", "install"), null, engineRepo));
+                results.add(runStep(taskId, "mcp", "npm-build",
+                        List.of("npm", "run", "build"), null, engineRepo));
+
+                installPlugins(taskId, codexHome, source, results);
+                installMcps(taskId, codexHome, workspace, results);
+                sse.publish(taskId, "message", Map.of("type", "done", "results", results));
+            } catch (Exception e) {
+                sse.publish(taskId, "message", Map.of("type", "error", "message", String.valueOf(e.getMessage())));
+            } finally {
+                sse.complete(taskId);
+            }
+        });
+    }
+
+    private static String normalizeSource(String source) {
+        String normalized = source == null ? "gitee" : source.trim().toLowerCase(Locale.ROOT);
+        if (!normalized.equals("gitee") && !normalized.equals("github")) {
+            throw new IllegalArgumentException("不支持的 Git 源：" + source);
+        }
+        return normalized;
+    }
+
+    private static String repoUrl(String repo, String source) {
+        Map<String, String> owners = source.equals("github") ? GITHUB_OWNERS : GITEE_OWNERS;
+        String host = source.equals("github") ? "github.com" : "gitee.com";
+        return "https://" + host + "/" + owners.get(repo) + "/" + repo + ".git";
+    }
+
+    private static boolean sameGitRemote(String actual, String expected) {
+        return normalizeGitRemote(actual).equals(normalizeGitRemote(expected));
+    }
+
+    private static String normalizeGitRemote(String value) {
+        if (value == null) return "";
+        return value.trim().replace('\\', '/').replaceAll("/+$", "")
+                .replaceAll("(?i)\\.git$", "").toLowerCase(Locale.ROOT);
+    }
+
+    /** 只允许删除依赖工作区下、名称在固定白名单中的单个仓库。 */
+    private static void deleteRepository(Path workspace, Path repo) throws IOException {
+        Path safeWorkspace = workspace.toAbsolutePath().normalize();
+        Path safeRepo = repo.toAbsolutePath().normalize();
+        if (!safeWorkspace.equals(safeRepo.getParent()) || !DEPENDENCY_REPOS.contains(safeRepo.getFileName().toString())) {
+            throw new IllegalStateException("拒绝删除非白名单依赖目录：" + safeRepo);
+        }
+        try (var paths = Files.walk(safeRepo)) {
+            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                path.toFile().setWritable(true);
+                Files.delete(path);
+            }
+        }
+    }
+
+    private Path dependencyWorkspace() {
+        String configured = props.getDependencyWorkspace();
+        if (configured != null && !configured.isBlank()) {
+            return Path.of(configured).toAbsolutePath().normalize();
+        }
+        return Path.of(System.getProperty("user.home"), ".kai-toolbox", "team-tools")
+                .toAbsolutePath().normalize();
+    }
+
+    private void installPlugins(String taskId, Path codexHome, String source, List<Map<String, Object>> results) {
+        List<String> claude = List.of(props.getClaudeBin(), "plugin");
+        List<String> codex = new ArrayList<>(codexParts());
+        codex.add("plugin");
+        for (String plugin : props.getWatchedPlugins()) {
+            String url = repoUrl(plugin, source);
+            results.add(runStep(taskId, "claude", "marketplace-remove:" + plugin,
+                    concat(claude, "marketplace", "remove", plugin, "--scope", "user")));
+            results.add(runStep(taskId, "claude", "marketplace-add:" + plugin,
+                    concat(claude, "marketplace", "add", url)));
+            results.add(runStep(taskId, "claude", "plugin-install:" + plugin,
+                    concat(claude, "install", plugin + "@" + plugin, "--scope", "user")));
+            results.add(runStep(taskId, "codex", "marketplace-remove:" + plugin,
+                    concat(codex, "marketplace", "remove", plugin), codexHome));
+            results.add(runStep(taskId, "codex", "marketplace-add:" + plugin,
+                    concat(codex, "marketplace", "add", url), codexHome));
+            results.add(runStep(taskId, "codex", "plugin-add:" + plugin,
+                    concat(codex, "add", plugin + "@" + plugin), codexHome));
+        }
+    }
+
+    private void installMcps(String taskId, Path codexHome, Path workspace, List<Map<String, Object>> results) {
+        Path server = workspace.resolve("project-domain-knowledge/dist/server.js").toAbsolutePath();
+        Map<String, Path> knowledgeDirs = Map.of(
+                "domain-knowledge", workspace.resolve("project-domain-knowledge/knowledge").toAbsolutePath(),
+                "cross-topology", workspace.resolve("cross-project-topology/knowledge").toAbsolutePath());
+        for (Map.Entry<String, Path> mcp : knowledgeDirs.entrySet()) {
+            results.add(runStep(taskId, "claude", "mcp-add:" + mcp.getKey(), List.of(props.getClaudeBin(), "mcp", "add",
+                    "--scope", "user", mcp.getKey(), "--env", "DOMAIN_KB_DIR=" + mcp.getValue(), "--",
+                    chatProps.getNodeCommand(), server.toString())));
+            List<String> codex = new ArrayList<>(codexParts());
+            codex.addAll(List.of("mcp", "add", mcp.getKey(), "--env", "DOMAIN_KB_DIR=" + mcp.getValue(), "--",
+                    chatProps.getNodeCommand(), server.toString()));
+            results.add(runStep(taskId, "codex", "mcp-add:" + mcp.getKey(), codex, codexHome));
+        }
+    }
 
     /**
      * 在虚拟线程顺序跑 Claude 2 条 + Codex 2 条命令,经 SSE(key=taskId)实时推流。
@@ -417,11 +702,17 @@ public class PluginUpdateService {
 
     /** 跑一步命令，并可指定该进程使用的 Codex 授权目录。 */
     private Map<String, Object> runStep(String taskId, String engine, String step, List<String> parts, Path codexHome) {
+        return runStep(taskId, engine, step, parts, codexHome, null);
+    }
+
+    private Map<String, Object> runStep(String taskId, String engine, String step, List<String> parts,
+                                        Path codexHome, Path workingDirectory) {
         sse.publish(taskId, "message", Map.of("type", "line", "engine", engine, "step", step,
                 "text", "$ " + String.join(" ", parts)));
         int exit;
         try {
             ProcessBuilder builder = new ProcessBuilder(wrap(parts)).redirectErrorStream(true);
+            if (workingDirectory != null) builder.directory(workingDirectory.toFile());
             applyCodexHome(builder, codexHome);
             Process p = builder.start();
             try (BufferedReader br = new BufferedReader(
@@ -457,15 +748,12 @@ public class PluginUpdateService {
         ProcessBuilder builder = new ProcessBuilder(wrap(parts)).redirectErrorStream(true);
         applyCodexHome(builder, codexHome);
         Process p = builder.start();
-        StringBuilder out = new StringBuilder();
-        try (BufferedReader br = new BufferedReader(
-                new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = br.readLine()) != null) out.append(line).append('\n');
-        }
-        int exit = p.waitFor(props.getCommandTimeoutMs(), TimeUnit.MILLISECONDS)
-                ? p.exitValue() : forceKill(p);
-        return new CommandResult(exit, out.toString());
+        // 状态面板只跑 list 命令，必须快速返回。旧实现先 readLine 再 waitFor，CLI 卡住时
+        // 会永远阻塞在读流，配置的超时实际不生效，表现为面板长时间“加载中”。
+        long timeoutMs = Math.min(props.getCommandTimeoutMs(), 10_000L);
+        int exit = p.waitFor(timeoutMs, TimeUnit.MILLISECONDS) ? p.exitValue() : forceKill(p);
+        String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        return new CommandResult(exit, output);
     }
 
     private static int forceKill(Process p) {
@@ -503,15 +791,20 @@ public class PluginUpdateService {
         return cmd;
     }
 
-    /** Codex 调用命令:配置优先,否则 nodeCommand + sidecar 自带 codex.js。 */
+    /** Codex 调用命令：配置优先，其次 sidecar 内置 CLI，最后回退 PATH 上的 codex。 */
     private List<String> codexParts() {
         String configured = props.getCodexCmd();
         if (configured != null && !configured.isBlank()) {
             return List.of(configured.trim().split("\\s+"));
         }
-        Path codexJs = Path.of(chatProps.getSidecarDir(), "node_modules", "@openai", "codex", "bin", "codex.js")
-                .toAbsolutePath();
-        return List.of(chatProps.getNodeCommand(), codexJs.toString());
+        Path codexJs = sidecarRegistry.sidecarDir()
+                .resolve("node_modules").resolve("@openai").resolve("codex").resolve("bin").resolve("codex.js")
+                .toAbsolutePath().normalize();
+        if (Files.isRegularFile(codexJs)) {
+            return List.of(chatProps.getNodeCommand(), codexJs.toString());
+        }
+        log.warn("sidecar 内置 Codex CLI 不存在：{}，回退 PATH 上的 codex", codexJs);
+        return List.of("codex");
     }
 
     private static List<String> concat(List<String> base, String... more) {

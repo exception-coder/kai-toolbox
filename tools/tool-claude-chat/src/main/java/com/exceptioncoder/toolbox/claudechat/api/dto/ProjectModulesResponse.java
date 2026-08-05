@@ -11,8 +11,8 @@ import java.util.List;
  * @param projectType        项目类型代码（maven/gradle/node/go/rust/python/java-web/knowledge/unknown），供前端着色
  * @param projectTypeLabel   项目类型中文标签，供「项目工作台」右上角展示「这是什么项目」
  * @param fromKnowledge      本次模块是否来自知识库 modules.json（false=按构建文件自动识别的兜底结果）
- * @param knowledgeBaseDir   当前配置的知识库根目录（project-domain-knowledge 的 knowledge/ 目录）；未配置为空串
- * @param knowledgeDirExists 上述知识库根目录在磁盘上是否存在，供工作台提示用户配置
+ * @param knowledgeBaseDir   团队初始化生成的固定知识库根目录
+ * @param knowledgeDirExists 固定知识库根目录在磁盘上是否存在，供工作台提示用户初始化
  * @param modules            扫出的模块（含项目根自身若它也是一个模块），按相对路径升序
  */
 public record ProjectModulesResponse(String project, String projectPath, boolean exists,

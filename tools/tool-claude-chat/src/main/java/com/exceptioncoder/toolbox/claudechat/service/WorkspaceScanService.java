@@ -7,7 +7,6 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleSyncApplyRequest;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleSyncPreview;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleSyncResult;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ProjectModulesResponse;
-import com.exceptioncoder.toolbox.common.dynamicconfig.service.DynamicConfigService;
 import com.exceptioncoder.toolbox.llm.spi.LocalProjectResolver;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ProjectModulesResponse.ModuleView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.WorkspaceDirView;
@@ -52,21 +51,15 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 @Service
 public class WorkspaceScanService implements LocalProjectResolver {
 
-    /** 工作目录配置块 id = WorkspaceProperties 的 @ConfigurationProperties prefix。 */
-    private static final String WORKSPACE_BLOCK_ID = "toolbox.claude-chat.workspace";
-
     private final WorkspaceProperties props;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
-    private final DynamicConfigService dynamicConfig;
 
     private volatile WorkspaceListResponse cache;
     private volatile long cacheExpireAt;
 
-    public WorkspaceScanService(WorkspaceProperties props, com.fasterxml.jackson.databind.ObjectMapper objectMapper,
-                                DynamicConfigService dynamicConfig) {
+    public WorkspaceScanService(WorkspaceProperties props, com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
         this.props = props;
         this.objectMapper = objectMapper;
-        this.dynamicConfig = dynamicConfig;
     }
 
     /** 只从已配置工作区扫描结果中解析，不接受调用方直接传任意绝对路径。 */
@@ -86,63 +79,14 @@ public class WorkspaceScanService implements LocalProjectResolver {
                 .map(dir -> new ProjectLocation(dir.name(), dir.path()));
     }
 
-    /**
-     * 自动确保知识库就绪：knowledge 目录已配置且存在则无操作；否则把配置的 git 地址自动 clone 到
-     * {@code ~/.kai-toolbox/<仓库名>} 并绑定其 knowledge 子目录（写运行时配置中心、持久化，重启仍在）。
-     *
-     * <p>用户目录必存在，避免依赖尚未配置的 workspace 根。私有仓需本机已登录企业 Git 账号；失败返回 error 而非抛异常。</p>
-     */
+    /** 团队初始化完成后，知识库应位于约定目录；本服务只检查，不再重复拉取。 */
     public KnowledgeEnsureResult ensureKnowledgeBase() {
         String kbDir = effectiveKnowledgeDir();
         if (knowledgeDirExists(kbDir)) {
             return new KnowledgeEnsureResult("ok", kbDir, "", "", "知识库已就绪");
         }
-        String url = props.getKnowledgeRepoUrl() == null ? "" : props.getKnowledgeRepoUrl().trim();
-        if (url.isBlank()) {
-            return new KnowledgeEnsureResult("disabled", "", "", "", "未配置知识库 git 地址，无法自动拉取");
-        }
-        if (!url.matches("(?i)^(https?://|git://|ssh://|git@).+")) {
-            return new KnowledgeEnsureResult("error", "", "", url, "git 地址格式不支持: " + url);
-        }
-        String name = repoNameFromUrl(url);
-        if (name == null || name.isBlank()) {
-            return new KnowledgeEnsureResult("error", "", "", url, "无法从地址解析仓库名: " + url);
-        }
-        Path base = Path.of(System.getProperty("user.home"), ".kai-toolbox");
-        Path target = base.resolve(name).normalize();
-        Path knowledge = target.resolve("knowledge");
-        if (Files.isDirectory(knowledge)) {
-            bindKnowledgeConfig(knowledge);
-            return new KnowledgeEnsureResult("bound", knowledge.toString(), target.toString(), url, "发现本地已有知识库，已绑定");
-        }
-        if (Files.exists(target)) {
-            return new KnowledgeEnsureResult("error", "", target.toString(), url,
-                    "目标目录已存在但缺少 knowledge 子目录: " + target + "（请检查或删除后重试）");
-        }
-        try {
-            Files.createDirectories(base);
-        } catch (IOException e) {
-            return new KnowledgeEnsureResult("error", "", target.toString(), url, "用户目录不可写: " + e.getMessage());
-        }
-        try {
-            runGitClone(url, target);
-        } catch (RuntimeException e) {
-            return new KnowledgeEnsureResult("error", "", target.toString(), url, e.getMessage());
-        }
-        if (!Files.isDirectory(knowledge)) {
-            return new KnowledgeEnsureResult("error", "", target.toString(), url,
-                    "clone 完成但未找到 knowledge 子目录，可能不是知识库仓库");
-        }
-        bindKnowledgeConfig(knowledge);
-        log.info("[claude-chat] 已自动拉取知识库 {} -> {}", url, knowledge);
-        return new KnowledgeEnsureResult("cloned", knowledge.toString(), target.toString(), url, "已自动拉取并绑定知识库");
-    }
-
-    /** 把知识库根目录写入运行时配置中心（持久化）并失效扫描缓存。 */
-    private void bindKnowledgeConfig(Path knowledge) {
-        dynamicConfig.applyOverrides(WORKSPACE_BLOCK_ID,
-                java.util.Map.of(WORKSPACE_BLOCK_ID + ".knowledge-base-dir", knowledge.toString()), java.util.List.of());
-        cacheExpireAt = 0;
+        return new KnowledgeEnsureResult("disabled", kbDir, "", "",
+                "团队依赖尚未初始化，请先在 Vibe Coding 的团队依赖面板执行拉取与安装");
     }
 
     /**
@@ -263,11 +207,14 @@ public class WorkspaceScanService implements LocalProjectResolver {
 
     /** 「自维护机器人」锁定的 kai-toolbox 自身仓库路径；exists=false 时前端隐藏机器人入口。 */
     public SelfRepoResponse selfRepo() {
-        String path = props.getSelfRepoPath();
-        if (path == null || path.isBlank()) {
-            return new SelfRepoResponse("", false);
+        Path current = Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize();
+        while (current != null) {
+            if (Files.isRegularFile(current.resolve("pom.xml")) && Files.isDirectory(current.resolve("toolbox-starter"))) {
+                return new SelfRepoResponse(current.toString(), true);
+            }
+            current = current.getParent();
         }
-        return new SelfRepoResponse(path, Files.isDirectory(Path.of(path)));
+        return new SelfRepoResponse("", false);
     }
 
     private RootView scanRoot(String rootSetting) {
@@ -301,13 +248,13 @@ public class WorkspaceScanService implements LocalProjectResolver {
             "node_modules", "target", "dist", "build", ".git", ".idea", ".gradle",
             "out", "bin", "obj", "venv", ".venv", "__pycache__", ".next", ".turbo", "coverage", "vendor");
 
-    /** 当前配置的知识库根目录（去空白）；未配置返回空串。 */
+    /** 团队依赖初始化生成的固定知识库目录。 */
     private String effectiveKnowledgeDir() {
-        String d = props.getKnowledgeBaseDir();
-        return d == null ? "" : d.trim();
+        return Path.of(System.getProperty("user.home"), ".kai-toolbox", "team-tools",
+                "project-domain-knowledge", "knowledge").toString();
     }
 
-    /** 知识库根目录在磁盘上是否存在（用于区分「没配/配错」与「该项目还没建清单」）。 */
+    /** 团队知识库根目录在磁盘上是否存在。 */
     private boolean knowledgeDirExists(String kbDir) {
         return !kbDir.isBlank() && Files.isDirectory(Path.of(kbDir));
     }
@@ -422,10 +369,9 @@ public class WorkspaceScanService implements LocalProjectResolver {
             "node_modules", "target", "dist", "build", ".git", ".idea", ".gradle", "out", "bin", "obj",
             "venv", ".venv", "__pycache__", ".next", ".turbo", "coverage", "vendor", "WEB-INF", "test", "tests");
 
-    /** 知识库 modules.json 清单文件路径；未配置知识库返回 null。 */
+    /** 知识库 modules.json 清单文件路径。 */
     private Path knowledgeModulesManifest(String projectName) {
-        String kbDir = props.getKnowledgeBaseDir();
-        if (kbDir == null || kbDir.isBlank()) return null;
+        String kbDir = effectiveKnowledgeDir();
         return Path.of(kbDir).resolve(projectName).resolve("impl").resolve(KB_MODULES_FILE);
     }
 
@@ -768,8 +714,7 @@ public class WorkspaceScanService implements LocalProjectResolver {
      * 「知识库已声明该项目」，即便为空也不再自动识别。codePath 越界（借 ../ 逃出项目根）的条目被跳过。</p>
      */
     private List<ModuleView> readKnowledgeModules(Path root, String projectName) {
-        String kbDir = props.getKnowledgeBaseDir();
-        if (kbDir == null || kbDir.isBlank()) return null;
+        String kbDir = effectiveKnowledgeDir();
         Path manifest = Path.of(kbDir).resolve(projectName).resolve("impl").resolve(KB_MODULES_FILE);
         if (!Files.isRegularFile(manifest)) return null;
         try {

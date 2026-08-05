@@ -2,6 +2,8 @@ package com.exceptioncoder.toolbox.claudechat.api;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.PluginStatusView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.SuiteStatusView;
+import com.exceptioncoder.toolbox.claudechat.api.dto.TeamDependencyEnvironmentView;
+import com.exceptioncoder.toolbox.claudechat.api.dto.TeamRepositoryStatusView;
 import com.exceptioncoder.toolbox.claudechat.service.PluginUpdateService;
 import com.exceptioncoder.toolbox.common.sse.SseEmitterRegistry;
 import org.springframework.http.MediaType;
@@ -47,12 +49,36 @@ public class PluginUpdateController {
         return service.readSuites(sessionId, fetch);
     }
 
+    /** 检查 Git、Node.js/npm、Claude Code、Codex，并返回当前系统的官方安装指引。 */
+    @GetMapping("/environment")
+    public TeamDependencyEnvironmentView environment(@RequestParam(required = false) String sessionId) {
+        return service.readEnvironment(sessionId);
+    }
+
+    /** 查看五个团队依赖仓库状态；fetch=true 时先刷新所选远端。 */
+    @GetMapping("/repositories")
+    public List<TeamRepositoryStatusView> repositories(
+            @RequestParam(defaultValue = "gitee") String source,
+            @RequestParam(defaultValue = "false") boolean fetch) {
+        return service.readRepositoryStatuses(source, fetch);
+    }
+
     /** 触发双端更新并以 SSE 实时回显输出。先 create+返回 emitter(挂 HTTP),再启 worker。 */
     @GetMapping(value = "/update/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter updateStream(@RequestParam(required = false) String sessionId) {
         String taskId = UUID.randomUUID().toString();
         SseEmitter emitter = sse.create(taskId);
         service.startUpdate(taskId, sessionId);
+        return emitter;
+    }
+
+    /** 拉取五个团队依赖仓库，并安装到 Claude Code 与 Codex。 */
+    @GetMapping(value = "/install/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter installStream(@RequestParam(required = false) String sessionId,
+                                    @RequestParam(defaultValue = "gitee") String source) {
+        String taskId = UUID.randomUUID().toString();
+        SseEmitter emitter = sse.create(taskId);
+        service.startInstall(taskId, sessionId, source);
         return emitter;
     }
 }

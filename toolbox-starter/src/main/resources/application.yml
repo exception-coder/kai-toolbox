@@ -416,14 +416,6 @@ toolbox:
     query-budget: 1500
 
   knowledge-graph:
-    # 「知识图谱管理」面板的仓库路径，因人而异（每台开发机 clone 位置不同），不写死具体路径——
-    # 留空占位，实际值在「配置中心 → 知识图谱仓库路径」页面按本机路径填写，落 SQLite 覆盖、
-    # 改后立即生效，不进 git、不同开发机互不影响。
-    # 注：配置中心的字段发现依赖 Environment 里已存在该 key（哪怕是空值）才能显示为可编辑项，
-    # 这里必须留空字符串占位，不能整段删掉——删掉后 key 在 Environment 里完全不存在，
-    # 配置中心页面会显示一个没有任何配置项可填的空表格。
-    domain-knowledge-repo-path: ""
-    cross-topology-repo-path: ""
     node-executable: node
 
   projects:
@@ -450,16 +442,6 @@ toolbox:
       hidden-prefixes:
         - "."
         - "_"
-      # 知识库（project-domain-knowledge）本地 clone 的 knowledge/ 目录绝对路径。
-      # 配置后，项目工作台列模块时优先读 {此目录}/{项目目录名}/impl/modules.json
-      # （项目目录名须 == 知识库 project key），按其声明的业务模块树 + 代码路径渲染；
-      # 找不到则回退按构建标志文件自动识别。为空 = 不启用。
-      # 后端只读本地文件，不联网、不执行 git；保持最新需自行 git pull。
-      knowledge-base-dir: "D:\\Users\\zhang\\myWork\\project-domain-knowledge\\knowledge"
-      # 例： knowledge-base-dir: "D:\\Users\\zhang\\myWork\\project-domain-knowledge\\knowledge"
-      # 「自维护机器人」锁定的 kai-toolbox 自身仓库路径。配置后，工作台各页面角落出现常驻小机器人，
-      # 可直接对 kai-toolbox 自己发起「改当前模块」/「问项目」——cwd 固定为此路径。为空 = 不启用。
-      self-repo-path: "D:\\Users\\zhang\\myWork\\kai-toolbox"
 
   browser-request:
     # 持久 BrowserContext 数据目录（cookies/storage state），留空 = ${toolbox.data-dir}/browser-request

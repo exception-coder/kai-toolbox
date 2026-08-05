@@ -10,8 +10,8 @@ import java.util.List;
  * @param projectPath         项目绝对路径
  * @param exists              项目目录是否存在且在配置根内
  * @param knowledgeConfigured 是否已找到该项目的知识库 modules.json（否则无法推导基准，只能走 CLI --code-base）
- * @param knowledgeBaseDir    当前配置的知识库根目录（project-domain-knowledge 的 knowledge/ 目录）；未配置为空串
- * @param knowledgeDirExists  上述知识库根目录在磁盘上是否存在（区分「没配/配错路径」与「该项目还没生成清单」）
+ * @param knowledgeBaseDir    团队初始化生成的固定知识库根目录
+ * @param knowledgeDirExists  固定知识库根目录在磁盘上是否存在
  * @param currentCount        现有模块条目数（含子模块）
  * @param added               新增候选：磁盘上有目录、清单里没有的模块（非容器目录）
  * @param missing             已消失：清单里有、磁盘上目录已不存在的模块（仅告警，apply 不删除）
