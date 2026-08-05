@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getDevPreference,
   saveDevPreference,
@@ -21,6 +21,8 @@ function legacyValue(key: string): string {
  * SQLite 偏好状态：远端无记录时以旧 localStorage 为一次性迁移种子；hydration 前不允许反向保存。
  */
 export function useDevWorkbenchPreference(workbenchId: string, legacy: LegacyKeys) {
+  const queryClient = useQueryClient()
+  const queryKey = useMemo(() => ['dev-workbench-preference', workbenchId] as const, [workbenchId])
   const legacySeed = useMemo<DevWorkbenchPreference>(() => ({
     cwd: legacyValue(legacy.cwd),
     module: legacyValue(legacy.module),
@@ -28,22 +30,33 @@ export function useDevWorkbenchPreference(workbenchId: string, legacy: LegacyKey
     services: {},
   }), [legacy.cwd, legacy.module, legacy.requirement])
   const [preference, setPreference] = useState(legacySeed)
+  const latestPreferenceRef = useRef(preference)
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve())
   const [hydrated, setHydrated] = useState(false)
   const query = useQuery({
-    queryKey: ['dev-workbench-preference', workbenchId],
+    queryKey,
     queryFn: () => getDevPreference(workbenchId),
     staleTime: 30_000,
   })
 
+  const enqueueSave = useCallback((next: DevWorkbenchPreference) => {
+    saveQueueRef.current = saveQueueRef.current
+      .catch(() => undefined)
+      .then(() => saveDevPreference(workbenchId, next))
+      .then(() => undefined)
+  }, [workbenchId])
+
   useEffect(() => {
     if (!query.isFetched || query.isError || hydrated) return
     if (query.data) {
-      setPreference({
+      const restored = {
         cwd: query.data.cwd ?? '',
         module: query.data.module ?? '',
         requirement: query.data.requirement ?? '',
         services: query.data.services ?? {},
-      })
+      }
+      latestPreferenceRef.current = restored
+      setPreference(restored)
     }
     setHydrated(true)
   }, [hydrated, query.data, query.isError, query.isFetched])
@@ -51,19 +64,30 @@ export function useDevWorkbenchPreference(workbenchId: string, legacy: LegacyKey
   useEffect(() => {
     if (!hydrated) return
     const timer = window.setTimeout(() => {
-      saveDevPreference(workbenchId, preference).catch(() => {})
+      enqueueSave(preference)
     }, 350)
     return () => window.clearTimeout(timer)
-  }, [hydrated, preference, workbenchId])
+  }, [enqueueSave, hydrated, preference])
+
+  const updatePreference = (
+    updater: (current: DevWorkbenchPreference) => DevWorkbenchPreference,
+    immediate = false,
+  ) => {
+    const next = updater(latestPreferenceRef.current)
+    latestPreferenceRef.current = next
+    setPreference(next)
+    queryClient.setQueryData(queryKey, next)
+    if (immediate) enqueueSave(next)
+  }
 
   const setField = (field: 'cwd' | 'module' | 'requirement', value: string) => {
-    setPreference(current => ({ ...current, [field]: value }))
+    updatePreference(current => ({ ...current, [field]: value }))
   }
-  const setService = (serviceId: string, value: DevServicePreference) => {
-    setPreference(current => ({
+  const setService = (serviceId: string, value: DevServicePreference, immediate = false) => {
+    updatePreference(current => ({
       ...current,
       services: { ...current.services, [serviceId]: value },
-    }))
+    }), immediate)
   }
 
   return { preference, hydrated, setField, setService }

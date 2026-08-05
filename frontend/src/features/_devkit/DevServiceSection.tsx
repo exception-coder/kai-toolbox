@@ -36,7 +36,7 @@ interface Props {
   /** SQLite 中恢复的服务级项目与自定义指令。 */
   preference?: { cwd: string; command: string }
   /** 项目或指令变化时交给父工作台统一持久化。 */
-  onPreferenceChange?: (value: { cwd: string; command: string }) => void
+  onPreferenceChange?: (value: { cwd: string; command: string }, immediate?: boolean) => void
 }
 
 // 日志级别识别（暗底控制台）。整行按命中的最高级别归类；其余归 other。
@@ -171,7 +171,7 @@ export function DevServiceSection({
   const effCommand = command.trim() || defaultCommand
   const setServiceCwd = (value: string) => {
     setCwd(value)
-    onPreferenceChange?.({ cwd: value, command })
+    onPreferenceChange?.({ cwd: value, command }, true)
   }
   const setCmd = (value: string) => {
     setCommand(value)

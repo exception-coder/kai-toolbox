@@ -15,6 +15,11 @@ import {
 } from '../api'
 
 const BLOCKS_KEY = ['config-blocks']
+const INTERNAL_CONFIG_KEYS = new Set([
+  'toolbox.claude-chat.workspace.knowledge-base-dir',
+  'toolbox.claude-chat.workspace.self-repo-path',
+  'toolbox.claude-chat.workspace.knowledge-repo-url',
+])
 
 /** 运行时动态配置中心：选块 → 编辑有效值 → 保存（不重启生效）/ 重置回默认。 */
 export function ConfigCenterPage() {
@@ -87,6 +92,7 @@ function BlockEditor({ blockId, onChanged }: { blockId: string; onChanged: () =>
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [listDraft, setListDraft] = useState<Record<string, string[]>>({})
   const entries = block ? normalizeEntries(block.entries) : []
+  const visibleEntries = entries.filter(entry => !INTERNAL_CONFIG_KEYS.has(entry.key))
   useEffect(() => {
     if (!block) return
     const nextEntries = normalizeEntries(block.entries)
@@ -178,7 +184,7 @@ function BlockEditor({ blockId, onChanged }: { blockId: string; onChanged: () =>
             </tr>
           </thead>
           <tbody className="divide-y">
-            {entries.map(e => (
+            {visibleEntries.map(e => (
               <tr key={e.key}>
                 <td className="px-3 py-3 align-top font-mono text-xs">
                   {e.key}

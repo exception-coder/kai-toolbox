@@ -9,7 +9,7 @@ const manifest: FeatureManifest = {
   name: 'ERP',
   icon: Workflow,
   group: '项目开发',
-  description: '填模块+需求，交给 ERP 自动开发 agent：定位代码→查知识图谱/库→出方案→按规范改码→出 diff（门控·只改不提交）',
+  description: 'ERP 服务启停、启动日志、测试库连接与本地实例配置',
   order: 51,
   routes: [{ path: '/tools/erp-dev', element: <ErpDevPage /> }],
 }

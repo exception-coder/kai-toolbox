@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Database, DownloadCloud, ExternalLink, FolderPlus, Loader2, Rocket, ServerCog, Workflow } from 'lucide-react'
+import { Database, DownloadCloud, Loader2, ServerCog, Workflow } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { listWorkspaces } from '@/features/claude-chat/api'
-import { CHAT_ROUTE } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import { DevServiceSection } from '@/features/_devkit/DevServiceSection'
 import { useDevWorkbenchPreference } from '@/features/_devkit/useDevWorkbenchPreference'
 import {
@@ -13,40 +11,13 @@ import {
   listOpsSystems, listOpsDatasources, importErpDbFromOps,
 } from '../api'
 
-const LAUNCH_KEY = 'kai-toolbox:claude-chat:erp-dev-launch'
 /** 记住上次选择的工作区目录，避免每次进来都要重选。 */
 const CWD_KEY = 'kai-toolbox:erp-dev:cwd'
 /** 记住上次填的模块/页面与需求描述，避免每次重输。 */
 const MODULE_KEY = 'kai-toolbox:erp-dev:module'
 const REQUIREMENT_KEY = 'kai-toolbox:erp-dev:requirement'
 
-/** 拼装投喂给 yoooni-erp-auto-dev skill 的触发语。 */
-function buildSeed(moduleOrUrl: string, requirement: string): string {
-  return [
-    '用 yoooni-erp-auto-dev 开发一个 ERP 小需求。',
-    `模块/页面：${moduleOrUrl}`,
-    '需求：',
-    requirement.trim(),
-    '',
-    '请按门控流程走，每步过关卡等我拍板：',
-    '① 先定位页面代码（给的是 URL/*.action 用 url-locate，中文模块名用知识图谱定位），念给我确认命中；',
-    '② 查业务知识图谱(domain-knowledge)+库(状态字典/表结构，以 DDL 为准)；',
-    '③ 出轻量方案(design-doc)让我确认，并给出「验收清单」：每条=触发动作(接口+参数)→期望结果(可机检，含回读 SQL)；',
-    '④ 按编码规范改码(encoding-guard 防乱码；DB/迁移/状态字典改动单独确认)；',
-    '⑤ 静态自检：编译/构建通过；',
-    '⑥ 自闭环验证：提示我让改动生效(重编译/重启本地实例)后，按验收清单用 mcp__erp_app__http_call 实发接口、',
-    '   mcp__erp_db__query 只读回读，逐条判 PASS/FAIL，输出「接口验证区块」(请求参数/响应/对应SQL)；不符就修正再验(上限3次)；',
-    '⑦ 汇总 diff、只改不提交。',
-  ].join('\n')
-}
-
-/**
- * ERP 需求开发前门：填「ERP 项目目录 + 模块(中文名/粘 URL) + 需求」→ 一键。
- * 把 {cwd, seed} 交给 Vibe Coding（写 sessionStorage 后跳转），由其在该工作区开一个 Claude 会话、
- * 投喂触发语拉起 yoooni-erp-auto-dev skill；真正的对话/关卡/权限确认在成熟的 Vibe Coding 界面里进行。
- */
 export function ErpDevPage() {
-  const navigate = useNavigate()
   const { data: workspaces } = useQuery({ queryKey: ['claude-chat-workspaces'], queryFn: listWorkspaces, staleTime: 5000 })
 
   // 拍平所有工作区根下的一级目录，供选 ERP 项目；path 唯一，label 带根名便于区分同名
@@ -60,46 +31,20 @@ export function ErpDevPage() {
     return out
   }, [workspaces])
 
-  const roots = workspaces?.roots ?? []
-  const hasRoots = roots.some(r => r.exists)
-
   const devPreference = useDevWorkbenchPreference('erp-dev', {
     cwd: CWD_KEY, module: MODULE_KEY, requirement: REQUIREMENT_KEY,
   })
-  const { cwd, module: moduleOrUrl, requirement } = devPreference.preference
+  const { cwd } = devPreference.preference
 
   // 选目录并记住（下次进来自动回填）
   const pickCwd = (path: string) => {
     devPreference.setField('cwd', path)
   }
-  // 填模块/需求并记住（下次进来自动回填）
-  const editModule = (v: string) => {
-    devPreference.setField('module', v)
-  }
-  const editRequirement = (v: string) => {
-    devPreference.setField('requirement', v)
-  }
-
-  // 引导：空工作区时跳到 Vibe Coding 并直接打开「拉取项目到工作区」面板
-  const goConfigureWorkspace = () => {
-    try { sessionStorage.setItem('kai-toolbox:claude-chat:open-panel', 'clone') } catch { /* ignore */ }
-    navigate(CHAT_ROUTE)
-  }
-
   // 目录列表就绪后：保留上次记住的选择（仍存在时），否则回退到第一个
   useEffect(() => {
     if (!devPreference.hydrated || dirs.length === 0) return
     if (!dirs.some(d => d.path === cwd)) pickCwd(dirs[0].path)
   }, [devPreference.hydrated, dirs, cwd])
-
-  const canStart = cwd.length > 0 && moduleOrUrl.trim().length > 0 && requirement.trim().length > 0
-
-  const start = () => {
-    if (!canStart) return
-    const seed = buildSeed(moduleOrUrl.trim(), requirement)
-    try { sessionStorage.setItem(LAUNCH_KEY, JSON.stringify({ cwd, seed })) } catch { /* 隐私模式忽略 */ }
-    navigate(CHAT_ROUTE)
-  }
 
   return (
     <div className="mx-auto max-w-2xl p-4 sm:p-6">
@@ -107,79 +52,12 @@ export function ErpDevPage() {
         <Workflow className="size-5 text-[var(--color-primary)]" />
         <h1 className="text-lg font-semibold">ERP 需求开发</h1>
       </div>
-      <p className="mb-5 text-sm text-[var(--color-muted-foreground)]">
-        填「模块 + 需求」，交给 ERP 自动开发 agent（yoooni-erp-auto-dev）：定位页面代码 → 查业务知识图谱 + 库 →
-        出方案 → 按编码规范改码 → <b>自闭环验证</b>（实发接口 + 回读数据，出接口验证区块）→ 出 diff。关键处（命中页面 /
-        方案 / DB 改动 / 生效重启）会停下让你确认，<b>只改不提交</b>。
-      </p>
-
-      <div className="space-y-4 rounded-xl border bg-[var(--color-card)] p-4">
-        <div>
-          <label className="text-xs font-medium text-[var(--color-muted-foreground)]">ERP 项目目录（工作区）</label>
-          {dirs.length === 0 ? (
-            <div className="mt-1 rounded-lg border border-dashed border-[var(--color-border)] p-3">
-              <div className="mb-1 flex items-center gap-2 text-sm font-medium">
-                <FolderPlus className="size-4 text-[var(--color-primary)]" />还没有可用的工作区目录
-              </div>
-              {hasRoots ? (
-                <p className="text-xs text-[var(--color-muted-foreground)]">
-                  工作区根已配置，但根目录下还没有项目。去 Vibe Coding「拉取项目到工作区」拉一个 ERP 项目（或用「合并工作区」聚合已有目录），回来即可在这里选到。
-                </p>
-              ) : (
-                <p className="text-xs text-[var(--color-muted-foreground)]">
-                  尚未配置工作区根。请在后端 <code className="rounded bg-[var(--color-muted)] px-1">application.yml</code> 的 <code className="rounded bg-[var(--color-muted)] px-1">toolbox.claude-chat.workspace.roots</code> 配置一个或多个目录后重启后端；也可先去 Vibe Coding 拉取项目。
-                </p>
-              )}
-              <Button size="sm" className="mt-2 gap-1" onClick={goConfigureWorkspace}>
-                <ExternalLink className="size-4" />去 Vibe Coding 配置 / 拉取项目
-              </Button>
-            </div>
-          ) : (
-            <select
-              value={cwd}
-              onChange={e => pickCwd(e.target.value)}
-              className="mt-1 h-9 w-full rounded-md border bg-[var(--color-background)] px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
-            >
-              {dirs.map(d => <option key={d.path} value={d.path}>{d.label}</option>)}
-            </select>
-          )}
-        </div>
-
-        <div>
-          <label className="text-xs font-medium text-[var(--color-muted-foreground)]">模块 / 页面（中文模块名，或直接粘页面 URL / *.action）</label>
-          <Input
-            value={moduleOrUrl}
-            onChange={e => editModule(e.target.value)}
-            placeholder="如：报价审核  或  https://.../quoteAudit_list.action"
-            className="mt-1"
-          />
-        </div>
-
-        <div>
-          <label className="text-xs font-medium text-[var(--color-muted-foreground)]">需求描述</label>
-          <textarea
-            value={requirement}
-            onChange={e => editRequirement(e.target.value)}
-            rows={5}
-            placeholder="用中文把要做的改动说清楚，例如：列表页增加「按供应商筛选」，并在导出里带上该列。"
-            className="mt-1 w-full resize-y rounded-md border bg-[var(--color-background)] px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
-          />
-        </div>
-
-        <div className="flex items-center gap-3 pt-1">
-          <Button disabled={!canStart} onClick={start} className="gap-1">
-            <Rocket className="size-4" />开始开发
-          </Button>
-          <span className="text-xs text-[var(--color-muted-foreground)]">开始后进入 Vibe Coding 实时查看过程、在关卡处确认。</span>
-        </div>
-      </div>
-
       <DevServiceSection
         serviceId="erp"
         dirs={dirs}
         defaultCwd={cwd}
         preference={devPreference.preference.services.erp}
-        onPreferenceChange={value => devPreference.setService('erp', value)}
+        onPreferenceChange={(value, immediate) => devPreference.setService('erp', value, immediate)}
         defaultCommand=".\\start-yoooni.ps1"
         title="ERP 服务启停 + 启动日志"
         readinessPorts={[{ label: 'Resin', port: 80 }]}
@@ -188,8 +66,7 @@ export function ErpDevPage() {
       <ErpAppConfigSection />
 
       <p className="mt-4 text-[11px] text-[var(--color-muted-foreground)]">
-        依赖团队套件已安装（domain-knowledge / cross-topology MCP、project-coding-profiles、team-standards）；
-        「大脑」是团队插件里的 yoooni-erp-auto-dev skill，可随 claude plugin update 升级。
+        本页保留 ERP 服务控制、测试库连接和本地实例配置。
       </p>
     </div>
   )

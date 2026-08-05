@@ -9,7 +9,7 @@ const manifest: FeatureManifest = {
   name: 'SCM',
   icon: Warehouse,
   group: '项目开发',
-  description: '填模块+需求，交给自动开发 agent（yoooni-erp-auto-dev 门控流水线）：定位代码→查库→出方案→改码→重启后查库回读验证→出 diff（门控·只改不提交）',
+  description: 'SCM 服务启停、启动日志与测试库配置',
   order: 55,
   routes: [{ path: '/tools/scm-dev', element: <ScmDevPage /> }],
 }

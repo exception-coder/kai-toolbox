@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ClipboardList, Database, DownloadCloud, Eye, EyeOff, Handshake, Loader2, Rocket, ServerCog } from 'lucide-react'
+import { ClipboardList, Database, DownloadCloud, Eye, EyeOff, Handshake, Loader2, ServerCog } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { listWorkspaces } from '@/features/claude-chat/api'
-import { CHAT_ROUTE } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 import { DevServiceSection } from '@/features/_devkit/DevServiceSection'
 import { useDevWorkbenchPreference } from '@/features/_devkit/useDevWorkbenchPreference'
 import {
@@ -14,47 +13,13 @@ import {
   listOpsSystems, listOpsDatasources, importSrmDbFromOps,
 } from '../api'
 
-// 复用 Vibe Coding 的 handoff 通道（ChatPage 挂载时消费：开会话 + 投喂触发语）
-const LAUNCH_KEY = 'kai-toolbox:claude-chat:erp-dev-launch'
 /** 记住上次选择的工作区目录，避免每次进来都要重选。 */
 const CWD_KEY = 'kai-toolbox:srm-dev:cwd'
 /** 记住上次填的模块与需求描述，避免每次重输。 */
 const MODULE_KEY = 'kai-toolbox:srm-dev:module'
 const REQUIREMENT_KEY = 'kai-toolbox:srm-dev:requirement'
 
-/**
- * 拼装投喂给 yoooni-erp-auto-dev skill 的 SRM 版触发语。
- * 大脑复用 ERP 自动开发流水线的骨架（定位→查知识图谱/库→方案→改码→自闭环验证→diff），
- * 但按 SRM 技术栈改口径：芋道 Spring Cloud 分层 + MySQL(以 DDL 为准) + REST；
- * 验证工具显式点名 SRM 专用的 mcp__srm_db__query（MySQL 只读回读）/ mcp__srm_app__http_call（网关登录态实发）。
- */
-function buildSeed(moduleName: string, requirement: string): string {
-  return [
-    '用 yoooni-erp-auto-dev 的门控流水线开发一个 SRM 小需求（技术栈=芋道 Spring Cloud 微服务 + Vue2 前端 + MySQL）。',
-    `模块/页面：${moduleName}`,
-    '需求：',
-    requirement.trim(),
-    '',
-    '请按门控流程走，每步过关卡等我拍板：',
-    '① 定位代码：用 domain-knowledge(project=srm) + 前端 src/api/<域>/ ↔ 后端 controller/admin/srm/<E>Controller 的映射定位改动点，念给我确认命中；',
-    '② 查业务知识图谱(domain-knowledge project=srm)+库（状态机/状态字典/表结构，以 MySQL DDL 为准）；',
-    '③ 出轻量方案(design-doc)让我确认，并给出「验收清单」：每条=触发动作(接口+参数)→期望结果(可机检，含回读 SQL)；',
-    '④ 按 srm 编码 profile + 芋道分层(controller→service→dal→convert→vo)改码（encoding-guard 防乱码；DB/迁移/状态字典改动单独确认）；',
-    '⑤ 静态自检：对应服务模块编译/构建通过；',
-    '⑥ 自闭环验证：提示我让改动生效(重启对应微服务)后，按验收清单用 mcp__srm_app__http_call 走网关登录态实发接口、',
-    '   mcp__srm_db__query 只读回读 MySQL，逐条判 PASS/FAIL，输出「接口验证区块」(请求参数/响应/对应SQL)；不符就修正再验(上限3次)；',
-    '⑦ 汇总 diff、只改不提交。',
-  ].join('\n')
-}
-
-/**
- * SRM 需求开发前门：填「SRM 工作区目录 + 模块 + 需求」→ 一键。
- * 把 {cwd, seed} 交给 Vibe Coding（写 sessionStorage 后跳转），由其在该工作区开一个 Claude 会话、
- * 投喂触发语拉起 yoooni-erp-auto-dev skill；真正的对话/关卡/权限确认在成熟的 Vibe Coding 界面里进行。
- * 服务启停/日志复用通用 DevServiceSection；调试必备配置（MySQL 只读库 + 网关实例）走后端 KV 持久化。
- */
 export function SrmDevPage() {
-  const navigate = useNavigate()
   const { data: workspaces } = useQuery({ queryKey: ['claude-chat-workspaces'], queryFn: listWorkspaces, staleTime: 5000 })
 
   // 拍平所有工作区根下的一级目录，供选 SRM 项目；path 唯一，label 带根名便于区分同名
@@ -71,25 +36,15 @@ export function SrmDevPage() {
   const devPreference = useDevWorkbenchPreference('srm-dev', {
     cwd: CWD_KEY, module: MODULE_KEY, requirement: REQUIREMENT_KEY,
   })
-  const { cwd, module: moduleName, requirement } = devPreference.preference
+  const { cwd } = devPreference.preference
 
   const pickCwd = (p: string) => devPreference.setField('cwd', p)
-  const editModule = (v: string) => devPreference.setField('module', v)
-  const editRequirement = (v: string) => devPreference.setField('requirement', v)
 
   // 目录列表就绪后：保留上次记住的选择（仍存在时），否则回退到第一个
   useEffect(() => {
     if (!devPreference.hydrated || dirs.length === 0) return
     if (!dirs.some(d => d.path === cwd)) pickCwd(dirs[0].path)
   }, [devPreference.hydrated, dirs, cwd])
-
-  const canStart = cwd.length > 0 && moduleName.trim().length > 0 && requirement.trim().length > 0
-  const start = () => {
-    if (!canStart) return
-    const seed = buildSeed(moduleName.trim(), requirement)
-    try { sessionStorage.setItem(LAUNCH_KEY, JSON.stringify({ cwd, seed })) } catch { /* 隐私模式忽略 */ }
-    navigate(CHAT_ROUTE)
-  }
 
   return (
     <div className="mx-auto max-w-2xl p-4 sm:p-6">
@@ -102,60 +57,12 @@ export function SrmDevPage() {
           </Button>
         </Link>
       </div>
-      <p className="mb-5 text-sm text-[var(--color-muted-foreground)]">
-        填「模块 + 需求」，交给自动开发 agent（yoooni-erp-auto-dev 门控流水线）：定位代码 → 查业务知识图谱(project=srm) + 库 →
-        出方案 → 按 srm 编码规范 + 芋道分层改码 → <b>自闭环验证</b>（网关登录态实发 + MySQL 只读回读）→ 出 diff。关键处（命中代码 /
-        方案 / DB 改动 / 生效重启）会停下让你确认，<b>只改不提交</b>。
-      </p>
-
-      <div className="space-y-4 rounded-xl border bg-[var(--color-card)] p-4">
-        <div>
-          <label className="text-xs font-medium text-[var(--color-muted-foreground)]">SRM 项目目录（工作区）</label>
-          <select
-            value={cwd}
-            onChange={e => pickCwd(e.target.value)}
-            className="mt-1 h-9 w-full rounded-md border bg-[var(--color-background)] px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
-          >
-            {dirs.length === 0 && <option value="">（无可用项目目录，请在 application.yml 配 workspace.roots）</option>}
-            {dirs.map(d => <option key={d.path} value={d.path}>{d.label}</option>)}
-          </select>
-        </div>
-
-        <div>
-          <label className="text-xs font-medium text-[var(--color-muted-foreground)]">模块 / 页面（中文业务域名或模块名）</label>
-          <Input
-            value={moduleName}
-            onChange={e => editModule(e.target.value)}
-            placeholder="如：供应商准入  或  采购下单  或  批价"
-            className="mt-1"
-          />
-        </div>
-
-        <div>
-          <label className="text-xs font-medium text-[var(--color-muted-foreground)]">需求描述</label>
-          <textarea
-            value={requirement}
-            onChange={e => editRequirement(e.target.value)}
-            rows={5}
-            placeholder="用中文把要做的改动说清楚，例如：供应商列表增加「按准入状态筛选」，并在导出里带上该列。"
-            className="mt-1 w-full resize-y rounded-md border bg-[var(--color-background)] px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
-          />
-        </div>
-
-        <div className="flex items-center gap-3 pt-1">
-          <Button disabled={!canStart} onClick={start} className="gap-1">
-            <Rocket className="size-4" />开始开发
-          </Button>
-          <span className="text-xs text-[var(--color-muted-foreground)]">开始后进入 Vibe Coding 实时查看过程、在关卡处确认。</span>
-        </div>
-      </div>
-
       <DevServiceSection
         serviceId="srm"
         dirs={dirs}
         defaultCwd={cwd}
         preference={devPreference.preference.services.srm}
-        onPreferenceChange={value => devPreference.setService('srm', value)}
+        onPreferenceChange={(value, immediate) => devPreference.setService('srm', value, immediate)}
         defaultCommand="powershell -NoProfile -ExecutionPolicy Bypass -File .\\start-srm.ps1 -Foreground"
         stopCommand="powershell -NoProfile -ExecutionPolicy Bypass -File .\\stop-srm.ps1"
         commandPlaceholder="首次或改过公共模块加 -Build：… start-srm.ps1 -Foreground -Build"
@@ -171,8 +78,6 @@ export function SrmDevPage() {
       <SrmAppConfigSection />
 
       <p className="mt-4 text-[11px] text-[var(--color-muted-foreground)]">
-        依赖团队套件已安装（domain-knowledge / cross-topology MCP、project-coding-profiles、team-standards）；
-        「大脑」复用团队插件里的 yoooni-erp-auto-dev skill（SRM 版触发语已按芋道 + MySQL 改口径）。
         启停用 start-srm.ps1 -Foreground（前台合并模式）：各服务日志按 [服务名] 前缀合并到本区，停服对进程树整体清理。
       </p>
     </div>

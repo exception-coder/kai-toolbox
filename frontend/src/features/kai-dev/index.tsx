@@ -9,7 +9,7 @@ const manifest: FeatureManifest = {
   name: 'Forge',
   icon: Hammer,
   group: '项目开发',
-  description: '本工作台自身的开发模块：选目录+模块/需求，一键起停前后端服务并看前台日志（脚手架 dogfood 示例）',
+  description: 'Forge 前后端服务启停与启动日志',
   order: 52,
   routes: [{ path: '/tools/kai-dev', element: <KaiDevPage /> }],
 }
