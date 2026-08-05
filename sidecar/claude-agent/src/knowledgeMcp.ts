@@ -113,9 +113,6 @@ export function createCodexCrossTopologyServer(): Record<string, unknown> | null
   return codexServer(engine, kbDir)
 }
 
-// graphify（代码知识图谱）不再走 MCP：已改为 Java 侧（tool-prd-clarify 的
-// GraphifyQueryService）在调用 Claude 前直接执行 `graphify query` CLI 子进程，
-// 按 project/module 解析到正确的图谱目录，查询结果作为 prompt 上下文注入。
-// 交互式 Vibe Coding 会话若 cwd 本身在某个含 graphify-out 的项目根下，Claude 已有
-// Bash 工具，可直接跑 CLI，同样无需 MCP。此前的 createGraphifyYoooniServer()（起
-// python -m graphify.serve 子进程）只覆盖单个硬编码项目、且经常启动失败，已移除。
+// PRD 一次性任务由 Java GraphifyQueryService 预查询图谱；业务咨询由 consult-readonly
+// MCP 的 source_context 以固定参数调用 graphify CLI，并在 CLI 不可用时只读 graph.json。
+// 此处不再维护单项目硬编码的 Graphify MCP，避免与咨询编排入口重复。

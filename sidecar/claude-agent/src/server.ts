@@ -108,6 +108,9 @@ wss.on('connection', (ws) => {
       case 'refreshModels':
         void manager.refreshModels(sessionId ?? null)
         break
+      case 'refreshCapabilities':
+        manager.refreshCapabilities(sessionId)
+        break
       case 'setCodexOptions':
         manager.setCodexOptions(sessionId, msg.reasoningEffort as string, msg.speed as string)
         break
@@ -128,7 +131,7 @@ wss.on('connection', (ws) => {
         )
         break
       case 'forkSession':
-        void manager.forkSession(sessionId, msg.upToMessageId as string)
+        void manager.forkSession(sessionId, msg.upToMessageId as string | undefined)
         break
       case 'resume':
         manager.resume(sessionId, msg.sdkSessionId as string, msg.cwd as string, msg.engine as string, msg.apiBaseUrl as string | undefined, msg.authToken as string | undefined,

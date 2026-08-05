@@ -12,6 +12,8 @@ import { createScmDbServer } from './scmDb.js'
 import { createForgePendingSqlServer, FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
 import { createDomainKnowledgeServer, createCrossTopologyServer } from './knowledgeMcp.js'
 import { codexMcpCapabilities, runCodexTurn, type CodexSpeed } from './codexEngine.js'
+import { createClaudeConsultSourceServer } from './codexSecurity.js'
+import { forkCodexThread } from './codexAppServer.js'
 import type { ModelReasoningEffort } from '@openai/codex-sdk'
 import { runGeminiTurn } from './geminiEngine.js'
 import { runOpencodeTurn } from './opencodeEngine.js'
@@ -19,6 +21,14 @@ import { runOpencodeTurn } from './opencodeEngine.js'
 export type Engine = 'claude' | 'codex' | 'gemini' | 'opencode'
 
 type Emit = (sessionId: string, event: Record<string, unknown>) => void
+
+type CapabilitySnapshot = {
+  slashCommands: string[]
+  skills: string[]
+  agents: string[]
+  mcpServers: Array<{ name: string; status: string }>
+  outputStyle: string | null
+}
 
 /**
  * oneShot 场景下随文本一起发给多模态引擎的图片（base64）。Claude 使用 image content block，
@@ -234,11 +244,21 @@ class Session {
   private modelsFetched = false
   /** 本轮 API 响应里实际返回的模型（来自 assistant message.model，权威）；用于调用诊断。 */
   private lastResponseModel?: string
+  /** 本轮最后一条带文本的 Claude assistant message UUID，用作回答底部分叉锚点。 */
+  private lastAssistantForkAnchor?: string
   /** 本轮已完成消息的累计输出 token（跨 tool-use 多段），配合当前消息的 output_tokens 得到实时总量。 */
   private turnBaseTokens = 0
   private curMsgTokens = 0
   /** 本轮是否已见过 SDK 的 result 消息；用于流异常收尾（未发 result）时补发，避免前端永久「思考中」。 */
   private turnHadResult = false
+  /** 最近一次主会话 SDK init 的能力快照；供用户主动刷新面板时无模型调用地重发。 */
+  private capabilities: CapabilitySnapshot = {
+    slashCommands: [],
+    skills: [],
+    agents: [],
+    mcpServers: [],
+    outputStyle: null,
+  }
   /**
    * 该会话当前存活的后台任务快照（Agent 工具后台化的子任务）。SDK 用 REPLACE 语义整体下发
    * （system/background_tasks_changed），收到即整体覆盖，不需要自己配对 start/end 事件——
@@ -297,6 +317,7 @@ class Session {
       })()
     }
     this.lastResponseModel = undefined
+    this.lastAssistantForkAnchor = undefined
     this.turnBaseTokens = 0
     this.curMsgTokens = 0
     this.turnHadResult = false
@@ -338,17 +359,18 @@ class Session {
         // 可供登录态实发的网关/接口约定，验证口径改为「重启后查库回读」。未配置库时工具自会回"未配置"，无害。
         mcpServers.scm_db = createScmDbServer(toolboxApiBase)
       }
+      if (this.toolPolicy === 'consult-readonly') {
+        const sourceServer = createClaudeConsultSourceServer(this.cwd)
+        if (sourceServer) (mcpServers as Record<string, unknown>)['consult-readonly'] = sourceServer
+      }
 
       // 业务知识图谱：domain-knowledge（业务规则/状态机/公式）+ cross-topology（枚举值/API路径/表字段）
       // 与 claude mcp add 注册相同引擎，通过环境变量 DOMAIN_KB_DIR / CROSS_TOPO_KB_DIR 指定知识库目录。
       // 可选：若引擎或目录不存在则跳过（零影响，工具列表为空时 Claude 不会尝试调用）。
       //
-      // 代码知识图谱（graphify）不再走 MCP：此前的 graphify-yoooni MCP server（python -m graphify.serve）
-      // 只覆盖单个硬编码项目、且经常启动失败。已改为 Java 侧（PrdClarifyService + GraphifyQueryService）
-      // 在调用 Claude 前直接执行 `graphify query` CLI 子进程，按 project/module 解析到正确的图谱目录，
-      // 查询结果作为 prompt 上下文注入——这也是 graphify 官方推荐用法：CLI 优先于 MCP。
-      // 普通交互式 Vibe Coding 会话若 cwd 就是某个含 graphify-out 的项目根，Claude 本身已有 Bash
-      // 工具，可直接跑 `graphify query "..."`，同样无需 MCP。
+      // PRD 一次性任务仍由 Java GraphifyQueryService 预查询；业务咨询则通过 consult-readonly
+      // 的 source_context 以固定参数执行 `graphify query`，从 URL/图谱上下文收敛候选源码。
+      // 该入口不开放任意 Bash，也不允许模型直接扫描 graphify-out/cache。
       if (this.toolPolicy !== 'disabled') {
         const domainKb = createDomainKnowledgeServer()
         const crossTopo = createCrossTopologyServer()
@@ -388,7 +410,10 @@ class Session {
             ...(this.toolPolicy === 'consult-readonly'
               ? {
                   allowedTools: [
-                    'Read', 'Glob', 'Grep', 'AskUserQuestion',
+                    'Read', 'AskUserQuestion',
+                    'mcp__consult-readonly__source_context',
+                    'mcp__consult-readonly__source_search',
+                    'mcp__consult-readonly__source_read',
                     'mcp__forge__register_pending_sql',
                     'mcp__erp_db__query', 'mcp__srm_db__query', 'mcp__scm_db__query',
                     'mcp__domain-knowledge__list_projects',
@@ -558,6 +583,33 @@ class Session {
   /** 切换 provider 后调用：使下一轮 runTurn 重新按新 provider 取一次模型清单。 */
   resetModelsFetched(): void { this.modelsFetched = false }
 
+  /**
+   * 主动重发会话能力。Codex 的 MCP 是 sidecar 运行时注入，直接按当前配置重新计算；
+   * Claude 则重发最近一次 SDK init 快照，下一轮 SDK init 会继续更新该快照。
+   */
+  refreshCapabilities(): void {
+    if (this.engine === 'codex') {
+      if (!process.env.TOOLBOX_API_BASE) {
+        this.emitSelf({
+          type: 'error',
+          code: 'CAPABILITIES_UNAVAILABLE',
+          message: 'sidecar 缺少 TOOLBOX_API_BASE，请重启 kai-toolbox 后端以重新拉起 sidecar',
+        })
+      }
+      this.emitSelf({
+        type: 'init',
+        sdkSessionId: this.sdkSessionId ?? null,
+        slashCommands: [],
+        skills: [],
+        agents: [],
+        mcpServers: codexMcpCapabilities(this.toolPolicy, this.id),
+        outputStyle: null,
+      })
+      return
+    }
+    this.emitSelf({ type: 'init', sdkSessionId: this.sdkSessionId ?? null, ...this.capabilities })
+  }
+
   /** 当前 provider 的子进程环境：第三方走网关 env，否则官方 env（剔除网关变量）。供模型刷新按会话 provider 询问。 */
   providerEnv(): NodeJS.ProcessEnv { return this.apiBaseUrl ? this.gatewayEnv() : this.officialEnv() }
 
@@ -570,10 +622,9 @@ class Session {
           // 只在新建会话（sdkSessionId 为空）时更新 session ID，避免 feature-dev 等 plugin
           // 的并行子 agent 也会发 init 事件，把主会话 sdkSessionId 覆盖成子 agent 的 ID，
           // 导致下次续跑时 "No conversation found"（子 agent 的 SDK 会话已结束）。
-          const isMainSession = !this.sdkSessionId
-          if (isMainSession) {
-            this.sdkSessionId = m.session_id as string
-          }
+          const eventSessionId = String(m.session_id)
+          const isMainSession = !this.sdkSessionId || this.sdkSessionId === eventSessionId
+          if (!this.sdkSessionId) this.sdkSessionId = eventSessionId
           // 无论是主会话还是子 agent，init 事件的能力清单都只在主会话时透传前端
           if (isMainSession) {
             const slashCommands = Array.isArray(m.slash_commands) ? m.slash_commands : []
@@ -583,7 +634,8 @@ class Session {
               ? (m.mcp_servers as Array<Record<string, unknown>>).map(s => ({ name: String(s.name ?? ''), status: String(s.status ?? '') }))
               : []
             const outputStyle = typeof m.output_style === 'string' ? m.output_style : null
-            this.emitSelf({ type: 'init', sdkSessionId: this.sdkSessionId, slashCommands, skills, agents, mcpServers, outputStyle })
+            this.capabilities = { slashCommands, skills, agents, mcpServers, outputStyle }
+            this.emitSelf({ type: 'init', sdkSessionId: this.sdkSessionId, ...this.capabilities })
           }
         } else if (m.subtype === 'background_tasks_changed') {
           // SDK 的 REPLACE 语义：每次都是"当前存活的全量后台任务"，直接整体覆盖，不用配对
@@ -623,6 +675,9 @@ class Session {
         const mdl = msg?.model
         if (typeof mdl === 'string' && mdl) this.lastResponseModel = mdl
         const content = msg?.content as Array<Record<string, unknown>> | undefined
+        const assistantUuid = typeof m.uuid === 'string' ? m.uuid : undefined
+        const hasText = content?.some(b => b.type === 'text' && typeof b.text === 'string' && b.text.length > 0)
+        if (assistantUuid && hasText) this.lastAssistantForkAnchor = assistantUuid
         for (const b of content ?? []) {
           if (b.type === 'tool_use') {
             toolNames.set(b.id as string, b.name as string)
@@ -633,7 +688,7 @@ class Session {
       }
       case 'user': {
         const content = (m.message as Record<string, unknown>)?.content as Array<Record<string, unknown>> | undefined
-        // 真用户文本回合（带 uuid、非 tool_result、非合成）→ 上报 uuid，供「从此处分叉」定位
+        // 真用户文本回合（带 uuid、非 tool_result、非合成）→ 上报 uuid，供异常清理回退定位
         const uuid = m.uuid as string | undefined
         const isToolResult = Array.isArray(content) && content.some(b => b?.type === 'tool_result')
         if (uuid && !isToolResult && !m.isSynthetic) {
@@ -654,6 +709,9 @@ class Session {
       case 'result': {
         this.turnHadResult = true
         if (m.session_id) this.sdkSessionId = m.session_id as string
+        if (this.lastAssistantForkAnchor) {
+          this.emitSelf({ type: 'forkAnchor', anchor: this.lastAssistantForkAnchor })
+        }
         // 调用诊断：请求模型 vs API 实际返回模型 + 是否经网关，先于 result 发，供前端区块展示
         console.log(`[sidecar] turn done session=${this.id} requested=${this.model ?? '默认'} responded=${this.lastResponseModel ?? '?'} via=${this.apiBaseUrl ?? '官方登录'}`)
         this.emitSelf({
@@ -769,6 +827,16 @@ export class SessionManager {
     for (const [id, s] of this.sessions) {
       if (s.engine === 'claude' && !s.apiBaseUrl) this.emit(id, { type: 'models', models, current: s.model ?? null })
     }
+  }
+
+  /** 主动刷新当前会话能力清单，不触发模型调用。 */
+  refreshCapabilities(id: string): void {
+    const session = this.sessions.get(id)
+    if (!session) {
+      this.emit(id, { type: 'error', code: 'SESSION_NOT_FOUND', message: '会话不存在，无法刷新能力' })
+      return
+    }
+    session.refreshCapabilities()
   }
 
   start(id: string, cwd: string, model?: string, mode?: string, engine?: string, apiBaseUrl?: string, authToken?: string, codexHome?: string,
@@ -948,16 +1016,42 @@ export class SessionManager {
     this.emitCachedModels(id, s)
   }
 
-  /** 从某条用户消息分叉出新会话（截到该消息），emit forked 带新 sdkSessionId 给 Java 建会话续跑。 */
-  async forkSession(id: string, upToMessageId: string): Promise<void> {
+  /**
+   * 分叉原生会话。Claude 可按消息 UUID 截断；Codex 使用 App Server thread/fork，
+   * 当前 UI 先支持完整 thread 分叉。其它引擎必须显式报不支持，不能误走 Claude SDK。
+   */
+  async forkSession(id: string, upToMessageId?: string): Promise<void> {
     const s = this.sessions.get(id)
     if (!s || !s.sdkSessionId) {
       this.emit(id, { type: 'error', code: 'FORK_FAILED', message: '会话未就绪，无法分叉' })
       return
     }
     try {
-      const res = await forkSession(s.sdkSessionId, { upToMessageId, dir: s.cwd })
-      this.emit(id, { type: 'forked', sdkSessionId: res.sessionId, cwd: s.cwd })
+      let forkedSessionId: string
+      if (s.engine === 'claude') {
+        const res = await forkSession(s.sdkSessionId, {
+          ...(upToMessageId ? { upToMessageId } : {}),
+          dir: s.cwd,
+        })
+        forkedSessionId = res.sessionId
+      } else if (s.engine === 'codex') {
+        if (!upToMessageId) {
+          this.emit(id, { type: 'error', code: 'FORK_ANCHOR_REQUIRED', message: '缺少 Codex 分叉回合标识' })
+          return
+        }
+        forkedSessionId = await forkCodexThread(s.sdkSessionId, {
+          lastTurnId: upToMessageId,
+          codexHome: s.codexHome,
+        })
+      } else {
+        this.emit(id, {
+          type: 'error',
+          code: 'FORK_UNSUPPORTED',
+          message: `当前 ${s.engine} 引擎暂不支持原生会话分叉`,
+        })
+        return
+      }
+      this.emit(id, { type: 'forked', sdkSessionId: forkedSessionId, cwd: s.cwd, engine: s.engine })
     } catch (e) {
       this.emit(id, { type: 'error', code: 'FORK_FAILED', message: e instanceof Error ? e.message : String(e) })
     }

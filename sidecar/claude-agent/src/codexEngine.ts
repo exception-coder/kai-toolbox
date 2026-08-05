@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -20,6 +20,7 @@ import {
   consultReadonlyCodexConfig,
 } from './codexSecurity.js'
 import { FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
+import { latestCodexTurnId } from './codexAppServer.js'
 
 export type CodexSpeed = 'default' | 'fast'
 
@@ -27,11 +28,12 @@ export const CODEX_TOOLBOX_MCP_SERVERS = ['forge', 'erp_db', 'erp_app', 'srm_db'
 
 /** Codex 没有 Claude 的 system/init 能力清单，供 sidecar 主动上报运行时注入的 MCP。 */
 export function codexMcpCapabilities(toolPolicy: string, sessionId?: string): Array<{ name: string; status: string }> {
-  if (!process.env.TOOLBOX_API_BASE || toolPolicy === 'disabled') return []
+  if (toolPolicy === 'disabled') return []
   if (toolPolicy === CONSULT_READONLY_POLICY) return [
     { name: 'consult-readonly', status: 'configured' },
-    ...(sessionId ? [{ name: 'forge', status: 'configured' }] : []),
+    ...(process.env.TOOLBOX_API_BASE && sessionId ? [{ name: 'forge', status: 'configured' }] : []),
   ]
+  if (!process.env.TOOLBOX_API_BASE) return []
   return CODEX_TOOLBOX_MCP_SERVERS.map(name => ({ name, status: 'configured' }))
 }
 
@@ -128,7 +130,8 @@ function standardToolboxMcpConfig(sessionId?: string): NonNullable<CodexOptions[
 
 function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: string,
                           sessionId?: string,
-                          turnDeveloperInstructions?: string): NonNullable<CodexOptions['config']> {
+                          turnDeveloperInstructions?: string,
+                          sourceRoot?: string): NonNullable<CodexOptions['config']> {
   const baseDeveloperInstructions = toolPolicy === CONSULT_READONLY_POLICY
     ? CONSULT_READONLY_PROMPT
     : toolPolicy !== 'disabled' && sessionId
@@ -142,7 +145,7 @@ function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: str
     ...(speed === 'fast' ? { service_tier: 'priority' } : {}),
     ...(developerInstructions ? { developer_instructions: developerInstructions } : {}),
     ...(toolPolicy === CONSULT_READONLY_POLICY
-      ? consultReadonlyCodexConfig(codexHome, sessionId)
+      ? consultReadonlyCodexConfig(codexHome, sessionId, sourceRoot)
       : toolPolicy === 'disabled'
         ? {}
         : standardToolboxMcpConfig(sessionId)),
@@ -157,17 +160,18 @@ function pickCodex(
   toolPolicy = 'default',
   sessionId?: string,
   developerInstructions?: string,
+  sourceRoot?: string,
 ): Codex {
   if (!apiBaseUrl || !apiBaseUrl.trim()) {
     const home = normalizeCodexHome(codexHome)
-    const config = buildCodexConfig(speed, toolPolicy, home, sessionId, developerInstructions)
+    const config = buildCodexConfig(speed, toolPolicy, home, sessionId, developerInstructions, sourceRoot)
     if (developerInstructions) {
       return new Codex({
         ...(home ? { env: codexEnv(home) } : {}),
         ...(Object.keys(config).length ? { config } : {}),
       })
     }
-    const key = `${speed} ${home ?? '<default>'} ${toolPolicy} ${sessionId ?? '<one-shot>'}`
+    const key = `${speed} ${home ?? '<default>'} ${toolPolicy} ${sessionId ?? '<one-shot>'} ${sourceRoot ?? '<no-source>'}`
     let client = codexClients.get(key)
     if (!client) {
       client = new Codex({
@@ -185,6 +189,7 @@ function pickCodex(
     normalizeCodexHome(codexHome),
     sessionId,
     developerInstructions,
+    sourceRoot,
   )
   if (developerInstructions) {
     return new Codex({
@@ -241,6 +246,9 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
   }
   const toolsDisabled = ctx.toolPolicy === 'disabled'
   const consultReadonly = ctx.toolPolicy === CONSULT_READONLY_POLICY
+  const consultSourceRoot = consultReadonly && existsSync(ctx.cwd) && statSync(ctx.cwd).isDirectory()
+    ? resolve(ctx.cwd)
+    : undefined
   const { approvalPolicy, sandboxMode } = toolsDisabled || consultReadonly
     ? { approvalPolicy: 'never' as ApprovalMode, sandboxMode: 'read-only' as SandboxMode }
     : mapMode(ctx.permissionMode)
@@ -271,6 +279,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
       ctx.toolPolicy,
       ctx.sessionId,
       ctx.developerInstructions,
+      consultSourceRoot,
     )
     if (ctx.apiBaseUrl) {
       console.log(`[sidecar] codex turn start model=${ctx.model ?? '默认'} via=${normalizeOpenAiBase(ctx.apiBaseUrl)}`)
@@ -295,6 +304,16 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
           handleItem(ev.type, ev.item, ctx, lastText)
           break
         case 'turn.completed':
+          // Codex exec JSON 事件不携带 turn id；从官方 App Server 读回最新 turn，
+          // 挂到本轮最后一条回答上，供 thread/fork(lastTurnId) 精确分叉。
+          if (thread.id) {
+            try {
+              const turnId = await latestCodexTurnId(thread.id, home)
+              if (turnId) ctx.emit({ type: 'forkAnchor', anchor: turnId })
+            } catch (error) {
+              console.warn('[sidecar] 读取 Codex 分叉锚点失败：', error instanceof Error ? error.message : String(error))
+            }
+          }
           // 调用诊断：Codex 不单独上报响应模型，请求模型即用模型；viaGateway 标识是否经第三方网关
           ctx.emit({
             type: 'turnInfo',

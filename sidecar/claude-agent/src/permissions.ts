@@ -22,7 +22,7 @@ const DEMO_DB_TOOL = 'mcp__welfare_db__exec'
 const FORGE_SAFE_TOOLS = new Set(['mcp__forge__register_pending_sql'])
 
 /** 业务咨询只读策略：内置工具只开放读能力；MCP 也必须命中明确的只读白名单。 */
-const CONSULT_READ_TOOLS = new Set(['Read', 'Glob', 'Grep'])
+const CONSULT_READ_TOOLS = new Set(['Read'])
 const CONSULT_READONLY_MCP_TOOLS = new Set([
   'mcp__erp_db__query',
   'mcp__srm_db__query',
@@ -30,6 +30,9 @@ const CONSULT_READONLY_MCP_TOOLS = new Set([
   'mcp__consult-readonly__erp_db_query',
   'mcp__consult-readonly__srm_db_query',
   'mcp__consult-readonly__scm_db_query',
+  'mcp__consult-readonly__source_context',
+  'mcp__consult-readonly__source_search',
+  'mcp__consult-readonly__source_read',
 ])
 const CONSULT_READONLY_MCP_PREFIXES = [
   'mcp__domain-knowledge__',
