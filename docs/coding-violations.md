@@ -16,3 +16,6 @@
 | 9 | 架构约束 | 在交付中心另用原生 datalist 实现系统/模块选择，绕开 PRD 已有数据源和统一多选交互 | 将系统与模块数据查询、级联多选和主系统规则抽成共享能力，所有 PRD 入口统一复用 | PrdDraftDialog.tsx | 2026-07-29 | 1 |
 | 10 | Spring 装配 | 新增 Spring 组件前未检查同一扫描范围内的默认 Bean 名，存在同简单类名导致启动冲突的风险 | 新增 `@Component` 系组件前先全仓检索同简单类名；可能冲突时使用模块限定 Bean 名，并用容器启动测试验证 | Spring 组件类 | 2026-07-30 | 1 |
 | 11 | 开发环境 | 开发后端以 `spring-boot:run` 运行时执行 Maven `clean`，删除了运行 JVM 正在使用的依赖模块编译目录 | 运行期验证只执行非 clean 的 `test` 或 `compile`；需要 clean 时先停止后端，完成后再启动 | Maven 验证命令 | 2026-07-30 | 1 |
+| 12 | 提交规范 | Codex 生成提交信息时只写标题，遗漏必填的变更说明正文和 Author 行 | 每次提交都按“标题、中文正文、Author”完整模板生成并在提交前核验，不因改动较小而省略正文或作者 | Git commit message | 2026-08-02 | 2 |
+| 13 | 需求范围 | 将“移除页面内开始开发版块”误解为移除整个 Feature 注册 | 截图指定版块时只修改对应 UI 区域，保留菜单、路由和未点名能力 | erp-dev、kai-dev、srm-dev、scm-dev | 2026-08-04 | 1 |
+| 14 | 架构约束 | 为业务咨询只注入通用源码搜索工具并允许从仓库根扫描，绕过既有 URL 定位与 Graphify 图谱流程 | 源码检索必须先走 URL 定位和 Graphify 上下文收敛，精确读取候选文件，仅在限定子目录内兜底搜索并排除 graphify-out | readonlyMcp.ts、ConsultStandardStepConfiguration.java、ForeConsultPage.tsx | 2026-08-05 | 1 |
