@@ -33,6 +33,11 @@ public class OpsQueryController {
         return service.sqlQuery(id, req.sql(), req.maxRows());
     }
 
+    @PostMapping("/sql/read")
+    public SqlQueryResult readOnlySqlQuery(@PathVariable String id, @Valid @RequestBody SqlQueryRequest req) {
+        return service.readOnlySqlQuery(id, req.sql(), req.maxRows());
+    }
+
     @PostMapping("/redis/exec")
     public RedisExecResult redisExec(@PathVariable String id, @Valid @RequestBody RedisExecRequest req) {
         return service.redisExec(id, req.command());

@@ -67,6 +67,13 @@ export function sqlQuery(id: string, sql: string, maxRows?: number) {
   })
 }
 
+export function sqlReadOnlyQuery(id: string, sql: string, maxRows?: number) {
+  return http<SqlQueryResult>(`/ops/datasources/${id}/sql/read`, {
+    method: 'POST',
+    body: JSON.stringify({ sql, maxRows }),
+  })
+}
+
 export function redisExec(id: string, command: string) {
   return http<RedisExecResult>(`/ops/datasources/${id}/redis/exec`, {
     method: 'POST',

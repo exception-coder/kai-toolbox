@@ -26,6 +26,7 @@ public class SqlConnector {
 
     private static final int DEFAULT_MAX_ROWS  = 1000;
     private static final int HARD_MAX_ROWS     = 10_000;
+    private static final int READ_ONLY_QUERY_TIMEOUT_SECONDS = 60;
 
     private final OpsDataSourcePool pool;
 
@@ -48,39 +49,56 @@ public class SqlConnector {
     }
 
     public SqlQueryResult query(OpsDatasource ds, String sql, Integer maxRowsReq) throws SQLException {
+        return execute(ds, stripTrailingSemicolon(sql), maxRowsReq, false);
+    }
+
+    public SqlQueryResult queryReadOnly(OpsDatasource ds, String sql, Integer maxRowsReq) throws SQLException {
+        return execute(ds, sql, maxRowsReq, true);
+    }
+
+    private SqlQueryResult execute(OpsDatasource ds, String sql, Integer maxRowsReq, boolean readOnly)
+            throws SQLException {
         int maxRows = maxRowsReq == null || maxRowsReq <= 0
                 ? DEFAULT_MAX_ROWS
                 : Math.min(maxRowsReq, HARD_MAX_ROWS);
-        // Oracle 单条语句带尾分号会报无效字符；统一剥离末尾分号与空白，不动语句内部。
-        String cleaned = stripTrailingSemicolon(sql);
         long start = System.currentTimeMillis();
-        try (Connection conn = pool.borrowSql(ds);
-             Statement stmt = conn.createStatement()) {
-            stmt.setMaxRows(maxRows + 1);
-            boolean hasResultSet = stmt.execute(cleaned);
-            if (!hasResultSet) {
-                int updateCount = stmt.getUpdateCount();
-                return new SqlQueryResult(List.of(), List.of(), 0, Math.max(updateCount, 0),
-                        false, System.currentTimeMillis() - start);
+        try (Connection conn = pool.borrowSql(ds)) {
+            if (readOnly) {
+                conn.setReadOnly(true);
             }
-            try (ResultSet rs = stmt.getResultSet()) {
-                ResultSetMetaData meta = rs.getMetaData();
-                int colCount = meta.getColumnCount();
-                List<String> columns = new ArrayList<>(colCount);
-                for (int c = 1; c <= colCount; c++) columns.add(meta.getColumnLabel(c));
-                List<List<String>> rows = new ArrayList<>();
-                boolean truncated = false;
-                while (rs.next()) {
-                    if (rows.size() >= maxRows) { truncated = true; break; }
-                    List<String> row = new ArrayList<>(colCount);
-                    for (int c = 1; c <= colCount; c++) {
-                        Object v = rs.getObject(c);
-                        row.add(v == null ? null : String.valueOf(v));
-                    }
-                    rows.add(row);
+            try (Statement stmt = conn.createStatement()) {
+                stmt.setMaxRows(maxRows + 1);
+                if (readOnly) {
+                    stmt.setQueryTimeout(READ_ONLY_QUERY_TIMEOUT_SECONDS);
                 }
-                return new SqlQueryResult(columns, rows, rows.size(), -1, truncated,
-                        System.currentTimeMillis() - start);
+                boolean hasResultSet = stmt.execute(sql);
+                if (!hasResultSet) {
+                    if (readOnly) {
+                        throw new SQLException("只读查询未返回结果集");
+                    }
+                    int updateCount = stmt.getUpdateCount();
+                    return new SqlQueryResult(List.of(), List.of(), 0, Math.max(updateCount, 0),
+                            false, System.currentTimeMillis() - start);
+                }
+                try (ResultSet rs = stmt.getResultSet()) {
+                    ResultSetMetaData meta = rs.getMetaData();
+                    int colCount = meta.getColumnCount();
+                    List<String> columns = new ArrayList<>(colCount);
+                    for (int c = 1; c <= colCount; c++) columns.add(meta.getColumnLabel(c));
+                    List<List<String>> rows = new ArrayList<>();
+                    boolean truncated = false;
+                    while (rs.next()) {
+                        if (rows.size() >= maxRows) { truncated = true; break; }
+                        List<String> row = new ArrayList<>(colCount);
+                        for (int c = 1; c <= colCount; c++) {
+                            Object v = rs.getObject(c);
+                            row.add(v == null ? null : String.valueOf(v));
+                        }
+                        rows.add(row);
+                    }
+                    return new SqlQueryResult(columns, rows, rows.size(), -1, truncated,
+                            System.currentTimeMillis() - start);
+                }
             }
         }
     }

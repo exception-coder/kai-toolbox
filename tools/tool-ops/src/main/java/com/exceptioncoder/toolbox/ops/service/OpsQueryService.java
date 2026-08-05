@@ -67,6 +67,24 @@ public class OpsQueryService {
         }
     }
 
+    public SqlQueryResult readOnlySqlQuery(String datasourceId, String sql, Integer maxRows) {
+        OpsDatasource ds = datasources.findRequired(datasourceId);
+        if (ds.getType().category() != DatasourceType.Category.SQL) {
+            throw new IllegalArgumentException("该实例不是 SQL 类型: " + ds.getType());
+        }
+        String normalized = ReadOnlySqlPolicy.validateAndNormalize(sql);
+        try {
+            SqlQueryResult result = sqlConnector.queryReadOnly(ds, normalized, maxRows);
+            record(datasourceId, "SQL", normalized, "OK", result.rowCount(), result.elapsedMs(), null,
+                    snapshotSql(result));
+            return result;
+        } catch (Exception e) {
+            String msg = rootMessage(e);
+            record(datasourceId, "SQL", normalized, "ERROR", null, null, msg, null);
+            throw new IllegalArgumentException(msg);
+        }
+    }
+
     public RedisExecResult redisExec(String datasourceId, String command) {
         OpsDatasource ds = datasources.findRequired(datasourceId);
         if (ds.getType() != DatasourceType.REDIS) {

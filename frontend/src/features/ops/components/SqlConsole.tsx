@@ -4,16 +4,17 @@ import { Play } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ApiError } from '@/lib/api'
-import { sqlQuery } from '../api'
+import { sqlQuery, sqlReadOnlyQuery } from '../api'
 import type { DatasourceView, SqlQueryResult } from '../types'
 import { ResultTable } from './ResultViews'
 
 interface Props {
   datasource: DatasourceView
+  readOnly?: boolean
 }
 
 /** MySQL / Oracle 查询控制台。 */
-export function SqlConsole({ datasource }: Props) {
+export function SqlConsole({ datasource, readOnly = false }: Props) {
   const qc = useQueryClient()
   const [sql, setSql] = useState('')
   const [maxRows, setMaxRows] = useState(1000)
@@ -24,7 +25,9 @@ export function SqlConsole({ datasource }: Props) {
     qc.invalidateQueries({ queryKey: ['ops', 'history', datasource.id] })
 
   const run = useMutation({
-    mutationFn: () => sqlQuery(datasource.id, sql, maxRows),
+    mutationFn: () => (readOnly
+      ? sqlReadOnlyQuery(datasource.id, sql, maxRows)
+      : sqlQuery(datasource.id, sql, maxRows)),
     onMutate: () => setError(null),
     onSuccess: r => { setResult(r); invalidateHistory() },
     onError: e => {
@@ -47,7 +50,9 @@ export function SqlConsole({ datasource }: Props) {
         value={sql}
         onChange={e => setSql(e.target.value)}
         onKeyDown={onKeyDown}
-        placeholder={`-- 输入 SQL，Ctrl/Cmd + Enter 执行\nSELECT * FROM ...`}
+        placeholder={readOnly
+          ? `-- 只读模式，仅支持单条 SELECT / WITH\nSELECT * FROM ...`
+          : `-- 输入 SQL，Ctrl/Cmd + Enter 执行\nSELECT * FROM ...`}
         spellCheck={false}
         className="h-36 w-full resize-y rounded-md border bg-[var(--color-background)] p-3 font-mono text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
       />
@@ -56,6 +61,11 @@ export function SqlConsole({ datasource }: Props) {
           <Play />
           {run.isPending ? '执行中…' : '执行'}
         </Button>
+        {readOnly && (
+          <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-xs text-emerald-700 dark:text-emerald-300">
+            只读保护
+          </span>
+        )}
         <span className="flex items-center gap-1 text-xs text-[var(--color-muted-foreground)]">
           最多返回
           <Input
