@@ -65,10 +65,11 @@ public class PluginUpdateController {
 
     /** 触发双端更新并以 SSE 实时回显输出。先 create+返回 emitter(挂 HTTP),再启 worker。 */
     @GetMapping(value = "/update/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter updateStream(@RequestParam(required = false) String sessionId) {
+    public SseEmitter updateStream(@RequestParam(required = false) String sessionId,
+                                   @RequestParam(defaultValue = "gitee") String source) {
         String taskId = UUID.randomUUID().toString();
         SseEmitter emitter = sse.create(taskId);
-        service.startUpdate(taskId, sessionId);
+        service.startUpdate(taskId, sessionId, source);
         return emitter;
     }
 

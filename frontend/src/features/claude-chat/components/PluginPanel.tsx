@@ -120,7 +120,11 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
     }
   }
 
-  const startUpdate = () => startTask(pluginUpdateStreamPath(sessionId))
+  const startUpdate = () => {
+    const path = pluginUpdateStreamPath(sessionId)
+    const separator = path.includes('?') ? '&' : '?'
+    startTask(`${path}${separator}source=${gitSource}`)
+  }
   const startInstall = () => startTask(pluginInstallStreamPath(sessionId, gitSource))
 
   return (
