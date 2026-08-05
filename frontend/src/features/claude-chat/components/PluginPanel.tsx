@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { RefreshCw, Download, X, Copy, Check } from 'lucide-react'
+import { RefreshCw, Download, UploadCloud, X, Copy, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { authEventSource } from '@/lib/api'
 import { getSidecarVersion, getTeamDependencyEnvironment, listSuites, listTeamRepositories, pluginInstallStreamPath, pluginUpdateStreamPath } from '../api'
@@ -93,7 +93,7 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
   }, [lines])
 
-  const startTask = (path: string) => {
+  const startTask = (path: string, doneText = '✓ 操作完成（重启 Claude Code / Codex 会话加载新版本）') => {
     if (updating) return
     setLines([]); setUpdating(true)
     const es = authEventSource(path)
@@ -106,7 +106,7 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
       } else if (m.type === 'step') {
         setLines(prev => [...prev, `[${m.engine}] ${m.step} → exit ${m.exitCode}`])
       } else if (m.type === 'done') {
-        setLines(prev => [...prev, '✓ 操作完成（重启 Claude Code / Codex 会话加载新版本）'])
+        setLines(prev => [...prev, doneText])
         es.close(); setUpdating(false); void refresh()
       } else if (m.type === 'error') {
         setLines(prev => [...prev, `✖ ${m.message ?? '更新出错'}`])
@@ -126,6 +126,10 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
     startTask(`${path}${separator}source=${gitSource}`)
   }
   const startInstall = () => startTask(pluginInstallStreamPath(sessionId, gitSource))
+  const startPushRepositories = () => startTask(
+    `/claude-chat/plugins/repositories/push/stream?source=${gitSource}`,
+    '✓ 团队仓库校验、提交与推送任务完成',
+  )
 
   return (
     <div className="border-b px-3 py-3">
@@ -206,8 +210,12 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
         <div className="mb-1.5 flex items-center gap-2">
           <span className="font-medium">依赖仓库（5）</span>
           <span className="text-[10px] text-[var(--color-muted-foreground)]">目标源：{gitSource === 'gitee' ? 'Gitee' : 'GitHub'}</span>
-          <button type="button" onClick={() => void checkRepositories()} disabled={repositoriesChecking}
-            className="ml-auto rounded border px-1.5 py-0.5 text-[10px] hover:bg-[var(--color-accent)] disabled:opacity-50">
+          <button type="button" onClick={startPushRepositories} disabled={updating || repositoriesChecking}
+            className="ml-auto inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] hover:bg-[var(--color-accent)] disabled:opacity-50">
+            <UploadCloud className="size-3" /> {updating ? '后台处理中…' : '一键提交并推送'}
+          </button>
+          <button type="button" onClick={() => void checkRepositories()} disabled={repositoriesChecking || updating}
+            className="rounded border px-1.5 py-0.5 text-[10px] hover:bg-[var(--color-accent)] disabled:opacity-50">
             {repositoriesChecking ? 'fetch 中…' : '检查远端'}
           </button>
         </div>
@@ -250,6 +258,7 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
           </ul>
         )}
         <p className="mt-1.5 text-[10px] text-[var(--color-muted-foreground)]">
+          “一键提交并推送”会在后台校验新文件、提交有效更新并推送到所选源；本地垃圾会加入忽略，未知文件会阻断对应仓库。
           “检查远端”会执行 git fetch；“已是最新”表示当前 HEAD 相对所选源上游落后数为 0。
         </p>
       </div>

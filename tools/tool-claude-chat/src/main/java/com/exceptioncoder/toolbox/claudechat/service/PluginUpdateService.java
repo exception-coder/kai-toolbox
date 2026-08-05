@@ -58,6 +58,18 @@ public class PluginUpdateService {
     private static final List<String> DEPENDENCY_REPOS = List.of(
             "cross-project-topology", "project-coding-profiles", "project-domain-knowledge",
             "team-standards", "yoooni-daily-plugin");
+    private static final long MAX_NEW_FILE_BYTES = 2L * 1024 * 1024;
+    private static final List<String> APPROVED_NEW_ROOTS = List.of(
+            ".agents", ".claude", ".claude-plugin", ".codex-plugin", "docs", "hooks", "knowledge",
+            "plugins", "profiles", "references", "rules", "scripts", "skills", "src", "templates",
+            "test", "tests");
+    private static final List<String> APPROVED_ROOT_FILES = List.of(
+            ".gitattributes", ".gitignore", ".mcp.json.example", "AGENTS.md", "CLAUDE.md", "LICENSE",
+            "README.md", "package-lock.json", "package.json", "pom.xml", "tsconfig.json");
+    private static final List<String> APPROVED_NEW_EXTENSIONS = List.of(
+            "bat", "cjs", "cmd", "css", "gif", "html", "java", "jpeg", "jpg", "js", "json",
+            "jsonc", "kt", "md", "mjs", "png", "properties", "ps1", "py", "scss", "sh", "sql",
+            "svg", "toml", "ts", "tsx", "txt", "webp", "xml", "yaml", "yml");
     private static final String SYNC_STATE_FILE = ".forge-sync-state.json";
     private static final Map<String, String> GITEE_OWNERS = Map.ofEntries(
             Map.entry("cross-project-topology", "wyoooni"), Map.entry("project-coding-profiles", "wyoooni"),
@@ -501,6 +513,250 @@ public class PluginUpdateService {
         });
     }
 
+    /** 后台校验五个团队仓库的本地变更，提交有效文件并推送到所选 Git 源。 */
+    public void startPushRepositories(String taskId, String requestedSource) {
+        Thread.ofVirtual().name("repository-push-" + taskId).start(() -> {
+            List<Map<String, Object>> results = new ArrayList<>();
+            try {
+                Thread.sleep(150);
+                String source = normalizeSource(requestedSource);
+                Path workspace = dependencyWorkspace();
+                sse.publish(taskId, "message", Map.of("type", "line", "engine", "git",
+                        "text", "校验并推送团队仓库，目标源：" + source.toUpperCase(Locale.ROOT)));
+                for (String repoName : DEPENDENCY_REPOS) {
+                    results.add(pushRepository(taskId, workspace, repoName, source));
+                }
+                sse.publish(taskId, "message", Map.of("type", "done", "results", results));
+            } catch (Exception e) {
+                sse.publish(taskId, "message", Map.of("type", "error", "message", String.valueOf(e.getMessage())));
+            } finally {
+                sse.complete(taskId);
+            }
+        });
+    }
+
+    private Map<String, Object> pushRepository(String taskId, Path workspace, String repoName, String source) {
+        Path repo = workspace.resolve(repoName).toAbsolutePath().normalize();
+        if (!workspace.toAbsolutePath().normalize().equals(repo.getParent()) || !Files.isDirectory(repo.resolve(".git"))) {
+            return repositoryFailure(taskId, repoName, "仓库不存在或不在团队工作区");
+        }
+        try {
+            RepositoryTarget target = prepareRepositoryTarget(taskId, repo, repoName, source);
+            NewFilePlan plan = inspectNewFiles(repo);
+            if (!plan.rejectedFiles().isEmpty()) {
+                return repositoryFailure(taskId, repoName,
+                        "存在无法自动确认的新文件：" + String.join(", ", plan.rejectedFiles()));
+            }
+            List<String> stagedFiles = stageRepositoryChanges(repo, plan);
+            if (stagedFiles.isEmpty()) {
+                sse.publish(taskId, "message", Map.of("type", "line", "engine", "git",
+                        "text", repoName + "：没有需要提交的有效更新"));
+                return Map.of("repo", repoName, "ok", true, "changed", false);
+            }
+            return commitAndPushRepository(taskId, workspace, repo, repoName, source, target, stagedFiles);
+        } catch (IllegalStateException e) {
+            return repositoryFailure(taskId, repoName, e.getMessage());
+        }
+    }
+
+    /** 校准目标源并确认本地分支未落后远端。 */
+    private RepositoryTarget prepareRepositoryTarget(
+            String taskId, Path repo, String repoName, String source) {
+        String branch = gitOutput(repo, 5_000, "branch", "--show-current");
+        if (branch.isBlank()) {
+            throw new IllegalStateException("当前处于 detached HEAD，拒绝自动提交");
+        }
+        String targetUrl = repoUrl(repoName, source);
+        String currentRemote = gitOutput(repo, 5_000, "remote", "get-url", "origin");
+        if (currentRemote.isBlank()) {
+            CommandResult addRemote = gitCapture(repo, 5_000, "remote", "add", "origin", targetUrl);
+            requireGitSuccess(addRemote, "配置目标远端失败");
+        } else if (!sameGitRemote(currentRemote, targetUrl)) {
+            CommandResult switchRemote = gitCapture(repo, 5_000, "remote", "set-url", "origin", targetUrl);
+            requireGitSuccess(switchRemote, "切换目标远端失败");
+            sse.publish(taskId, "message", Map.of("type", "line", "engine", "git",
+                    "text", repoName + "：origin 已切换为 " + source.toUpperCase(Locale.ROOT)));
+        }
+        CommandResult fetch = gitCapture(repo, 30_000, "fetch", "--quiet", "origin");
+        requireGitSuccess(fetch, "无法读取目标远端");
+        Integer behind = parseGitCount(gitOutput(repo, 5_000,
+                "rev-list", "--count", "HEAD..origin/" + branch));
+        if (behind == null || behind > 0) {
+            throw new IllegalStateException(behind == null
+                    ? "无法判断与目标远端的差异"
+                    : "目标分支领先 " + behind + " 个提交，请先拉取更新");
+        }
+        return new RepositoryTarget(branch, targetUrl);
+    }
+
+    /** 将未跟踪文件分为可提交、可忽略和必须人工确认三类。 */
+    private NewFilePlan inspectNewFiles(Path repo) {
+        CommandResult untrackedResult = gitCapture(repo, 10_000,
+                "ls-files", "--others", "--exclude-standard", "-z");
+        requireGitSuccess(untrackedResult, "无法读取未跟踪文件");
+        List<String> validNewFiles = new ArrayList<>();
+        List<String> localIgnoreRules = new ArrayList<>();
+        List<String> rejectedFiles = new ArrayList<>();
+        CommandResult stagedNewResult = gitCapture(repo, 10_000,
+                "diff", "--cached", "--name-only", "--diff-filter=A", "-z");
+        requireGitSuccess(stagedNewResult, "无法核对已暂存的新文件");
+        for (String relative : splitNullSeparated(stagedNewResult.output)) {
+            if (!isValidNewFile(repo, relative)) rejectedFiles.add(relative);
+        }
+        for (String relative : splitNullSeparated(untrackedResult.output)) {
+            String ignoreRule = localIgnoreRule(relative);
+            if (ignoreRule != null) {
+                if (!localIgnoreRules.contains(ignoreRule)) localIgnoreRules.add(ignoreRule);
+            } else if (isValidNewFile(repo, relative)) {
+                validNewFiles.add(relative);
+            } else {
+                rejectedFiles.add(relative);
+            }
+        }
+        return new NewFilePlan(validNewFiles, localIgnoreRules, rejectedFiles);
+    }
+
+    /** 更新忽略规则并暂存全部已验证变更。 */
+    private List<String> stageRepositoryChanges(Path repo, NewFilePlan plan) {
+        List<String> validNewFiles = new ArrayList<>(plan.validNewFiles());
+        boolean gitignoreCreated = appendGitignoreRules(repo, plan.localIgnoreRules());
+        if (gitignoreCreated && !gitOutput(repo, 5_000, "ls-files", "--", ".gitignore").equals(".gitignore")) {
+            validNewFiles.add(".gitignore");
+        }
+        CommandResult addTracked = gitCapture(repo, 15_000, "add", "-u");
+        requireGitSuccess(addTracked, "暂存已跟踪文件失败");
+        if (!validNewFiles.isEmpty()) {
+            List<String> addArgs = new ArrayList<>(List.of("add", "--"));
+            addArgs.addAll(validNewFiles);
+            CommandResult addNew = gitCapture(repo, 20_000, addArgs.toArray(String[]::new));
+            requireGitSuccess(addNew, "暂存新文件失败");
+        }
+        CommandResult staged = gitCapture(repo, 10_000, "diff", "--cached", "--name-only", "-z");
+        requireGitSuccess(staged, "无法核对暂存文件");
+        return splitNullSeparated(staged.output);
+    }
+
+    /** 使用真实 Git Author 生成规范提交并精确推送到所选源。 */
+    private Map<String, Object> commitAndPushRepository(
+            String taskId, Path workspace, Path repo, String repoName, String source,
+            RepositoryTarget target, List<String> stagedFiles) {
+        String authorName = gitOutput(repo, 5_000, "config", "user.name");
+        String authorEmail = gitOutput(repo, 5_000, "config", "user.email");
+        if (authorName.isBlank() || authorEmail.isBlank()) {
+            throw new IllegalStateException("Git Author 未配置");
+        }
+        String body = "后台校验并提交 " + stagedFiles.size() + " 个有效文件，推送至 "
+                + source.toUpperCase(Locale.ROOT) + "。";
+        CommandResult commit = gitCapture(repo, 30_000, "commit",
+                "-m", "chore(sync): 同步本地有效更新",
+                "-m", body,
+                "-m", "Author: " + authorName + " <" + authorEmail + ">");
+        requireGitSuccess(commit, "提交失败");
+        String commitId = gitOutput(repo, 5_000, "rev-parse", "--short", "HEAD");
+        sse.publish(taskId, "message", Map.of("type", "line", "engine", "git",
+                "text", repoName + "：已提交 " + commitId + "，正在推送 " + source.toUpperCase(Locale.ROOT)));
+        CommandResult push = gitCapture(repo, 60_000, "push", target.url(),
+                "HEAD:refs/heads/" + target.branch());
+        if (push.exitCode != 0) {
+            return repositoryFailure(taskId, repoName,
+                    "提交 " + commitId + " 已保留，但推送失败：" + compactGitOutput(push.output));
+        }
+        recordSuccessfulSync(workspace, repoName, source);
+        String residual = gitOutput(repo, 5_000, "status", "--porcelain");
+        if (!residual.isBlank()) {
+            sse.publish(taskId, "message", Map.of("type", "line", "engine", "git",
+                    "text", repoName + "：推送成功，但任务期间又出现新的本地变更"));
+        } else {
+            sse.publish(taskId, "message", Map.of("type", "line", "engine", "git",
+                    "text", repoName + "：推送成功，工作区已干净"));
+        }
+        return Map.of("repo", repoName, "ok", true, "changed", true, "commit", commitId,
+                "clean", residual.isBlank());
+    }
+
+    private static void requireGitSuccess(CommandResult result, String action) {
+        if (result.exitCode != 0) {
+            throw new IllegalStateException(action + "：" + compactGitOutput(result.output));
+        }
+    }
+
+    private Map<String, Object> repositoryFailure(String taskId, String repoName, String message) {
+        sse.publish(taskId, "message", Map.of("type", "line", "engine", "git",
+                "text", repoName + "：跳过 - " + message));
+        return Map.of("repo", repoName, "ok", false, "message", message);
+    }
+
+    static List<String> splitNullSeparated(String output) {
+        if (output == null || output.isEmpty()) return List.of();
+        List<String> values = new ArrayList<>();
+        for (String value : output.split("\\u0000")) {
+            if (!value.isBlank()) values.add(value.replace('\\', '/'));
+        }
+        return values;
+    }
+
+    static String localIgnoreRule(String relative) {
+        String path = relative.replace('\\', '/');
+        for (String rule : List.of(".idea/", ".kai-chat-attachments/", ".vscode/", "dist/", "node_modules/",
+                "target/", "graphify-out/")) {
+            if (path.startsWith(rule)) return rule;
+        }
+        if (path.endsWith(".log") || path.endsWith(".tmp") || path.endsWith(".bak")) return "*" + path.substring(path.lastIndexOf('.'));
+        return null;
+    }
+
+    static boolean isValidNewFile(Path repo, String relative) {
+        String normalized = relative.replace('\\', '/');
+        Path file = repo.resolve(normalized).toAbsolutePath().normalize();
+        if (!file.startsWith(repo.toAbsolutePath().normalize()) || Files.isSymbolicLink(file)
+                || !Files.isRegularFile(file)) return false;
+        String name = file.getFileName().toString();
+        String lower = name.toLowerCase(Locale.ROOT);
+        if (lower.equals(".env") || (lower.startsWith(".env.") && !lower.equals(".env.example"))
+                || lower.contains("credential") || lower.contains("secret") || lower.equals("id_rsa")
+                || lower.endsWith(".key") || lower.endsWith(".pem") || lower.endsWith(".p12")
+                || lower.endsWith(".jks")) return false;
+        try {
+            if (Files.size(file) > MAX_NEW_FILE_BYTES) return false;
+        } catch (IOException e) {
+            return false;
+        }
+        int slash = normalized.indexOf('/');
+        if (slash < 0) return APPROVED_ROOT_FILES.contains(name);
+        String root = normalized.substring(0, slash);
+        int dot = lower.lastIndexOf('.');
+        String extension = dot < 0 ? "" : lower.substring(dot + 1);
+        return APPROVED_NEW_ROOTS.contains(root) && APPROVED_NEW_EXTENSIONS.contains(extension);
+    }
+
+    static boolean appendGitignoreRules(Path repo, List<String> rules) {
+        if (rules.isEmpty()) return false;
+        Path file = repo.resolve(".gitignore");
+        try {
+            String current = Files.exists(file) ? Files.readString(file, StandardCharsets.UTF_8) : "";
+            StringBuilder updated = new StringBuilder(current);
+            if (!current.isEmpty() && !current.endsWith("\n")) updated.append(System.lineSeparator());
+            boolean changed = false;
+            for (String rule : rules) {
+                boolean exists = current.lines().map(String::trim).anyMatch(rule::equals);
+                if (!exists) {
+                    updated.append(rule).append(System.lineSeparator());
+                    changed = true;
+                }
+            }
+            if (changed) Files.writeString(file, updated.toString(), StandardCharsets.UTF_8);
+            return changed;
+        } catch (IOException e) {
+            throw new IllegalStateException("更新 .gitignore 失败：" + e.getMessage(), e);
+        }
+    }
+
+    private static String compactGitOutput(String output) {
+        if (output == null || output.isBlank()) return "无输出";
+        String compact = output.replaceAll("\\s+", " ").trim();
+        return compact.length() <= 240 ? compact : compact.substring(0, 240) + "...";
+    }
+
     private static String normalizeSource(String source) {
         String normalized = source == null ? "gitee" : source.trim().toLowerCase(Locale.ROOT);
         if (!normalized.equals("gitee") && !normalized.equals("github")) {
@@ -727,6 +983,13 @@ public class PluginUpdateService {
         for (String m : more) r.add(m);
         return r;
     }
+
+    private record RepositoryTarget(String branch, String url) {}
+
+    private record NewFilePlan(
+            List<String> validNewFiles,
+            List<String> localIgnoreRules,
+            List<String> rejectedFiles) {}
 
     private record CommandResult(int exitCode, String output) {}
 }

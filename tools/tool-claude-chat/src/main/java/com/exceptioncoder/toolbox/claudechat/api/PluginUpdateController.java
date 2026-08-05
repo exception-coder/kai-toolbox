@@ -63,6 +63,15 @@ public class PluginUpdateController {
         return service.readRepositoryStatuses(source, fetch);
     }
 
+    /** 校验并提交五个团队仓库的有效本地更新，后台推送至所选 Git 源。 */
+    @GetMapping(value = "/repositories/push/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter pushRepositories(@RequestParam(defaultValue = "gitee") String source) {
+        String taskId = UUID.randomUUID().toString();
+        SseEmitter emitter = sse.create(taskId);
+        service.startPushRepositories(taskId, source);
+        return emitter;
+    }
+
     /** 触发双端更新并以 SSE 实时回显输出。先 create+返回 emitter(挂 HTTP),再启 worker。 */
     @GetMapping(value = "/update/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter updateStream(@RequestParam(required = false) String sessionId,
