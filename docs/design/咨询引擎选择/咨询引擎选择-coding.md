@@ -37,12 +37,17 @@
 
 ## 6. 单问题会话落点
 
-- `consult_session.question_title`：首轮问题标题，旧库通过迁移补列；首次同步轮次时仅在空值情况下写入。
-- `ConsultService`：从 `AuthContext` 读取当前登录用户，前端传入用户仅作为无登录态兼容兜底；负责标题归一化和只写一次。
+- `consult_session.question_title`：用户填写标题并添加 UTC 日期前缀后的归档标题，旧库通过迁移补列；创建会话时一次性写入。
+- `StartSessionRequest.questionTitle`：必填，最终格式为 `yyMMdd-用户标题`，总长度不超过 40 字。
+- `ForeConsultPage.tsx`：首发区增加问题标题输入，未填写时禁止发送；按用户本机当前时刻换算 UTC 日期并生成 6 位前缀。
+- `ForeConsultPage.tsx`：历史咨询卡片增加重命名入口，复用统一 `usePrompt`；输入框只编辑标题正文，保存后刷新历史列表。
+- `ConsultService`：从 `AuthContext` 读取当前登录用户，前端传入用户仅作为无登录态兼容兜底；创建会话时保存标题，轮次同步不得覆盖。
+- `ConsultService.renameQuestionTitle`：校验会话访问权，保留现有日期前缀；存量无前缀标题按 `createdAt` 的 UTC 日期补齐。
+- `ConsultSessionRepository.updateQuestionTitle`：仅更新指定会话的 `question_title`。
 - `ConsultQuestionClassifier`：调用 `AgentOneShotRunner` 对首问与新输入做 `FOLLOW_UP | NEW_QUESTION` 二分类；输出按不可信入参解析和白名单校验，失败降级为 `FOLLOW_UP`。
 - `POST /api/fore-consult/sessions/{id}/classify-question`：返回分类枚举和简短理由。
 - `ConsultConversation.tsx`：追问发送前调用分类接口；新问题弹窗提供“结束当前咨询”和“仍作为追问”，结束后回到系统选择区新建会话。
-- 历史列表及详情优先展示 `questionTitle`，为空的存量记录退化为系统名。
+- 历史列表及详情优先展示 `questionTitle`，为空的存量记录退化为系统名；存量会话仍兼容首问派生标题。
 
 ## 7. 多进行中会话
 

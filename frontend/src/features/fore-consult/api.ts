@@ -110,6 +110,7 @@ export interface StartSessionRequest {
   systemName: string
   systemSourcePath: string
   moduleNames: string[]
+  questionTitle: string
   question: string
   role: string
 }
@@ -159,6 +160,13 @@ export function archiveConsult(id: string, req: ArchiveRequest) {
   })
 }
 
+export function renameConsultQuestionTitle(id: string, title: string) {
+  return http<ConsultSessionView>(`/fore-consult/sessions/${id}/question-title`, {
+    method: 'PATCH',
+    body: JSON.stringify({ title }),
+  })
+}
+
 /** 进行中增量落库（保持 PENDING）：让同一用户在其它电脑或管理员查看进行中的对话。 */
 export function syncConsultTurns(id: string, req: ArchiveRequest) {
   return http<ConsultSessionView>(`/fore-consult/sessions/${id}/turns`, {
@@ -174,7 +182,11 @@ export function deleteConsult(id: string) {
 // ── 复用 claude-chat 的工作区字典（系统 + 模块），无需本模块建表 ──────────────
 
 export interface WorkspaceList {
-  roots: Array<{ root: string; exists: boolean; dirs: Array<{ name: string; path: string }> }>
+  roots: Array<{
+    root: string
+    exists: boolean
+    dirs: Array<{ name: string; path: string; alias?: string | null; displayName?: string }>
+  }>
   scannedAt?: string
 }
 

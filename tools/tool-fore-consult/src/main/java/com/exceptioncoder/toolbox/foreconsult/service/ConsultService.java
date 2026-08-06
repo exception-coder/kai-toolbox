@@ -17,8 +17,13 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 
@@ -31,6 +36,9 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 public class ConsultService {
 
     private static final Logger log = LoggerFactory.getLogger(ConsultService.class);
+    private static final DateTimeFormatter QUESTION_TITLE_DATE_FORMATTER =
+            DateTimeFormatter.ofPattern("yyMMdd").withZone(ZoneOffset.UTC);
+    private static final Pattern QUESTION_TITLE_PREFIX = Pattern.compile("^(\\d{6})-");
 
     private final ConsultSessionRepository sessionRepo;
     private final ConsultTurnRepository turnRepo;
@@ -83,6 +91,7 @@ public class ConsultService {
         ConsultSession s = ConsultSession.builder()
                 .sessionId(UUID.randomUUID().toString())
                 .userId(currentUserId)
+                .questionTitle(req.questionTitle().trim())
                 .systemName(req.systemName())
                 .systemSourcePath(req.systemSourcePath())
                 .moduleNames(serializeModules(req.moduleNames()))
@@ -186,6 +195,20 @@ public class ConsultService {
 
     public ConsultSession get(String sessionId) {
         return requireAccessibleSession(sessionId);
+    }
+
+    /** 重命名问题标题正文，并保留或按创建时间补齐 UTC 日期前缀。 */
+    public ConsultSession renameQuestionTitle(String sessionId, String title) {
+        ConsultSession session = requireAccessibleSession(sessionId);
+        Matcher prefixMatcher = QUESTION_TITLE_PREFIX.matcher(
+                session.getQuestionTitle() != null ? session.getQuestionTitle() : "");
+        String datePrefix = prefixMatcher.find()
+                ? prefixMatcher.group(1)
+                : QUESTION_TITLE_DATE_FORMATTER.format(Instant.ofEpochMilli(session.getCreatedAt()));
+        String questionTitle = datePrefix + "-" + title.trim();
+        sessionRepo.updateQuestionTitle(sessionId, questionTitle);
+        session.setQuestionTitle(questionTitle);
+        return session;
     }
 
     public List<ConsultTurn> turnsOf(String sessionId) {

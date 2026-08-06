@@ -12,6 +12,7 @@ import com.exceptioncoder.toolbox.foreconsult.api.dto.FeedbackRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.FeedbackView;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.LinkDevSessionRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.QuestionClassificationView;
+import com.exceptioncoder.toolbox.foreconsult.api.dto.RenameQuestionTitleRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.StartSessionRequest;
 import com.exceptioncoder.toolbox.foreconsult.service.ConsultAttachmentService;
 import com.exceptioncoder.toolbox.foreconsult.service.ConsultDispatchService;
@@ -23,6 +24,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -102,6 +104,13 @@ public class ConsultController {
     @GetMapping("/sessions/{id}")
     public ConsultSessionView get(@PathVariable String id) {
         return ConsultSessionView.from(service.get(id), turnViewsOf(id), feedbackViewsOf(id));
+    }
+
+    /** 重命名历史咨询的问题标题。 */
+    @PatchMapping("/sessions/{id}/question-title")
+    public ConsultSessionView renameQuestionTitle(@PathVariable String id,
+                                                  @Valid @RequestBody RenameQuestionTitleRequest req) {
+        return ConsultSessionView.from(service.renameQuestionTitle(id, req.title()));
     }
 
     /** 回写关联的 claude-chat 会话 id（拉起悬浮会话后由前端调用）。 */

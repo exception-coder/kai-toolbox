@@ -83,14 +83,43 @@ class ConsultServiceAccessTest {
     void newSessionAlwaysUsesAuthenticatedUserId() {
         authenticate(7L, "yuy", "USER");
         StartSessionRequest request =
-                new StartSessionRequest("ERP", "D:\\erp", List.of(), "question", "forged-user", "BIZ");
+                new StartSessionRequest(
+                        "ERP", "D:\\erp", List.of(), "260806-采购退货单入口", "question", "forged-user", "BIZ");
 
         service.startSession(request, "server-built-prompt");
 
         ArgumentCaptor<ConsultSession> captor = ArgumentCaptor.forClass(ConsultSession.class);
         verify(sessionRepo).insert(captor.capture());
         assertThat(captor.getValue().getUserId()).isEqualTo("7");
+        assertThat(captor.getValue().getQuestionTitle()).isEqualTo("260806-采购退货单入口");
         assertThat(captor.getValue().getPromptSnapshot()).isEqualTo("server-built-prompt");
+    }
+
+    @Test
+    void renameQuestionTitlePreservesExistingDatePrefix() {
+        authenticate(7L, "yuy", "USER");
+        ConsultSession existing = session("own", "7");
+        existing.setQuestionTitle("260805-旧标题");
+        when(sessionRepo.findById("own")).thenReturn(Optional.of(existing));
+
+        ConsultSession updated = service.renameQuestionTitle("own", "新标题");
+
+        assertThat(updated.getQuestionTitle()).isEqualTo("260805-新标题");
+        verify(sessionRepo).updateQuestionTitle("own", "260805-新标题");
+    }
+
+    @Test
+    void renameLegacyQuestionTitleAddsUtcDatePrefixFromCreatedAt() {
+        authenticate(7L, "yuy", "USER");
+        ConsultSession existing = session("own", "7");
+        existing.setQuestionTitle("旧标题");
+        existing.setCreatedAt(1_775_347_200_000L);
+        when(sessionRepo.findById("own")).thenReturn(Optional.of(existing));
+
+        ConsultSession updated = service.renameQuestionTitle("own", "新标题");
+
+        assertThat(updated.getQuestionTitle()).isEqualTo("260405-新标题");
+        verify(sessionRepo).updateQuestionTitle("own", "260405-新标题");
     }
 
     private static void authenticate(long userId, String username, String role) {

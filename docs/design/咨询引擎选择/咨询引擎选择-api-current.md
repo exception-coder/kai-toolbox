@@ -25,7 +25,9 @@ WebSocket `open` 消息新增可选字段：
 
 ## 4. 咨询归档扩展
 
-- `ConsultSessionView` 新增 `questionTitle`，表示由首个明确问题生成的归档标题。
+- `POST /api/fore-consult/sessions` 新增必填字段 `questionTitle`，格式为 `yyMMdd-用户标题`；日期按用户本机当前时刻换算到 UTC，总长度不超过 40 字符。
+- `ConsultSessionView.questionTitle` 表示用户填写并添加 UTC 日期前缀后的归档标题；存量空标题仍兼容回退展示。
+- `PATCH /api/fore-consult/sessions/{id}/question-title`：重命名历史咨询标题。请求体为 `{"title":"用户标题"}`，标题正文必填且不超过 33 字；服务端保留或补齐 UTC 日期前缀并返回更新后的 `ConsultSessionView`。
 - `POST /api/fore-consult/sessions/{id}/classify-question`
 
 请求：

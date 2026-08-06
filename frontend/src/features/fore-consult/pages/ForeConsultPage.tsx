@@ -6,10 +6,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   BarChart3, Boxes, BrainCircuit, Briefcase, Bug, ChevronDown, Contact, Eye, EyeOff, Factory, Handshake,
   FileText, History, Landmark, Lightbulb, Loader2, Maximize2, MessagesSquare, Minimize2, MousePointerClick,
-  Paperclip, Radar, Route, Save, Search, Send, Server, ShoppingBag, ShoppingCart, SlidersHorizontal,
+  Paperclip, Pencil, Radar, Route, Save, Search, Send, Server, ShoppingBag, ShoppingCart, SlidersHorizontal,
   Trash2, Truck, Users, Warehouse, Waypoints, X, type LucideIcon,
 } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
+import { usePrompt } from '@/components/ui/prompt-dialog'
+import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 import { useClaudeChatSocket } from '@/features/claude-chat/hooks/useClaudeChatSocket'
 import { setSessionGroupApi } from '@/features/claude-chat/api'
 import type { ChatItem } from '@/features/claude-chat/types'
@@ -27,6 +29,7 @@ import {
   listBugs,
   listSystemPrefs,
   listWorkspaces,
+  renameConsultQuestionTitle,
   saveSystemPrefs,
   startConsult,
   syncConsultTurns,
@@ -82,10 +85,22 @@ const SYSTEM_ICONS: Array<{ kw: string[]; Icon: LucideIcon }> = [
 
 // 业务咨询拉起的会话统一归入该分组（claude-chat 分组即 group_name 字符串，命名即创建）。
 const CONSULT_GROUP = '业务咨询'
-const CONSULT_CODEX_HOME = 'C:\\Users\\zhang\\.codex-account-yx'
-const CONSULT_CODEX_REASONING = 'medium'
-const CONSULT_CODEX_SPEED = 'fast'
+const CONSULT_CODEX_HOME = 'C:\\Users\\zhang\\.codex'
+const CONSULT_CODEX_REASONING = 'low'
+const CONSULT_CODEX_SPEED = 'default'
 const CONSULT_ROLE: ConsultRole = 'BIZ'
+const QUESTION_TITLE_MAX_LENGTH = 33
+
+function formatUtcDatePrefix(date: Date): string {
+  const year = String(date.getUTCFullYear()).slice(-2)
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(date.getUTCDate()).padStart(2, '0')
+  return `${year}${month}${day}`
+}
+
+function buildQuestionTitle(title: string, date = new Date()): string {
+  return `${formatUtcDatePrefix(date)}-${title.trim()}`
+}
 
 function iconForSystem(name: string, label: string): LucideIcon {
   const hay = `${name} ${label}`.toUpperCase()
@@ -426,10 +441,12 @@ function extractTurns(items: ChatItem[], attMeta: Map<string, { path: string; mi
 export function ForeConsultPage() {
   const qc = useQueryClient()
   const confirm = useConfirm()
+  const prompt = usePrompt()
   const chat = useClaudeChatSocket({ channel: 'consult' })
 
   const [system, setSystem] = useState('')
   const [moduleTags, setModuleTags] = useState<string[]>([])
+  const [questionTitle, setQuestionTitle] = useState('')
   const [ask, setAsk] = useState('')
   const [role, setRole] = useState<ConsultRole>(CONSULT_ROLE)
   const [moduleQuery, setModuleQuery] = useState('')
@@ -499,14 +516,14 @@ export function ForeConsultPage() {
 
   const { data: workspaces } = useQuery({ queryKey: ['workspaces'], queryFn: listWorkspaces })
 
-  const projects = useMemo<Array<{ name: string; path: string }>>(() => {
+  const projects = useMemo<Array<{ name: string; path: string; defaultLabel: string }>>(() => {
     const seen = new Set<string>()
-    const out: Array<{ name: string; path: string }> = []
+    const out: Array<{ name: string; path: string; defaultLabel: string }> = []
     for (const root of workspaces?.roots ?? []) {
       for (const d of root.dirs ?? []) {
         if (seen.has(d.name)) continue
         seen.add(d.name)
-        out.push({ name: d.name, path: d.path })
+        out.push({ name: d.name, path: d.path, defaultLabel: getSystemWorkspaceDisplayName(d) })
       }
     }
     return out.sort((a, b) => a.name.localeCompare(b.name, 'zh'))
@@ -520,13 +537,16 @@ export function ForeConsultPage() {
   }, [prefs])
 
   /** 应用别名：无别名回退原名。 */
-  const displayName = useCallback((name: string) => prefMap.get(name)?.alias?.trim() || name, [prefMap])
+  const displayName = useCallback(
+    (name: string, defaultLabel = name) => prefMap.get(name)?.alias?.trim() || defaultLabel,
+    [prefMap],
+  )
 
   // 星图只渲染「未被隐藏」的系统，按 (sortOrder, 展示名) 排序；无偏好记录默认可见。
   const visibleProjects = useMemo(() => {
     return projects
       .filter((p) => prefMap.get(p.name)?.visible !== false)
-      .map((p) => ({ ...p, label: displayName(p.name), sortOrder: prefMap.get(p.name)?.sortOrder ?? 0 }))
+      .map((p) => ({ ...p, label: displayName(p.name, p.defaultLabel), sortOrder: prefMap.get(p.name)?.sortOrder ?? 0 }))
       .sort((a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label, 'zh'))
   }, [projects, prefMap, displayName])
 
@@ -753,6 +773,7 @@ export function ForeConsultPage() {
         systemName: system.trim(),
         systemSourcePath: cwd,
         moduleNames: moduleTags,
+        questionTitle: buildQuestionTitle(questionTitle),
         question: ask.trim() || '请结合附件识别并分析业务问题',
         role: CONSULT_ROLE,
       })
@@ -769,6 +790,7 @@ export function ForeConsultPage() {
         attachments,
       }
       deliver()
+      setQuestionTitle('')
       setAsk('')
       setPanelOpen(false)
       qc.invalidateQueries({ queryKey: ['fore-consult-sessions'] })
@@ -984,8 +1006,27 @@ export function ForeConsultPage() {
     qc.invalidateQueries({ queryKey: ['fore-consult-sessions'] })
   }
 
+  const onRename = async (session: ConsultSessionView) => {
+    const currentTitle = session.questionTitle?.replace(/^\d{6}-/, '') || ''
+    const title = await prompt({
+      title: '重命名历史咨询',
+      description: '只需填写标题正文，原咨询日期前缀会保留。',
+      defaultValue: currentTitle,
+      placeholder: '填写问题标题',
+      confirmText: '保存',
+      validate: (value) => value.length > QUESTION_TITLE_MAX_LENGTH ? '标题最多 33 个字符' : null,
+    })
+    if (!title?.trim()) return
+    const updated = await renameConsultQuestionTitle(session.sessionId, title.trim())
+    if (viewSession?.id === session.sessionId) {
+      setViewSession({ id: session.sessionId, title: updated.questionTitle || displayName(session.systemName) })
+    }
+    await qc.invalidateQueries({ queryKey: ['fore-consult-sessions'] })
+  }
+
   const canStart =
-    !!system.trim() && (!!ask.trim() || attachments.length > 0) && uploading === 0 && !startMutation.isPending
+    !!system.trim() && !!questionTitle.trim() && (!!ask.trim() || attachments.length > 0)
+    && uploading === 0 && !startMutation.isPending
   const PanelIcon = iconForSystem(system, displayName(system))
   const sysCat = categoryOf(system, displayName(system))
   const { shownModules, moduleResultCount, hasModuleQuery } = useMemo(() => {
@@ -1420,6 +1461,17 @@ export function ForeConsultPage() {
           </div>
 
           <div className="fc-prompt-field mx-2 mb-2 rounded-2xl px-2 pb-2 pt-1.5">
+            <div className="mb-1.5 flex items-center rounded-xl border border-slate-200/80 bg-white/55 px-2.5 focus-within:border-sky-300 focus-within:bg-white/80">
+              <span className="shrink-0 text-xs font-medium text-slate-500">{formatUtcDatePrefix(new Date())}-</span>
+              <input
+                value={questionTitle}
+                onChange={(event) => setQuestionTitle(event.target.value)}
+                maxLength={QUESTION_TITLE_MAX_LENGTH}
+                placeholder="填写问题标题（必填）"
+                aria-label="问题标题"
+                className="h-9 min-w-0 flex-1 bg-transparent px-1 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none"
+              />
+            </div>
             {(attachments.length > 0 || uploading > 0) && (
               <div className="mb-1 flex max-h-16 flex-wrap gap-1.5 overflow-y-auto px-1">
                 {attachments.map((a) => (
@@ -1553,9 +1605,14 @@ export function ForeConsultPage() {
                         </span>
                         <ArchiveBadge status={s.archiveStatus} />
                       </div>
-                      <button type="button" onClick={(e) => { e.stopPropagation(); onDelete(s) }} className="shrink-0 rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600" aria-label="删除">
-                        <Trash2 className="size-3.5" />
-                      </button>
+                      <div className="flex shrink-0 items-center gap-0.5">
+                        <button type="button" onClick={(e) => { e.stopPropagation(); void onRename(s) }} className="rounded-lg p-1 text-slate-400 hover:bg-sky-50 hover:text-sky-600" aria-label="重命名">
+                          <Pencil className="size-3.5" />
+                        </button>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); void onDelete(s) }} className="rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-600" aria-label="删除">
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </div>
                     </div>
                     {s.moduleNames.length > 0 && (
                       <div className="mt-1 truncate text-xs text-slate-500">{s.moduleNames.join('、')}</div>

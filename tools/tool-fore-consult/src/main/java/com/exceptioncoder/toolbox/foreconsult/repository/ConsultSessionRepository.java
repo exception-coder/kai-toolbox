@@ -92,6 +92,11 @@ public class ConsultSessionRepository {
                 questionTitle, sessionId);
     }
 
+    /** 更新指定会话的问题标题。 */
+    public void updateQuestionTitle(String sessionId, String questionTitle) {
+        jdbc.update("UPDATE consult_session SET question_title = ? WHERE session_id = ?", questionTitle, sessionId);
+    }
+
     /** 归档失败：记录错误信息，状态置 FAILED（待补偿）。 */
     public void markFailed(String sessionId, String errorMsg, long endedAt) {
         jdbc.update("UPDATE consult_session SET archive_status = 'FAILED', error_msg = ?, ended_at = ? WHERE session_id = ?",
