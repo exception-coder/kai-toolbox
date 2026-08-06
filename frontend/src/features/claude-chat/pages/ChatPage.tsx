@@ -53,6 +53,7 @@ import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
 import { fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getSessionCommitDiff, getSessionPendingSql, listSessionCommits, listSessionGitRepos, listSessions, listWorkspaces, renameSession, uploadAttachment, type SessionUsage } from '../api'
+import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 import type { ChatItem, ModelInfo, SessionPendingSql } from '../types'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
 import { GitStatusPanel } from '@/components/git/GitStatusPanel'
@@ -64,8 +65,19 @@ import { PrdAttachPanel } from '../components/PrdAttachPanel'
 import { getSessionByDevSession, linkDevSession } from '@/features/prd-clarify/api'
 import type { PrdSessionView } from '@/features/prd-clarify/types'
 import { countPrdReferenceDocuments, uploadPrdReference } from '../lib/prdReference'
+import { SessionPlanLockNotice } from '../components/SessionPlanLockNotice'
+import { Combobox } from '@/components/ui/combobox'
+import { getDevPreference } from '@/features/_devkit/devPreferenceApi'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
+
+interface ProjectWorkspacePreference {
+  ignoredProjects?: string[]
+}
+
+function workspacePathKey(path: string) {
+  return path.replace(/\\/g, '/').replace(/\/+$/, '')
+}
 
 /** 单条消息最多附件数，与后端约定一致。 */
 const MAX_ATTACHMENTS = 10
@@ -418,9 +430,9 @@ export function ChatPage() {
     kgBootstrapLaunchedRef.current = true
     try { sessionStorage.removeItem('kai-toolbox:claude-chat:knowledge-graph-bootstrap-launch') } catch { /* ignore */ }
     try {
-      const { cwd, seed } = JSON.parse(raw) as { cwd?: string; seed?: string }
-      if (seed) {
-        chat.open((cwd ?? '').trim(), undefined, undefined, 'claude')
+      const { cwd, seed, engine } = JSON.parse(raw) as { cwd?: string; seed?: string; engine?: Engine }
+      if (seed && engine && (['claude', 'codex', 'gemini', 'opencode'] as Engine[]).includes(engine)) {
+        chat.open((cwd ?? '').trim(), undefined, undefined, engine)
         chat.send(seed)
       }
     } catch { /* 解析失败忽略 */ }
@@ -640,9 +652,22 @@ export function ChatPage() {
     enabled: panel === 'new',
     staleTime: 5000,
   })
+  const { data: projectWorkspacePreference, isPending: projectVisibilityLoading } = useQuery({
+    queryKey: ['dev-preference', 'project-workspace'],
+    queryFn: () => getDevPreference<ProjectWorkspacePreference>('project-workspace'),
+    enabled: panel === 'new',
+    staleTime: 0,
+  })
   // 两级工作目录：先选工作区 root，再列该 root 下的一级目录（只显示名字）。
   const wsRoots = workspaces?.roots.filter(r => r.exists) ?? []
   const activeRoot = wsRoots.length ? wsRoots[Math.min(wsIdx, wsRoots.length - 1)] : null
+  const hiddenProjectPaths = useMemo(() => new Set(
+    (projectWorkspacePreference?.ignoredProjects ?? []).map(workspacePathKey),
+  ), [projectWorkspacePreference])
+  const selectableProjects = projectVisibilityLoading
+    ? []
+    : activeRoot?.dirs.filter(dir => !hiddenProjectPaths.has(workspacePathKey(dir.path))) ?? []
+  const [projectSearch, setProjectSearch] = useState('')
 
   // 顶栏标题显示当前会话名（与会话列表一致：别名优先，无别名回退 cwd 目录名）；无会话时才回退 Vibe Coding
   const { data: sessions = [] } = useQuery({
@@ -651,6 +676,7 @@ export function ChatPage() {
     staleTime: 5000,
   })
   const currentSession = sessions.find(s => s.id === chat?.sessionId)
+  const planLocked = currentSession?.planExpired === true
   const currentTitle = currentSession
     ? (currentSession.title?.trim() || headerCwdName(currentSession.cwd))
     : undefined
@@ -752,6 +778,7 @@ export function ChatPage() {
 
   const submit = () => {
     if (!chat.sessionId) return
+    if (planLocked) return
     if (!draft.trim() && attachments.length === 0) return
     ensureNotifyPermission() // 借发送这个手势兜底申请一次通知权限
 
@@ -1061,7 +1088,7 @@ export function ChatPage() {
                     key={r.root}
                     type="button"
                     title={r.root}
-                    onClick={() => setWsIdx(i)}
+                    onClick={() => { setWsIdx(i); setProjectSearch('') }}
                     className={`rounded-full border px-2.5 py-1 text-xs ${i === wsIdx
                       ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10 font-medium text-[var(--color-primary)]'
                       : 'text-[var(--color-muted-foreground)] hover:border-[var(--color-primary)]/40'}`}
@@ -1072,23 +1099,28 @@ export function ChatPage() {
               })}
             </div>
           )}
-          {/* 第 2 级：该工作区下的一级目录（只显示项目名，选中即设为 cwd） */}
-          {activeRoot && activeRoot.dirs.length > 0 && (
-            <div className="mt-2 flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
-              {activeRoot.dirs.map(d => (
-                <button
-                  key={d.path}
-                  type="button"
-                  title={d.path}
-                  onClick={() => setNewCwd(d.path)}
-                  className={`rounded-md border px-2.5 py-1 text-xs ${newCwd === d.path
-                    ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10 font-medium text-[var(--color-primary)]'
-                    : 'text-[var(--color-muted-foreground)] hover:border-[var(--color-primary)]/40'}`}
-                >
-                  {d.name}
-                </button>
-              ))}
-            </div>
+          {/* 第 2 级：隐藏项目不进入新会话候选；别名、目录名和路径均可检索。 */}
+          {activeRoot && (
+            <Combobox
+              value={projectSearch}
+              onChange={value => {
+                const selected = selectableProjects.find(project => project.path === value)
+                setProjectSearch(selected ? getSystemWorkspaceDisplayName(selected) : value)
+                if (selected) setNewCwd(selected.path)
+              }}
+              options={selectableProjects.map(project => {
+                const displayName = getSystemWorkspaceDisplayName(project)
+                return {
+                  value: project.path,
+                  label: displayName === project.name ? displayName : `${displayName} · ${project.name}`,
+                }
+              })}
+              placeholder={projectVisibilityLoading ? '正在加载可见项目…' : '搜索或选择项目（别名 / 目录名 / 路径）'}
+              emptyText="没有匹配的可见项目"
+              showAllOnOpen
+              className="mt-2"
+              contentClassName="max-h-72"
+            />
           )}
           <div className="mt-2 flex gap-2">
             <input
@@ -1605,12 +1637,14 @@ export function ChatPage() {
             className="mx-3 mb-1"
             onPick={reference => { void projectMention.pickReference(reference) }}
           />
+          <SessionPlanLockNotice session={currentSession} />
           <div className="flex items-end gap-2 px-3 py-2">
             {/* 微信式「+ 更多功能」：附件 / 指令收纳其中 */}
             <div className="relative">
               <Button
                 variant="ghost"
                 size="icon"
+                disabled={planLocked}
                 onClick={() => { setMoreOpen(o => !o); setCmdMenuOpen(false) }}
                 aria-label="更多功能"
                 title="更多功能（附件 / 指令 / PRD 文档）"
@@ -1626,14 +1660,14 @@ export function ChatPage() {
                       <label
                         aria-label="添加附件"
                         title="添加图片 / 文档"
-                        className={`flex cursor-pointer flex-col items-center gap-1.5 rounded-lg p-2.5 text-xs hover:bg-[var(--color-accent)]${attachments.length + uploading >= MAX_ATTACHMENTS ? ' pointer-events-none opacity-50' : ''}`}
+                        className={`flex cursor-pointer flex-col items-center gap-1.5 rounded-lg p-2.5 text-xs hover:bg-[var(--color-accent)]${planLocked || attachments.length + uploading >= MAX_ATTACHMENTS ? ' pointer-events-none opacity-50' : ''}`}
                       >
                         <input
                           ref={fileRef}
                           type="file"
                           multiple
                           className="sr-only"
-                          disabled={attachments.length + uploading >= MAX_ATTACHMENTS}
+                          disabled={planLocked || attachments.length + uploading >= MAX_ATTACHMENTS}
                           onChange={e => { handleFiles(e.target.files); setMoreOpen(false) }}
                         />
                         <Paperclip className="size-5 text-[var(--color-primary)]" />
@@ -1642,6 +1676,7 @@ export function ChatPage() {
                       {/* 指令：打开斜杠命令菜单 */}
                       <button
                         type="button"
+                        disabled={planLocked}
                         onClick={() => { setMoreOpen(false); setCmdMenuOpen(true) }}
                         className="flex flex-col items-center gap-1.5 rounded-lg p-2.5 text-xs hover:bg-[var(--color-accent)]"
                       >
@@ -1651,9 +1686,9 @@ export function ChatPage() {
                       {/* PRD 文档：搜索 PRD 澄清助手里的记录，一键附加 PRD/开发文档内容，不用自己去找文件 */}
                       <button
                         type="button"
-                        disabled={attachments.length + uploading >= MAX_ATTACHMENTS}
+                        disabled={planLocked || attachments.length + uploading >= MAX_ATTACHMENTS}
                         onClick={() => { setMoreOpen(false); setShowPrdAttach(true) }}
-                        className={`flex flex-col items-center gap-1.5 rounded-lg p-2.5 text-xs hover:bg-[var(--color-accent)]${attachments.length + uploading >= MAX_ATTACHMENTS ? ' pointer-events-none opacity-50' : ''}`}
+                        className={`flex flex-col items-center gap-1.5 rounded-lg p-2.5 text-xs hover:bg-[var(--color-accent)]${planLocked || attachments.length + uploading >= MAX_ATTACHMENTS ? ' pointer-events-none opacity-50' : ''}`}
                       >
                         <FileText className="size-5 text-[var(--color-primary)]" />
                         PRD 文档
@@ -1679,6 +1714,7 @@ export function ChatPage() {
             </div>
             <ProjectMentionButton
               active={projectMention.open}
+              disabled={planLocked}
               onToggle={() => {
                 setMoreOpen(false)
                 setCmdMenuOpen(false)
@@ -1686,6 +1722,7 @@ export function ChatPage() {
               }}
             />
             <VoiceInputButton
+              disabled={planLocked}
               onText={t => setDraft(d => d.trim() ? `${d} ${t}` : t)}
             />
             <textarea
@@ -1693,6 +1730,7 @@ export function ChatPage() {
               className="max-h-32 min-h-[2.75rem] flex-1 resize-none overflow-y-auto rounded-xl border bg-[var(--color-background)] px-3 py-2 text-sm"
               placeholder=""
               rows={1}
+              disabled={planLocked}
               value={draft}
               onChange={e => {
                 projectMention.handleChange(e.target.value, e.target.selectionStart)
@@ -1724,7 +1762,7 @@ export function ChatPage() {
                   variant="secondary"
                   className="shadow-sm"
                   onClick={submit}
-                  disabled={!draft.trim() && attachments.length === 0}
+                  disabled={planLocked || (!draft.trim() && attachments.length === 0)}
                   aria-label="排队发送"
                   title="加入待发送队列，本轮结束后自动发出"
                 >
@@ -1739,7 +1777,7 @@ export function ChatPage() {
                 size="lg"
                 className="shadow-md"
                 onClick={submit}
-                disabled={!draft.trim() && attachments.length === 0}
+                disabled={planLocked || (!draft.trim() && attachments.length === 0)}
                 aria-label="发送"
               >
                 <Send className="size-4" />

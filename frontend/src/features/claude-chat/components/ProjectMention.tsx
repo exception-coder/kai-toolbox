@@ -6,6 +6,7 @@ import type { PrdSessionView } from '@/features/prd-clarify/types'
 import { cn } from '@/lib/utils'
 import { listWorkspaces } from '../api'
 import type { WorkspaceDir } from '../types'
+import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 
 type DraftSetter = (value: string | ((current: string) => string)) => void
 
@@ -77,7 +78,7 @@ function flattenProjects(roots: { root: string; exists: boolean; dirs: Workspace
       const key = dir.path.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase()
       if (seen.has(key)) continue
       seen.add(key)
-      projects.push({ ...dir, kind: 'project', key: `project:${key}` })
+      projects.push({ ...dir, name: getSystemWorkspaceDisplayName(dir), kind: 'project', key: `project:${key}` })
     }
   }
   return projects.sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'))

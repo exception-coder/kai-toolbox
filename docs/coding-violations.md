@@ -19,3 +19,4 @@
 | 12 | 提交规范 | Codex 生成提交信息时只写标题，遗漏必填的变更说明正文和 Author 行 | 每次提交都按“标题、中文正文、Author”完整模板生成并在提交前核验，不因改动较小而省略正文或作者 | Git commit message | 2026-08-02 | 2 |
 | 13 | 需求范围 | 将“移除页面内开始开发版块”误解为移除整个 Feature 注册 | 截图指定版块时只修改对应 UI 区域，保留菜单、路由和未点名能力 | erp-dev、kai-dev、srm-dev、scm-dev | 2026-08-04 | 1 |
 | 14 | 架构约束 | 为业务咨询只注入通用源码搜索工具并允许从仓库根扫描，绕过既有 URL 定位与 Graphify 图谱流程 | 源码检索必须先走 URL 定位和 Graphify 上下文收敛，精确读取候选文件，仅在限定子目录内兜底搜索并排除 graphify-out | readonlyMcp.ts、ConsultStandardStepConfiguration.java、ForeConsultPage.tsx | 2026-08-05 | 1 |
+| 15 | 路径约束 | 将已停用的 `D:\Users\zhang\myWork\yoooni-daily-plugin` 误当团队插件源码并额外写入 | 团队插件源码统一读取 `C:\Users\zhang\.kai-toolbox\team-tools`；禁止再维护 D 盘旧开发仓副本 | PluginUpdateService.java、yoooni-erp-auto-dev/SKILL.md | 2026-08-05 | 1 |

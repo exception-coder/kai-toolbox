@@ -51,7 +51,9 @@ export function Combobox({
   const filtered = React.useMemo(() => {
     const q = showAllOnOpen && open && !typedSinceOpen ? '' : value.trim().toLowerCase()
     if (!q) return options
-    return options.filter((o) => o.label.toLowerCase().includes(q))
+    return options.filter((o) =>
+      o.label.toLowerCase().includes(q) || o.value.toLowerCase().includes(q),
+    )
   }, [open, options, showAllOnOpen, typedSinceOpen, value])
 
   const handleOpenChange = (nextOpen: boolean) => {

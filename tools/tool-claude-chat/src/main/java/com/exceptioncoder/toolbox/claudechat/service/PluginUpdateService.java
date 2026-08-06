@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.claudechat.service;
 import com.exceptioncoder.toolbox.claudechat.api.dto.PluginStatusView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.PluginStatusView.EngineStatus;
 import com.exceptioncoder.toolbox.claudechat.api.dto.SuiteStatusView;
+import com.exceptioncoder.toolbox.claudechat.api.dto.SkillSyncResultView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.TeamDependencyEnvironmentView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.TeamDependencyEnvironmentView.ToolView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.TeamRepositoryStatusView;
@@ -22,6 +23,9 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -47,6 +51,9 @@ public class PluginUpdateService {
     private static final boolean WINDOWS =
             System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
     private static final Pattern SEMVER = Pattern.compile("(\\d+\\.\\d+\\.\\d+)");
+    private static final Pattern SKILL_NAME = Pattern.compile("(?m)^name:\\s*yoooni-erp-auto-dev\\s*$");
+    private static final Pattern SKILL_DESCRIPTION = Pattern.compile("(?m)^description:\\s*\\S.+$");
+    private static final String ERP_AUTO_DEV_SKILL = "yoooni-erp-auto-dev";
 
     private final PluginUpdateProperties props;
     private final ClaudeChatProperties chatProps;
@@ -175,6 +182,102 @@ public class PluginUpdateService {
                     commit, commitDate, lastSyncedAt, behind, ahead, dirty, remoteChecked));
         }
         return statuses;
+    }
+
+    /**
+     * 以团队依赖工作区为唯一源，同步 ERP 自动开发 Skill 到双端最新缓存版本。
+     * 接口不接受路径参数，避免扩展为任意文件复制能力。
+     */
+    public SkillSyncResultView syncYoooniErpAutoDev() {
+        Path source = dependencyWorkspace().resolve("yoooni-daily-plugin/plugins/yoooni-daily-plugin/skills")
+                .resolve(ERP_AUTO_DEV_SKILL).resolve("SKILL.md").toAbsolutePath().normalize();
+        validateSkillSource(source);
+        String sourceHash = sha256(source);
+        Path userHome = Path.of(System.getProperty("user.home")).toAbsolutePath().normalize();
+        List<SkillSyncResultView.TargetView> targets = List.of(
+                syncSkillTarget("codex", userHome.resolve(".codex/plugins/cache/yoooni-daily-plugin/yoooni-daily-plugin"), source, sourceHash),
+                syncSkillTarget("claude", userHome.resolve(".claude/plugins/cache/yoooni-daily-plugin/yoooni-daily-plugin"), source, sourceHash));
+        return new SkillSyncResultView(ERP_AUTO_DEV_SKILL, source.toString(), sourceHash, targets);
+    }
+
+    private static void validateSkillSource(Path source) {
+        if (!Files.isRegularFile(source)) {
+            throw new IllegalStateException("团队源码 Skill 不存在：" + source);
+        }
+        try {
+            String content = Files.readString(source, StandardCharsets.UTF_8);
+            if (!content.startsWith("---") || !SKILL_NAME.matcher(content).find()
+                    || !SKILL_DESCRIPTION.matcher(content).find()) {
+                throw new IllegalStateException("团队源码 SKILL.md 的 frontmatter 不合法");
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("读取团队源码 Skill 失败：" + e.getMessage(), e);
+        }
+    }
+
+    private static SkillSyncResultView.TargetView syncSkillTarget(
+            String agent, Path cacheRoot, Path source, String sourceHash) {
+        Path versionDir = latestVersionDirectory(cacheRoot);
+        if (versionDir == null) {
+            return new SkillSyncResultView.TargetView(agent, null, null, "missing", "未找到已安装的插件缓存");
+        }
+        Path target = versionDir.resolve("skills").resolve(ERP_AUTO_DEV_SKILL).resolve("SKILL.md")
+                .toAbsolutePath().normalize();
+        Path safeRoot = cacheRoot.toAbsolutePath().normalize();
+        if (!target.startsWith(safeRoot) || !Files.isRegularFile(target)) {
+            return new SkillSyncResultView.TargetView(agent, versionDir.getFileName().toString(), target.toString(),
+                    "missing", "当前版本未包含该 Skill");
+        }
+        Path temporary = target.resolveSibling("SKILL.md.tmp");
+        try {
+            Files.copy(source, temporary, StandardCopyOption.REPLACE_EXISTING);
+            try {
+                Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException atomicFailure) {
+                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+            if (!sourceHash.equals(sha256(target))) {
+                throw new IllegalStateException("同步后哈希校验失败");
+            }
+            return new SkillSyncResultView.TargetView(agent, versionDir.getFileName().toString(), target.toString(),
+                    "updated", "已与团队源码一致");
+        } catch (Exception e) {
+            try {
+                Files.deleteIfExists(temporary);
+            } catch (IOException ignore) {
+                // 临时文件清理失败不覆盖原始错误
+            }
+            return new SkillSyncResultView.TargetView(agent, versionDir.getFileName().toString(), target.toString(),
+                    "failed", e.getMessage());
+        }
+    }
+
+    private static Path latestVersionDirectory(Path cacheRoot) {
+        if (!Files.isDirectory(cacheRoot)) return null;
+        try (var paths = Files.list(cacheRoot)) {
+            return paths.filter(Files::isDirectory)
+                    .filter(path -> SEMVER.matcher(path.getFileName().toString()).matches())
+                    .max(Comparator.comparing(path -> semanticVersionKey(path.getFileName().toString())))
+                    .orElse(null);
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private static String semanticVersionKey(String value) {
+        return java.util.Arrays.stream(value.split("\\."))
+                .map(part -> String.format(Locale.ROOT, "%010d", Integer.parseInt(part)))
+                .reduce("", String::concat);
+    }
+
+    private static String sha256(Path path) {
+        try {
+            byte[] bytes = Files.readAllBytes(path);
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(bytes);
+            return java.util.HexFormat.of().formatHex(digest);
+        } catch (IOException | NoSuchAlgorithmException e) {
+            throw new IllegalStateException("计算 Skill 哈希失败：" + e.getMessage(), e);
+        }
     }
 
     private static Integer parseGitCount(String value) {

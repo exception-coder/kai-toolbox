@@ -45,6 +45,12 @@ export interface ClaudeChatSessionView {
   lastSeenAt: number
   /** true = 仍挂在活跃 sidecar 上，可 attach 接回进行中的一轮 */
   live: boolean
+  /** 规划已过期时，所有输入入口必须保持锁定。 */
+  planExpired?: boolean
+  /** 最近一次标记规划过期的时间。 */
+  planExpiredAt?: number | null
+  /** 最近一次显式解锁的时间。 */
+  planUnlockedAt?: number | null
 }
 
 /** 磁盘上的 Claude Code 历史会话（~/.claude/projects/<编码cwd>/*.jsonl） */
@@ -56,10 +62,12 @@ export interface HistorySessionView {
   messageCount: number
 }
 
-/** 一个一级子目录：name 展示，path 作为新建会话 cwd。 */
+/** 一个工作区一级项目：displayName 展示，path 作为新建会话 cwd。 */
 export interface WorkspaceDir {
   name: string
   path: string
+  alias?: string | null
+  displayName?: string
 }
 
 /** 工作目录扫描结果：每个配置根一条，含其一级子目录。 */
@@ -267,7 +275,7 @@ export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermiss
 
 /** 会话引擎：claude（Claude Agent SDK）/ codex（OpenAI Codex SDK）/ gemini（Gemini CLI headless）。会话级固定。 */
 export type Engine = 'claude' | 'codex' | 'gemini' | 'opencode'
-export type CodexReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+export type CodexReasoningEffort = string
 export type CodexSpeed = 'default' | 'fast'
 
 /** team-standards 插件单端版本（installed/available 取不到为 null，error 为检测失败原因）。 */
@@ -330,10 +338,33 @@ export interface TeamRepositoryStatus {
   remoteChecked: boolean
 }
 
-/**
- * sidecar 所用 Claude Agent SDK 的版本状态。可选模型清单由捆绑的 claude 二进制决定，
- * SDK 落后表现为「新模型选不到」而不是报错，所以这里要能一眼看到版本。
- */
+export interface SkillSyncResult {
+  skill: string
+  sourcePath: string
+  sourceSha256: string
+  targets: Array<{
+    agent: 'claude' | 'codex'
+    version: string | null
+    targetPath: string | null
+    status: 'updated' | 'missing' | 'failed'
+    message: string
+  }>
+}
+
+/** sidecar 中单个对话引擎运行包的版本状态。 */
+export interface SidecarEngineVersion {
+  id: 'claude' | 'codex' | 'gemini' | 'opencode'
+  name: string
+  packageName: string
+  declared: string | null
+  installed: string | null
+  cliVersion: string | null
+  latest: string | null
+  outdated: boolean
+  error: string | null
+}
+
+/** sidecar 四种对话引擎运行包的版本状态，顶层字段兼容旧 Claude 响应。 */
 export interface SidecarVersion {
   /** package.json 里声明的范围 */
   declared: string | null
@@ -346,6 +377,7 @@ export interface SidecarVersion {
   outdated: boolean
   upgradeCommand: string | null
   error: string | null
+  engines?: SidecarEngineVersion[]
 }
 
 /** 可选模型信息（来自 SDK supportedModels）。value 用于 setModel，displayName/description 供展示。 */

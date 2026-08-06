@@ -3,6 +3,8 @@ import { http } from './api'
 export interface SystemWorkspace {
   name: string
   path: string
+  alias?: string | null
+  displayName?: string
 }
 
 export interface SystemWorkspaceList {
@@ -38,8 +40,32 @@ export interface SystemModuleList {
 }
 
 /** 获取平台统一维护的系统工作区清单。 */
-export function listSystemWorkspaces() {
-  return http<SystemWorkspaceList>('/claude-chat/workspaces')
+export async function listSystemWorkspaces(): Promise<SystemWorkspaceList> {
+  const response = await http<SystemWorkspaceList>('/claude-chat/workspaces')
+  return {
+    ...response,
+    roots: response.roots.map(root => ({
+      ...root,
+      dirs: root.dirs.map(workspace => ({
+        ...workspace,
+        alias: workspace.alias ?? null,
+        displayName: getSystemWorkspaceDisplayName(workspace),
+      })),
+    })),
+  }
+}
+
+/** 兼容旧后端与旧查询缓存，统一回退到真实目录名。 */
+export function getSystemWorkspaceDisplayName(workspace: SystemWorkspace) {
+  return workspace.displayName?.trim() || workspace.alias?.trim() || workspace.name
+}
+
+/** 按项目绝对路径保存展示别名；空白别名表示清除。 */
+export function saveSystemProjectAlias(projectPath: string, alias: string) {
+  return http<void>('/claude-chat/workspaces/alias', {
+    method: 'PUT',
+    body: JSON.stringify({ projectPath, alias }),
+  })
 }
 
 /** 按系统工作区路径获取模块清单。 */

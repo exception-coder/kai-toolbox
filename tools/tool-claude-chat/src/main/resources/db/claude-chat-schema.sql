@@ -39,6 +39,16 @@ CREATE TABLE IF NOT EXISTS claude_chat_session (
 CREATE INDEX IF NOT EXISTS idx_claude_chat_session_seen
     ON claude_chat_session(last_seen_at DESC);
 
+-- 会话规划过期锁定；id 即逻辑会话 ID，删除会话时由应用层同步清理。
+CREATE TABLE IF NOT EXISTS claude_chat_session_plan_state (
+    id              TEXT PRIMARY KEY,
+    plan_expired    INTEGER NOT NULL DEFAULT 0,
+    expired_at      INTEGER,
+    unlocked_at     INTEGER,
+    create_time     INTEGER NOT NULL,
+    update_time     INTEGER NOT NULL
+);
+
 -- Vibe Coding 会话关联的待执行 SQL 台账。只登记和维护人工状态，后端绝不执行 sql_text。
 CREATE TABLE IF NOT EXISTS claude_chat_pending_sql (
     session_id          TEXT PRIMARY KEY,
@@ -57,6 +67,13 @@ CREATE TABLE IF NOT EXISTS claude_chat_pending_sql (
 -- 本机历史会话（transcript jsonl）的自定义别名，叠加显示，不改文件。
 CREATE TABLE IF NOT EXISTS claude_chat_session_alias (
     sdk_session_id  TEXT PRIMARY KEY,
+    alias           TEXT NOT NULL,
+    updated_at      INTEGER NOT NULL
+);
+
+-- 工作区项目别名：按规范化绝对路径绑定，只影响展示，不改变目录名或会话 cwd。
+CREATE TABLE IF NOT EXISTS claude_chat_project_alias (
+    project_path    TEXT PRIMARY KEY,
     alias           TEXT NOT NULL,
     updated_at      INTEGER NOT NULL
 );

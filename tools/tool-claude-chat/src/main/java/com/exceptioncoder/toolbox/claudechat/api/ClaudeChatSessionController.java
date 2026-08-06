@@ -4,9 +4,12 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeChatSessionView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ClientMessage;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ServerMessage;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
+import com.exceptioncoder.toolbox.claudechat.domain.SessionPlanState;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatService;
+import com.exceptioncoder.toolbox.claudechat.service.SessionPlanStateService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionHistoryService;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -31,12 +34,15 @@ public class ClaudeChatSessionController {
     private final ClaudeChatSessionRepository repo;
     private final ClaudeChatService service;
     private final SessionHistoryService historyService;
+    private final SessionPlanStateService planStateService;
 
     public ClaudeChatSessionController(ClaudeChatSessionRepository repo, ClaudeChatService service,
-                                       SessionHistoryService historyService) {
+                                       SessionHistoryService historyService,
+                                       SessionPlanStateService planStateService) {
         this.repo = repo;
         this.service = service;
         this.historyService = historyService;
+        this.planStateService = planStateService;
     }
 
     @GetMapping
@@ -49,9 +55,11 @@ public class ClaudeChatSessionController {
                         .map(s -> new SessionHistoryService.TranscriptLocation(
                                 s.getSdkSessionId(), s.getCodexHome()))
                         .toList());
+        Map<String, SessionPlanState> planStates =
+                planStateService.listStates(all.stream().map(ClaudeChatSession::getId).toList());
         return all.stream()
                 .map(s -> ClaudeChatSessionView.from(s, service.isLive(s.getId()),
-                        transcriptAware(s) && missing.contains(s.getSdkSessionId())))
+                        transcriptAware(s) && missing.contains(s.getSdkSessionId()), planStates.get(s.getId())))
                 .toList();
     }
 
@@ -88,6 +96,35 @@ public class ClaudeChatSessionController {
         String sg = subgroup == null || subgroup.isBlank() ? null : subgroup.trim();
         repo.updateGroup(id, g, sg);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * 标记会话规划过期；运行中的会话必须先结束或中断。
+     *
+     * @param id 逻辑会话 ID
+     * @return 204 成功，404 不存在，409 仍在运行
+     */
+    @PutMapping("/{id}/plan-expired")
+    public ResponseEntity<Void> expirePlan(@PathVariable String id) {
+        SessionPlanStateService.ExpireResult result = planStateService.expire(id, service.isLive(id));
+        return switch (result) {
+            case SUCCESS -> ResponseEntity.noContent().build();
+            case NOT_FOUND -> ResponseEntity.notFound().build();
+            case RUNNING -> ResponseEntity.status(HttpStatus.CONFLICT).build();
+        };
+    }
+
+    /**
+     * 显式解除规划锁定。
+     *
+     * @param id 逻辑会话 ID
+     * @return 204 成功，404 不存在
+     */
+    @DeleteMapping("/{id}/plan-expired")
+    public ResponseEntity<Void> unlockPlan(@PathVariable String id) {
+        return planStateService.unlock(id)
+                ? ResponseEntity.noContent().build()
+                : ResponseEntity.notFound().build();
     }
 
     /**

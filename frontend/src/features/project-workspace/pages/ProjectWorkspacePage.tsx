@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, Boxes, BotMessageSquare, Check, Compass, CornerDownRight, Database, Download, Eye, EyeOff, FolderTree, GitCompare, Info, Loader2, Network, Pin, Play, RefreshCw, Search, Send, Sparkles, TerminalSquare, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Boxes, BotMessageSquare, Check, ChevronDown, ChevronRight, Compass, CornerDownRight, Database, Download, Eye, EyeOff, FolderTree, GitCompare, Info, Loader2, Network, Pencil, Pin, Play, RefreshCw, Search, Send, Sparkles, TerminalSquare, Trash2, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -10,7 +10,8 @@ import { Separator } from '@/components/ui/separator'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
-import { applyModuleSync, createTaskspace, ensureKnowledgeBase, fetchProjectModules, listSessions, listWorkspaces, previewModuleSync, resolveModule } from '@/features/claude-chat/api'
+import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
+import { applyModuleSync, createTaskspace, ensureKnowledgeBase, fetchProjectModules, listSessions, listWorkspaces, previewModuleSync, resolveModule, saveProjectAlias } from '@/features/claude-chat/api'
 import { engineStatus } from '@/features/knowledge-graph/api'
 import { GraphifyGraphModal } from '../components/GraphifyGraphModal'
 import { VoiceInputButton } from '@/features/claude-chat/components/VoiceInputButton'
@@ -125,6 +126,7 @@ function buildMenuSyncPrompt(project: string, projectPath: string, kbRepo: strin
 /** 项目工作台：从配置工作区选项目，按确定性模块扫描结果进入对应 Vibe Coding 会话。 */
 export function ProjectWorkspacePage() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const { chat, activate } = useChatRuntime()
   // 记住上次选中的项目（跨刷新/进出页面不重置）
   const [selectedPath, setSelectedPath] = useState(() => {
@@ -134,6 +136,10 @@ export function ProjectWorkspacePage() {
     if (selectedPath) { try { localStorage.setItem(SELECTED_PATH_LS, selectedPath) } catch { /* 隐私模式忽略 */ } }
   }, [selectedPath])
   const [keyword, setKeyword] = useState('')
+  const [projectKeyword, setProjectKeyword] = useState('')
+  const [ignoredProjectsOpen, setIgnoredProjectsOpen] = useState(false)
+  const [aliasEditingPath, setAliasEditingPath] = useState('')
+  const [aliasDraft, setAliasDraft] = useState('')
   const [pendingOpen, setPendingOpen] = useState<PendingOpen | null>(null)
 
   const workspacesQ = useQuery({
@@ -164,10 +170,29 @@ export function ProjectWorkspacePage() {
   // 忽略项目列表：纯前端偏好，不参与「检测全部」批量检测（§12）
   const ignored = useIgnoredProjects()
   const visibleProjects = useMemo(
-    () => projects.filter(p => kg.matches(p.path) && ignored.matches(p.path)),
-    [projects, kg.matches, ignored.matches],
+    () => {
+      const query = projectKeyword.trim().toLowerCase()
+      return projects.filter(project => (
+        kg.matches(project.path)
+        && ignored.matches(project.path)
+        && (!query
+          || getSystemWorkspaceDisplayName(project).toLowerCase().includes(query)
+          || project.name.toLowerCase().includes(query)
+          || project.path.toLowerCase().includes(query))
+      ))
+    },
+    [projects, projectKeyword, kg.matches, ignored.matches],
   )
+  const activeProjects = visibleProjects.filter(project => !ignored.isIgnored(project.path))
+  const ignoredProjects = visibleProjects.filter(project => ignored.isIgnored(project.path))
   const sessions = sessionsQ.data ?? []
+  const aliasMutation = useMutation({
+    mutationFn: ({ projectPath, alias }: { projectPath: string; alias: string }) => saveProjectAlias(projectPath, alias),
+    onSuccess: async () => {
+      setAliasEditingPath('')
+      await queryClient.invalidateQueries({ queryKey: ['claude-chat-workspaces'] })
+    },
+  })
   const sessionByCwd = useMemo(() => {
     const map = new Map<string, ClaudeChatSessionView>()
     sessions.forEach(session => map.set(normalizePath(session.cwd), session))
@@ -521,6 +546,15 @@ export function ProjectWorkspacePage() {
               项目
             </CardTitle>
             <CardDescription>来自 Vibe Coding 工作区配置（workspace.roots）</CardDescription>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-[var(--color-muted-foreground)]" />
+              <Input
+                className="pl-9"
+                value={projectKeyword}
+                onChange={event => setProjectKeyword(event.target.value)}
+                placeholder="搜索项目名称 / 路径"
+              />
+            </div>
             <KnowledgeGraphFilterBar
               kg={kg}
               ignored={ignored}
@@ -563,20 +597,32 @@ export function ProjectWorkspacePage() {
               </div>
             ) : visibleProjects.length === 0 ? (
               <div className="flex flex-col items-center gap-2 rounded-md border border-dashed border-[var(--color-border)] p-4 text-center text-xs text-[var(--color-muted-foreground)]">
-                <span>没有项目匹配当前的知识图谱筛选条件</span>
-                <Button type="button" size="sm" variant="ghost" onClick={() => { kg.setGraphifyFilter('ALL'); kg.setBusinessFilter('ALL'); ignored.setFilter('ALL') }}>
+                <span>没有项目匹配当前搜索或筛选条件</span>
+                <Button type="button" size="sm" variant="ghost" onClick={() => { setProjectKeyword(''); kg.setGraphifyFilter('ALL'); kg.setBusinessFilter('ALL'); ignored.setFilter('ALL') }}>
                   清除筛选
                 </Button>
               </div>
             ) : (
-              visibleProjects.map(project => (
+              <>
+              {activeProjects.map(project => (
                 <ProjectButton
                   key={project.path}
                   project={project}
                   selected={project.path === selectedPath}
                   snapshot={kg.snapshotOf(project.path)}
                   ignored={ignored.isIgnored(project.path)}
+                  editing={aliasEditingPath === project.path}
+                  aliasDraft={aliasDraft}
+                  aliasSaving={aliasMutation.isPending && aliasEditingPath === project.path}
+                  aliasError={aliasMutation.isError && aliasEditingPath === project.path ? errorMessage(aliasMutation.error) : ''}
                   onToggleIgnore={() => ignored.toggle(project.path)}
+                  onEditAlias={() => {
+                    setAliasEditingPath(project.path)
+                    setAliasDraft(project.alias ?? '')
+                  }}
+                  onAliasDraftChange={setAliasDraft}
+                  onCancelAlias={() => setAliasEditingPath('')}
+                  onSaveAlias={() => aliasMutation.mutate({ projectPath: project.path, alias: aliasDraft })}
                   onClick={() => {
                     setSelectedPath(project.path)
                     setKeyword('')
@@ -584,7 +630,56 @@ export function ProjectWorkspacePage() {
                     setSyncMsg(null)
                   }}
                 />
-              ))
+              ))}
+              {ignoredProjects.length > 0 && (
+                <div className="rounded-md border border-dashed border-[var(--color-border)]">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]"
+                    onClick={() => setIgnoredProjectsOpen(open => !open)}
+                    aria-expanded={ignoredProjectsOpen}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      {ignoredProjectsOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                      <EyeOff className="h-3.5 w-3.5" />
+                      已隐藏项目
+                    </span>
+                    <Badge variant="secondary">{ignoredProjects.length}</Badge>
+                  </button>
+                  {ignoredProjectsOpen && (
+                    <div className="space-y-2 border-t border-[var(--color-border)] p-2">
+                      {ignoredProjects.map(project => (
+                        <ProjectButton
+                          key={project.path}
+                          project={project}
+                          selected={project.path === selectedPath}
+                          snapshot={kg.snapshotOf(project.path)}
+                          ignored
+                          editing={aliasEditingPath === project.path}
+                          aliasDraft={aliasDraft}
+                          aliasSaving={aliasMutation.isPending && aliasEditingPath === project.path}
+                          aliasError={aliasMutation.isError && aliasEditingPath === project.path ? errorMessage(aliasMutation.error) : ''}
+                          onToggleIgnore={() => ignored.toggle(project.path)}
+                          onEditAlias={() => {
+                            setAliasEditingPath(project.path)
+                            setAliasDraft(project.alias ?? '')
+                          }}
+                          onAliasDraftChange={setAliasDraft}
+                          onCancelAlias={() => setAliasEditingPath('')}
+                          onSaveAlias={() => aliasMutation.mutate({ projectPath: project.path, alias: aliasDraft })}
+                          onClick={() => {
+                            setSelectedPath(project.path)
+                            setKeyword('')
+                            setSyncOpen(false)
+                            setSyncMsg(null)
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              </>
             )}
           </CardContent>
         </Card>
@@ -802,30 +897,46 @@ function ProjectButton({
   selected,
   snapshot,
   ignored,
+  editing,
+  aliasDraft,
+  aliasSaving,
+  aliasError,
   onToggleIgnore,
+  onEditAlias,
+  onAliasDraftChange,
+  onCancelAlias,
+  onSaveAlias,
   onClick,
 }: {
   project: WorkspaceDir & { root: string }
   selected: boolean
   snapshot?: ProjectStatusSnapshot
   ignored: boolean
+  editing: boolean
+  aliasDraft: string
+  aliasSaving: boolean
+  aliasError: string
   onToggleIgnore: () => void
+  onEditAlias: () => void
+  onAliasDraftChange: (value: string) => void
+  onCancelAlias: () => void
+  onSaveAlias: () => void
   onClick: () => void
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <div
       className={cn(
-        'flex w-full min-w-0 flex-col gap-1 rounded-md border px-3 py-2 text-left transition-colors',
+        'relative w-full min-w-0 rounded-md border transition-colors',
         selected
           ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10'
           : 'border-[var(--color-border)] hover:bg-[var(--color-accent)]',
       )}
     >
-      <span className="truncate text-sm font-medium text-[var(--color-foreground)]">{project.name}</span>
-      <span className="truncate text-xs text-[var(--color-muted-foreground)]">{project.root}</span>
-      <div className="mt-0.5 flex flex-wrap items-center gap-1">
+      <button type="button" onClick={onClick} className="flex w-full min-w-0 flex-col gap-1 px-3 py-2 pr-16 text-left">
+        <span className="truncate text-sm font-medium text-[var(--color-foreground)]">{getSystemWorkspaceDisplayName(project)}</span>
+        {project.alias && <span className="truncate text-[10px] text-[var(--color-muted-foreground)]">{project.name}</span>}
+        <span className="truncate text-xs text-[var(--color-muted-foreground)]">{project.root}</span>
+        <div className="mt-0.5 flex flex-wrap items-center gap-1">
         {ignored ? (
           <StatusBadge tone="neutral" className="px-1.5 py-0 text-[10px]">已忽略</StatusBadge>
         ) : (
@@ -852,16 +963,48 @@ function ProjectButton({
             )}
           </>
         )}
+        </div>
+      </button>
+      <div className="absolute right-2 top-2 flex gap-0.5">
         <button
           type="button"
-          className="ml-auto shrink-0 rounded p-0.5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+          className="rounded p-1 text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)]"
+          title="编辑项目别名"
+          onClick={onEditAlias}
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          className="rounded p-1 text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)]"
           title={ignored ? '取消忽略：恢复参与「检测全部」' : '忽略：不参与「检测全部」批量知识图谱检测'}
-          onClick={(e) => { e.stopPropagation(); onToggleIgnore() }}
+          onClick={onToggleIgnore}
         >
           {ignored ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
         </button>
       </div>
-    </button>
+      {editing && (
+        <div className="border-t border-[var(--color-border)] p-2">
+          <form className="flex gap-1" onSubmit={event => { event.preventDefault(); onSaveAlias() }}>
+            <Input
+              autoFocus
+              className="h-8 text-xs"
+              maxLength={100}
+              value={aliasDraft}
+              onChange={event => onAliasDraftChange(event.target.value)}
+              placeholder="项目别名（留空则清除）"
+            />
+            <Button type="submit" size="icon" className="h-8 w-8" disabled={aliasSaving} title="保存别名">
+              {aliasSaving ? <Loader2 className="animate-spin" /> : <Check />}
+            </Button>
+            <Button type="button" size="icon" variant="ghost" className="h-8 w-8" onClick={onCancelAlias} title="取消">
+              <X />
+            </Button>
+          </form>
+          {aliasError && <p className="mt-1 text-[10px] text-[var(--color-destructive)]">{aliasError}</p>}
+        </div>
+      )}
+    </div>
   )
 }
 

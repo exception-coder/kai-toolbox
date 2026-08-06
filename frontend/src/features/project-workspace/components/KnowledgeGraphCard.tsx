@@ -1,12 +1,15 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight, Network, Play, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { CHAT_ROUTE } from '@/features/claude-chat/runtime/ChatRuntimeContext'
+import { EngineIcon } from '@/features/claude-chat/components/EngineIcon'
+import { engineName } from '@/features/claude-chat/components/chatStatus'
+import type { Engine } from '@/features/claude-chat/types'
 import { crossTopologyStatus, domainKnowledgeStatus, graphifyStatus, repoPaths } from '@/features/knowledge-graph/api'
 import {
   DomainKnowledgeCard,
@@ -15,7 +18,7 @@ import {
   REGISTRATION_LABEL,
   REGISTRATION_TONE,
 } from '@/features/knowledge-graph/components/DomainKnowledgeCard'
-import type { ProjectStatusSnapshot } from '@/features/knowledge-graph/types'
+import type { ProjectStatusSnapshot, RegistrationState } from '@/features/knowledge-graph/types'
 
 const LAUNCH_KEY = 'kai-toolbox:claude-chat:knowledge-graph-bootstrap-launch'
 const GRAPHIFY_LAUNCH_KEY = 'kai-toolbox:claude-chat:graphify-generate-launch'
@@ -29,8 +32,27 @@ function buildGraphifySeed(mode: 'full' | 'update'): string {
   return mode === 'full' ? '/graphify' : '/graphify --update'
 }
 
-function buildBootstrapSeed(projectPath: string, projectKey: string, scope: 'full' | string[]): string {
+function buildBootstrapSeed(
+  repoKey: 'domain-knowledge' | 'cross-topology',
+  projectPath: string,
+  projectKey: string,
+  scope: 'full' | string[],
+): string {
   const scopeText = scope === 'full' ? '全部模块' : `以下模块：${scope.join('、')}`
+  if (repoKey === 'cross-topology') {
+    return [
+      `为 cross-project-topology 初始化或更新生态 "${projectKey}" 的跨项目拓扑。`,
+      `当前项目根路径：${projectPath}`,
+      `目标生态 key：${projectKey}`,
+      `本次范围：${scopeText}`,
+      '',
+      '这是跨项目拓扑任务，不要调用 domain-knowledge-bootstrap，也不要生成 formula/flow/state/rule/concept/term 六类业务真理。',
+      '先以当前项目为锚点识别至少一个真实关联项目；若无法确认跨项目关系，先向我提问，不要把单项目内部知识写入本库。',
+      `产物只写入当前 cross-project-topology 仓库的 knowledge/${projectKey}/ 下，按 call-chains、data-flows、api-contracts、service-maps 四类目录归档。`,
+      '每条 Markdown 必须包含 id、project、module、title、type、stability、summary frontmatter，其中 stability 保持 draft。',
+      '完成后更新 INDEX.md，校验路径与 frontmatter，并调用 cross-topology MCP reload_knowledge 使其生效。',
+    ].join('\n')
+  }
   return [
     `用 domain-knowledge-bootstrap skill 为项目 "${projectKey}" 起草业务真理知识点。`,
     `目标项目根路径：${projectPath}`,
@@ -59,6 +81,18 @@ function CollapsedBadges({ snapshot }: { snapshot?: ProjectStatusSnapshot }) {
   )
 }
 
+function aggregateRegistrationState(
+  domainState: RegistrationState,
+  crossTopologyState: RegistrationState,
+): RegistrationState {
+  const rank: Record<RegistrationState, number> = {
+    NOT_REGISTERED: 0,
+    PARTIAL: 1,
+    REGISTERED: 2,
+  }
+  return rank[domainState] <= rank[crossTopologyState] ? domainState : crossTopologyState
+}
+
 /**
  * 项目工作台内嵌的知识图谱卡片：默认折叠只显示两个状态徽标（读批量检测缓存，不发请求）；
  * 展开后对当前选中项目发起三项实时检测（Graphify/domain-knowledge/cross-topology），
@@ -75,7 +109,9 @@ export function KnowledgeGraphCard({
 }) {
   const navigate = useNavigate()
   const confirm = useConfirm()
+  const queryClient = useQueryClient()
   const [expanded, setExpanded] = useState(false)
+  const [bootstrapEngine, setBootstrapEngine] = useState<Engine | null>(null)
   const [selectedGaps, setSelectedGaps] = useState<Record<string, Set<string>>>({})
 
   const { data: repos } = useQuery({ queryKey: ['kg-repo-paths'], queryFn: repoPaths, staleTime: 60_000, enabled: expanded })
@@ -95,7 +131,43 @@ export function KnowledgeGraphCard({
     enabled: expanded,
   })
 
+  useEffect(() => {
+    const graphify = graphifyQuery.data
+    const domain = domainKnowledgeQuery.data
+    const crossTopology = crossTopologyQuery.data
+    if (!graphify || !domain || !crossTopology) return
+
+    const checkedAt = [graphify.checkedAt, domain.checkedAt, crossTopology.checkedAt]
+      .sort()
+      .at(-1) ?? new Date().toISOString()
+    queryClient.setQueryData<Record<string, ProjectStatusSnapshot>>(['kg-status-cache'], (previous) => ({
+      ...(previous ?? {}),
+      [projectPath]: {
+        projectPath,
+        graphifyState: graphify.state,
+        businessGraphState: aggregateRegistrationState(domain.state, crossTopology.state),
+        businessGraphError: null,
+        checkedAt,
+      },
+    }))
+  }, [
+    crossTopologyQuery.data,
+    domainKnowledgeQuery.data,
+    graphifyQuery.data,
+    projectPath,
+    queryClient,
+  ])
+
   const launchBootstrap = async (repoKey: 'domain-knowledge' | 'cross-topology', scope: 'full' | string[], label: string) => {
+    if (!bootstrapEngine) {
+      await confirm({
+        title: '请选择执行引擎',
+        description: '初始化和更新知识图谱前，需要先明确选择本次使用的 AI 引擎。',
+        confirmText: '知道了',
+        cancelText: '关闭',
+      })
+      return
+    }
     const cwd = repoKey === 'domain-knowledge' ? repos?.domainKnowledgeRepoPath : repos?.crossTopologyRepoPath
     if (!cwd) {
       await confirm({
@@ -112,8 +184,8 @@ export function KnowledgeGraphCard({
       confirmText: '确认跳转',
     })
     if (!ok) return
-    const seed = buildBootstrapSeed(projectPath, projectName, scope)
-    try { sessionStorage.setItem(LAUNCH_KEY, JSON.stringify({ cwd, seed })) } catch { /* 隐私模式忽略 */ }
+    const seed = buildBootstrapSeed(repoKey, projectPath, projectName, scope)
+    try { sessionStorage.setItem(LAUNCH_KEY, JSON.stringify({ cwd, seed, engine: bootstrapEngine })) } catch { /* 隐私模式忽略 */ }
     navigate(CHAT_ROUTE)
   }
 
@@ -156,6 +228,24 @@ export function KnowledgeGraphCard({
       </CardHeader>
       {expanded && (
         <CardContent className="flex flex-col gap-4 border-t pt-4">
+          <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/20 p-3">
+            <div className="mb-2 text-xs font-medium text-[var(--color-foreground)]">初始化 / 更新执行引擎（必选）</div>
+            <div className="flex flex-wrap gap-2">
+              {(['claude', 'codex', 'gemini', 'opencode'] as Engine[]).map(engine => (
+                <Button
+                  key={engine}
+                  type="button"
+                  size="sm"
+                  variant={bootstrapEngine === engine ? 'default' : 'outline'}
+                  onClick={() => setBootstrapEngine(engine)}
+                  aria-pressed={bootstrapEngine === engine}
+                >
+                  <EngineIcon engine={engine} className="size-3.5" />
+                  {engineName(engine)}
+                </Button>
+              ))}
+            </div>
+          </div>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <div>

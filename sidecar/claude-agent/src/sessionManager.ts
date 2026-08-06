@@ -11,10 +11,9 @@ import { createSrmAppServer } from './srmApp.js'
 import { createScmDbServer } from './scmDb.js'
 import { createForgePendingSqlServer, FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
 import { createDomainKnowledgeServer, createCrossTopologyServer } from './knowledgeMcp.js'
-import { codexMcpCapabilities, runCodexTurn, type CodexSpeed } from './codexEngine.js'
+import { codexMcpCapabilities, normalizeCodexHome, runCodexTurn, type CodexReasoningEffort, type CodexSpeed } from './codexEngine.js'
 import { createClaudeConsultSourceServer } from './codexSecurity.js'
 import { forkCodexThread } from './codexAppServer.js'
-import type { ModelReasoningEffort } from '@openai/codex-sdk'
 import { runGeminiTurn } from './geminiEngine.js'
 import { runOpencodeTurn } from './opencodeEngine.js'
 
@@ -114,35 +113,40 @@ function officialModelsEnv(): NodeJS.ProcessEnv {
   return env
 }
 
-const VALID_CODEX_EFFORTS = new Set<ModelReasoningEffort>(['minimal', 'low', 'medium', 'high', 'xhigh'])
+function isCodexReasoningEffort(value: unknown): value is CodexReasoningEffort {
+  return typeof value === 'string' && /^[a-z][a-z0-9_-]{0,31}$/.test(value)
+}
 
 /** 中断时留给「未决审批的 deny 响应」写回 CLI 的时间，之后才关传输层。见 Session.interrupt()。 */
 const INTERRUPT_DENY_FLUSH_MS = 30
 
-function loadCodexModels(): unknown[] {
+export function loadCodexModels(sessionCodexHome?: string): unknown[] {
   try {
-    const codexHome = process.env.CODEX_HOME?.trim() || join(homedir(), '.codex')
+    const codexHome = normalizeCodexHome(sessionCodexHome)
+      ?? normalizeCodexHome(process.env.CODEX_HOME)
+      ?? join(homedir(), '.codex')
     const raw = JSON.parse(readFileSync(join(codexHome, 'models_cache.json'), 'utf8')) as {
       models?: Array<{
         slug?: string
         display_name?: string
         description?: string
         visibility?: string
+        supported_in_api?: boolean
         default_reasoning_level?: string
         supported_reasoning_levels?: Array<{ effort?: string }>
         additional_speed_tiers?: string[]
       }>
     }
     return (raw.models ?? [])
-      .filter((model) => model.slug && model.visibility !== 'hidden')
+      .filter((model) => model.slug && model.visibility === 'list' && model.supported_in_api !== false)
       .map((model) => ({
         value: model.slug,
         displayName: model.display_name ?? model.slug,
         description: model.description ?? '',
         reasoningEfforts: (model.supported_reasoning_levels ?? [])
           .map((level) => level.effort)
-          .filter((effort): effort is ModelReasoningEffort => !!effort && VALID_CODEX_EFFORTS.has(effort as ModelReasoningEffort)),
-        defaultReasoningEffort: VALID_CODEX_EFFORTS.has(model.default_reasoning_level as ModelReasoningEffort)
+          .filter(isCodexReasoningEffort),
+        defaultReasoningEffort: isCodexReasoningEffort(model.default_reasoning_level)
           ? model.default_reasoning_level
           : null,
         fastSupported: (model.additional_speed_tiers ?? []).includes('fast'),
@@ -218,7 +222,7 @@ async function refreshClaudeModels(key: string, env?: NodeJS.ProcessEnv): Promis
 class Session {
   sdkSessionId?: string
   model?: string
-  codexReasoningEffort?: ModelReasoningEffort
+  codexReasoningEffort?: CodexReasoningEffort
   codexSpeed: CodexSpeed = 'default'
   /** 第三方网关 baseURL（Anthropic 兼容）。仅本会话生效——置则每轮 query 注入 env，不影响其它会话/官方登录。 */
   apiBaseUrl?: string
@@ -781,7 +785,7 @@ class Session {
 export class SessionManager {
   private sessions = new Map<string, Session>()
   private oneShotControllers = new Map<string, AbortController>()
-  private pendingCodexOptions = new Map<string, { reasoningEffort?: ModelReasoningEffort; speed: CodexSpeed }>()
+  private pendingCodexOptions = new Map<string, { reasoningEffort?: CodexReasoningEffort; speed: CodexSpeed }>()
 
   constructor(private emit: Emit) {
     // 启动即预热 Claude 模型清单（控制请求，不跑对话），消除重启后首次进会话的空窗
@@ -851,8 +855,8 @@ export class SessionManager {
     if (autoApprove) { s.autoApprove = true; s.perms.setAutoApprove(true) }
     s.toolPolicy = toolPolicy === 'consult-readonly' ? 'consult-readonly' : 'default'
     s.perms.setToolPolicy(s.toolPolicy)
-    s.codexReasoningEffort = VALID_CODEX_EFFORTS.has(codexReasoningEffort as ModelReasoningEffort)
-      ? codexReasoningEffort as ModelReasoningEffort
+    s.codexReasoningEffort = isCodexReasoningEffort(codexReasoningEffort)
+      ? codexReasoningEffort
       : undefined
     s.codexSpeed = codexSpeed === 'fast' ? 'fast' : 'default'
     this.applyCodexOptions(id, s)
@@ -912,7 +916,7 @@ export class SessionManager {
       const cached = claudeModelsByProvider.get(providerKey(s.apiBaseUrl))
       if (cached) this.emit(id, { type: 'models', models: cached, current: s.model ?? null })
     } else if (s.engine === 'codex') {
-      this.emit(id, { type: 'models', models: loadCodexModels(), current: s.model ?? null })
+      this.emit(id, { type: 'models', models: loadCodexModels(s.codexHome), current: s.model ?? null })
     }
   }
 
@@ -963,8 +967,8 @@ export class SessionManager {
 
   setCodexOptions(id: string, reasoningEffort: string, speed: string): void {
     const options = {
-      reasoningEffort: VALID_CODEX_EFFORTS.has(reasoningEffort as ModelReasoningEffort)
-      ? reasoningEffort as ModelReasoningEffort
+      reasoningEffort: isCodexReasoningEffort(reasoningEffort)
+      ? reasoningEffort
       : undefined,
       speed: speed === 'fast' ? 'fast' as const : 'default' as const,
     }
@@ -1096,8 +1100,8 @@ export class SessionManager {
             : `${systemPrompt}\n\n${userPrompt}`,
           cwd,
           model,
-          reasoningEffort: VALID_CODEX_EFFORTS.has(options?.reasoningEffort as ModelReasoningEffort)
-            ? options?.reasoningEffort as ModelReasoningEffort
+          reasoningEffort: isCodexReasoningEffort(options?.reasoningEffort)
+            ? options?.reasoningEffort
             : undefined,
           speed: options?.speed === 'fast' ? 'fast' : 'default',
           apiBaseUrl: options?.apiBaseUrl,
@@ -1121,8 +1125,8 @@ export class SessionManager {
     s.apiBaseUrl = options?.apiBaseUrl
     s.authToken = options?.authToken
     s.codexHome = options?.codexHome
-    s.codexReasoningEffort = VALID_CODEX_EFFORTS.has(options?.reasoningEffort as ModelReasoningEffort)
-      ? options?.reasoningEffort as ModelReasoningEffort
+    s.codexReasoningEffort = isCodexReasoningEffort(options?.reasoningEffort)
+      ? options?.reasoningEffort
       : undefined
     s.codexSpeed = options?.speed === 'fast' ? 'fast' : 'default'
     s.toolPolicy = options?.toolPolicy || 'default'

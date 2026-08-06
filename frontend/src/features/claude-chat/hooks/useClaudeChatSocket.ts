@@ -27,7 +27,7 @@ const DEFAULT_CODEX_OPTIONS: CodexOptions = { reasoningEffort: 'low', speed: 'de
 function loadCodexOptions(sid: string): CodexOptions {
   try {
     const parsed = JSON.parse(localStorage.getItem(codexStorageKey(sid)) ?? '{}') as Partial<CodexOptions>
-    const reasoningEffort = ['minimal', 'low', 'medium', 'high', 'xhigh'].includes(parsed.reasoningEffort ?? '')
+    const reasoningEffort = /^[a-z][a-z0-9_-]{0,31}$/.test(parsed.reasoningEffort ?? '')
       ? parsed.reasoningEffort as CodexReasoningEffort
       : DEFAULT_CODEX_OPTIONS.reasoningEffort
     return { reasoningEffort, speed: parsed.speed === 'fast' ? 'fast' : 'default' }

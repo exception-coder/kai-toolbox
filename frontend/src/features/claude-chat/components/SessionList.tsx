@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronDown, ChevronRight, Filter, Folder, FolderMinus, FolderPlus, Link2, Pencil, Search, Tags, Trash2, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, Filter, Folder, FolderMinus, FolderPlus, Link2, LockKeyhole, Pencil, Search, Tags, Trash2, Unlock, X } from 'lucide-react'
 import { EngineIcon } from './EngineIcon'
 import { cn, formatDate } from '@/lib/utils'
 import { deleteSession, listSessions, renameSession, setSessionGroupApi } from '../api'
@@ -11,6 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { Combobox } from '@/components/ui/combobox'
 import { SessionActivityBar } from './SessionActivityBar'
+import { useSessionPlanState } from '../hooks/useSessionPlanState'
 
 const OLD_GROUP_KEY = 'kai-toolbox:claude-chat:session-groups'
 let groupMigrationDone = false
@@ -31,6 +32,7 @@ const UNGROUPED = ' ungrouped'
 export function SessionList({ currentSessionId, onSwitch, selectable, selectedIds, onToggleSelect }: Props) {
   const qc = useQueryClient()
   const confirm = useConfirm()
+  const { busyId: planBusyId, expire: expirePlan, unlock: unlockPlan } = useSessionPlanState()
   const { data: sessions = [], isPending } = useQuery({
     queryKey: KEY,
     queryFn: listSessions,
@@ -397,14 +399,18 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
         key={s.id}
         className={cn(
           'group relative isolate flex items-center gap-1 transition-colors duration-100',
-          isActive ? 'bg-[var(--color-primary)]/10' : 'hover:bg-[var(--color-accent)]',
+          s.planExpired
+            ? 'bg-[var(--color-muted)]/60 hover:bg-[var(--color-muted)]/80'
+            : isActive ? 'bg-[var(--color-primary)]/10' : 'hover:bg-[var(--color-accent)]',
         )}
       >
         {isRunning && <SessionActivityBar />}
         {/* Left Accent Bar：4px 加宽，选中态更醒目 */}
         <div className={cn(
           'absolute inset-y-0 left-0 z-20 w-[4px] rounded-r-sm transition-colors duration-100',
-          isActive ? 'bg-[var(--color-primary)]' : 'bg-transparent group-hover:bg-[var(--color-border)]',
+          s.planExpired
+            ? 'bg-[var(--color-muted-foreground)]/45'
+            : isActive ? 'bg-[var(--color-primary)]' : 'bg-transparent group-hover:bg-[var(--color-border)]',
         )} />
 
         {selectable && (
@@ -449,7 +455,9 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
               }
               <span className={cn(
                 'min-w-0 flex-1 truncate text-sm leading-snug',
-                isActive
+                s.planExpired
+                  ? 'font-medium text-[var(--color-muted-foreground)]'
+                  : isActive
                   ? 'font-semibold text-[var(--color-primary)]'
                   : 'font-medium text-[var(--color-foreground)]',
               )}>
@@ -472,6 +480,11 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
                 : 'text-[var(--color-muted-foreground)] opacity-60',
             )}>
               {engineBadge}
+              {s.planExpired && (
+                <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700 opacity-100 dark:bg-amber-950 dark:text-amber-300">
+                  <LockKeyhole className="size-2.5" />规划已过期
+                </span>
+              )}
               <span className="tabular-nums">{formatDate(s.lastSeenAt)}</span>
             </div>
           </button>
@@ -495,9 +508,24 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
               'absolute inset-y-0 right-0 z-10 flex items-center pl-2 pr-1',
               // 触屏没有 hover：移动端始终显示操作，桌面端仍在 hover 时出现。
               'opacity-100 transition-opacity duration-100 sm:opacity-0 sm:group-hover:opacity-100',
-              isActive ? 'bg-[var(--color-primary)]/10' : 'bg-[var(--color-accent)]',
+              s.planExpired
+                ? 'bg-[var(--color-muted)]'
+                : isActive ? 'bg-[var(--color-primary)]/10' : 'bg-[var(--color-accent)]',
             )}
           >
+            <button
+              type="button"
+              disabled={planBusyId === s.id || isRunning}
+              className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:text-amber-600 disabled:opacity-40"
+              onClick={e => {
+                e.stopPropagation()
+                void (s.planExpired ? unlockPlan(s) : expirePlan(s))
+              }}
+              aria-label={s.planExpired ? '解锁过期规划' : '标记规划过期'}
+              title={isRunning ? '运行中的会话需先中断' : s.planExpired ? '解锁过期规划' : '标记规划过期'}
+            >
+              {s.planExpired ? <Unlock className="size-3.5" /> : <LockKeyhole className="size-3.5" />}
+            </button>
             <button
               type="button"
               className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"

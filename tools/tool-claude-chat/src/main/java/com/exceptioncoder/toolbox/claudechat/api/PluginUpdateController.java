@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.claudechat.api;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.PluginStatusView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.SuiteStatusView;
+import com.exceptioncoder.toolbox.claudechat.api.dto.SkillSyncResultView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.TeamDependencyEnvironmentView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.TeamRepositoryStatusView;
 import com.exceptioncoder.toolbox.claudechat.service.PluginUpdateService;
@@ -10,6 +11,7 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -61,6 +63,12 @@ public class PluginUpdateController {
             @RequestParam(defaultValue = "gitee") String source,
             @RequestParam(defaultValue = "false") boolean fetch) {
         return service.readRepositoryStatuses(source, fetch);
+    }
+
+    /** 将团队源码中的 yoooni-erp-auto-dev 同步到 Claude/Codex 当前插件缓存。 */
+    @PostMapping("/skills/yoooni-erp-auto-dev/sync")
+    public SkillSyncResultView syncYoooniErpAutoDev() {
+        return service.syncYoooniErpAutoDev();
     }
 
     /** 校验并提交五个团队仓库的有效本地更新，后台推送至所选 Git 源。 */

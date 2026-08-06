@@ -49,6 +49,7 @@ public class ClaudeChatService {
     private final AgentOneShotService agentOneShot;
     private final ProviderModelService providerModels;
     private final WelfareDemoSandboxProvisioner welfareDemo;
+    private final SessionPlanStateService planStateService;
     private final ObjectMapper mapper;
 
     /** sessionId -> 运行时上下文 */
@@ -73,6 +74,7 @@ public class ClaudeChatService {
                              AgentOneShotService agentOneShot,
                              ProviderModelService providerModels,
                              WelfareDemoSandboxProvisioner welfareDemo,
+                             SessionPlanStateService planStateService,
                              ObjectMapper mapper) {
         this.props = props;
         this.repo = repo;
@@ -83,6 +85,7 @@ public class ClaudeChatService {
         this.agentOneShot = agentOneShot;
         this.providerModels = providerModels;
         this.welfareDemo = welfareDemo;
+        this.planStateService = planStateService;
         this.mapper = mapper;
     }
 
@@ -357,6 +360,10 @@ public class ClaudeChatService {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {
             sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
+            return;
+        }
+        if (!planStateService.writable(ctx.sessionId)) {
+            sendError(ws, 0, "PLAN_EXPIRED", "该规划已过期，请先解锁后继续");
             return;
         }
         if (!ensureSessionResumable(ctx)) return; // sidecar 断了先就地重连+resume，避免静默丢消息
@@ -693,8 +700,7 @@ public class ClaudeChatService {
     }
 
     private static String normalizeCodexReasoningEffort(String effort) {
-        return "minimal".equals(effort) || "low".equals(effort) || "medium".equals(effort)
-                || "high".equals(effort) || "xhigh".equals(effort) ? effort : "low";
+        return effort != null && effort.matches("[a-z][a-z0-9_-]{0,31}") ? effort : "low";
     }
 
     private static String normalizeCodexSpeed(String speed) {

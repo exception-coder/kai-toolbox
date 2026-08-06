@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Clock3, Link2, Pencil, Tags, Trash2 } from 'lucide-react'
+import { Check, Clock3, Link2, LockKeyhole, Pencil, Tags, Trash2, Unlock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { deleteSession, listSessions, renameSession, setSessionGroupApi } from '../api'
 import { engineDisplayName } from './chatStatus'
@@ -10,6 +10,7 @@ import { EngineIcon } from './EngineIcon'
 import { SessionGroupPicker } from './SessionList'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import type { ClaudeChatSessionView } from '../types'
+import { useSessionPlanState } from '../hooks/useSessionPlanState'
 
 interface Props {
   currentSessionId: string | null
@@ -27,9 +28,10 @@ const BUSINESS_CONSULT_GROUP = '业务咨询'
  * 视觉层级：Section 标题（一级）→ 会话行（二级）→ 时间元信息（三级）。
  * 双击标题可直接改名（与 SessionList / 顶栏标题一致的交互）。
  */
-export function RecentSessions({ currentSessionId, onSwitch, limit = 5 }: Props) {
+export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props) {
   const qc = useQueryClient()
   const confirm = useConfirm()
+  const { busyId: planBusyId, expire: expirePlan, unlock: unlockPlan } = useSessionPlanState()
   const { data: sessions = [], isPending } = useQuery({
     queryKey: SESSION_QUERY_KEY,
     queryFn: listSessions,
@@ -101,7 +103,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 5 }: Props)
         </span>
       </div>
 
-      <ul>
+      <ul className="max-h-[55vh] overflow-y-auto overscroll-contain">
         {recent.map(session => {
           const isActive = session.id === currentSessionId
           const title = session.title?.trim() || shortCwd(session.cwd)
@@ -115,14 +117,18 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 5 }: Props)
               key={session.id}
               className={cn(
                 'group relative isolate transition-colors duration-100',
-                isActive ? 'bg-[var(--color-primary)]/10' : 'hover:bg-[var(--color-accent)]',
+                session.planExpired
+                  ? 'bg-[var(--color-muted)]/60 hover:bg-[var(--color-muted)]/80'
+                  : isActive ? 'bg-[var(--color-primary)]/10' : 'hover:bg-[var(--color-accent)]',
               )}
             >
               {isRunning && <SessionActivityBar />}
               {/* Left Accent Bar：与 SessionList 完全一致 */}
               <div className={cn(
                 'absolute inset-y-0 left-0 z-20 w-[3px] rounded-r-sm transition-colors duration-100',
-                isActive ? 'bg-[var(--color-primary)]' : 'bg-transparent group-hover:bg-[var(--color-border)]',
+                session.planExpired
+                  ? 'bg-[var(--color-muted-foreground)]/45'
+                  : isActive ? 'bg-[var(--color-primary)]' : 'bg-transparent group-hover:bg-[var(--color-border)]',
               )} />
 
               {isEditing ? (
@@ -162,7 +168,9 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 5 }: Props)
                       : <EngineIcon engine={session.engine || 'claude'} thirdParty={session.providerKind === 'thirdParty'} className="size-3" muted />}
                     <span className={cn(
                       'min-w-0 flex-1 truncate text-sm leading-snug',
-                      isActive
+                      session.planExpired
+                        ? 'font-medium text-[var(--color-muted-foreground)]'
+                        : isActive
                         ? 'font-semibold text-[var(--color-primary)]'
                         : 'font-medium text-[var(--color-foreground)]',
                     )}>
@@ -182,6 +190,11 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 5 }: Props)
                     isActive ? 'text-[var(--color-primary)]/60' : 'text-[var(--color-muted-foreground)] opacity-60',
                   )}>
                     <span className="shrink-0 rounded bg-[var(--color-muted)] px-1 py-0.5 text-[10px]">{engineLabel}</span>
+                    {session.planExpired && (
+                      <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700 opacity-100 dark:bg-amber-950 dark:text-amber-300">
+                        <LockKeyhole className="size-2.5" />规划已过期
+                      </span>
+                    )}
                     <span className="truncate tabular-nums">{isActive ? '当前' : relativeTime(session.lastSeenAt)}</span>
                   </div>
                 </button>
@@ -191,8 +204,23 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 5 }: Props)
                 <div className={cn(
                   'absolute bottom-0 right-0 z-20 flex h-7 items-center pl-2 pr-1',
                   'opacity-100 transition-opacity duration-100 sm:opacity-0 sm:group-hover:opacity-100',
-                  isActive ? 'bg-[var(--color-primary)]/10' : 'bg-[var(--color-accent)]',
+                  session.planExpired
+                    ? 'bg-[var(--color-muted)]'
+                    : isActive ? 'bg-[var(--color-primary)]/10' : 'bg-[var(--color-accent)]',
                 )}>
+                  <button
+                    type="button"
+                    disabled={planBusyId === session.id || isRunning}
+                    onClick={event => {
+                      event.stopPropagation()
+                      void (session.planExpired ? unlockPlan(session) : expirePlan(session))
+                    }}
+                    aria-label={session.planExpired ? '解锁过期规划' : '标记规划过期'}
+                    title={isRunning ? '运行中的会话需先中断' : session.planExpired ? '解锁过期规划' : '标记规划过期'}
+                    className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:text-amber-600 disabled:opacity-40"
+                  >
+                    {session.planExpired ? <Unlock className="size-3.5" /> : <LockKeyhole className="size-3.5" />}
+                  </button>
                   <button
                     type="button"
                     onClick={event => { event.stopPropagation(); setGroupPickFor(session) }}

@@ -4,6 +4,7 @@ import { Database, Eye, EyeOff, Loader2, Warehouse } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { listWorkspaces } from '@/features/claude-chat/api'
+import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 import { DevServiceSection } from '@/features/_devkit/DevServiceSection'
 import { useDevWorkbenchPreference } from '@/features/_devkit/useDevWorkbenchPreference'
 import { getScmDbConfig, saveScmDbConfig, testScmDb } from '../api'
@@ -23,7 +24,7 @@ export function ScmDevPage() {
     for (const r of workspaces?.roots ?? []) {
       if (!r.exists) continue
       const rootName = r.root.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || r.root
-      for (const d of r.dirs) out.push({ path: d.path, label: `${d.name}（${rootName}）` })
+      for (const d of r.dirs) out.push({ path: d.path, label: `${getSystemWorkspaceDisplayName(d)}（${rootName}）` })
     }
     return out
   }, [workspaces])

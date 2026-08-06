@@ -35,6 +35,7 @@ import type { ChatItem, ModuleCandidate, PermissionMode } from '../types'
 import { engineDisplayName, providerHost } from './chatStatus'
 import type { PrdSessionView } from '@/features/prd-clarify/types'
 import { countPrdReferenceDocuments, uploadPrdReference } from '../lib/prdReference'
+import { SessionPlanLockNotice } from './SessionPlanLockNotice'
 
 const MAX_ATTACHMENTS = 10
 const MIN_MARGIN = 8
@@ -193,6 +194,7 @@ export function FloatingChatWindow() {
     staleTime: 5000,
   })
   const currentSession = sessions.find(s => s.id === chat?.sessionId)
+  const planLocked = currentSession?.planExpired === true
   const headerTitle = currentSession
     ? (currentSession.title?.trim() || cwdName(currentSession.cwd))
     : 'Vibe Coding'
@@ -444,7 +446,7 @@ export function FloatingChatWindow() {
   const submit = () => {
     const t = draft.trim()
     const hasAtt = attachments.length > 0
-    if ((!t && !hasAtt) || chat.running) return
+    if ((!t && !hasAtt) || chat.running || planLocked) return
     // 纯文本且命中路由信号(/goto 或导航动词) → 走模块路由，不当对话发出
     if (!hasAtt && handleUserText(t)) { setDraft(''); return }
     // 带上 mime + 本地预览 url → 气泡里显示图片缩略图（与全屏/分屏视图一致）；
@@ -822,6 +824,7 @@ export function FloatingChatWindow() {
       {/* 迷你态输入：只一个语音按钮，识别后直接发送（不显示输入框/发送按钮，最简） */}
       {!showSessions && compact && (
         <div className={`border-t p-2.5 ${giftMode ? 'border-[#6f9b54]/14 bg-[#0e1a12]/95' : 'border-[var(--color-border)] bg-[var(--color-muted)]'}`}>
+          <SessionPlanLockNotice session={currentSession} compact />
           {chat.running ? (
             <div className="flex items-center justify-center gap-3 text-xs text-[var(--color-muted-foreground)]">
               <Loader2 className="size-4 animate-spin" /> 处理中…
@@ -829,7 +832,7 @@ export function FloatingChatWindow() {
                 className="rounded-lg border px-3 py-1 text-xs">中断</button>
             </div>
           ) : (
-            <MiniVoiceBar onSend={t => { if (!handleUserText(t)) chat.send(t) }} />
+            <MiniVoiceBar disabled={planLocked} onSend={t => { if (!planLocked && !handleUserText(t)) chat.send(t) }} />
           )}
         </div>
       )}
@@ -849,7 +852,7 @@ export function FloatingChatWindow() {
           />
         )}
         {/* 指令菜单（命令 + 模型切换）：内嵌于输入区上方，避免窄浮窗 overflow-hidden 裁切下拉 */}
-        {!demo && cmdMenuOpen && (
+        {!demo && cmdMenuOpen && !planLocked && (
           <div className="px-2 pt-2">
             <CommandMenu
               inline
@@ -879,6 +882,7 @@ export function FloatingChatWindow() {
             onPick={reference => { void projectMention.pickReference(reference) }}
           />
         )}
+        <SessionPlanLockNotice session={currentSession} compact />
         <div className="flex items-end gap-2 p-2">
           <input
             ref={fileInputRef}
@@ -891,7 +895,7 @@ export function FloatingChatWindow() {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              disabled={chat.running || attachments.length + uploading >= MAX_ATTACHMENTS}
+              disabled={planLocked || chat.running || attachments.length + uploading >= MAX_ATTACHMENTS}
               aria-label="上传附件"
               title={attachments.length + uploading >= MAX_ATTACHMENTS ? `最多 ${MAX_ATTACHMENTS} 个附件` : '上传附件（也可直接粘贴图片）'}
               className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border disabled:opacity-50 ${giftMode ? 'border-white/12 text-white/55 hover:bg-white/10' : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-background)]'}`}
@@ -902,6 +906,7 @@ export function FloatingChatWindow() {
           {!demo && (
             <ProjectMentionButton
               active={projectMention.open}
+              disabled={planLocked}
               className={giftMode ? 'border-white/12 text-white/55 hover:bg-white/10' : undefined}
               onToggle={() => {
                 setCmdMenuOpen(false)
@@ -913,16 +918,17 @@ export function FloatingChatWindow() {
             <button
               type="button"
               onClick={() => setCmdMenuOpen(o => !o)}
+              disabled={planLocked}
               aria-label="指令"
               title="指令（命令 / 切换模型）"
-              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${cmdMenuOpen ? (giftMode ? 'bg-white/10' : 'bg-[var(--color-background)]') : ''} ${giftMode ? 'border-white/12 text-white/55 hover:bg-white/10' : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-background)]'}`}
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border disabled:cursor-not-allowed disabled:opacity-40 ${cmdMenuOpen ? (giftMode ? 'bg-white/10' : 'bg-[var(--color-background)]') : ''} ${giftMode ? 'border-white/12 text-white/55 hover:bg-white/10' : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-background)]'}`}
             >
               <Slash className="size-4" />
             </button>
           )}
           {!demo && (
             <VoiceInputButton
-              disabled={chat.running}
+              disabled={planLocked || chat.running}
               onText={t => setDraft(d => (d.trim() ? `${d} ${t}` : t))}
             />
           )}
@@ -931,6 +937,7 @@ export function FloatingChatWindow() {
             className={`max-h-24 min-h-[2.25rem] flex-1 resize-none overflow-y-auto rounded-lg border px-2 py-1.5 text-sm ${giftMode ? 'border-white/12 bg-white/8 text-white placeholder:text-white/28' : 'bg-[var(--color-background)]'}`}
             placeholder="发消息…（/goto 跳模块）"
             rows={1}
+            disabled={planLocked}
             value={draft}
             onChange={e => projectMention.handleChange(e.target.value, e.target.selectionStart)}
             onPaste={onPaste}
@@ -947,7 +954,7 @@ export function FloatingChatWindow() {
             <button type="button" onClick={chat.interrupt} aria-label="中断"
               className="rounded-lg border px-3 py-2 text-sm">中断</button>
           ) : (
-            <button type="button" onClick={submit} disabled={!draft.trim() && attachments.length === 0} aria-label="发送"
+            <button type="button" onClick={submit} disabled={planLocked || (!draft.trim() && attachments.length === 0)} aria-label="发送"
               className={`rounded-lg px-3 py-2 disabled:opacity-50 ${giftMode ? 'bg-[#79a861] text-[#0c160c] hover:bg-[#9bc16e]' : 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'}`}>
               <Send className="size-4" />
             </button>

@@ -7,16 +7,21 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleResolveResponse;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleSyncApplyRequest;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleSyncPreview;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModuleSyncResult;
+import com.exceptioncoder.toolbox.claudechat.api.dto.ProjectAliasRequest;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ProjectModulesResponse;
 import com.exceptioncoder.toolbox.claudechat.api.dto.SelfRepoResponse;
 import com.exceptioncoder.toolbox.claudechat.api.dto.WorkspaceListResponse;
+import com.exceptioncoder.toolbox.claudechat.service.ProjectAliasService;
 import com.exceptioncoder.toolbox.claudechat.service.WorkspaceScanService;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.ResponseStatus;
 
 /**
  * 工作目录查询：列出配置根目录下的一级子目录，供新建会话时下拉选 cwd。
@@ -27,14 +32,23 @@ import org.springframework.web.bind.annotation.RestController;
 public class WorkspaceController {
 
     private final WorkspaceScanService service;
+    private final ProjectAliasService projectAliasService;
 
-    public WorkspaceController(WorkspaceScanService service) {
+    public WorkspaceController(WorkspaceScanService service, ProjectAliasService projectAliasService) {
         this.service = service;
+        this.projectAliasService = projectAliasService;
     }
 
     @GetMapping
     public WorkspaceListResponse list() {
-        return service.scan();
+        return projectAliasService.decorate(service.scan());
+    }
+
+    /** 保存项目别名；空白别名表示清除并回退显示目录名。 */
+    @PutMapping("/alias")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void saveAlias(@RequestBody ProjectAliasRequest request) {
+        projectAliasService.saveAlias(request.projectPath(), request.alias());
     }
 
     /** 「自维护机器人」锁定的 kai-toolbox 自身仓库路径；未配置或目录不存在时前端隐藏机器人入口。 */

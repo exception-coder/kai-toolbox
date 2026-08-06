@@ -13,11 +13,30 @@ interface Props {
   onOptionsChange: (effort: CodexReasoningEffort, speed: CodexSpeed) => void
 }
 
-const EFFORTS: Array<{ value: CodexReasoningEffort; label: string }> = [
-  { value: 'low', label: '低' },
-  { value: 'medium', label: '中' },
-  { value: 'high', label: '高' },
-  { value: 'xhigh', label: '超高' },
+const DEFAULT_EFFORTS: CodexReasoningEffort[] = [
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+]
+
+const EFFORT_LABELS: Record<string, string> = {
+  minimal: '最低',
+  low: '低',
+  medium: '中',
+  high: '高',
+  xhigh: '超高',
+  max: '最大',
+  ultra: '极致',
+}
+
+function effortLabel(value: string) {
+  return EFFORT_LABELS[value] ?? value
+}
+
+const SPEEDS: Array<{ value: CodexSpeed; label: string }> = [
+  { value: 'default', label: '标准' },
+  { value: 'fast', label: '快速' },
 ]
 
 export function CodexSessionOptions({
@@ -32,8 +51,8 @@ export function CodexSessionOptions({
   onOptionsChange,
 }: Props) {
   const selectedModel = models.find(item => item.value === model)
-  const supportedEfforts = selectedModel?.reasoningEfforts?.length ? selectedModel.reasoningEfforts : EFFORTS.map(item => item.value)
-  const visibleEfforts = EFFORTS.filter(item => supportedEfforts.includes(item.value))
+  const supportedEfforts = selectedModel?.reasoningEfforts?.length ? selectedModel.reasoningEfforts : DEFAULT_EFFORTS
+  const visibleEfforts = supportedEfforts.map(value => ({ value, label: effortLabel(value) }))
   const fastSupported = !selectedModel || selectedModel.fastSupported !== false
   const authHomeLabel = codexHome?.trim() || '默认目录（%USERPROFILE%\\.codex）'
 
@@ -72,15 +91,22 @@ export function CodexSessionOptions({
           {visibleEfforts.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
         </select>
       </label>
-      <button
-        type="button"
-        disabled={disabled || !fastSupported}
-        onClick={() => onOptionsChange(reasoningEffort, speed === 'fast' ? 'default' : 'fast')}
-        title={!fastSupported ? '当前模型不支持 Fast' : speed === 'fast' ? 'Fast 已开启：约 1.5x 速度，会增加用量' : '开启 Fast：约 1.5x 速度，会增加用量'}
-        className={`flex h-7 items-center gap-1 rounded-md border px-2 text-xs disabled:opacity-50 ${speed === 'fast' ? 'border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-300' : 'text-[var(--color-muted-foreground)]'}`}
-      >
-        <Zap className="size-3.5" /> Fast
-      </button>
+      <label className="flex h-7 items-center gap-1 rounded-md border px-1.5 text-xs text-[var(--color-muted-foreground)]" title="速度，下轮生效">
+        <Zap className="size-3.5" />
+        <select
+          value={speed}
+          disabled={disabled}
+          onChange={event => onOptionsChange(reasoningEffort, event.target.value as CodexSpeed)}
+          aria-label="Codex 速度"
+          className="bg-transparent text-[var(--color-foreground)] outline-none disabled:opacity-50"
+        >
+          {SPEEDS.map(item => (
+            <option key={item.value} value={item.value} disabled={item.value === 'fast' && !fastSupported}>
+              {item.label}
+            </option>
+          ))}
+        </select>
+      </label>
       {showCodexHome && (
         <span
           className="flex h-7 min-w-0 max-w-64 items-center gap-1 rounded-md border px-2 text-xs text-[var(--color-muted-foreground)]"

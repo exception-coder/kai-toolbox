@@ -23,6 +23,7 @@ import { FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
 import { latestCodexTurnId } from './codexAppServer.js'
 
 export type CodexSpeed = 'default' | 'fast'
+export type CodexReasoningEffort = string
 
 export const CODEX_TOOLBOX_MCP_SERVERS = ['forge', 'erp_db', 'erp_app', 'srm_db', 'srm_app', 'scm_db'] as const
 
@@ -49,7 +50,7 @@ export interface CodexTurnCtx {
   text: string
   cwd: string
   model?: string
-  reasoningEffort?: ModelReasoningEffort
+  reasoningEffort?: CodexReasoningEffort
   speed?: CodexSpeed
   /** 会话权限模式（与 Claude 共用四档），映射为 Codex 的 approvalPolicy + sandboxMode。 */
   permissionMode: string
@@ -84,7 +85,7 @@ function normalizeOpenAiBase(base: string): string {
 }
 
 /** 取本轮用的 Codex 实例：配了网关→（缓存的）带 baseUrl+apiKey 的实例；否则官方实例。 */
-function normalizeCodexHome(value?: string): string | undefined {
+export function normalizeCodexHome(value?: string): string | undefined {
   const raw = value?.trim()
   if (!raw) return undefined
   const expanded = raw
@@ -258,7 +259,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
     approvalPolicy,
     sandboxMode,
     model: ctx.model || undefined,
-    modelReasoningEffort: ctx.reasoningEffort,
+    modelReasoningEffort: ctx.reasoningEffort as ModelReasoningEffort | undefined,
     ...(toolsDisabled || consultReadonly
       ? { networkAccessEnabled: false, webSearchMode: 'disabled' as WebSearchMode }
       : {}),

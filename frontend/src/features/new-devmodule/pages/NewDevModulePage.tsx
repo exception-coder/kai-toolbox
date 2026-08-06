@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { PackagePlus, Rocket } from 'lucide-react'
+import { CheckCircle2, Loader2, PackagePlus, RefreshCw, Rocket, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { listWorkspaces } from '@/features/claude-chat/api'
+import { listWorkspaces, syncYoooniErpAutoDev } from '@/features/claude-chat/api'
+import type { SkillSyncResult } from '@/features/claude-chat/types'
+import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 import { CHAT_ROUTE } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 
 // 复用 Vibe Coding 的 handoff 通道（ChatPage 挂载消费：开会话 + 投喂触发语）
@@ -63,7 +65,7 @@ export function NewDevModulePage() {
     for (const r of workspaces?.roots ?? []) {
       if (!r.exists) continue
       const rootName = r.root.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || r.root
-      for (const d of r.dirs) out.push({ path: d.path, label: `${d.name}（${rootName}）` })
+      for (const d of r.dirs) out.push({ path: d.path, label: `${getSystemWorkspaceDisplayName(d)}（${rootName}）` })
     }
     return out
   }, [workspaces])
@@ -82,6 +84,9 @@ export function NewDevModulePage() {
   const [stopCmd, setStopCmd] = useLocalState(K('stopCmd'))
   const [config, setConfig] = useLocalState(K('config'))
   const [brain, setBrain] = useLocalState(K('brain'), 'generic')
+  const [syncingSkill, setSyncingSkill] = useState(false)
+  const [skillSyncResult, setSkillSyncResult] = useState<SkillSyncResult | null>(null)
+  const [skillSyncError, setSkillSyncError] = useState<string | null>(null)
 
   const canStart = cwd.length > 0 && id.trim().length > 0 && name.trim().length > 0
 
@@ -90,6 +95,18 @@ export function NewDevModulePage() {
     const seed = buildSeed({ cwd, id, name, icon, startCmd, stopCmd, config, brain })
     try { sessionStorage.setItem(LAUNCH_KEY, JSON.stringify({ cwd, seed })) } catch { /* 隐私模式忽略 */ }
     navigate(CHAT_ROUTE)
+  }
+
+  const syncSkill = async () => {
+    setSyncingSkill(true)
+    setSkillSyncError(null)
+    try {
+      setSkillSyncResult(await syncYoooniErpAutoDev())
+    } catch (error) {
+      setSkillSyncError(error instanceof Error ? error.message : '更新失败')
+    } finally {
+      setSyncingSkill(false)
+    }
   }
 
   return (
@@ -158,6 +175,39 @@ export function NewDevModulePage() {
             {BRAIN_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </label>
+
+        <div className="rounded-lg border border-dashed p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-xs font-medium">yoooni-erp-auto-dev</div>
+              <p className="mt-0.5 text-[11px] text-[var(--color-muted-foreground)]">
+                团队依赖源码 → Claude Code + Codex 当前插件缓存
+              </p>
+            </div>
+            <Button type="button" size="sm" variant="outline" onClick={syncSkill} disabled={syncingSkill} className="gap-1">
+              {syncingSkill ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+              {syncingSkill ? '更新中…' : '一键更新'}
+            </Button>
+          </div>
+          {skillSyncError && (
+            <p className="mt-2 flex items-start gap-1 text-xs text-[var(--color-destructive)]">
+              <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />{skillSyncError}
+            </p>
+          )}
+          {skillSyncResult && (
+            <div className="mt-2 space-y-1 text-[11px]">
+              {skillSyncResult.targets.map(target => (
+                <div key={target.agent} className="flex items-start gap-1.5">
+                  {target.status === 'updated'
+                    ? <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-emerald-600" />
+                    : <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-600" />}
+                  <span><b>{target.agent === 'claude' ? 'Claude' : 'Codex'}</b>{target.version ? ` ${target.version}` : ''}：{target.message}</span>
+                </div>
+              ))}
+              <p className="break-all text-[var(--color-muted-foreground)]">源：{skillSyncResult.sourcePath}</p>
+            </div>
+          )}
+        </div>
 
         <div className="flex items-center gap-3 pt-1">
           <Button disabled={!canStart} onClick={start} className="gap-1">

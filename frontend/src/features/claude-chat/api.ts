@@ -1,6 +1,6 @@
 import { authFetch, http } from '@/lib/api'
 import { ensureFreshToken, getToken } from '@/lib/auth'
-import { listSystemModules, listSystemWorkspaces } from '@/lib/systemCatalog'
+import { listSystemModules, listSystemWorkspaces, saveSystemProjectAlias } from '@/lib/systemCatalog'
 import type { CommitDiff, CommitsResponse, GitRepoRef } from '@/components/git/types'
 import type { ChatItem, ClaudeChatSessionView, CloneResult, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PendingSqlChangeType, PendingSqlStatus, PluginStatus, ServerMessage, SessionPendingSql, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
 import { normalizeUserMessageForDisplay } from './messageDisplay'
@@ -154,6 +154,13 @@ export function listTeamRepositories(source: 'gitee' | 'github', fetch = false) 
   return http<import('./types').TeamRepositoryStatus[]>(`/claude-chat/plugins/repositories?${params.toString()}`)
 }
 
+/** 将团队源码中的 yoooni-erp-auto-dev 同步到 Claude/Codex 当前插件缓存。 */
+export function syncYoooniErpAutoDev() {
+  return http<import('./types').SkillSyncResult>('/claude-chat/plugins/skills/yoooni-erp-auto-dev/sync', {
+    method: 'POST',
+  })
+}
+
 /** 一键更新双端插件的 SSE 端点（用 authEventSource 连接，自动带 JWT；连上即触发）。 */
 export function pluginUpdateStreamPath(sessionId?: string) {
   return `/claude-chat/plugins/update/stream${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`
@@ -194,6 +201,11 @@ export function fetchProviderModels(baseUrl: string, key: string) {
 /** 列出配置根目录下的一级子目录，供新建会话选 cwd。 */
 export function listWorkspaces(): Promise<WorkspaceList> {
   return listSystemWorkspaces()
+}
+
+/** 保存或清除项目展示别名。 */
+export function saveProjectAlias(projectPath: string, alias: string) {
+  return saveSystemProjectAlias(projectPath, alias)
 }
 
 /** 「自维护机器人」锁定的 kai-toolbox 自身仓库路径；exists=false 时前端隐藏机器人入口。 */
@@ -327,6 +339,20 @@ export function setSessionGroupApi(id: string, group: string | null, subgroup?: 
   return http<void>(`/claude-chat/sessions/${encodeURIComponent(id)}/group`, {
     method: 'PUT',
     body: JSON.stringify({ group: group ?? '', subgroup: group ? subgroup ?? '' : '' }),
+  })
+}
+
+/** 将空闲会话标记为规划过期。 */
+export function expireSessionPlan(id: string) {
+  return http<void>(`/claude-chat/sessions/${encodeURIComponent(id)}/plan-expired`, {
+    method: 'PUT',
+  })
+}
+
+/** 显式解除会话规划过期锁定。 */
+export function unlockSessionPlan(id: string) {
+  return http<void>(`/claude-chat/sessions/${encodeURIComponent(id)}/plan-expired`, {
+    method: 'DELETE',
   })
 }
 

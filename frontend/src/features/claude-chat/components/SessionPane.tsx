@@ -22,6 +22,7 @@ import { agentStatusMeta, deriveAgentStatus, engineDisplayName, providerHost, ty
 import { ProviderDiagPanel } from './ProviderDiagPanel'
 import type { PrdSessionView } from '@/features/prd-clarify/types'
 import { countPrdReferenceDocuments, uploadPrdReference } from '../lib/prdReference'
+import { SessionPlanLockNotice } from './SessionPlanLockNotice'
 
 interface Props {
   /** 本块续接的会话 id。 */
@@ -75,6 +76,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
   // 标题取自会话列表缓存（与单会话视图共用同一 query 缓存）
   const { data: sessions = [] } = useQuery({ queryKey: ['claude-chat-sessions'], queryFn: listSessions, staleTime: 5000 })
   const meta = sessions.find(s => s.id === sessionId)
+  const planLocked = meta?.planExpired === true
 
   // 挂载（或 sessionId 变化）后续接一次该会话。若列表缓存里该会话此刻仍是 RUNNING+live，
   // 乐观带上 hintRunning——分屏刚接进来就知道要不要显示「中断」，不用等 Ready 校正
@@ -127,6 +129,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
   }
 
   const submit = () => {
+    if (planLocked) return
     if (!chat.sessionId) return
     if (!draft.trim() && attachments.length === 0) return
     ensureNotifyPermission()
@@ -237,7 +240,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
           </div>
         </div>
         {/* 指令菜单（命令 + 模型切换）：内嵌于输入区上方，避免窄块 overflow-hidden 裁切下拉 */}
-        {cmdMenuOpen && (
+        {cmdMenuOpen && !planLocked && (
           <CommandMenu
             inline
             commands={chat.slashCommands}
@@ -261,6 +264,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
           className="mb-1"
           onPick={reference => { void projectMention.pickReference(reference) }}
         />
+        <SessionPlanLockNotice session={meta} compact />
         <div className="flex items-end gap-1">
           {/* 附件：label 包 input，保留原生触发（移动端 WebView 不丢手势） */}
           <label
@@ -273,7 +277,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
               type="file"
               multiple
               className="sr-only"
-              disabled={atMax}
+              disabled={planLocked || atMax}
               onChange={e => handleFiles(e.target.files)}
             />
             <Paperclip className="size-4 text-[var(--color-primary)]" />
@@ -282,14 +286,16 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
           <button
             type="button"
             onClick={() => setCmdMenuOpen(o => !o)}
+            disabled={planLocked}
             aria-label="指令"
             title="指令（命令 / 切换模型）"
-            className={`flex size-9 shrink-0 items-center justify-center rounded-md hover:bg-[var(--color-accent)] ${cmdMenuOpen ? 'bg-[var(--color-accent)]' : ''}`}
+            className={`flex size-9 shrink-0 items-center justify-center rounded-md hover:bg-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-40 ${cmdMenuOpen ? 'bg-[var(--color-accent)]' : ''}`}
           >
             <Slash className="size-4 text-[var(--color-primary)]" />
           </button>
           <ProjectMentionButton
             active={projectMention.open}
+            disabled={planLocked}
             className="rounded-md border-0"
             onToggle={() => {
               setCmdMenuOpen(false)
@@ -297,7 +303,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
             }}
           />
           <VoiceInputButton
-            disabled={chat.running}
+            disabled={planLocked || chat.running}
             onText={t => setDraft(d => d.trim() ? `${d} ${t}` : t)}
           />
           <textarea
@@ -318,6 +324,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
               }
             }}
             rows={1}
+            disabled={planLocked}
             placeholder="发消息…（可粘贴图片）"
             className="max-h-[120px] min-h-[36px] flex-1 resize-none rounded-md border bg-[var(--color-background)] px-2 py-1.5 text-sm"
           />
@@ -326,7 +333,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
               <Square className="size-4" />
             </Button>
           ) : (
-            <Button size="icon" onClick={submit} disabled={!draft.trim() && attachments.length === 0} aria-label="发送" className="shrink-0">
+            <Button size="icon" onClick={submit} disabled={planLocked || (!draft.trim() && attachments.length === 0)} aria-label="发送" className="shrink-0">
               <Send className="size-4" />
             </Button>
           )}

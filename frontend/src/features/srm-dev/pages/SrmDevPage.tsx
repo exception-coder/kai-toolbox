@@ -5,6 +5,7 @@ import { ClipboardList, Database, DownloadCloud, Eye, EyeOff, Handshake, Loader2
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { listWorkspaces } from '@/features/claude-chat/api'
+import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 import { DevServiceSection } from '@/features/_devkit/DevServiceSection'
 import { useDevWorkbenchPreference } from '@/features/_devkit/useDevWorkbenchPreference'
 import {
@@ -28,7 +29,7 @@ export function SrmDevPage() {
     for (const r of workspaces?.roots ?? []) {
       if (!r.exists) continue
       const rootName = r.root.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || r.root
-      for (const d of r.dirs) out.push({ path: d.path, label: `${d.name}（${rootName}）` })
+      for (const d of r.dirs) out.push({ path: d.path, label: `${getSystemWorkspaceDisplayName(d)}（${rootName}）` })
     }
     return out
   }, [workspaces])

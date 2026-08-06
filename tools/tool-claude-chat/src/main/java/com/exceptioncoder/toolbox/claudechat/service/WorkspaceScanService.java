@@ -231,7 +231,8 @@ public class WorkspaceScanService implements LocalProjectResolver {
         try (Stream<Path> children = Files.list(root)) {
             children.filter(this::isCandidate)
                     .sorted(Comparator.comparing(p -> p.getFileName().toString(), String.CASE_INSENSITIVE_ORDER))
-                    .forEach(p -> dirs.add(new WorkspaceDirView(p.getFileName().toString(), p.toString())));
+                    .forEach(p -> dirs.add(new WorkspaceDirView(
+                            p.getFileName().toString(), p.toString(), null, p.getFileName().toString())));
         } catch (IOException e) {
             log.debug("扫描 workspace 根目录失败: {}", root, e);
             return new RootView(rootSetting, true, List.of());
