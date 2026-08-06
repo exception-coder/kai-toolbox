@@ -32,6 +32,6 @@ public class TopologyController {
     /** 分析系统链路（同步，内部在虚拟线程跑引擎；引擎默认 120s 超时），结果整表持久化。 */
     @PostMapping
     public TopologyView analyze(@RequestBody TopologyRequest req) {
-        return service.analyze(req.systems());
+        return service.analyze(req.systems(), req.engine());
     }
 }

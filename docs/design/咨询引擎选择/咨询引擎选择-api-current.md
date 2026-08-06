@@ -45,3 +45,21 @@ WebSocket `open` 消息新增可选字段：
 ```
 
 `classification` 只允许 `FOLLOW_UP | NEW_QUESTION`。分类失败时服务端返回 `FOLLOW_UP` 作为无阻断降级。
+
+## 5. 系统链路分析
+
+`POST /api/fore-consult/topology` 请求：
+
+```json
+{
+  "systems": ["ERP", "SCM", "SRM"],
+  "engine": "claude"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `systems` | string[] | 是 | 当前可见的系统原名，至少两个 |
+| `engine` | string | 否 | `claude` 或 `codex`；旧客户端未传时使用 `claude` |
+
+响应仍为 `{"links": [...]}`。非空结果替换已持久化链路；空结果表示本次没有发现可信关系，不清空上一次持久化结果。非法引擎返回 HTTP 400，执行失败返回现有错误响应。

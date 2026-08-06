@@ -73,7 +73,7 @@ public class ConsultQuestionClassifier {
         String userPrompt = "【首个问题】\n%s\n\n【本次输入】\n%s"
                 .formatted(firstQuestion.trim(), request.question().trim());
         try {
-            String raw = runWithTimeout(runner, userPrompt);
+            String raw = runWithTimeout(runner, userPrompt, normalizeEngine(request.engine()));
             JsonNode result = mapper.readTree(stripFence(raw == null ? "" : raw.trim()));
             String classification = result.path("classification").asText("").trim().toUpperCase();
             if (!FOLLOW_UP.equals(classification) && !NEW_QUESTION.equals(classification)) {
@@ -90,8 +90,8 @@ public class ConsultQuestionClassifier {
         }
     }
 
-    private String runWithTimeout(AgentOneShotRunner runner, String userPrompt) throws Exception {
-        FutureTask<String> task = new FutureTask<>(() -> runner.runOnce(SYSTEM_PROMPT, userPrompt, null));
+    private String runWithTimeout(AgentOneShotRunner runner, String userPrompt, String engine) throws Exception {
+        FutureTask<String> task = new FutureTask<>(() -> runner.runOnce(SYSTEM_PROMPT, userPrompt, null, engine));
         Thread.ofVirtual().name("fore-consult-classify").start(task);
         try {
             return task.get(timeoutMs, TimeUnit.MILLISECONDS);
@@ -104,6 +104,12 @@ public class ConsultQuestionClassifier {
             Thread.currentThread().interrupt();
             throw e;
         }
+    }
+
+    private static String normalizeEngine(String engine) {
+        if ("claude".equalsIgnoreCase(engine)) return "claude";
+        if ("codex".equalsIgnoreCase(engine)) return "codex";
+        throw new IllegalArgumentException("业务咨询仅支持 claude 或 codex 引擎");
     }
 
     private static QuestionClassificationView fallback(String reason) {

@@ -342,6 +342,7 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
         message.trim() || '补充附件',
         firstQuestion?.kind === 'user' ? firstQuestion.displayText ?? firstQuestion.text : undefined,
         true,
+        chat.currentEngine === 'claude' ? 'claude' : 'codex',
       )
       dispatchMessage(message, attachments, running, result.prompt ?? undefined)
     } catch {
@@ -372,6 +373,7 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
         message.trim() || '补充附件',
         firstQuestion.displayText ?? firstQuestion.text,
         false,
+        chat.currentEngine === 'claude' ? 'claude' : 'codex',
         controller.signal,
       )
       if (result.action === 'START_NEW_SESSION') {

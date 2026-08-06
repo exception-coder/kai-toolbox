@@ -13,8 +13,23 @@ class SessionExecutionPolicyTest {
         assertThat(SessionExecutionPolicy.forWebSocket(
                 URI.create("ws://localhost/api/claude-chat/consult/ws?access_token=x")))
                 .isEqualTo(SessionExecutionPolicy.CONSULT_READONLY);
-        assertThat(SessionExecutionPolicy.CONSULT_CODEX_HOME)
-                .isEqualTo("C:\\Users\\zhang\\.codex-account-yx");
+    }
+
+    @Test
+    void officialCodexUsesTrimmedDirectoryPassedByBrowser() {
+        assertThat(SessionExecutionPolicy.resolveCodexHome(
+                "codex", null, "  C:\\Users\\zhang\\.codex  "))
+                .isEqualTo("C:\\Users\\zhang\\.codex");
+        assertThat(SessionExecutionPolicy.resolveCodexHome("codex", null, " ")).isNull();
+    }
+
+    @Test
+    void claudeRetainsCodexDirectoryForLaterEngineSwitchButGatewayIgnoresIt() {
+        assertThat(SessionExecutionPolicy.resolveCodexHome(
+                "claude", null, "C:\\Users\\zhang\\.codex"))
+                .isEqualTo("C:\\Users\\zhang\\.codex");
+        assertThat(SessionExecutionPolicy.resolveCodexHome(
+                "codex", "https://gateway.example.com", "C:\\Users\\zhang\\.codex")).isNull();
     }
 
     @Test

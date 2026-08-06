@@ -116,17 +116,18 @@ public class ClaudeChatService {
         String cwd = open.cwd() == null || open.cwd().isBlank()
                 ? System.getProperty("user.home") : open.cwd().trim();
 
-        // 咨询入口固定走 Codex；不能通过手工构造 WS 消息切到尚未纳入只读裁决的其它引擎。
-        String engine = consultReadonly ? "codex" : normalizeEngine(open.engine());
+        String engine = normalizeEngine(open.engine());
+        if (consultReadonly && !"claude".equals(engine) && !"codex".equals(engine)) {
+            sendError(ws, 0, "ENGINE_UNSUPPORTED", "业务咨询仅支持 Claude Code 或 Codex 引擎");
+            return;
+        }
         // 第三方网关对 Claude / Codex / Gemini 引擎生效（Claude→Anthropic 兼容、Codex→OpenAI 兼容、
         // Gemini→Google 兼容，各走各的协议端点）；opencode 自管 provider，忽略网关参数。
         boolean gatewayCapable = "claude".equals(engine) || "codex".equals(engine) || "gemini".equals(engine);
         // 业务咨询不接受浏览器指定的第三方网关，避免把源码/业务数据送往任意外部地址。
         String apiBaseUrl = !consultReadonly && gatewayCapable ? blankToNull(open.apiBaseUrl()) : null;
         String authToken = apiBaseUrl == null ? null : blankToNull(open.authToken());
-        String codexHome = consultReadonly
-                ? SessionExecutionPolicy.CONSULT_CODEX_HOME
-                : "codex".equals(engine) && apiBaseUrl == null ? blankToNull(open.codexHome()) : null;
+        String codexHome = SessionExecutionPolicy.resolveCodexHome(engine, apiBaseUrl, open.codexHome());
         String codexReasoningEffort = normalizeCodexReasoningEffort(open.codexReasoningEffort());
         String codexSpeed = normalizeCodexSpeed(open.codexSpeed());
         repo.insert(ClaudeChatSession.builder()
@@ -548,11 +549,11 @@ public class ClaudeChatService {
             sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
-        if (isConsultReadonly(ctx)) {
-            sendError(ws, 0, "READONLY_POLICY", "业务咨询会话不允许切换执行引擎");
+        String engine = normalizeEngine(msg.engine());
+        if (isConsultReadonly(ctx) && !"claude".equals(engine) && !"codex".equals(engine)) {
+            sendError(ws, 0, "ENGINE_UNSUPPORTED", "业务咨询仅支持 Claude Code 或 Codex 引擎");
             return;
         }
-        String engine = normalizeEngine(msg.engine());
         if (engine.equals(ctx.engine)) return; // 同引擎无需切
         String prev = repo.findById(ctx.sessionId).map(ClaudeChatSession::getEngines).orElse(null);
         String engines = appendEngine(prev, ctx.engine, engine);
@@ -1018,7 +1019,6 @@ public class ClaudeChatService {
         ctx.autoApprove = false;
         ctx.apiBaseUrl = null;
         ctx.authToken = null;
-        ctx.codexHome = SessionExecutionPolicy.CONSULT_CODEX_HOME;
     }
 
     /**

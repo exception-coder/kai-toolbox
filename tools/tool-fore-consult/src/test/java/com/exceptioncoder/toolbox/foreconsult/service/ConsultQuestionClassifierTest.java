@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,6 +30,7 @@ class ConsultQuestionClassifierTest {
         @SuppressWarnings("unchecked")
         ObjectProvider<AgentOneShotRunner> runnerProvider = mock(ObjectProvider.class);
         CountDownLatch interrupted = new CountDownLatch(1);
+        AtomicReference<String> usedEngine = new AtomicReference<>();
         AgentOneShotRunner runner = new AgentOneShotRunner() {
             @Override
             public String stream(String systemPrompt, String userPrompt, String model, String engine,
@@ -38,6 +40,7 @@ class ConsultQuestionClassifierTest {
 
             @Override
             public String runOnce(String systemPrompt, String userPrompt, String model, String engine) {
+                usedEngine.set(engine);
                 try {
                     Thread.sleep(60_000);
                     return "";
@@ -58,12 +61,13 @@ class ConsultQuestionClassifierTest {
 
         long startedAt = System.nanoTime();
         var result = classifier.classify(
-                "session-1", new ClassifyQuestionRequest("继续追问", "首个问题"));
+                "session-1", new ClassifyQuestionRequest("继续追问", "首个问题", "codex"));
         long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
 
         assertThat(result.classification()).isEqualTo("FOLLOW_UP");
         assertThat(result.reason()).contains("超时");
         assertThat(elapsedMs).isLessThan(1_000);
         assertThat(interrupted.await(1, TimeUnit.SECONDS)).isTrue();
+        assertThat(usedEngine.get()).isEqualTo("codex");
     }
 }

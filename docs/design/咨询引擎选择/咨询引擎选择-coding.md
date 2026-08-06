@@ -17,6 +17,8 @@
 ## 3. 后端与 sidecar 落点
 
 - `ClientMessage.Open`、`ClaudeChatService`、`SidecarClient`：接收、持久化并透传授权目录。
+- `SessionExecutionPolicy.resolveCodexHome`：仅官方 Codex 会话接受并规整前端目录；业务咨询不再维护账号目录常量。
+- `ClaudeChatService.enforceReadonlyDefaults`：只恢复只读权限、模式和网关边界，不覆盖已持久化的 `codexHome`。
 - `ClaudeChatSession`、`ClaudeChatSessionRepository`、`ClaudeChatSchemaMigration`：会话元数据落库与旧库迁移。
 - `sessionManager.ts`、`codexEngine.ts`：会话级保存并通过 Codex SDK `env` 注入 `CODEX_HOME`。
 
@@ -54,3 +56,10 @@
 - `ForeConsultPage.tsx` 不再用 `activeConsultId` 禁止打开其他系统或创建新咨询。
 - `activeConsultId` 仅表示当前展示和同步的咨询，不代表系统中唯一的 `PENDING` 会话。
 - 切换会话继续复用历史列表的 `resumeConsult`，后端会话状态与接口无需调整。
+
+## 8. 系统链路分析
+
+- `ForeConsultPage.tsx`：分析按钮旁提供 Claude Code / Codex 选择，展示成功、空结果和失败状态。
+- `api.ts`、`TopologyRequest`：`POST /api/fore-consult/topology` 增加 `engine` 请求字段。
+- `TopologyService`：按受控引擎值调用 `AgentOneShotRunner`；仅非空结果替换持久化链路，空结果保留旧链路。
+- `TopologyServiceTest`：覆盖默认 Claude、显式 Codex、空结果保留旧链路和非法引擎拒绝。

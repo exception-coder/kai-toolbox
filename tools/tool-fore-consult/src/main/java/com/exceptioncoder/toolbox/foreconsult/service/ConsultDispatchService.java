@@ -47,7 +47,7 @@ public class ConsultDispatchService {
                 ? new QuestionClassificationView("FOLLOW_UP", "用户确认仍作为当前问题的追问")
                 : questionClassifier.classify(
                         session.getSessionId(),
-                        new ClassifyQuestionRequest(request.question(), request.firstQuestion()));
+                        new ClassifyQuestionRequest(request.question(), request.firstQuestion(), request.engine()));
         if ("NEW_QUESTION".equals(classification.classification())) {
             return ConsultDispatchView.startNewSession(classification.reason());
         }

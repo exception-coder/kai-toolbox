@@ -77,11 +77,12 @@ export function dispatchConsultQuestion(
   question: string,
   firstQuestion?: string,
   forceFollowUp = false,
+  engine: 'claude' | 'codex' = 'codex',
   signal?: AbortSignal,
 ) {
   return http<ConsultDispatchView>(`/fore-consult/sessions/${sessionId}/dispatch`, {
     method: 'POST',
-    body: JSON.stringify({ question, firstQuestion, forceFollowUp }),
+    body: JSON.stringify({ question, firstQuestion, forceFollowUp, engine }),
     signal,
   })
 }
@@ -90,11 +91,12 @@ export function classifyConsultQuestion(
   sessionId: string,
   question: string,
   firstQuestion?: string,
+  engine: 'claude' | 'codex' = 'codex',
   signal?: AbortSignal,
 ) {
   return http<QuestionClassificationView>(`/fore-consult/sessions/${sessionId}/classify-question`, {
     method: 'POST',
-    body: JSON.stringify({ question, firstQuestion }),
+    body: JSON.stringify({ question, firstQuestion, engine }),
     signal,
   })
 }
@@ -240,10 +242,10 @@ export interface TopoLink {
   description: string
 }
 
-export function analyzeTopology(systems: string[]) {
+export function analyzeTopology(systems: string[], engine: 'claude' | 'codex') {
   return http<{ links: TopoLink[] }>('/fore-consult/topology', {
     method: 'POST',
-    body: JSON.stringify({ systems }),
+    body: JSON.stringify({ systems, engine }),
   })
 }
 

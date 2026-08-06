@@ -12,9 +12,11 @@ import {
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { usePrompt } from '@/components/ui/prompt-dialog'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
+import { EngineIcon } from '@/features/claude-chat/components/EngineIcon'
+import { engineName } from '@/features/claude-chat/components/chatStatus'
 import { useClaudeChatSocket } from '@/features/claude-chat/hooks/useClaudeChatSocket'
 import { setSessionGroupApi } from '@/features/claude-chat/api'
-import type { ChatItem } from '@/features/claude-chat/types'
+import type { ChatItem, Engine } from '@/features/claude-chat/types'
 import { ConsultConversation } from '../components/ConsultConversation'
 import { BugDrawer } from '../components/BugDrawer'
 import { ConsultHistoryDetail } from '../components/ConsultHistoryDetail'
@@ -448,6 +450,7 @@ export function ForeConsultPage() {
   const [moduleTags, setModuleTags] = useState<string[]>([])
   const [questionTitle, setQuestionTitle] = useState('')
   const [ask, setAsk] = useState('')
+  const [consultEngine, setConsultEngine] = useState<Extract<Engine, 'claude' | 'codex'>>('codex')
   const [role, setRole] = useState<ConsultRole>(CONSULT_ROLE)
   const [moduleQuery, setModuleQuery] = useState('')
   const [modulesExpanded, setModulesExpanded] = useState(false)
@@ -471,6 +474,8 @@ export function ForeConsultPage() {
   const [configOpen, setConfigOpen] = useState(false)
   const [configRows, setConfigRows] = useState<Array<{ name: string; path: string; alias: string; visible: boolean }>>([])
   const [showLinks, setShowLinks] = useState(true)
+  const [topologyEngine, setTopologyEngine] = useState<Extract<Engine, 'claude' | 'codex'>>('claude')
+  const [topologyNotice, setTopologyNotice] = useState<{ tone: 'success' | 'empty' | 'error'; text: string } | null>(null)
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
   const [overrides, setOverrides] = useState<Map<string, Pos>>(new Map())
   const [activeConsultId, setActiveConsultId] = useState<string | null>(null)
@@ -481,6 +486,7 @@ export function ForeConsultPage() {
     displayText: string
     consultId: string
     attachments: ConsultAtt[]
+    engine: Extract<Engine, 'claude' | 'codex'>
   } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [canvasSize, setCanvasSize] = useState<CanvasSize>({ width: 1600, height: 900 })
@@ -694,7 +700,7 @@ export function ForeConsultPage() {
       p.cwd,
       undefined,
       'plan',
-      'codex',
+      p.engine,
       {
         codexHome: CONSULT_CODEX_HOME,
         codexReasoningEffort: CONSULT_CODEX_REASONING,
@@ -788,6 +794,7 @@ export function ForeConsultPage() {
         displayText: ask.trim() || '（见附件）',
         consultId: created.sessionId,
         attachments,
+        engine: consultEngine,
       }
       deliver()
       setQuestionTitle('')
@@ -826,11 +833,21 @@ export function ForeConsultPage() {
   }
 
   const topoMutation = useMutation({
-    mutationFn: () => analyzeTopology(visibleProjects.map((p) => p.name)),
+    mutationFn: () => analyzeTopology(visibleProjects.map((p) => p.name), topologyEngine),
+    onMutate: () => setTopologyNotice(null),
     onSuccess: (d) => {
       setShowLinks(true)
-      qc.setQueryData(['fore-consult-topology'], d)
+      if (d.links.length > 0) {
+        qc.setQueryData(['fore-consult-topology'], d)
+        setTopologyNotice({ tone: 'success', text: `分析完成，发现 ${d.links.length} 条调用链路` })
+      } else {
+        setTopologyNotice({ tone: 'empty', text: '本次未发现可信链路，已保留原有路线' })
+      }
     },
+    onError: (error) => setTopologyNotice({
+      tone: 'error',
+      text: error instanceof Error ? error.message : '链路分析失败，请重试',
+    }),
   })
 
   // 拖拽球体：pointermove 合并到浏览器下一绘制帧，每帧最多触发一次 React 更新。
@@ -1053,6 +1070,24 @@ export function ForeConsultPage() {
           </div>
         </div>
         <div className="fc-toolbar pointer-events-auto flex items-center gap-1.5">
+          <div className="flex items-center rounded-full border border-slate-200/70 bg-white/65 p-0.5" aria-label="链路分析引擎">
+            {(['claude', 'codex'] as const).map((engine) => (
+              <button
+                key={engine}
+                type="button"
+                onClick={() => setTopologyEngine(engine)}
+                disabled={topoMutation.isPending}
+                className={`flex items-center gap-1 rounded-full px-2 py-1 text-[11px] transition-colors disabled:opacity-50 ${
+                  topologyEngine === engine ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'
+                }`}
+                aria-pressed={topologyEngine === engine}
+                title={engine === 'claude' ? '使用 Claude Code 分析' : '使用 Codex 分析'}
+              >
+                <EngineIcon engine={engine} className="size-3" />
+                {engine === 'claude' ? 'Claude Code' : 'Codex'}
+              </button>
+            ))}
+          </div>
           <button
             type="button"
             onClick={() => topoMutation.mutate()}
@@ -1110,6 +1145,18 @@ export function ForeConsultPage() {
           </button>
         </div>
       </header>
+
+      {topologyNotice && (
+        <div className={`pointer-events-auto absolute right-6 top-[4.4rem] z-20 max-w-[420px] rounded-full border px-3 py-1.5 text-xs shadow-sm backdrop-blur-xl ${
+          topologyNotice.tone === 'success'
+            ? 'border-emerald-200 bg-emerald-50/90 text-emerald-700'
+            : topologyNotice.tone === 'empty'
+              ? 'border-amber-200 bg-amber-50/90 text-amber-700'
+              : 'border-rose-200 bg-rose-50/90 text-rose-700'
+        }`} role="status">
+          {topologyNotice.text}
+        </div>
+      )}
 
       {/* 进行中横幅：对话面板打开时隐藏（面板 z-30 全屏遮罩会盖住本横幅 z-20，
           否则点这里的「结束并归档」会先被遮罩吃掉变成关闭对话，导致要点两次）。归档入口此时用面板头部的按钮。 */}
@@ -1518,6 +1565,23 @@ export function ForeConsultPage() {
             <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
             <div className="flex items-center justify-between gap-3 px-1 pt-1">
               <div className="flex min-w-0 items-center gap-1.5">
+                <div className="flex shrink-0 items-center rounded-lg border border-slate-200/80 bg-white/55 p-0.5" aria-label="咨询引擎">
+                  {(['claude', 'codex'] as const).map((engine) => (
+                    <button
+                      key={engine}
+                      type="button"
+                      onClick={() => setConsultEngine(engine)}
+                      className={`flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] transition-colors ${
+                        consultEngine === engine ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-white'
+                      }`}
+                      aria-pressed={consultEngine === engine}
+                      title={`使用 ${engineName(engine)} 完成整条咨询链路`}
+                    >
+                      <EngineIcon engine={engine} className="size-3" />
+                      {engine === 'claude' ? 'Claude Code' : 'Codex'}
+                    </button>
+                  ))}
+                </div>
                 <button
                   type="button"
                   onClick={() => fileRef.current?.click()}
