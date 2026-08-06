@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
+import com.exceptioncoder.toolbox.claudechat.api.dto.SidecarEngineVersionView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.SidecarVersionView;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -16,28 +17,30 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 /**
- * sidecar 所用 Claude Agent SDK 的版本自检。
- *
- * <p>为什么需要：SDK 版本在构建期就钉死在 package.json + lock 里，运行期没有任何可见性；而可选模型清单
- * 是运行期问捆绑的 claude 二进制要的（见 sidecar 的 supportedModels）。SDK 一旦落后，表现只是「模型少了几项」
- * ——静默降级、不报错，用户无从判断新模型为什么选不到。这里把版本摆到台面上。
- *
- * <p>确定性优先：已装/声明版本纯读文件；捆绑 CLI 版本跑一次 {@code claude --version}（结果按已装版本缓存）；
- * 只有「检查最新」才联网查 npm registry，且失败只返回原因、不影响其余字段。升级动作一律不代劳——
- * Agent SDK 会执行任意代码，自动跟版的风险大于收益，这里只给出可复制的命令。
+ * sidecar 四种对话引擎运行包的版本自检服务。
+ * 本地版本确定性读取，只有用户显式检查时才并行访问 npm registry。
  */
 @Slf4j
 @Service
 public class SidecarVersionService {
 
-    private static final String PACKAGE = "@anthropic-ai/claude-agent-sdk";
-    private static final String REGISTRY = "https://registry.npmjs.org/" + PACKAGE + "/latest";
+    private static final String CLAUDE_PACKAGE = "@anthropic-ai/claude-agent-sdk";
+    private static final List<EngineDefinition> ENGINES = List.of(
+            new EngineDefinition("claude", "Claude Code", CLAUDE_PACKAGE, true),
+            new EngineDefinition("codex", "Codex", "@openai/codex-sdk", false),
+            new EngineDefinition("gemini", "Gemini", "@google/gemini-cli", false),
+            new EngineDefinition("opencode", "OpenCode", "@opencode-ai/sdk", false)
+    );
+    private static final String REGISTRY_BASE = "https://registry.npmjs.org/";
     private static final Duration NETWORK_TIMEOUT = Duration.ofSeconds(6);
     private static final long CLI_VERSION_TIMEOUT_MS = 8_000;
 
@@ -64,37 +67,59 @@ public class SidecarVersionService {
         if (!Files.isRegularFile(manifest)) {
             return SidecarVersionView.error("未找到 sidecar 的 package.json：" + manifest.toAbsolutePath());
         }
-        String declared;
+        JsonNode dependencies;
         try {
-            declared = mapper.readTree(manifest.toFile()).path("dependencies").path(PACKAGE).asText(null);
+            dependencies = mapper.readTree(manifest.toFile()).path("dependencies");
         } catch (Exception e) {
+            log.warn("[claude-chat] 读取 sidecar package.json 失败 path={}", manifest, e);
             return SidecarVersionView.error("读取 sidecar package.json 失败：" + e.getMessage());
         }
-        String installed = readInstalledVersion(dir);
-        String cli = installed == null ? null : readCliVersion(dir, installed);
-        String latest = checkLatest ? fetchLatestVersion() : null;
+        Map<String, String> latestVersions = checkLatest ? fetchLatestVersions() : Map.of();
+        List<SidecarEngineVersionView> engines = ENGINES.stream()
+                .map(definition -> readEngine(definition, dependencies, dir, latestVersions))
+                .toList();
+        SidecarEngineVersionView claude = engines.get(0);
+        boolean outdated = engines.stream().anyMatch(SidecarEngineVersionView::outdated);
+        return new SidecarVersionView(
+                claude.declared(), claude.installed(), claude.cliVersion(), claude.latest(), outdated,
+                upgradeCommand(), null, engines);
+    }
+
+    /** 升级命令：更新四种引擎运行包并重新构建，装完必须重启 sidecar 才生效。 */
+    public String upgradeCommand() {
+        String packages = ENGINES.stream()
+                .map(engine -> engine.packageName() + "@latest")
+                .reduce((left, right) -> left + " " + right)
+                .orElse("");
+        return "cd sidecar/claude-agent && npm i " + packages + " && npm run build";
+    }
+
+    /** 读取单个引擎的声明、安装和可确认的捆绑 CLI 版本。 */
+    private SidecarEngineVersionView readEngine(EngineDefinition definition, JsonNode dependencies,
+                                                Path sidecarDir, Map<String, String> latestVersions) {
+        String declared = blankToNull(dependencies.path(definition.packageName()).asText(null));
+        String installed = readInstalledVersion(sidecarDir, definition.packageName());
+        String cliVersion = definition.claudeCli() && installed != null ? readCliVersion(sidecarDir, installed) : null;
+        String latest = latestVersions.get(definition.packageName());
         boolean outdated = installed != null && latest != null && compareSemver(installed, latest) < 0;
         String error = installed == null
-                ? "sidecar 未安装依赖（缺 node_modules/" + PACKAGE + "），请先在 sidecar/claude-agent 执行 npm install"
+                ? "未安装，请在 sidecar/claude-agent 执行 npm install"
                 : null;
-        return new SidecarVersionView(declared, installed, cli, latest, outdated, upgradeCommand(), error);
+        return new SidecarEngineVersionView(
+                definition.id(), definition.name(), definition.packageName(), declared, installed,
+                cliVersion, latest, outdated, error);
     }
 
-    /** 升级命令：装最新 SDK 再重新 tsc；改的是运行期依赖，装完必须重启 sidecar 才生效。 */
-    public String upgradeCommand() {
-        return "cd sidecar/claude-agent && npm i " + PACKAGE + "@latest && npm run build";
-    }
-
-    private String readInstalledVersion(Path sidecarDir) {
-        Path pkg = sidecarDir.resolve("node_modules").resolve("@anthropic-ai")
-                .resolve("claude-agent-sdk").resolve("package.json");
+    /** 从 node_modules 读取运行时真正生效的包版本。 */
+    private String readInstalledVersion(Path sidecarDir, String packageName) {
+        Path pkg = sidecarDir.resolve("node_modules").resolve(Path.of(packageName)).resolve("package.json");
         if (!Files.isRegularFile(pkg)) {
             return null;
         }
         try {
             return blankToNull(mapper.readTree(pkg.toFile()).path("version").asText(null));
         } catch (Exception e) {
-            log.debug("[claude-chat] 读取已装 SDK 版本失败：{}", e.getMessage());
+            log.debug("[claude-chat] 读取已装引擎包版本失败 package={}", packageName, e);
             return null;
         }
     }
@@ -134,7 +159,7 @@ public class SidecarVersionService {
             if (p != null) p.destroyForcibly();
             return null;
         } catch (Exception e) {
-            log.debug("[claude-chat] 读取捆绑 CLI 版本失败：{}", e.getMessage());
+            log.debug("[claude-chat] 读取捆绑 CLI 版本失败", e);
             return null;
         }
     }
@@ -156,31 +181,56 @@ public class SidecarVersionService {
                     .toList();
             return candidates.isEmpty() ? null : candidates.get(0);
         } catch (Exception e) {
-            log.debug("[claude-chat] 定位 claude 二进制失败：{}", e.getMessage());
+            log.debug("[claude-chat] 定位 claude 二进制失败", e);
             return null;
         }
     }
 
-    /** 查 npm registry 上的最新版本。失败返回 null（调用方据此展示「查不到」，不影响本地字段）。 */
-    private String fetchLatestVersion() {
+    /** 并行查询四个 npm 包的最新版本，单个失败时保留其他结果。 */
+    private Map<String, String> fetchLatestVersions() {
         try (HttpClient client = HttpClient.newBuilder().connectTimeout(NETWORK_TIMEOUT).build()) {
-            HttpRequest req = HttpRequest.newBuilder(URI.create(REGISTRY))
-                    .timeout(NETWORK_TIMEOUT)
-                    .header("Accept", "application/json")
-                    .GET()
-                    .build();
-            HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            if (resp.statusCode() != 200) {
-                log.debug("[claude-chat] 查询 npm 最新版返回 {}", resp.statusCode());
-                return null;
+            Map<String, CompletableFuture<String>> requests = new LinkedHashMap<>(ENGINES.size());
+            for (EngineDefinition engine : ENGINES) {
+                HttpRequest request = HttpRequest.newBuilder(
+                                URI.create(REGISTRY_BASE + engine.packageName() + "/latest"))
+                        .timeout(NETWORK_TIMEOUT)
+                        .header("Accept", "application/json")
+                        .GET()
+                        .build();
+                CompletableFuture<String> version = client
+                        .sendAsync(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+                        .thenApply(response -> parseLatestVersion(engine.packageName(), response))
+                        .exceptionally(error -> {
+                            log.debug("[claude-chat] 查询 npm 最新版失败 package={}", engine.packageName(), error);
+                            return null;
+                        });
+                requests.put(engine.packageName(), version);
             }
-            JsonNode node = mapper.readTree(resp.body());
-            return blankToNull(node.path("version").asText(null));
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return null;
+            CompletableFuture.allOf(requests.values().toArray(CompletableFuture[]::new)).join();
+            Map<String, String> versions = new LinkedHashMap<>(ENGINES.size());
+            requests.forEach((packageName, future) -> {
+                String version = future.join();
+                if (version != null) {
+                    versions.put(packageName, version);
+                }
+            });
+            return versions;
         } catch (Exception e) {
-            log.debug("[claude-chat] 查询 npm 最新版失败：{}", e.getMessage());
+            log.debug("[claude-chat] 查询 npm 最新版失败", e);
+            return Map.of();
+        }
+    }
+
+    /** 将 npm latest 响应解析为版本号，非成功响应按该包查询失败处理。 */
+    private String parseLatestVersion(String packageName, HttpResponse<String> response) {
+        if (response.statusCode() != 200) {
+            log.debug("[claude-chat] 查询 npm 最新版返回 {} package={}", response.statusCode(), packageName);
+            return null;
+        }
+        try {
+            return blankToNull(mapper.readTree(response.body()).path("version").asText(null));
+        } catch (Exception e) {
+            log.debug("[claude-chat] 解析 npm 最新版失败 package={}", packageName, e);
             return null;
         }
     }
@@ -212,5 +262,16 @@ public class SidecarVersionService {
 
     private static String blankToNull(String s) {
         return s == null || s.isBlank() ? null : s;
+    }
+
+    /**
+     * 对话引擎与其 sidecar 运行包的稳定映射。
+     *
+     * @param id          引擎标识
+     * @param name        展示名称
+     * @param packageName npm 包名
+     * @param claudeCli   是否读取 Claude 捆绑 CLI
+     */
+    private record EngineDefinition(String id, String name, String packageName, boolean claudeCli) {
     }
 }

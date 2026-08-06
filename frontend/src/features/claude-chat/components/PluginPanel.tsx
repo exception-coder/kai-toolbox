@@ -3,7 +3,7 @@ import { RefreshCw, Download, UploadCloud, X, Copy, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { authEventSource } from '@/lib/api'
 import { getSidecarVersion, getTeamDependencyEnvironment, listSuites, listTeamRepositories, pluginInstallStreamPath, pluginUpdateStreamPath } from '../api'
-import type { SidecarVersion, SuiteStatus, TeamDependencyEnvironment, TeamRepositoryStatus } from '../types'
+import type { SidecarEngineVersion, SidecarVersion, SuiteStatus, TeamDependencyEnvironment, TeamRepositoryStatus } from '../types'
 
 const GIT_SOURCE_KEY = 'kai-toolbox:team-dependencies:git-source'
 
@@ -16,8 +16,24 @@ function formatSyncTime(value: number | null) {
   return value == null ? '从未记录' : new Date(value).toLocaleString()
 }
 
+/** 兼容新旧 sidecar 版本响应，统一生成引擎卡片数据。 */
+function sidecarEngines(sdk: SidecarVersion): SidecarEngineVersion[] {
+  if (sdk.engines?.length) return sdk.engines
+  return [{
+    id: 'claude',
+    name: 'Claude Code',
+    packageName: '@anthropic-ai/claude-agent-sdk',
+    declared: sdk.declared,
+    installed: sdk.installed,
+    cliVersion: sdk.cliVersion,
+    latest: sdk.latest,
+    outdated: sdk.outdated,
+    error: sdk.error,
+  }]
+}
+
 /**
- * 团队套件面板：展示当前会话所用的 3 插件 + 2 MCP 版本/状态，并一键更新插件（SSE 实时回显）。
+ * 团队套件面板：展示对话引擎运行包、3 插件与 2 MCP 状态，并一键更新插件（SSE 实时回显）。
  * 三个团队插件同时支持 Claude Code 与 Codex；更新走固定后端命令、非 AI 流。
  */
 export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClose: () => void }) {
@@ -266,7 +282,7 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
       <div className="mb-2 rounded-md border px-2 py-1.5 text-xs">
         <div className="flex items-center gap-2">
           <span className="font-medium">对话引擎 SDK（sidecar）</span>
-          {sdk?.outdated && (
+          {sdk && sidecarEngines(sdk).some(engine => engine.outdated) && (
             <span className="rounded bg-amber-100 px-1 text-[10px] text-amber-700 dark:bg-amber-900 dark:text-amber-200">
               可升级
             </span>
@@ -278,20 +294,43 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
         </div>
         {sdk == null ? (
           <div className="mt-1 text-[var(--color-muted-foreground)]">加载中…</div>
-        ) : sdk.error ? (
+        ) : sdk.error && !sdk.engines?.length ? (
           <div className="mt-1 text-[var(--color-destructive)]">{sdk.error}</div>
         ) : (
           <>
-            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[var(--color-muted-foreground)]">
-              <span>已装 <span className="text-[var(--color-foreground)]">{sdk.installed ?? '未知'}</span></span>
-              {sdk.cliVersion && <span>claude <span className="text-[var(--color-foreground)]">{sdk.cliVersion}</span></span>}
-              {sdk.latest && <span>最新 <span className="text-[var(--color-foreground)]">{sdk.latest}</span></span>}
-              {sdk.latest && !sdk.outdated && <span className="text-emerald-600 dark:text-emerald-400">已最新</span>}
-            </div>
-            {sdk.outdated && sdk.upgradeCommand && (
+            <ul className="mt-1.5 grid grid-cols-2 gap-1.5 xl:grid-cols-4">
+              {sidecarEngines(sdk).map(engine => (
+                <li key={engine.id} className={`min-w-0 rounded-md border px-2 py-1.5 ${engine.error
+                  ? 'border-red-300 bg-red-50/60 dark:border-red-900 dark:bg-red-950/30'
+                  : engine.outdated
+                    ? 'border-amber-300 bg-amber-50/60 dark:border-amber-900 dark:bg-amber-950/30'
+                    : 'border-emerald-300 bg-emerald-50/60 dark:border-emerald-900 dark:bg-emerald-950/30'}`}>
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className={`size-2 shrink-0 rounded-full ${engine.error ? 'bg-red-500' : engine.outdated ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                    <span className="truncate font-medium">{engine.name}</span>
+                    <span className={`ml-auto shrink-0 text-[10px] ${engine.error
+                      ? 'text-red-600 dark:text-red-400'
+                      : engine.outdated
+                        ? 'text-amber-600 dark:text-amber-400'
+                        : 'text-emerald-600 dark:text-emerald-400'}`}>
+                      {engine.error ? '缺失' : engine.outdated ? '可升级' : engine.latest ? '已最新' : '已安装'}
+                    </span>
+                  </div>
+                  <div className="mt-1 truncate text-[10px] text-[var(--color-muted-foreground)]" title={engine.packageName}>
+                    {engine.packageName}
+                  </div>
+                  <div className="mt-0.5 flex flex-wrap gap-x-2 text-[10px] text-[var(--color-muted-foreground)]">
+                    <span>已装 <span className="text-[var(--color-foreground)]">{engine.installed ?? '—'}</span></span>
+                    {engine.latest && <span>最新 <span className="text-[var(--color-foreground)]">{engine.latest}</span></span>}
+                  </div>
+                  {engine.cliVersion && <div className="mt-0.5 truncate text-[10px] text-[var(--color-muted-foreground)]" title={engine.cliVersion}>CLI {engine.cliVersion}</div>}
+                </li>
+              ))}
+            </ul>
+            {sidecarEngines(sdk).some(engine => engine.outdated) && sdk.upgradeCommand && (
               <>
                 <p className="mt-1 text-[10px] leading-relaxed text-[var(--color-muted-foreground)]">
-                  可选模型清单由捆绑的 claude 二进制决定，SDK 落后只会表现为「新模型选不到」，不会报错。升级后需重启 sidecar。
+                  升级命令会同步更新四种引擎运行包并重新构建，执行后需重启 sidecar。
                 </p>
                 <button type="button" onClick={() => void copyUpgrade()}
                   className="mt-1 flex w-full items-center gap-1.5 rounded-md bg-[var(--color-muted)] px-2 py-1 text-left text-[10px] hover:bg-[var(--color-accent)]">
