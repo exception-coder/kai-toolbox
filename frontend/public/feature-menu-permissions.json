@@ -276,6 +276,13 @@
       "sort": 51
     },
     {
+      "featureId": "erp-mini-program",
+      "code": "menu:erp-mini-program",
+      "name": "ERP小程序",
+      "module": "项目开发",
+      "sort": 52
+    },
+    {
       "featureId": "kai-dev",
       "code": "menu:kai-dev",
       "name": "Forge",
