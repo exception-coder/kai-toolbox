@@ -10,6 +10,7 @@ import { MessageList, type MessageListHandle } from '../components/MessageList'
 import { MessageNavPanel } from '../components/MessageNavPanel'
 import { SessionTotalBadge } from '../components/SessionTotalBadge'
 import { EngineIcon } from '../components/EngineIcon'
+import { CodexTransportBadge } from '../components/CodexTransportBadge'
 import { UsagePanel } from '../components/UsagePanel'
 import { PermissionDialog } from '../components/PermissionDialog'
 import { QuestionDialog } from '../components/QuestionDialog'
@@ -929,6 +930,12 @@ export function ChatPage() {
                 </>
               )}
             </div>
+            <CodexTransportBadge
+              engine={chat.currentEngine}
+              providerKind={chat.currentProviderKind}
+              diag={chat.providerDiag}
+              className="hidden sm:inline-flex"
+            />
             <StatusBadge
               tone={stateTone(chat.state)}
               pulse={chat.state === 'connecting'}

@@ -21,6 +21,7 @@ import { LogsPanel } from './LogsPanel'
 import { DebugPanel } from './DebugPanel'
 import { cn } from '@/lib/utils'
 import { EngineIcon } from './EngineIcon'
+import { CodexTransportBadge } from './CodexTransportBadge'
 import { setSkin, skinClass, useSkin } from '../lib/skinPref'
 import '../styles/skin.css'
 import { RestartDialog } from './RestartDialog'
@@ -653,6 +654,12 @@ export function FloatingChatWindow() {
               className="size-3.5"
               title={engineTitle}
               aria-label={engineLabel}
+            />
+            <CodexTransportBadge
+              engine={chat.currentEngine}
+              providerKind={chat.currentProviderKind}
+              diag={chat.providerDiag}
+              compact
             />
           </>
         )}

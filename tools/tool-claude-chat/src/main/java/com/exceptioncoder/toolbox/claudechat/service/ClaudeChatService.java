@@ -897,7 +897,8 @@ public class ClaudeChatService {
                     node.path("requestedModel").asText(null),
                     node.path("responseModel").asText(null),
                     node.path("viaGateway").asBoolean(false),
-                    node.path("baseUrl").asText(null)));
+                    node.path("baseUrl").asText(null),
+                    node.path("transport").asText(null)));
             case "turnProgress" -> sendToBrowser(ctx, seq -> new ServerMessage.TurnProgress(
                     seq, node.path("outputTokens").asLong(0)));
             case "warning" -> sendToBrowser(ctx, seq -> new ServerMessage.Warning(

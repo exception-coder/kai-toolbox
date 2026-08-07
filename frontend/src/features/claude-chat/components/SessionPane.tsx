@@ -11,6 +11,7 @@ import { CommandMenu } from './CommandMenu'
 import { MessageList } from './MessageList'
 import { SessionTotalBadge } from './SessionTotalBadge'
 import { EngineIcon } from './EngineIcon'
+import { CodexTransportBadge } from './CodexTransportBadge'
 import { PermissionDialog } from './PermissionDialog'
 import { QuestionDialog } from './QuestionDialog'
 import { ModeSwitch } from './ModeSwitch'
@@ -168,6 +169,12 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
           className="size-3.5"
           title={engineTitle}
           aria-label={engineLabel}
+        />
+        <CodexTransportBadge
+          engine={chat.currentEngine}
+          providerKind={chat.currentProviderKind}
+          diag={chat.providerDiag}
+          compact
         />
         <span className={`shrink-0 text-xs font-medium ${sm.text}`}>{sm.label}</span>
         <button

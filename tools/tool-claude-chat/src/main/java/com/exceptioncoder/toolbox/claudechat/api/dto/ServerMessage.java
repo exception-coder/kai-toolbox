@@ -87,7 +87,8 @@ public sealed interface ServerMessage
      * =是否经第三方网关及其地址。供前端「调用诊断」区块展示，便于排查是否真走了三方 / 被网关回退。
      */
     @JsonTypeName("turnInfo")
-    record TurnInfo(long seq, String requestedModel, String responseModel, boolean viaGateway, String baseUrl) implements ServerMessage {}
+    record TurnInfo(long seq, String requestedModel, String responseModel, boolean viaGateway,
+                    String baseUrl, String transport) implements ServerMessage {}
 
     /** 本轮进行中的实时输出 token 数（来自 SDK 流式 message_delta 的累计 output_tokens），供「进行时」指示器展示。 */
     @JsonTypeName("turnProgress")

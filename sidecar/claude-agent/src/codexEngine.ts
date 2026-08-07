@@ -28,6 +28,7 @@ import {
 
 export type CodexSpeed = 'default' | 'fast'
 export type CodexReasoningEffort = string
+type CodexTransport = 'appServer' | 'sdkFallback' | 'thirdPartySdk'
 
 export const CODEX_TOOLBOX_MCP_SERVERS = ['forge', 'erp_db', 'erp_app', 'srm_db', 'srm_app', 'scm_db'] as const
 
@@ -243,7 +244,7 @@ function mapMode(mode: string): { approvalPolicy: ApprovalMode; sandboxMode: San
  */
 export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
   if (ctx.apiBaseUrl?.trim()) {
-    await runCodexSdkTurn(ctx)
+    await runCodexSdkTurn(ctx, 'thirdPartySdk')
     return
   }
 
@@ -295,7 +296,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
         code: 'CODEX_APP_SERVER_FALLBACK',
         message: `Codex App Server 启动失败，已自动回退 SDK：${error.message}`,
       })
-      await runCodexSdkTurn(ctx)
+      await runCodexSdkTurn(ctx, 'sdkFallback')
       return
     }
     ctx.emit({
@@ -309,7 +310,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
   }
 }
 
-async function runCodexSdkTurn(ctx: CodexTurnCtx): Promise<void> {
+async function runCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport): Promise<void> {
   const safeCwd = existsSync(ctx.cwd) ? ctx.cwd : (process.env.USERPROFILE || process.env.HOME || process.cwd())
   const home = normalizeCodexHome(ctx.codexHome)
   if (!validateCodexHome(ctx, home)) return
@@ -390,6 +391,7 @@ async function runCodexSdkTurn(ctx: CodexTurnCtx): Promise<void> {
             responseModel: ctx.model ?? null,
             viaGateway: !!ctx.apiBaseUrl,
             baseUrl: ctx.apiBaseUrl ? normalizeOpenAiBase(ctx.apiBaseUrl) : null,
+            transport,
           })
           ctx.emit({ type: 'result', usage: ev.usage ?? {}, stopReason: 'end_turn' })
           break

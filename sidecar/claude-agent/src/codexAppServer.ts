@@ -343,7 +343,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
           if (completedTurnId) options.emit({ type: 'forkAnchor', anchor: completedTurnId })
           options.emit({
             type: 'turnInfo', requestedModel: options.model ?? null, responseModel: options.model ?? null,
-            viaGateway: false, baseUrl: null,
+            viaGateway: false, baseUrl: null, transport: 'appServer',
           })
           options.emit({ type: 'result', usage: normalizeUsage(lastUsage), stopReason: status === 'completed' ? 'end_turn' : status })
           cleanup()

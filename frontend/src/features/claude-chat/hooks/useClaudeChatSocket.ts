@@ -547,6 +547,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           responseModel: msg.responseModel,
           viaGateway: msg.viaGateway,
           baseUrl: msg.baseUrl,
+          transport: msg.transport,
         }, ...prev].slice(0, 30))
         break
       case 'turnProgress':

@@ -462,7 +462,7 @@ export type ServerMessage =
   | { type: 'forked'; seq: number; sessionId: string }
   | { type: 'replayGap'; seq: number; missingFrom: number; missingTo: number }
   | { type: 'result'; seq: number; usage?: Record<string, unknown>; stopReason: string }
-  | { type: 'turnInfo'; seq: number; requestedModel: string | null; responseModel: string | null; viaGateway: boolean; baseUrl: string | null }
+  | { type: 'turnInfo'; seq: number; requestedModel: string | null; responseModel: string | null; viaGateway: boolean; baseUrl: string | null; transport?: CodexTransport | null }
   | { type: 'turnProgress'; seq: number; outputTokens: number }
   | { type: 'warning'; seq: number; code: string; message: string }
   | { type: 'codexActivity'; seq: number; activityType: string; itemId: string; status: string; title: string; detail?: string | null; data?: unknown }
@@ -488,7 +488,10 @@ export interface TurnDiag {
   responseModel: string | null
   viaGateway: boolean
   baseUrl: string | null
+  transport?: CodexTransport | null
 }
+
+export type CodexTransport = 'appServer' | 'sdkFallback' | 'thirdPartySdk'
 
 // ── 渲染用的消息项 ───────────────────────────────────────────────
 // ts：该消息块的时间（Unix ms）。实时消息=客户端发送/接收时刻；历史消息暂无（可空，UI 不显示）。
