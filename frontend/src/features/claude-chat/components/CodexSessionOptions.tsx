@@ -30,8 +30,20 @@ const EFFORT_LABELS: Record<string, string> = {
   ultra: '极致',
 }
 
+const OFFICIAL_VISIBLE_EFFORTS = new Set([
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'ultra',
+])
+
 function effortLabel(value: string) {
-  return EFFORT_LABELS[value] ?? value
+  const label = EFFORT_LABELS[value] ?? value
+  if (value === 'max') return `${label} · 官方隐藏`
+  if (value === 'ultra') return `${label} Ultra · 官方高消耗`
+  if (OFFICIAL_VISIBLE_EFFORTS.has(value)) return `${label} · 官方`
+  return `${label} · 扩展`
 }
 
 const SPEEDS: Array<{ value: CodexSpeed; label: string }> = [
@@ -79,7 +91,7 @@ export function CodexSessionOptions({
         <option value="">默认模型</option>
         {models.map(item => <option key={item.value} value={item.value}>{item.displayName || item.value}</option>)}
       </select>
-      <label className="flex h-7 items-center gap-1 rounded-md border px-1.5 text-xs text-[var(--color-muted-foreground)]" title="推理强度，下轮生效">
+      <label className="flex h-7 items-center gap-1 rounded-md border px-1.5 text-xs text-[var(--color-muted-foreground)]" title="推理强度：保留协议支持的全部档位；官方隐藏表示官方客户端默认不展示">
         <Gauge className="size-3.5" />
         <select
           value={reasoningEffort}
