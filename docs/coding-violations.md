@@ -20,3 +20,4 @@
 | 13 | 需求范围 | 将“移除页面内开始开发版块”误解为移除整个 Feature 注册，或在新工作台中重新生成该冗余版块 | 截图指定版块时只修改对应 UI 区域；新开发工作台默认只保留菜单、路由和启停能力，不重复生成开始开发表单 | erp-dev、kai-dev、srm-dev、scm-dev、erp-mini-program | 2026-08-04 | 2 |
 | 14 | 架构约束 | 为业务咨询只注入通用源码搜索工具并允许从仓库根扫描，绕过既有 URL 定位与 Graphify 图谱流程 | 源码检索必须先走 URL 定位和 Graphify 上下文收敛，精确读取候选文件，仅在限定子目录内兜底搜索并排除 graphify-out | readonlyMcp.ts、ConsultStandardStepConfiguration.java、ForeConsultPage.tsx | 2026-08-05 | 1 |
 | 15 | 路径约束 | 将已停用的 `D:\Users\zhang\myWork\yoooni-daily-plugin` 误当团队插件源码并额外写入 | 团队插件源码统一读取 `C:\Users\zhang\.kai-toolbox\team-tools`；禁止再维护 D 盘旧开发仓副本 | PluginUpdateService.java、yoooni-erp-auto-dev/SKILL.md | 2026-08-05 | 1 |
+| 16 | 内容准确性 | 自动登记待执行 SQL 时只保存裸 SQL，缺少与系统业务变更关联的清晰注释 | 登记标题必须体现业务功能，每个 SQL 逻辑块前用注释说明关联功能、具体变更和执行目的 | pendingSqlPolicy.ts、forgePendingSql.ts | 2026-08-06 | 1 |

@@ -23,7 +23,9 @@ public class ConsultStandardStepConfiguration {
                         每次从源码发现类名、方法名、SQL ID 或审批流程节点后，带新上下文再次调用 source_context 反问 Graphify，逐步收敛调用链，不退回全仓扫描。
                         禁止创建、编辑、删除或移动文件；禁止执行会改变 Git、依赖、配置、数据库或业务数据的操作。
                         可以在回答中生成完整 DDL/DML SQL，供 IT 实施人员交给 DBA 人工审核执行；输出 SQL 文本不属于执行写操作。
-                        生成或实质修改可执行 DDL/DML 时，必须调用 forge.register_pending_sql 登记完整 SQL；只登记、不执行，SELECT/WITH 诊断查询不登记。
+                        仅登记需要脱离应用正常运行、由开发、运维或 DBA 人工审核执行的迁移、初始化、回填、一次性数据修复或运维 DDL/DML；符合该范围时必须调用 forge.register_pending_sql 登记完整 SQL。
+                        登记标题必须关联具体系统或模块的业务功能；每个 SQL 逻辑块前必须用“-- 功能：...；变更：...；目的：...”注释写明业务说明，确保脚本可独立交接。
+                        Repository、JDBC、MyBatis、ORM 中随应用正常运行自动执行的 SQL、测试夹具和 SELECT/WITH 诊断查询不登记；Forge 只登记、不执行。
                         Forge 登记不可用或失败时，仍要交付 SQL 并明确说明登记失败，不能因此拒绝回答。
                         不得亲自执行变更 SQL；不得在 SQL 中包含密码、Token、连接串等凭据。除此之外的写入请求仍只能说明建议，不得代为实施。
                         """));

@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
+import { FORGE_PENDING_SQL_TOOL_DESCRIPTION } from './pendingSqlPolicy.js'
 
 type ServerName = 'forge' | 'erp_db' | 'erp_app' | 'srm_db' | 'srm_app' | 'scm_db'
 
@@ -54,15 +55,12 @@ const querySchema = {
 
 if (serverName === 'forge') {
   server.registerTool('register_pending_sql', {
-    description: [
-      '把当前开发会话新建或实质修改的 DDL/DML 登记到 Forge“待执行 SQL”台账。生成数据库变更后必须调用。',
-      '只登记、绝不执行数据库；不要登记 SELECT/WITH 诊断查询；禁止包含密码、Token 或连接凭据。',
-    ].join(' '),
+    description: FORGE_PENDING_SQL_TOOL_DESCRIPTION,
     inputSchema: {
-      title: z.string().optional().describe('简短登记标题'),
+      title: z.string().optional().describe('关联具体系统、模块和业务功能的标题；首次登记或 replace 时必须提供'),
       targetEnvironment: z.string().optional().describe('目标库或环境，不确定可留空'),
       changeType: z.enum(['DDL', 'DML', 'MIXED']).default('MIXED'),
-      sqlText: z.string().describe('完整、可交付人工执行的 DDL/DML SQL'),
+      sqlText: z.string().describe('完整、可交付人工执行的 DDL/DML；每个逻辑块前须有“-- 功能：...；变更：...；目的：...”注释'),
       mode: z.enum(['append', 'replace']).default('append'),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
