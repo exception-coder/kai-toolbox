@@ -194,7 +194,7 @@ public class PrdClarifyController {
         PrdSession session = service.createSession(
                 req.title(), req.rawInput(), req.project(), req.module(), req.model(), req.engine(), req.role(),
                 req.reqType(), req.maxQuestions(), createdByUserId, req.clarifyMode(), req.businessFields(),
-                req.parentId());
+                req.parentId(), req.documentProfile());
         return PrdSessionView.from(session);
     }
 
@@ -215,7 +215,8 @@ public class PrdClarifyController {
     public PrdSessionView saveDraft(@Valid @RequestBody SaveDraftRequest req) {
         Long createdByUserId = AuthContext.current().map(AuthPrincipal::userId).orElse(null);
         PrdSession session = service.saveDraft(
-                req.title(), req.rawInput(), req.project(), req.module(), createdByUserId, req.businessFields());
+                req.title(), req.rawInput(), req.project(), req.module(), createdByUserId, req.businessFields(),
+                req.documentProfile());
         return PrdSessionView.from(session);
     }
 
@@ -224,7 +225,8 @@ public class PrdClarifyController {
     public PrdSessionView updateDraft(@PathVariable String id, @Valid @RequestBody SaveDraftRequest req) {
         try {
             PrdSession session = service.updateDraft(
-                    id, req.title(), req.rawInput(), req.project(), req.module(), req.businessFields());
+                    id, req.title(), req.rawInput(), req.project(), req.module(), req.businessFields(),
+                    req.documentProfile());
             return PrdSessionView.from(session);
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(NOT_FOUND, e.getMessage());
@@ -243,7 +245,7 @@ public class PrdClarifyController {
         try {
             PrdSession session = service.startClarifyFromDraft(id, req.title(), req.rawInput(), req.project(),
                     req.module(), req.model(), req.engine(), req.role(), req.reqType(), req.maxQuestions(),
-                    req.clarifyMode(), req.businessFields());
+                    req.clarifyMode(), req.businessFields(), req.documentProfile());
             return PrdSessionView.from(session);
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(NOT_FOUND, e.getMessage());

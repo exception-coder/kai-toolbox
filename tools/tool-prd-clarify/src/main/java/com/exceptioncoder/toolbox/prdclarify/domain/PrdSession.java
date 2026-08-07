@@ -66,6 +66,8 @@ public class PrdSession {
      * 哪种澄清面板，不会中途切换模式。
      */
     private String clarifyMode;
+    /** Document contract: CLASSIC (PRD/TDD) or SPEC_DRIVEN (core spec/execution plan). */
+    private String documentProfile;
     /**
      * 开发文档生成历史，JSON 字符串数组，格式
      * {@code [{version,mode,extraInstructions,generatedAt}]}，可为 null（尚未生成过）。

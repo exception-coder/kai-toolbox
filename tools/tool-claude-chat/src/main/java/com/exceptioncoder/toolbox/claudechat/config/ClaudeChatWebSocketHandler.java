@@ -63,6 +63,7 @@ public class ClaudeChatWebSocketHandler extends TextWebSocketHandler {
             case ClientMessage.Open open -> service.openSession(ws, open);
             case ClientMessage.Attach attach -> service.attach(ws, attach);
             case ClientMessage.SwitchSession s -> service.switchSession(ws, s);
+            case ClientMessage.DuplicateSession d -> service.duplicateSession(ws, d);
             case ClientMessage.ResumeHistory rh -> service.resumeHistory(ws, rh);
             case ClientMessage.ResumeCurrent rc -> service.resumeCurrent(ws, rc);
             case ClientMessage.Send send -> service.sendUserMessage(ws, send);

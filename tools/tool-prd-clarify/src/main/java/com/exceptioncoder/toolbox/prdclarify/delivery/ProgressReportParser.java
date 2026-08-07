@@ -17,7 +17,10 @@ public class ProgressReportParser {
     private static final String COMPLETED_HEADING = "## 已完成";
     private static final String PARTIAL_HEADING = "## 部分完成";
     private static final String MISSING_HEADING = "## 未完成";
+    private static final String EXCLUDED_HEADING = "## 观察项（不计分）";
     private static final String ALIGNMENT_HEADING = "## 文档与代码差异";
+    private static final String TEST_SCORING_EXCLUDED = "<!-- TEST_SCORING: EXCLUDED -->";
+    private static final String LEGACY_UNIT_TEST_SCORING_EXCLUDED = "<!-- UNIT_TEST_SCORING: EXCLUDED -->";
 
     /**
      * 解析一份 Markdown 进度报告。
@@ -33,7 +36,10 @@ public class ProgressReportParser {
         List<ProgressItem> completed = new ArrayList<>();
         List<ProgressItem> partial = new ArrayList<>();
         List<ProgressItem> missing = new ArrayList<>();
+        List<ProgressItem> excluded = new ArrayList<>();
         List<AlignmentFinding> alignment = new ArrayList<>();
+        boolean testScoringIncluded = !markdown.contains(TEST_SCORING_EXCLUDED)
+                && !markdown.contains(LEGACY_UNIT_TEST_SCORING_EXCLUDED);
         Section section = Section.NONE;
         MutableProgressItem current = null;
         List<String> tableLines = new ArrayList<>();
@@ -43,7 +49,8 @@ public class ProgressReportParser {
             Section nextSection = sectionOf(line);
             if (nextSection != Section.NONE) {
                 if (current != null) {
-                    addItem(section, current.toItem(), completed, partial, missing);
+                    addItem(section, current.toItem(), completed, partial, missing, excluded,
+                            testScoringIncluded);
                     current = null;
                 }
                 section = nextSection;
@@ -51,7 +58,8 @@ public class ProgressReportParser {
             }
             if (line.startsWith("## ")) {
                 if (current != null) {
-                    addItem(section, current.toItem(), completed, partial, missing);
+                    addItem(section, current.toItem(), completed, partial, missing, excluded,
+                            testScoringIncluded);
                     current = null;
                 }
                 section = Section.NONE;
@@ -67,7 +75,8 @@ public class ProgressReportParser {
             String itemTitle = checklistTitle(line, section);
             if (itemTitle != null) {
                 if (current != null) {
-                    addItem(section, current.toItem(), completed, partial, missing);
+                    addItem(section, current.toItem(), completed, partial, missing, excluded,
+                            testScoringIncluded);
                 }
                 current = new MutableProgressItem(itemTitle);
             } else if (current != null) {
@@ -76,14 +85,17 @@ public class ProgressReportParser {
         }
 
         if (current != null) {
-            addItem(section, current.toItem(), completed, partial, missing);
+            addItem(section, current.toItem(), completed, partial, missing, excluded,
+                    testScoringIncluded);
         }
         alignment.addAll(parseAlignmentTable(tableLines));
         return new ParsedProgressReport(
                 List.copyOf(completed),
                 List.copyOf(partial),
                 List.copyOf(missing),
-                List.copyOf(alignment));
+                List.copyOf(excluded),
+                List.copyOf(alignment),
+                testScoringIncluded);
     }
 
     private Section sectionOf(String line) {
@@ -91,6 +103,7 @@ public class ProgressReportParser {
             case COMPLETED_HEADING -> Section.COMPLETED;
             case PARTIAL_HEADING -> Section.PARTIAL;
             case MISSING_HEADING -> Section.MISSING;
+            case EXCLUDED_HEADING -> Section.EXCLUDED;
             case ALIGNMENT_HEADING -> Section.ALIGNMENT;
             default -> Section.NONE;
         };
@@ -101,6 +114,7 @@ public class ProgressReportParser {
             case COMPLETED -> "- [x]";
             case PARTIAL -> "- [~]";
             case MISSING -> "- [ ]";
+            case EXCLUDED -> "- [-]";
             default -> null;
         };
         if (marker == null) {
@@ -117,15 +131,32 @@ public class ProgressReportParser {
             ProgressItem item,
             List<ProgressItem> completed,
             List<ProgressItem> partial,
-            List<ProgressItem> missing) {
+            List<ProgressItem> missing,
+            List<ProgressItem> excluded,
+            boolean testScoringIncluded) {
+        if (!testScoringIncluded && section != Section.EXCLUDED && item.testItem()) {
+            excluded.add(item);
+            return;
+        }
         switch (section) {
             case COMPLETED -> completed.add(item);
             case PARTIAL -> partial.add(item);
             case MISSING -> missing.add(item);
+            case EXCLUDED -> excluded.add(item);
             default -> {
                 // 非进度章节中的列表不属于交付证据。
             }
         }
+    }
+
+    private static boolean isUnitTestTitle(String value) {
+        String title = value.toLowerCase(Locale.ROOT);
+        return title.contains("单元测试") || title.contains("unit test");
+    }
+
+    private static boolean isTestTitle(String value) {
+        String title = value.toLowerCase(Locale.ROOT);
+        return title.contains("测试") || title.matches(".*\\btests?\\b.*");
     }
 
     private List<AlignmentFinding> parseAlignmentTable(List<String> lines) {
@@ -172,6 +203,7 @@ public class ProgressReportParser {
         COMPLETED,
         PARTIAL,
         MISSING,
+        EXCLUDED,
         ALIGNMENT
     }
 
@@ -181,17 +213,21 @@ public class ProgressReportParser {
      * @param completed 已完成功能点
      * @param partial 部分完成功能点
      * @param missing 未完成功能点
+     * @param excluded 已核查但不纳入计分的观察项
      * @param alignment 文档与代码差异
+     * @param testScoringIncluded 测试项是否纳入本次评估计分
      */
     public record ParsedProgressReport(
             List<ProgressItem> completed,
             List<ProgressItem> partial,
             List<ProgressItem> missing,
-            List<AlignmentFinding> alignment) {
+            List<ProgressItem> excluded,
+            List<AlignmentFinding> alignment,
+            boolean testScoringIncluded) {
 
         /** 返回不含任何功能点的空报告。 */
         public static ParsedProgressReport empty() {
-            return new ParsedProgressReport(List.of(), List.of(), List.of(), List.of());
+            return new ParsedProgressReport(List.of(), List.of(), List.of(), List.of(), List.of(), true);
         }
 
         /** 返回报告中的功能点总数。 */
@@ -209,6 +245,8 @@ public class ProgressReportParser {
      * @param missing 缺失内容
      * @param expected 开发文档要求
      * @param actual 当前代码现状
+     * @param testItem 是否为测试功能点
+     * @param unitTest 是否为单元测试功能点，用于兼容旧版消费方
      */
     public record ProgressItem(
             String title,
@@ -216,7 +254,9 @@ public class ProgressReportParser {
             String implemented,
             String missing,
             String expected,
-            String actual) {
+            String actual,
+            boolean testItem,
+            boolean unitTest) {
     }
 
     /**
@@ -258,11 +298,21 @@ public class ProgressReportParser {
                 expected = detail.substring("开发文档要求：".length()).trim();
             } else if (detail.startsWith("当前代码：")) {
                 actual = detail.substring("当前代码：".length()).trim();
+            } else if (detail.startsWith("核查结果：")) {
+                actual = detail.substring("核查结果：".length()).trim();
             }
         }
 
         private ProgressItem toItem() {
-            return new ProgressItem(title, List.copyOf(evidence), implemented, missing, expected, actual);
+            return new ProgressItem(
+                    title,
+                    List.copyOf(evidence),
+                    implemented,
+                    missing,
+                    expected,
+                    actual,
+                    isTestTitle(title),
+                    isUnitTestTitle(title));
         }
     }
 }

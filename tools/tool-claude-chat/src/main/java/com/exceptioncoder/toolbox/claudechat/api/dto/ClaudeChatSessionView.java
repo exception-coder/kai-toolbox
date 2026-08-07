@@ -27,6 +27,7 @@ public record ClaudeChatSessionView(
         String codexHome,
         String group,
         String subgroup,
+        boolean favorite,
         SessionStatus status,
         long startedAt,
         long lastSeenAt,
@@ -63,7 +64,7 @@ public record ClaudeChatSessionView(
         String subgroup = s.getSubgroupName() == null || s.getSubgroupName().isBlank() ? null : s.getSubgroupName();
         return new ClaudeChatSessionView(
                 s.getId(), s.getCwd(), s.getTitle(), s.getSdkSessionId(),
-                engine, engines, providerKind, providerBaseUrl, s.getCodexHome(), group, subgroup,
+                engine, engines, providerKind, providerBaseUrl, s.getCodexHome(), group, subgroup, s.isFavorite(),
                 s.getStatus(), s.getStartedAt(), s.getLastSeenAt(), live, transcriptMissing,
                 planState != null && planState.planExpired(),
                 planState == null ? null : planState.expiredAt(),

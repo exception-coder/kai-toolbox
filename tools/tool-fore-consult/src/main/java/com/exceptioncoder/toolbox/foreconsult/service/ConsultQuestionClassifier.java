@@ -45,7 +45,7 @@ public class ConsultQuestionClassifier {
                                      ConsultSessionRepository sessionRepository,
                                      ConsultTurnRepository turnRepository,
                                      ObjectMapper mapper,
-                                     @Value("${toolbox.fore-consult.question-classify-timeout-ms:5000}")
+                                     @Value("${toolbox.fore-consult.question-classify-timeout-ms:15000}")
                                      long timeoutMs) {
         this.runnerProvider = runnerProvider;
         this.sessionRepository = sessionRepository;
@@ -73,7 +73,10 @@ public class ConsultQuestionClassifier {
         String userPrompt = "【首个问题】\n%s\n\n【本次输入】\n%s"
                 .formatted(firstQuestion.trim(), request.question().trim());
         try {
+            long startedAt = System.nanoTime();
             String raw = runWithTimeout(runner, userPrompt, normalizeEngine(request.engine()));
+            log.info("[fore-consult] 问题边界识别完成，engine={} latencyMs={}", request.engine(),
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
             JsonNode result = mapper.readTree(stripFence(raw == null ? "" : raw.trim()));
             String classification = result.path("classification").asText("").trim().toUpperCase();
             if (!FOLLOW_UP.equals(classification) && !NEW_QUESTION.equals(classification)) {
@@ -91,7 +94,10 @@ public class ConsultQuestionClassifier {
     }
 
     private String runWithTimeout(AgentOneShotRunner runner, String userPrompt, String engine) throws Exception {
-        FutureTask<String> task = new FutureTask<>(() -> runner.runOnce(SYSTEM_PROMPT, userPrompt, null, engine));
+        AgentOneShotRunner.ExecutionRequest request = new AgentOneShotRunner.ExecutionRequest(
+                SYSTEM_PROMPT, userPrompt, null, null, engine,
+                "low", "default", null, null, null, AgentOneShotRunner.TOOL_POLICY_DISABLED);
+        FutureTask<String> task = new FutureTask<>(() -> runner.runOnce(request));
         Thread.ofVirtual().name("fore-consult-classify").start(task);
         try {
             return task.get(timeoutMs, TimeUnit.MILLISECONDS);

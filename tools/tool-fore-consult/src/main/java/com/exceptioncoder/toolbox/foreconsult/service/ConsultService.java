@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -191,6 +192,14 @@ public class ConsultService {
                 .filter(principal -> !principal.hasAnyRole("ADMIN"))
                 .map(principal -> sessionRepo.findRecentByUserId(String.valueOf(principal.userId()), limit))
                 .orElseGet(() -> sessionRepo.findRecent(limit));
+    }
+
+    public Map<String, Integer> turnCounts(List<String> sessionIds) {
+        return turnRepo.countBySessions(sessionIds);
+    }
+
+    public Map<String, String> creatorNames(List<String> userIds) {
+        return sessionRepo.findCreatorNamesByUserIds(userIds);
     }
 
     public ConsultSession get(String sessionId) {

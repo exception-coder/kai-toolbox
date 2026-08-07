@@ -11,7 +11,7 @@ const manifest: FeatureManifest = {
   name: 'AI 需求中枢',
   icon: TableProperties,
   group: 'AI',
-  description: '统一登记、统一判定，基于 PRD/TDD/代码证据自动同步真实进度',
+  description: '统一登记、统一判定，基于需求规格、执行方案与代码证据自动同步真实进度',
   order: 53,
   routes: [{ path: '/tools/reqpool', element: <ReqPoolPage /> }],
 }

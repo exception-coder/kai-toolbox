@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.prdclarify.repository;
 
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdBusinessFields;
+import com.exceptioncoder.toolbox.prdclarify.domain.DocumentProfile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -41,6 +42,7 @@ public class PrdSessionRepository {
             .reqType(rs.getString("req_type"))
             .maxQuestions(rs.getInt("max_questions"))
             .clarifyMode(rs.getString("clarify_mode"))
+            .documentProfile(DocumentProfile.normalize(rs.getString("document_profile")))
             .mdPath(rs.getString("md_path"))
             .devDocPath(rs.getString("dev_doc_path"))
             .devSessionId(rs.getString("dev_session_id"))
@@ -73,15 +75,15 @@ public class PrdSessionRepository {
         jdbc.update(
                 "INSERT INTO prd_session (id, title, project, module, raw_input, requirement_detail, business_background, " +
                 "business_requirement_type, requirement_software, initiating_department, requester, requested_at, " +
-                "source_attachments, follow_up_records, questions, status, role, req_type, max_questions, clarify_mode, " +
+                "source_attachments, follow_up_records, questions, status, role, req_type, max_questions, clarify_mode, document_profile, " +
                 "md_path, model, engine, error_msg, created_by_user_id, parent_id, created_at, updated_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 s.getId(), s.getTitle(), s.getProject(), s.getModule(),
                 s.getRawInput(), s.getRequirementDetail(), s.getBusinessBackground(),
                 s.getBusinessRequirementType(), s.getRequirementSoftware(), s.getInitiatingDepartment(),
                 s.getRequester(), s.getRequestedAt(), s.getAttachments(), s.getFollowUpRecords(),
                 s.getQuestions(), s.getStatus(), s.getRole(),
-                s.getReqType(), s.getMaxQuestions(), s.getClarifyMode(),
+                s.getReqType(), s.getMaxQuestions(), s.getClarifyMode(), DocumentProfile.normalize(s.getDocumentProfile()),
                 s.getMdPath(), s.getModel(), s.getEngine(), s.getErrorMsg(), s.getCreatedByUserId(),
                 s.getParentId(), s.getCreatedAt(), s.getUpdatedAt());
     }
@@ -335,16 +337,17 @@ public class PrdSessionRepository {
      * 不存在"内容变了但不该影响过期判断"的顾虑，touch updated_at 只是如实反映"草稿最后编辑时间"。</p>
      */
     public void updateDraftFields(String id, String title, String rawInput, String project, String module,
-                                  PrdBusinessFields fields) {
+                                  PrdBusinessFields fields, String documentProfile) {
         PrdBusinessFields value = fields == null ? PrdBusinessFields.empty() : fields;
         jdbc.update("UPDATE prd_session SET title = ?, raw_input = ?, project = ?, module = ?, " +
                         "requirement_detail = ?, business_background = ?, business_requirement_type = ?, " +
                         "requirement_software = ?, initiating_department = ?, requester = ?, requested_at = ?, " +
-                        "source_attachments = ?, follow_up_records = ?, updated_at = ? WHERE id = ?",
+                        "source_attachments = ?, follow_up_records = ?, document_profile = ?, updated_at = ? WHERE id = ?",
                 title, rawInput, project, module,
                 value.requirementDetail(), value.businessBackground(), value.businessRequirementType(),
                 value.requirementSoftware(), value.initiatingDepartment(), value.requester(), value.requestedAt(),
-                value.attachments(), value.followUpRecords(), System.currentTimeMillis(), id);
+                value.attachments(), value.followUpRecords(), DocumentProfile.normalize(documentProfile),
+                System.currentTimeMillis(), id);
     }
 
     /**
@@ -355,17 +358,17 @@ public class PrdSessionRepository {
      */
     public void startClarifyFromDraft(String id, String title, String rawInput, String project, String module,
                                        String model, String engine, String role, String reqType, int maxQuestions,
-                                       String clarifyMode, PrdBusinessFields fields) {
+                                       String clarifyMode, PrdBusinessFields fields, String documentProfile) {
         PrdBusinessFields value = fields == null ? PrdBusinessFields.empty() : fields;
         jdbc.update("UPDATE prd_session SET title = ?, raw_input = ?, project = ?, module = ?, model = ?, engine = ?, " +
                         "role = ?, req_type = ?, max_questions = ?, clarify_mode = ?, requirement_detail = ?, " +
                         "business_background = ?, business_requirement_type = ?, requirement_software = ?, " +
                         "initiating_department = ?, requester = ?, requested_at = ?, source_attachments = ?, " +
-                        "follow_up_records = ?, status = 'CLARIFYING', updated_at = ? WHERE id = ?",
+                        "follow_up_records = ?, document_profile = ?, status = 'CLARIFYING', updated_at = ? WHERE id = ?",
                 title, rawInput, project, module, model, engine, role, reqType, maxQuestions, clarifyMode,
                 value.requirementDetail(), value.businessBackground(), value.businessRequirementType(),
                 value.requirementSoftware(), value.initiatingDepartment(), value.requester(), value.requestedAt(),
-                value.attachments(), value.followUpRecords(),
+                value.attachments(), value.followUpRecords(), DocumentProfile.normalize(documentProfile),
                 System.currentTimeMillis(), id);
     }
 

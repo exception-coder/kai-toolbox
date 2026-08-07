@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS prd_session (
     questions   TEXT,                           -- JSON: [{id,question,answer}]，澄清阶段产出
     status      TEXT    NOT NULL DEFAULT 'CLARIFYING',
     role        TEXT    NOT NULL DEFAULT 'PRODUCT', -- 提需求方角色，决定澄清问题的深度
+    document_profile TEXT NOT NULL DEFAULT 'CLASSIC', -- CLASSIC | SPEC_DRIVEN
     md_path     TEXT,                           -- ~/.kai-toolbox/prd/{id}.md 绝对路径
     model       TEXT,                           -- 使用的模型（null 走 sidecar 默认模型）
     engine      TEXT,                           -- 草稿为空；开始澄清后写入 claude | codex
@@ -76,6 +77,7 @@ ALTER TABLE prd_session ADD COLUMN created_by_user_id INTEGER;
 -- max_questions 道题，用户一次性填完）。「开始澄清前确认」弹框里选，恢复未完成会话
 -- （status=CLARIFYING）时前端据此决定渲染哪种澄清面板，不会中途变来变去。
 ALTER TABLE prd_session ADD COLUMN clarify_mode TEXT NOT NULL DEFAULT 'progressive';
+ALTER TABLE prd_session ADD COLUMN document_profile TEXT NOT NULL DEFAULT 'CLASSIC';
 
 -- 进度评估文档：结构对齐开发文档——独立落盘 + 按版本追加（不是覆盖），每次评估都基于当时
 -- 最新的 PRD + 开发文档核对代码库实际实现进度，追加一份新版本，可回看历次评估。

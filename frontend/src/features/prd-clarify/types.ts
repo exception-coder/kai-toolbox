@@ -22,6 +22,7 @@ export type PrdReqType = 'BUG_FIX' | 'MODULE_ADJUST' | 'NEW_MODULE'
  */
 export type PrdClarifyMode = 'progressive' | 'batch'
 export type AgentEngine = 'claude' | 'codex'
+export type DocumentProfile = 'CLASSIC' | 'SPEC_DRIVEN'
 
 export interface QuestionItem {
   id: number
@@ -126,6 +127,8 @@ export interface PrdSessionView {
   project: string | null
   module: string | null
   status: PrdSessionStatus
+  documentProfile: DocumentProfile
+  documentProfileLocked: boolean
   /** 草稿阶段尚未选择执行引擎；真正开始澄清时才写入。 */
   engine: AgentEngine | null
   role: PrdRole
@@ -205,6 +208,7 @@ export interface CreateSessionRequest {
   businessFields?: PrdBusinessFields
   /** 修订版/拆分子需求的来源会话；普通新建会话不传。 */
   parentId?: string
+  documentProfile?: DocumentProfile
 }
 
 /** 保存/更新草稿：只含标题/需求描述/关联项目模块，草稿阶段还不用决定角色/需求类型/澄清深度/模式。 */
@@ -214,6 +218,7 @@ export interface SaveDraftRequest {
   project?: string
   module?: string
   businessFields?: PrdBusinessFields
+  documentProfile?: DocumentProfile
 }
 
 /**

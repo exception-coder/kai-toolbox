@@ -1,6 +1,6 @@
 import { http } from '@/lib/api'
 import type { DeliveryOverview, DeliveryRequirement, StageView } from './types'
-import type { PrdBusinessFields } from '@/features/prd-clarify/types'
+import type { DocumentProfile, PrdBusinessFields } from '@/features/prd-clarify/types'
 
 export interface DeliveryFilters {
   project?: string
@@ -18,6 +18,7 @@ export interface CreatePrdDraftRequest {
   rawInput: string
   project: string
   module: string
+  documentProfile: DocumentProfile
   businessFields?: PrdBusinessFields
 }
 
@@ -87,6 +88,7 @@ function normalizeRequirementStages(requirement: DeliveryRequirement): DeliveryR
 
   return {
     ...requirement,
+    documentProfile: requirement.documentProfile ?? 'CLASSIC',
     stages: {
       ...stages,
       prdDraft: stages.prdDraft ?? {

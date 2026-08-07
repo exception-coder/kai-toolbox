@@ -342,6 +342,13 @@ export function setSessionGroupApi(id: string, group: string | null, subgroup?: 
   })
 }
 
+/** 收藏或取消收藏工具会话。 */
+export function setSessionFavorite(id: string, favorite: boolean) {
+  return http<void>(`/claude-chat/sessions/${encodeURIComponent(id)}/favorite`, {
+    method: favorite ? 'PUT' : 'DELETE',
+  })
+}
+
 /** 将空闲会话标记为规划过期。 */
 export function expireSessionPlan(id: string) {
   return http<void>(`/claude-chat/sessions/${encodeURIComponent(id)}/plan-expired`, {

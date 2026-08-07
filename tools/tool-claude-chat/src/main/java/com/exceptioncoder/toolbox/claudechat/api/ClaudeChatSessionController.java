@@ -98,6 +98,22 @@ public class ClaudeChatSessionController {
         return ResponseEntity.noContent().build();
     }
 
+    /** 将会话标记为重点收藏。 */
+    @PutMapping("/{id}/favorite")
+    public ResponseEntity<Void> favorite(@PathVariable String id) {
+        return repo.updateFavorite(id, true)
+                ? ResponseEntity.noContent().build()
+                : ResponseEntity.notFound().build();
+    }
+
+    /** 取消会话重点收藏。 */
+    @DeleteMapping("/{id}/favorite")
+    public ResponseEntity<Void> unfavorite(@PathVariable String id) {
+        return repo.updateFavorite(id, false)
+                ? ResponseEntity.noContent().build()
+                : ResponseEntity.notFound().build();
+    }
+
     /**
      * 标记会话规划过期；运行中的会话必须先结束或中断。
      *

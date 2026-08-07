@@ -36,6 +36,8 @@ public class ClaudeChatSession {
     private String groupName;
     /** 二级需求分组；一级 groupName 通常表示系统/项目。 */
     private String subgroupName;
+    /** 是否为用户重点收藏会话。 */
+    private boolean favorite;
     private SessionStatus status;
     private long startedAt;
     private long lastSeenAt;

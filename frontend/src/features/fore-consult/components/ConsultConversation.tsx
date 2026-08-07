@@ -2,14 +2,13 @@ import {
   memo, useEffect, useLayoutEffect, useMemo, useRef, useState,
   type ClipboardEvent as ReactClipboardEvent, type ReactNode,
 } from 'react'
-import { marked } from 'marked'
-import DOMPurify from 'dompurify'
 import { Archive, Bug, CheckCircle2, CircleDashed, Copy, Database, GitBranch, Loader2, MessagesSquare, Paperclip, Quote, Send, ShieldAlert, Square, ThumbsDown, ThumbsUp, X } from 'lucide-react'
 import { EngineIcon } from '@/features/claude-chat/components/EngineIcon'
+import { Markdown } from '@/features/claude-chat/components/Markdown'
 import { engineName } from '@/features/claude-chat/components/chatStatus'
 import type { UseClaudeChatSocket } from '@/features/claude-chat/hooks/useClaudeChatSocket'
 import type { ChatItem, Engine } from '@/features/claude-chat/types'
-import { dispatchConsultQuestion, registerBug, submitFeedback, uploadConsultAttachment } from '../api'
+import { classifyConsultQuestion, dispatchConsultQuestion, registerBug, submitFeedback, uploadConsultAttachment } from '../api'
 import { buildConsultTurnAudits, type AuditEvidence, type AuditState, type ConsultTurnAudit } from '../consultAudit'
 
 // AI 在回答里判定为缺陷时输出的机器可读块，前端解析登记并从展示中剥离。
@@ -36,7 +35,6 @@ type Att = { name: string; path: string; mime?: string | null; url?: string }
 type Rating = 'GOOD' | 'BAD'
 
 const BAD_CATEGORIES = ['答非所问', '信息有误', '不够具体', '入口/步骤不对', '其他']
-const QUESTION_CLASSIFY_TIMEOUT_MS = 6_500
 const HISTORY_LOAD_THRESHOLD_PX = 48
 const BOTTOM_FOLLOW_THRESHOLD_PX = 64
 
@@ -50,15 +48,8 @@ interface Props {
   onBugRegistered?: () => void
   onClose: () => void
   onArchive: () => void
+  onStartNew: (title: string, question: string, attachments: Att[]) => Promise<void>
   archiving: boolean
-}
-
-function renderMarkdown(text: string): string {
-  try {
-    return DOMPurify.sanitize(marked.parse(text, { async: false }) as string)
-  } catch {
-    return DOMPurify.sanitize(text)
-  }
 }
 
 /**
@@ -66,7 +57,7 @@ function renderMarkdown(text: string): string {
  * 复用 claude-chat 协议的业务咨询专用 WS（chat.open/send/items）驱动，结果在本面板同步渲染。
  * 会话从 consult 专用通道打开；服务端强制 consult-readonly，只允许读取与白名单 MCP。
  */
-export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, cwd, onUploaded, onBugRegistered, onClose, onArchive, archiving }: Props) {
+export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, cwd, onUploaded, onBugRegistered, onClose, onArchive, onStartNew, archiving }: Props) {
   const [text, setText] = useState('')
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
   const [atts, setAtts] = useState<Att[]>([])
@@ -76,8 +67,12 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
   const [lightbox, setLightbox] = useState<string | null>(null) // 图片灯箱 src
   const [bugTurns, setBugTurns] = useState<Set<string>>(new Set()) // 已登记 BUG 的 assistant 消息 id
   const registeredRef = useRef<Set<string>>(new Set())
-  const [classifying, setClassifying] = useState(false)
+  const sendingRef = useRef(false)
   const [newQuestionReason, setNewQuestionReason] = useState<string | null>(null)
+  const [newQuestionDraft, setNewQuestionDraft] = useState<{ message: string; attachments: Att[] } | null>(null)
+  const [newQuestionTitle, setNewQuestionTitle] = useState('')
+  const [startingNewQuestion, setStartingNewQuestion] = useState(false)
+  const [newQuestionError, setNewQuestionError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLTextAreaElement>(null)
@@ -294,7 +289,7 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
   }
 
   const hasSendableContent = !!chat && (!!text.trim() || atts.length > 0) && uploading === 0
-  const canSend = hasSendableContent && !classifying
+  const canSend = hasSendableContent
   const dispatchMessage = (
     message: string,
     attachments: Array<{ name: string; path: string; mime?: string; url?: string }> | undefined,
@@ -328,33 +323,11 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
       : null
     chat.switchEngine(engine)
   }
-  const sendCurrentAsFollowUp = async () => {
-    if (!hasSendableContent) return
-    const message = text
-    const attachments = atts.length
-      ? atts.map((a) => ({ name: a.name, path: a.path, mime: a.mime ?? undefined, url: a.url }))
-      : undefined
-    const firstQuestion = items.find((item) => item.kind === 'user')
-    setClassifying(true)
-    try {
-      const result = await dispatchConsultQuestion(
-        consultId,
-        message.trim() || '补充附件',
-        firstQuestion?.kind === 'user' ? firstQuestion.displayText ?? firstQuestion.text : undefined,
-        true,
-        chat.currentEngine === 'claude' ? 'claude' : 'codex',
-      )
-      dispatchMessage(message, attachments, running, result.prompt ?? undefined)
-    } catch {
-      dispatchMessage(message, attachments, running)
-    } finally {
-      setClassifying(false)
-    }
-  }
   const send = async () => {
-    if (!chat || !canSend) return
-    // 分类是异步的，先快照本次点击发送的内容，避免等待期间输入状态变化导致消息丢失或错发。
+    if (!chat || !canSend || sendingRef.current) return
+    sendingRef.current = true
     const message = text
+    const draftAttachments = [...atts]
     const attachments = atts.length
       ? atts.map((a) => ({ name: a.name, path: a.path, mime: a.mime ?? undefined, url: a.url }))
       : undefined
@@ -362,32 +335,37 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
     const firstQuestion = items.find((item) => item.kind === 'user')
     if (!firstQuestion || firstQuestion.kind !== 'user') {
       dispatchMessage(message, attachments, shouldQueue)
+      sendingRef.current = false
       return
     }
-    const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort(), QUESTION_CLASSIFY_TIMEOUT_MS)
-    setClassifying(true)
+
     try {
-      const result = await dispatchConsultQuestion(
+      const dispatch = await dispatchConsultQuestion(
         consultId,
         message.trim() || '补充附件',
         firstQuestion.displayText ?? firstQuestion.text,
-        false,
+        true,
         chat.currentEngine === 'claude' ? 'claude' : 'codex',
-        controller.signal,
       )
-      if (result.action === 'START_NEW_SESSION') {
-        setNewQuestionReason(result.reason)
-        return
-      }
-      dispatchMessage(message, attachments, shouldQueue, result.prompt ?? undefined)
+      dispatchMessage(message, attachments, shouldQueue, dispatch.prompt ?? undefined)
     } catch {
-      // 分类只是辅助拦截，超时、断网或服务异常都必须放行用户消息，不能卡在“识别中”。
       dispatchMessage(message, attachments, shouldQueue)
     } finally {
-      window.clearTimeout(timeout)
-      setClassifying(false)
+      sendingRef.current = false
     }
+
+    void classifyConsultQuestion(
+        consultId,
+        message.trim() || '补充附件',
+        firstQuestion.displayText ?? firstQuestion.text,
+        chat.currentEngine === 'claude' ? 'claude' : 'codex',
+      )
+      .then((result) => {
+        if (result.classification !== 'NEW_QUESTION') return
+        setNewQuestionDraft({ message, attachments: draftAttachments })
+        setNewQuestionReason(result.reason)
+      })
+      .catch(() => undefined)
   }
 
   return (
@@ -590,8 +568,8 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
                   disabled={!canSend}
                   className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-400 to-indigo-500 px-4 py-1.5 text-sm font-medium text-white shadow-[0_8px_30px_-8px_rgba(99,102,241,0.8)] transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {classifying ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-                  {classifying ? '识别中…' : running ? '排队发送' : '发送'}
+                  <Send className="size-4" />
+                  {running ? '排队发送' : '发送'}
                 </button>
               </div>
             </div>
@@ -608,15 +586,26 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
                 <ShieldAlert className="size-4" /> 这可能是一个新问题
               </div>
               <p className="text-sm leading-6 text-slate-600">
-                为便于按系统和问题独立归档、评测，请结束当前咨询，再选择所属系统开启新的业务会话。
+                当前输入与首轮问题可能不是同一事项。填写新标题后可直接开启新咨询，当前咨询会继续保留为进行中状态。
               </p>
               <p className="mt-2 text-xs text-slate-400">识别依据：{newQuestionReason}</p>
+              <input
+                value={newQuestionTitle}
+                onChange={(event) => setNewQuestionTitle(event.target.value)}
+                maxLength={33}
+                autoFocus
+                placeholder="填写新问题标题（必填）"
+                className="mt-4 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-amber-300"
+              />
+              {newQuestionError && <p className="mt-2 text-xs text-rose-600">{newQuestionError}</p>}
               <div className="mt-5 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => {
                     setNewQuestionReason(null)
-                    sendCurrentAsFollowUp()
+                    setNewQuestionDraft(null)
+                    setNewQuestionTitle('')
+                    setNewQuestionError(null)
                   }}
                   className="rounded-xl px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900"
                 >
@@ -624,13 +613,26 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    setNewQuestionReason(null)
-                    onArchive()
+                  disabled={!newQuestionTitle.trim() || startingNewQuestion}
+                  onClick={async () => {
+                    setStartingNewQuestion(true)
+                    setNewQuestionError(null)
+                    try {
+                      if (!newQuestionDraft) return
+                      await onStartNew(newQuestionTitle.trim(), newQuestionDraft.message, newQuestionDraft.attachments)
+                      setNewQuestionReason(null)
+                      setNewQuestionDraft(null)
+                      setNewQuestionTitle('')
+                    } catch (error) {
+                      setNewQuestionError(error instanceof Error ? error.message : '新建咨询失败，请重试')
+                    } finally {
+                      setStartingNewQuestion(false)
+                    }
                   }}
-                  className="rounded-xl bg-amber-400 px-3 py-2 text-sm font-medium text-amber-950 hover:bg-amber-300"
+                  className="flex min-w-[88px] items-center justify-center gap-1 rounded-xl bg-amber-400 px-3 py-2 text-sm font-medium text-amber-950 hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  结束当前咨询
+                  {startingNewQuestion && <Loader2 className="size-3.5 animate-spin" />}
+                  新建咨询
                 </button>
               </div>
             </div>
@@ -783,10 +785,6 @@ function BadFeedbackDialog({ onSubmit, onCancel }: { onSubmit: (category: string
 }
 
 const MessageRow = memo(function MessageRow({ item, onImageClick }: { item: ChatItem; onImageClick: (src: string) => void }) {
-  const assistantHtml = useMemo(
-    () => (item.kind === 'assistant' && item.text.trim() ? renderMarkdown(stripBug(item.text)) : ''),
-    [item],
-  )
   if (item.kind === 'user') {
     const shown = item.displayText ?? item.text
     return (
@@ -814,7 +812,7 @@ const MessageRow = memo(function MessageRow({ item, onImageClick }: { item: Chat
     if (!item.text.trim()) return null
     return (
       <div className="max-w-[92%] rounded-2xl rounded-tl-sm border border-slate-200/90 bg-white/72 px-3.5 py-2.5 shadow-[0_12px_30px_-26px_rgba(15,23,42,0.32)]">
-        <div className="fc-md" dangerouslySetInnerHTML={{ __html: assistantHtml }} />
+        <Markdown text={stripBug(item.text)} className="fc-md" />
       </div>
     )
   }

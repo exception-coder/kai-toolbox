@@ -31,6 +31,7 @@ class ConsultQuestionClassifierTest {
         ObjectProvider<AgentOneShotRunner> runnerProvider = mock(ObjectProvider.class);
         CountDownLatch interrupted = new CountDownLatch(1);
         AtomicReference<String> usedEngine = new AtomicReference<>();
+        AtomicReference<AgentOneShotRunner.ExecutionRequest> usedRequest = new AtomicReference<>();
         AgentOneShotRunner runner = new AgentOneShotRunner() {
             @Override
             public String stream(String systemPrompt, String userPrompt, String model, String engine,
@@ -49,6 +50,12 @@ class ConsultQuestionClassifierTest {
                     Thread.currentThread().interrupt();
                     throw new RuntimeException(e);
                 }
+            }
+
+            @Override
+            public String runOnce(ExecutionRequest request) {
+                usedRequest.set(request);
+                return runOnce(request.systemPrompt(), request.userPrompt(), request.model(), request.engine());
             }
         };
         when(runnerProvider.getIfAvailable()).thenReturn(runner);
@@ -69,5 +76,7 @@ class ConsultQuestionClassifierTest {
         assertThat(elapsedMs).isLessThan(1_000);
         assertThat(interrupted.await(1, TimeUnit.SECONDS)).isTrue();
         assertThat(usedEngine.get()).isEqualTo("codex");
+        assertThat(usedRequest.get().reasoningEffort()).isEqualTo("low");
+        assertThat(usedRequest.get().toolPolicy()).isEqualTo(AgentOneShotRunner.TOOL_POLICY_DISABLED);
     }
 }

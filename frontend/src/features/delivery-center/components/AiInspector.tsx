@@ -1,6 +1,7 @@
 import { ArrowUpRight, BrainCircuit, Check, Clock3, CircleDashed, TriangleAlert, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import type { DeliveryFinding, DeliveryRequirement, DeliveryStageKey, ProgressItem, StageStatus } from '../types'
+import { documentProfileLabels } from '@/features/prd-clarify/documentProfile'
 
 interface Props {
   requirement: DeliveryRequirement | null
@@ -15,18 +16,19 @@ export function AiInspector({ requirement, findings, onStageSelect }: Props) {
       <aside className="flex min-h-[420px] items-center justify-center border border-[var(--color-border)] p-6 text-center">
         <div>
           <BrainCircuit className="mx-auto h-6 w-6 text-[var(--color-muted-foreground)]" />
-          <p className="mt-3 text-xs text-[var(--color-muted-foreground)]">选择一条 PRD 轨道进行检查</p>
+          <p className="mt-3 text-xs text-[var(--color-muted-foreground)]">选择一条需求轨道进行检查</p>
         </div>
       </aside>
     )
   }
 
+  const labels = documentProfileLabels(requirement.documentProfile)
   const stages = [
-    ['prdDraft', 'PRD 草稿', requirement.stages.prdDraft.status, requirement.stages.prdDraft.score],
-    ['prdClarify', 'PRD 澄清', requirement.stages.prdClarify.status, requirement.stages.prdClarify.score],
-    ['prd', 'PRD', requirement.stages.prd.status, requirement.stages.prd.score],
-    ['tddClarify', 'TDD 澄清', requirement.stages.tddClarify.status, requirement.stages.tddClarify.score],
-    ['tdd', 'TDD', requirement.stages.tdd.status, requirement.stages.tdd.score],
+    ['prdDraft', labels.specificationDraft, requirement.stages.prdDraft.status, requirement.stages.prdDraft.score],
+    ['prdClarify', labels.specificationClarify, requirement.stages.prdClarify.status, requirement.stages.prdClarify.score],
+    ['prd', labels.specification, requirement.stages.prd.status, requirement.stages.prd.score],
+    ['tddClarify', labels.planClarify, requirement.stages.tddClarify.status, requirement.stages.tddClarify.score],
+    ['tdd', labels.plan, requirement.stages.tdd.status, requirement.stages.tdd.score],
     ['code', 'Code', requirement.stages.code.status, requirement.stages.code.score],
     ['test', 'Test', requirement.stages.test.status, requirement.stages.test.score],
     ['runtime', 'Runtime', requirement.stages.runtime.status, requirement.stages.runtime.score],
@@ -36,6 +38,7 @@ export function AiInspector({ requirement, findings, onStageSelect }: Props) {
     ...requirement.progressItems.partial,
     ...requirement.progressItems.completed,
   ]
+  const excludedItems = requirement.progressItems.excluded ?? []
 
   return (
     <aside className="min-w-0 border border-[var(--color-border)] bg-[var(--color-card)]">
@@ -108,9 +111,30 @@ export function AiInspector({ requirement, findings, onStageSelect }: Props) {
           )}
         </section>
 
+        {excludedItems.length > 0 && (
+          <section>
+            <div className="flex items-center justify-between">
+              <SectionTitle>观察项（不计分）</SectionTitle>
+              <span className="text-[9px] text-sky-600">测试不纳入 · {excludedItems.length} 项</span>
+            </div>
+            <div className="mt-2 divide-y divide-[var(--color-border)]">
+              {excludedItems.map((item, index) => (
+                <div key={`${item.title}-${index}`} className="py-3 text-[9px] leading-relaxed">
+                  <div className="flex items-start justify-between gap-3">
+                    <strong className="text-[11px] text-[var(--color-card-foreground)]">{item.title}</strong>
+                    <span className="shrink-0 font-semibold text-sky-600">0 分</span>
+                  </div>
+                  <p className="mt-1 text-[var(--color-muted-foreground)]">{item.actual || item.missing || item.implemented || '已核查，本次不纳入计分'}</p>
+                  {item.evidence.length > 0 && <p className="mt-1 break-words text-[var(--color-primary)]">证据：{item.evidence.join('；')}</p>}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {requirement.alignmentFindings.length > 0 && (
           <section>
-            <SectionTitle>PRD vs Code</SectionTitle>
+            <SectionTitle>{`${labels.specification} vs Code`}</SectionTitle>
             <div className="mt-2 divide-y divide-[var(--color-border)]">
               {requirement.alignmentFindings.map((item, index) => (
                 <div key={`${item.requirement}-${index}`} className="grid gap-1 py-3 text-[9px]">
@@ -124,7 +148,7 @@ export function AiInspector({ requirement, findings, onStageSelect }: Props) {
         )}
 
         <div className="flex flex-wrap gap-3 border-t border-[var(--color-border)] pt-4">
-          <InspectorLink label="查看 PRD" onClick={() => navigate(requirement.links.prd)} />
+          <InspectorLink label={`查看${labels.specification}`} onClick={() => navigate(requirement.links.prd)} />
           {requirement.links.development && (
             <InspectorLink label="开发会话" onClick={() => navigate(requirement.links.development!)} />
           )}

@@ -17,7 +17,8 @@ public sealed interface ServerMessage
                 ServerMessage.QuestionRequest, ServerMessage.DecisionResolved,
                 ServerMessage.Models, ServerMessage.UserMessage, ServerMessage.ForkAnchor, ServerMessage.Forked,
                 ServerMessage.ReplayGap, ServerMessage.Result, ServerMessage.TurnInfo,
-                ServerMessage.TurnProgress, ServerMessage.Error, ServerMessage.BackgroundTasks,
+                ServerMessage.TurnProgress, ServerMessage.Warning, ServerMessage.CodexActivity,
+                ServerMessage.Error, ServerMessage.BackgroundTasks,
                 ServerMessage.PendingSessions {
 
     long seq();
@@ -91,6 +92,15 @@ public sealed interface ServerMessage
     /** 本轮进行中的实时输出 token 数（来自 SDK 流式 message_delta 的累计 output_tokens），供「进行时」指示器展示。 */
     @JsonTypeName("turnProgress")
     record TurnProgress(long seq, long outputTokens) implements ServerMessage {}
+
+    /** 非致命告警：会话仍可继续，前端不得据此结束运行态。 */
+    @JsonTypeName("warning")
+    record Warning(long seq, String code, String message) implements ServerMessage {}
+
+    /** Codex App Server 暴露的计划、文件、子 Agent、上下文压缩等过程事件。 */
+    @JsonTypeName("codexActivity")
+    record CodexActivity(long seq, String activityType, String itemId, String status,
+                         String title, String detail, Object data) implements ServerMessage {}
 
     @JsonTypeName("error")
     record Error(long seq, String code, String message) implements ServerMessage {}

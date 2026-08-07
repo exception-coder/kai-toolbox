@@ -20,7 +20,7 @@ import java.util.function.Consumer;
  * 复用 claude-chat 的 sidecar 跑「一次性 Agent 任务」：给定 system+user prompt，
  * 经 Claude Agent SDK 跑一轮，逐片回吐文本并在结束返回全文。供其它模块（如简历「高质量」优化）调用。
  *
- * <p>不建持久会话、不接 MCP、不调工具——Agent 当作更强的 LLM 用，纯文本进出。
+ * <p>不建持久会话；调用方可通过 {@link ExecutionRequest} 指定工作目录和受限工具策略。
  * requestId 以 {@code oneshot:} 前缀，由 {@link ClaudeChatService#onSidecarEvent} 分发到本服务的 {@link #handle}。
  */
 @Slf4j
@@ -51,6 +51,12 @@ public class AgentOneShotService implements AgentOneShotRunner {
     @Override
     public String runOnce(ExecutionRequest request) {
         return execute(request, null, null);
+    }
+
+    /** 按调用方提供的会话配置流式执行独立任务。 */
+    @Override
+    public String stream(ExecutionRequest request, Consumer<String> onDelta) {
+        return execute(request, onDelta, null);
     }
 
     /** 阻塞跑一次，逐片回调 {@code onDelta}，结束返回完整文本。 */
@@ -88,12 +94,13 @@ public class AgentOneShotService implements AgentOneShotRunner {
             throw new RuntimeException("高质量引擎超时：" + normalizeEngine(request.engine())
                     + " 在 " + limit + " 内未返回结果", e);
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            // 调用方采用更短的业务超时（如追问分类）时，真正通知 sidecar 停止生成，避免后台空跑。
+            // 先用未中断状态发送取消消息；Spring 的阻塞 WebSocket 发送遇到中断标记会关闭共享连接。
             try {
                 sidecar.interrupt(id);
             } catch (Exception ignored) {
                 // sidecar 已断开时无需二次处理，finally 仍会清理本地 call。
+            } finally {
+                Thread.currentThread().interrupt();
             }
             throw new RuntimeException("一次性 Agent 任务已取消", e);
         } catch (RuntimeException e) {

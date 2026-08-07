@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS claude_chat_session (
     group_name      TEXT,
     -- 二级需求分组；group_name 表示系统/项目，本字段表示该项目下的具体需求
     subgroup_name   TEXT,
+    -- 用户重点收藏；1=收藏，0=普通。复制会话不继承。
+    favorite        INTEGER NOT NULL DEFAULT 0,
     -- RUNNING / IDLE / INTERRUPTED / DONE
     status          TEXT NOT NULL,
     started_at      INTEGER NOT NULL,

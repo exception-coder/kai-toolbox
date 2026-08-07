@@ -29,6 +29,7 @@ import java.util.List;
 public record ConsultSessionView(
         String sessionId,
         String userId,
+        String creatorName,
         String questionTitle,
         String systemName,
         String systemSourcePath,
@@ -42,6 +43,7 @@ public record ConsultSessionView(
         String errorMsg,
         long createdAt,
         Long endedAt,
+        int turnCount,
         List<ConsultTurnView> turns,
         List<FeedbackView> feedback
 ) {
@@ -52,19 +54,28 @@ public record ConsultSessionView(
 
     /** 列表视图：不带轮次明细与反馈。 */
     public static ConsultSessionView from(ConsultSession s) {
-        return from(s, List.of(), List.of());
+        return from(s, null, 0, List.of(), List.of());
+    }
+
+    public static ConsultSessionView summary(ConsultSession s, String creatorName, int turnCount) {
+        return from(s, creatorName, turnCount, List.of(), List.of());
     }
 
     /** 详情视图：带轮次明细与评分反馈。 */
     public static ConsultSessionView from(ConsultSession s, List<ConsultTurnView> turns, List<FeedbackView> feedback) {
+        return from(s, null, turns == null ? 0 : turns.size(), turns, feedback);
+    }
+
+    public static ConsultSessionView from(ConsultSession s, String creatorName, int turnCount,
+                                          List<ConsultTurnView> turns, List<FeedbackView> feedback) {
         return new ConsultSessionView(
-                s.getSessionId(), s.getUserId(), s.getQuestionTitle(), s.getSystemName(), s.getSystemSourcePath(),
+                s.getSessionId(), s.getUserId(), creatorName, s.getQuestionTitle(), s.getSystemName(), s.getSystemSourcePath(),
                 parseModuleNames(s.getModuleNames()), s.getPromptSnapshot(), s.getDevSessionId(),
                 s.getRawReferenceJson(),
                 s.getParseStatus() != null ? s.getParseStatus() : "NONE",
                 s.getArchiveStatus() != null ? s.getArchiveStatus() : "PENDING",
                 s.getRole() != null ? s.getRole() : "IT",
-                s.getErrorMsg(), s.getCreatedAt(), s.getEndedAt(),
+                s.getErrorMsg(), s.getCreatedAt(), s.getEndedAt(), turnCount,
                 turns != null ? turns : List.of(),
                 feedback != null ? feedback : List.of());
     }

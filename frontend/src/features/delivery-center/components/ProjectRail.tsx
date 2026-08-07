@@ -49,7 +49,7 @@ export function ProjectRail({ projects, selected, onSelect }: Props) {
                 />
               </div>
               <div className="mt-2 flex items-center justify-between text-[9px] text-[var(--color-muted-foreground)]">
-                <span>{project.requirementCount} 个 PRD</span>
+                <span>{project.requirementCount} 个需求</span>
                 {project.highRiskCount > 0 && (
                   <span className="inline-flex items-center gap-1 text-[var(--color-danger)]">
                     <AlertTriangle className="h-2.5 w-2.5" />{project.highRiskCount}

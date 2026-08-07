@@ -40,6 +40,8 @@ export interface ClaudeChatSessionView {
   group?: string | null
   /** 二级需求分组；一级 group 通常表示系统/项目。 */
   subgroup?: string | null
+  /** 用户重点收藏，收藏会话在所属需求分组内优先展示。 */
+  favorite?: boolean
   status: SessionStatus
   startedAt: number
   lastSeenAt: number
@@ -406,6 +408,7 @@ export type ClientMessage =
     }
   | { type: 'attach'; sessionId: string; lastEventSeq: number }
   | { type: 'switchSession'; sessionId: string }
+  | { type: 'duplicateSession'; sourceSessionId: string; codexHome?: string }
   | { type: 'resumeHistory'; sdkSessionId: string; cwd: string }
   | { type: 'resumeCurrent'; sessionId?: string }
   | { type: 'send'; text: string; attachments?: Attachment[]; developerInstructions?: string }
@@ -461,6 +464,8 @@ export type ServerMessage =
   | { type: 'result'; seq: number; usage?: Record<string, unknown>; stopReason: string }
   | { type: 'turnInfo'; seq: number; requestedModel: string | null; responseModel: string | null; viaGateway: boolean; baseUrl: string | null }
   | { type: 'turnProgress'; seq: number; outputTokens: number }
+  | { type: 'warning'; seq: number; code: string; message: string }
+  | { type: 'codexActivity'; seq: number; activityType: string; itemId: string; status: string; title: string; detail?: string | null; data?: unknown }
   | { type: 'error'; seq: number; code: string; message: string }
   /** 该会话后台任务的全量快照，收到即整体覆盖（REPLACE 语义）；空数组＝当前没有后台任务在跑。 */
   | { type: 'backgroundTasks'; seq: number; tasks: BackgroundTaskInfo[] }
@@ -495,6 +500,8 @@ export type ChatItem =
   | { kind: 'assistant'; id: string; text: string; forkAnchor?: string; ts?: number }
   | { kind: 'tool'; id: string; toolName: string; input: unknown; output?: string; isError?: boolean; ts?: number }
   | { kind: 'result'; id: string; stopReason: string; ts?: number; usage?: Record<string, number>; latencyMs?: number; ttftMs?: number }
+  | { kind: 'warning'; id: string; code: string; message: string; ts?: number }
+  | { kind: 'activity'; id: string; activityType: string; status: string; title: string; detail?: string | null; data?: unknown; ts?: number }
   | { kind: 'error'; id: string; code: string; message: string; ts?: number }
 
 // ── 待决策（权限 / 提问），驱动弹窗 ───────────────────────────────

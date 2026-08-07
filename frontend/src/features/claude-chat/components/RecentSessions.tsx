@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Clock3, Link2, LockKeyhole, Pencil, Tags, Trash2, Unlock } from 'lucide-react'
+import { Check, Clock3, Link2, Loader2, LockKeyhole, Pencil, Star, Tags, Trash2, Unlock } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { deleteSession, listSessions, renameSession, setSessionGroupApi } from '../api'
+import { deleteSession, listSessions, renameSession, setSessionFavorite, setSessionGroupApi } from '../api'
 import { engineDisplayName } from './chatStatus'
 import { getSessionsByDevSessions } from '@/features/prd-clarify/api'
 import { SessionActivityBar } from './SessionActivityBar'
@@ -41,6 +41,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
     .filter(session => (session.group ?? '').trim() !== BUSINESS_CONSULT_GROUP)
     .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
     .slice(0, limit)
+    .sort((a, b) => Number(Boolean(b.favorite)) - Number(Boolean(a.favorite)) || b.lastSeenAt - a.lastSeenAt)
 
   // 同 SessionList：批量查一次这几条会话里哪些绑了 PRD，行首标个小图标，不用点开才知道。
   const recentIdsKey = useMemo(() => [...recent.map(s => s.id)].sort().join(','), [recent])
@@ -55,6 +56,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [groupPickFor, setGroupPickFor] = useState<ClaudeChatSessionView | null>(null)
+  const [favoriteBusyId, setFavoriteBusyId] = useState<string | null>(null)
   const allGroupPaths = useMemo(() => sessions
     .map(session => ({
       project: (session.group ?? '').trim(),
@@ -74,6 +76,17 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
   const applyGroup = async (id: string, project: string | null, requirement?: string | null) => {
     await setSessionGroupApi(id, project, requirement)
     await qc.invalidateQueries({ queryKey: SESSION_QUERY_KEY })
+  }
+
+  const toggleFavorite = async (session: ClaudeChatSessionView) => {
+    if (favoriteBusyId) return
+    setFavoriteBusyId(session.id)
+    try {
+      await setSessionFavorite(session.id, !session.favorite)
+      await qc.invalidateQueries({ queryKey: SESSION_QUERY_KEY })
+    } finally {
+      setFavoriteBusyId(null)
+    }
   }
 
   const remove = async (session: ClaudeChatSessionView) => {
@@ -176,6 +189,12 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
                     )}>
                       {title}
                     </span>
+                    {session.favorite && (
+                      <Star
+                        aria-label="已收藏"
+                        className="size-3 shrink-0 fill-amber-400 text-amber-500"
+                      />
+                    )}
                     {linkedPrd && (
                       <span
                         title={`已关联 PRD：${linkedPrd.title || '（未命名）'}`}
@@ -186,7 +205,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
                     )}
                   </div>
                   <div className={cn(
-                    'mt-0.5 flex min-w-0 items-center gap-1.5 pr-24 text-[11px] leading-snug',
+                    'mt-0.5 flex min-w-0 items-center gap-1.5 pr-32 text-[11px] leading-snug',
                     isActive ? 'text-[var(--color-primary)]/60' : 'text-[var(--color-muted-foreground)] opacity-60',
                   )}>
                     <span className="shrink-0 rounded bg-[var(--color-muted)] px-1 py-0.5 text-[10px]">{engineLabel}</span>
@@ -208,6 +227,26 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
                     ? 'bg-[var(--color-muted)]'
                     : isActive ? 'bg-[var(--color-primary)]/10' : 'bg-[var(--color-accent)]',
                 )}>
+                  <button
+                    type="button"
+                    disabled={favoriteBusyId !== null}
+                    onClick={event => {
+                      event.stopPropagation()
+                      void toggleFavorite(session)
+                    }}
+                    aria-label={session.favorite ? '取消收藏会话' : '收藏会话'}
+                    title={session.favorite ? '取消收藏' : '收藏会话'}
+                    className={cn(
+                      'rounded p-1.5 disabled:opacity-40',
+                      session.favorite
+                        ? 'text-amber-500 hover:text-amber-600'
+                        : 'text-[var(--color-muted-foreground)] hover:text-amber-500',
+                    )}
+                  >
+                    {favoriteBusyId === session.id
+                      ? <Loader2 className="size-3.5 animate-spin" />
+                      : <Star className={cn('size-3.5', session.favorite && 'fill-current')} />}
+                  </button>
                   <button
                     type="button"
                     disabled={planBusyId === session.id || isRunning}

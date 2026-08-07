@@ -40,6 +40,8 @@ export function QuickLaunchPage() {
     .sort((left, right) => (right.lastOpenedAt ?? 0) - (left.lastOpenedAt ?? 0))
     .slice(0, 8), [sites])
 
+  const groupNames = useMemo(() => [...new Set(sites.map(site => site.groupName))], [sites])
+
   const groups = useMemo(() => {
     const grouped = new Map<string, QuickSiteView[]>()
     filtered.forEach(site => grouped.set(site.groupName, [...(grouped.get(site.groupName) ?? []), site]))
@@ -165,6 +167,7 @@ export function QuickLaunchPage() {
       <QuickSiteEditor
         open={editorOpen}
         site={editing}
+        groupNames={groupNames}
         saving={saveSite.isPending}
         onClose={() => setEditorOpen(false)}
         onSave={handleSave}

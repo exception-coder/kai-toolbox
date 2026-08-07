@@ -1,7 +1,7 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
-import { AlertTriangle, ArrowDown, Check, Coins, Copy, Database, FileImage, FileText, FolderOpen, GitBranch, Timer } from 'lucide-react'
+import { AlertTriangle, ArrowDown, Bot, Check, Coins, Copy, Database, FileImage, FilePenLine, FileText, FolderOpen, GitBranch, ListTodo, Route, Shrink, Timer } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { loadState as loadCardState, saveState as saveCardState } from '@/features/markdown-card/lib/persistence'
 import type { ChatItem, ConnState } from '../types'
@@ -524,8 +524,17 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
       )
     case 'tool':
       return <ToolCallBubble toolName={item.toolName} input={item.input} output={item.output} isError={item.isError} />
+    case 'activity':
+      return <CodexActivity item={item} />
     case 'result':
       return <TurnStatus item={item} turnText={turnText} />
+    case 'warning':
+      return (
+        <div className="flex max-w-full items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <span className="min-w-0 break-words">{item.message}</span>
+        </div>
+      )
     case 'error': {
       // 会话历史丢失（对应 JSONL 文件不存在），任何 resume 都无法恢复，需新建会话
       const isPermanentlyLost = item.code === 'QUERY_FAILED' && !!item.message?.includes('No conversation found')
@@ -570,4 +579,47 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
       )
     }
   }
+}
+
+function CodexActivity({ item }: { item: Extract<ChatItem, { kind: 'activity' }> }) {
+  const Icon = item.activityType === 'agent' ? Bot
+    : item.activityType === 'file' || item.activityType === 'diff' ? FilePenLine
+      : item.activityType === 'plan' ? ListTodo
+        : item.activityType === 'context' ? Shrink
+          : item.activityType === 'model' ? Route
+            : Bot
+  const done = item.status === 'completed'
+  const dataText = formatActivityData(item.data)
+  return (
+    <details className="group mx-auto max-w-[92%] rounded-lg border border-sky-200/70 bg-sky-50/70 px-3 py-2 text-xs text-sky-950 dark:border-sky-800/70 dark:bg-sky-950/40 dark:text-sky-100">
+      <summary className="flex cursor-pointer list-none items-center gap-2">
+        <Icon className="size-4 shrink-0 text-sky-600 dark:text-sky-400" />
+        <span className="min-w-0 flex-1 truncate font-medium">{item.title}</span>
+        <span className={cn('rounded-full px-1.5 py-0.5 text-[10px]', done
+          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+          : 'bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300')}
+        >{done ? '已完成' : '进行中'}</span>
+      </summary>
+      {(item.detail || dataText) && (
+        <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words border-t border-sky-200/70 pt-2 font-mono text-[11px] dark:border-sky-800/70">
+          {[item.detail, dataText].filter(Boolean).join('\n')}
+        </pre>
+      )}
+    </details>
+  )
+}
+
+function formatActivityData(data: unknown): string {
+  if (data == null) return ''
+  if (Array.isArray(data)) {
+    return data.map(value => {
+      if (typeof value === 'string') return value
+      if (value && typeof value === 'object') {
+        const row = value as Record<string, unknown>
+        return [row.status ? `[${String(row.status)}]` : '', row.step ?? row.path ?? row.kind ?? ''].filter(Boolean).join(' ')
+      }
+      return String(value)
+    }).filter(Boolean).join('\n')
+  }
+  try { return JSON.stringify(data, null, 2) } catch { return String(data) }
 }

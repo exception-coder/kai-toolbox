@@ -4,11 +4,19 @@ import { AtSign, FileText, Folder, Loader2 } from 'lucide-react'
 import { listSessions as listPrdSessions } from '@/features/prd-clarify/api'
 import type { PrdSessionView } from '@/features/prd-clarify/types'
 import { cn } from '@/lib/utils'
+import { getDevPreference } from '@/features/_devkit/devPreferenceApi'
 import { listWorkspaces } from '../api'
 import type { WorkspaceDir } from '../types'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 
 type DraftSetter = (value: string | ((current: string) => string)) => void
+
+const PROJECT_WORKSPACE_PREFERENCE_ID = 'project-workspace'
+const IGNORED_PROJECTS_STORAGE_KEY = 'kai-toolbox:project-workspace:ignored-projects'
+
+interface ProjectWorkspacePreference {
+  ignoredProjects?: string[]
+}
 
 interface MentionTrigger {
   start: number
@@ -69,14 +77,30 @@ interface ReferenceKeyboardOptions {
 }
 
 /** 将工作区扫描结果整理为可检索的唯一项目目录。 */
-function flattenProjects(roots: { root: string; exists: boolean; dirs: WorkspaceDir[] }[]): ProjectReference[] {
+function workspacePathKey(path: string): string {
+  return path.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase()
+}
+
+function loadLocalIgnoredProjects(): string[] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(IGNORED_PROJECTS_STORAGE_KEY) ?? '[]')
+    return Array.isArray(value) ? value.filter((path): path is string => typeof path === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function flattenProjects(
+  roots: { root: string; exists: boolean; dirs: WorkspaceDir[] }[],
+  ignoredProjectPaths: Set<string>,
+): ProjectReference[] {
   const seen = new Set<string>()
   const projects: ProjectReference[] = []
   for (const root of roots) {
     if (!root.exists) continue
     for (const dir of root.dirs) {
-      const key = dir.path.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase()
-      if (seen.has(key)) continue
+      const key = workspacePathKey(dir.path)
+      if (ignoredProjectPaths.has(key) || seen.has(key)) continue
       seen.add(key)
       projects.push({ ...dir, name: getSystemWorkspaceDisplayName(dir), kind: 'project', key: `project:${key}` })
     }
@@ -213,10 +237,19 @@ function useReferenceCatalog(open: boolean, query: string) {
     enabled: open,
     staleTime: 30_000,
   })
+  const preferenceQuery = useQuery({
+    queryKey: ['dev-preference', PROJECT_WORKSPACE_PREFERENCE_ID],
+    queryFn: () => getDevPreference<ProjectWorkspacePreference>(PROJECT_WORKSPACE_PREFERENCE_ID),
+    enabled: open,
+    staleTime: 0,
+  })
+  const ignoredProjectPaths = useMemo(() => new Set(
+    (preferenceQuery.data?.ignoredProjects ?? loadLocalIgnoredProjects()).map(workspacePathKey),
+  ), [preferenceQuery.data])
   const allReferences = useMemo<ReferenceOption[]>(() => interleaveReferences(
-    flattenProjects(workspaceQuery.data?.roots ?? []),
+    preferenceQuery.isLoading ? [] : flattenProjects(workspaceQuery.data?.roots ?? [], ignoredProjectPaths),
     flattenPrds(prdQuery.data ?? []),
-  ), [prdQuery.data, workspaceQuery.data])
+  ), [ignoredProjectPaths, prdQuery.data, preferenceQuery.isLoading, workspaceQuery.data])
   const references = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
     if (!normalizedQuery) return allReferences
@@ -232,7 +265,7 @@ function useReferenceCatalog(open: boolean, query: string) {
   if (prdQuery.isError) failedSources.push('PRD')
   return {
     references,
-    loading: workspaceQuery.isLoading || prdQuery.isLoading,
+    loading: workspaceQuery.isLoading || prdQuery.isLoading || preferenceQuery.isLoading,
     warning: failedSources.length > 0 ? `${failedSources.join('、')}列表加载失败，已展示其余可用结果` : null,
   }
 }

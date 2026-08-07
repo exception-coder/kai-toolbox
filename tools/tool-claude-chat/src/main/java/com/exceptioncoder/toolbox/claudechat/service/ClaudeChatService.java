@@ -260,6 +260,62 @@ public class ClaudeChatService {
         pushGatewayModels(ctx); // 切到网关会话：重发网关模型目录，命令菜单可选/切
     }
 
+    /**
+     * 复制源会话的工作目录、归档分组和模型运行配置，创建一个没有原生会话历史的新会话。
+     * 网关 token 只在服务端复制，避免为了前端一键复制而暴露敏感配置。
+     */
+    public void duplicateSession(WebSocketSession ws, ClientMessage.DuplicateSession msg) {
+        if (!ensureSidecar(ws)) return;
+        String sourceSessionId = blankToNull(msg.sourceSessionId());
+        if (sourceSessionId == null) {
+            sendError(ws, 0, "BAD_MESSAGE", "缺少源会话 ID");
+            return;
+        }
+        ClaudeChatSession source = repo.findById(sourceSessionId).orElse(null);
+        if (source == null) {
+            sendError(ws, 0, "SESSION_NOT_FOUND", "源会话不存在");
+            return;
+        }
+        String executionPolicy = executionPolicyOf(source);
+        if (!canBind(ws, executionPolicy)) return;
+
+        String sessionId = UUID.randomUUID().toString();
+        long now = System.currentTimeMillis();
+        String engine = normalizeEngine(source.getEngine());
+        String codexHome = "codex".equals(engine)
+                ? SessionExecutionPolicy.resolveCodexHome(engine, source.getApiBaseUrl(), msg.codexHome())
+                : source.getCodexHome();
+        String title = duplicateTitle(source.getTitle());
+        String reasoningEffort = normalizeCodexReasoningEffort(source.getCodexReasoningEffort());
+        String speed = normalizeCodexSpeed(source.getCodexSpeed());
+        repo.insert(ClaudeChatSession.builder()
+                .id(sessionId).cwd(source.getCwd()).title(title).sdkSessionId(null).engine(engine)
+                .apiBaseUrl(source.getApiBaseUrl()).authToken(source.getAuthToken()).codexHome(codexHome)
+                .selectedModel(source.getSelectedModel()).codexReasoningEffort(reasoningEffort).codexSpeed(speed)
+                .executionPolicy(executionPolicy)
+                .status(SessionStatus.IDLE).startedAt(now).lastSeenAt(now).build());
+        repo.updateGroup(sessionId, source.getGroupName(), source.getSubgroupName());
+
+        SessionCtx ctx = new SessionCtx(sessionId, source.getCwd());
+        ctx.engine = engine;
+        ctx.apiBaseUrl = source.getApiBaseUrl();
+        ctx.authToken = source.getAuthToken();
+        ctx.codexHome = codexHome;
+        ctx.currentModel = blankToNull(source.getSelectedModel());
+        ctx.codexReasoningEffort = reasoningEffort;
+        ctx.codexSpeed = speed;
+        ctx.executionPolicy = executionPolicy;
+        enforceReadonlyDefaults(ctx);
+        sessions.put(sessionId, ctx);
+        bindViewer(ws, ctx);
+
+        sidecar.startSession(sessionId, ctx.cwd, ctx.currentModel, ctx.mode, engine, ctx.apiBaseUrl, ctx.authToken,
+                ctx.codexHome, ctx.autoApprove, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy);
+        pushGatewayModels(ctx);
+        log.info("[claude-chat] 复制会话 source={} target={} engine={} cwd={}",
+                source.getId(), sessionId, engine, source.getCwd());
+    }
+
     /** 续跑磁盘上的历史会话：建一条本工具的元数据行后 resume，之后它也出现在工具会话列表里。 */
     public void resumeHistory(WebSocketSession ws, ClientMessage.ResumeHistory msg) {
         if (!ensureSidecar(ws)) return;
@@ -708,6 +764,11 @@ public class ClaudeChatService {
         return "fast".equals(speed) ? "fast" : "default";
     }
 
+    private static String duplicateTitle(String title) {
+        String normalized = blankToNull(title);
+        return normalized == null ? null : normalized + "（副本）";
+    }
+
     public void interrupt(WebSocketSession ws) {
         SessionCtx ctx = ctxOf(ws);
         if (ctx == null) {
@@ -839,6 +900,16 @@ public class ClaudeChatService {
                     node.path("baseUrl").asText(null)));
             case "turnProgress" -> sendToBrowser(ctx, seq -> new ServerMessage.TurnProgress(
                     seq, node.path("outputTokens").asLong(0)));
+            case "warning" -> sendToBrowser(ctx, seq -> new ServerMessage.Warning(
+                    seq, node.path("code").asText("SIDECAR_WARNING"), node.path("message").asText("")));
+            case "codexActivity" -> sendToBrowser(ctx, seq -> new ServerMessage.CodexActivity(
+                    seq,
+                    node.path("activityType").asText("activity"),
+                    node.path("itemId").asText(""),
+                    node.path("status").asText("inProgress"),
+                    node.path("title").asText("Codex 活动"),
+                    node.path("detail").asText(null),
+                    asObject(node.get("data"))));
             case "result" -> onResult(ctx, node);
             case "error" -> sendToBrowser(ctx, seq -> new ServerMessage.Error(
                     seq, node.path("code").asText("SIDECAR_ERROR"), node.path("message").asText("")));

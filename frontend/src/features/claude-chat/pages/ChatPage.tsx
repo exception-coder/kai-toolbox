@@ -1350,6 +1350,8 @@ export function ChatPage() {
                   <SessionList
                     currentSessionId={chat.sessionId}
                     onSwitch={(id, hintRunning) => { chat.switchTo(id, hintRunning); setPanel('none') }}
+                    onDuplicate={(id, codexHome) => { chat.duplicateSession(id, codexHome); setPanel('none') }}
+                    duplicatingSessionId={chat.duplicatingSessionId}
                     selectable={selecting}
                     selectedIds={selected}
                     onToggleSelect={toggleSelect}
@@ -1514,7 +1516,12 @@ export function ChatPage() {
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto">
                 <RecentSessions currentSessionId={chat.sessionId} onSwitch={(id, hintRunning) => chat.switchTo(id, hintRunning)} />
-                <SessionList currentSessionId={chat.sessionId} onSwitch={(id, hintRunning) => chat.switchTo(id, hintRunning)} />
+                <SessionList
+                  currentSessionId={chat.sessionId}
+                  onSwitch={(id, hintRunning) => chat.switchTo(id, hintRunning)}
+                  onDuplicate={chat.duplicateSession}
+                  duplicatingSessionId={chat.duplicatingSessionId}
+                />
               </div>
             </aside>
           ) : (

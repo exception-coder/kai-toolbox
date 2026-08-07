@@ -4,7 +4,7 @@ import {
 } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  BarChart3, Boxes, BrainCircuit, Briefcase, Bug, ChevronDown, Contact, Eye, EyeOff, Factory, Handshake,
+  BarChart3, Boxes, BrainCircuit, Briefcase, Bug, ChevronDown, Contact, Copy, Eye, EyeOff, Factory, Handshake,
   FileText, History, Landmark, Lightbulb, Loader2, Maximize2, MessagesSquare, Minimize2, MousePointerClick,
   Paperclip, Pencil, Radar, Route, Save, Search, Send, Server, ShoppingBag, ShoppingCart, SlidersHorizontal,
   Trash2, Truck, Users, Warehouse, Waypoints, X, type LucideIcon,
@@ -461,6 +461,9 @@ export function ForeConsultPage() {
   const [conversationOpen, setConversationOpen] = useState(false)
   const [viewSession, setViewSession] = useState<{ id: string; title: string } | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyDate, setHistoryDate] = useState('')
+  const [historyUser, setHistoryUser] = useState('')
+  const [copiedSessionId, setCopiedSessionId] = useState<string | null>(null)
   const [bugsOpen, setBugsOpen] = useState(false)
   const [archiveError, setArchiveError] = useState<string | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -936,6 +939,7 @@ export function ForeConsultPage() {
   // 继续一次「进行中」的咨询：恢复系统/角色/活跃态，并续跑其底层会话，打开可发消息的对话面板。
   const resumeConsult = (s: ConsultSessionView) => {
     setSystem(s.systemName)
+    setModuleTags(s.moduleNames)
     setRole(s.role === 'BIZ' ? 'BIZ' : 'IT')
     setActiveConsultId(s.sessionId)
     setHistoryOpen(false)
@@ -1023,6 +1027,37 @@ export function ForeConsultPage() {
     qc.invalidateQueries({ queryKey: ['fore-consult-sessions'] })
   }
 
+  const startDetectedNewConsult = async (title: string, question: string, newAttachments: ConsultAtt[]) => {
+    const current = (history ?? []).find((session) => session.sessionId === activeConsultId)
+    const nextSystem = current?.systemName || system.trim()
+    const nextPath = current?.systemSourcePath || systemPath || nextSystem
+    const nextModules = current?.moduleNames || moduleTags
+    const nextRole: ConsultRole = current?.role === 'IT' ? 'IT' : CONSULT_ROLE
+    const legacySeed = buildConsultSeed(nextSystem, nextModules, question, nextRole)
+    const created = await startConsult({
+      systemName: nextSystem,
+      systemSourcePath: nextPath,
+      moduleNames: nextModules,
+      questionTitle: buildQuestionTitle(title),
+      question: question.trim() || '请结合附件识别并分析业务问题',
+      role: nextRole,
+    })
+    setSystem(nextSystem)
+    setModuleTags(nextModules)
+    setRole(nextRole)
+    setActiveConsultId(created.sessionId)
+    pendingRef.current = {
+      cwd: nextPath,
+      seed: created.promptSnapshot || legacySeed,
+      displayText: question.trim() || '（见附件）',
+      consultId: created.sessionId,
+      attachments: newAttachments,
+      engine: chat.currentEngine === 'claude' ? 'claude' : 'codex',
+    }
+    deliver()
+    await qc.invalidateQueries({ queryKey: ['fore-consult-sessions'] })
+  }
+
   const onRename = async (session: ConsultSessionView) => {
     const currentTitle = session.questionTitle?.replace(/^\d{6}-/, '') || ''
     const title = await prompt({
@@ -1045,6 +1080,22 @@ export function ForeConsultPage() {
     !!system.trim() && !!questionTitle.trim() && (!!ask.trim() || attachments.length > 0)
     && uploading === 0 && !startMutation.isPending
   const PanelIcon = iconForSystem(system, displayName(system))
+  const filteredHistory = useMemo(() => {
+    const userQuery = historyUser.trim().toLowerCase()
+    return (history ?? []).filter((session) => {
+      const dateMatches = !historyDate
+        || new Date(session.createdAt).toLocaleDateString('en-CA') === historyDate
+      const userMatches = !userQuery
+        || (session.creatorName ?? '').toLowerCase().includes(userQuery)
+      return dateMatches && userMatches
+    })
+  }, [history, historyDate, historyUser])
+
+  const copySessionId = async (sessionId: string) => {
+    await navigator.clipboard.writeText(sessionId)
+    setCopiedSessionId(sessionId)
+    window.setTimeout(() => setCopiedSessionId((current) => current === sessionId ? null : current), 1500)
+  }
   const sysCat = categoryOf(system, displayName(system))
   const { shownModules, moduleResultCount, hasModuleQuery } = useMemo(() => {
     const query = moduleQuery.trim().toLowerCase()
@@ -1624,6 +1675,7 @@ export function ForeConsultPage() {
           onBugRegistered={() => qc.invalidateQueries({ queryKey: ['fore-consult-bugs'] })}
           onClose={() => setConversationOpen(false)}
           onArchive={triggerArchive}
+          onStartNew={startDetectedNewConsult}
           archiving={archiveMutation.isPending}
         />
       )}
@@ -1643,11 +1695,27 @@ export function ForeConsultPage() {
                 <X className="size-4" />
               </button>
             </div>
-            {(history ?? []).length === 0 ? (
+            <div className="mb-3 grid grid-cols-2 gap-2">
+              <input
+                type="date"
+                value={historyDate}
+                onChange={(event) => setHistoryDate(event.target.value)}
+                className="rounded-lg border border-slate-200 bg-white/70 px-2.5 py-2 text-xs text-slate-600 outline-none focus:border-sky-300"
+                aria-label="按创建日期筛选"
+              />
+              <input
+                value={historyUser}
+                onChange={(event) => setHistoryUser(event.target.value)}
+                placeholder="提问用户"
+                className="rounded-lg border border-slate-200 bg-white/70 px-2.5 py-2 text-xs text-slate-600 outline-none placeholder:text-slate-400 focus:border-sky-300"
+                aria-label="按提问用户筛选"
+              />
+            </div>
+            {filteredHistory.length === 0 ? (
               <p className="rounded-lg border border-dashed border-slate-300/80 p-6 text-center text-sm text-slate-500">暂无咨询记录</p>
             ) : (
               <ul className="flex flex-col gap-2">
-                {(history ?? []).map((s) => (
+                {filteredHistory.map((s) => (
                   <li
                     key={s.sessionId}
                     onClick={() => {
@@ -1670,6 +1738,9 @@ export function ForeConsultPage() {
                         <ArchiveBadge status={s.archiveStatus} />
                       </div>
                       <div className="flex shrink-0 items-center gap-0.5">
+                        <button type="button" onClick={(e) => { e.stopPropagation(); void copySessionId(s.sessionId) }} className="rounded-lg p-1 text-slate-400 hover:bg-sky-50 hover:text-sky-600" aria-label="复制会话 ID" title={copiedSessionId === s.sessionId ? '已复制' : '复制会话 ID'}>
+                          <Copy className="size-3.5" />
+                        </button>
                         <button type="button" onClick={(e) => { e.stopPropagation(); void onRename(s) }} className="rounded-lg p-1 text-slate-400 hover:bg-sky-50 hover:text-sky-600" aria-label="重命名">
                           <Pencil className="size-3.5" />
                         </button>
@@ -1682,7 +1753,7 @@ export function ForeConsultPage() {
                       <div className="mt-1 truncate text-xs text-slate-500">{s.moduleNames.join('、')}</div>
                     )}
                     <div className="mt-1 text-[11px] text-slate-400">
-                      {s.turns.length} 轮问答 · {new Date(s.createdAt).toLocaleString()}
+                      {s.turnCount} 轮问答 · 提问用户：{s.creatorName || '未知用户'} · {new Date(s.createdAt).toLocaleString()}
                     </div>
                   </li>
                 ))}

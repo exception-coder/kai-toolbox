@@ -39,6 +39,7 @@ export interface FeedbackRequest {
 export interface ConsultSessionView {
   sessionId: string
   userId: string | null
+  creatorName: string | null
   questionTitle: string | null
   systemName: string
   systemSourcePath: string
@@ -52,6 +53,7 @@ export interface ConsultSessionView {
   errorMsg: string | null
   createdAt: number
   endedAt: number | null
+  turnCount: number
   turns: ConsultTurnView[]
   feedback: FeedbackView[]
 }

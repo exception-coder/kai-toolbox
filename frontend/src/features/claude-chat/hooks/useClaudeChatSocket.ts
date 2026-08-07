@@ -88,6 +88,7 @@ type Intent =
       codexSpeed?: CodexSpeed
     }
   | { kind: 'switch'; sessionId: string }
+  | { kind: 'duplicate'; sourceSessionId: string; codexHome?: string }
   | { kind: 'resumeHistory'; sdkSessionId: string; cwd: string }
   | { kind: 'resumeCurrent'; sessionId: string }
   | { kind: 'attach'; sessionId: string; lastEventSeq: number }
@@ -172,6 +173,8 @@ export interface UseClaudeChatSocket {
   cleanRetry: () => void
   /** 切到工具内会话（resume 续跑） */
   switchTo: (sessionId: string, hintRunning?: boolean) => void
+  duplicateSession: (sourceSessionId: string, codexHome?: string) => void
+  duplicatingSessionId: string | null
   /** 续跑磁盘上的历史会话 */
   resumeHistory: (sdkSessionId: string, cwd: string) => void
   resumeCurrent: () => void
@@ -248,6 +251,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const turnStartRef = useRef<number | null>(null)
   const ttftRef = useRef<number | null>(null)
   const intentRef = useRef<Intent | null>(null)
+  const duplicateSourceRef = useRef<string | null>(null)
+  const duplicateTimeoutRef = useRef<number | null>(null)
+  const [duplicatingSessionId, setDuplicatingSessionId] = useState<string | null>(null)
   const sessionIdRef = useRef<string | null>(null)
   const lastSeqRef = useRef<number>(0)
   // 服务端会话纪元（来自 Ready.epoch）；变化即后端重启/会话重建 → seq 已复位，需重置去重高水位
@@ -327,6 +333,25 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
     switch (msg.type) {
       case 'ready':
+        if (duplicateSourceRef.current && msg.sessionId !== duplicateSourceRef.current) {
+          duplicateSourceRef.current = null
+          if (duplicateTimeoutRef.current != null) {
+            window.clearTimeout(duplicateTimeoutRef.current)
+            duplicateTimeoutRef.current = null
+          }
+          setDuplicatingSessionId(null)
+          setItems([])
+          setPending(null)
+          setRunning(false)
+          setTurnTokens(0)
+          setSyncWarning(null)
+          setProviderDiag([])
+          sdkSessionIdRef.current = null
+          historyBeforeRef.current = null
+          historyExhaustedRef.current = false
+          setHistoryExhausted(false)
+          shouldLoadHistoryRef.current = false
+        }
         setCapabilitiesRefreshing(false)
         sessionIdRef.current = msg.sessionId
         setSessionId(msg.sessionId)
@@ -527,6 +552,23 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       case 'turnProgress':
         setTurnTokens(msg.outputTokens)
         break
+      case 'warning':
+        setItems(prev => [...prev, { kind: 'warning', id: nextId(), code: msg.code, message: msg.message, ts: Date.now() }])
+        break
+      case 'codexActivity': {
+        setRunning(true)
+        const id = `codex-activity-${msg.activityType}-${msg.itemId || msg.seq}`
+        setItems(prev => {
+          const next = { kind: 'activity' as const, id, activityType: msg.activityType, status: msg.status,
+            title: msg.title, detail: msg.detail, data: msg.data, ts: Date.now() }
+          const index = prev.findIndex(item => item.id === id)
+          if (index < 0) return [...prev, next]
+          const copy = prev.slice()
+          copy[index] = next
+          return copy
+        })
+        break
+      }
       case 'result': {
         setRunning(false)
         const latencyMs = turnStartRef.current != null ? Date.now() - turnStartRef.current : undefined
@@ -541,6 +583,18 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       }
       case 'error':
         setRunning(false)
+        if (duplicateSourceRef.current) {
+          duplicateSourceRef.current = null
+          if (duplicateTimeoutRef.current != null) {
+            window.clearTimeout(duplicateTimeoutRef.current)
+            duplicateTimeoutRef.current = null
+          }
+          setDuplicatingSessionId(null)
+          intentRef.current = sessionIdRef.current
+            ? { kind: 'attach', sessionId: sessionIdRef.current, lastEventSeq: lastSeqRef.current }
+            : null
+          setErrorMessage(`复制会话失败：${msg.message}`)
+        }
         if (msg.code === 'CAPABILITIES_UNAVAILABLE') setCapabilitiesRefreshing(false)
         // 同一条错误连续重复时不再追加：像前后端版本不一致导致的 BAD_MESSAGE，会随每次
         // 开关切换/重连反复触发，逐条堆进消息流会把真正的对话内容顶没。保留第一条即可。
@@ -582,6 +636,11 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       codexSpeed: intent.codexSpeed,
     })
     else if (intent.kind === 'switch') sendRaw({ type: 'switchSession', sessionId: intent.sessionId })
+    else if (intent.kind === 'duplicate') sendRaw({
+      type: 'duplicateSession',
+      sourceSessionId: intent.sourceSessionId,
+      codexHome: intent.codexHome,
+    })
     else if (intent.kind === 'resumeHistory') sendRaw({ type: 'resumeHistory', sdkSessionId: intent.sdkSessionId, cwd: intent.cwd })
     else if (intent.kind === 'resumeCurrent') sendRaw({ type: 'resumeCurrent', sessionId: intent.sessionId })
     else sendRaw({ type: 'attach', sessionId: intent.sessionId, lastEventSeq: intent.lastEventSeq })
@@ -826,6 +885,12 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   }, [sessionToken, connect, demo])
 
   const resetForNewSession = () => {
+    duplicateSourceRef.current = null
+    if (duplicateTimeoutRef.current != null) {
+      window.clearTimeout(duplicateTimeoutRef.current)
+      duplicateTimeoutRef.current = null
+    }
+    setDuplicatingSessionId(null)
     setItems([])
     setPending(null)
     setRunning(false)
@@ -905,6 +970,25 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     if (hintRunning) setRunning(true)
     intentRef.current = { kind: 'switch', sessionId: sid }
     if (!sendRaw({ type: 'switchSession', sessionId: sid })) connect()
+  }, [sendRaw, connect])
+
+  const duplicateSession = useCallback((sourceSessionId: string, codexHome?: string) => {
+    if (duplicateSourceRef.current) return
+    duplicateSourceRef.current = sourceSessionId
+    setDuplicatingSessionId(sourceSessionId)
+    setErrorMessage(null)
+    intentRef.current = { kind: 'duplicate', sourceSessionId, codexHome }
+    if (!sendRaw({ type: 'duplicateSession', sourceSessionId, codexHome })) connect()
+    duplicateTimeoutRef.current = window.setTimeout(() => {
+      if (duplicateSourceRef.current !== sourceSessionId) return
+      duplicateSourceRef.current = null
+      duplicateTimeoutRef.current = null
+      setDuplicatingSessionId(null)
+      intentRef.current = sessionIdRef.current
+        ? { kind: 'attach', sessionId: sessionIdRef.current, lastEventSeq: lastSeqRef.current }
+        : null
+      setErrorMessage('复制会话超时：后端可能未启动或尚未加载最新版本，请重启后端后重试')
+    }, 15_000)
   }, [sendRaw, connect])
 
   const resumeHistory = useCallback((sdkSessionId: string, cwd: string) => {
@@ -1209,5 +1293,5 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
   }, [sendRaw, connect])
 
-  return { state, sessionId, items, pending, pendingSessions, running, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, agents, mcpServers, outputStyle, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, pendingSessions, running, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, agents, mcpServers, outputStyle, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, loadHistory }
 }

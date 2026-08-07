@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import mermaid from 'mermaid'
-import { Maximize2 } from 'lucide-react'
+import { Download, Maximize2 } from 'lucide-react'
 import { MermaidLightbox } from '@/components/markdown/MermaidLightbox'
+import { downloadSvg } from '@/components/markdown/downloadSvg'
 import { cn } from '@/lib/utils'
 
 // ── Mermaid 初始化（全局一次）──────────────────────────────────────────────────
@@ -65,6 +66,15 @@ function MermaidDiagram({ code }: { code: string }) {
   return (
     <>
       <div className="group relative my-2 rounded-lg bg-[var(--color-background)]">
+        <button
+          type="button"
+          onClick={() => downloadSvg(svg)}
+          className="absolute right-12 top-2 z-10 flex size-8 items-center justify-center rounded-md border border-[var(--color-border)] bg-[var(--color-background)]/90 text-[var(--color-muted-foreground)] shadow-sm backdrop-blur hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)]"
+          title="导出 SVG 矢量图"
+          aria-label="导出 SVG 矢量图"
+        >
+          <Download className="size-4" />
+        </button>
         <button
           type="button"
           onClick={() => setLightboxOpen(true)}

@@ -103,7 +103,7 @@ export function DeliveryCenterPage() {
               }}
               className="inline-flex items-center gap-1 border border-[var(--color-primary)]/40 px-2.5 py-1.5 font-medium text-[var(--color-primary)] hover:bg-[var(--color-primary)]/10"
             >
-              <FilePlus2 className="h-3 w-3" />起草 PRD
+              <FilePlus2 className="h-3 w-3" />起草需求
             </button>
           </div>
         </header>
@@ -223,8 +223,8 @@ function EmptyState() {
   return (
     <div className="border-b border-[var(--color-border)] px-6 py-24 text-center">
       <Sparkles className="mx-auto h-7 w-7 text-[var(--color-primary)]/60" />
-      <h2 className="mt-4 text-sm font-semibold">还没有可展示的 PRD</h2>
-      <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">完成 PRD 澄清与归档后，这里会自动形成交付空间。</p>
+      <h2 className="mt-4 text-sm font-semibold">还没有可展示的需求</h2>
+      <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">完成需求规格澄清与归档后，这里会自动形成交付空间。</p>
     </div>
   )
 }

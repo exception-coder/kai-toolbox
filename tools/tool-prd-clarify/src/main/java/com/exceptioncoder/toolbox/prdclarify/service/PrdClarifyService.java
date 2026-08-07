@@ -7,6 +7,7 @@ import com.exceptioncoder.toolbox.prdclarify.api.dto.ProgressVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.QaPairRequest;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdBusinessFields;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
+import com.exceptioncoder.toolbox.prdclarify.domain.DocumentProfile;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.ObjectProvider;
@@ -288,6 +289,36 @@ public class PrdClarifyService {
             直接输出 Markdown，不加代码块，不加多余解释。内容具体可落地，让工程师无需追问即可开始设计。
             """;
 
+    private static final String GENERATE_SYSTEM_SPEC_DRIVEN = """
+            ⚠️ 直接输出任务：根据原始需求与已确认的澄清问答，生成一份可持续演进的核心规格。
+            直接输出 Markdown，不进入交互，不调用任何额外流程。
+
+            文档必须使用以下稳定结构：
+            # [功能名称] · 核心规格
+            ## 1. 规格元信息
+            ## 2. 目标与成功信号
+            ## 3. 范围与边界
+            ## 4. 需求与业务规则
+            ## 5. 场景
+            ## 6. 验收标准
+            ## 7. 约束
+            ## 8. 决策记录
+            ## 9. 开放问题
+
+            每个可独立追踪的条目必须带稳定 ID，格式分别为 GOAL-001、REQ-001、RULE-001、
+            SCN-001、AC-001、CONSTRAINT-001、DECISION-001、OPEN-001。条目之间用 ID 显式引用，
+            验收标准必须引用对应 REQ/RULE/SCN。未知事实写入 OPEN，不得编造。
+            这是持续更新的事实来源，不写排期、负责人或代码实现任务。
+            """;
+
+    private static final String GENERATE_SYSTEM_SPEC_DRIVEN_UPDATE = """
+            ⚠️ 直接输出任务：更新已有核心规格并返回完整 Markdown，不进入交互。
+            保留未变更条目的稳定 ID；新增条目使用下一个可用序号；废弃条目保留并标记 Deprecated，
+            不得通过重排编号伪造新规格。将新证据合并为目标、范围、需求、规则、场景、验收标准、
+            约束、决策或开放问题，并在“决策记录”说明本次规格变化及依据。
+            输出仍须符合核心规格的固定章节和 ID 契约。
+            """;
+
     /**
      * 修订版 PRD 的生成 System Prompt：在标准章节基础上，
      * 强制添加「实现状态」章节，标注每个功能点是「已实现/本次新增/本次修改」，
@@ -406,7 +437,7 @@ public class PrdClarifyService {
     public PrdSession createSession(String title, String rawInput,
                                     String project, String module, String model, String role) {
         return createSession(title, rawInput, project, module, model, "claude", role,
-                null, null, null, null, PrdBusinessFields.empty(), null);
+                null, null, null, null, PrdBusinessFields.empty(), null, DocumentProfile.CLASSIC.name());
     }
 
     /**
@@ -425,7 +456,8 @@ public class PrdClarifyService {
     public PrdSession createSession(String title, String rawInput,
                                     String project, String module, String model, String engine, String role,
                                     String reqType, Integer maxQuestions, Long createdByUserId,
-                                    String clarifyMode, PrdBusinessFields businessFields, String parentId) {
+                                    String clarifyMode, PrdBusinessFields businessFields, String parentId,
+                                    String documentProfile) {
         long now = System.currentTimeMillis();
         PrdBusinessFields fields = businessFields == null ? PrdBusinessFields.empty() : businessFields;
         String effectiveRole = (role != null && "BUSINESS".equalsIgnoreCase(role)) ? "BUSINESS" : "PRODUCT";
@@ -458,6 +490,7 @@ public class PrdClarifyService {
                 .reqType(classification.reqType())
                 .maxQuestions(classification.maxQuestions())
                 .clarifyMode(effectiveClarifyMode)
+                .documentProfile(DocumentProfile.normalize(documentProfile))
                 .status("CLARIFYING")
                 .createdByUserId(createdByUserId)
                 .parentId(effectiveParentId)
@@ -477,7 +510,7 @@ public class PrdClarifyService {
      *                 （raw_input 列 NOT NULL，不能真塞 null）
      */
     public PrdSession saveDraft(String title, String rawInput, String project, String module, Long createdByUserId,
-                                PrdBusinessFields businessFields) {
+                                PrdBusinessFields businessFields, String documentProfile) {
         long now = System.currentTimeMillis();
         PrdBusinessFields fields = businessFields == null ? PrdBusinessFields.empty() : businessFields;
         PrdSession session = PrdSession.builder()
@@ -499,6 +532,7 @@ public class PrdClarifyService {
                 .reqType("NEW_MODULE")
                 .maxQuestions(DEFAULT_MAX_QUESTIONS.get("NEW_MODULE"))
                 .clarifyMode("progressive")
+                .documentProfile(DocumentProfile.normalize(documentProfile))
                 .status("DRAFT")
                 .createdByUserId(createdByUserId)
                 .createdAt(now)
@@ -510,13 +544,16 @@ public class PrdClarifyService {
 
     /** 再次保存草稿（覆盖字段，状态保持 DRAFT）。会话必须仍处于 DRAFT 状态，否则说明前端页面状态过期。 */
     public PrdSession updateDraft(String sessionId, String title, String rawInput, String project, String module,
-                                  PrdBusinessFields businessFields) {
+                                  PrdBusinessFields businessFields, String documentProfile) {
         PrdSession existing = repo.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
         if (!"DRAFT".equals(existing.getStatus())) {
             throw new IllegalStateException("当前状态 " + existing.getStatus() + " 不是草稿，无法这样保存");
         }
-        repo.updateDraftFields(sessionId, title, rawInput == null ? "" : rawInput, project, module, businessFields);
+        String effectiveDocumentProfile = documentProfile == null
+                ? existing.getDocumentProfile() : documentProfile;
+        repo.updateDraftFields(sessionId, title, rawInput == null ? "" : rawInput, project, module, businessFields,
+                effectiveDocumentProfile);
         return repo.findById(sessionId).orElseThrow();
     }
 
@@ -528,7 +565,7 @@ public class PrdClarifyService {
     public PrdSession startClarifyFromDraft(String sessionId, String title, String rawInput,
                                              String project, String module, String model, String engine, String role,
                                              String reqType, Integer maxQuestions, String clarifyMode,
-                                             PrdBusinessFields businessFields) {
+                                             PrdBusinessFields businessFields, String documentProfile) {
         PrdSession existing = repo.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
         if (!"DRAFT".equals(existing.getStatus())) {
@@ -538,9 +575,11 @@ public class PrdClarifyService {
         String effectiveEngine = normalizeEngine(engine);
         ReqTypeClassification classification = resolveReqType(title, rawInput, model, effectiveEngine, reqType, maxQuestions);
         String effectiveClarifyMode = "batch".equals(clarifyMode) ? "batch" : "progressive";
+        String effectiveDocumentProfile = documentProfile == null
+                ? existing.getDocumentProfile() : documentProfile;
         repo.startClarifyFromDraft(sessionId, title, rawInput, project, module, model, effectiveEngine,
                 effectiveRole, classification.reqType(), classification.maxQuestions(), effectiveClarifyMode,
-                businessFields);
+                businessFields, effectiveDocumentProfile);
         return repo.findById(sessionId).orElseThrow();
     }
 
@@ -969,7 +1008,8 @@ public class PrdClarifyService {
                 String prompt;
                 String currentPrd = update ? fileStore.read(sessionId) : null;
                 if (update && currentPrd != null && !currentPrd.isBlank()) {
-                    generateSystem = GENERATE_SYSTEM_REVISION;
+                    generateSystem = isSpecDriven(session)
+                            ? GENERATE_SYSTEM_SPEC_DRIVEN_UPDATE : GENERATE_SYSTEM_REVISION;
                     prompt = buildPrdUpdatePrompt(session, currentPrd, extraInstructions);
                 } else {
                     if (update) {
@@ -1017,11 +1057,19 @@ public class PrdClarifyService {
     /** 需求类型优先：Bug 修复固定走「缺陷修复说明」模板；否则按是否修订版（rawInput 以
      *  「【修订版 PRD」开头）选择——从零生成/覆盖场景（非增量更新）用。 */
     private String pickFreshGenerateSystem(PrdSession session) {
+        if (isSpecDriven(session)) {
+            return GENERATE_SYSTEM_SPEC_DRIVEN;
+        }
         boolean isRevision = session.getRawInput() != null
                 && session.getRawInput().startsWith("【修订版 PRD");
         return REQ_TYPE_BUG_FIX.equals(session.getReqType())
                 ? GENERATE_SYSTEM_BUG
                 : isRevision ? GENERATE_SYSTEM_REVISION : GENERATE_SYSTEM;
+    }
+
+    private boolean isSpecDriven(PrdSession session) {
+        return DocumentProfile.SPEC_DRIVEN.name().equals(
+                DocumentProfile.normalize(session.getDocumentProfile()));
     }
 
     /**
@@ -1177,6 +1225,31 @@ public class PrdClarifyService {
             直接输出 Markdown，不加代码块围栏，不加多余解释。
             """;
 
+    private static final String EXECUTION_PLAN_SYSTEM = """
+            ⚠️ 直接输出任务：基于核心规格与真实代码上下文生成执行计划 Markdown，不进入交互。
+            不得改写核心规格，也不得把推测当成代码事实。
+
+            固定章节：
+            # [功能名称] · 执行计划
+            ## 1. 计划元信息
+            ## 2. 规格追踪矩阵
+            ## 3. 实现策略
+            ## 4. 执行步骤
+            ## 5. 验证计划
+            ## 6. 风险与回退
+
+            每个步骤使用稳定 ID PLAN-001 起，并用 specRefs 显式引用 GOAL/REQ/RULE/SCN/AC/
+            CONSTRAINT ID；同时列出预计修改的真实类、接口、表或组件，以及可验证完成的证据。
+            无法由代码图谱确认的位置标记“待定位”，禁止编造文件名。
+            """;
+
+    private static final String EXECUTION_PLAN_SYSTEM_UPDATE = """
+            ⚠️ 直接输出任务：基于最新核心规格、当前执行计划与新证据，增量更新完整执行计划 Markdown。
+            保留未变更 PLAN ID；同步新增或变化的 specRefs；已完成步骤保留并标记完成，失效步骤标记
+            Superseded 且说明替代项。不得修改核心规格内容，不得编造代码位置。
+            输出仍须符合执行计划的固定章节、PLAN ID 与 specRefs 契约。
+            """;
+
     /** TDD 生成/更新前的澄清多轮上限，跟 PRD 澄清的 maxQuestions 是两个独立的概念。 */
     private static final int DEV_DOC_UPDATE_MAX_QUESTIONS = 5;
 
@@ -1314,9 +1387,12 @@ public class PrdClarifyService {
             reasoning、breakdown、inspectedFiles、codeEvidenceSummary、assumptions、risks。
             """;
 
+    private static final String CODE_EVIDENCE_VERIFIED = "<!-- CODE_EVIDENCE_STATUS: VERIFIED -->";
+    private static final String CODE_EVIDENCE_INSUFFICIENT = "<!-- CODE_EVIDENCE_STATUS: INSUFFICIENT -->";
+
     /**
-     * 进度评估系统 prompt：基于 PRD + 开发文档（业务/技术事实来源，不改写、不复制），核对
-     * 代码知识图谱里能查到的真实实现，产出一份大纲固定的 Markdown 进度报告。设计上呼应
+     * 进度评估系统 prompt：基于 PRD + 开发文档（业务/技术事实来源，不改写、不复制），通过
+     * 标准 URL、Graphify 和源码读取链路核对真实实现，产出固定大纲的 Markdown 进度报告。
      * "平台文档管理事实来源、评估报告是可重复生成的派生产物"这个分工——报告本身按版本追加
      * 落盘（见 {@link #evaluateProgress}），不覆盖旧报告。
      */
@@ -1326,11 +1402,20 @@ public class PrdClarifyService {
 
             评估依据（按优先级）：
             1. 开发文档列出的改动范围/任务清单，是核对进度的基准——文档里每一项都要给出结论
-            2. 若提供了【代码知识图谱查询结果】：其中是真实存在的类/方法/接口/表，只有能在其中
-               找到对应实现才算"已完成"；文档提到但图谱里查不到对应实现的，算"未完成"，
-               不要凭空猜测代码已经实现
-            3. 若提供了【业务知识图谱查询结果】：核对业务规则/状态机是否与代码一致
-            4. 若提供了【补充上下文】（如"重点核对xxx"）：按其调整核对重点
+            2. 必须先调用 source_context，使用需求中的 URL、项目模块和完整问题执行 URL 路由定位与
+               Graphify 收敛；随后对候选文件调用 source_read，核对页面、接口、业务逻辑、数据访问和测试
+            3. 从源码发现新的类名、方法名或 SQL ID 后，再调用 source_context 反问图谱；只有候选证据仍
+               不足时，才允许在明确子目录调用 source_search，禁止从项目根目录搜索
+            4. Graphify 只用于结构导航，不能单独证明功能已实现；已完成、部分完成和未完成都必须以
+               source_read 读到的真实文件内容为依据
+            5. 若提供了【业务知识图谱查询结果】：核对业务规则/状态机是否与代码一致
+            6. 若提供了【补充上下文】（如"重点核对xxx"）：按其调整核对重点
+
+            证据保护：
+            - 成功读取与需求相关的源码后，在报告标题下输出系统指定的“已核查”证据标记
+            - source_context/source_read 不可用、未定位到相关源码或只得到公共库噪声时，输出系统指定的
+              “证据不足”标记；此时保留三个进度章节但不要添加任何清单项，在“文档与代码差异”中说明
+              待校准，禁止把证据不足判定为未完成或 0%
 
             输出要求（严格执行，章节标题和顺序不变，用 {功能名称} 替换成需求标题）：
 
@@ -1343,8 +1428,7 @@ public class PrdClarifyService {
             ## 已完成
             每项格式：
             - [x] 功能点描述
-              - 证据：类名.方法名 / 文件路径（必须引用【代码知识图谱查询结果】里真实出现过的
-                实体；没有具体证据就不要列进"已完成"，宁可放到"未完成"里如实说明）
+              - 证据：类名.方法名 / 文件路径（必须引用 source_read 实际读取过的文件）
 
             ## 部分完成
             每项格式：
@@ -1356,13 +1440,12 @@ public class PrdClarifyService {
             每项格式：
             - [ ] 功能点描述
               - 开发文档要求：...
-              - 当前代码：未在代码知识图谱中找到对应实现（或简述现状）
+              - 当前代码：经 source_read 核对后的实际现状
 
             ## 文档与代码差异
             用 Markdown 表格：| 需求 | 文档要求 | 当前代码 | 状态 |
 
-            不确定/查不到证据的地方要如实说"未在代码知识图谱中找到对应实现"，绝不能编造不存在的
-            类名/方法名/文件路径。直接输出 Markdown，不加代码块围栏，不加多余解释。
+            绝不能编造不存在的类名、方法名或文件路径。直接输出 Markdown，不加代码块围栏，不加多余解释。
             """;
 
     /** TDD 生成/更新前的多轮技术澄清——请求下一个必须由开发者明确的问题。 */
@@ -1551,15 +1634,16 @@ public class PrdClarifyService {
                     if (currentDevDoc == null || currentDevDoc.isBlank()) {
                         // 没有可更新的基础，退回从零生成，避免直接报错卡住用户
                         log.info("[prd-clarify] 更新模式但当前无开发文档，退回从零生成 sessionId={}", sessionId);
-                        devDocSystem = DEV_DOC_SYSTEM;
+                        devDocSystem = isSpecDriven(session) ? EXECUTION_PLAN_SYSTEM : DEV_DOC_SYSTEM;
                         userPrompt = buildDevDocPrompt(
                                 session, prdContent, extraInstructions, effectiveQaHistory);
                     } else {
-                        devDocSystem = DEV_DOC_SYSTEM_UPDATE;
+                        devDocSystem = isSpecDriven(session)
+                                ? EXECUTION_PLAN_SYSTEM_UPDATE : DEV_DOC_SYSTEM_UPDATE;
                         userPrompt = buildDevDocUpdatePrompt(session, prdContent, currentDevDoc, extraInstructions, effectiveQaHistory);
                     }
                 } else {
-                    devDocSystem = DEV_DOC_SYSTEM;
+                    devDocSystem = isSpecDriven(session) ? EXECUTION_PLAN_SYSTEM : DEV_DOC_SYSTEM;
                     userPrompt = buildDevDocPrompt(
                             session, prdContent, extraInstructions, effectiveQaHistory);
                 }
@@ -1794,6 +1878,7 @@ public class PrdClarifyService {
             devDocPath = fileStore.pathFor(sessionId).toString().replace(".md", "-dev.md");
             repo.updateDevDocPath(sessionId, devDocPath);
         }
+        backupDevDocIfExists(java.nio.file.Path.of(devDocPath));
         java.nio.file.Files.writeString(
                 java.nio.file.Path.of(devDocPath), content,
                 java.nio.charset.StandardCharsets.UTF_8,
@@ -1861,11 +1946,7 @@ public class PrdClarifyService {
         } catch (IOException e) {
             throw new IllegalStateException("读取 PRD/开发文档失败: " + e.getMessage(), e);
         }
-        Optional<LocalProjectResolver.ProjectLocation> projectLocation = Optional.empty();
-        LocalProjectResolver resolver = localProjectResolver.getIfAvailable();
-        if (resolver != null) {
-            projectLocation = resolver.resolve(session.getProject());
-        }
+        Optional<LocalProjectResolver.ProjectLocation> projectLocation = resolveLocalProject(session.getProject());
         String engine = normalizeEngine(requestedEngine == null || requestedEngine.isBlank()
                 ? session.getEngine() : requestedEngine);
         String userPrompt = buildEffortEstimatePrompt(
@@ -1878,7 +1959,9 @@ public class PrdClarifyService {
                 engine,
                 "codex".equals(engine) ? "medium" : null,
                 null, null, null, null,
-                projectLocation.isPresent() ? "consult-readonly" : AgentOneShotRunner.TOOL_POLICY_DISABLED);
+                projectLocation.isPresent()
+                        ? AgentOneShotRunner.TOOL_POLICY_CONSULT_READONLY
+                        : AgentOneShotRunner.TOOL_POLICY_DISABLED);
         String raw = agentRunner.runOnce(request);
         String estimationJson = parseAndBuildEstimationJson(
                 raw, engine, projectLocation, session, prdContent, devDocContent, startedAt);
@@ -2264,6 +2347,7 @@ public class PrdClarifyService {
                     .reqType("NEW_MODULE")
                     .maxQuestions(DEFAULT_MAX_QUESTIONS.get("NEW_MODULE"))
                     .clarifyMode("progressive")
+                    .documentProfile(DocumentProfile.normalize(parent.getDocumentProfile()))
                     .status("DRAFT")
                     .parentId(parentId)
                     .createdByUserId(createdByUserId)
@@ -2283,12 +2367,12 @@ public class PrdClarifyService {
     //
     // 设计取自"平台文档管理事实来源，衍生产物按需生成"的分工：PRD/开发文档是业务/技术事实
     // 来源，不会为了做进度追踪被推倒重写；进度评估报告是可重复生成的派生产物，每次核对当时
-    // 最新的 PRD + 开发文档 + 代码知识图谱，按版本追加落盘（不覆盖），历史快照仍可回看——
+    // 最新的 PRD + 开发文档 + 真实源码证据，按版本追加落盘（不覆盖），历史快照仍可回看——
     // 用法/文件命名/版本管理逻辑完全对齐开发文档（DevDocLocation 系列方法），只是换了个
     // 产物类型，故意不抽取公共父类/工具方法：避免为了复用而牵连开发文档已经稳定工作的逻辑。
 
     /**
-     * AI 进度评估：基于当前 PRD + 当前开发文档，结合代码/业务知识图谱查询结果，核对代码库
+     * AI 进度评估：基于当前 PRD + 当前开发文档，结合 URL、代码图谱、源码和业务知识，核对代码库
      * 实际实现进度，生成大纲固定的 Markdown 报告，通过 SSE 流式推出，完成后按版本追加落盘到
      * {@code {id}-progress.md}（覆盖前先备份为 {id}-progress-v{n}.md，"检出新版本"不丢历史）。
      */
@@ -2307,19 +2391,33 @@ public class PrdClarifyService {
                     return;
                 }
 
+                LocalProjectResolver.ProjectLocation projectLocation = resolveLocalProject(sourceSession.getProject())
+                        .orElseThrow(() -> new IllegalStateException(
+                                "未匹配到项目“" + sourceSession.getProject() + "”的本地工作目录，无法核查代码进度"));
+
                 String effortBaselineJson = requestedSession.getDevDocEstimation() != null
                         ? requestedSession.getDevDocEstimation()
                         : sourceSession.getDevDocEstimation();
                 String userPrompt = buildProgressEvalPrompt(
-                        sourceSession, prdContent, devDocContent, effortBaselineJson, extraContext);
+                        sourceSession, prdContent, devDocContent, effortBaselineJson, extraContext, projectLocation);
                 StringBuilder full = new StringBuilder();
-                agentRunner.stream(PROGRESS_EVAL_SYSTEM, userPrompt, sourceSession.getModel(),
-                        normalizeEngine(sourceSession.getEngine()), delta -> {
+                String engine = normalizeEngine(sourceSession.getEngine());
+                AgentOneShotRunner.ExecutionRequest request = new AgentOneShotRunner.ExecutionRequest(
+                        progressEvalSystemPrompt(),
+                        userPrompt,
+                        projectLocation.path(),
+                        sourceSession.getModel(),
+                        engine,
+                        "codex".equals(engine) ? "medium" : null,
+                        null, null, null, null,
+                        AgentOneShotRunner.TOOL_POLICY_CONSULT_READONLY);
+                String returnedContent = agentRunner.stream(request, delta -> {
                     full.append(delta);
                     sendChunk(emitter, delta);
                 });
 
-                String progressContent = full.toString();
+                String progressContent = full.isEmpty() ? returnedContent : full.toString();
+                validateProgressEvidenceStatus(progressContent);
                 java.nio.file.Path progressPath = java.nio.file.Path.of(
                         fileStore.pathFor(sessionId).toString().replace(".md", "-progress.md"));
                 backupProgressIfExists(progressPath);
@@ -2347,9 +2445,11 @@ public class PrdClarifyService {
             String prdContent,
             String devDocContent,
             String effortBaselineJson,
-            String extraContext) {
+            String extraContext,
+            LocalProjectResolver.ProjectLocation projectLocation) {
         StringBuilder sb = new StringBuilder();
         sb.append("需求标题：").append(s.getTitle()).append("\n");
+        sb.append("文档模式：").append(DocumentProfile.normalize(s.getDocumentProfile())).append("\n");
         if (s.getProject() != null && !s.getProject().isBlank()) {
             sb.append("项目：").append(s.getProject());
             if (s.getModule() != null && !s.getModule().isBlank()) {
@@ -2357,25 +2457,65 @@ public class PrdClarifyService {
             }
             sb.append("\n");
         }
-        sb.append("\n【PRD 内容】\n").append(prdContent == null ? "" : prdContent).append("\n");
-        sb.append("\n【最新 TDD / 开发文档内容】（技术方案基准，逐项核对是否已落地）\n")
+        if (s.getRawInput() != null && !s.getRawInput().isBlank()) {
+            sb.append("\n【原始需求输入】（包含 URL 时必须传给 source_context）\n")
+                    .append(s.getRawInput()).append("\n");
+        }
+        String specificationLabel = isSpecDriven(s) ? "核心规格" : "PRD";
+        String planLabel = isSpecDriven(s) ? "执行计划" : "最新 TDD / 开发文档";
+        sb.append("\n【").append(specificationLabel).append("内容】\n")
+                .append(prdContent == null ? "" : prdContent).append("\n");
+        sb.append("\n【").append(planLabel).append("内容】（技术方案基准，逐项核对是否已落地）\n")
                 .append(devDocContent).append("\n");
+        if (isSpecDriven(s)) {
+            sb.append("\n【规格驱动评估要求】\n按 REQ/RULE/SCN/AC 与 PLAN ID 建立追踪关系，")
+                    .append("每个完成、部分完成或缺失结论必须引用源码或测试证据；")
+                    .append("无法映射稳定 ID 的实现列为规格漂移，不得直接计为完成。\n");
+        }
         appendProgressEffortBaseline(sb, effortBaselineJson);
         if (extraContext != null && !extraContext.isBlank()) {
             sb.append("\n【补充上下文】\n").append(extraContext.trim()).append("\n");
         }
-        Optional<String> localCodeEvidence = queryGraphContext(
-                s.getProject(),
-                s.getModule(),
-                "核查需求“" + s.getTitle() + "”的本地代码实现进度；返回相关类、方法、接口、数据表、配置和测试证据");
-        appendGraphContext(sb, localCodeEvidence);
-        if (localCodeEvidence.isEmpty()) {
-            sb.append("\n【本地代码检查结果】\n未找到可用的本地代码知识图谱证据。"
-                    + "本次不得把任何功能判定为已完成；请全部列为未完成，并明确说明缺少本地代码证据。\n");
-        }
         appendDomainContext(sb, queryDomainContext(s.getProject(), s.getTitle()));
+        sb.append("\n【测试核查】\n所有测试类功能点与其它功能点一样完整核查并写入对应完成状态章节。"
+                + "单元、接口、安全、集成、自动化、事务、并发、回归、性能、端到端、验收、兼容性等测试项，"
+                + "标题必须明确包含“测试”或 Test，便于后端基于同一报告确定性计算两种计分口径。"
+                + "联调、数据库迁移校验等非测试工作仍按普通功能点计分，除非标题明确将其定义为测试。\n");
+        sb.append("\n【本地代码核查】\n工作目录已限制为项目：")
+                .append(projectLocation.name())
+                .append("。必须先调用 source_context，再精确读取候选源码；不得仅凭上方文档或图谱判断进度。\n");
         sb.append("\n请基于以上信息生成开发进度评估报告，严格按系统提示的大纲输出 Markdown。");
         return sb.toString();
+    }
+
+    /** 根据项目名称解析已配置且可访问的本地工作目录。 */
+    private Optional<LocalProjectResolver.ProjectLocation> resolveLocalProject(String project) {
+        LocalProjectResolver resolver = localProjectResolver.getIfAvailable();
+        return resolver == null ? Optional.empty() : resolver.resolve(project);
+    }
+
+    /** 将代码证据状态常量注入评估协议。 */
+    private String progressEvalSystemPrompt() {
+        return PROGRESS_EVAL_SYSTEM
+                + "\n证据状态标记：\n- 已核查：`" + CODE_EVIDENCE_VERIFIED
+                + "`\n- 证据不足：`" + CODE_EVIDENCE_INSUFFICIENT + "`\n";
+    }
+
+    /** 阻止没有真实源码核查结论的报告覆盖上一版可信进度。 */
+    private void validateProgressEvidenceStatus(String progressContent) {
+        if (progressContent.contains(CODE_EVIDENCE_VERIFIED)) {
+            return;
+        }
+        if (progressContent.contains(CODE_EVIDENCE_INSUFFICIENT)) {
+            boolean containsProgressItem = Pattern.compile("(?m)^- \\[(?:x|X|~| )] ")
+                    .matcher(progressContent)
+                    .find();
+            if (!containsProgressItem) {
+                return;
+            }
+            throw new IllegalStateException("代码证据不足时不能生成完成度清单，请重新评估");
+        }
+        throw new IllegalStateException("进度评估未返回代码证据状态，已保留上一版报告");
     }
 
     /** 把责任时间处已经生成的总工时评估作为固定基线传给代码分析，避免再次凭空估总量。 */
@@ -2677,7 +2817,10 @@ public class PrdClarifyService {
     public void saveContent(String sessionId, String content) throws IOException {
         repo.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
+        java.nio.file.Path path = fileStore.pathFor(sessionId);
+        backupPrdIfExists(path);
         fileStore.write(sessionId, content);
+        repo.updateDone(sessionId, path.toString());
     }
 
     /** 读取 .md 文件内容。 */
@@ -2834,6 +2977,7 @@ public class PrdClarifyService {
                 .questions(metadataSource.getQuestions()).status("DONE").role(parent.getRole())
                 .reqType(parent.getReqType()).maxQuestions(parent.getMaxQuestions())
                 .clarifyMode(parent.getClarifyMode()).model(parent.getModel()).engine(parent.getEngine())
+                .documentProfile(DocumentProfile.normalize(parent.getDocumentProfile()))
                 .createdByUserId(parent.getCreatedByUserId()).parentId(parentId)
                 .createdAt(now).updatedAt(now).build();
         repo.insert(revision);

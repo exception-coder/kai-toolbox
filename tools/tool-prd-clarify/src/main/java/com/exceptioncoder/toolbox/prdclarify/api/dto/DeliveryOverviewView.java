@@ -54,10 +54,12 @@ public record DeliveryOverviewView(
             String project,
             String module,
             String status,
+            String documentProfile,
             long updatedAt,
             RequirementLinksView links,
             StageSetView stages,
             CoverageView coverage,
+            CodeScoreVariantsView codeScoreVariants,
             ProgressItemsView progressItems,
             List<AlignmentFindingView> alignmentFindings,
             EffortProgressView effortProgress,
@@ -95,7 +97,8 @@ public record DeliveryOverviewView(
     public record ProgressItemsView(
             List<ProgressItemView> completed,
             List<ProgressItemView> partial,
-            List<ProgressItemView> missing) {
+            List<ProgressItemView> missing,
+            List<ProgressItemView> excluded) {
     }
 
     /** 单个功能点及其代码证据。 */
@@ -105,7 +108,28 @@ public record DeliveryOverviewView(
             String implemented,
             String missing,
             String expected,
-            String actual) {
+            String actual,
+            boolean testItem,
+            boolean unitTest) {
+    }
+
+    /**
+     * 同一份扫描报告按两种测试计分口径计算出的代码实现度。
+     *
+     * @param includingTests 纳入测试时的代码实现度
+     * @param excludingTests 不纳入测试时的代码实现度
+     * @param testItemCount 报告中识别出的测试功能点数量
+     * @param includingUnitTests 兼容旧版消费方，值与 includingTests 相同
+     * @param excludingUnitTests 兼容旧版消费方，值与 excludingTests 相同
+     * @param unitTestItemCount 报告中识别出的单元测试功能点数量，兼容旧版展示
+     */
+    public record CodeScoreVariantsView(
+            Integer includingTests,
+            Integer excludingTests,
+            int testItemCount,
+            Integer includingUnitTests,
+            Integer excludingUnitTests,
+            int unitTestItemCount) {
     }
 
     /** PRD 或开发文档与当前代码的差异。 */

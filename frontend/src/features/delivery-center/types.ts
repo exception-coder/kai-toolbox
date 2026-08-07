@@ -49,6 +49,8 @@ export interface ProgressItem {
   missing: string
   expected: string
   actual: string
+  testItem?: boolean
+  unitTest?: boolean
 }
 
 export interface EffortProgress {
@@ -78,6 +80,7 @@ export interface DeliveryRequirement {
   project: string
   module: string
   status: string
+  documentProfile: 'CLASSIC' | 'SPEC_DRIVEN'
   updatedAt: number
   links: {
     prd: string
@@ -100,10 +103,19 @@ export interface DeliveryRequirement {
     missing: number
     total: number
   }
+  codeScoreVariants?: {
+    includingTests?: number | null
+    excludingTests?: number | null
+    testItemCount?: number
+    includingUnitTests?: number | null
+    excludingUnitTests?: number | null
+    unitTestItemCount?: number
+  }
   progressItems: {
     completed: ProgressItem[]
     partial: ProgressItem[]
     missing: ProgressItem[]
+    excluded: ProgressItem[]
   }
   /** 原 AI 总工时基线与最新代码实现进度的确定性对照。 */
   effortProgress?: EffortProgress | null

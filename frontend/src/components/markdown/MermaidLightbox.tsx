@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Maximize2, Minus, Plus, RefreshCw, X } from 'lucide-react'
+import { Download, Maximize2, Minus, Plus, RefreshCw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { downloadSvg } from './downloadSvg'
 
 interface MermaidLightboxProps {
   /** 已完成渲染的 Mermaid SVG。 */
@@ -93,6 +94,9 @@ export function MermaidLightbox({ svgHtml, onClose }: MermaidLightboxProps) {
           </Button>
           <Button variant="ghost" size="icon" className="hidden text-white hover:bg-white/15 sm:inline-flex" onClick={resetView} title="重置缩放" aria-label="重置图表缩放">
             <RefreshCw className="size-4" />
+          </Button>
+          <Button variant="ghost" size="icon" className="text-white hover:bg-white/15" onClick={() => downloadSvg(svgHtml)} title="导出 SVG 矢量图" aria-label="导出 SVG 矢量图">
+            <Download className="size-4" />
           </Button>
           <Button variant="ghost" size="icon" className="text-white hover:bg-white/15" onClick={onClose} title="关闭" aria-label="关闭全屏图表">
             <X className="size-5" />

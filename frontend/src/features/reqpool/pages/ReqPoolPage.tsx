@@ -63,7 +63,7 @@ import type { AssignableUser, ReqItemView, ReqStatus } from '../types'
 import { evaluateRequirementFacts, type FactQualityResult } from '../factQuality'
 import { getDeliveryOverview } from '@/features/delivery-center/api'
 import { DeliveryStageDialog, GenerationSupplementDialog } from '@/features/delivery-center/components/DeliveryStageDialog'
-import type { DeliveryOverview, DeliveryRequirement } from '@/features/delivery-center/types'
+import type { DeliveryOverview, DeliveryRequirement, ProgressItem } from '@/features/delivery-center/types'
 import { requirementProgress } from '@/features/delivery-center/viewModel'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { QuickRequirementDialog } from '../components/QuickRequirementDialog'
@@ -88,6 +88,7 @@ import {
 } from '@/features/prd-clarify/api'
 import type { QaPair } from '@/features/prd-clarify/api'
 import type { AgentEngine, PrdSessionView } from '@/features/prd-clarify/types'
+import { documentProfileLabels } from '@/features/prd-clarify/documentProfile'
 import { MarkdownContent } from '@/components/markdown/MarkdownContent'
 import { useAuth } from '@/lib/auth'
 import { StartDevelopmentDialog } from '@/features/prd-clarify/components/StartDevelopmentDialog'
@@ -119,7 +120,7 @@ const DEFAULT_FIELDS: DisplayField[] = [
   { id: 'requirement', label: '需求事实', description: '标题、系统模块、URL 定位与事实质量', enabled: true },
   { id: 'value', label: '业务价值', description: '目标、影响与预期收益', enabled: true, ai: true },
   { id: 'owner', label: '责任与时间', description: '唯一负责人和承诺时间', enabled: true },
-  { id: 'delivery', label: '交付证据', description: 'PRD、TDD、代码自动回填', enabled: true, ai: true },
+  { id: 'delivery', label: '交付证据', description: '需求规格、执行方案、代码自动回填', enabled: true, ai: true },
   { id: 'risk', label: '风险与下一步', description: '阻塞、缺口与明确动作', enabled: true, ai: true },
 ]
 
@@ -561,27 +562,27 @@ function DocumentStatusLegend() {
       </PopoverAnchor>
       <PopoverContent className="w-80 p-0" align="end">
         <div className="border-b border-[var(--color-border)] px-4 py-3">
-          <div className="text-xs font-semibold">PRD / TDD 节点颜色说明</div>
+          <div className="text-xs font-semibold">需求规格 / 执行方案节点颜色说明</div>
           <p className="mt-1 text-[10px] text-[var(--color-muted-foreground)]">颜色表示当前需要等待、处理还是查看结果；节点均可直接点按。</p>
         </div>
         <div className="max-h-[65vh] space-y-0.5 overflow-y-auto p-2">
-          <div className="px-2 pb-1 pt-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--color-muted-foreground)]">PRD</div>
+          <div className="px-2 pb-1 pt-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--color-muted-foreground)]">需求规格</div>
           {states.map(({ state, description }) => (
             <div key={state} className="flex items-start gap-3 rounded-lg px-2 py-2.5 hover:bg-[var(--color-muted)]/60">
               <span className="mt-0.5 shrink-0"><PrdStageDot state={state} running={false} /></span>
               <div className="min-w-0">
-                <div className="text-[11px] font-semibold">{PRD_NODE_META[state].label}</div>
+                <div className="text-[11px] font-semibold">{PRD_NODE_META[state].label.replace('PRD ', '')}</div>
                 <p className="mt-0.5 text-[10px] leading-4 text-[var(--color-muted-foreground)]">{description}</p>
               </div>
             </div>
           ))}
           <div className="mx-2 my-2 border-t border-[var(--color-border)]" />
-          <div className="px-2 pb-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--color-muted-foreground)]">TDD</div>
+          <div className="px-2 pb-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--color-muted-foreground)]">执行方案</div>
           {(['locked', 'ready', 'building', 'awaiting', 'generating', 'stale', 'done', 'error'] as TddNodeState[]).map(state => (
             <div key={state} className="flex items-start gap-3 rounded-lg px-2 py-2.5 hover:bg-[var(--color-muted)]/60">
               <span className="mt-0.5 shrink-0"><TddStageDot state={state} /></span>
               <div className="min-w-0">
-                <div className="text-[11px] font-semibold">{TDD_NODE_META[state].label}</div>
+                <div className="text-[11px] font-semibold">{TDD_NODE_META[state].label.replace('TDD ', '')}</div>
                 <p className="mt-0.5 text-[10px] leading-4 text-[var(--color-muted-foreground)]">{TDD_NODE_META[state].hint}</p>
               </div>
             </div>
@@ -599,6 +600,7 @@ function DocumentLifecycleTimeline({
   kind: 'PRD' | 'TDD'
   session?: PrdSessionView
 }) {
+  const labels = documentProfileLabels(session?.documentProfile)
   const legacyPrdOutput = !session?.prdGeneratedAt && session?.mdPath && session.status === 'DONE'
     ? session.updatedAt
     : null
@@ -611,7 +613,7 @@ function DocumentLifecycleTimeline({
           pending: session?.status === 'CLARIFYING' && session.questions.length === 0 ? '生成中' : '尚未生成',
         },
         {
-          label: '完成澄清并输出 PRD',
+          label: `完成澄清并输出${labels.specification}`,
           time: session?.prdGeneratedAt ?? legacyPrdOutput,
           pending: session?.status === 'GENERATING' ? '生成中' : '尚未输出',
           inferred: !!legacyPrdOutput,
@@ -624,7 +626,7 @@ function DocumentLifecycleTimeline({
           pending: session?.devDocWorkStatus === 'BUILDING_QUESTIONS' ? '生成中' : '尚未生成',
         },
         {
-          label: '完成澄清并输出 TDD',
+          label: `完成澄清并输出${labels.plan}`,
           time: session?.devDocGeneratedAt,
           pending: session?.devDocWorkStatus === 'GENERATING' ? '生成中' : '尚未输出',
         },
@@ -633,7 +635,7 @@ function DocumentLifecycleTimeline({
   return (
     <div className="border-b border-[var(--color-border)] bg-[var(--color-muted)]/20 px-4 py-3">
       <div className="mb-2 flex items-center gap-1.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-[var(--color-muted-foreground)]">
-        <Clock3 className="h-3 w-3" />{kind} 作业时间线
+        <Clock3 className="h-3 w-3" />{kind === 'PRD' ? labels.specification : labels.plan}作业时间线
       </div>
       <ol className="space-y-0">
         {events.map((event, index) => {
@@ -798,12 +800,25 @@ function PrdStageNode({
   }
 
   const session = sessionQuery.data ?? prdSession
+  const labels = documentProfileLabels(session?.documentProfile)
+  const meta = {
+    ...PRD_NODE_META[state === 'empty' ? 'draft' : state],
+    label: state === 'draft'
+      ? labels.specificationDraft
+      : state === 'generating'
+        ? `${labels.specification}生成中`
+        : state === 'done'
+          ? `${labels.specification}已输出`
+          : state === 'error'
+            ? `${labels.specification}执行失败`
+            : PRD_NODE_META[state === 'empty' ? 'draft' : state].label,
+  }
   const questionsReady = (session?.questions.length ?? 0) > 0
 
   const copyDocumentPaths = async () => {
     if (!session?.mdPath) return
-    const paths = [`PRD：${session.mdPath}`]
-    if (session.devDocPath) paths.push(`TDD（最新）：${session.devDocPath}`)
+    const paths = [`${labels.specification}：${session.mdPath}`]
+    if (session.devDocPath) paths.push(`${labels.plan}（最新）：${session.devDocPath}`)
     try {
       await navigator.clipboard.writeText(paths.join('\n'))
       setPathCopyError('')
@@ -817,9 +832,9 @@ function PrdStageNode({
 
   if (state === 'empty') {
     return (
-      <div className="flex flex-col items-center gap-1" title="尚未关联 PRD">
+      <div className="flex flex-col items-center gap-1" title={`尚未关联${labels.specification}`}>
         <PrdStageDot state="empty" running={false} />
-        <span className="text-[10px] text-[var(--color-muted-foreground)]">PRD</span>
+        <span className="text-[10px] text-[var(--color-muted-foreground)]">{labels.specification}</span>
       </div>
     )
   }
@@ -831,11 +846,11 @@ function PrdStageNode({
           type="button"
           onClick={openNode}
           className="group/prd flex flex-col items-center gap-1 rounded-md outline-none"
-          title={`${PRD_NODE_META[state].label}：${PRD_NODE_META[state].hint}`}
-          aria-label={`${PRD_NODE_META[state].label}，${PRD_NODE_META[state].hint}`}
+          title={`${meta.label}：${meta.hint}`}
+          aria-label={`${meta.label}，${meta.hint}`}
         >
           <PrdStageDot state={state} running={running} />
-          <span className={`text-[10px] font-medium transition-colors ${state === 'draft' ? 'text-slate-500' : state === 'building' ? 'text-violet-600' : state === 'awaiting' ? 'text-amber-600' : state === 'generating' ? 'text-sky-600' : state === 'error' ? 'text-rose-600' : 'text-emerald-600'}`}>PRD</span>
+          <span className={`text-[10px] font-medium transition-colors ${state === 'draft' ? 'text-slate-500' : state === 'building' ? 'text-violet-600' : state === 'awaiting' ? 'text-amber-600' : state === 'generating' ? 'text-sky-600' : state === 'error' ? 'text-rose-600' : 'text-emerald-600'}`}>{labels.specification}</span>
         </button>
       </PopoverAnchor>
       {open && (
@@ -848,7 +863,7 @@ function PrdStageNode({
           <div className="border-b border-[var(--color-border)] px-4 py-3">
             <div className="flex items-center gap-2 text-xs font-semibold">
               <PrdStageDot state={state} running={running} />
-              {PRD_NODE_META[state].label}
+              {meta.label}
             </div>
             <p className="mt-1.5 text-[10px] leading-4 text-[var(--color-muted-foreground)]">{item.title}</p>
           </div>
@@ -880,15 +895,15 @@ function PrdStageNode({
               <p className="text-[10px] leading-4 text-[var(--color-muted-foreground)]">无需停留在本页面，后台任务会继续执行。</p>
             </div>
           ) : state === 'generating' ? (
-            <div className="p-4"><div className="flex items-center gap-2 rounded-lg bg-sky-50 px-3 py-2.5 text-[11px] text-sky-700 dark:bg-sky-950/30 dark:text-sky-300"><Loader2 className="h-3.5 w-3.5 animate-spin" />回答已提交，正在生成 PRD Markdown…</div></div>
+            <div className="p-4"><div className="flex items-center gap-2 rounded-lg bg-sky-50 px-3 py-2.5 text-[11px] text-sky-700 dark:bg-sky-950/30 dark:text-sky-300"><Loader2 className="h-3.5 w-3.5 animate-spin" />回答已提交，正在生成{labels.specification} Markdown…</div></div>
           ) : state === 'awaiting' ? (
             <div className="space-y-3 p-4">
-              <p className="text-[11px] leading-5 text-[var(--color-muted-foreground)]">澄清问题已返回，完成回答后可补充额外信息并生成 PRD。</p>
+              <p className="text-[11px] leading-5 text-[var(--color-muted-foreground)]">澄清问题已返回，完成回答后可补充额外信息并生成{labels.specification}。</p>
               <button type="button" onClick={() => { setOpen(false); onAnswer() }} className="w-full rounded-lg bg-amber-500 px-3 py-2.5 text-xs font-medium text-white hover:bg-amber-600">填写澄清答案</button>
             </div>
           ) : state === 'done' ? (
             <div className="space-y-2 p-4">
-              <button type="button" onClick={() => { setOpen(false); onPreview() }} className="w-full rounded-lg bg-emerald-600 px-3 py-2.5 text-xs font-medium text-white hover:bg-emerald-700">预览 PRD 文档</button>
+              <button type="button" onClick={() => { setOpen(false); onPreview() }} className="w-full rounded-lg bg-emerald-600 px-3 py-2.5 text-xs font-medium text-white hover:bg-emerald-700">预览{labels.specificationDocument}</button>
               {session?.mdPath && (
                 <button
                   type="button"
@@ -897,7 +912,7 @@ function PrdStageNode({
                   className="flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--color-border)] px-3 py-2.5 text-xs font-medium hover:bg-[var(--color-muted)]"
                 >
                   {pathsCopied ? <CircleCheck className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
-                  {pathsCopied ? 'PRD / TDD 路径已复制' : session.devDocPath ? '复制 PRD / 最新 TDD 路径' : '复制 PRD 路径（暂无 TDD）'}
+                  {pathsCopied ? `${labels.specification} / ${labels.plan}路径已复制` : session.devDocPath ? `复制${labels.specification} / 最新${labels.plan}路径` : `复制${labels.specification}路径（暂无${labels.plan}）`}
                 </button>
               )}
               {pathCopyError && <p className="text-center text-[10px] text-rose-600 dark:text-rose-300">{pathCopyError}</p>}
@@ -911,7 +926,7 @@ function PrdStageNode({
           {questionsReady && (
             <div className="border-t border-[var(--color-border)] p-3">
               <button type="button" onClick={() => { setOpen(false); setShowClarification(true) }} className="flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--color-border)] px-3 py-2.5 text-xs font-medium hover:bg-[var(--color-muted)]">
-                <ListTree className="h-3.5 w-3.5" />查看 PRD 澄清记录
+                <ListTree className="h-3.5 w-3.5" />查看{labels.specificationClarify}记录
               </button>
             </div>
           )}
@@ -945,7 +960,25 @@ function TddStageNode({
   const [engine, setEngine] = useState<AgentEngine>('codex')
   const [showClarification, setShowClarification] = useState(false)
   const state = tddNodeState(requirement, session, building, generating, failed)
-  const meta = TDD_NODE_META[state]
+  const labels = documentProfileLabels(session?.documentProfile ?? requirement?.documentProfile)
+  const baseMeta = TDD_NODE_META[state]
+  const meta = {
+    ...baseMeta,
+    label: state === 'locked'
+      ? `${labels.plan}尚不可用`
+      : state === 'ready'
+        ? `${labels.plan}待作业`
+        : state === 'generating'
+          ? `${labels.plan}生成中`
+          : state === 'stale'
+            ? `${labels.plan}需更新`
+            : state === 'done'
+              ? `${labels.plan}已输出`
+              : state === 'error'
+                ? `${labels.plan}执行失败`
+                : baseMeta.label,
+    hint: state === 'locked' ? `完成${labels.specification}后可开始技术作业` : baseMeta.hint,
+  }
 
   const openNode = (event: React.MouseEvent) => {
     event.stopPropagation()
@@ -972,7 +1005,7 @@ function TddStageNode({
           aria-label={`${meta.label}：${meta.hint}`}
         >
           <TddStageDot state={state} />
-          <span className={`text-[10px] font-medium transition-colors ${state === 'ready' || state === 'building' ? 'text-purple-600' : state === 'awaiting' || state === 'stale' ? 'text-amber-600' : state === 'generating' ? 'text-sky-600' : state === 'done' ? 'text-emerald-600' : state === 'error' ? 'text-rose-600' : 'text-[var(--color-muted-foreground)]'}`}>TDD</span>
+          <span className={`text-[10px] font-medium transition-colors ${state === 'ready' || state === 'building' ? 'text-purple-600' : state === 'awaiting' || state === 'stale' ? 'text-amber-600' : state === 'generating' ? 'text-sky-600' : state === 'done' ? 'text-emerald-600' : state === 'error' ? 'text-rose-600' : 'text-[var(--color-muted-foreground)]'}`}>{labels.plan}</span>
         </button>
       </PopoverAnchor>
       {open && (
@@ -984,34 +1017,34 @@ function TddStageNode({
         >
           <div className="border-b border-[var(--color-border)] px-4 py-3">
             <div className="flex items-center gap-2 text-xs font-semibold"><TddStageDot state={state} />{meta.label}</div>
-            <p className="mt-1.5 text-[10px] leading-4 text-[var(--color-muted-foreground)]">{requirement?.title || '当前需求尚未进入可执行的 TDD 阶段'}</p>
+            <p className="mt-1.5 text-[10px] leading-4 text-[var(--color-muted-foreground)]">{requirement?.title || `当前需求尚未进入可执行的${labels.plan}阶段`}</p>
           </div>
           <DocumentLifecycleTimeline kind="TDD" session={session} />
           <div className="space-y-3 p-4">
             {state === 'locked' ? (
-              <p className="rounded-lg bg-[var(--color-muted)] px-3 py-2.5 text-[11px] leading-5 text-[var(--color-muted-foreground)]">请先完成 PRD 澄清并输出文档。PRD 完成后，这里会自动变为紫色的“待作业”状态。</p>
+              <p className="rounded-lg bg-[var(--color-muted)] px-3 py-2.5 text-[11px] leading-5 text-[var(--color-muted-foreground)]">请先完成{labels.specificationClarify}并输出文档。{labels.specification}完成后，这里会自动变为紫色的“待作业”状态。</p>
             ) : state === 'building' ? (
               <div className="flex items-center gap-2 rounded-lg bg-violet-50 px-3 py-2.5 text-[11px] text-violet-700 dark:bg-violet-950/30 dark:text-violet-300"><Loader2 className="h-3.5 w-3.5 animate-spin" />AI 正在后台批量构建技术问题，完成后节点会变为橙色。</div>
             ) : state === 'generating' ? (
-              <div className="flex items-center gap-2 rounded-lg bg-sky-50 px-3 py-2.5 text-[11px] text-sky-700 dark:bg-sky-950/30 dark:text-sky-300"><Loader2 className="h-3.5 w-3.5 animate-spin" />答案已提交，TDD 正在后台生成。完成后节点会自动变为绿色。</div>
+              <div className="flex items-center gap-2 rounded-lg bg-sky-50 px-3 py-2.5 text-[11px] text-sky-700 dark:bg-sky-950/30 dark:text-sky-300"><Loader2 className="h-3.5 w-3.5 animate-spin" />答案已提交，{labels.plan}正在后台生成。完成后节点会自动变为绿色。</div>
             ) : state === 'awaiting' ? (
               <>
-                <p className="text-[11px] leading-5 text-[var(--color-muted-foreground)]">技术澄清问题已返回，完成回答后可补充约束与附件并生成 TDD。</p>
+                <p className="text-[11px] leading-5 text-[var(--color-muted-foreground)]">技术澄清问题已返回，完成回答后可补充约束与附件并生成{labels.plan}。</p>
                 <button type="button" onClick={() => { setOpen(false); onAnswer() }} className="w-full rounded-lg bg-amber-500 px-3 py-2.5 text-xs font-medium text-white hover:bg-amber-600">填写技术澄清答案</button>
               </>
             ) : state === 'done' ? (
-              <button type="button" onClick={() => { setOpen(false); onPreview() }} className="w-full rounded-lg bg-emerald-600 px-3 py-2.5 text-xs font-medium text-white hover:bg-emerald-700">预览 TDD 文档</button>
+              <button type="button" onClick={() => { setOpen(false); onPreview() }} className="w-full rounded-lg bg-emerald-600 px-3 py-2.5 text-xs font-medium text-white hover:bg-emerald-700">预览{labels.planDocument}</button>
             ) : (
               <>
                 <p className="text-[11px] leading-5 text-[var(--color-muted-foreground)]">
                   {state === 'stale'
-                    ? 'PRD 或代码上下文已发生变化，建议重新进行技术澄清并更新 TDD。'
+                    ? `${labels.specification}或代码上下文已发生变化，建议重新进行技术澄清并更新${labels.plan}。`
                     : state === 'error'
-                      ? '上次 TDD 作业未完成，可重新进入弹窗继续发起。'
-                      : 'AI 将结合 PRD、代码与知识图谱，只询问编码前必须确认的技术决策。'}
+                      ? `上次${labels.plan}作业未完成，可重新进入弹窗继续发起。`
+                      : `AI 将结合${labels.specification}、代码与知识图谱，只询问编码前必须确认的技术决策。`}
                 </p>
                 {state === 'stale' && (
-                  <button type="button" onClick={() => { setOpen(false); onPreview() }} className="w-full rounded-lg border border-[var(--color-border)] px-3 py-2.5 text-xs font-medium hover:bg-[var(--color-muted)]">查看现有 TDD</button>
+                  <button type="button" onClick={() => { setOpen(false); onPreview() }} className="w-full rounded-lg border border-[var(--color-border)] px-3 py-2.5 text-xs font-medium hover:bg-[var(--color-muted)]">查看现有{labels.plan}</button>
                 )}
                 {state === 'error' && (session?.devDocQaDraft.length ?? 0) > 0 && (
                   <button type="button" onClick={() => { setOpen(false); onAnswer() }} className="w-full rounded-lg border border-amber-300 px-3 py-2.5 text-xs font-medium text-amber-700 hover:bg-amber-50">恢复已保存的澄清答案</button>
@@ -1035,13 +1068,13 @@ function TddStageNode({
           {!!session && (!!session.devDocQuestionsGeneratedAt || session.devDocQaDraft.length > 0 || session.devDocHistory.length > 0) && (
             <div className="border-t border-[var(--color-border)] p-3">
               <button type="button" onClick={() => { setOpen(false); setShowClarification(true) }} className="flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--color-border)] px-3 py-2.5 text-xs font-medium hover:bg-[var(--color-muted)]">
-                <ListTree className="h-3.5 w-3.5" />查看 TDD 澄清记录
+                <ListTree className="h-3.5 w-3.5" />查看{labels.planClarify}记录
               </button>
             </div>
           )}
         </PopoverContent>
       )}
-      {showClarification && session && <ClarificationHistoryDialog kind="TDD" title={requirement?.title || 'TDD'} session={session} onClose={() => setShowClarification(false)} />}
+      {showClarification && session && <ClarificationHistoryDialog kind="TDD" title={requirement?.title || labels.plan} session={session} onClose={() => setShowClarification(false)} />}
     </Popover>
   )
 }
@@ -1110,6 +1143,32 @@ function DeliveryTrack({
   )
 }
 
+/** 兼容未返回显式标记的旧评估报告，并统一测试项识别口径。 */
+function isTestProgressItem(item: ProgressItem) {
+  return item.testItem === true || item.unitTest === true || /测试|\btests?\b/i.test(item.title)
+}
+
+/** 优先采用服务端双口径分数，旧响应则根据同一份进度项确定性回退计算。 */
+function resolveCodeScore(requirement: DeliveryRequirement, includeTests: boolean) {
+  const variants = requirement.codeScoreVariants
+  const variantScore = includeTests
+    ? variants?.includingTests ?? variants?.includingUnitTests
+    : variants?.excludingTests ?? variants?.excludingUnitTests
+  if (variantScore != null) return variantScore
+  if (includeTests) return requirement.stages.code.score
+
+  const { completed, partial, missing } = requirement.progressItems
+  const testItemCount = [...completed, ...partial, ...missing].filter(isTestProgressItem).length
+  if (testItemCount === 0) return requirement.stages.code.score
+
+  const scoredCompleted = completed.filter(item => !isTestProgressItem(item)).length
+  const scoredPartial = partial.filter(item => !isTestProgressItem(item)).length
+  const scoredMissing = missing.filter(item => !isTestProgressItem(item)).length
+  const scoredTotal = scoredCompleted + scoredPartial + scoredMissing
+  if (scoredTotal === 0) return 100
+  return Math.round(((scoredCompleted + scoredPartial * 0.5) / scoredTotal) * 100)
+}
+
 function CodeStageNode({ item, requirement, prdSession }: {
   item: ReqItemView
   requirement?: DeliveryRequirement
@@ -1119,12 +1178,15 @@ function CodeStageNode({ item, requirement, prdSession }: {
   const { user } = useAuth()
   const [open, setOpen] = useState(false)
   const [running, setRunning] = useState(false)
+  const [includeTests, setIncludeTests] = useState(true)
   const [error, setError] = useState('')
   const [loadingDevelopment, setLoadingDevelopment] = useState(false)
   const [developmentDocs, setDevelopmentDocs] = useState<{ prd: string; tdd?: string } | null>(null)
+  const labels = documentProfileLabels(prdSession?.documentProfile ?? requirement?.documentProfile)
   const code = requirement?.stages.code
-  const effort = requirement?.effortProgress
-  const deliveryProgress = requirement ? requirementProgress(requirement) : null
+  const selectedCodeScore = requirement ? resolveCodeScore(requirement, includeTests) : null
+  const effort = projectEffort(requirement?.effortProgress, selectedCodeScore)
+  const deliveryProgress = requirement ? requirementProgress(requirement, selectedCodeScore) : null
   const canAnalyze = !!requirement && requirement.stages.tdd.status !== 'MISSING'
   const isAdmin = !!user?.roles?.includes('ADMIN')
   const isAssignee = !!user && item.assigneeUserId === user.userId
@@ -1142,7 +1204,7 @@ function CodeStageNode({ item, requirement, prdSession }: {
       setOpen(false)
       setDevelopmentDocs({ prd, tdd: tdd.trim() ? tdd : undefined })
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '读取 PRD / TDD 失败')
+      setError(cause instanceof Error ? cause.message : `读取${labels.specification} / ${labels.plan}失败`)
     } finally {
       setLoadingDevelopment(false)
     }
@@ -1178,30 +1240,38 @@ function CodeStageNode({ item, requirement, prdSession }: {
 
   const state = stageState(requirement, 'code')
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverAnchor asChild>
-        <button type="button" onClick={event => { event.stopPropagation(); setOpen(true) }} className={`flex flex-col items-center gap-1 rounded-md outline-none ${code?.score == null ? 'text-violet-600' : ''}`} title="查看或重新分析本地代码进度">
-          {code?.score == null ? (
-            <span className="grid h-5 w-5 place-items-center rounded-full border border-dashed border-violet-500 bg-violet-50 dark:bg-violet-950/30"><Search className="h-2.5 w-2.5" /></span>
-          ) : <StageDot state={state} />}
-          <span className={`whitespace-nowrap text-[10px] font-medium ${code?.status === 'STALE' ? 'text-amber-600' : code?.score != null ? 'text-emerald-600' : 'text-violet-600'}`}>{code?.score == null ? '分析代码' : '代码'}</span>
-        </button>
-      </PopoverAnchor>
+    <>
+      <button type="button" onClick={event => { event.stopPropagation(); setOpen(true) }} className={`flex flex-col items-center gap-1 rounded-md outline-none ${code?.score == null ? 'text-violet-600' : ''}`} title="查看或重新分析本地代码进度">
+        {code?.score == null ? (
+          <span className="grid h-5 w-5 place-items-center rounded-full border border-dashed border-violet-500 bg-violet-50 dark:bg-violet-950/30"><Search className="h-2.5 w-2.5" /></span>
+        ) : <StageDot state={state} />}
+        <span className={`whitespace-nowrap text-[10px] font-medium ${code?.status === 'STALE' ? 'text-amber-600' : code?.score != null ? 'text-emerald-600' : 'text-violet-600'}`}>{code?.score == null ? '分析代码' : '代码'}</span>
+      </button>
       {open && (
-        <PopoverContent className="w-72 p-0" side="bottom" onClick={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}>
-          <div className="border-b border-[var(--color-border)] px-4 py-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-xs font-semibold">本地代码实现分析</div>
-              <span className="text-sm font-semibold tabular-nums">{code?.score == null ? '未分析' : `${code.score}%`}</span>
-            </div>
-            <p className="mt-1.5 text-[10px] leading-4 text-[var(--color-muted-foreground)]">综合当前 PRD、最新 TDD 与本地代码证据核对真实实现，并关联原 AI 总工时估算剩余工作量。</p>
-          </div>
-          <div className="space-y-3 p-4">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-0 backdrop-blur-[2px] sm:p-4" onMouseDown={event => event.target === event.currentTarget && !running && setOpen(false)}>
+          <section role="dialog" aria-modal="true" aria-label="本地代码实现分析" className="flex h-full w-full max-w-3xl flex-col overflow-hidden border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl sm:h-[min(88vh,860px)] sm:rounded-2xl" onClick={event => event.stopPropagation()}>
+            <header className="shrink-0 border-b border-[var(--color-border)] px-4 py-3 sm:px-5 sm:py-4">
+              <div className="flex items-start gap-3">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-violet-50 text-violet-600 dark:bg-violet-950/35"><Gauge className="h-4 w-4" /></span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-sm font-semibold">本地代码实现分析</div>
+                    <span className="text-lg font-semibold tabular-nums">{selectedCodeScore == null ? '未分析' : `${selectedCodeScore}%`}</span>
+                  </div>
+                  <p className="mt-1 text-[10px] leading-4 text-[var(--color-muted-foreground)]">综合当前{labels.specification}、最新{labels.plan}与本地代码证据核对真实实现，并关联原 AI 总工时估算剩余工作量。</p>
+                </div>
+                <button type="button" disabled={running} onClick={() => setOpen(false)} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] disabled:opacity-40" aria-label="关闭代码实现分析"><X className="h-4 w-4" /></button>
+              </div>
+            </header>
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-[var(--color-background)]/25 p-4 sm:p-5">
             <div className="rounded-lg bg-[var(--color-muted)]/55 px-3 py-2.5">
               <div className="text-[9px] text-[var(--color-muted-foreground)]">最近分析时间</div>
               <div className="mt-1 text-[11px] font-medium tabular-nums">{code?.updatedAt ? formatLifecycleTime(code.updatedAt) : '尚未分析'}</div>
-              {code?.status === 'STALE' && <div className="mt-1 text-[10px] text-amber-600">PRD/TDD 已更新，本次结果已过期</div>}
+              {code?.status === 'STALE' && <div className="mt-1 text-[10px] text-amber-600">{labels.specification}/{labels.plan}已更新，本次结果已过期</div>}
             </div>
+            {requirement && selectedCodeScore != null && (
+              <CodeAssessmentDetails requirement={requirement} includeTests={includeTests} />
+            )}
             {effort && (
               <div className="overflow-hidden rounded-xl border border-violet-200 bg-violet-50/45 dark:border-violet-900 dark:bg-violet-950/20">
                 <div className="border-b border-violet-200/70 px-3 py-2.5 dark:border-violet-900/70">
@@ -1241,17 +1311,27 @@ function CodeStageNode({ item, requirement, prdSession }: {
                     <span>工时基线：{formatCompactTime(effort.estimatedAt)}</span>
                     <span>代码分析：{effort.analyzedAt ? formatCompactTime(effort.analyzedAt) : '尚未分析'}</span>
                   </div>
-                  <div className="leading-4 text-[var(--color-muted-foreground)]">剩余量按代码实现进度扣减；PRD/TDD 只计入交付进度，不虚减编码工作量。</div>
+                  <div className="leading-4 text-[var(--color-muted-foreground)]">剩余量按代码实现进度扣减；{labels.specification}/{labels.plan}只计入交付进度，不虚减编码工作量。</div>
                 </div>
               </div>
             )}
-            <p className="text-[10px] leading-4 text-[var(--color-muted-foreground)]">{code?.note || '完成 PRD 与 TDD 后即可核查本地实现。没有真实代码证据的功能不会计为完成。'}</p>
+            <p className="text-[10px] leading-4 text-[var(--color-muted-foreground)]">{code?.note || `完成${labels.specification}与${labels.plan}后即可核查本地实现。没有真实代码证据的功能不会计为完成。`}</p>
+            <div className="flex items-center justify-between gap-3 border-t border-[var(--color-border)] pt-3">
+              <div>
+                <div className="text-[9px] font-semibold text-[var(--color-card-foreground)]">测试计分口径</div>
+                <div className="mt-0.5 text-[8px] text-[var(--color-muted-foreground)]">基于同一次扫描即时切换，不会重新分析</div>
+              </div>
+              <div className="flex shrink-0 rounded-md bg-[var(--color-muted)] p-0.5 text-[9px]">
+                <button type="button" disabled={running} onClick={() => setIncludeTests(true)} className={`rounded px-2 py-1 ${includeTests ? 'bg-[var(--color-card)] font-medium shadow-sm' : 'text-[var(--color-muted-foreground)]'}`}>纳入</button>
+                <button type="button" disabled={running} onClick={() => setIncludeTests(false)} className={`rounded px-2 py-1 ${!includeTests ? 'bg-[var(--color-card)] font-medium shadow-sm' : 'text-[var(--color-muted-foreground)]'}`}>不纳入</button>
+              </div>
+            </div>
             {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-[10px] leading-4 text-rose-600 dark:bg-rose-950/30 dark:text-rose-300">{error}</p>}
             <button type="button" disabled={!canAnalyze || running} onClick={analyze} className="flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 py-2.5 text-xs font-medium text-white disabled:opacity-40 dark:bg-slate-100 dark:text-slate-900">
               {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
               {running ? '正在检查本地代码…' : code?.updatedAt ? '重新分析本地代码' : '开始分析本地代码'}
             </button>
-            {!canAnalyze && <p className="text-center text-[9px] text-[var(--color-muted-foreground)]">请先完成 TDD 文档</p>}
+            {!canAnalyze && <p className="text-center text-[9px] text-[var(--color-muted-foreground)]">请先完成{labels.planDocument}</p>}
             <div className="border-t border-[var(--color-border)] pt-3">
               <button type="button" disabled={!canDevelop || loadingDevelopment} onClick={() => void openDevelopment()} className="flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-3 py-2.5 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-40">
                 {loadingDevelopment ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" />}
@@ -1260,8 +1340,9 @@ function CodeStageNode({ item, requirement, prdSession }: {
               {!user && <p className="mt-2 text-center text-[9px] text-amber-600">登录后可校验开发权限</p>}
               {user && !canDevelop && <p className="mt-2 text-center text-[9px] text-[var(--color-muted-foreground)]">仅管理员或当前需求负责人可操作</p>}
             </div>
-          </div>
-        </PopoverContent>
+            </div>
+          </section>
+        </div>
       )}
       {developmentDocs && prdSession && (
         <StartDevelopmentDialog
@@ -1275,8 +1356,168 @@ function CodeStageNode({ item, requirement, prdSession }: {
           onClose={() => setDevelopmentDocs(null)}
         />
       )}
-    </Popover>
+    </>
   )
+}
+
+function CodeAssessmentDetails({ requirement, includeTests }: {
+  requirement: DeliveryRequirement
+  includeTests: boolean
+}) {
+  const { progressItems, alignmentFindings } = requirement
+  const scoredCompleted = includeTests ? progressItems.completed : progressItems.completed.filter(item => !isTestProgressItem(item))
+  const scoredPartial = includeTests ? progressItems.partial : progressItems.partial.filter(item => !isTestProgressItem(item))
+  const scoredMissing = includeTests ? progressItems.missing : progressItems.missing.filter(item => !isTestProgressItem(item))
+  const excluded = includeTests
+    ? progressItems.excluded ?? []
+    : [
+        ...progressItems.completed.filter(isTestProgressItem),
+        ...progressItems.partial.filter(isTestProgressItem),
+        ...progressItems.missing.filter(isTestProgressItem),
+        ...(progressItems.excluded ?? []),
+      ]
+  const coverage = {
+    completed: scoredCompleted.length,
+    partial: scoredPartial.length,
+    missing: scoredMissing.length,
+    total: scoredCompleted.length + scoredPartial.length + scoredMissing.length,
+  }
+  const score = resolveCodeScore(requirement, includeTests) ?? 0
+  const totalDeduction = Math.max(0, 100 - score)
+  const deductions = [
+    ...scoredMissing.map(item => ({ item, kind: '未完成', points: coverage.total > 0 ? 100 / coverage.total : 0 })),
+    ...scoredPartial.map(item => ({ item, kind: '部分完成', points: coverage.total > 0 ? 50 / coverage.total : 0 })),
+  ]
+  const conclusion = assessmentConclusion(coverage, score, excluded.length)
+
+  return (
+    <section className="border-l-2 border-violet-500 pl-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-[10px] font-semibold text-[var(--color-card-foreground)]">评估结论</div>
+        <span className={`text-[9px] font-semibold ${totalDeduction > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+          {totalDeduction > 0 ? `共扣 ${totalDeduction} 分` : '无扣分'}
+        </span>
+      </div>
+      <p className="mt-1.5 text-[10px] leading-4 text-[var(--color-muted-foreground)]">{conclusion}</p>
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[9px] tabular-nums">
+        <span className="text-emerald-600">✓ 已完成 {coverage.completed}</span>
+        <span className="text-amber-600">◐ 部分完成 {coverage.partial}</span>
+        <span className="text-rose-600">× 未完成 {coverage.missing}</span>
+        {excluded.length > 0 && <span className="text-sky-600">○ 不计分 {excluded.length}</span>}
+      </div>
+      <div className="mt-1 text-[8px] text-[var(--color-muted-foreground)]">
+        全部测试：{includeTests ? '纳入实现度' : '不纳入实现度'} · 同一份代码扫描结果
+      </div>
+
+      {deductions.length > 0 && (
+        <div className="mt-3 border-t border-[var(--color-border)] pt-2.5">
+          <div className="text-[9px] font-semibold text-[var(--color-card-foreground)]">扣分项明细</div>
+          <div className="mt-1 divide-y divide-[var(--color-border)]">
+            {deductions.map(({ item, kind, points }, index) => (
+              <div key={`${kind}-${item.title}-${index}`} className="py-2 first:pt-1.5">
+                <div className="flex items-start justify-between gap-3 text-[9px]">
+                  <span className="min-w-0 font-medium text-[var(--color-card-foreground)]">{kind} · {item.title}</span>
+                  <span className="shrink-0 font-semibold tabular-nums text-rose-600">-{formatDeduction(points)} 分</span>
+                </div>
+                <p className="mt-1 text-[9px] leading-4 text-[var(--color-muted-foreground)]">
+                  {deductionReason(item, kind)}
+                </p>
+                {item.evidence.length > 0 && (
+                  <p className="mt-0.5 break-words text-[8px] leading-3 text-violet-600 dark:text-violet-300">证据：{item.evidence.join('；')}</p>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[8px] leading-3 text-[var(--color-muted-foreground)]">
+            评分口径：每个未完成功能点扣完整权重，部分完成功能点扣一半权重；单项分值按功能点总数折算，最终得分取整。
+          </p>
+        </div>
+      )}
+
+      {excluded.length > 0 && (
+        <div className="mt-3 border-t border-[var(--color-border)] pt-2.5">
+          <div className="text-[9px] font-semibold text-sky-700 dark:text-sky-300">观察项（不计分）</div>
+          <div className="mt-1 divide-y divide-[var(--color-border)]">
+            {excluded.map((item, index) => (
+              <div key={`${item.title}-${index}`} className="py-2 first:pt-1.5">
+                <div className="flex items-start justify-between gap-3 text-[9px]">
+                  <span className="font-medium text-[var(--color-card-foreground)]">{item.title}</span>
+                  <span className="shrink-0 font-semibold text-sky-600">0 分</span>
+                </div>
+                <p className="mt-1 text-[9px] leading-4 text-[var(--color-muted-foreground)]">{item.actual || item.missing || item.implemented || '已核查，本次不纳入计分'}</p>
+                {item.evidence.length > 0 && <p className="mt-0.5 break-words text-[8px] leading-3 text-violet-600 dark:text-violet-300">证据：{item.evidence.join('；')}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {alignmentFindings.length > 0 && (
+        <div className="mt-3 border-t border-[var(--color-border)] pt-2.5">
+          <div className="flex items-center gap-1.5 text-[9px] font-semibold text-amber-700 dark:text-amber-300">
+            <AlertTriangle className="h-3 w-3" />需求规格 / 执行方案与代码差异 {alignmentFindings.length} 项
+          </div>
+          <div className="mt-1.5 space-y-2">
+            {alignmentFindings.map((finding, index) => (
+              <div key={`${finding.requirement}-${index}`} className="text-[9px] leading-4">
+                <div className="font-medium text-[var(--color-card-foreground)]">{finding.requirement} · {finding.status}</div>
+                <div className="text-[var(--color-muted-foreground)]">要求：{finding.expected || '未说明'}</div>
+                <div className="text-[var(--color-muted-foreground)]">代码：{finding.actual || '未发现'}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function assessmentConclusion(
+  coverage: DeliveryRequirement['coverage'],
+  score: number,
+  excludedCount: number,
+) {
+  const excludedNote = excludedCount > 0 ? `；另有 ${excludedCount} 个测试观察项不计分` : ''
+  if (coverage.total === 0) return '评估已完成，但报告中没有可解析的功能点明细，建议重新分析。'
+  if (score === 100) return `已核对 ${coverage.total} 个计分功能点，均判定为已实现${excludedNote}；可继续结合测试与运行证据确认交付。`
+  const gaps = [
+    coverage.missing > 0 ? `${coverage.missing} 个未完成` : '',
+    coverage.partial > 0 ? `${coverage.partial} 个部分完成` : '',
+  ].filter(Boolean).join('、')
+  return `已核对 ${coverage.total} 个计分功能点，代码实现度 ${score}%；其中 ${gaps}${excludedNote}，需要优先补齐对应实现与代码证据。`
+}
+
+function projectEffort(
+  effort: DeliveryRequirement['effortProgress'],
+  codeScore: number | null,
+) {
+  if (!effort || codeScore == null) return effort
+  const completedRatio = codeScore / 100
+  const remainingRatio = 1 - completedRatio
+  const roundOne = (value: number) => Math.round(value * 10) / 10
+  return {
+    ...effort,
+    codeProgress: codeScore,
+    completedHoursMin: roundOne(effort.baselineHoursMin * completedRatio),
+    completedHoursMax: roundOne(effort.baselineHoursMax * completedRatio),
+    remainingHoursMin: roundOne(effort.baselineHoursMin * remainingRatio),
+    remainingHoursMax: roundOne(effort.baselineHoursMax * remainingRatio),
+    remainingWorkdaysMin: roundOne(effort.baselineHoursMin * remainingRatio / effort.hoursPerWorkday),
+    remainingWorkdaysMax: roundOne(effort.baselineHoursMax * remainingRatio / effort.hoursPerWorkday),
+  }
+}
+
+function deductionReason(item: DeliveryRequirement['progressItems']['missing'][number], kind: string) {
+  if (kind === '部分完成') {
+    const implemented = item.implemented ? `已实现：${item.implemented}` : ''
+    const missing = item.missing ? `缺失：${item.missing}` : '仍有实现或证据缺口'
+    return [implemented, missing].filter(Boolean).join('；')
+  }
+  return item.missing || item.actual || '未发现可验证的代码实现或证据'
+}
+
+function formatDeduction(points: number) {
+  return Number.isInteger(points) ? String(points) : points.toFixed(1)
 }
 
 function formatCompactTime(timestamp: number) {
@@ -1562,7 +1803,7 @@ function LeaderBrief({ items, overview }: { items: ReqItemView[]; overview?: Del
       `一、建议集中资源推进 ${active.length} 项；等待决策 ${clarify.length} 项；整体交付进度 ${progress}%。`,
       `二、管理关注：当前 ${riskCount} 项高风险，优先补齐业务收益、验收口径与唯一责任人。`,
       ...top.map((item, index) => `${index + 1}. ${item.title}（${DECISION_META[decisionOf(item)].label}）`),
-      '以上结论由 AI 根据需求、PRD、TDD 与代码证据自动生成。',
+      '以上结论由 AI 根据需求规格、执行方案与代码证据自动生成。',
     ]
     await navigator.clipboard.writeText(lines.join('\n'))
     setCopied(true)
@@ -1574,7 +1815,7 @@ function LeaderBrief({ items, overview }: { items: ReqItemView[]; overview?: Del
       <section className="overflow-hidden rounded-2xl border border-violet-200 bg-[linear-gradient(120deg,rgba(124,58,237,0.10),rgba(59,130,246,0.04)_48%,transparent)] dark:border-violet-900">
         <div className="flex flex-col gap-6 p-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl">
-            <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-violet-700 dark:text-violet-300"><Sparkles className="h-4 w-4" /> AI 已根据最新 PRD / TDD / 代码证据生成</div>
+            <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-violet-700 dark:text-violet-300"><Sparkles className="h-4 w-4" /> AI 已根据最新需求规格 / 执行方案 / 代码证据生成</div>
             <h2 className="text-2xl font-semibold tracking-tight">本周需求组合总体可控，建议集中资源推进 {active.length} 项</h2>
             <p className="mt-3 text-sm leading-6 text-[var(--color-muted-foreground)]">
               当前共 {items.length} 项需求，{riskCount} 项需要管理关注。主要矛盾不是开发速度，而是需求价值与验收口径尚未闭环；建议先完成高价值项的决策和责任确认，再承诺排期。
@@ -1733,6 +1974,7 @@ function RequirementDrawer({ item, requirement, prdSession, analyzing, prdRunnin
   const insight = parseInsight(item.aiInsight)
   const decision = decisionOf(item)
   const factQuality = evaluateRequirementFacts(item, prdSession)
+  const labels = documentProfileLabels(prdSession?.documentProfile ?? requirement?.documentProfile)
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-[1px]" onMouseDown={event => event.target === event.currentTarget && onClose()}>
       <aside className="h-full w-full max-w-[520px] overflow-y-auto border-l border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl">
@@ -1740,7 +1982,7 @@ function RequirementDrawer({ item, requirement, prdSession, analyzing, prdRunnin
         <div className="space-y-6 p-6">
           <div><div className="flex items-center gap-2"><DecisionBadge decision={decision} /><span className={`rounded-full px-2.5 py-1 text-[10px] font-medium ${STATUS_META[item.status].cls}`}>{STATUS_META[item.status].label}</span></div><h2 className="mt-4 text-xl font-semibold leading-8">{item.title}</h2><p className="mt-2 whitespace-pre-line text-sm leading-6 text-[var(--color-muted-foreground)]">{item.description || '尚未补充需求描述。'}</p></div>
           <div className="grid grid-cols-2 gap-3">
-            {[[Building2, '系统 / 模块', `${item.project || '待归属'} / ${item.module || '待归类'}`], [UserRound, '唯一负责人', item.assignee || '待指派'], [CalendarDays, '承诺时间', dateLabel(item.deadline)], [Radio, '数据来源', item.prdSessionId ? 'PRD 自动同步' : '统一登记']].map(([Icon, label, value]) => { const CellIcon = Icon as typeof Building2; return <div key={String(label)} className="rounded-xl bg-[var(--color-muted)]/60 p-3"><CellIcon className="h-3.5 w-3.5 text-[var(--color-muted-foreground)]" /><div className="mt-2 text-[10px] text-[var(--color-muted-foreground)]">{String(label)}</div><div className="mt-0.5 text-xs font-medium">{String(value)}</div></div> })}
+            {[[Building2, '系统 / 模块', `${item.project || '待归属'} / ${item.module || '待归类'}`], [UserRound, '唯一负责人', item.assignee || '待指派'], [CalendarDays, '承诺时间', dateLabel(item.deadline)], [Radio, '数据来源', item.prdSessionId ? `${labels.specification}自动同步` : '统一登记']].map(([Icon, label, value]) => { const CellIcon = Icon as typeof Building2; return <div key={String(label)} className="rounded-xl bg-[var(--color-muted)]/60 p-3"><CellIcon className="h-3.5 w-3.5 text-[var(--color-muted-foreground)]" /><div className="mt-2 text-[10px] text-[var(--color-muted-foreground)]">{String(label)}</div><div className="mt-0.5 text-xs font-medium">{String(value)}</div></div> })}
           </div>
           <div className="rounded-xl border border-[var(--color-border)] p-4"><FactQualityDetails quality={factQuality} /></div>
           <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-4 dark:border-violet-900 dark:bg-violet-950/20"><div className="flex items-center justify-between"><div className="flex items-center gap-2 text-xs font-semibold text-violet-700 dark:text-violet-300"><Sparkles className="h-4 w-4" />AI 判定依据</div><button onClick={onAnalyze} disabled={analyzing} className="text-[10px] text-violet-600 disabled:opacity-50">{analyzing ? '分析中…' : '重新分析'}</button></div><p className="mt-3 text-sm leading-6">{insight?.reason || '尚未生成跨需求价值分析。AI 将统一考虑战略匹配、用户影响、收益、成本与风险。'}</p>{insight?.impacts && <div className="mt-3 flex flex-wrap gap-1.5">{insight.impacts.map(value => <span key={value} className="rounded-full bg-white px-2 py-1 text-[10px] text-violet-700 shadow-sm dark:bg-black/20 dark:text-violet-300">{value}</span>)}</div>}</div>
@@ -1748,7 +1990,7 @@ function RequirementDrawer({ item, requirement, prdSession, analyzing, prdRunnin
           <div className="flex flex-wrap gap-2">
             {!item.prdSessionId && item.status === 'DRAFT' && <button onClick={onClarify} className="flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2.5 text-xs font-medium text-white"><Sparkles className="h-3.5 w-3.5" />进入 AI 澄清</button>}
             {item.prdSessionId && prdSession?.status === 'CLARIFYING' && prdSession.questions.length > 0 && <button onClick={onAnswerPrd} className="flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-xs font-medium text-white"><Sparkles className="h-3.5 w-3.5" />回答澄清问题</button>}
-            {item.prdSessionId && prdSession?.status === 'DONE' && <button onClick={onViewPrd} className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] px-4 py-2.5 text-xs font-medium hover:bg-[var(--color-muted)]"><FileText className="h-3.5 w-3.5" />查看 PRD</button>}
+            {item.prdSessionId && prdSession?.status === 'DONE' && <button onClick={onViewPrd} className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] px-4 py-2.5 text-xs font-medium hover:bg-[var(--color-muted)]"><FileText className="h-3.5 w-3.5" />查看{labels.specification}</button>}
             <button onClick={onDelete} className="ml-auto flex items-center gap-2 rounded-lg px-3 py-2.5 text-xs text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30"><Trash2 className="h-3.5 w-3.5" />删除</button>
           </div>
         </div>
@@ -2013,17 +2255,17 @@ function DeadlineEditor({
           </div>
           <textarea value={extraContext} disabled={estimating || evaluationRunning} onChange={event => setExtraContext(event.target.value)} rows={2} placeholder="可选：补充必须兼容的旧逻辑、外部联调范围、验证限制…" className="mt-2 w-full resize-none rounded-lg border border-[var(--color-border)] bg-[var(--color-background)] px-2.5 py-2 text-[10px] leading-4 outline-none focus:border-violet-400" />
           <button type="button" disabled={!item.prdSessionId || estimating || evaluationRunning} onClick={() => void estimate()} className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2.5 text-[10px] font-medium text-white disabled:opacity-40 dark:bg-slate-100 dark:text-slate-900">{estimating || evaluationRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}{estimating ? '正在提交后台任务…' : evaluationRunning ? `后台评估中 · ${estimation?.workStatus === 'RUNNING' ? '可关闭弹框' : ''}` : estimation ? '重新评估 AI 编码工时' : '开始后台 AI 工时评估'}</button>
-          {!item.prdSessionId && <p className="mt-2 text-center text-[9px] text-amber-600">请先关联或生成 PRD，才能建立估算证据链。</p>}
+          {!item.prdSessionId && <p className="mt-2 text-center text-[9px] text-amber-600">请先关联或生成需求规格，才能建立估算证据链。</p>}
 
           {estimation && (
             <div className="mt-3 rounded-xl border border-violet-200 bg-white p-3 dark:border-violet-900 dark:bg-black/15">
               {evaluationRunning && <div className="mb-2 flex items-center gap-2 rounded-lg bg-violet-50 px-2.5 py-2 text-[9px] text-violet-700 dark:bg-violet-950/30 dark:text-violet-300"><Loader2 className="h-3.5 w-3.5 animate-spin" /><div><div className="font-semibold">Code Agent 正在后台核查并估算</div><div>可以关闭弹框，完成后结果会自动刷新。</div></div></div>}
               {estimation.workStatus === 'ERROR' && <div className="mb-2 rounded-lg bg-rose-50 px-2.5 py-2 text-[9px] leading-4 text-rose-600 dark:bg-rose-950/30 dark:text-rose-300"><div className="font-semibold">后台评估失败</div><div>{estimation.workError || '请重新发起评估'}</div></div>}
               {estimation.estimatedAt > 0 && evaluationRunning && <div className="mb-2 text-[9px] text-[var(--color-muted-foreground)]">下方暂时保留上一版结果，后台完成后将自动替换。</div>}
-              {estimation.estimatedAt > 0 && estimation.stale && <div className="mb-2 rounded-lg bg-amber-50 px-2.5 py-2 text-[9px] leading-4 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"><div className="font-semibold">评估已过期，请重新评估后再承诺</div><div>{(estimation.staleReasons?.length ? estimation.staleReasons : ['PRD 或 TDD 已变化']).join('；')}</div></div>}
-              {estimation.estimatedAt > 0 && estimation.sourceSessionId && estimation.sourceSessionId !== item.prdSessionId && <div className="mb-2 text-[9px] text-violet-600 dark:text-violet-300">评估依据：{estimation.sourceTitle || '最新 PRD 修订版'}</div>}
+              {estimation.estimatedAt > 0 && estimation.stale && <div className="mb-2 rounded-lg bg-amber-50 px-2.5 py-2 text-[9px] leading-4 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300"><div className="font-semibold">评估已过期，请重新评估后再承诺</div><div>{(estimation.staleReasons?.length ? estimation.staleReasons : ['需求规格或执行方案已变化']).join('；')}</div></div>}
+              {estimation.estimatedAt > 0 && estimation.sourceSessionId && estimation.sourceSessionId !== item.prdSessionId && <div className="mb-2 text-[9px] text-violet-600 dark:text-violet-300">评估依据：{estimation.sourceTitle || '最新需求规格修订版'}</div>}
               {estimation.estimatedAt > 0 && <div className="flex items-end justify-between gap-3"><div><div className="text-[9px] text-[var(--color-muted-foreground)]">AI Code Agent 协作工时</div><div className="mt-1 text-lg font-semibold tabular-nums">{estimation.hoursMin}–{estimation.hoursMax}<span className="ml-1 text-[10px] font-normal">小时</span></div></div><div className="text-right text-[9px] text-[var(--color-muted-foreground)]">约 {formatPersonDays(estimation.hoursMin)}–{formatPersonDays(estimation.hoursMax)} 人日<br />信心：{confidenceLabel}</div></div>}
-              {estimation.estimatedAt > 0 && <div className={`mt-2 rounded-lg px-2.5 py-2 text-[9px] leading-4 ${estimation.codeInspected ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300'}`}>{estimation.codeInspected ? `已核查本地代码 · ${estimation.inspectedFiles?.length ?? 0} 个关键文件` : '未命中本地项目，本次主要依据 PRD / TDD 估算'}{estimation.codeEvidenceSummary ? `：${estimation.codeEvidenceSummary}` : ''}</div>}
+              {estimation.estimatedAt > 0 && <div className={`mt-2 rounded-lg px-2.5 py-2 text-[9px] leading-4 ${estimation.codeInspected ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-300'}`}>{estimation.codeInspected ? `已核查本地代码 · ${estimation.inspectedFiles?.length ?? 0} 个关键文件` : '未命中本地项目，本次主要依据需求规格 / 执行方案估算'}{estimation.codeEvidenceSummary ? `：${estimation.codeEvidenceSummary}` : ''}</div>}
               {estimation.estimatedAt > 0 && estimation.reasoning && <p className="mt-2 text-[9px] leading-4 text-[var(--color-muted-foreground)]">{estimation.reasoning}</p>}
               {estimation.estimatedAt > 0 && estimation.breakdown.length > 0 && <div className="mt-2 space-y-1 border-t border-[var(--color-border)] pt-2">{estimation.breakdown.slice(0, 6).map((part, index) => <div key={`${part.item}-${index}`} className="flex items-center justify-between gap-2 text-[9px]"><span className="min-w-0 truncate">{part.item}</span><span className="shrink-0 tabular-nums text-[var(--color-muted-foreground)]">{part.hours}h</span></div>)}</div>}
               {suggested && <button type="button" onClick={() => setDraft(suggested)} className="mt-3 w-full rounded-lg border border-violet-200 px-2.5 py-2 text-[9px] font-medium text-violet-700 hover:bg-violet-50 dark:border-violet-900 dark:text-violet-300 dark:hover:bg-violet-950/30">按单人 6h/工作日填入建议日期：{suggested}</button>}
@@ -2616,7 +2858,7 @@ export function ReqPoolPage() {
                 <div className="absolute right-0 top-[calc(100%+8px)] z-30 w-72 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-1.5 shadow-xl">
                   <button onClick={() => { setEntryMenuOpen(false); setQuickEntryOpen(true) }} className="flex w-full items-start gap-3 rounded-lg p-3 text-left hover:bg-violet-50 dark:hover:bg-violet-950/30"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"><Sparkles className="h-4 w-4" /></span><span><span className="flex items-center gap-2 text-xs font-semibold">快速起草<span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">推荐</span></span><span className="mt-1 block text-[10px] leading-4 text-[var(--color-muted-foreground)]">选择系统模块，粘贴描述或附件，保存即完成登记</span></span></button>
                   <div className="mx-2 h-px bg-[var(--color-border)]" />
-                  <button onClick={() => { setEntryMenuOpen(false); navigate('/tools/prd-clarify') }} className="flex w-full items-start gap-3 rounded-lg p-3 text-left hover:bg-[var(--color-muted)]"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[var(--color-muted)] text-[var(--color-muted-foreground)]"><Workflow className="h-4 w-4" /></span><span><span className="text-xs font-semibold">标准模式</span><span className="mt-1 block text-[10px] leading-4 text-[var(--color-muted-foreground)]">进入完整 PRD 流程，由 AI 澄清业务规则与验收标准</span></span></button>
+                  <button onClick={() => { setEntryMenuOpen(false); navigate('/tools/prd-clarify') }} className="flex w-full items-start gap-3 rounded-lg p-3 text-left hover:bg-[var(--color-muted)]"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[var(--color-muted)] text-[var(--color-muted-foreground)]"><Workflow className="h-4 w-4" /></span><span><span className="text-xs font-semibold">标准模式</span><span className="mt-1 block text-[10px] leading-4 text-[var(--color-muted-foreground)]">进入完整需求规格流程，由 AI 澄清业务规则与验收标准</span></span></button>
                 </div>
               </>}
             </div>
@@ -2625,7 +2867,7 @@ export function ReqPoolPage() {
         <div className="flex items-center gap-1 overflow-x-auto px-5 lg:px-8">
           <button onClick={() => setView('table')} className={`flex items-center gap-2 border-b-2 px-3 py-3 text-xs font-medium ${view === 'table' ? 'border-violet-600 text-violet-700 dark:text-violet-300' : 'border-transparent text-[var(--color-muted-foreground)]'}`}><LayoutList className="h-3.5 w-3.5" />统一工作台</button>
           <button onClick={() => setView('leader')} className={`flex items-center gap-2 border-b-2 px-3 py-3 text-xs font-medium ${view === 'leader' ? 'border-violet-600 text-violet-700 dark:text-violet-300' : 'border-transparent text-[var(--color-muted-foreground)]'}`}><Presentation className="h-3.5 w-3.5" />领导视图</button>
-          <div className="ml-auto hidden items-center gap-2 pb-2 text-[10px] text-[var(--color-muted-foreground)] sm:flex"><Database className="h-3 w-3" />PRD · TDD · Git · 文档已连接</div>
+          <div className="ml-auto hidden items-center gap-2 pb-2 text-[10px] text-[var(--color-muted-foreground)] sm:flex"><Database className="h-3 w-3" />需求规格 · 执行方案 · Git · 文档已连接</div>
         </div>
       </header>
 
@@ -2650,7 +2892,7 @@ export function ReqPoolPage() {
             {[
               [Target, '建议本期投入', counts.now, 'AI 统一价值判定', 'text-emerald-600', 'bg-emerald-50 dark:bg-emerald-950/30'],
               [Lightbulb, '待补充信息', counts.clarify, '缺少目标或口径', 'text-amber-600', 'bg-amber-50 dark:bg-amber-950/30'],
-              [Workflow, '正在交付', counts.delivery, 'PRD / TDD / 代码同步', 'text-violet-600', 'bg-violet-50 dark:bg-violet-950/30'],
+              [Workflow, '正在交付', counts.delivery, '需求规格 / 执行方案 / 代码同步', 'text-violet-600', 'bg-violet-50 dark:bg-violet-950/30'],
               [ShieldAlert, '高风险事项', counts.risk, '需要负责人介入', 'text-rose-600', 'bg-rose-50 dark:bg-rose-950/30'],
             ].map(([Icon, label, value, hint, color, bg]) => { const MetricIcon = Icon as typeof Target; return <div key={String(label)} className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-4"><span className={`grid h-9 w-9 place-items-center rounded-lg ${bg}`}><MetricIcon className={`h-4 w-4 ${color}`} /></span><div><div className="flex items-baseline gap-1.5"><span className="text-xl font-semibold tabular-nums">{String(value)}</span><span className="text-xs text-[var(--color-muted-foreground)]">{String(label)}</span></div><div className="mt-0.5 text-[10px] text-[var(--color-muted-foreground)]">{String(hint)}</div></div></div> })}
           </div>

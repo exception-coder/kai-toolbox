@@ -49,7 +49,7 @@ import {
   type QaPair,
   type AttachmentParseResult,
 } from '../api'
-import type { CreateSessionRequest, DevDocEstimation, DevDocVersionSummary, EstimationConfidence, PrdClarifyMode, PrdReqType, PrdSessionView, PrdStep, ProgressVersionSummary, QuestionItem, SplitItem } from '../types'
+import type { CreateSessionRequest, DevDocEstimation, DevDocVersionSummary, DocumentProfile, EstimationConfidence, PrdClarifyMode, PrdReqType, PrdSessionView, PrdStep, ProgressVersionSummary, QuestionItem, SplitItem } from '../types'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { loadCodexHomePreference, saveCodexHomePreference } from '@/features/claude-chat/lib/codexHomePref'
 
@@ -1297,6 +1297,9 @@ function HistoryItem({
                 </span>
               )
             })()}
+            <span className={`text-[9px] px-1 rounded border leading-tight ${s.documentProfile === 'SPEC_DRIVEN' ? 'bg-violet-500/15 text-violet-500 border-violet-500/20' : 'bg-slate-500/10 text-[var(--color-muted-foreground)] border-[var(--color-border)]'}`}>
+              {s.documentProfile === 'SPEC_DRIVEN' ? '规格驱动' : '经典文档'}
+            </span>
           </div>
 
           {/* 指标行：子 PRD 完成度 / 开发文档版本(过期高亮) / AI 工时区间，一眼看全貌 */}
@@ -1305,9 +1308,9 @@ function HistoryItem({
               {hasChildren && <span>{doneChildren}/{children.length} 子 PRD</span>}
               {s.devDocPath && (
                 <span className={`flex items-center gap-0.5 ${devDocStale ? 'text-amber-500' : ''}`}
-                  title={devDocStale ? '开发文档已过期（PRD 有更新），点进去后可重新生成' : '已生成开发文档，点这一行进去查看'}>
+                  title={devDocStale ? `${s.documentProfile === 'SPEC_DRIVEN' ? '执行计划' : '开发文档'}已过期，点进去后可重新生成` : `已生成${s.documentProfile === 'SPEC_DRIVEN' ? '执行计划' : '开发文档'}，点这一行进去查看`}>
                   <Wrench className="w-2.5 h-2.5" />
-                  {devDocStale ? '⚠ 开发文档' : '开发文档'}{devDocVersionCount > 0 ? ` · v${devDocVersionCount}` : ''}
+                  {devDocStale ? `⚠ ${s.documentProfile === 'SPEC_DRIVEN' ? '执行计划' : '开发文档'}` : (s.documentProfile === 'SPEC_DRIVEN' ? '执行计划' : '开发文档')}{devDocVersionCount > 0 ? ` · v${devDocVersionCount}` : ''}
                 </span>
               )}
               {s.devDocWorkStatus === 'GENERATING' && (
@@ -2727,6 +2730,7 @@ function InputPanel({
   initialRawInput = '',
   initialProject = '',
   initialModule = '',
+  initialDocumentProfile = 'CLASSIC',
   draftId = null,
   onDraftSaved,
   onSplit,
@@ -2736,12 +2740,13 @@ function InputPanel({
   // onStart（内嵌澄清）有意义，Vibe Coding 入口省略，由 createSession 兜底成 progressive。
   // draftId：非空时表示 onStart/onStartVibe 应该把现存的这条 DRAFT 会话原地转正式
   // （startClarifyFromDraft），而不是新建一条记录——由 handleStart/handleStartVibe 判断。
-  onStart: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS', reqType?: PrdReqType, maxQuestions?: number, clarifyMode?: PrdClarifyMode, draftId?: string, engine?: ClarifyEngine) => void
-  onStartVibe: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS', reqType?: PrdReqType, maxQuestions?: number, draftId?: string, engine?: ClarifyEngine) => void
+  onStart: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS', reqType?: PrdReqType, maxQuestions?: number, clarifyMode?: PrdClarifyMode, draftId?: string, engine?: ClarifyEngine, documentProfile?: DocumentProfile) => void
+  onStartVibe: (title: string, rawInput: string, project: string, module: string, role: 'PRODUCT' | 'BUSINESS', reqType?: PrdReqType, maxQuestions?: number, draftId?: string, engine?: ClarifyEngine, documentProfile?: DocumentProfile) => void
   initialTitle?: string
   initialRawInput?: string
   initialProject?: string
   initialModule?: string
+  initialDocumentProfile?: DocumentProfile
   /** 恢复草稿时传入草稿会话 id；全新填写（未保存过草稿）时为 null。 */
   draftId?: string | null
   /** 首次保存草稿成功后回调新生成的 id，父组件据此把 sessionId 状态同步过来，
@@ -2757,6 +2762,7 @@ function InputPanel({
   const [primaryProject, setPrimaryProject] = useState(splitCatalogValues(initialProject)[0] ?? '')
   const [module, setModule] = useState(initialModule)
   const [role, setRole] = useState<'PRODUCT' | 'BUSINESS'>('PRODUCT')
+  const [documentProfile, setDocumentProfile] = useState<DocumentProfile>(initialDocumentProfile)
   const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null)
   /** 点「开始澄清」/「Vibe Coding 澄清」时先弹出 StartClarifyDialog 确认需求类型+深度，
    *  确认后才真正调用对应的 onStart/onStartVibe；null 表示弹框未打开。 */
@@ -2785,6 +2791,7 @@ function InputPanel({
     setPrimaryProject(splitCatalogValues(initialProject)[0] ?? '')
   }, [initialProject])
   useEffect(() => { if (initialModule) setModule(initialModule) }, [initialModule])
+  useEffect(() => { setDocumentProfile(initialDocumentProfile) }, [initialDocumentProfile])
 
   /**
    * 恢复草稿时，rawInput 里可能已经嵌了之前粘贴过的 `![粘贴图片N](url)` 图片链接
@@ -2896,7 +2903,7 @@ function InputPanel({
    */
   const saveDraftMut = useMutation({
     mutationFn: () => {
-      const payload = { title: title.trim(), rawInput: buildFinalRawInput(), project, module }
+      const payload = { title: title.trim(), rawInput: buildFinalRawInput(), project, module, documentProfile }
       return draftId ? updateDraft(draftId, payload) : saveDraft(payload)
     },
     onSuccess: (session) => {
@@ -2931,6 +2938,31 @@ function InputPanel({
   return (
     <div className="flex-1 min-w-0 p-4 overflow-y-auto md:p-6">
       <div className="max-w-2xl mx-auto space-y-5">
+        <div>
+          <label className="block text-xs font-medium text-[var(--color-muted-foreground)] mb-2">文档模式</label>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setDocumentProfile('CLASSIC')}
+              className={`rounded-lg border px-3 py-2.5 text-left transition-colors ${documentProfile === 'CLASSIC' ? 'border-blue-500/40 bg-blue-500/10' : 'border-[var(--color-border)] hover:bg-[var(--color-muted)]/30'}`}
+            >
+              <div className="text-sm font-semibold">经典文档</div>
+              <p className="mt-0.5 text-[11px] text-[var(--color-muted-foreground)]">PRD → TDD → 开发 → 进度评估</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDocumentProfile('SPEC_DRIVEN')}
+              className={`rounded-lg border px-3 py-2.5 text-left transition-colors ${documentProfile === 'SPEC_DRIVEN' ? 'border-violet-500/40 bg-violet-500/10' : 'border-[var(--color-border)] hover:bg-[var(--color-muted)]/30'}`}
+            >
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                规格驱动 <span className="rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[10px] text-violet-500">推荐试用</span>
+              </div>
+              <p className="mt-0.5 text-[11px] text-[var(--color-muted-foreground)]">核心规格 → 执行计划 → 开发 → 证据评估 → 规格更新</p>
+            </button>
+          </div>
+          <p className="mt-2 text-[11px] text-[var(--color-muted-foreground)]">两种模式复用相同的手动步骤、版本历史和代码评估，只改变文档结构与追踪粒度。</p>
+        </div>
+
         {/* 角色切换：决定 Claude 澄清的问题深度和语言风格 */}
         <div>
           <label className="block text-xs font-medium text-[var(--color-muted-foreground)] mb-2">你是谁？（决定 Claude 如何提问）</label>
@@ -3201,9 +3233,9 @@ function InputPanel({
             const action = pendingAction
             setPendingAction(null)
             if (action === 'start') {
-              onStart(title.trim(), buildFinalRawInput(), project, module, role, reqType, maxQuestions, clarifyMode, draftId ?? undefined, engine)
+              onStart(title.trim(), buildFinalRawInput(), project, module, role, reqType, maxQuestions, clarifyMode, draftId ?? undefined, engine, documentProfile)
             } else {
-              onStartVibe(title.trim(), buildFinalRawInput(), project, module, role, reqType, maxQuestions, draftId ?? undefined, engine)
+              onStartVibe(title.trim(), buildFinalRawInput(), project, module, role, reqType, maxQuestions, draftId ?? undefined, engine, documentProfile)
             }
           }}
         />
@@ -4278,6 +4310,7 @@ function EditingPanel({
   currentEngine,
   initialProgressPath,
   initialProgressGeneratedAt,
+  documentProfile,
   onReturnToClarify,
   onReset,
 }: {
@@ -4301,10 +4334,14 @@ function EditingPanel({
   initialProgressPath?: string | null
   /** 同上，进度评估最后生成时间戳 */
   initialProgressGeneratedAt?: number | null
+  documentProfile: DocumentProfile
   /** PRD 已生成但业务澄清不充分时，保留现有文档并回到原会话继续澄清。 */
   onReturnToClarify: () => Promise<void>
   onReset: () => void
 }) {
+  const isSpecDriven = documentProfile === 'SPEC_DRIVEN'
+  const specificationLabel = isSpecDriven ? '核心规格' : 'PRD'
+  const planLabel = isSpecDriven ? '执行计划' : '开发文档'
   const [content, setContent] = useState(initialContent)
   const [isDirty, setIsDirty] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -4693,9 +4730,9 @@ function EditingPanel({
         {/* 左：文档 Tab 切换 */}
         <div className="flex items-center gap-0.5 bg-[var(--color-muted)]/40 rounded-lg p-0.5 text-xs">
           {([
-            { key: 'prd', label: 'PRD', icon: <FileText className="w-3 h-3" /> },
+            { key: 'prd', label: specificationLabel, icon: <FileText className="w-3 h-3" /> },
             { key: 'dev',
-              label: isDevDocStale && devDocContent ? '⚠ 开发文档' : '开发文档',
+              label: isDevDocStale && devDocContent ? `⚠ ${planLabel}` : planLabel,
               icon: <Wrench className="w-3 h-3" /> },
             { key: 'side', label: '并排', icon: null },
           ] as const).map(({ key, label, icon }) => (
@@ -4750,12 +4787,12 @@ function EditingPanel({
             <>
               <button onClick={() => setGenDevDocMode('regenerate')}
                 className="ml-1 flex items-center gap-1 px-2 py-0.5 rounded text-[var(--color-muted-foreground)] hover:text-purple-400 hover:bg-purple-500/10 transition-colors"
-                title="基于最新 PRD 从零重新生成开发文档（覆盖现有版本）">
+                title={`基于最新${specificationLabel}从零重新生成${planLabel}（覆盖现有版本）`}>
                 <RefreshCw className="w-3 h-3" /> 重新生成
               </button>
               <button onClick={() => setGenDevDocMode('update')}
                 className="flex items-center gap-1 px-2 py-0.5 rounded text-[var(--color-muted-foreground)] hover:text-purple-400 hover:bg-purple-500/10 transition-colors"
-                title="基于当前开发文档增量更新，保留原有内容并标注改动状态，自动备份旧版本">
+                title={`基于当前${planLabel}增量更新，保留稳定编号并自动备份旧版本`}>
                 <GitBranch className="w-3 h-3" /> 更新版本
               </button>
               {/* 不再靠 devDocHistory.length 判断是否显示：早于该功能上线的旧会话磁盘上
@@ -5294,6 +5331,7 @@ export function PrdClarifyPage() {
         engine,
         role: (originalSession.role as 'PRODUCT' | 'BUSINESS') ?? 'PRODUCT',
         parentId: originalSession.id,
+        documentProfile: originalSession.documentProfile,
       })
       setSessionId(created.id)
       qc.setQueryData(['prd-session', created.id], created)
@@ -5320,11 +5358,12 @@ export function PrdClarifyPage() {
     title: string, rawInput: string, project: string, module: string,
     role: 'PRODUCT' | 'BUSINESS' = 'PRODUCT', reqType?: PrdReqType, maxQuestions?: number,
     clarifyMode?: PrdClarifyMode, draftId?: string, engine: ClarifyEngine = 'claude',
+    documentProfile: DocumentProfile = 'CLASSIC',
   ) => {
     setErrorMsg(null)
     setSessionTitle(title)
     setSearchParams({}, { replace: true })
-    const req = { title, rawInput, project, module, role, reqType, maxQuestions, clarifyMode, engine }
+    const req = { title, rawInput, project, module, role, reqType, maxQuestions, clarifyMode, engine, documentProfile }
     // draftId 非空：从草稿恢复后点「开始澄清」，原地转正式，不新建一条记录
     const created = draftId
       ? await startFromDraftMut.mutateAsync({ id: draftId, req })
@@ -5344,14 +5383,14 @@ export function PrdClarifyPage() {
   const handleStartVibe = async (
     title: string, rawInput: string, project: string, module: string,
     role: 'PRODUCT' | 'BUSINESS' = 'PRODUCT', reqType?: PrdReqType, maxQuestions?: number,
-    draftId?: string, engine: ClarifyEngine = 'claude',
+    draftId?: string, engine: ClarifyEngine = 'claude', documentProfile: DocumentProfile = 'CLASSIC',
   ) => {
     setErrorMsg(null)
     setSessionTitle(title)
     setSearchParams({}, { replace: true })
 
     // 创建会话（用于记录 prd_session_id，PRD 文件路径由此确定）；draftId 非空时原地转正式
-    const req = { title, rawInput, project, module, role, reqType, maxQuestions, engine }
+    const req = { title, rawInput, project, module, role, reqType, maxQuestions, engine, documentProfile }
     const created = draftId
       ? await startFromDraftMut.mutateAsync({ id: draftId, req })
       : await createMut.mutateAsync(req)
@@ -5386,7 +5425,9 @@ export function PrdClarifyPage() {
     const resolvedMaxQuestions = created.maxQuestions
     const reqTypeLabel = REQ_TYPE_CONFIG[resolvedReqType].label
     // Bug 修复走极简问题清单 + 缺陷修复说明结构；模块调整/新增模块走标准 PRD 9 节结构
-    const docGuide = resolvedReqType === 'BUG_FIX'
+    const docGuide = documentProfile === 'SPEC_DRIVEN'
+      ? '产出核心规格：目标、范围、需求、规则、场景、验收、约束、决策和开放问题；为条目分配 GOAL/REQ/RULE/SCN/AC/CONSTRAINT/DECISION/OPEN 稳定 ID，验收标准显式引用对应规格 ID'
+      : resolvedReqType === 'BUG_FIX'
       ? '只问复现步骤、期望-实际行为落差、影响范围，不问业务目标/使用场景；产出「缺陷修复说明」（问题描述/复现步骤/根因/修复方案/影响范围/验收标准），不是标准 PRD'
       : '产出标准 PRD（文档概述/业务背景/目标用户/功能范围/功能需求/非功能需求/数据模型/验收标准/开放问题共 9 节）'
     const seed = `本次任务：执行需求发现、代码背景调研、逐轮澄清并生成需求文档。
@@ -5398,6 +5439,7 @@ export function PrdClarifyPage() {
 模块：${module || '未指定'}
 澄清视角：${roleDesc}
 需求类型：${reqTypeLabel}（${docGuide}）${reqType ? '' : '（由系统自动判定）'}
+文档模式：${documentProfile === 'SPEC_DRIVEN' ? '规格驱动（核心规格 → 执行计划 → 证据评估）' : '经典（PRD → TDD → 进度评估）'}
 
 [原始需求]
 ${rawInput}
@@ -5708,6 +5750,7 @@ PRD_SESSION_ID: ${created.id}`
             initialRawInput={session?.rawInput ?? urlRawInput}
             initialProject={session?.project ?? urlProject}
             initialModule={session?.module ?? urlModule}
+            initialDocumentProfile={session?.documentProfile ?? 'CLASSIC'}
             draftId={session?.status === 'DRAFT' ? sessionId : null}
             onDraftSaved={(id) => {
               setSessionId(id)
@@ -5776,6 +5819,7 @@ PRD_SESSION_ID: ${created.id}`
             currentEngine={session?.engine === 'codex' ? 'codex' : 'claude'}
             initialProgressPath={session?.progressPath ?? null}
             initialProgressGeneratedAt={session?.progressGeneratedAt ?? null}
+            documentProfile={session?.documentProfile ?? 'CLASSIC'}
             onReturnToClarify={handleReturnToClarify}
             onReset={handleReset}
           />

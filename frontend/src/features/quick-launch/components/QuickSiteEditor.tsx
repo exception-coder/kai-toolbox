@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { Combobox } from '@/components/ui/combobox'
 import { Input } from '@/components/ui/input'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { resolveSiteIcon, SITE_ICON_OPTIONS } from '../lib/siteIcons'
@@ -8,6 +9,7 @@ import type { OpenMode, QuickSiteUpsert, QuickSiteView } from '../types'
 interface Props {
   open: boolean
   site: QuickSiteView | null
+  groupNames: string[]
   saving: boolean
   onClose: () => void
   onSave: (payload: QuickSiteUpsert) => void
@@ -26,7 +28,7 @@ const EMPTY_FORM: QuickSiteUpsert = {
   enabled: true,
 }
 
-export function QuickSiteEditor({ open, site, saving, onClose, onSave }: Props) {
+export function QuickSiteEditor({ open, site, groupNames, saving, onClose, onSave }: Props) {
   const [form, setForm] = useState<QuickSiteUpsert>(EMPTY_FORM)
 
   useEffect(() => {
@@ -63,11 +65,13 @@ export function QuickSiteEditor({ open, site, saving, onClose, onSave }: Props) 
             />
           </Field>
           <Field label="分组">
-            <Input
+            <Combobox
               value={form.groupName ?? ''}
-              maxLength={64}
+              options={groupNames.map(groupName => ({ label: groupName, value: groupName }))}
               placeholder="例如：本地调试"
-              onChange={event => update('groupName', event.target.value)}
+              emptyText="没有匹配分组，保存后将自动创建"
+              showAllOnOpen
+              onChange={value => update('groupName', value.slice(0, 64))}
             />
           </Field>
 

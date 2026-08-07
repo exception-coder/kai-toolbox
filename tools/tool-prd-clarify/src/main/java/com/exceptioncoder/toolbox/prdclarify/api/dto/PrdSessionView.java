@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.prdclarify.api.dto;
 
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdBusinessFields;
+import com.exceptioncoder.toolbox.prdclarify.domain.DocumentProfile;
 import com.exceptioncoder.toolbox.prdclarify.service.EstimationEvidenceFingerprint;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -31,6 +32,8 @@ public record PrdSessionView(
         String project,
         String module,
         String status,
+        String documentProfile,
+        boolean documentProfileLocked,
         String engine,
         String role,
         /** 需求类型：BUG_FIX | MODULE_ADJUST | NEW_MODULE，决定澄清问题重点和生成文档结构。 */
@@ -149,7 +152,9 @@ public record PrdSessionView(
     public static PrdSessionView from(PrdSession s, String createdByUsername) {
         return new PrdSessionView(
                 s.getId(), s.getTitle(), s.getProject(), s.getModule(),
-                s.getStatus(), s.getEngine() == null ? null
+                s.getStatus(), DocumentProfile.normalize(s.getDocumentProfile()),
+                s.getMdPath() != null && !s.getMdPath().isBlank(),
+                s.getEngine() == null ? null
                         : ("codex".equalsIgnoreCase(s.getEngine()) ? "codex" : "claude"),
                 s.getRole() != null ? s.getRole() : "PRODUCT",
                 s.getReqType() != null ? s.getReqType() : "NEW_MODULE",

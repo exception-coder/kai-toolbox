@@ -8,7 +8,7 @@ import {
   type PrdImageAttachmentResult,
 } from '@/lib/prdAttachments'
 import { splitCatalogValues } from '@/lib/systemCatalog'
-import type { PrdBusinessFields } from '@/features/prd-clarify/types'
+import type { DocumentProfile, PrdBusinessFields } from '@/features/prd-clarify/types'
 import { createPrdDraft, suggestPrdTitle } from '../api'
 
 interface PrdDraftDialogProps {
@@ -32,6 +32,7 @@ export function PrdDraftDialog({
   const [systems, setSystems] = useState(() => splitCatalogValues(initialProject))
   const [primarySystem, setPrimarySystem] = useState(() => splitCatalogValues(initialProject)[0] ?? '')
   const [modules, setModules] = useState<string[]>([])
+  const [documentProfile, setDocumentProfile] = useState<DocumentProfile>('CLASSIC')
   const [shortTitle, setShortTitle] = useState(() => initialShortTitle.slice(0, 40))
   const [description, setDescription] = useState(
     initialBusinessFields.requirementDetail ?? initialDescription,
@@ -139,6 +140,7 @@ export function PrdDraftDialog({
         rawInput,
         project: systems.join(', '),
         module: modules.join(', '),
+        documentProfile,
         businessFields: {
           requirementDetail: description.trim(),
           businessBackground: businessBackground.trim(),
@@ -153,7 +155,7 @@ export function PrdDraftDialog({
       })
       onCreated(session.id)
     } catch (cause) {
-      setError(messageOf(cause, 'PRD 会话创建失败'))
+      setError(messageOf(cause, '需求会话创建失败'))
       setBusy(null)
     }
   }
@@ -174,8 +176,8 @@ export function PrdDraftDialog({
       >
         <header className="flex items-start justify-between border-b border-[var(--color-border)] px-5 py-4">
           <div>
-            <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-[var(--color-primary)]">PRD Drafting</p>
-            <h2 id="prd-draft-title" className="mt-1 text-base font-semibold">起草 PRD</h2>
+            <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-[var(--color-primary)]">Requirement Drafting</p>
+            <h2 id="prd-draft-title" className="mt-1 text-base font-semibold">起草需求</h2>
             <p className="mt-1 text-xs text-[var(--color-muted-foreground)]">描述真实需求，AI 只负责提炼标题，后续进入标准澄清链路。</p>
           </div>
           <button type="button" onClick={onClose} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]">
@@ -184,6 +186,25 @@ export function PrdDraftDialog({
         </header>
 
         <div className="space-y-5 p-5">
+          <Field label="文档模式" required>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {([
+                ['CLASSIC', '经典文档', 'PRD → TDD'],
+                ['SPEC_DRIVEN', '规格驱动', '核心规格 → 执行计划'],
+              ] as const).map(([value, title, description]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setDocumentProfile(value)}
+                  className={`border px-3 py-2.5 text-left transition-colors ${documentProfile === value ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/8' : 'border-[var(--color-border)] hover:bg-[var(--color-muted)]/40'}`}
+                >
+                  <span className="block text-xs font-semibold">{title}</span>
+                  <span className="mt-1 block text-[10px] text-[var(--color-muted-foreground)]">{description}</span>
+                </button>
+              ))}
+            </div>
+          </Field>
+
           <SystemModuleSelector
             systems={systems}
             modules={modules}

@@ -35,6 +35,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Fore- 业务系统咨询工具 REST 端点。路径前缀 {@code /api/fore-consult}。
@@ -95,8 +96,14 @@ public class ConsultController {
     /** 历史列表（最近 50 条，按创建时间倒序）。 */
     @GetMapping("/sessions")
     public List<ConsultSessionView> list() {
-        return service.listRecent(50).stream()
-                .map(ConsultSessionView::from)
+        var sessions = service.listRecent(50);
+        Map<String, Integer> turnCounts = service.turnCounts(
+                sessions.stream().map(session -> session.getSessionId()).toList());
+        Map<String, String> creatorNames = service.creatorNames(
+                sessions.stream().map(session -> session.getUserId()).toList());
+        return sessions.stream()
+                .map(session -> ConsultSessionView.summary(
+                        session, creatorNames.get(session.getUserId()), turnCounts.getOrDefault(session.getSessionId(), 0)))
                 .toList();
     }
 

@@ -16,6 +16,7 @@ import java.util.function.Consumer;
 public interface AgentOneShotRunner {
     String DEFAULT_ENGINE = "claude";
     String TOOL_POLICY_DISABLED = "disabled";
+    String TOOL_POLICY_CONSULT_READONLY = "consult-readonly";
 
     /**
      * 流式执行：每产出一片文本回调一次 {@code onDelta}，全部完成后返回全文。
@@ -55,6 +56,17 @@ public interface AgentOneShotRunner {
      */
     default String runOnce(ExecutionRequest request) {
         return runOnce(request.systemPrompt(), request.userPrompt(), request.model(), request.engine());
+    }
+
+    /**
+     * 按指定执行配置流式运行任务，允许调用方同时传入项目目录和只读工具策略。
+     *
+     * @param request 一次性任务及其运行配置
+     * @param onDelta 文本增量回调，可为 {@code null}
+     * @return 完整文本
+     */
+    default String stream(ExecutionRequest request, Consumer<String> onDelta) {
+        return stream(request.systemPrompt(), request.userPrompt(), request.model(), request.engine(), onDelta);
     }
 
     /** 流式执行，附带图片（真正多模态，Claude 能看到图片内容）。默认委托纯文本版本，图片被忽略。 */

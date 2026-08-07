@@ -35,6 +35,7 @@ public class ClaudeChatSessionRepository {
             .executionPolicy(rs.getString("execution_policy"))
             .groupName(rs.getString("group_name"))
             .subgroupName(rs.getString("subgroup_name"))
+            .favorite(rs.getInt("favorite") == 1)
             .status(SessionStatus.valueOf(rs.getString("status")))
             .startedAt(rs.getLong("started_at"))
             .lastSeenAt(rs.getLong("last_seen_at"))
@@ -129,6 +130,11 @@ public class ClaudeChatSessionRepository {
     public void updateGroup(String id, String groupName, String subgroupName) {
         jdbc.update("UPDATE claude_chat_session SET group_name = ?, subgroup_name = ? WHERE id = ?",
                 groupName, groupName == null ? null : subgroupName, id);
+    }
+
+    /** 收藏或取消收藏会话，返回是否命中记录。 */
+    public boolean updateFavorite(String id, boolean favorite) {
+        return jdbc.update("UPDATE claude_chat_session SET favorite = ? WHERE id = ?", favorite ? 1 : 0, id) > 0;
     }
 
     public void deleteById(String id) {

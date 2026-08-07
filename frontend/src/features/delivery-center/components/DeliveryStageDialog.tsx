@@ -32,6 +32,7 @@ import {
 } from '@/features/prd-clarify/api'
 import type { QaPair } from '@/features/prd-clarify/api'
 import type { PrdSessionView, QuestionItem } from '@/features/prd-clarify/types'
+import { documentProfileLabels } from '@/features/prd-clarify/documentProfile'
 import type { DeliveryRequirement, DeliveryStageKey } from '../types'
 
 interface Props {
@@ -44,17 +45,6 @@ interface Props {
     engine: 'claude' | 'codex',
     extraInstructions?: string,
   ) => void
-}
-
-const TITLES: Record<DeliveryStageKey, string> = {
-  prdDraft: 'PRD 草稿',
-  prdClarify: 'PRD 业务澄清',
-  prd: 'PRD 文档',
-  tddClarify: 'TDD 技术澄清',
-  tdd: 'TDD 技术方案',
-  code: '代码开发',
-  test: '测试验证',
-  runtime: '运行态',
 }
 
 export function DeliveryStageDialog({ requirement, stage, onClose, onStartTddGeneration }: Props) {
@@ -82,6 +72,22 @@ export function DeliveryStageDialog({ requirement, stage, onClose, onStartTddGen
     || requirement.stages.tddClarify.status === 'PARTIAL'
     || requirement.stages.tddClarify.status === 'ERROR'
   )
+  const labels = documentProfileLabels(requirement.documentProfile)
+  const title = stage === 'prdDraft'
+    ? labels.specificationDraft
+    : stage === 'prdClarify'
+      ? labels.specificationClarify
+      : stage === 'prd'
+        ? labels.specificationDocument
+        : stage === 'tddClarify'
+          ? labels.planClarify
+          : stage === 'tdd'
+            ? labels.planDocument
+            : stage === 'code'
+              ? '代码开发'
+              : stage === 'test'
+                ? '测试验证'
+                : '运行态'
 
   const reloadOverview = () => queryClient.invalidateQueries({ queryKey: ['delivery-overview'] })
 
@@ -188,7 +194,7 @@ export function DeliveryStageDialog({ requirement, stage, onClose, onStartTddGen
       }, engine)
     } catch (cause) {
       setBusy('')
-      setError(messageOf(cause, '无法启动 PRD 澄清'))
+      setError(messageOf(cause, `无法启动${labels.specificationClarify}`))
     }
   }
 
@@ -205,7 +211,7 @@ export function DeliveryStageDialog({ requirement, stage, onClose, onStartTddGen
     }))
     setPrdSubmitOpen(false)
     setError('')
-    setBusy('正在保存答案并生成 PRD')
+    setBusy(`正在保存答案并生成${labels.specification}`)
     setProgress(8)
     try {
       await saveQaHistory(session.id, history)
@@ -225,12 +231,12 @@ export function DeliveryStageDialog({ requirement, stage, onClose, onStartTddGen
             })
           } else if (name === 'error') {
             setBusy('')
-            setError(eventMessage(data, 'PRD 生成失败'))
+            setError(eventMessage(data, `${labels.specification}生成失败`))
           }
         },
         onError: cause => {
           setBusy('')
-          setError(messageOf(cause, 'PRD 生成连接失败'))
+          setError(messageOf(cause, `${labels.specification}生成连接失败`))
         },
       }, extraInstructions || undefined, false, engine)
     } catch (cause) {
@@ -240,7 +246,7 @@ export function DeliveryStageDialog({ requirement, stage, onClose, onStartTddGen
   }
 
   const askTddQuestions = (loaded: PrdSessionView) => {
-    setBusy('AI 正在结合 PRD、代码和知识图谱批量生成问题')
+    setBusy(`AI 正在结合${labels.specification}、代码和知识图谱批量生成问题`)
     setError('')
     let raw = ''
     abortRef.current = generateDevDocQuestions(
@@ -264,16 +270,16 @@ export function DeliveryStageDialog({ requirement, stage, onClose, onStartTddGen
               }
             } catch (cause) {
               setBusy('')
-              setError(messageOf(cause, 'TDD 澄清问题格式解析失败'))
+              setError(messageOf(cause, `${labels.planClarify}问题格式解析失败`))
             }
           } else if (name === 'error') {
             setBusy('')
-            setError(eventMessage(data, 'TDD 澄清问题生成失败'))
+            setError(eventMessage(data, `${labels.planClarify}问题生成失败`))
           }
         },
         onError: cause => {
           setBusy('')
-          setError(messageOf(cause, 'TDD 澄清连接失败'))
+          setError(messageOf(cause, `${labels.planClarify}连接失败`))
         },
       },
       engine,
@@ -306,7 +312,7 @@ export function DeliveryStageDialog({ requirement, stage, onClose, onStartTddGen
   }
 
   const generateTdd = (loaded: PrdSessionView, history: QaPair[], extraInstructions?: string) => {
-    setBusy('澄清完成，正在后台生成 TDD')
+    setBusy(`澄清完成，正在后台生成${labels.plan}`)
     setProgress(8)
     let received = 0
     abortRef.current = startGenerateDevDoc(
@@ -330,12 +336,12 @@ export function DeliveryStageDialog({ requirement, stage, onClose, onStartTddGen
             })
           } else if (name === 'error') {
             setBusy('')
-            setError(eventMessage(data, 'TDD 生成失败'))
+            setError(eventMessage(data, `${labels.plan}生成失败`))
           }
         },
         onError: cause => {
           setBusy('')
-          setError(messageOf(cause, 'TDD 生成连接失败'))
+          setError(messageOf(cause, `${labels.plan}生成连接失败`))
         },
       },
       engine,
@@ -359,7 +365,7 @@ export function DeliveryStageDialog({ requirement, stage, onClose, onStartTddGen
         <header className="flex items-start justify-between gap-3 border-b border-[var(--color-border)] px-4 py-3 sm:gap-4 sm:px-5 sm:py-4">
           <div>
             <div className="text-[9px] font-semibold uppercase tracking-[0.18em] text-[var(--color-primary)]">
-              {TITLES[stage]}
+              {title}
             </div>
             <h2 className="mt-1 text-base font-semibold">{requirement.title}</h2>
             <p className="mt-1 text-[10px] text-[var(--color-muted-foreground)]">{stageView.note}</p>
@@ -434,14 +440,14 @@ export function DeliveryStageDialog({ requirement, stage, onClose, onStartTddGen
                   onChange={(index, value) => setAnswers(current => current.map((item, i) => i === index ? value : item))}
                   disabled={!!busy}
                   onSubmit={submitPrdClarification}
-                  submitLabel="确认答案并生成 PRD"
+                  submitLabel={`确认答案并生成${labels.specification}`}
                 />
               )
           )}
           {stage === 'prd' && (
             content
               ? <Markdown text={content} className="text-[13px]" />
-              : <EmptyDocument label="PRD 尚未生成，请先完成 PRD 澄清。" />
+              : <EmptyDocument label={`${labels.specification}尚未生成，请先完成${labels.specificationClarify}。`} />
           )}
           {stage === 'tddClarify' && session && (
             session.devDocPath && !restartTdd && tddHistory.length > 0
@@ -451,17 +457,17 @@ export function DeliveryStageDialog({ requirement, stage, onClose, onStartTddGen
                 : (
                   <div className="space-y-4">
                     <p className="border border-purple-500/20 bg-purple-500/5 p-3 text-xs text-purple-400">
-                      AI 会一次生成全部关键技术问题；集中填写并提交后直接生成 TDD。能从代码或知识图谱确认的事实不会重复提问。
+                      AI 会一次生成全部关键技术问题；集中填写并提交后直接生成{labels.plan}。能从代码或知识图谱确认的事实不会重复提问。
                     </p>
                     {tddQuestionsReady && tddQuestions.length > 0 && (
                       <QuestionCards
-                        perspective="以下问题按风险和阻塞程度排序。请一次性完成全部技术决策，提交后直接生成 TDD。"
+                        perspective={`以下问题按风险和阻塞程度排序。请一次性完成全部技术决策，提交后直接生成${labels.plan}。`}
                         questions={tddQuestions.map((question, index) => ({ id: index + 1, question, answer: tddAnswers[index] ?? '' }))}
                         answers={tddAnswers}
                         onChange={(index, value) => setTddAnswers(current => current.map((item, i) => i === index ? value : item))}
                         disabled={!!busy}
                         onSubmit={submitTddClarification}
-                        submitLabel="提交全部答案并生成 TDD"
+                        submitLabel={`提交全部答案并生成${labels.plan}`}
                       />
                     )}
                   </div>
@@ -470,7 +476,7 @@ export function DeliveryStageDialog({ requirement, stage, onClose, onStartTddGen
           {stage === 'tdd' && (
             content
               ? <Markdown text={content} className="text-[13px]" />
-              : <EmptyDocument label="TDD 尚未生成，请先完成 TDD 技术澄清。" />
+              : <EmptyDocument label={`${labels.plan}尚未生成，请先完成${labels.planClarify}。`} />
           )}
           {(stage === 'code' || stage === 'test' || stage === 'runtime') && (
             <StageSummary requirement={requirement} stage={stage} />
@@ -802,11 +808,14 @@ function StageSummary({
         <div className="mt-2 text-xl font-semibold">{view.score == null ? '尚未评估' : `${view.score}%`}</div>
         <p className="mt-2 text-xs leading-relaxed text-[var(--color-muted-foreground)]">{view.note}</p>
       </div>
-      {stage === 'code' && requirement.progressItems.completed.length + requirement.progressItems.partial.length + requirement.progressItems.missing.length > 0 && (
+      {stage === 'code' && requirement.progressItems.completed.length + requirement.progressItems.partial.length + requirement.progressItems.missing.length + (requirement.progressItems.excluded?.length ?? 0) > 0 && (
         <div className="space-y-2">
-          {[...requirement.progressItems.missing, ...requirement.progressItems.partial, ...requirement.progressItems.completed].map((item, index) => (
+          {[...requirement.progressItems.missing, ...requirement.progressItems.partial, ...requirement.progressItems.completed, ...(requirement.progressItems.excluded ?? [])].map((item, index) => (
             <div key={`${item.title}-${index}`} className="border border-[var(--color-border)] p-3">
-              <p className="text-xs font-medium">{item.title}</p>
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-xs font-medium">{item.title}</p>
+                {requirement.progressItems.excluded?.includes(item) && <span className="shrink-0 text-[9px] font-medium text-sky-600">观察项 · 0 分</span>}
+              </div>
               <p className="mt-1 text-[10px] text-[var(--color-muted-foreground)]">{item.actual || item.missing || item.implemented}</p>
             </div>
           ))}

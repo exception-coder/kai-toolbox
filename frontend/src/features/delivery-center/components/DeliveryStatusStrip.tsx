@@ -3,8 +3,8 @@ import type { DeliverySummary } from '../types'
 
 export function DeliveryStatusStrip({ summary }: { summary: DeliverySummary }) {
   const stages = [
-    ['PRD', summary.prdCompletion],
-    ['TDD', summary.tddCompletion],
+    ['需求规格', summary.prdCompletion],
+    ['执行方案', summary.tddCompletion],
     ['Code', summary.codeProgress],
     ['评估覆盖', summary.assessmentCoverage],
     ['可信度', summary.confidence],

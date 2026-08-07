@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.prdclarify.delivery;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.DeliveryOverviewView;
+import com.exceptioncoder.toolbox.prdclarify.domain.DocumentProfile;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
 import org.slf4j.Logger;
@@ -126,6 +127,15 @@ public class DeliveryOverviewService {
         Integer codeScore = assessmentError
                 ? null
                 : metrics.codeProgress(report.completed().size(), report.partial().size(), report.missing().size());
+        Integer codeScoreWithoutTests = assessmentError ? null : codeProgressWithoutTests(report);
+        int testItemCount = countTests(report.completed())
+                + countTests(report.partial())
+                + countTests(report.missing())
+                + countTests(report.excluded());
+        int unitTestItemCount = countUnitTests(report.completed())
+                + countUnitTests(report.partial())
+                + countUnitTests(report.missing())
+                + countUnitTests(report.excluded());
         int deliveryProgress = metrics.overallProgress(prdComplete ? 100 : 0, tddPresent ? 100 : 0, codeScore);
         DeliveryOverviewView.EffortProgressView effortProgress = effortProgress(
                 session, codeScore, deliveryProgress,
@@ -155,6 +165,7 @@ public class DeliveryOverviewService {
                 blankAsUnassigned(session.getProject()),
                 blankAsUnassigned(session.getModule()),
                 session.getStatus(),
+                DocumentProfile.normalize(session.getDocumentProfile()),
                 session.getUpdatedAt(),
                 links(session),
                 stages(session, prdComplete, tddPresent, tddStale, assessmentPresent, assessmentStale,
@@ -164,10 +175,18 @@ public class DeliveryOverviewService {
                         report.partial().size(),
                         report.missing().size(),
                         report.total()),
+                new DeliveryOverviewView.CodeScoreVariantsView(
+                        codeScore,
+                        codeScoreWithoutTests,
+                        testItemCount,
+                        codeScore,
+                        codeScoreWithoutTests,
+                        unitTestItemCount),
                 new DeliveryOverviewView.ProgressItemsView(
                         progressItems(report.completed()),
                         progressItems(report.partial()),
-                        progressItems(report.missing())),
+                        progressItems(report.missing()),
+                        progressItems(report.excluded())),
                 report.alignment().stream()
                         .map(item -> new DeliveryOverviewView.AlignmentFindingView(
                                 item.requirement(), item.expected(), item.actual(), item.status()))
@@ -572,8 +591,33 @@ public class DeliveryOverviewService {
                         item.implemented(),
                         item.missing(),
                         item.expected(),
-                        item.actual()))
+                        item.actual(),
+                        item.testItem(),
+                        item.unitTest()))
                 .toList();
+    }
+
+    private int countNonTests(List<ProgressReportParser.ProgressItem> items) {
+        return (int) items.stream().filter(item -> !item.testItem()).count();
+    }
+
+    private Integer codeProgressWithoutTests(ProgressReportParser.ParsedProgressReport report) {
+        int completed = countNonTests(report.completed());
+        int partial = countNonTests(report.partial());
+        int missing = countNonTests(report.missing());
+        if (completed + partial + missing == 0
+                && (report.total() > 0 || countTests(report.excluded()) > 0)) {
+            return 100;
+        }
+        return metrics.codeProgress(completed, partial, missing);
+    }
+
+    private int countTests(List<ProgressReportParser.ProgressItem> items) {
+        return (int) items.stream().filter(ProgressReportParser.ProgressItem::testItem).count();
+    }
+
+    private int countUnitTests(List<ProgressReportParser.ProgressItem> items) {
+        return (int) items.stream().filter(ProgressReportParser.ProgressItem::unitTest).count();
     }
 
     private List<String> staleReasons(boolean tddStale, boolean assessmentStale, boolean assessmentError) {

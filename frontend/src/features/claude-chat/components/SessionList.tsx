@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronDown, ChevronRight, Filter, Folder, FolderMinus, FolderPlus, Link2, LockKeyhole, Pencil, Search, Tags, Trash2, Unlock, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, Copy, Filter, Folder, FolderMinus, FolderPlus, Link2, Loader2, LockKeyhole, Pencil, Search, Star, Tags, Trash2, Unlock, X } from 'lucide-react'
 import { EngineIcon } from './EngineIcon'
 import { cn, formatDate } from '@/lib/utils'
-import { deleteSession, listSessions, renameSession, setSessionGroupApi } from '../api'
+import { deleteSession, listSessions, renameSession, setSessionFavorite, setSessionGroupApi } from '../api'
 import { engineDisplayName, providerHost } from './chatStatus'
 import type { ClaudeChatSessionView, Engine } from '../types'
 import { getSessionsByDevSessions } from '@/features/prd-clarify/api'
@@ -14,6 +14,7 @@ import { SessionActivityBar } from './SessionActivityBar'
 import { useSessionPlanState } from '../hooks/useSessionPlanState'
 
 const OLD_GROUP_KEY = 'kai-toolbox:claude-chat:session-groups'
+const COLLAPSED_GROUPS_KEY = 'kai-toolbox:claude-chat:collapsed-groups'
 let groupMigrationDone = false
 
 interface Props {
@@ -21,6 +22,8 @@ interface Props {
   /** hintRunning：目标会话此刻是否仍在跑（status=RUNNING 且 live=挂在活跃 sidecar 上）——
    *  切过去时用它乐观点亮"中断"按钮，不用等 Ready 校正（ready 只会关不会开，见 switchTo 里的说明）。 */
   onSwitch: (sessionId: string, hintRunning?: boolean) => void
+  onDuplicate?: (sessionId: string, codexHome?: string) => void
+  duplicatingSessionId?: string | null
   selectable?: boolean
   selectedIds?: Set<string>
   onToggleSelect?: (sessionId: string) => void
@@ -29,7 +32,7 @@ interface Props {
 const KEY = ['claude-chat-sessions']
 const UNGROUPED = ' ungrouped'
 
-export function SessionList({ currentSessionId, onSwitch, selectable, selectedIds, onToggleSelect }: Props) {
+export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicatingSessionId, selectable, selectedIds, onToggleSelect }: Props) {
   const qc = useQueryClient()
   const confirm = useConfirm()
   const { busyId: planBusyId, expire: expirePlan, unlock: unlockPlan } = useSessionPlanState()
@@ -55,6 +58,9 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
   const [groupFilterOpen, setGroupFilterOpen] = useState(false)
   const [filterPrd, setFilterPrd] = useState<'all' | 'linked' | 'unlinked'>('all')
   const [aliasQuery, setAliasQuery] = useState('')
+  const [codexCopyFor, setCodexCopyFor] = useState<ClaudeChatSessionView | null>(null)
+  const [selectedCodexHome, setSelectedCodexHome] = useState<string | null>(null)
+  const [customCodexHome, setCustomCodexHome] = useState('')
   const normalizedAliasQuery = aliasQuery.trim().toLocaleLowerCase()
   const filterActive = filterGroups.length > 0 || filterPrd !== 'all' || !!normalizedAliasQuery
   const clearFilter = () => { setFilterGroups([]); setFilterPrd('all'); setAliasQuery('') }
@@ -70,6 +76,28 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
     if (filterPrd === 'unlinked' && prdLinks[s.id]) return false
     return true
   }), [sessions, normalizedAliasQuery, filterGroups, filterPrd, prdLinks])
+  const knownCodexHomes = useMemo(() => [...new Set(sessions
+    .filter(s => s.engine === 'codex' && s.providerKind !== 'thirdParty')
+    .map(s => s.codexHome?.trim() || '')
+  )], [sessions])
+
+  const requestDuplicate = (session: ClaudeChatSessionView) => {
+    if (session.engine !== 'codex' || session.providerKind === 'thirdParty') {
+      onDuplicate?.(session.id)
+      return
+    }
+    setCodexCopyFor(session)
+    setSelectedCodexHome(null)
+    setCustomCodexHome('')
+  }
+
+  const confirmCodexDuplicate = () => {
+    if (!codexCopyFor || selectedCodexHome == null) return
+    const codexHome = selectedCodexHome === '__custom__' ? customCodexHome.trim() : selectedCodexHome
+    if (selectedCodexHome === '__custom__' && !codexHome) return
+    onDuplicate?.(codexCopyFor.id, codexHome || undefined)
+    setCodexCopyFor(null)
+  }
 
   useEffect(() => {
     if (groupMigrationDone) return
@@ -120,7 +148,15 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    try {
+      const value = JSON.parse(localStorage.getItem(COLLAPSED_GROUPS_KEY) ?? '[]')
+      return new Set(Array.isArray(value) ? value.filter(item => typeof item === 'string') : [])
+    } catch {
+      return new Set()
+    }
+  })
+  const [favoriteBusyId, setFavoriteBusyId] = useState<string | null>(null)
   const [groupPickFor, setGroupPickFor] = useState<ClaudeChatSessionView | null>(null)
 
   const remove = async (session: ClaudeChatSessionView) => {
@@ -149,10 +185,27 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
 
   const assignGroup = (s: ClaudeChatSessionView) => setGroupPickFor(s)
 
+  const toggleFavorite = async (session: ClaudeChatSessionView) => {
+    if (favoriteBusyId) return
+    setFavoriteBusyId(session.id)
+    try {
+      await setSessionFavorite(session.id, !session.favorite)
+      await qc.invalidateQueries({ queryKey: KEY })
+    } finally {
+      setFavoriteBusyId(null)
+    }
+  }
+
   const toggleGroup = (name: string) => setCollapsed(prev => {
     const n = new Set(prev)
     if (n.has(name)) n.delete(name); else n.add(name)
+    try { localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify([...n])) } catch { /* ignore */ }
     return n
+  })
+
+  const sortSessions = (list: ClaudeChatSessionView[]) => [...list].sort((a, b) => {
+    const favoriteOrder = Number(Boolean(b.favorite)) - Number(Boolean(a.favorite))
+    return favoriteOrder || b.lastSeenAt - a.lastSeenAt
   })
 
   if (isPending) return <div className="px-4 py-4 text-sm text-[var(--color-muted-foreground)]">加载中…</div>
@@ -274,7 +327,7 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
         </div>
       ) : !hasGroups ? (
         <ul className="py-1">
-          {[...(buckets.get(UNGROUPED)?.values() ?? [])].flat().map(s => renderRow(s, false))}
+          {sortSessions([...(buckets.get(UNGROUPED)?.values() ?? [])].flat()).map(s => renderRow(s, false))}
         </ul>
       ) : (
         <div className="py-1">
@@ -290,6 +343,71 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
           onPick={(project, requirement) => { void applyGroup(groupPickFor.id, project, requirement); setGroupPickFor(null) }}
           onClose={() => setGroupPickFor(null)}
         />
+      )}
+      {codexCopyFor && (
+        <div className="fixed inset-0 z-[80] flex items-start justify-center bg-black/40 p-4 pt-24" role="dialog" aria-label="选择 Codex Auth 目录" onClick={() => setCodexCopyFor(null)}>
+          <div className="w-full max-w-md rounded-xl border bg-[var(--color-popover)] p-4 text-[var(--color-popover-foreground)] shadow-xl" onClick={event => event.stopPropagation()}>
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Copy className="size-4 text-[var(--color-primary)]" />复制 Codex 会话
+              <button type="button" onClick={() => setCodexCopyFor(null)} aria-label="关闭" className="ml-auto rounded p-1 text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]"><X className="size-4" /></button>
+            </div>
+            <p className="mt-1 text-xs leading-relaxed text-[var(--color-muted-foreground)]">
+              副本将创建新的 Codex thread，不继承源会话 Auth。请选择本次使用的授权目录。
+            </p>
+            <div className="mt-3 space-y-1.5">
+              {[...new Set(['', ...knownCodexHomes])].map(home => (
+                <button
+                  key={home || '__default__'}
+                  type="button"
+                  onClick={() => setSelectedCodexHome(home)}
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm',
+                    selectedCodexHome === home
+                      ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10'
+                      : 'border-[var(--color-border)] hover:bg-[var(--color-muted)]',
+                  )}
+                >
+                  <span className={cn('size-3 rounded-full border', selectedCodexHome === home && 'border-4 border-[var(--color-primary)]')} />
+                  <span className="min-w-0 flex-1 truncate">{home || '默认目录（%USERPROFILE%\\.codex）'}</span>
+                  {(codexCopyFor.codexHome?.trim() || '') === home && <span className="text-[10px] text-[var(--color-muted-foreground)]">源会话</span>}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setSelectedCodexHome('__custom__')}
+                className={cn(
+                  'flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm',
+                  selectedCodexHome === '__custom__'
+                    ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10'
+                    : 'border-[var(--color-border)] hover:bg-[var(--color-muted)]',
+                )}
+              >
+                <span className={cn('size-3 rounded-full border', selectedCodexHome === '__custom__' && 'border-4 border-[var(--color-primary)]')} />
+                其他授权目录
+              </button>
+              {selectedCodexHome === '__custom__' && (
+                <input
+                  autoFocus
+                  value={customCodexHome}
+                  onChange={event => setCustomCodexHome(event.target.value)}
+                  placeholder="例如 C:\\Users\\zhang\\.codex-account-2"
+                  className="h-9 w-full rounded-md border bg-[var(--color-background)] px-2.5 text-sm outline-none focus:border-[var(--color-primary)]"
+                />
+              )}
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setCodexCopyFor(null)} className="rounded-md border px-3 py-1.5 text-xs hover:bg-[var(--color-muted)]">取消</button>
+              <button
+                type="button"
+                onClick={confirmCodexDuplicate}
+                disabled={selectedCodexHome == null || (selectedCodexHome === '__custom__' && !customCodexHome.trim())}
+                className="rounded-md bg-[var(--color-primary)] px-3 py-1.5 text-xs text-[var(--color-primary-foreground)] disabled:opacity-50"
+              >
+                创建副本
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   )
@@ -347,7 +465,7 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
           <span className="min-w-0 flex-1 truncate text-xs font-medium text-[var(--color-foreground)]/75">{label}</span>
           <span className="text-[10px] tabular-nums text-[var(--color-muted-foreground)]">{list.length}</span>
         </button>
-        {open && <ul>{list.map(s => renderRow(s, true))}</ul>}
+        {open && <ul>{sortSessions(list).map(s => renderRow(s, true))}</ul>}
       </section>
     )
   }
@@ -513,6 +631,35 @@ export function SessionList({ currentSessionId, onSwitch, selectable, selectedId
                 : isActive ? 'bg-[var(--color-primary)]/10' : 'bg-[var(--color-accent)]',
             )}
           >
+            <button
+              type="button"
+              disabled={favoriteBusyId != null}
+              className={cn(
+                'rounded p-1.5 disabled:opacity-40',
+                s.favorite
+                  ? 'text-amber-500 hover:text-amber-600'
+                  : 'text-[var(--color-muted-foreground)] hover:text-amber-500',
+              )}
+              onClick={e => { e.stopPropagation(); void toggleFavorite(s) }}
+              aria-label={s.favorite ? '取消收藏会话' : '收藏会话'}
+              title={s.favorite ? '取消收藏' : '收藏重点会话'}
+            >
+              {favoriteBusyId === s.id
+                ? <Loader2 className="size-3.5 animate-spin" />
+                : <Star className={cn('size-3.5', s.favorite && 'fill-current')} />}
+            </button>
+            <button
+              type="button"
+              disabled={duplicatingSessionId != null}
+              className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+              onClick={e => { e.stopPropagation(); requestDuplicate(s) }}
+              aria-label="复制会话配置"
+              title={duplicatingSessionId === s.id ? '正在复制会话配置' : '复制会话配置'}
+            >
+              {duplicatingSessionId === s.id
+                ? <Loader2 className="size-3.5 animate-spin" />
+                : <Copy className="size-3.5" />}
+            </button>
             <button
               type="button"
               disabled={planBusyId === s.id || isRunning}

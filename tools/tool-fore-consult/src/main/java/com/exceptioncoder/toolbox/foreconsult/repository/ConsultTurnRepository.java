@@ -6,6 +6,8 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * consult_turn 表的数据访问层。JdbcTemplate + 静态 RowMapper，与其他工具模块保持一致。
@@ -51,6 +53,19 @@ public class ConsultTurnRepository {
     public List<ConsultTurn> findAllAnswered(int limit) {
         return jdbc.query("SELECT * FROM consult_turn WHERE answer IS NOT NULL AND TRIM(answer) <> '' "
                 + "ORDER BY created_at DESC LIMIT ?", ROW, limit);
+    }
+
+    /** 批量统计历史列表中的问答轮数，避免列表逐条查询或加载完整回答正文。 */
+    public Map<String, Integer> countBySessions(List<String> sessionIds) {
+        if (sessionIds == null || sessionIds.isEmpty()) return Map.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(sessionIds.size(), "?"));
+        return jdbc.query(
+                        "SELECT session_id, COUNT(1) AS turn_count FROM consult_turn "
+                                + "WHERE session_id IN (" + placeholders + ") GROUP BY session_id",
+                        (rs, i) -> Map.entry(rs.getString("session_id"), rs.getInt("turn_count")),
+                        sessionIds.toArray())
+                .stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
     public void deleteBySession(String sessionId) {

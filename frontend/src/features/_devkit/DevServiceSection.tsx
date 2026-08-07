@@ -37,6 +37,8 @@ interface Props {
   preference?: { cwd: string; command: string }
   /** 项目或指令变化时交给父工作台统一持久化。 */
   onPreferenceChange?: (value: { cwd: string; command: string }, immediate?: boolean) => void
+  /** 启动前的模块专属准备动作；失败时阻断启动并显示错误。 */
+  beforeStart?: (cwd: string) => Promise<void>
 }
 
 // 日志级别识别（暗底控制台）。整行按命中的最高级别归类；其余归 other。
@@ -81,6 +83,7 @@ export function DevServiceSection({
   serviceId, dirs, defaultCwd, defaultCommand,
   commandPlaceholder, title = '服务启停 + 启动日志', stopCommand, readinessPorts,
   preference, onPreferenceChange,
+  beforeStart,
 }: Props) {
   const CMD_KEY = `kai-toolbox:dev:start-cmd:${serviceId}`
   const [cwd, setCwd] = useState(preference?.cwd || defaultCwd)
@@ -187,9 +190,23 @@ export function DevServiceSection({
   // 停/重启时把本模块声明的就绪端口一并交给后端：进程树强杀之外再按端口兜底，
   // catch 掉脱离进程树的存活者（否则"重启没杀掉旧服务、端口占用"就起不来）。
   const killPorts = readinessPorts?.map(p => p.port)
-  const start = useMutation({ mutationFn: () => startDevService(serviceId, cwd, effCommand), onSuccess: applyResult, onError: onErr })
+  const start = useMutation({
+    mutationFn: async () => {
+      await beforeStart?.(cwd)
+      return startDevService(serviceId, cwd, effCommand)
+    },
+    onSuccess: applyResult,
+    onError: onErr,
+  })
   const stop = useMutation({ mutationFn: () => stopDevService(serviceId, stopCommand, killPorts), onSuccess: applyResult, onError: onErr })
-  const restart = useMutation({ mutationFn: () => restartDevService(serviceId, cwd, effCommand, stopCommand, killPorts), onSuccess: applyResult, onError: onErr })
+  const restart = useMutation({
+    mutationFn: async () => {
+      await beforeStart?.(cwd)
+      return restartDevService(serviceId, cwd, effCommand, stopCommand, killPorts)
+    },
+    onSuccess: applyResult,
+    onError: onErr,
+  })
   const busy = start.isPending || stop.isPending || restart.isPending
 
   // 多服务就绪探测：后端 TCP 探各端口，每 4s 刷新（仅当传了 readinessPorts）。

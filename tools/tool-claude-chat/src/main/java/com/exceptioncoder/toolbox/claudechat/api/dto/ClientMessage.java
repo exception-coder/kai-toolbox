@@ -12,6 +12,7 @@ import java.util.Map;
         @JsonSubTypes.Type(value = ClientMessage.Open.class,          name = "open"),
         @JsonSubTypes.Type(value = ClientMessage.Attach.class,        name = "attach"),
         @JsonSubTypes.Type(value = ClientMessage.SwitchSession.class, name = "switchSession"),
+        @JsonSubTypes.Type(value = ClientMessage.DuplicateSession.class, name = "duplicateSession"),
         @JsonSubTypes.Type(value = ClientMessage.ResumeHistory.class, name = "resumeHistory"),
         @JsonSubTypes.Type(value = ClientMessage.ResumeCurrent.class, name = "resumeCurrent"),
         @JsonSubTypes.Type(value = ClientMessage.Send.class,          name = "send"),
@@ -28,7 +29,7 @@ import java.util.Map;
         @JsonSubTypes.Type(value = ClientMessage.ForkSession.class,   name = "forkSession"),
 })
 public sealed interface ClientMessage
-        permits ClientMessage.Open, ClientMessage.Attach, ClientMessage.SwitchSession,
+        permits ClientMessage.Open, ClientMessage.Attach, ClientMessage.SwitchSession, ClientMessage.DuplicateSession,
                 ClientMessage.ResumeHistory, ClientMessage.ResumeCurrent, ClientMessage.Send, ClientMessage.Decision,
                 ClientMessage.Interrupt, ClientMessage.SetMode, ClientMessage.SetAutoApprove,
                 ClientMessage.SetModel, ClientMessage.RefreshModels, ClientMessage.RefreshCapabilities,
@@ -47,6 +48,9 @@ public sealed interface ClientMessage
 
     /** 切到工具内会话（触发 sidecar resume） */
     record SwitchSession(String sessionId) implements ClientMessage {}
+
+    /** 复制会话配置并创建一个不带历史消息的新会话。 */
+    record DuplicateSession(String sourceSessionId, String codexHome) implements ClientMessage {}
 
     /** 续跑磁盘上的某历史会话：为该 sdkSessionId 建元数据行后 resume */
     record ResumeHistory(String sdkSessionId, String cwd) implements ClientMessage {}

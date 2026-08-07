@@ -2,6 +2,7 @@ import { AlertTriangle, Check, CircleDashed, CircleDot, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { DeliveryFinding, DeliveryRequirement, DeliveryStageKey, StageStatus } from '../types'
 import { requirementProgress } from '../viewModel'
+import { documentProfileLabels } from '@/features/prd-clarify/documentProfile'
 
 interface Props {
   requirement: DeliveryRequirement
@@ -13,12 +14,13 @@ interface Props {
 
 export function PrdDeliveryTrack({ requirement, findings, selected, onSelect, onStageSelect }: Props) {
   const progress = requirementProgress(requirement)
+  const labels = documentProfileLabels(requirement.documentProfile)
   const stages = [
-    ['prdDraft', 'PRD 草稿', requirement.stages.prdDraft.status, requirement.stages.prdDraft.score],
-    ['prdClarify', 'PRD 澄清', requirement.stages.prdClarify.status, requirement.stages.prdClarify.score],
-    ['prd', 'PRD', requirement.stages.prd.status, requirement.stages.prd.score],
-    ['tddClarify', 'TDD 澄清', requirement.stages.tddClarify.status, requirement.stages.tddClarify.score],
-    ['tdd', 'TDD', requirement.stages.tdd.status, requirement.stages.tdd.score],
+    ['prdDraft', labels.specificationDraft, requirement.stages.prdDraft.status, requirement.stages.prdDraft.score],
+    ['prdClarify', labels.specificationClarify, requirement.stages.prdClarify.status, requirement.stages.prdClarify.score],
+    ['prd', labels.specification, requirement.stages.prd.status, requirement.stages.prd.score],
+    ['tddClarify', labels.planClarify, requirement.stages.tddClarify.status, requirement.stages.tddClarify.score],
+    ['tdd', labels.plan, requirement.stages.tdd.status, requirement.stages.tdd.score],
     ['code', 'Code', requirement.stages.code.status, requirement.stages.code.score],
     ['test', 'Test', requirement.stages.test.status, requirement.stages.test.score],
     ['runtime', 'Runtime', requirement.stages.runtime.status, requirement.stages.runtime.score],

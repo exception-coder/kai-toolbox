@@ -52,7 +52,7 @@ export function DeliveryCanvas({
           <input
             value={query}
             onChange={event => onQueryChange(event.target.value)}
-            placeholder="搜索模块或 PRD"
+            placeholder="搜索模块或需求"
             className="min-w-0 flex-1 bg-transparent text-[10px] text-[var(--color-foreground)] outline-none placeholder:text-[var(--color-muted-foreground)]"
           />
         </label>
@@ -61,7 +61,7 @@ export function DeliveryCanvas({
       <div className="relative p-5">
         <div className="absolute bottom-5 left-[2.15rem] top-5 w-px bg-[var(--color-border)]" />
         {modules.length === 0 ? (
-          <div className="py-24 text-center text-xs text-[var(--color-muted-foreground)]">没有匹配的模块或 PRD</div>
+          <div className="py-24 text-center text-xs text-[var(--color-muted-foreground)]">没有匹配的模块或需求</div>
         ) : (
           <div className="space-y-7">
             {modules.map(module => (
@@ -70,7 +70,7 @@ export function DeliveryCanvas({
                 <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <h3 className="text-xs font-semibold text-[var(--color-foreground)]">{module.name}</h3>
                   <span className="text-xl font-semibold text-[var(--color-foreground)]">{module.progress}%</span>
-                  <span className="text-[9px] text-[var(--color-muted-foreground)]">{module.requirementCount} PRD</span>
+                  <span className="text-[9px] text-[var(--color-muted-foreground)]">{module.requirementCount} 个需求</span>
                   {module.highRiskCount > 0 && (
                     <span className="inline-flex items-center gap-1 text-[9px] text-[var(--color-danger)]">
                       <AlertTriangle className="h-2.5 w-2.5" />{module.highRiskCount} high risk

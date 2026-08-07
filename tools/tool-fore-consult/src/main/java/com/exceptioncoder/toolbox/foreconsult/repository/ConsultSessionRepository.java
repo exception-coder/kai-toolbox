@@ -6,7 +6,9 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * consult_session 表的数据访问层。JdbcTemplate + 静态 RowMapper，与其他工具模块保持一致。
@@ -65,6 +67,24 @@ public class ConsultSessionRepository {
         return jdbc.query(
                 "SELECT * FROM consult_session WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
                 ROW, userId, limit);
+    }
+
+    /** 按咨询归属 ID 批量读取登录用户名；auth_user 与咨询表共用本地 SQLite。 */
+    public Map<String, String> findCreatorNamesByUserIds(List<String> userIds) {
+        List<String> ids = userIds == null ? List.of() : userIds.stream()
+                .filter(id -> id != null && !id.isBlank())
+                .distinct()
+                .toList();
+        if (ids.isEmpty()) return Map.of();
+        String placeholders = String.join(",", java.util.Collections.nCopies(ids.size(), "?"));
+        return jdbc.query(
+                        "SELECT CAST(id AS TEXT) AS user_id, "
+                                + "COALESCE(NULLIF(TRIM(real_name), ''), username) AS creator_name FROM auth_user "
+                                + "WHERE CAST(id AS TEXT) IN (" + placeholders + ")",
+                        (rs, i) -> Map.entry(rs.getString("user_id"), rs.getString("creator_name")),
+                        ids.toArray())
+                .stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
     /** 关联 claude-chat 会话 id（拉起悬浮会话后回写）。 */

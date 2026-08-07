@@ -20,7 +20,11 @@ import {
   consultReadonlyCodexConfig,
 } from './codexSecurity.js'
 import { FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
-import { latestCodexTurnId } from './codexAppServer.js'
+import {
+  CodexAppServerTurnError,
+  latestCodexTurnId,
+  runCodexAppServerTurn,
+} from './codexAppServer.js'
 
 export type CodexSpeed = 'default' | 'fast'
 export type CodexReasoningEffort = string
@@ -232,19 +236,83 @@ function mapMode(mode: string): { approvalPolicy: ApprovalMode; sandboxMode: San
   }
 }
 
-/** 跑一轮 Codex：建/resume thread → runStreamed → 把 ThreadEvent 翻译成统一协议事件。 */
+/**
+ * 跑一轮 Codex。
+ * 官方本机授权优先使用 App Server 获取完整流式事件；第三方 OpenAI 兼容网关固定使用 SDK。
+ * App Server 仅在尚未产生可见输出或副作用时允许回退 SDK，避免同一轮重复执行。
+ */
 export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
-  const safeCwd = existsSync(ctx.cwd) ? ctx.cwd : (process.env.USERPROFILE || process.env.HOME || process.cwd())
-  const home = normalizeCodexHome(ctx.codexHome)
-  if (home && !existsSync(home)) {
-    ctx.emit({
-      type: 'error',
-      code: 'CODEX_HOME_NOT_FOUND',
-      message: `Codex 授权目录不存在：${home}。请先创建目录并在该 CODEX_HOME 下执行 codex login。`,
-    })
-    ctx.emit({ type: 'result', usage: {}, stopReason: 'error' })
+  if (ctx.apiBaseUrl?.trim()) {
+    await runCodexSdkTurn(ctx)
     return
   }
+
+  const safeCwd = existsSync(ctx.cwd) ? ctx.cwd : (process.env.USERPROFILE || process.env.HOME || process.cwd())
+  const home = normalizeCodexHome(ctx.codexHome)
+  if (!validateCodexHome(ctx, home)) return
+  const toolsDisabled = ctx.toolPolicy === 'disabled'
+  const consultReadonly = ctx.toolPolicy === CONSULT_READONLY_POLICY
+  const consultSourceRoot = consultReadonly && existsSync(ctx.cwd) && statSync(ctx.cwd).isDirectory()
+    ? resolve(ctx.cwd)
+    : undefined
+  const { sandboxMode } = toolsDisabled || consultReadonly
+    ? { sandboxMode: 'read-only' as SandboxMode }
+    : mapMode(ctx.permissionMode)
+  let tempImageDir: string | undefined
+
+  try {
+    const prepared = prepareCodexInput(ctx.text, ctx.images)
+    tempImageDir = prepared.tempDir
+    await runCodexAppServerTurn({
+      threadId: ctx.sdkSessionId,
+      cwd: safeCwd,
+      model: ctx.model || undefined,
+      reasoningEffort: ctx.reasoningEffort,
+      sandbox: sandboxMode,
+      config: buildCodexConfig(
+        ctx.speed ?? 'default',
+        ctx.toolPolicy ?? 'default',
+        home,
+        ctx.sessionId,
+        ctx.developerInstructions,
+        consultSourceRoot,
+      ),
+      input: toAppServerInput(prepared.input),
+      codexHome: home,
+      signal: ctx.signal,
+      emit: ctx.emit,
+      setThreadId: ctx.setSdkSessionId,
+      mcpServers: codexMcpCapabilities(ctx.toolPolicy ?? 'default', ctx.sessionId),
+    })
+  } catch (error) {
+    if (ctx.signal.aborted) {
+      ctx.emit({ type: 'result', usage: {}, stopReason: 'interrupted' })
+      return
+    }
+    if (error instanceof CodexAppServerTurnError && error.retrySafe) {
+      ctx.emit({
+        type: 'warning',
+        code: 'CODEX_APP_SERVER_FALLBACK',
+        message: `Codex App Server 启动失败，已自动回退 SDK：${error.message}`,
+      })
+      await runCodexSdkTurn(ctx)
+      return
+    }
+    ctx.emit({
+      type: 'error',
+      code: 'CODEX_APP_SERVER_FAILED',
+      message: error instanceof Error ? error.message : String(error),
+    })
+    ctx.emit({ type: 'result', usage: {}, stopReason: 'error' })
+  } finally {
+    if (tempImageDir) rmSync(tempImageDir, { recursive: true, force: true })
+  }
+}
+
+async function runCodexSdkTurn(ctx: CodexTurnCtx): Promise<void> {
+  const safeCwd = existsSync(ctx.cwd) ? ctx.cwd : (process.env.USERPROFILE || process.env.HOME || process.cwd())
+  const home = normalizeCodexHome(ctx.codexHome)
+  if (!validateCodexHome(ctx, home)) return
   const toolsDisabled = ctx.toolPolicy === 'disabled'
   const consultReadonly = ctx.toolPolicy === CONSULT_READONLY_POLICY
   const consultSourceRoot = consultReadonly && existsSync(ctx.cwd) && statSync(ctx.cwd).isDirectory()
@@ -342,6 +410,24 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
   } finally {
     if (tempImageDir) rmSync(tempImageDir, { recursive: true, force: true })
   }
+}
+
+function validateCodexHome(ctx: CodexTurnCtx, home?: string): boolean {
+  if (!home || existsSync(home)) return true
+  ctx.emit({
+    type: 'error',
+    code: 'CODEX_HOME_NOT_FOUND',
+    message: `Codex 授权目录不存在：${home}。请先创建目录并在该 CODEX_HOME 下执行 codex login。`,
+  })
+  ctx.emit({ type: 'result', usage: {}, stopReason: 'error' })
+  return false
+}
+
+function toAppServerInput(input: Input): Array<Record<string, unknown>> {
+  if (typeof input === 'string') return [{ type: 'text', text: input, text_elements: [] }]
+  return input.map(item => item.type === 'local_image'
+    ? { type: 'localImage', path: item.path }
+    : { type: 'text', text: item.text, text_elements: [] })
 }
 
 function prepareCodexInput(text: string, images?: CodexImageInput[]): { input: Input; tempDir?: string } {

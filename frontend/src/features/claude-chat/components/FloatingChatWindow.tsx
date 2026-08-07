@@ -778,6 +778,8 @@ export function FloatingChatWindow() {
           <SessionList
             currentSessionId={chat.sessionId}
             onSwitch={(id, hintRunning) => { chat.switchTo(id, hintRunning); setShowSessions(false) }}
+            onDuplicate={(id, codexHome) => { chat.duplicateSession(id, codexHome); setShowSessions(false) }}
+            duplicatingSessionId={chat.duplicatingSessionId}
           />
         </div>
       ) : (
