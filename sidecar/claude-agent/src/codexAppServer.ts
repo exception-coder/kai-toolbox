@@ -29,6 +29,7 @@ type AppServerTurnOptions = {
   model?: string
   reasoningEffort?: string
   sandbox: 'read-only' | 'workspace-write' | 'danger-full-access'
+  approvalPolicy: 'never' | 'on-request' | 'on-failure' | 'untrusted'
   config?: Record<string, unknown>
   input: Array<Record<string, unknown>>
   codexHome?: string
@@ -365,8 +366,8 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     send({ method: 'initialized', params: {} })
     initialized = true
     const threadResult = await request(threadId ? 'thread/resume' : 'thread/start', threadId
-      ? { threadId, cwd: options.cwd, model: options.model ?? null, approvalPolicy: 'never', sandbox: options.sandbox, config: options.config ?? {} }
-      : { cwd: options.cwd, model: options.model ?? null, approvalPolicy: 'never', sandbox: options.sandbox, config: options.config ?? {} })
+      ? { threadId, cwd: options.cwd, model: options.model ?? null, approvalPolicy: options.approvalPolicy, sandbox: options.sandbox, config: options.config ?? {} }
+      : { cwd: options.cwd, model: options.model ?? null, approvalPolicy: options.approvalPolicy, sandbox: options.sandbox, config: options.config ?? {} })
     const thread = asRecord(threadResult.thread)
     threadId = asString(thread?.id) || threadId
     if (!threadId) throw new Error('Codex App Server 未返回 thread id')
@@ -378,7 +379,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
       threadId,
       input: options.input,
       cwd: options.cwd,
-      approvalPolicy: 'never',
+      approvalPolicy: options.approvalPolicy,
       model: options.model ?? null,
       effort: options.reasoningEffort ?? null,
     })

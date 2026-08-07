@@ -233,7 +233,7 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
           })}
         />
         <div className="mb-1 flex items-center gap-1">
-          <ModeSwitch mode={chat.mode} onChange={chat.setMode} />
+          <ModeSwitch engine={chat.currentEngine} mode={chat.mode} onChange={chat.setMode} />
           {/* 服务商切换与权限组语义不同，推到右侧分开 */}
           <div className="ml-auto">
             <ProviderSwitch

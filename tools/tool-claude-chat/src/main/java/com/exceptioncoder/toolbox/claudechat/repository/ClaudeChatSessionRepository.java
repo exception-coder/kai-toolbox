@@ -150,6 +150,7 @@ public class ClaudeChatSessionRepository {
     }
 
     public void deleteById(String id) {
+        jdbc.update("DELETE FROM claude_chat_queued_message WHERE session_id = ?", id);
         jdbc.update("DELETE FROM claude_chat_pending_sql WHERE session_id = ?", id);
         jdbc.update("DELETE FROM claude_chat_session_plan_state WHERE id = ?", id);
         jdbc.update("DELETE FROM claude_chat_session WHERE id = ?", id);

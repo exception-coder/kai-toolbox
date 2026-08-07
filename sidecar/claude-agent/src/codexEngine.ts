@@ -57,7 +57,7 @@ export interface CodexTurnCtx {
   model?: string
   reasoningEffort?: CodexReasoningEffort
   speed?: CodexSpeed
-  /** 会话权限模式（与 Claude 共用四档），映射为 Codex 的 approvalPolicy + sandboxMode。 */
+  /** 会话权限模式，Codex 对外展示三档并映射为 approvalPolicy + sandboxMode。 */
   permissionMode: string
   /** 一次性分析任务的工具策略；disabled 强制只读沙箱并关闭网络。 */
   toolPolicy?: string
@@ -225,15 +225,17 @@ function pickCodex(
 // 审批语义交回 approvalPolicy 兜底；非 Windows 维持原沙箱分级不变。
 const IS_WINDOWS = process.platform === 'win32'
 
-/** 四档权限模式 → Codex 策略。Codex 无交互式逐工具审批，故靠 sandbox + approvalPolicy 兜底。 */
+/** Codex 三档权限模式 → 执行策略；plan 仅兼容历史会话，不在 Codex UI 中展示。 */
 function mapMode(mode: string): { approvalPolicy: ApprovalMode; sandboxMode: SandboxMode } {
   switch (mode) {
     case 'plan':
       return { approvalPolicy: 'never', sandboxMode: IS_WINDOWS ? 'danger-full-access' : 'read-only' }
     case 'bypassPermissions':
       return { approvalPolicy: 'never', sandboxMode: 'danger-full-access' }
-    default: // default / acceptEdits
-      return { approvalPolicy: 'on-failure', sandboxMode: IS_WINDOWS ? 'danger-full-access' : 'workspace-write' }
+    case 'acceptEdits':
+      return { approvalPolicy: 'untrusted', sandboxMode: IS_WINDOWS ? 'danger-full-access' : 'workspace-write' }
+    default:
+      return { approvalPolicy: 'on-request', sandboxMode: IS_WINDOWS ? 'danger-full-access' : 'workspace-write' }
   }
 }
 
@@ -256,8 +258,8 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
   const consultSourceRoot = consultReadonly && existsSync(ctx.cwd) && statSync(ctx.cwd).isDirectory()
     ? resolve(ctx.cwd)
     : undefined
-  const { sandboxMode } = toolsDisabled || consultReadonly
-    ? { sandboxMode: 'read-only' as SandboxMode }
+  const { approvalPolicy, sandboxMode } = toolsDisabled || consultReadonly
+    ? { approvalPolicy: 'never' as ApprovalMode, sandboxMode: 'read-only' as SandboxMode }
     : mapMode(ctx.permissionMode)
   let tempImageDir: string | undefined
 
@@ -270,6 +272,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
       model: ctx.model || undefined,
       reasoningEffort: ctx.reasoningEffort,
       sandbox: sandboxMode,
+      approvalPolicy,
       config: buildCodexConfig(
         ctx.speed ?? 'default',
         ctx.toolPolicy ?? 'default',

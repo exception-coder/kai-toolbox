@@ -1,4 +1,6 @@
-import { FolderKey, Gauge, Zap } from 'lucide-react'
+import { useState } from 'react'
+import type { ReactNode } from 'react'
+import { Check, ChevronDown, ChevronLeft, ChevronRight, FolderKey, Gauge, SlidersHorizontal, Zap } from 'lucide-react'
 import type { CodexReasoningEffort, CodexSpeed, ModelInfo } from '../types'
 
 interface Props {
@@ -62,11 +64,17 @@ export function CodexSessionOptions({
   onModelChange,
   onOptionsChange,
 }: Props) {
+  const [open, setOpen] = useState(false)
+  const [activeSection, setActiveSection] = useState<'model' | 'effort' | 'speed' | null>(null)
+  const [showAdvanced, setShowAdvanced] = useState(false)
   const selectedModel = models.find(item => item.value === model)
   const supportedEfforts = selectedModel?.reasoningEfforts?.length ? selectedModel.reasoningEfforts : DEFAULT_EFFORTS
   const visibleEfforts = supportedEfforts.map(value => ({ value, label: effortLabel(value) }))
   const fastSupported = !selectedModel || selectedModel.fastSupported !== false
   const authHomeLabel = codexHome?.trim() || '默认目录（%USERPROFILE%\\.codex）'
+  const modelLabel = selectedModel?.displayName || model || '默认模型'
+  const effortValueLabel = EFFORT_LABELS[reasoningEffort] ?? reasoningEffort
+  const speedLabel = SPEEDS.find(item => item.value === speed)?.label ?? speed
 
   const changeModel = (nextModel: string) => {
     onModelChange(nextModel)
@@ -78,57 +86,147 @@ export function CodexSessionOptions({
     onOptionsChange(nextEffort, next?.fastSupported === false ? 'default' : speed)
   }
 
+  const close = () => {
+    setOpen(false)
+    setActiveSection(null)
+  }
+
+  const pickModel = (value: string) => {
+    changeModel(value)
+    close()
+  }
+
+  const pickEffort = (value: CodexReasoningEffort) => {
+    onOptionsChange(value, speed)
+    close()
+  }
+
+  const pickSpeed = (value: CodexSpeed) => {
+    onOptionsChange(reasoningEffort, value)
+    close()
+  }
+
   return (
-    <div className="flex min-w-0 items-center gap-1.5">
-      <select
-        value={model ?? ''}
+    <div className="relative min-w-0 max-w-full">
+      <button
+        type="button"
         disabled={disabled}
-        onChange={event => changeModel(event.target.value)}
-        aria-label="Codex 模型"
-        title="Codex 模型，下轮生效"
-        className="h-7 max-w-40 rounded-md border bg-[var(--color-background)] px-2 text-xs disabled:opacity-50"
+        onClick={() => { setOpen(value => !value); setActiveSection(null) }}
+        aria-label="配置 Codex 模型、推理强度和速度"
+        title="Codex 模型配置，下轮生效"
+        className="flex h-8 w-auto max-w-full min-w-0 items-center gap-1.5 rounded-md border bg-[var(--color-background)] px-2.5 text-xs disabled:opacity-50 sm:max-w-80"
       >
-        <option value="">默认模型</option>
-        {models.map(item => <option key={item.value} value={item.value}>{item.displayName || item.value}</option>)}
-      </select>
-      <label className="flex h-7 items-center gap-1 rounded-md border px-1.5 text-xs text-[var(--color-muted-foreground)]" title="推理强度：保留协议支持的全部档位；官方隐藏表示官方客户端默认不展示">
-        <Gauge className="size-3.5" />
-        <select
-          value={reasoningEffort}
-          disabled={disabled}
-          onChange={event => onOptionsChange(event.target.value as CodexReasoningEffort, speed)}
-          aria-label="Codex 推理强度"
-          className="bg-transparent text-[var(--color-foreground)] outline-none disabled:opacity-50"
-        >
-          {visibleEfforts.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
-        </select>
-      </label>
-      <label className="flex h-7 items-center gap-1 rounded-md border px-1.5 text-xs text-[var(--color-muted-foreground)]" title="速度，下轮生效">
-        <Zap className="size-3.5" />
-        <select
-          value={speed}
-          disabled={disabled}
-          onChange={event => onOptionsChange(reasoningEffort, event.target.value as CodexSpeed)}
-          aria-label="Codex 速度"
-          className="bg-transparent text-[var(--color-foreground)] outline-none disabled:opacity-50"
-        >
-          {SPEEDS.map(item => (
-            <option key={item.value} value={item.value} disabled={item.value === 'fast' && !fastSupported}>
-              {item.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      {showCodexHome && (
-        <span
-          className="flex h-7 min-w-0 max-w-64 items-center gap-1 rounded-md border px-2 text-xs text-[var(--color-muted-foreground)]"
-          title={`当前会话 Codex Auth 目录：${authHomeLabel}`}
-        >
-          <FolderKey className="size-3.5 shrink-0" />
-          <span className="shrink-0">Auth</span>
-          <span className="truncate text-[var(--color-foreground)]">{authHomeLabel}</span>
-        </span>
+        <SlidersHorizontal className="size-3.5 shrink-0 text-[var(--color-primary)]" />
+        <span className="truncate font-medium">{modelLabel}</span>
+        <span className="shrink-0 text-[var(--color-muted-foreground)]">· {effortValueLabel} · {speedLabel}</span>
+        <ChevronDown className={`ml-1 size-3.5 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={close} />
+          <div className="absolute bottom-full left-0 z-50 mb-2 w-[min(20rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border bg-[var(--color-background)] p-2 shadow-xl">
+            {activeSection === null ? (
+              <>
+                <div className="px-2 pb-1.5 pt-1 text-xs font-medium text-[var(--color-muted-foreground)]">Codex 配置 · 下轮生效</div>
+                <ConfigRow label="模型" value={modelLabel} onClick={() => setActiveSection('model')} />
+                <ConfigRow label="推理强度" value={effortValueLabel} icon={<Gauge className="size-4" />} onClick={() => setActiveSection('effort')} />
+                <ConfigRow label="速度" value={speedLabel} icon={<Zap className="size-4" />} onClick={() => setActiveSection('speed')} />
+                {showCodexHome && (
+                  <>
+                    <div className="my-1 border-t" />
+                    <button
+                      type="button"
+                      onClick={() => setShowAdvanced(value => !value)}
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]"
+                    >
+                      高级
+                      <ChevronDown className={`ml-auto size-3.5 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
+                    </button>
+                    {showAdvanced && (
+                      <div className="flex min-w-0 items-start gap-2 rounded-lg bg-[var(--color-muted)] px-2 py-2 text-xs" title={`当前会话 Codex Auth 目录：${authHomeLabel}`}>
+                        <FolderKey className="mt-0.5 size-3.5 shrink-0 text-[var(--color-muted-foreground)]" />
+                        <div className="min-w-0">
+                          <div className="text-[var(--color-muted-foreground)]">Auth 目录</div>
+                          <div className="truncate text-[var(--color-foreground)]">{authHomeLabel}</div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setActiveSection(null)}
+                  className="mb-1 flex w-full items-center gap-1 rounded-lg px-2 py-2 text-sm font-medium hover:bg-[var(--color-accent)]"
+                >
+                  <ChevronLeft className="size-4" />
+                  {activeSection === 'model' ? '模型' : activeSection === 'effort' ? '推理强度' : '速度'}
+                </button>
+                <div className="max-h-72 overflow-y-auto">
+                  {activeSection === 'model' && (
+                    <>
+                      <OptionRow label="默认模型" selected={!model} onClick={() => pickModel('')} />
+                      {models.map(item => (
+                        <OptionRow key={item.value} label={item.displayName || item.value} selected={item.value === model} onClick={() => pickModel(item.value)} />
+                      ))}
+                    </>
+                  )}
+                  {activeSection === 'effort' && visibleEfforts.map(item => (
+                    <OptionRow key={item.value} label={item.label} selected={item.value === reasoningEffort} onClick={() => pickEffort(item.value)} />
+                  ))}
+                  {activeSection === 'speed' && SPEEDS.map(item => (
+                    <OptionRow
+                      key={item.value}
+                      label={item.label}
+                      selected={item.value === speed}
+                      disabled={item.value === 'fast' && !fastSupported}
+                      onClick={() => pickSpeed(item.value)}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </>
       )}
     </div>
+  )
+}
+
+function ConfigRow({ label, value, icon, onClick }: {
+  label: string
+  value: string
+  icon?: ReactNode
+  onClick: () => void
+}) {
+  return (
+    <button type="button" onClick={onClick} className="flex w-full items-center gap-2 rounded-lg px-2 py-2.5 text-sm hover:bg-[var(--color-accent)]">
+      <span className="flex w-5 shrink-0 justify-center text-[var(--color-muted-foreground)]">{icon}</span>
+      <span>{label}</span>
+      <span className="ml-auto max-w-40 truncate text-[var(--color-muted-foreground)]">{value}</span>
+      <ChevronRight className="size-4 shrink-0 text-[var(--color-muted-foreground)]" />
+    </button>
+  )
+}
+
+function OptionRow({ label, selected, disabled, onClick }: {
+  label: string
+  selected: boolean
+  disabled?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-[var(--color-accent)] disabled:opacity-40"
+    >
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {selected && <Check className="size-4 shrink-0" />}
+    </button>
   )
 }

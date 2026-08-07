@@ -41,6 +41,21 @@ CREATE TABLE IF NOT EXISTS claude_chat_session (
 CREATE INDEX IF NOT EXISTS idx_claude_chat_session_seen
     ON claude_chat_session(last_seen_at DESC);
 
+-- Vibe Coding 进行中轮次的待发送消息队列。用于页面刷新、切换视图和服务重启后恢复；
+-- 附件只登记已落盘文件的元数据与路径，不保存浏览器临时 blob URL。
+CREATE TABLE IF NOT EXISTS claude_chat_queued_message (
+    id                      TEXT PRIMARY KEY,
+    session_id              TEXT NOT NULL,
+    text                    TEXT NOT NULL DEFAULT '',
+    display_text            TEXT,
+    developer_instructions  TEXT,
+    attachments_json        TEXT,
+    created_at              INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_claude_chat_queued_message_session
+    ON claude_chat_queued_message(session_id, created_at);
+
 -- 会话规划过期锁定；id 即逻辑会话 ID，删除会话时由应用层同步清理。
 CREATE TABLE IF NOT EXISTS claude_chat_session_plan_state (
     id              TEXT PRIMARY KEY,

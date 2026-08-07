@@ -1600,7 +1600,7 @@ export function ChatPage() {
             })}
           />
           <div className="flex flex-wrap items-center gap-2 px-3 pt-2">
-            <ModeSwitch mode={chat.mode} onChange={chat.setMode} />
+            <ModeSwitch engine={chat.currentEngine} mode={chat.mode} onChange={chat.setMode} />
             {/* 后台任务提示：可见回合（result）已结束，但会话上还挂着 Agent 后台子任务没完事——
                 区分"真的没事干了"和"后台还在查、还没回来"，避免以为卡住了。不做成停止按钮：
                 这里没有可中断的前台轮次，点了也停不掉后台任务，做成按钮会误导。 */}
@@ -1614,19 +1614,21 @@ export function ChatPage() {
               </span>
             )}
             {chat.currentEngine === 'codex' && (
-              <CodexSessionOptions
-                models={chat.models}
-                model={chat.currentModel}
-                reasoningEffort={chat.codexReasoningEffort}
-                speed={chat.codexSpeed}
-                codexHome={currentSession?.codexHome}
-                showCodexHome={Boolean(currentSession && currentSession.providerKind !== 'thirdParty')}
-                onModelChange={chat.setModel}
-                onOptionsChange={chat.setCodexOptions}
-              />
+              <div className="min-w-0 max-w-full">
+                <CodexSessionOptions
+                  models={chat.models}
+                  model={chat.currentModel}
+                  reasoningEffort={chat.codexReasoningEffort}
+                  speed={chat.codexSpeed}
+                  codexHome={currentSession?.codexHome}
+                  showCodexHome={Boolean(currentSession && currentSession.providerKind !== 'thirdParty')}
+                  onModelChange={chat.setModel}
+                  onOptionsChange={chat.setCodexOptions}
+                />
+              </div>
             )}
             {/* 服务商切换与权限组语义不同：用左外边距推到右侧，避免和权限按钮挤在一起 */}
-            <div className="ml-auto">
+            <div className="order-1 ml-auto sm:order-none">
               <ProviderSwitch
                 engine={chat.currentEngine}
                 providerKind={chat.currentProviderKind}

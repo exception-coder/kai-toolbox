@@ -527,6 +527,52 @@ export async function uploadAttachment(sessionId: string, file: File): Promise<U
   return res.json()
 }
 
+export interface PersistedQueuedMessage {
+  id: string
+  sessionId: string
+  text: string
+  displayText?: string
+  developerInstructions?: string
+  attachments?: Array<{ name: string; path: string; mime?: string; url?: string }>
+  createdAt: number
+}
+
+/** 恢复会话待发送队列；图片预览由已落盘路径重建，不依赖刷新后失效的 blob URL。 */
+export async function listQueuedMessages(sessionId: string): Promise<PersistedQueuedMessage[]> {
+  const messages = await http<PersistedQueuedMessage[]>(
+    `/claude-chat/sessions/${encodeURIComponent(sessionId)}/queue`,
+  )
+  return messages.map(message => ({
+    ...message,
+    attachments: message.attachments?.map(attachment => ({
+      ...attachment,
+      url: attachment.mime?.startsWith('image/')
+        ? `/api/claude-chat/attachments/file?path=${encodeURIComponent(attachment.path)}`
+        : undefined,
+    })),
+  }))
+}
+
+export function saveQueuedMessage(sessionId: string, message: Omit<PersistedQueuedMessage, 'sessionId'>) {
+  return http<PersistedQueuedMessage>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/queue`, {
+    method: 'POST',
+    body: JSON.stringify({
+      ...message,
+      attachments: message.attachments?.map(({ name, mime, path }) => ({ name, mime, path })),
+    }),
+  })
+}
+
+export function deleteQueuedMessage(sessionId: string, messageId: string): Promise<void> {
+  return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(messageId)}`, {
+    method: 'DELETE',
+  })
+}
+
+export function clearQueuedMessages(sessionId: string): Promise<void> {
+  return http(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/queue`, { method: 'DELETE' })
+}
+
 // ── 历史会话消息分页加载 ──────────────────────────────────────────
 interface RawHistoryMessage {
   id: string

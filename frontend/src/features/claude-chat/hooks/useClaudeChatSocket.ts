@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { emitSessionExpired, ensureFreshToken, getToken, logout, probeAuth, useAuth } from '@/lib/auth'
 import type { Attachment, BackgroundTaskInfo, ChatItem, ClientMessage, CodexReasoningEffort, CodexSpeed, ConnState, Engine, ModelInfo, PendingRequest, PendingSessionRef, PermissionMode, ProviderKind, SendAttachment, ServerMessage, TurnDiag } from '../types'
-import { loadMessages } from '../api'
+import { clearQueuedMessages, deleteQueuedMessage, listQueuedMessages, loadMessages, saveQueuedMessage } from '../api'
 import { notifyPrompt } from '../browserNotify'
 import { pushDebug } from '../lib/debugLog'
 import { playNotifySound } from '../sound'
+import { normalizePermissionModeForEngine } from '../components/permissionModes'
 
 // 按 sessionId 持久化权限模式，使刷新/放大缩小/重连后该会话仍保持上次选择，而非回退 default。
 const VALID_MODES: PermissionMode[] = ['default', 'acceptEdits', 'plan', 'bypassPermissions']
@@ -353,8 +354,26 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           shouldLoadHistoryRef.current = false
         }
         setCapabilitiesRefreshing(false)
+        // 队列严格按会话隔离：先清掉上一会话内存快照，再异步恢复 ready 对应会话的数据。
+        setQueued([])
         sessionIdRef.current = msg.sessionId
         setSessionId(msg.sessionId)
+        if (!demo) void listQueuedMessages(msg.sessionId)
+          .then(messages => {
+            if (sessionIdRef.current !== msg.sessionId) return
+            setQueued(messages.map(message => ({
+              id: message.id,
+              text: message.text,
+              attachments: message.attachments,
+              displayText: message.displayText,
+              developerInstructions: message.developerInstructions,
+            })))
+          })
+          .catch(error => {
+            if (sessionIdRef.current === msg.sessionId) {
+              setSyncWarning(`待发送队列恢复失败：${error instanceof Error ? error.message : String(error)}`)
+            }
+          })
         setState('ready')
         setErrorMessage(null) // sidecar 重连恢复后会重发 ready，借此清掉 SIDECAR_DOWN 横幅
         // 恢复该会话上次的权限模式（按 sessionId 持久化），并同步给 sidecar，
@@ -364,10 +383,12 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           if (channel === 'consult') {
             setModeState('plan')
             modeRef.current = 'plan'
-          } else if (savedMode) {
-            setModeState(savedMode)
-            modeRef.current = savedMode
-            sendRaw({ type: 'setMode', mode: savedMode })
+          } else {
+            const restoredMode = normalizePermissionModeForEngine(msg.engine ?? 'claude', savedMode ?? 'default')
+            setModeState(restoredMode)
+            modeRef.current = restoredMode
+            if (restoredMode !== savedMode) saveMode(msg.sessionId, restoredMode)
+            sendRaw({ type: 'setMode', mode: restoredMode })
           }
           // 「弹窗自动允许」同步给服务端一次：服务端此后自己保管并随每次 resume 回灌 sidecar，
           // 用户切走页面/关掉浏览器也不影响放行，不再需要前端盯着弹窗自动点。
@@ -1064,22 +1085,76 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
                                developerInstructions?: string) => {
     const t = text.trim()
     if (!t && !(attachments && attachments.length > 0)) return
-    setQueued(prev => [...prev, { id: nextId(), text: t, attachments, displayText, developerInstructions }])
-  }, [])
+    const sessionId = sessionIdRef.current
+    if (!sessionId) return
+    const message = { id: nextId(), text: t, attachments, displayText, developerInstructions, createdAt: Date.now() }
+    if (demo) {
+      setQueued(prev => [...prev, message])
+      return
+    }
+    // 先落盘再进入可调度内存队列，避免当前轮恰好结束时 DELETE 抢在 POST 前面导致幽灵队列项。
+    void saveQueuedMessage(sessionId, message)
+      .then(() => {
+        if (sessionIdRef.current === sessionId) setQueued(prev => [...prev, message])
+      })
+      .catch(error => {
+        if (sessionIdRef.current === sessionId) {
+          setSyncWarning(`消息加入队列失败：${error instanceof Error ? error.message : String(error)}`)
+        }
+      })
+  }, [demo])
   const removeQueued = useCallback((id: string) => {
-    setQueued(prev => prev.filter(q => q.id !== id))
-  }, [])
-  const clearQueued = useCallback(() => setQueued([]), [])
+    if (demo) {
+      setQueued(prev => prev.filter(q => q.id !== id))
+      return
+    }
+    const sessionId = sessionIdRef.current
+    if (!sessionId) return
+    void deleteQueuedMessage(sessionId, id)
+      .then(() => {
+        if (sessionIdRef.current === sessionId) setQueued(prev => prev.filter(q => q.id !== id))
+      })
+      .catch(error => setSyncWarning(`删除队列消息失败：${error instanceof Error ? error.message : String(error)}`))
+  }, [demo])
+  const clearQueued = useCallback(() => {
+    if (demo) {
+      setQueued([])
+      return
+    }
+    const sessionId = sessionIdRef.current
+    if (!sessionId) return
+    void clearQueuedMessages(sessionId)
+      .then(() => {
+        if (sessionIdRef.current === sessionId) setQueued([])
+      })
+      .catch(error => setSyncWarning(`清空待发送队列失败：${error instanceof Error ? error.message : String(error)}`))
+  }, [demo])
 
   // 空闲（非 running、无权限/提问弹窗）且队列非空 → 取队首发出
   const sendRef = useRef(send)
+  const dispatchingQueueIdRef = useRef<string | null>(null)
   sendRef.current = send
   useEffect(() => {
     if (running || pending || queued.length === 0) return
     const head = queued[0]
-    setQueued(prev => prev.slice(1))
-    sendRef.current(head.text, head.attachments, head.displayText, head.developerInstructions)
-  }, [running, pending, queued])
+    const sessionId = sessionIdRef.current
+    if (!sessionId || dispatchingQueueIdRef.current === head.id) return
+    if (demo) {
+      setQueued(prev => prev.slice(1))
+      sendRef.current(head.text, head.attachments, head.displayText, head.developerInstructions)
+      return
+    }
+    dispatchingQueueIdRef.current = head.id
+    // 先确认持久记录删除，再在同一微任务中发送；避免刷新后恢复出已经发送过的消息。
+    void deleteQueuedMessage(sessionId, head.id)
+      .then(() => {
+        if (sessionIdRef.current !== sessionId) return
+        setQueued(prev => prev.filter(item => item.id !== head.id))
+        sendRef.current(head.text, head.attachments, head.displayText, head.developerInstructions)
+      })
+      .catch(error => setSyncWarning(`队列消息出队失败：${error instanceof Error ? error.message : String(error)}`))
+      .finally(() => { dispatchingQueueIdRef.current = null })
+  }, [demo, running, pending, queued])
 
   const interrupt = useCallback(() => {
     // 不在点击时乐观结束运行态：消息可能因 WS 断开根本没有发出。
@@ -1175,6 +1250,15 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
 
   // 会话内切 agent：同一会话 id 不变，乐观更新引擎；非 claude 清模型列表。上下文由调用方切后另发 seed。
   const switchEngine = useCallback((engine: Engine) => {
+    const normalizedMode = normalizePermissionModeForEngine(engine, modeRef.current)
+    if (normalizedMode !== modeRef.current) {
+      setModeState(normalizedMode)
+      modeRef.current = normalizedMode
+      const sid = sessionIdRef.current
+      if (sid) saveMode(sid, normalizedMode)
+      sendRaw({ type: 'setMode', mode: normalizedMode })
+      syncAutoApprove(autoApproveRef.current, normalizedMode)
+    }
     setCurrentEngine(engine)
     if (engine !== 'claude') {
       setModels([])
@@ -1207,7 +1291,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   // 保留到指定回答为止并分叉新会话（旧会话保留）。
   const forkSession = useCallback((upToMessageId: string) => {
     sendRaw({ type: 'forkSession', upToMessageId })
-  }, [sendRaw])
+  }, [sendRaw, syncAutoApprove])
 
   const dismissSyncWarning = useCallback(() => setSyncWarning(null), [])
 
