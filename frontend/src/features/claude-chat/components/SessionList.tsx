@@ -1,20 +1,21 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronDown, ChevronRight, Copy, Filter, Folder, FolderMinus, FolderPlus, Link2, Loader2, LockKeyhole, Pencil, Search, Star, Tags, Trash2, Unlock, X } from 'lucide-react'
+import { ArrowLeft, Check, ChevronRight, Copy, Filter, Folder, FolderMinus, FolderPlus, Link2, Loader2, LockKeyhole, Pencil, Search, Star, Tags, Trash2, Unlock, X } from 'lucide-react'
 import { EngineIcon } from './EngineIcon'
 import { cn, formatDate } from '@/lib/utils'
-import { deleteSession, listSessions, renameSession, setSessionFavorite, setSessionGroupApi } from '../api'
+import { deleteSession, listSessions, renameSession, renameSessionProject, setSessionFavorite, setSessionGroupApi } from '../api'
+import { ApiError } from '@/lib/api'
 import { engineDisplayName, providerHost } from './chatStatus'
 import type { ClaudeChatSessionView, Engine } from '../types'
 import { getSessionsByDevSessions } from '@/features/prd-clarify/api'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { Combobox } from '@/components/ui/combobox'
 import { SessionActivityBar } from './SessionActivityBar'
 import { useSessionPlanState } from '../hooks/useSessionPlanState'
+import { SessionStatusFilter } from './SessionStatusFilter'
+import { DEFAULT_SESSION_STATUSES, isSessionStatusVisible, resetVisibleSessionStatuses, useVisibleSessionStatuses } from '../lib/sessionStatusFilter'
 
 const OLD_GROUP_KEY = 'kai-toolbox:claude-chat:session-groups'
-const COLLAPSED_GROUPS_KEY = 'kai-toolbox:claude-chat:collapsed-groups'
 let groupMigrationDone = false
 
 interface Props {
@@ -52,30 +53,36 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
     staleTime: 60_000,
   })
 
-  // 会话筛选：按分组（多选）+ 是否关联 PRD。filterGroups 里用 UNGROUPED 哨兵值表示"未分组"，
-  // 跟下面分桶用的 UNGROUPED key 复用同一套语义，不用另开一套常量。空数组 = 不筛分组（全部）。
-  const [filterGroups, setFilterGroups] = useState<string[]>([])
-  const [groupFilterOpen, setGroupFilterOpen] = useState(false)
+  // 项目目录和项目会话面板是纯导航状态，不修改会话分组。
+  const [activeProject, setActiveProject] = useState<string | null>(null)
   const [filterPrd, setFilterPrd] = useState<'all' | 'linked' | 'unlinked'>('all')
   const [aliasQuery, setAliasQuery] = useState('')
+  const searchRef = useRef<HTMLInputElement>(null)
   const [codexCopyFor, setCodexCopyFor] = useState<ClaudeChatSessionView | null>(null)
   const [selectedCodexHome, setSelectedCodexHome] = useState<string | null>(null)
   const [customCodexHome, setCustomCodexHome] = useState('')
+  const [renameProjectFor, setRenameProjectFor] = useState<string | null>(null)
+  const [projectNameDraft, setProjectNameDraft] = useState('')
+  const [projectRenameBusy, setProjectRenameBusy] = useState(false)
+  const [projectRenameError, setProjectRenameError] = useState('')
+  const visibleStatuses = useVisibleSessionStatuses()
   const normalizedAliasQuery = aliasQuery.trim().toLocaleLowerCase()
-  const filterActive = filterGroups.length > 0 || filterPrd !== 'all' || !!normalizedAliasQuery
-  const clearFilter = () => { setFilterGroups([]); setFilterPrd('all'); setAliasQuery('') }
-  const toggleFilterGroup = (g: string) => setFilterGroups(prev =>
-    prev.includes(g) ? prev.filter(x => x !== g) : [...prev, g])
+  const statusFilterIsDefault = visibleStatuses.length === DEFAULT_SESSION_STATUSES.length
+    && DEFAULT_SESSION_STATUSES.every(status => visibleStatuses.includes(status))
+  const filterActive = filterPrd !== 'all' || !!normalizedAliasQuery || !statusFilterIsDefault
+  const clearFilter = () => {
+    setFilterPrd('all')
+    setAliasQuery('')
+    resetVisibleSessionStatuses()
+  }
   const filteredSessions = useMemo(() => sessions.filter(s => {
+    if (!isSessionStatusVisible(s, visibleStatuses)) return false
+    if (activeProject && ((s.group ?? '').trim() || UNGROUPED) !== activeProject) return false
     if (normalizedAliasQuery && !(s.title ?? '').toLocaleLowerCase().includes(normalizedAliasQuery)) return false
-    if (filterGroups.length > 0) {
-      const g = (s.group ?? '').trim() || UNGROUPED
-      if (!filterGroups.includes(g)) return false
-    }
     if (filterPrd === 'linked' && !prdLinks[s.id]) return false
     if (filterPrd === 'unlinked' && prdLinks[s.id]) return false
     return true
-  }), [sessions, normalizedAliasQuery, filterGroups, filterPrd, prdLinks])
+  }), [sessions, visibleStatuses, activeProject, normalizedAliasQuery, filterPrd, prdLinks])
   const knownCodexHomes = useMemo(() => [...new Set(sessions
     .filter(s => s.engine === 'codex' && s.providerKind !== 'thirdParty')
     .map(s => s.codexHome?.trim() || '')
@@ -97,6 +104,34 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
     if (selectedCodexHome === '__custom__' && !codexHome) return
     onDuplicate?.(codexCopyFor.id, codexHome || undefined)
     setCodexCopyFor(null)
+  }
+
+  const openProjectRename = (project: string) => {
+    setRenameProjectFor(project)
+    setProjectNameDraft(project)
+    setProjectRenameError('')
+  }
+
+  const confirmProjectRename = async () => {
+    const oldName = renameProjectFor
+    const newName = projectNameDraft.trim()
+    if (!oldName || !newName || projectRenameBusy) return
+    setProjectRenameBusy(true)
+    setProjectRenameError('')
+    try {
+      await renameSessionProject(oldName, newName)
+      if (activeProject === oldName) setActiveProject(newName)
+      setRenameProjectFor(null)
+      await qc.invalidateQueries({ queryKey: KEY })
+    } catch (error) {
+      setProjectRenameError(error instanceof ApiError && error.status === 409
+        ? '该项目名称已存在，请换一个名称'
+        : error instanceof ApiError && error.status === 404
+          ? '原项目已不存在，请刷新列表后重试'
+          : '项目重命名失败，请稍后重试')
+    } finally {
+      setProjectRenameBusy(false)
+    }
   }
 
   useEffect(() => {
@@ -134,10 +169,6 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
     })()
   }, [qc])
 
-  const allGroups = useMemo(
-    () => [...new Set(sessions.map(s => (s.group ?? '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
-    [sessions],
-  )
   const allGroupPaths = useMemo(() => sessions
     .map(s => ({ project: (s.group ?? '').trim(), requirement: (s.subgroup ?? '').trim() }))
     .filter(x => x.project), [sessions])
@@ -148,14 +179,6 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
-    try {
-      const value = JSON.parse(localStorage.getItem(COLLAPSED_GROUPS_KEY) ?? '[]')
-      return new Set(Array.isArray(value) ? value.filter(item => typeof item === 'string') : [])
-    } catch {
-      return new Set()
-    }
-  })
   const [favoriteBusyId, setFavoriteBusyId] = useState<string | null>(null)
   const [groupPickFor, setGroupPickFor] = useState<ClaudeChatSessionView | null>(null)
 
@@ -196,42 +219,77 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
     }
   }
 
-  const toggleGroup = (name: string) => setCollapsed(prev => {
-    const n = new Set(prev)
-    if (n.has(name)) n.delete(name); else n.add(name)
-    try { localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify([...n])) } catch { /* ignore */ }
-    return n
-  })
-
   const sortSessions = (list: ClaudeChatSessionView[]) => [...list].sort((a, b) => {
     const favoriteOrder = Number(Boolean(b.favorite)) - Number(Boolean(a.favorite))
     return favoriteOrder || b.lastSeenAt - a.lastSeenAt
   })
 
+  useEffect(() => {
+    const focusGlobalSearch = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'k') return
+      event.preventDefault()
+      setActiveProject(null)
+      requestAnimationFrame(() => searchRef.current?.focus())
+    }
+    window.addEventListener('keydown', focusGlobalSearch)
+    return () => window.removeEventListener('keydown', focusGlobalSearch)
+  }, [])
+
   if (isPending) return <div className="px-4 py-4 text-sm text-[var(--color-muted-foreground)]">加载中…</div>
   if (sessions.length === 0) return <div className="px-4 py-4 text-sm text-[var(--color-muted-foreground)]">还没有会话，点上方「新建」开始</div>
 
-  const buckets = new Map<string, Map<string, ClaudeChatSessionView[]>>()
-  for (const s of filteredSessions) {
-    const project = (s.group ?? '').trim() || UNGROUPED
-    const requirement = (s.subgroup ?? '').trim() || UNGROUPED
-    if (!buckets.has(project)) buckets.set(project, new Map())
-    const requirements = buckets.get(project)!
-    if (!requirements.has(requirement)) requirements.set(requirement, [])
-    requirements.get(requirement)!.push(s)
-  }
-  const namedGroups = [...buckets.keys()].filter(g => g !== UNGROUPED).sort((a, b) => a.localeCompare(b))
-  const hasGroups = namedGroups.length > 0
+  const visibleBaseSessions = sessions.filter(session => {
+    if (!isSessionStatusVisible(session, visibleStatuses)) return false
+    if (filterPrd === 'linked' && !prdLinks[session.id]) return false
+    if (filterPrd === 'unlinked' && prdLinks[session.id]) return false
+    return true
+  })
+  const projects = [...visibleBaseSessions.reduce((map, session) => {
+    const key = (session.group ?? '').trim() || UNGROUPED
+    const current = map.get(key) ?? { key, count: 0, running: 0, lastSeenAt: 0 }
+    current.count += 1
+    if (session.status === 'RUNNING' && session.live) current.running += 1
+    current.lastSeenAt = Math.max(current.lastSeenAt, session.lastSeenAt)
+    map.set(key, current)
+    return map
+  }, new Map<string, { key: string; count: number; running: number; lastSeenAt: number }>()).values()]
+    .sort((a, b) => Number(a.key === UNGROUPED) - Number(b.key === UNGROUPED) || b.lastSeenAt - a.lastSeenAt)
+
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const weekStart = todayStart - 6 * 24 * 60 * 60 * 1000
+  const timeSections = [
+    { label: '今天', sessions: filteredSessions.filter(session => session.lastSeenAt >= todayStart) },
+    { label: '本周', sessions: filteredSessions.filter(session => session.lastSeenAt >= weekStart && session.lastSeenAt < todayStart) },
+    { label: '更早', sessions: filteredSessions.filter(session => session.lastSeenAt < weekStart) },
+  ].filter(section => section.sessions.length > 0)
 
   return (
     <>
       <div className="flex flex-wrap items-center gap-1.5 border-b border-[var(--color-border)]/60 px-3 py-2">
+        <div className="flex w-full items-center gap-2 pb-0.5">
+          {activeProject ? (
+            <button
+              type="button"
+              onClick={() => { setActiveProject(null); setAliasQuery('') }}
+              className="rounded p-1 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)]"
+              aria-label="返回项目目录"
+            >
+              <ArrowLeft className="size-3.5" />
+            </button>
+          ) : <Folder className="size-3.5 text-[var(--color-primary)]" />}
+          <span className="min-w-0 flex-1 truncate text-xs font-semibold">
+            {activeProject ? (activeProject === UNGROUPED ? '未分组' : activeProject) : '项目'}
+          </span>
+          {!activeProject && <span className="text-[10px] tabular-nums text-[var(--color-muted-foreground)]">{projects.length}</span>}
+        </div>
         <div className="relative w-full">
           <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-[var(--color-muted-foreground)]" />
           <input
+            ref={searchRef}
             value={aliasQuery}
             onChange={e => setAliasQuery(e.target.value)}
-            placeholder="搜索会话别名…"
+            placeholder={activeProject ? '搜索当前项目会话…' : '搜索全部会话…  Ctrl K'}
             aria-label="搜索会话别名"
             className="h-8 w-full rounded-md border bg-[var(--color-background)] pl-7 pr-7 text-xs outline-none focus:border-[var(--color-primary)]"
           />
@@ -247,60 +305,7 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
           )}
         </div>
         <Filter className="size-3 shrink-0 text-[var(--color-muted-foreground)]" />
-        <Popover open={groupFilterOpen} onOpenChange={setGroupFilterOpen}>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              aria-label="按分组筛选（可多选）"
-              className={cn(
-                'flex h-7 max-w-40 items-center gap-1 rounded-md border bg-[var(--color-background)] px-1.5 text-xs',
-                filterGroups.length > 0 && 'border-[var(--color-primary)] text-[var(--color-primary)]',
-              )}
-            >
-              <span className="min-w-0 flex-1 truncate text-left">
-                {filterGroups.length === 0
-                  ? '全部分组'
-                  : filterGroups.map(g => g === UNGROUPED ? '未分组' : g).join('、')}
-              </span>
-              <ChevronDown className="size-3 shrink-0 opacity-60" />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent className="w-48 p-1" align="start">
-            <ul className="max-h-56 overflow-y-auto">
-              <li>
-                <button
-                  type="button"
-                  onClick={() => toggleFilterGroup(UNGROUPED)}
-                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-[var(--color-accent)]"
-                >
-                  <CheckBox checked={filterGroups.includes(UNGROUPED)} />
-                  未分组
-                </button>
-              </li>
-              {allGroups.map(g => (
-                <li key={g}>
-                  <button
-                    type="button"
-                    onClick={() => toggleFilterGroup(g)}
-                    className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-[var(--color-accent)]"
-                  >
-                    <CheckBox checked={filterGroups.includes(g)} />
-                    <span className="min-w-0 flex-1 truncate">{g}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-            {filterGroups.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setFilterGroups([])}
-                className="mt-1 w-full rounded-sm border-t px-2 py-1.5 text-left text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)]"
-              >
-                清空分组筛选
-              </button>
-            )}
-          </PopoverContent>
-        </Popover>
+        <SessionStatusFilter />
         <select
           value={filterPrd}
           onChange={e => setFilterPrd(e.target.value as typeof filterPrd)}
@@ -322,18 +327,67 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
         )}
       </div>
       {filteredSessions.length === 0 ? (
-        <div className="px-4 py-6 text-center text-sm text-[var(--color-muted-foreground)]">
-          没有匹配搜索或筛选条件的会话
-        </div>
-      ) : !hasGroups ? (
-        <ul className="py-1">
-          {sortSessions([...(buckets.get(UNGROUPED)?.values() ?? [])].flat()).map(s => renderRow(s, false))}
-        </ul>
-      ) : (
+        activeProject || normalizedAliasQuery ? (
+          <div className="px-4 py-6 text-center text-sm text-[var(--color-muted-foreground)]">
+            没有匹配搜索或筛选条件的会话
+          </div>
+        ) : null
+      ) : normalizedAliasQuery ? (
+        <section className="py-1">
+          <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)]">
+            搜索结果 · {filteredSessions.length}
+          </div>
+          <ul>{sortSessions(filteredSessions).map(session => renderRow(session, false, true))}</ul>
+        </section>
+      ) : activeProject ? (
         <div className="py-1">
-          {namedGroups.map(name => renderProjectSection(name, name, buckets.get(name)!, false))}
-          {buckets.has(UNGROUPED) && renderProjectSection(UNGROUPED, '未分组', buckets.get(UNGROUPED)!, true)}
+          {timeSections.map(section => (
+            <section key={section.label}>
+              <div className="sticky top-0 z-[1] flex items-center gap-2 border-b border-[var(--color-border)]/40 bg-[var(--color-background)]/95 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted-foreground)] backdrop-blur">
+                <span>{section.label}</span>
+                <span className="tabular-nums opacity-70">{section.sessions.length}</span>
+              </div>
+              <ul>{sortSessions(section.sessions).map(session => renderRow(session, false, true))}</ul>
+            </section>
+          ))}
         </div>
+      ) : (
+        <nav className="py-1" aria-label="会话项目目录">
+          {projects.map(project => (
+            <div key={project.key} className="group flex items-center hover:bg-[var(--color-accent)]">
+              <button
+                type="button"
+                onClick={() => { setActiveProject(project.key); setAliasQuery('') }}
+                className="flex min-w-0 flex-1 items-center gap-2.5 py-2.5 pl-3 text-left"
+              >
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-[var(--color-primary)]/10 text-[var(--color-primary)]">
+                  <Folder className="size-3.5" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-[var(--color-foreground)]">
+                    {project.key === UNGROUPED ? '未分组' : project.key}
+                  </span>
+                  <span className="mt-0.5 flex items-center gap-2 text-[10px] text-[var(--color-muted-foreground)]">
+                    <span>{project.count} 个会话</span>
+                    {project.running > 0 && <span className="text-emerald-600">{project.running} 个进行中</span>}
+                  </span>
+                </span>
+              </button>
+              {project.key !== UNGROUPED && (
+                <button
+                  type="button"
+                  onClick={() => openProjectRename(project.key)}
+                  className="rounded p-1.5 text-[var(--color-muted-foreground)] opacity-0 transition-opacity hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)] group-hover:opacity-100 focus:opacity-100"
+                  aria-label={`重命名项目 ${project.key}`}
+                  title="重命名项目"
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+              )}
+              <ChevronRight className="mr-3 size-3.5 shrink-0 text-[var(--color-muted-foreground)] transition-transform group-hover:translate-x-0.5" />
+            </div>
+          ))}
+        </nav>
       )}
       {groupPickFor && (
         <SessionGroupPicker
@@ -409,73 +463,54 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
           </div>
         </div>
       )}
+      {renameProjectFor && (
+        <div className="fixed inset-0 z-[80] flex items-start justify-center bg-black/40 p-4 pt-24" role="dialog" aria-modal="true" aria-label="重命名项目" onClick={() => !projectRenameBusy && setRenameProjectFor(null)}>
+          <div className="w-full max-w-sm rounded-xl border bg-[var(--color-popover)] p-4 text-[var(--color-popover-foreground)] shadow-xl" onClick={event => event.stopPropagation()}>
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Folder className="size-4 text-[var(--color-primary)]" />重命名项目
+              <button type="button" disabled={projectRenameBusy} onClick={() => setRenameProjectFor(null)} aria-label="关闭" className="ml-auto rounded p-1 text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] disabled:opacity-40"><X className="size-4" /></button>
+            </div>
+            <p className="mt-1 text-xs leading-relaxed text-[var(--color-muted-foreground)]">
+              项目“{renameProjectFor}”下的全部会话会同步迁移，需求分组保持不变。
+            </p>
+            <input
+              autoFocus
+              value={projectNameDraft}
+              onChange={event => { setProjectNameDraft(event.target.value); setProjectRenameError('') }}
+              onKeyDown={event => { if (event.key === 'Enter') void confirmProjectRename() }}
+              placeholder="输入新的项目名称"
+              className="mt-3 h-9 w-full rounded-md border bg-[var(--color-background)] px-2.5 text-sm outline-none focus:border-[var(--color-primary)]"
+            />
+            {projectRenameError && <p className="mt-2 text-xs text-[var(--color-destructive)]">{projectRenameError}</p>}
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" disabled={projectRenameBusy} onClick={() => setRenameProjectFor(null)} className="rounded-md border px-3 py-1.5 text-xs hover:bg-[var(--color-muted)] disabled:opacity-40">取消</button>
+              <button
+                type="button"
+                onClick={() => void confirmProjectRename()}
+                disabled={projectRenameBusy || !projectNameDraft.trim()}
+                className="inline-flex items-center gap-1.5 rounded-md bg-[var(--color-primary)] px-3 py-1.5 text-xs text-[var(--color-primary-foreground)] disabled:opacity-50"
+              >
+                {projectRenameBusy && <Loader2 className="size-3.5 animate-spin" />}
+                确认重命名
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 
-  // ─── Section ───────────────────────────────────────────────────────────────
-
-  function renderProjectSection(key: string, label: string, requirements: Map<string, ClaudeChatSessionView[]>, ungrouped: boolean) {
-    const collapseKey = `project:${key}`
-    const open = !collapsed.has(collapseKey)
-    const count = [...requirements.values()].reduce((sum, list) => sum + list.length, 0)
-    const namedRequirements = [...requirements.keys()].filter(x => x !== UNGROUPED).sort((a, b) => a.localeCompare(b))
-    return (
-      <section key={`sec:${key}`} className="mt-3 mb-1">
-        {/* Section header：明显的背景 + 下边框，与 Item 形成真正的层级区分 */}
-        <button
-          type="button"
-          onClick={() => toggleGroup(collapseKey)}
-          className="sticky top-0 z-[1] flex w-full items-center gap-1.5 border-b border-[var(--color-border)]/60 bg-[var(--color-muted)]/60 px-3 py-2.5 text-left"
-        >
-          <ChevronRight className={cn('size-3 shrink-0 text-[var(--color-muted-foreground)] transition-transform duration-150', open && 'rotate-90')} />
-          {ungrouped
-            ? <Folder className="size-3.5 shrink-0 text-[var(--color-muted-foreground)]" />
-            : <Tags className="size-3.5 shrink-0 text-[var(--color-primary)]" />}
-          {/* text-xs + foreground/70：比 Item 标题弱，但比之前的 muted 更有存在感 */}
-          <span className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-wider text-[var(--color-foreground)]/70">
-            {label}
-          </span>
-          <span className="shrink-0 rounded-full bg-[var(--color-background)] px-1.5 py-0.5 text-[10px] tabular-nums text-[var(--color-muted-foreground)]">
-            {count}
-          </span>
-        </button>
-        {open && (
-          <div>
-            {namedRequirements.map(requirement => renderRequirementSection(key, requirement, requirement, requirements.get(requirement)!))}
-            {requirements.has(UNGROUPED)
-              && renderRequirementSection(key, UNGROUPED, ungrouped ? '未分类会话' : '未指定需求', requirements.get(UNGROUPED)!)}
-          </div>
-        )}
-      </section>
-    )
-  }
-
-  function renderRequirementSection(project: string, key: string, label: string, list: ClaudeChatSessionView[]) {
-    const collapseKey = `requirement:${project}:${key}`
-    const open = !collapsed.has(collapseKey)
-    return (
-      <section key={collapseKey} className="border-b border-[var(--color-border)]/30">
-        <button
-          type="button"
-          onClick={() => toggleGroup(collapseKey)}
-          className="flex w-full items-center gap-1.5 bg-[var(--color-muted)]/25 py-2 pl-7 pr-3 text-left"
-        >
-          <ChevronRight className={cn('size-3 shrink-0 text-[var(--color-muted-foreground)] transition-transform', open && 'rotate-90')} />
-          <Folder className="size-3.5 shrink-0 text-[var(--color-muted-foreground)]" />
-          <span className="min-w-0 flex-1 truncate text-xs font-medium text-[var(--color-foreground)]/75">{label}</span>
-          <span className="text-[10px] tabular-nums text-[var(--color-muted-foreground)]">{list.length}</span>
-        </button>
-        {open && <ul>{sortSessions(list).map(s => renderRow(s, true))}</ul>}
-      </section>
-    )
-  }
-
   // ─── Row ───────────────────────────────────────────────────────────────────
 
-  function renderRow(s: ClaudeChatSessionView, inGroup: boolean) {
+  function renderRow(s: ClaudeChatSessionView, inGroup: boolean, showContext = false) {
     const isActive = s.id === currentSessionId
     const linkedPrd = prdLinks[s.id]
     const isRunning = s.status === 'RUNNING' && s.live
+    const projectLabel = (s.group ?? '').trim()
+    const requirementLabel = (s.subgroup ?? '').trim()
+    const contextLabel = normalizedAliasQuery
+      ? [projectLabel || '未分组', requirementLabel].filter(Boolean).join(' / ')
+      : requirementLabel || projectLabel || '未分组'
 
     const engineBadge = (() => {
       const raw = (s.engines && s.engines.trim() ? s.engines.split(',') : [s.engine || 'claude'])
@@ -597,6 +632,11 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
                 ? 'text-[var(--color-primary)]/60'
                 : 'text-[var(--color-muted-foreground)] opacity-60',
             )}>
+              {showContext && (
+                <span className="max-w-28 truncate rounded bg-[var(--color-muted)] px-1 py-0.5 text-[10px]" title={[projectLabel, requirementLabel].filter(Boolean).join(' / ')}>
+                  {contextLabel}
+                </span>
+              )}
               {engineBadge}
               {s.planExpired && (
                 <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-medium text-amber-700 opacity-100 dark:bg-amber-950 dark:text-amber-300">
@@ -703,22 +743,6 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
       </li>
     )
   }
-}
-
-/** 分组筛选下拉里的方形复选框，样式与 components/ui/multi-select.tsx 的候选项复选框保持一致。 */
-function CheckBox({ checked }: { checked: boolean }) {
-  return (
-    <span
-      className={cn(
-        'flex size-4 shrink-0 items-center justify-center rounded border',
-        checked
-          ? 'border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'
-          : 'border-[var(--color-border)]',
-      )}
-    >
-      {checked && <Check className="size-3" />}
-    </span>
-  )
 }
 
 // ─── GroupPicker ─────────────────────────────────────────────────────────────

@@ -342,6 +342,14 @@ export function setSessionGroupApi(id: string, group: string | null, subgroup?: 
   })
 }
 
+/** 重命名会话项目；后端一次性迁移该项目下的全部会话。 */
+export function renameSessionProject(oldName: string, newName: string) {
+  return http<void>('/claude-chat/sessions/projects/name', {
+    method: 'PUT',
+    body: JSON.stringify({ oldName, newName }),
+  })
+}
+
 /** 收藏或取消收藏工具会话。 */
 export function setSessionFavorite(id: string, favorite: boolean) {
   return http<void>(`/claude-chat/sessions/${encodeURIComponent(id)}/favorite`, {

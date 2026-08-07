@@ -1328,7 +1328,7 @@ export function ChatPage() {
       {/* 会话列表：左侧滑出抽屉（参考 app 菜单栏），PC/移动端一致的侧边会话导航。 */}
       <Sheet open={panel === 'sessions'} onOpenChange={o => { if (!o) setPanel('none') }}>
         <SheetContent side="left" className="w-72 max-w-[85vw] p-0">
-          <SheetTitle className="sr-only">会话列表</SheetTitle>
+          <SheetTitle className="sr-only">AI 工作区</SheetTitle>
           <div className="flex h-full flex-col">
             <div className="flex items-center gap-1 px-3 pt-3">
               <TabBtn active={sessTab === 'tool'} onClick={() => setSessTab('tool')}>工具会话</TabBtn>
@@ -1511,9 +1511,9 @@ export function ChatPage() {
         <div className="flex min-h-0 min-w-0 flex-1">
           {/* 常驻会话导航（md+ 显示，可折叠）：免去每次开右上角「会话」面板才能切历史会话 */}
           {railOpen ? (
-            <aside className="cc-skin-surface-solid hidden w-60 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-background)] md:flex">
+            <aside className="cc-skin-surface-solid hidden w-72 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-background)] md:flex">
               <div className="flex items-center gap-1 border-b px-2 py-1.5">
-                <span className="text-xs font-medium text-[var(--color-muted-foreground)]">会话</span>
+                <span className="text-xs font-medium text-[var(--color-muted-foreground)]">AI 工作区</span>
                 <button type="button" onClick={() => setPanel('new')} className="ml-auto rounded p-1 hover:bg-[var(--color-accent)]" aria-label="新建会话" title="新建会话">
                   <Plus className="size-4" />
                 </button>

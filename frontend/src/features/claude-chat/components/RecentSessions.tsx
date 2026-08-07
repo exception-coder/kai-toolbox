@@ -11,6 +11,7 @@ import { SessionGroupPicker } from './SessionList'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import type { ClaudeChatSessionView } from '../types'
 import { useSessionPlanState } from '../hooks/useSessionPlanState'
+import { isSessionStatusVisible, useVisibleSessionStatuses } from '../lib/sessionStatusFilter'
 
 interface Props {
   currentSessionId: string | null
@@ -37,8 +38,10 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
     queryFn: listSessions,
     refetchInterval: 3_000,
   })
-  const recent = sessions
-    .filter(session => (session.group ?? '').trim() !== BUSINESS_CONSULT_GROUP)
+  const visibleStatuses = useVisibleSessionStatuses()
+  const recentCandidates = sessions.filter(session => (session.group ?? '').trim() !== BUSINESS_CONSULT_GROUP)
+  const recent = recentCandidates
+    .filter(session => isSessionStatusVisible(session, visibleStatuses))
     .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
     .slice(0, limit)
     .sort((a, b) => Number(Boolean(b.favorite)) - Number(Boolean(a.favorite)) || b.lastSeenAt - a.lastSeenAt)
@@ -103,7 +106,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
     await qc.invalidateQueries({ queryKey: SESSION_QUERY_KEY })
   }
 
-  if (isPending || recent.length === 0) return null
+  if (isPending || recentCandidates.length === 0) return null
 
   return (
     <>
@@ -116,7 +119,9 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
         </span>
       </div>
 
-      <ul className="max-h-[55vh] overflow-y-auto overscroll-contain">
+      {recent.length === 0 ? (
+        <p className="px-3 pb-2 text-xs text-[var(--color-muted-foreground)]">当前状态筛选下没有最近会话</p>
+      ) : <ul className="max-h-[55vh] overflow-y-auto overscroll-contain">
         {recent.map(session => {
           const isActive = session.id === currentSessionId
           const title = session.title?.trim() || shortCwd(session.cwd)
@@ -292,7 +297,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
             </li>
           )
         })}
-      </ul>
+      </ul>}
     </section>
     {groupPickFor && (
       <SessionGroupPicker

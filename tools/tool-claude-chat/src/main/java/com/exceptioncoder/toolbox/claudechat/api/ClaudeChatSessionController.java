@@ -3,12 +3,14 @@ package com.exceptioncoder.toolbox.claudechat.api;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeChatSessionView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ClientMessage;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ServerMessage;
+import com.exceptioncoder.toolbox.claudechat.api.dto.RenameSessionProjectRequest;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.domain.SessionPlanState;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionPlanStateService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionHistoryService;
+import com.exceptioncoder.toolbox.claudechat.service.SessionProjectService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -35,14 +37,17 @@ public class ClaudeChatSessionController {
     private final ClaudeChatService service;
     private final SessionHistoryService historyService;
     private final SessionPlanStateService planStateService;
+    private final SessionProjectService sessionProjectService;
 
     public ClaudeChatSessionController(ClaudeChatSessionRepository repo, ClaudeChatService service,
                                        SessionHistoryService historyService,
-                                       SessionPlanStateService planStateService) {
+                                       SessionPlanStateService planStateService,
+                                       SessionProjectService sessionProjectService) {
         this.repo = repo;
         this.service = service;
         this.historyService = historyService;
         this.planStateService = planStateService;
+        this.sessionProjectService = sessionProjectService;
     }
 
     @GetMapping
@@ -96,6 +101,17 @@ public class ClaudeChatSessionController {
         String sg = subgroup == null || subgroup.isBlank() ? null : subgroup.trim();
         repo.updateGroup(id, g, sg);
         return ResponseEntity.noContent().build();
+    }
+
+    /** 将项目及其全部会话原子重命名，保留需求子分组。 */
+    @PutMapping("/projects/name")
+    public ResponseEntity<Void> renameProject(@RequestBody RenameSessionProjectRequest request) {
+        return switch (sessionProjectService.rename(request.oldName(), request.newName())) {
+            case RENAMED, UNCHANGED -> ResponseEntity.noContent().build();
+            case INVALID_NAME -> ResponseEntity.badRequest().build();
+            case SOURCE_NOT_FOUND -> ResponseEntity.notFound().build();
+            case TARGET_EXISTS -> ResponseEntity.status(HttpStatus.CONFLICT).build();
+        };
     }
 
     /** 将会话标记为重点收藏。 */

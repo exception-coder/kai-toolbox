@@ -132,6 +132,18 @@ public class ClaudeChatSessionRepository {
                 groupName, groupName == null ? null : subgroupName, id);
     }
 
+    /** 判断是否至少存在一个属于指定项目的会话。 */
+    public boolean groupExists(String groupName) {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(1) FROM claude_chat_session WHERE group_name = ?", Integer.class, groupName);
+        return count != null && count > 0;
+    }
+
+    /** 批量重命名项目，保留每个会话原有的需求子分组。 */
+    public int renameGroup(String oldName, String newName) {
+        return jdbc.update("UPDATE claude_chat_session SET group_name = ? WHERE group_name = ?", newName, oldName);
+    }
+
     /** 收藏或取消收藏会话，返回是否命中记录。 */
     public boolean updateFavorite(String id, boolean favorite) {
         return jdbc.update("UPDATE claude_chat_session SET favorite = ? WHERE id = ?", favorite ? 1 : 0, id) > 0;
