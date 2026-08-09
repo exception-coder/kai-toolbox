@@ -497,6 +497,7 @@ export function ForeConsultPage() {
   } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [canvasSize, setCanvasSize] = useState<CanvasSize>({ width: 1600, height: 900 })
+  const [pageVisible, setPageVisible] = useState(() => document.visibilityState === 'visible')
   const dragRef = useRef<{ name: string; moved: boolean } | null>(null)
   const dragFrameRef = useRef<number | null>(null)
   const pendingDragRef = useRef<{ name: string; pos: Pos } | null>(null)
@@ -507,6 +508,12 @@ export function ForeConsultPage() {
   attachmentsRef.current = attachments
   const syncTimerRef = useRef<number | null>(null)
   const resumeRef = useRef<string | null>(null) // 待续跑的 claude-chat 会话 id
+
+  useEffect(() => {
+    const onVisibilityChange = () => setPageVisible(document.visibilityState === 'visible')
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [])
 
   useEffect(() => {
     const container = containerRef.current
@@ -1157,7 +1164,12 @@ export function ForeConsultPage() {
   }, [moduleOptions, moduleQuery, moduleTags, modulesExpanded])
 
   return (
-    <div ref={containerRef} className="fc-space h-[calc(100vh-5rem)] w-full rounded-2xl">
+    <div
+      ref={containerRef}
+      className={`fc-space h-[calc(100vh-5rem)] w-full rounded-2xl ${
+        pageVisible && topoMutation.isPending && !conversationOpen ? 'is-topology-animating' : ''
+      }`}
+    >
       {/* 顶部标题栏 */}
       <header className="pointer-events-none absolute left-0 right-0 top-0 z-20 flex items-center justify-between px-6 py-4">
         <div className="flex items-center gap-2.5">

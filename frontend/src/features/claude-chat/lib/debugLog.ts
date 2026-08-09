@@ -15,6 +15,7 @@ export interface DebugEntry {
 }
 
 const MAX = 2000
+const MAX_TEXT_LENGTH = 64 * 1024
 let buf: DebugEntry[] = []
 let counter = 0
 let version = 0
@@ -22,9 +23,13 @@ const listeners = new Set<() => void>()
 
 /** 追加一条并通知订阅者。超上限按环形丢最旧。 */
 export function pushDebug(dir: DebugDir, type: string, text: string, seq?: number): void {
+  if (typeof localStorage === 'undefined' || localStorage.getItem('cc-debug') !== '1') return
   counter += 1
   version += 1
-  buf.push({ id: counter, ts: Date.now(), dir, type, seq, text })
+  const boundedText = text.length > MAX_TEXT_LENGTH
+    ? `${text.slice(0, MAX_TEXT_LENGTH)}\n…[truncated]`
+    : text
+  buf.push({ id: counter, ts: Date.now(), dir, type, seq, text: boundedText })
   if (buf.length > MAX) buf = buf.slice(buf.length - MAX)
   listeners.forEach(l => { try { l() } catch { /* ignore */ } })
 }

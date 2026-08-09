@@ -183,10 +183,13 @@
   stroke-linecap: round;
   stroke-dasharray: 4 7;
   opacity: 0.68;
-  animation: fc-edge-flow 2.8s linear infinite;
 }
 
 @keyframes fc-edge-flow { to { stroke-dashoffset: -22; } }
+
+.fc-space.is-topology-animating .fc-edge {
+  animation: fc-edge-flow 2.8s linear infinite;
+}
 
 .fc-edge-label {
   position: absolute;
@@ -336,7 +339,6 @@
 /* 发送后的独立会话：浅色玻璃侧边栏，确保在明亮图谱上仍有稳定对比。 */
 .fc-conversation-layer {
   background: linear-gradient(90deg, rgba(226, 232, 240, 0.3) 0, rgba(226, 232, 240, 0.12) 560px, transparent 760px);
-  backdrop-filter: blur(2px);
 }
 
 .fc-console {
@@ -349,7 +351,7 @@
     0 34px 90px -34px rgba(15, 23, 42, 0.4),
     0 16px 38px -30px rgba(59, 130, 246, 0.32),
     inset 0 1px 0 rgba(255, 255, 255, 0.98);
-  backdrop-filter: blur(34px) saturate(1.06);
+  backdrop-filter: blur(12px) saturate(1.03);
   animation: fc-console-in 0.32s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
