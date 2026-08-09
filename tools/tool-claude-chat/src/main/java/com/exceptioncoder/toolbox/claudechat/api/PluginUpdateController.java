@@ -6,9 +6,12 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.SkillSyncResultView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.TeamDependencyEnvironmentView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.TeamRepositoryStatusView;
 import com.exceptioncoder.toolbox.claudechat.service.PluginUpdateService;
+import com.exceptioncoder.toolbox.common.git.GitFileDiffResponse;
+import com.exceptioncoder.toolbox.common.git.GitStatusResponse;
 import com.exceptioncoder.toolbox.common.sse.SseEmitterRegistry;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -63,6 +66,21 @@ public class PluginUpdateController {
             @RequestParam(defaultValue = "gitee") String source,
             @RequestParam(defaultValue = "false") boolean fetch) {
         return service.readRepositoryStatuses(source, fetch);
+    }
+
+    /** 查看指定固定团队依赖仓库的未提交文件。 */
+    @GetMapping("/repositories/{repository}/status")
+    public GitStatusResponse repositoryStatus(@PathVariable String repository) {
+        return service.readRepositoryChanges(repository);
+    }
+
+    /** 查看指定固定团队依赖仓库中单个文件相对 HEAD 的差异。 */
+    @GetMapping("/repositories/{repository}/diff")
+    public GitFileDiffResponse repositoryFileDiff(
+            @PathVariable String repository,
+            @RequestParam String filePath,
+            @RequestParam(required = false, defaultValue = " ") String x) {
+        return service.readRepositoryFileDiff(repository, filePath, x);
     }
 
     /** 将团队源码中的 yoooni-erp-auto-dev 同步到 Claude/Codex 当前插件缓存。 */

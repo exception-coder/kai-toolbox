@@ -51,4 +51,14 @@ class PluginUpdateServiceTest {
         assertEquals("node_modules/\n.idea/\n.kai-chat-attachments/\n",
                 Files.readString(repo.resolve(".gitignore"), StandardCharsets.UTF_8).replace("\r\n", "\n"));
     }
+
+    @Test
+    void shouldOnlyAllowRepositoryRelativeFilePaths() {
+        assertTrue(PluginUpdateService.isValidRepositoryFilePath("skills/example/SKILL.md"));
+        assertTrue(PluginUpdateService.isValidRepositoryFilePath("docs/../README.md"));
+        assertFalse(PluginUpdateService.isValidRepositoryFilePath("../outside.txt"));
+        assertFalse(PluginUpdateService.isValidRepositoryFilePath("/etc/passwd"));
+        assertFalse(PluginUpdateService.isValidRepositoryFilePath("C:\\temp\\secret.txt"));
+        assertFalse(PluginUpdateService.isValidRepositoryFilePath(""));
+    }
 }

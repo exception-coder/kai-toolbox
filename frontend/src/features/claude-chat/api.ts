@@ -154,6 +154,25 @@ export function listTeamRepositories(source: 'gitee' | 'github', fetch = false) 
   return http<import('./types').TeamRepositoryStatus[]>(`/claude-chat/plugins/repositories?${params.toString()}`)
 }
 
+/** 查看固定团队依赖仓库的未提交文件。 */
+export function fetchTeamRepositoryGitStatus(repository: string): Promise<GitStatusResponse> {
+  return http<GitStatusResponse>(
+    `/claude-chat/plugins/repositories/${encodeURIComponent(repository)}/status`,
+  )
+}
+
+/** 查看固定团队依赖仓库中单个文件相对 HEAD 的差异。 */
+export function fetchTeamRepositoryGitFileDiff(
+  repository: string,
+  filePath: string,
+  x: string,
+): Promise<GitFileDiffResponse> {
+  const params = new URLSearchParams({ filePath, x })
+  return http<GitFileDiffResponse>(
+    `/claude-chat/plugins/repositories/${encodeURIComponent(repository)}/diff?${params.toString()}`,
+  )
+}
+
 /** 将团队源码中的 yoooni-erp-auto-dev 同步到 Claude/Codex 当前插件缓存。 */
 export function syncYoooniErpAutoDev() {
   return http<import('./types').SkillSyncResult>('/claude-chat/plugins/skills/yoooni-erp-auto-dev/sync', {

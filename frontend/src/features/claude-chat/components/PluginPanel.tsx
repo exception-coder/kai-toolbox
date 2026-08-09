@@ -1,8 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { RefreshCw, Download, UploadCloud, X, Copy, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { GitStatusPanel } from '@/components/git/GitStatusPanel'
 import { authEventSource } from '@/lib/api'
-import { getSidecarVersion, getTeamDependencyEnvironment, listSuites, listTeamRepositories, pluginInstallStreamPath, pluginUpdateStreamPath } from '../api'
+import {
+  fetchTeamRepositoryGitFileDiff,
+  fetchTeamRepositoryGitStatus,
+  getSidecarVersion,
+  getTeamDependencyEnvironment,
+  listSuites,
+  listTeamRepositories,
+  pluginInstallStreamPath,
+  pluginUpdateStreamPath,
+} from '../api'
 import type { SidecarEngineVersion, SidecarVersion, SuiteStatus, TeamDependencyEnvironment, TeamRepositoryStatus } from '../types'
 
 const GIT_SOURCE_KEY = 'kai-toolbox:team-dependencies:git-source'
@@ -50,6 +60,7 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
   const [environmentLoading, setEnvironmentLoading] = useState(false)
   const [repositories, setRepositories] = useState<TeamRepositoryStatus[] | null>(null)
   const [repositoriesChecking, setRepositoriesChecking] = useState(false)
+  const [changesRepository, setChangesRepository] = useState<string | null>(null)
   const esRef = useRef<EventSource | null>(null)
   const logRef = useRef<HTMLPreElement>(null)
 
@@ -265,7 +276,16 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
                       <span>{repo.source?.toUpperCase()} · {repo.commit ?? '无提交'}{repo.commitDate ? ` · ${repo.commitDate}` : ''}</span>
                       <span>上次同步：{formatSyncTime(repo.lastSyncedAt)}</span>
                       {repo.ahead != null && repo.ahead > 0 && <span>本地领先 {repo.ahead}</span>}
-                      {repo.dirty && <span className="text-amber-600 dark:text-amber-400">有未提交修改</span>}
+                      {repo.dirty && (
+                        <button
+                          type="button"
+                          onClick={() => setChangesRepository(repo.name)}
+                          className="rounded-sm text-amber-600 underline decoration-dotted underline-offset-2 hover:text-amber-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)] dark:text-amber-400 dark:hover:text-amber-300"
+                          title={`查看 ${repo.name} 的未提交文件`}
+                        >
+                          有未提交修改
+                        </button>
+                      )}
                     </div>
                   )}
                 </li>
@@ -414,6 +434,17 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
         <pre ref={logRef} className="mt-2 max-h-48 overflow-auto rounded-md bg-[var(--color-muted)] p-2 text-[11px] leading-relaxed whitespace-pre-wrap break-all">
           {lines.join('\n')}
         </pre>
+      )}
+
+      {changesRepository && (
+        <GitStatusPanel
+          title={changesRepository}
+          fetchStatus={() => fetchTeamRepositoryGitStatus(changesRepository)}
+          fetchFileDiff={(filePath, x) => (
+            fetchTeamRepositoryGitFileDiff(changesRepository, filePath, x)
+          )}
+          onClose={() => setChangesRepository(null)}
+        />
       )}
     </div>
   )

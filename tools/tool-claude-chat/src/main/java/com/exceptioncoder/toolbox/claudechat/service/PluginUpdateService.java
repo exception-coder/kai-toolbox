@@ -10,6 +10,9 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.TeamRepositoryStatusView;
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
 import com.exceptioncoder.toolbox.claudechat.config.PluginUpdateProperties;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
+import com.exceptioncoder.toolbox.common.git.GitFileDiffResponse;
+import com.exceptioncoder.toolbox.common.git.GitLogService;
+import com.exceptioncoder.toolbox.common.git.GitStatusResponse;
 import com.exceptioncoder.toolbox.common.sse.SseEmitterRegistry;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -51,6 +54,7 @@ public class PluginUpdateService {
     private static final boolean WINDOWS =
             System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
     private static final Pattern SEMVER = Pattern.compile("(\\d+\\.\\d+\\.\\d+)");
+    private static final Pattern WINDOWS_ABSOLUTE_PATH = Pattern.compile("^[A-Za-z]:[\\\\/].*");
     private static final Pattern SKILL_NAME = Pattern.compile("(?m)^name:\\s*yoooni-erp-auto-dev\\s*$");
     private static final Pattern SKILL_DESCRIPTION = Pattern.compile("(?m)^description:\\s*\\S.+$");
     private static final String ERP_AUTO_DEV_SKILL = "yoooni-erp-auto-dev";
@@ -61,6 +65,7 @@ public class PluginUpdateService {
     private final SseEmitterRegistry sse;
     private final ObjectMapper mapper;
     private final SidecarProcessRegistry sidecarRegistry;
+    private final GitLogService gitLogService;
 
     private static final List<String> DEPENDENCY_REPOS = List.of(
             "cross-project-topology", "project-coding-profiles", "project-domain-knowledge",
@@ -90,13 +95,15 @@ public class PluginUpdateService {
     public PluginUpdateService(PluginUpdateProperties props, ClaudeChatProperties chatProps,
                                ClaudeChatSessionRepository sessionRepository,
                                SseEmitterRegistry sse, ObjectMapper mapper,
-                               SidecarProcessRegistry sidecarRegistry) {
+                               SidecarProcessRegistry sidecarRegistry,
+                               GitLogService gitLogService) {
         this.props = props;
         this.chatProps = chatProps;
         this.sessionRepository = sessionRepository;
         this.sse = sse;
         this.mapper = mapper;
         this.sidecarRegistry = sidecarRegistry;
+        this.gitLogService = gitLogService;
     }
 
     // ===== 版本检测 =====
@@ -182,6 +189,46 @@ public class PluginUpdateService {
                     commit, commitDate, lastSyncedAt, behind, ahead, dirty, remoteChecked));
         }
         return statuses;
+    }
+
+    /**
+     * 读取固定团队依赖仓库的未提交文件。
+     *
+     * @param repository 团队依赖仓库名
+     * @return Git 工作区状态
+     */
+    public GitStatusResponse readRepositoryChanges(String repository) {
+        return gitLogService.gitStatus(resolveDependencyRepository(repository));
+    }
+
+    /**
+     * 读取固定团队依赖仓库中单个文件的差异。
+     *
+     * @param repository 团队依赖仓库名
+     * @param filePath 仓库内相对文件路径
+     * @param indexStatus 暂存区状态字符
+     * @return 文件差异
+     */
+    public GitFileDiffResponse readRepositoryFileDiff(
+            String repository, String filePath, String indexStatus) {
+        if (!isValidRepositoryFilePath(filePath)) {
+            throw new IllegalArgumentException("非法文件路径");
+        }
+        return gitLogService.gitFileDiff(
+                resolveDependencyRepository(repository), filePath, indexStatus);
+    }
+
+    static boolean isValidRepositoryFilePath(String filePath) {
+        if (filePath == null || filePath.isBlank() || filePath.startsWith("/")
+                || filePath.startsWith("\\") || WINDOWS_ABSOLUTE_PATH.matcher(filePath).matches()) {
+            return false;
+        }
+        try {
+            Path normalized = Path.of(filePath).normalize();
+            return !normalized.isAbsolute() && !normalized.startsWith("..");
+        } catch (RuntimeException exception) {
+            return false;
+        }
     }
 
     /**
@@ -906,6 +953,19 @@ public class PluginUpdateService {
         }
         return Path.of(System.getProperty("user.home"), ".kai-toolbox", "team-tools")
                 .toAbsolutePath().normalize();
+    }
+
+    /** 仅从固定团队依赖工作区解析白名单仓库，禁止前端传入任意路径。 */
+    private Path resolveDependencyRepository(String repository) {
+        if (!DEPENDENCY_REPOS.contains(repository)) {
+            throw new IllegalArgumentException("未知团队依赖仓库：" + repository);
+        }
+        Path workspace = dependencyWorkspace();
+        Path resolved = workspace.resolve(repository).toAbsolutePath().normalize();
+        if (!resolved.startsWith(workspace) || !Files.isDirectory(resolved.resolve(".git"))) {
+            throw new IllegalStateException("团队依赖仓库尚未拉取：" + repository);
+        }
+        return resolved;
     }
 
     private void installPlugins(String taskId, Path codexHome, String source, List<Map<String, Object>> results) {
