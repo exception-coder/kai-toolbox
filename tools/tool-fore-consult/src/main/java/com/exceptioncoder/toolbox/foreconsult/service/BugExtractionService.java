@@ -75,8 +75,13 @@ public class BugExtractionService implements BugExtractionRunner {
                 """.formatted(q, a);
 
         long start = System.currentTimeMillis();
-        String raw = runner.runOnce(prompt.getContent(), userPrompt, model);
+        String raw = runner.runOnce(prompt.getContent(), userPrompt, model, "codex");
         long latency = System.currentTimeMillis() - start;
+
+        if (raw == null || raw.isBlank()) {
+            log.warn("[fore-consult] BUG 抽取引擎返回空结果，promptVersion={}", prompt.getVersion());
+            return new Result(null, raw, prompt.getVersion(), latency);
+        }
 
         JsonNode parsed;
         try {

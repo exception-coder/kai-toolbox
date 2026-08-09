@@ -22,6 +22,7 @@ import { ConsultHistoryDetail } from '../components/ConsultHistoryDetail'
 import {
   archiveConsult,
   deleteConsult,
+  extractConsultBugs,
   fetchProjectModules,
   linkDevSession,
   listConsults,
@@ -465,6 +466,8 @@ export function ForeConsultPage() {
   const [historyDate, setHistoryDate] = useState('')
   const [historyUser, setHistoryUser] = useState('')
   const [copiedSessionId, setCopiedSessionId] = useState<string | null>(null)
+  const [extractingSessionId, setExtractingSessionId] = useState<string | null>(null)
+  const [extractionNotice, setExtractionNotice] = useState<string | null>(null)
   const [bugsOpen, setBugsOpen] = useState(false)
   const [archiveError, setArchiveError] = useState<string | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -1150,6 +1153,22 @@ export function ForeConsultPage() {
     setCopiedSessionId(sessionId)
     window.setTimeout(() => setCopiedSessionId((current) => current === sessionId ? null : current), 1500)
   }
+
+  const compensateBugExtraction = async (session: ConsultSessionView) => {
+    setExtractingSessionId(session.sessionId)
+    setExtractionNotice(null)
+    try {
+      const result = await extractConsultBugs(session.sessionId, true)
+      setExtractionNotice(
+        `${session.questionTitle || displayName(session.systemName)}：检查 ${result.total} 轮，命中并登记 ${result.registered} 个 BUG，失败 ${result.failed} 轮`,
+      )
+      await qc.invalidateQueries({ queryKey: ['fore-consult-bugs'] })
+    } catch (error) {
+      setExtractionNotice(error instanceof Error ? `BUG 补偿抽取失败：${error.message}` : 'BUG 补偿抽取失败')
+    } finally {
+      setExtractingSessionId(null)
+    }
+  }
   const sysCat = categoryOf(system, displayName(system))
   const { shownModules, moduleResultCount, hasModuleQuery } = useMemo(() => {
     const query = moduleQuery.trim().toLowerCase()
@@ -1768,6 +1787,11 @@ export function ForeConsultPage() {
                 aria-label="按提问用户筛选"
               />
             </div>
+            {extractionNotice && (
+              <div className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700">
+                {extractionNotice}
+              </div>
+            )}
             {filteredHistory.length === 0 ? (
               <p className="rounded-lg border border-dashed border-slate-300/80 p-6 text-center text-sm text-slate-500">暂无咨询记录</p>
             ) : (
@@ -1808,6 +1832,18 @@ export function ForeConsultPage() {
                         <ArchiveBadge status={s.archiveStatus} />
                       </div>
                       <div className="flex shrink-0 items-center gap-0.5">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); void compensateBugExtraction(s) }}
+                          disabled={extractingSessionId !== null}
+                          className="rounded-lg p-1 text-slate-400 hover:bg-amber-50 hover:text-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
+                          aria-label="补偿抽取 BUG"
+                          title="重新分析该会话并补偿登记 BUG"
+                        >
+                          {extractingSessionId === s.sessionId
+                            ? <Loader2 className="size-3.5 animate-spin" />
+                            : <Bug className="size-3.5" />}
+                        </button>
                         <button type="button" onClick={(e) => { e.stopPropagation(); void copySessionId(s.sessionId) }} className="rounded-lg p-1 text-slate-400 hover:bg-sky-50 hover:text-sky-600" aria-label="复制会话 ID" title={copiedSessionId === s.sessionId ? '已复制' : '复制会话 ID'}>
                           <Copy className="size-3.5" />
                         </button>

@@ -212,9 +212,9 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
     if (running) return
     items.forEach((it) => {
       if (it.kind !== 'assistant' || registeredRef.current.has(it.id)) return
-      registeredRef.current.add(it.id)
       const bug = extractBug(it.text)
       if (!bug || !bug.title) return
+      registeredRef.current.add(it.id)
       const idx = items.indexOf(it)
       let turnIndex = 0
       let question = ''
@@ -244,7 +244,10 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
           setBugTurns((p) => new Set(p).add(it.id))
           onBugRegistered?.()
         })
-        .catch(() => {})
+        .catch((error) => {
+          registeredRef.current.delete(it.id)
+          console.error('[fore-consult] BUG 自动登记失败', error)
+        })
     })
   }, [items, running, consultId, onBugRegistered])
 

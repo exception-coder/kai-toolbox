@@ -195,6 +195,21 @@ export function syncConsultTurns(id: string, req: ArchiveRequest) {
   })
 }
 
+export interface BugExtractionSummary {
+  sessionId: string
+  total: number
+  extracted: number
+  registered: number
+  skipped: number
+  failed: number
+}
+
+export function extractConsultBugs(id: string, force = false) {
+  return http<BugExtractionSummary>(`/fore-consult/sessions/${id}/extract-bugs?force=${force}`, {
+    method: 'POST',
+  })
+}
+
 export function deleteConsult(id: string) {
   return http<void>(`/fore-consult/sessions/${id}`, { method: 'DELETE' })
 }

@@ -16,7 +16,9 @@ import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 
 /**
@@ -37,6 +39,8 @@ public class TurnBugExtractionService {
     private final ConsultTurnExtractionRepository extractionRepo;
     private final BugExtractionService extractionService;
     private final BugService bugService;
+    private final Set<String> runningSessions = ConcurrentHashMap.newKeySet();
+    private final Set<String> pendingSessions = ConcurrentHashMap.newKeySet();
 
     public TurnBugExtractionService(ConsultTurnRepository turnRepo,
                                     ConsultTurnExtractionRepository extractionRepo,
@@ -77,6 +81,31 @@ public class TurnBugExtractionService {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("抽取被中断");
         }
+    }
+
+    /** 回答落库后的非阻塞抽取；同一会话同一时刻只运行一个任务。 */
+    public void extractSessionAsync(String sessionId, String model) {
+        if (!runningSessions.add(sessionId)) {
+            pendingSessions.add(sessionId);
+            return;
+        }
+        Thread.ofVirtual().name("fore-consult-auto-extract-" + sessionId).start(() -> {
+            try {
+                do {
+                    pendingSessions.remove(sessionId);
+                    Summary summary = doExtractSession(sessionId, model, false);
+                    log.info("[fore-consult] 会话 {} 自动 BUG 抽取完成: extracted={}, registered={}, skipped={}, failed={}",
+                            sessionId, summary.extracted(), summary.registered(), summary.skipped(), summary.failed());
+                } while (pendingSessions.remove(sessionId));
+            } catch (Exception e) {
+                log.warn("[fore-consult] 会话 {} 自动 BUG 抽取失败: {}", sessionId, e.getMessage(), e);
+            } finally {
+                runningSessions.remove(sessionId);
+                if (pendingSessions.remove(sessionId)) {
+                    extractSessionAsync(sessionId, model);
+                }
+            }
+        });
     }
 
     private Summary doExtractSession(String sessionId, String model, boolean force) {

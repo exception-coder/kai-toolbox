@@ -140,13 +140,17 @@ public class ConsultController {
     /** 结束咨询并归档（一次性提交本次会话全部轮次；归档内部容错，失败会话状态置 FAILED）。 */
     @PostMapping("/sessions/{id}/archive")
     public ConsultSessionView archive(@PathVariable String id, @RequestBody ArchiveRequest req) {
-        return ConsultSessionView.from(service.archive(id, req), turnViewsOf(id), feedbackViewsOf(id));
+        var session = service.archive(id, req);
+        bugExtractionService.extractSessionAsync(id, session.getModel());
+        return ConsultSessionView.from(session, turnViewsOf(id), feedbackViewsOf(id));
     }
 
     /** 进行中增量同步：把当前对话落库但保持 PENDING，供同一用户在其它电脑或管理员查看。 */
     @PostMapping("/sessions/{id}/turns")
     public ConsultSessionView syncTurns(@PathVariable String id, @RequestBody ArchiveRequest req) {
-        return ConsultSessionView.from(service.syncTurns(id, req), turnViewsOf(id), feedbackViewsOf(id));
+        var session = service.syncTurns(id, req);
+        bugExtractionService.extractSessionAsync(id, session.getModel());
+        return ConsultSessionView.from(session, turnViewsOf(id), feedbackViewsOf(id));
     }
 
     @PostMapping("/sessions/{id}/classify-question")
