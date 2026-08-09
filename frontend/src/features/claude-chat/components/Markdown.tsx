@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import mermaid from 'mermaid'
@@ -130,6 +130,15 @@ function MarkdownPart({ text, className }: { text: string; className?: string })
       const raw = marked.parse(text, { async: false, gfm: true, breaks: true }) as string
       const sanitized = DOMPurify.sanitize(raw)
       const doc = new DOMParser().parseFromString(sanitized, 'text/html')
+      doc.querySelectorAll<HTMLOListElement>('ol').forEach(list => {
+        const items = Array.from(list.children) as HTMLLIElement[]
+        let value = list.hasAttribute('start') ? list.start : list.reversed ? items.length : 1
+        for (const item of items) {
+          value = item.hasAttribute('value') ? item.value : value
+          item.dataset.copyListMarker = `${value}.`
+          value += list.reversed ? -1 : 1
+        }
+      })
       doc.querySelectorAll('pre').forEach(pre => {
         const button = doc.createElement('button')
         button.type = 'button'
@@ -169,6 +178,25 @@ function MarkdownPart({ text, className }: { text: string; className?: string })
     }, 1200)
   }
 
+  const copySelection = (event: ReactClipboardEvent<HTMLDivElement>) => {
+    const selection = window.getSelection()
+    const range = selection?.rangeCount && !selection.isCollapsed ? selection.getRangeAt(0) : null
+    if (!range || !event.currentTarget.contains(range.commonAncestorContainer)) return
+    const container = document.createElement('div')
+    container.append(range.cloneContents())
+    const listItems = container.querySelectorAll<HTMLElement>('li[data-copy-list-marker]')
+    if (!listItems.length) return
+    const richHtml = container.innerHTML.replace(/ data-copy-list-marker="[^"]*"/g, '')
+    listItems.forEach(item => item.prepend(document.createTextNode(`${item.dataset.copyListMarker} `)))
+    container.style.cssText = 'position:fixed;left:-10000px;top:0;white-space:pre-wrap'
+    document.body.appendChild(container)
+    const plainText = container.innerText
+    container.remove()
+    event.preventDefault()
+    event.clipboardData.setData('text/plain', plainText)
+    event.clipboardData.setData('text/html', richHtml)
+  }
+
   if (html == null) {
     return <span className="whitespace-pre-wrap wrap-anywhere">{text}</span>
   }
@@ -176,6 +204,7 @@ function MarkdownPart({ text, className }: { text: string; className?: string })
   return (
     <div
       onClick={copyCode}
+      onCopy={copySelection}
       className={cn(
         'markdown-body min-w-0 max-w-full wrap-anywhere text-sm leading-relaxed',
         '[&_h1]:my-3 [&_h1]:text-xl [&_h1]:font-semibold',
