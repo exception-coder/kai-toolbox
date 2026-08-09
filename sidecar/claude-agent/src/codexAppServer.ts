@@ -6,6 +6,8 @@ import { homedir } from 'node:os'
 
 const require = createRequire(import.meta.url)
 const REQUEST_TIMEOUT_MS = 20_000
+const MODEL_PAGE_SIZE = 100
+const MAX_MODEL_PAGES = 20
 const MAX_COMMAND_OUTPUT_CHARS = 8_000
 const COMMAND_OUTPUT_EMIT_INTERVAL_MS = 250
 
@@ -23,6 +25,28 @@ type JsonRpcResult = {
     id?: string
     turns?: Array<{ id?: string }>
   }
+  data?: AppServerModel[]
+  nextCursor?: string | null
+}
+
+type AppServerModel = {
+  id?: string
+  model?: string
+  displayName?: string
+  description?: string
+  hidden?: boolean
+  defaultReasoningEffort?: string
+  supportedReasoningEfforts?: Array<{ reasoningEffort?: string }>
+  additionalSpeedTiers?: string[]
+}
+
+export type CodexModelInfo = {
+  value: string
+  displayName: string
+  description: string
+  reasoningEfforts: string[]
+  defaultReasoningEffort: string | null
+  fastSupported: boolean
 }
 
 type CommandActivityState = {
@@ -86,6 +110,10 @@ function codexCliEntrypoint(): string {
 function stop(child: ChildProcessWithoutNullStreams): void {
   if (!child.stdin.destroyed) child.stdin.end()
   if (!child.killed) child.kill()
+}
+
+function isReasoningEffort(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-z][a-z0-9_-]{0,31}$/.test(value)
 }
 
 function callAppServer(
@@ -178,6 +206,46 @@ function callAppServer(
       },
     })
   })
+}
+
+/** Returns the picker-visible model catalog for the selected Codex authorization directory. */
+export async function listCodexModels(codexHome?: string): Promise<CodexModelInfo[]> {
+  const models: CodexModelInfo[] = []
+  const seenCursors = new Set<string>()
+  let cursor: string | undefined
+
+  for (let page = 0; page < MAX_MODEL_PAGES; page += 1) {
+    const result = await callAppServer('model/list', {
+      limit: MODEL_PAGE_SIZE,
+      includeHidden: false,
+      ...(cursor ? { cursor } : {}),
+    }, codexHome)
+
+    for (const item of result.data ?? []) {
+      const value = item.model?.trim() || item.id?.trim()
+      if (!value || item.hidden === true) continue
+      const reasoningEfforts = (item.supportedReasoningEfforts ?? [])
+        .map(option => option.reasoningEffort)
+        .filter(isReasoningEffort)
+      models.push({
+        value,
+        displayName: item.displayName?.trim() || value,
+        description: item.description ?? '',
+        reasoningEfforts,
+        defaultReasoningEffort: isReasoningEffort(item.defaultReasoningEffort)
+          ? item.defaultReasoningEffort
+          : null,
+        fastSupported: (item.additionalSpeedTiers ?? []).includes('fast'),
+      })
+    }
+
+    const nextCursor = result.nextCursor?.trim()
+    if (!nextCursor || seenCursors.has(nextCursor)) break
+    seenCursors.add(nextCursor)
+    cursor = nextCursor
+  }
+
+  return models
 }
 
 /** 通过 Codex App Server 的稳定 thread/fork API 复制到指定 turn（含）为止。 */

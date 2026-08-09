@@ -13,7 +13,7 @@ import { createForgePendingSqlServer, FORGE_PENDING_SQL_STEER } from './forgePen
 import { createDomainKnowledgeServer, createCrossTopologyServer } from './knowledgeMcp.js'
 import { codexMcpCapabilities, normalizeCodexHome, runCodexTurn, type CodexReasoningEffort, type CodexSpeed } from './codexEngine.js'
 import { createClaudeConsultSourceServer } from './codexSecurity.js'
-import { forkCodexThread } from './codexAppServer.js'
+import { forkCodexThread, listCodexModels, type CodexModelInfo } from './codexAppServer.js'
 import { runGeminiTurn } from './geminiEngine.js'
 import { runOpencodeTurn } from './opencodeEngine.js'
 
@@ -120,7 +120,7 @@ function isCodexReasoningEffort(value: unknown): value is CodexReasoningEffort {
 /** 中断时留给「未决审批的 deny 响应」写回 CLI 的时间，之后才关传输层。见 Session.interrupt()。 */
 const INTERRUPT_DENY_FLUSH_MS = 30
 
-export function loadCodexModels(sessionCodexHome?: string): unknown[] {
+export function loadCodexModels(sessionCodexHome?: string): CodexModelInfo[] {
   try {
     const codexHome = normalizeCodexHome(sessionCodexHome)
       ?? normalizeCodexHome(process.env.CODEX_HOME)
@@ -131,17 +131,17 @@ export function loadCodexModels(sessionCodexHome?: string): unknown[] {
         display_name?: string
         description?: string
         visibility?: string
-        supported_in_api?: boolean
         default_reasoning_level?: string
         supported_reasoning_levels?: Array<{ effort?: string }>
         additional_speed_tiers?: string[]
       }>
     }
-    return (raw.models ?? [])
-      .filter((model) => model.slug && model.visibility === 'list' && model.supported_in_api !== false)
-      .map((model) => ({
-        value: model.slug,
-        displayName: model.display_name ?? model.slug,
+    return (raw.models ?? []).flatMap((model) => {
+      const value = model.slug?.trim()
+      if (!value || model.visibility !== 'list') return []
+      return [{
+        value,
+        displayName: model.display_name?.trim() || value,
         description: model.description ?? '',
         reasoningEfforts: (model.supported_reasoning_levels ?? [])
           .map((level) => level.effort)
@@ -150,7 +150,8 @@ export function loadCodexModels(sessionCodexHome?: string): unknown[] {
           ? model.default_reasoning_level
           : null,
         fastSupported: (model.additional_speed_tiers ?? []).includes('fast'),
-      }))
+      }]
+    })
   } catch (error) {
     console.warn('[sidecar] 读取 Codex 模型缓存失败:', error instanceof Error ? error.message : String(error))
     return []
@@ -808,6 +809,10 @@ export class SessionManager {
     // 手动刷新：按触发会话的 provider 询问并只广播给同 provider
     if (sessionId) {
       const s = this.sessions.get(sessionId)
+      if (s?.engine === 'codex') {
+        await this.refreshCodexModels(sessionId, s, true)
+        return
+      }
       if (s && s.engine === 'claude') {
         const key = providerKey(s.apiBaseUrl)
         const models = await refreshClaudeModels(key, s.providerEnv())
@@ -920,6 +925,26 @@ export class SessionManager {
       if (cached) this.emit(id, { type: 'models', models: cached, current: s.model ?? null })
     } else if (s.engine === 'codex') {
       this.emit(id, { type: 'models', models: loadCodexModels(s.codexHome), current: s.model ?? null })
+      void this.refreshCodexModels(id, s, false)
+    }
+  }
+
+  private async refreshCodexModels(id: string, session: Session, reportFailure: boolean): Promise<void> {
+    try {
+      const models = await listCodexModels(session.codexHome)
+      if (models.length === 0) throw new Error('Codex model/list 未返回可选模型')
+      if (this.sessions.get(id) !== session || session.engine !== 'codex') return
+      this.emit(id, { type: 'models', models, current: session.model ?? null })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn(`[sidecar] Codex model/list 失败，保留缓存目录 session=${id}: ${message}`)
+      if (reportFailure && this.sessions.get(id) === session) {
+        this.emit(id, {
+          type: 'error',
+          code: 'MODELS_REFRESH_FAILED',
+          message: '同步 Codex 模型清单失败，已保留本地缓存结果',
+        })
+      }
     }
   }
 
