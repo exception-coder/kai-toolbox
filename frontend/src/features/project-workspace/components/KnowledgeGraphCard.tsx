@@ -111,8 +111,16 @@ export function KnowledgeGraphCard({
   const confirm = useConfirm()
   const queryClient = useQueryClient()
   const [expanded, setExpanded] = useState(false)
+  const [domainExpanded, setDomainExpanded] = useState(false)
+  const [crossTopologyExpanded, setCrossTopologyExpanded] = useState(false)
   const [bootstrapEngine, setBootstrapEngine] = useState<Engine | null>(null)
   const [selectedGaps, setSelectedGaps] = useState<Record<string, Set<string>>>({})
+
+  useEffect(() => {
+    setDomainExpanded(false)
+    setCrossTopologyExpanded(false)
+    setSelectedGaps({})
+  }, [projectPath])
 
   const { data: repos } = useQuery({ queryKey: ['kg-repo-paths'], queryFn: repoPaths, staleTime: 60_000, enabled: expanded })
   const graphifyQuery = useQuery({
@@ -123,12 +131,14 @@ export function KnowledgeGraphCard({
   const domainKnowledgeQuery = useQuery({
     queryKey: ['kg-domain-knowledge-status', projectPath],
     queryFn: () => domainKnowledgeStatus(projectPath),
-    enabled: expanded,
+    enabled: expanded && domainExpanded,
+    staleTime: 60_000,
   })
   const crossTopologyQuery = useQuery({
     queryKey: ['kg-cross-topology-status', projectPath],
     queryFn: () => crossTopologyStatus(projectPath),
-    enabled: expanded,
+    enabled: expanded && crossTopologyExpanded,
+    staleTime: 60_000,
   })
 
   useEffect(() => {
@@ -291,6 +301,8 @@ export function KnowledgeGraphCard({
             description="集中式仓库，按项目 key 归档"
             repoKey="domain-knowledge"
             query={domainKnowledgeQuery}
+            expanded={domainExpanded}
+            onExpandedChange={setDomainExpanded}
             selected={selectedGaps['domain-knowledge'] ?? new Set()}
             onToggle={(k) => toggleGap('domain-knowledge', k)}
             onLaunch={(scope) => launchBootstrap('domain-knowledge', scope, scope === 'full' ? '一键初始化 domain-knowledge' : '更新 domain-knowledge')}
@@ -301,6 +313,8 @@ export function KnowledgeGraphCard({
             description="集中式仓库；生态/单项目粒度尚待确认，见设计文档"
             repoKey="cross-topology"
             query={crossTopologyQuery}
+            expanded={crossTopologyExpanded}
+            onExpandedChange={setCrossTopologyExpanded}
             selected={selectedGaps['cross-topology'] ?? new Set()}
             onToggle={(k) => toggleGap('cross-topology', k)}
             onLaunch={(scope) => launchBootstrap('cross-topology', scope, scope === 'full' ? '一键初始化 cross-topology' : '更新 cross-topology')}

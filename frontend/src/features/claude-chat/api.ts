@@ -363,6 +363,19 @@ export function setSessionFavorite(id: string, favorite: boolean) {
   })
 }
 
+/** 读取会话关联的快捷站点 ID。 */
+export function listSessionSiteIds(id: string) {
+  return http<string[]>(`/claude-chat/sessions/${encodeURIComponent(id)}/sites`)
+}
+
+/** 用完整列表替换会话关联的快捷站点。 */
+export function replaceSessionSiteIds(id: string, siteIds: string[]) {
+  return http<void>(`/claude-chat/sessions/${encodeURIComponent(id)}/sites`, {
+    method: 'PUT',
+    body: JSON.stringify({ siteIds }),
+  })
+}
+
 /** 将空闲会话标记为规划过期。 */
 export function expireSessionPlan(id: string) {
   return http<void>(`/claude-chat/sessions/${encodeURIComponent(id)}/plan-expired`, {

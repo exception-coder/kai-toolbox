@@ -41,6 +41,20 @@ CREATE TABLE IF NOT EXISTS claude_chat_session (
 CREATE INDEX IF NOT EXISTS idx_claude_chat_session_seen
     ON claude_chat_session(last_seen_at DESC);
 
+-- Vibe Coding 会话关联快捷入口中的测试站点；只保存逻辑 ID，站点名称、地址和图标仍由快捷入口统一维护。
+CREATE TABLE IF NOT EXISTS claude_chat_session_site (
+    id          TEXT PRIMARY KEY,
+    session_id  TEXT NOT NULL,
+    site_id     TEXT NOT NULL,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    create_time INTEGER NOT NULL,
+    update_time INTEGER NOT NULL,
+    UNIQUE (session_id, site_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_claude_chat_session_site_session
+    ON claude_chat_session_site(session_id, sort_order);
+
 -- Vibe Coding 进行中轮次的待发送消息队列。用于页面刷新、切换视图和服务重启后恢复；
 -- 附件只登记已落盘文件的元数据与路径，不保存浏览器临时 blob URL。
 CREATE TABLE IF NOT EXISTS claude_chat_queued_message (

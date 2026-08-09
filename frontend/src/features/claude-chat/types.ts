@@ -104,6 +104,8 @@ export interface ProjectModule {
   codePath?: string
   /** 前端代码目录绝对路径（知识库模块来自 modules.json）；无则空串。用于新建会话时约束编码范围 */
   webPath?: string
+  /** 前端代码目录绝对路径集合；兼容知识库中的 webPath 与 webPaths */
+  webPaths?: string[]
 }
 
 /** 会话工作目录文件树里的一个条目。path 为相对 cwd（/ 分隔），回传给后端展开/读取/定位；abs 为绝对路径。 */

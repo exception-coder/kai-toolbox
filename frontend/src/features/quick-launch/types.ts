@@ -1,4 +1,5 @@
 export type OpenMode = 'POPUP' | 'TAB' | 'CURRENT'
+export type WindowBehavior = 'STANDARD' | 'CONTROLLED' | 'AUTO'
 
 export interface QuickSiteView {
   id: string
@@ -7,6 +8,7 @@ export interface QuickSiteView {
   groupName: string
   icon: string
   openMode: OpenMode
+  windowBehavior: WindowBehavior
   windowWidth: number
   windowHeight: number
   sortOrder: number
@@ -24,6 +26,7 @@ export interface QuickSiteUpsert {
   groupName?: string
   icon?: string
   openMode?: OpenMode
+  windowBehavior?: WindowBehavior
   windowWidth?: number
   windowHeight?: number
   sortOrder?: number

@@ -67,7 +67,7 @@ export function CommandMenu({
               className="min-w-0 flex-1 rounded-md border bg-[var(--color-background)] px-2 py-1 text-sm"
             />
             {/* 主动同步：Claude Code 自更新后，重新询问二进制拉最新模型（如新增 Sonnet 5） */}
-            {engine === 'claude' && onRefreshModels && (
+            {(engine === 'claude' || engine === 'opencode') && onRefreshModels && (
               <button
                 type="button"
                 onMouseDown={e => { e.preventDefault(); if (!modelsRefreshing) onRefreshModels() }}

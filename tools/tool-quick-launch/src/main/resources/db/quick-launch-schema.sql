@@ -6,6 +6,8 @@ CREATE TABLE IF NOT EXISTS quick_launch_site (
     icon            TEXT NOT NULL DEFAULT 'Globe2',
     open_mode       TEXT NOT NULL DEFAULT 'POPUP'
                     CHECK (open_mode IN ('POPUP', 'TAB', 'CURRENT')),
+    window_behavior TEXT NOT NULL DEFAULT 'STANDARD'
+                    CHECK (window_behavior IN ('STANDARD', 'CONTROLLED', 'AUTO')),
     window_width    INTEGER NOT NULL DEFAULT 1400,
     window_height   INTEGER NOT NULL DEFAULT 900,
     sort_order      INTEGER NOT NULL DEFAULT 0,

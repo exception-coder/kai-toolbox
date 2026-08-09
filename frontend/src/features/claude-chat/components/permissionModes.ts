@@ -20,7 +20,10 @@ const CODEX_MODES: PermissionModeOption[] = [
 ]
 
 const OPENCODE_MODES: PermissionModeOption[] = [
-  { value: 'default', label: '引擎自管', desc: '权限审批由 OpenCode 自身配置管理' },
+  { value: 'default', label: '请求批准', desc: 'OpenCode 请求权限时逐次询问' },
+  { value: 'acceptEdits', label: '自动接受编辑', desc: '自动批准文件编辑，其余操作仍询问' },
+  { value: 'plan', label: '只读规划', desc: '允许读取和检索，拒绝编辑与命令执行' },
+  { value: 'bypassPermissions', label: '完全访问权限', desc: '自动批准权限请求，OpenCode 显式 deny 仍生效' },
 ]
 
 export function permissionModesForEngine(engine: Engine): PermissionModeOption[] {

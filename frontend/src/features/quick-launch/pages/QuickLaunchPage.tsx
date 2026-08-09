@@ -213,6 +213,7 @@ function toPayload(site: QuickSiteView, change: Partial<QuickSiteUpsert>): Quick
     groupName: site.groupName,
     icon: site.icon,
     openMode: site.openMode,
+    windowBehavior: site.windowBehavior,
     windowWidth: site.windowWidth,
     windowHeight: site.windowHeight,
     sortOrder: site.sortOrder,

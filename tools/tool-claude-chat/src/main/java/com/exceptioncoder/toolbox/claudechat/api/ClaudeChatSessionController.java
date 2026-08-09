@@ -11,6 +11,7 @@ import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionPlanStateService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionHistoryService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionProjectService;
+import com.exceptioncoder.toolbox.claudechat.service.SessionSiteService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -38,16 +39,19 @@ public class ClaudeChatSessionController {
     private final SessionHistoryService historyService;
     private final SessionPlanStateService planStateService;
     private final SessionProjectService sessionProjectService;
+    private final SessionSiteService sessionSiteService;
 
     public ClaudeChatSessionController(ClaudeChatSessionRepository repo, ClaudeChatService service,
                                        SessionHistoryService historyService,
                                        SessionPlanStateService planStateService,
-                                       SessionProjectService sessionProjectService) {
+                                       SessionProjectService sessionProjectService,
+                                       SessionSiteService sessionSiteService) {
         this.repo = repo;
         this.service = service;
         this.historyService = historyService;
         this.planStateService = planStateService;
         this.sessionProjectService = sessionProjectService;
+        this.sessionSiteService = sessionSiteService;
     }
 
     @GetMapping
@@ -77,6 +81,7 @@ public class ClaudeChatSessionController {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable String id) {
         service.dropSession(id);
+        sessionSiteService.clear(id);
         repo.deleteById(id);
         return ResponseEntity.noContent().build();
     }

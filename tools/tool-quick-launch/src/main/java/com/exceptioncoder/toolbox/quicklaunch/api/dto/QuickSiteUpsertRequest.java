@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.quicklaunch.api.dto;
 
 import com.exceptioncoder.toolbox.quicklaunch.domain.OpenMode;
+import com.exceptioncoder.toolbox.quicklaunch.domain.WindowBehavior;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -12,6 +13,7 @@ public record QuickSiteUpsertRequest(
         @Size(max = 64) String groupName,
         @Size(max = 64) String icon,
         OpenMode openMode,
+        WindowBehavior windowBehavior,
         @Min(480) @Max(3840) Integer windowWidth,
         @Min(360) @Max(2160) Integer windowHeight,
         @Min(-10000) @Max(10000) Integer sortOrder,

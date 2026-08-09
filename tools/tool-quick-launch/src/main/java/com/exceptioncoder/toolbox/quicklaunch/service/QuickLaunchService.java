@@ -4,6 +4,7 @@ import com.exceptioncoder.toolbox.quicklaunch.api.dto.QuickSiteUpsertRequest;
 import com.exceptioncoder.toolbox.quicklaunch.api.dto.QuickSiteView;
 import com.exceptioncoder.toolbox.quicklaunch.domain.OpenMode;
 import com.exceptioncoder.toolbox.quicklaunch.domain.QuickSite;
+import com.exceptioncoder.toolbox.quicklaunch.domain.WindowBehavior;
 import com.exceptioncoder.toolbox.quicklaunch.repository.QuickSiteRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -78,6 +79,7 @@ public class QuickLaunchService {
                 valueOrDefault(request.groupName(), DEFAULT_GROUP),
                 valueOrDefault(request.icon(), DEFAULT_ICON),
                 request.openMode() == null ? OpenMode.POPUP : request.openMode(),
+                request.windowBehavior() == null ? WindowBehavior.STANDARD : request.windowBehavior(),
                 request.windowWidth() == null ? DEFAULT_WINDOW_WIDTH : request.windowWidth(),
                 request.windowHeight() == null ? DEFAULT_WINDOW_HEIGHT : request.windowHeight(),
                 request.sortOrder() == null ? 0 : request.sortOrder(),

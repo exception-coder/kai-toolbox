@@ -15,7 +15,7 @@ import { codexMcpCapabilities, normalizeCodexHome, runCodexTurn, type CodexReaso
 import { createClaudeConsultSourceServer } from './codexSecurity.js'
 import { forkCodexThread, listCodexModels, type CodexModelInfo } from './codexAppServer.js'
 import { runGeminiTurn } from './geminiEngine.js'
-import { runOpencodeTurn } from './opencodeEngine.js'
+import { answerOpencodePermission, emitOpencodeModels, runOpencodeTurn, updateOpencodePermissionPolicy } from './opencodeEngine.js'
 
 export type Engine = 'claude' | 'codex' | 'gemini' | 'opencode'
 
@@ -565,6 +565,9 @@ class Session {
         signal: ac.signal,
         emit: (e) => this.emitSelf(e),
         setSdkSessionId: (id) => { this.sdkSessionId = id },
+        permissionMode: this.permissionMode,
+        autoApprove: this.autoApprove,
+        toolPolicy: this.toolPolicy,
       })
     } finally {
       this.abort = undefined
@@ -596,6 +599,10 @@ class Session {
    * Claude 则重发最近一次 SDK init 快照，下一轮 SDK init 会继续更新该快照。
    */
   refreshCapabilities(): void {
+    if (this.engine === 'opencode') {
+      void emitOpencodeModels(this.cwd, (event) => this.emitSelf(event), this.model)
+      return
+    }
     if (this.engine === 'codex') {
       if (!process.env.TOOLBOX_API_BASE) {
         this.emitSelf({
@@ -736,6 +743,10 @@ class Session {
   }
 
   decide(reqId: string, d: Decision): void {
+    if (this.engine === 'opencode') {
+      void answerOpencodePermission(this.sdkSessionId, reqId, d.behavior, this.cwd, (event) => this.emitSelf(event))
+      return
+    }
     this.perms.resolve(reqId, d)
   }
 
@@ -809,6 +820,10 @@ export class SessionManager {
     // 手动刷新：按触发会话的 provider 询问并只广播给同 provider
     if (sessionId) {
       const s = this.sessions.get(sessionId)
+      if (s?.engine === 'opencode') {
+        await emitOpencodeModels(s.cwd, (event) => this.emit(sessionId, event), s.model)
+        return
+      }
       if (s?.engine === 'codex') {
         await this.refreshCodexModels(sessionId, s, true)
         return
@@ -883,6 +898,7 @@ export class SessionManager {
       ...(s.engine === 'codex' ? { mcpServers: codexMcpCapabilities(s.toolPolicy, s.id) } : {}),
     })
     this.emitCachedModels(id, s)
+    if (s.engine === 'opencode') s.refreshCapabilities()
   }
 
   /**
@@ -915,6 +931,7 @@ export class SessionManager {
       this.emit(id, { type: 'init', sdkSessionId: s.sdkSessionId ?? null, mcpServers: codexMcpCapabilities(s.toolPolicy, s.id) })
     }
     this.emitCachedModels(id, s)
+    if (s.engine === 'opencode') s.refreshCapabilities()
   }
 
   /** 按会话当前 provider 即时重发已缓存的 models，让 resume/切会话/切 provider 立刻看到对应清单。
@@ -978,13 +995,21 @@ export class SessionManager {
   /** 切换会话权限模式，下一轮 runTurn 生效。 */
   setMode(id: string, mode: string): void {
     const s = this.sessions.get(id)
-    if (s) { s.permissionMode = mode; s.perms.setMode(mode) }
+    if (s) {
+      s.permissionMode = mode
+      s.perms.setMode(mode)
+      if (s.engine === 'opencode') updateOpencodePermissionPolicy(s.sdkSessionId, s.permissionMode, s.autoApprove, s.toolPolicy)
+    }
   }
 
   /** 切换「弹窗自动允许」兜底开关，下一次工具调用即生效。 */
   setAutoApprove(id: string, on: boolean): void {
     const s = this.sessions.get(id)
-    if (s) { s.autoApprove = on; s.perms.setAutoApprove(on) }
+    if (s) {
+      s.autoApprove = on
+      s.perms.setAutoApprove(on)
+      if (s.engine === 'opencode') updateOpencodePermissionPolicy(s.sdkSessionId, s.permissionMode, s.autoApprove, s.toolPolicy)
+    }
   }
 
   /** 切换会话模型，下一轮 runTurn 生效。 */
@@ -1046,6 +1071,7 @@ export class SessionManager {
       this.emit(id, { type: 'init', sdkSessionId: s.sdkSessionId ?? null, mcpServers: codexMcpCapabilities(s.toolPolicy, s.id) })
     }
     this.emitCachedModels(id, s)
+    if (s.engine === 'opencode') s.refreshCapabilities()
   }
 
   /**

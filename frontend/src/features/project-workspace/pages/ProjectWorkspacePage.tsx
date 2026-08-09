@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, Boxes, BotMessageSquare, Check, ChevronDown, ChevronRight, Compass, CornerDownRight, Database, Download, Eye, EyeOff, FolderTree, GitCompare, Info, Loader2, Network, Pencil, Pin, Play, RefreshCw, Search, Send, Sparkles, TerminalSquare, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Boxes, BotMessageSquare, Check, ChevronDown, ChevronRight, CornerDownRight, Database, Download, Eye, EyeOff, FolderTree, GitCompare, Info, Loader2, Network, Pencil, Pin, Play, RefreshCw, Search, Sparkles, TerminalSquare, Trash2, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -11,12 +11,11 @@ import { StatusBadge } from '@/components/ui/status-badge'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
-import { applyModuleSync, createTaskspace, ensureKnowledgeBase, fetchProjectModules, listSessions, listWorkspaces, previewModuleSync, resolveModule, saveProjectAlias } from '@/features/claude-chat/api'
+import { applyModuleSync, createTaskspace, ensureKnowledgeBase, fetchProjectModules, listSessions, listWorkspaces, previewModuleSync, saveProjectAlias } from '@/features/claude-chat/api'
 import { engineStatus } from '@/features/knowledge-graph/api'
 import { GraphifyGraphModal } from '../components/GraphifyGraphModal'
-import { VoiceInputButton } from '@/features/claude-chat/components/VoiceInputButton'
 import { CHAT_ROUTE, useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
-import type { ClaudeChatSessionView, ModuleCandidate, ModuleSyncPreview, ProjectModule, ProjectModules, WorkspaceDir } from '@/features/claude-chat/types'
+import type { ClaudeChatSessionView, ModuleSyncPreview, ProjectModule, ProjectModules, WorkspaceDir } from '@/features/claude-chat/types'
 import { GRAPHIFY_LABEL, GRAPHIFY_TONE, REGISTRATION_LABEL, REGISTRATION_TONE } from '@/features/knowledge-graph/components/DomainKnowledgeCard'
 import type { ProjectStatusSnapshot } from '@/features/knowledge-graph/types'
 import { AGGREGATION_DRAFT_KEY, useAggregationCart, type AggregationItem } from '../hooks/useAggregationCart'
@@ -67,7 +66,7 @@ function DepMark({ ok, label }: { ok: boolean; label?: string }) {
 /** 进入工作台自动检查团队初始化目录，只尝试一次。 */
 let knowledgeEnsureTried = false
 
-/** sessionStorage handoff key：项目工作台「Agent 识菜单」→ 会话页拉起 Claude 跑菜单识别闭环。 */
+/** sessionStorage handoff key：项目工作台「数据库分析菜单」→ 会话页拉起 Claude 跑菜单识别闭环。 */
 const MENU_SYNC_LAUNCH_KEY = 'kai-toolbox:claude-chat:module-sync-launch'
 
 /** sessionStorage handoff key：新建模块会话时把本模块 codePath/webPath 编码范围预填进输入框。 */
@@ -97,30 +96,176 @@ function buildModuleScopePrompt(module: ProjectModule): string {
  * 守住「内容 agent 产、脚本只确定性落盘」的红线。
  */
 function buildMenuSyncPrompt(project: string, projectPath: string, kbRepo: string): string {
-  return [
-    `我要更新知识库里「${project}」的模块清单（modules.json），按【前端菜单/路由】识别业务模块（不是按代码目录名）。请按下面步骤，务必保留我的确认关卡：`,
-    '',
-    `1. 先判断本项目（当前工作目录：${projectPath}）的菜单是【数据库动态配置】还是【代码/文件静态声明】，据此选权威来源识别业务模块：`,
-    '   ① 数据库动态菜单（很多后台系统如此，务必先确认是不是这种）——数据库是唯一权威来源，优先于代码/文件：',
-    '      去查菜单表（sys_menu / 权限菜单 / *_menu 等）拿真实菜单树。用项目里的数据库连接配置（datasource / jdbc / 配置文件）+',
-    '      本会话可用的数据库查询工具（如挂载的 *_db query MCP，没有就用项目自带的 SQL 客户端/连接）执行 SQL 读取。',
-    '      ⚠️ 不要只扫代码目录/文件就下结论——动态菜单不查库会漏或错。',
-    '   ② 静态声明：sys_menu 初始化 SQL（如 yudao 的 sys_menu.sql）、Struts/SpringMVC 的 *.xml 路由、',
-    '      React 的 src/shell/featureRegistry·路由表(router/routes)·各 feature 的 index 清单；',
-    '   ③ 两者都有时以数据库为准，代码/文件仅作补充（用来补 codePath/webPath）。',
-    '   每个业务模块产出一条 JSON：{ "key": "英文短标识", "name": "中文业务名", "codePath": "后端代码目录(相对项目根)", "webPath": "前端目录或路由(相对项目根)" }。',
-    '   注：菜单表通常只给菜单名 + URL/权限标识，codePath/webPath 需你结合菜单 URL 与代码结构推导；拿不准的先留空，别硬编。',
-    '',
-    '2. 先【预览】，不要直接写盘。到知识库仓执行（注意是 domain-knowledge 仓，不是本项目）：',
-    `   cd ${kbRepo || '<project-domain-knowledge 仓根>'}`,
-    `   把 JSON 数组通过 stdin 或 --from 临时文件喂给（不加 --apply = 预览）：node scripts/bootstrap.mjs add-modules --project ${project}`,
-    '',
-    '3. 把预览结果（新增 / 去重跳过 / 缺字段）贴给我，等我确认后，再对同一条命令加 --apply 落盘。',
-    '',
-    '4. 落盘成功后提醒我：npm run catalog 刷新目录，MCP 端 reload_knowledge 生效。',
-    '',
-    '红线：模块内容由你识别产出、我（owner）评审确认；add-modules 只做确定性落盘（只新增/去重/保格式），不要让脚本从代码抽内容硬塞，也不要跳过我的确认直接 --apply。',
-  ].join('\n')
+  const knowledgeRepo = kbRepo || '<project-domain-knowledge 仓根>'
+  const modulesFile = `knowledge/${project}/impl/modules.json`
+  const isYoooni = project.toLowerCase() === 'yoooni'
+  const projectSpecificRules = isYoooni
+    ? `
+Yoooni 专属数据库菜单规则：
+
+1. 已知权威菜单表为 CRM_RIGHT，但仍须先通过只读查询核实表结构、样本和项目真实菜单 SQL。
+2. 关键字段：ID=菜单节点 ID、CODE=真实菜单名称、MODELNAME=父菜单 ID、LEVELS=层级、STATUS=启停状态、NOTES=平台类型、TYPEID=菜单/权限类型、URL=页面地址。
+3. 桌面 ERP 菜单核心条件必须以项目真实 SQL 为准，并重点核实：
+   NOTES = 'menu' AND STATUS = 0 AND TYPEID = 0
+4. 手机、平板、SCM、SCM APP 等平台须分别结合项目真实查询逻辑判断，禁止把 CRM_RIGHT 全表无条件登记。
+5. 启用的 LEVELS=1 根菜单作为一级业务模块；其余真实菜单按 MODELNAME 递归放入 children。
+6. URL='a' 或空 URL 的叶子通常是按钮/权限，不登记；若存在真实菜单后代，仅作为分组节点保留。
+7. 页面标题与 CODE 不同时，name 保存 CODE，aliases 保存页面真实标题或 owner 确认的叫法。
+8. 重点核对“产品研发”下完整页面清单，以及“开发详情看板(新)”能否定位到 menuId=704027。`
+    : `
+其他项目兼容规则：
+
+1. 不得套用 Yoooni 的 CRM_RIGHT 字段、LEVELS=1、NOTES/TYPEID/STATUS 条件。
+2. 动态菜单项目必须先查表结构、样本数据和项目真实菜单 SQL，确认名称、ID、父子、层级、平台、启停、节点类型和 URL 字段。
+3. 静态菜单项目以路由表、FeatureManifest、菜单配置或初始化文件为权威来源。
+4. 动静态并存时，数据库决定运行时菜单名称、层级和启停；代码补充路径、路由与页面标题别名。
+5. 依据该项目真实根节点条件生成一级模块，并按真实父子字段递归生成 children。`
+
+  return `我要更新知识库中「${project}」项目的模块与页面菜单索引。
+
+知识库仓：
+${knowledgeRepo}
+
+目标项目：
+${projectPath}
+
+目标文件：
+${modulesFile}
+
+目标不是只登记一级模块，也不是把每个菜单页面平铺成一级模块，而是生成：
+
+一级业务模块 modules
+  └─ 递归页面菜单 children
+       └─ 必要时继续递归 children
+
+务必保留 owner 确认关卡：先调查、识别、生成完整候选和预览；owner 明确回复“--apply”之前禁止写盘。
+
+一、确认菜单来源
+
+1. 先判断项目属于数据库动态菜单、代码/文件静态菜单，还是两者并存。
+2. 数据库动态菜单是名称、父子层级、启停状态和平台归属的权威来源；代码只补充路径、路由和页面标题别名。
+3. 只允许 SELECT/WITH，禁止 DDL/DML；不得输出密码、Token、连接串或其他凭据。
+4. 查询前必须核实表结构、样本和项目真实菜单查询逻辑，禁止仅凭字段名或经验猜测。
+${projectSpecificRules}
+
+二、模块和页面判定
+
+1. 权威菜单源中的有效根业务菜单登记为一级 modules。
+2. 根菜单下的真实菜单节点按父子关系递归放入 children；children 不计入一级模块数量。
+3. 不得把每个菜单页面平铺成一级模块。
+4. 排除新增、修改、删除、保存、提交、审核、作废、打印、字段权限和操作权限。
+5. 空 URL 或占位 URL 的叶子节点不得仅凭节点标记登记；若有真实菜单后代，只保留为分组节点。
+6. 同一 URL 对应多个菜单入口时保留全部菜单链，不按 URL 去重。
+7. 数据库菜单名与页面标题不同时，name 保存权威菜单名，aliases 保存页面标题或 owner 确认叫法。
+8. codePath/webPath/webPaths 只能根据 URL、Action、路由配置、JSP 或前端目录核实后填写。
+9. 路径必须相对项目根，并用 Test-Path 或等价方式验证；无法确认时留空，禁止硬编。
+10. 不得只扫源码目录判断业务模块，不得把 common、dao、model、util 等纯技术目录登记为模块。
+
+识别公式：
+业务模块树 = 有效根业务菜单 + 递归真实菜单容器 + 递归真实页面入口 + 经代码验证的独立业务实现 - 按钮/操作权限 - 停用节点 - 纯技术目录
+
+三、JSON 结构
+
+一级模块：
+{
+  "key": "英文稳定标识",
+  "name": "权威一级菜单名",
+  "codePath": "后端主目录；不确定可省略",
+  "webPath": "前端主目录；不确定可省略",
+  "webPaths": ["存在多个前端目录时使用"],
+  "children": []
+}
+
+页面菜单节点：
+{
+  "key": "menu-{权威菜单ID}",
+  "menuId": 704027,
+  "name": "权威菜单名",
+  "aliases": ["页面实际标题"],
+  "url": "完整菜单 URL，保留必要参数",
+  "codePath": "后端目录；不确定可省略",
+  "webPath": "前端目录；不确定可省略",
+  "children": []
+}
+
+要求：
+- 菜单节点 key 优先使用 menu-{菜单ID}，保证同 URL 多入口不冲突。
+- 分组节点允许没有 URL，但必须有真实菜单 children。
+- 不创建空字符串占位字段；不确定字段可省略并进入缺字段报告。
+
+四、历史数据校验
+
+开始生成候选前读取 ${modulesFile}，把权威根菜单与现有一级 modules 按名称和证据对比，单列：
+
+- 数据库/权威源新增一级模块；
+- 现有但权威源不存在的一级模块；
+- key 与知识点 module 不一致；
+- 需要迁移的知识点；
+- name、路径或菜单树待修正的已有条目；
+- 可能导致一级模块数量变化的冲突。
+
+add-modules 只新增节点、补空字段、按 key 去重，不覆盖既有有效值。已有错误值不得伪装成“去重跳过”，必须列出旧值、新值、证据和迁移建议，等待 owner 决策。不得擅自保留历史非权威模块导致一级模块数量异常。
+
+五、预览确认
+
+先把完整候选树写入 UTF-8 临时候选 JSON，仅执行预览：
+
+cd ${knowledgeRepo}
+node scripts/bootstrap.mjs add-modules --project ${project} --from <候选JSON文件>
+
+禁止添加 --apply。
+
+预览必须汇总：
+
+- 权威源一级模块数量；
+- 最终一级模块数量；
+- 下级菜单节点数量；
+- 实际页面数量；
+- 新增一级模块和新增菜单节点；
+- 补齐字段和去重跳过；
+- 缺 key/name；
+- 有 URL 但缺 codePath/webPath 的数量；
+- 排除的按钮/权限数量；
+- 历史模块冲突和建议迁移方案；
+- 代表性一级菜单的完整递归页面清单。
+${isYoooni ? '- “产品研发”下识别出的完整页面清单。' : ''}
+
+预览后立即停止。只有 owner 明确回复“--apply”，才能继续；“继续”“可以”“更新一下”“补全”均不能替代。
+
+六、落盘与校验
+
+owner 明确回复“--apply”后：
+
+1. 先按 owner 已确认方案处理历史模块迁移；未经确认不得覆盖或删除。
+2. 对完全相同的候选文件执行：
+   node scripts/bootstrap.mjs add-modules --project ${project} --from <同一候选JSON文件> --apply
+3. 重新读取 modules.json，核对一级模块数、递归节点数和关键页面。
+4. 执行 node scripts/bootstrap.mjs check，要求问题数为 0。
+5. 执行：
+   node scripts/bootstrap.mjs check-paths --project ${project} --backend-root ${projectPath} --frontend-root ${projectPath}
+6. 执行 npm run build、npm run catalog、npm run smoke。
+
+七、MCP 菜单定位能力验收
+
+1. 先检查源码和构建产物是否已有独立 locate_menu，禁止重复实现。
+2. locate_menu 应支持菜单名称、aliases、完整菜单链、URL、project/module 限定和 limit。
+3. 返回至少包含 project、module key、一级模块中文名、menuId、数据库菜单名、aliases、menuPath、URL、codePath、webPath/webPaths 和匹配分数。
+4. search_knowledge 继续只负责业务知识检索，不得改变原语义。
+5. 若现有 locate_menu 已满足要求，只做验证；若缺能力，先报告差异，取得 owner 对代码变更的确认后再修改 MCP 源码。
+6. reload_knowledge 只刷新知识数据缓存；新增或修改 MCP 工具定义后必须重新构建并重启 MCP 子进程/sidecar。
+7. Forge 咨询模式只开放只读 locate_menu，不开放 reload_knowledge；同步核对 Codex 和 Claude 的知识工具白名单。
+8. 最终用全新 stdio MCP 连接验证工具列表和查询结果。reload 应返回知识点数和菜单数。
+${isYoooni ? '9. 验证“开发详情看板(新)”能够定位到 menuId=704027。' : ''}
+
+红线：
+
+- 权威菜单源决定模块名称、层级、平台和启停，代码只补路径与别名。
+- 一级 modules 与递归 children 必须分层统计。
+- 不把按钮权限当页面，不把页面平铺成一级模块。
+- 不按 URL 去重丢失不同菜单入口。
+- 不让 bootstrap 脚本自行从源码抽取业务内容。
+- 不绕过 owner 确认直接 --apply。
+- 不把 Yoooni 的数据库字段和过滤条件套到其他项目。`
 }
 
 /** 项目工作台：从配置工作区选项目，按确定性模块扫描结果进入对应 Vibe Coding 会话。 */
@@ -294,28 +439,6 @@ export function ProjectWorkspacePage() {
     if (ok) cart.clear()
   }
 
-  // ── 模块路由：说一句话 → 确定性解析 (项目, 模块) → 确认后拉起会话 ──
-  const [routeQuery, setRouteQuery] = useState('')
-  const [picked, setPicked] = useState<ModuleCandidate | null>(null)
-  const resolveMut = useMutation({
-    mutationFn: resolveModule,
-    // 唯一命中直接进确认卡；多个候选清空 picked，渲染「选哪个项目」列表
-    onSuccess: result => setPicked(result.candidates.length === 1 ? result.candidates[0] : null),
-  })
-  const runResolve = (text: string) => {
-    const q = text.trim()
-    if (!q) return
-    setPicked(null)
-    resolveMut.mutate(q)
-  }
-  // 确认拉起：选中左侧项目（视觉对齐「点击项目」）+ 进入该模块会话
-  const launchCandidate = (candidate: ModuleCandidate) => {
-    setSelectedPath(candidate.projectPath)
-    openModule(candidate.module)
-  }
-  const resolveResult = resolveMut.data
-  const routeHint = resolveResult ? (resolveResult.moduleHint || resolveResult.query) : ''
-
   // ── 更新项目模块：重新解析目录 → 出 diff → 勾选确认 → 只新增落 modules.json ──
   const [syncOpen, setSyncOpen] = useState(false)
   const [syncSel, setSyncSel] = useState<Set<string>>(new Set())
@@ -374,7 +497,7 @@ export function ProjectWorkspacePage() {
       void modulesQ.refetch()
     },
   })
-  // 「Agent 识菜单」：拉起 Claude 会话（cwd=目标项目）跑菜单识别闭环，产出清单经 add-modules 落知识库
+  // 「数据库分析菜单」：拉起 Claude 会话（cwd=目标项目）跑菜单识别闭环，产出清单经 add-modules 落知识库
   const launchMenuAgent = () => {
     if (!selectedProject) return
     const kbRepo = (modulesQ.data?.knowledgeBaseDir ?? '').replace(/[\\/]knowledge[\\/]?$/, '')
@@ -459,73 +582,6 @@ export function ProjectWorkspacePage() {
           </button>
         </div>
       </div>
-
-      <Card>
-        <CardHeader className="gap-1 pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Compass className="h-4 w-4" />
-            模块路由
-          </CardTitle>
-          <CardDescription>
-            说一句话直达：「去开发销售模块」「yoooni 的 生产管理」——自动定位项目 + 模块并拉起会话
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <form
-            className="flex items-center gap-2"
-            onSubmit={event => {
-              event.preventDefault()
-              runResolve(routeQuery)
-            }}
-          >
-            <Input
-              className="flex-1"
-              value={routeQuery}
-              onChange={event => setRouteQuery(event.target.value)}
-              placeholder="例如：去开发销售模块 / yoooni 的 生产管理"
-            />
-            <VoiceInputButton onText={text => { setRouteQuery(text); runResolve(text) }} />
-            <Button type="submit" disabled={!routeQuery.trim() || resolveMut.isPending}>
-              {resolveMut.isPending ? <Loader2 className="animate-spin" /> : <Send />}
-              定位
-            </Button>
-          </form>
-
-          {resolveMut.isError ? (
-            <p className="text-sm text-[var(--color-destructive)]">{errorMessage(resolveMut.error)}</p>
-          ) : resolveResult ? (
-            picked ? (
-              <RouteTarget
-                candidate={picked}
-                session={sessionByCwd.get(normalizePath(picked.module.absPath))}
-                multi={resolveResult.candidates.length > 1}
-                onLaunch={() => launchCandidate(picked)}
-                onBack={() => setPicked(null)}
-              />
-            ) : resolveResult.candidates.length === 0 ? (
-              <p className="text-sm text-[var(--color-muted-foreground)]">
-                未匹配到模块「{routeHint}」。换个模块名，或带上项目名（如「yoooni 的 生产管理」）再试。
-              </p>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-sm text-[var(--color-muted-foreground)]">
-                  「{routeHint}」匹配到 {resolveResult.candidates.length} 处，它是哪个项目的？
-                </p>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {resolveResult.candidates.map(candidate => (
-                    <CandidateButton
-                      key={`${candidate.projectPath}|${candidate.module.absPath}`}
-                      candidate={candidate}
-                      hasSession={Boolean(sessionByCwd.get(normalizePath(candidate.module.absPath)))}
-                      onClick={() => setPicked(candidate)}
-                    />
-                  ))}
-                </div>
-              </div>
-            )
-          ) : null}
-        </CardContent>
-      </Card>
 
       {cart.items.length > 0 && (
         <AggregationCart
@@ -735,24 +791,10 @@ export function ProjectWorkspacePage() {
                   className="shrink-0"
                   onClick={openSync}
                   disabled={!selectedProject || syncPreviewMut.isPending}
-                  title="源码模式：按代码目录重新解析模块，与 modules.json 出差异，确认后只新增"
+                  title="更新模块：支持代码目录扫描和数据库菜单分析"
                 >
                   {syncPreviewMut.isPending ? <Loader2 className="animate-spin" /> : <GitCompare />}
                   <span className="hidden lg:inline">更新模块</span>
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                  onClick={launchMenuAgent}
-                  disabled={!selectedProject || !kbReady}
-                  title={kbReady
-                    ? '菜单模式：拉起 Claude 会话按前端菜单/路由识别业务模块（带中文名），预览确认后经 add-modules 落知识库'
-                    : '需先在 Vibe Coding 完成团队依赖初始化'}
-                >
-                  <Sparkles />
-                  <span className="hidden lg:inline">Agent 识菜单</span>
                 </Button>
                 <Button
                   type="button"
@@ -784,7 +826,7 @@ export function ProjectWorkspacePage() {
                 </div>
                 <p className="mb-2 text-xs text-[var(--color-muted-foreground)]">
                   <b className="text-[var(--color-foreground)]">知识库是本工作台的必备依赖</b>：固定从 <code>{TEAM_KNOWLEDGE_DIR}</code> 读取模块清单与中文业务名；
-                  未初始化时只能按目录名识别，且「更新模块 / Agent 识菜单」不可用。
+                  未初始化时只能按目录名识别，且「更新模块」不可用。
                   {modulesQ.data && modulesQ.data.knowledgeDirExists === false && (
                     <b className="text-[var(--color-warning,#b45309)]">　当前初始化目录不存在。</b>
                   )}
@@ -805,6 +847,7 @@ export function ProjectWorkspacePage() {
                 onApply={picks => syncApplyMut.mutate(picks)}
                 onClose={closeSync}
                 onReload={() => syncPreviewMut.mutate()}
+                onAnalyzeDatabase={launchMenuAgent}
               />
             )}
             {syncMsg && (
@@ -1104,77 +1147,8 @@ function FilterChipRow<T extends string>({
   )
 }
 
-/** 模块路由：唯一/已选定的目标确认卡，确认后拉起会话。 */
-function RouteTarget({
-  candidate,
-  session,
-  multi,
-  onLaunch,
-  onBack,
-}: {
-  candidate: ModuleCandidate
-  session: ClaudeChatSessionView | undefined
-  multi: boolean
-  onLaunch: () => void
-  onBack: () => void
-}) {
-  return (
-    <div className="flex flex-col gap-3 rounded-md border border-[var(--color-primary)]/40 bg-[var(--color-primary)]/5 p-4">
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-xs text-[var(--color-muted-foreground)]">已定位目标 · {candidate.project}</div>
-          <div className="mt-1 flex min-w-0 items-center gap-2">
-            <span className="truncate font-medium text-[var(--color-foreground)]">{candidate.module.name}</span>
-            <Badge variant={moduleTypeBadge(candidate.module.type)}>{candidate.module.type}</Badge>
-            <Badge variant={session ? 'success' : 'outline'}>{session ? '已有会话' : '未打开'}</Badge>
-          </div>
-          {candidate.module.summary
-            ? <div className="mt-1 line-clamp-2 text-xs text-[var(--color-muted-foreground)]">{candidate.module.summary}</div>
-            : null}
-          <div className="mt-1 truncate text-xs text-[var(--color-muted-foreground)]">{candidate.module.absPath}</div>
-        </div>
-      </div>
-      <div className="flex justify-end gap-2">
-        {multi ? (
-          <Button type="button" variant="ghost" size="sm" onClick={onBack}>
-            <X />换一个
-          </Button>
-        ) : null}
-        <Button type="button" size="sm" onClick={onLaunch}>
-          {session ? <BotMessageSquare /> : <Play />}
-          {session ? '拉起会话' : '新建并拉起'}
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-/** 模块路由：多候选时的「选项目」按钮。 */
-function CandidateButton({
-  candidate,
-  hasSession,
-  onClick,
-}: {
-  candidate: ModuleCandidate
-  hasSession: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex w-full min-w-0 flex-col gap-1 rounded-md border border-[var(--color-border)] px-3 py-2 text-left transition-colors hover:bg-[var(--color-accent)]"
-    >
-      <span className="flex min-w-0 items-center gap-2">
-        <span className="truncate text-sm font-medium text-[var(--color-foreground)]">{candidate.project}</span>
-        <CornerDownRight className="h-3.5 w-3.5 shrink-0 text-[var(--color-muted-foreground)]" />
-        <span className="truncate text-sm text-[var(--color-foreground)]">{candidate.module.name}</span>
-        {hasSession ? <Badge variant="success" className="text-[10px]">会话</Badge> : null}
-      </span>
-      <span className="truncate text-xs text-[var(--color-muted-foreground)]">{candidate.module.relPath}</span>
-    </button>
-  )
-}
+const MODULE_TREE_INDENT_PX = 12
+const MAX_MODULE_TREE_INDENT_DEPTH = 4
 
 function ModuleCard({
   module,
@@ -1233,11 +1207,12 @@ function ModuleCard({
             <ModuleChildRow
               key={`${child.relPath}|${child.name}|${ci}`}
               module={child}
-              session={sessionByCwd.get(normalizePath(child.absPath))}
-              opening={pendingPath === child.absPath}
-              onOpen={() => onOpen(child)}
-              pinned={isPinned(child.absPath)}
-              onPin={() => onPin(child)}
+              depth={1}
+              sessionByCwd={sessionByCwd}
+              pendingPath={pendingPath}
+              onOpen={onOpen}
+              isPinned={isPinned}
+              onPin={onPin}
             />
           ))}
         </div>
@@ -1246,45 +1221,70 @@ function ModuleCard({
   )
 }
 
-/** 子模块紧凑行：用于嵌套模块（如 crm 域下的子模块），可独立开会话/钉选。 */
+/** 子模块递归树行：展示任意深度的 children，并允许每个节点独立开会话/钉选。 */
 function ModuleChildRow({
   module,
-  session,
-  opening,
+  depth,
+  sessionByCwd,
+  pendingPath,
   onOpen,
-  pinned,
+  isPinned,
   onPin,
 }: {
   module: ProjectModule
-  session: ClaudeChatSessionView | undefined
-  opening: boolean
-  onOpen: () => void
-  pinned: boolean
-  onPin: () => void
+  depth: number
+  sessionByCwd: Map<string, ClaudeChatSessionView>
+  pendingPath: string | null
+  onOpen: (module: ProjectModule) => void
+  isPinned: (modulePath: string) => boolean
+  onPin: (module: ProjectModule) => void
 }) {
+  const session = sessionByCwd.get(normalizePath(module.absPath))
+  const opening = pendingPath === module.absPath
+  const pinned = isPinned(module.absPath)
+  const children = module.children ?? []
+  const indentPx = Math.min(Math.max(depth - 1, 0), MAX_MODULE_TREE_INDENT_DEPTH) * MODULE_TREE_INDENT_PX
+
   return (
-    <div className="flex min-w-0 items-center justify-between gap-2 rounded-md bg-[var(--color-muted)]/40 px-2.5 py-1.5">
-      <div className="flex min-w-0 items-center gap-2">
-        <CornerDownRight className="h-3.5 w-3.5 shrink-0 text-[var(--color-muted-foreground)]" />
-        <span className="truncate text-sm text-[var(--color-foreground)]">{module.name}</span>
-        {session ? <Badge variant="success" className="text-[10px]">会话</Badge> : null}
+    <div className="space-y-1.5">
+      <div
+        className="flex min-w-0 items-center justify-between gap-2 rounded-md bg-[var(--color-muted)]/40 px-2.5 py-1.5"
+        style={{ marginLeft: indentPx }}
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <CornerDownRight className="h-3.5 w-3.5 shrink-0 text-[var(--color-muted-foreground)]" />
+          <span className="truncate text-sm text-[var(--color-foreground)]">{module.name}</span>
+          {session ? <Badge variant="success" className="text-[10px]">会话</Badge> : null}
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            type="button"
+            size="sm"
+            variant={pinned ? 'secondary' : 'ghost'}
+            className="h-7 px-1.5 text-xs"
+            onClick={() => onPin(module)}
+            title={pinned ? '已加入待聚合，点击移除' : '钉入待聚合'}
+          >
+            <Pin className={cn('h-3.5 w-3.5', pinned && 'fill-current')} />
+          </Button>
+          <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => onOpen(module)} disabled={opening}>
+            {opening ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : session ? <BotMessageSquare className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+            {session ? '打开' : '新建'}
+          </Button>
+        </div>
       </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <Button
-          type="button"
-          size="sm"
-          variant={pinned ? 'secondary' : 'ghost'}
-          className="h-7 px-1.5 text-xs"
-          onClick={onPin}
-          title={pinned ? '已加入待聚合，点击移除' : '钉入待聚合'}
-        >
-          <Pin className={cn('h-3.5 w-3.5', pinned && 'fill-current')} />
-        </Button>
-        <Button type="button" size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={onOpen} disabled={opening}>
-          {opening ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : session ? <BotMessageSquare className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-          {session ? '打开' : '新建'}
-        </Button>
-      </div>
+      {children.map((child, ci) => (
+        <ModuleChildRow
+          key={`${child.relPath}|${child.name}|${ci}`}
+          module={child}
+          depth={depth + 1}
+          sessionByCwd={sessionByCwd}
+          pendingPath={pendingPath}
+          onOpen={onOpen}
+          isPinned={isPinned}
+          onPin={onPin}
+        />
+      ))}
     </div>
   )
 }
@@ -1407,6 +1407,7 @@ function ModuleSyncPanel({
   onApply,
   onClose,
   onReload,
+  onAnalyzeDatabase,
 }: {
   pending: boolean
   error: string | null
@@ -1419,6 +1420,7 @@ function ModuleSyncPanel({
   onApply: (picks: { key: string; codePath: string }[]) => void
   onClose: () => void
   onReload: () => void
+  onAnalyzeDatabase: () => void
 }) {
   if (pending) {
     return <SyncPanelShell onClose={onClose}><StateLine icon={<Loader2 className="h-4 w-4 animate-spin" />} text="正在解析项目目录…" /></SyncPanelShell>
@@ -1443,14 +1445,19 @@ function ModuleSyncPanel({
     }
     // 知识库路径 OK，只是该项目还没生成清单 → 给 CLI 初始化命令
     return (
-      <SyncPanelShell onClose={onClose}>
-        <div className="space-y-2 text-sm text-[var(--color-muted-foreground)]">
-          <p>知识库已配置，但该项目还没有 <code>modules.json</code>。首次初始化需指定代码基准目录，在知识库仓根执行：</p>
-          <pre className="overflow-x-auto rounded bg-[var(--color-muted)]/50 p-2 text-xs text-[var(--color-foreground)]">cd {data.knowledgeBaseDir.replace(/[\\/]knowledge[\\/]?$/, '') || '<project-domain-knowledge 仓根>'}
+        <SyncPanelShell onClose={onClose}>
+          <div className="space-y-2 text-sm text-[var(--color-muted-foreground)]">
+            <p>知识库已配置，但该项目还没有 <code>modules.json</code>。首次初始化需指定代码基准目录，在知识库仓根执行：</p>
+            <pre className="overflow-x-auto rounded bg-[var(--color-muted)]/50 p-2 text-xs text-[var(--color-foreground)]">cd {data.knowledgeBaseDir.replace(/[\\/]knowledge[\\/]?$/, '') || '<project-domain-knowledge 仓根>'}
 node scripts/bootstrap.mjs sync-modules --project {data.project} --project-root {data.projectPath} --code-base &lt;相对路径,逗号分隔&gt; --apply</pre>
-          <p>生成后回到这里点「更新模块」即可增量维护，无需再手敲。</p>
-        </div>
-      </SyncPanelShell>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p>也可先查询数据库菜单生成带真实菜单名的模块清单。</p>
+              <Button type="button" variant="outline" size="sm" onClick={onAnalyzeDatabase}>
+                <Sparkles />数据库分析菜单
+              </Button>
+            </div>
+          </div>
+        </SyncPanelShell>
     )
   }
   const selectable = data.added.filter(a => !a.keyConflict).map(a => a.codePath)
@@ -1458,6 +1465,14 @@ node scripts/bootstrap.mjs sync-modules --project {data.project} --project-root 
   return (
     <SyncPanelShell onClose={onClose}>
       <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/20 p-3">
+          <p className="text-xs text-[var(--color-muted-foreground)]">
+            数据库菜单分析以动态菜单表中的真实菜单名为准，再结合前后端代码补充模块路径。
+          </p>
+          <Button type="button" variant="outline" size="sm" onClick={onAnalyzeDatabase}>
+            <Sparkles />数据库分析菜单
+          </Button>
+        </div>
         <div className="flex items-center justify-between gap-2 text-sm">
           <span className="text-[var(--color-muted-foreground)]">现有 {data.currentCount} 条 · 新增候选 {data.added.length} · 已选 {picks.length}</span>
           {selectable.length > 0 && (

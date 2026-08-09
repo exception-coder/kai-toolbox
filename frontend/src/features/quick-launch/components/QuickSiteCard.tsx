@@ -52,6 +52,9 @@ export function QuickSiteCard({ site, onOpen, onCopy, onEdit, onTogglePin, onDel
 
       <div className="mt-3 flex items-center gap-1.5">
         <Badge variant="secondary" className="text-[10px]">{modeLabel(site.openMode)}</Badge>
+        {site.windowBehavior !== 'STANDARD' && (
+          <Badge variant="outline" className="text-[10px]">{site.windowBehavior === 'CONTROLLED' ? '受控' : '自动受控'}</Badge>
+        )}
         {!site.enabled && <Badge variant="outline" className="text-[10px]">已停用</Badge>}
         {site.openCount > 0 && (
           <span className="ml-auto text-[10px] text-[var(--color-muted-foreground)]">打开 {site.openCount} 次</span>

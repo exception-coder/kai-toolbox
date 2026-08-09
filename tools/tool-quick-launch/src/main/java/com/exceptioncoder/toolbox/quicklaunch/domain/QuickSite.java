@@ -7,6 +7,7 @@ public record QuickSite(
         String groupName,
         String icon,
         OpenMode openMode,
+        WindowBehavior windowBehavior,
         int windowWidth,
         int windowHeight,
         int sortOrder,

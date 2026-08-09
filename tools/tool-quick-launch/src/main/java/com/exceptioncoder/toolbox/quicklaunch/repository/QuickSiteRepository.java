@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.quicklaunch.repository;
 
 import com.exceptioncoder.toolbox.quicklaunch.domain.OpenMode;
 import com.exceptioncoder.toolbox.quicklaunch.domain.QuickSite;
+import com.exceptioncoder.toolbox.quicklaunch.domain.WindowBehavior;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -19,6 +20,7 @@ public class QuickSiteRepository {
             resultSet.getString("group_name"),
             resultSet.getString("icon"),
             OpenMode.valueOf(resultSet.getString("open_mode")),
+            WindowBehavior.valueOf(resultSet.getString("window_behavior")),
             resultSet.getInt("window_width"),
             resultSet.getInt("window_height"),
             resultSet.getInt("sort_order"),
@@ -38,7 +40,9 @@ public class QuickSiteRepository {
 
     public List<QuickSite> findAll() {
         return jdbc.query("""
-                SELECT *
+                SELECT id, title, site_url, group_name, icon, open_mode, window_behavior,
+                       window_width, window_height, sort_order, pinned, enabled,
+                       open_count, last_opened_at, created_at, updated_at
                   FROM quick_launch_site
                  ORDER BY group_name COLLATE NOCASE ASC,
                           pinned DESC,
@@ -48,7 +52,12 @@ public class QuickSiteRepository {
     }
 
     public Optional<QuickSite> findById(String id) {
-        return jdbc.query("SELECT * FROM quick_launch_site WHERE id = ?", ROW_MAPPER, id)
+        return jdbc.query("""
+                SELECT id, title, site_url, group_name, icon, open_mode, window_behavior,
+                       window_width, window_height, sort_order, pinned, enabled,
+                       open_count, last_opened_at, created_at, updated_at
+                FROM quick_launch_site WHERE id = ?
+                """, ROW_MAPPER, id)
                 .stream()
                 .findFirst();
     }
@@ -56,12 +65,12 @@ public class QuickSiteRepository {
     public void insert(QuickSite site) {
         jdbc.update("""
                 INSERT INTO quick_launch_site (
-                    id, title, site_url, group_name, icon, open_mode,
+                    id, title, site_url, group_name, icon, open_mode, window_behavior,
                     window_width, window_height, sort_order, pinned, enabled,
                     open_count, last_opened_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                site.id(), site.title(), site.siteUrl(), site.groupName(), site.icon(), site.openMode().name(),
+                site.id(), site.title(), site.siteUrl(), site.groupName(), site.icon(), site.openMode().name(), site.windowBehavior().name(),
                 site.windowWidth(), site.windowHeight(), site.sortOrder(), site.pinned() ? 1 : 0,
                 site.enabled() ? 1 : 0, site.openCount(), site.lastOpenedAt(), site.createdAt(), site.updatedAt());
     }
@@ -69,12 +78,12 @@ public class QuickSiteRepository {
     public int update(QuickSite site) {
         return jdbc.update("""
                 UPDATE quick_launch_site
-                   SET title = ?, site_url = ?, group_name = ?, icon = ?, open_mode = ?,
+                   SET title = ?, site_url = ?, group_name = ?, icon = ?, open_mode = ?, window_behavior = ?,
                        window_width = ?, window_height = ?, sort_order = ?, pinned = ?,
                        enabled = ?, updated_at = ?
                  WHERE id = ?
                 """,
-                site.title(), site.siteUrl(), site.groupName(), site.icon(), site.openMode().name(),
+                site.title(), site.siteUrl(), site.groupName(), site.icon(), site.openMode().name(), site.windowBehavior().name(),
                 site.windowWidth(), site.windowHeight(), site.sortOrder(), site.pinned() ? 1 : 0,
                 site.enabled() ? 1 : 0, site.updatedAt(), site.id());
     }

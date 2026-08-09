@@ -30,8 +30,10 @@ public record ProjectModulesResponse(String project, String projectPath, boolean
      * @param children 子模块（知识库声明的嵌套模块，如 crm 域下的子模块）；无则为空列表
      * @param codePath 后端代码目录绝对路径（知识库模块来自 modules.json；自动识别模块=模块目录本身）；无则空串
      * @param webPath  前端代码目录绝对路径（知识库模块来自 modules.json）；无则空串。供新建会话时把编码范围带进提示词
+     * @param webPaths 前端代码目录绝对路径集合；兼容 modules.json 的 webPath 与 webPaths
      */
     public record ModuleView(String name, String relPath, String absPath, String type,
-                             String summary, List<ModuleView> children, String codePath, String webPath) {
+                             String summary, List<ModuleView> children, String codePath, String webPath,
+                             List<String> webPaths) {
     }
 }

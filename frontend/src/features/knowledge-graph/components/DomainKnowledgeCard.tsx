@@ -1,4 +1,5 @@
-import { RefreshCw } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -31,12 +32,14 @@ export const GRAPHIFY_LABEL: Record<string, string> = {
 
 /** domain-knowledge / cross-topology 共用的状态卡片：登记态徽标 + 覆盖度 + 缺口清单 + 初始化/更新按钮。 */
 export function DomainKnowledgeCard({
-  title, description, query, selected, onToggle, onLaunch,
+  title, description, query, expanded, onExpandedChange, selected, onToggle, onLaunch,
 }: {
   title: string
   description: string
   repoKey: string
   query: { data?: DomainKnowledgeStatus; isLoading: boolean; isError: boolean; error: unknown }
+  expanded: boolean
+  onExpandedChange: (expanded: boolean) => void
   selected: Set<string>
   onToggle: (moduleKey: string) => void
   onLaunch: (scope: 'full' | string[]) => void
@@ -46,13 +49,16 @@ export function DomainKnowledgeCard({
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0">
-        <div>
-          <CardTitle>{title}</CardTitle>
-          <CardDescription>{description}</CardDescription>
-        </div>
+        <button type="button" className="flex min-w-0 items-center gap-2 text-left" onClick={() => onExpandedChange(!expanded)}>
+          {expanded ? <ChevronDown className="size-4 shrink-0" /> : <ChevronRight className="size-4 shrink-0" />}
+          <span>
+            <CardTitle>{title}</CardTitle>
+            <CardDescription>{description}</CardDescription>
+          </span>
+        </button>
         {data && <StatusBadge tone={REGISTRATION_TONE[data.state]}>{REGISTRATION_LABEL[data.state]}</StatusBadge>}
       </CardHeader>
-      <CardContent className="text-sm">
+      {expanded && <CardContent className="text-sm">
         {query.isLoading && <span className="text-[var(--color-muted-foreground)]">检测中…</span>}
         {query.isError && (
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -90,15 +96,21 @@ export function DomainKnowledgeCard({
             )}
           </div>
         )}
-      </CardContent>
+      </CardContent>}
     </Card>
   )
 }
 
 function GapList({ gaps, selected, onToggle }: { gaps: ModuleGap[]; selected: Set<string>; onToggle: (k: string) => void }) {
+  const pageSize = 100
+  const [visibleCount, setVisibleCount] = useState(pageSize)
+  useEffect(() => setVisibleCount(pageSize), [gaps])
+  const visibleGaps = gaps.slice(0, visibleCount)
+  const remainingCount = gaps.length - visibleGaps.length
+
   return (
     <div className="max-h-48 overflow-y-auto rounded-md border p-2">
-      {gaps.map((g) => (
+      {visibleGaps.map((g) => (
         <label key={g.moduleKey} className="flex items-center gap-2 py-1 text-sm">
           <input
             type="checkbox"
@@ -109,6 +121,11 @@ function GapList({ gaps, selected, onToggle }: { gaps: ModuleGap[]; selected: Se
           <span className="text-xs text-[var(--color-muted-foreground)]">{g.existingCount} 条</span>
         </label>
       ))}
+      {remainingCount > 0 && (
+        <Button type="button" variant="ghost" size="sm" className="mt-1 w-full" onClick={() => setVisibleCount(count => count + pageSize)}>
+          再加载 {Math.min(pageSize, remainingCount)} 个（剩余 {remainingCount}）
+        </Button>
+      )}
     </div>
   )
 }

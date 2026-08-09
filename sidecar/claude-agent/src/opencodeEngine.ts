@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { createOpencode, type Event, type OpencodeClient, type Part } from '@opencode-ai/sdk'
+import { createOpencode, type Event, type OpencodeClient, type Part, type Permission } from '@opencode-ai/sdk'
 
 /**
  * OpenCode 引擎：把 opencode（多 provider 的 agent）接成一种引擎，专供第三方 API 模型使用。
@@ -22,6 +22,9 @@ export interface OpencodeTurnCtx {
   signal: AbortSignal
   emit: (e: Record<string, unknown>) => void
   setSdkSessionId: (id: string) => void
+  permissionMode: string
+  autoApprove: boolean
+  toolPolicy: string
 }
 
 /** 单个会话本轮的事件聚合状态。 */
@@ -32,6 +35,10 @@ interface Handler {
   toolDone: Set<string>    // 已 emit toolResult 的 callID
   lastText: Map<string, string> // partID -> 已发文本（无 delta 时按增量回退）
   responseModel?: string   // API 实际返回的模型（providerID/modelID）
+  directory?: string
+  permissionMode: string
+  autoApprove: boolean
+  toolPolicy: string
 }
 
 let clientPromise: Promise<OpencodeClient> | null = null
@@ -91,7 +98,36 @@ function dispatch(ev: Event): void {
     const sid = ev.properties.sessionID
     const h = sid ? handlers.get(sid) : undefined
     if (h) h.emit({ type: 'error', code: 'OPENCODE_ERROR', message: stringifyError(ev.properties.error) })
+    return
   }
+  if (ev.type === 'permission.updated') {
+    void handlePermission(ev.properties)
+  }
+}
+
+async function handlePermission(permission: Permission): Promise<void> {
+  const h = handlers.get(permission.sessionID)
+  if (!h) return
+  const response = automaticPermissionResponse(h, permission)
+  if (response) {
+    await replyPermission(permission.sessionID, permission.id, response, h.directory, h.emit)
+    return
+  }
+  h.emit({ type: 'permissionRequest', reqId: permission.id, toolName: permission.type,
+    input: { title: permission.title, pattern: permission.pattern, ...permission.metadata } })
+}
+
+function automaticPermissionResponse(h: Handler, permission: Permission): 'always' | 'reject' | undefined {
+  if (h.toolPolicy === 'consult-readonly' || h.permissionMode === 'plan') {
+    return isReadPermission(permission.type) ? 'always' : 'reject'
+  }
+  if (h.autoApprove || h.permissionMode === 'bypassPermissions') return 'always'
+  if (h.permissionMode === 'acceptEdits' && permission.type === 'edit') return 'always'
+  return undefined
+}
+
+function isReadPermission(type: string): boolean {
+  return ['read', 'glob', 'grep', 'list', 'lsp', 'webfetch', 'websearch', 'skill'].includes(type)
 }
 
 function handlePart(h: Handler, part: Part, delta: string | undefined): void {
@@ -156,7 +192,10 @@ export async function runOpencodeTurn(ctx: OpencodeTurnCtx): Promise<void> {
     ctx.emit({ type: 'init', sdkSessionId: sid })
   }
 
-  const h: Handler = { emit: ctx.emit, assistant: new Set(), toolUse: new Set(), toolDone: new Set(), lastText: new Map() }
+  const h: Handler = {
+    emit: ctx.emit, assistant: new Set(), toolUse: new Set(), toolDone: new Set(), lastText: new Map(),
+    directory: dir, permissionMode: ctx.permissionMode, autoApprove: ctx.autoApprove, toolPolicy: ctx.toolPolicy,
+  }
   handlers.set(sid, h)
   const sessionId = sid
   const onAbort = () => { void client.session.abort({ path: { id: sessionId }, query }).catch(() => {}) }
@@ -187,6 +226,62 @@ export async function runOpencodeTurn(ctx: OpencodeTurnCtx): Promise<void> {
   } finally {
     ctx.signal.removeEventListener('abort', onAbort)
     handlers.delete(sessionId)
+  }
+}
+
+export async function emitOpencodeModels(cwd: string, emit: (e: Record<string, unknown>) => void, current?: string): Promise<void> {
+  try {
+    const client = await ensureClient()
+    const directory = existsSync(cwd) ? cwd : undefined
+    const result = await client.provider.list({ query: directory ? { directory } : undefined })
+    if (result.error || !result.data) throw new Error(stringifyError(result.error))
+    const connected = new Set(result.data.connected)
+    const models = result.data.all
+      .filter(provider => connected.has(provider.id))
+      .flatMap(provider => Object.values(provider.models).map(model => ({
+        value: `${provider.id}/${model.id}`,
+        displayName: `${provider.name} / ${model.name}`,
+        description: model.status === 'deprecated' ? 'Deprecated' : '',
+      })))
+      .sort((a, b) => a.displayName.localeCompare(b.displayName))
+    emit({ type: 'models', models, current: current ?? null })
+  } catch (e) {
+    emit({ type: 'warning', code: 'OPENCODE_MODELS_UNAVAILABLE', message: `OpenCode model catalog unavailable: ${e instanceof Error ? e.message : String(e)}` })
+  }
+}
+
+export async function answerOpencodePermission(
+  sdkSessionId: string | undefined, permissionId: string, behavior: string, cwd: string,
+  emit: (e: Record<string, unknown>) => void,
+): Promise<void> {
+  if (!sdkSessionId) return
+  await replyPermission(sdkSessionId, permissionId, behavior === 'allow' ? 'once' : 'reject', cwd, emit)
+}
+
+export function updateOpencodePermissionPolicy(
+  sdkSessionId: string | undefined, permissionMode: string, autoApprove: boolean, toolPolicy: string,
+): void {
+  if (!sdkSessionId) return
+  const handler = handlers.get(sdkSessionId)
+  if (!handler) return
+  handler.permissionMode = permissionMode
+  handler.autoApprove = autoApprove
+  handler.toolPolicy = toolPolicy
+}
+
+async function replyPermission(
+  sessionId: string, permissionId: string, response: 'once' | 'always' | 'reject',
+  directory: string | undefined, emit: (e: Record<string, unknown>) => void,
+): Promise<void> {
+  try {
+    const client = await ensureClient()
+    const result = await client.postSessionIdPermissionsPermissionId({
+      path: { id: sessionId, permissionID: permissionId }, query: directory ? { directory } : undefined,
+      body: { response },
+    })
+    if (result.error) throw new Error(stringifyError(result.error))
+  } catch (e) {
+    emit({ type: 'error', code: 'OPENCODE_PERMISSION_FAILED', message: `OpenCode permission reply failed: ${e instanceof Error ? e.message : String(e)}` })
   }
 }
 

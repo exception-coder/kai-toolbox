@@ -67,8 +67,14 @@ import { getSessionByDevSession, linkDevSession } from '@/features/prd-clarify/a
 import type { PrdSessionView } from '@/features/prd-clarify/types'
 import { countPrdReferenceDocuments, uploadPrdReference } from '../lib/prdReference'
 import { SessionPlanLockNotice } from '../components/SessionPlanLockNotice'
+import { SessionSitesDialog } from '../components/SessionSitesDialog'
 import { Combobox } from '@/components/ui/combobox'
 import { getDevPreference } from '@/features/_devkit/devPreferenceApi'
+import { resolveSiteIcon } from '@/lib/siteIcons'
+import { listQuickSiteSummaries, recordQuickSiteSummaryOpened, type QuickSiteSummary } from '@/lib/quickSites'
+import { listSessionSiteIds } from '../api'
+import { openQuickSite } from '@/lib/openQuickSite'
+import { SiteOpenModeMenu, type SiteOpenChoice } from '../components/SiteOpenModeMenu'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
 
@@ -184,6 +190,7 @@ export function ChatPage() {
   const [showExport, setShowExport] = useState(false)
   const [showPrdLink, setShowPrdLink] = useState(false)
   const [showPendingSql, setShowPendingSql] = useState(false)
+  const [showSessionSites, setShowSessionSites] = useState(false)
   // 「+ 更多功能」里的「PRD 文档」：搜索 PRD 澄清助手里的记录，一键把 PRD/开发文档内容附加进当前对话。
   const [showPrdAttach, setShowPrdAttach] = useState(false)
   // PRD handoff 不能靠固定延时读取 sessionId：新会话 ID 由 WebSocket init/ready 异步返回。
@@ -196,6 +203,31 @@ export function ChatPage() {
   const autoPrdLinkInFlightRef = useRef(false)
   // 当前会话关联的 PRD（undefined=还没查/无会话，null=确认未关联），供顶栏标识展示。
   const [linkedPrd, setLinkedPrd] = useState<PrdSessionView | null | undefined>(undefined)
+  const [linkedSites, setLinkedSites] = useState<QuickSiteSummary[]>([])
+  useEffect(() => {
+    const sessionId = chat?.sessionId
+    if (!sessionId) {
+      setLinkedSites([])
+      return
+    }
+    let active = true
+    Promise.all([listSessionSiteIds(sessionId), listQuickSiteSummaries()])
+      .then(([siteIds, sites]) => {
+        if (!active) return
+        setLinkedSites(siteIds.flatMap(id => sites.find(site => site.id === id && site.enabled) ?? []))
+      })
+      .catch(() => active && setLinkedSites([]))
+    return () => { active = false }
+  }, [chat?.sessionId])
+
+  function openLinkedSite(site: QuickSiteSummary, choice?: SiteOpenChoice) {
+    try {
+      openQuickSite(choice ? { ...site, windowBehavior: choice.windowBehavior } : site, choice?.openMode, !!choice)
+      void recordQuickSiteSummaryOpened(site.id)
+    } catch {
+      setShowSessionSites(true)
+    }
+  }
   useEffect(() => {
     const sid = chat?.sessionId
     if (!sid) { setLinkedPrd(undefined); return }
@@ -971,6 +1003,23 @@ export function ChatPage() {
             <span>{pendingSql.status === 'PENDING' ? 'SQL 待执行' : pendingSql.status === 'EXECUTED' ? 'SQL 已执行' : 'SQL 已取消'}</span>
           </button>
         )}
+        {linkedSites.map(site => {
+          const SiteIcon = resolveSiteIcon(site.icon)
+          return (
+            <span key={site.id} className="flex shrink-0 items-center rounded-full border border-sky-500/50 bg-sky-500/10 text-sky-700 dark:text-sky-300">
+              <button
+                type="button"
+                onClick={() => openLinkedSite(site)}
+                title={`按默认方式打开：${site.title}`}
+                className="flex items-center gap-1 py-0.5 pl-1.5 text-[10px]"
+              >
+                <SiteIcon className="size-3" />
+                <span className="hidden max-w-24 truncate sm:inline">{site.title}</span>
+              </button>
+              <SiteOpenModeMenu compact onSelect={choice => openLinkedSite(site, choice)} />
+            </span>
+          )
+        })}
         {/* 手势弹窗状态：开启后提示摄像头正在识别（隐私可见），点击可关 */}
         {gestureOn && (
           <button
@@ -1049,6 +1098,9 @@ export function ChatPage() {
                     )}
                     {chat.sessionId && (
                       <HeaderMenuItem nested icon={<Database className="size-4" />} label={pendingSql ? '管理待执行 SQL' : '登记待执行 SQL'} hint={pendingSql ? `${pendingSql.title || '未命名登记'} · ${pendingSql.status === 'PENDING' ? '待执行' : pendingSql.status === 'EXECUTED' ? '已执行' : '已取消'}` : '关联本次开发涉及的 DDL / DML，仅登记不执行'} onClick={() => { setHeaderMenu(false); setShowPendingSql(true) }} />
+                    )}
+                    {chat.sessionId && (
+                      <HeaderMenuItem nested icon={linkedSites[0] ? (() => { const Icon = resolveSiteIcon(linkedSites[0].icon); return <Icon className="size-4" /> })() : <LayoutGrid className="size-4" />} label={linkedSites.length > 0 ? '管理测试站点' : '关联测试站点'} hint={linkedSites.length > 0 ? `已关联 ${linkedSites.length} 个快捷入口站点` : '从快捷入口选择站点，在独立窗口中测试验证'} onClick={() => { setHeaderMenu(false); setShowSessionSites(true) }} />
                     )}
                   </MenuSection>
                   <MenuSection icon={<FolderTree className="size-4" />} label="工作区 · 项目" open={menuGroup === 'workspace'} onToggle={() => toggle('workspace')}>
@@ -1449,6 +1501,14 @@ export function ChatPage() {
           sessionId={chat.sessionId}
           onChanged={setPendingSql}
           onClose={() => setShowPendingSql(false)}
+        />
+      )}
+
+      {showSessionSites && chat.sessionId && (
+        <SessionSitesDialog
+          sessionId={chat.sessionId}
+          onChanged={setLinkedSites}
+          onClose={() => setShowSessionSites(false)}
         />
       )}
 

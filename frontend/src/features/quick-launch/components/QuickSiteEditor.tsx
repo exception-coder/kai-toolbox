@@ -4,7 +4,7 @@ import { Combobox } from '@/components/ui/combobox'
 import { Input } from '@/components/ui/input'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { resolveSiteIcon, SITE_ICON_OPTIONS } from '../lib/siteIcons'
-import type { OpenMode, QuickSiteUpsert, QuickSiteView } from '../types'
+import type { OpenMode, QuickSiteUpsert, QuickSiteView, WindowBehavior } from '../types'
 
 interface Props {
   open: boolean
@@ -21,6 +21,7 @@ const EMPTY_FORM: QuickSiteUpsert = {
   groupName: '',
   icon: 'Globe2',
   openMode: 'POPUP',
+  windowBehavior: 'STANDARD',
   windowWidth: 1400,
   windowHeight: 900,
   sortOrder: 0,
@@ -112,6 +113,18 @@ export function QuickSiteEditor({ open, site, groupNames, saving, onClose, onSav
             </div>
           )}
 
+          <Field label="窗口行为" hint="受控模式会阻止站点继续派生新窗口；登录、下载或打印异常时改用标准模式。">
+            <select
+              value={form.windowBehavior}
+              onChange={event => update('windowBehavior', event.target.value as WindowBehavior)}
+              className="h-9 w-full rounded-md border bg-[var(--color-background)] px-2 text-sm"
+            >
+              <option value="STANDARD">标准 · 保留系统弹窗</option>
+              <option value="CONTROLLED">受控 · 阻止派生窗口</option>
+              <option value="AUTO">自动 · 受控优先，可手工回退</option>
+            </select>
+          </Field>
+
           <Field label="排序号" hint="数字越小越靠前">
             <Input type="number" min={-10000} max={10000} value={form.sortOrder} onChange={event => update('sortOrder', Number(event.target.value))} />
           </Field>
@@ -159,6 +172,7 @@ function toForm(site: QuickSiteView): QuickSiteUpsert {
     groupName: site.groupName,
     icon: site.icon,
     openMode: site.openMode,
+    windowBehavior: site.windowBehavior,
     windowWidth: site.windowWidth,
     windowHeight: site.windowHeight,
     sortOrder: site.sortOrder,

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import mermaid from 'mermaid'
@@ -128,11 +128,46 @@ function MarkdownPart({ text, className }: { text: string; className?: string })
     if (!text.trim()) return null
     try {
       const raw = marked.parse(text, { async: false, gfm: true, breaks: true }) as string
-      return DOMPurify.sanitize(raw)
+      const sanitized = DOMPurify.sanitize(raw)
+      const doc = new DOMParser().parseFromString(sanitized, 'text/html')
+      doc.querySelectorAll('pre').forEach(pre => {
+        const button = doc.createElement('button')
+        button.type = 'button'
+        button.className = 'markdown-code-copy'
+        button.dataset.codeCopy = 'true'
+        button.setAttribute('aria-label', '复制代码')
+        button.textContent = '复制'
+        pre.appendChild(button)
+      })
+      return doc.body.innerHTML
     } catch {
       return null
     }
   }, [text])
+
+  const copyCode = async (event: ReactMouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement
+    const button = target.closest<HTMLButtonElement>('[data-code-copy="true"]')
+    if (!button) return
+    const code = button.closest('pre')?.querySelector('code')?.textContent ?? ''
+    if (!code) return
+    try {
+      await navigator.clipboard.writeText(code)
+    } catch {
+      const textarea = document.createElement('textarea')
+      textarea.value = code
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      textarea.remove()
+    }
+    button.textContent = '已复制'
+    window.setTimeout(() => {
+      if (button.isConnected) button.textContent = '复制'
+    }, 1200)
+  }
 
   if (html == null) {
     return <span className="whitespace-pre-wrap wrap-anywhere">{text}</span>
@@ -140,6 +175,7 @@ function MarkdownPart({ text, className }: { text: string; className?: string })
 
   return (
     <div
+      onClick={copyCode}
       className={cn(
         'markdown-body min-w-0 max-w-full wrap-anywhere text-sm leading-relaxed',
         '[&_h1]:my-3 [&_h1]:text-xl [&_h1]:font-semibold',
@@ -150,7 +186,8 @@ function MarkdownPart({ text, className }: { text: string; className?: string })
         '[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5',
         '[&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5',
         '[&_li]:my-1',
-        '[&_pre]:my-2 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-[var(--color-muted)] [&_pre]:p-3 [&_pre]:text-xs',
+        '[&_pre]:relative [&_pre]:my-2 [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-[var(--color-muted)] [&_pre]:p-3 [&_pre]:pt-9 [&_pre]:text-xs',
+        '[&_.markdown-code-copy]:absolute [&_.markdown-code-copy]:right-2 [&_.markdown-code-copy]:top-2 [&_.markdown-code-copy]:rounded-md [&_.markdown-code-copy]:border [&_.markdown-code-copy]:border-[var(--color-border)] [&_.markdown-code-copy]:bg-[var(--color-background)]/90 [&_.markdown-code-copy]:px-2 [&_.markdown-code-copy]:py-1 [&_.markdown-code-copy]:text-[11px] [&_.markdown-code-copy]:text-[var(--color-muted-foreground)] [&_.markdown-code-copy]:shadow-sm [&_.markdown-code-copy]:hover:text-[var(--color-foreground)]',
         '[&_code]:font-mono [&_code]:text-[0.9em]',
         '[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-[var(--color-muted)] [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:wrap-anywhere',
         '[&_a]:text-[var(--color-primary)] [&_a]:underline [&_a]:underline-offset-2',

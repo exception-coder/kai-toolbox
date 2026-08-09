@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.quicklaunch.service;
 import com.exceptioncoder.toolbox.quicklaunch.api.dto.QuickSiteUpsertRequest;
 import com.exceptioncoder.toolbox.quicklaunch.domain.OpenMode;
 import com.exceptioncoder.toolbox.quicklaunch.domain.QuickSite;
+import com.exceptioncoder.toolbox.quicklaunch.domain.WindowBehavior;
 import com.exceptioncoder.toolbox.quicklaunch.repository.QuickSiteRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,12 +27,13 @@ class QuickLaunchServiceTest {
         QuickLaunchService service = new QuickLaunchService(repository);
         service.create(new QuickSiteUpsertRequest(
                 "Forge 前端", "http://localhost:5173", null, null,
-                null, null, null, null, null, null));
+                null, null, null, null, null, null, null));
 
         ArgumentCaptor<QuickSite> captor = ArgumentCaptor.forClass(QuickSite.class);
         verify(repository).insert(captor.capture());
         assertThat(captor.getValue().groupName()).isEqualTo(QuickLaunchService.DEFAULT_GROUP);
         assertThat(captor.getValue().openMode()).isEqualTo(OpenMode.POPUP);
+        assertThat(captor.getValue().windowBehavior()).isEqualTo(WindowBehavior.STANDARD);
         assertThat(captor.getValue().enabled()).isTrue();
     }
 

@@ -736,22 +736,12 @@ public class WorkspaceScanService implements LocalProjectResolver {
     /**
      * 把一条知识库模块声明转 ModuleView（递归子模块）。
      *
-     * <p>cwd（absPath）以 webPath 为准——前端常是问题入口；webPath 缺省时退回 codePath。
+     * <p>cwd（absPath）以前端路径为准——前端常是问题入口；前端路径缺省时退回 codePath。
      * relPath 跟随被选作 cwd 的那个路径，使工作台展示与会话实际进入目录一致。
-     * codePath 与 webPath 均做越界校验；两者都缺/越界则该模块作废返回 null。</p>
+     * 所有路径均做越界校验；容器节点没有自身路径时使用首个有效子节点路径。</p>
      */
     private ModuleView toModuleView(Path root, KbModule m) {
         if (m == null) return null;
-        Path codeAbs = safeResolve(root, m.codePath());
-        Path webAbs = safeResolve(root, m.webPath());
-        // cwd 优先前端目录，无则后端目录。
-        Path cwd = webAbs != null ? webAbs : codeAbs;
-        if (cwd == null) {
-            log.debug("知识库 {} 模块 codePath/webPath 均缺失或越界，跳过: {}", KB_MODULES_FILE, m.key());
-            return null;
-        }
-        String relStr = root.relativize(cwd).toString().replace('\\', '/');
-        String moduleName = (m.name() == null || m.name().isBlank()) ? cwd.getFileName().toString() : m.name();
         List<ModuleView> children = new ArrayList<>();
         if (m.children() != null) {
             for (KbModule c : m.children()) {
@@ -759,9 +749,41 @@ public class WorkspaceScanService implements LocalProjectResolver {
                 if (cv != null) children.add(cv);
             }
         }
+        Path codeAbs = safeResolve(root, m.codePath());
+        List<Path> webPaths = resolveWebPaths(root, m.webPath(), m.webPaths());
+        Path webAbs = webPaths.isEmpty() ? null : webPaths.get(0);
+        Path cwd = webAbs != null ? webAbs : codeAbs;
+        if (cwd == null && !children.isEmpty()) {
+            cwd = Path.of(children.get(0).absPath());
+        }
+        if (cwd == null) {
+            log.debug("知识库 {} 模块没有有效路径或子节点，跳过: {}", KB_MODULES_FILE, m.key());
+            return null;
+        }
+        String relStr = root.relativize(cwd).toString().replace('\\', '/');
+        String moduleName = (m.name() == null || m.name().isBlank()) ? cwd.getFileName().toString() : m.name();
         return new ModuleView(moduleName, relStr, cwd.toString(), "knowledge",
                 m.summary() == null ? "" : m.summary(), List.copyOf(children),
-                codeAbs == null ? "" : codeAbs.toString(), webAbs == null ? "" : webAbs.toString());
+                codeAbs == null ? "" : codeAbs.toString(), webAbs == null ? "" : webAbs.toString(),
+                webPaths.stream().map(Path::toString).toList());
+    }
+
+    /** 合并单值和多值前端路径，保持声明顺序并去重。 */
+    private List<Path> resolveWebPaths(Path root, String webPath, List<String> webPaths) {
+        Set<Path> resolved = new LinkedHashSet<>();
+        Path single = safeResolve(root, webPath);
+        if (single != null) {
+            resolved.add(single);
+        }
+        if (webPaths != null) {
+            for (String candidate : webPaths) {
+                Path path = safeResolve(root, candidate);
+                if (path != null) {
+                    resolved.add(path);
+                }
+            }
+        }
+        return List.copyOf(resolved);
     }
 
     /** 解析相对项目根的路径并做越界校验；空/越界返回 null。 */
@@ -780,10 +802,10 @@ public class WorkspaceScanService implements LocalProjectResolver {
     private record KnowledgeModules(List<KbModule> modules) {
     }
 
-    /** 一条知识库模块声明：key/name 业务名，codePath 后端目录、webPath 前端目录(相对项目根)，children 嵌套子模块。 */
+    /** 一条知识库模块声明，支持单值或多值前端目录以及递归子模块。 */
     @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
-    private record KbModule(String key, String name, String codePath, String webPath, String summary,
-                            List<KbModule> children) {
+    private record KbModule(String key, String name, String codePath, String webPath, List<String> webPaths,
+                            String summary, List<KbModule> children) {
     }
 
     private void collectModules(Path projectRoot, Path dir, int depth, List<ModuleView> out) {
@@ -791,7 +813,8 @@ public class WorkspaceScanService implements LocalProjectResolver {
         if (type != null) {
             Path rel = projectRoot.relativize(dir);
             String relStr = rel.toString().isEmpty() ? "." : rel.toString().replace('\\', '/');
-            out.add(new ModuleView(dir.getFileName().toString(), relStr, dir.toString(), type, "", List.of(), dir.toString(), ""));
+            out.add(new ModuleView(dir.getFileName().toString(), relStr, dir.toString(), type, "", List.of(),
+                    dir.toString(), "", List.of()));
         }
         if (depth >= MODULE_MAX_DEPTH) return;
         try (Stream<Path> children = Files.list(dir)) {
