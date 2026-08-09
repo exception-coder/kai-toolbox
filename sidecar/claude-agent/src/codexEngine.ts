@@ -475,7 +475,21 @@ function handleItem(
     case 'command_execution':
       if (phase === 'item.started') {
         ctx.emit({ type: 'toolUse', toolName: 'shell', input: { command: item.command } })
-      } else if (phase === 'item.completed') {
+      }
+      if (phase !== 'item.updated') {
+        ctx.emit({
+          type: 'codexActivity',
+          activityType: 'command',
+          itemId: item.id,
+          status: phase === 'item.completed' ? item.status : 'inProgress',
+          title: phase === 'item.completed'
+            ? item.status === 'failed' ? '命令执行失败' : '命令执行完成'
+            : '正在执行命令',
+          detail: item.command,
+          data: { output: tail(item.aggregated_output ?? '', 8_000) || undefined },
+        })
+      }
+      if (phase === 'item.completed') {
         ctx.emit({ type: 'toolResult', toolName: 'shell', output: item.aggregated_output ?? '', isError: item.status === 'failed' })
       }
       break
@@ -533,4 +547,8 @@ function safeStringify(v: unknown): string {
   } catch {
     return String(v)
   }
+}
+
+function tail(value: string, limit: number): string {
+  return value.length > limit ? `…${value.slice(-(limit - 1))}` : value
 }

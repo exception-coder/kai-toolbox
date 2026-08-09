@@ -6,6 +6,8 @@ import { homedir } from 'node:os'
 
 const require = createRequire(import.meta.url)
 const REQUEST_TIMEOUT_MS = 20_000
+const MAX_COMMAND_OUTPUT_CHARS = 8_000
+const COMMAND_OUTPUT_EMIT_INTERVAL_MS = 250
 
 type JsonRpcResponse = {
   id?: number
@@ -21,6 +23,12 @@ type JsonRpcResult = {
     id?: string
     turns?: Array<{ id?: string }>
   }
+}
+
+type CommandActivityState = {
+  command: string
+  cwd: string
+  output: string
 }
 
 type AppServerTurnOptions = {
@@ -214,6 +222,8 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
   let turnAccepted = false
   let finished = false
   let lastUsage: Record<string, unknown> = {}
+  const commandActivities = new Map<string, CommandActivityState>()
+  const commandActivityEmittedAt = new Map<string, number>()
 
   const cleanup = () => {
     if (finished) return
@@ -293,9 +303,35 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
           break
         }
         case 'item/started':
-        case 'item/completed':
-          handleAppServerItem(method === 'item/completed' ? 'completed' : 'inProgress', asRecord(params.item), emitActivity)
+        case 'item/completed': {
+          const item = asRecord(params.item)
+          handleAppServerItem(
+            method === 'item/completed' ? 'completed' : 'inProgress',
+            item,
+            emitActivity,
+            commandActivities,
+          )
+          const commandItemId = asString(item?.id)
+          if (asString(item?.type) === 'commandExecution' && commandItemId) {
+            if (method === 'item/completed') commandActivityEmittedAt.delete(commandItemId)
+            else commandActivityEmittedAt.set(commandItemId, Date.now())
+          }
           break
+        }
+        case 'item/commandExecution/outputDelta': {
+          const itemId = asString(params.itemId)
+          const delta = asString(params.delta)
+          if (!itemId || !delta) break
+          const state = commandActivities.get(itemId) ?? { command: '', cwd: '', output: '' }
+          state.output = tail(state.output + delta, MAX_COMMAND_OUTPUT_CHARS)
+          commandActivities.set(itemId, state)
+          const now = Date.now()
+          if (now - (commandActivityEmittedAt.get(itemId) ?? 0) >= COMMAND_OUTPUT_EMIT_INTERVAL_MS) {
+            commandActivityEmittedAt.set(itemId, now)
+            emitCommandActivity(emitActivity, itemId, 'inProgress', state)
+          }
+          break
+        }
         case 'turn/plan/updated':
           emitActivity({
             type: 'codexActivity', activityType: 'plan', itemId: asString(params.turnId),
@@ -397,16 +433,31 @@ function handleAppServerItem(
   phase: 'inProgress' | 'completed',
   item: Record<string, unknown> | undefined,
   emit: (event: Record<string, unknown>) => void,
+  commandActivities: Map<string, CommandActivityState>,
 ): void {
   if (!item) return
   const itemType = asString(item.type)
   const itemId = asString(item.id)
   const status = asString(item.status) || phase
   switch (itemType) {
-    case 'commandExecution':
-      if (phase === 'inProgress') emit({ type: 'toolUse', toolName: 'shell', input: { command: item.command, cwd: item.cwd } })
-      else emit({ type: 'toolResult', toolName: 'shell', output: asString(item.aggregatedOutput), isError: status === 'failed' })
+    case 'commandExecution': {
+      const previous = commandActivities.get(itemId)
+      const state: CommandActivityState = {
+        command: asString(item.command) || previous?.command || '',
+        cwd: asString(item.cwd) || previous?.cwd || '',
+        output: tail(asString(item.aggregatedOutput) || previous?.output || '', MAX_COMMAND_OUTPUT_CHARS),
+      }
+      if (phase === 'inProgress') {
+        commandActivities.set(itemId, state)
+        emit({ type: 'toolUse', toolName: 'shell', input: { command: item.command, cwd: item.cwd } })
+        emitCommandActivity(emit, itemId, 'inProgress', state)
+      } else {
+        emit({ type: 'toolResult', toolName: 'shell', output: state.output, isError: status === 'failed' })
+        emitCommandActivity(emit, itemId, status, state)
+        commandActivities.delete(itemId)
+      }
       break
+    }
     case 'fileChange': {
       const changes = Array.isArray(item.changes) ? item.changes : []
       emit({ type: 'codexActivity', activityType: 'file', itemId, status, title: phase === 'completed' ? '编辑了文件' : '正在编辑文件', data: changes })
@@ -446,6 +497,27 @@ function handleAppServerItem(
       break
     }
   }
+}
+
+function emitCommandActivity(
+  emit: (event: Record<string, unknown>) => void,
+  itemId: string,
+  status: string,
+  state: CommandActivityState,
+): void {
+  emit({
+    type: 'codexActivity',
+    activityType: 'command',
+    itemId,
+    status,
+    title: status === 'failed' ? '命令执行失败' : status === 'completed' ? '命令执行完成' : '正在执行命令',
+    detail: state.command,
+    data: { cwd: state.cwd || undefined, output: state.output || undefined },
+  })
+}
+
+function tail(value: string, limit: number): string {
+  return value.length > limit ? `…${value.slice(-(limit - 1))}` : value
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

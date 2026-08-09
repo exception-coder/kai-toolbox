@@ -1,7 +1,7 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
-import { AlertTriangle, ArrowDown, Bot, Check, Coins, Copy, Database, FileImage, FilePenLine, FileText, FolderOpen, GitBranch, ListTodo, Route, Shrink, Timer } from 'lucide-react'
+import { AlertTriangle, ArrowDown, Bot, Check, CircleX, Coins, Copy, Database, FileImage, FilePenLine, FileText, FolderOpen, GitBranch, ListTodo, Route, Shrink, Terminal, Timer } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { loadState as loadCardState, saveState as saveCardState } from '@/features/markdown-card/lib/persistence'
 import type { ChatItem, ConnState } from '../types'
@@ -10,7 +10,7 @@ import { useHideToolCalls } from '../lib/toolVisibilityPref'
 import { ToolCallBubble } from './ToolCallBubble'
 import { Markdown } from './Markdown'
 import { ImageLightbox } from './ImageLightbox'
-import { ThinkingIndicator } from './ThinkingIndicator'
+import { ThinkingIndicator, type ActiveTask } from './ThinkingIndicator'
 import { EngineIcon } from './EngineIcon'
 
 interface Props {
@@ -67,6 +67,7 @@ interface ListContext {
   engineLabel: string
   turnTokens: number
   connState: ConnState
+  activeTask: ActiveTask | null
 }
 
 function ListHeader({ context }: { context?: ListContext }) {
@@ -87,7 +88,12 @@ function ListFooter({ context }: { context?: ListContext }) {
   if (!context?.running) return null
   return (
     <div className="px-3 pb-3">
-      <ThinkingIndicator engineLabel={context.engineLabel} tokens={context.turnTokens} connState={context.connState} />
+      <ThinkingIndicator
+        engineLabel={context.engineLabel}
+        tokens={context.turnTokens}
+        connState={context.connState}
+        activeTask={context.activeTask}
+      />
     </div>
   )
 }
@@ -116,6 +122,16 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   // 「隐藏工具调用」开关：开启时消息流里的工具调用气泡（MCP/命令/读写/子代理…）整条不渲染，减少视觉噪音
   const hideToolCalls = useHideToolCalls()
   const visibleItems = useMemo(() => (hideToolCalls ? items.filter(it => it.kind !== 'tool') : items), [items, hideToolCalls])
+  const activeTask = useMemo<ActiveTask | null>(() => {
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      const item = items[index]
+      if (item.kind === 'result') break
+      if (item.kind === 'activity' && isActivityRunning(item.status)) {
+        return { id: item.id, title: item.title, detail: item.detail }
+      }
+    }
+    return null
+  }, [items])
 
   // 「复制本轮回复」：类似 ChatGPT，一轮回答可能被拆成好几个 assistant 气泡（工具调用打断、
   // 多段文本），单条气泡的「复制」不够用。按 kind='result' 的回合结束标记回溯到上一条
@@ -215,7 +231,16 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   ), [highlightedId, onFork, engineLabel, onNewSession, onCleanRetry, hasForkTarget, turnTextByResultId])
 
   // 高频变化值走 context（见 ListHeader/ListFooter 顶部注释），LIST_COMPONENTS 引用永远不变。
-  const listContext: ListContext = { loadingEarlier: !!loadingEarlier, exhausted: !!exhausted, itemCount: visibleItems.length, running, engineLabel, turnTokens, connState }
+  const listContext: ListContext = {
+    loadingEarlier: !!loadingEarlier,
+    exhausted: !!exhausted,
+    itemCount: visibleItems.length,
+    running,
+    engineLabel,
+    turnTokens,
+    connState,
+    activeTask,
+  }
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
@@ -587,7 +612,9 @@ function CodexActivity({ item }: { item: Extract<ChatItem, { kind: 'activity' }>
       : item.activityType === 'plan' ? ListTodo
         : item.activityType === 'context' ? Shrink
           : item.activityType === 'model' ? Route
-            : Bot
+            : item.activityType === 'command' ? Terminal
+              : Bot
+  const failed = item.status === 'failed'
   const done = item.status === 'completed'
   const dataText = formatActivityData(item.data)
   return (
@@ -595,10 +622,12 @@ function CodexActivity({ item }: { item: Extract<ChatItem, { kind: 'activity' }>
       <summary className="flex cursor-pointer list-none items-center gap-2">
         <Icon className="size-4 shrink-0 text-sky-600 dark:text-sky-400" />
         <span className="min-w-0 flex-1 truncate font-medium">{item.title}</span>
-        <span className={cn('rounded-full px-1.5 py-0.5 text-[10px]', done
-          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-          : 'bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300')}
-        >{done ? '已完成' : '进行中'}</span>
+        <span className={cn('inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px]', failed
+          ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
+          : done
+            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+            : 'bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300')}
+        >{failed && <CircleX className="size-3" />}{failed ? '失败' : done ? '已完成' : '进行中'}</span>
       </summary>
       {(item.detail || dataText) && (
         <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-words border-t border-sky-200/70 pt-2 font-mono text-[11px] dark:border-sky-800/70">
@@ -622,4 +651,8 @@ function formatActivityData(data: unknown): string {
     }).filter(Boolean).join('\n')
   }
   try { return JSON.stringify(data, null, 2) } catch { return String(data) }
+}
+
+function isActivityRunning(status: string): boolean {
+  return status === 'inProgress' || status === 'in_progress' || status === 'running' || status === 'pending' || status === 'started'
 }

@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ConnState } from '../types'
 
+export interface ActiveTask {
+  id: string
+  title: string
+  detail?: string | null
+}
+
 /**
  * 「进行时」措辞：模仿 Claude Code 在干活时轮换的那串 -ing 状态词（Orchestrating… / Sautéed…）。
  * 纯装饰、客户端轮换，与真实工作内容无关；计时是真实的。用中文语感的动词，配上「中…」读起来自然。
@@ -23,7 +29,17 @@ function nextWord(prev: string): string {
  * agent 干活时底部的动态状态：脉冲圆点 + 轮换的「XX 中…」措辞 + 已用秒数。
  * 每次挂载（running 变 true）重置计时；卸载即停。放在 MessageList 底部，主聊天/分屏/悬浮窗通用。
  */
-export function ThinkingIndicator({ engineLabel = 'Claude', tokens = 0, connState = 'ready' }: { engineLabel?: string; tokens?: number; connState?: ConnState }) {
+export function ThinkingIndicator({
+  engineLabel = 'Claude',
+  tokens = 0,
+  connState = 'ready',
+  activeTask,
+}: {
+  engineLabel?: string
+  tokens?: number
+  connState?: ConnState
+  activeTask?: ActiveTask | null
+}) {
   const [word, setWord] = useState(() => GERUNDS[Math.floor(Math.random() * GERUNDS.length)])
   const [elapsed, setElapsed] = useState(0)
   const startRef = useRef(Date.now())
@@ -34,7 +50,7 @@ export function ThinkingIndicator({ engineLabel = 'Claude', tokens = 0, connStat
     const tick = setInterval(() => setElapsed(Math.floor((Date.now() - startRef.current) / 1000)), 1000)
     const rot = setInterval(() => setWord(prev => nextWord(prev)), 3200)
     return () => { clearInterval(tick); clearInterval(rot) }
-  }, [])
+  }, [activeTask?.id])
 
   // 连接不在 ready（断开/重连/出错）时诚实提示：这不是 AI 在想，是连接断了，内容会在重连后继续。
   // 否则「一直 Claude XX中」会误导——实际是 WS 连不上、事件根本没到浏览器。
@@ -48,15 +64,23 @@ export function ThinkingIndicator({ engineLabel = 'Claude', tokens = 0, connStat
   }
 
   return (
-    <div className="flex items-center gap-2 text-sm text-[var(--color-muted-foreground)]">
+    <div className="flex min-w-0 items-center gap-2 text-sm text-[var(--color-muted-foreground)]">
       <span className="inline-flex gap-0.5" aria-hidden>
         <span className="size-1.5 animate-bounce rounded-full bg-[var(--color-primary)] [animation-delay:-0.3s]" />
         <span className="size-1.5 animate-bounce rounded-full bg-[var(--color-primary)] [animation-delay:-0.15s]" />
         <span className="size-1.5 animate-bounce rounded-full bg-[var(--color-primary)]" />
       </span>
-      <span>{engineLabel} {word}中…</span>
+      <span className="shrink-0">{engineLabel} {activeTask?.title ?? `${word}中…`}</span>
+      {activeTask?.detail && (
+        <span className="min-w-0 truncate font-mono text-xs" title={activeTask.detail}>· {summarizeTask(activeTask.detail)}</span>
+      )}
       {elapsed >= 2 && <span className="tabular-nums text-xs opacity-70">· {elapsed}s</span>}
       {tokens > 0 && <span className="tabular-nums text-xs opacity-70">· ↓ {tokens} tokens</span>}
     </div>
   )
+}
+
+function summarizeTask(detail: string): string {
+  const firstLine = detail.replace(/\s+/g, ' ').trim()
+  return firstLine.length > 120 ? `${firstLine.slice(0, 119)}…` : firstLine
 }
