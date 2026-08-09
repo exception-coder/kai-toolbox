@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { createOpencode, type Event, type OpencodeClient, type Part, type Permission } from '@opencode-ai/sdk'
+import { activityOutputTail, emitToolActivity, summarizeToolInput } from './toolActivity.js'
 
 /**
  * OpenCode 引擎：把 opencode（多 provider 的 agent）接成一种引擎，专供第三方 API 模型使用。
@@ -147,21 +148,54 @@ function handlePart(h: Handler, part: Part, delta: string | undefined): void {
   }
   if (part.type === 'tool') {
     const st = part.state
+    const activityState = st as typeof st & { title?: string; time?: { start?: number; end?: number } }
+    const input = 'input' in st ? st.input : null
+    const startedAt = activityState.time?.start
+    const endedAt = activityState.time?.end
+    const elapsedMs = typeof startedAt === 'number'
+      ? Math.max(0, (typeof endedAt === 'number' ? endedAt : Date.now()) - startedAt)
+      : undefined
     const emitUse = () => {
       if (h.toolUse.has(part.callID)) return
       h.toolUse.add(part.callID)
-      h.emit({ type: 'toolUse', toolName: part.tool, input: 'input' in st ? st.input : null })
+      h.emit({ type: 'toolUse', toolCallId: part.callID, toolName: part.tool, input })
     }
     if (st.status === 'running' || st.status === 'pending') {
       emitUse()
+      emitToolActivity(h.emit, {
+        toolCallId: part.callID,
+        toolName: part.tool,
+        status: 'inProgress',
+        title: activityState.title,
+        detail: summarizeToolInput(input),
+        elapsedMs,
+      })
     } else if (st.status === 'completed' && !h.toolDone.has(part.callID)) {
       emitUse()
       h.toolDone.add(part.callID)
-      h.emit({ type: 'toolResult', toolName: part.tool, output: truncate(st.output ?? ''), isError: false })
+      const output = truncate(st.output ?? '')
+      h.emit({ type: 'toolResult', toolCallId: part.callID, toolName: part.tool, output, isError: false })
+      emitToolActivity(h.emit, {
+        toolCallId: part.callID,
+        toolName: part.tool,
+        status: 'completed',
+        title: activityState.title,
+        elapsedMs,
+        outputTail: activityOutputTail(output),
+      })
     } else if (st.status === 'error' && !h.toolDone.has(part.callID)) {
       emitUse()
       h.toolDone.add(part.callID)
-      h.emit({ type: 'toolResult', toolName: part.tool, output: st.error ?? '工具执行失败', isError: true })
+      const output = st.error ?? '工具执行失败'
+      h.emit({ type: 'toolResult', toolCallId: part.callID, toolName: part.tool, output, isError: true })
+      emitToolActivity(h.emit, {
+        toolCallId: part.callID,
+        toolName: part.tool,
+        status: 'failed',
+        title: activityState.title,
+        elapsedMs,
+        outputTail: activityOutputTail(output),
+      })
     }
   }
 }

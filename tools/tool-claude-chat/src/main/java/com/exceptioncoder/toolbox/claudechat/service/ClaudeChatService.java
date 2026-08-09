@@ -866,9 +866,10 @@ public class ClaudeChatService {
             case "assistantDelta" -> sendToBrowser(ctx,
                     seq -> new ServerMessage.AssistantDelta(seq, node.path("text").asText("")));
             case "toolUse" -> sendToBrowser(ctx, seq -> new ServerMessage.ToolUse(
-                    seq, node.path("toolName").asText(""), asObject(node.get("input"))));
+                    seq, node.path("toolCallId").asText(null),
+                    node.path("toolName").asText(""), asObject(node.get("input"))));
             case "toolResult" -> sendToBrowser(ctx, seq -> new ServerMessage.ToolResult(
-                    seq, node.path("toolName").asText(""),
+                    seq, node.path("toolCallId").asText(null), node.path("toolName").asText(""),
                     node.path("output").asText(""), node.path("isError").asBoolean(false)));
             case "permissionRequest" -> {
                 String toolName = node.path("toolName").asText("");
@@ -903,6 +904,15 @@ public class ClaudeChatService {
                     seq, node.path("outputTokens").asLong(0)));
             case "warning" -> sendToBrowser(ctx, seq -> new ServerMessage.Warning(
                     seq, node.path("code").asText("SIDECAR_WARNING"), node.path("message").asText("")));
+            case "toolActivity" -> sendToBrowser(ctx, seq -> new ServerMessage.ToolActivity(
+                    seq,
+                    node.path("toolCallId").asText(""),
+                    node.path("toolName").asText("tool"),
+                    node.path("status").asText("inProgress"),
+                    node.path("title").asText("工具执行中…"),
+                    node.path("detail").asText(null),
+                    node.hasNonNull("elapsedMs") ? node.get("elapsedMs").asLong() : null,
+                    node.path("outputTail").asText(null)));
             case "codexActivity" -> sendToBrowser(ctx, seq -> new ServerMessage.CodexActivity(
                     seq,
                     node.path("activityType").asText("activity"),

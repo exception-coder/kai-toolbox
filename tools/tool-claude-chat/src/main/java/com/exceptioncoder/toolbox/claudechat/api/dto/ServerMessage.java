@@ -17,7 +17,8 @@ public sealed interface ServerMessage
                 ServerMessage.QuestionRequest, ServerMessage.DecisionResolved,
                 ServerMessage.Models, ServerMessage.UserMessage, ServerMessage.ForkAnchor, ServerMessage.Forked,
                 ServerMessage.ReplayGap, ServerMessage.Result, ServerMessage.TurnInfo,
-                ServerMessage.TurnProgress, ServerMessage.Warning, ServerMessage.CodexActivity,
+                ServerMessage.TurnProgress, ServerMessage.Warning, ServerMessage.ToolActivity,
+                ServerMessage.CodexActivity,
                 ServerMessage.Error, ServerMessage.BackgroundTasks,
                 ServerMessage.PendingSessions {
 
@@ -40,10 +41,10 @@ public sealed interface ServerMessage
     record AssistantDelta(long seq, String text) implements ServerMessage {}
 
     @JsonTypeName("toolUse")
-    record ToolUse(long seq, String toolName, Object input) implements ServerMessage {}
+    record ToolUse(long seq, String toolCallId, String toolName, Object input) implements ServerMessage {}
 
     @JsonTypeName("toolResult")
-    record ToolResult(long seq, String toolName, String output, boolean isError) implements ServerMessage {}
+    record ToolResult(long seq, String toolCallId, String toolName, String output, boolean isError) implements ServerMessage {}
 
     @JsonTypeName("permissionRequest")
     record PermissionRequest(long seq, String reqId, String toolName, Object input) implements ServerMessage {}
@@ -97,6 +98,11 @@ public sealed interface ServerMessage
     /** 非致命告警：会话仍可继续，前端不得据此结束运行态。 */
     @JsonTypeName("warning")
     record Warning(long seq, String code, String message) implements ServerMessage {}
+
+    /** 四种引擎统一的工具/长命令生命周期事件。 */
+    @JsonTypeName("toolActivity")
+    record ToolActivity(long seq, String toolCallId, String toolName, String status,
+                        String title, String detail, Long elapsedMs, String outputTail) implements ServerMessage {}
 
     /** Codex App Server 暴露的计划、文件、子 Agent、上下文压缩等过程事件。 */
     @JsonTypeName("codexActivity")

@@ -25,6 +25,7 @@ import {
   latestCodexTurnId,
   runCodexAppServerTurn,
 } from './codexAppServer.js'
+import { activityOutputTail, emitToolActivity, summarizeToolInput } from './toolActivity.js'
 
 export type CodexSpeed = 'default' | 'fast'
 export type CodexReasoningEffort = string
@@ -474,32 +475,36 @@ function handleItem(
       break
     case 'command_execution':
       if (phase === 'item.started') {
-        ctx.emit({ type: 'toolUse', toolName: 'shell', input: { command: item.command } })
+        ctx.emit({ type: 'toolUse', toolCallId: item.id, toolName: 'shell', input: { command: item.command } })
       }
-      if (phase !== 'item.updated') {
-        ctx.emit({
-          type: 'codexActivity',
-          activityType: 'command',
-          itemId: item.id,
-          status: phase === 'item.completed' ? item.status : 'inProgress',
-          title: phase === 'item.completed'
-            ? item.status === 'failed' ? '命令执行失败' : '命令执行完成'
-            : '正在执行命令',
-          detail: item.command,
-          data: { output: tail(item.aggregated_output ?? '', 8_000) || undefined },
-        })
-      }
+      emitToolActivity(ctx.emit, {
+        toolCallId: item.id,
+        toolName: 'shell',
+        status: phase === 'item.completed' ? (item.status === 'failed' ? 'failed' : 'completed') : 'inProgress',
+        title: phase === 'item.completed'
+          ? item.status === 'failed' ? '命令执行失败' : '命令执行完成'
+          : '正在执行命令',
+        detail: item.command,
+        outputTail: tail(item.aggregated_output ?? '', 8_000) || undefined,
+      })
       if (phase === 'item.completed') {
-        ctx.emit({ type: 'toolResult', toolName: 'shell', output: item.aggregated_output ?? '', isError: item.status === 'failed' })
+        ctx.emit({ type: 'toolResult', toolCallId: item.id, toolName: 'shell', output: item.aggregated_output ?? '', isError: item.status === 'failed' })
       }
       break
     case 'file_change':
       if (phase === 'item.started') {
-        ctx.emit({ type: 'toolUse', toolName: 'edit', input: { changes: item.changes } })
+        ctx.emit({ type: 'toolUse', toolCallId: item.id, toolName: 'edit', input: { changes: item.changes } })
       } else if (phase === 'item.completed') {
         const summary = (item.changes ?? []).map(c => `${c.kind} ${c.path}`).join('\n')
-        ctx.emit({ type: 'toolResult', toolName: 'edit', output: summary, isError: item.status === 'failed' })
+        ctx.emit({ type: 'toolResult', toolCallId: item.id, toolName: 'edit', output: summary, isError: item.status === 'failed' })
       }
+      emitToolActivity(ctx.emit, {
+        toolCallId: item.id,
+        toolName: 'edit',
+        status: phase === 'item.completed' ? (item.status === 'failed' ? 'failed' : 'completed') : 'inProgress',
+        title: phase === 'item.completed' ? '文件编辑完成' : '正在编辑文件',
+        outputTail: phase === 'item.completed' ? activityOutputTail(item.changes) : undefined,
+      })
       break
     case 'mcp_tool_call': {
       const label = `${item.server}/${item.tool}`
@@ -507,17 +512,32 @@ function handleItem(
       // 此处只负责展示 SDK 事件；内置技能读取也可能以上报内部 server 名称，
       // 因此不能再按 server 名称制造一条“拒绝调用”的错误消息。
       if (phase === 'item.started') {
-        ctx.emit({ type: 'toolUse', toolName: label, input: item.arguments })
+        ctx.emit({ type: 'toolUse', toolCallId: item.id, toolName: label, input: item.arguments })
       } else if (phase === 'item.completed') {
         const output = item.error?.message ?? safeStringify(item.result)
-        ctx.emit({ type: 'toolResult', toolName: label, output, isError: item.status === 'failed' })
+        ctx.emit({ type: 'toolResult', toolCallId: item.id, toolName: label, output, isError: item.status === 'failed' })
       }
+      emitToolActivity(ctx.emit, {
+        toolCallId: item.id,
+        toolName: label,
+        status: phase === 'item.completed' ? (item.status === 'failed' ? 'failed' : 'completed') : 'inProgress',
+        detail: summarizeToolInput(item.arguments),
+        outputTail: phase === 'item.completed' ? activityOutputTail(item.error?.message ?? item.result) : undefined,
+      })
       break
     }
     case 'web_search':
       if (phase === 'item.started') {
-        ctx.emit({ type: 'toolUse', toolName: 'web_search', input: { query: item.query } })
+        ctx.emit({ type: 'toolUse', toolCallId: item.id, toolName: 'web_search', input: { query: item.query } })
+      } else if (phase === 'item.completed') {
+        ctx.emit({ type: 'toolResult', toolCallId: item.id, toolName: 'web_search', output: item.query, isError: false })
       }
+      emitToolActivity(ctx.emit, {
+        toolCallId: item.id,
+        toolName: 'web_search',
+        status: phase === 'item.completed' ? 'completed' : 'inProgress',
+        detail: summarizeToolInput({ query: item.query }),
+      })
       break
     case 'error':
       handleNonFatalErrorItem(phase, item, ctx)

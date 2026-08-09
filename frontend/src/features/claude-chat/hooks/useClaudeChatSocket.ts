@@ -479,21 +479,35 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         })
         break
       case 'toolUse':
-        setRunning(true) // 同上：工具调用同样是"正在跑"的确凿证据
-        setItems(prev => [...prev, { kind: 'tool', id: nextId(), toolName: msg.toolName, input: msg.input, ts: Date.now() }])
+        setRunning(true) // 同上：工具调用同样是“正在跑”的确凿证据
+        setItems(prev => {
+          const toolCallId = msg.toolCallId || undefined
+          const id = toolCallId ? `tool-${toolCallId}` : nextId()
+          const index = toolCallId ? prev.findIndex(item => item.kind === 'tool' && item.toolCallId === toolCallId) : -1
+          const next = { kind: 'tool' as const, id, toolCallId, toolName: msg.toolName, input: msg.input, ts: Date.now() }
+          if (index < 0) return [...prev, next]
+          const copy = prev.slice()
+          copy[index] = { ...prev[index], ...next }
+          return copy
+        })
         break
       case 'toolResult':
         setItems(prev => {
-          // 回填最近一个同名、尚无 output 的工具项
+          // 新协议按稳定调用 ID 精确回填；旧 sidecar 没有 ID 时再按名称向后兼容。
           for (let i = prev.length - 1; i >= 0; i--) {
             const it = prev[i]
-            if (it.kind === 'tool' && it.toolName === msg.toolName && it.output === undefined) {
+            const matched = it.kind === 'tool' && it.output === undefined && (msg.toolCallId
+              ? it.toolCallId === msg.toolCallId
+              : it.toolName === msg.toolName)
+            if (matched) {
               const copy = prev.slice()
               copy[i] = { ...it, output: msg.output, isError: msg.isError }
               return copy
             }
           }
-          return [...prev, { kind: 'tool', id: nextId(), toolName: msg.toolName, input: null, output: msg.output, isError: msg.isError, ts: Date.now() }]
+          const toolCallId = msg.toolCallId || undefined
+          return [...prev, { kind: 'tool', id: toolCallId ? `tool-${toolCallId}` : nextId(), toolCallId,
+            toolName: msg.toolName, input: null, output: msg.output, isError: msg.isError, ts: Date.now() }]
         })
         break
       case 'permissionRequest':
@@ -577,6 +591,29 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       case 'warning':
         setItems(prev => [...prev, { kind: 'warning', id: nextId(), code: msg.code, message: msg.message, ts: Date.now() }])
         break
+      case 'toolActivity': {
+        if (isRunningActivity(msg.status)) setRunning(true)
+        const id = `tool-activity-${msg.toolCallId || msg.seq}`
+        setItems(prev => {
+          const index = prev.findIndex(item => item.id === id)
+          const previous = index >= 0 ? prev[index] : undefined
+          const next = {
+            kind: 'activity' as const,
+            id,
+            activityType: 'tool',
+            status: msg.status,
+            title: msg.title,
+            detail: msg.detail,
+            data: { elapsedMs: msg.elapsedMs, output: msg.outputTail },
+            ts: previous?.ts ?? Date.now(),
+          }
+          if (index < 0) return [...prev, next]
+          const copy = prev.slice()
+          copy[index] = next
+          return copy
+        })
+        break
+      }
       case 'codexActivity': {
         setRunning(true)
         const id = `codex-activity-${msg.activityType}-${msg.itemId || msg.seq}`
@@ -1379,4 +1416,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   }, [sendRaw, connect])
 
   return { state, sessionId, items, pending, pendingSessions, running, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, agents, mcpServers, outputStyle, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, loadHistory }
+}
+
+function isRunningActivity(status: string): boolean {
+  return status === 'inProgress' || status === 'in_progress' || status === 'running'
+    || status === 'pending' || status === 'started'
 }

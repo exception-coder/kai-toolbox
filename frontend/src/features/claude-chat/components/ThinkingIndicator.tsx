@@ -5,6 +5,7 @@ export interface ActiveTask {
   id: string
   title: string
   detail?: string | null
+  elapsedMs?: number
 }
 
 /**
@@ -45,12 +46,20 @@ export function ThinkingIndicator({
   const startRef = useRef(Date.now())
 
   useEffect(() => {
-    startRef.current = Date.now()
-    setElapsed(0)
+    const reportedElapsed = activeTask?.elapsedMs ?? 0
+    startRef.current = Date.now() - reportedElapsed
+    setElapsed(Math.floor(reportedElapsed / 1_000))
     const tick = setInterval(() => setElapsed(Math.floor((Date.now() - startRef.current) / 1000)), 1000)
     const rot = setInterval(() => setWord(prev => nextWord(prev)), 3200)
     return () => { clearInterval(tick); clearInterval(rot) }
   }, [activeTask?.id])
+
+  useEffect(() => {
+    const reportedElapsed = activeTask?.elapsedMs
+    if (reportedElapsed == null || reportedElapsed <= Date.now() - startRef.current) return
+    startRef.current = Date.now() - reportedElapsed
+    setElapsed(Math.floor(reportedElapsed / 1_000))
+  }, [activeTask?.elapsedMs])
 
   // 连接不在 ready（断开/重连/出错）时诚实提示：这不是 AI 在想，是连接断了，内容会在重连后继续。
   // 否则「一直 Claude XX中」会误导——实际是 WS 连不上、事件根本没到浏览器。

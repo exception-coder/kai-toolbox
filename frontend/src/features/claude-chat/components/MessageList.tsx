@@ -121,13 +121,21 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   const hasForkTarget = useMemo(() => items.some(it => it.kind === 'user' && !!it.sdkUuid), [items])
   // 「隐藏工具调用」开关：开启时消息流里的工具调用气泡（MCP/命令/读写/子代理…）整条不渲染，减少视觉噪音
   const hideToolCalls = useHideToolCalls()
-  const visibleItems = useMemo(() => (hideToolCalls ? items.filter(it => it.kind !== 'tool') : items), [items, hideToolCalls])
+  const visibleItems = useMemo(() => items.filter(item => {
+    if (hideToolCalls && item.kind === 'tool') return false
+    // 统一作业卡只在进行中或失败时保留；成功后由详细工具卡承载结果，避免重复占位。
+    return !(item.kind === 'activity' && item.activityType === 'tool' && item.status === 'completed')
+  }), [items, hideToolCalls])
   const activeTask = useMemo<ActiveTask | null>(() => {
     for (let index = items.length - 1; index >= 0; index -= 1) {
       const item = items[index]
       if (item.kind === 'result') break
       if (item.kind === 'activity' && isActivityRunning(item.status)) {
-        return { id: item.id, title: item.title, detail: item.detail }
+        const data = item.data && typeof item.data === 'object' && !Array.isArray(item.data)
+          ? item.data as Record<string, unknown>
+          : undefined
+        return { id: item.id, title: item.title, detail: item.detail,
+          elapsedMs: typeof data?.elapsedMs === 'number' ? data.elapsedMs : undefined }
       }
     }
     return null
@@ -612,7 +620,7 @@ function CodexActivity({ item }: { item: Extract<ChatItem, { kind: 'activity' }>
       : item.activityType === 'plan' ? ListTodo
         : item.activityType === 'context' ? Shrink
           : item.activityType === 'model' ? Route
-            : item.activityType === 'command' ? Terminal
+            : item.activityType === 'command' || item.activityType === 'tool' ? Terminal
               : Bot
   const failed = item.status === 'failed'
   const done = item.status === 'completed'

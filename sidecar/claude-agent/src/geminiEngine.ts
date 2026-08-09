@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
+import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
 
 /**
  * Gemini CLI 引擎适配器（headless stream-json）。
@@ -107,6 +108,9 @@ export async function runGeminiTurn(ctx: GeminiTurnCtx): Promise<void> {
     let stderr = ''
     let sawResult = false
     let sawText = false
+    let fallbackToolSequence = 0
+    const toolNames = new Map<string, string>()
+    const toolStartedAt = new Map<string, number>()
 
     const processLine = (line: string): void => {
       const t = line.trim()
@@ -142,15 +146,39 @@ export async function runGeminiTurn(ctx: GeminiTurnCtx): Promise<void> {
         }
         case 'tool_use': {
           const name = pickStr(obj.name, obj.tool, obj.toolName, (obj as Record<string, unknown>).tool_name) ?? 'tool'
-          const input = obj.args ?? obj.input ?? obj.arguments ?? {}
-          ctx.emit({ type: 'toolUse', toolName: name, input })
+          const input = obj.parameters ?? obj.args ?? obj.input ?? obj.arguments ?? {}
+          const toolCallId = pickStr(obj.tool_id, obj.toolId, obj.id) ?? `gemini-tool-${++fallbackToolSequence}`
+          toolNames.set(toolCallId, name)
+          toolStartedAt.set(toolCallId, Date.now())
+          ctx.emit({ type: 'toolUse', toolCallId, toolName: name, input })
+          emitToolActivity(ctx.emit, {
+            toolCallId,
+            toolName: name,
+            status: 'inProgress',
+            detail: summarizeToolInput(input),
+            elapsedMs: 0,
+          })
           break
         }
         case 'tool_result': {
-          const name = pickStr(obj.name, obj.tool, obj.toolName, (obj as Record<string, unknown>).tool_name) ?? ''
+          const reportedName = pickStr(obj.name, obj.tool, obj.toolName, (obj as Record<string, unknown>).tool_name)
+          const reportedId = pickStr(obj.tool_id, obj.toolId, obj.id)
+          const fallbackId = [...toolNames.entries()].find(([, value]) => !reportedName || value === reportedName)?.[0]
+          const toolCallId = reportedId ?? fallbackId ?? `gemini-tool-${++fallbackToolSequence}`
+          const name = reportedName ?? toolNames.get(toolCallId) ?? 'tool'
           const output = obj.result ?? obj.output ?? obj.content
           const isError = Boolean(obj.error || obj.isError || obj.is_error || obj.status === 'error' || obj.status === 'failed')
-          ctx.emit({ type: 'toolResult', toolName: name, output: stringify(output), isError })
+          const outputText = stringify(output ?? obj.error)
+          ctx.emit({ type: 'toolResult', toolCallId, toolName: name, output: outputText, isError })
+          emitToolActivity(ctx.emit, {
+            toolCallId,
+            toolName: name,
+            status: isError ? 'failed' : 'completed',
+            elapsedMs: elapsedSince(toolStartedAt.get(toolCallId)),
+            outputTail: activityOutputTail(outputText),
+          })
+          toolNames.delete(toolCallId)
+          toolStartedAt.delete(toolCallId)
           break
         }
         case 'error': {

@@ -453,8 +453,8 @@ export interface BackgroundTaskInfo {
 export type ServerMessage =
   | { type: 'ready'; seq: number; sessionId: string; sdkSessionId: string | null; slashCommands?: string[]; status?: SessionStatus; epoch?: string; engine?: Engine; providerKind?: ProviderKind; providerBaseUrl?: string | null; skills?: string[]; agents?: string[]; mcpServers?: { name: string; status: string }[]; outputStyle?: string | null; backgroundTasks?: BackgroundTaskInfo[]; selectedModel?: string | null; codexReasoningEffort?: CodexReasoningEffort | null; codexSpeed?: CodexSpeed | null }
   | { type: 'assistantDelta'; seq: number; text: string }
-  | { type: 'toolUse'; seq: number; toolName: string; input: unknown }
-  | { type: 'toolResult'; seq: number; toolName: string; output: string; isError: boolean }
+  | { type: 'toolUse'; seq: number; toolCallId?: string | null; toolName: string; input: unknown }
+  | { type: 'toolResult'; seq: number; toolCallId?: string | null; toolName: string; output: string; isError: boolean }
   | { type: 'permissionRequest'; seq: number; reqId: string; toolName: string; input: unknown }
   | { type: 'questionRequest'; seq: number; reqId: string; questions: Question[] }
   | { type: 'decisionResolved'; seq: number; reqId: string }
@@ -467,6 +467,7 @@ export type ServerMessage =
   | { type: 'turnInfo'; seq: number; requestedModel: string | null; responseModel: string | null; viaGateway: boolean; baseUrl: string | null; transport?: CodexTransport | null }
   | { type: 'turnProgress'; seq: number; outputTokens: number }
   | { type: 'warning'; seq: number; code: string; message: string }
+  | { type: 'toolActivity'; seq: number; toolCallId: string; toolName: string; status: string; title: string; detail?: string | null; elapsedMs?: number | null; outputTail?: string | null }
   | { type: 'codexActivity'; seq: number; activityType: string; itemId: string; status: string; title: string; detail?: string | null; data?: unknown }
   | { type: 'error'; seq: number; code: string; message: string }
   /** 该会话后台任务的全量快照，收到即整体覆盖（REPLACE 语义）；空数组＝当前没有后台任务在跑。 */
@@ -503,7 +504,7 @@ export type ChatItem =
   // 目前只有实时会话里由 send() 发起时才可能带；历史回放（loadMessages）尚未持久化该覆盖，刷新/切回后会看到完整 text。
   | { kind: 'user'; id: string; text: string; displayText?: string; sdkUuid?: string; ts?: number; attachments?: MsgAttachment[] }
   | { kind: 'assistant'; id: string; text: string; forkAnchor?: string; ts?: number }
-  | { kind: 'tool'; id: string; toolName: string; input: unknown; output?: string; isError?: boolean; ts?: number }
+  | { kind: 'tool'; id: string; toolCallId?: string; toolName: string; input: unknown; output?: string; isError?: boolean; ts?: number }
   | { kind: 'result'; id: string; stopReason: string; ts?: number; usage?: Record<string, number>; latencyMs?: number; ttftMs?: number }
   | { kind: 'warning'; id: string; code: string; message: string; ts?: number }
   | { kind: 'activity'; id: string; activityType: string; status: string; title: string; detail?: string | null; data?: unknown; ts?: number }

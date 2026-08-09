@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import { createInterface } from 'node:readline'
 import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
+import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
 
 const require = createRequire(import.meta.url)
 const REQUEST_TIMEOUT_MS = 20_000
@@ -53,6 +54,7 @@ type CommandActivityState = {
   command: string
   cwd: string
   output: string
+  startedAt: number
 }
 
 type AppServerTurnOptions = {
@@ -390,7 +392,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
           const itemId = asString(params.itemId)
           const delta = asString(params.delta)
           if (!itemId || !delta) break
-          const state = commandActivities.get(itemId) ?? { command: '', cwd: '', output: '' }
+          const state = commandActivities.get(itemId) ?? { command: '', cwd: '', output: '', startedAt: Date.now() }
           state.output = tail(state.output + delta, MAX_COMMAND_OUTPUT_CHARS)
           commandActivities.set(itemId, state)
           const now = Date.now()
@@ -514,13 +516,14 @@ function handleAppServerItem(
         command: asString(item.command) || previous?.command || '',
         cwd: asString(item.cwd) || previous?.cwd || '',
         output: tail(asString(item.aggregatedOutput) || previous?.output || '', MAX_COMMAND_OUTPUT_CHARS),
+        startedAt: previous?.startedAt ?? Date.now(),
       }
       if (phase === 'inProgress') {
         commandActivities.set(itemId, state)
-        emit({ type: 'toolUse', toolName: 'shell', input: { command: item.command, cwd: item.cwd } })
+        emit({ type: 'toolUse', toolCallId: itemId, toolName: 'shell', input: { command: item.command, cwd: item.cwd } })
         emitCommandActivity(emit, itemId, 'inProgress', state)
       } else {
-        emit({ type: 'toolResult', toolName: 'shell', output: state.output, isError: status === 'failed' })
+        emit({ type: 'toolResult', toolCallId: itemId, toolName: 'shell', output: state.output, isError: status === 'failed' })
         emitCommandActivity(emit, itemId, status, state)
         commandActivities.delete(itemId)
       }
@@ -533,14 +536,36 @@ function handleAppServerItem(
     }
     case 'mcpToolCall': {
       const label = `${asString(item.server)}/${asString(item.tool)}`
-      if (phase === 'inProgress') emit({ type: 'toolUse', toolName: label, input: item.arguments })
-      else emit({ type: 'toolResult', toolName: label, output: safeJson(item.result ?? item.error), isError: status === 'failed' })
+      const failed = status === 'failed'
+      if (phase === 'inProgress') {
+        emit({ type: 'toolUse', toolCallId: itemId, toolName: label, input: item.arguments })
+        emitToolActivity(emit, {
+          toolCallId: itemId, toolName: label, status: 'inProgress', detail: summarizeToolInput(item.arguments),
+        })
+      } else {
+        const output = safeJson(item.result ?? item.error)
+        emit({ type: 'toolResult', toolCallId: itemId, toolName: label, output, isError: failed })
+        emitToolActivity(emit, {
+          toolCallId: itemId, toolName: label, status: failed ? 'failed' : 'completed', outputTail: activityOutputTail(output),
+        })
+      }
       break
     }
     case 'dynamicToolCall': {
       const label = [asString(item.namespace), asString(item.tool)].filter(Boolean).join('/')
-      if (phase === 'inProgress') emit({ type: 'toolUse', toolName: label, input: item.arguments })
-      else emit({ type: 'toolResult', toolName: label, output: safeJson(item.contentItems), isError: item.success === false })
+      const failed = item.success === false
+      if (phase === 'inProgress') {
+        emit({ type: 'toolUse', toolCallId: itemId, toolName: label, input: item.arguments })
+        emitToolActivity(emit, {
+          toolCallId: itemId, toolName: label, status: 'inProgress', detail: summarizeToolInput(item.arguments),
+        })
+      } else {
+        const output = safeJson(item.contentItems)
+        emit({ type: 'toolResult', toolCallId: itemId, toolName: label, output, isError: failed })
+        emitToolActivity(emit, {
+          toolCallId: itemId, toolName: label, status: failed ? 'failed' : 'completed', outputTail: activityOutputTail(output),
+        })
+      }
       break
     }
     case 'collabAgentToolCall':
@@ -573,14 +598,15 @@ function emitCommandActivity(
   status: string,
   state: CommandActivityState,
 ): void {
-  emit({
-    type: 'codexActivity',
-    activityType: 'command',
-    itemId,
-    status,
+  const normalizedStatus = status === 'failed' ? 'failed' : status === 'completed' ? 'completed' : 'inProgress'
+  emitToolActivity(emit, {
+    toolCallId: itemId,
+    toolName: 'shell',
+    status: normalizedStatus,
     title: status === 'failed' ? '命令执行失败' : status === 'completed' ? '命令执行完成' : '正在执行命令',
     detail: state.command,
-    data: { cwd: state.cwd || undefined, output: state.output || undefined },
+    elapsedMs: elapsedSince(state.startedAt),
+    outputTail: state.output || undefined,
   })
 }
 

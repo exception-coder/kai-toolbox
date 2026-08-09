@@ -16,6 +16,7 @@ import { createClaudeConsultSourceServer } from './codexSecurity.js'
 import { forkCodexThread, listCodexModels, type CodexModelInfo } from './codexAppServer.js'
 import { runGeminiTurn } from './geminiEngine.js'
 import { answerOpencodePermission, emitOpencodeModels, runOpencodeTurn, updateOpencodePermissionPolicy } from './opencodeEngine.js'
+import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
 
 export type Engine = 'claude' | 'codex' | 'gemini' | 'opencode'
 
@@ -332,6 +333,7 @@ class Session {
       const ac = new AbortController()
       this.abort = ac
       const toolNames = new Map<string, string>() // tool_use_id -> 工具名
+      const toolStartedAt = new Map<string, number>()
       let emitted = false
       let nativeStderr = ''
 
@@ -463,7 +465,7 @@ class Session {
 
         for await (const m of q as AsyncIterable<Record<string, unknown>>) {
           emitted = true
-          this.handle(m, toolNames)
+          this.handle(m, toolNames, toolStartedAt)
         }
         // 流正常结束但未见 result（异常收尾/流提前结束）：补发一条，解除前端永久「思考中」。
         if (!this.turnHadResult) {
@@ -629,7 +631,11 @@ class Session {
   providerEnv(): NodeJS.ProcessEnv { return this.apiBaseUrl ? this.gatewayEnv() : this.officialEnv() }
 
   // 把 SDK 消息翻译成与 Java 约定的事件
-  private handle(m: Record<string, unknown>, toolNames: Map<string, string>): void {
+  private handle(
+    m: Record<string, unknown>,
+    toolNames: Map<string, string>,
+    toolStartedAt: Map<string, number>,
+  ): void {
     const type = m.type as string
     switch (type) {
       case 'system': {
@@ -684,6 +690,18 @@ class Session {
         }
         break
       }
+      case 'tool_progress': {
+        const toolCallId = String(m.tool_use_id ?? '')
+        const toolName = String(m.tool_name ?? toolNames.get(toolCallId) ?? 'tool')
+        const elapsedSeconds = typeof m.elapsed_time_seconds === 'number' ? m.elapsed_time_seconds : undefined
+        emitToolActivity(event => this.emitSelf(event), {
+          toolCallId,
+          toolName,
+          status: 'inProgress',
+          elapsedMs: elapsedSeconds == null ? elapsedSince(toolStartedAt.get(toolCallId)) : elapsedSeconds * 1_000,
+        })
+        break
+      }
       case 'assistant': {
         const msg = m.message as Record<string, unknown> | undefined
         // API 响应里的真实模型（权威，非模型自述）——网关把请求路由到哪个上游，这里就是哪个
@@ -695,8 +713,18 @@ class Session {
         if (assistantUuid && hasText) this.lastAssistantForkAnchor = assistantUuid
         for (const b of content ?? []) {
           if (b.type === 'tool_use') {
-            toolNames.set(b.id as string, b.name as string)
-            this.emitSelf({ type: 'toolUse', toolName: b.name, input: b.input })
+            const toolCallId = String(b.id ?? '')
+            const toolName = String(b.name ?? 'tool')
+            toolNames.set(toolCallId, toolName)
+            toolStartedAt.set(toolCallId, Date.now())
+            this.emitSelf({ type: 'toolUse', toolCallId, toolName, input: b.input })
+            emitToolActivity(event => this.emitSelf(event), {
+              toolCallId,
+              toolName,
+              status: 'inProgress',
+              detail: summarizeToolInput(b.input),
+              elapsedMs: 0,
+            })
           }
         }
         break
@@ -711,12 +739,25 @@ class Session {
         }
         for (const b of content ?? []) {
           if (b.type === 'tool_result') {
+            const toolCallId = String(b.tool_use_id ?? '')
+            const toolName = toolNames.get(toolCallId) ?? ''
+            const output = stringifyContent(b.content)
+            const isError = Boolean(b.is_error)
             this.emitSelf({
               type: 'toolResult',
-              toolName: toolNames.get(b.tool_use_id as string) ?? '',
-              output: stringifyContent(b.content),
-              isError: Boolean(b.is_error),
+              toolCallId,
+              toolName,
+              output,
+              isError,
             })
+            emitToolActivity(event => this.emitSelf(event), {
+              toolCallId,
+              toolName,
+              status: isError ? 'failed' : 'completed',
+              elapsedMs: elapsedSince(toolStartedAt.get(toolCallId)),
+              outputTail: activityOutputTail(output),
+            })
+            toolStartedAt.delete(toolCallId)
           }
         }
         break
