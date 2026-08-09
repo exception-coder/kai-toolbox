@@ -50,6 +50,12 @@ export interface ConsultSessionView {
   parseStatus: string
   archiveStatus: string
   role: string
+  engine: 'claude' | 'codex'
+  model: string | null
+  codexReasoningEffort: string | null
+  codexSpeed: 'default' | 'fast' | null
+  codexHome: string | null
+  orchestrationVersion: 'v1' | 'v2' | 'v3'
   errorMsg: string | null
   createdAt: number
   endedAt: number | null
@@ -117,6 +123,12 @@ export interface StartSessionRequest {
   questionTitle: string
   question: string
   role: string
+  engine: 'claude' | 'codex'
+  model?: string | null
+  codexReasoningEffort?: string | null
+  codexSpeed?: 'default' | 'fast' | null
+  codexHome?: string | null
+  orchestrationVersion?: 'v1' | 'v2' | 'v3'
 }
 
 export interface ArchiveTurnItem {
@@ -140,6 +152,10 @@ export function startConsult(req: StartSessionRequest) {
     method: 'POST',
     body: JSON.stringify(req),
   })
+}
+
+export function listCodexHomes() {
+  return http<string[]>('/fore-consult/codex-homes')
 }
 
 export function listConsults() {

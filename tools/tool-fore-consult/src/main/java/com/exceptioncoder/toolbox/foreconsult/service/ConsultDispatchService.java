@@ -39,7 +39,7 @@ public class ConsultDispatchService {
     public ConsultOrchestrationResult initial(StartSessionRequest request) {
         return pipeline.orchestrate(new ConsultOrchestrationRequest(
                 request.question(), request.systemName(), request.systemSourcePath(),
-                request.moduleNames(), request.role(), false));
+                request.moduleNames(), request.role(), false), request.orchestrationVersion());
     }
 
     public ConsultDispatchView followUp(ConsultSession session, DispatchConsultRequest request) {
@@ -53,7 +53,8 @@ public class ConsultDispatchService {
         }
         ConsultOrchestrationResult result = pipeline.orchestrate(new ConsultOrchestrationRequest(
                 request.question(), session.getSystemName(), session.getSystemSourcePath(),
-                parseModules(session.getModuleNames()), session.getRole(), true));
+                parseModules(session.getModuleNames()), session.getRole(), true),
+                session.getOrchestrationVersion());
         return ConsultDispatchView.send(classification.reason(), result);
     }
 

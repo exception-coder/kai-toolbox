@@ -3,11 +3,9 @@ import {
   type ClipboardEvent as ReactClipboardEvent, type ReactNode,
 } from 'react'
 import { Archive, Bug, CheckCircle2, CircleDashed, Copy, Database, GitBranch, Loader2, MessagesSquare, Paperclip, Quote, Send, ShieldAlert, Square, ThumbsDown, ThumbsUp, X } from 'lucide-react'
-import { EngineIcon } from '@/features/claude-chat/components/EngineIcon'
 import { Markdown } from '@/features/claude-chat/components/Markdown'
-import { engineName } from '@/features/claude-chat/components/chatStatus'
 import type { UseClaudeChatSocket } from '@/features/claude-chat/hooks/useClaudeChatSocket'
-import type { ChatItem, Engine } from '@/features/claude-chat/types'
+import type { ChatItem } from '@/features/claude-chat/types'
 import { classifyConsultQuestion, dispatchConsultQuestion, registerBug, submitFeedback, uploadConsultAttachment } from '../api'
 import { buildConsultTurnAudits, type AuditEvidence, type AuditState, type ConsultTurnAudit } from '../consultAudit'
 
@@ -79,8 +77,6 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
   const historyScrollSnapshotRef = useRef<{ scrollHeight: number; scrollTop: number; itemCount: number } | null>(null)
   const isNearBottomRef = useRef(true)
   const previousRenderRef = useRef({ itemCount: 0, firstId: '', lastId: '', running: false })
-  const engineWatermarkRef = useRef<Partial<Record<Engine, number>>>({})
-  const engineHandoffRef = useRef<string | null>(null)
   const [historyPagingEnabled, setHistoryPagingEnabled] = useState(chat.historyLoading)
 
   // 引用某条消息：原文转 Markdown 引用块带进输入框，空一行让用户在下面接着追问。
@@ -158,8 +154,6 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
     historyScrollSnapshotRef.current = null
     isNearBottomRef.current = true
     previousRenderRef.current = { itemCount: 0, firstId: '', lastId: '', running: false }
-    engineWatermarkRef.current = {}
-    engineHandoffRef.current = null
   }, [consultId])
 
   useEffect(() => {
@@ -297,32 +291,12 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
     developerInstructions?: string,
   ) => {
     isNearBottomRef.current = true
-    const handoff = engineHandoffRef.current
-    const instructions = [handoff, developerInstructions].filter(Boolean).join('\n\n') || undefined
-    engineHandoffRef.current = null
-    if (shouldQueue) chat.enqueue(message, attachments, undefined, instructions)
-    else chat.send(message, attachments, undefined, instructions)
+    if (shouldQueue) chat.enqueue(message, attachments, undefined, developerInstructions)
+    else chat.send(message, attachments, undefined, developerInstructions)
     setText('')
     setAtts([])
   }
 
-  const switchConsultEngine = (engine: Extract<Engine, 'claude' | 'codex'>) => {
-    if (engine === chat.currentEngine || running || !chat.sessionId) return
-    engineWatermarkRef.current[chat.currentEngine] = items.length
-    const start = engineWatermarkRef.current[engine] ?? 0
-    const transcript = items
-      .slice(start)
-      .filter((item) => item.kind === 'user' || item.kind === 'assistant')
-      .map((item) => `${item.kind === 'user' ? '用户' : '助手'}：${item.kind === 'user' ? item.displayText ?? item.text : item.text}`)
-      .join('\n')
-    const boundedTranscript = transcript.length > 6000
-      ? `…（较早内容略）\n${transcript.slice(-6000)}`
-      : transcript
-    engineHandoffRef.current = boundedTranscript.trim()
-      ? `你已从 ${engineName(chat.currentEngine)} 切换到 ${engineName(engine)}。以下是目标引擎尚未看到的咨询上下文，请据此继续回答，不要向用户复述交接说明：\n\n${boundedTranscript}`
-      : null
-    chat.switchEngine(engine)
-  }
   const send = async () => {
     if (!chat || !canSend || sendingRef.current) return
     sendingRef.current = true
@@ -388,26 +362,6 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
             </div>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="flex items-center rounded-lg border border-slate-200 bg-white/80 p-0.5" aria-label="咨询引擎">
-              {(['claude', 'codex'] as const).map((engine) => (
-                <button
-                  key={engine}
-                  type="button"
-                  onClick={() => switchConsultEngine(engine)}
-                  disabled={running || !chat.sessionId}
-                  className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                    chat.currentEngine === engine
-                      ? 'bg-slate-900 text-white shadow-sm'
-                      : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
-                  }`}
-                  title={running ? '回答生成中，暂不能切换引擎' : `切换到 ${engineName(engine)}`}
-                  aria-pressed={chat.currentEngine === engine}
-                >
-                  <EngineIcon engine={engine} className="size-3" />
-                  <span className="hidden sm:inline">{engine === 'claude' ? 'Claude Code' : 'Codex'}</span>
-                </button>
-              ))}
-            </div>
             <button
               type="button"
               onPointerDown={(event) => event.stopPropagation()}

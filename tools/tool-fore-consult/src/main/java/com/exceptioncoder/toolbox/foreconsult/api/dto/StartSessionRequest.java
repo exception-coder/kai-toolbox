@@ -25,6 +25,12 @@ public record StartSessionRequest(
         String questionTitle,
         @NotBlank @Size(max = 4000) String question,
         String userId,
-        String role
+        String role,
+        @Pattern(regexp = "claude|codex") String engine,
+        @Size(max = 100) String model,
+        @Size(max = 20) String codexReasoningEffort,
+        @Pattern(regexp = "default|fast") String codexSpeed,
+        @Size(max = 500) String codexHome,
+        @Pattern(regexp = "v1|v2|v3") String orchestrationVersion
 ) {
 }

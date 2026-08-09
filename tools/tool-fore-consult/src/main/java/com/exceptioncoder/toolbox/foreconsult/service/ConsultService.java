@@ -11,6 +11,7 @@ import com.exceptioncoder.toolbox.foreconsult.repository.ConsultFeedbackReposito
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultSessionRepository;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultTurnExtractionRepository;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultTurnRepository;
+import com.exceptioncoder.toolbox.foreconsult.service.orchestration.ConsultOrchestrationPipeline;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -98,6 +99,12 @@ public class ConsultService {
                 .moduleNames(serializeModules(req.moduleNames()))
                 .promptSnapshot(promptSnapshot)
                 .role(req.role() != null && !req.role().isBlank() ? req.role() : "IT")
+                .engine("claude".equalsIgnoreCase(req.engine()) ? "claude" : "codex")
+                .model(blankToNull(req.model()))
+                .codexReasoningEffort(blankToNull(req.codexReasoningEffort()))
+                .codexSpeed(blankToNull(req.codexSpeed()))
+                .codexHome(blankToNull(req.codexHome()))
+                .orchestrationVersion(ConsultOrchestrationPipeline.normalizeVersion(req.orchestrationVersion()))
                 .parseStatus("NONE")
                 .archiveStatus("PENDING")
                 .createdAt(System.currentTimeMillis())

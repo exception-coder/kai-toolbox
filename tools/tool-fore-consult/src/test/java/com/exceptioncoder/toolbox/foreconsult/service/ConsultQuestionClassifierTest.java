@@ -60,7 +60,9 @@ class ConsultQuestionClassifierTest {
         };
         when(runnerProvider.getIfAvailable()).thenReturn(runner);
         when(sessionRepo.findById("session-1")).thenReturn(Optional.of(
-                ConsultSession.builder().sessionId("session-1").userId("7").build()));
+                ConsultSession.builder().sessionId("session-1").userId("7").engine("codex")
+                        .model("gpt-5.6-codex").codexReasoningEffort("high").codexSpeed("fast")
+                        .codexHome("C:\\Users\\zhang\\.codex").build()));
         when(turnRepo.findBySession("session-1")).thenReturn(List.of(
                 ConsultTurn.builder().question("首个问题").build()));
         ConsultQuestionClassifier classifier = new ConsultQuestionClassifier(
@@ -76,7 +78,10 @@ class ConsultQuestionClassifierTest {
         assertThat(elapsedMs).isLessThan(1_000);
         assertThat(interrupted.await(1, TimeUnit.SECONDS)).isTrue();
         assertThat(usedEngine.get()).isEqualTo("codex");
-        assertThat(usedRequest.get().reasoningEffort()).isEqualTo("low");
+        assertThat(usedRequest.get().model()).isEqualTo("gpt-5.6-codex");
+        assertThat(usedRequest.get().reasoningEffort()).isEqualTo("high");
+        assertThat(usedRequest.get().speed()).isEqualTo("fast");
+        assertThat(usedRequest.get().codexHome()).isEqualTo("C:\\Users\\zhang\\.codex");
         assertThat(usedRequest.get().toolPolicy()).isEqualTo(AgentOneShotRunner.TOOL_POLICY_DISABLED);
     }
 }

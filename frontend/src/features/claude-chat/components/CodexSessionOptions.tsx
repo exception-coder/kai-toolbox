@@ -9,10 +9,14 @@ interface Props {
   reasoningEffort: CodexReasoningEffort
   speed: CodexSpeed
   codexHome?: string | null
+  codexHomes?: string[]
+  codexHomesLoading?: boolean
   showCodexHome?: boolean
+  advancedContent?: ReactNode
   disabled?: boolean
   onModelChange: (model: string) => void
   onOptionsChange: (effort: CodexReasoningEffort, speed: CodexSpeed) => void
+  onCodexHomeChange?: (codexHome: string) => void
 }
 
 const DEFAULT_EFFORTS: CodexReasoningEffort[] = [
@@ -59,10 +63,14 @@ export function CodexSessionOptions({
   reasoningEffort,
   speed,
   codexHome,
+  codexHomes = [],
+  codexHomesLoading,
   showCodexHome,
+  advancedContent,
   disabled,
   onModelChange,
   onOptionsChange,
+  onCodexHomeChange,
 }: Props) {
   const [open, setOpen] = useState(false)
   const [activeSection, setActiveSection] = useState<'model' | 'effort' | 'speed' | null>(null)
@@ -132,7 +140,7 @@ export function CodexSessionOptions({
                 <ConfigRow label="模型" value={modelLabel} onClick={() => setActiveSection('model')} />
                 <ConfigRow label="推理强度" value={effortValueLabel} icon={<Gauge className="size-4" />} onClick={() => setActiveSection('effort')} />
                 <ConfigRow label="速度" value={speedLabel} icon={<Zap className="size-4" />} onClick={() => setActiveSection('speed')} />
-                {showCodexHome && (
+                {(showCodexHome || advancedContent) && (
                   <>
                     <div className="my-1 border-t" />
                     <button
@@ -144,12 +152,32 @@ export function CodexSessionOptions({
                       <ChevronDown className={`ml-auto size-3.5 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
                     </button>
                     {showAdvanced && (
-                      <div className="flex min-w-0 items-start gap-2 rounded-lg bg-[var(--color-muted)] px-2 py-2 text-xs" title={`当前会话 Codex Auth 目录：${authHomeLabel}`}>
-                        <FolderKey className="mt-0.5 size-3.5 shrink-0 text-[var(--color-muted-foreground)]" />
-                        <div className="min-w-0">
-                          <div className="text-[var(--color-muted-foreground)]">Auth 目录</div>
-                          <div className="truncate text-[var(--color-foreground)]">{authHomeLabel}</div>
-                        </div>
+                      <div className="space-y-2">
+                        {showCodexHome && (
+                          <div className="flex min-w-0 items-start gap-2 rounded-lg bg-[var(--color-muted)] px-2 py-2 text-xs" title={`当前会话 Codex Auth 目录：${authHomeLabel}`}>
+                            <FolderKey className="mt-0.5 size-3.5 shrink-0 text-[var(--color-muted-foreground)]" />
+                            <div className="min-w-0 flex-1">
+                              <div className="text-[var(--color-muted-foreground)]">Auth 目录</div>
+                              {onCodexHomeChange ? (
+                                <select
+                                  value={codexHome ?? ''}
+                                  onChange={(event) => onCodexHomeChange(event.target.value)}
+                                  disabled={disabled || codexHomesLoading || codexHomes.length === 0}
+                                  aria-label="Codex 授权目录"
+                                  className="mt-1 h-8 w-full rounded-md border bg-[var(--color-background)] px-2 text-xs text-[var(--color-foreground)] outline-none focus:border-[var(--color-primary)] disabled:opacity-50"
+                                >
+                                  {codexHomes.length === 0 && (
+                                    <option value="">{codexHomesLoading ? '正在加载授权目录…' : '未发现 .codex 前缀目录'}</option>
+                                  )}
+                                  {codexHomes.map(path => <option key={path} value={path}>{path}</option>)}
+                                </select>
+                              ) : (
+                                <div className="truncate text-[var(--color-foreground)]">{authHomeLabel}</div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        {advancedContent}
                       </div>
                     )}
                   </>

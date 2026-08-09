@@ -14,6 +14,7 @@ type JsonRpcRequest = {
 
 const API_BASE = (process.env.TOOLBOX_API_BASE || '').replace(/\/+$/, '')
 const SOURCE_ROOT = resolveSourceRoot(process.env.TOOLBOX_SOURCE_ROOT)
+const ERP_STANDBY_SCHEMA_PATH = resolveSchemaPath(process.env.ERP_STANDBY_SCHEMA_PATH)
 const DATABASES = {
   erp_db_query: '/api/claude-chat/erp-db/query',
   srm_db_query: '/api/claude-chat/srm-db/query',
@@ -90,7 +91,37 @@ const sourceTools = SOURCE_ROOT ? [
   },
 ] : []
 
-const tools = [...(API_BASE ? databaseTools : []), ...sourceTools]
+const standbySchemaTools = ERP_STANDBY_SCHEMA_PATH ? [
+  {
+    name: 'erp_standby_schema_search',
+    description: '搜索 ERP 生产备库 DDL 快照中的真实表、视图和字段。用于确认备库可用对象；名称相似结果仅是候选，不等于替代关系。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: '表名、视图名或字段名关键词' },
+        maxResults: { type: 'integer', minimum: 1, maximum: 50, description: '最多返回对象数，默认 20' },
+      },
+      required: ['query'],
+      additionalProperties: false,
+    },
+    annotations: readonlyAnnotations(),
+  },
+  {
+    name: 'erp_standby_validate_sql',
+    description: '输出 ERP 生产查询 SQL 前的强制静态校验：核对 FROM/JOIN 对象是否存在于生产备库 DDL 快照，并核对可明确归属的别名字段。只校验，不执行 SQL。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sql: { type: 'string', description: '准备交付给 ERP 生产备库执行的单条 SELECT/WITH SQL' },
+      },
+      required: ['sql'],
+      additionalProperties: false,
+    },
+    annotations: readonlyAnnotations(),
+  },
+] : []
+
+const tools = [...(API_BASE ? databaseTools : []), ...sourceTools, ...standbySchemaTools]
 const SKIPPED_DIRECTORIES = new Set([
   '.git', '.idea', '.vscode', 'node_modules', 'target', 'dist', 'build', 'out', 'coverage', '.next', '.cache',
   'graphify-out',
@@ -122,6 +153,125 @@ function resolveSourceRoot(value?: string): string | null {
   } catch {
     return null
   }
+}
+
+function resolveSchemaPath(value?: string): string | null {
+  if (!value?.trim()) return null
+  try {
+    const path = realpathSync(resolve(value.trim()))
+    return statSync(path).isFile() ? path : null
+  } catch {
+    return null
+  }
+}
+
+type StandbyObject = {
+  name: string
+  type: 'TABLE' | 'VIEW'
+  columns: string[]
+}
+
+let standbyCatalog: Map<string, StandbyObject> | null = null
+
+function loadStandbyCatalog(): Map<string, StandbyObject> {
+  if (!ERP_STANDBY_SCHEMA_PATH) throw new Error('ERP 生产备库结构快照未配置')
+  if (standbyCatalog) return standbyCatalog
+  const ddl = decodeSourceFile(ERP_STANDBY_SCHEMA_PATH)
+  const catalog = new Map<string, StandbyObject>()
+  const objectPattern = /^\s*CREATE\s+(?:OR\s+REPLACE\s+)?(TABLE|VIEW)\s+(?:"[^"]+"\.)?(?:"([^"]+)"|([A-Z0-9_$#]+))([\s\S]*?)(?=^\s*(?:CREATE|DROP|ALTER|COMMENT|GRANT)\s|(?![\s\S]))/gim
+  for (const match of ddl.matchAll(objectPattern)) {
+    const type = match[1].toUpperCase() as StandbyObject['type']
+    const name = (match[2] || match[3]).toUpperCase()
+    const explicitColumns = [...match[4].matchAll(/^\s*"([^"]+)"\s+/gm)]
+      .map(column => column[1].toUpperCase())
+    const viewProjection = type === 'VIEW' ? match[4].match(/\bSELECT\b([\s\S]*?)\bFROM\b/i)?.[1] ?? '' : ''
+    const projectedColumns = [...viewProjection.matchAll(/\.\s*"([^"]+)"|\bAS\s+"([^"]+)"/gi)]
+      .map(column => (column[1] || column[2]).toUpperCase())
+    const columns = explicitColumns.length ? explicitColumns : projectedColumns
+    catalog.set(name, { name, type, columns: [...new Set(columns)] })
+  }
+  standbyCatalog = catalog
+  return catalog
+}
+
+function standbySchemaSearch(args: Record<string, unknown>): Record<string, unknown> {
+  const query = typeof args.query === 'string' ? args.query.trim().toUpperCase() : ''
+  if (!query) throw new Error('erp_standby_schema_search.query 不能为空')
+  const maxResults = clampInteger(args.maxResults, 20, 1, 50)
+  const catalog = loadStandbyCatalog()
+  const matches = [...catalog.values()]
+    .map(object => ({
+      object,
+      nameMatch: object.name.includes(query),
+      matchingColumns: object.columns.filter(column => column.includes(query)).slice(0, 30),
+    }))
+    .filter(result => result.nameMatch || result.matchingColumns.length)
+    .sort((left, right) => Number(right.nameMatch) - Number(left.nameMatch)
+      || left.object.name.localeCompare(right.object.name))
+    .slice(0, maxResults)
+  return textResult(JSON.stringify({
+    schemaPath: ERP_STANDBY_SCHEMA_PATH,
+    objectCount: catalog.size,
+    results: matches.map(({ object, matchingColumns }) => ({ ...object, matchingColumns })),
+  }, null, 2))
+}
+
+function normalizeSqlIdentifier(value: string): string {
+  const parts = value.split('.')
+  return parts[parts.length - 1].replaceAll('"', '').toUpperCase()
+}
+
+function candidateObjects(name: string, catalog: Map<string, StandbyObject>): Array<Pick<StandbyObject, 'name' | 'type'>> {
+  const tokens = name.split(/[_$#]+/).filter(token => token.length >= 3)
+  return [...catalog.values()]
+    .map(object => ({ object, score: tokens.reduce((score, token) => score + Number(object.name.includes(token)), 0) }))
+    .filter(result => result.score > 0)
+    .sort((left, right) => right.score - left.score || left.object.name.localeCompare(right.object.name))
+    .slice(0, 8)
+    .map(result => ({ name: result.object.name, type: result.object.type }))
+}
+
+function validateStandbySql(args: Record<string, unknown>): Record<string, unknown> {
+  const sql = typeof args.sql === 'string' ? args.sql.trim() : ''
+  const violation = validateReadonlySql(sql)
+  if (violation) throw new Error(`已拒绝：${violation}`)
+  const catalog = loadStandbyCatalog()
+  const references = [...sql.matchAll(/\b(?:FROM|JOIN)\s+((?:"[^"]+"|[A-Z0-9_$#]+)(?:\s*\.\s*(?:"[^"]+"|[A-Z0-9_$#]+))?)(?:\s+(?:AS\s+)?("?[A-Z][A-Z0-9_$#]*"?))?/gi)]
+    .filter(match => !match[1].trim().startsWith('('))
+    .map(match => ({ name: normalizeSqlIdentifier(match[1].replace(/\s/g, '')), alias: match[2]?.replaceAll('"', '').toUpperCase() }))
+  const uniqueReferences = [...new Map(references.map(reference => [reference.name, reference])).values()]
+  const aliases = new Map<string, StandbyObject>()
+  for (const reference of references) {
+    const object = catalog.get(reference.name)
+    if (object) aliases.set(reference.alias || reference.name, object)
+  }
+  const missingObjects = uniqueReferences
+    .filter(reference => !catalog.has(reference.name))
+    .map(reference => ({ name: reference.name, candidates: candidateObjects(reference.name, catalog) }))
+  const missingColumns = [...sql.matchAll(/\b("?[A-Z][A-Z0-9_$#]*"?)\s*\.\s*("?[A-Z][A-Z0-9_$#]*"?)/gi)]
+    .map(match => ({ alias: match[1].replaceAll('"', '').toUpperCase(), column: match[2].replaceAll('"', '').toUpperCase() }))
+    .filter(reference => aliases.has(reference.alias))
+    .filter(reference => aliases.get(reference.alias)!.columns.length > 0)
+    .filter(reference => !aliases.get(reference.alias)!.columns.includes(reference.column))
+  const unknownColumnObjects = [...new Set([...aliases.values()]
+    .filter(object => object.columns.length === 0)
+    .map(object => object.name))]
+  const objects = uniqueReferences
+    .filter(reference => catalog.has(reference.name))
+    .map(reference => catalog.get(reference.name)!)
+  return textResult(JSON.stringify({
+    valid: references.length > 0 && missingObjects.length === 0 && missingColumns.length === 0,
+    schemaPath: ERP_STANDBY_SCHEMA_PATH,
+    checkedObjects: objects,
+    missingObjects,
+    missingColumns,
+    warnings: [
+      ...(references.length ? [] : ['未能从 SQL 的 FROM/JOIN 中识别校验对象']),
+      ...(unknownColumnObjects.length ? [`以下对象未能从 DDL 推导字段，未执行字段级判定：${unknownColumnObjects.join(', ')}`] : []),
+      '候选对象只表示名称相关，不证明表与视图存在替代关系。',
+      '未带对象别名且无法唯一归属的字段不做自动判定。',
+    ],
+  }, null, 2))
 }
 
 function resolveWithinSourceRoot(requestedPath: string): string {
@@ -393,6 +543,8 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<Re
     if (name === 'source_context') return buildSourceContext(args)
     if (name === 'source_search') return searchSource(args)
     if (name === 'source_read') return readSource(args)
+    if (name === 'erp_standby_schema_search') return standbySchemaSearch(args)
+    if (name === 'erp_standby_validate_sql') return validateStandbySql(args)
   } catch (error) {
     return textResult(error instanceof Error ? error.message : String(error), true)
   }

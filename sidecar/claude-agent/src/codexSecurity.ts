@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import {
   createCodexCrossTopologyServer,
@@ -60,10 +61,17 @@ function readonlyProcessEnv(): Record<string, string> {
   return Object.fromEntries(names.flatMap(name => process.env[name] ? [[name, process.env[name]!]] : []))
 }
 
+function erpStandbySchemaPath(): string | undefined {
+  const configured = process.env.ERP_STANDBY_SCHEMA_PATH?.trim()
+  const candidate = configured || join(homedir(), '.kai-toolbox', 'fore-consult', 'erp-standby-schema', 'YOOONI.sql')
+  return existsSync(candidate) ? resolve(candidate) : undefined
+}
+
 function createConsultReadonlyServer(sourceRoot?: string): Record<string, unknown> | null {
   const apiBase = process.env.TOOLBOX_API_BASE?.trim()
   const readableSourceRoot = sourceRoot?.trim() && existsSync(sourceRoot) ? resolve(sourceRoot) : undefined
-  if (!apiBase && !readableSourceRoot) return null
+  const standbySchema = erpStandbySchemaPath()
+  if (!apiBase && !readableSourceRoot && !standbySchema) return null
   const script = readonlyMcpScript()
   if (!script) return null
   return {
@@ -72,11 +80,13 @@ function createConsultReadonlyServer(sourceRoot?: string): Record<string, unknow
       ...readonlyProcessEnv(),
       ...(apiBase ? { TOOLBOX_API_BASE: apiBase } : {}),
       ...(readableSourceRoot ? { TOOLBOX_SOURCE_ROOT: readableSourceRoot } : {}),
+      ...(standbySchema ? { ERP_STANDBY_SCHEMA_PATH: standbySchema } : {}),
     },
     enabled: true,
     enabled_tools: [
       ...(apiBase ? ['erp_db_query', 'srm_db_query', 'scm_db_query'] : []),
       ...(readableSourceRoot ? ['source_context', 'source_search', 'source_read'] : []),
+      ...(standbySchema ? ['erp_standby_schema_search', 'erp_standby_validate_sql'] : []),
     ],
     required: true,
     default_tools_approval_mode: 'approve',
@@ -86,13 +96,18 @@ function createConsultReadonlyServer(sourceRoot?: string): Record<string, unknow
 /** Claude 咨询会话复用同一只读源码编排器，确保多引擎遵循一致的 Graphify-first 流程。 */
 export function createClaudeConsultSourceServer(sourceRoot?: string): Record<string, unknown> | null {
   const readableSourceRoot = sourceRoot?.trim() && existsSync(sourceRoot) ? resolve(sourceRoot) : undefined
-  if (!readableSourceRoot) return null
+  const standbySchema = erpStandbySchemaPath()
+  if (!readableSourceRoot && !standbySchema) return null
   const script = readonlyMcpScript()
   if (!script) return null
   return {
     type: 'stdio',
     ...script,
-    env: { ...readonlyProcessEnv(), TOOLBOX_SOURCE_ROOT: readableSourceRoot },
+    env: {
+      ...readonlyProcessEnv(),
+      ...(readableSourceRoot ? { TOOLBOX_SOURCE_ROOT: readableSourceRoot } : {}),
+      ...(standbySchema ? { ERP_STANDBY_SCHEMA_PATH: standbySchema } : {}),
+    },
   }
 }
 

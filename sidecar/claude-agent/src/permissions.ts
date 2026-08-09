@@ -33,6 +33,8 @@ const CONSULT_READONLY_MCP_TOOLS = new Set([
   'mcp__consult-readonly__source_context',
   'mcp__consult-readonly__source_search',
   'mcp__consult-readonly__source_read',
+  'mcp__consult-readonly__erp_standby_schema_search',
+  'mcp__consult-readonly__erp_standby_validate_sql',
 ])
 const CONSULT_READONLY_MCP_PREFIXES = [
   'mcp__domain-knowledge__',

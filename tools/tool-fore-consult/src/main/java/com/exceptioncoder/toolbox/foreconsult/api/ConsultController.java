@@ -18,6 +18,7 @@ import com.exceptioncoder.toolbox.foreconsult.service.ConsultAttachmentService;
 import com.exceptioncoder.toolbox.foreconsult.service.ConsultDispatchService;
 import com.exceptioncoder.toolbox.foreconsult.service.ConsultService;
 import com.exceptioncoder.toolbox.foreconsult.service.ConsultQuestionClassifier;
+import com.exceptioncoder.toolbox.foreconsult.service.CodexHomeDiscoveryService;
 import com.exceptioncoder.toolbox.foreconsult.service.TurnBugExtractionService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -60,16 +61,25 @@ public class ConsultController {
     private final TurnBugExtractionService bugExtractionService;
     private final ConsultQuestionClassifier questionClassifier;
     private final ConsultDispatchService dispatchService;
+    private final CodexHomeDiscoveryService codexHomeDiscoveryService;
 
     public ConsultController(ConsultService service, ConsultAttachmentService attachmentService,
                              TurnBugExtractionService bugExtractionService,
                              ConsultQuestionClassifier questionClassifier,
-                             ConsultDispatchService dispatchService) {
+                             ConsultDispatchService dispatchService,
+                             CodexHomeDiscoveryService codexHomeDiscoveryService) {
         this.service = service;
         this.attachmentService = attachmentService;
         this.bugExtractionService = bugExtractionService;
         this.questionClassifier = questionClassifier;
         this.dispatchService = dispatchService;
+        this.codexHomeDiscoveryService = codexHomeDiscoveryService;
+    }
+
+    /** Lists Codex authorization directories directly below the runtime user's home directory. */
+    @GetMapping("/codex-homes")
+    public List<String> listCodexHomes() {
+        return codexHomeDiscoveryService.list();
     }
 
     /** 上传咨询附件（图片/Excel/Word/Markdown/PDF 等）。落盘到系统 cwd 或用户目录，返回绝对路径。 */

@@ -39,6 +39,7 @@ const READONLY_KNOWLEDGE_TOOLS = [
   'list_modules',
   'list_topics',
   'search_knowledge',
+  'locate_menu',
   'get_knowledge',
   'get_related',
 ]

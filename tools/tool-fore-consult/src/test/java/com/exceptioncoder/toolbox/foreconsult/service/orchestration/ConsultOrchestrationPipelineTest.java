@@ -78,4 +78,70 @@ class ConsultOrchestrationPipelineTest {
                 .containsExactly("security-boundary", "custom-diagnostic", "intent-and-clarification");
         assertThat(result.prompt()).contains("执行租户专属的只读诊断");
     }
+
+    @Test
+    void optimizedPipelineUsesMenuKnowledgeAndEvidenceGateWithoutClassicSteps() {
+        ConsultStandardStepConfiguration classic = new ConsultStandardStepConfiguration();
+        ConsultOptimizedStepConfiguration optimized = new ConsultOptimizedStepConfiguration();
+        ConsultOrchestrationPipeline pipeline = new ConsultOrchestrationPipeline(List.of(
+                classic.consultSecurityBoundaryStep(),
+                optimized.consultV2SafetyAndScopeStep(),
+                optimized.consultV2EvidencePlanStep(),
+                optimized.consultV2MenuAndSourceStep(),
+                optimized.consultV2RuntimeEvidenceStep(),
+                optimized.consultV2EvidenceGateStep(),
+                optimized.consultV2AnswerContractStep()));
+
+        ConsultOrchestrationResult result = pipeline.orchestrate(new ConsultOrchestrationRequest(
+                "标签打印在哪个菜单？", "yoooni", "D:\\yoooni",
+                List.of("仓库管理"), "BIZ", false), "v2");
+
+        assertThat(result.pipelineVersion()).isEqualTo("consult-orchestration-v2");
+        assertThat(result.steps()).extracting(ConsultOrchestrationResult.StepTrace::id)
+                .containsExactly(
+                        "v2-safety-and-scope", "v2-evidence-plan", "v2-menu-and-source",
+                        "v2-runtime-evidence", "v2-evidence-gate", "v2-answer-contract");
+        assertThat(result.prompt())
+                .contains("impl/modules.json")
+                .contains("domain-knowledge.locate_menu")
+                .contains("没有菜单证据时不得给出具体菜单")
+                .contains("【业务员怎么操作】")
+                .doesNotContain("产品文档、FAQ 与历史工单");
+    }
+
+    @Test
+    void productionStandbyPipelineExtendsV2AndAddsSchemaGate() {
+        ConsultOptimizedStepConfiguration optimized = new ConsultOptimizedStepConfiguration();
+        ConsultProductionStandbyStepConfiguration production = new ConsultProductionStandbyStepConfiguration();
+        ConsultOrchestrationPipeline pipeline = new ConsultOrchestrationPipeline(List.of(
+                optimized.consultV2SafetyAndScopeStep(),
+                optimized.consultV2EvidencePlanStep(),
+                optimized.consultV2MenuAndSourceStep(),
+                optimized.consultV2RuntimeEvidenceStep(),
+                production.consultV3ProductionStandbySchemaStep(),
+                optimized.consultV2EvidenceGateStep(),
+                optimized.consultV2AnswerContractStep()));
+
+        ConsultOrchestrationResult result = pipeline.orchestrate(new ConsultOrchestrationRequest(
+                "给出生产备库查询订单的 SQL", "ERP", "D:\\yoooni",
+                List.of("销售管理"), "IT", false), "v3");
+
+        assertThat(result.pipelineVersion()).isEqualTo("consult-orchestration-v3");
+        assertThat(result.steps()).extracting(ConsultOrchestrationResult.StepTrace::id)
+                .containsExactly(
+                        "v2-safety-and-scope", "v2-evidence-plan", "v2-menu-and-source",
+                        "v2-runtime-evidence", "v3-erp-production-standby-schema",
+                        "v2-evidence-gate", "v2-answer-contract");
+        assertThat(result.prompt())
+                .contains("erp_standby_validate_sql")
+                .contains("TABLE 与 VIEW")
+                .contains("名称相似只能作为候选")
+                .contains("【业务员怎么操作】");
+
+        ConsultOrchestrationResult v2Result = pipeline.orchestrate(new ConsultOrchestrationRequest(
+                "给出测试库查询订单的 SQL", "ERP", "D:\\yoooni",
+                List.of("销售管理"), "IT", false), "v2");
+        assertThat(v2Result.steps()).extracting(ConsultOrchestrationResult.StepTrace::id)
+                .doesNotContain("v3-erp-production-standby-schema");
+    }
 }

@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.foreconsult.service;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ClassifyQuestionRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.QuestionClassificationView;
 import com.exceptioncoder.toolbox.foreconsult.domain.ConsultTurn;
+import com.exceptioncoder.toolbox.foreconsult.domain.ConsultSession;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultSessionRepository;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultTurnRepository;
 import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
@@ -55,9 +56,8 @@ public class ConsultQuestionClassifier {
     }
 
     public QuestionClassificationView classify(String sessionId, ClassifyQuestionRequest request) {
-        if (sessionRepository.findById(sessionId).isEmpty()) {
-            throw new ResponseStatusException(NOT_FOUND, "咨询会话不存在: " + sessionId);
-        }
+        ConsultSession session = sessionRepository.findById(sessionId)
+                .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "咨询会话不存在: " + sessionId));
         String firstQuestion = turnRepository.findBySession(sessionId).stream()
                 .map(ConsultTurn::getQuestion)
                 .filter(value -> value != null && !value.isBlank())
@@ -74,8 +74,8 @@ public class ConsultQuestionClassifier {
                 .formatted(firstQuestion.trim(), request.question().trim());
         try {
             long startedAt = System.nanoTime();
-            String raw = runWithTimeout(runner, userPrompt, normalizeEngine(request.engine()));
-            log.info("[fore-consult] 问题边界识别完成，engine={} latencyMs={}", request.engine(),
+            String raw = runWithTimeout(runner, userPrompt, session);
+            log.info("[fore-consult] 问题边界识别完成，engine={} latencyMs={}", session.getEngine(),
                     TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
             JsonNode result = mapper.readTree(stripFence(raw == null ? "" : raw.trim()));
             String classification = result.path("classification").asText("").trim().toUpperCase();
@@ -93,10 +93,11 @@ public class ConsultQuestionClassifier {
         }
     }
 
-    private String runWithTimeout(AgentOneShotRunner runner, String userPrompt, String engine) throws Exception {
+    private String runWithTimeout(AgentOneShotRunner runner, String userPrompt, ConsultSession session) throws Exception {
         AgentOneShotRunner.ExecutionRequest request = new AgentOneShotRunner.ExecutionRequest(
-                SYSTEM_PROMPT, userPrompt, null, null, engine,
-                "low", "default", null, null, null, AgentOneShotRunner.TOOL_POLICY_DISABLED);
+                SYSTEM_PROMPT, userPrompt, session.getSystemSourcePath(), session.getModel(), normalizeEngine(session.getEngine()),
+                valueOrDefault(session.getCodexReasoningEffort(), "low"), valueOrDefault(session.getCodexSpeed(), "default"),
+                null, null, session.getCodexHome(), AgentOneShotRunner.TOOL_POLICY_DISABLED);
         FutureTask<String> task = new FutureTask<>(() -> runner.runOnce(request));
         Thread.ofVirtual().name("fore-consult-classify").start(task);
         try {
@@ -113,9 +114,14 @@ public class ConsultQuestionClassifier {
     }
 
     private static String normalizeEngine(String engine) {
+        if (engine == null || engine.isBlank()) return "codex";
         if ("claude".equalsIgnoreCase(engine)) return "claude";
         if ("codex".equalsIgnoreCase(engine)) return "codex";
         throw new IllegalArgumentException("业务咨询仅支持 claude 或 codex 引擎");
+    }
+
+    private static String valueOrDefault(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
     }
 
     private static QuestionClassificationView fallback(String reason) {

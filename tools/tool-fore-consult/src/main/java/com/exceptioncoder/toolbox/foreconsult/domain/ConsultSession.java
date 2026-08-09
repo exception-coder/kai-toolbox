@@ -34,6 +34,13 @@ public class ConsultSession {
     private String archiveStatus;
     /** 回答对象角色：IT（IT 客服）| BIZ（业务员），决定回答约束。 */
     private String role;
+    private String engine;
+    private String model;
+    private String codexReasoningEffort;
+    private String codexSpeed;
+    private String codexHome;
+    /** 咨询调度版本快照：v1 经典版 | v2 优化版。 */
+    private String orchestrationVersion;
     private String errorMsg;
     private long createdAt;
     /** 会话结束时间（毫秒），未结束时为 null。 */

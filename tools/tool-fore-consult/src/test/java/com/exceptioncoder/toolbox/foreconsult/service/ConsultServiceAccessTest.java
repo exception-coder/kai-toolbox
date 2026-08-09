@@ -84,7 +84,8 @@ class ConsultServiceAccessTest {
         authenticate(7L, "yuy", "USER");
         StartSessionRequest request =
                 new StartSessionRequest(
-                        "ERP", "D:\\erp", List.of(), "260806-采购退货单入口", "question", "forged-user", "BIZ");
+                        "ERP", "D:\\erp", List.of(), "260806-采购退货单入口", "question", "forged-user", "BIZ",
+                        "codex", null, "low", "default", "C:\\Users\\zhang\\.codex", "v2");
 
         service.startSession(request, "server-built-prompt");
 
@@ -93,6 +94,10 @@ class ConsultServiceAccessTest {
         assertThat(captor.getValue().getUserId()).isEqualTo("7");
         assertThat(captor.getValue().getQuestionTitle()).isEqualTo("260806-采购退货单入口");
         assertThat(captor.getValue().getPromptSnapshot()).isEqualTo("server-built-prompt");
+        assertThat(captor.getValue().getEngine()).isEqualTo("codex");
+        assertThat(captor.getValue().getCodexReasoningEffort()).isEqualTo("low");
+        assertThat(captor.getValue().getCodexHome()).isEqualTo("C:\\Users\\zhang\\.codex");
+        assertThat(captor.getValue().getOrchestrationVersion()).isEqualTo("v2");
     }
 
     @Test

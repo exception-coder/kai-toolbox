@@ -12,11 +12,10 @@ import {
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { usePrompt } from '@/components/ui/prompt-dialog'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
-import { EngineIcon } from '@/features/claude-chat/components/EngineIcon'
-import { engineName } from '@/features/claude-chat/components/chatStatus'
+import { CodexSessionOptions } from '@/features/claude-chat/components/CodexSessionOptions'
 import { useClaudeChatSocket } from '@/features/claude-chat/hooks/useClaudeChatSocket'
-import { setSessionGroupApi } from '@/features/claude-chat/api'
-import type { ChatItem, Engine } from '@/features/claude-chat/types'
+import { fetchCodexModels, setSessionGroupApi } from '@/features/claude-chat/api'
+import type { ChatItem, CodexReasoningEffort, CodexSpeed, Engine } from '@/features/claude-chat/types'
 import { ConsultConversation } from '../components/ConsultConversation'
 import { BugDrawer } from '../components/BugDrawer'
 import { ConsultHistoryDetail } from '../components/ConsultHistoryDetail'
@@ -26,6 +25,7 @@ import {
   fetchProjectModules,
   linkDevSession,
   listConsults,
+  listCodexHomes,
   analyzeTopology,
   getTopology,
   listBugs,
@@ -87,9 +87,6 @@ const SYSTEM_ICONS: Array<{ kw: string[]; Icon: LucideIcon }> = [
 
 // 业务咨询拉起的会话统一归入该分组（claude-chat 分组即 group_name 字符串，命名即创建）。
 const CONSULT_GROUP = '业务咨询'
-const CONSULT_CODEX_HOME = 'C:\\Users\\zhang\\.codex'
-const CONSULT_CODEX_REASONING = 'low'
-const CONSULT_CODEX_SPEED = 'default'
 const CONSULT_ROLE: ConsultRole = 'BIZ'
 const QUESTION_TITLE_MAX_LENGTH = 33
 
@@ -450,7 +447,11 @@ export function ForeConsultPage() {
   const [moduleTags, setModuleTags] = useState<string[]>([])
   const [questionTitle, setQuestionTitle] = useState('')
   const [ask, setAsk] = useState('')
-  const [consultEngine, setConsultEngine] = useState<Extract<Engine, 'claude' | 'codex'>>('codex')
+  const [consultModel, setConsultModel] = useState<string | null>(null)
+  const [consultReasoningEffort, setConsultReasoningEffort] = useState<CodexReasoningEffort>('low')
+  const [consultSpeed, setConsultSpeed] = useState<CodexSpeed>('default')
+  const [consultCodexHome, setConsultCodexHome] = useState('')
+  const [orchestrationVersion, setOrchestrationVersion] = useState<'v1' | 'v2' | 'v3'>('v2')
   const [role, setRole] = useState<ConsultRole>(CONSULT_ROLE)
   const [moduleQuery, setModuleQuery] = useState('')
   const [modulesExpanded, setModulesExpanded] = useState(false)
@@ -477,7 +478,6 @@ export function ForeConsultPage() {
   const [configOpen, setConfigOpen] = useState(false)
   const [configRows, setConfigRows] = useState<Array<{ name: string; path: string; alias: string; visible: boolean }>>([])
   const [showLinks, setShowLinks] = useState(true)
-  const [topologyEngine, setTopologyEngine] = useState<Extract<Engine, 'claude' | 'codex'>>('claude')
   const [topologyNotice, setTopologyNotice] = useState<{ tone: 'success' | 'empty' | 'error'; text: string } | null>(null)
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
   const [overrides, setOverrides] = useState<Map<string, Pos>>(new Map())
@@ -490,6 +490,10 @@ export function ForeConsultPage() {
     consultId: string
     attachments: ConsultAtt[]
     engine: Extract<Engine, 'claude' | 'codex'>
+    model: string | null
+    codexReasoningEffort: CodexReasoningEffort
+    codexSpeed: CodexSpeed
+    codexHome: string | null
   } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [canvasSize, setCanvasSize] = useState<CanvasSize>({ width: 1600, height: 900 })
@@ -701,13 +705,13 @@ export function ForeConsultPage() {
     // 前端用 plan 表达只读意图；真正的安全边界由 consult WS 入口在服务端强制为 consult-readonly。
     chat.open(
       p.cwd,
-      undefined,
+      p.model || undefined,
       'plan',
       p.engine,
       {
-        codexHome: CONSULT_CODEX_HOME,
-        codexReasoningEffort: CONSULT_CODEX_REASONING,
-        codexSpeed: CONSULT_CODEX_SPEED,
+        codexHome: p.codexHome || undefined,
+        codexReasoningEffort: p.codexReasoningEffort,
+        codexSpeed: p.codexSpeed,
       },
     )
     const atts = p.attachments.length
@@ -785,6 +789,12 @@ export function ForeConsultPage() {
         questionTitle: buildQuestionTitle(questionTitle),
         question: ask.trim() || '请结合附件识别并分析业务问题',
         role: CONSULT_ROLE,
+        engine: 'codex',
+        model: consultModel,
+        codexReasoningEffort: consultReasoningEffort,
+        codexSpeed: consultSpeed,
+        codexHome: consultCodexHome.trim() || null,
+        orchestrationVersion,
       })
       return { created, seed: created.promptSnapshot || legacySeed, cwd }
     },
@@ -797,7 +807,11 @@ export function ForeConsultPage() {
         displayText: ask.trim() || '（见附件）',
         consultId: created.sessionId,
         attachments,
-        engine: consultEngine,
+        engine: 'codex',
+        model: created.model,
+        codexReasoningEffort: created.codexReasoningEffort || 'low',
+        codexSpeed: created.codexSpeed || 'default',
+        codexHome: created.codexHome,
       }
       deliver()
       setQuestionTitle('')
@@ -830,13 +844,36 @@ export function ForeConsultPage() {
       setArchiveError(error instanceof Error ? error.message : '归档失败，请重试')
     },
   })
+  const { data: codexHomes = [], isLoading: codexHomesLoading } = useQuery({
+    queryKey: ['fore-consult-codex-homes'],
+    queryFn: listCodexHomes,
+    enabled: true,
+    staleTime: 60_000,
+  })
+  useEffect(() => {
+    if (consultCodexHome || codexHomes.length === 0) return
+    const defaultHome = codexHomes.find(path => /[\\/]\.codex$/i.test(path))
+    setConsultCodexHome(defaultHome ?? codexHomes[0])
+  }, [codexHomes, consultCodexHome])
+  const { data: consultCodexModels = [], isSuccess: codexModelsLoaded } = useQuery({
+    queryKey: ['claude-chat-codex-models', consultCodexHome],
+    queryFn: () => fetchCodexModels(consultCodexHome),
+    enabled: Boolean(consultCodexHome),
+    staleTime: 60_000,
+  })
+  useEffect(() => {
+    if (!codexModelsLoaded || !consultModel) return
+    if (!consultCodexModels.some(model => model.value === consultModel)) {
+      setConsultModel(null)
+    }
+  }, [codexModelsLoaded, consultCodexModels, consultModel])
   const triggerArchive = () => {
     if (!activeConsultId || archiveMutation.isPending) return
     archiveMutation.mutate()
   }
 
   const topoMutation = useMutation({
-    mutationFn: () => analyzeTopology(visibleProjects.map((p) => p.name), topologyEngine),
+    mutationFn: () => analyzeTopology(visibleProjects.map((p) => p.name), 'codex'),
     onMutate: () => setTopologyNotice(null),
     onSuccess: (d) => {
       setShowLinks(true)
@@ -1041,6 +1078,12 @@ export function ForeConsultPage() {
       questionTitle: buildQuestionTitle(title),
       question: question.trim() || '请结合附件识别并分析业务问题',
       role: nextRole,
+      engine: 'codex',
+      model: consultModel,
+      codexReasoningEffort: consultReasoningEffort,
+      codexSpeed: consultSpeed,
+      codexHome: consultCodexHome.trim() || null,
+      orchestrationVersion: current?.orchestrationVersion || orchestrationVersion,
     })
     setSystem(nextSystem)
     setModuleTags(nextModules)
@@ -1052,7 +1095,11 @@ export function ForeConsultPage() {
       displayText: question.trim() || '（见附件）',
       consultId: created.sessionId,
       attachments: newAttachments,
-      engine: chat.currentEngine === 'claude' ? 'claude' : 'codex',
+      engine: created.engine,
+      model: created.model,
+      codexReasoningEffort: created.codexReasoningEffort || 'low',
+      codexSpeed: created.codexSpeed || 'default',
+      codexHome: created.codexHome,
     }
     deliver()
     await qc.invalidateQueries({ queryKey: ['fore-consult-sessions'] })
@@ -1121,24 +1168,6 @@ export function ForeConsultPage() {
           </div>
         </div>
         <div className="fc-toolbar pointer-events-auto flex items-center gap-1.5">
-          <div className="flex items-center rounded-full border border-slate-200/70 bg-white/65 p-0.5" aria-label="链路分析引擎">
-            {(['claude', 'codex'] as const).map((engine) => (
-              <button
-                key={engine}
-                type="button"
-                onClick={() => setTopologyEngine(engine)}
-                disabled={topoMutation.isPending}
-                className={`flex items-center gap-1 rounded-full px-2 py-1 text-[11px] transition-colors disabled:opacity-50 ${
-                  topologyEngine === engine ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'
-                }`}
-                aria-pressed={topologyEngine === engine}
-                title={engine === 'claude' ? '使用 Claude Code 分析' : '使用 Codex 分析'}
-              >
-                <EngineIcon engine={engine} className="size-3" />
-                {engine === 'claude' ? 'Claude Code' : 'Codex'}
-              </button>
-            ))}
-          </div>
           <button
             type="button"
             onClick={() => topoMutation.mutate()}
@@ -1614,25 +1643,41 @@ export function ForeConsultPage() {
               className="max-h-28 min-h-11 w-full resize-none overflow-y-auto bg-transparent px-2 py-1.5 text-sm leading-6 text-slate-800 placeholder:text-slate-400 focus:outline-none"
             />
             <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
-            <div className="flex items-center justify-between gap-3 px-1 pt-1">
-              <div className="flex min-w-0 items-center gap-1.5">
-                <div className="flex shrink-0 items-center rounded-lg border border-slate-200/80 bg-white/55 p-0.5" aria-label="咨询引擎">
-                  {(['claude', 'codex'] as const).map((engine) => (
-                    <button
-                      key={engine}
-                      type="button"
-                      onClick={() => setConsultEngine(engine)}
-                      className={`flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] transition-colors ${
-                        consultEngine === engine ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-white'
-                      }`}
-                      aria-pressed={consultEngine === engine}
-                      title={`使用 ${engineName(engine)} 完成整条咨询链路`}
-                    >
-                      <EngineIcon engine={engine} className="size-3" />
-                      {engine === 'claude' ? 'Claude Code' : 'Codex'}
-                    </button>
-                  ))}
-                </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 px-1 pt-1">
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                <CodexSessionOptions
+                  models={consultCodexModels}
+                  model={consultModel}
+                  reasoningEffort={consultReasoningEffort}
+                  speed={consultSpeed}
+                  codexHome={consultCodexHome}
+                  codexHomes={codexHomes}
+                  codexHomesLoading={codexHomesLoading}
+                  showCodexHome
+                  advancedContent={(
+                    <label className="block rounded-lg bg-[var(--color-muted)] px-2 py-2 text-xs">
+                      <span className="text-[var(--color-muted-foreground)]">调度版本</span>
+                      <select
+                        value={orchestrationVersion}
+                        onChange={(event) => setOrchestrationVersion(event.target.value as 'v1' | 'v2' | 'v3')}
+                        disabled={startMutation.isPending}
+                        aria-label="咨询调度版本"
+                        className="mt-1 h-8 w-full rounded-md border bg-[var(--color-background)] px-2 text-xs text-[var(--color-foreground)] outline-none focus:border-[var(--color-primary)] disabled:opacity-50"
+                      >
+                        <option value="v1">经典版</option>
+                        <option value="v2">优化版</option>
+                        <option value="v3">备库校验版</option>
+                      </select>
+                    </label>
+                  )}
+                  disabled={startMutation.isPending}
+                  onModelChange={(value) => setConsultModel(value || null)}
+                  onOptionsChange={(effort, speed) => {
+                    setConsultReasoningEffort(effort)
+                    setConsultSpeed(speed)
+                  }}
+                  onCodexHomeChange={setConsultCodexHome}
+                />
                 <button
                   type="button"
                   onClick={() => fileRef.current?.click()}
@@ -1729,11 +1774,24 @@ export function ForeConsultPage() {
                     }}
                     className="cursor-pointer rounded-xl border border-slate-200/80 bg-white/45 px-3.5 py-3 transition-colors hover:border-sky-200 hover:bg-white/75"
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <span className="truncate text-sm font-medium text-slate-900">{s.questionTitle || displayName(s.systemName)}</span>
+                    <div className="break-words text-sm font-medium leading-5 text-slate-900">
+                      {s.questionTitle || displayName(s.systemName)}
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <span className="shrink-0 rounded-full border border-slate-200 px-2 py-0.5 text-[10px] text-slate-500">
                           {s.role === 'BIZ' ? '业务员' : 'IT 客服'}
+                        </span>
+                        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${
+                          s.orchestrationVersion === 'v3'
+                            ? 'border-violet-200 bg-violet-50 text-violet-700'
+                            : s.orchestrationVersion === 'v2'
+                            ? 'border-sky-200 bg-sky-50 text-sky-700'
+                            : 'border-slate-200 bg-slate-50 text-slate-500'
+                        }`}>
+                          {s.orchestrationVersion === 'v3'
+                            ? '备库校验版'
+                            : s.orchestrationVersion === 'v2' ? '优化版' : '经典版'}
                         </span>
                         <ArchiveBadge status={s.archiveStatus} />
                       </div>
