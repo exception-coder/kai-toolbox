@@ -31,6 +31,6 @@ public record StartSessionRequest(
         @Size(max = 20) String codexReasoningEffort,
         @Pattern(regexp = "default|fast") String codexSpeed,
         @Size(max = 500) String codexHome,
-        @Pattern(regexp = "v1|v2|v3") String orchestrationVersion
+        @Pattern(regexp = "v1|v2|v3|v4") String orchestrationVersion
 ) {
 }

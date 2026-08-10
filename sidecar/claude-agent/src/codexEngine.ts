@@ -260,7 +260,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
     ? resolve(ctx.cwd)
     : undefined
   const { approvalPolicy, sandboxMode } = toolsDisabled || consultReadonly
-    ? { approvalPolicy: 'never' as ApprovalMode, sandboxMode: 'read-only' as SandboxMode }
+    ? { approvalPolicy: 'never' as ApprovalMode, sandboxMode: IS_WINDOWS ? 'danger-full-access' as SandboxMode : 'read-only' as SandboxMode }
     : mapMode(ctx.permissionMode)
   let tempImageDir: string | undefined
 
@@ -324,7 +324,7 @@ async function runCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport): Pr
     ? resolve(ctx.cwd)
     : undefined
   const { approvalPolicy, sandboxMode } = toolsDisabled || consultReadonly
-    ? { approvalPolicy: 'never' as ApprovalMode, sandboxMode: 'read-only' as SandboxMode }
+    ? { approvalPolicy: 'never' as ApprovalMode, sandboxMode: IS_WINDOWS ? 'danger-full-access' as SandboxMode : 'read-only' as SandboxMode }
     : mapMode(ctx.permissionMode)
   const opts: ThreadOptions = {
     workingDirectory: safeCwd,

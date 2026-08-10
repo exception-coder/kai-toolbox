@@ -36,6 +36,8 @@ export interface FeedbackRequest {
   correctAnswer?: string | null
 }
 
+export type ConsultOrchestrationVersion = 'v1' | 'v2' | 'v3' | 'v4'
+
 export interface ConsultSessionView {
   sessionId: string
   userId: string | null
@@ -55,7 +57,7 @@ export interface ConsultSessionView {
   codexReasoningEffort: string | null
   codexSpeed: 'default' | 'fast' | null
   codexHome: string | null
-  orchestrationVersion: 'v1' | 'v2' | 'v3'
+  orchestrationVersion: ConsultOrchestrationVersion
   errorMsg: string | null
   createdAt: number
   endedAt: number | null
@@ -128,7 +130,7 @@ export interface StartSessionRequest {
   codexReasoningEffort?: string | null
   codexSpeed?: 'default' | 'fast' | null
   codexHome?: string | null
-  orchestrationVersion?: 'v1' | 'v2' | 'v3'
+  orchestrationVersion?: ConsultOrchestrationVersion
 }
 
 export interface ArchiveTurnItem {

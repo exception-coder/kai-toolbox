@@ -64,7 +64,16 @@ public record ConsultSessionView(
     }
 
     public static ConsultSessionView summary(ConsultSession s, String creatorName, int turnCount) {
-        return from(s, creatorName, turnCount, List.of(), List.of());
+        return new ConsultSessionView(
+                s.getSessionId(), s.getUserId(), creatorName, s.getQuestionTitle(), s.getSystemName(),
+                s.getSystemSourcePath(), parseModuleNames(s.getModuleNames()), null, s.getDevSessionId(), null,
+                s.getParseStatus() != null ? s.getParseStatus() : "NONE",
+                s.getArchiveStatus() != null ? s.getArchiveStatus() : "PENDING",
+                s.getRole() != null ? s.getRole() : "IT",
+                s.getEngine() != null ? s.getEngine() : "codex",
+                s.getModel(), s.getCodexReasoningEffort(), s.getCodexSpeed(), s.getCodexHome(),
+                s.getOrchestrationVersion() != null ? s.getOrchestrationVersion() : "v1",
+                s.getErrorMsg(), s.getCreatedAt(), s.getEndedAt(), turnCount, List.of(), List.of());
     }
 
     /** 详情视图：带轮次明细与评分反馈。 */

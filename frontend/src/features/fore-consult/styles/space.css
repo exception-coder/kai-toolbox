@@ -218,10 +218,9 @@
 /* ── 面板 / 玻璃 ─────────────────────────────────── */
 .fc-panel {
   animation: fc-panel-in 0.4s cubic-bezier(0.22, 1, 0.36, 1);
-  background: rgba(248, 250, 252, 0.82);
+  background: rgba(248, 250, 252, 0.97);
   border: 1px solid rgba(255, 255, 255, 0.86);
   box-shadow: 0 30px 80px -28px rgba(15, 23, 42, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(28px) saturate(1.04);
 }
 
 @keyframes fc-panel-in {
@@ -231,8 +230,12 @@
 
 .fc-backdrop {
   animation: fc-fade-in 0.3s ease;
-  background: rgba(226, 232, 240, 0.38);
-  backdrop-filter: blur(8px) saturate(0.9);
+  background: rgba(226, 232, 240, 0.72);
+}
+
+.fc-history-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 104px;
 }
 
 @keyframes fc-fade-in { from { opacity: 0; } to { opacity: 1; } }

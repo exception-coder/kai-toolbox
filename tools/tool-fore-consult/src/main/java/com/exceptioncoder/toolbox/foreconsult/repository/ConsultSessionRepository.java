@@ -16,6 +16,10 @@ import java.util.stream.Collectors;
 @Repository
 public class ConsultSessionRepository {
 
+    private static final String SUMMARY_COLUMNS = "session_id, user_id, question_title, system_name, "
+            + "system_source_path, module_names, dev_session_id, parse_status, archive_status, role, engine, model, "
+            + "codex_reasoning_effort, codex_speed, codex_home, orchestration_version, error_msg, created_at, ended_at";
+
     private static final RowMapper<ConsultSession> ROW = (rs, i) -> ConsultSession.builder()
             .sessionId(rs.getString("session_id"))
             .userId(rs.getString("user_id"))
@@ -26,6 +30,28 @@ public class ConsultSessionRepository {
             .promptSnapshot(rs.getString("prompt_snapshot"))
             .devSessionId(rs.getString("dev_session_id"))
             .rawReferenceJson(rs.getString("raw_reference_json"))
+            .parseStatus(rs.getString("parse_status"))
+            .archiveStatus(rs.getString("archive_status"))
+            .role(rs.getString("role"))
+            .engine(rs.getString("engine"))
+            .model(rs.getString("model"))
+            .codexReasoningEffort(rs.getString("codex_reasoning_effort"))
+            .codexSpeed(rs.getString("codex_speed"))
+            .codexHome(rs.getString("codex_home"))
+            .orchestrationVersion(rs.getString("orchestration_version"))
+            .errorMsg(rs.getString("error_msg"))
+            .createdAt(rs.getLong("created_at"))
+            .endedAt(rs.getObject("ended_at") == null ? null : rs.getLong("ended_at"))
+            .build();
+
+    private static final RowMapper<ConsultSession> SUMMARY_ROW = (rs, i) -> ConsultSession.builder()
+            .sessionId(rs.getString("session_id"))
+            .userId(rs.getString("user_id"))
+            .questionTitle(rs.getString("question_title"))
+            .systemName(rs.getString("system_name"))
+            .systemSourcePath(rs.getString("system_source_path"))
+            .moduleNames(rs.getString("module_names"))
+            .devSessionId(rs.getString("dev_session_id"))
             .parseStatus(rs.getString("parse_status"))
             .archiveStatus(rs.getString("archive_status"))
             .role(rs.getString("role"))
@@ -68,14 +94,16 @@ public class ConsultSessionRepository {
     /** 最近 N 条会话，按创建时间倒序。 */
     public List<ConsultSession> findRecent(int limit) {
         return jdbc.query(
-                "SELECT * FROM consult_session ORDER BY created_at DESC LIMIT ?", ROW, limit);
+                "SELECT " + SUMMARY_COLUMNS + " FROM consult_session ORDER BY created_at DESC LIMIT ?",
+                SUMMARY_ROW, limit);
     }
 
     /** 某用户最近 N 条会话，按创建时间倒序。ADMIN 是否走此查询由 service 层决定。 */
     public List<ConsultSession> findRecentByUserId(String userId, int limit) {
         return jdbc.query(
-                "SELECT * FROM consult_session WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
-                ROW, userId, limit);
+                "SELECT " + SUMMARY_COLUMNS
+                        + " FROM consult_session WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+                SUMMARY_ROW, userId, limit);
     }
 
     /** 按咨询归属 ID 批量读取登录用户名；auth_user 与咨询表共用本地 SQLite。 */

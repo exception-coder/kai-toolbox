@@ -144,4 +144,49 @@ class ConsultOrchestrationPipelineTest {
         assertThat(v2Result.steps()).extracting(ConsultOrchestrationResult.StepTrace::id)
                 .doesNotContain("v3-erp-production-standby-schema");
     }
+
+    @Test
+    void evidenceAdaptivePipelineUsesIndependentGapDrivenEvidenceSteps() {
+        ConsultStandardStepConfiguration classic = new ConsultStandardStepConfiguration();
+        ConsultOptimizedStepConfiguration optimized = new ConsultOptimizedStepConfiguration();
+        ConsultEvidenceAdaptiveStepConfiguration adaptive = new ConsultEvidenceAdaptiveStepConfiguration();
+        ConsultOrchestrationPipeline pipeline = new ConsultOrchestrationPipeline(List.of(
+                classic.consultSecurityBoundaryStep(),
+                optimized.consultV2SafetyAndScopeStep(),
+                adaptive.consultV4SafetyAndEvidencePlanStep(),
+                adaptive.consultV4ModuleAndCoreSpecStep(),
+                adaptive.consultV4ImplementationEvidenceStep(),
+                adaptive.consultV4DdlAndRuntimeEvidenceStep(),
+                adaptive.consultV4EvidenceConflictGateStep(),
+                adaptive.consultV4AnswerContractStep()));
+
+        ConsultOrchestrationResult result = pipeline.orchestrate(new ConsultOrchestrationRequest(
+                "取消调回后匹号为什么不能再次入仓？", "ERP", "D:\\yoooni",
+                List.of("仓库管理"), "BIZ", false), "v4");
+
+        assertThat(result.pipelineVersion()).isEqualTo("consult-orchestration-v4");
+        assertThat(result.steps()).extracting(ConsultOrchestrationResult.StepTrace::id)
+                .containsExactly(
+                        "v4-safety-and-evidence-plan", "v4-module-and-core-spec",
+                        "v4-implementation-evidence", "v4-ddl-and-runtime-evidence",
+                        "v4-evidence-conflict-gate", "v4-answer-contract");
+        assertThat(result.prompt())
+                .contains("requiredEvidence")
+                .contains("impl/modules.json")
+                .contains("businessTruth")
+                .contains("get_module_core_spec")
+                .contains("证据已经足以回答时立即停止")
+                .contains("erp_standby_validate_sql")
+                .contains("【明确结论】")
+                .doesNotContain("v2 当前通过受控提示词");
+        assertThat(result.capabilityGaps())
+                .contains("Core Spec 专用 MCP 尚未提供，当前按模块使用通用知识工具限域召回并保留证据等级");
+    }
+
+    @Test
+    void versionNormalizationRecognizesV4AndKeepsLegacyFallback() {
+        assertThat(ConsultOrchestrationPipeline.normalizeVersion("V4")).isEqualTo("v4");
+        assertThat(ConsultOrchestrationPipeline.normalizeVersion("unknown")).isEqualTo("v1");
+        assertThat(ConsultOrchestrationPipeline.normalizeVersion(null)).isEqualTo("v1");
+    }
 }

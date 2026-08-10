@@ -1,5 +1,5 @@
 import {
-  useCallback, useEffect, useMemo, useRef, useState,
+  useCallback, useDeferredValue, useEffect, useMemo, useRef, useState,
   type ClipboardEvent as ReactClipboardEvent, type PointerEvent as ReactPointerEvent,
 } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -11,10 +11,11 @@ import {
 } from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { usePrompt } from '@/components/ui/prompt-dialog'
+import { useAuth } from '@/lib/auth'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 import { CodexSessionOptions } from '@/features/claude-chat/components/CodexSessionOptions'
 import { useClaudeChatSocket } from '@/features/claude-chat/hooks/useClaudeChatSocket'
-import { fetchCodexModels, setSessionGroupApi } from '@/features/claude-chat/api'
+import { fetchCodexModels, renameSession, setSessionGroupApi } from '@/features/claude-chat/api'
 import type { ChatItem, CodexReasoningEffort, CodexSpeed, Engine } from '@/features/claude-chat/types'
 import { ConsultConversation } from '../components/ConsultConversation'
 import { BugDrawer } from '../components/BugDrawer'
@@ -39,6 +40,7 @@ import {
   uploadConsultAttachment,
   type ArchiveTurnItem,
   type ConsultAttRef,
+  type ConsultOrchestrationVersion,
   type ConsultSessionView,
   type SaveSystemPrefItem,
   type TopoLink,
@@ -90,6 +92,17 @@ const SYSTEM_ICONS: Array<{ kw: string[]; Icon: LucideIcon }> = [
 const CONSULT_GROUP = '业务咨询'
 const CONSULT_ROLE: ConsultRole = 'BIZ'
 const QUESTION_TITLE_MAX_LENGTH = 33
+const HISTORY_PAGE_SIZE = 20
+const ORCHESTRATION_OPTIONS: Array<{ value: ConsultOrchestrationVersion; label: string }> = [
+  { value: 'v1', label: '经典版' },
+  { value: 'v2', label: '优化版' },
+  { value: 'v3', label: '备库校验版' },
+  { value: 'v4', label: '动态证据版' },
+]
+
+function orchestrationLabel(value: ConsultOrchestrationVersion): string {
+  return ORCHESTRATION_OPTIONS.find(item => item.value === value)?.label ?? '经典版'
+}
 
 function formatUtcDatePrefix(date: Date): string {
   const year = String(date.getUTCFullYear()).slice(-2)
@@ -442,6 +455,8 @@ export function ForeConsultPage() {
   const qc = useQueryClient()
   const confirm = useConfirm()
   const prompt = usePrompt()
+  const { user } = useAuth()
+  const isAdmin = !!user?.roles?.includes('ADMIN')
   const chat = useClaudeChatSocket({ channel: 'consult' })
 
   const [system, setSystem] = useState('')
@@ -452,7 +467,7 @@ export function ForeConsultPage() {
   const [consultReasoningEffort, setConsultReasoningEffort] = useState<CodexReasoningEffort>('low')
   const [consultSpeed, setConsultSpeed] = useState<CodexSpeed>('default')
   const [consultCodexHome, setConsultCodexHome] = useState('')
-  const [orchestrationVersion, setOrchestrationVersion] = useState<'v1' | 'v2' | 'v3'>('v2')
+  const [orchestrationVersion, setOrchestrationVersion] = useState<ConsultOrchestrationVersion>('v2')
   const [role, setRole] = useState<ConsultRole>(CONSULT_ROLE)
   const [moduleQuery, setModuleQuery] = useState('')
   const [modulesExpanded, setModulesExpanded] = useState(false)
@@ -465,6 +480,7 @@ export function ForeConsultPage() {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [historyDate, setHistoryDate] = useState('')
   const [historyUser, setHistoryUser] = useState('')
+  const [historyLimit, setHistoryLimit] = useState(HISTORY_PAGE_SIZE)
   const [copiedSessionId, setCopiedSessionId] = useState<string | null>(null)
   const [extractingSessionId, setExtractingSessionId] = useState<string | null>(null)
   const [extractionNotice, setExtractionNotice] = useState<string | null>(null)
@@ -485,6 +501,7 @@ export function ForeConsultPage() {
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
   const [overrides, setOverrides] = useState<Map<string, Pos>>(new Map())
   const [activeConsultId, setActiveConsultId] = useState<string | null>(null)
+  const [activeQuestionTitle, setActiveQuestionTitle] = useState('')
 
   const pendingRef = useRef<{
     cwd: string
@@ -701,6 +718,7 @@ export function ForeConsultPage() {
     queryKey: ['fore-consult-sessions'],
     queryFn: listConsults,
     enabled: shouldLoadHistory,
+    staleTime: 30_000,
   })
   const { data: bugs } = useQuery({
     queryKey: ['fore-consult-bugs'],
@@ -737,13 +755,49 @@ export function ForeConsultPage() {
 
   // 会话 id 就绪后：关联回本模块，并把该会话自动归入「业务咨询」分组（分组不存在时命名即创建）。
   const groupedRef = useRef<string | null>(null)
+  const titledRef = useRef<string | null>(null)
+  const repairedHistoryTitlesRef = useRef<Set<string>>(new Set())
   useEffect(() => {
     const sid = chat?.sessionId
-    if (!sid || !activeConsultId || groupedRef.current === sid) return
-    groupedRef.current = sid
-    linkDevSession(activeConsultId, sid).catch(() => {})
-    setSessionGroupApi(sid, CONSULT_GROUP).catch(() => {})
-  }, [chat?.sessionId, activeConsultId])
+    if (!sid || !activeConsultId) return
+    if (groupedRef.current !== sid) {
+      groupedRef.current = sid
+      linkDevSession(activeConsultId, sid).catch(() => {})
+      setSessionGroupApi(sid, CONSULT_GROUP).catch(() => {})
+    }
+    const title = activeQuestionTitle.trim()
+    const titleKey = `${sid}:${title}`
+    if (title && titledRef.current !== titleKey) {
+      titledRef.current = titleKey
+      renameSession(sid, title).catch((error) => {
+        titledRef.current = null
+        console.error('[fore-consult] 同步底层会话标题失败', error)
+      })
+    }
+  }, [chat?.sessionId, activeConsultId, activeQuestionTitle])
+
+  useEffect(() => {
+    if (!history?.length) return
+    let cancelled = false
+    const repairHistoryTitles = async () => {
+      for (const session of history) {
+        const title = session.questionTitle?.trim()
+        const sid = session.devSessionId?.trim()
+        if (!title || !sid) continue
+        const repairKey = `${sid}:${title}`
+        if (repairedHistoryTitlesRef.current.has(repairKey)) continue
+        try {
+          await renameSession(sid, title)
+          if (!cancelled) repairedHistoryTitlesRef.current.add(repairKey)
+        } catch (error) {
+          console.error(`[fore-consult] 补偿同步历史会话标题失败: ${sid}`, error)
+        }
+        if (cancelled) return
+      }
+    }
+    void repairHistoryTitles()
+    return () => { cancelled = true }
+  }, [history])
 
   // 进行中增量落库：每当活跃咨询的对话有新内容且空闲（非回答中）时，防抖把当前轮次同步进库，
   // 让局域网其它电脑也能从库里查看进行中的对话（不必等「结束并归档」）。
@@ -785,7 +839,10 @@ export function ForeConsultPage() {
     const sid = chat?.sessionId
     if (activeConsultId || !sid) return
     const pending = (history ?? []).find((s) => s.archiveStatus === 'PENDING' && s.devSessionId === sid)
-    if (pending) setActiveConsultId(pending.sessionId)
+    if (pending) {
+      setActiveConsultId(pending.sessionId)
+      setActiveQuestionTitle(pending.questionTitle || displayName(pending.systemName))
+    }
   }, [history, chat, activeConsultId])
 
   const startMutation = useMutation({
@@ -800,9 +857,9 @@ export function ForeConsultPage() {
         question: ask.trim() || '请结合附件识别并分析业务问题',
         role: CONSULT_ROLE,
         engine: 'codex',
-        model: consultModel,
-        codexReasoningEffort: consultReasoningEffort,
-        codexSpeed: consultSpeed,
+        model: isAdmin ? consultModel : null,
+        codexReasoningEffort: isAdmin ? consultReasoningEffort : 'low',
+        codexSpeed: isAdmin ? consultSpeed : 'default',
         codexHome: consultCodexHome.trim() || null,
         orchestrationVersion,
       })
@@ -811,6 +868,7 @@ export function ForeConsultPage() {
     onSuccess: ({ created, seed, cwd }) => {
       setRole(CONSULT_ROLE)
       setActiveConsultId(created.sessionId)
+      setActiveQuestionTitle(created.questionTitle || displayName(created.systemName))
       pendingRef.current = {
         cwd,
         seed,
@@ -847,6 +905,7 @@ export function ForeConsultPage() {
     onSuccess: () => {
       setArchiveError(null)
       setActiveConsultId(null)
+      setActiveQuestionTitle('')
       setConversationOpen(false)
       qc.invalidateQueries({ queryKey: ['fore-consult-sessions'] })
     },
@@ -862,9 +921,16 @@ export function ForeConsultPage() {
   })
   useEffect(() => {
     if (consultCodexHome || codexHomes.length === 0) return
-    const defaultHome = codexHomes.find(path => /[\\/]\.codex$/i.test(path))
+    const defaultHome = codexHomes.find(path => /[\\/]\.codex-account-wz$/i.test(path))
+      ?? codexHomes.find(path => /[\\/]\.codex$/i.test(path))
     setConsultCodexHome(defaultHome ?? codexHomes[0])
   }, [codexHomes, consultCodexHome])
+  useEffect(() => {
+    if (isAdmin) return
+    setConsultModel(null)
+    setConsultReasoningEffort('low')
+    setConsultSpeed('default')
+  }, [isAdmin])
   const { data: consultCodexModels = [], isSuccess: codexModelsLoaded } = useQuery({
     queryKey: ['claude-chat-codex-models', consultCodexHome],
     queryFn: () => fetchCodexModels(consultCodexHome),
@@ -989,6 +1055,7 @@ export function ForeConsultPage() {
     setModuleTags(s.moduleNames)
     setRole(s.role === 'BIZ' ? 'BIZ' : 'IT')
     setActiveConsultId(s.sessionId)
+    setActiveQuestionTitle(s.questionTitle || displayName(s.systemName))
     setHistoryOpen(false)
     setViewSession(null)
     // 不是当前活跃会话时，续跑其底层 claude-chat 会话，把历史对话切回来。
@@ -1070,7 +1137,10 @@ export function ForeConsultPage() {
     })
     if (!ok) return
     await deleteConsult(s.sessionId)
-    if (activeConsultId === s.sessionId) setActiveConsultId(null)
+    if (activeConsultId === s.sessionId) {
+      setActiveConsultId(null)
+      setActiveQuestionTitle('')
+    }
     qc.invalidateQueries({ queryKey: ['fore-consult-sessions'] })
   }
 
@@ -1089,9 +1159,9 @@ export function ForeConsultPage() {
       question: question.trim() || '请结合附件识别并分析业务问题',
       role: nextRole,
       engine: 'codex',
-      model: consultModel,
-      codexReasoningEffort: consultReasoningEffort,
-      codexSpeed: consultSpeed,
+      model: isAdmin ? consultModel : null,
+      codexReasoningEffort: isAdmin ? consultReasoningEffort : 'low',
+      codexSpeed: isAdmin ? consultSpeed : 'default',
       codexHome: consultCodexHome.trim() || null,
       orchestrationVersion: current?.orchestrationVersion || orchestrationVersion,
     })
@@ -1099,6 +1169,7 @@ export function ForeConsultPage() {
     setModuleTags(nextModules)
     setRole(nextRole)
     setActiveConsultId(created.sessionId)
+    setActiveQuestionTitle(created.questionTitle || displayName(created.systemName))
     pendingRef.current = {
       cwd: nextPath,
       seed: created.promptSnapshot || legacySeed,
@@ -1127,18 +1198,25 @@ export function ForeConsultPage() {
     })
     if (!title?.trim()) return
     const updated = await renameConsultQuestionTitle(session.sessionId, title.trim())
+    if (session.devSessionId && updated.questionTitle) {
+      await renameSession(session.devSessionId, updated.questionTitle)
+    }
     if (viewSession?.id === session.sessionId) {
       setViewSession({ id: session.sessionId, title: updated.questionTitle || displayName(session.systemName) })
+    }
+    if (activeConsultId === session.sessionId) {
+      setActiveQuestionTitle(updated.questionTitle || displayName(session.systemName))
     }
     await qc.invalidateQueries({ queryKey: ['fore-consult-sessions'] })
   }
 
   const canStart =
     !!system.trim() && !!questionTitle.trim() && (!!ask.trim() || attachments.length > 0)
-    && uploading === 0 && !startMutation.isPending
+    && !!consultCodexHome.trim() && uploading === 0 && !startMutation.isPending
   const PanelIcon = iconForSystem(system, displayName(system))
+  const deferredHistoryUser = useDeferredValue(historyUser)
   const filteredHistory = useMemo(() => {
-    const userQuery = historyUser.trim().toLowerCase()
+    const userQuery = deferredHistoryUser.trim().toLowerCase()
     return (history ?? []).filter((session) => {
       const dateMatches = !historyDate
         || new Date(session.createdAt).toLocaleDateString('en-CA') === historyDate
@@ -1146,7 +1224,14 @@ export function ForeConsultPage() {
         || (session.creatorName ?? '').toLowerCase().includes(userQuery)
       return dateMatches && userMatches
     })
-  }, [history, historyDate, historyUser])
+  }, [history, historyDate, deferredHistoryUser])
+  const displayedHistory = useMemo(
+    () => filteredHistory.slice(0, historyLimit),
+    [filteredHistory, historyLimit],
+  )
+  useEffect(() => {
+    setHistoryLimit(HISTORY_PAGE_SIZE)
+  }, [historyDate, deferredHistoryUser, historyOpen])
 
   const copySessionId = async (sessionId: string) => {
     await navigator.clipboard.writeText(sessionId)
@@ -1685,23 +1770,17 @@ export function ForeConsultPage() {
                   codexHomes={codexHomes}
                   codexHomesLoading={codexHomesLoading}
                   showCodexHome
-                  advancedContent={(
-                    <label className="block rounded-lg bg-[var(--color-muted)] px-2 py-2 text-xs">
-                      <span className="text-[var(--color-muted-foreground)]">调度版本</span>
-                      <select
-                        value={orchestrationVersion}
-                        onChange={(event) => setOrchestrationVersion(event.target.value as 'v1' | 'v2' | 'v3')}
-                        disabled={startMutation.isPending}
-                        aria-label="咨询调度版本"
-                        className="mt-1 h-8 w-full rounded-md border bg-[var(--color-background)] px-2 text-xs text-[var(--color-foreground)] outline-none focus:border-[var(--color-primary)] disabled:opacity-50"
-                      >
-                        <option value="v1">经典版</option>
-                        <option value="v2">优化版</option>
-                        <option value="v3">备库校验版</option>
-                      </select>
-                    </label>
-                  )}
+                  advancedOptions={[{
+                    id: 'orchestrationVersion',
+                    label: '调度版本',
+                    value: orchestrationLabel(orchestrationVersion),
+                    icon: <Route className="size-4" />,
+                    options: ORCHESTRATION_OPTIONS,
+                    disabled: startMutation.isPending,
+                    onChange: value => setOrchestrationVersion(value as ConsultOrchestrationVersion),
+                  }]}
                   disabled={startMutation.isPending}
+                  optionsDisabled={!isAdmin || startMutation.isPending}
                   onModelChange={(value) => setConsultModel(value || null)}
                   onOptionsChange={(effort, speed) => {
                     setConsultReasoningEffort(effort)
@@ -1744,6 +1823,7 @@ export function ForeConsultPage() {
         <ConsultConversation
           chat={chat}
           consultId={activeConsultId}
+          questionTitle={activeQuestionTitle}
           systemLabel={displayName(system)}
           roleLabel={ROLE_META[role].label}
           cwd={systemPath || system.trim()}
@@ -1796,7 +1876,7 @@ export function ForeConsultPage() {
               <p className="rounded-lg border border-dashed border-slate-300/80 p-6 text-center text-sm text-slate-500">暂无咨询记录</p>
             ) : (
               <ul className="flex flex-col gap-2">
-                {filteredHistory.map((s) => (
+                {displayedHistory.map((s) => (
                   <li
                     key={s.sessionId}
                     onClick={() => {
@@ -1808,7 +1888,7 @@ export function ForeConsultPage() {
                         setViewSession({ id: s.sessionId, title: s.questionTitle || displayName(s.systemName) })
                       }
                     }}
-                    className="cursor-pointer rounded-xl border border-slate-200/80 bg-white/45 px-3.5 py-3 transition-colors hover:border-sky-200 hover:bg-white/75"
+                    className="fc-history-item cursor-pointer rounded-xl border border-slate-200/80 bg-white/70 px-3.5 py-3 transition-colors hover:border-sky-200 hover:bg-white"
                   >
                     <div className="break-words text-sm font-medium leading-5 text-slate-900">
                       {s.questionTitle || displayName(s.systemName)}
@@ -1819,15 +1899,15 @@ export function ForeConsultPage() {
                           {s.role === 'BIZ' ? '业务员' : 'IT 客服'}
                         </span>
                         <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${
-                          s.orchestrationVersion === 'v3'
+                          s.orchestrationVersion === 'v4'
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                            : s.orchestrationVersion === 'v3'
                             ? 'border-violet-200 bg-violet-50 text-violet-700'
                             : s.orchestrationVersion === 'v2'
                             ? 'border-sky-200 bg-sky-50 text-sky-700'
                             : 'border-slate-200 bg-slate-50 text-slate-500'
                         }`}>
-                          {s.orchestrationVersion === 'v3'
-                            ? '备库校验版'
-                            : s.orchestrationVersion === 'v2' ? '优化版' : '经典版'}
+                          {orchestrationLabel(s.orchestrationVersion)}
                         </span>
                         <ArchiveBadge status={s.archiveStatus} />
                       </div>
@@ -1863,6 +1943,17 @@ export function ForeConsultPage() {
                     </div>
                   </li>
                 ))}
+                {displayedHistory.length < filteredHistory.length && (
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => setHistoryLimit(limit => limit + HISTORY_PAGE_SIZE)}
+                      className="w-full rounded-lg border border-dashed border-slate-300 bg-white/70 px-3 py-2 text-xs text-slate-600 hover:border-sky-300 hover:text-sky-700"
+                    >
+                      加载更多（剩余 {filteredHistory.length - displayedHistory.length} 条）
+                    </button>
+                  </li>
+                )}
               </ul>
             )}
           </div>

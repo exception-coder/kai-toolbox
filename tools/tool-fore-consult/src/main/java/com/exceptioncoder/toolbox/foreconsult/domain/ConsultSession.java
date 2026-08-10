@@ -39,7 +39,7 @@ public class ConsultSession {
     private String codexReasoningEffort;
     private String codexSpeed;
     private String codexHome;
-    /** 咨询调度版本快照：v1 经典版 | v2 优化版。 */
+    /** 咨询调度版本快照：v1 经典版、v2 优化版、v3 备库校验版、v4 动态证据版。 */
     private String orchestrationVersion;
     private String errorMsg;
     private long createdAt;

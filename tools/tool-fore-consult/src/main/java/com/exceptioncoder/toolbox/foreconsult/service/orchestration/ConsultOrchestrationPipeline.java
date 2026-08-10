@@ -12,6 +12,7 @@ public class ConsultOrchestrationPipeline {
     public static final String CLASSIC_VERSION = "v1";
     public static final String OPTIMIZED_VERSION = "v2";
     public static final String PRODUCTION_STANDBY_VERSION = "v3";
+    public static final String EVIDENCE_ADAPTIVE_VERSION = "v4";
     private final List<ConsultOrchestrationStep> steps;
 
     public ConsultOrchestrationPipeline(List<ConsultOrchestrationStep> steps) {
@@ -46,6 +47,9 @@ public class ConsultOrchestrationPipeline {
     }
 
     public static String normalizeVersion(String version) {
+        if (EVIDENCE_ADAPTIVE_VERSION.equalsIgnoreCase(version)) {
+            return EVIDENCE_ADAPTIVE_VERSION;
+        }
         if (PRODUCTION_STANDBY_VERSION.equalsIgnoreCase(version)) {
             return PRODUCTION_STANDBY_VERSION;
         }
@@ -55,10 +59,12 @@ public class ConsultOrchestrationPipeline {
     private static boolean supportsVersion(ConsultOrchestrationStep step, String version) {
         boolean optimized = step instanceof ConsultOptimizedOrchestrationStep;
         boolean productionStandby = step instanceof ConsultProductionStandbyOrchestrationStep;
+        boolean evidenceAdaptive = step instanceof ConsultEvidenceAdaptiveOrchestrationStep;
         return switch (version) {
-            case PRODUCTION_STANDBY_VERSION -> optimized;
-            case OPTIMIZED_VERSION -> optimized && !productionStandby;
-            default -> !optimized;
+            case EVIDENCE_ADAPTIVE_VERSION -> evidenceAdaptive;
+            case PRODUCTION_STANDBY_VERSION -> optimized && !evidenceAdaptive;
+            case OPTIMIZED_VERSION -> optimized && !productionStandby && !evidenceAdaptive;
+            default -> !optimized && !evidenceAdaptive;
         };
     }
 }

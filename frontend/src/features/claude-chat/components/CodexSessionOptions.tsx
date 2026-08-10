@@ -12,11 +12,22 @@ interface Props {
   codexHomes?: string[]
   codexHomesLoading?: boolean
   showCodexHome?: boolean
-  advancedContent?: ReactNode
+  advancedOptions?: CodexAdvancedOption[]
   disabled?: boolean
+  optionsDisabled?: boolean
   onModelChange: (model: string) => void
   onOptionsChange: (effort: CodexReasoningEffort, speed: CodexSpeed) => void
   onCodexHomeChange?: (codexHome: string) => void
+}
+
+export interface CodexAdvancedOption {
+  id: string
+  label: string
+  value: string
+  icon?: ReactNode
+  options: Array<{ value: string; label: string }>
+  disabled?: boolean
+  onChange: (value: string) => void
 }
 
 const DEFAULT_EFFORTS: CodexReasoningEffort[] = [
@@ -66,14 +77,15 @@ export function CodexSessionOptions({
   codexHomes = [],
   codexHomesLoading,
   showCodexHome,
-  advancedContent,
+  advancedOptions = [],
   disabled,
+  optionsDisabled,
   onModelChange,
   onOptionsChange,
   onCodexHomeChange,
 }: Props) {
   const [open, setOpen] = useState(false)
-  const [activeSection, setActiveSection] = useState<'model' | 'effort' | 'speed' | null>(null)
+  const [activeSection, setActiveSection] = useState<string | null>(null)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const selectedModel = models.find(item => item.value === model)
   const supportedEfforts = selectedModel?.reasoningEfforts?.length ? selectedModel.reasoningEfforts : DEFAULT_EFFORTS
@@ -83,6 +95,7 @@ export function CodexSessionOptions({
   const modelLabel = selectedModel?.displayName || model || '默认模型'
   const effortValueLabel = EFFORT_LABELS[reasoningEffort] ?? reasoningEffort
   const speedLabel = SPEEDS.find(item => item.value === speed)?.label ?? speed
+  const activeAdvancedOption = advancedOptions.find(item => item.id === activeSection)
 
   const changeModel = (nextModel: string) => {
     onModelChange(nextModel)
@@ -114,6 +127,16 @@ export function CodexSessionOptions({
     close()
   }
 
+  const pickCodexHome = (value: string) => {
+    onCodexHomeChange?.(value)
+    close()
+  }
+
+  const pickAdvancedOption = (option: CodexAdvancedOption, value: string) => {
+    option.onChange(value)
+    close()
+  }
+
   return (
     <div className="relative min-w-0 max-w-full">
       <button
@@ -137,10 +160,10 @@ export function CodexSessionOptions({
             {activeSection === null ? (
               <>
                 <div className="px-2 pb-1.5 pt-1 text-xs font-medium text-[var(--color-muted-foreground)]">Codex 配置 · 下轮生效</div>
-                <ConfigRow label="模型" value={modelLabel} onClick={() => setActiveSection('model')} />
-                <ConfigRow label="推理强度" value={effortValueLabel} icon={<Gauge className="size-4" />} onClick={() => setActiveSection('effort')} />
-                <ConfigRow label="速度" value={speedLabel} icon={<Zap className="size-4" />} onClick={() => setActiveSection('speed')} />
-                {(showCodexHome || advancedContent) && (
+                <ConfigRow label="模型" value={modelLabel} disabled={optionsDisabled} onClick={() => setActiveSection('model')} />
+                <ConfigRow label="推理强度" value={effortValueLabel} icon={<Gauge className="size-4" />} disabled={optionsDisabled} onClick={() => setActiveSection('effort')} />
+                <ConfigRow label="速度" value={speedLabel} icon={<Zap className="size-4" />} disabled={optionsDisabled} onClick={() => setActiveSection('speed')} />
+                {(showCodexHome || advancedOptions.length > 0) && (
                   <>
                     <div className="my-1 border-t" />
                     <button
@@ -152,32 +175,26 @@ export function CodexSessionOptions({
                       <ChevronDown className={`ml-auto size-3.5 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
                     </button>
                     {showAdvanced && (
-                      <div className="space-y-2">
+                      <div>
                         {showCodexHome && (
-                          <div className="flex min-w-0 items-start gap-2 rounded-lg bg-[var(--color-muted)] px-2 py-2 text-xs" title={`当前会话 Codex Auth 目录：${authHomeLabel}`}>
-                            <FolderKey className="mt-0.5 size-3.5 shrink-0 text-[var(--color-muted-foreground)]" />
-                            <div className="min-w-0 flex-1">
-                              <div className="text-[var(--color-muted-foreground)]">Auth 目录</div>
-                              {onCodexHomeChange ? (
-                                <select
-                                  value={codexHome ?? ''}
-                                  onChange={(event) => onCodexHomeChange(event.target.value)}
-                                  disabled={disabled || codexHomesLoading || codexHomes.length === 0}
-                                  aria-label="Codex 授权目录"
-                                  className="mt-1 h-8 w-full rounded-md border bg-[var(--color-background)] px-2 text-xs text-[var(--color-foreground)] outline-none focus:border-[var(--color-primary)] disabled:opacity-50"
-                                >
-                                  {codexHomes.length === 0 && (
-                                    <option value="">{codexHomesLoading ? '正在加载授权目录…' : '未发现 .codex 前缀目录'}</option>
-                                  )}
-                                  {codexHomes.map(path => <option key={path} value={path}>{path}</option>)}
-                                </select>
-                              ) : (
-                                <div className="truncate text-[var(--color-foreground)]">{authHomeLabel}</div>
-                              )}
-                            </div>
-                          </div>
+                          <ConfigRow
+                            label="Auth 目录"
+                            value={codexHomesLoading ? '正在加载…' : authHomeLabel}
+                            icon={<FolderKey className="size-4" />}
+                            disabled={disabled || optionsDisabled || codexHomesLoading || codexHomes.length === 0 || !onCodexHomeChange}
+                            onClick={() => setActiveSection('codexHome')}
+                          />
                         )}
-                        {advancedContent}
+                        {advancedOptions.map(option => (
+                          <ConfigRow
+                            key={option.id}
+                            label={option.label}
+                            value={option.value}
+                            icon={option.icon}
+                            disabled={disabled || option.disabled}
+                            onClick={() => setActiveSection(option.id)}
+                          />
+                        ))}
                       </div>
                     )}
                   </>
@@ -191,7 +208,15 @@ export function CodexSessionOptions({
                   className="mb-1 flex w-full items-center gap-1 rounded-lg px-2 py-2 text-sm font-medium hover:bg-[var(--color-accent)]"
                 >
                   <ChevronLeft className="size-4" />
-                  {activeSection === 'model' ? '模型' : activeSection === 'effort' ? '推理强度' : '速度'}
+                  {activeSection === 'model'
+                    ? '模型'
+                    : activeSection === 'effort'
+                      ? '推理强度'
+                      : activeSection === 'speed'
+                        ? '速度'
+                        : activeSection === 'codexHome'
+                          ? 'Auth 目录'
+                          : activeAdvancedOption?.label}
                 </button>
                 <div className="max-h-72 overflow-y-auto">
                   {activeSection === 'model' && (
@@ -214,6 +239,17 @@ export function CodexSessionOptions({
                       onClick={() => pickSpeed(item.value)}
                     />
                   ))}
+                  {activeSection === 'codexHome' && codexHomes.map(path => (
+                    <OptionRow key={path} label={path} selected={path === codexHome} onClick={() => pickCodexHome(path)} />
+                  ))}
+                  {activeAdvancedOption?.options.map(item => (
+                    <OptionRow
+                      key={item.value}
+                      label={item.label}
+                      selected={item.value === activeAdvancedOption.value}
+                      onClick={() => pickAdvancedOption(activeAdvancedOption, item.value)}
+                    />
+                  ))}
                 </div>
               </>
             )}
@@ -224,14 +260,15 @@ export function CodexSessionOptions({
   )
 }
 
-function ConfigRow({ label, value, icon, onClick }: {
+function ConfigRow({ label, value, icon, disabled, onClick }: {
   label: string
   value: string
   icon?: ReactNode
+  disabled?: boolean
   onClick: () => void
 }) {
   return (
-    <button type="button" onClick={onClick} className="flex w-full items-center gap-2 rounded-lg px-2 py-2.5 text-sm hover:bg-[var(--color-accent)]">
+    <button type="button" disabled={disabled} onClick={onClick} className="flex w-full items-center gap-2 rounded-lg px-2 py-2.5 text-sm hover:bg-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent">
       <span className="flex w-5 shrink-0 justify-center text-[var(--color-muted-foreground)]">{icon}</span>
       <span>{label}</span>
       <span className="ml-auto max-w-40 truncate text-[var(--color-muted-foreground)]">{value}</span>

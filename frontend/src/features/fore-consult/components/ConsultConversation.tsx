@@ -39,6 +39,7 @@ const BOTTOM_FOLLOW_THRESHOLD_PX = 64
 interface Props {
   chat: UseClaudeChatSocket
   consultId: string
+  questionTitle?: string | null
   systemLabel: string
   roleLabel: string
   cwd: string
@@ -55,7 +56,7 @@ interface Props {
  * 复用 claude-chat 协议的业务咨询专用 WS（chat.open/send/items）驱动，结果在本面板同步渲染。
  * 会话从 consult 专用通道打开；服务端强制 consult-readonly，只允许读取与白名单 MCP。
  */
-export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, cwd, onUploaded, onBugRegistered, onClose, onArchive, onStartNew, archiving }: Props) {
+export function ConsultConversation({ chat, consultId, questionTitle, systemLabel, roleLabel, cwd, onUploaded, onBugRegistered, onClose, onArchive, onStartNew, archiving }: Props) {
   const [text, setText] = useState('')
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
   const [atts, setAtts] = useState<Att[]>([])
@@ -358,9 +359,11 @@ export function ConsultConversation({ chat, consultId, systemLabel, roleLabel, c
           <div className="flex min-w-0 items-center gap-2.5">
             <MessagesSquare className="size-4 shrink-0 text-sky-600" />
             <div className="min-w-0">
-              <div className="text-[10px] uppercase tracking-[0.22em] text-sky-600/70">Consult Session</div>
-              <h2 className="truncate text-sm font-semibold text-slate-900">
-                {systemLabel} <span className="ml-1 text-[11px] font-normal text-slate-500">· {roleLabel}</span>
+              <div className="truncate text-[10px] uppercase tracking-[0.16em] text-sky-600/70">
+                Consult Session · {systemLabel} · {roleLabel}
+              </div>
+              <h2 className="truncate text-sm font-semibold text-slate-900" title={questionTitle?.trim() || systemLabel}>
+                {questionTitle?.trim() || systemLabel}
               </h2>
             </div>
           </div>
@@ -742,6 +745,7 @@ function BadFeedbackDialog({ onSubmit, onCancel }: { onSubmit: (category: string
 }
 
 const MessageRow = memo(function MessageRow({ item, onImageClick }: { item: ChatItem; onImageClick: (src: string) => void }) {
+  const messageTime = formatMessageTime(item.ts)
   if (item.kind === 'user') {
     const shown = item.displayText ?? item.text
     return (
@@ -762,14 +766,18 @@ const MessageRow = memo(function MessageRow({ item, onImageClick }: { item: Chat
             {shown}
           </div>
         )}
+        {messageTime && <MessageTime timestamp={item.ts!} label={messageTime} align="right" />}
       </div>
     )
   }
   if (item.kind === 'assistant') {
     if (!item.text.trim()) return null
     return (
-      <div className="max-w-[92%] rounded-2xl rounded-tl-sm border border-slate-200/90 bg-white/72 px-3.5 py-2.5 shadow-[0_12px_30px_-26px_rgba(15,23,42,0.32)]">
-        <Markdown text={stripBug(item.text)} className="fc-md" />
+      <div className="flex max-w-[92%] flex-col items-start gap-1">
+        <div className="rounded-2xl rounded-tl-sm border border-slate-200/90 bg-white/72 px-3.5 py-2.5 shadow-[0_12px_30px_-26px_rgba(15,23,42,0.32)]">
+          <Markdown text={stripBug(item.text)} className="fc-md" />
+        </div>
+        {messageTime && <MessageTime timestamp={item.ts!} label={messageTime} align="left" />}
       </div>
     )
   }
@@ -783,3 +791,29 @@ const MessageRow = memo(function MessageRow({ item, onImageClick }: { item: Chat
   }
   return null
 })
+
+function formatMessageTime(timestamp?: number): string | null {
+  if (!timestamp) return null
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) return null
+  const now = new Date()
+  const sameDay = date.toDateString() === now.toDateString()
+  if (sameDay) return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  const options: Intl.DateTimeFormatOptions = {
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+  }
+  if (date.getFullYear() !== now.getFullYear()) options.year = 'numeric'
+  return date.toLocaleString([], options)
+}
+
+function MessageTime({ timestamp, label, align }: { timestamp: number; label: string; align: 'left' | 'right' }) {
+  return (
+    <time
+      dateTime={new Date(timestamp).toISOString()}
+      title={new Date(timestamp).toLocaleString()}
+      className={`px-1 text-[10px] tabular-nums text-slate-400 ${align === 'right' ? 'text-right' : 'text-left'}`}
+    >
+      {label}
+    </time>
+  )
+}
