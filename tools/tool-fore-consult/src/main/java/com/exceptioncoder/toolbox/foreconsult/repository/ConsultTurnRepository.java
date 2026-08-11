@@ -24,6 +24,12 @@ public class ConsultTurnRepository {
             .refMenuPaths(rs.getString("ref_menu_paths"))
             .refGraphifyNodes(rs.getString("ref_graphify_nodes"))
             .refDomainKnowledge(rs.getString("ref_domain_knowledge"))
+            .recognizedSystemName(rs.getString("recognized_system_name"))
+            .recognizedModuleNames(rs.getString("recognized_module_names"))
+            .problemCategory(rs.getString("problem_category"))
+            .recognitionStatus(rs.getString("recognition_status"))
+            .recognitionEvidence(rs.getString("recognition_evidence"))
+            .traceId(rs.getString("trace_id"))
             .attachments(rs.getString("attachments"))
             .createdAt(rs.getLong("created_at"))
             .build();
@@ -37,10 +43,13 @@ public class ConsultTurnRepository {
     public void insert(ConsultTurn t) {
         jdbc.update(
                 "INSERT INTO consult_turn (turn_id, session_id, turn_index, question, answer, " +
-                "ref_menu_paths, ref_graphify_nodes, ref_domain_knowledge, attachments, created_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "ref_menu_paths, ref_graphify_nodes, ref_domain_knowledge, recognized_system_name, " +
+                "recognized_module_names, problem_category, recognition_status, recognition_evidence, " +
+                "trace_id, attachments, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 t.getTurnId(), t.getSessionId(), t.getTurnIndex(), t.getQuestion(), t.getAnswer(),
-                t.getRefMenuPaths(), t.getRefGraphifyNodes(), t.getRefDomainKnowledge(), t.getAttachments(), t.getCreatedAt());
+                t.getRefMenuPaths(), t.getRefGraphifyNodes(), t.getRefDomainKnowledge(),
+                t.getRecognizedSystemName(), t.getRecognizedModuleNames(), t.getProblemCategory(),
+                t.getRecognitionStatus(), t.getRecognitionEvidence(), t.getTraceId(), t.getAttachments(), t.getCreatedAt());
     }
 
     /** 某会话的全部轮次，按轮次序号升序。 */
@@ -66,6 +75,12 @@ public class ConsultTurnRepository {
                         sessionIds.toArray())
                 .stream()
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+    }
+
+    public int countBySession(String sessionId) {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(1) FROM consult_turn WHERE session_id = ?", Integer.class, sessionId);
+        return count == null ? 0 : count;
     }
 
     public void deleteBySession(String sessionId) {

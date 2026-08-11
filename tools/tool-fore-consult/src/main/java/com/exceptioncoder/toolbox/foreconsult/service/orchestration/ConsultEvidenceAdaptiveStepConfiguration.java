@@ -4,6 +4,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Consumer;
 
 /** v4：按问题类型和证据缺口动态选择 Core Spec、Graphify、源码、DDL 与运行数据。 */
@@ -48,12 +49,8 @@ public class ConsultEvidenceAdaptiveStepConfiguration {
     @Bean
     ConsultOrchestrationStep consultV4DdlAndRuntimeEvidenceStep() {
         return step("v4-ddl-and-runtime-evidence", "真实 DDL 与运行数据按需核验", 400, context ->
-                context.addSection("真实 DDL 与运行数据按需核验", """
-                        涉及表、视图、字段、关联关系或准备输出 ERP 生产备库 SELECT/WITH SQL 时，必须使用真实 DDL 工具核对物理结构。
-                        输出 ERP 生产备库查询 SQL 前必须调用 consult-readonly.erp_standby_validate_sql；对象缺失时调用 erp_standby_schema_search，并区分 TABLE 与 VIEW。名称相似只能作为候选，不能自行认定替代关系。
-                        涉及具体单据、状态或环境事实时，才调用当前会话可用的只读数据库或日志工具。仅执行单条参数化 SELECT/WITH 并限制行数，不得执行写入、DDL 或存储过程。
-                        DDL 证明物理结构，运行查询证明具体环境实例事实。工具或环境不可用时给出阶段性结论与最小核验条件，不得编造结果，也不得中断整个咨询。
-                        """));
+                context.addSection("真实 DDL 与运行数据按需核验",
+                        ddlAndRuntimeEvidenceRules(context.request().systemName())));
     }
 
     @Bean
@@ -79,12 +76,49 @@ public class ConsultEvidenceAdaptiveStepConfiguration {
                         【验证方法】给出最少测试数据、操作入口、只读核验条件和预期结果。
                         【尚待确认】只列会改变实施方案的信息；没有则写“无”。
                         简单操作问题无需输出无关技术细节；BUG、数据异常和实施问题必须把已确认事实、高概率判断、候选和待验证事项明确分开。
+
+                        回答正文末尾必须追加以下内部识别块，供系统归档；不要在正文中解释此块：
+                        <<<CONSULT_RECOGNITION>>>
+                        {"moduleNames":["前端展示模块名或完整模块路径"],"menuPaths":["一级菜单 > 二级菜单 > 页面"],"problemCategory":"MENU_OPERATION|BUSINESS_RULE|PAGE_OR_API_ERROR|DATA_ANOMALY|SQL_OR_SCHEMA|CROSS_SYSTEM|OTHER","recognitionStatus":"CONFIRMED|PARTIAL|UNRECOGNIZED","evidence":["USER_SELECTION|MODULE_CATALOG|MENU_KNOWLEDGE|CORE_SPEC|GRAPHIFY|SOURCE_CODE|DDL|RUNTIME_DATA"]}
+                        <<<END_CONSULT_RECOGNITION>>>
+                        moduleNames 和 menuPaths 必须使用前端或 modules.json 的展示名称；未取得可靠菜单时 menuPaths 输出空数组，不得猜路径。
+                        系统名由会话选择确定，不在识别块中重新猜测。CONFIRMED 仅用于模块、分类和必要菜单均有证据的情况；缺少其中一项使用 PARTIAL，完全无法识别使用 UNRECOGNIZED。
                         """));
     }
 
     private static ConsultOrchestrationStep step(
             String id, String label, int order, Consumer<ConsultOrchestrationContext> action) {
         return new EvidenceAdaptivePromptStep(id, label, order, action);
+    }
+
+    private static String ddlAndRuntimeEvidenceRules(String systemName) {
+        String normalized = systemName == null ? "" : systemName.strip().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "erp", "erp-system", "yoooni" -> """
+                    当前目标系统是 ERP。涉及表、视图、字段、关联关系或准备输出生产备库 SELECT/WITH SQL 时，必须使用真实 DDL 工具核对物理结构。
+                    输出 ERP 生产备库查询 SQL 前必须调用 consult-readonly.erp_standby_validate_sql；对象缺失时调用 consult-readonly.erp_standby_schema_search，并区分 TABLE 与 VIEW。名称相似只能作为候选，不能自行认定替代关系。
+                    涉及具体单据、状态或环境事实时使用 consult-readonly.erp_db_query。仅执行单条参数化 SELECT/WITH 并限制行数，不得执行写入、DDL 或存储过程。
+                    ERP 数据库工具未出现在运行时能力清单或调用失败时，必须明确说明工具不可用；不得改用 SRM、SCM 数据库或把未查询到证据表述为“无数据”。
+                    DDL 证明物理结构，运行查询证明具体环境实例事实。工具或环境不可用时给出阶段性结论与最小核验条件，不得编造结果，也不得中断整个咨询。
+                    """;
+            case "srm", "srm-system" -> """
+                    当前目标系统是 SRM。涉及表、视图、字段或关联关系时，先使用 consult-readonly.srm_db_query 查询 information_schema 的表和字段元数据，再生成与真实结构一致的单条 SELECT/WITH。
+                    涉及具体采购记录、单据、状态或环境事实时必须使用 consult-readonly.srm_db_query，并限制查询列、条件和返回行数。不得执行写入、DDL、存储过程或无条件宽表扫描。
+                    SRM 数据库工具未出现在运行时能力清单或调用失败时，必须明确说明工具不可用；不得调用 ERP 生产备库工具、不得切换到其他系统，也不得把未查询到证据表述为“无数据”。
+                    元数据查询证明物理结构，业务查询证明具体环境实例事实。工具或环境不可用时给出阶段性结论与最小核验条件，不得编造表名、字段、SQL 或查询结果。
+                    """;
+            case "scm", "scm-system" -> """
+                    当前目标系统是 SCM。涉及表、视图、字段或关联关系时，先使用 consult-readonly.scm_db_query 查询可信数据库元数据，再生成与真实结构一致的单条 SELECT/WITH。
+                    涉及具体单据、状态或环境事实时必须使用 consult-readonly.scm_db_query，并限制查询列、条件和返回行数。不得执行写入、DDL、存储过程或无条件宽表扫描。
+                    SCM 数据库工具未出现在运行时能力清单或调用失败时，必须明确说明工具不可用；不得调用 ERP、SRM 数据库工具、不得切换到其他系统，也不得把未查询到证据表述为“无数据”。
+                    元数据查询证明物理结构，业务查询证明具体环境实例事实。工具或环境不可用时给出阶段性结论与最小核验条件，不得编造表名、字段、SQL 或查询结果。
+                    """;
+            default -> """
+                    当前目标系统尚未映射专用数据库工具。涉及表、视图、字段、关联关系、具体单据或环境事实时，只能使用当前会话运行时明确提供的只读证据工具。
+                    不得自行选择 ERP、SRM 或 SCM 数据库工具，不得把其他系统的 DDL、SQL 或运行数据当作当前系统证据。
+                    未取得真实 DDL 或运行数据时给出阶段性结论与最小核验条件，不得编造表名、字段、SQL、查询结果或“无数据”结论。
+                    """;
+        };
     }
 
     private record EvidenceAdaptivePromptStep(

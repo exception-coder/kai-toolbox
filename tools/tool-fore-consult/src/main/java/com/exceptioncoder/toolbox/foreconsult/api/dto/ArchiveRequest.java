@@ -32,6 +32,11 @@ public record ArchiveRequest(
             String refMenuPaths,
             String refGraphifyNodes,
             String refDomainKnowledge,
+            List<String> recognizedModuleNames,
+            String problemCategory,
+            String recognitionStatus,
+            List<String> recognitionEvidence,
+            String traceId,
             List<Att> attachments
     ) {
     }

@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS consult_session (
     codex_reasoning_effort TEXT,                          -- Codex 推理强度快照
     codex_speed         TEXT,                             -- Codex 速度快照
     codex_home          TEXT,                             -- Codex 授权目录快照
-    orchestration_version TEXT NOT NULL DEFAULT 'v1',    -- v1 经典版 | v2 优化版 | v3 生产备库校验版，会话内固定
+    orchestration_version TEXT NOT NULL DEFAULT 'v4',    -- v1 经典版 | v2 优化版 | v3 生产备库校验版 | v4 动态证据版，会话内固定
     error_msg           TEXT,                             -- 归档失败原因
     created_at          INTEGER NOT NULL,                 -- 会话创建时间（Unix 毫秒）
     ended_at            INTEGER                           -- 会话结束时间
@@ -33,7 +33,7 @@ ALTER TABLE consult_session ADD COLUMN model TEXT;
 ALTER TABLE consult_session ADD COLUMN codex_reasoning_effort TEXT;
 ALTER TABLE consult_session ADD COLUMN codex_speed TEXT;
 ALTER TABLE consult_session ADD COLUMN codex_home TEXT;
-ALTER TABLE consult_session ADD COLUMN orchestration_version TEXT NOT NULL DEFAULT 'v1';
+ALTER TABLE consult_session ADD COLUMN orchestration_version TEXT NOT NULL DEFAULT 'v4';
 
 CREATE TABLE IF NOT EXISTS consult_turn (
     turn_id              TEXT    PRIMARY KEY,             -- UUID
@@ -44,12 +44,23 @@ CREATE TABLE IF NOT EXISTS consult_turn (
     ref_menu_paths       TEXT,                            -- 命中的前端菜单路径/菜单名，JSON 数组
     ref_graphify_nodes   TEXT,                            -- 命中的 graphify 图谱节点，JSON 数组
     ref_domain_knowledge TEXT,                            -- 命中的 domain-knowledge 条目，JSON 数组
+    recognized_system_name TEXT,                         -- 识别系统展示名，由服务端使用会话系统快照写入
+    recognized_module_names TEXT,                        -- 识别模块展示名/路径，JSON 数组
+    problem_category     TEXT,                            -- V4 受控问题分类
+    recognition_status   TEXT,                            -- CONFIRMED|PARTIAL|UNRECOGNIZED
+    recognition_evidence TEXT,                            -- 识别依据，JSON 数组
     attachments          TEXT,                            -- 本轮用户附件，JSON 数组 [{name,path,mime}]
     created_at           INTEGER NOT NULL
 );
 
 -- 存量数据库兼容：补充 attachments 列（SchemaInitializer 忽略 "duplicate column" 错误）
 ALTER TABLE consult_turn ADD COLUMN attachments TEXT;
+ALTER TABLE consult_turn ADD COLUMN recognized_system_name TEXT;
+ALTER TABLE consult_turn ADD COLUMN recognized_module_names TEXT;
+ALTER TABLE consult_turn ADD COLUMN problem_category TEXT;
+ALTER TABLE consult_turn ADD COLUMN recognition_status TEXT;
+ALTER TABLE consult_turn ADD COLUMN recognition_evidence TEXT;
+ALTER TABLE consult_turn ADD COLUMN trace_id TEXT;
 
 -- 单轮回答的用户评分/反馈。独立表，按 (session_id,turn_index) 唯一——不随 consult_turn 的
 -- 整表重写（增量同步/重新归档）而丢失。rating: GOOD（满意）| BAD（不满意）。
@@ -103,6 +114,7 @@ CREATE INDEX IF NOT EXISTS idx_consult_bug_status  ON consult_bug(status);
 CREATE INDEX IF NOT EXISTS idx_consult_session_created ON consult_session(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_consult_session_user    ON consult_session(user_id);
 CREATE INDEX IF NOT EXISTS idx_consult_turn_session    ON consult_turn(session_id, turn_index);
+CREATE INDEX IF NOT EXISTS idx_consult_session_dev     ON consult_session(dev_session_id);
 
 -- 业务系统展示偏好：对工作台接口传来的项目做「别名 + 过滤 + 排序」的呈现层覆盖。
 -- 只存被定制过的系统；无记录的系统默认可见、用原名。系统字典仍来自 claude-chat workspaces，本表不复制字典。

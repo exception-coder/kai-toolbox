@@ -5,6 +5,8 @@ import com.exceptioncoder.toolbox.common.auth.web.AuthPrincipal;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.ArchiveRequest;
 import com.exceptioncoder.toolbox.foreconsult.api.dto.StartSessionRequest;
 import com.exceptioncoder.toolbox.foreconsult.domain.ConsultFeedback;
+import com.exceptioncoder.toolbox.foreconsult.domain.ConsultProblemCategory;
+import com.exceptioncoder.toolbox.foreconsult.domain.ConsultRecognitionStatus;
 import com.exceptioncoder.toolbox.foreconsult.domain.ConsultSession;
 import com.exceptioncoder.toolbox.foreconsult.domain.ConsultTurn;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultFeedbackRepository;
@@ -22,7 +24,9 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -41,6 +45,12 @@ public class ConsultService {
     private static final DateTimeFormatter QUESTION_TITLE_DATE_FORMATTER =
             DateTimeFormatter.ofPattern("yyMMdd").withZone(ZoneOffset.UTC);
     private static final Pattern QUESTION_TITLE_PREFIX = Pattern.compile("^(\\d{6})-");
+    private static final Pattern TRACE_ID = Pattern.compile("^[0-9a-fA-F]{32}$");
+    private static final int RECOGNITION_LIST_LIMIT = 12;
+    private static final int RECOGNITION_ITEM_LENGTH_LIMIT = 240;
+    private static final Set<String> RECOGNITION_EVIDENCE = Set.of(
+            "USER_SELECTION", "MODULE_CATALOG", "MENU_KNOWLEDGE", "CORE_SPEC",
+            "GRAPHIFY", "SOURCE_CODE", "DDL", "RUNTIME_DATA");
 
     private final ConsultSessionRepository sessionRepo;
     private final ConsultTurnRepository turnRepo;
@@ -129,7 +139,7 @@ public class ConsultService {
         ConsultSession s = requireAccessibleSession(sessionId);
         long now = System.currentTimeMillis();
         try {
-            writeTurns(sessionId, req.turns(), now);
+            writeTurns(s, req.turns(), now);
             String parseStatus = req.parseStatus() != null && !req.parseStatus().isBlank()
                     ? req.parseStatus() : "NONE";
             sessionRepo.markArchived(sessionId, req.rawReferenceJson(), parseStatus, now);
@@ -152,7 +162,7 @@ public class ConsultService {
     public ConsultSession syncTurns(String sessionId, ArchiveRequest req) {
         ConsultSession s = requireAccessibleSession(sessionId);
         try {
-            writeTurns(sessionId, req.turns(), System.currentTimeMillis());
+            writeTurns(s, req.turns(), System.currentTimeMillis());
             sessionRepo.updateSyncedRaw(sessionId, req.rawReferenceJson());
         } catch (Exception e) {
             log.warn("[fore-consult] 会话 {} 增量同步失败（忽略）: {}", sessionId, e.getMessage());
@@ -161,7 +171,8 @@ public class ConsultService {
     }
 
     /** 整表替换写入本次会话的轮次（归档与增量同步共用）。 */
-    private void writeTurns(String sessionId, List<ArchiveRequest.TurnItem> turns, long now) {
+    private void writeTurns(ConsultSession session, List<ArchiveRequest.TurnItem> turns, long now) {
+        String sessionId = session.getSessionId();
         turnRepo.deleteBySession(sessionId);
         List<ArchiveRequest.TurnItem> items = turns != null ? turns : List.of();
         items.stream()
@@ -173,19 +184,86 @@ public class ConsultService {
         int seq = 1;
         for (ArchiveRequest.TurnItem item : items) {
             int index = item.turnIndex() > 0 ? item.turnIndex() : seq;
+            boolean hasRecognition = "v4".equalsIgnoreCase(session.getOrchestrationVersion());
             turnRepo.insert(ConsultTurn.builder()
                     .turnId(UUID.randomUUID().toString())
                     .sessionId(sessionId)
                     .turnIndex(index)
                     .question(item.question())
                     .answer(item.answer())
-                    .refMenuPaths(item.refMenuPaths())
+                    .refMenuPaths(normalizeJsonList(item.refMenuPaths()))
                     .refGraphifyNodes(item.refGraphifyNodes())
                     .refDomainKnowledge(item.refDomainKnowledge())
+                    .recognizedSystemName(hasRecognition ? session.getSystemName() : null)
+                    .recognizedModuleNames(serializeStringList(normalizeRecognitionList(item.recognizedModuleNames())))
+                    .problemCategory(ConsultProblemCategory.normalize(item.problemCategory()))
+                    .recognitionStatus(hasRecognition
+                            ? ConsultRecognitionStatus.normalize(item.recognitionStatus()) : null)
+                    .recognitionEvidence(serializeStringList(normalizeRecognitionEvidence(item.recognitionEvidence())))
+                    .traceId(normalizeTraceId(item.traceId()))
                     .attachments(serializeAttachments(item.attachments()))
                     .createdAt(now)
                     .build());
             seq++;
+        }
+    }
+
+    private List<String> normalizeRecognitionList(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        for (String value : values) {
+            if (value == null || value.isBlank()) {
+                continue;
+            }
+            String item = value.replaceAll("\\s+", " ").trim();
+            normalized.add(item.length() <= RECOGNITION_ITEM_LENGTH_LIMIT
+                    ? item : item.substring(0, RECOGNITION_ITEM_LENGTH_LIMIT));
+            if (normalized.size() >= RECOGNITION_LIST_LIMIT) {
+                break;
+            }
+        }
+        return List.copyOf(normalized);
+    }
+
+    private List<String> normalizeRecognitionEvidence(List<String> values) {
+        return normalizeRecognitionList(values).stream()
+                .map(String::toUpperCase)
+                .filter(RECOGNITION_EVIDENCE::contains)
+                .toList();
+    }
+
+    private String normalizeJsonList(String json) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            List<String> values = mapper.readValue(json,
+                    mapper.getTypeFactory().constructCollectionType(List.class, String.class));
+            return serializeStringList(normalizeRecognitionList(values));
+        } catch (Exception e) {
+            log.warn("[fore-consult] 菜单路径识别结果无效，已忽略: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private static String normalizeTraceId(String value) {
+        if (value == null || !TRACE_ID.matcher(value.trim()).matches()) {
+            return null;
+        }
+        return value.trim().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private String serializeStringList(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return null;
+        }
+        try {
+            return mapper.writeValueAsString(values);
+        } catch (Exception e) {
+            log.warn("[fore-consult] 识别列表序列化失败: {}", e.getMessage());
+            return null;
         }
     }
 

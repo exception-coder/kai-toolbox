@@ -29,6 +29,12 @@ public record ConsultTurnView(
         String refMenuPaths,
         String refGraphifyNodes,
         String refDomainKnowledge,
+        String recognizedSystemName,
+        List<String> recognizedModuleNames,
+        String problemCategory,
+        String recognitionStatus,
+        List<String> recognitionEvidence,
+        String traceId,
         List<AttView> attachments,
         long createdAt
 ) {
@@ -36,6 +42,7 @@ public record ConsultTurnView(
     private static final Logger log = LoggerFactory.getLogger(ConsultTurnView.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final TypeReference<List<AttView>> ATT_LIST = new TypeReference<>() {};
+    private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
 
     /** 附件视图。path 位于 .kai-chat-attachments 下，前端图片可经 claude-chat serve 端点回显。 */
     public record AttView(String name, String path, String mime) {}
@@ -44,7 +51,9 @@ public record ConsultTurnView(
         return new ConsultTurnView(
                 t.getTurnId(), t.getTurnIndex(), t.getQuestion(), t.getAnswer(),
                 t.getRefMenuPaths(), t.getRefGraphifyNodes(), t.getRefDomainKnowledge(),
-                parseAttachments(t.getAttachments()), t.getCreatedAt());
+                t.getRecognizedSystemName(), parseStringList(t.getRecognizedModuleNames()),
+                t.getProblemCategory(), t.getRecognitionStatus(), parseStringList(t.getRecognitionEvidence()),
+                t.getTraceId(), parseAttachments(t.getAttachments()), t.getCreatedAt());
     }
 
     private static List<AttView> parseAttachments(String json) {
@@ -56,6 +65,19 @@ public record ConsultTurnView(
             return parsed != null ? parsed : List.of();
         } catch (Exception e) {
             log.warn("[fore-consult] 附件 JSON 解析失败: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    private static List<String> parseStringList(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            List<String> parsed = MAPPER.readValue(json, STRING_LIST);
+            return parsed != null ? parsed : List.of();
+        } catch (Exception e) {
+            log.warn("[fore-consult] 识别列表 JSON 解析失败: {}", e.getMessage());
             return List.of();
         }
     }

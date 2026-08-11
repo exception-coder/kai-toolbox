@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -17,6 +17,7 @@ import {
 import {
   CONSULT_READONLY_POLICY,
   CONSULT_READONLY_PROMPT,
+  consultReadonlyRequiredMcpTools,
   consultReadonlyCodexConfig,
 } from './codexSecurity.js'
 import { FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
@@ -256,9 +257,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
   if (!validateCodexHome(ctx, home)) return
   const toolsDisabled = ctx.toolPolicy === 'disabled'
   const consultReadonly = ctx.toolPolicy === CONSULT_READONLY_POLICY
-  const consultSourceRoot = consultReadonly && existsSync(ctx.cwd) && statSync(ctx.cwd).isDirectory()
-    ? resolve(ctx.cwd)
-    : undefined
+  const consultSourceRoot = consultReadonly && ctx.cwd.trim() ? resolve(ctx.cwd) : undefined
   const { approvalPolicy, sandboxMode } = toolsDisabled || consultReadonly
     ? { approvalPolicy: 'never' as ApprovalMode, sandboxMode: IS_WINDOWS ? 'danger-full-access' as SandboxMode : 'read-only' as SandboxMode }
     : mapMode(ctx.permissionMode)
@@ -288,6 +287,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
       emit: ctx.emit,
       setThreadId: ctx.setSdkSessionId,
       mcpServers: codexMcpCapabilities(ctx.toolPolicy ?? 'default', ctx.sessionId),
+      requiredMcpTools: consultReadonly ? consultReadonlyRequiredMcpTools(consultSourceRoot) : undefined,
     })
   } catch (error) {
     if (ctx.signal.aborted) {
@@ -320,9 +320,7 @@ async function runCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport): Pr
   if (!validateCodexHome(ctx, home)) return
   const toolsDisabled = ctx.toolPolicy === 'disabled'
   const consultReadonly = ctx.toolPolicy === CONSULT_READONLY_POLICY
-  const consultSourceRoot = consultReadonly && existsSync(ctx.cwd) && statSync(ctx.cwd).isDirectory()
-    ? resolve(ctx.cwd)
-    : undefined
+  const consultSourceRoot = consultReadonly && ctx.cwd.trim() ? resolve(ctx.cwd) : undefined
   const { approvalPolicy, sandboxMode } = toolsDisabled || consultReadonly
     ? { approvalPolicy: 'never' as ApprovalMode, sandboxMode: IS_WINDOWS ? 'danger-full-access' as SandboxMode : 'read-only' as SandboxMode }
     : mapMode(ctx.permissionMode)

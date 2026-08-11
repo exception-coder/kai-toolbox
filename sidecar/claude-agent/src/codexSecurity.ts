@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import {
@@ -13,12 +13,45 @@ import {
 
 export const CONSULT_READONLY_POLICY = 'consult-readonly'
 
+export type ConsultTargetSystem = 'erp' | 'srm' | 'scm'
+
+const CONSULT_TARGET_BY_SOURCE_DIRECTORY: Readonly<Record<string, ConsultTargetSystem>> = {
+  erp: 'erp',
+  'erp-system': 'erp',
+  yoooni: 'erp',
+  srm: 'srm',
+  'srm-system': 'srm',
+  scm: 'scm',
+  'scm-system': 'scm',
+}
+
+const DATABASE_TOOL_BY_TARGET: Readonly<Record<ConsultTargetSystem, string>> = {
+  erp: 'erp_db_query',
+  srm: 'srm_db_query',
+  scm: 'scm_db_query',
+}
+
+export type RequiredMcpTool = { server: string; tool: string }
+
+/** 业务咨询的源码目录来自平台系统选择，用目录登记名确定数据库能力，禁止交给模型猜测。 */
+export function resolveConsultTargetSystem(sourceRoot?: string): ConsultTargetSystem | undefined {
+  const directory = sourceRoot?.trim() ? basename(resolve(sourceRoot)).toLowerCase() : ''
+  return CONSULT_TARGET_BY_SOURCE_DIRECTORY[directory]
+}
+
+/** 当前系统数据库是咨询的硬依赖；App Server 启动后据此校验真实 Tool 清单。 */
+export function consultReadonlyRequiredMcpTools(sourceRoot?: string): RequiredMcpTool[] {
+  const target = resolveConsultTargetSystem(sourceRoot)
+  return target ? [{ server: 'consult-readonly', tool: DATABASE_TOOL_BY_TARGET[target] }] : []
+}
+
 export const CONSULT_READONLY_PROMPT = [
   '【系统只读安全边界】源码读取与检索是业务咨询的必备能力，但禁止无上下文全仓扫描。Codex 必须先调用 consult-readonly.source_context，再调用业务知识工具，随后用 source_read 核对候选文件；source_search 只允许在已收敛的子目录内兜底。',
   '固定检索顺序：识别 URL → URL 路由定位 → Graphify 代码图谱 → domain-knowledge/cross-topology 业务知识 → 候选源码精确读取 → 限定子目录搜索兜底。不得跳过 source_context 直接用多个宽泛关键词搜索。',
   '从源码发现类名、方法名、SQL ID 或流程节点后，应带这些上下文再次调用 source_context 反问 Graphify，逐步追踪调用链；不要退回仓库根目录搜索。',
   '不得直接搜索或读取 graphify-out/cache；source_context 会调用 Graphify 查询 graphify-out/graph.json。',
   '定位源码时直接使用可用的只读工具。MCP resources/list 为空不代表 MCP tools 或源码读取能力不可用，不得据此停止分析。',
+  '数据库 Tool 由平台按当前会话的目标系统单一注入；不得尝试调用能力清单中不存在的其他系统数据库，也不得用其他系统证据替代当前系统事实。',
   '严禁创建、修改、删除、移动或重命名任何文件；严禁执行会改变 Git、依赖、配置、数据库或业务数据的命令。',
   '允许在回答中生成完整的 UPDATE/INSERT/DELETE/MERGE 及 DDL SQL，供 IT 实施人员交给 DBA 人工审核执行；“输出 SQL 文本”不属于执行写操作。',
   PENDING_SQL_MANUAL_SCOPE,
@@ -70,8 +103,10 @@ function erpStandbySchemaPath(): string | undefined {
 function createConsultReadonlyServer(sourceRoot?: string): Record<string, unknown> | null {
   const apiBase = process.env.TOOLBOX_API_BASE?.trim()
   const readableSourceRoot = sourceRoot?.trim() && existsSync(sourceRoot) ? resolve(sourceRoot) : undefined
-  const standbySchema = erpStandbySchemaPath()
-  if (!apiBase && !readableSourceRoot && !standbySchema) return null
+  const target = resolveConsultTargetSystem(sourceRoot)
+  const databaseTool = target && apiBase ? DATABASE_TOOL_BY_TARGET[target] : undefined
+  const standbySchema = target === 'erp' ? erpStandbySchemaPath() : undefined
+  if (!databaseTool && !readableSourceRoot && !standbySchema) return null
   const script = readonlyMcpScript()
   if (!script) return null
   return {
@@ -84,7 +119,7 @@ function createConsultReadonlyServer(sourceRoot?: string): Record<string, unknow
     },
     enabled: true,
     enabled_tools: [
-      ...(apiBase ? ['erp_db_query', 'srm_db_query', 'scm_db_query'] : []),
+      ...(databaseTool ? [databaseTool] : []),
       ...(readableSourceRoot ? ['source_context', 'source_search', 'source_read'] : []),
       ...(standbySchema ? ['erp_standby_schema_search', 'erp_standby_validate_sql'] : []),
     ],
@@ -96,7 +131,7 @@ function createConsultReadonlyServer(sourceRoot?: string): Record<string, unknow
 /** Claude 咨询会话复用同一只读源码编排器，确保多引擎遵循一致的 Graphify-first 流程。 */
 export function createClaudeConsultSourceServer(sourceRoot?: string): Record<string, unknown> | null {
   const readableSourceRoot = sourceRoot?.trim() && existsSync(sourceRoot) ? resolve(sourceRoot) : undefined
-  const standbySchema = erpStandbySchemaPath()
+  const standbySchema = resolveConsultTargetSystem(sourceRoot) === 'erp' ? erpStandbySchemaPath() : undefined
   if (!readableSourceRoot && !standbySchema) return null
   const script = readonlyMcpScript()
   if (!script) return null
@@ -158,7 +193,8 @@ export function consultReadonlyCodexConfig(codexHome?: string, sessionId?: strin
       browser_use: false,
       browser_use_external: false,
       code_mode: false,
-      code_mode_host: false,
+      // 延迟 MCP 通过 code-mode host 调用；Host 可见范围已由 mcpServers.enabled_tools 裁剪。
+      code_mode_host: true,
       image_generation: false,
       multi_agent: false,
     },

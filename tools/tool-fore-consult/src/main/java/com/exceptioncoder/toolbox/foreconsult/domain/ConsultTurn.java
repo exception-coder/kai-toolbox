@@ -28,6 +28,18 @@ public class ConsultTurn {
     private String refGraphifyNodes;
     /** 命中的 domain-knowledge 条目，JSON 数组字符串，可为 null。 */
     private String refDomainKnowledge;
+    /** 识别系统展示名，由服务端使用会话系统快照写入。 */
+    private String recognizedSystemName;
+    /** 识别模块展示名或完整模块路径，JSON 数组字符串。 */
+    private String recognizedModuleNames;
+    /** V4 受控问题分类。 */
+    private String problemCategory;
+    /** CONFIRMED | PARTIAL | UNRECOGNIZED。 */
+    private String recognitionStatus;
+    /** 识别依据标签，JSON 数组字符串。 */
+    private String recognitionEvidence;
+    /** 本轮 Agent Trace ID，外部可观测关联键，不参与业务主键。 */
+    private String traceId;
     /** 本轮用户附件，JSON 数组字符串 [{name,path,mime}]，可为 null。 */
     private String attachments;
     private long createdAt;

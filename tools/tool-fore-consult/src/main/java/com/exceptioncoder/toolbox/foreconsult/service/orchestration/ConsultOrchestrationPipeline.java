@@ -23,10 +23,10 @@ public class ConsultOrchestrationPipeline {
     }
 
     public ConsultOrchestrationResult orchestrate(ConsultOrchestrationRequest request) {
-        return orchestrate(request, CLASSIC_VERSION);
+        return orchestrate(request, EVIDENCE_ADAPTIVE_VERSION);
     }
 
-    /** 按会话快照选择经典或优化步骤；未知版本兼容回落到 v1。 */
+    /** 按会话快照选择调度步骤；缺失或未知版本默认使用动态证据版。 */
     public ConsultOrchestrationResult orchestrate(ConsultOrchestrationRequest request, String requestedVersion) {
         String version = normalizeVersion(requestedVersion);
         List<ConsultOrchestrationStep> selectedSteps = steps.stream()
@@ -53,7 +53,13 @@ public class ConsultOrchestrationPipeline {
         if (PRODUCTION_STANDBY_VERSION.equalsIgnoreCase(version)) {
             return PRODUCTION_STANDBY_VERSION;
         }
-        return OPTIMIZED_VERSION.equalsIgnoreCase(version) ? OPTIMIZED_VERSION : CLASSIC_VERSION;
+        if (OPTIMIZED_VERSION.equalsIgnoreCase(version)) {
+            return OPTIMIZED_VERSION;
+        }
+        if (CLASSIC_VERSION.equalsIgnoreCase(version)) {
+            return CLASSIC_VERSION;
+        }
+        return EVIDENCE_ADAPTIVE_VERSION;
     }
 
     private static boolean supportsVersion(ConsultOrchestrationStep step, String version) {

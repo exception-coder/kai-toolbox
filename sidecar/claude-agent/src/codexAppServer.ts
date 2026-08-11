@@ -4,6 +4,7 @@ import { createInterface } from 'node:readline'
 import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
+import type { RequiredMcpTool } from './codexSecurity.js'
 
 const require = createRequire(import.meta.url)
 const REQUEST_TIMEOUT_MS = 20_000
@@ -71,6 +72,7 @@ type AppServerTurnOptions = {
   emit: (event: Record<string, unknown>) => void
   setThreadId: (threadId: string) => void
   mcpServers?: Array<{ name: string; status: string }>
+  requiredMcpTools?: RequiredMcpTool[]
 }
 
 type PendingRequest = {
@@ -83,6 +85,32 @@ export class CodexAppServerTurnError extends Error {
     super(message)
     this.name = 'CodexAppServerTurnError'
   }
+}
+
+type McpRuntimeStatus = {
+  name: string
+  tools: Set<string>
+}
+
+function parseMcpRuntimeStatuses(result: JsonRpcResult): McpRuntimeStatus[] {
+  return (result.data ?? []).map(item => {
+    const record = asRecord(item) ?? {}
+    const tools = asRecord(record.tools) ?? {}
+    return {
+      name: asString(record.name),
+      tools: new Set(Object.keys(tools)),
+    }
+  }).filter(status => status.name)
+}
+
+function validateRequiredMcpTools(statuses: McpRuntimeStatus[], required: RequiredMcpTool[]): void {
+  const missing = required.filter(expected => {
+    const server = statuses.find(status => status.name === expected.server)
+    return !server?.tools.has(expected.tool)
+  })
+  if (missing.length === 0) return
+  const names = missing.map(item => `${item.server}.${item.tool}`).join('、')
+  throw new CodexAppServerTurnError(`业务咨询只读工具初始化失败，缺少运行时 Tool：${names}`, false)
 }
 
 function normalizeCodexHome(value?: string): string | undefined {
@@ -478,7 +506,29 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     threadId = asString(thread?.id) || threadId
     if (!threadId) throw new Error('Codex App Server 未返回 thread id')
     options.setThreadId(threadId)
-    options.emit({ type: 'init', sdkSessionId: threadId, mcpServers: options.mcpServers ?? [] })
+    let runtimeMcpServers = options.mcpServers ?? []
+    if (options.requiredMcpTools) {
+      let runtimeStatuses: McpRuntimeStatus[]
+      try {
+        const statusResult = await request('mcpServerStatus/list', {
+          threadId,
+          detail: 'toolsAndAuthOnly',
+          limit: 100,
+        })
+        runtimeStatuses = parseMcpRuntimeStatuses(statusResult)
+      } catch (error) {
+        throw new CodexAppServerTurnError(
+          `业务咨询只读工具状态校验失败：${error instanceof Error ? error.message : String(error)}`,
+          false,
+        )
+      }
+      validateRequiredMcpTools(runtimeStatuses, options.requiredMcpTools)
+      runtimeMcpServers = runtimeStatuses.map(status => ({
+        name: status.name,
+        status: status.tools.size > 0 ? 'connected' : 'unavailable',
+      }))
+    }
+    options.emit({ type: 'init', sdkSessionId: threadId, mcpServers: runtimeMcpServers })
     // 请求一旦发出，服务端就可能已经开始调用工具；从这里起禁止 SDK 自动重放，避免双执行。
     turnAccepted = true
     const turnResult = await request('turn/start', {

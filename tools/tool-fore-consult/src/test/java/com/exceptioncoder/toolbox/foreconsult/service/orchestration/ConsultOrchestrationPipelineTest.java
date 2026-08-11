@@ -23,7 +23,7 @@ class ConsultOrchestrationPipelineTest {
 
         ConsultOrchestrationResult result = pipeline.orchestrate(new ConsultOrchestrationRequest(
                 "销售订单已提交后为什么不能修改？", "ERP", "D:\\erp",
-                List.of("销售管理"), "BIZ", false));
+                List.of("销售管理"), "BIZ", false), "v1");
 
         assertThat(result.pipelineVersion()).isEqualTo("consult-orchestration-v1");
         assertThat(result.steps()).extracting(ConsultOrchestrationResult.StepTrace::id)
@@ -72,7 +72,7 @@ class ConsultOrchestrationPipelineTest {
                 configuration.consultIntentClarificationStep()));
 
         ConsultOrchestrationResult result = pipeline.orchestrate(new ConsultOrchestrationRequest(
-                "按钮不见了", "ERP", "D:\\erp", List.of(), "IT", true));
+                "按钮不见了", "ERP", "D:\\erp", List.of(), "IT", true), "v1");
 
         assertThat(result.steps()).extracting(ConsultOrchestrationResult.StepTrace::id)
                 .containsExactly("security-boundary", "custom-diagnostic", "intent-and-clarification");
@@ -178,15 +178,71 @@ class ConsultOrchestrationPipelineTest {
                 .contains("证据已经足以回答时立即停止")
                 .contains("erp_standby_validate_sql")
                 .contains("【明确结论】")
+                .contains("<<<CONSULT_RECOGNITION>>>")
+                .contains("MENU_OPERATION")
+                .contains("recognitionStatus")
                 .doesNotContain("v2 当前通过受控提示词");
         assertThat(result.capabilityGaps())
                 .contains("Core Spec 专用 MCP 尚未提供，当前按模块使用通用知识工具限域召回并保留证据等级");
     }
 
     @Test
-    void versionNormalizationRecognizesV4AndKeepsLegacyFallback() {
+    void evidenceAdaptivePipelineRoutesDatabaseEvidenceBySelectedSystem() {
+        ConsultEvidenceAdaptiveStepConfiguration adaptive = new ConsultEvidenceAdaptiveStepConfiguration();
+        ConsultOrchestrationPipeline pipeline = new ConsultOrchestrationPipeline(List.of(
+                adaptive.consultV4DdlAndRuntimeEvidenceStep()));
+
+        ConsultOrchestrationResult srmResult = pipeline.orchestrate(new ConsultOrchestrationRequest(
+                "查询款号最近一个月采购量", "srm-system", "D:\\srm-system",
+                List.of(), "BIZ", false), "v4");
+        assertThat(srmResult.prompt())
+                .contains("当前目标系统是 SRM")
+                .contains("consult-readonly.srm_db_query")
+                .contains("information_schema")
+                .doesNotContain("erp_standby_validate_sql")
+                .doesNotContain("erp_standby_schema_search");
+
+        ConsultOrchestrationResult erpResult = pipeline.orchestrate(new ConsultOrchestrationRequest(
+                "生成生产备库查询 SQL", "yoooni", "D:\\yoooni",
+                List.of(), "IT", false), "v4");
+        assertThat(erpResult.prompt())
+                .contains("当前目标系统是 ERP")
+                .contains("consult-readonly.erp_db_query")
+                .contains("consult-readonly.erp_standby_validate_sql")
+                .doesNotContain("consult-readonly.srm_db_query");
+
+        ConsultOrchestrationResult unknownResult = pipeline.orchestrate(new ConsultOrchestrationRequest(
+                "查询运行数据", "unknown-system", "D:\\unknown-system",
+                List.of(), "IT", false), "v4");
+        assertThat(unknownResult.prompt())
+                .contains("尚未映射专用数据库工具")
+                .doesNotContain("consult-readonly.erp_db_query")
+                .doesNotContain("consult-readonly.srm_db_query")
+                .doesNotContain("consult-readonly.scm_db_query");
+    }
+
+    @Test
+    void defaultOrchestrationUsesV4() {
+        ConsultEvidenceAdaptiveStepConfiguration adaptive = new ConsultEvidenceAdaptiveStepConfiguration();
+        ConsultOrchestrationPipeline pipeline = new ConsultOrchestrationPipeline(List.of(
+                adaptive.consultV4SafetyAndEvidencePlanStep()));
+
+        ConsultOrchestrationResult result = pipeline.orchestrate(new ConsultOrchestrationRequest(
+                "Why is the receipt missing?", "ERP", "D:\\yoooni", List.of(), "BIZ", false));
+
+        assertThat(result.pipelineVersion()).isEqualTo("consult-orchestration-v4");
+        assertThat(result.steps()).extracting(ConsultOrchestrationResult.StepTrace::id)
+                .containsExactly("v4-safety-and-evidence-plan");
+    }
+
+    @Test
+    void versionNormalizationDefaultsToV4AndPreservesExplicitLegacyVersions() {
         assertThat(ConsultOrchestrationPipeline.normalizeVersion("V4")).isEqualTo("v4");
-        assertThat(ConsultOrchestrationPipeline.normalizeVersion("unknown")).isEqualTo("v1");
-        assertThat(ConsultOrchestrationPipeline.normalizeVersion(null)).isEqualTo("v1");
+        assertThat(ConsultOrchestrationPipeline.normalizeVersion("v3")).isEqualTo("v3");
+        assertThat(ConsultOrchestrationPipeline.normalizeVersion("v2")).isEqualTo("v2");
+        assertThat(ConsultOrchestrationPipeline.normalizeVersion("v1")).isEqualTo("v1");
+        assertThat(ConsultOrchestrationPipeline.normalizeVersion("unknown")).isEqualTo("v4");
+        assertThat(ConsultOrchestrationPipeline.normalizeVersion(" ")).isEqualTo("v4");
+        assertThat(ConsultOrchestrationPipeline.normalizeVersion(null)).isEqualTo("v4");
     }
 }
