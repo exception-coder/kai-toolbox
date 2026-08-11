@@ -33,6 +33,7 @@ public class ClaudeChatSessionRepository {
             .codexReasoningEffort(rs.getString("codex_reasoning_effort"))
             .codexSpeed(rs.getString("codex_speed"))
             .executionPolicy(rs.getString("execution_policy"))
+            .consultEvidenceSystems(rs.getString("consult_evidence_systems"))
             .groupName(rs.getString("group_name"))
             .subgroupName(rs.getString("subgroup_name"))
             .favorite(rs.getInt("favorite") == 1)
@@ -64,14 +65,15 @@ public class ClaudeChatSessionRepository {
         jdbc.update("""
                 INSERT INTO claude_chat_session
                   (id, cwd, title, sdk_session_id, engine, engines, api_base_url, auth_token, codex_home,
-                   selected_model, codex_reasoning_effort, codex_speed, execution_policy, status, started_at, last_seen_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   selected_model, codex_reasoning_effort, codex_speed, execution_policy, consult_evidence_systems,
+                   status, started_at, last_seen_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 s.getId(), s.getCwd(), s.getTitle(), s.getSdkSessionId(),
                 engine, s.getEngines() == null ? engine : s.getEngines(),
                 s.getApiBaseUrl(), s.getAuthToken(), s.getCodexHome(),
                 s.getSelectedModel(), s.getCodexReasoningEffort(), s.getCodexSpeed(),
-                s.getExecutionPolicy(),
+                s.getExecutionPolicy(), s.getConsultEvidenceSystems(),
                 s.getStatus().name(), s.getStartedAt(), s.getLastSeenAt());
     }
 

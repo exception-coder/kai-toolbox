@@ -18,5 +18,7 @@ export function InterviewAssistant({ interviews }: { interviews: KnowledgeInterv
 }
 
 function AssistantSection({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) {
-  return <section className="rounded-lg bg-[var(--color-muted)]/35 p-3"><h3 className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-[var(--color-primary)]">{icon}{title}</h3><p className="text-sm leading-6">{text}</p></section>
+  const lines = text.split('\n').map(line => line.trim()).filter(Boolean)
+  const isList = lines.length > 1 && lines.every(line => line.startsWith('- '))
+  return <section className="rounded-lg bg-[var(--color-muted)]/35 p-3"><h3 className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-[var(--color-primary)]">{icon}{title}</h3>{isList ? <ul className="space-y-1.5 pl-4 text-sm leading-6">{lines.map((line, index) => <li key={index} className="list-disc break-words">{line.slice(2)}</li>)}</ul> : <p className="whitespace-pre-line break-words text-sm leading-6">{text}</p>}</section>
 }

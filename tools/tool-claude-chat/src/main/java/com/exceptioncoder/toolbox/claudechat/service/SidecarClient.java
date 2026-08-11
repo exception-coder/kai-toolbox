@@ -20,6 +20,7 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 import java.io.IOException;
 import java.net.URI;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
 
@@ -129,6 +130,14 @@ public class SidecarClient {
     public void startSession(String sessionId, String cwd, String model, String mode, String engine,
                              String apiBaseUrl, String authToken, String codexHome, boolean autoApprove,
                              String codexReasoningEffort, String codexSpeed, String toolPolicy) {
+        startSession(sessionId, cwd, model, mode, engine, apiBaseUrl, authToken, codexHome, autoApprove,
+                codexReasoningEffort, codexSpeed, toolPolicy, null);
+    }
+
+    public void startSession(String sessionId, String cwd, String model, String mode, String engine,
+                             String apiBaseUrl, String authToken, String codexHome, boolean autoApprove,
+                             String codexReasoningEffort, String codexSpeed, String toolPolicy,
+                             List<String> consultEvidenceSystems) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("type", "start");
         m.put("sessionId", sessionId);
@@ -143,6 +152,7 @@ public class SidecarClient {
         m.put("codexReasoningEffort", nz(codexReasoningEffort));
         m.put("codexSpeed", nz(codexSpeed));
         m.put("toolPolicy", nz(toolPolicy));
+        m.put("consultEvidenceSystems", consultEvidenceSystems == null ? List.of() : consultEvidenceSystems);
         send(m);
     }
 
@@ -173,7 +183,16 @@ public class SidecarClient {
     public void resumeSession(String sessionId, String sdkSessionId, String cwd, String engine,
                               String apiBaseUrl, String authToken, String codexHome,
                               String mode, boolean autoApprove, String model,
-                              String codexReasoningEffort, String codexSpeed, String toolPolicy) {
+                               String codexReasoningEffort, String codexSpeed, String toolPolicy) {
+        resumeSession(sessionId, sdkSessionId, cwd, engine, apiBaseUrl, authToken, codexHome, mode, autoApprove,
+                model, codexReasoningEffort, codexSpeed, toolPolicy, null);
+    }
+
+    public void resumeSession(String sessionId, String sdkSessionId, String cwd, String engine,
+                              String apiBaseUrl, String authToken, String codexHome,
+                              String mode, boolean autoApprove, String model,
+                              String codexReasoningEffort, String codexSpeed, String toolPolicy,
+                              List<String> consultEvidenceSystems) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("type", "resume");
         m.put("sessionId", sessionId);
@@ -189,6 +208,7 @@ public class SidecarClient {
         m.put("codexReasoningEffort", nz(codexReasoningEffort));
         m.put("codexSpeed", nz(codexSpeed));
         m.put("toolPolicy", nz(toolPolicy));
+        m.put("consultEvidenceSystems", consultEvidenceSystems == null ? List.of() : consultEvidenceSystems);
         send(m);
     }
 

@@ -41,7 +41,8 @@ public sealed interface ClientMessage
      * apiBaseUrl/authToken 为可选第三方 Anthropic 兼容网关（如 4sapi）：仅本会话生效，空=走官方登录。
      */
     record Open(String cwd, String model, String mode, String engine, String apiBaseUrl, String authToken,
-                String codexHome, String codexReasoningEffort, String codexSpeed) implements ClientMessage {}
+                String codexHome, String codexReasoningEffort, String codexSpeed,
+                List<String> consultEvidenceSystems) implements ClientMessage {}
 
     /** 重连进行中的会话，请求回放 seq > lastEventSeq 的事件 */
     record Attach(String sessionId, long lastEventSeq) implements ClientMessage {}

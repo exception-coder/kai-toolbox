@@ -12,7 +12,7 @@ import { createScmDbServer } from './scmDb.js'
 import { createForgePendingSqlServer, FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
 import { createDomainKnowledgeServer, createCrossTopologyServer } from './knowledgeMcp.js'
 import { codexMcpCapabilities, normalizeCodexHome, runCodexTurn, type CodexReasoningEffort, type CodexSpeed } from './codexEngine.js'
-import { createClaudeConsultSourceServer } from './codexSecurity.js'
+import { createClaudeConsultSourceServer, resolveConsultTargetSystems } from './codexSecurity.js'
 import { forkCodexThread, listCodexModels, type CodexModelInfo } from './codexAppServer.js'
 import { runGeminiTurn } from './geminiEngine.js'
 import { answerOpencodePermission, emitOpencodeModels, runOpencodeTurn, updateOpencodePermissionPolicy } from './opencodeEngine.js'
@@ -116,6 +116,13 @@ function officialModelsEnv(): NodeJS.ProcessEnv {
 
 function isCodexReasoningEffort(value: unknown): value is CodexReasoningEffort {
   return typeof value === 'string' && /^[a-z][a-z0-9_-]{0,31}$/.test(value)
+}
+
+function normalizeConsultEvidenceSystems(values: readonly string[] | undefined): string[] {
+  const allowed = new Set(['erp', 'srm', 'scm'])
+  return [...new Set((values ?? [])
+    .map(value => value.trim().toLowerCase())
+    .filter(value => allowed.has(value)))]
 }
 
 /** 中断时留给「未决审批的 deny 响应」写回 CLI 的时间，之后才关传输层。见 Session.interrupt()。 */
@@ -238,6 +245,8 @@ class Session {
   permissionMode = 'default'
   /** 一次性分析可设 disabled，移除 Claude 内置工具与设置源。 */
   toolPolicy = 'default'
+  /** 后端会话快照授权的跨系统只读证据范围。 */
+  consultEvidenceSystems: string[] = []
   /** 仅真实交互会话启用；one-shot 后台任务的 id 不是持久会话，不能写会话 SQL 台账。 */
   forgeSqlRegistration = true
   /** 会话级「弹窗自动允许」兜底开关，与 permissionMode 独立；见 Permissions.autoApprove 说明。 */
@@ -346,10 +355,13 @@ class Session {
       }
       const toolboxApiBase = process.env.TOOLBOX_API_BASE
       if (this.toolPolicy !== 'disabled' && !this.demo && toolboxApiBase) {
+        const consultTargets = new Set(resolveConsultTargetSystems(this.cwd, this.consultEvidenceSystems))
+        const canRead = (system: 'erp' | 'srm' | 'scm'): boolean =>
+          this.toolPolicy !== 'consult-readonly' || consultTargets.has(system)
         if (this.forgeSqlRegistration) {
           mcpServers.forge = createForgePendingSqlServer(this.id, toolboxApiBase)
         }
-        mcpServers.erp_db = createErpDbServer(toolboxApiBase)
+        if (canRead('erp')) mcpServers.erp_db = createErpDbServer(toolboxApiBase)
         // 业务咨询只读策略只注入数据库查询工具和 Forge SQL 台账；可真实写测试环境的 app 工具仅限普通开发会话。
         if (this.toolPolicy !== 'consult-readonly') {
           // 自闭环验证：非 demo、后端就绪时挂 erp_app（登录态实发 *.action 探测改动效果；
@@ -358,16 +370,16 @@ class Session {
         }
         // SRM 需求开发同款一对：srm_db（MySQL 只读查库核对）+ srm_app（yudao 网关 OAuth2 登录态实发验证）。
         // 未配置对应库/实例时工具自会回"未配置"，无害；「SRM需求开发」触发语显式点名这两个工具。
-        mcpServers.srm_db = createSrmDbServer(toolboxApiBase)
+        if (canRead('srm')) mcpServers.srm_db = createSrmDbServer(toolboxApiBase)
         if (this.toolPolicy !== 'consult-readonly') {
           mcpServers.srm_app = createSrmAppServer(toolboxApiBase)
         }
         // SCM 需求开发：只挂只读 scm_db（MySQL 查库核对）；无 scm_app——SCM 暂无像 ERP/SRM 那样
         // 可供登录态实发的网关/接口约定，验证口径改为「重启后查库回读」。未配置库时工具自会回"未配置"，无害。
-        mcpServers.scm_db = createScmDbServer(toolboxApiBase)
+        if (canRead('scm')) mcpServers.scm_db = createScmDbServer(toolboxApiBase)
       }
       if (this.toolPolicy === 'consult-readonly') {
-        const sourceServer = createClaudeConsultSourceServer(this.cwd)
+        const sourceServer = createClaudeConsultSourceServer(this.cwd, this.consultEvidenceSystems)
         if (sourceServer) (mcpServers as Record<string, unknown>)['consult-readonly'] = sourceServer
       }
 
@@ -519,6 +531,7 @@ class Session {
         permissionMode: this.permissionMode,
         toolPolicy: this.toolPolicy,
         developerInstructions,
+        consultEvidenceSystems: this.consultEvidenceSystems,
         sdkSessionId: this.sdkSessionId,
         apiBaseUrl: this.apiBaseUrl,
         authToken: this.authToken,
@@ -909,7 +922,7 @@ export class SessionManager {
 
   start(id: string, cwd: string, model?: string, mode?: string, engine?: string, apiBaseUrl?: string, authToken?: string, codexHome?: string,
         demo?: boolean, demoApiBase?: string, autoApprove?: boolean, codexReasoningEffort?: string, codexSpeed?: string,
-        toolPolicy?: string): void {
+        toolPolicy?: string, consultEvidenceSystems: string[] = []): void {
     const s = new Session(id, cwd || process.env.HOME || process.cwd(), (e) => this.emit(id, e))
     if (model) s.model = model
     if (engine === 'codex' || engine === 'gemini' || engine === 'opencode') s.engine = engine
@@ -918,6 +931,7 @@ export class SessionManager {
     if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
     if (autoApprove) { s.autoApprove = true; s.perms.setAutoApprove(true) }
     s.toolPolicy = toolPolicy === 'consult-readonly' ? 'consult-readonly' : 'default'
+    s.consultEvidenceSystems = normalizeConsultEvidenceSystems(consultEvidenceSystems)
     s.perms.setToolPolicy(s.toolPolicy)
     s.codexReasoningEffort = isCodexReasoningEffort(codexReasoningEffort)
       ? codexReasoningEffort
@@ -950,7 +964,7 @@ export class SessionManager {
    */
   resume(id: string, sdkSessionId: string, cwd: string, engine?: string, apiBaseUrl?: string, authToken?: string, codexHome?: string,
          mode?: string, autoApprove?: boolean, model?: string, codexReasoningEffort?: string, codexSpeed?: string,
-         toolPolicy?: string): void {
+         toolPolicy?: string, consultEvidenceSystems: string[] = []): void {
     let s = this.sessions.get(id)
     if (!s) {
       s = new Session(id, cwd, (e) => this.emit(id, e))
@@ -964,6 +978,7 @@ export class SessionManager {
     if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
     if (autoApprove != null) { s.autoApprove = autoApprove; s.perms.setAutoApprove(autoApprove) }
     s.toolPolicy = toolPolicy === 'consult-readonly' ? 'consult-readonly' : 'default'
+    s.consultEvidenceSystems = normalizeConsultEvidenceSystems(consultEvidenceSystems)
     s.perms.setToolPolicy(s.toolPolicy)
     s.model = model || undefined
     this.setCodexOptions(id, codexReasoningEffort ?? '', codexSpeed ?? 'default')

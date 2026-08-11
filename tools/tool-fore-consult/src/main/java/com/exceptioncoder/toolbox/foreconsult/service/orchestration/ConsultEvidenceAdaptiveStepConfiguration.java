@@ -50,7 +50,9 @@ public class ConsultEvidenceAdaptiveStepConfiguration {
     ConsultOrchestrationStep consultV4DdlAndRuntimeEvidenceStep() {
         return step("v4-ddl-and-runtime-evidence", "真实 DDL 与运行数据按需核验", 400, context ->
                 context.addSection("真实 DDL 与运行数据按需核验",
-                        ddlAndRuntimeEvidenceRules(context.request().systemName())));
+                        ddlAndRuntimeEvidenceRules(
+                                context.request().systemName(),
+                                context.request().evidenceRouteContext())));
     }
 
     @Bean
@@ -91,9 +93,9 @@ public class ConsultEvidenceAdaptiveStepConfiguration {
         return new EvidenceAdaptivePromptStep(id, label, order, action);
     }
 
-    private static String ddlAndRuntimeEvidenceRules(String systemName) {
+    private static String ddlAndRuntimeEvidenceRules(String systemName, String evidenceRouteContext) {
         String normalized = systemName == null ? "" : systemName.strip().toLowerCase(Locale.ROOT);
-        return switch (normalized) {
+        String systemRules = switch (normalized) {
             case "erp", "erp-system", "yoooni" -> """
                     当前目标系统是 ERP。涉及表、视图、字段、关联关系或准备输出生产备库 SELECT/WITH SQL 时，必须使用真实 DDL 工具核对物理结构。
                     输出 ERP 生产备库查询 SQL 前必须调用 consult-readonly.erp_standby_validate_sql；对象缺失时调用 consult-readonly.erp_standby_schema_search，并区分 TABLE 与 VIEW。名称相似只能作为候选，不能自行认定替代关系。
@@ -119,6 +121,17 @@ public class ConsultEvidenceAdaptiveStepConfiguration {
                     未取得真实 DDL 或运行数据时给出阶段性结论与最小核验条件，不得编造表名、字段、SQL、查询结果或“无数据”结论。
                     """;
         };
+        return systemRules + """
+
+                【已确认的数据归属优先规则】
+                当前系统数据库用于核对当前系统本地数据；只有平台提供的“证据路由”才能授权额外系统数据库。
+                若证据路由明确某业务对象的权威数据位于其他系统，必须查询该权威系统的 DDL/运行数据，并在结论中标明数据来源；
+                此规则优先于上方“不得切换其他系统”的默认限制。非权威系统返回空结果，只能说明本地未保存，不能回答业务上无数据。
+                不得自行猜测、扩大或永久记忆跨系统范围，也不得调用本轮运行时能力清单之外的工具。
+                本会话证据路由：
+                """ + (evidenceRouteContext == null || evidenceRouteContext.isBlank()
+                ? "无已确认跨系统数据归属。"
+                : evidenceRouteContext);
     }
 
     private record EvidenceAdaptivePromptStep(

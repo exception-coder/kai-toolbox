@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS claude_chat_session (
     codex_speed     TEXT DEFAULT 'default',
     -- 服务端执行能力边界：standard / consult-readonly。业务咨询入口强制只读，不接受客户端降级。
     execution_policy TEXT DEFAULT 'standard',
+    consult_evidence_systems TEXT,
     -- 会话分组名（用户自定义，空=未分组）；原在浏览器 localStorage，改后端持久化后跨端/换浏览器可见
     group_name      TEXT,
     -- 二级需求分组；group_name 表示系统/项目，本字段表示该项目下的具体需求

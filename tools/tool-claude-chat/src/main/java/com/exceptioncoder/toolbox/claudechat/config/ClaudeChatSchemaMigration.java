@@ -74,6 +74,7 @@ public class ClaudeChatSchemaMigration {
         addColumn("codex_reasoning_effort", "TEXT");
         addColumn("codex_speed", "TEXT DEFAULT 'default'");
         addColumn("execution_policy", "TEXT DEFAULT 'standard'");
+        addColumn("consult_evidence_systems", "TEXT");
         // 会话分组列（原在浏览器 localStorage，改后端持久化后跨端/换浏览器可见）
         try {
             jdbc.execute("ALTER TABLE claude_chat_session ADD COLUMN group_name TEXT");

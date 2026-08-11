@@ -32,6 +32,8 @@ public class ClaudeChatSession {
     private String codexSpeed;
     /** 服务端执行能力边界：standard / consult-readonly。 */
     private String executionPolicy;
+    /** 咨询会话允许的证据系统 JSON 数组，仅包含 erp/srm/scm。 */
+    private String consultEvidenceSystems;
     /** 会话所属分组名（用户自定义，如 "toolbox"）；空=未分组。后端持久化，跨端可见。 */
     private String groupName;
     /** 二级需求分组；一级 groupName 通常表示系统/项目。 */

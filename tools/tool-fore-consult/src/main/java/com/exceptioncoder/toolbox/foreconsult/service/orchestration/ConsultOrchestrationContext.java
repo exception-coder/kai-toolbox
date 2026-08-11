@@ -30,6 +30,7 @@ public final class ConsultOrchestrationContext {
                 .append("咨询类型：").append(request.followUp() ? "当前问题的追问" : "新咨询").append('\n')
                 .append("目标系统：").append(request.systemName()).append('\n')
                 .append("候选模块：").append(modules).append('\n')
+                .append("证据路由：").append(request.evidenceRouteContext()).append('\n')
                 .append("回答对象：").append(request.role()).append('\n')
                 .append("用户原始问题：\n").append(request.question().strip()).append('\n');
         for (int i = 0; i < sections.size(); i++) {

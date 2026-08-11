@@ -155,17 +155,7 @@ function analyze(raw) {
     if (m) headings.push({ level: m[1].length, text: m[2].trim() })
   }
 
-  // TL;DR：跳过题目元信息和 ## 典型回答 之后的第一段
-  let tldr = ''
-  const startIdx = stripped.search(/^##\s+(典型回答|核心要点|答案|回答)/m)
-  const body = startIdx >= 0 ? stripped.slice(startIdx) : stripped
-  const paragraphs = body
-    .split(/\n\s*\n/)
-    .map(p => p.trim())
-    .filter(p => p.length > 0 && !p.startsWith('#') && !p.startsWith('>') && !p.startsWith('-') && !p.startsWith('*'))
-  if (paragraphs.length > 0) {
-    tldr = paragraphs[0].replace(/\s+/g, ' ').slice(0, 160)
-  }
+  const tldr = extractReadableSummary(raw, title, 160)
 
   // 字数 / 字符数：粗略统计（按中文字符数估算）
   const chars = stripped.replace(/\s+/g, '').length
@@ -197,6 +187,127 @@ function analyze(raw) {
     difficulty,
     difficultyScore: Math.round(score * 100) / 100,
   }
+}
+
+function extractReadableSummary(raw, title = '', limit = 160) {
+  const withoutCode = raw.replace(/```[\s\S]*?```/g, '')
+  const lines = withoutCode.split(/\r?\n/)
+  const candidates = []
+  let tableFallback = ''
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (!line) continue
+
+    if (isTableHeader(lines, i)) {
+      tableFallback ||= describeTable(lines, i)
+      while (i + 1 < lines.length && isTableRow(lines[i + 1])) i++
+      continue
+    }
+    if (
+      /^#{1,6}\s/.test(line) ||
+      /^(?:---+|\*\*\*+|___+)$/.test(line) ||
+      /^>\s*(?:题号|分类|来源)\s*[:：｜|]/.test(line) ||
+      isTableRow(line)
+    ) {
+      continue
+    }
+
+    const preview = toPreviewText(line)
+    if (!isMeaningfulPreview(preview, title)) continue
+    candidates.push(preview)
+  }
+
+  return truncatePreview(buildSummaryText(candidates) || tableFallback || toPreviewText(title), limit)
+}
+
+function toPreviewText(markdown) {
+  return markdown
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/^[ \t]*\|?[ \t:|-]*-[ \t:|-]*\|?[ \t]*$/gm, ' ')
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/^[ \t]*#{1,6}[ \t]+/gm, '')
+    .replace(/^[ \t]*>[ \t]?/gm, '')
+    .replace(/^[ \t]*[-*+][ \t]+/gm, '')
+    .replace(/^[ \t]*\d+\.[ \t]+/gm, '')
+    .replace(/[ \t]*\|[ \t]*/g, ' · ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/(\*\*|__|\*|_|~~)/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/(?:·\s*){2,}/g, '· ')
+    .replace(/^[\s·]+|[\s·]+$/g, '')
+    .trim()
+}
+
+function isMeaningfulPreview(text, title) {
+  if (text.length < 4) return false
+  if (/^(?:优点|缺点|总结|注意|具体来说)[：:]?$/.test(text)) return false
+  if (/^(?:题号|分类|来源|更新时间|更新内容)[：:｜|]/.test(text)) return false
+  const normalize = value => value.replace(/^[✅✓✔️\s]+/, '').replace(/[？?。\s]/g, '')
+  return normalize(text) !== normalize(title)
+}
+
+function isTableHeader(lines, index) {
+  return index + 1 < lines.length && isTableRow(lines[index]) && isTableSeparator(lines[index + 1])
+}
+
+function isTableRow(line) {
+  const trimmed = line.trim()
+  return trimmed.startsWith('|') && trimmed.endsWith('|') && trimmed.split('|').length >= 3
+}
+
+function isTableSeparator(line) {
+  if (!isTableRow(line)) return false
+  return splitTableRow(line).every(cell => /^:?-{3,}:?$/.test(cell.replace(/\s/g, '')))
+}
+
+function splitTableRow(line) {
+  return line.trim().replace(/^\||\|$/g, '').split('|').map(cell => toPreviewText(cell))
+}
+
+function describeTable(lines, headerIndex) {
+  const headers = splitTableRow(lines[headerIndex])
+  for (let i = headerIndex + 2; i < lines.length && isTableRow(lines[i]); i++) {
+    const cells = splitTableRow(lines[i])
+    if (!cells.some(Boolean)) continue
+    const label = cells[0]
+    const details = cells.slice(1).flatMap((cell, column) => {
+      if (!cell) return []
+      const header = headers[column + 1]
+      return [header ? `${header}：${cell}` : cell]
+    })
+    if (label && details.length) return `${label}：${details.join('；')}`
+    if (details.length) return details.join('；')
+  }
+  return ''
+}
+
+function truncatePreview(text, limit) {
+  if (text.length <= limit) return text
+  const window = text.slice(0, limit + 1)
+  const boundary = Math.max(...['。', '！', '？', '；'].map(mark => window.lastIndexOf(mark)))
+  if (boundary >= Math.floor(limit / 2)) return window.slice(0, boundary + 1)
+  return `${text.slice(0, limit - 1).replace(/[，,、；;：:\s]+$/, '')}…`
+}
+
+function buildSummaryText(candidates) {
+  const leadingFragments = []
+  for (const candidate of candidates) {
+    if (isFragment(candidate)) {
+      leadingFragments.push(candidate.replace(/[：:]$/, ''))
+      continue
+    }
+    if (leadingFragments.length >= 2) {
+      return `${leadingFragments.slice(0, 6).join('、')}；${candidate}`
+    }
+    return candidate
+  }
+  return leadingFragments.slice(0, 8).join('、')
+}
+
+function isFragment(text) {
+  return text.length < 12 && !/[。！？!?；;，,]/.test(text)
 }
 
 function hashHue(s) {

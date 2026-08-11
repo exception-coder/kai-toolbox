@@ -8,6 +8,7 @@ import { getSessionsByDevSessions } from '@/features/prd-clarify/api'
 import { SessionActivityBar } from './SessionActivityBar'
 import { EngineIcon } from './EngineIcon'
 import { SessionGroupPicker } from './SessionList'
+import { CopySessionIdButton } from './CopySessionIdButton'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import type { ClaudeChatSessionView } from '../types'
 import { useSessionPlanState } from '../hooks/useSessionPlanState'
@@ -252,6 +253,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
                       ? <Loader2 className="size-3.5 animate-spin" />
                       : <Star className={cn('size-3.5', session.favorite && 'fill-current')} />}
                   </button>
+                  <CopySessionIdButton sessionId={session.id} />
                   <button
                     type="button"
                     disabled={planBusyId === session.id || isRunning}

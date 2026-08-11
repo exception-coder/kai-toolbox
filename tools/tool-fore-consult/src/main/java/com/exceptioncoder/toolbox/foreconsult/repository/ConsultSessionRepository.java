@@ -18,7 +18,8 @@ public class ConsultSessionRepository {
 
     private static final String SUMMARY_COLUMNS = "session_id, user_id, question_title, system_name, "
             + "system_source_path, module_names, dev_session_id, parse_status, archive_status, role, engine, model, "
-            + "codex_reasoning_effort, codex_speed, codex_home, orchestration_version, error_msg, created_at, ended_at";
+            + "codex_reasoning_effort, codex_speed, codex_home, orchestration_version, evidence_systems, "
+            + "evidence_route_snapshot, error_msg, created_at, ended_at";
 
     private static final RowMapper<ConsultSession> ROW = (rs, i) -> ConsultSession.builder()
             .sessionId(rs.getString("session_id"))
@@ -39,6 +40,8 @@ public class ConsultSessionRepository {
             .codexSpeed(rs.getString("codex_speed"))
             .codexHome(rs.getString("codex_home"))
             .orchestrationVersion(rs.getString("orchestration_version"))
+            .evidenceSystems(rs.getString("evidence_systems"))
+            .evidenceRouteSnapshot(rs.getString("evidence_route_snapshot"))
             .errorMsg(rs.getString("error_msg"))
             .createdAt(rs.getLong("created_at"))
             .endedAt(rs.getObject("ended_at") == null ? null : rs.getLong("ended_at"))
@@ -61,6 +64,8 @@ public class ConsultSessionRepository {
             .codexSpeed(rs.getString("codex_speed"))
             .codexHome(rs.getString("codex_home"))
             .orchestrationVersion(rs.getString("orchestration_version"))
+            .evidenceSystems(rs.getString("evidence_systems"))
+            .evidenceRouteSnapshot(rs.getString("evidence_route_snapshot"))
             .errorMsg(rs.getString("error_msg"))
             .createdAt(rs.getLong("created_at"))
             .endedAt(rs.getObject("ended_at") == null ? null : rs.getLong("ended_at"))
@@ -76,12 +81,14 @@ public class ConsultSessionRepository {
         jdbc.update(
                 "INSERT INTO consult_session (session_id, user_id, question_title, system_name, system_source_path, module_names, " +
                 "prompt_snapshot, dev_session_id, raw_reference_json, parse_status, archive_status, role, engine, model, " +
-                "codex_reasoning_effort, codex_speed, codex_home, orchestration_version, error_msg, created_at, ended_at) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "codex_reasoning_effort, codex_speed, codex_home, orchestration_version, evidence_systems, " +
+                "evidence_route_snapshot, error_msg, created_at, ended_at) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 s.getSessionId(), s.getUserId(), s.getQuestionTitle(), s.getSystemName(), s.getSystemSourcePath(), s.getModuleNames(),
                 s.getPromptSnapshot(), s.getDevSessionId(), s.getRawReferenceJson(), s.getParseStatus(),
                 s.getArchiveStatus(), s.getRole(), s.getEngine(), s.getModel(), s.getCodexReasoningEffort(),
-                s.getCodexSpeed(), s.getCodexHome(), s.getOrchestrationVersion(), s.getErrorMsg(),
+                s.getCodexSpeed(), s.getCodexHome(), s.getOrchestrationVersion(), s.getEvidenceSystems(),
+                s.getEvidenceRouteSnapshot(), s.getErrorMsg(),
                 s.getCreatedAt(), s.getEndedAt());
     }
 

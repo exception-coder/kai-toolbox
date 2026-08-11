@@ -52,6 +52,8 @@ export interface ConsultSessionView {
   systemName: string
   systemSourcePath: string
   moduleNames: string[]
+  evidenceSystems: string[]
+  evidenceRouteSnapshot: string | null
   promptSnapshot: string | null
   devSessionId: string | null
   rawReferenceJson: string | null
@@ -288,8 +290,43 @@ export interface TopoLink {
   description: string
 }
 
+export interface EvidenceRouteView {
+  id: string
+  contextSystem: string
+  moduleName: string | null
+  businessObject: string
+  keywords: string[]
+  evidenceSystem: string
+  schemaSource: 'ERP_STANDBY' | 'RUNTIME_METADATA' | 'NONE'
+  description: string | null
+  evidenceRefs: string[]
+  status: 'DRAFT' | 'CONFIRMED' | 'DISABLED'
+  source: string
+  createdAt: number
+  updatedAt: number
+  confirmedAt: number | null
+}
+
+export type EvidenceRouteRequest = Omit<EvidenceRouteView, 'id' | 'source' | 'createdAt' | 'updatedAt' | 'confirmedAt'>
+
+export function listEvidenceRoutes() {
+  return http<EvidenceRouteView[]>('/fore-consult/evidence-routes')
+}
+
+export function createEvidenceRoute(request: EvidenceRouteRequest) {
+  return http<EvidenceRouteView>('/fore-consult/evidence-routes', { method: 'POST', body: JSON.stringify(request) })
+}
+
+export function updateEvidenceRoute(id: string, request: EvidenceRouteRequest) {
+  return http<EvidenceRouteView>(`/fore-consult/evidence-routes/${id}`, { method: 'PUT', body: JSON.stringify(request) })
+}
+
+export function deleteEvidenceRoute(id: string) {
+  return http<void>(`/fore-consult/evidence-routes/${id}`, { method: 'DELETE' })
+}
+
 export function analyzeTopology(systems: string[], engine: 'claude' | 'codex') {
-  return http<{ links: TopoLink[] }>('/fore-consult/topology', {
+  return http<{ links: TopoLink[]; evidenceRoutes: EvidenceRouteView[] }>('/fore-consult/topology', {
     method: 'POST',
     body: JSON.stringify({ systems, engine }),
   })
@@ -297,7 +334,7 @@ export function analyzeTopology(systems: string[], engine: 'claude' | 'codex') {
 
 /** 读取已持久化的链路（页面加载时用，无需重新调引擎）。 */
 export function getTopology() {
-  return http<{ links: TopoLink[] }>('/fore-consult/topology')
+  return http<{ links: TopoLink[]; evidenceRoutes: EvidenceRouteView[] }>('/fore-consult/topology')
 }
 
 // ── BUG 自动登记体系 ──────────────────────────────────────────────

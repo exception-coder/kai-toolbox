@@ -96,6 +96,14 @@ public class ConsultService {
 
     /** 启动咨询会话：落一条 PENDING 记录。 */
     public ConsultSession startSession(StartSessionRequest req, String promptSnapshot) {
+        String canonical = ConsultEvidenceRouteService.canonicalSystem(req.systemName());
+        List<String> systems = canonical == null ? List.of() : List.of(canonical);
+        return startSession(req, promptSnapshot,
+                new ConsultEvidenceRouteResolution(systems, "[]", "未命中已确认的跨系统数据归属。", List.of()));
+    }
+
+    public ConsultSession startSession(StartSessionRequest req, String promptSnapshot,
+                                       ConsultEvidenceRouteResolution evidenceRoute) {
         String currentUserId = AuthContext.current()
                 .map(AuthPrincipal::userId)
                 .map(String::valueOf)
@@ -115,6 +123,8 @@ public class ConsultService {
                 .codexSpeed(blankToNull(req.codexSpeed()))
                 .codexHome(blankToNull(req.codexHome()))
                 .orchestrationVersion(ConsultOrchestrationPipeline.normalizeVersion(req.orchestrationVersion()))
+                .evidenceSystems(serializeModules(evidenceRoute == null ? List.of() : evidenceRoute.evidenceSystems()))
+                .evidenceRouteSnapshot(evidenceRoute == null ? "[]" : evidenceRoute.snapshot())
                 .parseStatus("NONE")
                 .archiveStatus("PENDING")
                 .createdAt(System.currentTimeMillis())

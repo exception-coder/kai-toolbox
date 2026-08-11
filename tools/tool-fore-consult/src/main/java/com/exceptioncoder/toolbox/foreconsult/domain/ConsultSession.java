@@ -41,6 +41,10 @@ public class ConsultSession {
     private String codexHome;
     /** 咨询调度版本快照：v1 经典版、v2 优化版、v3 备库校验版、v4 动态证据版。 */
     private String orchestrationVersion;
+    /** 本会话允许的证据系统，JSON 数组，仅包含 erp/srm/scm。 */
+    private String evidenceSystems;
+    /** 首问命中的已确认数据归属快照。 */
+    private String evidenceRouteSnapshot;
     private String errorMsg;
     private long createdAt;
     /** 会话结束时间（毫秒），未结束时为 null。 */

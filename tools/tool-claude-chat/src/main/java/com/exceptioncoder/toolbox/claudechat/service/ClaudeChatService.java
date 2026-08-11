@@ -11,6 +11,7 @@ import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadata;
 import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadataProvider;
 import com.exceptioncoder.toolbox.llm.observability.AgentSpan;
 import com.exceptioncoder.toolbox.llm.observability.AgentTelemetry;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -25,6 +26,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.Optional;
@@ -144,11 +146,14 @@ public class ClaudeChatService {
         String codexHome = SessionExecutionPolicy.resolveCodexHome(engine, apiBaseUrl, open.codexHome());
         String codexReasoningEffort = normalizeCodexReasoningEffort(open.codexReasoningEffort());
         String codexSpeed = normalizeCodexSpeed(open.codexSpeed());
+        List<String> consultEvidenceSystems = consultReadonly
+                ? normalizeConsultEvidenceSystems(open.consultEvidenceSystems()) : List.of();
         repo.insert(ClaudeChatSession.builder()
                 .id(sessionId).cwd(cwd).title(null).sdkSessionId(null).engine(engine)
                 .apiBaseUrl(apiBaseUrl).authToken(authToken).codexHome(codexHome)
                 .selectedModel(blankToNull(open.model())).codexReasoningEffort(codexReasoningEffort).codexSpeed(codexSpeed)
                 .executionPolicy(executionPolicy)
+                .consultEvidenceSystems(writeStringList(consultEvidenceSystems))
                 .status(SessionStatus.IDLE).startedAt(now).lastSeenAt(now).build());
 
         SessionCtx ctx = new SessionCtx(sessionId, cwd);
@@ -160,13 +165,15 @@ public class ClaudeChatService {
         ctx.currentModel = blankToNull(open.model()); // 网关默认模型，供菜单高亮当前项
         ctx.codexReasoningEffort = codexReasoningEffort;
         ctx.codexSpeed = codexSpeed;
+        ctx.consultEvidenceSystems = consultEvidenceSystems;
         sessions.put(sessionId, ctx);
         bindViewer(ws, ctx);
 
         // UI 模式不是安全边界；咨询会话固定为 plan，真正的硬约束由 executionPolicy/toolPolicy 执行。
         ctx.mode = consultReadonly ? "plan" : normalizeMode(open.mode());
         sidecar.startSession(sessionId, cwd, open.model(), ctx.mode, engine, apiBaseUrl, authToken,
-                codexHome, ctx.autoApprove, codexReasoningEffort, codexSpeed, ctx.executionPolicy);
+                codexHome, ctx.autoApprove, codexReasoningEffort, codexSpeed, ctx.executionPolicy,
+                ctx.consultEvidenceSystems);
         pushGatewayModels(ctx); // 网关会话：拉网关 /v1/models 目录推给前端，命令菜单据此选/切模型
         log.info("[claude-chat] open 会话 {} cwd={} mode={} engine={}", sessionId, cwd, ctx.mode, engine);
     }
@@ -217,7 +224,8 @@ public class ClaudeChatService {
                     sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), restored.engine,
                             restored.apiBaseUrl, restored.authToken, restored.codexHome,
                             restored.mode, restored.autoApprove, restored.currentModel,
-                            restored.codexReasoningEffort, restored.codexSpeed, restored.executionPolicy);
+                            restored.codexReasoningEffort, restored.codexSpeed, restored.executionPolicy,
+                            restored.consultEvidenceSystems);
                     log.info("[claude-chat] attach 内存未命中，从 DB 恢复并 resume 会话 {}", db.getId());
                 }
                 // Ready 只发给当前这条连接（其它已在看的连接不需要重复）
@@ -265,7 +273,7 @@ public class ClaudeChatService {
         repo.touch(db.getId(), ctx.status, System.currentTimeMillis());
         sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), ctx.engine, ctx.apiBaseUrl,
                 ctx.authToken, ctx.codexHome, ctx.mode, ctx.autoApprove, ctx.currentModel,
-                ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy);
+                ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy, ctx.consultEvidenceSystems);
         // 历史消息由前端按需读 SDK transcript；这里只发一个 Ready 表示已就绪
         sendToBrowser(ctx, seq -> ready(ctx, seq));
         // 该会话若有未决权限/提问请求，随切换补发一次：不然只有 attach（断线重连）路径会重投，
@@ -302,11 +310,13 @@ public class ClaudeChatService {
         String title = duplicateTitle(source.getTitle());
         String reasoningEffort = normalizeCodexReasoningEffort(source.getCodexReasoningEffort());
         String speed = normalizeCodexSpeed(source.getCodexSpeed());
+        List<String> consultEvidenceSystems = parseConsultEvidenceSystems(source.getConsultEvidenceSystems());
         repo.insert(ClaudeChatSession.builder()
                 .id(sessionId).cwd(source.getCwd()).title(title).sdkSessionId(null).engine(engine)
                 .apiBaseUrl(source.getApiBaseUrl()).authToken(source.getAuthToken()).codexHome(codexHome)
                 .selectedModel(source.getSelectedModel()).codexReasoningEffort(reasoningEffort).codexSpeed(speed)
                 .executionPolicy(executionPolicy)
+                .consultEvidenceSystems(writeStringList(consultEvidenceSystems))
                 .status(SessionStatus.IDLE).startedAt(now).lastSeenAt(now).build());
         repo.updateGroup(sessionId, source.getGroupName(), source.getSubgroupName());
 
@@ -319,12 +329,14 @@ public class ClaudeChatService {
         ctx.codexReasoningEffort = reasoningEffort;
         ctx.codexSpeed = speed;
         ctx.executionPolicy = executionPolicy;
+        ctx.consultEvidenceSystems = consultEvidenceSystems;
         enforceReadonlyDefaults(ctx);
         sessions.put(sessionId, ctx);
         bindViewer(ws, ctx);
 
         sidecar.startSession(sessionId, ctx.cwd, ctx.currentModel, ctx.mode, engine, ctx.apiBaseUrl, ctx.authToken,
-                ctx.codexHome, ctx.autoApprove, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy);
+                ctx.codexHome, ctx.autoApprove, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy,
+                ctx.consultEvidenceSystems);
         pushGatewayModels(ctx);
         log.info("[claude-chat] 复制会话 source={} target={} engine={} cwd={}",
                 source.getId(), sessionId, engine, source.getCwd());
@@ -357,7 +369,8 @@ public class ClaudeChatService {
         bindViewer(ws, ctx);
 
         sidecar.resumeSession(id, msg.sdkSessionId(), cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
-                ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy);
+                ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy,
+                ctx.consultEvidenceSystems);
         sendToBrowser(ctx, seq -> ready(ctx, seq));
         log.info("[claude-chat] resumeHistory 会话 {} sdk={} cwd={}", id, msg.sdkSessionId(), cwd);
     }
@@ -420,7 +433,8 @@ public class ClaudeChatService {
         repo.updateSdkSessionId(ctx.sessionId, sdkSessionId);
         repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
         sidecar.resumeSession(ctx.sessionId, sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
-                ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy);
+                ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy,
+                ctx.consultEvidenceSystems);
         final SessionCtx readyCtx = ctx; // ctx 在本方法上方被重新赋值（attach 恢复），lambda 捕获需 effectively final
         sendToBrowser(ctx, seq -> ready(readyCtx, seq));
         pushGatewayModels(ctx);
@@ -752,6 +766,32 @@ public class ClaudeChatService {
         ctx.codexSpeed = blankToNull(db.getCodexSpeed());
         if (ctx.codexSpeed == null) {
             ctx.codexSpeed = "default";
+        }
+        ctx.consultEvidenceSystems = parseConsultEvidenceSystems(db.getConsultEvidenceSystems());
+    }
+
+    private List<String> normalizeConsultEvidenceSystems(List<String> values) {
+        if (values == null) return List.of();
+        return values.stream().filter(value -> value != null && !value.isBlank())
+                .map(value -> value.trim().toLowerCase(Locale.ROOT))
+                .filter(value -> "erp".equals(value) || "srm".equals(value) || "scm".equals(value))
+                .distinct().limit(3).toList();
+    }
+
+    private List<String> parseConsultEvidenceSystems(String json) {
+        if (json == null || json.isBlank()) return List.of();
+        try {
+            return normalizeConsultEvidenceSystems(mapper.readValue(json, new TypeReference<List<String>>() { }));
+        } catch (Exception ignored) {
+            return List.of();
+        }
+    }
+
+    private String writeStringList(List<String> values) {
+        try {
+            return mapper.writeValueAsString(values == null ? List.of() : values);
+        } catch (Exception error) {
+            throw new IllegalStateException("咨询证据系统序列化失败", error);
         }
     }
 
@@ -1104,7 +1144,8 @@ public class ClaudeChatService {
         for (SessionCtx ctx : sessions.values()) {
             if (ctx.sdkSessionId == null || ctx.sdkSessionId.isBlank()) continue;
             sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
-                    ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy);
+                    ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy,
+                    ctx.consultEvidenceSystems);
             ctx.status = SessionStatus.IDLE;
             repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
             sendToBrowser(ctx, seq -> ready(ctx, seq));
@@ -1129,7 +1170,8 @@ public class ClaudeChatService {
         }
         if (ctx.sdkSessionId != null && !ctx.sdkSessionId.isBlank()) {
             sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
-                    ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy);
+                    ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy,
+                    ctx.consultEvidenceSystems);
             ctx.status = SessionStatus.IDLE;
             repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
         }
@@ -1497,6 +1539,7 @@ public class ClaudeChatService {
         volatile String mode = "default";
         /** 服务端执行能力边界；咨询只读策略优先于 mode，且会随持久化恢复。 */
         volatile String executionPolicy = SessionExecutionPolicy.STANDARD;
+        volatile List<String> consultEvidenceSystems = List.of();
         /**
          * 「弹窗自动允许」兜底开关。服务端持有是关键：它以前是纯前端 useEffect 自动点「允许」，
          * 用户切走页面（组件卸载/浏览器后台节流）就失效，请求挂到超时 deny 或撞上中断变成

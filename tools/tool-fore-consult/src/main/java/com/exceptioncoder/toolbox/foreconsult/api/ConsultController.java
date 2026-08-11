@@ -92,8 +92,9 @@ public class ConsultController {
     /** 启动咨询会话。 */
     @PostMapping("/sessions")
     public ConsultSessionView start(@Valid @RequestBody StartSessionRequest req) {
-        var orchestration = dispatchService.initial(req);
-        return ConsultSessionView.from(service.startSession(req, orchestration.prompt()));
+        var initial = dispatchService.initial(req);
+        return ConsultSessionView.from(service.startSession(
+                req, initial.orchestration().prompt(), initial.evidenceRoute()));
     }
 
     /** Classify and enrich a follow-up with the same server-owned orchestration pipeline. */

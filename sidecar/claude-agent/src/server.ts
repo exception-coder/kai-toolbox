@@ -99,7 +99,8 @@ wss.on('connection', (ws) => {
       case 'start':
         manager.start(sessionId, msg.cwd as string, msg.model as string, msg.mode as string, msg.engine as string, msg.apiBaseUrl as string | undefined, msg.authToken as string | undefined,
           msg.codexHome as string | undefined, msg.demo as boolean | undefined, msg.demoApiBase as string | undefined, msg.autoApprove as boolean | undefined,
-          msg.codexReasoningEffort as string | undefined, msg.codexSpeed as string | undefined, msg.toolPolicy as string | undefined)
+          msg.codexReasoningEffort as string | undefined, msg.codexSpeed as string | undefined, msg.toolPolicy as string | undefined,
+          Array.isArray(msg.consultEvidenceSystems) ? msg.consultEvidenceSystems.filter((value): value is string => typeof value === 'string') : [])
         break
       case 'setMode':
         manager.setMode(sessionId, msg.mode as string)
@@ -142,7 +143,8 @@ wss.on('connection', (ws) => {
         manager.resume(sessionId, msg.sdkSessionId as string, msg.cwd as string, msg.engine as string, msg.apiBaseUrl as string | undefined, msg.authToken as string | undefined,
           msg.codexHome as string | undefined, msg.mode as string | undefined, msg.autoApprove as boolean | undefined,
           msg.model as string | undefined, msg.codexReasoningEffort as string | undefined, msg.codexSpeed as string | undefined,
-          msg.toolPolicy as string | undefined)
+          msg.toolPolicy as string | undefined,
+          Array.isArray(msg.consultEvidenceSystems) ? msg.consultEvidenceSystems.filter((value): value is string => typeof value === 'string') : [])
         break
       case 'user':
         agentTracing.begin(sessionId, msg.traceContext, msg.telemetry)

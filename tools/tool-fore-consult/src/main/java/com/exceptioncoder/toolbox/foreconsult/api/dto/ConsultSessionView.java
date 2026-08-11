@@ -46,6 +46,8 @@ public record ConsultSessionView(
         String codexSpeed,
         String codexHome,
         String orchestrationVersion,
+        List<String> evidenceSystems,
+        String evidenceRouteSnapshot,
         String errorMsg,
         long createdAt,
         Long endedAt,
@@ -73,6 +75,7 @@ public record ConsultSessionView(
                 s.getEngine() != null ? s.getEngine() : "codex",
                 s.getModel(), s.getCodexReasoningEffort(), s.getCodexSpeed(), s.getCodexHome(),
                 s.getOrchestrationVersion() != null ? s.getOrchestrationVersion() : "v1",
+                parseModuleNames(s.getEvidenceSystems()), s.getEvidenceRouteSnapshot(),
                 s.getErrorMsg(), s.getCreatedAt(), s.getEndedAt(), turnCount, List.of(), List.of());
     }
 
@@ -93,6 +96,7 @@ public record ConsultSessionView(
                 s.getEngine() != null ? s.getEngine() : "codex",
                 s.getModel(), s.getCodexReasoningEffort(), s.getCodexSpeed(), s.getCodexHome(),
                 s.getOrchestrationVersion() != null ? s.getOrchestrationVersion() : "v1",
+                parseModuleNames(s.getEvidenceSystems()), s.getEvidenceRouteSnapshot(),
                 s.getErrorMsg(), s.getCreatedAt(), s.getEndedAt(), turnCount,
                 turns != null ? turns : List.of(),
                 feedback != null ? feedback : List.of());

@@ -55,29 +55,7 @@ export function analyzeMarkdown(raw: string): QuestionAnalysis {
     if (m) headings.push({ level: m[1].length, text: m[2].trim() })
   }
 
-  let tldr = ''
-  const startIdx = stripped.search(/^##\s+(典型回答|核心要点|答案|回答)/m)
-  const body = startIdx >= 0 ? stripped.slice(startIdx) : stripped
-  const blocks = body
-    .split(/\n\s*\n/)
-    .map(p => p.trim())
-    .filter(Boolean)
-  // 优先纯文字段落（非标题/引用/列表/表格），表格只会得到一堆 | 分隔符，做预览很难看
-  const prose = blocks.find(
-    p =>
-      !p.startsWith('#') &&
-      !p.startsWith('>') &&
-      !p.startsWith('-') &&
-      !p.startsWith('*') &&
-      !p.startsWith('|') &&
-      !/^\d+\.\s/.test(p),
-  )
-  // 退而求其次：第一个非标题块（可能是表格/列表），压平成可读文本
-  const fallback = blocks.find(p => !p.startsWith('#'))
-  const chosen = prose ?? fallback ?? ''
-  if (chosen) {
-    tldr = toPreviewText(chosen).slice(0, 160)
-  }
+  const tldr = extractReadableSummary(raw, title, 160)
 
   const chars = stripped.replace(/\s+/g, '').length
   const words = stripped.split(/\s+/).filter(Boolean).length
@@ -108,6 +86,42 @@ export function analyzeMarkdown(raw: string): QuestionAnalysis {
     difficulty,
     difficultyScore: Math.round(score * 100) / 100,
   }
+}
+
+/**
+ * 从正文块语义提取可直接展示的摘要。索引里的摘要是派生数据，不能把表格分隔行、
+ * 代码或题号元数据当作答案；正文以列表开头时，优先使用第一条完整陈述。
+ */
+export function extractReadableSummary(raw: string, title = '', limit = 160): string {
+  const withoutCode = raw.replace(/```[\s\S]*?```/g, '')
+  const lines = withoutCode.split(/\r?\n/)
+  const candidates: string[] = []
+  let tableFallback = ''
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (!line) continue
+
+    if (isTableHeader(lines, i)) {
+      tableFallback ||= describeTable(lines, i)
+      while (i + 1 < lines.length && isTableRow(lines[i + 1])) i++
+      continue
+    }
+    if (
+      /^#{1,6}\s/.test(line) ||
+      /^(?:---+|\*\*\*+|___+)$/.test(line) ||
+      /^>\s*(?:题号|分类|来源)\s*[:：｜|]/.test(line) ||
+      isTableRow(line)
+    ) {
+      continue
+    }
+
+    const preview = toPreviewText(line)
+    if (!isMeaningfulPreview(preview, title)) continue
+    candidates.push(preview)
+  }
+
+  return truncatePreview(buildSummaryText(candidates) || tableFallback || toPreviewText(title), limit)
 }
 
 /**
@@ -142,6 +156,76 @@ export function toPreviewText(md: string): string {
   // 清掉首尾孤立分隔符与空白
   s = s.replace(/^[\s·]+|[\s·]+$/g, '')
   return s.trim()
+}
+
+function isMeaningfulPreview(text: string, title: string): boolean {
+  if (text.length < 4) return false
+  if (/^(?:优点|缺点|总结|注意|具体来说)[：:]?$/.test(text)) return false
+  if (/^(?:题号|分类|来源|更新时间|更新内容)[：:｜|]/.test(text)) return false
+  const normalized = (value: string) => value.replace(/^[✅✓✔️\s]+/, '').replace(/[？?。\s]/g, '')
+  return normalized(text) !== normalized(title)
+}
+
+function isTableHeader(lines: string[], index: number): boolean {
+  return index + 1 < lines.length && isTableRow(lines[index]) && isTableSeparator(lines[index + 1])
+}
+
+function isTableRow(line: string): boolean {
+  const trimmed = line.trim()
+  return trimmed.startsWith('|') && trimmed.endsWith('|') && trimmed.split('|').length >= 3
+}
+
+function isTableSeparator(line: string): boolean {
+  if (!isTableRow(line)) return false
+  return splitTableRow(line).every(cell => /^:?-{3,}:?$/.test(cell.replace(/\s/g, '')))
+}
+
+function splitTableRow(line: string): string[] {
+  return line.trim().replace(/^\||\|$/g, '').split('|').map(cell => toPreviewText(cell))
+}
+
+function describeTable(lines: string[], headerIndex: number): string {
+  const headers = splitTableRow(lines[headerIndex])
+  for (let i = headerIndex + 2; i < lines.length && isTableRow(lines[i]); i++) {
+    const cells = splitTableRow(lines[i])
+    if (!cells.some(Boolean)) continue
+    const label = cells[0]
+    const details = cells.slice(1).flatMap((cell, column) => {
+      if (!cell) return []
+      const header = headers[column + 1]
+      return [header ? `${header}：${cell}` : cell]
+    })
+    if (label && details.length) return `${label}：${details.join('；')}`
+    if (details.length) return details.join('；')
+  }
+  return ''
+}
+
+function truncatePreview(text: string, limit: number): string {
+  if (text.length <= limit) return text
+  const window = text.slice(0, limit + 1)
+  const boundary = Math.max(...['。', '！', '？', '；'].map(mark => window.lastIndexOf(mark)))
+  if (boundary >= Math.floor(limit / 2)) return window.slice(0, boundary + 1)
+  return `${text.slice(0, limit - 1).replace(/[，,、；;：:\s]+$/, '')}…`
+}
+
+function buildSummaryText(candidates: string[]): string {
+  const leadingFragments: string[] = []
+  for (const candidate of candidates) {
+    if (isFragment(candidate)) {
+      leadingFragments.push(candidate.replace(/[：:]$/, ''))
+      continue
+    }
+    if (leadingFragments.length >= 2) {
+      return `${leadingFragments.slice(0, 6).join('、')}；${candidate}`
+    }
+    return candidate
+  }
+  return leadingFragments.slice(0, 8).join('、')
+}
+
+function isFragment(text: string): boolean {
+  return text.length < 12 && !/[。！？!?；;，,]/.test(text)
 }
 
 export function hashHue(s: string): number {

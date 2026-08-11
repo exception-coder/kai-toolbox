@@ -29,6 +29,7 @@ import java.util.Optional;
 public class Java8KnowledgeService {
 
     private static final Logger log = LoggerFactory.getLogger(Java8KnowledgeService.class);
+    private static final String CATEGORY_NODE_TYPE = "CATEGORY";
     private static final List<String> CATEGORY_TITLES = List.of(
             "Java8 核心特性", "Lambda 表达式", "函数式接口", "Stream 流", "Optional",
             "日期时间 API", "接口增强", "集合增强", "并发增强", "JVM 性能", "Java8 重构实践", "面试专题");
@@ -64,7 +65,10 @@ public class Java8KnowledgeService {
         for (Node node : nodes) {
             children.computeIfAbsent(node.parentId(), ignored -> new ArrayList<>()).add(node);
         }
-        return children.getOrDefault(null, List.of()).stream().map(node -> toTree(node, children)).toList();
+        return children.getOrDefault(null, List.of()).stream()
+                .map(node -> toTree(node, children))
+                .flatMap(Optional::stream)
+                .toList();
     }
 
     /** 聚合节点、案例和面试卡片。 */
@@ -83,9 +87,16 @@ public class Java8KnowledgeService {
         return repository.findInterviews(nodeId);
     }
 
-    private TreeNode toTree(Node node, Map<String, List<Node>> children) {
-        return new TreeNode(node.id(), node.title(), node.summary(), node.nodeType(), node.level(),
-                children.getOrDefault(node.id(), List.of()).stream().map(child -> toTree(child, children)).toList());
+    private Optional<TreeNode> toTree(Node node, Map<String, List<Node>> children) {
+        List<TreeNode> visibleChildren = children.getOrDefault(node.id(), List.of()).stream()
+                .map(child -> toTree(child, children))
+                .flatMap(Optional::stream)
+                .toList();
+        if (CATEGORY_NODE_TYPE.equals(node.nodeType()) && node.level() > 0 && visibleChildren.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(new TreeNode(node.id(), node.title(), node.summary(), node.nodeType(), node.level(),
+                visibleChildren));
     }
 
     private void importMarkdown(Resource resource) throws IOException {

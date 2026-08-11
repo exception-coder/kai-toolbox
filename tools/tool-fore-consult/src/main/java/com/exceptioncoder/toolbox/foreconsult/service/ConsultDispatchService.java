@@ -26,20 +26,26 @@ public class ConsultDispatchService {
 
     private final ConsultOrchestrationPipeline pipeline;
     private final ConsultQuestionClassifier questionClassifier;
+    private final ConsultEvidenceRouteService evidenceRouteService;
     private final ObjectMapper mapper;
 
     public ConsultDispatchService(ConsultOrchestrationPipeline pipeline,
                                   ConsultQuestionClassifier questionClassifier,
+                                  ConsultEvidenceRouteService evidenceRouteService,
                                   ObjectMapper mapper) {
         this.pipeline = pipeline;
         this.questionClassifier = questionClassifier;
+        this.evidenceRouteService = evidenceRouteService;
         this.mapper = mapper;
     }
 
-    public ConsultOrchestrationResult initial(StartSessionRequest request) {
-        return pipeline.orchestrate(new ConsultOrchestrationRequest(
+    public ConsultInitialDispatch initial(StartSessionRequest request) {
+        ConsultEvidenceRouteResolution route = evidenceRouteService.resolve(
+                request.systemName(), request.moduleNames(), request.question());
+        ConsultOrchestrationResult orchestration = pipeline.orchestrate(new ConsultOrchestrationRequest(
                 request.question(), request.systemName(), request.systemSourcePath(),
-                request.moduleNames(), request.role(), false), request.orchestrationVersion());
+                request.moduleNames(), request.role(), false, route.promptContext()), request.orchestrationVersion());
+        return new ConsultInitialDispatch(orchestration, route);
     }
 
     public ConsultDispatchView followUp(ConsultSession session, DispatchConsultRequest request) {
@@ -53,7 +59,9 @@ public class ConsultDispatchService {
         }
         ConsultOrchestrationResult result = pipeline.orchestrate(new ConsultOrchestrationRequest(
                 request.question(), session.getSystemName(), session.getSystemSourcePath(),
-                parseModules(session.getModuleNames()), session.getRole(), true),
+                parseModules(session.getModuleNames()), session.getRole(), true,
+                evidenceRouteService.promptContextFromSnapshot(
+                        session.getSystemName(), session.getEvidenceRouteSnapshot())),
                 session.getOrchestrationVersion());
         return ConsultDispatchView.send(classification.reason(), result);
     }

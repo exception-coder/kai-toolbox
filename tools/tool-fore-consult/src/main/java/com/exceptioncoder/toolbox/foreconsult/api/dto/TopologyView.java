@@ -8,8 +8,13 @@ import java.util.List;
  * @param links 系统间关系边（两端都在请求的系统集合内）
  */
 public record TopologyView(
-        List<LinkEdge> links
+        List<LinkEdge> links,
+        List<EvidenceRouteView> evidenceRoutes
 ) {
+
+    public TopologyView(List<LinkEdge> links) {
+        this(links, List.of());
+    }
 
     /**
      * 一条系统间关系。

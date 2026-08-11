@@ -65,6 +65,8 @@ export interface CodexTurnCtx {
   toolPolicy?: string
   /** 平台生成、仅供模型使用的本轮约束；只在 consult-readonly 会话中接收。 */
   developerInstructions?: string
+  /** 后端在咨询创建时固化的可读证据系统；不允许模型自行扩展。 */
+  consultEvidenceSystems?: string[]
   /** 已有 thread id（resume 续跑）；无则新建线程。 */
   sdkSessionId?: string
   /** 第三方 OpenAI 兼容网关 baseURL；置则本轮走该网关（Codex 原生 OpenAI 协议，接网关更顺）。空=本机 ~/.codex 登录。 */
@@ -139,7 +141,8 @@ function standardToolboxMcpConfig(sessionId?: string): NonNullable<CodexOptions[
 function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: string,
                           sessionId?: string,
                           turnDeveloperInstructions?: string,
-                          sourceRoot?: string): NonNullable<CodexOptions['config']> {
+                          sourceRoot?: string,
+                          consultEvidenceSystems: readonly string[] = []): NonNullable<CodexOptions['config']> {
   const baseDeveloperInstructions = toolPolicy === CONSULT_READONLY_POLICY
     ? CONSULT_READONLY_PROMPT
     : toolPolicy !== 'disabled' && sessionId
@@ -153,7 +156,7 @@ function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: str
     ...(speed === 'fast' ? { service_tier: 'priority' } : {}),
     ...(developerInstructions ? { developer_instructions: developerInstructions } : {}),
     ...(toolPolicy === CONSULT_READONLY_POLICY
-      ? consultReadonlyCodexConfig(codexHome, sessionId, sourceRoot)
+      ? consultReadonlyCodexConfig(codexHome, sessionId, sourceRoot, consultEvidenceSystems)
       : toolPolicy === 'disabled'
         ? {}
         : standardToolboxMcpConfig(sessionId)),
@@ -169,17 +172,18 @@ function pickCodex(
   sessionId?: string,
   developerInstructions?: string,
   sourceRoot?: string,
+  consultEvidenceSystems: readonly string[] = [],
 ): Codex {
   if (!apiBaseUrl || !apiBaseUrl.trim()) {
     const home = normalizeCodexHome(codexHome)
-    const config = buildCodexConfig(speed, toolPolicy, home, sessionId, developerInstructions, sourceRoot)
+    const config = buildCodexConfig(speed, toolPolicy, home, sessionId, developerInstructions, sourceRoot, consultEvidenceSystems)
     if (developerInstructions) {
       return new Codex({
         ...(home ? { env: codexEnv(home) } : {}),
         ...(Object.keys(config).length ? { config } : {}),
       })
     }
-    const key = `${speed} ${home ?? '<default>'} ${toolPolicy} ${sessionId ?? '<one-shot>'} ${sourceRoot ?? '<no-source>'}`
+    const key = `${speed} ${home ?? '<default>'} ${toolPolicy} ${sessionId ?? '<one-shot>'} ${sourceRoot ?? '<no-source>'} ${[...consultEvidenceSystems].sort().join(',')}`
     let client = codexClients.get(key)
     if (!client) {
       client = new Codex({
@@ -198,6 +202,7 @@ function pickCodex(
     sessionId,
     developerInstructions,
     sourceRoot,
+    consultEvidenceSystems,
   )
   if (developerInstructions) {
     return new Codex({
@@ -207,6 +212,7 @@ function pickCodex(
     })
   }
   const key = baseUrl + ' ' + (authToken ?? '') + ' ' + speed + ' ' + toolPolicy + ' ' + (sessionId ?? '<one-shot>')
+    + ' ' + [...consultEvidenceSystems].sort().join(',')
   let c = gatewayClients.get(key)
   if (!c) {
     c = new Codex({
@@ -280,6 +286,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
         ctx.sessionId,
         ctx.developerInstructions,
         consultSourceRoot,
+        ctx.consultEvidenceSystems,
       ),
       input: toAppServerInput(prepared.input),
       codexHome: home,
@@ -287,7 +294,9 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
       emit: ctx.emit,
       setThreadId: ctx.setSdkSessionId,
       mcpServers: codexMcpCapabilities(ctx.toolPolicy ?? 'default', ctx.sessionId),
-      requiredMcpTools: consultReadonly ? consultReadonlyRequiredMcpTools(consultSourceRoot) : undefined,
+      requiredMcpTools: consultReadonly
+        ? consultReadonlyRequiredMcpTools(consultSourceRoot, ctx.consultEvidenceSystems)
+        : undefined,
     })
   } catch (error) {
     if (ctx.signal.aborted) {
@@ -352,6 +361,7 @@ async function runCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport): Pr
       ctx.sessionId,
       ctx.developerInstructions,
       consultSourceRoot,
+      ctx.consultEvidenceSystems,
     )
     if (ctx.apiBaseUrl) {
       console.log(`[sidecar] codex turn start model=${ctx.model ?? '默认'} via=${normalizeOpenAiBase(ctx.apiBaseUrl)}`)

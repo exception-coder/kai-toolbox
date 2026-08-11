@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import json
-import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+
+from java8gu_content import (
+    build_content_fields,
+    has_markdown_residue,
+    is_knowledge_supplement,
+    markdown_from_plain_text,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -90,11 +96,13 @@ def upsert_node(connection: sqlite3.Connection, values: tuple[object, ...]) -> N
     )
 
 
-def plain_summary(markdown: str, fallback: str) -> str:
-    body = re.sub(r"```.*?```", " ", markdown, flags=re.DOTALL)
-    body = re.sub(r"[#>*_`|\[\]()!-]", " ", body)
-    body = re.sub(r"\s+", " ", body).strip()
-    return (body or fallback)[:240]
+def remove_stale_supplements(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        "DELETE FROM java8_relation WHERE source_id LIKE 'yuque-live-%' OR target_id LIKE 'yuque-live-%'"
+    )
+    connection.execute("DELETE FROM java8_example WHERE node_id LIKE 'yuque-live-%'")
+    connection.execute("DELETE FROM java8_interview WHERE node_id LIKE 'yuque-live-%'")
+    connection.execute("DELETE FROM java8_node WHERE id LIKE 'yuque-live-%'")
 
 
 def main() -> None:
@@ -109,6 +117,7 @@ def main() -> None:
             ("java8gu", "Java8 股", "Java 面试、遗留系统重构与工程实践知识库", "", "CATEGORY", 0, None, 0, now, now),
         )
         category_labels = {category["id"]: category["label"] for category in index["categories"]}
+        category_ids_by_label = {category["label"]: category["id"] for category in index["categories"]}
         for position, category in enumerate(index["categories"], start=1):
             upsert_node(
                 connection,
@@ -119,19 +128,22 @@ def main() -> None:
             )
 
         imported = 0
+        summary_residue = 0
+        short_answer_residue = 0
         connection.execute("DELETE FROM java8_interview WHERE node_id LIKE 'yuque-node-%'")
         for position, question in enumerate(index["questions"], start=1):
             markdown_path = MARKDOWN_ROOT / f"{question['id']}.md"
             if not markdown_path.exists():
                 continue
             markdown = markdown_path.read_text(encoding="utf-8")
-            summary = question.get("tldr") or plain_summary(markdown, question["title"])
+            category_label = category_labels.get(question["categoryId"], question["categoryId"])
+            fields = build_content_fields(markdown, question["title"], category_label)
             node_id = f"yuque-node-{question['id']}"
             node_type = "INTERVIEW" if question["categoryId"] in {"22_面经与项目分享", "23_软技能与面试准备"} else "CONCEPT"
             upsert_node(
                 connection,
                 (
-                    node_id, question["title"], summary[:500], markdown, node_type, 2,
+                    node_id, question["title"], fields.summary, fields.content, node_type, 2,
                     f"yuque-cat-{question['categoryId']}", position, now, now,
                 ),
             )
@@ -142,38 +154,43 @@ def main() -> None:
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    node_id, question["title"], summary[:500],
-                    plain_summary(markdown, question["title"])[:1500],
-                    f"所属专题：{category_labels.get(question['categoryId'], question['categoryId'])}", now, now,
+                    node_id, question["title"], fields.short_answer,
+                    fields.detail_answer, fields.project_answer, now, now,
                 ),
             )
+            summary_residue += int(has_markdown_residue(fields.summary))
+            short_answer_residue += int(has_markdown_residue(fields.short_answer))
             imported += 1
 
         supplemented = 0
+        skipped_supplements = 0
+        remove_stale_supplements(connection)
         if YUQUE_SUPPLEMENT_PATH.exists():
-            supplements = [
+            all_supplements = [
                 json.loads(line) for line in YUQUE_SUPPLEMENT_PATH.read_text(encoding="utf-8").splitlines() if line.strip()
             ]
-            supplement_categories = list(dict.fromkeys(item["category"] for item in supplements))
-            for position, category in enumerate(supplement_categories, start=100):
-                category_id = f"yuque-live-cat-{position}"
-                upsert_node(
-                    connection,
-                    (category_id, category, "语雀目录差异补充", "", "CATEGORY", 1, "java8gu", position, now, now),
-                )
-            category_ids = {
-                category: f"yuque-live-cat-{position}"
-                for position, category in enumerate(supplement_categories, start=100)
+            supplements = [
+                item for item in all_supplements
+                if is_knowledge_supplement(item["title"], item["category"], item["content"])
+            ]
+            skipped_supplements = len(all_supplements) - len(supplements)
+            category_aliases = {
+                "AI&大模型": "AI与大模型",
+                "其他专属内容": "软技能与面试准备",
+                "面试必备": "软技能与面试准备",
+                "面经实战": "面经与项目分享",
             }
-            connection.execute("DELETE FROM java8_interview WHERE node_id LIKE 'yuque-live-%'")
             for position, item in enumerate(supplements, start=1):
                 node_id = f"yuque-live-{item['slug']}"
-                summary = plain_summary(item["content"], item["title"])
+                markdown = markdown_from_plain_text(item["title"], item["content"])
+                category_label = category_aliases.get(item["category"], item["category"])
+                category_id = category_ids_by_label.get(category_label, "23_软技能与面试准备")
+                fields = build_content_fields(markdown, item["title"], category_label)
                 upsert_node(
                     connection,
                     (
-                        node_id, item["title"], summary, item["content"], "CONCEPT", 2,
-                        category_ids[item["category"]], position, now, now,
+                        node_id, item["title"], fields.summary, fields.content, "CONCEPT", 2,
+                        f"yuque-cat-{category_id}", 10000 + position, now, now,
                     ),
                 )
                 connection.execute(
@@ -182,13 +199,22 @@ def main() -> None:
                     (node_id, question, short_answer, detail_answer, project_answer, create_time, update_time)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (node_id, item["title"], summary, summary[:1500], f"来源：{item['href']}", now, now),
+                    (
+                        node_id, item["title"], fields.short_answer, fields.detail_answer,
+                        fields.project_answer, now, now,
+                    ),
                 )
+                summary_residue += int(has_markdown_residue(fields.summary))
+                short_answer_residue += int(has_markdown_residue(fields.short_answer))
                 supplemented += 1
         connection.commit()
         print(json.dumps({
             "database": str(DATABASE_PATH), "categories": len(index["categories"]),
-            "nodes": imported, "supplemented": supplemented,
+            "nodes": imported, "supplemented": supplemented, "skippedSupplements": skipped_supplements,
+            "quality": {
+                "summaryMarkdownResidue": summary_residue,
+                "shortAnswerMarkdownResidue": short_answer_residue,
+            },
         }, ensure_ascii=False))
     finally:
         connection.close()

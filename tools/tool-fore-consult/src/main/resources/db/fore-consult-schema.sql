@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS consult_session (
     codex_speed         TEXT,                             -- Codex 速度快照
     codex_home          TEXT,                             -- Codex 授权目录快照
     orchestration_version TEXT NOT NULL DEFAULT 'v4',    -- v1 经典版 | v2 优化版 | v3 生产备库校验版 | v4 动态证据版，会话内固定
+    evidence_systems    TEXT,                             -- 本会话允许的证据系统，JSON 数组：erp/srm/scm
+    evidence_route_snapshot TEXT,                        -- 首问命中的已确认数据归属快照
     error_msg           TEXT,                             -- 归档失败原因
     created_at          INTEGER NOT NULL,                 -- 会话创建时间（Unix 毫秒）
     ended_at            INTEGER                           -- 会话结束时间
@@ -34,6 +36,8 @@ ALTER TABLE consult_session ADD COLUMN codex_reasoning_effort TEXT;
 ALTER TABLE consult_session ADD COLUMN codex_speed TEXT;
 ALTER TABLE consult_session ADD COLUMN codex_home TEXT;
 ALTER TABLE consult_session ADD COLUMN orchestration_version TEXT NOT NULL DEFAULT 'v4';
+ALTER TABLE consult_session ADD COLUMN evidence_systems TEXT;
+ALTER TABLE consult_session ADD COLUMN evidence_route_snapshot TEXT;
 
 CREATE TABLE IF NOT EXISTS consult_turn (
     turn_id              TEXT    PRIMARY KEY,             -- UUID
@@ -175,3 +179,25 @@ CREATE TABLE IF NOT EXISTS consult_topology_link (
     created_at   INTEGER NOT NULL,                        -- 该次分析时间（Unix 毫秒）
     PRIMARY KEY (from_system, to_system)
 );
+
+-- 跨系统证据归属：链路分析只写 DRAFT，只有人工确认的 CONFIRMED 记录可扩大咨询数据库工具集合。
+CREATE TABLE IF NOT EXISTS consult_evidence_route (
+    id                  TEXT    PRIMARY KEY,
+    context_system      TEXT    NOT NULL,                 -- 用户发起咨询的系统原名
+    module_name         TEXT,                             -- 前端展示模块名或完整模块路径
+    business_object     TEXT    NOT NULL,                 -- 业务对象/指标，例如采购订单、采购量
+    keywords            TEXT,                             -- 触发关键词，JSON 数组
+    evidence_system     TEXT    NOT NULL,                 -- 权威证据系统原名
+    schema_source       TEXT    NOT NULL DEFAULT 'RUNTIME_METADATA',
+    description         TEXT,
+    evidence_refs       TEXT,                             -- 链路、接口或知识引用，JSON 数组
+    status              TEXT    NOT NULL DEFAULT 'DRAFT', -- DRAFT|CONFIRMED|DISABLED
+    source              TEXT    NOT NULL DEFAULT 'MANUAL',-- MANUAL|TOPOLOGY_ANALYSIS
+    created_at          INTEGER NOT NULL,
+    updated_at          INTEGER NOT NULL,
+    confirmed_at        INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_consult_evidence_route_context
+    ON consult_evidence_route(context_system, status);
+CREATE INDEX IF NOT EXISTS idx_consult_evidence_route_evidence
+    ON consult_evidence_route(evidence_system, status);

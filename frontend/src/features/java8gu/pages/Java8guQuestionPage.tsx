@@ -29,6 +29,7 @@ import { QuestionVisualSummary } from '../components/QuestionVisualSummary'
 import { KnowledgeEnrichPanel } from '../components/KnowledgeEnrichPanel'
 import { MarkdownViewer } from '../components/markdown/MarkdownViewer'
 import { SendToGptButton } from '../components/SendToGptButton'
+import { analyzeMarkdown, toPreviewText } from '../lib/analyze'
 import '../styles/java8gu.css'
 
 type ViewMode = 'visual' | 'text'
@@ -118,6 +119,10 @@ export function Java8guQuestionPage() {
   const toc: TocItem[] = useMemo(() => extractToc(markdown), [markdown])
   const structure = useMemo(() => parseStructure(markdown), [markdown])
   const groups = useMemo(() => groupSections(structure.sections), [structure])
+  const readableSummary = useMemo(
+    () => (markdown ? analyzeMarkdown(markdown).tldr : toPreviewText(question?.tldr ?? '')),
+    [markdown, question?.tldr],
+  )
 
   if (error) {
     return (
@@ -228,7 +233,7 @@ export function Java8guQuestionPage() {
           </header>
 
           {/* 一句话总结 —— 最高优先级，先理解 */}
-          {question.tldr && (
+          {readableSummary && (
             <div
               id={SUMMARY_ANCHOR_ID}
               className="mb-5 overflow-hidden rounded-xl border border-[var(--color-primary)]/25 bg-gradient-to-br from-[var(--color-primary)]/10 via-[var(--color-primary)]/5 to-transparent p-4 [scroll-margin-top:5rem] sm:mb-6 sm:p-5"
@@ -237,7 +242,7 @@ export function Java8guQuestionPage() {
                 <Lightbulb className="h-3.5 w-3.5" /> 一句话总结
               </div>
               <p className="mt-2 text-[14px] font-medium leading-relaxed text-[var(--color-foreground)] sm:text-[15px]">
-                {question.tldr}
+                {readableSummary}
               </p>
             </div>
           )}
@@ -300,7 +305,7 @@ export function Java8guQuestionPage() {
                   ) : (
                     <SectionOutline
                       groups={groups}
-                      hasSummary={!!question.tldr}
+                      hasSummary={!!readableSummary}
                     />
                   )}
                 </div>

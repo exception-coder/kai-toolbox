@@ -11,6 +11,7 @@ import { getSessionsByDevSessions } from '@/features/prd-clarify/api'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { Combobox } from '@/components/ui/combobox'
 import { SessionActivityBar } from './SessionActivityBar'
+import { CopySessionIdButton } from './CopySessionIdButton'
 import { useSessionPlanState } from '../hooks/useSessionPlanState'
 import { SessionStatusFilter } from './SessionStatusFilter'
 import { DEFAULT_SESSION_STATUSES, isSessionStatusVisible, resetVisibleSessionStatuses, useVisibleSessionStatuses } from '../lib/sessionStatusFilter'
@@ -688,6 +689,7 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
                 ? <Loader2 className="size-3.5 animate-spin" />
                 : <Star className={cn('size-3.5', s.favorite && 'fill-current')} />}
             </button>
+            <CopySessionIdButton sessionId={s.id} />
             <button
               type="button"
               disabled={duplicatingSessionId != null}

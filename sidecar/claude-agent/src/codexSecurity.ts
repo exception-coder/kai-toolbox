@@ -39,10 +39,28 @@ export function resolveConsultTargetSystem(sourceRoot?: string): ConsultTargetSy
   return CONSULT_TARGET_BY_SOURCE_DIRECTORY[directory]
 }
 
+/** 当前系统始终可读；跨系统数据库仅接受后端会话快照中已确认的证据系统。 */
+export function resolveConsultTargetSystems(
+  sourceRoot?: string,
+  evidenceSystems: readonly string[] = [],
+): ConsultTargetSystem[] {
+  const result = new Set<ConsultTargetSystem>()
+  const current = resolveConsultTargetSystem(sourceRoot)
+  if (current) result.add(current)
+  for (const value of evidenceSystems) {
+    const normalized = value.trim().toLowerCase()
+    if (normalized === 'erp' || normalized === 'srm' || normalized === 'scm') result.add(normalized)
+  }
+  return [...result]
+}
+
 /** 当前系统数据库是咨询的硬依赖；App Server 启动后据此校验真实 Tool 清单。 */
-export function consultReadonlyRequiredMcpTools(sourceRoot?: string): RequiredMcpTool[] {
-  const target = resolveConsultTargetSystem(sourceRoot)
-  return target ? [{ server: 'consult-readonly', tool: DATABASE_TOOL_BY_TARGET[target] }] : []
+export function consultReadonlyRequiredMcpTools(
+  sourceRoot?: string,
+  evidenceSystems: readonly string[] = [],
+): RequiredMcpTool[] {
+  return resolveConsultTargetSystems(sourceRoot, evidenceSystems)
+    .map(target => ({ server: 'consult-readonly', tool: DATABASE_TOOL_BY_TARGET[target] }))
 }
 
 export const CONSULT_READONLY_PROMPT = [
@@ -100,13 +118,16 @@ function erpStandbySchemaPath(): string | undefined {
   return existsSync(candidate) ? resolve(candidate) : undefined
 }
 
-function createConsultReadonlyServer(sourceRoot?: string): Record<string, unknown> | null {
+function createConsultReadonlyServer(
+  sourceRoot?: string,
+  evidenceSystems: readonly string[] = [],
+): Record<string, unknown> | null {
   const apiBase = process.env.TOOLBOX_API_BASE?.trim()
   const readableSourceRoot = sourceRoot?.trim() && existsSync(sourceRoot) ? resolve(sourceRoot) : undefined
-  const target = resolveConsultTargetSystem(sourceRoot)
-  const databaseTool = target && apiBase ? DATABASE_TOOL_BY_TARGET[target] : undefined
-  const standbySchema = target === 'erp' ? erpStandbySchemaPath() : undefined
-  if (!databaseTool && !readableSourceRoot && !standbySchema) return null
+  const targets = resolveConsultTargetSystems(sourceRoot, evidenceSystems)
+  const databaseTools = apiBase ? targets.map(target => DATABASE_TOOL_BY_TARGET[target]) : []
+  const standbySchema = targets.includes('erp') ? erpStandbySchemaPath() : undefined
+  if (databaseTools.length === 0 && !readableSourceRoot && !standbySchema) return null
   const script = readonlyMcpScript()
   if (!script) return null
   return {
@@ -119,7 +140,7 @@ function createConsultReadonlyServer(sourceRoot?: string): Record<string, unknow
     },
     enabled: true,
     enabled_tools: [
-      ...(databaseTool ? [databaseTool] : []),
+      ...databaseTools,
       ...(readableSourceRoot ? ['source_context', 'source_search', 'source_read'] : []),
       ...(standbySchema ? ['erp_standby_schema_search', 'erp_standby_validate_sql'] : []),
     ],
@@ -129,9 +150,14 @@ function createConsultReadonlyServer(sourceRoot?: string): Record<string, unknow
 }
 
 /** Claude 咨询会话复用同一只读源码编排器，确保多引擎遵循一致的 Graphify-first 流程。 */
-export function createClaudeConsultSourceServer(sourceRoot?: string): Record<string, unknown> | null {
+export function createClaudeConsultSourceServer(
+  sourceRoot?: string,
+  evidenceSystems: readonly string[] = [],
+): Record<string, unknown> | null {
   const readableSourceRoot = sourceRoot?.trim() && existsSync(sourceRoot) ? resolve(sourceRoot) : undefined
-  const standbySchema = resolveConsultTargetSystem(sourceRoot) === 'erp' ? erpStandbySchemaPath() : undefined
+  const standbySchema = resolveConsultTargetSystems(sourceRoot, evidenceSystems).includes('erp')
+    ? erpStandbySchemaPath()
+    : undefined
   if (!readableSourceRoot && !standbySchema) return null
   const script = readonlyMcpScript()
   if (!script) return null
@@ -170,13 +196,14 @@ function createForgePendingSqlServer(sessionId?: string): Record<string, unknown
  * 再仅注入平台控制的只读数据库与知识图谱 MCP。
  */
 export function consultReadonlyCodexConfig(codexHome?: string, sessionId?: string,
-                                           sourceRoot?: string): Record<string, unknown> {
+                                           sourceRoot?: string,
+                                           evidenceSystems: readonly string[] = []): Record<string, unknown> {
   const mcpServers: Record<string, unknown> = {}
   for (const name of configuredMcpServerNames(codexHome)) {
     mcpServers[name] = { enabled: false }
   }
 
-  const readonly = createConsultReadonlyServer(sourceRoot)
+  const readonly = createConsultReadonlyServer(sourceRoot, evidenceSystems)
   const forge = createForgePendingSqlServer(sessionId)
   const domain = createCodexDomainKnowledgeServer()
   const cross = createCodexCrossTopologyServer()
