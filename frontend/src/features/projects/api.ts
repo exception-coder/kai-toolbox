@@ -1,5 +1,12 @@
 import { http } from '@/lib/api'
-import type { CommitDiff, CommitsResponse } from '@/components/git/types'
+import type {
+  CommitDiff,
+  CommitsResponse,
+} from '@/components/git/types'
+export {
+  getProjectGitFileDiff as getGitFileDiff,
+  getProjectGitStatus as getGitStatus,
+} from '@/components/git/projectGitApi'
 import type { ProjectsListResponse } from './types'
 
 export function listProjects() {

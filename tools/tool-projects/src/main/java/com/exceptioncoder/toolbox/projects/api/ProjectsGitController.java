@@ -2,8 +2,10 @@ package com.exceptioncoder.toolbox.projects.api;
 
 import com.exceptioncoder.toolbox.common.git.CommitDiff;
 import com.exceptioncoder.toolbox.common.git.CommitsResponse;
+import com.exceptioncoder.toolbox.common.git.GitFileDiffResponse;
 import com.exceptioncoder.toolbox.common.git.GitLogService;
 import com.exceptioncoder.toolbox.common.git.GitProperties;
+import com.exceptioncoder.toolbox.common.git.GitStatusResponse;
 import com.exceptioncoder.toolbox.projects.config.ProjectsProperties;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -49,6 +51,33 @@ public class ProjectsGitController {
     public CommitDiff commit(@RequestParam String path, @RequestParam String hash) {
         Path dir = resolveGitDir(path);
         return git.commitDiff(dir, hash);
+    }
+
+    /**
+     * Returns staged, unstaged and untracked files in the repository working tree.
+     *
+     * @param path project directory within the configured projects root
+     * @return current Git working-tree status
+     */
+    @GetMapping("/status")
+    public GitStatusResponse status(@RequestParam String path) {
+        return git.gitStatus(resolveGitDir(path));
+    }
+
+    /**
+     * Returns the unified diff for one changed file.
+     *
+     * @param path project directory within the configured projects root
+     * @param filePath file path relative to the repository root
+     * @param x porcelain index status used to select the appropriate diff command
+     * @return unified diff and truncation state
+     */
+    @GetMapping("/file-diff")
+    public GitFileDiffResponse fileDiff(
+            @RequestParam String path,
+            @RequestParam String filePath,
+            @RequestParam String x) {
+        return git.gitFileDiff(resolveGitDir(path), filePath, x);
     }
 
     /** 规整 + 三道校验（根内 / 是目录 / 含 .git）。非法抛 IllegalArgumentException → 400。 */

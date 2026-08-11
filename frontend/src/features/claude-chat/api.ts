@@ -1,7 +1,13 @@
 import { authFetch, http } from '@/lib/api'
 import { ensureFreshToken, getToken } from '@/lib/auth'
 import { listSystemModules, listSystemWorkspaces, saveSystemProjectAlias } from '@/lib/systemCatalog'
-import type { CommitDiff, CommitsResponse, GitRepoRef } from '@/components/git/types'
+import type {
+  CommitDiff,
+  CommitsResponse,
+  GitFileDiffResponse,
+  GitRepoRef,
+  GitStatusResponse,
+} from '@/components/git/types'
 import type { ChatItem, ClaudeChatSessionView, CloneResult, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PendingSqlChangeType, PendingSqlStatus, PluginStatus, ServerMessage, SessionPendingSql, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
 import { normalizeUserMessageForDisplay } from './messageDisplay'
 
@@ -64,22 +70,6 @@ export function getSessionCommitDiff(sessionId: string, hash: string, repo?: str
 }
 
 // ── git status ───────────────────────────────────────────────────────────────
-
-export interface GitStatusEntry {
-  x: string        // 暂存区状态：M/A/D/R/?/空格
-  y: string        // 工作树状态：M/D/?/空格
-  path: string     // 相对 repo 根的路径
-  origPath: string | null  // 重命名/复制时的原路径
-}
-
-export interface GitStatusResponse {
-  entries: GitStatusEntry[]
-}
-
-export interface GitFileDiffResponse {
-  diff: string
-  truncated: boolean
-}
 
 /** 获取单个文件相对于 HEAD 的 unified diff，用于侧边对比视图。 */
 export function fetchSessionGitFileDiff(
@@ -249,6 +239,22 @@ export function cloneProject(url: string, root: string) {
 /** 某项目下的模块（确定性扫描，按构建标志文件）。供「项目工作台」列模块、懒建会话。 */
 export function fetchProjectModules(path: string): Promise<ProjectModules> {
   return listSystemModules(path)
+}
+
+/** Lists staged, unstaged and untracked files for a configured workspace project. */
+export function fetchWorkspaceGitStatus(path: string): Promise<GitStatusResponse> {
+  const params = new URLSearchParams({ path })
+  return http<GitStatusResponse>(`/claude-chat/workspaces/git/status?${params.toString()}`)
+}
+
+/** Returns one changed file's unified diff for a configured workspace project. */
+export function fetchWorkspaceGitFileDiff(
+  path: string,
+  filePath: string,
+  x: string,
+): Promise<GitFileDiffResponse> {
+  const params = new URLSearchParams({ path, filePath, x })
+  return http<GitFileDiffResponse>(`/claude-chat/workspaces/git/file-diff?${params.toString()}`)
 }
 
 /** 「更新项目模块」预览：按目录结构重新解析，与 modules.json 出 diff（只读）。 */

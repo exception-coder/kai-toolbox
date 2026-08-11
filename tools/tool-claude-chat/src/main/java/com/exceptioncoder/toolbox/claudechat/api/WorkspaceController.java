@@ -12,7 +12,10 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.ProjectModulesResponse;
 import com.exceptioncoder.toolbox.claudechat.api.dto.SelfRepoResponse;
 import com.exceptioncoder.toolbox.claudechat.api.dto.WorkspaceListResponse;
 import com.exceptioncoder.toolbox.claudechat.service.ProjectAliasService;
+import com.exceptioncoder.toolbox.claudechat.service.WorkspaceGitService;
 import com.exceptioncoder.toolbox.claudechat.service.WorkspaceScanService;
+import com.exceptioncoder.toolbox.common.git.GitFileDiffResponse;
+import com.exceptioncoder.toolbox.common.git.GitStatusResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -33,10 +36,15 @@ public class WorkspaceController {
 
     private final WorkspaceScanService service;
     private final ProjectAliasService projectAliasService;
+    private final WorkspaceGitService workspaceGitService;
 
-    public WorkspaceController(WorkspaceScanService service, ProjectAliasService projectAliasService) {
+    public WorkspaceController(
+            WorkspaceScanService service,
+            ProjectAliasService projectAliasService,
+            WorkspaceGitService workspaceGitService) {
         this.service = service;
         this.projectAliasService = projectAliasService;
+        this.workspaceGitService = workspaceGitService;
     }
 
     @GetMapping
@@ -61,6 +69,21 @@ public class WorkspaceController {
     @GetMapping("/modules")
     public ProjectModulesResponse modules(@RequestParam String path) {
         return service.scanModules(path);
+    }
+
+    /** Returns current Git changes for a project under any configured workspace root. */
+    @GetMapping("/git/status")
+    public GitStatusResponse gitStatus(@RequestParam String path) {
+        return workspaceGitService.status(path);
+    }
+
+    /** Returns one changed file's unified diff for a workspace project. */
+    @GetMapping("/git/file-diff")
+    public GitFileDiffResponse gitFileDiff(
+            @RequestParam String path,
+            @RequestParam String filePath,
+            @RequestParam String x) {
+        return workspaceGitService.fileDiff(path, filePath, x);
     }
 
     /**

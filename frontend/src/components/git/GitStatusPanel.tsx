@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, ChevronRight, File, Folder, RefreshCw, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { GitStatusEntry, GitStatusResponse, GitFileDiffResponse } from '@/features/claude-chat/api'
-import type { GitRepoRef } from './types'
+import type { GitFileDiffResponse, GitRepoRef, GitStatusEntry, GitStatusResponse } from './types'
 import { SideBySideDiff } from './SideBySideDiff'
 
 interface Props {
@@ -246,7 +245,10 @@ export function GitStatusPanel({ title, fetchStatus, fetchFileDiff, fetchRepos, 
   }, [data])
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-16" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-16"
+      onClick={e => { e.stopPropagation(); onClose() }}
+    >
       <div
         className={cn(
           'flex flex-col overflow-hidden rounded-xl border bg-[var(--color-card)] shadow-2xl',
