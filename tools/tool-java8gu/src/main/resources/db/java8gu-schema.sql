@@ -14,3 +14,58 @@ CREATE TABLE IF NOT EXISTS tool_java8gu_enrich (
 );
 
 CREATE INDEX IF NOT EXISTS idx_java8gu_enrich_id ON tool_java8gu_enrich(id);
+
+CREATE TABLE IF NOT EXISTS java8_node (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    node_type TEXT NOT NULL,
+    level INTEGER NOT NULL DEFAULT 0,
+    parent_id TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    create_time TEXT NOT NULL,
+    update_time TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_java8_node_parent ON java8_node(parent_id, sort_order);
+CREATE INDEX IF NOT EXISTS idx_java8_node_type ON java8_node(node_type);
+
+CREATE TABLE IF NOT EXISTS java8_relation (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    relation_type TEXT NOT NULL,
+    create_time TEXT NOT NULL,
+    update_time TEXT NOT NULL,
+    UNIQUE(source_id, target_id, relation_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_java8_relation_source ON java8_relation(source_id);
+CREATE INDEX IF NOT EXISTS idx_java8_relation_target ON java8_relation(target_id);
+
+CREATE TABLE IF NOT EXISTS java8_example (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    before_code TEXT NOT NULL DEFAULT '',
+    after_code TEXT NOT NULL DEFAULT '',
+    explanation TEXT NOT NULL DEFAULT '',
+    create_time TEXT NOT NULL,
+    update_time TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_java8_example_node ON java8_example(node_id);
+
+CREATE TABLE IF NOT EXISTS java8_interview (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id TEXT NOT NULL,
+    question TEXT NOT NULL,
+    short_answer TEXT NOT NULL DEFAULT '',
+    detail_answer TEXT NOT NULL DEFAULT '',
+    project_answer TEXT NOT NULL DEFAULT '',
+    create_time TEXT NOT NULL,
+    update_time TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_java8_interview_node ON java8_interview(node_id);

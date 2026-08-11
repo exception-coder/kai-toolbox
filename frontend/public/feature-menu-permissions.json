@@ -383,7 +383,7 @@
     {
       "featureId": "java8gu",
       "code": "menu:java8gu",
-      "name": "Java 八股·卡片回顾",
+      "name": "Java8 重构知识库",
       "module": "参考",
       "sort": 65
     },

@@ -1,5 +1,7 @@
 # kai-toolbox 项目设计文档索引
 
+- [Java8 股模块重构](Java8股模块重构/Java8股模块重构-current.md) — 本地知识节点、代码案例、面试卡片与关系导航。
+
 > 项目仓内的终版/演进设计文档索引。与用户知识库 `ai-docs/kai-toolbox/design/` 享有同等索引规范。
 
 ## 索引
