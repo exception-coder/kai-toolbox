@@ -358,7 +358,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         setQueued([])
         sessionIdRef.current = msg.sessionId
         setSessionId(msg.sessionId)
-        if (!demo) void listQueuedMessages(msg.sessionId)
+        if (!demo && channel !== 'consult') void listQueuedMessages(msg.sessionId)
           .then(messages => {
             if (sessionIdRef.current !== msg.sessionId) return
             setQueued(messages.map(message => ({
@@ -635,7 +635,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         const usage = normalizeUsage(msg.usage)
         turnStartRef.current = null
         ttftRef.current = null
-        setItems(prev => [...prev, { kind: 'result', id: nextId(), stopReason: msg.stopReason, ts: Date.now(), usage, latencyMs, ttftMs }])
+        setItems(prev => [...prev, { kind: 'result', id: nextId(), stopReason: msg.stopReason, traceId: msg.traceId, ts: Date.now(), usage, latencyMs, ttftMs }])
         // Claude 回复完成:仅当页面不在前台时响一声,避免你正盯着看时反复叮咚
         if (typeof document !== 'undefined' && document.hidden) playNotifySound()
         break
@@ -1020,6 +1020,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
 
   const switchTo = useCallback((sid: string, hintRunning = false) => {
     resetForNewSession()
+    if (channel === 'consult') setState('connecting')
     shouldLoadHistoryRef.current = true
     cwdRef.current = '' // 无 cwd，后端按 sdkSessionId 跨目录定位 transcript
     sessionIdRef.current = sid
@@ -1029,7 +1030,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     if (hintRunning) setRunning(true)
     intentRef.current = { kind: 'switch', sessionId: sid }
     if (!sendRaw({ type: 'switchSession', sessionId: sid })) connect()
-  }, [sendRaw, connect])
+  }, [channel, sendRaw, connect])
 
   const duplicateSession = useCallback((sourceSessionId: string, codexHome?: string) => {
     if (duplicateSourceRef.current) return
@@ -1120,6 +1121,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   // ── 待发送队列：running 时入队，本轮结束(running→false 且无待确认弹窗)后按序自动发 ──
   const enqueue = useCallback((text: string, attachments?: SendAttachment[], displayText?: string,
                                developerInstructions?: string) => {
+    if (channel === 'consult') {
+      setSyncWarning('业务咨询不支持排队发送，请等待当前回答完成后再追问')
+      return
+    }
     const t = text.trim()
     if (!t && !(attachments && attachments.length > 0)) return
     const sessionId = sessionIdRef.current
@@ -1139,7 +1144,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           setSyncWarning(`消息加入队列失败：${error instanceof Error ? error.message : String(error)}`)
         }
       })
-  }, [demo])
+  }, [channel, demo])
   const removeQueued = useCallback((id: string) => {
     if (demo) {
       setQueued(prev => prev.filter(q => q.id !== id))
@@ -1172,6 +1177,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const dispatchingQueueIdRef = useRef<string | null>(null)
   sendRef.current = send
   useEffect(() => {
+    if (channel === 'consult') return
     if (running || pending || queued.length === 0) return
     const head = queued[0]
     const sessionId = sessionIdRef.current
@@ -1191,7 +1197,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       })
       .catch(error => setSyncWarning(`队列消息出队失败：${error instanceof Error ? error.message : String(error)}`))
       .finally(() => { dispatchingQueueIdRef.current = null })
-  }, [demo, running, pending, queued])
+  }, [channel, demo, running, pending, queued])
 
   const interrupt = useCallback(() => {
     // 不在点击时乐观结束运行态：消息可能因 WS 断开根本没有发出。

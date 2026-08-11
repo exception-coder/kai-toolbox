@@ -17,6 +17,12 @@ export interface ConsultTurnView {
   refMenuPaths: string | null
   refGraphifyNodes: string | null
   refDomainKnowledge: string | null
+  recognizedSystemName: string | null
+  recognizedModuleNames: string[]
+  problemCategory: string | null
+  recognitionStatus: string | null
+  recognitionEvidence: string[]
+  traceId: string | null
   attachments: ConsultAttRef[]
   createdAt: number
 }
@@ -140,6 +146,11 @@ export interface ArchiveTurnItem {
   refMenuPaths?: string | null
   refGraphifyNodes?: string | null
   refDomainKnowledge?: string | null
+  recognizedModuleNames?: string[]
+  problemCategory?: string | null
+  recognitionStatus?: string | null
+  recognitionEvidence?: string[]
+  traceId?: string | null
   attachments?: ConsultAttRef[]
 }
 

@@ -2,8 +2,9 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { Loader2, X } from 'lucide-react'
-import { getConsult, type ConsultAttRef, type FeedbackView } from '../api'
+import { Copy, Loader2, X } from 'lucide-react'
+import { getConsult, type ConsultAttRef, type ConsultTurnView, type FeedbackView } from '../api'
+import { stripConsultRecognition } from '../consultRecognition'
 import { ImageLightbox } from './ImageLightbox'
 
 interface Props {
@@ -17,6 +18,49 @@ interface QaPair {
   question: string
   answer: string
   attachments?: ConsultAttRef[]
+  recognizedSystemName?: string | null
+  recognizedModuleNames?: string[]
+  refMenuPaths?: string | null
+  problemCategory?: string | null
+  recognitionStatus?: string | null
+  recognitionEvidence?: string[]
+  traceId?: string | null
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  MENU_OPERATION: '菜单操作', BUSINESS_RULE: '业务规则', PAGE_OR_API_ERROR: '页面/接口异常',
+  DATA_ANOMALY: '数据异常', SQL_OR_SCHEMA: 'SQL/表结构', CROSS_SYSTEM: '跨系统', OTHER: '其他',
+}
+const STATUS_LABELS: Record<string, string> = { CONFIRMED: '已确认', PARTIAL: '部分识别', UNRECOGNIZED: '未识别' }
+const EVIDENCE_LABELS: Record<string, string> = {
+  USER_SELECTION: '用户选择', MODULE_CATALOG: '模块目录', MENU_KNOWLEDGE: '菜单知识', CORE_SPEC: 'Core Spec',
+  GRAPHIFY: 'Graphify', SOURCE_CODE: '源码', DDL: 'DDL', RUNTIME_DATA: '运行数据',
+}
+
+function menuPathsOf(value: string | null | undefined): string[] {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function pairOfTurn(turn: ConsultTurnView): QaPair {
+  return {
+    turnIndex: turn.turnIndex,
+    question: turn.question,
+    answer: stripConsultRecognition(turn.answer),
+    attachments: turn.attachments,
+    recognizedSystemName: turn.recognizedSystemName,
+    recognizedModuleNames: turn.recognizedModuleNames,
+    refMenuPaths: turn.refMenuPaths,
+    problemCategory: turn.problemCategory,
+    recognitionStatus: turn.recognitionStatus,
+    recognitionEvidence: turn.recognitionEvidence,
+    traceId: turn.traceId,
+  }
 }
 
 const fileUrl = (path: string) => `/api/claude-chat/attachments/file?path=${encodeURIComponent(path)}`
@@ -34,19 +78,21 @@ function renderMarkdown(text: string): string {
 function parseRawPairs(raw: string | null | undefined): QaPair[] {
   if (!raw) return []
   try {
-    const items = JSON.parse(raw) as Array<{ kind?: string; text?: string; displayText?: string }>
+    const items = JSON.parse(raw) as Array<{ kind?: string; text?: string; displayText?: string; traceId?: string | null }>
     if (!Array.isArray(items)) return []
     const out: QaPair[] = []
-    let cur: { q: string; a: string[] } | null = null
+    let cur: { q: string; a: string[]; traceId?: string | null } | null = null
     for (const it of items) {
       if (it.kind === 'user') {
-        if (cur) out.push({ turnIndex: out.length + 1, question: cur.q, answer: cur.a.join('\n\n') })
+        if (cur) out.push({ turnIndex: out.length + 1, question: cur.q, answer: stripConsultRecognition(cur.a.join('\n\n')), traceId: cur.traceId })
         cur = { q: it.displayText ?? it.text ?? '', a: [] }
       } else if (it.kind === 'assistant' && cur && (it.text ?? '').trim()) {
         cur.a.push(it.text ?? '')
+      } else if (it.kind === 'result' && cur) {
+        cur.traceId = it.traceId
       }
     }
-    if (cur) out.push({ turnIndex: out.length + 1, question: cur.q, answer: cur.a.join('\n\n') })
+    if (cur) out.push({ turnIndex: out.length + 1, question: cur.q, answer: stripConsultRecognition(cur.a.join('\n\n')), traceId: cur.traceId })
     return out
   } catch {
     return []
@@ -65,7 +111,7 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
 
   const pairs = useMemo<QaPair[]>(() => {
     if (!data) return []
-    if (data.turns.length > 0) return data.turns.map((t) => ({ turnIndex: t.turnIndex, question: t.question, answer: t.answer, attachments: t.attachments }))
+    if (data.turns.length > 0) return data.turns.map(pairOfTurn)
     return parseRawPairs(data.rawReferenceJson)
   }, [data])
 
@@ -128,6 +174,31 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
                     <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tr-sm border border-sky-300/25 bg-sky-400/15 px-3 py-2 text-sm text-sky-50">
                       {p.question}
                     </div>
+                  </div>
+                )}
+                {p.traceId && (
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => void navigator.clipboard.writeText(p.traceId!)}
+                      className="inline-flex max-w-[92%] items-center gap-1.5 rounded-lg border border-indigo-300/15 bg-white/[0.03] px-2 py-1 font-mono text-[10px] text-indigo-200/50 hover:border-sky-300/30 hover:text-sky-200"
+                      title="复制本轮 Trace ID，可在 Langfuse 中直接检索"
+                    >
+                      <Copy className="size-3" /> Trace {p.traceId}
+                    </button>
+                  </div>
+                )}
+                {p.recognitionStatus && (
+                  <div className="max-w-[92%] rounded-xl border border-violet-300/20 bg-violet-400/[0.07] px-3 py-2.5 text-[11px] text-indigo-100/75">
+                    <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                      <span className="font-medium text-violet-200">V4 问题识别</span>
+                      {p.recognizedSystemName && <span className="rounded-full border border-sky-300/20 px-2 py-0.5">系统：{p.recognizedSystemName}</span>}
+                      {p.problemCategory && <span className="rounded-full border border-violet-300/20 px-2 py-0.5">分类：{CATEGORY_LABELS[p.problemCategory] ?? p.problemCategory}</span>}
+                      <span className="rounded-full border border-indigo-300/20 px-2 py-0.5">状态：{STATUS_LABELS[p.recognitionStatus] ?? p.recognitionStatus}</span>
+                    </div>
+                    {!!p.recognizedModuleNames?.length && <div><span className="text-indigo-200/45">模块：</span>{p.recognizedModuleNames.join('、')}</div>}
+                    {menuPathsOf(p.refMenuPaths).map((path) => <div key={path}><span className="text-indigo-200/45">菜单路径：</span>{path}</div>)}
+                    {!!p.recognitionEvidence?.length && <div className="mt-1"><span className="text-indigo-200/45">识别依据：</span>{p.recognitionEvidence.map((item) => EVIDENCE_LABELS[item] ?? item).join('、')}</div>}
                   </div>
                 )}
                 {p.answer.trim() && (

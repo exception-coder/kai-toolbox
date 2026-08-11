@@ -15,7 +15,7 @@ import { useAuth } from '@/lib/auth'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 import { CodexSessionOptions } from '@/features/claude-chat/components/CodexSessionOptions'
 import { useClaudeChatSocket } from '@/features/claude-chat/hooks/useClaudeChatSocket'
-import { fetchCodexModels, renameSession, setSessionGroupApi } from '@/features/claude-chat/api'
+import { fetchCodexModels, listSessions as listDevSessions, renameSession, setSessionGroupApi } from '@/features/claude-chat/api'
 import type { ChatItem, CodexReasoningEffort, CodexSpeed, Engine } from '@/features/claude-chat/types'
 import { ConsultConversation } from '../components/ConsultConversation'
 import { BugDrawer } from '../components/BugDrawer'
@@ -45,6 +45,7 @@ import {
   type SaveSystemPrefItem,
   type TopoLink,
 } from '../api'
+import { parseConsultRecognition } from '../consultRecognition'
 
 type ConsultAtt = { name: string; path: string; mime?: string | null; url?: string }
 import '../styles/space.css'
@@ -93,6 +94,7 @@ const CONSULT_GROUP = '业务咨询'
 const CONSULT_ROLE: ConsultRole = 'BIZ'
 const QUESTION_TITLE_MAX_LENGTH = 33
 const HISTORY_PAGE_SIZE = 20
+const DEFAULT_ORCHESTRATION_VERSION: ConsultOrchestrationVersion = 'v4'
 const ORCHESTRATION_OPTIONS: Array<{ value: ConsultOrchestrationVersion; label: string }> = [
   { value: 'v1', label: '经典版' },
   { value: 'v2', label: '优化版' },
@@ -101,7 +103,7 @@ const ORCHESTRATION_OPTIONS: Array<{ value: ConsultOrchestrationVersion; label: 
 ]
 
 function orchestrationLabel(value: ConsultOrchestrationVersion): string {
-  return ORCHESTRATION_OPTIONS.find(item => item.value === value)?.label ?? '经典版'
+  return ORCHESTRATION_OPTIONS.find(item => item.value === value)?.label ?? '动态证据版'
 }
 
 function formatUtcDatePrefix(date: Date): string {
@@ -424,7 +426,7 @@ function buildConsultSeed(system: string, modules: string[], ask: string, role: 
 
 /** 从 chat.items 抽取「用户问 → AI 答」成对轮次。 */
 function extractTurns(items: ChatItem[], attMeta: Map<string, { path: string; mime?: string | null }>): ArchiveTurnItem[] {
-  type Acc = { question: string; answerParts: string[]; atts: ConsultAttRef[] }
+  type Acc = { question: string; answerParts: string[]; atts: ConsultAttRef[]; traceId?: string | null }
   const raw: Acc[] = []
   let cur: Acc | null = null
   for (const it of items) {
@@ -440,15 +442,26 @@ function extractTurns(items: ChatItem[], attMeta: Map<string, { path: string; mi
       cur = { question: it.displayText ?? it.text, answerParts: [], atts }
     } else if (it.kind === 'assistant' && cur) {
       if (it.text.trim()) cur.answerParts.push(it.text)
+    } else if (it.kind === 'result' && cur) {
+      cur.traceId = it.traceId
     }
   }
   if (cur) raw.push(cur)
-  return raw.map((t, i) => ({
-    turnIndex: i + 1,
-    question: t.question,
-    answer: t.answerParts.join('\n\n'),
-    attachments: t.atts.length ? t.atts : undefined,
-  }))
+  return raw.map((t, i) => {
+    const parsed = parseConsultRecognition(t.answerParts.join('\n\n'))
+    return {
+      turnIndex: i + 1,
+      question: t.question,
+      answer: parsed.answer,
+      refMenuPaths: parsed.recognition?.menuPaths.length ? JSON.stringify(parsed.recognition.menuPaths) : undefined,
+      recognizedModuleNames: parsed.recognition?.moduleNames,
+      problemCategory: parsed.recognition?.problemCategory,
+      recognitionStatus: parsed.recognition?.recognitionStatus,
+      recognitionEvidence: parsed.recognition?.evidence,
+      traceId: t.traceId,
+      attachments: t.atts.length ? t.atts : undefined,
+    }
+  })
 }
 
 export function ForeConsultPage() {
@@ -467,7 +480,8 @@ export function ForeConsultPage() {
   const [consultReasoningEffort, setConsultReasoningEffort] = useState<CodexReasoningEffort>('low')
   const [consultSpeed, setConsultSpeed] = useState<CodexSpeed>('default')
   const [consultCodexHome, setConsultCodexHome] = useState('')
-  const [orchestrationVersion, setOrchestrationVersion] = useState<ConsultOrchestrationVersion>('v2')
+  const [orchestrationVersion, setOrchestrationVersion] =
+    useState<ConsultOrchestrationVersion>(DEFAULT_ORCHESTRATION_VERSION)
   const [role, setRole] = useState<ConsultRole>(CONSULT_ROLE)
   const [moduleQuery, setModuleQuery] = useState('')
   const [modulesExpanded, setModulesExpanded] = useState(false)
@@ -502,6 +516,7 @@ export function ForeConsultPage() {
   const [overrides, setOverrides] = useState<Map<string, Pos>>(new Map())
   const [activeConsultId, setActiveConsultId] = useState<string | null>(null)
   const [activeQuestionTitle, setActiveQuestionTitle] = useState('')
+  const [initialSessionStateResolved, setInitialSessionStateResolved] = useState(false)
 
   const pendingRef = useRef<{
     cwd: string
@@ -527,7 +542,6 @@ export function ForeConsultPage() {
   const attachmentsRef = useRef(attachments)
   attachmentsRef.current = attachments
   const syncTimerRef = useRef<number | null>(null)
-  const resumeRef = useRef<string | null>(null) // 待续跑的 claude-chat 会话 id
 
   useEffect(() => {
     const onVisibilityChange = () => setPageVisible(document.visibilityState === 'visible')
@@ -713,13 +727,22 @@ export function ForeConsultPage() {
     [modulesData],
   )
 
-  const shouldLoadHistory = historyOpen || (!!chat?.sessionId && !activeConsultId)
-  const { data: history } = useQuery({
+  const historyQuery = useQuery({
     queryKey: ['fore-consult-sessions'],
     queryFn: listConsults,
-    enabled: shouldLoadHistory,
-    staleTime: 30_000,
+    staleTime: 0,
+    refetchOnMount: 'always',
   })
+  const devSessionsQuery = useQuery({
+    queryKey: ['claude-chat-sessions'],
+    queryFn: listDevSessions,
+    staleTime: 0,
+    refetchOnMount: 'always',
+  })
+  const history = historyQuery.data
+  const initialSessionStateError = !initialSessionStateResolved
+    ? historyQuery.error ?? devSessionsQuery.error
+    : null
   const { data: bugs } = useQuery({
     queryKey: ['fore-consult-bugs'],
     queryFn: listBugs,
@@ -777,7 +800,7 @@ export function ForeConsultPage() {
   }, [chat?.sessionId, activeConsultId, activeQuestionTitle])
 
   useEffect(() => {
-    if (!history?.length) return
+    if (!historyOpen || !history?.length) return
     let cancelled = false
     const repairHistoryTitles = async () => {
       for (const session of history) {
@@ -797,7 +820,7 @@ export function ForeConsultPage() {
     }
     void repairHistoryTitles()
     return () => { cancelled = true }
-  }, [history])
+  }, [history, historyOpen])
 
   // 进行中增量落库：每当活跃咨询的对话有新内容且空闲（非回答中）时，防抖把当前轮次同步进库，
   // 让局域网其它电脑也能从库里查看进行中的对话（不必等「结束并归档」）。
@@ -832,18 +855,6 @@ export function ForeConsultPage() {
       })
     }
   }, [])
-
-  // 离开页面再回来时组件重挂载会丢失 activeConsultId，但悬浮会话仍在跑——
-  // 据当前 chat.sessionId 从历史里找回仍 PENDING 的会话，恢复归档入口。
-  useEffect(() => {
-    const sid = chat?.sessionId
-    if (activeConsultId || !sid) return
-    const pending = (history ?? []).find((s) => s.archiveStatus === 'PENDING' && s.devSessionId === sid)
-    if (pending) {
-      setActiveConsultId(pending.sessionId)
-      setActiveQuestionTitle(pending.questionTitle || displayName(pending.systemName))
-    }
-  }, [history, chat, activeConsultId])
 
   const startMutation = useMutation({
     mutationFn: async () => {
@@ -1041,16 +1052,8 @@ export function ForeConsultPage() {
     setConfigOpen(true)
   }
 
-  // 续跑：chat 可用时把排队的 claude-chat 会话切过去（加载其历史 + 可继续发消息）。
-  const doResume = useCallback(() => {
-    const sid = resumeRef.current
-    if (!sid) return
-    resumeRef.current = null
-    chat.switchTo(sid)
-  }, [chat])
-
-  // 继续一次「进行中」的咨询：恢复系统/角色/活跃态，并续跑其底层会话，打开可发消息的对话面板。
-  const resumeConsult = (s: ConsultSessionView) => {
+  // 恢复待归档咨询：运行提示来自底层会话列表，WebSocket ready 与实时事件会继续校正。
+  const resumeConsult = useCallback((s: ConsultSessionView) => {
     setSystem(s.systemName)
     setModuleTags(s.moduleNames)
     setRole(s.role === 'BIZ' ? 'BIZ' : 'IT')
@@ -1058,14 +1061,41 @@ export function ForeConsultPage() {
     setActiveQuestionTitle(s.questionTitle || displayName(s.systemName))
     setHistoryOpen(false)
     setViewSession(null)
-    // 不是当前活跃会话时，续跑其底层 claude-chat 会话，把历史对话切回来。
-    if (s.sessionId !== activeConsultId && s.devSessionId) {
+    if (s.devSessionId && s.devSessionId !== chat.sessionId) {
+      const runtime = devSessionsQuery.data?.find((candidate) => candidate.id === s.devSessionId)
       attMetaRef.current = new Map()
-      resumeRef.current = s.devSessionId
-      doResume()
+      chat.switchTo(s.devSessionId, runtime?.status === 'RUNNING' && runtime.live)
     }
     setConversationOpen(true)
-  }
+  }, [chat.sessionId, chat.switchTo, devSessionsQuery.data, displayName])
+
+  // 冷启动必须等待两份服务端状态都返回；随后自动恢复最近一条待归档咨询。
+  useEffect(() => {
+    if (
+      initialSessionStateResolved
+      || historyQuery.isPending
+      || historyQuery.isFetching
+      || devSessionsQuery.isPending
+      || devSessionsQuery.isFetching
+      || historyQuery.isError
+      || devSessionsQuery.isError
+    ) return
+    const pending = (history ?? []).find((session) =>
+      session.archiveStatus === 'PENDING' && !!session.devSessionId,
+    )
+    if (pending) resumeConsult(pending)
+    setInitialSessionStateResolved(true)
+  }, [
+    devSessionsQuery.isError,
+    devSessionsQuery.isFetching,
+    devSessionsQuery.isPending,
+    history,
+    historyQuery.isError,
+    historyQuery.isFetching,
+    historyQuery.isPending,
+    initialSessionStateResolved,
+    resumeConsult,
+  ])
 
   const dismissHint = () => {
     setHintDismissed(true)
@@ -1213,6 +1243,10 @@ export function ForeConsultPage() {
   const canStart =
     !!system.trim() && !!questionTitle.trim() && (!!ask.trim() || attachments.length > 0)
     && !!consultCodexHome.trim() && uploading === 0 && !startMutation.isPending
+    && initialSessionStateResolved
+  const retryInitialSessionState = () => {
+    void Promise.all([historyQuery.refetch(), devSessionsQuery.refetch()])
+  }
   const PanelIcon = iconForSystem(system, displayName(system))
   const deferredHistoryUser = useDeferredValue(historyUser)
   const filteredHistory = useMemo(() => {
@@ -1341,6 +1375,35 @@ export function ForeConsultPage() {
           </button>
         </div>
       </header>
+
+      {!initialSessionStateResolved && (
+        <div
+          className={`pointer-events-auto absolute left-1/2 top-16 z-[70] flex -translate-x-1/2 items-center gap-2 rounded-full border px-4 py-2 text-xs shadow-lg backdrop-blur-xl ${
+            initialSessionStateError
+              ? 'border-rose-200 bg-white/90 text-rose-700'
+              : 'border-sky-200 bg-white/85 text-sky-700'
+          }`}
+          role={initialSessionStateError ? 'alert' : 'status'}
+        >
+          {initialSessionStateError ? (
+            <>
+              <span>会话状态加载失败，为避免重复提问已锁定输入</span>
+              <button
+                type="button"
+                onClick={retryInitialSessionState}
+                className="rounded-full border border-rose-200 px-2.5 py-1 font-medium hover:bg-rose-50"
+              >
+                重试
+              </button>
+            </>
+          ) : (
+            <>
+              <Loader2 className="size-3.5 animate-spin" />
+              正在检查是否有进行中的咨询…
+            </>
+          )}
+        </div>
+      )}
 
       {topologyNotice && (
         <div className={`pointer-events-auto absolute right-6 top-[4.4rem] z-20 max-w-[420px] rounded-full border px-3 py-1.5 text-xs shadow-sm backdrop-blur-xl ${
@@ -1534,6 +1597,7 @@ export function ForeConsultPage() {
               >
                 <button
                   type="button"
+                  disabled={!initialSessionStateResolved}
                   onPointerDown={(e) => onOrbPointerDown(e, p.name)}
                   onPointerMove={onOrbPointerMove}
                   onPointerUp={() => onOrbPointerUp(p.name)}
@@ -1709,6 +1773,7 @@ export function ForeConsultPage() {
               <input
                 value={questionTitle}
                 onChange={(event) => setQuestionTitle(event.target.value)}
+                disabled={!initialSessionStateResolved}
                 maxLength={QUESTION_TITLE_MAX_LENGTH}
                 placeholder="填写问题标题（必填）"
                 aria-label="问题标题"
@@ -1749,6 +1814,7 @@ export function ForeConsultPage() {
               rows={2}
               value={ask}
               onChange={(e) => setAsk(e.target.value)}
+              disabled={!initialSessionStateResolved}
               onPaste={handlePaste}
               onKeyDown={(e) => {
                 if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing) return
@@ -1776,11 +1842,11 @@ export function ForeConsultPage() {
                     value: orchestrationLabel(orchestrationVersion),
                     icon: <Route className="size-4" />,
                     options: ORCHESTRATION_OPTIONS,
-                    disabled: startMutation.isPending,
+                    disabled: startMutation.isPending || !initialSessionStateResolved,
                     onChange: value => setOrchestrationVersion(value as ConsultOrchestrationVersion),
                   }]}
-                  disabled={startMutation.isPending}
-                  optionsDisabled={!isAdmin || startMutation.isPending}
+                  disabled={startMutation.isPending || !initialSessionStateResolved}
+                  optionsDisabled={!isAdmin || startMutation.isPending || !initialSessionStateResolved}
                   onModelChange={(value) => setConsultModel(value || null)}
                   onOptionsChange={(effort, speed) => {
                     setConsultReasoningEffort(effort)
@@ -1791,7 +1857,7 @@ export function ForeConsultPage() {
                 <button
                   type="button"
                   onClick={() => fileRef.current?.click()}
-                  disabled={attachments.length + uploading >= MAX_ATT}
+                  disabled={!initialSessionStateResolved || attachments.length + uploading >= MAX_ATT}
                   className="flex shrink-0 items-center gap-1 rounded-lg px-1.5 py-1 text-[11px] text-slate-500 transition-colors hover:bg-white/65 hover:text-slate-900 disabled:opacity-35"
                   title="上传图片、Excel、Word、Markdown 或 PDF；也可直接粘贴图片"
                 >
@@ -1892,6 +1958,10 @@ export function ForeConsultPage() {
                   >
                     <div className="break-words text-sm font-medium leading-5 text-slate-900">
                       {s.questionTitle || displayName(s.systemName)}
+                    </div>
+                    <div className="mt-1 flex items-center gap-1 text-[11px] text-sky-700">
+                      <Landmark className="size-3 shrink-0" />
+                      <span className="break-words">发起系统：{displayName(s.systemName)}</span>
                     </div>
                     <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                       <div className="flex flex-wrap items-center gap-2">

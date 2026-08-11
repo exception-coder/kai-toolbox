@@ -8,6 +8,7 @@ import type { UseClaudeChatSocket } from '@/features/claude-chat/hooks/useClaude
 import type { ChatItem } from '@/features/claude-chat/types'
 import { classifyConsultQuestion, dispatchConsultQuestion, registerBug, submitFeedback, uploadConsultAttachment } from '../api'
 import { buildConsultTurnAudits, type AuditEvidence, type AuditState, type ConsultTurnAudit } from '../consultAudit'
+import { stripConsultRecognition } from '../consultRecognition'
 
 // AI 在回答里判定为缺陷时输出的机器可读块，前端解析登记并从展示中剥离。
 const BUG_RE = /<<<BUG_REPORT>>>\s*([\s\S]*?)\s*<<<END_BUG_REPORT>>>/
@@ -142,6 +143,10 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
   const items = chat?.items ?? []
   const running = !!chat?.running
   const pending = chat?.pending
+  const sessionReady = chat.state === 'ready'
+  const inputLocked = !sessionReady || running
+  const sessionSendableRef = useRef(false)
+  sessionSendableRef.current = sessionReady && !running
   // 立即反馈：只要最后一条是用户消息（已发出、还没等到回复），就显示"思考/接入中"，
   // 不必等 chat.running 变 true（引擎连接/开会话有延迟，否则会白等一段时间没反馈）。
   const lastItem = items[items.length - 1]
@@ -239,7 +244,7 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
         suspectArea: bug.suspectArea,
         confidence: typeof bug.confidence === 'number' ? bug.confidence : undefined,
         question,
-        answer: stripBug(it.text),
+        answer: stripConsultRecognition(stripBug(it.text)),
       })
         .then(() => {
           setBugTurns((p) => new Set(p).add(it.id))
@@ -286,19 +291,19 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
     })
   }
 
-  const hasSendableContent = !!chat && (!!text.trim() || atts.length > 0) && uploading === 0
-  const canSend = hasSendableContent
+  const hasSendableContent = (!!text.trim() || atts.length > 0) && uploading === 0
+  const canSend = hasSendableContent && !inputLocked
   const dispatchMessage = (
     message: string,
     attachments: Array<{ name: string; path: string; mime?: string; url?: string }> | undefined,
-    shouldQueue: boolean,
     developerInstructions?: string,
-  ) => {
+  ): boolean => {
+    if (!sessionSendableRef.current) return false
     isNearBottomRef.current = true
-    if (shouldQueue) chat.enqueue(message, attachments, undefined, developerInstructions)
-    else chat.send(message, attachments, undefined, developerInstructions)
+    chat.send(message, attachments, undefined, developerInstructions)
     setText('')
     setAtts([])
+    return true
   }
 
   const send = async () => {
@@ -309,14 +314,14 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
     const attachments = atts.length
       ? atts.map((a) => ({ name: a.name, path: a.path, mime: a.mime ?? undefined, url: a.url }))
       : undefined
-    const shouldQueue = running
     const firstQuestion = items.find((item) => item.kind === 'user')
     if (!firstQuestion || firstQuestion.kind !== 'user') {
-      dispatchMessage(message, attachments, shouldQueue)
+      dispatchMessage(message, attachments)
       sendingRef.current = false
       return
     }
 
+    let dispatched = false
     try {
       const dispatch = await dispatchConsultQuestion(
         consultId,
@@ -325,12 +330,13 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
         true,
         chat.currentEngine === 'claude' ? 'claude' : 'codex',
       )
-      dispatchMessage(message, attachments, shouldQueue, dispatch.prompt ?? undefined)
+      dispatched = dispatchMessage(message, attachments, dispatch.prompt ?? undefined)
     } catch {
-      dispatchMessage(message, attachments, shouldQueue)
+      dispatched = dispatchMessage(message, attachments)
     } finally {
       sendingRef.current = false
     }
+    if (!dispatched) return
 
     void classifyConsultQuestion(
         consultId,
@@ -416,7 +422,7 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
               const next = items[idx + 1]
               const showRating =
                 it.kind === 'assistant' && it.text.trim().length > 0 && (!next || next.kind === 'user') && !running
-              const quotable = it.kind === 'assistant' ? stripBug(it.text) : it.kind === 'user' ? it.displayText ?? it.text : ''
+              const quotable = it.kind === 'assistant' ? stripConsultRecognition(stripBug(it.text)) : it.kind === 'user' ? it.displayText ?? it.text : ''
               return (
                 <div key={it.id} className="group space-y-1.5">
                   <MessageRow item={it} onImageClick={setLightbox} />
@@ -491,28 +497,31 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
               rows={3}
               value={text}
               onChange={(e) => setText(e.target.value)}
+              disabled={inputLocked}
               onPaste={onPaste}
               onKeyDown={(e) => {
                 if (e.key !== 'Enter' || !e.shiftKey || e.nativeEvent.isComposing) return
                 e.preventDefault()
                 void send()
               }}
-              placeholder="继续追问…（Shift+Enter 发送 / Enter 换行，可粘贴或上传附件）"
-              className="w-full resize-none bg-transparent px-2 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none"
+              placeholder={sessionReady
+                ? running ? '当前问题仍在处理中，完成后可继续追问' : '继续追问…（Shift+Enter 发送 / Enter 换行，可粘贴或上传附件）'
+                : '正在恢复会话状态…'}
+              className="w-full resize-none bg-transparent px-2 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none disabled:cursor-wait disabled:opacity-60"
             />
-            <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => handleFiles(e.target.files)} />
+            <input ref={fileRef} type="file" multiple disabled={inputLocked} className="hidden" onChange={(e) => handleFiles(e.target.files)} />
             <div className="flex items-center justify-between px-1">
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
-                disabled={atts.length + uploading >= MAX_ATT}
+                disabled={inputLocked || atts.length + uploading >= MAX_ATT}
                 className="flex items-center gap-1 rounded-lg px-1.5 py-1 text-[11px] text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40"
                 title="上传附件：图片/Excel/Word/Markdown/PDF"
               >
                 <Paperclip className="size-3.5" /> 附件
               </button>
               <div className="flex items-center gap-2">
-                {running && (
+                {running && sessionReady && (
                   <button
                     type="button"
                     onClick={interruptGeneration}
@@ -529,7 +538,7 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
                   className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-400 to-indigo-500 px-4 py-1.5 text-sm font-medium text-white shadow-[0_8px_30px_-8px_rgba(99,102,241,0.8)] transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Send className="size-4" />
-                  {running ? '排队发送' : '发送'}
+                  {!sessionReady ? '恢复中' : running ? '处理中' : '发送'}
                 </button>
               </div>
             </div>
@@ -775,7 +784,7 @@ const MessageRow = memo(function MessageRow({ item, onImageClick }: { item: Chat
     return (
       <div className="flex max-w-[92%] flex-col items-start gap-1">
         <div className="rounded-2xl rounded-tl-sm border border-slate-200/90 bg-white/72 px-3.5 py-2.5 shadow-[0_12px_30px_-26px_rgba(15,23,42,0.32)]">
-          <Markdown text={stripBug(item.text)} className="fc-md" />
+          <Markdown text={stripConsultRecognition(stripBug(item.text))} className="fc-md" />
         </div>
         {messageTime && <MessageTime timestamp={item.ts!} label={messageTime} align="left" />}
       </div>
