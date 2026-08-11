@@ -24,5 +24,9 @@ public class EvalResult {
     private String assertionsJson;
     private String error;
     private long latencyMs;
+    private String traceId;
+    private String scoreExportStatus;
+    private String scoreExportError;
+    private Long scoreExportedAt;
     private Long createdAt;
 }

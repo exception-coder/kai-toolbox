@@ -74,6 +74,9 @@ export const listResults = (runId: string) => http<EvalResult[]>(`${BASE}/runs/$
 export const getExtractionSummary = (runId: string) =>
   http<ExtractionSummary>(`${BASE}/runs/${runId}/extraction-summary`)
 
+export const retryScoreExports = (runId: string) =>
+  http<{ scheduled: number }>(`${BASE}/runs/${runId}/score-exports/retry`, { method: 'POST' })
+
 export const getDiff = (base: string, target: string) =>
   http<DiffReport>(`${BASE}/runs/diff?base=${encodeURIComponent(base)}&target=${encodeURIComponent(target)}`)
 

@@ -3,6 +3,7 @@
 export type Scenario = 'EXTRACTION' | 'RAG_QA' | 'GENERATION' | 'AGENT_TRACE'
 export type RunStatus = 'RUNNING' | 'SUCCESS' | 'FAILED'
 export type Verdict = 'PASS' | 'FAIL' | 'ERROR'
+export type ScoreExportStatus = 'SKIPPED' | 'PENDING' | 'SUCCESS' | 'FAILED'
 
 export interface EvalCase {
   id: string
@@ -68,6 +69,10 @@ export interface EvalResult {
   assertionsJson?: string | null
   error?: string | null
   latencyMs: number
+  traceId?: string | null
+  scoreExportStatus: ScoreExportStatus
+  scoreExportError?: string | null
+  scoreExportedAt?: number | null
   createdAt: number
 }
 

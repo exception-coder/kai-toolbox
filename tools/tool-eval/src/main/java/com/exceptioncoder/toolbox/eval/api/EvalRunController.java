@@ -80,6 +80,11 @@ public class EvalRunController {
         return service.extractionSummary(id);
     }
 
+    @PostMapping("/{id}/score-exports/retry")
+    public Map<String, Integer> retryScoreExports(@PathVariable String id) {
+        return Map.of("scheduled", service.retryScoreExports(id));
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable String id) {
         service.deleteRun(id);

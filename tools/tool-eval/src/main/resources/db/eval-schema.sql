@@ -93,3 +93,10 @@ CREATE TABLE IF NOT EXISTS eval_result (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uk_eval_result_run_case ON eval_result(run_id, case_id);
 CREATE INDEX IF NOT EXISTS idx_eval_result_run ON eval_result(run_id);
+
+-- 外部可观测只保存关联键与投影状态；本地 verdict/score 始终是事实源。
+ALTER TABLE eval_result ADD COLUMN trace_id TEXT;
+ALTER TABLE eval_result ADD COLUMN score_export_status TEXT NOT NULL DEFAULT 'SKIPPED';
+ALTER TABLE eval_result ADD COLUMN score_export_error TEXT;
+ALTER TABLE eval_result ADD COLUMN score_exported_at INTEGER;
+CREATE INDEX IF NOT EXISTS idx_eval_result_score_export ON eval_result(score_export_status);

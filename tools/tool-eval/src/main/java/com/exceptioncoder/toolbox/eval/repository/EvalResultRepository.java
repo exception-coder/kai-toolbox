@@ -22,6 +22,10 @@ public class EvalResultRepository {
             .assertionsJson(rs.getString("assertions_json"))
             .error(rs.getString("error"))
             .latencyMs(rs.getLong("latency_ms"))
+            .traceId(rs.getString("trace_id"))
+            .scoreExportStatus(rs.getString("score_export_status"))
+            .scoreExportError(rs.getString("score_export_error"))
+            .scoreExportedAt(rs.getObject("score_exported_at") == null ? null : rs.getLong("score_exported_at"))
             .createdAt(rs.getLong("created_at"))
             .build();
 
@@ -34,12 +38,28 @@ public class EvalResultRepository {
     public void insert(EvalResult r) {
         jdbc.update("""
                         INSERT INTO eval_result (id, run_id, case_id, case_title, verdict, score, output_json,
-                                                 raw_output, assertions_json, error, latency_ms, created_at)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                                                 raw_output, assertions_json, error, latency_ms, trace_id,
+                                                 score_export_status, score_export_error, score_exported_at, created_at)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                         """,
                 r.getId(), r.getRunId(), r.getCaseId(), r.getCaseTitle(), r.getVerdict(), r.getScore(),
                 r.getOutputJson(), r.getRawOutput(), r.getAssertionsJson(), r.getError(),
-                r.getLatencyMs(), r.getCreatedAt());
+                r.getLatencyMs(), r.getTraceId(), defaultStatus(r.getScoreExportStatus()),
+                r.getScoreExportError(), r.getScoreExportedAt(), r.getCreatedAt());
+    }
+
+    public void updateScoreExport(String id, String status, String error, Long exportedAt) {
+        jdbc.update("UPDATE eval_result SET score_export_status=?, score_export_error=?, score_exported_at=? WHERE id=?",
+                status, error, exportedAt, id);
+    }
+
+    public List<EvalResult> findFailedScoreExportsByRun(String runId) {
+        return jdbc.query("SELECT * FROM eval_result WHERE run_id=? AND score_export_status='FAILED' "
+                + "ORDER BY created_at ASC", ROW, runId);
+    }
+
+    private static String defaultStatus(String value) {
+        return value == null || value.isBlank() ? "SKIPPED" : value;
     }
 
     public List<EvalResult> findByRun(String runId) {

@@ -12,8 +12,12 @@ import com.exceptioncoder.toolbox.eval.repository.EvalCaseRepository;
 import com.exceptioncoder.toolbox.eval.repository.EvalResultRepository;
 import com.exceptioncoder.toolbox.eval.repository.EvalRunRepository;
 import com.exceptioncoder.toolbox.eval.spi.EvalAdapter;
+import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadata;
+import com.exceptioncoder.toolbox.llm.observability.AgentSpan;
+import com.exceptioncoder.toolbox.llm.observability.AgentTelemetry;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.opentelemetry.context.Scope;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -49,6 +53,8 @@ public class EvalRunService {
     private final EvalResultRepository resultRepo;
     private final EvalPromptService promptService;
     private final AssertionEngine assertionEngine;
+    private final AgentTelemetry telemetry;
+    private final LangfuseScoreExportService scoreExportService;
     private final ObjectMapper mapper;
     private final Map<String, EvalAdapter> adapters;
 
@@ -57,6 +63,8 @@ public class EvalRunService {
                           EvalResultRepository resultRepo,
                           EvalPromptService promptService,
                           AssertionEngine assertionEngine,
+                          AgentTelemetry telemetry,
+                          LangfuseScoreExportService scoreExportService,
                           ObjectMapper mapper,
                           List<EvalAdapter> adapterBeans) {
         this.caseRepo = caseRepo;
@@ -64,6 +72,8 @@ public class EvalRunService {
         this.resultRepo = resultRepo;
         this.promptService = promptService;
         this.assertionEngine = assertionEngine;
+        this.telemetry = telemetry;
+        this.scoreExportService = scoreExportService;
         this.mapper = mapper;
         this.adapters = adapterBeans.stream()
                 .collect(Collectors.toMap(EvalAdapter::id, Function.identity(), (a, b) -> a, LinkedHashMap::new));
@@ -123,8 +133,9 @@ public class EvalRunService {
         int passed = 0, failed = 0, errored = 0;
         try {
             for (EvalCase c : cases) {
-                EvalResult result = runOne(run, adapter, c, promptContent);
+                EvalResult result = runObserved(run, adapter, c, promptContent);
                 resultRepo.insert(result);
+                scoreExportService.schedule(result);
                 switch (result.getVerdict()) {
                     case "PASS" -> passed++;
                     case "FAIL" -> failed++;
@@ -137,6 +148,33 @@ public class EvalRunService {
             log.error("评测运行异常 runId={}", run.getId(), e);
             runRepo.finish(run.getId(), "FAILED", e.getMessage(), System.currentTimeMillis());
         }
+    }
+
+    private EvalResult runObserved(EvalRun run, EvalAdapter adapter, EvalCase evalCase, String promptContent) {
+        Map<String, Object> attributes = new LinkedHashMap<>();
+        attributes.put("eval.run.id", run.getId());
+        attributes.put("eval.case.id", evalCase.getId());
+        attributes.put("eval.dataset", run.getDataset());
+        attributes.put("eval.adapter", adapter.id());
+        attributes.put("eval.scenario", adapter.scenario());
+        if (run.getPromptVersion() != null) {
+            attributes.put("eval.prompt.version", run.getPromptVersion());
+        }
+        AgentRunMetadata metadata = new AgentRunMetadata(
+                "tool-eval", run.getId(), null, adapter.id(), run.getModel(), attributes);
+        AgentSpan span = telemetry.start("eval.case", metadata);
+        EvalResult result;
+        try (Scope ignored = span.makeCurrent()) {
+            result = runOne(run, adapter, evalCase, promptContent);
+        }
+        result.setTraceId(span.traceId());
+        result.setScoreExportStatus(scoreExportService.initialStatus(result.getTraceId()));
+        if ("ERROR".equals(result.getVerdict())) {
+            span.fail(result.getError(), null);
+        } else {
+            span.success(result.getVerdict());
+        }
+        return result;
     }
 
     private EvalResult runOne(EvalRun run, EvalAdapter adapter, EvalCase c, String promptContent) {
@@ -208,6 +246,11 @@ public class EvalRunService {
 
     public List<EvalResult> listResults(String runId) {
         return resultRepo.findByRun(runId);
+    }
+
+    public int retryScoreExports(String runId) {
+        getRun(runId);
+        return scoreExportService.retryFailedByRun(runId);
     }
 
     public void deleteRun(String id) {

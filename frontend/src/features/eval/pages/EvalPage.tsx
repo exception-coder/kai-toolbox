@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  AlertTriangle, CheckCircle2, Download, GitCompare, Loader2, Play, RefreshCw, XCircle,
+  AlertTriangle, CheckCircle2, Copy, Download, GitCompare, Loader2, Play, RefreshCw, XCircle,
 } from 'lucide-react'
 import {
   deleteRun, getDiff, getExtractionSummary, harvest, listAdapters, listDatasets, listResults,
-  listRuns, listSources, startRun,
+  listRuns, listSources, retryScoreExports, startRun,
 } from '../api'
 import type { AssertionOutcome, EvalResult, EvalRun } from '../types'
 import { Button } from '@/components/ui/button'
@@ -88,6 +88,11 @@ export function EvalPage() {
     queryKey: ['eval', 'summary', selectedRun],
     queryFn: () => getExtractionSummary(selectedRun),
     enabled: !!selectedRun && currentRun?.scenario === 'EXTRACTION' && currentRun?.status !== 'RUNNING',
+  })
+
+  const retryScoreM = useMutation({
+    mutationFn: retryScoreExports,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['eval', 'results', selectedRun] }),
   })
 
   const diffQ = useQuery({
@@ -394,11 +399,24 @@ export function EvalPage() {
             <section className="rounded-lg border">
               <div className="flex items-center justify-between border-b px-4 py-2 text-sm font-medium">
                 <span>逐用例结果</span>
-                {baseRun && baseRun !== selectedRun && (
-                  <span className="text-xs font-normal text-[var(--color-muted-foreground)]">
-                    基线已选，对比见上方
-                  </span>
-                )}
+                <div className="flex items-center gap-2">
+                  {resultsQ.data?.some((item) => item.scoreExportStatus === 'FAILED') && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={retryScoreM.isPending}
+                      onClick={() => retryScoreM.mutate(selectedRun)}
+                    >
+                      <RefreshCw className={`size-3 ${retryScoreM.isPending ? 'animate-spin' : ''}`} />
+                      重试 Score 导出
+                    </Button>
+                  )}
+                  {baseRun && baseRun !== selectedRun && (
+                    <span className="text-xs font-normal text-[var(--color-muted-foreground)]">
+                      基线已选，对比见上方
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="divide-y">
                 {resultsQ.data?.map((r) => <ResultRow key={r.id} result={r} />)}
@@ -445,6 +463,7 @@ function ResultRow({ result }: { result: EvalResult }) {
         </StatusBadge>
         <span className="tabular-nums text-[var(--color-muted-foreground)]">{pct(result.score)}</span>
         <span className="tabular-nums text-[var(--color-muted-foreground)]">{result.latencyMs}ms</span>
+        <span className="text-[10px] text-[var(--color-muted-foreground)]">Score {result.scoreExportStatus}</span>
       </div>
 
       {!open && failed.length > 0 && (
@@ -456,6 +475,19 @@ function ResultRow({ result }: { result: EvalResult }) {
       {open && (
         <div className="mt-2 space-y-2 pl-5">
           {result.error && <div className="text-[var(--color-warning)]">{result.error}</div>}
+          {result.traceId && (
+            <button
+              type="button"
+              onClick={() => void navigator.clipboard.writeText(result.traceId!)}
+              className="inline-flex items-center gap-1 rounded border px-2 py-1 font-mono text-[10px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+              title="复制 Trace ID"
+            >
+              <Copy className="size-3" /> {result.traceId}
+            </button>
+          )}
+          {result.scoreExportError && (
+            <div className="text-[var(--color-warning)]">Score 导出失败：{result.scoreExportError}</div>
+          )}
           {assertions.length > 0 && (
             <table className="w-full text-[11px]">
               <thead className="text-[var(--color-muted-foreground)]">
