@@ -31,3 +31,22 @@ export interface CommitDiff {
   /** 超上限被截断 */
   truncated: boolean
 }
+
+export interface GitStatusEntry {
+  /** Index/staging-area status from Git porcelain output. */
+  x: string
+  /** Working-tree status from Git porcelain output. */
+  y: string
+  path: string
+  /** Original path for a rename or copy. */
+  origPath: string | null
+}
+
+export interface GitStatusResponse {
+  entries: GitStatusEntry[]
+}
+
+export interface GitFileDiffResponse {
+  diff: string
+  truncated: boolean
+}

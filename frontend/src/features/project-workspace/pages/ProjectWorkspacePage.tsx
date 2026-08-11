@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, Boxes, BotMessageSquare, Check, ChevronDown, ChevronRight, CornerDownRight, Database, Download, Eye, EyeOff, FolderTree, GitCompare, Info, Loader2, Network, Pencil, Pin, Play, RefreshCw, Search, Sparkles, TerminalSquare, Trash2, X } from 'lucide-react'
+import { AlertTriangle, Boxes, BotMessageSquare, Check, ChevronDown, ChevronRight, CornerDownRight, Database, Download, Eye, EyeOff, FileDiff, FolderTree, GitCompare, Info, Loader2, Network, Pencil, Pin, Play, RefreshCw, Search, Sparkles, TerminalSquare, Trash2, X } from 'lucide-react'
+import { GitStatusPanel } from '@/components/git/GitStatusPanel'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -11,7 +12,7 @@ import { StatusBadge } from '@/components/ui/status-badge'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
-import { applyModuleSync, createTaskspace, ensureKnowledgeBase, fetchProjectModules, listSessions, listWorkspaces, previewModuleSync, saveProjectAlias } from '@/features/claude-chat/api'
+import { applyModuleSync, createTaskspace, ensureKnowledgeBase, fetchProjectModules, fetchWorkspaceGitFileDiff, fetchWorkspaceGitStatus, listSessions, listWorkspaces, previewModuleSync, saveProjectAlias } from '@/features/claude-chat/api'
 import { engineStatus } from '@/features/knowledge-graph/api'
 import { GraphifyGraphModal } from '../components/GraphifyGraphModal'
 import { CHAT_ROUTE, useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
@@ -286,6 +287,7 @@ export function ProjectWorkspacePage() {
   const [aliasEditingPath, setAliasEditingPath] = useState('')
   const [aliasDraft, setAliasDraft] = useState('')
   const [pendingOpen, setPendingOpen] = useState<PendingOpen | null>(null)
+  const [gitChangesProject, setGitChangesProject] = useState<WorkspaceDir | null>(null)
 
   const workspacesQ = useQuery({
     queryKey: ['claude-chat-workspaces'],
@@ -671,7 +673,8 @@ export function ProjectWorkspacePage() {
                   aliasDraft={aliasDraft}
                   aliasSaving={aliasMutation.isPending && aliasEditingPath === project.path}
                   aliasError={aliasMutation.isError && aliasEditingPath === project.path ? errorMessage(aliasMutation.error) : ''}
-                  onToggleIgnore={() => ignored.toggle(project.path)}
+                   onToggleIgnore={() => ignored.toggle(project.path)}
+                   onShowChanges={() => setGitChangesProject(project)}
                   onEditAlias={() => {
                     setAliasEditingPath(project.path)
                     setAliasDraft(project.alias ?? '')
@@ -715,7 +718,8 @@ export function ProjectWorkspacePage() {
                           aliasDraft={aliasDraft}
                           aliasSaving={aliasMutation.isPending && aliasEditingPath === project.path}
                           aliasError={aliasMutation.isError && aliasEditingPath === project.path ? errorMessage(aliasMutation.error) : ''}
-                          onToggleIgnore={() => ignored.toggle(project.path)}
+                           onToggleIgnore={() => ignored.toggle(project.path)}
+                           onShowChanges={() => setGitChangesProject(project)}
                           onEditAlias={() => {
                             setAliasEditingPath(project.path)
                             setAliasDraft(project.alias ?? '')
@@ -931,6 +935,14 @@ export function ProjectWorkspacePage() {
         projectName={selectedProject?.name ?? ''}
         onClose={() => setGraphOpen(false)}
       />
+      {gitChangesProject && (
+        <GitStatusPanel
+          title={getSystemWorkspaceDisplayName(gitChangesProject)}
+          fetchStatus={() => fetchWorkspaceGitStatus(gitChangesProject.path)}
+          fetchFileDiff={(filePath, x) => fetchWorkspaceGitFileDiff(gitChangesProject.path, filePath, x)}
+          onClose={() => setGitChangesProject(null)}
+        />
+      )}
     </div>
   )
 }
@@ -945,6 +957,7 @@ function ProjectButton({
   aliasSaving,
   aliasError,
   onToggleIgnore,
+  onShowChanges,
   onEditAlias,
   onAliasDraftChange,
   onCancelAlias,
@@ -960,6 +973,7 @@ function ProjectButton({
   aliasSaving: boolean
   aliasError: string
   onToggleIgnore: () => void
+  onShowChanges: () => void
   onEditAlias: () => void
   onAliasDraftChange: (value: string) => void
   onCancelAlias: () => void
@@ -975,7 +989,7 @@ function ProjectButton({
           : 'border-[var(--color-border)] hover:bg-[var(--color-accent)]',
       )}
     >
-      <button type="button" onClick={onClick} className="flex w-full min-w-0 flex-col gap-1 px-3 py-2 pr-16 text-left">
+      <button type="button" onClick={onClick} className="flex w-full min-w-0 flex-col gap-1 px-3 py-2 pr-24 text-left">
         <span className="truncate text-sm font-medium text-[var(--color-foreground)]">{getSystemWorkspaceDisplayName(project)}</span>
         {project.alias && <span className="truncate text-[10px] text-[var(--color-muted-foreground)]">{project.name}</span>}
         <span className="truncate text-xs text-[var(--color-muted-foreground)]">{project.root}</span>
@@ -1009,6 +1023,15 @@ function ProjectButton({
         </div>
       </button>
       <div className="absolute right-2 top-2 flex gap-0.5">
+        <button
+          type="button"
+          className="rounded p-1 text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)]"
+          title="查看 Git 当前更改"
+          aria-label={`查看 ${getSystemWorkspaceDisplayName(project)} 的 Git 当前更改`}
+          onClick={onShowChanges}
+        >
+          <FileDiff className="h-3.5 w-3.5" />
+        </button>
         <button
           type="button"
           className="rounded p-1 text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)]"
