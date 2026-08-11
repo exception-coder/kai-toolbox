@@ -134,6 +134,12 @@ export function ConsultHistoryDetail({ sessionId, title, onClose }: Props) {
             {data && (
               <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-indigo-200/50">
                 <span className="rounded-full border border-indigo-300/20 px-2 py-0.5">{ROLE_LABEL[data.role] ?? data.role}</span>
+                <span className="rounded-full border border-sky-300/20 px-2 py-0.5">发起系统：{data.systemName}</span>
+                {(data.evidenceSystems ?? []).filter((item) => item.toLowerCase() !== data.systemName.toLowerCase()).map((item) => (
+                  <span key={item} className="rounded-full border border-emerald-300/20 px-2 py-0.5 text-emerald-200/80">
+                    证据系统：{item.toUpperCase()}
+                  </span>
+                ))}
                 {data.moduleNames.length > 0 && <span className="truncate">{data.moduleNames.join('、')}</span>}
                 <span>{new Date(data.createdAt).toLocaleString()}</span>
               </div>

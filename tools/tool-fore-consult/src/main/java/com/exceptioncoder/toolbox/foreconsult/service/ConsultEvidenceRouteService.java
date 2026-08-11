@@ -77,7 +77,9 @@ public class ConsultEvidenceRouteService {
                 .map(value -> value.toLowerCase(Locale.ROOT)).toList();
         String normalizedQuestion = lower(question);
         List<ConsultEvidenceRoute> matched = new ArrayList<>();
-        for (ConsultEvidenceRoute route : repository.findConfirmedByContextSystem(contextSystem)) {
+        for (ConsultEvidenceRoute route : repository.findAll()) {
+            if (!"CONFIRMED".equals(route.getStatus())
+                    || !java.util.Objects.equals(contextCanonical, canonicalSystem(route.getContextSystem()))) continue;
             if (!matches(route, normalizedModules, normalizedQuestion)) continue;
             String evidenceCanonical = canonicalSystem(route.getEvidenceSystem());
             if (evidenceCanonical == null) continue;

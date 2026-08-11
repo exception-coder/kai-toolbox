@@ -87,6 +87,7 @@ type Intent =
       codexHome?: string
       codexReasoningEffort?: CodexReasoningEffort
       codexSpeed?: CodexSpeed
+      consultEvidenceSystems?: string[]
     }
   | { kind: 'switch'; sessionId: string }
   | { kind: 'duplicate'; sourceSessionId: string; codexHome?: string }
@@ -151,6 +152,7 @@ export interface UseClaudeChatSocket {
       codexHome?: string
       codexReasoningEffort?: CodexReasoningEffort
       codexSpeed?: CodexSpeed
+      consultEvidenceSystems?: string[]
     },
   ) => void
   /** 切换权限模式（下一轮生效） */
@@ -693,6 +695,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       codexHome: intent.codexHome,
       codexReasoningEffort: intent.codexReasoningEffort,
       codexSpeed: intent.codexSpeed,
+      consultEvidenceSystems: intent.consultEvidenceSystems,
     })
     else if (intent.kind === 'switch') sendRaw({ type: 'switchSession', sessionId: intent.sessionId })
     else if (intent.kind === 'duplicate') sendRaw({
@@ -975,6 +978,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     codexHome?: string
     codexReasoningEffort?: CodexReasoningEffort
     codexSpeed?: CodexSpeed
+    consultEvidenceSystems?: string[]
   }) => {
     resetForNewSession()
     shouldLoadHistoryRef.current = false
@@ -992,6 +996,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     const codexHome = provider?.codexHome
     const codexReasoningEffort = provider?.codexReasoningEffort
     const codexSpeed = provider?.codexSpeed
+    const consultEvidenceSystems = provider?.consultEvidenceSystems
     intentRef.current = {
       kind: 'open',
       cwd,
@@ -1003,6 +1008,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       codexHome,
       codexReasoningEffort,
       codexSpeed,
+      consultEvidenceSystems,
     }
     if (!sendRaw({
       type: 'open',
@@ -1015,6 +1021,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       codexHome,
       codexReasoningEffort,
       codexSpeed,
+      consultEvidenceSystems,
     })) connect()
   }, [sendRaw, connect])
 

@@ -407,6 +407,7 @@ export type ClientMessage =
       codexHome?: string
       codexReasoningEffort?: CodexReasoningEffort
       codexSpeed?: CodexSpeed
+      consultEvidenceSystems?: string[]
     }
   | { type: 'attach'; sessionId: string; lastEventSeq: number }
   | { type: 'switchSession'; sessionId: string }

@@ -20,6 +20,7 @@ import type { ChatItem, CodexReasoningEffort, CodexSpeed, Engine } from '@/featu
 import { ConsultConversation } from '../components/ConsultConversation'
 import { BugDrawer } from '../components/BugDrawer'
 import { ConsultHistoryDetail } from '../components/ConsultHistoryDetail'
+import { EvidenceRouteManager } from '../components/EvidenceRouteManager'
 import {
   archiveConsult,
   deleteConsult,
@@ -512,6 +513,7 @@ export function ForeConsultPage() {
   const [configRows, setConfigRows] = useState<Array<{ name: string; path: string; alias: string; visible: boolean }>>([])
   const [showLinks, setShowLinks] = useState(true)
   const [topologyNotice, setTopologyNotice] = useState<{ tone: 'success' | 'empty' | 'error'; text: string } | null>(null)
+  const [evidenceRoutesOpen, setEvidenceRoutesOpen] = useState(false)
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
   const [overrides, setOverrides] = useState<Map<string, Pos>>(new Map())
   const [activeConsultId, setActiveConsultId] = useState<string | null>(null)
@@ -529,6 +531,7 @@ export function ForeConsultPage() {
     codexReasoningEffort: CodexReasoningEffort
     codexSpeed: CodexSpeed
     codexHome: string | null
+    evidenceSystems: string[]
   } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [canvasSize, setCanvasSize] = useState<CanvasSize>({ width: 1600, height: 900 })
@@ -763,6 +766,7 @@ export function ForeConsultPage() {
         codexHome: p.codexHome || undefined,
         codexReasoningEffort: p.codexReasoningEffort,
         codexSpeed: p.codexSpeed,
+        consultEvidenceSystems: p.evidenceSystems,
       },
     )
     const atts = p.attachments.length
@@ -891,6 +895,7 @@ export function ForeConsultPage() {
         codexReasoningEffort: created.codexReasoningEffort || 'low',
         codexSpeed: created.codexSpeed || 'default',
         codexHome: created.codexHome,
+        evidenceSystems: created.evidenceSystems,
       }
       deliver()
       setQuestionTitle('')
@@ -966,6 +971,7 @@ export function ForeConsultPage() {
       setShowLinks(true)
       if (d.links.length > 0) {
         qc.setQueryData(['fore-consult-topology'], d)
+        void qc.invalidateQueries({ queryKey: ['fore-consult-evidence-routes'] })
         setTopologyNotice({ tone: 'success', text: `分析完成，发现 ${d.links.length} 条调用链路` })
       } else {
         setTopologyNotice({ tone: 'empty', text: '本次未发现可信链路，已保留原有路线' })
@@ -1211,6 +1217,7 @@ export function ForeConsultPage() {
       codexReasoningEffort: created.codexReasoningEffort || 'low',
       codexSpeed: created.codexSpeed || 'default',
       codexHome: created.codexHome,
+      evidenceSystems: created.evidenceSystems,
     }
     deliver()
     await qc.invalidateQueries({ queryKey: ['fore-consult-sessions'] })
@@ -1328,6 +1335,14 @@ export function ForeConsultPage() {
             {topoMutation.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Waypoints className="size-3.5" />}
             {topoMutation.isPending ? '分析中…' : '分析链路'}
           </button>
+          <button
+            type="button"
+            onClick={() => setEvidenceRoutesOpen(true)}
+            className="flex items-center gap-1.5 rounded-full border border-emerald-200/70 bg-emerald-50/70 px-3 py-1.5 text-xs text-emerald-700 transition-colors hover:bg-emerald-100"
+            title="查看并确认跨系统数据归属"
+          >
+            <Radar className="size-3.5" /> 数据归属 {(topoData?.evidenceRoutes?.length ?? 0) || ''}
+          </button>
           {(topoData?.links.length ?? 0) > 0 && (
             <button
               type="button"
@@ -1405,6 +1420,9 @@ export function ForeConsultPage() {
         </div>
       )}
 
+      {evidenceRoutesOpen && (
+        <EvidenceRouteManager isAdmin={isAdmin} onClose={() => setEvidenceRoutesOpen(false)} />
+      )}
       {topologyNotice && (
         <div className={`pointer-events-auto absolute right-6 top-[4.4rem] z-20 max-w-[420px] rounded-full border px-3 py-1.5 text-xs shadow-sm backdrop-blur-xl ${
           topologyNotice.tone === 'success'
