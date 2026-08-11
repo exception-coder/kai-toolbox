@@ -2,6 +2,8 @@ package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatWsProperties;
+import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadata;
+import com.exceptioncoder.toolbox.llm.observability.TraceContext;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PreDestroy;
@@ -191,11 +193,17 @@ public class SidecarClient {
     }
 
     public void userMessage(String sessionId, String text, String developerInstructions) {
+        userMessage(sessionId, text, developerInstructions, null, null);
+    }
+
+    public void userMessage(String sessionId, String text, String developerInstructions,
+                            TraceContext traceContext, AgentRunMetadata telemetry) {
         Map<String, Object> message = new LinkedHashMap<>();
         message.put("type", "user");
         message.put("sessionId", sessionId);
         message.put("text", nz(text));
         message.put("developerInstructions", nz(developerInstructions));
+        putTelemetry(message, traceContext, telemetry);
         send(message);
     }
 
@@ -285,6 +293,15 @@ public class SidecarClient {
                         com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ExecutionRequest request,
                         String normalizedEngine,
                         java.util.List<com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput> images) {
+        oneShot(sessionId, request, normalizedEngine, images, null, null);
+    }
+
+    public void oneShot(String sessionId,
+                        com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ExecutionRequest request,
+                        String normalizedEngine,
+                        java.util.List<com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ImageInput> images,
+                        TraceContext traceContext,
+                        AgentRunMetadata telemetry) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("type", "oneShot");
         payload.put("sessionId", sessionId);
@@ -299,12 +316,37 @@ public class SidecarClient {
         payload.put("authToken", nz(request.authToken()));
         payload.put("codexHome", nz(request.codexHome()));
         payload.put("toolPolicy", nz(request.toolPolicy()));
+        putTelemetry(payload, traceContext, telemetry);
         if (images != null && !images.isEmpty()) {
             payload.put("images", images.stream()
                     .map(img -> Map.of("mediaType", img.mimeType(), "data", img.base64Data()))
                     .toList());
         }
         send(payload);
+    }
+
+    private static void putTelemetry(Map<String, Object> payload, TraceContext traceContext,
+                                     AgentRunMetadata telemetry) {
+        if (traceContext != null && traceContext.valid()) {
+            Map<String, Object> context = new LinkedHashMap<>();
+            context.put("traceparent", traceContext.traceparent());
+            if (traceContext.tracestate() != null) {
+                context.put("tracestate", traceContext.tracestate());
+            }
+            payload.put("traceContext", context);
+        }
+        if (telemetry != null) {
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("scope", nz(telemetry.scope()));
+            metadata.put("correlationId", nz(telemetry.correlationId()));
+            if (telemetry.turnIndex() != null) {
+                metadata.put("turnIndex", telemetry.turnIndex());
+            }
+            metadata.put("engine", nz(telemetry.engine()));
+            metadata.put("model", nz(telemetry.model()));
+            metadata.put("attributes", telemetry.attributes());
+            payload.put("telemetry", metadata);
+        }
     }
 
     /** 发送一条消息到 sidecar。返回是否真正发出（未连接/异常返回 false，供决策类消息据此回告前端）。 */

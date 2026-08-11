@@ -91,6 +91,17 @@ public class ConsultSessionRepository {
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
     }
 
+    /** 按复用的开发会话 ID 反查业务咨询，用于在通用 Agent 边界补充低敏 Trace 属性。 */
+    public Optional<ConsultSession> findByDevSessionId(String devSessionId) {
+        if (devSessionId == null || devSessionId.isBlank()) {
+            return Optional.empty();
+        }
+        List<ConsultSession> rows = jdbc.query(
+                "SELECT * FROM consult_session WHERE dev_session_id = ? ORDER BY created_at DESC LIMIT 1",
+                ROW, devSessionId);
+        return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
+    }
+
     /** 最近 N 条会话，按创建时间倒序。 */
     public List<ConsultSession> findRecent(int limit) {
         return jdbc.query(

@@ -62,6 +62,22 @@ toolbox:
     # ScanRepository.deleteById 的事务合并使用。
     busy-timeout-ms: 30000
     journal-mode: WAL
+  # Agent 可观测与评测投影：默认关闭。启用后 Java/Node 通过标准 OTLP HTTP 输出同一条 Trace；
+  # endpoint 不可达只丢失外部观测，不得阻断咨询或本地评测。
+  observability:
+    enabled: ${TOOLBOX_OBSERVABILITY_ENABLED:false}
+    endpoint: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:${OTEL_EXPORTER_OTLP_ENDPOINT:}}
+    headers: ${OTEL_EXPORTER_OTLP_HEADERS:}
+    service-name: ${OTEL_SERVICE_NAME:kai-toolbox}
+    environment: ${TOOLBOX_DEPLOYMENT_ENVIRONMENT:local}
+    export-timeout-ms: ${TOOLBOX_OBSERVABILITY_EXPORT_TIMEOUT_MS:3000}
+    max-attribute-length: ${TOOLBOX_OBSERVABILITY_MAX_ATTRIBUTE_LENGTH:512}
+    sample-ratio: ${TOOLBOX_OBSERVABILITY_SAMPLE_RATIO:1.0}
+    capture-content: false
+    langfuse:
+      base-url: ${LANGFUSE_BASE_URL:}
+      public-key: ${LANGFUSE_PUBLIC_KEY:}
+      secret-key: ${LANGFUSE_SECRET_KEY:}
   # 共享 LLM 网关（toolbox-llm）：模型池 + 分级路由 + 限流故障转移。
   # 同 tier 的多个成员构成一个池，按 weight 分发、对失败成员熔断退避（cooldown-ms）后转移到下一个。
   # 不配置任何 models 时，网关兜底用本地 Ollama qwen2.5:7b-instruct。

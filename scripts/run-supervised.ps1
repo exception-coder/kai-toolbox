@@ -56,6 +56,35 @@ if (Test-Path -LiteralPath $ToolsConfFile) {
     }
 }
 
+function Read-DotEnvValue([string]$path, [string]$key) {
+    foreach ($line in [System.IO.File]::ReadAllLines($path)) {
+        $trimmed = $line.Trim()
+        if ($trimmed -eq '' -or $trimmed.StartsWith('#')) { continue }
+        $separator = $trimmed.IndexOf('=')
+        if ($separator -lt 1 -or $trimmed.Substring(0, $separator).Trim() -ne $key) { continue }
+        $value = $trimmed.Substring($separator + 1).Trim()
+        if ($value.Length -ge 2 -and (($value.StartsWith('"') -and $value.EndsWith('"')) -or
+            ($value.StartsWith("'") -and $value.EndsWith("'")))) { $value = $value.Substring(1, $value.Length - 2) }
+        return $value
+    }
+    return $null
+}
+
+$LangfuseEnvFile = Join-Path (Split-Path -Parent $PSScriptRoot) 'deploy\langfuse\.env'
+if (Test-Path -LiteralPath $LangfuseEnvFile) {
+    $langfuseBaseUrl = if ($env:LANGFUSE_BASE_URL) { $env:LANGFUSE_BASE_URL } else { Read-DotEnvValue $LangfuseEnvFile 'NEXTAUTH_URL' }
+    $langfusePublicKey = if ($env:LANGFUSE_PUBLIC_KEY) { $env:LANGFUSE_PUBLIC_KEY } else { Read-DotEnvValue $LangfuseEnvFile 'LANGFUSE_INIT_PROJECT_PUBLIC_KEY' }
+    $langfuseSecretKey = if ($env:LANGFUSE_SECRET_KEY) { $env:LANGFUSE_SECRET_KEY } else { Read-DotEnvValue $LangfuseEnvFile 'LANGFUSE_INIT_PROJECT_SECRET_KEY' }
+    if ($langfuseBaseUrl -and $langfusePublicKey -and $langfuseSecretKey) {
+        $env:LANGFUSE_BASE_URL = $langfuseBaseUrl
+        $env:LANGFUSE_PUBLIC_KEY = $langfusePublicKey
+        $env:LANGFUSE_SECRET_KEY = $langfuseSecretKey
+        if (-not $env:TOOLBOX_OBSERVABILITY_ENABLED) { $env:TOOLBOX_OBSERVABILITY_ENABLED = 'true' }
+        Write-Host '[supervisor] Langfuse 观测配置已从 deploy/langfuse/.env 加载（密钥不输出）'
+        if ($langfuseBaseUrl -notmatch '^https://') { Write-Host '[supervisor] WARN: Langfuse 当前不是 HTTPS，公网传输密钥存在风险' }
+    } else { Write-Host '[supervisor] WARN: deploy/langfuse/.env 缺少 Langfuse URL 或项目密钥，观测保持关闭' }
+} else { Write-Host '[supervisor] Langfuse 观测未启用：未找到 deploy/langfuse/.env' }
+
 # 工具路径解析：优先 run-tools.conf 注入的 MVN_CMD/JAVA_CMD（上面已读入环境变量），其次 PATH，最后已知回退。
 # 接受目录值——自动定位到 bin\mvn.cmd / bin\java.exe（用户填了 Maven/JDK 主目录也能用）。
 function Resolve-ExePath([string]$path, [string]$name) {

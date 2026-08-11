@@ -7,6 +7,10 @@ import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.domain.SessionStatus;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
+import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadata;
+import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadataProvider;
+import com.exceptioncoder.toolbox.llm.observability.AgentSpan;
+import com.exceptioncoder.toolbox.llm.observability.AgentTelemetry;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -23,6 +27,7 @@ import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -51,11 +56,15 @@ public class ClaudeChatService {
     private final WelfareDemoSandboxProvisioner welfareDemo;
     private final SessionPlanStateService planStateService;
     private final ObjectMapper mapper;
+    private final AgentTelemetry telemetry;
+    private final List<AgentRunMetadataProvider> metadataProviders;
 
     /** sessionId -> 运行时上下文 */
     private final Map<String, SessionCtx> sessions = new ConcurrentHashMap<>();
     /** 浏览器 wsId -> sessionId，便于按浏览器连接定位会话 */
     private final Map<String, String> wsToSession = new ConcurrentHashMap<>();
+    /** sessionId -> 当前持久会话轮次根 Span；result/断线/停机任一路径都必须收口。 */
+    private final Map<String, AgentSpan> activeTurnSpans = new ConcurrentHashMap<>();
     /** 后台 sidecar 重连任务的去重锁，避免多次断开叠起多个重连循环 */
     private final AtomicBoolean recovering = new AtomicBoolean(false);
     /** 一轮重连结束后的冷却时长：同一次断开的后续事件落在窗口内即被丢弃 */
@@ -75,7 +84,9 @@ public class ClaudeChatService {
                              ProviderModelService providerModels,
                              WelfareDemoSandboxProvisioner welfareDemo,
                              SessionPlanStateService planStateService,
-                             ObjectMapper mapper) {
+                             ObjectMapper mapper,
+                             AgentTelemetry telemetry,
+                             List<AgentRunMetadataProvider> metadataProviders) {
         this.props = props;
         this.repo = repo;
         this.processRegistry = processRegistry;
@@ -87,6 +98,8 @@ public class ClaudeChatService {
         this.welfareDemo = welfareDemo;
         this.planStateService = planStateService;
         this.mapper = mapper;
+        this.telemetry = telemetry;
+        this.metadataProviders = List.copyOf(metadataProviders);
     }
 
     @PostConstruct
@@ -103,6 +116,7 @@ public class ClaudeChatService {
     @PreDestroy
     void stopRecovery() {
         shuttingDown = true;
+        finishAllActiveSpans("application shutdown");
     }
 
     // ===== 浏览器侧入口（由 WebSocketHandler 调用） =====
@@ -429,8 +443,21 @@ public class ClaudeChatService {
         String developerInstructions = SessionExecutionPolicy.CONSULT_READONLY.equals(ctx.executionPolicy)
                 ? blankToNull(msg.developerInstructions())
                 : null;
-        sidecar.userMessage(ctx.sessionId, appendAttachmentHints(msg.text(), msg.attachments()),
-                developerInstructions);
+        AgentRunMetadata metadata = resolveMetadata(ctx);
+        String spanName = "fore-consult".equals(metadata.scope()) ? "fore_consult.turn" : "agent.turn";
+        AgentSpan span = telemetry.start(spanName, metadata);
+        AgentSpan previous = activeTurnSpans.put(ctx.sessionId, span);
+        if (previous != null) {
+            previous.fail("overlapping turn replaced", null);
+        }
+        try {
+            sidecar.userMessage(ctx.sessionId, appendAttachmentHints(msg.text(), msg.attachments()),
+                    developerInstructions, span.traceContext(), metadata);
+        } catch (RuntimeException e) {
+            activeTurnSpans.remove(ctx.sessionId, span);
+            span.fail("sidecar send failed", e);
+            throw e;
+        }
     }
 
     /** 把附件路径以结构化提示拼到用户文本末尾，让 Claude 自行 Read；无附件则原样返回。 */
@@ -778,6 +805,11 @@ public class ClaudeChatService {
         }
         boolean delivered = sidecar.interrupt(ctx.sessionId);
         if (delivered) {
+            AgentSpan span = activeTurnSpans.get(ctx.sessionId);
+            if (span != null) {
+                // Span 立即收口但暂留映射，最终 result 仍可回传相同 Trace ID。
+                span.fail("interrupt requested", null);
+            }
             log.info("[claude-chat] 中断请求已发送到 sidecar session={} engine={} status={}",
                     ctx.sessionId, ctx.engine, ctx.status);
             return;
@@ -822,6 +854,10 @@ public class ClaudeChatService {
         // 演示会话是一次性的：最后一个观察者断开即中断并销毁副本（不像正式会话那样留在 sidecar 续跑）。
         if (ctx.demo && !hasActiveViewer(ctx)) {
             sidecar.interrupt(sessionId);
+            AgentSpan span = activeTurnSpans.remove(sessionId);
+            if (span != null) {
+                span.fail("demo session disconnected", null);
+            }
             sessions.remove(sessionId);
             welfareDemo.dispose(sessionId);
             log.info("[claude-chat] 演示会话 {} 断开，已销毁副本", sessionId);
@@ -922,8 +958,15 @@ public class ClaudeChatService {
                     node.path("detail").asText(null),
                     asObject(node.get("data"))));
             case "result" -> onResult(ctx, node);
-            case "error" -> sendToBrowser(ctx, seq -> new ServerMessage.Error(
-                    seq, node.path("code").asText("SIDECAR_ERROR"), node.path("message").asText("")));
+            case "error" -> {
+                AgentSpan span = activeTurnSpans.get(ctx.sessionId);
+                if (span != null) {
+                    // 不先移除：部分引擎随后还会发 result，届时需要把该 Trace ID 交给历史归档。
+                    span.fail(node.path("message").asText("sidecar error"), null);
+                }
+                sendToBrowser(ctx, seq -> new ServerMessage.Error(
+                        seq, node.path("code").asText("SIDECAR_ERROR"), node.path("message").asText("")));
+            }
             case "backgroundTasks" -> {
                 ctx.backgroundTasks = parseBackgroundTasks(node.get("tasks"));
                 sendToBrowser(ctx, seq -> new ServerMessage.BackgroundTasks(seq, ctx.backgroundTasks));
@@ -939,10 +982,23 @@ public class ClaudeChatService {
         repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
         Map<String, Object> usage = asMap(node.get("usage"));
         String stopReason = node.path("stopReason").asText("end_turn");
+        AgentSpan span = activeTurnSpans.remove(ctx.sessionId);
+        String traceId = node.path("traceId").asText(null);
+        if ((traceId == null || traceId.isBlank()) && span != null) {
+            traceId = span.traceId();
+        }
+        if (span != null) {
+            if ("error".equals(stopReason) || "interrupted".equals(stopReason)) {
+                span.fail(stopReason, null);
+            } else {
+                span.success(stopReason);
+            }
+        }
         if ("interrupted".equals(stopReason)) {
             log.info("[claude-chat] 当前轮已中断 session={} engine={}", ctx.sessionId, ctx.engine);
         }
-        sendToBrowser(ctx, seq -> new ServerMessage.Result(seq, usage, stopReason));
+        String resultTraceId = traceId;
+        sendToBrowser(ctx, seq -> new ServerMessage.Result(seq, usage, stopReason, resultTraceId));
         // 所有观察者都不在线才推送，避免打扰
         if (!hasActiveViewer(ctx)) {
             String engineLabel = "codex".equals(ctx.engine) ? "Codex" : "Claude";
@@ -988,6 +1044,7 @@ public class ClaudeChatService {
 
     private void onSidecarDown() {
         if (shuttingDown) return;
+        finishAllActiveSpans("sidecar disconnected");
         sessions.values().forEach(ctx -> {
             if (ctx.status == SessionStatus.RUNNING) {
                 ctx.status = SessionStatus.INTERRUPTED;
@@ -1084,6 +1141,27 @@ public class ClaudeChatService {
         return s == null || s.isBlank() ? null : s.trim();
     }
 
+    private AgentRunMetadata resolveMetadata(SessionCtx ctx) {
+        for (AgentRunMetadataProvider provider : metadataProviders) {
+            try {
+                Optional<AgentRunMetadata> resolved = provider.resolve(ctx.sessionId);
+                if (resolved.isPresent()) {
+                    AgentRunMetadata metadata = resolved.get();
+                    return new AgentRunMetadata(metadata.scope(), metadata.correlationId(), metadata.turnIndex(),
+                            ctx.engine, ctx.currentModel, metadata.attributes());
+                }
+            } catch (Exception e) {
+                log.debug("[agent-telemetry] 业务元数据解析失败 session={}: {}", ctx.sessionId, e.getMessage());
+            }
+        }
+        return AgentRunMetadata.generic("claude-chat", ctx.sessionId, ctx.engine, ctx.currentModel);
+    }
+
+    private void finishAllActiveSpans(String reason) {
+        activeTurnSpans.forEach((sessionId, span) -> span.fail(reason, null));
+        activeTurnSpans.clear();
+    }
+
     private static String executionPolicyOf(ClaudeChatSession session) {
         if ("业务咨询".equals(session.getGroupName())) {
             return SessionExecutionPolicy.CONSULT_READONLY;
@@ -1136,6 +1214,10 @@ public class ClaudeChatService {
                 : repo.findById(id).map(ClaudeChatSession::getCwd).orElse(null);
         if (ctx != null) {
             sidecar.interrupt(id);
+            AgentSpan span = activeTurnSpans.remove(id);
+            if (span != null) {
+                span.fail("session dropped", null);
+            }
             ctx.viewers.forEach(w -> wsToSession.remove(w.getId()));
             ctx.viewers.clear();
         }

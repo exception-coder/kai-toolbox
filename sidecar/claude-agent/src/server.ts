@@ -3,8 +3,12 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { SessionManager } from './sessionManager.js'
+import { AgentTracing } from './telemetry/agentTracing.js'
+import { initializeTelemetry, shutdownTelemetry } from './telemetry/telemetry.js'
 
 const port = Number(process.env.CLAUDE_CHAT_SIDECAR_PORT) || 18890
+initializeTelemetry()
+const agentTracing = new AgentTracing()
 
 // pid 文件：后端重启拉新 sidecar 前据此精确杀掉仍占端口的旧实例，避免连到旧代码孤儿进程。
 const pidFile = path.join(os.homedir(), '.kai-toolbox', 'claude-sidecar.pid')
@@ -37,7 +41,8 @@ const wss = new WebSocketServer({ host: '127.0.0.1', port })
 const clients = new Set<WebSocket>()
 
 const emit = (sessionId: string, event: Record<string, unknown>): void => {
-  const payload = JSON.stringify({ ...event, sessionId })
+  const observed = agentTracing.observe(sessionId, event)
+  const payload = JSON.stringify({ ...observed, sessionId })
   for (const ws of clients) {
     if (ws.readyState === ws.OPEN) {
       ws.send(payload)
@@ -140,6 +145,7 @@ wss.on('connection', (ws) => {
           msg.toolPolicy as string | undefined)
         break
       case 'user':
+        agentTracing.begin(sessionId, msg.traceContext, msg.telemetry)
         manager.user(sessionId, msg.text as string, msg.developerInstructions as string | undefined)
         break
       case 'decision':
@@ -151,8 +157,10 @@ wss.on('connection', (ws) => {
         break
       case 'interrupt':
         manager.interrupt(sessionId)
+        agentTracing.finishSession(sessionId, 'interrupted')
         break
       case 'oneShot':
+        agentTracing.begin(sessionId, msg.traceContext, msg.telemetry)
         void manager.oneShot(
           sessionId,
           msg.systemPrompt as string,
@@ -195,3 +203,13 @@ wss.on('listening', () => {
   writePidFile()
   console.log(`[sidecar] listening on 127.0.0.1:${port}`)
 })
+
+let stopping = false
+const gracefulStop = (signal: string): void => {
+  if (stopping) return
+  stopping = true
+  agentTracing.finishAll(signal)
+  void shutdownTelemetry().finally(() => process.exit(0))
+}
+process.once('SIGTERM', () => gracefulStop('SIGTERM'))
+process.once('SIGINT', () => gracefulStop('SIGINT'))

@@ -16,6 +16,10 @@
     <name>toolbox-llm</name>
     <description>共享 LLM 网关：基于 LangChain4j 的多模型注册、分级路由、限流故障转移</description>
 
+    <properties>
+        <opentelemetry.version>1.63.0</opentelemetry.version>
+    </properties>
+
     <dependencies>
         <!-- 动态配置中心：@Refreshable + DynamicConfigService（把中心 LLM 网关配置纳入配置中心、在线可改） -->
         <dependency>
@@ -53,10 +57,31 @@
             <groupId>jakarta.annotation</groupId>
             <artifactId>jakarta.annotation-api</artifactId>
         </dependency>
+        <!-- Agent 链路使用标准 OpenTelemetry API/SDK；业务模块只依赖本模块暴露的窄接口。 -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api</artifactId>
+            <version>${opentelemetry.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk</artifactId>
+            <version>${opentelemetry.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
+            <version>${opentelemetry.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 

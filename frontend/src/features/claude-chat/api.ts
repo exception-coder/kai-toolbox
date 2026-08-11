@@ -622,6 +622,7 @@ interface RawHistoryMessage {
   output?: string
   isError?: boolean
   stopReason?: string
+  traceId?: string | null
   ts?: number | null
   usage?: Record<string, number> | null
   latencyMs?: number | null
@@ -693,7 +694,7 @@ function toChatItem(m: RawHistoryMessage): ChatItem {
     case 'tool':
       return { kind: 'tool', id: m.id, toolName: m.toolName ?? '', input: m.input ?? null, output: m.output ?? undefined, isError: m.isError ?? undefined, ts }
     case 'result':
-      return { kind: 'result', id: m.id, stopReason: m.stopReason ?? 'end_turn', ts, usage: m.usage ?? undefined, latencyMs: m.latencyMs ?? undefined }
+      return { kind: 'result', id: m.id, stopReason: m.stopReason ?? 'end_turn', traceId: m.traceId, ts, usage: m.usage ?? undefined, latencyMs: m.latencyMs ?? undefined }
     default: {
       // 用户消息：解析附件段，剥离出纯展示文本 + 附件列表
       const parsed = parseAttachmentsFromText(m.text ?? '')

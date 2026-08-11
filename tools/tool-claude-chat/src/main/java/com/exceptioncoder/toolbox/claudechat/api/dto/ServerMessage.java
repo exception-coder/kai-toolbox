@@ -80,7 +80,7 @@ public sealed interface ServerMessage
     record ReplayGap(long seq, long missingFrom, long missingTo) implements ServerMessage {}
 
     @JsonTypeName("result")
-    record Result(long seq, Map<String, Object> usage, String stopReason) implements ServerMessage {}
+    record Result(long seq, Map<String, Object> usage, String stopReason, String traceId) implements ServerMessage {}
 
     /**
      * 本轮调用诊断：{@code requestedModel}=前端选的/发出去的模型；{@code responseModel}=API 响应里

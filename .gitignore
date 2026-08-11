@@ -41,6 +41,9 @@ frontend/.env.local
 frontend/.env.*.local
 *.tsbuildinfo
 
+### Deployment secrets ###
+/deploy/langfuse/.env
+
 ### Claude Code 本地状态 ###
 .claude/settings.local.json
 .claude/scheduled_tasks.lock

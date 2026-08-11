@@ -1,6 +1,9 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
+import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadata;
+import com.exceptioncoder.toolbox.llm.observability.AgentSpan;
+import com.exceptioncoder.toolbox.llm.observability.AgentTelemetry;
 import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
@@ -32,13 +35,15 @@ public class AgentOneShotService implements AgentOneShotRunner {
     private final SidecarProcessRegistry processRegistry;
     private final SidecarClient sidecar;
     private final ClaudeChatProperties props;
+    private final AgentTelemetry telemetry;
     private final Map<String, Call> calls = new ConcurrentHashMap<>();
 
     public AgentOneShotService(SidecarProcessRegistry processRegistry, SidecarClient sidecar,
-                               ClaudeChatProperties props) {
+                               ClaudeChatProperties props, AgentTelemetry telemetry) {
         this.processRegistry = processRegistry;
         this.sidecar = sidecar;
         this.props = props;
+        this.telemetry = telemetry;
     }
 
     /** 阻塞跑一次，返回完整文本。 */
@@ -83,15 +88,23 @@ public class AgentOneShotService implements AgentOneShotRunner {
     private String execute(ExecutionRequest request, Consumer<String> onDelta, List<ImageInput> images) {
         ensureReady();
         String id = PREFIX + UUID.randomUUID();
+        String engine = normalizeEngine(request.engine());
+        AgentRunMetadata metadata = AgentRunMetadata.generic(
+                "agent-oneshot", id, engine, request.model());
+        AgentSpan span = telemetry.start("agent.oneshot", metadata);
         Call call = new Call(onDelta);
         calls.put(id, call);
         try {
-            sidecar.oneShot(id, request, normalizeEngine(request.engine()), images);
-            return call.future.get(props.getAgentOneShotTimeoutMs(), TimeUnit.MILLISECONDS);
+            sidecar.oneShot(id, request, engine, images, span.traceContext(), metadata);
+            String result = call.future.get(props.getAgentOneShotTimeoutMs(), TimeUnit.MILLISECONDS);
+            span.success("end_turn");
+            return result;
         } catch (TimeoutException e) {
+            sidecar.interrupt(id);
+            span.fail("timeout", e);
             long seconds = props.getAgentOneShotTimeoutMs() / 1000;
             String limit = seconds >= 60 ? (seconds / 60) + "分钟" : seconds + "s";
-            throw new RuntimeException("高质量引擎超时：" + normalizeEngine(request.engine())
+            throw new RuntimeException("高质量引擎超时：" + engine
                     + " 在 " + limit + " 内未返回结果", e);
         } catch (InterruptedException e) {
             // 先用未中断状态发送取消消息；Spring 的阻塞 WebSocket 发送遇到中断标记会关闭共享连接。
@@ -102,12 +115,15 @@ public class AgentOneShotService implements AgentOneShotRunner {
             } finally {
                 Thread.currentThread().interrupt();
             }
+            span.fail("interrupted", e);
             throw new RuntimeException("一次性 Agent 任务已取消", e);
         } catch (RuntimeException e) {
+            span.fail(e.getMessage(), e);
             throw e;
         } catch (Exception e) {
             // ExecutionException：解出 sidecar 报的原因
             Throwable cause = e.getCause() != null ? e.getCause() : e;
+            span.fail(cause.getMessage(), cause);
             throw new RuntimeException(cause.getMessage(), cause);
         } finally {
             calls.remove(id);

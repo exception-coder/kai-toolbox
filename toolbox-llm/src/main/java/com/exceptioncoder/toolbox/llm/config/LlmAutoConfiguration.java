@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.llm.config;
 
 import com.exceptioncoder.toolbox.llm.model.ModelSpec;
+import com.exceptioncoder.toolbox.llm.observability.AgentTelemetryProperties;
 import com.exceptioncoder.toolbox.llm.monitor.LlmCostCalculator;
 import com.exceptioncoder.toolbox.llm.monitor.LlmMetricsRecorder;
 import com.exceptioncoder.toolbox.llm.monitor.LlmMetricsRegistry;
@@ -36,7 +37,7 @@ import java.util.function.BiFunction;
  * 给每个 tier 包 {@link QuotaGuardChatModel}（配额闸门 + 计量边界），对消费方与路由完全透明。
  */
 @Configuration
-@EnableConfigurationProperties(LlmProperties.class)
+@EnableConfigurationProperties({LlmProperties.class, AgentTelemetryProperties.class})
 public class LlmAutoConfiguration {
 
     private static final Logger log = LoggerFactory.getLogger(LlmAutoConfiguration.class);

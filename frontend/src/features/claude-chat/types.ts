@@ -463,7 +463,7 @@ export type ServerMessage =
   | { type: 'forkAnchor'; seq: number; anchor: string }
   | { type: 'forked'; seq: number; sessionId: string }
   | { type: 'replayGap'; seq: number; missingFrom: number; missingTo: number }
-  | { type: 'result'; seq: number; usage?: Record<string, unknown>; stopReason: string }
+  | { type: 'result'; seq: number; usage?: Record<string, unknown>; stopReason: string; traceId?: string | null }
   | { type: 'turnInfo'; seq: number; requestedModel: string | null; responseModel: string | null; viaGateway: boolean; baseUrl: string | null; transport?: CodexTransport | null }
   | { type: 'turnProgress'; seq: number; outputTokens: number }
   | { type: 'warning'; seq: number; code: string; message: string }
@@ -505,7 +505,7 @@ export type ChatItem =
   | { kind: 'user'; id: string; text: string; displayText?: string; sdkUuid?: string; ts?: number; attachments?: MsgAttachment[] }
   | { kind: 'assistant'; id: string; text: string; forkAnchor?: string; ts?: number }
   | { kind: 'tool'; id: string; toolCallId?: string; toolName: string; input: unknown; output?: string; isError?: boolean; ts?: number }
-  | { kind: 'result'; id: string; stopReason: string; ts?: number; usage?: Record<string, number>; latencyMs?: number; ttftMs?: number }
+  | { kind: 'result'; id: string; stopReason: string; traceId?: string | null; ts?: number; usage?: Record<string, number>; latencyMs?: number; ttftMs?: number }
   | { kind: 'warning'; id: string; code: string; message: string; ts?: number }
   | { kind: 'activity'; id: string; activityType: string; status: string; title: string; detail?: string | null; data?: unknown; ts?: number }
   | { kind: 'error'; id: string; code: string; message: string; ts?: number }
