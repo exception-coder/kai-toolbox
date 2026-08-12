@@ -6,9 +6,10 @@
   "scripts": {
     "predev": "node scripts/generate-feature-permissions.mjs",
     "dev": "vite",
-    "build": "node scripts/generate-feature-permissions.mjs && tsc -b && vite build",
+    "build": "node scripts/generate-feature-permissions.mjs && npm run architecture:check && tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "node scripts/generate-feature-permissions.mjs --check && tsc -b --noEmit",
+    "typecheck": "node scripts/generate-feature-permissions.mjs --check && npm run architecture:check && tsc -b --noEmit",
+    "architecture:check": "node scripts/check-feature-boundaries.mjs",
     "feature-catalog:generate": "node scripts/generate-feature-permissions.mjs",
     "feature-catalog:check": "node scripts/generate-feature-permissions.mjs --check",
     "java8gu:sync": "node scripts/build-java8gu-index.mjs",

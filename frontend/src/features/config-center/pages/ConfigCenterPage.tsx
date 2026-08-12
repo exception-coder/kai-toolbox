@@ -3,9 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, RotateCcw, Save, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { fetchModels } from '@/features/ai-chat/api'
-import { HeaderModelPicker } from '@/features/ai-chat/components/HeaderModelPicker'
-import type { ModelInfo } from '@/features/ai-chat/types'
+import { fetchModels, HeaderModelPicker, type ModelInfo } from '@/features/ai-chat/public-api'
 import {
   getConfigBlock,
   listConfigBlocks,
