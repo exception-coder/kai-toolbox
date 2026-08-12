@@ -18,6 +18,7 @@ import com.exceptioncoder.toolbox.foreconsult.service.ConsultAttachmentService;
 import com.exceptioncoder.toolbox.foreconsult.service.ConsultDispatchService;
 import com.exceptioncoder.toolbox.foreconsult.service.ConsultService;
 import com.exceptioncoder.toolbox.foreconsult.service.ConsultQuestionClassifier;
+import com.exceptioncoder.toolbox.foreconsult.service.ConsultTurnTraceCoordinator;
 import com.exceptioncoder.toolbox.foreconsult.service.CodexHomeDiscoveryService;
 import com.exceptioncoder.toolbox.foreconsult.service.TurnBugExtractionService;
 import jakarta.validation.Valid;
@@ -37,6 +38,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Fore- 业务系统咨询工具 REST 端点。路径前缀 {@code /api/fore-consult}。
@@ -61,18 +63,21 @@ public class ConsultController {
     private final TurnBugExtractionService bugExtractionService;
     private final ConsultQuestionClassifier questionClassifier;
     private final ConsultDispatchService dispatchService;
+    private final ConsultTurnTraceCoordinator traceCoordinator;
     private final CodexHomeDiscoveryService codexHomeDiscoveryService;
 
     public ConsultController(ConsultService service, ConsultAttachmentService attachmentService,
                              TurnBugExtractionService bugExtractionService,
                              ConsultQuestionClassifier questionClassifier,
                              ConsultDispatchService dispatchService,
+                             ConsultTurnTraceCoordinator traceCoordinator,
                              CodexHomeDiscoveryService codexHomeDiscoveryService) {
         this.service = service;
         this.attachmentService = attachmentService;
         this.bugExtractionService = bugExtractionService;
         this.questionClassifier = questionClassifier;
         this.dispatchService = dispatchService;
+        this.traceCoordinator = traceCoordinator;
         this.codexHomeDiscoveryService = codexHomeDiscoveryService;
     }
 
@@ -92,16 +97,35 @@ public class ConsultController {
     /** 启动咨询会话。 */
     @PostMapping("/sessions")
     public ConsultSessionView start(@Valid @RequestBody StartSessionRequest req) {
-        var initial = dispatchService.initial(req);
-        return ConsultSessionView.from(service.startSession(
-                req, initial.orchestration().prompt(), initial.evidenceRoute()));
+        String sessionId = UUID.randomUUID().toString();
+        traceCoordinator.beginInitial(sessionId, req);
+        try {
+            var initial = dispatchService.initial(sessionId, req);
+            var session = traceCoordinator.traceStep(sessionId, "consult.session.create", () ->
+                    service.startSession(sessionId, req, initial.orchestration().prompt(), initial.evidenceRoute()));
+            return ConsultSessionView.from(session);
+        } catch (RuntimeException error) {
+            traceCoordinator.fail(sessionId, error);
+            throw error;
+        }
     }
 
     /** Classify and enrich a follow-up with the same server-owned orchestration pipeline. */
     @PostMapping("/sessions/{id}/dispatch")
     public ConsultDispatchView dispatch(@PathVariable String id,
                                         @Valid @RequestBody DispatchConsultRequest req) {
-        return dispatchService.followUp(service.get(id), req);
+        var session = service.get(id);
+        traceCoordinator.beginFollowUp(session);
+        try {
+            ConsultDispatchView result = dispatchService.followUp(session, req);
+            if ("START_NEW_SESSION".equals(result.action())) {
+                traceCoordinator.cancel(id, "new consultation requested");
+            }
+            return result;
+        } catch (RuntimeException error) {
+            traceCoordinator.fail(id, error);
+            throw error;
+        }
     }
 
     /** 历史列表（最近 50 条，按创建时间倒序）。 */
@@ -141,7 +165,7 @@ public class ConsultController {
     /** 结束咨询并归档（一次性提交本次会话全部轮次；归档内部容错，失败会话状态置 FAILED）。 */
     @PostMapping("/sessions/{id}/archive")
     public ConsultSessionView archive(@PathVariable String id, @RequestBody ArchiveRequest req) {
-        var session = service.archive(id, req);
+        var session = traceCoordinator.persistAndComplete(id, req, () -> service.archive(id, req));
         bugExtractionService.extractSessionAsync(id, session.getModel());
         return ConsultSessionView.from(session, turnViewsOf(id), feedbackViewsOf(id));
     }
@@ -149,7 +173,7 @@ public class ConsultController {
     /** 进行中增量同步：把当前对话落库但保持 PENDING，供同一用户在其它电脑或管理员查看。 */
     @PostMapping("/sessions/{id}/turns")
     public ConsultSessionView syncTurns(@PathVariable String id, @RequestBody ArchiveRequest req) {
-        var session = service.syncTurns(id, req);
+        var session = traceCoordinator.persistAndComplete(id, req, () -> service.syncTurns(id, req));
         bugExtractionService.extractSessionAsync(id, session.getModel());
         return ConsultSessionView.from(session, turnViewsOf(id), feedbackViewsOf(id));
     }

@@ -104,12 +104,17 @@ public class ConsultService {
 
     public ConsultSession startSession(StartSessionRequest req, String promptSnapshot,
                                        ConsultEvidenceRouteResolution evidenceRoute) {
+        return startSession(UUID.randomUUID().toString(), req, promptSnapshot, evidenceRoute);
+    }
+
+    public ConsultSession startSession(String sessionId, StartSessionRequest req, String promptSnapshot,
+                                       ConsultEvidenceRouteResolution evidenceRoute) {
         String currentUserId = AuthContext.current()
                 .map(AuthPrincipal::userId)
                 .map(String::valueOf)
                 .orElseGet(() -> blankToNull(req.userId()));
         ConsultSession s = ConsultSession.builder()
-                .sessionId(UUID.randomUUID().toString())
+                .sessionId(sessionId)
                 .userId(currentUserId)
                 .questionTitle(req.questionTitle().trim())
                 .systemName(req.systemName())

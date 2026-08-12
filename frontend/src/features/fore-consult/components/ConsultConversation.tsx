@@ -6,7 +6,7 @@ import { Archive, Bug, CheckCircle2, CircleDashed, Copy, Database, GitBranch, Lo
 import { Markdown } from '@/features/claude-chat/components/Markdown'
 import type { UseClaudeChatSocket } from '@/features/claude-chat/hooks/useClaudeChatSocket'
 import type { ChatItem } from '@/features/claude-chat/types'
-import { classifyConsultQuestion, dispatchConsultQuestion, registerBug, submitFeedback, uploadConsultAttachment } from '../api'
+import { dispatchConsultQuestion, registerBug, submitFeedback, uploadConsultAttachment } from '../api'
 import { buildConsultTurnAudits, type AuditEvidence, type AuditState, type ConsultTurnAudit } from '../consultAudit'
 import { stripConsultRecognition } from '../consultRecognition'
 
@@ -73,6 +73,8 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
   const [newQuestionTitle, setNewQuestionTitle] = useState('')
   const [startingNewQuestion, setStartingNewQuestion] = useState(false)
   const [newQuestionError, setNewQuestionError] = useState<string | null>(null)
+  const [classifying, setClassifying] = useState(false)
+  const [dispatchError, setDispatchError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLTextAreaElement>(null)
@@ -144,7 +146,7 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
   const running = !!chat?.running
   const pending = chat?.pending
   const sessionReady = chat.state === 'ready'
-  const inputLocked = !sessionReady || running
+  const inputLocked = !sessionReady || running || classifying
   const sessionSendableRef = useRef(false)
   sessionSendableRef.current = sessionReady && !running
   // 立即反馈：只要最后一条是用户消息（已发出、还没等到回复），就显示"思考/接入中"，
@@ -321,35 +323,63 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
       return
     }
 
-    let dispatched = false
+    setClassifying(true)
+    setDispatchError(null)
     try {
       const dispatch = await dispatchConsultQuestion(
         consultId,
         message.trim() || '补充附件',
         firstQuestion.displayText ?? firstQuestion.text,
+        false,
+        chat.currentEngine === 'claude' ? 'claude' : 'codex',
+      )
+      if (dispatch.action === 'START_NEW_SESSION') {
+        setNewQuestionDraft({ message, attachments: draftAttachments })
+        setNewQuestionReason(dispatch.reason)
+        return
+      }
+      dispatchMessage(message, attachments, dispatch.prompt ?? undefined)
+    } catch (error) {
+      setDispatchError(error instanceof Error ? error.message : '问题识别失败，本次消息尚未发送，请重试')
+    } finally {
+      sendingRef.current = false
+      setClassifying(false)
+    }
+  }
+
+  const sendDetectedQuestionAsFollowUp = async () => {
+    if (!newQuestionDraft || classifying) return
+    const firstQuestion = items.find((item) => item.kind === 'user')
+    if (!firstQuestion || firstQuestion.kind !== 'user') return
+    setClassifying(true)
+    setNewQuestionError(null)
+    try {
+      const dispatch = await dispatchConsultQuestion(
+        consultId,
+        newQuestionDraft.message.trim() || '补充附件',
+        firstQuestion.displayText ?? firstQuestion.text,
         true,
         chat.currentEngine === 'claude' ? 'claude' : 'codex',
       )
-      dispatched = dispatchMessage(message, attachments, dispatch.prompt ?? undefined)
-    } catch {
-      dispatched = dispatchMessage(message, attachments)
+      const attachments = newQuestionDraft.attachments.length
+        ? newQuestionDraft.attachments.map((attachment) => ({
+            name: attachment.name,
+            path: attachment.path,
+            mime: attachment.mime ?? undefined,
+            url: attachment.url,
+          }))
+        : undefined
+      if (!dispatchMessage(newQuestionDraft.message, attachments, dispatch.prompt ?? undefined)) {
+        throw new Error('当前会话尚未就绪，请稍后重试')
+      }
+      setNewQuestionReason(null)
+      setNewQuestionDraft(null)
+      setNewQuestionTitle('')
+    } catch (error) {
+      setNewQuestionError(error instanceof Error ? error.message : '追问发送失败，请重试')
     } finally {
-      sendingRef.current = false
+      setClassifying(false)
     }
-    if (!dispatched) return
-
-    void classifyConsultQuestion(
-        consultId,
-        message.trim() || '补充附件',
-        firstQuestion.displayText ?? firstQuestion.text,
-        chat.currentEngine === 'claude' ? 'claude' : 'codex',
-      )
-      .then((result) => {
-        if (result.classification !== 'NEW_QUESTION') return
-        setNewQuestionDraft({ message, attachments: draftAttachments })
-        setNewQuestionReason(result.reason)
-      })
-      .catch(() => undefined)
   }
 
   return (
@@ -473,6 +503,7 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
 
         {/* 组合器 */}
         <div className="shrink-0 border-t border-slate-200/80 p-3">
+          {dispatchError && <p className="mb-2 px-1 text-xs text-rose-600">{dispatchError}</p>}
           <div className="rounded-2xl border border-slate-200 bg-white/65 p-2 shadow-[0_10px_28px_-24px_rgba(15,23,42,0.3)] transition-colors focus-within:border-sky-300 focus-within:bg-white/85 focus-within:shadow-[0_0_0_3px_rgba(56,189,248,0.1)]">
             {(atts.length > 0 || uploading > 0) && (
               <div className="mb-1.5 flex max-h-20 flex-wrap gap-2 overflow-y-auto px-1">
@@ -505,7 +536,7 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
                 void send()
               }}
               placeholder={sessionReady
-                ? running ? '当前问题仍在处理中，完成后可继续追问' : '继续追问…（Shift+Enter 发送 / Enter 换行，可粘贴或上传附件）'
+                ? running ? '当前问题仍在处理中，完成后可继续追问' : classifying ? '正在识别是否属于当前问题…' : '继续追问…（Shift+Enter 发送 / Enter 换行，可粘贴或上传附件）'
                 : '正在恢复会话状态…'}
               className="w-full resize-none bg-transparent px-2 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none disabled:cursor-wait disabled:opacity-60"
             />
@@ -537,8 +568,8 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
                   disabled={!canSend}
                   className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-400 to-indigo-500 px-4 py-1.5 text-sm font-medium text-white shadow-[0_8px_30px_-8px_rgba(99,102,241,0.8)] transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <Send className="size-4" />
-                  {!sessionReady ? '恢复中' : running ? '处理中' : '发送'}
+                  {classifying ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+                  {!sessionReady ? '恢复中' : running ? '处理中' : classifying ? '识别中' : '发送'}
                 </button>
               </div>
             </div>
@@ -570,15 +601,11 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
               <div className="mt-5 flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setNewQuestionReason(null)
-                    setNewQuestionDraft(null)
-                    setNewQuestionTitle('')
-                    setNewQuestionError(null)
-                  }}
+                  disabled={classifying}
+                  onClick={() => void sendDetectedQuestionAsFollowUp()}
                   className="rounded-xl px-3 py-2 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900"
                 >
-                  仍作为追问
+                  {classifying ? '发送中…' : '仍作为追问'}
                 </button>
                 <button
                   type="button"
@@ -589,6 +616,8 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
                     try {
                       if (!newQuestionDraft) return
                       await onStartNew(newQuestionTitle.trim(), newQuestionDraft.message, newQuestionDraft.attachments)
+                      setText('')
+                      setAtts([])
                       setNewQuestionReason(null)
                       setNewQuestionDraft(null)
                       setNewQuestionTitle('')

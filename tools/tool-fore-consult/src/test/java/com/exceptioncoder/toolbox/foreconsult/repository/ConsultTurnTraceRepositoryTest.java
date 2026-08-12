@@ -41,4 +41,16 @@ class ConsultTurnTraceRepositoryTest {
         assertThat(jdbc.queryForObject("SELECT trace_id FROM consult_turn WHERE turn_id = ?",
                 String.class, first.turnId())).isEqualTo("0123456789abcdef0123456789abcdef");
     }
+
+    @Test
+    void deletesOnlyUnusedClassificationReservation() {
+        ConsultTurnTrace unused = repository.reserveNext("session-1");
+        repository.deleteReservation(unused.turnId());
+        assertThat(repository.find("session-1", unused.turnIndex())).isEmpty();
+
+        ConsultTurnTrace bound = repository.reserveNext("session-1");
+        repository.bindTrace(bound.turnId(), "0123456789abcdef0123456789abcdef", 100L);
+        repository.deleteReservation(bound.turnId());
+        assertThat(repository.find("session-1", bound.turnIndex())).isPresent();
+    }
 }

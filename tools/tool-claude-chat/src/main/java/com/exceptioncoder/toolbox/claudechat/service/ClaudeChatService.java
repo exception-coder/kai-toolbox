@@ -475,7 +475,7 @@ public class ClaudeChatService {
                 ? blankToNull(msg.developerInstructions())
                 : null;
         AgentRunMetadata metadata = resolveMetadata(ctx);
-        String spanName = "fore-consult".equals(metadata.scope()) ? "fore_consult.turn" : "agent.turn";
+        String spanName = "fore-consult".equals(metadata.scope()) ? "consult.agent.dispatch" : "agent.turn";
         AgentSpan span = telemetry.start(spanName, metadata);
         AgentSpan previous = activeTurnSpans.put(ctx.sessionId, span);
         activeTurnMetadata.put(ctx.sessionId, metadata);
@@ -1327,7 +1327,7 @@ public class ClaudeChatService {
                 if (resolved.isPresent()) {
                     AgentRunMetadata metadata = resolved.get();
                     return new AgentRunMetadata(metadata.scope(), metadata.correlationId(), metadata.turnIndex(),
-                            ctx.engine, ctx.currentModel, metadata.attributes());
+                            ctx.engine, ctx.currentModel, metadata.attributes(), metadata.parentTraceContext());
                 }
             } catch (Exception e) {
                 log.debug("[agent-telemetry] 业务元数据解析失败 session={}: {}", ctx.sessionId, e.getMessage());

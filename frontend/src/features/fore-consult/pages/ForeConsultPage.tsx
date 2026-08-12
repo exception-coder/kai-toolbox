@@ -533,6 +533,7 @@ export function ForeConsultPage() {
     codexHome: string | null
     evidenceSystems: string[]
   } | null>(null)
+  const openingConsultRef = useRef<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [canvasSize, setCanvasSize] = useState<CanvasSize>({ width: 1600, height: 900 })
   const [pageVisible, setPageVisible] = useState(() => document.visibilityState === 'visible')
@@ -754,8 +755,8 @@ export function ForeConsultPage() {
 
   const deliver = useCallback(() => {
     const p = pendingRef.current
-    if (!p) return
-    pendingRef.current = null
+    if (!p || openingConsultRef.current === p.consultId) return
+    openingConsultRef.current = p.consultId
     // 前端用 plan 表达只读意图；真正的安全边界由 consult WS 入口在服务端强制为 consult-readonly。
     chat.open(
       p.cwd,
@@ -769,15 +770,10 @@ export function ForeConsultPage() {
         consultEvidenceSystems: p.evidenceSystems,
       },
     )
-    const atts = p.attachments.length
-      ? p.attachments.map((a) => ({ name: a.name, path: a.path, mime: a.mime ?? undefined, url: a.url }))
-      : undefined
-    chat.send(p.displayText, atts, undefined, p.seed)
-    setAttachments([])
     setModulePickerOpen(false)
     setPanelOpen(false)
     setConversationOpen(true)
-    // 会话 id 异步产生，关联 + 分组交给下方 effect 监听 chat.sessionId 处理（比 setTimeout 读 null 可靠）。
+    // 消息必须等下方 effect 完成业务咨询关联后再发送，否则首轮 Trace 会降级为普通 claude-chat。
   }, [chat])
 
   // 会话 id 就绪后：关联回本模块，并把该会话自动归入「业务咨询」分组（分组不存在时命名即创建）。
@@ -787,20 +783,61 @@ export function ForeConsultPage() {
   useEffect(() => {
     const sid = chat?.sessionId
     if (!sid || !activeConsultId) return
-    if (groupedRef.current !== sid) {
-      groupedRef.current = sid
-      linkDevSession(activeConsultId, sid).catch(() => {})
-      setSessionGroupApi(sid, CONSULT_GROUP).catch(() => {})
+    let cancelled = false
+    const linkAndSend = async () => {
+      if (groupedRef.current !== sid) {
+        let linkError: unknown = null
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          try {
+            await linkDevSession(activeConsultId, sid)
+            linkError = null
+            break
+          } catch (error) {
+            linkError = error
+            if (attempt < 2) await new Promise((resolve) => window.setTimeout(resolve, 300 * (attempt + 1)))
+          }
+        }
+        if (linkError) {
+          if (!cancelled) {
+            openingConsultRef.current = null
+            setTopologyNotice({ tone: 'error', text: '咨询会话关联失败，首轮问题尚未发送，请重试。' })
+          }
+          console.error('[fore-consult] 关联业务咨询会话失败', linkError)
+          return
+        }
+        if (cancelled) return
+        groupedRef.current = sid
+        void setSessionGroupApi(sid, CONSULT_GROUP).catch(() => {})
+      }
+
+      const pending = pendingRef.current
+      if (pending?.consultId === activeConsultId && chat.sessionId === sid) {
+        pendingRef.current = null
+        openingConsultRef.current = null
+        const sendAttachments = pending.attachments.length
+          ? pending.attachments.map((attachment) => ({
+              name: attachment.name,
+              path: attachment.path,
+              mime: attachment.mime ?? undefined,
+              url: attachment.url,
+            }))
+          : undefined
+        chat.send(pending.displayText, sendAttachments, undefined, pending.seed)
+        setAttachments([])
+      }
+
+      const title = activeQuestionTitle.trim()
+      const titleKey = `${sid}:${title}`
+      if (title && titledRef.current !== titleKey) {
+        titledRef.current = titleKey
+        renameSession(sid, title).catch((error) => {
+          titledRef.current = null
+          console.error('[fore-consult] 同步底层会话标题失败', error)
+        })
+      }
     }
-    const title = activeQuestionTitle.trim()
-    const titleKey = `${sid}:${title}`
-    if (title && titledRef.current !== titleKey) {
-      titledRef.current = titleKey
-      renameSession(sid, title).catch((error) => {
-        titledRef.current = null
-        console.error('[fore-consult] 同步底层会话标题失败', error)
-      })
-    }
+    void linkAndSend()
+    return () => { cancelled = true }
   }, [chat?.sessionId, activeConsultId, activeQuestionTitle])
 
   useEffect(() => {

@@ -6,12 +6,15 @@ import com.exceptioncoder.toolbox.foreconsult.domain.ConsultTurn;
 import com.exceptioncoder.toolbox.foreconsult.domain.ConsultSession;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultSessionRepository;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultTurnRepository;
+import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadata;
+import com.exceptioncoder.toolbox.llm.observability.AgentTelemetry;
 import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -41,18 +44,34 @@ public class ConsultQuestionClassifier {
     private final ConsultTurnRepository turnRepository;
     private final ObjectMapper mapper;
     private final long timeoutMs;
+    private final AgentTelemetry telemetry;
+    private final ConsultTurnTraceCoordinator traceCoordinator;
 
+    @Autowired
     public ConsultQuestionClassifier(ObjectProvider<AgentOneShotRunner> runnerProvider,
                                      ConsultSessionRepository sessionRepository,
                                      ConsultTurnRepository turnRepository,
                                      ObjectMapper mapper,
                                      @Value("${toolbox.fore-consult.question-classify-timeout-ms:15000}")
-                                     long timeoutMs) {
+                                     long timeoutMs,
+                                     AgentTelemetry telemetry,
+                                     ConsultTurnTraceCoordinator traceCoordinator) {
         this.runnerProvider = runnerProvider;
         this.sessionRepository = sessionRepository;
         this.turnRepository = turnRepository;
         this.mapper = mapper;
         this.timeoutMs = Math.max(100, timeoutMs);
+        this.telemetry = telemetry;
+        this.traceCoordinator = traceCoordinator;
+    }
+
+    ConsultQuestionClassifier(ObjectProvider<AgentOneShotRunner> runnerProvider,
+                              ConsultSessionRepository sessionRepository,
+                              ConsultTurnRepository turnRepository,
+                              ObjectMapper mapper,
+                              long timeoutMs) {
+        this(runnerProvider, sessionRepository, turnRepository, mapper, timeoutMs,
+                AgentTelemetry.noop(1024), null);
     }
 
     public QuestionClassificationView classify(String sessionId, ClassifyQuestionRequest request) {
@@ -94,10 +113,12 @@ public class ConsultQuestionClassifier {
     }
 
     private String runWithTimeout(AgentOneShotRunner runner, String userPrompt, ConsultSession session) throws Exception {
+        AgentRunMetadata metadata = traceCoordinator == null ? null : traceCoordinator.metadataFor(session);
         AgentOneShotRunner.ExecutionRequest request = new AgentOneShotRunner.ExecutionRequest(
                 SYSTEM_PROMPT, userPrompt, session.getSystemSourcePath(), session.getModel(), normalizeEngine(session.getEngine()),
                 valueOrDefault(session.getCodexReasoningEffort(), "low"), valueOrDefault(session.getCodexSpeed(), "default"),
-                null, null, session.getCodexHome(), AgentOneShotRunner.TOOL_POLICY_DISABLED);
+                null, null, session.getCodexHome(), AgentOneShotRunner.TOOL_POLICY_DISABLED,
+                telemetry.currentTraceContext(), metadata);
         FutureTask<String> task = new FutureTask<>(() -> runner.runOnce(request));
         Thread.ofVirtual().name("fore-consult-classify").start(task);
         try {

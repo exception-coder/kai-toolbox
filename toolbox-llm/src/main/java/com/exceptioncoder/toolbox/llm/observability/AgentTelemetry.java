@@ -55,7 +55,7 @@ public final class AgentTelemetry implements AutoCloseable {
     }
 
     public AgentSpan start(String spanName, AgentRunMetadata metadata) {
-        return start(spanName, metadata, null);
+        return start(spanName, metadata, metadata == null ? null : metadata.parentTraceContext());
     }
 
     public AgentSpan start(String spanName, AgentRunMetadata metadata, TraceContext parent) {
@@ -86,6 +86,16 @@ public final class AgentTelemetry implements AutoCloseable {
 
     public SensitiveTelemetrySanitizer sanitizer() {
         return sanitizer;
+    }
+
+    /** Captures the current W3C context so asynchronous work can keep the same trace. */
+    public TraceContext currentTraceContext() {
+        if (!enabled || !Span.current().getSpanContext().isValid()) {
+            return TraceContext.empty();
+        }
+        Map<String, String> carrier = new LinkedHashMap<>();
+        openTelemetry.getPropagators().getTextMapPropagator().inject(Context.current(), carrier, SETTER);
+        return new TraceContext(carrier.get("traceparent"), carrier.get("tracestate"));
     }
 
     private void applyMetadata(Span span, AgentRunMetadata metadata) {

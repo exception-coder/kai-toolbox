@@ -66,4 +66,10 @@ public class ConsultTurnTraceRepository {
             jdbc.update("UPDATE consult_turn SET trace_id = ? WHERE turn_id = ?", effectiveTraceId, turnId);
         }
     }
+
+    public void deleteReservation(String turnId) {
+        if (turnId != null && !turnId.isBlank()) {
+            jdbc.update("DELETE FROM consult_turn_trace WHERE turn_id = ? AND trace_id IS NULL", turnId);
+        }
+    }
 }

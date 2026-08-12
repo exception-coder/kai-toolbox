@@ -4,6 +4,7 @@ import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
 import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadata;
 import com.exceptioncoder.toolbox.llm.observability.AgentSpan;
 import com.exceptioncoder.toolbox.llm.observability.AgentTelemetry;
+import com.exceptioncoder.toolbox.llm.observability.TraceContext;
 import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
@@ -98,9 +99,21 @@ public class AgentOneShotService implements AgentOneShotRunner {
         ensureReady();
         String id = PREFIX + UUID.randomUUID();
         String engine = normalizeEngine(request.engine());
-        AgentRunMetadata metadata = AgentRunMetadata.generic(
-                "agent-oneshot", id, engine, request.model());
-        AgentSpan span = telemetry.start("agent.oneshot", metadata);
+        TraceContext parent = request.traceContext();
+        if (parent == null && request.telemetryMetadata() != null) {
+            parent = request.telemetryMetadata().parentTraceContext();
+        }
+        AgentRunMetadata metadata = request.telemetryMetadata() == null
+                ? AgentRunMetadata.generic("agent-oneshot", id, engine, request.model())
+                : new AgentRunMetadata(
+                        request.telemetryMetadata().scope(),
+                        request.telemetryMetadata().correlationId(),
+                        request.telemetryMetadata().turnIndex(),
+                        engine,
+                        request.model(),
+                        request.telemetryMetadata().attributes(),
+                        parent);
+        AgentSpan span = telemetry.start("agent.oneshot", metadata, parent);
         Call call = new Call(onDelta);
         calls.put(id, call);
         try {

@@ -1,5 +1,7 @@
 package com.exceptioncoder.toolbox.llm.spi;
 
+import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadata;
+import com.exceptioncoder.toolbox.llm.observability.TraceContext;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.List;
@@ -113,8 +115,16 @@ public interface AgentOneShotRunner {
             String apiBaseUrl,
             String authToken,
             String codexHome,
-            String toolPolicy
+            String toolPolicy,
+            TraceContext traceContext,
+            AgentRunMetadata telemetryMetadata
     ) {
+        public ExecutionRequest(String systemPrompt, String userPrompt, String cwd, String model, String engine,
+                                String reasoningEffort, String speed, String apiBaseUrl, String authToken,
+                                String codexHome, String toolPolicy) {
+            this(systemPrompt, userPrompt, cwd, model, engine, reasoningEffort, speed, apiBaseUrl,
+                    authToken, codexHome, toolPolicy, null, null);
+        }
     }
 
     record ObservedResult(String text, String traceId, JsonNode evidence, JsonNode trajectory) {
