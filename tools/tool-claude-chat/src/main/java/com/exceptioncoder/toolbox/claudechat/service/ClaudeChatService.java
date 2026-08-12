@@ -62,6 +62,7 @@ public class ClaudeChatService {
     private final AgentTelemetry telemetry;
     private final List<AgentRunMetadataProvider> metadataProviders;
     private final List<AgentRunCompletionListener> completionListeners;
+    private final TurnLifecycleCoordinator turnLifecycle = new TurnLifecycleCoordinator();
 
     /** sessionId -> 运行时上下文 */
     private final Map<String, SessionCtx> sessions = new ConcurrentHashMap<>();
@@ -77,6 +78,10 @@ public class ClaudeChatService {
     private static final long SIDECAR_RECOVERY_COOLDOWN_MS = 1000;
     /** 连续这么多次连不上，才判定端口上是僵尸监听者并强制重建 sidecar */
     private static final int SIDECAR_RESTART_AFTER_ATTEMPTS = 3;
+    private static final Set<String> TURN_SCOPED_SIDECAR_EVENTS = Set.of(
+            "assistantDelta", "toolUse", "toolResult", "permissionRequest", "questionRequest",
+            "userMessage", "forkAnchor", "turnInfo", "turnProgress", "warning",
+            "toolActivity", "codexActivity", "result", "error");
     /** 本实例已随 Spring 上下文停机；后台重连一律停手 */
     private volatile boolean shuttingDown;
 
@@ -124,6 +129,7 @@ public class ClaudeChatService {
     @PreDestroy
     void stopRecovery() {
         shuttingDown = true;
+        turnLifecycle.close();
         finishAllActiveSpans("application shutdown");
     }
 
@@ -457,7 +463,12 @@ public class ClaudeChatService {
             sendError(ws, 0, "PLAN_EXPIRED", "该规划已过期，请先解锁后继续");
             return;
         }
+        if (ctx.status == SessionStatus.RUNNING) {
+            sendError(ws, 0, "TURN_BUSY", "当前轮仍在运行或中断收口中，请稍后再发送");
+            return;
+        }
         if (!ensureSessionResumable(ctx)) return; // sidecar 断了先就地重连+resume，避免静默丢消息
+        String turnId = turnLifecycle.begin(ctx.sessionId);
         ctx.status = SessionStatus.RUNNING;
         repo.touch(ctx.sessionId, SessionStatus.RUNNING, System.currentTimeMillis());
         String developerInstructions = SessionExecutionPolicy.CONSULT_READONLY.equals(ctx.executionPolicy)
@@ -473,8 +484,11 @@ public class ClaudeChatService {
         }
         try {
             sidecar.userMessage(ctx.sessionId, appendAttachmentHints(msg.text(), msg.attachments()),
-                    developerInstructions, span.traceContext(), metadata);
+                    developerInstructions, turnId, span.traceContext(), metadata);
         } catch (RuntimeException e) {
+            turnLifecycle.complete(ctx.sessionId, turnId);
+            ctx.status = SessionStatus.IDLE;
+            repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
             activeTurnSpans.remove(ctx.sessionId, span);
             activeTurnMetadata.remove(ctx.sessionId, metadata);
             span.fail("sidecar send failed", e);
@@ -851,12 +865,27 @@ public class ClaudeChatService {
             sendError(ws, 0, "SESSION_NOT_FOUND", "当前连接尚未绑定会话，中断未发送");
             return;
         }
-        boolean delivered = sidecar.interrupt(ctx.sessionId);
+        if (ctx.status != SessionStatus.RUNNING) {
+            sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(
+                    seq, "alreadyStopped", false, ctx.pendingRequest != null));
+            return;
+        }
+        String turnId = turnLifecycle.currentTurnId(ctx.sessionId).orElse(null);
+        boolean delivered = sidecar.interrupt(ctx.sessionId, turnId);
         if (delivered) {
+            sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(
+                    seq, "requested", true, ctx.pendingRequest != null));
             AgentSpan span = activeTurnSpans.get(ctx.sessionId);
             if (span != null) {
                 // Span 立即收口但暂留映射，最终 result 仍可回传相同 Trace ID。
                 span.fail("interrupt requested", null);
+            }
+            if (turnId != null) {
+                turnLifecycle.requestInterrupt(
+                        ctx.sessionId,
+                        turnId,
+                        () -> queryInterruptedTurn(ctx, turnId),
+                        () -> forceCloseInterruptedTurn(ctx, turnId, "interrupt timeout"));
             }
             log.info("[claude-chat] 中断请求已发送到 sidecar session={} engine={} status={}",
                     ctx.sessionId, ctx.engine, ctx.status);
@@ -902,6 +931,7 @@ public class ClaudeChatService {
         // 演示会话是一次性的：最后一个观察者断开即中断并销毁副本（不像正式会话那样留在 sidecar 续跑）。
         if (ctx.demo && !hasActiveViewer(ctx)) {
             sidecar.interrupt(sessionId);
+            turnLifecycle.clear(sessionId);
             AgentSpan span = activeTurnSpans.remove(sessionId);
             activeTurnMetadata.remove(sessionId);
             if (span != null) {
@@ -929,6 +959,13 @@ public class ClaudeChatService {
         SessionCtx ctx = sessions.get(sessionId);
         if (ctx == null) return;
         String type = node.path("type").asText("");
+        String eventTurnId = node.path("turnId").asText(null);
+        if (isTurnScopedSidecarEvent(type) && !turnLifecycle.matchesCurrent(sessionId, eventTurnId)) {
+            log.warn("[claude-chat] 忽略迟到轮次事件 session={} type={} eventTurn={} currentTurn={}",
+                    sessionId, type, eventTurnId,
+                    turnLifecycle.currentTurnId(sessionId).orElse("none"));
+            return;
+        }
         switch (type) {
             case "init" -> {
                 // sidecar 的 start 会先回一条 sdkSessionId=null 的 init 让前端尽快可输入，真句柄首轮才回填；
@@ -1006,6 +1043,8 @@ public class ClaudeChatService {
                     node.path("title").asText("Codex 活动"),
                     node.path("detail").asText(null),
                     asObject(node.get("data"))));
+            case "interruptAck" -> onInterruptAck(ctx, node);
+            case "turnState" -> onTurnState(ctx, node);
             case "result" -> onResult(ctx, node);
             case "error" -> {
                 AgentSpan span = activeTurnSpans.get(ctx.sessionId);
@@ -1014,7 +1053,7 @@ public class ClaudeChatService {
                     span.fail(node.path("message").asText("sidecar error"), null);
                 }
                 sendToBrowser(ctx, seq -> new ServerMessage.Error(
-                        seq, node.path("code").asText("SIDECAR_ERROR"), node.path("message").asText("")));
+                        seq, node.path("code").asText("SIDECAR_ERROR"), node.path("message").asText(""), false));
             }
             case "backgroundTasks" -> {
                 ctx.backgroundTasks = parseBackgroundTasks(node.get("tasks"));
@@ -1025,15 +1064,23 @@ public class ClaudeChatService {
     }
 
     private void onResult(SessionCtx ctx, JsonNode node) {
+        String turnId = node.path("turnId").asText(null);
+        if (ctx.status != SessionStatus.RUNNING || !turnLifecycle.complete(ctx.sessionId, turnId)) {
+            log.warn("[claude-chat] 忽略重复或过期终态 session={} turn={} status={}",
+                    ctx.sessionId, turnId, ctx.status);
+            return;
+        }
+        completeTurn(ctx, asMap(node.get("usage")), node.path("stopReason").asText("end_turn"),
+                node.path("traceId").asText(null));
+    }
+
+    private void completeTurn(SessionCtx ctx, Map<String, Object> usage, String stopReason, String traceId) {
         ctx.status = SessionStatus.IDLE;
         ctx.pendingRequest = null; // 本轮结束，未决请求（含超时被拒）一并失效
         broadcastPendingSessions();
         repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
-        Map<String, Object> usage = asMap(node.get("usage"));
-        String stopReason = node.path("stopReason").asText("end_turn");
         AgentSpan span = activeTurnSpans.remove(ctx.sessionId);
         AgentRunMetadata metadata = activeTurnMetadata.remove(ctx.sessionId);
-        String traceId = node.path("traceId").asText(null);
         if ((traceId == null || traceId.isBlank()) && span != null) {
             traceId = span.traceId();
         }
@@ -1055,6 +1102,78 @@ public class ClaudeChatService {
             String engineLabel = "codex".equals(ctx.engine) ? "Codex" : "Claude";
             notifications.notifyDone(engineLabel + " 任务完成", sessionLabel(ctx));
         }
+    }
+
+    private void onInterruptAck(SessionCtx ctx, JsonNode node) {
+        String outcome = node.path("outcome").asText("alreadyStopped");
+        boolean active = node.path("active").asBoolean(false);
+        boolean pendingDecision = node.path("pendingDecision").asBoolean(false);
+        sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, outcome, active, pendingDecision));
+        if (ctx.status != SessionStatus.RUNNING) return;
+        if ("accepted".equals(outcome)) {
+            String activeTurnId = blankToNull(node.path("activeTurnId").asText(null));
+            if (turnLifecycle.currentTurnId(ctx.sessionId).isEmpty() && activeTurnId != null) {
+                turnLifecycle.adopt(ctx.sessionId, activeTurnId);
+                turnLifecycle.requestInterrupt(
+                        ctx.sessionId,
+                        activeTurnId,
+                        () -> queryInterruptedTurn(ctx, activeTurnId),
+                        () -> forceCloseInterruptedTurn(ctx, activeTurnId, "interrupt timeout"));
+            }
+            return;
+        }
+        if ("turnMismatch".equals(outcome)) {
+            String activeTurnId = blankToNull(node.path("activeTurnId").asText(null));
+            if (activeTurnId != null) reconcileMismatchedTurn(ctx, activeTurnId);
+            return;
+        }
+        forceCloseInterruptedTurn(ctx,
+                turnLifecycle.currentTurnId(ctx.sessionId).orElse(null), "sidecar " + outcome);
+    }
+
+    private void onTurnState(SessionCtx ctx, JsonNode node) {
+        if (ctx.status != SessionStatus.RUNNING) return;
+        String outcome = node.path("outcome").asText("alreadyStopped");
+        if (!node.path("active").asBoolean(false) || "alreadyStopped".equals(outcome)
+                || "sessionNotFound".equals(outcome)) {
+            forceCloseInterruptedTurn(ctx,
+                    turnLifecycle.currentTurnId(ctx.sessionId).orElse(null), "sidecar state " + outcome);
+            return;
+        }
+        if ("turnMismatch".equals(outcome)) {
+            String activeTurnId = blankToNull(node.path("activeTurnId").asText(null));
+            if (activeTurnId != null) reconcileMismatchedTurn(ctx, activeTurnId);
+            return;
+        }
+        sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, "correcting", true, false));
+    }
+
+    private void reconcileMismatchedTurn(SessionCtx ctx, String activeTurnId) {
+        turnLifecycle.clear(ctx.sessionId);
+        turnLifecycle.adopt(ctx.sessionId, activeTurnId);
+        sidecar.interrupt(ctx.sessionId, activeTurnId);
+        turnLifecycle.requestInterrupt(
+                ctx.sessionId,
+                activeTurnId,
+                () -> queryInterruptedTurn(ctx, activeTurnId),
+                () -> forceCloseInterruptedTurn(ctx, activeTurnId, "mismatched turn timeout"));
+        sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, "correcting", true, false));
+    }
+
+    private void queryInterruptedTurn(SessionCtx ctx, String turnId) {
+        if (!turnLifecycle.isInterrupting(ctx.sessionId, turnId)) return;
+        if (!sidecar.queryTurnState(ctx.sessionId, turnId)) {
+            forceCloseInterruptedTurn(ctx, turnId, "turn state query undelivered");
+        }
+    }
+
+    private void forceCloseInterruptedTurn(SessionCtx ctx, String turnId, String reason) {
+        if (ctx.status != SessionStatus.RUNNING) return;
+        if (!turnLifecycle.complete(ctx.sessionId, turnId)) return;
+        log.warn("[claude-chat] 中断终态兜底收口 session={} engine={} turn={} reason={}",
+                ctx.sessionId, ctx.engine, turnId, reason);
+        sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, "forced", false, false));
+        completeTurn(ctx, Map.of(), "interrupted", null);
     }
 
     /**
@@ -1098,6 +1217,7 @@ public class ClaudeChatService {
         finishAllActiveSpans("sidecar disconnected");
         sessions.values().forEach(ctx -> {
             if (ctx.status == SessionStatus.RUNNING) {
+                turnLifecycle.clear(ctx.sessionId);
                 ctx.status = SessionStatus.INTERRUPTED;
                 repo.touch(ctx.sessionId, SessionStatus.INTERRUPTED, System.currentTimeMillis());
                 sendToBrowser(ctx, seq -> new ServerMessage.Error(
@@ -1157,6 +1277,7 @@ public class ClaudeChatService {
             sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
                     ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy,
                     ctx.consultEvidenceSystems);
+            turnLifecycle.clear(ctx.sessionId);
             ctx.status = SessionStatus.IDLE;
             repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
             sendToBrowser(ctx, seq -> ready(ctx, seq));
@@ -1183,6 +1304,7 @@ public class ClaudeChatService {
             sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
                     ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy,
                     ctx.consultEvidenceSystems);
+            turnLifecycle.clear(ctx.sessionId);
             ctx.status = SessionStatus.IDLE;
             repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
         }
@@ -1192,6 +1314,10 @@ public class ClaudeChatService {
     /** 空白串归一为 null，避免把空网关地址当成有效配置。 */
     private static String blankToNull(String s) {
         return s == null || s.isBlank() ? null : s.trim();
+    }
+
+    private static boolean isTurnScopedSidecarEvent(String type) {
+        return TURN_SCOPED_SIDECAR_EVENTS.contains(type);
     }
 
     private AgentRunMetadata resolveMetadata(SessionCtx ctx) {
@@ -1282,6 +1408,7 @@ public class ClaudeChatService {
                 : repo.findById(id).map(ClaudeChatSession::getCwd).orElse(null);
         if (ctx != null) {
             sidecar.interrupt(id);
+            turnLifecycle.clear(id);
             AgentSpan span = activeTurnSpans.remove(id);
             activeTurnMetadata.remove(id);
             if (span != null) {

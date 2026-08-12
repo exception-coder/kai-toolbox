@@ -19,6 +19,7 @@ public sealed interface ServerMessage
                 ServerMessage.ReplayGap, ServerMessage.Result, ServerMessage.TurnInfo,
                 ServerMessage.TurnProgress, ServerMessage.Warning, ServerMessage.ToolActivity,
                 ServerMessage.CodexActivity,
+                ServerMessage.InterruptState,
                 ServerMessage.Error, ServerMessage.BackgroundTasks,
                 ServerMessage.PendingSessions {
 
@@ -109,8 +110,16 @@ public sealed interface ServerMessage
     record CodexActivity(long seq, String activityType, String itemId, String status,
                          String title, String detail, Object data) implements ServerMessage {}
 
+    /** 中断协议进度：requested/accepted/correcting/alreadyStopped/forced。 */
+    @JsonTypeName("interruptState")
+    record InterruptState(long seq, String outcome, boolean active, boolean pendingDecision) implements ServerMessage {}
+
     @JsonTypeName("error")
-    record Error(long seq, String code, String message) implements ServerMessage {}
+    record Error(long seq, String code, String message, boolean terminal) implements ServerMessage {
+        public Error(long seq, String code, String message) {
+            this(seq, code, message, true);
+        }
+    }
 
     /**
      * 该会话当前存活的后台任务快照（Agent 工具后台化的子任务，如「先在后台调查，稍后告诉你」这类）。

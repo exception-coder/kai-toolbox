@@ -218,11 +218,17 @@ public class SidecarClient {
 
     public void userMessage(String sessionId, String text, String developerInstructions,
                             TraceContext traceContext, AgentRunMetadata telemetry) {
+        userMessage(sessionId, text, developerInstructions, null, traceContext, telemetry);
+    }
+
+    public void userMessage(String sessionId, String text, String developerInstructions, String turnId,
+                            TraceContext traceContext, AgentRunMetadata telemetry) {
         Map<String, Object> message = new LinkedHashMap<>();
         message.put("type", "user");
         message.put("sessionId", sessionId);
         message.put("text", nz(text));
         message.put("developerInstructions", nz(developerInstructions));
+        if (turnId != null && !turnId.isBlank()) message.put("turnId", turnId);
         putTelemetry(message, traceContext, telemetry);
         send(message);
     }
@@ -246,7 +252,23 @@ public class SidecarClient {
      * @return true 表示中断消息已写入 sidecar WebSocket；false 表示链路不可用，调用方不能假装中断成功
      */
     public boolean interrupt(String sessionId) {
-        return send(Map.of("type", "interrupt", "sessionId", sessionId));
+        return interrupt(sessionId, null);
+    }
+
+    public boolean interrupt(String sessionId, String turnId) {
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("type", "interrupt");
+        message.put("sessionId", sessionId);
+        if (turnId != null && !turnId.isBlank()) message.put("turnId", turnId);
+        return send(message);
+    }
+
+    public boolean queryTurnState(String sessionId, String turnId) {
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("type", "queryTurnState");
+        message.put("sessionId", sessionId);
+        if (turnId != null && !turnId.isBlank()) message.put("turnId", turnId);
+        return send(message);
     }
 
     public void setMode(String sessionId, String mode) {

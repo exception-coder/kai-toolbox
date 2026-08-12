@@ -103,6 +103,8 @@ export interface UseClaudeChatSocket {
   /** 全局跨会话待答快照（含当前会话；UI 通常过滤掉当前会话只提示"其它会话"）。 */
   pendingSessions: PendingSessionRef[]
   running: boolean
+  /** 已发出中断请求，正在等待 Sidecar 回执或后端终态校正。 */
+  interrupting: boolean
   errorMessage: string | null
   /** 重连回放出现空洞（部分消息已被服务端缓冲淘汰）时的提示文案；null 表示无 */
   syncWarning: string | null
@@ -220,6 +222,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   // 全局跨会话待答（连接级快照，非本会话）：任意界面据此标红点并可一键跳去作答。
   const [pendingSessions, setPendingSessions] = useState<PendingSessionRef[]>([])
   const [running, setRunning] = useState(false)
+  const [interrupting, setInterrupting] = useState(false)
   const [queued, setQueued] = useState<QueuedMessage[]>([])
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [syncWarning, setSyncWarning] = useState<string | null>(null)
@@ -346,6 +349,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           setItems([])
           setPending(null)
           setRunning(false)
+          setInterrupting(false)
           setTurnTokens(0)
           setSyncWarning(null)
           setProviderDiag([])
@@ -444,7 +448,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         //      （取自会话列表缓存的 status/live，如果猜错了，靠下面第 2 类信号自愈）；
         //   2. 正在发生的事实——收到 assistantDelta/toolUse 说明该会话确凿无疑正在跑
         //      （见对应 case，比任何缓存快照都可靠，用来兜底"猜错了"或"压根没猜过"的场景）。
-        if (msg.status && msg.status !== 'RUNNING') setRunning(false)
+        if (msg.status && msg.status !== 'RUNNING') {
+          setRunning(false)
+          setInterrupting(false)
+        }
         if (msg.sdkSessionId) sdkSessionIdRef.current = msg.sdkSessionId
         // 仅 switch / resume 进会话时拉一次历史；新建会话(open，sdkSessionId 为空)不拉
         if (shouldLoadHistoryRef.current && msg.sdkSessionId) {
@@ -632,6 +639,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       }
       case 'result': {
         setRunning(false)
+        setInterrupting(false)
         const latencyMs = turnStartRef.current != null ? Date.now() - turnStartRef.current : undefined
         const ttftMs = ttftRef.current ?? undefined
         const usage = normalizeUsage(msg.usage)
@@ -642,8 +650,15 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         if (typeof document !== 'undefined' && document.hidden) playNotifySound()
         break
       }
+      case 'interruptState':
+        setInterrupting(msg.active && (msg.outcome === 'requested'
+          || msg.outcome === 'accepted' || msg.outcome === 'correcting'))
+        break
       case 'error':
-        setRunning(false)
+        if (msg.terminal !== false) {
+          setRunning(false)
+          setInterrupting(false)
+        }
         if (duplicateSourceRef.current) {
           duplicateSourceRef.current = null
           if (duplicateTimeoutRef.current != null) {
@@ -956,6 +971,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     setItems([])
     setPending(null)
     setRunning(false)
+    setInterrupting(false)
     setTurnTokens(0)
     setErrorMessage(null)
     setSyncWarning(null)
@@ -1102,6 +1118,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     ttftRef.current = null
     setTurnTokens(0) // 新一轮：清零实时 token 计数
     setRunning(true)
+    setInterrupting(false)
     const hiddenInstructions = developerInstructions?.trim() || undefined
     if (sendRaw({ type: 'send', text: t, attachments: atts, developerInstructions: hiddenInstructions })) return
     // WS 未连上：排队并触发重连（带 attach 意图），onopen 时先 attach 再补发，避免消息丢失/卡“思考中”
@@ -1209,8 +1226,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const interrupt = useCallback(() => {
     // 不在点击时乐观结束运行态：消息可能因 WS 断开根本没有发出。
     // 只有后端收到 sidecar 的 result(interrupted) 后，applyEvent 才会把 running 置回 false。
-    sendRaw({ type: 'interrupt' })
-  }, [sendRaw])
+    if (interrupting) return
+    if (sendRaw({ type: 'interrupt' })) setInterrupting(true)
+  }, [interrupting, sendRaw])
 
   /**
    * 切换「弹窗自动允许」：落本地偏好 + 告知服务端，之后由 sidecar 内同步裁决。
@@ -1428,7 +1446,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
   }, [sendRaw, connect])
 
-  return { state, sessionId, items, pending, pendingSessions, running, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, agents, mcpServers, outputStyle, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, agents, mcpServers, outputStyle, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, loadHistory }
 }
 
 function isRunningActivity(status: string): boolean {

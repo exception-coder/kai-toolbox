@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, Paperclip, Send, Slash, Square, X } from 'lucide-react'
+import { AlertTriangle, Loader2, Paperclip, Send, Slash, Square, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useClaudeChatSocket } from '../hooks/useClaudeChatSocket'
 import { useDraft } from '../lib/draftPref'
@@ -336,8 +336,9 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
             className="max-h-[120px] min-h-[36px] flex-1 resize-none rounded-md border bg-[var(--color-background)] px-2 py-1.5 text-sm"
           />
           {chat.running ? (
-            <Button variant="outline" size="icon" onClick={chat.interrupt} aria-label="中断" className="shrink-0">
-              <Square className="size-4" />
+            <Button variant="outline" size="icon" onClick={chat.interrupt} disabled={chat.interrupting}
+              aria-label={chat.interrupting ? '正在中断' : '中断'} title={chat.interrupting ? '正在校正会话状态' : '中断'} className="shrink-0">
+              {chat.interrupting ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}
             </Button>
           ) : (
             <Button size="icon" onClick={submit} disabled={planLocked || (!draft.trim() && attachments.length === 0)} aria-label="发送" className="shrink-0">

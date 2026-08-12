@@ -587,10 +587,11 @@ export function FloatingChatWindow() {
               type="button"
               onPointerDown={e => e.stopPropagation()}
               onClick={e => { e.stopPropagation(); chat.interrupt() }}
+              disabled={chat.interrupting}
               className="flex shrink-0 items-center self-stretch border-l border-[var(--color-border)] px-2.5 text-[11px] font-medium text-[var(--color-muted-foreground)] transition-colors hover:bg-[var(--color-accent)] hover:text-[var(--color-foreground)]"
-              title="停止"
+              title={chat.interrupting ? '正在校正会话状态' : '停止'}
             >
-              停止
+              {chat.interrupting ? '中断中…' : '停止'}
             </button>
           )}
         </div>
@@ -837,8 +838,11 @@ export function FloatingChatWindow() {
           {chat.running ? (
             <div className="flex items-center justify-center gap-3 text-xs text-[var(--color-muted-foreground)]">
               <Loader2 className="size-4 animate-spin" /> 处理中…
-              <button type="button" onClick={chat.interrupt} aria-label="中断"
-                className="rounded-lg border px-3 py-1 text-xs">中断</button>
+              <button type="button" onClick={chat.interrupt} disabled={chat.interrupting}
+                aria-label={chat.interrupting ? '正在中断' : '中断'}
+                className="rounded-lg border px-3 py-1 text-xs disabled:opacity-60">
+                {chat.interrupting ? '中断中…' : '中断'}
+              </button>
             </div>
           ) : (
             <MiniVoiceBar disabled={planLocked} onSend={t => { if (!planLocked && !handleUserText(t)) chat.send(t) }} />
@@ -960,8 +964,11 @@ export function FloatingChatWindow() {
             }}
           />
           {chat.running ? (
-            <button type="button" onClick={chat.interrupt} aria-label="中断"
-              className="rounded-lg border px-3 py-2 text-sm">中断</button>
+            <button type="button" onClick={chat.interrupt} disabled={chat.interrupting}
+              aria-label={chat.interrupting ? '正在中断' : '中断'}
+              className="rounded-lg border px-3 py-2 text-sm disabled:opacity-60">
+              {chat.interrupting ? '中断中…' : '中断'}
+            </button>
           ) : (
             <button type="button" onClick={submit} disabled={planLocked || (!draft.trim() && attachments.length === 0)} aria-label="发送"
               className={`rounded-lg px-3 py-2 disabled:opacity-50 ${giftMode ? 'bg-[#79a861] text-[#0c160c] hover:bg-[#9bc16e]' : 'bg-[var(--color-primary)] text-[var(--color-primary-foreground)]'}`}>

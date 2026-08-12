@@ -17,10 +17,18 @@ import { forkCodexThread, listCodexModels, type CodexModelInfo } from './codexAp
 import { runGeminiTurn } from './geminiEngine.js'
 import { answerOpencodePermission, emitOpencodeModels, runOpencodeTurn, updateOpencodePermissionPolicy } from './opencodeEngine.js'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
+import { TurnLifecycle, type InterruptSnapshot } from './turnLifecycle.js'
 
 export type Engine = 'claude' | 'codex' | 'gemini' | 'opencode'
 
 type Emit = (sessionId: string, event: Record<string, unknown>) => void
+
+export interface InterruptAck {
+  outcome: InterruptSnapshot['outcome'] | 'sessionNotFound'
+  active: boolean
+  pendingDecision: boolean
+  activeTurnId?: string
+}
 
 type CapabilitySnapshot = {
   slashCommands: string[]
@@ -256,6 +264,7 @@ class Session {
   /** demo 的 welfare_db 工具回灌后端的基址（如 http://127.0.0.1:18080）。 */
   demoApiBase?: string
   private abort?: AbortController
+  private readonly turnLifecycle = new TurnLifecycle()
   private modelsFetched = false
   /** 本轮 API 响应里实际返回的模型（来自 assistant message.model，权威）；用于调用诊断。 */
   private lastResponseModel?: string
@@ -286,9 +295,14 @@ class Session {
   constructor(
     readonly id: string,
     public cwd: string,
-    private readonly emitSelf: (e: Record<string, unknown>) => void,
+    private readonly emitRaw: (e: Record<string, unknown>) => void,
   ) {
-    this.perms = new Permissions(emitSelf)
+    this.perms = new Permissions(event => this.emitTurn(event))
+  }
+
+  private emitTurn(event: Record<string, unknown>): void {
+    const decorated = this.turnLifecycle.decorate(event)
+    if (decorated) this.emitRaw(decorated)
   }
 
   /**
@@ -298,7 +312,42 @@ class Session {
    * 杀软实时扫描短暂锁住而 spawn 失败。只在本轮尚未产出任何消息时重试，避免重复输出。
    */
   async runTurn(text: string, systemPrompt?: string, images?: OneShotImage[],
-                developerInstructions?: string): Promise<void> {
+                developerInstructions?: string, requestedTurnId?: string): Promise<void> {
+    const turn = this.turnLifecycle.begin(requestedTurnId)
+    if (!turn.accepted) {
+      this.emitRaw({
+        type: 'error',
+        code: 'TURN_BUSY',
+        message: '上一轮仍在收口，请稍后重试',
+        turnId: turn.turnId,
+        activeTurnId: turn.blockingTurnId,
+      })
+      this.emitRaw({ type: 'result', usage: {}, stopReason: 'error', turnId: turn.turnId })
+      return
+    }
+    try {
+      await this.executeTurn(text, systemPrompt, images, developerInstructions)
+    } catch (error) {
+      console.error(`[sidecar] turn failed session=${this.id} turn=${turn.turnId}:`, error)
+      this.emitTurn({
+        type: 'error',
+        code: 'TURN_FAILED',
+        message: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      if (!this.turnLifecycle.terminal()) {
+        this.emitTurn({
+          type: 'result',
+          usage: {},
+          stopReason: this.turnLifecycle.fallbackStopReason(),
+        })
+      }
+      this.turnLifecycle.finish(turn.turnId)
+    }
+  }
+
+  private async executeTurn(text: string, systemPrompt?: string, images?: OneShotImage[],
+                            developerInstructions?: string): Promise<void> {
     if (this.engine === 'codex') return this.runCodexTurn(text, developerInstructions)
     if (this.engine === 'gemini') return this.runGeminiTurn(text)
     if (this.engine === 'opencode') return this.runOpencodeTurn(text)
@@ -482,12 +531,12 @@ class Session {
         // 流正常结束但未见 result（异常收尾/流提前结束）：补发一条，解除前端永久「思考中」。
         if (!this.turnHadResult) {
           console.warn(`[sidecar] 本轮流结束但未见 result，补发以解除前端「思考中」 session=${this.id}`)
-          this.emitSelf({ type: 'result', usage: {}, stopReason: 'end_turn' })
+          this.emitTurn({ type: 'result', usage: {}, stopReason: 'end_turn' })
         }
         return
       } catch (e: unknown) {
         if (ac.signal.aborted) {
-          this.emitSelf({ type: 'result', usage: {}, stopReason: 'interrupted' })
+          this.emitTurn({ type: 'result', usage: {}, stopReason: 'interrupted' })
           return
         }
         const message = e instanceof Error ? e.message : String(e)
@@ -508,7 +557,7 @@ class Session {
           continue
         }
         const detail = nativeStderr.trim() ? `${message}（${nativeStderr.trim().slice(-300)}）` : message
-        this.emitSelf({ type: 'error', code: 'QUERY_FAILED', message: detail })
+        this.emitTurn({ type: 'error', code: 'QUERY_FAILED', message: detail })
         return
       } finally {
         this.abort = undefined
@@ -537,7 +586,7 @@ class Session {
         authToken: this.authToken,
         codexHome: this.codexHome,
         signal: ac.signal,
-        emit: (e) => this.emitSelf(e),
+        emit: (e) => this.emitTurn(e),
         setSdkSessionId: (id) => { this.sdkSessionId = id },
       })
     } finally {
@@ -559,7 +608,7 @@ class Session {
         apiBaseUrl: this.apiBaseUrl,
         authToken: this.authToken,
         signal: ac.signal,
-        emit: (e) => this.emitSelf(e),
+        emit: (e) => this.emitTurn(e),
         setSdkSessionId: (id) => { this.sdkSessionId = id },
       })
     } finally {
@@ -578,7 +627,7 @@ class Session {
         model: this.model,
         sdkSessionId: this.sdkSessionId,
         signal: ac.signal,
-        emit: (e) => this.emitSelf(e),
+        emit: (e) => this.emitTurn(e),
         setSdkSessionId: (id) => { this.sdkSessionId = id },
         permissionMode: this.permissionMode,
         autoApprove: this.autoApprove,
@@ -600,7 +649,7 @@ class Session {
       .then((models) => {
         if (Array.isArray(models)) {
           claudeModelsByProvider.set(key, models)
-          this.emitSelf({ type: 'models', models, current: this.model ?? null })
+          this.emitTurn({ type: 'models', models, current: this.model ?? null })
         }
       })
       .catch((e) => console.warn('[sidecar] supportedModels 失败:', e instanceof Error ? e.message : String(e)))
@@ -615,18 +664,18 @@ class Session {
    */
   refreshCapabilities(): void {
     if (this.engine === 'opencode') {
-      void emitOpencodeModels(this.cwd, (event) => this.emitSelf(event), this.model)
+      void emitOpencodeModels(this.cwd, event => this.emitTurn(event), this.model)
       return
     }
     if (this.engine === 'codex') {
       if (!process.env.TOOLBOX_API_BASE) {
-        this.emitSelf({
+        this.emitTurn({
           type: 'error',
           code: 'CAPABILITIES_UNAVAILABLE',
           message: 'sidecar 缺少 TOOLBOX_API_BASE，请重启 kai-toolbox 后端以重新拉起 sidecar',
         })
       }
-      this.emitSelf({
+      this.emitTurn({
         type: 'init',
         sdkSessionId: this.sdkSessionId ?? null,
         slashCommands: [],
@@ -637,7 +686,7 @@ class Session {
       })
       return
     }
-    this.emitSelf({ type: 'init', sdkSessionId: this.sdkSessionId ?? null, ...this.capabilities })
+    this.emitTurn({ type: 'init', sdkSessionId: this.sdkSessionId ?? null, ...this.capabilities })
   }
 
   /** 当前 provider 的子进程环境：第三方走网关 env，否则官方 env（剔除网关变量）。供模型刷新按会话 provider 询问。 */
@@ -669,7 +718,7 @@ class Session {
               : []
             const outputStyle = typeof m.output_style === 'string' ? m.output_style : null
             this.capabilities = { slashCommands, skills, agents, mcpServers, outputStyle }
-            this.emitSelf({ type: 'init', sdkSessionId: this.sdkSessionId, ...this.capabilities })
+            this.emitTurn({ type: 'init', sdkSessionId: this.sdkSessionId, ...this.capabilities })
           }
         } else if (m.subtype === 'background_tasks_changed') {
           // SDK 的 REPLACE 语义：每次都是"当前存活的全量后台任务"，直接整体覆盖，不用配对
@@ -680,7 +729,7 @@ class Session {
             taskType: String(t.task_type ?? ''),
             description: String(t.description ?? ''),
           }))
-          this.emitSelf({ type: 'backgroundTasks', tasks: this.backgroundTasks })
+          this.emitTurn({ type: 'backgroundTasks', tasks: this.backgroundTasks })
         }
         break
       }
@@ -688,7 +737,7 @@ class Session {
         const ev = m.event as Record<string, unknown> | undefined
         const delta = ev?.delta as Record<string, unknown> | undefined
         if (ev?.type === 'content_block_delta' && delta?.type === 'text_delta') {
-          this.emitSelf({ type: 'assistantDelta', text: delta.text as string })
+          this.emitTurn({ type: 'assistantDelta', text: delta.text as string })
         } else if (ev?.type === 'message_start') {
           // 新一段消息（tool-use 后续跑会开新消息）：把上一段的输出 token 计入基数
           this.turnBaseTokens += this.curMsgTokens
@@ -698,7 +747,7 @@ class Session {
           const ot = (ev.usage as Record<string, unknown> | undefined)?.output_tokens
           if (typeof ot === 'number') {
             this.curMsgTokens = ot
-            this.emitSelf({ type: 'turnProgress', outputTokens: this.turnBaseTokens + ot })
+            this.emitTurn({ type: 'turnProgress', outputTokens: this.turnBaseTokens + ot })
           }
         }
         break
@@ -707,7 +756,7 @@ class Session {
         const toolCallId = String(m.tool_use_id ?? '')
         const toolName = String(m.tool_name ?? toolNames.get(toolCallId) ?? 'tool')
         const elapsedSeconds = typeof m.elapsed_time_seconds === 'number' ? m.elapsed_time_seconds : undefined
-        emitToolActivity(event => this.emitSelf(event), {
+        emitToolActivity(event => this.emitTurn(event), {
           toolCallId,
           toolName,
           status: 'inProgress',
@@ -730,8 +779,8 @@ class Session {
             const toolName = String(b.name ?? 'tool')
             toolNames.set(toolCallId, toolName)
             toolStartedAt.set(toolCallId, Date.now())
-            this.emitSelf({ type: 'toolUse', toolCallId, toolName, input: b.input })
-            emitToolActivity(event => this.emitSelf(event), {
+            this.emitTurn({ type: 'toolUse', toolCallId, toolName, input: b.input })
+            emitToolActivity(event => this.emitTurn(event), {
               toolCallId,
               toolName,
               status: 'inProgress',
@@ -748,7 +797,7 @@ class Session {
         const uuid = m.uuid as string | undefined
         const isToolResult = Array.isArray(content) && content.some(b => b?.type === 'tool_result')
         if (uuid && !isToolResult && !m.isSynthetic) {
-          this.emitSelf({ type: 'userMessage', uuid })
+          this.emitTurn({ type: 'userMessage', uuid })
         }
         for (const b of content ?? []) {
           if (b.type === 'tool_result') {
@@ -756,14 +805,14 @@ class Session {
             const toolName = toolNames.get(toolCallId) ?? ''
             const output = stringifyContent(b.content)
             const isError = Boolean(b.is_error)
-            this.emitSelf({
+            this.emitTurn({
               type: 'toolResult',
               toolCallId,
               toolName,
               output,
               isError,
             })
-            emitToolActivity(event => this.emitSelf(event), {
+            emitToolActivity(event => this.emitTurn(event), {
               toolCallId,
               toolName,
               status: isError ? 'failed' : 'completed',
@@ -779,18 +828,18 @@ class Session {
         this.turnHadResult = true
         if (m.session_id) this.sdkSessionId = m.session_id as string
         if (this.lastAssistantForkAnchor) {
-          this.emitSelf({ type: 'forkAnchor', anchor: this.lastAssistantForkAnchor })
+          this.emitTurn({ type: 'forkAnchor', anchor: this.lastAssistantForkAnchor })
         }
         // 调用诊断：请求模型 vs API 实际返回模型 + 是否经网关，先于 result 发，供前端区块展示
         console.log(`[sidecar] turn done session=${this.id} requested=${this.model ?? '默认'} responded=${this.lastResponseModel ?? '?'} via=${this.apiBaseUrl ?? '官方登录'}`)
-        this.emitSelf({
+        this.emitTurn({
           type: 'turnInfo',
           requestedModel: this.model ?? null,
           responseModel: this.lastResponseModel ?? null,
           viaGateway: !!this.apiBaseUrl,
           baseUrl: this.apiBaseUrl ?? null,
         })
-        this.emitSelf({ type: 'result', usage: m.usage ?? {}, stopReason: m.subtype ?? 'end_turn' })
+        this.emitTurn({ type: 'result', usage: m.usage ?? {}, stopReason: m.subtype ?? 'end_turn' })
         break
       }
     }
@@ -798,7 +847,7 @@ class Session {
 
   decide(reqId: string, d: Decision): void {
     if (this.engine === 'opencode') {
-      void answerOpencodePermission(this.sdkSessionId, reqId, d.behavior, this.cwd, (event) => this.emitSelf(event))
+      void answerOpencodePermission(this.sdkSessionId, reqId, d.behavior, this.cwd, event => this.emitTurn(event))
       return
     }
     this.perms.resolve(reqId, d)
@@ -814,17 +863,32 @@ class Session {
    * 反过来先 rejectAll()，挂起的 canUseTool 立刻 resolve 成 deny，响应能正常回到 CLI；
    * 短暂延时让 SDK 把 control_response 写出去，最后才关流。
    */
-  interrupt(): void {
+  interrupt(expectedTurnId?: string): InterruptSnapshot {
     const hadPending = this.perms.rejectAll()
     const hadActiveTurn = this.abort != null
-    console.log(`[sidecar] interrupt requested session=${this.id} engine=${this.engine} active=${hadActiveTurn} pendingDecision=${hadPending}`)
+    const snapshot = this.turnLifecycle.requestInterrupt(expectedTurnId, hadPending)
+    console.log(`[sidecar] interrupt requested session=${this.id} engine=${this.engine} active=${hadActiveTurn} pendingDecision=${hadPending} outcome=${snapshot.outcome} turn=${snapshot.activeTurnId ?? 'none'}`)
+    if (snapshot.outcome !== 'accepted') return snapshot
     if (!hadPending) {
       this.abort?.abort() // 无未决审批，没什么要等的，立刻关
-      return
+    } else {
+      // 有未决审批：让 canUseTool 的续体跑完、SDK 把 deny 的 control_response 写出去，再关传输层。
+      // setTimeout(0) 排在整个微任务队列之后，足以覆盖 promise 链；这点延迟对「中断」体感无影响。
+      setTimeout(() => this.abort?.abort(), INTERRUPT_DENY_FLUSH_MS)
     }
-    // 有未决审批：让 canUseTool 的续体跑完、SDK 把 deny 的 control_response 写出去，再关传输层。
-    // setTimeout(0) 排在整个微任务队列之后，足以覆盖 promise 链；这点延迟对「中断」体感无影响。
-    setTimeout(() => this.abort?.abort(), INTERRUPT_DENY_FLUSH_MS)
+    const interruptedTurnId = snapshot.activeTurnId
+    const fallback = setTimeout(() => {
+      const state = this.turnLifecycle.snapshot(interruptedTurnId)
+      if (state.outcome !== 'accepted') return
+      console.warn(`[sidecar] interrupt terminal timeout session=${this.id} engine=${this.engine} turn=${interruptedTurnId}`)
+      this.emitTurn({ type: 'result', usage: {}, stopReason: 'interrupted' })
+    }, 4000)
+    fallback.unref?.()
+    return snapshot
+  }
+
+  turnState(expectedTurnId?: string): InterruptSnapshot {
+    return this.turnLifecycle.snapshot(expectedTurnId)
   }
 
   private gatewayEnv(): NodeJS.ProcessEnv {
@@ -1021,7 +1085,7 @@ export class SessionManager {
     }
   }
 
-  user(id: string, text: string, developerInstructions?: string): void {
+  user(id: string, text: string, developerInstructions?: string, turnId?: string): void {
     const s = this.sessions.get(id)
     if (!s) {
       this.emit(id, { type: 'error', code: 'SESSION_NOT_FOUND', message: '会话不存在' })
@@ -1032,10 +1096,10 @@ export class SessionManager {
     const hiddenInstructions = s.toolPolicy === 'consult-readonly'
       ? developerInstructions?.trim() || undefined
       : undefined
-    s.runTurn(text, undefined, undefined, hiddenInstructions).catch((e) => {
+    s.runTurn(text, undefined, undefined, hiddenInstructions, turnId).catch((e) => {
       console.error('[sidecar] runTurn 异常（已兜住）session=' + id + ':', e)
-      this.emit(id, { type: 'error', code: 'TURN_FAILED', message: e instanceof Error ? e.message : String(e) })
-      this.emit(id, { type: 'result', usage: {}, stopReason: 'error' })
+      this.emit(id, { type: 'error', code: 'TURN_FAILED', message: e instanceof Error ? e.message : String(e), turnId })
+      this.emit(id, { type: 'result', usage: {}, stopReason: 'error', turnId })
     })
   }
 
@@ -1043,9 +1107,30 @@ export class SessionManager {
     this.sessions.get(id)?.decide(reqId, d)
   }
 
-  interrupt(id: string): void {
-    this.oneShotControllers.get(id)?.abort()
-    this.sessions.get(id)?.interrupt()
+  interrupt(id: string, turnId?: string): InterruptAck {
+    const oneShot = this.oneShotControllers.get(id)
+    if (oneShot) {
+      oneShot.abort()
+      return { outcome: 'accepted', active: true, pendingDecision: false, activeTurnId: turnId }
+    }
+    const session = this.sessions.get(id)
+    if (!session) return { outcome: 'sessionNotFound', active: false, pendingDecision: false }
+    return session.interrupt(turnId)
+  }
+
+  turnState(id: string, turnId?: string): InterruptAck {
+    const oneShot = this.oneShotControllers.get(id)
+    if (oneShot) {
+      return {
+        outcome: oneShot.signal.aborted ? 'alreadyStopped' : 'accepted',
+        active: !oneShot.signal.aborted,
+        pendingDecision: false,
+        activeTurnId: turnId,
+      }
+    }
+    const session = this.sessions.get(id)
+    if (!session) return { outcome: 'sessionNotFound', active: false, pendingDecision: false }
+    return session.turnState(turnId)
   }
 
   /** 切换会话权限模式，下一轮 runTurn 生效。 */

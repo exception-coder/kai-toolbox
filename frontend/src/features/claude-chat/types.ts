@@ -483,7 +483,8 @@ export type ServerMessage =
   | { type: 'warning'; seq: number; code: string; message: string }
   | { type: 'toolActivity'; seq: number; toolCallId: string; toolName: string; status: string; title: string; detail?: string | null; elapsedMs?: number | null; outputTail?: string | null }
   | { type: 'codexActivity'; seq: number; activityType: string; itemId: string; status: string; title: string; detail?: string | null; data?: unknown }
-  | { type: 'error'; seq: number; code: string; message: string }
+  | { type: 'interruptState'; seq: number; outcome: string; active: boolean; pendingDecision: boolean }
+  | { type: 'error'; seq: number; code: string; message: string; terminal?: boolean }
   /** 该会话后台任务的全量快照，收到即整体覆盖（REPLACE 语义）；空数组＝当前没有后台任务在跑。 */
   | { type: 'backgroundTasks'; seq: number; tasks: BackgroundTaskInfo[] }
   | { type: 'pendingSessions'; seq: number; sessions: PendingSessionRef[] }

@@ -1856,8 +1856,9 @@ export function ChatPage() {
                 >
                   <Plus className="size-4" />
                 </Button>
-                <Button variant="outline" size="lg" onClick={chat.interrupt} aria-label="中断">
-                  <Square className="size-4" />
+                <Button variant="outline" size="lg" onClick={chat.interrupt} disabled={chat.interrupting}
+                  aria-label={chat.interrupting ? '正在中断' : '中断'} title={chat.interrupting ? '正在校正会话状态' : '中断'}>
+                  {chat.interrupting ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}
                 </Button>
               </div>
             ) : (

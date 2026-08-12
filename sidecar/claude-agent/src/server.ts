@@ -148,7 +148,12 @@ wss.on('connection', (ws) => {
         break
       case 'user':
         agentTracing.begin(sessionId, msg.traceContext, msg.telemetry)
-        manager.user(sessionId, msg.text as string, msg.developerInstructions as string | undefined)
+        manager.user(
+          sessionId,
+          msg.text as string,
+          msg.developerInstructions as string | undefined,
+          msg.turnId as string | undefined,
+        )
         break
       case 'decision':
         manager.decide(sessionId, msg.reqId as string, {
@@ -158,8 +163,19 @@ wss.on('connection', (ws) => {
         })
         break
       case 'interrupt':
-        manager.interrupt(sessionId)
+        emit(sessionId, {
+          type: 'interruptAck',
+          turnId: msg.turnId as string | undefined,
+          ...manager.interrupt(sessionId, msg.turnId as string | undefined),
+        })
         agentTracing.finishSession(sessionId, 'interrupted')
+        break
+      case 'queryTurnState':
+        emit(sessionId, {
+          type: 'turnState',
+          turnId: msg.turnId as string | undefined,
+          ...manager.turnState(sessionId, msg.turnId as string | undefined),
+        })
         break
       case 'oneShot':
         agentTracing.begin(sessionId, msg.traceContext, msg.telemetry)
