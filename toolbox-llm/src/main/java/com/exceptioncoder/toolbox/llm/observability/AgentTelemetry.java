@@ -2,6 +2,8 @@ package com.exceptioncoder.toolbox.llm.observability;
 
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.logs.LogRecordBuilder;
+import io.opentelemetry.api.logs.Severity;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanBuilder;
 import io.opentelemetry.api.trace.SpanKind;
@@ -10,6 +12,7 @@ import io.opentelemetry.context.Context;
 import io.opentelemetry.context.propagation.TextMapGetter;
 import io.opentelemetry.context.propagation.TextMapSetter;
 import io.opentelemetry.sdk.trace.SdkTracerProvider;
+import io.opentelemetry.sdk.logs.SdkLoggerProvider;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -33,20 +36,26 @@ public final class AgentTelemetry implements AutoCloseable {
     private final OpenTelemetry openTelemetry;
     private final Tracer tracer;
     private final SdkTracerProvider tracerProvider;
+    private final SdkLoggerProvider loggerProvider;
+    private final io.opentelemetry.api.logs.Logger logger;
     private final SensitiveTelemetrySanitizer sanitizer;
     private final boolean enabled;
 
     AgentTelemetry(OpenTelemetry openTelemetry, SdkTracerProvider tracerProvider,
+                   SdkLoggerProvider loggerProvider,
                    SensitiveTelemetrySanitizer sanitizer, boolean enabled) {
         this.openTelemetry = openTelemetry;
         this.tracer = openTelemetry.getTracer("com.exceptioncoder.toolbox.agent", "1.0.0");
         this.tracerProvider = tracerProvider;
+        this.loggerProvider = loggerProvider;
+        this.logger = openTelemetry.getLogsBridge().get("com.exceptioncoder.toolbox.agent");
         this.sanitizer = sanitizer;
         this.enabled = enabled;
     }
 
     public static AgentTelemetry noop(int maxAttributeLength) {
         return new AgentTelemetry(OpenTelemetry.noop(), null,
+                null,
                 new SensitiveTelemetrySanitizer(maxAttributeLength), false);
     }
 
@@ -86,6 +95,28 @@ public final class AgentTelemetry implements AutoCloseable {
 
     public SensitiveTelemetrySanitizer sanitizer() {
         return sanitizer;
+    }
+
+    /** Emits a bounded structured record associated with the current Span. */
+    public void info(String body, Map<String, ?> attributes) {
+        if (!enabled) {
+            return;
+        }
+        LogRecordBuilder builder = logger.logRecordBuilder()
+                .setBody(sanitizer.sanitizeText(body))
+                .setSeverity(Severity.INFO)
+                .setSeverityText("INFO")
+                .setContext(Context.current());
+        sanitizer.sanitizeAttributes(attributes).forEach((key, value) -> {
+            if (value instanceof Boolean bool) {
+                builder.setAttribute(AttributeKey.booleanKey(key), bool);
+            } else if (value instanceof Number number) {
+                builder.setAttribute(AttributeKey.doubleKey(key), number.doubleValue());
+            } else {
+                builder.setAttribute(AttributeKey.stringKey(key), String.valueOf(value));
+            }
+        });
+        builder.emit();
     }
 
     /** Captures the current W3C context so asynchronous work can keep the same trace. */
@@ -131,6 +162,9 @@ public final class AgentTelemetry implements AutoCloseable {
     public void close() {
         if (tracerProvider != null) {
             tracerProvider.close();
+        }
+        if (loggerProvider != null) {
+            loggerProvider.close();
         }
     }
 }

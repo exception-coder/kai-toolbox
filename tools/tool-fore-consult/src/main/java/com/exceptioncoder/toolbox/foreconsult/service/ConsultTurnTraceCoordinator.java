@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /** Owns one server-created root trace for each active business consultation turn. */
@@ -31,12 +32,13 @@ public class ConsultTurnTraceCoordinator {
     }
 
     public void beginInitial(String sessionId, StartSessionRequest request) {
-        begin(sessionId, request.systemName(), modules(request.moduleNames()), request.role(),
+        begin(sessionId, request.questionTitle(), request.systemName(), modules(request.moduleNames()), request.role(),
                 request.orchestrationVersion(), request.engine(), request.model(), "INITIAL");
     }
 
     public void beginFollowUp(ConsultSession session) {
-        begin(session.getSessionId(), session.getSystemName(), session.getModuleNames(), session.getRole(),
+        begin(session.getSessionId(), session.getQuestionTitle(), session.getSystemName(), session.getModuleNames(),
+                session.getRole(),
                 session.getOrchestrationVersion(), session.getEngine(), session.getModel(), "PENDING_CLASSIFICATION");
     }
 
@@ -50,6 +52,12 @@ public class ConsultTurnTraceCoordinator {
     }
 
     public <T> T traceStep(String sessionId, String spanName, Supplier<T> action) {
+        return traceStep(sessionId, spanName, action, ignored -> Map.of());
+    }
+
+    /** Runs one consultation step and projects its bounded result summary to Span and logs. */
+    public <T> T traceStep(String sessionId, String spanName, Supplier<T> action,
+                           Function<T, Map<String, ?>> resultAttributes) {
         ActiveTurn active = activeTurns.get(sessionId);
         if (active == null) {
             return action.get();
@@ -58,6 +66,12 @@ public class ConsultTurnTraceCoordinator {
                 active.metadata().withParent(active.root().traceContext()), active.root().traceContext());
         try (Scope ignored = child.makeCurrent()) {
             T result = action.get();
+            Map<String, ?> stepAttributes = resultAttributes.apply(result);
+            applyStepAttributes(sessionId, child, stepAttributes);
+            Map<String, Object> logAttributes = new LinkedHashMap<>(stepAttributes);
+            logAttributes.put("event.name", spanName);
+            logAttributes.put("consult.session.id", sessionId);
+            telemetry.info("业务咨询步骤完成", logAttributes);
             child.success("completed");
             return result;
         } catch (RuntimeException error) {
@@ -106,7 +120,7 @@ public class ConsultTurnTraceCoordinator {
         finish(sessionId, "dispatch failed", error, true);
     }
 
-    private void begin(String sessionId, String system, String moduleNames, String role,
+    private void begin(String sessionId, String questionTitle, String system, String moduleNames, String role,
                        String orchestrationVersion, String engine, String model, String questionType) {
         ActiveTurn previous = activeTurns.remove(sessionId);
         if (previous != null) {
@@ -116,6 +130,7 @@ public class ConsultTurnTraceCoordinator {
         ConsultTurnTrace turn = repository.reserveNext(sessionId);
         Map<String, Object> attributes = new LinkedHashMap<>();
         attributes.put("consult.turn.id", turn.turnId());
+        put(attributes, "consult.question.title", questionTitle);
         put(attributes, "consult.system.name", system);
         put(attributes, "consult.module.names", moduleNames);
         put(attributes, "consult.module.paths", moduleNames);
@@ -126,6 +141,38 @@ public class ConsultTurnTraceCoordinator {
                 "fore-consult", sessionId, turn.turnIndex(), engine, model, attributes);
         AgentSpan root = telemetry.start("fore_consult.turn", metadata);
         activeTurns.put(sessionId, new ActiveTurn(turn, metadata, root));
+        try (Scope ignored = root.makeCurrent()) {
+            Map<String, Object> logAttributes = new LinkedHashMap<>(attributes);
+            logAttributes.put("event.name", "fore_consult.turn.started");
+            logAttributes.put("consult.session.id", sessionId);
+            telemetry.info("业务咨询开始", logAttributes);
+        }
+    }
+
+    private void applyStepAttributes(String sessionId, AgentSpan child, Map<String, ?> values) {
+        if (values == null || values.isEmpty()) {
+            return;
+        }
+        Map<String, Object> normalized = new LinkedHashMap<>();
+        values.forEach((key, value) -> {
+            if (value instanceof Number number) {
+                long numericValue = number.longValue();
+                child.attribute(key, numericValue);
+                normalized.put(key, numericValue);
+            } else if (value != null && !String.valueOf(value).isBlank()) {
+                String text = String.valueOf(value);
+                child.attribute(key, text);
+                normalized.put(key, text);
+            }
+        });
+        activeTurns.computeIfPresent(sessionId, (ignored, active) -> {
+            Map<String, Object> attributes = new LinkedHashMap<>(active.metadata().attributes());
+            attributes.putAll(normalized);
+            AgentRunMetadata metadata = new AgentRunMetadata(
+                    active.metadata().scope(), active.metadata().correlationId(), active.metadata().turnIndex(),
+                    active.metadata().engine(), active.metadata().model(), attributes);
+            return new ActiveTurn(active.turn(), metadata, active.root());
+        });
     }
 
     private void attribute(String sessionId, String key, String value) {
@@ -147,6 +194,14 @@ public class ConsultTurnTraceCoordinator {
         ActiveTurn active = activeTurns.remove(sessionId);
         if (active == null) {
             return;
+        }
+        try (Scope ignored = active.root().makeCurrent()) {
+            Map<String, Object> logAttributes = new LinkedHashMap<>(active.metadata().attributes());
+            logAttributes.put("event.name", "fore_consult.turn.completed");
+            logAttributes.put("consult.session.id", sessionId);
+            logAttributes.put("consult.status", error == null ? "OK" : "ERROR");
+            logAttributes.put("agent.stop_reason", reason);
+            telemetry.info(error == null ? "业务咨询完成" : "业务咨询失败", logAttributes);
         }
         if (error == null) {
             active.root().success(reason);

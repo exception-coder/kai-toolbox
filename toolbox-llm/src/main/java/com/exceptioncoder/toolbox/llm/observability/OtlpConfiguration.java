@@ -3,9 +3,13 @@ package com.exceptioncoder.toolbox.llm.observability;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
+import io.opentelemetry.exporter.otlp.http.logs.OtlpHttpLogRecordExporter;
+import io.opentelemetry.exporter.otlp.http.logs.OtlpHttpLogRecordExporterBuilder;
 import io.opentelemetry.exporter.otlp.http.trace.OtlpHttpSpanExporter;
 import io.opentelemetry.exporter.otlp.http.trace.OtlpHttpSpanExporterBuilder;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
+import io.opentelemetry.sdk.logs.SdkLoggerProvider;
+import io.opentelemetry.sdk.logs.export.BatchLogRecordProcessor;
 import io.opentelemetry.sdk.resources.Resource;
 import io.opentelemetry.sdk.trace.SdkTracerProvider;
 import io.opentelemetry.sdk.trace.export.BatchSpanProcessor;
@@ -42,7 +46,13 @@ public class OtlpConfiguration {
             OtlpHttpSpanExporterBuilder exporterBuilder = OtlpHttpSpanExporter.builder()
                     .setEndpoint(normalizeTraceEndpoint(endpoint))
                     .setTimeout(Duration.ofMillis(Math.max(100, properties.getExportTimeoutMs())));
-            resolveHeaders(properties, endpoint).forEach(exporterBuilder::addHeader);
+            Map<String, String> headers = resolveHeaders(properties, endpoint);
+            headers.forEach(exporterBuilder::addHeader);
+
+            OtlpHttpLogRecordExporterBuilder logExporterBuilder = OtlpHttpLogRecordExporter.builder()
+                    .setEndpoint(normalizeLogEndpoint(endpoint))
+                    .setTimeout(Duration.ofMillis(Math.max(100, properties.getExportTimeoutMs())));
+            headers.forEach(logExporterBuilder::addHeader);
 
             BatchSpanProcessor processor = BatchSpanProcessor.builder(exporterBuilder.build())
                     .setExporterTimeout(Duration.ofMillis(Math.max(100, properties.getExportTimeoutMs())))
@@ -58,13 +68,20 @@ public class OtlpConfiguration {
                     .setSampler(Sampler.parentBased(rootSampler))
                     .addSpanProcessor(processor)
                     .build();
+            SdkLoggerProvider loggerProvider = SdkLoggerProvider.builder()
+                    .setResource(resource)
+                    .addLogRecordProcessor(BatchLogRecordProcessor.builder(logExporterBuilder.build())
+                            .setExporterTimeout(Duration.ofMillis(Math.max(100, properties.getExportTimeoutMs())))
+                            .build())
+                    .build();
             OpenTelemetry openTelemetry = OpenTelemetrySdk.builder()
                     .setTracerProvider(provider)
+                    .setLoggerProvider(loggerProvider)
                     .setPropagators(ContextPropagators.create(W3CTraceContextPropagator.getInstance()))
                     .build();
-            log.info("[agent-telemetry] OpenTelemetry OTLP HTTP 已启用 endpoint={}",
-                    normalizeTraceEndpoint(endpoint));
-            return new AgentTelemetry(openTelemetry, provider,
+            log.info("[agent-telemetry] OpenTelemetry OTLP HTTP 已启用 traces={}, logs={}",
+                    normalizeTraceEndpoint(endpoint), normalizeLogEndpoint(endpoint));
+            return new AgentTelemetry(openTelemetry, provider, loggerProvider,
                     new SensitiveTelemetrySanitizer(maxLength), true);
         } catch (Exception e) {
             log.warn("[agent-telemetry] OpenTelemetry 初始化失败，已降级为 No-op: {}", e.getMessage());
@@ -73,11 +90,24 @@ public class OtlpConfiguration {
     }
 
     static String normalizeTraceEndpoint(String endpoint) {
+        return normalizeSignalEndpoint(endpoint, "/v1/traces");
+    }
+
+    static String normalizeLogEndpoint(String endpoint) {
+        return normalizeSignalEndpoint(endpoint, "/v1/logs");
+    }
+
+    private static String normalizeSignalEndpoint(String endpoint, String signalPath) {
         String normalized = endpoint == null ? "" : endpoint.trim();
         while (normalized.endsWith("/")) {
             normalized = normalized.substring(0, normalized.length() - 1);
         }
-        return normalized.endsWith("/v1/traces") ? normalized : normalized + "/v1/traces";
+        if (normalized.endsWith("/v1/traces")) {
+            normalized = normalized.substring(0, normalized.length() - "/v1/traces".length());
+        } else if (normalized.endsWith("/v1/logs")) {
+            normalized = normalized.substring(0, normalized.length() - "/v1/logs".length());
+        }
+        return normalized + signalPath;
     }
 
     static Map<String, String> parseHeaders(String raw) {

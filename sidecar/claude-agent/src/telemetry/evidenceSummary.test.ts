@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { evidenceAttributes, summarizeToolEvidence } from './evidenceSummary.js'
+import { evidenceAttributes, readableEvidenceSummary, summarizeToolEvidence } from './evidenceSummary.js'
 
 test('summarizes database evidence without exposing SQL or parameters', () => {
   const summary = summarizeToolEvidence(
@@ -13,9 +13,13 @@ test('summarizes database evidence without exposing SQL or parameters', () => {
   assert.equal(summary.system, 'srm')
   assert.equal(summary.operation, 'select')
   assert.equal(summary.resultCount, 2)
+  assert.deepEqual(summary.resultFields, ['supplier_id'])
+  assert.equal(summary.queryTarget, 'orders')
   assert.match(String(summary.queryFingerprint), /^sha256:[a-f0-9]{24}$/)
   assert.equal(JSON.stringify(attributes).includes('supplier_id = 918'), false)
   assert.equal(JSON.stringify(attributes).includes('secret'), false)
+  assert.equal(readableEvidenceSummary(summary).includes('orders'), true)
+  assert.equal(readableEvidenceSummary(summary).includes('supplier_id = 918'), false)
 })
 
 test('summarizes graph and domain knowledge evidence ids', () => {

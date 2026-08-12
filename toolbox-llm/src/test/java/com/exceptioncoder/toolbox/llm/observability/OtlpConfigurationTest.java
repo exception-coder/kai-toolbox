@@ -14,6 +14,10 @@ class OtlpConfigurationTest {
                 .isEqualTo("https://example.com/api/public/otel/v1/traces");
         assertThat(OtlpConfiguration.normalizeTraceEndpoint("https://example.com/v1/traces"))
                 .isEqualTo("https://example.com/v1/traces");
+        assertThat(OtlpConfiguration.normalizeLogEndpoint("http://localhost:4318"))
+                .isEqualTo("http://localhost:4318/v1/logs");
+        assertThat(OtlpConfiguration.normalizeLogEndpoint("https://example.com/v1/traces"))
+                .isEqualTo("https://example.com/v1/logs");
     }
 
     @Test

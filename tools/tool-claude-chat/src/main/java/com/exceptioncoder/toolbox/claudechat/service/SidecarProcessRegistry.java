@@ -80,6 +80,11 @@ public class SidecarProcessRegistry {
         pb.environment().put("CLAUDE_CHAT_SIDECAR_PORT", String.valueOf(props.getSidecarPort()));
         // 后端 HTTP 基址：供 sidecar 的 erp_db 只读 MCP 回灌查询（本机）
         pb.environment().put("TOOLBOX_API_BASE", "http://127.0.0.1:" + serverPort);
+        String parentServiceName = pb.environment().getOrDefault("OTEL_SERVICE_NAME", "kai-toolbox").trim();
+        if (parentServiceName.isBlank()) {
+            parentServiceName = "kai-toolbox";
+        }
+        pb.environment().put("OTEL_SERVICE_NAME", parentServiceName + "-agent-sidecar");
 
         process = pb.start();
         startLogPump(process);

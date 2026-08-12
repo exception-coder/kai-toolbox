@@ -16,8 +16,10 @@ export interface ToolEvidenceSummary {
   system?: string
   modules?: string[]
   operation?: string
+  queryTarget?: string
   queryFingerprint?: string
   resultCount?: number
+  resultFields?: string[]
   evidenceIds?: string[]
   evidenceLevel?: 'L1' | 'L2' | 'L3' | 'L4' | 'UNKNOWN'
   truncated?: boolean
@@ -44,6 +46,7 @@ export function summarizeToolEvidence(
   const modules = explicit?.modules ?? stringList(args.modules ?? args.module)
   const operation = explicit?.operation ?? inferOperation(name, sourceType, args)
   const query = firstString(args.query, args.sql, args.pattern, args.keyword, args.question, args.path, args.filePath, args.url)
+  const queryTarget = explicit?.queryTarget ?? inferQueryTarget(sourceType, args, query)
   const queryFingerprint = normalizeFingerprint(explicit?.queryFingerprint)
     ?? (query ? fingerprint(normalizeQuery(query)) : undefined)
   const result = resultMetadata(output)
@@ -57,8 +60,10 @@ export function summarizeToolEvidence(
     system,
     modules,
     operation,
+    queryTarget,
     queryFingerprint,
     resultCount: explicit?.resultCount ?? result.resultCount,
+    resultFields: explicit?.resultFields ?? result.resultFields,
     evidenceIds,
     evidenceLevel: explicit?.evidenceLevel ?? result.evidenceLevel,
     truncated: truncated || undefined,
@@ -73,12 +78,34 @@ export function evidenceAttributes(summary: ToolEvidenceSummary): Record<string,
   if (summary.system) attributes['evidence.system'] = sanitizeText(summary.system)
   if (summary.modules?.length) attributes['evidence.modules'] = summary.modules.map(sanitizeText).join(',')
   if (summary.operation) attributes['evidence.operation'] = sanitizeText(summary.operation)
+  if (summary.queryTarget) attributes['evidence.query_target'] = sanitizeText(summary.queryTarget)
   if (summary.queryFingerprint) attributes['evidence.query_fingerprint'] = summary.queryFingerprint
   if (summary.resultCount != null) attributes['evidence.result_count'] = summary.resultCount
+  if (summary.resultFields?.length) attributes['evidence.result_fields'] = summary.resultFields.map(sanitizeText).join(',')
   if (summary.evidenceIds?.length) attributes['evidence.ids'] = summary.evidenceIds.map(sanitizeEvidenceId).join(',')
   if (summary.evidenceLevel) attributes['evidence.level'] = summary.evidenceLevel
   if (summary.truncated != null) attributes['evidence.truncated'] = summary.truncated
   return attributes
+}
+
+/** Builds a short, deterministic description without raw SQL, parameters, or result rows. */
+export function readableEvidenceSummary(summary: ToolEvidenceSummary): string {
+  const sourceName: Record<EvidenceSourceType, string> = {
+    domain_knowledge: '业务知识',
+    graph: '知识图谱',
+    source_code: '源码',
+    database: '数据库',
+    api: '接口',
+    document: '文档',
+    unknown: '工具',
+  }
+  const parts = [summary.system?.toUpperCase(), sourceName[summary.sourceType], summary.operation?.toUpperCase()]
+    .filter(Boolean)
+  if (summary.queryTarget) parts.push(`目标=${summary.queryTarget}`)
+  if (summary.resultCount != null) parts.push(`结果=${summary.resultCount}`)
+  if (summary.resultFields?.length) parts.push(`字段=${summary.resultFields.join(',')}`)
+  if (summary.evidenceLevel) parts.push(`证据=${summary.evidenceLevel}`)
+  return sanitizeText(parts.join('；'))
 }
 
 function inferSourceType(name: string): EvidenceSourceType {
@@ -132,6 +159,7 @@ function resultMetadata(output: unknown): Partial<ToolEvidenceSummary> {
     : undefined
   return {
     resultCount: count == null ? undefined : Math.max(0, Math.floor(count)),
+    resultFields: collectResultFields(record, rows),
     evidenceIds: ids.values,
     evidenceLevel,
     truncated: ids.truncated || record.truncated === true || undefined,
@@ -150,12 +178,54 @@ function normalizeDeclared(value: unknown): ToolEvidenceSummary | undefined {
     system: firstString(raw.system),
     modules: stringList(raw.modules),
     operation: firstString(raw.operation),
+    queryTarget: firstString(raw.queryTarget, raw.query_target),
     queryFingerprint: firstString(raw.queryFingerprint, raw.query_fingerprint),
     resultCount: finiteNumber(raw.resultCount, raw.result_count),
+    resultFields: stringList(raw.resultFields ?? raw.result_fields),
     evidenceIds: stringList(raw.evidenceIds ?? raw.evidence_ids)?.slice(0, MAX_IDS).map(sanitizeEvidenceId),
     evidenceLevel: level && LEVELS.has(level) ? level as ToolEvidenceSummary['evidenceLevel'] : undefined,
     truncated: raw.truncated === true || undefined,
   })
+}
+
+function inferQueryTarget(
+  sourceType: EvidenceSourceType,
+  args: Record<string, unknown>,
+  normalizedQuery: string | undefined,
+): string | undefined {
+  if (sourceType === 'database') {
+    const sql = firstString(args.sql, args.query)
+    const objects = sql ? databaseObjects(sql) : []
+    return objects.length ? objects.join(',') : undefined
+  }
+  if (sourceType === 'source_code') {
+    const path = firstString(args.path, args.filePath)
+    if (path) return sanitizeEvidenceId(path)
+    return firstString(args.pattern, args.keyword)
+  }
+  if (sourceType === 'domain_knowledge' || sourceType === 'graph') {
+    return firstString(args.keyword, args.query, args.pattern)
+  }
+  return normalizedQuery && sourceType === 'document' ? sanitizeEvidenceId(normalizedQuery) : undefined
+}
+
+function databaseObjects(sql: string): string[] {
+  const objects: string[] = []
+  const pattern = /\b(?:from|join)\s+([a-z0-9_$#.\[\]"`]+)/gi
+  for (const match of sql.matchAll(pattern)) {
+    const objectName = match[1]?.replace(/[\[\]"`]/g, '')
+    if (objectName) objects.push(sanitizeText(objectName))
+  }
+  return [...new Set(objects)].slice(0, 8)
+}
+
+function collectResultFields(record: Record<string, unknown>, rows: unknown[] | undefined): string[] | undefined {
+  const declared = stringList(record.columns ?? record.fields)
+  if (declared?.length) return declared
+  const firstRow = rows?.find(item => Object.keys(asRecord(item)).length)
+  if (!firstRow) return undefined
+  const fields = Object.keys(asRecord(firstRow)).map(sanitizeText).sort().slice(0, 16)
+  return fields.length ? fields : undefined
 }
 
 function collectIds(value: unknown): { values?: string[], truncated: boolean } {

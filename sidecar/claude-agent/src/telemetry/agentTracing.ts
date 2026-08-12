@@ -8,8 +8,13 @@ import {
   type Span,
 } from '@opentelemetry/api'
 import { inputKeySummary, outputLength, sanitizeAttributes, sanitizeText } from './sanitizer.js'
-import { telemetryEnabled } from './telemetry.js'
-import { evidenceAttributes, summarizeToolEvidence, type ToolEvidenceSummary } from './evidenceSummary.js'
+import { emitStructuredLog, telemetryEnabled } from './telemetry.js'
+import {
+  evidenceAttributes,
+  readableEvidenceSummary,
+  summarizeToolEvidence,
+  type ToolEvidenceSummary,
+} from './evidenceSummary.js'
 
 export interface TraceContextCarrier {
   traceparent?: string
@@ -27,6 +32,7 @@ export interface AgentTelemetryMetadata {
 
 interface ToolTrace {
   span: Span
+  spanContext: Context
   timer: NodeJS.Timeout
   toolName: string
   input: unknown
@@ -78,6 +84,7 @@ export class AgentTracing {
       span, spanContext, tools: new Map(), timer, toolCalls: 0,
       repeatedToolCalls: 0, toolSignatures: new Set(), evidence: [],
     })
+    emitStructuredLog('agent.invoke.started', 'Agent 调用开始', attributes, spanContext)
   }
 
   observe(sessionId: string, event: Record<string, unknown>): Record<string, unknown> {
@@ -141,6 +148,7 @@ export class AgentTracing {
       kind: SpanKind.INTERNAL,
       attributes,
     }, active.spanContext)
+    const spanContext = trace.setSpan(active.spanContext, span)
     const timer = setTimeout(() => {
       const current = active.tools.get(callId)
       if (!current) return
@@ -149,7 +157,7 @@ export class AgentTracing {
       active.tools.delete(callId)
     }, TOOL_TRACE_TTL_MS)
     timer.unref?.()
-    active.tools.set(callId, { span, timer, toolName, input: event.input })
+    active.tools.set(callId, { span, spanContext, timer, toolName, input: event.input })
     active.toolCalls++
     const preliminary = summarizeToolEvidence(toolName, event.input, undefined)
     const signature = `${toolName}|${preliminary.queryFingerprint ?? inputKeySummary(event.input)}`
@@ -166,10 +174,26 @@ export class AgentTracing {
     tool.span.setAttribute('tool.status', failed ? 'ERROR' : 'OK')
     tool.span.setAttribute('tool.output.length', outputLength(event.output))
     const evidence = summarizeToolEvidence(tool.toolName, tool.input, event.output, event.evidence)
+    const summary = readableEvidenceSummary(evidence)
     if (active.evidence.length < 50) active.evidence.push(evidence)
     for (const [key, value] of Object.entries(evidenceAttributes(evidence))) {
       tool.span.setAttribute(key, value)
     }
+    tool.span.setAttribute('tool.summary', summary)
+    tool.span.addEvent('evidence.summary', { 'tool.summary': summary })
+    tool.span.updateName(readableToolSpanName(tool.toolName, evidence, failed))
+    emitStructuredLog(
+      'agent.tool.completed',
+      summary,
+      {
+        'gen_ai.tool.name': tool.toolName,
+        'gen_ai.tool.call.id': callId,
+        'tool.status': failed ? 'ERROR' : 'OK',
+        'tool.summary': summary,
+        ...evidenceAttributes(evidence),
+      },
+      tool.spanContext,
+    )
     tool.span.setStatus({ code: failed ? SpanStatusCode.ERROR : SpanStatusCode.OK })
     tool.span.end()
     active.tools.delete(callId)
@@ -189,6 +213,17 @@ export class AgentTracing {
     active.span.setAttribute('agent.tool_call_count', active.toolCalls)
     active.span.setAttribute('agent.repeated_tool_call_count', active.repeatedToolCalls)
     active.span.setAttribute('agent.stop_reason', sanitizeText(reason))
+    emitStructuredLog(
+      'agent.invoke.completed',
+      failed ? 'Agent 调用失败' : 'Agent 调用完成',
+      {
+        'agent.tool_call_count': active.toolCalls,
+        'agent.repeated_tool_call_count': active.repeatedToolCalls,
+        'agent.stop_reason': sanitizeText(reason),
+        'tool.status': failed ? 'ERROR' : 'OK',
+      },
+      active.spanContext,
+    )
     active.span.setStatus({ code: failed ? SpanStatusCode.ERROR : SpanStatusCode.OK, message: failed ? sanitizeText(reason) : undefined })
     active.span.end()
   }
@@ -206,6 +241,14 @@ export class AgentTracing {
       if (typeof value === 'number' && Number.isFinite(value)) span.setAttribute(target, value)
     }
   }
+}
+
+function readableToolSpanName(toolName: string, evidence: ToolEvidenceSummary, failed: boolean): string {
+  const status = failed ? 'ERROR' : evidence.resultCount == null ? 'OK' : `${evidence.resultCount} results`
+  const source = evidence.sourceType === 'unknown' ? toolName : evidence.sourceType
+  const system = evidence.system ? `${evidence.system.toUpperCase()} ` : ''
+  const operation = evidence.operation ? ` ${evidence.operation.toUpperCase()}` : ''
+  return `${system}${source}${operation} -> ${status}`
 }
 
 function normalizeCarrier(value: unknown): Record<string, string> {

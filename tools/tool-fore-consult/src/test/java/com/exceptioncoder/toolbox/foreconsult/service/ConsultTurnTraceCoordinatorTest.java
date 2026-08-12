@@ -13,6 +13,7 @@ import io.opentelemetry.context.Scope;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -43,13 +44,18 @@ class ConsultTurnTraceCoordinatorTest {
         coordinator.beginInitial("session-1", new StartSessionRequest(
                 "srm-system", "D:/srm", List.of("订单", "退货"), "260811-退货异常", "为何失败",
                 "7", "IT", "codex", "gpt-5.6", "low", "default", "C:/Users/zhang/.codex", "v4"));
-        assertThat(coordinator.traceStep("session-1", "consult.route", () -> "route")).isEqualTo("route");
+        assertThat(coordinator.traceStep("session-1", "consult.route", () -> "route",
+                ignored -> Map.of("consult.route.summary", "证据系统：erp,srm；命中路线：1")))
+                .isEqualTo("route");
         coordinator.classification("session-1", "FOLLOW_UP");
 
         AgentRunMetadata metadata = coordinator.metadataFor(ConsultSession.builder()
                 .sessionId("session-1").systemName("srm-system").build());
         assertThat(metadata.attributes()).containsEntry("consult.turn.id", "turn-1");
+        assertThat(metadata.attributes()).containsEntry("consult.question.title", "260811-退货异常");
         assertThat(metadata.attributes()).containsEntry("consult.orchestration.version", "v4");
+        assertThat(metadata.attributes()).containsEntry(
+                "consult.route.summary", "证据系统：erp,srm；命中路线：1");
         assertThat(metadata.attributes()).containsEntry("consult.question.type", "FOLLOW_UP");
         assertThat(metadata.parentTraceContext()).isEqualTo(rootContext);
 
@@ -58,6 +64,7 @@ class ConsultTurnTraceCoordinatorTest {
 
         verify(repository).bindTrace("turn-1", "0123456789abcdef0123456789abcdef", 100L);
         verify(telemetry).start(eq("consult.route"), any(AgentRunMetadata.class), eq(rootContext));
+        verify(child).attribute("consult.route.summary", "证据系统：erp,srm；命中路线：1");
         verify(telemetry).start(eq("consult.persist"), any(AgentRunMetadata.class), eq(rootContext));
         verify(root).success("completed");
     }
