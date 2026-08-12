@@ -615,44 +615,26 @@ public class PluginUpdateService {
                 Files.createDirectories(workspace);
                 sse.publish(taskId, "message", Map.of("type", "line", "engine", "git",
                         "text", "使用 " + source.toUpperCase(Locale.ROOT) + " 源，目录：" + workspace));
-                for (String repo : DEPENDENCY_REPOS) {
-                    String url = repoUrl(repo, source);
-                    Path dir = workspace.resolve(repo).normalize();
-                    Map<String, Object> syncResult;
-                    if (!dir.getParent().equals(workspace)) {
-                        throw new IllegalStateException("非法依赖仓库路径: " + dir);
-                    }
-                    if (Files.isDirectory(dir.resolve(".git"))) {
-                        String currentRemote = gitOutput(dir, 5_000, "remote", "get-url", "origin");
-                        if (!sameGitRemote(currentRemote, url)) {
-                            sse.publish(taskId, "message", Map.of("type", "line", "engine", "git",
-                                    "text", "切换源：移除 " + dir + "（" + currentRemote + " → " + url + "）"));
-                            deleteRepository(workspace, dir);
-                            syncResult = runStep(taskId, "git", "clone:" + repo,
-                                    List.of("git", "clone", url, dir.toString()), null, workspace);
-                        } else {
-                            syncResult = runStep(taskId, "git", "pull:" + repo,
-                                    List.of("git", "pull", "--ff-only"), null, dir);
-                        }
-                    } else if (Files.exists(dir)) {
-                        throw new IllegalStateException("目标已存在但不是 Git 仓库: " + dir);
-                    } else {
-                        syncResult = runStep(taskId, "git", "clone:" + repo,
-                                List.of("git", "clone", url, dir.toString()), null, workspace);
-                    }
-                    results.add(syncResult);
-                    if (Boolean.TRUE.equals(syncResult.get("ok"))) {
-                        recordSuccessfulSync(workspace, repo, source);
-                    }
-                }
+                Map<String, Boolean> synchronizedRepositories = syncDependencyRepositories(
+                        taskId, workspace, source, DEPENDENCY_REPOS, results);
 
                 Path engineRepo = workspace.resolve("project-domain-knowledge");
-                results.add(runStep(taskId, "mcp", "npm-install",
-                        List.of("npm", "install"), null, engineRepo));
-                results.add(runStep(taskId, "mcp", "npm-build",
-                        List.of("npm", "run", "build"), null, engineRepo));
+                if (Boolean.TRUE.equals(synchronizedRepositories.get("project-domain-knowledge"))) {
+                    Map<String, Object> npmInstall = runStep(taskId, "mcp", "npm-install",
+                            List.of("npm", "install"), null, engineRepo);
+                    results.add(npmInstall);
+                    if (stepSucceeded(npmInstall)) {
+                        results.add(runStep(taskId, "mcp", "npm-build",
+                                List.of("npm", "run", "build"), null, engineRepo));
+                    } else {
+                        publishSkippedStep(taskId, "mcp", "npm-build", "npm install 失败");
+                    }
+                } else {
+                    publishSkippedStep(taskId, "mcp", "npm-install", "知识库仓库同步失败");
+                    publishSkippedStep(taskId, "mcp", "npm-build", "知识库仓库同步失败");
+                }
 
-                installPlugins(taskId, codexHome, source, results);
+                installPlugins(taskId, codexHome, workspace, synchronizedRepositories, results);
                 installMcps(taskId, codexHome, workspace, results);
                 sse.publish(taskId, "message", Map.of("type", "done", "results", results));
             } catch (Exception e) {
@@ -661,6 +643,51 @@ public class PluginUpdateService {
                 sse.complete(taskId);
             }
         });
+    }
+
+    /** 同步固定团队依赖仓库，并返回每个仓库是否可用于后续安装。 */
+    private Map<String, Boolean> syncDependencyRepositories(
+            String taskId, Path workspace, String source, List<String> repositories,
+            List<Map<String, Object>> results) {
+        Map<String, Boolean> synchronizedRepositories = new HashMap<>();
+        for (String repository : repositories) {
+            try {
+                String url = repoUrl(repository, source);
+                Path directory = workspace.resolve(repository).normalize();
+                Map<String, Object> syncResult;
+                if (!directory.getParent().equals(workspace)) {
+                    throw new IllegalStateException("非法依赖仓库路径: " + directory);
+                }
+                if (Files.isDirectory(directory.resolve(".git"))) {
+                    String currentRemote = gitOutput(directory, 5_000, "remote", "get-url", "origin");
+                    if (!sameGitRemote(currentRemote, url)) {
+                        sse.publish(taskId, "message", Map.of("type", "line", "engine", "git",
+                                "text", "切换源：移除 " + directory + "（" + currentRemote + " → " + url + "）"));
+                        deleteRepository(workspace, directory);
+                        syncResult = runStep(taskId, "git", "clone:" + repository,
+                                List.of("git", "clone", url, directory.toString()), null, workspace);
+                    } else {
+                        syncResult = runStep(taskId, "git", "pull:" + repository,
+                                List.of("git", "pull", "--ff-only"), null, directory);
+                    }
+                } else if (Files.exists(directory)) {
+                    throw new IllegalStateException("目标已存在但不是 Git 仓库: " + directory);
+                } else {
+                    syncResult = runStep(taskId, "git", "clone:" + repository,
+                            List.of("git", "clone", url, directory.toString()), null, workspace);
+                }
+                results.add(syncResult);
+                boolean synchronizedRepository = stepSucceeded(syncResult);
+                synchronizedRepositories.put(repository, synchronizedRepository);
+                if (synchronizedRepository) {
+                    recordSuccessfulSync(workspace, repository, source);
+                }
+            } catch (IOException | IllegalStateException exception) {
+                synchronizedRepositories.put(repository, false);
+                results.add(repositoryFailure(taskId, repository, exception.getMessage()));
+            }
+        }
+        return synchronizedRepositories;
     }
 
     /** 后台校验五个团队仓库的本地变更，提交有效文件并推送到所选 Git 源。 */
@@ -968,25 +995,225 @@ public class PluginUpdateService {
         return resolved;
     }
 
-    private void installPlugins(String taskId, Path codexHome, String source, List<Map<String, Object>> results) {
+    private void installPlugins(
+            String taskId, Path codexHome, Path workspace, Map<String, Boolean> synchronizedRepositories,
+            List<Map<String, Object>> results) {
         List<String> claude = List.of(props.getClaudeBin(), "plugin");
         List<String> codex = new ArrayList<>(codexParts());
         codex.add("plugin");
+        Map<String, JsonNode> claudeMarketplaces = readMarketplaceRegistrationsSafely(
+                taskId, "claude", claude, null, results);
+        Map<String, JsonNode> codexMarketplaces = readMarketplaceRegistrationsSafely(
+                taskId, "codex", codex, codexHome, results);
         for (String plugin : props.getWatchedPlugins()) {
-            String url = repoUrl(plugin, source);
-            results.add(runStep(taskId, "claude", "marketplace-remove:" + plugin,
-                    concat(claude, "marketplace", "remove", plugin, "--scope", "user")));
-            results.add(runStep(taskId, "claude", "marketplace-add:" + plugin,
-                    concat(claude, "marketplace", "add", url)));
-            results.add(runStep(taskId, "claude", "plugin-install:" + plugin,
-                    concat(claude, "install", plugin + "@" + plugin, "--scope", "user")));
-            results.add(runStep(taskId, "codex", "marketplace-remove:" + plugin,
-                    concat(codex, "marketplace", "remove", plugin), codexHome));
-            results.add(runStep(taskId, "codex", "marketplace-add:" + plugin,
-                    concat(codex, "marketplace", "add", url), codexHome));
-            results.add(runStep(taskId, "codex", "plugin-add:" + plugin,
-                    concat(codex, "add", plugin + "@" + plugin), codexHome));
+            if (Boolean.FALSE.equals(synchronizedRepositories.get(plugin))) {
+                publishSkippedStep(taskId, "plugin", "install:" + plugin, "团队仓库同步失败");
+                results.add(skippedStep("plugin", "install:" + plugin, "团队仓库同步失败"));
+                continue;
+            }
+            Path marketplaceDirectory = workspace.resolve(plugin).toAbsolutePath().normalize();
+            try {
+                validateMarketplaceDirectory(marketplaceDirectory, plugin);
+            } catch (IllegalStateException exception) {
+                publishSkippedStep(taskId, "plugin", "install:" + plugin, exception.getMessage());
+                results.add(skippedStep("plugin", "install:" + plugin, exception.getMessage()));
+                continue;
+            }
+            if (claudeMarketplaces != null) {
+                installClaudePlugin(taskId, claude, plugin, marketplaceDirectory,
+                        claudeMarketplaces.get(plugin), results);
+            }
+            if (codexMarketplaces != null) {
+                installCodexPlugin(taskId, codex, codexHome, plugin, marketplaceDirectory,
+                        codexMarketplaces.get(plugin), results);
+            }
         }
+    }
+
+    private Map<String, JsonNode> readMarketplaceRegistrationsSafely(
+            String taskId, String engine, List<String> pluginCommand, Path codexHome,
+            List<Map<String, Object>> results) {
+        try {
+            return readMarketplaceRegistrations(pluginCommand, codexHome);
+        } catch (IllegalStateException exception) {
+            String step = "marketplace-list";
+            sse.publish(taskId, "message", Map.of("type", "line", "engine", engine, "step", step,
+                    "text", "[失败] " + exception.getMessage()));
+            results.add(failedStep(engine, step, exception.getMessage()));
+            return null;
+        }
+    }
+
+    private void installClaudePlugin(
+            String taskId, List<String> claude, String plugin, Path marketplaceDirectory,
+            JsonNode currentMarketplace, List<Map<String, Object>> results) {
+        boolean ready = ensureLocalMarketplace(taskId, "claude", plugin, marketplaceDirectory,
+                currentMarketplace,
+                concat(claude, "marketplace", "remove", plugin, "--scope", "user"),
+                concat(claude, "marketplace", "add", marketplaceDirectory.toString()), null, results);
+        if (!ready) {
+            publishSkippedStep(taskId, "claude", "plugin-install:" + plugin, "marketplace 未就绪");
+            results.add(skippedStep("claude", "plugin-install:" + plugin, "marketplace 未就绪"));
+            return;
+        }
+        results.add(runStep(taskId, "claude", "plugin-install:" + plugin,
+                concat(claude, "install", plugin + "@" + plugin, "--scope", "user")));
+    }
+
+    private void installCodexPlugin(
+            String taskId, List<String> codex, Path codexHome, String plugin, Path marketplaceDirectory,
+            JsonNode currentMarketplace, List<Map<String, Object>> results) {
+        boolean ready = ensureLocalMarketplace(taskId, "codex", plugin, marketplaceDirectory,
+                currentMarketplace,
+                concat(codex, "marketplace", "remove", plugin),
+                concat(codex, "marketplace", "add", marketplaceDirectory.toString()), codexHome, results);
+        if (!ready) {
+            publishSkippedStep(taskId, "codex", "plugin-add:" + plugin, "marketplace 未就绪");
+            results.add(skippedStep("codex", "plugin-add:" + plugin, "marketplace 未就绪"));
+            return;
+        }
+        results.add(runStep(taskId, "codex", "plugin-add:" + plugin,
+                concat(codex, "add", plugin + "@" + plugin), codexHome));
+    }
+
+    /** 将已登记 marketplace 安全切换到本地团队仓库；本地来源未变化时不执行 remove。 */
+    private boolean ensureLocalMarketplace(
+            String taskId, String engine, String plugin, Path marketplaceDirectory,
+            JsonNode currentMarketplace, List<String> removeCommand, List<String> addCommand,
+            Path codexHome, List<Map<String, Object>> results) {
+        if (currentMarketplace != null && marketplaceUsesLocalDirectory(currentMarketplace, marketplaceDirectory)) {
+            sse.publish(taskId, "message", Map.of("type", "line", "engine", engine,
+                    "step", "marketplace-ready:" + plugin,
+                    "text", "marketplace 已指向本地团队仓库，跳过重复登记"));
+            results.add(Map.of("engine", engine, "step", "marketplace-ready:" + plugin,
+                    "ok", true, "skipped", true));
+            return true;
+        }
+        if (currentMarketplace != null) {
+            Map<String, Object> removeResult = runStep(taskId, engine,
+                    "marketplace-remove:" + plugin, removeCommand, codexHome);
+            results.add(removeResult);
+            if (!stepSucceeded(removeResult)) {
+                return false;
+            }
+        }
+        Map<String, Object> addResult = runStep(taskId, engine,
+                "marketplace-add-local:" + plugin, addCommand, codexHome);
+        results.add(addResult);
+        return stepSucceeded(addResult);
+    }
+
+    private Map<String, JsonNode> readMarketplaceRegistrations(List<String> pluginCommand, Path codexHome) {
+        try {
+            CommandResult result = runCapture(concat(pluginCommand, "marketplace", "list", "--json"), codexHome);
+            if (result.exitCode != 0) {
+                throw new IllegalStateException("读取 marketplace 清单失败：" + compactGitOutput(result.output));
+            }
+            JsonNode root = parseJsonOutput(result.output);
+            JsonNode marketplaces = root.isArray() ? root : root.path("marketplaces");
+            Map<String, JsonNode> registrations = new HashMap<>();
+            if (marketplaces.isArray()) {
+                for (JsonNode marketplace : marketplaces) {
+                    String name = marketplace.path("name").asText(null);
+                    if (name != null && !name.isBlank()) {
+                        registrations.put(name, marketplace);
+                    }
+                }
+            }
+            return registrations;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("读取 marketplace 清单失败：" + e.getMessage(), e);
+        } catch (IOException e) {
+            throw new IllegalStateException("读取 marketplace 清单失败：" + e.getMessage(), e);
+        }
+    }
+
+    private JsonNode parseJsonOutput(String output) throws IOException {
+        int objectStart = output.indexOf('{');
+        int arrayStart = output.indexOf('[');
+        int start = objectStart < 0 ? arrayStart : arrayStart < 0 ? objectStart : Math.min(objectStart, arrayStart);
+        if (start < 0) {
+            throw new IOException("CLI 未返回 JSON");
+        }
+        char opening = output.charAt(start);
+        int end = opening == '{' ? output.lastIndexOf('}') : output.lastIndexOf(']');
+        if (end < start) {
+            throw new IOException("CLI 返回的 JSON 不完整");
+        }
+        return mapper.readTree(output.substring(start, end + 1));
+    }
+
+    private void validateMarketplaceDirectory(Path directory, String plugin) {
+        if (!Files.isDirectory(directory.resolve(".git"))) {
+            throw new IllegalStateException("团队插件仓库尚未拉取：" + plugin);
+        }
+        validateMarketplaceManifest(directory.resolve(".claude-plugin/marketplace.json"), plugin);
+        validateMarketplaceManifest(directory.resolve(".agents/plugins/marketplace.json"), plugin);
+    }
+
+    private void validateMarketplaceManifest(Path manifest, String plugin) {
+        try {
+            JsonNode root = mapper.readTree(manifest.toFile());
+            if (!plugin.equals(root.path("name").asText()) || !containsMarketplacePlugin(root, plugin)) {
+                throw new IllegalStateException("marketplace 清单与插件名称不匹配：" + manifest);
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("读取 marketplace 清单失败：" + manifest, e);
+        }
+    }
+
+    private static boolean containsMarketplacePlugin(JsonNode root, String plugin) {
+        for (JsonNode item : root.path("plugins")) {
+            if (plugin.equals(item.path("name").asText())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static boolean marketplaceUsesLocalDirectory(JsonNode marketplace, Path directory) {
+        Path expected = directory.toAbsolutePath().normalize();
+        List<String> candidates = List.of(
+                marketplace.path("root").asText(""),
+                marketplace.path("path").asText(""),
+                marketplace.path("installLocation").asText(""),
+                marketplace.path("marketplaceSource").path("source").asText(""));
+        for (String candidate : candidates) {
+            if (sameLocalPath(candidate, expected)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean sameLocalPath(String candidate, Path expected) {
+        if (candidate == null || candidate.isBlank() || candidate.contains("://")) {
+            return false;
+        }
+        try {
+            String normalized = candidate.startsWith("\\\\?\\") ? candidate.substring(4) : candidate;
+            return Path.of(normalized).toAbsolutePath().normalize().equals(expected);
+        } catch (RuntimeException exception) {
+            return false;
+        }
+    }
+
+    static boolean stepSucceeded(Map<String, Object> result) {
+        return Boolean.TRUE.equals(result.get("ok"));
+    }
+
+    private void publishSkippedStep(String taskId, String engine, String step, String reason) {
+        sse.publish(taskId, "message", Map.of("type", "line", "engine", engine, "step", step,
+                "text", "[跳过] " + reason));
+    }
+
+    private static Map<String, Object> skippedStep(String engine, String step, String reason) {
+        return Map.of("engine", engine, "step", step, "ok", false, "skipped", true, "reason", reason);
+    }
+
+    private static Map<String, Object> failedStep(String engine, String step, String reason) {
+        return Map.of("engine", engine, "step", step, "ok", false, "reason", reason);
     }
 
     private void installMcps(String taskId, Path codexHome, Path workspace, List<Map<String, Object>> results) {
@@ -1006,7 +1233,7 @@ public class PluginUpdateService {
     }
 
     /**
-     * 在虚拟线程按所选 Git 源重建 Claude/Codex marketplace 并安装插件，经 SSE(key=taskId)实时推流。
+     * 在虚拟线程按所选 Git 源更新团队仓库，再从本地 marketplace 安装双端插件。
      * emitter 由调用方(controller)先 create 并返回给 Spring 挂上 HTTP;此处仅启动 worker,
      * 开头小睡确保 SSE 连接已建立再发首条,避免早发事件丢失。
      */
@@ -1019,7 +1246,11 @@ public class PluginUpdateService {
                 String source = normalizeSource(requestedSource);
                 sse.publish(taskId, "message", Map.of("type", "line", "engine", "plugin",
                         "text", "统一使用 " + source.toUpperCase(Locale.ROOT) + " 插件源"));
-                installPlugins(taskId, codexHome, source, results);
+                Path workspace = dependencyWorkspace();
+                Files.createDirectories(workspace);
+                Map<String, Boolean> synchronizedRepositories = syncDependencyRepositories(
+                        taskId, workspace, source, props.getWatchedPlugins(), results);
+                installPlugins(taskId, codexHome, workspace, synchronizedRepositories, results);
                 sse.publish(taskId, "message", Map.of("type", "done", "results", results));
             } catch (Exception e) {
                 sse.publish(taskId, "message", Map.of("type", "error", "message", String.valueOf(e.getMessage())));

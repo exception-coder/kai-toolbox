@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -7,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -60,5 +62,31 @@ class PluginUpdateServiceTest {
         assertFalse(PluginUpdateService.isValidRepositoryFilePath("/etc/passwd"));
         assertFalse(PluginUpdateService.isValidRepositoryFilePath("C:\\temp\\secret.txt"));
         assertFalse(PluginUpdateService.isValidRepositoryFilePath(""));
+    }
+
+    @Test
+    void shouldRecognizeClaudeAndCodexLocalMarketplaceDirectories() throws Exception {
+        Path marketplace = repo.resolve("team-standards").toAbsolutePath().normalize();
+        ObjectMapper mapper = new ObjectMapper();
+
+        assertTrue(PluginUpdateService.marketplaceUsesLocalDirectory(
+                mapper.readTree("{\"path\":\"" + jsonPath(marketplace) + "\"}"), marketplace));
+        assertTrue(PluginUpdateService.marketplaceUsesLocalDirectory(
+                mapper.readTree("{\"marketplaceSource\":{\"source\":\"" + jsonPath(marketplace) + "\"}}"),
+                marketplace));
+        assertFalse(PluginUpdateService.marketplaceUsesLocalDirectory(
+                mapper.readTree("{\"marketplaceSource\":{\"source\":\"https://github.com/team/repo.git\"}}"),
+                marketplace));
+    }
+
+    @Test
+    void shouldGateDependentStepsOnSuccessfulExit() {
+        assertTrue(PluginUpdateService.stepSucceeded(Map.of("ok", true, "exitCode", 0)));
+        assertFalse(PluginUpdateService.stepSucceeded(Map.of("ok", false, "exitCode", 1)));
+        assertFalse(PluginUpdateService.stepSucceeded(Map.of("skipped", true)));
+    }
+
+    private static String jsonPath(Path path) {
+        return path.toString().replace("\\", "\\\\");
     }
 }

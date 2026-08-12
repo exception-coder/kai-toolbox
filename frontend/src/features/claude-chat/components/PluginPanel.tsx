@@ -155,14 +155,25 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
     const es = authEventSource(path)
     esRef.current = es
     es.onmessage = ev => {
-      let m: { type: string; engine?: string; step?: string; text?: string; exitCode?: number; message?: string }
+      let m: {
+        type: string
+        engine?: string
+        step?: string
+        text?: string
+        exitCode?: number
+        message?: string
+        results?: Array<{ ok?: boolean; skipped?: boolean }>
+      }
       try { m = JSON.parse(ev.data) } catch { return }
       if (m.type === 'line') {
         setLines(prev => [...prev, `${m.engine ? `[${m.engine}] ` : ''}${m.text ?? ''}`])
       } else if (m.type === 'step') {
         setLines(prev => [...prev, `[${m.engine}] ${m.step} → exit ${m.exitCode}`])
       } else if (m.type === 'done') {
-        setLines(prev => [...prev, doneText])
+        const incomplete = m.results?.some(result => result.ok === false)
+        setLines(prev => [...prev, incomplete
+          ? '⚠ 部分步骤未完成，失败插件已停止后续安装并保留其他可用版本'
+          : doneText])
         es.close(); setUpdating(false); void refresh()
       } else if (m.type === 'error') {
         setLines(prev => [...prev, `✖ ${m.message ?? '更新出错'}`])
@@ -518,7 +529,8 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
         <Download className="size-4" /> {updating ? '更新中…' : '一键更新团队插件（Claude + Codex）'}
       </Button>
       <p className="mt-1 text-[10px] text-[var(--color-muted-foreground)]">
-        双端更新 3 个插件（Codex 首次会自动添加 git 市场）；MCP 由每日同步脚本 git pull 维护，不在此处更新。
+        先从所选 Git 源同步团队仓库，再由本地 marketplace 安装 3 个插件；安装阶段不重复访问 GitHub/Gitee。
+        MCP 由每日同步脚本 git pull 维护，不在此处更新。
       </p>
 
       {lines.length > 0 && (
