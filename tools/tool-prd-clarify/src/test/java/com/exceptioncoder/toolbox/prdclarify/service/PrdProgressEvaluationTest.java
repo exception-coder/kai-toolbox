@@ -138,7 +138,7 @@ class PrdProgressEvaluationTest {
                 new ObjectMapper(),
                 mock(GraphifyQueryService.class),
                 domainKnowledge,
-                mock(ImageAttachmentStorageService.class),
+                mock(PrdImageInputResolver.class),
                 resolverProvider);
     }
 }
