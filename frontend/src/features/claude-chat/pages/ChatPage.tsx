@@ -69,6 +69,7 @@ import { countPrdReferenceDocuments, uploadPrdReference } from '../lib/prdRefere
 import { SessionPlanLockNotice } from '../components/SessionPlanLockNotice'
 import { SessionSitesDialog } from '../components/SessionSitesDialog'
 import { Combobox } from '@/components/ui/combobox'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { getDevPreference } from '@/features/_devkit/devPreferenceApi'
 import { resolveSiteIcon } from '@/lib/siteIcons'
 import { listQuickSiteSummaries, recordQuickSiteSummaryOpened } from '@/lib/quickSites'
@@ -1015,23 +1016,45 @@ export function ChatPage() {
             <span>{pendingSql.status === 'PENDING' ? 'SQL 待执行' : pendingSql.status === 'EXECUTED' ? 'SQL 已执行' : 'SQL 已取消'}</span>
           </button>
         )}
-        {linkedSites.map(site => {
-          const SiteIcon = resolveSiteIcon(site.icon)
-          return (
-            <span key={site.id} className="flex shrink-0 items-center rounded-full border border-sky-500/50 bg-sky-500/10 text-sky-700 dark:text-sky-300">
-              <button
-                type="button"
-                onClick={() => openLinkedSite(site)}
-                title={`按默认方式打开：${site.title}`}
-                className="flex items-center gap-1 py-0.5 pl-1.5 text-[10px]"
-              >
-                <SiteIcon className="size-3" />
-                <span className="hidden max-w-24 truncate sm:inline">{site.title}</span>
+        {linkedSites.length > 0 && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <button type="button" title={`查看 ${linkedSites.length} 个关联站点`}
+                className="flex shrink-0 items-center gap-1 rounded-full border border-sky-500/50 bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-700 dark:text-sky-300">
+                <Link2 className="size-3" />
+                <span className="max-sm:hidden">关联站点</span>
+                <span>{linkedSites.length}</span>
+                <ChevronDown className="size-3 opacity-60" />
               </button>
-              <SiteOpenModeMenu compact allowControlled={site.sourceType === 'QUICK'} onSelect={choice => openLinkedSite(site, choice)} />
-            </span>
-          )
-        })}
+            </PopoverTrigger>
+            <PopoverContent className="w-80 p-1" align="end">
+              <div className="max-h-72 overflow-y-auto">
+                {linkedSites.map(site => {
+                  const SiteIcon = resolveSiteIcon(site.icon)
+                  return (
+                    <div key={site.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-[var(--color-muted)]">
+                      <button type="button" onClick={() => openLinkedSite(site)} title={`按默认方式打开：${site.title}`}
+                        className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                        <SiteIcon className="size-4 shrink-0 text-sky-600 dark:text-sky-300" />
+                        <span className="min-w-0">
+                          <span className="block truncate text-xs font-medium">{site.title}</span>
+                          <span className="block truncate text-[10px] text-[var(--color-muted-foreground)]">
+                            {site.sourceType === 'CUSTOM' ? '临时站点' : site.groupName} · {site.siteUrl}
+                          </span>
+                        </span>
+                      </button>
+                      <SiteOpenModeMenu compact allowControlled={site.sourceType === 'QUICK'} onSelect={choice => openLinkedSite(site, choice)} />
+                    </div>
+                  )
+                })}
+              </div>
+              <button type="button" onClick={() => setShowSessionSites(true)}
+                className="mt-1 flex w-full items-center justify-center gap-1 rounded-md border-t px-2 py-1.5 text-xs text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)]">
+                <Settings className="size-3.5" />管理关联站点
+              </button>
+            </PopoverContent>
+          </Popover>
+        )}
         {/* 手势弹窗状态：开启后提示摄像头正在识别（隐私可见），点击可关 */}
         {gestureOn && (
           <button
