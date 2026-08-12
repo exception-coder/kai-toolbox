@@ -1,6 +1,9 @@
 package com.exceptioncoder.toolbox.eval.spi;
 
+import com.exceptioncoder.toolbox.eval.assertion.AssertionSpec;
 import com.fasterxml.jackson.databind.JsonNode;
+
+import java.util.List;
 
 /**
  * L1 适配层：被测能力接入评测底座的唯一契约。
@@ -42,6 +45,11 @@ public interface EvalAdapter {
     }
 
     Output run(Input input) throws Exception;
+
+    /** Scenario-owned deterministic assertions derived from expected_json. */
+    default List<AssertionSpec> deriveAssertions(JsonNode expected) {
+        return List.of();
+    }
 
     /**
      * @param caseId        用例 id，仅用于日志溯源

@@ -55,7 +55,12 @@ public class AgentOneShotService implements AgentOneShotRunner {
     /** 按调用方提供的会话配置执行独立的一次性任务。 */
     @Override
     public String runOnce(ExecutionRequest request) {
-        return execute(request, null, null);
+        return executeObserved(request, null, null).text();
+    }
+
+    @Override
+    public ObservedResult runObserved(ExecutionRequest request) {
+        return executeObserved(request, null, null);
     }
 
     /** 按调用方提供的会话配置流式执行独立任务。 */
@@ -86,6 +91,10 @@ public class AgentOneShotService implements AgentOneShotRunner {
     }
 
     private String execute(ExecutionRequest request, Consumer<String> onDelta, List<ImageInput> images) {
+        return executeObserved(request, onDelta, images).text();
+    }
+
+    private ObservedResult executeObserved(ExecutionRequest request, Consumer<String> onDelta, List<ImageInput> images) {
         ensureReady();
         String id = PREFIX + UUID.randomUUID();
         String engine = normalizeEngine(request.engine());
@@ -96,7 +105,7 @@ public class AgentOneShotService implements AgentOneShotRunner {
         calls.put(id, call);
         try {
             sidecar.oneShot(id, request, engine, images, span.traceContext(), metadata);
-            String result = call.future.get(props.getAgentOneShotTimeoutMs(), TimeUnit.MILLISECONDS);
+            ObservedResult result = call.future.get(props.getAgentOneShotTimeoutMs(), TimeUnit.MILLISECONDS);
             span.success("end_turn");
             return result;
         } catch (TimeoutException e) {
@@ -173,7 +182,9 @@ public class AgentOneShotService implements AgentOneShotRunner {
                     }
                 }
             }
-            case "result" -> call.future.complete(call.text.toString());
+            case "result" -> call.future.complete(new ObservedResult(
+                    call.text.toString(), node.path("traceId").asText(null),
+                    node.get("evidence"), node.get("trajectory")));
             case "error" -> {
                 String message = node.path("message").asText("Claude Agent 执行失败");
                 call.future.completeExceptionally(new RuntimeException("高质量引擎失败：" + message));
@@ -198,7 +209,7 @@ public class AgentOneShotService implements AgentOneShotRunner {
     private static final class Call {
         final StringBuilder text = new StringBuilder();
         final Consumer<String> onDelta;
-        final CompletableFuture<String> future = new CompletableFuture<>();
+        final CompletableFuture<ObservedResult> future = new CompletableFuture<>();
 
         Call(Consumer<String> onDelta) {
             this.onDelta = onDelta;

@@ -194,9 +194,10 @@ public class ConsultService {
         int seq = 1;
         for (ArchiveRequest.TurnItem item : items) {
             int index = item.turnIndex() > 0 ? item.turnIndex() : seq;
+            ConsultTurnRepository.TraceBinding traceBinding = turnRepo.findTraceBinding(sessionId, index).orElse(null);
             boolean hasRecognition = "v4".equalsIgnoreCase(session.getOrchestrationVersion());
             turnRepo.insert(ConsultTurn.builder()
-                    .turnId(UUID.randomUUID().toString())
+                    .turnId(traceBinding == null ? UUID.randomUUID().toString() : traceBinding.turnId())
                     .sessionId(sessionId)
                     .turnIndex(index)
                     .question(item.question())
@@ -210,12 +211,17 @@ public class ConsultService {
                     .recognitionStatus(hasRecognition
                             ? ConsultRecognitionStatus.normalize(item.recognitionStatus()) : null)
                     .recognitionEvidence(serializeStringList(normalizeRecognitionEvidence(item.recognitionEvidence())))
-                    .traceId(normalizeTraceId(item.traceId()))
+                    .traceId(firstTraceId(traceBinding == null ? null : traceBinding.traceId(), item.traceId()))
                     .attachments(serializeAttachments(item.attachments()))
                     .createdAt(now)
                     .build());
             seq++;
         }
+    }
+
+    private String firstTraceId(String serverTraceId, String clientTraceId) {
+        String serverValue = normalizeTraceId(serverTraceId);
+        return serverValue != null ? serverValue : normalizeTraceId(clientTraceId);
     }
 
     private List<String> normalizeRecognitionList(List<String> values) {

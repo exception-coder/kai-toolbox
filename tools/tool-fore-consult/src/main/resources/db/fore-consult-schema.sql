@@ -66,6 +66,18 @@ ALTER TABLE consult_turn ADD COLUMN recognition_status TEXT;
 ALTER TABLE consult_turn ADD COLUMN recognition_evidence TEXT;
 ALTER TABLE consult_turn ADD COLUMN trace_id TEXT;
 
+-- Stable turn identity and server-side Trace binding. This table is not replaced by archive sync.
+CREATE TABLE IF NOT EXISTS consult_turn_trace (
+    turn_id       TEXT    PRIMARY KEY,
+    session_id    TEXT    NOT NULL,
+    turn_index    INTEGER NOT NULL,
+    trace_id      TEXT,
+    started_at    INTEGER NOT NULL,
+    completed_at  INTEGER,
+    UNIQUE (session_id, turn_index)
+);
+CREATE INDEX IF NOT EXISTS idx_consult_turn_trace_trace ON consult_turn_trace(trace_id);
+
 -- 单轮回答的用户评分/反馈。独立表，按 (session_id,turn_index) 唯一——不随 consult_turn 的
 -- 整表重写（增量同步/重新归档）而丢失。rating: GOOD（满意）| BAD（不满意）。
 CREATE TABLE IF NOT EXISTS consult_feedback (

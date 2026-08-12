@@ -7,6 +7,7 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -85,5 +86,14 @@ public class ConsultTurnRepository {
 
     public void deleteBySession(String sessionId) {
         jdbc.update("DELETE FROM consult_turn WHERE session_id = ?", sessionId);
+    }
+
+    public Optional<TraceBinding> findTraceBinding(String sessionId, int turnIndex) {
+        return jdbc.query("SELECT turn_id, trace_id FROM consult_turn_trace WHERE session_id = ? AND turn_index = ?",
+                (rs, rowNum) -> new TraceBinding(rs.getString("turn_id"), rs.getString("trace_id")),
+                sessionId, turnIndex).stream().findFirst();
+    }
+
+    public record TraceBinding(String turnId, String traceId) {
     }
 }

@@ -2,7 +2,8 @@ package com.exceptioncoder.toolbox.foreconsult.service;
 
 import com.exceptioncoder.toolbox.foreconsult.domain.ConsultSession;
 import com.exceptioncoder.toolbox.foreconsult.repository.ConsultSessionRepository;
-import com.exceptioncoder.toolbox.foreconsult.repository.ConsultTurnRepository;
+import com.exceptioncoder.toolbox.foreconsult.domain.ConsultTurnTrace;
+import com.exceptioncoder.toolbox.foreconsult.repository.ConsultTurnTraceRepository;
 import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadata;
 import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadataProvider;
 import org.springframework.stereotype.Component;
@@ -16,12 +17,12 @@ import java.util.Optional;
 public class ConsultAgentRunMetadataProvider implements AgentRunMetadataProvider {
 
     private final ConsultSessionRepository sessionRepository;
-    private final ConsultTurnRepository turnRepository;
+    private final ConsultTurnTraceRepository turnTraceRepository;
 
     public ConsultAgentRunMetadataProvider(ConsultSessionRepository sessionRepository,
-                                           ConsultTurnRepository turnRepository) {
+                                           ConsultTurnTraceRepository turnTraceRepository) {
         this.sessionRepository = sessionRepository;
-        this.turnRepository = turnRepository;
+        this.turnTraceRepository = turnTraceRepository;
     }
 
     @Override
@@ -30,7 +31,9 @@ public class ConsultAgentRunMetadataProvider implements AgentRunMetadataProvider
     }
 
     private AgentRunMetadata toMetadata(ConsultSession session) {
+        ConsultTurnTrace turn = turnTraceRepository.reserveNext(session.getSessionId());
         Map<String, Object> attributes = new LinkedHashMap<>();
+        attributes.put("consult.turn.id", turn.turnId());
         put(attributes, "consult.system.name", session.getSystemName());
         put(attributes, "consult.module.names", session.getModuleNames());
         put(attributes, "consult.role", session.getRole());
@@ -38,7 +41,7 @@ public class ConsultAgentRunMetadataProvider implements AgentRunMetadataProvider
         return new AgentRunMetadata(
                 "fore-consult",
                 session.getSessionId(),
-                turnRepository.countBySession(session.getSessionId()) + 1,
+                turn.turnIndex(),
                 session.getEngine(),
                 session.getModel(),
                 attributes);

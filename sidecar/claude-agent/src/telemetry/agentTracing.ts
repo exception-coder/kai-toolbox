@@ -9,6 +9,7 @@ import {
 } from '@opentelemetry/api'
 import { inputKeySummary, outputLength, sanitizeAttributes, sanitizeText } from './sanitizer.js'
 import { telemetryEnabled } from './telemetry.js'
+import { evidenceAttributes, summarizeToolEvidence, type ToolEvidenceSummary } from './evidenceSummary.js'
 
 export interface TraceContextCarrier {
   traceparent?: string
@@ -27,6 +28,8 @@ export interface AgentTelemetryMetadata {
 interface ToolTrace {
   span: Span
   timer: NodeJS.Timeout
+  toolName: string
+  input: unknown
 }
 
 interface ActiveTrace {
@@ -35,6 +38,9 @@ interface ActiveTrace {
   tools: Map<string, ToolTrace>
   timer: NodeJS.Timeout
   toolCalls: number
+  repeatedToolCalls: number
+  toolSignatures: Set<string>
+  evidence: ToolEvidenceSummary[]
 }
 
 const AGENT_TRACE_TTL_MS = 30 * 60 * 1000
@@ -68,7 +74,10 @@ export class AgentTracing {
     const spanContext = trace.setSpan(parent, span)
     const timer = setTimeout(() => this.finish(sessionId, 'trace timeout', true), AGENT_TRACE_TTL_MS)
     timer.unref?.()
-    this.active.set(sessionId, { span, spanContext, tools: new Map(), timer, toolCalls: 0 })
+    this.active.set(sessionId, {
+      span, spanContext, tools: new Map(), timer, toolCalls: 0,
+      repeatedToolCalls: 0, toolSignatures: new Set(), evidence: [],
+    })
   }
 
   observe(sessionId: string, event: Record<string, unknown>): Record<string, unknown> {
@@ -88,7 +97,18 @@ export class AgentTracing {
     } else if (type === 'result') {
       const traceId = active.span.spanContext().traceId
       const stopReason = sanitizeText(event.stopReason || 'end_turn')
-      const enriched = { ...event, traceId }
+      const enriched = {
+        ...event,
+        traceId,
+        evidence: active.evidence,
+        trajectory: {
+          modelCalls: null,
+          modelCallObservation: 'UNAVAILABLE',
+          toolCalls: active.toolCalls,
+          repeatedToolCalls: active.repeatedToolCalls,
+          sourceTypes: [...new Set(active.evidence.map(item => item.sourceType))],
+        },
+      }
       this.applyUsage(active.span, event.usage)
       this.finish(sessionId, stopReason, stopReason === 'error' || stopReason === 'interrupted')
       return enriched
@@ -129,8 +149,12 @@ export class AgentTracing {
       active.tools.delete(callId)
     }, TOOL_TRACE_TTL_MS)
     timer.unref?.()
-    active.tools.set(callId, { span, timer })
+    active.tools.set(callId, { span, timer, toolName, input: event.input })
     active.toolCalls++
+    const preliminary = summarizeToolEvidence(toolName, event.input, undefined)
+    const signature = `${toolName}|${preliminary.queryFingerprint ?? inputKeySummary(event.input)}`
+    if (active.toolSignatures.has(signature)) active.repeatedToolCalls++
+    active.toolSignatures.add(signature)
   }
 
   private finishTool(active: ActiveTrace, event: Record<string, unknown>): void {
@@ -141,6 +165,11 @@ export class AgentTracing {
     const failed = event.isError === true
     tool.span.setAttribute('tool.status', failed ? 'ERROR' : 'OK')
     tool.span.setAttribute('tool.output.length', outputLength(event.output))
+    const evidence = summarizeToolEvidence(tool.toolName, tool.input, event.output, event.evidence)
+    if (active.evidence.length < 50) active.evidence.push(evidence)
+    for (const [key, value] of Object.entries(evidenceAttributes(evidence))) {
+      tool.span.setAttribute(key, value)
+    }
     tool.span.setStatus({ code: failed ? SpanStatusCode.ERROR : SpanStatusCode.OK })
     tool.span.end()
     active.tools.delete(callId)
@@ -158,6 +187,7 @@ export class AgentTracing {
     }
     active.tools.clear()
     active.span.setAttribute('agent.tool_call_count', active.toolCalls)
+    active.span.setAttribute('agent.repeated_tool_call_count', active.repeatedToolCalls)
     active.span.setAttribute('agent.stop_reason', sanitizeText(reason))
     active.span.setStatus({ code: failed ? SpanStatusCode.ERROR : SpanStatusCode.OK, message: failed ? sanitizeText(reason) : undefined })
     active.span.end()

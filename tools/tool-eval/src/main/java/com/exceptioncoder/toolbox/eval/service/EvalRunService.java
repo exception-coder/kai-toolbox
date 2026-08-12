@@ -191,7 +191,7 @@ public class EvalRunService {
                     new EvalAdapter.Input(c.getId(), payload, run.getModel(), promptContent,
                             run.getPromptVersion()));
 
-            List<AssertionSpec> specs = resolveSpecs(c);
+            List<AssertionSpec> specs = resolveSpecs(c, adapter);
             AssertionEngine.Verdict verdict = assertionEngine.evaluate(out.result(), specs);
 
             return builder
@@ -214,7 +214,7 @@ public class EvalRunService {
     }
 
     /** 显式断言优先；缺省时由期望值推导，自由文本字段自动降级。 */
-    private List<AssertionSpec> resolveSpecs(EvalCase c) throws Exception {
+    private List<AssertionSpec> resolveSpecs(EvalCase c, EvalAdapter adapter) throws Exception {
         if (c.getAssertJson() != null && !c.getAssertJson().isBlank()) {
             JsonNode node = mapper.readTree(c.getAssertJson());
             if (node.isArray() && !node.isEmpty()) {
@@ -225,7 +225,11 @@ public class EvalRunService {
                 return specs;
             }
         }
-        return assertionEngine.deriveFromExpected(mapper.readTree(c.getExpectedJson()), FUZZY_FIELDS);
+        JsonNode expected = mapper.readTree(c.getExpectedJson());
+        List<AssertionSpec> adapterSpecs = adapter.deriveAssertions(expected);
+        return adapterSpecs.isEmpty()
+                ? assertionEngine.deriveFromExpected(expected, FUZZY_FIELDS)
+                : adapterSpecs;
     }
 
     private String writeJson(Object value) {

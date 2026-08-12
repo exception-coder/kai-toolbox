@@ -72,6 +72,8 @@ public final class AgentTelemetry implements AutoCloseable {
             Context extracted = openTelemetry.getPropagators().getTextMapPropagator()
                     .extract(Context.root(), carrier, GETTER);
             builder.setParent(extracted);
+        } else {
+            builder.setParent(Context.current());
         }
         Span span = builder.startSpan();
         applyMetadata(span, metadata);

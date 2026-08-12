@@ -1,5 +1,7 @@
 package com.exceptioncoder.toolbox.llm.spi;
 
+import com.fasterxml.jackson.databind.JsonNode;
+
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -58,6 +60,11 @@ public interface AgentOneShotRunner {
         return runOnce(request.systemPrompt(), request.userPrompt(), request.model(), request.engine());
     }
 
+    /** Executes one task and returns the observable facts emitted by the runtime. */
+    default ObservedResult runObserved(ExecutionRequest request) {
+        return new ObservedResult(runOnce(request), null, null, null);
+    }
+
     /**
      * 按指定执行配置流式运行任务，允许调用方同时传入项目目录和只读工具策略。
      *
@@ -108,5 +115,8 @@ public interface AgentOneShotRunner {
             String codexHome,
             String toolPolicy
     ) {
+    }
+
+    record ObservedResult(String text, String traceId, JsonNode evidence, JsonNode trajectory) {
     }
 }

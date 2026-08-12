@@ -5,6 +5,7 @@ import com.exceptioncoder.toolbox.eval.repository.EvalResultRepository;
 import com.exceptioncoder.toolbox.llm.observability.AgentTelemetry;
 import com.exceptioncoder.toolbox.llm.observability.AgentTelemetryProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -80,6 +81,15 @@ public class LangfuseScoreExportService {
                     "Deterministic local assertion verdict");
             postScore(result, "answer_correctness", "NUMERIC", result.getScore(),
                     "Deterministic local evaluation score");
+            QualityScores quality = qualityScores(result);
+            postScore(result, "evidence_sufficiency", "NUMERIC", quality.evidenceSufficiency(),
+                    "Deterministic evidence count and source coverage");
+            postScore(result, "citation_validity", "NUMERIC", quality.citationValidity(),
+                    "Deterministic evidence identifier coverage");
+            postScore(result, "trajectory_efficiency", "NUMERIC", quality.trajectoryEfficiency(),
+                    "Deterministic repeated-tool and tool-count efficiency");
+            postScore(result, "groundedness", "NUMERIC", quality.groundedness(),
+                    "Deterministic assertion and evidence composite");
             long now = System.currentTimeMillis();
             resultRepository.updateScoreExport(result.getId(), SUCCESS, null, now);
         } catch (Exception e) {
@@ -133,6 +143,38 @@ public class LangfuseScoreExportService {
 
     private long timeoutMs() {
         return Math.max(100, properties.getExportTimeoutMs());
+    }
+
+    private QualityScores qualityScores(EvalResult result) {
+        try {
+            JsonNode output = mapper.readTree(result.getOutputJson());
+            JsonNode evidence = output.path("evidence");
+            int evidenceCount = evidence.isArray() ? evidence.size() : 0;
+            int identified = 0;
+            int usefulSources = 0;
+            if (evidence.isArray()) {
+                for (JsonNode item : evidence) {
+                    if (item.path("evidenceIds").isArray() && !item.path("evidenceIds").isEmpty()) identified++;
+                    if (!"unknown".equalsIgnoreCase(item.path("sourceType").asText("unknown"))) usefulSources++;
+                }
+            }
+            double sufficiency = evidenceCount == 0 ? 0
+                    : Math.min(1, evidenceCount / 2.0) * ((double) usefulSources / evidenceCount);
+            double citation = evidenceCount == 0 ? 0 : (double) identified / evidenceCount;
+            JsonNode trajectory = output.path("trajectory");
+            int toolCalls = Math.max(0, trajectory.path("toolCalls").asInt(0));
+            int repeated = Math.max(0, trajectory.path("repeatedToolCalls").asInt(0));
+            double efficiency = toolCalls == 0 ? 1 : Math.max(0, 1 - (double) repeated / toolCalls);
+            double correctness = result.getScore();
+            double groundedness = 0.6 * correctness + 0.25 * sufficiency + 0.15 * citation;
+            return new QualityScores(sufficiency, citation, efficiency, groundedness);
+        } catch (Exception ignored) {
+            return new QualityScores(0, 0, 0, 0);
+        }
+    }
+
+    private record QualityScores(double evidenceSufficiency, double citationValidity,
+                                 double trajectoryEfficiency, double groundedness) {
     }
 
     private static boolean notBlank(String value) {

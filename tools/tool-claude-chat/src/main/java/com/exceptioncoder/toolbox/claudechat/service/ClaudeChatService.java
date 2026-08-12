@@ -8,6 +8,7 @@ import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.domain.SessionStatus;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadata;
+import com.exceptioncoder.toolbox.llm.observability.AgentRunCompletionListener;
 import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadataProvider;
 import com.exceptioncoder.toolbox.llm.observability.AgentSpan;
 import com.exceptioncoder.toolbox.llm.observability.AgentTelemetry;
@@ -60,6 +61,7 @@ public class ClaudeChatService {
     private final ObjectMapper mapper;
     private final AgentTelemetry telemetry;
     private final List<AgentRunMetadataProvider> metadataProviders;
+    private final List<AgentRunCompletionListener> completionListeners;
 
     /** sessionId -> 运行时上下文 */
     private final Map<String, SessionCtx> sessions = new ConcurrentHashMap<>();
@@ -67,6 +69,8 @@ public class ClaudeChatService {
     private final Map<String, String> wsToSession = new ConcurrentHashMap<>();
     /** sessionId -> 当前持久会话轮次根 Span；result/断线/停机任一路径都必须收口。 */
     private final Map<String, AgentSpan> activeTurnSpans = new ConcurrentHashMap<>();
+    /** sessionId -> metadata captured at dispatch; completion must use the same stable turn identity. */
+    private final Map<String, AgentRunMetadata> activeTurnMetadata = new ConcurrentHashMap<>();
     /** 后台 sidecar 重连任务的去重锁，避免多次断开叠起多个重连循环 */
     private final AtomicBoolean recovering = new AtomicBoolean(false);
     /** 一轮重连结束后的冷却时长：同一次断开的后续事件落在窗口内即被丢弃 */
@@ -88,7 +92,8 @@ public class ClaudeChatService {
                              SessionPlanStateService planStateService,
                              ObjectMapper mapper,
                              AgentTelemetry telemetry,
-                             List<AgentRunMetadataProvider> metadataProviders) {
+                             List<AgentRunMetadataProvider> metadataProviders,
+                             List<AgentRunCompletionListener> completionListeners) {
         this.props = props;
         this.repo = repo;
         this.processRegistry = processRegistry;
@@ -102,6 +107,7 @@ public class ClaudeChatService {
         this.mapper = mapper;
         this.telemetry = telemetry;
         this.metadataProviders = List.copyOf(metadataProviders);
+        this.completionListeners = List.copyOf(completionListeners);
     }
 
     @PostConstruct
@@ -461,6 +467,7 @@ public class ClaudeChatService {
         String spanName = "fore-consult".equals(metadata.scope()) ? "fore_consult.turn" : "agent.turn";
         AgentSpan span = telemetry.start(spanName, metadata);
         AgentSpan previous = activeTurnSpans.put(ctx.sessionId, span);
+        activeTurnMetadata.put(ctx.sessionId, metadata);
         if (previous != null) {
             previous.fail("overlapping turn replaced", null);
         }
@@ -469,6 +476,7 @@ public class ClaudeChatService {
                     developerInstructions, span.traceContext(), metadata);
         } catch (RuntimeException e) {
             activeTurnSpans.remove(ctx.sessionId, span);
+            activeTurnMetadata.remove(ctx.sessionId, metadata);
             span.fail("sidecar send failed", e);
             throw e;
         }
@@ -895,6 +903,7 @@ public class ClaudeChatService {
         if (ctx.demo && !hasActiveViewer(ctx)) {
             sidecar.interrupt(sessionId);
             AgentSpan span = activeTurnSpans.remove(sessionId);
+            activeTurnMetadata.remove(sessionId);
             if (span != null) {
                 span.fail("demo session disconnected", null);
             }
@@ -1023,6 +1032,7 @@ public class ClaudeChatService {
         Map<String, Object> usage = asMap(node.get("usage"));
         String stopReason = node.path("stopReason").asText("end_turn");
         AgentSpan span = activeTurnSpans.remove(ctx.sessionId);
+        AgentRunMetadata metadata = activeTurnMetadata.remove(ctx.sessionId);
         String traceId = node.path("traceId").asText(null);
         if ((traceId == null || traceId.isBlank()) && span != null) {
             traceId = span.traceId();
@@ -1034,6 +1044,7 @@ public class ClaudeChatService {
                 span.success(stopReason);
             }
         }
+        notifyCompleted(ctx.sessionId, metadata, traceId);
         if ("interrupted".equals(stopReason)) {
             log.info("[claude-chat] 当前轮已中断 session={} engine={}", ctx.sessionId, ctx.engine);
         }
@@ -1202,6 +1213,21 @@ public class ClaudeChatService {
     private void finishAllActiveSpans(String reason) {
         activeTurnSpans.forEach((sessionId, span) -> span.fail(reason, null));
         activeTurnSpans.clear();
+        activeTurnMetadata.clear();
+    }
+
+    private void notifyCompleted(String runtimeSessionId, AgentRunMetadata metadata, String traceId) {
+        if (metadata == null || traceId == null || traceId.isBlank()) {
+            return;
+        }
+        long completedAt = System.currentTimeMillis();
+        for (AgentRunCompletionListener listener : completionListeners) {
+            try {
+                listener.completed(runtimeSessionId, metadata, traceId, completedAt);
+            } catch (Exception e) {
+                log.warn("[agent-telemetry] Trace 业务关联失败 session={}: {}", runtimeSessionId, e.getMessage());
+            }
+        }
     }
 
     private static String executionPolicyOf(ClaudeChatSession session) {
@@ -1257,6 +1283,7 @@ public class ClaudeChatService {
         if (ctx != null) {
             sidecar.interrupt(id);
             AgentSpan span = activeTurnSpans.remove(id);
+            activeTurnMetadata.remove(id);
             if (span != null) {
                 span.fail("session dropped", null);
             }

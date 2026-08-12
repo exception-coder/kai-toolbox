@@ -18,7 +18,16 @@ public enum AssertionType {
     /** 实际字符串包含 expected 子串（忽略大小写）。 */
     CONTAINS,
     /** 数值差在 expected 容差内，形如 {"value":3,"tolerance":0.5}。 */
-    NUMERIC_WITHIN;
+    NUMERIC_WITHIN,
+    REQUIRED_FACT,
+    FORBIDDEN_CLAIM,
+    REQUIRED_SOURCE_TYPE,
+    REQUIRED_EVIDENCE_ID,
+    MIN_EVIDENCE_COUNT,
+    MAX_TOOL_CALLS,
+    MAX_MODEL_CALLS,
+    NO_REPEATED_TOOL_CALL,
+    MUST_DECLARE_INSUFFICIENT_EVIDENCE;
 
     public static AssertionType from(String raw) {
         if (raw == null || raw.isBlank()) {

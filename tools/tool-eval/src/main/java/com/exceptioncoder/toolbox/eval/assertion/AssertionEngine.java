@@ -67,7 +67,62 @@ public class AssertionEngine {
             case CONTAINS -> judge(spec, type, expectedText, actualText,
                     !isMissing(actual) && norm(actual).toLowerCase().contains(norm(spec.expected()).toLowerCase()));
             case NUMERIC_WITHIN -> numericWithin(spec, type, actual, actualText, expectedText);
+            case REQUIRED_FACT -> judge(spec, type, expectedText, actualText,
+                    !isMissing(actual) && norm(actual).toLowerCase().contains(norm(spec.expected()).toLowerCase()));
+            case FORBIDDEN_CLAIM -> judge(spec, type, "不得包含 " + expectedText, actualText,
+                    isMissing(actual) || !norm(actual).toLowerCase().contains(norm(spec.expected()).toLowerCase()));
+            case REQUIRED_SOURCE_TYPE -> judge(spec, type, expectedText, actualText,
+                    arrayContains(actual, spec.expected()));
+            case REQUIRED_EVIDENCE_ID -> judge(spec, type, expectedText, describe(root.path("evidence")),
+                    containsEvidenceId(root.path("evidence"), norm(spec.expected())));
+            case MIN_EVIDENCE_COUNT -> judge(spec, type, expectedText, actualText,
+                    actual != null && actual.isArray() && actual.size() >= expectedNumber(spec.expected()));
+            case MAX_TOOL_CALLS, MAX_MODEL_CALLS -> maxNumber(spec, type, actual, actualText, expectedText);
+            case NO_REPEATED_TOOL_CALL -> judge(spec, type, "0", actualText,
+                    !isMissing(actual) && actual.isNumber() && actual.asInt() == 0);
+            case MUST_DECLARE_INSUFFICIENT_EVIDENCE -> judge(spec, type, "明确声明证据不足", actualText,
+                    declaresInsufficientEvidence(actual));
         };
+    }
+
+    private AssertionOutcome maxNumber(AssertionSpec spec, AssertionType type,
+                                       JsonNode actual, String actualText, String expectedText) {
+        if (isMissing(actual) || !actual.isNumber()) {
+            return fail(spec, expectedText, actualText, "运行时未提供该调用计数，不能推测通过");
+        }
+        return judge(spec, type, expectedText, actualText, actual.asDouble() <= expectedNumber(spec.expected()));
+    }
+
+    private boolean arrayContains(JsonNode actual, JsonNode expected) {
+        if (actual == null || !actual.isArray()) return false;
+        for (JsonNode item : actual) {
+            if (norm(item).equalsIgnoreCase(norm(expected))) return true;
+        }
+        return false;
+    }
+
+    private boolean containsEvidenceId(JsonNode evidence, String expected) {
+        if (evidence == null || !evidence.isArray() || expected.isBlank()) return false;
+        for (JsonNode item : evidence) {
+            JsonNode ids = item.path("evidenceIds");
+            if (ids.isArray()) {
+                for (JsonNode id : ids) {
+                    if (norm(id).equalsIgnoreCase(expected)) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private double expectedNumber(JsonNode expected) {
+        return expected != null && expected.isNumber() ? expected.asDouble() : Double.NaN;
+    }
+
+    private boolean declaresInsufficientEvidence(JsonNode actual) {
+        if (isMissing(actual)) return false;
+        String text = norm(actual).toLowerCase();
+        return text.contains("证据不足") || text.contains("无法确认") || text.contains("尚不能判断")
+                || text.contains("insufficient evidence") || text.contains("cannot confirm");
     }
 
     private AssertionOutcome numericWithin(AssertionSpec spec, AssertionType type,
