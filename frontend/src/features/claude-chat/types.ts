@@ -19,6 +19,19 @@ export interface SessionPendingSql {
   executedAt: number | null
 }
 
+/** 当前 Vibe Coding 会话专属的临时测试站点。 */
+export interface SessionCustomSite {
+  id: string
+  title: string
+  siteUrl: string
+}
+
+/** 会话测试站点聚合配置，兼容全局快捷入口关联和临时站点。 */
+export interface SessionSiteConfiguration {
+  quickSiteIds: string[]
+  customSites: SessionCustomSite[]
+}
+
 export type ProviderKind = 'official' | 'thirdParty'
 
 export interface ClaudeChatSessionView {

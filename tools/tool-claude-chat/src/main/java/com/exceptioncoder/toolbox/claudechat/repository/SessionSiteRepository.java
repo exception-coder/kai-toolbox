@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.claudechat.repository;
 
+import com.exceptioncoder.toolbox.claudechat.domain.SessionCustomSite;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -32,6 +33,24 @@ public class SessionSiteRepository {
     }
 
     /**
+     * 按用户设置的顺序读取会话临时站点。
+     *
+     * @param sessionId 逻辑会话 ID
+     * @return 临时站点列表
+     */
+    public List<SessionCustomSite> findCustomSites(String sessionId) {
+        return jdbc.query("""
+                SELECT id, title, site_url
+                FROM claude_chat_session_custom_site
+                WHERE session_id = ?
+                ORDER BY sort_order, create_time
+                """, (resultSet, rowNum) -> new SessionCustomSite(
+                resultSet.getString("id"),
+                resultSet.getString("title"),
+                resultSet.getString("site_url")), sessionId);
+    }
+
+    /**
      * 用完整的新列表替换会话关联，保证排序和删除结果一致。
      *
      * @param sessionId 逻辑会话 ID
@@ -49,8 +68,28 @@ public class SessionSiteRepository {
         }
     }
 
+    /**
+     * 用完整的新列表替换会话临时站点。
+     *
+     * @param sessionId 逻辑会话 ID
+     * @param customSites 已规范化的临时站点
+     * @param now 当前毫秒时间戳
+     */
+    public void replaceCustomSites(String sessionId, List<SessionCustomSite> customSites, long now) {
+        jdbc.update("DELETE FROM claude_chat_session_custom_site WHERE session_id = ?", sessionId);
+        for (int index = 0; index < customSites.size(); index++) {
+            SessionCustomSite site = customSites.get(index);
+            jdbc.update("""
+                    INSERT INTO claude_chat_session_custom_site
+                        (id, session_id, title, site_url, sort_order, create_time, update_time)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, site.id(), sessionId, site.title(), site.siteUrl(), index, now, now);
+        }
+    }
+
     /** 删除会话时同步清理其站点关联。 */
     public void deleteBySessionId(String sessionId) {
         jdbc.update("DELETE FROM claude_chat_session_site WHERE session_id = ?", sessionId);
+        jdbc.update("DELETE FROM claude_chat_session_custom_site WHERE session_id = ?", sessionId);
     }
 }

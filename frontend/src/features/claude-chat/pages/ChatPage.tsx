@@ -71,10 +71,15 @@ import { SessionSitesDialog } from '../components/SessionSitesDialog'
 import { Combobox } from '@/components/ui/combobox'
 import { getDevPreference } from '@/features/_devkit/devPreferenceApi'
 import { resolveSiteIcon } from '@/lib/siteIcons'
-import { listQuickSiteSummaries, recordQuickSiteSummaryOpened, type QuickSiteSummary } from '@/lib/quickSites'
-import { listSessionSiteIds } from '../api'
+import { listQuickSiteSummaries, recordQuickSiteSummaryOpened } from '@/lib/quickSites'
+import { getSessionSiteConfiguration } from '../api'
 import { openQuickSite } from '@/lib/openQuickSite'
 import { SiteOpenModeMenu, type SiteOpenChoice } from '../components/SiteOpenModeMenu'
+import {
+  customSiteToLinkedSite,
+  quickSiteToLinkedSite,
+  type SessionLinkedSite,
+} from '../lib/sessionSites'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
 
@@ -203,7 +208,7 @@ export function ChatPage() {
   const autoPrdLinkInFlightRef = useRef(false)
   // 当前会话关联的 PRD（undefined=还没查/无会话，null=确认未关联），供顶栏标识展示。
   const [linkedPrd, setLinkedPrd] = useState<PrdSessionView | null | undefined>(undefined)
-  const [linkedSites, setLinkedSites] = useState<QuickSiteSummary[]>([])
+  const [linkedSites, setLinkedSites] = useState<SessionLinkedSite[]>([])
   useEffect(() => {
     const sessionId = chat?.sessionId
     if (!sessionId) {
@@ -211,19 +216,26 @@ export function ChatPage() {
       return
     }
     let active = true
-    Promise.all([listSessionSiteIds(sessionId), listQuickSiteSummaries()])
-      .then(([siteIds, sites]) => {
+    Promise.all([getSessionSiteConfiguration(sessionId), listQuickSiteSummaries()])
+      .then(([configuration, sites]) => {
         if (!active) return
-        setLinkedSites(siteIds.flatMap(id => sites.find(site => site.id === id && site.enabled) ?? []))
+        const quickSites = configuration.quickSiteIds.flatMap(id => {
+          const site = sites.find(candidate => candidate.id === id && candidate.enabled)
+          return site ? [quickSiteToLinkedSite(site)] : []
+        })
+        setLinkedSites([
+          ...quickSites,
+          ...configuration.customSites.map(customSiteToLinkedSite),
+        ])
       })
       .catch(() => active && setLinkedSites([]))
     return () => { active = false }
   }, [chat?.sessionId])
 
-  function openLinkedSite(site: QuickSiteSummary, choice?: SiteOpenChoice) {
+  function openLinkedSite(site: SessionLinkedSite, choice?: SiteOpenChoice) {
     try {
       openQuickSite(choice ? { ...site, windowBehavior: choice.windowBehavior } : site, choice?.openMode, !!choice)
-      void recordQuickSiteSummaryOpened(site.id)
+      if (site.sourceType === 'QUICK') void recordQuickSiteSummaryOpened(site.id)
     } catch {
       setShowSessionSites(true)
     }
@@ -1016,7 +1028,7 @@ export function ChatPage() {
                 <SiteIcon className="size-3" />
                 <span className="hidden max-w-24 truncate sm:inline">{site.title}</span>
               </button>
-              <SiteOpenModeMenu compact onSelect={choice => openLinkedSite(site, choice)} />
+              <SiteOpenModeMenu compact allowControlled={site.sourceType === 'QUICK'} onSelect={choice => openLinkedSite(site, choice)} />
             </span>
           )
         })}
@@ -1100,7 +1112,7 @@ export function ChatPage() {
                       <HeaderMenuItem nested icon={<Database className="size-4" />} label={pendingSql ? '管理待执行 SQL' : '登记待执行 SQL'} hint={pendingSql ? `${pendingSql.title || '未命名登记'} · ${pendingSql.status === 'PENDING' ? '待执行' : pendingSql.status === 'EXECUTED' ? '已执行' : '已取消'}` : '关联本次开发涉及的 DDL / DML，仅登记不执行'} onClick={() => { setHeaderMenu(false); setShowPendingSql(true) }} />
                     )}
                     {chat.sessionId && (
-                      <HeaderMenuItem nested icon={linkedSites[0] ? (() => { const Icon = resolveSiteIcon(linkedSites[0].icon); return <Icon className="size-4" /> })() : <LayoutGrid className="size-4" />} label={linkedSites.length > 0 ? '管理测试站点' : '关联测试站点'} hint={linkedSites.length > 0 ? `已关联 ${linkedSites.length} 个快捷入口站点` : '从快捷入口选择站点，在独立窗口中测试验证'} onClick={() => { setHeaderMenu(false); setShowSessionSites(true) }} />
+                      <HeaderMenuItem nested icon={linkedSites[0] ? (() => { const Icon = resolveSiteIcon(linkedSites[0].icon); return <Icon className="size-4" /> })() : <LayoutGrid className="size-4" />} label={linkedSites.length > 0 ? '管理测试站点' : '关联测试站点'} hint={linkedSites.length > 0 ? `已关联 ${linkedSites.length} 个测试站点` : '选择快捷入口或添加当前会话的临时地址'} onClick={() => { setHeaderMenu(false); setShowSessionSites(true) }} />
                     )}
                   </MenuSection>
                   <MenuSection icon={<FolderTree className="size-4" />} label="工作区 · 项目" open={menuGroup === 'workspace'} onToggle={() => toggle('workspace')}>

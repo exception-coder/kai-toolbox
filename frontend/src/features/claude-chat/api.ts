@@ -8,7 +8,7 @@ import type {
   GitRepoRef,
   GitStatusResponse,
 } from '@/components/git/types'
-import type { ChatItem, ClaudeChatSessionView, CloneResult, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PendingSqlChangeType, PendingSqlStatus, PluginStatus, ServerMessage, SessionPendingSql, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
+import type { ChatItem, ClaudeChatSessionView, CloneResult, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PendingSqlChangeType, PendingSqlStatus, PluginStatus, ServerMessage, SessionPendingSql, SessionSiteConfiguration, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
 import { normalizeUserMessageForDisplay } from './messageDisplay'
 
 /** 查询会话关联的 SQL 登记；未登记返回 null。 */
@@ -398,6 +398,21 @@ export function replaceSessionSiteIds(id: string, siteIds: string[]) {
   return http<void>(`/claude-chat/sessions/${encodeURIComponent(id)}/sites`, {
     method: 'PUT',
     body: JSON.stringify({ siteIds }),
+  })
+}
+
+/** 读取会话关联的快捷站点和临时站点。 */
+export function getSessionSiteConfiguration(id: string) {
+  return http<SessionSiteConfiguration>(
+    `/claude-chat/sessions/${encodeURIComponent(id)}/sites/configuration`,
+  )
+}
+
+/** 原子替换会话关联的快捷站点和临时站点。 */
+export function replaceSessionSiteConfiguration(id: string, configuration: SessionSiteConfiguration) {
+  return http<void>(`/claude-chat/sessions/${encodeURIComponent(id)}/sites/configuration`, {
+    method: 'PUT',
+    body: JSON.stringify(configuration),
   })
 }
 

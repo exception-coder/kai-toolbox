@@ -12,6 +12,7 @@ export interface SiteOpenChoice {
 interface Props {
   onSelect: (choice: SiteOpenChoice) => void
   compact?: boolean
+  allowControlled?: boolean
 }
 
 const CHOICES: Array<SiteOpenChoice & { label: string; hint: string; icon: typeof ShieldCheck }> = [
@@ -21,7 +22,7 @@ const CHOICES: Array<SiteOpenChoice & { label: string; hint: string; icon: typeo
 ]
 
 /** 为本次站点启动临时选择模式，不修改快捷入口的默认配置。 */
-export function SiteOpenModeMenu({ onSelect, compact = false }: Props) {
+export function SiteOpenModeMenu({ onSelect, compact = false, allowControlled = true }: Props) {
   const [open, setOpen] = useState(false)
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -38,7 +39,7 @@ export function SiteOpenModeMenu({ onSelect, compact = false }: Props) {
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-52 p-1" align="end">
-        {CHOICES.map(choice => {
+        {CHOICES.filter(choice => allowControlled || choice.windowBehavior !== 'CONTROLLED').map(choice => {
           const Icon = choice.icon
           return (
             <button
