@@ -7,7 +7,7 @@ const Java8guQuestionPage = lazy(() => import('./pages/Java8guQuestionPage').the
 const Java8guAskPage = lazy(() => import('./pages/Java8guAskPage').then((m) => ({ default: m.Java8guAskPage })))
 const manifest: FeatureManifest = {
   id: 'java8gu',
-  name: 'Java8 重构知识库',
+  name: 'Java八股文',
   icon: GraduationCap,
   group: '参考',
   description: '本地知识节点、重构案例、面试卡片与 ERP 工程实践',

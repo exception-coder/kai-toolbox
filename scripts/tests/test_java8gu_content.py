@@ -127,6 +127,23 @@ items.stream().filter(Item::active).toList();
         self.assertIn("暂无可核验", fields.summary)
         self.assertIn("暂无可核验", fields.content)
 
+    def test_adjacent_tables_are_separated(self) -> None:
+        markdown = """# 两张表
+
+## 速记
+
+| 字段 | 类型 |
+|---|---|
+| id | bigint |
+| 配置 | 值 |
+|---|---|
+| timeout | 30 |
+"""
+
+        fields = build_content_fields(markdown, "两张表", "数据库")
+
+        self.assertIn("| id | bigint |\n\n| 配置 | 值 |", fields.content)
+
 
 if __name__ == "__main__":
     unittest.main()

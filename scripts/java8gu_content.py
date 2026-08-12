@@ -283,8 +283,12 @@ def _add_table_spacing(lines: list[str]) -> list[str]:
         if _is_table_header(lines, index):
             if output and output[-1].strip():
                 output.append("")
+            first_row = True
             while index < len(lines) and _is_table_row(lines[index]):
+                if not first_row and _is_table_header(lines, index) and output[-1].strip():
+                    output.append("")
                 output.append(lines[index].strip())
+                first_row = False
                 index += 1
             if index < len(lines) and lines[index].strip():
                 output.append("")
