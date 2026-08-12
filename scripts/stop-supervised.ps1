@@ -11,10 +11,12 @@
 #   pwsh -File scripts\stop-supervised.ps1            # 停全部
 #   pwsh -File scripts\stop-supervised.ps1 -KeepStudio  # 保留 AgentScope Studio(:3000)
 #   pwsh -File scripts\stop-supervised.ps1 -Ports 18080,5173  # 只停指定端口
+#   pwsh -File scripts\stop-supervised.ps1 -IncludeObservability  # 同时停止 Aspire
 
 param(
     [int[]]$Ports,
-    [switch]$KeepStudio
+    [switch]$KeepStudio,
+    [switch]$IncludeObservability
 )
 
 $ErrorActionPreference = 'Continue'
@@ -32,6 +34,15 @@ function Initialize-Utf8Console {
 }
 
 Initialize-Utf8Console
+
+function Stop-LocalObservability {
+    $stopScript = Join-Path $PSScriptRoot 'stop-observability-local.ps1'
+    if (Test-Path -LiteralPath $stopScript) {
+        & $stopScript
+    } else {
+        Write-Host '[stop] WARN: 未找到 scripts/stop-observability-local.ps1'
+    }
+}
 
 # 与 run-supervised.ps1 完全一致的端口清理逻辑：Get-NetTCPConnection 优先，不可用回落 netstat。
 function Stop-PortHolders([int]$port, [string]$label) {
@@ -75,6 +86,7 @@ if ($Ports) {
         $label = if ($svc) { $svc.Label } else { 'custom' }
         Stop-PortHolders $p $label
     }
+    if ($IncludeObservability) { Stop-LocalObservability }
     Write-Host '[stop] 指定端口已处理完毕。'
     return
 }
@@ -87,4 +99,5 @@ foreach ($svc in $services) {
     }
     Stop-PortHolders $svc.Port $svc.Label
 }
+if ($IncludeObservability) { Stop-LocalObservability }
 Write-Host '[stop] 完成。'

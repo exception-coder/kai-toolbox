@@ -10,14 +10,18 @@
 # Frontend dev server is not managed here, so -Dskip.frontend=true is used.
 #
 # Usage:
-#   pwsh -File scripts\run-supervised.ps1                # dev (default, incremental)
+#   pwsh -File scripts\run-supervised.ps1                # dev + Aspire（默认）
 #   pwsh -File scripts\run-supervised.ps1 -Mode full     # package + fat jar
 #   pwsh -File scripts\run-supervised.ps1 -HotReload     # dev + 存盘即编译并热重启
+#   pwsh -File scripts\run-supervised.ps1 -Observability langfuse
+#   pwsh -File scripts\run-supervised.ps1 -Observability off
 # Ctrl+C stops the supervisor loop.
 
 param(
     [ValidateSet('dev', 'full')]
     [string]$Mode = 'dev',
+    [ValidateSet('aspire', 'langfuse', 'off')]
+    [string]$Observability = 'aspire',
     # 存盘即自动重启（源码监听 + DevTools 重启）。默认关：重启时机由人控制，
     # 走 POST /restart。热重启会换掉 Spring 上下文却留下旧上下文的后台线程/长连接
     # （claude-chat sidecar 就踩过：僵尸 bean 继续抢 sidecar，事件投递到没人看的一端），
@@ -70,20 +74,81 @@ function Read-DotEnvValue([string]$path, [string]$key) {
     return $null
 }
 
-$LangfuseEnvFile = Join-Path (Split-Path -Parent $PSScriptRoot) 'deploy\langfuse\.env'
-if (Test-Path -LiteralPath $LangfuseEnvFile) {
-    $langfuseBaseUrl = if ($env:LANGFUSE_BASE_URL) { $env:LANGFUSE_BASE_URL } else { Read-DotEnvValue $LangfuseEnvFile 'NEXTAUTH_URL' }
-    $langfusePublicKey = if ($env:LANGFUSE_PUBLIC_KEY) { $env:LANGFUSE_PUBLIC_KEY } else { Read-DotEnvValue $LangfuseEnvFile 'LANGFUSE_INIT_PROJECT_PUBLIC_KEY' }
-    $langfuseSecretKey = if ($env:LANGFUSE_SECRET_KEY) { $env:LANGFUSE_SECRET_KEY } else { Read-DotEnvValue $LangfuseEnvFile 'LANGFUSE_INIT_PROJECT_SECRET_KEY' }
+function Remove-ProcessEnvironmentVariable([string]$name) {
+    Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+}
+
+function Initialize-AspireObservability {
+    $env:TOOLBOX_OBSERVABILITY_ENABLED = 'true'
+    $env:OTEL_EXPORTER_OTLP_ENDPOINT = 'http://127.0.0.1:4318'
+    $env:OTEL_SERVICE_NAME = 'kai-toolbox'
+    $env:TOOLBOX_DEPLOYMENT_ENVIRONMENT = 'local'
+
+    foreach ($name in @(
+        'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT',
+        'OTEL_EXPORTER_OTLP_HEADERS',
+        'LANGFUSE_BASE_URL',
+        'LANGFUSE_PUBLIC_KEY',
+        'LANGFUSE_SECRET_KEY'
+    )) { Remove-ProcessEnvironmentVariable $name }
+
+    $startScript = Join-Path $PSScriptRoot 'start-observability-local.ps1'
+    if (-not (Test-Path -LiteralPath $startScript)) {
+        Write-Host '[supervisor] WARN: 未找到 scripts/start-observability-local.ps1，业务系统继续启动'
+        return
+    }
+    & $startScript
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host '[supervisor] WARN: Aspire Dashboard 未就绪，业务系统继续启动'
+        return
+    }
+    Write-Host '[supervisor] Aspire 观测已配置：OTLP/HTTP http://127.0.0.1:4318，Dashboard http://127.0.0.1:18888'
+}
+
+function Initialize-LangfuseObservability {
+    $langfuseEnvFile = Join-Path (Split-Path -Parent $PSScriptRoot) 'deploy\langfuse\.env'
+    $hasEnvFile = Test-Path -LiteralPath $langfuseEnvFile
+    $langfuseBaseUrl = if ($env:LANGFUSE_BASE_URL) { $env:LANGFUSE_BASE_URL } elseif ($hasEnvFile) { Read-DotEnvValue $langfuseEnvFile 'NEXTAUTH_URL' }
+    $langfusePublicKey = if ($env:LANGFUSE_PUBLIC_KEY) { $env:LANGFUSE_PUBLIC_KEY } elseif ($hasEnvFile) { Read-DotEnvValue $langfuseEnvFile 'LANGFUSE_INIT_PROJECT_PUBLIC_KEY' }
+    $langfuseSecretKey = if ($env:LANGFUSE_SECRET_KEY) { $env:LANGFUSE_SECRET_KEY } elseif ($hasEnvFile) { Read-DotEnvValue $langfuseEnvFile 'LANGFUSE_INIT_PROJECT_SECRET_KEY' }
     if ($langfuseBaseUrl -and $langfusePublicKey -and $langfuseSecretKey) {
         $env:LANGFUSE_BASE_URL = $langfuseBaseUrl
         $env:LANGFUSE_PUBLIC_KEY = $langfusePublicKey
         $env:LANGFUSE_SECRET_KEY = $langfuseSecretKey
-        if (-not $env:TOOLBOX_OBSERVABILITY_ENABLED) { $env:TOOLBOX_OBSERVABILITY_ENABLED = 'true' }
+        $env:TOOLBOX_OBSERVABILITY_ENABLED = 'true'
         Write-Host '[supervisor] Langfuse 观测配置已从 deploy/langfuse/.env 加载（密钥不输出）'
         if ($langfuseBaseUrl -notmatch '^https://') { Write-Host '[supervisor] WARN: Langfuse 当前不是 HTTPS，公网传输密钥存在风险' }
-    } else { Write-Host '[supervisor] WARN: deploy/langfuse/.env 缺少 Langfuse URL 或项目密钥，观测保持关闭' }
-} else { Write-Host '[supervisor] Langfuse 观测未启用：未找到 deploy/langfuse/.env' }
+        return
+    }
+
+    if ($env:OTEL_EXPORTER_OTLP_TRACES_ENDPOINT -or $env:OTEL_EXPORTER_OTLP_ENDPOINT) {
+        $env:TOOLBOX_OBSERVABILITY_ENABLED = 'true'
+        Write-Host '[supervisor] WARN: Langfuse 项目配置不完整，继续使用显式 OTLP Endpoint'
+        return
+    }
+
+    $env:TOOLBOX_OBSERVABILITY_ENABLED = 'false'
+    Write-Host '[supervisor] WARN: Langfuse URL 或项目密钥缺失，观测保持关闭'
+}
+
+function Disable-Observability {
+    $env:TOOLBOX_OBSERVABILITY_ENABLED = 'false'
+    foreach ($name in @(
+        'OTEL_EXPORTER_OTLP_ENDPOINT',
+        'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT',
+        'OTEL_EXPORTER_OTLP_HEADERS',
+        'LANGFUSE_BASE_URL',
+        'LANGFUSE_PUBLIC_KEY',
+        'LANGFUSE_SECRET_KEY'
+    )) { Remove-ProcessEnvironmentVariable $name }
+    Write-Host '[supervisor] OpenTelemetry 观测已关闭'
+}
+
+switch ($Observability) {
+    'aspire' { Initialize-AspireObservability }
+    'langfuse' { Initialize-LangfuseObservability }
+    'off' { Disable-Observability }
+}
 
 # 工具路径解析：优先 run-tools.conf 注入的 MVN_CMD/JAVA_CMD（上面已读入环境变量），其次 PATH，最后已知回退。
 # 接受目录值——自动定位到 bin\mvn.cmd / bin\java.exe（用户填了 Maven/JDK 主目录也能用）。
@@ -778,7 +843,7 @@ try {
     $listener = $null
 }
 if ($listener) { Write-Host "[supervisor] HTTP control $HttpPrefix  (POST /restart, GET /status)" }
-Write-Host "[supervisor] repo=$RepoRoot  mode=$Mode  mvn=$MvnCmd  java=$JavaCmd"
+Write-Host "[supervisor] repo=$RepoRoot  mode=$Mode  observability=$Observability  mvn=$MvnCmd  java=$JavaCmd"
 Write-Host "[supervisor] whisper mode=$WhisperMode（改用 run-tools.conf 的 TOOLBOX_WHISPER_MODE）"
 
 # 起服务前先把两个 node sidecar 的依赖/构建补齐（幂等，已就绪则秒过）。
