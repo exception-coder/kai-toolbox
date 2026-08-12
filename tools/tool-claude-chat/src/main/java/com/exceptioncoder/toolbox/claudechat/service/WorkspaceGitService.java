@@ -1,6 +1,5 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
-import com.exceptioncoder.toolbox.claudechat.config.WorkspaceProperties;
 import com.exceptioncoder.toolbox.common.git.GitFileDiffResponse;
 import com.exceptioncoder.toolbox.common.git.GitLogService;
 import com.exceptioncoder.toolbox.common.git.GitStatusResponse;
@@ -16,11 +15,11 @@ import java.nio.file.Path;
 @Service
 public class WorkspaceGitService {
 
-    private final WorkspaceProperties properties;
+    private final WorkspaceRootResolver rootResolver;
     private final GitLogService gitLogService;
 
-    public WorkspaceGitService(WorkspaceProperties properties, GitLogService gitLogService) {
-        this.properties = properties;
+    public WorkspaceGitService(WorkspaceRootResolver rootResolver, GitLogService gitLogService) {
+        this.rootResolver = rootResolver;
         this.gitLogService = gitLogService;
     }
 
@@ -53,11 +52,7 @@ public class WorkspaceGitService {
         } catch (InvalidPathException | NullPointerException exception) {
             throw new IllegalArgumentException("path 非法");
         }
-        boolean withinWorkspace = properties.getRoots().stream()
-                .filter(root -> root != null && !root.isBlank())
-                .map(root -> Path.of(root).toAbsolutePath().normalize())
-                .anyMatch(target::startsWith);
-        if (!withinWorkspace) {
+        if (!rootResolver.contains(target)) {
             throw new IllegalArgumentException("path 不在工作区根目录之内");
         }
         if (!Files.isDirectory(target)) {

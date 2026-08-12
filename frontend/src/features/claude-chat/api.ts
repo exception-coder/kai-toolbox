@@ -144,6 +144,18 @@ export function listTeamRepositories(source: 'gitee' | 'github', fetch = false) 
   return http<import('./types').TeamRepositoryStatus[]>(`/claude-chat/plugins/repositories?${params.toString()}`)
 }
 
+/** 查询 kai-toolbox 托管的 ERP、ERP 小程序、SRM、SCM 业务源码状态。 */
+export function listBusinessSystemWorkspaces(fetch = false) {
+  return http<import('./types').BusinessSystemWorkspace[]>(
+    `/claude-chat/plugins/business-systems?fetch=${String(fetch)}`,
+  )
+}
+
+/** 同步全部或指定业务系统源码的 SSE 端点。 */
+export function businessWorkspaceSyncStreamPath(system: 'all' | import('./types').BusinessSystemWorkspace['id'] = 'all') {
+  return `/claude-chat/plugins/business-systems/sync/stream?system=${encodeURIComponent(system)}`
+}
+
 /** 查看固定团队依赖仓库的未提交文件。 */
 export function fetchTeamRepositoryGitStatus(repository: string): Promise<GitStatusResponse> {
   return http<GitStatusResponse>(

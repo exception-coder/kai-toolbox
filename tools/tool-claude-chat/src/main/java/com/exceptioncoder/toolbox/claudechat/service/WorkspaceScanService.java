@@ -52,13 +52,16 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 public class WorkspaceScanService implements LocalProjectResolver {
 
     private final WorkspaceProperties props;
+    private final WorkspaceRootResolver rootResolver;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     private volatile WorkspaceListResponse cache;
     private volatile long cacheExpireAt;
 
-    public WorkspaceScanService(WorkspaceProperties props, com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+    public WorkspaceScanService(WorkspaceProperties props, WorkspaceRootResolver rootResolver,
+                                com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
         this.props = props;
+        this.rootResolver = rootResolver;
         this.objectMapper = objectMapper;
     }
 
@@ -162,9 +165,11 @@ public class WorkspaceScanService implements LocalProjectResolver {
             throw new IllegalArgumentException("请选择工作区");
         }
         Path want = Path.of(root).toAbsolutePath().normalize();
-        for (String r : props.getRoots()) {
-            if (r == null || r.isBlank()) continue;
-            if (Path.of(r).toAbsolutePath().normalize().equals(want)) {
+        for (String configuredRoot : props.getRoots()) {
+            if (configuredRoot == null || configuredRoot.isBlank()) {
+                continue;
+            }
+            if (Path.of(configuredRoot).toAbsolutePath().normalize().equals(want)) {
                 return want;
             }
         }
@@ -194,8 +199,8 @@ public class WorkspaceScanService implements LocalProjectResolver {
         }
 
         List<RootView> roots = new ArrayList<>();
-        for (String rootSetting : props.getRoots()) {
-            roots.add(scanRoot(rootSetting));
+        for (Path root : rootResolver.roots()) {
+            roots.add(scanRoot(root.toString()));
         }
         WorkspaceListResponse result = new WorkspaceListResponse(List.copyOf(roots), OffsetDateTime.now());
 
@@ -844,12 +849,7 @@ public class WorkspaceScanService implements LocalProjectResolver {
 
     /** 限制扫描范围：仅允许配置根本身或其子路径，避免被传入任意路径扫整盘。 */
     private boolean isUnderConfiguredRoot(Path path) {
-        for (String r : props.getRoots()) {
-            if (r == null || r.isBlank()) continue;
-            Path root = Path.of(r).toAbsolutePath().normalize();
-            if (path.equals(root) || path.startsWith(root)) return true;
-        }
-        return false;
+        return rootResolver.contains(path);
     }
 
     private boolean isCandidate(Path dir) {

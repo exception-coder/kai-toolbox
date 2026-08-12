@@ -355,6 +355,48 @@ export interface TeamRepositoryStatus {
   remoteChecked: boolean
 }
 
+export type BusinessRepositoryStatusCode =
+  | 'READY'
+  | 'BEHIND'
+  | 'NOT_CLONED'
+  | 'DIRTY'
+  | 'AHEAD'
+  | 'DIVERGED'
+  | 'REMOTE_MISMATCH'
+  | 'INVALID_DIRECTORY'
+  | 'DETACHED_HEAD'
+  | 'NO_UPSTREAM'
+  | 'ERROR'
+
+export interface BusinessRepositoryStatus {
+  name: string
+  path: string
+  repositoryUrl: string
+  cloned: boolean
+  sourceMatches: boolean
+  branch: string | null
+  commit: string | null
+  commitDate: string | null
+  behind: number | null
+  ahead: number | null
+  dirty: boolean
+  remoteChecked: boolean
+  syncable: boolean
+  status: BusinessRepositoryStatusCode
+  message: string
+}
+
+export interface BusinessSystemWorkspace {
+  id: 'erp' | 'erp-mini-program' | 'srm' | 'scm'
+  name: string
+  workspaceName: string
+  workspacePath: string
+  ready: boolean
+  status: 'READY' | 'PARTIAL' | 'NOT_CLONED' | 'BLOCKED'
+  message: string
+  members: BusinessRepositoryStatus[]
+}
+
 export interface SkillSyncResult {
   skill: string
   sourcePath: string

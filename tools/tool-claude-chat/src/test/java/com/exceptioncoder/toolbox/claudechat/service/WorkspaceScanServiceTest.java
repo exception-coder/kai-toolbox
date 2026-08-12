@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.api.dto.ProjectModulesResponse;
+import com.exceptioncoder.toolbox.claudechat.config.BusinessWorkspaceProperties;
 import com.exceptioncoder.toolbox.claudechat.config.WorkspaceProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -18,6 +19,25 @@ class WorkspaceScanServiceTest {
 
     @TempDir
     Path tempDir;
+
+    @Test
+    void automaticallyDiscoversManagedBusinessWorkspaces() throws Exception {
+        Path configuredRoot = Files.createDirectories(tempDir.resolve("projects"));
+        Path businessRoot = Files.createDirectories(tempDir.resolve("business-systems"));
+        Files.createDirectories(businessRoot.resolve("srm-system"));
+
+        WorkspaceProperties properties = new WorkspaceProperties();
+        properties.setRoots(List.of(configuredRoot.toString()));
+        BusinessWorkspaceProperties businessProperties = new BusinessWorkspaceProperties();
+        businessProperties.setRoot(businessRoot.toString());
+        WorkspaceRootResolver rootResolver = new WorkspaceRootResolver(properties, businessProperties);
+        WorkspaceScanService service = new WorkspaceScanService(properties, rootResolver, new ObjectMapper());
+
+        assertThat(service.scan().roots()).hasSize(2);
+        assertThat(service.scan().roots().get(1).dirs())
+                .extracting(dir -> dir.name())
+                .containsExactly("srm-system");
+    }
 
     @Test
     @ResourceLock("user.home")
@@ -53,7 +73,10 @@ class WorkspaceScanServiceTest {
 
         WorkspaceProperties properties = new WorkspaceProperties();
         properties.setRoots(List.of(workspaceRoot.toString()));
-        WorkspaceScanService service = new WorkspaceScanService(properties, new ObjectMapper());
+        BusinessWorkspaceProperties businessProperties = new BusinessWorkspaceProperties();
+        businessProperties.setRoot(tempDir.resolve("business-systems").toString());
+        WorkspaceRootResolver rootResolver = new WorkspaceRootResolver(properties, businessProperties);
+        WorkspaceScanService service = new WorkspaceScanService(properties, rootResolver, new ObjectMapper());
 
         try {
             System.setProperty("user.home", tempDir.toString());

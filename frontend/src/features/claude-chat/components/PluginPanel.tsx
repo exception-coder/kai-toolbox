@@ -8,12 +8,22 @@ import {
   fetchTeamRepositoryGitStatus,
   getSidecarVersion,
   getTeamDependencyEnvironment,
+  businessWorkspaceSyncStreamPath,
+  listBusinessSystemWorkspaces,
   listSuites,
   listTeamRepositories,
   pluginInstallStreamPath,
   pluginUpdateStreamPath,
 } from '../api'
-import type { SidecarEngineVersion, SidecarVersion, SuiteStatus, TeamDependencyEnvironment, TeamRepositoryStatus } from '../types'
+import type {
+  BusinessRepositoryStatus,
+  BusinessSystemWorkspace,
+  SidecarEngineVersion,
+  SidecarVersion,
+  SuiteStatus,
+  TeamDependencyEnvironment,
+  TeamRepositoryStatus,
+} from '../types'
 
 const GIT_SOURCE_KEY = 'kai-toolbox:team-dependencies:git-source'
 
@@ -24,6 +34,12 @@ function initialGitSource(): 'gitee' | 'github' {
 
 function formatSyncTime(value: number | null) {
   return value == null ? '从未记录' : new Date(value).toLocaleString()
+}
+
+function businessRepositoryDot(repository: BusinessRepositoryStatus) {
+  if (repository.status === 'READY') return 'bg-emerald-500'
+  if (repository.status === 'BEHIND' || repository.status === 'NOT_CLONED') return 'bg-amber-500'
+  return 'bg-red-500'
 }
 
 /** 兼容新旧 sidecar 版本响应，统一生成引擎卡片数据。 */
@@ -60,6 +76,8 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
   const [environmentLoading, setEnvironmentLoading] = useState(false)
   const [repositories, setRepositories] = useState<TeamRepositoryStatus[] | null>(null)
   const [repositoriesChecking, setRepositoriesChecking] = useState(false)
+  const [businessSystems, setBusinessSystems] = useState<BusinessSystemWorkspace[] | null>(null)
+  const [businessSystemsChecking, setBusinessSystemsChecking] = useState(false)
   const [changesRepository, setChangesRepository] = useState<string | null>(null)
   const esRef = useRef<EventSource | null>(null)
   const logRef = useRef<HTMLPreElement>(null)
@@ -67,14 +85,25 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
   const refresh = async () => {
     setLoading(true)
     try {
-      const [suiteResult, repositoryResult] = await Promise.all([listSuites(sessionId), listTeamRepositories(gitSource)])
-      setSuites(suiteResult); setRepositories(repositoryResult)
+      const [suiteResult, repositoryResult, businessResult] = await Promise.allSettled([
+        listSuites(sessionId),
+        listTeamRepositories(gitSource),
+        listBusinessSystemWorkspaces(),
+      ])
+      if (suiteResult.status === 'fulfilled') setSuites(suiteResult.value)
+      if (repositoryResult.status === 'fulfilled') setRepositories(repositoryResult.value)
+      if (businessResult.status === 'fulfilled') setBusinessSystems(businessResult.value)
     } catch { /* 静默 */ } finally { setLoading(false) }
   }
 
   const checkRepositories = async () => {
     setRepositoriesChecking(true)
     try { setRepositories(await listTeamRepositories(gitSource, true)) } catch { /* 静默 */ } finally { setRepositoriesChecking(false) }
+  }
+
+  const checkBusinessSystems = async () => {
+    setBusinessSystemsChecking(true)
+    try { setBusinessSystems(await listBusinessSystemWorkspaces(true)) } catch { /* 静默 */ } finally { setBusinessSystemsChecking(false) }
   }
 
   const checkEnvironment = async () => {
@@ -156,6 +185,10 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
   const startPushRepositories = () => startTask(
     `/claude-chat/plugins/repositories/push/stream?source=${gitSource}`,
     '✓ 团队仓库校验、提交与推送任务完成',
+  )
+  const startBusinessSync = (system: 'all' | BusinessSystemWorkspace['id']) => startTask(
+    businessWorkspaceSyncStreamPath(system),
+    '✓ 业务系统源码同步完成',
   )
 
   return (
@@ -296,6 +329,64 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
         <p className="mt-1.5 text-[10px] text-[var(--color-muted-foreground)]">
           “一键提交并推送”会在后台校验新文件、提交有效更新并推送到所选源；本地垃圾会加入忽略，未知文件会阻断对应仓库。
           “检查远端”会执行 git fetch；“已是最新”表示当前 HEAD 相对所选源上游落后数为 0。
+        </p>
+      </div>
+
+      <div className="mb-2 rounded-md border p-2 text-xs">
+        <div className="mb-1.5 flex flex-wrap items-center gap-2">
+          <span className="font-medium">业务系统源码（4）</span>
+          <span className="text-[10px] text-[var(--color-muted-foreground)]">固定 Gitee · 只拉取不推送</span>
+          <button type="button" onClick={() => startBusinessSync('all')} disabled={updating || businessSystemsChecking}
+            className="ml-auto inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] hover:bg-[var(--color-accent)] disabled:opacity-50">
+            <Download className="size-3" /> {updating ? '后台处理中…' : '同步全部'}
+          </button>
+          <button type="button" onClick={() => void checkBusinessSystems()} disabled={businessSystemsChecking || updating}
+            className="rounded border px-1.5 py-0.5 text-[10px] hover:bg-[var(--color-accent)] disabled:opacity-50">
+            {businessSystemsChecking ? 'fetch 中…' : '检查远端'}
+          </button>
+        </div>
+        {businessSystems == null ? (
+          <p className="text-[var(--color-muted-foreground)]">正在读取业务源码状态…</p>
+        ) : (
+          <ul className="grid grid-cols-1 gap-1.5 lg:grid-cols-2">
+            {businessSystems.map(system => (
+              <li key={system.id} className="min-w-0 rounded-md border bg-[var(--color-muted)]/30 px-2 py-1.5">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className={`size-2 shrink-0 rounded-full ${system.ready
+                    ? 'bg-emerald-500'
+                    : system.status === 'BLOCKED' ? 'bg-red-500' : 'bg-amber-500'}`} />
+                  <span className="font-medium">{system.name}</span>
+                  <span className="min-w-0 flex-1 truncate text-[10px] text-[var(--color-muted-foreground)]" title={system.workspacePath}>
+                    {system.workspaceName}
+                  </span>
+                  <button type="button" onClick={() => startBusinessSync(system.id)} disabled={updating || businessSystemsChecking}
+                    className="shrink-0 rounded border px-1.5 py-0.5 text-[10px] hover:bg-[var(--color-accent)] disabled:opacity-50">
+                    同步
+                  </button>
+                </div>
+                <div className="mt-1 space-y-1">
+                  {system.members.map(repository => (
+                    <div key={repository.name} className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px]">
+                      <span className={`size-1.5 shrink-0 rounded-full ${businessRepositoryDot(repository)}`} />
+                      <span className="min-w-0 truncate" title={repository.path}>{repository.name}</span>
+                      {repository.branch && <span className="text-[var(--color-muted-foreground)]">{repository.branch}</span>}
+                      {repository.commit && <span className="text-[var(--color-muted-foreground)]">{repository.commit}</span>}
+                      <span className={repository.status === 'READY'
+                        ? 'ml-auto text-emerald-600 dark:text-emerald-400'
+                        : repository.status === 'BEHIND' || repository.status === 'NOT_CLONED'
+                          ? 'ml-auto text-amber-600 dark:text-amber-400'
+                          : 'ml-auto text-red-600 dark:text-red-400'}>
+                        {repository.message}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-1.5 text-[10px] leading-relaxed text-[var(--color-muted-foreground)]">
+          源码保存在 ~/.kai-toolbox/business-systems 并自动加入工作区。未提交修改、本地领先、分叉或远端不匹配时会跳过保护，绝不自动提交、重置或删除。
         </p>
       </div>
 
