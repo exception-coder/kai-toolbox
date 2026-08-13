@@ -1,5 +1,6 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
+import { fetchMcpHttp } from './mcpHttp.js'
 
 /**
  * 「福利签收演示」专用 in-process MCP 工具：agent 改数据的唯一通道。
@@ -22,7 +23,7 @@ export function createWelfareDbServer(sessionId: string, apiBase: string) {
         },
         async (args: { sql: string; params?: unknown[] }) => {
           try {
-            const res = await fetch(`${apiBase}/api/claude-chat/demo/sql`, {
+            const res = await fetchMcpHttp(`${apiBase}/api/claude-chat/demo/sql`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ sessionId, sql: args.sql, params: args.params ?? [] }),

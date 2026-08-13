@@ -1,6 +1,8 @@
 import { existsSync } from 'node:fs'
 import { createOpencode, type Event, type OpencodeClient, type Part, type Permission } from '@opencode-ai/sdk'
 import { activityOutputTail, emitToolActivity, summarizeToolInput } from './toolActivity.js'
+import { classifyCommandResult } from './commandExecution.js'
+import { prependWindowsExecutionInstructions } from './windowsExecution.js'
 import { appendSqlDdlFallbackRule } from './pendingSqlPolicy.js'
 
 /**
@@ -175,27 +177,33 @@ function handlePart(h: Handler, part: Part, delta: string | undefined): void {
       emitUse()
       h.toolDone.add(part.callID)
       const output = truncate(st.output ?? '')
+      const classification = classifyCommandResult(part.tool, undefined, output, false)
       h.emit({ type: 'toolResult', toolCallId: part.callID, toolName: part.tool, output, isError: false })
       emitToolActivity(h.emit, {
         toolCallId: part.callID,
         toolName: part.tool,
         status: 'completed',
-        title: activityState.title,
+        title: classification?.title ?? activityState.title,
         elapsedMs,
         outputTail: activityOutputTail(output),
+        outcome: classification?.outcome,
+        severity: classification?.severity,
       })
     } else if (st.status === 'error' && !h.toolDone.has(part.callID)) {
       emitUse()
       h.toolDone.add(part.callID)
       const output = st.error ?? '工具执行失败'
+      const classification = classifyCommandResult(part.tool, undefined, String(output), true)
       h.emit({ type: 'toolResult', toolCallId: part.callID, toolName: part.tool, output, isError: true })
       emitToolActivity(h.emit, {
         toolCallId: part.callID,
         toolName: part.tool,
         status: 'failed',
-        title: activityState.title,
+        title: classification?.title ?? activityState.title,
         elapsedMs,
         outputTail: activityOutputTail(output),
+        outcome: classification?.outcome,
+        severity: classification?.severity,
       })
     }
   }
@@ -243,7 +251,7 @@ export async function runOpencodeTurn(ctx: OpencodeTurnCtx): Promise<void> {
       query,
       body: {
         ...(model ? { model } : {}),
-        parts: [{ type: 'text', text: appendSqlDdlFallbackRule(ctx.text) }],
+        parts: [{ type: 'text', text: prependWindowsExecutionInstructions(appendSqlDdlFallbackRule(ctx.text)) }],
       },
     })
     if (res.error) {

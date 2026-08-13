@@ -10,14 +10,27 @@ import { createSrmDbServer } from './srmDb.js'
 import { createSrmAppServer } from './srmApp.js'
 import { createScmDbServer } from './scmDb.js'
 import { createForgePendingSqlServer, FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
-import { createDomainKnowledgeServer, createCrossTopologyServer } from './knowledgeMcp.js'
+import {
+  CROSS_TOPOLOGY_READONLY_TOOLS,
+  DOMAIN_KNOWLEDGE_READONLY_TOOLS,
+  createCrossTopologyServer,
+  createDomainKnowledgeServer,
+} from './knowledgeMcp.js'
 import { codexMcpCapabilities, normalizeCodexHome, runCodexTurn, type CodexReasoningEffort, type CodexSpeed } from './codexEngine.js'
 import { createClaudeConsultSourceServer, resolveConsultTargetSystems } from './codexSecurity.js'
 import { forkCodexThread, listCodexModels, type CodexModelInfo } from './codexAppServer.js'
 import { runGeminiTurn } from './geminiEngine.js'
 import { answerOpencodePermission, emitOpencodeModels, runOpencodeTurn, updateOpencodePermissionPolicy } from './opencodeEngine.js'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
+import { classifyCommandResult } from './commandExecution.js'
+import { appendWindowsExecutionInstructions, windowsExecutionInstructions } from './windowsExecution.js'
 import { TurnLifecycle, type InterruptSnapshot } from './turnLifecycle.js'
+import {
+  McpToolWatchdog,
+  configuredMcpToolHeartbeatMs,
+  configuredMcpToolTimeoutMs,
+  type McpToolWatchdogEntry,
+} from './mcpToolWatchdog.js'
 
 export type Engine = 'claude' | 'codex' | 'gemini' | 'opencode'
 
@@ -58,7 +71,6 @@ const GATEWAY_STEER = [
   '你正通过第三方 API 网关运行（非官方 Claude Code 客户端）。请尽量直接完成任务：',
   '- 不要进入/退出“计划模式”，不要调用 ExitPlanMode；需要多步时直接执行并简要说明。',
   '- 避免冗长前言和反复规划，优先动手（读文件、改代码、跑命令），减少无谓的工具往返。',
-  '- 遵循当前操作系统的命令习惯（Windows 用 PowerShell）。',
 ].join('\n')
 
 /** 福利签收演示会话的引导词：把 agent 锁定在「改演示页文案=改 welfare_sign_config 表」这条最直观、即时可见的路径上。 */
@@ -265,6 +277,7 @@ class Session {
   demoApiBase?: string
   private abort?: AbortController
   private readonly turnLifecycle = new TurnLifecycle()
+  private readonly mcpToolWatchdog: McpToolWatchdog
   private modelsFetched = false
   /** 本轮 API 响应里实际返回的模型（来自 assistant message.model，权威）；用于调用诊断。 */
   private lastResponseModel?: string
@@ -298,11 +311,64 @@ class Session {
     private readonly emitRaw: (e: Record<string, unknown>) => void,
   ) {
     this.perms = new Permissions(event => this.emitTurn(event))
+    this.mcpToolWatchdog = new McpToolWatchdog({
+      timeoutMs: configuredMcpToolTimeoutMs(),
+      heartbeatMs: configuredMcpToolHeartbeatMs(),
+      onHeartbeat: entry => this.emitMcpToolHeartbeat(entry),
+      onTimeout: entry => this.handleMcpToolTimeout(entry),
+    })
   }
 
   private emitTurn(event: Record<string, unknown>): void {
+    this.mcpToolWatchdog.observe(event)
     const decorated = this.turnLifecycle.decorate(event)
     if (decorated) this.emitRaw(decorated)
+  }
+
+  private emitMcpToolHeartbeat(entry: McpToolWatchdogEntry): void {
+    emitToolActivity(event => this.emitTurn({ ...event, watchdogGenerated: true }), {
+      toolCallId: entry.toolCallId,
+      toolName: entry.toolName,
+      status: 'inProgress',
+      title: 'MCP 工具仍在等待响应',
+      detail: `无活动超时上限 ${Math.round(entry.timeoutMs / 1_000)} 秒`,
+      elapsedMs: Date.now() - entry.startedAt,
+      outcome: 'waiting',
+      severity: 'info',
+    })
+  }
+
+  private handleMcpToolTimeout(entry: McpToolWatchdogEntry): void {
+    const elapsedMs = Date.now() - entry.startedAt
+    const message = `MCP 工具 ${entry.toolName} 超过 ${Math.round(entry.timeoutMs / 1_000)} 秒没有返回或进度，已取消当前任务`
+    console.warn(`[sidecar] MCP tool timeout session=${this.id} engine=${this.engine} tool=${entry.toolName} call=${entry.toolCallId} elapsedMs=${elapsedMs}`)
+    this.emitTurn({
+      type: 'toolResult',
+      toolCallId: entry.toolCallId,
+      toolName: entry.toolName,
+      output: message,
+      isError: true,
+      watchdogGenerated: true,
+    })
+    emitToolActivity(event => this.emitTurn({ ...event, watchdogGenerated: true }), {
+      toolCallId: entry.toolCallId,
+      toolName: entry.toolName,
+      status: 'failed',
+      title: 'MCP 工具响应超时',
+      detail: message,
+      elapsedMs,
+      outcome: 'timeout',
+      severity: 'error',
+    })
+    this.emitTurn({ type: 'error', code: 'MCP_TOOL_TIMEOUT', message })
+    this.abort?.abort()
+
+    const fallback = setTimeout(() => {
+      if (!this.turnLifecycle.terminal()) {
+        this.emitTurn({ type: 'result', usage: {}, stopReason: 'error' })
+      }
+    }, 2_000)
+    fallback.unref?.()
   }
 
   /**
@@ -325,6 +391,7 @@ class Session {
       this.emitRaw({ type: 'result', usage: {}, stopReason: 'error', turnId: turn.turnId })
       return
     }
+    this.mcpToolWatchdog.clear()
     try {
       await this.executeTurn(text, systemPrompt, images, developerInstructions)
     } catch (error) {
@@ -335,6 +402,7 @@ class Session {
         message: error instanceof Error ? error.message : String(error),
       })
     } finally {
+      this.mcpToolWatchdog.clear()
       if (!this.turnLifecycle.terminal()) {
         this.emitTurn({
           type: 'result',
@@ -454,14 +522,14 @@ class Session {
             // 交互式聊天 runTurn：官方会话走 SDK 默认；第三方网关会话在默认提示后 append 引导词
             // （非 Claude 模型经 API 跑 Claude Code 时会乱用计划模式/ExitPlanMode，慢且易报错）。
             ...(systemPrompt
-              ? { systemPrompt }
+              ? { systemPrompt: appendWindowsExecutionInstructions(systemPrompt) }
               : this.demo
                 ? { systemPrompt: { type: 'preset', preset: 'claude_code', append: DEMO_STEER } }
                 : {
                     systemPrompt: {
                       type: 'preset',
                       preset: 'claude_code',
-                      append: [this.apiBaseUrl ? GATEWAY_STEER : '',
+                      append: [windowsExecutionInstructions() ?? '', this.apiBaseUrl ? GATEWAY_STEER : '',
                         toolboxApiBase && this.forgeSqlRegistration ? FORGE_PENDING_SQL_STEER : '',
                         developerInstructions ?? '']
                         .filter(Boolean).join('\n\n'),
@@ -487,19 +555,10 @@ class Session {
                     'mcp__forge__prepare_sql_context',
                     'mcp__forge__register_pending_sql',
                     'mcp__erp_db__query', 'mcp__srm_db__query', 'mcp__scm_db__query',
-                    'mcp__domain-knowledge__list_projects',
-                    'mcp__domain-knowledge__list_modules',
-                    'mcp__domain-knowledge__list_topics',
-                    'mcp__domain-knowledge__search_knowledge',
-                    'mcp__domain-knowledge__locate_menu',
-                    'mcp__domain-knowledge__get_knowledge',
-                    'mcp__domain-knowledge__get_related',
-                    'mcp__cross-topology__list_projects',
-                    'mcp__cross-topology__list_modules',
-                    'mcp__cross-topology__list_topics',
-                    'mcp__cross-topology__search_knowledge',
-                    'mcp__cross-topology__get_knowledge',
-                    'mcp__cross-topology__get_related',
+                    ...DOMAIN_KNOWLEDGE_READONLY_TOOLS
+                      .map(tool => `mcp__domain-knowledge__${tool}`),
+                    ...CROSS_TOPOLOGY_READONLY_TOOLS
+                      .map(tool => `mcp__cross-topology__${tool}`),
                   ],
                 }
               : {}),
@@ -806,6 +865,7 @@ class Session {
             const toolName = toolNames.get(toolCallId) ?? ''
             const output = stringifyContent(b.content)
             const isError = Boolean(b.is_error)
+            const classification = classifyCommandResult(toolName, undefined, output, isError)
             this.emitTurn({
               type: 'toolResult',
               toolCallId,
@@ -817,8 +877,11 @@ class Session {
               toolCallId,
               toolName,
               status: isError ? 'failed' : 'completed',
+              title: classification?.title,
               elapsedMs: elapsedSince(toolStartedAt.get(toolCallId)),
               outputTail: activityOutputTail(output),
+              outcome: classification?.outcome,
+              severity: classification?.severity,
             })
             toolStartedAt.delete(toolCallId)
           }

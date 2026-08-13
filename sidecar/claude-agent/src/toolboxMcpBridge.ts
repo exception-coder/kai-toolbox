@@ -5,6 +5,7 @@ import {
   FORGE_PENDING_SQL_TOOL_DESCRIPTION,
   FORGE_SQL_CONTEXT_TOOL_DESCRIPTION,
 } from './pendingSqlPolicy.js'
+import { fetchMcpHttp } from './mcpHttp.js'
 
 type ServerName = 'forge' | 'erp_db' | 'erp_app' | 'srm_db' | 'srm_app' | 'scm_db'
 
@@ -35,7 +36,7 @@ const server = new McpServer(
 async function request(path: string, body: unknown, method: 'POST' | 'PUT' = 'POST'):
   Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
   try {
-    const response = await fetch(`${apiBase}${path}`, {
+    const response = await fetchMcpHttp(`${apiBase}${path}`, {
       method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

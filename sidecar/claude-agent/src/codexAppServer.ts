@@ -4,6 +4,7 @@ import { createInterface } from 'node:readline'
 import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
+import { classifyCommandResult } from './commandExecution.js'
 import type { RequiredMcpTool } from './codexSecurity.js'
 
 const require = createRequire(import.meta.url)
@@ -78,6 +79,7 @@ type AppServerTurnOptions = {
 type PendingRequest = {
   resolve: (result: Record<string, unknown>) => void
   reject: (error: Error) => void
+  timer: NodeJS.Timeout
 }
 
 export class CodexAppServerTurnError extends Error {
@@ -320,6 +322,8 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
   let turnAccepted = false
   let finished = false
   let lastUsage: Record<string, unknown> = {}
+  let abortFallback: NodeJS.Timeout | undefined
+  let abortCompletion: ((error: Error) => void) | undefined
   const commandActivities = new Map<string, CommandActivityState>()
   const commandActivityEmittedAt = new Map<string, number>()
 
@@ -327,11 +331,15 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     if (finished) return
     finished = true
     options.signal.removeEventListener('abort', onAbort)
+    if (abortFallback) clearTimeout(abortFallback)
     lines.close()
     stop(child)
   }
   const failPending = (error: Error) => {
-    for (const request of pending.values()) request.reject(error)
+    for (const request of pending.values()) {
+      clearTimeout(request.timer)
+      request.reject(error)
+    }
     pending.clear()
   }
   const send = (message: Record<string, unknown>) => {
@@ -341,7 +349,12 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
   const request = (method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> => {
     const id = nextId++
     return new Promise((resolveRequest, rejectRequest) => {
-      pending.set(id, { resolve: resolveRequest, reject: rejectRequest })
+      const timer = setTimeout(() => {
+        pending.delete(id)
+        rejectRequest(new Error(`Codex App Server 请求 ${method} 超时（${REQUEST_TIMEOUT_MS}ms）`))
+      }, REQUEST_TIMEOUT_MS)
+      timer.unref?.()
+      pending.set(id, { resolve: resolveRequest, reject: rejectRequest, timer })
       send({ method, id, params })
     })
   }
@@ -352,10 +365,13 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
   const onAbort = () => {
     if (threadId && turnId && initialized) {
       void request('turn/interrupt', { threadId, turnId }).catch(() => undefined)
+      abortFallback = setTimeout(() => {
+        abortCompletion?.(new Error('Codex App Server 中断后未返回终态，已强制清理'))
+      }, 2_500)
+      abortFallback.unref?.()
       return
     }
-    failPending(new Error('Codex App Server 执行已中断'))
-    cleanup()
+    abortCompletion?.(new Error('Codex App Server 执行已中断'))
   }
   options.signal.addEventListener('abort', onAbort, { once: true })
 
@@ -365,6 +381,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
       cleanup()
       rejectCompletion(new CodexAppServerTurnError(error.message, !turnAccepted && !emittedActivity))
     }
+    abortCompletion = finishError
 
     child.stderr.setEncoding('utf8')
     child.stderr.on('data', chunk => { stderr = (stderr + String(chunk)).slice(-4000) })
@@ -386,6 +403,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
         const requestState = pending.get(message.id)
         if (!requestState) return
         pending.delete(message.id)
+        clearTimeout(requestState.timer)
         const error = asRecord(message.error)
         if (error) requestState.reject(new Error(asString(error.message) || 'Codex App Server 请求失败'))
         else requestState.resolve(asRecord(message.result) ?? {})
@@ -588,13 +606,13 @@ function handleAppServerItem(
       const label = `${asString(item.server)}/${asString(item.tool)}`
       const failed = status === 'failed'
       if (phase === 'inProgress') {
-        emit({ type: 'toolUse', toolCallId: itemId, toolName: label, input: item.arguments })
+        emit({ type: 'toolUse', toolCallId: itemId, toolName: label, toolKind: 'mcp', input: item.arguments })
         emitToolActivity(emit, {
           toolCallId: itemId, toolName: label, status: 'inProgress', detail: summarizeToolInput(item.arguments),
         })
       } else {
         const output = safeJson(item.result ?? item.error)
-        emit({ type: 'toolResult', toolCallId: itemId, toolName: label, output, isError: failed })
+        emit({ type: 'toolResult', toolCallId: itemId, toolName: label, toolKind: 'mcp', output, isError: failed })
         emitToolActivity(emit, {
           toolCallId: itemId, toolName: label, status: failed ? 'failed' : 'completed', outputTail: activityOutputTail(output),
         })
@@ -649,14 +667,19 @@ function emitCommandActivity(
   state: CommandActivityState,
 ): void {
   const normalizedStatus = status === 'failed' ? 'failed' : status === 'completed' ? 'completed' : 'inProgress'
+  const result = normalizedStatus === 'inProgress'
+    ? undefined
+    : classifyCommandResult('shell', state.command, state.output, normalizedStatus === 'failed')
   emitToolActivity(emit, {
     toolCallId: itemId,
     toolName: 'shell',
     status: normalizedStatus,
-    title: status === 'failed' ? '命令执行失败' : status === 'completed' ? '命令执行完成' : '正在执行命令',
+    title: normalizedStatus === 'inProgress' ? '正在执行命令' : result?.title,
     detail: state.command,
     elapsedMs: elapsedSince(state.startedAt),
     outputTail: state.output || undefined,
+    outcome: result?.outcome,
+    severity: result?.severity,
   })
 }
 

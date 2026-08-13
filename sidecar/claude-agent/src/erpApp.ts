@@ -1,5 +1,6 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
+import { fetchMcpHttp } from './mcpHttp.js'
 
 /**
  * 本地 ERP 实例（验证用）探测 MCP：供 agent 在「自闭环验证」阶段以登录态实发 *.action 请求，
@@ -30,7 +31,7 @@ export function createErpAppServer(apiBase: string) {
         },
         async (args: { method?: string; path: string; params?: Record<string, unknown>; bodyType?: string }) => {
           try {
-            const res = await fetch(`${apiBase}/api/claude-chat/erp-app/call`, {
+            const res = await fetchMcpHttp(`${apiBase}/api/claude-chat/erp-app/call`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({

@@ -10,6 +10,8 @@ export interface ToolActivity {
   detail?: string
   elapsedMs?: number
   outputTail?: string
+  outcome?: string
+  severity?: string
 }
 
 const MAX_TITLE_CHARS = 160
@@ -34,6 +36,8 @@ export function emitToolActivity(emit: Emit, activity: ToolActivity): void {
     detail: bounded(activity.detail == null ? undefined : redactSensitiveText(activity.detail), MAX_DETAIL_CHARS),
     elapsedMs: finiteNonNegative(activity.elapsedMs),
     outputTail: tail(activity.outputTail, MAX_OUTPUT_CHARS),
+    outcome: activity.outcome,
+    severity: activity.severity,
   })
 }
 

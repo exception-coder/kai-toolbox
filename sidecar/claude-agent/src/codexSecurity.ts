@@ -3,6 +3,7 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import {
+  DOMAIN_KNOWLEDGE_CORE_SPEC_TOOLS,
   createCodexCrossTopologyServer,
   createCodexDomainKnowledgeServer,
 } from './knowledgeMcp.js'
@@ -54,18 +55,23 @@ export function resolveConsultTargetSystems(
   return [...result]
 }
 
-/** 当前系统数据库是咨询的硬依赖；App Server 启动后据此校验真实 Tool 清单。 */
+/** Core Spec 与当前系统数据库是咨询硬依赖；App Server 启动后校验真实 Tool 清单。 */
 export function consultReadonlyRequiredMcpTools(
   sourceRoot?: string,
   evidenceSystems: readonly string[] = [],
 ): RequiredMcpTool[] {
-  return resolveConsultTargetSystems(sourceRoot, evidenceSystems)
-    .map(target => ({ server: 'consult-readonly', tool: DATABASE_TOOL_BY_TARGET[target] }))
+  return [
+    ...DOMAIN_KNOWLEDGE_CORE_SPEC_TOOLS
+      .map(tool => ({ server: 'domain-knowledge', tool })),
+    ...resolveConsultTargetSystems(sourceRoot, evidenceSystems)
+      .map(target => ({ server: 'consult-readonly', tool: DATABASE_TOOL_BY_TARGET[target] })),
+  ]
 }
 
 export const CONSULT_READONLY_PROMPT = [
-  '【系统只读安全边界】源码读取与检索是业务咨询的必备能力，但禁止无上下文全仓扫描。Codex 必须先调用 consult-readonly.source_context，再调用业务知识工具，随后用 source_read 核对候选文件；source_search 只允许在已收敛的子目录内兜底。',
-  '固定检索顺序：识别 URL → URL 路由定位 → Graphify 代码图谱 → domain-knowledge/cross-topology 业务知识 → 候选源码精确读取 → 限定子目录搜索兜底。不得跳过 source_context 直接用多个宽泛关键词搜索。',
+  '【系统只读安全边界】源码读取与检索是业务咨询的必备能力，但禁止无上下文全仓扫描。需要证明当前实现时，必须先调用 consult-readonly.source_context 收敛候选，再用 source_read 核对文件；source_search 只允许在已收敛的子目录内兜底。',
+  '按证据类型收敛：先识别 URL、菜单和领域上下文；领域语义优先查询 domain-knowledge，只有需要实现证据时才进入 Graphify → 候选源码精确读取 → 限定子目录搜索兜底。不得跳过 source_context 直接用多个宽泛关键词搜索源码。',
+  '领域问题优先调用 domain-knowledge.resolve_consult_context 收敛模块、菜单、稳定知识与 Core Spec 候选；需要对象、关系、状态或约束细节时再调用 domain-knowledge.get_module_core_spec。专用工具无结果时才降级到 search_knowledge/get_knowledge/get_related。',
   '从源码发现类名、方法名、SQL ID 或流程节点后，应带这些上下文再次调用 source_context 反问 Graphify，逐步追踪调用链；不要退回仓库根目录搜索。',
   '不得直接搜索或读取 graphify-out/cache；source_context 会调用 Graphify 查询 graphify-out/graph.json。',
   '定位源码时直接使用可用的只读工具。MCP resources/list 为空不代表 MCP tools 或源码读取能力不可用，不得据此停止分析。',

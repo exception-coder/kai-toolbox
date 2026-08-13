@@ -27,6 +27,8 @@ import {
   runCodexAppServerTurn,
 } from './codexAppServer.js'
 import { activityOutputTail, emitToolActivity, summarizeToolInput } from './toolActivity.js'
+import { classifyCommandResult } from './commandExecution.js'
+import { appendWindowsExecutionInstructions } from './windowsExecution.js'
 
 export type CodexSpeed = 'default' | 'fast'
 export type CodexReasoningEffort = string
@@ -143,15 +145,14 @@ function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: str
                           turnDeveloperInstructions?: string,
                           sourceRoot?: string,
                           consultEvidenceSystems: readonly string[] = []): NonNullable<CodexOptions['config']> {
-  const baseDeveloperInstructions = toolPolicy === CONSULT_READONLY_POLICY
-    ? CONSULT_READONLY_PROMPT
-    : toolPolicy !== 'disabled' && sessionId
-      ? FORGE_PENDING_SQL_STEER
-      : undefined
-  const developerInstructions = [
+  const baseDeveloperInstructions = [
+    toolPolicy === CONSULT_READONLY_POLICY ? CONSULT_READONLY_PROMPT : undefined,
+    toolPolicy !== 'disabled' && sessionId ? FORGE_PENDING_SQL_STEER : undefined,
+  ].filter(Boolean).join('\n\n') || undefined
+  const developerInstructions = appendWindowsExecutionInstructions([
     baseDeveloperInstructions,
     toolPolicy === CONSULT_READONLY_POLICY ? turnDeveloperInstructions?.trim() : undefined,
-  ].filter(Boolean).join('\n\n') || undefined
+  ].filter(Boolean).join('\n\n'))
   return {
     ...(speed === 'fast' ? { service_tier: 'priority' } : {}),
     ...(developerInstructions ? { developer_instructions: developerInstructions } : {}),
@@ -482,6 +483,9 @@ function handleItem(
       // v1 忽略思维链
       break
     case 'command_execution':
+      const commandResult = phase === 'item.completed'
+        ? classifyCommandResult('shell', item.command, item.aggregated_output ?? '', item.status === 'failed')
+        : undefined
       if (phase === 'item.started') {
         ctx.emit({ type: 'toolUse', toolCallId: item.id, toolName: 'shell', input: { command: item.command } })
       }
@@ -489,11 +493,11 @@ function handleItem(
         toolCallId: item.id,
         toolName: 'shell',
         status: phase === 'item.completed' ? (item.status === 'failed' ? 'failed' : 'completed') : 'inProgress',
-        title: phase === 'item.completed'
-          ? item.status === 'failed' ? '命令执行失败' : '命令执行完成'
-          : '正在执行命令',
+        title: phase === 'item.completed' ? commandResult?.title : '正在执行命令',
         detail: item.command,
         outputTail: tail(item.aggregated_output ?? '', 8_000) || undefined,
+        outcome: commandResult?.outcome,
+        severity: commandResult?.severity,
       })
       if (phase === 'item.completed') {
         ctx.emit({ type: 'toolResult', toolCallId: item.id, toolName: 'shell', output: item.aggregated_output ?? '', isError: item.status === 'failed' })
@@ -520,10 +524,10 @@ function handleItem(
       // 此处只负责展示 SDK 事件；内置技能读取也可能以上报内部 server 名称，
       // 因此不能再按 server 名称制造一条“拒绝调用”的错误消息。
       if (phase === 'item.started') {
-        ctx.emit({ type: 'toolUse', toolCallId: item.id, toolName: label, input: item.arguments })
+        ctx.emit({ type: 'toolUse', toolCallId: item.id, toolName: label, toolKind: 'mcp', input: item.arguments })
       } else if (phase === 'item.completed') {
         const output = item.error?.message ?? safeStringify(item.result)
-        ctx.emit({ type: 'toolResult', toolCallId: item.id, toolName: label, output, isError: item.status === 'failed' })
+        ctx.emit({ type: 'toolResult', toolCallId: item.id, toolName: label, toolKind: 'mcp', output, isError: item.status === 'failed' })
       }
       emitToolActivity(ctx.emit, {
         toolCallId: item.id,

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  CONSULT_READONLY_PROMPT,
   consultReadonlyCodexConfig,
   consultReadonlyRequiredMcpTools,
   resolveConsultTargetSystem,
@@ -17,19 +18,34 @@ test('resolves the consultation database target from the registered source direc
 test('adds only confirmed evidence systems to the selected consultation system', () => {
   assert.deepEqual(resolveConsultTargetSystems('D:\\work\\srm-system', ['ERP', 'unknown', 'erp']), ['srm', 'erp'])
   assert.deepEqual(consultReadonlyRequiredMcpTools('D:\\work\\srm-system', ['erp']), [
+    { server: 'domain-knowledge', tool: 'get_module_core_spec' },
+    { server: 'domain-knowledge', tool: 'resolve_consult_context' },
     { server: 'consult-readonly', tool: 'srm_db_query' },
     { server: 'consult-readonly', tool: 'erp_db_query' },
   ])
 })
 
-test('requires the database tool that belongs to the selected consultation system', () => {
+test('requires Core Spec tools and the database tool for the selected consultation system', () => {
   assert.deepEqual(consultReadonlyRequiredMcpTools('D:\\work\\srm-system'), [
+    { server: 'domain-knowledge', tool: 'get_module_core_spec' },
+    { server: 'domain-knowledge', tool: 'resolve_consult_context' },
     { server: 'consult-readonly', tool: 'srm_db_query' },
   ])
   assert.deepEqual(consultReadonlyRequiredMcpTools('D:\\work\\Yoooni'), [
+    { server: 'domain-knowledge', tool: 'get_module_core_spec' },
+    { server: 'domain-knowledge', tool: 'resolve_consult_context' },
     { server: 'consult-readonly', tool: 'erp_db_query' },
   ])
-  assert.deepEqual(consultReadonlyRequiredMcpTools('D:\\work\\unknown-system'), [])
+  assert.deepEqual(consultReadonlyRequiredMcpTools('D:\\work\\unknown-system'), [
+    { server: 'domain-knowledge', tool: 'get_module_core_spec' },
+    { server: 'domain-knowledge', tool: 'resolve_consult_context' },
+  ])
+})
+
+test('prioritizes domain context before reading implementation evidence', () => {
+  assert.match(CONSULT_READONLY_PROMPT, /领域语义优先查询 domain-knowledge/)
+  assert.match(CONSULT_READONLY_PROMPT, /domain-knowledge\.resolve_consult_context/)
+  assert.doesNotMatch(CONSULT_READONLY_PROMPT, /必须先调用 consult-readonly\.source_context，再调用业务知识工具/)
 })
 
 test('exposes the selected and confirmed authority database tools together', () => {

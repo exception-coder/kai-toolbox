@@ -5,6 +5,7 @@ import {
   FORGE_PENDING_SQL_TOOL_DESCRIPTION,
   FORGE_SQL_CONTEXT_TOOL_DESCRIPTION,
 } from './pendingSqlPolicy.js'
+import { fetchMcpHttp } from './mcpHttp.js'
 
 export { FORGE_PENDING_SQL_STEER } from './pendingSqlPolicy.js'
 
@@ -24,7 +25,7 @@ export function createForgePendingSqlServer(sessionId: string, apiBase: string) 
         },
         async (args: { purpose: string; tables: string[]; project?: string }) => {
           try {
-            const response = await fetch(
+            const response = await fetchMcpHttp(
               `${apiBase}/api/claude-chat/sessions/${encodeURIComponent(sessionId)}/pending-sql/prepare-context`,
               {
                 method: 'POST',
@@ -67,7 +68,7 @@ export function createForgePendingSqlServer(sessionId: string, apiBase: string) 
           ddlEvidenceId?: string
         }) => {
           try {
-            const response = await fetch(
+            const response = await fetchMcpHttp(
               `${apiBase}/api/claude-chat/sessions/${encodeURIComponent(sessionId)}/pending-sql/auto-register`,
               {
                 method: 'PUT',

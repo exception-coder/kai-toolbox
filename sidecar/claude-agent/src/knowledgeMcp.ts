@@ -6,35 +6,26 @@ import os from 'node:os'
  * 业务知识图谱 MCP 服务器配置工厂。
  *
  * project-domain-knowledge 仓库提供了通用的 md+frontmatter 知识引擎（dist/server.js），
- * domain-knowledge 和 cross-topology 都复用同一个引擎，通过 DOMAIN_KB_DIR 环境变量
- * 指向不同的知识库目录（与 claude mcp add 注册时的 -e 参数一致）。
+ * domain-knowledge 和 cross-topology 都复用正式 team-tools 中的同一个引擎，
+ * 通过 DOMAIN_KB_DIR 指向各自知识库；受控部署可用环境变量显式覆盖默认路径。
  *
  * 两个服务器均为可选：若引擎或知识库目录不存在，返回 null，调用方跳过。
  */
 
-const DEFAULT_WORKSPACE = path.join(os.homedir(), 'myWork')
-const WORKSPACE_CANDIDATES = [
-  process.env.KAI_WORKSPACE_ROOT,
-  DEFAULT_WORKSPACE,
-  // sidecar 默认 cwd=<kai-toolbox>/sidecar/claude-agent，向上三级即各项目共同的 myWork。
-  path.resolve(process.cwd(), '..', '..', '..'),
-].filter((value): value is string => !!value)
+type KnowledgeMcpEnvironment = Readonly<Record<string, string | undefined>>
 
-function firstExisting(relativePath: string): string {
-  for (const workspace of WORKSPACE_CANDIDATES) {
-    const candidate = path.join(workspace, relativePath)
-    if (existsSync(candidate)) return candidate
-  }
-  return path.join(DEFAULT_WORKSPACE, relativePath)
+export interface KnowledgeMcpPathOptions {
+  homeDir?: string
+  env?: KnowledgeMcpEnvironment
 }
 
-/** 知识引擎脚本路径（project-domain-knowledge/dist/server.js） */
-function resolveEngine(): string {
-  return process.env.DOMAIN_KNOWLEDGE_ENGINE
-    || firstExisting(path.join('project-domain-knowledge', 'dist', 'server.js'))
+export interface KnowledgeMcpPaths {
+  engine: string
+  domainKnowledge: string
+  crossTopology: string
 }
 
-const READONLY_KNOWLEDGE_TOOLS = [
+const BASE_READONLY_KNOWLEDGE_TOOLS = [
   'list_projects',
   'list_modules',
   'list_topics',
@@ -42,9 +33,49 @@ const READONLY_KNOWLEDGE_TOOLS = [
   'locate_menu',
   'get_knowledge',
   'get_related',
-]
+] as const
 
-function codexServer(engine: string, kbDir: string): Record<string, unknown> | null {
+export const DOMAIN_KNOWLEDGE_CORE_SPEC_TOOLS = [
+  'get_module_core_spec',
+  'resolve_consult_context',
+] as const
+
+export const DOMAIN_KNOWLEDGE_READONLY_TOOLS = [
+  ...BASE_READONLY_KNOWLEDGE_TOOLS,
+  ...DOMAIN_KNOWLEDGE_CORE_SPEC_TOOLS,
+] as const
+
+export const CROSS_TOPOLOGY_READONLY_TOOLS = [...BASE_READONLY_KNOWLEDGE_TOOLS] as const
+
+function configuredPath(value: string | undefined, fallback: string): string {
+  return value?.trim() || fallback
+}
+
+/** 团队知识资产只从正式安装目录解析；业务源码工作区不得参与知识库发现。 */
+export function resolveKnowledgeMcpPaths(options: KnowledgeMcpPathOptions = {}): KnowledgeMcpPaths {
+  const env = options.env ?? process.env
+  const teamToolsRoot = path.join(options.homeDir ?? os.homedir(), '.kai-toolbox', 'team-tools')
+  return {
+    engine: configuredPath(
+      env.DOMAIN_KNOWLEDGE_ENGINE,
+      path.join(teamToolsRoot, 'project-domain-knowledge', 'dist', 'server.js'),
+    ),
+    domainKnowledge: configuredPath(
+      env.DOMAIN_KB_DIR,
+      path.join(teamToolsRoot, 'project-domain-knowledge', 'knowledge'),
+    ),
+    crossTopology: configuredPath(
+      env.CROSS_TOPO_KB_DIR,
+      path.join(teamToolsRoot, 'cross-project-topology', 'knowledge'),
+    ),
+  }
+}
+
+function codexServer(
+  engine: string,
+  kbDir: string,
+  enabledTools: readonly string[],
+): Record<string, unknown> | null {
   if (!existsSync(engine) || !existsSync(kbDir)) return null
   return {
     command: process.execPath,
@@ -52,19 +83,19 @@ function codexServer(engine: string, kbDir: string): Record<string, unknown> | n
     env: { DOMAIN_KB_DIR: kbDir },
     enabled: true,
     // reload_knowledge 不进入咨询白名单，避免咨询会话改变服务端运行状态。
-    enabled_tools: READONLY_KNOWLEDGE_TOOLS,
+    enabled_tools: [...enabledTools],
     default_tools_approval_mode: 'approve',
   }
 }
 
 /**
  * domain-knowledge：业务公共认知（状态机/计算公式/业务流程/业务规则）。
- * 知识库目录来自 DOMAIN_KB_DIR 环境变量（与 claude mcp add 保持一致）。
+ * 默认读取正式 team-tools；DOMAIN_KB_DIR 可用于受控部署覆盖。
  */
 export function createDomainKnowledgeServer(): Record<string, unknown> | null {
-  const engine = resolveEngine()
-  const kbDir = process.env.DOMAIN_KB_DIR
-    || firstExisting(path.join('project-domain-knowledge', 'knowledge'))
+  const paths = resolveKnowledgeMcpPaths()
+  const engine = paths.engine
+  const kbDir = paths.domainKnowledge
 
   if (!existsSync(engine) || !existsSync(kbDir)) {
     return null
@@ -80,12 +111,12 @@ export function createDomainKnowledgeServer(): Record<string, unknown> | null {
 
 /**
  * cross-topology：跨项目拓扑认知（状态枚举值、API 路径、表字段、模块依赖）。
- * 知识库目录来自 CROSS_TOPO_KB_DIR 环境变量。
+ * 默认读取正式 team-tools；CROSS_TOPO_KB_DIR 可用于受控部署覆盖。
  */
 export function createCrossTopologyServer(): Record<string, unknown> | null {
-  const engine = resolveEngine()
-  const kbDir = process.env.CROSS_TOPO_KB_DIR
-    || firstExisting(path.join('cross-project-topology', 'knowledge'))
+  const paths = resolveKnowledgeMcpPaths()
+  const engine = paths.engine
+  const kbDir = paths.crossTopology
 
   if (!existsSync(engine) || !existsSync(kbDir)) {
     return null
@@ -101,17 +132,13 @@ export function createCrossTopologyServer(): Record<string, unknown> | null {
 
 /** Codex CLI config.toml 形态的只读知识 MCP（区别于 Claude SDK 的 type=stdio 形态）。 */
 export function createCodexDomainKnowledgeServer(): Record<string, unknown> | null {
-  const engine = resolveEngine()
-  const kbDir = process.env.DOMAIN_KB_DIR
-    || firstExisting(path.join('project-domain-knowledge', 'knowledge'))
-  return codexServer(engine, kbDir)
+  const paths = resolveKnowledgeMcpPaths()
+  return codexServer(paths.engine, paths.domainKnowledge, DOMAIN_KNOWLEDGE_READONLY_TOOLS)
 }
 
 export function createCodexCrossTopologyServer(): Record<string, unknown> | null {
-  const engine = resolveEngine()
-  const kbDir = process.env.CROSS_TOPO_KB_DIR
-    || firstExisting(path.join('cross-project-topology', 'knowledge'))
-  return codexServer(engine, kbDir)
+  const paths = resolveKnowledgeMcpPaths()
+  return codexServer(paths.engine, paths.crossTopology, CROSS_TOPOLOGY_READONLY_TOOLS)
 }
 
 // PRD 一次性任务由 Java GraphifyQueryService 预查询图谱；业务咨询由 consult-readonly

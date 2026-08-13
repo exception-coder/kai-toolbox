@@ -1,5 +1,6 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
+import { fetchMcpHttp } from './mcpHttp.js'
 
 /**
  * SRM 本地实例（yudao 网关，验证用）探测 MCP：供 agent 在「自闭环验证」阶段以 OAuth2 登录态实发 REST 请求，
@@ -31,7 +32,7 @@ export function createSrmAppServer(apiBase: string) {
         },
         async (args: { method?: string; path: string; params?: Record<string, unknown>; bodyType?: string }) => {
           try {
-            const res = await fetch(`${apiBase}/api/claude-chat/srm-app/call`, {
+            const res = await fetchMcpHttp(`${apiBase}/api/claude-chat/srm-app/call`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({

@@ -3,6 +3,8 @@ import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
+import { classifyCommandResult } from './commandExecution.js'
+import { prependWindowsExecutionInstructions } from './windowsExecution.js'
 import { appendSqlDdlFallbackRule } from './pendingSqlPolicy.js'
 
 /**
@@ -77,7 +79,7 @@ function safeJson(v: unknown): string {
 export async function runGeminiTurn(ctx: GeminiTurnCtx): Promise<void> {
   const safeCwd = existsSync(ctx.cwd) ? ctx.cwd : (process.env.USERPROFILE || process.env.HOME || process.cwd())
   const bin = resolveGeminiBin()
-  const args = ['-p', appendSqlDdlFallbackRule(ctx.text), '-o', 'stream-json', '--approval-mode', mapApprovalMode(ctx.permissionMode), '--skip-trust']
+  const args = ['-p', prependWindowsExecutionInstructions(appendSqlDdlFallbackRule(ctx.text)), '-o', 'stream-json', '--approval-mode', mapApprovalMode(ctx.permissionMode), '--skip-trust']
   if (ctx.model) args.push('-m', ctx.model)
   // 已有会话 → 续最近一次（同 cwd）。resume 语义待真实验证（见设计文档 §8）。
   if (ctx.sdkSessionId) args.push('--resume', 'latest')
@@ -170,13 +172,17 @@ export async function runGeminiTurn(ctx: GeminiTurnCtx): Promise<void> {
           const output = obj.result ?? obj.output ?? obj.content
           const isError = Boolean(obj.error || obj.isError || obj.is_error || obj.status === 'error' || obj.status === 'failed')
           const outputText = stringify(output ?? obj.error)
+          const classification = classifyCommandResult(name, undefined, outputText, isError)
           ctx.emit({ type: 'toolResult', toolCallId, toolName: name, output: outputText, isError })
           emitToolActivity(ctx.emit, {
             toolCallId,
             toolName: name,
             status: isError ? 'failed' : 'completed',
+            title: classification?.title,
             elapsedMs: elapsedSince(toolStartedAt.get(toolCallId)),
             outputTail: activityOutputTail(outputText),
+            outcome: classification?.outcome,
+            severity: classification?.severity,
           })
           toolNames.delete(toolCallId)
           toolStartedAt.delete(toolCallId)

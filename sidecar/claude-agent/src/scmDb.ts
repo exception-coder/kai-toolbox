@@ -1,5 +1,6 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
+import { fetchMcpHttp } from './mcpHttp.js'
 
 /**
  * SCM 测试库（MySQL）【只读】查询 MCP：供 agent 在开发 SCM 需求时查库核对逻辑（表结构、状态字典、样本数据）。
@@ -27,7 +28,7 @@ export function createScmDbServer(apiBase: string) {
         },
         async (args: { sql: string; params?: unknown[] }) => {
           try {
-            const res = await fetch(`${apiBase}/api/claude-chat/scm-db/query`, {
+            const res = await fetchMcpHttp(`${apiBase}/api/claude-chat/scm-db/query`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ sql: args.sql, params: args.params ?? [] }),
