@@ -636,7 +636,11 @@ export function saveQueuedMessage(sessionId: string, message: Omit<PersistedQueu
   return http<PersistedQueuedMessage>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/queue`, {
     method: 'POST',
     body: JSON.stringify({
-      ...message,
+      id: message.id,
+      text: message.text,
+      displayText: message.displayText,
+      developerInstructions: message.developerInstructions,
+      createdAt: message.createdAt,
       attachments: message.attachments?.map(({ name, mime, path }) => ({ name, mime, path })),
     }),
   })

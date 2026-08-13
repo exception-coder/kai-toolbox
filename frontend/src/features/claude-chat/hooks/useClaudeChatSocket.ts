@@ -66,7 +66,10 @@ function normalizeUsage(raw: Record<string, unknown> | undefined): Record<string
 /** 待发送队列项：running 期间排队的用户消息。 */
 export interface QueuedMessage {
   id: string
+  /** 队列项创建时所属会话；调度时必须与当前会话一致，防止切会话竞态串发。 */
+  ownerSessionId: string
   text: string
+  createdAt: number
   attachments?: SendAttachment[]
   /** 展示层覆盖，见 send() 同名参数。 */
   displayText?: string
@@ -224,6 +227,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const [running, setRunning] = useState(false)
   const [interrupting, setInterrupting] = useState(false)
   const [queued, setQueued] = useState<QueuedMessage[]>([])
+  const sessionReadyRef = useRef(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [syncWarning, setSyncWarning] = useState<string | null>(null)
   const [mode, setModeState] = useState<PermissionMode>('default')
@@ -363,13 +367,16 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         // 队列严格按会话隔离：先清掉上一会话内存快照，再异步恢复 ready 对应会话的数据。
         setQueued([])
         sessionIdRef.current = msg.sessionId
+        sessionReadyRef.current = true
         setSessionId(msg.sessionId)
         if (!demo && channel !== 'consult') void listQueuedMessages(msg.sessionId)
           .then(messages => {
             if (sessionIdRef.current !== msg.sessionId) return
             setQueued(messages.map(message => ({
               id: message.id,
+              ownerSessionId: message.sessionId,
               text: message.text,
+              createdAt: message.createdAt,
               attachments: message.attachments,
               displayText: message.displayText,
               developerInstructions: message.developerInstructions,
@@ -1002,6 +1009,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   }, [sessionToken, connect, demo])
 
   const resetForNewSession = () => {
+    sessionReadyRef.current = false
     duplicateSourceRef.current = null
     if (duplicateTimeoutRef.current != null) {
       window.clearTimeout(duplicateTimeoutRef.current)
@@ -1010,6 +1018,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     setDuplicatingSessionId(null)
     setItems([])
     setPending(null)
+    setQueued([])
     setRunning(false)
     setInterrupting(false)
     setTurnTokens(0)
@@ -1193,7 +1202,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     if (!t && !(attachments && attachments.length > 0)) return
     const sessionId = sessionIdRef.current
     if (!sessionId) return
-    const message = { id: nextId(), text: t, attachments, displayText, developerInstructions, createdAt: Date.now() }
+    const message = { id: nextId(), ownerSessionId: sessionId, text: t, attachments, displayText, developerInstructions, createdAt: Date.now() }
     if (demo) {
       setQueued(prev => [...prev, message])
       return
@@ -1242,10 +1251,12 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   sendRef.current = send
   useEffect(() => {
     if (channel === 'consult') return
-    if (running || pending || queued.length === 0) return
+    if (!sessionReadyRef.current || running || pending || queued.length === 0) return
     const head = queued[0]
     const sessionId = sessionIdRef.current
-    if (!sessionId || dispatchingQueueIdRef.current === head.id) return
+    // Effect 可能已由旧会话 render 排队、却在 switchTo 更新 ref 后才执行。
+    // 队列项归属不匹配时必须原地停止，不能用新会话 ID 删除并发送旧会话消息。
+    if (!sessionId || head.ownerSessionId !== sessionId || dispatchingQueueIdRef.current === head.id) return
     if (demo) {
       setQueued(prev => prev.slice(1))
       sendRef.current(head.text, head.attachments, head.displayText, head.developerInstructions)
@@ -1255,7 +1266,11 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     // 先确认持久记录删除，再在同一微任务中发送；避免刷新后恢复出已经发送过的消息。
     void deleteQueuedMessage(sessionId, head.id)
       .then(() => {
-        if (sessionIdRef.current !== sessionId) return
+        if (sessionIdRef.current !== sessionId || !sessionReadyRef.current) {
+          // 删除请求发出后才切换会话：把消息恢复到原会话持久队列，避免“不串发但丢消息”。
+          void saveQueuedMessage(head.ownerSessionId, head)
+          return
+        }
         setQueued(prev => prev.filter(item => item.id !== head.id))
         sendRef.current(head.text, head.attachments, head.displayText, head.developerInstructions)
       })
