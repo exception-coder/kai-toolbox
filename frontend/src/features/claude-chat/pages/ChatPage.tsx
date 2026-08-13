@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Copy, Database, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Send, Server, Settings, Slash, Sparkles, Square } from 'lucide-react'
+import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Copy, Database, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Send, Server, Settings, Share2, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -89,6 +89,7 @@ import {
 } from '../lib/sessionSites'
 import { isVibeCodingSession } from '../lib/sessionScope'
 import { SessionWorkStatus } from '../components/SessionWorkStatus'
+import { ReviewShareDialog } from '../components/ReviewShareDialog'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
 
@@ -194,6 +195,7 @@ export function ChatPage() {
   const [showCommits, setShowCommits] = useState(false)
   const [showGitStatus, setShowGitStatus] = useState(false)
   const [showExport, setShowExport] = useState(false)
+  const [showReviewShare, setShowReviewShare] = useState(false)
   const [showPrdLink, setShowPrdLink] = useState(false)
   const [showPendingSql, setShowPendingSql] = useState(false)
   const [showSessionSites, setShowSessionSites] = useState(false)
@@ -731,6 +733,7 @@ export function ChatPage() {
     if (next.length === 0) setViewMode('single')
   }, [multiIds, sessions, sessionsLoaded])
   const currentSession = sessions.find(s => s.id === chat?.sessionId && isVibeCodingSession(s))
+  const reviewOnlySession = currentSession?.group === '评审会话'
   const planLocked = currentSession?.planExpired === true
   const currentTitle = currentSession
     ? (currentSession.title?.trim() || headerCwdName(currentSession.cwd))
@@ -1138,6 +1141,9 @@ export function ChatPage() {
                     {chat.sessionId && (
                       <HeaderMenuItem nested icon={<FileDown className="size-4" />} label="导出会话" hint="导出为 PDF/Word，含图片，发给同事/领导查看" onClick={() => { setHeaderMenu(false); setShowExport(true) }} />
                     )}
+                    {chat.sessionId && !reviewOnlySession && (
+                      <HeaderMenuItem nested icon={<Share2 className="size-4" />} label="分享计划评审" hint="生成独立评审消息流，业务/测试可发送文字和附件，但不能执行编码" onClick={() => { setHeaderMenu(false); setShowReviewShare(true) }} />
+                    )}
                     {chat.sessionId && (
                       <HeaderMenuItem nested icon={<Link2 className="size-4" />} label={linkedPrd ? '管理 PRD 关联' : '关联 PRD'} hint={linkedPrd ? `已关联：${linkedPrd.title || '（未命名）'}` : '搜索绑定一个 PRD，绑定后可一键同步更新开发文档'} onClick={() => { setHeaderMenu(false); setShowPrdLink(true) }} />
                     )}
@@ -1540,6 +1546,18 @@ export function ChatPage() {
           onClose={() => setShowPrdLink(false)}
         />
       )}
+      {showReviewShare && chat.sessionId && (
+        <ReviewShareDialog
+          open
+          sessionId={chat.sessionId}
+          sessionTitle={currentTitle}
+          engine={chat.currentEngine}
+          sdkSessionId={currentSession?.sdkSessionId}
+          officialProvider={currentSession?.providerKind !== 'thirdParty'}
+          items={chat.items}
+          onClose={() => setShowReviewShare(false)}
+        />
+      )}
 
       {showPendingSql && chat.sessionId && (
         <PendingSqlPanel
@@ -1714,8 +1732,10 @@ export function ChatPage() {
             })}
           />
           <div className="flex flex-wrap items-center gap-2 px-3 pt-2">
-            <ModeSwitch engine={chat.currentEngine} mode={chat.mode} onChange={chat.setMode} />
-            {chat.currentEngine === 'codex' && (
+            {reviewOnlySession ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-700 dark:text-emerald-300"><ShieldCheck className="size-3.5" />仅计划评审</span>
+            ) : <ModeSwitch engine={chat.currentEngine} mode={chat.mode} onChange={chat.setMode} />}
+            {chat.currentEngine === 'codex' && !reviewOnlySession && (
               <div className="min-w-0 max-w-full">
                 <CodexSessionOptions
                   models={chat.models}
@@ -1730,7 +1750,7 @@ export function ChatPage() {
               </div>
             )}
             {/* 服务商切换与权限组语义不同：用左外边距推到右侧，避免和权限按钮挤在一起 */}
-            <div className="order-1 ml-auto sm:order-none">
+            {!reviewOnlySession && <div className="order-1 ml-auto sm:order-none">
               <ProviderSwitch
                 engine={chat.currentEngine}
                 providerKind={chat.currentProviderKind}
@@ -1739,7 +1759,7 @@ export function ChatPage() {
                 onPickModel={chat.setModel}
                 align="right"
               />
-            </div>
+            </div>}
           </div>
           {showSlash && (
             <SlashCommandMenu commands={slashFiltered} activeIndex={slashActive} onPick={pickSlash} />

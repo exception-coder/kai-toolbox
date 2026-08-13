@@ -2,11 +2,17 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   CONSULT_READONLY_PROMPT,
+  REVIEW_ONLY_PROMPT,
   consultReadonlyCodexConfig,
   consultReadonlyRequiredMcpTools,
   resolveConsultTargetSystem,
   resolveConsultTargetSystems,
 } from './codexSecurity.js'
+
+test('review prompt explicitly forbids implementation side effects', () => {
+  assert.match(REVIEW_ONLY_PROMPT, /禁止修改文件、执行命令、提交代码、写数据库/)
+  assert.match(REVIEW_ONLY_PROMPT, /回到原开发会话执行/)
+})
 
 test('resolves the consultation database target from the registered source directory', () => {
   assert.equal(resolveConsultTargetSystem('D:\\Users\\zhang\\myWork\\srm-system'), 'srm')

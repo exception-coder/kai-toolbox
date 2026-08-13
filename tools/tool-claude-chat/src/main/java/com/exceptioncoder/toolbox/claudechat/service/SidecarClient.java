@@ -22,6 +22,10 @@ import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 
 /**
@@ -32,7 +36,7 @@ import java.util.function.BiConsumer;
  */
 @Slf4j
 @Component("claudeChatSidecarClient")
-public class SidecarClient {
+public class SidecarClient implements ReviewThreadForkGateway {
 
     private final ClaudeChatProperties props;
     private final ClaudeChatWsProperties wsProps;
@@ -42,6 +46,7 @@ public class SidecarClient {
     /** (sessionId|null, eventNode) -> 处理；sessionId 为 null 表示连接级事件（如断开） */
     private volatile BiConsumer<String, JsonNode> listener = (s, n) -> {};
     private volatile WebSocketSession session;
+    private final Map<String, CompletableFuture<String>> pendingReviewForks = new ConcurrentHashMap<>();
     /** 本实例已随 Spring 上下文停机；不得再建连、不得再上报断开 */
     private volatile boolean shuttingDown;
 
@@ -330,6 +335,31 @@ public class SidecarClient {
         oneShot(sessionId, request, engine, images);
     }
 
+    @Override
+    public String forkForReview(String sourceThreadId, String lastTurnId, String codexHome, String reviewCwd) {
+        String requestId = UUID.randomUUID().toString();
+        CompletableFuture<String> future = new CompletableFuture<>();
+        pendingReviewForks.put(requestId, future);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("type", "forkReviewThread");
+        payload.put("requestId", requestId);
+        payload.put("sourceThreadId", sourceThreadId);
+        payload.put("lastTurnId", nz(lastTurnId));
+        payload.put("codexHome", nz(codexHome));
+        payload.put("reviewCwd", nz(reviewCwd));
+        if (!send(payload)) {
+            pendingReviewForks.remove(requestId);
+            throw new IllegalStateException("Sidecar 未连接，无法创建完整上下文评审");
+        }
+        try {
+            return future.get(30, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            throw new IllegalStateException("创建 Codex 完整上下文评审失败：" + e.getMessage(), e);
+        } finally {
+            pendingReviewForks.remove(requestId);
+        }
+    }
+
     /** 按指定执行配置发起独立的一次性任务。 */
     public void oneShot(String sessionId,
                         com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner.ExecutionRequest request,
@@ -411,6 +441,15 @@ public class SidecarClient {
         protected void handleTextMessage(WebSocketSession ws, TextMessage message) {
             try {
                 JsonNode node = mapper.readTree(message.getPayload());
+                if ("reviewForked".equals(node.path("type").asText())) {
+                    String requestId = node.path("requestId").asText();
+                    CompletableFuture<String> future = pendingReviewForks.get(requestId);
+                    if (future != null) {
+                        if (node.hasNonNull("error")) future.completeExceptionally(new IllegalStateException(node.path("error").asText()));
+                        else future.complete(node.path("sdkSessionId").asText());
+                    }
+                    return;
+                }
                 String sessionId = node.path("sessionId").asText(null);
                 listener.accept(sessionId, node);
             } catch (Exception e) {

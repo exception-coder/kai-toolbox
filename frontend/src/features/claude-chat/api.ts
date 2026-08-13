@@ -413,6 +413,46 @@ export function replaceSessionSiteIds(id: string, siteIds: string[]) {
   })
 }
 
+export type ReviewShareMode = 'SAFE_SNAPSHOT' | 'FULL_FORK'
+export interface ReviewShareView {
+  id: string
+  sourceSessionId: string
+  reviewSessionId: string
+  mode: ReviewShareMode
+  status: string
+  title: string
+  expiresAt: number
+  createdAt: number
+}
+
+export function createReviewShare(sessionId: string, input: {
+  mode: ReviewShareMode
+  title?: string
+  contextSnapshot?: string
+  expiresInDays: number
+  lastTurnId?: string
+}) {
+  return http<{ review: ReviewShareView; token: string; sharePath: string }>(
+    `/claude-chat/sessions/${encodeURIComponent(sessionId)}/reviews`,
+    { method: 'POST', body: JSON.stringify(input) },
+  )
+}
+
+export function getPublicReview(token: string) {
+  return fetch(`/api/claude-chat/reviews/public/${encodeURIComponent(token)}`).then(async response => {
+    if (!response.ok) throw new Error(response.status === 404 ? '评审链接已失效、过期或被撤销' : '读取评审会话失败')
+    return response.json() as Promise<{ reviewSessionId: string; title: string; mode: ReviewShareMode; contextSnapshot: string; expiresAt: number }>
+  })
+}
+
+export async function uploadReviewAttachment(token: string, file: File): Promise<UploadedAttachment> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const response = await fetch(`/api/claude-chat/reviews/public/${encodeURIComponent(token)}/attachments`, { method: 'POST', body: fd })
+  if (!response.ok) throw new Error('附件上传失败')
+  return response.json()
+}
+
 /** 使用系统默认程序直接打开会话工作目录内的本地文件或目录。 */
 export function openSessionLocalPath(sessionId: string, path: string) {
   return http<void>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/open-local-path`, {
@@ -657,7 +697,7 @@ export function clearQueuedMessages(sessionId: string): Promise<void> {
 }
 
 // ── 历史会话消息分页加载 ──────────────────────────────────────────
-interface RawHistoryMessage {
+export interface RawHistoryMessage {
   id: string
   kind: string
   text?: string
@@ -688,6 +728,26 @@ export async function loadMessages(
     `/claude-chat/history/${encodeURIComponent(sdkSessionId)}/messages?${qs.toString()}`,
   )
   return { items: page.items.map(toChatItem), nextBefore: page.nextBefore }
+}
+
+export async function loadPublicReviewMessages(token: string, before?: number | null, limit = 30) {
+  const qs = new URLSearchParams({ limit: String(limit) })
+  if (before != null) qs.set('before', String(before))
+  const response = await fetch(`/api/claude-chat/reviews/public/${encodeURIComponent(token)}/messages?${qs}`)
+  if (!response.ok) throw new Error('读取评审历史失败')
+  const page = await response.json() as { items: RawHistoryMessage[]; nextBefore: number | null }
+  const items = page.items.map(toChatItem).map(item => {
+    if (item.kind !== 'user' || !item.attachments) return item
+    return {
+      ...item,
+      attachments: item.attachments.map(attachment => {
+        if (!attachment.url) return attachment
+        const encodedPath = attachment.url.split('path=')[1]
+        return encodedPath ? { ...attachment, url: `/api/claude-chat/reviews/public/${encodeURIComponent(token)}/files?path=${encodedPath}` } : attachment
+      }),
+    }
+  })
+  return { items, nextBefore: page.nextBefore }
 }
 
 /** 图片扩展名列表，用于历史消息附件识别。 */

@@ -1,7 +1,7 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso'
-import { AlertTriangle, ArrowDown, Bot, Check, CircleX, Coins, Copy, Database, FileImage, FilePenLine, FileText, FolderOpen, GitBranch, ListTodo, Route, Shrink, Terminal, Timer } from 'lucide-react'
+import { AlertTriangle, ArrowDown, Bot, Check, CircleX, Coins, Copy, Database, FileImage, FilePenLine, FileText, FolderOpen, GitBranch, ListTodo, Route, Shrink, Terminal, Timer, Wifi } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { loadState as loadCardState, saveState as saveCardState } from '@/features/markdown-card/lib/persistence'
 import type { ChatItem, ConnState } from '../types'
@@ -625,6 +625,7 @@ function CodexActivity({ item }: { item: Extract<ChatItem, { kind: 'activity' }>
       : item.activityType === 'plan' ? ListTodo
         : item.activityType === 'context' ? Shrink
           : item.activityType === 'model' ? Route
+            : item.activityType === 'connection' ? Wifi
             : item.activityType === 'command' || item.activityType === 'tool' ? Terminal
               : Bot
   const failed = item.status === 'failed'

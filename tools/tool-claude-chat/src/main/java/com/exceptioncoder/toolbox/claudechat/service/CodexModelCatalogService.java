@@ -102,7 +102,8 @@ public class CodexModelCatalogService {
                     model.path("description").asText(""),
                     List.copyOf(efforts),
                     defaultEffort,
-                    fastSupported
+                    fastSupported,
+                    false
             ));
         }
         return List.copyOf(models);

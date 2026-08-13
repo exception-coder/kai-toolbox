@@ -42,6 +42,24 @@ CREATE TABLE IF NOT EXISTS claude_chat_session (
 CREATE INDEX IF NOT EXISTS idx_claude_chat_session_seen
     ON claude_chat_session(last_seen_at DESC);
 
+-- 开发会话派生的受限评审空间。分享令牌仅保存 SHA-256，不保存明文。
+CREATE TABLE IF NOT EXISTS claude_chat_review_space (
+    id                  TEXT PRIMARY KEY,
+    source_session_id   TEXT NOT NULL,
+    review_session_id   TEXT NOT NULL UNIQUE,
+    mode                TEXT NOT NULL,
+    token_hash          TEXT NOT NULL UNIQUE,
+    status              TEXT NOT NULL DEFAULT 'ACTIVE',
+    title               TEXT NOT NULL,
+    context_snapshot    TEXT,
+    expires_at          INTEGER NOT NULL,
+    created_at          INTEGER NOT NULL,
+    updated_at          INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_claude_chat_review_source
+    ON claude_chat_review_space(source_session_id, created_at DESC);
+
 -- Vibe Coding 会话关联快捷入口中的测试站点；只保存逻辑 ID，站点名称、地址和图标仍由快捷入口统一维护。
 CREATE TABLE IF NOT EXISTS claude_chat_session_site (
     id          TEXT PRIMARY KEY,

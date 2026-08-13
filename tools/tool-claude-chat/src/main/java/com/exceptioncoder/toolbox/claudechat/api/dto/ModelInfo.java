@@ -7,4 +7,5 @@ package com.exceptioncoder.toolbox.claudechat.api.dto;
 public record ModelInfo(String value, String displayName, String description,
                         java.util.List<String> reasoningEfforts,
                         String defaultReasoningEffort,
-                        boolean fastSupported) {}
+                        boolean fastSupported,
+                        boolean isDefault) {}

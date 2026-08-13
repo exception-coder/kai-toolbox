@@ -17,6 +17,8 @@ import {
 import {
   CONSULT_READONLY_POLICY,
   CONSULT_READONLY_PROMPT,
+  REVIEW_ONLY_POLICY,
+  REVIEW_ONLY_PROMPT,
   consultReadonlyRequiredMcpTools,
   consultReadonlyCodexConfig,
 } from './codexSecurity.js'
@@ -38,7 +40,7 @@ export const CODEX_TOOLBOX_MCP_SERVERS = ['forge', 'erp_db', 'erp_app', 'srm_db'
 
 /** Codex 没有 Claude 的 system/init 能力清单，供 sidecar 主动上报运行时注入的 MCP。 */
 export function codexMcpCapabilities(toolPolicy: string, sessionId?: string): Array<{ name: string; status: string }> {
-  if (toolPolicy === 'disabled') return []
+  if (toolPolicy === 'disabled' || toolPolicy === REVIEW_ONLY_POLICY) return []
   if (toolPolicy === CONSULT_READONLY_POLICY) return [
     { name: 'consult-readonly', status: 'configured' },
     ...(process.env.TOOLBOX_API_BASE && sessionId ? [{ name: 'forge', status: 'configured' }] : []),
@@ -147,18 +149,19 @@ function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: str
                           consultEvidenceSystems: readonly string[] = []): NonNullable<CodexOptions['config']> {
   const baseDeveloperInstructions = [
     toolPolicy === CONSULT_READONLY_POLICY ? CONSULT_READONLY_PROMPT : undefined,
-    toolPolicy !== 'disabled' && sessionId ? FORGE_PENDING_SQL_STEER : undefined,
+    toolPolicy === REVIEW_ONLY_POLICY ? REVIEW_ONLY_PROMPT : undefined,
+    toolPolicy !== 'disabled' && toolPolicy !== REVIEW_ONLY_POLICY && sessionId ? FORGE_PENDING_SQL_STEER : undefined,
   ].filter(Boolean).join('\n\n') || undefined
   const developerInstructions = appendWindowsExecutionInstructions([
     baseDeveloperInstructions,
-    toolPolicy === CONSULT_READONLY_POLICY ? turnDeveloperInstructions?.trim() : undefined,
+    toolPolicy === CONSULT_READONLY_POLICY || toolPolicy === REVIEW_ONLY_POLICY ? turnDeveloperInstructions?.trim() : undefined,
   ].filter(Boolean).join('\n\n'))
   return {
     ...(speed === 'fast' ? { service_tier: 'priority' } : {}),
     ...(developerInstructions ? { developer_instructions: developerInstructions } : {}),
     ...(toolPolicy === CONSULT_READONLY_POLICY
       ? consultReadonlyCodexConfig(codexHome, sessionId, sourceRoot, consultEvidenceSystems)
-      : toolPolicy === 'disabled'
+      : toolPolicy === 'disabled' || toolPolicy === REVIEW_ONLY_POLICY
         ? {}
         : standardToolboxMcpConfig(sessionId)),
   }
@@ -262,10 +265,13 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
   const safeCwd = existsSync(ctx.cwd) ? ctx.cwd : (process.env.USERPROFILE || process.env.HOME || process.cwd())
   const home = normalizeCodexHome(ctx.codexHome)
   if (!validateCodexHome(ctx, home)) return
-  const toolsDisabled = ctx.toolPolicy === 'disabled'
+  const toolsDisabled = ctx.toolPolicy === 'disabled' || ctx.toolPolicy === REVIEW_ONLY_POLICY
   const consultReadonly = ctx.toolPolicy === CONSULT_READONLY_POLICY
+  const reviewOnly = ctx.toolPolicy === REVIEW_ONLY_POLICY
   const consultSourceRoot = consultReadonly && ctx.cwd.trim() ? resolve(ctx.cwd) : undefined
-  const { approvalPolicy, sandboxMode } = toolsDisabled || consultReadonly
+  const { approvalPolicy, sandboxMode } = reviewOnly
+    ? { approvalPolicy: 'never' as ApprovalMode, sandboxMode: 'read-only' as SandboxMode }
+    : toolsDisabled || consultReadonly
     ? { approvalPolicy: 'never' as ApprovalMode, sandboxMode: IS_WINDOWS ? 'danger-full-access' as SandboxMode : 'read-only' as SandboxMode }
     : mapMode(ctx.permissionMode)
   let tempImageDir: string | undefined
@@ -328,10 +334,13 @@ async function runCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport): Pr
   const safeCwd = existsSync(ctx.cwd) ? ctx.cwd : (process.env.USERPROFILE || process.env.HOME || process.cwd())
   const home = normalizeCodexHome(ctx.codexHome)
   if (!validateCodexHome(ctx, home)) return
-  const toolsDisabled = ctx.toolPolicy === 'disabled'
+  const toolsDisabled = ctx.toolPolicy === 'disabled' || ctx.toolPolicy === REVIEW_ONLY_POLICY
   const consultReadonly = ctx.toolPolicy === CONSULT_READONLY_POLICY
+  const reviewOnly = ctx.toolPolicy === REVIEW_ONLY_POLICY
   const consultSourceRoot = consultReadonly && ctx.cwd.trim() ? resolve(ctx.cwd) : undefined
-  const { approvalPolicy, sandboxMode } = toolsDisabled || consultReadonly
+  const { approvalPolicy, sandboxMode } = reviewOnly
+    ? { approvalPolicy: 'never' as ApprovalMode, sandboxMode: 'read-only' as SandboxMode }
+    : toolsDisabled || consultReadonly
     ? { approvalPolicy: 'never' as ApprovalMode, sandboxMode: IS_WINDOWS ? 'danger-full-access' as SandboxMode : 'read-only' as SandboxMode }
     : mapMode(ctx.permissionMode)
   const opts: ThreadOptions = {

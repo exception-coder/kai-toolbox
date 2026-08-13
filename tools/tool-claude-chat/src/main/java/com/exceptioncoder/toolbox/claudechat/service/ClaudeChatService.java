@@ -4,6 +4,7 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.ClientMessage;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModelInfo;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ServerMessage;
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
+import com.exceptioncoder.toolbox.claudechat.config.ReviewHandshakeInterceptor;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.domain.SessionStatus;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
@@ -58,6 +59,7 @@ public class ClaudeChatService {
     private final ProviderModelService providerModels;
     private final WelfareDemoSandboxProvisioner welfareDemo;
     private final SessionPlanStateService planStateService;
+    private final ReviewSpaceService reviewSpaces;
     private final ObjectMapper mapper;
     private final AgentTelemetry telemetry;
     private final List<AgentRunMetadataProvider> metadataProviders;
@@ -95,6 +97,7 @@ public class ClaudeChatService {
                              ProviderModelService providerModels,
                              WelfareDemoSandboxProvisioner welfareDemo,
                              SessionPlanStateService planStateService,
+                             ReviewSpaceService reviewSpaces,
                              ObjectMapper mapper,
                              AgentTelemetry telemetry,
                              List<AgentRunMetadataProvider> metadataProviders,
@@ -109,6 +112,7 @@ public class ClaudeChatService {
         this.providerModels = providerModels;
         this.welfareDemo = welfareDemo;
         this.planStateService = planStateService;
+        this.reviewSpaces = reviewSpaces;
         this.mapper = mapper;
         this.telemetry = telemetry;
         this.metadataProviders = List.copyOf(metadataProviders);
@@ -211,6 +215,7 @@ public class ClaudeChatService {
     }
 
     public void attach(WebSocketSession ws, ClientMessage.Attach attach) {
+        if (!canBindReviewTarget(ws, attach.sessionId())) return;
         SessionCtx ctx = sessions.get(attach.sessionId());
         if (ctx == null) {
             // 后端重启过 → 内存会话已清空；若 DB 仍有该会话，自动从持久化记录 resume 恢复，免去用户手动重开
@@ -265,6 +270,7 @@ public class ClaudeChatService {
     }
 
     public void switchSession(WebSocketSession ws, ClientMessage.SwitchSession msg) {
+        if (!canBindReviewTarget(ws, msg.sessionId())) return;
         if (!ensureSidecar(ws)) return;
         ClaudeChatSession db = repo.findById(msg.sessionId()).orElse(null);
         if (db == null) {
@@ -477,7 +483,9 @@ public class ClaudeChatService {
         repo.touch(ctx.sessionId, SessionStatus.RUNNING, System.currentTimeMillis());
         String developerInstructions = SessionExecutionPolicy.CONSULT_READONLY.equals(ctx.executionPolicy)
                 ? blankToNull(msg.developerInstructions())
-                : null;
+                : SessionExecutionPolicy.isReviewOnly(ctx.executionPolicy)
+                    ? reviewSpaces.developerInstructions(ctx.sessionId)
+                    : null;
         AgentRunMetadata metadata = resolveMetadata(ctx);
         String spanName = "fore-consult".equals(metadata.scope()) ? "fore_consult.turn" : "agent.turn";
         AgentSpan span = telemetry.start(spanName, metadata);
@@ -1381,8 +1389,12 @@ public class ClaudeChatService {
         return SessionExecutionPolicy.isConsultReadonly(ctx.executionPolicy);
     }
 
+    private static boolean isReviewOnly(SessionCtx ctx) {
+        return SessionExecutionPolicy.isReviewOnly(ctx.executionPolicy);
+    }
+
     private static void enforceReadonlyDefaults(SessionCtx ctx) {
-        if (!isConsultReadonly(ctx)) return;
+        if (!isConsultReadonly(ctx) && !isReviewOnly(ctx)) return;
         ctx.mode = "plan";
         ctx.autoApprove = false;
         ctx.apiBaseUrl = null;
@@ -1395,11 +1407,22 @@ public class ClaudeChatService {
         if (!SessionExecutionPolicy.canBind(channelPolicy, targetPolicy)) {
             String message = SessionExecutionPolicy.isConsultReadonly(channelPolicy)
                     ? "业务咨询通道只能访问业务咨询会话"
-                    : "Vibe Coding 通道不能访问业务咨询会话";
+                    : SessionExecutionPolicy.isReviewOnly(channelPolicy)
+                        ? "评审分享通道只能访问评审会话"
+                        : "Vibe Coding 通道不能访问受限会话";
             sendError(ws, 0, "SESSION_FORBIDDEN", message);
             return false;
         }
         return true;
+    }
+
+    private boolean canBindReviewTarget(WebSocketSession ws, String targetSessionId) {
+        String channelPolicy = SessionExecutionPolicy.forWebSocket(ws.getUri());
+        if (!SessionExecutionPolicy.isReviewOnly(channelPolicy)) return true;
+        Object allowed = ws.getAttributes().get(ReviewHandshakeInterceptor.REVIEW_SESSION_ATTRIBUTE);
+        if (targetSessionId != null && targetSessionId.equals(allowed)) return true;
+        sendError(ws, 0, "SESSION_FORBIDDEN", "该分享链接不能访问其他会话");
+        return false;
     }
 
     private static void sleep(long ms) {
@@ -1464,6 +1487,11 @@ public class ClaudeChatService {
         wsToSession.put(ws.getId(), ctx.sessionId);
         // 新绑定的连接只拿同一执行域的待答快照，咨询提问不能在 Vibe 中形成跳转入口。
         writeTo(ws, pendingSessionsSnapshot(SessionExecutionPolicy.forWebSocket(ws.getUri())));
+    }
+
+    public boolean isReviewConnection(WebSocketSession ws) {
+        SessionCtx ctx = ctxOf(ws);
+        return ctx != null && SessionExecutionPolicy.isReviewOnly(ctx.executionPolicy);
     }
 
     /** 构造当前执行域的待答快照，咨询与开发会话互不可见。 */
@@ -1649,7 +1677,8 @@ public class ClaudeChatService {
             JsonNode effortNodes = e.path("reasoningEfforts");
             if (effortNodes.isArray()) effortNodes.forEach(item -> efforts.add(item.asText()));
             out.add(new ModelInfo(value, e.path("displayName").asText(value), e.path("description").asText(""),
-                    efforts, e.path("defaultReasoningEffort").asText(null), e.path("fastSupported").asBoolean(false)));
+                    efforts, e.path("defaultReasoningEffort").asText(null), e.path("fastSupported").asBoolean(false),
+                    e.path("isDefault").asBoolean(false)));
         }
         return out;
     }

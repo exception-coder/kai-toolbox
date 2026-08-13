@@ -462,6 +462,8 @@ export interface ModelInfo {
   reasoningEfforts?: CodexReasoningEffort[]
   defaultReasoningEffort?: CodexReasoningEffort | null
   fastSupported?: boolean
+  /** Codex App Server 标记的当前授权目录默认模型。 */
+  isDefault?: boolean
 }
 
 // ── 客户端 → 服务端 ───────────────────────────────────────────────

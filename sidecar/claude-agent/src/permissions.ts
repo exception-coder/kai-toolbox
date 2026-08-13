@@ -78,7 +78,7 @@ export class Permissions {
   }
 
   setToolPolicy(policy: string): void {
-    this.toolPolicy = policy === 'consult-readonly' ? 'consult-readonly' : 'default'
+    this.toolPolicy = policy === 'consult-readonly' || policy === 'review-only' ? policy : 'default'
   }
 
   /** 同步「弹窗自动允许」兜底开关（运行中切换下一次工具调用即生效）。 */
@@ -140,6 +140,9 @@ export class Permissions {
     // 服务端硬策略优先于 bypassPermissions/autoApprove。AskUserQuestion 仍走正常问答交互。
     if (this.toolPolicy === 'consult-readonly' && toolName !== 'AskUserQuestion') {
       return this.consultReadonlyDecision(toolName, input)
+    }
+    if (this.toolPolicy === 'review-only' && toolName !== 'AskUserQuestion') {
+      return { behavior: 'deny', message: `评审会话禁止调用工具：${toolName}` }
     }
     if (FORGE_SAFE_TOOLS.has(toolName)) {
       return { behavior: 'allow', updatedInput: input }

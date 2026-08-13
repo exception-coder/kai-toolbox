@@ -139,6 +139,18 @@ wss.on('connection', (ws) => {
       case 'forkSession':
         void manager.forkSession(sessionId, msg.upToMessageId as string | undefined)
         break
+      case 'forkReviewThread':
+        void manager.forkReviewThread(
+          msg.sourceThreadId as string,
+          (msg.lastTurnId as string | undefined) || undefined,
+          (msg.codexHome as string | undefined) || undefined,
+        ).then(sdkSessionId => emit('review-fork', {
+          type: 'reviewForked', requestId: msg.requestId, sdkSessionId,
+        })).catch(error => emit('review-fork', {
+          type: 'reviewForked', requestId: msg.requestId,
+          error: error instanceof Error ? error.message : String(error),
+        }))
+        break
       case 'resume':
         manager.resume(sessionId, msg.sdkSessionId as string, msg.cwd as string, msg.engine as string, msg.apiBaseUrl as string | undefined, msg.authToken as string | undefined,
           msg.codexHome as string | undefined, msg.mode as string | undefined, msg.autoApprove as boolean | undefined,

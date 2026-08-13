@@ -179,6 +179,7 @@ export function loadCodexModels(sessionCodexHome?: string): CodexModelInfo[] {
           ? model.default_reasoning_level
           : null,
         fastSupported: (model.additional_speed_tiers ?? []).includes('fast'),
+        isDefault: false,
       }]
     })
   } catch (error) {
@@ -541,11 +542,11 @@ class Session {
       // 注入【只读】erp_db（查 ERP 测试库核对逻辑）+ erp_app（自闭环验证实发 *.action）；
       // 未配置库/实例时工具自会回"未配置"，无害。
       const mcpServers: Record<string, ReturnType<typeof createWelfareDbServer>> = {}
-      if (this.toolPolicy !== 'disabled' && this.demo && this.demoApiBase) {
+      if (this.toolPolicy !== 'disabled' && this.toolPolicy !== 'review-only' && this.demo && this.demoApiBase) {
         mcpServers.welfare_db = createWelfareDbServer(this.id, this.demoApiBase)
       }
       const toolboxApiBase = process.env.TOOLBOX_API_BASE
-      if (this.toolPolicy !== 'disabled' && !this.demo && toolboxApiBase) {
+      if (this.toolPolicy !== 'disabled' && this.toolPolicy !== 'review-only' && !this.demo && toolboxApiBase) {
         const consultTargets = new Set(resolveConsultTargetSystems(this.cwd, this.consultEvidenceSystems))
         const canRead = (system: 'erp' | 'srm' | 'scm'): boolean =>
           this.toolPolicy !== 'consult-readonly' || consultTargets.has(system)
@@ -581,7 +582,7 @@ class Session {
       // PRD 一次性任务仍由 Java GraphifyQueryService 预查询；业务咨询则通过 consult-readonly
       // 的 source_context 以固定参数执行 `graphify query`，从 URL/图谱上下文收敛候选源码。
       // 该入口不开放任意 Bash，也不允许模型直接扫描 graphify-out/cache。
-      if (this.toolPolicy !== 'disabled') {
+      if (this.toolPolicy !== 'disabled' && this.toolPolicy !== 'review-only') {
         const domainKb = createDomainKnowledgeServer()
         const crossTopo = createCrossTopologyServer()
         if (domainKb) (mcpServers as Record<string, unknown>)['domain-knowledge'] = domainKb
@@ -614,7 +615,7 @@ class Session {
             ...(this.apiBaseUrl && this.permissionMode !== 'plan'
               ? { disallowedTools: ['ExitPlanMode'] }
               : {}),
-            ...(this.toolPolicy === 'disabled'
+            ...(this.toolPolicy === 'disabled' || this.toolPolicy === 'review-only'
               ? { tools: [], settingSources: [] }
               : {}),
             ...(this.toolPolicy === 'consult-readonly'
@@ -1132,7 +1133,7 @@ export class SessionManager {
     if (codexHome) s.codexHome = codexHome
     if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
     if (autoApprove) { s.autoApprove = true; s.perms.setAutoApprove(true) }
-    s.toolPolicy = toolPolicy === 'consult-readonly' ? 'consult-readonly' : 'default'
+    s.toolPolicy = toolPolicy === 'consult-readonly' || toolPolicy === 'review-only' ? toolPolicy : 'default'
     s.consultEvidenceSystems = normalizeConsultEvidenceSystems(consultEvidenceSystems)
     s.perms.setToolPolicy(s.toolPolicy)
     s.codexReasoningEffort = isCodexReasoningEffort(codexReasoningEffort)
@@ -1179,7 +1180,7 @@ export class SessionManager {
     s.codexHome = codexHome || undefined
     if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
     if (autoApprove != null) { s.autoApprove = autoApprove; s.perms.setAutoApprove(autoApprove) }
-    s.toolPolicy = toolPolicy === 'consult-readonly' ? 'consult-readonly' : 'default'
+    s.toolPolicy = toolPolicy === 'consult-readonly' || toolPolicy === 'review-only' ? toolPolicy : 'default'
     s.consultEvidenceSystems = normalizeConsultEvidenceSystems(consultEvidenceSystems)
     s.perms.setToolPolicy(s.toolPolicy)
     s.model = model || undefined
@@ -1231,7 +1232,7 @@ export class SessionManager {
     }
     // fire-and-forget，但必须收敛异常：runTurn 的非 Claude 引擎分支（codex/gemini/opencode）没有内层 catch，
     // 一旦 reject 会变成 unhandledRejection 拖垮整个 sidecar。这里兜成该会话的 error+result，解除前端「思考中」。
-    const hiddenInstructions = s.toolPolicy === 'consult-readonly'
+    const hiddenInstructions = s.toolPolicy === 'consult-readonly' || s.toolPolicy === 'review-only'
       ? developerInstructions?.trim() || undefined
       : undefined
     s.runTurn(text, undefined, undefined, hiddenInstructions, turnId).catch((e) => {
@@ -1392,6 +1393,10 @@ export class SessionManager {
     } catch (e) {
       this.emit(id, { type: 'error', code: 'FORK_FAILED', message: e instanceof Error ? e.message : String(e) })
     }
+  }
+
+  async forkReviewThread(sourceThreadId: string, lastTurnId?: string, codexHome?: string): Promise<string> {
+    return forkCodexThread(sourceThreadId, { lastTurnId, codexHome })
   }
 
   drop(id: string): void {

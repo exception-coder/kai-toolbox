@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { emitSessionExpired, ensureFreshToken, getToken, logout, probeAuth, useAuth } from '@/lib/auth'
 import type { Attachment, BackgroundTaskInfo, ChatItem, ClientMessage, CodexReasoningEffort, CodexSpeed, ConnState, Engine, ModelInfo, PendingRequest, PendingSessionRef, PermissionMode, ProviderKind, SendAttachment, ServerMessage, TurnDiag } from '../types'
-import { clearQueuedMessages, deleteQueuedMessage, listQueuedMessages, loadMessages, saveQueuedMessage } from '../api'
+import { clearQueuedMessages, deleteQueuedMessage, listQueuedMessages, loadMessages, loadPublicReviewMessages, saveQueuedMessage } from '../api'
 import { notifyPrompt } from '../browserNotify'
 import { pushDebug } from '../lib/debugLog'
 import { playNotifySound } from '../sound'
@@ -211,12 +211,14 @@ export interface UseClaudeChatSocket {
   loadHistory: (reset: boolean) => void
 }
 
-export type ClaudeChatChannel = 'admin' | 'consult' | 'prd-dev'
+export type ClaudeChatChannel = 'admin' | 'consult' | 'prd-dev' | 'review'
 
-export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeChatChannel; prdSessionId?: string | null }): UseClaudeChatSocket {
+export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeChatChannel; prdSessionId?: string | null; reviewToken?: string | null }): UseClaudeChatSocket {
   // demo（受约束免登录演示）：连 /api/claude-chat/demo/ws，不带 token、不自动 attach 重连。
   const demo = opts?.demo ?? false
   const channel = opts?.channel ?? 'admin'
+  const reviewToken = opts?.reviewToken?.trim() || null
+  const publicWithoutLogin = demo || channel === 'review'
   const prdSessionId = opts?.prdSessionId?.trim() || null
   const [state, setState] = useState<ConnState>('idle')
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -369,7 +371,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         sessionIdRef.current = msg.sessionId
         sessionReadyRef.current = true
         setSessionId(msg.sessionId)
-        if (!demo && channel !== 'consult') void listQueuedMessages(msg.sessionId)
+        if (!publicWithoutLogin && channel !== 'consult') void listQueuedMessages(msg.sessionId)
           .then(messages => {
             if (sessionIdRef.current !== msg.sessionId) return
             setQueued(messages.map(message => ({
@@ -392,8 +394,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         // 恢复该会话上次的权限模式（按 sessionId 持久化），并同步给 sidecar，
         // 使刷新/放大缩小/重连后不回退 default。
         {
-          const savedMode = channel === 'consult' ? null : loadSavedMode(msg.sessionId)
-          if (channel === 'consult') {
+          const restricted = channel === 'consult' || channel === 'review'
+          const savedMode = restricted ? null : loadSavedMode(msg.sessionId)
+          if (restricted) {
             setModeState('plan')
             modeRef.current = 'plan'
           } else {
@@ -405,10 +408,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           }
           // 「弹窗自动允许」同步给服务端一次：服务端此后自己保管并随每次 resume 回灌 sidecar，
           // 用户切走页面/关掉浏览器也不影响放行，不再需要前端盯着弹窗自动点。
-          const savedAutoApprove = channel === 'consult' ? false : loadAutoApprove()
+          const savedAutoApprove = restricted ? false : loadAutoApprove()
           setAutoApproveState(savedAutoApprove)
           autoApproveRef.current = savedAutoApprove
-          if (channel !== 'consult') {
+          if (!restricted) {
             sendRaw({
               type: 'setAutoApprove',
               autoApprove: savedAutoApprove && modeRef.current === 'bypassPermissions',
@@ -423,7 +426,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           }
           setCodexReasoningEffort(options.reasoningEffort)
           setCodexSpeed(options.speed)
-          if (msg.engine === 'codex') sendRaw({ type: 'setCodexOptions', ...options })
+          if (msg.engine === 'codex' && channel !== 'consult' && channel !== 'review') {
+            sendRaw({ type: 'setCodexOptions', ...options })
+          }
         }
         if (msg.slashCommands) setSlashCommands(msg.slashCommands)
         if (msg.skills) setSkills(msg.skills)
@@ -823,14 +828,17 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     // WS 握手无法带 Authorization 头，通过 access_token 查询参数鉴权：
     // Vibe Coding 走 admin 通道校验 ADMIN；业务咨询走 consult 通道，只要求有效登录用户。
     // demo 通道公开免鉴权（路由不挂拦截器），不带 token。
-    const token = demo ? null : getToken()
+    const token = publicWithoutLogin ? null : getToken()
     const query = new URLSearchParams()
     if (token) query.set('access_token', token)
     if (channel === 'prd-dev' && prdSessionId) query.set('prd_session_id', prdSessionId)
+    if (channel === 'review' && reviewToken) query.set('review_token', reviewToken)
     const qs = query.size ? `?${query.toString()}` : ''
     const path = demo
       ? '/api/claude-chat/demo/ws'
-      : channel === 'consult'
+      : channel === 'review'
+        ? '/api/claude-chat/review/ws'
+        : channel === 'consult'
         ? '/api/claude-chat/consult/ws'
         : channel === 'prd-dev'
           ? '/api/claude-chat/prd-dev/ws'
@@ -881,7 +889,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       // 断网场景下这不成立：手机切网/断流时每次都连不上，攒够 3 次就把有效 token 清了、弹登录框。
       // 浏览器已知处于离线状态：连不上是必然的，与凭证无关，不计入鉴权失败。
       const offline = typeof navigator !== 'undefined' && navigator.onLine === false
-      if (!demo && !offline && !openedThisAttempt && getToken()) {
+      if (!publicWithoutLogin && !offline && !openedThisAttempt && getToken()) {
         const f = (authFailRef.current += 1)
         if (f >= 3) {
           // 到阈值只说明「反复握手前就断」，**不足以判定登录失效**：握手被 403 拒和网线拔了，
@@ -908,7 +916,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         setState('closed')
       }
     }
-  }, [applyEvent, flushIntent, flushPendingSends, demo, channel, prdSessionId, confirmAuthOrKeepRetrying])
+  }, [applyEvent, flushIntent, flushPendingSends, demo, channel, prdSessionId, reviewToken, publicWithoutLogin, confirmAuthOrKeepRetrying])
 
   const connect = useCallback(() => {
     // 幂等：已有在连/已连的 socket，或正处于「续期+建连」异步窗口时，不再叠一条。
@@ -953,7 +961,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       }
       openSocket()
     })
-  }, [openSocket, demo])
+  }, [openSocket, publicWithoutLogin])
 
   // 通道切换必须在页面的普通 effect（例如“开始开发”handoff）之前完成清理。
   // 否则 handoff 会把 open/send 发给上一条仍处于 OPEN 的 ADMIN socket，形成已创建但未绑定 PRD 的孤儿会话。
@@ -979,7 +987,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
    * 与鉴权失败计数（那几次 close 全是网络原因，不能算在凭证头上）。
    */
   useEffect(() => {
-    if (demo) return
+    if (publicWithoutLogin) return
     const onOnline = () => {
       if (manualCloseRef.current || gaveUpRef.current) return // 已卸载 / 已确认登录失效，不掺和
       if (reconnectTimerRef.current != null) {
@@ -993,12 +1001,12 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
     window.addEventListener('online', onOnline)
     return () => window.removeEventListener('online', onOnline)
-  }, [connect, demo])
+  }, [connect, publicWithoutLogin])
 
   // 登录恢复：之前因登录失效放弃重连后，一旦重新拿到 token（用户在全局登录框登录成功），
   // 清掉放弃标记与失败计数，重新建连。demo 通道无鉴权，不参与。
   useEffect(() => {
-    if (demo) return
+    if (publicWithoutLogin) return
     if (gaveUpRef.current && sessionToken) {
       gaveUpRef.current = false
       authFailRef.current = 0
@@ -1006,7 +1014,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       setErrorMessage(null)
       connect()
     }
-  }, [sessionToken, connect, demo])
+  }, [sessionToken, connect, publicWithoutLogin])
 
   const resetForNewSession = () => {
     sessionReadyRef.current = false
@@ -1203,7 +1211,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     const sessionId = sessionIdRef.current
     if (!sessionId) return
     const message = { id: nextId(), ownerSessionId: sessionId, text: t, attachments, displayText, developerInstructions, createdAt: Date.now() }
-    if (demo) {
+    if (publicWithoutLogin) {
       setQueued(prev => [...prev, message])
       return
     }
@@ -1428,13 +1436,15 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
 
   const loadHistory = useCallback(async (reset: boolean) => {
     const sid = sdkSessionIdRef.current
-    if (!sid || historyLoadingRef.current) return
+    if ((!sid && channel !== 'review') || historyLoadingRef.current) return
     if (!reset && historyExhaustedRef.current) return
     historyLoadingRef.current = true
     setHistoryLoading(true)
     try {
       const before = reset ? null : historyBeforeRef.current
-      const { items: hist, nextBefore } = await loadMessages(sid, cwdRef.current, before)
+      const { items: hist, nextBefore } = channel === 'review' && reviewToken
+        ? await loadPublicReviewMessages(reviewToken, before)
+        : await loadMessages(sid!, cwdRef.current, before)
       // 一律把历史 prepend 到现有项之前，不直接替换：
       // 进会话(switchTo/resumeHistory)会先 resetForNewSession 清空，故此刻 prev 只剩「加载期间本地新增的实时项」
       // ——典型是刚进会话就发出的首条用户气泡（乐观插入）/已开始的流式回复。若 reset 时直接 setItems(hist)，
@@ -1450,7 +1460,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       historyLoadingRef.current = false
       setHistoryLoading(false)
     }
-  }, [])
+  }, [channel, reviewToken])
 
   // 让 applyEvent(ready 回调)能在不进依赖环的情况下触发首屏历史加载
   useEffect(() => {

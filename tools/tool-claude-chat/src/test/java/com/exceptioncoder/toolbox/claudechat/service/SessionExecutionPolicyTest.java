@@ -51,5 +51,14 @@ class SessionExecutionPolicyTest {
                 SessionExecutionPolicy.STANDARD, SessionExecutionPolicy.CONSULT_READONLY)).isFalse();
         assertThat(SessionExecutionPolicy.canBind(
                 SessionExecutionPolicy.CONSULT_READONLY, SessionExecutionPolicy.STANDARD)).isFalse();
+        assertThat(SessionExecutionPolicy.forWebSocket(
+                URI.create("ws://localhost/api/claude-chat/review/ws?review_token=x")))
+                .isEqualTo(SessionExecutionPolicy.REVIEW_ONLY);
+        assertThat(SessionExecutionPolicy.canBind(
+                SessionExecutionPolicy.REVIEW_ONLY, SessionExecutionPolicy.REVIEW_ONLY)).isTrue();
+        assertThat(SessionExecutionPolicy.canBind(
+                SessionExecutionPolicy.REVIEW_ONLY, SessionExecutionPolicy.STANDARD)).isFalse();
+        assertThat(SessionExecutionPolicy.canBind(
+                SessionExecutionPolicy.STANDARD, SessionExecutionPolicy.REVIEW_ONLY)).isTrue();
     }
 }

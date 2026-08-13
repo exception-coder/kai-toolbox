@@ -21,19 +21,22 @@ public class ClaudeChatWebSocketConfig implements WebSocketConfigurer {
     private final ObjectProvider<AuthenticatedHandshakeInterceptor> authenticatedHandshake;
     private final ObjectProvider<PrdDevelopmentHandshakeInterceptor> prdDevelopmentHandshake;
     private final ClaudeChatWsProperties wsProps;
+    private final ReviewHandshakeInterceptor reviewHandshake;
 
     public ClaudeChatWebSocketConfig(ClaudeChatWebSocketHandler handler,
                                      DemoWebSocketHandler demoHandler,
                                      ObjectProvider<AdminHandshakeInterceptor> adminHandshake,
                                      ObjectProvider<AuthenticatedHandshakeInterceptor> authenticatedHandshake,
                                      ObjectProvider<PrdDevelopmentHandshakeInterceptor> prdDevelopmentHandshake,
-                                     ClaudeChatWsProperties wsProps) {
+                                     ClaudeChatWsProperties wsProps,
+                                     ReviewHandshakeInterceptor reviewHandshake) {
         this.handler = handler;
         this.demoHandler = demoHandler;
         this.adminHandshake = adminHandshake;
         this.authenticatedHandshake = authenticatedHandshake;
         this.prdDevelopmentHandshake = prdDevelopmentHandshake;
         this.wsProps = wsProps;
+        this.reviewHandshake = reviewHandshake;
     }
 
     @Override
@@ -62,6 +65,9 @@ public class ClaudeChatWebSocketConfig implements WebSocketConfigurer {
         // 福利签收演示通道：公开免登录，**不挂** Admin 拦截器；约束由副本沙箱 + canUseTool 硬保证。
         registry.addHandler(demoHandler, "/api/claude-chat/demo/ws")
                 .setAllowedOriginPatterns("*");
+        registry.addHandler(handler, "/api/claude-chat/review/ws")
+                .setAllowedOriginPatterns("*")
+                .addInterceptors(reviewHandshake);
     }
 
     @Bean

@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.claudechat.config;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ClientMessage;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ServerMessage;
 import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatService;
+import com.exceptioncoder.toolbox.claudechat.service.SessionExecutionPolicy;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -56,6 +57,15 @@ public class ClaudeChatWebSocketHandler extends TextWebSocketHandler {
             // 不再关闭整条连接——避免前后端版本不一致时一条未知消息就把会话连接打死。
             log.debug("[claude-chat] 非法客户端消息，已忽略：{}", e.getMessage());
             sendError(ws, "BAD_MESSAGE", "消息解析失败（已忽略该条，请确认前后端版本一致）");
+            return;
+        }
+
+        if ((SessionExecutionPolicy.isReviewOnly(SessionExecutionPolicy.forWebSocket(ws.getUri())) || service.isReviewConnection(ws))
+                && !(msg instanceof ClientMessage.Attach)
+                && !(msg instanceof ClientMessage.SwitchSession)
+                && !(msg instanceof ClientMessage.Send)
+                && !(msg instanceof ClientMessage.Interrupt)) {
+            sendError(ws, "REVIEW_OPERATION_FORBIDDEN", "评审分享页只允许查看、发送评审意见和中断当前回答");
             return;
         }
 

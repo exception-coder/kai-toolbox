@@ -88,11 +88,13 @@ export function CodexSessionOptions({
   const [activeSection, setActiveSection] = useState<string | null>(null)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const selectedModel = models.find(item => item.value === model)
-  const supportedEfforts = selectedModel?.reasoningEfforts?.length ? selectedModel.reasoningEfforts : DEFAULT_EFFORTS
+  const defaultModel = models.find(item => item.isDefault)
+  const effectiveModel = selectedModel ?? (!model ? defaultModel : undefined)
+  const supportedEfforts = effectiveModel?.reasoningEfforts?.length ? effectiveModel.reasoningEfforts : DEFAULT_EFFORTS
   const visibleEfforts = supportedEfforts.map(value => ({ value, label: effortLabel(value) }))
-  const fastSupported = !selectedModel || selectedModel.fastSupported !== false
+  const fastSupported = !effectiveModel || effectiveModel.fastSupported !== false
   const authHomeLabel = codexHome?.trim() || '默认目录（%USERPROFILE%\\.codex）'
-  const modelLabel = selectedModel?.displayName || model || '默认模型'
+  const modelLabel = selectedModel?.displayName || model || (defaultModel ? `默认 · ${defaultModel.displayName}` : '默认模型')
   const effortValueLabel = EFFORT_LABELS[reasoningEffort] ?? reasoningEffort
   const speedLabel = SPEEDS.find(item => item.value === speed)?.label ?? speed
   const activeAdvancedOption = advancedOptions.find(item => item.id === activeSection)
@@ -100,6 +102,7 @@ export function CodexSessionOptions({
   const changeModel = (nextModel: string) => {
     onModelChange(nextModel)
     const next = models.find(item => item.value === nextModel)
+      ?? (!nextModel ? models.find(item => item.isDefault) : undefined)
     const nextEfforts = next?.reasoningEfforts ?? []
     const nextEffort = nextEfforts.length && !nextEfforts.includes(reasoningEffort)
       ? next?.defaultReasoningEffort ?? nextEfforts[0]
@@ -221,7 +224,11 @@ export function CodexSessionOptions({
                 <div className="max-h-72 overflow-y-auto">
                   {activeSection === 'model' && (
                     <>
-                      <OptionRow label="默认模型" selected={!model} onClick={() => pickModel('')} />
+                      <OptionRow
+                        label={defaultModel ? `默认模型 · ${defaultModel.displayName}` : '默认模型'}
+                        selected={!model}
+                        onClick={() => pickModel('')}
+                      />
                       {models.map(item => (
                         <OptionRow key={item.value} label={item.displayName || item.value} selected={item.value === model} onClick={() => pickModel(item.value)} />
                       ))}

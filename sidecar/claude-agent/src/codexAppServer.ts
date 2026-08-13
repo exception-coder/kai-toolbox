@@ -38,6 +38,7 @@ type AppServerModel = {
   displayName?: string
   description?: string
   hidden?: boolean
+  isDefault?: boolean
   defaultReasoningEffort?: string
   supportedReasoningEfforts?: Array<{ reasoningEffort?: string }>
   additionalSpeedTiers?: string[]
@@ -50,6 +51,7 @@ export type CodexModelInfo = {
   reasoningEfforts: string[]
   defaultReasoningEffort: string | null
   fastSupported: boolean
+  isDefault: boolean
 }
 
 type CommandActivityState = {
@@ -92,6 +94,29 @@ export class CodexAppServerTurnError extends Error {
 type McpRuntimeStatus = {
   name: string
   tools: Set<string>
+}
+
+export type CodexAppServerErrorNotice = {
+  message: string
+  willRetry: boolean
+  attempt?: number
+  maxAttempts?: number
+}
+
+/**
+ * App Server 的 error 通知并不一定是终态。新版协议用 willRetry 明示，旧版只在文案中输出
+ * `Reconnecting... n/m`；结构化字段优先，文案仅用于兼容旧 CLI。
+ */
+export function classifyCodexAppServerError(params: Record<string, unknown>): CodexAppServerErrorNotice {
+  const error = asRecord(params.error) ?? params
+  const message = notificationMessage(error)
+  const reconnect = message.match(/\bReconnecting\.{3}\s*(\d+)\s*\/\s*(\d+)\b/i)
+  const structuredWillRetry = typeof params.willRetry === 'boolean' ? params.willRetry : undefined
+  return {
+    message,
+    willRetry: structuredWillRetry ?? reconnect != null,
+    ...(reconnect ? { attempt: Number(reconnect[1]), maxAttempts: Number(reconnect[2]) } : {}),
+  }
 }
 
 function parseMcpRuntimeStatuses(result: JsonRpcResult): McpRuntimeStatus[] {
@@ -146,6 +171,25 @@ function stop(child: ChildProcessWithoutNullStreams): void {
 
 function isReasoningEffort(value: unknown): value is string {
   return typeof value === 'string' && /^[a-z][a-z0-9_-]{0,31}$/.test(value)
+}
+
+export function normalizeCodexModel(item: AppServerModel): CodexModelInfo | null {
+  const value = item.model?.trim() || item.id?.trim()
+  if (!value || item.hidden === true) return null
+  const reasoningEfforts = (item.supportedReasoningEfforts ?? [])
+    .map(option => option.reasoningEffort)
+    .filter(isReasoningEffort)
+  return {
+    value,
+    displayName: item.displayName?.trim() || value,
+    description: item.description ?? '',
+    reasoningEfforts,
+    defaultReasoningEffort: isReasoningEffort(item.defaultReasoningEffort)
+      ? item.defaultReasoningEffort
+      : null,
+    fastSupported: (item.additionalSpeedTiers ?? []).includes('fast'),
+    isDefault: item.isDefault === true,
+  }
 }
 
 function callAppServer(
@@ -254,21 +298,8 @@ export async function listCodexModels(codexHome?: string): Promise<CodexModelInf
     }, codexHome)
 
     for (const item of result.data ?? []) {
-      const value = item.model?.trim() || item.id?.trim()
-      if (!value || item.hidden === true) continue
-      const reasoningEfforts = (item.supportedReasoningEfforts ?? [])
-        .map(option => option.reasoningEffort)
-        .filter(isReasoningEffort)
-      models.push({
-        value,
-        displayName: item.displayName?.trim() || value,
-        description: item.description ?? '',
-        reasoningEfforts,
-        defaultReasoningEffort: isReasoningEffort(item.defaultReasoningEffort)
-          ? item.defaultReasoningEffort
-          : null,
-        fastSupported: (item.additionalSpeedTiers ?? []).includes('fast'),
-      })
+      const model = normalizeCodexModel(item)
+      if (model) models.push(model)
     }
 
     const nextCursor = result.nextCursor?.trim()
@@ -324,6 +355,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
   let lastUsage: Record<string, unknown> = {}
   let abortFallback: NodeJS.Timeout | undefined
   let abortCompletion: ((error: Error) => void) | undefined
+  let reconnectActivityId: string | undefined
   const commandActivities = new Map<string, CommandActivityState>()
   const commandActivityEmittedAt = new Map<string, number>()
 
@@ -361,6 +393,14 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
   const emitActivity = (event: Record<string, unknown>) => {
     emittedActivity = true
     options.emit(event)
+  }
+  const finishReconnectActivity = (status: 'completed' | 'failed', detail?: string) => {
+    if (!reconnectActivityId) return
+    emitActivity({
+      type: 'codexActivity', activityType: 'connection', itemId: reconnectActivityId, status,
+      title: status === 'completed' ? 'Codex 已恢复连接' : 'Codex 重连失败', detail,
+    })
+    reconnectActivityId = undefined
   }
   const onAbort = () => {
     if (threadId && turnId && initialized) {
@@ -414,12 +454,14 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
       if (!method) return
       switch (method) {
         case 'item/agentMessage/delta': {
+          finishReconnectActivity('completed')
           const text = asString(params.delta)
           if (text) emitActivity({ type: 'assistantDelta', text })
           break
         }
         case 'item/started':
         case 'item/completed': {
+          finishReconnectActivity('completed')
           const item = asRecord(params.item)
           handleAppServerItem(
             method === 'item/completed' ? 'completed' : 'inProgress',
@@ -449,12 +491,14 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
           break
         }
         case 'turn/plan/updated':
+          finishReconnectActivity('completed')
           emitActivity({
             type: 'codexActivity', activityType: 'plan', itemId: asString(params.turnId),
             status: 'inProgress', title: asString(params.explanation) || '执行计划', data: params.plan ?? [],
           })
           break
         case 'turn/diff/updated':
+          finishReconnectActivity('completed')
           emitActivity({
             type: 'codexActivity', activityType: 'diff', itemId: asString(params.turnId),
             status: 'inProgress', title: '本轮文件变更', detail: asString(params.diff),
@@ -468,6 +512,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
           break
         }
         case 'model/rerouted':
+          finishReconnectActivity('completed')
           emitActivity({
             type: 'codexActivity', activityType: 'model', itemId: asString(params.turnId),
             status: 'completed', title: '模型已自动路由',
@@ -478,10 +523,23 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
         case 'configWarning':
           options.emit({ type: 'warning', code: 'CODEX_APP_SERVER_WARNING', message: notificationMessage(params) })
           break
-        case 'error':
-          finishError(new Error(notificationMessage(asRecord(params.error) ?? params)))
+        case 'error': {
+          const notice = classifyCodexAppServerError(params)
+          if (notice.willRetry) {
+            reconnectActivityId ??= `${asString(params.turnId) || turnId || threadId || 'current'}-reconnect`
+            const progress = notice.attempt && notice.maxAttempts ? `${notice.attempt}/${notice.maxAttempts}` : '重试中'
+            emitActivity({
+              type: 'codexActivity', activityType: 'connection', itemId: reconnectActivityId,
+              status: 'inProgress', title: `Codex 正在重连 · ${progress}`, detail: notice.message,
+            })
+            break
+          }
+          finishReconnectActivity('failed', notice.message)
+          finishError(new Error(notice.message))
           break
+        }
         case 'turn/completed': {
+          finishReconnectActivity('completed')
           const turn = asRecord(params.turn)
           const status = asString(turn?.status) || 'completed'
           const completedTurnId = asString(turn?.id) || turnId
