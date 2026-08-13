@@ -21,3 +21,4 @@
 | 14 | 架构约束 | 为业务咨询只注入通用源码搜索工具并允许从仓库根扫描，绕过既有 URL 定位与 Graphify 图谱流程 | 源码检索必须先走 URL 定位和 Graphify 上下文收敛，精确读取候选文件，仅在限定子目录内兜底搜索并排除 graphify-out | readonlyMcp.ts、ConsultStandardStepConfiguration.java、ForeConsultPage.tsx | 2026-08-05 | 1 |
 | 15 | 路径约束 | 将已停用的 `D:\Users\zhang\myWork\yoooni-daily-plugin` 误当团队插件源码并额外写入 | 团队插件源码统一读取 `C:\Users\zhang\.kai-toolbox\team-tools`；禁止再维护 D 盘旧开发仓副本 | PluginUpdateService.java、yoooni-erp-auto-dev/SKILL.md | 2026-08-05 | 1 |
 | 16 | 内容准确性 | 自动登记待执行 SQL 时只保存裸 SQL，缺少与系统业务变更关联的清晰注释 | 登记标题必须体现业务功能，每个 SQL 逻辑块前用注释说明关联功能、具体变更和执行目的 | pendingSqlPolicy.ts、forgePendingSql.ts | 2026-08-06 | 1 |
+| 17 | 架构约束 | 将 taskspace 聚合工作区根当成单仓库物理源码根，忽略其下多个 junction/symlink 成员仓库 | 会话应保存工作区根并显式解析成员源码根集合；路径校验、Graphify 路由和结果相对路径必须基于该集合，不能用单一物理根判断所有成员 | readonlyMcp.ts、codexSecurity.ts、codexEngine.ts、TaskspaceService.java | 2026-08-12 | 1 |
