@@ -604,8 +604,24 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         if (isRunningActivity(msg.status)) setRunning(true)
         const id = `tool-activity-${msg.toolCallId || msg.seq}`
         setItems(prev => {
-          const index = prev.findIndex(item => item.id === id)
-          const previous = index >= 0 ? prev[index] : undefined
+          let base = prev
+          if (msg.outcome === 'success') {
+            const retryIndex = findRecoverableCommandFailure(prev, msg.toolName)
+            if (retryIndex >= 0) {
+              base = prev.slice()
+              const failed = base[retryIndex]
+              if (failed.kind === 'activity') {
+                base[retryIndex] = {
+                  ...failed,
+                  title: `已自动重试 · ${failed.title}`,
+                  outcome: 'recovered',
+                  severity: 'info',
+                }
+              }
+            }
+          }
+          const index = base.findIndex(item => item.id === id)
+          const previous = index >= 0 ? base[index] : undefined
           const next = {
             kind: 'activity' as const,
             id,
@@ -613,9 +629,33 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
             status: msg.status,
             title: msg.title,
             detail: msg.detail,
-            data: { elapsedMs: msg.elapsedMs, output: msg.outputTail },
+            outcome: msg.outcome,
+            severity: msg.severity,
+            data: { elapsedMs: msg.elapsedMs, output: msg.outputTail, toolName: msg.toolName },
             ts: previous?.ts ?? Date.now(),
           }
+          if (index < 0) return [...base, next]
+          const copy = base.slice()
+          copy[index] = next
+          return copy
+        })
+        break
+      }
+      case 'turnActivity': {
+        if (isRunningActivity(msg.status)) setRunning(true)
+        setItems(prev => {
+          const id = 'turn-activity-current'
+          const next = {
+            kind: 'activity' as const,
+            id,
+            activityType: 'turn',
+            status: msg.status,
+            title: msg.title,
+            detail: msg.detail,
+            data: { elapsedMs: msg.elapsedMs, phase: msg.phase },
+            ts: Date.now(),
+          }
+          const index = prev.findIndex(item => item.id === id)
           if (index < 0) return [...prev, next]
           const copy = prev.slice()
           copy[index] = next
@@ -1447,6 +1487,20 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   }, [sendRaw, connect])
 
   return { state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, agents, mcpServers, outputStyle, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, loadHistory }
+}
+
+function findRecoverableCommandFailure(items: ChatItem[], toolName: string): number {
+  const minimum = Math.max(0, items.length - 6)
+  for (let index = items.length - 1; index >= minimum; index -= 1) {
+    const item = items[index]
+    if (item.kind === 'result' || item.kind === 'user') break
+    if (item.kind !== 'activity' || !['shellSyntax', 'argumentEscaping'].includes(item.outcome ?? '')) continue
+    const data = item.data && typeof item.data === 'object' && !Array.isArray(item.data)
+      ? item.data as Record<string, unknown>
+      : undefined
+    if (!data?.toolName || data.toolName === toolName) return index
+  }
+  return -1
 }
 
 function isRunningActivity(status: string): boolean {

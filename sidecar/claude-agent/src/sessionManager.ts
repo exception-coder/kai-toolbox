@@ -147,6 +147,7 @@ function normalizeConsultEvidenceSystems(values: readonly string[] | undefined):
 
 /** 中断时留给「未决审批的 deny 响应」写回 CLI 的时间，之后才关传输层。见 Session.interrupt()。 */
 const INTERRUPT_DENY_FLUSH_MS = 30
+const TURN_ACTIVITY_HEARTBEAT_MS = 5_000
 
 export function loadCodexModels(sessionCodexHome?: string): CodexModelInfo[] {
   try {
@@ -278,6 +279,11 @@ class Session {
   private abort?: AbortController
   private readonly turnLifecycle = new TurnLifecycle()
   private readonly mcpToolWatchdog: McpToolWatchdog
+  private turnActivityStartedAt = 0
+  private turnActivityPhase = 'starting'
+  private turnActivityTitle = '正在启动代码引擎'
+  private turnActivityDetail?: string
+  private turnActivityTimer?: NodeJS.Timeout
   private modelsFetched = false
   /** 本轮 API 响应里实际返回的模型（来自 assistant message.model，权威）；用于调用诊断。 */
   private lastResponseModel?: string
@@ -320,9 +326,75 @@ class Session {
   }
 
   private emitTurn(event: Record<string, unknown>): void {
+    const type = typeof event.type === 'string' ? event.type : ''
+    if (type === 'result') this.stopTurnActivity()
+    else this.updateTurnActivity(event)
     this.mcpToolWatchdog.observe(event)
     const decorated = this.turnLifecycle.decorate(event)
     if (decorated) this.emitRaw(decorated)
+  }
+
+  private startTurnActivity(): void {
+    this.clearTurnActivityTimer()
+    this.turnActivityStartedAt = Date.now()
+    this.turnActivityPhase = 'starting'
+    this.turnActivityTitle = '正在启动代码引擎'
+    this.turnActivityDetail = undefined
+    this.emitTurnActivity('inProgress')
+    this.turnActivityTimer = setInterval(() => this.emitTurnActivity('inProgress'), TURN_ACTIVITY_HEARTBEAT_MS)
+    this.turnActivityTimer.unref?.()
+  }
+
+  private updateTurnActivity(event: Record<string, unknown>): void {
+    if (!this.turnActivityTimer || event.type === 'turnActivity') return
+    const type = typeof event.type === 'string' ? event.type : ''
+    if (type === 'assistantDelta') {
+      this.setTurnActivityPhase('generating', '正在生成回复')
+    } else if (type === 'toolUse') {
+      const toolName = typeof event.toolName === 'string' ? event.toolName : '工具'
+      this.setTurnActivityPhase('tool', '正在执行工具', toolName)
+    } else if (type === 'toolResult') {
+      this.setTurnActivityPhase('thinking', '正在处理工具结果')
+    } else if (type === 'permissionRequest' || type === 'questionRequest') {
+      this.setTurnActivityPhase('waiting', '正在等待你的确认')
+    } else if (type === 'codexActivity' && event.status !== 'completed') {
+      const title = typeof event.title === 'string' && event.title.trim() ? event.title : '正在处理任务'
+      this.setTurnActivityPhase('working', title)
+    }
+  }
+
+  private setTurnActivityPhase(phase: string, title: string, detail?: string): void {
+    if (phase === this.turnActivityPhase && title === this.turnActivityTitle && detail === this.turnActivityDetail) return
+    this.turnActivityPhase = phase
+    this.turnActivityTitle = title
+    this.turnActivityDetail = detail
+    this.emitTurnActivity('inProgress')
+  }
+
+  private emitTurnActivity(status: 'inProgress' | 'completed'): void {
+    if (!this.turnActivityStartedAt) return
+    const decorated = this.turnLifecycle.decorate({
+      type: 'turnActivity',
+      status,
+      phase: status === 'completed' ? 'completed' : this.turnActivityPhase,
+      title: status === 'completed' ? '本轮已结束' : this.turnActivityTitle,
+      detail: status === 'completed' ? undefined : this.turnActivityDetail,
+      elapsedMs: Date.now() - this.turnActivityStartedAt,
+    })
+    if (decorated) this.emitRaw(decorated)
+  }
+
+  private stopTurnActivity(): void {
+    if (!this.turnActivityStartedAt) return
+    this.clearTurnActivityTimer()
+    this.emitTurnActivity('completed')
+    this.turnActivityStartedAt = 0
+    this.turnActivityDetail = undefined
+  }
+
+  private clearTurnActivityTimer(): void {
+    if (this.turnActivityTimer) clearInterval(this.turnActivityTimer)
+    this.turnActivityTimer = undefined
   }
 
   private emitMcpToolHeartbeat(entry: McpToolWatchdogEntry): void {
@@ -392,6 +464,7 @@ class Session {
       return
     }
     this.mcpToolWatchdog.clear()
+    this.startTurnActivity()
     try {
       await this.executeTurn(text, systemPrompt, images, developerInstructions)
     } catch (error) {
@@ -410,6 +483,7 @@ class Session {
           stopReason: this.turnLifecycle.fallbackStopReason(),
         })
       }
+      this.stopTurnActivity()
       this.turnLifecycle.finish(turn.turnId)
     }
   }

@@ -82,6 +82,7 @@ import {
   type SessionLinkedSite,
 } from '../lib/sessionSites'
 import { isVibeCodingSession } from '../lib/sessionScope'
+import { SessionWorkStatus } from '../components/SessionWorkStatus'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
 
@@ -1670,6 +1671,7 @@ export function ChatPage() {
                 onNewSession={currentSession ? handleNewSession : undefined}
                 turnTokens={chat.turnTokens}
                 connState={chat.state}
+                showRunningFooter={false}
               />
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-[var(--color-muted-foreground)]">
@@ -1693,6 +1695,14 @@ export function ChatPage() {
             {/* 底部输入：白色悬浮输入条 + 主色上边框 + 顶部阴影 */}
             {chat.sessionId && (
               <div className="cc-skin-surface border-t border-[var(--color-border)] bg-[var(--color-muted)] shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.08)]">
+          <SessionWorkStatus
+            items={chat.items}
+            running={chat.running}
+            engineLabel={engineDisplayName(chat.currentEngine, chat.currentProviderKind)}
+            turnTokens={chat.turnTokens}
+            connState={chat.state}
+            backgroundTasks={chat.backgroundTasks}
+          />
           <QueuedList items={chat.queued} onRemove={chat.removeQueued} onClear={chat.clearQueued} />
           <AttachmentChips
             items={attachments}
@@ -1705,18 +1715,6 @@ export function ChatPage() {
           />
           <div className="flex flex-wrap items-center gap-2 px-3 pt-2">
             <ModeSwitch engine={chat.currentEngine} mode={chat.mode} onChange={chat.setMode} />
-            {/* 后台任务提示：可见回合（result）已结束，但会话上还挂着 Agent 后台子任务没完事——
-                区分"真的没事干了"和"后台还在查、还没回来"，避免以为卡住了。不做成停止按钮：
-                这里没有可中断的前台轮次，点了也停不掉后台任务，做成按钮会误导。 */}
-            {!chat.running && chat.backgroundTasks.length > 0 && (
-              <span
-                className="flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
-                title={chat.backgroundTasks.map(t => t.description || t.taskType).join('\n')}
-              >
-                <Loader2 className="size-3.5 animate-spin" />
-                后台任务进行中 · {chat.backgroundTasks.length}
-              </span>
-            )}
             {chat.currentEngine === 'codex' && (
               <div className="min-w-0 max-w-full">
                 <CodexSessionOptions

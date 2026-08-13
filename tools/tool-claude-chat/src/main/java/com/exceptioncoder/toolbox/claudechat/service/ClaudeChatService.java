@@ -81,7 +81,7 @@ public class ClaudeChatService {
     private static final Set<String> TURN_SCOPED_SIDECAR_EVENTS = Set.of(
             "assistantDelta", "toolUse", "toolResult", "permissionRequest", "questionRequest",
             "userMessage", "forkAnchor", "turnInfo", "turnProgress", "warning",
-            "toolActivity", "codexActivity", "result", "error");
+            "toolActivity", "turnActivity", "codexActivity", "result", "error");
     /** 本实例已随 Spring 上下文停机；后台重连一律停手 */
     private volatile boolean shuttingDown;
 
@@ -1038,7 +1038,16 @@ public class ClaudeChatService {
                     node.path("title").asText("工具执行中…"),
                     node.path("detail").asText(null),
                     node.hasNonNull("elapsedMs") ? node.get("elapsedMs").asLong() : null,
-                    node.path("outputTail").asText(null)));
+                    node.path("outputTail").asText(null),
+                    node.path("outcome").asText(null),
+                    node.path("severity").asText(null)));
+            case "turnActivity" -> sendToBrowser(ctx, seq -> new ServerMessage.TurnActivity(
+                    seq,
+                    node.path("status").asText("inProgress"),
+                    node.path("phase").asText("working"),
+                    node.path("title").asText("正在处理任务"),
+                    node.path("detail").asText(null),
+                    node.hasNonNull("elapsedMs") ? node.get("elapsedMs").asLong() : null));
             case "codexActivity" -> sendToBrowser(ctx, seq -> new ServerMessage.CodexActivity(
                     seq,
                     node.path("activityType").asText("activity"),

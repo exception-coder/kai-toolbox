@@ -538,7 +538,8 @@ export type ServerMessage =
   | { type: 'turnInfo'; seq: number; requestedModel: string | null; responseModel: string | null; viaGateway: boolean; baseUrl: string | null; transport?: CodexTransport | null }
   | { type: 'turnProgress'; seq: number; outputTokens: number }
   | { type: 'warning'; seq: number; code: string; message: string }
-  | { type: 'toolActivity'; seq: number; toolCallId: string; toolName: string; status: string; title: string; detail?: string | null; elapsedMs?: number | null; outputTail?: string | null }
+  | { type: 'toolActivity'; seq: number; toolCallId: string; toolName: string; status: string; title: string; detail?: string | null; elapsedMs?: number | null; outputTail?: string | null; outcome?: string | null; severity?: string | null }
+  | { type: 'turnActivity'; seq: number; status: string; phase: string; title: string; detail?: string | null; elapsedMs?: number | null }
   | { type: 'codexActivity'; seq: number; activityType: string; itemId: string; status: string; title: string; detail?: string | null; data?: unknown }
   | { type: 'interruptState'; seq: number; outcome: string; active: boolean; pendingDecision: boolean }
   | { type: 'error'; seq: number; code: string; message: string; terminal?: boolean }
@@ -579,7 +580,7 @@ export type ChatItem =
   | { kind: 'tool'; id: string; toolCallId?: string; toolName: string; input: unknown; output?: string; isError?: boolean; ts?: number }
   | { kind: 'result'; id: string; stopReason: string; traceId?: string | null; ts?: number; usage?: Record<string, number>; latencyMs?: number; ttftMs?: number }
   | { kind: 'warning'; id: string; code: string; message: string; ts?: number }
-  | { kind: 'activity'; id: string; activityType: string; status: string; title: string; detail?: string | null; data?: unknown; ts?: number }
+  | { kind: 'activity'; id: string; activityType: string; status: string; title: string; detail?: string | null; outcome?: string | null; severity?: string | null; data?: unknown; ts?: number }
   | { kind: 'error'; id: string; code: string; message: string; ts?: number }
 
 // ── 待决策（权限 / 提问），驱动弹窗 ───────────────────────────────

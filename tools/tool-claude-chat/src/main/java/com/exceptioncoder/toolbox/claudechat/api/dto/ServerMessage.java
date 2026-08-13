@@ -18,7 +18,7 @@ public sealed interface ServerMessage
                 ServerMessage.Models, ServerMessage.UserMessage, ServerMessage.ForkAnchor, ServerMessage.Forked,
                 ServerMessage.ReplayGap, ServerMessage.Result, ServerMessage.TurnInfo,
                 ServerMessage.TurnProgress, ServerMessage.Warning, ServerMessage.ToolActivity,
-                ServerMessage.CodexActivity,
+                ServerMessage.TurnActivity, ServerMessage.CodexActivity,
                 ServerMessage.InterruptState,
                 ServerMessage.Error, ServerMessage.BackgroundTasks,
                 ServerMessage.PendingSessions {
@@ -103,7 +103,13 @@ public sealed interface ServerMessage
     /** 四种引擎统一的工具/长命令生命周期事件。 */
     @JsonTypeName("toolActivity")
     record ToolActivity(long seq, String toolCallId, String toolName, String status,
-                        String title, String detail, Long elapsedMs, String outputTail) implements ServerMessage {}
+                        String title, String detail, Long elapsedMs, String outputTail,
+                        String outcome, String severity) implements ServerMessage {}
+
+    /** 四种引擎统一的整轮生命周期心跳，覆盖首个文本或工具事件之前的静默阶段。 */
+    @JsonTypeName("turnActivity")
+    record TurnActivity(long seq, String status, String phase, String title,
+                        String detail, Long elapsedMs) implements ServerMessage {}
 
     /** Codex App Server 暴露的计划、文件、子 Agent、上下文压缩等过程事件。 */
     @JsonTypeName("codexActivity")
