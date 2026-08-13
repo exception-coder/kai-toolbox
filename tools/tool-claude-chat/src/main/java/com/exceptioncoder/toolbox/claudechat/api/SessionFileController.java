@@ -27,6 +27,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
@@ -50,6 +52,11 @@ public class SessionFileController {
             System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
     private static final boolean IS_MAC =
             System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("mac");
+    private static final Pattern LOCATION_SUFFIX = Pattern.compile(
+            "(?::\\d+(?::\\d+)?|#L\\d+)$", Pattern.CASE_INSENSITIVE);
+    private static final Set<String> BLOCKED_OPEN_EXTENSIONS = Set.of(
+            "exe", "com", "bat", "cmd", "ps1", "psm1", "vbs", "vbe", "js", "jse", "wsf", "wsh",
+            "msi", "scr", "lnk");
 
     private final ClaudeChatSessionRepository repo;
 
@@ -152,6 +159,24 @@ public class SessionFileController {
         }
     }
 
+    /** 使用系统默认程序直接打开会话工作目录内的文件或目录。 */
+    @PostMapping("/open-local-path")
+    public void openLocalPath(@PathVariable String id, @RequestBody RevealRequest req) {
+        Path cwd = sessionCwd(id);
+        Path target = resolveWithin(cwd, normalizeLinkedPath(req.path()));
+        if (!Files.exists(target)) {
+            throw new IllegalArgumentException("路径不存在");
+        }
+        if (Files.isRegularFile(target) && isBlockedExecutable(target)) {
+            throw new IllegalArgumentException("出于安全考虑，不支持从聊天消息直接打开可执行文件");
+        }
+        try {
+            openWithSystem(target);
+        } catch (IOException e) {
+            throw new IllegalStateException("打开本地路径失败：" + e.getMessage(), e);
+        }
+    }
+
     public record RevealRequest(String path) {
     }
 
@@ -191,6 +216,41 @@ public class SessionFileController {
             throw new IllegalArgumentException("路径越界");
         }
         return target;
+    }
+
+    static String normalizeLinkedPath(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new IllegalArgumentException("路径不能为空");
+        }
+        String value = raw.trim();
+        if (value.length() >= 2 && value.startsWith("<") && value.endsWith(">")) {
+            value = value.substring(1, value.length() - 1).trim();
+        }
+        return LOCATION_SUFFIX.matcher(value).replaceFirst("");
+    }
+
+    private static boolean isBlockedExecutable(Path target) {
+        String filename = target.getFileName() == null ? "" : target.getFileName().toString();
+        int dot = filename.lastIndexOf('.');
+        return dot >= 0 && BLOCKED_OPEN_EXTENSIONS.contains(filename.substring(dot + 1).toLowerCase(Locale.ROOT));
+    }
+
+    private static void openWithSystem(Path target) throws IOException {
+        String absolutePath = target.toAbsolutePath().toString();
+        if (IS_WINDOWS) {
+            if (Files.isDirectory(target)) {
+                new ProcessBuilder("explorer.exe", absolutePath).start();
+            } else {
+                // 不依赖 AWT Desktop，Spring Boot 以 headless 模式运行时也能交给 Windows 默认程序打开。
+                new ProcessBuilder("rundll32.exe", "url.dll,FileProtocolHandler", absolutePath).start();
+            }
+            return;
+        }
+        if (IS_MAC) {
+            new ProcessBuilder("open", absolutePath).start();
+        } else {
+            new ProcessBuilder("xdg-open", absolutePath).start();
+        }
     }
 
     /** cwd 到 p 的相对路径，统一用 / 分隔（前端跨平台稳定）。 */

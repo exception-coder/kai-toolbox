@@ -232,11 +232,12 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
   const itemContent = useCallback((_index: number, item: ChatItem) => (
     <div data-msg-id={item.id} className={cn('px-3 pb-3', item.id === highlightedId && 'kai-msg-flash rounded-2xl')}>
       <Row item={item} onFork={onFork} engineLabel={engineLabel} onNewSession={onNewSession}
+        sessionId={sessionKey}
         onCleanRetry={hasForkTarget ? onCleanRetry : undefined}
         onOpenImage={(src, alt) => setViewer({ src, alt })}
         turnText={item.kind === 'result' ? turnTextByResultId.get(item.id) : undefined} />
     </div>
-  ), [highlightedId, onFork, engineLabel, onNewSession, onCleanRetry, hasForkTarget, turnTextByResultId])
+  ), [highlightedId, onFork, engineLabel, onNewSession, onCleanRetry, hasForkTarget, turnTextByResultId, sessionKey])
 
   // 高频变化值走 context（见 ListHeader/ListFooter 顶部注释），LIST_COMPONENTS 引用永远不变。
   const listContext: ListContext = {
@@ -438,7 +439,7 @@ function TurnStatus({ item, turnText }: { item: Extract<ChatItem, { kind: 'resul
   )
 }
 
-function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText }: { item: ChatItem; onFork?: (forkAnchor: string) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string }) {
+function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText, sessionId }: { item: ChatItem; onFork?: (forkAnchor: string) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string; sessionId?: string }) {
   // displayText：Forge 机器人等「seed 转发」场景会隐藏实际发给 agent 的完整门控样板文案，只显示用户
   // 真正输入的那句话；保留一个不打眼的展开入口，避免完全不可见（可回看到底发了什么）。仅 'user' 项用到，
   // 但 Hooks 规则要求无条件调用，放在 switch 之外（对其它 kind 是无副作用的多余 state，可忽略）。
@@ -532,7 +533,7 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
           <div className="flex min-w-0 flex-1 flex-col items-start">
             <MsgHeader label={engineLabel} ts={item.ts} align="start" />
             <div className="max-w-[90%] min-w-0 wrap-anywhere rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-2 text-[var(--color-card-foreground)] shadow-sm">
-              <Markdown text={item.text} className="min-w-0" />
+              <Markdown text={item.text} className="min-w-0" sessionId={sessionId} />
             </div>
             {item.text.trim() && (
               <div className="flex items-center gap-1">

@@ -6,6 +6,7 @@ import { Download, Maximize2 } from 'lucide-react'
 import { MermaidLightbox } from '@/components/markdown/MermaidLightbox'
 import { downloadSvg } from '@/components/markdown/downloadSvg'
 import { cn } from '@/lib/utils'
+import { openSessionLocalPath } from '../api'
 
 // ── Mermaid 初始化（全局一次）──────────────────────────────────────────────────
 // startOnLoad=false：由本组件按需触发，避免 mermaid 自动扫 DOM 与 React 冲突。
@@ -123,12 +124,21 @@ function splitMermaid(text: string): Segment[] {
 }
 
 // ── MarkdownPart：单段普通 markdown 渲染（保留原有实现）──────────────────────
-function MarkdownPart({ text, className }: { text: string; className?: string }) {
+function MarkdownPart({ text, className, sessionId }: { text: string; className?: string; sessionId?: string }) {
+  const [localPathNotice, setLocalPathNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
   const html = useMemo(() => {
     if (!text.trim()) return null
     try {
       const raw = marked.parse(text, { async: false, gfm: true, breaks: true }) as string
-      const sanitized = DOMPurify.sanitize(raw)
+      const rawDoc = new DOMParser().parseFromString(raw, 'text/html')
+      rawDoc.querySelectorAll<HTMLAnchorElement>('a').forEach(anchor => {
+        const localPath = localPathFromHref(anchor.getAttribute('href'))
+        if (!localPath) return
+        anchor.dataset.localPath = localPath
+        anchor.href = '#'
+        anchor.title = `打开本地路径：${localPath}`
+      })
+      const sanitized = DOMPurify.sanitize(rawDoc.body.innerHTML)
       const doc = new DOMParser().parseFromString(sanitized, 'text/html')
       doc.querySelectorAll<HTMLOListElement>('ol').forEach(list => {
         const items = Array.from(list.children) as HTMLLIElement[]
@@ -154,8 +164,25 @@ function MarkdownPart({ text, className }: { text: string; className?: string })
     }
   }, [text])
 
-  const copyCode = async (event: ReactMouseEvent<HTMLDivElement>) => {
+  const handleClick = async (event: ReactMouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement
+    const localLink = target.closest<HTMLAnchorElement>('a[data-local-path]')
+    if (localLink) {
+      event.preventDefault()
+      const path = localLink.dataset.localPath
+      if (!sessionId || !path) {
+        setLocalPathNotice({ tone: 'error', text: '当前视图没有可用的会话，无法打开本地路径' })
+        return
+      }
+      try {
+        await openSessionLocalPath(sessionId, path)
+        setLocalPathNotice({ tone: 'success', text: `已打开：${path}` })
+      } catch (error) {
+        setLocalPathNotice({ tone: 'error', text: error instanceof Error ? error.message : String(error) })
+      }
+      window.setTimeout(() => setLocalPathNotice(null), 2_500)
+      return
+    }
     const button = target.closest<HTMLButtonElement>('[data-code-copy="true"]')
     if (!button) return
     const code = button.closest('pre')?.querySelector('code')?.textContent ?? ''
@@ -202,10 +229,11 @@ function MarkdownPart({ text, className }: { text: string; className?: string })
   }
 
   return (
-    <div
-      onClick={copyCode}
-      onCopy={copySelection}
-      className={cn(
+    <>
+      <div
+        onClick={handleClick}
+        onCopy={copySelection}
+        className={cn(
         'markdown-body min-w-0 max-w-full wrap-anywhere text-sm leading-relaxed',
         '[&_h1]:my-3 [&_h1]:text-xl [&_h1]:font-semibold',
         '[&_h2]:my-3 [&_h2]:text-lg [&_h2]:font-semibold',
@@ -229,9 +257,30 @@ function MarkdownPart({ text, className }: { text: string; className?: string })
         '[&_img]:my-2 [&_img]:max-w-full [&_img]:rounded-lg',
         className,
       )}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+      {localPathNotice && (
+        <div className={cn('mt-1 text-[11px]', localPathNotice.tone === 'success'
+          ? 'text-emerald-600 dark:text-emerald-400'
+          : 'text-red-600 dark:text-red-400')}>
+          {localPathNotice.text}
+        </div>
+      )}
+    </>
   )
+}
+
+function localPathFromHref(href: string | null): string | null {
+  if (!href) return null
+  let value = href.trim()
+  try { value = decodeURIComponent(value) } catch { /* 保留原值，由后端继续校验 */ }
+  if (/^file:\/\//i.test(value)) {
+    value = value.replace(/^file:\/\/\/?/i, '')
+    if (!/^[a-z]:/i.test(value)) value = `/${value}`
+  }
+  return /^[a-z]:[\\/]/i.test(value) || /^\/(?!\/)/.test(value) || /^\.\.?[\\/]/.test(value)
+    ? value
+    : null
 }
 
 // ── Markdown（对外导出）────────────────────────────────────────────────────────
@@ -241,12 +290,12 @@ function MarkdownPart({ text, className }: { text: string; className?: string })
  * - ```mermaid 块：提取后由 MermaidDiagram 异步渲染为 SVG
  * - 流式输出期间 mermaid 块未闭合时当普通代码块显示，闭合后自动升级为图表
  */
-export function Markdown({ text, className }: { text: string; className?: string }) {
+export function Markdown({ text, className, sessionId }: { text: string; className?: string; sessionId?: string }) {
   const segments = useMemo(() => splitMermaid(text ?? ''), [text])
 
   // 只有一段普通文本（最常见情况）：走原来最简路径，不引入额外 wrapper
   if (segments.length === 1 && segments[0].kind === 'text') {
-    return <MarkdownPart text={segments[0].content} className={className} />
+    return <MarkdownPart text={segments[0].content} className={className} sessionId={sessionId} />
   }
 
   return (
@@ -254,7 +303,7 @@ export function Markdown({ text, className }: { text: string; className?: string
       {segments.map((seg, i) =>
         seg.kind === 'mermaid'
           ? <MermaidDiagram key={i} code={seg.code} />
-          : <MarkdownPart key={i} text={seg.content} />
+          : <MarkdownPart key={i} text={seg.content} sessionId={sessionId} />
       )}
     </div>
   )

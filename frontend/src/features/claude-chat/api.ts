@@ -413,6 +413,14 @@ export function replaceSessionSiteIds(id: string, siteIds: string[]) {
   })
 }
 
+/** 使用系统默认程序直接打开会话工作目录内的本地文件或目录。 */
+export function openSessionLocalPath(sessionId: string, path: string) {
+  return http<void>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/open-local-path`, {
+    method: 'POST',
+    body: JSON.stringify({ path }),
+  })
+}
+
 /** 读取会话关联的快捷站点和临时站点。 */
 export function getSessionSiteConfiguration(id: string) {
   return http<SessionSiteConfiguration>(
