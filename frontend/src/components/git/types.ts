@@ -7,6 +7,8 @@ export interface CommitInfo {
   /** ISO-8601 提交时间 */
   date: string
   subject: string
+  /** 提交正文（不含标题） */
+  body: string
 }
 
 export interface CommitsResponse {

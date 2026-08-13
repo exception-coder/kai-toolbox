@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, ChevronRight, FileText, Folder, GitCommit, X } from 'lucide-react'
+import { ArrowLeft, ChevronRight, FileText, Folder, GitCommit, MessageSquareText, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { CommitDiff, CommitInfo, GitRepoRef } from './types'
 
@@ -31,10 +31,11 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
   const [diff, setDiff] = useState<CommitDiff | null>(null)
   const [diffErr, setDiffErr] = useState<string | null>(null)
   const [diffLoading, setDiffLoading] = useState(false)
+  const [selectedCommit, setSelectedCommit] = useState<CommitInfo | null>(null)
 
   // 载入某仓库的提交（repo=undefined 表示不带 repo：cwd 单仓 / projects 用法）
   const loadCommits = useCallback((repo: string | undefined) => {
-    setCommits(null); setListErr(null); setDiff(null); setDiffErr(null)
+    setCommits(null); setListErr(null); setDiff(null); setDiffErr(null); setSelectedCommit(null)
     fetchCommits(repo)
       .then(setCommits)
       .catch(e => setListErr(e instanceof Error ? e.message : String(e)))
@@ -65,17 +66,18 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
     loadCommits(name)
   }
 
-  const openDiff = (hash: string) => {
+  const openDiff = (commit: CommitInfo) => {
+    setSelectedCommit(commit)
     setDiff(null)
     setDiffErr(null)
     setDiffLoading(true)
-    fetchDiff(hash, activeRepo)
+    fetchDiff(commit.hash, activeRepo)
       .then(setDiff)
       .catch(e => setDiffErr(e instanceof Error ? e.message : String(e)))
       .finally(() => setDiffLoading(false))
   }
 
-  const backToList = () => { setDiff(null); setDiffErr(null) }
+  const backToList = () => { setDiff(null); setDiffErr(null); setSelectedCommit(null) }
   const showingDiff = diff !== null || diffErr !== null || diffLoading
 
   return (
@@ -96,7 +98,7 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
           <GitCommit className="size-4 text-[var(--color-primary)]" />
           <span className="truncate text-sm font-semibold">{title}</span>
           <span className="truncate text-xs text-[var(--color-muted-foreground)]">
-            {showingDiff ? '提交差异' : '最近提交'}
+            {showingDiff ? '提交详情' : '最近提交'}
           </span>
           <button type="button" onClick={onClose} className="ml-auto rounded-md p-1 hover:bg-[var(--color-muted)]" aria-label="关闭">
             <X className="size-4" />
@@ -135,10 +137,15 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
                 <li key={c.hash}>
                   <button
                     type="button"
-                    onClick={() => openDiff(c.hash)}
+                    onClick={() => openDiff(c)}
                     className="flex w-full flex-col gap-0.5 rounded-md px-2 py-2 text-left hover:bg-[var(--color-muted)]"
                   >
                     <span className="truncate text-sm">{c.subject}</span>
+                    {c.body && (
+                      <span className="line-clamp-2 whitespace-pre-line text-xs leading-relaxed text-[var(--color-muted-foreground)]">
+                        {c.body}
+                      </span>
+                    )}
                     <span className="flex items-center gap-2 text-[11px] text-[var(--color-muted-foreground)]">
                       <code className="font-mono">{c.shortHash}</code>
                       <span className="truncate">{c.author}</span>
@@ -157,9 +164,22 @@ export function CommitsPanel({ title, fetchCommits, fetchDiff, onClose, fetchRep
             {diffErr && <div className="p-3 text-sm text-[var(--color-destructive)]">{diffErr}</div>}
             {diff && (
               <>
-                <div className="border-b px-3 py-2 text-xs text-[var(--color-muted-foreground)]">
-                  <code className="font-mono">{diff.shortHash}</code> · {diff.author} · {formatDate(diff.date)}
-                  {diff.truncated && <span className="ml-2 text-[var(--color-destructive)]">（diff 过大，已截断）</span>}
+                <div className="space-y-2 border-b px-3 py-3">
+                  <div className="text-sm font-medium">{selectedCommit?.subject ?? diff.subject}</div>
+                  {selectedCommit?.body ? (
+                    <div className="flex items-start gap-2 rounded-lg border bg-[var(--color-muted)]/30 px-3 py-2">
+                      <MessageSquareText className="mt-0.5 size-4 shrink-0 text-[var(--color-muted-foreground)]" />
+                      <div className="max-h-40 min-w-0 overflow-auto whitespace-pre-wrap break-words text-xs leading-relaxed">
+                        {selectedCommit.body}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-[var(--color-muted-foreground)]">该提交没有正文。</div>
+                  )}
+                  <div className="text-xs text-[var(--color-muted-foreground)]">
+                    <code className="font-mono">{diff.shortHash}</code> · {diff.author} · {formatDate(diff.date)}
+                    {diff.truncated && <span className="ml-2 text-[var(--color-destructive)]">（diff 过大，已截断）</span>}
+                  </div>
                 </div>
                 <DiffView key={diff.hash} text={diff.diff} />
               </>

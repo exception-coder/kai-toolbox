@@ -29,6 +29,7 @@ public class GitLogService {
     private static final String RS = new String(new char[]{0x1e});
     private static final Pattern HASH_RE = Pattern.compile("^[0-9a-fA-F]{7,40}$");
     private static final String PRETTY = "%H%x1f%h%x1f%an%x1f%aI%x1f%s";
+    private static final String LOG_PRETTY = PRETTY + "%x1f%b%x1e";
 
     private final GitProperties props;
 
@@ -41,13 +42,14 @@ public class GitLogService {
         int n = Math.max(1, Math.min(limit, props.getCommitLimitMax()));
         Result r = exec(List.of(
                 props.getBinary(), "-c", "core.quotepath=false", "-C", dir.toString(),
-                "log", "-n", String.valueOf(n), "--no-color", "--pretty=format:" + PRETTY));
+                "log", "-n", String.valueOf(n), "--no-color", "--pretty=format:" + LOG_PRETTY));
         List<CommitInfo> out = new ArrayList<>();
-        for (String line : r.stdout().split("\n")) {
-            if (line.isBlank()) continue;
-            String[] f = line.split(FS, -1);
-            if (f.length < 5) continue;
-            out.add(new CommitInfo(f[0], f[1], f[2], f[3], f[4]));
+        for (String record : r.stdout().split(RS)) {
+            String normalized = record.stripLeading();
+            if (normalized.isBlank()) continue;
+            String[] f = normalized.split(FS, -1);
+            if (f.length < 6) continue;
+            out.add(new CommitInfo(f[0], f[1], f[2], f[3], f[4], f[5].strip()));
         }
         return out;
     }
