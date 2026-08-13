@@ -64,3 +64,9 @@ spring-shell.log
 ### Misc ###
 *.bak
 *.tmp
+
+### Local analysis / generated caches ###
+/graphify-out/
+/tmp/
+__pycache__/
+*.py[cod]
