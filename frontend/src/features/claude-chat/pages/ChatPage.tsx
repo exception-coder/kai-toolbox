@@ -81,6 +81,7 @@ import {
   quickSiteToLinkedSite,
   type SessionLinkedSite,
 } from '../lib/sessionSites'
+import { isVibeCodingSession } from '../lib/sessionScope'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
 
@@ -716,12 +717,20 @@ export function ChatPage() {
   const [projectSearch, setProjectSearch] = useState('')
 
   // 顶栏标题显示当前会话名（与会话列表一致：别名优先，无别名回退 cwd 目录名）；无会话时才回退 Vibe Coding
-  const { data: sessions = [] } = useQuery({
+  const { data: sessions = [], isSuccess: sessionsLoaded } = useQuery({
     queryKey: ['claude-chat-sessions'],
     queryFn: listSessions,
     staleTime: 5000,
   })
-  const currentSession = sessions.find(s => s.id === chat?.sessionId)
+  useEffect(() => {
+    if (!sessionsLoaded) return
+    const allowedIds = new Set(sessions.filter(isVibeCodingSession).map(session => session.id))
+    const next = multiIds.filter(id => allowedIds.has(id))
+    if (next.length === multiIds.length) return
+    setMultiIds(next)
+    if (next.length === 0) setViewMode('single')
+  }, [multiIds, sessions, sessionsLoaded])
+  const currentSession = sessions.find(s => s.id === chat?.sessionId && isVibeCodingSession(s))
   const planLocked = currentSession?.planExpired === true
   const currentTitle = currentSession
     ? (currentSession.title?.trim() || headerCwdName(currentSession.cwd))

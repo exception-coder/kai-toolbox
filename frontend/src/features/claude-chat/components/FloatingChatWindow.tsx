@@ -37,6 +37,7 @@ import { engineDisplayName, providerHost } from './chatStatus'
 import type { PrdSessionView } from '@/features/prd-clarify/types'
 import { countPrdReferenceDocuments, uploadPrdReference } from '../lib/prdReference'
 import { SessionPlanLockNotice } from './SessionPlanLockNotice'
+import { isVibeCodingSession } from '../lib/sessionScope'
 
 const MAX_ATTACHMENTS = 10
 const MIN_MARGIN = 8
@@ -194,7 +195,7 @@ export function FloatingChatWindow() {
     enabled: floating,
     staleTime: 5000,
   })
-  const currentSession = sessions.find(s => s.id === chat?.sessionId)
+  const currentSession = sessions.find(s => s.id === chat?.sessionId && isVibeCodingSession(s))
   const planLocked = currentSession?.planExpired === true
   const headerTitle = currentSession
     ? (currentSession.title?.trim() || cwdName(currentSession.cwd))
@@ -203,7 +204,7 @@ export function FloatingChatWindow() {
   // 拉起某模块会话：有该 cwd 的会话则续接，否则新建；随后进全屏会话页（与项目工作台一致）。
   const launchModule = (c: ModuleCandidate) => {
     if (!chat) return
-    const sess = sessions.find(s => normalizePath(s.cwd) === normalizePath(c.module.absPath))
+    const sess = sessions.find(s => isVibeCodingSession(s) && normalizePath(s.cwd) === normalizePath(c.module.absPath))
     if (sess) chat.switchTo(sess.id, sess.status === 'RUNNING' && sess.live); else chat.open(c.module.absPath)
     setRouteCands(null); setRouteNote(null); setDraft('')
     setMinimized(false)

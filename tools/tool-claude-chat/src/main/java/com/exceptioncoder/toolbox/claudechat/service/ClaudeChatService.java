@@ -167,6 +167,10 @@ public class ClaudeChatService {
                 .executionPolicy(executionPolicy)
                 .consultEvidenceSystems(writeStringList(consultEvidenceSystems))
                 .status(SessionStatus.IDLE).startedAt(now).lastSeenAt(now).build());
+        if (consultReadonly) {
+            // 在会话进入列表前由服务端完成归属，避免依赖前端 ready 后的异步补写产生可见性窗口。
+            repo.updateGroup(sessionId, SessionExecutionPolicy.CONSULT_GROUP_NAME, null);
+        }
 
         SessionCtx ctx = new SessionCtx(sessionId, cwd);
         ctx.executionPolicy = executionPolicy;
@@ -1357,7 +1361,7 @@ public class ClaudeChatService {
     }
 
     private static String executionPolicyOf(ClaudeChatSession session) {
-        if ("业务咨询".equals(session.getGroupName())) {
+        if (SessionExecutionPolicy.CONSULT_GROUP_NAME.equals(session.getGroupName())) {
             return SessionExecutionPolicy.CONSULT_READONLY;
         }
         return SessionExecutionPolicy.normalize(session.getExecutionPolicy());
@@ -1375,14 +1379,14 @@ public class ClaudeChatService {
         ctx.authToken = null;
     }
 
-    /**
-     * 普通登录用户只能从 consult 入口绑定只读咨询会话；不能借独立入口猜测 ID 后接管 ADMIN 会话。
-     */
+    /** 咨询与开发通道双向隔离，任何入口都不能凭会话 ID 交叉接管另一执行域。 */
     private boolean canBind(WebSocketSession ws, String targetPolicy) {
-        boolean consultChannel = SessionExecutionPolicy.isConsultReadonly(
-                SessionExecutionPolicy.forWebSocket(ws.getUri()));
-        if (consultChannel && !SessionExecutionPolicy.isConsultReadonly(targetPolicy)) {
-            sendError(ws, 0, "SESSION_FORBIDDEN", "业务咨询通道只能访问业务咨询会话");
+        String channelPolicy = SessionExecutionPolicy.forWebSocket(ws.getUri());
+        if (!SessionExecutionPolicy.canBind(channelPolicy, targetPolicy)) {
+            String message = SessionExecutionPolicy.isConsultReadonly(channelPolicy)
+                    ? "业务咨询通道只能访问业务咨询会话"
+                    : "Vibe Coding 通道不能访问业务咨询会话";
+            sendError(ws, 0, "SESSION_FORBIDDEN", message);
             return false;
         }
         return true;
@@ -1448,17 +1452,18 @@ public class ClaudeChatService {
         }
         ctx.viewers.add(ws);
         wsToSession.put(ws.getId(), ctx.sessionId);
-        // 新绑定的连接立即拿到全局待答快照：切到 A 时也能看到 C 仍在等确认。
-        writeTo(ws, pendingSessionsSnapshot());
+        // 新绑定的连接只拿同一执行域的待答快照，咨询提问不能在 Vibe 中形成跳转入口。
+        writeTo(ws, pendingSessionsSnapshot(SessionExecutionPolicy.forWebSocket(ws.getUri())));
     }
 
-    /** 构造当前全局待答快照（不广播，仅供 bindViewer 单发）。 */
-    private ServerMessage.PendingSessions pendingSessionsSnapshot() {
+    /** 构造当前执行域的待答快照，咨询与开发会话互不可见。 */
+    private ServerMessage.PendingSessions pendingSessionsSnapshot(String channelPolicy) {
         List<ServerMessage.PendingSessionRef> refs = new ArrayList<>();
         for (SessionCtx c : sessions.values()) {
             ServerMessage p = c.pendingRequest;
             if (p == null) continue;
             String kind = p instanceof ServerMessage.QuestionRequest ? "question" : "permission";
+            if (!SessionExecutionPolicy.canBind(channelPolicy, c.executionPolicy)) continue;
             String tool = p instanceof ServerMessage.PermissionRequest pr ? pr.toolName() : null;
             refs.add(new ServerMessage.PendingSessionRef(c.sessionId, shortCwd(c.cwd), kind, tool, sessionLabel(c)));
         }
@@ -1515,10 +1520,13 @@ public class ClaudeChatService {
      * 即覆盖全部连接一次）。seq=0 连接级消息，不入缓冲、前端不去重。任一会话 pending set/clear 时调用。
      */
     private void broadcastPendingSessions() {
-        ServerMessage snapshot = pendingSessionsSnapshot();
+        ServerMessage standardSnapshot = pendingSessionsSnapshot(SessionExecutionPolicy.STANDARD);
+        ServerMessage consultSnapshot = pendingSessionsSnapshot(SessionExecutionPolicy.CONSULT_READONLY);
         for (SessionCtx c : sessions.values()) {
             for (WebSocketSession ws : c.viewers) {
-                writeTo(ws, snapshot);
+                boolean consultChannel = SessionExecutionPolicy.isConsultReadonly(
+                        SessionExecutionPolicy.forWebSocket(ws.getUri()));
+                writeTo(ws, consultChannel ? consultSnapshot : standardSnapshot);
             }
         }
     }

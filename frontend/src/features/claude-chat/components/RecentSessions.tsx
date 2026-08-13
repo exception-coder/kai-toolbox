@@ -13,6 +13,7 @@ import { useConfirm } from '@/components/ui/confirm-dialog'
 import type { ClaudeChatSessionView } from '../types'
 import { useSessionPlanState } from '../hooks/useSessionPlanState'
 import { isSessionStatusVisible, useVisibleSessionStatuses } from '../lib/sessionStatusFilter'
+import { isVibeCodingSession } from '../lib/sessionScope'
 
 interface Props {
   currentSessionId: string | null
@@ -23,7 +24,6 @@ interface Props {
 }
 
 const SESSION_QUERY_KEY = ['claude-chat-sessions']
-const BUSINESS_CONSULT_GROUP = '业务咨询'
 
 /**
  * 最近会话快速入口：显示最近 N 条会话，风格与 SessionList 保持一致。
@@ -40,7 +40,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
     refetchInterval: 3_000,
   })
   const visibleStatuses = useVisibleSessionStatuses()
-  const recentCandidates = sessions.filter(session => (session.group ?? '').trim() !== BUSINESS_CONSULT_GROUP)
+  const recentCandidates = useMemo(() => sessions.filter(isVibeCodingSession), [sessions])
   const recent = recentCandidates
     .filter(session => isSessionStatusVisible(session, visibleStatuses))
     .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
@@ -61,12 +61,12 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
   const [draft, setDraft] = useState('')
   const [groupPickFor, setGroupPickFor] = useState<ClaudeChatSessionView | null>(null)
   const [favoriteBusyId, setFavoriteBusyId] = useState<string | null>(null)
-  const allGroupPaths = useMemo(() => sessions
+  const allGroupPaths = useMemo(() => recentCandidates
     .map(session => ({
       project: (session.group ?? '').trim(),
       requirement: (session.subgroup ?? '').trim(),
     }))
-    .filter(path => path.project), [sessions])
+    .filter(path => path.project), [recentCandidates])
   const startEdit = (id: string, cur: string) => { setEditingId(id); setDraft(cur) }
   const commitEdit = async (id: string) => {
     const t = draft.trim()

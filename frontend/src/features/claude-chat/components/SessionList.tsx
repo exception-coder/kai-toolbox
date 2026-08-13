@@ -15,6 +15,7 @@ import { CopySessionIdButton } from './CopySessionIdButton'
 import { useSessionPlanState } from '../hooks/useSessionPlanState'
 import { SessionStatusFilter } from './SessionStatusFilter'
 import { DEFAULT_SESSION_STATUSES, isSessionStatusVisible, resetVisibleSessionStatuses, useVisibleSessionStatuses } from '../lib/sessionStatusFilter'
+import { isVibeCodingSession } from '../lib/sessionScope'
 
 const OLD_GROUP_KEY = 'kai-toolbox:claude-chat:session-groups'
 let groupMigrationDone = false
@@ -43,14 +44,15 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
     queryFn: listSessions,
     refetchInterval: 3_000,
   })
+  const vibeSessions = useMemo(() => sessions.filter(isVibeCodingSession), [sessions])
 
   // 批量查一次"这些会话里哪些绑了 PRD"，给行首标个小图标——不然只能点进每个会话的顶栏才知道
   // （用户原话："不然不知道哪些绑定了必须要点开"）。key 用排序后的 id 拼接，会话集合不变就不重查。
-  const sessionIdsKey = useMemo(() => [...sessions.map(s => s.id)].sort().join(','), [sessions])
+  const sessionIdsKey = useMemo(() => [...vibeSessions.map(s => s.id)].sort().join(','), [vibeSessions])
   const { data: prdLinks = {} } = useQuery({
     queryKey: ['claude-chat-sessions-prd-links', sessionIdsKey],
-    queryFn: () => getSessionsByDevSessions(sessions.map(s => s.id)),
-    enabled: sessions.length > 0,
+    queryFn: () => getSessionsByDevSessions(vibeSessions.map(s => s.id)),
+    enabled: vibeSessions.length > 0,
     staleTime: 60_000,
   })
 
@@ -76,18 +78,18 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
     setAliasQuery('')
     resetVisibleSessionStatuses()
   }
-  const filteredSessions = useMemo(() => sessions.filter(s => {
+  const filteredSessions = useMemo(() => vibeSessions.filter(s => {
     if (!isSessionStatusVisible(s, visibleStatuses)) return false
     if (activeProject && ((s.group ?? '').trim() || UNGROUPED) !== activeProject) return false
     if (normalizedAliasQuery && !(s.title ?? '').toLocaleLowerCase().includes(normalizedAliasQuery)) return false
     if (filterPrd === 'linked' && !prdLinks[s.id]) return false
     if (filterPrd === 'unlinked' && prdLinks[s.id]) return false
     return true
-  }), [sessions, visibleStatuses, activeProject, normalizedAliasQuery, filterPrd, prdLinks])
-  const knownCodexHomes = useMemo(() => [...new Set(sessions
+  }), [vibeSessions, visibleStatuses, activeProject, normalizedAliasQuery, filterPrd, prdLinks])
+  const knownCodexHomes = useMemo(() => [...new Set(vibeSessions
     .filter(s => s.engine === 'codex' && s.providerKind !== 'thirdParty')
     .map(s => s.codexHome?.trim() || '')
-  )], [sessions])
+  )], [vibeSessions])
 
   const requestDuplicate = (session: ClaudeChatSessionView) => {
     if (session.engine !== 'codex' || session.providerKind === 'thirdParty') {
@@ -170,9 +172,9 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
     })()
   }, [qc])
 
-  const allGroupPaths = useMemo(() => sessions
+  const allGroupPaths = useMemo(() => vibeSessions
     .map(s => ({ project: (s.group ?? '').trim(), requirement: (s.subgroup ?? '').trim() }))
-    .filter(x => x.project), [sessions])
+    .filter(x => x.project), [vibeSessions])
   const applyGroup = async (id: string, project: string | null, requirement?: string | null) => {
     await setSessionGroupApi(id, project, requirement)
     qc.invalidateQueries({ queryKey: KEY })
@@ -237,9 +239,9 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
   }, [])
 
   if (isPending) return <div className="px-4 py-4 text-sm text-[var(--color-muted-foreground)]">加载中…</div>
-  if (sessions.length === 0) return <div className="px-4 py-4 text-sm text-[var(--color-muted-foreground)]">还没有会话，点上方「新建」开始</div>
+  if (vibeSessions.length === 0) return <div className="px-4 py-4 text-sm text-[var(--color-muted-foreground)]">还没有会话，点上方「新建」开始</div>
 
-  const visibleBaseSessions = sessions.filter(session => {
+  const visibleBaseSessions = vibeSessions.filter(session => {
     if (!isSessionStatusVisible(session, visibleStatuses)) return false
     if (filterPrd === 'linked' && !prdLinks[session.id]) return false
     if (filterPrd === 'unlinked' && prdLinks[session.id]) return false

@@ -40,4 +40,16 @@ class SessionExecutionPolicyTest {
         assertThat(SessionExecutionPolicy.normalize("unexpected"))
                 .isEqualTo(SessionExecutionPolicy.STANDARD);
     }
+
+    @Test
+    void websocketChannelOnlyBindsSessionsFromTheSameExecutionDomain() {
+        assertThat(SessionExecutionPolicy.canBind(
+                SessionExecutionPolicy.STANDARD, SessionExecutionPolicy.STANDARD)).isTrue();
+        assertThat(SessionExecutionPolicy.canBind(
+                SessionExecutionPolicy.CONSULT_READONLY, SessionExecutionPolicy.CONSULT_READONLY)).isTrue();
+        assertThat(SessionExecutionPolicy.canBind(
+                SessionExecutionPolicy.STANDARD, SessionExecutionPolicy.CONSULT_READONLY)).isFalse();
+        assertThat(SessionExecutionPolicy.canBind(
+                SessionExecutionPolicy.CONSULT_READONLY, SessionExecutionPolicy.STANDARD)).isFalse();
+    }
 }

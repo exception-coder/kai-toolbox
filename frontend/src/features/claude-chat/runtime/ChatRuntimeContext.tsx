@@ -9,6 +9,7 @@ import {
   publishEmergencyRepairStatus,
   type EmergencyRepairRequest,
 } from '@/lib/emergencyRepair'
+import { isVibeCodingSession } from '../lib/sessionScope'
 
 /** Vibe Coding 会话页路由；落在此路由即激活引擎（懒启动）。 */
 export const CHAT_ROUTE = '/tools/claude-chat'
@@ -269,7 +270,10 @@ function ChatEngine({
     const request = emergencyRepair
     void (async () => {
       try {
-        const [selfRepo, sessions] = await Promise.all([getSelfRepo(), listSessions()])
+        const [selfRepo, sessions] = await Promise.all([
+          getSelfRepo(),
+          listSessions().then(items => items.filter(isVibeCodingSession)),
+        ])
         if (!selfRepo.exists || !selfRepo.path?.trim()) throw new Error('未配置 kai-toolbox 自维护仓库，无法创建修复会话')
 
         const normalizedSelf = normalizePath(selfRepo.path)
@@ -355,7 +359,17 @@ function ChatEngine({
     }
     if (targetSessionId) {
       switchedTargetRef.current = targetSessionId
-      chatRef.current.switchTo(targetSessionId)
+      void (async () => {
+        try {
+          const target = (await listSessions()).find(
+            session => session.id === targetSessionId && isVibeCodingSession(session),
+          )
+          if (!target || switchedTargetRef.current !== targetSessionId) return
+          chatRef.current.switchTo(target.id, target.status === 'RUNNING' && target.live)
+        } catch {
+          // 无法确认会话归属时不绑定，避免业务咨询会话误入 Vibe Coding。
+        }
+      })()
       return
     }
     // 需求代码节点的新开发 handoff 会由 ChatPage 立即 open；不要先自动切到“最近会话”，
@@ -363,7 +377,7 @@ function ChatEngine({
     if (effectivePrdSessionId) return
     void (async () => {
       try {
-        const sessions = await listSessions()
+        const sessions = (await listSessions()).filter(isVibeCodingSession)
         if (sessions.length === 0) return
         const latest = [...sessions].sort((a, b) => b.lastSeenAt - a.lastSeenAt)[0]
         // 刷新恢复：若该会话仍在回答（后端 status=RUNNING 且挂在活跃 sidecar 上），带上 hint 立即显示「中断」，
@@ -378,8 +392,41 @@ function ChatEngine({
   useEffect(() => {
     if (demo || !targetSessionId || switchedTargetRef.current === targetSessionId) return
     switchedTargetRef.current = targetSessionId
-    chatRef.current.switchTo(targetSessionId)
+    void (async () => {
+      try {
+        const target = (await listSessions()).find(
+          session => session.id === targetSessionId && isVibeCodingSession(session),
+        )
+        if (!target || switchedTargetRef.current !== targetSessionId) return
+        chatRef.current.switchTo(target.id, target.status === 'RUNNING' && target.live)
+      } catch {
+        // 无法确认会话归属时保持当前开发会话。
+      }
+    })()
   }, [demo, effectivePrdSessionId, targetSessionId])
+
+  // 兼容升级前已经误绑定的页面状态：识别到当前 ID 属于业务咨询后，立即回到最近的开发会话。
+  useEffect(() => {
+    const activeSessionId = chat.sessionId
+    if (demo || !activeSessionId) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const sessions = await listSessions()
+        const active = sessions.find(session => session.id === activeSessionId)
+        if (!active || isVibeCodingSession(active)) return
+        const fallback = sessions
+          .filter(isVibeCodingSession)
+          .sort((a, b) => b.lastSeenAt - a.lastSeenAt)[0]
+        if (!cancelled && fallback) {
+          chatRef.current.switchTo(fallback.id, fallback.status === 'RUNNING' && fallback.live)
+        }
+      } catch {
+        // 后端通道仍会拒绝跨域绑定；列表查询失败时不做猜测性切换。
+      }
+    })()
+    return () => { cancelled = true }
+  }, [demo, chat.sessionId])
 
   return <Ctx.Provider value={{ ...control, chat }}>{children}</Ctx.Provider>
 }
