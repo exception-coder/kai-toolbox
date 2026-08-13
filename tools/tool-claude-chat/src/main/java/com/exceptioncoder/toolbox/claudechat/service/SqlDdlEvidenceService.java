@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.claudechat.service;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.domain.SqlDdlEvidence;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -47,6 +48,7 @@ public class SqlDdlEvidenceService {
     private final Path knowledgeRoot;
     private final Map<String, CachedEvidence> evidenceCache = new ConcurrentHashMap<>();
 
+    @Autowired
     public SqlDdlEvidenceService(ClaudeChatSessionRepository sessionRepository) {
         this(sessionRepository, defaultKnowledgeRoot());
     }

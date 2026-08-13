@@ -5,6 +5,7 @@ import com.exceptioncoder.toolbox.claudechat.domain.SqlDdlEvidence;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,6 +20,13 @@ class SqlDdlEvidenceServiceTest {
 
     @TempDir
     Path tempDir;
+
+    @Test
+    void marksProductionConstructorAsSpringInjectionPoint() throws Exception {
+        var constructor = SqlDdlEvidenceService.class.getConstructor(ClaudeChatSessionRepository.class);
+
+        assertThat(constructor.isAnnotationPresent(Autowired.class)).isTrue();
+    }
 
     @Test
     void resolvesProjectAndReturnsOnlyRequestedTableFragments() throws Exception {
