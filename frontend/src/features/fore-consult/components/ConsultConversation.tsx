@@ -68,6 +68,8 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
   const [bugTurns, setBugTurns] = useState<Set<string>>(new Set()) // 已登记 BUG 的 assistant 消息 id
   const registeredRef = useRef<Set<string>>(new Set())
   const sendingRef = useRef(false)
+  const dispatchAbortRef = useRef<AbortController | null>(null)
+  const [dispatching, setDispatching] = useState(false)
   const [newQuestionReason, setNewQuestionReason] = useState<string | null>(null)
   const [newQuestionDraft, setNewQuestionDraft] = useState<{ message: string; attachments: Att[] } | null>(null)
   const [newQuestionTitle, setNewQuestionTitle] = useState('')
@@ -121,9 +123,15 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
   }
 
   const interruptGeneration = () => {
+    dispatchAbortRef.current?.abort()
+    dispatchAbortRef.current = null
+    sendingRef.current = false
+    setDispatching(false)
     chat.clearQueued()
-    chat.interrupt()
+    if (chat.running) chat.interrupt()
   }
+
+  useEffect(() => () => dispatchAbortRef.current?.abort(), [])
 
   const rateGood = (turnIndex: number) => {
     setRatings((prev) => new Map(prev).set(turnIndex, 'GOOD'))
@@ -142,17 +150,18 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
 
   const items = chat?.items ?? []
   const running = !!chat?.running
+  const busy = running || dispatching
   const pending = chat?.pending
   const sessionReady = chat.state === 'ready'
-  const inputLocked = !sessionReady || running
+  const inputLocked = !sessionReady || busy
   const sessionSendableRef = useRef(false)
-  sessionSendableRef.current = sessionReady && !running
+  sessionSendableRef.current = sessionReady && !busy
   // 立即反馈：只要最后一条是用户消息（已发出、还没等到回复），就显示"思考/接入中"，
   // 不必等 chat.running 变 true（引擎连接/开会话有延迟，否则会白等一段时间没反馈）。
   const lastItem = items[items.length - 1]
   const firstItemId = items[0]?.id ?? ''
   const lastItemId = lastItem?.id ?? ''
-  const waiting = running || lastItem?.kind === 'user'
+  const waiting = busy || lastItem?.kind === 'user'
   const turnAudits = useMemo(() => buildConsultTurnAudits(items, running), [items, running])
 
   useEffect(() => {
@@ -185,19 +194,19 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
         el.scrollTop = snapshot.scrollTop + el.scrollHeight - snapshot.scrollHeight
       }
       historyScrollSnapshotRef.current = null
-      previousRenderRef.current = { itemCount: items.length, firstId: firstItemId, lastId: lastItemId, running }
+      previousRenderRef.current = { itemCount: items.length, firstId: firstItemId, lastId: lastItemId, running: busy }
       return
     }
 
     const previous = previousRenderRef.current
     const initialContent = previous.itemCount === 0 && items.length > 0
     const appended = items.length > previous.itemCount && previous.firstId === firstItemId
-    const runningChanged = previous.running !== running
+    const runningChanged = previous.running !== busy
     if (initialContent || (isNearBottomRef.current && (appended || runningChanged))) {
       el.scrollTo({ top: el.scrollHeight, behavior: initialContent ? 'auto' : 'smooth' })
     }
-    previousRenderRef.current = { itemCount: items.length, firstId: firstItemId, lastId: lastItemId, running }
-  }, [chat.historyLoading, firstItemId, items.length, lastItemId, running])
+    previousRenderRef.current = { itemCount: items.length, firstId: firstItemId, lastId: lastItemId, running: busy }
+  }, [busy, chat.historyLoading, firstItemId, items.length, lastItemId])
 
   const handleMessageScroll = () => {
     const el = scrollRef.current
@@ -297,8 +306,9 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
     message: string,
     attachments: Array<{ name: string; path: string; mime?: string; url?: string }> | undefined,
     developerInstructions?: string,
+    preparedDispatch = false,
   ): boolean => {
-    if (!sessionSendableRef.current) return false
+    if (!sessionSendableRef.current && !(preparedDispatch && sessionReady && !running)) return false
     isNearBottomRef.current = true
     chat.send(message, attachments, undefined, developerInstructions)
     setText('')
@@ -321,6 +331,9 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
       return
     }
 
+    const dispatchAbort = new AbortController()
+    dispatchAbortRef.current = dispatchAbort
+    setDispatching(true)
     let dispatched = false
     try {
       const dispatch = await dispatchConsultQuestion(
@@ -329,12 +342,19 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
         firstQuestion.displayText ?? firstQuestion.text,
         true,
         chat.currentEngine === 'claude' ? 'claude' : 'codex',
+        dispatchAbort.signal,
       )
-      dispatched = dispatchMessage(message, attachments, dispatch.prompt ?? undefined)
+      if (dispatchAbort.signal.aborted) return
+      dispatched = dispatchMessage(message, attachments, dispatch.prompt ?? undefined, true)
     } catch {
-      dispatched = dispatchMessage(message, attachments)
+      if (dispatchAbort.signal.aborted) return
+      dispatched = dispatchMessage(message, attachments, undefined, true)
     } finally {
-      sendingRef.current = false
+      if (dispatchAbortRef.current === dispatchAbort) {
+        dispatchAbortRef.current = null
+        sendingRef.current = false
+        setDispatching(false)
+      }
     }
     if (!dispatched) return
 
@@ -466,7 +486,7 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
               <span className="fc-thinking-dot">●</span>
               <span className="fc-thinking-dot" style={{ animationDelay: '0.2s' }}>●</span>
               <span className="fc-thinking-dot" style={{ animationDelay: '0.4s' }}>●</span>
-              <span className="ml-1">{running ? 'AI 思考中…' : '正在接入 Forge…'}</span>
+              <span className="ml-1">{dispatching ? '正在准备调度…' : running ? 'AI 思考中…' : '正在接入 Forge…'}</span>
             </div>
           )}
         </div>
@@ -505,7 +525,7 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
                 void send()
               }}
               placeholder={sessionReady
-                ? running ? '当前问题仍在处理中，完成后可继续追问' : '继续追问…（Shift+Enter 发送 / Enter 换行，可粘贴或上传附件）'
+                ? busy ? '当前问题仍在处理中，完成后可继续追问' : '继续追问…（Shift+Enter 发送 / Enter 换行，可粘贴或上传附件）'
                 : '正在恢复会话状态…'}
               className="w-full resize-none bg-transparent px-2 py-1.5 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none disabled:cursor-wait disabled:opacity-60"
             />
@@ -521,7 +541,7 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
                 <Paperclip className="size-3.5" /> 附件
               </button>
               <div className="flex items-center gap-2">
-                {running && sessionReady && (
+                {busy && sessionReady && (
                   <button
                     type="button"
                     onClick={interruptGeneration}
@@ -538,7 +558,7 @@ export function ConsultConversation({ chat, consultId, questionTitle, systemLabe
                   className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-sky-400 to-indigo-500 px-4 py-1.5 text-sm font-medium text-white shadow-[0_8px_30px_-8px_rgba(99,102,241,0.8)] transition-transform hover:scale-[1.03] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Send className="size-4" />
-                  {!sessionReady ? '恢复中' : running ? '处理中' : '发送'}
+                  {!sessionReady ? '恢复中' : busy ? '处理中' : '发送'}
                 </button>
               </div>
             </div>

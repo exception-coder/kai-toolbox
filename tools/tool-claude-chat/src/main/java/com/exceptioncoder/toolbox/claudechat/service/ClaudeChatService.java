@@ -1470,10 +1470,10 @@ public class ClaudeChatService {
     private ServerMessage.PendingSessions pendingSessionsSnapshot(String channelPolicy) {
         List<ServerMessage.PendingSessionRef> refs = new ArrayList<>();
         for (SessionCtx c : sessions.values()) {
+            if (!SessionExecutionPolicy.canBind(channelPolicy, c.executionPolicy)) continue;
             ServerMessage p = c.pendingRequest;
             if (p == null) continue;
             String kind = p instanceof ServerMessage.QuestionRequest ? "question" : "permission";
-            if (!SessionExecutionPolicy.canBind(channelPolicy, c.executionPolicy)) continue;
             String tool = p instanceof ServerMessage.PermissionRequest pr ? pr.toolName() : null;
             refs.add(new ServerMessage.PendingSessionRef(c.sessionId, shortCwd(c.cwd), kind, tool, sessionLabel(c)));
         }
