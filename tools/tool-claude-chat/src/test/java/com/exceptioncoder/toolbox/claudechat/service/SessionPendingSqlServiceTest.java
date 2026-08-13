@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.domain.SessionPendingSql;
+import com.exceptioncoder.toolbox.claudechat.domain.SqlDdlEvidence;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.repository.SessionPendingSqlRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -9,6 +10,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.util.Optional;
+import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -20,14 +23,24 @@ class SessionPendingSqlServiceTest {
 
     private SessionPendingSqlRepository repository;
     private ClaudeChatSessionRepository sessionRepository;
+    private SqlDdlEvidenceService ddlEvidenceService;
     private SessionPendingSqlService service;
 
     @BeforeEach
     void setUp() {
         repository = mock(SessionPendingSqlRepository.class);
         sessionRepository = mock(ClaudeChatSessionRepository.class);
-        service = new SessionPendingSqlService(repository, sessionRepository);
+        ddlEvidenceService = mock(SqlDdlEvidenceService.class);
+        service = new SessionPendingSqlService(repository, sessionRepository, ddlEvidenceService);
         when(sessionRepository.findById("session-1")).thenReturn(Optional.of(mock(ClaudeChatSession.class)));
+        when(ddlEvidenceService.verifyRegistration(
+                org.mockito.ArgumentMatchers.eq("session-1"),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.nullable(String.class)))
+                .thenReturn(new SqlDdlEvidence(
+                        "evidence-1", SqlDdlEvidence.STATUS_VERIFIED, "test", "ddl-baseline.md",
+                        List.of("QUOTE"), List.of("QUOTE"), List.of(), List.of("test"), Map.of(),
+                        "已核验", 123L));
     }
 
     @Test
@@ -94,7 +107,7 @@ class SessionPendingSqlServiceTest {
         when(repository.findBySessionId("session-1")).thenReturn(existing);
 
         SessionPendingSql result = service.registerFromTool(
-                "session-1", null, null, "DML", "INSERT INTO quote(id) VALUES (1);", "append");
+                "session-1", null, null, "DML", "INSERT INTO quote(id) VALUES (1);", "append", null);
 
         ArgumentCaptor<SessionPendingSql> captor = ArgumentCaptor.forClass(SessionPendingSql.class);
         verify(repository).upsert(captor.capture());
@@ -108,16 +121,18 @@ class SessionPendingSqlServiceTest {
     void forgeToolIsIdempotentAndRejectsSelectOnlySql() {
         SessionPendingSql existing = new SessionPendingSql(
                 "session-1", "新增报价表", "SRM 测试库", "DDL", "CREATE TABLE quote(id BIGINT);",
-                SessionPendingSql.STATUS_EXECUTED, 100L, 200L, 200L);
+                SessionPendingSql.STATUS_EXECUTED, 100L, 200L, 200L,
+                SqlDdlEvidence.STATUS_VERIFIED, "test", "ddl-baseline.md", "evidence-1",
+                List.of("QUOTE"), List.of(), 123L);
         when(repository.findBySessionId("session-1")).thenReturn(existing);
 
         SessionPendingSql unchanged = service.registerFromTool(
-                "session-1", "新增报价表", "SRM 测试库", "DDL", "CREATE TABLE quote(id BIGINT);", "append");
+                "session-1", "新增报价表", "SRM 测试库", "DDL", "CREATE TABLE quote(id BIGINT);", "append", null);
 
         assertThat(unchanged).isSameAs(existing);
         assertThat(unchanged.status()).isEqualTo(SessionPendingSql.STATUS_EXECUTED);
         assertThatThrownBy(() -> service.registerFromTool(
-                "session-1", null, null, "DML", "SELECT * FROM quote", "append"))
+                "session-1", null, null, "DML", "SELECT * FROM quote", "append", null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("纯查询 SQL");
     }

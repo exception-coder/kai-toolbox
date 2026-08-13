@@ -1,11 +1,14 @@
 package com.exceptioncoder.toolbox.claudechat.api;
 
 import com.exceptioncoder.toolbox.claudechat.domain.SessionPendingSql;
+import com.exceptioncoder.toolbox.claudechat.domain.SqlDdlEvidence;
 import com.exceptioncoder.toolbox.claudechat.service.SessionPendingSqlService;
+import com.exceptioncoder.toolbox.claudechat.service.SqlDdlEvidenceService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -18,9 +21,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class SessionPendingSqlController {
 
     private final SessionPendingSqlService service;
+    private final SqlDdlEvidenceService ddlEvidenceService;
 
-    public SessionPendingSqlController(SessionPendingSqlService service) {
+    public SessionPendingSqlController(SessionPendingSqlService service,
+                                       SqlDdlEvidenceService ddlEvidenceService) {
         this.service = service;
+        this.ddlEvidenceService = ddlEvidenceService;
     }
 
     /** 查询登记；未登记返回 204。 */
@@ -42,7 +48,14 @@ public class SessionPendingSqlController {
     public SessionPendingSql autoRegister(@PathVariable String sessionId,
                                           @RequestBody AutoRegisterRequest request) {
         return service.registerFromTool(sessionId, request.title(), request.targetEnvironment(),
-                request.changeType(), request.sqlText(), request.mode());
+                request.changeType(), request.sqlText(), request.mode(), request.ddlEvidenceId());
+    }
+
+    /** SQL 生成前按当前会话项目读取目标表 DDL，并返回会话级证据。 */
+    @PostMapping("/prepare-context")
+    public SqlDdlEvidence prepareContext(@PathVariable String sessionId,
+                                         @RequestBody PrepareContextRequest request) {
+        return ddlEvidenceService.prepare(sessionId, request.purpose(), request.tables(), request.project());
     }
 
     /** 人工维护执行状态，不触发目标库操作。 */
@@ -66,6 +79,9 @@ public class SessionPendingSqlController {
     }
 
     public record AutoRegisterRequest(String title, String targetEnvironment, String changeType,
-                                      String sqlText, String mode) {
+                                      String sqlText, String mode, String ddlEvidenceId) {
+    }
+
+    public record PrepareContextRequest(String purpose, java.util.List<String> tables, String project) {
     }
 }

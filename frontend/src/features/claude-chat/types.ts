@@ -6,6 +6,14 @@ export type PendingSqlStatus = 'PENDING' | 'EXECUTED' | 'CANCELLED'
 
 export type PendingSqlChangeType = 'DDL' | 'DML' | 'MIXED'
 
+export type DdlEvidenceStatus =
+  | 'VERIFIED'
+  | 'PARTIAL'
+  | 'DDL_MISSING'
+  | 'PROJECT_AMBIGUOUS'
+  | 'STALE'
+  | 'NOT_CHECKED'
+
 /** Vibe Coding 会话关联的 SQL 台账；状态由用户维护，平台不会执行其中脚本。 */
 export interface SessionPendingSql {
   sessionId: string
@@ -17,6 +25,13 @@ export interface SessionPendingSql {
   createdAt: number
   updatedAt: number
   executedAt: number | null
+  ddlEvidenceStatus: DdlEvidenceStatus
+  ddlProject: string | null
+  ddlBaselinePath: string | null
+  ddlEvidenceId: string | null
+  ddlVerifiedTables: string[]
+  ddlMissingTables: string[]
+  ddlCheckedAt: number | null
 }
 
 /** 当前 Vibe Coding 会话专属的临时测试站点。 */

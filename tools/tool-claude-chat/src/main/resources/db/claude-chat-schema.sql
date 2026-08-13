@@ -108,7 +108,15 @@ CREATE TABLE IF NOT EXISTS claude_chat_pending_sql (
     status              TEXT NOT NULL DEFAULT 'PENDING',
     created_at          INTEGER NOT NULL,
     updated_at          INTEGER NOT NULL,
-    executed_at         INTEGER
+    executed_at         INTEGER,
+    -- VERIFIED / PARTIAL / DDL_MISSING / PROJECT_AMBIGUOUS / STALE / NOT_CHECKED
+    ddl_evidence_status TEXT NOT NULL DEFAULT 'NOT_CHECKED',
+    ddl_project         TEXT,
+    ddl_baseline_path   TEXT,
+    ddl_evidence_id     TEXT,
+    ddl_verified_tables TEXT,
+    ddl_missing_tables  TEXT,
+    ddl_checked_at      INTEGER
 );
 
 -- 本机历史会话（transcript jsonl）的自定义别名，叠加显示，不改文件。

@@ -1,5 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
-import { Check, Clipboard, Database, Loader2, Maximize2, Minimize2, RotateCcw, Save, Trash2, X } from 'lucide-react'
+import { lazy, Suspense, useEffect, useState } from 'react'
+import {
+  AlertTriangle, Check, CheckCircle2, ChevronDown, Clipboard, Database, Loader2,
+  Maximize2, Minimize2, Save, Trash2, X,
+} from 'lucide-react'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { cn } from '@/lib/utils'
 import {
@@ -8,7 +11,11 @@ import {
   saveSessionPendingSql,
   updateSessionPendingSqlStatus,
 } from '../api'
-import type { PendingSqlChangeType, PendingSqlStatus, SessionPendingSql } from '../types'
+import type { DdlEvidenceStatus, PendingSqlChangeType, PendingSqlStatus, SessionPendingSql } from '../types'
+
+const PendingSqlReviewWorkspace = lazy(() => import('./PendingSqlReviewWorkspace').then(module => ({
+  default: module.PendingSqlReviewWorkspace,
+})))
 
 interface Props {
   sessionId: string
@@ -22,7 +29,46 @@ const STATUS_LABELS: Record<PendingSqlStatus, string> = {
   CANCELLED: '已取消',
 }
 
-/** 会话级待执行 SQL 登记面板，只维护本地台账，不提供执行入口。 */
+const STATUS_TONES: Record<PendingSqlStatus, string> = {
+  PENDING: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300',
+  EXECUTED: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300',
+  CANCELLED: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+}
+
+const DDL_STATUS: Record<DdlEvidenceStatus, { label: string; detail: string; tone: string }> = {
+  VERIFIED: {
+    label: 'DDL 已核验',
+    detail: 'SQL 涉及的目标表已在当前项目知识库中完整命中。',
+    tone: 'border-emerald-300/60 bg-emerald-50/70 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/35 dark:text-emerald-300',
+  },
+  PARTIAL: {
+    label: 'DDL 部分命中',
+    detail: '部分目标表未在知识库命中，未命中部分必须人工复核。',
+    tone: 'border-amber-300/60 bg-amber-50/70 text-amber-800 dark:border-amber-900 dark:bg-amber-950/35 dark:text-amber-300',
+  },
+  DDL_MISSING: {
+    label: '缺少 DDL 基线',
+    detail: '当前项目没有可用 DDL 基线，本 SQL 只能视为未核验草稿。',
+    tone: 'border-red-300/60 bg-red-50/70 text-red-800 dark:border-red-900 dark:bg-red-950/35 dark:text-red-300',
+  },
+  PROJECT_AMBIGUOUS: {
+    label: '项目归属不明确',
+    detail: '当前工作区关联多个项目，尚未确认应使用哪一份 DDL。',
+    tone: 'border-red-300/60 bg-red-50/70 text-red-800 dark:border-red-900 dark:bg-red-950/35 dark:text-red-300',
+  },
+  STALE: {
+    label: 'DDL 基线已过期',
+    detail: '知识库已标记过期，本 SQL 需要结合真实库结构再次复核。',
+    tone: 'border-amber-300/60 bg-amber-50/70 text-amber-800 dark:border-amber-900 dark:bg-amber-950/35 dark:text-amber-300',
+  },
+  NOT_CHECKED: {
+    label: 'DDL 未核验',
+    detail: '未识别出目标表或尚未完成知识库核验，请勿直接执行。',
+    tone: 'border-slate-300/60 bg-slate-50/70 text-slate-700 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300',
+  },
+}
+
+/** 会话级待执行 SQL 审阅面板；只维护本地台账，不提供执行入口。 */
 export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
   const confirm = useConfirm()
   const [registration, setRegistration] = useState<SessionPendingSql | null | undefined>(undefined)
@@ -34,33 +80,6 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
   const [busy, setBusy] = useState(false)
   const [copied, setCopied] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const sqlAreaRef = useRef<HTMLTextAreaElement>(null)
-  const [sqlViewport, setSqlViewport] = useState({
-    firstLine: 1,
-    lastLine: 1,
-    totalLines: 1,
-    progress: 0,
-    thumbTop: 0,
-    thumbHeight: 100,
-    scrollable: false,
-  })
-
-  const updateSqlViewport = (element: HTMLTextAreaElement | null) => {
-    if (!element) return
-    const lineHeight = 24
-    const totalLines = Math.max(1, element.value.split('\n').length)
-    const maxScroll = Math.max(0, element.scrollHeight - element.clientHeight)
-    const progress = maxScroll > 0 ? Math.min(100, Math.round((element.scrollTop / maxScroll) * 100)) : 0
-    const visibleLineCount = Math.max(1, Math.floor(element.clientHeight / lineHeight))
-    const firstLine = Math.min(totalLines, Math.floor(element.scrollTop / lineHeight) + 1)
-    const lastLine = Math.min(totalLines, firstLine + visibleLineCount - 1)
-    const thumbHeight = maxScroll > 0
-      ? Math.max(8, Math.min(100, (element.clientHeight / element.scrollHeight) * 100))
-      : 100
-    const thumbTop = maxScroll > 0 ? (progress / 100) * (100 - thumbHeight) : 0
-
-    setSqlViewport({ firstLine, lastLine, totalLines, progress, thumbTop, thumbHeight, scrollable: maxScroll > 0 })
-  }
 
   useEffect(() => {
     let alive = true
@@ -82,25 +101,10 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
   }, [sessionId])
 
   useEffect(() => {
-    const element = sqlAreaRef.current
-    if (!element) return
-    const frame = window.requestAnimationFrame(() => updateSqlViewport(element))
-    const observer = new ResizeObserver(() => updateSqlViewport(element))
-    observer.observe(element)
-    return () => {
-      window.cancelAnimationFrame(frame)
-      observer.disconnect()
-    }
-  }, [registration, sqlText, isFullscreen])
-
-  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
-      if (isFullscreen) {
-        setIsFullscreen(false)
-      } else {
-        onClose()
-      }
+      if (isFullscreen) setIsFullscreen(false)
+      else onClose()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
@@ -115,10 +119,7 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
     setError(null)
     try {
       const saved = await saveSessionPendingSql(sessionId, {
-        title: title.trim(),
-        targetEnvironment: targetEnvironment.trim(),
-        changeType,
-        sqlText,
+        title: title.trim(), targetEnvironment: targetEnvironment.trim(), changeType, sqlText,
       })
       setRegistration(saved)
       setSqlText(saved.sqlText)
@@ -144,14 +145,14 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
     }
   }
 
-  const handleCopy = async () => {
+  const handleCopyAll = async () => {
     if (!sqlText) return
     try {
       await navigator.clipboard.writeText(sqlText)
       setCopied(true)
-      window.setTimeout(() => setCopied(false), 1500)
+      window.setTimeout(() => setCopied(false), 1_500)
     } catch {
-      setError('复制失败，请手动选择 SQL 内容复制')
+      setError('复制失败，请在 SQL 查看器中手动选择复制')
     }
   }
 
@@ -182,175 +183,155 @@ export function PendingSqlPanel({ sessionId, onClose, onChanged }: Props) {
 
   return (
     <div
-      className={cn(
-        'fixed inset-0 z-50 flex justify-center bg-black/40',
-        isFullscreen ? 'items-stretch p-0' : 'items-start px-3 pt-10 sm:pt-16',
-      )}
+      className={cn('fixed inset-0 z-50 flex justify-center bg-black/40', isFullscreen ? 'items-stretch p-0' : 'items-center p-3')}
       onClick={onClose}
     >
       <div
         className={cn(
           'flex w-full flex-col overflow-hidden bg-[var(--color-card)] shadow-2xl',
-          isFullscreen
-            ? 'h-[100dvh] max-h-none max-w-none rounded-none border-0'
-            : 'max-h-[85vh] max-w-2xl rounded-xl border',
+          isFullscreen ? 'h-[100dvh] max-w-none rounded-none' : 'h-[88vh] max-h-[920px] max-w-6xl rounded-xl border',
         )}
         onClick={event => event.stopPropagation()}
       >
-        <div className="flex items-center gap-2 border-b px-4 py-3">
+        <header className="flex shrink-0 items-center gap-2 border-b px-4 py-3">
           <Database className="size-4 text-[var(--color-primary)]" />
           <span className="min-w-0 flex-1 truncate text-sm font-semibold">待执行 SQL</span>
-          {registration && (
-            <span className={`rounded-full px-2 py-0.5 text-[11px] ${registration.status === 'PENDING'
-              ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
-              : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'}`}
-            >
-              {STATUS_LABELS[registration.status]}
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={() => setIsFullscreen(value => !value)}
-            className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]"
-            aria-label={isFullscreen ? '退出全屏' : '全屏查看'}
-            title={isFullscreen ? '退出全屏' : '全屏查看'}
-          >
+          {registration && <span className={cn('rounded-full px-2 py-0.5 text-[11px]', STATUS_TONES[registration.status])}>{STATUS_LABELS[registration.status]}</span>}
+          <button type="button" onClick={() => setIsFullscreen(value => !value)} className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]" title={isFullscreen ? '退出全屏' : '全屏查看'}>
             {isFullscreen ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
           </button>
           <button type="button" onClick={onClose} className="rounded p-1.5 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]" aria-label="关闭">
             <X className="size-3.5" />
           </button>
-        </div>
+        </header>
 
-        <div className={cn(
-          'min-h-0 flex-1 px-4 py-4',
-          isFullscreen ? 'flex flex-col gap-3 overflow-hidden' : 'space-y-3 overflow-y-auto',
-        )}>
-          <div className="rounded-lg border border-amber-300/60 bg-amber-50/70 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-            这里只登记和复制 SQL，不会连接或执行任何数据库。请勿填写密码、Token 等凭据。
-          </div>
-
-          {registration === undefined ? (
-            <div className="flex items-center gap-2 py-8 text-sm text-[var(--color-muted-foreground)]">
-              <Loader2 className="size-4 animate-spin" />加载登记信息…
+        <main className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+          <div className="flex min-h-full flex-col gap-3">
+            <div className="flex items-center gap-2 rounded-md border border-amber-300/60 bg-amber-50/70 px-3 py-1.5 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+              <AlertTriangle className="size-3.5 shrink-0" />
+              <span>仅登记和复制 SQL，不会自动连接或执行数据库。请勿填写密码或 Token。</span>
             </div>
-          ) : (
-            <>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="space-y-1 text-xs font-medium">
-                  <span>登记标题</span>
-                  <input
-                    value={title}
-                    onChange={event => setTitle(event.target.value)}
-                    placeholder="例如：新增报价有效期字段"
-                    className="h-9 w-full rounded-md border bg-[var(--color-background)] px-3 text-sm outline-none focus:border-[var(--color-primary)]"
-                  />
-                </label>
-                <label className="space-y-1 text-xs font-medium">
-                  <span>目标库 / 环境</span>
-                  <input
-                    value={targetEnvironment}
-                    onChange={event => setTargetEnvironment(event.target.value)}
-                    placeholder="例如：SRM 测试库 / 生产库"
-                    className="h-9 w-full rounded-md border bg-[var(--color-background)] px-3 text-sm outline-none focus:border-[var(--color-primary)]"
-                  />
-                </label>
+
+            {registration === undefined ? (
+              <div className="flex flex-1 items-center justify-center gap-2 text-sm text-[var(--color-muted-foreground)]">
+                <Loader2 className="size-4 animate-spin" />加载登记信息…
               </div>
-
-              <label className="block space-y-1 text-xs font-medium">
-                <span>变更类型</span>
-                <select
-                  value={changeType}
-                  onChange={event => setChangeType(event.target.value as PendingSqlChangeType)}
-                  className="h-9 w-full rounded-md border bg-[var(--color-background)] px-3 text-sm outline-none focus:border-[var(--color-primary)] sm:w-52"
-                >
-                  <option value="DDL">DDL · 表结构</option>
-                  <option value="DML">DML · 数据变更</option>
-                  <option value="MIXED">混合 SQL</option>
-                </select>
-              </label>
-
-              <label className={cn(
-                'text-xs font-medium',
-                isFullscreen ? 'flex min-h-32 flex-1 flex-col gap-1' : 'block space-y-1',
-              )}>
-                <span className="flex items-center justify-between gap-3">
-                  <span>SQL 内容</span>
-                  <span className="font-normal tabular-nums text-[var(--color-muted-foreground)]">
-                    {sqlViewport.scrollable
-                      ? `第 ${sqlViewport.firstLine}–${sqlViewport.lastLine} / ${sqlViewport.totalLines} 行 · ${sqlViewport.progress}%`
-                      : `${sqlViewport.totalLines} 行 · 全部可见`}
-                  </span>
-                </span>
-                <div className={cn(
-                  'relative overflow-hidden rounded-md border bg-slate-950 focus-within:border-[var(--color-primary)]',
-                  isFullscreen ? 'min-h-0 flex-1' : 'h-72',
-                )}>
-                  <textarea
-                    ref={sqlAreaRef}
-                    value={sqlText}
-                    onChange={event => {
-                      setSqlText(event.target.value)
-                      updateSqlViewport(event.currentTarget)
-                    }}
-                    onScroll={event => updateSqlViewport(event.currentTarget)}
-                    placeholder="粘贴待执行的 DDL / DML，可包含多条语句…"
-                    spellCheck={false}
-                    className="h-full w-full resize-none overflow-y-scroll bg-transparent p-3 pr-8 font-mono text-sm leading-6 text-slate-100 outline-none [scrollbar-gutter:stable] [scrollbar-width:auto] [&::-webkit-scrollbar]:w-3 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-500 [&::-webkit-scrollbar-track]:bg-slate-800"
-                  />
-                  <div
-                    className="pointer-events-none absolute bottom-2 right-4 top-2 w-1.5 overflow-hidden rounded-full bg-white/10"
-                    aria-hidden="true"
-                  >
-                    <div
-                      className="absolute left-0 right-0 rounded-full bg-cyan-400/80 shadow-[0_0_6px_rgba(34,211,238,0.45)] transition-[top,height] duration-100"
-                      style={{ top: `${sqlViewport.thumbTop}%`, height: `${sqlViewport.thumbHeight}%` }}
-                    />
-                  </div>
+            ) : (
+              <>
+                {registration && <DdlEvidenceSummary registration={registration} />}
+                <div className="grid shrink-0 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.42fr)_180px]">
+                  <label className="space-y-1 text-xs font-medium sm:col-span-2 lg:col-span-1">
+                    <span>登记标题</span>
+                    <input value={title} onChange={event => setTitle(event.target.value)} placeholder="例如：新增报价有效期字段" className="h-9 w-full rounded-md border bg-[var(--color-background)] px-3 text-sm outline-none focus:border-[var(--color-primary)]" />
+                  </label>
+                  <label className="space-y-1 text-xs font-medium">
+                    <span>目标库 / 环境</span>
+                    <input value={targetEnvironment} onChange={event => setTargetEnvironment(event.target.value)} placeholder="例如：SRM 测试库" className="h-9 w-full rounded-md border bg-[var(--color-background)] px-3 text-sm outline-none focus:border-[var(--color-primary)]" />
+                  </label>
+                  <label className="space-y-1 text-xs font-medium">
+                    <span>变更类型</span>
+                    <select value={changeType} onChange={event => setChangeType(event.target.value as PendingSqlChangeType)} className="h-9 w-full rounded-md border bg-[var(--color-background)] px-3 text-sm outline-none focus:border-[var(--color-primary)]">
+                      <option value="DDL">DDL · 表结构</option>
+                      <option value="DML">DML · 数据变更</option>
+                      <option value="MIXED">混合 SQL</option>
+                    </select>
+                  </label>
                 </div>
-              </label>
-
-              {error && <p className="text-xs text-[var(--color-destructive)]">{error}</p>}
-
-              <div className="flex shrink-0 flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={busy || !sqlText.trim()}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-[var(--color-primary)] px-3 py-2 text-xs font-medium text-[var(--color-primary-foreground)] disabled:opacity-50"
-                >
-                  {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
-                  {registration ? '保存并设为待执行' : '登记待执行 SQL'}
-                </button>
-                <button type="button" onClick={handleCopy} disabled={!sqlText} className="inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-xs disabled:opacity-50">
-                  {copied ? <Check className="size-3.5" /> : <Clipboard className="size-3.5" />}
-                  {copied ? '已复制' : '复制 SQL'}
-                </button>
-                {registration && registration.status !== 'EXECUTED' && (
-                  <button type="button" onClick={() => handleStatus('EXECUTED')} disabled={busy} className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/50 px-3 py-2 text-xs text-emerald-700 disabled:opacity-50 dark:text-emerald-400">
-                    <Check className="size-3.5" />标记已执行
-                  </button>
-                )}
-                {registration && registration.status !== 'PENDING' && (
-                  <button type="button" onClick={() => handleStatus('PENDING')} disabled={busy} className="inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-xs disabled:opacity-50">
-                    <RotateCcw className="size-3.5" />恢复待执行
-                  </button>
-                )}
-                {registration && registration.status === 'PENDING' && (
-                  <button type="button" onClick={() => handleStatus('CANCELLED')} disabled={busy} className="rounded-md border px-3 py-2 text-xs text-[var(--color-muted-foreground)] disabled:opacity-50">
-                    标记已取消
-                  </button>
-                )}
                 {registration && (
-                  <button type="button" onClick={handleDelete} disabled={busy} className="ml-auto inline-flex items-center gap-1.5 rounded-md px-2 py-2 text-xs text-[var(--color-destructive)] hover:bg-[var(--color-destructive)]/10 disabled:opacity-50">
-                    <Trash2 className="size-3.5" />解除关联
-                  </button>
+                  <p className="-mt-1 shrink-0 text-[11px] text-[var(--color-muted-foreground)]">
+                    登记时间 {formatTimestamp(registration.createdAt)} · 最后更新 {formatTimestamp(registration.updatedAt)}
+                  </p>
                 )}
-              </div>
-            </>
-          )}
-        </div>
+
+                <Suspense fallback={<SqlWorkspaceLoading />}>
+                  <PendingSqlReviewWorkspace sqlText={sqlText} onSqlTextChange={setSqlText} onError={setError} expanded={isFullscreen} />
+                </Suspense>
+                {error && <p className="shrink-0 text-xs text-[var(--color-destructive)]">{error}</p>}
+              </>
+            )}
+          </div>
+        </main>
+
+        {registration !== undefined && (
+          <footer className="flex shrink-0 flex-wrap items-center gap-2 border-t bg-[var(--color-card)] px-4 py-3">
+            {registration && (
+              <button type="button" onClick={handleDelete} disabled={busy} className="inline-flex items-center gap-1.5 rounded-md px-2 py-2 text-xs text-[var(--color-destructive)] hover:bg-[var(--color-destructive)]/10 disabled:opacity-50">
+                <Trash2 className="size-3.5" />解除关联
+              </button>
+            )}
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+              <button type="button" onClick={handleCopyAll} disabled={!sqlText} className="inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-xs disabled:opacity-50">
+                {copied ? <Check className="size-3.5" /> : <Clipboard className="size-3.5" />}{copied ? '已复制全部' : '复制全部 SQL'}
+              </button>
+              {registration && <StatusActions registration={registration} busy={busy} onStatus={handleStatus} />}
+              <button type="button" onClick={handleSave} disabled={busy || !sqlText.trim()} className="inline-flex items-center gap-1.5 rounded-md bg-[var(--color-primary)] px-4 py-2 text-xs font-medium text-[var(--color-primary-foreground)] disabled:opacity-50">
+                {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}{registration ? '保存修改' : '保存登记'}
+              </button>
+            </div>
+          </footer>
+        )}
       </div>
+    </div>
+  )
+}
+
+function DdlEvidenceSummary({ registration }: { registration: SessionPendingSql }) {
+  const evidenceStatus = registration.ddlEvidenceStatus ?? 'NOT_CHECKED'
+  const config = DDL_STATUS[evidenceStatus]
+  const verified = registration.ddlVerifiedTables ?? []
+  const missing = registration.ddlMissingTables ?? []
+  return (
+    <details className={cn('group shrink-0 rounded-lg border px-3 py-2 text-xs', config.tone)}>
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 font-semibold">
+        {evidenceStatus === 'VERIFIED' ? <CheckCircle2 className="size-3.5" /> : <AlertTriangle className="size-3.5" />}
+        <span>{config.label}</span>
+        {registration.ddlProject && <span className="font-normal opacity-80">· {registration.ddlProject}</span>}
+        <span className="ml-auto font-normal opacity-70">查看证据</span>
+        <ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="mt-2 space-y-1 border-t border-current/15 pt-2 opacity-90">
+        <p>{config.detail}</p>
+        {verified.length > 0 && <p className="break-all">已核验：{verified.join('、')}</p>}
+        {missing.length > 0 && <p className="break-all font-medium">未命中：{missing.join('、')}</p>}
+        {registration.ddlBaselinePath && <p className="truncate opacity-70" title={registration.ddlBaselinePath}>基线：{registration.ddlBaselinePath}</p>}
+      </div>
+    </details>
+  )
+}
+
+function StatusActions({ registration, busy, onStatus }: {
+  registration: SessionPendingSql
+  busy: boolean
+  onStatus: (status: PendingSqlStatus) => void
+}) {
+  return (
+    <details className="group relative">
+      <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-md border px-3 py-2 text-xs">
+        更多操作<ChevronDown className="size-3.5 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="absolute bottom-full right-0 z-20 mb-2 w-44 rounded-lg border bg-[var(--color-popover)] p-1 shadow-xl">
+        {registration.status !== 'EXECUTED' && <StatusButton disabled={busy} onClick={() => onStatus('EXECUTED')}>标记为已执行</StatusButton>}
+        {registration.status !== 'CANCELLED' && <StatusButton disabled={busy} onClick={() => onStatus('CANCELLED')}>标记为已取消</StatusButton>}
+        {registration.status !== 'PENDING' && <StatusButton disabled={busy} onClick={() => onStatus('PENDING')}>恢复为待执行</StatusButton>}
+      </div>
+    </details>
+  )
+}
+
+function StatusButton({ children, disabled, onClick }: { children: string; disabled: boolean; onClick: () => void }) {
+  return <button type="button" disabled={disabled} onClick={onClick} className="block w-full rounded-md px-3 py-2 text-left text-xs hover:bg-[var(--color-accent)] disabled:opacity-50">{children}</button>
+}
+
+function formatTimestamp(value: number): string {
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  }).format(value)
+}
+
+function SqlWorkspaceLoading() {
+  return (
+    <div className="flex h-[440px] items-center justify-center gap-2 rounded-xl border text-xs text-[var(--color-muted-foreground)]">
+      <Loader2 className="size-4 animate-spin" />加载 SQL 审阅器…
     </div>
   )
 }

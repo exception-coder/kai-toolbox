@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.repository;
 
 import com.exceptioncoder.toolbox.claudechat.domain.SessionPendingSql;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -30,9 +31,16 @@ class SessionPendingSqlRepositoryTest {
                     created_at INTEGER NOT NULL,
                     updated_at INTEGER NOT NULL,
                     executed_at INTEGER
+                    ,ddl_evidence_status TEXT NOT NULL DEFAULT 'NOT_CHECKED'
+                    ,ddl_project TEXT
+                    ,ddl_baseline_path TEXT
+                    ,ddl_evidence_id TEXT
+                    ,ddl_verified_tables TEXT
+                    ,ddl_missing_tables TEXT
+                    ,ddl_checked_at INTEGER
                 )
                 """);
-        repository = new SessionPendingSqlRepository(jdbc);
+        repository = new SessionPendingSqlRepository(jdbc, new ObjectMapper());
     }
 
     @Test

@@ -484,6 +484,7 @@ class Session {
                     'mcp__consult-readonly__source_read',
                     'mcp__consult-readonly__erp_standby_schema_search',
                     'mcp__consult-readonly__erp_standby_validate_sql',
+                    'mcp__forge__prepare_sql_context',
                     'mcp__forge__register_pending_sql',
                     'mcp__erp_db__query', 'mcp__srm_db__query', 'mcp__scm_db__query',
                     'mcp__domain-knowledge__list_projects',

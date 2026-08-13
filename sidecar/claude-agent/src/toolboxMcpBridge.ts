@@ -1,7 +1,10 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
-import { FORGE_PENDING_SQL_TOOL_DESCRIPTION } from './pendingSqlPolicy.js'
+import {
+  FORGE_PENDING_SQL_TOOL_DESCRIPTION,
+  FORGE_SQL_CONTEXT_TOOL_DESCRIPTION,
+} from './pendingSqlPolicy.js'
 
 type ServerName = 'forge' | 'erp_db' | 'erp_app' | 'srm_db' | 'srm_app' | 'scm_db'
 
@@ -54,6 +57,19 @@ const querySchema = {
 }
 
 if (serverName === 'forge') {
+  server.registerTool('prepare_sql_context', {
+    description: FORGE_SQL_CONTEXT_TOOL_DESCRIPTION,
+    inputSchema: {
+      purpose: z.string().describe('本次 SQL 对应的业务功能和变更目的'),
+      tables: z.array(z.string()).min(1).max(50).describe('将被 DDL/DML 直接读写或变更的目标表名'),
+      project: z.string().optional().describe('仅在 PROJECT_AMBIGUOUS 时，从 candidateProjects 中选择后重试'),
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
+  }, ({ purpose, tables, project }) => request(
+    `/api/claude-chat/sessions/${encodeURIComponent(sessionId!)}/pending-sql/prepare-context`,
+    { purpose, tables, project },
+  ))
+
   server.registerTool('register_pending_sql', {
     description: FORGE_PENDING_SQL_TOOL_DESCRIPTION,
     inputSchema: {
@@ -62,11 +78,12 @@ if (serverName === 'forge') {
       changeType: z.enum(['DDL', 'DML', 'MIXED']).default('MIXED'),
       sqlText: z.string().describe('完整、可交付人工执行的 DDL/DML；每个逻辑块前须有“-- 功能：...；变更：...；目的：...”注释'),
       mode: z.enum(['append', 'replace']).default('append'),
+      ddlEvidenceId: z.string().optional().describe('prepare_sql_context 返回的 evidenceId'),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-  }, ({ title, targetEnvironment, changeType, sqlText, mode }) => request(
+  }, ({ title, targetEnvironment, changeType, sqlText, mode, ddlEvidenceId }) => request(
     `/api/claude-chat/sessions/${encodeURIComponent(sessionId!)}/pending-sql/auto-register`,
-    { title, targetEnvironment, changeType, sqlText, mode },
+    { title, targetEnvironment, changeType, sqlText, mode, ddlEvidenceId },
     'PUT',
   ))
 } else if (serverName === 'erp_db') {

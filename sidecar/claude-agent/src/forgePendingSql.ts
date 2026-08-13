@@ -3,6 +3,7 @@ import { z } from 'zod'
 import {
   FORGE_PENDING_SQL_STEER,
   FORGE_PENDING_SQL_TOOL_DESCRIPTION,
+  FORGE_SQL_CONTEXT_TOOL_DESCRIPTION,
 } from './pendingSqlPolicy.js'
 
 export { FORGE_PENDING_SQL_STEER } from './pendingSqlPolicy.js'
@@ -14,6 +15,38 @@ export function createForgePendingSqlServer(sessionId: string, apiBase: string) 
     version: '1.0.0',
     tools: [
       tool(
+        'prepare_sql_context',
+        FORGE_SQL_CONTEXT_TOOL_DESCRIPTION,
+        {
+          purpose: z.string().describe('本次 SQL 对应的业务功能和变更目的'),
+          tables: z.array(z.string()).min(1).max(50).describe('将被 DDL/DML 直接读写或变更的目标表名'),
+          project: z.string().optional().describe('仅在 PROJECT_AMBIGUOUS 时，从 candidateProjects 中选择后重试'),
+        },
+        async (args: { purpose: string; tables: string[]; project?: string }) => {
+          try {
+            const response = await fetch(
+              `${apiBase}/api/claude-chat/sessions/${encodeURIComponent(sessionId)}/pending-sql/prepare-context`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(args),
+              },
+            )
+            const text = await response.text()
+            return {
+              content: [{ type: 'text' as const, text }],
+              ...(response.ok ? {} : { isError: true }),
+            }
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            return {
+              content: [{ type: 'text' as const, text: `Forge DDL 证据读取失败：${message}` }],
+              isError: true,
+            }
+          }
+        },
+      ),
+      tool(
         'register_pending_sql',
         FORGE_PENDING_SQL_TOOL_DESCRIPTION,
         {
@@ -23,6 +56,7 @@ export function createForgePendingSqlServer(sessionId: string, apiBase: string) 
           sqlText: z.string().describe('完整、可交付人工执行的 DDL/DML；每个逻辑块前须有“-- 功能：...；变更：...；目的：...”注释'),
           mode: z.enum(['append', 'replace']).default('append')
             .describe('分批补充用 append；重写整份登记用 replace'),
+          ddlEvidenceId: z.string().optional().describe('prepare_sql_context 返回的 evidenceId'),
         },
         async (args: {
           title?: string
@@ -30,6 +64,7 @@ export function createForgePendingSqlServer(sessionId: string, apiBase: string) 
           changeType?: 'DDL' | 'DML' | 'MIXED'
           sqlText: string
           mode?: 'append' | 'replace'
+          ddlEvidenceId?: string
         }) => {
           try {
             const response = await fetch(
@@ -43,6 +78,7 @@ export function createForgePendingSqlServer(sessionId: string, apiBase: string) 
                   changeType: args.changeType ?? 'MIXED',
                   sqlText: args.sqlText,
                   mode: args.mode ?? 'append',
+                  ddlEvidenceId: args.ddlEvidenceId,
                 }),
               },
             )

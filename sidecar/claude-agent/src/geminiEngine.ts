@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
+import { appendSqlDdlFallbackRule } from './pendingSqlPolicy.js'
 
 /**
  * Gemini CLI 引擎适配器（headless stream-json）。
@@ -76,7 +77,7 @@ function safeJson(v: unknown): string {
 export async function runGeminiTurn(ctx: GeminiTurnCtx): Promise<void> {
   const safeCwd = existsSync(ctx.cwd) ? ctx.cwd : (process.env.USERPROFILE || process.env.HOME || process.cwd())
   const bin = resolveGeminiBin()
-  const args = ['-p', ctx.text, '-o', 'stream-json', '--approval-mode', mapApprovalMode(ctx.permissionMode), '--skip-trust']
+  const args = ['-p', appendSqlDdlFallbackRule(ctx.text), '-o', 'stream-json', '--approval-mode', mapApprovalMode(ctx.permissionMode), '--skip-trust']
   if (ctx.model) args.push('-m', ctx.model)
   // 已有会话 → 续最近一次（同 cwd）。resume 语义待真实验证（见设计文档 §8）。
   if (ctx.sdkSessionId) args.push('--resume', 'latest')

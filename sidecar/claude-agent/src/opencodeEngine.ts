@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { createOpencode, type Event, type OpencodeClient, type Part, type Permission } from '@opencode-ai/sdk'
 import { activityOutputTail, emitToolActivity, summarizeToolInput } from './toolActivity.js'
+import { appendSqlDdlFallbackRule } from './pendingSqlPolicy.js'
 
 /**
  * OpenCode 引擎：把 opencode（多 provider 的 agent）接成一种引擎，专供第三方 API 模型使用。
@@ -242,7 +243,7 @@ export async function runOpencodeTurn(ctx: OpencodeTurnCtx): Promise<void> {
       query,
       body: {
         ...(model ? { model } : {}),
-        parts: [{ type: 'text', text: ctx.text }],
+        parts: [{ type: 'text', text: appendSqlDdlFallbackRule(ctx.text) }],
       },
     })
     if (res.error) {

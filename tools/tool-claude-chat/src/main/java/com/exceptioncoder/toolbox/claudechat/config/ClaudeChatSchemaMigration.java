@@ -84,6 +84,13 @@ public class ClaudeChatSchemaMigration {
         }
         addColumn("subgroup_name", "TEXT");
         addColumn("favorite", "INTEGER NOT NULL DEFAULT 0");
+        addPendingSqlColumn("ddl_evidence_status", "TEXT NOT NULL DEFAULT 'NOT_CHECKED'");
+        addPendingSqlColumn("ddl_project", "TEXT");
+        addPendingSqlColumn("ddl_baseline_path", "TEXT");
+        addPendingSqlColumn("ddl_evidence_id", "TEXT");
+        addPendingSqlColumn("ddl_verified_tables", "TEXT");
+        addPendingSqlColumn("ddl_missing_tables", "TEXT");
+        addPendingSqlColumn("ddl_checked_at", "INTEGER");
         // 兼容修复前已经创建的业务咨询会话：它们已有固定分组，但尚未持久化执行策略。
         try {
             jdbc.update("""
@@ -104,6 +111,16 @@ public class ClaudeChatSchemaMigration {
             log.info("[claude-chat] 迁移：claude_chat_session 已补 {} 列", column);
         } catch (Exception e) {
             log.debug("[claude-chat] {} 列迁移跳过：{}", column, e.getMessage());
+        }
+    }
+
+    /** 为存量待执行 SQL 台账幂等补充 DDL 核验摘要列。 */
+    private void addPendingSqlColumn(String column, String definition) {
+        try {
+            jdbc.execute("ALTER TABLE claude_chat_pending_sql ADD COLUMN " + column + " " + definition);
+            log.info("[claude-chat] 迁移：claude_chat_pending_sql 已补 {} 列", column);
+        } catch (Exception e) {
+            log.debug("[claude-chat] pending sql {} 列迁移跳过：{}", column, e.getMessage());
         }
     }
 }

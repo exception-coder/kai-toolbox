@@ -1,6 +1,7 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.domain.SessionPendingSql;
+import com.exceptioncoder.toolbox.claudechat.domain.SqlDdlEvidence;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.repository.SessionPendingSqlRepository;
 import org.springframework.stereotype.Service;
@@ -25,11 +26,14 @@ public class SessionPendingSqlService {
 
     private final SessionPendingSqlRepository repository;
     private final ClaudeChatSessionRepository sessionRepository;
+    private final SqlDdlEvidenceService ddlEvidenceService;
 
     public SessionPendingSqlService(SessionPendingSqlRepository repository,
-                                    ClaudeChatSessionRepository sessionRepository) {
+                                    ClaudeChatSessionRepository sessionRepository,
+                                    SqlDdlEvidenceService ddlEvidenceService) {
         this.repository = repository;
         this.sessionRepository = sessionRepository;
+        this.ddlEvidenceService = ddlEvidenceService;
     }
 
     /** 查询会话关联登记；会话不存在时拒绝查询。 */
@@ -41,9 +45,15 @@ public class SessionPendingSqlService {
     /** 新建或更新登记；正文发生登记后统一回到待执行状态。 */
     public SessionPendingSql save(String sessionId, String title, String targetEnvironment,
                                   String changeType, String sqlText) {
+        return saveVerified(sessionId, title, targetEnvironment, changeType, sqlText, null);
+    }
+
+    private SessionPendingSql saveVerified(String sessionId, String title, String targetEnvironment,
+                                           String changeType, String sqlText, String evidenceId) {
         requireSession(sessionId);
         String normalizedSql = normalizeSql(sqlText);
         String normalizedType = normalizeChangeType(changeType);
+        SqlDdlEvidence evidence = ddlEvidenceService.verifyRegistration(sessionId, normalizedSql, evidenceId);
         SessionPendingSql existing = repository.findBySessionId(sessionId);
         long now = System.currentTimeMillis();
         SessionPendingSql pendingSql = new SessionPendingSql(
@@ -55,7 +65,9 @@ public class SessionPendingSqlService {
                 SessionPendingSql.STATUS_PENDING,
                 existing == null ? now : existing.createdAt(),
                 now,
-                null);
+                null,
+                evidence.status(), evidence.project(), evidence.baselinePath(), evidence.evidenceId(),
+                evidence.verifiedTables(), evidence.missingTables(), evidence.checkedAt());
         repository.upsert(pendingSql);
         return pendingSql;
     }
@@ -65,7 +77,7 @@ public class SessionPendingSqlService {
      * 完全相同的调用保持幂等，不会把人工已完成状态重新改回待执行。
      */
     public SessionPendingSql registerFromTool(String sessionId, String title, String targetEnvironment,
-                                              String changeType, String sqlText, String mode) {
+                                              String changeType, String sqlText, String mode, String evidenceId) {
         requireSession(sessionId);
         String normalizedSql = normalizeSql(sqlText);
         if (!DATABASE_CHANGE.matcher(normalizedSql).find()) {
@@ -79,7 +91,7 @@ public class SessionPendingSqlService {
 
         SessionPendingSql existing = repository.findBySessionId(sessionId);
         if (existing == null) {
-            return save(sessionId, title, targetEnvironment, normalizedType, normalizedSql);
+            return saveVerified(sessionId, title, targetEnvironment, normalizedType, normalizedSql, evidenceId);
         }
         String mergedSql = "REPLACE".equals(normalizedMode)
                 ? normalizedSql
@@ -91,9 +103,9 @@ public class SessionPendingSqlService {
                 && java.util.Objects.equals(existing.title(), mergedTitle)
                 && java.util.Objects.equals(existing.targetEnvironment(), mergedEnvironment)
                 && existing.changeType().equals(mergedType)) {
-            return existing;
+            return refreshEvidence(existing, evidenceId);
         }
-        return save(sessionId, mergedTitle, mergedEnvironment, mergedType, mergedSql);
+        return saveVerified(sessionId, mergedTitle, mergedEnvironment, mergedType, mergedSql, evidenceId);
     }
 
     /** 更新人工处理状态，不触发任何 SQL 执行。 */
@@ -106,7 +118,10 @@ public class SessionPendingSqlService {
         repository.updateStatus(sessionId, normalizedStatus, now, executedAt);
         return new SessionPendingSql(
                 existing.sessionId(), existing.title(), existing.targetEnvironment(), existing.changeType(),
-                existing.sqlText(), normalizedStatus, existing.createdAt(), now, executedAt);
+                existing.sqlText(), normalizedStatus, existing.createdAt(), now, executedAt,
+                existing.ddlEvidenceStatus(), existing.ddlProject(), existing.ddlBaselinePath(),
+                existing.ddlEvidenceId(), existing.ddlVerifiedTables(), existing.ddlMissingTables(),
+                existing.ddlCheckedAt());
     }
 
     /** 删除登记但保留会话。 */
@@ -176,5 +191,26 @@ public class SessionPendingSqlService {
         if (current.isEmpty()) return incoming;
         if (current.contains(incoming)) return current;
         return current + "\n\n-- Forge 自动登记：补充 SQL\n" + incoming;
+    }
+
+    private SessionPendingSql refreshEvidence(SessionPendingSql existing, String evidenceId) {
+        SqlDdlEvidence evidence = ddlEvidenceService.verifyRegistration(
+                existing.sessionId(), existing.sqlText(),
+                evidenceId == null ? existing.ddlEvidenceId() : evidenceId);
+        if (java.util.Objects.equals(existing.ddlEvidenceStatus(), evidence.status())
+                && java.util.Objects.equals(existing.ddlProject(), evidence.project())
+                && java.util.Objects.equals(existing.ddlEvidenceId(), evidence.evidenceId())
+                && java.util.Objects.equals(existing.ddlVerifiedTables(), evidence.verifiedTables())
+                && java.util.Objects.equals(existing.ddlMissingTables(), evidence.missingTables())) {
+            return existing;
+        }
+        long now = System.currentTimeMillis();
+        SessionPendingSql refreshed = new SessionPendingSql(
+                existing.sessionId(), existing.title(), existing.targetEnvironment(), existing.changeType(),
+                existing.sqlText(), existing.status(), existing.createdAt(), now, existing.executedAt(),
+                evidence.status(), evidence.project(), evidence.baselinePath(), evidence.evidenceId(),
+                evidence.verifiedTables(), evidence.missingTables(), evidence.checkedAt());
+        repository.upsert(refreshed);
+        return refreshed;
     }
 }

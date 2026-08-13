@@ -1,34 +1,29 @@
 package com.exceptioncoder.toolbox.claudechat.repository;
 
 import com.exceptioncoder.toolbox.claudechat.domain.SessionPendingSql;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.List;
 
 /** 会话待执行 SQL 台账的 SQLite 持久化。 */
 @Repository
 public class SessionPendingSqlRepository {
 
-    private static final RowMapper<SessionPendingSql> ROW_MAPPER = (rs, rowNum) -> new SessionPendingSql(
-            rs.getString("session_id"),
-            rs.getString("title"),
-            rs.getString("target_environment"),
-            rs.getString("change_type"),
-            rs.getString("sql_text"),
-            rs.getString("status"),
-            rs.getLong("created_at"),
-            rs.getLong("updated_at"),
-            nullableLong(rs, "executed_at"));
-
     private final JdbcTemplate jdbc;
+    private final ObjectMapper objectMapper;
 
-    public SessionPendingSqlRepository(JdbcTemplate jdbc) {
+    public SessionPendingSqlRepository(JdbcTemplate jdbc, ObjectMapper objectMapper) {
         this.jdbc = jdbc;
+        this.objectMapper = objectMapper;
     }
 
-    private static Long nullableLong(java.sql.ResultSet rs, String column) throws java.sql.SQLException {
+    private static Long nullableLong(ResultSet rs, String column) throws SQLException {
         long value = rs.getLong(column);
         return rs.wasNull() ? null : value;
     }
@@ -36,7 +31,7 @@ public class SessionPendingSqlRepository {
     /** 查询会话登记，不存在时返回 {@code null}。 */
     public SessionPendingSql findBySessionId(String sessionId) {
         List<SessionPendingSql> rows = jdbc.query(
-                "SELECT * FROM claude_chat_pending_sql WHERE session_id = ?", ROW_MAPPER, sessionId);
+                "SELECT * FROM claude_chat_pending_sql WHERE session_id = ?", this::mapRow, sessionId);
         return rows.isEmpty() ? null : rows.get(0);
     }
 
@@ -45,8 +40,9 @@ public class SessionPendingSqlRepository {
         jdbc.update("""
                 INSERT INTO claude_chat_pending_sql
                     (session_id, title, target_environment, change_type, sql_text, status,
-                     created_at, updated_at, executed_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     created_at, updated_at, executed_at, ddl_evidence_status, ddl_project,
+                     ddl_baseline_path, ddl_evidence_id, ddl_verified_tables, ddl_missing_tables, ddl_checked_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET
                     title = excluded.title,
                     target_environment = excluded.target_environment,
@@ -54,11 +50,21 @@ public class SessionPendingSqlRepository {
                     sql_text = excluded.sql_text,
                     status = excluded.status,
                     updated_at = excluded.updated_at,
-                    executed_at = excluded.executed_at
+                    executed_at = excluded.executed_at,
+                    ddl_evidence_status = excluded.ddl_evidence_status,
+                    ddl_project = excluded.ddl_project,
+                    ddl_baseline_path = excluded.ddl_baseline_path,
+                    ddl_evidence_id = excluded.ddl_evidence_id,
+                    ddl_verified_tables = excluded.ddl_verified_tables,
+                    ddl_missing_tables = excluded.ddl_missing_tables,
+                    ddl_checked_at = excluded.ddl_checked_at
                 """,
                 pendingSql.sessionId(), pendingSql.title(), pendingSql.targetEnvironment(),
                 pendingSql.changeType(), pendingSql.sqlText(), pendingSql.status(),
-                pendingSql.createdAt(), pendingSql.updatedAt(), pendingSql.executedAt());
+                pendingSql.createdAt(), pendingSql.updatedAt(), pendingSql.executedAt(),
+                pendingSql.ddlEvidenceStatus(), pendingSql.ddlProject(), pendingSql.ddlBaselinePath(),
+                pendingSql.ddlEvidenceId(), writeList(pendingSql.ddlVerifiedTables()),
+                writeList(pendingSql.ddlMissingTables()), pendingSql.ddlCheckedAt());
     }
 
     /** 更新人工处理状态。 */
@@ -73,5 +79,42 @@ public class SessionPendingSqlRepository {
     /** 解除会话和 SQL 登记的关联。 */
     public void deleteBySessionId(String sessionId) {
         jdbc.update("DELETE FROM claude_chat_pending_sql WHERE session_id = ?", sessionId);
+    }
+
+    private List<String> readList(String json) {
+        if (json == null || json.isBlank()) return List.of();
+        try {
+            return objectMapper.readValue(json, new TypeReference<>() { });
+        } catch (JsonProcessingException e) {
+            return List.of();
+        }
+    }
+
+    private SessionPendingSql mapRow(ResultSet rs, int rowNum) throws SQLException {
+        return new SessionPendingSql(
+                rs.getString("session_id"),
+                rs.getString("title"),
+                rs.getString("target_environment"),
+                rs.getString("change_type"),
+                rs.getString("sql_text"),
+                rs.getString("status"),
+                rs.getLong("created_at"),
+                rs.getLong("updated_at"),
+                nullableLong(rs, "executed_at"),
+                rs.getString("ddl_evidence_status"),
+                rs.getString("ddl_project"),
+                rs.getString("ddl_baseline_path"),
+                rs.getString("ddl_evidence_id"),
+                readList(rs.getString("ddl_verified_tables")),
+                readList(rs.getString("ddl_missing_tables")),
+                nullableLong(rs, "ddl_checked_at"));
+    }
+
+    private String writeList(List<String> values) {
+        try {
+            return objectMapper.writeValueAsString(values == null ? List.of() : values);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("序列化 DDL 核验表清单失败", e);
+        }
     }
 }
