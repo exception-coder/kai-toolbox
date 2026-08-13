@@ -536,7 +536,7 @@ export function ForeConsultPage() {
   const containerRef = useRef<HTMLDivElement>(null)
   const [canvasSize, setCanvasSize] = useState<CanvasSize>({ width: 1600, height: 900 })
   const [pageVisible, setPageVisible] = useState(() => document.visibilityState === 'visible')
-  const dragRef = useRef<{ name: string; moved: boolean } | null>(null)
+  const dragRef = useRef<{ name: string; startX: number; startY: number; dragging: boolean } | null>(null)
   const dragFrameRef = useRef<number | null>(null)
   const pendingDragRef = useRef<{ name: string; pos: Pos } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -983,7 +983,9 @@ export function ForeConsultPage() {
     }),
   })
 
-  // 拖拽球体：pointermove 合并到浏览器下一绘制帧，每帧最多触发一次 React 更新。
+  // 拖拽球体：超过阈值才视为拖拽，避免正常单击时的轻微手抖吞掉点击。
+  // pointermove 合并到浏览器下一绘制帧，每帧最多触发一次 React 更新。
+  const ORB_DRAG_THRESHOLD_PX = 6
   const toPct = (clientX: number, clientY: number): Pos | null => {
     const rect = containerRef.current?.getBoundingClientRect()
     if (!rect) return null
@@ -992,14 +994,18 @@ export function ForeConsultPage() {
   const onOrbPointerDown = (e: ReactPointerEvent, name: string) => {
     e.stopPropagation()
     e.currentTarget.setPointerCapture(e.pointerId)
-    dragRef.current = { name, moved: false }
+    dragRef.current = { name, startX: e.clientX, startY: e.clientY, dragging: false }
   }
   const onOrbPointerMove = (e: ReactPointerEvent) => {
     const ds = dragRef.current
     if (!ds) return
+    if (!ds.dragging) {
+      const distance = Math.hypot(e.clientX - ds.startX, e.clientY - ds.startY)
+      if (distance < ORB_DRAG_THRESHOLD_PX) return
+      ds.dragging = true
+    }
     const p = toPct(e.clientX, e.clientY)
     if (!p) return
-    ds.moved = true
     pendingDragRef.current = { name: ds.name, pos: p }
     if (dragFrameRef.current !== null) return
     dragFrameRef.current = window.requestAnimationFrame(() => {
@@ -1012,7 +1018,11 @@ export function ForeConsultPage() {
   const onOrbPointerUp = (name: string) => {
     const ds = dragRef.current
     dragRef.current = null
-    if (ds && !ds.moved) openSystem(name)
+    if (ds && !ds.dragging) openSystem(name)
+  }
+  const onOrbPointerCancel = () => {
+    dragRef.current = null
+    pendingDragRef.current = null
   }
 
   // 全屏展示：对星图容器走浏览器 Fullscreen API。
@@ -1619,6 +1629,7 @@ export function ForeConsultPage() {
                   onPointerDown={(e) => onOrbPointerDown(e, p.name)}
                   onPointerMove={onOrbPointerMove}
                   onPointerUp={() => onOrbPointerUp(p.name)}
+                  onPointerCancel={onOrbPointerCancel}
                   aria-label={p.label}
                   className="fc-orb flex cursor-grab touch-none select-none items-center justify-center active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
                   style={{
