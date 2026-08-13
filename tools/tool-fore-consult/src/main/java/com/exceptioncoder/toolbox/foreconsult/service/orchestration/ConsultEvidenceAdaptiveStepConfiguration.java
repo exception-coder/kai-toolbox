@@ -29,7 +29,9 @@ public class ConsultEvidenceAdaptiveStepConfiguration {
                 context.addSection("模块边界与 Core Spec 分级召回", """
                         使用所选系统 project-domain-knowledge 中的 impl/modules.json 确定模块边界。涉及菜单、URL 或按钮时先调用 domain-knowledge.locate_menu，保留完整菜单路径、menuId、URL、codePath 和 webPath。
                         业务规则、状态、字段含义、数据异常或 BUG 判断必须按系统、模块和问题关键词召回稳定业务知识及相关 Core Spec。
-                        当前优先使用 domain-knowledge.search_knowledge、get_knowledge 和 get_related 做模块限域召回；若未来提供 get_module_core_spec 或 resolve_consult_context，应优先使用专用工具，但不得因此改变证据分级规则。
+                        先调用 domain-knowledge.resolve_consult_context 收敛模块、菜单、稳定知识与 Core Spec 候选。
+                        需要对象、关系、状态或约束细节时，再调用 domain-knowledge.get_module_core_spec。
+                        专用工具无结果时才降级到 search_knowledge、get_knowledge 和 get_related，且不得改变证据分级规则。
                         必须检查 stability、businessTruth、ownerReviewed、runtimeVerified 和 sourceRevision。稳定且已确认的业务知识可以说明业务预期；impl/spec-mining 下未评审、未运行验证的 Core Spec 只能作为实现候选和后续核查线索，不能直接当作业务真理。
                         未取得 Core Spec 证据时继续使用其他可用证据并明确标注缺口；禁止为兜底而全量读取整个 spec-mining 目录。
                         """));
@@ -147,7 +149,7 @@ public class ConsultEvidenceAdaptiveStepConfiguration {
 
         @Override
         public List<String> capabilityGaps() {
-            return List.of("Core Spec 专用 MCP 尚未提供，当前按模块使用通用知识工具限域召回并保留证据等级");
+            return List.of();
         }
 
         @Override

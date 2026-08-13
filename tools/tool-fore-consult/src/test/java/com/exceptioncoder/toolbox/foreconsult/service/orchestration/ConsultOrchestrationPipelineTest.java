@@ -175,6 +175,8 @@ class ConsultOrchestrationPipelineTest {
                 .contains("impl/modules.json")
                 .contains("businessTruth")
                 .contains("get_module_core_spec")
+                .contains("resolve_consult_context")
+                .contains("先调用 domain-knowledge.resolve_consult_context")
                 .contains("证据已经足以回答时立即停止")
                 .contains("erp_standby_validate_sql")
                 .contains("【明确结论】")
@@ -182,8 +184,7 @@ class ConsultOrchestrationPipelineTest {
                 .contains("MENU_OPERATION")
                 .contains("recognitionStatus")
                 .doesNotContain("v2 当前通过受控提示词");
-        assertThat(result.capabilityGaps())
-                .contains("Core Spec 专用 MCP 尚未提供，当前按模块使用通用知识工具限域召回并保留证据等级");
+        assertThat(result.capabilityGaps()).isEmpty();
     }
 
     @Test
