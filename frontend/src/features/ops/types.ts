@@ -88,6 +88,13 @@ export interface SqlQueryResult {
   elapsedMs: number
 }
 
+export interface SqlCheckResult {
+  status: 'VALID' | 'INVALID' | 'UNSUPPORTED' | 'ERROR'
+  statementType: 'READ' | 'DML' | 'DDL' | 'OTHER' | 'UNKNOWN'
+  message: string
+  elapsedMs: number
+}
+
 export interface RedisExecResult {
   command: string
   result: unknown

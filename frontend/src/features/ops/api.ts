@@ -6,6 +6,7 @@ import type {
   HistoryDetailView,
   HistoryView,
   RedisExecResult,
+  SqlCheckResult,
   SqlQueryResult,
   SystemPayload,
   SystemView,
@@ -60,10 +61,10 @@ export function getDatasourceConnection(id: string) {
 
 /* ---------- 查询 ---------- */
 
-export function sqlQuery(id: string, sql: string, maxRows?: number) {
+export function sqlQuery(id: string, sql: string, maxRows?: number, confirmedWrite = false) {
   return http<SqlQueryResult>(`/ops/datasources/${id}/sql/query`, {
     method: 'POST',
-    body: JSON.stringify({ sql, maxRows }),
+    body: JSON.stringify({ sql, maxRows, confirmedWrite }),
   })
 }
 
@@ -71,6 +72,13 @@ export function sqlReadOnlyQuery(id: string, sql: string, maxRows?: number) {
   return http<SqlQueryResult>(`/ops/datasources/${id}/sql/read`, {
     method: 'POST',
     body: JSON.stringify({ sql, maxRows }),
+  })
+}
+
+export function sqlCheck(id: string, sql: string) {
+  return http<SqlCheckResult>(`/ops/datasources/${id}/sql/check`, {
+    method: 'POST',
+    body: JSON.stringify({ sql }),
   })
 }
 

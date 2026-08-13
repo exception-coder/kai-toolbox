@@ -4,5 +4,6 @@ import jakarta.validation.constraints.NotBlank;
 
 public record SqlQueryRequest(
         @NotBlank String sql,
-        Integer maxRows
+        Integer maxRows,
+        Boolean confirmedWrite
 ) {}

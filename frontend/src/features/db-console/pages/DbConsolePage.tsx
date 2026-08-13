@@ -21,7 +21,7 @@ export function DbConsolePage() {
             DB Console
           </CardTitle>
           <CardDescription>
-            面向开发排查的轻量 SQL 工作台。第一期复用已登记的数据源，并强制只读查询。
+            面向开发排查的 SQL 工作台。支持目标环境语法检查、查询以及经二次确认的 DML / DDL 执行。
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center gap-3">
@@ -68,9 +68,9 @@ export function DbConsolePage() {
               尚未登记 MySQL / Oracle 数据源，请先进入「系统与中间件」添加连接。
             </div>
           ) : panel === 'history' ? (
-            <HistoryPanel datasource={selected} />
+            <HistoryPanel key={selected.id} datasource={selected} />
           ) : (
-            <SqlConsole datasource={selected} readOnly />
+            <SqlConsole key={selected.id} datasource={selected} />
           )}
         </CardContent>
       </Card>

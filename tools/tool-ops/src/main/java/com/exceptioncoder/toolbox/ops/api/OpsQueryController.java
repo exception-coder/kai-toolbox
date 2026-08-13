@@ -4,6 +4,8 @@ import com.exceptioncoder.toolbox.ops.api.dto.HistoryDetailView;
 import com.exceptioncoder.toolbox.ops.api.dto.HistoryView;
 import com.exceptioncoder.toolbox.ops.api.dto.RedisExecRequest;
 import com.exceptioncoder.toolbox.ops.api.dto.RedisExecResult;
+import com.exceptioncoder.toolbox.ops.api.dto.SqlCheckRequest;
+import com.exceptioncoder.toolbox.ops.api.dto.SqlCheckResult;
 import com.exceptioncoder.toolbox.ops.api.dto.SqlQueryRequest;
 import com.exceptioncoder.toolbox.ops.api.dto.SqlQueryResult;
 import com.exceptioncoder.toolbox.ops.service.OpsQueryService;
@@ -30,12 +32,17 @@ public class OpsQueryController {
 
     @PostMapping("/sql/query")
     public SqlQueryResult sqlQuery(@PathVariable String id, @Valid @RequestBody SqlQueryRequest req) {
-        return service.sqlQuery(id, req.sql(), req.maxRows());
+        return service.sqlQuery(id, req.sql(), req.maxRows(), Boolean.TRUE.equals(req.confirmedWrite()));
     }
 
     @PostMapping("/sql/read")
     public SqlQueryResult readOnlySqlQuery(@PathVariable String id, @Valid @RequestBody SqlQueryRequest req) {
         return service.readOnlySqlQuery(id, req.sql(), req.maxRows());
+    }
+
+    @PostMapping("/sql/check")
+    public SqlCheckResult checkSql(@PathVariable String id, @Valid @RequestBody SqlCheckRequest req) {
+        return service.checkSql(id, req.sql());
     }
 
     @PostMapping("/redis/exec")

@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.ops.service;
 
 import com.exceptioncoder.toolbox.ops.api.dto.HistoryDetailView;
 import com.exceptioncoder.toolbox.ops.api.dto.RedisExecResult;
+import com.exceptioncoder.toolbox.ops.api.dto.SqlCheckResult;
 import com.exceptioncoder.toolbox.ops.api.dto.SqlQueryResult;
 import com.exceptioncoder.toolbox.ops.api.dto.TestResult;
 import com.exceptioncoder.toolbox.ops.domain.DatasourceType;
@@ -20,6 +21,8 @@ import java.util.UUID;
 /** 查询编排：按中间件类型分派到对应连接器，记录查询历史（含结果快照）。 */
 @Service
 public class OpsQueryService {
+
+    static final String WRITE_CONFIRMATION_REQUIRED = "WRITE_CONFIRMATION_REQUIRED:";
 
     /** 历史快照最多存的行数：独立于查询本身的 maxRows，避免一次大查询把 SQLite 撑爆。 */
     private static final int SNAPSHOT_MAX_ROWS = 200;
@@ -50,19 +53,26 @@ public class OpsQueryService {
         };
     }
 
-    public SqlQueryResult sqlQuery(String datasourceId, String sql, Integer maxRows) {
+    public SqlQueryResult sqlQuery(String datasourceId, String sql, Integer maxRows, boolean confirmedWrite) {
         OpsDatasource ds = datasources.findRequired(datasourceId);
         if (ds.getType().category() != DatasourceType.Category.SQL) {
             throw new IllegalArgumentException("该实例不是 SQL 类型: " + ds.getType());
         }
+        String normalized = SqlStatementPolicy.analyze(sql).normalizedSql();
+        boolean readOnly = ReadOnlySqlPolicy.isReadOnly(normalized);
+        if (!readOnly && !confirmedWrite) {
+            throw new IllegalArgumentException(WRITE_CONFIRMATION_REQUIRED + "该 SQL 可能修改数据或数据库结构，需要确认后执行");
+        }
         try {
-            SqlQueryResult result = sqlConnector.query(ds, sql, maxRows);
+            SqlQueryResult result = readOnly
+                    ? sqlConnector.queryReadOnly(ds, normalized, maxRows)
+                    : sqlConnector.query(ds, normalized, maxRows);
             int n = result.updateCount() >= 0 ? result.updateCount() : result.rowCount();
-            record(datasourceId, "SQL", sql, "OK", n, result.elapsedMs(), null, snapshotSql(result));
+            record(datasourceId, "SQL", normalized, "OK", n, result.elapsedMs(), null, snapshotSql(result));
             return result;
         } catch (Exception e) {
             String msg = rootMessage(e);
-            record(datasourceId, "SQL", sql, "ERROR", null, null, msg, null);
+            record(datasourceId, "SQL", normalized, "ERROR", null, null, msg, null);
             throw new IllegalArgumentException(msg);
         }
     }
@@ -83,6 +93,14 @@ public class OpsQueryService {
             record(datasourceId, "SQL", normalized, "ERROR", null, null, msg, null);
             throw new IllegalArgumentException(msg);
         }
+    }
+
+    public SqlCheckResult checkSql(String datasourceId, String sql) {
+        OpsDatasource ds = datasources.findRequired(datasourceId);
+        if (ds.getType().category() != DatasourceType.Category.SQL) {
+            throw new IllegalArgumentException("该实例不是 SQL 类型: " + ds.getType());
+        }
+        return sqlConnector.check(ds, sql);
     }
 
     public RedisExecResult redisExec(String datasourceId, String command) {

@@ -11,7 +11,7 @@ const manifest: FeatureManifest = {
   name: 'DB Console',
   icon: Database,
   group: '项目开发',
-  description: '轻量只读 SQL 工作台，复用团队数据源与查询历史',
+  description: 'SQL 查询、写操作与目标环境语法检查，复用团队数据源和执行历史',
   order: 60,
   routes: [{ path: '/tools/db-console', element: <DbConsolePage /> }],
 }
