@@ -658,8 +658,9 @@ public class ClaudeChatService {
         ctx.codexSpeed = msg.speed();
         repo.updateCodexOptions(ctx.sessionId, ctx.codexReasoningEffort, ctx.codexSpeed);
         sidecar.setCodexOptions(ctx.sessionId, ctx.codexReasoningEffort, ctx.codexSpeed);
-        log.info("[claude-chat] 会话 {} 更新 Codex 配置 effort={} speed={}",
-                ctx.sessionId, msg.reasoningEffort(), msg.speed());
+        log.info("[claude-chat] 会话 {} 更新 Codex 配置 model={} effort={} speed={}（下一轮生效）",
+                ctx.sessionId, ctx.currentModel == null ? "default" : ctx.currentModel,
+                ctx.codexReasoningEffort, ctx.codexSpeed);
     }
 
     /**

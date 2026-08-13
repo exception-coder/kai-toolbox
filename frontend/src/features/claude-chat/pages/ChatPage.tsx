@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Database, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Send, Server, Settings, Slash, Sparkles, Square } from 'lucide-react'
+import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Copy, Database, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Send, Server, Settings, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -1052,6 +1052,7 @@ export function ChatPage() {
                           </span>
                         </span>
                       </button>
+                      <SiteLinkCopyButton url={site.siteUrl} title={site.title} />
                       <SiteOpenModeMenu compact allowControlled={site.sourceType === 'QUICK'} onSelect={choice => openLinkedSite(site, choice)} />
                     </div>
                   )
@@ -1934,6 +1935,33 @@ export function ChatPage() {
         />
       )}
     </div>
+  )
+}
+
+function SiteLinkCopyButton({ url, title }: { url: string; title: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1_500)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={event => { event.stopPropagation(); void copy() }}
+      aria-label={`复制 ${title} 链接`}
+      title={copied ? `已复制：${url}` : `复制链接：${url}`}
+      className={cn('rounded-md p-1.5 transition-colors hover:bg-[var(--color-accent)]',
+        copied ? 'text-emerald-600 dark:text-emerald-400' : 'text-[var(--color-muted-foreground)]')}
+    >
+      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+    </button>
   )
 }
 

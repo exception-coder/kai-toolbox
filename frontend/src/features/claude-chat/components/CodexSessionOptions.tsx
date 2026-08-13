@@ -271,7 +271,12 @@ function ConfigRow({ label, value, icon, disabled, onClick }: {
     <button type="button" disabled={disabled} onClick={onClick} className="flex w-full items-center gap-2 rounded-lg px-2 py-2.5 text-sm hover:bg-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent">
       <span className="flex w-5 shrink-0 justify-center text-[var(--color-muted-foreground)]">{icon}</span>
       <span>{label}</span>
-      <span className="ml-auto max-w-40 truncate text-[var(--color-muted-foreground)]">{value}</span>
+      <span
+        className="ml-auto max-w-40 truncate text-[var(--color-muted-foreground)]"
+        title={value}
+      >
+        {value}
+      </span>
       <ChevronRight className="size-4 shrink-0 text-[var(--color-muted-foreground)]" />
     </button>
   )
@@ -290,7 +295,7 @@ function OptionRow({ label, selected, disabled, onClick }: {
       onClick={onClick}
       className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-[var(--color-accent)] disabled:opacity-40"
     >
-      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <span className="min-w-0 flex-1 truncate" title={label}>{label}</span>
       {selected && <Check className="size-4 shrink-0" />}
     </button>
   )
