@@ -1,21 +1,30 @@
 package com.exceptioncoder.toolbox.ops.service;
 
 import com.exceptioncoder.toolbox.ops.api.dto.RedisExecResult;
+import com.exceptioncoder.toolbox.ops.api.dto.RedisKeyDeleteResult;
+import com.exceptioncoder.toolbox.ops.api.dto.RedisPatternDeleteResult;
 import com.exceptioncoder.toolbox.ops.api.dto.TestResult;
 import com.exceptioncoder.toolbox.ops.domain.OpsDatasource;
 import org.springframework.stereotype.Component;
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.commands.ProtocolCommand;
+import redis.clients.jedis.params.ScanParams;
+import redis.clients.jedis.resps.ScanResult;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Redis 查询：从 {@link OpsDataSourcePool} 借 Jedis 连接，用完归还（JedisPool 复用）。
  */
 @Component
 public class RedisConnector {
+
+    private static final int SCAN_COUNT = 200;
+    private static final int DELETE_BATCH_SIZE = 200;
 
     private final OpsDataSourcePool pool;
 
@@ -45,6 +54,48 @@ public class RedisConnector {
             Object raw = jedis.sendCommand(pc, args);
             return new RedisExecResult(commandLine.trim(), convert(raw), System.currentTimeMillis() - start);
         }
+    }
+
+    /**
+     * 使用 SCAN 收集匹配键，再以小批量 DEL 删除，避免阻塞 Redis 或误用全库清理命令。
+     * 模式必须先经过 {@link RedisKeyPatternPolicy} 校验。
+     */
+    public RedisKeyDeleteResult deleteByPatterns(OpsDatasource ds, List<String> patterns) {
+        long start = System.currentTimeMillis();
+        List<RedisPatternDeleteResult> patternResults = new ArrayList<>(patterns.size());
+        long totalDeleted = 0;
+
+        try (Jedis jedis = pool.borrowRedis(ds)) {
+            for (String pattern : patterns) {
+                long deleted = deleteByPattern(jedis, pattern);
+                patternResults.add(new RedisPatternDeleteResult(pattern, deleted));
+                totalDeleted += deleted;
+            }
+        }
+        return new RedisKeyDeleteResult(List.copyOf(patternResults), totalDeleted,
+                System.currentTimeMillis() - start);
+    }
+
+    private static long deleteByPattern(Jedis jedis, String pattern) {
+        Set<String> keys = new LinkedHashSet<>();
+        ScanParams params = new ScanParams().match(pattern).count(SCAN_COUNT);
+        String cursor = ScanParams.SCAN_POINTER_START;
+        do {
+            ScanResult<String> result = jedis.scan(cursor, params);
+            cursor = result.getCursor();
+            keys.addAll(result.getResult());
+        } while (!ScanParams.SCAN_POINTER_START.equals(cursor));
+
+        if (keys.isEmpty()) {
+            return 0;
+        }
+        List<String> keyList = List.copyOf(keys);
+        long deleted = 0;
+        for (int from = 0; from < keyList.size(); from += DELETE_BATCH_SIZE) {
+            int to = Math.min(from + DELETE_BATCH_SIZE, keyList.size());
+            deleted += jedis.del(keyList.subList(from, to).toArray(String[]::new));
+        }
+        return deleted;
     }
 
     private static int dbIndex(OpsDatasource ds) {

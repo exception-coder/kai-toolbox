@@ -4,6 +4,8 @@ import com.exceptioncoder.toolbox.ops.api.dto.HistoryDetailView;
 import com.exceptioncoder.toolbox.ops.api.dto.HistoryView;
 import com.exceptioncoder.toolbox.ops.api.dto.RedisExecRequest;
 import com.exceptioncoder.toolbox.ops.api.dto.RedisExecResult;
+import com.exceptioncoder.toolbox.ops.api.dto.RedisDeleteByPatternsRequest;
+import com.exceptioncoder.toolbox.ops.api.dto.RedisKeyDeleteResult;
 import com.exceptioncoder.toolbox.ops.api.dto.SqlCheckRequest;
 import com.exceptioncoder.toolbox.ops.api.dto.SqlCheckResult;
 import com.exceptioncoder.toolbox.ops.api.dto.SqlQueryRequest;
@@ -48,6 +50,13 @@ public class OpsQueryController {
     @PostMapping("/redis/exec")
     public RedisExecResult redisExec(@PathVariable String id, @Valid @RequestBody RedisExecRequest req) {
         return service.redisExec(id, req.command());
+    }
+
+    @PostMapping("/redis/keys/delete-by-patterns")
+    public RedisKeyDeleteResult deleteRedisKeysByPatterns(
+            @PathVariable String id,
+            @Valid @RequestBody RedisDeleteByPatternsRequest req) {
+        return service.deleteRedisKeysByPatterns(id, req.patterns());
     }
 
     @GetMapping("/history")

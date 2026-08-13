@@ -67,6 +67,25 @@ export function listOpsDatasources(systemId: string) {
   return http<OpsDatasourceLite[]>(`/ops/datasources?systemId=${encodeURIComponent(systemId)}`)
 }
 
+export interface RedisPatternDeleteResult {
+  pattern: string
+  deleted: number
+}
+
+export interface RedisKeyDeleteResult {
+  patterns: RedisPatternDeleteResult[]
+  totalDeleted: number
+  elapsedMs: number
+}
+
+/** 通过系统中间件台安全清理一组 Redis 前缀键。 */
+export function deleteRedisKeysByPatterns(datasourceId: string, patterns: string[]) {
+  return http<RedisKeyDeleteResult>(
+    `/ops/datasources/${encodeURIComponent(datasourceId)}/redis/keys/delete-by-patterns`,
+    { method: 'POST', body: JSON.stringify({ patterns }) },
+  )
+}
+
 /**
  * 把中间件台某数据源带入 SRM 只读连接（仅 MYSQL）。密码经后端回环流转、不进浏览器。
  * 成功回脱敏配置视图；失败回 {ok:false,error}。

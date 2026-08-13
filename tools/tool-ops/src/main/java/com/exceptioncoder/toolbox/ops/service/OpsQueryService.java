@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.ops.service;
 
 import com.exceptioncoder.toolbox.ops.api.dto.HistoryDetailView;
 import com.exceptioncoder.toolbox.ops.api.dto.RedisExecResult;
+import com.exceptioncoder.toolbox.ops.api.dto.RedisKeyDeleteResult;
 import com.exceptioncoder.toolbox.ops.api.dto.SqlCheckResult;
 import com.exceptioncoder.toolbox.ops.api.dto.SqlQueryResult;
 import com.exceptioncoder.toolbox.ops.api.dto.TestResult;
@@ -115,6 +116,28 @@ public class OpsQueryService {
         } catch (Exception e) {
             String msg = rootMessage(e);
             record(datasourceId, "REDIS", command, "ERROR", null, null, msg, null);
+            throw new IllegalArgumentException(msg);
+        }
+    }
+
+    /** 按受限前缀模式批量删除 Redis 键，并写入既有操作历史。 */
+    public RedisKeyDeleteResult deleteRedisKeysByPatterns(String datasourceId, List<String> patterns) {
+        OpsDatasource ds = datasources.findRequired(datasourceId);
+        if (ds.getType() != DatasourceType.REDIS) {
+            throw new IllegalArgumentException("该实例不是 Redis 类型: " + ds.getType());
+        }
+        List<String> normalized = RedisKeyPatternPolicy.normalize(patterns);
+        String content = "DELETE KEYS BY PATTERNS " + String.join(", ", normalized);
+        try {
+            RedisKeyDeleteResult result = redisConnector.deleteByPatterns(ds, normalized);
+            int rowCount = result.totalDeleted() > Integer.MAX_VALUE
+                    ? Integer.MAX_VALUE : (int) result.totalDeleted();
+            record(datasourceId, "REDIS", content, "OK", rowCount, result.elapsedMs(), null,
+                    toJsonWithinLimit(result));
+            return result;
+        } catch (Exception e) {
+            String msg = rootMessage(e);
+            record(datasourceId, "REDIS", content, "ERROR", null, null, msg, null);
             throw new IllegalArgumentException(msg);
         }
     }
