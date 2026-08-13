@@ -19,6 +19,10 @@ import { appendSqlDdlFallbackRule } from './pendingSqlPolicy.js'
  */
 export interface GeminiTurnCtx {
   text: string
+  /** Forge 后端生成的可信会话级项目上下文。 */
+  developerInstructions?: string
+  /** Gemini CLI 原生附加工作目录。 */
+  additionalDirectories?: string[]
   cwd: string
   model?: string
   /** 会话权限模式（四档），映射为 gemini --approval-mode。 */
@@ -79,7 +83,9 @@ function safeJson(v: unknown): string {
 export async function runGeminiTurn(ctx: GeminiTurnCtx): Promise<void> {
   const safeCwd = existsSync(ctx.cwd) ? ctx.cwd : (process.env.USERPROFILE || process.env.HOME || process.cwd())
   const bin = resolveGeminiBin()
-  const args = ['-p', prependWindowsExecutionInstructions(appendSqlDdlFallbackRule(ctx.text)), '-o', 'stream-json', '--approval-mode', mapApprovalMode(ctx.permissionMode), '--skip-trust']
+  const prompt = ctx.developerInstructions ? `${ctx.developerInstructions}\n\n${ctx.text}` : ctx.text
+  const args = ['-p', prependWindowsExecutionInstructions(appendSqlDdlFallbackRule(prompt)), '-o', 'stream-json', '--approval-mode', mapApprovalMode(ctx.permissionMode), '--skip-trust']
+  for (const directory of ctx.additionalDirectories ?? []) args.push('--include-directories', directory)
   if (ctx.model) args.push('-m', ctx.model)
   // 已有会话 → 续最近一次（同 cwd）。resume 语义待真实验证（见设计文档 §8）。
   if (ctx.sdkSessionId) args.push('--resume', 'latest')

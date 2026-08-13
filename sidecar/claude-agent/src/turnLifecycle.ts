@@ -14,6 +14,7 @@ interface ActiveTurn {
   terminal: boolean
   interrupted: boolean
   hadError: boolean
+  terminalEvent?: Record<string, unknown>
 }
 
 /**
@@ -40,13 +41,15 @@ export class TurnLifecycle {
     if (type === 'result') {
       if (turn.terminal) return null
       turn.terminal = true
+      turn.terminalEvent = { ...event, turnId: turn.id }
+      return null
     }
     return { ...event, turnId: turn.id }
   }
 
   requestInterrupt(expectedTurnId: string | undefined, pendingDecision: boolean): InterruptSnapshot {
     const turn = this.active
-    if (!turn || turn.terminal) {
+    if (!turn) {
       return { outcome: 'alreadyStopped', active: false, pendingDecision }
     }
     if (expectedTurnId?.trim() && expectedTurnId !== turn.id) {
@@ -68,7 +71,7 @@ export class TurnLifecycle {
 
   snapshot(expectedTurnId?: string): InterruptSnapshot {
     const turn = this.active
-    if (!turn || turn.terminal) {
+    if (!turn) {
       return { outcome: 'alreadyStopped', active: false, pendingDecision: false }
     }
     if (expectedTurnId?.trim() && expectedTurnId !== turn.id) {
@@ -91,7 +94,11 @@ export class TurnLifecycle {
     return this.active?.terminal ?? true
   }
 
-  finish(turnId: string): void {
-    if (this.active?.id === turnId) this.active = undefined
+  /** 原子释放当前轮并返回之前暂存的唯一终态；调用方应在本方法返回后再对上游发布。 */
+  finish(turnId: string): Record<string, unknown> | undefined {
+    if (this.active?.id !== turnId) return undefined
+    const terminalEvent = this.active.terminalEvent
+    this.active = undefined
+    return terminalEvent
   }
 }

@@ -11,6 +11,7 @@ import com.exceptioncoder.toolbox.claudechat.service.ClaudeChatService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionPlanStateService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionHistoryService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionProjectService;
+import com.exceptioncoder.toolbox.claudechat.service.SessionProjectDirectoryService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionSiteService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -40,18 +41,21 @@ public class ClaudeChatSessionController {
     private final SessionPlanStateService planStateService;
     private final SessionProjectService sessionProjectService;
     private final SessionSiteService sessionSiteService;
+    private final SessionProjectDirectoryService sessionProjectDirectoryService;
 
     public ClaudeChatSessionController(ClaudeChatSessionRepository repo, ClaudeChatService service,
                                        SessionHistoryService historyService,
                                        SessionPlanStateService planStateService,
                                        SessionProjectService sessionProjectService,
-                                       SessionSiteService sessionSiteService) {
+                                       SessionSiteService sessionSiteService,
+                                       SessionProjectDirectoryService sessionProjectDirectoryService) {
         this.repo = repo;
         this.service = service;
         this.historyService = historyService;
         this.planStateService = planStateService;
         this.sessionProjectService = sessionProjectService;
         this.sessionSiteService = sessionSiteService;
+        this.sessionProjectDirectoryService = sessionProjectDirectoryService;
     }
 
     @GetMapping
@@ -82,6 +86,7 @@ public class ClaudeChatSessionController {
     public ResponseEntity<Void> delete(@PathVariable String id) {
         service.dropSession(id);
         sessionSiteService.clear(id);
+        sessionProjectDirectoryService.clear(id);
         repo.deleteById(id);
         return ResponseEntity.noContent().build();
     }

@@ -28,6 +28,7 @@ import { TurnLifecycle, type InterruptSnapshot } from './turnLifecycle.js'
 import {
   McpToolWatchdog,
   configuredMcpToolHeartbeatMs,
+  configuredMcpToolMaxDurationMs,
   configuredMcpToolTimeoutMs,
   type McpToolWatchdogEntry,
 } from './mcpToolWatchdog.js'
@@ -321,6 +322,7 @@ class Session {
     this.mcpToolWatchdog = new McpToolWatchdog({
       timeoutMs: configuredMcpToolTimeoutMs(),
       heartbeatMs: configuredMcpToolHeartbeatMs(),
+      maxDurationMs: configuredMcpToolMaxDurationMs(),
       onHeartbeat: entry => this.emitMcpToolHeartbeat(entry),
       onTimeout: entry => this.handleMcpToolTimeout(entry),
     })
@@ -328,10 +330,14 @@ class Session {
 
   private emitTurn(event: Record<string, unknown>): void {
     const type = typeof event.type === 'string' ? event.type : ''
-    if (type === 'result') this.stopTurnActivity()
-    else this.updateTurnActivity(event)
+    // result 只是引擎流终态；整轮还要经过 finally 清理，不能在这里提前显示“已结束”。
+    if (type !== 'result') this.updateTurnActivity(event)
     this.mcpToolWatchdog.observe(event)
+    const wasTerminal = this.turnLifecycle.terminal()
     const decorated = this.turnLifecycle.decorate(event)
+    if (type === 'result' && !wasTerminal && this.turnLifecycle.terminal()) {
+      this.setTurnActivityPhase('finalizing', '正在收口当前轮次')
+    }
     if (decorated) this.emitRaw(decorated)
   }
 
@@ -403,8 +409,10 @@ class Session {
       toolCallId: entry.toolCallId,
       toolName: entry.toolName,
       status: 'inProgress',
-      title: 'MCP 工具仍在等待响应',
-      detail: `无活动超时上限 ${Math.round(entry.timeoutMs / 1_000)} 秒`,
+      title: 'MCP 工具执行中',
+      detail: [entry.lastTitle, entry.lastDetail,
+        `无活动上限 ${Math.round(entry.timeoutMs / 1_000)} 秒`,
+        `总时长上限 ${Math.round(entry.maxDurationMs / 1_000)} 秒`].filter(Boolean).join(' · '),
       elapsedMs: Date.now() - entry.startedAt,
       outcome: 'waiting',
       severity: 'info',
@@ -413,8 +421,11 @@ class Session {
 
   private handleMcpToolTimeout(entry: McpToolWatchdogEntry): void {
     const elapsedMs = Date.now() - entry.startedAt
-    const message = `MCP 工具 ${entry.toolName} 超过 ${Math.round(entry.timeoutMs / 1_000)} 秒没有返回或进度，已取消当前任务`
-    console.warn(`[sidecar] MCP tool timeout session=${this.id} engine=${this.engine} tool=${entry.toolName} call=${entry.toolCallId} elapsedMs=${elapsedMs}`)
+    const hardLimit = entry.timeoutReason === 'maxDuration'
+    const limitSeconds = Math.round((hardLimit ? entry.maxDurationMs : entry.timeoutMs) / 1_000)
+    const phase = entry.lastDetail || entry.lastTitle
+    const message = `MCP 工具 ${entry.toolName}${hardLimit ? '执行总时长' : '无有效进度'}超过 ${limitSeconds} 秒，已取消当前任务${phase ? `；最后阶段：${phase}` : ''}`
+    console.warn(`[sidecar] MCP tool timeout session=${this.id} engine=${this.engine} tool=${entry.toolName} call=${entry.toolCallId} reason=${entry.timeoutReason ?? 'idle'} elapsedMs=${elapsedMs} lastPhase=${phase ?? '-'}`)
     this.emitTurn({
       type: 'toolResult',
       toolCallId: entry.toolCallId,
@@ -451,7 +462,8 @@ class Session {
    * 杀软实时扫描短暂锁住而 spawn 失败。只在本轮尚未产出任何消息时重试，避免重复输出。
    */
   async runTurn(text: string, systemPrompt?: string, images?: OneShotImage[],
-                developerInstructions?: string, requestedTurnId?: string): Promise<void> {
+                developerInstructions?: string, requestedTurnId?: string,
+                additionalDirectories: string[] = []): Promise<void> {
     const turn = this.turnLifecycle.begin(requestedTurnId)
     if (!turn.accepted) {
       this.emitRaw({
@@ -467,7 +479,7 @@ class Session {
     this.mcpToolWatchdog.clear()
     this.startTurnActivity()
     try {
-      await this.executeTurn(text, systemPrompt, images, developerInstructions)
+      await this.executeTurn(text, systemPrompt, images, developerInstructions, additionalDirectories)
     } catch (error) {
       console.error(`[sidecar] turn failed session=${this.id} turn=${turn.turnId}:`, error)
       this.emitTurn({
@@ -485,15 +497,17 @@ class Session {
         })
       }
       this.stopTurnActivity()
-      this.turnLifecycle.finish(turn.turnId)
+      const settledResult = this.turnLifecycle.finish(turn.turnId)
+      // result 的协议语义是“本轮已彻底结束且可以接收下一轮”，必须在 finish 之后发布。
+      if (settledResult) this.emitRaw(settledResult)
     }
   }
 
   private async executeTurn(text: string, systemPrompt?: string, images?: OneShotImage[],
-                            developerInstructions?: string): Promise<void> {
+                            developerInstructions?: string, additionalDirectories: string[] = []): Promise<void> {
     if (this.engine === 'codex') return this.runCodexTurn(text, developerInstructions)
-    if (this.engine === 'gemini') return this.runGeminiTurn(text)
-    if (this.engine === 'opencode') return this.runOpencodeTurn(text)
+    if (this.engine === 'gemini') return this.runGeminiTurn(text, developerInstructions, additionalDirectories)
+    if (this.engine === 'opencode') return this.runOpencodeTurn(text, developerInstructions)
     const maxAttempts = 3
     // spawn claude.exe 时若 working dir 不存在会直接「exists but failed to launch」；
     // cwd 失效（历史会话来自已删除/改名/异机路径）则回退到用户主目录，避免起不来。
@@ -639,6 +653,7 @@ class Session {
               : {}),
             ...(Object.keys(mcpServers).length ? { mcpServers } : {}),
             cwd: safeCwd,
+            ...(additionalDirectories.length ? { additionalDirectories } : {}),
             model: this.model || undefined,
             resume: this.sdkSessionId || undefined,
             permissionMode: this.permissionMode,
@@ -730,12 +745,15 @@ class Session {
   }
 
   /** 跑一轮 Gemini：委托 geminiEngine（headless stream-json），AbortController 支持中断。 */
-  private async runGeminiTurn(text: string): Promise<void> {
+  private async runGeminiTurn(text: string, developerInstructions?: string,
+                              additionalDirectories: string[] = []): Promise<void> {
     const ac = new AbortController()
     this.abort = ac
     try {
       await runGeminiTurn({
         text,
+        developerInstructions,
+        additionalDirectories,
         cwd: this.cwd,
         model: this.model,
         permissionMode: this.permissionMode,
@@ -752,12 +770,13 @@ class Session {
   }
 
   /** 跑一轮 OpenCode：委托 opencodeEngine（多 provider agent），AbortController 支持中断。 */
-  private async runOpencodeTurn(text: string): Promise<void> {
+  private async runOpencodeTurn(text: string, developerInstructions?: string): Promise<void> {
     const ac = new AbortController()
     this.abort = ac
     try {
       await runOpencodeTurn({
         text,
+        developerInstructions,
         cwd: this.cwd,
         model: this.model,
         sdkSessionId: this.sdkSessionId,
@@ -1224,7 +1243,8 @@ export class SessionManager {
     }
   }
 
-  user(id: string, text: string, developerInstructions?: string, turnId?: string): void {
+  user(id: string, text: string, developerInstructions?: string, sessionContext?: string,
+       additionalDirectories: string[] = [], turnId?: string): void {
     const s = this.sessions.get(id)
     if (!s) {
       this.emit(id, { type: 'error', code: 'SESSION_NOT_FOUND', message: '会话不存在' })
@@ -1232,10 +1252,12 @@ export class SessionManager {
     }
     // fire-and-forget，但必须收敛异常：runTurn 的非 Claude 引擎分支（codex/gemini/opencode）没有内层 catch，
     // 一旦 reject 会变成 unhandledRejection 拖垮整个 sidecar。这里兜成该会话的 error+result，解除前端「思考中」。
-    const hiddenInstructions = s.toolPolicy === 'consult-readonly' || s.toolPolicy === 'review-only'
+    const restricted = s.toolPolicy === 'consult-readonly' || s.toolPolicy === 'review-only'
+    const hiddenInstructions = restricted
       ? developerInstructions?.trim() || undefined
-      : undefined
-    s.runTurn(text, undefined, undefined, hiddenInstructions, turnId).catch((e) => {
+      : sessionContext?.trim() || undefined
+    const safeAdditionalDirectories = restricted ? [] : additionalDirectories
+    s.runTurn(text, undefined, undefined, hiddenInstructions, turnId, safeAdditionalDirectories).catch((e) => {
       console.error('[sidecar] runTurn 异常（已兜住）session=' + id + ':', e)
       this.emit(id, { type: 'error', code: 'TURN_FAILED', message: e instanceof Error ? e.message : String(e), turnId })
       this.emit(id, { type: 'result', usage: {}, stopReason: 'error', turnId })

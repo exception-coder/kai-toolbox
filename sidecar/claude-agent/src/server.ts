@@ -164,6 +164,10 @@ wss.on('connection', (ws) => {
           sessionId,
           msg.text as string,
           msg.developerInstructions as string | undefined,
+          msg.sessionContext as string | undefined,
+          Array.isArray(msg.additionalDirectories)
+            ? msg.additionalDirectories.filter((value): value is string => typeof value === 'string')
+            : [],
           msg.turnId as string | undefined,
         )
         break

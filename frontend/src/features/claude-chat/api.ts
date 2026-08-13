@@ -413,6 +413,19 @@ export function replaceSessionSiteIds(id: string, siteIds: string[]) {
   })
 }
 
+/** 读取会话除主 cwd 外的附加项目目录。 */
+export function listSessionProjectDirectories(id: string) {
+  return http<string[]>(`/claude-chat/sessions/${encodeURIComponent(id)}/project-directories`)
+}
+
+/** 原子替换会话附加项目目录；目录必须来自项目工作台。 */
+export function replaceSessionProjectDirectories(id: string, paths: string[]) {
+  return http<void>(`/claude-chat/sessions/${encodeURIComponent(id)}/project-directories`, {
+    method: 'PUT',
+    body: JSON.stringify({ paths }),
+  })
+}
+
 export type ReviewShareMode = 'SAFE_SNAPSHOT' | 'FULL_FORK'
 export interface ReviewShareView {
   id: string
@@ -423,6 +436,26 @@ export interface ReviewShareView {
   title: string
   expiresAt: number
   createdAt: number
+}
+
+export interface ReviewFeedbackView {
+  id: string
+  reviewSpaceId: string
+  sourceSessionId: string
+  reviewSessionId: string
+  content: string
+  sourceMessageId: string | null
+  status: 'PENDING' | 'CONSUMED' | 'DISMISSED'
+  createdAt: number
+  handledAt: number | null
+}
+
+export interface ReviewRelationContext {
+  role: 'SOURCE' | 'REVIEW'
+  sourceSessionId: string
+  sourceTitle: string | null
+  reviews: Array<ReviewShareView & { sourceTitle: string; reviewTitle: string }>
+  pendingFeedback: ReviewFeedbackView[]
 }
 
 export function createReviewShare(sessionId: string, input: {
@@ -441,8 +474,31 @@ export function createReviewShare(sessionId: string, input: {
 export function getPublicReview(token: string) {
   return fetch(`/api/claude-chat/reviews/public/${encodeURIComponent(token)}`).then(async response => {
     if (!response.ok) throw new Error(response.status === 404 ? '评审链接已失效、过期或被撤销' : '读取评审会话失败')
-    return response.json() as Promise<{ reviewSessionId: string; title: string; mode: ReviewShareMode; contextSnapshot: string; expiresAt: number }>
+    return response.json() as Promise<{ reviewSessionId: string; title: string; sourceTitle: string; mode: ReviewShareMode; contextSnapshot: string; expiresAt: number }>
   })
+}
+
+export function getReviewRelations(sessionId: string) {
+  return http<ReviewRelationContext>(
+    `/claude-chat/sessions/${encodeURIComponent(sessionId)}/review-relations`,
+  )
+}
+
+export function handleReviewFeedback(id: string, status: 'CONSUMED' | 'DISMISSED') {
+  return http<void>(`/claude-chat/review-feedback/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  })
+}
+
+export async function submitPublicReviewFeedback(token: string, content: string, sourceMessageId?: string) {
+  const response = await fetch(`/api/claude-chat/reviews/public/${encodeURIComponent(token)}/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content, sourceMessageId }),
+  })
+  if (!response.ok) throw new Error(response.status === 404 ? '评审链接已失效' : '提交评审结论失败')
+  return response.json() as Promise<{ id: string; status: string; createdAt: number }>
 }
 
 export async function uploadReviewAttachment(token: string, file: File): Promise<UploadedAttachment> {

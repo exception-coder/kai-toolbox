@@ -5,7 +5,7 @@ import {
   FORGE_PENDING_SQL_TOOL_DESCRIPTION,
   FORGE_SQL_CONTEXT_TOOL_DESCRIPTION,
 } from './pendingSqlPolicy.js'
-import { fetchMcpHttp } from './mcpHttp.js'
+import { fetchMcpHttpText, type McpRequestExtra } from './mcpHttp.js'
 
 export { FORGE_PENDING_SQL_STEER } from './pendingSqlPolicy.js'
 
@@ -23,17 +23,18 @@ export function createForgePendingSqlServer(sessionId: string, apiBase: string) 
           tables: z.array(z.string()).min(1).max(50).describe('将被 DDL/DML 直接读写或变更的目标表名'),
           project: z.string().optional().describe('仅在 PROJECT_AMBIGUOUS 时，从 candidateProjects 中选择后重试'),
         },
-        async (args: { purpose: string; tables: string[]; project?: string }) => {
+        async (args: { purpose: string; tables: string[]; project?: string }, rawExtra: unknown) => {
           try {
-            const response = await fetchMcpHttp(
+            const { response, text } = await fetchMcpHttpText(
               `${apiBase}/api/claude-chat/sessions/${encodeURIComponent(sessionId)}/pending-sql/prepare-context`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(args),
               },
+              rawExtra as McpRequestExtra,
+              '准备 SQL DDL 证据',
             )
-            const text = await response.text()
             return {
               content: [{ type: 'text' as const, text }],
               ...(response.ok ? {} : { isError: true }),
@@ -66,9 +67,9 @@ export function createForgePendingSqlServer(sessionId: string, apiBase: string) 
           sqlText: string
           mode?: 'append' | 'replace'
           ddlEvidenceId?: string
-        }) => {
+        }, rawExtra: unknown) => {
           try {
-            const response = await fetchMcpHttp(
+            const { response, text } = await fetchMcpHttpText(
               `${apiBase}/api/claude-chat/sessions/${encodeURIComponent(sessionId)}/pending-sql/auto-register`,
               {
                 method: 'PUT',
@@ -82,8 +83,9 @@ export function createForgePendingSqlServer(sessionId: string, apiBase: string) 
                   ddlEvidenceId: args.ddlEvidenceId,
                 }),
               },
+              rawExtra as McpRequestExtra,
+              '登记待执行 SQL',
             )
-            const text = await response.text()
             return {
               content: [{ type: 'text' as const, text: response.ok
                 ? `已登记到当前会话的待执行 SQL 台账。\n${text}`

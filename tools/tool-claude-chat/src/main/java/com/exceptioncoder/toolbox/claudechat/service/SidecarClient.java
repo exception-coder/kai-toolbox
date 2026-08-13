@@ -218,21 +218,24 @@ public class SidecarClient implements ReviewThreadForkGateway {
     }
 
     public void userMessage(String sessionId, String text, String developerInstructions) {
-        userMessage(sessionId, text, developerInstructions, null, null);
+        userMessage(sessionId, text, developerInstructions, null, List.of(), null, null, null);
     }
 
     public void userMessage(String sessionId, String text, String developerInstructions,
                             TraceContext traceContext, AgentRunMetadata telemetry) {
-        userMessage(sessionId, text, developerInstructions, null, traceContext, telemetry);
+        userMessage(sessionId, text, developerInstructions, null, List.of(), null, traceContext, telemetry);
     }
 
-    public void userMessage(String sessionId, String text, String developerInstructions, String turnId,
+    public void userMessage(String sessionId, String text, String developerInstructions,
+                            String sessionContext, List<String> additionalDirectories, String turnId,
                             TraceContext traceContext, AgentRunMetadata telemetry) {
         Map<String, Object> message = new LinkedHashMap<>();
         message.put("type", "user");
         message.put("sessionId", sessionId);
         message.put("text", nz(text));
         message.put("developerInstructions", nz(developerInstructions));
+        message.put("sessionContext", nz(sessionContext));
+        message.put("additionalDirectories", additionalDirectories == null ? List.of() : additionalDirectories);
         if (turnId != null && !turnId.isBlank()) message.put("turnId", turnId);
         putTelemetry(message, traceContext, telemetry);
         send(message);

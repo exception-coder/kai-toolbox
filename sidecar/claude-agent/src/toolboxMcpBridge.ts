@@ -5,7 +5,7 @@ import {
   FORGE_PENDING_SQL_TOOL_DESCRIPTION,
   FORGE_SQL_CONTEXT_TOOL_DESCRIPTION,
 } from './pendingSqlPolicy.js'
-import { fetchMcpHttp } from './mcpHttp.js'
+import { fetchMcpHttpText, type McpRequestExtra } from './mcpHttp.js'
 
 type ServerName = 'forge' | 'erp_db' | 'erp_app' | 'srm_db' | 'srm_app' | 'scm_db'
 
@@ -33,22 +33,26 @@ const server = new McpServer(
   },
 )
 
-async function request(path: string, body: unknown, method: 'POST' | 'PUT' = 'POST'):
+async function request(path: string, body: unknown, method: 'POST' | 'PUT', extra: McpRequestExtra | undefined,
+                       operation: string):
   Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
   try {
-    const response = await fetchMcpHttp(`${apiBase}${path}`, {
+    const { response, text, elapsedMs } = await fetchMcpHttpText(`${apiBase}${path}`, {
       method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    })
-    const text = await response.text()
+    }, extra, operation)
     return {
-      content: [{ type: 'text', text }],
+      content: [{
+        type: 'text',
+        text: response.ok ? text : `${operation}失败（HTTP ${response.status}，${elapsedMs}ms）：${text}`,
+      }],
       ...(response.ok ? {} : { isError: true }),
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    return { content: [{ type: 'text', text: `${serverName} 调用失败: ${message}` }], isError: true }
+    const cancelled = extra?.signal?.aborted
+    return { content: [{ type: 'text', text: `${operation}${cancelled ? '已取消' : '失败'}：${message}` }], isError: true }
   }
 }
 
@@ -66,9 +70,9 @@ if (serverName === 'forge') {
       project: z.string().optional().describe('仅在 PROJECT_AMBIGUOUS 时，从 candidateProjects 中选择后重试'),
     },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-  }, ({ purpose, tables, project }) => request(
+  }, ({ purpose, tables, project }, extra) => request(
     `/api/claude-chat/sessions/${encodeURIComponent(sessionId!)}/pending-sql/prepare-context`,
-    { purpose, tables, project },
+    { purpose, tables, project }, 'POST', extra, '准备 SQL DDL 证据',
   ))
 
   server.registerTool('register_pending_sql', {
@@ -82,29 +86,35 @@ if (serverName === 'forge') {
       ddlEvidenceId: z.string().optional().describe('prepare_sql_context 返回的 evidenceId'),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
-  }, ({ title, targetEnvironment, changeType, sqlText, mode, ddlEvidenceId }) => request(
+  }, ({ title, targetEnvironment, changeType, sqlText, mode, ddlEvidenceId }, extra) => request(
     `/api/claude-chat/sessions/${encodeURIComponent(sessionId!)}/pending-sql/auto-register`,
     { title, targetEnvironment, changeType, sqlText, mode, ddlEvidenceId },
-    'PUT',
+    'PUT', extra, '登记待执行 SQL',
   ))
 } else if (serverName === 'erp_db') {
   server.registerTool('query', {
     description: '在 ERP 测试 Oracle 库执行只读 SQL，用于核对表结构、状态字典和样本数据。禁止写入或 DDL，最多返回 200 行。',
     inputSchema: querySchema,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-  }, ({ sql, params }) => request('/api/claude-chat/erp-db/query', { sql, params: params ?? [] }))
+  }, ({ sql, params }, extra) => request(
+    '/api/claude-chat/erp-db/query', { sql, params: params ?? [] }, 'POST', extra, '查询 ERP 测试库',
+  ))
 } else if (serverName === 'srm_db') {
   server.registerTool('query', {
     description: '在 SRM 测试 MySQL 库执行只读 SQL，用于核对表结构、状态字典和样本数据。禁止写入或 DDL，最多返回 200 行。',
     inputSchema: querySchema,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-  }, ({ sql, params }) => request('/api/claude-chat/srm-db/query', { sql, params: params ?? [] }))
+  }, ({ sql, params }, extra) => request(
+    '/api/claude-chat/srm-db/query', { sql, params: params ?? [] }, 'POST', extra, '查询 SRM 测试库',
+  ))
 } else if (serverName === 'scm_db') {
   server.registerTool('query', {
     description: '在 SCM 测试 MySQL 库执行只读 SQL，用于核对表结构、状态字典和样本数据。禁止写入或 DDL，最多返回 200 行。',
     inputSchema: querySchema,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true },
-  }, ({ sql, params }) => request('/api/claude-chat/scm-db/query', { sql, params: params ?? [] }))
+  }, ({ sql, params }, extra) => request(
+    '/api/claude-chat/scm-db/query', { sql, params: params ?? [] }, 'POST', extra, '查询 SCM 测试库',
+  ))
 } else {
   const isErp = serverName === 'erp_app'
   server.registerTool('http_call', {
@@ -118,14 +128,14 @@ if (serverName === 'forge') {
       bodyType: z.enum(['form', 'json']).optional(),
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
-  }, ({ method, path, params, bodyType }) => request(
+  }, ({ method, path, params, bodyType }, extra) => request(
     isErp ? '/api/claude-chat/erp-app/call' : '/api/claude-chat/srm-app/call',
     {
       method: method ?? 'GET',
       path,
       params: params ?? {},
       bodyType: bodyType ?? (isErp ? 'form' : 'json'),
-    },
+    }, 'POST', extra, isErp ? '验证 ERP 测试站点' : '验证 SRM 测试站点',
   ))
 }
 

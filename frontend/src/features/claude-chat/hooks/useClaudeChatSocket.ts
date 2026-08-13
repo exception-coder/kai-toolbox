@@ -63,6 +63,11 @@ function normalizeUsage(raw: Record<string, unknown> | undefined): Record<string
   return Object.keys(out).length ? out : undefined
 }
 
+/** 只有正常完成的整轮终态才能释放一条待发送消息；失败和中断必须留给用户处理。 */
+function isSuccessfulTurnCompletion(stopReason: string): boolean {
+  return ['end_turn', 'success', 'completed', 'stop'].includes(stopReason.trim().toLowerCase())
+}
+
 /** 待发送队列项：running 期间排队的用户消息。 */
 export interface QueuedMessage {
   id: string
@@ -194,6 +199,8 @@ export interface UseClaudeChatSocket {
   send: (text: string, attachments?: SendAttachment[], displayText?: string, developerInstructions?: string) => void
   /** 待发送队列：running 时入队的消息，本轮结束后按序自动发出 */
   queued: QueuedMessage[]
+  /** 上一轮未正常完成时的暂停原因；队列保留但不会自动发出。 */
+  queuePausedReason: string | null
   /** 入队一条待发送消息（running 时排队；空闲时也可入队，会立即触发发送）。displayText 同 send()。 */
   enqueue: (text: string, attachments?: SendAttachment[], displayText?: string, developerInstructions?: string) => void
   /** 移除队列中某条 */
@@ -229,6 +236,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const [running, setRunning] = useState(false)
   const [interrupting, setInterrupting] = useState(false)
   const [queued, setQueued] = useState<QueuedMessage[]>([])
+  const [queueReleaseVersion, setQueueReleaseVersion] = useState(0)
+  const [queuePausedReason, setQueuePausedReason] = useState<string | null>(null)
   const sessionReadyRef = useRef(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [syncWarning, setSyncWarning] = useState<string | null>(null)
@@ -267,6 +276,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const duplicateTimeoutRef = useRef<number | null>(null)
   const [duplicatingSessionId, setDuplicatingSessionId] = useState<string | null>(null)
   const sessionIdRef = useRef<string | null>(null)
+  /** 当前会话最近一次正常终态授予的一次性出队凭证；普通空闲状态不能创建凭证。 */
+  const queueReleaseSessionRef = useRef<string | null>(null)
   const lastSeqRef = useRef<number>(0)
   // 服务端会话纪元（来自 Ready.epoch）；变化即后端重启/会话重建 → seq 已复位，需重置去重高水位
   const lastEpochRef = useRef<string | null>(null)
@@ -692,6 +703,11 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       case 'result': {
         setRunning(false)
         setInterrupting(false)
+        const completedSuccessfully = isSuccessfulTurnCompletion(msg.stopReason)
+        queueReleaseSessionRef.current = completedSuccessfully ? sessionIdRef.current : null
+        setQueuePausedReason(completedSuccessfully
+          ? null : '上一轮未正常完成，待发送消息已暂停；请确认后手动继续。')
+        setQueueReleaseVersion(version => version + 1)
         const latencyMs = turnStartRef.current != null ? Date.now() - turnStartRef.current : undefined
         const ttftMs = ttftRef.current ?? undefined
         const usage = normalizeUsage(msg.usage)
@@ -710,6 +726,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         if (msg.terminal !== false) {
           setRunning(false)
           setInterrupting(false)
+          queueReleaseSessionRef.current = null
+          setQueuePausedReason('上一轮发生终态错误，待发送消息已暂停；请确认后手动继续。')
         }
         if (duplicateSourceRef.current) {
           duplicateSourceRef.current = null
@@ -1027,6 +1045,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     setItems([])
     setPending(null)
     setQueued([])
+    queueReleaseSessionRef.current = null
+    setQueuePausedReason(null)
     setRunning(false)
     setInterrupting(false)
     setTurnTokens(0)
@@ -1164,6 +1184,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     const t = text.trim()
     const hasAtt = !!attachments && attachments.length > 0
     if (!t && !hasAtt) return
+    // 任意新轮一旦开始就撤销旧轮凭证；下一条队列消息必须等待本轮自己的成功终态。
+    queueReleaseSessionRef.current = null
+    setQueuePausedReason(null)
     // WS 只发 name/path；url/mime 仅留本端气泡显示
     const atts = hasAtt ? attachments!.map(a => ({ name: a.name, path: a.path })) : undefined
     // 全部附件都进气泡显示（图片带 url 缩略图，非图片文件显示文件卡片）
@@ -1253,19 +1276,21 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       .catch(error => setSyncWarning(`清空待发送队列失败：${error instanceof Error ? error.message : String(error)}`))
   }, [demo])
 
-  // 空闲（非 running、无权限/提问弹窗）且队列非空 → 取队首发出
+  // 只有当前会话收到明确的成功终态，且无待确认、无后台作业时，才取队首发出。
   const sendRef = useRef(send)
   const dispatchingQueueIdRef = useRef<string | null>(null)
   sendRef.current = send
   useEffect(() => {
     if (channel === 'consult') return
-    if (!sessionReadyRef.current || running || pending || queued.length === 0) return
+    if (!sessionReadyRef.current || running || pending || backgroundTasks.length > 0 || queued.length === 0) return
     const head = queued[0]
     const sessionId = sessionIdRef.current
     // Effect 可能已由旧会话 render 排队、却在 switchTo 更新 ref 后才执行。
     // 队列项归属不匹配时必须原地停止，不能用新会话 ID 删除并发送旧会话消息。
-    if (!sessionId || head.ownerSessionId !== sessionId || dispatchingQueueIdRef.current === head.id) return
+    if (!sessionId || queueReleaseSessionRef.current !== sessionId
+        || head.ownerSessionId !== sessionId || dispatchingQueueIdRef.current === head.id) return
     if (demo) {
+      queueReleaseSessionRef.current = null
       setQueued(prev => prev.slice(1))
       sendRef.current(head.text, head.attachments, head.displayText, head.developerInstructions)
       return
@@ -1279,12 +1304,13 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           void saveQueuedMessage(head.ownerSessionId, head)
           return
         }
+        queueReleaseSessionRef.current = null
         setQueued(prev => prev.filter(item => item.id !== head.id))
         sendRef.current(head.text, head.attachments, head.displayText, head.developerInstructions)
       })
       .catch(error => setSyncWarning(`队列消息出队失败：${error instanceof Error ? error.message : String(error)}`))
       .finally(() => { dispatchingQueueIdRef.current = null })
-  }, [channel, demo, running, pending, queued])
+  }, [channel, demo, running, pending, backgroundTasks.length, queued, queueReleaseVersion])
 
   const interrupt = useCallback(() => {
     // 不在点击时乐观结束运行态：消息可能因 WS 断开根本没有发出。
@@ -1511,7 +1537,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
   }, [sendRaw, connect])
 
-  return { state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, agents, mcpServers, outputStyle, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, resumeHistory, resumeCurrent, send, queued, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, agents, mcpServers, outputStyle, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, resumeHistory, resumeCurrent, send, queued, queuePausedReason, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, loadHistory }
 }
 
 function findRecoverableCommandFailure(items: ChatItem[], toolName: string): number {

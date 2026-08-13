@@ -18,6 +18,8 @@ import { appendSqlDdlFallbackRule } from './pendingSqlPolicy.js'
  */
 export interface OpencodeTurnCtx {
   text: string
+  /** Forge 后端生成的可信会话级项目上下文。 */
+  developerInstructions?: string
   cwd: string
   /** 形如 "providerID/modelID"（如 openai/gpt-4o、anthropic/claude-3-5-sonnet）；无 "/" 或空则用 opencode 默认模型。 */
   model?: string
@@ -251,6 +253,7 @@ export async function runOpencodeTurn(ctx: OpencodeTurnCtx): Promise<void> {
       query,
       body: {
         ...(model ? { model } : {}),
+        ...(ctx.developerInstructions ? { system: ctx.developerInstructions } : {}),
         parts: [{ type: 'text', text: prependWindowsExecutionInstructions(appendSqlDdlFallbackRule(ctx.text)) }],
       },
     })

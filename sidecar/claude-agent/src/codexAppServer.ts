@@ -61,6 +61,11 @@ type CommandActivityState = {
   startedAt: number
 }
 
+type McpActivityState = {
+  toolName: string
+  startedAt: number
+}
+
 type AppServerTurnOptions = {
   threadId?: string
   cwd: string
@@ -358,6 +363,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
   let reconnectActivityId: string | undefined
   const commandActivities = new Map<string, CommandActivityState>()
   const commandActivityEmittedAt = new Map<string, number>()
+  const mcpActivities = new Map<string, McpActivityState>()
 
   const cleanup = () => {
     if (finished) return
@@ -468,12 +474,29 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
             item,
             emitActivity,
             commandActivities,
+            mcpActivities,
           )
           const commandItemId = asString(item?.id)
           if (asString(item?.type) === 'commandExecution' && commandItemId) {
             if (method === 'item/completed') commandActivityEmittedAt.delete(commandItemId)
             else commandActivityEmittedAt.set(commandItemId, Date.now())
           }
+          break
+        }
+        case 'item/mcpToolCall/progress': {
+          const itemId = asString(params.itemId)
+          if (!itemId) break
+          const activity = mcpActivities.get(itemId)
+          emitToolActivity(emitActivity, {
+            toolCallId: itemId,
+            toolName: activity?.toolName ?? 'MCP',
+            status: 'inProgress',
+            title: 'MCP 工具执行中',
+            detail: asString(params.message) || '工具正在处理请求',
+            elapsedMs: elapsedSince(activity?.startedAt),
+            outcome: 'working',
+            severity: 'info',
+          })
           break
         }
         case 'item/commandExecution/outputDelta': {
@@ -630,6 +653,7 @@ function handleAppServerItem(
   item: Record<string, unknown> | undefined,
   emit: (event: Record<string, unknown>) => void,
   commandActivities: Map<string, CommandActivityState>,
+  mcpActivities: Map<string, McpActivityState>,
 ): void {
   if (!item) return
   const itemType = asString(item.type)
@@ -664,6 +688,7 @@ function handleAppServerItem(
       const label = `${asString(item.server)}/${asString(item.tool)}`
       const failed = status === 'failed'
       if (phase === 'inProgress') {
+        if (!mcpActivities.has(itemId)) mcpActivities.set(itemId, { toolName: label, startedAt: Date.now() })
         emit({ type: 'toolUse', toolCallId: itemId, toolName: label, toolKind: 'mcp', input: item.arguments })
         emitToolActivity(emit, {
           toolCallId: itemId, toolName: label, status: 'inProgress', detail: summarizeToolInput(item.arguments),
@@ -672,8 +697,10 @@ function handleAppServerItem(
         const output = safeJson(item.result ?? item.error)
         emit({ type: 'toolResult', toolCallId: itemId, toolName: label, toolKind: 'mcp', output, isError: failed })
         emitToolActivity(emit, {
-          toolCallId: itemId, toolName: label, status: failed ? 'failed' : 'completed', outputTail: activityOutputTail(output),
+          toolCallId: itemId, toolName: label, status: failed ? 'failed' : 'completed',
+          elapsedMs: elapsedSince(mcpActivities.get(itemId)?.startedAt), outputTail: activityOutputTail(output),
         })
+        mcpActivities.delete(itemId)
       }
       break
     }

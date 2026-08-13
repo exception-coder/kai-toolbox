@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Copy, Database, EyeOff, FileDown, FileText, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Send, Server, Settings, Share2, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
+import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Copy, Database, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Send, Server, Settings, Share2, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -53,7 +53,7 @@ import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
-import { fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getSessionCommitDiff, getSessionPendingSql, listSessionCommits, listSessionGitRepos, listSessions, listWorkspaces, renameSession, uploadAttachment, type SessionUsage } from '../api'
+import { fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getReviewRelations, getSessionCommitDiff, getSessionPendingSql, handleReviewFeedback, listSessionCommits, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type SessionUsage } from '../api'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 import type { ChatItem, ModelInfo, SessionPendingSql } from '../types'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
@@ -68,6 +68,7 @@ import type { PrdSessionView } from '@/features/prd-clarify/types'
 import { countPrdReferenceDocuments, uploadPrdReference } from '../lib/prdReference'
 import { SessionPlanLockNotice } from '../components/SessionPlanLockNotice'
 import { SessionSitesDialog } from '../components/SessionSitesDialog'
+import { SessionProjectDirectoriesDialog } from '../components/SessionProjectDirectoriesDialog'
 import { Combobox } from '@/components/ui/combobox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { getDevPreference } from '@/features/_devkit/devPreferenceApi'
@@ -199,6 +200,7 @@ export function ChatPage() {
   const [showPrdLink, setShowPrdLink] = useState(false)
   const [showPendingSql, setShowPendingSql] = useState(false)
   const [showSessionSites, setShowSessionSites] = useState(false)
+  const [showSessionProjects, setShowSessionProjects] = useState(false)
   // 「+ 更多功能」里的「PRD 文档」：搜索 PRD 澄清助手里的记录，一键把 PRD/开发文档内容附加进当前对话。
   const [showPrdAttach, setShowPrdAttach] = useState(false)
   // PRD handoff 不能靠固定延时读取 sessionId：新会话 ID 由 WebSocket init/ready 异步返回。
@@ -212,6 +214,7 @@ export function ChatPage() {
   // 当前会话关联的 PRD（undefined=还没查/无会话，null=确认未关联），供顶栏标识展示。
   const [linkedPrd, setLinkedPrd] = useState<PrdSessionView | null | undefined>(undefined)
   const [linkedSites, setLinkedSites] = useState<SessionLinkedSite[]>([])
+  const [linkedProjectPaths, setLinkedProjectPaths] = useState<string[]>([])
   useEffect(() => {
     const sessionId = chat?.sessionId
     if (!sessionId) {
@@ -232,6 +235,18 @@ export function ChatPage() {
         ])
       })
       .catch(() => active && setLinkedSites([]))
+    return () => { active = false }
+  }, [chat?.sessionId])
+  useEffect(() => {
+    const sessionId = chat?.sessionId
+    if (!sessionId) {
+      setLinkedProjectPaths([])
+      return
+    }
+    let active = true
+    listSessionProjectDirectories(sessionId)
+      .then(paths => active && setLinkedProjectPaths(paths))
+      .catch(() => active && setLinkedProjectPaths([]))
     return () => { active = false }
   }, [chat?.sessionId])
 
@@ -734,10 +749,29 @@ export function ChatPage() {
   }, [multiIds, sessions, sessionsLoaded])
   const currentSession = sessions.find(s => s.id === chat?.sessionId && isVibeCodingSession(s))
   const reviewOnlySession = currentSession?.group === '评审会话'
+  const { data: reviewRelations, refetch: refetchReviewRelations } = useQuery({
+    queryKey: ['claude-chat-review-relations', chat?.sessionId],
+    queryFn: () => getReviewRelations(chat!.sessionId!),
+    enabled: !!chat?.sessionId,
+    staleTime: 5_000,
+    refetchInterval: 10_000,
+  })
   const planLocked = currentSession?.planExpired === true
   const currentTitle = currentSession
     ? (currentSession.title?.trim() || headerCwdName(currentSession.cwd))
     : undefined
+  const reviewLink = reviewRelations?.reviews[0]
+  const applyReviewFeedback = async (id: string, content: string) => {
+    const instruction = `请根据以下计划评审意见继续实现，先核对当前代码与原需求，再完成必要修改和验证：\n\n${content}`
+    setDraft(current => current.trim() ? `${current.trim()}\n\n${instruction}` : instruction)
+    await handleReviewFeedback(id, 'CONSUMED')
+    await refetchReviewRelations()
+    requestAnimationFrame(() => taRef.current?.focus())
+  }
+  const dismissReviewFeedback = async (id: string) => {
+    await handleReviewFeedback(id, 'DISMISSED')
+    await refetchReviewRelations()
+  }
   const handleLoadEarlier = useCallback(() => chat?.loadHistory(false), [chat?.loadHistory])
   const handleNewSession = useCallback(() => {
     if (chat && currentSession) chat.open(currentSession.cwd)
@@ -1068,6 +1102,15 @@ export function ChatPage() {
             </PopoverContent>
           </Popover>
         )}
+        {linkedProjectPaths.length > 0 && (
+          <button type="button" onClick={() => setShowSessionProjects(true)}
+            title={`${linkedProjectPaths.length} 个附加项目：${linkedProjectPaths.join('、')}`}
+            className="flex shrink-0 items-center gap-1 rounded-full border border-blue-500/50 bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-700 dark:text-blue-300">
+            <FolderGit2 className="size-3" />
+            <span className="max-sm:hidden">附加项目</span>
+            <span>{linkedProjectPaths.length}</span>
+          </button>
+        )}
         {/* 手势弹窗状态：开启后提示摄像头正在识别（隐私可见），点击可关 */}
         {gestureOn && (
           <button
@@ -1155,6 +1198,9 @@ export function ChatPage() {
                     )}
                   </MenuSection>
                   <MenuSection icon={<FolderTree className="size-4" />} label="工作区 · 项目" open={menuGroup === 'workspace'} onToggle={() => toggle('workspace')}>
+                    {chat.sessionId && !reviewOnlySession && (
+                      <HeaderMenuItem nested icon={<FolderGit2 className="size-4" />} label={linkedProjectPaths.length ? '管理附加项目' : '关联附加项目'} hint={linkedProjectPaths.length ? `已关联 ${linkedProjectPaths.length} 个跨项目目录，下一轮自动生效` : '多项目开发时补充关联目录，统一注入会话上下文'} onClick={() => { setHeaderMenu(false); setShowSessionProjects(true) }} />
+                    )}
                     {chat.sessionId && (
                       <HeaderMenuItem nested icon={<FolderOpen className="size-4" />} label="工作目录" hint="展开工作目录·快速找文件/定位" onClick={() => { setHeaderMenu(false); setPanel(p => p === 'filetree' ? 'none' : 'filetree') }} />
                     )}
@@ -1183,6 +1229,55 @@ export function ChatPage() {
           </div>
         </div>
       </header>
+
+      {viewMode === 'single' && reviewLink && (
+        <div className="border-b border-indigo-200 bg-indigo-50/90 px-3 py-2 text-xs text-indigo-950 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100">
+          <div className="flex flex-wrap items-center gap-2">
+            <Link2 className="size-4 shrink-0" />
+            <span className="font-medium">
+              {reviewRelations?.role === 'REVIEW'
+                ? `来源开发会话：${reviewLink.sourceTitle}`
+                : `已关联计划评审：${reviewLink.reviewTitle}${reviewRelations.reviews.length > 1 ? `（共 ${reviewRelations.reviews.length} 个）` : ''}`}
+            </span>
+            <span className="text-indigo-700/80 dark:text-indigo-300/80">
+              {reviewLink.mode === 'FULL_FORK' ? '完整上下文分叉' : '安全快照'}
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="ml-auto h-7 gap-1 border-indigo-300 bg-white/70 px-2 text-xs dark:border-indigo-700 dark:bg-indigo-950"
+              onClick={() => chat.switchTo(reviewRelations?.role === 'REVIEW'
+                ? reviewLink.sourceSessionId : reviewLink.reviewSessionId)}
+            >
+              {reviewRelations?.role === 'REVIEW' ? '返回来源会话' : '打开评审会话'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {viewMode === 'single' && reviewRelations?.role === 'SOURCE'
+        && reviewRelations.pendingFeedback.length > 0 && (
+        <div className="space-y-2 border-b border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-950/30">
+          {reviewRelations.pendingFeedback.map(feedback => (
+            <div key={feedback.id} className="flex items-start gap-3 rounded-lg border border-amber-200 bg-white/80 p-2 text-xs dark:border-amber-800 dark:bg-slate-950/70">
+              <MessageSquare className="mt-0.5 size-4 shrink-0 text-amber-600" />
+              <div className="min-w-0 flex-1">
+                <div className="font-medium text-amber-900 dark:text-amber-100">
+                  待处理评审意见
+                  {reviewRelations.reviews.find(review => review.reviewSessionId === feedback.reviewSessionId)?.reviewTitle
+                    ? ` · 来自 ${reviewRelations.reviews.find(review => review.reviewSessionId === feedback.reviewSessionId)?.reviewTitle}`
+                    : ''}
+                </div>
+                <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-[var(--color-muted-foreground)]">{feedback.content}</p>
+              </div>
+              <div className="flex shrink-0 gap-1">
+                <Button size="sm" className="h-7 px-2 text-xs" onClick={() => void applyReviewFeedback(feedback.id, feedback.content)}>生成开发草稿</Button>
+                <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => void dismissReviewFeedback(feedback.id)}>忽略</Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* 折叠面板 */}
       {panel === 'new' && (
@@ -1574,6 +1669,14 @@ export function ChatPage() {
           onClose={() => setShowSessionSites(false)}
         />
       )}
+      {showSessionProjects && chat.sessionId && currentSession && (
+        <SessionProjectDirectoriesDialog
+          sessionId={chat.sessionId}
+          primaryCwd={currentSession.cwd}
+          onChanged={setLinkedProjectPaths}
+          onClose={() => setShowSessionProjects(false)}
+        />
+      )}
 
       {/* PRD 文档快捷附加：搜索 PRD 澄清助手里的记录，把 PRD/开发文档内容附加进当前对话直接提问，
           不用用户自己去找文件——PRD/开发文档本来就是本系统自己管理的数据。 */}
@@ -1721,7 +1824,13 @@ export function ChatPage() {
             connState={chat.state}
             backgroundTasks={chat.backgroundTasks}
           />
-          <QueuedList items={chat.queued} onRemove={chat.removeQueued} onClear={chat.clearQueued} />
+          <QueuedList
+            items={chat.queued}
+            pausedReason={chat.queuePausedReason
+              ?? (chat.backgroundTasks.length > 0 ? '后台作业尚未结束，待发送消息继续等待。' : null)}
+            onRemove={chat.removeQueued}
+            onClear={chat.clearQueued}
+          />
           <AttachmentChips
             items={attachments}
             uploading={uploading}

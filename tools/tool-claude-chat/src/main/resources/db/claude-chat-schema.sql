@@ -60,6 +60,23 @@ CREATE TABLE IF NOT EXISTS claude_chat_review_space (
 CREATE INDEX IF NOT EXISTS idx_claude_chat_review_source
     ON claude_chat_review_space(source_session_id, created_at DESC);
 
+-- 评审结论只登记为来源开发会话的待处理意见；开发者确认前不进入 Agent 消息流。
+CREATE TABLE IF NOT EXISTS claude_chat_review_feedback (
+    id                  TEXT PRIMARY KEY,
+    review_space_id     TEXT NOT NULL,
+    source_session_id   TEXT NOT NULL,
+    review_session_id   TEXT NOT NULL,
+    content             TEXT NOT NULL,
+    source_message_id   TEXT,
+    status              TEXT NOT NULL DEFAULT 'PENDING',
+    created_at          INTEGER NOT NULL,
+    handled_at          INTEGER,
+    UNIQUE (review_space_id, source_message_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_claude_chat_review_feedback_source
+    ON claude_chat_review_feedback(source_session_id, status, created_at DESC);
+
 -- Vibe Coding 会话关联快捷入口中的测试站点；只保存逻辑 ID，站点名称、地址和图标仍由快捷入口统一维护。
 CREATE TABLE IF NOT EXISTS claude_chat_session_site (
     id          TEXT PRIMARY KEY,
@@ -103,6 +120,20 @@ CREATE TABLE IF NOT EXISTS claude_chat_queued_message (
 
 CREATE INDEX IF NOT EXISTS idx_claude_chat_queued_message_session
     ON claude_chat_queued_message(session_id, created_at);
+
+-- 开发会话附加项目目录；主项目仍由 claude_chat_session.cwd 表示。
+CREATE TABLE IF NOT EXISTS claude_chat_session_project_directory (
+    id            TEXT PRIMARY KEY,
+    session_id    TEXT NOT NULL,
+    project_path  TEXT NOT NULL,
+    sort_order    INTEGER NOT NULL DEFAULT 0,
+    create_time   INTEGER NOT NULL,
+    update_time   INTEGER NOT NULL,
+    UNIQUE(session_id, project_path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_claude_chat_session_project_directory
+    ON claude_chat_session_project_directory(session_id, sort_order);
 
 -- 会话规划过期锁定；id 即逻辑会话 ID，删除会话时由应用层同步清理。
 CREATE TABLE IF NOT EXISTS claude_chat_session_plan_state (

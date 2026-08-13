@@ -21,12 +21,16 @@ test('turn events carry turnId and duplicate terminal events are suppressed', ()
     text: 'ok',
     turnId: 'turn-1',
   })
-  assert.deepEqual(lifecycle.decorate({ type: 'result', stopReason: 'end_turn' }), {
+  assert.equal(lifecycle.decorate({ type: 'result', stopReason: 'end_turn' }), null)
+  assert.equal(lifecycle.decorate({ type: 'result', stopReason: 'interrupted' }), null)
+  assert.equal(lifecycle.begin('turn-2').accepted, false, 'terminal emitted does not mean cleanup finished')
+  assert.equal(lifecycle.snapshot('turn-1').active, true, 'finalizing turn remains active until cleanup finishes')
+  assert.deepEqual(lifecycle.finish('turn-1'), {
     type: 'result',
     stopReason: 'end_turn',
     turnId: 'turn-1',
   })
-  assert.equal(lifecycle.decorate({ type: 'result', stopReason: 'interrupted' }), null)
+  assert.equal(lifecycle.begin('turn-2').accepted, true, 'next turn starts only after cleanup releases the lock')
 })
 
 test('stale interrupt cannot stop a newer turn', () => {

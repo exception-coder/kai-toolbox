@@ -60,6 +60,7 @@ public class ClaudeChatService {
     private final WelfareDemoSandboxProvisioner welfareDemo;
     private final SessionPlanStateService planStateService;
     private final ReviewSpaceService reviewSpaces;
+    private final SessionProjectDirectoryService sessionProjectDirectories;
     private final ObjectMapper mapper;
     private final AgentTelemetry telemetry;
     private final List<AgentRunMetadataProvider> metadataProviders;
@@ -98,6 +99,7 @@ public class ClaudeChatService {
                              WelfareDemoSandboxProvisioner welfareDemo,
                              SessionPlanStateService planStateService,
                              ReviewSpaceService reviewSpaces,
+                             SessionProjectDirectoryService sessionProjectDirectories,
                              ObjectMapper mapper,
                              AgentTelemetry telemetry,
                              List<AgentRunMetadataProvider> metadataProviders,
@@ -113,6 +115,7 @@ public class ClaudeChatService {
         this.welfareDemo = welfareDemo;
         this.planStateService = planStateService;
         this.reviewSpaces = reviewSpaces;
+        this.sessionProjectDirectories = sessionProjectDirectories;
         this.mapper = mapper;
         this.telemetry = telemetry;
         this.metadataProviders = List.copyOf(metadataProviders);
@@ -341,6 +344,7 @@ public class ClaudeChatService {
                 .consultEvidenceSystems(writeStringList(consultEvidenceSystems))
                 .status(SessionStatus.IDLE).startedAt(now).lastSeenAt(now).build());
         repo.updateGroup(sessionId, source.getGroupName(), source.getSubgroupName());
+        sessionProjectDirectories.copy(sourceSessionId, sessionId);
 
         SessionCtx ctx = new SessionCtx(sessionId, source.getCwd());
         ctx.engine = engine;
@@ -486,6 +490,8 @@ public class ClaudeChatService {
                 : SessionExecutionPolicy.isReviewOnly(ctx.executionPolicy)
                     ? reviewSpaces.developerInstructions(ctx.sessionId)
                     : null;
+        SessionProjectDirectoryService.SessionProjectContext projectContext =
+                sessionProjectDirectories.buildContext(ctx.sessionId, ctx.cwd, ctx.executionPolicy);
         AgentRunMetadata metadata = resolveMetadata(ctx);
         String spanName = "fore-consult".equals(metadata.scope()) ? "fore_consult.turn" : "agent.turn";
         AgentSpan span = telemetry.start(spanName, metadata);
@@ -496,7 +502,10 @@ public class ClaudeChatService {
         }
         try {
             sidecar.userMessage(ctx.sessionId, appendAttachmentHints(msg.text(), msg.attachments()),
-                    developerInstructions, turnId, span.traceContext(), metadata);
+                    developerInstructions,
+                    projectContext == null ? null : projectContext.instructions(),
+                    projectContext == null ? List.of() : projectContext.paths(),
+                    turnId, span.traceContext(), metadata);
         } catch (RuntimeException e) {
             turnLifecycle.complete(ctx.sessionId, turnId);
             ctx.status = SessionStatus.IDLE;

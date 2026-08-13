@@ -49,6 +49,18 @@ public class ReviewSpaceController {
         return service.list(sessionId).stream().map(ReviewView::from).toList();
     }
 
+    @GetMapping("/sessions/{sessionId}/review-relations")
+    public ReviewSpaceService.RelationContext relations(@PathVariable String sessionId) {
+        return service.relationContext(sessionId);
+    }
+
+    @PatchMapping("/review-feedback/{id}")
+    public ResponseEntity<Void> handleFeedback(@PathVariable String id,
+                                               @RequestBody HandleFeedbackRequest request) {
+        return service.handleFeedback(id, request.status())
+                ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
+    }
+
     @DeleteMapping("/reviews/{id}")
     public ResponseEntity<Void> revoke(@PathVariable String id) {
         return service.revoke(id) ? ResponseEntity.noContent().build() : ResponseEntity.notFound().build();
@@ -56,8 +68,23 @@ public class ReviewSpaceController {
 
     @GetMapping("/reviews/public/{token}")
     public ResponseEntity<PublicReviewView> publicView(@PathVariable String token) {
-        return service.resolve(token).map(space -> ResponseEntity.ok(PublicReviewView.from(space)))
+        return service.resolve(token)
+                .map(space -> ResponseEntity.ok(PublicReviewView.from(space, service.sourceTitle(space))))
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/reviews/public/{token}/feedback")
+    public ResponseEntity<ReviewFeedbackView> submitFeedback(@PathVariable String token,
+                                                              @RequestBody SubmitFeedbackRequest request) {
+        if (service.resolve(token).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        try {
+            return ResponseEntity.ok(ReviewFeedbackView.from(service.submitFeedback(
+                    token, request.content(), request.sourceMessageId())));
+        } catch (IllegalArgumentException error) {
+            return ResponseEntity.badRequest().build();
+        }
     }
 
     @PostMapping("/reviews/public/{token}/attachments")
@@ -110,10 +137,19 @@ public class ReviewSpaceController {
                     s.status(), s.title(), s.expiresAt(), s.createdAt());
         }
     }
-    public record PublicReviewView(String reviewSessionId, String title, String mode,
+    public record PublicReviewView(String reviewSessionId, String title, String sourceTitle, String mode,
                                    String contextSnapshot, long expiresAt) {
-        static PublicReviewView from(ReviewSpace s) {
-            return new PublicReviewView(s.reviewSessionId(), s.title(), s.mode(), s.contextSnapshot(), s.expiresAt());
+        static PublicReviewView from(ReviewSpace s, String sourceTitle) {
+            return new PublicReviewView(s.reviewSessionId(), s.title(), sourceTitle,
+                    s.mode(), s.contextSnapshot(), s.expiresAt());
+        }
+    }
+
+    public record SubmitFeedbackRequest(String content, String sourceMessageId) {}
+    public record HandleFeedbackRequest(String status) {}
+    public record ReviewFeedbackView(String id, String status, long createdAt) {
+        static ReviewFeedbackView from(com.exceptioncoder.toolbox.claudechat.domain.ReviewFeedback feedback) {
+            return new ReviewFeedbackView(feedback.id(), feedback.status(), feedback.createdAt());
         }
     }
 }
