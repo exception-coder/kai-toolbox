@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { getDevPreference, saveDevPreference } from '@/features/_devkit/devPreferenceApi'
-
-const STORAGE_KEY = 'kai-toolbox:project-workspace:ignored-projects'
-const PREFERENCE_ID = 'project-workspace'
+import {
+  IGNORED_PROJECTS_STORAGE_KEY as STORAGE_KEY,
+  PROJECT_WORKSPACE_PREFERENCE_ID as PREFERENCE_ID,
+  type ProjectWorkspaceVisibilityPreference,
+} from '@/features/_devkit/public-api'
 /** 忽略状态筛选偏好持久化 key（记住上次选择）。 */
 const FILTER_KEY = 'kai-toolbox:project-workspace:ignore-filter'
-
-interface ProjectWorkspacePreference {
-  ignoredProjects: string[]
-}
 
 export type IgnoreFilter = 'ALL' | 'IGNORED' | 'NOT_IGNORED'
 
@@ -28,22 +27,24 @@ function load(): Set<string> {
  * 被忽略的项目仍正常显示/可选中，只是不参与「检测全部」批量知识图谱检测（§12 R19/R20）。
  */
 export function useIgnoredProjects() {
+  const queryClient = useQueryClient()
   const [ignored, setIgnored] = useState<Set<string>>(load)
   const ignoredRef = useRef(ignored)
   const changedBeforeHydrationRef = useRef(false)
   const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve())
 
   const persist = useCallback((paths: Set<string>) => {
-    const preference: ProjectWorkspacePreference = { ignoredProjects: Array.from(paths) }
+    const preference: ProjectWorkspaceVisibilityPreference = { ignoredProjects: Array.from(paths) }
+    queryClient.setQueryData(['dev-preference', PREFERENCE_ID], preference)
     saveQueueRef.current = saveQueueRef.current
       .catch(() => undefined)
       .then(() => saveDevPreference(PREFERENCE_ID, preference))
       .catch(error => console.error('保存隐藏项目偏好失败', error))
-  }, [])
+  }, [queryClient])
 
   useEffect(() => {
     let active = true
-    void getDevPreference<ProjectWorkspacePreference>(PREFERENCE_ID)
+    void getDevPreference<ProjectWorkspaceVisibilityPreference>(PREFERENCE_ID)
       .then(preference => {
         if (!active) return
         if (changedBeforeHydrationRef.current) {

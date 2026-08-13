@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { CheckCircle2, Loader2, PackagePlus, RefreshCw, Rocket, TriangleAlert } from 'lucide-react'
@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { listWorkspaces, syncYoooniErpAutoDev } from '@/features/claude-chat/api'
 import type { SkillSyncResult } from '@/features/claude-chat/types'
-import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
+import { resolveVisibleWorkspaceProjectPath, useVisibleWorkspaceProjects } from '@/features/_devkit/public-api'
 import { CHAT_ROUTE } from '@/features/claude-chat/runtime/ChatRuntimeContext'
 
 // 复用 Vibe Coding 的 handoff 通道（ChatPage 挂载消费：开会话 + 投喂触发语）
@@ -60,22 +60,15 @@ export function NewDevModulePage() {
   const navigate = useNavigate()
   const { data: workspaces } = useQuery({ queryKey: ['claude-chat-workspaces'], queryFn: listWorkspaces, staleTime: 5000 })
 
-  const dirs = useMemo(() => {
-    const out: { path: string; label: string }[] = []
-    for (const r of workspaces?.roots ?? []) {
-      if (!r.exists) continue
-      const rootName = r.root.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || r.root
-      for (const d of r.dirs) out.push({ path: d.path, label: `${getSystemWorkspaceDisplayName(d)}（${rootName}）` })
-    }
-    return out
-  }, [workspaces])
+  const { projects: dirs, ready: dirsReady } = useVisibleWorkspaceProjects(workspaces)
 
   const [cwd, setCwd] = useState(() => { try { return localStorage.getItem(K('cwd')) ?? '' } catch { return '' } })
   const pickCwd = (p: string) => { setCwd(p); try { localStorage.setItem(K('cwd'), p) } catch { /* ignore */ } }
   useEffect(() => {
-    if (dirs.length === 0) return
-    if (!dirs.some(d => d.path === cwd)) pickCwd(dirs[0].path)
-  }, [dirs, cwd])
+    if (!dirsReady) return
+    const next = resolveVisibleWorkspaceProjectPath(dirs, cwd)
+    if (next !== cwd) pickCwd(next)
+  }, [dirs, dirsReady, cwd])
 
   const [id, setId] = useLocalState(K('id'))
   const [name, setName] = useLocalState(K('name'))

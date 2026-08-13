@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Database, Eye, EyeOff, Loader2, Warehouse } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { listWorkspaces } from '@/features/claude-chat/api'
-import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 import { DevServiceSection } from '@/features/_devkit/DevServiceSection'
 import { useDevWorkbenchPreference } from '@/features/_devkit/useDevWorkbenchPreference'
+import { useVisibleWorkspaceProjects } from '@/features/_devkit/public-api'
 import { getScmDbConfig, saveScmDbConfig, testScmDb } from '../api'
 
 /** 记住上次选择的工作区目录，避免每次进来都要重选。 */
@@ -18,29 +18,12 @@ const REQUIREMENT_KEY = 'kai-toolbox:scm-dev:requirement'
 export function ScmDevPage() {
   const { data: workspaces } = useQuery({ queryKey: ['claude-chat-workspaces'], queryFn: listWorkspaces, staleTime: 5000 })
 
-  // 拍平所有工作区根下的一级目录，供选 SCM 项目；path 唯一，label 带根名便于区分同名
-  const dirs = useMemo(() => {
-    const out: { path: string; label: string }[] = []
-    for (const r of workspaces?.roots ?? []) {
-      if (!r.exists) continue
-      const rootName = r.root.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || r.root
-      for (const d of r.dirs) out.push({ path: d.path, label: `${getSystemWorkspaceDisplayName(d)}（${rootName}）` })
-    }
-    return out
-  }, [workspaces])
+  const { projects: dirs, ready: dirsReady } = useVisibleWorkspaceProjects(workspaces)
 
   const devPreference = useDevWorkbenchPreference('scm-dev', {
     cwd: CWD_KEY, module: MODULE_KEY, requirement: REQUIREMENT_KEY,
   })
   const { cwd } = devPreference.preference
-
-  const pickCwd = (p: string) => devPreference.setField('cwd', p)
-
-  // 目录列表就绪后：保留上次记住的选择（仍存在时），否则回退到第一个
-  useEffect(() => {
-    if (!devPreference.hydrated || dirs.length === 0) return
-    if (!dirs.some(d => d.path === cwd)) pickCwd(dirs[0].path)
-  }, [devPreference.hydrated, dirs, cwd])
 
   return (
     <div className="mx-auto max-w-2xl p-4 sm:p-6">
@@ -51,6 +34,7 @@ export function ScmDevPage() {
       <DevServiceSection
         serviceId="scm"
         dirs={dirs}
+        dirsReady={dirsReady}
         defaultCwd={cwd}
         preference={devPreference.preference.services.scm}
         onPreferenceChange={(value, immediate) => devPreference.setService('scm', value, immediate)}

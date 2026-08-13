@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, ExternalLink, FlaskConical, RotateCcw, ShieldCheck, Smartphone, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { DevServiceSection } from '@/features/_devkit/DevServiceSection'
 import { useDevWorkbenchPreference } from '@/features/_devkit/useDevWorkbenchPreference'
+import { normalizeWorkspaceProjectPath, useVisibleWorkspaceProjects } from '@/features/_devkit/public-api'
 import { listWorkspaces } from '@/features/claude-chat/api'
-import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 import {
   applyMiniProgramEnvironment,
   getMiniProgramEnvironment,
@@ -28,17 +28,7 @@ export function ErpMiniProgramPage() {
     queryFn: listWorkspaces,
     staleTime: 5000,
   })
-  const dirs = useMemo(() => {
-    const options: { path: string; label: string }[] = []
-    for (const root of workspaces?.roots ?? []) {
-      if (!root.exists) continue
-      const rootName = root.root.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || root.root
-      for (const dir of root.dirs) {
-        options.push({ path: dir.path, label: `${getSystemWorkspaceDisplayName(dir)}（${rootName}）` })
-      }
-    }
-    return options
-  }, [workspaces])
+  const { projects: dirs, ready: dirsReady } = useVisibleWorkspaceProjects(workspaces)
   const devPreference = useDevWorkbenchPreference(WORKBENCH_ID, {
     cwd: CWD_KEY,
     module: MODULE_KEY,
@@ -78,11 +68,16 @@ export function ErpMiniProgramPage() {
   })
 
   useEffect(() => {
-    if (!devPreference.hydrated || dirs.length === 0) return
-    if (dirs.some((dir) => dir.path === cwd)) return
+    if (!devPreference.hydrated || !dirsReady) return
+    const cwdKey = normalizeWorkspaceProjectPath(cwd)
+    const currentDir = dirs.find((dir) => normalizeWorkspaceProjectPath(dir.path) === cwdKey)
+    if (currentDir) {
+      if (currentDir.path !== cwd) devPreference.setField('cwd', currentDir.path)
+      return
+    }
     const frontendDir = dirs.find((dir) => /[\\/]frontend$/i.test(dir.path))
-    devPreference.setField('cwd', frontendDir?.path ?? dirs[0].path)
-  }, [cwd, devPreference, dirs])
+    devPreference.setField('cwd', frontendDir?.path ?? dirs[0]?.path ?? '')
+  }, [cwd, devPreference, dirs, dirsReady])
 
   return (
     <div className="mx-auto max-w-2xl p-4 sm:p-6">
@@ -191,6 +186,7 @@ export function ErpMiniProgramPage() {
       <DevServiceSection
         serviceId={SERVICE_ID}
         dirs={dirs}
+        dirsReady={dirsReady}
         defaultCwd={cwd}
         preference={devPreference.preference.services[SERVICE_ID]}
         onPreferenceChange={(value, immediate) => devPreference.setService(SERVICE_ID, value, immediate)}

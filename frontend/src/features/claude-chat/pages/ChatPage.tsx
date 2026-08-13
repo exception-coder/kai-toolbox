@@ -71,6 +71,12 @@ import { SessionSitesDialog } from '../components/SessionSitesDialog'
 import { Combobox } from '@/components/ui/combobox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { getDevPreference } from '@/features/_devkit/devPreferenceApi'
+import {
+  loadLocalIgnoredProjectPaths,
+  normalizeWorkspaceProjectPath,
+  PROJECT_WORKSPACE_PREFERENCE_ID,
+  type ProjectWorkspaceVisibilityPreference,
+} from '@/features/_devkit/public-api'
 import { resolveSiteIcon } from '@/lib/siteIcons'
 import { listQuickSiteSummaries, recordQuickSiteSummaryOpened } from '@/lib/quickSites'
 import { getSessionSiteConfiguration } from '../api'
@@ -85,14 +91,6 @@ import { isVibeCodingSession } from '../lib/sessionScope'
 import { SessionWorkStatus } from '../components/SessionWorkStatus'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
-
-interface ProjectWorkspacePreference {
-  ignoredProjects?: string[]
-}
-
-function workspacePathKey(path: string) {
-  return path.replace(/\\/g, '/').replace(/\/+$/, '')
-}
 
 /** 单条消息最多附件数，与后端约定一致。 */
 const MAX_ATTACHMENTS = 10
@@ -701,8 +699,8 @@ export function ChatPage() {
     staleTime: 5000,
   })
   const { data: projectWorkspacePreference, isPending: projectVisibilityLoading } = useQuery({
-    queryKey: ['dev-preference', 'project-workspace'],
-    queryFn: () => getDevPreference<ProjectWorkspacePreference>('project-workspace'),
+    queryKey: ['dev-preference', PROJECT_WORKSPACE_PREFERENCE_ID],
+    queryFn: () => getDevPreference<ProjectWorkspaceVisibilityPreference>(PROJECT_WORKSPACE_PREFERENCE_ID),
     enabled: panel === 'new',
     staleTime: 0,
   })
@@ -710,11 +708,12 @@ export function ChatPage() {
   const wsRoots = workspaces?.roots.filter(r => r.exists) ?? []
   const activeRoot = wsRoots.length ? wsRoots[Math.min(wsIdx, wsRoots.length - 1)] : null
   const hiddenProjectPaths = useMemo(() => new Set(
-    (projectWorkspacePreference?.ignoredProjects ?? []).map(workspacePathKey),
+    (projectWorkspacePreference?.ignoredProjects ?? loadLocalIgnoredProjectPaths())
+      .map(normalizeWorkspaceProjectPath),
   ), [projectWorkspacePreference])
   const selectableProjects = projectVisibilityLoading
     ? []
-    : activeRoot?.dirs.filter(dir => !hiddenProjectPaths.has(workspacePathKey(dir.path))) ?? []
+    : activeRoot?.dirs.filter(dir => !hiddenProjectPaths.has(normalizeWorkspaceProjectPath(dir.path))) ?? []
   const [projectSearch, setProjectSearch] = useState('')
 
   // 顶栏标题显示当前会话名（与会话列表一致：别名优先，无别名回退 cwd 目录名）；无会话时才回退 Vibe Coding

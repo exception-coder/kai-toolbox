@@ -5,18 +5,17 @@ import { listSessions as listPrdSessions } from '@/features/prd-clarify/api'
 import type { PrdSessionView } from '@/features/prd-clarify/types'
 import { cn } from '@/lib/utils'
 import { getDevPreference } from '@/features/_devkit/devPreferenceApi'
+import {
+  loadLocalIgnoredProjectPaths,
+  normalizeWorkspaceProjectPath,
+  PROJECT_WORKSPACE_PREFERENCE_ID,
+  type ProjectWorkspaceVisibilityPreference,
+} from '@/features/_devkit/public-api'
 import { listWorkspaces } from '../api'
 import type { WorkspaceDir } from '../types'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 
 type DraftSetter = (value: string | ((current: string) => string)) => void
-
-const PROJECT_WORKSPACE_PREFERENCE_ID = 'project-workspace'
-const IGNORED_PROJECTS_STORAGE_KEY = 'kai-toolbox:project-workspace:ignored-projects'
-
-interface ProjectWorkspacePreference {
-  ignoredProjects?: string[]
-}
 
 interface MentionTrigger {
   start: number
@@ -76,20 +75,6 @@ interface ReferenceKeyboardOptions {
   pickReference: (reference: ReferenceOption) => Promise<void>
 }
 
-/** 将工作区扫描结果整理为可检索的唯一项目目录。 */
-function workspacePathKey(path: string): string {
-  return path.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase()
-}
-
-function loadLocalIgnoredProjects(): string[] {
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem(IGNORED_PROJECTS_STORAGE_KEY) ?? '[]')
-    return Array.isArray(value) ? value.filter((path): path is string => typeof path === 'string') : []
-  } catch {
-    return []
-  }
-}
-
 function flattenProjects(
   roots: { root: string; exists: boolean; dirs: WorkspaceDir[] }[],
   ignoredProjectPaths: Set<string>,
@@ -99,7 +84,7 @@ function flattenProjects(
   for (const root of roots) {
     if (!root.exists) continue
     for (const dir of root.dirs) {
-      const key = workspacePathKey(dir.path)
+      const key = normalizeWorkspaceProjectPath(dir.path)
       if (ignoredProjectPaths.has(key) || seen.has(key)) continue
       seen.add(key)
       projects.push({ ...dir, name: getSystemWorkspaceDisplayName(dir), kind: 'project', key: `project:${key}` })
@@ -239,12 +224,13 @@ function useReferenceCatalog(open: boolean, query: string) {
   })
   const preferenceQuery = useQuery({
     queryKey: ['dev-preference', PROJECT_WORKSPACE_PREFERENCE_ID],
-    queryFn: () => getDevPreference<ProjectWorkspacePreference>(PROJECT_WORKSPACE_PREFERENCE_ID),
+    queryFn: () => getDevPreference<ProjectWorkspaceVisibilityPreference>(PROJECT_WORKSPACE_PREFERENCE_ID),
     enabled: open,
     staleTime: 0,
   })
   const ignoredProjectPaths = useMemo(() => new Set(
-    (preferenceQuery.data?.ignoredProjects ?? loadLocalIgnoredProjects()).map(workspacePathKey),
+    (preferenceQuery.data?.ignoredProjects ?? loadLocalIgnoredProjectPaths())
+      .map(normalizeWorkspaceProjectPath),
   ), [preferenceQuery.data])
   const allReferences = useMemo<ReferenceOption[]>(() => interleaveReferences(
     preferenceQuery.isLoading ? [] : flattenProjects(workspaceQuery.data?.roots ?? [], ignoredProjectPaths),

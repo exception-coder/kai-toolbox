@@ -4,9 +4,9 @@ import { Database, DownloadCloud, Loader2, ServerCog, Workflow } from 'lucide-re
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { listWorkspaces } from '@/features/claude-chat/api'
-import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 import { DevServiceSection } from '@/features/_devkit/DevServiceSection'
 import { useDevWorkbenchPreference } from '@/features/_devkit/useDevWorkbenchPreference'
+import { useVisibleWorkspaceProjects } from '@/features/_devkit/public-api'
 import {
   getErpDbConfig, saveErpDbConfig, testErpDb, getErpAppConfig, saveErpAppConfig, testErpApp,
   listOpsSystems, listOpsDatasources, importErpDbFromOps,
@@ -21,31 +21,12 @@ const REQUIREMENT_KEY = 'kai-toolbox:erp-dev:requirement'
 export function ErpDevPage() {
   const { data: workspaces } = useQuery({ queryKey: ['claude-chat-workspaces'], queryFn: listWorkspaces, staleTime: 5000 })
 
-  // 拍平所有工作区根下的一级目录，供选 ERP 项目；path 唯一，label 带根名便于区分同名
-  const dirs = useMemo(() => {
-    const out: { path: string; label: string }[] = []
-    for (const r of workspaces?.roots ?? []) {
-      if (!r.exists) continue
-      const rootName = r.root.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || r.root
-      for (const d of r.dirs) out.push({ path: d.path, label: `${getSystemWorkspaceDisplayName(d)}（${rootName}）` })
-    }
-    return out
-  }, [workspaces])
+  const { projects: dirs, ready: dirsReady } = useVisibleWorkspaceProjects(workspaces)
 
   const devPreference = useDevWorkbenchPreference('erp-dev', {
     cwd: CWD_KEY, module: MODULE_KEY, requirement: REQUIREMENT_KEY,
   })
   const { cwd } = devPreference.preference
-
-  // 选目录并记住（下次进来自动回填）
-  const pickCwd = (path: string) => {
-    devPreference.setField('cwd', path)
-  }
-  // 目录列表就绪后：保留上次记住的选择（仍存在时），否则回退到第一个
-  useEffect(() => {
-    if (!devPreference.hydrated || dirs.length === 0) return
-    if (!dirs.some(d => d.path === cwd)) pickCwd(dirs[0].path)
-  }, [devPreference.hydrated, dirs, cwd])
 
   return (
     <div className="mx-auto max-w-2xl p-4 sm:p-6">
@@ -56,6 +37,7 @@ export function ErpDevPage() {
       <DevServiceSection
         serviceId="erp"
         dirs={dirs}
+        dirsReady={dirsReady}
         defaultCwd={cwd}
         preference={devPreference.preference.services.erp}
         onPreferenceChange={(value, immediate) => devPreference.setService('erp', value, immediate)}

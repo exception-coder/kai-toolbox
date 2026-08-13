@@ -8,6 +8,7 @@ import {
   devServiceLogStream, getDevServiceStatus, startDevService, stopDevService, restartDevService,
   checkDevPorts, type DevServiceStatus,
 } from './devServiceApi'
+import { resolveVisibleWorkspaceProjectPath } from './projectVisibility'
 
 // 定高窗口化的行高（px）：inline 视图字号 11px、放大浮层字号 13px，各给足行高保证单行不裁切。
 const ROW_H_INLINE = 18
@@ -18,6 +19,8 @@ interface Props {
   serviceId: string
   /** 可选项目目录列表（拍平的工作区一级目录）。 */
   dirs: { path: string; label: string }[]
+  /** 工作区与项目可见性偏好均已加载，允许校正已失效或已隐藏的选择。 */
+  dirsReady?: boolean
   /** 默认选中的项目目录（通常跟随上方表单的选择）。 */
   defaultCwd: string
   /** 启动命令默认值（命令框留空时用它，在所选目录下执行）。 */
@@ -82,7 +85,7 @@ function trimKeepErrors(list: LogLine[], max: number): LogLine[] {
 export function DevServiceSection({
   serviceId, dirs, defaultCwd, defaultCommand,
   commandPlaceholder, title = '服务启停 + 启动日志', stopCommand, readinessPorts,
-  preference, onPreferenceChange,
+  preference, onPreferenceChange, dirsReady = true,
   beforeStart,
 }: Props) {
   const CMD_KEY = `kai-toolbox:dev:start-cmd:${serviceId}`
@@ -103,18 +106,16 @@ export function DevServiceSection({
   const MAX_LOG_LINES = 2000
   const bufferRef = useRef<LogLine[]>([])
   const pinnedRef = useRef(true)
-  const legacyPreferenceReported = useRef(false)
 
   useEffect(() => {
-    if (preference || legacyPreferenceReported.current || (!cwd && !command)) return
-    legacyPreferenceReported.current = true
-    onPreferenceChange?.({ cwd, command })
-  }, [command, cwd, onPreferenceChange, preference])
-
-  useEffect(() => {
-    const next = preference?.cwd || defaultCwd
-    if (next) setCwd(next)
-  }, [defaultCwd, preference?.cwd])
+    if (!dirsReady) return
+    const preferred = preference?.cwd || defaultCwd
+    const next = resolveVisibleWorkspaceProjectPath(dirs, preferred)
+    setCwd(next)
+    if (preference && preference.cwd !== next) {
+      onPreferenceChange?.({ cwd: next, command: preference.command ?? command }, true)
+    }
+  }, [command, defaultCwd, dirs, dirsReady, onPreferenceChange, preference])
   useEffect(() => {
     if (preference) setCommand(preference.command ?? '')
   }, [preference])
@@ -282,12 +283,14 @@ export function DevServiceSection({
       </p>
       <div className="mt-3 grid gap-2">
         <select
-          value={cwd}
+          value={dirsReady ? cwd : ''}
           onChange={e => setServiceCwd(e.target.value)}
+          disabled={!dirsReady}
           className="h-9 w-full rounded-md border bg-[var(--color-background)] px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
         >
-          {dirs.length === 0 && <option value="">（无可用项目目录）</option>}
-          {dirs.map(d => <option key={d.path} value={d.path}>{d.label}</option>)}
+          {!dirsReady && <option value="">（正在加载可见项目…）</option>}
+          {dirsReady && dirs.length === 0 && <option value="">（无可用项目目录）</option>}
+          {dirsReady && dirs.map(d => <option key={d.path} value={d.path}>{d.label}</option>)}
         </select>
         <div>
           <div className="relative">
@@ -324,13 +327,13 @@ export function DevServiceSection({
         </div>
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <Button size="sm" onClick={() => { setMsg(null); setServiceFailures({}); start.mutate() }} disabled={busy || running || !cwd}>
+        <Button size="sm" onClick={() => { setMsg(null); setServiceFailures({}); start.mutate() }} disabled={busy || running || !dirsReady || !cwd}>
           {start.isPending ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />}启动
         </Button>
         <Button size="sm" variant="outline" onClick={() => { setMsg(null); stop.mutate() }} disabled={busy || !running}>
           {stop.isPending ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}停止
         </Button>
-        <Button size="sm" variant="outline" onClick={() => { setMsg(null); setServiceFailures({}); restart.mutate() }} disabled={busy || !cwd}>
+        <Button size="sm" variant="outline" onClick={() => { setMsg(null); setServiceFailures({}); restart.mutate() }} disabled={busy || !dirsReady || !cwd}>
           {restart.isPending ? <Loader2 className="size-4 animate-spin" /> : <RotateCw className="size-4" />}重启（生效）
         </Button>
         {msg && <span className="text-xs text-[var(--color-destructive)]">{msg}</span>}

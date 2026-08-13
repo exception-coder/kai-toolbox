@@ -32,6 +32,8 @@ export function useDevWorkbenchPreference(workbenchId: string, legacy: LegacyKey
   const [preference, setPreference] = useState(legacySeed)
   const latestPreferenceRef = useRef(preference)
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const saveTimerRef = useRef<number | null>(null)
+  const pendingSaveRef = useRef<DevWorkbenchPreference | null>(null)
   const [hydrated, setHydrated] = useState(false)
   const query = useQuery({
     queryKey,
@@ -46,6 +48,22 @@ export function useDevWorkbenchPreference(workbenchId: string, legacy: LegacyKey
       .then(() => undefined)
   }, [workbenchId])
 
+  const flushPendingSave = useCallback(() => {
+    if (saveTimerRef.current !== null) {
+      window.clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
+    const pending = pendingSaveRef.current
+    pendingSaveRef.current = null
+    if (pending) enqueueSave(pending)
+  }, [enqueueSave])
+
+  const scheduleSave = useCallback((next: DevWorkbenchPreference) => {
+    pendingSaveRef.current = next
+    if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = window.setTimeout(flushPendingSave, 350)
+  }, [flushPendingSave])
+
   useEffect(() => {
     if (!query.isFetched || query.isError || hydrated) return
     if (query.data) {
@@ -57,17 +75,17 @@ export function useDevWorkbenchPreference(workbenchId: string, legacy: LegacyKey
       }
       latestPreferenceRef.current = restored
       setPreference(restored)
+    } else if (legacySeed.cwd || legacySeed.module || legacySeed.requirement
+      || Object.keys(legacySeed.services).length > 0) {
+      // 仅远端无记录时迁移一次旧偏好；普通水合与远端读取不得反向写回。
+      enqueueSave(legacySeed)
     }
     setHydrated(true)
-  }, [hydrated, query.data, query.isError, query.isFetched])
+  }, [enqueueSave, hydrated, legacySeed, query.data, query.isError, query.isFetched])
 
   useEffect(() => {
-    if (!hydrated) return
-    const timer = window.setTimeout(() => {
-      enqueueSave(preference)
-    }, 350)
-    return () => window.clearTimeout(timer)
-  }, [enqueueSave, hydrated, preference])
+    return () => flushPendingSave()
+  }, [flushPendingSave])
 
   const updatePreference = (
     updater: (current: DevWorkbenchPreference) => DevWorkbenchPreference,
@@ -77,7 +95,12 @@ export function useDevWorkbenchPreference(workbenchId: string, legacy: LegacyKey
     latestPreferenceRef.current = next
     setPreference(next)
     queryClient.setQueryData(queryKey, next)
-    if (immediate) enqueueSave(next)
+    if (immediate) {
+      pendingSaveRef.current = next
+      flushPendingSave()
+    } else {
+      scheduleSave(next)
+    }
   }
 
   const setField = (field: 'cwd' | 'module' | 'requirement', value: string) => {
@@ -86,6 +109,7 @@ export function useDevWorkbenchPreference(workbenchId: string, legacy: LegacyKey
   const setService = (serviceId: string, value: DevServicePreference, immediate = false) => {
     updatePreference(current => ({
       ...current,
+      cwd: value.cwd || current.cwd,
       services: { ...current.services, [serviceId]: value },
     }), immediate)
   }
