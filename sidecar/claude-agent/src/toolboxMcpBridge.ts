@@ -83,7 +83,7 @@ if (serverName === 'forge') {
       changeType: z.enum(['DDL', 'DML', 'MIXED']).default('MIXED'),
       sqlText: z.string().describe('完整、可交付人工执行的 DDL/DML；每个逻辑块前须有“-- 功能：...；变更：...；目的：...”注释'),
       mode: z.enum(['append', 'replace']).default('append'),
-      ddlEvidenceId: z.string().optional().describe('prepare_sql_context 返回的 evidenceId'),
+      ddlEvidenceId: z.string().optional().describe('prepare_sql_context 返回的 evidenceId；未传或非 VERIFIED 仍可登记为待复核 SQL'),
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
   }, ({ title, targetEnvironment, changeType, sqlText, mode, ddlEvidenceId }, extra) => request(

@@ -58,7 +58,7 @@ export function createForgePendingSqlServer(sessionId: string, apiBase: string) 
           sqlText: z.string().describe('完整、可交付人工执行的 DDL/DML；每个逻辑块前须有“-- 功能：...；变更：...；目的：...”注释'),
           mode: z.enum(['append', 'replace']).default('append')
             .describe('分批补充用 append；重写整份登记用 replace'),
-          ddlEvidenceId: z.string().optional().describe('prepare_sql_context 返回的 evidenceId'),
+          ddlEvidenceId: z.string().optional().describe('prepare_sql_context 返回的 evidenceId；未传或非 VERIFIED 仍可登记为待复核 SQL'),
         },
         async (args: {
           title?: string

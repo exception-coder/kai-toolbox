@@ -186,7 +186,7 @@ export function createClaudeConsultSourceServer(
   }
 }
 
-/** Forge 只登记待执行 SQL，不连接目标数据库，是咨询只读策略允许的唯一写入型工具。 */
+/** Forge 只核验证据和登记待执行 SQL，不连接目标数据库。 */
 function createForgePendingSqlServer(sessionId?: string): Record<string, unknown> | null {
   const apiBase = process.env.TOOLBOX_API_BASE?.trim()
   if (!apiBase || !sessionId) return null
@@ -200,7 +200,7 @@ function createForgePendingSqlServer(sessionId?: string): Record<string, unknown
     args: script === ts ? ['--experimental-strip-types', script, 'forge'] : [script, 'forge'],
     env: { TOOLBOX_API_BASE: apiBase, TOOLBOX_SESSION_ID: sessionId },
     enabled: true,
-    enabled_tools: ['register_pending_sql'],
+    enabled_tools: ['prepare_sql_context', 'register_pending_sql'],
     default_tools_approval_mode: 'approve',
   }
 }

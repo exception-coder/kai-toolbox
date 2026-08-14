@@ -73,7 +73,7 @@ public class SqlDdlEvidenceService {
             return cache(sessionId, new SqlDdlEvidence(
                     null, SqlDdlEvidence.STATUS_DDL_MISSING, resolution.project(), baseline.toString(),
                     requestedTables, List.of(), requestedTables, resolution.candidates(), Map.of(),
-                    "当前项目知识库没有 DDL 基线，生成结果只能作为未核验草稿。", now), null);
+                    "当前项目知识库没有 DDL 基线，可继续生成并登记未核验草稿，执行前需人工复核。", now), null);
         }
         String content;
         try {
@@ -100,8 +100,9 @@ public class SqlDdlEvidenceService {
                 : missing.isEmpty() ? SqlDdlEvidence.STATUS_VERIFIED : SqlDdlEvidence.STATUS_PARTIAL;
         String warning = switch (status) {
             case SqlDdlEvidence.STATUS_VERIFIED -> "已从项目 DDL 基线核对全部目标表，请仅使用返回片段中的真实字段。";
-            case SqlDdlEvidence.STATUS_STALE -> "DDL 基线已显式标记过期，SQL 只能作为待复核草稿。";
-            default -> "以下目标表未在 DDL 基线命中：" + String.join("、", missing) + "。不得猜测字段。";
+            case SqlDdlEvidence.STATUS_STALE -> "DDL 基线已显式标记过期，可继续生成并登记待复核草稿，执行前需人工复核。";
+            default -> "以下目标表未在 DDL 基线命中：" + String.join("、", missing)
+                    + "。可继续生成并登记未核验草稿，请明确列出假设并在执行前人工复核。";
         };
         return cache(sessionId, new SqlDdlEvidence(
                 null, status, resolution.project(), baseline.toString(), requestedTables, verified, missing,

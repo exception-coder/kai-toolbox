@@ -136,4 +136,28 @@ class SessionPendingSqlServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("纯查询 SQL");
     }
+
+    @Test
+    void forgeToolRegistersSqlWhenDdlEvidenceIsMissing() {
+        when(repository.findBySessionId("session-1")).thenReturn(null);
+        when(ddlEvidenceService.verifyRegistration(
+                org.mockito.ArgumentMatchers.eq("session-1"),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.nullable(String.class)))
+                .thenReturn(new SqlDdlEvidence(
+                        "evidence-missing", SqlDdlEvidence.STATUS_DDL_MISSING, null, null,
+                        List.of("QUOTE"), List.of(), List.of("QUOTE"), List.of(), Map.of(),
+                        "DDL 未核验", 456L));
+
+        SessionPendingSql result = service.registerFromTool(
+                "session-1", "SRM 报价初始化", "SRM 测试库", "DML",
+                "UPDATE quote SET status = 'READY';", "append", "evidence-missing");
+
+        ArgumentCaptor<SessionPendingSql> captor = ArgumentCaptor.forClass(SessionPendingSql.class);
+        verify(repository).upsert(captor.capture());
+        assertThat(result).isEqualTo(captor.getValue());
+        assertThat(result.ddlEvidenceStatus()).isEqualTo(SqlDdlEvidence.STATUS_DDL_MISSING);
+        assertThat(result.ddlMissingTables()).containsExactly("QUOTE");
+        assertThat(result.status()).isEqualTo(SessionPendingSql.STATUS_PENDING);
+    }
 }

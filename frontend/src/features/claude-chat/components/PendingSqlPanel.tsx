@@ -47,14 +47,14 @@ const DDL_STATUS: Record<DdlEvidenceStatus, { label: string; detail: string; ton
     tone: 'border-amber-300/60 bg-amber-50/70 text-amber-800 dark:border-amber-900 dark:bg-amber-950/35 dark:text-amber-300',
   },
   DDL_MISSING: {
-    label: '缺少 DDL 基线',
-    detail: '当前项目没有可用 DDL 基线，本 SQL 只能视为未核验草稿。',
-    tone: 'border-red-300/60 bg-red-50/70 text-red-800 dark:border-red-900 dark:bg-red-950/35 dark:text-red-300',
+    label: 'DDL 未核验 · 缺少基线',
+    detail: '当前项目没有可用 DDL 基线；已作为待复核草稿登记，执行前请人工确认字段。',
+    tone: 'border-amber-300/60 bg-amber-50/70 text-amber-800 dark:border-amber-900 dark:bg-amber-950/35 dark:text-amber-300',
   },
   PROJECT_AMBIGUOUS: {
-    label: '项目归属不明确',
-    detail: '当前工作区关联多个项目，尚未确认应使用哪一份 DDL。',
-    tone: 'border-red-300/60 bg-red-50/70 text-red-800 dark:border-red-900 dark:bg-red-950/35 dark:text-red-300',
+    label: 'DDL 未核验 · 项目归属不明',
+    detail: '当前工作区关联多个项目，尚未确认应使用哪一份 DDL；登记不受影响，执行前请人工复核。',
+    tone: 'border-amber-300/60 bg-amber-50/70 text-amber-800 dark:border-amber-900 dark:bg-amber-950/35 dark:text-amber-300',
   },
   STALE: {
     label: 'DDL 基线已过期',
