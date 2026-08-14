@@ -82,7 +82,7 @@ export function SettingsDialog({ open, onOpenChange, initialSection = 'appearanc
                     className={cn(
                       'flex shrink-0 items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm transition-colors sm:w-full sm:px-2',
                       active
-                        ? 'bg-[var(--color-accent)] font-medium text-[var(--color-accent-foreground)]'
+                        ? 'bg-[var(--color-selection)] font-medium text-[var(--color-selection-foreground)] shadow-[inset_2px_0_0_var(--color-primary)]'
                         : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]/60',
                     )}
                   >

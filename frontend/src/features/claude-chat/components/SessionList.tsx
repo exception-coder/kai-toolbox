@@ -557,7 +557,7 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
           'group relative isolate flex items-center gap-1 transition-colors duration-100',
           s.planExpired
             ? 'bg-[var(--color-muted)]/60 hover:bg-[var(--color-muted)]/80'
-            : isActive ? 'bg-[var(--color-primary)]/10' : 'hover:bg-[var(--color-accent)]',
+            : isActive ? 'bg-[var(--color-selection)]' : 'hover:bg-[var(--color-accent)]',
         )}
       >
         {isRunning && <SessionActivityBar />}
@@ -671,7 +671,7 @@ export function SessionList({ currentSessionId, onSwitch, onDuplicate, duplicati
               'opacity-100 transition-opacity duration-100 sm:opacity-0 sm:group-hover:opacity-100',
               s.planExpired
                 ? 'bg-[var(--color-muted)]'
-                : isActive ? 'bg-[var(--color-primary)]/10' : 'bg-[var(--color-accent)]',
+                : isActive ? 'bg-[var(--color-selection)]' : 'bg-[var(--color-accent)]',
             )}
           >
             <button

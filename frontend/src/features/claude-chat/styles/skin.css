@@ -20,7 +20,7 @@
   --skin-c2: #a855f7;
   --skin-c3: #f59e0b;
   --skin-alpha: 0.3;
-  --skin-base: #faf7f5;
+  --skin-base: color-mix(in oklab, var(--color-background) 96%, var(--skin-c1));
   background: var(--skin-base);
   /*
    * 故意不在这里写 position:relative——这个类是跟着 JSX 用 import '../styles/skin.css'
@@ -53,36 +53,30 @@
   --skin-c1: #19c37d;
   --skin-c2: #06b6d4;
   --skin-c3: #a3e635;
-  --skin-base: #f4faf7;
 }
 
 .cc-skin-gemini {
   --skin-c1: #4285f4;
   --skin-c2: #a855f7;
   --skin-c3: #22d3ee;
-  --skin-base: #f5f8fe;
 }
 
 .cc-skin-opencode {
   --skin-c1: #e879f9;
   --skin-c2: #818cf8;
   --skin-c3: #f472b6;
-  --skin-base: #fbf6fe;
 }
 
 /* 暗色下极光是在近黑底上「发光」，可以更饱和；亮色下必须收着，否则正文发灰 */
 .dark .cc-skin {
-  --skin-alpha: 0.44;
-  --skin-base: #0b0b0e;
+  --skin-alpha: 0.38;
+  --skin-base: color-mix(in oklab, var(--color-background) 95%, var(--skin-c1));
 }
-.dark .cc-skin-codex { --skin-base: #07100d; }
-.dark .cc-skin-gemini { --skin-base: #080b14; }
-.dark .cc-skin-opencode { --skin-base: #0e0813; }
 
 /* 纯黑 OLED 模式：用户明确要省电/要纯黑，皮肤只留极淡一层，不破坏纯黑底 */
 .theme-black .cc-skin {
-  --skin-alpha: 0.3;
-  --skin-base: #000;
+  --skin-alpha: 0.2;
+  --skin-base: var(--color-background);
 }
 
 .cc-skin-bg::before,

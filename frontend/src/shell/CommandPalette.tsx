@@ -156,7 +156,7 @@ export function CommandPalette() {
                 onMouseDown={(e) => { e.preventDefault(); activate(row) }}
                 className={cn(
                   'flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm',
-                  active ? 'bg-[var(--color-accent)]' : 'hover:bg-[var(--color-accent)]',
+                  active ? 'bg-[var(--color-selection)] text-[var(--color-selection-foreground)]' : 'hover:bg-[var(--color-accent)]',
                 )}
               >
                 <Icon className="size-4 shrink-0 text-[var(--color-muted-foreground)]" />
@@ -180,7 +180,7 @@ export function CommandPalette() {
                 onMouseDown={(e) => { e.preventDefault(); activate(row) }}
                 className={cn(
                   'flex w-full items-center gap-2.5 px-3 py-1.5 text-left',
-                  active ? 'bg-[var(--color-accent)]' : 'hover:bg-[var(--color-accent)]',
+                  active ? 'bg-[var(--color-selection)] text-[var(--color-selection-foreground)]' : 'hover:bg-[var(--color-accent)]',
                 )}
               >
                 <div className="h-9 w-16 shrink-0 overflow-hidden rounded bg-[var(--color-muted)]">

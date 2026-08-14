@@ -37,7 +37,12 @@ export function ThemeAppearanceSection() {
             key={m.id}
             type="button"
             onClick={() => pickMode(m.id)}
-            className="flex items-center justify-between rounded-md px-2 py-1.5 text-sm hover:bg-[var(--color-muted)]"
+            className={cn(
+              'flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors',
+              mode === m.id
+                ? 'bg-[var(--color-selection)] font-medium text-[var(--color-selection-foreground)]'
+                : 'hover:bg-[var(--color-muted)]',
+            )}
           >
             <span>{m.label}</span>
             {mode === m.id && <Check className="size-4 text-[var(--color-primary)]" />}

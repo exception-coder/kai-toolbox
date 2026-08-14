@@ -179,7 +179,7 @@ function ToolbarToggle({ active, icon, label, title, onClick }: {
       className={cn(
         'inline-flex h-7 items-center gap-1 rounded px-2 text-xs transition-colors',
         active
-          ? 'bg-[var(--color-accent)] font-medium text-[var(--color-foreground)]'
+          ? 'bg-[var(--color-selection)] font-medium text-[var(--color-selection-foreground)]'
           : 'text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)]',
       )}
     >
@@ -316,7 +316,7 @@ function TrajectoryRecordRow({ record, query }: { record: TrajectoryRecord; quer
 
   if (item.kind === 'tool') {
     return (
-      <details id={record.domId} className={cn('group border-t border-[var(--color-border)]/70 first:border-t-0', highlighted && 'bg-blue-50/60 dark:bg-blue-950/20')}>
+      <details id={record.domId} className={cn('group border-t border-[var(--color-border)]/70 first:border-t-0', highlighted && 'bg-[var(--color-selection)]')}>
         <summary className="grid min-h-9 cursor-pointer list-none grid-cols-[6.5rem_minmax(0,1fr)_auto] items-center gap-2 px-3 py-1 text-xs marker:hidden">
           <KindBadge label="TOOL" tone={tone} />
           <div className="flex min-w-0 items-center gap-2">
@@ -343,7 +343,7 @@ function TrajectoryRecordRow({ record, query }: { record: TrajectoryRecord; quer
 
   const detail = item.kind === 'assistant' || item.kind === 'user' ? record.detail : record.detail || record.preview
   return (
-    <details id={record.domId} className={cn('group border-t border-[var(--color-border)]/70 first:border-t-0', highlighted && 'bg-blue-50/60 dark:bg-blue-950/20')}>
+    <details id={record.domId} className={cn('group border-t border-[var(--color-border)]/70 first:border-t-0', highlighted && 'bg-[var(--color-selection)]')}>
       <summary className="grid min-h-9 cursor-pointer list-none grid-cols-[6.5rem_minmax(0,1fr)_auto] items-center gap-2 px-3 py-1 text-xs marker:hidden">
         <KindBadge label={record.label} tone={tone} />
         <span className="min-w-0 truncate text-sm">{compact(record.preview, 260) || '—'}</span>

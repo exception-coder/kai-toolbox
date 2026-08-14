@@ -81,7 +81,7 @@ export function Sidebar({ features, collapsed }: SidebarProps) {
                         cn(
                           'flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors',
                           'hover:bg-[var(--color-sidebar-accent)]',
-                          isActive && 'bg-[var(--color-sidebar-accent)] font-medium text-[var(--color-foreground)]'
+                          isActive && 'bg-[var(--color-selection)] font-medium text-[var(--color-selection-foreground)] shadow-[inset_2px_0_0_var(--color-primary)] hover:bg-[var(--color-selection)]'
                         )
                       }
                     >

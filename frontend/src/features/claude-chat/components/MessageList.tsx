@@ -530,13 +530,13 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
     case 'assistant':
       return (
         <div className="flex min-w-0 max-w-full items-start gap-2">
-          <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-sm">
+          <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl border border-[var(--color-border)]/70 bg-[var(--color-card)] shadow-sm">
             <AssistantIdentityIcon avatarUrl={assistantAvatarUrl} alt={assistantAvatarAlt ?? engineLabel}
               engineLabel={engineLabel} />
           </div>
           <div className="flex min-w-0 flex-1 flex-col items-start">
             <MsgHeader label={engineLabel} ts={item.ts} align="start" />
-            <div className="max-w-[90%] min-w-0 wrap-anywhere rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-2 text-[var(--color-card-foreground)] shadow-sm">
+            <div className="max-w-[90%] min-w-0 wrap-anywhere rounded-2xl border border-[var(--color-border)]/70 bg-[var(--color-card)] px-4 py-2 text-[var(--color-card-foreground)] shadow-sm">
               <Markdown text={item.text} className="min-w-0" sessionId={sessionId} />
             </div>
             {item.text.trim() && (

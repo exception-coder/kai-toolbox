@@ -1,35 +1,42 @@
 @import "tailwindcss";
 
 @theme {
-  /* 页面是「画布」，不是纯白——比卡片暗一档，卡片(纯白)才能浮起来形成视觉海拔。
-     三级 surface 阶梯：sidebar(0.965) < background 画布(0.98) < card 纯白(1.0)。 */
-  --color-background: oklch(0.98 0.005 255);
-  --color-foreground: oklch(0.15 0.01 260);
+  /* 页面是「画布」，不是纯白。浅色同样保留轻微冷灰层级，避免白底与深色正文形成硬对比。
+     Surface 阶梯：sidebar < background < card < popover。 */
+  --color-background: oklch(0.975 0.005 255);
+  --color-foreground: oklch(0.25 0.012 260);
 
-  --color-card: oklch(1 0 0);
-  --color-card-foreground: oklch(0.15 0.01 260);
+  --color-card: oklch(0.995 0.002 255);
+  --color-card-foreground: oklch(0.28 0.012 260);
 
   /* Popover / 弹层背景。跟 card 同色,但 shadcn 标准命名要求单独变量,这样 bg-[var(--color-popover)]
      才不会解析成空字符串(空 = 透明)。SubtitleControls 的模型 picker 和 GlobalVideoSearch 桌面端
      下拉都依赖这俩变量;之前没定义所以背景透明能看到视频缩略图穿透。 */
   --color-popover: oklch(1 0 0);
-  --color-popover-foreground: oklch(0.15 0.01 260);
+  --color-popover-foreground: oklch(0.25 0.012 260);
 
-  --color-muted: oklch(0.97 0.005 260);
-  --color-muted-foreground: oklch(0.5 0.02 260);
+  --color-muted: oklch(0.95 0.006 260);
+  --color-muted-foreground: oklch(0.5 0.018 260);
 
-  --color-border: oklch(0.92 0.005 260);
-  --color-input: oklch(0.92 0.005 260);
+  --color-border: oklch(0.9 0.008 260);
+  --color-border-strong: oklch(0.82 0.012 260);
+  --color-input: oklch(0.87 0.01 260);
   --color-ring: oklch(0.55 0.21 277);
 
   --color-primary: oklch(0.55 0.21 277);
   --color-primary-foreground: oklch(0.99 0 0);
 
-  --color-secondary: oklch(0.96 0.005 260);
-  --color-secondary-foreground: oklch(0.2 0.01 260);
+  --color-secondary: oklch(0.945 0.006 260);
+  --color-secondary-foreground: oklch(0.28 0.012 260);
 
-  --color-accent: oklch(0.96 0.005 260);
-  --color-accent-foreground: oklch(0.2 0.01 260);
+  --color-accent: oklch(0.94 0.007 260);
+  --color-accent-foreground: oklch(0.28 0.012 260);
+
+  /* Hover 保持中性，Selected 才使用品牌色。这样高密度页面不会到处泛紫，
+     但导航、会话和设置里的当前位置仍有一致且清晰的品牌锚点。 */
+  --color-selection: color-mix(in oklab, var(--color-primary) 10%, var(--color-background));
+  --color-selection-foreground: color-mix(in oklab, var(--color-primary) 18%, var(--color-foreground));
+  --color-selection-border: color-mix(in oklab, var(--color-primary) 78%, transparent);
 
   --color-destructive: oklch(0.6 0.22 27);
   --color-destructive-foreground: oklch(0.99 0 0);
@@ -54,10 +61,10 @@
   --color-danger-soft: oklch(0.95 0.045 25);
   --color-danger-soft-foreground: oklch(0.5 0.18 27);
 
-  --color-sidebar: oklch(0.965 0.006 255);
-  --color-sidebar-foreground: oklch(0.2 0.01 260);
-  --color-sidebar-border: oklch(0.92 0.005 260);
-  --color-sidebar-accent: oklch(0.93 0.009 255);
+  --color-sidebar: oklch(0.955 0.006 255);
+  --color-sidebar-foreground: oklch(0.3 0.012 260);
+  --color-sidebar-border: oklch(0.895 0.008 260);
+  --color-sidebar-accent: oklch(0.925 0.009 255);
 
   --radius: 0.625rem;
 
@@ -74,23 +81,27 @@
   }
 
   .dark {
-    /* 深色下「越高越亮」：card/popover 比 background 亮一档形成海拔（0.145 → 0.205）。 */
-    --color-background: oklch(0.145 0.01 260);
-    --color-foreground: oklch(0.97 0 0);
-    --color-card: oklch(0.205 0.012 260);
-    --color-card-foreground: oklch(0.97 0 0);
-    --color-popover: oklch(0.205 0.012 260);
-    --color-popover-foreground: oklch(0.97 0 0);
-    --color-muted: oklch(0.24 0.012 260);
-    --color-muted-foreground: oklch(0.65 0.02 260);
-    --color-border: oklch(0.25 0.01 260);
-    --color-input: oklch(0.25 0.01 260);
+    /* 默认 Dark 是长时间工作的柔和深色工作台，不是 OLED 黑。
+       由 #0f1216 画布逐级抬到 #171b20 卡片、#1c2026 浮层；正文也从近纯白压到 #e2e5e9。 */
+    --color-background: oklch(0.18 0.01 260);
+    --color-foreground: oklch(0.92 0.006 260);
+    --color-card: oklch(0.215 0.012 260);
+    --color-card-foreground: oklch(0.88 0.006 260);
+    --color-popover: oklch(0.245 0.012 260);
+    --color-popover-foreground: oklch(0.9 0.006 260);
+    --color-muted: oklch(0.245 0.012 260);
+    --color-muted-foreground: oklch(0.68 0.018 260);
+    --color-border: oklch(0.265 0.01 260);
+    --color-border-strong: oklch(0.34 0.012 260);
+    --color-input: oklch(0.31 0.012 260);
     --color-primary: oklch(0.7 0.21 277);
-    --color-primary-foreground: oklch(0.15 0.01 260);
-    --color-secondary: oklch(0.22 0.01 260);
-    --color-secondary-foreground: oklch(0.97 0 0);
-    --color-accent: oklch(0.25 0.01 260);
-    --color-accent-foreground: oklch(0.97 0 0);
+    --color-primary-foreground: oklch(0.16 0.01 260);
+    --color-secondary: oklch(0.235 0.01 260);
+    --color-secondary-foreground: oklch(0.9 0.006 260);
+    --color-accent: oklch(0.26 0.01 260);
+    --color-accent-foreground: oklch(0.92 0.006 260);
+    --color-selection: color-mix(in oklab, var(--color-primary) 13%, var(--color-background));
+    --color-selection-foreground: color-mix(in oklab, var(--color-primary) 16%, var(--color-foreground));
     /* 状态色深色版：solid 提亮以保证对比，soft 底压暗、soft-foreground 提亮 */
     --color-info: oklch(0.75 0.14 250);
     --color-info-soft: oklch(0.32 0.06 255);
@@ -104,21 +115,37 @@
     --color-danger: oklch(0.7 0.2 27);
     --color-danger-soft: oklch(0.33 0.08 27);
     --color-danger-soft-foreground: oklch(0.86 0.13 25);
-    --color-sidebar: oklch(0.16 0.01 260);
-    --color-sidebar-foreground: oklch(0.92 0.005 260);
-    --color-sidebar-border: oklch(0.25 0.01 260);
-    --color-sidebar-accent: oklch(0.22 0.01 260);
+    --color-sidebar: oklch(0.195 0.01 260);
+    --color-sidebar-foreground: oklch(0.84 0.008 260);
+    --color-sidebar-border: oklch(0.245 0.01 260);
+    --color-sidebar-accent: oklch(0.235 0.01 260);
     --app-primary-l: 0.7;
     color-scheme: dark;
   }
 
-  /* ==== 纯黑（OLED）：叠加在 .dark 之上，仅把背景压到纯黑 ==== */
+  /* ==== 纯黑（OLED）：保留真正的 #000 画布，但补齐自己的完整文字与 Surface 色阶。
+     不再继承默认 Dark 的亮白文字和亮边框，避免纯黑底上的局部对比过硬。 ==== */
   .theme-black {
     --color-background: oklch(0 0 0);
-    --color-card: oklch(0.14 0.005 260);
-    --color-popover: oklch(0.14 0.005 260);
-    --color-muted: oklch(0.17 0.005 260);
-    --color-sidebar: oklch(0 0 0);
+    --color-foreground: oklch(0.9 0.006 260);
+    --color-card: oklch(0.16 0.008 260);
+    --color-card-foreground: oklch(0.88 0.006 260);
+    --color-popover: oklch(0.2 0.008 260);
+    --color-popover-foreground: oklch(0.89 0.006 260);
+    --color-muted: oklch(0.18 0.008 260);
+    --color-muted-foreground: oklch(0.64 0.016 260);
+    --color-border: oklch(0.23 0.008 260);
+    --color-border-strong: oklch(0.3 0.01 260);
+    --color-input: oklch(0.27 0.01 260);
+    --color-secondary: oklch(0.17 0.008 260);
+    --color-secondary-foreground: oklch(0.88 0.006 260);
+    --color-accent: oklch(0.205 0.008 260);
+    --color-accent-foreground: oklch(0.9 0.006 260);
+    --color-selection: color-mix(in oklab, var(--color-primary) 15%, var(--color-background));
+    --color-sidebar: oklch(0.1 0.006 260);
+    --color-sidebar-foreground: oklch(0.8 0.008 260);
+    --color-sidebar-border: oklch(0.18 0.008 260);
+    --color-sidebar-accent: oklch(0.16 0.008 260);
   }
 
   /* ==== 护眼（暖白底，降低蓝光），基于浅色 ==== */
@@ -133,6 +160,7 @@
     --color-muted: oklch(0.91 0.03 85);
     --color-muted-foreground: oklch(0.46 0.03 70);
     --color-border: oklch(0.86 0.03 80);
+    --color-border-strong: oklch(0.78 0.035 80);
     --color-input: oklch(0.86 0.03 80);
     --color-secondary: oklch(0.9 0.03 85);
     --color-secondary-foreground: oklch(0.3 0.03 70);
