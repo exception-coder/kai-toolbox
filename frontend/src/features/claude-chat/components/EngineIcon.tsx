@@ -1,6 +1,6 @@
 import { Zap } from 'lucide-react'
 import { RiOpenaiFill } from 'react-icons/ri'
-import { SiClaude, SiGooglegemini, SiOpencode } from 'react-icons/si'
+import { SiClaude, SiDeepseek, SiGooglegemini, SiOpencode } from 'react-icons/si'
 import type { IconType } from 'react-icons'
 import { cn } from '@/lib/utils'
 import type { Engine } from '../types'
@@ -18,6 +18,7 @@ const ENGINE_ICONS: Record<Engine, IconType> = {
   codex: RiOpenaiFill,
   gemini: SiGooglegemini,
   opencode: SiOpencode,
+  deepseekHarness: SiDeepseek,
 }
 
 /** 品牌主色（暗色模式下调亮一档保证对比度）。 */
@@ -26,6 +27,7 @@ const ENGINE_COLORS: Record<Engine, string> = {
   codex: 'text-[#0f9d76] dark:text-[#19c37d]',
   gemini: 'text-[#4285f4] dark:text-[#8ab4f8]',
   opencode: 'text-[var(--color-foreground)]',
+  deepseekHarness: 'text-[#4d6bfe] dark:text-[#7f96ff]',
 }
 
 export function engineIconOf(engine: string): IconType {
@@ -34,6 +36,16 @@ export function engineIconOf(engine: string): IconType {
 
 export function engineColorOf(engine: string): string {
   return ENGINE_COLORS[engine as Engine] ?? ENGINE_COLORS.claude
+}
+
+/** 将用户可见名称还原为稳定引擎 ID；不要用 toLowerCase 猜 camelCase ID。 */
+export function engineIdFromDisplayName(label?: string): Engine {
+  const normalized = label?.split(' ·', 1)[0].trim().toLowerCase()
+  if (normalized === 'codex') return 'codex'
+  if (normalized === 'gemini') return 'gemini'
+  if (normalized === 'opencode') return 'opencode'
+  if (normalized === 'deepseek harness') return 'deepseekHarness'
+  return 'claude'
 }
 
 /**

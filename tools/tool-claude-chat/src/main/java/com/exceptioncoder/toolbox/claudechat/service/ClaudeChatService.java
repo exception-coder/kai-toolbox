@@ -67,6 +67,7 @@ public class ClaudeChatService {
     private final QueuedChatMessageService queuedMessages;
     private final SessionRuntimeStateService runtimeStates;
     private final ObjectMapper mapper;
+    private final EngineCatalogService engineCatalog;
     private final AgentTelemetry telemetry;
     private final List<AgentRunMetadataProvider> metadataProviders;
     private final List<AgentRunCompletionListener> completionListeners;
@@ -89,7 +90,7 @@ public class ClaudeChatService {
     private static final Set<String> TURN_SCOPED_SIDECAR_EVENTS = Set.of(
             "assistantDelta", "toolUse", "toolResult", "permissionRequest", "questionRequest",
             "userMessage", "forkAnchor", "turnInfo", "turnProgress", "warning",
-            "toolActivity", "turnActivity", "codexActivity", "result", "error");
+            "toolActivity", "turnActivity", "codexActivity", "engineEvent", "result", "error");
     private static final Set<String> SUCCESSFUL_TURN_STOP_REASONS =
             Set.of("end_turn", "success", "completed", "stop");
     /** 本实例已随 Spring 上下文停机；后台重连一律停手 */
@@ -111,6 +112,7 @@ public class ClaudeChatService {
                              SessionRuntimeStateService runtimeStates,
                              ObjectMapper mapper,
                              AgentTelemetry telemetry,
+                             EngineCatalogService engineCatalog,
                              List<AgentRunMetadataProvider> metadataProviders,
                              List<AgentRunCompletionListener> completionListeners) {
         this.props = props;
@@ -130,6 +132,7 @@ public class ClaudeChatService {
         this.mapper = mapper;
         this.telemetry = telemetry;
         this.metadataProviders = List.copyOf(metadataProviders);
+        this.engineCatalog = engineCatalog;
         this.completionListeners = List.copyOf(completionListeners);
     }
 
@@ -166,6 +169,10 @@ public class ClaudeChatService {
         if (consultReadonly && !"claude".equals(engine) && !"codex".equals(engine)) {
             sendError(ws, 0, "ENGINE_UNSUPPORTED", "业务咨询仅支持 Claude Code 或 Codex 引擎");
             return;
+        if (!engineCatalog.selectable(engine)) {
+            sendError(ws, 0, "ENGINE_UNAVAILABLE", "DeepSeek Harness 尚未通过 Runtime 握手，请刷新引擎目录后重试");
+            return;
+        }
         }
         // 第三方网关对 Claude / Codex / Gemini 引擎生效（Claude→Anthropic 兼容、Codex→OpenAI 兼容、
         // Gemini→Google 兼容，各走各的协议端点）；opencode 自管 provider，忽略网关参数。
@@ -238,6 +245,7 @@ public class ClaudeChatService {
                 // computeIfAbsent 原子去重：并发 attach 同一会话时 lambda 只跑一次，
                 // 只有真正新建 ctx 的那条线程才 resume（否则两条都 resume → sidecar 重复续跑）
                 boolean[] created = {false};
+                boolean engineSelectable = engineCatalog.selectable(normalizeEngine(db.getEngine()));
                 SessionCtx restored = sessions.computeIfAbsent(db.getId(), id -> {
                     created[0] = true;
                     SessionCtx c = new SessionCtx(id, db.getCwd());
@@ -254,7 +262,7 @@ public class ClaudeChatService {
                 });
                 if (!canBind(ws, restored.executionPolicy)) return;
                 bindViewer(ws, restored);
-                if (created[0]) {
+                if (created[0] && engineSelectable) {
                     repo.touch(db.getId(), SessionStatus.IDLE, System.currentTimeMillis());
                     sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), restored.engine,
                             restored.apiBaseUrl, restored.authToken, restored.codexHome,
@@ -268,6 +276,10 @@ public class ClaudeChatService {
                 pushGatewayModels(restored); // 重连恢复网关会话：重发网关模型目录
                 return;
             }
+                if (!engineSelectable) {
+                    writeTo(ws, new ServerMessage.Error(0, "ENGINE_UNAVAILABLE",
+                            "该会话使用的 DeepSeek Harness 当前未通过 Runtime 握手；历史仍可查看，恢复运行前请重新检测引擎"));
+                }
             sendError(ws, 0, "SESSION_NOT_FOUND", "会话不存在或已结束，请切换或新建");
             return;
         }
@@ -307,14 +319,21 @@ public class ClaudeChatService {
         // 只更新 lastSeenAt，保留会话真实状态：若该会话仍有在跑的一轮（ctx 内存中为 RUNNING），
         // 切回/刷新恢复时不能把 DB 状态抹成 IDLE，否则会话列表与前端 running 判定都会误判为「空闲」。
         repo.touch(db.getId(), ctx.status, System.currentTimeMillis());
-        sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), ctx.engine, ctx.apiBaseUrl,
-                ctx.authToken, ctx.codexHome, ctx.mode, ctx.autoApprove, ctx.currentModel,
-                ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy, ctx.consultEvidenceSystems);
+        boolean engineSelectable = engineCatalog.selectable(ctx.engine);
+        if (engineSelectable) {
+            sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), ctx.engine, ctx.apiBaseUrl,
+                    ctx.authToken, ctx.codexHome, ctx.mode, ctx.autoApprove, ctx.currentModel,
+                    ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy, ctx.consultEvidenceSystems);
+        }
         // 历史消息由前端按需读 SDK transcript；这里只发一个 Ready 表示已就绪
         sendToBrowser(ctx, seq -> ready(ctx, seq));
         // 该会话若有未决权限/提问请求，随切换补发一次：不然只有 attach（断线重连）路径会重投，
         // 从跨会话横幅点「去确认」走的是这条 switchSession，之前收不到，弹窗切过去后"看不到题面"。
         if (ctx.pendingRequest != null) writeTo(ws, ctx.pendingRequest);
+        if (!engineSelectable) {
+            sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
+                    "该会话使用的 DeepSeek Harness 当前未通过 Runtime 握手；历史仍可查看，恢复运行前请重新检测引擎"));
+        }
         pushGatewayModels(ctx); // 切到网关会话：重发网关模型目录，命令菜单可选/切
     }
 
@@ -343,6 +362,10 @@ public class ClaudeChatService {
         String codexHome = "codex".equals(engine)
                 ? SessionExecutionPolicy.resolveCodexHome(engine, source.getApiBaseUrl(), msg.codexHome())
                 : source.getCodexHome();
+        if (!engineCatalog.selectable(engine)) {
+            sendError(ws, 0, "ENGINE_UNAVAILABLE", "DeepSeek Harness 尚未通过 Runtime 握手，不能复制为可运行会话");
+            return;
+        }
         String title = duplicateTitle(source.getTitle());
         String reasoningEffort = normalizeCodexReasoningEffort(source.getCodexReasoningEffort());
         String speed = normalizeCodexSpeed(source.getCodexSpeed());
@@ -448,6 +471,11 @@ public class ClaudeChatService {
 
         ClaudeChatSession db = repo.findById(ctx.sessionId).orElse(null);
         if (db != null) {
+        if (!engineCatalog.selectable(ctx.engine)) {
+            sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
+                    "DeepSeek Harness 尚未通过 Runtime 握手，当前会话不能恢复运行"));
+            return;
+        }
             restoreModelOptions(ctx, db);
             if (ctx.sdkSessionId == null || ctx.sdkSessionId.isBlank()) {
                 ctx.sdkSessionId = db.getSdkSessionId();
@@ -458,7 +486,7 @@ public class ClaudeChatService {
         }
         String sdkSessionId = blankToNull(ctx.engineSessions.get(ctx.engine));
         if (sdkSessionId == null) sdkSessionId = blankToNull(ctx.sdkSessionId);
-        if (sdkSessionId == null) {
+        if (sdkSessionId == null && !isDurableByForgeSessionId(ctx.engine)) {
             sendToBrowser(ctx, seq -> new ServerMessage.Error(
                     seq, "SESSION_NOT_RESUMABLE", "当前 agent 还没有可 resume 的原生会话"));
             return;
@@ -467,7 +495,7 @@ public class ClaudeChatService {
         ctx.sdkSessionId = sdkSessionId;
         ctx.status = SessionStatus.IDLE;
         ctx.pendingRequest = null;
-        repo.updateSdkSessionId(ctx.sessionId, sdkSessionId);
+        if (sdkSessionId != null) repo.updateSdkSessionId(ctx.sessionId, sdkSessionId);
         repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
         sidecar.resumeSession(ctx.sessionId, sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
                 ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy,
@@ -746,6 +774,10 @@ public class ClaudeChatService {
 
     /**
      * 会话内切服务商（官方 ↔ 第三方网关，或两网关互切）：同一会话 id 与 sdkSessionId 不变，沿用原生会话续跑
+        if (!engineCatalog.selectable(engine)) {
+            sendError(ws, 0, "ENGINE_UNAVAILABLE", "DeepSeek Harness 尚未通过 Runtime 握手，请刷新引擎目录后重试");
+            return;
+        }
      * （保留上下文）。更新 ctx + DB + 透传 sidecar（下一轮生效），并刷新模型目录（网关→拉其 /v1/models，
      * 官方→清空让 sidecar 的 supportedModels 重新接管），最后重发 Ready 让多端同步 provider 标识。
      */
@@ -901,7 +933,8 @@ public class ClaudeChatService {
     }
 
     private static String normalizeEngine(String e) {
-        return "codex".equals(e) || "gemini".equals(e) || "opencode".equals(e) ? e : "claude";
+        return "codex".equals(e) || "gemini".equals(e) || "opencode".equals(e)
+                || "deepseekHarness".equals(e) ? e : "claude";
     }
 
     private static String normalizeCodexReasoningEffort(String effort) {
@@ -1132,6 +1165,7 @@ public class ClaudeChatService {
                     dispatchNextQueuedMessage(ctx);
                 }
             }
+            case "engineEvent" -> forwardEngineEvent(ctx, node);
             default -> log.debug("[claude-chat] 未知 sidecar 事件 type={}", type);
         }
     }
@@ -1157,6 +1191,33 @@ public class ClaudeChatService {
         ctx.queueReleaseReady = queueReleaseSafe;
         broadcastPendingSessions();
         repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
+    private void forwardEngineEvent(SessionCtx ctx, JsonNode node) {
+        JsonNode event = node.path("engineEvent");
+        int protocolVersion = event.path("protocolVersion").asInt(0);
+        if (protocolVersion != 1) {
+            log.warn("[claude-chat] 忽略不兼容引擎事件 session={} protocolVersion={}",
+                    ctx.sessionId, protocolVersion);
+            sendToBrowser(ctx, seq -> new ServerMessage.Warning(seq, "ENGINE_PROTOCOL_MISMATCH",
+                    "代码引擎事件协议不兼容，请重启或升级 Forge 与 Sidecar"));
+            return;
+        }
+        String eventSessionId = event.path("sessionId").asText("");
+        if (!ctx.sessionId.equals(eventSessionId)) {
+            log.warn("[claude-chat] 忽略跨会话引擎事件 expected={} actual={}", ctx.sessionId, eventSessionId);
+            return;
+        }
+        sendToBrowser(ctx, seq -> new ServerMessage.EngineEvent(
+                seq,
+                protocolVersion,
+                event.path("eventId").asText(""),
+                eventSessionId,
+                event.path("turnId").asText(""),
+                event.path("engine").asText(ctx.engine),
+                event.path("type").asText("engine.diagnostic"),
+                event.path("observedAt").asLong(System.currentTimeMillis()),
+                asMap(event.get("payload"))));
+    }
+
         observeRuntimeState(ctx);
         AgentSpan span = activeTurnSpans.remove(ctx.sessionId);
         AgentRunMetadata metadata = activeTurnMetadata.remove(ctx.sessionId);
@@ -1414,7 +1475,14 @@ public class ClaudeChatService {
     private void resumeAllSessions() {
         int n = 0;
         for (SessionCtx ctx : sessions.values()) {
-            if (ctx.sdkSessionId == null || ctx.sdkSessionId.isBlank()) continue;
+            if ((ctx.sdkSessionId == null || ctx.sdkSessionId.isBlank()) && !isDurableByForgeSessionId(ctx.engine)) continue;
+            if (!engineCatalog.selectable(ctx.engine)) {
+                ctx.status = SessionStatus.IDLE;
+                repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
+                sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
+                        "DeepSeek Harness 当前未通过 Runtime 握手，已跳过自动恢复"));
+                continue;
+            }
             sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
                     ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy,
                     ctx.consultEvidenceSystems);
@@ -1442,7 +1510,12 @@ public class ClaudeChatService {
                     seq, "SIDECAR_DOWN", "sidecar 重连失败：" + e.getMessage()));
             return false;
         }
-        if (ctx.sdkSessionId != null && !ctx.sdkSessionId.isBlank()) {
+        if ((ctx.sdkSessionId != null && !ctx.sdkSessionId.isBlank()) || isDurableByForgeSessionId(ctx.engine)) {
+            if (!engineCatalog.selectable(ctx.engine)) {
+                sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
+                        "DeepSeek Harness 当前未通过 Runtime 握手，无法恢复会话"));
+                return false;
+            }
             sidecar.resumeSession(ctx.sessionId, ctx.sdkSessionId, ctx.cwd, ctx.engine, ctx.apiBaseUrl, ctx.authToken, ctx.codexHome,
                     ctx.mode, ctx.autoApprove, ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, ctx.executionPolicy,
                     ctx.consultEvidenceSystems);
@@ -1483,6 +1556,11 @@ public class ClaudeChatService {
         activeTurnSpans.clear();
         activeTurnMetadata.clear();
     }
+    /** DeepSeek Harness 以 Forge sessionId 作为 durable session key，不依赖 Claude/Codex 原生句柄。 */
+    private static boolean isDurableByForgeSessionId(String engine) {
+        return "deepseekHarness".equals(engine);
+    }
+
 
     private void notifyCompleted(String runtimeSessionId, AgentRunMetadata metadata, String traceId) {
         if (metadata == null || traceId == null || traceId.isBlank()) {

@@ -481,6 +481,17 @@ toolbox:
       dir: node-services/undetected-browser
       auto-start: true       # 由 Java 自动拉起 sidecar 进程
       startup-timeout-ms: 30000
+    # DeepSeek Harness 仍处于 Developer Preview：默认关闭。开启后也只有 Sidecar 使用锁定 SDK
+    # 与下方 Runtime 完成身份握手，前端才会出现 DeepSeek Harness 选项。
+    deepseek-harness:
+      enabled: false
+      command: ""           # 官方 dsh-jsonrpc-agent / Runtime 可执行命令；不通过 Shell 拼接
+      args: []               # argv 数组，例如 ["path/to/runtime-entry.js", "path/to/cordis.yml"]
+      provider: deepseek-official
+      model: deepseek-v4-flash
+      max-tokens: 49152
+      handshake-timeout-ms: 15000
+      turn-timeout-ms: 1800000
     # BOSS 直聘风控码拦截器（ctx.route + route.fetch 改写 JSON code）。默认 false：它对每个 XHR 做
     # 服务端重放，经代理对 zhipin 域易超时/失败，曾引发 navigate 崩溃 / 卡加载 / 渲染进程 OOM 白屏；
     # 未触发风控时无收益。仅在确认被风控弹回（code 31/32/35/36/37/5012）时再设 true。

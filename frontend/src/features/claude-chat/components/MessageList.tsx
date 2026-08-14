@@ -11,7 +11,7 @@ import { ToolCallBubble } from './ToolCallBubble'
 import { Markdown } from './Markdown'
 import { ImageLightbox } from './ImageLightbox'
 import { ThinkingIndicator, type ActiveTask } from './ThinkingIndicator'
-import { EngineIcon } from './EngineIcon'
+import { EngineIcon, engineIdFromDisplayName } from './EngineIcon'
 
 interface Props {
   items: ChatItem[]
@@ -626,7 +626,7 @@ function AssistantIdentityIcon({ avatarUrl, alt, engineLabel }: { avatarUrl?: st
     return <img src={avatarUrl} alt={alt || 'AI'} className="size-8 rounded-full object-cover"
       onError={() => setFailed(true)} />
   }
-  return <EngineIcon engine={engineLabel?.split(' ·', 1)[0].toLowerCase() ?? 'claude'}
+  return <EngineIcon engine={engineIdFromDisplayName(engineLabel)}
     thirdParty={engineLabel?.includes('· 第三方')} className="size-5" title={engineLabel} />
 }
 

@@ -19,6 +19,7 @@ public sealed interface ServerMessage
                 ServerMessage.ReplayGap, ServerMessage.Result, ServerMessage.TurnInfo,
                 ServerMessage.TurnProgress, ServerMessage.Warning, ServerMessage.ToolActivity,
                 ServerMessage.TurnActivity, ServerMessage.CodexActivity,
+                ServerMessage.EngineEvent,
                 ServerMessage.InterruptState,
                 ServerMessage.Error, ServerMessage.BackgroundTasks,
                 ServerMessage.PendingSessions, ServerMessage.QueueDispatched {
@@ -116,6 +117,12 @@ public sealed interface ServerMessage
     @JsonTypeName("codexActivity")
     record CodexActivity(long seq, String activityType, String itemId, String status,
                          String title, String detail, Object data) implements ServerMessage {}
+
+    /** 供应商无关的统一引擎事件；Sidecar 已剥离 provider-native 原始对象。 */
+    @JsonTypeName("engineEvent")
+    record EngineEvent(long seq, int protocolVersion, String eventId, String sessionId,
+                       String turnId, String engine, String eventType, long observedAt,
+                       Map<String, Object> payload) implements ServerMessage {}
 
     /** 中断协议进度：requested/accepted/correcting/alreadyStopped/forced。 */
     @JsonTypeName("interruptState")

@@ -4,6 +4,8 @@ import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 /** claude-chat 工具配置。sidecar 启动与连接参数。 */
 @Data
 @Component
@@ -49,4 +51,21 @@ public class ClaudeChatProperties {
      * 开发文档生成偶尔会跑到 5 分钟以上）。
      */
     private long agentOneShotTimeoutMs = 1_200_000L;
+
+    /** DeepSeek Harness Developer Preview；默认关闭，只有 Sidecar/Runtime 握手通过后才对前端开放。 */
+    private DeepSeekHarness deepseekHarness = new DeepSeekHarness();
+
+    @Data
+    public static class DeepSeekHarness {
+        private boolean enabled;
+        /** 官方 JSON-RPC Runtime 可执行命令，不经过 Shell 二次解析。 */
+        private String command = "";
+        /** Runtime 参数数组，每个元素按 Process argv 原样传递。 */
+        private List<String> args = List.of();
+        private String provider = "deepseek-official";
+        private String model = "deepseek-v4-flash";
+        private Integer maxTokens;
+        private long handshakeTimeoutMs = 15_000L;
+        private long turnTimeoutMs = 30 * 60_000L;
+    }
 }

@@ -5,6 +5,7 @@ import path from 'node:path'
 import { SessionManager } from './sessionManager.js'
 import { AgentTracing } from './telemetry/agentTracing.js'
 import { initializeTelemetry, shutdownTelemetry } from './telemetry/telemetry.js'
+import { EngineCatalog } from './engine/engineCatalog.js'
 
 const port = Number(process.env.CLAUDE_CHAT_SIDECAR_PORT) || 18890
 initializeTelemetry()
@@ -50,7 +51,14 @@ const emit = (sessionId: string, event: Record<string, unknown>): void => {
   }
 }
 
-const manager = new SessionManager(emit)
+const engineCatalog = new EngineCatalog()
+const manager = new SessionManager(emit, engineCatalog)
+void engineCatalog.list(true).then(entries => {
+  const summary = entries.map(entry => `${entry.id}:${entry.probe.status}`).join(', ')
+  console.log(`[sidecar] engine catalog ready ${summary}`)
+}).catch(error => {
+  console.error('[sidecar] engine catalog warmup failed:', error)
+})
 
 // 是否已成功监听。监听建立【前】的致命错误（尤其 EADDRINUSE：端口已被另一个 sidecar 占用）绝不能被
 // 兜住变成「活着但没监听」的僵尸——那会打乱后端「spawn 失败→退出→回落连到已有实例」的自愈，导致
@@ -199,6 +207,20 @@ wss.on('connection', (ws) => {
           requestId: msg.requestId as string | undefined,
           ...manager.runtimeState(sessionId, msg.turnId as string | undefined),
         })
+        break
+      case 'queryEngineCatalog':
+        void engineCatalog.list(msg.refresh === true).then(entries => emit('engine-catalog', {
+          type: 'engineCatalog',
+          requestId: msg.requestId as string | undefined,
+          protocolVersion: 1,
+          engines: entries,
+        })).catch(error => emit('engine-catalog', {
+          type: 'engineCatalog',
+          requestId: msg.requestId as string | undefined,
+          protocolVersion: 1,
+          engines: [],
+          error: error instanceof Error ? error.message : String(error),
+        }))
         break
       case 'oneShot':
         agentTracing.begin(sessionId, msg.traceContext, msg.telemetry)

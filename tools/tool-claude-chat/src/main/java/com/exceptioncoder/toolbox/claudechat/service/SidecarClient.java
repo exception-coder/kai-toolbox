@@ -49,6 +49,7 @@ public class SidecarClient implements ReviewThreadForkGateway {
     private volatile WebSocketSession session;
     private final Map<String, CompletableFuture<String>> pendingReviewForks = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<JsonNode>> pendingSessionStateQueries = new ConcurrentHashMap<>();
+    private final Map<String, CompletableFuture<JsonNode>> pendingEngineCatalogQueries = new ConcurrentHashMap<>();
     /** 本实例已随 Spring 上下文停机；不得再建连、不得再上报断开 */
     private volatile boolean shuttingDown;
 
@@ -109,6 +110,7 @@ public class SidecarClient implements ReviewThreadForkGateway {
     public synchronized void shutdown() {
         shuttingDown = true;
         failPendingSessionStateQueries("sidecar客户端已停机");
+        failPendingEngineCatalogQueries("sidecar客户端已停机");
         WebSocketSession cur = session;
         session = null;
         closeQuietly(cur);
@@ -309,6 +311,29 @@ public class SidecarClient implements ReviewThreadForkGateway {
         }
     }
 
+    /** 查询 Sidecar 权威引擎目录；失败或超时返回空，不在 Java 侧猜测实验引擎状态。 */
+    public Optional<JsonNode> queryEngineCatalog(boolean refresh, long timeoutMs) {
+        String requestId = UUID.randomUUID().toString();
+        CompletableFuture<JsonNode> future = new CompletableFuture<>();
+        pendingEngineCatalogQueries.put(requestId, future);
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("type", "queryEngineCatalog");
+        message.put("requestId", requestId);
+        message.put("refresh", refresh);
+        if (!send(message)) {
+            pendingEngineCatalogQueries.remove(requestId);
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(future.get(timeoutMs, TimeUnit.MILLISECONDS));
+        } catch (Exception error) {
+            log.warn("[claude-chat] 查询Sidecar引擎目录失败 request={}", requestId, error);
+            return Optional.empty();
+        } finally {
+            pendingEngineCatalogQueries.remove(requestId);
+        }
+    }
+
     public void setMode(String sessionId, String mode) {
         send(Map.of("type", "setMode", "sessionId", sessionId, "mode", nz(mode)));
     }
@@ -476,6 +501,13 @@ public class SidecarClient implements ReviewThreadForkGateway {
         pendingSessionStateQueries.clear();
     }
 
+    /** 连接失效时结束全部引擎目录查询，避免请求线程等待到超时。 */
+    private void failPendingEngineCatalogQueries(String message) {
+        IllegalStateException error = new IllegalStateException(message);
+        pendingEngineCatalogQueries.values().forEach(future -> future.completeExceptionally(error));
+        pendingEngineCatalogQueries.clear();
+    }
+
     private class ClientHandler extends TextWebSocketHandler {
         @Override
         protected void handleTextMessage(WebSocketSession ws, TextMessage message) {
@@ -493,6 +525,14 @@ public class SidecarClient implements ReviewThreadForkGateway {
                 if ("sessionState".equals(node.path("type").asText())) {
                     String requestId = node.path("requestId").asText();
                     CompletableFuture<JsonNode> future = pendingSessionStateQueries.get(requestId);
+                    if (future != null) {
+                        future.complete(node);
+                    }
+                    return;
+                }
+                if ("engineCatalog".equals(node.path("type").asText())) {
+                    String requestId = node.path("requestId").asText();
+                    CompletableFuture<JsonNode> future = pendingEngineCatalogQueries.get(requestId);
                     if (future != null) {
                         future.complete(node);
                     }
@@ -516,6 +556,7 @@ public class SidecarClient implements ReviewThreadForkGateway {
                 return;
             }
             failPendingSessionStateQueries("sidecar连接已关闭");
+            failPendingEngineCatalogQueries("sidecar连接已关闭");
             log.warn("[claude-chat] 与 sidecar 的连接已关闭：{}", status);
             session = null;
             // 连接级事件：通知 service 把挂着的会话标记 INTERRUPTED

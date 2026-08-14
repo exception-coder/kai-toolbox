@@ -68,6 +68,16 @@ function isSuccessfulTurnCompletion(stopReason: string): boolean {
   return ['end_turn', 'success', 'completed', 'stop'].includes(stopReason.trim().toLowerCase())
 }
 
+function engineSubagentSummary(payload: Record<string, unknown>): { total: number; running: number } {
+  const agents = Array.isArray(payload.agents) ? payload.agents : []
+  const running = agents.filter(agent => {
+    if (!agent || typeof agent !== 'object') return false
+    const state = (agent as Record<string, unknown>).state
+    return state === 'pending' || state === 'running'
+  }).length
+  return { total: agents.length, running }
+}
+
 /** 待发送队列项：running 期间排队的用户消息。 */
 export interface QueuedMessage {
   id: string
@@ -709,6 +719,41 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           copy[index] = next
           return copy
         })
+        break
+      }
+      case 'engineEvent': {
+        // assistant/tool 事件仍由兼容事件渲染，避免迁移期重复展示；这里消费新增的统一状态语义。
+        if (msg.eventType === 'subagents.snapshot') {
+          const summary = engineSubagentSummary(msg.payload)
+          if (summary.running > 0) setRunning(true)
+          setItems(prev => {
+            const id = `engine-subagents-${msg.turnId}`
+            const next = {
+              kind: 'activity' as const,
+              id,
+              activityType: 'subagent',
+              status: summary.running > 0 ? 'inProgress' : 'completed',
+              title: summary.running > 0
+                ? `${msg.engine} 子 Agent 作业中 · ${summary.running}/${summary.total}`
+                : `${msg.engine} 子 Agent 已收口 · ${summary.total}`,
+              data: msg.payload,
+              ts: msg.observedAt,
+            }
+            const index = prev.findIndex(item => item.id === id)
+            if (index < 0) return [...prev, next]
+            const copy = prev.slice()
+            copy[index] = next
+            return copy
+          })
+        } else if (msg.eventType === 'engine.connection') {
+          const transport = typeof msg.payload.transport === 'string' ? msg.payload.transport : 'unknown'
+          setItems(prev => [...prev, {
+            kind: 'activity', id: `engine-connection-${msg.eventId}`, activityType: 'connection',
+            status: transport === 'connected' ? 'completed' : 'inProgress',
+            title: transport === 'connected' ? `${msg.engine} 已连接` : `${msg.engine} ${transport}`,
+            data: msg.payload, ts: msg.observedAt,
+          }])
+        }
         break
       }
       case 'result': {

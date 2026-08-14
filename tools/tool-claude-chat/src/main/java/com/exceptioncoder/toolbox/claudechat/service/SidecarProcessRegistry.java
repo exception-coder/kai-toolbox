@@ -1,6 +1,8 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -31,13 +33,16 @@ public class SidecarProcessRegistry {
 
     private final ClaudeChatProperties props;
     private final int serverPort;
+    private final ObjectMapper objectMapper;
     private volatile Process process;
     /** 遗留 sidecar 的清理在本 JVM 内只做一次（见 {@link #ensureStarted()}） */
     private volatile boolean orphanCleaned;
 
     public SidecarProcessRegistry(ClaudeChatProperties props,
+                                  ObjectMapper objectMapper,
                                   @org.springframework.beans.factory.annotation.Value("${server.port:8080}") int serverPort) {
         this.props = props;
+        this.objectMapper = objectMapper;
         this.serverPort = serverPort;
     }
 
@@ -80,10 +85,37 @@ public class SidecarProcessRegistry {
         pb.environment().put("CLAUDE_CHAT_SIDECAR_PORT", String.valueOf(props.getSidecarPort()));
         // 后端 HTTP 基址：供 sidecar 的 erp_db 只读 MCP 回灌查询（本机）
         pb.environment().put("TOOLBOX_API_BASE", "http://127.0.0.1:" + serverPort);
+        applyDeepSeekHarnessEnvironment(pb);
 
         process = pb.start();
         startLogPump(process);
         log.info("[claude-chat] sidecar 已启动，pid={}, port={}", process.pid(), props.getSidecarPort());
+    }
+
+    /** 将结构化配置传给 Sidecar；command/args 始终保持 argv 语义，不拼 Shell 字符串。 */
+    void applyDeepSeekHarnessEnvironment(ProcessBuilder builder) throws IOException {
+        ClaudeChatProperties.DeepSeekHarness config = props.getDeepseekHarness();
+        builder.environment().put("KAI_DEEPSEEK_HARNESS_ENABLED", Boolean.toString(config.isEnabled()));
+        putIfText(builder, "KAI_DEEPSEEK_HARNESS_COMMAND", config.getCommand());
+        putIfText(builder, "KAI_DEEPSEEK_HARNESS_PROVIDER", config.getProvider());
+        putIfText(builder, "KAI_DEEPSEEK_HARNESS_MODEL", config.getModel());
+        if (config.getMaxTokens() != null) {
+            builder.environment().put("KAI_DEEPSEEK_HARNESS_MAX_TOKENS", config.getMaxTokens().toString());
+        }
+        builder.environment().put("KAI_DEEPSEEK_HARNESS_HANDSHAKE_TIMEOUT_MS",
+                Long.toString(config.getHandshakeTimeoutMs()));
+        builder.environment().put("KAI_DEEPSEEK_HARNESS_TURN_TIMEOUT_MS",
+                Long.toString(config.getTurnTimeoutMs()));
+        try {
+            builder.environment().put("KAI_DEEPSEEK_HARNESS_ARGS",
+                    objectMapper.writeValueAsString(config.getArgs() == null ? List.of() : config.getArgs()));
+        } catch (JsonProcessingException e) {
+            throw new IOException("序列化 DeepSeek Harness Runtime 参数失败", e);
+        }
+    }
+
+    private static void putIfText(ProcessBuilder builder, String key, String value) {
+        if (value != null && !value.isBlank()) builder.environment().put(key, value.trim());
     }
 
     /** sidecar 所在目录（已按三级策略定位），供版本自检等只读用途复用同一份定位逻辑。 */

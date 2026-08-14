@@ -32,11 +32,13 @@ import {
   configuredMcpToolTimeoutMs,
   type McpToolWatchdogEntry,
 } from './mcpToolWatchdog.js'
-import { builtinEngineRegistry } from './engine/builtinEngineAdapters.js'
-import { isBuiltinEngineId, type BuiltinEngineId } from './engine/engineContract.js'
-import { deriveEngineRuntimeSnapshot } from './engine/runtimeStateCoordinator.js'
+import { createBuiltinEngineRegistry } from './engine/builtinEngineAdapters.js'
+import { isEngineId, publicAgentEvent, type EngineId, type EngineImageInput } from './engine/engineContract.js'
+import type { EngineAdapterRegistry } from './engine/engineRegistry.js'
+import { DeepSeekHarnessAdapter, deepSeekHarnessConfigFromEnv } from './engine/deepSeekHarnessAdapter.js'
+import type { EngineCatalog } from './engine/engineCatalog.js'
 
-export type Engine = BuiltinEngineId
+export type Engine = EngineId
 
 type Emit = (sessionId: string, event: Record<string, unknown>) => void
 
@@ -295,6 +297,7 @@ class Session {
   demoApiBase?: string
   private abort?: AbortController
   private readonly turnLifecycle = new TurnLifecycle()
+  private readonly engineRegistry: EngineAdapterRegistry
   private readonly mcpToolWatchdog: McpToolWatchdog
   private turnActivityStartedAt = 0
   private turnActivityPhase = 'starting'
@@ -334,6 +337,26 @@ class Session {
     private readonly emitRaw: (e: Record<string, unknown>) => void,
   ) {
     this.perms = new Permissions(event => this.emitTurn(event))
+    this.engineRegistry = createBuiltinEngineRegistry({
+      claude: request => this.runClaudeTurn(
+        request.text,
+        request.systemPrompt,
+        request.images as OneShotImage[] | undefined,
+        request.developerInstructions,
+        [...request.additionalDirectories],
+      ),
+      codex: request => this.runCodexTurn(request.text, request.developerInstructions),
+      gemini: request => this.runGeminiTurn(
+        request.text,
+        request.developerInstructions,
+        [...request.additionalDirectories],
+      ),
+      opencode: request => this.runOpencodeTurn(request.text, request.developerInstructions),
+    }, async () => { this.abort?.abort() })
+    const deepSeekConfig = { ...deepSeekHarnessConfigFromEnv(), cwd: this.cwd }
+    if (deepSeekConfig.enabled) {
+      this.engineRegistry.register(new DeepSeekHarnessAdapter(deepSeekConfig))
+    }
     this.mcpToolWatchdog = new McpToolWatchdog({
       timeoutMs: configuredMcpToolTimeoutMs(),
       heartbeatMs: configuredMcpToolHeartbeatMs(),
@@ -520,13 +543,45 @@ class Session {
 
   private executeTurn(text: string, systemPrompt?: string, images?: OneShotImage[],
                       developerInstructions?: string, additionalDirectories: string[] = []): Promise<void> {
-    const executions: Record<Engine, () => Promise<void>> = {
-      claude: () => this.runClaudeTurn(text, systemPrompt, images, developerInstructions, additionalDirectories),
-      codex: () => this.runCodexTurn(text, developerInstructions),
-      gemini: () => this.runGeminiTurn(text, developerInstructions, additionalDirectories),
-      opencode: () => this.runOpencodeTurn(text, developerInstructions),
+    return this.engineRegistry.runTurn(this.engine, {
+      sessionId: this.id,
+      turnId: this.turnLifecycle.snapshot().activeTurnId ?? 'unknown',
+      text,
+      systemPrompt,
+      images: images as EngineImageInput[] | undefined,
+      developerInstructions,
+      additionalDirectories,
+      signal: this.abort?.signal,
+      emit: event => this.emitEngineEvent(event),
+    })
+  }
+
+  private emitEngineEvent(event: import('./engine/engineContract.js').AgentEvent): void {
+    if (event.type === 'assistant.delta' && typeof event.payload.text === 'string') {
+      this.emitTurn({ type: 'assistantDelta', text: event.payload.text })
     }
-    return builtinEngineRegistry.runTurn(this.engine, { execute: executions[this.engine] })
+    if (event.type === 'tool.started') {
+      const toolCallId = typeof event.payload.toolCallId === 'string' ? event.payload.toolCallId : event.eventId
+      const toolName = typeof event.payload.toolName === 'string' ? event.payload.toolName : 'tool'
+      this.emitTurn({ type: 'toolUse', toolCallId, toolName, input: event.payload.input ?? {} })
+      this.emitTurn({
+        type: 'toolActivity', toolCallId, toolName, status: 'inProgress',
+        title: `${toolName} 执行中`, detail: 'DeepSeek Harness 正在调用工具',
+      })
+    }
+    if (event.type === 'tool.completed') {
+      const toolCallId = typeof event.payload.toolCallId === 'string' ? event.payload.toolCallId : event.eventId
+      const toolName = typeof event.payload.toolName === 'string' ? event.payload.toolName : 'tool'
+      const output = typeof event.payload.output === 'string' ? event.payload.output : ''
+      const isError = event.payload.isError === true
+      this.emitTurn({ type: 'toolResult', toolCallId, toolName, output, isError })
+      this.emitTurn({
+        type: 'toolActivity', toolCallId, toolName, status: 'completed',
+        title: isError ? `${toolName} 未通过` : `${toolName} 已完成`, outputTail: output,
+        outcome: isError ? 'failed' : 'success', severity: isError ? 'warning' : 'neutral',
+      })
+    }
+    this.emitTurn({ type: 'engineEvent', engineEvent: publicAgentEvent(event) })
   }
 
   private async runClaudeTurn(text: string, systemPrompt?: string, images?: OneShotImage[],
@@ -840,6 +895,12 @@ class Session {
    * Claude 则重发最近一次 SDK init 快照，下一轮 SDK init 会继续更新该快照。
    */
   refreshCapabilities(): void {
+    if (this.engine === 'deepseekHarness') {
+      this.emitTurn({
+        type: 'init', sdkSessionId: null, slashCommands: [], skills: [], agents: [], mcpServers: [], outputStyle: null,
+      })
+      return
+    }
     if (this.engine === 'opencode') {
       void emitOpencodeModels(this.cwd, event => this.emitTurn(event), this.model)
       return
@@ -1051,11 +1112,11 @@ class Session {
     console.log(`[sidecar] interrupt requested session=${this.id} engine=${this.engine} active=${hadActiveTurn} pendingDecision=${hadPending} outcome=${snapshot.outcome} turn=${snapshot.activeTurnId ?? 'none'}`)
     if (snapshot.outcome !== 'accepted') return snapshot
     if (!hadPending) {
-      this.abort?.abort() // 无未决审批，没什么要等的，立刻关
+      void this.interruptEngine() // 无未决审批，没什么要等的，立刻关
     } else {
       // 有未决审批：让 canUseTool 的续体跑完、SDK 把 deny 的 control_response 写出去，再关传输层。
       // setTimeout(0) 排在整个微任务队列之后，足以覆盖 promise 链；这点延迟对「中断」体感无影响。
-      setTimeout(() => this.abort?.abort(), INTERRUPT_DENY_FLUSH_MS)
+      setTimeout(() => { void this.interruptEngine() }, INTERRUPT_DENY_FLUSH_MS)
     }
     const interruptedTurnId = snapshot.activeTurnId
     const fallback = setTimeout(() => {
@@ -1068,6 +1129,19 @@ class Session {
     return snapshot
   }
 
+  private async interruptEngine(): Promise<void> {
+    try {
+      await this.engineRegistry.interrupt(this.engine)
+    } catch (error) {
+      console.error(`[sidecar] native interrupt failed session=${this.id} engine=${this.engine}:`, error)
+      this.emitTurn({
+        type: 'error',
+        code: 'ENGINE_INTERRUPT_FAILED',
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
   turnState(expectedTurnId?: string): InterruptSnapshot {
     return this.turnLifecycle.snapshot(expectedTurnId)
   }
@@ -1078,7 +1152,7 @@ class Session {
     const active = turn.active
     const pendingDecision = this.perms.hasPending()
     const phase = active ? this.turnActivityPhase : undefined
-    const engineState = deriveEngineRuntimeSnapshot({
+    const engineState = this.engineRegistry.runtimeState(this.engine, {
       active,
       pendingDecision,
       phase,
@@ -1118,6 +1192,10 @@ class Session {
     delete env.ANTHROPIC_API_KEY
     return env
   }
+
+  async dispose(): Promise<void> {
+    await this.engineRegistry.dispose()
+  }
 }
 
 /** 多会话路由：一个 sidecar 进程内按 sessionId 管理多个 Session。 */
@@ -1127,7 +1205,7 @@ export class SessionManager {
   private oneShotControllers = new Map<string, AbortController>()
   private pendingCodexOptions = new Map<string, { reasoningEffort?: CodexReasoningEffort; speed: CodexSpeed }>()
 
-  constructor(private emit: Emit) {
+  constructor(private emit: Emit, private readonly engineCatalog?: EngineCatalog) {
     // 启动即预热 Claude 模型清单（控制请求，不跑对话），消除重启后首次进会话的空窗
     void prewarmClaudeModels()
     // 定时同步：Claude Code 会自更新，二进制升级后支持的模型会变。每 6 小时重新询问一次并广播给所有
@@ -1151,6 +1229,10 @@ export class SessionManager {
       }
       if (s?.engine === 'codex') {
         await this.refreshCodexModels(sessionId, s, true)
+        return
+      }
+      if (s?.engine === 'deepseekHarness') {
+        this.emit(sessionId, { type: 'models', models: [], current: null })
         return
       }
       if (s && s.engine === 'claude') {
@@ -1194,9 +1276,10 @@ export class SessionManager {
   start(id: string, cwd: string, model?: string, mode?: string, engine?: string, apiBaseUrl?: string, authToken?: string, codexHome?: string,
         demo?: boolean, demoApiBase?: string, autoApprove?: boolean, codexReasoningEffort?: string, codexSpeed?: string,
         toolPolicy?: string, consultEvidenceSystems: string[] = []): void {
+    if (!this.acceptEngine(id, engine)) return
     const s = new Session(id, cwd || process.env.HOME || process.cwd(), (e) => this.emit(id, e))
     if (model) s.model = model
-    if (isBuiltinEngineId(engine)) s.engine = engine
+    if (isEngineId(engine)) s.engine = engine
     if (apiBaseUrl) { s.apiBaseUrl = apiBaseUrl; s.authToken = authToken }
     if (codexHome) s.codexHome = codexHome
     if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
@@ -1236,6 +1319,7 @@ export class SessionManager {
   resume(id: string, sdkSessionId: string, cwd: string, engine?: string, apiBaseUrl?: string, authToken?: string, codexHome?: string,
          mode?: string, autoApprove?: boolean, model?: string, codexReasoningEffort?: string, codexSpeed?: string,
          toolPolicy?: string, consultEvidenceSystems: string[] = []): void {
+    if (!this.acceptEngine(id, engine)) return
     let s = this.sessions.get(id)
     if (!s) {
       s = new Session(id, cwd, (e) => this.emit(id, e))
@@ -1243,7 +1327,7 @@ export class SessionManager {
     }
     if (sdkSessionId) s.sdkSessionId = sdkSessionId
     if (cwd) s.cwd = cwd
-    if (isBuiltinEngineId(engine)) s.engine = engine
+    if (isEngineId(engine)) s.engine = engine
     if (apiBaseUrl) { s.apiBaseUrl = apiBaseUrl; s.authToken = authToken }
     s.codexHome = codexHome || undefined
     if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
@@ -1474,7 +1558,7 @@ export class SessionManager {
   switchEngine(id: string, engine: string, sdkSessionId?: string, apiBaseUrl?: string, authToken?: string): void {
     const s = this.sessions.get(id)
     if (!s) return
-    if (!isBuiltinEngineId(engine)) return
+    if (!isEngineId(engine) || !this.acceptEngine(id, engine)) return
     s.engine = engine
     s.sdkSessionId = sdkSessionId && sdkSessionId.length > 0 ? sdkSessionId : undefined
     const nextBaseUrl = apiBaseUrl?.trim()
@@ -1534,10 +1618,23 @@ export class SessionManager {
   }
 
   drop(id: string): void {
-    this.sessions.get(id)?.interrupt()
+    const session = this.sessions.get(id)
+    session?.interrupt()
+    void session?.dispose()
     this.sessions.delete(id)
     this.pendingCodexOptions.delete(id)
     this.reviewConfiguration.delete(id)
+  }
+
+  private acceptEngine(id: string, engine: unknown): boolean {
+    if (!isEngineId(engine)) return true
+    if (engine !== 'deepseekHarness' || this.engineCatalog?.selectableNow(engine) === true) return true
+    this.emit(id, {
+      type: 'error',
+      code: 'ENGINE_UNAVAILABLE',
+      message: 'DeepSeek Harness 尚未通过当前 Sidecar 的 Runtime 握手，不能创建或切换会话',
+    })
+    return false
   }
 
   /**

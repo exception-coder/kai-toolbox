@@ -54,7 +54,7 @@ import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
-import { fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getReviewRelations, getSessionCommitDiff, getSessionPendingSql, handleReviewFeedback, listSessionCommits, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type ReviewFeedbackView, type SessionUsage } from '../api'
+import { fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getReviewRelations, getSessionCommitDiff, getSessionPendingSql, handleReviewFeedback, listEngineCatalog, listSessionCommits, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type ReviewFeedbackView, type SessionUsage } from '../api'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 import type { ChatItem, ModelInfo, SessionPendingSql } from '../types'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
@@ -94,6 +94,7 @@ import { SessionWorkStatus } from '../components/SessionWorkStatus'
 import { SessionRuntimeHealth } from '../components/SessionRuntimeHealth'
 import { ReviewShareDialog } from '../components/ReviewShareDialog'
 import { SessionSummaryBar } from '../components/SessionSummaryBar'
+import { selectableEngineIds } from '../lib/engineCatalog'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
 
@@ -180,6 +181,17 @@ export function ChatPage() {
   )
   const qc = useQueryClient()
   const pending = chat?.pending ?? null
+  const engineCatalogQuery = useQuery({
+    queryKey: ['claude-chat-engine-catalog'],
+    queryFn: () => listEngineCatalog(false),
+    staleTime: 30_000,
+    retry: 1,
+  })
+  const selectableEngines = useMemo(
+    () => selectableEngineIds(engineCatalogQuery.data),
+    [engineCatalogQuery.data],
+  )
+  const [engineCatalogRefreshing, setEngineCatalogRefreshing] = useState(false)
 
   // 新建/续接会话后，sessionId 变化即刷新会话列表缓存，让左侧常驻导航与「会话」面板立刻出现该会话。
   // 否则新会话只在缓存过期(staleTime)、窗口重新聚焦或手动开一次「会话」面板(重挂 SessionList 触发拉取)后才显示
@@ -666,6 +678,11 @@ export function ChatPage() {
   const projectMention = useProjectMention(draft, setDraft, taRef, { onPickPrd: handlePrdMention })
   const engineWatermark = useRef<Record<string, number>>({}) // 每引擎"上次看到的消息位置"，切 agent 时算增量 seed
 
+  // 实验引擎的运行时握手可能在面板打开期间失效；此时不能留下一个后端会拒绝的新建选项。
+  useEffect(() => {
+    if (!selectableEngines.includes(newEngine)) setNewEngine('claude')
+  }, [newEngine, selectableEngines])
+
   // 新建会话：网关模型按平台分组 + 平台二级筛选（网关动辄上百个，平铺难选）
   const providerModelGroups = useMemo(() => groupModels(providerModels), [providerModels])
   const shownNewModels = newModelPlatform === 'all'
@@ -842,6 +859,7 @@ export function ChatPage() {
   }
   const currentProviderHost = providerHost(chat?.currentProviderBaseUrl ?? null)
   const currentEngineLabel = engineDisplayName(chat?.currentEngine ?? 'claude', chat?.currentProviderKind)
+  const currentEngineCatalogEntry = engineCatalogQuery.data?.engines.find(entry => entry.id === chat?.currentEngine)
   const currentEngineTitle = chat?.currentProviderKind === 'thirdParty'
     ? `切换 agent（当前 Claude 使用第三方网关：${currentProviderHost ?? chat.currentProviderBaseUrl ?? '未知'}）`
     : '切换 agent（会话内切换，自动带上下文）'
@@ -1053,7 +1071,7 @@ export function ChatPage() {
                   <div className="fixed inset-0 z-10" onClick={() => setEngineMenuOpen(false)} />
                   <div className="absolute left-0 top-full z-20 mt-1 w-36 rounded-lg border bg-[var(--color-card)] p-1 shadow-lg">
                     <div className="px-2 py-1 text-[10px] text-[var(--color-muted-foreground)]">切 agent（带上下文）</div>
-                    {(['claude', 'codex', 'gemini', 'opencode'] as Engine[]).map(eng => (
+                    {selectableEngines.map(eng => (
                       <button
                         key={eng}
                         type="button"
@@ -1403,7 +1421,7 @@ export function ChatPage() {
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <span className="text-xs text-[var(--color-muted-foreground)]">引擎</span>
-            {(['claude', 'codex', 'gemini', 'opencode'] as Engine[]).map(eng => (
+            {selectableEngines.map(eng => (
               <button
                 key={eng}
                 type="button"
@@ -1424,7 +1442,31 @@ export function ChatPage() {
             {newEngine === 'opencode' && (
               <span className="text-xs text-[var(--color-muted-foreground)]">（多 provider agent，跑第三方模型推荐；需本机装 opencode 并配置 provider：opencode auth login）</span>
             )}
+            {newEngine === 'deepseekHarness' && (
+              <span className="text-xs text-[var(--color-muted-foreground)]">（实验能力 · 已通过 Sidecar 与 Harness 运行时握手）</span>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setEngineCatalogRefreshing(true)
+                void listEngineCatalog(true)
+                  .then(catalog => qc.setQueryData(['claude-chat-engine-catalog'], catalog))
+                  .catch(() => qc.invalidateQueries({ queryKey: ['claude-chat-engine-catalog'] }))
+                  .finally(() => setEngineCatalogRefreshing(false))
+              }}
+              disabled={engineCatalogQuery.isFetching || engineCatalogRefreshing}
+              className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[11px] text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] disabled:opacity-50"
+              title="重新检测本机可用引擎"
+            >
+              <RefreshCw className={cn('size-3', (engineCatalogQuery.isFetching || engineCatalogRefreshing) && 'animate-spin')} />
+              检测引擎
+            </button>
           </div>
+          {(engineCatalogQuery.error || engineCatalogQuery.data?.error) && (
+            <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+              Sidecar 引擎目录暂不可用，已保留稳定引擎；实验引擎不会被猜测启用。
+            </p>
+          )}
           {newEngine === 'codex' && newProviderId === '' && (
             <div className="mt-3 rounded-lg border bg-[var(--color-muted)]/30 p-3">
               <label className="mb-1 block text-xs font-medium" htmlFor="vibe-coding-codex-home">
@@ -1972,8 +2014,17 @@ export function ChatPage() {
                 />
               </div>
             )}
+            {chat.currentEngine === 'deepseekHarness' && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-xs text-blue-700 dark:text-blue-300"
+                title={currentEngineCatalogEntry?.probe.detail ?? 'DeepSeek Harness Runtime 握手已通过'}
+              >
+                <EngineIcon engine="deepseekHarness" className="size-3.5" />
+                实验 · SDK JSON-RPC{currentEngineCatalogEntry?.probe.runtimeVersion ? ` · ${currentEngineCatalogEntry.probe.runtimeVersion}` : ''}
+              </span>
+            )}
             {/* 服务商切换与权限组语义不同：用左外边距推到右侧，避免和权限按钮挤在一起 */}
-            {!reviewOnlySession && <div className="order-1 ml-auto sm:order-none">
+            {!reviewOnlySession && (chat.currentEngine === 'claude' || chat.currentEngine === 'codex' || chat.currentEngine === 'gemini') && <div className="order-1 ml-auto sm:order-none">
               <ProviderSwitch
                 engine={chat.currentEngine}
                 providerKind={chat.currentProviderKind}

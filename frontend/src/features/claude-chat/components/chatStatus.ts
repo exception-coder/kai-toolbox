@@ -25,7 +25,11 @@ export function stateTone(s: string): StatusTone {
 
 /** 引擎显示名。 */
 export function engineName(e: Engine): string {
-  return e === 'codex' ? 'Codex' : e === 'gemini' ? 'Gemini' : e === 'opencode' ? 'OpenCode' : 'Claude'
+  return e === 'codex' ? 'Codex'
+    : e === 'gemini' ? 'Gemini'
+      : e === 'opencode' ? 'OpenCode'
+        : e === 'deepseekHarness' ? 'DeepSeek Harness'
+          : 'Claude'
 }
 
 /** 引擎 + 服务商显示名：走第三方网关的引擎（Claude/Codex）显式标「· 第三方」，避免与官方登录混淆。 */

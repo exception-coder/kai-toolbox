@@ -8,7 +8,7 @@ import type {
   GitRepoRef,
   GitStatusResponse,
 } from '@/components/git/types'
-import type { ChatItem, ClaudeChatSessionView, CloneResult, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PendingSqlChangeType, PendingSqlStatus, PluginStatus, ServerMessage, SessionPendingSql, SessionRuntimeState, SessionSiteConfiguration, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
+import type { ChatItem, ClaudeChatSessionView, CloneResult, EngineCatalogView, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PendingSqlChangeType, PendingSqlStatus, PluginStatus, ServerMessage, SessionPendingSql, SessionRuntimeState, SessionSiteConfiguration, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
 import { normalizeUserMessageForDisplay } from './messageDisplay'
 
 /** 查询会话关联的 SQL 登记；未登记返回 null。 */
@@ -215,6 +215,11 @@ export function testServerPush(config: NotifyConfig) {
 
 export function listSessions() {
   return http<ClaudeChatSessionView[]>('/claude-chat/sessions')
+}
+
+/** Sidecar 权威引擎目录；refresh=true 会跳过短缓存并重新执行实验引擎握手。 */
+export function listEngineCatalog(refresh = false) {
+  return http<EngineCatalogView>(`/claude-chat/sessions/engine-catalog${refresh ? '?refresh=true' : ''}`)
 }
 
 /** 实时核对浏览器、Java、Sidecar与Agent的全链路会话状态。 */

@@ -6,6 +6,7 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.ClientMessage;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ServerMessage;
 import com.exceptioncoder.toolbox.claudechat.api.dto.RenameSessionProjectRequest;
 import com.exceptioncoder.toolbox.claudechat.api.dto.SessionRuntimeStateView;
+import com.exceptioncoder.toolbox.claudechat.api.dto.EngineCatalogView;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.domain.SessionPlanState;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
@@ -16,6 +17,7 @@ import com.exceptioncoder.toolbox.claudechat.service.SessionProjectService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionProjectDirectoryService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionSiteService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionRuntimeStateService;
+import com.exceptioncoder.toolbox.claudechat.service.EngineCatalogService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -46,6 +48,7 @@ public class ClaudeChatSessionController {
     private final SessionSiteService sessionSiteService;
     private final SessionProjectDirectoryService sessionProjectDirectoryService;
     private final SessionRuntimeStateService runtimeStateService;
+    private final EngineCatalogService engineCatalogService;
 
     public ClaudeChatSessionController(ClaudeChatSessionRepository repo, ClaudeChatService service,
                                        SessionHistoryService historyService,
@@ -53,7 +56,8 @@ public class ClaudeChatSessionController {
                                        SessionProjectService sessionProjectService,
                                        SessionSiteService sessionSiteService,
                                        SessionProjectDirectoryService sessionProjectDirectoryService,
-                                       SessionRuntimeStateService runtimeStateService) {
+                                       SessionRuntimeStateService runtimeStateService,
+                                       EngineCatalogService engineCatalogService) {
         this.repo = repo;
         this.service = service;
         this.historyService = historyService;
@@ -62,6 +66,7 @@ public class ClaudeChatSessionController {
         this.sessionSiteService = sessionSiteService;
         this.sessionProjectDirectoryService = sessionProjectDirectoryService;
         this.runtimeStateService = runtimeStateService;
+        this.engineCatalogService = engineCatalogService;
     }
 
     @GetMapping
@@ -131,6 +136,12 @@ public class ClaudeChatSessionController {
         return runtimeStateService.inspect(id)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** 返回经过 Sidecar Runtime 探活的引擎目录，供新建和切换会话共同使用。 */
+    @GetMapping("/engine-catalog")
+    public EngineCatalogView engineCatalog(@RequestParam(defaultValue = "false") boolean refresh) {
+        return engineCatalogService.list(refresh);
     }
 
     /** 将项目及其全部会话原子重命名，保留需求子分组。 */

@@ -331,10 +331,35 @@ export type SendAttachment = Attachment & { mime?: string; url?: string }
 /** 权限模式：与 sidecar Agent SDK 的 permissionMode 对齐。 */
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
 
-/** 会话引擎：claude（Claude Agent SDK）/ codex（OpenAI Codex SDK）/ gemini（Gemini CLI headless）。会话级固定。 */
-export type Engine = 'claude' | 'codex' | 'gemini' | 'opencode'
+/** 会话引擎。DeepSeek Harness 仅在 Sidecar 运行时握手通过后由引擎目录开放。 */
+export type Engine = 'claude' | 'codex' | 'gemini' | 'opencode' | 'deepseekHarness'
 export type CodexReasoningEffort = string
 export type CodexSpeed = 'default' | 'fast'
+
+export type EngineProbeStatus = 'ready' | 'disabled' | 'dependencyMissing' | 'incompatible' | 'unavailable'
+
+export interface EngineCatalogEntry {
+  id: Engine
+  displayName: string
+  capabilities: string[]
+  availability: 'stable' | 'experimental'
+  selectable: boolean
+  probe: {
+    status: EngineProbeStatus
+    channel?: string | null
+    sdkVersion?: string | null
+    runtimeName?: string | null
+    runtimeVersion?: string | null
+    detail?: string | null
+  }
+}
+
+/** Sidecar 权威引擎目录。error 非空时前端只回退稳定内置引擎，不猜测实验引擎可用性。 */
+export interface EngineCatalogView {
+  protocolVersion: number
+  engines: EngineCatalogEntry[]
+  error?: string | null
+}
 
 /** team-standards 插件单端版本（installed/available 取不到为 null，error 为检测失败原因）。 */
 export interface EnginePluginStatus {
@@ -548,6 +573,12 @@ export interface BackgroundTaskInfo {
   description: string
 }
 
+export type AgentEventType =
+  | 'turn.started' | 'assistant.delta' | 'reasoning.delta'
+  | 'tool.started' | 'tool.progress' | 'tool.completed'
+  | 'subagents.snapshot' | 'turn.finalizing' | 'turn.completed'
+  | 'turn.failed' | 'turn.interrupted' | 'engine.connection' | 'engine.diagnostic'
+
 // ── 服务端 → 客户端（均带 seq）────────────────────────────────────
 export type ServerMessage =
   | { type: 'ready'; seq: number; sessionId: string; sdkSessionId: string | null; slashCommands?: string[]; status?: SessionStatus; activeTurnId?: string | null; epoch?: string; engine?: Engine; providerKind?: ProviderKind; providerBaseUrl?: string | null; skills?: string[]; agents?: string[]; mcpServers?: { name: string; status: string }[]; outputStyle?: string | null; backgroundTasks?: BackgroundTaskInfo[]; selectedModel?: string | null; codexReasoningEffort?: CodexReasoningEffort | null; codexSpeed?: CodexSpeed | null; queueDispatchMode?: 'server' }
@@ -569,6 +600,7 @@ export type ServerMessage =
   | { type: 'toolActivity'; seq: number; toolCallId: string; toolName: string; status: string; title: string; detail?: string | null; elapsedMs?: number | null; outputTail?: string | null; outcome?: string | null; severity?: string | null }
   | { type: 'turnActivity'; seq: number; status: string; phase: string; title: string; detail?: string | null; elapsedMs?: number | null }
   | { type: 'codexActivity'; seq: number; activityType: string; itemId: string; status: string; title: string; detail?: string | null; data?: unknown }
+  | { type: 'engineEvent'; seq: number; protocolVersion: number; eventId: string; sessionId: string; turnId: string; engine: Engine; eventType: AgentEventType; observedAt: number; payload: Record<string, unknown> }
   | { type: 'interruptState'; seq: number; outcome: string; active: boolean; pendingDecision: boolean }
   | { type: 'error'; seq: number; code: string; message: string; terminal?: boolean }
   /** 该会话后台任务的全量快照，收到即整体覆盖（REPLACE 语义）；空数组＝当前没有后台任务在跑。 */

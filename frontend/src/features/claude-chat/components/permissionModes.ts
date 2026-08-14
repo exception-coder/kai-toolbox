@@ -26,9 +26,14 @@ const OPENCODE_MODES: PermissionModeOption[] = [
   { value: 'bypassPermissions', label: '完全访问权限', desc: '自动批准权限请求，OpenCode 显式 deny 仍生效' },
 ]
 
+const DEEPSEEK_HARNESS_MODES: PermissionModeOption[] = [
+  { value: 'default', label: 'Harness 默认', desc: '权限与工具策略由当前已握手的 DeepSeek Harness Runtime 配置管理' },
+]
+
 export function permissionModesForEngine(engine: Engine): PermissionModeOption[] {
   if (engine === 'codex') return CODEX_MODES
   if (engine === 'opencode') return OPENCODE_MODES
+  if (engine === 'deepseekHarness') return DEEPSEEK_HARNESS_MODES
   return CLAUDE_MODES
 }
 
