@@ -987,7 +987,9 @@ export function ChatPage() {
         // relative：给皮肤开启时的 .cc-skin-bg（position:absolute）提供定位上下文，
         // 不能写进 skin.css 的 .cc-skin 规则里——那边懒加载晚于 Tailwind 插入，会把
         // fullscreen 分支 `fixed` 覆盖掉，见 skin.css 顶部注释。
-        : 'relative flex h-[calc(100dvh-3.5rem)] min-w-0 flex-col overflow-x-hidden',
+        // 普通模式由 AppShell 的 flex 主区域分配高度；不要再按旧 TopBar 高度手工扣减，
+        // 否则桌面隐藏 TopBar 后会在页面底部留下同等高度的空白。
+        : 'relative flex h-full min-h-0 min-w-0 flex-col overflow-x-hidden',
       // 皮肤自带底色（见 skin.css 的 --skin-base），开启时让位，避免两层底色叠加
       !skin && (fullscreen ? 'bg-[var(--color-background)]' : 'bg-[var(--color-muted)]/40'),
       skinClass(skin, chat?.currentEngine ?? 'claude', !!chat?.running),
@@ -1605,7 +1607,7 @@ export function ChatPage() {
                 </button>
               )}
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="scrollbar-autohide min-h-0 flex-1 overflow-y-auto">
               {sessTab === 'tool' ? (
                 <>
                   {!selecting && (
@@ -1643,12 +1645,12 @@ export function ChatPage() {
         </SheetContent>
       </Sheet>
       {panel === 'settings' && (
-        <div className="max-h-[60vh] overflow-y-auto border-b">
+        <div className="scrollbar-autohide max-h-[60vh] overflow-y-auto border-b">
           <NotifySettings onClose={() => setPanel('none')} />
         </div>
       )}
       {panel === 'plugins' && (
-        <div className="max-h-[60vh] overflow-y-auto">
+        <div className="scrollbar-autohide max-h-[60vh] overflow-y-auto">
           <PluginPanel sessionId={chat.sessionId ?? undefined} onClose={() => setPanel('none')} />
         </div>
       )}
@@ -1810,7 +1812,7 @@ export function ChatPage() {
                   <PanelLeftClose className="size-4" />
                 </button>
               </div>
-              <div className="min-h-0 flex-1 overflow-y-auto">
+              <div className="scrollbar-autohide min-h-0 flex-1 overflow-y-auto">
                 <RecentSessions currentSessionId={chat.sessionId} onSwitch={(id, hintRunning) => chat.switchTo(id, hintRunning)} />
                 <SessionList
                   currentSessionId={chat.sessionId}

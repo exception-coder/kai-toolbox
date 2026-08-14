@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { Search } from 'lucide-react'
+import { PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { BrandLogo } from './BrandLogo'
 import type { FeatureManifest } from './types'
@@ -10,14 +10,17 @@ import { useVisibleFeatures } from './menuVisibility'
 import { openCommandPalette } from './commandPaletteBus'
 import { AccountMenu } from './AccountMenu'
 import { useBrand } from './brand'
+import { useMockMode } from './useMockMode'
 
 interface SidebarProps {
   features: FeatureManifest[]
   collapsed?: boolean
+  onToggleCollapsed?: () => void
 }
 
-export function Sidebar({ features, collapsed }: SidebarProps) {
+export function Sidebar({ features, collapsed, onToggleCollapsed }: SidebarProps) {
   const { brand } = useBrand()
+  const { enabled: mock } = useMockMode()
   const access = useAccessContext()
   // 先按当前账号角色/权限码过滤：无权模块不出现在菜单（与路由 RouteGuard 配套）。chrome（管理页）不进功能菜单，改由账号菜单呈现。
   const allowed = features.filter(f => !f.chrome && hasFeatureAccess(f, access))
@@ -33,12 +36,39 @@ export function Sidebar({ features, collapsed }: SidebarProps) {
         collapsed ? 'w-16' : 'w-60'
       )}
     >
-      <NavLink to="/" className="flex h-14 items-center gap-2 border-b px-4 hover:bg-[var(--color-sidebar-accent)]">
-        <BrandLogo className="h-5 w-5 shrink-0" />
-        {!collapsed && <span className="truncate text-sm font-semibold tracking-tight">{brand.appName}</span>}
-      </NavLink>
+      <div className="flex h-14 shrink-0 items-center border-b border-[var(--color-sidebar-border)]">
+        <NavLink
+          to="/"
+          className={cn(
+            'flex min-w-0 flex-1 self-stretch items-center gap-2 px-4 hover:bg-[var(--color-sidebar-accent)]',
+            collapsed && 'justify-center px-1',
+          )}
+        >
+          <BrandLogo className="h-5 w-5 shrink-0" />
+          {!collapsed && <span className="truncate text-sm font-semibold tracking-tight">{brand.appName}</span>}
+          {!collapsed && mock && (
+            <span className="shrink-0 rounded border border-amber-500/40 bg-amber-500/10 px-1 py-0.5 text-[9px] font-medium text-amber-600 dark:text-amber-400">
+              MOCK
+            </span>
+          )}
+        </NavLink>
+        {onToggleCollapsed && (
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            title={collapsed ? '展开侧栏' : '收起侧栏'}
+            aria-label={collapsed ? '展开侧栏' : '收起侧栏'}
+            className={cn(
+              'mr-2 flex size-7 shrink-0 items-center justify-center rounded-md text-[var(--color-muted-foreground)] hover:bg-[var(--color-sidebar-accent)] hover:text-[var(--color-sidebar-foreground)]',
+              collapsed && 'mr-1',
+            )}
+          >
+            {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
+          </button>
+        )}
+      </div>
 
-      <nav className="flex-1 overflow-y-auto px-2 py-3">
+      <nav className="scrollbar-autohide flex-1 overflow-y-auto px-2 py-3">
         {/* 搜索/跳转入口：打开命令面板（Ctrl/⌘+K）。放导航顶部，取代原顶栏搜索框。 */}
         <button
           type="button"

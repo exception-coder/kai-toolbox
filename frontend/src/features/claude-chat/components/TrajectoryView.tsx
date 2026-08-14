@@ -128,7 +128,7 @@ export function TrajectoryView({ items, running, loadingEarlier, exhausted, onLo
         onSelect={jumpToRecord}
       />
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      <div className="scrollbar-autohide min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {!exhausted && (
           <div className="flex justify-center border-b border-[var(--color-border)] py-2">
             <button

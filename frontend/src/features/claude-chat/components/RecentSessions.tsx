@@ -122,7 +122,7 @@ export function RecentSessions({ currentSessionId, onSwitch, limit = 12 }: Props
 
       {recent.length === 0 ? (
         <p className="px-3 pb-2 text-xs text-[var(--color-muted-foreground)]">当前状态筛选下没有最近会话</p>
-      ) : <ul className="max-h-[55vh] overflow-y-auto overscroll-contain">
+      ) : <ul className="scrollbar-autohide max-h-[55vh] overflow-y-auto overscroll-contain">
         {recent.map(session => {
           const isActive = session.id === currentSessionId
           const title = session.title?.trim() || shortCwd(session.cwd)

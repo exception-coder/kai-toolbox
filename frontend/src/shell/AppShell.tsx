@@ -78,14 +78,14 @@ export function AppShell() {
       style={{ height: 'var(--app-vh, 100vh)' }}
     >
       {shellless ? (
-        <main className="min-w-0 flex-1 overflow-y-auto">
+        <main className="scrollbar-autohide min-w-0 flex-1 overflow-y-auto">
           <Outlet />
         </main>
       ) : (
       <>
       {/* 桌面：常驻侧栏（md 及以上） */}
       <div className="hidden md:flex">
-        <Sidebar features={features} collapsed={collapsed} />
+        <Sidebar features={features} collapsed={collapsed} onToggleCollapsed={() => setCollapsed(c => !c)} />
       </div>
 
       {/* 移动端：通过 Sheet 抽屉打开（宽度对齐 Sidebar 默认展开宽度 w-60） */}
@@ -97,13 +97,10 @@ export function AppShell() {
       </Sheet>
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        <TopBar
-          onToggleSidebar={() => setCollapsed(c => !c)}
-          onOpenMobileMenu={() => setMobileOpen(true)}
-          collapsed={collapsed}
-        />
+        {/* 桌面折叠控制已并入侧栏品牌行，避免为单个按钮常驻一条 48px 顶栏。 */}
+        <TopBar onOpenMobileMenu={() => setMobileOpen(true)} />
         {/* 聊天运行时与悬浮窗已提到 App 顶层（跨工具页/展示页/首页常驻），此处仅渲染内容 */}
-        <main className="flex-1 overflow-y-auto">
+        <main className="scrollbar-autohide min-h-0 min-w-0 flex-1 overflow-y-auto">
           <Outlet />
         </main>
       </div>
