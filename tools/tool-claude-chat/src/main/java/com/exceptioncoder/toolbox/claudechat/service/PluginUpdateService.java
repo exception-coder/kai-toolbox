@@ -1222,14 +1222,62 @@ public class PluginUpdateService {
                 "domain-knowledge", workspace.resolve("project-domain-knowledge/knowledge").toAbsolutePath(),
                 "cross-topology", workspace.resolve("cross-project-topology/knowledge").toAbsolutePath());
         for (Map.Entry<String, Path> mcp : knowledgeDirs.entrySet()) {
-            results.add(runStep(taskId, "claude", "mcp-add:" + mcp.getKey(), List.of(props.getClaudeBin(), "mcp", "add",
-                    "--scope", "user", mcp.getKey(), "--env", "DOMAIN_KB_DIR=" + mcp.getValue(), "--",
-                    chatProps.getNodeCommand(), server.toString())));
-            List<String> codex = new ArrayList<>(codexParts());
-            codex.addAll(List.of("mcp", "add", mcp.getKey(), "--env", "DOMAIN_KB_DIR=" + mcp.getValue(), "--",
-                    chatProps.getNodeCommand(), server.toString()));
-            results.add(runStep(taskId, "codex", "mcp-add:" + mcp.getKey(), codex, codexHome));
+            String name = mcp.getKey();
+            List<String> claude = List.of(props.getClaudeBin(), "mcp");
+            replaceMcpRegistration(taskId, "claude", name,
+                    concat(claude, "get", name),
+                    concat(claude, "remove", name, "--scope", "user"),
+                    concat(claude, "add", "--scope", "user", name,
+                            "--env", "DOMAIN_KB_DIR=" + mcp.getValue(), "--",
+                            chatProps.getNodeCommand(), server.toString()),
+                    null, results);
+
+            List<String> codex = codexParts();
+            replaceMcpRegistration(taskId, "codex", name,
+                    concat(codex, "mcp", "get", name, "--json"),
+                    concat(codex, "mcp", "remove", name),
+                    concat(codex, "mcp", "add", name,
+                            "--env", "DOMAIN_KB_DIR=" + mcp.getValue(), "--",
+                            chatProps.getNodeCommand(), server.toString()),
+                    codexHome, results);
         }
+    }
+
+    /** Replaces an existing MCP registration so its command and environment always match the latest build. */
+    private void replaceMcpRegistration(
+            String taskId, String engine, String name,
+            List<String> getCommand, List<String> removeCommand, List<String> addCommand,
+            Path codexHome, List<Map<String, Object>> results) {
+        if (mcpRegistrationExists(captureExitCode(taskId, engine, name, getCommand, codexHome))) {
+            Map<String, Object> removeResult = runStep(
+                    taskId, engine, "mcp-remove:" + name, removeCommand, codexHome);
+            results.add(removeResult);
+            if (!stepSucceeded(removeResult)) {
+                publishSkippedStep(taskId, engine, "mcp-add:" + name, "旧 MCP 配置删除失败");
+                return;
+            }
+        }
+        results.add(runStep(taskId, engine, "mcp-add:" + name, addCommand, codexHome));
+    }
+
+    private int captureExitCode(
+            String taskId, String engine, String name, List<String> command, Path codexHome) {
+        try {
+            return runCapture(command, codexHome).exitCode();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            sse.publish(taskId, "message", Map.of("type", "line", "engine", engine,
+                    "step", "mcp-get:" + name, "text", "[检查中断] 将继续尝试登记 MCP"));
+            return -1;
+        } catch (IOException exception) {
+            sse.publish(taskId, "message", Map.of("type", "line", "engine", engine,
+                    "step", "mcp-get:" + name, "text", "[检查失败] 将继续尝试登记 MCP：" + exception.getMessage()));
+            return -1;
+        }
+    }
+
+    static boolean mcpRegistrationExists(int getExitCode) {
+        return getExitCode == 0;
     }
 
     /**

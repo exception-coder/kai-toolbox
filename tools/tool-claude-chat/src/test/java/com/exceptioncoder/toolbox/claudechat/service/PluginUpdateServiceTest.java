@@ -86,6 +86,13 @@ class PluginUpdateServiceTest {
         assertFalse(PluginUpdateService.stepSucceeded(Map.of("skipped", true)));
     }
 
+    @Test
+    void shouldReplaceOnlyExistingMcpRegistrations() {
+        assertTrue(PluginUpdateService.mcpRegistrationExists(0));
+        assertFalse(PluginUpdateService.mcpRegistrationExists(1));
+        assertFalse(PluginUpdateService.mcpRegistrationExists(-1));
+    }
+
     private static String jsonPath(Path path) {
         return path.toString().replace("\\", "\\\\");
     }
