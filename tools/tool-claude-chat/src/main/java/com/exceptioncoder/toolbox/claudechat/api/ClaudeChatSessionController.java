@@ -1,9 +1,11 @@
 package com.exceptioncoder.toolbox.claudechat.api;
 
+import com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeChatActivityView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeChatSessionView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ClientMessage;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ServerMessage;
 import com.exceptioncoder.toolbox.claudechat.api.dto.RenameSessionProjectRequest;
+import com.exceptioncoder.toolbox.claudechat.api.dto.SessionRuntimeStateView;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.domain.SessionPlanState;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
@@ -13,6 +15,7 @@ import com.exceptioncoder.toolbox.claudechat.service.SessionHistoryService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionProjectService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionProjectDirectoryService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionSiteService;
+import com.exceptioncoder.toolbox.claudechat.service.SessionRuntimeStateService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -42,13 +45,15 @@ public class ClaudeChatSessionController {
     private final SessionProjectService sessionProjectService;
     private final SessionSiteService sessionSiteService;
     private final SessionProjectDirectoryService sessionProjectDirectoryService;
+    private final SessionRuntimeStateService runtimeStateService;
 
     public ClaudeChatSessionController(ClaudeChatSessionRepository repo, ClaudeChatService service,
                                        SessionHistoryService historyService,
                                        SessionPlanStateService planStateService,
                                        SessionProjectService sessionProjectService,
                                        SessionSiteService sessionSiteService,
-                                       SessionProjectDirectoryService sessionProjectDirectoryService) {
+                                       SessionProjectDirectoryService sessionProjectDirectoryService,
+                                       SessionRuntimeStateService runtimeStateService) {
         this.repo = repo;
         this.service = service;
         this.historyService = historyService;
@@ -56,6 +61,7 @@ public class ClaudeChatSessionController {
         this.sessionProjectService = sessionProjectService;
         this.sessionSiteService = sessionSiteService;
         this.sessionProjectDirectoryService = sessionProjectDirectoryService;
+        this.runtimeStateService = runtimeStateService;
     }
 
     @GetMapping
@@ -74,6 +80,12 @@ public class ClaudeChatSessionController {
                 .map(s -> ClaudeChatSessionView.from(s, service.isLive(s.getId()),
                         transcriptAware(s) && missing.contains(s.getSdkSessionId()), planStates.get(s.getId())))
                 .toList();
+    }
+
+    /** 自动更新前的只读活动快照；调用本接口不会 attach、恢复或修改任何会话。 */
+    @GetMapping("/activity")
+    public ClaudeChatActivityView activity() {
+        return service.activitySnapshot();
     }
 
     /** 引擎的 transcript 落盘位置已知，才有资格被判定为「记录已丢失」。 */
@@ -111,6 +123,14 @@ public class ClaudeChatSessionController {
         String sg = subgroup == null || subgroup.isBlank() ? null : subgroup.trim();
         repo.updateGroup(id, g, sg);
         return ResponseEntity.noContent().build();
+    }
+
+    /** 返回指定会话的全链路实时状态，不在查询过程中修改会话。 */
+    @GetMapping("/{id}/runtime-state")
+    public ResponseEntity<SessionRuntimeStateView> runtimeState(@PathVariable String id) {
+        return runtimeStateService.inspect(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     /** 将项目及其全部会话原子重命名，保留需求子分组。 */

@@ -193,6 +193,13 @@ wss.on('connection', (ws) => {
           ...manager.turnState(sessionId, msg.turnId as string | undefined),
         })
         break
+      case 'querySessionState':
+        emit(sessionId, {
+          type: 'sessionState',
+          requestId: msg.requestId as string | undefined,
+          ...manager.runtimeState(sessionId, msg.turnId as string | undefined),
+        })
+        break
       case 'oneShot':
         agentTracing.begin(sessionId, msg.traceContext, msg.telemetry)
         void manager.oneShot(

@@ -22,6 +22,7 @@ import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -47,6 +48,7 @@ public class SidecarClient implements ReviewThreadForkGateway {
     private volatile BiConsumer<String, JsonNode> listener = (s, n) -> {};
     private volatile WebSocketSession session;
     private final Map<String, CompletableFuture<String>> pendingReviewForks = new ConcurrentHashMap<>();
+    private final Map<String, CompletableFuture<JsonNode>> pendingSessionStateQueries = new ConcurrentHashMap<>();
     /** 本实例已随 Spring 上下文停机；不得再建连、不得再上报断开 */
     private volatile boolean shuttingDown;
 
@@ -106,6 +108,7 @@ public class SidecarClient implements ReviewThreadForkGateway {
     @PreDestroy
     public synchronized void shutdown() {
         shuttingDown = true;
+        failPendingSessionStateQueries("sidecar客户端已停机");
         WebSocketSession cur = session;
         session = null;
         closeQuietly(cur);
@@ -279,6 +282,33 @@ public class SidecarClient implements ReviewThreadForkGateway {
         return send(message);
     }
 
+    /** 查询指定会话在Sidecar与Agent适配层的实时快照，超时返回空而不是猜测状态。 */
+    public Optional<JsonNode> querySessionState(String sessionId, String turnId, long timeoutMs) {
+        String requestId = UUID.randomUUID().toString();
+        CompletableFuture<JsonNode> future = new CompletableFuture<>();
+        pendingSessionStateQueries.put(requestId, future);
+        Map<String, Object> message = new LinkedHashMap<>();
+        message.put("type", "querySessionState");
+        message.put("requestId", requestId);
+        message.put("sessionId", sessionId);
+        if (turnId != null && !turnId.isBlank()) {
+            message.put("turnId", turnId);
+        }
+        if (!send(message)) {
+            pendingSessionStateQueries.remove(requestId);
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(future.get(timeoutMs, TimeUnit.MILLISECONDS));
+        } catch (Exception error) {
+            log.warn("[claude-chat] 查询Sidecar会话状态失败 session={} request={}",
+                    sessionId, requestId, error);
+            return Optional.empty();
+        } finally {
+            pendingSessionStateQueries.remove(requestId);
+        }
+    }
+
     public void setMode(String sessionId, String mode) {
         send(Map.of("type", "setMode", "sessionId", sessionId, "mode", nz(mode)));
     }
@@ -439,6 +469,13 @@ public class SidecarClient implements ReviewThreadForkGateway {
         }
     }
 
+    /** 连接失效时结束全部同步查询，避免调用线程等待到各自超时。 */
+    private void failPendingSessionStateQueries(String message) {
+        IllegalStateException error = new IllegalStateException(message);
+        pendingSessionStateQueries.values().forEach(future -> future.completeExceptionally(error));
+        pendingSessionStateQueries.clear();
+    }
+
     private class ClientHandler extends TextWebSocketHandler {
         @Override
         protected void handleTextMessage(WebSocketSession ws, TextMessage message) {
@@ -450,6 +487,14 @@ public class SidecarClient implements ReviewThreadForkGateway {
                     if (future != null) {
                         if (node.hasNonNull("error")) future.completeExceptionally(new IllegalStateException(node.path("error").asText()));
                         else future.complete(node.path("sdkSessionId").asText());
+                    }
+                    return;
+                }
+                if ("sessionState".equals(node.path("type").asText())) {
+                    String requestId = node.path("requestId").asText();
+                    CompletableFuture<JsonNode> future = pendingSessionStateQueries.get(requestId);
+                    if (future != null) {
+                        future.complete(node);
                     }
                     return;
                 }
@@ -470,6 +515,7 @@ public class SidecarClient implements ReviewThreadForkGateway {
                 log.debug("[claude-chat] 陈旧 sidecar 连接关闭，忽略：{}", status);
                 return;
             }
+            failPendingSessionStateQueries("sidecar连接已关闭");
             log.warn("[claude-chat] 与 sidecar 的连接已关闭：{}", status);
             session = null;
             // 连接级事件：通知 service 把挂着的会话标记 INTERRUPTED

@@ -91,6 +91,7 @@ import {
 } from '../lib/sessionSites'
 import { isVibeCodingSession } from '../lib/sessionScope'
 import { SessionWorkStatus } from '../components/SessionWorkStatus'
+import { SessionRuntimeHealth } from '../components/SessionRuntimeHealth'
 import { ReviewShareDialog } from '../components/ReviewShareDialog'
 import { SessionSummaryBar } from '../components/SessionSummaryBar'
 
@@ -1924,6 +1925,7 @@ export function ChatPage() {
             {/* 底部输入：白色悬浮输入条 + 主色上边框 + 顶部阴影 */}
             {chat.sessionId && (
               <div className="cc-skin-surface border-t border-[var(--color-border)] bg-[var(--color-muted)] shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.08)]">
+          <SessionRuntimeHealth sessionId={chat.sessionId} running={chat.running} />
           <SessionWorkStatus
             items={chat.items}
             running={chat.running}

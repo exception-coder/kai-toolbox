@@ -24,6 +24,7 @@ import { ProviderDiagPanel } from './ProviderDiagPanel'
 import type { PrdSessionView } from '@/features/prd-clarify/types'
 import { countPrdReferenceDocuments, uploadPrdReference } from '../lib/prdReference'
 import { SessionPlanLockNotice } from './SessionPlanLockNotice'
+import { SessionRuntimeHealth } from './SessionRuntimeHealth'
 
 interface Props {
   /** 本块续接的会话 id。 */
@@ -211,6 +212,8 @@ export function SessionPane({ sessionId, accent, onStatus, onClose }: Props) {
           connState={chat.state}
         />
       </div>
+
+      <SessionRuntimeHealth sessionId={chat.sessionId} running={chat.running} />
 
       {/* 第三方网关调用诊断（可展开，紧凑）：仅第三方会话显示 */}
       <ProviderDiagPanel

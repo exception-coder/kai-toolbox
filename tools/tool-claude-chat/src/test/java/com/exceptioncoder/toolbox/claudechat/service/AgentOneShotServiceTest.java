@@ -50,10 +50,12 @@ class AgentOneShotServiceTest {
         });
 
         assertThat(requestSent.await(1, TimeUnit.SECONDS)).isTrue();
+        assertThat(service.activeCount()).isEqualTo(1);
         worker.interrupt();
         worker.join(1_000);
 
         assertThat(interruptedDuringSidecarSend.get()).isFalse();
         assertThat(interruptedAfterCancellation.get()).isTrue();
+        assertThat(service.activeCount()).isZero();
     }
 }

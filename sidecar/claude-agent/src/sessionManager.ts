@@ -44,6 +44,18 @@ export interface InterruptAck {
   activeTurnId?: string
 }
 
+export interface SessionRuntimeSnapshot {
+  sessionPresent: boolean
+  engine?: Engine
+  active: boolean
+  pendingDecision: boolean
+  backgroundTaskCount: number
+  activeTurnId?: string
+  phase?: string
+  agentState: 'idle' | 'running' | 'waiting' | 'finalizing' | 'unknown'
+  lastHeartbeatAt: number
+}
+
 type CapabilitySnapshot = {
   slashCommands: string[]
   skills: string[]
@@ -1049,6 +1061,34 @@ class Session {
     return this.turnLifecycle.snapshot(expectedTurnId)
   }
 
+  /** 返回指定会话在Sidecar与Agent适配层的实时状态，不触发任何状态迁移。 */
+  runtimeState(expectedTurnId?: string): SessionRuntimeSnapshot {
+    const turn = this.turnLifecycle.snapshot(expectedTurnId)
+    const active = turn.active
+    const pendingDecision = this.perms.hasPending()
+    const phase = active ? this.turnActivityPhase : undefined
+    const agentState = !active
+      ? 'idle'
+      : pendingDecision
+        ? 'waiting'
+        : phase === 'finalizing'
+          ? 'finalizing'
+          : this.abort
+            ? 'running'
+            : 'unknown'
+    return {
+      sessionPresent: true,
+      engine: this.engine,
+      active,
+      pendingDecision,
+      backgroundTaskCount: this.backgroundTasks.length,
+      activeTurnId: turn.activeTurnId,
+      phase,
+      agentState,
+      lastHeartbeatAt: Date.now(),
+    }
+  }
+
   private gatewayEnv(): NodeJS.ProcessEnv {
     const key = this.authToken ?? ''
     return {
@@ -1329,6 +1369,33 @@ export class SessionManager {
     const session = this.sessions.get(id)
     if (!session) return { outcome: 'sessionNotFound', active: false, pendingDecision: false }
     return session.turnState(turnId)
+  }
+
+  /** 查询持久会话的Sidecar与Agent运行快照。 */
+  runtimeState(id: string, turnId?: string): SessionRuntimeSnapshot {
+    const oneShot = this.oneShotControllers.get(id)
+    if (oneShot) {
+      const active = !oneShot.signal.aborted
+      return {
+        sessionPresent: true,
+        active,
+        pendingDecision: false,
+        backgroundTaskCount: 0,
+        activeTurnId: turnId,
+        agentState: active ? 'running' : 'idle',
+        lastHeartbeatAt: Date.now(),
+      }
+    }
+    const session = this.sessions.get(id)
+    if (session) return session.runtimeState(turnId)
+    return {
+      sessionPresent: false,
+      active: false,
+      pendingDecision: false,
+      backgroundTaskCount: 0,
+      agentState: 'unknown',
+      lastHeartbeatAt: Date.now(),
+    }
   }
 
   /** 切换会话权限模式，下一轮 runTurn 生效。 */

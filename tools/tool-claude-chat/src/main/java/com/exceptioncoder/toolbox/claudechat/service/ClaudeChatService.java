@@ -1,5 +1,6 @@
 package com.exceptioncoder.toolbox.claudechat.service;
 
+import com.exceptioncoder.toolbox.claudechat.api.dto.ClaudeChatActivityView;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ClientMessage;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ModelInfo;
 import com.exceptioncoder.toolbox.claudechat.api.dto.ServerMessage;
@@ -27,6 +28,7 @@ import org.springframework.web.socket.WebSocketSession;
 import java.io.IOException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Deque;
 import java.util.List;
 import java.util.Locale;
@@ -63,6 +65,7 @@ public class ClaudeChatService {
     private final ReviewSpaceService reviewSpaces;
     private final SessionProjectDirectoryService sessionProjectDirectories;
     private final QueuedChatMessageService queuedMessages;
+    private final SessionRuntimeStateService runtimeStates;
     private final ObjectMapper mapper;
     private final AgentTelemetry telemetry;
     private final List<AgentRunMetadataProvider> metadataProviders;
@@ -105,6 +108,7 @@ public class ClaudeChatService {
                              ReviewSpaceService reviewSpaces,
                              SessionProjectDirectoryService sessionProjectDirectories,
                              QueuedChatMessageService queuedMessages,
+                             SessionRuntimeStateService runtimeStates,
                              ObjectMapper mapper,
                              AgentTelemetry telemetry,
                              List<AgentRunMetadataProvider> metadataProviders,
@@ -122,6 +126,7 @@ public class ClaudeChatService {
         this.reviewSpaces = reviewSpaces;
         this.sessionProjectDirectories = sessionProjectDirectories;
         this.queuedMessages = queuedMessages;
+        this.runtimeStates = runtimeStates;
         this.mapper = mapper;
         this.telemetry = telemetry;
         this.metadataProviders = List.copyOf(metadataProviders);
@@ -491,6 +496,13 @@ public class ClaudeChatService {
             if (!ensureSessionResumable(ctx)) {
                 return;
             }
+            observeRuntimeState(ctx);
+            SessionRuntimeStateService.SendDecision decision = runtimeStates.canStartTurn(ctx.sessionId);
+            if (!decision.allowed()) {
+                sendError(ws, 0, "SESSION_STATE_UNCONFIRMED",
+                        "会话全链路状态尚未允许发送：" + decision.reason());
+                return;
+            }
             ctx.queueReleaseReady = false;
             startTurn(ctx, msg);
         }
@@ -501,6 +513,7 @@ public class ClaudeChatService {
         String turnId = turnLifecycle.begin(ctx.sessionId);
         ctx.status = SessionStatus.RUNNING;
         repo.touch(ctx.sessionId, SessionStatus.RUNNING, System.currentTimeMillis());
+        observeRuntimeState(ctx);
         String developerInstructions = SessionExecutionPolicy.CONSULT_READONLY.equals(ctx.executionPolicy)
                 ? blankToNull(msg.developerInstructions())
                 : SessionExecutionPolicy.isReviewOnly(ctx.executionPolicy)
@@ -817,6 +830,7 @@ public class ClaudeChatService {
     }
 
     private ServerMessage.Ready ready(SessionCtx ctx, long seq) {
+        observeRuntimeState(ctx);
         String providerBaseUrl = blankToNull(ctx.apiBaseUrl);
         String providerKind = providerBaseUrl == null ? "official" : "thirdParty";
         return new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands,
@@ -1111,6 +1125,8 @@ public class ClaudeChatService {
             }
             case "backgroundTasks" -> {
                 ctx.backgroundTasks = parseBackgroundTasks(node.get("tasks"));
+                runtimeStates.observeSidecarBackgroundTasks(ctx.sessionId, ctx.backgroundTasks.size());
+                observeRuntimeState(ctx);
                 sendToBrowser(ctx, seq -> new ServerMessage.BackgroundTasks(seq, ctx.backgroundTasks));
                 if (ctx.backgroundTasks.isEmpty()) {
                     dispatchNextQueuedMessage(ctx);
@@ -1128,6 +1144,7 @@ public class ClaudeChatService {
                         ctx.sessionId, turnId, ctx.status);
                 return;
             }
+            runtimeStates.observeSidecarTerminal(ctx.sessionId, ctx.backgroundTasks.size());
             completeTurn(ctx, asMap(node.get("usage")), node.path("stopReason").asText("end_turn"),
                     node.path("traceId").asText(null), queueReleaseAllowed(node));
         }
@@ -1140,6 +1157,7 @@ public class ClaudeChatService {
         ctx.queueReleaseReady = queueReleaseSafe;
         broadcastPendingSessions();
         repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
+        observeRuntimeState(ctx);
         AgentSpan span = activeTurnSpans.remove(ctx.sessionId);
         AgentRunMetadata metadata = activeTurnMetadata.remove(ctx.sessionId);
         if ((traceId == null || traceId.isBlank()) && span != null) {
@@ -1171,6 +1189,13 @@ public class ClaudeChatService {
         synchronized (ctx) {
             if (!ctx.queueReleaseReady || ctx.status != SessionStatus.IDLE || ctx.pendingRequest != null
                     || !ctx.backgroundTasks.isEmpty() || !planStateService.writable(ctx.sessionId)) {
+                return;
+            }
+            observeRuntimeState(ctx);
+            SessionRuntimeStateService.SendDecision decision = runtimeStates.canReleaseQueue(ctx.sessionId);
+            if (!decision.allowed()) {
+                log.warn("[claude-chat] 全链路状态阻止队列释放 session={} consistency={} reason={}",
+                        ctx.sessionId, decision.code(), decision.reason());
                 return;
             }
             Optional<QueuedChatMessage> next = queuedMessages.takeFirst(ctx.sessionId);
@@ -1335,6 +1360,7 @@ public class ClaudeChatService {
                 turnLifecycle.clear(ctx.sessionId);
                 ctx.status = SessionStatus.INTERRUPTED;
                 repo.touch(ctx.sessionId, SessionStatus.INTERRUPTED, System.currentTimeMillis());
+                observeRuntimeState(ctx);
                 sendToBrowser(ctx, seq -> new ServerMessage.Error(
                         seq, "SIDECAR_DOWN", "sidecar 已断开，正在自动重连…"));
             }
@@ -1395,6 +1421,7 @@ public class ClaudeChatService {
             turnLifecycle.clear(ctx.sessionId);
             ctx.status = SessionStatus.IDLE;
             repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
+            observeRuntimeState(ctx);
             sendToBrowser(ctx, seq -> ready(ctx, seq));
             n++;
         }
@@ -1546,6 +1573,57 @@ public class ClaudeChatService {
         return sessions.containsKey(sessionId) && sidecar.isConnected();
     }
 
+    /**
+     * 汇总当前进程内不可安全中断的工作，供 supervisor 在拉取更新并重启前做安全门判断。
+     * 这里仅读取内存事实，不查询数据库、不向 sidecar 发消息，也不会触发会话恢复。
+     */
+    public ClaudeChatActivityView activitySnapshot() {
+        List<ActivitySample> samples = sessions.values().stream()
+                .map(ctx -> new ActivitySample(ctx.status == SessionStatus.RUNNING,
+                        ctx.status == SessionStatus.INTERRUPTED,
+                        ctx.pendingRequest != null, ctx.backgroundTasks.size()))
+                .toList();
+        return summarizeActivity(samples, agentOneShot.activeCount(), System.currentTimeMillis());
+    }
+
+    static ClaudeChatActivityView summarizeActivity(Collection<ActivitySample> samples,
+                                                      int oneShotCount, long observedAt) {
+        int runningTurnCount = 0;
+        int uncertainSessionCount = 0;
+        int pendingRequestCount = 0;
+        int backgroundTaskCount = 0;
+        int activeSessionCount = 0;
+        for (ActivitySample sample : samples) {
+            if (sample.runningTurn()) runningTurnCount++;
+            if (sample.uncertain()) uncertainSessionCount++;
+            if (sample.pendingRequest()) pendingRequestCount++;
+            backgroundTaskCount += sample.backgroundTaskCount();
+            if (sample.runningTurn() || sample.uncertain()
+                    || sample.pendingRequest() || sample.backgroundTaskCount() > 0) {
+                activeSessionCount++;
+            }
+        }
+        int activeOneShotCount = Math.max(0, oneShotCount);
+        boolean active = activeSessionCount > 0 || activeOneShotCount > 0;
+        return new ClaudeChatActivityView(active, !active, activeSessionCount, runningTurnCount,
+                uncertainSessionCount,
+                pendingRequestCount, backgroundTaskCount, activeOneShotCount, observedAt);
+    }
+
+    record ActivitySample(boolean runningTurn, boolean uncertain,
+                          boolean pendingRequest, int backgroundTaskCount) {
+        ActivitySample {
+            backgroundTaskCount = Math.max(0, backgroundTaskCount);
+        }
+    }
+
+    /** 将Java内存层事实上报给独立状态聚合器。 */
+    private void observeRuntimeState(SessionCtx ctx) {
+        runtimeStates.observeBackend(ctx.sessionId, ctx.status,
+                turnLifecycle.currentTurnId(ctx.sessionId).orElse(null),
+                ctx.pendingRequest != null, ctx.backgroundTasks.size(), ctx.viewers.size());
+    }
+
     public void dropSession(String id) {
         SessionCtx ctx = sessions.remove(id);
         String cwd = ctx != null ? ctx.cwd
@@ -1562,6 +1640,7 @@ public class ClaudeChatService {
             ctx.viewers.clear();
         }
         attachments.clear(cwd, id);
+        runtimeStates.forget(id);
     }
 
     // ===== 内部工具 =====

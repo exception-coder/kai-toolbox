@@ -192,6 +192,11 @@ export class Permissions {
     if (r) r(decision)
   }
 
+  /** 当前是否有尚未完成的权限或用户问题，供会话运行状态探针读取。 */
+  hasPending(): boolean {
+    return this.pending.size > 0
+  }
+
   /**
    * 会话中断：把所有挂起的请求按 deny 释放。
    * 返回是否确有挂起请求——调用方据此决定要不要给 deny 响应留出写回 CLI 的时间再关传输层

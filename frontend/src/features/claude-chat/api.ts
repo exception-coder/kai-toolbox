@@ -8,7 +8,7 @@ import type {
   GitRepoRef,
   GitStatusResponse,
 } from '@/components/git/types'
-import type { ChatItem, ClaudeChatSessionView, CloneResult, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PendingSqlChangeType, PendingSqlStatus, PluginStatus, ServerMessage, SessionPendingSql, SessionSiteConfiguration, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
+import type { ChatItem, ClaudeChatSessionView, CloneResult, FileContent, FileEntry, HistorySessionView, KnowledgeEnsureResult, ModelInfo, ModuleResolve, ModuleSyncPreview, ModuleSyncResult, NotifyConfig, OnboardView, PendingSqlChangeType, PendingSqlStatus, PluginStatus, ServerMessage, SessionPendingSql, SessionRuntimeState, SessionSiteConfiguration, SidecarVersion, SuiteStatus, ProjectModules, SelfRepo, SubdirList, TaskspaceView, WorkspaceList } from './types'
 import { normalizeUserMessageForDisplay } from './messageDisplay'
 
 /** 查询会话关联的 SQL 登记；未登记返回 null。 */
@@ -215,6 +215,11 @@ export function testServerPush(config: NotifyConfig) {
 
 export function listSessions() {
   return http<ClaudeChatSessionView[]>('/claude-chat/sessions')
+}
+
+/** 实时核对浏览器、Java、Sidecar与Agent的全链路会话状态。 */
+export function getSessionRuntimeState(sessionId: string) {
+  return http<SessionRuntimeState>(`/claude-chat/sessions/${encodeURIComponent(sessionId)}/runtime-state`)
 }
 
 /** Reads the Codex model catalog used by Vibe Coding for a selected authorization directory. */

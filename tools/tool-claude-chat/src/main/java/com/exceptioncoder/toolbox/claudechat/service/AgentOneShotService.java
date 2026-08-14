@@ -149,6 +149,11 @@ public class AgentOneShotService implements AgentOneShotRunner {
         throw new IllegalArgumentException("不支持的 Agent 引擎: " + engine);
     }
 
+    /** 当前尚未返回终态的一次性 Agent 调用数；只读快照，供自动重启安全门使用。 */
+    public int activeCount() {
+        return calls.size();
+    }
+
     /** 由 ClaudeChatService 把 {@code oneshot:} 前缀的 sidecar 事件转发进来。 */
     public void handle(String requestId, JsonNode node) {
         Call call = calls.get(requestId);

@@ -83,6 +83,32 @@ export interface ClaudeChatSessionView {
   planUnlockedAt?: number | null
 }
 
+/** 浏览器、Java、Sidecar与Agent聚合后的会话运行快照。 */
+export interface SessionRuntimeState {
+  sessionId: string
+  effectiveStatus: 'IDLE' | 'RUNNING' | 'AWAITING_DECISION' | 'FINALIZING' | 'BACKGROUND_RUNNING' | 'RECONNECTING' | 'INTERRUPTED' | 'UNKNOWN'
+  consistency: 'CONSISTENT' | 'GHOST_RUNNING' | 'BACKEND_STATE_LOST' | 'TURN_MISMATCH' | 'SIDECAR_UNREACHABLE' | 'SIDECAR_SESSION_MISSING' | 'JAVA_CONTEXT_MISSING' | 'PERSISTENCE_DRIFT' | 'STALE'
+  persistedStatus: SessionStatus
+  backendStatus: SessionStatus | null
+  browserConnected: boolean
+  javaSidecarConnected: boolean
+  sidecarSessionPresent: boolean | null
+  sidecarActive: boolean | null
+  pendingDecision: boolean | null
+  backgroundTaskCount: number | null
+  activeTurnId: string | null
+  phase: string | null
+  agentState: string | null
+  lastHeartbeatAt: number | null
+  observedAt: number
+  stale: boolean
+  canSend: boolean
+  canQueue: boolean
+  canInterrupt: boolean
+  reason: string
+  recommendedAction: string
+}
+
 /** 磁盘上的 Claude Code 历史会话（~/.claude/projects/<编码cwd>/*.jsonl） */
 export interface HistorySessionView {
   sdkSessionId: string
