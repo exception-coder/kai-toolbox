@@ -17,3 +17,7 @@
 | AI Coding 治理 WebPPT 视觉升级 | 实施中 | 轻量-前端 | [设计](AI治理WebPPT/AI治理WebPPT-current.md) · [编码摘要](AI治理WebPPT/AI治理WebPPT-coding.md) |
 | SRM 菜单缓存一键重置 | 已实现 | 完整-技术 | [设计](SRM菜单缓存重置/SRM菜单缓存重置-current.md) · [API](SRM菜单缓存重置/SRM菜单缓存重置-api-current.md) · [编码摘要](SRM菜单缓存重置/SRM菜单缓存重置-coding.md) |
 | AI 交付链路模块优化改造 | 方案（交接版） | 重构 | [改造方案](AI交付链路模块优化改造方案.md) |
+| AI 交付链路质量基线 | 实施中 | 完整-技术 | [设计](AI交付链路质量基线/AI交付链路质量基线-current.md) · [编码摘要](AI交付链路质量基线/AI交付链路质量基线-coding.md) |
+| PRD 产物账本（第一阶段） | 已实现 | 完整-技术 | [设计](PRD产物账本/PRD产物账本-current.md) · [编码摘要](PRD产物账本/PRD产物账本-coding.md) |
+| LaunchIntent 交接协议 | 已实现（兼容期） | 完整-技术 | [设计](LaunchIntent交接协议/LaunchIntent交接协议-current.md) · [API](LaunchIntent交接协议/LaunchIntent交接协议-api-current.md) · [编码摘要](LaunchIntent交接协议/LaunchIntent交接协议-coding.md) |
+| 需求类型单一事实源 | 已实现 | 完整-技术 | [设计](需求类型单一事实源/需求类型单一事实源-current.md) · [API](需求类型单一事实源/需求类型单一事实源-api-current.md) · [编码摘要](需求类型单一事实源/需求类型单一事实源-coding.md) |
