@@ -32,8 +32,11 @@ import {
   configuredMcpToolTimeoutMs,
   type McpToolWatchdogEntry,
 } from './mcpToolWatchdog.js'
+import { builtinEngineRegistry } from './engine/builtinEngineAdapters.js'
+import { isBuiltinEngineId, type BuiltinEngineId } from './engine/engineContract.js'
+import { deriveEngineRuntimeSnapshot } from './engine/runtimeStateCoordinator.js'
 
-export type Engine = 'claude' | 'codex' | 'gemini' | 'opencode'
+export type Engine = BuiltinEngineId
 
 type Emit = (sessionId: string, event: Record<string, unknown>) => void
 
@@ -52,7 +55,7 @@ export interface SessionRuntimeSnapshot {
   backgroundTaskCount: number
   activeTurnId?: string
   phase?: string
-  agentState: 'idle' | 'running' | 'waiting' | 'finalizing' | 'unknown'
+  agentState: 'idle' | 'running' | 'waiting' | 'finalizing' | 'failed' | 'unknown'
   lastHeartbeatAt: number
 }
 
@@ -515,11 +518,19 @@ class Session {
     }
   }
 
-  private async executeTurn(text: string, systemPrompt?: string, images?: OneShotImage[],
-                            developerInstructions?: string, additionalDirectories: string[] = []): Promise<void> {
-    if (this.engine === 'codex') return this.runCodexTurn(text, developerInstructions)
-    if (this.engine === 'gemini') return this.runGeminiTurn(text, developerInstructions, additionalDirectories)
-    if (this.engine === 'opencode') return this.runOpencodeTurn(text, developerInstructions)
+  private executeTurn(text: string, systemPrompt?: string, images?: OneShotImage[],
+                      developerInstructions?: string, additionalDirectories: string[] = []): Promise<void> {
+    const executions: Record<Engine, () => Promise<void>> = {
+      claude: () => this.runClaudeTurn(text, systemPrompt, images, developerInstructions, additionalDirectories),
+      codex: () => this.runCodexTurn(text, developerInstructions),
+      gemini: () => this.runGeminiTurn(text, developerInstructions, additionalDirectories),
+      opencode: () => this.runOpencodeTurn(text, developerInstructions),
+    }
+    return builtinEngineRegistry.runTurn(this.engine, { execute: executions[this.engine] })
+  }
+
+  private async runClaudeTurn(text: string, systemPrompt?: string, images?: OneShotImage[],
+                              developerInstructions?: string, additionalDirectories: string[] = []): Promise<void> {
     const maxAttempts = 3
     // spawn claude.exe 时若 working dir 不存在会直接「exists but failed to launch」；
     // cwd 失效（历史会话来自已删除/改名/异机路径）则回退到用户主目录，避免起不来。
@@ -1067,15 +1078,12 @@ class Session {
     const active = turn.active
     const pendingDecision = this.perms.hasPending()
     const phase = active ? this.turnActivityPhase : undefined
-    const agentState = !active
-      ? 'idle'
-      : pendingDecision
-        ? 'waiting'
-        : phase === 'finalizing'
-          ? 'finalizing'
-          : this.abort
-            ? 'running'
-            : 'unknown'
+    const engineState = deriveEngineRuntimeSnapshot({
+      active,
+      pendingDecision,
+      phase,
+      hasActiveController: this.abort != null,
+    })
     return {
       sessionPresent: true,
       engine: this.engine,
@@ -1084,7 +1092,7 @@ class Session {
       backgroundTaskCount: this.backgroundTasks.length,
       activeTurnId: turn.activeTurnId,
       phase,
-      agentState,
+      agentState: engineState.agentState,
       lastHeartbeatAt: Date.now(),
     }
   }
@@ -1188,7 +1196,7 @@ export class SessionManager {
         toolPolicy?: string, consultEvidenceSystems: string[] = []): void {
     const s = new Session(id, cwd || process.env.HOME || process.cwd(), (e) => this.emit(id, e))
     if (model) s.model = model
-    if (engine === 'codex' || engine === 'gemini' || engine === 'opencode') s.engine = engine
+    if (isBuiltinEngineId(engine)) s.engine = engine
     if (apiBaseUrl) { s.apiBaseUrl = apiBaseUrl; s.authToken = authToken }
     if (codexHome) s.codexHome = codexHome
     if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
@@ -1235,7 +1243,7 @@ export class SessionManager {
     }
     if (sdkSessionId) s.sdkSessionId = sdkSessionId
     if (cwd) s.cwd = cwd
-    if (engine === 'codex' || engine === 'claude' || engine === 'gemini' || engine === 'opencode') s.engine = engine
+    if (isBuiltinEngineId(engine)) s.engine = engine
     if (apiBaseUrl) { s.apiBaseUrl = apiBaseUrl; s.authToken = authToken }
     s.codexHome = codexHome || undefined
     if (mode) { s.permissionMode = mode; s.perms.setMode(mode) }
@@ -1466,7 +1474,7 @@ export class SessionManager {
   switchEngine(id: string, engine: string, sdkSessionId?: string, apiBaseUrl?: string, authToken?: string): void {
     const s = this.sessions.get(id)
     if (!s) return
-    if (engine !== 'claude' && engine !== 'codex' && engine !== 'gemini' && engine !== 'opencode') return
+    if (!isBuiltinEngineId(engine)) return
     s.engine = engine
     s.sdkSessionId = sdkSessionId && sdkSessionId.length > 0 ? sdkSessionId : undefined
     const nextBaseUrl = apiBaseUrl?.trim()
