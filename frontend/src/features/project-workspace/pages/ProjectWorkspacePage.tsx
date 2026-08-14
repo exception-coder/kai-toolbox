@@ -19,10 +19,11 @@ import { CHAT_ROUTE, useChatRuntime } from '@/features/claude-chat/runtime/ChatR
 import type { ClaudeChatSessionView, ModuleSyncPreview, ProjectModule, ProjectModules, WorkspaceDir } from '@/features/claude-chat/types'
 import { GRAPHIFY_LABEL, GRAPHIFY_TONE, REGISTRATION_LABEL, REGISTRATION_TONE } from '@/features/knowledge-graph/components/DomainKnowledgeCard'
 import type { ProjectStatusSnapshot } from '@/features/knowledge-graph/types'
-import { AGGREGATION_DRAFT_KEY, useAggregationCart, type AggregationItem } from '../hooks/useAggregationCart'
+import { useAggregationCart, type AggregationItem } from '../hooks/useAggregationCart'
 import { useStatusCache, type BusinessFilter, type GraphifyFilter } from '../hooks/useStatusCache'
 import { useIgnoredProjects, type IgnoreFilter } from '../hooks/useIgnoredProjects'
 import { KnowledgeGraphCard } from '../components/KnowledgeGraphCard'
+import { navigateWithLaunchIntent } from '@/shell/launch-intent/api'
 
 interface PendingOpen {
   module: ProjectModule
@@ -66,12 +67,6 @@ function DepMark({ ok, label }: { ok: boolean; label?: string }) {
 
 /** 进入工作台自动检查团队初始化目录，只尝试一次。 */
 let knowledgeEnsureTried = false
-
-/** sessionStorage handoff key：项目工作台「数据库分析菜单」→ 会话页拉起 Claude 跑菜单识别闭环。 */
-const MENU_SYNC_LAUNCH_KEY = 'kai-toolbox:claude-chat:module-sync-launch'
-
-/** sessionStorage handoff key：新建模块会话时把本模块 codePath/webPath 编码范围预填进输入框。 */
-const MODULE_OPEN_CONTEXT_KEY = 'kai-toolbox:claude-chat:module-open-context'
 
 /**
  * 新建模块会话时的「编码范围前言」：把本模块的前端/后端目录带进提示词约束改动范围。
@@ -288,6 +283,7 @@ export function ProjectWorkspacePage() {
   const [aliasDraft, setAliasDraft] = useState('')
   const [pendingOpen, setPendingOpen] = useState<PendingOpen | null>(null)
   const [gitChangesProject, setGitChangesProject] = useState<WorkspaceDir | null>(null)
+  const [launchError, setLaunchError] = useState('')
 
   const workspacesQ = useQuery({
     queryKey: ['claude-chat-workspaces'],
@@ -375,16 +371,25 @@ export function ProjectWorkspacePage() {
     navigate(CHAT_ROUTE)
   }, [chat, navigate, pendingOpen])
 
-  const openModule = (module: ProjectModule) => {
+  const openModule = async (module: ProjectModule) => {
     const session = sessionByCwd.get(normalizePath(module.absPath))
     const next = { module, sessionId: session?.id ?? null }
-    // 仅新建会话时，把本模块编码范围（前端/后端目录）预填进输入框；已有会话不打扰
+    setLaunchError('')
     if (!next.sessionId) {
       const seed = buildModuleScopePrompt(module)
-      try {
-        if (seed) sessionStorage.setItem(MODULE_OPEN_CONTEXT_KEY, seed)
-        else sessionStorage.removeItem(MODULE_OPEN_CONTEXT_KEY)
-      } catch { /* 隐私模式忽略 */ }
+      if (seed) {
+        activate()
+        try {
+          await navigateWithLaunchIntent(navigate, CHAT_ROUTE, {
+            type: 'CHAT_OPEN_DRAFT',
+            cwd: module.absPath,
+            seed,
+          })
+        } catch (error) {
+          setLaunchError(errorMessage(error))
+        }
+        return
+      }
     }
     if (!chat) {
       setPendingOpen(next)
@@ -416,7 +421,7 @@ export function ProjectWorkspacePage() {
 
   /** 一键聚合:按项目根去重软链成合并工作区，预填联动提示并开会话。 */
   const aggregate = async () => {
-    if (cart.items.length < 1 || !chat) return
+    if (cart.items.length < 1) return
     const roots = [...new Set(cart.items.map(i => i.projectPath))]
     setAggErr('')
     setAggregating(true)
@@ -424,10 +429,13 @@ export function ProjectWorkspacePage() {
       const base = roots[0].replace(/[\\/][^\\/]+$/, '') // 取第一个项目的父目录作为放置目录
       const name = `aggregate-${Date.now().toString(36)}`
       const view = await createTaskspace(base, name, roots)
-      sessionStorage.setItem(AGGREGATION_DRAFT_KEY, buildLinkagePrompt(cart.items, view.dir))
+      activate()
+      await navigateWithLaunchIntent(navigate, CHAT_ROUTE, {
+        type: 'CHAT_OPEN_DRAFT',
+        cwd: view.dir,
+        seed: buildLinkagePrompt(cart.items, view.dir),
+      })
       cart.clear()
-      chat.open(view.dir)
-      navigate(CHAT_ROUTE)
     } catch (e) {
       setAggErr(e instanceof Error ? e.message : String(e))
     } finally {
@@ -500,15 +508,22 @@ export function ProjectWorkspacePage() {
     },
   })
   // 「数据库分析菜单」：拉起 Claude 会话（cwd=目标项目）跑菜单识别闭环，产出清单经 add-modules 落知识库
-  const launchMenuAgent = () => {
+  const launchMenuAgent = async () => {
     if (!selectedProject) return
     const kbRepo = (modulesQ.data?.knowledgeBaseDir ?? '').replace(/[\\/]knowledge[\\/]?$/, '')
     const seed = buildMenuSyncPrompt(selectedProject.name, selectedProject.path, kbRepo)
-    try {
-      sessionStorage.setItem(MENU_SYNC_LAUNCH_KEY, JSON.stringify({ cwd: selectedProject.path, seed }))
-    } catch { /* 隐私模式忽略 */ }
+    setLaunchError('')
     activate()
-    navigate(CHAT_ROUTE)
+    try {
+      await navigateWithLaunchIntent(navigate, CHAT_ROUTE, {
+        type: 'CHAT_OPEN_AND_SEND',
+        cwd: selectedProject.path,
+        seed,
+        engine: 'claude',
+      })
+    } catch (error) {
+      setLaunchError(errorMessage(error))
+    }
   }
 
   const openSync = () => {
@@ -584,6 +599,8 @@ export function ProjectWorkspacePage() {
           </button>
         </div>
       </div>
+
+      {launchError && <StateLine tone="danger" text={`启动交接失败：${launchError}`} />}
 
       {cart.items.length > 0 && (
         <AggregationCart

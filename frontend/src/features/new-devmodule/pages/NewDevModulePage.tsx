@@ -8,9 +8,7 @@ import { listWorkspaces, syncYoooniErpAutoDev } from '@/features/claude-chat/api
 import type { SkillSyncResult } from '@/features/claude-chat/types'
 import { resolveVisibleWorkspaceProjectPath, useVisibleWorkspaceProjects } from '@/features/_devkit/public-api'
 import { CHAT_ROUTE } from '@/features/claude-chat/runtime/ChatRuntimeContext'
-
-// 复用 Vibe Coding 的 handoff 通道（ChatPage 挂载消费：开会话 + 投喂触发语）
-const LAUNCH_KEY = 'kai-toolbox:claude-chat:erp-dev-launch'
+import { navigateWithLaunchIntent } from '@/shell/launch-intent/api'
 const K = (s: string) => `kai-toolbox:new-devmodule:${s}`
 
 /** localStorage 记住的输入。 */
@@ -80,14 +78,24 @@ export function NewDevModulePage() {
   const [syncingSkill, setSyncingSkill] = useState(false)
   const [skillSyncResult, setSkillSyncResult] = useState<SkillSyncResult | null>(null)
   const [skillSyncError, setSkillSyncError] = useState<string | null>(null)
+  const [launchError, setLaunchError] = useState<string | null>(null)
 
   const canStart = cwd.length > 0 && id.trim().length > 0 && name.trim().length > 0
 
-  const start = () => {
+  const start = async () => {
     if (!canStart) return
     const seed = buildSeed({ cwd, id, name, icon, startCmd, stopCmd, config, brain })
-    try { sessionStorage.setItem(LAUNCH_KEY, JSON.stringify({ cwd, seed })) } catch { /* 隐私模式忽略 */ }
-    navigate(CHAT_ROUTE)
+    setLaunchError(null)
+    try {
+      await navigateWithLaunchIntent(navigate, CHAT_ROUTE, {
+        type: 'CHAT_OPEN_AND_SEND',
+        cwd,
+        seed,
+        engine: 'claude',
+      })
+    } catch (error) {
+      setLaunchError(error instanceof Error ? error.message : '无法创建开发会话交接')
+    }
   }
 
   const syncSkill = async () => {
@@ -115,6 +123,11 @@ export function NewDevModulePage() {
       </p>
 
       <div className="space-y-4 rounded-xl border bg-[var(--color-card)] p-4">
+        {launchError && (
+          <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-600 dark:bg-rose-950/30 dark:text-rose-300">
+            {launchError}
+          </p>
+        )}
         <div>
           <label className="text-xs font-medium text-[var(--color-muted-foreground)]">生成到（kai-toolbox 仓所在工作区目录）</label>
           <select

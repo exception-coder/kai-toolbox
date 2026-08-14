@@ -19,9 +19,7 @@ import {
   REGISTRATION_TONE,
 } from '@/features/knowledge-graph/components/DomainKnowledgeCard'
 import type { ProjectStatusSnapshot, RegistrationState } from '@/features/knowledge-graph/types'
-
-const LAUNCH_KEY = 'kai-toolbox:claude-chat:knowledge-graph-bootstrap-launch'
-const GRAPHIFY_LAUNCH_KEY = 'kai-toolbox:claude-chat:graphify-generate-launch'
+import { navigateWithLaunchIntent } from '@/shell/launch-intent/api'
 
 /**
  * Graphify 的生成不是一条确定性 CLI 命令——`/graphify` 是一个 Claude Code skill，内部会做
@@ -115,6 +113,7 @@ export function KnowledgeGraphCard({
   const [crossTopologyExpanded, setCrossTopologyExpanded] = useState(false)
   const [bootstrapEngine, setBootstrapEngine] = useState<Engine | null>(null)
   const [selectedGaps, setSelectedGaps] = useState<Record<string, Set<string>>>({})
+  const [launchError, setLaunchError] = useState<string | null>(null)
 
   useEffect(() => {
     setDomainExpanded(false)
@@ -195,8 +194,17 @@ export function KnowledgeGraphCard({
     })
     if (!ok) return
     const seed = buildBootstrapSeed(repoKey, projectPath, projectName, scope)
-    try { sessionStorage.setItem(LAUNCH_KEY, JSON.stringify({ cwd, seed, engine: bootstrapEngine })) } catch { /* 隐私模式忽略 */ }
-    navigate(CHAT_ROUTE)
+    setLaunchError(null)
+    try {
+      await navigateWithLaunchIntent(navigate, CHAT_ROUTE, {
+        type: 'CHAT_OPEN_AND_SEND',
+        cwd,
+        seed,
+        engine: bootstrapEngine,
+      })
+    } catch (error) {
+      setLaunchError(error instanceof Error ? error.message : '无法创建知识图谱任务交接')
+    }
   }
 
   const launchGraphifyGeneration = async (mode: 'full' | 'update') => {
@@ -209,8 +217,17 @@ export function KnowledgeGraphCard({
     })
     if (!ok) return
     const seed = buildGraphifySeed(mode)
-    try { sessionStorage.setItem(GRAPHIFY_LAUNCH_KEY, JSON.stringify({ cwd: projectPath, seed })) } catch { /* 隐私模式忽略 */ }
-    navigate(CHAT_ROUTE)
+    setLaunchError(null)
+    try {
+      await navigateWithLaunchIntent(navigate, CHAT_ROUTE, {
+        type: 'CHAT_OPEN_AND_SEND',
+        cwd: projectPath,
+        seed,
+        engine: bootstrapEngine ?? 'claude',
+      })
+    } catch (error) {
+      setLaunchError(error instanceof Error ? error.message : '无法创建 Graphify 任务交接')
+    }
   }
 
   const toggleGap = (repoKey: string, moduleKey: string) => {
@@ -238,6 +255,11 @@ export function KnowledgeGraphCard({
       </CardHeader>
       {expanded && (
         <CardContent className="flex flex-col gap-4 border-t pt-4">
+          {launchError && (
+            <p className="rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-600 dark:bg-rose-950/30 dark:text-rose-300">
+              {launchError}
+            </p>
+          )}
           <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-muted)]/20 p-3">
             <div className="mb-2 text-xs font-medium text-[var(--color-foreground)]">初始化 / 更新执行引擎（必选）</div>
             <div className="flex flex-wrap gap-2">

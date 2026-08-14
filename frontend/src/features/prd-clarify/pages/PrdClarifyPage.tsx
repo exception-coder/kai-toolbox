@@ -31,7 +31,6 @@ import {
   listProgressVersions,
   listSessions,
   parseAttachment,
-  PRD_CLARIFY_LAUNCH_KEY,
   saveContent,
   saveDevDocContent,
   saveDraft,
@@ -52,6 +51,7 @@ import {
 import type { CreateSessionRequest, DevDocEstimation, DevDocVersionSummary, DocumentProfile, EstimationConfidence, PrdClarifyMode, PrdReqType, PrdSessionView, PrdStep, ProgressVersionSummary, QuestionItem, SplitItem } from '../types'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { loadCodexHomePreference, saveCodexHomePreference } from '@/features/claude-chat/lib/codexHomePref'
+import { navigateWithLaunchIntent } from '@/shell/launch-intent/api'
 
 // 编辑器 lazy import — CodeMirror chunk 只在进入 EDITING 步骤时加载
 const MarkdownEditor = lazy(() =>
@@ -4053,10 +4053,7 @@ function BatchClarifyPanel({
   )
 }
 
-// sessionStorage key，与 ChatPage handoff 约定一致
-const PRD_DEV_LAUNCH_KEY = 'kai-toolbox:claude-chat:prd-dev-launch'
-
-// ───── 开始开发 Dialog（sessionStorage handoff → Vibe Coding） ─────
+// ───── 开始开发 Dialog（LaunchIntent → Vibe Coding） ─────
 function StartDevDialog({
   title,
   sessionId,
@@ -4078,6 +4075,7 @@ function StartDevDialog({
   const [launching, setLaunching] = useState(false)
   const [engine, setEngine] = useState<ClarifyEngine>(initialEngine)
   const [codexHome, setCodexHome] = useState(loadCodexHomePreference)
+  const [launchError, setLaunchError] = useState('')
   const agentName = engine === 'codex' ? 'Codex' : 'Claude Code'
 
   // 优先使用开发文档（有具体技术方案）；无开发文档时用 PRD + feature-dev 引导
@@ -4140,6 +4138,7 @@ PRD_SESSION_ID: ${sessionId}`
 
   const handleLaunch = async () => {
     setLaunching(true)
+    setLaunchError('')
     try {
       // 查询项目的 cwd（workspace 绝对路径）。关联项目支持多选（逗号/顿号分隔），
       // 但 Vibe Coding 会话只能打开一个工作目录，取第一个项目作为主项目来解析 cwd。
@@ -4162,19 +4161,18 @@ PRD_SESSION_ID: ${sessionId}`
         } catch { /* cwd 解析失败时留空，让用户在工作台手动选 */ }
       }
 
-      // 写入 sessionStorage（ChatPage 消费后自动删除）
-      sessionStorage.setItem(PRD_DEV_LAUNCH_KEY, JSON.stringify({
+      await navigateWithLaunchIntent(navigate, '/tools/claude-chat', {
+        type: 'CHAT_OPEN_AND_SEND',
         cwd,
         seed: buildSeed(),
         prdSessionId: sessionId,
         engine,
         codexHome: engine === 'codex' ? (codexHome.trim() || undefined) : undefined,
-      }))
+      })
       if (engine === 'codex') saveCodexHomePreference(codexHome)
-
-      // 跳转到 Vibe Coding
-      navigate('/tools/claude-chat')
       onClose()
+    } catch (error) {
+      setLaunchError(error instanceof Error ? error.message : '无法创建开发会话交接')
     } finally {
       setLaunching(false)
     }
@@ -4269,6 +4267,11 @@ PRD_SESSION_ID: ${sessionId}`
           {!projectName && (
             <p className="text-xs text-amber-500 bg-amber-500/10 rounded-lg px-3 py-2">
               ⚠ 未关联项目，打开工作台后需手动选择项目目录
+            </p>
+          )}
+          {launchError && (
+            <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-600 dark:bg-rose-950/30 dark:text-rose-300">
+              {launchError}
             </p>
           )}
         </div>
@@ -5463,8 +5466,13 @@ ${rawInput}
 
 PRD_SESSION_ID: ${created.id}`
 
-    sessionStorage.setItem(PRD_CLARIFY_LAUNCH_KEY, JSON.stringify({ cwd, seed, prdSessionId: created.id, engine }))
-    navigate('/tools/claude-chat')
+    await navigateWithLaunchIntent(navigate, '/tools/claude-chat', {
+      type: 'CHAT_OPEN_AND_SEND',
+      cwd,
+      seed,
+      prdSessionId: created.id,
+      engine,
+    })
   }
 
   /**

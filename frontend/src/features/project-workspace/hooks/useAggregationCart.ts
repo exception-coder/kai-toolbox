@@ -71,4 +71,3 @@ export function useAggregationCart() {
 }
 
 /** 聚合提示在 sessionStorage 的约定 key：会话页 mount 时读一次并清除，预填进输入框。 */
-export const AGGREGATION_DRAFT_KEY = 'kai-toolbox:claude-chat:aggregation-draft'

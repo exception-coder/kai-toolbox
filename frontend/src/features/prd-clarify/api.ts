@@ -499,9 +499,6 @@ export const autoRegisterToReqPool = (params: {
 
 // ─── Vibe Coding 澄清 ───
 
-/** sessionStorage key，用于 prd-clarify → claude-chat 的澄清 handoff */
-export const PRD_CLARIFY_LAUNCH_KEY = 'kai-toolbox:claude-chat:prd-clarify-launch'
-
 /**
  * 检查 Claude 是否已通过 Vibe Coding 写入 PRD 文件。
  * 若已写入则后端自动更新状态为 DONE，前端可据此跳转到编辑器。
