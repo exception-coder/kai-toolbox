@@ -144,6 +144,10 @@
     --color-sidebar-foreground: color-mix(in oklab, var(--appearance-sidebar-foreground), var(--color-sidebar) var(--comfort-text-soften));
     --color-sidebar-border: color-mix(in oklab, var(--appearance-sidebar-border), var(--color-sidebar) var(--comfort-border-soften));
     --color-sidebar-accent: color-mix(in oklab, var(--appearance-sidebar-accent), var(--comfort-warm-surface) var(--comfort-warm-strength));
+    --color-chrome: var(--color-sidebar);
+    --color-chrome-foreground: var(--color-sidebar-foreground);
+    --color-chrome-divider: var(--color-sidebar-border);
+    --color-contextbar: color-mix(in oklab, var(--color-background) 86%, var(--color-sidebar));
 
     --appearance-backdrop-filter: none;
     --appearance-chrome-shadow: none;
@@ -156,6 +160,9 @@
     --density-nav-padding: 0.5rem;
     --density-sidebar-header: 3.5rem;
     --density-topbar-height: 3rem;
+    --density-unified-header-height: 3.5rem;
+    --density-contextbar-height: 2.25rem;
+    --window-titlebar-height: 0px;
   }
 
   .dark {
@@ -411,6 +418,8 @@
     --density-nav-padding: 0.375rem;
     --density-sidebar-header: 3.25rem;
     --density-topbar-height: 2.75rem;
+    --density-unified-header-height: 3.25rem;
+    --density-contextbar-height: 2rem;
     --radius: 0.5rem;
   }
 
@@ -422,6 +431,8 @@
     --density-nav-padding: 0.625rem;
     --density-sidebar-header: 3.75rem;
     --density-topbar-height: 3.25rem;
+    --density-unified-header-height: 3.75rem;
+    --density-contextbar-height: 2.5rem;
     --radius: 0.75rem;
   }
 
@@ -528,13 +539,147 @@
   background-color: var(--color-sidebar);
   backdrop-filter: var(--appearance-backdrop-filter);
   -webkit-backdrop-filter: var(--appearance-backdrop-filter);
-  box-shadow: var(--appearance-chrome-shadow);
 }
 
 .appearance-elevated-chrome {
   background-color: var(--color-popover);
   backdrop-filter: var(--appearance-backdrop-filter);
   -webkit-backdrop-filter: var(--appearance-backdrop-filter);
+}
+
+/* ==== Unified Chrome：系统窗口、Shell 与工作区共享连续 Surface ==== */
+.workspace-unified-chrome {
+  height: var(--density-unified-header-height);
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--color-chrome-divider);
+  background-color: var(--color-chrome);
+  color: var(--color-chrome-foreground);
+  backdrop-filter: var(--appearance-backdrop-filter);
+  -webkit-backdrop-filter: var(--appearance-backdrop-filter);
+}
+
+.workspace-contextbar {
+  height: var(--density-contextbar-height);
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--color-chrome-divider);
+  background-color: var(--color-contextbar);
+}
+
+html[data-window-controls-overlay='true'] {
+  --window-titlebar-height: env(titlebar-area-height, 0px);
+}
+
+html[data-window-controls-overlay='true'] .app-shell-canvas,
+html[data-window-controls-overlay='true'] .showcase-shell-canvas {
+  padding-top: var(--window-titlebar-height);
+}
+
+.unified-window-titlebar {
+  position: fixed;
+  inset: 0 0 auto;
+  /* 必须高于业务全屏层：系统标题栏不会被网页模态吞掉，自绘拖拽区也应保持同一语义。 */
+  z-index: 2147483000;
+  height: var(--window-titlebar-height);
+  background-color: var(--color-chrome);
+  color: var(--color-chrome-foreground);
+}
+
+.unified-window-titlebar-safe {
+  position: fixed;
+  left: env(titlebar-area-x, 0px);
+  top: env(titlebar-area-y, 0px);
+  width: env(titlebar-area-width, 100%);
+  height: env(titlebar-area-height, 0px);
+  display: flex;
+  align-items: stretch;
+  app-region: drag;
+  -webkit-app-region: drag;
+}
+
+.unified-window-titlebar-brand {
+  display: flex;
+  min-width: 0;
+  max-width: min(15rem, max(4rem, 60%));
+  flex-shrink: 0;
+  align-items: center;
+  overflow: hidden;
+  transition: width 200ms ease;
+}
+
+.unified-window-titlebar-feature {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 0.5rem;
+  padding-inline: var(--density-shell-padding);
+}
+
+.unified-window-titlebar-feature-integrated {
+  padding-inline: 0;
+}
+
+.unified-window-titlebar-feature-integrated > .cc-workspace-header-integrated {
+  --density-control-height: 1.75rem;
+  --density-control-height-sm: 1.75rem;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  padding-inline: 0.5rem;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.window-titlebar-interactive,
+.unified-window-titlebar a,
+.unified-window-titlebar button,
+.unified-window-titlebar input,
+.unified-window-titlebar select,
+.unified-window-titlebar textarea,
+.unified-window-titlebar [role='button'] {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+/* 原生窗口按钮区域只能使用不透明主题色。Glass 在 WCO 下同步改成实体 Chrome，
+   避免透明网页表面与系统最小化/关闭按钮区之间出现色块接缝。 */
+html[data-window-controls-overlay='true'][data-material='glass'] .unified-window-titlebar,
+html[data-window-controls-overlay='true'][data-material='glass'] .workspace-unified-chrome {
+  background-color: var(--mode-sidebar);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html[data-window-controls-overlay='true'] .cc-workspace-fullscreen {
+  top: var(--window-titlebar-height);
+  height: calc(100dvh - var(--window-titlebar-height));
+}
+
+/* Showcase 页面历史上以 100vh 自己铺满。WCO 占用标题栏后同步扣除，避免多出一条 30px 滚动区。 */
+html[data-window-controls-overlay='true'] .showcase-shell-canvas .h-screen {
+  height: calc(100vh - var(--window-titlebar-height));
+}
+
+html[data-window-controls-overlay='true'] .showcase-shell-canvas .min-h-screen {
+  min-height: calc(100vh - var(--window-titlebar-height));
+}
+
+html[data-window-controls-overlay='true'] .showcase-shell-canvas .h-dvh,
+html[data-window-controls-overlay='true'] .showcase-shell-canvas .h-\[100dvh\] {
+  height: calc(100dvh - var(--window-titlebar-height));
+}
+
+@media (forced-colors: active) {
+  .unified-window-titlebar,
+  .workspace-unified-chrome,
+  .workspace-contextbar {
+    border-color: CanvasText;
+    background: Canvas;
+    color: CanvasText;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
 }
 
 .settings-dialog {

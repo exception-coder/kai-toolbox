@@ -15,6 +15,7 @@ const DISMISS_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
 function isStandalone() {
   if (typeof window === 'undefined') return false
+  if (window.matchMedia?.('(display-mode: window-controls-overlay)').matches) return true
   if (window.matchMedia?.('(display-mode: standalone)').matches) return true
   // iOS Safari
   return (window.navigator as unknown as { standalone?: boolean }).standalone === true

@@ -4,8 +4,7 @@ import { FileText, Loader2, RefreshCw, Rocket, Unlink, Wrench, X } from 'lucide-
 import { loadCodexHomePreference, saveCodexHomePreference } from '@/features/claude-chat/lib/codexHomePref'
 import { getDevelopmentAccess } from '@/features/reqpool/api'
 import { unlinkDevSession } from '@/features/prd-clarify/api'
-
-export const PRD_DEV_LAUNCH_KEY = 'kai-toolbox:claude-chat:prd-dev-launch'
+import { createLaunchIntent, failLaunchIntent } from '@/shell/launch-intent/api'
 
 type DevelopmentEngine = 'claude' | 'codex'
 
@@ -121,23 +120,25 @@ export function StartDevelopmentDialog({
         return
       }
       const cwd = await resolveWorkspace(projectName)
-      sessionStorage.setItem(PRD_DEV_LAUNCH_KEY, JSON.stringify({
+      const intent = await createLaunchIntent({
+        type: 'CHAT_OPEN_AND_SEND',
         cwd,
         seed: buildDevelopmentSeed({ title, sessionId, content, devDocContent }),
         prdSessionId: sessionId,
         engine,
         codexHome: engine === 'codex' ? (codexHome.trim() || undefined) : undefined,
-      }))
+      })
       if (replaceExisting && linkedSessionId) {
         try {
           await unlinkDevSession(sessionId)
         } catch (cause) {
-          sessionStorage.removeItem(PRD_DEV_LAUNCH_KEY)
+          const message = cause instanceof Error ? cause.message : '解除原开发会话绑定失败'
+          try { await failLaunchIntent(intent.id, message) } catch { /* 原错误优先展示。 */ }
           throw cause
         }
       }
       if (engine === 'codex') saveCodexHomePreference(codexHome)
-      navigate(`/tools/claude-chat?prdSessionId=${encodeURIComponent(sessionId)}`)
+      navigate(`/tools/claude-chat?launchIntent=${encodeURIComponent(intent.id)}`)
       onClose()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '无法发起开发会话')

@@ -3,6 +3,8 @@ import { Link, Outlet, useLocation } from 'react-router-dom'
 import { GripVertical, LayoutGrid } from 'lucide-react'
 import { featureAtPath } from './featureRegistry'
 import { useChatRuntime } from '@/features/claude-chat/runtime/ChatRuntimeContext'
+import { UnifiedTitleBar } from './UnifiedTitleBar'
+import { useWindowControlsOverlay } from './useWindowControlsOverlay'
 
 const DOCK_POS_KEY = 'showcase.dockPos'
 const MARGIN = 12
@@ -34,7 +36,9 @@ export function ShowcaseLayout() {
   const chatHostsControls = floating && !!chat && !minimized
   // 页面声明 hideDock 时完全隐藏悬浮坞（用于自带悬浮控件的沉浸式演示页）。
   const location = useLocation()
-  const dockHidden = chatHostsControls || featureAtPath(location.pathname)?.hideDock === true
+  const windowControlsOverlayVisible = useWindowControlsOverlay()
+  const currentFeature = featureAtPath(location.pathname)
+  const dockHidden = windowControlsOverlayVisible || chatHostsControls || currentFeature?.hideDock === true
 
   // 首次（无记忆位置）按 dock 实际宽度落到右上角
   useLayoutEffect(() => {
@@ -76,7 +80,8 @@ export function ShowcaseLayout() {
   }
 
   return (
-    <div className="relative min-h-screen w-full bg-[var(--color-background)] text-[var(--color-foreground)]">
+    <div className="showcase-shell-canvas relative min-h-screen w-full bg-[var(--color-background)] text-[var(--color-foreground)]">
+      {windowControlsOverlayVisible && <UnifiedTitleBar featureName={currentFeature?.name} />}
       {/* 可拖拽悬浮 dock（聊天悬浮窗接管控件、或页面声明 hideDock 时隐藏） */}
       {!dockHidden && (
       <div

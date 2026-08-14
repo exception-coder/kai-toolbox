@@ -35,6 +35,13 @@ beforeEach(() => {
   for (const key of Object.keys(document.documentElement.dataset)) {
     delete document.documentElement.dataset[key]
   }
+  let themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+  if (!themeColor) {
+    themeColor = document.createElement('meta')
+    themeColor.name = 'theme-color'
+    document.head.append(themeColor)
+  }
+  themeColor.content = '#101318'
 })
 
 describe('appearance store', () => {
@@ -85,6 +92,18 @@ describe('appearance store', () => {
     expect(document.documentElement).not.toHaveClass('dark', 'theme-black', 'theme-sepia')
     expect(document.documentElement.dataset.mode).toBe('light')
     expect(document.documentElement.dataset.material).toBe('natural')
+  })
+
+  it('浏览器标题栏颜色跟随 Chrome Surface 而不是内容画布', () => {
+    initTheme()
+    updateTheme({ mode: 'light', material: 'paper' })
+    expect(document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content).toBe('#e4e0d8')
+
+    updateTheme({ mode: 'dark', material: 'standard' })
+    expect(document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content).toBe('#13171d')
+
+    updateTheme({ mode: 'black', material: 'glass' })
+    expect(document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')?.content).toBe('#05070a')
   })
 
   it('悬停预览只改变运行时画面，不写入持久化偏好', () => {

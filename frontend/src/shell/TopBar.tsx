@@ -4,14 +4,17 @@ import { useMockMode } from './useMockMode'
 
 interface TopBarProps {
   onOpenMobileMenu: () => void
+  hidden?: boolean
 }
 
 /**
  * 移动端菜单条。桌面端不再为单个侧栏开关占用整行空间，开关已迁入 Sidebar 品牌行；
  * 移动端没有常驻侧栏，仍需保留汉堡入口与 Mock 状态提示。
  */
-export function TopBar({ onOpenMobileMenu }: TopBarProps) {
+export function TopBar({ onOpenMobileMenu, hidden = false }: TopBarProps) {
   const { enabled: mock } = useMockMode()
+
+  if (hidden) return null
 
   return (
     <header className="appearance-chrome flex h-[var(--density-topbar-height)] items-center gap-2 border-b px-[var(--density-shell-padding)] md:hidden">

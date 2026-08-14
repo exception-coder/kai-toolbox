@@ -4,20 +4,27 @@ import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import { CommandPalette } from './CommandPalette'
-import { features } from './featureRegistry'
+import { featureAtPath, features } from './featureRegistry'
 import { PwaInstallPrompt } from './PwaInstallPrompt'
 import { useBrand } from './brand'
 import { useMenuVisibilitySync } from './menuVisibility'
+import { UnifiedTitleBar, UnifiedTitleBarSlotContext } from './UnifiedTitleBar'
+import { useWindowControlsOverlay } from './useWindowControlsOverlay'
 
 export function AppShell() {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [unifiedTitleBarSlot, setUnifiedTitleBarSlot] = useState<HTMLDivElement | null>(null)
   const collapsedRef = useRef(collapsed)
   const collapsedBeforeConsultRef = useRef<boolean | null>(null)
   const wasConsultRouteRef = useRef(false)
   const location = useLocation()
   const { brand } = useBrand()
+  const windowControlsOverlayVisible = useWindowControlsOverlay()
   const shellless = location.pathname === '/tools/welfare-sign/fullscreen'
+  const currentFeature = featureAtPath(location.pathname)
+  const currentFeatureName = currentFeature?.name ?? (location.pathname === '/' ? '工作台' : undefined)
+  const featureIntegratedTitleBar = windowControlsOverlayVisible && currentFeature?.id === 'claude-chat' && !shellless
   const isConsultRoute =
     location.pathname === '/tools/fore-consult' ||
     location.pathname.startsWith('/tools/fore-consult/')
@@ -73,10 +80,21 @@ export function AppShell() {
   }, [])
 
   return (
+    <UnifiedTitleBarSlotContext.Provider value={featureIntegratedTitleBar ? unifiedTitleBarSlot : null}>
     <div
       className="app-shell-canvas flex w-screen overflow-hidden text-[var(--color-foreground)]"
       style={{ height: 'var(--app-vh, 100vh)' }}
     >
+      {windowControlsOverlayVisible && (
+        <UnifiedTitleBar
+          featureName={currentFeatureName}
+          sidebarCollapsed={collapsed}
+          onToggleSidebar={shellless ? undefined : () => setCollapsed(current => !current)}
+          onOpenMobileMenu={shellless ? undefined : () => setMobileOpen(true)}
+          featureSlotRef={setUnifiedTitleBarSlot}
+          featureIntegrated={featureIntegratedTitleBar}
+        />
+      )}
       {shellless ? (
         <main className="scrollbar-autohide min-h-0 min-w-0 flex-1 overflow-y-auto">
           <Outlet />
@@ -85,20 +103,38 @@ export function AppShell() {
       <>
       {/* 桌面：常驻侧栏（md 及以上） */}
       <div className="hidden md:flex">
-        <Sidebar features={features} collapsed={collapsed} onToggleCollapsed={() => setCollapsed(c => !c)} />
+        <Sidebar
+          features={features}
+          collapsed={collapsed}
+          onToggleCollapsed={() => setCollapsed(current => !current)}
+          hideBrandHeader={windowControlsOverlayVisible}
+          titleBarIntegrated={featureIntegratedTitleBar}
+        />
       </div>
 
       {/* 移动端：通过 Sheet 抽屉打开（宽度对齐 Sidebar 默认展开宽度 w-60） */}
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent side="left" className="w-60 max-w-[80vw] p-0" hideCloseButton>
+        <SheetContent
+          side="left"
+          className="w-60 max-w-[80vw] p-0"
+          style={windowControlsOverlayVisible ? { paddingTop: 'var(--window-titlebar-height)' } : undefined}
+          hideCloseButton
+        >
           <SheetTitle className="sr-only">导航</SheetTitle>
-          <Sidebar features={features} />
+          <Sidebar
+            features={features}
+            hideBrandHeader={windowControlsOverlayVisible}
+            titleBarIntegrated={featureIntegratedTitleBar}
+          />
         </SheetContent>
       </Sheet>
 
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* 桌面折叠控制已并入侧栏品牌行，避免为单个按钮常驻一条 48px 顶栏。 */}
-        <TopBar onOpenMobileMenu={() => setMobileOpen(true)} />
+        <TopBar
+          onOpenMobileMenu={() => setMobileOpen(true)}
+          hidden={windowControlsOverlayVisible}
+        />
         {/* 模块高度以这里分配的 flex 可用空间为准；子页面应使用 h-full/min-h-full，
             不要再用 100vh 减 Shell 顶栏等固定像素。 */}
         <main className="scrollbar-autohide min-h-0 min-w-0 flex-1 overflow-y-auto">
@@ -111,5 +147,6 @@ export function AppShell() {
       </>
       )}
     </div>
+    </UnifiedTitleBarSlotContext.Provider>
   )
 }

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Copy, Database, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Route, Send, Server, Settings, Share2, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
+import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Copy, Database, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Route, Send, Server, Settings, Share2, ShieldCheck, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -74,6 +75,11 @@ import { Combobox } from '@/components/ui/combobox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { getDevPreference } from '@/features/_devkit/devPreferenceApi'
 import {
+  acknowledgeLaunchIntent,
+  failLaunchIntent,
+  loadLaunchIntent,
+} from '@/shell/launch-intent/api'
+import {
   loadLocalIgnoredProjectPaths,
   normalizeWorkspaceProjectPath,
   PROJECT_WORKSPACE_PREFERENCE_ID,
@@ -83,6 +89,7 @@ import { resolveSiteIcon } from '@/lib/siteIcons'
 import { listQuickSiteSummaries, recordQuickSiteSummaryOpened } from '@/lib/quickSites'
 import { getSessionSiteConfiguration } from '../api'
 import { openQuickSite } from '@/lib/openQuickSite'
+import { useUnifiedTitleBarSlot } from '@/shell/UnifiedTitleBar'
 import { SiteOpenModeMenu, type SiteOpenChoice } from '../components/SiteOpenModeMenu'
 import {
   customSiteToLinkedSite,
@@ -171,8 +178,13 @@ function MenuSection({ icon, label, open, onToggle, children }: {
   )
 }
 
+function WorkspaceHeaderMount({ target, children }: { target: HTMLElement | null; children: ReactNode }) {
+  return target ? createPortal(children, target) : children
+}
+
 export function ChatPage() {
   const { chat, setFloating, setMinimized, setVoiceMode, getReturnRoute, gestureOn, toggleGesture, gestureStatus, gestureError: gestureErr } = useChatRuntime()
+  const unifiedTitleBarSlot = useUnifiedTitleBarSlot()
   const navigate = useNavigate()
   const location = useLocation()
   const scopedPrdSessionId = useMemo(
@@ -460,6 +472,73 @@ export function ChatPage() {
   }
   const draftKey = chat?.sessionId ?? PENDING_DRAFT_KEY
   const [draft, setDraft] = useDraft(draftKey)
+  const launchIntentId = useMemo(
+    () => new URLSearchParams(location.search).get('launchIntent'),
+    [location.search],
+  )
+  const handledLaunchIntentRef = useRef<string | null>(null)
+  const pendingDraftIntentRef = useRef<{
+    intentId: string
+    previousSessionId: string | null
+    seed: string
+  } | null>(null)
+  const [launchIntentError, setLaunchIntentError] = useState<string | null>(null)
+  const [launchIntentRetry, setLaunchIntentRetry] = useState(0)
+
+  useEffect(() => {
+    if (!chat || !launchIntentId || handledLaunchIntentRef.current === launchIntentId) return
+    handledLaunchIntentRef.current = launchIntentId
+    setLaunchIntentError(null)
+    void loadLaunchIntent(launchIntentId)
+      .then(async intent => {
+        const payload = intent.payload
+        if (payload.type === 'CHAT_OPEN_DRAFT') {
+          pendingDraftIntentRef.current = {
+            intentId: intent.id,
+            previousSessionId: chat.sessionId,
+            seed: payload.seed,
+          }
+          chat.open(payload.cwd.trim())
+          return
+        }
+        if (payload.type === 'CHAT_OPEN_PANEL') {
+          setPanel(payload.panel)
+        } else {
+          if (payload.prdSessionId) {
+            pendingAutoPrdLinkRef.current = {
+              prdSessionId: payload.prdSessionId,
+              previousDevSessionId: chat.sessionId,
+            }
+          }
+          chat.open(
+            payload.cwd.trim(),
+            undefined,
+            undefined,
+            payload.engine,
+            payload.engine === 'codex'
+              ? { codexHome: payload.codexHome?.trim() || undefined }
+              : undefined,
+          )
+          chat.send(payload.seed)
+        }
+        await acknowledgeLaunchIntent(intent.id)
+      })
+      .catch(async error => {
+        const message = error instanceof Error ? error.message : String(error)
+        setLaunchIntentError(message)
+        try { await failLaunchIntent(launchIntentId, message) } catch { /* 原错误优先展示 */ }
+      })
+  }, [chat, launchIntentId, launchIntentRetry])
+
+  useEffect(() => {
+    const pendingIntent = pendingDraftIntentRef.current
+    if (!pendingIntent || !chat?.sessionId || chat.sessionId === pendingIntent.previousSessionId) return
+    pendingDraftIntentRef.current = null
+    setDraft(pendingIntent.seed)
+    void acknowledgeLaunchIntent(pendingIntent.intentId).catch(error => {
+      setLaunchIntentError(error instanceof Error ? error.message : String(error))
+    })
+  }, [chat?.sessionId, setDraft])
   // 聚合 seed：当前会话就绪且其草稿为空时，把一次性 seed 落到该会话草稿。
   useEffect(() => {
     if (seedRef.current && chat?.sessionId && !draft) {
@@ -1002,7 +1081,7 @@ export function ChatPage() {
     <div className={cn(
       fullscreen
         // 全屏是覆盖整个视口的浮层，背景必须不透明——否则底层（折叠侧栏等）会从半透明背景透出，左侧留残影
-        ? 'fixed inset-0 z-50 flex h-[100dvh] min-w-0 flex-col overflow-x-hidden'
+        ? 'cc-workspace-fullscreen fixed inset-0 z-50 flex h-[100dvh] min-w-0 flex-col overflow-x-hidden'
         // relative：给皮肤开启时的 .cc-skin-bg（position:absolute）提供定位上下文，
         // 不能写进 skin.css 的 .cc-skin 规则里——那边懒加载晚于 Tailwind 插入，会把
         // fullscreen 分支 `fixed` 覆盖掉，见 skin.css 顶部注释。
@@ -1016,11 +1095,15 @@ export function ChatPage() {
       {/* 极光背景独立裁剪层：见 skin.css .cc-skin-bg 注释——跟外层容器分开，
           不连带裁掉「更多」下拉等需要正常溢出显示的浮层。 */}
       {skin && <div className="cc-skin-bg" aria-hidden="true" />}
-      {/* 顶栏：中性浅灰 + 1px 边框（Notion 风），不抢视觉。
+      {/* 顶栏：与 Shell 品牌行共用一级 Chrome 高度和 Surface，避免标题栏层层套叠。
           relative z-30：炫彩皮肤下 header 带 backdrop-filter 会自成层叠上下文，把「更多」下拉
           (absolute z-50) 关在其中；header 若无显式 z 又排在消息区/输入栏之前，后者会整体盖住
           下拉的下半部分导致点不到。抬高 header 层级使其子树压在正文之上（仍低于 z-50/60 模态）。 */}
-      <header className="cc-skin-surface relative z-30 flex min-w-0 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-muted)] px-3 py-2 shadow-sm max-sm:gap-1 max-sm:px-2">
+      <WorkspaceHeaderMount target={unifiedTitleBarSlot}>
+      <header className={cn(
+        'cc-workspace-header workspace-unified-chrome relative z-30 flex min-w-0 items-center gap-2 px-3 max-sm:gap-1 max-sm:px-2',
+        unifiedTitleBarSlot && 'cc-workspace-header-integrated',
+      )}>
         {viewMode === 'multi' ? (
           /* 分屏下顶部不挂某一个会话的标题/引擎/状态/用量（各 pane 自带），只给中性标识 */
           <span className="font-semibold">分屏 · {multiIds.length} 个会话</span>
@@ -1049,59 +1132,61 @@ export function ChatPage() {
                 {currentTitle || 'Vibe Coding'}
               </span>
             )}
-            <div className="relative shrink-0">
-              <button
-                type="button"
-                onClick={() => setEngineMenuOpen(o => !o)}
-                title={currentEngineTitle}
-                aria-label={currentEngineTitle}
-                // 品牌图标为主、文字为辅：窄屏只留图标（品牌形状本身就够认），sm 以上才补文字。
-                className="flex items-center gap-1 rounded px-1 py-0.5 text-[10px] text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] sm:px-1.5"
-              >
-                <EngineIcon
-                  engine={chat.currentEngine}
-                  thirdParty={chat.currentProviderKind === 'thirdParty'}
-                  className="size-3.5"
+            <div className="cc-session-runtime-cluster shrink-0">
+              <div className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setEngineMenuOpen(o => !o)}
+                  title={currentEngineTitle}
+                  aria-label={currentEngineTitle}
+                  className="cc-session-runtime-item flex items-center gap-1 px-1.5 text-[10px] text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)]"
+                >
+                  <EngineIcon
+                    engine={chat.currentEngine}
+                    thirdParty={chat.currentProviderKind === 'thirdParty'}
+                    className="size-3.5"
+                  />
+                  <span className="hidden sm:inline">{currentEngineLabel}</span>
+                  <ChevronDown className="size-3 opacity-50" />
+                </button>
+                {engineMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setEngineMenuOpen(false)} />
+                    <div className="absolute left-0 top-full z-20 mt-1 w-36 rounded-lg border bg-[var(--color-card)] p-1 shadow-lg">
+                      <div className="px-2 py-1 text-[10px] text-[var(--color-muted-foreground)]">切 agent（带上下文）</div>
+                      {selectableEngines.map(eng => (
+                        <button
+                          key={eng}
+                          type="button"
+                          onClick={() => pickEngine(eng)}
+                          disabled={chat.running}
+                          className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-[var(--color-accent)] disabled:opacity-40 ${eng === chat.currentEngine ? 'font-semibold text-[var(--color-primary)]' : ''}`}
+                        >
+                          <EngineIcon engine={eng} className="size-3.5" />
+                          <span className="min-w-0 flex-1 truncate text-left">{engineName(eng)}</span>
+                          {eng === chat.currentEngine && <Check className="size-3.5 shrink-0" />}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+              <CodexTransportBadge
+                engine={chat.currentEngine}
+                providerKind={chat.currentProviderKind}
+                diag={chat.providerDiag}
+                className="cc-session-runtime-item hidden border-0 bg-transparent shadow-none xl:inline-flex"
+              />
+              <span className="cc-session-runtime-item inline-flex items-center px-1" title={stateLabel(chat.state)}>
+                <StatusBadge
+                  tone={stateTone(chat.state)}
+                  pulse={chat.state === 'connecting'}
+                  aria-label={stateLabel(chat.state)}
+                  className="size-4 shrink-0 justify-center rounded-full border-0 px-0 shadow-none"
                 />
-                <span className="hidden sm:inline">{currentEngineLabel}</span>
-                <ChevronDown className="size-3 opacity-50" />
-              </button>
-              {engineMenuOpen && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setEngineMenuOpen(false)} />
-                  <div className="absolute left-0 top-full z-20 mt-1 w-36 rounded-lg border bg-[var(--color-card)] p-1 shadow-lg">
-                    <div className="px-2 py-1 text-[10px] text-[var(--color-muted-foreground)]">切 agent（带上下文）</div>
-                    {selectableEngines.map(eng => (
-                      <button
-                        key={eng}
-                        type="button"
-                        onClick={() => pickEngine(eng)}
-                        disabled={chat.running}
-                        className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-[var(--color-accent)] disabled:opacity-40 ${eng === chat.currentEngine ? 'font-semibold text-[var(--color-primary)]' : ''}`}
-                      >
-                        <EngineIcon engine={eng} className="size-3.5" />
-                        <span className="min-w-0 flex-1 truncate text-left">{engineName(eng)}</span>
-                        {eng === chat.currentEngine && <Check className="size-3.5 shrink-0" />}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
+              </span>
+              <SessionTotalBadge className="cc-session-runtime-item hidden border-0 bg-transparent shadow-none xl:inline-flex" items={chat.items} serverTotal={sessionUsage} onClick={() => setShowUsage(true)} />
             </div>
-            <CodexTransportBadge
-              engine={chat.currentEngine}
-              providerKind={chat.currentProviderKind}
-              diag={chat.providerDiag}
-              className="hidden sm:inline-flex"
-            />
-            <StatusBadge
-              tone={stateTone(chat.state)}
-              pulse={chat.state === 'connecting'}
-              title={stateLabel(chat.state)}
-              aria-label={stateLabel(chat.state)}
-              className="size-5 shrink-0 justify-center rounded-full px-0"
-            />
-            <SessionTotalBadge items={chat.items} serverTotal={sessionUsage} onClick={() => setShowUsage(true)} />
           </>
         )}
         {/* 关联 PRD 标识：只在确实绑定了才显示，点击打开关联面板（查看/更换/同步更新开发文档）。 */}
@@ -1110,7 +1195,7 @@ export function ChatPage() {
             type="button"
             onClick={() => setShowPrdLink(true)}
             title={`已关联 PRD：${linkedPrd.title || '（未命名）'}（点击查看/管理）`}
-            className="flex shrink-0 items-center gap-1 rounded-full border border-[var(--color-primary)]/40 bg-[var(--color-primary)]/10 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] max-sm:hidden"
+            className="hidden shrink-0 items-center gap-1 rounded-full border border-[var(--color-primary)]/40 bg-[var(--color-primary)]/10 px-1.5 py-0.5 text-[10px] text-[var(--color-primary)] 2xl:flex"
           >
             <FileText className="size-3" />
             <span className="max-w-24 truncate">{linkedPrd.title || 'PRD'}</span>
@@ -1121,7 +1206,7 @@ export function ChatPage() {
             type="button"
             onClick={() => setShowPendingSql(true)}
             title={`待执行 SQL：${pendingSql.title || '未命名登记'}（点击查看/管理）`}
-            className={`flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] max-sm:hidden ${pendingSql.status === 'PENDING'
+            className={`hidden shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] 2xl:flex ${pendingSql.status === 'PENDING'
               ? 'border-amber-500/60 bg-amber-100/80 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300'
               : 'border-[var(--color-border)] bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'}`}
           >
@@ -1133,7 +1218,7 @@ export function ChatPage() {
           <Popover>
             <PopoverTrigger asChild>
               <button type="button" title={`查看 ${linkedSites.length} 个关联站点`}
-                className="flex shrink-0 items-center gap-1 rounded-full border border-sky-500/50 bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-700 dark:text-sky-300">
+                className="hidden shrink-0 items-center gap-1 rounded-full border border-sky-500/50 bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-700 dark:text-sky-300 2xl:flex">
                 <Link2 className="size-3" />
                 <span className="max-sm:hidden">关联站点</span>
                 <span>{linkedSites.length}</span>
@@ -1172,7 +1257,7 @@ export function ChatPage() {
         {linkedProjectPaths.length > 0 && (
           <button type="button" onClick={() => setShowSessionProjects(true)}
             title={`${linkedProjectPaths.length} 个附加项目：${linkedProjectPaths.join('、')}`}
-            className="flex shrink-0 items-center gap-1 rounded-full border border-blue-500/50 bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-700 dark:text-blue-300">
+            className="hidden shrink-0 items-center gap-1 rounded-full border border-blue-500/50 bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-700 dark:text-blue-300 2xl:flex">
             <FolderGit2 className="size-3" />
             <span className="max-sm:hidden">附加项目</span>
             <span>{linkedProjectPaths.length}</span>
@@ -1187,7 +1272,7 @@ export function ChatPage() {
               : gestureStatus === 'running' ? '手势监控中：握拳=弹窗 / 张手=返回（摄像头开启中，点击关闭）'
               : gestureStatus === 'loading' ? '手势模型加载中…（点击关闭）'
               : '手势弹窗已开（点击关闭）'}
-            className={`flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] max-sm:hidden ${gestureErr
+            className={`hidden shrink-0 items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] 2xl:flex ${gestureErr
               ? 'border-[var(--color-destructive)] text-[var(--color-destructive)]'
               : gestureStatus === 'running'
                 ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400'
@@ -1197,19 +1282,19 @@ export function ChatPage() {
             {gestureErr ? '手势×' : gestureStatus === 'loading' ? '手势…' : '手势'}
           </button>
         )}
-        <div className="ml-auto flex shrink-0 items-center gap-1 max-sm:gap-0">
-          {/* 用量入口已并入头部 SessionTotalBadge（点徽章打开） */}
+        <div className="cc-session-header-actions ml-auto flex shrink-0 items-center max-sm:gap-0">
+          {/* 宽屏直接显示用量徽章；窄桌面仍可从「更多 → 会话」进入。 */}
           {/* 常用：带文字标签，一眼可辨 */}
-          <Button variant="ghost" size="sm" className="gap-1 px-2 sm:px-3" onClick={() => setPanel(p => p === 'new' ? 'none' : 'new')} aria-label="新建会话">
-            <Plus className="size-4" /> <span className="hidden sm:inline">新建</span>
+          <Button variant="ghost" size="sm" className="gap-1 px-2 xl:px-3" onClick={() => setPanel(p => p === 'new' ? 'none' : 'new')} aria-label="新建会话">
+            <Plus className="size-4" /> <span className="hidden xl:inline">新建</span>
           </Button>
-          <Button variant="ghost" size="sm" className="gap-1 px-2 sm:px-3" onClick={() => setPanel(p => p === 'sessions' ? 'none' : 'sessions')} aria-label="会话列表">
-            <List className="size-4" /> <span className="hidden sm:inline">会话</span>
+          <Button variant="ghost" size="sm" className="gap-1 px-2 xl:px-3" onClick={() => setPanel(p => p === 'sessions' ? 'none' : 'sessions')} aria-label="会话列表">
+            <List className="size-4" /> <span className="hidden xl:inline">会话</span>
           </Button>
           <Button
             variant={panel === 'plugins' ? 'secondary' : 'ghost'}
             size="sm"
-            className="gap-1 px-2 sm:px-3"
+            className="hidden gap-1 px-3 2xl:inline-flex"
             onClick={() => setPanel(p => p === 'plugins' ? 'none' : 'plugins')}
             aria-label="团队依赖"
             title="拉取依赖项目并安装到 Claude Code / Codex"
@@ -1238,6 +1323,9 @@ export function ChatPage() {
                     <HeaderMenuItem nested icon={<EyeOff className="size-4" />} label={hideToolCalls ? '隐藏工具调用 · 开' : '隐藏工具调用 · 关'} hint="消息流里不再显示 MCP/命令/读写等工具调用气泡" onClick={() => { setHideToolCalls(!hideToolCalls) }} />
                   </MenuSection>
                   <MenuSection icon={<MessageSquare className="size-4" />} label="会话" open={menuGroup === 'session'} onToggle={() => toggle('session')}>
+                    {chat.sessionId && (
+                      <HeaderMenuItem nested icon={<Gauge className="size-4" />} label="会话用量" hint="查看本会话累计 Token 与费用明细" onClick={() => { setHeaderMenu(false); setShowUsage(true) }} />
+                    )}
                     {chat.sessionId && (
                       <HeaderMenuItem nested icon={<RefreshCw className="size-4" />} label="重载会话" hint="重连原生会话，加载最新插件/技能/命令" onClick={() => { setHeaderMenu(false); chat.resumeCurrent() }} />
                     )}
@@ -1296,6 +1384,26 @@ export function ChatPage() {
           </div>
         </div>
       </header>
+      </WorkspaceHeaderMount>
+
+      {launchIntentError && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
+          <TriangleAlert className="size-4 shrink-0" />
+          <span className="min-w-0 flex-1">启动交接失败：{launchIntentError}</span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 px-2 text-xs"
+            onClick={() => {
+              handledLaunchIntentRef.current = null
+              pendingDraftIntentRef.current = null
+              setLaunchIntentRetry(value => value + 1)
+            }}
+          >
+            重试
+          </Button>
+        </div>
+      )}
 
       {viewMode === 'single' && reviewLink && (
         <div className="border-b border-indigo-200 bg-indigo-50/90 px-3 py-2 text-xs text-indigo-950 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100">
@@ -1843,10 +1951,10 @@ export function ChatPage() {
         />
       ) : (
         <div className="flex min-h-0 min-w-0 flex-1">
-          {/* 常驻会话导航（md+ 显示，可折叠）：免去每次开右上角「会话」面板才能切历史会话 */}
+          {/* 常驻会话导航（lg+ 显示，可折叠）：窄屏继续通过顶部「会话」入口切换，避免双侧栏挤压输入区 */}
           {railOpen ? (
-            <aside className="cc-skin-surface-solid hidden w-72 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-background)] md:flex">
-              <div className="flex items-center gap-1 border-b px-2 py-1.5">
+            <aside className="cc-skin-surface-solid hidden w-72 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-background)] lg:flex">
+              <div className="workspace-contextbar cc-chat-contextbar flex items-center gap-1 px-2">
                 <span className="text-xs font-medium text-[var(--color-muted-foreground)]">AI 工作区</span>
                 <button type="button" onClick={() => setPanel('new')} className="ml-auto rounded p-1 hover:bg-[var(--color-accent)]" aria-label="新建会话" title="新建会话">
                   <Plus className="size-4" />
@@ -1866,27 +1974,23 @@ export function ChatPage() {
               </div>
             </aside>
           ) : (
-            <button
-              type="button"
-              onClick={() => setRailOpen(true)}
-              className="cc-skin-surface-solid hidden w-8 shrink-0 items-start justify-center border-r border-[var(--color-border)] bg-[var(--color-background)] pt-2 text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] md:flex"
-              aria-label="展开会话列表"
-              title="展开会话列表"
-            >
-              <PanelLeftOpen className="size-4" />
-            </button>
+            <aside className="cc-skin-surface-solid hidden w-8 shrink-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-background)] lg:flex">
+              <button
+                type="button"
+                onClick={() => setRailOpen(true)}
+                className="workspace-contextbar cc-chat-contextbar flex w-full items-center justify-center text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)]"
+                aria-label="展开会话列表"
+                title="展开会话列表"
+              >
+                <PanelLeftOpen className="size-4" />
+              </button>
+            </aside>
           )}
 
           {/* 右侧：消息流 + 输入 */}
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            {/* 跨会话待确认：其它会话有未决权限/提问时置顶提示，点击跳去作答（避免漏答致任务超时中断）。 */}
-            <PendingSessionsBanner
-              sessions={chat.pendingSessions}
-              currentSessionId={chat.sessionId}
-              onGo={sid => chat.switchTo(sid)}
-            />
-            {chat.sessionId && (
-              <nav className="cc-skin-surface flex h-9 shrink-0 items-end gap-5 border-b border-[var(--color-border)] px-3" aria-label="会话视图">
+            {chat.sessionId ? (
+              <nav className="workspace-contextbar cc-chat-contextbar flex items-end gap-5 px-3" aria-label="会话视图">
                 <button
                   type="button"
                   aria-current={sessionView === 'conversation' ? 'page' : undefined}
@@ -1916,7 +2020,15 @@ export function ChatPage() {
                   轨迹
                 </button>
               </nav>
+            ) : (
+              <div className="workspace-contextbar cc-chat-contextbar" aria-hidden="true" />
             )}
+            {/* 跨会话待确认放在统一 Context Strip 下方，避免提示出现时左右两列的顶线错位。 */}
+            <PendingSessionsBanner
+              sessions={chat.pendingSessions}
+              currentSessionId={chat.sessionId}
+              onGo={sid => chat.switchTo(sid)}
+            />
             <main className="cc-skin-view flex min-h-0 min-w-0 flex-1 flex-col">
               {chat.sessionId ? (
                 sessionView === 'trajectory' ? (
@@ -1996,12 +2108,12 @@ export function ChatPage() {
               return prev.filter(a => a.id !== id)
             })}
           />
-          <div className="flex flex-wrap items-center gap-2 px-3 pt-2">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-2 pt-2 md:px-3">
             {reviewOnlySession ? (
               <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-700 dark:text-emerald-300"><ShieldCheck className="size-3.5" />仅计划评审</span>
-            ) : <ModeSwitch engine={chat.currentEngine} mode={chat.mode} onChange={chat.setMode} />}
+            ) : <div className="order-1 min-w-0 md:order-none"><ModeSwitch engine={chat.currentEngine} mode={chat.mode} onChange={chat.setMode} /></div>}
             {chat.currentEngine === 'codex' && !reviewOnlySession && (
-              <div className="min-w-0 max-w-full">
+              <div className="order-3 w-full min-w-0 max-w-full md:order-none md:w-auto">
                 <CodexSessionOptions
                   models={chat.models}
                   model={chat.currentModel}
@@ -2016,7 +2128,7 @@ export function ChatPage() {
             )}
             {chat.currentEngine === 'deepseekHarness' && (
               <span
-                className="inline-flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-xs text-blue-700 dark:text-blue-300"
+                className="order-2 inline-flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-xs text-blue-700 dark:text-blue-300 md:order-none"
                 title={currentEngineCatalogEntry?.probe.detail ?? 'DeepSeek Harness Runtime 握手已通过'}
               >
                 <EngineIcon engine="deepseekHarness" className="size-3.5" />
@@ -2024,7 +2136,7 @@ export function ChatPage() {
               </span>
             )}
             {/* 服务商切换与权限组语义不同：用左外边距推到右侧，避免和权限按钮挤在一起 */}
-            {!reviewOnlySession && (chat.currentEngine === 'claude' || chat.currentEngine === 'codex' || chat.currentEngine === 'gemini') && <div className="order-1 ml-auto sm:order-none">
+            {!reviewOnlySession && (chat.currentEngine === 'claude' || chat.currentEngine === 'codex' || chat.currentEngine === 'gemini') && <div className="order-2 ml-auto md:order-none">
               <ProviderSwitch
                 engine={chat.currentEngine}
                 providerKind={chat.currentProviderKind}
@@ -2050,12 +2162,13 @@ export function ChatPage() {
             onPick={reference => { void projectMention.pickReference(reference) }}
           />
           <SessionPlanLockNotice session={currentSession} />
-          <div className="flex items-end gap-2 px-3 py-2">
+          <div className="flex min-w-0 items-end gap-1 px-2 py-2 md:gap-2 md:px-3">
             {/* 微信式「+ 更多功能」：附件 / 指令收纳其中 */}
             <div className="relative">
               <Button
                 variant="ghost"
                 size="icon"
+                className="max-md:size-11"
                 disabled={planLocked}
                 onClick={() => { setMoreOpen(o => !o); setCmdMenuOpen(false) }}
                 aria-label="更多功能"
@@ -2126,6 +2239,7 @@ export function ChatPage() {
             </div>
             <ProjectMentionButton
               active={projectMention.open}
+              className="max-md:size-11"
               disabled={planLocked}
               onToggle={() => {
                 setMoreOpen(false)
@@ -2134,12 +2248,14 @@ export function ChatPage() {
               }}
             />
             <VoiceInputButton
+              className="max-md:size-11"
               disabled={planLocked}
               onText={t => setDraft(d => d.trim() ? `${d} ${t}` : t)}
             />
             <textarea
               ref={taRef}
-              className="max-h-32 min-h-[2.75rem] flex-1 resize-none overflow-y-auto rounded-xl border bg-[var(--color-background)] px-3 py-2 text-sm"
+              aria-label="消息输入"
+              className="max-h-32 min-h-[2.75rem] min-w-0 flex-1 resize-none overflow-y-auto rounded-xl border bg-[var(--color-background)] px-3 py-2 text-sm"
               placeholder=""
               rows={1}
               disabled={planLocked}
@@ -2168,11 +2284,11 @@ export function ChatPage() {
               }}
             />
             {chat.running ? (
-              <div className="flex gap-1.5">
+              <div className="flex shrink-0 gap-1.5">
                 <Button
                   size="lg"
                   variant="secondary"
-                  className="shadow-sm"
+                  className="hidden shadow-sm md:inline-flex"
                   onClick={submit}
                   disabled={planLocked || (!draft.trim() && attachments.length === 0)}
                   aria-label="排队发送"
@@ -2180,7 +2296,7 @@ export function ChatPage() {
                 >
                   <Plus className="size-4" />
                 </Button>
-                <Button variant="outline" size="lg" onClick={chat.interrupt} disabled={chat.interrupting}
+                <Button variant="outline" size="lg" className="max-md:size-11 max-md:px-0" onClick={chat.interrupt} disabled={chat.interrupting}
                   aria-label={chat.interrupting ? '正在中断' : '中断'} title={chat.interrupting ? '正在校正会话状态' : '中断'}>
                   {chat.interrupting ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}
                 </Button>
@@ -2188,7 +2304,7 @@ export function ChatPage() {
             ) : (
               <Button
                 size="lg"
-                className="shadow-md"
+                className="max-md:size-11 max-md:px-0 shadow-md"
                 onClick={submit}
                 disabled={planLocked || (!draft.trim() && attachments.length === 0)}
                 aria-label="发送"

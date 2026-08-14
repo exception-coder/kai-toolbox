@@ -178,3 +178,76 @@
 .cc-skin :where(.cc-skin-view > *) {
   background-color: transparent;
 }
+
+/* 会话头部是一块连续的工作台 Chrome，而不是“标题栏 + 一排胶囊 + 独立页签”三块卡片。 */
+.cc-workspace-header {
+  border-bottom: 0;
+  box-shadow: none;
+}
+
+.cc-chat-contextbar {
+  background-color: var(--color-chrome);
+}
+
+.cc-session-runtime-cluster,
+.cc-session-header-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  overflow: visible;
+  border: 1px solid color-mix(in oklab, var(--color-chrome-divider) 74%, transparent);
+  border-radius: calc(var(--radius) - 2px);
+  background-color: color-mix(in oklab, var(--color-background) 22%, transparent);
+}
+
+.cc-session-runtime-cluster {
+  height: 1.75rem;
+}
+
+.cc-session-runtime-item {
+  position: relative;
+  height: 100%;
+  border-radius: 0;
+}
+
+.cc-session-runtime-cluster > * + *::before {
+  content: '';
+  position: absolute;
+  inset-block: 0.35rem;
+  left: 0;
+  width: 1px;
+  background-color: color-mix(in oklab, var(--color-chrome-divider) 72%, transparent);
+}
+
+.cc-session-runtime-item:hover {
+  background-color: color-mix(in oklab, var(--color-accent) 72%, transparent);
+}
+
+.cc-session-header-actions {
+  gap: 0;
+  padding: 1px;
+}
+
+.cc-session-header-actions > button,
+.cc-session-header-actions > div > button {
+  border-radius: calc(var(--radius) - 4px);
+}
+
+/* 炫彩模式沿用同一材质，只提高一点透明度，避免新头部再次形成实色断层。 */
+.cc-skin .cc-workspace-header,
+.cc-skin .cc-chat-contextbar {
+  background-color: color-mix(in oklab, var(--color-background) 66%, transparent);
+  backdrop-filter: none;
+}
+
+@media (max-width: 639px) {
+  .cc-session-runtime-cluster,
+  .cc-session-header-actions {
+    border-color: transparent;
+    background-color: transparent;
+  }
+
+  .cc-session-runtime-cluster > * + *::before {
+    display: none;
+  }
+}

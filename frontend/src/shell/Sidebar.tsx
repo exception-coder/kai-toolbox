@@ -16,9 +16,17 @@ interface SidebarProps {
   features: FeatureManifest[]
   collapsed?: boolean
   onToggleCollapsed?: () => void
+  hideBrandHeader?: boolean
+  titleBarIntegrated?: boolean
 }
 
-export function Sidebar({ features, collapsed, onToggleCollapsed }: SidebarProps) {
+export function Sidebar({
+  features,
+  collapsed,
+  onToggleCollapsed,
+  hideBrandHeader = false,
+  titleBarIntegrated = false,
+}: SidebarProps) {
   const { brand } = useBrand()
   const { enabled: mock } = useMockMode()
   const access = useAccessContext()
@@ -36,57 +44,81 @@ export function Sidebar({ features, collapsed, onToggleCollapsed }: SidebarProps
         collapsed ? 'w-16' : 'w-60'
       )}
     >
-      <div className="flex h-[var(--density-sidebar-header)] shrink-0 items-center border-b border-[var(--color-sidebar-border)]">
-        <NavLink
-          to="/"
-          className={cn(
-            'flex min-w-0 flex-1 self-stretch items-center gap-2 px-4 hover:bg-[var(--color-sidebar-accent)]',
-            collapsed && 'justify-center px-1',
-          )}
-        >
-          <BrandLogo className="h-5 w-5 shrink-0" />
-          {!collapsed && <span className="truncate text-sm font-semibold tracking-tight">{brand.appName}</span>}
-          {!collapsed && mock && (
-            <span className="shrink-0 rounded border border-amber-500/40 bg-amber-500/10 px-1 py-0.5 text-[9px] font-medium text-amber-600 dark:text-amber-400">
-              MOCK
-            </span>
-          )}
-        </NavLink>
-        {onToggleCollapsed && (
+      {!titleBarIntegrated && <div className="workspace-unified-chrome flex items-center">
+        {hideBrandHeader ? (
           <button
             type="button"
-            onClick={onToggleCollapsed}
-            title={collapsed ? '展开侧栏' : '收起侧栏'}
-            aria-label={collapsed ? '展开侧栏' : '收起侧栏'}
+            onClick={openCommandPalette}
+            title="搜索与跳转（Ctrl / ⌘ + K）"
             className={cn(
-              'mr-2 flex size-7 shrink-0 items-center justify-center rounded-md text-[var(--color-muted-foreground)] hover:bg-[var(--color-sidebar-accent)] hover:text-[var(--color-sidebar-foreground)]',
-              collapsed && 'mr-1',
+              'mx-2 flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-[var(--color-muted-foreground)] hover:bg-[var(--color-sidebar-accent)] hover:text-[var(--color-sidebar-foreground)]',
+              collapsed && 'justify-center px-0',
             )}
           >
-            {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
+            <Search className="size-4 shrink-0" />
+            {!collapsed && (
+              <>
+                <span className="flex-1 text-left">搜索与跳转</span>
+                <kbd className="shrink-0 rounded border border-[var(--color-sidebar-border)] px-1.5 py-0.5 text-[10px] font-medium tabular-nums">Ctrl K</kbd>
+              </>
+            )}
           </button>
+        ) : (
+          <>
+            <NavLink
+              to="/"
+              className={cn(
+                'flex min-w-0 flex-1 self-stretch items-center gap-2 px-4 hover:bg-[var(--color-sidebar-accent)]',
+                collapsed && 'justify-center px-1',
+              )}
+            >
+              <BrandLogo className="h-5 w-5 shrink-0" />
+              {!collapsed && <span className="truncate text-sm font-semibold tracking-tight">{brand.appName}</span>}
+              {!collapsed && mock && (
+                <span className="shrink-0 rounded border border-amber-500/40 bg-amber-500/10 px-1 py-0.5 text-[9px] font-medium text-amber-600 dark:text-amber-400">
+                  MOCK
+                </span>
+              )}
+            </NavLink>
+            {onToggleCollapsed && (
+              <button
+                type="button"
+                onClick={onToggleCollapsed}
+                title={collapsed ? '展开侧栏' : '收起侧栏'}
+                aria-label={collapsed ? '展开侧栏' : '收起侧栏'}
+                className={cn(
+                  'mr-2 flex size-7 shrink-0 items-center justify-center rounded-md text-[var(--color-muted-foreground)] hover:bg-[var(--color-sidebar-accent)] hover:text-[var(--color-sidebar-foreground)]',
+                  collapsed && 'mr-1',
+                )}
+              >
+                {collapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
+              </button>
+            )}
+          </>
         )}
-      </div>
+      </div>}
 
       <nav className="scrollbar-autohide flex-1 overflow-y-auto p-[var(--density-shell-padding)]">
         {/* 搜索/跳转入口：打开命令面板（Ctrl/⌘+K）。放导航顶部，取代原顶栏搜索框。 */}
-        <button
-          type="button"
-          onClick={openCommandPalette}
-          title="搜索与跳转（Ctrl / ⌘ + K）"
-          className={cn(
-            'mb-3 flex w-full items-center gap-2.5 rounded-md border border-[var(--color-sidebar-border)] bg-[var(--color-background)]/60 px-2.5 py-[var(--density-nav-padding)] text-sm text-[var(--color-muted-foreground)] transition-colors hover:bg-[var(--color-sidebar-accent)]',
-            collapsed && 'justify-center px-0'
-          )}
-        >
-          <Search className="h-4 w-4 shrink-0" />
-          {!collapsed && (
-            <>
-              <span className="flex-1 text-left">搜索</span>
-              <kbd className="shrink-0 rounded border bg-[var(--color-sidebar)] px-1.5 py-0.5 text-[10px] font-medium tabular-nums">Ctrl K</kbd>
-            </>
-          )}
-        </button>
+        {(!hideBrandHeader || titleBarIntegrated) && (
+          <button
+            type="button"
+            onClick={openCommandPalette}
+            title="搜索与跳转（Ctrl / ⌘ + K）"
+            className={cn(
+              'mb-3 flex w-full items-center gap-2.5 rounded-md border border-[var(--color-sidebar-border)] bg-[var(--color-background)]/60 px-2.5 py-[var(--density-nav-padding)] text-sm text-[var(--color-muted-foreground)] transition-colors hover:bg-[var(--color-sidebar-accent)]',
+              collapsed && 'justify-center px-0'
+            )}
+          >
+            <Search className="h-4 w-4 shrink-0" />
+            {!collapsed && (
+              <>
+                <span className="flex-1 text-left">搜索</span>
+                <kbd className="shrink-0 rounded border bg-[var(--color-sidebar)] px-1.5 py-0.5 text-[10px] font-medium tabular-nums">Ctrl K</kbd>
+              </>
+            )}
+          </button>
+        )}
         {visible.length === 0 && !collapsed && (
           <div className="px-2 py-1 text-xs text-[var(--color-muted-foreground)]">
             还没有任何工具

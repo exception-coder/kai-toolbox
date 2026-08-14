@@ -273,16 +273,18 @@ function updateBrowserThemeColor(mode: Exclude<ThemeMode, 'system'>, material: T
 }
 
 function browserThemeColor(mode: Exclude<ThemeMode, 'system'>, material: ThemeMaterial): string {
-  if (mode === 'black') return '#000000'
+  // 浏览器原生窗口按钮区应贴近 Chrome Surface，而不是贴近内容画布。
+  // 这样 standalone 回退和 Window Controls Overlay 都不会在最顶部形成一条异色横条。
+  if (mode === 'black') return '#05070a'
   if (mode === 'dark') {
-    if (material === 'paper' || material === 'ink') return '#171613'
-    if (material === 'natural') return '#151914'
-    return '#101318'
+    if (material === 'paper' || material === 'ink') return '#141310'
+    if (material === 'natural') return '#111611'
+    return '#13171d'
   }
-  if (material === 'paper') return '#edebe5'
-  if (material === 'ink') return '#f4f1e9'
-  if (material === 'natural') return '#eef0e8'
-  return '#f6f7f9'
+  if (material === 'paper') return '#e4e0d8'
+  if (material === 'ink') return '#eae6db'
+  if (material === 'natural') return '#dfe4d8'
+  return '#eef0f3'
 }
 
 function freezeTheme(state: ThemeState): ThemeState {

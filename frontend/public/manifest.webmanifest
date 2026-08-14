@@ -5,6 +5,10 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone"
+  ],
   "background_color": "#101318",
   "theme_color": "#101318",
   "lang": "zh-CN",
