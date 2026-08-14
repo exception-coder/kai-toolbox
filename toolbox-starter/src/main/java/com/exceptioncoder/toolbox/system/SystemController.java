@@ -17,8 +17,8 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Map;
 
 /**
- * 系统级运维端点。{@code POST /restart} 让运行中的进程优雅退出，由外部守护脚本
- * （{@code scripts/run-supervised.ps1}）重新编译并拉起，从而远程应用新代码。
+ * 系统级运维端点。{@code POST /restart} 先与外部 supervisor 或 replacement JVM
+ * 完成交接握手，再让当前进程优雅退出；无法确认接管者时保留当前服务。
  *
  * <p>经公网 tunnel 暴露，故必须配置 {@code toolbox.system.restart-token} 才开放；
  * 未配置直接 503，token 不符 403——杜绝公网裸重启开关。
@@ -31,10 +31,13 @@ public class SystemController {
 
     private final SystemProperties props;
     private final RecentLogsService recentLogs;
+    private final RestartCoordinator restartCoordinator;
 
-    public SystemController(SystemProperties props, RecentLogsService recentLogs) {
+    public SystemController(SystemProperties props, RecentLogsService recentLogs,
+                            RestartCoordinator restartCoordinator) {
         this.props = props;
         this.recentLogs = recentLogs;
+        this.restartCoordinator = restartCoordinator;
     }
 
     /**
@@ -70,19 +73,18 @@ public class SystemController {
         if (!configured.equals(provided)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "token 无效"));
         }
-        log.warn("[system] 收到远程重启请求，进程即将退出，由守护脚本重新编译并拉起");
-        // 异步退出：先让本响应回写给客户端，再优雅关闭（@PreDestroy 会杀 sidecar 等），守护脚本随后重起。
-        Thread.ofVirtual().name("system-restart").start(() -> {
-            try {
-                Thread.sleep(300);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            // 构建可能在进程运行期间原地替换可执行 jar。此处不能再懒加载 Spring Boot 类，
-            // 否则退出时可能因新旧 jar 不一致而触发 NoClassDefFoundError。
-            // System.exit 会触发 Spring 注册的 JVM shutdown hook，ApplicationContext 仍会正常关闭。
-            System.exit(0);
-        });
-        return ResponseEntity.ok(Map.of("status", "restarting"));
+        RestartCoordinator.RestartOutcome outcome = restartCoordinator.restartCurrent();
+        if (!outcome.accepted()) {
+            HttpStatus status = outcome.failure() == RestartCoordinator.Failure.ALREADY_RESTARTING
+                    ? HttpStatus.CONFLICT
+                    : HttpStatus.SERVICE_UNAVAILABLE;
+            log.warn("[system] 重启请求未交接，不退出当前服务：code={}, reason={}",
+                    outcome.failure(), outcome.message());
+            return ResponseEntity.status(status).body(Map.of(
+                    "error", outcome.message(),
+                    "code", outcome.failure().name()));
+        }
+        log.warn("[system] 重启接管者已确认：{}", outcome.message());
+        return ResponseEntity.ok(Map.of("status", "restarting", "message", outcome.message()));
     }
 }

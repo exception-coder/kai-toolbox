@@ -245,6 +245,38 @@ toolbox:
     # 远程重启端点 token。经公网 tunnel 暴露，留空 = 端点关闭（返回 503）。必须显式配才开放。
     # 用环境变量覆盖：TOOLBOX_SYSTEM_RESTART_TOKEN=随机串
     restart-token: ${TOOLBOX_SYSTEM_RESTART_TOKEN:}
+    restart:
+      # 与 supervisor /status 返回值严格匹配；协议不兼容时保留当前 JVM。
+      supervisor-protocol-version: 1
+      supervisor-connect-timeout: 800ms
+      supervisor-request-timeout: 4s
+      # replacement JVM 先 ready，再等待旧 JVM 退出；两段都有限时且失败不退出旧服务。
+      handoff-ready-timeout: 10s
+      handoff-parent-timeout: 2m
+      exit-delay: 500ms
+      handoff-dir: ${toolbox.data-dir}/restart-handoff
+    auto-update:
+      # Java 是自动更新的唯一轮询 owner；无论 IDE、spring-boot:run、fat jar 或 supervisor 启动都生效。
+      # 不在 Git 工作区、工作区 dirty/ahead/diverged、Agent 未空闲或无法安全接管重启时只告警延期。
+      enabled: ${TOOLBOX_AUTO_UPDATE_ENABLED:true}
+      repository: ${TOOLBOX_AUTO_UPDATE_REPOSITORY:}
+      remote: ${TOOLBOX_AUTO_UPDATE_REMOTE:origin}
+      branch: ${TOOLBOX_AUTO_UPDATE_BRANCH:main}
+      initial-delay: ${TOOLBOX_AUTO_UPDATE_INITIAL_DELAY_SECONDS:30}s
+      # 最近提交批次中位间隔约 20~50 分钟；120 秒轮询可把平均发现延迟控制在约 1 分钟。
+      interval: ${TOOLBOX_AUTO_UPDATE_INTERVAL_SECONDS:120}s
+      stable-window: ${TOOLBOX_AUTO_UPDATE_STABLE_SECONDS:120}s
+      require-idle: ${TOOLBOX_AUTO_UPDATE_REQUIRE_IDLE:true}
+      command-timeout: ${TOOLBOX_AUTO_UPDATE_COMMAND_TIMEOUT_SECONDS:10}s
+      fetch-timeout: ${TOOLBOX_AUTO_UPDATE_FETCH_TIMEOUT_SECONDS:45}s
+      merge-timeout: ${TOOLBOX_AUTO_UPDATE_MERGE_TIMEOUT_SECONDS:60}s
+      build-timeout: ${TOOLBOX_AUTO_UPDATE_BUILD_TIMEOUT_SECONDS:1200}s
+      cleanup-timeout: ${TOOLBOX_AUTO_UPDATE_CLEANUP_TIMEOUT_SECONDS:300}s
+      drain-timeout: ${TOOLBOX_AUTO_UPDATE_DRAIN_TIMEOUT_SECONDS:600}s
+      max-backoff: ${TOOLBOX_AUTO_UPDATE_MAX_BACKOFF_SECONDS:900}s
+      git-command: ${GIT_CMD:git}
+      maven-command: ${MVN_CMD:mvn}
+      npm-command: ${NPM_CMD:npm}
   ffmpeg:
     # 默认走 PATH。本机非 PATH 安装时用环境变量覆盖：
     #   TOOLBOX_FFMPEG_BINARY=D:\devapps\ffmpeg\bin\ffmpeg.exe

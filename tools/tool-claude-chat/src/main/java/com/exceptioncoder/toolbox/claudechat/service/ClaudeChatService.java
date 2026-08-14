@@ -59,6 +59,7 @@ public class ClaudeChatService {
     private final NotificationService notifications;
     private final AttachmentStorageService attachments;
     private final AgentOneShotService agentOneShot;
+    private final AgentWorkAdmissionGate admissionGate;
     private final ProviderModelService providerModels;
     private final WelfareDemoSandboxProvisioner welfareDemo;
     private final SessionPlanStateService planStateService;
@@ -103,6 +104,7 @@ public class ClaudeChatService {
                              NotificationService notifications,
                              AttachmentStorageService attachments,
                              AgentOneShotService agentOneShot,
+                             AgentWorkAdmissionGate admissionGate,
                              ProviderModelService providerModels,
                              WelfareDemoSandboxProvisioner welfareDemo,
                              SessionPlanStateService planStateService,
@@ -122,6 +124,7 @@ public class ClaudeChatService {
         this.notifications = notifications;
         this.attachments = attachments;
         this.agentOneShot = agentOneShot;
+        this.admissionGate = admissionGate;
         this.providerModels = providerModels;
         this.welfareDemo = welfareDemo;
         this.planStateService = planStateService;
@@ -521,6 +524,13 @@ public class ClaudeChatService {
                 sendError(ws, 0, "TURN_BUSY", "当前轮仍在运行或中断收口中，请稍后再发送");
                 return;
             }
+            // 快速拒绝可避免 drain 期间为一条注定不会启动的消息重连 sidecar；真正
+            // startTurn 时仍会再次走原子门禁，覆盖此检查后的并发切换。
+            if (admissionGate.isDraining()) {
+                sendError(ws, 0, "SYSTEM_UPDATING",
+                        "系统正在准备自动更新，暂不接受新的消息，请稍后重试");
+                return;
+            }
             if (!ensureSessionResumable(ctx)) {
                 return;
             }
@@ -531,13 +541,24 @@ public class ClaudeChatService {
                         "会话全链路状态尚未允许发送：" + decision.reason());
                 return;
             }
-            ctx.queueReleaseReady = false;
-            startTurn(ctx, msg);
+            if (!startTurn(ctx, msg)) {
+                sendError(ws, 0, "SYSTEM_UPDATING",
+                        "系统正在准备自动更新，暂不接受新的消息，请稍后重试");
+            }
         }
     }
 
-    /** 在完成会话门禁后启动一轮；调用方须持有当前会话锁。 */
-    private void startTurn(SessionCtx ctx, ClientMessage.Send msg) {
+    /**
+     * 在完成会话门禁后尝试启动一轮；调用方须持有当前会话锁。
+     * 登记 RUNNING 与更新 drain 获取使用同一临界区，关闭 idle 检查后的新任务竞态。
+     */
+    private boolean startTurn(SessionCtx ctx, ClientMessage.Send msg) {
+        return admissionGate.tryAdmit(() -> startTurnAdmitted(ctx, msg));
+    }
+
+    /** 调用方同时持有会话锁与 admission gate。 */
+    private void startTurnAdmitted(SessionCtx ctx, ClientMessage.Send msg) {
+        ctx.queueReleaseReady = false;
         String turnId = turnLifecycle.begin(ctx.sessionId);
         ctx.status = SessionStatus.RUNNING;
         repo.touch(ctx.sessionId, SessionStatus.RUNNING, System.currentTimeMillis());
@@ -1259,34 +1280,43 @@ public class ClaudeChatService {
                         ctx.sessionId, decision.code(), decision.reason());
                 return;
             }
-            Optional<QueuedChatMessage> next = queuedMessages.takeFirst(ctx.sessionId);
-            ctx.queueReleaseReady = false;
-            if (next.isEmpty()) {
+            // takeFirst 必须在 admission 临界区内：drain 已开始时队列保持原样；若本次
+            // dispatch 先获得门禁，则 RUNNING 会在 drain 返回前进入活动快照。
+            if (!admissionGate.tryAdmit(() -> dispatchNextQueuedMessageAdmitted(ctx))) {
+                log.info("[claude-chat] 自动更新排空中，保留待发送队列 session={}", ctx.sessionId);
+            }
+        }
+    }
+
+    /** 调用方同时持有会话锁与 admission gate。 */
+    private void dispatchNextQueuedMessageAdmitted(SessionCtx ctx) {
+        Optional<QueuedChatMessage> next = queuedMessages.takeFirst(ctx.sessionId);
+        ctx.queueReleaseReady = false;
+        if (next.isEmpty()) {
+            return;
+        }
+        QueuedChatMessage message = next.get();
+        ClientMessage.Send send = new ClientMessage.Send(message.text(), message.attachments().stream()
+                .map(attachment -> new ClientMessage.Send.Attachment(attachment.name(), attachment.path()))
+                .toList(), message.developerInstructions());
+        try {
+            if (!ensureSessionResumable(ctx)) {
+                queuedMessages.restore(message);
                 return;
             }
-            QueuedChatMessage message = next.get();
-            ClientMessage.Send send = new ClientMessage.Send(message.text(), message.attachments().stream()
-                    .map(attachment -> new ClientMessage.Send.Attachment(attachment.name(), attachment.path()))
-                    .toList(), message.developerInstructions());
-            try {
-                if (!ensureSessionResumable(ctx)) {
-                    queuedMessages.restore(message);
-                    return;
-                }
-                startTurn(ctx, send);
-                sendToBrowser(ctx, seq -> new ServerMessage.QueueDispatched(seq, message.id(), message.text(),
-                        message.displayText(), message.attachments().stream()
-                                .map(attachment -> new ServerMessage.QueuedAttachment(
-                                        attachment.name(), attachment.path(), attachment.mime()))
-                                .toList(), message.createdAt()));
-                log.info("[claude-chat] 正常终态自动发送队首 session={} message={}", ctx.sessionId, message.id());
-            } catch (RuntimeException error) {
-                queuedMessages.restore(message);
-                log.error("[claude-chat] 自动发送队首失败，已恢复队列 session={} message={}",
-                        ctx.sessionId, message.id(), error);
-                sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "QUEUE_DISPATCH_FAILED",
-                        "待发送消息自动发送失败，已保留在队列：" + error.getMessage(), false));
-            }
+            startTurnAdmitted(ctx, send);
+            sendToBrowser(ctx, seq -> new ServerMessage.QueueDispatched(seq, message.id(), message.text(),
+                    message.displayText(), message.attachments().stream()
+                            .map(attachment -> new ServerMessage.QueuedAttachment(
+                                    attachment.name(), attachment.path(), attachment.mime()))
+                            .toList(), message.createdAt()));
+            log.info("[claude-chat] 正常终态自动发送队首 session={} message={}", ctx.sessionId, message.id());
+        } catch (RuntimeException error) {
+            queuedMessages.restore(message);
+            log.error("[claude-chat] 自动发送队首失败，已恢复队列 session={} message={}",
+                    ctx.sessionId, message.id(), error);
+            sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "QUEUE_DISPATCH_FAILED",
+                    "待发送消息自动发送失败，已保留在队列：" + error.getMessage(), false));
         }
     }
 
@@ -1652,7 +1682,7 @@ public class ClaudeChatService {
     }
 
     /**
-     * 汇总当前进程内不可安全中断的工作，供 supervisor 在拉取更新并重启前做安全门判断。
+     * 汇总当前进程内不可安全中断的工作，供 Java 自动更新与 supervisor 重启安全门判断。
      * 这里仅读取内存事实，不查询数据库、不向 sidecar 发消息，也不会触发会话恢复。
      */
     public ClaudeChatActivityView activitySnapshot() {

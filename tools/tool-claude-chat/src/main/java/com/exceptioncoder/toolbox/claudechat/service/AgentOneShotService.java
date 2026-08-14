@@ -36,14 +36,17 @@ public class AgentOneShotService implements AgentOneShotRunner {
     private final SidecarClient sidecar;
     private final ClaudeChatProperties props;
     private final AgentTelemetry telemetry;
+    private final AgentWorkAdmissionGate admissionGate;
     private final Map<String, Call> calls = new ConcurrentHashMap<>();
 
     public AgentOneShotService(SidecarProcessRegistry processRegistry, SidecarClient sidecar,
-                               ClaudeChatProperties props, AgentTelemetry telemetry) {
+                               ClaudeChatProperties props, AgentTelemetry telemetry,
+                               AgentWorkAdmissionGate admissionGate) {
         this.processRegistry = processRegistry;
         this.sidecar = sidecar;
         this.props = props;
         this.telemetry = telemetry;
+        this.admissionGate = admissionGate;
     }
 
     /** 阻塞跑一次，返回完整文本。 */
@@ -95,14 +98,28 @@ public class AgentOneShotService implements AgentOneShotRunner {
     }
 
     private ObservedResult executeObserved(ExecutionRequest request, Consumer<String> onDelta, List<ImageInput> images) {
-        ensureReady();
         String id = PREFIX + UUID.randomUUID();
         String engine = normalizeEngine(request.engine());
         AgentRunMetadata metadata = AgentRunMetadata.generic(
                 "agent-oneshot", id, engine, request.model());
         AgentSpan span = telemetry.start("agent.oneshot", metadata);
         Call call = new Call(onDelta);
-        calls.put(id, call);
+        // Registration and drain acquisition use the same lock. Once a drain lease is acquired,
+        // no one-shot can slip in after the updater's final idle snapshot.
+        boolean admitted;
+        try {
+            admitted = admissionGate.tryAdmit(() -> {
+                ensureReady();
+                calls.put(id, call);
+            });
+        } catch (RuntimeException error) {
+            span.fail("sidecar initialization failed", error);
+            throw error;
+        }
+        if (!admitted) {
+            span.fail("update drain active", null);
+            throw new IllegalStateException("系统正在准备自动更新，暂不接受新的 Agent 任务，请稍后重试");
+        }
         try {
             sidecar.oneShot(id, request, engine, images, span.traceContext(), metadata);
             ObservedResult result = call.future.get(props.getAgentOneShotTimeoutMs(), TimeUnit.MILLISECONDS);

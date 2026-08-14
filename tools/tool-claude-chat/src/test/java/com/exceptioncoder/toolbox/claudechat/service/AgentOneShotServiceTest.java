@@ -12,13 +12,33 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 class AgentOneShotServiceTest {
+
+    @Test
+    void drainRejectsOneShotBeforeStartingOrRegisteringWork() {
+        SidecarProcessRegistry processRegistry = mock(SidecarProcessRegistry.class);
+        SidecarClient sidecar = mock(SidecarClient.class);
+        AgentWorkAdmissionGate gate = new AgentWorkAdmissionGate();
+        AgentOneShotService service = new AgentOneShotService(
+                processRegistry, sidecar, new ClaudeChatProperties(), AgentTelemetry.noop(256), gate);
+
+        try (AgentWorkAdmissionGate.DrainLease ignored = gate.tryAcquireDrain().orElseThrow()) {
+            assertThatThrownBy(() -> service.runOnce("system", "user", null, "codex"))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("自动更新");
+        }
+
+        assertThat(service.activeCount()).isZero();
+        verifyNoInteractions(processRegistry, sidecar);
+    }
 
     @Test
     void cancellationSendsInterruptBeforeRestoringThreadInterruptFlag() throws Exception {
@@ -26,7 +46,8 @@ class AgentOneShotServiceTest {
         SidecarClient sidecar = mock(SidecarClient.class);
         ClaudeChatProperties properties = new ClaudeChatProperties();
         AgentOneShotService service = new AgentOneShotService(
-                processRegistry, sidecar, properties, AgentTelemetry.noop(256));
+                processRegistry, sidecar, properties, AgentTelemetry.noop(256),
+                new AgentWorkAdmissionGate());
         CountDownLatch requestSent = new CountDownLatch(1);
         AtomicBoolean interruptedDuringSidecarSend = new AtomicBoolean(true);
 

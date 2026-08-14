@@ -4,9 +4,9 @@ set -u
 # kai-toolbox one-click supervisor for macOS.
 #
 # The public process is a stable bootstrap. It owns the terminal and the per-repository
-# instance lock, while an internal worker owns backend/frontend/sidecar processes. After
-# a safe fast-forward, the worker exits with code 75 and the bootstrap loads this file
-# again from the updated checkout.
+# instance lock, while an internal worker owns backend/frontend/sidecar processes. Java
+# owns Git polling; after Java requests a full reload, the worker exits with code 75 and
+# the bootstrap loads this file again from the updated checkout.
 #
 # Usage:
 #   bash scripts/run-supervised-macos.sh
@@ -35,8 +35,8 @@ usage() {
 Usage: bash scripts/run-supervised-macos.sh [options]
 
 Options:
-  --auto-update                       Safely follow the configured remote branch.
-  --auto-update-interval-seconds N    Poll interval, 30..3600 seconds (default 120).
+  --auto-update                       Enable the Java auto-update scheduler.
+  --auto-update-interval-seconds N    Java poll interval, 30..3600 seconds (default 120).
   -h, --help                          Show this help.
 EOF
 }
@@ -627,6 +627,15 @@ MVN_CMD="$(resolve_tool 'Maven (mvn)' MVN_CMD mvn)" || exit 1
 JAVA_CMD="$(resolve_tool 'Java 21 (java)' JAVA_CMD java)" || exit 1
 NPM_BIN="$(resolve_tool 'npm' NPM_CMD npm)" || exit 1
 PYTHON_CMD="$(resolve_tool 'Python 3' PYTHON_CMD python3)" || exit 1
+# Command substitution resolves these into shell variables. Export the canonical paths
+# explicitly so the child Java updater can reuse the exact tools rather than relying on
+# the narrower PATH commonly seen under launchd.
+export MVN_CMD JAVA_CMD PYTHON_CMD
+export NPM_CMD="$NPM_BIN"
+if [[ -z "${GIT_CMD:-}" ]]; then
+  GIT_CMD="$(command -v git 2>/dev/null || true)"
+fi
+export GIT_CMD="${GIT_CMD:-git}"
 
 java_version_line="$("$JAVA_CMD" -version 2>&1 | head -n 1)"
 if [[ "$java_version_line" =~ \"1\.([0-9]+) ]]; then
@@ -654,12 +663,22 @@ case ":$PATH:" in
   *) export PATH="$(dirname "$NPM_BIN"):$PATH" ;;
 esac
 
-AUTO_UPDATE_ENABLED="$AUTO_UPDATE_CLI"
-if [[ "$AUTO_UPDATE_ENABLED" -eq 0 ]]; then
-  AUTO_UPDATE_ENABLED="$(config_boolean "${TOOLBOX_AUTO_UPDATE_ENABLED:-}" 0)"
+JAVA_AUTO_UPDATE_ENABLED="$AUTO_UPDATE_CLI"
+if [[ "$JAVA_AUTO_UPDATE_ENABLED" -eq 0 ]]; then
+  JAVA_AUTO_UPDATE_ENABLED="$(config_boolean "${TOOLBOX_AUTO_UPDATE_ENABLED:-}" 1)"
+fi
+if [[ "$AUTO_UPDATE_CLI" -eq 1 ]]; then
+  export TOOLBOX_AUTO_UPDATE_ENABLED=true
+elif [[ -z "${TOOLBOX_AUTO_UPDATE_ENABLED:-}" ]]; then
+  if [[ "$JAVA_AUTO_UPDATE_ENABLED" -eq 1 ]]; then
+    export TOOLBOX_AUTO_UPDATE_ENABLED=true
+  else
+    export TOOLBOX_AUTO_UPDATE_ENABLED=false
+  fi
 fi
 if [[ -n "$AUTO_UPDATE_INTERVAL_CLI" ]]; then
   AUTO_UPDATE_INTERVAL_SECONDS="$AUTO_UPDATE_INTERVAL_CLI"
+  export TOOLBOX_AUTO_UPDATE_INTERVAL_SECONDS="$AUTO_UPDATE_INTERVAL_CLI"
 else
   AUTO_UPDATE_INTERVAL_SECONDS="$(bounded_integer "${TOOLBOX_AUTO_UPDATE_INTERVAL_SECONDS:-}" 120 30 3600)"
 fi
@@ -667,19 +686,9 @@ AUTO_UPDATE_STABLE_SECONDS="$(bounded_integer "${TOOLBOX_AUTO_UPDATE_STABLE_SECO
 AUTO_UPDATE_REQUIRE_IDLE="$(config_boolean "${TOOLBOX_AUTO_UPDATE_REQUIRE_IDLE:-}" 1)"
 AUTO_UPDATE_REMOTE="${TOOLBOX_AUTO_UPDATE_REMOTE:-origin}"
 AUTO_UPDATE_BRANCH="${TOOLBOX_AUTO_UPDATE_BRANCH:-main}"
-GIT_CMD=""
-if [[ "$AUTO_UPDATE_ENABLED" -eq 1 ]]; then
-  GIT_CMD="$(command -v git 2>/dev/null || true)"
-  if [[ -z "$GIT_CMD" ]]; then
-    AUTO_UPDATE_ENABLED=0
-    echo "[auto-update] git not found; auto-update disabled" >&2
-  elif [[ ! "$AUTO_UPDATE_REMOTE" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] ||
-       [[ ! "$AUTO_UPDATE_BRANCH" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] ||
-       [[ "$AUTO_UPDATE_REMOTE" == *..* ]] || [[ "$AUTO_UPDATE_BRANCH" == *..* ]]; then
-    AUTO_UPDATE_ENABLED=0
-    echo "[auto-update] invalid remote/branch configuration; auto-update disabled" >&2
-  fi
-fi
+# Java is the sole Git polling owner. Retain the legacy shell state machine below for
+# rolling-upgrade readability, but keep it unreachable in this worker.
+AUTO_UPDATE_ENABLED=0
 
 HTTP_HOST="${HTTP_HOST:-127.0.0.1}"
 HTTP_PORT="${HTTP_PORT:-18081}"
@@ -693,16 +702,24 @@ STUDIO_PORT=3000
 
 RESTART_TOKEN="${TOOLBOX_SUPERVISOR_RESTART_TOKEN:-}"
 SYSTEM_RESTART_TOKEN="${TOOLBOX_SYSTEM_RESTART_TOKEN:-}"
+INTERNAL_CONTROL_TOKEN="$("$PYTHON_CMD" -c 'import secrets; print(secrets.token_hex(32))')"
+if [[ -z "$INTERNAL_CONTROL_TOKEN" ]]; then
+  echo "[supervisor] unable to generate the internal control token" >&2
+  exit 1
+fi
+export KAI_SUPERVISOR_CONTROL_TOKEN="$INTERNAL_CONTROL_TOKEN"
+export KAI_SUPERVISOR_PROTOCOL_VERSION=1
 TOOLBOX_HTTP_PROXY="${TOOLBOX_HTTP_PROXY:-}"
 TOOLBOX_QBT_PASSWORD="${TOOLBOX_QBT_PASSWORD:-}"
 
 CONTROL_DIR="$SUPERVISOR_STATE_ROOT/runtime-$REPO_HASH"
 RESTART_FILE="$CONTROL_DIR/restart.request"
+FULL_RELOAD_FILE="$CONTROL_DIR/full-reload.request"
 STATUS_FILE="$CONTROL_DIR/status.json"
 HTTP_READY_FILE="$CONTROL_DIR/http.ready"
 STARTER_JAR="$REPO_ROOT/toolbox-starter/target/kai-toolbox.jar"
 mkdir -p "$CONTROL_DIR" "$HOME/Library/Logs/kai-toolbox"
-rm -f "$RESTART_FILE" "$HTTP_READY_FILE"
+rm -f "$RESTART_FILE" "$FULL_RELOAD_FILE" "$HTTP_READY_FILE"
 
 AUTO_UPDATE_LOG_FILE="$HOME/Library/Logs/kai-toolbox/auto-update.log"
 
@@ -748,9 +765,9 @@ cleanup_started=0
 auto_update_relaunch_requested=0
 
 auto_state="disabled"
-[[ "$AUTO_UPDATE_ENABLED" -eq 1 ]] && auto_state="waiting"
+[[ "$JAVA_AUTO_UPDATE_ENABLED" -eq 1 ]] && auto_state="delegated-to-java"
 auto_last_check_epoch=""
-auto_next_check_epoch=$(( $(date +%s) + AUTO_UPDATE_INTERVAL_SECONDS ))
+auto_next_check_epoch=""
 auto_candidate_sha=""
 auto_candidate_since_epoch=""
 auto_local_head=""
@@ -1076,10 +1093,10 @@ write_status() {
     backend_status_pid="$backend_pid"
   fi
   "$PYTHON_CMD" - "$STATUS_FILE" "$backend_up" "$backend_status_pid" "$last_start" \
-    "$AUTO_UPDATE_ENABLED" "$AUTO_UPDATE_REMOTE/$AUTO_UPDATE_BRANCH" \
+    "$JAVA_AUTO_UPDATE_ENABLED" "$AUTO_UPDATE_REMOTE/$AUTO_UPDATE_BRANCH" \
     "$AUTO_UPDATE_INTERVAL_SECONDS" "$AUTO_UPDATE_STABLE_SECONDS" "$AUTO_UPDATE_REQUIRE_IDLE" \
     "$auto_state" "$auto_last_check_epoch" "$auto_next_check_epoch" "$auto_local_head" \
-    "$auto_remote_head" "$auto_candidate_sha" "$auto_last_error" <<'PY' >/dev/null 2>&1 || true
+    "$auto_remote_head" "$auto_candidate_sha" "$auto_last_error" "$REPO_ROOT" <<'PY' >/dev/null 2>&1 || true
 import datetime
 import json
 import os
@@ -1096,10 +1113,14 @@ def iso_epoch(value):
     return datetime.datetime.fromtimestamp(int(value)).replace(microsecond=0).isoformat()
 
 data = {
+    "protocolVersion": 1,
+    "repoRoot": sys.argv[17],
+    "capabilities": {"fullReload": True},
     "backendUp": sys.argv[2] == "true",
     "pid": int(sys.argv[3]) if sys.argv[3] else None,
     "lastStart": optional(sys.argv[4]),
     "autoUpdate": {
+        "owner": "java",
         "enabled": sys.argv[5] == "1",
         "source": sys.argv[6],
         "intervalSeconds": int(sys.argv[7]),
@@ -1128,9 +1149,12 @@ start_http_control() {
   SUPERVISOR_HTTP_HOST="$HTTP_HOST" \
   SUPERVISOR_HTTP_PORT="$HTTP_PORT" \
   SUPERVISOR_RESTART_TOKEN="$RESTART_TOKEN" \
+  SUPERVISOR_INTERNAL_CONTROL_TOKEN="$INTERNAL_CONTROL_TOKEN" \
   SUPERVISOR_RESTART_FILE="$RESTART_FILE" \
+  SUPERVISOR_FULL_RELOAD_FILE="$FULL_RELOAD_FILE" \
   SUPERVISOR_STATUS_FILE="$STATUS_FILE" \
   SUPERVISOR_READY_FILE="$HTTP_READY_FILE" \
+  SUPERVISOR_REPO_ROOT="$REPO_ROOT" \
     "$PYTHON_CMD" - <<'PY' &
 import json
 import os
@@ -1141,9 +1165,12 @@ from urllib.parse import parse_qs, urlparse
 host = os.environ["SUPERVISOR_HTTP_HOST"]
 port = int(os.environ["SUPERVISOR_HTTP_PORT"])
 restart_token = os.environ.get("SUPERVISOR_RESTART_TOKEN", "")
+internal_control_token = os.environ["SUPERVISOR_INTERNAL_CONTROL_TOKEN"]
 restart_file = os.environ["SUPERVISOR_RESTART_FILE"]
+full_reload_file = os.environ["SUPERVISOR_FULL_RELOAD_FILE"]
 status_file = os.environ["SUPERVISOR_STATUS_FILE"]
 ready_file = os.environ["SUPERVISOR_READY_FILE"]
+repo_root = os.environ["SUPERVISOR_REPO_ROOT"]
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True
@@ -1175,25 +1202,45 @@ class Handler(BaseHTTPRequestHandler):
             with open(status_file, "r", encoding="utf-8") as handle:
                 self.send_json(200, json.load(handle))
         except (FileNotFoundError, json.JSONDecodeError, OSError):
-            self.send_json(200, {"backendUp": False, "pid": None, "lastStart": None})
+            self.send_json(200, {
+                "protocolVersion": 1,
+                "repoRoot": repo_root,
+                "capabilities": {"fullReload": True},
+                "backendUp": False,
+                "pid": None,
+                "lastStart": None,
+            })
+
+    @staticmethod
+    def write_signal(path, value):
+        directory = os.path.dirname(path)
+        fd, tmp = tempfile.mkstemp(prefix="control.", dir=directory)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(value + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
 
     def do_POST(self):
         parsed = urlparse(self.path)
-        if parsed.path != "/restart":
+        if parsed.path not in ("/restart", "/reload", "/full-reload"):
             self.send_json(404, {"error": "not found"})
             return
         token = self.headers.get("X-Restart-Token") or parse_qs(parsed.query).get("token", [""])[0]
+        if parsed.path in ("/reload", "/full-reload"):
+            if not token or token not in (internal_control_token, restart_token):
+                self.send_json(403, {"error": "token mismatch"})
+                return
+            self.write_signal(full_reload_file, "full-reload")
+            self.send_json(202, {"ok": True, "message": "full reload accepted"})
+            return
         if not restart_token:
             self.send_json(503, {"error": "RestartToken is not configured"})
             return
         if token != restart_token:
             self.send_json(403, {"error": "token mismatch"})
             return
-        directory = os.path.dirname(restart_file)
-        fd, tmp = tempfile.mkstemp(prefix="restart.", dir=directory)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write("restart\n")
-        os.replace(tmp, restart_file)
+        self.write_signal(restart_file, "restart")
         self.send_json(200, {"ok": True, "message": "restart triggered; backend will return soon"})
 
 server = Server((host, port), Handler)
@@ -2050,7 +2097,7 @@ stop_http_control() {
     echo "[supervisor] WARN: HTTP control PID=$http_pid did not exit after SIGKILL" >&2
   fi
   http_pid=""
-  rm -f "$HTTP_READY_FILE" "$RESTART_FILE"
+  rm -f "$HTTP_READY_FILE" "$RESTART_FILE" "$FULL_RELOAD_FILE"
 }
 
 monitor_auxiliary_services() {
@@ -2145,13 +2192,13 @@ write_status
 if ! start_http_control; then
   exit 1
 fi
-echo "[supervisor] HTTP control http://$HTTP_HOST:$HTTP_PORT/ (POST /restart, GET /status)"
+echo "[supervisor] HTTP control http://$HTTP_HOST:$HTTP_PORT/ (POST /restart|/reload|/full-reload, GET /status)"
 echo "[supervisor] repo=$REPO_ROOT mvn=$MVN_CMD java=$JAVA_CMD"
 echo "[supervisor] whisper mode=$TOOLBOX_WHISPER_MODE"
-if [[ "$AUTO_UPDATE_ENABLED" -eq 1 ]]; then
-  write_auto_log "enabled: source=$AUTO_UPDATE_REMOTE/$AUTO_UPDATE_BRANCH, check=${AUTO_UPDATE_INTERVAL_SECONDS}s, stable=${AUTO_UPDATE_STABLE_SECONDS}s, requireIdle=$AUTO_UPDATE_REQUIRE_IDLE"
+if [[ "$JAVA_AUTO_UPDATE_ENABLED" -eq 1 ]]; then
+  echo "[auto-update] Java scheduler enabled: source=$AUTO_UPDATE_REMOTE/$AUTO_UPDATE_BRANCH, check=${AUTO_UPDATE_INTERVAL_SECONDS}s, stable=${AUTO_UPDATE_STABLE_SECONDS}s, requireIdle=$AUTO_UPDATE_REQUIRE_IDLE"
 else
-  echo "[auto-update] disabled (use --auto-update or TOOLBOX_AUTO_UPDATE_ENABLED=true)"
+  echo "[auto-update] Java scheduler explicitly disabled (TOOLBOX_AUTO_UPDATE_ENABLED=false)"
 fi
 
 initialize_node_dependencies
@@ -2173,6 +2220,13 @@ while true; do
     exit 1
   fi
 
+  if [[ -f "$FULL_RELOAD_FILE" ]]; then
+    rm -f "$FULL_RELOAD_FILE"
+    auto_update_relaunch_requested=1
+    echo "[supervisor] $(date '+%H:%M:%S') full reload received; reloading the full stack"
+    break
+  fi
+
   if [[ -f "$RESTART_FILE" ]]; then
     rm -f "$RESTART_FILE"
     echo "[supervisor] $(date '+%H:%M:%S') /restart received"
@@ -2184,10 +2238,6 @@ while true; do
       start_faster_whisper_sidecar
     fi
     start_backend
-  fi
-
-  if update_auto_update; then
-    break
   fi
 
   if ! process_group_is_alive "$backend_pid"; then

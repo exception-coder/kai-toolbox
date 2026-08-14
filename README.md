@@ -71,7 +71,9 @@ pwsh -File scripts\run-supervised.ps1 -Mode full
 
 ### 自动同步云端版本
 
-频繁迭代的运行机可让同一个 supervisor 定时跟随当前仓库的 `origin/main`，更新后自动重载后端、前端和相关 sidecar：
+源码自动更新现在由 Java 内置调度，默认跟随当前仓库的 `origin/main`；不论从 IDE、Maven、fat jar 还是 supervisor 启动，都会执行同一套安全检查。supervisor 只负责更新落地后的全栈重载，不再重复轮询 Git。
+
+下面两个兼容启动参数仍然有效，会把自动更新配置传给 Java：
 
 Windows：
 
@@ -85,13 +87,15 @@ macOS：
 bash scripts/run-supervised-macos.sh --auto-update
 ```
 
-当前仓库近 24 小时约 15 次提交、更新批次中位间隔约 21 分钟，因此默认每 120 秒检查一次；检测到新提交后，还会等待远端 HEAD 连续稳定 120 秒，把短时间连续 push 合并成一次重启。也可在本机 `scripts\run-tools.conf` 中设置 `TOOLBOX_AUTO_UPDATE_ENABLED=true` 常态启用，其他参数见 `run-tools.conf.example`。
+当前仓库近 24 小时约 15 次提交、更新批次中位间隔约 21 分钟，因此默认每 120 秒检查一次；检测到新提交后，还会等待远端 HEAD 连续稳定 120 秒，把短时间连续 push 合并成一次重启。要关闭可设置环境变量 `TOOLBOX_AUTO_UPDATE_ENABLED=false`；经 supervisor 启动时也可写入本机 `scripts\run-tools.conf`，其他参数见 `run-tools.conf.example`。
+
+直接从 IDE、Maven 或 `java -jar` 启动时，Java 会在独立 worktree 完整构建候选 fat jar，再启动脱离原终端的 replacement JVM 接管；如果 fat jar 已被复制到 Git 仓库之外，需要用 `TOOLBOX_AUTO_UPDATE_REPOSITORY` 指向本机 checkout，否则只上报 `unavailable`，不会修改文件或退出进程。直接接管能在旧进程退出前验证候选 JVM 与握手协议，但真实端口、现有数据库和全部 Spring Bean 的最终启动仍发生在接管后；这类运行期失败会写入 `~/.kai-toolbox/restart-handoff` 日志，不承诺自动回滚数据库。
 
 自动更新遵循以下保护规则：
 
 - 仅接受当前跟踪分支的 fast-forward；工作树 dirty、本地 ahead/diverged 时延期，不会自动 stash、reset 或 clean。
 - 会话回合、权限/提问、后台 Agent 或一次性分析仍在运行时延期；无法确认空闲也不会强制重启。
-- Git fetch 有超时和指数退避；更新状态可从 `GET http://127.0.0.1:18081/status` 查看。Windows 日志位于 `%LOCALAPPDATA%\kai-toolbox\logs\auto-update.log`，macOS 日志位于 `~/Library/Logs/kai-toolbox/auto-update.log`。
+- Git fetch 有超时和指数退避；实际更新状态从 `GET /api/system/auto-update/status` 或 Spring 应用日志查看。supervisor 的 `GET http://127.0.0.1:18081/status` 只报告 `delegated-to-java` 和全栈重载接管能力。
 - 同一仓库只允许一个 supervisor 实例，避免重复进程互相抢占端口。
 
 ### 停止服务

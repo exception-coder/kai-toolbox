@@ -3,8 +3,9 @@
 # Responsibilities:
 #   1) Supervise backend with mvn spring-boot:run. Restart after exit or crash.
 #   2) Keep an independent HTTP control endpoint on 127.0.0.1:18081:
-#        POST /restart   requires X-Restart-Token or ?token=
-#        GET  /status    reports backend health, PID, and last start time
+#        POST /restart             restart the backend and Python sidecars
+#        POST /reload|/full-reload stop the worker so the stable bootstrap reloads the full stack
+#        GET  /status              report protocol/capabilities and backend health
 #
 # The frontend restart button calls this endpoint through the Vite /supervisor proxy.
 # This supervisor owns both backend and frontend; Maven skips its embedded frontend build.
@@ -13,7 +14,7 @@
 #   pwsh -File scripts\run-supervised.ps1                # dev + Aspire（默认）
 #   pwsh -File scripts\run-supervised.ps1 -Mode full     # package + fat jar
 #   pwsh -File scripts\run-supervised.ps1 -HotReload     # dev + 存盘即编译并热重启
-#   pwsh -File scripts\run-supervised.ps1 -AutoUpdate    # 安全跟随 origin/main，更新后全栈自重载
+#   pwsh -File scripts\run-supervised.ps1 -AutoUpdate    # 启用 Java 安全跟随 origin/main
 #   pwsh -File scripts\run-supervised.ps1 -Observability langfuse
 #   pwsh -File scripts\run-supervised.ps1 -Observability off
 # Ctrl+C stops the supervisor loop.
@@ -28,7 +29,7 @@ param(
     # （claude-chat sidecar 就踩过：僵尸 bean 继续抢 sidecar，事件投递到没人看的一端），
     # 编译中途的半成品 class 也会触发无意义的重启。要用就显式开。
     [switch]$HotReload,
-    # 定时 fetch 云端代码；只允许干净工作树做 fast-forward，活动 Agent 会让更新延期。
+    # 兼容参数：启用 Java 内置自动更新调度；supervisor 本身不再轮询 Git。
     [switch]$AutoUpdate,
     # 近 24h 提交批次中位约 21min；120s 检查兼顾发现延迟与全天网络开销。
     [ValidateRange(30, 3600)]
@@ -120,15 +121,26 @@ function Read-BoundedInteger([string]$value, [int]$defaultValue, [int]$minimum, 
     return [Math]::Max($minimum, [Math]::Min($maximum, $parsed))
 }
 
-$script:AutoUpdateEnabled = $AutoUpdate.IsPresent -or
-    (ConvertTo-ConfigBoolean $env:TOOLBOX_AUTO_UPDATE_ENABLED $false)
+$script:JavaAutoUpdateEnabled = $AutoUpdate.IsPresent -or
+    (ConvertTo-ConfigBoolean $env:TOOLBOX_AUTO_UPDATE_ENABLED $true)
+if ($AutoUpdate.IsPresent) {
+    # CLI 参数优先于 run-tools.conf，并通过环境传给 child Java。
+    $env:TOOLBOX_AUTO_UPDATE_ENABLED = 'true'
+} elseif ([string]::IsNullOrWhiteSpace($env:TOOLBOX_AUTO_UPDATE_ENABLED)) {
+    $env:TOOLBOX_AUTO_UPDATE_ENABLED = if ($script:JavaAutoUpdateEnabled) { 'true' } else { 'false' }
+}
 if (-not $PSBoundParameters.ContainsKey('AutoUpdateIntervalSeconds')) {
     $AutoUpdateIntervalSeconds = Read-BoundedInteger $env:TOOLBOX_AUTO_UPDATE_INTERVAL_SECONDS 120 30 3600
+} else {
+    $env:TOOLBOX_AUTO_UPDATE_INTERVAL_SECONDS = "$AutoUpdateIntervalSeconds"
 }
 $script:AutoUpdateRemote = if ($env:TOOLBOX_AUTO_UPDATE_REMOTE) { $env:TOOLBOX_AUTO_UPDATE_REMOTE.Trim() } else { 'origin' }
 $script:AutoUpdateBranch = if ($env:TOOLBOX_AUTO_UPDATE_BRANCH) { $env:TOOLBOX_AUTO_UPDATE_BRANCH.Trim() } else { 'main' }
 $script:AutoUpdateStableSeconds = Read-BoundedInteger $env:TOOLBOX_AUTO_UPDATE_STABLE_SECONDS 120 30 1800
 $script:AutoUpdateRequireIdle = ConvertTo-ConfigBoolean $env:TOOLBOX_AUTO_UPDATE_REQUIRE_IDLE $true
+# Java is the only Git polling owner. Keep the previous supervisor state machine in this
+# version for rolling-upgrade compatibility, but make it unreachable.
+$script:AutoUpdateEnabled = $false
 
 # A named mutex is the real single-instance guard. Port 18081 alone is insufficient: historically a
 # second supervisor continued after bind failure and then repeatedly stole 18080/5173 from the first.
@@ -370,11 +382,24 @@ $NpmCmd = Resolve-RequiredTool 'NPM_CMD' 'npm' 'npm' @(
 )
 $npmDir = Split-Path -Parent $NpmCmd
 if ($npmDir -and (";$env:PATH;" -notlike "*;$npmDir;*")) { $env:PATH = "$npmDir;$env:PATH" }
+if ([string]::IsNullOrWhiteSpace($env:GIT_CMD)) {
+    $gitForJava = Get-Command git -ErrorAction SilentlyContinue
+    if ($gitForJava) { $env:GIT_CMD = $gitForJava.Source }
+}
 
 # /restart 控制端点的令牌，取自 run-tools.conf 的 TOOLBOX_SUPERVISOR_RESTART_TOKEN。
 # 公开仓库禁止硬编码；未配置时令牌为空，/restart 一律拒绝。
 $RestartToken = $env:TOOLBOX_SUPERVISOR_RESTART_TOKEN
 $SystemRestartToken = $env:TOOLBOX_SYSTEM_RESTART_TOKEN
+
+# /reload is also called by the child Java auto-updater. Generate an ephemeral
+# 256-bit token for this worker and expose it only through the inherited process
+# environment; never print it or persist it in status files.
+$internalControlTokenBytes = [byte[]]::new(32)
+[System.Security.Cryptography.RandomNumberGenerator]::Fill($internalControlTokenBytes)
+$script:InternalControlToken = [Convert]::ToHexString($internalControlTokenBytes).ToLowerInvariant()
+$env:KAI_SUPERVISOR_CONTROL_TOKEN = $script:InternalControlToken
+$env:KAI_SUPERVISOR_PROTOCOL_VERSION = '1'
 
 $HttpPrefix = 'http://127.0.0.1:18081/'
 
@@ -385,6 +410,10 @@ $BackendPort = 18080
 # 后端懒启动 node dist/server.js 绑此端口；重启时必须一并清掉，否则旧 sidecar 变孤儿占端口、
 # 新 sidecar 命中 EADDRINUSE 退出，后端连回旧代码，导致 sidecar 侧改动重启后不生效。
 $SidecarPort = 18890
+
+# undetected-browser sidecar may outlive the backend process; a full reload must not
+# let the next generation reconnect to stale code.
+$BrowserServicePort = 18092
 
 # Marks backend children as supervisor-owned so SupervisorBootstrap avoids loops.
 $env:KAI_SUPERVISED = '1'
@@ -397,9 +426,9 @@ $script:hotReloadRegistrations = @()
 $script:hotCompile = $null
 $script:hotReloadDue = $null
 $script:hotReloadFullRestart = $false
-$script:autoUpdateState = if ($script:AutoUpdateEnabled) { 'waiting' } else { 'disabled' }
+$script:autoUpdateState = if ($script:JavaAutoUpdateEnabled) { 'delegated-to-java' } else { 'disabled' }
 $script:autoUpdateLastCheck = $null
-$script:autoUpdateNextCheck = (Get-Date).AddSeconds($AutoUpdateIntervalSeconds)
+$script:autoUpdateNextCheck = $null
 $script:autoUpdateCandidateSha = $null
 $script:autoUpdateCandidateSince = $null
 $script:autoUpdateLocalHead = $null
@@ -1351,6 +1380,13 @@ function Write-Json($res, [int]$code, $obj) {
     $res.Close()
 }
 
+function Test-FullReloadToken([string]$provided) {
+    if ([string]::IsNullOrWhiteSpace($provided)) { return $false }
+    if (-not [string]::IsNullOrWhiteSpace($script:InternalControlToken) -and
+        $provided -ceq $script:InternalControlToken) { return $true }
+    return ((-not [string]::IsNullOrWhiteSpace($RestartToken)) -and ($provided -ceq $RestartToken))
+}
+
 function Handle-Request($ctx) {
     $req = $ctx.Request
     $res = $ctx.Response
@@ -1361,11 +1397,15 @@ function Handle-Request($ctx) {
     if ($path -eq '/status' -and $method -eq 'GET') {
         $up = ($null -ne $script:backend) -and (-not $script:backend.HasExited)
         Write-Json $res 200 @{
+            protocolVersion = 1
+            repoRoot = $RepoRoot
+            capabilities = @{ fullReload = $true }
             backendUp = $up
             pid       = if ($script:backend) { $script:backend.Id } else { $null }
             lastStart = if ($script:lastStart) { $script:lastStart.ToString('s') } else { $null }
             autoUpdate = @{
-                enabled = $script:AutoUpdateEnabled
+                owner = 'java'
+                enabled = $script:JavaAutoUpdateEnabled
                 source = "$($script:AutoUpdateRemote)/$($script:AutoUpdateBranch)"
                 intervalSeconds = $AutoUpdateIntervalSeconds
                 stableSeconds = $script:AutoUpdateStableSeconds
@@ -1379,6 +1419,19 @@ function Handle-Request($ctx) {
                 lastError = $script:autoUpdateLastError
             }
         }
+        return
+    }
+
+    if ($path -in @('/reload', '/full-reload') -and $method -eq 'POST') {
+        $token = $req.Headers['X-Restart-Token']
+        if ([string]::IsNullOrWhiteSpace($token)) { $token = $req.QueryString['token'] }
+        if (-not (Test-FullReloadToken $token)) {
+            Write-Json $res 403 @{ error = 'token mismatch' }
+            return
+        }
+        $script:autoUpdateRelaunchRequested = $true
+        Write-Json $res 202 @{ ok = $true; message = 'full reload accepted' }
+        Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') $path received; reloading the full stack"
         return
     }
 
@@ -1425,13 +1478,13 @@ try {
     Write-Host "[supervisor] 控制端口无人占用，继续以无 HTTP 控制模式守护。"
     $listener = $null
 }
-if ($listener) { Write-Host "[supervisor] HTTP control $HttpPrefix  (POST /restart, GET /status)" }
+if ($listener) { Write-Host "[supervisor] HTTP control $HttpPrefix  (POST /restart|/reload|/full-reload, GET /status)" }
 Write-Host "[supervisor] repo=$RepoRoot  mode=$Mode  observability=$Observability  mvn=$MvnCmd  java=$JavaCmd"
 Write-Host "[supervisor] whisper mode=$WhisperMode（改用 run-tools.conf 的 TOOLBOX_WHISPER_MODE）"
-if ($script:AutoUpdateEnabled) {
-    Write-AutoUpdateLog "已启用：source=$($script:AutoUpdateRemote)/$($script:AutoUpdateBranch), check=${AutoUpdateIntervalSeconds}s, stable=$($script:AutoUpdateStableSeconds)s, requireIdle=$($script:AutoUpdateRequireIdle)"
+if ($script:JavaAutoUpdateEnabled) {
+    Write-Host "[auto-update] Java 调度已启用：source=$($script:AutoUpdateRemote)/$($script:AutoUpdateBranch), check=${AutoUpdateIntervalSeconds}s, stable=$($script:AutoUpdateStableSeconds)s, requireIdle=$($script:AutoUpdateRequireIdle)"
 } else {
-    Write-Host '[auto-update] 未启用（使用 -AutoUpdate，或在 run-tools.conf 设置 TOOLBOX_AUTO_UPDATE_ENABLED=true）'
+    Write-Host '[auto-update] Java 调度已显式关闭（TOOLBOX_AUTO_UPDATE_ENABLED=false）'
 }
 
 # 起服务前先把两个 node sidecar 的依赖/构建补齐（幂等，已就绪则秒过）。
@@ -1458,8 +1511,8 @@ try {
                 try { Handle-Request $ctxTask.Result } catch { Write-Host "[supervisor] request handling error: $($_.Exception.Message)" }
                 $ctxTask = $listener.GetContextAsync()
             }
+            if ($script:autoUpdateRelaunchRequested) { break }
             Update-HotReload
-            if (Update-AutoUpdateSafely) { break }
             if (-not $script:backend -or $script:backend.HasExited) {
                 Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') backend exited, restart after 2s"
                 Start-Sleep -Seconds 2
@@ -1474,8 +1527,8 @@ try {
     } else {
         # No control endpoint: supervise only.
         while ($true) {
+            if ($script:autoUpdateRelaunchRequested) { break }
             Update-HotReload
-            if (Update-AutoUpdateSafely) { break }
             if (-not $script:backend -or $script:backend.HasExited) {
                 Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') backend exited, restart after 2s"
                 Start-Sleep -Seconds 2
@@ -1505,6 +1558,7 @@ try {
     Stop-Backend
     if ($script:autoUpdateRelaunchRequested) {
         Stop-PortHolders $SidecarPort
+        Stop-PortHolders $BrowserServicePort
         Stop-PortHolders 9600
         Stop-PortHolders 9700
         if ($WhisperMode -eq 'asr-service') { Stop-PortHolders $AsrPort }
@@ -1525,6 +1579,6 @@ try {
 }
 
 if ($script:autoUpdateRelaunchRequested) {
-    Write-AutoUpdateLog '服务已停止，通知稳定 bootstrap 加载最新 supervisor'
+    Write-Host '[supervisor] 服务已停止，通知稳定 bootstrap 加载最新 supervisor'
     exit $AutoUpdateRelaunchExitCode
 }
