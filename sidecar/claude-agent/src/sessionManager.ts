@@ -16,7 +16,7 @@ import {
   createCrossTopologyServer,
   createDomainKnowledgeServer,
 } from './knowledgeMcp.js'
-import { codexMcpCapabilities, normalizeCodexHome, runCodexTurn, type CodexReasoningEffort, type CodexSpeed } from './codexEngine.js'
+import { codexMcpCapabilities, normalizeCodexHome, runCodexTurn, runEphemeralCodexTurn, type CodexReasoningEffort, type CodexSpeed } from './codexEngine.js'
 import { createClaudeConsultSourceServer, resolveConsultTargetSystems } from './codexSecurity.js'
 import { findDefaultCodexModel, forkCodexThread, listCodexModels, type CodexModelInfo } from './codexAppServer.js'
 import { runGeminiTurn } from './geminiEngine.js'
@@ -1492,7 +1492,7 @@ export class SessionManager {
       const controller = new AbortController()
       this.oneShotControllers.set(id, controller)
       try {
-        await runCodexTurn({
+        await runEphemeralCodexTurn({
           text: options?.toolPolicy === 'disabled'
             ? `${systemPrompt}\n\n禁止调用任何工具、命令、网络或文件操作，只能根据消息中提供的证据输出答案。\n\n${userPrompt}`
             : `${systemPrompt}\n\n${userPrompt}`,

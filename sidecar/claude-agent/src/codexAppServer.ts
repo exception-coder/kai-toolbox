@@ -150,6 +150,23 @@ export function isCodexAppServerRecoverySignal(method: string): boolean {
     || method.startsWith('hook/')
 }
 
+/**
+ * App Server broadcasts root and sub-agent notifications over the same connection.
+ * Only notifications correlated to the current root thread/turn may drive its UI or lifecycle.
+ * Missing ids are accepted for backwards compatibility with older/global notifications.
+ */
+export function isCurrentCodexTurnNotification(
+  params: Record<string, unknown>,
+  currentThreadId?: string,
+  currentTurnId?: string,
+): boolean {
+  const notificationThreadId = asString(params.threadId)
+  if (currentThreadId && notificationThreadId && notificationThreadId !== currentThreadId) return false
+
+  const notificationTurnId = asString(params.turnId) || asString(asRecord(params.turn)?.id)
+  return !(currentTurnId && notificationTurnId && notificationTurnId !== currentTurnId)
+}
+
 /** 结构化 willRetry=false 会立即终止；这里只为仍在重试和旧版最终重试提供防永久挂起兜底。 */
 export function codexReconnectDeadlineMs(notice: CodexAppServerErrorNotice): number {
   return notice.retryExhausted ? LEGACY_FINAL_RECONNECT_GRACE_MS : RECONNECT_IDLE_TIMEOUT_MS
@@ -373,6 +390,11 @@ export async function latestCodexTurnId(threadId: string, codexHome?: string): P
   return turns.at(-1)?.id
 }
 
+/** Permanently removes an ephemeral Codex thread from the selected authorization directory. */
+export async function deleteCodexThread(threadId: string, codexHome?: string): Promise<void> {
+  await callAppServer('thread/delete', { threadId }, codexHome)
+}
+
 /**
  * 通过 App Server 执行一轮并转换客户端级流式事件。
  * 每轮独立进程使 Auth 目录天然隔离；失败是否允许 SDK 重试由 retrySafe 明确表达。
@@ -511,6 +533,9 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
       const method = asString(message.method)
       const params = asRecord(message.params) ?? {}
       if (!method) return
+      // 同一 App Server 会广播子 Agent 自己的 delta/item/error/turn completion。
+      // 它们不能冒充根线程输出，更不能触发根线程 cleanup；仅无关联 id 的全局通知兼容放行。
+      if (!isCurrentCodexTurnNotification(params, threadId, turnId)) return
       // App Server 没有独立的“reconnected”成功通知。任意本轮进展事件都说明
       // 上游流已经重新活动，包括当前 UI 尚未渲染的 reasoning delta。
       if (reconnectActivityId && isCodexAppServerRecoverySignal(method)) {

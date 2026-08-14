@@ -5,6 +5,7 @@ import {
   codexReconnectDeadlineMs,
   findDefaultCodexModel,
   isCodexAppServerRecoverySignal,
+  isCurrentCodexTurnNotification,
   normalizeCodexModel,
 } from './codexAppServer.js'
 
@@ -102,4 +103,48 @@ test('gives native retries minutes to recover and legacy final retries a practic
 
   assert.equal(codexReconnectDeadlineMs(retrying), 5 * 60_000)
   assert.equal(codexReconnectDeadlineMs(legacyFinal), 60_000)
+})
+
+test('accepts notifications from the current root thread and turn', () => {
+  assert.equal(isCurrentCodexTurnNotification(
+    { threadId: 'root-thread', turnId: 'root-turn' },
+    'root-thread',
+    'root-turn',
+  ), true)
+  assert.equal(isCurrentCodexTurnNotification(
+    { threadId: 'root-thread', turn: { id: 'root-turn' } },
+    'root-thread',
+    'root-turn',
+  ), true)
+})
+
+test('rejects child-agent and stale root-turn notifications', () => {
+  assert.equal(isCurrentCodexTurnNotification(
+    { threadId: 'child-thread', turnId: 'child-turn' },
+    'root-thread',
+    'root-turn',
+  ), false)
+  assert.equal(isCurrentCodexTurnNotification(
+    { threadId: 'root-thread', turnId: 'previous-turn' },
+    'root-thread',
+    'root-turn',
+  ), false)
+  assert.equal(isCurrentCodexTurnNotification(
+    { threadId: 'child-thread', turn: { id: 'child-turn' } },
+    'root-thread',
+    'root-turn',
+  ), false)
+})
+
+test('accepts same-thread events before turn/start responds and global events without ids', () => {
+  assert.equal(isCurrentCodexTurnNotification(
+    { threadId: 'root-thread', turnId: 'root-turn' },
+    'root-thread',
+    undefined,
+  ), true)
+  assert.equal(isCurrentCodexTurnNotification(
+    { summary: 'global configuration warning' },
+    'root-thread',
+    'root-turn',
+  ), true)
 })

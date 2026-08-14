@@ -46,9 +46,10 @@ test('allows queue release after all sub-agents settle and the root sends its fi
     agentsStates: { 'agent-1': { status: 'running' } },
   })
   gate.observeItem('completed', {
-    type: 'subAgentActivity',
-    kind: 'completed',
-    agentThreadId: 'agent-1',
+    type: 'collabAgentToolCall',
+    tool: 'wait',
+    receiverThreadIds: ['agent-1'],
+    agentsStates: { 'agent-1': { status: 'completed' } },
   })
   gate.observeItem('completed', { type: 'agentMessage', status: 'completed' })
 

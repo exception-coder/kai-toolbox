@@ -26,6 +26,7 @@ import {
 import { FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
 import {
   CodexAppServerTurnError,
+  deleteCodexThread,
   latestCodexTurnId,
   runCodexAppServerTurn,
 } from './codexAppServer.js'
@@ -336,6 +337,46 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
     ctx.emit({ type: 'result', usage: {}, stopReason: 'error' })
   } finally {
     if (tempImageDir) rmSync(tempImageDir, { recursive: true, force: true })
+  }
+}
+
+export interface EphemeralCodexRuntime {
+  runTurn: (ctx: CodexTurnCtx) => Promise<void>
+  deleteThread: (threadId: string, codexHome?: string) => Promise<void>
+  warn: (message: string) => void
+}
+
+const DEFAULT_EPHEMERAL_CODEX_RUNTIME: EphemeralCodexRuntime = {
+  runTurn: runCodexTurn,
+  deleteThread: deleteCodexThread,
+  warn: message => console.warn(message),
+}
+
+/**
+ * Runs a one-shot Codex task and permanently removes every native thread it created.
+ * Cleanup is best-effort so a Codex housekeeping failure never changes the task result.
+ */
+export async function runEphemeralCodexTurn(
+  ctx: CodexTurnCtx,
+  runtime: EphemeralCodexRuntime = DEFAULT_EPHEMERAL_CODEX_RUNTIME,
+): Promise<void> {
+  const threadIds = new Set<string>()
+  try {
+    await runtime.runTurn({
+      ...ctx,
+      setSdkSessionId: threadId => {
+        threadIds.add(threadId)
+        ctx.setSdkSessionId(threadId)
+      },
+    })
+  } finally {
+    for (const threadId of threadIds) {
+      try {
+        await runtime.deleteThread(threadId, ctx.codexHome)
+      } catch (error) {
+        runtime.warn(`[sidecar] 删除 Codex 临时会话 ${threadId} 失败（忽略）：${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
   }
 }
 
