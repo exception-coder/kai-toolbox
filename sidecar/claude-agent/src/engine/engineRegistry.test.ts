@@ -3,14 +3,17 @@ import test from 'node:test'
 import type { AgentEngineAdapter, EngineDescriptor } from './engineContract.js'
 import { EngineAdapterRegistry } from './engineRegistry.js'
 import { builtinEngineRegistry } from './builtinEngineAdapters.js'
+import { deriveEngineRuntimeSnapshot } from './runtimeStateCoordinator.js'
 
 function adapter(descriptor: EngineDescriptor, calls: string[]): AgentEngineAdapter {
   return {
     descriptor,
-    runTurn: async execution => {
+    runTurn: async request => {
       calls.push(descriptor.id)
-      await execution.execute()
+      calls.push(request.text)
     },
+    runtimeState: deriveEngineRuntimeSnapshot,
+    interrupt: async () => { calls.push('interrupted') },
   }
 }
 
@@ -25,11 +28,51 @@ test('registry routes a turn through the selected adapter', async () => {
   const calls: string[] = []
   const registry = new EngineAdapterRegistry([adapter(claudeDescriptor, calls)])
 
-  await registry.runTurn('claude', { execute: async () => { calls.push('native') } })
+  await registry.runTurn('claude', {
+    sessionId: 'session-1',
+    turnId: 'turn-1',
+    text: 'native',
+    additionalDirectories: [],
+    emit: () => undefined,
+  })
 
   assert.deepEqual(calls, ['claude', 'native'])
   assert.equal(registry.supports('claude', 'resume'), true)
   assert.equal(registry.supports('claude', 'subagents'), false)
+})
+
+test('registry exposes an explicit readiness result for adapters without an external probe', async () => {
+  const registry = new EngineAdapterRegistry([adapter(claudeDescriptor, [])])
+
+  assert.deepEqual(await registry.probe('claude'), {
+    status: 'ready',
+    engine: 'claude',
+    detail: 'Adapter does not require an external runtime handshake',
+  })
+})
+
+test('registry delegates runtime-state authority to the selected adapter', () => {
+  const registry = new EngineAdapterRegistry([adapter(claudeDescriptor, [])])
+
+  assert.equal(registry.runtimeState('claude', {
+    active: true,
+    pendingDecision: false,
+    phase: 'finalizing',
+    hasActiveController: false,
+  }).agentState, 'finalizing')
+})
+
+test('registry delegates native cancellation and validates declared capabilities', async () => {
+  const calls: string[] = []
+  const registry = new EngineAdapterRegistry([adapter(claudeDescriptor, calls)])
+
+  await registry.interrupt('claude')
+  assert.deepEqual(calls, ['interrupted'])
+
+  assert.throws(() => new EngineAdapterRegistry([{
+    descriptor: claudeDescriptor,
+    runTurn: async () => undefined,
+  }]), /declares interrupt/)
 })
 
 test('registry rejects duplicate and unknown adapters explicitly', () => {

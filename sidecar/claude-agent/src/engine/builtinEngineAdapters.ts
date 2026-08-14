@@ -1,8 +1,15 @@
-import type { AgentEngineAdapter, BuiltinEngineId, EngineCapability, EngineDescriptor } from './engineContract.js'
+import type {
+  AgentEngineAdapter,
+  BuiltinEngineId,
+  EngineCapability,
+  EngineDescriptor,
+  EngineTurnExecutor,
+} from './engineContract.js'
 import { EngineAdapterRegistry } from './engineRegistry.js'
+import { deriveEngineRuntimeSnapshot } from './runtimeStateCoordinator.js'
 
-function descriptor(id: BuiltinEngineId, displayName: string,
-                    capabilities: readonly EngineCapability[]): EngineDescriptor {
+function descriptor<T extends BuiltinEngineId>(id: T, displayName: string,
+                    capabilities: readonly EngineCapability[]): EngineDescriptor & { id: T } {
   return {
     id,
     displayName,
@@ -11,24 +18,42 @@ function descriptor(id: BuiltinEngineId, displayName: string,
   }
 }
 
-function delegatedAdapter(engineDescriptor: EngineDescriptor): AgentEngineAdapter {
+function delegatedAdapter(engineDescriptor: EngineDescriptor, execute: EngineTurnExecutor,
+                          interrupt: () => Promise<void>): AgentEngineAdapter {
   return {
     descriptor: engineDescriptor,
-    runTurn: execution => execution.execute(),
+    runTurn: execute,
+    interrupt,
+    runtimeState: deriveEngineRuntimeSnapshot,
   }
 }
 
-export const builtinEngineRegistry = new EngineAdapterRegistry([
-  delegatedAdapter(descriptor('claude', 'Claude Code', [
+export type BuiltinEngineExecutors = Readonly<Record<BuiltinEngineId, EngineTurnExecutor>>
+
+const descriptors = [
+  descriptor('claude', 'Claude Code', [
     'resume', 'interrupt', 'subagents', 'attachments', 'modelCatalog',
-  ])),
-  delegatedAdapter(descriptor('codex', 'Codex', [
+  ]),
+  descriptor('codex', 'Codex', [
     'resume', 'interrupt', 'runtimeState', 'subagents', 'attachments', 'modelCatalog',
-  ])),
-  delegatedAdapter(descriptor('gemini', 'Gemini CLI', [
+  ]),
+  descriptor('gemini', 'Gemini CLI', [
     'resume', 'interrupt',
-  ])),
-  delegatedAdapter(descriptor('opencode', 'OpenCode', [
+  ]),
+  descriptor('opencode', 'OpenCode', [
     'resume', 'interrupt', 'modelCatalog',
-  ])),
-])
+  ]),
+] as const
+
+/** Descriptor-only catalog for discovery; execution uses a session-bound registry. */
+export const builtinEngineRegistry = new EngineAdapterRegistry(descriptors.map(engineDescriptor =>
+  delegatedAdapter(engineDescriptor, async () => {
+    throw new Error(`Engine adapter is not bound to a session: ${engineDescriptor.id}`)
+  }, async () => undefined)))
+
+/** Bind provider implementations once per session so orchestration never branches on engine id. */
+export function createBuiltinEngineRegistry(executors: BuiltinEngineExecutors,
+                                            interrupt: () => Promise<void>): EngineAdapterRegistry {
+  return new EngineAdapterRegistry(descriptors.map(engineDescriptor =>
+    delegatedAdapter(engineDescriptor, executors[engineDescriptor.id], interrupt)))
+}
