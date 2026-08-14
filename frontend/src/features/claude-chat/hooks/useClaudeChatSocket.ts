@@ -381,11 +381,16 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           shouldLoadHistoryRef.current = false
         }
         setCapabilitiesRefreshing(false)
-        // 队列严格按会话隔离：先清掉上一会话内存快照，再异步恢复 ready 对应会话的数据。
-        setQueued([])
+        // 队列严格按会话隔离：登录通道随后从服务端恢复；公开通道没有持久队列接口，
+        // 重连同一评审会话时需保住本页已排队消息，只剔除不属于 Ready 会话的旧项。
+        setQueued(previous => publicWithoutLogin
+          ? previous.filter(message => message.ownerSessionId === msg.sessionId)
+          : [])
         sessionIdRef.current = msg.sessionId
         sessionReadyRef.current = true
-        serverQueueDispatchRef.current = msg.queueDispatchMode === 'server'
+        // 公开评审/演示通道没有登录态，也不会把队列写进服务端持久队列表；即使 Ready
+        // 声明了 server 调度，这两类通道仍必须由浏览器在本轮结束后释放本地队列。
+        serverQueueDispatchRef.current = !publicWithoutLogin && msg.queueDispatchMode === 'server'
         setSessionId(msg.sessionId)
         if (!publicWithoutLogin && channel !== 'consult') void listQueuedMessages(msg.sessionId)
           .then(messages => {
@@ -1277,9 +1282,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           setSyncWarning(`消息加入队列失败：${error instanceof Error ? error.message : String(error)}`)
         }
       })
-  }, [channel, demo])
+  }, [channel, publicWithoutLogin])
   const removeQueued = useCallback((id: string) => {
-    if (demo) {
+    if (publicWithoutLogin) {
       setQueued(prev => prev.filter(q => q.id !== id))
       return
     }
@@ -1290,9 +1295,9 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         if (sessionIdRef.current === sessionId) setQueued(prev => prev.filter(q => q.id !== id))
       })
       .catch(error => setSyncWarning(`删除队列消息失败：${error instanceof Error ? error.message : String(error)}`))
-  }, [demo])
+  }, [publicWithoutLogin])
   const clearQueued = useCallback(() => {
-    if (demo) {
+    if (publicWithoutLogin) {
       setQueued([])
       return
     }
@@ -1303,7 +1308,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         if (sessionIdRef.current === sessionId) setQueued([])
       })
       .catch(error => setSyncWarning(`清空待发送队列失败：${error instanceof Error ? error.message : String(error)}`))
-  }, [demo])
+  }, [publicWithoutLogin])
 
   const sendQueuedNow = useCallback((id: string) => {
     if (running || pending || backgroundTasks.length > 0 || manualQueueDispatchIdRef.current) return
@@ -1311,7 +1316,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     const sessionId = sessionIdRef.current
     if (!message || message.id !== id || !sessionId || message.ownerSessionId !== sessionId
         || !sessionReadyRef.current) return
-    if (demo) {
+    if (publicWithoutLogin) {
       setQueued(prev => prev.filter(item => item.id !== id))
       send(message.text, message.attachments, message.displayText, message.developerInstructions)
       return
@@ -1328,7 +1333,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       })
       .catch(error => setSyncWarning(`队列消息发送失败：${error instanceof Error ? error.message : String(error)}`))
       .finally(() => { manualQueueDispatchIdRef.current = null })
-  }, [backgroundTasks.length, demo, pending, queued, running, send])
+  }, [backgroundTasks.length, pending, publicWithoutLogin, queued, running, send])
 
   // 只有当前会话收到明确的成功终态，且无待确认、无后台作业时，才取队首发出。
   const sendRef = useRef(send)
@@ -1344,7 +1349,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     // 队列项归属不匹配时必须原地停止，不能用新会话 ID 删除并发送旧会话消息。
     if (!sessionId || queueReleaseSessionRef.current !== sessionId
         || head.ownerSessionId !== sessionId || dispatchingQueueIdRef.current === head.id) return
-    if (demo) {
+    if (publicWithoutLogin) {
       queueReleaseSessionRef.current = null
       setQueued(prev => prev.slice(1))
       sendRef.current(head.text, head.attachments, head.displayText, head.developerInstructions)
@@ -1365,7 +1370,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       })
       .catch(error => setSyncWarning(`队列消息出队失败：${error instanceof Error ? error.message : String(error)}`))
       .finally(() => { dispatchingQueueIdRef.current = null })
-  }, [channel, demo, running, pending, backgroundTasks.length, queued, queueReleaseVersion])
+  }, [channel, publicWithoutLogin, running, pending, backgroundTasks.length, queued, queueReleaseVersion])
 
   const interrupt = useCallback(() => {
     // 不在点击时乐观结束运行态：消息可能因 WS 断开根本没有发出。

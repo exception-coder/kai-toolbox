@@ -25,7 +25,7 @@ export function QueuedList({ items, pausedReason, canSendNow, onSendNow, onRemov
           全部清除
         </button>
       </div>
-      <div className="flex flex-col gap-1">
+      <div className="flex max-h-32 flex-col gap-1 overflow-y-auto pr-1">
         {items.map((q, i) => (
           <div key={q.id} className="flex items-center gap-2 rounded-lg bg-[var(--color-background)] px-2.5 py-1.5 text-sm">
             <span className="shrink-0 text-[10px] tabular-nums text-[var(--color-muted-foreground)]">{i + 1}</span>

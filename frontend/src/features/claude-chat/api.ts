@@ -474,7 +474,7 @@ export function createReviewShare(sessionId: string, input: {
 export function getPublicReview(token: string) {
   return fetch(`/api/claude-chat/reviews/public/${encodeURIComponent(token)}`).then(async response => {
     if (!response.ok) throw new Error(response.status === 404 ? '评审链接已失效、过期或被撤销' : '读取评审会话失败')
-    return response.json() as Promise<{ reviewSessionId: string; title: string; sourceTitle: string; mode: ReviewShareMode; contextSnapshot: string; expiresAt: number }>
+    return response.json() as Promise<{ reviewSessionId: string; title: string; sourceTitle: string; mode: ReviewShareMode; contextSnapshot: string; expiresAt: number; createdAt: number }>
   })
 }
 

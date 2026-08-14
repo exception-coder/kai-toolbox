@@ -53,7 +53,7 @@ import { MultiSessionView } from '../components/MultiSessionView'
 import { ProviderProfilesPanel } from '../components/ProviderProfilesPanel'
 import { loadProfiles, type ProviderProfile } from '../providerProfiles'
 import { engineDisplayName, engineName, providerHost, stateLabel, stateTone } from '../components/chatStatus'
-import { fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getReviewRelations, getSessionCommitDiff, getSessionPendingSql, handleReviewFeedback, listSessionCommits, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type SessionUsage } from '../api'
+import { fetchProviderModels, fetchSessionGitFileDiff, fetchSessionGitStatus, fetchSessionUsage, getReviewRelations, getSessionCommitDiff, getSessionPendingSql, handleReviewFeedback, listSessionCommits, listSessionGitRepos, listSessionProjectDirectories, listSessions, listWorkspaces, renameSession, uploadAttachment, type ReviewFeedbackView, type SessionUsage } from '../api'
 import { getSystemWorkspaceDisplayName } from '@/lib/systemCatalog'
 import type { ChatItem, ModelInfo, SessionPendingSql } from '../types'
 import { CommitsPanel } from '@/components/git/CommitsPanel'
@@ -761,16 +761,58 @@ export function ChatPage() {
     ? (currentSession.title?.trim() || headerCwdName(currentSession.cwd))
     : undefined
   const reviewLink = reviewRelations?.reviews[0]
-  const applyReviewFeedback = async (id: string, content: string) => {
-    const instruction = `请根据以下计划评审意见继续实现，先核对当前代码与原需求，再完成必要修改和验证：\n\n${content}`
-    setDraft(current => current.trim() ? `${current.trim()}\n\n${instruction}` : instruction)
-    await handleReviewFeedback(id, 'CONSUMED')
-    await refetchReviewRelations()
-    requestAnimationFrame(() => taRef.current?.focus())
+  const [reviewFeedbackBusy, setReviewFeedbackBusy] = useState(false)
+  const [reviewFeedbackError, setReviewFeedbackError] = useState<string | null>(null)
+  const applyReviewFeedbacks = async (feedbacks: ReviewFeedbackView[]) => {
+    if (reviewFeedbackBusy || feedbacks.length === 0) return
+    setReviewFeedbackBusy(true)
+    setReviewFeedbackError(null)
+    try {
+      const ordered = [...feedbacks].sort((left, right) => left.createdAt - right.createdAt)
+      const consumed: ReviewFeedbackView[] = []
+      for (const feedback of ordered) {
+        try {
+          await handleReviewFeedback(feedback.id, 'CONSUMED')
+          consumed.push(feedback)
+        } catch {
+          // 保留失败项为待处理状态，继续处理其余意见；结束后统一提示。
+        }
+      }
+      if (consumed.length > 0) {
+        const instruction = consumed.length === 1
+          ? `请根据以下计划评审意见继续实现，先核对当前代码与原需求，再完成必要修改和验证：\n\n${consumed[0].content}`
+          : [
+              `请统一处理以下 ${consumed.length} 条计划评审意见。先核对当前代码与原需求，合并重复项；若意见冲突，以较新的明确结论为准并说明取舍。完成必要修改和验证后，逐项报告处理结果：`,
+              ...consumed.map((feedback, index) => {
+                const source = reviewRelations?.reviews.find(review => review.reviewSessionId === feedback.reviewSessionId)?.reviewTitle
+                return `### 评审意见 ${index + 1}${source ? ` · ${source}` : ''}\n${feedback.content.trim()}`
+              }),
+            ].join('\n\n')
+        setDraft(current => current.trim() ? `${current.trim()}\n\n${instruction}` : instruction)
+        requestAnimationFrame(() => taRef.current?.focus())
+      }
+      const failed = ordered.length - consumed.length
+      if (failed > 0) setReviewFeedbackError(`${failed} 条意见状态更新失败，未加入草稿；其余 ${consumed.length} 条已合并。`)
+      await refetchReviewRelations()
+    } catch (error) {
+      setReviewFeedbackError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setReviewFeedbackBusy(false)
+    }
   }
+  const applyReviewFeedback = (feedback: ReviewFeedbackView) => applyReviewFeedbacks([feedback])
   const dismissReviewFeedback = async (id: string) => {
-    await handleReviewFeedback(id, 'DISMISSED')
-    await refetchReviewRelations()
+    if (reviewFeedbackBusy) return
+    setReviewFeedbackBusy(true)
+    setReviewFeedbackError(null)
+    try {
+      await handleReviewFeedback(id, 'DISMISSED')
+      await refetchReviewRelations()
+    } catch (error) {
+      setReviewFeedbackError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setReviewFeedbackBusy(false)
+    }
   }
   const handleLoadEarlier = useCallback(() => chat?.loadHistory(false), [chat?.loadHistory])
   const handleNewSession = useCallback(() => {
@@ -1258,6 +1300,22 @@ export function ChatPage() {
       {viewMode === 'single' && reviewRelations?.role === 'SOURCE'
         && reviewRelations.pendingFeedback.length > 0 && (
         <div className="space-y-2 border-b border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-950/30">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-amber-900 dark:text-amber-100">
+            <span className="font-medium">共 {reviewRelations.pendingFeedback.length} 条待处理评审意见</span>
+            <span className="text-amber-700/80 dark:text-amber-300/80">可逐条处理，也可合并成一份开发草稿后统一发送。</span>
+            {reviewRelations.pendingFeedback.length > 1 && (
+              <Button
+                size="sm"
+                className="ml-auto h-7 gap-1.5 px-2 text-xs"
+                disabled={reviewFeedbackBusy}
+                onClick={() => void applyReviewFeedbacks(reviewRelations.pendingFeedback)}
+              >
+                {reviewFeedbackBusy ? <Loader2 className="size-3.5 animate-spin" /> : <ListChecks className="size-3.5" />}
+                合并全部生成开发草稿
+              </Button>
+            )}
+          </div>
+          {reviewFeedbackError && <p className="text-xs text-red-600 dark:text-red-400">{reviewFeedbackError}</p>}
           {reviewRelations.pendingFeedback.map(feedback => (
             <div key={feedback.id} className="flex items-start gap-3 rounded-lg border border-amber-200 bg-white/80 p-2 text-xs dark:border-amber-800 dark:bg-slate-950/70">
               <MessageSquare className="mt-0.5 size-4 shrink-0 text-amber-600" />
@@ -1271,8 +1329,8 @@ export function ChatPage() {
                 <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-[var(--color-muted-foreground)]">{feedback.content}</p>
               </div>
               <div className="flex shrink-0 gap-1">
-                <Button size="sm" className="h-7 px-2 text-xs" onClick={() => void applyReviewFeedback(feedback.id, feedback.content)}>生成开发草稿</Button>
-                <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => void dismissReviewFeedback(feedback.id)}>忽略</Button>
+                <Button size="sm" className="h-7 px-2 text-xs" disabled={reviewFeedbackBusy} onClick={() => void applyReviewFeedback(feedback)}>生成开发草稿</Button>
+                <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" disabled={reviewFeedbackBusy} onClick={() => void dismissReviewFeedback(feedback.id)}>忽略</Button>
               </div>
             </div>
           ))}

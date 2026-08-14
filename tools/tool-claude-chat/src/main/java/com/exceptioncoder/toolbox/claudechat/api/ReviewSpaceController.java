@@ -138,10 +138,10 @@ public class ReviewSpaceController {
         }
     }
     public record PublicReviewView(String reviewSessionId, String title, String sourceTitle, String mode,
-                                   String contextSnapshot, long expiresAt) {
+                                   String contextSnapshot, long expiresAt, long createdAt) {
         static PublicReviewView from(ReviewSpace s, String sourceTitle) {
             return new PublicReviewView(s.reviewSessionId(), s.title(), sourceTitle,
-                    s.mode(), s.contextSnapshot(), s.expiresAt());
+                    s.mode(), s.contextSnapshot(), s.expiresAt(), s.createdAt());
         }
     }
 

@@ -3,7 +3,7 @@ import { FileText, Image as ImageIcon, Loader2, X } from 'lucide-react'
 import type { UploadedAttachment } from '../api'
 import { ImageLightbox } from './ImageLightbox'
 
-type Item = UploadedAttachment & { previewUrl?: string }
+type Item = UploadedAttachment & { previewUrl?: string; url?: string }
 
 /** 输入框上方的附件预览条：显示附件名/类型，图片可点击放大核对，可删除。 */
 export function AttachmentChips({
@@ -22,7 +22,8 @@ export function AttachmentChips({
       <div className="flex flex-wrap gap-2 px-3 pt-2">
         {items.map(a => {
           const isImage = a.mime?.startsWith('image/')
-          const canPreview = isImage && !!a.previewUrl
+          const previewUrl = a.previewUrl ?? a.url
+          const canPreview = isImage && !!previewUrl
           return (
             <span
               key={a.id}
@@ -31,11 +32,11 @@ export function AttachmentChips({
               {canPreview ? (
                 <button
                   type="button"
-                  onClick={() => setPreview(a.previewUrl!)}
+                  onClick={() => setPreview(previewUrl!)}
                   title="点击预览"
                   className="flex items-center gap-1"
                 >
-                  <img src={a.previewUrl} alt="" className="size-5 rounded object-cover" />
+                  <img src={previewUrl} alt="" className="size-5 rounded object-cover" />
                   <span className="max-w-[10rem] truncate underline-offset-2 hover:underline">{a.name}</span>
                 </button>
               ) : (
