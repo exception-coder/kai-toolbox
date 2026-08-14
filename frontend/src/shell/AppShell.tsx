@@ -33,7 +33,7 @@ export function AppShell() {
   }, [collapsed])
 
   // 业务咨询以图谱为主舞台：进入时自动收起桌面侧栏，离开后恢复进入前的状态。
-  // 仅在路由边界执行一次，用户留在模块内时仍可通过 TopBar 手动展开。
+  // 仅在路由边界执行一次，用户留在模块内时仍可通过侧栏品牌行按钮手动展开。
   useLayoutEffect(() => {
     if (isConsultRoute && !wasConsultRouteRef.current) {
       collapsedBeforeConsultRef.current = collapsedRef.current
@@ -78,7 +78,7 @@ export function AppShell() {
       style={{ height: 'var(--app-vh, 100vh)' }}
     >
       {shellless ? (
-        <main className="scrollbar-autohide min-w-0 flex-1 overflow-y-auto">
+        <main className="scrollbar-autohide min-h-0 min-w-0 flex-1 overflow-y-auto">
           <Outlet />
         </main>
       ) : (
@@ -99,7 +99,8 @@ export function AppShell() {
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* 桌面折叠控制已并入侧栏品牌行，避免为单个按钮常驻一条 48px 顶栏。 */}
         <TopBar onOpenMobileMenu={() => setMobileOpen(true)} />
-        {/* 聊天运行时与悬浮窗已提到 App 顶层（跨工具页/展示页/首页常驻），此处仅渲染内容 */}
+        {/* 模块高度以这里分配的 flex 可用空间为准；子页面应使用 h-full/min-h-full，
+            不要再用 100vh 减 Shell 顶栏等固定像素。 */}
         <main className="scrollbar-autohide min-h-0 min-w-0 flex-1 overflow-y-auto">
           <Outlet />
         </main>

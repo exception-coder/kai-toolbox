@@ -125,7 +125,7 @@ export function WorklinePage() {
       : '新增条目'
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-3.5rem)] max-w-6xl gap-4 p-6">
+    <div className="mx-auto flex h-full min-h-0 max-w-6xl gap-4 p-6">
       {/* 左栏：工作线 */}
       <aside className="w-64 shrink-0 rounded-lg border bg-[var(--color-card)] p-3">
         <WorklineList

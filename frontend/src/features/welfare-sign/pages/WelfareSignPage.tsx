@@ -93,9 +93,9 @@ export function WelfareSignPage({ fullscreen = false, demoConfig, theme, blocks,
   const showError = (e: unknown) => setError(e instanceof ApiError ? e.message : String(e))
 
   return (
-    <div style={themeVars} className={`flex min-h-0 flex-col bg-[var(--color-muted)]/40 ${fullscreen ? 'h-[100dvh]' : 'h-[calc(100dvh-3.5rem)]'}`}>
+    <div style={themeVars} className="flex h-full min-h-0 flex-col bg-[var(--color-muted)]/40">
       {!fullscreen && (
-      <header className="border-b bg-[var(--color-background)] px-5 py-3">
+      <header className="shrink-0 border-b bg-[var(--color-background)] px-5 py-3">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--color-primary)] text-[var(--color-primary-foreground)]">
@@ -121,7 +121,7 @@ export function WelfareSignPage({ fullscreen = false, demoConfig, theme, blocks,
       )}
 
       {error && (
-        <div className="border-b border-red-200 bg-red-50 px-5 py-2 text-sm text-red-700">
+        <div className="shrink-0 border-b border-red-200 bg-red-50 px-5 py-2 text-sm text-red-700">
           {error}
         </div>
       )}
@@ -206,7 +206,7 @@ function SignDesk({ fullscreen, config, theme, blocks, showRegionMarkers = false
     return (
       <section className={luxuryFrameClass(fullscreen)}>
         <LuxuryBackdrop image={visual} />
-        <div className="relative z-10 mx-auto flex min-h-[inherit] w-full max-w-4xl flex-col items-center justify-center px-6 py-16 text-center text-white">
+        <div className="relative z-10 mx-auto flex w-full max-w-4xl flex-col items-center justify-center px-6 py-16 text-center text-white">
           <UserCheck className="mb-8 size-12 text-[var(--wf-accent,#6f9b54)]" />
           <p className="mb-4 text-xs uppercase tracking-[0.45em] text-[var(--wf-accent,#6f9b54)]">Received</p>
           <h2 className="max-w-3xl text-5xl font-semibold leading-tight md:text-7xl">心意已妥善抵达</h2>
@@ -224,7 +224,7 @@ function SignDesk({ fullscreen, config, theme, blocks, showRegionMarkers = false
     return (
       <section className={luxuryFrameClass(fullscreen)}>
         <LuxuryBackdrop image={visual} />
-        <div className="relative z-10 mx-auto grid min-h-[inherit] w-full max-w-7xl items-center gap-10 px-6 py-12 text-white lg:grid-cols-[1.15fr_420px] lg:px-12">
+        <div className="relative z-10 mx-auto grid w-full max-w-7xl items-center gap-10 px-6 py-12 text-white lg:grid-cols-[1.15fr_420px] lg:px-12">
           <div className="welfare-luxury-copy max-w-4xl">
             <p className={`relative mb-6 text-xs uppercase tracking-[0.5em] text-[var(--wf-accent,#6f9b54)]${regionClass('A')}`} style={blockStyle(blocks, 'A')}>
               <RegionMarker id="A" show={showRegionMarkers} onActivate={activateRegion} />{theme?.eyebrow ?? '端午安康 · Dragon Boat Festival'}
@@ -273,7 +273,7 @@ function SignDesk({ fullscreen, config, theme, blocks, showRegionMarkers = false
   return (
     <section className={luxuryFrameClass(fullscreen)}>
       <LuxuryBackdrop image={visual} />
-      <div className="relative z-10 mx-auto grid min-h-[inherit] w-full max-w-7xl items-center gap-8 px-6 py-10 text-white lg:grid-cols-[1fr_460px] lg:px-12">
+      <div className="relative z-10 mx-auto grid w-full max-w-7xl items-center gap-8 px-6 py-10 text-white lg:grid-cols-[1fr_460px] lg:px-12">
         <section className="welfare-luxury-copy max-w-4xl">
           <p className="mb-5 text-xs uppercase tracking-[0.45em] text-[var(--wf-accent,#6f9b54)]">{employee.department || 'Gift Reception'} · {employee.employeeNo}</p>
           <h2 className="max-w-4xl text-5xl font-semibold leading-[0.98] tracking-[-0.02em] md:text-7xl lg:text-8xl">{title}</h2>
@@ -364,7 +364,7 @@ function RegionMarker({ id, show, onActivate }: { id: string; show?: boolean; on
 }
 
 function luxuryFrameClass(fullscreen: boolean) {
-  return `welfare-luxury-stage relative isolate overflow-hidden bg-[var(--wf-stage,#08130d)] ${fullscreen ? 'min-h-[100dvh]' : 'min-h-[calc(100dvh-10rem)] rounded-lg'}`
+  return `welfare-luxury-stage relative isolate grid min-h-full overflow-hidden bg-[var(--wf-stage,#08130d)] ${fullscreen ? '' : 'rounded-lg'}`
 }
 
 function LuxuryBackdrop({ image }: { image: string }) {

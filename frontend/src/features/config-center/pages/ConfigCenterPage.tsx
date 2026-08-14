@@ -36,7 +36,7 @@ export function ConfigCenterPage() {
   }, [blocks, selected, wantBlock])
 
   return (
-    <div className="flex h-[calc(100dvh-3.5rem)]">
+    <div className="flex h-full min-h-0">
       <aside className="w-60 shrink-0 overflow-y-auto border-r">
         <div className="px-3 py-2 text-xs font-medium text-[var(--color-muted-foreground)]">可刷新配置块</div>
         {blocks.length === 0 && (

@@ -31,7 +31,7 @@ export function AccountAdminPage() {
 
   if (!isAdmin) {
     return (
-      <div className="flex h-[calc(100dvh-3.5rem)] flex-col items-center justify-center gap-2 text-center text-[var(--color-muted-foreground)]">
+      <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2 text-center text-[var(--color-muted-foreground)]">
         <p className="text-base font-medium">需要管理员权限</p>
         <p className="text-sm">请用具有 ADMIN 角色的账号登录后访问账号管理。</p>
       </div>

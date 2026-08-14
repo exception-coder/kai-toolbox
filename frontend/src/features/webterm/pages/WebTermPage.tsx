@@ -133,33 +133,10 @@ export function WebTermPage() {
   // claude 模式下统一走 xterm + OS 键盘的实时直通路径,辅以 AuxKeyBar 控制键。
   const inClaudeMode = !!(autorun && autorun.startsWith('claude'))
 
-  // 移动端 OS 键盘弹起后会把 Claude 的 │ > 提示框遮在屏幕下沿,用户看不到光标。
-  // 用 visualViewport API 把根容器实际高度收到可见区,xterm 的 ResizeObserver 会
-  // 自动 fit/resize PTY,Claude 重绘后提示框落在键盘上方可见区域。
-  // h-[100dvh] 在大多数浏览器够用,但 iOS Safari / 部分 WebView 的 dvh 不跟随键盘,
-  // visualViewport 是兜底。
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.visualViewport) return
-    const vv = window.visualViewport
-    const apply = () => {
-      const el = rootRef.current
-      if (!el) return
-      el.style.height = `${vv.height}px`
-    }
-    vv.addEventListener('resize', apply)
-    vv.addEventListener('scroll', apply)
-    apply()
-    return () => {
-      vv.removeEventListener('resize', apply)
-      vv.removeEventListener('scroll', apply)
-      if (rootRef.current) rootRef.current.style.height = ''
-    }
-  }, [])
-
   return (
     <div
       ref={rootRef}
-      className="relative flex h-[100dvh] min-h-0 flex-col bg-[#1a1b26] md:h-full"
+      className="relative flex h-full min-h-0 flex-col bg-[#1a1b26]"
     >
       {/* 顶部细工具栏 —— 终端永远占主体；表单 / 会话都收进抽屉里 */}
       <div className="flex items-center gap-1 border-b border-white/10 bg-[var(--color-card)] px-2 py-1.5 text-sm">

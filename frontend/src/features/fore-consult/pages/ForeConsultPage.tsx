@@ -1321,7 +1321,7 @@ export function ForeConsultPage() {
   return (
     <div
       ref={containerRef}
-      className={`fc-space h-[calc(100vh-5rem)] w-full rounded-2xl ${
+      className={`fc-space h-full min-h-0 w-full rounded-2xl ${
         pageVisible && topoMutation.isPending && !conversationOpen ? 'is-topology-animating' : ''
       }`}
     >

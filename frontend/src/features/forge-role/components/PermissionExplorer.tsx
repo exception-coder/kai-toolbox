@@ -233,7 +233,7 @@ export function PermissionExplorer({ role, onClose }: { role: RoleView; onClose:
   }
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-5rem)] min-h-[560px] w-full max-w-[1480px] flex-col gap-3 p-3 sm:p-4">
+    <div className="mx-auto flex h-full min-h-[560px] w-full max-w-[1480px] flex-col gap-3 p-3 sm:p-4">
       <header className="flex flex-wrap items-center gap-3">
         <button
           type="button"

@@ -132,7 +132,7 @@ export function Java8guHubPage() {
   }
 
   return (
-    <div className="min-h-[calc(100vh-3.5rem)] bg-[var(--color-background)] xl:flex xl:h-[calc(100vh-3.5rem)] xl:flex-col xl:overflow-hidden">
+    <div className="min-h-full bg-[var(--color-background)] xl:flex xl:h-full xl:min-h-0 xl:flex-col xl:overflow-hidden">
       <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-[var(--color-border)]/70 bg-[var(--color-card)]/75 px-4 py-3 backdrop-blur sm:px-5">
         <div>
           <h1 className="flex items-center gap-2 text-base font-semibold sm:text-lg">

@@ -571,7 +571,7 @@ export function VideoLibraryPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-3 py-3 md:gap-4 md:px-6 md:py-6">
+    <div className="mx-auto flex min-h-full w-full max-w-7xl flex-col gap-3 px-3 py-3 md:h-full md:min-h-0 md:gap-4 md:px-6 md:py-6">
       <header className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">视频库</h1>
@@ -611,12 +611,12 @@ export function VideoLibraryPage() {
       <RecentVideosBar selectedPath={selectedPath} onSelect={handleSelect} />
 
       {query.isLoading ? (
-        <div className="flex h-72 items-center justify-center rounded-md border text-sm text-[var(--color-muted-foreground)]">
+        <div className="flex min-h-72 flex-1 items-center justify-center rounded-md border text-sm text-[var(--color-muted-foreground)]">
           加载中…
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-[320px_1fr] md:gap-4">
-          <aside className="hidden h-[calc(100vh-12rem)] overflow-hidden rounded-md border bg-[var(--color-card)] md:flex md:flex-col">
+        <div className="grid grid-cols-1 gap-3 md:min-h-0 md:flex-1 md:grid-cols-[320px_1fr] md:gap-4">
+          <aside className="hidden overflow-hidden rounded-md border bg-[var(--color-card)] md:flex md:min-h-0 md:flex-col">
             <VideoLibrarySidePanel
               tab={sideTab}
               onTabChange={setSideTab}
@@ -625,7 +625,7 @@ export function VideoLibraryPage() {
             />
           </aside>
 
-          <main className="min-w-0 md:h-[calc(100vh-12rem)] md:overflow-hidden">
+          <main className="min-w-0 md:min-h-0 md:overflow-hidden">
             <VideoPlayerPanel
               item={currentItem}
               items={items}

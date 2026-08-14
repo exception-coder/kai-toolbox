@@ -295,7 +295,7 @@ export function ChatPage() {
   )
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] bg-[var(--color-muted)]/40">
+    <div className="flex h-full min-h-0 bg-[var(--color-muted)]/40">
       {/* 桌面：常驻侧栏 */}
       <aside className="hidden w-64 shrink-0 border-r bg-[var(--color-background)] md:block">
         {sidebar}
