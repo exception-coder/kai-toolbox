@@ -1129,14 +1129,15 @@ public class ClaudeChatService {
                 return;
             }
             completeTurn(ctx, asMap(node.get("usage")), node.path("stopReason").asText("end_turn"),
-                    node.path("traceId").asText(null));
+                    node.path("traceId").asText(null), queueReleaseAllowed(node));
         }
     }
 
-    private void completeTurn(SessionCtx ctx, Map<String, Object> usage, String stopReason, String traceId) {
+    private void completeTurn(SessionCtx ctx, Map<String, Object> usage, String stopReason, String traceId,
+                              boolean queueReleaseSafe) {
         ctx.status = SessionStatus.IDLE;
         ctx.pendingRequest = null; // 本轮结束，未决请求（含超时被拒）一并失效
-        ctx.queueReleaseReady = isSuccessfulTurnCompletion(stopReason);
+        ctx.queueReleaseReady = queueReleaseSafe;
         broadcastPendingSessions();
         repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
         AgentSpan span = activeTurnSpans.remove(ctx.sessionId);
@@ -1210,6 +1211,12 @@ public class ClaudeChatService {
         return SUCCESSFUL_TURN_STOP_REASONS.contains(stopReason.trim().toLowerCase(Locale.ROOT));
     }
 
+    /** 兼容旧引擎，同时优先服从 Sidecar 明确声明的队列安全终态。 */
+    static boolean queueReleaseAllowed(JsonNode result) {
+        boolean successful = isSuccessfulTurnCompletion(result.path("stopReason").asText(null));
+        return successful && (!result.has("queueReleaseSafe") || result.path("queueReleaseSafe").asBoolean(false));
+    }
+
     private void onInterruptAck(SessionCtx ctx, JsonNode node) {
         String outcome = node.path("outcome").asText("alreadyStopped");
         boolean active = node.path("active").asBoolean(false);
@@ -1280,7 +1287,7 @@ public class ClaudeChatService {
             log.warn("[claude-chat] 中断终态兜底收口 session={} engine={} turn={} reason={}",
                     ctx.sessionId, ctx.engine, turnId, reason);
             sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, "forced", false, false));
-            completeTurn(ctx, Map.of(), "interrupted", null);
+            completeTurn(ctx, Map.of(), "interrupted", null, false);
         }
     }
 

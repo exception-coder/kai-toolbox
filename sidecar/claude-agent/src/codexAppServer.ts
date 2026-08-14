@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
 import { classifyCommandResult } from './commandExecution.js'
+import { CodexTurnCompletionGate, codexIncompleteTurnMessage } from './codexTurnCompletion.js'
 import type { RequiredMcpTool } from './codexSecurity.js'
 
 const require = createRequire(import.meta.url)
@@ -400,6 +401,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
   const commandActivities = new Map<string, CommandActivityState>()
   const commandActivityEmittedAt = new Map<string, number>()
   const mcpActivities = new Map<string, McpActivityState>()
+  const completionGate = new CodexTurnCompletionGate()
 
   const cleanup = () => {
     if (finished) return
@@ -525,8 +527,10 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
         case 'item/completed': {
           finishReconnectActivity('completed')
           const item = asRecord(params.item)
+          const phase = method === 'item/completed' ? 'completed' : 'inProgress'
+          completionGate.observeItem(phase, item)
           handleAppServerItem(
-            method === 'item/completed' ? 'completed' : 'inProgress',
+            phase,
             item,
             emitActivity,
             commandActivities,
@@ -633,6 +637,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
           const turn = asRecord(params.turn)
           const status = asString(turn?.status) || 'completed'
           const completedTurnId = asString(turn?.id) || turnId
+          const completionAssessment = completionGate.assess(status)
           if (status === 'failed') {
             const turnError = asRecord(turn?.error)
             options.emit({
@@ -640,13 +645,27 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
               code: 'CODEX_APP_SERVER_TURN_FAILED',
               message: asString(turnError?.message) || 'Codex App Server 轮次执行失败',
             })
+          } else if (!completionAssessment.queueReleaseSafe) {
+            options.emit({
+              type: 'warning',
+              code: 'CODEX_TURN_INCOMPLETE',
+              message: codexIncompleteTurnMessage(completionAssessment),
+            })
           }
           if (completedTurnId) options.emit({ type: 'forkAnchor', anchor: completedTurnId })
           options.emit({
             type: 'turnInfo', requestedModel: options.model ?? null, responseModel: options.model ?? null,
             viaGateway: false, baseUrl: null, transport: 'appServer',
           })
-          options.emit({ type: 'result', usage: normalizeUsage(lastUsage), stopReason: status === 'completed' ? 'end_turn' : status })
+          const stopReason = status !== 'completed'
+            ? status
+            : completionAssessment.queueReleaseSafe ? 'end_turn' : 'incomplete'
+          options.emit({
+            type: 'result',
+            usage: normalizeUsage(lastUsage),
+            stopReason,
+            queueReleaseSafe: completionAssessment.queueReleaseSafe,
+          })
           cleanup()
           resolveCompletion()
           break
