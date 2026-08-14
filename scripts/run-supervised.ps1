@@ -7,12 +7,13 @@
 #        GET  /status    reports backend health, PID, and last start time
 #
 # The frontend restart button calls this endpoint through the Vite /supervisor proxy.
-# Frontend dev server is not managed here, so -Dskip.frontend=true is used.
+# This supervisor owns both backend and frontend; Maven skips its embedded frontend build.
 #
 # Usage:
 #   pwsh -File scripts\run-supervised.ps1                # dev + Aspire（默认）
 #   pwsh -File scripts\run-supervised.ps1 -Mode full     # package + fat jar
 #   pwsh -File scripts\run-supervised.ps1 -HotReload     # dev + 存盘即编译并热重启
+#   pwsh -File scripts\run-supervised.ps1 -AutoUpdate    # 安全跟随 origin/main，更新后全栈自重载
 #   pwsh -File scripts\run-supervised.ps1 -Observability langfuse
 #   pwsh -File scripts\run-supervised.ps1 -Observability off
 # Ctrl+C stops the supervisor loop.
@@ -26,7 +27,15 @@ param(
     # 走 POST /restart。热重启会换掉 Spring 上下文却留下旧上下文的后台线程/长连接
     # （claude-chat sidecar 就踩过：僵尸 bean 继续抢 sidecar，事件投递到没人看的一端），
     # 编译中途的半成品 class 也会触发无意义的重启。要用就显式开。
-    [switch]$HotReload
+    [switch]$HotReload,
+    # 定时 fetch 云端代码；只允许干净工作树做 fast-forward，活动 Agent 会让更新延期。
+    [switch]$AutoUpdate,
+    # 近 24h 提交批次中位约 21min；120s 检查兼顾发现延迟与全天网络开销。
+    [ValidateRange(30, 3600)]
+    [int]$AutoUpdateIntervalSeconds = 120,
+    # Internal worker flag. The stable bootstrap process owns the terminal and reloads this file after update.
+    [Parameter(DontShow)]
+    [switch]$SupervisorWorker
 )
 
 $ErrorActionPreference = 'Continue'
@@ -45,6 +54,39 @@ function Initialize-Utf8Console {
 
 Initialize-Utf8Console
 
+$AutoUpdateRelaunchExitCode = 75
+
+# Keep one stable process attached to the caller's terminal. The worker owns services and exits with a
+# dedicated code after fast-forward; the bootstrap then loads the updated script without returning an
+# interactive prompt or accumulating dormant parent generations.
+if (-not $SupervisorWorker) {
+    $workerArgs = @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $PSCommandPath + '"'),
+        '-SupervisorWorker', '-Mode', $Mode, '-Observability', $Observability
+    )
+    if ($HotReload) { $workerArgs += '-HotReload' }
+    if ($AutoUpdate) { $workerArgs += '-AutoUpdate' }
+    if ($PSBoundParameters.ContainsKey('AutoUpdateIntervalSeconds')) {
+        $workerArgs += @('-AutoUpdateIntervalSeconds', "$AutoUpdateIntervalSeconds")
+    }
+    try {
+        while ($true) {
+            $worker = Start-Process -FilePath ([System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName) `
+                -ArgumentList $workerArgs -WorkingDirectory (Split-Path -Parent $PSScriptRoot) `
+                -NoNewWindow -PassThru
+            $worker.WaitForExit()
+            if ($worker.ExitCode -eq $AutoUpdateRelaunchExitCode) {
+                Write-Host '[supervisor-bootstrap] 云端更新已落地，加载最新 supervisor...'
+                continue
+            }
+            exit $worker.ExitCode
+        }
+    } catch {
+        Write-Host "[supervisor-bootstrap] worker 启动失败：$($_.Exception.Message)"
+        exit 1
+    }
+}
+
 # 从同目录 run-tools.conf（KEY=value，不提交到仓库）读取本机机密/配置，注入为进程环境变量。
 # 已存在的同名环境变量优先，不被覆盖；可对照 run-tools.conf.example 创建本机文件。
 $ToolsConfFile = Join-Path $PSScriptRoot 'run-tools.conf'
@@ -58,6 +100,76 @@ if (Test-Path -LiteralPath $ToolsConfFile) {
         $v = $t.Substring($i + 1).Trim()
         if (-not [Environment]::GetEnvironmentVariable($k, 'Process')) { Set-Item -Path "env:$k" -Value $v }
     }
+}
+
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+Set-Location -LiteralPath $RepoRoot
+
+function ConvertTo-ConfigBoolean([string]$value, [bool]$defaultValue) {
+    if ([string]::IsNullOrWhiteSpace($value)) { return $defaultValue }
+    switch ($value.Trim().ToLowerInvariant()) {
+        { $_ -in @('1', 'true', 'yes', 'on') } { return $true }
+        { $_ -in @('0', 'false', 'no', 'off') } { return $false }
+        default { return $defaultValue }
+    }
+}
+
+function Read-BoundedInteger([string]$value, [int]$defaultValue, [int]$minimum, [int]$maximum) {
+    $parsed = 0
+    if (-not [int]::TryParse($value, [ref]$parsed)) { return $defaultValue }
+    return [Math]::Max($minimum, [Math]::Min($maximum, $parsed))
+}
+
+$script:AutoUpdateEnabled = $AutoUpdate.IsPresent -or
+    (ConvertTo-ConfigBoolean $env:TOOLBOX_AUTO_UPDATE_ENABLED $false)
+if (-not $PSBoundParameters.ContainsKey('AutoUpdateIntervalSeconds')) {
+    $AutoUpdateIntervalSeconds = Read-BoundedInteger $env:TOOLBOX_AUTO_UPDATE_INTERVAL_SECONDS 120 30 3600
+}
+$script:AutoUpdateRemote = if ($env:TOOLBOX_AUTO_UPDATE_REMOTE) { $env:TOOLBOX_AUTO_UPDATE_REMOTE.Trim() } else { 'origin' }
+$script:AutoUpdateBranch = if ($env:TOOLBOX_AUTO_UPDATE_BRANCH) { $env:TOOLBOX_AUTO_UPDATE_BRANCH.Trim() } else { 'main' }
+$script:AutoUpdateStableSeconds = Read-BoundedInteger $env:TOOLBOX_AUTO_UPDATE_STABLE_SECONDS 120 30 1800
+$script:AutoUpdateRequireIdle = ConvertTo-ConfigBoolean $env:TOOLBOX_AUTO_UPDATE_REQUIRE_IDLE $true
+
+# A named mutex is the real single-instance guard. Port 18081 alone is insufficient: historically a
+# second supervisor continued after bind failure and then repeatedly stole 18080/5173 from the first.
+$normalizedRepo = [System.IO.Path]::GetFullPath($RepoRoot).TrimEnd('\').ToLowerInvariant()
+$sha256 = [System.Security.Cryptography.SHA256]::Create()
+try {
+    $repoHashBytes = $sha256.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($normalizedRepo))
+} finally {
+    $sha256.Dispose()
+}
+$repoHash = ([System.BitConverter]::ToString($repoHashBytes)).Replace('-', '').Substring(0, 16)
+$mutexName = "Global\KaiToolboxSupervisor-$repoHash"
+try {
+    $script:supervisorMutex = [System.Threading.Mutex]::new($false, $mutexName)
+} catch [System.UnauthorizedAccessException] {
+    # Some locked-down Windows environments deny Global kernel objects. Retain a session-local guard
+    # rather than disabling supervision; the PID/control-port checks below remain the second line.
+    $mutexName = "Local\KaiToolboxSupervisor-$repoHash"
+    Write-Host '[supervisor] WARN: 无权创建全局单实例锁，回退到当前登录会话锁'
+    $script:supervisorMutex = [System.Threading.Mutex]::new($false, $mutexName)
+}
+try {
+    $script:supervisorMutexAcquired = $script:supervisorMutex.WaitOne(0)
+} catch [System.Threading.AbandonedMutexException] {
+    $script:supervisorMutexAcquired = $true
+}
+if (-not $script:supervisorMutexAcquired) {
+    Write-Host "[supervisor] 此仓库已有 supervisor 在运行，跳过重复实例：$RepoRoot"
+    $script:supervisorMutex.Dispose()
+    return
+}
+$supervisorStateRoot = Join-Path (
+    if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { [System.IO.Path]::GetTempPath() }
+) 'kai-toolbox'
+$script:supervisorPidFile = Join-Path $supervisorStateRoot "supervisor-$repoHash.pid"
+try {
+    [System.IO.Directory]::CreateDirectory($supervisorStateRoot) | Out-Null
+    [System.IO.File]::WriteAllText(
+        $script:supervisorPidFile, "$PID`r`n", [System.Text.UTF8Encoding]::new($false))
+} catch {
+    Write-Host "[supervisor] WARN: 无法写入 PID 文件：$($_.Exception.Message)"
 }
 
 function Read-DotEnvValue([string]$path, [string]$key) {
@@ -262,6 +374,7 @@ if ($npmDir -and (";$env:PATH;" -notlike "*;$npmDir;*")) { $env:PATH = "$npmDir;
 # /restart 控制端点的令牌，取自 run-tools.conf 的 TOOLBOX_SUPERVISOR_RESTART_TOKEN。
 # 公开仓库禁止硬编码；未配置时令牌为空，/restart 一律拒绝。
 $RestartToken = $env:TOOLBOX_SUPERVISOR_RESTART_TOKEN
+$SystemRestartToken = $env:TOOLBOX_SYSTEM_RESTART_TOKEN
 
 $HttpPrefix = 'http://127.0.0.1:18081/'
 
@@ -272,9 +385,6 @@ $BackendPort = 18080
 # 后端懒启动 node dist/server.js 绑此端口；重启时必须一并清掉，否则旧 sidecar 变孤儿占端口、
 # 新 sidecar 命中 EADDRINUSE 退出，后端连回旧代码，导致 sidecar 侧改动重启后不生效。
 $SidecarPort = 18890
-
-$RepoRoot = Split-Path -Parent $PSScriptRoot
-Set-Location $RepoRoot
 
 # Marks backend children as supervisor-owned so SupervisorBootstrap avoids loops.
 $env:KAI_SUPERVISED = '1'
@@ -287,6 +397,40 @@ $script:hotReloadRegistrations = @()
 $script:hotCompile = $null
 $script:hotReloadDue = $null
 $script:hotReloadFullRestart = $false
+$script:autoUpdateState = if ($script:AutoUpdateEnabled) { 'waiting' } else { 'disabled' }
+$script:autoUpdateLastCheck = $null
+$script:autoUpdateNextCheck = (Get-Date).AddSeconds($AutoUpdateIntervalSeconds)
+$script:autoUpdateCandidateSha = $null
+$script:autoUpdateCandidateSince = $null
+$script:autoUpdateLocalHead = $null
+$script:autoUpdateRemoteHead = $null
+$script:autoUpdateLastError = $null
+$script:autoUpdateFetchFailures = 0
+$script:autoUpdateLastLogKey = $null
+$script:autoUpdateRelaunchRequested = $false
+$script:autoUpdateLogFile = Join-Path (
+    if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { [System.IO.Path]::GetTempPath() }
+) 'kai-toolbox\logs\auto-update.log'
+$script:GitCmd = if ($script:AutoUpdateEnabled) {
+    $gitCommand = Get-Command git -ErrorAction SilentlyContinue
+    if ($gitCommand) { $gitCommand.Source } else { $null }
+} else { $null }
+
+if ($script:AutoUpdateEnabled -and (-not $script:GitCmd)) {
+    $script:AutoUpdateEnabled = $false
+    $script:autoUpdateState = 'disabled'
+    $script:autoUpdateLastError = 'git executable not found'
+    Write-Host '[auto-update] git 未找到，自动更新已关闭'
+}
+if ($script:AutoUpdateEnabled -and (
+        $script:AutoUpdateRemote -notmatch '^[A-Za-z0-9][A-Za-z0-9._/-]*$' -or
+        $script:AutoUpdateBranch -notmatch '^[A-Za-z0-9][A-Za-z0-9._/-]*$' -or
+        $script:AutoUpdateRemote.Contains('..') -or $script:AutoUpdateBranch.Contains('..'))) {
+    $script:AutoUpdateEnabled = $false
+    $script:autoUpdateState = 'disabled'
+    $script:autoUpdateLastError = 'invalid remote or branch configuration'
+    Write-Host '[auto-update] remote/branch 配置不合法，自动更新已关闭'
+}
 
 $HotReloadEventPrefix = 'kai-toolbox-hot-reload'
 $HotReloadDebounceMs = 800
@@ -402,6 +546,20 @@ function Start-Backend {
 
 function Stop-Backend {
     if ($script:backend -and -not $script:backend.HasExited) {
+        # Prefer Spring's shutdown hook so in-flight transports and sidecars can close cleanly.
+        # The Maven wrapper may still outlive the JVM, so a bounded force-kill remains the fallback.
+        if (-not [string]::IsNullOrWhiteSpace($SystemRestartToken)) {
+            try {
+                Invoke-WebRequest -UseBasicParsing -Method Post `
+                    -Uri "http://127.0.0.1:$BackendPort/api/system/restart" `
+                    -Headers @{ 'X-Restart-Token' = $SystemRestartToken } `
+                    -TimeoutSec 3 | Out-Null
+                if ($script:backend.WaitForExit(10000)) { return }
+                Write-Host '[supervisor] 后端优雅退出超时，回退到进程树清理'
+            } catch {
+                # Backend may still be compiling or already unavailable; force cleanup below.
+            }
+        }
         # mvn spawns java children, so the whole process tree must be stopped.
         & taskkill /PID $script:backend.Id /T /F 2>&1 | Out-Null
     }
@@ -553,10 +711,15 @@ function Ensure-ClaudeAgentBuild {
     $distServer = Join-Path $sidecar 'dist\server.js'
     $nodeModules = Join-Path $sidecar 'node_modules'
     $pkgJson = Join-Path $sidecar 'package.json'
-    # 依赖：node_modules 缺失、或 package.json 比 node_modules 新（改了依赖）就重装。
-    $nmTime = if (Test-Path -LiteralPath $nodeModules) { (Get-Item -LiteralPath $nodeModules).LastWriteTimeUtc } else { [datetime]::MinValue }
-    $pkgTime = if (Test-Path -LiteralPath $pkgJson) { (Get-Item -LiteralPath $pkgJson).LastWriteTimeUtc } else { [datetime]::MinValue }
-    $needInstall = (-not (Test-Path -LiteralPath $nodeModules)) -or ($pkgTime -gt $nmTime)
+    $pkgLock = Join-Path $sidecar 'package-lock.json'
+    $installedLock = Join-Path $nodeModules '.package-lock.json'
+    # 依赖：package.json 与 lockfile 都要参与；node_modules 目录本身的 mtime 不能证明 lock 已落地。
+    $installedTime = if (Test-Path -LiteralPath $installedLock) {
+        (Get-Item -LiteralPath $installedLock).LastWriteTimeUtc
+    } else { [datetime]::MinValue }
+    $dependencyTime = Get-LatestWriteTime @($pkgJson, $pkgLock)
+    $needInstall = (-not (Test-Path -LiteralPath $nodeModules)) -or
+        (-not (Test-Path -LiteralPath $installedLock)) -or ($dependencyTime -gt $installedTime)
     # 构建：dist/server.js 缺失、或 src/tsconfig/package.json 比 dist 新就重建。
     $srcNewest = Get-LatestWriteTime @((Join-Path $sidecar 'src'), $pkgJson, (Join-Path $sidecar 'tsconfig.json'))
     $distTime = if (Test-Path -LiteralPath $distServer) { (Get-Item -LiteralPath $distServer).LastWriteTimeUtc } else { [datetime]::MinValue }
@@ -566,9 +729,16 @@ function Ensure-ClaudeAgentBuild {
         Write-Host "[supervisor] init claude-agent sidecar ($reason)..."
         Push-Location $sidecar
         try {
-            if ($needInstall) { & npm install --no-audit --no-fund }
+            if ($needInstall) {
+                if (Test-Path -LiteralPath $pkgLock) { & $NpmCmd ci --no-audit --no-fund }
+                else { & $NpmCmd install --no-audit --no-fund }
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host '[supervisor] WARN: claude-agent 依赖安装失败；保留现有服务重试'
+                    return
+                }
+            }
             if ($needBuild -or $needInstall) {
-                & npm run build
+                & $NpmCmd run build
                 if ($LASTEXITCODE -ne 0) { Write-Host '[supervisor] WARN: claude-agent build 失败；claude-chat 可能起不来' }
             }
         } catch { Write-Host "[supervisor] WARN: claude-agent init 出错: $($_.Exception.Message)" } finally { Pop-Location }
@@ -581,19 +751,30 @@ function Initialize-NodeDeps {
     if (-not $NpmCmd) { Write-Host '[supervisor] 跳过 sidecar 初始化（npm 未找到）'; return }
     Ensure-ClaudeAgentBuild
     # undetected-browser（browser-request 的 undetected-node 引擎）：需 node_modules(patchright) + chromium。
-    # 只在首启做：与后端重启无关，且首次要下 ~150MB chromium，不该拖慢每一次重启。
     $undetected = Join-Path $RepoRoot 'node-services\undetected-browser'
-    if (-not (Test-Path (Join-Path $undetected 'node_modules'))) {
-        Write-Host '[supervisor] init undetected-browser (npm install + install-browser, 首次下 ~150MB chromium)...'
+    $undetectedNodeModules = Join-Path $undetected 'node_modules'
+    $undetectedLock = Join-Path $undetected 'package-lock.json'
+    $undetectedInstalledLock = Join-Path $undetectedNodeModules '.package-lock.json'
+    $undetectedInstalledTime = if (Test-Path -LiteralPath $undetectedInstalledLock) {
+        (Get-Item -LiteralPath $undetectedInstalledLock).LastWriteTimeUtc
+    } else { [datetime]::MinValue }
+    $undetectedDependencyTime = Get-LatestWriteTime @(
+        (Join-Path $undetected 'package.json'), $undetectedLock)
+    $undetectedNeedsInstall = (-not (Test-Path -LiteralPath $undetectedNodeModules)) -or
+        (-not (Test-Path -LiteralPath $undetectedInstalledLock)) -or
+        ($undetectedDependencyTime -gt $undetectedInstalledTime)
+    if ($undetectedNeedsInstall) {
+        Write-Host '[supervisor] init/update undetected-browser dependencies + chromium...'
         Push-Location $undetected
         try {
-            & npm install --no-audit --no-fund
+            if (Test-Path -LiteralPath $undetectedLock) { & $NpmCmd ci --no-audit --no-fund }
+            else { & $NpmCmd install --no-audit --no-fund }
             if ($LASTEXITCODE -eq 0) {
-                & npm run install-browser
+                & $NpmCmd run install-browser
                 if ($LASTEXITCODE -ne 0) { Write-Host '[supervisor] WARN: chromium 安装失败；undetected-node 引擎不可用' }
             } else { Write-Host '[supervisor] WARN: undetected-browser npm install 失败' }
         } catch { Write-Host "[supervisor] WARN: undetected-browser init 出错: $($_.Exception.Message)" } finally { Pop-Location }
-    } else { Write-Host '[supervisor] undetected-browser 依赖已就绪，跳过' }
+    } else { Write-Host '[supervisor] undetected-browser 依赖与 lockfile 一致，跳过' }
 }
 
 # 微信监控 sidecar（python-services\wechat，wxauto）。完全隔离、尽力而为：
@@ -754,10 +935,12 @@ function Start-Frontend {
         ($dependencyTime -gt $installedTime)
 
     if ($needInstall) {
-        Write-Host '[supervisor] frontend 依赖缺失或已变更，执行 npm install...'
+        Write-Host '[supervisor] frontend 依赖缺失或 lockfile 已变更，按 lockfile 同步依赖...'
         Push-Location $frontendDir
         try {
-            & $NpmCmd install --no-audit --no-fund
+            $frontendLock = Join-Path $frontendDir 'package-lock.json'
+            if (Test-Path -LiteralPath $frontendLock) { & $NpmCmd ci --no-audit --no-fund }
+            else { & $NpmCmd install --no-audit --no-fund }
             if ($LASTEXITCODE -ne 0) {
                 Write-Host '[supervisor] ERROR: frontend npm install 失败，跳过前端启动'
                 return
@@ -787,6 +970,376 @@ function Stop-Frontend {
     }
 }
 
+function Protect-AutoUpdateLogText([string]$value) {
+    if ([string]::IsNullOrWhiteSpace($value)) { return '' }
+    $singleLine = ($value -replace '[\r\n]+', ' ').Trim()
+    # Never persist credentials when a Git implementation happens to echo a credentialed URL.
+    $singleLine = $singleLine -replace '(?i)(https?://)[^/@\s]+@', '$1***@'
+    if ($singleLine.Length -gt 600) { return $singleLine.Substring(0, 600) + '…' }
+    return $singleLine
+}
+
+function Write-AutoUpdateLog([string]$message) {
+    $safeMessage = Protect-AutoUpdateLogText $message
+    $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss.fff') $safeMessage"
+    Write-Host "[auto-update] $safeMessage"
+    try {
+        $logDir = Split-Path -Parent $script:autoUpdateLogFile
+        [System.IO.Directory]::CreateDirectory($logDir) | Out-Null
+        [System.IO.File]::AppendAllText(
+            $script:autoUpdateLogFile,
+            $line + [Environment]::NewLine,
+            [System.Text.UTF8Encoding]::new($false))
+    } catch {
+        # Persistent logging is best-effort; console supervision must keep running.
+    }
+}
+
+function Set-AutoUpdateState([string]$state, [string]$message, [string]$errorText = '') {
+    $script:autoUpdateState = $state
+    $script:autoUpdateLastError = if ($errorText) { Protect-AutoUpdateLogText $errorText } else { $null }
+    $logKey = "$state|$message|$($script:autoUpdateLastError)"
+    if ($script:autoUpdateLastLogKey -ne $logKey) {
+        $script:autoUpdateLastLogKey = $logKey
+        $logMessage = if ($script:autoUpdateLastError) {
+            "$message | error=$($script:autoUpdateLastError)"
+        } else { $message }
+        Write-AutoUpdateLog $logMessage
+    }
+}
+
+function New-CapturedProcess([string]$filePath, [string[]]$arguments, [int]$timeoutSeconds) {
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $filePath
+    $startInfo.WorkingDirectory = $RepoRoot
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.Environment['GIT_TERMINAL_PROMPT'] = '0'
+    $startInfo.Environment['GCM_INTERACTIVE'] = 'Never'
+    foreach ($argument in $arguments) { $startInfo.ArgumentList.Add($argument) }
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    if (-not $process.Start()) { throw "无法启动进程：$filePath" }
+    return [pscustomobject]@{
+        Process = $process
+        StdoutTask = $process.StandardOutput.ReadToEndAsync()
+        StderrTask = $process.StandardError.ReadToEndAsync()
+        StartedAt = Get-Date
+        TimeoutSeconds = $timeoutSeconds
+    }
+}
+
+function Complete-CapturedProcess($capture, [bool]$allowRunning = $false) {
+    $process = $capture.Process
+    if (-not $process.HasExited) {
+        $elapsed = ((Get-Date) - $capture.StartedAt).TotalSeconds
+        if ($allowRunning -and $elapsed -lt $capture.TimeoutSeconds) { return $null }
+        if (-not $process.WaitForExit([Math]::Max(0, [int](($capture.TimeoutSeconds - $elapsed) * 1000)))) {
+            try { $process.Kill($true) } catch { }
+            try { $process.WaitForExit(2000) | Out-Null } catch { }
+            if (-not $process.HasExited) {
+                $process.Dispose()
+                return [pscustomobject]@{ ExitCode = -1; Output = ''; Error = 'process did not exit after timeout'; TimedOut = $true }
+            }
+            $stdout = try { $capture.StdoutTask.GetAwaiter().GetResult() } catch { '' }
+            $stderr = try { $capture.StderrTask.GetAwaiter().GetResult() } catch { '' }
+            $process.Dispose()
+            return [pscustomobject]@{ ExitCode = -1; Output = $stdout; Error = $stderr; TimedOut = $true }
+        }
+    }
+    $stdout = try { $capture.StdoutTask.GetAwaiter().GetResult() } catch { '' }
+    $stderr = try { $capture.StderrTask.GetAwaiter().GetResult() } catch { '' }
+    $exitCode = $process.ExitCode
+    $process.Dispose()
+    return [pscustomobject]@{ ExitCode = $exitCode; Output = $stdout; Error = $stderr; TimedOut = $false }
+}
+
+function Invoke-GitCapture([string[]]$arguments, [int]$timeoutSeconds = 10) {
+    try {
+        $capture = New-CapturedProcess $script:GitCmd $arguments $timeoutSeconds
+        return Complete-CapturedProcess $capture
+    } catch {
+        return [pscustomobject]@{ ExitCode = -1; Output = ''; Error = $_.Exception.Message; TimedOut = $false }
+    }
+}
+
+function Get-GitOperationMarker {
+    foreach ($marker in @('index.lock', 'MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'BISECT_LOG', 'sequencer', 'rebase-apply', 'rebase-merge')) {
+        $pathResult = Invoke-GitCapture @('rev-parse', '--git-path', $marker)
+        if ($pathResult.ExitCode -ne 0) { continue }
+        $path = $pathResult.Output.Trim()
+        if ($path -and -not [System.IO.Path]::IsPathRooted($path)) { $path = Join-Path $RepoRoot $path }
+        if ($path -and (Test-Path -LiteralPath $path)) { return $marker }
+    }
+    return $null
+}
+
+function Get-AutoUpdateGitState {
+    $branchResult = Invoke-GitCapture @('symbolic-ref', '--quiet', '--short', 'HEAD')
+    if ($branchResult.ExitCode -ne 0) {
+        return [pscustomobject]@{ Safe = $false; State = 'blocked-detached'; Message = 'HEAD 处于 detached 状态，等待人工处理' }
+    }
+    $branch = $branchResult.Output.Trim()
+    if ($branch -ne $script:AutoUpdateBranch) {
+        return [pscustomobject]@{ Safe = $false; State = 'blocked-branch'; Message = "当前分支 $branch，不是配置分支 $($script:AutoUpdateBranch)" }
+    }
+
+    $upstreamResult = Invoke-GitCapture @('rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}')
+    $expectedUpstream = "$($script:AutoUpdateRemote)/$($script:AutoUpdateBranch)"
+    if ($upstreamResult.ExitCode -ne 0 -or $upstreamResult.Output.Trim() -ne $expectedUpstream) {
+        $actual = if ($upstreamResult.ExitCode -eq 0) { $upstreamResult.Output.Trim() } else { '未配置' }
+        return [pscustomobject]@{ Safe = $false; State = 'blocked-upstream'; Message = "跟踪分支为 $actual，期望 $expectedUpstream" }
+    }
+
+    $marker = Get-GitOperationMarker
+    if ($marker) {
+        return [pscustomobject]@{ Safe = $false; State = 'blocked-git-operation'; Message = "Git 操作尚未结束（$marker），等待人工处理" }
+    }
+    $statusResult = Invoke-GitCapture @('status', '--porcelain=v2', '--untracked-files=all')
+    if ($statusResult.ExitCode -ne 0) {
+        return [pscustomobject]@{ Safe = $false; State = 'git-error'; Message = '读取工作树状态失败'; Error = $statusResult.Error }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($statusResult.Output)) {
+        return [pscustomobject]@{ Safe = $false; State = 'blocked-dirty'; Message = '工作树有未提交或未跟踪文件，更新已延期（不会 stash/reset/clean）' }
+    }
+
+    $remoteRef = "refs/remotes/$($script:AutoUpdateRemote)/$($script:AutoUpdateBranch)"
+    $localResult = Invoke-GitCapture @('rev-parse', 'HEAD')
+    $remoteResult = Invoke-GitCapture @('rev-parse', $remoteRef)
+    if ($localResult.ExitCode -ne 0 -or $remoteResult.ExitCode -ne 0) {
+        return [pscustomobject]@{ Safe = $false; State = 'git-error'; Message = '无法解析本地或远端 HEAD'; Error = "$($localResult.Error) $($remoteResult.Error)" }
+    }
+    $countsResult = Invoke-GitCapture @('rev-list', '--left-right', '--count', "HEAD...$remoteRef")
+    $counts = $countsResult.Output.Trim() -split '\s+'
+    if ($countsResult.ExitCode -ne 0 -or $counts.Count -lt 2) {
+        return [pscustomobject]@{ Safe = $false; State = 'git-error'; Message = '无法比较本地与远端提交'; Error = $countsResult.Error }
+    }
+    $ahead = 0
+    $behind = 0
+    if (-not [int]::TryParse($counts[0], [ref]$ahead) -or -not [int]::TryParse($counts[1], [ref]$behind)) {
+        return [pscustomobject]@{ Safe = $false; State = 'git-error'; Message = 'Git 提交计数格式异常'; Error = $countsResult.Output }
+    }
+    return [pscustomobject]@{
+        Safe = $true
+        State = 'ready'
+        Branch = $branch
+        Upstream = $expectedUpstream
+        RemoteRef = $remoteRef
+        LocalHead = $localResult.Output.Trim()
+        RemoteHead = $remoteResult.Output.Trim()
+        Ahead = $ahead
+        Behind = $behind
+    }
+}
+
+function Test-AutoUpdateRuntimeIdle {
+    if (-not $script:AutoUpdateRequireIdle) {
+        return [pscustomobject]@{ Safe = $true; Message = 'idle guard disabled by configuration' }
+    }
+    if (-not $script:backend -or $script:backend.HasExited) {
+        return [pscustomobject]@{ Safe = $true; Message = 'backend is not running' }
+    }
+    try {
+        $activity = Invoke-RestMethod -Method Get `
+            -Uri "http://127.0.0.1:$BackendPort/api/claude-chat/sessions/activity" `
+            -TimeoutSec 4
+        if ($activity.safeToRestart -eq $true) {
+            return [pscustomobject]@{ Safe = $true; Message = 'runtime is idle' }
+        }
+        $summary = "running=$($activity.runningTurnCount), uncertain=$($activity.uncertainSessionCount), pending=$($activity.pendingRequestCount), background=$($activity.backgroundTaskCount), oneShot=$($activity.oneShotCount)"
+        return [pscustomobject]@{ Safe = $false; Message = "仍有 Agent 作业（$summary）" }
+    } catch {
+        return [pscustomobject]@{ Safe = $false; Message = '无法确认运行时已空闲，更新已延期'; Error = $_.Exception.Message }
+    }
+}
+
+function Test-AutoUpdateCandidateSupervisor([string]$remoteRef) {
+    $scriptResult = Invoke-GitCapture @('show', "${remoteRef}:scripts/run-supervised.ps1") 10
+    if ($scriptResult.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($scriptResult.Output)) {
+        return [pscustomobject]@{ Safe = $false; Message = '候选版本缺少可执行的 supervisor 脚本'; Error = $scriptResult.Error }
+    }
+    $tokens = $null
+    $parseErrors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseInput(
+        $scriptResult.Output, [ref]$tokens, [ref]$parseErrors)
+    if ($parseErrors.Count -gt 0) {
+        $detail = ($parseErrors | Select-Object -First 3 | ForEach-Object { $_.Message }) -join '; '
+        return [pscustomobject]@{ Safe = $false; Message = '候选 supervisor 存在 PowerShell 语法错误'; Error = $detail }
+    }
+    $parameterNames = @($ast.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
+    $requiredParameters = @('SupervisorWorker', 'Mode', 'Observability', 'HotReload',
+        'AutoUpdate', 'AutoUpdateIntervalSeconds')
+    $missingParameters = @($requiredParameters | Where-Object { $_ -notin $parameterNames })
+    if ($missingParameters.Count -gt 0) {
+        return [pscustomobject]@{ Safe = $false; Message = '候选 supervisor 不再接受自动更新自重载参数'; Error = "missing=$($missingParameters -join ',')" }
+    }
+    return [pscustomobject]@{ Safe = $true; Message = 'candidate supervisor is valid' }
+}
+
+function Set-NextAutoUpdateCheck([int]$seconds) {
+    $script:autoUpdateNextCheck = (Get-Date).AddSeconds([Math]::Max(1, $seconds))
+}
+
+function Register-AutoUpdateFetchFailure($result) {
+    $script:autoUpdateFetchFailures++
+    $backoff = [Math]::Min(900, $AutoUpdateIntervalSeconds * [Math]::Pow(2, [Math]::Min(3, $script:autoUpdateFetchFailures)))
+    $jitter = Get-Random -Minimum 0 -Maximum ([Math]::Max(2, [int]($backoff * 0.2)))
+    Set-NextAutoUpdateCheck ([int]$backoff + $jitter)
+    $detail = if ($result.TimedOut) { 'fetch timeout' } elseif ($result.Error) { $result.Error } else { "exit=$($result.ExitCode)" }
+    Set-AutoUpdateState 'fetch-error' "fetch 失败，$([int]$backoff)s 后重试" $detail
+}
+
+function Complete-AutoUpdateFetch($fetchResult) {
+    $script:autoUpdateLastCheck = Get-Date
+    if ($fetchResult.ExitCode -ne 0) {
+        Register-AutoUpdateFetchFailure $fetchResult
+        return $false
+    }
+    $script:autoUpdateFetchFailures = 0
+
+    $gitState = Get-AutoUpdateGitState
+    if (-not $gitState.Safe) {
+        Set-NextAutoUpdateCheck $AutoUpdateIntervalSeconds
+        Set-AutoUpdateState $gitState.State $gitState.Message $gitState.Error
+        return $false
+    }
+    $script:autoUpdateLocalHead = $gitState.LocalHead
+    $script:autoUpdateRemoteHead = $gitState.RemoteHead
+
+    if ($gitState.Ahead -gt 0 -and $gitState.Behind -gt 0) {
+        $script:autoUpdateCandidateSha = $null
+        Set-NextAutoUpdateCheck $AutoUpdateIntervalSeconds
+        Set-AutoUpdateState 'blocked-diverged' "本地与 $($gitState.Upstream) 已分叉（ahead=$($gitState.Ahead), behind=$($gitState.Behind)），等待人工处理"
+        return $false
+    }
+    if ($gitState.Ahead -gt 0) {
+        $script:autoUpdateCandidateSha = $null
+        Set-NextAutoUpdateCheck $AutoUpdateIntervalSeconds
+        Set-AutoUpdateState 'blocked-ahead' "本地领先 $($gitState.Upstream) $($gitState.Ahead) 个提交，不自动覆盖"
+        return $false
+    }
+    if ($gitState.Behind -eq 0) {
+        $script:autoUpdateCandidateSha = $null
+        $script:autoUpdateCandidateSince = $null
+        Set-NextAutoUpdateCheck $AutoUpdateIntervalSeconds
+        Set-AutoUpdateState 'up-to-date' "已是最新：$($gitState.LocalHead.Substring(0, 8))"
+        return $false
+    }
+
+    $now = Get-Date
+    if ($script:autoUpdateCandidateSha -ne $gitState.RemoteHead) {
+        $script:autoUpdateCandidateSha = $gitState.RemoteHead
+        $script:autoUpdateCandidateSince = $now
+        Set-NextAutoUpdateCheck ([Math]::Min(60, $AutoUpdateIntervalSeconds))
+        Set-AutoUpdateState 'stabilizing' "发现 $($gitState.Behind) 个新提交，等待远端 SHA 稳定 $($script:AutoUpdateStableSeconds)s：$($gitState.RemoteHead.Substring(0, 8))"
+        return $false
+    }
+    $stableFor = ($now - $script:autoUpdateCandidateSince).TotalSeconds
+    if ($stableFor -lt $script:AutoUpdateStableSeconds) {
+        Set-NextAutoUpdateCheck ([Math]::Min(60, $AutoUpdateIntervalSeconds))
+        Set-AutoUpdateState 'stabilizing' "候选 $($gitState.RemoteHead.Substring(0, 8)) 已稳定 $([int]$stableFor)s/$($script:AutoUpdateStableSeconds)s"
+        return $false
+    }
+
+    $candidateSupervisor = Test-AutoUpdateCandidateSupervisor $gitState.RemoteRef
+    if (-not $candidateSupervisor.Safe) {
+        Set-NextAutoUpdateCheck $AutoUpdateIntervalSeconds
+        Set-AutoUpdateState 'candidate-invalid' $candidateSupervisor.Message $candidateSupervisor.Error
+        return $false
+    }
+
+    $runtime = Test-AutoUpdateRuntimeIdle
+    if (-not $runtime.Safe) {
+        Set-NextAutoUpdateCheck ([Math]::Min(60, $AutoUpdateIntervalSeconds))
+        Set-AutoUpdateState 'waiting-for-idle' $runtime.Message $runtime.Error
+        return $false
+    }
+
+    # Re-read every safety gate immediately before promotion to close the fetch/check TOCTOU window.
+    $finalState = Get-AutoUpdateGitState
+    if (-not $finalState.Safe -or $finalState.LocalHead -ne $gitState.LocalHead -or
+        $finalState.RemoteHead -ne $script:autoUpdateCandidateSha -or $finalState.Ahead -ne 0 -or $finalState.Behind -le 0) {
+        Set-NextAutoUpdateCheck ([Math]::Min(60, $AutoUpdateIntervalSeconds))
+        Set-AutoUpdateState 'state-changed' '应用前仓库状态发生变化，重新检查'
+        return $false
+    }
+
+    # Stop Vite before changing the working tree, avoiding a transient new-frontend/old-backend mix.
+    Stop-Frontend
+    $finalRuntime = Test-AutoUpdateRuntimeIdle
+    if (-not $finalRuntime.Safe) {
+        Start-Frontend
+        Set-NextAutoUpdateCheck ([Math]::Min(60, $AutoUpdateIntervalSeconds))
+        Set-AutoUpdateState 'waiting-for-idle' "应用前检测到新作业：$($finalRuntime.Message)" $finalRuntime.Error
+        return $false
+    }
+    $mergeResult = Invoke-GitCapture @('merge', '--ff-only', $finalState.RemoteRef) 60
+    if ($mergeResult.ExitCode -ne 0) {
+        Start-Frontend
+        Set-NextAutoUpdateCheck $AutoUpdateIntervalSeconds
+        Set-AutoUpdateState 'merge-error' 'fast-forward 失败；旧服务继续运行' $mergeResult.Error
+        return $false
+    }
+
+    $newHeadResult = Invoke-GitCapture @('rev-parse', 'HEAD')
+    $newHead = if ($newHeadResult.ExitCode -eq 0) { $newHeadResult.Output.Trim() } else { $script:autoUpdateCandidateSha }
+    $script:autoUpdateLocalHead = $newHead
+    $script:autoUpdateRelaunchRequested = $true
+    Set-AutoUpdateState 'restarting' "已 fast-forward $($gitState.LocalHead.Substring(0, 8)) -> $($newHead.Substring(0, 8))，开始全栈自重载"
+    return $true
+}
+
+function Update-AutoUpdate {
+    if (-not $script:AutoUpdateEnabled) { return $false }
+
+    if ($script:autoUpdateFetch) {
+        $fetchResult = Complete-CapturedProcess $script:autoUpdateFetch $true
+        if ($null -eq $fetchResult) { return $false }
+        $script:autoUpdateFetch = $null
+        return Complete-AutoUpdateFetch $fetchResult
+    }
+    if ((Get-Date) -lt $script:autoUpdateNextCheck) { return $false }
+
+    $refspec = "+refs/heads/$($script:AutoUpdateBranch):refs/remotes/$($script:AutoUpdateRemote)/$($script:AutoUpdateBranch)"
+    try {
+        $script:autoUpdateFetch = New-CapturedProcess $script:GitCmd @(
+            'fetch', '--quiet', '--no-tags', '--prune', $script:AutoUpdateRemote, $refspec
+        ) 45
+        $script:autoUpdateState = 'fetching'
+    } catch {
+        Register-AutoUpdateFetchFailure ([pscustomobject]@{
+            ExitCode = -1; Error = $_.Exception.Message; TimedOut = $false
+        })
+    }
+    return $false
+}
+
+function Update-AutoUpdateSafely {
+    try {
+        return Update-AutoUpdate
+    } catch {
+        if ($script:autoUpdateFetch) {
+            try {
+                if (-not $script:autoUpdateFetch.Process.HasExited) {
+                    $script:autoUpdateFetch.Process.Kill($true)
+                }
+                $script:autoUpdateFetch.Process.Dispose()
+            } catch { }
+            $script:autoUpdateFetch = $null
+        }
+        if (-not $script:autoUpdateRelaunchRequested -and
+            (-not $script:frontend -or $script:frontend.HasExited)) {
+            Start-Frontend
+        }
+        Set-NextAutoUpdateCheck $AutoUpdateIntervalSeconds
+        Set-AutoUpdateState 'internal-error' '自动更新内部异常；服务继续运行，稍后重试' $_.Exception.Message
+        return $false
+    }
+}
+
 function Write-Json($res, [int]$code, $obj) {
     $res.StatusCode = $code
     $res.ContentType = 'application/json; charset=utf-8'
@@ -811,6 +1364,20 @@ function Handle-Request($ctx) {
             backendUp = $up
             pid       = if ($script:backend) { $script:backend.Id } else { $null }
             lastStart = if ($script:lastStart) { $script:lastStart.ToString('s') } else { $null }
+            autoUpdate = @{
+                enabled = $script:AutoUpdateEnabled
+                source = "$($script:AutoUpdateRemote)/$($script:AutoUpdateBranch)"
+                intervalSeconds = $AutoUpdateIntervalSeconds
+                stableSeconds = $script:AutoUpdateStableSeconds
+                requireIdle = $script:AutoUpdateRequireIdle
+                state = $script:autoUpdateState
+                lastCheck = if ($script:autoUpdateLastCheck) { $script:autoUpdateLastCheck.ToString('s') } else { $null }
+                nextCheck = if ($script:autoUpdateNextCheck) { $script:autoUpdateNextCheck.ToString('s') } else { $null }
+                localHead = $script:autoUpdateLocalHead
+                remoteHead = $script:autoUpdateRemoteHead
+                candidateHead = $script:autoUpdateCandidateSha
+                lastError = $script:autoUpdateLastError
+            }
         }
         return
     }
@@ -839,12 +1406,33 @@ try {
 } catch {
     Write-Host "[supervisor] HTTP control endpoint failed: $($_.Exception.Message)"
     Write-Host "[supervisor] If Access Denied, run as admin once: netsh http add urlacl url=$HttpPrefix user=$env:USERNAME"
-    Write-Host "[supervisor] Backend supervision continues without HTTP control."
+    $controlHolder = Get-PortHolder 18081
+    if ($controlHolder.Occupied) {
+        Write-Host "[supervisor] :18081 已被 PID=$($controlHolder.ProcessId) 占用；为避免两个 supervisor 互抢服务端口，本实例退出"
+        if ($script:supervisorMutexAcquired) {
+            try { $script:supervisorMutex.ReleaseMutex() } catch { }
+            $script:supervisorMutexAcquired = $false
+        }
+        try { $script:supervisorMutex.Dispose() } catch { }
+        if ($script:supervisorPidFile -and (Test-Path -LiteralPath $script:supervisorPidFile)) {
+            try {
+                $recordedPid = [System.IO.File]::ReadAllText($script:supervisorPidFile).Trim()
+                if ($recordedPid -eq "$PID") { Remove-Item -LiteralPath $script:supervisorPidFile -Force }
+            } catch { }
+        }
+        return
+    }
+    Write-Host "[supervisor] 控制端口无人占用，继续以无 HTTP 控制模式守护。"
     $listener = $null
 }
 if ($listener) { Write-Host "[supervisor] HTTP control $HttpPrefix  (POST /restart, GET /status)" }
 Write-Host "[supervisor] repo=$RepoRoot  mode=$Mode  observability=$Observability  mvn=$MvnCmd  java=$JavaCmd"
 Write-Host "[supervisor] whisper mode=$WhisperMode（改用 run-tools.conf 的 TOOLBOX_WHISPER_MODE）"
+if ($script:AutoUpdateEnabled) {
+    Write-AutoUpdateLog "已启用：source=$($script:AutoUpdateRemote)/$($script:AutoUpdateBranch), check=${AutoUpdateIntervalSeconds}s, stable=$($script:AutoUpdateStableSeconds)s, requireIdle=$($script:AutoUpdateRequireIdle)"
+} else {
+    Write-Host '[auto-update] 未启用（使用 -AutoUpdate，或在 run-tools.conf 设置 TOOLBOX_AUTO_UPDATE_ENABLED=true）'
+}
 
 # 起服务前先把两个 node sidecar 的依赖/构建补齐（幂等，已就绪则秒过）。
 Initialize-NodeDeps
@@ -871,6 +1459,7 @@ try {
                 $ctxTask = $listener.GetContextAsync()
             }
             Update-HotReload
+            if (Update-AutoUpdateSafely) { break }
             if (-not $script:backend -or $script:backend.HasExited) {
                 Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') backend exited, restart after 2s"
                 Start-Sleep -Seconds 2
@@ -886,6 +1475,7 @@ try {
         # No control endpoint: supervise only.
         while ($true) {
             Update-HotReload
+            if (Update-AutoUpdateSafely) { break }
             if (-not $script:backend -or $script:backend.HasExited) {
                 Write-Host "[supervisor] $(Get-Date -Format 'HH:mm:ss') backend exited, restart after 2s"
                 Start-Sleep -Seconds 2
@@ -901,7 +1491,40 @@ try {
     }
 } finally {
     Write-Host '[supervisor] shutting down: stopping frontend + backend...'
+    if ($script:autoUpdateFetch) {
+        try { $script:autoUpdateFetch.Process.Kill($true) } catch { }
+        try { $script:autoUpdateFetch.Process.Dispose() } catch { }
+        $script:autoUpdateFetch = $null
+    }
+    if ($listener) {
+        try { $listener.Stop() } catch { }
+        try { $listener.Close() } catch { }
+    }
     Stop-HotReloadWatcher
     Stop-Frontend
     Stop-Backend
+    if ($script:autoUpdateRelaunchRequested) {
+        Stop-PortHolders $SidecarPort
+        Stop-PortHolders 9600
+        Stop-PortHolders 9700
+        if ($WhisperMode -eq 'asr-service') { Stop-PortHolders $AsrPort }
+    }
+    if ($script:supervisorMutexAcquired) {
+        try { $script:supervisorMutex.ReleaseMutex() } catch { }
+        $script:supervisorMutexAcquired = $false
+    }
+    if ($script:supervisorMutex) {
+        try { $script:supervisorMutex.Dispose() } catch { }
+    }
+    if ($script:supervisorPidFile -and (Test-Path -LiteralPath $script:supervisorPidFile)) {
+        try {
+            $recordedPid = [System.IO.File]::ReadAllText($script:supervisorPidFile).Trim()
+            if ($recordedPid -eq "$PID") { Remove-Item -LiteralPath $script:supervisorPidFile -Force }
+        } catch { }
+    }
+}
+
+if ($script:autoUpdateRelaunchRequested) {
+    Write-AutoUpdateLog '服务已停止，通知稳定 bootstrap 加载最新 supervisor'
+    exit $AutoUpdateRelaunchExitCode
 }

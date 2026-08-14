@@ -2,7 +2,8 @@
 #
 # run-supervised.ps1 是「一键启动」，但收尾并不干净：
 #   - Ctrl+C 的 finally 只 Stop-Frontend + Stop-Backend；
-#   - 微信(9700) / 访客分析(9600) / AgentScope Studio(3000) 是独立进程/窗口，不进守护循环、
+#   - faster-whisper(9500) / 微信(9700) / 访客分析(9600) / AgentScope Studio(3000)
+#     是独立进程/窗口，不进守护循环、
 #     也不在 finally 里回收，会长期驻留占端口；
 #   - claude-agent sidecar(18890) 是后端懒启动的子进程，java 先退时会变孤儿继续占端口。
 # 本脚本按端口把它们一次清干净，供「全停」或「重来前先清场」用。
@@ -10,7 +11,7 @@
 # Usage:
 #   pwsh -File scripts\stop-supervised.ps1            # 停全部
 #   pwsh -File scripts\stop-supervised.ps1 -KeepStudio  # 保留 AgentScope Studio(:3000)
-#   pwsh -File scripts\stop-supervised.ps1 -Ports 18080,5173  # 只停指定端口
+#   pwsh -File scripts\stop-supervised.ps1 -Ports 18080,5173  # supervisor 已退出后，只清指定端口
 #   pwsh -File scripts\stop-supervised.ps1 -IncludeObservability  # 同时停止 Aspire
 
 param(
@@ -34,6 +35,50 @@ function Initialize-Utf8Console {
 }
 
 Initialize-Utf8Console
+
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$normalizedRepo = [System.IO.Path]::GetFullPath($repoRoot).TrimEnd('\').ToLowerInvariant()
+$sha256 = [System.Security.Cryptography.SHA256]::Create()
+try {
+    $repoHashBytes = $sha256.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($normalizedRepo))
+} finally {
+    $sha256.Dispose()
+}
+$repoHash = ([System.BitConverter]::ToString($repoHashBytes)).Replace('-', '').Substring(0, 16)
+$supervisorStateRoot = Join-Path (
+    if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { [System.IO.Path]::GetTempPath() }
+) 'kai-toolbox'
+$supervisorPidFile = Join-Path $supervisorStateRoot "supervisor-$repoHash.pid"
+$supervisorScriptPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'run-supervised.ps1'))
+
+function Stop-SupervisorWorker {
+    if (-not (Test-Path -LiteralPath $supervisorPidFile)) { return }
+    $recorded = ''
+    try { $recorded = [System.IO.File]::ReadAllText($supervisorPidFile).Trim() } catch { }
+    $workerPid = 0
+    if (-not [int]::TryParse($recorded, [ref]$workerPid) -or $workerPid -le 0) {
+        Write-Host '[stop] supervisor PID 文件无效，移除陈旧记录'
+        Remove-Item -LiteralPath $supervisorPidFile -Force -ErrorAction SilentlyContinue
+        return
+    }
+    try {
+        $worker = Get-CimInstance Win32_Process -Filter "ProcessId=$workerPid" -ErrorAction Stop
+        $commandLine = "$($worker.CommandLine)"
+        if ($commandLine.IndexOf($supervisorScriptPath, [System.StringComparison]::OrdinalIgnoreCase) -lt 0 -or
+            $commandLine -notmatch '(?i)-SupervisorWorker') {
+            Write-Host "[stop] PID=$workerPid 不是当前仓库的 supervisor worker，拒绝终止并移除陈旧记录"
+            Remove-Item -LiteralPath $supervisorPidFile -Force -ErrorAction SilentlyContinue
+            return
+        }
+        # 这里只停 worker 本体；随后按端口精确回收子服务，才能继续遵守 -KeepStudio。
+        Write-Host "[stop] 停止 supervisor worker PID=$workerPid"
+        & taskkill /PID $workerPid /F 2>&1 | Out-Null
+    } catch {
+        Write-Host "[stop] supervisor worker PID=$workerPid 已不存在，清理陈旧记录"
+    } finally {
+        Remove-Item -LiteralPath $supervisorPidFile -Force -ErrorAction SilentlyContinue
+    }
+}
 
 function Stop-LocalObservability {
     $stopScript = Join-Path $PSScriptRoot 'stop-observability-local.ps1'
@@ -73,6 +118,7 @@ $services = @(
     @{ Port = 18890; Label = 'claude-agent sidecar' },
     @{ Port = 18080; Label = 'backend' },
     @{ Port = 5173;  Label = 'frontend (vite dev)' },
+    @{ Port = 9500;  Label = 'faster-whisper sidecar' },
     @{ Port = 9600;  Label = 'visitor-analysis sidecar' },
     @{ Port = 9700;  Label = 'wechat sidecar' },
     @{ Port = 3000;  Label = 'AgentScope Studio' },
@@ -92,6 +138,7 @@ if ($Ports) {
 }
 
 Write-Host '[stop] 停止 kai-toolbox 全部本地服务...'
+Stop-SupervisorWorker
 foreach ($svc in $services) {
     if ($KeepStudio -and $svc.Port -eq 3000) {
         Write-Host '[stop] -KeepStudio：保留 AgentScope Studio(:3000)'

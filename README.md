@@ -62,17 +62,36 @@ pwsh -File scripts\run-supervised.ps1 -HotReload
 pwsh -File scripts\run-supervised.ps1 -Mode full
 ```
 
+### 自动同步云端版本
+
+频繁迭代的运行机可让同一个 supervisor 定时跟随当前仓库的 `origin/main`，更新后自动重载后端、前端和相关 sidecar：
+
+```powershell
+pwsh -File scripts\run-supervised.ps1 -AutoUpdate
+```
+
+当前仓库近 24 小时约 15 次提交、更新批次中位间隔约 21 分钟，因此默认每 120 秒检查一次；检测到新提交后，还会等待远端 HEAD 连续稳定 120 秒，把短时间连续 push 合并成一次重启。也可在本机 `scripts\run-tools.conf` 中设置 `TOOLBOX_AUTO_UPDATE_ENABLED=true` 常态启用，其他参数见 `run-tools.conf.example`。
+
+自动更新遵循以下保护规则：
+
+- 仅接受当前跟踪分支的 fast-forward；工作树 dirty、本地 ahead/diverged 时延期，不会自动 stash、reset 或 clean。
+- 会话回合、权限/提问、后台 Agent 或一次性分析仍在运行时延期；无法确认空闲也不会强制重启。
+- Git fetch 有超时和指数退避；更新状态可从 `GET http://127.0.0.1:18081/status` 查看，日志写入本机 `%LOCALAPPDATA%\kai-toolbox\logs\auto-update.log`。
+- 同一仓库只允许一个 supervisor 实例，避免重复进程互相抢占端口。
+
 ### 停止服务
 
 ```powershell
 pwsh -File scripts\stop-supervised.ps1
 ```
 
-只停止前后端、保留其他辅助服务：
+全停但保留 AgentScope Studio：
 
 ```powershell
-pwsh -File scripts\stop-supervised.ps1 -Ports 18080,5173
+pwsh -File scripts\stop-supervised.ps1 -KeepStudio
 ```
+
+`-Ports 18080,5173` 只适合 supervisor 已经退出后的定点清理；若 watchdog 仍在运行，被停止的前后端会按设计重新拉起。
 
 ## 首次配置
 

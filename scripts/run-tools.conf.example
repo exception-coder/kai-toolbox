@@ -39,6 +39,25 @@ TOOLBOX_SQLITE_FILE=
 # 字幕生成与「识别语言」两种模式都支持，不可用时按钮会禁用并显示具体原因。
 TOOLBOX_WHISPER_MODE=
 
+# ── Forge 源码自动更新（仅 run-supervised.ps1）──
+# 默认关闭；也可只在本次启动时加 -AutoUpdate。启用后每 120s fetch 一次，远端 HEAD
+# 连续稳定 120s 且 Agent/一次性分析/后台任务全部空闲时，才 fast-forward 并全栈自重载。
+# 工作树 dirty、含未跟踪文件、本地 ahead/diverged 时只告警延期，绝不 stash/reset/clean。
+TOOLBOX_AUTO_UPDATE_ENABLED=false
+
+# 更新源固定为一个 remote/branch，禁止在 GitHub/Gitee 间静默择新。默认 origin/main；
+# 网络环境更适合 Gitee 时可显式改成 gitee（该 remote 必须已存在，当前分支也须跟踪 gitee/main）。
+TOOLBOX_AUTO_UPDATE_REMOTE=origin
+TOOLBOX_AUTO_UPDATE_BRANCH=main
+
+# 当前提交节奏：近 24h 约 15 次提交、批次中位间隔约 21min，因此默认 120s 检查；
+# 稳定窗口用于合并短时间连续 push，避免每个小提交都重启一次。
+TOOLBOX_AUTO_UPDATE_INTERVAL_SECONDS=120
+TOOLBOX_AUTO_UPDATE_STABLE_SECONDS=120
+
+# 强烈建议保持 true：无法确认运行时空闲时也延期，不为追版本打断用户作业。
+TOOLBOX_AUTO_UPDATE_REQUIRE_IDLE=true
+
 # ── 机密项（run-supervised.ps1 启动时读入为进程环境变量；禁止硬编码进脚本）──
 # qBittorrent 密码
 TOOLBOX_QBT_PASSWORD=
