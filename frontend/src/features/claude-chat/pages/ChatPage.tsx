@@ -1828,6 +1828,8 @@ export function ChatPage() {
             items={chat.queued}
             pausedReason={chat.queuePausedReason
               ?? (chat.backgroundTasks.length > 0 ? '后台作业尚未结束，待发送消息继续等待。' : null)}
+            canSendNow={!chat.running && !chat.pending && chat.backgroundTasks.length === 0}
+            onSendNow={chat.sendQueuedNow}
             onRemove={chat.removeQueued}
             onClear={chat.clearQueued}
           />

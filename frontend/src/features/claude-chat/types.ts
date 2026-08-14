@@ -524,7 +524,7 @@ export interface BackgroundTaskInfo {
 
 // ── 服务端 → 客户端（均带 seq）────────────────────────────────────
 export type ServerMessage =
-  | { type: 'ready'; seq: number; sessionId: string; sdkSessionId: string | null; slashCommands?: string[]; status?: SessionStatus; activeTurnId?: string | null; epoch?: string; engine?: Engine; providerKind?: ProviderKind; providerBaseUrl?: string | null; skills?: string[]; agents?: string[]; mcpServers?: { name: string; status: string }[]; outputStyle?: string | null; backgroundTasks?: BackgroundTaskInfo[]; selectedModel?: string | null; codexReasoningEffort?: CodexReasoningEffort | null; codexSpeed?: CodexSpeed | null }
+  | { type: 'ready'; seq: number; sessionId: string; sdkSessionId: string | null; slashCommands?: string[]; status?: SessionStatus; activeTurnId?: string | null; epoch?: string; engine?: Engine; providerKind?: ProviderKind; providerBaseUrl?: string | null; skills?: string[]; agents?: string[]; mcpServers?: { name: string; status: string }[]; outputStyle?: string | null; backgroundTasks?: BackgroundTaskInfo[]; selectedModel?: string | null; codexReasoningEffort?: CodexReasoningEffort | null; codexSpeed?: CodexSpeed | null; queueDispatchMode?: 'server' }
   | { type: 'assistantDelta'; seq: number; text: string }
   | { type: 'toolUse'; seq: number; toolCallId?: string | null; toolName: string; input: unknown }
   | { type: 'toolResult'; seq: number; toolCallId?: string | null; toolName: string; output: string; isError: boolean }
@@ -547,6 +547,7 @@ export type ServerMessage =
   | { type: 'error'; seq: number; code: string; message: string; terminal?: boolean }
   /** 该会话后台任务的全量快照，收到即整体覆盖（REPLACE 语义）；空数组＝当前没有后台任务在跑。 */
   | { type: 'backgroundTasks'; seq: number; tasks: BackgroundTaskInfo[] }
+  | { type: 'queueDispatched'; seq: number; messageId: string; text: string; displayText?: string | null; attachments?: Array<{ name: string; path: string; mime?: string | null }>; createdAt: number }
   | { type: 'pendingSessions'; seq: number; sessions: PendingSessionRef[] }
 
 /** 全局跨会话待答项：某会话有未决权限/提问请求。kind=permission/question。 */

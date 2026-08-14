@@ -10,6 +10,7 @@ import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class QueuedChatMessageRepositoryTest {
@@ -51,11 +52,19 @@ class QueuedChatMessageRepositoryTest {
     void deleteIsScopedBySession() {
         repository.upsert(message("message-1", "first", 100L));
 
-        repository.delete("other-session", "message-1");
+        assertFalse(repository.delete("other-session", "message-1"));
         assertEquals(1, repository.findBySessionId("session-1").size());
 
-        repository.delete("session-1", "message-1");
+        assertTrue(repository.delete("session-1", "message-1"));
         assertTrue(repository.findBySessionId("session-1").isEmpty());
+    }
+
+    @Test
+    void findsOldestMessageForAtomicDispatch() {
+        repository.upsert(message("message-2", "second", 200L));
+        repository.upsert(message("message-1", "first", 100L));
+
+        assertEquals("message-1", repository.findFirstBySessionId("session-1").orElseThrow().id());
     }
 
     private static QueuedChatMessage message(String id, String text, long createdAt) {

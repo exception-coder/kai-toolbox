@@ -205,6 +205,8 @@ export interface UseClaudeChatSocket {
   enqueue: (text: string, attachments?: SendAttachment[], displayText?: string, developerInstructions?: string) => void
   /** 移除队列中某条 */
   removeQueued: (id: string) => void
+  /** 会话确认空闲后，人工发送队首；用于恢复历史遗留的未释放消息。 */
+  sendQueuedNow: (id: string) => void
   /** 清空待发送队列 */
   clearQueued: () => void
   /** 回灌权限/提问决策 */
@@ -278,6 +280,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
   const sessionIdRef = useRef<string | null>(null)
   /** 当前会话最近一次正常终态授予的一次性出队凭证；普通空闲状态不能创建凭证。 */
   const queueReleaseSessionRef = useRef<string | null>(null)
+  const serverQueueDispatchRef = useRef(false)
+  const manualQueueDispatchIdRef = useRef<string | null>(null)
   const lastSeqRef = useRef<number>(0)
   // 服务端会话纪元（来自 Ready.epoch）；变化即后端重启/会话重建 → seq 已复位，需重置去重高水位
   const lastEpochRef = useRef<string | null>(null)
@@ -381,6 +385,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         setQueued([])
         sessionIdRef.current = msg.sessionId
         sessionReadyRef.current = true
+        serverQueueDispatchRef.current = msg.queueDispatchMode === 'server'
         setSessionId(msg.sessionId)
         if (!publicWithoutLogin && channel !== 'consult') void listQueuedMessages(msg.sessionId)
           .then(messages => {
@@ -698,8 +703,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       case 'result': {
         setRunning(false)
         setInterrupting(false)
+        setPending(null)
         const completedSuccessfully = isSuccessfulTurnCompletion(msg.stopReason)
-        queueReleaseSessionRef.current = completedSuccessfully ? sessionIdRef.current : null
+        queueReleaseSessionRef.current = !serverQueueDispatchRef.current && completedSuccessfully
+          ? sessionIdRef.current : null
         setQueuePausedReason(completedSuccessfully
           ? null : '上一轮未正常完成，待发送消息已暂停；请确认后手动继续。')
         setQueueReleaseVersion(version => version + 1)
@@ -711,6 +718,32 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
         setItems(prev => [...prev, { kind: 'result', id: nextId(), stopReason: msg.stopReason, traceId: msg.traceId, ts: Date.now(), usage, latencyMs, ttftMs }])
         // Claude 回复完成:仅当页面不在前台时响一声,避免你正盯着看时反复叮咚
         if (typeof document !== 'undefined' && document.hidden) playNotifySound()
+        break
+      }
+      case 'queueDispatched': {
+        queueReleaseSessionRef.current = null
+        setQueuePausedReason(null)
+        setQueued(prev => prev.filter(message => message.id !== msg.messageId))
+        const attachments = msg.attachments?.map(attachment => ({
+          name: attachment.name,
+          mime: attachment.mime ?? undefined,
+          url: attachment.mime?.startsWith('image/')
+            ? `/api/claude-chat/attachments/file?path=${encodeURIComponent(attachment.path)}`
+            : undefined,
+        }))
+        setItems(prev => {
+          const id = `queued-user-${msg.messageId}`
+          if (prev.some(item => item.id === id)) return prev
+          const displayText = msg.displayText?.trim()
+          return [...prev, { kind: 'user', id, text: msg.text,
+            displayText: displayText && displayText !== msg.text ? displayText : undefined,
+            ts: msg.createdAt, attachments: attachments?.length ? attachments : undefined }]
+        })
+        turnStartRef.current = Date.now()
+        ttftRef.current = null
+        setTurnTokens(0)
+        setRunning(true)
+        setInterrupting(false)
         break
       }
       case 'interruptState':
@@ -1041,6 +1074,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     setPending(null)
     setQueued([])
     queueReleaseSessionRef.current = null
+    serverQueueDispatchRef.current = false
     setQueuePausedReason(null)
     setRunning(false)
     setInterrupting(false)
@@ -1271,12 +1305,38 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       .catch(error => setSyncWarning(`清空待发送队列失败：${error instanceof Error ? error.message : String(error)}`))
   }, [demo])
 
+  const sendQueuedNow = useCallback((id: string) => {
+    if (running || pending || backgroundTasks.length > 0 || manualQueueDispatchIdRef.current) return
+    const message = queued[0]
+    const sessionId = sessionIdRef.current
+    if (!message || message.id !== id || !sessionId || message.ownerSessionId !== sessionId
+        || !sessionReadyRef.current) return
+    if (demo) {
+      setQueued(prev => prev.filter(item => item.id !== id))
+      send(message.text, message.attachments, message.displayText, message.developerInstructions)
+      return
+    }
+    manualQueueDispatchIdRef.current = id
+    void deleteQueuedMessage(sessionId, id)
+      .then(() => {
+        if (sessionIdRef.current !== sessionId || !sessionReadyRef.current) {
+          void saveQueuedMessage(message.ownerSessionId, message)
+          return
+        }
+        setQueued(prev => prev.filter(item => item.id !== id))
+        send(message.text, message.attachments, message.displayText, message.developerInstructions)
+      })
+      .catch(error => setSyncWarning(`队列消息发送失败：${error instanceof Error ? error.message : String(error)}`))
+      .finally(() => { manualQueueDispatchIdRef.current = null })
+  }, [backgroundTasks.length, demo, pending, queued, running, send])
+
   // 只有当前会话收到明确的成功终态，且无待确认、无后台作业时，才取队首发出。
   const sendRef = useRef(send)
   const dispatchingQueueIdRef = useRef<string | null>(null)
   sendRef.current = send
   useEffect(() => {
     if (channel === 'consult') return
+    if (serverQueueDispatchRef.current) return
     if (!sessionReadyRef.current || running || pending || backgroundTasks.length > 0 || queued.length === 0) return
     const head = queued[0]
     const sessionId = sessionIdRef.current
@@ -1532,7 +1592,7 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
     }
   }, [sendRaw, connect])
 
-  return { state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, agents, mcpServers, outputStyle, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, resumeHistory, resumeCurrent, send, queued, queuePausedReason, enqueue, removeQueued, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, loadHistory }
+  return { state, sessionId, items, pending, pendingSessions, running, interrupting, errorMessage, syncWarning, dismissSyncWarning, mode, autoApprove, slashCommands, skills, agents, mcpServers, outputStyle, capabilitiesRefreshing, models, modelsRefreshing, currentModel, codexReasoningEffort, codexSpeed, currentEngine, currentProviderKind, currentProviderBaseUrl, providerDiag, turnTokens, backgroundTasks, open, switchTo, duplicateSession, duplicatingSessionId, resumeHistory, resumeCurrent, send, queued, queuePausedReason, enqueue, removeQueued, sendQueuedNow, clearQueued, decide, interrupt, setMode, setAutoApprove, setModel, refreshModels, refreshCapabilities, setCodexOptions, switchEngine, switchProvider, forkSession, cleanRetry, historyLoading, historyExhausted, loadHistory }
 }
 
 function findRecoverableCommandFailure(items: ChatItem[], toolName: string): number {

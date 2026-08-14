@@ -21,7 +21,7 @@ public sealed interface ServerMessage
                 ServerMessage.TurnActivity, ServerMessage.CodexActivity,
                 ServerMessage.InterruptState,
                 ServerMessage.Error, ServerMessage.BackgroundTasks,
-                ServerMessage.PendingSessions {
+                ServerMessage.PendingSessions, ServerMessage.QueueDispatched {
 
     long seq();
 
@@ -34,7 +34,7 @@ public sealed interface ServerMessage
                  String activeTurnId, String epoch, String engine, String providerKind, String providerBaseUrl,
                  List<String> skills, List<String> agents, List<McpServer> mcpServers, String outputStyle,
                  List<BackgroundTaskInfo> backgroundTasks, String selectedModel,
-                 String codexReasoningEffort, String codexSpeed) implements ServerMessage {}
+                 String codexReasoningEffort, String codexSpeed, String queueDispatchMode) implements ServerMessage {}
 
     /** 会话激活的 MCP 服务（来自 SDK init）。 */
     record McpServer(String name, String status) {}
@@ -142,6 +142,28 @@ public sealed interface ServerMessage
      */
     @JsonTypeName("backgroundTasks")
     record BackgroundTasks(long seq, List<BackgroundTaskInfo> tasks) implements ServerMessage {}
+
+    /**
+     * 后端已从持久队列领取消息并启动下一轮，所有观察端据此同步队列和用户消息。
+     *
+     * @param messageId 持久队列消息 ID
+     * @param text 实际发送给引擎的文本
+     * @param displayText 展示层替代文本
+     * @param attachments 已发送的附件引用
+     * @param createdAt 原队列消息创建时间
+     */
+    @JsonTypeName("queueDispatched")
+    record QueueDispatched(long seq, String messageId, String text, String displayText,
+                           List<QueuedAttachment> attachments, long createdAt) implements ServerMessage {}
+
+    /**
+     * 已自动发送消息的附件引用。
+     *
+     * @param name 展示文件名
+     * @param path 服务端本地绝对路径
+     * @param mime 文件媒体类型
+     */
+    record QueuedAttachment(String name, String path, String mime) {}
 
     record BackgroundTaskInfo(String taskId, String taskType, String description) {}
 

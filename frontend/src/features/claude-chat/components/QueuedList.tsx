@@ -1,13 +1,15 @@
-import { AlertTriangle, Clock, X } from 'lucide-react'
+import { AlertTriangle, Clock, Send, X } from 'lucide-react'
 import type { QueuedMessage } from '../hooks/useClaudeChatSocket'
 
 /**
  * 待发送队列：回答执行中排队的消息，本轮结束后按序自动发出。
  * 显示在输入区上方，可逐条移除或一键清空。空队列不渲染。
  */
-export function QueuedList({ items, pausedReason, onRemove, onClear }: {
+export function QueuedList({ items, pausedReason, canSendNow, onSendNow, onRemove, onClear }: {
   items: QueuedMessage[]
   pausedReason?: string | null
+  canSendNow?: boolean
+  onSendNow: (id: string) => void
   onRemove: (id: string) => void
   onClear: () => void
 }) {
@@ -33,6 +35,16 @@ export function QueuedList({ items, pausedReason, onRemove, onClear }: {
                 <span className="ml-1 text-xs text-[var(--color-muted-foreground)]">+{q.attachments.length} 附件</span>
               )}
             </span>
+            {i === 0 && canSendNow && (
+              <button
+                type="button"
+                onClick={() => onSendNow(q.id)}
+                title="立即发送这条消息"
+                className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-xs text-[var(--color-primary)] hover:bg-[var(--color-accent)]"
+              >
+                <Send className="size-3" />发送
+              </button>
+            )}
             <button
               type="button"
               onClick={() => onRemove(q.id)}

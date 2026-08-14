@@ -8,6 +8,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 /** 待发送消息队列的 SQLite 持久化。 */
 @Repository
@@ -39,6 +40,20 @@ public class QueuedChatMessageRepository {
                 rs.getLong("created_at")), sessionId);
     }
 
+    public Optional<QueuedChatMessage> findFirstBySessionId(String sessionId) {
+        List<QueuedChatMessage> messages = jdbc.query("""
+                SELECT id, session_id, text, display_text, developer_instructions, attachments_json, created_at
+                  FROM claude_chat_queued_message
+                 WHERE session_id = ?
+                 ORDER BY created_at, id
+                 LIMIT 1
+                """, (rs, rowNum) -> new QueuedChatMessage(
+                rs.getString("id"), rs.getString("session_id"), rs.getString("text"),
+                rs.getString("display_text"), rs.getString("developer_instructions"),
+                readAttachments(rs.getString("attachments_json")), rs.getLong("created_at")), sessionId);
+        return messages.stream().findFirst();
+    }
+
     public void upsert(QueuedChatMessage message) {
         jdbc.update("""
                 INSERT INTO claude_chat_queued_message
@@ -55,8 +70,9 @@ public class QueuedChatMessageRepository {
                 message.developerInstructions(), writeAttachments(message.attachments()), message.createdAt());
     }
 
-    public void delete(String sessionId, String messageId) {
-        jdbc.update("DELETE FROM claude_chat_queued_message WHERE session_id = ? AND id = ?", sessionId, messageId);
+    public boolean delete(String sessionId, String messageId) {
+        return jdbc.update("DELETE FROM claude_chat_queued_message WHERE session_id = ? AND id = ?",
+                sessionId, messageId) > 0;
     }
 
     public void deleteBySessionId(String sessionId) {

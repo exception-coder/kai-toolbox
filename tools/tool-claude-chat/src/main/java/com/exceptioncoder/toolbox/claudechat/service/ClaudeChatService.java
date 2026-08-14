@@ -6,6 +6,7 @@ import com.exceptioncoder.toolbox.claudechat.api.dto.ServerMessage;
 import com.exceptioncoder.toolbox.claudechat.config.ClaudeChatProperties;
 import com.exceptioncoder.toolbox.claudechat.config.ReviewHandshakeInterceptor;
 import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
+import com.exceptioncoder.toolbox.claudechat.domain.QueuedChatMessage;
 import com.exceptioncoder.toolbox.claudechat.domain.SessionStatus;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.llm.observability.AgentRunMetadata;
@@ -61,6 +62,7 @@ public class ClaudeChatService {
     private final SessionPlanStateService planStateService;
     private final ReviewSpaceService reviewSpaces;
     private final SessionProjectDirectoryService sessionProjectDirectories;
+    private final QueuedChatMessageService queuedMessages;
     private final ObjectMapper mapper;
     private final AgentTelemetry telemetry;
     private final List<AgentRunMetadataProvider> metadataProviders;
@@ -85,6 +87,8 @@ public class ClaudeChatService {
             "assistantDelta", "toolUse", "toolResult", "permissionRequest", "questionRequest",
             "userMessage", "forkAnchor", "turnInfo", "turnProgress", "warning",
             "toolActivity", "turnActivity", "codexActivity", "result", "error");
+    private static final Set<String> SUCCESSFUL_TURN_STOP_REASONS =
+            Set.of("end_turn", "success", "completed", "stop");
     /** 本实例已随 Spring 上下文停机；后台重连一律停手 */
     private volatile boolean shuttingDown;
 
@@ -100,6 +104,7 @@ public class ClaudeChatService {
                              SessionPlanStateService planStateService,
                              ReviewSpaceService reviewSpaces,
                              SessionProjectDirectoryService sessionProjectDirectories,
+                             QueuedChatMessageService queuedMessages,
                              ObjectMapper mapper,
                              AgentTelemetry telemetry,
                              List<AgentRunMetadataProvider> metadataProviders,
@@ -116,6 +121,7 @@ public class ClaudeChatService {
         this.planStateService = planStateService;
         this.reviewSpaces = reviewSpaces;
         this.sessionProjectDirectories = sessionProjectDirectories;
+        this.queuedMessages = queuedMessages;
         this.mapper = mapper;
         this.telemetry = telemetry;
         this.metadataProviders = List.copyOf(metadataProviders);
@@ -473,15 +479,25 @@ public class ClaudeChatService {
             sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
-        if (!planStateService.writable(ctx.sessionId)) {
-            sendError(ws, 0, "PLAN_EXPIRED", "该规划已过期，请先解锁后继续");
-            return;
+        synchronized (ctx) {
+            if (!planStateService.writable(ctx.sessionId)) {
+                sendError(ws, 0, "PLAN_EXPIRED", "该规划已过期，请先解锁后继续");
+                return;
+            }
+            if (ctx.status == SessionStatus.RUNNING) {
+                sendError(ws, 0, "TURN_BUSY", "当前轮仍在运行或中断收口中，请稍后再发送");
+                return;
+            }
+            if (!ensureSessionResumable(ctx)) {
+                return;
+            }
+            ctx.queueReleaseReady = false;
+            startTurn(ctx, msg);
         }
-        if (ctx.status == SessionStatus.RUNNING) {
-            sendError(ws, 0, "TURN_BUSY", "当前轮仍在运行或中断收口中，请稍后再发送");
-            return;
-        }
-        if (!ensureSessionResumable(ctx)) return; // sidecar 断了先就地重连+resume，避免静默丢消息
+    }
+
+    /** 在完成会话门禁后启动一轮；调用方须持有当前会话锁。 */
+    private void startTurn(SessionCtx ctx, ClientMessage.Send msg) {
         String turnId = turnLifecycle.begin(ctx.sessionId);
         ctx.status = SessionStatus.RUNNING;
         repo.touch(ctx.sessionId, SessionStatus.RUNNING, System.currentTimeMillis());
@@ -801,7 +817,7 @@ public class ClaudeChatService {
                 ctx.status.name(), turnLifecycle.currentTurnId(ctx.sessionId).orElse(null),
                 ctx.epoch, ctx.engine, providerKind, providerBaseUrl,
                 ctx.skills, ctx.agents, ctx.mcpServers, ctx.outputStyle, ctx.backgroundTasks,
-                ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed);
+                ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed, "server");
     }
 
     /** 从 SQLite 会话元数据恢复模型、推理强度和速度。 */
@@ -1090,6 +1106,9 @@ public class ClaudeChatService {
             case "backgroundTasks" -> {
                 ctx.backgroundTasks = parseBackgroundTasks(node.get("tasks"));
                 sendToBrowser(ctx, seq -> new ServerMessage.BackgroundTasks(seq, ctx.backgroundTasks));
+                if (ctx.backgroundTasks.isEmpty()) {
+                    dispatchNextQueuedMessage(ctx);
+                }
             }
             default -> log.debug("[claude-chat] 未知 sidecar 事件 type={}", type);
         }
@@ -1097,18 +1116,21 @@ public class ClaudeChatService {
 
     private void onResult(SessionCtx ctx, JsonNode node) {
         String turnId = node.path("turnId").asText(null);
-        if (ctx.status != SessionStatus.RUNNING || !turnLifecycle.complete(ctx.sessionId, turnId)) {
-            log.warn("[claude-chat] 忽略重复或过期终态 session={} turn={} status={}",
-                    ctx.sessionId, turnId, ctx.status);
-            return;
+        synchronized (ctx) {
+            if (ctx.status != SessionStatus.RUNNING || !turnLifecycle.complete(ctx.sessionId, turnId)) {
+                log.warn("[claude-chat] 忽略重复或过期终态 session={} turn={} status={}",
+                        ctx.sessionId, turnId, ctx.status);
+                return;
+            }
+            completeTurn(ctx, asMap(node.get("usage")), node.path("stopReason").asText("end_turn"),
+                    node.path("traceId").asText(null));
         }
-        completeTurn(ctx, asMap(node.get("usage")), node.path("stopReason").asText("end_turn"),
-                node.path("traceId").asText(null));
     }
 
     private void completeTurn(SessionCtx ctx, Map<String, Object> usage, String stopReason, String traceId) {
         ctx.status = SessionStatus.IDLE;
         ctx.pendingRequest = null; // 本轮结束，未决请求（含超时被拒）一并失效
+        ctx.queueReleaseReady = isSuccessfulTurnCompletion(stopReason);
         broadcastPendingSessions();
         repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
         AgentSpan span = activeTurnSpans.remove(ctx.sessionId);
@@ -1129,11 +1151,57 @@ public class ClaudeChatService {
         }
         String resultTraceId = traceId;
         sendToBrowser(ctx, seq -> new ServerMessage.Result(seq, usage, stopReason, resultTraceId));
+        dispatchNextQueuedMessage(ctx);
         // 所有观察者都不在线才推送，避免打扰
         if (!hasActiveViewer(ctx)) {
             String engineLabel = "codex".equals(ctx.engine) ? "Codex" : "Claude";
             notifications.notifyDone(engineLabel + " 任务完成", sessionLabel(ctx));
         }
+    }
+
+    /** 成功终态最多释放一条持久队列消息；失败、中断、待确认和后台作业均保持队列不动。 */
+    private void dispatchNextQueuedMessage(SessionCtx ctx) {
+        synchronized (ctx) {
+            if (!ctx.queueReleaseReady || ctx.status != SessionStatus.IDLE || ctx.pendingRequest != null
+                    || !ctx.backgroundTasks.isEmpty() || !planStateService.writable(ctx.sessionId)) {
+                return;
+            }
+            Optional<QueuedChatMessage> next = queuedMessages.takeFirst(ctx.sessionId);
+            ctx.queueReleaseReady = false;
+            if (next.isEmpty()) {
+                return;
+            }
+            QueuedChatMessage message = next.get();
+            ClientMessage.Send send = new ClientMessage.Send(message.text(), message.attachments().stream()
+                    .map(attachment -> new ClientMessage.Send.Attachment(attachment.name(), attachment.path()))
+                    .toList(), message.developerInstructions());
+            try {
+                if (!ensureSessionResumable(ctx)) {
+                    queuedMessages.restore(message);
+                    return;
+                }
+                startTurn(ctx, send);
+                sendToBrowser(ctx, seq -> new ServerMessage.QueueDispatched(seq, message.id(), message.text(),
+                        message.displayText(), message.attachments().stream()
+                                .map(attachment -> new ServerMessage.QueuedAttachment(
+                                        attachment.name(), attachment.path(), attachment.mime()))
+                                .toList(), message.createdAt()));
+                log.info("[claude-chat] 正常终态自动发送队首 session={} message={}", ctx.sessionId, message.id());
+            } catch (RuntimeException error) {
+                queuedMessages.restore(message);
+                log.error("[claude-chat] 自动发送队首失败，已恢复队列 session={} message={}",
+                        ctx.sessionId, message.id(), error);
+                sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "QUEUE_DISPATCH_FAILED",
+                        "待发送消息自动发送失败，已保留在队列：" + error.getMessage(), false));
+            }
+        }
+    }
+
+    private static boolean isSuccessfulTurnCompletion(String stopReason) {
+        if (stopReason == null) {
+            return false;
+        }
+        return SUCCESSFUL_TURN_STOP_REASONS.contains(stopReason.trim().toLowerCase(Locale.ROOT));
     }
 
     private void onInterruptAck(SessionCtx ctx, JsonNode node) {
@@ -1200,12 +1268,14 @@ public class ClaudeChatService {
     }
 
     private void forceCloseInterruptedTurn(SessionCtx ctx, String turnId, String reason) {
-        if (ctx.status != SessionStatus.RUNNING) return;
-        if (!turnLifecycle.complete(ctx.sessionId, turnId)) return;
-        log.warn("[claude-chat] 中断终态兜底收口 session={} engine={} turn={} reason={}",
-                ctx.sessionId, ctx.engine, turnId, reason);
-        sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, "forced", false, false));
-        completeTurn(ctx, Map.of(), "interrupted", null);
+        synchronized (ctx) {
+            if (ctx.status != SessionStatus.RUNNING) return;
+            if (!turnLifecycle.complete(ctx.sessionId, turnId)) return;
+            log.warn("[claude-chat] 中断终态兜底收口 session={} engine={} turn={} reason={}",
+                    ctx.sessionId, ctx.engine, turnId, reason);
+            sendToBrowser(ctx, seq -> new ServerMessage.InterruptState(seq, "forced", false, false));
+            completeTurn(ctx, Map.of(), "interrupted", null);
+        }
     }
 
     /**
@@ -1779,6 +1849,8 @@ public class ClaudeChatService {
         /** 该会话当前存活的后台任务快照（来自 sidecar 的 backgroundTasks 事件），随每条 Ready 透传给
          *  前端——切会话/重连那一刻就能查到是否还有后台任务在跑，不用等下一次变化事件推送。 */
         volatile java.util.List<ServerMessage.BackgroundTaskInfo> backgroundTasks = java.util.List.of();
+        /** 最近一次成功终态尚未释放队首；消费后立即复位，确保每轮最多自动发送一条。 */
+        volatile boolean queueReleaseReady;
 
         SessionCtx(String sessionId, String cwd) {
             this.sessionId = sessionId;
