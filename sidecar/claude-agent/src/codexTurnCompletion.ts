@@ -1,14 +1,12 @@
-const ACTIVE_AGENT_STATES = new Set(['active', 'inprogress', 'pending', 'running', 'started', 'working'])
-const TERMINAL_AGENT_STATES = new Set([
-  'cancelled', 'canceled', 'complete', 'completed', 'done', 'error', 'errored', 'failed', 'finished', 'interrupted',
-  'notfound', 'shutdown', 'stopped', 'terminated',
-])
+const ACTIVE_AGENT_STATES = new Set(['pendinginit', 'running'])
+const TERMINAL_AGENT_STATES = new Set(['completed', 'errored', 'interrupted', 'notfound', 'shutdown'])
 
 type ItemPhase = 'inProgress' | 'completed'
 
 export type CodexTurnCompletionAssessment = {
   queueReleaseSafe: boolean
-  reason?: 'turnFailed' | 'subAgentsActive' | 'finalResponseMissing'
+  finalizingRequired: boolean
+  reason?: 'turnFailed' | 'subAgentStateUnconfirmed' | 'finalResponseMissing'
   activeSubAgentCount: number
 }
 
@@ -17,7 +15,9 @@ export type CodexTurnCompletionAssessment = {
  * 上游的 turn/completed 不保证子 Agent 和主 Agent 最终回复均已收口，因此这里独立维护更强的不变式。
  */
 export class CodexTurnCompletionGate {
-  private readonly activeSubAgentIds = new Set<string>()
+  private latestAgentStates = new Map<string, string>()
+  private authoritativeSnapshotObserved = false
+  private subAgentObserved = false
   private finalAssistantResponseReady = false
 
   observeItem(phase: ItemPhase, item: Record<string, unknown> | undefined): void {
@@ -34,55 +34,55 @@ export class CodexTurnCompletionGate {
     if (this.isWorkItem(itemType)) this.finalAssistantResponseReady = false
   }
 
-  assess(turnStatus: string): CodexTurnCompletionAssessment {
+  assess(turnStatus: string, finalizingRecheckComplete = false): CodexTurnCompletionAssessment {
+    const activeSubAgentCount = this.activeSubAgentCount()
     if (normalizeState(turnStatus) !== 'completed') {
-      return { queueReleaseSafe: false, reason: 'turnFailed', activeSubAgentCount: this.activeSubAgentIds.size }
-    }
-    if (this.activeSubAgentIds.size > 0) {
-      return {
-        queueReleaseSafe: false,
-        reason: 'subAgentsActive',
-        activeSubAgentCount: this.activeSubAgentIds.size,
-      }
+      return { queueReleaseSafe: false, finalizingRequired: false, reason: 'turnFailed', activeSubAgentCount }
     }
     if (!this.finalAssistantResponseReady) {
-      return { queueReleaseSafe: false, reason: 'finalResponseMissing', activeSubAgentCount: 0 }
+      return { queueReleaseSafe: false, finalizingRequired: false, reason: 'finalResponseMissing', activeSubAgentCount }
     }
-    return { queueReleaseSafe: true, activeSubAgentCount: 0 }
+
+    const snapshotUnconfirmed = this.subAgentObserved
+      && (!this.authoritativeSnapshotObserved || this.hasUnsettledSnapshotState())
+    if (snapshotUnconfirmed && !finalizingRecheckComplete) {
+      return {
+        queueReleaseSafe: false,
+        finalizingRequired: true,
+        reason: 'subAgentStateUnconfirmed',
+        activeSubAgentCount,
+      }
+    }
+    return { queueReleaseSafe: true, finalizingRequired: false, activeSubAgentCount }
   }
 
   private updateSubAgentState(itemType: string, item: Record<string, unknown>): void {
     if (itemType === 'subAgentActivity') {
-      const agentId = stringValue(item.agentThreadId) || stringValue(item.agent_thread_id)
-      this.applyAgentState(agentId, stringValue(item.kind) || stringValue(item.status))
+      this.subAgentObserved = true
       return
     }
     if (itemType !== 'collabAgentToolCall') return
 
     const agentStates = recordValue(item.agentsStates) ?? recordValue(item.agents_states)
     if (agentStates) {
+      this.authoritativeSnapshotObserved = true
+      this.latestAgentStates = new Map()
       for (const [agentId, stateValue] of Object.entries(agentStates)) {
-        this.applyAgentState(agentId, agentStateValue(stateValue))
+        this.latestAgentStates.set(agentId, normalizeState(agentStateValue(stateValue)))
       }
     }
 
     const tool = normalizeState(stringValue(item.tool))
     const receiverIds = arrayStrings(item.receiverThreadIds ?? item.receiver_thread_ids)
-    if (tool === 'spawnagent') {
-      for (const agentId of receiverIds) {
-        if (!agentStates || !(agentId in agentStates)) this.activeSubAgentIds.add(agentId)
-      }
-    }
+    if (tool === 'spawnagent' || receiverIds.length > 0) this.subAgentObserved = true
   }
 
-  private applyAgentState(agentId: string, rawState: string): void {
-    if (!agentId) return
-    const state = normalizeState(rawState)
-    if (TERMINAL_AGENT_STATES.has(state)) {
-      this.activeSubAgentIds.delete(agentId)
-    } else if (ACTIVE_AGENT_STATES.has(state)) {
-      this.activeSubAgentIds.add(agentId)
-    }
+  private activeSubAgentCount(): number {
+    return [...this.latestAgentStates.values()].filter(state => ACTIVE_AGENT_STATES.has(state)).length
+  }
+
+  private hasUnsettledSnapshotState(): boolean {
+    return [...this.latestAgentStates.values()].some(state => !TERMINAL_AGENT_STATES.has(state))
   }
 
   private isWorkItem(itemType: string): boolean {
@@ -91,13 +91,17 @@ export class CodexTurnCompletionGate {
 }
 
 export function codexIncompleteTurnMessage(assessment: CodexTurnCompletionAssessment): string {
-  if (assessment.reason === 'subAgentsActive') {
-    return `Codex 主轮已返回 completed，但仍有 ${assessment.activeSubAgentCount} 个子 Agent 未收口；待发送消息已保留。`
-  }
   if (assessment.reason === 'finalResponseMissing') {
     return 'Codex 主轮已返回 completed，但未检测到完整的最终回复；待发送消息已保留。'
   }
   return 'Codex 本轮未正常完成；待发送消息已保留。'
+}
+
+export function codexFinalizingTurnMessage(assessment: CodexTurnCompletionAssessment): string {
+  if (assessment.activeSubAgentCount > 0) {
+    return `最新 agentsStates 仍有 ${assessment.activeSubAgentCount} 个活动子 Agent，正在短暂复核根线程终态。`
+  }
+  return '子 Agent 权威状态暂时无法确认，正在短暂复核根线程终态。'
 }
 
 function isChildAgentMessage(item: Record<string, unknown>): boolean {

@@ -5,7 +5,11 @@ import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
 import { classifyCommandResult } from './commandExecution.js'
-import { CodexTurnCompletionGate, codexIncompleteTurnMessage } from './codexTurnCompletion.js'
+import {
+  CodexTurnCompletionGate,
+  codexFinalizingTurnMessage,
+  codexIncompleteTurnMessage,
+} from './codexTurnCompletion.js'
 import type { RequiredMcpTool } from './codexSecurity.js'
 
 const require = createRequire(import.meta.url)
@@ -18,6 +22,7 @@ const MODEL_PAGE_SIZE = 100
 const MAX_MODEL_PAGES = 20
 const MAX_COMMAND_OUTPUT_CHARS = 8_000
 const COMMAND_OUTPUT_EMIT_INTERVAL_MS = 250
+const SUB_AGENT_FINALIZING_RECHECK_MS = 1_500
 
 type JsonRpcResponse = {
   id?: number
@@ -418,6 +423,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
   let lastUsage: Record<string, unknown> = {}
   let abortFallback: NodeJS.Timeout | undefined
   let reconnectDeadline: NodeJS.Timeout | undefined
+  let finalizingRecheck: NodeJS.Timeout | undefined
   let abortCompletion: ((error: Error) => void) | undefined
   let reconnectActivityId: string | undefined
   const commandActivities = new Map<string, CommandActivityState>()
@@ -431,6 +437,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     options.signal.removeEventListener('abort', onAbort)
     if (abortFallback) clearTimeout(abortFallback)
     if (reconnectDeadline) clearTimeout(reconnectDeadline)
+    if (finalizingRecheck) clearTimeout(finalizingRecheck)
     lines.close()
     stop(child)
   }
@@ -504,6 +511,66 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     }
     abortCompletion = finishError
 
+    let pendingRootCompletion: { status: string; turnId?: string; activityId: string } | undefined
+    const finishRootTurn = (
+      status: string,
+      completedTurnId?: string,
+      finalizingRecheckComplete = false,
+      turnErrorMessage?: string,
+    ) => {
+      if (finished) return
+      const completionAssessment = completionGate.assess(status, finalizingRecheckComplete)
+      if (status === 'failed') {
+        options.emit({
+          type: 'error',
+          code: 'CODEX_APP_SERVER_TURN_FAILED',
+          message: turnErrorMessage || 'Codex App Server 轮次执行失败',
+        })
+      } else if (!completionAssessment.queueReleaseSafe) {
+        options.emit({
+          type: 'warning',
+          code: 'CODEX_TURN_INCOMPLETE',
+          message: codexIncompleteTurnMessage(completionAssessment),
+        })
+      }
+      if (completedTurnId) options.emit({ type: 'forkAnchor', anchor: completedTurnId })
+      options.emit({
+        type: 'turnInfo', requestedModel: options.model ?? null, responseModel: options.model ?? null,
+        viaGateway: false, baseUrl: null, transport: 'appServer',
+      })
+      const stopReason = status !== 'completed'
+        ? status
+        : completionAssessment.queueReleaseSafe ? 'end_turn' : 'incomplete'
+      options.emit({
+        type: 'result',
+        usage: normalizeUsage(lastUsage),
+        stopReason,
+        queueReleaseSafe: completionAssessment.queueReleaseSafe,
+      })
+      cleanup()
+      resolveCompletion()
+    }
+
+    const completeFinalizingRecheck = () => {
+      const pendingCompletion = pendingRootCompletion
+      if (!pendingCompletion || finished) return
+      pendingRootCompletion = undefined
+      if (finalizingRecheck) clearTimeout(finalizingRecheck)
+      finalizingRecheck = undefined
+      const latestAssessment = completionGate.assess(pendingCompletion.status)
+      emitActivity({
+        type: 'codexActivity',
+        activityType: 'agent',
+        itemId: pendingCompletion.activityId,
+        status: 'completed',
+        title: latestAssessment.queueReleaseSafe ? 'Codex 多 Agent 状态已收口' : 'Codex 主轮完成状态已复核',
+        detail: latestAssessment.queueReleaseSafe
+          ? '最新 agentsStates 已确认子 Agent 收口。'
+          : '根线程已有最终回复并已完成，本轮按根线程权威终态收口。',
+      })
+      finishRootTurn(pendingCompletion.status, pendingCompletion.turnId, true)
+    }
+
     child.stderr.setEncoding('utf8')
     child.stderr.on('data', chunk => { stderr = (stderr + String(chunk)).slice(-4000) })
     child.on('error', finishError)
@@ -565,6 +632,9 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
           if (asString(item?.type) === 'commandExecution' && commandItemId) {
             if (method === 'item/completed') commandActivityEmittedAt.delete(commandItemId)
             else commandActivityEmittedAt.set(commandItemId, Date.now())
+          }
+          if (pendingRootCompletion && completionGate.assess(pendingRootCompletion.status).queueReleaseSafe) {
+            completeFinalizingRecheck()
           }
           break
         }
@@ -658,41 +728,27 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
           break
         }
         case 'turn/completed': {
+          if (pendingRootCompletion) break
           finishReconnectActivity('completed')
           const turn = asRecord(params.turn)
           const status = asString(turn?.status) || 'completed'
           const completedTurnId = asString(turn?.id) || turnId
           const completionAssessment = completionGate.assess(status)
-          if (status === 'failed') {
-            const turnError = asRecord(turn?.error)
-            options.emit({
-              type: 'error',
-              code: 'CODEX_APP_SERVER_TURN_FAILED',
-              message: asString(turnError?.message) || 'Codex App Server 轮次执行失败',
+          if (completionAssessment.finalizingRequired) {
+            const activityId = `${completedTurnId || 'current'}-sub-agent-finalizing`
+            pendingRootCompletion = { status, turnId: completedTurnId, activityId }
+            emitActivity({
+              type: 'codexActivity',
+              activityType: 'agent',
+              itemId: activityId,
+              status: 'inProgress',
+              title: 'Codex 正在收口多 Agent 状态',
+              detail: codexFinalizingTurnMessage(completionAssessment),
             })
-          } else if (!completionAssessment.queueReleaseSafe) {
-            options.emit({
-              type: 'warning',
-              code: 'CODEX_TURN_INCOMPLETE',
-              message: codexIncompleteTurnMessage(completionAssessment),
-            })
+            finalizingRecheck = setTimeout(completeFinalizingRecheck, SUB_AGENT_FINALIZING_RECHECK_MS)
+            break
           }
-          if (completedTurnId) options.emit({ type: 'forkAnchor', anchor: completedTurnId })
-          options.emit({
-            type: 'turnInfo', requestedModel: options.model ?? null, responseModel: options.model ?? null,
-            viaGateway: false, baseUrl: null, transport: 'appServer',
-          })
-          const stopReason = status !== 'completed'
-            ? status
-            : completionAssessment.queueReleaseSafe ? 'end_turn' : 'incomplete'
-          options.emit({
-            type: 'result',
-            usage: normalizeUsage(lastUsage),
-            stopReason,
-            queueReleaseSafe: completionAssessment.queueReleaseSafe,
-          })
-          cleanup()
-          resolveCompletion()
+          finishRootTurn(status, completedTurnId, false, asString(asRecord(turn?.error)?.message))
           break
         }
       }
