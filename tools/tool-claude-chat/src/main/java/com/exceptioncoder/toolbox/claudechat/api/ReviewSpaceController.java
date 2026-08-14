@@ -39,7 +39,8 @@ public class ReviewSpaceController {
     @PostMapping("/sessions/{sessionId}/reviews")
     public Map<String, Object> create(@PathVariable String sessionId, @RequestBody CreateReviewRequest request) {
         var created = service.create(sessionId, new ReviewSpaceService.CreateCommand(
-                request.mode(), request.title(), request.contextSnapshot(), request.expiresInDays(), request.lastTurnId()));
+                request.mode(), request.title(), request.contextSnapshot(), request.expiresInDays(), request.lastTurnId(),
+                request.codexHome()));
         return Map.of("review", ReviewView.from(created.space()), "token", created.token(),
                 "sharePath", "/review/" + created.token());
     }
@@ -69,7 +70,8 @@ public class ReviewSpaceController {
     @GetMapping("/reviews/public/{token}")
     public ResponseEntity<PublicReviewView> publicView(@PathVariable String token) {
         return service.resolve(token)
-                .map(space -> ResponseEntity.ok(PublicReviewView.from(space, service.sourceTitle(space))))
+                .map(space -> ResponseEntity.ok(PublicReviewView.from(space, service.sourceTitle(space),
+                        service.runtimeConfig(space))))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
@@ -129,7 +131,7 @@ public class ReviewSpaceController {
     }
 
     public record CreateReviewRequest(String mode, String title, String contextSnapshot,
-                                      long expiresInDays, String lastTurnId) {}
+                                      long expiresInDays, String lastTurnId, String codexHome) {}
     public record ReviewView(String id, String sourceSessionId, String reviewSessionId, String mode,
                              String status, String title, long expiresAt, long createdAt) {
         static ReviewView from(ReviewSpace s) {
@@ -138,10 +140,12 @@ public class ReviewSpaceController {
         }
     }
     public record PublicReviewView(String reviewSessionId, String title, String sourceTitle, String mode,
-                                   String contextSnapshot, long expiresAt, long createdAt) {
-        static PublicReviewView from(ReviewSpace s, String sourceTitle) {
+                                   String contextSnapshot, long expiresAt, long createdAt,
+                                   ReviewSpaceService.ReviewRuntimeConfig runtimeConfig) {
+        static PublicReviewView from(ReviewSpace s, String sourceTitle,
+                                     ReviewSpaceService.ReviewRuntimeConfig runtimeConfig) {
             return new PublicReviewView(s.reviewSessionId(), s.title(), sourceTitle,
-                    s.mode(), s.contextSnapshot(), s.expiresAt(), s.createdAt());
+                    s.mode(), s.contextSnapshot(), s.expiresAt(), s.createdAt(), runtimeConfig);
         }
     }
 

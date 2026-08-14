@@ -118,6 +118,17 @@ public class ClaudeChatSessionRepository {
                 reasoningEffort, speed, id);
     }
 
+    /** 评审会话的服务端安全归一化；旧评审空间恢复时也必须清掉来源会话遗留的可变配置。 */
+    public void normalizeReviewConfiguration(String id, String codexHome) {
+        jdbc.update("""
+                UPDATE claude_chat_session
+                SET engine = 'codex', engines = 'codex', api_base_url = NULL, auth_token = NULL,
+                    codex_home = ?, selected_model = NULL, codex_reasoning_effort = NULL,
+                    codex_speed = 'default', execution_policy = ?
+                WHERE id = ?
+                """, codexHome, "review-only", id);
+    }
+
     public void updateSdkSessionId(String id, String sdkSessionId) {
         jdbc.update(
                 "UPDATE claude_chat_session SET sdk_session_id = ? WHERE id = ?",

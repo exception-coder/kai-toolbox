@@ -1706,6 +1706,7 @@ export function ChatPage() {
           sessionTitle={currentTitle}
           engine={chat.currentEngine}
           sdkSessionId={currentSession?.sdkSessionId}
+          codexHome={currentSession?.codexHome || newCodexHome}
           officialProvider={currentSession?.providerKind !== 'thirdParty'}
           items={chat.items}
           onClose={() => setShowReviewShare(false)}

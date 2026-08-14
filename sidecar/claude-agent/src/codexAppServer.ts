@@ -225,6 +225,11 @@ export function normalizeCodexModel(item: AppServerModel): CodexModelInfo | null
   }
 }
 
+/** 只接受 App Server 显式标记的默认模型；目录顺序不具备默认语义。 */
+export function findDefaultCodexModel(models: readonly CodexModelInfo[]): CodexModelInfo | undefined {
+  return models.find(model => model.isDefault === true)
+}
+
 function callAppServer(
   method: string,
   params: Record<string, unknown>,

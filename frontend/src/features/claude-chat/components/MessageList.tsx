@@ -39,6 +39,9 @@ interface Props {
   sessionKey?: string
   /** 输入区已经提供常驻作业条时关闭列表 Footer，避免同一状态重复展示。 */
   showRunningFooter?: boolean
+  /** 特定场景覆盖 AI 头像；加载失败自动回退引擎图标。 */
+  assistantAvatarUrl?: string
+  assistantAvatarAlt?: string
 }
 
 /** 供外部（如「我的提问」导航面板）滚到指定消息并短暂高亮，方便一眼找到目标气泡。 */
@@ -116,7 +119,7 @@ const LIST_COMPONENTS = { Header: ListHeader, Footer: ListFooter }
  * - 跳到指定消息：scrollToIndex，配合 highlightedId 做短暂高亮（不再依赖 DOM 查询）。
  */
 export const MessageList = memo(forwardRef<MessageListHandle, Props>(function MessageList(
-  { items, running, onLoadEarlier, loadingEarlier, exhausted, onFork, engineLabel = 'Claude', onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey, showRunningFooter = true },
+  { items, running, onLoadEarlier, loadingEarlier, exhausted, onFork, engineLabel = 'Claude', onNewSession, onCleanRetry, turnTokens = 0, connState = 'ready', sessionKey, showRunningFooter = true, assistantAvatarUrl, assistantAvatarAlt },
   ref,
 ) {
   // 是否存在可分叉的用户消息（有 sdkUuid），供错误行的「清理异常并继续」判断可用性
@@ -237,11 +240,12 @@ export const MessageList = memo(forwardRef<MessageListHandle, Props>(function Me
     <div data-msg-id={item.id} className={cn('px-3 pb-3', item.id === highlightedId && 'kai-msg-flash rounded-2xl')}>
       <Row item={item} onFork={onFork} engineLabel={engineLabel} onNewSession={onNewSession}
         sessionId={sessionKey}
+        assistantAvatarUrl={assistantAvatarUrl} assistantAvatarAlt={assistantAvatarAlt}
         onCleanRetry={hasForkTarget ? onCleanRetry : undefined}
         onOpenImage={(src, alt) => setViewer({ src, alt })}
         turnText={item.kind === 'result' ? turnTextByResultId.get(item.id) : undefined} />
     </div>
-  ), [highlightedId, onFork, engineLabel, onNewSession, onCleanRetry, hasForkTarget, turnTextByResultId, sessionKey])
+  ), [highlightedId, onFork, engineLabel, onNewSession, onCleanRetry, hasForkTarget, turnTextByResultId, sessionKey, assistantAvatarUrl, assistantAvatarAlt])
 
   // 高频变化值走 context（见 ListHeader/ListFooter 顶部注释），LIST_COMPONENTS 引用永远不变。
   const listContext: ListContext = {
@@ -443,7 +447,7 @@ function TurnStatus({ item, turnText }: { item: Extract<ChatItem, { kind: 'resul
   )
 }
 
-function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText, sessionId }: { item: ChatItem; onFork?: (forkAnchor: string) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string; sessionId?: string }) {
+function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImage, turnText, sessionId, assistantAvatarUrl, assistantAvatarAlt }: { item: ChatItem; onFork?: (forkAnchor: string) => void; engineLabel?: string; onNewSession?: () => void; onCleanRetry?: () => void; onOpenImage?: (src: string, alt: string) => void; turnText?: string; sessionId?: string; assistantAvatarUrl?: string; assistantAvatarAlt?: string }) {
   // displayText：Forge 机器人等「seed 转发」场景会隐藏实际发给 agent 的完整门控样板文案，只显示用户
   // 真正输入的那句话；保留一个不打眼的展开入口，避免完全不可见（可回看到底发了什么）。仅 'user' 项用到，
   // 但 Hooks 规则要求无条件调用，放在 switch 之外（对其它 kind 是无副作用的多余 state，可忽略）。
@@ -527,12 +531,8 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
       return (
         <div className="flex min-w-0 max-w-full items-start gap-2">
           <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-sm">
-            <EngineIcon
-              engine={engineLabel?.split(' ·', 1)[0].toLowerCase() ?? 'claude'}
-              thirdParty={engineLabel?.includes('· 第三方')}
-              className="size-5"
-              title={engineLabel}
-            />
+            <AssistantIdentityIcon avatarUrl={assistantAvatarUrl} alt={assistantAvatarAlt ?? engineLabel}
+              engineLabel={engineLabel} />
           </div>
           <div className="flex min-w-0 flex-1 flex-col items-start">
             <MsgHeader label={engineLabel} ts={item.ts} align="start" />
@@ -617,6 +617,17 @@ function Row({ item, onFork, engineLabel, onNewSession, onCleanRetry, onOpenImag
       )
     }
   }
+}
+
+function AssistantIdentityIcon({ avatarUrl, alt, engineLabel }: { avatarUrl?: string; alt?: string; engineLabel?: string }) {
+  const [failed, setFailed] = useState(false)
+  useEffect(() => setFailed(false), [avatarUrl])
+  if (avatarUrl && !failed) {
+    return <img src={avatarUrl} alt={alt || 'AI'} className="size-8 rounded-full object-cover"
+      onError={() => setFailed(true)} />
+  }
+  return <EngineIcon engine={engineLabel?.split(' ·', 1)[0].toLowerCase() ?? 'claude'}
+    thirdParty={engineLabel?.includes('· 第三方')} className="size-5" title={engineLabel} />
 }
 
 function CodexActivity({ item }: { item: Extract<ChatItem, { kind: 'activity' }> }) {

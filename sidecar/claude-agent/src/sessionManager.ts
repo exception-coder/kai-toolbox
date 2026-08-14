@@ -18,7 +18,7 @@ import {
 } from './knowledgeMcp.js'
 import { codexMcpCapabilities, normalizeCodexHome, runCodexTurn, type CodexReasoningEffort, type CodexSpeed } from './codexEngine.js'
 import { createClaudeConsultSourceServer, resolveConsultTargetSystems } from './codexSecurity.js'
-import { forkCodexThread, listCodexModels, type CodexModelInfo } from './codexAppServer.js'
+import { findDefaultCodexModel, forkCodexThread, listCodexModels, type CodexModelInfo } from './codexAppServer.js'
 import { runGeminiTurn } from './geminiEngine.js'
 import { answerOpencodePermission, emitOpencodeModels, runOpencodeTurn, updateOpencodePermissionPolicy } from './opencodeEngine.js'
 import { activityOutputTail, elapsedSince, emitToolActivity, summarizeToolInput } from './toolActivity.js'
@@ -1074,6 +1074,7 @@ class Session {
 
 /** 多会话路由：一个 sidecar 进程内按 sessionId 管理多个 Session。 */
 export class SessionManager {
+  private readonly reviewConfiguration = new Map<string, Promise<void>>()
   private sessions = new Map<string, Session>()
   private oneShotControllers = new Map<string, AbortController>()
   private pendingCodexOptions = new Map<string, { reasoningEffort?: CodexReasoningEffort; speed: CodexSpeed }>()
@@ -1220,8 +1221,43 @@ export class SessionManager {
       if (cached) this.emit(id, { type: 'models', models: cached, current: s.model ?? null })
     } else if (s.engine === 'codex') {
       this.emit(id, { type: 'models', models: loadCodexModels(s.codexHome), current: s.model ?? null })
-      void this.refreshCodexModels(id, s, false)
+      if (s.toolPolicy === 'review-only') void this.ensureReviewDefaults(id, s)
+      else void this.refreshCodexModels(id, s, false)
     }
+  }
+
+  /**
+   * 评审会话只保留“使用官方默认”的语义：模型值永远为空，推理强度只接受
+   * App Server 对 isDefault=true 模型声明的 defaultReasoningEffort。目录失败时不猜第一项，
+   * 留空交给 App Server/SDK 自身默认，并通过非终态告警明确降级状态。
+   */
+  private ensureReviewDefaults(id: string, session: Session): Promise<void> {
+    const existing = this.reviewConfiguration.get(id)
+    if (existing) return existing
+    const resolving = (async () => {
+      session.model = undefined
+      session.codexSpeed = 'default'
+      session.codexReasoningEffort = undefined
+      try {
+        const models = await listCodexModels(session.codexHome)
+        if (this.sessions.get(id) !== session || session.toolPolicy !== 'review-only') return
+        const defaultModel = findDefaultCodexModel(models)
+        if (!defaultModel) throw new Error('model/list 未返回 isDefault=true 的模型')
+        session.codexReasoningEffort = isCodexReasoningEffort(defaultModel.defaultReasoningEffort)
+          ? defaultModel.defaultReasoningEffort
+          : undefined
+        this.emit(id, { type: 'models', models, current: null })
+      } catch (error) {
+        if (this.sessions.get(id) !== session) return
+        const message = error instanceof Error ? error.message : String(error)
+        this.emit(id, {
+          type: 'warning', code: 'REVIEW_MODEL_CATALOG_FALLBACK',
+          message: `Codex 默认模型目录同步失败；未猜测模型，将由运行通道使用官方默认配置：${message}`,
+        })
+      }
+    })()
+    this.reviewConfiguration.set(id, resolving)
+    return resolving
   }
 
   private async refreshCodexModels(id: string, session: Session, reportFailure: boolean): Promise<void> {
@@ -1257,7 +1293,8 @@ export class SessionManager {
       ? developerInstructions?.trim() || undefined
       : sessionContext?.trim() || undefined
     const safeAdditionalDirectories = restricted ? [] : additionalDirectories
-    s.runTurn(text, undefined, undefined, hiddenInstructions, turnId, safeAdditionalDirectories).catch((e) => {
+    const prepare = s.toolPolicy === 'review-only' ? this.ensureReviewDefaults(id, s) : Promise.resolve()
+    prepare.then(() => s.runTurn(text, undefined, undefined, hiddenInstructions, turnId, safeAdditionalDirectories)).catch((e) => {
       console.error('[sidecar] runTurn 异常（已兜住）session=' + id + ':', e)
       this.emit(id, { type: 'error', code: 'TURN_FAILED', message: e instanceof Error ? e.message : String(e), turnId })
       this.emit(id, { type: 'result', usage: {}, stopReason: 'error', turnId })
@@ -1425,6 +1462,7 @@ export class SessionManager {
     this.sessions.get(id)?.interrupt()
     this.sessions.delete(id)
     this.pendingCodexOptions.delete(id)
+    this.reviewConfiguration.delete(id)
   }
 
   /**

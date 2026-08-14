@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   classifyCodexAppServerError,
   codexReconnectDeadlineMs,
+  findDefaultCodexModel,
   isCodexAppServerRecoverySignal,
   normalizeCodexModel,
 } from './codexAppServer.js'
@@ -25,6 +26,15 @@ test('preserves the App Server default-model marker and all supported efforts', 
 
   assert.equal(model?.isDefault, true)
   assert.deepEqual(model?.reasoningEfforts, ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'])
+})
+
+test('never guesses the first catalog item when App Server has not marked a default', () => {
+  const models = [
+    { value: 'first', displayName: 'First', description: '', reasoningEfforts: [], defaultReasoningEffort: 'high', fastSupported: false, isDefault: false },
+    { value: 'default', displayName: 'Default', description: '', reasoningEfforts: [], defaultReasoningEffort: 'low', fastSupported: false, isDefault: true },
+  ]
+  assert.equal(findDefaultCodexModel(models)?.value, 'default')
+  assert.equal(findDefaultCodexModel(models.slice(0, 1)), undefined)
 })
 
 test('keeps structured retryable App Server errors non-terminal', () => {

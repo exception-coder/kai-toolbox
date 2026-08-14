@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { AlertTriangle, CheckCircle2, GitPullRequestArrow, Loader2, Paperclip, Send, ShieldCheck, Square } from 'lucide-react'
+import { AlertTriangle, Bot, CheckCircle2, GitPullRequestArrow, Loader2, Paperclip, RefreshCw, Send, ShieldCheck, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   MessageList,
@@ -14,6 +14,7 @@ import {
   type ChatItem,
   type UploadedAttachment,
 } from '@/features/claude-chat/public-api'
+import sheepAvatar from '../assets/wyoooni-ai-sheep-avatar.png'
 
 const HISTORY_PAGE_SIZE = 100
 const MAX_HISTORY_PAGES = 200
@@ -36,6 +37,13 @@ interface ReviewConclusion {
 }
 
 type ReviewAttachment = UploadedAttachment & { url?: string }
+type FailedReviewUpload = { id: string; file: File; url?: string; message: string }
+
+function ReviewAvatar({ className }: { className: string }) {
+  const [failed, setFailed] = useState(false)
+  if (failed) return <span aria-label="AI 评审" className={`inline-flex items-center justify-center bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-200 ${className}`}><Bot className="size-1/2" /></span>
+  return <img src={sheepAvatar} alt="AI 评审" className={className} onError={() => setFailed(true)} />
+}
 
 /**
  * 实时消息 ID 是浏览器随机值，刷新后历史消息 ID 又会变成 h&lt;index&gt;，不能用于服务端去重。
@@ -115,7 +123,8 @@ export function ReviewPage() {
   const [error, setError] = useState<string | null>(null)
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<ReviewAttachment[]>([])
-  const [uploading, setUploading] = useState(false)
+  const [uploading, setUploading] = useState(0)
+  const [failedUploads, setFailedUploads] = useState<FailedReviewUpload[]>([])
   const [submittingLatest, setSubmittingLatest] = useState(false)
   const [summaryPhase, setSummaryPhase] = useState<SummaryPhase>('idle')
   const [summaryRequest, setSummaryRequest] = useState<{ coveredSourceIds: string[]; existingItemIds: string[] } | null>(null)
@@ -158,24 +167,37 @@ export function ReviewPage() {
     && [...submittedSourceIds].some(id => id.startsWith(FINAL_SUMMARY_SOURCE_PREFIX))
 
   const send = () => {
-    if (uploading || finalizingSummary || (!text.trim() && attachments.length === 0)) return
+    if (uploading > 0 || finalizingSummary || (!text.trim() && attachments.length === 0)) return
     if (chat.running || chat.queued.length > 0) chat.enqueue(text, attachments)
     else chat.send(text, attachments)
     setText('')
     setAttachments([])
   }
-  const upload = async (files: FileList | null) => {
-    if (!files?.length || finalizingSummary) return
-    setUploading(true); setError(null)
-    try {
-      const next: ReviewAttachment[] = []
-      for (const file of Array.from(files).slice(0, 10 - attachments.length)) {
+  const uploadFiles = async (files: File[]) => {
+    if (!files.length || finalizingSummary) return
+    const available = Math.max(0, 10 - attachments.length - failedUploads.length)
+    const selected = files.slice(0, available)
+    if (selected.length < files.length) setError('单条评审消息最多添加 10 个附件。')
+    if (!selected.length) return
+    setUploading(previous => previous + selected.length); setError(null)
+    for (const file of selected) {
+      const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined
+      try {
         const uploaded = await uploadReviewAttachment(token, file)
-        next.push({ ...uploaded, url: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined })
+        setAttachments(previous => [...previous, { ...uploaded, url: previewUrl }])
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : String(cause)
+        setFailedUploads(previous => [...previous, { id: crypto.randomUUID(), file, url: previewUrl, message }])
+      } finally {
+        setUploading(previous => Math.max(0, previous - 1))
       }
-      setAttachments(prev => [...prev, ...next])
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
-    finally { setUploading(false) }
+    }
+  }
+  const upload = async (files: FileList | null) => uploadFiles(files ? Array.from(files) : [])
+  const retryUpload = async (failed: FailedReviewUpload) => {
+    setFailedUploads(previous => previous.filter(item => item.id !== failed.id))
+    if (failed.url) URL.revokeObjectURL(failed.url)
+    await uploadFiles([failed.file])
   }
 
   const startFinalSummary = async () => {
@@ -278,19 +300,45 @@ export function ReviewPage() {
   if (!review) return <div className="flex h-dvh items-center justify-center gap-2 text-sm text-slate-500"><Loader2 className="size-4 animate-spin" />加载评审会话…</div>
 
   const visibleError = error ?? chat.errorMessage ?? chat.syncWarning
+  const defaultModel = chat.models.find(model => model.isDefault)
+  const transport = chat.providerDiag[0]?.transport
+  const transportLabel = transport === 'sdkFallback' ? '官方 · SDK（已回退）'
+    : transport === 'thirdPartySdk' ? '第三方 · SDK' : '官方 · App Server'
+  const runningActivity = [...chat.items].reverse().find(item => item.kind === 'activity'
+    && ['inProgress', 'in_progress', 'running', 'pending', 'started'].includes(item.status))
+  const activeTurnHasAttachments = (() => {
+    for (let index = chat.items.length - 1; index >= 0; index -= 1) {
+      const item = chat.items[index]
+      if (item.kind === 'result' || item.kind === 'error') break
+      if (item.kind === 'user' && (item.attachments?.length ?? 0) > 0) return true
+    }
+    return false
+  })()
+  const runningTitle = runningActivity?.kind === 'activity' ? runningActivity.title
+    : chat.state !== 'ready' ? 'Codex 正在重连'
+      : activeTurnHasAttachments && chat.running ? '正在分析图片或附件'
+        : chat.running ? '正在读取评审上下文并生成回复' : null
   return (
     <div className="flex h-dvh flex-col bg-slate-50 text-slate-950 dark:bg-slate-950 dark:text-slate-50">
       <header className="border-b bg-white/90 px-4 py-3 backdrop-blur dark:bg-slate-900/90">
         <div className="mx-auto flex max-w-5xl items-center gap-3">
-          <div className="rounded-xl bg-emerald-500/10 p-2 text-emerald-600"><ShieldCheck className="size-5" /></div>
+          <ReviewAvatar className="size-10 rounded-full border border-white/70 object-cover shadow-sm" />
           <div className="min-w-0 flex-1"><h1 className="truncate font-semibold">{review.title}</h1><p className="text-xs text-slate-500">关联开发会话：{review.sourceTitle} · {review.mode === 'FULL_FORK' ? '完整上下文' : '安全快照'} · 仅评审</p></div>
           <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-xs text-emerald-700 dark:text-emerald-300">Review only</span>
         </div>
       </header>
+      <section className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-2 border-b px-4 py-2 text-xs">
+        <span className="rounded-full bg-indigo-500/10 px-2 py-1 text-indigo-700 dark:text-indigo-300">Codex · {defaultModel ? `默认 ${defaultModel.displayName}` : '默认模型同步中'} · 标准速度</span>
+        <span className="rounded-full bg-slate-500/10 px-2 py-1">{transportLabel}</span>
+        <span className="rounded-full bg-slate-500/10 px-2 py-1">Auth：{review.runtimeConfig.codexAuthAlias}</span>
+        <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-emerald-700 dark:text-emerald-300">review-only</span>
+        {defaultModel?.defaultReasoningEffort && <span className="text-slate-500">默认推理：{defaultModel.defaultReasoningEffort}</span>}
+      </section>
+      {runningTitle && <div className="mx-auto flex w-full max-w-5xl items-center gap-2 border-b border-indigo-200 bg-indigo-50/70 px-4 py-2 text-xs text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200"><ReviewAvatar className="size-7 rounded-full object-cover" /><Loader2 className="size-3.5 animate-spin" /><span>{runningTitle}</span></div>}
       {review.contextSnapshot && <details className="mx-auto w-full max-w-5xl border-b px-4 py-2 text-xs"><summary className="cursor-pointer text-slate-500">查看分享的需求/计划快照</summary><pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-100 p-3 dark:bg-slate-900">{review.contextSnapshot}</pre></details>}
       {visibleError && <div className="mx-auto mt-2 flex w-full max-w-5xl gap-2 px-4 text-sm text-red-600"><AlertTriangle className="size-4 shrink-0" />{visibleError}</div>}
       <main className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 overflow-hidden">
-        <MessageList items={chat.items} running={chat.running} sessionKey={review.reviewSessionId} engineLabel="AI 评审" connState={chat.state} onLoadEarlier={() => chat.loadHistory(false)} loadingEarlier={chat.historyLoading} exhausted={chat.historyExhausted} />
+        <MessageList items={chat.items} running={chat.running} sessionKey={review.reviewSessionId} engineLabel="AI 评审" connState={chat.state} assistantAvatarUrl={sheepAvatar} assistantAvatarAlt="AI 评审" onLoadEarlier={() => chat.loadHistory(false)} loadingEarlier={chat.historyLoading} exhausted={chat.historyExhausted} />
       </main>
       <footer className="border-t bg-white p-3 dark:bg-slate-900">
         <div className="mx-auto max-w-5xl">
@@ -327,19 +375,20 @@ export function ReviewPage() {
           />
           <AttachmentChips
             items={attachments}
-            uploading={uploading ? 1 : 0}
+            uploading={uploading}
             onRemove={id => setAttachments(previous => {
               const removed = previous.find(item => item.id === id)
               if (removed?.url) URL.revokeObjectURL(removed.url)
               return previous.filter(item => item.id !== id)
             })}
           />
+          {failedUploads.length > 0 && <div className="mt-2 flex flex-wrap gap-2 px-3">{failedUploads.map(item => <div key={item.id} className="flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-2 py-1 text-xs text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-200">{item.url && <img src={item.url} alt={item.file.name} className="size-8 rounded object-cover" />}<span className="max-w-48 truncate" title={item.message}>{item.file.name}：上传失败</span><button type="button" onClick={() => void retryUpload(item)} className="inline-flex items-center gap-1 font-medium"><RefreshCw className="size-3" />重试</button><button type="button" onClick={() => { if (item.url) URL.revokeObjectURL(item.url); setFailedUploads(previous => previous.filter(value => value.id !== item.id)) }}>删除</button></div>)}</div>}
           {chat.running && <p className="mb-1 text-xs text-indigo-600 dark:text-indigo-300">{finalizingSummary ? 'AI 正在生成最终交接结论；完成并自动提交后可继续补充新问题。' : 'AI 正在回复；你仍可继续发送问题或截图，消息会排队依次处理。'}</p>}
           <div className="flex items-end gap-2 rounded-2xl border bg-white p-2 shadow-sm dark:bg-slate-950">
-            <label className="cursor-pointer rounded-lg p-2 hover:bg-slate-100 dark:hover:bg-slate-800" title="上传问题截图或文档"><input className="sr-only" type="file" multiple disabled={uploading || finalizingSummary || attachments.length >= 10} onChange={e => void upload(e.target.files)} />{uploading ? <Loader2 className="size-5 animate-spin" /> : <Paperclip className="size-5" />}</label>
-            <textarea value={text} disabled={finalizingSummary} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} rows={2} placeholder={finalizingSummary ? '最终结论正在生成并提交…' : chat.running ? '继续输入下一个问题；发送后会进入队列…' : '补充业务规则、测试场景或上传问题附件…'} className="max-h-36 min-h-12 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-60" />
+            <label className="cursor-pointer rounded-lg p-2 hover:bg-slate-100 dark:hover:bg-slate-800" title="上传问题截图或文档"><input className="sr-only" type="file" multiple disabled={uploading > 0 || finalizingSummary || attachments.length + failedUploads.length >= 10} onChange={e => void upload(e.target.files)} />{uploading > 0 ? <Loader2 className="size-5 animate-spin" /> : <Paperclip className="size-5" />}</label>
+            <textarea value={text} disabled={finalizingSummary} onChange={e => setText(e.target.value)} onPaste={e => { const images = Array.from(e.clipboardData.items).filter(item => item.kind === 'file' && item.type.startsWith('image/')).map(item => item.getAsFile()).filter((file): file is File => file != null); if (images.length > 0) void uploadFiles(images) }} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} rows={2} placeholder={finalizingSummary ? '最终结论正在生成并提交…' : chat.running ? '继续输入下一个问题；发送后会进入队列…' : '补充业务规则，或直接 Ctrl+V 粘贴截图…'} className="max-h-36 min-h-12 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-60" />
             {chat.running && <Button size="icon" variant="destructive" onClick={chat.interrupt} title="中断当前回答"><Square className="size-4" /></Button>}
-            <Button size="icon" onClick={send} disabled={uploading || finalizingSummary || (!text.trim() && attachments.length === 0)} title={chat.running || chat.queued.length > 0 ? '加入待发送队列' : '发送'}><Send className="size-4" /></Button>
+            <Button size="icon" onClick={send} disabled={uploading > 0 || finalizingSummary || (!text.trim() && attachments.length === 0)} title={chat.running || chat.queued.length > 0 ? '加入待发送队列' : '发送'}><Send className="size-4" /></Button>
           </div>
           <p className="mt-2 text-center text-[11px] text-slate-500">评审期间可连续发送问题；提交结论后由开发者在来源会话合并确认实施。</p>
         </div>

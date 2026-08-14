@@ -62,8 +62,7 @@ public class ReviewSpaceService {
                 ? defaultTitle(source) : command.title().trim();
         String snapshot = command.contextSnapshot() == null ? "" : command.contextSnapshot().trim();
         Path reviewRoot = Path.of(System.getProperty("user.home"), ".kai-toolbox", "reviews", id);
-        String reviewEngine = "claude".equals(source.getEngine()) || "codex".equals(source.getEngine())
-                ? source.getEngine() : "codex";
+        String codexHome = normalizedCodexHome(command.codexHome(), source.getCodexHome());
         try {
             Files.createDirectories(reviewRoot);
         } catch (IOException e) {
@@ -73,15 +72,13 @@ public class ReviewSpaceService {
         String forkedThreadId = null;
         if (FULL_FORK.equals(mode)) {
             forkedThreadId = forkGateway.forkForReview(source.getSdkSessionId(), command.lastTurnId(),
-                    source.getCodexHome(), reviewRoot.toString());
+                    codexHome, reviewRoot.toString());
         }
 
         sessions.insert(ClaudeChatSession.builder()
                 .id(reviewSessionId).cwd(reviewRoot.toString()).title(title).sdkSessionId(forkedThreadId)
-                .engine(reviewEngine).engines(reviewEngine).codexHome(source.getCodexHome())
-                .selectedModel(source.getSelectedModel())
-                .codexReasoningEffort("codex".equals(reviewEngine) ? source.getCodexReasoningEffort() : null)
-                .codexSpeed("codex".equals(reviewEngine) ? source.getCodexSpeed() : "default")
+                .engine("codex").engines("codex").codexHome(codexHome)
+                .selectedModel(null).codexReasoningEffort(null).codexSpeed("default")
                 .executionPolicy(SessionExecutionPolicy.REVIEW_ONLY)
                 .status(SessionStatus.IDLE).startedAt(now).lastSeenAt(now).build());
         sessions.updateGroup(reviewSessionId, REVIEW_GROUP, source.getSubgroupName() != null
@@ -99,7 +96,10 @@ public class ReviewSpaceService {
 
     public Optional<ReviewSpace> resolve(String token) {
         if (token == null || token.isBlank()) return Optional.empty();
-        return reviews.findByTokenHash(hashToken(token)).filter(space -> space.active(System.currentTimeMillis()));
+        Optional<ReviewSpace> resolved = reviews.findByTokenHash(hashToken(token))
+                .filter(space -> space.active(System.currentTimeMillis()));
+        resolved.ifPresent(this::normalizeReviewSession);
+        return resolved;
     }
 
     public boolean canAccess(String token, String reviewSessionId) {
@@ -147,6 +147,40 @@ public class ReviewSpaceService {
 
     public String sourceTitle(ReviewSpace space) {
         return sessionTitle(space.sourceSessionId());
+    }
+
+    public ReviewRuntimeConfig runtimeConfig(ReviewSpace space) {
+        ClaudeChatSession review = sessions.findById(space.reviewSessionId())
+                .orElseThrow(() -> new IllegalStateException("评审会话不存在"));
+        return new ReviewRuntimeConfig("codex", "DEFAULT", null, null, "default",
+                SessionExecutionPolicy.REVIEW_ONLY, codexAuthAlias(review.getCodexHome()));
+    }
+
+    private void normalizeReviewSession(ReviewSpace space) {
+        sessions.findById(space.reviewSessionId()).ifPresent(session -> {
+            if (!"codex".equals(session.getEngine()) || !"codex".equals(session.getEngines())
+                    || session.getSelectedModel() != null
+                    || session.getCodexReasoningEffort() != null || !"default".equals(session.getCodexSpeed())
+                    || !SessionExecutionPolicy.REVIEW_ONLY.equals(session.getExecutionPolicy())
+                    || session.getApiBaseUrl() != null || session.getAuthToken() != null) {
+                sessions.normalizeReviewConfiguration(session.getId(), session.getCodexHome());
+            }
+        });
+    }
+
+    private String normalizedCodexHome(String requested, String source) {
+        String value = source == null || source.isBlank() ? requested : source;
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private String codexAuthAlias(String codexHome) {
+        if (codexHome == null || codexHome.isBlank()) return "默认 Auth";
+        try {
+            Path fileName = Path.of(codexHome).normalize().getFileName();
+            return fileName == null ? "自定义 Auth" : fileName.toString();
+        } catch (RuntimeException ignored) {
+            return "自定义 Auth";
+        }
     }
 
     private String sessionTitle(String sessionId) {
@@ -204,7 +238,7 @@ public class ReviewSpaceService {
     }
 
     public record CreateCommand(String mode, String title, String contextSnapshot,
-                                long expiresInDays, String lastTurnId) {}
+                                long expiresInDays, String lastTurnId, String codexHome) {}
     public record CreatedReview(ReviewSpace space, String token) {}
 
     /** 任一内部会话可读取的评审关联上下文。 */
@@ -215,4 +249,8 @@ public class ReviewSpaceService {
     public record ReviewLink(String id, String sourceSessionId, String reviewSessionId, String mode,
                              String status, String title, String sourceTitle, String reviewTitle,
                              long expiresAt, long createdAt) {}
+
+    public record ReviewRuntimeConfig(String engine, String modelPolicy, String defaultModel,
+                                      String defaultReasoningEffort, String speed,
+                                      String executionPolicy, String codexAuthAlias) {}
 }

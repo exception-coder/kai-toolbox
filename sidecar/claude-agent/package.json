@@ -5,7 +5,7 @@
   "type": "module",
   "description": "kai-toolbox 移动端 Claude 客户端的 sidecar：跑 Claude Agent SDK，经 WebSocket 与 Java 后端交互",
   "scripts": {
-    "build": "tsc",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc",
     "test": "npm run build && node --test dist/**/*.test.js",
     "start": "node dist/server.js",
     "dev": "node --experimental-strip-types src/server.ts"

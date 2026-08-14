@@ -464,6 +464,7 @@ export function createReviewShare(sessionId: string, input: {
   contextSnapshot?: string
   expiresInDays: number
   lastTurnId?: string
+  codexHome?: string
 }) {
   return http<{ review: ReviewShareView; token: string; sharePath: string }>(
     `/claude-chat/sessions/${encodeURIComponent(sessionId)}/reviews`,
@@ -474,7 +475,7 @@ export function createReviewShare(sessionId: string, input: {
 export function getPublicReview(token: string) {
   return fetch(`/api/claude-chat/reviews/public/${encodeURIComponent(token)}`).then(async response => {
     if (!response.ok) throw new Error(response.status === 404 ? '评审链接已失效、过期或被撤销' : '读取评审会话失败')
-    return response.json() as Promise<{ reviewSessionId: string; title: string; sourceTitle: string; mode: ReviewShareMode; contextSnapshot: string; expiresAt: number; createdAt: number }>
+    return response.json() as Promise<{ reviewSessionId: string; title: string; sourceTitle: string; mode: ReviewShareMode; contextSnapshot: string; expiresAt: number; createdAt: number; runtimeConfig: { engine: 'codex'; modelPolicy: 'DEFAULT'; defaultModel: string | null; defaultReasoningEffort: string | null; speed: 'default'; executionPolicy: 'review-only'; codexAuthAlias: string } }>
   })
 }
 
@@ -504,8 +505,21 @@ export async function submitPublicReviewFeedback(token: string, content: string,
 export async function uploadReviewAttachment(token: string, file: File): Promise<UploadedAttachment> {
   const fd = new FormData()
   fd.append('file', file)
-  const response = await fetch(`/api/claude-chat/reviews/public/${encodeURIComponent(token)}/attachments`, { method: 'POST', body: fd })
-  if (!response.ok) throw new Error('附件上传失败')
+  let response: Response
+  try {
+    response = await fetch(`/api/claude-chat/reviews/public/${encodeURIComponent(token)}/attachments`, {
+      method: 'POST', body: fd, signal: AbortSignal.timeout(60_000),
+    })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'TimeoutError') throw new Error('附件上传超时，请重试')
+    throw new Error('附件上传失败，请检查网络后重试')
+  }
+  if (!response.ok) {
+    if (response.status === 413) throw new Error('附件超过允许的单文件大小')
+    if (response.status === 415) throw new Error('不支持该附件类型')
+    if (response.status === 404) throw new Error('评审链接已失效')
+    throw new Error(`附件上传失败（${response.status}）`)
+  }
   return response.json()
 }
 

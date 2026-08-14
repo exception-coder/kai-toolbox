@@ -564,6 +564,11 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       case 'models':
         setModels(msg.models)
         setCurrentModel(msg.current)
+        if (channel === 'review') {
+          const defaultModel = msg.models.find(model => model.isDefault)
+          if (defaultModel?.defaultReasoningEffort) setCodexReasoningEffort(defaultModel.defaultReasoningEffort)
+          setCodexSpeed('default')
+        }
         setModelsRefreshing(false) // 收到最新清单：结束「同步中」态
         break
       case 'userMessage':

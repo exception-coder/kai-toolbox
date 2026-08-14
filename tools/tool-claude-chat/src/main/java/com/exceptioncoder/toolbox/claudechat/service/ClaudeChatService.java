@@ -601,6 +601,7 @@ public class ClaudeChatService {
             sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
+        if (rejectReviewMutation(ws, ctx)) return;
         if (isConsultReadonly(ctx)) {
             if ("plan".equals(msg.mode())) {
                 ctx.mode = "plan";
@@ -632,6 +633,7 @@ public class ClaudeChatService {
             sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
+        if (rejectReviewMutation(ws, ctx)) return;
         if (isConsultReadonly(ctx)) {
             ctx.autoApprove = false;
             sidecar.setAutoApprove(ctx.sessionId, false);
@@ -652,6 +654,7 @@ public class ClaudeChatService {
             sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
+        if (rejectReviewMutation(ws, ctx)) return;
         ctx.currentModel = msg.model();
         repo.updateSelectedModel(ctx.sessionId, blankToNull(msg.model()));
         sidecar.setModel(ctx.sessionId, msg.model());
@@ -687,6 +690,7 @@ public class ClaudeChatService {
             sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
+        if (rejectReviewMutation(ws, ctx)) return;
         ctx.codexReasoningEffort = msg.reasoningEffort();
         ctx.codexSpeed = msg.speed();
         repo.updateCodexOptions(ctx.sessionId, ctx.codexReasoningEffort, ctx.codexSpeed);
@@ -706,6 +710,7 @@ public class ClaudeChatService {
             sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
+        if (rejectReviewMutation(ws, ctx)) return;
         String engine = normalizeEngine(msg.engine());
         if (isConsultReadonly(ctx) && !"claude".equals(engine) && !"codex".equals(engine)) {
             sendError(ws, 0, "ENGINE_UNSUPPORTED", "业务咨询仅支持 Claude Code 或 Codex 引擎");
@@ -737,6 +742,7 @@ public class ClaudeChatService {
             sendError(ws, 0, "SESSION_NOT_FOUND", "请先 open 或 attach 会话");
             return;
         }
+        if (rejectReviewMutation(ws, ctx)) return;
         if (isConsultReadonly(ctx)) {
             sendError(ws, 0, "READONLY_POLICY", "业务咨询会话不允许切换到第三方网关");
             return;
@@ -1473,12 +1479,26 @@ public class ClaudeChatService {
         return SessionExecutionPolicy.isReviewOnly(ctx.executionPolicy);
     }
 
+    private boolean rejectReviewMutation(WebSocketSession ws, SessionCtx ctx) {
+        if (!isReviewOnly(ctx)) return false;
+        sendError(ws, 0, "REVIEW_POLICY", "计划评审固定使用 Codex 官方默认配置，参与者不能修改引擎、模型、速度、Auth 或权限");
+        return true;
+    }
+
     private static void enforceReadonlyDefaults(SessionCtx ctx) {
         if (!isConsultReadonly(ctx) && !isReviewOnly(ctx)) return;
         ctx.mode = "plan";
         ctx.autoApprove = false;
         ctx.apiBaseUrl = null;
         ctx.authToken = null;
+        if (isReviewOnly(ctx)) {
+            // 旧评审会话可能已经被装入内存，不能只修数据库快照；每次绑定/恢复都重新建立
+            // “Codex 官方默认”语义，由 Sidecar 按当前 Auth 的 model/list 解析默认推理强度。
+            ctx.engine = "codex";
+            ctx.currentModel = null;
+            ctx.codexReasoningEffort = null;
+            ctx.codexSpeed = "default";
+        }
     }
 
     /** 咨询与开发通道双向隔离，任何入口都不能凭会话 ID 交叉接管另一执行域。 */

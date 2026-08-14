@@ -10,12 +10,13 @@ interface Props {
   sessionTitle?: string | null
   engine: Engine
   sdkSessionId?: string | null
+  codexHome?: string | null
   officialProvider?: boolean
   items: ChatItem[]
   onClose: () => void
 }
 
-export function ReviewShareDialog({ open, sessionId, sessionTitle, engine, sdkSessionId, officialProvider = true, items, onClose }: Props) {
+export function ReviewShareDialog({ open, sessionId, sessionTitle, engine, sdkSessionId, codexHome, officialProvider = true, items, onClose }: Props) {
   const [mode, setMode] = useState<ReviewShareMode>('SAFE_SNAPSHOT')
   const [days, setDays] = useState(7)
   const [busy, setBusy] = useState(false)
@@ -40,6 +41,7 @@ export function ReviewShareDialog({ open, sessionId, sessionTitle, engine, sdkSe
         contextSnapshot: snapshot,
         expiresInDays: days,
         lastTurnId,
+        codexHome: codexHome?.trim() || undefined,
       })
       setShareUrl(new URL(result.sharePath, window.location.origin).toString())
     } catch (e) {
@@ -82,6 +84,7 @@ export function ReviewShareDialog({ open, sessionId, sessionTitle, engine, sdkSe
         <div className="mt-3 flex gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 text-xs text-emerald-700 dark:text-emerald-300">
           <ShieldCheck className="size-4 shrink-0" />服务端固定 review-only：禁止切换权限、访问项目工作区、调用 MCP、执行命令或写入文件。
         </div>
+        <p className="mt-2 text-xs text-[var(--color-muted-foreground)]">评审固定使用 Codex 官方默认模型与标准速度；Auth：{codexHome?.trim().split(/[\\/]/).filter(Boolean).pop() || '默认 Auth'}。</p>
         {error && <p className="mt-3 text-sm text-[var(--color-destructive)]">{error}</p>}
         {shareUrl && (
           <div className="mt-4 flex items-center gap-2 rounded-lg border p-2">
