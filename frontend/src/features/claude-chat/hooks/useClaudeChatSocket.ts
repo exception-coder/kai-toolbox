@@ -538,7 +538,8 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
               : it.toolName === msg.toolName)
             if (matched) {
               const copy = prev.slice()
-              copy[i] = { ...it, output: msg.output, isError: msg.isError }
+              copy[i] = { ...it, output: msg.output, isError: msg.isError,
+                elapsedMs: it.ts == null ? undefined : Math.max(0, Date.now() - it.ts) }
               return copy
             }
           }

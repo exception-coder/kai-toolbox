@@ -503,7 +503,8 @@ public class SessionHistoryService {
                         Integer idx = callId.isBlank() ? null : callIdx.get(callId);
                         if (idx != null) {
                             ChatMessageView prev = out.get(idx);
-                            out.set(idx, ChatMessageView.tool(prev.id(), prev.toolName(), prev.input(), outText, null, prev.ts()));
+                            out.set(idx, ChatMessageView.tool(prev.id(), prev.toolName(), prev.input(), outText, null,
+                                    prev.ts(), elapsedBetween(prev.ts(), ts)));
                         } else {
                             out.add(ChatMessageView.tool("h" + out.size(), "", null, outText, null, ts));
                         }
@@ -862,7 +863,8 @@ public class SessionHistoryService {
                 Integer idx = toolIdx.get(useId);
                 if (idx != null) {
                     ChatMessageView prev = out.get(idx);
-                    out.set(idx, ChatMessageView.tool(prev.id(), prev.toolName(), prev.input(), outText, err, prev.ts()));
+                    out.set(idx, ChatMessageView.tool(prev.id(), prev.toolName(), prev.input(), outText, err,
+                            prev.ts(), elapsedBetween(prev.ts(), ts)));
                 } else {
                     out.add(ChatMessageView.tool("h" + out.size(), "", null, outText, err, ts));
                 }
@@ -901,6 +903,12 @@ public class SessionHistoryService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /** 调用开始到结果写入的耗时；任一时间缺失或时序异常时不伪造。 */
+    private static Long elapsedBetween(Long startedAt, Long completedAt) {
+        if (startedAt == null || completedAt == null || completedAt < startedAt) return null;
+        return completedAt - startedAt;
     }
 
     /** tool_result 的 content（string 或 block 数组）压成纯文本。 */

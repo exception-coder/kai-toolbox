@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Copy, Database, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Send, Server, Settings, Share2, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
+import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Copy, Database, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Route, Send, Server, Settings, Share2, ShieldCheck, Slash, Sparkles, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { StatusBadge } from '@/components/ui/status-badge'
 import { useChatRuntime } from '../runtime/ChatRuntimeContext'
 import { MessageList, type MessageListHandle } from '../components/MessageList'
+import { TrajectoryView } from '../components/TrajectoryView'
 import { MessageNavPanel } from '../components/MessageNavPanel'
 import { SessionTotalBadge } from '../components/SessionTotalBadge'
 import { EngineIcon } from '../components/EngineIcon'
@@ -333,6 +334,7 @@ export function ChatPage() {
     return () => { alive = false; window.clearInterval(timer) }
   }, [chat?.sessionId])
   const [showMsgNav, setShowMsgNav] = useState(false)
+  const [sessionView, setSessionView] = useState<'conversation' | 'trajectory'>('conversation')
   const messageListRef = useRef<MessageListHandle>(null)
   // 「我的提问」面板点中一条待滚到的目标：可能还没加载进 chat.items（分页更早历史里）。
   const [pendingScroll, setPendingScroll] = useState<Extract<ChatItem, { kind: 'user' }> | null>(null)
@@ -1751,7 +1753,7 @@ export function ChatPage() {
       {showMsgNav && (
         <MessageNavPanel
           items={chat.items}
-          onSelect={item => { setShowMsgNav(false); setPendingScroll(item) }}
+          onSelect={item => { setShowMsgNav(false); setSessionView('conversation'); setPendingScroll(item) }}
           onClose={() => setShowMsgNav(false)}
         />
       )}
@@ -1836,23 +1838,66 @@ export function ChatPage() {
               currentSessionId={chat.sessionId}
               onGo={sid => chat.switchTo(sid)}
             />
+            {chat.sessionId && (
+              <nav className="flex h-9 shrink-0 items-end gap-5 border-b border-[var(--color-border)] px-3" aria-label="会话视图">
+                <button
+                  type="button"
+                  aria-current={sessionView === 'conversation' ? 'page' : undefined}
+                  onClick={() => setSessionView('conversation')}
+                  className={cn(
+                    'relative inline-flex h-full items-center gap-1.5 px-1 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full',
+                    sessionView === 'conversation'
+                      ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
+                      : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
+                  )}
+                >
+                  <MessageSquare className="size-3.5" />
+                  对话
+                </button>
+                <button
+                  type="button"
+                  aria-current={sessionView === 'trajectory' ? 'page' : undefined}
+                  onClick={() => setSessionView('trajectory')}
+                  className={cn(
+                    'relative inline-flex h-full items-center gap-1.5 px-1 text-xs transition-colors after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-full',
+                    sessionView === 'trajectory'
+                      ? 'font-medium text-[var(--color-primary)] after:bg-[var(--color-primary)]'
+                      : 'text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] after:bg-transparent',
+                  )}
+                >
+                  <Route className="size-3.5" />
+                  轨迹
+                </button>
+              </nav>
+            )}
             {chat.sessionId ? (
-              <MessageList
-                ref={messageListRef}
-                sessionKey={chat.sessionId ?? undefined}
-                items={chat.items}
-                running={chat.running}
-                onLoadEarlier={handleLoadEarlier}
-                loadingEarlier={chat.historyLoading}
-                exhausted={chat.historyExhausted}
-                onFork={chat.forkSession}
-                engineLabel={engineDisplayName(chat.currentEngine, chat.currentProviderKind)}
-                onCleanRetry={chat.cleanRetry}
-                onNewSession={currentSession ? handleNewSession : undefined}
-                turnTokens={chat.turnTokens}
-                connState={chat.state}
-                showRunningFooter={false}
-              />
+              sessionView === 'trajectory' ? (
+                <TrajectoryView
+                  key={`trajectory-${chat.sessionId}`}
+                  items={chat.items}
+                  running={chat.running}
+                  onLoadEarlier={handleLoadEarlier}
+                  loadingEarlier={chat.historyLoading}
+                  exhausted={chat.historyExhausted}
+                />
+              ) : (
+                <MessageList
+                  ref={messageListRef}
+                  sessionKey={chat.sessionId ?? undefined}
+                  items={chat.items}
+                  running={chat.running}
+                  onLoadEarlier={handleLoadEarlier}
+                  loadingEarlier={chat.historyLoading}
+                  exhausted={chat.historyExhausted}
+                  onFork={chat.forkSession}
+                  engineLabel={engineDisplayName(chat.currentEngine, chat.currentProviderKind)}
+                  onCleanRetry={chat.cleanRetry}
+                  onNewSession={currentSession ? handleNewSession : undefined}
+                  turnTokens={chat.turnTokens}
+                  connState={chat.state}
+                  showRunningFooter={false}
+                />
+              )
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-[var(--color-muted-foreground)]">
                 <p>选一个历史会话，或新建一个开始对话</p>
@@ -1863,7 +1908,7 @@ export function ChatPage() {
             )}
 
             {/* 第三方网关调用诊断（可展开）：核对实际命中的模型，仅第三方会话显示 */}
-            {chat.sessionId && (
+            {chat.sessionId && sessionView === 'conversation' && (
               <ProviderDiagPanel
                 providerKind={chat.currentProviderKind}
                 providerBaseUrl={chat.currentProviderBaseUrl}

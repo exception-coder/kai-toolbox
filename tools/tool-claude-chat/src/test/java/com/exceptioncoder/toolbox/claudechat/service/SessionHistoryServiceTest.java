@@ -78,6 +78,28 @@ class SessionHistoryServiceTest {
     }
 
     @Test
+    void shouldExposeCodexToolElapsedTimeForTrajectory(@TempDir Path tempDir) throws Exception {
+        String sid = "019fb1cf-b3aa-7e31-b079-16177b490df6";
+        Path codexHome = tempDir.resolve("codex-account-trajectory");
+        Path rollout = codexHome.resolve("sessions/2026/08/14")
+                .resolve("rollout-2026-08-14T00-00-00-" + sid + ".jsonl");
+        Files.createDirectories(rollout.getParent());
+        Files.writeString(rollout, """
+                {"timestamp":"2026-08-14T00:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"检查轨迹耗时"}}
+                {"timestamp":"2026-08-14T00:00:01Z","type":"response_item","payload":{"type":"function_call","name":"shell","call_id":"call-1","arguments":{"command":"git status"}}}
+                {"timestamp":"2026-08-14T00:00:03.250Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call-1","output":"clean"}}
+                """);
+        SessionHistoryService service = new SessionHistoryService(
+                new ObjectMapper(), mock(SessionAliasRepository.class));
+
+        var page = service.readMessages(null, sid, codexHome.toString(), null, 30);
+        var tool = page.items().stream().filter(item -> "tool".equals(item.kind())).findFirst().orElseThrow();
+
+        assertThat(tool.elapsedMs()).as("parsed tool: %s", tool).isEqualTo(2_250L);
+        assertThat(tool.output()).isEqualTo("clean");
+    }
+
+    @Test
     void shouldBatchCheckEachSessionInItsOwnCodexHome(@TempDir Path tempDir) throws Exception {
         String existingSid = "019fb1cf-b3aa-7e31-b079-16177b490df5";
         String missingSid = "019fb1d8-4a4f-77a2-9e36-42b957ac7401";

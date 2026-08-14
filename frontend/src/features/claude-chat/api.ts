@@ -781,6 +781,7 @@ export interface RawHistoryMessage {
   ts?: number | null
   usage?: Record<string, number> | null
   latencyMs?: number | null
+  elapsedMs?: number | null
 }
 
 /** 分页读取某会话历史消息，转成渲染用 ChatItem。before 空=最近一页；否则取更早一页。 */
@@ -867,7 +868,7 @@ function toChatItem(m: RawHistoryMessage): ChatItem {
     case 'assistant':
       return { kind: 'assistant', id: m.id, text: m.text ?? '', forkAnchor: m.forkAnchor, ts }
     case 'tool':
-      return { kind: 'tool', id: m.id, toolName: m.toolName ?? '', input: m.input ?? null, output: m.output ?? undefined, isError: m.isError ?? undefined, ts }
+      return { kind: 'tool', id: m.id, toolName: m.toolName ?? '', input: m.input ?? null, output: m.output ?? undefined, isError: m.isError ?? undefined, ts, elapsedMs: m.elapsedMs ?? undefined }
     case 'result':
       return { kind: 'result', id: m.id, stopReason: m.stopReason ?? 'end_turn', traceId: m.traceId, ts, usage: m.usage ?? undefined, latencyMs: m.latencyMs ?? undefined }
     default: {

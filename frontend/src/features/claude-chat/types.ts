@@ -580,7 +580,7 @@ export type ChatItem =
   // 目前只有实时会话里由 send() 发起时才可能带；历史回放（loadMessages）尚未持久化该覆盖，刷新/切回后会看到完整 text。
   | { kind: 'user'; id: string; text: string; displayText?: string; sdkUuid?: string; ts?: number; attachments?: MsgAttachment[] }
   | { kind: 'assistant'; id: string; text: string; forkAnchor?: string; ts?: number }
-  | { kind: 'tool'; id: string; toolCallId?: string; toolName: string; input: unknown; output?: string; isError?: boolean; ts?: number }
+  | { kind: 'tool'; id: string; toolCallId?: string; toolName: string; input: unknown; output?: string; isError?: boolean; ts?: number; elapsedMs?: number }
   | { kind: 'result'; id: string; stopReason: string; traceId?: string | null; ts?: number; usage?: Record<string, number>; latencyMs?: number; ttftMs?: number }
   | { kind: 'warning'; id: string; code: string; message: string; ts?: number }
   | { kind: 'activity'; id: string; activityType: string; status: string; title: string; detail?: string | null; outcome?: string | null; severity?: string | null; data?: unknown; ts?: number }
