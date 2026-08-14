@@ -11,7 +11,7 @@ import { sttAvailable, transcribe } from '../api'
  * 「✕ 取消 · 跳动绿点 + 秒数 · ■ 停止并转写」的胶囊条；识别中显示「识别中…」胶囊；
  * 空闲态才是麦克风图标按钮。浏览器不支持或 faster-whisper 未就绪时禁用并提示。
  */
-export function VoiceInputButton({ onText, disabled }: { onText: (t: string) => void; disabled?: boolean }) {
+export function VoiceInputButton({ onText, disabled, className }: { onText: (t: string) => void; disabled?: boolean; className?: string }) {
   const rec = useVoiceRecorder()
   const [available, setAvailable] = useState<boolean | null>(null)
   const [busy, setBusy] = useState(false)
@@ -101,6 +101,7 @@ export function VoiceInputButton({ onText, disabled }: { onText: (t: string) => 
       type="button"
       variant="ghost"
       size="icon"
+      className={className}
       onClick={start}
       disabled={disabled || off}
       title={title}
