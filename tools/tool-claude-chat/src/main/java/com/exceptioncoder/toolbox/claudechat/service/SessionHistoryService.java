@@ -487,13 +487,16 @@ public class SessionHistoryService {
                     }
                     case "agent_message" -> {
                         String t = payload.path("message").asText("");
-                        if (!t.isBlank()) out.add(ChatMessageView.assistant(
-                                "h" + out.size(), t, currentTurnId, ts));
+                        if (!t.isBlank()) {
+                            acc.observeOutput(ts);
+                            out.add(ChatMessageView.assistant("h" + out.size(), t, currentTurnId, ts));
+                        }
                     }
                     case "function_call" -> {
                         String name = payload.path("name").asText("");
                         String callId = payload.path("call_id").asText("");
                         Object input = parseCodexArgs(payload.path("arguments"));
+                        acc.observeOutput(ts);
                         if (!callId.isBlank()) callIdx.put(callId, out.size());
                         out.add(ChatMessageView.tool("h" + out.size(), name, input, null, null, ts));
                     }
@@ -652,7 +655,8 @@ public class SessionHistoryService {
 
     public SessionUsageView usageTotal(String cwd, List<String> sdkSessionIds, String codexHome) {
         long input = 0, output = 0, cacheRead = 0, cacheCreate = 0;
-        int turns = 0;
+        long modelDurationMs = 0, toolDurationMs = 0, weightedTtftMs = 0;
+        int turns = 0, steps = 0, ttftSamples = 0;
         for (String sid : sdkSessionIds) {
             if (sid == null || sid.isBlank()) continue;
             SessionUsageView one = usageTotal(cwd, sid, codexHome);
@@ -661,9 +665,18 @@ public class SessionHistoryService {
             cacheRead += one.cacheReadTokens();
             cacheCreate += one.cacheCreateTokens();
             turns += one.turns();
+            steps += one.steps();
+            modelDurationMs += one.modelDurationMs();
+            toolDurationMs += one.toolDurationMs();
+            if (one.averageTtftMs() != null && one.ttftSamples() > 0) {
+                weightedTtftMs += one.averageTtftMs() * one.ttftSamples();
+                ttftSamples += one.ttftSamples();
+            }
         }
-        return new SessionUsageView(input, output, cacheRead, cacheCreate,
-                input + output + cacheRead + cacheCreate, turns);
+        Long averageTtftMs = ttftSamples > 0 ? weightedTtftMs / ttftSamples : null;
+        Double outputRate = modelDurationMs > 0 ? output * 1000.0 / modelDurationMs : null;
+        return new SessionUsageView(input, output, cacheRead, cacheCreate, input + output + cacheRead + cacheCreate,
+                turns, steps, modelDurationMs, toolDurationMs, averageTtftMs, ttftSamples, outputRate);
     }
 
     public SessionUsageView usageTotal(String cwd, String sdkSessionId) {
@@ -673,90 +686,53 @@ public class SessionHistoryService {
     public SessionUsageView usageTotal(String cwd, String sdkSessionId, String codexHome) {
         Path jsonl = findTranscript(cwd, sdkSessionId);
         if (jsonl == null || !Files.isReadable(jsonl)) {
-            // Claude transcript 不存在：回退 Codex rollout（口径不同，单独统计）
             Path rollout = findCodexRollout(sdkSessionId, codexHome);
-            return rollout != null ? codexUsageTotal(rollout) : SessionUsageView.empty();
-        }
-        long input = 0, output = 0, cacheRead = 0, cacheCreate = 0;
-        int turns = 0;
-        boolean started = false, turnHasOutput = false;
-        try (BufferedReader r = Files.newBufferedReader(jsonl, StandardCharsets.UTF_8)) {
-            String line;
-            while ((line = r.readLine()) != null) {
-                if (line.isBlank()) continue;
-                JsonNode node;
-                try {
-                    node = mapper.readTree(line);
-                } catch (Exception ignore) {
-                    continue;
-                }
-                String type = node.path("type").asText("");
-                // 内部标注行（isMeta / origin.kind）不算真实一轮，否则会把这类合成文本也计入 turns、
-                // 打乱轮次统计——见 isInternalMetaLine() / parseAll() 同一处理的详细说明。
-                if ("user".equals(type) && !isInternalMetaLine(node)
-                        && isUserText(node.path("message").path("content"))) {
-                    if (started && turnHasOutput) turns++;
-                    started = true;
-                    turnHasOutput = false;
-                } else if ("assistant".equals(type)) {
-                    JsonNode u = node.path("message").path("usage");
-                    if (u.isObject()) {
-                        input += u.path("input_tokens").asLong(0);
-                        output += u.path("output_tokens").asLong(0);
-                        cacheRead += u.path("cache_read_input_tokens").asLong(0);
-                        cacheCreate += u.path("cache_creation_input_tokens").asLong(0);
-                        turnHasOutput = true;
-                    }
-                }
+            if (rollout == null) return SessionUsageView.empty();
+            try {
+                return summarizeMessages(parseCodexRollout(rollout));
+            } catch (IOException e) {
+                log.debug("[claude-chat] 统计 Codex 会话汇总失败 {}: {}", sdkSessionId, e.getMessage());
+                return SessionUsageView.empty();
             }
+        }
+        try {
+            return summarizeMessages(parseAll(jsonl));
         } catch (IOException e) {
-            log.debug("[claude-chat] 统计会话用量失败 {}: {}", sdkSessionId, e.getMessage());
+            log.debug("[claude-chat] 统计会话汇总失败 {}: {}", sdkSessionId, e.getMessage());
             return SessionUsageView.empty();
         }
-        if (started && turnHasOutput) turns++; // 末轮
-        long total = input + output + cacheRead + cacheCreate;
-        return new SessionUsageView(input, output, cacheRead, cacheCreate, total, turns);
     }
 
-    /**
-     * Codex rollout 整会话用量：token_count.info.total_token_usage 为会话累计快照，取最后一条即总和；
-     * turns 数真实用户消息（event_msg/user_message）条数。
-     */
-    private SessionUsageView codexUsageTotal(Path rollout) {
-        long input = 0, output = 0, cacheRead = 0;
-        int turns = 0;
-        try (BufferedReader r = Files.newBufferedReader(rollout, StandardCharsets.UTF_8)) {
-            String line;
-            while ((line = r.readLine()) != null) {
-                if (line.isBlank()) continue;
-                JsonNode node;
-                try {
-                    node = mapper.readTree(line);
-                } catch (Exception ignore) {
-                    continue;
-                }
-                JsonNode payload = node.path("payload");
-                String pType = payload.path("type").asText("");
-                if ("user_message".equals(pType)) {
-                    String message = normalizeCodexUserMessage(payload.path("message").asText(""));
-                    if (!message.isBlank()) turns++;
-                } else if ("token_count".equals(pType)) {
-                    JsonNode u = payload.path("info").path("total_token_usage");
-                    if (u.isObject()) {
-                        long inAll = u.path("input_tokens").asLong(0);
-                        long cached = u.path("cached_input_tokens").asLong(0);
-                        input = Math.max(0, inAll - cached);
-                        cacheRead = cached;
-                        output = u.path("output_tokens").asLong(0) + u.path("reasoning_output_tokens").asLong(0);
-                    }
+    /** 从标准历史消息项汇总整段会话指标，避免 Claude 与 Codex 维护两套统计口径。 */
+    private SessionUsageView summarizeMessages(List<ChatMessageView> messages) {
+        long input = 0, output = 0, cacheRead = 0, cacheCreate = 0;
+        long turnDurationMs = 0, toolDurationMs = 0, ttftTotalMs = 0;
+        int turns = 0, steps = 0, ttftSamples = 0;
+        for (ChatMessageView message : messages) {
+            if ("assistant".equals(message.kind()) && message.text() != null && !message.text().isBlank()) {
+                steps++;
+            } else if ("tool".equals(message.kind())) {
+                steps++;
+                if (message.elapsedMs() != null) toolDurationMs += message.elapsedMs();
+            } else if ("result".equals(message.kind()) && message.usage() != null) {
+                JsonNode usage = mapper.valueToTree(message.usage());
+                input += usage.path("input_tokens").asLong(0);
+                output += usage.path("output_tokens").asLong(0);
+                cacheRead += usage.path("cache_read_input_tokens").asLong(0);
+                cacheCreate += usage.path("cache_creation_input_tokens").asLong(0);
+                turns++;
+                if (message.latencyMs() != null) turnDurationMs += message.latencyMs();
+                if (message.ttftMs() != null) {
+                    ttftTotalMs += message.ttftMs();
+                    ttftSamples++;
                 }
             }
-        } catch (IOException e) {
-            log.debug("[claude-chat] 统计 Codex 会话用量失败 {}: {}", rollout, e.getMessage());
-            return SessionUsageView.empty();
         }
-        long total = input + output + cacheRead;
-        return new SessionUsageView(input, output, cacheRead, 0, total, turns);
+        long modelDurationMs = Math.max(0, turnDurationMs - toolDurationMs);
+        Long averageTtftMs = ttftSamples > 0 ? ttftTotalMs / ttftSamples : null;
+        Double outputRate = modelDurationMs > 0 ? output * 1000.0 / modelDurationMs : null;
+        return new SessionUsageView(input, output, cacheRead, cacheCreate, input + output + cacheRead + cacheCreate,
+                turns, steps, modelDurationMs, toolDurationMs, averageTtftMs, ttftSamples, outputRate);
     }
 
     /**
@@ -798,13 +774,16 @@ public class SessionHistoryService {
         usage.put("cache_creation_input_tokens", acc.cacheCreate);
         Long latency = (acc.startTs != null && acc.lastTs != null && acc.lastTs >= acc.startTs)
                 ? acc.lastTs - acc.startTs : null;
-        out.add(ChatMessageView.result("h" + out.size(), "end_turn", acc.lastTs, usage, latency));
+        Long ttft = (acc.startTs != null && acc.firstOutputTs != null && acc.firstOutputTs >= acc.startTs)
+                ? acc.firstOutputTs - acc.startTs : null;
+        out.add(ChatMessageView.result("h" + out.size(), "end_turn", acc.lastTs, usage, latency, ttft));
         acc.hasOutput = false; // 防重复落
     }
 
     /** 单轮 token/时间累加器。 */
     private static final class TurnAcc {
         Long startTs;
+        Long firstOutputTs;
         Long lastTs;
         long input;
         long output;
@@ -814,6 +793,7 @@ public class SessionHistoryService {
 
         void reset(Long start) {
             startTs = start;
+            firstOutputTs = null;
             lastTs = null;
             input = output = cacheRead = cacheCreate = 0;
             hasOutput = false;
@@ -826,7 +806,7 @@ public class SessionHistoryService {
                 cacheRead += usage.path("cache_read_input_tokens").asLong(0);
                 cacheCreate += usage.path("cache_creation_input_tokens").asLong(0);
             }
-            if (ts != null) lastTs = ts;
+            observeOutput(ts);
             hasOutput = true;
         }
 
@@ -839,8 +819,14 @@ public class SessionHistoryService {
                 cacheRead += cached;
                 output += usage.path("output_tokens").asLong(0) + usage.path("reasoning_output_tokens").asLong(0);
             }
-            if (ts != null) lastTs = ts;
+            observeOutput(ts);
             hasOutput = true;
+        }
+
+        void observeOutput(Long ts) {
+            if (ts == null) return;
+            if (firstOutputTs == null) firstOutputTs = ts;
+            lastTs = ts;
         }
     }
 

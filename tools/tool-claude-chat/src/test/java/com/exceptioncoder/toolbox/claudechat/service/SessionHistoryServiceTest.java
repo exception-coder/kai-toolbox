@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.Mockito.mock;
 
 class SessionHistoryServiceTest {
@@ -97,6 +98,36 @@ class SessionHistoryServiceTest {
 
         assertThat(tool.elapsedMs()).as("parsed tool: %s", tool).isEqualTo(2_250L);
         assertThat(tool.output()).isEqualTo("clean");
+    }
+
+    @Test
+    void shouldSummarizeWholeCodexSessionForFooter(@TempDir Path tempDir) throws Exception {
+        String sid = "019fb1cf-b3aa-7e31-b079-16177b490df7";
+        Path codexHome = tempDir.resolve("codex-account-summary");
+        Path rollout = codexHome.resolve("sessions/2026/08/14")
+                .resolve("rollout-2026-08-14T00-00-00-" + sid + ".jsonl");
+        Files.createDirectories(rollout.getParent());
+        Files.writeString(rollout, """
+                {"timestamp":"2026-08-14T00:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"汇总本会话"}}
+                {"timestamp":"2026-08-14T00:00:01Z","type":"response_item","payload":{"type":"function_call","name":"shell","call_id":"call-1","arguments":{"command":"git status"}}}
+                {"timestamp":"2026-08-14T00:00:03.250Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call-1","output":"clean"}}
+                {"timestamp":"2026-08-14T00:00:04Z","type":"event_msg","payload":{"type":"agent_message","message":"已完成"}}
+                {"timestamp":"2026-08-14T00:00:05Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":20,"reasoning_output_tokens":5}}}}
+                """);
+        SessionHistoryService service = new SessionHistoryService(
+                new ObjectMapper(), mock(SessionAliasRepository.class));
+
+        var usage = service.usageTotal(null, sid, codexHome.toString());
+
+        assertThat(usage.inputTokens()).isEqualTo(60);
+        assertThat(usage.cacheReadTokens()).isEqualTo(40);
+        assertThat(usage.outputTokens()).isEqualTo(25);
+        assertThat(usage.turns()).isEqualTo(1);
+        assertThat(usage.steps()).isEqualTo(2);
+        assertThat(usage.toolDurationMs()).isEqualTo(2_250);
+        assertThat(usage.modelDurationMs()).isEqualTo(2_750);
+        assertThat(usage.averageTtftMs()).isEqualTo(1_000);
+        assertThat(usage.outputTokensPerSecond()).isCloseTo(9.09, within(0.01));
     }
 
     @Test

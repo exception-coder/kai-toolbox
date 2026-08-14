@@ -92,6 +92,7 @@ import {
 import { isVibeCodingSession } from '../lib/sessionScope'
 import { SessionWorkStatus } from '../components/SessionWorkStatus'
 import { ReviewShareDialog } from '../components/ReviewShareDialog'
+import { SessionSummaryBar } from '../components/SessionSummaryBar'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
 
@@ -398,6 +399,7 @@ export function ChatPage() {
   const [sessionUsage, setSessionUsage] = useState<SessionUsage | null>(null)
   const usageSid = chat?.sessionId ?? null
   const usageRunning = chat?.running ?? false
+  useEffect(() => { setSessionUsage(null) }, [usageSid])
   useEffect(() => {
     if (!usageSid) { setSessionUsage(null); return }
     if (usageRunning) return
@@ -2138,6 +2140,12 @@ export function ChatPage() {
               </Button>
             )}
           </div>
+          <SessionSummaryBar
+            usage={sessionUsage}
+            loading={sessionUsage == null && Boolean(usageSid)}
+            running={usageRunning}
+            onOpenDetails={() => setShowUsage(true)}
+          />
         </div>
             )}
           </div>
