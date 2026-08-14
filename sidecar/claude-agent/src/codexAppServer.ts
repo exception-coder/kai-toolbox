@@ -9,8 +9,10 @@ import type { RequiredMcpTool } from './codexSecurity.js'
 
 const require = createRequire(import.meta.url)
 const REQUEST_TIMEOUT_MS = 20_000
-const RECONNECT_TIMEOUT_MS = 45_000
-const FINAL_RECONNECT_GRACE_MS = 8_000
+// 切换网络后旧连接的 TCP/TLS 失效检测和上游退避可能持续数十秒。
+// 这里只兜底真正“长期无任何活动”的轮次，不能抢在 Codex 自身重试完成前误杀。
+const RECONNECT_IDLE_TIMEOUT_MS = 5 * 60_000
+const LEGACY_FINAL_RECONNECT_GRACE_MS = 60_000
 const MODEL_PAGE_SIZE = 100
 const MAX_MODEL_PAGES = 20
 const MAX_COMMAND_OUTPUT_CHARS = 8_000
@@ -130,6 +132,24 @@ export function classifyCodexAppServerError(params: Record<string, unknown>): Co
     retryExhausted,
     ...(reconnect ? { attempt, maxAttempts } : {}),
   }
+}
+
+/**
+ * 重连后任意 turn/item 进展都证明本轮上游流已经恢复。不能只等待 assistant 文本：
+ * Sol 推理、MCP 和长命令可能先持续发送各自的增量事件。
+ */
+export function isCodexAppServerRecoverySignal(method: string): boolean {
+  return method === 'thread/tokenUsage/updated'
+    || method === 'thread/status/changed'
+    || method === 'model/rerouted'
+    || method.startsWith('turn/')
+    || method.startsWith('item/')
+    || method.startsWith('hook/')
+}
+
+/** 结构化 willRetry=false 会立即终止；这里只为仍在重试和旧版最终重试提供防永久挂起兜底。 */
+export function codexReconnectDeadlineMs(notice: CodexAppServerErrorNotice): number {
+  return notice.retryExhausted ? LEGACY_FINAL_RECONNECT_GRACE_MS : RECONNECT_IDLE_TIMEOUT_MS
 }
 
 function parseMcpRuntimeStatuses(result: JsonRpcResult): McpRuntimeStatus[] {
@@ -420,7 +440,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     if (!reconnectActivityId) return
     emitActivity({
       type: 'codexActivity', activityType: 'connection', itemId: reconnectActivityId, status,
-      title: status === 'completed' ? 'Codex 已恢复连接' : 'Codex 重连失败', detail,
+      title: status === 'completed' ? 'Codex 本轮上游连接已恢复' : 'Codex 本轮上游重连失败', detail,
     })
     reconnectActivityId = undefined
   }
@@ -482,6 +502,11 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
       const method = asString(message.method)
       const params = asRecord(message.params) ?? {}
       if (!method) return
+      // App Server 没有独立的“reconnected”成功通知。任意本轮进展事件都说明
+      // 上游流已经重新活动，包括当前 UI 尚未渲染的 reasoning delta。
+      if (reconnectActivityId && isCodexAppServerRecoverySignal(method)) {
+        finishReconnectActivity('completed')
+      }
       switch (method) {
         case 'item/agentMessage/delta': {
           finishReconnectActivity('completed')
@@ -579,15 +604,16 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
             emitActivity({
               type: 'codexActivity', activityType: 'connection', itemId: reconnectActivityId,
               status: 'inProgress', title: finalAttempt
-                ? `Codex 最后一次重连 · ${progress}`
-                : `Codex 正在重连 · ${progress}`,
+                ? `Codex 本轮上游最后一次重连 · ${progress}`
+                : `Codex 正在恢复本轮上游连接 · ${progress}`,
               detail: notice.message,
             })
+            const deadlineMs = codexReconnectDeadlineMs(notice)
             armReconnectDeadline(
-              finalAttempt ? FINAL_RECONNECT_GRACE_MS : RECONNECT_TIMEOUT_MS,
+              deadlineMs,
               finalAttempt
-                ? `Codex App Server 最后一次重连后 ${FINAL_RECONNECT_GRACE_MS / 1_000} 秒内未恢复`
-                : `Codex App Server 重连超过 ${RECONNECT_TIMEOUT_MS / 1_000} 秒未恢复`,
+                ? `Codex 本轮上游连接在最后一次重连后 ${deadlineMs / 1_000} 秒仍无活动`
+                : `Codex 本轮上游连接连续 ${deadlineMs / 1_000} 秒无任何活动`,
             )
             break
           }

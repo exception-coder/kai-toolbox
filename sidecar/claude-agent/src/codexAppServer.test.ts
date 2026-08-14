@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { classifyCodexAppServerError, normalizeCodexModel } from './codexAppServer.js'
+import {
+  classifyCodexAppServerError,
+  codexReconnectDeadlineMs,
+  isCodexAppServerRecoverySignal,
+  normalizeCodexModel,
+} from './codexAppServer.js'
 
 test('preserves the App Server default-model marker and all supported efforts', () => {
   const model = normalizeCodexModel({
@@ -60,4 +65,31 @@ test('treats the last legacy reconnect notice as exhausted', () => {
 test('keeps ordinary App Server errors terminal', () => {
   const result = classifyCodexAppServerError({ error: { message: 'authentication failed' } })
   assert.equal(result.willRetry, false)
+})
+
+test('accepts all meaningful turn progress as reconnect recovery signals', () => {
+  for (const method of [
+    'item/reasoning/summaryTextDelta',
+    'item/commandExecution/outputDelta',
+    'item/mcpToolCall/progress',
+    'thread/tokenUsage/updated',
+    'thread/status/changed',
+    'turn/plan/updated',
+    'hook/completed',
+  ]) {
+    assert.equal(isCodexAppServerRecoverySignal(method), true, method)
+  }
+  assert.equal(isCodexAppServerRecoverySignal('error'), false)
+  assert.equal(isCodexAppServerRecoverySignal('warning'), false)
+})
+
+test('gives native retries minutes to recover and legacy final retries a practical grace period', () => {
+  const retrying = classifyCodexAppServerError({
+    error: { message: 'stream disconnected: Reconnecting... 2/5' },
+    willRetry: true,
+  })
+  const legacyFinal = classifyCodexAppServerError({ message: 'Reconnecting... 5/5' })
+
+  assert.equal(codexReconnectDeadlineMs(retrying), 5 * 60_000)
+  assert.equal(codexReconnectDeadlineMs(legacyFinal), 60_000)
 })
