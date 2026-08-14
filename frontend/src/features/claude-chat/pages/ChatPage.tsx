@@ -1844,7 +1844,7 @@ export function ChatPage() {
               onGo={sid => chat.switchTo(sid)}
             />
             {chat.sessionId && (
-              <nav className="flex h-9 shrink-0 items-end gap-5 border-b border-[var(--color-border)] px-3" aria-label="会话视图">
+              <nav className="cc-skin-surface flex h-9 shrink-0 items-end gap-5 border-b border-[var(--color-border)] px-3" aria-label="会话视图">
                 <button
                   type="button"
                   aria-current={sessionView === 'conversation' ? 'page' : undefined}
@@ -1875,42 +1875,44 @@ export function ChatPage() {
                 </button>
               </nav>
             )}
-            {chat.sessionId ? (
-              sessionView === 'trajectory' ? (
-                <TrajectoryView
-                  key={`trajectory-${chat.sessionId}`}
-                  items={chat.items}
-                  running={chat.running}
-                  onLoadEarlier={handleLoadEarlier}
-                  loadingEarlier={chat.historyLoading}
-                  exhausted={chat.historyExhausted}
-                />
+            <main className="cc-skin-view flex min-h-0 min-w-0 flex-1 flex-col">
+              {chat.sessionId ? (
+                sessionView === 'trajectory' ? (
+                  <TrajectoryView
+                    key={`trajectory-${chat.sessionId}`}
+                    items={chat.items}
+                    running={chat.running}
+                    onLoadEarlier={handleLoadEarlier}
+                    loadingEarlier={chat.historyLoading}
+                    exhausted={chat.historyExhausted}
+                  />
+                ) : (
+                  <MessageList
+                    ref={messageListRef}
+                    sessionKey={chat.sessionId ?? undefined}
+                    items={chat.items}
+                    running={chat.running}
+                    onLoadEarlier={handleLoadEarlier}
+                    loadingEarlier={chat.historyLoading}
+                    exhausted={chat.historyExhausted}
+                    onFork={chat.forkSession}
+                    engineLabel={engineDisplayName(chat.currentEngine, chat.currentProviderKind)}
+                    onCleanRetry={chat.cleanRetry}
+                    onNewSession={currentSession ? handleNewSession : undefined}
+                    turnTokens={chat.turnTokens}
+                    connState={chat.state}
+                    showRunningFooter={false}
+                  />
+                )
               ) : (
-                <MessageList
-                  ref={messageListRef}
-                  sessionKey={chat.sessionId ?? undefined}
-                  items={chat.items}
-                  running={chat.running}
-                  onLoadEarlier={handleLoadEarlier}
-                  loadingEarlier={chat.historyLoading}
-                  exhausted={chat.historyExhausted}
-                  onFork={chat.forkSession}
-                  engineLabel={engineDisplayName(chat.currentEngine, chat.currentProviderKind)}
-                  onCleanRetry={chat.cleanRetry}
-                  onNewSession={currentSession ? handleNewSession : undefined}
-                  turnTokens={chat.turnTokens}
-                  connState={chat.state}
-                  showRunningFooter={false}
-                />
-              )
-            ) : (
-              <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-[var(--color-muted-foreground)]">
-                <p>选一个历史会话，或新建一个开始对话</p>
-                <Button size="lg" className="shadow-md" onClick={() => setPanel('new')}>
-                  <Plus className="size-4" /> 新建会话
-                </Button>
-              </div>
-            )}
+                <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-[var(--color-muted-foreground)]">
+                  <p>选一个历史会话，或新建一个开始对话</p>
+                  <Button size="lg" className="shadow-md" onClick={() => setPanel('new')}>
+                    <Plus className="size-4" /> 新建会话
+                  </Button>
+                </div>
+              )}
+            </main>
 
             {/* 第三方网关调用诊断（可展开）：核对实际命中的模型，仅第三方会话显示 */}
             {chat.sessionId && sessionView === 'conversation' && (

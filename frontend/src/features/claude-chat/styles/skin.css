@@ -151,3 +151,13 @@
   background-color: color-mix(in oklab, var(--color-background) 70%, transparent);
   backdrop-filter: none;
 }
+
+/* 会话视图是所有对话、轨迹及后续扩展面板的统一主题边界。 */
+.cc-skin :where(.cc-skin-view) {
+  background-color: color-mix(in oklab, var(--color-background) 48%, transparent);
+}
+
+/* 新面板即使沿用普通模式的不透明根背景，也不会遮住当前引擎的炫彩底层。 */
+.cc-skin :where(.cc-skin-view > *) {
+  background-color: transparent;
+}
