@@ -798,7 +798,8 @@ public class ClaudeChatService {
         String providerBaseUrl = blankToNull(ctx.apiBaseUrl);
         String providerKind = providerBaseUrl == null ? "official" : "thirdParty";
         return new ServerMessage.Ready(seq, ctx.sessionId, ctx.sdkSessionId, ctx.slashCommands,
-                ctx.status.name(), ctx.epoch, ctx.engine, providerKind, providerBaseUrl,
+                ctx.status.name(), turnLifecycle.currentTurnId(ctx.sessionId).orElse(null),
+                ctx.epoch, ctx.engine, providerKind, providerBaseUrl,
                 ctx.skills, ctx.agents, ctx.mcpServers, ctx.outputStyle, ctx.backgroundTasks,
                 ctx.currentModel, ctx.codexReasoningEffort, ctx.codexSpeed);
     }

@@ -14,24 +14,33 @@ export interface DebugEntry {
   text: string
 }
 
-const MAX = 2000
-const MAX_TEXT_LENGTH = 64 * 1024
+const RECENT_MAX = 300
+const RECENT_TEXT_LENGTH = 4 * 1024
+const ACTIVE_MAX = 2000
+const ACTIVE_TEXT_LENGTH = 64 * 1024
 let buf: DebugEntry[] = []
 let counter = 0
 let version = 0
+let activeViewers = 0
 const listeners = new Set<() => void>()
 
 /** 追加一条并通知订阅者。超上限按环形丢最旧。 */
 export function pushDebug(dir: DebugDir, type: string, text: string, seq?: number): void {
-  if (typeof localStorage === 'undefined' || localStorage.getItem('cc-debug') !== '1') return
   counter += 1
   version += 1
-  const boundedText = text.length > MAX_TEXT_LENGTH
-    ? `${text.slice(0, MAX_TEXT_LENGTH)}\n…[truncated]`
+  const maxTextLength = activeViewers > 0 ? ACTIVE_TEXT_LENGTH : RECENT_TEXT_LENGTH
+  const maxEntries = activeViewers > 0 ? ACTIVE_MAX : RECENT_MAX
+  const boundedText = text.length > maxTextLength
+    ? `${text.slice(0, maxTextLength)}\n…[truncated]`
     : text
   buf.push({ id: counter, ts: Date.now(), dir, type, seq, text: boundedText })
-  if (buf.length > MAX) buf = buf.slice(buf.length - MAX)
+  if (buf.length > maxEntries) buf = buf.slice(buf.length - maxEntries)
   listeners.forEach(l => { try { l() } catch { /* ignore */ } })
+}
+
+/** 调试查看器打开期间提高环形缓冲容量；关闭后继续保留轻量近期记录。 */
+export function setDebugViewerActive(active: boolean): void {
+  activeViewers = Math.max(0, activeViewers + (active ? 1 : -1))
 }
 
 export function getDebugLog(): DebugEntry[] {

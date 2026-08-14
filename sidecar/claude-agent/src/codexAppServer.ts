@@ -9,6 +9,8 @@ import type { RequiredMcpTool } from './codexSecurity.js'
 
 const require = createRequire(import.meta.url)
 const REQUEST_TIMEOUT_MS = 20_000
+const RECONNECT_TIMEOUT_MS = 45_000
+const FINAL_RECONNECT_GRACE_MS = 8_000
 const MODEL_PAGE_SIZE = 100
 const MAX_MODEL_PAGES = 20
 const MAX_COMMAND_OUTPUT_CHARS = 8_000
@@ -104,6 +106,7 @@ type McpRuntimeStatus = {
 export type CodexAppServerErrorNotice = {
   message: string
   willRetry: boolean
+  retryExhausted: boolean
   attempt?: number
   maxAttempts?: number
 }
@@ -117,10 +120,15 @@ export function classifyCodexAppServerError(params: Record<string, unknown>): Co
   const message = notificationMessage(error)
   const reconnect = message.match(/\bReconnecting\.{3}\s*(\d+)\s*\/\s*(\d+)\b/i)
   const structuredWillRetry = typeof params.willRetry === 'boolean' ? params.willRetry : undefined
+  const attempt = reconnect ? Number(reconnect[1]) : undefined
+  const maxAttempts = reconnect ? Number(reconnect[2]) : undefined
+  const retryExhausted = structuredWillRetry == null && attempt != null && maxAttempts != null
+    && attempt >= maxAttempts
   return {
     message,
-    willRetry: structuredWillRetry ?? reconnect != null,
-    ...(reconnect ? { attempt: Number(reconnect[1]), maxAttempts: Number(reconnect[2]) } : {}),
+    willRetry: structuredWillRetry ?? (reconnect != null && !retryExhausted),
+    retryExhausted,
+    ...(reconnect ? { attempt, maxAttempts } : {}),
   }
 }
 
@@ -359,6 +367,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
   let finished = false
   let lastUsage: Record<string, unknown> = {}
   let abortFallback: NodeJS.Timeout | undefined
+  let reconnectDeadline: NodeJS.Timeout | undefined
   let abortCompletion: ((error: Error) => void) | undefined
   let reconnectActivityId: string | undefined
   const commandActivities = new Map<string, CommandActivityState>()
@@ -370,6 +379,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     finished = true
     options.signal.removeEventListener('abort', onAbort)
     if (abortFallback) clearTimeout(abortFallback)
+    if (reconnectDeadline) clearTimeout(reconnectDeadline)
     lines.close()
     stop(child)
   }
@@ -400,13 +410,27 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     emittedActivity = true
     options.emit(event)
   }
+  const clearReconnectDeadline = () => {
+    if (!reconnectDeadline) return
+    clearTimeout(reconnectDeadline)
+    reconnectDeadline = undefined
+  }
   const finishReconnectActivity = (status: 'completed' | 'failed', detail?: string) => {
+    clearReconnectDeadline()
     if (!reconnectActivityId) return
     emitActivity({
       type: 'codexActivity', activityType: 'connection', itemId: reconnectActivityId, status,
       title: status === 'completed' ? 'Codex 已恢复连接' : 'Codex 重连失败', detail,
     })
     reconnectActivityId = undefined
+  }
+  const armReconnectDeadline = (timeoutMs: number, detail: string) => {
+    clearReconnectDeadline()
+    reconnectDeadline = setTimeout(() => {
+      finishReconnectActivity('failed', detail)
+      abortCompletion?.(new Error(detail))
+    }, timeoutMs)
+    reconnectDeadline.unref?.()
   }
   const onAbort = () => {
     if (threadId && turnId && initialized) {
@@ -548,13 +572,23 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
           break
         case 'error': {
           const notice = classifyCodexAppServerError(params)
-          if (notice.willRetry) {
+          if (notice.willRetry || notice.retryExhausted) {
             reconnectActivityId ??= `${asString(params.turnId) || turnId || threadId || 'current'}-reconnect`
             const progress = notice.attempt && notice.maxAttempts ? `${notice.attempt}/${notice.maxAttempts}` : '重试中'
+            const finalAttempt = notice.retryExhausted
             emitActivity({
               type: 'codexActivity', activityType: 'connection', itemId: reconnectActivityId,
-              status: 'inProgress', title: `Codex 正在重连 · ${progress}`, detail: notice.message,
+              status: 'inProgress', title: finalAttempt
+                ? `Codex 最后一次重连 · ${progress}`
+                : `Codex 正在重连 · ${progress}`,
+              detail: notice.message,
             })
+            armReconnectDeadline(
+              finalAttempt ? FINAL_RECONNECT_GRACE_MS : RECONNECT_TIMEOUT_MS,
+              finalAttempt
+                ? `Codex App Server 最后一次重连后 ${FINAL_RECONNECT_GRACE_MS / 1_000} 秒内未恢复`
+                : `Codex App Server 重连超过 ${RECONNECT_TIMEOUT_MS / 1_000} 秒未恢复`,
+            )
             break
           }
           finishReconnectActivity('failed', notice.message)

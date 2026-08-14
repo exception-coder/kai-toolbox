@@ -39,12 +39,22 @@ test('structured terminal flag wins over legacy reconnect wording', () => {
     willRetry: false,
   })
   assert.equal(result.willRetry, false)
+  assert.equal(result.retryExhausted, false)
 })
 
 test('supports reconnect notices emitted by older Codex clients', () => {
   const result = classifyCodexAppServerError({ message: 'Reconnecting... 1/5' })
   assert.equal(result.willRetry, true)
+  assert.equal(result.retryExhausted, false)
   assert.equal(result.attempt, 1)
+})
+
+test('treats the last legacy reconnect notice as exhausted', () => {
+  const result = classifyCodexAppServerError({ message: 'Reconnecting... 2/2' })
+  assert.equal(result.willRetry, false)
+  assert.equal(result.retryExhausted, true)
+  assert.equal(result.attempt, 2)
+  assert.equal(result.maxAttempts, 2)
 })
 
 test('keeps ordinary App Server errors terminal', () => {

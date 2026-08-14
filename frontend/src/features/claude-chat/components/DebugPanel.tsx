@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, Copy, Dot, Pause, Play, Trash2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { clearDebug, getDebugLog, subscribeDebug, type DebugEntry } from '../lib/debugLog'
+import { clearDebug, getDebugLog, setDebugViewerActive, subscribeDebug, type DebugEntry } from '../lib/debugLog'
 
 function fmtTs(ts: number): string {
   const d = new Date(ts)
@@ -21,6 +21,11 @@ export function DebugPanel({ onClose }: { onClose: () => void }) {
   pausedRef.current = paused
   const pendingRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    setDebugViewerActive(true)
+    return () => setDebugViewerActive(false)
+  }, [])
 
   // 订阅日志：暂停时不刷新；用 rAF 合并高频突发（流式 assistantDelta 可能每秒多条），避免过度渲染。
   useEffect(() => subscribeDebug(() => {
@@ -81,7 +86,7 @@ export function DebugPanel({ onClose }: { onClose: () => void }) {
         </div>
 
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-2 font-mono text-[11px] leading-relaxed">
-          {entries.length === 0 && <div className="p-3 text-center text-[var(--color-muted-foreground)]">暂无交互；发一条消息即可看到实时事件流。</div>}
+          {entries.length === 0 && <div className="p-3 text-center text-[var(--color-muted-foreground)]">暂无近期交互；连接或发送消息后将显示实时事件流。</div>}
           {entries.map(e => <Row key={e.id} e={e} />)}
         </div>
 

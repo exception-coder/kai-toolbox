@@ -30,7 +30,8 @@ public sealed interface ServerMessage
      *  {@code backgroundTasks} 是切会话/重连那一刻的后台任务快照（见 BackgroundTasks 说明），
      *  让前端"切换会话时"就能查到当时是否还有后台任务在跑，不用等下一次变化事件推送。 */
     @JsonTypeName("ready")
-    record Ready(long seq, String sessionId, String sdkSessionId, List<String> slashCommands, String status, String epoch, String engine, String providerKind, String providerBaseUrl,
+    record Ready(long seq, String sessionId, String sdkSessionId, List<String> slashCommands, String status,
+                 String activeTurnId, String epoch, String engine, String providerKind, String providerBaseUrl,
                  List<String> skills, List<String> agents, List<McpServer> mcpServers, String outputStyle,
                  List<BackgroundTaskInfo> backgroundTasks, String selectedModel,
                  String codexReasoningEffort, String codexSpeed) implements ServerMessage {}

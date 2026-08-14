@@ -463,15 +463,10 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
           setAgents([])
           if (msg.engine === 'gemini') setMcpServers([])
         }
-        // ready 只用于「关闭」running（会话已非 RUNNING → 纠正卡住的「思考中」），绝不靠它「点亮」：
-        // 反复收到的 ready（重连/sidecar 恢复/切换 provider 都会重发 ready）如果带着 RUNNING，
-        // 可能是发出时该会话确实在跑、但送达前一轮已经结束的过期快照——直接信了会在一轮结束后把
-        // spinner 重新点亮，卡死且新消息被排队。点亮 running 只信两类更可靠的信号：
-        //   1. 明确动作的乐观提示——用户主动 send()，或切会话时 switchTo 的 hintRunning
-        //      （取自会话列表缓存的 status/live，如果猜错了，靠下面第 2 类信号自愈）；
-        //   2. 正在发生的事实——收到 assistantDelta/toolUse 说明该会话确凿无疑正在跑
-        //      （见对应 case，比任何缓存快照都可靠，用来兜底"猜错了"或"压根没猜过"的场景）。
-        if (msg.status && msg.status !== 'RUNNING') {
+        // RUNNING 必须同时携带服务端当前活动轮次，避免迟到的状态快照把已结束会话重新点亮。
+        if (msg.status === 'RUNNING' && msg.activeTurnId) {
+          setRunning(true)
+        } else if (msg.status && msg.status !== 'RUNNING') {
           setRunning(false)
           setInterrupting(false)
         }
