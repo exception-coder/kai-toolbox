@@ -35,7 +35,9 @@ import com.exceptioncoder.toolbox.prdclarify.api.dto.SuggestTitleView;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.UpdateTitleRequest;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.UpdateProjectRequest;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
+import com.exceptioncoder.toolbox.prdclarify.domain.PrdArtifactType;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
+import com.exceptioncoder.toolbox.prdclarify.service.PrdArtifactService;
 import com.exceptioncoder.toolbox.prdclarify.service.PrdClarifyService;
 import com.exceptioncoder.toolbox.prdclarify.service.PrdDocChangeAnalysisService;
 import com.exceptioncoder.toolbox.prdclarify.service.PrdDocChangeApplyService;
@@ -100,6 +102,7 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 public class PrdClarifyController {
 
     private final PrdClarifyService service;
+    private final PrdArtifactService artifactService;
     private final PrdSessionRepository repo;
     private final AttachmentParseService attachmentParser;
     private final ImageAttachmentStorageService imageAttachmentStorage;
@@ -109,7 +112,8 @@ public class PrdClarifyController {
     /** Optional：toolbox.auth.enabled=false 时这个 bean 不存在，历史列表退化为不展示创建人用户名。 */
     private final Optional<AuthUserRepository> authUserRepo;
 
-    public PrdClarifyController(PrdClarifyService service, PrdSessionRepository repo,
+    public PrdClarifyController(PrdClarifyService service, PrdArtifactService artifactService,
+                                PrdSessionRepository repo,
                                 AttachmentParseService attachmentParser,
                                 ImageAttachmentStorageService imageAttachmentStorage,
                                 FileAttachmentStorageService fileAttachmentStorage,
@@ -117,6 +121,7 @@ public class PrdClarifyController {
                                 PrdDocChangeApplyService changeApplyService,
                                 Optional<AuthUserRepository> authUserRepo) {
         this.service = service;
+        this.artifactService = artifactService;
         this.repo = repo;
         this.attachmentParser = attachmentParser;
         this.imageAttachmentStorage = imageAttachmentStorage;
@@ -304,10 +309,10 @@ public class PrdClarifyController {
         }
         if (java.nio.file.Files.exists(mdPath)) {
             try {
-                // 文件已存在但状态未更新，更新状态
-                repo.updateDone(id, mdPath.toString());
-            } catch (Exception e) {
-                // 状态更新失败不阻断主流程，文件已存在即可读取
+                artifactService.captureCanonical(
+                        id, PrdArtifactType.PRD, PrdArtifactService.ArtifactMetadata.empty());
+            } catch (IOException error) {
+                throw new IllegalStateException("PRD 文件已存在，但登记产物账本失败: " + id, error);
             }
             return ResponseEntity.ok(
                     repo.findById(id).map(PrdSessionView::from)

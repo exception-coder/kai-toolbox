@@ -6,6 +6,7 @@ import com.exceptioncoder.toolbox.prdclarify.api.dto.DevDocVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.ProgressVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.QaPairRequest;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdBusinessFields;
+import com.exceptioncoder.toolbox.prdclarify.domain.PrdArtifactType;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.domain.DocumentProfile;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
@@ -53,6 +54,7 @@ public class PrdClarifyService {
     private final AgentOneShotRunner agentRunner;
     private final PrdSessionRepository repo;
     private final PrdFileStore fileStore;
+    private final PrdArtifactService artifactService;
     private final ObjectMapper mapper;
     private final GraphifyQueryService graphifyQuery;
     private final DomainKnowledgeQueryService domainKnowledgeQuery;
@@ -76,6 +78,7 @@ public class PrdClarifyService {
     public PrdClarifyService(AgentOneShotRunner agentRunner,
                              PrdSessionRepository repo,
                              PrdFileStore fileStore,
+                             PrdArtifactService artifactService,
                              ObjectMapper mapper,
                              GraphifyQueryService graphifyQuery,
                              DomainKnowledgeQueryService domainKnowledgeQuery,
@@ -84,6 +87,7 @@ public class PrdClarifyService {
         this.agentRunner = agentRunner;
         this.repo = repo;
         this.fileStore = fileStore;
+        this.artifactService = artifactService;
         this.mapper = mapper;
         this.graphifyQuery = graphifyQuery;
         this.domainKnowledgeQuery = domainKnowledgeQuery;
@@ -489,8 +493,8 @@ public class PrdClarifyService {
                 if (update) {
                     backupPrdIfExists(mdPath);
                 }
-                fileStore.write(sessionId, prdContent);
-                repo.updateDone(sessionId, mdPath.toString());
+                artifactService.write(sessionId, PrdArtifactType.PRD, prdContent,
+                        PrdArtifactService.ArtifactMetadata.empty());
 
                 if (continueOnDisconnect) sendDoneBestEffort(emitter, clientConnected); else sendDone(emitter);
             } catch (Exception e) {
@@ -956,16 +960,10 @@ public class PrdClarifyService {
                 sendDevDocProgress(emitter, "内容生成完成，正在保存开发文档",
                         continueOnDisconnect, clientConnected);
                 // 覆盖前若旧版本已存在，先备份为 {id}-dev-v{n}.md——"检出新版本"不丢旧内容。
-                java.nio.file.Path devDocPath = java.nio.file.Path.of(
-                        fileStore.pathFor(sessionId).toString().replace(".md", "-dev.md"));
+                java.nio.file.Path devDocPath = fileStore.canonicalPathFor(sessionId, PrdArtifactType.DEV_DOC);
                 backupDevDocIfExists(devDocPath);
-                java.nio.file.Files.writeString(
-                        devDocPath, devDocContent,
-                        java.nio.charset.StandardCharsets.UTF_8,
-                        java.nio.file.StandardOpenOption.CREATE,
-                        java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
-                repo.updateDevDocPath(sessionId, devDocPath.toString());
-                repo.updateDevDocGeneratedAt(sessionId, System.currentTimeMillis());
+                artifactService.write(sessionId, PrdArtifactType.DEV_DOC, devDocContent,
+                        PrdArtifactService.ArtifactMetadata.empty());
                 recordDevDocHistory(
                         sessionId, session.getDevDocHistory(), mode, extraInstructions, effectiveQaHistory, true);
                 repo.updateDevDocQaDraft(sessionId, null);
@@ -1160,20 +1158,12 @@ public class PrdClarifyService {
     public void saveDevDocContent(String sessionId, String content) throws java.io.IOException {
         PrdSession session = repo.findById(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-        String devDocPath = session.getDevDocPath();
-        if (devDocPath == null || devDocPath.isBlank()) {
-            // 首次保存时自动创建路径
-            devDocPath = fileStore.pathFor(sessionId).toString().replace(".md", "-dev.md");
-            repo.updateDevDocPath(sessionId, devDocPath);
-        }
+        String devDocPath = session.getDevDocPath() == null || session.getDevDocPath().isBlank()
+                ? fileStore.canonicalPathFor(sessionId, PrdArtifactType.DEV_DOC).toString()
+                : session.getDevDocPath();
         backupDevDocIfExists(java.nio.file.Path.of(devDocPath));
-        java.nio.file.Files.writeString(
-                java.nio.file.Path.of(devDocPath), content,
-                java.nio.charset.StandardCharsets.UTF_8,
-                java.nio.file.StandardOpenOption.CREATE,
-                java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
-        // 手动编辑保存也更新生成时间，确保过期判断正确
-        repo.updateDevDocGeneratedAt(sessionId, System.currentTimeMillis());
+        artifactService.write(sessionId, PrdArtifactType.DEV_DOC, content,
+                PrdArtifactService.ArtifactMetadata.empty());
     }
 
     // ───── 工时评估 ─────
@@ -1706,16 +1696,10 @@ public class PrdClarifyService {
 
                 String progressContent = full.isEmpty() ? returnedContent : full.toString();
                 validateProgressEvidenceStatus(progressContent);
-                java.nio.file.Path progressPath = java.nio.file.Path.of(
-                        fileStore.pathFor(sessionId).toString().replace(".md", "-progress.md"));
+                java.nio.file.Path progressPath = fileStore.canonicalPathFor(sessionId, PrdArtifactType.PROGRESS);
                 backupProgressIfExists(progressPath);
-                java.nio.file.Files.writeString(
-                        progressPath, progressContent,
-                        java.nio.charset.StandardCharsets.UTF_8,
-                        java.nio.file.StandardOpenOption.CREATE,
-                        java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
-                repo.updateProgressPath(sessionId, progressPath.toString());
-                repo.updateProgressGeneratedAt(sessionId, System.currentTimeMillis());
+                artifactService.write(sessionId, PrdArtifactType.PROGRESS, progressContent,
+                        PrdArtifactService.ArtifactMetadata.empty());
                 recordProgressHistory(sessionId, requestedSession.getProgressHistory(), extraContext);
                 log.info("[prd-clarify] 进度评估已保存 path={} sourceSessionId={}",
                         progressPath, sourceSession.getId());
@@ -2039,8 +2023,8 @@ public class PrdClarifyService {
                 .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
         java.nio.file.Path path = fileStore.pathFor(sessionId);
         backupPrdIfExists(path);
-        fileStore.write(sessionId, content);
-        repo.updateDone(sessionId, path.toString());
+        artifactService.write(sessionId, PrdArtifactType.PRD, content,
+                PrdArtifactService.ArtifactMetadata.empty());
     }
 
     /** 读取 .md 文件内容。 */
@@ -2100,8 +2084,9 @@ public class PrdClarifyService {
                 .createdByUserId(parent.getCreatedByUserId()).parentId(parentId)
                 .createdAt(now).updatedAt(now).build();
         repo.insert(revision);
-        fileStore.write(revision.getId(), initialPrdContent == null ? "" : initialPrdContent);
-        repo.updateDone(revision.getId(), fileStore.pathFor(revision.getId()).toString());
+        artifactService.write(revision.getId(), PrdArtifactType.PRD,
+                initialPrdContent == null ? "" : initialPrdContent,
+                PrdArtifactService.ArtifactMetadata.empty());
         invalidateEffortEstimation(parent, "PRD 已产生新的修订版本");
         return repo.findById(revision.getId()).orElseThrow();
     }
@@ -2147,8 +2132,8 @@ public class PrdClarifyService {
         // 必须显式复制根会话当前主文件；已有更早修订节点时不能误取“最新子节点”的旧内容。
         PrdSession revision = createBackgroundRevision(parent, metadataSource, changeReason, updatedContent);
         try {
-            fileStore.write(parentId, originalContent);
-            repo.updateDone(parentId, parentPath.toString());
+            artifactService.write(parentId, PrdArtifactType.PRD, originalContent,
+                    PrdArtifactService.ArtifactMetadata.empty());
             log.info("[prd-clarify] 已恢复旧版原地更新为修订树 parentId={} revisionId={} backup={}",
                     parentId, revision.getId(), backupPath);
             return revision;

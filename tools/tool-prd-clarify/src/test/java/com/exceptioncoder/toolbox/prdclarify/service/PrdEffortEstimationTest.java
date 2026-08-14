@@ -59,7 +59,7 @@ class PrdEffortEstimationTest {
                 """);
 
         PrdClarifyService service = new PrdClarifyService(
-                runner, repo, fileStore, mapper,
+                runner, repo, fileStore, mock(PrdArtifactService.class), mapper,
                 mock(GraphifyQueryService.class), mock(DomainKnowledgeQueryService.class),
                 mock(PrdImageInputResolver.class), resolver);
         service.estimateDevDocEffort("root", null, "codex");
@@ -94,7 +94,7 @@ class PrdEffortEstimationTest {
             return "{\"hoursMin\":2,\"hoursMax\":4,\"confidence\":\"HIGH\",\"breakdown\":[]}";
         });
         PrdClarifyService service = new PrdClarifyService(
-                runner, repo, fileStore, new ObjectMapper(),
+                runner, repo, fileStore, mock(PrdArtifactService.class), new ObjectMapper(),
                 mock(GraphifyQueryService.class), mock(DomainKnowledgeQueryService.class),
                 mock(PrdImageInputResolver.class), resolver);
 

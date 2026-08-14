@@ -114,6 +114,30 @@ CREATE INDEX IF NOT EXISTS idx_prd_session_status  ON prd_session(status);
 CREATE INDEX IF NOT EXISTS idx_prd_session_created_by ON prd_session(created_by_user_id);
 CREATE INDEX IF NOT EXISTS idx_prd_session_parent ON prd_session(parent_id);
 
+-- PRD 产物账本：每次 PRD、开发文档或进度报告写入都保留一个不可变版本。
+-- state: WRITING | READY | MISSING | CORRUPT；relative_path 始终相对 ~/.kai-toolbox/prd/。
+CREATE TABLE IF NOT EXISTS prd_artifact (
+    id              TEXT PRIMARY KEY,
+    session_id      TEXT NOT NULL,
+    artifact_type   TEXT NOT NULL,
+    version         INTEGER NOT NULL,
+    state           TEXT NOT NULL,
+    relative_path   TEXT NOT NULL,
+    sha256          TEXT,
+    size_bytes      INTEGER,
+    source_hash     TEXT,
+    prompt_version  TEXT,
+    last_error      TEXT,
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL,
+    UNIQUE (session_id, artifact_type, version)
+);
+
+CREATE INDEX IF NOT EXISTS idx_prd_artifact_latest
+    ON prd_artifact(session_id, artifact_type, version DESC);
+CREATE INDEX IF NOT EXISTS idx_prd_artifact_state
+    ON prd_artifact(state, updated_at);
+
 -- Vibe Coding 文档变更候选：AI 只负责分析和登记，用户确认后仍复用现有 PRD/TDD 生成接口。
 -- decision 是用户最终采用的范围，ai_decision 保留模型原始建议，便于审计覆写。
 CREATE TABLE IF NOT EXISTS prd_doc_change_candidate (
