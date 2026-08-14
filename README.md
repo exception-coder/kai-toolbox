@@ -10,8 +10,7 @@ Forge 是一个运行在本机的 AI Coding 工作台。它把项目目录、业
 
 ### 环境要求
 
-- Windows 10/11
-- PowerShell 7，命令为 `pwsh`
+- Windows 10/11 + PowerShell 7（`pwsh`），或 macOS + Bash/Python 3
 - JDK 21
 - Maven 3.9+
 - Node.js 20+ 与 npm
@@ -21,7 +20,7 @@ Claude、Codex、Gemini、OpenCode 按实际使用情况完成各自的本机安
 
 ### 获取项目
 
-```powershell
+```shell
 git clone https://github.com/exception-coder/kai-toolbox.git
 cd kai-toolbox
 ```
@@ -30,8 +29,16 @@ cd kai-toolbox
 
 在项目根目录执行：
 
+Windows：
+
 ```powershell
 pwsh -File scripts\run-supervised.ps1
+```
+
+macOS：
+
+```bash
+bash scripts/run-supervised-macos.sh
 ```
 
 首次启动时，脚本会：
@@ -50,13 +57,13 @@ pwsh -File scripts\run-supervised.ps1
 
 保持启动脚本所在终端运行。默认不开启源码热重启，修改后端代码后可使用页面中的重启入口，或重新启动脚本。
 
-需要保存即编译并热重启时，显式执行：
+Windows 需要保存即编译并热重启时，显式执行：
 
 ```powershell
 pwsh -File scripts\run-supervised.ps1 -HotReload
 ```
 
-需要先完整打包再运行 fat jar 时：
+Windows 需要先完整打包再运行 fat jar 时：
 
 ```powershell
 pwsh -File scripts\run-supervised.ps1 -Mode full
@@ -66,8 +73,16 @@ pwsh -File scripts\run-supervised.ps1 -Mode full
 
 频繁迭代的运行机可让同一个 supervisor 定时跟随当前仓库的 `origin/main`，更新后自动重载后端、前端和相关 sidecar：
 
+Windows：
+
 ```powershell
 pwsh -File scripts\run-supervised.ps1 -AutoUpdate
+```
+
+macOS：
+
+```bash
+bash scripts/run-supervised-macos.sh --auto-update
 ```
 
 当前仓库近 24 小时约 15 次提交、更新批次中位间隔约 21 分钟，因此默认每 120 秒检查一次；检测到新提交后，还会等待远端 HEAD 连续稳定 120 秒，把短时间连续 push 合并成一次重启。也可在本机 `scripts\run-tools.conf` 中设置 `TOOLBOX_AUTO_UPDATE_ENABLED=true` 常态启用，其他参数见 `run-tools.conf.example`。
@@ -76,22 +91,38 @@ pwsh -File scripts\run-supervised.ps1 -AutoUpdate
 
 - 仅接受当前跟踪分支的 fast-forward；工作树 dirty、本地 ahead/diverged 时延期，不会自动 stash、reset 或 clean。
 - 会话回合、权限/提问、后台 Agent 或一次性分析仍在运行时延期；无法确认空闲也不会强制重启。
-- Git fetch 有超时和指数退避；更新状态可从 `GET http://127.0.0.1:18081/status` 查看，日志写入本机 `%LOCALAPPDATA%\kai-toolbox\logs\auto-update.log`。
+- Git fetch 有超时和指数退避；更新状态可从 `GET http://127.0.0.1:18081/status` 查看。Windows 日志位于 `%LOCALAPPDATA%\kai-toolbox\logs\auto-update.log`，macOS 日志位于 `~/Library/Logs/kai-toolbox/auto-update.log`。
 - 同一仓库只允许一个 supervisor 实例，避免重复进程互相抢占端口。
 
 ### 停止服务
+
+Windows：
 
 ```powershell
 pwsh -File scripts\stop-supervised.ps1
 ```
 
+macOS：
+
+```bash
+bash scripts/stop-supervised-macos.sh
+```
+
 全停但保留 AgentScope Studio：
+
+Windows：
 
 ```powershell
 pwsh -File scripts\stop-supervised.ps1 -KeepStudio
 ```
 
-`-Ports 18080,5173` 只适合 supervisor 已经退出后的定点清理；若 watchdog 仍在运行，被停止的前后端会按设计重新拉起。
+macOS：
+
+```bash
+bash scripts/stop-supervised-macos.sh --keep-studio
+```
+
+Windows `-Ports 18080,5173` / macOS `--ports 18080,5173` 只适合 supervisor 已经退出后的定点清理；若 watchdog 仍在运行，被停止的前后端会按设计重新拉起。
 
 ## 首次配置
 
@@ -101,6 +132,10 @@ pwsh -File scripts\stop-supervised.ps1 -KeepStudio
 
 ```powershell
 Copy-Item scripts\run-tools.conf.example scripts\run-tools.conf
+```
+
+```bash
+cp scripts/run-tools.conf.example scripts/run-tools.conf
 ```
 
 按实际环境填写：

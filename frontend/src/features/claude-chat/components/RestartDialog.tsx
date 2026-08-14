@@ -56,7 +56,7 @@ export function RestartDialog({ onClose }: { onClose: () => void }) {
       localStorage.removeItem(TOKEN_KEY)
     }
     setStatus('❌ 重启失败：\n' + notes.join('\n')
-      + '\n（请确认后端用 run-supervised.ps1 启动，且 run-tools.conf 配了 RestartToken）')
+      + '\n（请确认后端用 Windows/macOS supervisor 启动，且 run-tools.conf 配了 RestartToken）')
     setBusy(false)
   }
 
