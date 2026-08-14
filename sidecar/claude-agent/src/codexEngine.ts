@@ -1,6 +1,6 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   Codex,
@@ -21,6 +21,7 @@ import {
   REVIEW_ONLY_PROMPT,
   consultReadonlyRequiredMcpTools,
   consultReadonlyCodexConfig,
+  reviewOnlyCodexConfig,
 } from './codexSecurity.js'
 import { FORGE_PENDING_SQL_STEER } from './forgePendingSql.js'
 import {
@@ -161,7 +162,9 @@ function buildCodexConfig(speed: CodexSpeed, toolPolicy: string, codexHome?: str
     ...(developerInstructions ? { developer_instructions: developerInstructions } : {}),
     ...(toolPolicy === CONSULT_READONLY_POLICY
       ? consultReadonlyCodexConfig(codexHome, sessionId, sourceRoot, consultEvidenceSystems)
-      : toolPolicy === 'disabled' || toolPolicy === REVIEW_ONLY_POLICY
+      : toolPolicy === REVIEW_ONLY_POLICY
+        ? reviewOnlyCodexConfig(codexHome)
+      : toolPolicy === 'disabled'
         ? {}
         : standardToolboxMcpConfig(sessionId)),
   }
@@ -257,17 +260,22 @@ function mapMode(mode: string): { approvalPolicy: ApprovalMode; sandboxMode: San
  * App Server 仅在尚未产生可见输出或副作用时允许回退 SDK，避免同一轮重复执行。
  */
 export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
+  const safeCwd = existsSync(ctx.cwd) ? ctx.cwd : (process.env.USERPROFILE || process.env.HOME || process.cwd())
+  const reviewOnly = ctx.toolPolicy === REVIEW_ONLY_POLICY
+  if (reviewOnly && !isReviewWorkspace(safeCwd)) {
+    ctx.emit({ type: 'error', code: 'REVIEW_WORKSPACE_FORBIDDEN', message: '计划评审工作目录不在隔离评审根目录内，已拒绝启动' })
+    ctx.emit({ type: 'result', usage: {}, stopReason: 'error' })
+    return
+  }
   if (ctx.apiBaseUrl?.trim()) {
     await runCodexSdkTurn(ctx, 'thirdPartySdk')
     return
   }
 
-  const safeCwd = existsSync(ctx.cwd) ? ctx.cwd : (process.env.USERPROFILE || process.env.HOME || process.cwd())
   const home = normalizeCodexHome(ctx.codexHome)
   if (!validateCodexHome(ctx, home)) return
   const toolsDisabled = ctx.toolPolicy === 'disabled' || ctx.toolPolicy === REVIEW_ONLY_POLICY
   const consultReadonly = ctx.toolPolicy === CONSULT_READONLY_POLICY
-  const reviewOnly = ctx.toolPolicy === REVIEW_ONLY_POLICY
   const consultSourceRoot = consultReadonly && ctx.cwd.trim() ? resolve(ctx.cwd) : undefined
   const { approvalPolicy, sandboxMode } = reviewOnly
     ? { approvalPolicy: 'never' as ApprovalMode, sandboxMode: 'read-only' as SandboxMode }
@@ -304,6 +312,7 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
       requiredMcpTools: consultReadonly
         ? consultReadonlyRequiredMcpTools(consultSourceRoot, ctx.consultEvidenceSystems)
         : undefined,
+      forbidMcpTools: reviewOnly,
     })
   } catch (error) {
     if (ctx.signal.aborted) {
@@ -328,6 +337,14 @@ export async function runCodexTurn(ctx: CodexTurnCtx): Promise<void> {
   } finally {
     if (tempImageDir) rmSync(tempImageDir, { recursive: true, force: true })
   }
+}
+
+function isReviewWorkspace(cwd: string): boolean {
+  const root = resolve(homedir(), '.kai-toolbox', 'reviews')
+  const candidate = resolve(cwd)
+  const child = relative(root, candidate)
+  return child.length > 0 && child !== '..' && !child.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`)
+    && !isAbsolute(child)
 }
 
 async function runCodexSdkTurn(ctx: CodexTurnCtx, transport: CodexTransport): Promise<void> {

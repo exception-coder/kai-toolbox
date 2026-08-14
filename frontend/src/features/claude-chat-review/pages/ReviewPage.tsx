@@ -121,6 +121,7 @@ export function ReviewPage() {
   const chat = useClaudeChatSocket({ channel: 'review', reviewToken: token })
   const [review, setReview] = useState<Awaited<ReturnType<typeof getPublicReview>> | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [snapshotOpen, setSnapshotOpen] = useState(true)
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<ReviewAttachment[]>([])
   const [uploading, setUploading] = useState(0)
@@ -134,6 +135,7 @@ export function ReviewPage() {
   const summarySubmissionInFlightRef = useRef(false)
 
   useEffect(() => {
+    setSnapshotOpen(true)
     void getPublicReview(token).then(setReview).catch(e => setError(e instanceof Error ? e.message : String(e)))
   }, [token])
   useEffect(() => {
@@ -335,7 +337,15 @@ export function ReviewPage() {
         {defaultModel?.defaultReasoningEffort && <span className="text-slate-500">默认推理：{defaultModel.defaultReasoningEffort}</span>}
       </section>
       {runningTitle && <div className="mx-auto flex w-full max-w-5xl items-center gap-2 border-b border-indigo-200 bg-indigo-50/70 px-4 py-2 text-xs text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200"><ReviewAvatar className="size-7 rounded-full object-cover" /><Loader2 className="size-3.5 animate-spin" /><span>{runningTitle}</span></div>}
-      {review.contextSnapshot && <details className="mx-auto w-full max-w-5xl border-b px-4 py-2 text-xs"><summary className="cursor-pointer text-slate-500">查看分享的需求/计划快照</summary><pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-100 p-3 dark:bg-slate-900">{review.contextSnapshot}</pre></details>}
+      {review.contextSnapshot && (
+        <details open={snapshotOpen} onToggle={event => setSnapshotOpen(event.currentTarget.open)} className="mx-auto w-full max-w-5xl border-b px-4 py-2 text-xs">
+          <summary className="cursor-pointer text-slate-500">评审依据：分享时保存的需求/计划快照</summary>
+          <div className="mt-2 rounded-lg border border-indigo-100 bg-indigo-50/60 p-3 text-indigo-950 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-100">
+            <p className="mb-2 text-[11px] text-indigo-700 dark:text-indigo-300">这是创建评审链接时固定保存的开发上下文，仅供评审参考；下方消息区只显示评审人员后续提出的问题和 AI 评审回复。</p>
+            <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md bg-white/70 p-3 text-slate-800 dark:bg-slate-950/70 dark:text-slate-100">{review.contextSnapshot}</pre>
+          </div>
+        </details>
+      )}
       {visibleError && <div className="mx-auto mt-2 flex w-full max-w-5xl gap-2 px-4 text-sm text-red-600"><AlertTriangle className="size-4 shrink-0" />{visibleError}</div>}
       <main className="mx-auto flex min-h-0 w-full max-w-5xl flex-1 overflow-hidden">
         <MessageList items={chat.items} running={chat.running} sessionKey={review.reviewSessionId} engineLabel="AI 评审" connState={chat.state} assistantAvatarUrl={sheepAvatar} assistantAvatarAlt="AI 评审" onLoadEarlier={() => chat.loadHistory(false)} loadingEarlier={chat.historyLoading} exhausted={chat.historyExhausted} />

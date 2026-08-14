@@ -3,6 +3,7 @@ package com.exceptioncoder.toolbox.claudechat.api;
 import com.exceptioncoder.toolbox.claudechat.api.dto.AttachmentView;
 import com.exceptioncoder.toolbox.claudechat.domain.ReviewSpace;
 import com.exceptioncoder.toolbox.claudechat.service.AttachmentStorageService;
+import com.exceptioncoder.toolbox.claudechat.service.LocalNetworkAddressService;
 import com.exceptioncoder.toolbox.claudechat.service.ReviewSpaceService;
 import com.exceptioncoder.toolbox.claudechat.service.SessionHistoryService;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
@@ -27,13 +28,16 @@ public class ReviewSpaceController {
     private final AttachmentStorageService attachments;
     private final SessionHistoryService history;
     private final ClaudeChatSessionRepository sessions;
+    private final LocalNetworkAddressService localNetworkAddress;
 
     public ReviewSpaceController(ReviewSpaceService service, AttachmentStorageService attachments,
-                                 SessionHistoryService history, ClaudeChatSessionRepository sessions) {
+                                 SessionHistoryService history, ClaudeChatSessionRepository sessions,
+                                 LocalNetworkAddressService localNetworkAddress) {
         this.service = service;
         this.attachments = attachments;
         this.history = history;
         this.sessions = sessions;
+        this.localNetworkAddress = localNetworkAddress;
     }
 
     @PostMapping("/sessions/{sessionId}/reviews")
@@ -42,7 +46,8 @@ public class ReviewSpaceController {
                 request.mode(), request.title(), request.contextSnapshot(), request.expiresInDays(), request.lastTurnId(),
                 request.codexHome()));
         return Map.of("review", ReviewView.from(created.space()), "token", created.token(),
-                "sharePath", "/review/" + created.token());
+                "sharePath", "/review/" + created.token(),
+                "lanIpv4", localNetworkAddress.preferredIpv4().orElse(""));
     }
 
     @GetMapping("/sessions/{sessionId}/reviews")
@@ -104,7 +109,7 @@ public class ReviewSpaceController {
         ReviewSpace space = service.resolve(token).orElse(null);
         if (space == null) return ResponseEntity.notFound().build();
         return sessions.findById(space.reviewSessionId())
-                .map(session -> ResponseEntity.ok(history.readMessages(session.getCwd(), session.getSdkSessionId(),
+                .map(session -> ResponseEntity.ok(history.readReviewMessages(session.getCwd(), session.getSdkSessionId(),
                         session.getCodexHome(), before, limit)))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }

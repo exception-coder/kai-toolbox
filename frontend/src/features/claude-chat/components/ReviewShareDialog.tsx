@@ -43,7 +43,9 @@ export function ReviewShareDialog({ open, sessionId, sessionTitle, engine, sdkSe
         lastTurnId,
         codexHome: codexHome?.trim() || undefined,
       })
-      setShareUrl(new URL(result.sharePath, window.location.origin).toString())
+      const url = new URL(result.sharePath, window.location.origin)
+      if (result.lanIpv4) url.hostname = result.lanIpv4
+      setShareUrl(url.toString())
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally { setBusy(false) }

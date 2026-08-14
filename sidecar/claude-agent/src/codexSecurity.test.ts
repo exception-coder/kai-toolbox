@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   CONSULT_READONLY_PROMPT,
   REVIEW_ONLY_PROMPT,
   consultReadonlyCodexConfig,
   consultReadonlyRequiredMcpTools,
+  reviewOnlyCodexConfig,
   resolveConsultTargetSystem,
   resolveConsultTargetSystems,
 } from './codexSecurity.js'
@@ -12,6 +16,26 @@ import {
 test('review prompt explicitly forbids implementation side effects', () => {
   assert.match(REVIEW_ONLY_PROMPT, /禁止修改文件、执行命令、提交代码、写数据库/)
   assert.match(REVIEW_ONLY_PROMPT, /回到原开发会话执行/)
+})
+
+test('review config closes apps, plugins, code mode and every configured MCP', () => {
+  const home = mkdtempSync(join(tmpdir(), 'review-codex-home-'))
+  try {
+    writeFileSync(join(home, 'config.toml'), '[mcp_servers.forge]\ncommand = "node"\n[mcp_servers.external-writer]\ncommand = "node"\n')
+    const config = reviewOnlyCodexConfig(home)
+    const features = config.features as Record<string, unknown>
+    assert.equal(features.apps, false)
+    assert.equal(features.plugins, false)
+    assert.equal(features.code_mode, false)
+    assert.equal(features.code_mode_host, false)
+    assert.equal(features.multi_agent, false)
+    assert.deepEqual(config.mcp_servers, {
+      forge: { enabled: false },
+      'external-writer': { enabled: false },
+    })
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
 })
 
 test('resolves the consultation database target from the registered source directory', () => {

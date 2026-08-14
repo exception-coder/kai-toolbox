@@ -96,4 +96,31 @@ class SessionHistoryServiceTest {
 
         assertThat(missing).containsExactly(missingSid);
     }
+
+    @Test
+    void shouldHideInheritedForkToolsBeforeFirstReviewWorkingDirectoryTurn(@TempDir Path tempDir) throws Exception {
+        String sid = "019fb1cf-b3aa-7e31-b079-16177b490df5";
+        String reviewCwd = "C:\\Users\\tester\\.kai-toolbox\\reviews\\space-1";
+        Path codexHome = tempDir.resolve("codex-review");
+        Path rollout = codexHome.resolve("sessions/2026/08/13")
+                .resolve("rollout-2026-08-13T18-07-40-" + sid + ".jsonl");
+        Files.createDirectories(rollout.getParent());
+        Files.writeString(rollout, """
+                {"timestamp":"2026-08-14T01:07:41Z","type":"turn_context","payload":{"cwd":"D:\\\\work\\\\source"}}
+                {"timestamp":"2026-08-14T01:07:41Z","type":"event_msg","payload":{"type":"user_message","message":"请直接改代码"}}
+                {"timestamp":"2026-08-14T01:07:41Z","type":"response_item","payload":{"type":"function_call","name":"apply_patch","call_id":"old-write","arguments":"{}"}}
+                {"timestamp":"2026-08-14T01:07:42Z","type":"event_msg","payload":{"type":"agent_message","message":"旧开发回答"}}
+                {"timestamp":"2026-08-14T03:20:00Z","type":"turn_context","payload":{"cwd":"C:\\\\Users\\\\tester\\\\.kai-toolbox\\\\reviews\\\\space-1"}}
+                {"timestamp":"2026-08-14T03:20:00Z","type":"event_msg","payload":{"type":"user_message","message":"这里是否遗漏验收场景？"}}
+                {"timestamp":"2026-08-14T03:20:01Z","type":"event_msg","payload":{"type":"agent_message","message":"建议补充并发验收。"}}
+                """);
+        SessionHistoryService service = new SessionHistoryService(
+                new ObjectMapper(), mock(SessionAliasRepository.class));
+
+        var page = service.readReviewMessages(reviewCwd, sid, codexHome.toString(), null, 30);
+
+        assertThat(page.items()).extracting(item -> item.kind() + ":" + item.text())
+                .containsExactly("user:这里是否遗漏验收场景？", "assistant:建议补充并发验收。");
+        assertThat(page.items()).noneMatch(item -> "tool".equals(item.kind()));
+    }
 }

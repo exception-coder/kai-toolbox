@@ -466,7 +466,7 @@ export function createReviewShare(sessionId: string, input: {
   lastTurnId?: string
   codexHome?: string
 }) {
-  return http<{ review: ReviewShareView; token: string; sharePath: string }>(
+  return http<{ review: ReviewShareView; token: string; sharePath: string; lanIpv4: string }>(
     `/claude-chat/sessions/${encodeURIComponent(sessionId)}/reviews`,
     { method: 'POST', body: JSON.stringify(input) },
   )

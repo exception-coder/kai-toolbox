@@ -229,6 +229,30 @@ public class SessionHistoryService {
             log.debug("[claude-chat] 解析历史消息失败 {}：{}", sdkSessionId, e.getMessage());
             return MessagePage.empty();
         }
+        return paginate(all, before, limit);
+    }
+
+    /**
+     * 读取公开评审产生的新消息，不返回 FULL_FORK 从开发线程继承的旧消息和工具记录。
+     *
+     * <p>Codex {@code thread/fork} 会把继承历史重新写入新 rollout，并给这些旧事件赋予接近分叉时刻的
+     * 外层时间戳，所以不能再用 review.createdAt 作为边界。真正的评审轮次会携带平台分配的唯一评审 cwd；
+     * 以首个匹配该 cwd 的 {@code turn_context} 作为结构边界，不受时钟、历史压缩或刷新影响。</p>
+     */
+    public MessagePage readReviewMessages(String reviewCwd, String sdkSessionId, String codexHome,
+                                          Integer before, int limit) {
+        boolean hasSid = sdkSessionId != null && !sdkSessionId.isBlank();
+        Path rollout = findCodexRollout(sdkSessionId, codexHome);
+        if (rollout == null) return hasSid ? MessagePage.missing() : MessagePage.empty();
+        try {
+            return paginate(parseCodexRollout(rollout, reviewCwd), before, limit);
+        } catch (IOException e) {
+            log.debug("[claude-chat] 解析评审历史失败 {}：{}", sdkSessionId, e.getMessage());
+            return MessagePage.empty();
+        }
+    }
+
+    private MessagePage paginate(List<ChatMessageView> all, Integer before, int limit) {
         int n = all.size();
         int end = (before == null) ? n : Math.max(0, Math.min(before, n));
         int start = Math.max(0, end - Math.max(1, limit));
@@ -421,10 +445,15 @@ public class SessionHistoryService {
      *  - event_msg/token_count   → 本轮 token（last_token_usage 增量），按用户消息边界聚合成 result 项。
      */
     private List<ChatMessageView> parseCodexRollout(Path jsonl) throws IOException {
+        return parseCodexRollout(jsonl, null);
+    }
+
+    private List<ChatMessageView> parseCodexRollout(Path jsonl, String requiredTurnCwd) throws IOException {
         List<ChatMessageView> out = new ArrayList<>();
         Map<String, Integer> callIdx = new LinkedHashMap<>(); // call_id -> out 下标
         TurnAcc acc = new TurnAcc();
         String currentTurnId = null;
+        boolean insideRequestedCwd = requiredTurnCwd == null || requiredTurnCwd.isBlank();
         try (BufferedReader r = Files.newBufferedReader(jsonl, StandardCharsets.UTF_8)) {
             String line;
             while ((line = r.readLine()) != null) {
@@ -436,6 +465,13 @@ public class SessionHistoryService {
                     continue; // 非法行跳过
                 }
                 JsonNode payload = node.path("payload");
+                if (!insideRequestedCwd) {
+                    if ("turn_context".equals(node.path("type").asText(""))
+                            && sameCwd(requiredTurnCwd, payload.path("cwd").asText(""))) {
+                        insideRequestedCwd = true;
+                    }
+                    continue;
+                }
                 String pType = payload.path("type").asText("");
                 Long ts = parseTs(node);
                 switch (pType) {
@@ -479,6 +515,17 @@ public class SessionHistoryService {
         }
         flushTurn(out, acc); // 末轮
         return out;
+    }
+
+    private static boolean sameCwd(String expected, String actual) {
+        if (expected == null || actual == null || expected.isBlank() || actual.isBlank()) return false;
+        return normalizeCwd(expected).equalsIgnoreCase(normalizeCwd(actual));
+    }
+
+    private static String normalizeCwd(String value) {
+        String normalized = value.trim().replace('\\', '/');
+        while (normalized.endsWith("/")) normalized = normalized.substring(0, normalized.length() - 1);
+        return normalized;
     }
 
     /**

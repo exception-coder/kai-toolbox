@@ -983,12 +983,13 @@ export function useClaudeChatSocket(opts?: { demo?: boolean; channel?: ClaudeCha
       return
     }
     if (connectingRef.current) return
-    // 已因登录失效放弃：不再重连（等登录成功后由 token 变化的 effect 恢复），避免拿被拒 token 空转。
-    if (gaveUpRef.current) { setState('error'); return }
+    // 登录失效只影响需要登录的通道；demo / 公开评审使用各自 capability，不能被本机登录态拦住。
+    if (!publicWithoutLogin && gaveUpRef.current) { setState('error'); return }
     connectingRef.current = true
     setState('connecting')
-    // demo：免鉴权，跳过 token 续期，直接建连。
-    if (demo) {
+    // demo 与公开评审都免登录：前者由沙箱约束，后者由 review_token capability 约束。
+    // 这里必须跳过 access token 续期，否则从未登录过的新浏览器打不开本应公开的评审链接。
+    if (publicWithoutLogin) {
       connectingRef.current = false
       if (manualCloseRef.current) return
       const cur = wsRef.current

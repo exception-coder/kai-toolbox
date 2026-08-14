@@ -96,8 +96,8 @@ export const CONSULT_READONLY_PROMPT = [
 
 /** 找出用户 config.toml 中声明的 MCP server；咨询专用客户端会逐个显式禁用。 */
 export function configuredMcpServerNames(codexHome?: string): string[] {
-  if (!codexHome) return []
-  const configPath = join(codexHome, 'config.toml')
+  const root = codexHome?.trim() || join(homedir(), '.codex')
+  const configPath = join(root, 'config.toml')
   if (!existsSync(configPath)) return []
   const names = new Set<string>()
   const section = /^\s*\[mcp_servers\.(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+))(?:[.\]])/
@@ -236,6 +236,31 @@ export function consultReadonlyCodexConfig(codexHome?: string, sessionId?: strin
       code_mode: false,
       // 延迟 MCP 通过 code-mode host 调用；Host 可见范围已由 mcpServers.enabled_tools 裁剪。
       code_mode_host: true,
+      image_generation: false,
+      multi_agent: false,
+    },
+    mcp_servers: mcpServers,
+  }
+}
+
+/**
+ * 计划评审的能力配置：保留 Codex 内建的只读分析能力，但关闭所有可产生平台外副作用的扩展入口。
+ * 用户 CODEX_HOME 中声明的 MCP 必须逐个显式 disabled；仅返回空 mcpServers 不会覆盖用户配置。
+ */
+export function reviewOnlyCodexConfig(codexHome?: string): Record<string, unknown> {
+  const mcpServers: Record<string, unknown> = {}
+  for (const name of configuredMcpServerNames(codexHome)) {
+    mcpServers[name] = { enabled: false }
+  }
+  return {
+    features: {
+      apps: false,
+      plugins: false,
+      computer_use: false,
+      browser_use: false,
+      browser_use_external: false,
+      code_mode: false,
+      code_mode_host: false,
       image_generation: false,
       multi_agent: false,
     },

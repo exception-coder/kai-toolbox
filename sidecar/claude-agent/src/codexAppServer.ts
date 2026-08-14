@@ -85,6 +85,8 @@ type AppServerTurnOptions = {
   setThreadId: (threadId: string) => void
   mcpServers?: Array<{ name: string; status: string }>
   requiredMcpTools?: RequiredMcpTool[]
+  /** review-only 必须在 turn/start 前确认没有任何运行时 MCP Tool，发现旁路即失败关闭。 */
+  forbidMcpTools?: boolean
 }
 
 type PendingRequest = {
@@ -671,7 +673,7 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
     if (!threadId) throw new Error('Codex App Server 未返回 thread id')
     options.setThreadId(threadId)
     let runtimeMcpServers = options.mcpServers ?? []
-    if (options.requiredMcpTools) {
+    if (options.requiredMcpTools || options.forbidMcpTools) {
       let runtimeStatuses: McpRuntimeStatus[]
       try {
         const statusResult = await request('mcpServerStatus/list', {
@@ -686,7 +688,14 @@ export async function runCodexAppServerTurn(options: AppServerTurnOptions): Prom
           false,
         )
       }
-      validateRequiredMcpTools(runtimeStatuses, options.requiredMcpTools)
+      if (options.requiredMcpTools) validateRequiredMcpTools(runtimeStatuses, options.requiredMcpTools)
+      if (options.forbidMcpTools) {
+        const exposed = runtimeStatuses.filter(status => status.tools.size > 0)
+        if (exposed.length > 0) {
+          const names = exposed.map(status => status.name).join('、')
+          throw new CodexAppServerTurnError(`计划评审检测到未关闭的 MCP 能力：${names}`, false)
+        }
+      }
       runtimeMcpServers = runtimeStatuses.map(status => ({
         name: status.name,
         status: status.tools.size > 0 ? 'connected' : 'unavailable',

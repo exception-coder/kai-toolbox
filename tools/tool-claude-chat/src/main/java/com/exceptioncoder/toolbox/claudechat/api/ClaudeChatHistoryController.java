@@ -7,6 +7,7 @@ import com.exceptioncoder.toolbox.claudechat.domain.ClaudeChatSession;
 import com.exceptioncoder.toolbox.claudechat.repository.ClaudeChatSessionRepository;
 import com.exceptioncoder.toolbox.claudechat.repository.SessionAliasRepository;
 import com.exceptioncoder.toolbox.claudechat.service.SessionHistoryService;
+import com.exceptioncoder.toolbox.claudechat.service.SessionExecutionPolicy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -49,9 +50,11 @@ public class ClaudeChatHistoryController {
                                 @RequestParam(required = false) String cwd,
                                 @RequestParam(required = false) Integer before,
                                 @RequestParam(defaultValue = "30") int limit) {
-        String codexHome = sessionRepo.findBySdkSessionId(sdkSessionId)
-                .map(ClaudeChatSession::getCodexHome)
-                .orElse(null);
+        ClaudeChatSession db = sessionRepo.findBySdkSessionId(sdkSessionId).orElse(null);
+        if (db != null && SessionExecutionPolicy.isReviewOnly(db.getExecutionPolicy())) {
+            return history.readReviewMessages(db.getCwd(), sdkSessionId, db.getCodexHome(), before, limit);
+        }
+        String codexHome = db == null ? null : db.getCodexHome();
         return history.readMessages(cwd, sdkSessionId, codexHome, before, limit);
     }
 
