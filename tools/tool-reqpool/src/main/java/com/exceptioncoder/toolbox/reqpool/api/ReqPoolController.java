@@ -1,5 +1,7 @@
 package com.exceptioncoder.toolbox.reqpool.api;
 
+import com.exceptioncoder.toolbox.common.requirement.RequirementType;
+import com.exceptioncoder.toolbox.common.requirement.RequirementTypeSource;
 import com.exceptioncoder.toolbox.reqpool.api.dto.AssignReqRequest;
 import com.exceptioncoder.toolbox.reqpool.api.dto.CreateReqRequest;
 import com.exceptioncoder.toolbox.reqpool.api.dto.LinkPrdRequest;
@@ -9,6 +11,7 @@ import com.exceptioncoder.toolbox.reqpool.domain.ReqItem;
 import com.exceptioncoder.toolbox.reqpool.repository.ReqItemRepository;
 import com.exceptioncoder.toolbox.reqpool.service.ReqAnalysisService;
 import com.exceptioncoder.toolbox.reqpool.service.ReqDevelopmentAccessPolicy;
+import com.exceptioncoder.toolbox.reqpool.service.ReqRequirementTypeService;
 import com.exceptioncoder.toolbox.common.auth.config.AuthProperties;
 import com.exceptioncoder.toolbox.common.auth.web.AuthContext;
 import com.exceptioncoder.toolbox.common.auth.web.AuthPrincipal;
@@ -61,14 +64,18 @@ public class ReqPoolController {
     private final JdbcTemplate jdbc;
     private final ReqAnalysisService analysis;
     private final ReqDevelopmentAccessPolicy developmentAccess;
+    private final ReqRequirementTypeService requirementTypeService;
     private final AuthProperties authProperties;
 
     public ReqPoolController(ReqItemRepository repo, JdbcTemplate jdbc, ReqAnalysisService analysis,
-                             ReqDevelopmentAccessPolicy developmentAccess, AuthProperties authProperties) {
+                             ReqDevelopmentAccessPolicy developmentAccess,
+                             ReqRequirementTypeService requirementTypeService,
+                             AuthProperties authProperties) {
         this.repo = repo;
         this.jdbc = jdbc;
         this.analysis = analysis;
         this.developmentAccess = developmentAccess;
+        this.requirementTypeService = requirementTypeService;
         this.authProperties = authProperties;
     }
 
@@ -104,6 +111,11 @@ public class ReqPoolController {
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
+        if (hasPrd) {
+            requirementTypeService.applyPrdSessionType(item, findConfirmedPrdType(req.prdSessionId()));
+        } else {
+            requirementTypeService.resolveIndependentItem(item);
+        }
         repo.insert(item);
         return ResponseEntity.status(HttpStatus.CREATED).body(ReqItemView.from(item));
     }
@@ -147,6 +159,8 @@ public class ReqPoolController {
                               @Valid @RequestBody UpdateReqRequest req) {
         ReqItem existing = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "需求不存在: " + id));
+        boolean factsChanged = req.title() != null && !Objects.equals(req.title(), existing.getTitle())
+                || req.description() != null && !Objects.equals(req.description(), existing.getDescription());
         existing.setTitle(req.title() != null ? req.title() : existing.getTitle());
         existing.setDescription(req.description() != null ? req.description() : existing.getDescription());
         existing.setProject(req.project() != null ? req.project() : existing.getProject());
@@ -160,6 +174,16 @@ public class ReqPoolController {
         }
         existing.setDeadline(req.deadline() != null ? req.deadline() : existing.getDeadline());
         existing.setTags(req.tags() != null ? req.tags() : existing.getTags());
+        if (factsChanged) {
+            if (existing.getPrdSessionId() == null || existing.getPrdSessionId().isBlank()) {
+                requirementTypeService.resolveIndependentItem(existing);
+            } else {
+                requirementTypeService.applyPrdSessionType(
+                        existing,
+                        findConfirmedPrdType(existing.getPrdSessionId())
+                );
+            }
+        }
         existing.setUpdatedAt(System.currentTimeMillis());
         repo.update(existing);
         return ReqItemView.from(existing);
@@ -230,8 +254,11 @@ public class ReqPoolController {
         repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "需求不存在: " + id));
         repo.linkPrd(id, req.prdSessionId());
-        return repo.findById(id).map(ReqItemView::from)
+        ReqItem linked = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "需求不存在: " + id));
+        requirementTypeService.applyPrdSessionType(linked, findConfirmedPrdType(req.prdSessionId()));
+        repo.update(linked);
+        return ReqItemView.from(linked);
     }
 
     /**
@@ -363,7 +390,8 @@ public class ReqPoolController {
     @PostMapping("/sync-from-prd")
     public ResponseEntity<Map<String, Object>> syncFromPrd() {
         List<Map<String, Object>> sessions = jdbc.queryForList(
-                "SELECT id, title, raw_input, project, module, status FROM prd_session " +
+                "SELECT id, title, raw_input, project, module, status, " +
+                "CASE WHEN status = 'DRAFT' THEN NULL ELSE req_type END AS req_type FROM prd_session " +
                 "WHERE status IN ('DRAFT', 'DONE', 'CLARIFYING') " +
                 "AND NOT EXISTS (SELECT 1 FROM req_pool_prd_exclusion " +
                 "WHERE req_pool_prd_exclusion.prd_session_id = prd_session.id)"
@@ -397,6 +425,7 @@ public class ReqPoolController {
             String description = s.get("raw_input") != null ? String.valueOf(s.get("raw_input")) : null;
             String project = s.get("project") != null ? String.valueOf(s.get("project")) : null;
             String module = s.get("module") != null ? String.valueOf(s.get("module")) : null;
+            String prdReqType = s.get("req_type") != null ? String.valueOf(s.get("req_type")) : null;
             // prd_session 状态映射到 req_pool_item 状态
             String reqStatus = switch (prdStatus) {
                 case "DONE" -> "PRD_READY";
@@ -406,7 +435,8 @@ public class ReqPoolController {
 
             // 查询是否已有对应条目
             List<Map<String, Object>> existing = jdbc.queryForList(
-                    "SELECT id, title, description, project, module, status " +
+                    "SELECT id, title, description, project, module, status, " +
+                            "req_type, req_type_source, req_type_confidence " +
                             "FROM req_pool_item WHERE prd_session_id = ? " +
                             "ORDER BY CASE WHEN assignee_user_id IS NOT NULL OR assignee IS NOT NULL THEN 0 ELSE 1 END, " +
                             "CASE WHEN deadline IS NOT NULL AND deadline <> '' THEN 0 ELSE 1 END, created_at ASC", prdId);
@@ -425,6 +455,7 @@ public class ReqPoolController {
                         .createdAt(now)
                         .updatedAt(now)
                         .build();
+                requirementTypeService.applyPrdSessionType(item, prdReqType);
                 repo.insert(item);
                 created++;
             } else {
@@ -440,11 +471,16 @@ public class ReqPoolController {
                         || !Objects.equals(description, current.get("description"))
                         || !Objects.equals(project, current.get("project"))
                         || !Objects.equals(module, current.get("module"))
-                        || !Objects.equals(reqStatus, current.get("status"));
+                        || !Objects.equals(reqStatus, current.get("status"))
+                        || !Objects.equals(normalizedPrdType(prdReqType), current.get("req_type"))
+                        || !Objects.equals(normalizedPrdTypeSource(prdReqType), current.get("req_type_source"));
                 if (changed) {
                     jdbc.update("UPDATE req_pool_item SET title = ?, description = ?, project = ?, " +
-                                    "module = ?, status = ?, updated_at = ? WHERE id = ?",
-                            title, description, project, module, reqStatus, now, existingId);
+                                    "module = ?, status = ?, req_type = ?, req_type_source = ?, " +
+                                    "req_type_confidence = ?, updated_at = ? WHERE id = ?",
+                            title, description, project, module, reqStatus,
+                            normalizedPrdType(prdReqType), normalizedPrdTypeSource(prdReqType),
+                            RequirementType.fromCode(prdReqType).isClassified() ? 1 : 0, now, existingId);
                     updated++;
                 }
             }
@@ -485,5 +521,26 @@ public class ReqPoolController {
                 .createdAt(createdAt)
                 .updatedAt(createdAt)
                 .build();
+    }
+
+    private String findConfirmedPrdType(String prdSessionId) {
+        if (prdSessionId == null || prdSessionId.isBlank()) {
+            return null;
+        }
+        return jdbc.query(
+                "SELECT CASE WHEN status = 'DRAFT' THEN NULL ELSE req_type END FROM prd_session WHERE id = ?",
+                resultSet -> resultSet.next() ? resultSet.getString(1) : null,
+                prdSessionId
+        );
+    }
+
+    private String normalizedPrdType(String prdReqType) {
+        return RequirementType.fromCode(prdReqType).name();
+    }
+
+    private String normalizedPrdTypeSource(String prdReqType) {
+        return RequirementType.fromCode(prdReqType).isClassified()
+                ? RequirementTypeSource.PRD_SESSION.name()
+                : RequirementTypeSource.UNKNOWN.name();
     }
 }

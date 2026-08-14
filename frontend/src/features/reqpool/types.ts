@@ -1,5 +1,7 @@
 export type ReqPriority = 'HIGH' | 'MEDIUM' | 'LOW'
 export type ReqStatus = 'DRAFT' | 'CLARIFYING' | 'PRD_READY' | 'IN_DEV' | 'DONE' | 'CANCELLED'
+export type RequirementType = 'BUG_FIX' | 'MODULE_ADJUST' | 'NEW_MODULE' | 'UNKNOWN'
+export type RequirementTypeSource = 'EXPLICIT' | 'AI' | 'PRD_SESSION' | 'UNKNOWN'
 
 export interface ReqItemView {
   id: string
@@ -14,6 +16,9 @@ export interface ReqItemView {
   deadline: string | null   // yyyy-MM-dd
   prdSessionId: string | null
   tags: string | null
+  reqType: RequirementType
+  reqTypeSource: RequirementTypeSource
+  reqTypeConfidence: number
   /** Claude AI 价值洞察分析 JSON（含 priority/stars/recommendation/impacts/roi/estimatedHours） */
   aiInsight: string | null
   createdAt: number

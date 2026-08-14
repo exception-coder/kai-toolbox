@@ -1,5 +1,7 @@
 package com.exceptioncoder.toolbox.prdclarify.service;
 
+import com.exceptioncoder.toolbox.common.requirement.RequirementType;
+import com.exceptioncoder.toolbox.common.requirement.RequirementTypeSource;
 import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -71,7 +73,7 @@ class PrdRequirementTypeResolverTest {
     }
 
     @Test
-    void normalizesUnknownAgentTypeAndClampsPositiveQuestionCount() {
+    void fallsBackToPrdDefaultWhenAgentReturnsUnknownType() {
         AgentOneShotRunner runner = mock(AgentOneShotRunner.class);
         when(runner.runOnce(anyString(), anyString(), eq("model-a"), eq("claude")))
                 .thenReturn("{\"reqType\":\"OTHER\",\"maxQuestions\":99}");
@@ -81,7 +83,7 @@ class PrdRequirementTypeResolverTest {
                 resolver.resolve("未知需求", "描述", "model-a", "claude", null, null);
 
         assertThat(result.reqType()).isEqualTo("NEW_MODULE");
-        assertThat(result.maxQuestions()).isEqualTo(10);
+        assertThat(result.maxQuestions()).isEqualTo(8);
     }
 
     @Test
@@ -124,6 +126,34 @@ class PrdRequirementTypeResolverTest {
 
         assertThat(result.reqType()).isEqualTo("NEW_MODULE");
         assertThat(result.maxQuestions()).isEqualTo(8);
+    }
+
+    @Test
+    void exposesValidatedAiResolutionThroughSharedPort() {
+        AgentOneShotRunner runner = mock(AgentOneShotRunner.class);
+        when(runner.runOnce(anyString(), anyString(), eq("model-a"), eq("claude")))
+                .thenReturn("{\"reqType\":\"MODULE_ADJUST\",\"maxQuestions\":4,\"confidence\":0.82}");
+        PrdRequirementTypeResolver resolver = resolver(runner);
+
+        var result = resolver.resolveRequirementType("调整审批", "修改现有审批规则", "model-a", "claude");
+
+        assertThat(result.type()).isEqualTo(RequirementType.MODULE_ADJUST);
+        assertThat(result.source()).isEqualTo(RequirementTypeSource.AI);
+        assertThat(result.confidence()).isEqualTo(0.82);
+    }
+
+    @Test
+    void sharedPortDoesNotDisguiseInvalidAgentOutputAsNewModule() {
+        AgentOneShotRunner runner = mock(AgentOneShotRunner.class);
+        when(runner.runOnce(anyString(), anyString(), eq("model-a"), eq("claude")))
+                .thenReturn("{\"reqType\":\"OTHER\",\"maxQuestions\":8}");
+        PrdRequirementTypeResolver resolver = resolver(runner);
+
+        var result = resolver.resolveRequirementType("未知需求", "描述", "model-a", "claude");
+
+        assertThat(result.type()).isEqualTo(RequirementType.UNKNOWN);
+        assertThat(result.source()).isEqualTo(RequirementTypeSource.UNKNOWN);
+        assertThat(result.confidence()).isZero();
     }
 
     private static PrdRequirementTypeResolver resolver(AgentOneShotRunner runner) {

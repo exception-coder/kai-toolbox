@@ -1753,7 +1753,7 @@ function FactQualityDetails({ quality }: { quality: FactQualityResult }) {
         <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${tone.badge}`}>{quality.levelLabel}</span>
       </div>
       <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[var(--color-muted)]"><div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${quality.score}%` }} /></div>
-      <div className="mt-3 flex flex-wrap gap-1.5 text-[9px]"><span className="rounded bg-[var(--color-muted)] px-2 py-1">{quality.reqTypeLabel}{quality.inferredType ? ' · 系统推断' : ''}</span><span className="max-w-full truncate rounded bg-[var(--color-muted)] px-2 py-1" title={quality.locationLabel}>{quality.locationLabel}</span></div>
+      <div className="mt-3 flex flex-wrap gap-1.5 text-[9px]"><span className="rounded bg-[var(--color-muted)] px-2 py-1">{quality.reqTypeLabel} · {quality.reqTypeSourceLabel}</span><span className="max-w-full truncate rounded bg-[var(--color-muted)] px-2 py-1" title={quality.locationLabel}>{quality.locationLabel}</span></div>
       <div className="mt-4 space-y-2">
         {quality.criteria.map(item => {
           const deducted = item.weight - item.earned
@@ -2482,8 +2482,8 @@ export function ReqPoolPage() {
         module: original.module ?? undefined,
         engine,
         role: original.role ?? 'PRODUCT',
-        reqType: original.reqType ?? 'NEW_MODULE',
-        maxQuestions: original.maxQuestions > 0 ? original.maxQuestions : 5,
+        reqType: item.reqType === 'UNKNOWN' ? undefined : item.reqType,
+        maxQuestions: item.reqType === 'UNKNOWN' ? undefined : original.maxQuestions > 0 ? original.maxQuestions : undefined,
         clarifyMode: 'batch',
         businessFields: original.businessFields,
       })

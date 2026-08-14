@@ -25,6 +25,9 @@ public class ReqItemRepository {
             .deadline(rs.getString("deadline"))
             .prdSessionId(rs.getString("prd_session_id"))
             .tags(rs.getString("tags"))
+            .reqType(rs.getString("req_type"))
+            .reqTypeSource(rs.getString("req_type_source"))
+            .reqTypeConfidence(nullableDouble(rs.getObject("req_type_confidence")))
             .aiInsight(rs.getString("ai_insight"))
             .createdAt(rs.getLong("created_at"))
             .updatedAt(rs.getLong("updated_at"))
@@ -47,6 +50,16 @@ public class ReqItemRepository {
         }
     }
 
+    private static Double nullableDouble(Object value) {
+        if (value == null) return null;
+        if (value instanceof Number number) return number.doubleValue();
+        try {
+            return Double.valueOf(String.valueOf(value).trim());
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
     private final JdbcTemplate jdbc;
 
     public ReqItemRepository(JdbcTemplate jdbc) {
@@ -57,13 +70,15 @@ public class ReqItemRepository {
         jdbc.update("""
                 INSERT INTO req_pool_item
                   (id, title, description, project, module, priority, status,
-                   assignee, assignee_user_id, deadline, prd_session_id, tags, ai_insight, created_at, updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   assignee, assignee_user_id, deadline, prd_session_id, tags,
+                   req_type, req_type_source, req_type_confidence, ai_insight, created_at, updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 item.getId(), item.getTitle(), item.getDescription(),
                 item.getProject(), item.getModule(), item.getPriority(), item.getStatus(),
                 item.getAssignee(), item.getAssigneeUserId(), item.getDeadline(), item.getPrdSessionId(),
-                item.getTags(), item.getAiInsight(), item.getCreatedAt(), item.getUpdatedAt());
+                item.getTags(), item.getReqType(), item.getReqTypeSource(), item.getReqTypeConfidence(),
+                item.getAiInsight(), item.getCreatedAt(), item.getUpdatedAt());
     }
 
     /** 更新 AI 洞察分析 JSON。 */
@@ -116,13 +131,15 @@ public class ReqItemRepository {
         jdbc.update("""
                 UPDATE req_pool_item SET
                   title=?, description=?, project=?, module=?, priority=?, status=?,
-                  assignee=?, assignee_user_id=?, deadline=?, prd_session_id=?, tags=?, updated_at=?
+                  assignee=?, assignee_user_id=?, deadline=?, prd_session_id=?, tags=?,
+                  req_type=?, req_type_source=?, req_type_confidence=?, updated_at=?
                 WHERE id=?
                 """,
                 item.getTitle(), item.getDescription(),
                 item.getProject(), item.getModule(), item.getPriority(), item.getStatus(),
                 item.getAssignee(), item.getAssigneeUserId(), item.getDeadline(), item.getPrdSessionId(),
-                item.getTags(), item.getUpdatedAt(), item.getId());
+                item.getTags(), item.getReqType(), item.getReqTypeSource(), item.getReqTypeConfidence(),
+                item.getUpdatedAt(), item.getId());
     }
 
     /** 将需求状态更新为澄清中，并记录此时还未关联 PRD。 */

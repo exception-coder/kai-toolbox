@@ -31,6 +31,12 @@ public class ReqItem {
     private String prdSessionId;
     /** JSON 数组字符串 */
     private String tags;
+    /** AI 澄清策略分类；与业务侧原始需求分类正交。 */
+    private String reqType;
+    /** 需求类型来源：EXPLICIT | AI | PRD_SESSION | UNKNOWN。 */
+    private String reqTypeSource;
+    /** 需求类型置信度，范围 0.0..1.0。 */
+    private Double reqTypeConfidence;
     /**
      * Claude AI 洞察分析（JSON），包含 priority/stars/recommendation/reason/impacts/roi/estimatedHours。
      * 首次分析后缓存，需求更新时可重新触发。

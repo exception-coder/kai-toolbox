@@ -1,5 +1,5 @@
-import type { PrdReqType, PrdSessionView } from '@/features/prd-clarify/types'
-import type { ReqItemView } from './types'
+import type { PrdSessionView } from '@/features/prd-clarify/types'
+import type { ReqItemView, RequirementType, RequirementTypeSource } from './types'
 
 export interface FactQualityCriterion {
   key: 'location' | 'problem' | 'scenario' | 'acceptance' | 'boundary' | 'evidence'
@@ -14,9 +14,10 @@ export interface FactQualityResult {
   grade: 'A' | 'B' | 'C' | 'D'
   level: 'READY' | 'REVIEW' | 'CLARIFY' | 'BLOCKED'
   levelLabel: string
-  reqType: PrdReqType
+  reqType: RequirementType
   reqTypeLabel: string
-  inferredType: boolean
+  reqTypeSource: RequirementTypeSource
+  reqTypeSourceLabel: string
   locationLabel: string
   criteria: FactQualityCriterion[]
   deductions: Array<{ label: string; points: number; reason: string }>
@@ -26,13 +27,6 @@ const URL_PATTERN = /(?:https?:\/\/[^\s)\]}]+|(?:^|\s)\/[a-zA-Z0-9][^\s)\]}]*)/i
 
 function containsAny(text: string, patterns: RegExp[]) {
   return patterns.some(pattern => pattern.test(text))
-}
-
-function inferReqType(item: ReqItemView): PrdReqType {
-  const text = `${item.title}\n${item.description ?? ''}\n${item.tags ?? ''}`
-  if (containsAny(text, [/\bbug\b/i, /缺陷|故障|报错|异常|失败|不生效|无法|修复|闪退|错误码/])) return 'BUG_FIX'
-  if (containsAny(text, [/优化|调整|改造|改版|现有|已有|修改|兼容|迁移|重构|补充字段|增加字段/])) return 'MODULE_ADJUST'
-  return 'NEW_MODULE'
 }
 
 function factCorpus(item: ReqItemView, session?: PrdSessionView) {
@@ -69,9 +63,14 @@ function criterion(
  * 评分关注“开发是否拿到了足以定位、理解和验收的事实”，不把 PRD/TDD 是否已生成当成事实质量。
  */
 export function evaluateRequirementFacts(item: ReqItemView, session?: PrdSessionView): FactQualityResult {
-  const reqType = session?.reqType ?? inferReqType(item)
-  const inferredType = !session?.reqType
-  const reqTypeLabel = reqType === 'BUG_FIX' ? 'BUG 修复' : reqType === 'MODULE_ADJUST' ? '现有模块优化' : '新增能力/模块'
+  const reqType = session?.reqType ?? item.reqType
+  const reqTypeSource = session?.reqType ? 'PRD_SESSION' : item.reqTypeSource
+  const reqTypeLabel = reqType === 'BUG_FIX' ? 'BUG 修复'
+    : reqType === 'MODULE_ADJUST' ? '现有模块优化'
+      : reqType === 'NEW_MODULE' ? '新增能力/模块' : '待判定'
+  const reqTypeSourceLabel = reqTypeSource === 'AI' ? 'AI 判定'
+    : reqTypeSource === 'PRD_SESSION' ? 'PRD 事实'
+      : reqTypeSource === 'EXPLICIT' ? '显式选择' : '无可靠来源'
   const text = factCorpus(item, session)
   const compact = text.replace(/\s+/g, ' ').trim()
   const hasUrl = URL_PATTERN.test(text)
@@ -99,11 +98,11 @@ export function evaluateRequirementFacts(item: ReqItemView, session?: PrdSession
   } else if (hasUrl) {
     locationEarned += 15
     locationNotes.push('模块未知，但 URL 已达到页面级定位要求')
-  } else if (!existingChange) {
+  } else if (reqType === 'NEW_MODULE') {
     locationEarned += 15
     locationNotes.push('新增模块尚不存在，模块定位项豁免')
   } else {
-    locationNotes.push('BUG/现有模块优化缺少模块或 URL 定位')
+    locationNotes.push(reqType === 'UNKNOWN' ? '需求类型待判定，且缺少模块或 URL 定位' : 'BUG/现有模块优化缺少模块或 URL 定位')
   }
 
   const descriptionLength = compact.length
@@ -157,7 +156,9 @@ export function evaluateRequirementFacts(item: ReqItemView, session?: PrdSession
   const grade = score >= 90 ? 'A' : score >= 75 ? 'B' : score >= 60 ? 'C' : 'D'
   const level = score >= 90 ? 'READY' : score >= 75 ? 'REVIEW' : score >= 60 ? 'CLARIFY' : 'BLOCKED'
   const levelLabel = level === 'READY' ? '事实充分' : level === 'REVIEW' ? '可评审' : level === 'CLARIFY' ? '需补充' : '不建议准入'
-  const locationLabel = module ? `${system || '未登记系统'} / ${module}` : hasUrl ? `${system || 'URL 反查系统'} / URL 已定位` : `${system || '待归属'} / ${existingChange ? '缺少模块或 URL' : '模块待创建'}`
+  const missingLocation = reqType === 'NEW_MODULE' ? '模块待创建'
+    : reqType === 'UNKNOWN' ? '类型待判定，缺少模块或 URL' : '缺少模块或 URL'
+  const locationLabel = module ? `${system || '未登记系统'} / ${module}` : hasUrl ? `${system || 'URL 反查系统'} / URL 已定位` : `${system || '待归属'} / ${missingLocation}`
 
-  return { score, grade, level, levelLabel, reqType, reqTypeLabel, inferredType, locationLabel, criteria, deductions }
+  return { score, grade, level, levelLabel, reqType, reqTypeLabel, reqTypeSource, reqTypeSourceLabel, locationLabel, criteria, deductions }
 }

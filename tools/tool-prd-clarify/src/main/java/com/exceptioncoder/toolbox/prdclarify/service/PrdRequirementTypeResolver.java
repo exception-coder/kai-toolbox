@@ -1,11 +1,15 @@
 package com.exceptioncoder.toolbox.prdclarify.service;
 
+import com.exceptioncoder.toolbox.common.requirement.RequirementType;
+import com.exceptioncoder.toolbox.common.requirement.RequirementTypeResolution;
+import com.exceptioncoder.toolbox.common.requirement.RequirementTypeResolutionPort;
+import com.exceptioncoder.toolbox.common.requirement.RequirementTypeSource;
 import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 
-import java.util.Map;
+import org.springframework.stereotype.Component;
 
 /**
  * 解析 PRD 需求类型与最大澄清轮数，集中管理显式选择、Agent 分类和确定性降级规则。
@@ -13,22 +17,17 @@ import java.util.Map;
  * <p>模型输出被视为不可信输入：类型只能来自固定白名单，轮数必须补默认值并限制在安全范围内。</p>
  */
 @Slf4j
-public class PrdRequirementTypeResolver {
+@Component
+public class PrdRequirementTypeResolver implements RequirementTypeResolutionPort {
 
     /** 缺陷修复类型。 */
-    public static final String BUG_FIX = "BUG_FIX";
+    public static final String BUG_FIX = RequirementType.BUG_FIX.name();
 
     /** 现有模块调整类型。 */
-    public static final String MODULE_ADJUST = "MODULE_ADJUST";
+    public static final String MODULE_ADJUST = RequirementType.MODULE_ADJUST.name();
 
     /** 新模块类型，也是自动判定失败时的保守降级类型。 */
-    public static final String NEW_MODULE = "NEW_MODULE";
-
-    private static final Map<String, Integer> DEFAULT_MAX_QUESTIONS = Map.of(
-            BUG_FIX, 2,
-            MODULE_ADJUST, 5,
-            NEW_MODULE, 8
-    );
+    public static final String NEW_MODULE = RequirementType.NEW_MODULE.name();
 
     private static final String CLASSIFY_SYSTEM_PROMPT = """
             你是需求分诊助手。根据用户提供的标题和描述，判断这是哪种类型的开发需求，
@@ -76,14 +75,22 @@ public class PrdRequirementTypeResolver {
      */
     public Resolution resolve(String title, String rawInput, String model, String engine,
                               String reqType, Integer maxQuestions) {
-        if (reqType != null && DEFAULT_MAX_QUESTIONS.containsKey(reqType)) {
+        RequirementType explicitType = RequirementType.fromCode(reqType);
+        if (explicitType.isClassified()) {
             int effectiveMaxQuestions = maxQuestions != null && maxQuestions > 0
                     ? maxQuestions
-                    : defaultMaxQuestions(reqType);
-            return new Resolution(reqType, effectiveMaxQuestions);
+                    : explicitType.defaultMaxQuestions();
+            return new Resolution(explicitType.name(), effectiveMaxQuestions);
         }
 
-        Resolution resolution = classify(title, rawInput, model, engine);
+        AgentClassification classification = classify(title, rawInput, model, engine);
+        RequirementType classifiedType = classification.type().isClassified()
+                ? classification.type()
+                : RequirementType.NEW_MODULE;
+        int classifiedQuestions = classification.maxQuestions() > 0
+                ? classification.maxQuestions()
+                : classifiedType.defaultMaxQuestions();
+        Resolution resolution = new Resolution(classifiedType.name(), classifiedQuestions);
         log.info("[prd-clarify] 需求类型自动判定 title='{}' -> reqType={} maxQuestions={}",
                 title, resolution.reqType(), resolution.maxQuestions());
         return resolution;
@@ -97,32 +104,62 @@ public class PrdRequirementTypeResolver {
      * @throws IllegalArgumentException 类型不在白名单时
      */
     public static int defaultMaxQuestions(String reqType) {
-        Integer value = DEFAULT_MAX_QUESTIONS.get(reqType);
-        if (value == null) {
+        RequirementType type = RequirementType.fromCode(reqType);
+        if (!type.isClassified()) {
             throw new IllegalArgumentException("不支持的需求类型: " + reqType);
         }
-        return value;
+        return type.defaultMaxQuestions();
     }
 
-    private Resolution classify(String title, String rawInput, String model, String engine) {
+    @Override
+    public RequirementTypeResolution resolveRequirementType(
+            String title,
+            String description,
+            String model,
+            String engine
+    ) {
+        AgentClassification classification = classify(title, description, model, engine);
+        if (!classification.type().isClassified()) {
+            return RequirementTypeResolution.unknown();
+        }
+        return new RequirementTypeResolution(
+                classification.type(),
+                RequirementTypeSource.AI,
+                classification.confidence()
+        );
+    }
+
+    private AgentClassification classify(String title, String rawInput, String model, String engine) {
         try {
             String userPrompt = "标题：" + title + "\n描述：" + rawInput;
-            String raw = agentRunner.runOnce(CLASSIFY_SYSTEM_PROMPT, userPrompt, model, engine);
+            String effectiveEngine = engine == null || engine.isBlank()
+                    ? AgentOneShotRunner.DEFAULT_ENGINE
+                    : engine;
+            String raw = agentRunner.runOnce(CLASSIFY_SYSTEM_PROMPT, userPrompt, model, effectiveEngine);
             JsonNode node = objectMapper.readTree(stripFence(raw == null ? "" : raw.trim()));
-            String type = normalizeType(node.path("reqType").asText(""));
+            RequirementType type = RequirementType.fromCode(node.path("reqType").asText(""));
+            if (!type.isClassified()) {
+                return AgentClassification.unknown();
+            }
             int maxQuestions = node.path("maxQuestions").asInt(0);
             if (maxQuestions <= 0) {
-                maxQuestions = defaultMaxQuestions(type);
+                maxQuestions = type.defaultMaxQuestions();
             }
-            return new Resolution(type, Math.max(1, Math.min(10, maxQuestions)));
+            double confidence = node.path("confidence").isNumber()
+                    ? node.path("confidence").asDouble()
+                    : 0.5;
+            if (!Double.isFinite(confidence) || confidence < 0 || confidence > 1) {
+                return AgentClassification.unknown();
+            }
+            return new AgentClassification(
+                    type,
+                    Math.max(1, Math.min(10, maxQuestions)),
+                    confidence
+            );
         } catch (Exception e) {
-            log.warn("[prd-clarify] 需求类型自动判定失败，兜底 NEW_MODULE", e);
-            return new Resolution(NEW_MODULE, defaultMaxQuestions(NEW_MODULE));
+            log.warn("[prd-clarify] 需求类型自动判定失败", e);
+            return AgentClassification.unknown();
         }
-    }
-
-    private static String normalizeType(String reqType) {
-        return DEFAULT_MAX_QUESTIONS.containsKey(reqType) ? reqType : NEW_MODULE;
     }
 
     private static String stripFence(String value) {
@@ -136,5 +173,11 @@ public class PrdRequirementTypeResolver {
 
     /** 已验证的需求类型与最大澄清轮数。 */
     public record Resolution(String reqType, int maxQuestions) {
+    }
+
+    private record AgentClassification(RequirementType type, int maxQuestions, double confidence) {
+        private static AgentClassification unknown() {
+            return new AgentClassification(RequirementType.UNKNOWN, 0, 0);
+        }
     }
 }

@@ -14,6 +14,9 @@ CREATE TABLE IF NOT EXISTS req_pool_item (
     deadline       TEXT,                            -- 截止日期（yyyy-MM-dd）
     prd_session_id TEXT,                            -- 关联的 prd_session.id（澄清完成后回写）
     tags           TEXT,                            -- JSON 数组，如 ["前端","数据库"]
+    req_type       TEXT,                            -- AI 澄清策略分类
+    req_type_source TEXT,                           -- EXPLICIT | AI | PRD_SESSION | UNKNOWN
+    req_type_confidence REAL,                       -- 0.0..1.0
     created_at     INTEGER NOT NULL,
     updated_at     INTEGER NOT NULL
 );
@@ -27,6 +30,11 @@ ALTER TABLE req_pool_item ADD COLUMN ai_insight TEXT;
 
 -- 负责人账号绑定。SQLite 不支持 ADD COLUMN IF NOT EXISTS，SchemaInitializer 会吞掉重复列错误。
 ALTER TABLE req_pool_item ADD COLUMN assignee_user_id INTEGER;
+
+-- 需求类型单一事实源。存量记录保持 NULL，由 API 显式投影为 UNKNOWN，禁止关键词猜测回填。
+ALTER TABLE req_pool_item ADD COLUMN req_type TEXT;
+ALTER TABLE req_pool_item ADD COLUMN req_type_source TEXT;
+ALTER TABLE req_pool_item ADD COLUMN req_type_confidence REAL;
 
 -- 用户主动从需求中枢删除某条 PRD 镜像后保留排除标记，避免下次自动同步重新导入。
 -- 源 PRD 本身不受影响；源 PRD 删除后同步任务会清理对应标记。
