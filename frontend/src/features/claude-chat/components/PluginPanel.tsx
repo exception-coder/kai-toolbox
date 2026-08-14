@@ -172,7 +172,7 @@ export function PluginPanel({ sessionId, onClose }: { sessionId?: string; onClos
       } else if (m.type === 'done') {
         const incomplete = m.results?.some(result => result.ok === false)
         setLines(prev => [...prev, incomplete
-          ? '⚠ 部分步骤未完成，失败插件已停止后续安装并保留其他可用版本'
+          ? '⚠ 部分步骤未完成，失败步骤已停止后续操作并保留其他可用版本'
           : doneText])
         es.close(); setUpdating(false); void refresh()
       } else if (m.type === 'error') {
