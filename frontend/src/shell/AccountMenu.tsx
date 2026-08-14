@@ -66,7 +66,7 @@ export function AccountMenu({ collapsed }: { collapsed?: boolean }) {
   return (
     <div ref={ref} className="relative border-t p-2">
       {open && (
-        <div className="absolute bottom-full left-2 z-50 mb-2 w-60 rounded-xl border bg-[var(--color-popover)] p-2 text-[var(--color-popover-foreground)] shadow-xl">
+        <div className="appearance-elevated-chrome absolute bottom-full left-2 z-50 mb-2 w-60 rounded-xl border p-2 text-[var(--color-popover-foreground)] shadow-xl">
           {/* 身份头 */}
           <div className="mb-2 flex items-center gap-2.5 border-b px-1 pb-3">
             <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)] text-sm font-semibold text-[var(--color-primary-foreground)]">

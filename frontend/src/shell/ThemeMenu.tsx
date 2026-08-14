@@ -1,63 +1,88 @@
-import { useEffect, useRef, useState } from 'react'
-import { Palette } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { Palette, SlidersHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { ThemeAppearanceSection } from './ThemeAppearanceSection'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { BrandEditor } from './BrandEditor'
+import { SettingsDialog } from './SettingsDialog'
+import { AppearanceAccentPicker, AppearanceModePicker, ThemeSummary } from './AppearanceSelectors'
+import { useThemeState } from './useThemeState'
 import { cn } from '@/lib/utils'
 
 interface ThemeMenuProps {
-  /** 紧凑触发：用于悬浮窗 header 等行高受限处，按钮缩小到与同排小图标按钮一致 */
+  /** 用于悬浮窗 header 等行高受限区域。 */
   dense?: boolean
 }
 
-/** 顶栏主题菜单：明暗模式（单选）+ 主色（色块单选）+ 应用品牌（名称/副标题），正交组合。 */
 export function ThemeMenu({ dense = false }: ThemeMenuProps) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const state = useThemeState()
+  const triggerRef = useRef<HTMLButtonElement>(null)
 
-  useEffect(() => {
-    if (!open) return
-    const onDoc = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [open])
+  const openFullSettings = () => {
+    setOpen(false)
+    setSettingsOpen(true)
+  }
 
   return (
-    <div className="relative" ref={ref}>
-      {dense ? (
-        <button
-          type="button"
-          onClick={() => setOpen(o => !o)}
-          title="主题与配色"
-          aria-label="主题与配色"
-          className={cn('rounded p-1 hover:bg-[var(--color-background)]', open && 'bg-[var(--color-background)]')}
+    <>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          {dense ? (
+            <button
+              ref={triggerRef}
+              type="button"
+              title="主题与配色"
+              aria-label="主题与配色"
+              className={cn('rounded p-1 hover:bg-[var(--color-background)]', open && 'bg-[var(--color-background)]')}
+            >
+              <Palette className="size-4" />
+            </button>
+          ) : (
+            <Button
+              ref={triggerRef}
+              variant="ghost"
+              size="icon"
+              title="主题与配色"
+              aria-label="主题与配色"
+            >
+              <Palette className="size-4" />
+            </Button>
+          )}
+        </PopoverTrigger>
+        <PopoverContent
+          align="end"
+          sideOffset={8}
+          collisionPadding={12}
+          aria-label="快速外观设置"
+          onPointerDown={event => event.stopPropagation()}
+          className="max-h-[min(var(--radix-popover-content-available-height),34rem)] w-[min(18rem,calc(100vw-2rem))] space-y-4 overflow-y-auto rounded-xl p-3 shadow-xl"
         >
-          <Palette className="size-4" />
-        </button>
-      ) : (
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setOpen(o => !o)}
-          title="主题与配色"
-          aria-label="主题与配色"
-        >
-          <Palette className="h-4 w-4" />
-        </Button>
-      )}
-
-      {open && (
-        <div
-          onPointerDown={e => e.stopPropagation()}
-          className="absolute right-0 top-full z-50 mt-2 w-56 rounded-xl border bg-[var(--color-popover)] p-3 text-[var(--color-popover-foreground)] shadow-xl">
-          <ThemeAppearanceSection />
-          <div className="mt-3 border-t pt-3">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-sm font-semibold">快速外观</span>
+            <ThemeSummary state={state} />
+          </div>
+          <AppearanceModePicker mode={state.mode} compact />
+          <AppearanceAccentPicker accent={state.accent} compact />
+          <button
+            type="button"
+            onClick={openFullSettings}
+            className="flex min-h-10 w-full items-center justify-between rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] px-3 text-sm hover:bg-[var(--color-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-ring)]"
+          >
+            <span className="flex items-center gap-2"><SlidersHorizontal className="size-4" />更多外观设置</span>
+            <span aria-hidden="true">›</span>
+          </button>
+          <div className="border-t border-[var(--color-border)] pt-3">
             <BrandEditor />
           </div>
-        </div>
-      )}
-    </div>
+        </PopoverContent>
+      </Popover>
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        initialSection="appearance"
+        returnFocusRef={triggerRef}
+      />
+    </>
   )
 }

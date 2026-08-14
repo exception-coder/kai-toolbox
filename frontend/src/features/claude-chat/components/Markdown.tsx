@@ -234,7 +234,7 @@ function MarkdownPart({ text, className, sessionId }: { text: string; className?
         onClick={handleClick}
         onCopy={copySelection}
         className={cn(
-        'markdown-body min-w-0 max-w-full wrap-anywhere text-sm leading-relaxed',
+        'appearance-reading-content markdown-body min-w-0 max-w-full wrap-anywhere text-sm leading-relaxed',
         '[&_h1]:my-3 [&_h1]:text-xl [&_h1]:font-semibold',
         '[&_h2]:my-3 [&_h2]:text-lg [&_h2]:font-semibold',
         '[&_h3]:my-2 [&_h3]:text-base [&_h3]:font-semibold',

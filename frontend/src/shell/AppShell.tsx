@@ -74,7 +74,7 @@ export function AppShell() {
 
   return (
     <div
-      className="flex w-screen overflow-hidden bg-[var(--color-background)] text-[var(--color-foreground)]"
+      className="app-shell-canvas flex w-screen overflow-hidden text-[var(--color-foreground)]"
       style={{ height: 'var(--app-vh, 100vh)' }}
     >
       {shellless ? (

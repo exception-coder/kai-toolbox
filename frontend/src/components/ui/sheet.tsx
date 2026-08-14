@@ -30,7 +30,7 @@ const SheetOverlay = React.forwardRef<
 SheetOverlay.displayName = DialogPrimitive.Overlay.displayName
 
 const sheetVariants = cva(
-  'fixed z-50 bg-[var(--color-background)] shadow-lg transition-transform duration-300 ease-in-out',
+  'appearance-elevated-chrome fixed z-50 shadow-lg transition-transform duration-300 ease-in-out',
   {
     variants: {
       side: {

@@ -79,6 +79,13 @@
   --skin-base: var(--color-background);
 }
 
+/* 阅读型材质保留引擎辨识色，但主动降低极光存在感，避免纸页与墨水正文被背景抢焦点。 */
+[data-material='paper'] .cc-skin,
+[data-material='ink'] .cc-skin,
+[data-material='natural'] .cc-skin {
+  --skin-alpha: 0.16;
+}
+
 .cc-skin-bg::before,
 .cc-skin-bg::after {
   content: '';
@@ -150,6 +157,16 @@
 .cc-skin :where(.cc-skin-surface-solid) {
   background-color: color-mix(in oklab, var(--color-background) 70%, transparent);
   backdrop-filter: none;
+}
+
+/* 舒适度要求减少透明时，炫彩皮肤仍可留在负空间，正文与功能面恢复实体 Surface。 */
+[data-reduce-transparency='true'] .cc-skin :where(.cc-skin-surface) {
+  background-color: var(--color-muted);
+}
+
+[data-reduce-transparency='true'] .cc-skin :where(.cc-skin-surface-solid),
+[data-reduce-transparency='true'] .cc-skin :where(.cc-skin-view) {
+  background-color: var(--color-background);
 }
 
 /* 会话视图是所有对话、轨迹及后续扩展面板的统一主题边界。 */

@@ -120,7 +120,7 @@ export function CommandPalette() {
       onMouseDown={() => setOpen(false)}
     >
       <div
-        className="w-full max-w-[600px] overflow-hidden rounded-xl border bg-[var(--color-popover)] text-[var(--color-popover-foreground)] shadow-2xl"
+        className="appearance-elevated-chrome w-full max-w-[600px] overflow-hidden rounded-xl border text-[var(--color-popover-foreground)] shadow-2xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
         {/* 输入 */}

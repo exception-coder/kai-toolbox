@@ -14,7 +14,7 @@ export function TopBar({ onOpenMobileMenu }: TopBarProps) {
   const { enabled: mock } = useMockMode()
 
   return (
-    <header className="flex h-12 items-center gap-2 border-b bg-[var(--color-background)] px-3 md:hidden">
+    <header className="appearance-chrome flex h-[var(--density-topbar-height)] items-center gap-2 border-b px-[var(--density-shell-padding)] md:hidden">
       <Button variant="ghost" size="icon" onClick={onOpenMobileMenu} title="打开导航" className="md:hidden">
         <Menu className="h-4 w-4" />
       </Button>

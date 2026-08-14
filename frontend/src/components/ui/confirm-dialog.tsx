@@ -69,7 +69,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
           <DialogPrimitive.Content
             className={cn(
               'fixed left-1/2 top-1/2 z-50 w-[min(92vw,420px)] -translate-x-1/2 -translate-y-1/2',
-              'rounded-lg border bg-[var(--color-card)] text-[var(--color-card-foreground)] shadow-lg',
+              'appearance-elevated-chrome rounded-lg border text-[var(--color-card-foreground)] shadow-lg',
               'p-5 transition-all duration-150',
               'data-[state=closed]:scale-95 data-[state=closed]:opacity-0',
               'data-[state=open]:scale-100 data-[state=open]:opacity-100',

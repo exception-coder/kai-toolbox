@@ -32,11 +32,11 @@ export function Sidebar({ features, collapsed, onToggleCollapsed }: SidebarProps
     <aside
       className={cn(
         // h-full 保证移动端 Sheet 里 aside 撑满抽屉高度，否则下方 nav 的 overflow-y-auto 失去参照系，菜单超出视口就既看不到也滑不动
-        'flex h-full flex-col border-r bg-[var(--color-sidebar)] text-[var(--color-sidebar-foreground)] transition-[width] duration-200',
+        'appearance-chrome flex h-full flex-col border-r text-[var(--color-sidebar-foreground)] transition-[width] duration-200',
         collapsed ? 'w-16' : 'w-60'
       )}
     >
-      <div className="flex h-14 shrink-0 items-center border-b border-[var(--color-sidebar-border)]">
+      <div className="flex h-[var(--density-sidebar-header)] shrink-0 items-center border-b border-[var(--color-sidebar-border)]">
         <NavLink
           to="/"
           className={cn(
@@ -68,14 +68,14 @@ export function Sidebar({ features, collapsed, onToggleCollapsed }: SidebarProps
         )}
       </div>
 
-      <nav className="scrollbar-autohide flex-1 overflow-y-auto px-2 py-3">
+      <nav className="scrollbar-autohide flex-1 overflow-y-auto p-[var(--density-shell-padding)]">
         {/* 搜索/跳转入口：打开命令面板（Ctrl/⌘+K）。放导航顶部，取代原顶栏搜索框。 */}
         <button
           type="button"
           onClick={openCommandPalette}
           title="搜索与跳转（Ctrl / ⌘ + K）"
           className={cn(
-            'mb-3 flex w-full items-center gap-2.5 rounded-md border border-[var(--color-sidebar-border)] bg-[var(--color-background)]/60 px-2.5 py-2 text-sm text-[var(--color-muted-foreground)] transition-colors hover:bg-[var(--color-sidebar-accent)]',
+            'mb-3 flex w-full items-center gap-2.5 rounded-md border border-[var(--color-sidebar-border)] bg-[var(--color-background)]/60 px-2.5 py-[var(--density-nav-padding)] text-sm text-[var(--color-muted-foreground)] transition-colors hover:bg-[var(--color-sidebar-accent)]',
             collapsed && 'justify-center px-0'
           )}
         >
@@ -109,7 +109,7 @@ export function Sidebar({ features, collapsed, onToggleCollapsed }: SidebarProps
                       title={f.name}
                       className={({ isActive }) =>
                         cn(
-                          'flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors',
+                          'flex items-center gap-2.5 rounded-md px-2.5 py-[var(--density-nav-padding)] text-sm transition-colors',
                           'hover:bg-[var(--color-sidebar-accent)]',
                           isActive && 'bg-[var(--color-selection)] font-medium text-[var(--color-selection-foreground)] shadow-[inset_2px_0_0_var(--color-primary)] hover:bg-[var(--color-selection)]'
                         )
