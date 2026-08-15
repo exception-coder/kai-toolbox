@@ -105,7 +105,7 @@ import { ReviewShareDialog } from '../components/ReviewShareDialog'
 import { SessionSummaryBar } from '../components/SessionSummaryBar'
 import { selectableEngineIds } from '../lib/engineCatalog'
 import { MobileSessionStatus } from '../components/MobileSessionStatus'
-import { MobileSessionConfigSheet } from '../components/MobileSessionConfigSheet'
+import { compactMobileModelLabel, MobileSessionConfigSheet } from '../components/MobileSessionConfigSheet'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
 
@@ -963,6 +963,7 @@ export function ChatPage() {
   const mobileSessionConfigSummary = selectedMobileModel?.displayName
     || chat.currentModel
     || currentEngineLabel
+  const mobileSessionConfigCompactSummary = compactMobileModelLabel(mobileSessionConfigSummary)
 
   const startNew = () => {
     // 服务商仅 Claude 引擎生效：选了档案则走第三方网关 + 手填模型，否则官方默认
@@ -2152,7 +2153,7 @@ export function ChatPage() {
               </div>
             )}
 
-            {/* 底部输入：白色悬浮输入条 + 主色上边框 + 顶部阴影 */}
+            {/* 底部输入：移动端单一 Composer Card；桌面保留完整工具区 */}
             {chat.sessionId && (
               <div className="cc-skin-surface border-t border-[var(--color-border)] bg-[var(--color-muted)] shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.08)]">
           <div className="hidden md:block">
@@ -2251,8 +2252,8 @@ export function ChatPage() {
             onPick={reference => { void projectMention.pickReference(reference) }}
           />
           <SessionPlanLockNotice session={currentSession} />
-          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_2rem] items-center gap-x-2 gap-y-0.5 px-2 py-0.5 md:flex md:items-end md:gap-2 md:px-3 md:py-2">
-            <div className="col-start-1 row-start-2 flex min-w-0 items-center gap-1 md:contents">
+          <div className="mobile-composer-card mx-2 my-1 grid min-h-[4.5rem] min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] grid-rows-[auto_2rem] items-center gap-x-1 gap-y-0.5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-background)] px-2 py-0.5 shadow-sm focus-within:border-[var(--color-ring)] focus-within:ring-1 focus-within:ring-[var(--color-ring)] md:mx-3 md:my-2 md:min-h-[5rem] md:gap-x-2 md:px-3 md:py-2">
+            <div className="col-start-1 row-start-2 flex min-w-0 items-center gap-1">
             {/* 微信式「+ 更多功能」：附件 / 指令收纳其中 */}
             <div className="relative">
               <Button
@@ -2343,7 +2344,11 @@ export function ChatPage() {
               onText={t => setDraft(d => d.trim() ? `${d} ${t}` : t)}
             />
             </div>
-            <MobileSessionConfigSheet summary={mobileSessionConfigSummary} disabled={planLocked}>
+            <MobileSessionConfigSheet
+              summary={mobileSessionConfigSummary}
+              compactSummary={mobileSessionConfigCompactSummary}
+              disabled={planLocked}
+            >
               <div className="flex flex-col items-stretch gap-2">
                 <span className="text-sm font-medium">权限模式</span>
                 {reviewOnlySession
@@ -2392,7 +2397,7 @@ export function ChatPage() {
             <textarea
               ref={taRef}
               aria-label="消息输入"
-              className="col-start-1 row-start-1 max-h-32 min-h-9 min-w-0 w-full resize-none overflow-y-auto rounded-xl border bg-[var(--color-background)] px-3 py-1.5 text-sm md:min-h-[2.75rem] md:w-auto md:flex-1 md:py-2"
+              className="col-span-3 row-start-1 max-h-32 min-h-8 min-w-0 w-full resize-none overflow-y-auto border-0 bg-transparent px-1 py-1 text-sm outline-none placeholder:text-[var(--color-muted-foreground)] md:min-h-10 md:px-2 md:py-1.5 md:text-base"
               placeholder="输入消息…"
               rows={1}
               disabled={planLocked}
@@ -2421,19 +2426,20 @@ export function ChatPage() {
               }}
             />
             {chat.running ? (
-              <div className="col-start-2 row-start-1 flex shrink-0 gap-1.5 md:contents">
-                <Button
-                  size="lg"
-                  variant="secondary"
-                  className="hidden shadow-sm md:inline-flex"
-                  onClick={submit}
-                  disabled={planLocked || (!draft.trim() && attachments.length === 0)}
-                  aria-label="排队发送"
-                  title="加入待发送队列，本轮结束后自动发出"
-                >
-                  <Plus className="size-4" />
-                </Button>
-                <Button variant="outline" size="lg" className="max-md:size-9 max-md:px-0" onClick={chat.interrupt} disabled={chat.interrupting}
+              <div className="col-start-3 row-start-2 flex shrink-0 gap-1">
+                {!planLocked && (draft.trim().length > 0 || attachments.length > 0) && (
+                  <Button
+                    size="lg"
+                    variant="secondary"
+                    className="hidden shadow-sm md:inline-flex"
+                    onClick={submit}
+                    aria-label="排队发送"
+                    title="加入待发送队列，本轮结束后自动发出"
+                  >
+                    <Send className="size-4" />
+                  </Button>
+                )}
+                <Button variant="outline" size="lg" className="max-md:size-8 max-md:px-0" onClick={chat.interrupt} disabled={chat.interrupting}
                   aria-label={chat.interrupting ? '正在中断' : '中断'} title={chat.interrupting ? '正在校正会话状态' : '中断'}>
                   {chat.interrupting ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}
                 </Button>
@@ -2441,7 +2447,7 @@ export function ChatPage() {
             ) : (
               <Button
                 size="lg"
-                className="col-start-2 row-start-1 max-md:size-9 max-md:px-0 shadow-md"
+                className="col-start-3 row-start-2 max-md:size-8 max-md:px-0 shadow-sm"
                 onClick={submit}
                 disabled={planLocked || (!draft.trim() && attachments.length === 0)}
                 aria-label="发送"
