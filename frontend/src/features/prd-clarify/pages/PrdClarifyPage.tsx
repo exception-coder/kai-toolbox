@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { BotMessageSquare, Bug, ChevronRight, ClipboardCheck, Clock, Code2, Copy, ExternalLink, FileText, FolderOpen, GitBranch, Image as ImageIcon, Info, Layers, Loader2, Paperclip, Pencil, Plus, RefreshCw, Rocket, Save, Search, Send, Sparkles, Trash2, User, Wrench, X } from 'lucide-react'
@@ -48,10 +48,17 @@ import {
   type QaPair,
   type AttachmentParseResult,
 } from '../api'
-import type { CreateSessionRequest, DevDocEstimation, DevDocVersionSummary, DocumentProfile, EstimationConfidence, PrdClarifyMode, PrdReqType, PrdSessionView, PrdStep, ProgressVersionSummary, QuestionItem, SplitItem } from '../types'
+import type { CreateSessionRequest, DevDocEstimation, DevDocVersionSummary, DocumentProfile, PrdClarifyMode, PrdReqType, PrdSessionView, PrdStep, ProgressVersionSummary, QuestionItem, SplitItem } from '../types'
 import { useConfirm } from '@/components/ui/confirm-dialog'
 import { loadCodexHomePreference, saveCodexHomePreference } from '@/features/claude-chat/lib/codexHomePref'
 import { navigateWithLaunchIntent } from '@/shell/launch-intent/api'
+import { DocOutline } from '../components/DocOutline'
+import {
+  EstimationBadge,
+  ESTIMATION_CONFIDENCE_COLOR,
+  ESTIMATION_CONFIDENCE_LABEL,
+} from '../components/EstimationBadge'
+import { StepBar } from '../components/StepBar'
 
 // 编辑器 lazy import — CodeMirror chunk 只在进入 EDITING 步骤时加载
 const MarkdownEditor = lazy(() =>
@@ -59,118 +66,6 @@ const MarkdownEditor = lazy(() =>
     default: m.MarkdownEditor,
   }))
 )
-
-// ───── 大纲侧边栏：从 Markdown 文本提取标题，点击滚动到对应位置 ─────
-function DocOutline({
-  content,
-  targetRef,
-}: {
-  content: string
-  targetRef: React.RefObject<HTMLDivElement | null>
-}) {
-  const [activeIdx, setActiveIdx] = useState(0)
-
-  // 从 Markdown 文本解析标题列表（h1-h4）
-  const headings: Array<{ level: number; text: string }> = []
-  for (const line of content.split('\n')) {
-    const m = line.match(/^(#{1,4})\s+(.+)/)
-    if (m) headings.push({ level: m[1].length, text: m[2].trim() })
-  }
-
-  if (headings.length === 0) return null
-
-  const scrollTo = (text: string, idx: number) => {
-    setActiveIdx(idx)
-    const root = targetRef.current
-    if (!root) return
-    const els = root.querySelectorAll('h1,h2,h3,h4')
-    for (const el of els) {
-      if (el.textContent?.trim() === text) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        break
-      }
-    }
-  }
-
-  return (
-    // 移动端隐藏：192px 大纲列会把正文挤到不可读，正文本身已有标题层级可循
-    <div className="hidden w-48 flex-shrink-0 border-r border-[var(--color-border)] overflow-y-auto py-4 bg-[var(--color-card)] md:block">
-      <div className="px-4 mb-3 text-[10px] font-bold uppercase tracking-wider text-[var(--color-muted-foreground)]">
-        大纲
-      </div>
-      {headings.map((h, i) => (
-        <button
-          key={i}
-          onClick={() => scrollTo(h.text, i)}
-          className={[
-            'w-full text-left py-1 text-xs truncate transition-colors hover:bg-[var(--color-muted)]/50',
-            activeIdx === i ? 'text-[var(--color-primary)] font-medium bg-[var(--color-primary)]/8' : 'text-[var(--color-foreground)]',
-            h.level === 1 ? 'px-4' : h.level === 2 ? 'pl-6 pr-4 text-[11px]' : h.level === 3 ? 'pl-8 pr-4 text-[11px] text-[var(--color-muted-foreground)]' : 'pl-10 pr-4 text-[10px] text-[var(--color-muted-foreground)]',
-          ].join(' ')}
-        >
-          {h.text}
-        </button>
-      ))}
-    </div>
-  )
-}
-
-// ───── 步骤指示器 ─────
-const STEP_LABELS = ['填写需求', 'AI 渐进澄清', '生成 / 编辑 PRD']
-function stepIndex(step: PrdStep): number {
-  if (step === 'INPUT') return 0
-  if (step === 'CHATTING') return 1
-  return 2
-}
-
-/**
- * @param onClickStep 若传入，已完成的步骤可点击（返回填写需求或查看澄清记录）
- */
-function StepBar({ step, onClickStep, leading }: {
-  step: PrdStep
-  onClickStep?: (idx: number) => void
-  /** 移动端专用前置插槽（当前放「PRD 库」抽屉触发按钮），桌面端由调用方自行隐藏。 */
-  leading?: ReactNode
-}) {
-  const active = stepIndex(step)
-  return (
-    // 移动端窄屏放不下三段步骤文字，横向可滚动 + 不换行，避免文字被挤成一列竖排
-    <div className="flex items-center gap-1.5 px-3 py-2 border-b border-[var(--color-border)] bg-[var(--color-card)] overflow-x-auto whitespace-nowrap md:gap-2 md:px-6 md:py-3">
-      {leading}
-      {STEP_LABELS.map((label, i) => {
-        const clickable = ((i === 0 && active > 0) || (i === 1 && active > 1)) && !!onClickStep
-        const clickTitle = i === 0 ? '返回填写需求' : `查看${label}`
-        return (
-          <div key={label} className="flex items-center gap-1.5 flex-shrink-0 md:gap-2">
-            <button
-              type="button"
-              onClick={() => clickable && onClickStep?.(i)}
-              disabled={!clickable}
-              title={clickable ? clickTitle : undefined}
-              className={`w-5 h-5 flex-shrink-0 rounded-full flex items-center justify-center text-[10px] font-semibold transition-opacity md:w-6 md:h-6 md:text-xs
-                ${i <= active
-                  ? 'bg-[var(--color-primary)] text-white'
-                  : 'bg-[var(--color-muted)] text-[var(--color-muted-foreground)]'}
-                ${clickable ? 'cursor-pointer hover:opacity-80 ring-2 ring-[var(--color-primary)]/30' : 'cursor-default'}`}
-            >
-              {i + 1}
-            </button>
-            <span
-              onClick={() => clickable && onClickStep?.(i)}
-              className={`text-xs md:text-sm ${i === active ? 'font-medium' : 'text-[var(--color-muted-foreground)]'} ${clickable ? 'cursor-pointer hover:text-[var(--color-foreground)]' : ''}`}
-            >
-              {label}
-              {clickable && <span className="ml-1 text-[10px] text-[var(--color-primary)] opacity-70">↩</span>}
-            </span>
-            {i < STEP_LABELS.length - 1 && (
-              <ChevronRight className="w-3.5 h-3.5 flex-shrink-0 text-[var(--color-muted-foreground)] md:w-4 md:h-4" />
-            )}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
 
 // ───── 澄清记录只读抽屉 ─────
 function ClarifyHistorySheet({
@@ -316,56 +211,6 @@ function DevDocClarifyHistorySheet({
         </div>
       </div>
     </div>
-  )
-}
-
-// ───── AI 工时评估：紧凑徽标 + 详情抽屉 ─────
-const ESTIMATION_CONFIDENCE_LABEL: Record<EstimationConfidence, string> = { LOW: '低', MEDIUM: '中', HIGH: '高' }
-const ESTIMATION_CONFIDENCE_COLOR: Record<EstimationConfidence, string> = {
-  LOW: 'bg-gray-500/15 text-gray-400 border-gray-500/20',
-  MEDIUM: 'bg-blue-500/15 text-blue-400 border-blue-500/20',
-  HIGH: 'bg-green-500/15 text-green-500 border-green-500/20',
-}
-
-/** 工时评估紧凑徽标：历史列表 + 开发文档 Tab 工具栏共用，点击打开详情抽屉。 */
-function EstimationBadge({
-  estimation,
-  onClick,
-  compact,
-}: {
-  estimation: DevDocEstimation
-  onClick?: (e: React.MouseEvent) => void
-  compact?: boolean
-}) {
-  const running = estimation.workStatus === 'RUNNING'
-  const failed = estimation.workStatus === 'ERROR'
-  const colorClass = running
-    ? 'bg-violet-500/15 text-violet-400 border-violet-500/20'
-    : estimation.stale
-      ? 'bg-amber-500/15 text-amber-500 border-amber-500/20'
-      : failed
-        ? 'bg-red-500/15 text-red-400 border-red-500/20'
-    : ESTIMATION_CONFIDENCE_COLOR[estimation.confidence]
-  return (
-    <button
-      onClick={onClick}
-      className={`inline-flex flex-shrink-0 items-center gap-1 rounded border leading-tight whitespace-nowrap transition-colors ${colorClass} ${
-        compact ? 'text-[9px] px-1' : 'text-[10px] px-1.5 py-0.5'
-      } ${onClick ? 'hover:opacity-80 cursor-pointer' : 'cursor-default'}`}
-      title={
-        running
-          ? 'AI 工时正在后台评估'
-          : failed
-            ? estimation.workError || 'AI 工时评估失败'
-          : estimation.stale
-          ? '开发文档已更新，此评估可能已过期，建议重新评估'
-          : `AI 工时评估 · 信心：${ESTIMATION_CONFIDENCE_LABEL[estimation.confidence]}`
-      }
-    >
-      {running ? <Loader2 className={`${compact ? 'w-2.5 h-2.5' : 'w-3 h-3'} animate-spin`} /> : <Clock className={compact ? 'w-2.5 h-2.5' : 'w-3 h-3'} />}
-      {running ? '评估中' : failed ? '评估失败' : `${estimation.hoursMin}-${estimation.hoursMax}h`}
-      {estimation.stale && <span>⚠</span>}
-    </button>
   )
 }
 

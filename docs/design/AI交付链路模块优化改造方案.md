@@ -181,6 +181,7 @@ export const handoff = {
    - `ChattingPanel`、`BatchClarifyPanel`、`EditingPanel`、`GeneratingPanel`、`RevisionPreparingPanel` → `components/panels/`
    - `StartClarifyDialog`、`EstimateEffortDialog`、`DevDocUpdateDialog`、`EvaluateProgressDialog`、`SplitReviewDialog`、`ReviseDialog`、`StartDevDialog`、`ClarifyHistorySheet`、`DevDocClarifyHistorySheet`、`DevDocHistorySheet`、`DevDocVersionViewDialog`、`ProgressHistorySheet`、`ProgressVersionViewDialog`、`EstimationDetailSheet`、`HistoryPanel`、`HistoryItem` → `components/dialogs/` 与 `components/`
    - 纯展示件（`StepBar`、`DocOutline`、`EstimationBadge`、`RawInputCard` 等）→ `components/`
+   - 第一段已完成：`StepBar`、`DocOutline`、`EstimationBadge` 已原样迁入 `components/`，补 3 项组件表征测试；页面从 5838 行降至 5683 行。`RawInputCard` 因仍耦合需求字段规则与 Markdown 安全渲染，留待规则先下沉后再搬。
 2. hooks 抽取（小心，后做，小步）：
    - `usePrdClarifySession`：会话状态（`session`/`step`/流式 `streamText`/`abortRef`）与 `askQuestion`/`submitAnswer`/`saveQaHistory` 回调。
    - `useDevDocState`：开发文档流式/草稿/版本/估算状态（`EditingPanel` 内约 200 行状态）。
