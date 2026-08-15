@@ -11,12 +11,12 @@
     适合临时演示 / 自己用,零配置。
 
   ── 模式二:Named Tunnel(带 -Named,需要一个自有域名)──
-    隧道持久注册在 Cloudflare 后台,绑定你自己的固定域名(如 kai.example.com),
+    隧道持久注册在 Cloudflare 后台,绑定固定域名(默认 kai-tool.exception-coder.com),
     断线重连永远能找到,不会再出现 "Tunnel not found"。
     功能本身免费(Cloudflare Zero Trust 免费版),唯一成本是域名。
 
     首次需先在 Cloudflare 添加你的域名(改 NS 到 Cloudflare),然后:
-      ./scripts/cf-tunnel-5173.ps1 -Named -Setup -Hostname kai.example.com
+      ./scripts/cf-tunnel-5173.ps1 -Named -Setup
     这会:① 浏览器授权登录 → 拿 cert.pem;② 创建命名隧道;
           ③ 自动写 DNS CNAME;④ 生成 config.yml。
     之后日常启动只需:
@@ -43,10 +43,10 @@
 
 .PARAMETER Setup
   仅命名隧道模式:执行一次性初始化(login / create / route dns / 写 config.yml)。
-  配合 -Named -Hostname 使用。已初始化过则会跳过已完成的步骤。
+  配合 -Named 使用,可用 -Hostname 覆盖默认域名。已初始化过则会跳过已完成的步骤。
 
 .PARAMETER Hostname
-  命名隧道绑定的公网域名,如 kai.example.com。-Setup 时必填。
+  命名隧道绑定的公网域名,默认 kai-tool.exception-coder.com。
 
 .PARAMETER TunnelName
   命名隧道的名字,默认 kai-toolbox。
@@ -61,8 +61,8 @@
   ./scripts/cf-tunnel-5173.ps1
 
 .EXAMPLE
-  # 命名隧道:首次初始化(把 example.com 换成你的域名)
-  ./scripts/cf-tunnel-5173.ps1 -Named -Setup -Hostname kai.example.com
+  # 命名隧道:首次初始化或重绑默认域名
+  ./scripts/cf-tunnel-5173.ps1 -Named -Setup
 
 .EXAMPLE
   # 命名隧道:日常启动
@@ -76,7 +76,7 @@ param(
   [string]$Protocol = 'http2',
   [switch]$Named,
   [switch]$Setup,
-  [string]$Hostname,
+  [string]$Hostname = 'kai-tool.exception-coder.com',
   [string]$TunnelName = 'kai-toolbox',
   [string]$Proxy = ''
 )
