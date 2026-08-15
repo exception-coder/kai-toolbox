@@ -1114,7 +1114,7 @@ export function ChatPage() {
           下拉的下半部分导致点不到。抬高 header 层级使其子树压在正文之上（仍低于 z-50/60 模态）。 */}
       <WorkspaceHeaderMount target={unifiedTitleBarSlot}>
       <header className={cn(
-        'cc-workspace-header workspace-unified-chrome relative z-30 flex min-w-0 items-center gap-2 px-3 max-md:h-12 max-md:gap-1 max-md:px-1',
+        'cc-workspace-header workspace-unified-chrome relative z-30 flex min-w-0 items-center gap-3 px-4 max-md:h-12 max-md:gap-1 max-md:px-1',
         unifiedTitleBarSlot && 'cc-workspace-header-integrated',
       )}>
         {!unifiedTitleBarSlot && openMobileNavigation && (
@@ -1135,6 +1135,7 @@ export function ChatPage() {
           <span className="font-semibold">分屏 · {multiIds.length} 个会话</span>
         ) : (
           <>
+            <div className="cc-session-identity min-w-0 flex-1">
             {editingTitle ? (
               <input
                 autoFocus
@@ -1145,20 +1146,26 @@ export function ChatPage() {
                   if (e.key === 'Enter') { e.preventDefault(); void commitEditTitle() }
                   else if (e.key === 'Escape') setEditingTitle(false)
                 }}
-                className="max-w-[40vw] min-w-0 rounded border border-[var(--color-primary)] bg-[var(--color-background)] px-1.5 py-0.5 font-semibold outline-none"
+                className="w-full min-w-0 rounded border border-[var(--color-primary)] bg-[var(--color-background)] px-1.5 py-0.5 font-semibold outline-none"
               />
             ) : (
               <span
-                // flex-1 min-w-0：让标题吃掉剩余空间而不是被固定成 40vw。旁边的胶囊/徽章都是
-                // shrink-0，整行唯一能压缩的就是它，给够弹性才不会在窄屏被压成「B...」。
-                className="min-w-0 flex-1 truncate font-semibold"
+                className="block min-w-0 truncate text-sm font-semibold md:text-[15px]"
                 title={`${currentTitle || 'Vibe Coding'}${currentSession ? '\n双击重命名' : ''}`}
                 onDoubleClick={startEditTitle}
               >
                 {currentTitle || 'Vibe Coding'}
               </span>
             )}
-            <div className="cc-session-runtime-cluster shrink-0">
+              <div className="mt-0.5 flex min-w-0 items-center gap-1 text-[10px] text-[var(--color-muted-foreground)] md:hidden">
+                <EngineIcon engine={chat.currentEngine} thirdParty={chat.currentProviderKind === 'thirdParty'} className="size-3 shrink-0" />
+                <span className="truncate">{currentEngineLabel}</span>
+                <CodexTransportBadge engine={chat.currentEngine} providerKind={chat.currentProviderKind} diag={chat.providerDiag} className="border-0 bg-transparent px-0 py-0 shadow-none" />
+                <StatusBadge tone={stateTone(chat.state)} pulse={chat.state === 'connecting'} className="ml-0.5 size-2 shrink-0 rounded-full border-0 px-0 shadow-none" />
+                <span className="shrink-0">{stateLabel(chat.state)}</span>
+              </div>
+            </div>
+            <div className="cc-session-runtime-cluster hidden shrink-0 md:flex">
               <div className="relative hidden shrink-0 md:block">
                 <button
                   type="button"
@@ -1203,18 +1210,19 @@ export function ChatPage() {
                 diag={chat.providerDiag}
                 className="cc-session-runtime-item hidden border-0 bg-transparent shadow-none xl:inline-flex"
               />
-              <span className="cc-session-runtime-item inline-flex items-center px-1" title={stateLabel(chat.state)}>
+              <span className="cc-session-runtime-item inline-flex items-center gap-1 px-1.5 text-[10px] text-[var(--color-muted-foreground)]" title={stateLabel(chat.state)}>
                 <StatusBadge
                   tone={stateTone(chat.state)}
                   pulse={chat.state === 'connecting'}
                   aria-label={stateLabel(chat.state)}
                   className="size-4 shrink-0 justify-center rounded-full border-0 px-0 shadow-none"
                 />
+                <span className="hidden lg:inline">{stateLabel(chat.state)}</span>
               </span>
-              <SessionTotalBadge className="cc-session-runtime-item hidden border-0 bg-transparent shadow-none xl:inline-flex" items={chat.items} serverTotal={sessionUsage} onClick={() => setShowUsage(true)} />
             </div>
           </>
         )}
+        <div className="cc-session-header-tail ml-auto flex min-w-0 flex-1 items-center justify-end gap-1">
         {/* 关联 PRD 标识：只在确实绑定了才显示，点击打开关联面板（查看/更换/同步更新开发文档）。 */}
         {linkedPrd && (
           <button
@@ -1308,7 +1316,8 @@ export function ChatPage() {
             {gestureErr ? '手势×' : gestureStatus === 'loading' ? '手势…' : '手势'}
           </button>
         )}
-        <div className="cc-session-header-actions ml-auto flex shrink-0 items-center max-sm:gap-0">
+        <SessionTotalBadge className="hidden border-0 bg-transparent shadow-none lg:inline-flex" items={chat.items} serverTotal={sessionUsage} onClick={() => setShowUsage(true)} />
+        <div className="cc-session-header-actions flex shrink-0 items-center max-sm:gap-0">
           {/* 宽屏直接显示用量徽章；窄桌面仍可从「更多 → 会话」进入。 */}
           {/* 常用：带文字标签，一眼可辨 */}
           <Button variant="ghost" size="sm" className="hidden gap-1 px-2 md:inline-flex xl:px-3" onClick={() => setPanel(p => p === 'new' ? 'none' : 'new')} aria-label="新建会话">
@@ -1455,6 +1464,7 @@ export function ChatPage() {
               </>
             )}
           </div>
+        </div>
         </div>
       </header>
       </WorkspaceHeaderMount>
