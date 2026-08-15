@@ -20,7 +20,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -64,6 +63,7 @@ public class PrdClarifyService {
     private final PrdRequirementSplitService requirementSplitService;
     private final PrdProgressEvaluationService progressEvaluationService;
     private final PrdDocRevisionService docRevisionService;
+    private final PrdDevDocumentService devDocumentService;
     private final PrdImageInputResolver imageInputResolver;
 
     /**
@@ -83,7 +83,8 @@ public class PrdClarifyService {
                              PrdEffortEstimationService effortEstimationService,
                              PrdRequirementSplitService requirementSplitService,
                              PrdProgressEvaluationService progressEvaluationService,
-                             PrdDocRevisionService docRevisionService) {
+                             PrdDocRevisionService docRevisionService,
+                             PrdDevDocumentService devDocumentService) {
         this.agentRunner = agentRunner;
         this.repo = repo;
         this.fileStore = fileStore;
@@ -103,6 +104,7 @@ public class PrdClarifyService {
         this.requirementSplitService = requirementSplitService;
         this.progressEvaluationService = progressEvaluationService;
         this.docRevisionService = docRevisionService;
+        this.devDocumentService = devDocumentService;
     }
 
     /** 创建会话并持久化，返回新建的会话对象。 */
@@ -508,14 +510,9 @@ public class PrdClarifyService {
         });
     }
 
-    private boolean isSpecDriven(PrdSession session) {
-        return DocumentProfile.SPEC_DRIVEN.name().equals(
-                DocumentProfile.normalize(session.getDocumentProfile()));
-    }
-
     /**
      * 覆盖 PRD 前，若旧版本已存在则备份为 {id}-v{n}.md（n 从已有备份中取最大值 + 1），
-     * 跟开发文档 {@link #backupDevDocIfExists} 同一套命名/递增策略——「一键更新」在语义上是
+     * 跟开发文档版本备份同一套命名/递增策略——「一键更新」在语义上是
      * "检出新版本"，不是静默覆盖丢失旧内容。备份失败只记警告，不阻断本次更新。
      */
     private void backupPrdIfExists(java.nio.file.Path mdPath) {
@@ -792,159 +789,23 @@ public class PrdClarifyService {
                                 List<QaPairRequest> qaHistory, Boolean clarificationCompleted,
                                 Boolean background,
                                 SseEmitter emitter) {
-        PrdSession session = repo.findById(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-        if (!Boolean.TRUE.equals(clarificationCompleted)) {
-            throw new IllegalStateException("请先完成 TDD 技术澄清，再生成开发文档");
-        }
-        boolean update = Boolean.TRUE.equals(updateExisting);
-        boolean continueOnDisconnect = Boolean.TRUE.equals(background);
-        List<QaPairRequest> effectiveQaHistory = qaHistory == null ? List.of() : qaHistory;
-        // 用户点击提交时立即暂存。生成失败、浏览器刷新或网络断开后仍能恢复，不再把答案绑在成功落盘上。
-        repo.updateDevDocQaDraft(sessionId, buildQuestionsJson(effectiveQaHistory));
-        repo.updateDevDocWorkStatus(sessionId, "GENERATING", null);
-        // mode 用于追溯历史记录：generate=首次生成，regenerate=从最新 PRD 从零覆盖，
-        // update=基于当前开发文档增量更新
-        boolean hadExistingDoc = session.getDevDocPath() != null && !session.getDevDocPath().isBlank();
-        String mode = update ? "update" : (hadExistingDoc ? "regenerate" : "generate");
-
-        Thread.ofVirtual().name("prd-dev-doc-").start(() -> {
-            AtomicBoolean clientConnected = new AtomicBoolean(true);
-            try {
-                sendDevDocProgress(emitter, "正在准备 PRD、技术澄清与知识图谱上下文",
-                        continueOnDisconnect, clientConnected);
-                // 读取已有 PRD 内容作为输入
-                String prdContent = fileStore.read(sessionId);
-                if (prdContent == null || prdContent.isBlank()) {
-                    repo.updateDevDocWorkStatus(sessionId, "ERROR", "PRD 内容为空，请先生成 PRD");
-                    sendError(emitter, new IllegalStateException("PRD 内容为空，请先生成 PRD"));
-                    return;
-                }
-
-                String currentDevDoc = update ? readDevDocContent(sessionId) : null;
-                if (update && (currentDevDoc == null || currentDevDoc.isBlank())) {
-                    // 没有可更新的基础，退回从零生成，避免直接报错卡住用户
-                    log.info("[prd-clarify] 更新模式但当前无开发文档，退回从零生成 sessionId={}", sessionId);
-                }
-
-                sendDevDocProgress(emitter, "codex".equalsIgnoreCase(session.getEngine())
-                        ? "Codex 正在生成开发文档，首段内容可能需要稍候"
-                        : "Claude 正在生成开发文档", continueOnDisconnect, clientConnected);
-                String graphContext = queryGraphContext(
-                        session.getProject(), session.getModule(), session.getTitle()).orElse("");
-                PrdDocumentGenerationService.DevDocGenerationRequest request =
-                        new PrdDocumentGenerationService.DevDocGenerationRequest(
-                                session, prdContent, currentDevDoc, extraInstructions, effectiveQaHistory,
-                                graphContext, update, normalizeEngine(session.getEngine()));
-                String devDocContent = documentGenerationService.generateDevDoc(request, delta -> {
-                    if (continueOnDisconnect) {
-                        sendChunkBestEffort(emitter, delta, clientConnected);
-                    } else {
-                        sendChunk(emitter, delta);
-                    }
-                });
-
-                // 落盘到 ~/.kai-toolbox/prd/{id}-dev.md（与 PRD 文件同目录，由系统统一管理）。
-                sendDevDocProgress(emitter, "内容生成完成，正在保存开发文档",
-                        continueOnDisconnect, clientConnected);
-                // 覆盖前若旧版本已存在，先备份为 {id}-dev-v{n}.md——"检出新版本"不丢旧内容。
-                java.nio.file.Path devDocPath = fileStore.canonicalPathFor(sessionId, PrdArtifactType.DEV_DOC);
-                backupDevDocIfExists(devDocPath);
-                artifactService.write(sessionId, PrdArtifactType.DEV_DOC, devDocContent,
-                        PrdArtifactService.ArtifactMetadata.empty());
-                recordDevDocHistory(
-                        sessionId, session.getDevDocHistory(), mode, extraInstructions, effectiveQaHistory, true);
-                repo.updateDevDocQaDraft(sessionId, null);
-                repo.updateDevDocWorkStatus(sessionId, "DONE", null);
-                log.info("[prd-clarify] 开发文档已保存 path={} mode={}", devDocPath, mode);
-
-                if (continueOnDisconnect) sendDoneBestEffort(emitter, clientConnected); else sendDone(emitter);
-            } catch (Exception e) {
-                log.warn("[prd-clarify] 开发文档生成失败 sessionId={}", sessionId, e);
-                repo.updateDevDocWorkStatus(sessionId, "ERROR", e.getMessage());
-                if (!continueOnDisconnect || clientConnected.get()) sendError(emitter, e);
-            }
-        });
-    }
-
-    /**
-     * 追加一条开发文档生成历史记录（JSON 数组整体读出、追加、写回）。version 从 1 递增，
-     * 与磁盘上 {@link #backupDevDocIfExists} 备份出的 {id}-dev-v{version}.md 大致对应
-     * （两者独立维护、都从各自的起点递增，正常使用下天然保持一致；仅历史记录本身失败时
-     * 只记警告，不影响本次生成已经成功落盘的结果）。
-     */
-    private void recordDevDocHistory(String sessionId, String existingHistoryJson, String mode,
-                                      String extraInstructions, List<QaPairRequest> qaHistory,
-                                      boolean clarificationCompleted) {
-        try {
-            ArrayNode arr;
-            JsonNode existing = (existingHistoryJson == null || existingHistoryJson.isBlank())
-                    ? null : mapper.readTree(existingHistoryJson);
-            arr = (existing instanceof ArrayNode existingArr) ? existingArr : mapper.createArrayNode();
-
-            ObjectNode entry = mapper.createObjectNode();
-            entry.put("version", arr.size() + 1);
-            entry.put("mode", mode);
-            entry.put("extraInstructions", extraInstructions == null ? "" : extraInstructions);
-            entry.put("generatedAt", System.currentTimeMillis());
-            entry.put("clarificationCompleted", clarificationCompleted);
-            ArrayNode qaArr = mapper.createArrayNode();
-            for (QaPairRequest qa : qaHistory) {
-                ObjectNode qaNode = mapper.createObjectNode();
-                qaNode.put("question", qa.question());
-                qaNode.put("answer", qa.answer());
-                qaArr.add(qaNode);
-            }
-            entry.set("qaHistory", qaArr);
-            arr.add(entry);
-
-            repo.updateDevDocHistory(sessionId, mapper.writeValueAsString(arr));
-        } catch (Exception e) {
-            log.warn("[prd-clarify] 记录开发文档生成历史失败（不影响本次生成结果）: {}", e.getMessage());
-        }
+        devDocumentService.generate(sessionId, extraInstructions, updateExisting, qaHistory,
+                clarificationCompleted, background, emitter);
     }
 
     /** 读取开发文档内容。 */
     public String readDevDocContent(String sessionId) throws java.io.IOException {
-        PrdSession session = repo.findById(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-        if (session.getDevDocPath() == null || session.getDevDocPath().isBlank()) {
-            return "";
-        }
-        java.nio.file.Path path = java.nio.file.Path.of(session.getDevDocPath());
-        if (!java.nio.file.Files.exists(path)) return "";
-        return java.nio.file.Files.readString(path, java.nio.charset.StandardCharsets.UTF_8);
+        return devDocumentService.readContent(sessionId);
     }
 
     /**
      * 读取开发文档某个历史版本的内容。version 对应磁盘上实际存在的版本号（见
      * {@link #listDevDocVersions}）：等于当前版本号时读当前 {id}-dev.md，
-     * 否则读磁盘上备份的 {id}-dev-v{version}.md（由 {@link #backupDevDocIfExists} 在每次
+     * 否则读磁盘上备份的 {id}-dev-v{version}.md（由 {@link PrdDevDocumentService} 在每次
      * 覆盖前生成）。版本号非法或备份文件缺失时返回空字符串，不抛异常，前端据此提示不可查看。
      */
     public String readDevDocVersionContent(String sessionId, int version) throws java.io.IOException {
-        PrdSession session = repo.findById(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-        if (version <= 0) {
-            return "";
-        }
-        DevDocLocation loc = resolveDevDocLocation(session);
-        if (loc == null) {
-            return "";
-        }
-        List<Integer> backups = scanDevDocBackupVersions(loc);
-        int currentVersion = (backups.isEmpty() ? 0 : backups.get(backups.size() - 1)) + 1;
-        if (version == currentVersion) {
-            return readDevDocContent(sessionId);
-        }
-        if (!backups.contains(version)) {
-            return "";
-        }
-        java.nio.file.Path backupPath = loc.dir().resolve(loc.baseName() + "-v" + version + ".md");
-        if (!java.nio.file.Files.exists(backupPath)) {
-            return "";
-        }
-        return java.nio.file.Files.readString(backupPath, java.nio.charset.StandardCharsets.UTF_8);
+        return devDocumentService.readVersionContent(sessionId, version);
     }
 
     /**
@@ -955,103 +816,12 @@ public class PrdClarifyService {
      * 补充 mode/补充说明/生成时间，缺失时该版本仍会出现在列表里，只是这几项为 null。</p>
      */
     public List<DevDocVersionSummary> listDevDocVersions(String sessionId) {
-        PrdSession session = repo.findById(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-        DevDocLocation loc = resolveDevDocLocation(session);
-        if (loc == null) {
-            return List.of();
-        }
-        List<Integer> backups = scanDevDocBackupVersions(loc);
-        int currentVersion = (backups.isEmpty() ? 0 : backups.get(backups.size() - 1)) + 1;
-
-        Map<Integer, JsonNode> historyByVersion = new java.util.HashMap<>();
-        try {
-            String historyJson = session.getDevDocHistory();
-            if (historyJson != null && !historyJson.isBlank()) {
-                JsonNode arr = mapper.readTree(historyJson);
-                if (arr.isArray()) {
-                    for (JsonNode node : arr) {
-                        historyByVersion.put(node.path("version").asInt(-1), node);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.debug("[prd-clarify] 解析 devDocHistory 失败（不影响版本列表展示）: {}", e.getMessage());
-        }
-
-        List<Integer> allVersions = new ArrayList<>(backups);
-        allVersions.add(currentVersion);
-
-        List<DevDocVersionSummary> result = new ArrayList<>();
-        for (int v : allVersions) {
-            JsonNode h = historyByVersion.get(v);
-            Long generatedAt = h != null ? h.path("generatedAt").asLong()
-                    : (v == currentVersion ? session.getDevDocGeneratedAt() : null);
-            List<QaPairRequest> qaHistory = List.of();
-            if (h != null && h.path("qaHistory").isArray()) {
-                List<QaPairRequest> parsed = new ArrayList<>();
-                for (JsonNode qaNode : h.path("qaHistory")) {
-                    parsed.add(new QaPairRequest(qaNode.path("question").asText(""), qaNode.path("answer").asText("")));
-                }
-                qaHistory = parsed;
-            }
-            result.add(new DevDocVersionSummary(
-                    v,
-                    v == currentVersion,
-                    h != null ? h.path("mode").asText(null) : null,
-                    h != null ? h.path("extraInstructions").asText("") : null,
-                    generatedAt,
-                    qaHistory));
-        }
-        result.sort(java.util.Comparator.comparingInt(DevDocVersionSummary::version).reversed());
-        return result;
-    }
-
-    /** 开发文档所在目录 + 文件名前缀（{id}-dev），供备份/版本枚举/读取共用。 */
-    private record DevDocLocation(java.nio.file.Path dir, String baseName) {}
-
-    /** 解析当前会话开发文档的存放位置；尚未生成过开发文档时返回 null。 */
-    private DevDocLocation resolveDevDocLocation(PrdSession session) {
-        if (session.getDevDocPath() == null || session.getDevDocPath().isBlank()) {
-            return null;
-        }
-        java.nio.file.Path currentPath = java.nio.file.Path.of(session.getDevDocPath());
-        String fileName = currentPath.getFileName().toString(); // {id}-dev.md
-        String baseName = fileName.substring(0, fileName.length() - 3); // {id}-dev
-        java.nio.file.Path dir = currentPath.getParent();
-        return dir == null ? null : new DevDocLocation(dir, baseName);
-    }
-
-    /** 扫描磁盘，返回该会话开发文档所有已存在的备份版本号（不含当前版本），从小到大排序。 */
-    private List<Integer> scanDevDocBackupVersions(DevDocLocation loc) {
-        if (loc == null || !java.nio.file.Files.isDirectory(loc.dir())) {
-            return List.of();
-        }
-        java.util.regex.Pattern versionPattern =
-                java.util.regex.Pattern.compile(java.util.regex.Pattern.quote(loc.baseName()) + "-v(\\d+)\\.md");
-        try (var files = java.nio.file.Files.list(loc.dir())) {
-            return files
-                    .map(p -> versionPattern.matcher(p.getFileName().toString()))
-                    .filter(java.util.regex.Matcher::matches)
-                    .map(m -> Integer.parseInt(m.group(1)))
-                    .sorted()
-                    .toList();
-        } catch (Exception e) {
-            log.debug("[prd-clarify] 扫描开发文档备份版本失败: {}", e.getMessage());
-            return List.of();
-        }
+        return devDocumentService.listVersions(sessionId);
     }
 
     /** 保存开发文档（用户编辑后）。 */
     public void saveDevDocContent(String sessionId, String content) throws java.io.IOException {
-        PrdSession session = repo.findById(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-        String devDocPath = session.getDevDocPath() == null || session.getDevDocPath().isBlank()
-                ? fileStore.canonicalPathFor(sessionId, PrdArtifactType.DEV_DOC).toString()
-                : session.getDevDocPath();
-        backupDevDocIfExists(java.nio.file.Path.of(devDocPath));
-        artifactService.write(sessionId, PrdArtifactType.DEV_DOC, content,
-                PrdArtifactService.ArtifactMetadata.empty());
+        devDocumentService.saveContent(sessionId, content);
     }
 
     // ───── 工时评估 ─────
@@ -1098,7 +868,7 @@ public class PrdClarifyService {
     // 设计取自"平台文档管理事实来源，衍生产物按需生成"的分工：PRD/开发文档是业务/技术事实
     // 来源，不会为了做进度追踪被推倒重写；进度评估报告是可重复生成的派生产物，每次核对当时
     // 最新的 PRD + 开发文档 + 真实源码证据，按版本追加落盘（不覆盖），历史快照仍可回看——
-    // 用法/文件命名/版本管理逻辑完全对齐开发文档（DevDocLocation 系列方法），只是换了个
+    // 用法/文件命名/版本管理逻辑完全对齐开发文档，只是换了个
     // 产物类型，故意不抽取公共父类/工具方法：避免为了复用而牵连开发文档已经稳定工作的逻辑。
 
     /**
@@ -1123,30 +893,6 @@ public class PrdClarifyService {
     /** 列出该会话进度评估的所有版本摘要，逻辑对齐 {@link #listDevDocVersions}。 */
     public List<ProgressVersionSummary> listProgressVersions(String sessionId) {
         return progressEvaluationService.listVersions(sessionId);
-    }
-
-    /**
-     * 覆盖开发文档前，若旧版本已存在则备份为 {id}-dev-v{n}.md（n 从已有备份中取最大值 + 1）。
-     * 让「基于开发文档更新」在语义上是"检出一个新版本"，而不是静默覆盖丢失旧内容。
-     * 备份失败（如磁盘异常）只记警告，不阻断本次生成——备份是安全网，不是生成的前提条件。
-     */
-    private void backupDevDocIfExists(java.nio.file.Path devDocPath) {
-        if (!java.nio.file.Files.isRegularFile(devDocPath)) {
-            return;
-        }
-        try {
-            String fileName = devDocPath.getFileName().toString(); // {id}-dev.md
-            String baseName = fileName.substring(0, fileName.length() - 3); // {id}-dev
-            java.nio.file.Path dir = devDocPath.getParent();
-            DevDocLocation loc = dir == null ? null : new DevDocLocation(dir, baseName);
-            List<Integer> backups = scanDevDocBackupVersions(loc);
-            int nextVersion = (backups.isEmpty() ? 0 : backups.get(backups.size() - 1)) + 1;
-            java.nio.file.Path backupPath = devDocPath.resolveSibling(baseName + "-v" + nextVersion + ".md");
-            java.nio.file.Files.copy(devDocPath, backupPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-            log.info("[prd-clarify] 开发文档旧版本已备份 path={}", backupPath);
-        } catch (Exception e) {
-            log.warn("[prd-clarify] 开发文档备份失败（不阻断本次生成）: {}", e.getMessage());
-        }
     }
 
     // ─────────────────────────────────────────────────
@@ -1373,21 +1119,6 @@ public class PrdClarifyService {
         if (chunk == null || chunk.isEmpty() || !clientConnected.get()) return;
         try {
             emitter.send(SseEmitter.event().name("chunk").data(Map.of("content", chunk)));
-        } catch (Exception e) {
-            clientConnected.set(false);
-            log.info("[prd-clarify] TDD 后台生成客户端已断开，继续执行并落盘");
-        }
-    }
-
-    private void sendDevDocProgress(SseEmitter emitter, String message, boolean continueOnDisconnect,
-                                    AtomicBoolean clientConnected) {
-        if (!continueOnDisconnect) {
-            sendProgress(emitter, message);
-            return;
-        }
-        if (!clientConnected.get()) return;
-        try {
-            emitter.send(SseEmitter.event().name("progress").data(Map.of("message", message)));
         } catch (Exception e) {
             clientConnected.set(false);
             log.info("[prd-clarify] TDD 后台生成客户端已断开，继续执行并落盘");

@@ -124,7 +124,8 @@ class PrdDocRevisionServiceTest {
                 mock(PrdArtifactService.class), new ObjectMapper(), mock(GraphifyQueryService.class),
                 mock(DomainKnowledgeQueryService.class), mock(PrdImageInputResolver.class),
                 mock(PrdEffortEstimationService.class), mock(PrdRequirementSplitService.class),
-                mock(PrdProgressEvaluationService.class), revisionService);
+                mock(PrdProgressEvaluationService.class), revisionService,
+                mock(PrdDevDocumentService.class));
 
         assertThat(facade.createBackgroundRevision("parent", "change")).isSameAs(expected);
         assertThat(facade.recoverInPlacePrdAsBackgroundRevision("parent", "recover")).isSameAs(expected);
