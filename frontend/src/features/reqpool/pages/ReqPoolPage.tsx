@@ -186,10 +186,21 @@ function parseInsight(value: string | null): AiInsight | null {
   }
 }
 
+function insightStaleLabel(item: ReqItemView) {
+  if (!item.aiInsightStale) return null
+  if (item.aiInsightStaleReason === 'SOURCE_CHANGED') return '需求事实已变化，请重新分析'
+  if (item.aiInsightStaleReason === 'PORTFOLIO_CHANGED') return '需求组合已变化，请重新排序'
+  return '历史洞察未经版本校验，建议重新分析'
+}
+
+function effectiveInsight(item: ReqItemView) {
+  return item.aiInsightStale ? null : parseInsight(item.aiInsight)
+}
+
 function decisionOf(item: ReqItemView): Decision {
   if (item.status === 'CANCELLED') return 'PARK'
   if (item.status === 'DRAFT' || item.status === 'CLARIFYING') return 'CLARIFY'
-  const insight = parseInsight(item.aiInsight)
+  const insight = effectiveInsight(item)
   if (insight?.priority === 'STRATEGIC' || insight?.priority === 'HIGH' || item.status === 'IN_DEV') return 'NOW'
   return 'PLAN'
 }
@@ -1848,7 +1859,7 @@ function LeaderBrief({ items, overview }: { items: ReqItemView[]; overview?: Del
           </div>
           <div className="divide-y divide-[var(--color-border)]">
             {top.length === 0 ? <div className="p-10 text-center text-sm text-[var(--color-muted-foreground)]">登记需求后，AI 将自动生成优先事项</div> : top.map((item, index) => {
-              const insight = parseInsight(item.aiInsight)
+              const insight = effectiveInsight(item)
               return (
                 <div key={item.id} className="grid gap-3 px-5 py-4 md:grid-cols-[32px_minmax(0,1fr)_150px] md:items-center">
                   <div className="text-xl font-semibold text-[var(--color-muted-foreground)]/45">{String(index + 1).padStart(2, '0')}</div>
@@ -1975,6 +1986,7 @@ function RequirementDrawer({ item, requirement, prdSession, analyzing, prdRunnin
   const decision = decisionOf(item)
   const factQuality = evaluateRequirementFacts(item, prdSession)
   const labels = documentProfileLabels(prdSession?.documentProfile ?? requirement?.documentProfile)
+  const staleLabel = insightStaleLabel(item)
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/20 backdrop-blur-[1px]" onMouseDown={event => event.target === event.currentTarget && onClose()}>
       <aside className="h-full w-full max-w-[520px] overflow-y-auto border-l border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl">
@@ -1985,7 +1997,7 @@ function RequirementDrawer({ item, requirement, prdSession, analyzing, prdRunnin
             {[[Building2, '系统 / 模块', `${item.project || '待归属'} / ${item.module || '待归类'}`], [UserRound, '唯一负责人', item.assignee || '待指派'], [CalendarDays, '承诺时间', dateLabel(item.deadline)], [Radio, '数据来源', item.prdSessionId ? `${labels.specification}自动同步` : '统一登记']].map(([Icon, label, value]) => { const CellIcon = Icon as typeof Building2; return <div key={String(label)} className="rounded-xl bg-[var(--color-muted)]/60 p-3"><CellIcon className="h-3.5 w-3.5 text-[var(--color-muted-foreground)]" /><div className="mt-2 text-[10px] text-[var(--color-muted-foreground)]">{String(label)}</div><div className="mt-0.5 text-xs font-medium">{String(value)}</div></div> })}
           </div>
           <div className="rounded-xl border border-[var(--color-border)] p-4"><FactQualityDetails quality={factQuality} /></div>
-          <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-4 dark:border-violet-900 dark:bg-violet-950/20"><div className="flex items-center justify-between"><div className="flex items-center gap-2 text-xs font-semibold text-violet-700 dark:text-violet-300"><Sparkles className="h-4 w-4" />AI 判定依据</div><button onClick={onAnalyze} disabled={analyzing} className="text-[10px] text-violet-600 disabled:opacity-50">{analyzing ? '分析中…' : '重新分析'}</button></div><p className="mt-3 text-sm leading-6">{insight?.reason || '尚未生成跨需求价值分析。AI 将统一考虑战略匹配、用户影响、收益、成本与风险。'}</p>{insight?.impacts && <div className="mt-3 flex flex-wrap gap-1.5">{insight.impacts.map(value => <span key={value} className="rounded-full bg-white px-2 py-1 text-[10px] text-violet-700 shadow-sm dark:bg-black/20 dark:text-violet-300">{value}</span>)}</div>}</div>
+          <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-4 dark:border-violet-900 dark:bg-violet-950/20"><div className="flex items-center justify-between"><div className="flex items-center gap-2 text-xs font-semibold text-violet-700 dark:text-violet-300"><Sparkles className="h-4 w-4" />AI 判定依据</div><button onClick={onAnalyze} disabled={analyzing} className="text-[10px] text-violet-600 disabled:opacity-50">{analyzing ? '分析中…' : '重新分析'}</button></div>{staleLabel && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">{staleLabel}</div>}<p className="mt-3 text-sm leading-6">{insight?.reason || '尚未生成跨需求价值分析。AI 将统一考虑战略匹配、用户影响、收益、成本与风险。'}</p>{item.aiInsightGeneratedAt && <p className="mt-2 text-[10px] text-[var(--color-muted-foreground)]">生成于 {new Date(item.aiInsightGeneratedAt).toLocaleString()} · {item.aiInsightType === 'PORTFOLIO' ? '组合排序' : '单条分析'}{item.aiInsightPromptVersion ? ` · ${item.aiInsightPromptVersion}` : ''}</p>}{insight?.impacts && <div className="mt-3 flex flex-wrap gap-1.5">{insight.impacts.map(value => <span key={value} className="rounded-full bg-white px-2 py-1 text-[10px] text-violet-700 shadow-sm dark:bg-black/20 dark:text-violet-300">{value}</span>)}</div>}</div>
           <div><div className="mb-3 flex items-center justify-between text-xs font-semibold"><span>交付证据链</span><span className="text-[10px] font-normal text-[var(--color-muted-foreground)]">点击节点直接操作</span></div><div className="rounded-xl border border-[var(--color-border)] p-4"><DeliveryTrack item={item} requirement={requirement} prdSession={prdSession} prdRunning={prdRunning} tddBuilding={tddBuilding} tddGenerating={tddGenerating} tddFailed={tddFailed} onStartPrd={onStartPrd} onAnswerPrd={onAnswerPrd} onPreviewPrd={onPreviewPrd} onStartTdd={onStartTdd} onAnswerTdd={onAnswerTdd} onPreviewTdd={onPreviewTdd} /></div></div>
           <div className="flex flex-wrap gap-2">
             {!item.prdSessionId && item.status === 'DRAFT' && <button onClick={onClarify} className="flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2.5 text-xs font-medium text-white"><Sparkles className="h-3.5 w-3.5" />进入 AI 澄清</button>}
@@ -2036,7 +2048,7 @@ function MobileRequirementCard({
   onAnswerTdd: () => void
   onPreviewTdd: () => void
 }) {
-  const insight = parseInsight(item.aiInsight)
+  const insight = effectiveInsight(item)
   const factQuality = evaluateRequirementFacts(item, prdSession)
   return (
     <article className={`p-4 transition-colors ${selected ? 'bg-violet-50/65 dark:bg-violet-950/20' : ''}`}>
@@ -2359,8 +2371,8 @@ export function ReqPoolPage() {
   const overview = overviewQuery.data
   const prdSessionById = useMemo(() => new Map((prdSessionsQuery.data ?? []).map(session => [session.id, session])), [prdSessionsQuery.data])
   const sortedItems = useMemo(() => [...items].sort((a, b) => {
-    const rankA = parseInsight(a.aiInsight)?.rank ?? 999
-    const rankB = parseInsight(b.aiInsight)?.rank ?? 999
+    const rankA = effectiveInsight(a)?.rank ?? 999
+    const rankB = effectiveInsight(b)?.rank ?? 999
     return rankA - rankB || b.updatedAt - a.updatedAt
   }), [items])
   const hierarchy = useMemo(
@@ -2938,7 +2950,7 @@ export function ReqPoolPage() {
                     <th className="w-12 px-2 py-3" />
                   </tr></thead>
                   <tbody className="divide-y divide-[var(--color-border)]">{filteredItems.map(item => {
-                    const insight = parseInsight(item.aiInsight)
+                    const insight = effectiveInsight(item)
                     const requirement = deliveryFor(item, overview)
                     const session = item.prdSessionId ? prdSessionById.get(item.prdSessionId) : undefined
                     const missingOwner = !item.assignee

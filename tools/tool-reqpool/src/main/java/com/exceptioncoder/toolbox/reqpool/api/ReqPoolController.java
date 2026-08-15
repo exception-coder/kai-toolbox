@@ -6,6 +6,7 @@ import com.exceptioncoder.toolbox.reqpool.api.dto.AssignReqRequest;
 import com.exceptioncoder.toolbox.reqpool.api.dto.CreateReqRequest;
 import com.exceptioncoder.toolbox.reqpool.api.dto.LinkPrdRequest;
 import com.exceptioncoder.toolbox.reqpool.api.dto.ReqItemView;
+import com.exceptioncoder.toolbox.reqpool.api.dto.ReqItemViewAssembler;
 import com.exceptioncoder.toolbox.reqpool.api.dto.UpdateReqRequest;
 import com.exceptioncoder.toolbox.reqpool.domain.ReqItem;
 import com.exceptioncoder.toolbox.reqpool.repository.ReqItemRepository;
@@ -65,17 +66,20 @@ public class ReqPoolController {
     private final ReqAnalysisService analysis;
     private final ReqDevelopmentAccessPolicy developmentAccess;
     private final ReqRequirementTypeService requirementTypeService;
+    private final ReqItemViewAssembler viewAssembler;
     private final AuthProperties authProperties;
 
     public ReqPoolController(ReqItemRepository repo, JdbcTemplate jdbc, ReqAnalysisService analysis,
                              ReqDevelopmentAccessPolicy developmentAccess,
                              ReqRequirementTypeService requirementTypeService,
+                             ReqItemViewAssembler viewAssembler,
                              AuthProperties authProperties) {
         this.repo = repo;
         this.jdbc = jdbc;
         this.analysis = analysis;
         this.developmentAccess = developmentAccess;
         this.requirementTypeService = requirementTypeService;
+        this.viewAssembler = viewAssembler;
         this.authProperties = authProperties;
     }
 
@@ -84,9 +88,8 @@ public class ReqPoolController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String project,
             @RequestParam(required = false) String priority) {
-        return repo.findAll(status, project, priority).stream()
-                .map(ReqItemView::from)
-                .toList();
+        return viewAssembler.fromAll(
+                repo.findAll(status, project, priority), currentPortfolioItems());
     }
 
     @PostMapping("/items")
@@ -117,14 +120,14 @@ public class ReqPoolController {
             requirementTypeService.resolveIndependentItem(item);
         }
         repo.insert(item);
-        return ResponseEntity.status(HttpStatus.CREATED).body(ReqItemView.from(item));
+        return ResponseEntity.status(HttpStatus.CREATED).body(toView(item));
     }
 
     @GetMapping("/items/{id}")
     public ReqItemView get(@PathVariable String id) {
-        return repo.findById(id)
-                .map(ReqItemView::from)
+        ReqItem item = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "需求不存在: " + id));
+        return toView(item);
     }
 
     /**
@@ -186,7 +189,7 @@ public class ReqPoolController {
         }
         existing.setUpdatedAt(System.currentTimeMillis());
         repo.update(existing);
-        return ReqItemView.from(existing);
+        return toView(existing);
     }
 
     /** 绑定启用账号为负责人；姓名字段只保存显示快照，账号 ID 才是稳定关联。 */
@@ -212,7 +215,7 @@ public class ReqPoolController {
         }
         existing.setUpdatedAt(System.currentTimeMillis());
         repo.update(existing);
-        return ReqItemView.from(existing);
+        return toView(existing);
     }
 
     @DeleteMapping("/items/{id}")
@@ -243,8 +246,9 @@ public class ReqPoolController {
         repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "需求不存在: " + id));
         repo.markClarifying(id);
-        return repo.findById(id).map(ReqItemView::from)
+        ReqItem item = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "需求不存在: " + id));
+        return toView(item);
     }
 
     /** 关联 PRD：状态流转 CLARIFYING → PRD_READY，写入 prd_session_id。 */
@@ -258,7 +262,7 @@ public class ReqPoolController {
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "需求不存在: " + id));
         requirementTypeService.applyPrdSessionType(linked, findConfirmedPrdType(req.prdSessionId()));
         repo.update(linked);
-        return ReqItemView.from(linked);
+        return toView(linked);
     }
 
     /**
@@ -319,7 +323,7 @@ public class ReqPoolController {
 
     /**
      * AI 需求洞察分析：调用 Claude 评估需求价值、优先级、影响范围、ROI。
-     * 分析结果持久化到 ai_insight 字段（JSON），前端读取后渲染 AI Recommendation 卡片。
+     * 分析结果写入不可变洞察历史，并同步 ai_insight 兼容投影。
      * 分析较耗时（10-30s），由前端异步触发，不阻塞页面加载。
      */
     @PostMapping("/items/{id}/analyze")
@@ -327,14 +331,15 @@ public class ReqPoolController {
         ReqItem item = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "需求不存在: " + id));
         analysis.analyze(item);
-        return repo.findById(id).map(ReqItemView::from)
+        ReqItem updated = repo.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "需求不存在: " + id));
+        return toView(updated);
     }
 
     /**
      * Portfolio 全局分析：把所有活跃需求一起发给 Claude，横向对比后给出相对优先级排序。
      * 与独立分析不同，Portfolio 分析能真正说"A 比 B 更重要是因为…"。
-     * 调用一次耗时约 30-60s（N 条 → 1 次大调用），每次更新所有条目的 ai_insight。
+     * 调用一次耗时约 30-60s，完整校验后在一个事务中更新全部洞察。
      */
     @PostMapping("/portfolio-analyze")
     public ResponseEntity<Map<String, Object>> portfolioAnalyze() {
@@ -504,6 +509,16 @@ public class ReqPoolController {
                 .filter(item -> item.getPrdSessionId() == null
                         || !childSessionIds.contains(item.getPrdSessionId()))
                 .toList();
+    }
+
+    private List<ReqItem> currentPortfolioItems() {
+        return rootRequirements(repo.findAll(null, null, null)).stream()
+                .filter(item -> !"CANCELLED".equals(item.getStatus()))
+                .toList();
+    }
+
+    private ReqItemView toView(ReqItem item) {
+        return viewAssembler.from(item, currentPortfolioItems());
     }
 
     private ReqItem buildSeed(String title, String description, String priority, long createdAt) {

@@ -21,6 +21,11 @@ export interface ReqItemView {
   reqTypeConfidence: number
   /** Claude AI 价值洞察分析 JSON（含 priority/stars/recommendation/impacts/roi/estimatedHours） */
   aiInsight: string | null
+  aiInsightType: 'ITEM' | 'PORTFOLIO' | null
+  aiInsightPromptVersion: string | null
+  aiInsightGeneratedAt: number | null
+  aiInsightStale: boolean
+  aiInsightStaleReason: 'SOURCE_CHANGED' | 'PORTFOLIO_CHANGED' | 'LEGACY_UNVERIFIED' | null
   createdAt: number
   updatedAt: number
 }

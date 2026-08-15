@@ -2,6 +2,7 @@ package com.exceptioncoder.toolbox.reqpool.api.dto;
 
 import com.exceptioncoder.toolbox.common.requirement.RequirementType;
 import com.exceptioncoder.toolbox.common.requirement.RequirementTypeSource;
+import com.exceptioncoder.toolbox.reqpool.domain.ReqInsightStatus;
 import com.exceptioncoder.toolbox.reqpool.domain.ReqItem;
 
 /**
@@ -25,10 +26,21 @@ public record ReqItemView(
         double reqTypeConfidence,
         /** AI 洞察分析 JSON（含 priority/stars/recommendation/impacts/roi/estimatedHours）。 */
         String aiInsight,
+        String aiInsightType,
+        String aiInsightPromptVersion,
+        Long aiInsightGeneratedAt,
+        boolean aiInsightStale,
+        String aiInsightStaleReason,
         long createdAt,
         long updatedAt
 ) {
     public static ReqItemView from(ReqItem item) {
+        return from(item, item.getAiInsight() == null || item.getAiInsight().isBlank()
+                ? ReqInsightStatus.absent()
+                : ReqInsightStatus.legacy());
+    }
+
+    public static ReqItemView from(ReqItem item, ReqInsightStatus insightStatus) {
         return new ReqItemView(
                 item.getId(), item.getTitle(), item.getDescription(),
                 item.getProject(), item.getModule(),
@@ -38,6 +50,9 @@ public record ReqItemView(
                 normalizedType(item.getReqType()), normalizedSource(item),
                 normalizedConfidence(item),
                 item.getAiInsight(),
+                insightStatus.analysisType() == null ? null : insightStatus.analysisType().name(),
+                insightStatus.promptVersion(), insightStatus.generatedAt(), insightStatus.stale(),
+                insightStatus.staleReason(),
                 item.getCreatedAt(), item.getUpdatedAt());
     }
 

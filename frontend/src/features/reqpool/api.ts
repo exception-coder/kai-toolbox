@@ -74,7 +74,7 @@ export const seedDemo = () =>
 export const syncFromPrd = () =>
   http<{ created: number; updated: number; deleted: number }>(`${BASE}/sync-from-prd`, { method: 'POST' })
 
-/** 调用 Claude 对单条需求进行 AI 价值洞察分析，结果持久化到 ai_insight 字段。 */
+/** 对单条需求生成 AI 价值洞察，并持久化历史与最新兼容投影。 */
 export const analyzeItem = (id: string) =>
   http<ReqItemView>(`${BASE}/items/${id}/analyze`, { method: 'POST' })
 

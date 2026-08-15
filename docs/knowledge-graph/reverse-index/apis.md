@@ -26,3 +26,15 @@
 | `POST /api/reqpool/sync-from-prd` | 幂等回写类型和来源 | 需求池自动同步 | PRD 会话分类优先且不重复调用 Agent |
 
 接口变更时必须同步 `ReqItemView`、`frontend/src/features/reqpool/types.ts`、事实质量评分、API 设计文档和三条写路径测试。
+
+## ReqPool AI 洞察
+
+定义：`tools/tool-reqpool/src/main/java/com/exceptioncoder/toolbox/reqpool/api/ReqPoolController.java:329`
+
+| API | 写入/读取 | 前端调用者 | 决策影响 |
+|---|---|---|---|
+| `POST /api/reqpool/items/{id}/analyze` | 校验后插入单条历史并更新兼容投影 | 需求详情“重新分析” | 非法模型 JSON 不得落库 |
+| `POST /api/reqpool/portfolio-analyze` | 校验完整 ID 与排名集合后单事务批量提交 | 需求中枢“AI 组合排序” | 任一非法项必须整批回滚 |
+| `GET /api/reqpool/items[/{id}]` | 读取最新历史并计算事实与组合新鲜度 | 列表、详情、优先排序 | `stale=true` 的洞察不得参与权威排序和统一判定 |
+
+接口出参变化时必须同步 `ReqItemView`、`ReqItemViewAssembler`、前端 `ReqItemView`、过期提示和排序降级测试。

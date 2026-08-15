@@ -5,6 +5,7 @@
 - [PRD 产物写入与启动恢复](scenarios/prd-artifact-write.md)
 - [LaunchIntent 跨页面交接](scenarios/launch-intent.md)
 - [需求类型解析与同步](scenarios/requirement-type-resolution.md)
+- [ReqPool 洞察校验与原子提交](scenarios/reqpool-insight-write.md)
 
 ## 反向索引
 

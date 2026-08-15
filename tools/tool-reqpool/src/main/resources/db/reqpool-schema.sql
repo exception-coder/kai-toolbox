@@ -36,6 +36,24 @@ ALTER TABLE req_pool_item ADD COLUMN req_type TEXT;
 ALTER TABLE req_pool_item ADD COLUMN req_type_source TEXT;
 ALTER TABLE req_pool_item ADD COLUMN req_type_confidence REAL;
 
+-- AI 洞察不可变历史；ai_insight 在兼容期继续作为最新结果投影。
+CREATE TABLE IF NOT EXISTS req_pool_insight (
+    id                 TEXT    PRIMARY KEY,
+    item_id            TEXT    NOT NULL,
+    analysis_type      TEXT    NOT NULL,
+    prompt_version     TEXT    NOT NULL,
+    source_hash        TEXT    NOT NULL,
+    portfolio_set_hash TEXT,
+    payload_json       TEXT    NOT NULL,
+    engine             TEXT    NOT NULL,
+    model              TEXT,
+    created_at         INTEGER NOT NULL,
+    updated_at         INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_req_pool_insight_item_created
+    ON req_pool_insight(item_id, created_at DESC);
+
 -- 用户主动从需求中枢删除某条 PRD 镜像后保留排除标记，避免下次自动同步重新导入。
 -- 源 PRD 本身不受影响；源 PRD 删除后同步任务会清理对应标记。
 CREATE TABLE IF NOT EXISTS req_pool_prd_exclusion (

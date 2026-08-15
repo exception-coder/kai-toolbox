@@ -39,7 +39,7 @@ public class ReqItem {
     private Double reqTypeConfidence;
     /**
      * Claude AI 洞察分析（JSON），包含 priority/stars/recommendation/reason/impacts/roi/estimatedHours。
-     * 首次分析后缓存，需求更新时可重新触发。
+     * 兼容期保存最新投影；不可变历史和新鲜度元数据由 req_pool_insight 承载。
      */
     private String aiInsight;
     private long createdAt;

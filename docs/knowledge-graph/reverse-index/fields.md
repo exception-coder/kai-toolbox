@@ -52,3 +52,21 @@
 | `req_type_confidence` | 公共解析结果或 PRD 确认值 | `ReqItemView` 边界归一化、后续审计 |
 
 修改字段时必须同步公共枚举/端口、DDL、`ReqItem`、Repository 显式写入参数、`ReqItemView`、PRD 同步和前端类型。
+
+## req_pool_insight
+
+定义：`tools/tool-reqpool/src/main/resources/db/reqpool-schema.sql:40`
+
+| 字段 | 主要写入点 | 主要读取或决策点 |
+|---|---|---|
+| `id` | `ReqInsightApplicationService.java:77`、`:108` 生成历史身份 | `ReqInsightRepository.java:57` 最新记录稳定排序 |
+| `item_id` | 单条或组合分析输入 | `ReqItemViewAssembler` 批量装配、删除需求时清理历史 |
+| `analysis_type` | `ITEM` 或 `PORTFOLIO` | 前端生成类型标签、组合集合失效判断 |
+| `prompt_version` | focused application 常量 | API 审计展示和后续重放依据 |
+| `source_hash` | `ReqInsightFingerprint.java:17` | `ReqItemViewAssembler.java:50` 的 `SOURCE_CHANGED` 判定 |
+| `portfolio_set_hash` | `ReqInsightApplicationService.java:103` | `ReqItemViewAssembler.java:54` 的 `PORTFOLIO_CHANGED` 判定 |
+| `payload_json` | `ReqInsightValidator` 完整校验后写入 | `ReqInsightPersistenceService.java:24` 兼容投影与历史回放 |
+| `engine`、`model` | Agent 调用配置 | 生成环境审计；默认模型时 `model` 为空 |
+| `created_at`、`updated_at` | 洞察短事务创建 | 最新历史选择、API 生成时间展示 |
+
+修改字段时必须同步 DDL、`ReqInsight`、Repository 显式列映射、视图装配器、API 类型和临时 SQLite 事务测试。

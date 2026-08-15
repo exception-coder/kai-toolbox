@@ -6,10 +6,13 @@ import com.exceptioncoder.toolbox.common.requirement.RequirementTypeResolution;
 import com.exceptioncoder.toolbox.common.requirement.RequirementTypeResolutionPort;
 import com.exceptioncoder.toolbox.common.requirement.RequirementTypeSource;
 import com.exceptioncoder.toolbox.reqpool.api.dto.CreateReqRequest;
+import com.exceptioncoder.toolbox.reqpool.api.dto.ReqItemViewAssembler;
 import com.exceptioncoder.toolbox.reqpool.api.dto.UpdateReqRequest;
+import com.exceptioncoder.toolbox.reqpool.repository.ReqInsightRepository;
 import com.exceptioncoder.toolbox.reqpool.repository.ReqItemRepository;
 import com.exceptioncoder.toolbox.reqpool.service.ReqAnalysisService;
 import com.exceptioncoder.toolbox.reqpool.service.ReqDevelopmentAccessPolicy;
+import com.exceptioncoder.toolbox.reqpool.service.ReqInsightFingerprint;
 import com.exceptioncoder.toolbox.reqpool.service.ReqRequirementTypeService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -59,12 +62,14 @@ class ReqPoolRequirementTypeIntegrationTest {
         when(provider.orderedStream()).thenAnswer(invocation -> Stream.of(port));
 
         ReqItemRepository repository = new ReqItemRepository(jdbc);
+        ReqInsightFingerprint insightFingerprint = new ReqInsightFingerprint();
         controller = new ReqPoolController(
                 repository,
                 jdbc,
                 mock(ReqAnalysisService.class),
                 mock(ReqDevelopmentAccessPolicy.class),
                 new ReqRequirementTypeService(provider),
+                new ReqItemViewAssembler(new ReqInsightRepository(jdbc), insightFingerprint),
                 mock(AuthProperties.class)
         );
     }
@@ -133,6 +138,14 @@ class ReqPoolRequirementTypeIntegrationTest {
                     priority TEXT NOT NULL, status TEXT NOT NULL, assignee TEXT, assignee_user_id INTEGER,
                     deadline TEXT, prd_session_id TEXT, tags TEXT, req_type TEXT, req_type_source TEXT,
                     req_type_confidence REAL, ai_insight TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+                )
+                """);
+        jdbc.execute("""
+                CREATE TABLE req_pool_insight (
+                    id TEXT PRIMARY KEY, item_id TEXT NOT NULL, analysis_type TEXT NOT NULL,
+                    prompt_version TEXT NOT NULL, source_hash TEXT NOT NULL, portfolio_set_hash TEXT,
+                    payload_json TEXT NOT NULL, engine TEXT NOT NULL, model TEXT,
+                    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
                 )
                 """);
         jdbc.execute("""
