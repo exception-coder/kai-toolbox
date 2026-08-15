@@ -22,7 +22,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -44,12 +43,10 @@ public class PrdClarifyService {
 
     private final AgentOneShotRunner agentRunner;
     private final PrdSessionRepository repo;
-    private final PrdFileStore fileStore;
     private final ObjectMapper mapper;
     private final GraphifyQueryService graphifyQuery;
     private final DomainKnowledgeQueryService domainKnowledgeQuery;
     private final PrdTitleSuggestionService titleSuggestionService;
-    private final PrdRequirementTypeResolver requirementTypeResolver;
     private final PrdClarificationQuestionService clarificationQuestionService;
     private final PrdAnswerProcessingService answerProcessingService;
     private final PrdDocumentService documentService;
@@ -60,6 +57,7 @@ public class PrdClarifyService {
     private final PrdDevDocumentService devDocumentService;
     private final PrdDevDocumentClarificationService devDocumentClarificationService;
     private final PrdImageInputResolver imageInputResolver;
+    private final PrdSessionLifecycleService sessionLifecycleService;
 
     /**
      * 多轮澄清（最多 5 轮）会话内的图谱查询结果缓存：question（session 标题）在各轮间不变，
@@ -69,7 +67,6 @@ public class PrdClarifyService {
     private final Map<String, Optional<String>> graphifyAskCache = new ConcurrentHashMap<>();
     public PrdClarifyService(AgentOneShotRunner agentRunner,
                              PrdSessionRepository repo,
-                             PrdFileStore fileStore,
                              ObjectMapper mapper,
                              GraphifyQueryService graphifyQuery,
                              DomainKnowledgeQueryService domainKnowledgeQuery,
@@ -80,16 +77,15 @@ public class PrdClarifyService {
                              PrdDocRevisionService docRevisionService,
                              PrdDevDocumentService devDocumentService,
                              PrdDevDocumentClarificationService devDocumentClarificationService,
-                             PrdDocumentService documentService) {
+                             PrdDocumentService documentService,
+                             PrdSessionLifecycleService sessionLifecycleService) {
         this.agentRunner = agentRunner;
         this.repo = repo;
-        this.fileStore = fileStore;
         this.mapper = mapper;
         this.graphifyQuery = graphifyQuery;
         this.domainKnowledgeQuery = domainKnowledgeQuery;
         this.imageInputResolver = imageInputResolver;
         this.titleSuggestionService = new PrdTitleSuggestionService(agentRunner, imageInputResolver);
-        this.requirementTypeResolver = new PrdRequirementTypeResolver(agentRunner, mapper);
         this.clarificationQuestionService =
                 new PrdClarificationQuestionService(agentRunner, mapper, imageInputResolver);
         this.answerProcessingService = new PrdAnswerProcessingService(agentRunner, mapper);
@@ -100,6 +96,7 @@ public class PrdClarifyService {
         this.docRevisionService = docRevisionService;
         this.devDocumentService = devDocumentService;
         this.devDocumentClarificationService = devDocumentClarificationService;
+        this.sessionLifecycleService = sessionLifecycleService;
     }
 
     /** 创建会话并持久化，返回新建的会话对象。 */
@@ -127,48 +124,9 @@ public class PrdClarifyService {
                                     String reqType, Integer maxQuestions, Long createdByUserId,
                                     String clarifyMode, PrdBusinessFields businessFields, String parentId,
                                     String documentProfile) {
-        long now = System.currentTimeMillis();
-        PrdBusinessFields fields = businessFields == null ? PrdBusinessFields.empty() : businessFields;
-        String effectiveRole = (role != null && "BUSINESS".equalsIgnoreCase(role)) ? "BUSINESS" : "PRODUCT";
-        String effectiveEngine = normalizeEngine(engine);
-        String effectiveParentId = parentId == null || parentId.isBlank() ? null : parentId.trim();
-        if (effectiveParentId != null && repo.findById(effectiveParentId).isEmpty()) {
-            throw new IllegalArgumentException("父 PRD 会话不存在: " + effectiveParentId);
-        }
-        PrdRequirementTypeResolver.Resolution classification =
-                requirementTypeResolver.resolve(title, rawInput, model, effectiveEngine, reqType, maxQuestions);
-        String effectiveClarifyMode = "batch".equals(clarifyMode) ? "batch" : "progressive";
-
-        PrdSession session = PrdSession.builder()
-                .id(UUID.randomUUID().toString())
-                .title(title)
-                .rawInput(rawInput)
-                .project(project)
-                .module(module)
-                .requirementDetail(fields.requirementDetail())
-                .businessBackground(fields.businessBackground())
-                .businessRequirementType(fields.businessRequirementType())
-                .requirementSoftware(fields.requirementSoftware())
-                .initiatingDepartment(fields.initiatingDepartment())
-                .requester(fields.requester())
-                .requestedAt(fields.requestedAt())
-                .attachments(fields.attachments())
-                .followUpRecords(fields.followUpRecords())
-                .model(model)
-                .engine(effectiveEngine)
-                .role(effectiveRole)
-                .reqType(classification.reqType())
-                .maxQuestions(classification.maxQuestions())
-                .clarifyMode(effectiveClarifyMode)
-                .documentProfile(DocumentProfile.normalize(documentProfile))
-                .status("CLARIFYING")
-                .createdByUserId(createdByUserId)
-                .parentId(effectiveParentId)
-                .createdAt(now)
-                .updatedAt(now)
-                .build();
-        repo.insert(session);
-        return session;
+        return sessionLifecycleService.create(
+                title, rawInput, project, module, model, engine, role, reqType, maxQuestions,
+                createdByUserId, clarifyMode, businessFields, parentId, documentProfile);
     }
 
     /**
@@ -181,50 +139,15 @@ public class PrdClarifyService {
      */
     public PrdSession saveDraft(String title, String rawInput, String project, String module, Long createdByUserId,
                                 PrdBusinessFields businessFields, String documentProfile) {
-        long now = System.currentTimeMillis();
-        PrdBusinessFields fields = businessFields == null ? PrdBusinessFields.empty() : businessFields;
-        PrdSession session = PrdSession.builder()
-                .id(UUID.randomUUID().toString())
-                .title(title)
-                .rawInput(rawInput == null ? "" : rawInput)
-                .project(project)
-                .module(module)
-                .requirementDetail(fields.requirementDetail())
-                .businessBackground(fields.businessBackground())
-                .businessRequirementType(fields.businessRequirementType())
-                .requirementSoftware(fields.requirementSoftware())
-                .initiatingDepartment(fields.initiatingDepartment())
-                .requester(fields.requester())
-                .requestedAt(fields.requestedAt())
-                .attachments(fields.attachments())
-                .followUpRecords(fields.followUpRecords())
-                .role("PRODUCT")
-                .reqType(PrdRequirementTypeResolver.NEW_MODULE)
-                .maxQuestions(defaultNewModuleQuestionCount())
-                .clarifyMode("progressive")
-                .documentProfile(DocumentProfile.normalize(documentProfile))
-                .status("DRAFT")
-                .createdByUserId(createdByUserId)
-                .createdAt(now)
-                .updatedAt(now)
-                .build();
-        repo.insert(session);
-        return session;
+        return sessionLifecycleService.saveDraft(
+                title, rawInput, project, module, createdByUserId, businessFields, documentProfile);
     }
 
     /** 再次保存草稿（覆盖字段，状态保持 DRAFT）。会话必须仍处于 DRAFT 状态，否则说明前端页面状态过期。 */
     public PrdSession updateDraft(String sessionId, String title, String rawInput, String project, String module,
                                   PrdBusinessFields businessFields, String documentProfile) {
-        PrdSession existing = repo.findById(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-        if (!"DRAFT".equals(existing.getStatus())) {
-            throw new IllegalStateException("当前状态 " + existing.getStatus() + " 不是草稿，无法这样保存");
-        }
-        String effectiveDocumentProfile = documentProfile == null
-                ? existing.getDocumentProfile() : documentProfile;
-        repo.updateDraftFields(sessionId, title, rawInput == null ? "" : rawInput, project, module, businessFields,
-                effectiveDocumentProfile);
-        return repo.findById(sessionId).orElseThrow();
+        return sessionLifecycleService.updateDraft(
+                sessionId, title, rawInput, project, module, businessFields, documentProfile);
     }
 
     /**
@@ -236,22 +159,9 @@ public class PrdClarifyService {
                                              String project, String module, String model, String engine, String role,
                                              String reqType, Integer maxQuestions, String clarifyMode,
                                              PrdBusinessFields businessFields, String documentProfile) {
-        PrdSession existing = repo.findById(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-        if (!"DRAFT".equals(existing.getStatus())) {
-            throw new IllegalStateException("当前状态 " + existing.getStatus() + " 不是草稿，不能重复发起澄清");
-        }
-        String effectiveRole = (role != null && "BUSINESS".equalsIgnoreCase(role)) ? "BUSINESS" : "PRODUCT";
-        String effectiveEngine = normalizeEngine(engine);
-        PrdRequirementTypeResolver.Resolution classification =
-                requirementTypeResolver.resolve(title, rawInput, model, effectiveEngine, reqType, maxQuestions);
-        String effectiveClarifyMode = "batch".equals(clarifyMode) ? "batch" : "progressive";
-        String effectiveDocumentProfile = documentProfile == null
-                ? existing.getDocumentProfile() : documentProfile;
-        repo.startClarifyFromDraft(sessionId, title, rawInput, project, module, model, effectiveEngine,
-                effectiveRole, classification.reqType(), classification.maxQuestions(), effectiveClarifyMode,
-                businessFields, effectiveDocumentProfile);
-        return repo.findById(sessionId).orElseThrow();
+        return sessionLifecycleService.startClarifyFromDraft(
+                sessionId, title, rawInput, project, module, model, engine, role, reqType,
+                maxQuestions, clarifyMode, businessFields, documentProfile);
     }
 
     /** AI 标题建议，完整标题由代码按固定格式拼接。 */
@@ -637,8 +547,7 @@ public class PrdClarifyService {
      * 若文件删除失败（孤儿文件）不影响功能，下次创建同名会话会覆盖。
      */
     public void delete(String sessionId) throws IOException {
-        repo.delete(sessionId);
-        fileStore.delete(sessionId);
+        sessionLifecycleService.delete(sessionId);
         graphifyAskCache.remove(sessionId);
     }
 
@@ -765,10 +674,6 @@ public class PrdClarifyService {
             log.warn("[prd-clarify] buildQuestionsJson failed", e);
             return "[]";
         }
-    }
-
-    private static int defaultNewModuleQuestionCount() {
-        return PrdRequirementTypeResolver.defaultMaxQuestions(PrdRequirementTypeResolver.NEW_MODULE);
     }
 
     // ───── SSE 工具方法 ─────

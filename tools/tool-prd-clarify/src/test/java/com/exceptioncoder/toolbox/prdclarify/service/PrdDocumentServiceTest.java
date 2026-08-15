@@ -109,12 +109,13 @@ class PrdDocumentServiceTest {
         when(documentService.pathFor("session")).thenReturn(path);
         when(documentService.readContent("session")).thenReturn("content");
         PrdClarifyService facade = new PrdClarifyService(
-                mock(AgentOneShotRunner.class), mock(PrdSessionRepository.class), mock(PrdFileStore.class),
+                mock(AgentOneShotRunner.class), mock(PrdSessionRepository.class),
                 new ObjectMapper(), mock(GraphifyQueryService.class), mock(DomainKnowledgeQueryService.class),
                 mock(PrdImageInputResolver.class), mock(PrdEffortEstimationService.class),
                 mock(PrdRequirementSplitService.class), mock(PrdProgressEvaluationService.class),
                 mock(PrdDocRevisionService.class), mock(PrdDevDocumentService.class),
-                mock(PrdDevDocumentClarificationService.class), documentService);
+                mock(PrdDevDocumentClarificationService.class), documentService,
+                mock(PrdSessionLifecycleService.class));
 
         facade.generate("session", "notes", true, emitter);
         facade.generate("session", "notes", true, true, emitter);

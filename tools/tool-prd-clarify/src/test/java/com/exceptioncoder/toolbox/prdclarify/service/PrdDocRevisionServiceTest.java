@@ -120,13 +120,13 @@ class PrdDocRevisionServiceTest {
         when(revisionService.create("parent", "change")).thenReturn(expected);
         when(revisionService.recoverInPlaceUpdate("parent", "recover")).thenReturn(expected);
         PrdClarifyService facade = new PrdClarifyService(
-                mock(AgentOneShotRunner.class), mock(PrdSessionRepository.class), mock(PrdFileStore.class),
+                mock(AgentOneShotRunner.class), mock(PrdSessionRepository.class),
                 new ObjectMapper(), mock(GraphifyQueryService.class),
                 mock(DomainKnowledgeQueryService.class), mock(PrdImageInputResolver.class),
                 mock(PrdEffortEstimationService.class), mock(PrdRequirementSplitService.class),
                 mock(PrdProgressEvaluationService.class), revisionService,
                 mock(PrdDevDocumentService.class), mock(PrdDevDocumentClarificationService.class),
-                mock(PrdDocumentService.class));
+                mock(PrdDocumentService.class), mock(PrdSessionLifecycleService.class));
 
         assertThat(facade.createBackgroundRevision("parent", "change")).isSameAs(expected);
         assertThat(facade.recoverInPlacePrdAsBackgroundRevision("parent", "recover")).isSameAs(expected);

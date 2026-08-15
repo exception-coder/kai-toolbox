@@ -110,6 +110,7 @@ PrdClarifyService（编排器，目标 <800 行）
     ├── PrdClarificationQuestionService（已有，收编澄清提问逻辑）
     ├── PrdDocumentGenerationService（已有，收编 PRD 生成）
     ├── PrdDocumentService（已完成，PRD 生成编排 + 版本备份 + 内容生命周期）
+    ├── PrdSessionLifecycleService（已完成，会话创建 + 草稿转换 + 删除）
     ├── PrdDevDocumentService（已完成，TDD 生成 + 历史 + 文件版本）
     ├── PrdDevDocumentClarificationService（已完成，TDD 技术澄清 + 输出裁决）
     ├── PrdAnswerProcessingService（已有，收编回答处理）
@@ -171,6 +172,7 @@ export const handoff = {
    - TDD 文档块已迁至 `PrdDevDocumentService`：服务独立负责生成编排、SSE 生命周期、问答草稿、历史记录、覆盖备份、当前/历史版本读取和手工保存；`PrdClarifyService` 的 5 个公开入口仅保留兼容委托，Controller/API 与后台候选应用链路不变。
    - TDD 技术澄清块已迁至 `PrdDevDocumentClarificationService`：服务独立负责渐进/批量 Prompt、PRD/TDD 与知识上下文拼接、Agent 流、SSE 断线策略、批量 JSON 校验和工作状态写入；`PrdClarifyService` 的 2 个公开入口仅保留兼容委托。
    - PRD 文档生命周期已迁至 `PrdDocumentService`：服务独立负责首次/增量生成编排、后台断线策略、兼容版本备份、产物账本落盘、路径访问、手工保存和内容读取；`PrdClarifyService` 的 5 个公开入口仅保留兼容委托，并降至 821 行。
+   - PRD 会话生命周期已迁至 `PrdSessionLifecycleService`：服务独立负责正式会话创建、草稿保存与更新、`DRAFT -> CLARIFYING` 转换、父会话校验和删除顺序；`PrdClarifyService` 保留兼容委托及知识缓存清理，并降至 726 行，达到 `<800` 的门面目标。
 2. `PrdClarifyController.java`（716 行）：仅保留参数校验 + 调 service；任何 20 行以上的业务拼接（如 `buildQuestionsJson` 调用链、`AnswerDistribution` 组装）下推。
 3. 拆分顺序：先搬"纯私有方法组"（无跨状态依赖）→ 再搬"整段公开方法"→ 最后瘦编排器。每搬一组跑 `mvn -pl tools/tool-prd-clarify -am test`。
 

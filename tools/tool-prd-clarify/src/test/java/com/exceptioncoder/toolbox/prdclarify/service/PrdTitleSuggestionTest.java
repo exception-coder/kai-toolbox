@@ -117,7 +117,6 @@ class PrdTitleSuggestionTest {
         return new PrdClarifyService(
                 runner,
                 mock(PrdSessionRepository.class),
-                mock(PrdFileStore.class),
                 new ObjectMapper(),
                 mock(GraphifyQueryService.class),
                 mock(DomainKnowledgeQueryService.class),
@@ -128,6 +127,7 @@ class PrdTitleSuggestionTest {
                 mock(PrdDocRevisionService.class),
                 mock(PrdDevDocumentService.class),
                 mock(PrdDevDocumentClarificationService.class),
-                mock(PrdDocumentService.class));
+                mock(PrdDocumentService.class),
+                mock(PrdSessionLifecycleService.class));
     }
 }

@@ -184,7 +184,6 @@ class PrdProgressEvaluationTest {
         PrdClarifyService facade = new PrdClarifyService(
                 mock(AgentOneShotRunner.class),
                 mock(PrdSessionRepository.class),
-                mock(PrdFileStore.class),
                 new ObjectMapper(),
                 mock(GraphifyQueryService.class),
                 mock(DomainKnowledgeQueryService.class),
@@ -195,7 +194,8 @@ class PrdProgressEvaluationTest {
                 mock(PrdDocRevisionService.class),
                 mock(PrdDevDocumentService.class),
                 mock(PrdDevDocumentClarificationService.class),
-                mock(PrdDocumentService.class));
+                mock(PrdDocumentService.class),
+                mock(PrdSessionLifecycleService.class));
 
         facade.evaluateProgress("progress", "context", emitter);
         facade.readProgressContent("progress");

@@ -138,12 +138,13 @@ class PrdEffortEstimationTest {
         when(effortService.estimate("effort", "context", "codex")).thenReturn(expected);
         when(effortService.start("effort", "context", "codex")).thenReturn(expected);
         PrdClarifyService facade = new PrdClarifyService(
-                mock(AgentOneShotRunner.class), mock(PrdSessionRepository.class), mock(PrdFileStore.class),
+                mock(AgentOneShotRunner.class), mock(PrdSessionRepository.class),
                 new ObjectMapper(), mock(GraphifyQueryService.class),
                 mock(DomainKnowledgeQueryService.class), mock(PrdImageInputResolver.class),
                 effortService, mock(PrdRequirementSplitService.class), mock(PrdProgressEvaluationService.class),
                 mock(PrdDocRevisionService.class), mock(PrdDevDocumentService.class),
-                mock(PrdDevDocumentClarificationService.class), mock(PrdDocumentService.class));
+                mock(PrdDevDocumentClarificationService.class), mock(PrdDocumentService.class),
+                mock(PrdSessionLifecycleService.class));
 
         assertThat(facade.estimateDevDocEffort("effort", "context")).isSameAs(expected);
         assertThat(facade.estimateDevDocEffort("effort", "context", "codex")).isSameAs(expected);
