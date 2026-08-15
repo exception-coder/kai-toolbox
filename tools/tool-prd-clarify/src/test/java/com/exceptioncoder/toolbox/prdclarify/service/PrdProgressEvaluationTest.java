@@ -190,7 +190,7 @@ class PrdProgressEvaluationTest {
                 mock(GraphifyQueryService.class),
                 mock(DomainKnowledgeQueryService.class),
                 mock(PrdImageInputResolver.class),
-                mock(ObjectProvider.class),
+                mock(PrdEffortEstimationService.class),
                 progressService);
 
         facade.evaluateProgress("progress", "context", emitter);

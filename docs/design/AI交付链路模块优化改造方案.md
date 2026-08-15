@@ -110,7 +110,7 @@ PrdClarifyService（编排器，目标 <800 行）
     ├── PrdClarificationQuestionService（已有，收编澄清提问逻辑）
     ├── PrdDocumentGenerationService（已有，收编 PRD 生成）
     ├── PrdAnswerProcessingService（已有，收编回答处理）
-    ├── PrdEffortService（新建，工时评估 + JSON 修复，自 1179~1504 行搬出）
+    ├── PrdEffortEstimationService（已完成，工时评估 + JSON 修复；旧服务保留兼容委托）
     ├── PrdSplitService（新建，需求拆分 + 采纳，自 1505~1653 行搬出）
     ├── PrdProgressEvaluationService（已完成，进度评估 + 版本；旧服务保留兼容委托）
     └── PrdDocRevisionService（新建/归位，后台修订 + 原地恢复，自 2072~2160 行搬出）
@@ -160,7 +160,7 @@ export const handoff = {
 
 **后端（P1，2 天）**
 1. `PrdClarifyService.java`（2386 行）→ 编排器瘦身：
-   - 工时评估块（`estimateDevDocEffort`/`startEstimateDevDocEffort`/`buildEffortEstimatePrompt`/`parseAndBuildEstimationJson`/`extractEffortJson`/`tryReadEffortObject`/`copyStringArray`，约 1179-1504 行）→ `PrdEffortService`（新建）。
+   - 工时评估块（同步/后台入口、Prompt、修订取源、状态维护、结果校验与 JSON 修复）已迁至 `PrdEffortEstimationService`；Prompt 契约集中在 `PrdEffortPrompts`，`PrdClarifyService` 的 3 个公开入口仅保留委托。
    - 需求拆分块（`splitRequirement`/`buildSplitPrompt`/`parseSplitResult`/`adoptSplit`，约 1505-1653 行）→ `PrdSplitService`（新建）。
    - 进度评估块（`evaluateProgress`/Prompt/证据门禁/内容读取/版本/备份/历史）已迁至 `PrdProgressEvaluationService`；`PrdClarifyService` 的 4 个公开入口仅保留委托。
    - 修订块（`createBackgroundRevision`/`recoverInPlacePrdAsBackgroundRevision`/`invalidateEffortEstimation`，约 2072-2160 行）→ `PrdDocRevisionService`（新建）。
@@ -245,7 +245,7 @@ export const handoff = {
 ### 7.1 后端
 
 - 回归基线：`mvn test` 全绿（现状已有 `PrdDocChangeAnalysisServiceTest`、`PrdDocChangeAnalysisServiceTest`、`ConsultOrchestrationPipelineTest` 等）。
-- 新增：每个拆出的 service 至少 1 个测试（聚焦该 service 的解析/容错逻辑，如 `PrdEffortService` 的 JSON 修复、`PrdSplitService` 的 `parseSplitResult`）。
+- 新增：每个拆出的 service 至少 1 个测试（`PrdEffortEstimationService` 已覆盖最新版修订取源、后台状态、JSON 修复和门面委托；`PrdSplitService` 聚焦 `parseSplitResult`）。
 - 验收：拆分前后 `/api/prd-clarify/*` 的行为不变（用现有测试 + 手工冒烟）。
 
 ### 7.2 前端

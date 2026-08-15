@@ -20,6 +20,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.when;
@@ -58,12 +59,8 @@ class PrdEffortEstimationTest {
                 ```
                 """);
 
-        PrdClarifyService service = new PrdClarifyService(
-                runner, repo, fileStore, mock(PrdArtifactService.class),
-                mapper,
-                mock(GraphifyQueryService.class), mock(DomainKnowledgeQueryService.class),
-                mock(PrdImageInputResolver.class), resolver, mock(PrdProgressEvaluationService.class));
-        service.estimateDevDocEffort("root", null, "codex");
+        PrdEffortEstimationService service = service(runner, repo, fileStore, mapper, resolver);
+        service.estimate("root", null, "codex");
 
         var json = org.mockito.ArgumentCaptor.forClass(String.class);
         verify(repo).updateDevDocEstimation(eq("root"), json.capture());
@@ -94,14 +91,10 @@ class PrdEffortEstimationTest {
             releaseAgent.await(5, TimeUnit.SECONDS);
             return "{\"hoursMin\":2,\"hoursMax\":4,\"confidence\":\"HIGH\",\"breakdown\":[]}";
         });
-        PrdClarifyService service = new PrdClarifyService(
-                runner, repo, fileStore, mock(PrdArtifactService.class),
-                new ObjectMapper(),
-                mock(GraphifyQueryService.class), mock(DomainKnowledgeQueryService.class),
-                mock(PrdImageInputResolver.class), resolver, mock(PrdProgressEvaluationService.class));
+        PrdEffortEstimationService service = service(runner, repo, fileStore, new ObjectMapper(), resolver);
 
         long before = System.nanoTime();
-        service.startEstimateDevDocEffort("prd-async", null, "codex");
+        service.start("prd-async", null, "codex");
         long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - before);
 
         assertThat(elapsedMillis).isLessThan(500);
@@ -109,5 +102,64 @@ class PrdEffortEstimationTest {
         assertThat(agentEntered.await(1, TimeUnit.SECONDS)).isTrue();
         releaseAgent.countDown();
         verify(repo, timeout(2000)).updateDevDocEstimation(eq("prd-async"), contains("\"workStatus\":\"COMPLETED\""));
+    }
+
+    @Test
+    void repairsMixedOutputOnceWithoutChangingEstimateContract() throws Exception {
+        AgentOneShotRunner runner = mock(AgentOneShotRunner.class);
+        PrdSessionRepository repo = mock(PrdSessionRepository.class);
+        PrdFileStore fileStore = mock(PrdFileStore.class);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<LocalProjectResolver> resolver = mock(ObjectProvider.class);
+        ObjectMapper mapper = new ObjectMapper();
+        PrdSession session = PrdSession.builder().id("repair").title("修复输出").engine("codex").build();
+        when(repo.findById("repair")).thenReturn(Optional.of(session));
+        when(repo.findLatestRevision("repair")).thenReturn(Optional.empty());
+        when(fileStore.read("repair")).thenReturn("PRD");
+        when(fileStore.pathFor("repair")).thenReturn(tempDir.resolve("repair.md"));
+        when(resolver.getIfAvailable()).thenReturn(null);
+        when(runner.runOnce(any(AgentOneShotRunner.ExecutionRequest.class)))
+                .thenReturn("没有可解析的最终对象")
+                .thenReturn("{\"hoursMin\":3,\"hoursMax\":5,\"confidence\":\"HIGH\",\"breakdown\":[]}");
+
+        service(runner, repo, fileStore, mapper, resolver).estimate("repair", null, "codex");
+
+        var json = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(repo).updateDevDocEstimation(eq("repair"), json.capture());
+        assertThat(mapper.readTree(json.getValue()).path("hoursMax").asInt()).isEqualTo(5);
+        verify(runner, times(2)).runOnce(any(AgentOneShotRunner.ExecutionRequest.class));
+    }
+
+    @Test
+    void clarifyFacadeDelegatesEveryEffortOperation() {
+        PrdEffortEstimationService effortService = mock(PrdEffortEstimationService.class);
+        PrdSession expected = PrdSession.builder().id("effort").build();
+        when(effortService.estimate("effort", "context", null)).thenReturn(expected);
+        when(effortService.estimate("effort", "context", "codex")).thenReturn(expected);
+        when(effortService.start("effort", "context", "codex")).thenReturn(expected);
+        PrdClarifyService facade = new PrdClarifyService(
+                mock(AgentOneShotRunner.class), mock(PrdSessionRepository.class), mock(PrdFileStore.class),
+                mock(PrdArtifactService.class), new ObjectMapper(), mock(GraphifyQueryService.class),
+                mock(DomainKnowledgeQueryService.class), mock(PrdImageInputResolver.class),
+                effortService, mock(PrdProgressEvaluationService.class));
+
+        assertThat(facade.estimateDevDocEffort("effort", "context")).isSameAs(expected);
+        assertThat(facade.estimateDevDocEffort("effort", "context", "codex")).isSameAs(expected);
+        assertThat(facade.startEstimateDevDocEffort("effort", "context", "codex")).isSameAs(expected);
+
+        verify(effortService).estimate("effort", "context", null);
+        verify(effortService).estimate("effort", "context", "codex");
+        verify(effortService).start("effort", "context", "codex");
+    }
+
+    private PrdEffortEstimationService service(
+            AgentOneShotRunner runner,
+            PrdSessionRepository repo,
+            PrdFileStore fileStore,
+            ObjectMapper mapper,
+            ObjectProvider<LocalProjectResolver> resolver) {
+        return new PrdEffortEstimationService(
+                runner, repo, fileStore, mapper,
+                mock(GraphifyQueryService.class), mock(DomainKnowledgeQueryService.class), resolver);
     }
 }

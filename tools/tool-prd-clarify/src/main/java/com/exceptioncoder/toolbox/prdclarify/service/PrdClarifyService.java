@@ -1,7 +1,6 @@
 package com.exceptioncoder.toolbox.prdclarify.service;
 
 import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
-import com.exceptioncoder.toolbox.llm.spi.LocalProjectResolver;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.DevDocVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.ProgressVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.QaPairRequest;
@@ -11,7 +10,6 @@ import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.domain.DocumentProfile;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.beans.factory.ObjectProvider;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -62,9 +60,9 @@ public class PrdClarifyService {
     private final PrdClarificationQuestionService clarificationQuestionService;
     private final PrdAnswerProcessingService answerProcessingService;
     private final PrdDocumentGenerationService documentGenerationService;
+    private final PrdEffortEstimationService effortEstimationService;
     private final PrdProgressEvaluationService progressEvaluationService;
     private final PrdImageInputResolver imageInputResolver;
-    private final ObjectProvider<LocalProjectResolver> localProjectResolver;
 
     /**
      * 多轮澄清（最多 5 轮）会话内的图谱查询结果缓存：question（session 标题）在各轮间不变，
@@ -72,9 +70,6 @@ public class PrdClarifyService {
      * 「查过但无结果」与「尚未查过」。会话删除时同步清理，避免内存无界增长。
      */
     private final Map<String, Optional<String>> graphifyAskCache = new ConcurrentHashMap<>();
-    /** 防止同一需求被重复提交多个后台工时评估；任务本身由虚拟线程执行。 */
-    private final Set<String> activeEffortEstimations = ConcurrentHashMap.newKeySet();
-
     public PrdClarifyService(AgentOneShotRunner agentRunner,
                              PrdSessionRepository repo,
                              PrdFileStore fileStore,
@@ -83,7 +78,7 @@ public class PrdClarifyService {
                              GraphifyQueryService graphifyQuery,
                              DomainKnowledgeQueryService domainKnowledgeQuery,
                              PrdImageInputResolver imageInputResolver,
-                             ObjectProvider<LocalProjectResolver> localProjectResolver,
+                             PrdEffortEstimationService effortEstimationService,
                              PrdProgressEvaluationService progressEvaluationService) {
         this.agentRunner = agentRunner;
         this.repo = repo;
@@ -100,7 +95,7 @@ public class PrdClarifyService {
         this.answerProcessingService = new PrdAnswerProcessingService(agentRunner, mapper);
         this.documentGenerationService =
                 new PrdDocumentGenerationService(agentRunner, mapper, imageInputResolver);
-        this.localProjectResolver = localProjectResolver;
+        this.effortEstimationService = effortEstimationService;
         this.progressEvaluationService = progressEvaluationService;
     }
 
@@ -641,60 +636,6 @@ public class PrdClarifyService {
             如果现有信息已经足够，输出空数组 []。
             """;
 
-    /**
-     * 工时评估系统 prompt：基于 PRD + 开发文档（+ 可选的代码/业务知识图谱查询结果）估算开发工时。
-     * 严格要求单行/纯 JSON 输出，便于确定性解析；解析失败时上层直接报错让用户重试（不像
-     * {@link PrdRequirementTypeResolver} 那样静默兜底——这是用户主动点按钮触发的动作，兜底出一个随意数字
-     * 反而会误导，不如明确告知失败）。
-     */
-    private static final String EFFORT_ESTIMATE_SYSTEM = """
-            你是熟练使用 Codex / Claude Code 的资深工程师，需要基于 PRD、TDD 和现有代码，
-            评估「由所选 Code Agent 主导编码」完成这个需求所需的有效人机协作工时，单位统一用「小时」。
-
-            评估依据（按优先级）：
-            1. 开发文档里列出的改动范围——新增/调整的模块、接口、表结构、前后端工作量，是主要依据
-            2. 若提供了【代码知识图谱查询结果】：参考其中揭示的既有代码复杂度/依赖广度，
-               依赖越广、既有实现越复杂，估时应适当上浮
-            3. 若提供了【业务知识图谱查询结果】：参考其中沉淀的业务规则复杂度（如涉及的计价公式、
-               状态机、跨系统一致性要求），规则越复杂，估时应适当上浮
-            4. 若提供了【补充上下文】（如团队人力、技术栈熟悉度）：按其调整整体估时
-            5. 若允许读取本地项目：只读搜索最相关的 3-8 个关键文件，核对既有模式、测试和改动边界后立即估算；
-               不要为了穷尽仓库而大范围遍历。严禁修改文件、执行写命令或访问网络
-
-            估算口径：
-            - Code Agent 负责方案落地、主要代码编写、测试代码生成和常规修复；人负责下达任务、业务判断、
-              运行验证、审查与必要纠偏。不要按人工逐行编码或传统人日口径估算
-            - 包含 Agent 编码等待、提示与纠偏、单元/集成测试、联调、自测、Code Review 修正的有效协作工时
-            - 不包含排队等待、发布窗口等纯日历等待时间
-            - 对成熟项目中的既有模式和组件复用应显著降低编码时间；数据迁移、外部系统联调、
-              难以自动验证的业务规则仍需保留风险缓冲
-            - 默认是一名熟悉 Code Agent 工作流的工程师操作，不要乘以团队人数
-
-            输出要求（严格执行）：
-            - 只输出一个 JSON 对象，不要 markdown 代码块围栏、不要任何解释性文字
-            - 给出区间 hoursMin ~ hoursMax（而非单一数字），区间宽度反映不确定性，
-              不确定性越高区间越宽
-            - confidence 取 LOW/MEDIUM/HIGH，反映你对这次估算的信心
-              （PRD/开发文档信息越完整、图谱命中越多，信心越高）
-            - breakdown 按开发文档里的功能点/模块拆解，3-8 项为宜，不要拆得过细，
-              每项给出预估小时数（单一数字，不需要再给区间）
-            - reasoning 用 2-4 句话说明整体评估依据
-            - inspectedFiles 只列出本次真正读取/搜索命中的关键相对路径，最多 8 个；未读取代码则为空数组
-            - codeEvidenceSummary 用一句话概括代码核查证据；未找到项目或未命中时必须如实说明
-            - assumptions 与 risks 各列 0-5 条会显著影响估算的事实
-
-            JSON 结构：
-            {"hoursMin":数字,"hoursMax":数字,"confidence":"LOW|MEDIUM|HIGH","reasoning":"...","breakdown":[{"item":"...","hours":数字}],"inspectedFiles":["..."],"codeEvidenceSummary":"...","assumptions":["..."],"risks":["..."]}
-            """;
-
-    /** 仅在Code Agent最终输出仍没有可提取JSON时使用，不重新估算，只整理已有结果。 */
-    private static final String EFFORT_JSON_REPAIR_SYSTEM = """
-            你是 JSON 格式整理器。用户会提供一段 Code Agent 的工时评估输出，其中可能混有工具调用说明、
-            分析文字或 Markdown 围栏。只提取已有的最终工时结论并整理为一个 JSON 对象；不得重新估算、
-            不得修改数字或添加新事实。只输出 JSON，不要解释。必须包含 hoursMin、hoursMax、confidence、
-            reasoning、breakdown、inspectedFiles、codeEvidenceSummary、assumptions、risks。
-            """;
-
     /** TDD 生成/更新前的多轮技术澄清——请求下一个必须由开发者明确的问题。 */
     public void askNextDevDocQuestion(String sessionId, int questionIndex,
                                        List<QaPairRequest> history, String updateNotes,
@@ -1121,316 +1062,16 @@ public class PrdClarifyService {
      * @throws IllegalStateException 尚未生成开发文档，或 LLM 输出解析失败
      */
     public PrdSession estimateDevDocEffort(String sessionId, String extraContext) {
-        return estimateDevDocEffort(sessionId, extraContext, null);
+        return effortEstimationService.estimate(sessionId, extraContext, null);
     }
 
     public PrdSession estimateDevDocEffort(String sessionId, String extraContext, String requestedEngine) {
-        return estimateDevDocEffort(sessionId, extraContext, requestedEngine, System.currentTimeMillis());
+        return effortEstimationService.estimate(sessionId, extraContext, requestedEngine);
     }
 
     /** 启动真正的后台评估；HTTP 请求只负责登记任务，关闭弹框/页面不会中断 Code Agent。 */
     public PrdSession startEstimateDevDocEffort(String sessionId, String extraContext, String requestedEngine) {
-        PrdSession session = repo.findById(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-        if (!activeEffortEstimations.add(sessionId)) {
-            return session;
-        }
-        String engine = normalizeEngine(requestedEngine == null || requestedEngine.isBlank()
-                ? session.getEngine() : requestedEngine);
-        long startedAt = System.currentTimeMillis();
-        updateEstimationWorkState(sessionId, "RUNNING", "", engine, startedAt);
-        Thread.ofVirtual().name("prd-effort-estimate-" + sessionId + "-").start(() -> {
-            try {
-                estimateDevDocEffort(sessionId, extraContext, engine, startedAt);
-            } catch (Exception e) {
-                log.warn("[prd-clarify] 后台 AI 工时评估失败 sessionId={}", sessionId, e);
-                updateEstimationWorkState(sessionId, "ERROR", e.getMessage(), engine, startedAt);
-            } finally {
-                activeEffortEstimations.remove(sessionId);
-            }
-        });
-        return repo.findById(sessionId).orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-    }
-
-    private PrdSession estimateDevDocEffort(String sessionId, String extraContext, String requestedEngine,
-                                            long startedAt) {
-        PrdSession requestedSession = repo.findById(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-        PrdSession session = resolveLatestEffortSource(requestedSession);
-        String prdContent;
-        String devDocContent;
-        try {
-            prdContent = fileStore.read(session.getId());
-            devDocContent = readDevDocContent(session.getId());
-        } catch (IOException e) {
-            throw new IllegalStateException("读取 PRD/开发文档失败: " + e.getMessage(), e);
-        }
-        Optional<LocalProjectResolver.ProjectLocation> projectLocation = resolveLocalProject(session.getProject());
-        String engine = normalizeEngine(requestedEngine == null || requestedEngine.isBlank()
-                ? session.getEngine() : requestedEngine);
-        String userPrompt = buildEffortEstimatePrompt(
-                session, prdContent, devDocContent, extraContext, projectLocation);
-        AgentOneShotRunner.ExecutionRequest request = new AgentOneShotRunner.ExecutionRequest(
-                EFFORT_ESTIMATE_SYSTEM,
-                userPrompt,
-                projectLocation.map(LocalProjectResolver.ProjectLocation::path).orElse(null),
-                session.getModel(),
-                engine,
-                "codex".equals(engine) ? "medium" : null,
-                null, null, null, null,
-                projectLocation.isPresent()
-                        ? AgentOneShotRunner.TOOL_POLICY_CONSULT_READONLY
-                        : AgentOneShotRunner.TOOL_POLICY_DISABLED);
-        String raw = agentRunner.runOnce(request);
-        String estimationJson = parseAndBuildEstimationJson(
-                raw, engine, projectLocation, session, prdContent, devDocContent, startedAt);
-        repo.updateDevDocEstimation(sessionId, estimationJson);
-        return repo.findById(sessionId).orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-    }
-
-    /** 在原评估 JSON 上更新后台状态，运行/失败时保留上一版数值供用户对照。 */
-    private void updateEstimationWorkState(String sessionId, String status, String error,
-                                           String engine, long startedAt) {
-        PrdSession session = repo.findById(sessionId).orElse(null);
-        if (session == null) return;
-        ObjectNode state = mapper.createObjectNode();
-        if (session.getDevDocEstimation() != null && !session.getDevDocEstimation().isBlank()) {
-            try {
-                JsonNode previous = mapper.readTree(session.getDevDocEstimation());
-                if (previous instanceof ObjectNode object) state = object.deepCopy();
-            } catch (Exception ignored) {
-                // 旧数据损坏时以新的任务状态重新开始，最终成功结果会完整覆盖。
-            }
-        }
-        state.put("workStatus", status);
-        state.put("workError", error == null ? "" : error);
-        state.put("workEngine", engine);
-        state.put("startedAt", startedAt);
-        if ("ERROR".equals(status)) state.put("completedAt", System.currentTimeMillis());
-        try {
-            repo.updateDevDocEstimation(sessionId, mapper.writeValueAsString(state));
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("保存工时评估后台状态失败", e);
-        }
-    }
-
-    /**
-     * 根需求只跟随明确的 PRD 修订节点；AI 拆分出来的普通子需求仍是独立需求，不能误当父需求最新版。
-     * 从某个修订节点发起时也会回到同一修订树，再选择最新修订。
-     */
-    private PrdSession resolveLatestEffortSource(PrdSession requested) {
-        PrdSession revisionRoot = requested;
-        if (isRevision(requested) && requested.getParentId() != null && !requested.getParentId().isBlank()) {
-            revisionRoot = repo.findById(requested.getParentId()).orElse(requested);
-        }
-        return repo.findLatestRevision(revisionRoot.getId()).orElse(requested);
-    }
-
-    private boolean isRevision(PrdSession session) {
-        String rawInput = session.getRawInput();
-        return rawInput != null && (rawInput.startsWith("【后台自动修订") || rawInput.startsWith("【修订版 PRD"));
-    }
-
-    private String buildEffortEstimatePrompt(PrdSession s, String prdContent, String devDocContent, String extraContext,
-                                             Optional<LocalProjectResolver.ProjectLocation> projectLocation) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("需求标题：").append(s.getTitle()).append("\n");
-        if (s.getProject() != null && !s.getProject().isBlank()) {
-            sb.append("项目：").append(s.getProject());
-            if (s.getModule() != null && !s.getModule().isBlank()) {
-                sb.append(" / ").append(s.getModule());
-            }
-            sb.append("\n");
-        }
-        sb.append("\n【PRD 内容】\n").append(prdContent == null ? "" : prdContent).append("\n");
-        if (devDocContent == null || devDocContent.isBlank()) {
-            sb.append("\n【开发文档内容】\n尚未生成 TDD/开发文档；必须降低信心并扩大区间。\n");
-        } else {
-            sb.append("\n【开发文档内容】（已基于最新 PRD 生成，以此为准做工时拆解）\n")
-                    .append(devDocContent).append("\n");
-        }
-        if (extraContext != null && !extraContext.isBlank()) {
-            sb.append("\n【补充上下文】\n").append(extraContext.trim()).append("\n");
-        }
-        appendGraphContext(sb, queryGraphContext(s.getProject(), s.getModule(), s.getTitle()));
-        appendDomainContext(sb, queryDomainContext(s.getProject(), s.getTitle()));
-        if (projectLocation.isPresent()) {
-            sb.append("\n【本地代码核查】\n已将工作目录限制为项目：")
-                    .append(projectLocation.get().name())
-                    .append("。请实际使用只读工具检查与需求/模块相关的代码、测试和依赖，并在 inspectedFiles 中记录关键相对路径。\n");
-        } else {
-            sb.append("\n【本地代码核查】\n没有在已配置工作区中匹配到项目目录，本次禁止调用工具；")
-                    .append("必须在 codeEvidenceSummary 说明未核查代码，并降低 confidence。\n");
-        }
-        sb.append("\n请基于以上信息评估开发工时，严格按系统提示的 JSON 结构输出。");
-        return sb.toString();
-    }
-
-    /** 把业务知识图谱查询结果（若有）拼进 prompt，跟 {@link #appendGraphContext}（代码知识图谱）并列。 */
-    private void appendDomainContext(StringBuilder sb, Optional<String> domainContext) {
-        if (domainContext.isEmpty() || domainContext.get().isBlank()) {
-            return;
-        }
-        sb.append("\n【业务知识图谱查询结果】（系统已直接检索 project-domain-knowledge 库，内容为团队沉淀的业务真理，可信）\n");
-        sb.append(domainContext.get()).append("\n");
-    }
-
-    /**
-     * 解析 LLM 返回的工时评估 JSON，做字段校验/归一化并补上 estimatedAt。解析失败（LLM 没按
-     * 要求输出 JSON）时直接抛异常，不做兜底——评估失败应该让用户看到并重试，而不是塞一个
-     * 随意的默认工时误导决策。
-     */
-    private String parseAndBuildEstimationJson(String raw, String engine,
-                                               Optional<LocalProjectResolver.ProjectLocation> projectLocation,
-                                               PrdSession sourceSession, String prdContent, String devDocContent,
-                                               long startedAt) {
-        JsonNode node;
-        try {
-            node = extractEffortJson(raw);
-        } catch (Exception firstError) {
-            log.info("[prd-clarify] 工时评估混合输出未找到最终 JSON，执行一次格式修复: {}",
-                    firstError.getMessage());
-            try {
-                String repairInput = raw == null ? "" : raw;
-                if (repairInput.length() > 24_000) {
-                    repairInput = repairInput.substring(repairInput.length() - 24_000);
-                }
-                AgentOneShotRunner.ExecutionRequest repairRequest = new AgentOneShotRunner.ExecutionRequest(
-                        EFFORT_JSON_REPAIR_SYSTEM,
-                        repairInput,
-                        null,
-                        sourceSession.getModel(),
-                        engine,
-                        "codex".equals(engine) ? "low" : null,
-                        null, null, null, null,
-                        AgentOneShotRunner.TOOL_POLICY_DISABLED);
-                node = extractEffortJson(agentRunner.runOnce(repairRequest));
-            } catch (Exception repairError) {
-                repairError.addSuppressed(firstError);
-                throw new IllegalStateException("工时评估最终结果缺少合法 JSON，请重试: "
-                        + repairError.getMessage(), repairError);
-            }
-        }
-        if (!node.isObject()) {
-            throw new IllegalStateException("工时评估结果格式不正确，请重试");
-        }
-        int hoursMin = Math.max(0, node.path("hoursMin").asInt(0));
-        int hoursMax = Math.max(hoursMin, node.path("hoursMax").asInt(hoursMin));
-        String confidence = node.path("confidence").asText("MEDIUM").toUpperCase();
-        if (!Set.of("LOW", "MEDIUM", "HIGH").contains(confidence)) {
-            confidence = "MEDIUM";
-        }
-
-        ObjectNode result = mapper.createObjectNode();
-        result.put("hoursMin", hoursMin);
-        result.put("hoursMax", hoursMax);
-        result.put("confidence", confidence);
-        result.put("reasoning", node.path("reasoning").asText(""));
-        ArrayNode breakdown = mapper.createArrayNode();
-        for (JsonNode item : node.path("breakdown")) {
-            ObjectNode b = mapper.createObjectNode();
-            b.put("item", item.path("item").asText(""));
-            b.put("hours", item.path("hours").asDouble(0));
-            breakdown.add(b);
-        }
-        result.set("breakdown", breakdown);
-        copyStringArray(node, result, "inspectedFiles", 12);
-        copyStringArray(node, result, "assumptions", 5);
-        copyStringArray(node, result, "risks", 5);
-        result.put("codeEvidenceSummary", node.path("codeEvidenceSummary").asText(
-                projectLocation.isPresent() ? "未返回代码核查摘要" : "未匹配到本地项目，未核查代码"));
-        result.put("engine", engine);
-        result.put("projectPath", projectLocation.map(LocalProjectResolver.ProjectLocation::path).orElse(""));
-        result.put("codeInspected", projectLocation.isPresent() && result.path("inspectedFiles").size() > 0);
-        String prdPath = fileStore.pathFor(sourceSession.getId()).toAbsolutePath().normalize().toString();
-        String tddPath = sourceSession.getDevDocPath();
-        if (tddPath == null || tddPath.isBlank()) {
-            tddPath = prdPath.replaceFirst("\\.md$", "-dev.md");
-        }
-        List<String> inspectedFiles = new ArrayList<>();
-        result.path("inspectedFiles").forEach(value -> inspectedFiles.add(value.asText("")));
-        String projectPath = projectLocation.map(LocalProjectResolver.ProjectLocation::path).orElse("");
-        result.put("sourceSessionId", sourceSession.getId());
-        result.put("sourceTitle", sourceSession.getTitle());
-        result.put("prdPath", prdPath);
-        result.put("tddPath", tddPath);
-        result.put("prdFingerprint", EstimationEvidenceFingerprint.text(prdContent));
-        result.put("tddFingerprint", EstimationEvidenceFingerprint.text(devDocContent));
-        result.put("codeFingerprint", EstimationEvidenceFingerprint.inspectedFiles(projectPath, inspectedFiles));
-        long completedAt = System.currentTimeMillis();
-        result.put("workStatus", "COMPLETED");
-        result.put("workError", "");
-        result.put("workEngine", engine);
-        result.put("startedAt", startedAt);
-        result.put("completedAt", completedAt);
-        result.put("estimatedAt", completedAt);
-        try {
-            return mapper.writeValueAsString(result);
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("工时评估结果序列化失败: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * 从 ReAct 混合输出中提取最后一个符合工时结构的 JSON 对象。扫描器识别字符串转义和嵌套括号，
-     * 不会被 reasoning 文本或 JSON 字符串里的花括号干扰。
-     */
-    private JsonNode extractEffortJson(String raw) throws JsonProcessingException {
-        String text = stripFence(raw == null ? "" : raw.trim());
-        JsonNode direct = tryReadEffortObject(text);
-        if (direct != null) return direct;
-
-        JsonNode latest = null;
-        for (int start = 0; start < text.length(); start++) {
-            if (text.charAt(start) != '{') continue;
-            int depth = 0;
-            boolean inString = false;
-            boolean escaped = false;
-            for (int end = start; end < text.length(); end++) {
-                char ch = text.charAt(end);
-                if (inString) {
-                    if (escaped) escaped = false;
-                    else if (ch == '\\') escaped = true;
-                    else if (ch == '"') inString = false;
-                    continue;
-                }
-                if (ch == '"') inString = true;
-                else if (ch == '{') depth++;
-                else if (ch == '}' && --depth == 0) {
-                    JsonNode candidate = tryReadEffortObject(text.substring(start, end + 1));
-                    if (candidate != null) latest = candidate;
-                    break;
-                }
-            }
-        }
-        if (latest != null) return latest;
-        throw new JsonProcessingException("未找到同时包含 hoursMin 和 hoursMax 的 JSON 对象") { };
-    }
-
-    private JsonNode tryReadEffortObject(String candidate) {
-        if (candidate == null || candidate.isBlank()) return null;
-        try {
-            JsonNode node = mapper.readTree(candidate);
-            return node != null && node.isObject() && node.has("hoursMin") && node.has("hoursMax") ? node : null;
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private void copyStringArray(JsonNode source, ObjectNode target, String field, int limit) {
-        ArrayNode values = mapper.createArrayNode();
-        JsonNode input = source.path(field);
-        if (input.isArray()) {
-            int count = 0;
-            for (JsonNode value : input) {
-                String text = value.asText("").trim();
-                if (!text.isBlank()) {
-                    values.add(text);
-                    if (++count >= limit) break;
-                }
-            }
-        }
-        target.set(field, values);
+        return effortEstimationService.start(sessionId, extraContext, requestedEngine);
     }
 
     // ───── 需求拆分 ─────
@@ -1597,12 +1238,6 @@ public class PrdClarifyService {
      */
     public void evaluateProgress(String sessionId, String extraContext, SseEmitter emitter) {
         progressEvaluationService.evaluate(sessionId, extraContext, emitter);
-    }
-
-    /** 根据项目名称解析已配置且可访问的本地工作目录。 */
-    private Optional<LocalProjectResolver.ProjectLocation> resolveLocalProject(String project) {
-        LocalProjectResolver resolver = localProjectResolver.getIfAvailable();
-        return resolver == null ? Optional.empty() : resolver.resolve(project);
     }
 
     /** 读取当前进度评估文档内容。 */
@@ -1821,6 +1456,15 @@ public class PrdClarifyService {
         }
         sb.append("\n【代码知识图谱查询结果】（系统已直接调用 graphify CLI 查询，非 MCP，内容为真实代码事实）\n");
         sb.append(graphContext.get()).append("\n");
+    }
+
+    /** 把业务知识图谱查询结果拼入模型上下文。 */
+    private void appendDomainContext(StringBuilder sb, Optional<String> domainContext) {
+        if (domainContext.isEmpty() || domainContext.get().isBlank()) {
+            return;
+        }
+        sb.append("\n【业务知识图谱查询结果】（系统已直接检索 project-domain-knowledge 库，内容为团队沉淀的业务真理，可信）\n");
+        sb.append(domainContext.get()).append("\n");
     }
 
     /**

@@ -3,7 +3,6 @@ package com.exceptioncoder.toolbox.prdclarify.service;
 import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.beans.factory.ObjectProvider;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -124,7 +123,7 @@ class PrdTitleSuggestionTest {
                 mock(GraphifyQueryService.class),
                 mock(DomainKnowledgeQueryService.class),
                 imageInputResolver,
-                mock(ObjectProvider.class),
+                mock(PrdEffortEstimationService.class),
                 mock(PrdProgressEvaluationService.class));
     }
 }
