@@ -109,7 +109,8 @@ public class PrdSession {
     private String progressHistory;
     /**
      * 父会话 ID（{@code prd_session.id}），非 null 表示这条记录是通过「需求拆分」从某个
-     * 父需求下面拆出来的子需求（见 {@code PrdClarifyService#adoptSplit}）。目前只有拆分
+     * 父需求下面拆出来的子需求（见
+     * {@code com.exceptioncoder.toolbox.prdclarify.service.PrdRequirementSplitService#adopt}）。目前只有拆分
      * 场景会写入这个字段，普通创建/修订版记录为 null。
      */
     private String parentId;

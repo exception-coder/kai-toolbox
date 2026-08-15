@@ -39,6 +39,7 @@ import com.exceptioncoder.toolbox.prdclarify.domain.PrdArtifactType;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
 import com.exceptioncoder.toolbox.prdclarify.service.PrdArtifactService;
 import com.exceptioncoder.toolbox.prdclarify.service.PrdClarifyService;
+import com.exceptioncoder.toolbox.prdclarify.service.PrdRequirementSplitService;
 import com.exceptioncoder.toolbox.prdclarify.service.PrdDocChangeAnalysisService;
 import com.exceptioncoder.toolbox.prdclarify.service.PrdDocChangeApplyService;
 import com.exceptioncoder.toolbox.common.auth.domain.AuthUser;
@@ -339,7 +340,7 @@ public class PrdClarifyController {
     @PostMapping("/sessions/{id}/split")
     public SplitPreviewView split(@PathVariable String id) {
         try {
-            PrdClarifyService.SplitResult result = service.splitRequirement(id);
+            PrdRequirementSplitService.SplitResult result = service.splitRequirement(id);
             return new SplitPreviewView(result.canSplit(), result.reason(),
                     result.items().stream()
                             .map(it -> new SplitItemView(it.title(), it.rawInput(), it.module()))
@@ -358,8 +359,8 @@ public class PrdClarifyController {
     public List<PrdSessionView> adoptSplit(@PathVariable String id, @Valid @RequestBody AdoptSplitRequest req) {
         Long createdByUserId = AuthContext.current().map(AuthPrincipal::userId).orElse(null);
         try {
-            List<PrdClarifyService.SplitItem> items = req.items().stream()
-                    .map(it -> new PrdClarifyService.SplitItem(it.title(), it.rawInput(), it.module()))
+            List<PrdRequirementSplitService.SplitItem> items = req.items().stream()
+                    .map(it -> new PrdRequirementSplitService.SplitItem(it.title(), it.rawInput(), it.module()))
                     .toList();
             return service.adoptSplit(id, items, createdByUserId).stream()
                     .map(PrdSessionView::from)

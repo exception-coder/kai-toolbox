@@ -90,7 +90,8 @@ public record PrdSessionView(
         String createdByUsername,
         /**
          * 父会话 ID，非 null 表示这是「需求拆分」产生的子需求（见
-         * {@code PrdClarifyService#adoptSplit}）。历史列表前端据此把子记录嵌套展示在父记录下面。
+         * {@code com.exceptioncoder.toolbox.prdclarify.service.PrdRequirementSplitService#adopt}）。
+         * 历史列表前端据此把子记录嵌套展示在父记录下面。
          */
         String parentId,
         String errorMsg,

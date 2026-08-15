@@ -61,6 +61,7 @@ public class PrdClarifyService {
     private final PrdAnswerProcessingService answerProcessingService;
     private final PrdDocumentGenerationService documentGenerationService;
     private final PrdEffortEstimationService effortEstimationService;
+    private final PrdRequirementSplitService requirementSplitService;
     private final PrdProgressEvaluationService progressEvaluationService;
     private final PrdImageInputResolver imageInputResolver;
 
@@ -79,6 +80,7 @@ public class PrdClarifyService {
                              DomainKnowledgeQueryService domainKnowledgeQuery,
                              PrdImageInputResolver imageInputResolver,
                              PrdEffortEstimationService effortEstimationService,
+                             PrdRequirementSplitService requirementSplitService,
                              PrdProgressEvaluationService progressEvaluationService) {
         this.agentRunner = agentRunner;
         this.repo = repo;
@@ -96,6 +98,7 @@ public class PrdClarifyService {
         this.documentGenerationService =
                 new PrdDocumentGenerationService(agentRunner, mapper, imageInputResolver);
         this.effortEstimationService = effortEstimationService;
+        this.requirementSplitService = requirementSplitService;
         this.progressEvaluationService = progressEvaluationService;
     }
 
@@ -1076,151 +1079,15 @@ public class PrdClarifyService {
 
     // ───── 需求拆分 ─────
 
-    /**
-     * 需求拆分判断 prompt：只读分析，不改写原需求。严格要求单行 JSON 输出，便于确定性解析；
-     * 解析失败时上层直接报错让用户重试（跟工时评估一致的策略——这是用户主动触发的动作，
-     * 不该用随意兜底值掩盖失败）。
-     */
-    private static final String SPLIT_SYSTEM = """
-            你是资深产品经理，负责判断一个需求是否"过大"，需要拆分成多个可以独立澄清、独立开发的子需求。
-
-            判断标准：
-            - 需求描述里明显包含多个彼此独立的功能点/子系统/用户旅程，且拆开后每个子需求可以
-              单独验收、单独排期，就应该拆分
-            - 如果需求本身已经足够聚焦（单一功能点、单一用户旅程），不要为了拆而拆，canSplit 给 false
-
-            拆分要求（canSplit=true 时）：
-            - 每个子需求要能独立被理解和澄清——rawInput 要重新组织成完整、自洽的描述，不能写
-              "见原需求第2点"这种依赖上下文的片段，因为子需求之后会独立走一遍需求澄清流程，
-              不会带着原始大需求的上下文
-            - 子需求数量控制在 2-6 个，拆得过细没有意义
-            - title 简短（不超过 30 字），一眼看出这个子需求是做什么的
-            - module 可选：能从描述判断这个子需求主要落在哪个模块就填，不确定就留空字符串
-
-            【严格输出要求】只输出一个 JSON 对象，不加任何说明、前言、结语或 markdown 围栏：
-            {"canSplit":true或false,"reason":"一两句话说明为什么拆/为什么不拆","items":[{"title":"...","rawInput":"...","module":"..."}]}
-            canSplit=false 时 items 给空数组 []。
-            """;
-
-    /** 需求拆分的一个子项：title/rawInput/module，语义对齐 {@code SplitItemView}。 */
-    public record SplitItem(String title, String rawInput, String module) {
+    /** 兼容入口：拆分分析实现由聚焦服务负责。 */
+    public PrdRequirementSplitService.SplitResult splitRequirement(String sessionId) {
+        return requirementSplitService.split(sessionId);
     }
 
-    /** 需求拆分判断结果：canSplit + 判断依据 + 建议子需求列表。 */
-    public record SplitResult(boolean canSplit, String reason, List<SplitItem> items) {
-    }
-
-    /**
-     * AI 需求拆分：分析当前 rawInput 是否"过大"，建议拆成多个可独立澄清/开发的子需求。
-     * 只读分析，不落库——用户在前端确认/编辑后调 {@link #adoptSplit} 才真正创建子草稿。
-     * 任意状态（DRAFT/CLARIFYING/DONE 等）的会话都可以拆，只要求 rawInput 非空。
-     *
-     * @throws IllegalStateException rawInput 为空，或 LLM 输出解析失败
-     */
-    public SplitResult splitRequirement(String sessionId) {
-        PrdSession session = repo.findById(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-        if (session.getRawInput() == null || session.getRawInput().isBlank()) {
-            throw new IllegalStateException("需求描述为空，无法拆分");
-        }
-        String userPrompt = buildSplitPrompt(session);
-        String raw = agentRunner.runOnce(SPLIT_SYSTEM, userPrompt, session.getModel(),
-                normalizeEngine(session.getEngine()));
-        return parseSplitResult(raw);
-    }
-
-    private String buildSplitPrompt(PrdSession s) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("需求标题：").append(s.getTitle()).append("\n");
-        if (s.getProject() != null && !s.getProject().isBlank()) {
-            sb.append("关联项目：").append(s.getProject());
-            if (s.getModule() != null && !s.getModule().isBlank()) {
-                sb.append(" / ").append(s.getModule());
-            }
-            sb.append("\n");
-        }
-        sb.append("\n【需求描述】\n").append(s.getRawInput()).append("\n");
-        appendGraphContext(sb, queryGraphContext(s.getProject(), s.getModule(), s.getTitle()));
-        appendDomainContext(sb, queryDomainContext(s.getProject(), s.getTitle()));
-        sb.append("\n请判断是否需要拆分，严格按系统提示的 JSON 结构输出。");
-        return sb.toString();
-    }
-
-    private SplitResult parseSplitResult(String raw) {
-        String cleaned = stripFence(raw == null ? "" : raw.trim());
-        JsonNode node;
-        try {
-            node = mapper.readTree(cleaned);
-        } catch (Exception e) {
-            throw new IllegalStateException("需求拆分结果解析失败，请重试: " + e.getMessage(), e);
-        }
-        if (!node.isObject()) {
-            throw new IllegalStateException("需求拆分结果格式不正确，请重试");
-        }
-        boolean canSplit = node.path("canSplit").asBoolean(false);
-        String reason = node.path("reason").asText("");
-        List<SplitItem> items = new ArrayList<>();
-        for (JsonNode item : node.path("items")) {
-            String title = item.path("title").asText("").trim();
-            String rawInput = item.path("rawInput").asText("").trim();
-            if (title.isEmpty() || rawInput.isEmpty()) {
-                continue; // 跳过残缺项，不因个别子项缺字段就让整次拆分失败
-            }
-            String module = item.path("module").asText("").trim();
-            items.add(new SplitItem(title, rawInput, module.isEmpty() ? null : module));
-        }
-        if (canSplit && items.isEmpty()) {
-            // LLM 说能拆但没解析出任何有效子项：当作不能拆处理，比抛异常更友好
-            canSplit = false;
-            reason = reason.isBlank() ? "拆分结果解析异常，未获得有效子需求" : reason;
-        }
-        if (items.size() > 8) {
-            // 数量上限兜底：防止 LLM 不遵守"2-6个"的指引，子需求过多前端体验会很差
-            items = items.subList(0, 8);
-        }
-        return new SplitResult(canSplit, reason, items);
-    }
-
-    /**
-     * 采纳拆分结果：把用户确认（可能编辑过）的子需求批量创建成 DRAFT 草稿，parentId 指向
-     * 当前会话——父 PRD 自身不受任何影响，原始需求描述原样保留，只是历史列表里多了几条
-     * 挂在它下面的子记录。project 固定继承父 PRD 的（子需求通常还在同一个项目下）；
-     * module 优先用 AI/用户为该子项指定的，未指定则兜底继承父 PRD 的 module。
-     */
-    public List<PrdSession> adoptSplit(String parentId, List<SplitItem> items, Long createdByUserId) {
-        PrdSession parent = repo.findById(parentId)
-                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + parentId));
-        long now = System.currentTimeMillis();
-        List<PrdSession> created = new ArrayList<>();
-        for (SplitItem item : items) {
-            if (item.title() == null || item.title().isBlank()
-                    || item.rawInput() == null || item.rawInput().isBlank()) {
-                continue;
-            }
-            PrdSession child = PrdSession.builder()
-                    .id(UUID.randomUUID().toString())
-                    .title(item.title().trim())
-                    .rawInput(item.rawInput().trim())
-                    .project(parent.getProject())
-                    .module((item.module() == null || item.module().isBlank()) ? parent.getModule() : item.module())
-                    .role("PRODUCT")
-                    .reqType(PrdRequirementTypeResolver.NEW_MODULE)
-                    .maxQuestions(defaultNewModuleQuestionCount())
-                    .clarifyMode("progressive")
-                    .documentProfile(DocumentProfile.normalize(parent.getDocumentProfile()))
-                    .status("DRAFT")
-                    .parentId(parentId)
-                    .createdByUserId(createdByUserId)
-                    .createdAt(now)
-                    .updatedAt(now)
-                    .build();
-            repo.insert(child);
-            created.add(child);
-        }
-        if (created.isEmpty()) {
-            throw new IllegalArgumentException("未选择任何有效子需求");
-        }
-        return created;
+    /** 兼容入口：采纳拆分项并创建子草稿。 */
+    public List<PrdSession> adoptSplit(
+            String parentId, List<PrdRequirementSplitService.SplitItem> items, Long createdByUserId) {
+        return requirementSplitService.adopt(parentId, items, createdByUserId);
     }
 
     // ───── 进度评估 ─────
