@@ -24,11 +24,14 @@ export function ModeSwitch({
   mode,
   onChange,
   disabled,
+  inlineConfirmation = false,
 }: {
   engine: Engine
   mode: PermissionMode
   onChange: (m: PermissionMode) => void
   disabled?: boolean
+  /** 在父级 modal 内使用时就地确认，避免把二级 Overlay portal 到父 modal 之外。 */
+  inlineConfirmation?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [confirming, setConfirming] = useState(false)
@@ -90,35 +93,66 @@ export function ModeSwitch({
         </>
       )}
 
-      {confirming && (
+      {confirming && (inlineConfirmation ? (
+        <div className="mt-3 rounded-xl border border-red-300 bg-red-50/80 p-3 dark:border-red-900 dark:bg-red-950/40">
+          <ModeConfirmation
+            engine={engine}
+            onCancel={() => setConfirming(false)}
+            onConfirm={() => {
+              setConfirming(false)
+              onChange('bypassPermissions')
+            }}
+          />
+        </div>
+      ) : (
         <Overlay>
-          <div className="mb-2 flex items-center gap-2">
-            <ShieldAlert className="size-5 text-red-600" />
-            <h3 className="text-base font-semibold">
-              开启「{engine === 'codex' ? '完全访问权限' : '全自动'}」模式？
-            </h3>
-          </div>
-          <p className="text-sm leading-relaxed text-[var(--color-muted-foreground)]">
-            开启后 {engine === 'codex' ? 'Codex' : 'Claude'} 的所有工具调用都<strong className="text-[var(--color-foreground)]">不再询问</strong>，
-            可能直接改文件 / 执行命令。请确认你信任当前任务再开启。
-          </p>
-          <div className="mt-4 flex gap-3">
-            <Button variant="outline" size="lg" className="flex-1" onClick={() => setConfirming(false)}>
-              取消
-            </Button>
-            <Button
-              size="lg"
-              className="flex-1 bg-red-600 text-white shadow-md hover:bg-red-700"
-              onClick={() => {
-                setConfirming(false)
-                onChange('bypassPermissions')
-              }}
-            >
-              {engine === 'codex' ? '开启完全访问权限' : '开启全自动'}
-            </Button>
-          </div>
+          <ModeConfirmation
+            engine={engine}
+            onCancel={() => setConfirming(false)}
+            onConfirm={() => {
+              setConfirming(false)
+              onChange('bypassPermissions')
+            }}
+          />
         </Overlay>
-      )}
+      ))}
     </div>
+  )
+}
+
+function ModeConfirmation({
+  engine,
+  onCancel,
+  onConfirm,
+}: {
+  engine: Engine
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  return (
+    <>
+      <div className="mb-2 flex items-center gap-2">
+        <ShieldAlert className="size-5 text-red-600" />
+        <h3 className="text-base font-semibold">
+          开启「{engine === 'codex' ? '完全访问权限' : '全自动'}」模式？
+        </h3>
+      </div>
+      <p className="text-sm leading-relaxed text-[var(--color-muted-foreground)]">
+        开启后 {engine === 'codex' ? 'Codex' : 'Claude'} 的所有工具调用都<strong className="text-[var(--color-foreground)]">不再询问</strong>，
+        可能直接改文件 / 执行命令。请确认你信任当前任务再开启。
+      </p>
+      <div className="mt-4 flex gap-3">
+        <Button variant="outline" size="lg" className="flex-1" onClick={onCancel}>
+          取消
+        </Button>
+        <Button
+          size="lg"
+          className="flex-1 bg-red-600 text-white shadow-md hover:bg-red-700"
+          onClick={onConfirm}
+        >
+          {engine === 'codex' ? '开启完全访问权限' : '开启全自动'}
+        </Button>
+      </div>
+    </>
   )
 }

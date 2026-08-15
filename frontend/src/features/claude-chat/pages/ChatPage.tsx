@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Copy, Database, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Route, Send, Server, Settings, Share2, ShieldCheck, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
+import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Copy, Database, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, Menu, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Route, Send, Server, Settings, Share2, ShieldCheck, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -90,6 +90,8 @@ import { listQuickSiteSummaries, recordQuickSiteSummaryOpened } from '@/lib/quic
 import { getSessionSiteConfiguration } from '../api'
 import { openQuickSite } from '@/lib/openQuickSite'
 import { useUnifiedTitleBarSlot } from '@/shell/UnifiedTitleBar'
+import { useMobileNavigation } from '@/shell/MobileNavigationContext'
+import { useMockMode } from '@/shell/useMockMode'
 import { SiteOpenModeMenu, type SiteOpenChoice } from '../components/SiteOpenModeMenu'
 import {
   customSiteToLinkedSite,
@@ -102,6 +104,8 @@ import { SessionRuntimeHealth } from '../components/SessionRuntimeHealth'
 import { ReviewShareDialog } from '../components/ReviewShareDialog'
 import { SessionSummaryBar } from '../components/SessionSummaryBar'
 import { selectableEngineIds } from '../lib/engineCatalog'
+import { MobileSessionStatus } from '../components/MobileSessionStatus'
+import { MobileSessionConfigSheet } from '../components/MobileSessionConfigSheet'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
 
@@ -185,6 +189,8 @@ function WorkspaceHeaderMount({ target, children }: { target: HTMLElement | null
 export function ChatPage() {
   const { chat, setFloating, setMinimized, setVoiceMode, getReturnRoute, gestureOn, toggleGesture, gestureStatus, gestureError: gestureErr } = useChatRuntime()
   const unifiedTitleBarSlot = useUnifiedTitleBarSlot()
+  const openMobileNavigation = useMobileNavigation()
+  const { enabled: mockMode } = useMockMode()
   const navigate = useNavigate()
   const location = useLocation()
   const scopedPrdSessionId = useMemo(
@@ -403,7 +409,7 @@ export function ChatPage() {
   const [showDebug, setShowDebug] = useState(false)
   const [headerMenu, setHeaderMenu] = useState(false)
   // 「更多」菜单当前展开的分组（手风琴，单开互斥；null=全部收起）。跨开合记忆上次展开项。
-  const [menuGroup, setMenuGroup] = useState<'view' | 'session' | 'workspace' | 'system' | null>(null)
+  const [menuGroup, setMenuGroup] = useState<'agent' | 'view' | 'session' | 'workspace' | 'system' | null>(null)
   const [restartOpen, setRestartOpen] = useState(false)
   const openRestart = () => setRestartOpen(true)
 
@@ -952,6 +958,12 @@ export function ChatPage() {
     )
   }
 
+  const selectedMobileModel = chat.models.find(model => model.value === chat.currentModel)
+    ?? (!chat.currentModel ? chat.models.find(model => model.isDefault) : undefined)
+  const mobileSessionConfigSummary = selectedMobileModel?.displayName
+    || chat.currentModel
+    || currentEngineLabel
+
   const startNew = () => {
     // 服务商仅 Claude 引擎生效：选了档案则走第三方网关 + 手填模型，否则官方默认
     // 第三方网关对 Claude / Codex / Gemini 生效（各走各的协议端点）
@@ -1101,9 +1113,22 @@ export function ChatPage() {
           下拉的下半部分导致点不到。抬高 header 层级使其子树压在正文之上（仍低于 z-50/60 模态）。 */}
       <WorkspaceHeaderMount target={unifiedTitleBarSlot}>
       <header className={cn(
-        'cc-workspace-header workspace-unified-chrome relative z-30 flex min-w-0 items-center gap-2 px-3 max-sm:gap-1 max-sm:px-2',
+        'cc-workspace-header workspace-unified-chrome relative z-30 flex min-w-0 items-center gap-2 px-3 max-md:h-12 max-md:gap-1 max-md:px-1',
         unifiedTitleBarSlot && 'cc-workspace-header-integrated',
       )}>
+        {!unifiedTitleBarSlot && openMobileNavigation && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={openMobileNavigation}
+            className="size-11 shrink-0 md:hidden"
+            aria-label="打开导航"
+            title="打开导航"
+          >
+            <Menu className="size-4" />
+          </Button>
+        )}
         {viewMode === 'multi' ? (
           /* 分屏下顶部不挂某一个会话的标题/引擎/状态/用量（各 pane 自带），只给中性标识 */
           <span className="font-semibold">分屏 · {multiIds.length} 个会话</span>
@@ -1133,7 +1158,7 @@ export function ChatPage() {
               </span>
             )}
             <div className="cc-session-runtime-cluster shrink-0">
-              <div className="relative shrink-0">
+              <div className="relative hidden shrink-0 md:block">
                 <button
                   type="button"
                   onClick={() => setEngineMenuOpen(o => !o)}
@@ -1285,10 +1310,10 @@ export function ChatPage() {
         <div className="cc-session-header-actions ml-auto flex shrink-0 items-center max-sm:gap-0">
           {/* 宽屏直接显示用量徽章；窄桌面仍可从「更多 → 会话」进入。 */}
           {/* 常用：带文字标签，一眼可辨 */}
-          <Button variant="ghost" size="sm" className="gap-1 px-2 xl:px-3" onClick={() => setPanel(p => p === 'new' ? 'none' : 'new')} aria-label="新建会话">
+          <Button variant="ghost" size="sm" className="hidden gap-1 px-2 md:inline-flex xl:px-3" onClick={() => setPanel(p => p === 'new' ? 'none' : 'new')} aria-label="新建会话">
             <Plus className="size-4" /> <span className="hidden xl:inline">新建</span>
           </Button>
-          <Button variant="ghost" size="sm" className="gap-1 px-2 xl:px-3" onClick={() => setPanel(p => p === 'sessions' ? 'none' : 'sessions')} aria-label="会话列表">
+          <Button variant="ghost" size="sm" className="hidden gap-1 px-2 md:inline-flex xl:px-3" onClick={() => setPanel(p => p === 'sessions' ? 'none' : 'sessions')} aria-label="会话列表">
             <List className="size-4" /> <span className="hidden xl:inline">会话</span>
           </Button>
           <Button
@@ -1302,16 +1327,42 @@ export function ChatPage() {
             <Package className="size-4" /> <span className="hidden sm:inline">团队依赖</span>
           </Button>
           {/* 其余功能收进「更多」菜单，每项带中文标签，避免一排没标识的图标 */}
-          <div className="relative max-sm:order-first">
-            <Button variant="ghost" size="icon" onClick={() => setHeaderMenu(o => !o)} aria-label="更多功能" title="更多功能">
+          <div className="relative">
+            <Button variant="ghost" size="icon" className="max-md:size-11" onClick={() => setHeaderMenu(o => !o)} aria-label={mockMode ? '更多功能，MOCK 模式已开启' : '更多功能'} title={mockMode ? '更多功能 · MOCK 模式' : '更多功能'}>
               <MoreHorizontal className="size-5" />
             </Button>
             {headerMenu && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setHeaderMenu(false)} />
                 <div className="absolute right-0 top-full z-50 mt-1 max-h-[75vh] w-56 overflow-y-auto rounded-xl border bg-[var(--color-popover)] py-1 text-[var(--color-popover-foreground)] shadow-xl">
+                  {mockMode && (
+                    <div className="mx-2 mb-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-700 dark:text-amber-300 md:hidden">
+                      MOCK 模式已开启
+                    </div>
+                  )}
+                  <div className="border-b pb-1 md:hidden">
+                    <HeaderMenuItem icon={<Plus className="size-4" />} label="新建会话" onClick={() => { setHeaderMenu(false); setPanel('new') }} />
+                    <HeaderMenuItem icon={<List className="size-4" />} label="会话列表" onClick={() => { setHeaderMenu(false); setPanel('sessions') }} />
+                  </div>
                   {/* 分组折叠（手风琴），单开互斥：默认全部收起，点分组才展开，减少一次性铺陈 */}
                   {(() => { const toggle = (g: typeof menuGroup) => setMenuGroup(cur => cur === g ? null : g); return (<>
+                  <div className="md:hidden">
+                    <MenuSection icon={<Sparkles className="size-4" />} label="切换 Agent" open={menuGroup === 'agent'} onToggle={() => toggle('agent')}>
+                      {selectableEngines.map(engine => (
+                        <button
+                          key={engine}
+                          type="button"
+                          disabled={chat.running || engine === chat.currentEngine}
+                          onClick={() => { setHeaderMenu(false); pickEngine(engine) }}
+                          className="flex w-full items-center gap-2 py-2 pl-9 pr-3 text-left text-sm hover:bg-[var(--color-muted)] disabled:opacity-45"
+                        >
+                          <EngineIcon engine={engine} className="size-4 shrink-0" />
+                          <span className="min-w-0 flex-1 truncate">{engineName(engine)}</span>
+                          {engine === chat.currentEngine && <Check className="size-3.5 shrink-0" />}
+                        </button>
+                      ))}
+                    </MenuSection>
+                  </div>
                   <MenuSection icon={<LayoutGrid className="size-4" />} label="视图" open={menuGroup === 'view'} onToggle={() => toggle('view')}>
                     <HeaderMenuItem nested icon={<Cloud className="size-4" />} label="语音模式" hint="全屏白云·纯语音对话" onClick={() => { setHeaderMenu(false); setVoiceMode(true) }} />
                     <HeaderMenuItem nested icon={<PictureInPicture2 className="size-4" />} label="弹出悬浮窗" hint="切到其他模块常驻显示" onClick={() => { setHeaderMenu(false); popOutFloating() }} />
@@ -1323,8 +1374,29 @@ export function ChatPage() {
                     <HeaderMenuItem nested icon={<EyeOff className="size-4" />} label={hideToolCalls ? '隐藏工具调用 · 开' : '隐藏工具调用 · 关'} hint="消息流里不再显示 MCP/命令/读写等工具调用气泡" onClick={() => { setHideToolCalls(!hideToolCalls) }} />
                   </MenuSection>
                   <MenuSection icon={<MessageSquare className="size-4" />} label="会话" open={menuGroup === 'session'} onToggle={() => toggle('session')}>
+                    {currentSession && (
+                      <HeaderMenuItem nested icon={<FileText className="size-4" />} label="重命名会话" hint="编辑当前会话标题" onClick={() => { setHeaderMenu(false); startEditTitle() }} />
+                    )}
                     {chat.sessionId && (
                       <HeaderMenuItem nested icon={<Gauge className="size-4" />} label="会话用量" hint="查看本会话累计 Token 与费用明细" onClick={() => { setHeaderMenu(false); setShowUsage(true) }} />
+                    )}
+                    {reviewLink && (
+                      <div className="md:hidden">
+                        <HeaderMenuItem
+                          nested
+                          icon={<Link2 className="size-4" />}
+                          label={reviewRelations?.role === 'REVIEW' ? '返回来源会话' : '打开评审会话'}
+                          hint={reviewRelations?.role === 'REVIEW'
+                            ? reviewLink.sourceTitle
+                            : `${reviewLink.reviewTitle}${reviewRelations.reviews.length > 1 ? `（共 ${reviewRelations.reviews.length} 个）` : ''}`}
+                          onClick={() => {
+                            setHeaderMenu(false)
+                            chat.switchTo(reviewRelations?.role === 'REVIEW'
+                              ? reviewLink.sourceSessionId
+                              : reviewLink.reviewSessionId)
+                          }}
+                        />
+                      </div>
                     )}
                     {chat.sessionId && (
                       <HeaderMenuItem nested icon={<RefreshCw className="size-4" />} label="重载会话" hint="重连原生会话，加载最新插件/技能/命令" onClick={() => { setHeaderMenu(false); chat.resumeCurrent() }} />
@@ -1406,7 +1478,7 @@ export function ChatPage() {
       )}
 
       {viewMode === 'single' && reviewLink && (
-        <div className="border-b border-indigo-200 bg-indigo-50/90 px-3 py-2 text-xs text-indigo-950 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100">
+        <div className="hidden border-b border-indigo-200 bg-indigo-50/90 px-3 py-2 text-xs text-indigo-950 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100 md:block">
           <div className="flex flex-wrap items-center gap-2">
             <Link2 className="size-4 shrink-0" />
             <span className="font-medium">
@@ -2070,25 +2142,42 @@ export function ChatPage() {
 
             {/* 第三方网关调用诊断（可展开）：核对实际命中的模型，仅第三方会话显示 */}
             {chat.sessionId && sessionView === 'conversation' && (
-              <ProviderDiagPanel
-                providerKind={chat.currentProviderKind}
-                providerBaseUrl={chat.currentProviderBaseUrl}
-                currentModel={chat.currentModel}
-                diag={chat.providerDiag}
-              />
+              <div className="hidden md:block">
+                <ProviderDiagPanel
+                  providerKind={chat.currentProviderKind}
+                  providerBaseUrl={chat.currentProviderBaseUrl}
+                  currentModel={chat.currentModel}
+                  diag={chat.providerDiag}
+                />
+              </div>
             )}
 
             {/* 底部输入：白色悬浮输入条 + 主色上边框 + 顶部阴影 */}
             {chat.sessionId && (
               <div className="cc-skin-surface border-t border-[var(--color-border)] bg-[var(--color-muted)] shadow-[0_-2px_8px_-4px_rgba(0,0,0,0.08)]">
-          <SessionRuntimeHealth sessionId={chat.sessionId} running={chat.running} />
-          <SessionWorkStatus
+          <div className="hidden md:block">
+            <SessionRuntimeHealth sessionId={chat.sessionId} running={chat.running} />
+            <SessionWorkStatus
+              items={chat.items}
+              running={chat.running}
+              engineLabel={engineDisplayName(chat.currentEngine, chat.currentProviderKind)}
+              turnTokens={chat.turnTokens}
+              connState={chat.state}
+              backgroundTasks={chat.backgroundTasks}
+            />
+          </div>
+          <MobileSessionStatus
+            sessionId={chat.sessionId}
             items={chat.items}
             running={chat.running}
             engineLabel={engineDisplayName(chat.currentEngine, chat.currentProviderKind)}
             turnTokens={chat.turnTokens}
             connState={chat.state}
             backgroundTasks={chat.backgroundTasks}
+            usage={sessionUsage}
+            usageLoading={sessionUsage == null && Boolean(usageSid)}
+            onOpenUsage={() => setShowUsage(true)}
+            onOpenTrajectory={() => setSessionView('trajectory')}
           />
           <QueuedList
             items={chat.queued}
@@ -2108,7 +2197,7 @@ export function ChatPage() {
               return prev.filter(a => a.id !== id)
             })}
           />
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-2 pt-2 md:px-3">
+          <div className="hidden flex-wrap items-center gap-x-2 gap-y-1.5 px-3 pt-2 md:flex">
             {reviewOnlySession ? (
               <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-700 dark:text-emerald-300"><ShieldCheck className="size-3.5" />仅计划评审</span>
             ) : <div className="order-1 min-w-0 md:order-none"><ModeSwitch engine={chat.currentEngine} mode={chat.mode} onChange={chat.setMode} /></div>}
@@ -2162,13 +2251,14 @@ export function ChatPage() {
             onPick={reference => { void projectMention.pickReference(reference) }}
           />
           <SessionPlanLockNotice session={currentSession} />
-          <div className="flex min-w-0 items-end gap-1 px-2 py-2 md:gap-2 md:px-3">
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_2rem] items-center gap-x-2 gap-y-0.5 px-2 py-0.5 md:flex md:items-end md:gap-2 md:px-3 md:py-2">
+            <div className="col-start-1 row-start-2 flex min-w-0 items-center gap-1 md:contents">
             {/* 微信式「+ 更多功能」：附件 / 指令收纳其中 */}
             <div className="relative">
               <Button
                 variant="ghost"
                 size="icon"
-                className="max-md:size-11"
+                className="max-md:size-8"
                 disabled={planLocked}
                 onClick={() => { setMoreOpen(o => !o); setCmdMenuOpen(false) }}
                 aria-label="更多功能"
@@ -2239,7 +2329,7 @@ export function ChatPage() {
             </div>
             <ProjectMentionButton
               active={projectMention.open}
-              className="max-md:size-11"
+              className="max-md:size-8"
               disabled={planLocked}
               onToggle={() => {
                 setMoreOpen(false)
@@ -2248,15 +2338,62 @@ export function ChatPage() {
               }}
             />
             <VoiceInputButton
-              className="max-md:size-11"
+              className="max-md:size-8"
               disabled={planLocked}
               onText={t => setDraft(d => d.trim() ? `${d} ${t}` : t)}
             />
+            </div>
+            <MobileSessionConfigSheet summary={mobileSessionConfigSummary} disabled={planLocked}>
+              <div className="flex flex-col items-stretch gap-2">
+                <span className="text-sm font-medium">权限模式</span>
+                {reviewOnlySession
+                  ? <span className="text-sm text-emerald-700 dark:text-emerald-300">仅计划评审</span>
+                  : <ModeSwitch engine={chat.currentEngine} mode={chat.mode} onChange={chat.setMode} inlineConfirmation />}
+              </div>
+              {chat.currentEngine === 'codex' && !reviewOnlySession && (
+                <div className="flex flex-col items-stretch gap-2">
+                  <span className="shrink-0 text-sm font-medium">模型参数</span>
+                  <CodexSessionOptions
+                    models={chat.models}
+                    model={chat.currentModel}
+                    reasoningEffort={chat.codexReasoningEffort}
+                    speed={chat.codexSpeed}
+                    codexHome={currentSession?.codexHome}
+                    showCodexHome={Boolean(currentSession && currentSession.providerKind !== 'thirdParty')}
+                    onModelChange={chat.setModel}
+                    onOptionsChange={chat.setCodexOptions}
+                  />
+                </div>
+              )}
+              {!reviewOnlySession && (chat.currentEngine === 'claude' || chat.currentEngine === 'codex' || chat.currentEngine === 'gemini') && (
+                <>
+                  <div className="flex flex-col items-stretch gap-2">
+                    <span className="text-sm font-medium">服务商</span>
+                    <ProviderSwitch
+                      engine={chat.currentEngine}
+                      providerKind={chat.currentProviderKind}
+                      providerBaseUrl={chat.currentProviderBaseUrl}
+                      onSwitch={chat.switchProvider}
+                      onPickModel={chat.setModel}
+                      align="left"
+                      hideManage
+                    />
+                  </div>
+                  <ProviderDiagPanel
+                    providerKind={chat.currentProviderKind}
+                    providerBaseUrl={chat.currentProviderBaseUrl}
+                    currentModel={chat.currentModel}
+                    diag={chat.providerDiag}
+                    compact
+                  />
+                </>
+              )}
+            </MobileSessionConfigSheet>
             <textarea
               ref={taRef}
               aria-label="消息输入"
-              className="max-h-32 min-h-[2.75rem] min-w-0 flex-1 resize-none overflow-y-auto rounded-xl border bg-[var(--color-background)] px-3 py-2 text-sm"
-              placeholder=""
+              className="col-start-1 row-start-1 max-h-32 min-h-9 min-w-0 w-full resize-none overflow-y-auto rounded-xl border bg-[var(--color-background)] px-3 py-1.5 text-sm md:min-h-[2.75rem] md:w-auto md:flex-1 md:py-2"
+              placeholder="输入消息…"
               rows={1}
               disabled={planLocked}
               value={draft}
@@ -2284,7 +2421,7 @@ export function ChatPage() {
               }}
             />
             {chat.running ? (
-              <div className="flex shrink-0 gap-1.5">
+              <div className="col-start-2 row-start-1 flex shrink-0 gap-1.5 md:contents">
                 <Button
                   size="lg"
                   variant="secondary"
@@ -2296,7 +2433,7 @@ export function ChatPage() {
                 >
                   <Plus className="size-4" />
                 </Button>
-                <Button variant="outline" size="lg" className="max-md:size-11 max-md:px-0" onClick={chat.interrupt} disabled={chat.interrupting}
+                <Button variant="outline" size="lg" className="max-md:size-9 max-md:px-0" onClick={chat.interrupt} disabled={chat.interrupting}
                   aria-label={chat.interrupting ? '正在中断' : '中断'} title={chat.interrupting ? '正在校正会话状态' : '中断'}>
                   {chat.interrupting ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}
                 </Button>
@@ -2304,7 +2441,7 @@ export function ChatPage() {
             ) : (
               <Button
                 size="lg"
-                className="max-md:size-11 max-md:px-0 shadow-md"
+                className="col-start-2 row-start-1 max-md:size-9 max-md:px-0 shadow-md"
                 onClick={submit}
                 disabled={planLocked || (!draft.trim() && attachments.length === 0)}
                 aria-label="发送"
@@ -2313,12 +2450,14 @@ export function ChatPage() {
               </Button>
             )}
           </div>
-          <SessionSummaryBar
-            usage={sessionUsage}
-            loading={sessionUsage == null && Boolean(usageSid)}
-            running={usageRunning}
-            onOpenDetails={() => setShowUsage(true)}
-          />
+          <div className="hidden md:block">
+            <SessionSummaryBar
+              usage={sessionUsage}
+              loading={sessionUsage == null && Boolean(usageSid)}
+              running={usageRunning}
+              onOpenDetails={() => setShowUsage(true)}
+            />
+          </div>
         </div>
             )}
           </div>

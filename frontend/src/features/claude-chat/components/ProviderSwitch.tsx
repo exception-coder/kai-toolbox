@@ -21,6 +21,7 @@ export function ProviderSwitch({
   onPickModel,
   disabled,
   align = 'left',
+  hideManage = false,
 }: {
   engine: Engine
   providerKind: 'official' | 'thirdParty'
@@ -30,6 +31,8 @@ export function ProviderSwitch({
   disabled?: boolean
   /** 弹层对齐方向：放工具条右侧时用 'right' 防溢出，默认 'left'。 */
   align?: 'left' | 'right'
+  /** 嵌入 modal 时隐藏会 portal 到 modal 外的档案管理入口；Header More 仍提供完整管理入口。 */
+  hideManage?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [managing, setManaging] = useState(false)
@@ -109,19 +112,20 @@ export function ProviderSwitch({
               )
             })}
 
-            {/* 管理档案入口 */}
-            <button
-              type="button"
-              onClick={() => { setOpen(false); setManaging(true) }}
-              className="flex w-full items-center gap-2 border-t px-3 py-2 text-left text-sm text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]"
-            >
-              <Settings2 className="size-4 shrink-0" /> 管理服务商档案…
-            </button>
+            {!hideManage && (
+              <button
+                type="button"
+                onClick={() => { setOpen(false); setManaging(true) }}
+                className="flex w-full items-center gap-2 border-t px-3 py-2 text-left text-sm text-[var(--color-muted-foreground)] hover:bg-[var(--color-muted)]"
+              >
+                <Settings2 className="size-4 shrink-0" /> 管理服务商档案…
+              </button>
+            )}
           </div>
         </>
       )}
 
-      {managing && (
+      {!hideManage && managing && (
         <Overlay>
           <ProviderProfilesPanel onClose={() => { setProfiles(loadProfiles()); setManaging(false) }} />
         </Overlay>

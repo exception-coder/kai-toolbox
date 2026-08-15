@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { Sidebar } from './Sidebar'
@@ -10,6 +10,7 @@ import { useBrand } from './brand'
 import { useMenuVisibilitySync } from './menuVisibility'
 import { UnifiedTitleBar, UnifiedTitleBarSlotContext } from './UnifiedTitleBar'
 import { useWindowControlsOverlay } from './useWindowControlsOverlay'
+import { MobileNavigationProvider } from './MobileNavigationContext'
 
 export function AppShell() {
   const [collapsed, setCollapsed] = useState(false)
@@ -25,6 +26,8 @@ export function AppShell() {
   const currentFeature = featureAtPath(location.pathname)
   const currentFeatureName = currentFeature?.name ?? (location.pathname === '/' ? '工作台' : undefined)
   const featureIntegratedTitleBar = windowControlsOverlayVisible && currentFeature?.id === 'claude-chat' && !shellless
+  const featureIntegratedMobileHeader = currentFeature?.id === 'claude-chat' && !shellless
+  const openMobileNavigation = useCallback(() => setMobileOpen(true), [])
   const isConsultRoute =
     location.pathname === '/tools/fore-consult' ||
     location.pathname.startsWith('/tools/fore-consult/')
@@ -80,6 +83,7 @@ export function AppShell() {
   }, [])
 
   return (
+    <MobileNavigationProvider onOpen={openMobileNavigation}>
     <UnifiedTitleBarSlotContext.Provider value={featureIntegratedTitleBar ? unifiedTitleBarSlot : null}>
     <div
       className="app-shell-canvas flex w-screen overflow-hidden text-[var(--color-foreground)]"
@@ -90,7 +94,7 @@ export function AppShell() {
           featureName={currentFeatureName}
           sidebarCollapsed={collapsed}
           onToggleSidebar={shellless ? undefined : () => setCollapsed(current => !current)}
-          onOpenMobileMenu={shellless ? undefined : () => setMobileOpen(true)}
+          onOpenMobileMenu={shellless ? undefined : openMobileNavigation}
           featureSlotRef={setUnifiedTitleBarSlot}
           featureIntegrated={featureIntegratedTitleBar}
         />
@@ -132,8 +136,8 @@ export function AppShell() {
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* 桌面折叠控制已并入侧栏品牌行，避免为单个按钮常驻一条 48px 顶栏。 */}
         <TopBar
-          onOpenMobileMenu={() => setMobileOpen(true)}
-          hidden={windowControlsOverlayVisible}
+          onOpenMobileMenu={openMobileNavigation}
+          hidden={windowControlsOverlayVisible || featureIntegratedMobileHeader}
         />
         {/* 模块高度以这里分配的 flex 可用空间为准；子页面应使用 h-full/min-h-full，
             不要再用 100vh 减 Shell 顶栏等固定像素。 */}
@@ -148,5 +152,6 @@ export function AppShell() {
       )}
     </div>
     </UnifiedTitleBarSlotContext.Provider>
+    </MobileNavigationProvider>
   )
 }

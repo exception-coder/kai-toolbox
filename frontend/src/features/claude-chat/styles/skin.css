@@ -240,7 +240,15 @@
   backdrop-filter: none;
 }
 
-@media (max-width: 639px) {
+@media (max-width: 767px) {
+  .cc-workspace-header:not(.cc-workspace-header-integrated) {
+    height: 3rem;
+  }
+
+  .cc-chat-contextbar {
+    height: 2.25rem;
+  }
+
   .cc-session-runtime-cluster,
   .cc-session-header-actions {
     border-color: transparent;
