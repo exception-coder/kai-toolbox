@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Copy, Database, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, Menu, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Route, Send, Server, Settings, Share2, ShieldCheck, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
+import { ArrowUpToLine, Bell, Bug, Check, ChevronDown, Cloud, Copy, Database, EyeOff, FileDown, FileText, FolderGit2, FolderOpen, FolderTree, Gauge, GitBranch, GitCommit, Hand, LayoutGrid, Link2, List, ListChecks, ListFilter, Loader2, Maximize2, Menu, MessageSquare, Minimize2, MoreHorizontal, Package, Palette, PanelLeftClose, PanelLeftOpen, Paperclip, PictureInPicture2, Plus, Rainbow, RefreshCw, RotateCw, Route, Send, Server, Settings, Share2, Slash, Sparkles, Square, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet'
 import { StatusBadge } from '@/components/ui/status-badge'
@@ -105,7 +105,7 @@ import { ReviewShareDialog } from '../components/ReviewShareDialog'
 import { SessionSummaryBar } from '../components/SessionSummaryBar'
 import { selectableEngineIds } from '../lib/engineCatalog'
 import { MobileSessionStatus } from '../components/MobileSessionStatus'
-import { compactMobileModelLabel, MobileSessionConfigSheet } from '../components/MobileSessionConfigSheet'
+import { compactSessionModelLabel, SessionConfigSheet } from '../components/SessionConfigSheet'
 
 type Panel = 'none' | 'sessions' | 'settings' | 'new' | 'plugins' | 'taskspace' | 'providers' | 'clone' | 'onboard' | 'caps' | 'filetree'
 
@@ -958,12 +958,12 @@ export function ChatPage() {
     )
   }
 
-  const selectedMobileModel = chat.models.find(model => model.value === chat.currentModel)
+  const selectedSessionModel = chat.models.find(model => model.value === chat.currentModel)
     ?? (!chat.currentModel ? chat.models.find(model => model.isDefault) : undefined)
-  const mobileSessionConfigSummary = selectedMobileModel?.displayName
+  const sessionConfigSummary = selectedSessionModel?.displayName
     || chat.currentModel
     || currentEngineLabel
-  const mobileSessionConfigCompactSummary = compactMobileModelLabel(mobileSessionConfigSummary)
+  const sessionConfigCompactSummary = compactSessionModelLabel(sessionConfigSummary)
 
   const startNew = () => {
     // 服务商仅 Claude 引擎生效：选了档案则走第三方网关 + 手填模型，否则官方默认
@@ -2208,45 +2208,17 @@ export function ChatPage() {
               return prev.filter(a => a.id !== id)
             })}
           />
-          <div className="hidden flex-wrap items-center gap-x-2 gap-y-1.5 px-3 pt-2 md:flex">
-            {reviewOnlySession ? (
-              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-700 dark:text-emerald-300"><ShieldCheck className="size-3.5" />仅计划评审</span>
-            ) : <div className="order-1 min-w-0 md:order-none"><ModeSwitch engine={chat.currentEngine} mode={chat.mode} onChange={chat.setMode} /></div>}
-            {chat.currentEngine === 'codex' && !reviewOnlySession && (
-              <div className="order-3 w-full min-w-0 max-w-full md:order-none md:w-auto">
-                <CodexSessionOptions
-                  models={chat.models}
-                  model={chat.currentModel}
-                  reasoningEffort={chat.codexReasoningEffort}
-                  speed={chat.codexSpeed}
-                  codexHome={currentSession?.codexHome}
-                  showCodexHome={Boolean(currentSession && currentSession.providerKind !== 'thirdParty')}
-                  onModelChange={chat.setModel}
-                  onOptionsChange={chat.setCodexOptions}
-                />
-              </div>
-            )}
-            {chat.currentEngine === 'deepseekHarness' && (
+          {chat.currentEngine === 'deepseekHarness' && (
+            <div className="hidden items-center px-3 pt-2 md:flex">
               <span
-                className="order-2 inline-flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-xs text-blue-700 dark:text-blue-300 md:order-none"
+                className="inline-flex items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-xs text-blue-700 dark:text-blue-300"
                 title={currentEngineCatalogEntry?.probe.detail ?? 'DeepSeek Harness Runtime 握手已通过'}
               >
                 <EngineIcon engine="deepseekHarness" className="size-3.5" />
                 实验 · SDK JSON-RPC{currentEngineCatalogEntry?.probe.runtimeVersion ? ` · ${currentEngineCatalogEntry.probe.runtimeVersion}` : ''}
               </span>
-            )}
-            {/* 服务商切换与权限组语义不同：用左外边距推到右侧，避免和权限按钮挤在一起 */}
-            {!reviewOnlySession && (chat.currentEngine === 'claude' || chat.currentEngine === 'codex' || chat.currentEngine === 'gemini') && <div className="order-2 ml-auto md:order-none">
-              <ProviderSwitch
-                engine={chat.currentEngine}
-                providerKind={chat.currentProviderKind}
-                providerBaseUrl={chat.currentProviderBaseUrl}
-                onSwitch={chat.switchProvider}
-                onPickModel={chat.setModel}
-                align="right"
-              />
-            </div>}
-          </div>
+            </div>
+          )}
           {showSlash && (
             <SlashCommandMenu commands={slashFiltered} activeIndex={slashActive} onPick={pickSlash} />
           )}
@@ -2354,16 +2326,16 @@ export function ChatPage() {
               onText={t => setDraft(d => d.trim() ? `${d} ${t}` : t)}
             />
             </div>
-            <MobileSessionConfigSheet
-              summary={mobileSessionConfigSummary}
-              compactSummary={mobileSessionConfigCompactSummary}
+            <SessionConfigSheet
+              summary={sessionConfigSummary}
+              compactSummary={sessionConfigCompactSummary}
               disabled={planLocked}
             >
               <div className="flex flex-col items-stretch gap-2">
                 <span className="text-sm font-medium">权限模式</span>
                 {reviewOnlySession
                   ? <span className="text-sm text-emerald-700 dark:text-emerald-300">仅计划评审</span>
-                  : <ModeSwitch engine={chat.currentEngine} mode={chat.mode} onChange={chat.setMode} inlineConfirmation />}
+                  : <ModeSwitch engine={chat.currentEngine} mode={chat.mode} onChange={chat.setMode} disabled={planLocked} inlineConfirmation />}
               </div>
               {chat.currentEngine === 'codex' && !reviewOnlySession && (
                 <div className="flex flex-col items-stretch gap-2">
@@ -2375,6 +2347,8 @@ export function ChatPage() {
                     speed={chat.codexSpeed}
                     codexHome={currentSession?.codexHome}
                     showCodexHome={Boolean(currentSession && currentSession.providerKind !== 'thirdParty')}
+                    disabled={planLocked}
+                    optionsDisabled={planLocked}
                     onModelChange={chat.setModel}
                     onOptionsChange={chat.setCodexOptions}
                   />
@@ -2390,20 +2364,23 @@ export function ChatPage() {
                       providerBaseUrl={chat.currentProviderBaseUrl}
                       onSwitch={chat.switchProvider}
                       onPickModel={chat.setModel}
+                      disabled={planLocked}
                       align="left"
                       hideManage
                     />
                   </div>
-                  <ProviderDiagPanel
-                    providerKind={chat.currentProviderKind}
-                    providerBaseUrl={chat.currentProviderBaseUrl}
-                    currentModel={chat.currentModel}
-                    diag={chat.providerDiag}
-                    compact
-                  />
+                  <div className="md:hidden">
+                    <ProviderDiagPanel
+                      providerKind={chat.currentProviderKind}
+                      providerBaseUrl={chat.currentProviderBaseUrl}
+                      currentModel={chat.currentModel}
+                      diag={chat.providerDiag}
+                      compact
+                    />
+                  </div>
                 </>
               )}
-            </MobileSessionConfigSheet>
+            </SessionConfigSheet>
             <textarea
               ref={taRef}
               aria-label="消息输入"
