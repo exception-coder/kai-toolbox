@@ -5,13 +5,8 @@ import com.exceptioncoder.toolbox.llm.spi.LocalProjectResolver;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.DevDocVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.ProgressVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.QaPairRequest;
-import com.exceptioncoder.toolbox.prdclarify.delivery.DeliveryClaimLedgerService;
-import com.exceptioncoder.toolbox.prdclarify.delivery.DeliveryEvidenceVerifier;
-import com.exceptioncoder.toolbox.prdclarify.domain.PrdArtifact;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdBusinessFields;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdArtifactType;
-import com.exceptioncoder.toolbox.prdclarify.domain.PrdPromptDefinition;
-import com.exceptioncoder.toolbox.prdclarify.domain.PrdPromptPurpose;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.domain.DocumentProfile;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
@@ -37,7 +32,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Pattern;
 
 /**
  * PRD 澄清核心服务。
@@ -60,9 +54,6 @@ public class PrdClarifyService {
     private final PrdSessionRepository repo;
     private final PrdFileStore fileStore;
     private final PrdArtifactService artifactService;
-    private final PrdPromptCatalog promptCatalog;
-    private final PrdAiRunService aiRunService;
-    private final DeliveryClaimLedgerService deliveryClaimLedgerService;
     private final ObjectMapper mapper;
     private final GraphifyQueryService graphifyQuery;
     private final DomainKnowledgeQueryService domainKnowledgeQuery;
@@ -71,6 +62,7 @@ public class PrdClarifyService {
     private final PrdClarificationQuestionService clarificationQuestionService;
     private final PrdAnswerProcessingService answerProcessingService;
     private final PrdDocumentGenerationService documentGenerationService;
+    private final PrdProgressEvaluationService progressEvaluationService;
     private final PrdImageInputResolver imageInputResolver;
     private final ObjectProvider<LocalProjectResolver> localProjectResolver;
 
@@ -87,21 +79,16 @@ public class PrdClarifyService {
                              PrdSessionRepository repo,
                              PrdFileStore fileStore,
                              PrdArtifactService artifactService,
-                             PrdPromptCatalog promptCatalog,
-                             PrdAiRunService aiRunService,
-                             DeliveryClaimLedgerService deliveryClaimLedgerService,
                              ObjectMapper mapper,
                              GraphifyQueryService graphifyQuery,
                              DomainKnowledgeQueryService domainKnowledgeQuery,
                              PrdImageInputResolver imageInputResolver,
-                             ObjectProvider<LocalProjectResolver> localProjectResolver) {
+                             ObjectProvider<LocalProjectResolver> localProjectResolver,
+                             PrdProgressEvaluationService progressEvaluationService) {
         this.agentRunner = agentRunner;
         this.repo = repo;
         this.fileStore = fileStore;
         this.artifactService = artifactService;
-        this.promptCatalog = promptCatalog;
-        this.aiRunService = aiRunService;
-        this.deliveryClaimLedgerService = deliveryClaimLedgerService;
         this.mapper = mapper;
         this.graphifyQuery = graphifyQuery;
         this.domainKnowledgeQuery = domainKnowledgeQuery;
@@ -114,6 +101,7 @@ public class PrdClarifyService {
         this.documentGenerationService =
                 new PrdDocumentGenerationService(agentRunner, mapper, imageInputResolver);
         this.localProjectResolver = localProjectResolver;
+        this.progressEvaluationService = progressEvaluationService;
     }
 
     /** 创建会话并持久化，返回新建的会话对象。 */
@@ -706,16 +694,6 @@ public class PrdClarifyService {
             不得修改数字或添加新事实。只输出 JSON，不要解释。必须包含 hoursMin、hoursMax、confidence、
             reasoning、breakdown、inspectedFiles、codeEvidenceSummary、assumptions、risks。
             """;
-
-    private static final String CODE_EVIDENCE_VERIFIED = "<!-- CODE_EVIDENCE_STATUS: VERIFIED -->";
-    private static final String CODE_EVIDENCE_INSUFFICIENT = "<!-- CODE_EVIDENCE_STATUS: INSUFFICIENT -->";
-
-    /**
-     * 进度评估系统 prompt：基于 PRD + 开发文档（业务/技术事实来源，不改写、不复制），通过
-     * 标准 URL、Graphify 和源码读取链路核对真实实现，产出固定大纲的 Markdown 进度报告。
-     * "平台文档管理事实来源、评估报告是可重复生成的派生产物"这个分工——报告本身按版本追加
-     * 落盘（见 {@link #evaluateProgress}），不覆盖旧报告。
-     */
 
     /** TDD 生成/更新前的多轮技术澄清——请求下一个必须由开发者明确的问题。 */
     public void askNextDevDocQuestion(String sessionId, int questionIndex,
@@ -1618,131 +1596,7 @@ public class PrdClarifyService {
      * {@code {id}-progress.md}（覆盖前先备份为 {id}-progress-v{n}.md，"检出新版本"不丢历史）。
      */
     public void evaluateProgress(String sessionId, String extraContext, SseEmitter emitter) {
-        PrdSession requestedSession = repo.findById(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-        // 根需求存在修订节点时，代码分析必须采用当前最新 PRD/TDD；报告仍挂回用户点击的需求节点。
-        PrdSession sourceSession = resolveLatestEffortSource(requestedSession);
-
-        Thread.ofVirtual().name("prd-progress-").start(() -> {
-            PrdAiRunService.RunHandle aiRun = null;
-            boolean aiRunFinished = false;
-            String progressContent = null;
-            try {
-                String prdContent = fileStore.read(sourceSession.getId());
-                String devDocContent = readDevDocContent(sourceSession.getId());
-                if (devDocContent == null || devDocContent.isBlank()) {
-                    sendError(emitter, new IllegalStateException("请先生成开发文档后再评估进度"));
-                    return;
-                }
-
-                LocalProjectResolver.ProjectLocation projectLocation = resolveLocalProject(sourceSession.getProject())
-                        .orElseThrow(() -> new IllegalStateException(
-                                "未匹配到项目“" + sourceSession.getProject() + "”的本地工作目录，无法核查代码进度"));
-
-                String effortBaselineJson = requestedSession.getDevDocEstimation() != null
-                        ? requestedSession.getDevDocEstimation()
-                        : sourceSession.getDevDocEstimation();
-                String userPrompt = buildProgressEvalPrompt(
-                        sourceSession, prdContent, devDocContent, effortBaselineJson, extraContext, projectLocation);
-                StringBuilder full = new StringBuilder();
-                String engine = normalizeEngine(sourceSession.getEngine());
-                PrdPromptDefinition prompt = promptCatalog.get(PrdPromptPurpose.PROGRESS_EVALUATION);
-                aiRun = aiRunService.begin(prompt, userPrompt,
-                        new PrdAiRunService.RunContext(sourceSession.getId(), engine, sourceSession.getModel()));
-                AgentOneShotRunner.ExecutionRequest request = new AgentOneShotRunner.ExecutionRequest(
-                        progressEvalSystemPrompt(prompt),
-                        userPrompt,
-                        projectLocation.path(),
-                        sourceSession.getModel(),
-                        engine,
-                        "codex".equals(engine) ? "medium" : null,
-                        null, null, null, null,
-                        AgentOneShotRunner.TOOL_POLICY_CONSULT_READONLY);
-                String returnedContent = agentRunner.stream(request, delta -> {
-                    full.append(delta);
-                    sendChunk(emitter, delta);
-                });
-
-                progressContent = full.isEmpty() ? returnedContent : full.toString();
-                validateProgressEvidenceStatus(progressContent);
-                DeliveryEvidenceVerifier.VerifiedLedger claimLedger = deliveryClaimLedgerService.prepare(
-                        progressContent, projectLocation.path());
-                aiRunService.succeed(aiRun, progressContent);
-                aiRunFinished = true;
-                java.nio.file.Path progressPath = fileStore.canonicalPathFor(sessionId, PrdArtifactType.PROGRESS);
-                backupProgressIfExists(progressPath);
-                PrdArtifact artifact = artifactService.write(
-                        sessionId, PrdArtifactType.PROGRESS, progressContent,
-                        new PrdArtifactService.ArtifactMetadata(aiRun.inputFingerprint(), prompt.version()));
-                if (artifact != null) {
-                    deliveryClaimLedgerService.save(sessionId, artifact.id(), claimLedger);
-                    aiRunService.bindArtifact(aiRun.id(), artifact.id());
-                }
-                recordProgressHistory(sessionId, requestedSession.getProgressHistory(), extraContext);
-                log.info("[prd-clarify] 进度评估已保存 path={} sourceSessionId={}",
-                        progressPath, sourceSession.getId());
-
-                sendDone(emitter);
-            } catch (Exception e) {
-                if (aiRun != null && !aiRunFinished) {
-                    try {
-                        aiRunService.fail(aiRun, progressContent, e.getMessage());
-                    } catch (Exception auditError) {
-                        e.addSuppressed(auditError);
-                    }
-                }
-                log.warn("[prd-clarify] 进度评估失败 sessionId={}", sessionId, e);
-                sendError(emitter, e);
-            }
-        });
-    }
-
-    private String buildProgressEvalPrompt(
-            PrdSession s,
-            String prdContent,
-            String devDocContent,
-            String effortBaselineJson,
-            String extraContext,
-            LocalProjectResolver.ProjectLocation projectLocation) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("需求标题：").append(s.getTitle()).append("\n");
-        sb.append("文档模式：").append(DocumentProfile.normalize(s.getDocumentProfile())).append("\n");
-        if (s.getProject() != null && !s.getProject().isBlank()) {
-            sb.append("项目：").append(s.getProject());
-            if (s.getModule() != null && !s.getModule().isBlank()) {
-                sb.append(" / ").append(s.getModule());
-            }
-            sb.append("\n");
-        }
-        if (s.getRawInput() != null && !s.getRawInput().isBlank()) {
-            sb.append("\n【原始需求输入】（包含 URL 时必须传给 source_context）\n")
-                    .append(s.getRawInput()).append("\n");
-        }
-        String specificationLabel = isSpecDriven(s) ? "核心规格" : "PRD";
-        String planLabel = isSpecDriven(s) ? "执行计划" : "最新 TDD / 开发文档";
-        sb.append("\n【").append(specificationLabel).append("内容】\n")
-                .append(prdContent == null ? "" : prdContent).append("\n");
-        sb.append("\n【").append(planLabel).append("内容】（技术方案基准，逐项核对是否已落地）\n")
-                .append(devDocContent).append("\n");
-        if (isSpecDriven(s)) {
-            sb.append("\n【规格驱动评估要求】\n按 REQ/RULE/SCN/AC 与 PLAN ID 建立追踪关系，")
-                    .append("每个完成、部分完成或缺失结论必须引用源码或测试证据；")
-                    .append("无法映射稳定 ID 的实现列为规格漂移，不得直接计为完成。\n");
-        }
-        appendProgressEffortBaseline(sb, effortBaselineJson);
-        if (extraContext != null && !extraContext.isBlank()) {
-            sb.append("\n【补充上下文】\n").append(extraContext.trim()).append("\n");
-        }
-        appendDomainContext(sb, queryDomainContext(s.getProject(), s.getTitle()));
-        sb.append("\n【测试核查】\n所有测试类功能点与其它功能点一样完整核查并写入对应完成状态章节。"
-                + "单元、接口、安全、集成、自动化、事务、并发、回归、性能、端到端、验收、兼容性等测试项，"
-                + "标题必须明确包含“测试”或 Test，便于后端基于同一报告确定性计算两种计分口径。"
-                + "联调、数据库迁移校验等非测试工作仍按普通功能点计分，除非标题明确将其定义为测试。\n");
-        sb.append("\n【本地代码核查】\n工作目录已限制为项目：")
-                .append(projectLocation.name())
-                .append("。必须先调用 source_context，再精确读取候选源码；不得仅凭上方文档或图谱判断进度。\n");
-        sb.append("\n请基于以上信息生成开发进度评估报告，严格按系统提示的大纲输出 Markdown。");
-        return sb.toString();
+        progressEvaluationService.evaluate(sessionId, extraContext, emitter);
     }
 
     /** 根据项目名称解析已配置且可访问的本地工作目录。 */
@@ -1751,224 +1605,19 @@ public class PrdClarifyService {
         return resolver == null ? Optional.empty() : resolver.resolve(project);
     }
 
-    /** 将代码证据状态常量注入评估协议。 */
-    private String progressEvalSystemPrompt(PrdPromptDefinition prompt) {
-        return prompt.systemPrompt()
-                + "\n证据状态标记：\n- 已核查：`" + CODE_EVIDENCE_VERIFIED
-                + "`\n- 证据不足：`" + CODE_EVIDENCE_INSUFFICIENT + "`\n";
-    }
-
-    /** 阻止没有真实源码核查结论的报告覆盖上一版可信进度。 */
-    private void validateProgressEvidenceStatus(String progressContent) {
-        if (progressContent.contains(CODE_EVIDENCE_VERIFIED)) {
-            return;
-        }
-        if (progressContent.contains(CODE_EVIDENCE_INSUFFICIENT)) {
-            boolean containsProgressItem = Pattern.compile("(?m)^- \\[(?:x|X|~| )] ")
-                    .matcher(progressContent)
-                    .find();
-            if (!containsProgressItem) {
-                return;
-            }
-            throw new IllegalStateException("代码证据不足时不能生成完成度清单，请重新评估");
-        }
-        throw new IllegalStateException("进度评估未返回代码证据状态，已保留上一版报告");
-    }
-
-    /** 把责任时间处已经生成的总工时评估作为固定基线传给代码分析，避免再次凭空估总量。 */
-    private void appendProgressEffortBaseline(StringBuilder sb, String estimationJson) {
-        if (estimationJson == null || estimationJson.isBlank()) {
-            sb.append("\n【原 AI 总工时评估基线】\n尚未生成总工时评估；只核对实现进度，"
-                    + "剩余工时将在后端等待基线补齐后再计算。\n");
-            return;
-        }
-        try {
-            JsonNode estimation = mapper.readTree(estimationJson);
-            int hoursMin = Math.max(0, estimation.path("hoursMin").asInt(0));
-            int hoursMax = Math.max(hoursMin, estimation.path("hoursMax").asInt(hoursMin));
-            long estimatedAt = estimation.path("estimatedAt").asLong(0);
-            if (!estimation.isObject() || hoursMax <= 0 || estimatedAt <= 0) {
-                sb.append("\n【原 AI 总工时评估基线】\n尚无有效的已完成评估结果。\n");
-                return;
-            }
-            sb.append("\n【原 AI 总工时评估基线】（来自需求中枢“责任与时间”，固定总量，不得按当前代码反向缩小）\n")
-                    .append("- 原评估总工时：").append(hoursMin).append("-").append(hoursMax).append(" 小时\n")
-                    .append("- 折算口径：6 个 AI 有效编码小时 / 工作日\n")
-                    .append("- 评估信心：").append(estimation.path("confidence").asText("MEDIUM")).append("\n")
-                    .append("- 评估时间：").append(estimatedAt).append("（Unix 毫秒）\n");
-            String reasoning = estimation.path("reasoning").asText("").trim();
-            if (!reasoning.isBlank()) sb.append("- 原评估依据：").append(reasoning).append("\n");
-            String invalidatedReason = estimation.path("invalidatedReason").asText("").trim();
-            if (!invalidatedReason.isBlank()) {
-                sb.append("- 基线状态：已过期（").append(invalidatedReason).append("），报告必须明确提示重新评估总工时\n");
-            }
-            sb.append("代码功能点状态必须继续基于当前 PRD、最新 TDD 与真实代码证据判断；"
-                    + "剩余小时和工作日由后端按代码进度确定性换算。\n");
-        } catch (Exception exception) {
-            sb.append("\n【原 AI 总工时评估基线】\n历史评估数据无法解析；不得自行编造工时。\n");
-        }
-    }
-
-    /**
-     * 追加一条进度评估历史记录，逻辑对齐 {@link #recordDevDocHistory}（少了 mode/qaHistory——
-     * 进度评估没有"模式"概念，也不涉及澄清问答）。
-     */
-    private void recordProgressHistory(String sessionId, String existingHistoryJson, String extraContext) {
-        try {
-            ArrayNode arr;
-            JsonNode existing = (existingHistoryJson == null || existingHistoryJson.isBlank())
-                    ? null : mapper.readTree(existingHistoryJson);
-            arr = (existing instanceof ArrayNode existingArr) ? existingArr : mapper.createArrayNode();
-
-            ObjectNode entry = mapper.createObjectNode();
-            entry.put("version", arr.size() + 1);
-            entry.put("extraContext", extraContext == null ? "" : extraContext);
-            entry.put("generatedAt", System.currentTimeMillis());
-            arr.add(entry);
-
-            repo.updateProgressHistory(sessionId, mapper.writeValueAsString(arr));
-        } catch (Exception e) {
-            log.warn("[prd-clarify] 记录进度评估历史失败（不影响本次评估结果）: {}", e.getMessage());
-        }
-    }
-
     /** 读取当前进度评估文档内容。 */
     public String readProgressContent(String sessionId) throws java.io.IOException {
-        PrdSession session = repo.findById(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-        if (session.getProgressPath() == null || session.getProgressPath().isBlank()) {
-            return "";
-        }
-        java.nio.file.Path path = java.nio.file.Path.of(session.getProgressPath());
-        if (!java.nio.file.Files.exists(path)) return "";
-        return java.nio.file.Files.readString(path, java.nio.charset.StandardCharsets.UTF_8);
+        return progressEvaluationService.readContent(sessionId);
     }
 
     /** 读取进度评估某个历史版本的内容，逻辑对齐 {@link #readDevDocVersionContent}。 */
     public String readProgressVersionContent(String sessionId, int version) throws java.io.IOException {
-        PrdSession session = repo.findById(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-        if (version <= 0) {
-            return "";
-        }
-        ProgressLocation loc = resolveProgressLocation(session);
-        if (loc == null) {
-            return "";
-        }
-        List<Integer> backups = scanProgressBackupVersions(loc);
-        int currentVersion = (backups.isEmpty() ? 0 : backups.get(backups.size() - 1)) + 1;
-        if (version == currentVersion) {
-            return readProgressContent(sessionId);
-        }
-        if (!backups.contains(version)) {
-            return "";
-        }
-        java.nio.file.Path backupPath = loc.dir().resolve(loc.baseName() + "-v" + version + ".md");
-        if (!java.nio.file.Files.exists(backupPath)) {
-            return "";
-        }
-        return java.nio.file.Files.readString(backupPath, java.nio.charset.StandardCharsets.UTF_8);
+        return progressEvaluationService.readVersionContent(sessionId, version);
     }
 
     /** 列出该会话进度评估的所有版本摘要，逻辑对齐 {@link #listDevDocVersions}。 */
     public List<ProgressVersionSummary> listProgressVersions(String sessionId) {
-        PrdSession session = repo.findById(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-        ProgressLocation loc = resolveProgressLocation(session);
-        if (loc == null) {
-            return List.of();
-        }
-        List<Integer> backups = scanProgressBackupVersions(loc);
-        int currentVersion = (backups.isEmpty() ? 0 : backups.get(backups.size() - 1)) + 1;
-
-        Map<Integer, JsonNode> historyByVersion = new java.util.HashMap<>();
-        try {
-            String historyJson = session.getProgressHistory();
-            if (historyJson != null && !historyJson.isBlank()) {
-                JsonNode arr = mapper.readTree(historyJson);
-                if (arr.isArray()) {
-                    for (JsonNode node : arr) {
-                        historyByVersion.put(node.path("version").asInt(-1), node);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.debug("[prd-clarify] 解析 progressHistory 失败（不影响版本列表展示）: {}", e.getMessage());
-        }
-
-        List<Integer> allVersions = new ArrayList<>(backups);
-        allVersions.add(currentVersion);
-
-        List<ProgressVersionSummary> result = new ArrayList<>();
-        for (int v : allVersions) {
-            JsonNode h = historyByVersion.get(v);
-            Long generatedAt = h != null ? h.path("generatedAt").asLong()
-                    : (v == currentVersion ? session.getProgressGeneratedAt() : null);
-            result.add(new ProgressVersionSummary(
-                    v, v == currentVersion,
-                    h != null ? h.path("extraContext").asText("") : null,
-                    generatedAt));
-        }
-        result.sort(java.util.Comparator.comparingInt(ProgressVersionSummary::version).reversed());
-        return result;
-    }
-
-    /**
-     * 覆盖进度文档前，若旧版本已存在则备份为 {id}-progress-v{n}.md，逻辑对齐
-     * {@link #backupDevDocIfExists}。
-     */
-    private void backupProgressIfExists(java.nio.file.Path progressPath) {
-        if (!java.nio.file.Files.isRegularFile(progressPath)) {
-            return;
-        }
-        try {
-            String fileName = progressPath.getFileName().toString(); // {id}-progress.md
-            String baseName = fileName.substring(0, fileName.length() - 3); // {id}-progress
-            java.nio.file.Path dir = progressPath.getParent();
-            ProgressLocation loc = dir == null ? null : new ProgressLocation(dir, baseName);
-            List<Integer> backups = scanProgressBackupVersions(loc);
-            int nextVersion = (backups.isEmpty() ? 0 : backups.get(backups.size() - 1)) + 1;
-            java.nio.file.Path backupPath = progressPath.resolveSibling(baseName + "-v" + nextVersion + ".md");
-            java.nio.file.Files.copy(progressPath, backupPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-            log.info("[prd-clarify] 进度评估旧版本已备份 path={}", backupPath);
-        } catch (Exception e) {
-            log.warn("[prd-clarify] 进度评估备份失败（不阻断本次评估）: {}", e.getMessage());
-        }
-    }
-
-    /** 进度文档所在目录 + 文件名前缀（{id}-progress），供备份/版本枚举/读取共用。 */
-    private record ProgressLocation(java.nio.file.Path dir, String baseName) {}
-
-    /** 解析当前会话进度评估文档的存放位置；尚未评估过时返回 null。 */
-    private ProgressLocation resolveProgressLocation(PrdSession session) {
-        if (session.getProgressPath() == null || session.getProgressPath().isBlank()) {
-            return null;
-        }
-        java.nio.file.Path currentPath = java.nio.file.Path.of(session.getProgressPath());
-        String fileName = currentPath.getFileName().toString(); // {id}-progress.md
-        String baseName = fileName.substring(0, fileName.length() - 3); // {id}-progress
-        java.nio.file.Path dir = currentPath.getParent();
-        return dir == null ? null : new ProgressLocation(dir, baseName);
-    }
-
-    /** 扫描磁盘，返回该会话进度评估所有已存在的备份版本号（不含当前版本），从小到大排序。 */
-    private List<Integer> scanProgressBackupVersions(ProgressLocation loc) {
-        if (loc == null || !java.nio.file.Files.isDirectory(loc.dir())) {
-            return List.of();
-        }
-        java.util.regex.Pattern versionPattern =
-                java.util.regex.Pattern.compile(java.util.regex.Pattern.quote(loc.baseName()) + "-v(\\d+)\\.md");
-        try (var files = java.nio.file.Files.list(loc.dir())) {
-            return files
-                    .map(p -> versionPattern.matcher(p.getFileName().toString()))
-                    .filter(java.util.regex.Matcher::matches)
-                    .map(m -> Integer.parseInt(m.group(1)))
-                    .sorted()
-                    .toList();
-        } catch (Exception e) {
-            log.debug("[prd-clarify] 扫描进度评估备份版本失败: {}", e.getMessage());
-            return List.of();
-        }
+        return progressEvaluationService.listVersions(sessionId);
     }
 
     /**

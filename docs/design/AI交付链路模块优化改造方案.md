@@ -112,7 +112,7 @@ PrdClarifyService（编排器，目标 <800 行）
     ├── PrdAnswerProcessingService（已有，收编回答处理）
     ├── PrdEffortService（新建，工时评估 + JSON 修复，自 1179~1504 行搬出）
     ├── PrdSplitService（新建，需求拆分 + 采纳，自 1505~1653 行搬出）
-    ├── PrdProgressService（新建，进度评估 + 版本，自 1654~2028 行搬出）
+    ├── PrdProgressEvaluationService（已完成，进度评估 + 版本；旧服务保留兼容委托）
     └── PrdDocRevisionService（新建/归位，后台修订 + 原地恢复，自 2072~2160 行搬出）
 ```
 
@@ -162,7 +162,7 @@ export const handoff = {
 1. `PrdClarifyService.java`（2386 行）→ 编排器瘦身：
    - 工时评估块（`estimateDevDocEffort`/`startEstimateDevDocEffort`/`buildEffortEstimatePrompt`/`parseAndBuildEstimationJson`/`extractEffortJson`/`tryReadEffortObject`/`copyStringArray`，约 1179-1504 行）→ `PrdEffortService`（新建）。
    - 需求拆分块（`splitRequirement`/`buildSplitPrompt`/`parseSplitResult`/`adoptSplit`，约 1505-1653 行）→ `PrdSplitService`（新建）。
-   - 进度评估块（`evaluateProgress`/`buildProgressEvalPrompt`/`validateProgressEvidenceStatus`/`readProgressContent`/`listProgressVersions`/`backupProgressIfExists`/`recordProgressHistory` 等，约 1654-2028 行）→ `PrdProgressService`（新建）。
+   - 进度评估块（`evaluateProgress`/Prompt/证据门禁/内容读取/版本/备份/历史）已迁至 `PrdProgressEvaluationService`；`PrdClarifyService` 的 4 个公开入口仅保留委托。
    - 修订块（`createBackgroundRevision`/`recoverInPlacePrdAsBackgroundRevision`/`invalidateEffortEstimation`，约 2072-2160 行）→ `PrdDocRevisionService`（新建）。
    - 澄清提问与回答的已有协作者（`PrdClarificationQuestionService`/`PrdAnswerProcessingService`）若仍有内联重复逻辑，一并归位。
    - 文档相关（`generate`/`generateDevDoc`/`backupPrdIfExists`/`scanPrdBackupVersions`/`readDevDocContent`/`listDevDocVersions`）确认已收编在 `PrdDocumentGenerationService`，未收编的下推。

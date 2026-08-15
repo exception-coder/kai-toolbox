@@ -88,9 +88,9 @@ class PrdProgressEvaluationTest {
         }).when(artifactService).write(
                 eq("progress"), eq(PrdArtifactType.PROGRESS), any(), any());
 
-        PrdClarifyService service = service(
+        PrdProgressEvaluationService service = service(
                 runner, repo, fileStore, artifactService, domainKnowledge, resolverProvider);
-        service.evaluateProgress("progress", null, emitter);
+        service.evaluate("progress", null, emitter);
 
         assertThat(progressSaved.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
         AgentOneShotRunner.ExecutionRequest request = capturedRequest.get();
@@ -130,12 +130,78 @@ class PrdProgressEvaluationTest {
 
         service(runner, repo, fileStore, artifactService,
                 mock(DomainKnowledgeQueryService.class), resolverProvider)
-                .evaluateProgress("progress", null, emitter);
+                .evaluate("progress", null, emitter);
 
         assertThat(emitterCompleted.await(ASYNC_TIMEOUT_SECONDS, TimeUnit.SECONDS)).isTrue();
         verify(emitter).complete();
         verify(runner, never()).stream(any(AgentOneShotRunner.ExecutionRequest.class), any());
         verify(artifactService, never()).write(any(), any(), any(), any());
+    }
+
+    @Test
+    void listsAndReadsCurrentAndBackupVersionsInsideFocusedService() throws Exception {
+        PrdSessionRepository repo = mock(PrdSessionRepository.class);
+        Path current = tempDir.resolve("progress-progress.md");
+        Path versionOne = tempDir.resolve("progress-progress-v1.md");
+        Path versionTwo = tempDir.resolve("progress-progress-v2.md");
+        Files.writeString(current, "current");
+        Files.writeString(versionOne, "version-one");
+        Files.writeString(versionTwo, "version-two");
+        PrdSession session = PrdSession.builder()
+                .id("progress")
+                .progressPath(current.toString())
+                .progressGeneratedAt(3000L)
+                .progressHistory("""
+                        [
+                          {"version":1,"extraContext":"first","generatedAt":1000},
+                          {"version":2,"extraContext":"second","generatedAt":2000},
+                          {"version":3,"extraContext":"current","generatedAt":3000}
+                        ]
+                        """)
+                .build();
+        when(repo.findById("progress")).thenReturn(Optional.of(session));
+
+        PrdProgressEvaluationService service = service(
+                mock(AgentOneShotRunner.class),
+                repo,
+                mock(PrdFileStore.class),
+                mock(PrdArtifactService.class),
+                mock(DomainKnowledgeQueryService.class),
+                mock(ObjectProvider.class));
+
+        assertThat(service.listVersions("progress"))
+                .extracting(com.exceptioncoder.toolbox.prdclarify.api.dto.ProgressVersionSummary::version)
+                .containsExactly(3, 2, 1);
+        assertThat(service.readVersionContent("progress", 1)).isEqualTo("version-one");
+        assertThat(service.readVersionContent("progress", 3)).isEqualTo("current");
+        assertThat(service.readVersionContent("progress", 4)).isEmpty();
+    }
+
+    @Test
+    void clarifyFacadeDelegatesEveryProgressOperation() throws Exception {
+        PrdProgressEvaluationService progressService = mock(PrdProgressEvaluationService.class);
+        SseEmitter emitter = mock(SseEmitter.class);
+        PrdClarifyService facade = new PrdClarifyService(
+                mock(AgentOneShotRunner.class),
+                mock(PrdSessionRepository.class),
+                mock(PrdFileStore.class),
+                mock(PrdArtifactService.class),
+                new ObjectMapper(),
+                mock(GraphifyQueryService.class),
+                mock(DomainKnowledgeQueryService.class),
+                mock(PrdImageInputResolver.class),
+                mock(ObjectProvider.class),
+                progressService);
+
+        facade.evaluateProgress("progress", "context", emitter);
+        facade.readProgressContent("progress");
+        facade.readProgressVersionContent("progress", 2);
+        facade.listProgressVersions("progress");
+
+        verify(progressService).evaluate("progress", "context", emitter);
+        verify(progressService).readContent("progress");
+        verify(progressService).readVersionContent("progress", 2);
+        verify(progressService).listVersions("progress");
     }
 
     private PrdSession session(Path devDoc) {
@@ -152,7 +218,7 @@ class PrdProgressEvaluationTest {
                 .build();
     }
 
-    private PrdClarifyService service(
+    private PrdProgressEvaluationService service(
             AgentOneShotRunner runner,
             PrdSessionRepository repo,
             PrdFileStore fileStore,
@@ -167,7 +233,7 @@ class PrdProgressEvaluationTest {
                         "v1", "progress system", "prompt-sha"));
         when(aiRunService.begin(any(), any(), any())).thenReturn(
                 new PrdAiRunService.RunHandle("progress-run", "input-sha", "v1"));
-        return new PrdClarifyService(
+        return new PrdProgressEvaluationService(
                 runner,
                 repo,
                 fileStore,
@@ -176,9 +242,7 @@ class PrdProgressEvaluationTest {
                 aiRunService,
                 mock(com.exceptioncoder.toolbox.prdclarify.delivery.DeliveryClaimLedgerService.class),
                 new ObjectMapper(),
-                mock(GraphifyQueryService.class),
                 domainKnowledge,
-                mock(PrdImageInputResolver.class),
                 resolverProvider);
     }
 }

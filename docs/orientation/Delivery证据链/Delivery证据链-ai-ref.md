@@ -21,12 +21,16 @@ flowchart TD
 | `delivery/DeliveryMetrics.java` | `DeliveryMetrics` | 评分规则 | 159 |
 | `api/dto/DeliveryOverviewView.java` | `DeliveryOverviewView` | API 投影 | 173 |
 | `api/PrdDeliveryController.java` | `PrdDeliveryController` | GET 入口 | 40 |
+| `service/PrdClarifyService.java` | `PrdClarifyService` | 进度 API 兼容门面 | 2005 |
+| `service/PrdProgressEvaluationService.java` | `PrdProgressEvaluationService` | 进度生成与版本维护 | 555 |
 
 ## 3. 方法索引
 
 | 方法 | 文件 | 行 | 入参 | 出参 | 场景 |
 |---|---|---:|---|---|---|
-| `evaluateProgress` | `PrdClarifyService.java` | 1615 | sessionId/context/emitter | SSE | 生成 |
+| `evaluateProgress` | `PrdClarifyService.java` | 1598 | sessionId/context/emitter | SSE | 委托 |
+| `evaluate` | `PrdProgressEvaluationService.java` | 84 | sessionId/context/emitter | SSE | 生成 |
+| `listVersions` | `PrdProgressEvaluationService.java` | 125 | sessionId | 版本摘要 | 读取 |
 | `parse` | `ProgressReportParser.java` | 31 | markdown | report | 解析 |
 | `project` | `DeliveryOverviewService.java` | 99 | session/warnings | projection | 投影 |
 | `codeProgress` | `DeliveryMetrics.java` | 22 | counts | percent | 代码分 |
@@ -35,7 +39,7 @@ flowchart TD
 ## 4. 调用链索引
 
 ```text
-生成: PrdClarifyController -> PrdClarifyService.evaluateProgress:1615 -> AgentOneShotRunner -> PrdArtifactService
+生成: PrdClarifyController -> PrdClarifyService.evaluateProgress:1598 -> PrdProgressEvaluationService.evaluate:84 -> AgentOneShotRunner -> PrdArtifactService
 读取: PrdDeliveryController.overview:31 -> DeliveryOverviewService.project:99 -> ProgressReportParser.parse:31 -> DeliveryMetrics
 ```
 

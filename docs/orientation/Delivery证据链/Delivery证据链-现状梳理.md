@@ -43,7 +43,8 @@ flowchart TD
 | Projection | `delivery/DeliveryOverviewService.java` | `DeliveryOverviewService` | 684 | 汇总报告、评分、风险 |
 | Parser | `delivery/ProgressReportParser.java` | `ProgressReportParser` | 318 | Markdown 转清单及证据字符串 |
 | Domain rule | `delivery/DeliveryMetrics.java` | `DeliveryMetrics` | 159 | 代码进度、整体进度、可信度和健康度 |
-| Generation | `service/PrdClarifyService.java` | `PrdClarifyService` | 2300+ | 调用 Agent 生成进度报告并写产物 |
+| Facade | `service/PrdClarifyService.java` | `PrdClarifyService` | 2005 | 保留进度 API 兼容委托，不承载进度规则 |
+| Generation | `service/PrdProgressEvaluationService.java` | `PrdProgressEvaluationService` | 555 | 调用 Agent、校验证据并维护报告产物与版本 |
 | DTO | `api/dto/DeliveryOverviewView.java` | `DeliveryOverviewView` | 173 | 交付看板协议 |
 | Frontend | `frontend/src/features/delivery-center/viewModel.ts` | 纯函数 | 82 | 重复计算 10/10/80 进度 |
 
@@ -51,8 +52,9 @@ flowchart TD
 
 | 方法 | 文件 | 行 | 场景 |
 |---|---|---:|---|
-| `evaluateProgress()` | `PrdClarifyService.java` | 1615 | Agent 生成报告 |
-| `validateProgressEvidenceStatus()` | `PrdClarifyService.java` | 1754 | 顶层证据标记门禁 |
+| `evaluateProgress()` | `PrdClarifyService.java` | 1598 | 兼容门面委托 |
+| `evaluate()` | `PrdProgressEvaluationService.java` | 84 | Agent 生成报告入口 |
+| `validateEvidenceStatus()` | `PrdProgressEvaluationService.java` | 322 | 顶层证据标记门禁 |
 | `parse()` | `ProgressReportParser.java` | 31 | Markdown 解析 |
 | `addItem()` | `ProgressReportParser.java` | 129 | 测试项排除和状态归类 |
 | `project()` | `DeliveryOverviewService.java` | 99 | 单需求评分投影 |
@@ -68,7 +70,8 @@ flowchart TD
 ```mermaid
 sequenceDiagram
     box rgb(217, 226, 246) PRD 应用层
-        participant PCS as PrdClarifyService
+        participant FACADE as PrdClarifyService
+        participant PCS as PrdProgressEvaluationService
         participant AGENT as AgentOneShotRunner
         participant ART as PrdArtifactService
     end
@@ -77,6 +80,7 @@ sequenceDiagram
         participant PARSER as ProgressReportParser
         participant METRICS as DeliveryMetrics
     end
+    FACADE->>PCS: 委托进度评估
     PCS->>AGENT: 只读项目工作目录生成 Markdown
     AGENT-->>PCS: 报告与证据标记
     PCS->>ART: 写 PROGRESS 产物
@@ -88,8 +92,8 @@ sequenceDiagram
 ```mermaid
 flowchart TD
     subgraph Generate["生成阶段"]
-        G1["PrdClarifyService.java:1640 组装 Prompt"] --> G2["Agent 读取源码"]
-        G2 --> G3["PrdClarifyService.java:1754 检查标记"]
+        G1["PrdProgressEvaluationService.java:224 组装 Prompt"] --> G2["Agent 读取源码"]
+        G2 --> G3["PrdProgressEvaluationService.java:322 检查标记"]
     end
     subgraph Projection["投影阶段"]
         P1["DeliveryOverviewService.java:115 读文件"] --> P2["ProgressReportParser.java:31 解析"]
@@ -104,7 +108,8 @@ flowchart LR
         A1["source_context"] --> A2["source_read"]
     end
     subgraph ApplicationLane["应用编排层"]
-        S1["evaluateProgress"] --> S2["validateProgressEvidenceStatus"]
+        S1["PrdClarifyService 委托"] --> S2["PrdProgressEvaluationService.evaluate"]
+        S2 --> S3["validateEvidenceStatus"]
     end
     subgraph DataLane["文件与投影层"]
         D1["PROGRESS 产物"] --> D2["parse"] --> D3["overallProgress"]
@@ -170,7 +175,7 @@ graph LR
 
 ## B1. 数据库与状态现状
 
-当前只有 `prd_session.progress_path/progress_generated_at/progress_history` 和 `prd_artifact(PROGRESS)`；没有 claim/evidence 账本，没有 verification run 表。
+当前已有 `prd_session.progress_path/progress_generated_at/progress_history`、`prd_artifact(PROGRESS)`、claim/evidence 账本和 verification run 表；进度生成由 focused service 统一写入这些投影。
 
 ---
 
@@ -178,9 +183,9 @@ graph LR
 
 | 场景 | `prd_session` | `prd_artifact` | claim 账本 | verification run |
 |---|---|---|---|---|
-| 生成进度报告 | U | I | - | - |
-| 读取交付概览 | S | 间接 | - | - |
-| 运行构建/测试 | - | - | - | - |
+| 生成进度报告 | U | I | I | - |
+| 读取交付概览 | S | 间接 | S | S |
+| 运行构建/测试 | - | - | - | I/U |
 
 ---
 

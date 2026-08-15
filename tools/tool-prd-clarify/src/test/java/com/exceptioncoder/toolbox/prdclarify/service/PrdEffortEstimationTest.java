@@ -60,10 +60,9 @@ class PrdEffortEstimationTest {
 
         PrdClarifyService service = new PrdClarifyService(
                 runner, repo, fileStore, mock(PrdArtifactService.class),
-                mock(PrdPromptCatalog.class), mock(PrdAiRunService.class),
-                mock(com.exceptioncoder.toolbox.prdclarify.delivery.DeliveryClaimLedgerService.class), mapper,
+                mapper,
                 mock(GraphifyQueryService.class), mock(DomainKnowledgeQueryService.class),
-                mock(PrdImageInputResolver.class), resolver);
+                mock(PrdImageInputResolver.class), resolver, mock(PrdProgressEvaluationService.class));
         service.estimateDevDocEffort("root", null, "codex");
 
         var json = org.mockito.ArgumentCaptor.forClass(String.class);
@@ -97,11 +96,9 @@ class PrdEffortEstimationTest {
         });
         PrdClarifyService service = new PrdClarifyService(
                 runner, repo, fileStore, mock(PrdArtifactService.class),
-                mock(PrdPromptCatalog.class), mock(PrdAiRunService.class),
-                mock(com.exceptioncoder.toolbox.prdclarify.delivery.DeliveryClaimLedgerService.class),
                 new ObjectMapper(),
                 mock(GraphifyQueryService.class), mock(DomainKnowledgeQueryService.class),
-                mock(PrdImageInputResolver.class), resolver);
+                mock(PrdImageInputResolver.class), resolver, mock(PrdProgressEvaluationService.class));
 
         long before = System.nanoTime();
         service.startEstimateDevDocEffort("prd-async", null, "codex");
