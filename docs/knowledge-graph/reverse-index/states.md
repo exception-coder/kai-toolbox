@@ -13,6 +13,28 @@
 
 新增或修改状态时，必须同步检查：领域枚举、仓储映射、核验器 `switch`、状态迁移文档和故障注入测试。
 
+## PrdAiRunStatus
+
+定义：`tools/tool-prd-clarify/src/main/java/com/exceptioncoder/toolbox/prdclarify/domain/PrdAiRunStatus.java:4`
+
+| 状态 | 写入点 | 读取或决策点 | 含义 | 新增态时是否需要补判断 |
+|---|---|---|---|---|
+| `RUNNING` | `PrdAiRunService.java:40` | `PrdAiRunRepository.java:43` 状态终结条件 | 已登记，模型输出尚未通过裁决 | 是，完成 SQL 必须明确可终结来源态 |
+| `SUCCEEDED` | `PrdAiRunService.java:46` | Repository 显式映射、审计查询 | 模型运行且输出通过调用方契约 | 是，统计和重放口径需同步 |
+| `FAILED` | `PrdAiRunService.java:51` | Repository 显式映射、失败诊断 | 运行异常或输出契约无效 | 是，失败统计与重试策略需同步 |
+
+状态只允许 `RUNNING -> SUCCEEDED/FAILED`，完成 SQL 使用 `WHERE status = 'RUNNING'` 保证首个终结结果胜出。
+
+## PrdPromptPurpose
+
+定义：`tools/tool-prd-clarify/src/main/java/com/exceptioncoder/toolbox/prdclarify/domain/PrdPromptPurpose.java:4`
+
+| 枚举值 | 写入点 | 读取或决策点 | 含义 | 新增值时是否需要补判断 |
+|---|---|---|---|---|
+| `DOC_CHANGE_ANALYZER` | `PrdAiRunService#begin` | `PrdPromptCatalog.java:20`、Analyzer | 文档变更第一阶段分析 | 是，Catalog 必须登记不可变资源 |
+| `DOC_CHANGE_VERIFIER` | `PrdAiRunService#begin` | `PrdPromptCatalog.java:22`、Verifier | 文档变更第二阶段复核 | 是，分析协议指纹必须纳入 |
+| `PROGRESS_EVALUATION` | `PrdAiRunService#begin` | `PrdPromptCatalog.java:24`、Progress | 进度报告源码核查 | 是，产物元数据和关联测试需同步 |
+
 ## LaunchIntentState
 
 定义：`toolbox-common/src/main/java/com/exceptioncoder/toolbox/common/launchintent/domain/LaunchIntentState.java:4`

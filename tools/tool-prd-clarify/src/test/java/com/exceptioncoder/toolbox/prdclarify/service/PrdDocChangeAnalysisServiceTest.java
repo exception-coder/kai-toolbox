@@ -41,6 +41,8 @@ class PrdDocChangeAnalysisServiceTest {
     private final PrdDocChangeAgentAnalyzer analyzer = mock(PrdDocChangeAgentAnalyzer.class);
     private final PrdDocChangeAgentVerifier verifier = mock(PrdDocChangeAgentVerifier.class);
     private final PrdDocChangeConfidencePolicy confidencePolicy = mock(PrdDocChangeConfidencePolicy.class);
+    private final PrdPromptCatalog promptCatalog = mock(PrdPromptCatalog.class);
+    private final PrdAiRunService aiRunService = mock(PrdAiRunService.class);
     private final PrdFileStore fileStore = mock(PrdFileStore.class);
     private PrdDocChangeAnalysisService service;
     private DevelopmentChangeContext context;
@@ -52,6 +54,7 @@ class PrdDocChangeAnalysisServiceTest {
     void setUp() throws Exception {
         service = new PrdDocChangeAnalysisService(sessionRepository, candidateRepository, baselineRepository,
                 providerHolder, evidenceBuilder, analyzer, verifier, confidencePolicy,
+                promptCatalog, aiRunService,
                 fileStore, new ObjectMapper());
         PrdSession session = PrdSession.builder()
                 .id("prd-1")
@@ -83,8 +86,11 @@ class PrdDocChangeAnalysisServiceTest {
         when(candidateRepository.findBySnapshot(any(), any(), any())).thenReturn(Optional.empty());
         when(fileStore.read("prd-1")).thenReturn("# PRD");
         when(evidenceBuilder.build(session, context, "# PRD", "", "[]", null)).thenReturn(bundle);
-        when(analyzer.analyze(bundle)).thenReturn(draft);
-        when(verifier.verify(bundle, draft)).thenReturn(verification);
+        when(promptCatalog.analysisProtocolFingerprint()).thenReturn("prompt-fingerprint");
+        when(analyzer.analyzeWithAudit(bundle)).thenReturn(
+                new PrdDocChangeAgentAnalyzer.AuditedAnalysis(draft, "analyzer-run"));
+        when(verifier.verifyWithAudit(bundle, draft)).thenReturn(
+                new PrdDocChangeAgentVerifier.AuditedVerification(verification, "verifier-run"));
         when(confidencePolicy.evaluate(bundle, draft, verification)).thenReturn(
                 new PrdDocChangeFinalAnalysis(
                         "TDD_ONLY", "调整接口实现", "产品行为不变\n复核：通过",
@@ -100,6 +106,8 @@ class PrdDocChangeAnalysisServiceTest {
         verify(candidateRepository).insert(captor.capture());
         verify(baselineRepository).saveCandidateSnapshot(captor.getValue().getId(),
                 context.repositories(), context.snapshotHash());
+        verify(aiRunService).bindCandidate(
+                List.of("analyzer-run", "verifier-run"), captor.getValue().getId());
         assertThat(result.getDecision()).isEqualTo("TDD_ONLY");
         assertThat(result.getConfidence()).isEqualTo(88);
         assertThat(result.getTddPatchPlanJson()).contains("API 接口设计");
@@ -111,7 +119,8 @@ class PrdDocChangeAnalysisServiceTest {
                 .id("candidate-1")
                 .prdSessionId("prd-1")
                 .devSessionId("dev-1")
-                .codeSnapshotHash(PrdDocChangeAnalysisService.ANALYSIS_PROTOCOL + ":snapshot")
+                .codeSnapshotHash(PrdDocChangeAnalysisService.ANALYSIS_PROTOCOL
+                        + ":prompt-fingerprint:snapshot")
                 .decision("NONE")
                 .aiDecision("NONE")
                 .summary("当前文档已覆盖新增说明")
@@ -122,7 +131,7 @@ class PrdDocChangeAnalysisServiceTest {
         PrdDocChangeCandidate result = service.analyze("prd-1");
 
         assertThat(result).isSameAs(existing);
-        verify(analyzer, never()).analyze(bundle);
+        verify(analyzer, never()).analyzeWithAudit(bundle);
         verify(candidateRepository, never()).insert(any());
         verify(baselineRepository, never()).saveCandidateSnapshot(any(), any(), any());
     }
@@ -147,7 +156,7 @@ class PrdDocChangeAnalysisServiceTest {
         assertThat(result.getId()).isNotEqualTo("legacy-candidate");
         assertThat(result.getCodeSnapshotHash())
                 .startsWith(PrdDocChangeAnalysisService.ANALYSIS_PROTOCOL + ":");
-        verify(analyzer).analyze(bundle);
+        verify(analyzer).analyzeWithAudit(bundle);
         verify(candidateRepository).insert(any());
     }
 

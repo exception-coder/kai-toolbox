@@ -5,8 +5,11 @@ import com.exceptioncoder.toolbox.llm.spi.LocalProjectResolver;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.DevDocVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.ProgressVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.QaPairRequest;
+import com.exceptioncoder.toolbox.prdclarify.domain.PrdArtifact;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdBusinessFields;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdArtifactType;
+import com.exceptioncoder.toolbox.prdclarify.domain.PrdPromptDefinition;
+import com.exceptioncoder.toolbox.prdclarify.domain.PrdPromptPurpose;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.domain.DocumentProfile;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
@@ -55,6 +58,8 @@ public class PrdClarifyService {
     private final PrdSessionRepository repo;
     private final PrdFileStore fileStore;
     private final PrdArtifactService artifactService;
+    private final PrdPromptCatalog promptCatalog;
+    private final PrdAiRunService aiRunService;
     private final ObjectMapper mapper;
     private final GraphifyQueryService graphifyQuery;
     private final DomainKnowledgeQueryService domainKnowledgeQuery;
@@ -79,6 +84,8 @@ public class PrdClarifyService {
                              PrdSessionRepository repo,
                              PrdFileStore fileStore,
                              PrdArtifactService artifactService,
+                             PrdPromptCatalog promptCatalog,
+                             PrdAiRunService aiRunService,
                              ObjectMapper mapper,
                              GraphifyQueryService graphifyQuery,
                              DomainKnowledgeQueryService domainKnowledgeQuery,
@@ -88,6 +95,8 @@ public class PrdClarifyService {
         this.repo = repo;
         this.fileStore = fileStore;
         this.artifactService = artifactService;
+        this.promptCatalog = promptCatalog;
+        this.aiRunService = aiRunService;
         this.mapper = mapper;
         this.graphifyQuery = graphifyQuery;
         this.domainKnowledgeQuery = domainKnowledgeQuery;
@@ -702,57 +711,6 @@ public class PrdClarifyService {
      * "平台文档管理事实来源、评估报告是可重复生成的派生产物"这个分工——报告本身按版本追加
      * 落盘（见 {@link #evaluateProgress}），不覆盖旧报告。
      */
-    private static final String PROGRESS_EVAL_SYSTEM = """
-            你是资深技术负责人，需要基于 PRD 和开发文档，核对代码库的实际实现进度，
-            产出一份大纲固定的进度评估报告。
-
-            评估依据（按优先级）：
-            1. 开发文档列出的改动范围/任务清单，是核对进度的基准——文档里每一项都要给出结论
-            2. 必须先调用 source_context，使用需求中的 URL、项目模块和完整问题执行 URL 路由定位与
-               Graphify 收敛；随后对候选文件调用 source_read，核对页面、接口、业务逻辑、数据访问和测试
-            3. 从源码发现新的类名、方法名或 SQL ID 后，再调用 source_context 反问图谱；只有候选证据仍
-               不足时，才允许在明确子目录调用 source_search，禁止从项目根目录搜索
-            4. Graphify 只用于结构导航，不能单独证明功能已实现；已完成、部分完成和未完成都必须以
-               source_read 读到的真实文件内容为依据
-            5. 若提供了【业务知识图谱查询结果】：核对业务规则/状态机是否与代码一致
-            6. 若提供了【补充上下文】（如"重点核对xxx"）：按其调整核对重点
-
-            证据保护：
-            - 成功读取与需求相关的源码后，在报告标题下输出系统指定的“已核查”证据标记
-            - source_context/source_read 不可用、未定位到相关源码或只得到公共库噪声时，输出系统指定的
-              “证据不足”标记；此时保留三个进度章节但不要添加任何清单项，在“文档与代码差异”中说明
-              待校准，禁止把证据不足判定为未完成或 0%
-
-            输出要求（严格执行，章节标题和顺序不变，用 {功能名称} 替换成需求标题）：
-
-            # {功能名称} 开发进度评估
-
-            ## 文档版本
-            简要说明本次评估基于的 PRD/开发文档现状（如"开发文档已是最新版本"或"PRD 有更新但
-            开发文档尚未同步"），不需要精确版本号。
-
-            ## 已完成
-            每项格式：
-            - [x] 功能点描述
-              - 证据：类名.方法名 / 文件路径（必须引用 source_read 实际读取过的文件）
-
-            ## 部分完成
-            每项格式：
-            - [~] 功能点描述
-              - 已实现：...
-              - 缺失：...
-
-            ## 未完成
-            每项格式：
-            - [ ] 功能点描述
-              - 开发文档要求：...
-              - 当前代码：经 source_read 核对后的实际现状
-
-            ## 文档与代码差异
-            用 Markdown 表格：| 需求 | 文档要求 | 当前代码 | 状态 |
-
-            绝不能编造不存在的类名、方法名或文件路径。直接输出 Markdown，不加代码块围栏，不加多余解释。
-            """;
 
     /** TDD 生成/更新前的多轮技术澄清——请求下一个必须由开发者明确的问题。 */
     public void askNextDevDocQuestion(String sessionId, int questionIndex,
@@ -1661,6 +1619,9 @@ public class PrdClarifyService {
         PrdSession sourceSession = resolveLatestEffortSource(requestedSession);
 
         Thread.ofVirtual().name("prd-progress-").start(() -> {
+            PrdAiRunService.RunHandle aiRun = null;
+            boolean aiRunFinished = false;
+            String progressContent = null;
             try {
                 String prdContent = fileStore.read(sourceSession.getId());
                 String devDocContent = readDevDocContent(sourceSession.getId());
@@ -1680,8 +1641,11 @@ public class PrdClarifyService {
                         sourceSession, prdContent, devDocContent, effortBaselineJson, extraContext, projectLocation);
                 StringBuilder full = new StringBuilder();
                 String engine = normalizeEngine(sourceSession.getEngine());
+                PrdPromptDefinition prompt = promptCatalog.get(PrdPromptPurpose.PROGRESS_EVALUATION);
+                aiRun = aiRunService.begin(prompt, userPrompt,
+                        new PrdAiRunService.RunContext(sourceSession.getId(), engine, sourceSession.getModel()));
                 AgentOneShotRunner.ExecutionRequest request = new AgentOneShotRunner.ExecutionRequest(
-                        progressEvalSystemPrompt(),
+                        progressEvalSystemPrompt(prompt),
                         userPrompt,
                         projectLocation.path(),
                         sourceSession.getModel(),
@@ -1694,18 +1658,31 @@ public class PrdClarifyService {
                     sendChunk(emitter, delta);
                 });
 
-                String progressContent = full.isEmpty() ? returnedContent : full.toString();
+                progressContent = full.isEmpty() ? returnedContent : full.toString();
                 validateProgressEvidenceStatus(progressContent);
+                aiRunService.succeed(aiRun, progressContent);
+                aiRunFinished = true;
                 java.nio.file.Path progressPath = fileStore.canonicalPathFor(sessionId, PrdArtifactType.PROGRESS);
                 backupProgressIfExists(progressPath);
-                artifactService.write(sessionId, PrdArtifactType.PROGRESS, progressContent,
-                        PrdArtifactService.ArtifactMetadata.empty());
+                PrdArtifact artifact = artifactService.write(
+                        sessionId, PrdArtifactType.PROGRESS, progressContent,
+                        new PrdArtifactService.ArtifactMetadata(aiRun.inputFingerprint(), prompt.version()));
+                if (artifact != null) {
+                    aiRunService.bindArtifact(aiRun.id(), artifact.id());
+                }
                 recordProgressHistory(sessionId, requestedSession.getProgressHistory(), extraContext);
                 log.info("[prd-clarify] 进度评估已保存 path={} sourceSessionId={}",
                         progressPath, sourceSession.getId());
 
                 sendDone(emitter);
             } catch (Exception e) {
+                if (aiRun != null && !aiRunFinished) {
+                    try {
+                        aiRunService.fail(aiRun, progressContent, e.getMessage());
+                    } catch (Exception auditError) {
+                        e.addSuppressed(auditError);
+                    }
+                }
                 log.warn("[prd-clarify] 进度评估失败 sessionId={}", sessionId, e);
                 sendError(emitter, e);
             }
@@ -1767,8 +1744,8 @@ public class PrdClarifyService {
     }
 
     /** 将代码证据状态常量注入评估协议。 */
-    private String progressEvalSystemPrompt() {
-        return PROGRESS_EVAL_SYSTEM
+    private String progressEvalSystemPrompt(PrdPromptDefinition prompt) {
+        return prompt.systemPrompt()
                 + "\n证据状态标记：\n- 已核查：`" + CODE_EVIDENCE_VERIFIED
                 + "`\n- 证据不足：`" + CODE_EVIDENCE_INSUFFICIENT + "`\n";
     }

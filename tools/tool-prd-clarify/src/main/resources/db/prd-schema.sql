@@ -138,6 +138,34 @@ CREATE INDEX IF NOT EXISTS idx_prd_artifact_latest
 CREATE INDEX IF NOT EXISTS idx_prd_artifact_state
     ON prd_artifact(state, updated_at);
 
+-- PRD AI Run 审计账本：只保存 Prompt/输入/输出哈希和非敏感运行元数据，不保存正文或鉴权信息。
+CREATE TABLE IF NOT EXISTS prd_ai_run (
+    id                  TEXT PRIMARY KEY,
+    session_id          TEXT,
+    purpose             TEXT NOT NULL,
+    prompt_version      TEXT NOT NULL,
+    prompt_sha256       TEXT NOT NULL,
+    input_fingerprint   TEXT NOT NULL,
+    engine              TEXT,
+    model               TEXT,
+    candidate_id        TEXT,
+    artifact_id         TEXT,
+    status              TEXT NOT NULL,
+    output_sha256       TEXT,
+    last_error          TEXT,
+    started_at          INTEGER NOT NULL,
+    finished_at         INTEGER,
+    created_at          INTEGER NOT NULL,
+    updated_at          INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_prd_ai_run_session_purpose
+    ON prd_ai_run(session_id, purpose, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_prd_ai_run_candidate
+    ON prd_ai_run(candidate_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_prd_ai_run_artifact
+    ON prd_ai_run(artifact_id, created_at DESC);
+
 -- Vibe Coding 文档变更候选：AI 只负责分析和登记，用户确认后仍复用现有 PRD/TDD 生成接口。
 -- decision 是用户最终采用的范围，ai_decision 保留模型原始建议，便于审计覆写。
 CREATE TABLE IF NOT EXISTS prd_doc_change_candidate (

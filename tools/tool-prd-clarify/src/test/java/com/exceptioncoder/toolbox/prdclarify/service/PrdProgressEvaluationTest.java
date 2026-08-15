@@ -159,11 +159,21 @@ class PrdProgressEvaluationTest {
             PrdArtifactService artifactService,
             DomainKnowledgeQueryService domainKnowledge,
             ObjectProvider<LocalProjectResolver> resolverProvider) {
+        PrdPromptCatalog promptCatalog = mock(PrdPromptCatalog.class);
+        PrdAiRunService aiRunService = mock(PrdAiRunService.class);
+        when(promptCatalog.get(com.exceptioncoder.toolbox.prdclarify.domain.PrdPromptPurpose.PROGRESS_EVALUATION))
+                .thenReturn(new com.exceptioncoder.toolbox.prdclarify.domain.PrdPromptDefinition(
+                        com.exceptioncoder.toolbox.prdclarify.domain.PrdPromptPurpose.PROGRESS_EVALUATION,
+                        "v1", "progress system", "prompt-sha"));
+        when(aiRunService.begin(any(), any(), any())).thenReturn(
+                new PrdAiRunService.RunHandle("progress-run", "input-sha", "v1"));
         return new PrdClarifyService(
                 runner,
                 repo,
                 fileStore,
                 artifactService,
+                promptCatalog,
+                aiRunService,
                 new ObjectMapper(),
                 mock(GraphifyQueryService.class),
                 domainKnowledge,

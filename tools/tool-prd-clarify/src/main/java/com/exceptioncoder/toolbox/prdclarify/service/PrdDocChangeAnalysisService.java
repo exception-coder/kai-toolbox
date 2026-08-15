@@ -47,6 +47,8 @@ public class PrdDocChangeAnalysisService {
     private final PrdDocChangeAgentAnalyzer analyzer;
     private final PrdDocChangeAgentVerifier verifier;
     private final PrdDocChangeConfidencePolicy confidencePolicy;
+    private final PrdPromptCatalog promptCatalog;
+    private final PrdAiRunService aiRunService;
     private final PrdFileStore fileStore;
     private final ObjectMapper mapper;
 
@@ -58,6 +60,8 @@ public class PrdDocChangeAnalysisService {
                                        PrdDocChangeAgentAnalyzer analyzer,
                                        PrdDocChangeAgentVerifier verifier,
                                        PrdDocChangeConfidencePolicy confidencePolicy,
+                                       PrdPromptCatalog promptCatalog,
+                                       PrdAiRunService aiRunService,
                                        PrdFileStore fileStore,
                                        ObjectMapper mapper) {
         this.sessionRepository = sessionRepository;
@@ -68,6 +72,8 @@ public class PrdDocChangeAnalysisService {
         this.analyzer = analyzer;
         this.verifier = verifier;
         this.confidencePolicy = confidencePolicy;
+        this.promptCatalog = promptCatalog;
+        this.aiRunService = aiRunService;
         this.fileStore = fileStore;
         this.mapper = mapper;
     }
@@ -78,7 +84,7 @@ public class PrdDocChangeAnalysisService {
         PrdDocChangeBaseline baseline = baselineRepository
                 .find(prdSessionId, session.getDevSessionId()).orElse(null);
         PrdDocChangeCandidate previous = candidateRepository.findLatestMeaningful(prdSessionId)
-                .filter(PrdDocChangeAnalysisService::usesCurrentAnalysisProtocol)
+                .filter(this::usesCurrentAnalysisProtocol)
                 .orElse(null);
         DevelopmentSyncPoint syncPoint = syncPoint(baseline);
         if (previous != null && previous.getConversationToSeq() > syncPoint.conversationSequence()) {
@@ -90,7 +96,7 @@ public class PrdDocChangeAnalysisService {
         String snapshotHash = snapshotHash(context, evidence, "[]");
         PrdDocChangeCandidate duplicate = candidateRepository
                 .findBySnapshot(prdSessionId, session.getDevSessionId(), snapshotHash)
-                .filter(PrdDocChangeAnalysisService::usesCurrentAnalysisProtocol)
+                .filter(this::usesCurrentAnalysisProtocol)
                 .orElse(null);
         if (duplicate != null && isMeaningful(duplicate)) {
             return duplicate;
@@ -109,12 +115,14 @@ public class PrdDocChangeAnalysisService {
                     causeDetail(analysis));
             saveLedger(duplicate.getId(), analysis.diffLedger(), null);
             baselineRepository.saveCandidateSnapshot(duplicate.getId(), context.repositories(), context.snapshotHash());
+            aiRunService.bindCandidate(prepared.runIds(), duplicate.getId());
             return requireCandidate(duplicate.getId());
         }
         long now = System.currentTimeMillis();
         PrdDocChangeCandidate candidate = toCandidate(session, context, prepared, now);
         candidateRepository.insert(candidate);
         baselineRepository.saveCandidateSnapshot(candidate.getId(), context.repositories(), context.snapshotHash());
+        aiRunService.bindCandidate(prepared.runIds(), candidate.getId());
         return candidate;
     }
 
@@ -179,6 +187,7 @@ public class PrdDocChangeAnalysisService {
                 causeDetail(analysis));
         saveLedger(candidateId, analysis.diffLedger(), null);
         baselineRepository.saveCandidateSnapshot(candidateId, context.repositories(), context.snapshotHash());
+        aiRunService.bindCandidate(prepared.runIds(), candidateId);
         return requireCandidate(candidateId);
     }
 
@@ -223,21 +232,30 @@ public class PrdDocChangeAnalysisService {
     }
 
     private PreparedAnalysis analyzeEvidence(PrdDocChangeEvidenceBundle evidence, String snapshotHash) {
-        PrdDocChangeAnalysisResult draft = analyzer.analyze(evidence);
-        PrdDocChangeVerificationResult verification = verifier.verify(evidence, draft);
-        PrdDocChangeFinalAnalysis analysis = confidencePolicy.evaluate(evidence, draft, verification);
-        return new PreparedAnalysis(analysis, snapshotHash);
+        PrdDocChangeAgentAnalyzer.AuditedAnalysis auditedDraft = analyzer.analyzeWithAudit(evidence);
+        PrdDocChangeAgentVerifier.AuditedVerification auditedVerification =
+                verifier.verifyWithAudit(evidence, auditedDraft.result());
+        PrdDocChangeFinalAnalysis analysis = confidencePolicy.evaluate(
+                evidence, auditedDraft.result(), auditedVerification.result());
+        return new PreparedAnalysis(analysis, snapshotHash,
+                java.util.stream.Stream.of(auditedDraft.runId(), auditedVerification.runId())
+                        .filter(java.util.Objects::nonNull)
+                        .toList());
     }
 
     private String snapshotHash(DevelopmentChangeContext context, PrdDocChangeEvidenceBundle evidence,
                                 String clarificationHistoryJson) {
-        return ANALYSIS_PROTOCOL + ":" + hash(context.snapshotHash() + "\n" + evidence.prdHash()
+        return currentAnalysisProtocol() + ":" + hash(context.snapshotHash() + "\n" + evidence.prdHash()
                 + "\n" + evidence.tddHash() + "\n" + clarificationHistoryJson);
     }
 
-    private static boolean usesCurrentAnalysisProtocol(PrdDocChangeCandidate candidate) {
+    private boolean usesCurrentAnalysisProtocol(PrdDocChangeCandidate candidate) {
         return candidate != null && candidate.getCodeSnapshotHash() != null
-                && candidate.getCodeSnapshotHash().startsWith(ANALYSIS_PROTOCOL + ":");
+                && candidate.getCodeSnapshotHash().startsWith(currentAnalysisProtocol() + ":");
+    }
+
+    private String currentAnalysisProtocol() {
+        return ANALYSIS_PROTOCOL + ":" + promptCatalog.analysisProtocolFingerprint();
     }
 
     private PrdDocChangeCandidate toCandidate(PrdSession session, DevelopmentChangeContext context,
@@ -582,6 +600,7 @@ public class PrdDocChangeAnalysisService {
         }
     }
 
-    private record PreparedAnalysis(PrdDocChangeFinalAnalysis analysis, String snapshotHash) {
+    private record PreparedAnalysis(PrdDocChangeFinalAnalysis analysis, String snapshotHash,
+                                    List<String> runIds) {
     }
 }

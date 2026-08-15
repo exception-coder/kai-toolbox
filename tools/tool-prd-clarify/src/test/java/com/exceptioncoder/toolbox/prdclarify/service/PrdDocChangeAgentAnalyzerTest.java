@@ -2,6 +2,8 @@ package com.exceptioncoder.toolbox.prdclarify.service;
 
 import com.exceptioncoder.toolbox.llm.spi.AgentOneShotRunner;
 import com.exceptioncoder.toolbox.llm.spi.DevelopmentChangeContextProvider.AnalysisExecutionProfile;
+import com.exceptioncoder.toolbox.prdclarify.domain.PrdPromptDefinition;
+import com.exceptioncoder.toolbox.prdclarify.domain.PrdPromptPurpose;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -18,7 +20,7 @@ class PrdDocChangeAgentAnalyzerTest {
     @Test
     void reusesDevelopmentSessionExecutionProfileWithoutExposingTools() {
         AgentOneShotRunner runner = mock(AgentOneShotRunner.class);
-        PrdDocChangeAgentAnalyzer analyzer = new PrdDocChangeAgentAnalyzer(runner, new ObjectMapper());
+        PrdDocChangeAgentAnalyzer analyzer = analyzer(runner);
         AnalysisExecutionProfile profile = new AnalysisExecutionProfile(
                 "D:/work/project", "codex", "gpt-5.6", "xhigh", "fast",
                 "https://gateway.example/v1", "secret", "D:/codex-home", "gateway");
@@ -60,7 +62,7 @@ class PrdDocChangeAgentAnalyzerTest {
     @Test
     void parsesAllDecisionsAndFallsBackOnInvalidJson() {
         AgentOneShotRunner runner = mock(AgentOneShotRunner.class);
-        PrdDocChangeAgentAnalyzer analyzer = new PrdDocChangeAgentAnalyzer(runner, new ObjectMapper());
+        PrdDocChangeAgentAnalyzer analyzer = analyzer(runner);
         PrdDocChangeEvidenceBundle bundle = bundle();
         for (String decision : List.of("NONE", "PRD_ONLY", "TDD_ONLY", "BOTH", "UNCERTAIN")) {
             when(runner.runOnce(org.mockito.ArgumentMatchers.any())).thenReturn("""
@@ -84,5 +86,17 @@ class PrdDocChangeAgentAnalyzerTest {
                 new AnalysisExecutionProfile(
                         "D:/work", "claude", null, null, null,
                         null, null, null, "official"));
+    }
+
+    private PrdDocChangeAgentAnalyzer analyzer(AgentOneShotRunner runner) {
+        PrdPromptCatalog promptCatalog = mock(PrdPromptCatalog.class);
+        PrdAiRunService aiRunService = mock(PrdAiRunService.class);
+        when(promptCatalog.get(PrdPromptPurpose.DOC_CHANGE_ANALYZER)).thenReturn(
+                new PrdPromptDefinition(PrdPromptPurpose.DOC_CHANGE_ANALYZER,
+                        "v3-plain-questions", "system prompt", "prompt-sha"));
+        when(aiRunService.begin(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any())).thenReturn(
+                new PrdAiRunService.RunHandle("run-1", "input-sha", "v3-plain-questions"));
+        return new PrdDocChangeAgentAnalyzer(runner, new ObjectMapper(), promptCatalog, aiRunService);
     }
 }

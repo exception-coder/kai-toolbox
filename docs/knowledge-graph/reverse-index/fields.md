@@ -22,6 +22,29 @@
 
 修改字段定义时，必须同步检查 DDL、`PrdArtifact`、`PrdArtifactRepository` 的显式列映射、写入服务、核验器和测试建表 SQL。
 
+## prd_ai_run
+
+定义：`tools/tool-prd-clarify/src/main/resources/db/prd-schema.sql:142`
+
+| 字段 | 主要写入点 | 主要读取或决策点 |
+|---|---|---|
+| `id` | `PrdAiRunService#begin` 生成 UUID | Repository 状态终结、候选/产物绑定 |
+| `session_id` | Progress 写源会话；Analyzer/Verifier 通过候选关联 | 按会话与 purpose 查询运行历史 |
+| `purpose` | `PrdPromptDefinition.purpose` | Prompt 类型统计与历史重放选择 |
+| `prompt_version` | `PrdPromptCatalog` 不可变注册项 | Prompt 升版审计与产物复现 |
+| `prompt_sha256` | Catalog 对实际 UTF-8 资源计算 | 识别同版本内容漂移 |
+| `input_fingerprint` | `PrdAiRunService#begin` 对最终 user prompt 计算 | 输入相同度核验；不暴露原文 |
+| `engine`、`model` | 非敏感执行配置 | 运行环境审计 |
+| `candidate_id` | `PrdDocChangeAnalysisService` 保存候选后补写 | 查询 Analyzer/Verifier 两阶段运行 |
+| `artifact_id` | Progress 产物 READY 后补写 | 查询产物对应运行 |
+| `status` | begin 写 `RUNNING`；succeed/fail 终结 | 运行成功率、失败诊断 |
+| `output_sha256` | 终结时对模型输出计算 | 输出一致性核验；不保存正文 |
+| `last_error` | 失败时写入最多 500 字摘要 | 运维诊断，不得包含鉴权信息 |
+| `started_at`、`finished_at` | 运行生命周期 | 耗时与未终结运行识别 |
+| `created_at`、`updated_at` | 插入及状态/关联更新 | 稳定排序与审计 |
+
+修改字段时必须同步 DDL、`PrdAiRun`、Repository 显式列映射、生命周期服务、Prompt/输入/输出隐私约束和临时 SQLite 测试。
+
 ## platform_launch_intent
 
 定义：`toolbox-common/src/main/resources/db/launch-intent-schema.sql:1`

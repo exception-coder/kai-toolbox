@@ -120,6 +120,8 @@ class PrdTitleSuggestionTest {
                 mock(PrdSessionRepository.class),
                 mock(PrdFileStore.class),
                 mock(PrdArtifactService.class),
+                mock(PrdPromptCatalog.class),
+                mock(PrdAiRunService.class),
                 new ObjectMapper(),
                 mock(GraphifyQueryService.class),
                 mock(DomainKnowledgeQueryService.class),

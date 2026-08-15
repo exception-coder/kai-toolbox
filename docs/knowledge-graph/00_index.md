@@ -6,6 +6,7 @@
 - [LaunchIntent 跨页面交接](scenarios/launch-intent.md)
 - [需求类型解析与同步](scenarios/requirement-type-resolution.md)
 - [ReqPool 洞察校验与原子提交](scenarios/reqpool-insight-write.md)
+- [PRD Prompt 版本与 AI Run 审计](scenarios/prd-ai-run.md)
 
 ## 反向索引
 
