@@ -67,8 +67,8 @@ public class ClaudeChatService {
     private final SessionProjectDirectoryService sessionProjectDirectories;
     private final QueuedChatMessageService queuedMessages;
     private final SessionRuntimeStateService runtimeStates;
-    private final ObjectMapper mapper;
     private final EngineCatalogService engineCatalog;
+    private final ObjectMapper mapper;
     private final AgentTelemetry telemetry;
     private final List<AgentRunMetadataProvider> metadataProviders;
     private final List<AgentRunCompletionListener> completionListeners;
@@ -112,9 +112,9 @@ public class ClaudeChatService {
                              SessionProjectDirectoryService sessionProjectDirectories,
                              QueuedChatMessageService queuedMessages,
                              SessionRuntimeStateService runtimeStates,
+                             EngineCatalogService engineCatalog,
                              ObjectMapper mapper,
                              AgentTelemetry telemetry,
-                             EngineCatalogService engineCatalog,
                              List<AgentRunMetadataProvider> metadataProviders,
                              List<AgentRunCompletionListener> completionListeners) {
         this.props = props;
@@ -132,10 +132,10 @@ public class ClaudeChatService {
         this.sessionProjectDirectories = sessionProjectDirectories;
         this.queuedMessages = queuedMessages;
         this.runtimeStates = runtimeStates;
+        this.engineCatalog = engineCatalog;
         this.mapper = mapper;
         this.telemetry = telemetry;
         this.metadataProviders = List.copyOf(metadataProviders);
-        this.engineCatalog = engineCatalog;
         this.completionListeners = List.copyOf(completionListeners);
     }
 
@@ -169,13 +169,13 @@ public class ClaudeChatService {
                 ? System.getProperty("user.home") : open.cwd().trim();
 
         String engine = normalizeEngine(open.engine());
-        if (consultReadonly && !"claude".equals(engine) && !"codex".equals(engine)) {
-            sendError(ws, 0, "ENGINE_UNSUPPORTED", "业务咨询仅支持 Claude Code 或 Codex 引擎");
-            return;
         if (!engineCatalog.selectable(engine)) {
             sendError(ws, 0, "ENGINE_UNAVAILABLE", "DeepSeek Harness 尚未通过 Runtime 握手，请刷新引擎目录后重试");
             return;
         }
+        if (consultReadonly && !"claude".equals(engine) && !"codex".equals(engine)) {
+            sendError(ws, 0, "ENGINE_UNSUPPORTED", "业务咨询仅支持 Claude Code 或 Codex 引擎");
+            return;
         }
         // 第三方网关对 Claude / Codex / Gemini 引擎生效（Claude→Anthropic 兼容、Codex→OpenAI 兼容、
         // Gemini→Google 兼容，各走各的协议端点）；opencode 自管 provider，忽略网关参数。
@@ -245,10 +245,10 @@ public class ClaudeChatService {
             // 后端重启过 → 内存会话已清空；若 DB 仍有该会话，自动从持久化记录 resume 恢复，免去用户手动重开
             ClaudeChatSession db = repo.findById(attach.sessionId()).orElse(null);
             if (db != null && ensureSidecar(ws)) {
+                boolean engineSelectable = engineCatalog.selectable(normalizeEngine(db.getEngine()));
                 // computeIfAbsent 原子去重：并发 attach 同一会话时 lambda 只跑一次，
                 // 只有真正新建 ctx 的那条线程才 resume（否则两条都 resume → sidecar 重复续跑）
                 boolean[] created = {false};
-                boolean engineSelectable = engineCatalog.selectable(normalizeEngine(db.getEngine()));
                 SessionCtx restored = sessions.computeIfAbsent(db.getId(), id -> {
                     created[0] = true;
                     SessionCtx c = new SessionCtx(id, db.getCwd());
@@ -276,13 +276,13 @@ public class ClaudeChatService {
                 }
                 // Ready 只发给当前这条连接（其它已在看的连接不需要重复）
                 writeTo(ws, ready(restored));
-                pushGatewayModels(restored); // 重连恢复网关会话：重发网关模型目录
-                return;
-            }
                 if (!engineSelectable) {
                     writeTo(ws, new ServerMessage.Error(0, "ENGINE_UNAVAILABLE",
                             "该会话使用的 DeepSeek Harness 当前未通过 Runtime 握手；历史仍可查看，恢复运行前请重新检测引擎"));
                 }
+                pushGatewayModels(restored); // 重连恢复网关会话：重发网关模型目录
+                return;
+            }
             sendError(ws, 0, "SESSION_NOT_FOUND", "会话不存在或已结束，请切换或新建");
             return;
         }
@@ -319,10 +319,10 @@ public class ClaudeChatService {
         restoreModelOptions(ctx, db);
         loadEngineSessions(ctx, db.getEngineSessions());
         bindViewer(ws, ctx);
+        boolean engineSelectable = engineCatalog.selectable(ctx.engine);
         // 只更新 lastSeenAt，保留会话真实状态：若该会话仍有在跑的一轮（ctx 内存中为 RUNNING），
         // 切回/刷新恢复时不能把 DB 状态抹成 IDLE，否则会话列表与前端 running 判定都会误判为「空闲」。
         repo.touch(db.getId(), ctx.status, System.currentTimeMillis());
-        boolean engineSelectable = engineCatalog.selectable(ctx.engine);
         if (engineSelectable) {
             sidecar.resumeSession(db.getId(), db.getSdkSessionId(), db.getCwd(), ctx.engine, ctx.apiBaseUrl,
                     ctx.authToken, ctx.codexHome, ctx.mode, ctx.autoApprove, ctx.currentModel,
@@ -330,13 +330,13 @@ public class ClaudeChatService {
         }
         // 历史消息由前端按需读 SDK transcript；这里只发一个 Ready 表示已就绪
         sendToBrowser(ctx, seq -> ready(ctx, seq));
-        // 该会话若有未决权限/提问请求，随切换补发一次：不然只有 attach（断线重连）路径会重投，
-        // 从跨会话横幅点「去确认」走的是这条 switchSession，之前收不到，弹窗切过去后"看不到题面"。
-        if (ctx.pendingRequest != null) writeTo(ws, ctx.pendingRequest);
         if (!engineSelectable) {
             sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
                     "该会话使用的 DeepSeek Harness 当前未通过 Runtime 握手；历史仍可查看，恢复运行前请重新检测引擎"));
         }
+        // 该会话若有未决权限/提问请求，随切换补发一次：不然只有 attach（断线重连）路径会重投，
+        // 从跨会话横幅点「去确认」走的是这条 switchSession，之前收不到，弹窗切过去后"看不到题面"。
+        if (ctx.pendingRequest != null) writeTo(ws, ctx.pendingRequest);
         pushGatewayModels(ctx); // 切到网关会话：重发网关模型目录，命令菜单可选/切
     }
 
@@ -362,13 +362,13 @@ public class ClaudeChatService {
         String sessionId = UUID.randomUUID().toString();
         long now = System.currentTimeMillis();
         String engine = normalizeEngine(source.getEngine());
-        String codexHome = "codex".equals(engine)
-                ? SessionExecutionPolicy.resolveCodexHome(engine, source.getApiBaseUrl(), msg.codexHome())
-                : source.getCodexHome();
         if (!engineCatalog.selectable(engine)) {
             sendError(ws, 0, "ENGINE_UNAVAILABLE", "DeepSeek Harness 尚未通过 Runtime 握手，不能复制为可运行会话");
             return;
         }
+        String codexHome = "codex".equals(engine)
+                ? SessionExecutionPolicy.resolveCodexHome(engine, source.getApiBaseUrl(), msg.codexHome())
+                : source.getCodexHome();
         String title = duplicateTitle(source.getTitle());
         String reasoningEffort = normalizeCodexReasoningEffort(source.getCodexReasoningEffort());
         String speed = normalizeCodexSpeed(source.getCodexSpeed());
@@ -471,14 +471,14 @@ public class ClaudeChatService {
         }
         if (!canBind(ws, ctx.executionPolicy)) return;
         if (!ensureSidecar(ws)) return;
-
-        ClaudeChatSession db = repo.findById(ctx.sessionId).orElse(null);
-        if (db != null) {
         if (!engineCatalog.selectable(ctx.engine)) {
             sendToBrowser(ctx, seq -> new ServerMessage.Error(seq, "ENGINE_UNAVAILABLE",
                     "DeepSeek Harness 尚未通过 Runtime 握手，当前会话不能恢复运行"));
             return;
         }
+
+        ClaudeChatSession db = repo.findById(ctx.sessionId).orElse(null);
+        if (db != null) {
             restoreModelOptions(ctx, db);
             if (ctx.sdkSessionId == null || ctx.sdkSessionId.isBlank()) {
                 ctx.sdkSessionId = db.getSdkSessionId();
@@ -774,6 +774,10 @@ public class ClaudeChatService {
         }
         if (rejectReviewMutation(ws, ctx)) return;
         String engine = normalizeEngine(msg.engine());
+        if (!engineCatalog.selectable(engine)) {
+            sendError(ws, 0, "ENGINE_UNAVAILABLE", "DeepSeek Harness 尚未通过 Runtime 握手，请刷新引擎目录后重试");
+            return;
+        }
         if (isConsultReadonly(ctx) && !"claude".equals(engine) && !"codex".equals(engine)) {
             sendError(ws, 0, "ENGINE_UNSUPPORTED", "业务咨询仅支持 Claude Code 或 Codex 引擎");
             return;
@@ -795,10 +799,6 @@ public class ClaudeChatService {
 
     /**
      * 会话内切服务商（官方 ↔ 第三方网关，或两网关互切）：同一会话 id 与 sdkSessionId 不变，沿用原生会话续跑
-        if (!engineCatalog.selectable(engine)) {
-            sendError(ws, 0, "ENGINE_UNAVAILABLE", "DeepSeek Harness 尚未通过 Runtime 握手，请刷新引擎目录后重试");
-            return;
-        }
      * （保留上下文）。更新 ctx + DB + 透传 sidecar（下一轮生效），并刷新模型目录（网关→拉其 /v1/models，
      * 官方→清空让 sidecar 的 supportedModels 重新接管），最后重发 Ready 让多端同步 provider 标识。
      */
@@ -1165,6 +1165,7 @@ public class ClaudeChatService {
                     node.path("title").asText("Codex 活动"),
                     node.path("detail").asText(null),
                     asObject(node.get("data"))));
+            case "engineEvent" -> forwardEngineEvent(ctx, node);
             case "interruptAck" -> onInterruptAck(ctx, node);
             case "turnState" -> onTurnState(ctx, node);
             case "result" -> onResult(ctx, node);
@@ -1186,32 +1187,10 @@ public class ClaudeChatService {
                     dispatchNextQueuedMessage(ctx);
                 }
             }
-            case "engineEvent" -> forwardEngineEvent(ctx, node);
             default -> log.debug("[claude-chat] 未知 sidecar 事件 type={}", type);
         }
     }
 
-    private void onResult(SessionCtx ctx, JsonNode node) {
-        String turnId = node.path("turnId").asText(null);
-        synchronized (ctx) {
-            if (ctx.status != SessionStatus.RUNNING || !turnLifecycle.complete(ctx.sessionId, turnId)) {
-                log.warn("[claude-chat] 忽略重复或过期终态 session={} turn={} status={}",
-                        ctx.sessionId, turnId, ctx.status);
-                return;
-            }
-            runtimeStates.observeSidecarTerminal(ctx.sessionId, ctx.backgroundTasks.size());
-            completeTurn(ctx, asMap(node.get("usage")), node.path("stopReason").asText("end_turn"),
-                    node.path("traceId").asText(null), queueReleaseAllowed(node));
-        }
-    }
-
-    private void completeTurn(SessionCtx ctx, Map<String, Object> usage, String stopReason, String traceId,
-                              boolean queueReleaseSafe) {
-        ctx.status = SessionStatus.IDLE;
-        ctx.pendingRequest = null; // 本轮结束，未决请求（含超时被拒）一并失效
-        ctx.queueReleaseReady = queueReleaseSafe;
-        broadcastPendingSessions();
-        repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
     private void forwardEngineEvent(SessionCtx ctx, JsonNode node) {
         JsonNode event = node.path("engineEvent");
         int protocolVersion = event.path("protocolVersion").asInt(0);
@@ -1239,6 +1218,27 @@ public class ClaudeChatService {
                 asMap(event.get("payload"))));
     }
 
+    private void onResult(SessionCtx ctx, JsonNode node) {
+        String turnId = node.path("turnId").asText(null);
+        synchronized (ctx) {
+            if (ctx.status != SessionStatus.RUNNING || !turnLifecycle.complete(ctx.sessionId, turnId)) {
+                log.warn("[claude-chat] 忽略重复或过期终态 session={} turn={} status={}",
+                        ctx.sessionId, turnId, ctx.status);
+                return;
+            }
+            runtimeStates.observeSidecarTerminal(ctx.sessionId, ctx.backgroundTasks.size());
+            completeTurn(ctx, asMap(node.get("usage")), node.path("stopReason").asText("end_turn"),
+                    node.path("traceId").asText(null), queueReleaseAllowed(node));
+        }
+    }
+
+    private void completeTurn(SessionCtx ctx, Map<String, Object> usage, String stopReason, String traceId,
+                              boolean queueReleaseSafe) {
+        ctx.status = SessionStatus.IDLE;
+        ctx.pendingRequest = null; // 本轮结束，未决请求（含超时被拒）一并失效
+        ctx.queueReleaseReady = queueReleaseSafe;
+        broadcastPendingSessions();
+        repo.touch(ctx.sessionId, SessionStatus.IDLE, System.currentTimeMillis());
         observeRuntimeState(ctx);
         AgentSpan span = activeTurnSpans.remove(ctx.sessionId);
         AgentRunMetadata metadata = activeTurnMetadata.remove(ctx.sessionId);
@@ -1556,6 +1556,11 @@ public class ClaudeChatService {
         return true;
     }
 
+    /** DeepSeek Harness 以 Forge sessionId 作为 durable session key，不依赖 Claude/Codex 原生句柄。 */
+    private static boolean isDurableByForgeSessionId(String engine) {
+        return "deepseekHarness".equals(engine);
+    }
+
     /** 空白串归一为 null，避免把空网关地址当成有效配置。 */
     private static String blankToNull(String s) {
         return s == null || s.isBlank() ? null : s.trim();
@@ -1586,11 +1591,6 @@ public class ClaudeChatService {
         activeTurnSpans.clear();
         activeTurnMetadata.clear();
     }
-    /** DeepSeek Harness 以 Forge sessionId 作为 durable session key，不依赖 Claude/Codex 原生句柄。 */
-    private static boolean isDurableByForgeSessionId(String engine) {
-        return "deepseekHarness".equals(engine);
-    }
-
 
     private void notifyCompleted(String runtimeSessionId, AgentRunMetadata metadata, String traceId) {
         if (metadata == null || traceId == null || traceId.isBlank()) {

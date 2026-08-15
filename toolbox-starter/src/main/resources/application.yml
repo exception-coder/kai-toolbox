@@ -481,6 +481,17 @@ toolbox:
     # 实测经常超过 5 分钟。调大到 20 分钟；需求分诊/工时评估/进度评估等短任务也受益
     # （无副作用，超时只是 future.get 等待上限，正常几秒就返回的调用不会因为调大这个值而变慢）。
     agent-one-shot-timeout-ms: 1200000  # 20 分钟
+    # DeepSeek Harness 仍处于 Developer Preview：默认关闭。开启后也只有 Sidecar 使用锁定 SDK
+    # 与下方 Runtime 完成身份握手，前端才会出现 DeepSeek Harness 选项。
+    deepseek-harness:
+      enabled: false
+      command: ""           # 官方 dsh-jsonrpc-agent / Runtime 可执行命令；不通过 Shell 拼接
+      args: []               # argv 数组，例如 ["path/to/runtime-entry.js", "path/to/cordis.yml"]
+      provider: deepseek-official
+      model: deepseek-v4-flash
+      max-tokens: 49152
+      handshake-timeout-ms: 15000
+      turn-timeout-ms: 1800000
     # 新建 Claude 会话时「工作目录下拉」的扫描配置。仅扫各 root 的一级子目录。
     # roots 为空 = 下拉为空，仍可手填 cwd。
     workspace:
@@ -513,17 +524,6 @@ toolbox:
       dir: node-services/undetected-browser
       auto-start: true       # 由 Java 自动拉起 sidecar 进程
       startup-timeout-ms: 30000
-    # DeepSeek Harness 仍处于 Developer Preview：默认关闭。开启后也只有 Sidecar 使用锁定 SDK
-    # 与下方 Runtime 完成身份握手，前端才会出现 DeepSeek Harness 选项。
-    deepseek-harness:
-      enabled: false
-      command: ""           # 官方 dsh-jsonrpc-agent / Runtime 可执行命令；不通过 Shell 拼接
-      args: []               # argv 数组，例如 ["path/to/runtime-entry.js", "path/to/cordis.yml"]
-      provider: deepseek-official
-      model: deepseek-v4-flash
-      max-tokens: 49152
-      handshake-timeout-ms: 15000
-      turn-timeout-ms: 1800000
     # BOSS 直聘风控码拦截器（ctx.route + route.fetch 改写 JSON code）。默认 false：它对每个 XHR 做
     # 服务端重放，经代理对 zhipin 域易超时/失败，曾引发 navigate 崩溃 / 卡加载 / 渲染进程 OOM 白屏；
     # 未触发风控时无收益。仅在确认被风控弹回（code 31/32/35/36/37/5012）时再设 true。
