@@ -110,6 +110,7 @@ PrdClarifyService（编排器，目标 <800 行）
     ├── PrdClarificationQuestionService（已有，收编澄清提问逻辑）
     ├── PrdDocumentGenerationService（已有，收编 PRD 生成）
     ├── PrdDevDocumentService（已完成，TDD 生成 + 历史 + 文件版本）
+    ├── PrdDevDocumentClarificationService（已完成，TDD 技术澄清 + 输出裁决）
     ├── PrdAnswerProcessingService（已有，收编回答处理）
     ├── PrdEffortEstimationService（已完成，工时评估 + JSON 修复；旧服务保留兼容委托）
     ├── PrdRequirementSplitService（已完成，需求拆分预览 + 子需求采纳；旧服务保留兼容委托）
@@ -167,6 +168,7 @@ export const handoff = {
    - 修订块已迁至 `PrdDocRevisionService`：服务独立负责修订节点复制、旧原地覆盖恢复、备份版本选择和根节点工时评估失效；`PrdClarifyService` 保留两个兼容委托，既有后台候选应用调用链不变。
    - 澄清提问与回答的已有协作者（`PrdClarificationQuestionService`/`PrdAnswerProcessingService`）若仍有内联重复逻辑，一并归位。
    - TDD 文档块已迁至 `PrdDevDocumentService`：服务独立负责生成编排、SSE 生命周期、问答草稿、历史记录、覆盖备份、当前/历史版本读取和手工保存；`PrdClarifyService` 的 5 个公开入口仅保留兼容委托，Controller/API 与后台候选应用链路不变。
+   - TDD 技术澄清块已迁至 `PrdDevDocumentClarificationService`：服务独立负责渐进/批量 Prompt、PRD/TDD 与知识上下文拼接、Agent 流、SSE 断线策略、批量 JSON 校验和工作状态写入；`PrdClarifyService` 的 2 个公开入口仅保留兼容委托。
    - PRD 文档相关（`generate`/`backupPrdIfExists`）继续由 `PrdClarifyService` 编排、`PrdDocumentGenerationService` 负责 Prompt 与 Agent 流，下一小步再下推，避免和 TDD 迁移混在同一提交。
 2. `PrdClarifyController.java`（716 行）：仅保留参数校验 + 调 service；任何 20 行以上的业务拼接（如 `buildQuestionsJson` 调用链、`AnswerDistribution` 组装）下推。
 3. 拆分顺序：先搬"纯私有方法组"（无跨状态依赖）→ 再搬"整段公开方法"→ 最后瘦编排器。每搬一组跑 `mvn -pl tools/tool-prd-clarify -am test`。

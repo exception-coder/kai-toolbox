@@ -142,7 +142,8 @@ class PrdEffortEstimationTest {
                 mock(PrdArtifactService.class), new ObjectMapper(), mock(GraphifyQueryService.class),
                 mock(DomainKnowledgeQueryService.class), mock(PrdImageInputResolver.class),
                 effortService, mock(PrdRequirementSplitService.class), mock(PrdProgressEvaluationService.class),
-                mock(PrdDocRevisionService.class), mock(PrdDevDocumentService.class));
+                mock(PrdDocRevisionService.class), mock(PrdDevDocumentService.class),
+                mock(PrdDevDocumentClarificationService.class));
 
         assertThat(facade.estimateDevDocEffort("effort", "context")).isSameAs(expected);
         assertThat(facade.estimateDevDocEffort("effort", "context", "codex")).isSameAs(expected);

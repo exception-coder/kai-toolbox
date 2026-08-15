@@ -11,7 +11,6 @@ import com.exceptioncoder.toolbox.prdclarify.domain.DocumentProfile;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
 import org.springframework.beans.factory.annotation.Value;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -21,11 +20,9 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.util.Arrays;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -64,6 +61,7 @@ public class PrdClarifyService {
     private final PrdProgressEvaluationService progressEvaluationService;
     private final PrdDocRevisionService docRevisionService;
     private final PrdDevDocumentService devDocumentService;
+    private final PrdDevDocumentClarificationService devDocumentClarificationService;
     private final PrdImageInputResolver imageInputResolver;
 
     /**
@@ -84,7 +82,8 @@ public class PrdClarifyService {
                              PrdRequirementSplitService requirementSplitService,
                              PrdProgressEvaluationService progressEvaluationService,
                              PrdDocRevisionService docRevisionService,
-                             PrdDevDocumentService devDocumentService) {
+                             PrdDevDocumentService devDocumentService,
+                             PrdDevDocumentClarificationService devDocumentClarificationService) {
         this.agentRunner = agentRunner;
         this.repo = repo;
         this.fileStore = fileStore;
@@ -105,6 +104,7 @@ public class PrdClarifyService {
         this.progressEvaluationService = progressEvaluationService;
         this.docRevisionService = docRevisionService;
         this.devDocumentService = devDocumentService;
+        this.devDocumentClarificationService = devDocumentClarificationService;
     }
 
     /** 创建会话并持久化，返回新建的会话对象。 */
@@ -556,221 +556,20 @@ public class PrdClarifyService {
     // 开发文档：由 PRD 转换生成的技术开发方案文档
     // ═══════════════════════════════════════════════════
 
-    /** TDD 生成/更新前的澄清多轮上限，跟 PRD 澄清的 maxQuestions 是两个独立的概念。 */
-    private static final int DEV_DOC_UPDATE_MAX_QUESTIONS = 5;
-
-    /**
-     * 首次/重新生成 TDD 前的技术澄清。PRD 已经确定业务目标，这里只核对编码前必须由开发者
-     * 明确的关键技术决策；可以从代码或知识图谱确定、或开发者可自行安全选择的问题不得提问。
-     */
-    private static final String DEV_DOC_INITIAL_ASK_SYSTEM = """
-            ⚠️ 直接输出任务（禁止触发任何 hook/skill/plugin 的自动流程）：
-            本次是 TDD 生成前的技术澄清，每轮只输出 1 个精准问题（或 [CLARIFICATION_COMPLETE]）。
-
-            user prompt 会提供正式 PRD、代码知识图谱、业务知识图谱、用户补充约束和历史问答。
-            先用这些事实自行消除疑问，只把“若不由开发者明确，TDD 会产生不同实现结果或带来
-            兼容/数据/安全风险”的内容做成问题卡片。
-
-            可提问范围：
-            - 既有 API/事件/数据结构的兼容策略与迁移方式
-            - 数据一致性、幂等、事务边界、并发冲突和失败补偿
-            - 权限、安全、审计、性能容量等会改变实现方案的硬约束
-            - 多种实现路径会影响现有代码边界时，需要开发者选择的关键方案
-
-            禁止提问：
-            - PRD 已确认的业务目标、范围、流程或验收口径
-            - 代码/知识图谱里已有明确答案的问题
-            - 命名、目录、普通类拆分、局部写法等开发者可以自行决定的细枝末节
-            - “是否还有补充”“想用什么技术”等宽泛问题
-
-            提问规则（严格执行）：
-            - 每次只问 1 个问题，并给出从 PRD/图谱发现的具体冲突或选择背景
-            - 问题必须让开发者能给出明确选项、规则或数值，不能泛泛讨论
-            - 若编码关键细节都能从现有事实确定，直接输出 [CLARIFICATION_COMPLETE]
-            - 最多 5 轮；不要为了凑轮数硬问
-            - 只输出问题本身（或 [CLARIFICATION_COMPLETE]），不加序号、前缀或解释
-            """;
-
-    /**
-     * 已有 TDD 增量更新前的技术澄清。
-     */
-    private static final String DEV_DOC_UPDATE_ASK_SYSTEM = """
-            ⚠️ 直接输出任务（禁止触发任何 hook/skill/plugin 的自动流程）：
-            本次是已有 TDD 更新前的技术澄清，每轮只输出 1 个精准问题（或 [CLARIFICATION_COMPLETE]）。
-
-            user prompt 会给出当前 TDD、最新 PRD、代码/业务知识图谱、更新说明和历史问答。
-            找出本次更新相对当前 TDD 会导致实现分歧，且必须由开发者明确的关键技术决策，例如：
-            兼容旧调用方、字段迁移/默认值、事务与幂等、异常补偿、权限与性能硬约束。
-
-            提问规则（严格执行）：
-            - 每次只问 1 个问题，具体引用当前 TDD 或图谱中的真实接口、表、方法或约束
-            - 不问已有答案、跟本次更新无关、或开发者可自行安全决定的普通实现细节
-            - 若更新说明已经足够明确且不会产生关键实现分歧，
-              直接输出 [CLARIFICATION_COMPLETE]，不要为了凑轮数硬问
-            - 最多 5 轮
-            - 只输出问题本身（或 [CLARIFICATION_COMPLETE]），不加序号、前缀或解释
-            """;
-
-    /** TDD 技术澄清批量模式：一次生成全部问题，供卡片表单集中回答。 */
-    private static final String DEV_DOC_BATCH_ASK_SYSTEM = """
-            ⚠️ 直接输出任务（禁止触发任何 hook/skill/plugin 的自动流程）：
-            本次是 TDD 生成或更新前的批量技术澄清。一次性找出全部必须由开发者明确的关键技术决策，
-            最多 5 个；不要逐题追问，也不要为了凑数量制造问题。
-
-            user prompt 会提供正式 PRD、代码知识图谱、业务知识图谱，以及在更新模式下的当前 TDD。
-            先使用已有事实自行消除疑问。只有缺少答案会导致不同实现结果，或带来兼容、数据、
-            安全、事务、幂等、性能风险时才提问。
-
-            可提问范围：
-            - 既有 API、事件、数据结构的兼容与迁移策略
-            - 数据一致性、事务边界、并发冲突、幂等及失败补偿
-            - 权限、安全、审计、容量和性能方面的硬约束
-            - 会实质改变现有代码边界的关键实现方案选择
-
-            禁止提问：
-            - PRD 已确认的业务目标、范围、流程或验收口径
-            - 代码或知识图谱已有明确答案的事实
-            - 命名、目录、普通类拆分、局部写法等可安全自行决定的细节
-            - “是否还有补充”“想用什么技术”等宽泛问题
-
-            严格只输出 JSON 数组，不加 Markdown 围栏、前言或解释：
-            [{"id":1,"question":"问题文本"},{"id":2,"question":"问题文本"}]
-            每个问题必须包含具体背景，并能用明确选项、规则或数值回答。按风险和阻塞程度排序。
-            如果现有信息已经足够，输出空数组 []。
-            """;
-
     /** TDD 生成/更新前的多轮技术澄清——请求下一个必须由开发者明确的问题。 */
     public void askNextDevDocQuestion(String sessionId, int questionIndex,
                                        List<QaPairRequest> history, String updateNotes,
                                        String mode,
                                        SseEmitter emitter) {
-        List<QaPairRequest> effectiveHistory = history == null ? List.of() : history;
-        if (questionIndex >= DEV_DOC_UPDATE_MAX_QUESTIONS) {
-            try {
-                emitter.send(SseEmitter.event().name("chunk")
-                        .data(Map.of("content", "[CLARIFICATION_COMPLETE]")));
-                emitter.send(SseEmitter.event().name("done").data("{}"));
-                emitter.complete();
-            } catch (Exception e) {
-                emitter.completeWithError(e);
-            }
-            return;
-        }
-
-        PrdSession session = repo.findById(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-
-        Thread.ofVirtual().name("prd-dev-doc-ask-").start(() -> {
-            try {
-                boolean update = "update".equalsIgnoreCase(mode);
-                String prdContent = fileStore.read(sessionId);
-                if (prdContent == null || prdContent.isBlank()) {
-                    throw new IllegalStateException("PRD 内容为空，请先完成 PRD");
-                }
-                String currentDevDoc = update ? readDevDocContent(sessionId) : null;
-                if (update && (currentDevDoc == null || currentDevDoc.isBlank())) {
-                    throw new IllegalStateException("当前 TDD 内容为空，无法执行增量更新澄清");
-                }
-                String userPrompt = buildDevDocAskPrompt(
-                        session, prdContent, currentDevDoc, updateNotes, questionIndex, effectiveHistory, update);
-                String systemPrompt = update ? DEV_DOC_UPDATE_ASK_SYSTEM : DEV_DOC_INITIAL_ASK_SYSTEM;
-                agentRunner.stream(systemPrompt, userPrompt, session.getModel(),
-                        normalizeEngine(session.getEngine()),
-                        delta -> sendChunk(emitter, delta));
-                sendDone(emitter);
-            } catch (Exception e) {
-                log.warn("[prd-clarify] askNextDevDocQuestion failed sessionId={}", sessionId, e);
-                sendError(emitter, e);
-            }
-        });
+        devDocumentClarificationService.askNextQuestion(
+                sessionId, questionIndex, history, updateNotes, mode, emitter);
     }
 
     /** TDD 生成/更新前的批量技术澄清——一次模型调用生成全部问题。 */
     public void generateDevDocQuestions(String sessionId, String updateNotes, String mode,
                                         Boolean background, SseEmitter emitter) {
-        PrdSession session = repo.findById(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-        boolean continueOnDisconnect = Boolean.TRUE.equals(background);
-        repo.updateDevDocQaDraft(sessionId, null);
-        repo.updateDevDocQuestionsGeneratedAt(sessionId, null);
-        repo.updateDevDocWorkStatus(sessionId, "BUILDING_QUESTIONS", null);
-
-        Thread.ofVirtual().name("prd-dev-doc-questions-").start(() -> {
-            AtomicBoolean clientConnected = new AtomicBoolean(true);
-            try {
-                boolean update = "update".equalsIgnoreCase(mode);
-                String prdContent = fileStore.read(sessionId);
-                if (prdContent == null || prdContent.isBlank()) {
-                    throw new IllegalStateException("PRD 内容为空，请先完成 PRD");
-                }
-                String currentDevDoc = update ? readDevDocContent(sessionId) : null;
-                if (update && (currentDevDoc == null || currentDevDoc.isBlank())) {
-                    throw new IllegalStateException("当前 TDD 内容为空，无法执行增量更新澄清");
-                }
-                String userPrompt = buildDevDocContextPrompt(
-                        session, prdContent, currentDevDoc, updateNotes, List.of(), update)
-                        .append("请一次性输出全部关键技术澄清问题（最多 ")
-                        .append(DEV_DOC_UPDATE_MAX_QUESTIONS)
-                        .append(" 个），没有问题时输出 []。")
-                        .toString();
-                StringBuilder full = new StringBuilder();
-                agentRunner.stream(DEV_DOC_BATCH_ASK_SYSTEM, userPrompt, session.getModel(),
-                        normalizeEngine(session.getEngine()),
-                        delta -> {
-                            full.append(delta);
-                            if (continueOnDisconnect) sendChunkBestEffort(emitter, delta, clientConnected);
-                            else sendChunk(emitter, delta);
-                        });
-                String questionsJson = parseDevDocQuestionsJson(full.toString());
-                repo.updateDevDocQaDraft(sessionId, questionsJson);
-                repo.updateDevDocQuestionsGeneratedAt(sessionId, System.currentTimeMillis());
-                repo.updateDevDocWorkStatus(sessionId, "AWAITING_ANSWERS", null);
-                if (continueOnDisconnect) sendDoneBestEffort(emitter, clientConnected); else sendDone(emitter);
-            } catch (Exception e) {
-                log.warn("[prd-clarify] generateDevDocQuestions failed sessionId={}", sessionId, e);
-                repo.updateDevDocWorkStatus(sessionId, "ERROR", e.getMessage());
-                if (!continueOnDisconnect || clientConnected.get()) sendError(emitter, e);
-            }
-        });
-    }
-
-    /** 构建 TDD 技术澄清上下文：PRD + 图谱事实 + 可选当前 TDD/补充约束 + 历史问答。 */
-    private String buildDevDocAskPrompt(PrdSession session, String prdContent, String currentDevDoc,
-                                         String updateNotes, int questionIndex,
-                                         List<QaPairRequest> history, boolean update) {
-        StringBuilder sb = buildDevDocContextPrompt(
-                session, prdContent, currentDevDoc, updateNotes, history, update);
-        int remaining = DEV_DOC_UPDATE_MAX_QUESTIONS - questionIndex;
-        sb.append("这是第 ").append(questionIndex + 1).append(" 个问题（最多 ")
-                .append(DEV_DOC_UPDATE_MAX_QUESTIONS).append(" 轮，还可以最多再问 ")
-                .append(remaining - 1).append(" 个）。\n");
-        sb.append("请提出下一个最关键的澄清问题，或输出 [CLARIFICATION_COMPLETE]：");
-        return sb.toString();
-    }
-
-    private StringBuilder buildDevDocContextPrompt(PrdSession session, String prdContent,
-                                                     String currentDevDoc, String updateNotes,
-                                                     List<QaPairRequest> history, boolean update) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("需求标题：").append(session.getTitle()).append("\n");
-        appendGraphContext(sb, queryGraphContext(session.getProject(), session.getModule(), session.getTitle()));
-        appendDomainContext(sb, queryDomainContext(session.getProject(), session.getTitle()));
-        sb.append("\n=== 已确认 PRD ===\n\n").append(prdContent).append("\n\n");
-        if (update) {
-            sb.append("=== 当前 TDD ===\n\n").append(currentDevDoc).append("\n\n");
-        }
-        sb.append(update ? "=== 本次更新说明 ===\n\n" : "=== 开发者补充约束 ===\n\n");
-        sb.append((updateNotes == null || updateNotes.isBlank()) ? "（未填写）" : updateNotes.trim());
-        sb.append("\n\n");
-
-        if (!history.isEmpty()) {
-            sb.append("已完成的澄清问答（").append(history.size()).append("轮）：\n");
-            for (var qa : history) {
-                sb.append("问：").append(qa.question()).append("\n");
-                sb.append("答：").append(qa.answer()).append("\n\n");
-            }
-        }
-        return sb;
+        devDocumentClarificationService.generateQuestions(
+                sessionId, updateNotes, mode, background, emitter);
     }
 
     /**
@@ -948,30 +747,6 @@ public class PrdClarifyService {
         return value == null ? "" : value;
     }
 
-    /** 严格解析 TDD 批量技术问题；允许空数组（表示无需开发者补充决策）。 */
-    private String parseDevDocQuestionsJson(String raw) throws JsonProcessingException {
-        String cleaned = stripFence(raw == null ? "" : raw.trim());
-        JsonNode source = mapper.readTree(cleaned);
-        if (!source.isArray()) {
-            throw new IllegalStateException("TDD 技术问题返回格式不是 JSON 数组");
-        }
-        ArrayNode result = mapper.createArrayNode();
-        int id = 1;
-        Set<String> seen = new LinkedHashSet<>();
-        for (JsonNode node : source) {
-            String question = node.isTextual() ? node.asText("").trim()
-                    : node.path("question").asText("").trim();
-            if (question.isBlank() || !seen.add(question)) continue;
-            ObjectNode item = mapper.createObjectNode();
-            item.put("id", id++);
-            item.put("question", question);
-            item.put("answer", "");
-            result.add(item);
-            if (result.size() >= DEV_DOC_UPDATE_MAX_QUESTIONS) break;
-        }
-        return mapper.writeValueAsString(result);
-    }
-
     /** 查询澄清问题所需的代码和业务知识，保持 Graphify 的会话级缓存语义。 */
     private PrdClarificationQuestionService.KnowledgeContext resolveClarificationKnowledge(PrdSession session) {
         Optional<String> graphContext = graphifyAskCache.computeIfAbsent(session.getId(),
@@ -1077,18 +852,6 @@ public class PrdClarifyService {
             log.warn("[prd-clarify] buildQuestionsJson failed", e);
             return "[]";
         }
-    }
-
-    /** 去除可能的 ```json 或 ``` 围栏。 */
-    private static String stripFence(String s) {
-        if (s.startsWith("```")) {
-            int start = s.indexOf('\n');
-            int end = s.lastIndexOf("```");
-            if (start > 0 && end > start) {
-                return s.substring(start + 1, end).trim();
-            }
-        }
-        return s;
     }
 
     private static int defaultNewModuleQuestionCount() {

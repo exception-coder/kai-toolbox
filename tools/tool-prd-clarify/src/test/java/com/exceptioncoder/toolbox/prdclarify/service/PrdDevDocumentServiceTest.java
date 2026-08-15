@@ -125,7 +125,7 @@ class PrdDevDocumentServiceTest {
                 mock(DomainKnowledgeQueryService.class), mock(PrdImageInputResolver.class),
                 mock(PrdEffortEstimationService.class), mock(PrdRequirementSplitService.class),
                 mock(PrdProgressEvaluationService.class), mock(PrdDocRevisionService.class),
-                devDocumentService);
+                devDocumentService, mock(PrdDevDocumentClarificationService.class));
 
         facade.generateDevDoc("session", "notes", true, history, true, true, emitter);
         assertThat(facade.readDevDocContent("session")).isEqualTo("current");

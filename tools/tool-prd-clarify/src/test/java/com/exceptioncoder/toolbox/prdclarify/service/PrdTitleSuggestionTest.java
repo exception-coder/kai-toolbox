@@ -127,6 +127,7 @@ class PrdTitleSuggestionTest {
                 mock(PrdRequirementSplitService.class),
                 mock(PrdProgressEvaluationService.class),
                 mock(PrdDocRevisionService.class),
-                mock(PrdDevDocumentService.class));
+                mock(PrdDevDocumentService.class),
+                mock(PrdDevDocumentClarificationService.class));
     }
 }
