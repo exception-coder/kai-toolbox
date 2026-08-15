@@ -22,3 +22,4 @@
 | LaunchIntent 交接协议 | 已实现（兼容期） | 完整-技术 | [设计](LaunchIntent交接协议/LaunchIntent交接协议-current.md) · [API](LaunchIntent交接协议/LaunchIntent交接协议-api-current.md) · [编码摘要](LaunchIntent交接协议/LaunchIntent交接协议-coding.md) |
 | 需求类型单一事实源 | 已实现 | 完整-技术 | [设计](需求类型单一事实源/需求类型单一事实源-current.md) · [API](需求类型单一事实源/需求类型单一事实源-api-current.md) · [编码摘要](需求类型单一事实源/需求类型单一事实源-coding.md) |
 | ReqPool 洞察账本 | 已实现（兼容期） | 完整-技术 | [设计](ReqPool洞察账本/ReqPool洞察账本-current.md) · [API](ReqPool洞察账本/ReqPool洞察账本-api-current.md) · [编码摘要](ReqPool洞察账本/ReqPool洞察账本-coding.md) |
+| PRD Prompt Catalog 与 AI Run 审计 | 实施中 | 完整-技术 | [设计](PRD-Prompt审计/PRD-Prompt审计-current.md) · [编码摘要](PRD-Prompt审计/PRD-Prompt审计-coding.md) |
