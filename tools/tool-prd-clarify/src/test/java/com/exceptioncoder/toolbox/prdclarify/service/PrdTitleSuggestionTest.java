@@ -118,7 +118,6 @@ class PrdTitleSuggestionTest {
                 runner,
                 mock(PrdSessionRepository.class),
                 mock(PrdFileStore.class),
-                mock(PrdArtifactService.class),
                 new ObjectMapper(),
                 mock(GraphifyQueryService.class),
                 mock(DomainKnowledgeQueryService.class),
@@ -128,6 +127,7 @@ class PrdTitleSuggestionTest {
                 mock(PrdProgressEvaluationService.class),
                 mock(PrdDocRevisionService.class),
                 mock(PrdDevDocumentService.class),
-                mock(PrdDevDocumentClarificationService.class));
+                mock(PrdDevDocumentClarificationService.class),
+                mock(PrdDocumentService.class));
     }
 }

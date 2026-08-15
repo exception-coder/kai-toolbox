@@ -121,11 +121,12 @@ class PrdDevDocumentServiceTest {
         when(devDocumentService.listVersions("session")).thenReturn(versions);
         PrdClarifyService facade = new PrdClarifyService(
                 mock(AgentOneShotRunner.class), mock(PrdSessionRepository.class), mock(PrdFileStore.class),
-                mock(PrdArtifactService.class), new ObjectMapper(), mock(GraphifyQueryService.class),
+                new ObjectMapper(), mock(GraphifyQueryService.class),
                 mock(DomainKnowledgeQueryService.class), mock(PrdImageInputResolver.class),
                 mock(PrdEffortEstimationService.class), mock(PrdRequirementSplitService.class),
                 mock(PrdProgressEvaluationService.class), mock(PrdDocRevisionService.class),
-                devDocumentService, mock(PrdDevDocumentClarificationService.class));
+                devDocumentService, mock(PrdDevDocumentClarificationService.class),
+                mock(PrdDocumentService.class));
 
         facade.generateDevDoc("session", "notes", true, history, true, true, emitter);
         assertThat(facade.readDevDocContent("session")).isEqualTo("current");

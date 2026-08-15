@@ -5,7 +5,6 @@ import com.exceptioncoder.toolbox.prdclarify.api.dto.DevDocVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.ProgressVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.QaPairRequest;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdBusinessFields;
-import com.exceptioncoder.toolbox.prdclarify.domain.PrdArtifactType;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
 import com.exceptioncoder.toolbox.prdclarify.domain.DocumentProfile;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
@@ -25,7 +24,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * PRD 澄清核心服务。
@@ -47,7 +45,6 @@ public class PrdClarifyService {
     private final AgentOneShotRunner agentRunner;
     private final PrdSessionRepository repo;
     private final PrdFileStore fileStore;
-    private final PrdArtifactService artifactService;
     private final ObjectMapper mapper;
     private final GraphifyQueryService graphifyQuery;
     private final DomainKnowledgeQueryService domainKnowledgeQuery;
@@ -55,7 +52,7 @@ public class PrdClarifyService {
     private final PrdRequirementTypeResolver requirementTypeResolver;
     private final PrdClarificationQuestionService clarificationQuestionService;
     private final PrdAnswerProcessingService answerProcessingService;
-    private final PrdDocumentGenerationService documentGenerationService;
+    private final PrdDocumentService documentService;
     private final PrdEffortEstimationService effortEstimationService;
     private final PrdRequirementSplitService requirementSplitService;
     private final PrdProgressEvaluationService progressEvaluationService;
@@ -73,7 +70,6 @@ public class PrdClarifyService {
     public PrdClarifyService(AgentOneShotRunner agentRunner,
                              PrdSessionRepository repo,
                              PrdFileStore fileStore,
-                             PrdArtifactService artifactService,
                              ObjectMapper mapper,
                              GraphifyQueryService graphifyQuery,
                              DomainKnowledgeQueryService domainKnowledgeQuery,
@@ -83,11 +79,11 @@ public class PrdClarifyService {
                              PrdProgressEvaluationService progressEvaluationService,
                              PrdDocRevisionService docRevisionService,
                              PrdDevDocumentService devDocumentService,
-                             PrdDevDocumentClarificationService devDocumentClarificationService) {
+                             PrdDevDocumentClarificationService devDocumentClarificationService,
+                             PrdDocumentService documentService) {
         this.agentRunner = agentRunner;
         this.repo = repo;
         this.fileStore = fileStore;
-        this.artifactService = artifactService;
         this.mapper = mapper;
         this.graphifyQuery = graphifyQuery;
         this.domainKnowledgeQuery = domainKnowledgeQuery;
@@ -97,8 +93,7 @@ public class PrdClarifyService {
         this.clarificationQuestionService =
                 new PrdClarificationQuestionService(agentRunner, mapper, imageInputResolver);
         this.answerProcessingService = new PrdAnswerProcessingService(agentRunner, mapper);
-        this.documentGenerationService =
-                new PrdDocumentGenerationService(agentRunner, mapper, imageInputResolver);
+        this.documentService = documentService;
         this.effortEstimationService = effortEstimationService;
         this.requirementSplitService = requirementSplitService;
         this.progressEvaluationService = progressEvaluationService;
@@ -467,89 +462,14 @@ public class PrdClarifyService {
      *                          false/null = 原有行为：按原始需求描述+澄清问答从零生成/覆盖。
      */
     public void generate(String sessionId, String extraInstructions, Boolean updateExisting, SseEmitter emitter) {
-        generate(sessionId, extraInstructions, updateExisting, false, emitter);
+        documentService.generate(sessionId, extraInstructions, updateExisting, false, emitter);
     }
 
     /** 后台 PRD 生成：客户端断开后继续模型调用、版本备份和落盘。 */
     public void generate(String sessionId, String extraInstructions, Boolean updateExisting,
                          boolean continueOnDisconnect, SseEmitter emitter) {
-        PrdSession session = repo.findById(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-
-        repo.updateStatus(sessionId, "GENERATING");
-        boolean update = Boolean.TRUE.equals(updateExisting);
-
-        Thread.ofVirtual().name("prd-generate-").start(() -> {
-            AtomicBoolean clientConnected = new AtomicBoolean(true);
-            try {
-                String currentPrd = update ? fileStore.read(sessionId) : null;
-                if (update && (currentPrd == null || currentPrd.isBlank())) {
-                    log.info("[prd-clarify] 更新模式但当前无 PRD 内容，退回从零生成 sessionId={}", sessionId);
-                }
-                PrdDocumentGenerationService.PrdGenerationRequest request =
-                        new PrdDocumentGenerationService.PrdGenerationRequest(
-                                session, currentPrd, extraInstructions, update,
-                                normalizeEngine(session.getEngine()));
-                String prdContent = documentGenerationService.generatePrd(request, delta -> {
-                    if (continueOnDisconnect) sendChunkBestEffort(emitter, delta, clientConnected);
-                    else sendChunk(emitter, delta);
-                });
-                java.nio.file.Path mdPath = fileStore.pathFor(sessionId);
-                if (update) {
-                    backupPrdIfExists(mdPath);
-                }
-                artifactService.write(sessionId, PrdArtifactType.PRD, prdContent,
-                        PrdArtifactService.ArtifactMetadata.empty());
-
-                if (continueOnDisconnect) sendDoneBestEffort(emitter, clientConnected); else sendDone(emitter);
-            } catch (Exception e) {
-                log.warn("[prd-clarify] 生成阶段失败 sessionId={}", sessionId, e);
-                repo.updateError(sessionId, e.getMessage());
-                if (!continueOnDisconnect || clientConnected.get()) sendError(emitter, e);
-            }
-        });
-    }
-
-    /**
-     * 覆盖 PRD 前，若旧版本已存在则备份为 {id}-v{n}.md（n 从已有备份中取最大值 + 1），
-     * 跟开发文档版本备份同一套命名/递增策略——「一键更新」在语义上是
-     * "检出新版本"，不是静默覆盖丢失旧内容。备份失败只记警告，不阻断本次更新。
-     */
-    private void backupPrdIfExists(java.nio.file.Path mdPath) {
-        if (!java.nio.file.Files.isRegularFile(mdPath)) {
-            return;
-        }
-        try {
-            String fileName = mdPath.getFileName().toString(); // {id}.md
-            String baseName = fileName.substring(0, fileName.length() - 3); // {id}
-            java.nio.file.Path dir = mdPath.getParent();
-            List<Integer> backups = scanPrdBackupVersions(dir, baseName);
-            int nextVersion = (backups.isEmpty() ? 0 : backups.get(backups.size() - 1)) + 1;
-            java.nio.file.Path backupPath = mdPath.resolveSibling(baseName + "-v" + nextVersion + ".md");
-            java.nio.file.Files.copy(mdPath, backupPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-            log.info("[prd-clarify] PRD 旧版本已备份 path={}", backupPath);
-        } catch (Exception e) {
-            log.warn("[prd-clarify] PRD 备份失败（不阻断本次更新）: {}", e.getMessage());
-        }
-    }
-
-    private List<Integer> scanPrdBackupVersions(java.nio.file.Path dir, String baseName) {
-        if (dir == null || !java.nio.file.Files.isDirectory(dir)) {
-            return List.of();
-        }
-        java.util.regex.Pattern versionPattern =
-                java.util.regex.Pattern.compile(java.util.regex.Pattern.quote(baseName) + "-v(\\d+)\\.md");
-        try (var files = java.nio.file.Files.list(dir)) {
-            return files
-                    .map(p -> versionPattern.matcher(p.getFileName().toString()))
-                    .filter(java.util.regex.Matcher::matches)
-                    .map(m -> Integer.parseInt(m.group(1)))
-                    .sorted()
-                    .toList();
-        } catch (Exception e) {
-            log.debug("[prd-clarify] 扫描 PRD 备份版本失败: {}", e.getMessage());
-            return List.of();
-        }
+        documentService.generate(
+                sessionId, extraInstructions, updateExisting, continueOnDisconnect, emitter);
     }
 
     // ═══════════════════════════════════════════════════
@@ -698,24 +618,17 @@ public class PrdClarifyService {
 
     /** 获取 PRD 文件的期望路径（供 check-prd-file 接口检测 Claude 是否已写入）。 */
     public java.nio.file.Path getPrdFilePath(String sessionId) {
-        return fileStore.pathFor(sessionId);
+        return documentService.pathFor(sessionId);
     }
 
     /** 覆写文件内容（用户在编辑器手动保存）。 */
     public void saveContent(String sessionId, String content) throws IOException {
-        repo.findById(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-        java.nio.file.Path path = fileStore.pathFor(sessionId);
-        backupPrdIfExists(path);
-        artifactService.write(sessionId, PrdArtifactType.PRD, content,
-                PrdArtifactService.ArtifactMetadata.empty());
+        documentService.saveContent(sessionId, content);
     }
 
     /** 读取 .md 文件内容。 */
     public String readContent(String sessionId) throws IOException {
-        repo.findById(sessionId)
-                .orElseThrow(() -> new IllegalArgumentException("会话不存在: " + sessionId));
-        return fileStore.read(sessionId);
+        return documentService.readContent(sessionId);
     }
 
     /**
@@ -874,27 +787,6 @@ public class PrdClarifyService {
         } catch (Exception e) {
             emitter.completeWithError(e);
             throw new IllegalStateException("SSE client disconnected", e);
-        }
-    }
-
-    /** 后台 TDD 生成专用：客户端断开只停止推流，不取消模型任务和后续落盘。 */
-    private void sendChunkBestEffort(SseEmitter emitter, String chunk, AtomicBoolean clientConnected) {
-        if (chunk == null || chunk.isEmpty() || !clientConnected.get()) return;
-        try {
-            emitter.send(SseEmitter.event().name("chunk").data(Map.of("content", chunk)));
-        } catch (Exception e) {
-            clientConnected.set(false);
-            log.info("[prd-clarify] TDD 后台生成客户端已断开，继续执行并落盘");
-        }
-    }
-
-    private void sendDoneBestEffort(SseEmitter emitter, AtomicBoolean clientConnected) {
-        if (!clientConnected.get()) return;
-        try {
-            emitter.send(SseEmitter.event().name("done").data("{}"));
-            emitter.complete();
-        } catch (Exception e) {
-            clientConnected.set(false);
         }
     }
 

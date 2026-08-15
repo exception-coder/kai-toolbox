@@ -127,11 +127,11 @@ class PrdDevDocumentClarificationServiceTest {
         List<QaPairRequest> history = List.of(new QaPairRequest("q", "a"));
         PrdClarifyService facade = new PrdClarifyService(
                 mock(AgentOneShotRunner.class), mock(PrdSessionRepository.class), mock(PrdFileStore.class),
-                mock(PrdArtifactService.class), new ObjectMapper(), mock(GraphifyQueryService.class),
+                new ObjectMapper(), mock(GraphifyQueryService.class),
                 mock(DomainKnowledgeQueryService.class), mock(PrdImageInputResolver.class),
                 mock(PrdEffortEstimationService.class), mock(PrdRequirementSplitService.class),
                 mock(PrdProgressEvaluationService.class), mock(PrdDocRevisionService.class),
-                mock(PrdDevDocumentService.class), clarificationService);
+                mock(PrdDevDocumentService.class), clarificationService, mock(PrdDocumentService.class));
 
         facade.askNextDevDocQuestion("session", 2, history, "notes", "update", emitter);
         facade.generateDevDocQuestions("session", "notes", "update", true, emitter);

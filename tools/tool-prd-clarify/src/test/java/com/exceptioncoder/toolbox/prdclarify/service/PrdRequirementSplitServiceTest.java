@@ -140,11 +140,11 @@ class PrdRequirementSplitServiceTest {
         when(splitService.adopt("parent", List.of(item), 42L)).thenReturn(List.of(child));
         PrdClarifyService facade = new PrdClarifyService(
                 mock(AgentOneShotRunner.class), mock(PrdSessionRepository.class), mock(PrdFileStore.class),
-                mock(PrdArtifactService.class), new ObjectMapper(), mock(GraphifyQueryService.class),
+                new ObjectMapper(), mock(GraphifyQueryService.class),
                 mock(DomainKnowledgeQueryService.class), mock(PrdImageInputResolver.class),
                 mock(PrdEffortEstimationService.class), splitService, mock(PrdProgressEvaluationService.class),
                 mock(PrdDocRevisionService.class), mock(PrdDevDocumentService.class),
-                mock(PrdDevDocumentClarificationService.class));
+                mock(PrdDevDocumentClarificationService.class), mock(PrdDocumentService.class));
 
         assertThat(facade.splitRequirement("parent")).isSameAs(expected);
         assertThat(facade.adoptSplit("parent", List.of(item), 42L)).containsExactly(child);
