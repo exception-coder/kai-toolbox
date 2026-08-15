@@ -8,8 +8,6 @@ import { usePrompt } from '@/components/ui/prompt-dialog'
 import { splitCatalogValues } from '@/lib/systemCatalog'
 import { formatDuration } from '@/lib/utils'
 import { MarkdownContent } from '@/components/markdown/MarkdownContent'
-import { marked } from 'marked'
-import DOMPurify from 'dompurify'
 import {
   adoptSplit,
   askNextDevDocQuestion,
@@ -59,6 +57,7 @@ import {
   ESTIMATION_CONFIDENCE_LABEL,
 } from '../components/EstimationBadge'
 import { StepBar } from '../components/StepBar'
+import { RawInputCard } from '../components/RawInputCard'
 
 // 编辑器 lazy import — CodeMirror chunk 只在进入 EDITING 步骤时加载
 const MarkdownEditor = lazy(() =>
@@ -544,121 +543,6 @@ function SplitReviewDialog({
   )
 }
 
-// ───── 原始需求描述弹出卡片 ─────
-function RawInputCard({
-  session,
-  onClose,
-}: {
-  session: PrdSessionView
-  onClose: () => void
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-xl rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-2xl flex flex-col max-h-[80vh]">
-        {/* 头部 */}
-        <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-[var(--color-border)]">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <FileText className="w-4 h-4 text-[var(--color-primary)] flex-shrink-0" />
-              <span className="font-semibold text-sm truncate">{session.title}</span>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              {(session.project || session.module) && (
-                <span className="text-[11px] text-[var(--color-muted-foreground)]">
-                  {[session.project, session.module].filter(Boolean).join(' · ')}
-                </span>
-              )}
-              <span className={`text-[9px] px-1.5 py-0.5 rounded border leading-tight ${
-                session.role === 'BUSINESS'
-                  ? 'bg-green-500/15 text-green-500 border-green-500/20'
-                  : 'bg-blue-500/15 text-blue-500 border-blue-500/20'
-              }`}>
-                {session.role === 'BUSINESS' ? '业务员' : '产品/开发'}
-              </span>
-              {(() => {
-                const cfg = REQ_TYPE_CONFIG[session.reqType ?? 'NEW_MODULE']
-                return (
-                  <span className={`text-[9px] px-1.5 py-0.5 rounded border leading-tight ${cfg.bg} ${cfg.color}`}>
-                    {cfg.label}
-                  </span>
-                )
-              })()}
-            </div>
-          </div>
-          <button onClick={onClose} className="text-[var(--color-muted-foreground)] hover:text-[var(--color-foreground)] flex-shrink-0">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* 原始需求内容 */}
-        <div className="flex-1 overflow-y-auto p-5">
-          {hasBusinessFields(session) && (
-            <div className="mb-5">
-              <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-[var(--color-muted-foreground)]">
-                业务需求信息
-              </div>
-              <dl className="grid gap-3 rounded-xl bg-[var(--color-muted)]/30 p-4 text-xs sm:grid-cols-2">
-                {businessFieldEntries(session).map(([label, value, wide]) => (
-                  <div key={label} className={wide ? 'sm:col-span-2' : ''}>
-                    <dt className="mb-1 text-[10px] text-[var(--color-muted-foreground)]">{label}</dt>
-                    <dd className="whitespace-pre-wrap leading-relaxed">{value}</dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
-          )}
-          <div className="text-xs font-semibold text-[var(--color-muted-foreground)] uppercase tracking-wide mb-3">
-            原始需求描述
-          </div>
-          {session.rawInput ? (
-            // 走 Markdown 渲染（而非纯文本 whitespace-pre-wrap）：填写需求时直接粘贴的图片
-            // 是以 ![粘贴图片N](url) 语法插进 rawInput 的，只有按 Markdown 渲染才能看到
-            // 真实图片，否则历史预览里只会显示一行裸链接文本。
-            <div
-              className="doc-viewer-md max-w-none text-sm leading-relaxed bg-[var(--color-muted)]/30 rounded-xl p-4"
-              // eslint-disable-next-line react/no-danger
-              dangerouslySetInnerHTML={{
-                __html: DOMPurify.sanitize(marked.parse(session.rawInput, { async: false }) as string),
-              }}
-            />
-          ) : (
-            <div className="text-sm text-[var(--color-muted-foreground)] italic">暂无原始需求描述</div>
-          )}
-        </div>
-
-        {/* 底部信息 */}
-        <div className="flex items-center justify-between px-5 py-3 border-t border-[var(--color-border)] text-[11px] text-[var(--color-muted-foreground)]">
-          <span>创建于 {new Date(session.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-          <span className="font-medium">{session.status}</span>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function hasBusinessFields(session: PrdSessionView) {
-  return businessFieldEntries(session).length > 0
-}
-
-function businessFieldEntries(session: PrdSessionView): Array<[string, string, boolean]> {
-  const fields = session.businessFields ?? {}
-  return [
-    ['需求类型', fields.businessRequirementType, false],
-    ['需求软件', fields.requirementSoftware, false],
-    ['发起部门', fields.initiatingDepartment, false],
-    ['提出人', fields.requester, false],
-    ['提出日期', fields.requestedAt, false],
-    ['需求背景 / 业务痛点', fields.businessBackground, true],
-    ['需求详情', fields.requirementDetail, true],
-    ['附件', fields.attachments, true],
-    ['跟进记录', fields.followUpRecords, true],
-  ].flatMap(([label, value, wide]) =>
-    typeof value === 'string' && value.trim()
-      ? [[label as string, value.trim(), wide as boolean]]
-      : [],
-  )
-}
-
 // ───── 历史侧边栏 ─────
 function ChangeGroupDialog({
   session,
@@ -880,7 +764,11 @@ function HistoryPanel({
     <>
       {/* 原始需求弹出卡片 */}
       {previewSession && (
-        <RawInputCard session={previewSession} onClose={() => setPreviewSession(null)} />
+        <RawInputCard
+          session={previewSession}
+          requirementType={REQ_TYPE_CONFIG[previewSession.reqType ?? 'NEW_MODULE']}
+          onClose={() => setPreviewSession(null)}
+        />
       )}
 
       {/* AI 工时评估详情：历史列表里点徽标只读查看，评估动作在开发文档 Tab 工具栏 */}

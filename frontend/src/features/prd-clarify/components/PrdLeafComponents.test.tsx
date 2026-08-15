@@ -2,8 +2,10 @@ import { useRef } from 'react'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DevDocEstimation } from '../types'
+import { getBusinessFieldEntries } from '../lib/sessionPresentation'
 import { DocOutline } from './DocOutline'
 import { EstimationBadge } from './EstimationBadge'
+import { RawInputCard } from './RawInputCard'
 import { StepBar } from './StepBar'
 
 afterEach(cleanup)
@@ -92,5 +94,46 @@ describe('PRD 叶子展示组件', () => {
       'title',
       '开发文档已更新，此评估可能已过期，建议重新评估',
     )
+  })
+
+  it('原始需求展示规则会过滤空白业务字段并保留宽字段', () => {
+    expect(getBusinessFieldEntries({
+      requester: '  张三  ',
+      initiatingDepartment: '   ',
+      requirementDetail: '支持批量审批',
+    })).toEqual([
+      { label: '提出人', value: '张三', wide: false },
+      { label: '需求详情', value: '支持批量审批', wide: true },
+    ])
+  })
+
+  it('RawInputCard 安全渲染 Markdown，并可关闭弹窗', () => {
+    const onClose = vi.fn()
+    const { container } = render(
+      <RawInputCard
+        session={{
+          title: '批量审批',
+          project: 'kai-toolbox',
+          module: '需求池',
+          role: 'BUSINESS',
+          status: 'DONE',
+          rawInput: '**加粗需求**<img src="x" onerror="alert(1)">',
+          businessFields: { requester: '张三' },
+          createdAt: 0,
+        }}
+        requirementType={{
+          label: '模块调整',
+          color: 'text-amber-500',
+          bg: 'bg-amber-500/10',
+        }}
+        onClose={onClose}
+      />,
+    )
+
+    expect(screen.getByRole('dialog', { name: '批量审批' })).toBeInTheDocument()
+    expect(screen.getByText('加粗需求').tagName).toBe('STRONG')
+    expect(container.querySelector('img')).not.toHaveAttribute('onerror')
+    fireEvent.click(screen.getByRole('button', { name: '关闭原始需求' }))
+    expect(onClose).toHaveBeenCalledOnce()
   })
 })
