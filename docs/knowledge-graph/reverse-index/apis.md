@@ -38,3 +38,14 @@
 | `GET /api/reqpool/items[/{id}]` | 读取最新历史并计算事实与组合新鲜度 | 列表、详情、优先排序 | `stale=true` 的洞察不得参与权威排序和统一判定 |
 
 接口出参变化时必须同步 `ReqItemView`、`ReqItemViewAssembler`、前端 `ReqItemView`、过期提示和排序降级测试。
+
+## Delivery 证据与验证
+
+定义：`tools/tool-prd-clarify/src/main/java/com/exceptioncoder/toolbox/prdclarify/api/PrdDeliveryController.java`
+
+| API | 写入/读取 | 前端调用者 | 决策影响 |
+|---|---|---|---|
+| `GET /api/prd-clarify/delivery-overview` | 读 claim、run 并生成权威评分 | Delivery Center、ReqPool 交付节点 | 前端只消费 `overallProgressVariants`，不复制权重 |
+| `POST /api/prd-clarify/delivery-overview/{sessionId}/verification-runs` | 插入 RUNNING 并异步执行白名单命令 | `AiInspector` | 请求只能提交 `commandId`；并发运行返回 409 |
+
+契约变更时必须同步 `DeliveryOverviewView`、前端 `types.ts/api.ts`、白名单配置、评分测试与运行生命周期测试。

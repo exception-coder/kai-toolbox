@@ -3,8 +3,15 @@ package com.exceptioncoder.toolbox.prdclarify.delivery;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.DeliveryOverviewView;
+import com.exceptioncoder.toolbox.prdclarify.domain.DeliveryClaim;
+import com.exceptioncoder.toolbox.prdclarify.domain.DeliveryClaimStatus;
+import com.exceptioncoder.toolbox.prdclarify.domain.DeliveryEvidenceStatus;
+import com.exceptioncoder.toolbox.prdclarify.domain.DeliveryVerificationStatus;
 import com.exceptioncoder.toolbox.prdclarify.domain.DocumentProfile;
+import com.exceptioncoder.toolbox.prdclarify.domain.PrdArtifactState;
+import com.exceptioncoder.toolbox.prdclarify.domain.PrdArtifactType;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdSession;
+import com.exceptioncoder.toolbox.prdclarify.repository.PrdArtifactRepository;
 import com.exceptioncoder.toolbox.prdclarify.repository.PrdSessionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,16 +41,25 @@ public class DeliveryOverviewService {
     private final ProgressReportParser reportParser;
     private final DeliveryMetrics metrics;
     private final ObjectMapper objectMapper;
+    private final PrdArtifactRepository artifactRepository;
+    private final DeliveryClaimLedgerService claimLedgerService;
+    private final DeliveryVerificationService verificationService;
 
     public DeliveryOverviewService(
             PrdSessionRepository repository,
             ProgressReportParser reportParser,
             DeliveryMetrics metrics,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            PrdArtifactRepository artifactRepository,
+            DeliveryClaimLedgerService claimLedgerService,
+            DeliveryVerificationService verificationService) {
         this.repository = repository;
         this.reportParser = reportParser;
         this.metrics = metrics;
         this.objectMapper = objectMapper;
+        this.artifactRepository = artifactRepository;
+        this.claimLedgerService = claimLedgerService;
+        this.verificationService = verificationService;
     }
 
     /**
@@ -121,43 +137,70 @@ public class DeliveryOverviewService {
             }
         }
 
-        int completedWithoutEvidence = (int) report.completed().stream()
+        int legacyCompletedWithoutEvidence = (int) report.completed().stream()
                 .filter(item -> item.evidence().isEmpty())
                 .count();
-        Integer codeScore = assessmentError
-                ? null
-                : metrics.codeProgress(report.completed().size(), report.partial().size(), report.missing().size());
-        Integer codeScoreWithoutTests = assessmentError ? null : codeProgressWithoutTests(report);
-        int testItemCount = countTests(report.completed())
-                + countTests(report.partial())
-                + countTests(report.missing())
-                + countTests(report.excluded());
+        ClaimAssessment claims = claimAssessment(session.getId(), assessmentPresent);
+        Integer codeScore = claims.codeScore();
+        Integer codeScoreWithoutTests = claims.codeScoreWithoutTests();
+        int testItemCount = claims.ledgerPresent()
+                ? claims.testItemCount()
+                : countTests(report.completed()) + countTests(report.partial())
+                        + countTests(report.missing()) + countTests(report.excluded());
         int unitTestItemCount = countUnitTests(report.completed())
                 + countUnitTests(report.partial())
                 + countUnitTests(report.missing())
                 + countUnitTests(report.excluded());
-        int deliveryProgress = metrics.overallProgress(prdComplete ? 100 : 0, tddPresent ? 100 : 0, codeScore);
+        Optional<DeliveryVerificationService.RunProjection> verification =
+                verificationService.latest(session.getId(), session.getProject());
+        Integer verificationScore = verificationScore(verification);
+        int deliveryProgress = metrics.overallProgress(
+                prdComplete ? 100 : 0,
+                tddPresent ? 100 : 0,
+                codeScore,
+                verificationScore);
+        int deliveryProgressWithoutTests = metrics.overallProgress(
+                prdComplete ? 100 : 0,
+                tddPresent ? 100 : 0,
+                codeScoreWithoutTests,
+                verificationScore);
         DeliveryOverviewView.EffortProgressView effortProgress = effortProgress(
                 session, codeScore, deliveryProgress,
-                assessmentPresent && !assessmentError && !assessmentStale);
+                claims.ledgerPresent() && !assessmentStale);
+        boolean verificationPresent = verification
+                .map(item -> item.run().status() != DeliveryVerificationStatus.RUNNING && !item.stale())
+                .orElse(false);
+        boolean verificationStale = verification.map(DeliveryVerificationService.RunProjection::stale).orElse(false);
+        int evidenceGapCount = claims.ledgerPresent()
+                ? claims.invalidEvidenceCount()
+                : legacyCompletedWithoutEvidence;
         int confidence = metrics.confidence(
                 prdComplete,
                 tddPresent,
                 tddStale,
-                assessmentPresent && !assessmentError,
+                claims.ledgerPresent(),
                 assessmentStale,
-                completedWithoutEvidence);
+                evidenceGapCount,
+                verificationPresent,
+                verificationStale);
         int health = metrics.health(
                 prdComplete,
                 tddPresent,
                 tddStale,
-                assessmentPresent && !assessmentError,
+                claims.ledgerPresent(),
                 assessmentStale,
-                report.partial().size(),
-                report.missing().size(),
-                completedWithoutEvidence);
+                claims.ledgerPresent() ? claims.partial() : report.partial().size(),
+                claims.ledgerPresent() ? claims.missing() : report.missing().size(),
+                evidenceGapCount,
+                verificationPresent,
+                verificationStale);
 
         List<String> staleReasons = staleReasons(tddStale, assessmentStale, assessmentError);
+        if (verificationStale) {
+            staleReasons = new ArrayList<>(staleReasons);
+            staleReasons.add("构建或测试验证早于当前 Git HEAD");
+            staleReasons = List.copyOf(staleReasons);
+        }
         DeliveryOverviewView.RequirementView requirement = new DeliveryOverviewView.RequirementView(
                 session.getId(),
                 session.getParentId(),
@@ -168,13 +211,13 @@ public class DeliveryOverviewService {
                 DocumentProfile.normalize(session.getDocumentProfile()),
                 session.getUpdatedAt(),
                 links(session),
-                stages(session, prdComplete, tddPresent, tddStale, assessmentPresent, assessmentStale,
+                stages(session, prdComplete, tddPresent, tddStale, claims.ledgerPresent(), assessmentStale,
                         assessmentError, codeScore),
                 new DeliveryOverviewView.CoverageView(
-                        report.completed().size(),
-                        report.partial().size(),
-                        report.missing().size(),
-                        report.total()),
+                        claims.ledgerPresent() ? claims.completed() : report.completed().size(),
+                        claims.ledgerPresent() ? claims.partial() : report.partial().size(),
+                        claims.ledgerPresent() ? claims.missing() : report.missing().size(),
+                        claims.ledgerPresent() ? claims.total() : report.total()),
                 new DeliveryOverviewView.CodeScoreVariantsView(
                         codeScore,
                         codeScoreWithoutTests,
@@ -182,6 +225,16 @@ public class DeliveryOverviewService {
                         codeScore,
                         codeScoreWithoutTests,
                         unitTestItemCount),
+                deliveryProgress,
+                new DeliveryOverviewView.OverallProgressVariantsView(
+                        deliveryProgress, deliveryProgressWithoutTests),
+                claims.evidenceMode(),
+                claims.verifiedClaimCount(),
+                claims.invalidEvidenceCount(),
+                verification.map(this::verificationView).orElse(null),
+                verificationService.commandOptions().stream()
+                        .map(item -> new DeliveryOverviewView.VerificationCommandView(item.id(), item.label()))
+                        .toList(),
                 new DeliveryOverviewView.ProgressItemsView(
                         progressItems(report.completed()),
                         progressItems(report.partial()),
@@ -197,7 +250,7 @@ public class DeliveryOverviewService {
                 metrics.grade(health),
                 staleReasons);
         return new RequirementProjection(requirement, findings(requirement, prdComplete, tddPresent, tddStale,
-                assessmentPresent, assessmentStale, assessmentError, completedWithoutEvidence));
+                claims.ledgerPresent(), assessmentStale, assessmentError, evidenceGapCount));
     }
 
     /**
@@ -422,7 +475,7 @@ public class DeliveryOverviewService {
             boolean assessmentPresent,
             boolean assessmentStale,
             boolean assessmentError,
-            int completedWithoutEvidence) {
+            int evidenceGapCount) {
         List<DeliveryOverviewView.FindingView> findings = new ArrayList<>();
         if (!prdComplete) {
             addFinding(findings, requirement, "DOCUMENT_GAP", "HIGH", "PRD 尚未形成可归档事实",
@@ -448,20 +501,22 @@ public class DeliveryOverviewService {
             addFinding(findings, requirement, "SOURCE_ERROR", "HIGH", "进度报告无法读取",
                     "磁盘文件缺失、损坏或格式不可解析", "检查报告文件后重新评估");
         }
-        for (DeliveryOverviewView.ProgressItemView item : requirement.progressItems().missing()) {
-            addFinding(findings, requirement, "IMPLEMENTATION_GAP", "HIGH", item.title() + " 尚未实现",
-                    firstNonBlank(item.actual(), "最新评估未找到对应代码实现"),
-                    "回到开发会话补齐后重新评估");
+        if (assessmentPresent) {
+            for (DeliveryOverviewView.ProgressItemView item : requirement.progressItems().missing()) {
+                addFinding(findings, requirement, "IMPLEMENTATION_GAP", "HIGH", item.title() + " 尚未实现",
+                        firstNonBlank(item.actual(), "最新评估未找到对应代码实现"),
+                        "回到开发会话补齐后重新评估");
+            }
+            for (DeliveryOverviewView.ProgressItemView item : requirement.progressItems().partial()) {
+                addFinding(findings, requirement, "PARTIAL_IMPLEMENTATION", "MEDIUM", item.title() + " 仅部分实现",
+                        firstNonBlank(item.missing(), "最新评估仍存在缺失项"),
+                        "补齐缺失分支并增加对应验证");
+            }
         }
-        for (DeliveryOverviewView.ProgressItemView item : requirement.progressItems().partial()) {
-            addFinding(findings, requirement, "PARTIAL_IMPLEMENTATION", "MEDIUM", item.title() + " 仅部分实现",
-                    firstNonBlank(item.missing(), "最新评估仍存在缺失项"),
-                    "补齐缺失分支并增加对应验证");
-        }
-        if (completedWithoutEvidence > 0) {
-            addFinding(findings, requirement, "EVIDENCE_GAP", "MEDIUM", "已完成项缺少代码证据",
-                    completedWithoutEvidence + " 个已完成项没有类、方法或文件证据",
-                    "重新评估并补充可追溯代码证据");
+        if (evidenceGapCount > 0) {
+            addFinding(findings, requirement, "EVIDENCE_GAP", "MEDIUM", "源码证据未通过验证",
+                    evidenceGapCount + " 个证据坐标缺失、越界或无法读取",
+                    "重新评估并提供项目根内可验证的文件与行范围");
         }
         for (DeliveryOverviewView.AlignmentFindingView item : requirement.alignmentFindings()) {
             if (!isCompleteStatus(item.status())) {
@@ -505,10 +560,7 @@ public class DeliveryOverviewService {
         int assessed = (int) requirements.stream().filter(item -> item.stages().code().score() != null).count();
         int assessmentCoverage = Math.round(assessed * 100F / requirements.size());
         int overallProgress = average(requirements.stream()
-                .map(item -> metrics.overallProgress(
-                        item.stages().prd().score(),
-                        item.stages().tdd().score(),
-                        item.stages().code().score()))
+                .map(DeliveryOverviewView.RequirementView::overallProgress)
                 .toList());
         int confidence = average(requirements.stream().map(DeliveryOverviewView.RequirementView::confidence).toList());
         int health = average(requirements.stream().map(DeliveryOverviewView.RequirementView::healthScore).toList());
@@ -597,6 +649,79 @@ public class DeliveryOverviewService {
                 .toList();
     }
 
+    private ClaimAssessment claimAssessment(String sessionId, boolean legacyAssessmentPresent) {
+        List<DeliveryClaim> claims = artifactRepository.findLatest(sessionId, PrdArtifactType.PROGRESS)
+                .filter(artifact -> artifact.state() == PrdArtifactState.READY)
+                .map(artifact -> claimLedgerService.findByArtifact(artifact.id()))
+                .orElseGet(List::of);
+        if (claims.isEmpty()) {
+            return ClaimAssessment.empty(legacyAssessmentPresent ? "LEGACY_UNVERIFIED" : "UNASSESSED");
+        }
+
+        int completed = countClaims(claims, DeliveryClaimStatus.COMPLETED, false);
+        int partial = countClaims(claims, DeliveryClaimStatus.PARTIAL, false);
+        int missing = countClaims(claims, DeliveryClaimStatus.MISSING, false);
+        int completedWithoutTests = countClaims(claims, DeliveryClaimStatus.COMPLETED, true);
+        int partialWithoutTests = countClaims(claims, DeliveryClaimStatus.PARTIAL, true);
+        int missingWithoutTests = countClaims(claims, DeliveryClaimStatus.MISSING, true);
+        int nonTestTotal = completedWithoutTests + partialWithoutTests + missingWithoutTests;
+        Integer scoreWithoutTests = nonTestTotal == 0
+                ? 100
+                : metrics.codeProgress(completedWithoutTests, partialWithoutTests, missingWithoutTests);
+        int verifiedClaimCount = (int) claims.stream()
+                .filter(this::hasVerifiedEvidence)
+                .count();
+        int invalidEvidenceCount = claims.stream()
+                .mapToInt(claim -> (int) claim.evidences().stream()
+                        .filter(evidence -> evidence.status() != DeliveryEvidenceStatus.VERIFIED)
+                        .count())
+                .sum();
+        int testItemCount = (int) claims.stream().filter(DeliveryClaim::testItem).count();
+        return new ClaimAssessment(
+                true,
+                "VERIFIED_LEDGER",
+                completed,
+                partial,
+                missing,
+                metrics.codeProgress(completed, partial, missing),
+                scoreWithoutTests,
+                testItemCount,
+                verifiedClaimCount,
+                invalidEvidenceCount);
+    }
+
+    private int countClaims(List<DeliveryClaim> claims, DeliveryClaimStatus status, boolean excludeTests) {
+        return (int) claims.stream()
+                .filter(claim -> claim.status() == status)
+                .filter(claim -> !excludeTests || !claim.testItem())
+                .count();
+    }
+
+    private boolean hasVerifiedEvidence(DeliveryClaim claim) {
+        return claim.evidences().stream()
+                .anyMatch(evidence -> evidence.status() == DeliveryEvidenceStatus.VERIFIED);
+    }
+
+    private Integer verificationScore(Optional<DeliveryVerificationService.RunProjection> projection) {
+        if (projection.isEmpty() || projection.get().stale()) {
+            return null;
+        }
+        return switch (projection.get().run().status()) {
+            case SUCCEEDED -> 100;
+            case FAILED, ERROR -> 0;
+            case RUNNING -> null;
+        };
+    }
+
+    private DeliveryOverviewView.VerificationRunView verificationView(
+            DeliveryVerificationService.RunProjection projection) {
+        var run = projection.run();
+        return new DeliveryOverviewView.VerificationRunView(
+                run.id(), run.commandId(), run.gitHead(), run.status().name(), run.exitCode(),
+                run.testCount(), run.outputSummary(), run.lastError(), run.startedAt(), run.finishedAt(),
+                projection.stale());
+    }
+
     private int countNonTests(List<ProgressReportParser.ProgressItem> items) {
         return (int) items.stream().filter(item -> !item.testItem()).count();
     }
@@ -680,5 +805,27 @@ public class DeliveryOverviewService {
     private record RequirementProjection(
             DeliveryOverviewView.RequirementView requirement,
             List<DeliveryOverviewView.FindingView> findings) {
+    }
+
+    private record ClaimAssessment(
+            boolean ledgerPresent,
+            String evidenceMode,
+            int completed,
+            int partial,
+            int missing,
+            Integer codeScore,
+            Integer codeScoreWithoutTests,
+            int testItemCount,
+            int verifiedClaimCount,
+            int invalidEvidenceCount) {
+
+        private static ClaimAssessment empty(String evidenceMode) {
+            return new ClaimAssessment(false, evidenceMode, 0, 0, 0,
+                    null, null, 0, 0, 0);
+        }
+
+        private int total() {
+            return completed + partial + missing;
+        }
     }
 }

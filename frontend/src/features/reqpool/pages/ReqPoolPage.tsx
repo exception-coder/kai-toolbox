@@ -1197,7 +1197,7 @@ function CodeStageNode({ item, requirement, prdSession }: {
   const code = requirement?.stages.code
   const selectedCodeScore = requirement ? resolveCodeScore(requirement, includeTests) : null
   const effort = projectEffort(requirement?.effortProgress, selectedCodeScore)
-  const deliveryProgress = requirement ? requirementProgress(requirement, selectedCodeScore) : null
+  const deliveryProgress = requirement ? requirementProgress(requirement, includeTests) : null
   const canAnalyze = !!requirement && requirement.stages.tdd.status !== 'MISSING'
   const isAdmin = !!user?.roles?.includes('ADMIN')
   const isAssignee = !!user && item.assigneeUserId === user.userId

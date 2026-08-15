@@ -15,10 +15,12 @@ class DeliveryMetricsTest {
     }
 
     @Test
-    void normalizesOverallProgressWhenCodeIsUnknown() {
-        assertThat(metrics.overallProgress(100, 0, null)).isEqualTo(10);
-        assertThat(metrics.overallProgress(100, 100, null)).isEqualTo(20);
-        assertThat(metrics.overallProgress(100, 100, 50)).isEqualTo(60);
+    void keepsMissingSourceAndVerificationUnassessed() {
+        assertThat(metrics.overallProgress(100, 0, null, null)).isEqualTo(10);
+        assertThat(metrics.overallProgress(100, 100, null, null)).isEqualTo(20);
+        assertThat(metrics.overallProgress(100, 100, 50, null)).isEqualTo(50);
+        assertThat(metrics.overallProgress(100, 100, 50, 100)).isEqualTo(70);
+        assertThat(metrics.overallProgress(100, 100, 100, 100)).isEqualTo(100);
     }
 
     @Test

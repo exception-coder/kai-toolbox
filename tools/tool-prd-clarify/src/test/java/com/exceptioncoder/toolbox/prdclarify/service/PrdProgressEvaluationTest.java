@@ -174,6 +174,7 @@ class PrdProgressEvaluationTest {
                 artifactService,
                 promptCatalog,
                 aiRunService,
+                mock(com.exceptioncoder.toolbox.prdclarify.delivery.DeliveryClaimLedgerService.class),
                 new ObjectMapper(),
                 mock(GraphifyQueryService.class),
                 domainKnowledge,

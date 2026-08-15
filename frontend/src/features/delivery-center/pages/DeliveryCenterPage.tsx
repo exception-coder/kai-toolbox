@@ -34,6 +34,9 @@ export function DeliveryCenterPage() {
     queryKey: ['delivery-overview'],
     queryFn: () => getDeliveryOverview(),
     staleTime: 30_000,
+    refetchInterval: query => query.state.data?.requirements.some(
+      requirement => requirement.verification?.status === 'RUNNING',
+    ) ? 2_000 : false,
   })
   const overview = overviewQuery.data
   const projects = useMemo(

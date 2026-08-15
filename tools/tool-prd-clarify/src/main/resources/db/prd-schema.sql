@@ -166,6 +166,66 @@ CREATE INDEX IF NOT EXISTS idx_prd_ai_run_candidate
 CREATE INDEX IF NOT EXISTS idx_prd_ai_run_artifact
     ON prd_ai_run(artifact_id, created_at DESC);
 
+-- Delivery 权威声明账本：模型只提出坐标，状态与文件摘要由服务端核验后固化。
+CREATE TABLE IF NOT EXISTS delivery_claim (
+    id              TEXT PRIMARY KEY,
+    session_id      TEXT NOT NULL,
+    artifact_id     TEXT NOT NULL,
+    claim_id        TEXT NOT NULL,
+    title           TEXT NOT NULL,
+    claim_status    TEXT NOT NULL,
+    test_item       INTEGER NOT NULL DEFAULT 0,
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL,
+    UNIQUE (artifact_id, claim_id),
+    FOREIGN KEY (session_id) REFERENCES prd_session(id) ON DELETE CASCADE,
+    FOREIGN KEY (artifact_id) REFERENCES prd_artifact(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_delivery_claim_session_artifact
+    ON delivery_claim(session_id, artifact_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS delivery_claim_evidence (
+    id              TEXT PRIMARY KEY,
+    claim_row_id    TEXT NOT NULL,
+    relative_path   TEXT,
+    line_start      INTEGER NOT NULL,
+    line_end        INTEGER NOT NULL,
+    symbol          TEXT,
+    file_sha256     TEXT,
+    validation_status TEXT NOT NULL,
+    last_error      TEXT,
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL,
+    FOREIGN KEY (claim_row_id) REFERENCES delivery_claim(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_delivery_claim_evidence_claim
+    ON delivery_claim_evidence(claim_row_id, created_at ASC);
+
+-- 手动验证运行只保存白名单命令 ID，不保存可执行 shell 或绝对项目路径。
+CREATE TABLE IF NOT EXISTS delivery_verification_run (
+    id              TEXT PRIMARY KEY,
+    session_id      TEXT NOT NULL,
+    command_id      TEXT NOT NULL,
+    git_head        TEXT NOT NULL,
+    status          TEXT NOT NULL,
+    exit_code       INTEGER,
+    test_count      INTEGER,
+    output_summary  TEXT,
+    last_error      TEXT,
+    started_at      INTEGER NOT NULL,
+    finished_at     INTEGER,
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES prd_session(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_delivery_verification_session
+    ON delivery_verification_run(session_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_verification_single_running
+    ON delivery_verification_run(session_id) WHERE status = 'RUNNING';
+
 -- Vibe Coding 文档变更候选：AI 只负责分析和登记，用户确认后仍复用现有 PRD/TDD 生成接口。
 -- decision 是用户最终采用的范围，ai_decision 保留模型原始建议，便于审计覆写。
 CREATE TABLE IF NOT EXISTS prd_doc_change_candidate (

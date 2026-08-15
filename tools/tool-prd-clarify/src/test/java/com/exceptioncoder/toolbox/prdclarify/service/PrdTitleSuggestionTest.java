@@ -122,6 +122,7 @@ class PrdTitleSuggestionTest {
                 mock(PrdArtifactService.class),
                 mock(PrdPromptCatalog.class),
                 mock(PrdAiRunService.class),
+                mock(com.exceptioncoder.toolbox.prdclarify.delivery.DeliveryClaimLedgerService.class),
                 new ObjectMapper(),
                 mock(GraphifyQueryService.class),
                 mock(DomainKnowledgeQueryService.class),

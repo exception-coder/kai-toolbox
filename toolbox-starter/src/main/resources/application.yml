@@ -466,6 +466,19 @@ toolbox:
   knowledge-graph:
     node-executable: node
 
+  prd-clarify:
+    delivery-verification:
+      # 前端只提交 commandId；argv 仅由此服务端白名单提供，工作目录固定为已解析项目根。
+      commands:
+        - id: maven-test
+          label: Maven 测试
+          argv: ["mvn", "test"]
+          timeout-seconds: 1800
+        - id: npm-test
+          label: NPM 测试
+          argv: ["npm", "test"]
+          timeout-seconds: 1200
+
   projects:
     # 「项目管理」面板扫描的根目录，仅扫描一级子目录。
     # 修改后无需重启即可在 application.yml 中调整；缓存 TTL 内的请求仍读旧值。

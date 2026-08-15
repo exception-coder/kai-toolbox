@@ -5,6 +5,8 @@ import com.exceptioncoder.toolbox.llm.spi.LocalProjectResolver;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.DevDocVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.ProgressVersionSummary;
 import com.exceptioncoder.toolbox.prdclarify.api.dto.QaPairRequest;
+import com.exceptioncoder.toolbox.prdclarify.delivery.DeliveryClaimLedgerService;
+import com.exceptioncoder.toolbox.prdclarify.delivery.DeliveryEvidenceVerifier;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdArtifact;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdBusinessFields;
 import com.exceptioncoder.toolbox.prdclarify.domain.PrdArtifactType;
@@ -60,6 +62,7 @@ public class PrdClarifyService {
     private final PrdArtifactService artifactService;
     private final PrdPromptCatalog promptCatalog;
     private final PrdAiRunService aiRunService;
+    private final DeliveryClaimLedgerService deliveryClaimLedgerService;
     private final ObjectMapper mapper;
     private final GraphifyQueryService graphifyQuery;
     private final DomainKnowledgeQueryService domainKnowledgeQuery;
@@ -86,6 +89,7 @@ public class PrdClarifyService {
                              PrdArtifactService artifactService,
                              PrdPromptCatalog promptCatalog,
                              PrdAiRunService aiRunService,
+                             DeliveryClaimLedgerService deliveryClaimLedgerService,
                              ObjectMapper mapper,
                              GraphifyQueryService graphifyQuery,
                              DomainKnowledgeQueryService domainKnowledgeQuery,
@@ -97,6 +101,7 @@ public class PrdClarifyService {
         this.artifactService = artifactService;
         this.promptCatalog = promptCatalog;
         this.aiRunService = aiRunService;
+        this.deliveryClaimLedgerService = deliveryClaimLedgerService;
         this.mapper = mapper;
         this.graphifyQuery = graphifyQuery;
         this.domainKnowledgeQuery = domainKnowledgeQuery;
@@ -1660,6 +1665,8 @@ public class PrdClarifyService {
 
                 progressContent = full.isEmpty() ? returnedContent : full.toString();
                 validateProgressEvidenceStatus(progressContent);
+                DeliveryEvidenceVerifier.VerifiedLedger claimLedger = deliveryClaimLedgerService.prepare(
+                        progressContent, projectLocation.path());
                 aiRunService.succeed(aiRun, progressContent);
                 aiRunFinished = true;
                 java.nio.file.Path progressPath = fileStore.canonicalPathFor(sessionId, PrdArtifactType.PROGRESS);
@@ -1668,6 +1675,7 @@ public class PrdClarifyService {
                         sessionId, PrdArtifactType.PROGRESS, progressContent,
                         new PrdArtifactService.ArtifactMetadata(aiRun.inputFingerprint(), prompt.version()));
                 if (artifact != null) {
+                    deliveryClaimLedgerService.save(sessionId, artifact.id(), claimLedger);
                     aiRunService.bindArtifact(aiRun.id(), artifact.id());
                 }
                 recordProgressHistory(sessionId, requestedSession.getProgressHistory(), extraContext);

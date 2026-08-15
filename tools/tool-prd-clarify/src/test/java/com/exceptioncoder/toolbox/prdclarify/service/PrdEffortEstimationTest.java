@@ -60,7 +60,8 @@ class PrdEffortEstimationTest {
 
         PrdClarifyService service = new PrdClarifyService(
                 runner, repo, fileStore, mock(PrdArtifactService.class),
-                mock(PrdPromptCatalog.class), mock(PrdAiRunService.class), mapper,
+                mock(PrdPromptCatalog.class), mock(PrdAiRunService.class),
+                mock(com.exceptioncoder.toolbox.prdclarify.delivery.DeliveryClaimLedgerService.class), mapper,
                 mock(GraphifyQueryService.class), mock(DomainKnowledgeQueryService.class),
                 mock(PrdImageInputResolver.class), resolver);
         service.estimateDevDocEffort("root", null, "codex");
@@ -96,7 +97,9 @@ class PrdEffortEstimationTest {
         });
         PrdClarifyService service = new PrdClarifyService(
                 runner, repo, fileStore, mock(PrdArtifactService.class),
-                mock(PrdPromptCatalog.class), mock(PrdAiRunService.class), new ObjectMapper(),
+                mock(PrdPromptCatalog.class), mock(PrdAiRunService.class),
+                mock(com.exceptioncoder.toolbox.prdclarify.delivery.DeliveryClaimLedgerService.class),
+                new ObjectMapper(),
                 mock(GraphifyQueryService.class), mock(DomainKnowledgeQueryService.class),
                 mock(PrdImageInputResolver.class), resolver);
 

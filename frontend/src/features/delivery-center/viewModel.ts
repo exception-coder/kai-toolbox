@@ -1,4 +1,4 @@
-import type { DeliveryFinding, DeliveryRequirement, StageView } from './types'
+import type { DeliveryFinding, DeliveryRequirement } from './types'
 
 export interface ProjectView {
   name: string
@@ -16,18 +16,10 @@ export interface ModuleView {
   requirements: DeliveryRequirement[]
 }
 
-export function requirementProgress(requirement: DeliveryRequirement, codeScore = requirement.stages.code.score) {
-  // 需求与技术方案只是前置证据，不代表功能已经交付。固定权重、不对已知阶段重新归一化：
-  // PRD 10% + TDD 10% + 本地代码核查 80%。没有代码评估时最高只能到 20%，避免文档齐全即 100%。
-  const weightedStages: Array<[StageView, number]> = [
-    [requirement.stages.prd, 0.1],
-    [requirement.stages.tdd, 0.1],
-    [{ ...requirement.stages.code, score: codeScore }, 0.8],
-  ]
-  return Math.round(weightedStages.reduce(
-    (sum, [stage, weight]) => sum + (stage.score ?? 0) * weight,
-    0,
-  ))
+export function requirementProgress(requirement: DeliveryRequirement, includeTests = true) {
+  const variants = requirement.overallProgressVariants
+  if (!variants) return requirement.overallProgress
+  return includeTests ? variants.includingTests : variants.excludingTests
 }
 
 export function buildProjects(
@@ -70,7 +62,7 @@ export function findingsForRequirement(findings: DeliveryFinding[], requirementI
 
 function averageProgress(requirements: DeliveryRequirement[]) {
   const values = requirements
-    .map(requirementProgress)
+    .map(requirement => requirementProgress(requirement))
     .filter((value): value is number => value != null)
   if (values.length === 0) return 0
   return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)

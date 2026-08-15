@@ -10,7 +10,8 @@ public class DeliveryMetrics {
 
     private static final int PRD_WEIGHT = 10;
     private static final int TDD_WEIGHT = 10;
-    private static final int CODE_WEIGHT = 80;
+    private static final int SOURCE_WEIGHT = 60;
+    private static final int VERIFICATION_WEIGHT = 20;
     /** 与需求中枢“责任与时间”工时评估保持同一口径：AI 每工作日按 6 个有效编码小时。 */
     public static final int AI_HOURS_PER_WORKDAY = 6;
 
@@ -28,13 +29,18 @@ public class DeliveryMetrics {
     }
 
     /**
-     * 固定权重计算真实交付进度。PRD/TDD 只是前置证据，各占 10%；代码核查占 80%。
-     * 未执行本地代码评估时代码按 0 分，而不是把文档阶段重新归一化成 100%。
+     * 固定权重计算真实交付进度。PRD/TDD 各占 10%，已验证源码声明占 60%，
+     * 同一 Git HEAD 的构建或测试硬证据占 20%。缺失阶段不重新归一化。
      */
-    public int overallProgress(int prdScore, int tddScore, Integer codeScore) {
+    public int overallProgress(
+            int prdScore,
+            int tddScore,
+            Integer sourceScore,
+            Integer verificationScore) {
         int weighted = prdScore * PRD_WEIGHT
                 + tddScore * TDD_WEIGHT
-                + (codeScore == null ? 0 : codeScore) * CODE_WEIGHT;
+                + (sourceScore == null ? 0 : sourceScore) * SOURCE_WEIGHT
+                + (verificationScore == null ? 0 : verificationScore) * VERIFICATION_WEIGHT;
         return clamp(Math.round((float) weighted / 100));
     }
 
@@ -79,6 +85,20 @@ public class DeliveryMetrics {
             boolean assessmentPresent,
             boolean assessmentStale,
             int completedWithoutEvidence) {
+        return confidence(prdComplete, tddPresent, tddStale, assessmentPresent, assessmentStale,
+                completedWithoutEvidence, true, false);
+    }
+
+    /** 按事实源、源码证据和硬验证覆盖计算数据可信度。 */
+    public int confidence(
+            boolean prdComplete,
+            boolean tddPresent,
+            boolean tddStale,
+            boolean assessmentPresent,
+            boolean assessmentStale,
+            int completedWithoutEvidence,
+            boolean verificationPresent,
+            boolean verificationStale) {
         int score = 100;
         score -= prdComplete ? 0 : 25;
         score -= tddPresent ? 0 : 15;
@@ -86,6 +106,8 @@ public class DeliveryMetrics {
         score -= assessmentPresent ? 0 : 25;
         score -= assessmentStale ? 15 : 0;
         score -= Math.min(completedWithoutEvidence * 2, 10);
+        score -= verificationPresent ? 0 : 15;
+        score -= verificationStale ? 10 : 0;
         return clamp(score);
     }
 
@@ -101,6 +123,22 @@ public class DeliveryMetrics {
             int partial,
             int missing,
             int completedWithoutEvidence) {
+        return health(prdComplete, tddPresent, tddStale, assessmentPresent, assessmentStale,
+                partial, missing, completedWithoutEvidence, true, false);
+    }
+
+    /** 按文档、源码 claim、硬验证和实现缺口计算交付健康度。 */
+    public int health(
+            boolean prdComplete,
+            boolean tddPresent,
+            boolean tddStale,
+            boolean assessmentPresent,
+            boolean assessmentStale,
+            int partial,
+            int missing,
+            int completedWithoutEvidence,
+            boolean verificationPresent,
+            boolean verificationStale) {
         int score = 100;
         score -= prdComplete ? 0 : 30;
         score -= tddPresent ? 0 : 20;
@@ -110,6 +148,8 @@ public class DeliveryMetrics {
         score -= Math.min(missing * 4, 20);
         score -= Math.min(partial * 2, 10);
         score -= Math.min(completedWithoutEvidence * 2, 10);
+        score -= verificationPresent ? 0 : 10;
+        score -= verificationStale ? 10 : 0;
         return clamp(score);
     }
 

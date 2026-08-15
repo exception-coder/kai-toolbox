@@ -1,5 +1,6 @@
 import { http } from '@/lib/api'
 import type { DeliveryOverview, DeliveryRequirement, StageView } from './types'
+import type { DeliveryVerificationRun } from './types'
 import type { DocumentProfile, PrdBusinessFields } from '@/features/prd-clarify/types'
 
 export interface DeliveryFilters {
@@ -69,6 +70,17 @@ export async function getDeliveryOverview(filters: DeliveryFilters = {}) {
   return normalizeDeliveryOverview(overview)
 }
 
+/** 只提交服务端登记的命令 ID，执行参数由后端白名单决定。 */
+export function startDeliveryVerification(sessionId: string, commandId: string) {
+  return http<DeliveryVerificationRun>(
+    `/prd-clarify/delivery-overview/${encodeURIComponent(sessionId)}/verification-runs`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ commandId }),
+    },
+  )
+}
+
 /**
  * 兼容尚未重启/升级的旧后端：旧响应只有 PRD、TDD、Code、Test、Runtime 五阶段。
  * 在 API 边界补齐新增的草稿/澄清阶段，避免组件直接读取 undefined.status 导致整个模块崩溃。
@@ -89,6 +101,16 @@ function normalizeRequirementStages(requirement: DeliveryRequirement): DeliveryR
   return {
     ...requirement,
     documentProfile: requirement.documentProfile ?? 'CLASSIC',
+    overallProgress: requirement.overallProgress ?? 0,
+    overallProgressVariants: requirement.overallProgressVariants ?? {
+      includingTests: requirement.overallProgress ?? 0,
+      excludingTests: requirement.overallProgress ?? 0,
+    },
+    evidenceMode: requirement.evidenceMode ?? 'LEGACY_UNVERIFIED',
+    verifiedClaimCount: requirement.verifiedClaimCount ?? 0,
+    invalidEvidenceCount: requirement.invalidEvidenceCount ?? 0,
+    verification: requirement.verification ?? null,
+    availableVerificationCommands: requirement.availableVerificationCommands ?? [],
     stages: {
       ...stages,
       prdDraft: stages.prdDraft ?? {

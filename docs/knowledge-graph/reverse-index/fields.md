@@ -45,6 +45,30 @@
 
 修改字段时必须同步 DDL、`PrdAiRun`、Repository 显式列映射、生命周期服务、Prompt/输入/输出隐私约束和临时 SQLite 测试。
 
+## delivery_claim / delivery_claim_evidence
+
+定义：`tools/tool-prd-clarify/src/main/resources/db/prd-schema.sql`
+
+| 字段组 | 主要写入点 | 主要读取或决策点 |
+|---|---|---|
+| `artifact_id/claim_id/claim_status/test_item` | `DeliveryClaimLedgerService#save` | `DeliveryOverviewService#claimAssessment` 实现分与测试口径 |
+| `relative_path/line_start/line_end/symbol` | `DeliveryEvidenceVerifier` 裁决后写入 | 证据追溯和无效证据计数 |
+| `file_sha256/validation_status/last_error` | 服务端读取实际文件后写入 | `COMPLETED` 降级、confidence 和诊断 |
+
+修改字段时必须同步领域 record、Repository 显式列映射、Prompt JSON 契约、路径安全测试和 overview DTO。
+
+## delivery_verification_run
+
+定义：`tools/tool-prd-clarify/src/main/resources/db/prd-schema.sql`
+
+| 字段组 | 主要写入点 | 主要读取或决策点 |
+|---|---|---|
+| `session_id/command_id/git_head` | `DeliveryVerificationService#start` | 会话归属、白名单追溯、stale 判定 |
+| `status/exit_code/test_count` | 运行终结条件 UPDATE | 硬验证 20 分和运行状态展示 |
+| `output_summary/last_error` | 输出有界脱敏后写入 | 诊断；不得包含环境变量或绝对项目路径 |
+
+修改字段时必须同步域对象、条件终结 SQL、DTO、脱敏约束与 SQLite 并发运行测试。
+
 ## platform_launch_intent
 
 定义：`toolbox-common/src/main/resources/db/launch-intent-schema.sql:1`

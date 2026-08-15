@@ -1,6 +1,8 @@
-import { ArrowUpRight, BrainCircuit, Check, Clock3, CircleDashed, TriangleAlert, X } from 'lucide-react'
+import { ArrowUpRight, BrainCircuit, Check, Clock3, CircleDashed, Loader2, ShieldCheck, TriangleAlert, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { DeliveryFinding, DeliveryRequirement, DeliveryStageKey, ProgressItem, StageStatus } from '../types'
+import { startDeliveryVerification } from '../api'
 import { documentProfileLabels } from '@/features/prd-clarify/documentProfile'
 
 interface Props {
@@ -68,6 +70,8 @@ export function AiInspector({ requirement, findings, onStageSelect }: Props) {
       </header>
 
       <div className="max-h-[calc(100vh-19rem)] space-y-6 overflow-y-auto p-5">
+        <VerificationPanel requirement={requirement} />
+
         {findings.length > 0 && (
           <section>
             <SectionTitle>AI 结论</SectionTitle>
@@ -156,6 +160,82 @@ export function AiInspector({ requirement, findings, onStageSelect }: Props) {
         </div>
       </div>
     </aside>
+  )
+}
+
+function VerificationPanel({ requirement }: { requirement: DeliveryRequirement }) {
+  const queryClient = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: (commandId: string) => startDeliveryVerification(requirement.id, commandId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['delivery-overview'] }),
+  })
+  const run = requirement.verification
+  const running = run?.status === 'RUNNING'
+  const statusLabel = run
+    ? run.stale
+      ? '已过期'
+      : {
+          RUNNING: '执行中',
+          SUCCEEDED: '已通过',
+          FAILED: '未通过',
+          ERROR: '执行异常',
+        }[run.status]
+    : '未验证'
+  const statusTone = run?.status === 'SUCCEEDED' && !run.stale
+    ? 'text-[var(--color-success)]'
+    : run?.status === 'FAILED' || run?.status === 'ERROR' || run?.stale
+      ? 'text-[var(--color-danger)]'
+      : 'text-[var(--color-muted-foreground)]'
+
+  return (
+    <section>
+      <div className="flex items-center justify-between gap-3">
+        <SectionTitle>构建 / 测试硬证据</SectionTitle>
+        <span className={`text-[9px] font-medium ${statusTone}`}>{statusLabel}</span>
+      </div>
+      <div className="mt-2 border border-[var(--color-border)] p-3">
+        <div className="flex items-start gap-2 text-[9px] text-[var(--color-muted-foreground)]">
+          <ShieldCheck className="mt-0.5 h-3 w-3 shrink-0 text-[var(--color-primary)]" />
+          <span>
+            {requirement.evidenceMode === 'VERIFIED_LEDGER'
+              ? `已验证 ${requirement.verifiedClaimCount} 个源码声明`
+              : '当前进度报告尚未形成结构化源码证据'}
+            {requirement.invalidEvidenceCount > 0 && ` · ${requirement.invalidEvidenceCount} 个坐标无效`}
+          </span>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {requirement.availableVerificationCommands.map(command => (
+            <button
+              key={command.id}
+              type="button"
+              disabled={running || mutation.isPending}
+              onClick={() => mutation.mutate(command.id)}
+              className="inline-flex items-center gap-1 border border-[var(--color-primary)]/40 px-2 py-1 text-[9px] font-medium text-[var(--color-primary)] hover:bg-[var(--color-primary)]/10 disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              {(running || mutation.isPending) && mutation.variables === command.id
+                ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                : <ShieldCheck className="h-2.5 w-2.5" />}
+              {command.label}
+            </button>
+          ))}
+          {requirement.availableVerificationCommands.length === 0 && (
+            <span className="text-[9px] text-[var(--color-muted-foreground)]">服务端未配置验证命令</span>
+          )}
+        </div>
+        {run && (
+          <div className="mt-3 space-y-1 border-t border-[var(--color-border)] pt-2 text-[8px] text-[var(--color-muted-foreground)]">
+            <p>Git {run.gitHead.slice(0, 8)} · {run.commandId}{run.testCount != null ? ` · ${run.testCount} tests` : ''}</p>
+            {run.lastError && <p className="text-[var(--color-danger)]">{run.lastError}</p>}
+            {run.outputSummary && <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words bg-[var(--color-muted)]/40 p-2">{run.outputSummary}</pre>}
+          </div>
+        )}
+        {mutation.isError && (
+          <p className="mt-2 text-[9px] text-[var(--color-danger)]">
+            {mutation.error instanceof Error ? mutation.error.message : '启动验证失败'}
+          </p>
+        )}
+      </div>
+    </section>
   )
 }
 

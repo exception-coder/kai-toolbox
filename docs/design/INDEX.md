@@ -23,3 +23,4 @@
 | 需求类型单一事实源 | 已实现 | 完整-技术 | [设计](需求类型单一事实源/需求类型单一事实源-current.md) · [API](需求类型单一事实源/需求类型单一事实源-api-current.md) · [编码摘要](需求类型单一事实源/需求类型单一事实源-coding.md) |
 | ReqPool 洞察账本 | 已实现（兼容期） | 完整-技术 | [设计](ReqPool洞察账本/ReqPool洞察账本-current.md) · [API](ReqPool洞察账本/ReqPool洞察账本-api-current.md) · [编码摘要](ReqPool洞察账本/ReqPool洞察账本-coding.md) |
 | PRD Prompt Catalog 与 AI Run 审计 | 已实现（首批覆盖） | 完整-技术 | [设计](PRD-Prompt审计/PRD-Prompt审计-current.md) · [编码摘要](PRD-Prompt审计/PRD-Prompt审计-coding.md) |
+| Delivery 结构化证据与验证运行 | 已实现（首批覆盖） | 完整-技术 | [设计](Delivery结构化证据/Delivery结构化证据-current.md) · [API](Delivery结构化证据/Delivery结构化证据-api-current.md) · [编码摘要](Delivery结构化证据/Delivery结构化证据-coding.md) |

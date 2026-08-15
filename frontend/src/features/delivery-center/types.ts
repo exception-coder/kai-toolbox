@@ -103,6 +103,16 @@ export interface DeliveryRequirement {
     missing: number
     total: number
   }
+  overallProgress: number
+  overallProgressVariants?: {
+    includingTests: number
+    excludingTests: number
+  }
+  evidenceMode: 'VERIFIED_LEDGER' | 'LEGACY_UNVERIFIED' | 'UNASSESSED'
+  verifiedClaimCount: number
+  invalidEvidenceCount: number
+  verification: DeliveryVerificationRun | null
+  availableVerificationCommands: DeliveryVerificationCommand[]
   codeScoreVariants?: {
     includingTests?: number | null
     excludingTests?: number | null
@@ -129,6 +139,25 @@ export interface DeliveryRequirement {
   healthScore: number
   healthGrade: string
   staleReasons: string[]
+}
+
+export interface DeliveryVerificationRun {
+  id: string
+  commandId: string
+  gitHead: string
+  status: 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'ERROR'
+  exitCode: number | null
+  testCount: number | null
+  outputSummary: string | null
+  lastError: string | null
+  startedAt: number
+  finishedAt: number | null
+  stale: boolean
+}
+
+export interface DeliveryVerificationCommand {
+  id: string
+  label: string
 }
 
 export interface DeliveryFinding {

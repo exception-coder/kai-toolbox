@@ -25,6 +25,27 @@
 
 状态只允许 `RUNNING -> SUCCEEDED/FAILED`，完成 SQL 使用 `WHERE status = 'RUNNING'` 保证首个终结结果胜出。
 
+## DeliveryClaimStatus / DeliveryEvidenceStatus
+
+定义：`tools/tool-prd-clarify/src/main/java/com/exceptioncoder/toolbox/prdclarify/domain/DeliveryClaimStatus.java`
+
+- Claim 只允许 `COMPLETED/PARTIAL/MISSING`；`COMPLETED` 没有 `VERIFIED` evidence 时在入库前降为 `PARTIAL`。
+- Evidence 只允许 `VERIFIED/INVALID_PATH/MISSING_FILE/UNREADABLE/INVALID_RANGE/OUTSIDE_PROJECT`。
+- 新增状态时必须同步 Parser 白名单、Verifier 裁决、Repository 映射、风险统计和证据边界测试。
+
+## DeliveryVerificationStatus
+
+定义：`tools/tool-prd-clarify/src/main/java/com/exceptioncoder/toolbox/prdclarify/domain/DeliveryVerificationStatus.java`
+
+| 状态 | 写入点 | 权威评分含义 |
+|---|---|---|
+| `RUNNING` | 启动前 INSERT | 未评估，不贡献 verification 分 |
+| `SUCCEEDED` | exitCode=0 | 同 Git HEAD 时贡献 20 分 |
+| `FAILED` | exitCode 非 0 | 贡献 0 分，保留失败证据 |
+| `ERROR` | 超时、启动或运行异常 | 贡献 0 分，保留错误摘要 |
+
+任一终态的 `git_head` 与当前 HEAD 不同时派生 `stale=true`，原始状态不覆盖且不贡献分数。
+
 ## PrdPromptPurpose
 
 定义：`tools/tool-prd-clarify/src/main/java/com/exceptioncoder/toolbox/prdclarify/domain/PrdPromptPurpose.java:4`

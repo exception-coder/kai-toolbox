@@ -60,6 +60,13 @@ public record DeliveryOverviewView(
             StageSetView stages,
             CoverageView coverage,
             CodeScoreVariantsView codeScoreVariants,
+            int overallProgress,
+            OverallProgressVariantsView overallProgressVariants,
+            String evidenceMode,
+            int verifiedClaimCount,
+            int invalidEvidenceCount,
+            VerificationRunView verification,
+            List<VerificationCommandView> availableVerificationCommands,
             ProgressItemsView progressItems,
             List<AlignmentFindingView> alignmentFindings,
             EffortProgressView effortProgress,
@@ -130,6 +137,29 @@ public record DeliveryOverviewView(
             Integer includingUnitTests,
             Integer excludingUnitTests,
             int unitTestItemCount) {
+    }
+
+    /** 服务端按测试是否纳入源码声明计分生成的两套权威总进度。 */
+    public record OverallProgressVariantsView(int includingTests, int excludingTests) {
+    }
+
+    /** 最新白名单验证运行及其相对当前 Git HEAD 的有效性。 */
+    public record VerificationRunView(
+            String id,
+            String commandId,
+            String gitHead,
+            String status,
+            Integer exitCode,
+            Integer testCount,
+            String outputSummary,
+            String lastError,
+            long startedAt,
+            Long finishedAt,
+            boolean stale) {
+    }
+
+    /** 可由用户触发但不能修改 argv 的验证命令选项。 */
+    public record VerificationCommandView(String id, String label) {
     }
 
     /** PRD 或开发文档与当前代码的差异。 */
