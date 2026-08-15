@@ -63,6 +63,7 @@ public class PrdClarifyService {
     private final PrdEffortEstimationService effortEstimationService;
     private final PrdRequirementSplitService requirementSplitService;
     private final PrdProgressEvaluationService progressEvaluationService;
+    private final PrdDocRevisionService docRevisionService;
     private final PrdImageInputResolver imageInputResolver;
 
     /**
@@ -81,7 +82,8 @@ public class PrdClarifyService {
                              PrdImageInputResolver imageInputResolver,
                              PrdEffortEstimationService effortEstimationService,
                              PrdRequirementSplitService requirementSplitService,
-                             PrdProgressEvaluationService progressEvaluationService) {
+                             PrdProgressEvaluationService progressEvaluationService,
+                             PrdDocRevisionService docRevisionService) {
         this.agentRunner = agentRunner;
         this.repo = repo;
         this.fileStore = fileStore;
@@ -100,6 +102,7 @@ public class PrdClarifyService {
         this.effortEstimationService = effortEstimationService;
         this.requirementSplitService = requirementSplitService;
         this.progressEvaluationService = progressEvaluationService;
+        this.docRevisionService = docRevisionService;
     }
 
     /** 创建会话并持久化，返回新建的会话对象。 */
@@ -1185,98 +1188,14 @@ public class PrdClarifyService {
 
     // ───── JSON 解析与合并 ─────
 
-    /**
-     * 为 Vibe Coding 文档变更创建真正的修订子节点。先复制父 PRD 作为增量生成基线，随后
-     * PRD/TDD 都写入子会话，PRD 库可通过 parent_id 展示完整版本树。
-     */
+    /** 兼容入口：创建后台 PRD 修订节点。 */
     public PrdSession createBackgroundRevision(String parentId, String changeReason) throws IOException {
-        PrdSession parent = repo.findById(parentId)
-                .orElseThrow(() -> new IllegalArgumentException("父 PRD 会话不存在: " + parentId));
-        PrdSession source = repo.findLatestRevision(parentId).orElse(parent);
-        return createBackgroundRevision(parent, source, changeReason, fileStore.read(source.getId()));
+        return docRevisionService.create(parentId, changeReason);
     }
 
-    private PrdSession createBackgroundRevision(PrdSession parent, PrdSession metadataSource,
-                                                String changeReason, String initialPrdContent) throws IOException {
-        String parentId = parent.getId();
-        int version = repo.nextRevisionNumber(parentId);
-        long now = System.currentTimeMillis();
-        PrdSession revision = PrdSession.builder()
-                .id(UUID.randomUUID().toString())
-                .title(parent.getTitle() + "（修订版 v" + version + "）")
-                .project(parent.getProject()).module(parent.getModule())
-                .rawInput("【后台自动修订 — 基于：" + parent.getTitle() + "】\n" + value(changeReason))
-                .requirementDetail(parent.getRequirementDetail())
-                .businessBackground(parent.getBusinessBackground())
-                .businessRequirementType(parent.getBusinessRequirementType())
-                .requirementSoftware(parent.getRequirementSoftware())
-                .initiatingDepartment(parent.getInitiatingDepartment())
-                .requester(parent.getRequester()).requestedAt(parent.getRequestedAt())
-                .attachments(parent.getAttachments()).followUpRecords(parent.getFollowUpRecords())
-                .questions(metadataSource.getQuestions()).status("DONE").role(parent.getRole())
-                .reqType(parent.getReqType()).maxQuestions(parent.getMaxQuestions())
-                .clarifyMode(parent.getClarifyMode()).model(parent.getModel()).engine(parent.getEngine())
-                .documentProfile(DocumentProfile.normalize(parent.getDocumentProfile()))
-                .createdByUserId(parent.getCreatedByUserId()).parentId(parentId)
-                .createdAt(now).updatedAt(now).build();
-        repo.insert(revision);
-        artifactService.write(revision.getId(), PrdArtifactType.PRD,
-                initialPrdContent == null ? "" : initialPrdContent,
-                PrdArtifactService.ArtifactMetadata.empty());
-        invalidateEffortEstimation(parent, "PRD 已产生新的修订版本");
-        return repo.findById(revision.getId()).orElseThrow();
-    }
-
-    /** 新修订不会覆盖根 PRD 文件，因此额外写入失效原因，让根节点上的旧评估立即失效。 */
-    private void invalidateEffortEstimation(PrdSession session, String reason) {
-        if (session.getDevDocEstimation() == null || session.getDevDocEstimation().isBlank()) return;
-        try {
-            JsonNode parsed = mapper.readTree(session.getDevDocEstimation());
-            if (parsed instanceof ObjectNode node) {
-                node.put("invalidatedAt", System.currentTimeMillis());
-                node.put("invalidatedReason", reason);
-                repo.updateDevDocEstimation(session.getId(), mapper.writeValueAsString(node));
-            }
-        } catch (Exception e) {
-            log.warn("[prd-clarify] 标记旧工时评估失效失败 sessionId={}: {}", session.getId(), e.getMessage());
-        }
-    }
-
-    /**
-     * 兼容旧前端/SSE 更新链路：旧实现会先把新版 PRD 原地写回根会话，随后网关以 524 结束，
-     * 因而 PRD 库看不到修订子节点。恢复时把当前主文件提升为真正的 vN 子节点，再用更新前自动
-     * 留下的最新 {parentId}-vN.md 备份还原根 PRD。备份只读不删除，失败时也不会丢失任何版本。
-     */
+    /** 兼容入口：将历史原地覆盖恢复为后台修订节点。 */
     public PrdSession recoverInPlacePrdAsBackgroundRevision(String parentId, String changeReason) throws IOException {
-        PrdSession parent = repo.findById(parentId)
-                .orElseThrow(() -> new IllegalArgumentException("父 PRD 会话不存在: " + parentId));
-        PrdSession metadataSource = repo.findLatestRevision(parentId).orElse(parent);
-        java.nio.file.Path parentPath = fileStore.pathFor(parentId);
-        java.nio.file.Path dir = parentPath.getParent();
-        List<Integer> backups = scanPrdBackupVersions(dir, parentId);
-        if (backups.isEmpty()) {
-            throw new IllegalStateException("检测到旧版 PRD 已原地更新，但找不到更新前备份，无法安全恢复版本树");
-        }
-        int latestVersion = backups.get(backups.size() - 1);
-        java.nio.file.Path backupPath = parentPath.resolveSibling(parentId + "-v" + latestVersion + ".md");
-        String originalContent = java.nio.file.Files.readString(backupPath, java.nio.charset.StandardCharsets.UTF_8);
-        String updatedContent = fileStore.read(parentId);
-        if (updatedContent == null || updatedContent.isBlank()) {
-            throw new IllegalStateException("检测到旧版 PRD 已更新，但当前新版文件为空，无法提升为修订节点");
-        }
-
-        // 必须显式复制根会话当前主文件；已有更早修订节点时不能误取“最新子节点”的旧内容。
-        PrdSession revision = createBackgroundRevision(parent, metadataSource, changeReason, updatedContent);
-        try {
-            artifactService.write(parentId, PrdArtifactType.PRD, originalContent,
-                    PrdArtifactService.ArtifactMetadata.empty());
-            log.info("[prd-clarify] 已恢复旧版原地更新为修订树 parentId={} revisionId={} backup={}",
-                    parentId, revision.getId(), backupPath);
-            return revision;
-        } catch (Exception restoreError) {
-            // 子节点已经保存了新版；根文件仍保持新版或写入失败前状态，两个版本都没有丢失。
-            throw new IOException("修订子节点已创建，但根 PRD 从备份还原失败: " + restoreError.getMessage(), restoreError);
-        }
+        return docRevisionService.recoverInPlaceUpdate(parentId, changeReason);
     }
 
     private static String value(String value) {

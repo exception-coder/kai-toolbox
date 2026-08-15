@@ -113,7 +113,7 @@ PrdClarifyService（编排器，目标 <800 行）
     ├── PrdEffortEstimationService（已完成，工时评估 + JSON 修复；旧服务保留兼容委托）
     ├── PrdRequirementSplitService（已完成，需求拆分预览 + 子需求采纳；旧服务保留兼容委托）
     ├── PrdProgressEvaluationService（已完成，进度评估 + 版本；旧服务保留兼容委托）
-    └── PrdDocRevisionService（新建/归位，后台修订 + 原地恢复，自 2072~2160 行搬出）
+    └── PrdDocRevisionService（已完成，后台修订 + 原地恢复；旧服务保留兼容委托）
 ```
 
 每个拆出的 service 保留其依赖注入；控制器只依赖编排器，不直接依赖新 service（保持 API 契约不变）。
@@ -163,7 +163,7 @@ export const handoff = {
    - 工时评估块（同步/后台入口、Prompt、修订取源、状态维护、结果校验与 JSON 修复）已迁至 `PrdEffortEstimationService`；Prompt 契约集中在 `PrdEffortPrompts`，`PrdClarifyService` 的 3 个公开入口仅保留委托。
    - 需求拆分块已迁至 `PrdRequirementSplitService`：服务独立拥有 Prompt、确定性解析、知识上下文拼接和子草稿创建规则；`PrdClarifyService` 的公开入口仅保留兼容委托，Controller/API 契约不变。
    - 进度评估块（`evaluateProgress`/Prompt/证据门禁/内容读取/版本/备份/历史）已迁至 `PrdProgressEvaluationService`；`PrdClarifyService` 的 4 个公开入口仅保留委托。
-   - 修订块（`createBackgroundRevision`/`recoverInPlacePrdAsBackgroundRevision`/`invalidateEffortEstimation`，约 2072-2160 行）→ `PrdDocRevisionService`（新建）。
+   - 修订块已迁至 `PrdDocRevisionService`：服务独立负责修订节点复制、旧原地覆盖恢复、备份版本选择和根节点工时评估失效；`PrdClarifyService` 保留两个兼容委托，既有后台候选应用调用链不变。
    - 澄清提问与回答的已有协作者（`PrdClarificationQuestionService`/`PrdAnswerProcessingService`）若仍有内联重复逻辑，一并归位。
    - 文档相关（`generate`/`generateDevDoc`/`backupPrdIfExists`/`scanPrdBackupVersions`/`readDevDocContent`/`listDevDocVersions`）确认已收编在 `PrdDocumentGenerationService`，未收编的下推。
 2. `PrdClarifyController.java`（716 行）：仅保留参数校验 + 调 service；任何 20 行以上的业务拼接（如 `buildQuestionsJson` 调用链、`AnswerDistribution` 组装）下推。
@@ -245,7 +245,7 @@ export const handoff = {
 ### 7.1 后端
 
 - 回归基线：`mvn test` 全绿（现状已有 `PrdDocChangeAnalysisServiceTest`、`PrdDocChangeAnalysisServiceTest`、`ConsultOrchestrationPipelineTest` 等）。
-- 新增：每个拆出的 service 至少 1 个测试（`PrdEffortEstimationService` 已覆盖最新版修订取源、后台状态、JSON 修复和门面委托；`PrdRequirementSplitService` 已覆盖结果解析、异常降级、知识上下文、子草稿继承规则和门面委托）。
+- 新增：每个拆出的 service 至少 1 个测试（工时评估、需求拆分和进度评估 focused service 均已覆盖核心分支与门面委托；`PrdDocRevisionService` 已覆盖修订复制、最新备份恢复、缺备份拒绝、恢复失败和门面委托）。
 - 验收：拆分前后 `/api/prd-clarify/*` 的行为不变（用现有测试 + 手工冒烟）。
 
 ### 7.2 前端

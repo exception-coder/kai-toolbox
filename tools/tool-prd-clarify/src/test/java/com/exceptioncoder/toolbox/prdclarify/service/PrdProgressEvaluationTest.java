@@ -192,7 +192,8 @@ class PrdProgressEvaluationTest {
                 mock(PrdImageInputResolver.class),
                 mock(PrdEffortEstimationService.class),
                 mock(PrdRequirementSplitService.class),
-                progressService);
+                progressService,
+                mock(PrdDocRevisionService.class));
 
         facade.evaluateProgress("progress", "context", emitter);
         facade.readProgressContent("progress");

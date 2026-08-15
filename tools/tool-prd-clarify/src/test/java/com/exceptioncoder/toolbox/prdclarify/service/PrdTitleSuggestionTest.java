@@ -125,6 +125,7 @@ class PrdTitleSuggestionTest {
                 imageInputResolver,
                 mock(PrdEffortEstimationService.class),
                 mock(PrdRequirementSplitService.class),
-                mock(PrdProgressEvaluationService.class));
+                mock(PrdProgressEvaluationService.class),
+                mock(PrdDocRevisionService.class));
     }
 }
